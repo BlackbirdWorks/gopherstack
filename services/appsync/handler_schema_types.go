@@ -6,8 +6,9 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 )
 
 // handleTypes handles /v1/apis/{apiId}/types[/{typeName}[/resolvers[/{fieldName}]]].

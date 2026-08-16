@@ -6,9 +6,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/blackbirdworks/gopherstack/services/memorydb"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/memorydb"
 )
 
 // TestRefinement3_FailoverShard_OK tests FailoverShard succeeds for known cluster.

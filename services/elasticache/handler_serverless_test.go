@@ -8,9 +8,10 @@ import (
 	elasticachetypes "github.com/aws/aws-sdk-go-v2/service/elasticache/types"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/blackbirdworks/gopherstack/services/elasticache"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/elasticache"
 )
 
 func TestHandler_DescribeServerlessCache_UserGroupId(t *testing.T) {

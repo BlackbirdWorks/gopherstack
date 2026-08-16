@@ -9,9 +9,10 @@ import (
 	"testing/synctest"
 	"time"
 
-	"github.com/blackbirdworks/gopherstack/services/sqs"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/sqs"
 )
 
 func TestMoveTaskRateLimitingCompletesSuccessfully(t *testing.T) {

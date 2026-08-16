@@ -253,6 +253,12 @@ jobs:
           check-latest: true
           cache: true
 
+      - name: Verify build with all tag combinations
+        run: |
+          go build ./...
+          go build -tags e2e ./...
+          go build -tags integration ./...
+
       - name: Build static binary
         run: |
           mkdir -p dashboard/static/spa

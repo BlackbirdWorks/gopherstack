@@ -8,11 +8,12 @@ import (
 
 	rdssdk "github.com/aws/aws-sdk-go-v2/service/rds"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/sdkcheck"
-	"github.com/blackbirdworks/gopherstack/services/rds"
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/sdkcheck"
+	"github.com/blackbirdworks/gopherstack/services/rds"
 )
 
 func TestHandlerOpsLen(t *testing.T) {

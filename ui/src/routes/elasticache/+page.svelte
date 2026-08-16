@@ -1132,7 +1132,6 @@
 						<option value="creating">Creating</option>
 						<option value="deleting">Deleting</option>
 					</select>
-					<WriteRegionHint />
 					<button
 						onclick={() => (showCreateClusterModal = true)}
 						class="flex items-center gap-2 px-4 py-2 bg-cyan-600 hover:bg-cyan-700 text-white rounded-xl font-medium text-sm shadow-lg shadow-cyan-600/20 transition-all active:scale-95 whitespace-nowrap"
@@ -2401,7 +2400,10 @@
 		>
 			<div class="p-6">
 				<div class="flex items-center justify-between mb-6">
-					<h3 class="text-xl font-bold text-slate-900 dark:text-white">Create Cache Cluster</h3>
+					<div class="flex items-center gap-2">
+						<h3 class="text-xl font-bold text-slate-900 dark:text-white">Create Cache Cluster</h3>
+						<WriteRegionHint />
+					</div>
 					<button
 						onclick={() => (showCreateClusterModal = false)}
 						class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"

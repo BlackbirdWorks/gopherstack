@@ -641,13 +641,11 @@ let filteredNATs = $derived(natGateways.filter(nat =>
 				<Plus class="w-4 h-4" />
 				Launch Instance
 			</button>
-			<WriteRegionHint />
 			{:else if activeTab === 'launchtemplates'}
 			<button onclick={() => showCreateLTModal = true} class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 flex items-center gap-2">
 				<Plus class="w-4 h-4" />
 				Create Template
 			</button>
-			<WriteRegionHint />
 			{/if}
 		</div>
 	</div>
@@ -1536,7 +1534,10 @@ class="w-full pl-9 pr-4 py-2 border border-slate-200 dark:border-slate-700 round
 {#if showCreateLTModal}
 <div class="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
 <div class="bg-white dark:bg-slate-800 rounded-xl shadow-xl w-full max-w-md p-6">
-<h2 class="text-xl font-bold text-slate-900 dark:text-white mb-4">Create Launch Template</h2>
+<div class="flex items-center justify-between mb-4">
+<h2 class="text-xl font-bold text-slate-900 dark:text-white">Create Launch Template</h2>
+<WriteRegionHint />
+</div>
 <div class="space-y-4">
 <div>
 <label for="lt-name" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Template Name</label>
@@ -1566,7 +1567,10 @@ class="w-full px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg
 {#if showLaunchModal}
 <div class="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
 <div class="bg-white dark:bg-slate-800 rounded-xl shadow-xl w-full max-w-md p-6">
-<h2 class="text-xl font-bold text-slate-900 dark:text-white mb-4">Launch EC2 Instance</h2>
+<div class="flex items-center justify-between mb-4">
+<h2 class="text-xl font-bold text-slate-900 dark:text-white">Launch EC2 Instance</h2>
+<WriteRegionHint />
+</div>
 <div class="space-y-4">
 <div>
 <label for="launch-instance-name" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Instance Name</label>

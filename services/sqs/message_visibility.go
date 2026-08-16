@@ -1,7 +1,6 @@
 package sqs
 
 import (
-	"fmt"
 	"sort"
 	"strconv"
 	"time"
@@ -155,6 +154,10 @@ func pickVisibleMessages(
 		j++
 	}
 
+	oldLen := len(q.messages)
+	for k := j; k < oldLen; k++ {
+		q.messages[k] = nil
+	}
 	q.messages = q.messages[:j]
 
 	return result
@@ -171,7 +174,7 @@ func enqueueReceivedMessage(
 	accountID string,
 ) {
 	q.receiveGeneration++
-	receipt := fmt.Sprintf("%s:%d:%s", msg.MessageID, q.receiveGeneration, uuid.New().String())
+	receipt := msg.MessageID + ":" + strconv.FormatUint(q.receiveGeneration, 10) + ":" + uuid.New().String()
 	msg.ReceiptHandle = receipt
 	msg.ApproximateReceiveCount++
 	msg.Attributes[attrApproxReceiveCount] = strconv.Itoa(msg.ApproximateReceiveCount)

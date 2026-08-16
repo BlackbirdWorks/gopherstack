@@ -5,8 +5,9 @@ import (
 	"maps"
 	"sort"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 func (b *InMemoryBackend) findingsFilterARN(id string) string {

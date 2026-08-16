@@ -11,10 +11,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
-	"github.com/google/uuid"
 )
 
 // maxCleanupConcurrency is the maximum number of concurrent runtime cleanup goroutines.
@@ -517,7 +518,7 @@ func extractZip(zipData []byte) (string, error) {
 
 // extractZipFile extracts a single [zip.File] entry into destDir.
 func extractZipFile(destDir string, f *zip.File) error {
-	// Normalize and validate the entry name to prevent zip-slip.
+	cleanDest := filepath.Clean(destDir)
 	cleanName := filepath.Clean(f.Name)
 	if cleanName == "" || cleanName == "." {
 		return nil // skip empty / current-dir entries
@@ -527,14 +528,8 @@ func extractZipFile(destDir string, f *zip.File) error {
 		return fmt.Errorf("%w: %q has absolute path", ErrZipSlip, f.Name)
 	}
 
-	destPath := filepath.Join(destDir, cleanName)
-
-	rel, relErr := filepath.Rel(destDir, destPath)
-	if relErr != nil {
-		return fmt.Errorf("zip entry %q path resolution failed: %w", f.Name, relErr)
-	}
-
-	if rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+	destPath := filepath.Join(cleanDest, cleanName)
+	if !strings.HasPrefix(destPath, cleanDest+string(filepath.Separator)) {
 		return fmt.Errorf("%w: %q", ErrZipSlip, f.Name)
 	}
 

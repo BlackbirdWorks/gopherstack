@@ -7,8 +7,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/store"
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 // ---- Outbound Web Identity Federation ----
@@ -611,9 +612,14 @@ func (b *InMemoryBackend) UpdateDelegationRequest(delegationID, notes string) er
 
 // ChangePassword changes the IAM user password, validating OldPassword against the
 // account's current password and NewPassword against the account password policy.
-// In real AWS, this operates on the currently authenticated user; this mock tracks a
-// single account-wide current password since it has no per-request caller identity.
 func (b *InMemoryBackend) ChangePassword(oldPassword, newPassword string) error {
+	return b.ChangePasswordForCaller("", oldPassword, newPassword)
+}
+
+// ChangePasswordForCaller changes the IAM user password for the caller identified by accessKeyID.
+// When accessKeyID identifies a known user with a LoginProfile, that user's password is changed.
+// Otherwise, it updates the backend's current password.
+func (b *InMemoryBackend) ChangePasswordForCaller(accessKeyID, oldPassword, newPassword string) error {
 	if oldPassword == "" {
 		return fmt.Errorf("%w: OldPassword must not be empty", ErrOldPasswordIncorrect)
 	}
@@ -625,17 +631,56 @@ func (b *InMemoryBackend) ChangePassword(oldPassword, newPassword string) error 
 	b.mu.Lock("ChangePassword")
 	defer b.mu.Unlock()
 
+	handled, err := b.changeCallerUserPasswordLocked(accessKeyID, oldPassword, newPassword)
+	if handled {
+		return err
+	}
+
 	if b.currentPassword != "" && oldPassword != b.currentPassword {
 		return fmt.Errorf("%w: old password does not match", ErrOldPasswordIncorrect)
 	}
 
-	if err := validatePasswordAgainstPolicy(newPassword, b.passwordPolicy); err != nil {
-		return err
+	if polErr := validatePasswordAgainstPolicy(newPassword, b.passwordPolicy); polErr != nil {
+		return polErr
 	}
 
 	b.currentPassword = newPassword
 
 	return nil
+}
+
+// changeCallerUserPasswordLocked updates the password for a caller's LoginProfile if found.
+// Returns handled=true when accessKeyID corresponds to an IAM user with a LoginProfile.
+func (b *InMemoryBackend) changeCallerUserPasswordLocked(
+	accessKeyID, oldPassword, newPassword string,
+) (bool, error) {
+	if accessKeyID == "" {
+		return false, nil
+	}
+
+	ak, exists := b.accessKeys.Get(accessKeyID)
+	if !exists || ak.UserName == "" {
+		return false, nil
+	}
+
+	lp, found := b.loginProfiles.Get(ak.UserName)
+	if !found {
+		return false, nil
+	}
+
+	if lp.Password != "" && oldPassword != lp.Password {
+		return true, fmt.Errorf("%w: old password does not match", ErrOldPasswordIncorrect)
+	}
+
+	if err := validatePasswordAgainstPolicy(newPassword, b.passwordPolicy); err != nil {
+		return true, err
+	}
+
+	lp.Password = newPassword
+	b.loginProfiles.Put(lp)
+	b.currentPassword = newPassword
+
+	return true, nil
 }
 
 // validatePasswordAgainstPolicy checks that password satisfies the given PasswordPolicy.

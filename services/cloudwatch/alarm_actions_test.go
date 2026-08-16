@@ -4,9 +4,10 @@ import (
 	"context"
 	"testing"
 
-	cloudwatch "github.com/blackbirdworks/gopherstack/services/cloudwatch"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	cloudwatch "github.com/blackbirdworks/gopherstack/services/cloudwatch"
 )
 
 // recordingEC2Actioner records the instance IDs passed to each EC2 action.

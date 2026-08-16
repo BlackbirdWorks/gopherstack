@@ -4,9 +4,10 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/blackbirdworks/gopherstack/services/rds"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/rds"
 )
 
 func TestPersistence_SnapshotJSON_ContainsExtendedKeys(t *testing.T) {

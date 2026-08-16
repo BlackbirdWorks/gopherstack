@@ -4,10 +4,11 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
-	"github.com/blackbirdworks/gopherstack/services/verifiedpermissions"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/services/verifiedpermissions"
 )
 
 func TestBackend_PolicyTemplate(t *testing.T) {

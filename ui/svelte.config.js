@@ -1,4 +1,7 @@
+import { fileURLToPath } from "node:url";
 import adapter from "@sveltejs/adapter-static";
+
+const spaDir = fileURLToPath(new URL("../dashboard/static/spa", import.meta.url));
 
 /** @type {import('@sveltejs/kit').Config} */
 const config = {
@@ -9,8 +12,8 @@ const config = {
   kit: {
     adapter: adapter({
       fallback: "index.html",
-      pages: "../dashboard/static/spa",
-      assets: "../dashboard/static/spa",
+      pages: spaDir,
+      assets: spaDir,
     }),
     paths: {
       base: "/dashboard",

@@ -412,7 +412,6 @@
 			</div>
 		</div>
 		<div class="flex gap-2 items-center">
-			<WriteRegionHint />
 			<button onclick={loadConfig} class="flex items-center gap-2 rounded-md border px-3 py-2 text-sm hover:bg-accent" title="Account Configuration">
 				<Settings class="h-4 w-4" />
 			</button>
@@ -807,7 +806,10 @@
 {#if showRequestModal}
 	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
 		<div class="w-full max-w-md rounded-lg bg-background p-6 shadow-xl border">
-			<h2 class="text-lg font-semibold mb-4">Request Certificate</h2>
+			<div class="flex items-center justify-between mb-4">
+				<h2 class="text-lg font-semibold">Request Certificate</h2>
+				<WriteRegionHint />
+			</div>
 			<div class="space-y-3">
 				<div>
 					<label for="cert-domain" class="block text-sm font-medium mb-1">Domain Name *</label>
@@ -838,7 +840,10 @@
 {#if showImportModal}
 	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
 		<div class="w-full max-w-lg rounded-lg bg-background p-6 shadow-xl border">
-			<h2 class="text-lg font-semibold mb-4">Import Certificate</h2>
+			<div class="flex items-center justify-between mb-4">
+				<h2 class="text-lg font-semibold">Import Certificate</h2>
+				<WriteRegionHint />
+			</div>
 			<div class="space-y-3">
 				<div>
 					<label for="import-cert" class="block text-sm font-medium mb-1">Certificate body (PEM) *</label>

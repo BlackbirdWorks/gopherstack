@@ -3,6 +3,7 @@ package sesv2_test
 import (
 	"encoding/json"
 	"net/http"
+	"net/url"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -85,16 +86,76 @@ func TestPutEmailIdentityDkimAttributesNotFound(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
 
-// TestPutEmailIdentityDkimSigningAttributesNotFound returns 404 for missing identity.
-func TestPutEmailIdentityDkimSigningAttributesNotFound(t *testing.T) {
+// TestPutEmailIdentityDkimSigningAttributes tests PUT /v2/email/identities/{identity}/dkim/signing.
+func TestPutEmailIdentityDkimSigningAttributes(t *testing.T) {
 	t.Parallel()
 
-	h, _ := newSESv2TestHandler(t)
+	tests := []struct {
+		name         string
+		identity     string
+		wantDkimStat string
+		wantStatus   int
+		isDomain     bool
+		createFirst  bool
+		wantTokens   bool
+	}{
+		{
+			name:         "existing_domain_identity",
+			identity:     "example.com",
+			isDomain:     true,
+			createFirst:  true,
+			wantStatus:   http.StatusOK,
+			wantDkimStat: "SUCCESS",
+			wantTokens:   true,
+		},
+		{
+			name:         "existing_email_identity",
+			identity:     "user@example.com",
+			isDomain:     false,
+			createFirst:  true,
+			wantStatus:   http.StatusOK,
+			wantDkimStat: "SUCCESS",
+			wantTokens:   false,
+		},
+		{
+			name:        "missing_identity",
+			identity:    "missing@example.com",
+			createFirst: false,
+			wantStatus:  http.StatusNotFound,
+		},
+	}
 
-	rec := doReq(t, h, http.MethodPut,
-		"/v2/email/identities/no-such%40example.com/dkim/signing",
-		map[string]any{})
-	assert.Equal(t, http.StatusNotFound, rec.Code)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, backend := newSESv2TestHandler(t)
+			if tt.createFirst {
+				_, err := backend.CreateEmailIdentity(tt.identity, "", nil)
+				require.NoError(t, err)
+			}
+
+			rec := doReq(t, h, http.MethodPut,
+				"/v2/email/identities/"+url.PathEscape(tt.identity)+"/dkim/signing",
+				map[string]any{})
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantStatus == http.StatusOK {
+				var resp struct {
+					DkimStatus string   `json:"DkimStatus"`
+					DkimTokens []string `json:"DkimTokens"`
+				}
+				err := json.Unmarshal(rec.Body.Bytes(), &resp)
+				require.NoError(t, err)
+				assert.Equal(t, tt.wantDkimStat, resp.DkimStatus)
+				if tt.wantTokens {
+					assert.Len(t, resp.DkimTokens, 3)
+				} else {
+					assert.Empty(t, resp.DkimTokens)
+				}
+			}
+		})
+	}
 }
 
 // TestPutEmailIdentityFeedbackAttributes toggles feedback forwarding.
@@ -508,14 +569,51 @@ func TestBackendPutEmailIdentityDkimAttributes(t *testing.T) {
 	assert.False(t, ei.DkimSigningEnabled)
 }
 
-// TestBackendPutEmailIdentityDkimSigningAttributesNotFound errors for missing identity.
-func TestBackendPutEmailIdentityDkimSigningAttributesNotFound(t *testing.T) {
+// TestBackendPutEmailIdentityDkimSigningAttributes tests backend method.
+func TestBackendPutEmailIdentityDkimSigningAttributes(t *testing.T) {
 	t.Parallel()
 
-	backend := sesv2.NewInMemoryBackend()
+	tests := []struct {
+		name        string
+		identity    string
+		createFirst bool
+		wantErr     bool
+	}{
+		{
+			name:        "existing_identity",
+			identity:    "dkim-signing@example.com",
+			createFirst: true,
+			wantErr:     false,
+		},
+		{
+			name:        "not_found",
+			identity:    "no-such@example.com",
+			createFirst: false,
+			wantErr:     true,
+		},
+	}
 
-	err := backend.PutEmailIdentityDkimSigningAttributes("no-such@example.com")
-	require.Error(t, err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			backend := sesv2.NewInMemoryBackend()
+			if tt.createFirst {
+				_, err := backend.CreateEmailIdentity(tt.identity, "", nil)
+				require.NoError(t, err)
+			}
+
+			ei, err := backend.PutEmailIdentityDkimSigningAttributes(tt.identity)
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Nil(t, ei)
+			} else {
+				require.NoError(t, err)
+				require.NotNil(t, ei)
+				assert.Equal(t, tt.identity, ei.Identity)
+			}
+		})
+	}
 }
 
 // TestBackendPutEmailIdentityFeedbackAttributes tests backend method.

@@ -69,6 +69,8 @@ func (h *Handler) dispatchAssumeRole(r *http.Request) (*AssumeRoleResponse, erro
 			// The caller is itself an assumed-role session (role chaining); its
 			// ARN is the principal evaluated against the target role's trust policy.
 			input.CallerArn = input.CallerSession.AssumedRoleArn
+		} else if userArn, err := h.Backend.LookupUserArn(callerKey); err == nil && userArn != "" {
+			input.CallerArn = userArn
 		}
 	}
 

@@ -282,8 +282,21 @@ func (h *Handler) handlePutEmailIdentityDkimAttributes(
 	)
 }
 
+type putEmailIdentityDkimSigningAttributesOutput struct {
+	DkimStatus string   `json:"DkimStatus"`
+	DkimTokens []string `json:"DkimTokens,omitempty"`
+}
+
 func (h *Handler) handlePutEmailIdentityDkimSigningAttributes(identity string) (any, error) {
-	return &emptyDeleteOutput{}, h.Backend.PutEmailIdentityDkimSigningAttributes(identity)
+	ei, err := h.Backend.PutEmailIdentityDkimSigningAttributes(identity)
+	if err != nil {
+		return nil, err
+	}
+
+	return &putEmailIdentityDkimSigningAttributesOutput{
+		DkimStatus: ei.DkimStatus,
+		DkimTokens: ei.DkimTokens,
+	}, nil
 }
 
 func (h *Handler) handlePutEmailIdentityFeedbackAttributes(

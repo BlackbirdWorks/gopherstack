@@ -9,9 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/blackbirdworks/gopherstack/services/sns"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/sns"
 )
 
 // TestIssue1_PublishBatchFIFODedup verifies deduplication within the 5-minute

@@ -19,6 +19,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -115,10 +116,13 @@ func (b *InMemoryBackend) UploadPart(
 	bucketName := aws.ToString(input.Bucket)
 
 	// 1. Snapshot the body while computing MD5 etag and S3 checksums.
-	//nolint:gosec // MD5 required
-	md5Hasher := md5.New()
-	var buf bytes.Buffer
-	writers := []io.Writer{md5Hasher, &buf}
+	md5Hasher := httputils.GetMD5()
+	defer httputils.PutMD5(md5Hasher)
+
+	buf := httputils.GetBuffer()
+	defer httputils.PutBuffer(buf)
+
+	writers := []io.Writer{md5Hasher, buf}
 
 	algo := inferChecksumAlgo(input)
 	s3Hasher := newS3Hasher(algo)
@@ -132,7 +136,7 @@ func (b *InMemoryBackend) UploadPart(
 		return nil, err
 	}
 
-	storedData := buf.Bytes()
+	storedData := bytes.Clone(buf.Bytes())
 	etag := hex.EncodeToString(md5Hasher.Sum(nil))
 
 	// 2. Validate Content-MD5 from context if present.
@@ -336,54 +340,52 @@ func (b *InMemoryBackend) collectPartsDataLocked(
 		}
 	}
 
-	buf := bytes.NewBuffer(make([]byte, 0, totalSize))
+	data := make([]byte, totalSize)
+	offset := 0
 	md5s := make([]byte, 0, len(parts)*md5.Size)
 	partsMeta := make([]StoredObjectPart, 0, len(parts))
 
 	for i, part := range parts {
-		rawBytes, spMeta, err := b.validateAndAppendPart(upload, part, i == len(parts)-1, buf)
+		rawBytes, spMeta, partBytes, err := b.validateAndExtractPart(upload, part, i == len(parts)-1)
 		if err != nil {
 			return nil, nil, nil, err
 		}
 
+		copy(data[offset:], partBytes)
+		offset += len(partBytes)
 		md5s = append(md5s, rawBytes...)
 		partsMeta = append(partsMeta, spMeta)
 	}
 
-	return buf.Bytes(), md5s, partsMeta, nil
+	return data, md5s, partsMeta, nil
 }
 
-// validateAndAppendPart validates a single completed part against its stored
-// counterpart, writes its raw bytes into buf, and returns the raw MD5 bytes
-// decoded from its ETag. Extracted from collectPartsDataLocked to keep its
-// cognitive complexity down.
-func (b *InMemoryBackend) validateAndAppendPart(
+// validateAndExtractPart validates a single completed part against its stored
+// counterpart, and returns the raw MD5 bytes decoded from its ETag, metadata, and raw data bytes.
+func (b *InMemoryBackend) validateAndExtractPart(
 	upload *StoredMultipartUpload,
 	part types.CompletedPart,
 	isLastPart bool,
-	buf *bytes.Buffer,
-) ([]byte, StoredObjectPart, error) {
+) ([]byte, StoredObjectPart, []byte, error) {
 	pNum := *part.PartNumber
 	storedPart, ok := upload.Parts[pNum]
 	if !ok {
-		return nil, StoredObjectPart{}, ErrInvalidPart
+		return nil, StoredObjectPart{}, nil, ErrInvalidPart
 	}
 
 	if *part.ETag != storedPart.ETag {
-		return nil, StoredObjectPart{}, ErrInvalidPart
+		return nil, StoredObjectPart{}, nil, ErrInvalidPart
 	}
 
 	if !isLastPart && storedPart.Size < multipartMinPartSize && !b.skipMultipartSizeCheck {
-		return nil, StoredObjectPart{}, ErrEntityTooSmall
+		return nil, StoredObjectPart{}, nil, ErrEntityTooSmall
 	}
-
-	buf.Write(storedPart.Data)
 
 	rawETag := strings.Trim(storedPart.ETag, "\"")
 
 	rawBytes, err := hex.DecodeString(rawETag)
 	if err != nil {
-		return nil, StoredObjectPart{}, ErrInvalidPart
+		return nil, StoredObjectPart{}, nil, ErrInvalidPart
 	}
 
 	meta := StoredObjectPart{
@@ -396,7 +398,7 @@ func (b *InMemoryBackend) validateAndAppendPart(
 		ChecksumSHA256:    storedPart.ChecksumSHA256,
 	}
 
-	return rawBytes, meta, nil
+	return rawBytes, meta, storedPart.Data, nil
 }
 
 // assembleMultipartData reads all parts under the per-upload read lock, assembles

@@ -7,9 +7,10 @@ import (
 	"net/url"
 	"testing"
 
-	"github.com/blackbirdworks/gopherstack/services/bedrock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/bedrock"
 )
 
 func TestAccuracy_CreateModelCustomizationJob_MissingJobName(t *testing.T) {

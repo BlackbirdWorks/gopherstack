@@ -10,39 +10,17 @@ import (
 // UnwrapAttributeValue converts a DynamoDB wire attribute map into a bare value when possible.
 func UnwrapAttributeValue(v any) any {
 	m, ok := v.(map[string]any)
-	if !ok {
+	if !ok || len(m) == 0 {
 		return v
 	}
 
-	if val, exists := m["S"]; exists {
-		return val
-	}
-	if val, exists := m["N"]; exists {
-		return val
-	}
-	if val, exists := m["B"]; exists {
-		return val
-	}
-	if val, exists := m["BOOL"]; exists {
-		return val
-	}
-	if _, exists := m["NULL"]; exists {
-		return nil
-	}
-	if val, exists := m["M"]; exists {
-		return val
-	}
-	if val, exists := m["L"]; exists {
-		return val
-	}
-	if val, exists := m["SS"]; exists {
-		return val
-	}
-	if val, exists := m["NS"]; exists {
-		return val
-	}
-	if val, exists := m["BS"]; exists {
-		return val
+	for k, val := range m {
+		switch k {
+		case "S", "N", "B", "BOOL", "M", "L", "SS", "NS", "BS":
+			return val
+		case "NULL":
+			return nil
+		}
 	}
 
 	return v
@@ -169,9 +147,13 @@ func ToString(v any) string {
 	case bool:
 		return strconv.FormatBool(s)
 	case float64:
-		return fmt.Sprintf("%v", s)
-	case int, int64, int32:
-		return fmt.Sprintf("%v", s)
+		return strconv.FormatFloat(s, 'f', -1, 64)
+	case int:
+		return strconv.Itoa(s)
+	case int64:
+		return strconv.FormatInt(s, 10)
+	case int32:
+		return strconv.FormatInt(int64(s), 10)
 	case nil:
 		return ""
 	default:

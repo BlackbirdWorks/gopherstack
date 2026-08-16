@@ -11,11 +11,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/service"
-	"github.com/blackbirdworks/gopherstack/services/neptune"
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	"github.com/blackbirdworks/gopherstack/services/neptune"
 )
 
 // chromeUserAgent is a realistic browser User-Agent value, used to prove a

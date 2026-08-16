@@ -6,9 +6,10 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/blackbirdworks/gopherstack/services/organizations"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/organizations"
 )
 
 // TestBackend_DelegatedAdministrators tests delegated admin lifecycle.

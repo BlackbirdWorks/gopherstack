@@ -5,8 +5,9 @@ import (
 	"maps"
 	"strings"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 // ---- Users ----

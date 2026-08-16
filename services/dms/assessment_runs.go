@@ -5,8 +5,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 // defaultApplicableIndividualAssessments is the static catalog of individual

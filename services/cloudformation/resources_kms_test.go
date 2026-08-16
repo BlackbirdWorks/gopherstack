@@ -4,10 +4,11 @@ import (
 	"context"
 	"testing"
 
-	"github.com/blackbirdworks/gopherstack/services/cloudformation"
-	kmsbackend "github.com/blackbirdworks/gopherstack/services/kms"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/cloudformation"
+	kmsbackend "github.com/blackbirdworks/gopherstack/services/kms"
 )
 
 // TestResourceCreator_Extra_KMSAlias verifies an alias is created against a real key and that

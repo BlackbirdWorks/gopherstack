@@ -6,9 +6,10 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/blackbirdworks/gopherstack/services/cognitoidp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/cognitoidp"
 )
 
 func TestIDToken_CognitoGroups(t *testing.T) {

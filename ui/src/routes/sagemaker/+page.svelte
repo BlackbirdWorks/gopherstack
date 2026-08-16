@@ -223,7 +223,6 @@
 			</div>
 		</div>
 		<div class="flex items-center gap-2">
-			<WriteRegionHint />
 			<button
 				onclick={loadData}
 				title="Refresh"
@@ -293,7 +292,10 @@
 				class="bg-white dark:bg-slate-800 rounded-xl shadow-xl p-6 w-full max-w-md mx-4 space-y-4"
 			>
 				<div class="flex items-center justify-between">
-					<h2 class="text-lg font-semibold text-gray-900 dark:text-white">Create Endpoint</h2>
+					<div class="flex items-center gap-2">
+						<h2 class="text-lg font-semibold text-gray-900 dark:text-white">Create Endpoint</h2>
+						<WriteRegionHint />
+					</div>
 					<button
 						onclick={() => (showCreateEndpoint = false)}
 						class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
@@ -358,7 +360,10 @@
 				class="bg-white dark:bg-slate-800 rounded-xl shadow-xl p-6 w-full max-w-md mx-4 space-y-4"
 			>
 				<div class="flex items-center justify-between">
-					<h2 class="text-lg font-semibold text-gray-900 dark:text-white">Create Training Job</h2>
+					<div class="flex items-center gap-2">
+						<h2 class="text-lg font-semibold text-gray-900 dark:text-white">Create Training Job</h2>
+						<WriteRegionHint />
+					</div>
 					<button
 						onclick={() => (showCreateTraining = false)}
 						class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"

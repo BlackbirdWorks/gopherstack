@@ -5,9 +5,10 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/blackbirdworks/gopherstack/services/opensearch"
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/blackbirdworks/gopherstack/services/opensearch"
 )
 
 // extractOperationForTest builds a minimal Echo context and calls ExtractOperation.

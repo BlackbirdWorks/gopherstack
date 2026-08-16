@@ -723,7 +723,6 @@ onRegionChange(() => {
 </div>
 </div>
 <div class="flex items-center gap-2">
-<WriteRegionHint />
 <button onclick={() => loadQueues()} class="p-2 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white" title="Refresh">
 <RefreshCw class="w-5 h-5 {loading ? 'animate-spin' : ''}" />
 </button>
@@ -1338,7 +1337,10 @@ Cancel
 {#if showCreateModal}
 <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
 <div class="bg-white dark:bg-slate-800 rounded-xl shadow-xl p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto">
-<h2 class="text-xl font-bold text-slate-900 dark:text-white mb-4">Create Queue</h2>
+<div class="flex items-center justify-between mb-4">
+<h2 class="text-xl font-bold text-slate-900 dark:text-white">Create Queue</h2>
+<WriteRegionHint />
+</div>
 <form onsubmit={(e) => { e.preventDefault(); createQueue(); }} class="space-y-4">
 <div>
 <label for="sqs-queue-name" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Queue Name</label>

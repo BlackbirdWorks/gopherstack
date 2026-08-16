@@ -24,7 +24,6 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -189,21 +188,25 @@ func buildDirModuleMap(repoRoot string) (map[string]string, error) {
 }
 
 func sdkModsFor(dirPath string) ([]string, error) {
-	out, err := exec.CommandContext(context.Background(), "grep", "-rhoP",
-		`github\.com/aws/aws-sdk-go-v2/service/[a-z0-9]+`, dirPath).Output()
+	entries, err := os.ReadDir(dirPath)
 	if err != nil {
-		// grep exits 1 when it finds nothing -- not an error for us.
-		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
-			return nil, nil
-		}
-
 		return nil, err
 	}
 
 	set := map[string]struct{}{}
-	for _, m := range sdkImportRe.FindAllStringSubmatch(string(out), -1) {
-		set[m[1]] = struct{}{}
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".go") {
+			continue
+		}
+
+		data, readErr := os.ReadFile(filepath.Join(dirPath, e.Name()))
+		if readErr != nil {
+			return nil, readErr
+		}
+
+		for _, m := range sdkImportRe.FindAllStringSubmatch(string(data), -1) {
+			set[m[1]] = struct{}{}
+		}
 	}
 
 	mods := make([]string, 0, len(set))

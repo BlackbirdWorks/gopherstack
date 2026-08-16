@@ -8,10 +8,11 @@ import (
 	"net/url"
 	"testing"
 
-	"github.com/blackbirdworks/gopherstack/services/bedrock"
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/bedrock"
 )
 
 // --- Provisioned model throughput tests --- //nolint:godot // existing issue.

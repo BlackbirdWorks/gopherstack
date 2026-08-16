@@ -6,9 +6,10 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/blackbirdworks/gopherstack/services/cognitoidp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/cognitoidp"
 )
 
 func TestCreateUserPool_PasswordPolicy_Persisted(t *testing.T) {

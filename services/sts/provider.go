@@ -32,6 +32,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 	if cp, ok := ctx.Config.(config.Provider); ok {
 		cfg := cp.GetGlobalConfig()
 		backend = NewInMemoryBackendWithConfig(cfg.GetAccountID())
+		backend.SetStrictConditions(cfg.IsIAMEnforced())
 	} else {
 		backend = NewInMemoryBackend()
 	}

@@ -5,8 +5,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 // CreateFleetAdvisorCollector creates a new Fleet Advisor collector.

@@ -6,9 +6,10 @@ import (
 	"regexp"
 	"testing"
 
-	"github.com/blackbirdworks/gopherstack/services/ec2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/ec2"
 )
 
 // TestCreateSnapshot verifies snapshot creation from a volume.

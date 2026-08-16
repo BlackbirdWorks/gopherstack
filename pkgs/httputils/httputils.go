@@ -334,10 +334,9 @@ func extractSigV4ScopeFromRequest(r *http.Request) []string {
 		return nil
 	}
 
-	if auth := r.Header.Get("Authorization"); auth != "" && strings.Contains(auth, "Credential=") {
-		parts := strings.Split(auth, "Credential=")
-		if len(parts) > 1 {
-			if scope := parseValidSigV4Scope(parts[1]); scope != nil {
+	if auth := r.Header.Get("Authorization"); auth != "" {
+		if _, raw, ok := strings.Cut(auth, "Credential="); ok {
+			if scope := parseValidSigV4Scope(raw); scope != nil {
 				return scope
 			}
 		}

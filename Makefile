@@ -1,4 +1,4 @@
-.PHONY: build ui-install ui-lint ui-check ui-lint-fix ui-fmt ui-fmt-fix ui-test ui-build install-deps install-tofu lint lint-changed lint-fix test integration-test terraform-test e2e e2e-test total-coverage clean demo all dev-mcp-install dev-mcp-check pgo docs check-pins
+.PHONY: build build-check ui-install ui-lint ui-check ui-lint-fix ui-fmt ui-fmt-fix ui-test ui-build install-deps install-tofu lint lint-changed lint-fix test integration-test terraform-test e2e e2e-test total-coverage clean demo all dev-mcp-install dev-mcp-check pgo docs check-pins
 
 BINARY_NAME=gopherstack
 VERSION_PKG=github.com/blackbirdworks/gopherstack/pkgs/version
@@ -9,6 +9,13 @@ build: ui-build
 		-trimpath \
 		-ldflags "-w -s -X $(VERSION_PKG).Build=$(BUILD_VERSION)" \
 		-o bin/$(BINARY_NAME) .
+
+# Verify that all packages compile cleanly under default and tagged builds (e2e, integration)
+# to catch tag-gated signature/compile breaks fast before long test suites run (gopherstack-0bpp).
+build-check:
+	go build ./...
+	go build -tags e2e ./...
+	go build -tags integration ./...
 
 ui-install:
 	PATH="/opt/homebrew/bin:$(PATH)" npm --prefix ui ci

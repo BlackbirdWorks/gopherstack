@@ -11,8 +11,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/config"
 )
 
 // cacheEndpoint is the XML representation of a cache node endpoint.

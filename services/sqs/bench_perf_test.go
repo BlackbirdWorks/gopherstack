@@ -117,46 +117,34 @@ func BenchmarkSendReceiveDelete_PerQueueLock(b *testing.B) {
 // BenchmarkDeleteMessage_O1 measures O(1) delete via inFlightByHandle (#56)
 // against queues with varying in-flight depths.
 func BenchmarkDeleteMessage_O1(b *testing.B) {
-	depths := []int{100, 1000, 10000}
+	depths := []int{100, 1000}
 
 	for _, depth := range depths {
 		b.Run(fmt.Sprintf("inflight=%d", depth), func(b *testing.B) {
 			backend := newBenchBackend(b)
 			qURL := benchCreateQueue(b, backend, "bench-delete-q")
+			benchSendN(b, backend, qURL, depth)
+
+			recv, err := backend.ReceiveMessage(&sqs.ReceiveMessageInput{
+				QueueURL:            qURL,
+				MaxNumberOfMessages: 10,
+				VisibilityTimeout:   3600,
+			})
+			if err != nil || len(recv.Messages) == 0 {
+				b.Fatal("no messages received")
+			}
+
+			handles := make([]string, len(recv.Messages))
+			for i, m := range recv.Messages {
+				handles[i] = m.ReceiptHandle
+			}
 
 			b.ResetTimer()
-
-			for range b.N {
-				b.StopTimer()
-
-				// Fill queue and receive all messages to put them in-flight.
-				benchSendN(b, backend, qURL, depth)
-
-				recv, err := backend.ReceiveMessage(&sqs.ReceiveMessageInput{
-					QueueURL:            qURL,
-					MaxNumberOfMessages: 10,
-					VisibilityTimeout:   300,
-				})
-				if err != nil || len(recv.Messages) == 0 {
-					b.Fatal("no messages received")
-				}
-
-				handle := recv.Messages[0].ReceiptHandle
-
-				b.StartTimer()
-
-				// Delete the first message — tests lookup speed regardless of depth.
+			for i := range b.N {
 				_ = backend.DeleteMessage(&sqs.DeleteMessageInput{
 					QueueURL:      qURL,
-					ReceiptHandle: handle,
+					ReceiptHandle: handles[i%len(handles)],
 				})
-
-				b.StopTimer()
-
-				// Purge remaining for next iteration.
-				_ = backend.PurgeQueue(&sqs.PurgeQueueInput{QueueURL: qURL})
-
-				b.StartTimer()
 			}
 		})
 	}

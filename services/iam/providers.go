@@ -257,6 +257,7 @@ func (b *InMemoryBackend) CreateLoginProfile(
 
 	lp := LoginProfile{
 		UserName:              userName,
+		Password:              password,
 		CreateDate:            time.Now().UTC(),
 		PasswordResetRequired: passwordResetRequired,
 	}
@@ -285,6 +286,7 @@ func (b *InMemoryBackend) UpdateLoginProfile(
 		return err
 	}
 
+	lp.Password = password
 	lp.PasswordResetRequired = passwordResetRequired
 	b.loginProfiles.Put(lp)
 

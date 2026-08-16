@@ -5,11 +5,12 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/labstack/echo/v5"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
-	"github.com/labstack/echo/v5"
 )
 
 // Handler is the Echo HTTP handler for Lambda operations.

@@ -5,9 +5,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/blackbirdworks/gopherstack/services/mwaa"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/mwaa"
 )
 
 func TestCreateCliToken_RequiresAvailable(t *testing.T) {

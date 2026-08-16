@@ -322,7 +322,6 @@
 				<button onclick={() => loadParameters()} class="p-2 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white" title="Refresh">
 					<RefreshCw class="w-5 h-5 {loading ? 'animate-spin' : ''}" />
 				</button>
-				<WriteRegionHint />
 				<button onclick={openCreate} class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 flex items-center gap-2">
 					<Plus class="w-4 h-4" />
 					Create Parameter
@@ -331,10 +330,9 @@
 				<button onclick={() => loadMaintenanceWindows()} class="p-2 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white" title="Refresh">
 					<RefreshCw class="w-5 h-5 {mwLoading ? 'animate-spin' : ''}" />
 				</button>
-				<WriteRegionHint />
 				<button onclick={openCreateMW} class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 flex items-center gap-2">
 					<Plus class="w-4 h-4" />
-					Create Window
+					Create Maintenance Window
 				</button>
 			{/if}
 		</div>
@@ -606,7 +604,12 @@
 {#if showModal}
 	<div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
 		<div class="bg-white dark:bg-slate-800 rounded-xl shadow-xl p-6 w-full max-w-lg">
-			<h2 class="text-xl font-bold text-slate-900 dark:text-white mb-4">{isEditing ? 'Edit Parameter' : 'Create Parameter'}</h2>
+			<div class="flex items-center justify-between mb-4">
+				<h2 class="text-xl font-bold text-slate-900 dark:text-white">{isEditing ? 'Edit Parameter' : 'Create Parameter'}</h2>
+				{#if !isEditing}
+					<WriteRegionHint />
+				{/if}
+			</div>
 			<form onsubmit={(e) => { e.preventDefault(); save(); }} class="space-y-4">
 				<div>
 					<label for="ssm-param-name" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Name</label>
@@ -670,7 +673,10 @@
 {#if showMWModal}
 	<div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
 		<div class="bg-white dark:bg-slate-800 rounded-xl shadow-xl p-6 w-full max-w-lg">
-			<h2 class="text-xl font-bold text-slate-900 dark:text-white mb-4">Create Maintenance Window</h2>
+			<div class="flex items-center justify-between mb-4">
+				<h2 class="text-xl font-bold text-slate-900 dark:text-white">Create Maintenance Window</h2>
+				<WriteRegionHint />
+			</div>
 			<form onsubmit={(e) => { e.preventDefault(); saveMW(); }} class="space-y-4">
 				<div>
 					<label for="mw-name" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Name</label>

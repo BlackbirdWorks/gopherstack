@@ -7,8 +7,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 // PutTableBucketReplication sets the replication configuration for a table

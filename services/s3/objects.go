@@ -20,6 +20,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/ptrconv"
@@ -356,20 +357,9 @@ func (b *InMemoryBackend) PutObject(
 		strings.ToUpper(string(input.ChecksumAlgorithm)),
 	)
 
-	// Extract SSE info from context (set by putObject handler).
+	// Extract SSE info from context (set by putObject handler) and apply default bucket encryption.
 	sseFromCtx, _ := ctx.Value(sseKey).(sseInfo)
-
-	// Apply default bucket encryption if no SSE is specified in the request
-	if sseFromCtx.Algorithm == "" && sseFromCtx.SSECAlgorithm == "" && bucket.EncryptionConfig != "" {
-		var config ServerSideEncryptionConfiguration
-		if xmlErr := xml.Unmarshal([]byte(bucket.EncryptionConfig), &config); xmlErr == nil && len(config.Rules) > 0 {
-			def := config.Rules[0].ApplyServerSideEncryptionByDefault
-			if def.SSEAlgorithm != "" {
-				sseFromCtx.Algorithm = def.SSEAlgorithm
-				sseFromCtx.KMSKeyID = def.KMSMasterKeyID
-			}
-		}
-	}
+	sseFromCtx = resolveBucketSSE(bucket, sseFromCtx)
 
 	// Real envelope encryption: when SSE is configured, encrypt the stored
 	// (post-compression) bytes with AES-256-GCM and stash the DEK + nonce on
@@ -390,20 +380,7 @@ func (b *InMemoryBackend) PutObject(
 
 	newVersionID := b.saveObjectVersion(bucket, key, newVersion)
 
-	// Store tags outside bucket.mu to respect the lock ordering
-	// (b.mu must not be acquired while bucket.mu is held).
-	// When overwriting a non-versioned object (NullVersion) without new tags,
-	// evict any stale tags from the previous version to prevent b.tags from growing unbounded.
-	if newVersionID == NullVersion && input.Tagging == nil {
-		func() {
-			b.mu.Lock("PutObject.evictTags")
-			defer b.mu.Unlock()
-
-			if b.tags != nil {
-				delete(b.tags, fmt.Sprintf("%s/%s/%s", bucketName, key, NullVersion))
-			}
-		}()
-	}
+	b.evictStaleNullTags(bucketName, key, newVersionID, input.Tagging)
 	b.storeObjectTags(input.Tagging, bucketName, key, newVersionID)
 
 	logger.Load(ctx).DebugContext(ctx, "S3 Backend PutObject",
@@ -413,10 +390,12 @@ func (b *InMemoryBackend) PutObject(
 
 	// Async replication to configured destination buckets, parented to the
 	// service context (cancellable on shutdown) rather than the request context.
-	repCtx := b.replicationContext(ctx)
-	b.replicationWg.Go(func() {
-		b.triggerReplication(repCtx, bucketName, key, finalQuotedETag)
-	})
+	if bucket.ReplicationConfig != "" {
+		repCtx := b.replicationContext(ctx)
+		b.replicationWg.Go(func() {
+			b.triggerReplication(repCtx, bucketName, key, finalQuotedETag)
+		})
+	}
 
 	return &s3.PutObjectOutput{
 		ETag:              aws.String(finalQuotedETag),
@@ -571,7 +550,7 @@ func (b *InMemoryBackend) storeObjectTags(tagging *string, bucket, key, versionI
 		b.tags = make(map[string][]types.Tag)
 	}
 
-	tagKey := fmt.Sprintf("%s/%s/%s", bucket, key, versionID)
+	tagKey := bucket + "/" + key + "/" + versionID
 	b.tags[tagKey] = tagList
 }
 
@@ -601,21 +580,34 @@ func (b *InMemoryBackend) GetObject(
 	bucket.mu.RUnlock()
 
 	// Use per-object lock for version operations instead of holding bucket lock
-	obj.mu.RLock("GetObject")
-	defer obj.mu.RUnlock()
+	var (
+		ver              *StoredObjectVersion
+		dataToDecompress []byte
+		isCompressed     bool
+		size             int64
+		metadata         map[string]string
+		versionIDStr     string
+	)
 
-	ver, err := resolveObjectVersion(obj, versionID)
+	func() {
+		obj.mu.RLock("GetObject")
+		defer obj.mu.RUnlock()
+
+		ver, err = resolveObjectVersion(obj, versionID)
+		if err != nil {
+			return
+		}
+
+		dataToDecompress = ver.Data
+		isCompressed = ver.IsCompressed
+		size = ver.Size
+		metadata = maps.Clone(ver.Metadata)
+		versionIDStr = ver.VersionID
+	}()
+
 	if err != nil {
 		return nil, err
 	}
-
-	// Copy data + metadata under the lock; decryption + decompression
-	// happen outside.
-	dataToDecompress := ver.Data
-	isCompressed := ver.IsCompressed
-	size := ver.Size
-	metadata := maps.Clone(ver.Metadata)
-	versionIDStr := ver.VersionID
 
 	decrypted, skipDecompress, decErr := decryptVersionForGet(ctx, ver, dataToDecompress)
 	if decErr != nil {
@@ -813,23 +805,35 @@ func (b *InMemoryBackend) HeadObject(
 		return nil, ErrNoSuchKey
 	}
 
-	obj.mu.RLock("HeadObject")
-	defer obj.mu.RUnlock()
+	var (
+		ver     *StoredObjectVersion
+		headErr error
+	)
 
-	var ver *StoredObjectVersion
-	if versionID != nil && *versionID != "" {
-		// Use provided version ID
-		v, ok := obj.Versions[*versionID]
-		if !ok {
-			return nil, ErrNoSuchKey
+	func() {
+		obj.mu.RLock("HeadObject")
+		defer obj.mu.RUnlock()
+
+		if versionID != nil && *versionID != "" {
+			// Use provided version ID
+			v, ok := obj.Versions[*versionID]
+			if !ok {
+				headErr = ErrNoSuchKey
+
+				return
+			}
+			ver = v
+		} else if latestID := obj.LatestVersionID; latestID != "" {
+			// Use cached latest version ID to avoid scanning all versions
+			ver = obj.Versions[latestID]
+		} else {
+			// Fallback: scan for latest (shouldn't happen in normal operation)
+			ver = findLatestVersion(obj.Versions)
 		}
-		ver = v
-	} else if latestID := obj.LatestVersionID; latestID != "" {
-		// Use cached latest version ID to avoid scanning all versions
-		ver = obj.Versions[latestID]
-	} else {
-		// Fallback: scan for latest (shouldn't happen in normal operation)
-		ver = findLatestVersion(obj.Versions)
+	}()
+
+	if headErr != nil {
+		return nil, headErr
 	}
 
 	if ver == nil {
@@ -1021,10 +1025,13 @@ func (b *InMemoryBackend) computeObjectHashes(
 	body io.Reader,
 	algorithm types.ChecksumAlgorithm,
 ) (int64, []byte, string, hash.Hash, error) {
-	//nolint:gosec // MD5 required for S3 ETag
-	md5Hasher := md5.New()
-	var buf bytes.Buffer
-	writers := []io.Writer{md5Hasher, &buf}
+	md5Hasher := httputils.GetMD5()
+	defer httputils.PutMD5(md5Hasher)
+
+	buf := httputils.GetBuffer()
+	defer httputils.PutBuffer(buf)
+
+	writers := []io.Writer{md5Hasher, buf}
 
 	var s3Hasher hash.Hash
 	algo := string(algorithm)
@@ -1053,7 +1060,7 @@ func (b *InMemoryBackend) computeObjectHashes(
 		return 0, nil, "", nil, err
 	}
 
-	return n, buf.Bytes(), hex.EncodeToString(md5Hasher.Sum(nil)), s3Hasher, nil
+	return n, bytes.Clone(buf.Bytes()), hex.EncodeToString(md5Hasher.Sum(nil)), s3Hasher, nil
 }
 
 // validateContentMD5 validates the Content-MD5 header from context against the computed etag.
@@ -1070,4 +1077,39 @@ func (b *InMemoryBackend) validateContentMD5(ctx context.Context, _ []byte, etag
 	}
 
 	return nil
+}
+
+func resolveBucketSSE(bucket *StoredBucket, sseFromCtx sseInfo) sseInfo {
+	if sseFromCtx.Algorithm == "" && sseFromCtx.SSECAlgorithm == "" && bucket.EncryptionConfig != "" {
+		var config ServerSideEncryptionConfiguration
+		//nolint:gosec // XML encryption config is internally stored
+		decoder := xml.NewDecoder(strings.NewReader(bucket.EncryptionConfig))
+		if xmlErr := decoder.Decode(&config); xmlErr == nil && len(config.Rules) > 0 {
+			def := config.Rules[0].ApplyServerSideEncryptionByDefault
+			if def.SSEAlgorithm != "" {
+				sseFromCtx.Algorithm = def.SSEAlgorithm
+				sseFromCtx.KMSKeyID = def.KMSMasterKeyID
+			}
+		}
+	}
+
+	return sseFromCtx
+}
+
+func (b *InMemoryBackend) evictStaleNullTags(bucketName, key, newVersionID string, tagging *string) {
+	if newVersionID != NullVersion || tagging != nil {
+		return
+	}
+
+	b.mu.RLock("PutObject.checkTags")
+	hasTags := len(b.tags) > 0
+	b.mu.RUnlock()
+
+	if hasTags {
+		b.mu.Lock("PutObject.evictTags")
+		if b.tags != nil {
+			delete(b.tags, fmt.Sprintf("%s/%s/%s", bucketName, key, NullVersion))
+		}
+		b.mu.Unlock()
+	}
 }

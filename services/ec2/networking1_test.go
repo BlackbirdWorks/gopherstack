@@ -101,7 +101,7 @@ func TestNetworking1_DhcpOptions(t *testing.T) {
 	vpc, err := bk.CreateVpc("10.0.0.0/16")
 	require.NoError(t, err)
 
-	opts, err := bk.CreateDhcpOptions(nil)
+	opts, err := bk.CreateDhcpOptions(nil, nil)
 	require.NoError(t, err)
 	assert.NotEmpty(t, opts.DhcpOptionsID)
 
@@ -663,4 +663,69 @@ func TestNetworking1HelperMethods(t *testing.T) {
 
 	// DescribeSnapshotsSorted.
 	_ = bk.DescribeSnapshotsSorted(nil)
+}
+
+func TestDhcpOptions_Tagging(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		wantKey    string
+		wantVal    string
+		createTags bool
+		extraTags  bool
+	}{
+		{
+			name:       "tag_specification_at_create",
+			createTags: true,
+			extraTags:  false,
+			wantKey:    "Environment",
+			wantVal:    "Production",
+		},
+		{
+			name:       "create_tags_after_create",
+			createTags: false,
+			extraTags:  true,
+			wantKey:    "Owner",
+			wantVal:    "TeamAlpha",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newHandler()
+			query := "Action=CreateDhcpOptions&Version=2016-11-15" +
+				"&DhcpConfiguration.1.Key=domain-name&DhcpConfiguration.1.Value.1=example.com"
+			if tt.createTags {
+				query += "&TagSpecification.1.ResourceType=dhcp-options" +
+					"&TagSpecification.1.Tag.1.Key=" + tt.wantKey +
+					"&TagSpecification.1.Tag.1.Value=" + tt.wantVal
+			}
+
+			createRec := postForm(t, h, query)
+			require.Equal(t, http.StatusOK, createRec.Code)
+			body := createRec.Body.String()
+			dhcpIDStart := indexOf(body, "<dhcpOptionsId>") + len("<dhcpOptionsId>")
+			dhcpIDEnd := indexOf(body, "</dhcpOptionsId>")
+			require.Greater(t, dhcpIDEnd, dhcpIDStart)
+			dhcpID := body[dhcpIDStart:dhcpIDEnd]
+
+			if tt.extraTags {
+				tagRec := postForm(t, h, fmt.Sprintf(
+					"Action=CreateTags&Version=2016-11-15&ResourceId.1=%s&Tag.1.Key=%s&Tag.1.Value=%s",
+					dhcpID, tt.wantKey, tt.wantVal,
+				))
+				require.Equal(t, http.StatusOK, tagRec.Code)
+			}
+
+			descRec := postForm(t, h, "Action=DescribeDhcpOptions&Version=2016-11-15&DhcpOptionsId.1="+dhcpID)
+			require.Equal(t, http.StatusOK, descRec.Code)
+			descBody := descRec.Body.String()
+
+			assert.Contains(t, descBody, "<key>"+tt.wantKey+"</key>")
+			assert.Contains(t, descBody, "<value>"+tt.wantVal+"</value>")
+		})
+	}
 }

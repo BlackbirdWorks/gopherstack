@@ -6,9 +6,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/blackbirdworks/gopherstack/services/elasticache"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/elasticache"
 )
 
 func TestBackend_Reset(t *testing.T) {

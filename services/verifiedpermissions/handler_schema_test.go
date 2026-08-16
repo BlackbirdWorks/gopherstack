@@ -5,9 +5,10 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/blackbirdworks/gopherstack/services/verifiedpermissions"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/verifiedpermissions"
 )
 
 func TestVPHandler_PutSchema(t *testing.T) {

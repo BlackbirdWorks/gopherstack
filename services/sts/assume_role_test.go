@@ -19,10 +19,11 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/sts"
 )
 
-// stubRoleLookup is a test double for sts.RoleLookup.
+// stubRoleLookup is a test double for sts.RoleLookup and sts.UserLookup.
 type stubRoleLookup struct {
-	meta *sts.RoleMeta
-	err  error
+	meta  *sts.RoleMeta
+	err   error
+	users map[string]string
 }
 
 func (s *stubRoleLookup) GetRoleByArn(_ string) (*sts.RoleMeta, error) {
@@ -33,8 +34,21 @@ func (s *stubRoleLookup) GetRoleByArn(_ string) (*sts.RoleMeta, error) {
 	return s.meta, nil
 }
 
+func (s *stubRoleLookup) GetUserArnByAccessKeyID(accessKeyID string) (string, error) {
+	if s.users != nil {
+		if u, ok := s.users[accessKeyID]; ok {
+			return u, nil
+		}
+	}
+
+	return "", errStubUserNotFound
+}
+
 // errStubRoleNotFound is the sentinel error returned by stubRoleLookup when a role is not found.
-var errStubRoleNotFound = errors.New("role not found")
+var (
+	errStubRoleNotFound = errors.New("role not found")
+	errStubUserNotFound = errors.New("user not found")
+)
 
 // newEchoServer builds a minimal echo server wired to handler h.
 func newEchoServer(h *sts.Handler) *httptest.Server {
@@ -1420,6 +1434,71 @@ func TestTransitiveTagPropagation(t *testing.T) {
 				got[tag.Key] = tag.Value
 			}
 			assert.Equal(t, tc.wantTags, got)
+		})
+	}
+}
+
+func TestAssumeRole_IAMUserCaller_PrincipalArnCondition(t *testing.T) {
+	t.Parallel()
+
+	const (
+		allowedUserArn = "arn:aws:iam::123456789012:user/alice"
+		deniedUserArn  = "arn:aws:iam::123456789012:user/bob"
+		targetRoleArn  = "arn:aws:iam::123456789012:role/DeployRole"
+		trustPolicy    = `{"Version":"2012-10-17","Statement":[{"Effect":"Allow",` +
+			`"Principal":{"AWS":"*"},"Action":"sts:AssumeRole",` +
+			`"Condition":{"ArnEquals":{"aws:PrincipalArn":"` + allowedUserArn + `"}}}]}`
+	)
+
+	tests := []struct {
+		name       string
+		authKey    string
+		wantStatus int
+	}{
+		{
+			name:       "matching_caller_user_allowed",
+			authKey:    "AKIAALICEKEY123456",
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "mismatching_caller_user_denied",
+			authKey:    "AKIABOBKEY12345678",
+			wantStatus: http.StatusForbidden,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			backend := sts.NewInMemoryBackend()
+			backend.SetRoleLookup(&stubRoleLookup{
+				meta: &sts.RoleMeta{
+					TrustPolicy: trustPolicy,
+				},
+				users: map[string]string{
+					"AKIAALICEKEY123456": allowedUserArn,
+					"AKIABOBKEY12345678": deniedUserArn,
+				},
+			})
+
+			handler := sts.NewHandler(backend)
+			srv := newEchoServer(handler)
+			t.Cleanup(srv.Close)
+
+			authHeader := fmt.Sprintf(
+				"AWS4-HMAC-SHA256 Credential=%s/20260816/us-east-1/sts/aws4_request, SignedHeaders=host, Signature=xyz",
+				tt.authKey,
+			)
+
+			resp := postSTS(t, srv.URL, map[string]string{
+				"Action":          "AssumeRole",
+				"RoleArn":         targetRoleArn,
+				"RoleSessionName": "test-session",
+			}, authHeader, "")
+			defer resp.Body.Close()
+
+			assert.Equal(t, tt.wantStatus, resp.StatusCode)
 		})
 	}
 }

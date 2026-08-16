@@ -45,22 +45,15 @@ const (
 
 // These variables are the protoreflect.Descriptor objects for the RPCs defined in this package.
 var (
-	dashboardServiceServiceDescriptor = v1.File_gopherstack_dashboard_v1_dashboard_proto.Services().
-						ByName("DashboardService")
+	dashboardServiceServiceDescriptor             = v1.File_gopherstack_dashboard_v1_dashboard_proto.Services().ByName("DashboardService")
 	dashboardServiceStreamConsoleMethodDescriptor = dashboardServiceServiceDescriptor.Methods().ByName("StreamConsole")
 	dashboardServiceStreamMetricsMethodDescriptor = dashboardServiceServiceDescriptor.Methods().ByName("StreamMetrics")
 )
 
 // DashboardServiceClient is a client for the gopherstack.dashboard.v1.DashboardService service.
 type DashboardServiceClient interface {
-	StreamConsole(
-		context.Context,
-		*connect.Request[v1.StreamConsoleRequest],
-	) (*connect.ServerStreamForClient[v1.StreamConsoleResponse], error)
-	StreamMetrics(
-		context.Context,
-		*connect.Request[v1.StreamMetricsRequest],
-	) (*connect.ServerStreamForClient[v1.StreamMetricsResponse], error)
+	StreamConsole(context.Context, *connect.Request[v1.StreamConsoleRequest]) (*connect.ServerStreamForClient[v1.StreamConsoleResponse], error)
+	StreamMetrics(context.Context, *connect.Request[v1.StreamMetricsRequest]) (*connect.ServerStreamForClient[v1.StreamMetricsResponse], error)
 }
 
 // NewDashboardServiceClient constructs a client for the gopherstack.dashboard.v1.DashboardService
@@ -70,13 +63,8 @@ type DashboardServiceClient interface {
 //
 // The URL supplied here should be the base URL for the Connect or gRPC server (for example,
 // http://api.acme.com or https://acme.com/grpc).
-func NewDashboardServiceClient(
-	httpClient connect.HTTPClient,
-	baseURL string,
-	opts ...connect.ClientOption,
-) DashboardServiceClient {
+func NewDashboardServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) DashboardServiceClient {
 	baseURL = strings.TrimRight(baseURL, "/")
-
 	return &dashboardServiceClient{
 		streamConsole: connect.NewClient[v1.StreamConsoleRequest, v1.StreamConsoleResponse](
 			httpClient,
@@ -100,34 +88,20 @@ type dashboardServiceClient struct {
 }
 
 // StreamConsole calls gopherstack.dashboard.v1.DashboardService.StreamConsole.
-func (c *dashboardServiceClient) StreamConsole(
-	ctx context.Context,
-	req *connect.Request[v1.StreamConsoleRequest],
-) (*connect.ServerStreamForClient[v1.StreamConsoleResponse], error) {
+func (c *dashboardServiceClient) StreamConsole(ctx context.Context, req *connect.Request[v1.StreamConsoleRequest]) (*connect.ServerStreamForClient[v1.StreamConsoleResponse], error) {
 	return c.streamConsole.CallServerStream(ctx, req)
 }
 
 // StreamMetrics calls gopherstack.dashboard.v1.DashboardService.StreamMetrics.
-func (c *dashboardServiceClient) StreamMetrics(
-	ctx context.Context,
-	req *connect.Request[v1.StreamMetricsRequest],
-) (*connect.ServerStreamForClient[v1.StreamMetricsResponse], error) {
+func (c *dashboardServiceClient) StreamMetrics(ctx context.Context, req *connect.Request[v1.StreamMetricsRequest]) (*connect.ServerStreamForClient[v1.StreamMetricsResponse], error) {
 	return c.streamMetrics.CallServerStream(ctx, req)
 }
 
 // DashboardServiceHandler is an implementation of the gopherstack.dashboard.v1.DashboardService
 // service.
 type DashboardServiceHandler interface {
-	StreamConsole(
-		context.Context,
-		*connect.Request[v1.StreamConsoleRequest],
-		*connect.ServerStream[v1.StreamConsoleResponse],
-	) error
-	StreamMetrics(
-		context.Context,
-		*connect.Request[v1.StreamMetricsRequest],
-		*connect.ServerStream[v1.StreamMetricsResponse],
-	) error
+	StreamConsole(context.Context, *connect.Request[v1.StreamConsoleRequest], *connect.ServerStream[v1.StreamConsoleResponse]) error
+	StreamMetrics(context.Context, *connect.Request[v1.StreamMetricsRequest], *connect.ServerStream[v1.StreamMetricsResponse]) error
 }
 
 // NewDashboardServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -148,42 +122,25 @@ func NewDashboardServiceHandler(svc DashboardServiceHandler, opts ...connect.Han
 		connect.WithSchema(dashboardServiceStreamMetricsMethodDescriptor),
 		connect.WithHandlerOptions(opts...),
 	)
-
-	return "/gopherstack.dashboard.v1.DashboardService/", http.HandlerFunc(
-		func(w http.ResponseWriter, r *http.Request) {
-			switch r.URL.Path {
-			case DashboardServiceStreamConsoleProcedure:
-				dashboardServiceStreamConsoleHandler.ServeHTTP(w, r)
-			case DashboardServiceStreamMetricsProcedure:
-				dashboardServiceStreamMetricsHandler.ServeHTTP(w, r)
-			default:
-				http.NotFound(w, r)
-			}
-		},
-	)
+	return "/gopherstack.dashboard.v1.DashboardService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case DashboardServiceStreamConsoleProcedure:
+			dashboardServiceStreamConsoleHandler.ServeHTTP(w, r)
+		case DashboardServiceStreamMetricsProcedure:
+			dashboardServiceStreamMetricsHandler.ServeHTTP(w, r)
+		default:
+			http.NotFound(w, r)
+		}
+	})
 }
 
 // UnimplementedDashboardServiceHandler returns CodeUnimplemented from all methods.
 type UnimplementedDashboardServiceHandler struct{}
 
-func (UnimplementedDashboardServiceHandler) StreamConsole(
-	context.Context,
-	*connect.Request[v1.StreamConsoleRequest],
-	*connect.ServerStream[v1.StreamConsoleResponse],
-) error {
-	return connect.NewError(
-		connect.CodeUnimplemented,
-		errors.New("gopherstack.dashboard.v1.DashboardService.StreamConsole is not implemented"),
-	)
+func (UnimplementedDashboardServiceHandler) StreamConsole(context.Context, *connect.Request[v1.StreamConsoleRequest], *connect.ServerStream[v1.StreamConsoleResponse]) error {
+	return connect.NewError(connect.CodeUnimplemented, errors.New("gopherstack.dashboard.v1.DashboardService.StreamConsole is not implemented"))
 }
 
-func (UnimplementedDashboardServiceHandler) StreamMetrics(
-	context.Context,
-	*connect.Request[v1.StreamMetricsRequest],
-	*connect.ServerStream[v1.StreamMetricsResponse],
-) error {
-	return connect.NewError(
-		connect.CodeUnimplemented,
-		errors.New("gopherstack.dashboard.v1.DashboardService.StreamMetrics is not implemented"),
-	)
+func (UnimplementedDashboardServiceHandler) StreamMetrics(context.Context, *connect.Request[v1.StreamMetricsRequest], *connect.ServerStream[v1.StreamMetricsResponse]) error {
+	return connect.NewError(connect.CodeUnimplemented, errors.New("gopherstack.dashboard.v1.DashboardService.StreamMetrics is not implemented"))
 }

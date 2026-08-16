@@ -337,7 +337,6 @@
 			</div>
 		</div>
 		<div class="flex items-center gap-2">
-			<WriteRegionHint />
 			<button onclick={() => loadRepositories()} class="p-2 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white" title="Refresh">
 				<RefreshCw class="w-5 h-5 {loading ? 'animate-spin' : ''}" />
 			</button>
@@ -623,7 +622,10 @@
 {#if showCreateModal}
 	<div role="dialog" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
 		<div class="bg-white dark:bg-slate-800 rounded-xl shadow-xl p-6 w-full max-w-md">
-			<h2 class="text-xl font-bold text-slate-900 dark:text-white mb-4">Create Repository</h2>
+			<div class="flex items-center justify-between mb-4">
+				<h2 class="text-xl font-bold text-slate-900 dark:text-white">Create Repository</h2>
+				<WriteRegionHint />
+			</div>
 			<form onsubmit={(e) => { e.preventDefault(); createRepository(); }} class="space-y-4">
 				<div>
 					<label for="new-repo-name" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Repository Name</label>

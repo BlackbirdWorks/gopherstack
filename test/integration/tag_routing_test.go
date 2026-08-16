@@ -1075,27 +1075,30 @@ func TestIntegration_TagRouting_CrossServiceIsolation(t *testing.T) {
 
 	ctx := t.Context()
 
-	probeFactories := []func(ctx context.Context, t *testing.T) tagProbe{
-		newGrafanaTagProbe,
-		newNetworkManagerTagProbe,
-		newBatchTagProbe,
-		newAppSyncTagProbe,
-		newBedrockAgentTagProbe,
-		newCleanroomsTagProbe,
-		newAmplifyTagProbe,
-		newDetectiveTagProbe,
-		newDLMTagProbe,
-		newFISTagProbe,
-		newAccessAnalyzerTagProbe,
-		newManagedBlockchainTagProbe,
-		newNetworkMonitorTagProbe,
-		newOutpostsTagProbe,
-		newSecurityHubTagProbe,
+	tests := []struct {
+		newProbe func(ctx context.Context, t *testing.T) tagProbe
+		name     string
+	}{
+		{name: "grafana", newProbe: newGrafanaTagProbe},
+		{name: "networkmanager", newProbe: newNetworkManagerTagProbe},
+		{name: "batch", newProbe: newBatchTagProbe},
+		{name: "appsync", newProbe: newAppSyncTagProbe},
+		{name: "bedrockagent", newProbe: newBedrockAgentTagProbe},
+		{name: "cleanrooms", newProbe: newCleanroomsTagProbe},
+		{name: "amplify", newProbe: newAmplifyTagProbe},
+		{name: "detective", newProbe: newDetectiveTagProbe},
+		{name: "dlm", newProbe: newDLMTagProbe},
+		{name: "fis", newProbe: newFISTagProbe},
+		{name: "accessanalyzer", newProbe: newAccessAnalyzerTagProbe},
+		{name: "managedblockchain", newProbe: newManagedBlockchainTagProbe},
+		{name: "networkmonitor", newProbe: newNetworkMonitorTagProbe},
+		{name: "outposts", newProbe: newOutpostsTagProbe},
+		{name: "securityhub", newProbe: newSecurityHubTagProbe},
 	}
 
-	probes := make([]tagProbe, len(probeFactories))
-	for i, newProbe := range probeFactories {
-		probes[i] = newProbe(ctx, t)
+	probes := make([]tagProbe, len(tests))
+	for i, tt := range tests {
+		probes[i] = tt.newProbe(ctx, t)
 	}
 
 	for _, p := range probes {

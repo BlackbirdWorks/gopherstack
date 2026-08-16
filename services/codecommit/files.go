@@ -6,8 +6,9 @@ import (
 	"sort"
 	"time"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 // PutFile stores a file and creates a commit. It returns the new commit and

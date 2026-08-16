@@ -364,7 +364,6 @@ let manualSnapshotCount = $derived(snapshots.filter(s => s.SnapshotType === 'man
 			>
 				<RefreshCw class="w-4 h-4" />
 			</button>
-			<WriteRegionHint />
 			<button
 				onclick={() => showCreateModal = true}
 				class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 flex items-center gap-2"
@@ -848,7 +847,10 @@ let manualSnapshotCount = $derived(snapshots.filter(s => s.SnapshotType === 'man
 {#if showCreateModal}
 	<div class="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
 		<div class="bg-white dark:bg-slate-800 rounded-xl w-full max-w-md p-6 shadow-xl">
-			<h2 class="text-xl font-bold text-slate-900 dark:text-white mb-2">Create RDS Instance</h2>
+			<div class="flex items-center justify-between mb-2">
+				<h2 class="text-xl font-bold text-slate-900 dark:text-white">Create RDS Instance</h2>
+				<WriteRegionHint />
+			</div>
 			<p class="text-slate-500 dark:text-slate-400 text-sm mb-4">
 				Use the AWS console or CLI to create RDS instances with full configuration options.
 			</p>

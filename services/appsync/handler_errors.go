@@ -6,9 +6,10 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/labstack/echo/v5"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
-	"github.com/labstack/echo/v5"
 )
 
 // handleError maps backend errors to appropriate HTTP responses.

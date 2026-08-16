@@ -391,7 +391,7 @@ func applySegmentFilter(
 	filtered := candidate[:0]
 
 	for _, item := range candidate {
-		pkVal := fmt.Sprintf("%v", dynamoattr.UnwrapAttributeValue(item[pkDef.AttributeName]))
+		pkVal := BuildKeyString(item, pkDef.AttributeName)
 		h := fnv.New32a()
 		_, _ = h.Write([]byte(pkVal))
 		if int(h.Sum32())%totalSegments == segment {

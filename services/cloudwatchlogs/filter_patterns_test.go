@@ -3,8 +3,9 @@ package cloudwatchlogs_test
 import (
 	"testing"
 
-	"github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
 )
 
 func TestCloudWatchLogsBackend_FilterPatternMatches(t *testing.T) {

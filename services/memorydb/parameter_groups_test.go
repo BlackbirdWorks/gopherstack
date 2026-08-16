@@ -6,9 +6,10 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/blackbirdworks/gopherstack/services/memorydb"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/memorydb"
 )
 
 func TestBackend_ParameterGroup_Lifecycle(t *testing.T) {

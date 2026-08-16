@@ -5,10 +5,11 @@ import (
 	"net/url"
 	"testing"
 
-	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
-	"github.com/blackbirdworks/gopherstack/services/sns"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
+	"github.com/blackbirdworks/gopherstack/services/sns"
 )
 
 func TestSNSHandler_TagResource(t *testing.T) {

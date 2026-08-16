@@ -930,7 +930,6 @@
 					<input value={searchQuery} oninput={(e) => searchQueryParam.set(e.currentTarget.value)} type="text" placeholder="Search log groups..."
 						class="w-full pl-10 pr-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm text-gray-900 dark:text-white" />
 				</div>
-				<WriteRegionHint />
 				<button onclick={() => (showCreateGroup = true)}
 					class="flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 text-sm font-medium">
 					<Plus class="w-4 h-4" /> Create Log Group
@@ -1500,7 +1499,10 @@
 {#if showCreateGroup}
 	<div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
 		<div class="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-md p-6 space-y-4">
-			<h2 class="text-lg font-semibold text-gray-900 dark:text-white">Create Log Group</h2>
+			<div class="flex items-center justify-between">
+				<h2 class="text-lg font-semibold text-gray-900 dark:text-white">Create Log Group</h2>
+				<WriteRegionHint />
+			</div>
 			<div>
 				<label for="group-name" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Group Name</label>
 				<input id="group-name" bind:value={newGroupName} type="text" placeholder="/aws/lambda/my-function"

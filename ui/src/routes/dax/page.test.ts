@@ -86,18 +86,19 @@ describe("DAX Page", () => {
     });
   });
 
-  it("creates a cluster via the Cluster Name prompt", async () => {
+  it("creates a cluster via the modal", async () => {
     mockSend.mockResolvedValueOnce({ Clusters: [] });
     render(DaxPage);
     await waitFor(() => screen.getByText("No clusters found"));
 
-    promptSpy.mockReturnValue("new-cluster");
     mockSend.mockResolvedValueOnce({ Cluster: exampleCluster });
     mockSend.mockResolvedValueOnce({ Clusters: [exampleCluster] });
 
     await fireEvent.click(screen.getByText("Create cluster"));
+    const input = screen.getByLabelText("Cluster Name");
+    await fireEvent.input(input, { target: { value: "new-cluster" } });
+    await fireEvent.click(screen.getByRole("button", { name: "Create" }));
 
-    expect(promptSpy).toHaveBeenCalledWith("Cluster Name:");
     await waitFor(() => {
       expect(screen.getByText("my-cluster")).toBeInTheDocument();
     });
@@ -114,14 +115,13 @@ describe("DAX Page", () => {
     );
   });
 
-  it("does not create a cluster when the prompt is cancelled", async () => {
+  it("does not create a cluster when the modal is cancelled", async () => {
     mockSend.mockResolvedValueOnce({ Clusters: [] });
     render(DaxPage);
     await waitFor(() => screen.getByText("No clusters found"));
 
-    promptSpy.mockReturnValue(null);
-
     await fireEvent.click(screen.getByText("Create cluster"));
+    await fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
 
     // Only the initial DescribeClusters call -- no CreateCluster, no reload.
     expect(mockSend).toHaveBeenCalledTimes(1);
@@ -261,7 +261,6 @@ describe("DAX Page", () => {
     render(DaxPage);
     await waitFor(() => screen.getByText("No clusters found"));
 
-    promptSpy.mockReturnValue("new-cluster");
     const error = Object.assign(new Error("Limit exceeded."), {
       name: "LimitExceededFault",
     });
@@ -269,6 +268,9 @@ describe("DAX Page", () => {
     const { toast } = await import("svelte-sonner");
 
     await fireEvent.click(screen.getByText("Create cluster"));
+    const input = screen.getByLabelText("Cluster Name");
+    await fireEvent.input(input, { target: { value: "new-cluster" } });
+    await fireEvent.click(screen.getByRole("button", { name: "Create" }));
 
     await waitFor(() => {
       expect(toast.error).toHaveBeenCalledWith("LimitExceededFault: Limit exceeded.");
@@ -288,13 +290,14 @@ describe("DAX Page", () => {
     });
     expect(screen.getByText("custom params")).toBeInTheDocument();
 
-    promptSpy.mockReturnValue("new-params");
     mockSend.mockResolvedValueOnce({ ParameterGroup: exampleParamGroup });
     mockSend.mockResolvedValueOnce({ ParameterGroups: [exampleParamGroup] });
 
     await fireEvent.click(screen.getByText("Create param group"));
+    const input = screen.getByLabelText("Parameter Group Name");
+    await fireEvent.input(input, { target: { value: "new-params" } });
+    await fireEvent.click(screen.getByRole("button", { name: "Create" }));
 
-    expect(promptSpy).toHaveBeenCalledWith("Parameter Group Name:");
     await waitFor(() => {
       expect(mockSend).toHaveBeenNthCalledWith(
         3,
@@ -355,11 +358,13 @@ describe("DAX Page", () => {
     });
     expect(screen.getByText("VPC: vpc-12345")).toBeInTheDocument();
 
-    promptSpy.mockReturnValue("new-subnets");
     mockSend.mockResolvedValueOnce({ SubnetGroup: exampleSubnetGroup });
     mockSend.mockResolvedValueOnce({ SubnetGroups: [exampleSubnetGroup] });
 
     await fireEvent.click(screen.getByText("Create subnet group"));
+    const input = screen.getByLabelText("Subnet Group Name");
+    await fireEvent.input(input, { target: { value: "new-subnets" } });
+    await fireEvent.click(screen.getByRole("button", { name: "Create" }));
 
     await waitFor(() => {
       expect(mockSend).toHaveBeenNthCalledWith(

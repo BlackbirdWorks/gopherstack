@@ -23,7 +23,7 @@ type StorageBackend interface {
 	// Email identity attribute ops
 	PutEmailIdentityConfigurationSetAttributes(identity, configSetName string) error
 	PutEmailIdentityDkimAttributes(identity string, signingEnabled bool) error
-	PutEmailIdentityDkimSigningAttributes(identity string) error
+	PutEmailIdentityDkimSigningAttributes(identity string) (*EmailIdentity, error)
 	PutEmailIdentityFeedbackAttributes(identity string, emailForwardingEnabled bool) error
 	PutEmailIdentityMailFromAttributes(identity, mailFromDomain, behaviorOnMxFailure string) error
 

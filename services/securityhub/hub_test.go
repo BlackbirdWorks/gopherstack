@@ -5,9 +5,10 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/blackbirdworks/gopherstack/services/securityhub"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/securityhub"
 )
 
 // Batch-1 accuracy gap: EnableSecurityHub is POST /accounts (not POST /hub or POST /securityhub).

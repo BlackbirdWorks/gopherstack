@@ -9,9 +9,10 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	kinesissdk "github.com/aws/aws-sdk-go-v2/service/kinesis"
 	kinesissdktypes "github.com/aws/aws-sdk-go-v2/service/kinesis/types"
-	"github.com/blackbirdworks/gopherstack/services/kinesis"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/kinesis"
 )
 
 // TestUpdateStreamWarmThroughput_RoundTrip drives UpdateStreamWarmThroughput

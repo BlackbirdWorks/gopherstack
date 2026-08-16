@@ -138,6 +138,7 @@ func (b *InMemoryBackend) PutScalingPolicy(input ScalingPolicyInput) (*ScalingPo
 		Cooldown:                       input.Cooldown,
 		TargetValue:                    input.TargetValue,
 		MetricType:                     input.MetricType,
+		ResourceLabel:                  input.ResourceLabel,
 		DisableScaleIn:                 input.DisableScaleIn,
 		EstimatedWarmup:                input.EstimatedWarmup,
 		StepAdjustments:                input.StepAdjustments,

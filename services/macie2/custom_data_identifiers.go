@@ -8,8 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 func (b *InMemoryBackend) customDataIDARN(id string) string {

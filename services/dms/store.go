@@ -3,9 +3,10 @@ package dms
 import (
 	"context"
 
+	"github.com/google/uuid"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
-	"github.com/google/uuid"
 )
 
 // regionContextKey is the context key under which the per-request AWS region is stored.

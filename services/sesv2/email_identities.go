@@ -284,16 +284,20 @@ func (b *InMemoryBackend) PutEmailIdentityDkimAttributes(
 	return nil
 }
 
-// PutEmailIdentityDkimSigningAttributes validates the identity exists (BYODKIM not modelled).
-func (b *InMemoryBackend) PutEmailIdentityDkimSigningAttributes(identity string) error {
+// PutEmailIdentityDkimSigningAttributes validates the identity exists and returns its
+// DKIM attributes (BYODKIM not modelled).
+func (b *InMemoryBackend) PutEmailIdentityDkimSigningAttributes(identity string) (*EmailIdentity, error) {
 	b.mu.RLock("PutEmailIdentityDkimSigningAttributes")
 	defer b.mu.RUnlock()
 
-	if !b.identities.Has(identity) {
-		return fmt.Errorf("%w: identity %s not found", ErrNotFound, identity)
+	ei, ok := b.identities.Get(identity)
+	if !ok {
+		return nil, fmt.Errorf("%w: identity %s not found", ErrNotFound, identity)
 	}
 
-	return nil
+	cp := *ei
+
+	return &cp, nil
 }
 
 // PutEmailIdentityFeedbackAttributes sets the feedback forwarding flag for the identity.

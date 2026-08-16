@@ -160,3 +160,53 @@ func TestIntegration_DDB_BackupsParity(t *testing.T) {
 	})
 	require.Error(t, err, "DescribeBackup should fail after the backup was deleted")
 }
+
+func TestIntegration_DDB_Backups_ValidationErrors(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+	client := createDynamoDBClient(t)
+	ctx := t.Context()
+
+	tests := []struct {
+		run     func(t *testing.T) error
+		name    string
+		wantErr bool
+	}{
+		{
+			name: "describe_non_existent_backup",
+			run: func(t *testing.T) error {
+				t.Helper()
+				_, err := client.DescribeBackup(ctx, &dynamodb.DescribeBackupInput{
+					BackupArn: aws.String("arn:aws:dynamodb:us-east-1:000000000000:table/unknown/backup/unknown"),
+				})
+
+				return err
+			},
+			wantErr: true,
+		},
+		{
+			name: "delete_non_existent_backup",
+			run: func(t *testing.T) error {
+				t.Helper()
+				_, err := client.DeleteBackup(ctx, &dynamodb.DeleteBackupInput{
+					BackupArn: aws.String("arn:aws:dynamodb:us-east-1:000000000000:table/unknown/backup/unknown"),
+				})
+
+				return err
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			err := tt.run(t)
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}

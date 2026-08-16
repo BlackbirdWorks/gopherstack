@@ -6,8 +6,9 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 )
 
 func (h *Handler) handleChannelNamespacesCollection(ctx context.Context, c *echo.Context, apiID string) error {

@@ -4,8 +4,9 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 )
 
 // errTypeHeader is the HTTP response header AWS uses to carry the modeled error

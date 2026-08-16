@@ -122,6 +122,7 @@ type dhcpConfigValueItem struct {
 type dhcpOptionsItem struct {
 	DhcpOptionsID  string                  `xml:"dhcpOptionsId"`
 	Configurations []dhcpConfigurationItem `xml:"dhcpConfigurationSet>item"`
+	TagSet         []simpleTagItem         `xml:"tagSet>item"`
 }
 
 type createDhcpOptionsResponse struct {
@@ -337,8 +338,11 @@ func (h *Handler) handleDeleteFlowLogs(vals url.Values, reqID string) (any, erro
 	return &deleteFlowLogsResponse{RequestID: reqID}, nil
 }
 
-func dhcpOptsToItem(opts *DhcpOptions) dhcpOptionsItem {
-	item := dhcpOptionsItem{DhcpOptionsID: opts.DhcpOptionsID}
+func dhcpOptsToItem(opts *DhcpOptions, tags map[string]string) dhcpOptionsItem {
+	item := dhcpOptionsItem{
+		DhcpOptionsID: opts.DhcpOptionsID,
+		TagSet:        tagItemsFromMap(tags),
+	}
 
 	for _, cfg := range opts.Configurations {
 		cfgItem := dhcpConfigurationItem{Key: cfg.Key}
@@ -370,14 +374,15 @@ func parseDhcpConfigurations(vals url.Values) []DhcpConfiguration {
 
 func (h *Handler) handleCreateDhcpOptions(vals url.Values, reqID string) (any, error) {
 	configs := parseDhcpConfigurations(vals)
-	opts, err := h.Backend.CreateDhcpOptions(configs)
+	tags := parseTagSpecification(vals, "dhcp-options")
+	opts, err := h.Backend.CreateDhcpOptions(configs, tags)
 	if err != nil {
 		return nil, err
 	}
 
 	return &createDhcpOptionsResponse{
 		RequestID:   reqID,
-		DhcpOptions: dhcpOptsToItem(opts),
+		DhcpOptions: dhcpOptsToItem(opts, h.Backend.TagsForResource(opts.DhcpOptionsID)),
 	}, nil
 }
 
@@ -388,7 +393,10 @@ func (h *Handler) handleDescribeDhcpOptions(vals url.Values, reqID string) (any,
 	resp := &describeDhcpOptionsResponse{RequestID: reqID}
 
 	for _, o := range opts {
-		resp.DhcpOptionSet.Items = append(resp.DhcpOptionSet.Items, dhcpOptsToItem(o))
+		resp.DhcpOptionSet.Items = append(
+			resp.DhcpOptionSet.Items,
+			dhcpOptsToItem(o, h.Backend.TagsForResource(o.DhcpOptionsID)),
+		)
 	}
 
 	return resp, nil

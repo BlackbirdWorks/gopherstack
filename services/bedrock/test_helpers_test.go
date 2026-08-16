@@ -8,9 +8,10 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/blackbirdworks/gopherstack/services/bedrock"
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/bedrock"
 )
 
 func newTestHandler(t *testing.T) *bedrock.Handler {

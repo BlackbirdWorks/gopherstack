@@ -851,7 +851,6 @@
 					class="w-full rounded-md border bg-background pl-9 pr-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
 				/>
 			</div>
-			<WriteRegionHint />
 			<button
 				onclick={() => (showCreateApiModal = true)}
 				class="flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground hover:bg-primary/90"
@@ -1185,7 +1184,6 @@
 				<input type="text" placeholder="Search domains…" bind:value={searchQuery}
 					class="w-full rounded-md border bg-background pl-9 pr-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary" />
 			</div>
-			<WriteRegionHint />
 			<button onclick={() => (showCreateDomainModal = true)}
 				class="flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground hover:bg-primary/90">
 				<Plus class="h-4 w-4" />Add Domain
@@ -1227,7 +1225,6 @@
 				<input type="text" placeholder="Search VPC links…" bind:value={searchQuery}
 					class="w-full rounded-md border bg-background pl-9 pr-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary" />
 			</div>
-			<WriteRegionHint />
 			<button onclick={() => (showCreateVpcLinkModal = true)}
 				class="flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground hover:bg-primary/90">
 				<Plus class="h-4 w-4" />Create VPC Link
@@ -1309,8 +1306,11 @@
 <!-- Create API Modal -->
 {#if showCreateApiModal}
 	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-		<div class="w-full max-w-md rounded-lg border bg-card p-6 shadow-lg">
-			<h2 class="mb-4 text-lg font-semibold">Create HTTP/WebSocket API</h2>
+		<div class="w-full max-w-md rounded-lg bg-background p-6 shadow-xl">
+			<div class="flex items-center justify-between mb-4">
+				<h2 class="text-lg font-semibold">Create HTTP / WebSocket API</h2>
+				<WriteRegionHint />
+			</div>
 			<div class="space-y-4">
 				<div>
 					<label class="mb-1 block text-sm font-medium" for="new-api-name">Name <span class="text-destructive">*</span></label>
@@ -1505,8 +1505,11 @@
 <!-- Create Domain Name Modal -->
 {#if showCreateDomainModal}
 	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-		<div class="w-full max-w-md rounded-lg border bg-card p-6 shadow-lg">
-			<h2 class="mb-4 text-lg font-semibold">Create Custom Domain</h2>
+		<div class="w-full max-w-sm rounded-lg bg-background p-6 shadow-xl">
+			<div class="flex items-center justify-between mb-4">
+				<h2 class="text-lg font-semibold">Add Custom Domain</h2>
+				<WriteRegionHint />
+			</div>
 			<div class="space-y-4">
 				<div>
 					<label class="mb-1 block text-sm font-medium" for="new-domain-name">Domain Name <span class="text-destructive">*</span></label>
@@ -1530,8 +1533,11 @@
 <!-- Create VPC Link Modal -->
 {#if showCreateVpcLinkModal}
 	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-		<div class="w-full max-w-md rounded-lg border bg-card p-6 shadow-lg">
-			<h2 class="mb-4 text-lg font-semibold">Create VPC Link</h2>
+		<div class="w-full max-w-sm rounded-lg bg-background p-6 shadow-xl">
+			<div class="flex items-center justify-between mb-4">
+				<h2 class="text-lg font-semibold">Create VPC Link</h2>
+				<WriteRegionHint />
+			</div>
 			<div class="space-y-4">
 				<div>
 					<label class="mb-1 block text-sm font-medium" for="new-vpc-link-name">Name <span class="text-destructive">*</span></label>

@@ -3,8 +3,9 @@ package cloudformation_test
 import (
 	"testing"
 
-	"github.com/blackbirdworks/gopherstack/services/cloudformation"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/blackbirdworks/gopherstack/services/cloudformation"
 )
 
 // TestResourceCreator_Extra_GetAtt verifies Fn::GetAtt resolution for phase-5 resource types.

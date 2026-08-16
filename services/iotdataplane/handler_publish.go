@@ -9,8 +9,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
 // parsePublishQoS extracts and validates the qos query parameter.

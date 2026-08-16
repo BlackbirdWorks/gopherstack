@@ -6,8 +6,9 @@ import (
 	"maps"
 	"sort"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 // connectionHasReferenceToHostLocked returns true if any connection in the region references hostArn.

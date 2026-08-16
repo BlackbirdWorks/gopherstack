@@ -9,8 +9,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 type globalReplicationGroupXML struct {

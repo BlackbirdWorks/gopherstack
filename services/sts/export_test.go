@@ -14,21 +14,23 @@ const (
 
 // TrustEvalForTest mirrors the unexported trustEval evaluation context.
 type TrustEvalForTest struct {
-	ConditionCtx map[string]string
-	Action       string
-	CallerArn    string
-	FederatedArn string
-	ExternalID   string
+	ConditionCtx     map[string]string
+	Action           string
+	CallerArn        string
+	FederatedArn     string
+	ExternalID       string
+	StrictConditions bool
 }
 
 // EvaluateAssumeRoleTrust exposes evaluateAssumeRoleTrust for tests.
 func EvaluateAssumeRoleTrust(policyJSON string, ev TrustEvalForTest) error {
 	return evaluateAssumeRoleTrust(policyJSON, trustEval{
-		action:       ev.Action,
-		callerArn:    ev.CallerArn,
-		federatedArn: ev.FederatedArn,
-		externalID:   ev.ExternalID,
-		conditionCtx: ev.ConditionCtx,
+		action:           ev.Action,
+		callerArn:        ev.CallerArn,
+		federatedArn:     ev.FederatedArn,
+		externalID:       ev.ExternalID,
+		conditionCtx:     ev.ConditionCtx,
+		strictConditions: ev.StrictConditions,
 	})
 }
 

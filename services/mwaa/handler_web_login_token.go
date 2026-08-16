@@ -4,9 +4,10 @@ import (
 	"errors"
 	"net/http"
 
+	"github.com/labstack/echo/v5"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
-	"github.com/labstack/echo/v5"
 )
 
 func (h *Handler) handleCreateWebLoginToken(c *echo.Context, name string) error {

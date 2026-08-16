@@ -6,10 +6,11 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/blackbirdworks/gopherstack/services/eventbridge"
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/eventbridge"
 )
 
 func TestHandler_ListRuleNamesByTarget(t *testing.T) {

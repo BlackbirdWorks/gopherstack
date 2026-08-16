@@ -47,15 +47,15 @@ func computeMD5OfMessageAttributes(attrs map[string]MessageAttributeValue) strin
 	var buf []byte
 	for _, name := range names {
 		attr := attrs[name]
-		buf = appendWithLength(buf, []byte(name))
-		buf = appendWithLength(buf, []byte(attr.DataType))
+		buf = appendWithLengthString(buf, name)
+		buf = appendWithLengthString(buf, attr.DataType)
 
 		if strings.HasPrefix(attr.DataType, "Binary") {
 			buf = append(buf, msgAttrTransportTypeBinary)
 			buf = appendWithLength(buf, attr.BinaryValue)
 		} else {
 			buf = append(buf, msgAttrTransportTypeString)
-			buf = appendWithLength(buf, []byte(attr.StringValue))
+			buf = appendWithLengthString(buf, attr.StringValue)
 		}
 	}
 
@@ -77,18 +77,30 @@ func appendWithLength(buf, data []byte) []byte {
 	return buf
 }
 
+// appendWithLengthString appends a 4-byte big-endian length prefix followed by string data to buf without allocation.
+func appendWithLengthString(buf []byte, s string) []byte {
+	var lenBuf [4]byte
+	n := uint32(len(s)) //nolint:gosec // G115: bounded by SQS MaximumMessageSize (256 KB)
+	binary.BigEndian.PutUint32(lenBuf[:], n)
+
+	buf = append(buf, lenBuf[:]...)
+	buf = append(buf, s...)
+
+	return buf
+}
+
 // encodeMessageAttribute encodes a single attribute per SQS rules.
 func encodeMessageAttribute(name string, attr MessageAttributeValue) []byte {
 	var buf []byte
-	buf = appendWithLength(buf, []byte(name))
-	buf = appendWithLength(buf, []byte(attr.DataType))
+	buf = appendWithLengthString(buf, name)
+	buf = appendWithLengthString(buf, attr.DataType)
 
 	if strings.HasPrefix(attr.DataType, "Binary") {
 		buf = append(buf, msgAttrTransportTypeBinary)
 		buf = appendWithLength(buf, attr.BinaryValue)
 	} else {
 		buf = append(buf, msgAttrTransportTypeString)
-		buf = appendWithLength(buf, []byte(attr.StringValue))
+		buf = appendWithLengthString(buf, attr.StringValue)
 	}
 
 	return buf

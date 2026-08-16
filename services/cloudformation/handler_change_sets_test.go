@@ -5,8 +5,9 @@ import (
 	"net/url"
 	"testing"
 
-	"github.com/blackbirdworks/gopherstack/services/cloudformation"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/blackbirdworks/gopherstack/services/cloudformation"
 )
 
 // TestHandler_ExecuteChangeSet_InvalidStatus verifies the wire-level error for

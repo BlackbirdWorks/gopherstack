@@ -15,10 +15,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
-	"github.com/google/uuid"
 )
 
 // functionURLServer holds a running HTTP listener for a Lambda function URL.

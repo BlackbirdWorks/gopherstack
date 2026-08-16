@@ -9,6 +9,7 @@
 	type Props = {
 		title: string;
 		children: Snippet;
+		headerAction?: Snippet;
 		footer?: Snippet;
 		titleId?: string;
 		descriptionId?: string;
@@ -24,6 +25,7 @@
 	let {
 		title,
 		children,
+		headerAction,
 		footer,
 		titleId = 'modal-title',
 		descriptionId,
@@ -135,7 +137,12 @@
 	class="rounded-2xl border border-slate-200 bg-white p-0 text-slate-900 shadow-2xl backdrop:bg-slate-950/60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
 >
 	<div class="w-full max-w-md space-y-4 p-6">
-		<h2 id={titleId} class="text-lg font-semibold tracking-tight">{title}</h2>
+		<div class="flex items-center justify-between">
+			<h2 id={titleId} class="text-lg font-semibold tracking-tight">{title}</h2>
+			{#if headerAction}
+				{@render headerAction()}
+			{/if}
+		</div>
 		{@render children()}
 		{#if footer}
 			<div class="flex justify-end gap-2 pt-2">

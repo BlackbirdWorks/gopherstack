@@ -438,7 +438,6 @@ let kmsCount = $derived(secrets.filter(s => s.KmsKeyId && s.KmsKeyId !== 'alias/
 			<button onclick={seedDemoData} disabled={seedingDemo} class="px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center gap-1 disabled:opacity-50" title="Seed demo data">
 				<Beaker class="w-4 h-4" /> Demo
 			</button>
-			<WriteRegionHint />
 			<button onclick={() => showCreateModal = true} class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 flex items-center gap-2">
 				<Plus class="w-4 h-4" />
 				Create Secret
@@ -853,7 +852,10 @@ let kmsCount = $derived(secrets.filter(s => s.KmsKeyId && s.KmsKeyId !== 'alias/
 {#if showCreateModal}
 	<div class="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
 		<div class="bg-white dark:bg-slate-800 rounded-xl w-full max-w-md p-6">
-			<h2 class="text-xl font-bold text-slate-900 dark:text-white mb-4">Create Secret</h2>
+			<div class="flex items-center justify-between mb-4">
+				<h2 class="text-xl font-bold text-slate-900 dark:text-white">Create Secret</h2>
+				<WriteRegionHint />
+			</div>
 			<div class="space-y-4">
 				<div>
 					<label for="secret-name" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Secret Name</label>

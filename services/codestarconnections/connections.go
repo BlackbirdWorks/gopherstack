@@ -6,8 +6,9 @@ import (
 	"maps"
 	"sort"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 // CreateConnection creates a new CodeStar connection.

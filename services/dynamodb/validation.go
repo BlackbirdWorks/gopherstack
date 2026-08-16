@@ -96,6 +96,15 @@ const (
 	perItemOverhead = 100
 )
 
+// WriteCapacityUnitsFromSize returns the WCUs consumed by a write: ceil(size / 1KB), minimum 1.
+func WriteCapacityUnitsFromSize(size int) float64 {
+	if size <= 0 {
+		return 1.0
+	}
+
+	return float64((size + wcuBytes - 1) / wcuBytes)
+}
+
 // WriteCapacityUnits returns the WCUs consumed by a write: ceil(size / 1KB), minimum 1.
 func WriteCapacityUnits(item map[string]any) float64 {
 	size, err := CalculateItemSize(item)
@@ -103,7 +112,17 @@ func WriteCapacityUnits(item map[string]any) float64 {
 		return 1.0
 	}
 
-	return float64((size + wcuBytes - 1) / wcuBytes)
+	return WriteCapacityUnitsFromSize(size)
+}
+
+// ReadCapacityUnitsFromSize returns the RCUs consumed by an eventually-consistent read:
+// 0.5 RCU per 4 KB (ceiling), minimum 0.5.
+func ReadCapacityUnitsFromSize(size int) float64 {
+	if size <= 0 {
+		return models.ConsumedReadUnit
+	}
+
+	return float64((size+rcuBytes-1)/rcuBytes) * models.ConsumedReadUnit
 }
 
 // ReadCapacityUnits returns the RCUs consumed by an eventually-consistent read:
@@ -114,7 +133,7 @@ func ReadCapacityUnits(item map[string]any) float64 {
 		return models.ConsumedReadUnit
 	}
 
-	return float64((size+rcuBytes-1)/rcuBytes) * models.ConsumedReadUnit
+	return ReadCapacityUnitsFromSize(size)
 }
 
 // CalculateItemSize approximates the DynamoDB-encoded size of a wire-format item in bytes.

@@ -50,12 +50,18 @@ type liveCollector struct {
 	writeHeldDesc    *prometheus.Desc
 	writeWaitersDesc *prometheus.Desc
 	readWaitersDesc  *prometheus.Desc
+	waitSeconds      *prometheus.HistogramVec
+	holdSeconds      *prometheus.HistogramVec
+	activeWriters    *prometheus.GaugeVec
+	activeReaders    *prometheus.GaugeVec
 	// allMutexes follows; sync.Map contains internal pointers so the GC scan
 	// still extends into it, but placing it after the Desc pointers is optimal.
 	allMutexes sync.Map // map[*RWMutex]struct{}
 }
 
 func newLiveCollector() *liveCollector {
+	buckets := []float64{.000001, .00001, .0001, .001, .01, .1, 1, 10}
+
 	return &liveCollector{
 		writeHeldDesc: prometheus.NewDesc(
 			"gopherstack_lock_write_held_seconds",
@@ -79,6 +85,40 @@ func newLiveCollector() *liveCollector {
 			[]string{labelLock},
 			nil,
 		),
+		waitSeconds: registerOrReuse(prometheus.NewHistogramVec(
+			prometheus.HistogramOpts{
+				Namespace: metricsNamespace,
+				Name:      "lock_wait_seconds",
+				Help:      "Time spent waiting to acquire a lock, by lock name, operation, and type (read|write).",
+				Buckets:   buckets,
+			},
+			[]string{labelLock, labelOperation, "type"},
+		)),
+		holdSeconds: registerOrReuse(prometheus.NewHistogramVec(
+			prometheus.HistogramOpts{
+				Namespace: metricsNamespace,
+				Name:      "lock_hold_seconds",
+				Help:      "Duration a write lock was held, by lock name and operation.",
+				Buckets:   buckets,
+			},
+			[]string{labelLock, labelOperation},
+		)),
+		activeWriters: registerOrReuse(prometheus.NewGaugeVec(
+			prometheus.GaugeOpts{
+				Namespace: metricsNamespace,
+				Name:      "lock_active_writers",
+				Help:      "Current number of goroutines holding the write lock (0 or 1 per lock).",
+			},
+			[]string{labelLock, labelOperation},
+		)),
+		activeReaders: registerOrReuse(prometheus.NewGaugeVec(
+			prometheus.GaugeOpts{
+				Namespace: metricsNamespace,
+				Name:      "lock_active_readers",
+				Help:      "Current number of goroutines holding the read lock.",
+			},
+			[]string{labelLock},
+		)),
 	}
 }
 
@@ -179,50 +219,17 @@ type RWMutex struct {
 // emitted metrics and should be a stable, human-readable identifier
 // (e.g. "s3", "ddb.table.users").
 func New(name string) *RWMutex {
-	buckets := []float64{.000001, .00001, .0001, .001, .01, .1, 1, 10}
+	coll := registerOrReuse(newLiveCollector())
 
-	m := &RWMutex{name: name}
+	m := &RWMutex{
+		name:          name,
+		waitSeconds:   coll.waitSeconds,
+		holdSeconds:   coll.holdSeconds,
+		activeWriters: coll.activeWriters,
+		activeReaders: coll.activeReaders,
+	}
 	m.writeOp.Store("")
 
-	m.waitSeconds = registerOrReuse(prometheus.NewHistogramVec(
-		prometheus.HistogramOpts{
-			Namespace: metricsNamespace,
-			Name:      "lock_wait_seconds",
-			Help:      "Time spent waiting to acquire a lock, by lock name, operation, and type (read|write).",
-			Buckets:   buckets,
-		},
-		[]string{labelLock, labelOperation, "type"},
-	))
-	m.holdSeconds = registerOrReuse(prometheus.NewHistogramVec(
-		prometheus.HistogramOpts{
-			Namespace: metricsNamespace,
-			Name:      "lock_hold_seconds",
-			Help:      "Duration a write lock was held, by lock name and operation.",
-			Buckets:   buckets,
-		},
-		[]string{labelLock, labelOperation},
-	))
-	m.activeWriters = registerOrReuse(prometheus.NewGaugeVec(
-		prometheus.GaugeOpts{
-			Namespace: metricsNamespace,
-			Name:      "lock_active_writers",
-			Help:      "Current number of goroutines holding the write lock (0 or 1 per lock).",
-		},
-		[]string{labelLock, labelOperation},
-	))
-	m.activeReaders = registerOrReuse(prometheus.NewGaugeVec(
-		prometheus.GaugeOpts{
-			Namespace: metricsNamespace,
-			Name:      "lock_active_readers",
-			Help:      "Current number of goroutines holding the read lock.",
-		},
-		[]string{labelLock},
-	))
-
-	// Register the shared live-state Collector. All instances share one Collector
-	// (retrieved via registerOrReuse on subsequent calls) so the Prometheus registry
-	// sees a single Collector per metric family.
-	coll := registerOrReuse(newLiveCollector())
 	coll.allMutexes.Store(m, struct{}{})
 
 	// Pre-curry the activeReaders gauge to this lock's name so RLock/RUnlock
@@ -236,6 +243,9 @@ func New(name string) *RWMutex {
 // It must be called when the mutex is no longer needed (e.g. on table/bucket deletion)
 // to prevent memory leaks and performance degradation.
 func (m *RWMutex) Close() {
+	if m == nil {
+		return
+	}
 	coll := registerOrReuse(newLiveCollector())
 	coll.allMutexes.Delete(m)
 

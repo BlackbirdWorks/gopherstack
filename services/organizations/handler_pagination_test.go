@@ -8,10 +8,11 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/logger"
-	"github.com/blackbirdworks/gopherstack/services/organizations"
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/services/organizations"
 )
 
 func TestHandler_Pagination(t *testing.T) {

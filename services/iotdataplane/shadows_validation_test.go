@@ -7,9 +7,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/blackbirdworks/gopherstack/services/iotdataplane"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/iotdataplane"
 )
 
 func TestBackend_ShadowUpdate_NonObjectDocumentRejected(t *testing.T) {

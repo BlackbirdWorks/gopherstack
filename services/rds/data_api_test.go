@@ -3,9 +3,10 @@ package rds_test
 import (
 	"testing"
 
-	"github.com/blackbirdworks/gopherstack/services/rds"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/rds"
 )
 
 func TestEnableDisableHttpEndpoint(t *testing.T) {

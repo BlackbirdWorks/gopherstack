@@ -6,9 +6,10 @@ import (
 	"sort"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
-	"github.com/google/uuid"
 )
 
 // CreateChangeSet creates a change set for a stack.

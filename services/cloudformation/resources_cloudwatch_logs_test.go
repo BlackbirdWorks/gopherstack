@@ -3,10 +3,11 @@ package cloudformation_test
 import (
 	"testing"
 
-	"github.com/blackbirdworks/gopherstack/services/cloudformation"
-	cwlogsbackend "github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/cloudformation"
+	cwlogsbackend "github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
 )
 
 // TestResourceCreator_Extra_LogsResources verifies that Logs child resources are created in

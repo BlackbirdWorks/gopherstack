@@ -15,7 +15,7 @@ func applyDelimiter(
 	prefix, delimiter string,
 	contents []types.Object,
 ) ([]types.Object, []types.CommonPrefix) {
-	var filtered []types.Object
+	filtered := make([]types.Object, 0, len(contents))
 	var cpList []types.CommonPrefix
 	seenPrefixes := make(map[string]struct{})
 
@@ -61,25 +61,20 @@ func (b *InMemoryBackend) processListObjects(
 		}
 	}()
 
-	// Resolve each candidate's latest (non-deleted) version outside the
-	// bucket lock. This is the same per-object work processObjectSnapshots
-	// always did -- only the types.Object allocation is deferred below.
-	versions := b.snapshotLatestVersions(objectSnapshots)
-
-	sort.Slice(versions, func(i, j int) bool {
-		return versions[i].Key < versions[j].Key
+	sort.Slice(objectSnapshots, func(i, j int) bool {
+		return objectSnapshots[i].Key < objectSnapshots[j].Key
 	})
 
 	// Apply Marker using binary search for O(log n) seek instead of O(n) linear scan.
 	marker := aws.ToString(input.Marker)
 	if marker != "" {
-		startIndex := sort.Search(len(versions), func(i int) bool {
-			return versions[i].Key > marker
+		startIndex := sort.Search(len(objectSnapshots), func(i int) bool {
+			return objectSnapshots[i].Key > marker
 		})
-		if startIndex >= len(versions) {
-			versions = nil
+		if startIndex >= len(objectSnapshots) {
+			objectSnapshots = nil
 		} else {
-			versions = versions[startIndex:]
+			objectSnapshots = objectSnapshots[startIndex:]
 		}
 	}
 
@@ -91,27 +86,29 @@ func (b *InMemoryBackend) processListObjects(
 	delimiter := aws.ToString(input.Delimiter)
 
 	// No delimiter: CommonPrefixes is always empty, so truncation is a plain
-	// slice cut on the already-sorted, marker-seeked version list. Truncate
-	// BEFORE building types.Object so a page request against a huge bucket
-	// only pays the per-object allocation cost (Owner, ChecksumAlgorithm
-	// slice, etc.) for the keys actually returned, not every matching key.
+	// slice cut on the already-sorted, marker-seeked object list. Truncate
+	// BEFORE resolving versions so a page request against a huge bucket
+	// only pays the per-object version resolution cost for the keys actually returned.
 	if delimiter == "" {
 		var isTruncated bool
 		var nextMarker string
 		if maxKeys <= 0 {
-			isTruncated = len(versions) > 0
-			versions = nil
-		} else if int64(len(versions)) > int64(maxKeys) {
+			isTruncated = len(objectSnapshots) > 0
+			objectSnapshots = nil
+		} else if int64(len(objectSnapshots)) > int64(maxKeys) {
 			isTruncated = true
-			nextMarker = versions[maxKeys-1].Key
-			versions = versions[:maxKeys]
+			nextMarker = objectSnapshots[maxKeys-1].Key
+			objectSnapshots = objectSnapshots[:maxKeys]
 		}
+
+		versions := b.snapshotLatestVersions(objectSnapshots)
 
 		return objectsFromVersions(versions), nil, isTruncated, nextMarker, maxKeys
 	}
 
 	// Delimiter grouping needs every matching key up front to compute
 	// CommonPrefixes correctly, so build the full page before truncating.
+	versions := b.snapshotLatestVersions(objectSnapshots)
 	contents := objectsFromVersions(versions)
 	contents, cpList := applyDelimiter(prefix, delimiter, contents)
 
@@ -351,10 +348,10 @@ func (b *InMemoryBackend) ListObjectVersions(
 // snapshotVersions captures all versions from bucket.Objects that match prefix,
 // under the bucket read lock.
 func (b *InMemoryBackend) snapshotVersions(bucket *StoredBucket, prefix string) []versionSnapshot {
-	var snapshots []versionSnapshot
-
 	bucket.mu.RLock("ListObjectVersions")
 	defer bucket.mu.RUnlock()
+
+	snapshots := make([]versionSnapshot, 0, len(bucket.Objects))
 
 	for _, obj := range bucket.Objects {
 		if !strings.HasPrefix(obj.Key, prefix) {

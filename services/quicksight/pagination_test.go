@@ -8,9 +8,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/blackbirdworks/gopherstack/services/quicksight"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/quicksight"
 )
 
 // isBase64Int returns true if s is a valid base64-encoded decimal integer.

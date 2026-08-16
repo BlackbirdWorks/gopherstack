@@ -49,18 +49,23 @@ func (b *InMemoryBackend) DeleteObject(
 		}
 
 		func() {
-			b.mu.Lock("DeleteObject.tags")
-			defer b.mu.Unlock()
+			b.mu.RLock("DeleteObject.checkTags")
+			hasTags := len(b.tags) > 0
+			b.mu.RUnlock()
 
-			if b.tags != nil {
-				delete(b.tags, fmt.Sprintf("%s/%s/%s", bucketName, *input.Key, vid))
+			if hasTags {
+				b.mu.Lock("DeleteObject.tags")
+				if b.tags != nil {
+					delete(b.tags, fmt.Sprintf("%s/%s/%s", bucketName, *input.Key, vid))
+				}
+				b.mu.Unlock()
 			}
 		}()
 	}
 
 	// Async delete-marker replication when versioning created a delete marker,
 	// parented to the service context rather than the request context.
-	if out.DeleteMarker != nil && aws.ToBool(out.DeleteMarker) {
+	if out.DeleteMarker != nil && aws.ToBool(out.DeleteMarker) && bucket.ReplicationConfig != "" {
 		repCtx := b.replicationContext(ctx)
 		key := *input.Key
 		b.replicationWg.Go(func() {
@@ -348,18 +353,29 @@ func (b *InMemoryBackend) DeleteObjects(
 	}()
 
 	// Clean up tags after the bucket lock is released.
-	if len(tagKeysToDelete) > 0 {
-		b.mu.Lock("DeleteObjects.tags")
-		defer b.mu.Unlock()
+	b.cleanDeletedTags(tagKeysToDelete)
 
+	return out, nil
+}
+
+func (b *InMemoryBackend) cleanDeletedTags(tagKeys []string) {
+	if len(tagKeys) == 0 {
+		return
+	}
+
+	b.mu.RLock("DeleteObjects.checkTags")
+	hasTags := len(b.tags) > 0
+	b.mu.RUnlock()
+
+	if hasTags {
+		b.mu.Lock("DeleteObjects.tags")
 		if b.tags != nil {
-			for _, k := range tagKeysToDelete {
+			for _, k := range tagKeys {
 				delete(b.tags, k)
 			}
 		}
+		b.mu.Unlock()
 	}
-
-	return out, nil
 }
 
 // deleteSingleObject deletes one object from the bucket and returns the deleted record,

@@ -7,9 +7,10 @@ import (
 	"testing"
 	"time"
 
-	cloudwatch "github.com/blackbirdworks/gopherstack/services/cloudwatch"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	cloudwatch "github.com/blackbirdworks/gopherstack/services/cloudwatch"
 )
 
 // makeResult builds a MetricDataResult with n sequential data points.

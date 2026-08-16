@@ -4,9 +4,10 @@ import (
 	"context"
 	"testing"
 
-	"github.com/blackbirdworks/gopherstack/services/kinesis"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/kinesis"
 )
 
 // TestMultipleResetCycle verifies repeated Reset() calls are safe.

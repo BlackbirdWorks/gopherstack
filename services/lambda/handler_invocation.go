@@ -10,8 +10,9 @@ import (
 	"math"
 	"net/http"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 )
 
 func (h *Handler) validateInvocationHeaders(c *echo.Context) (string, string, string, error) {

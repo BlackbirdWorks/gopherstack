@@ -6,9 +6,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/blackbirdworks/gopherstack/services/memorydb"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/memorydb"
 )
 
 // TestCluster_LifecycleDelay_Default verifies that with no lifecycle delay

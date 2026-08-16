@@ -3,10 +3,11 @@ package iot_test
 import (
 	"testing"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/service"
-	"github.com/blackbirdworks/gopherstack/services/iot"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	"github.com/blackbirdworks/gopherstack/services/iot"
 )
 
 // TestRefinement1_ProviderInit_NilCtx verifies that ErrNilAppContext is returned.

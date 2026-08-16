@@ -7,10 +7,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
 )
 
 func TestHandler_PutLogEvents_MismatchedSequenceToken_StillAccepted(t *testing.T) {

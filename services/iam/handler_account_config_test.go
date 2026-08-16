@@ -2,14 +2,16 @@ package iam_test
 
 import (
 	"encoding/xml"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
-	"github.com/blackbirdworks/gopherstack/services/iam"
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/iam"
 )
 
 func TestPasswordPolicy_Handler(t *testing.T) {
@@ -400,6 +402,78 @@ func TestChangePassword_WrongOldPasswordRejected(t *testing.T) {
 
 	require.NoError(t, b.ChangePassword("SecondP@ssw0rd!", "ThirdP@ssw0rd!"),
 		"the real current password must still be accepted")
+}
+
+func TestHandler_ChangePassword_PerUserLoginProfile(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		userName    string
+		authKey     string
+		initPass    string
+		oldPass     string
+		newPass     string
+		expectError bool
+		wantCode    int
+	}{
+		{
+			name:        "authenticated_user_updates_own_password",
+			userName:    "alice",
+			authKey:     "AKIAALICEKEY123456",
+			initPass:    "AliceOldP@ss123!",
+			oldPass:     "AliceOldP@ss123!",
+			newPass:     "AliceNewP@ss123!",
+			expectError: false,
+			wantCode:    http.StatusOK,
+		},
+		{
+			name:        "authenticated_user_wrong_old_password_rejected",
+			userName:    "bob",
+			authKey:     "AKIABOBKEY12345678",
+			initPass:    "BobOldP@ss12345!",
+			oldPass:     "WrongPassword123!",
+			newPass:     "BobNewP@ss12345!",
+			expectError: true,
+			wantCode:    http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			e := echo.New()
+			h, b := newTestHandler(t)
+
+			// Create user, access key, and login profile.
+			_, err := b.CreateUser(tt.userName, "/", "")
+			require.NoError(t, err)
+			ak, err := b.CreateAccessKey(tt.userName)
+			require.NoError(t, err)
+			_, err = b.CreateLoginProfile(tt.userName, tt.initPass, false)
+			require.NoError(t, err)
+
+			req := iamRequest("ChangePassword", map[string]string{
+				"OldPassword": tt.oldPass,
+				"NewPassword": tt.newPass,
+			})
+			req.Header.Set("Authorization", fmt.Sprintf(
+				"AWS4-HMAC-SHA256 Credential=%s/20260816/us-east-1/iam/aws4_request, SignedHeaders=host, Signature=abc",
+				ak.AccessKeyID,
+			))
+
+			rec := httptest.NewRecorder()
+			require.NoError(t, h.Handler()(e.NewContext(req, rec)))
+			assert.Equal(t, tt.wantCode, rec.Code)
+
+			if !tt.expectError {
+				lp, found := b.GetLoginProfile(tt.userName)
+				require.NoError(t, found)
+				assert.Equal(t, tt.newPass, lp.Password)
+			}
+		})
+	}
 }
 
 // TestHandler_ChangePassword_OldPasswordOnWire proves the handler reads

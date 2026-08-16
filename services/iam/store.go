@@ -225,6 +225,7 @@ type StorageBackend interface {
 
 	// Change Password
 	ChangePassword(oldPassword, newPassword string) error
+	ChangePasswordForCaller(accessKeyID, oldPassword, newPassword string) error
 
 	// OIDC Client IDs
 	AddClientIDToOpenIDConnectProvider(providerArn, clientID string) error
@@ -233,6 +234,7 @@ type StorageBackend interface {
 	// Access Key management
 	UpdateAccessKey(userName, accessKeyID, status string) error
 	GetAccessKeyLastUsed(accessKeyID string) (*AccessKeyLastUsed, error)
+	GetUserArnByAccessKeyID(accessKeyID string) (string, error)
 	RecordAccessKeyUsage(accessKeyID, region, serviceName string)
 
 	// Tags on resources (embedded in model, returned with resource)

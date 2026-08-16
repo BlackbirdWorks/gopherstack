@@ -103,6 +103,7 @@ func scalingPolicyIntFields(vals url.Values) (scalingPolicyIntFieldValues, error
 type targetTrackingFields struct {
 	customizedMetricSpec *CustomizedMetricSpecification
 	metricType           string
+	resourceLabel        string
 	targetValue          float64
 	estimatedWarmup      int32
 	disableScaleIn       bool
@@ -129,6 +130,7 @@ func parseTargetTrackingFields(vals url.Values) (targetTrackingFields, error) {
 	}
 
 	f.metricType = vals.Get("TargetTrackingConfiguration.PredefinedMetricSpecification.PredefinedMetricType")
+	f.resourceLabel = vals.Get("TargetTrackingConfiguration.PredefinedMetricSpecification.ResourceLabel")
 	f.disableScaleIn = vals.Get("TargetTrackingConfiguration.DisableScaleIn") == formValueTrue
 
 	spec, err := parseCustomizedMetricSpecification(vals, "TargetTrackingConfiguration.CustomizedMetricSpecification.")
@@ -558,6 +560,7 @@ func (h *Handler) handlePutScalingPolicy(vals url.Values) (any, error) {
 		Cooldown:                       intFields.cooldown,
 		TargetValue:                    ttc.targetValue,
 		MetricType:                     ttc.metricType,
+		ResourceLabel:                  ttc.resourceLabel,
 		DisableScaleIn:                 ttc.disableScaleIn,
 		EstimatedWarmup:                ttc.estimatedWarmup,
 		PredictiveScalingConfiguration: predictiveScaling,
@@ -632,9 +635,10 @@ func (h *Handler) handleDescribePolicies(vals url.Values) (any, error) {
 				EstimatedInstanceWarmup: p.EstimatedWarmup,
 			}
 
-			if p.MetricType != "" {
+			if p.MetricType != "" || p.ResourceLabel != "" {
 				ttc.PredefinedMetricSpecification = &xmlPredefinedMetricSpecification{
 					PredefinedMetricType: p.MetricType,
+					ResourceLabel:        p.ResourceLabel,
 				}
 			}
 
@@ -705,6 +709,7 @@ type deletePolicyResponse struct {
 
 type xmlPredefinedMetricSpecification struct {
 	PredefinedMetricType string `xml:"PredefinedMetricType"`
+	ResourceLabel        string `xml:"ResourceLabel,omitempty"`
 }
 
 type xmlTargetTrackingConfiguration struct {

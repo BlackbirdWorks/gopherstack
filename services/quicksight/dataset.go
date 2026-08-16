@@ -6,8 +6,9 @@ import (
 	"sort"
 	"time"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 // dataSetImportModeSPICE is the DataSetImportMode value that triggers a real,

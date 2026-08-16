@@ -3,9 +3,10 @@ package cognitoidp_test
 import (
 	"testing"
 
-	"github.com/blackbirdworks/gopherstack/services/cognitoidp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/cognitoidp"
 )
 
 func TestGlobalSignOut_RevokesAccessToken(t *testing.T) {

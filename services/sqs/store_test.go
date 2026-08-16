@@ -4,9 +4,10 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/blackbirdworks/gopherstack/services/sqs"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/sqs"
 )
 
 const testEndpoint = "localhost:4566"

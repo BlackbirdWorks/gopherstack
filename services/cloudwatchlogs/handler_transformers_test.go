@@ -8,10 +8,11 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	cwlsdk "github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
 	cwltypes "github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs/types"
-	"github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
 )
 
 func TestHandler_Transformer(t *testing.T) {

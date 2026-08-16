@@ -7,9 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/blackbirdworks/gopherstack/services/acm"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/acm"
 )
 
 // TestACMHandler_ExportCertificate_AmazonIssued covers ACM's

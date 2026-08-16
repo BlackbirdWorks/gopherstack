@@ -9,10 +9,11 @@ import (
 
 	bedrockagentsdk "github.com/aws/aws-sdk-go-v2/service/bedrockagent"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/sdkcheck"
-	"github.com/blackbirdworks/gopherstack/services/bedrock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/sdkcheck"
+	"github.com/blackbirdworks/gopherstack/services/bedrock"
 )
 
 func TestAgentsHandler_Reset(t *testing.T) {

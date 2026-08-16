@@ -39,7 +39,8 @@ ui/build/
 CLAUDE.md
 
 # Gas Town (added by gt)
-.claude/
+.claude/*
+!.claude/skills/
 .logs/
 __pycache__/
 state.json
@@ -77,3 +78,7 @@ checkpoint.md
 
 # Playwright MCP session artifacts (console logs, traces)
 .playwright-mcp/
+
+# Beads / Dolt files (added by bd init)
+.beads/proxieddb/
+*.gate.lock*

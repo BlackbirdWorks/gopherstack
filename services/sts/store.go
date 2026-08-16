@@ -19,6 +19,11 @@ type RoleLookup interface {
 	GetRoleByArn(arn string) (*RoleMeta, error)
 }
 
+// UserLookup is implemented by services (e.g. IAM) that can resolve an IAM user ARN from an access key ID.
+type UserLookup interface {
+	GetUserArnByAccessKeyID(accessKeyID string) (string, error)
+}
+
 // OIDCLookup is implemented by services (e.g. IAM) that can validate OIDC providers
 // for AssumeRoleWithWebIdentity.
 type OIDCLookup interface {
@@ -64,12 +69,14 @@ type RoleMeta struct {
 // InMemoryBackend is a stateful in-memory STS backend.
 type InMemoryBackend struct {
 	roleLookup            RoleLookup
+	userLookup            UserLookup
 	oidcLookup            OIDCLookup
 	accountSettingsLookup AccountSettingsLookup
 	sessions              *store.Table[SessionInfo]
 	registry              *store.Registry
 	mu                    *lockmetrics.RWMutex
 	accountID             string
+	strictConditions      bool
 
 	// Operation call counters — incremented atomically.
 	cntAssumeRoleWithWebIdentity atomic.Int64
@@ -129,6 +136,30 @@ func (b *InMemoryBackend) SetRoleLookup(rl RoleLookup) {
 	defer b.mu.Unlock()
 
 	b.roleLookup = rl
+	if ul, ok := rl.(UserLookup); ok {
+		b.userLookup = ul
+	}
+}
+
+// SetUserLookup wires an optional user-lookup implementation for resolving user ARNs.
+func (b *InMemoryBackend) SetUserLookup(ul UserLookup) {
+	b.mu.Lock("SetUserLookup")
+	defer b.mu.Unlock()
+
+	b.userLookup = ul
+}
+
+// LookupUserArn returns the IAM user ARN for the given access key ID if a UserLookup is configured.
+func (b *InMemoryBackend) LookupUserArn(accessKeyID string) (string, error) {
+	b.mu.RLock("LookupUserArn")
+	ul := b.userLookup
+	b.mu.RUnlock()
+
+	if ul == nil {
+		return "", nil
+	}
+
+	return ul.GetUserArnByAccessKeyID(accessKeyID)
 }
 
 // SetOIDCLookup wires an optional OIDC-lookup implementation (e.g. the IAM backend)
@@ -149,6 +180,14 @@ func (b *InMemoryBackend) SetOIDCLookup(ol OIDCLookup) {
 	if asl, ok := ol.(AccountSettingsLookup); ok {
 		b.accountSettingsLookup = asl
 	}
+}
+
+// SetStrictConditions sets whether unmodeled condition keys and operators fail closed.
+func (b *InMemoryBackend) SetStrictConditions(strict bool) {
+	b.mu.Lock("SetStrictConditions")
+	defer b.mu.Unlock()
+
+	b.strictConditions = strict
 }
 
 // AccountID returns the AWS account ID configured for this backend.

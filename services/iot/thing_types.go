@@ -5,8 +5,9 @@ import (
 	"slices"
 	"time"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 // CreateThingType creates a new IoT Thing Type.

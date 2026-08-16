@@ -615,6 +615,8 @@ func (b *errorBackend) VerifyEncodedAuthorizationMessage(_ string) (string, erro
 
 func (b *errorBackend) LookupSession(_, _ string) *sts.SessionInfo { return nil }
 
+func (b *errorBackend) LookupUserArn(_ string) (string, error) { return "", nil }
+
 // TestHandler_InternalError tests the default (InternalFailure) path in handleError.
 func TestHandler_InternalError(t *testing.T) {
 	t.Parallel()
