@@ -66,7 +66,7 @@ func (b *InMemoryBackend) SendMessage(input *SendMessageInput) (*SendMessageOutp
 		return nil, err
 	}
 
-	go b.emitMetric("NumberOfMessagesSent", 1)
+	b.emitMetric("NumberOfMessagesSent", 1)
 
 	return out, nil
 }
@@ -327,13 +327,32 @@ func (b *InMemoryBackend) ReceiveMessage(
 		return nil, err
 	}
 
-	// If the caller did not specify a positive WaitTimeSeconds, apply the queue's
-	// ReceiveMessageWaitTimeSeconds attribute as the default long-poll duration.
-	// This mirrors the AWS behaviour where the queue-level attribute acts as the
-	// default wait time for receives that omit the parameter.
 	waitSecs := b.resolveWaitSeconds(input.QueueURL, input.WaitTimeSeconds)
-
 	name := queueNameFromInput(input.QueueURL)
+
+	if waitSecs <= 0 {
+		msgs, _, err := b.receiveOnce(name, input)
+		if err != nil {
+			return nil, err
+		}
+
+		if len(msgs) > 0 {
+			b.emitMetric("NumberOfMessagesReceived", float64(len(msgs)))
+
+			return &ReceiveMessageOutput{Messages: msgs}, nil
+		}
+
+		return &ReceiveMessageOutput{}, nil
+	}
+
+	return b.pollReceive(name, input, waitSecs)
+}
+
+func (b *InMemoryBackend) pollReceive(
+	name string,
+	input *ReceiveMessageInput,
+	waitSecs int,
+) (*ReceiveMessageOutput, error) {
 	deadline := time.Now().Add(time.Duration(waitSecs) * time.Second)
 
 	const recheckInterval = time.Second
@@ -349,7 +368,7 @@ func (b *InMemoryBackend) ReceiveMessage(
 
 		if len(msgs) > 0 {
 			count := float64(len(msgs))
-			go b.emitMetric("NumberOfMessagesReceived", count)
+			b.emitMetric("NumberOfMessagesReceived", count)
 
 			return &ReceiveMessageOutput{Messages: msgs}, nil
 		}
@@ -531,7 +550,7 @@ func (b *InMemoryBackend) DeleteMessage(input *DeleteMessageInput) error {
 		}
 	}
 
-	go b.emitMetric("NumberOfMessagesDeleted", 1)
+	b.emitMetric("NumberOfMessagesDeleted", 1)
 
 	return nil
 }
@@ -720,7 +739,7 @@ func (b *InMemoryBackend) SendMessageBatch(
 	// Failed slices already match the original entry order without sorting.
 	out := processSendMessageBatchEntries(q, input, preps, now)
 
-	go b.emitMetric("NumberOfMessagesSent", float64(len(out.Successful)))
+	b.emitMetric("NumberOfMessagesSent", float64(len(out.Successful)))
 
 	return out, nil
 }

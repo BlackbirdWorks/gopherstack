@@ -69,12 +69,8 @@ func (b *InMemoryBackend) SetMetricEmitter(e MetricEmitter) {
 	b.metricEmitter = e
 }
 
-// emitMetric emits a single metric to CloudWatch if a MetricEmitter is configured.
-// It reads the emitter under the lock, then calls it without holding the lock
-// to avoid a potential deadlock if the emitter itself takes a lock.
 func (b *InMemoryBackend) emitMetric(name string, value float64) {
 	var e MetricEmitter
-
 	func() {
 		b.mu.RLock("emitMetric")
 		defer b.mu.RUnlock()
@@ -86,8 +82,10 @@ func (b *InMemoryBackend) emitMetric(name string, value float64) {
 		return
 	}
 
-	// Emit without holding the lock.
-	_ = e.EmitMetric(sqsMetricNamespace, name, value, sqsMetricUnitCount)
+	// Emit asynchronously without holding the lock.
+	go func() {
+		_ = e.EmitMetric(sqsMetricNamespace, name, value, sqsMetricUnitCount)
+	}()
 }
 
 const sqsDefaultMaxResults = 1000
