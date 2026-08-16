@@ -77,3 +77,7 @@ checkpoint.md
 
 # Playwright MCP session artifacts (console logs, traces)
 .playwright-mcp/
+
+# Beads / Dolt files (added by bd init)
+.beads/proxieddb/
+*.gate.lock*
