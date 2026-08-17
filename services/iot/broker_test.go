@@ -174,13 +174,17 @@ func startTestBroker(t *testing.T, backend *iot.InMemoryBackend, port int) *iot.
 		<-done
 	})
 
-	addr := fmt.Sprintf("127.0.0.1:%d", port)
-	deadline := time.Now().Add(3 * time.Second)
+	addr := fmt.Sprintf("tcp://127.0.0.1:%d", port)
+	opts := pahomqtt.NewClientOptions().
+		AddBroker(addr).
+		SetClientID("probe-client").
+		SetConnectTimeout(100 * time.Millisecond)
 
+	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
-		conn, dialErr := net.DialTimeout("tcp", addr, 100*time.Millisecond)
-		if dialErr == nil {
-			_ = conn.Close()
+		client := pahomqtt.NewClient(opts)
+		if token := client.Connect(); token.WaitTimeout(100*time.Millisecond) && token.Error() == nil {
+			client.Disconnect(100)
 
 			return broker
 		}
@@ -188,15 +192,14 @@ func startTestBroker(t *testing.T, backend *iot.InMemoryBackend, port int) *iot.
 		time.Sleep(20 * time.Millisecond)
 	}
 
-	t.Fatalf("broker on %s did not become ready", addr)
+	require.FailNow(t, "broker on "+addr+" did not become ready")
 
 	return nil
 }
 
-// TestBroker_ClientSubscriptionsAndSendToClient exercises Broker's
-// MQTTPublisher extensions — ClientSubscriptions and SendToClient — against
-// a real mochi-mqtt session via a real paho MQTT client over real TCP
-// loopback (not a mock): ClientSubscriptions reads genuine per-client
+// TestBroker_ClientSubscriptionsAndSendToClient verifies that ClientSubscriptions
+// returns the live MQTT subscriptions for a connected client, returns empty for
+// non-connected clients / unstarted brokers, returns false for unstarted / no live
 // subscription state, and SendToClient delivers to one client on a topic it
 // never subscribed to, proving it bypasses the topic-broadcast Publish path.
 func TestBroker_ClientSubscriptionsAndSendToClient(t *testing.T) {
@@ -283,7 +286,7 @@ func TestBroker_ClientSubscriptionsAndSendToClient(t *testing.T) {
 				assert.Equal(t, "direct/topic", msg.Topic())
 				assert.Equal(t, []byte("hello-direct"), msg.Payload())
 			case <-time.After(3 * time.Second):
-				t.Fatal("client never received the directly-sent message")
+				require.FailNow(t, "client never received the directly-sent message")
 			}
 		})
 	}
