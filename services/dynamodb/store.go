@@ -37,10 +37,16 @@ type StoredGlobalTable struct {
 	ReplicationGroup   []string                          `json:"ReplicationGroup"`
 }
 
+// StoredReplicaGSISettings holds per-GSI settings within a replica.
+type StoredReplicaGSISettings struct {
+	ReadCapacityUnits *int64 `json:"ReadCapacityUnits,omitempty"`
+}
+
 // StoredReplicaSettings holds per-replica settings persisted by UpdateGlobalTableSettings.
 type StoredReplicaSettings struct {
-	ReadCapacityUnits *int64 `json:"ReadCapacityUnits,omitempty"`
-	TableClass        string `json:"TableClass,omitempty"`
+	ReadCapacityUnits *int64                               `json:"ReadCapacityUnits,omitempty"`
+	GSISettings       map[string]*StoredReplicaGSISettings `json:"GSISettings,omitempty"`
+	TableClass        string                               `json:"TableClass,omitempty"`
 }
 
 // KinesisDestinationEntry stores a Kinesis streaming destination with its configuration.

@@ -9,21 +9,29 @@ import (
 
 // storedWorkspace holds a workspace with all persisted fields.
 type storedWorkspace struct {
-	Properties                  *WorkspaceProperties `json:"properties,omitempty"`
-	Tags                        map[string]string    `json:"tags"`
-	WorkspaceID                 string               `json:"workspaceId"`
-	DirectoryID                 string               `json:"directoryId"`
-	UserName                    string               `json:"userName"`
-	BundleID                    string               `json:"bundleId"`
-	State                       string               `json:"state"`
-	ComputerName                string               `json:"computerName"`
-	SubnetID                    string               `json:"subnetId"`
-	VolumeEncryptionKey         string               `json:"volumeEncryptionKey,omitempty"`
-	ErrorCode                   string               `json:"errorCode"`
-	ErrorMessage                string               `json:"errorMessage"`
-	Region                      string               `json:"region"`
-	UserVolumeEncryptionEnabled bool                 `json:"userVolumeEncryptionEnabled"`
-	RootVolumeEncryptionEnabled bool                 `json:"rootVolumeEncryptionEnabled"`
+	Properties                  *WorkspaceProperties         `json:"properties,omitempty"`
+	Tags                        map[string]string            `json:"tags"`
+	DataReplicationSettings     *DataReplicationSettings     `json:"dataReplicationSettings,omitempty"`
+	VolumeEncryptionKey         string                       `json:"volumeEncryptionKey,omitempty"`
+	State                       string                       `json:"state"`
+	DataReplication             string                       `json:"dataReplication,omitempty"`
+	WorkspaceID                 string                       `json:"workspaceId"`
+	WorkspaceName               string                       `json:"workspaceName,omitempty"`
+	DirectoryID                 string                       `json:"directoryId"`
+	UserName                    string                       `json:"userName"`
+	IPAddress                   string                       `json:"ipAddress,omitempty"`
+	BundleID                    string                       `json:"bundleId"`
+	PrimaryWorkspaceID          string                       `json:"primaryWorkspaceId,omitempty"`
+	ComputerName                string                       `json:"computerName"`
+	SubnetID                    string                       `json:"subnetId"`
+	Region                      string                       `json:"region"`
+	ErrorCode                   string                       `json:"errorCode"`
+	ErrorMessage                string                       `json:"errorMessage"`
+	StandbyWorkspacesProperties []StandbyWorkspaceProperties `json:"standbyWorkspacesProperties,omitempty"`
+	RelatedWorkspaces           []RelatedWorkspace           `json:"relatedWorkspaces,omitempty"`
+	ModificationStates          []ModificationState          `json:"modificationStates,omitempty"`
+	UserVolumeEncryptionEnabled bool                         `json:"userVolumeEncryptionEnabled"`
+	RootVolumeEncryptionEnabled bool                         `json:"rootVolumeEncryptionEnabled"`
 }
 
 // InMemoryBackend implements StorageBackend using in-memory maps.

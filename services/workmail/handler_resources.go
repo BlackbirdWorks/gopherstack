@@ -7,10 +7,12 @@ import (
 // ---- Resources ----
 
 type createResourceReq struct {
-	OrganizationID string `json:"OrganizationId"`
-	Name           string `json:"Name"`
-	Type           string `json:"Type"`
-	Description    string `json:"Description"`
+	BookingOptions              *BookingOptions `json:"BookingOptions,omitempty"`
+	OrganizationID              string          `json:"OrganizationId"`
+	Name                        string          `json:"Name"`
+	Type                        string          `json:"Type"`
+	Description                 string          `json:"Description"`
+	HiddenFromGlobalAddressList bool            `json:"HiddenFromGlobalAddressList,omitempty"`
 }
 
 type createResourceResp struct {
@@ -18,7 +20,14 @@ type createResourceResp struct {
 }
 
 func (h *Handler) handleCreateResource(_ context.Context, req *createResourceReq) (*createResourceResp, error) {
-	r, err := h.Backend.CreateResource(req.OrganizationID, req.Name, req.Type, req.Description)
+	r, err := h.Backend.CreateResource(
+		req.OrganizationID,
+		req.Name,
+		req.Type,
+		req.Description,
+		req.BookingOptions,
+		req.HiddenFromGlobalAddressList,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -31,23 +40,18 @@ type describeResourceReq struct {
 	ResourceID     string `json:"ResourceId"`
 }
 
-// describeResourceResp mirrors aws-sdk-go-v2/service/workmail's
-// DescribeResourceOutput. BookingOptions (a real, non-required member) is
-// deliberately not modeled here -- this backend has no booking/scheduling
-// simulation to source AutoAcceptRequests/AutoDeclineConflictingRequests/
-// AutoDeclineRecurringRequests from, and the real UpdateResourceInput also
-// accepts it, so a real client's typed BookingOptions stays nil regardless
-// of backend state. Disclosed, not fixed: see PARITY.md.
+// describeResourceResp mirrors aws-sdk-go-v2/service/workmail's DescribeResourceOutput.
 type describeResourceResp struct {
-	ResourceID                  string `json:"ResourceId"`
-	Name                        string `json:"Name"`
-	Email                       string `json:"Email,omitempty"`
-	Type                        string `json:"Type"`
-	Description                 string `json:"Description,omitempty"`
-	State                       string `json:"State"`
-	EnabledDate                 int64  `json:"EnabledDate,omitempty"`
-	DisabledDate                int64  `json:"DisabledDate,omitempty"`
-	HiddenFromGlobalAddressList bool   `json:"HiddenFromGlobalAddressList"`
+	BookingOptions              *BookingOptions `json:"BookingOptions,omitempty"`
+	ResourceID                  string          `json:"ResourceId"`
+	Name                        string          `json:"Name"`
+	Email                       string          `json:"Email,omitempty"`
+	Type                        string          `json:"Type"`
+	Description                 string          `json:"Description,omitempty"`
+	State                       string          `json:"State"`
+	EnabledDate                 int64           `json:"EnabledDate,omitempty"`
+	DisabledDate                int64           `json:"DisabledDate,omitempty"`
+	HiddenFromGlobalAddressList bool            `json:"HiddenFromGlobalAddressList"`
 }
 
 func (h *Handler) handleDescribeResource(_ context.Context, req *describeResourceReq) (*describeResourceResp, error) {
@@ -64,6 +68,7 @@ func (h *Handler) handleDescribeResource(_ context.Context, req *describeResourc
 		Description:                 r.Description,
 		State:                       r.State,
 		HiddenFromGlobalAddressList: r.HiddenFromGlobalAddressList,
+		BookingOptions:              r.BookingOptions,
 	}
 	if !r.EnabledDate.IsZero() {
 		resp.EnabledDate = r.EnabledDate.Unix()
@@ -76,16 +81,22 @@ func (h *Handler) handleDescribeResource(_ context.Context, req *describeResourc
 }
 
 type updateResourceReq struct {
-	OrganizationID              string `json:"OrganizationId"`
-	ResourceID                  string `json:"ResourceId"`
-	Name                        string `json:"Name"`
-	Description                 string `json:"Description"`
-	HiddenFromGlobalAddressList bool   `json:"HiddenFromGlobalAddressList"`
+	BookingOptions              *BookingOptions `json:"BookingOptions,omitempty"`
+	OrganizationID              string          `json:"OrganizationId"`
+	ResourceID                  string          `json:"ResourceId"`
+	Name                        string          `json:"Name"`
+	Description                 string          `json:"Description"`
+	HiddenFromGlobalAddressList bool            `json:"HiddenFromGlobalAddressList"`
 }
 
 func (h *Handler) handleUpdateResource(_ context.Context, req *updateResourceReq) (*emptyResp, error) {
 	if err := h.Backend.UpdateResource(
-		req.OrganizationID, req.ResourceID, req.Name, req.Description, req.HiddenFromGlobalAddressList,
+		req.OrganizationID,
+		req.ResourceID,
+		req.Name,
+		req.Description,
+		req.HiddenFromGlobalAddressList,
+		req.BookingOptions,
 	); err != nil {
 		return nil, err
 	}

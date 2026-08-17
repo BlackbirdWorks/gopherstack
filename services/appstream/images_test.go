@@ -294,6 +294,23 @@ func TestAppStream_ImageBuilders(t *testing.T) {
 			},
 		},
 		{
+			name:   "DescribeSoftwareAssociations for image resource returns 200",
+			action: "DescribeSoftwareAssociations",
+			setup: func(h *appstream.Handler) {
+				createImage(t, h, "sw-assoc-image")
+			},
+			body:     map[string]any{"AssociatedResource": "sw-assoc-image"},
+			wantCode: http.StatusOK,
+			check: func(t *testing.T, respBody []byte) {
+				t.Helper()
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(respBody, &resp))
+				assert.Equal(t, "sw-assoc-image", resp["AssociatedResource"])
+				assocs := resp["SoftwareAssociations"].([]any)
+				assert.Empty(t, assocs)
+			},
+		},
+		{
 			name:   "DisassociateSoftwareFromImageBuilder removes software",
 			action: "DisassociateSoftwareFromImageBuilder",
 			setup: func(h *appstream.Handler) {

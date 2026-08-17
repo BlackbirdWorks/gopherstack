@@ -227,6 +227,10 @@ func TestCreateSampleFindingsFieldShape(t *testing.T) {
 	policy := byType["Policy:IAMUser/S3BucketPublic"]
 	require.NotNil(t, policy)
 	assert.Equal(t, "POLICY", policy["category"])
+	policyDetails, pOk := policy["policyDetails"].(map[string]any)
+	require.True(t, pOk)
+	assert.NotNil(t, policyDetails["action"])
+	assert.NotNil(t, policyDetails["actor"])
 }
 
 func TestFindingsPublicationConfig(t *testing.T) {

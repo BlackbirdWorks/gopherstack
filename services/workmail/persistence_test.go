@@ -30,7 +30,7 @@ func newFullyPopulatedBackend(t *testing.T) (*workmail.InMemoryBackend, string) 
 	b := workmail.NewInMemoryBackend(persistTestAccountID, persistTestRegion)
 	ctx := t.Context()
 
-	org, err := b.CreateOrganization(ctx, "acme", []string{"acme.com"})
+	org, err := b.CreateOrganization(ctx, "acme", []string{"acme.com"}, false)
 	require.NoError(t, err)
 	orgID := org.OrgID
 
@@ -46,7 +46,7 @@ func newFullyPopulatedBackend(t *testing.T) (*workmail.InMemoryBackend, string) 
 	require.NoError(t, err)
 	require.NoError(t, b.AssociateMemberToGroup(orgID, group.GroupID, user.UserID))
 
-	resource, err := b.CreateResource(orgID, "conf-room", "ROOM", "desc")
+	resource, err := b.CreateResource(orgID, "conf-room", "ROOM", "desc", nil, false)
 	require.NoError(t, err)
 	require.NoError(t, b.AssociateDelegateToResource(orgID, resource.ResourceID, user.UserID))
 
@@ -173,7 +173,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 			t.Helper()
 			// A duplicate CreateOrganization with the same alias must
 			// conflict post-restore -- proof orgsByAlias round-tripped.
-			_, err := fresh.CreateOrganization(ctx, "acme", nil)
+			_, err := fresh.CreateOrganization(ctx, "acme", nil, false)
 			require.Error(t, err)
 			assert.ErrorIs(t, err, workmail.ErrConflict)
 		}},

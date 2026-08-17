@@ -25,7 +25,6 @@ const ROUTE_ID_TO_SERVICE_DIR: Record<string, string> = {
   costexplorer: "ce",
   inspector: "inspector2",
   msk: "kafka",
-  sagemakeruntime: "sagemakerruntime",
   sfn: "stepfunctions",
   timestream: "timestreamwrite",
 };

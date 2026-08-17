@@ -25,6 +25,8 @@ func (b *InMemoryBackend) findResource(orgID, entityID string) *Resource {
 // CreateResource creates a new WorkMail resource.
 func (b *InMemoryBackend) CreateResource(
 	orgID, name, resourceType, description string,
+	bookingOptions *BookingOptions,
+	hiddenFromGAL bool,
 ) (*Resource, error) {
 	b.mu.Lock("CreateResource")
 	defer b.mu.Unlock()
@@ -54,15 +56,23 @@ func (b *InMemoryBackend) CreateResource(
 	resourceID := newID()
 	now := time.Now().UTC()
 
+	var bOpts *BookingOptions
+	if bookingOptions != nil {
+		cp := *bookingOptions
+		bOpts = &cp
+	}
+
 	r := &Resource{
-		CreatedAt:    now,
-		ResourceID:   resourceID,
-		Name:         name,
-		ResourceType: resourceType,
-		Description:  description,
-		State:        stateDisabled,
-		ARN:          b.entityARN(orgID, "resource", resourceID),
-		orgID:        orgID,
+		CreatedAt:                   now,
+		BookingOptions:              bOpts,
+		ResourceID:                  resourceID,
+		Name:                        name,
+		ResourceType:                resourceType,
+		Description:                 description,
+		State:                       stateDisabled,
+		ARN:                         b.entityARN(orgID, "resource", resourceID),
+		orgID:                       orgID,
+		HiddenFromGlobalAddressList: hiddenFromGAL,
 	}
 
 	b.resources.Put(r)
@@ -88,7 +98,11 @@ func (b *InMemoryBackend) DescribeResource(orgID, entityID string) (*Resource, e
 }
 
 // UpdateResource updates resource fields.
-func (b *InMemoryBackend) UpdateResource(orgID, entityID, name, description string, hiddenFromGAL bool) error {
+func (b *InMemoryBackend) UpdateResource(
+	orgID, entityID, name, description string,
+	hiddenFromGAL bool,
+	bookingOptions *BookingOptions,
+) error {
 	b.mu.Lock("UpdateResource")
 	defer b.mu.Unlock()
 
@@ -107,6 +121,10 @@ func (b *InMemoryBackend) UpdateResource(orgID, entityID, name, description stri
 		r.Description = description
 	}
 	r.HiddenFromGlobalAddressList = hiddenFromGAL
+	if bookingOptions != nil {
+		cp := *bookingOptions
+		r.BookingOptions = &cp
+	}
 
 	return nil
 }

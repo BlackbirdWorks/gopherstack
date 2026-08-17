@@ -140,12 +140,36 @@ type FindingsFilterSummary struct {
 // FindingType represents the type of a finding.
 type FindingType string
 
+// PolicyDetails provides the details of the policy finding.
+type PolicyDetails struct {
+	Action *FindingAction `json:"action,omitempty"`
+	Actor  *FindingActor  `json:"actor,omitempty"`
+}
+
+// FindingAction specifies information about action that produced finding.
+type FindingAction struct {
+	ActionType string `json:"actionType,omitempty"`
+}
+
+// FindingActor provides information about an entity that performed action.
+type FindingActor struct {
+	UserIdentity *UserIdentity `json:"userIdentity,omitempty"`
+}
+
+// UserIdentity provides information about the user/entity that performed the action.
+type UserIdentity struct {
+	Type        string `json:"type,omitempty"`
+	UserName    string `json:"userName,omitempty"`
+	PrincipalID string `json:"principalId,omitempty"`
+}
+
 // Finding represents a Macie finding.
 type Finding struct {
 	CreatedAt             time.Time              `json:"createdAt"`
 	UpdatedAt             time.Time              `json:"updatedAt"`
 	ClassificationDetails *ClassificationDetails `json:"classificationDetails,omitempty"`
 	ResourcesAffected     *ResourcesAffected     `json:"resourcesAffected,omitempty"`
+	PolicyDetails         *PolicyDetails         `json:"policyDetails,omitempty"`
 	AccountID             string                 `json:"accountId"`
 	Category              string                 `json:"category"`
 	Description           string                 `json:"description"`

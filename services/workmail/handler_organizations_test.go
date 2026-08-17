@@ -138,3 +138,48 @@ func TestDescribeOrganization_MigrationAdminField(t *testing.T) {
 	_, present := m["MigrationAdmin"]
 	assert.False(t, present, "MigrationAdmin should be omitted (empty) since nothing ever sets it")
 }
+
+func TestCreateOrganization_EnableInteroperability(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name                  string
+		alias                 string
+		enableInterop         bool
+		expectedInteroperable bool
+	}{
+		{
+			name:                  "interoperability enabled",
+			alias:                 "interop-org-1",
+			enableInterop:         true,
+			expectedInteroperable: true,
+		},
+		{
+			name:                  "interoperability disabled",
+			alias:                 "interop-org-2",
+			enableInterop:         false,
+			expectedInteroperable: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			createBody := fmt.Sprintf(
+				`{"Alias":%q,"EnableInteroperability":%t}`,
+				tt.alias, tt.enableInterop,
+			)
+			createRec := doOp(t, h, "CreateOrganization", createBody)
+			require.Equal(t, http.StatusOK, createRec.Code)
+			createOut := decodeJSON(t, createRec)
+			orgID := createOut["OrganizationId"].(string)
+
+			descRec := doOp(t, h, "DescribeOrganization", fmt.Sprintf(`{"OrganizationId":%q}`, orgID))
+			require.Equal(t, http.StatusOK, descRec.Code)
+			descOut := decodeJSON(t, descRec)
+			assert.Equal(t, tt.expectedInteroperable, descOut["InteroperabilityEnabled"])
+		})
+	}
+}

@@ -584,21 +584,21 @@ func (b *InMemoryBackend) DisassociateSoftwareFromImageBuilder(imageBuilderName 
 	return nil
 }
 
-// DescribeSoftwareAssociations returns software associated with an image builder.
-func (b *InMemoryBackend) DescribeSoftwareAssociations(imageBuilderName string) ([]SoftwareAssociation, error) {
+// DescribeSoftwareAssociations returns software associated with an image builder or image.
+func (b *InMemoryBackend) DescribeSoftwareAssociations(resource string) ([]SoftwareAssociation, error) {
 	b.mu.RLock("DescribeSoftwareAssociations")
 	defer b.mu.RUnlock()
 
-	if !b.imageBuilders.Has(imageBuilderName) {
+	if !b.imageBuilders.Has(resource) && !b.images.Has(resource) {
 		return nil, ErrNotFound
 	}
 
-	sw := b.softwareAssoc[imageBuilderName]
+	sw := b.softwareAssoc[resource]
 	result := make([]SoftwareAssociation, 0, len(sw))
 
 	for name := range sw {
 		result = append(result, SoftwareAssociation{
-			ImageBuilderName: imageBuilderName,
+			ImageBuilderName: resource,
 			Software:         name,
 		})
 	}

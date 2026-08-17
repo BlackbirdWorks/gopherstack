@@ -325,11 +325,17 @@ func (db *InMemoryDB) DescribeGlobalTableSettings(
 			ReplicaBillingModeSummary:            &types.BillingModeSummary{BillingMode: effectiveBilling},
 		}
 
-		if rs, ok := gt.ReplicaSettings[region]; ok && rs != nil && rs.TableClass != "" {
-			desc.ReplicaTableClassSummary = &types.TableClassSummary{
-				TableClass: types.TableClass(rs.TableClass),
+		var rs *StoredReplicaSettings
+		if stored, ok := gt.ReplicaSettings[region]; ok && stored != nil {
+			rs = stored
+			if rs.TableClass != "" {
+				desc.ReplicaTableClassSummary = &types.TableClassSummary{
+					TableClass: types.TableClass(rs.TableClass),
+				}
 			}
 		}
+
+		desc.ReplicaGlobalSecondaryIndexSettings = db.replicaGSISettingsRLocked(region, name, rs)
 
 		replicaSettings = append(replicaSettings, desc)
 	}
@@ -691,7 +697,7 @@ func applyGlobalTableSettingsMutation(
 	applyReplicaSettingsUpdates(gt, input.ReplicaSettingsUpdate)
 }
 
-// applyReplicaSettingsUpdates persists per-replica billing and throughput changes onto gt.
+// applyReplicaSettingsUpdates persists per-replica billing, throughput, and GSI changes onto gt.
 func applyReplicaSettingsUpdates(gt *StoredGlobalTable, updates []types.ReplicaSettingsUpdate) {
 	if len(updates) == 0 {
 		return
@@ -702,25 +708,54 @@ func applyReplicaSettingsUpdates(gt *StoredGlobalTable, updates []types.ReplicaS
 	}
 
 	for _, ru := range updates {
-		if ru.RegionName == nil {
+		applySingleReplicaSettingsUpdate(gt, ru)
+	}
+}
+
+func applySingleReplicaSettingsUpdate(gt *StoredGlobalTable, ru types.ReplicaSettingsUpdate) {
+	if ru.RegionName == nil {
+		return
+	}
+
+	region := *ru.RegionName
+	rs := gt.ReplicaSettings[region]
+	if rs == nil {
+		rs = &StoredReplicaSettings{}
+		gt.ReplicaSettings[region] = rs
+	}
+
+	if string(ru.ReplicaTableClass) != "" {
+		rs.TableClass = string(ru.ReplicaTableClass)
+	}
+
+	if ru.ReplicaProvisionedReadCapacityUnits != nil {
+		v := *ru.ReplicaProvisionedReadCapacityUnits
+		rs.ReadCapacityUnits = &v
+	}
+
+	applyGSISettingsUpdates(rs, ru.ReplicaGlobalSecondaryIndexSettingsUpdate)
+}
+
+func applyGSISettingsUpdates(
+	rs *StoredReplicaSettings,
+	updates []types.ReplicaGlobalSecondaryIndexSettingsUpdate,
+) {
+	for _, gu := range updates {
+		if gu.IndexName == nil {
 			continue
 		}
-
-		region := *ru.RegionName
-		rs := gt.ReplicaSettings[region]
-
-		if rs == nil {
-			rs = &StoredReplicaSettings{}
-			gt.ReplicaSettings[region] = rs
+		if rs.GSISettings == nil {
+			rs.GSISettings = make(map[string]*StoredReplicaGSISettings)
 		}
-
-		if string(ru.ReplicaTableClass) != "" {
-			rs.TableClass = string(ru.ReplicaTableClass)
+		gsiName := *gu.IndexName
+		grs := rs.GSISettings[gsiName]
+		if grs == nil {
+			grs = &StoredReplicaGSISettings{}
+			rs.GSISettings[gsiName] = grs
 		}
-
-		if ru.ReplicaProvisionedReadCapacityUnits != nil {
-			v := *ru.ReplicaProvisionedReadCapacityUnits
-			rs.ReadCapacityUnits = &v
+		if gu.ProvisionedReadCapacityUnits != nil {
+			v := *gu.ProvisionedReadCapacityUnits
+			grs.ReadCapacityUnits = &v
 		}
 	}
 }
@@ -765,5 +800,68 @@ func buildGlobalTableReplicaDesc(
 		desc.ReplicaProvisionedReadCapacityUnits = &rcu
 	}
 
+	if len(rs.GSISettings) > 0 {
+		gsiDescs := make([]types.ReplicaGlobalSecondaryIndexSettingsDescription, 0, len(rs.GSISettings))
+		for idxName, grs := range rs.GSISettings {
+			name := idxName
+			gdesc := types.ReplicaGlobalSecondaryIndexSettingsDescription{
+				IndexName:   &name,
+				IndexStatus: types.IndexStatusActive,
+			}
+			if grs != nil && grs.ReadCapacityUnits != nil {
+				rcu := *grs.ReadCapacityUnits
+				gdesc.ProvisionedReadCapacityUnits = &rcu
+			}
+			if writeCapacityUnits != nil {
+				wcu := *writeCapacityUnits
+				gdesc.ProvisionedWriteCapacityUnits = &wcu
+			}
+			gsiDescs = append(gsiDescs, gdesc)
+		}
+		desc.ReplicaGlobalSecondaryIndexSettings = gsiDescs
+	}
+
 	return desc
+}
+
+func (db *InMemoryDB) replicaGSISettingsRLocked(
+	region, tableName string,
+	rs *StoredReplicaSettings,
+) []types.ReplicaGlobalSecondaryIndexSettingsDescription {
+	tbl := db.getTableInRegionRLocked(region, tableName, "DescribeGlobalTableSettings.gsi")
+	if tbl == nil {
+		return nil
+	}
+
+	tbl.mu.RLock("DescribeGlobalTableSettings.gsi")
+	defer tbl.mu.RUnlock()
+
+	if len(tbl.GlobalSecondaryIndexes) == 0 {
+		return nil
+	}
+
+	gsiDescs := make([]types.ReplicaGlobalSecondaryIndexSettingsDescription, 0, len(tbl.GlobalSecondaryIndexes))
+	for _, gsi := range tbl.GlobalSecondaryIndexes {
+		gsiName := gsi.IndexName
+		var rcu, wcu int64
+		if gsi.ProvisionedThroughput.ReadCapacityUnits != nil {
+			rcu = *gsi.ProvisionedThroughput.ReadCapacityUnits
+		}
+		if gsi.ProvisionedThroughput.WriteCapacityUnits != nil {
+			wcu = *gsi.ProvisionedThroughput.WriteCapacityUnits
+		}
+		if rs != nil && rs.GSISettings != nil {
+			if grs, ok := rs.GSISettings[gsiName]; ok && grs != nil && grs.ReadCapacityUnits != nil {
+				rcu = *grs.ReadCapacityUnits
+			}
+		}
+		gsiDescs = append(gsiDescs, types.ReplicaGlobalSecondaryIndexSettingsDescription{
+			IndexName:                     &gsiName,
+			IndexStatus:                   types.IndexStatusActive,
+			ProvisionedReadCapacityUnits:  &rcu,
+			ProvisionedWriteCapacityUnits: &wcu,
+		})
+	}
+
+	return gsiDescs
 }

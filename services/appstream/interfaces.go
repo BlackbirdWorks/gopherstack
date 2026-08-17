@@ -125,7 +125,7 @@ type StorageBackend interface {
 	// Software associations
 	AssociateSoftwareToImageBuilder(imageBuilderName string, software []string) error
 	DisassociateSoftwareFromImageBuilder(imageBuilderName string, software []string) error
-	DescribeSoftwareAssociations(imageBuilderName string) ([]SoftwareAssociation, error)
+	DescribeSoftwareAssociations(resource string) ([]SoftwareAssociation, error)
 	StartSoftwareDeploymentToImageBuilder(imageBuilderName string) error
 
 	// ExportImageTasks

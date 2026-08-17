@@ -393,6 +393,35 @@ func TestListBackupPlanVersionsFields(t *testing.T) {
 	}
 }
 
+func TestListBackupPlanVersions_NotFound(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		planID string
+	}{
+		{
+			name:   "non_existent_plan_id",
+			planID: "non-existent-plan-id",
+		},
+		{
+			name:   "unknown_uuid",
+			planID: "11111111-2222-3333-4444-555555555555",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestBackupHandler()
+
+			rec := doREST(t, h, http.MethodGet, "/backup/plans/"+tc.planID+"/versions", nil)
+			assert.Equal(t, http.StatusBadRequest, rec.Code)
+			assert.Contains(t, rec.Body.String(), "ResourceNotFoundException")
+		})
+	}
+}
+
 // ---- 7. ListBackupVaults includes EncryptionKeyArn when set ----
 
 // TestBackupPlanCRUD exercises CreateBackupPlan, GetBackupPlan, ListBackupPlans,

@@ -15,6 +15,7 @@ func (b *InMemoryBackend) CreateOrganization(
 	ctx context.Context,
 	alias string,
 	domains []string,
+	enableInteroperability bool,
 ) (*Organization, error) {
 	region := b.regionFor(ctx)
 
@@ -33,16 +34,17 @@ func (b *InMemoryBackend) CreateOrganization(
 	now := time.Now().UTC()
 
 	org := &Organization{
-		CreatedAt:         now,
-		CompletedDate:     now,
-		OrgID:             orgID,
-		Alias:             alias,
-		ARN:               b.orgARN(orgID, region),
-		State:             stateActive,
-		DirectoryID:       "d-" + strings.ReplaceAll(newID(), "-", "")[:10],
-		DirectoryType:     "SimpleAD",
-		DefaultMailDomain: defaultDomain,
-		Region:            region,
+		CreatedAt:               now,
+		CompletedDate:           now,
+		OrgID:                   orgID,
+		Alias:                   alias,
+		ARN:                     b.orgARN(orgID, region),
+		State:                   stateActive,
+		DirectoryID:             "d-" + strings.ReplaceAll(newID(), "-", "")[:10],
+		DirectoryType:           "SimpleAD",
+		DefaultMailDomain:       defaultDomain,
+		Region:                  region,
+		InteroperabilityEnabled: enableInteroperability,
 	}
 
 	b.organizations.Put(org)

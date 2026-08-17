@@ -640,3 +640,136 @@ func TestPagination_FilteredByDirectoryID(t *testing.T) {
 	wsList := resp["Workspaces"].([]any)
 	assert.Len(t, wsList, 2, "filter by DirectoryId must return only matching workspaces")
 }
+
+func TestWorkspace_RealMembersPopulated(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		userName string
+		dirID    string
+	}{
+		{
+			name:     "workspace members populated on describe",
+			userName: "test-user-alpha",
+			dirID:    "d-alpha123",
+		},
+		{
+			name:     "workspace members populated for second user",
+			userName: "test-user-beta",
+			dirID:    "d-beta456",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			wsID := createWorkspaceWithSpec(t, h, tt.userName, tt.dirID)
+
+			rec := doTargetRequest(t, h, "DescribeWorkspaces", map[string]any{
+				"WorkspaceIds": []string{wsID},
+			})
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var resp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			wsList, ok := resp["Workspaces"].([]any)
+			require.True(t, ok)
+			require.Len(t, wsList, 1)
+
+			ws, ok := wsList[0].(map[string]any)
+			require.True(t, ok)
+			assert.Equal(t, wsID, ws["WorkspaceId"])
+			assert.Equal(t, tt.userName, ws["WorkspaceName"])
+			assert.NotEmpty(t, ws["IpAddress"])
+		})
+	}
+}
+
+func TestCreateStandbyWorkspaces_DataReplicationAndRelated(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name               string
+		primaryWorkspaceID string
+		dataReplication    string
+		dirID              string
+	}{
+		{
+			name:               "standby workspace with primary and replication",
+			primaryWorkspaceID: "ws-primary1",
+			dataReplication:    "PRIMARY_AS_SOURCE",
+			dirID:              "d-standby1",
+		},
+		{
+			name:               "standby workspace with no replication",
+			primaryWorkspaceID: "ws-primary2",
+			dataReplication:    "NO_REPLICATION",
+			dirID:              "d-standby2",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			doTargetRequest(t, h, "RegisterWorkspaceDirectory", map[string]any{
+				"DirectoryId": tt.dirID,
+			})
+
+			rec := doTargetRequest(t, h, "CreateStandbyWorkspaces", map[string]any{
+				"PrimaryRegion": "us-east-1",
+				"StandbyWorkspaces": []map[string]any{
+					{
+						"PrimaryWorkspaceId": tt.primaryWorkspaceID,
+						"DataReplication":    tt.dataReplication,
+						"DirectoryId":        tt.dirID,
+					},
+				},
+			})
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var out struct {
+				FailedStandbyRequests  []any `json:"FailedStandbyRequests"`
+				PendingStandbyRequests []struct {
+					WorkspaceID string `json:"WorkspaceId"`
+				} `json:"PendingStandbyRequests"`
+			}
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.Empty(t, out.FailedStandbyRequests)
+			require.Len(t, out.PendingStandbyRequests, 1)
+
+			standbyID := out.PendingStandbyRequests[0].WorkspaceID
+
+			descRec := doTargetRequest(t, h, "DescribeWorkspaces", map[string]any{
+				"WorkspaceIds": []string{standbyID},
+			})
+			require.Equal(t, http.StatusOK, descRec.Code)
+
+			var descResp struct {
+				Workspaces []struct {
+					WorkspaceID             string `json:"WorkspaceId"`
+					DataReplicationSettings *struct {
+						DataReplication string `json:"DataReplication"`
+					} `json:"DataReplicationSettings"`
+					RelatedWorkspaces []struct {
+						WorkspaceID string `json:"WorkspaceId"`
+						Type        string `json:"Type"`
+					} `json:"RelatedWorkspaces"`
+				} `json:"Workspaces"`
+			}
+			require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
+			require.Len(t, descResp.Workspaces, 1)
+
+			ws := descResp.Workspaces[0]
+			require.NotNil(t, ws.DataReplicationSettings)
+			assert.Equal(t, tt.dataReplication, ws.DataReplicationSettings.DataReplication)
+			require.Len(t, ws.RelatedWorkspaces, 1)
+			assert.Equal(t, tt.primaryWorkspaceID, ws.RelatedWorkspaces[0].WorkspaceID)
+			assert.Equal(t, "PRIMARY", ws.RelatedWorkspaces[0].Type)
+		})
+	}
+}

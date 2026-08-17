@@ -227,3 +227,109 @@ func TestListResources_Filters(t *testing.T) {
 		})
 	}
 }
+
+func TestDescribeResource_BookingOptionsAndHiddenFromGAL(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		bookingOpts         *workmail.BookingOptions
+		name                string
+		resName             string
+		hiddenFromGAL       bool
+		updateHiddenFromGAL bool
+		updateAutoAccept    bool
+	}{
+		{
+			name:    "booking options auto accept true and hidden from GAL",
+			resName: "room-booking-1",
+			bookingOpts: &workmail.BookingOptions{
+				AutoAcceptRequests:             true,
+				AutoDeclineConflictingRequests: true,
+				AutoDeclineRecurringRequests:   false,
+			},
+			hiddenFromGAL:       true,
+			updateHiddenFromGAL: false,
+			updateAutoAccept:    false,
+		},
+		{
+			name:    "booking options auto accept false and update to true",
+			resName: "room-booking-2",
+			bookingOpts: &workmail.BookingOptions{
+				AutoAcceptRequests:             false,
+				AutoDeclineConflictingRequests: false,
+				AutoDeclineRecurringRequests:   true,
+			},
+			hiddenFromGAL:       false,
+			updateHiddenFromGAL: true,
+			updateAutoAccept:    true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			orgID := createTestOrg(t, h, tc.resName+"-org")
+
+			createBody := fmt.Sprintf(`{
+				"OrganizationId": %q,
+				"Name": %q,
+				"Type": "ROOM",
+				"HiddenFromGlobalAddressList": %t,
+				"BookingOptions": {
+					"AutoAcceptRequests": %t,
+					"AutoDeclineConflictingRequests": %t,
+					"AutoDeclineRecurringRequests": %t
+				}
+			}`, orgID, tc.resName, tc.hiddenFromGAL,
+				tc.bookingOpts.AutoAcceptRequests,
+				tc.bookingOpts.AutoDeclineConflictingRequests,
+				tc.bookingOpts.AutoDeclineRecurringRequests,
+			)
+
+			createRec := doOp(t, h, "CreateResource", createBody)
+			require.Equal(t, http.StatusOK, createRec.Code)
+			createOut := decodeJSON(t, createRec)
+			resID := createOut["ResourceId"].(string)
+
+			descRec := doOp(t, h, "DescribeResource", fmt.Sprintf(
+				`{"OrganizationId":%q,"ResourceId":%q}`, orgID, resID,
+			))
+			require.Equal(t, http.StatusOK, descRec.Code)
+			descOut := decodeJSON(t, descRec)
+
+			assert.Equal(t, tc.hiddenFromGAL, descOut["HiddenFromGlobalAddressList"])
+			bOpts, ok := descOut["BookingOptions"].(map[string]any)
+			require.True(t, ok)
+			assert.Equal(t, tc.bookingOpts.AutoAcceptRequests, bOpts["AutoAcceptRequests"])
+			assert.Equal(t, tc.bookingOpts.AutoDeclineConflictingRequests, bOpts["AutoDeclineConflictingRequests"])
+			assert.Equal(t, tc.bookingOpts.AutoDeclineRecurringRequests, bOpts["AutoDeclineRecurringRequests"])
+
+			// Update resource
+			updateBody := fmt.Sprintf(`{
+				"OrganizationId": %q,
+				"ResourceId": %q,
+				"Name": %q,
+				"HiddenFromGlobalAddressList": %t,
+				"BookingOptions": {
+					"AutoAcceptRequests": %t,
+					"AutoDeclineConflictingRequests": true,
+					"AutoDeclineRecurringRequests": true
+				}
+			}`, orgID, resID, tc.resName+"-updated", tc.updateHiddenFromGAL, tc.updateAutoAccept)
+			updateRec := doOp(t, h, "UpdateResource", updateBody)
+			require.Equal(t, http.StatusOK, updateRec.Code)
+
+			descRec2 := doOp(t, h, "DescribeResource", fmt.Sprintf(
+				`{"OrganizationId":%q,"ResourceId":%q}`, orgID, resID,
+			))
+			require.Equal(t, http.StatusOK, descRec2.Code)
+			descOut2 := decodeJSON(t, descRec2)
+			assert.Equal(t, tc.updateHiddenFromGAL, descOut2["HiddenFromGlobalAddressList"])
+			bOpts2, ok2 := descOut2["BookingOptions"].(map[string]any)
+			require.True(t, ok2)
+			assert.Equal(t, tc.updateAutoAccept, bOpts2["AutoAcceptRequests"])
+		})
+	}
+}
