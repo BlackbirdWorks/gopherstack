@@ -5278,6 +5278,9 @@ func (a *ec2AutoScalingLauncherAdapter) LaunchInstances(
 	ids := make([]string, len(instances))
 	for i, inst := range instances {
 		ids[i] = inst.ID
+		if spec.KeyName != "" || len(spec.SecurityGroups) > 0 {
+			_ = a.backend.SetInstanceLaunchConfig(inst.ID, spec.KeyName, spec.SecurityGroups)
+		}
 	}
 
 	if len(spec.Tags) > 0 {

@@ -347,3 +347,61 @@ func TestRunInstancesPrivateIP(t *testing.T) {
 	assert.Equal(t, instances[0].PrivateIP, enis[0].PrivateIP)
 	assert.Equal(t, instances[0].ID, enis[0].InstanceID)
 }
+
+func TestSetInstanceLaunchConfig(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup          func(t *testing.T, b *ec2.InMemoryBackend) string
+		name           string
+		keyName        string
+		securityGroups []string
+		wantErr        bool
+	}{
+		{
+			name: "sets_key_name_and_security_groups",
+			setup: func(t *testing.T, b *ec2.InMemoryBackend) string {
+				t.Helper()
+				insts, err := b.RunInstances("ami-test", "t3.micro", "", 1)
+				require.NoError(t, err)
+
+				return insts[0].ID
+			},
+			keyName:        "my-key",
+			securityGroups: []string{"sg-123456", "sg-789012"},
+			wantErr:        false,
+		},
+		{
+			name: "instance_not_found",
+			setup: func(t *testing.T, _ *ec2.InMemoryBackend) string {
+				t.Helper()
+
+				return "i-nonexistent"
+			},
+			keyName: "my-key",
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newTestBackend()
+			id := tt.setup(t, b)
+
+			err := b.SetInstanceLaunchConfig(id, tt.keyName, tt.securityGroups)
+			if tt.wantErr {
+				require.Error(t, err)
+
+				return
+			}
+
+			require.NoError(t, err)
+			insts := b.DescribeInstances([]string{id}, "")
+			require.Len(t, insts, 1)
+			assert.Equal(t, tt.keyName, insts[0].KeyName)
+			assert.Equal(t, tt.securityGroups, insts[0].SecurityGroups)
+		})
+	}
+}

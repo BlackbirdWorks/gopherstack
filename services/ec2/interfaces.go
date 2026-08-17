@@ -17,6 +17,9 @@ type Backend interface {
 	// Returns ErrInvalidInstanceState if the instance must be stopped for the given attribute.
 	SetInstanceAttribute(instanceID, attribute, value string) error
 
+	// SetInstanceLaunchConfig sets the key pair name and security groups on an instance.
+	SetInstanceLaunchConfig(instanceID, keyName string, securityGroups []string) error
+
 	// PrimaryNetworkInterfaceSourceDestCheck returns the sourceDestCheck flag
 	// of instanceID's primary network interface (defaults to true, matching
 	// AWS's default for VPC instances).

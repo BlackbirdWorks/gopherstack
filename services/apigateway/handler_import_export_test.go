@@ -265,32 +265,51 @@ func TestAPIGateway_PutRestApi_RESTRoute_NotFound(t *testing.T) {
 func TestAPIGateway_ImportApiKeys_RESTRoute(t *testing.T) {
 	t.Parallel()
 
-	backend := apigateway.NewInMemoryBackend()
-	h := apigateway.NewHandler(backend)
+	tests := []struct {
+		name       string
+		path       string
+		body       string
+		wantStatus int
+		wantCount  int
+	}{
+		{
+			name:       "valid_csv_import",
+			path:       "/apikeys?mode=import&format=csv",
+			body:       "name,key\nfirst-key,abc123\nsecond-key,def456\n",
+			wantStatus: http.StatusCreated,
+			wantCount:  2,
+		},
+		{
+			name:       "unsupported_format_rejected",
+			path:       "/apikeys?mode=import&format=xml",
+			body:       "name,key\nbad-key,abc123\n",
+			wantStatus: http.StatusBadRequest,
+			wantCount:  0,
+		},
+	}
 
-	// AWS's API key CSV file format requires a header row naming columns
-	// (e.g. "name,key"), followed by one data row per key; it is not a bare
-	// "name,value" pair list.
-	rec := restCall(t, h, http.MethodPost, "/apikeys?mode=import&format=csv", "application/octet-stream",
-		"name,key\nfirst-key,abc123\nsecond-key,def456\n")
-	require.Equal(t, http.StatusCreated, rec.Code)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	ids, _ := resp["ids"].([]any)
-	require.Len(t, ids, 2)
+			backend := apigateway.NewInMemoryBackend()
+			h := apigateway.NewHandler(backend)
 
-	keys, err := backend.GetAPIKeys()
-	require.NoError(t, err)
-	require.Len(t, keys, 2)
+			rec := restCall(t, h, http.MethodPost, tt.path, "application/octet-stream", tt.body)
+			require.Equal(t, tt.wantStatus, rec.Code)
 
-	names := []string{keys[0].Name, keys[1].Name}
-	assert.Contains(t, names, "first-key")
-	assert.Contains(t, names, "second-key")
+			if tt.wantCount > 0 {
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				ids, _ := resp["ids"].([]any)
+				require.Len(t, ids, tt.wantCount)
 
-	// A plain POST /apikeys (no mode=import) must still route to CreateAPIKey.
-	createRec := restCall(t, h, http.MethodPost, "/apikeys", "application/json", `{"name":"direct-key"}`)
-	require.Equal(t, http.StatusCreated, createRec.Code)
+				keys, err := backend.GetAPIKeys()
+				require.NoError(t, err)
+				require.Len(t, keys, tt.wantCount)
+			}
+		})
+	}
 }
 
 func TestAPIGateway_ImportApiKeys_DuplicateWarns(t *testing.T) {

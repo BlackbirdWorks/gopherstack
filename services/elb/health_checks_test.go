@@ -51,7 +51,7 @@ func TestConfigureHealthCheck(t *testing.T) {
 				"LoadBalancerName":   {"no-lb"},
 				"HealthCheck.Target": {"HTTP:80/health"},
 			},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name: "missing_name",

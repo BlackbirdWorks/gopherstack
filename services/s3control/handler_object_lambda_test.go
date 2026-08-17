@@ -103,17 +103,61 @@ func TestObjectLambdaAP(t *testing.T) {
 
 func TestHTTP_ListAccessPointsForObjectLambda(t *testing.T) {
 	t.Parallel()
-	h := s3control.NewHandler(s3control.NewInMemoryBackend())
 
-	resp := doS3ControlNewOpRequest(
-		t,
-		h,
-		http.MethodGet,
-		"/v20180820/accesspointforobjectlambda",
-		"000000000000",
-		"",
-	)
-	assert.Equal(t, http.StatusOK, resp.Code)
+	tests := []struct {
+		setup      func(t *testing.T, b *s3control.InMemoryBackend)
+		name       string
+		accountID  string
+		wantAlias  bool
+		wantStatus int
+		wantCount  int
+	}{
+		{
+			name:       "empty_list",
+			accountID:  "000000000000",
+			wantStatus: http.StatusOK,
+			wantCount:  0,
+		},
+		{
+			name:      "list_with_alias",
+			accountID: "123456789012",
+			setup: func(t *testing.T, b *s3control.InMemoryBackend) {
+				t.Helper()
+				b.CreateAccessPointForObjectLambda("123456789012", "my-olap")
+			},
+			wantStatus: http.StatusOK,
+			wantCount:  1,
+			wantAlias:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := s3control.NewInMemoryBackend()
+			if tt.setup != nil {
+				tt.setup(t, b)
+			}
+			h := s3control.NewHandler(b)
+
+			resp := doS3ControlNewOpRequest(
+				t,
+				h,
+				http.MethodGet,
+				"/v20180820/accesspointforobjectlambda",
+				tt.accountID,
+				"",
+			)
+			require.Equal(t, tt.wantStatus, resp.Code)
+
+			if tt.wantAlias {
+				assert.Contains(t, resp.Body.String(), "<Alias>")
+				assert.Contains(t, resp.Body.String(), "<Value>my-olap-12345678-ol-s3alias</Value>")
+				assert.Contains(t, resp.Body.String(), "<Status>PROVISIONED</Status>")
+			}
+		})
+	}
 }
 
 func TestCreateAccessPointForObjectLambda(t *testing.T) {

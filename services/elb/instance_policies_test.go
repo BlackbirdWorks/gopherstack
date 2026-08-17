@@ -99,7 +99,7 @@ func TestBackendServerPoliciesUnknownPolicyRejected(t *testing.T) {
 		"InstancePort":         {"8080"},
 		"PolicyNames.member.1": {"no-such-policy"},
 	})
-	assert.Equal(t, http.StatusNotFound, rec.Code)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 // describeBSDs is a helper that calls DescribeLoadBalancers and extracts the
@@ -285,7 +285,7 @@ func TestSetLoadBalancerPoliciesForBackendServer(t *testing.T) {
 				"LoadBalancerName": {"no-lb"},
 				"InstancePort":     {"8080"},
 			},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 	}
 

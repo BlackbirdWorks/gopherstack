@@ -273,8 +273,8 @@ func numAttr(value string) map[string]snsbackend.MessageAttribute {
 	return map[string]snsbackend.MessageAttribute{"amount": {DataType: "Number", StringValue: value}}
 }
 
-// TestFilterPolicyOperators drives every operator matchesFilterPolicy (services/sqs/sns_delivery.go)
-// supports through a real SNS publish -> SQS delivery, asserting delivery or non-delivery per case.
+// TestFilterPolicyOperators drives every filter-policy operator through a real
+// SNS publish -> SQS delivery, asserting delivery or non-delivery per case.
 func TestFilterPolicyOperators(t *testing.T) {
 	t.Parallel()
 

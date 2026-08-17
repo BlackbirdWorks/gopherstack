@@ -12,10 +12,21 @@ func (b *InMemoryBackend) CreateAccessPointForObjectLambda(accountID, name strin
 
 	arn := fmt.Sprintf(arnFmtObjectLambda, b.region, accountID, name)
 
+	aliasPrefix := accountID
+	if len(aliasPrefix) > aliasAccountIDMaxLen {
+		aliasPrefix = aliasPrefix[:aliasAccountIDMaxLen]
+	}
+
+	alias := fmt.Sprintf("%s-%s-ol-s3alias", name, aliasPrefix)
+
 	ap := &ObjectLambdaAccessPoint{
 		AccountID:                  accountID,
 		Name:                       name,
 		ObjectLambdaAccessPointArn: arn,
+		Alias: &ObjectLambdaAccessPointAlias{
+			Value:  alias,
+			Status: "PROVISIONED",
+		},
 	}
 	b.objectLambdaAccessPoints.Put(ap)
 

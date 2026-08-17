@@ -48,7 +48,7 @@ func TestApplySecurityGroupsToLoadBalancer(t *testing.T) {
 				"LoadBalancerName":        {"no-lb"},
 				"SecurityGroups.member.1": {"sg-aaa"},
 			},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name: "missing_lb_name",

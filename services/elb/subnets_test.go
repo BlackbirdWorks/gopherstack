@@ -70,7 +70,7 @@ func TestAttachLoadBalancerToSubnets(t *testing.T) {
 				"LoadBalancerName": {"no-lb"},
 				"Subnets.member.1": {"subnet-aaa"},
 			},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name: "missing_lb_name",
@@ -276,7 +276,7 @@ func TestDetachLoadBalancerFromSubnets(t *testing.T) {
 				"LoadBalancerName": {"no-such-lb"},
 				"Subnets.member.1": {"subnet-aaa"},
 			},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name: "missing_name_returns_400",

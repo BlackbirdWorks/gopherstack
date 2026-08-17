@@ -68,7 +68,7 @@ func TestRegisterAndDeregisterInstances(t *testing.T) {
 				"LoadBalancerName":              {"no-lb"},
 				"Instances.member.1.InstanceId": {"i-aaa00000"},
 			},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name: "register_missing_name",
@@ -108,7 +108,7 @@ func TestRegisterAndDeregisterInstances(t *testing.T) {
 				"LoadBalancerName":              {"no-lb"},
 				"Instances.member.1.InstanceId": {"i-aaa00000"},
 			},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name: "deregister_missing_name",
@@ -210,7 +210,7 @@ func TestDescribeInstanceHealth(t *testing.T) {
 				"Version":          {"2012-06-01"},
 				"LoadBalancerName": {"no-lb"},
 			},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name: "missing_lb_name",

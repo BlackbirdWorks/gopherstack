@@ -314,6 +314,69 @@ func TestUpdateTable(t *testing.T) {
 			},
 		},
 		{
+			name: "combined_throughput_and_deletion_protection_and_class",
+			setup: func(t *testing.T) *ddb.InMemoryDB {
+				t.Helper()
+
+				return newTestDB(t, "combined-table")
+			},
+			input: &dynamodb.UpdateTableInput{
+				TableName: aws.String("combined-table"),
+				ProvisionedThroughput: &types.ProvisionedThroughput{
+					ReadCapacityUnits:  aws.Int64(15),
+					WriteCapacityUnits: aws.Int64(25),
+				},
+				DeletionProtectionEnabled: aws.Bool(true),
+				TableClass:                types.TableClassStandardInfrequentAccess,
+			},
+			verify: func(t *testing.T, db *ddb.InMemoryDB, out *dynamodb.UpdateTableOutput) {
+				t.Helper()
+
+				require.NotNil(t, out.TableDescription)
+				require.NotNil(t, out.TableDescription.ProvisionedThroughput)
+				assert.EqualValues(t, 15, aws.ToInt64(out.TableDescription.ProvisionedThroughput.ReadCapacityUnits))
+				assert.EqualValues(t, 25, aws.ToInt64(out.TableDescription.ProvisionedThroughput.WriteCapacityUnits))
+				assert.True(t, aws.ToBool(out.TableDescription.DeletionProtectionEnabled))
+				assert.Equal(
+					t,
+					types.TableClassStandardInfrequentAccess,
+					out.TableDescription.TableClassSummary.TableClass,
+				)
+
+				desc, err := db.DescribeTable(t.Context(), &dynamodb.DescribeTableInput{
+					TableName: aws.String("combined-table"),
+				})
+				require.NoError(t, err)
+				assert.True(t, aws.ToBool(desc.Table.DeletionProtectionEnabled))
+				assert.Equal(t, types.TableClassStandardInfrequentAccess, desc.Table.TableClassSummary.TableClass)
+				assert.EqualValues(t, 15, aws.ToInt64(desc.Table.ProvisionedThroughput.ReadCapacityUnits))
+			},
+		},
+		{
+			name: "mutually_exclusive_throughput_and_gsi_rejected",
+			setup: func(t *testing.T) *ddb.InMemoryDB {
+				t.Helper()
+
+				return newTestDB(t, "exclusive-table")
+			},
+			input: &dynamodb.UpdateTableInput{
+				TableName: aws.String("exclusive-table"),
+				ProvisionedThroughput: &types.ProvisionedThroughput{
+					ReadCapacityUnits:  aws.Int64(10),
+					WriteCapacityUnits: aws.Int64(10),
+				},
+				GlobalSecondaryIndexUpdates: []types.GlobalSecondaryIndexUpdate{
+					{
+						Delete: &types.DeleteGlobalSecondaryIndexAction{
+							IndexName: aws.String("gsi-1"),
+						},
+					},
+				},
+			},
+			wantErr:         true,
+			wantErrContains: "ValidationException",
+		},
+		{
 			name: "not_found",
 			setup: func(t *testing.T) *ddb.InMemoryDB {
 				t.Helper()

@@ -487,6 +487,7 @@ type StackRefactorAction struct {
 
 // TypeConfigurationDetail holds configuration detail for a CloudFormation type.
 type TypeConfigurationDetail struct {
+	Arn                    string `xml:"Arn,omitempty"`
 	TypeArn                string `xml:"TypeArn,omitempty"`
 	TypeName               string `xml:"TypeName,omitempty"`
 	Alias                  string `xml:"Alias,omitempty"`

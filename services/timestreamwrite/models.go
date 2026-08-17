@@ -125,7 +125,6 @@ type Record struct {
 type DataSourceS3Configuration struct {
 	BucketName      string `json:"BucketName"`
 	ObjectKeyPrefix string `json:"ObjectKeyPrefix,omitempty"`
-	DataFormat      string `json:"DataFormat,omitempty"`
 }
 
 // DataSourceConfiguration holds the data source for a batch load task.

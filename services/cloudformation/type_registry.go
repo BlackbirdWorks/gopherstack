@@ -179,7 +179,12 @@ func (b *InMemoryBackend) BatchDescribeTypeConfigurations(
 		if cfg == "" {
 			cfg = "{}"
 		}
+		configArn := ident.TypeConfigurationArn
+		if configArn == "" {
+			configArn = typeArn + "/default"
+		}
 		details = append(details, TypeConfigurationDetail{
+			Arn:                    configArn,
 			TypeName:               name,
 			TypeArn:                typeArn,
 			Alias:                  ident.TypeConfigurationAlias,

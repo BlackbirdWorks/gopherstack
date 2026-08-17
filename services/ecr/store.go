@@ -52,6 +52,7 @@ type InMemoryBackend struct {
 	region                 string
 	endpoint               string
 	layerUploadQueue       []layerUploadQueueEntry
+	layerUploadSeq         uint64
 	replicationSettleDelay time.Duration
 }
 

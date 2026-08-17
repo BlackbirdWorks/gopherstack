@@ -7,6 +7,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/pinpoint"
 )
 
 func TestOTP_SendAndVerify(t *testing.T) {
@@ -548,6 +550,78 @@ func TestSendMessages_ResponseEnvelope(t *testing.T) {
 	assert.NotEmpty(t, entry["MessageId"])
 }
 
-// ──────────────────────────────────────────────────
-// Parity Phase 4: RemoveAttributes honors the Blacklist and AttributeType
-// ──────────────────────────────────────────────────
+// TestGetInAppMessages tests retrieval of in-app messages for an endpoint.
+func TestGetInAppMessages(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(t *testing.T, h *pinpoint.Handler) (string, string)
+		name       string
+		wantStatus int
+		wantCount  int
+	}{
+		{
+			name: "app_with_no_templates",
+			setup: func(t *testing.T, h *pinpoint.Handler) (string, string) {
+				t.Helper()
+				appID := createTestApp(t, h, "inapp-empty-app")
+
+				return appID, "ep-1"
+			},
+			wantStatus: http.StatusOK,
+			wantCount:  0,
+		},
+		{
+			name: "app_with_inapp_templates",
+			setup: func(t *testing.T, h *pinpoint.Handler) (string, string) {
+				t.Helper()
+				appID := createTestApp(t, h, "inapp-with-tmpl-app")
+				rec := doPinpointRequest(t, h, http.MethodPost, "/v1/templates/tmpl-banner/inapp", map[string]any{
+					"InAppTemplateRequest": map[string]any{
+						"TemplateDescription": "Banner Template",
+					},
+				})
+				require.Equal(t, http.StatusCreated, rec.Code)
+
+				return appID, "ep-2"
+			},
+			wantStatus: http.StatusOK,
+			wantCount:  1,
+		},
+		{
+			name: "app_not_found",
+			setup: func(t *testing.T, _ *pinpoint.Handler) (string, string) {
+				t.Helper()
+
+				return "non-existent-app-id", "ep-3"
+			},
+			wantStatus: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newHandlerForTest(t)
+			appID, endpointID := tt.setup(t, h)
+
+			rec := doPinpointRequest(
+				t,
+				h,
+				http.MethodGet,
+				"/v1/apps/"+appID+"/endpoints/"+endpointID+"/inappmessages",
+				nil,
+			)
+			require.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantStatus == http.StatusOK {
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				campaigns, ok := resp["InAppMessageCampaigns"].([]any)
+				require.True(t, ok)
+				assert.Len(t, campaigns, tt.wantCount)
+			}
+		})
+	}
+}

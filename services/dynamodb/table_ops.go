@@ -953,34 +953,21 @@ func updateStreamARNIndexLocked(db *InMemoryDB, table *Table, oldARN, newARN str
 // applyUpdateTableLocked applies all table mutations under table.mu. It is extracted from
 // UpdateTable to reduce cognitive complexity of the parent function.
 // countUpdateTableMutations counts the mutually-exclusive UpdateTable mutation
-// groups present in the input; AWS allows at most one per call.
+// groups present in the input. AWS allows only one of modifying throughput
+// or creating/removing a global secondary index per call.
 //
 // BillingMode shares ProvisionedThroughput's group because AWS requires them
 // together: "When switching from pay-per-request to provisioned capacity, initial
 // provisioned capacity values must be set" (api_op_UpdateTable.go:60-63, sdk
-// v1.63.1). A pair AWS mandates cannot also be mutually exclusive.
-//
-// The SDK's own exclusivity list is narrower than this function
-// (api_op_UpdateTable.go:17-24): only throughput, remove-GSI and create-GSI. The
-// other five entries below are stricter than AWS documents; left as-is here
-// because loosening them is unrelated to this fix. See bd gopherstack-dbvw.
+// v1.63.1).
 func countUpdateTableMutations(input *dynamodb.UpdateTableInput) int {
 	mutations := 0
 	if input.ProvisionedThroughput != nil || input.BillingMode != "" {
 		mutations++
 	}
 
-	for _, present := range []bool{
-		len(input.GlobalSecondaryIndexUpdates) > 0,
-		len(input.ReplicaUpdates) > 0,
-		input.SSESpecification != nil,
-		input.StreamSpecification != nil,
-		input.DeletionProtectionEnabled != nil,
-		input.TableClass != "",
-	} {
-		if present {
-			mutations++
-		}
+	if len(input.GlobalSecondaryIndexUpdates) > 0 {
+		mutations++
 	}
 
 	return mutations
@@ -992,10 +979,9 @@ func validateUpdateTableMutation(table *Table, input *dynamodb.UpdateTableInput)
 	if countUpdateTableMutations(input) > 1 {
 		return NewValidationException(
 			"One or more parameter values were invalid: " +
-				"Up to one of the following can be updated per API call: " +
-				"ProvisionedThroughput, GlobalSecondaryIndexUpdates, ReplicaUpdates, " +
-				"SSESpecification, StreamSpecification, DeletionProtectionEnabled, " +
-				"TableClass, BillingMode",
+				"Cannot perform more than one of the following operations at once: " +
+				"Modify provisioned throughput settings, " +
+				"Create or remove a global secondary index",
 		)
 	}
 
@@ -1563,20 +1549,43 @@ func buildUpdateTableOutput(
 		})
 	}
 
-	return &dynamodb.UpdateTableOutput{
-		TableDescription: &types.TableDescription{
-			TableName:              input.TableName,
-			TableArn:               aws.String(table.TableArn),
-			TableStatus:            types.TableStatusActive,
-			KeySchema:              models.ToSDKKeySchema(table.KeySchema),
-			AttributeDefinitions:   models.ToSDKAttributeDefinitions(table.AttributeDefinitions),
-			GlobalSecondaryIndexes: gsiDescs,
-			Replicas:               toSDKReplicaDescriptions(table.Replicas),
-			ProvisionedThroughput: &types.ProvisionedThroughputDescription{
-				ReadCapacityUnits:  &rcu,
-				WriteCapacityUnits: &wcu,
-			},
+	td := &types.TableDescription{
+		TableName:                 input.TableName,
+		TableArn:                  aws.String(table.TableArn),
+		TableStatus:               types.TableStatusActive,
+		KeySchema:                 models.ToSDKKeySchema(table.KeySchema),
+		AttributeDefinitions:      models.ToSDKAttributeDefinitions(table.AttributeDefinitions),
+		GlobalSecondaryIndexes:    gsiDescs,
+		Replicas:                  toSDKReplicaDescriptions(table.Replicas),
+		DeletionProtectionEnabled: aws.Bool(table.DeletionProtectionEnabled),
+		ProvisionedThroughput: &types.ProvisionedThroughputDescription{
+			ReadCapacityUnits:  &rcu,
+			WriteCapacityUnits: &wcu,
 		},
+	}
+
+	if table.TableClass != "" {
+		td.TableClassSummary = &types.TableClassSummary{
+			TableClass: types.TableClass(table.TableClass),
+		}
+	}
+
+	if table.BillingMode != "" {
+		td.BillingModeSummary = &types.BillingModeSummary{
+			BillingMode: types.BillingMode(table.BillingMode),
+		}
+	}
+
+	if table.SSEEnabled {
+		td.SSEDescription = &types.SSEDescription{
+			Status:          types.SSEStatusEnabled,
+			SSEType:         types.SSEType(table.SSEType),
+			KMSMasterKeyArn: aws.String(table.SSEKMSMasterKeyArn),
+		}
+	}
+
+	return &dynamodb.UpdateTableOutput{
+		TableDescription: td,
 	}
 }
 

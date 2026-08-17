@@ -101,7 +101,7 @@ func TestAttachLoadBalancerToSubnets_EC2Resolver(t *testing.T) {
 		{
 			name:       "unknown_subnet_rejected",
 			resolver:   &fakeEC2Resolver{subnets: map[string]bool{"subnet-00001": true}},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 	}
 
@@ -155,7 +155,7 @@ func TestSetLoadBalancerListenerSSLCertificate_CertificateResolver(t *testing.T)
 			name:       "unknown_certificate_rejected",
 			resolver:   &fakeCertResolver{certs: map[string]bool{}},
 			certID:     "arn:aws:acm:us-east-1:123456789012:certificate/unknown",
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 	}
 
@@ -210,7 +210,7 @@ func TestCreateLoadBalancerListeners_CertificateResolver(t *testing.T) {
 		{
 			name:       "unknown_certificate_rejected",
 			resolver:   &fakeCertResolver{certs: map[string]bool{}},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 	}
 
@@ -255,7 +255,7 @@ func TestCreateLoadBalancer_InlineHTTPSCertificateResolver(t *testing.T) {
 		{
 			name:       "unknown_certificate_rejected",
 			resolver:   &fakeCertResolver{certs: map[string]bool{}},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 	}
 

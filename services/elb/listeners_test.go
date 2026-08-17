@@ -51,7 +51,7 @@ func TestCreateLoadBalancerListeners(t *testing.T) {
 				"Listeners.member.1.LoadBalancerPort": {"80"},
 				"Listeners.member.1.InstancePort":     {"8080"},
 			},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name: "missing_lb_name",
@@ -111,7 +111,7 @@ func TestDeleteLoadBalancerListeners(t *testing.T) {
 				"LoadBalancerName":           {"no-such-lb"},
 				"LoadBalancerPorts.member.1": {"80"},
 			},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name: "missing_lb_name",
@@ -182,7 +182,7 @@ func TestDuplicateListenerCreateListeners(t *testing.T) {
 				"Listeners.member.1.LoadBalancerPort": {"80"},
 				"Listeners.member.1.InstancePort":     {"9090"},
 			},
-			wantStatus: http.StatusConflict,
+			wantStatus: http.StatusBadRequest,
 			wantCode:   "DuplicateListener",
 		},
 		{
@@ -220,7 +220,7 @@ func TestDuplicateListenerCreateListeners(t *testing.T) {
 				"Listeners.member.2.LoadBalancerPort": {"8080"},
 				"Listeners.member.2.InstancePort":     {"8888"},
 			},
-			wantStatus: http.StatusConflict,
+			wantStatus: http.StatusBadRequest,
 			wantCode:   "DuplicateListener",
 		},
 		{
@@ -699,7 +699,7 @@ func TestSetLoadBalancerListenerSSLCertificate(t *testing.T) {
 				"LoadBalancerPort": {"9999"},
 				"SSLCertificateId": {"arn:aws:acm:us-east-1:123456789012:certificate/abc-123"},
 			},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name: "lb_not_found_returns_404",
@@ -710,7 +710,7 @@ func TestSetLoadBalancerListenerSSLCertificate(t *testing.T) {
 				"LoadBalancerPort": {"443"},
 				"SSLCertificateId": {"arn:aws:acm:us-east-1:123456789012:certificate/abc-123"},
 			},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 	}
 
@@ -763,8 +763,8 @@ func TestCreateListenersRejectsEmptyList(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
-// TestListenerNotFoundReturns404 verifies ErrListenerNotFound maps to HTTP 404.
-func TestListenerNotFoundReturns404(t *testing.T) {
+// TestListenerNotFoundReturns400 verifies ErrListenerNotFound maps to HTTP 400.
+func TestListenerNotFoundReturns400(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -794,7 +794,7 @@ func TestListenerNotFoundReturns404(t *testing.T) {
 			mustCreateLB(t, h, "lnf-lb")
 
 			rec := doELB(t, h, tt.vals)
-			assert.Equal(t, http.StatusNotFound, rec.Code)
+			assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 			var errResp struct {
 				XMLName xml.Name `xml:"ErrorResponse"`

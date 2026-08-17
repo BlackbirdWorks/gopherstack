@@ -207,7 +207,7 @@ func TestEnableAvailabilityZonesForLoadBalancer(t *testing.T) {
 				"LoadBalancerName":           {"no-lb"},
 				"AvailabilityZones.member.1": {"us-east-1a"},
 			},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 	}
 
@@ -292,7 +292,7 @@ func TestDisableAvailabilityZonesForLoadBalancer(t *testing.T) {
 				"LoadBalancerName":           {"no-lb"},
 				"AvailabilityZones.member.1": {"us-east-1a"},
 			},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 	}
 

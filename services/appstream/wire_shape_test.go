@@ -134,6 +134,7 @@ func TestSDKRoundTrip_BatchAssociateUserStack_ErrorsWireKey(t *testing.T) {
 	require.NotEmpty(t, out.Errors,
 		"BatchAssociateUserStackOutput.Errors must decode a non-empty slice for an unknown user")
 	assert.Equal(t, "ghost@example.com", aws.ToString(out.Errors[0].UserStackAssociation.UserName))
+	assert.Equal(t, types.UserStackAssociationErrorCodeUserNameNotFound, out.Errors[0].ErrorCode)
 }
 
 func TestSDKRoundTrip_CreateUpdatedImage_ImageWireKey(t *testing.T) {

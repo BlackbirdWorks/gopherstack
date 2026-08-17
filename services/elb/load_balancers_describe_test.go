@@ -62,7 +62,7 @@ func TestDescribeLoadBalancers(t *testing.T) {
 				"Version":                    {"2012-06-01"},
 				"LoadBalancerNames.member.1": {"missing-lb"},
 			},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name: "describe_empty",
@@ -471,7 +471,7 @@ func TestDescribeLoadBalancersUnknownNameReturns404(t *testing.T) {
 		"LoadBalancerNames.member.1": {"exist-lb"},
 		"LoadBalancerNames.member.2": {"no-such-lb"},
 	})
-	assert.Equal(t, http.StatusNotFound, rec.Code)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 func TestDescribeLoadBalancersPagination(t *testing.T) {
