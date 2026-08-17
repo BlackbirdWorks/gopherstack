@@ -1077,3 +1077,69 @@ func TestDeleteEmailIdentity(t *testing.T) {
 		})
 	}
 }
+
+func TestEmailIdentity_DeepCopy(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		mutate func(ei *sesv2.EmailIdentity)
+		check  func(t *testing.T, ei *sesv2.EmailIdentity)
+		name   string
+	}{
+		{
+			name: "mutate_identity_type",
+			mutate: func(ei *sesv2.EmailIdentity) {
+				ei.IdentityType = "MUTATED"
+			},
+			check: func(t *testing.T, ei *sesv2.EmailIdentity) {
+				t.Helper()
+				assert.Equal(t, "DOMAIN", ei.IdentityType)
+			},
+		},
+		{
+			name: "mutate_tags",
+			mutate: func(ei *sesv2.EmailIdentity) {
+				if ei.Tags != nil {
+					ei.Tags["k1"] = "mutated_value"
+					ei.Tags["k_new"] = "new_value"
+				}
+			},
+			check: func(t *testing.T, ei *sesv2.EmailIdentity) {
+				t.Helper()
+				assert.Equal(t, "v1", ei.Tags["k1"])
+				assert.NotContains(t, ei.Tags, "k_new")
+			},
+		},
+		{
+			name: "mutate_dkim_tokens",
+			mutate: func(ei *sesv2.EmailIdentity) {
+				if len(ei.DkimTokens) > 0 {
+					ei.DkimTokens[0] = "mutated_token"
+				}
+			},
+			check: func(t *testing.T, ei *sesv2.EmailIdentity) {
+				t.Helper()
+				assert.NotEqual(t, "mutated_token", ei.DkimTokens[0])
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			backend := sesv2.NewInMemoryBackend()
+			_, err := backend.CreateEmailIdentity("example.com", "", map[string]string{"k1": "v1"})
+			require.NoError(t, err)
+
+			ei, err := backend.GetEmailIdentity("example.com")
+			require.NoError(t, err)
+
+			tt.mutate(ei)
+
+			ei2, err := backend.GetEmailIdentity("example.com")
+			require.NoError(t, err)
+			tt.check(t, ei2)
+		})
+	}
+}

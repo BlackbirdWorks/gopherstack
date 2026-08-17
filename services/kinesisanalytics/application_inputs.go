@@ -11,7 +11,7 @@ func (b *InMemoryBackend) AddApplicationInput(
 ) error {
 	region := getRegion(ctx, b.defaultRegion)
 
-	b.mu.Lock()
+	b.mu.Lock("AddApplicationInput")
 	defer b.mu.Unlock()
 
 	app, exists := b.apps.Get(applicationKey(region, name))
@@ -41,7 +41,7 @@ func (b *InMemoryBackend) AddApplicationInputProcessingConfiguration(
 ) error {
 	region := getRegion(ctx, b.defaultRegion)
 
-	b.mu.Lock()
+	b.mu.Lock("AddApplicationInputProcessingConfiguration")
 	defer b.mu.Unlock()
 
 	app, exists := b.apps.Get(applicationKey(region, name))
@@ -79,7 +79,7 @@ func (b *InMemoryBackend) DeleteApplicationInputProcessingConfiguration(
 ) error {
 	region := getRegion(ctx, b.defaultRegion)
 
-	b.mu.Lock()
+	b.mu.Lock("DeleteApplicationInputProcessingConfiguration")
 	defer b.mu.Unlock()
 
 	app, exists := b.apps.Get(applicationKey(region, name))

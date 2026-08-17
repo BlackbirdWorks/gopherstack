@@ -1971,7 +1971,7 @@ func TestWireResourceGroupsTagging_CrossServiceResources(t *testing.T) {
 				t.Helper()
 
 				wmBk := workmailbackend.NewInMemoryBackend(accountID, region)
-				org, err := wmBk.CreateOrganization(context.Background(), "wiring-test-org", nil)
+				org, err := wmBk.CreateOrganization(t.Context(), "wiring-test-org", nil, false)
 				require.NoError(t, err)
 				require.NoError(t, wmBk.TagResource(
 					org.ARN, []workmailbackend.Tag{{Key: wantTagKey, Value: wantTagValue}},

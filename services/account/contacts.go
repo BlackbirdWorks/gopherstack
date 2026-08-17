@@ -4,7 +4,7 @@ import "fmt"
 
 // GetAlternateContact retrieves an alternate contact by type.
 func (b *InMemoryBackend) GetAlternateContact(ct ContactType) (*AlternateContact, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetAlternateContact")
 	defer b.mu.RUnlock()
 
 	contact, ok := b.alternateContacts.Get(string(ct))
@@ -19,7 +19,7 @@ func (b *InMemoryBackend) GetAlternateContact(ct ContactType) (*AlternateContact
 
 // PutAlternateContact creates or updates an alternate contact.
 func (b *InMemoryBackend) PutAlternateContact(contact *AlternateContact) error {
-	b.mu.Lock()
+	b.mu.Lock("PutAlternateContact")
 	defer b.mu.Unlock()
 
 	cp := *contact
@@ -30,7 +30,7 @@ func (b *InMemoryBackend) PutAlternateContact(contact *AlternateContact) error {
 
 // DeleteAlternateContact removes an alternate contact by type.
 func (b *InMemoryBackend) DeleteAlternateContact(ct ContactType) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteAlternateContact")
 	defer b.mu.Unlock()
 
 	if !b.alternateContacts.Delete(string(ct)) {
@@ -42,7 +42,7 @@ func (b *InMemoryBackend) DeleteAlternateContact(ct ContactType) error {
 
 // GetContactInformation retrieves primary contact information.
 func (b *InMemoryBackend) GetContactInformation() (*ContactInformation, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetContactInformation")
 	defer b.mu.RUnlock()
 
 	if b.contactInfo == nil {
@@ -56,7 +56,7 @@ func (b *InMemoryBackend) GetContactInformation() (*ContactInformation, error) {
 
 // PutContactInformation sets primary contact information.
 func (b *InMemoryBackend) PutContactInformation(info *ContactInformation) error {
-	b.mu.Lock()
+	b.mu.Lock("PutContactInformation")
 	defer b.mu.Unlock()
 
 	cp := *info

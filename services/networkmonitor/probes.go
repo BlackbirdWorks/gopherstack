@@ -26,7 +26,7 @@ func (b *InMemoryBackend) CreateProbe(
 
 	region := getRegion(ctx, b.defaultRegion)
 
-	b.mu.Lock()
+	b.mu.Lock("CreateProbe")
 	defer b.mu.Unlock()
 
 	m, exists := b.monitors.Get(regionKey(region, monitorName))
@@ -72,7 +72,7 @@ func (b *InMemoryBackend) CreateProbe(
 func (b *InMemoryBackend) DeleteProbe(ctx context.Context, monitorName, probeID string) error {
 	region := getRegion(ctx, b.defaultRegion)
 
-	b.mu.Lock()
+	b.mu.Lock("DeleteProbe")
 	defer b.mu.Unlock()
 
 	m, exists := b.monitors.Get(regionKey(region, monitorName))
@@ -99,7 +99,7 @@ func (b *InMemoryBackend) GetProbe(
 ) (*Probe, error) {
 	region := getRegion(ctx, b.defaultRegion)
 
-	b.mu.RLock()
+	b.mu.RLock("GetProbe")
 	defer b.mu.RUnlock()
 
 	m, exists := b.monitors.Get(regionKey(region, monitorName))
@@ -137,7 +137,7 @@ func (b *InMemoryBackend) UpdateProbe(
 
 	region := getRegion(ctx, b.defaultRegion)
 
-	b.mu.Lock()
+	b.mu.Lock("UpdateProbe")
 	defer b.mu.Unlock()
 
 	m, exists := b.monitors.Get(regionKey(region, monitorName))

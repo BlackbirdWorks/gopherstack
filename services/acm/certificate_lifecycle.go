@@ -102,7 +102,7 @@ func (b *InMemoryBackend) ResendValidationEmail(ctx context.Context, certARN, do
 		delete(timers, certARN)
 	}
 
-	t := time.AfterFunc(autoValidateDelayMS*time.Millisecond, func() { b.autoValidate(region, certARN) })
+	t := time.AfterFunc(b.getAutoValidateDelayLocked(), func() { b.autoValidate(region, certARN) })
 	timers[certARN] = t
 
 	return nil

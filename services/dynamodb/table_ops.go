@@ -145,7 +145,7 @@ func (db *InMemoryDB) CreateTable(
 		newTable.StreamCreatedAt = streamCreatedAt
 		newTable.StreamARN = db.buildStreamARNInRegion(tableName, region, streamCreatedAt)
 		// Initialize the first shard so DescribeStream/GetShardIterator work immediately.
-		newTable.streamShards = []StreamShard{
+		newTable.StreamShards = []StreamShard{
 			{
 				ShardID:             streamShardID,
 				StartingSequenceNum: 1,
@@ -1490,7 +1490,7 @@ func (db *InMemoryDB) applyStreamSpec(
 			table.StreamCreatedAt = streamCreatedAt
 			table.StreamARN = db.buildStreamARNInRegion(tableName, region, streamCreatedAt)
 			// Initialize the first shard when streams are newly enabled via UpdateTable.
-			table.streamShards = []StreamShard{
+			table.StreamShards = []StreamShard{
 				{
 					ShardID:             streamShardID,
 					StartingSequenceNum: table.streamSeq + 1,
@@ -1504,7 +1504,7 @@ func (db *InMemoryDB) applyStreamSpec(
 	table.StreamsEnabled = false
 	table.StreamViewType = ""
 	table.StreamARN = ""
-	table.streamShards = nil
+	table.StreamShards = nil
 	table.streamTrimSeq = 0
 
 	return oldARN, ""

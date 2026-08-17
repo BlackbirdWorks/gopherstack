@@ -29,6 +29,7 @@ func TestDeleteCertificate_StopsAutoValidateTimer(t *testing.T) {
 			t.Parallel()
 
 			b := acm.NewInMemoryBackend("123456789012", "us-east-1")
+			b.SetAutoValidateDelayForTest(10 * time.Second)
 			require.Equal(t, 0, b.TimerCountForTest(), "baseline: no timers at start")
 
 			arns := make([]string, 0, tc.count)
@@ -70,6 +71,7 @@ func TestDeleteCertificate_TimersDoNotAccumulateAcrossCreateDelete(t *testing.T)
 	t.Parallel()
 
 	b := acm.NewInMemoryBackend("123456789012", "us-east-1")
+	b.SetAutoValidateDelayForTest(10 * time.Second)
 
 	const cycles = 20
 
@@ -141,6 +143,7 @@ func TestDeleteCertificate_StopsResendValidationEmailTimer(t *testing.T) {
 	t.Parallel()
 
 	b := acm.NewInMemoryBackend("123456789012", "us-east-1")
+	b.SetAutoValidateDelayForTest(10 * time.Second)
 
 	// Request with EMAIL validation so the cert starts PENDING_VALIDATION.
 	cert, err := b.RequestCertificate(

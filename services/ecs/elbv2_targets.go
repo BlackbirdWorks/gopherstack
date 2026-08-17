@@ -64,7 +64,8 @@ func (b *InMemoryBackend) registerTaskWithELBv2Locked(task *Task, clusterName st
 
 		target := []ELBTarget{{ID: ip, Port: lb.ContainerPort}}
 		if err := b.elbv2Registrar.RegisterTargets(context.Background(), lb.TargetGroupArn, target); err != nil {
-			logger.Load(context.Background()).Error(
+			logger.Load(context.Background()).ErrorContext(
+				context.Background(),
 				"ecs: ELBv2 RegisterTargets failed",
 				"error", err, "targetGroupArn", lb.TargetGroupArn, "taskArn", task.TaskArn)
 		}
@@ -95,7 +96,8 @@ func (b *InMemoryBackend) deregisterTaskFromELBv2Locked(task *Task, clusterName 
 
 		target := []ELBTarget{{ID: ip, Port: lb.ContainerPort}}
 		if err := b.elbv2Registrar.DeregisterTargets(context.Background(), lb.TargetGroupArn, target); err != nil {
-			logger.Load(context.Background()).Error(
+			logger.Load(context.Background()).ErrorContext(
+				context.Background(),
 				"ecs: ELBv2 DeregisterTargets failed",
 				"error", err, "targetGroupArn", lb.TargetGroupArn, "taskArn", task.TaskArn)
 		}

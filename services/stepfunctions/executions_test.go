@@ -500,6 +500,69 @@ func TestExecution_StartAndDescribe(t *testing.T) {
 	assert.Equal(t, sm.StateMachineArn, exec.StateMachineArn)
 	assert.Equal(t, "desc-exec", exec.Name)
 	assert.Equal(t, `{"x":1}`, exec.Input)
+	require.NotNil(t, exec.InputDetails)
+	assert.False(t, exec.InputDetails.Truncated)
+}
+
+func TestDescribeExecution_ParityFields(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name              string
+		def               string
+		traceHeader       string
+		wantStatus        string
+		wantRedriveStatus string
+	}{
+		{
+			name:              "success_execution",
+			def:               `{"StartAt":"P","States":{"P":{"Type":"Pass","Result":"ok","End":true}}}`,
+			traceHeader:       "Root=1-5759e988-bd862e3fe1be46a994272793",
+			wantStatus:        "SUCCEEDED",
+			wantRedriveStatus: "NOT_REDRIVABLE",
+		},
+		{
+			name:              "failed_execution",
+			def:               `{"StartAt":"F","States":{"F":{"Type":"Fail","Error":"CustomError","Cause":"something bad"}}}`,
+			wantStatus:        "FAILED",
+			wantRedriveStatus: "REDRIVABLE",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := stepfunctions.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
+			t.Cleanup(b.Destroy)
+
+			sm, err := b.CreateStateMachine(t.Context(), "sm-"+tt.name, tt.def, validRoleARN, "STANDARD")
+			require.NoError(t, err)
+
+			exec, err := b.StartExecutionWithTrace(sm.StateMachineArn, "exec-"+tt.name, `{"in":1}`, tt.traceHeader)
+			require.NoError(t, err)
+
+			require.Eventually(t, func() bool {
+				desc, descErr := b.DescribeExecution(exec.ExecutionArn)
+
+				return descErr == nil && desc.Status != "RUNNING"
+			}, 5*time.Second, 50*time.Millisecond)
+
+			desc, err := b.DescribeExecution(exec.ExecutionArn)
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantStatus, desc.Status)
+			assert.Equal(t, tt.wantRedriveStatus, desc.RedriveStatus)
+			require.NotNil(t, desc.InputDetails)
+			assert.False(t, desc.InputDetails.Truncated)
+			if tt.traceHeader != "" {
+				assert.Equal(t, tt.traceHeader, desc.TraceHeader)
+			}
+			if tt.wantStatus == "SUCCEEDED" {
+				require.NotNil(t, desc.OutputDetails)
+				assert.False(t, desc.OutputDetails.Truncated)
+			}
+		})
+	}
 }
 
 func TestExecution_StartsRunning(t *testing.T) {
@@ -526,26 +589,56 @@ func TestExecution_StartsRunning(t *testing.T) {
 	assert.Equal(t, "RUNNING", desc.Status)
 }
 
-func TestExecution_DuplicateNameReturnsError(t *testing.T) {
+func TestExecution_DuplicateName(t *testing.T) {
 	t.Parallel()
 
-	b := stepfunctions.NewInMemoryBackend()
-	sm, err := b.CreateStateMachine(
-		context.Background(),
-		"dup-exec-sm",
-		minimalDefinition,
-		validRoleARN,
-		"STANDARD",
-	)
-	require.NoError(t, err)
-	defer b.Destroy()
+	tests := []struct {
+		name      string
+		smType    string
+		wantError bool
+	}{
+		{
+			name:      "standard_rejects_duplicate_name",
+			smType:    "STANDARD",
+			wantError: true,
+		},
+		{
+			name:      "express_allows_name_reuse",
+			smType:    "EXPRESS",
+			wantError: false,
+		},
+	}
 
-	_, err = b.StartExecution(sm.StateMachineArn, "dup-exec", "{}")
-	require.NoError(t, err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	_, err = b.StartExecution(sm.StateMachineArn, "dup-exec", "{}")
-	require.Error(t, err)
-	assert.ErrorIs(t, err, stepfunctions.ErrExecutionAlreadyExists)
+			b := stepfunctions.NewInMemoryBackend()
+			t.Cleanup(b.Destroy)
+
+			sm, err := b.CreateStateMachine(
+				t.Context(),
+				"sm-"+tt.name,
+				minimalDefinition,
+				validRoleARN,
+				tt.smType,
+			)
+			require.NoError(t, err)
+
+			_, err = b.StartExecution(sm.StateMachineArn, "reused-exec", "{}")
+			require.NoError(t, err)
+
+			_, err = b.StartExecution(sm.StateMachineArn, "reused-exec", "{}")
+			if tt.wantError {
+				require.Error(t, err)
+				assert.ErrorIs(t, err, stepfunctions.ErrExecutionAlreadyExists)
+
+				return
+			}
+
+			require.NoError(t, err)
+		})
+	}
 }
 
 func TestExecution_NotFound(t *testing.T) {

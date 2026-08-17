@@ -68,7 +68,7 @@ func (b *InMemoryBackend) DiscoverInputSchema(
 // tool works this way against JSON sources; CSV sources are not sampled (documented gap, not
 // fabricated -- see README).
 func (b *InMemoryBackend) sampleS3Object(ctx context.Context, cfg *s3ConfigurationInput) ([]string, error) {
-	b.mu.RLock()
+	b.mu.RLock("sampleS3Object")
 	reader := b.s3Reader
 	b.mu.RUnlock()
 
@@ -105,7 +105,7 @@ func (b *InMemoryBackend) sampleS3Object(ctx context.Context, cfg *s3Configurati
 // sampleKinesisStream reads up to maxSampleRecords records across the stream's shards, starting
 // each shard from TRIM_HORIZON (the reader's only supported starting point).
 func (b *InMemoryBackend) sampleKinesisStream(resourceARN string) ([]string, error) {
-	b.mu.RLock()
+	b.mu.RLock("sampleKinesisStream")
 	reader := b.kinesisReader
 	b.mu.RUnlock()
 

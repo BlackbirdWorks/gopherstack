@@ -21,7 +21,7 @@ func (b *InMemoryBackend) RunJanitor(ctx context.Context, interval time.Duration
 
 // sweepExpiredResources identifies and removes expired attachment sets and any orphaned attachments.
 func (b *InMemoryBackend) sweepExpiredResources(ctx context.Context) {
-	b.mu.Lock()
+	b.mu.Lock("sweepExpiredResources")
 	defer b.mu.Unlock()
 
 	now := time.Now()

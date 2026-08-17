@@ -361,8 +361,8 @@ func (db *InMemoryDB) StreamShards(tableName string) []StreamShard {
 	tbl.mu.RLock("StreamShards.table")
 	defer tbl.mu.RUnlock()
 
-	out := make([]StreamShard, len(tbl.streamShards))
-	copy(out, tbl.streamShards)
+	out := make([]StreamShard, len(tbl.StreamShards))
+	copy(out, tbl.StreamShards)
 
 	return out
 }

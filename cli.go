@@ -5298,6 +5298,22 @@ func (a *ec2AutoScalingLauncherAdapter) TerminateInstances(_ context.Context, id
 	return err
 }
 
+func (a *ec2AutoScalingLauncherAdapter) ResolveLaunchTemplate(
+	_ context.Context, id, name, version string,
+) (string, string, error) {
+	idOrName := id
+	if idOrName == "" {
+		idOrName = name
+	}
+
+	lt, err := a.backend.GetLaunchTemplate(idOrName, version)
+	if err != nil {
+		return "", "", err
+	}
+
+	return lt.ImageID, lt.InstanceType, nil
+}
+
 // cwSNSPublisherAdapter adapts the SNS backend to the cloudwatch.SNSPublisher interface.
 type cwSNSPublisherAdapter struct {
 	backend *snsbackend.InMemoryBackend

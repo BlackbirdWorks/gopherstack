@@ -7,7 +7,7 @@ import "time"
 // no operation that transitions it (account closure belongs to AWS
 // Organizations -- see services/organizations CloseAccount).
 func (b *InMemoryBackend) GetAccountInformation() (*Info, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetAccountInformation")
 	defer b.mu.RUnlock()
 
 	return &Info{
@@ -20,7 +20,7 @@ func (b *InMemoryBackend) GetAccountInformation() (*Info, error) {
 
 // GetPrimaryEmail returns the current primary email address.
 func (b *InMemoryBackend) GetPrimaryEmail() string {
-	b.mu.RLock()
+	b.mu.RLock("GetPrimaryEmail")
 	defer b.mu.RUnlock()
 
 	return b.primaryEmail
@@ -31,7 +31,7 @@ func (b *InMemoryBackend) GetPrimaryEmail() string {
 // Rejects a target email already in use by this account (ConflictException;
 // see errPrimaryEmailInUse).
 func (b *InMemoryBackend) StartPrimaryEmailUpdate(email string) (string, error) {
-	b.mu.Lock()
+	b.mu.Lock("StartPrimaryEmailUpdate")
 	defer b.mu.Unlock()
 
 	if email == b.primaryEmail {
@@ -53,7 +53,7 @@ func (b *InMemoryBackend) StartPrimaryEmailUpdate(email string) (string, error) 
 // simulator does not model that async completion tail -- ACCEPTED is the
 // terminal status GetPrimaryEmailUpdateStatus reports here.
 func (b *InMemoryBackend) AcceptPrimaryEmailUpdate(otp, email string) error {
-	b.mu.Lock()
+	b.mu.Lock("AcceptPrimaryEmailUpdate")
 	defer b.mu.Unlock()
 
 	if b.pendingEmail == "" {
@@ -76,7 +76,7 @@ func (b *InMemoryBackend) AcceptPrimaryEmailUpdate(otp, email string) error {
 // GetPrimaryEmailUpdateStatus returns the status of the most recent primary
 // email update request and when it last changed.
 func (b *InMemoryBackend) GetPrimaryEmailUpdateStatus() (PrimaryEmailUpdateStatus, time.Time, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetPrimaryEmailUpdateStatus")
 	defer b.mu.RUnlock()
 
 	if b.primaryEmailUpdateStatus == "" {
@@ -97,7 +97,7 @@ func (b *InMemoryBackend) GetGovCloudAccountInformation() (string, State, error)
 
 // PutAccountName updates the account's display name.
 func (b *InMemoryBackend) PutAccountName(name string) error {
-	b.mu.Lock()
+	b.mu.Lock("PutAccountName")
 	defer b.mu.Unlock()
 
 	b.accountName = name

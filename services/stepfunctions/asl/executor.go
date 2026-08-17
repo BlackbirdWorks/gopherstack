@@ -622,7 +622,7 @@ func (e *Executor) executeState(
 		return e.executeTask(ctx, executionARN, stateName, state, pathInput, input)
 	case "Parallel":
 		return e.executeParallel(ctx, executionARN, stateName, state, input)
-	case "Map":
+	case StateTypeMap:
 		return e.executeMap(ctx, executionARN, stateName, state, pathInput, input)
 	default:
 		return "", nil, fmt.Errorf(

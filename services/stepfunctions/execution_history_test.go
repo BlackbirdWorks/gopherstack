@@ -137,10 +137,13 @@ func TestGetExecutionHistory_TaskEventDetails(t *testing.T) {
 					"arn:aws:lambda:us-east-1:000000000000:function:fn",
 					ev.TaskScheduledEventDetails.Resource,
 				)
+				assert.Equal(t, "lambda", ev.TaskScheduledEventDetails.ResourceType)
 				sawScheduled = true
 			case "TaskSucceeded":
 				require.NotNil(t, ev.TaskSucceededEventDetails)
 				assert.Contains(t, ev.TaskSucceededEventDetails.Output, "ok")
+				require.NotNil(t, ev.TaskSucceededEventDetails.OutputDetails)
+				assert.False(t, ev.TaskSucceededEventDetails.OutputDetails.Truncated)
 				sawSucceeded = true
 			case "TaskStateEntered":
 				require.NotNil(t, ev.StateEnteredEventDetails)

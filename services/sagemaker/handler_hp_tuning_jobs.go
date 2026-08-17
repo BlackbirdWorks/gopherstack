@@ -211,7 +211,22 @@ func (h *Handler) handleDeleteHyperParameterTuningJob(ctx context.Context, body 
 	return nil
 }
 
-func (h *Handler) handleListTrainingJobsForHyperParameterTuningJob(ctx context.Context, body []byte) ([]byte, error) {
+type hyperParameterTrainingJobSummary struct {
+	TrainingStartTime    *float64          `json:"TrainingStartTime,omitempty"`
+	TrainingEndTime      *float64          `json:"TrainingEndTime,omitempty"`
+	TunedHyperParameters map[string]string `json:"TunedHyperParameters,omitempty"`
+	TrainingJobName      string            `json:"TrainingJobName"`
+	TrainingJobArn       string            `json:"TrainingJobArn"`
+	TuningJobName        string            `json:"TuningJobName,omitempty"`
+	TrainingJobStatus    string            `json:"TrainingJobStatus"`
+	FailureReason        string            `json:"FailureReason,omitempty"`
+	CreationTime         float64           `json:"CreationTime"`
+}
+
+func (h *Handler) handleListTrainingJobsForHyperParameterTuningJob(
+	ctx context.Context,
+	body []byte,
+) ([]byte, error) {
 	var req struct {
 		HyperParameterTuningJobName string `json:"HyperParameterTuningJobName"`
 		NextToken                   string `json:"NextToken"`
@@ -225,7 +240,7 @@ func (h *Handler) handleListTrainingJobsForHyperParameterTuningJob(ctx context.C
 		return nil, fmt.Errorf("%w: HyperParameterTuningJobName is required", errInvalidRequest)
 	}
 
-	jobs, _, err := h.Backend.ListTrainingJobsForHyperParameterTuningJob(
+	jobs, nextToken, err := h.Backend.ListTrainingJobsForHyperParameterTuningJob(
 		ctx,
 		req.HyperParameterTuningJobName,
 		req.NextToken,
@@ -234,7 +249,25 @@ func (h *Handler) handleListTrainingJobsForHyperParameterTuningJob(ctx context.C
 		return nil, err
 	}
 
-	summaries := make([]any, 0, len(jobs))
+	summaries := make([]hyperParameterTrainingJobSummary, 0, len(jobs))
+	for _, tj := range jobs {
+		summaries = append(summaries, hyperParameterTrainingJobSummary{
+			TrainingJobName:      tj.TrainingJobName,
+			TrainingJobArn:       tj.TrainingJobArn,
+			TuningJobName:        req.HyperParameterTuningJobName,
+			CreationTime:         epochSeconds(tj.CreationTime),
+			TrainingStartTime:    epochSecondsPtr(tj.TrainingStartTime),
+			TrainingEndTime:      epochSecondsPtr(tj.TrainingEndTime),
+			TrainingJobStatus:    tj.TrainingJobStatus,
+			TunedHyperParameters: tj.HyperParameters,
+			FailureReason:        tj.FailureReason,
+		})
+	}
 
-	return json.Marshal(map[string]any{"TrainingJobSummaries": summaries})
+	resp := map[string]any{"TrainingJobSummaries": summaries}
+	if nextToken != "" {
+		resp["NextToken"] = nextToken
+	}
+
+	return json.Marshal(resp)
 }

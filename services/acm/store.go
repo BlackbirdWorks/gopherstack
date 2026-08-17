@@ -60,10 +60,20 @@ type InMemoryBackend struct {
 	eabIdempotency              map[string]map[string]acmeIdempotencyEntry
 	domainValidationIdempotency map[string]map[string]acmeIdempotencyEntry
 
-	registry  *store.Registry
-	mu        *lockmetrics.RWMutex
-	accountID string
-	region    string
+	registry          *store.Registry
+	mu                *lockmetrics.RWMutex
+	accountID         string
+	region            string
+	autoValidateDelay time.Duration
+}
+
+// getAutoValidateDelayLocked returns the configured auto-validation delay, or the default.
+func (b *InMemoryBackend) getAutoValidateDelayLocked() time.Duration {
+	if b.autoValidateDelay > 0 {
+		return b.autoValidateDelay
+	}
+
+	return autoValidateDelayMS * time.Millisecond
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.

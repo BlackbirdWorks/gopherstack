@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -181,7 +183,6 @@ func (b *InMemoryBackend) DeleteHyperParameterTuningJob(ctx context.Context, nam
 }
 
 // ListTrainingJobsForHyperParameterTuningJob returns training jobs for an HP tuning job.
-// Since this emulator does not launch training jobs automatically, it always returns empty.
 func (b *InMemoryBackend) ListTrainingJobsForHyperParameterTuningJob(
 	ctx context.Context,
 	jobName, _ string,
@@ -191,9 +192,22 @@ func (b *InMemoryBackend) ListTrainingJobsForHyperParameterTuningJob(
 
 	region := getRegion(ctx, b.region)
 
-	if _, ok := b.hpTuningJobsStoreRO(region).Get(jobName); !ok {
+	tuningJob, ok := b.hpTuningJobsStoreRO(region).Get(jobName)
+	if !ok {
 		return nil, "", fmt.Errorf("%w: HP tuning job %q not found", ErrHPTuningJobNotFound, jobName)
 	}
 
-	return []*TrainingJob{}, "", nil
+	prefix := jobName + "-"
+	out := make([]*TrainingJob, 0)
+	for _, tj := range b.trainingJobsStoreRO(region).All() {
+		if tj.TuningJobArn == tuningJob.HyperParameterTuningJobArn || strings.HasPrefix(tj.TrainingJobName, prefix) {
+			out = append(out, cloneTrainingJob(tj))
+		}
+	}
+
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].CreationTime.Before(out[j].CreationTime)
+	})
+
+	return out, "", nil
 }

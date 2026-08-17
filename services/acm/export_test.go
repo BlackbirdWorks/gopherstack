@@ -1,5 +1,7 @@
 package acm
 
+import "time"
+
 // TimerCountForTest returns the number of pending auto-validation timers
 // currently stored in the backend.
 func (b *InMemoryBackend) TimerCountForTest() int {
@@ -12,4 +14,12 @@ func (b *InMemoryBackend) TimerCountForTest() int {
 	}
 
 	return total
+}
+
+// SetAutoValidateDelayForTest overrides the auto-validation timer duration for tests.
+func (b *InMemoryBackend) SetAutoValidateDelayForTest(d time.Duration) {
+	b.mu.Lock("SetAutoValidateDelayForTest")
+	defer b.mu.Unlock()
+
+	b.autoValidateDelay = d
 }

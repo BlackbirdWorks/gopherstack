@@ -34,7 +34,7 @@ func doWhiteboxSupportRequest(t *testing.T, h *Handler, action string, body any)
 }
 
 func seedAttachmentSetCreationTimes(b *InMemoryBackend, n int) {
-	b.mu.Lock()
+	b.mu.Lock("seedAttachmentSetCreationTimes")
 	defer b.mu.Unlock()
 
 	now := time.Now()
@@ -44,7 +44,7 @@ func seedAttachmentSetCreationTimes(b *InMemoryBackend, n int) {
 }
 
 func seedDescribeAttachmentCallTimes(b *InMemoryBackend, n int) {
-	b.mu.Lock()
+	b.mu.Lock("seedDescribeAttachmentCallTimes")
 	defer b.mu.Unlock()
 
 	now := time.Now()

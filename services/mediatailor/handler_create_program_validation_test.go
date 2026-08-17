@@ -57,6 +57,23 @@ func TestCreateProgram_RejectsUnknownReferences(t *testing.T) {
 			vodSource:   "no-such-vod-source",
 			programName: "prog-bad-vod",
 		},
+		{
+			name: "unknown_live_source_under_real_source_location",
+			setup: func(t *testing.T, client *mediatailorsdk.Client) {
+				t.Helper()
+
+				_, err := client.CreateSourceLocation(t.Context(), &mediatailorsdk.CreateSourceLocationInput{
+					SourceLocationName: aws.String("sl-validation-live"),
+					HttpConfiguration: &types.HttpConfiguration{
+						BaseUrl: aws.String("https://example.com"),
+					},
+				})
+				require.NoError(t, err)
+			},
+			sourceLoc:   "sl-validation-live",
+			liveSource:  "no-such-live-source",
+			programName: "prog-bad-live",
+		},
 	}
 
 	for _, tc := range tests {
@@ -77,11 +94,20 @@ func TestCreateProgram_RejectsUnknownReferences(t *testing.T) {
 
 			tc.setup(t, client)
 
+			var vodSrc, liveSrc *string
+			if tc.vodSource != "" {
+				vodSrc = aws.String(tc.vodSource)
+			}
+			if tc.liveSource != "" {
+				liveSrc = aws.String(tc.liveSource)
+			}
+
 			_, err = client.CreateProgram(t.Context(), &mediatailorsdk.CreateProgramInput{
 				ChannelName:        aws.String("channel-validation"),
 				ProgramName:        aws.String(tc.programName),
 				SourceLocationName: aws.String(tc.sourceLoc),
-				VodSourceName:      aws.String(tc.vodSource),
+				VodSourceName:      vodSrc,
+				LiveSourceName:     liveSrc,
 				ScheduleConfiguration: &types.ScheduleConfiguration{
 					Transition: &types.Transition{
 						Type:                     aws.String("ABSOLUTE"),

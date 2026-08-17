@@ -35,13 +35,13 @@ const (
 // StreamShard models one DynamoDB Streams shard with its sequence range and genealogy.
 type StreamShard struct {
 	// ShardID is the unique identifier for this shard.
-	ShardID string
+	ShardID string `json:"ShardID"`
 	// ParentShardID is the ID of the parent shard (empty for the first shard of a stream).
-	ParentShardID string
+	ParentShardID string `json:"ParentShardID,omitempty"`
 	// StartingSequenceNum is the first sequence number in this shard (inclusive).
-	StartingSequenceNum int64
+	StartingSequenceNum int64 `json:"StartingSequenceNum"`
 	// EndingSequenceNum is the last sequence number in this shard (0 = still open).
-	EndingSequenceNum int64
+	EndingSequenceNum int64 `json:"EndingSequenceNum,omitempty"`
 }
 
 // StreamsBackend defines the interface for DynamoDB Streams operations.
@@ -108,7 +108,7 @@ func (db *InMemoryDB) enableStreamFieldsLocked(
 	table.StreamCreatedAt = now
 	table.StreamARN = db.buildStreamARNInRegion(tableName, region, now)
 	// Initialize the first shard when enabling streams (clearing any prior shard history).
-	table.streamShards = []StreamShard{
+	table.StreamShards = []StreamShard{
 		{
 			ShardID:             streamShardID,
 			StartingSequenceNum: table.streamSeq + 1,
@@ -150,7 +150,7 @@ func disableStreamFieldsLocked(table *Table) string {
 	table.streamSeq = 0
 	table.StreamHead = 0
 	table.streamTrimSeq = 0
-	table.streamShards = nil
+	table.StreamShards = nil
 
 	return oldARN
 }
@@ -385,7 +385,7 @@ func shardSeqRangeRLocked(found *Table, requestedShardID string) (int64, int64, 
 
 	var foundShard bool
 
-	for _, s := range found.streamShards {
+	for _, s := range found.StreamShards {
 		if s.ShardID == requestedShardID {
 			shardStartSeq = s.StartingSequenceNum
 			shardEndSeq = s.EndingSequenceNum
@@ -770,7 +770,7 @@ func describeStreamSnapshot(
 	found.mu.RLock("DescribeStream")
 	defer found.mu.RUnlock()
 
-	shardSlice := found.streamShards
+	shardSlice := found.StreamShards
 
 	if childShardsParentID != nil {
 		shardSlice = filterChildShards(shardSlice, *childShardsParentID)

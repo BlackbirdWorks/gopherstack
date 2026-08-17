@@ -13,7 +13,7 @@ type RegionContextKeyForTest = regionContextKey
 // ApplicationCount returns the number of applications stored in the backend across all regions.
 // This is exported for use in tests only.
 func ApplicationCount(b *InMemoryBackend) int {
-	b.mu.RLock()
+	b.mu.RLock("ApplicationCount")
 	defer b.mu.RUnlock()
 
 	return b.apps.Len()
@@ -68,7 +68,7 @@ func WaitForStatus(t *testing.T, b *InMemoryBackend, name, wantStatus string) {
 
 // GetCancelFuncsLen returns the number of in-flight lifecycle goroutines.
 func GetCancelFuncsLen(b *InMemoryBackend) int {
-	b.mu.RLock()
+	b.mu.RLock("GetCancelFuncsLen")
 	defer b.mu.RUnlock()
 
 	return len(b.cancelFuncs)

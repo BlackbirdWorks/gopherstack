@@ -11,7 +11,7 @@ func (b *InMemoryBackend) DescribeVoices(filter DescribeVoicesFilter) ([]Voice, 
 		return nil, fmt.Errorf("%w: invalid Engine %q", ErrValidation, filter.Engine)
 	}
 
-	b.mu.RLock()
+	b.mu.RLock("DescribeVoices")
 	defer b.mu.RUnlock()
 
 	out := make([]Voice, 0, len(b.voices))

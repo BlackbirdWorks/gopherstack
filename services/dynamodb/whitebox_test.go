@@ -51,7 +51,7 @@ func setStreamShards(db *InMemoryDB, tableName string, shards []StreamShard) {
 	tbl.mu.Lock("test.setStreamShards.table")
 	defer tbl.mu.Unlock()
 
-	tbl.streamShards = shards
+	tbl.StreamShards = shards
 }
 
 // TestStreams_DescribeStream_ShardFilter_Validation covers the ShardFilter

@@ -100,7 +100,7 @@ func (b *InMemoryBackend) ListTagsForResource(ctx context.Context, resourceARN s
 		return nil, err
 	}
 
-	b.mu.RLock()
+	b.mu.RLock("ListTagsForResource")
 	defer b.mu.RUnlock()
 
 	app, ok := b.appByARN(resourceARN)
@@ -122,7 +122,7 @@ func (b *InMemoryBackend) TagResource(ctx context.Context, resourceARN string, t
 		return err
 	}
 
-	b.mu.Lock()
+	b.mu.Lock("TagResource")
 	defer b.mu.Unlock()
 
 	app, ok := b.appByARN(resourceARN)
@@ -151,7 +151,7 @@ func (b *InMemoryBackend) UntagResource(ctx context.Context, resourceARN string,
 		return err
 	}
 
-	b.mu.Lock()
+	b.mu.Lock("UntagResource")
 	defer b.mu.Unlock()
 
 	app, ok := b.appByARN(resourceARN)

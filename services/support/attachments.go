@@ -34,7 +34,7 @@ const (
 
 // AddAttachmentsToSet creates a new attachment set and returns its ID.
 func (b *InMemoryBackend) AddAttachmentsToSet(attachmentSetID string) (string, time.Time, error) {
-	b.mu.Lock()
+	b.mu.Lock("AddAttachmentsToSet")
 	defer b.mu.Unlock()
 
 	if attachmentSetID == "" {
@@ -51,7 +51,7 @@ func (b *InMemoryBackend) AddAttachmentsToSet(attachmentSetID string) (string, t
 // write lock (not RLock) because every call records a timestamp against the
 // DescribeAttachmentLimitExceeded rate-limit window.
 func (b *InMemoryBackend) DescribeAttachment(attachmentID string) (*Attachment, error) {
-	b.mu.Lock()
+	b.mu.Lock("DescribeAttachment")
 	defer b.mu.Unlock()
 
 	now := time.Now()
@@ -91,7 +91,7 @@ func pruneOldLocked(times []time.Time, window time.Duration, now time.Time) []ti
 
 // AddAttachmentInternal seeds an attachment directly into the backend (for testing).
 func (b *InMemoryBackend) AddAttachmentInternal(a *Attachment) {
-	b.mu.Lock()
+	b.mu.Lock("AddAttachmentInternal")
 	defer b.mu.Unlock()
 
 	cp := *a
@@ -108,7 +108,7 @@ func (b *InMemoryBackend) AddAttachmentsToSetWithAttachments(
 	attachmentSetID string,
 	attachments []Attachment,
 ) (string, time.Time, error) {
-	b.mu.Lock()
+	b.mu.Lock("AddAttachmentsToSetWithAttachments")
 	defer b.mu.Unlock()
 
 	if len(attachments) == 0 {

@@ -17,13 +17,14 @@ func TestInMemoryDB_SnapshotRestore(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		setup  func(db *dynamodb.InMemoryDB) string
+		setup  func(t *testing.T, db *dynamodb.InMemoryDB) string
 		verify func(t *testing.T, db *dynamodb.InMemoryDB, id string)
 		name   string
 	}{
 		{
 			name: "round_trip_preserves_state",
-			setup: func(db *dynamodb.InMemoryDB) string {
+			setup: func(t *testing.T, db *dynamodb.InMemoryDB) string {
+				t.Helper()
 				input := models.ToSDKCreateTableInput(&models.CreateTableInput{
 					TableName: "test-table",
 					KeySchema: []models.KeySchemaElement{
@@ -34,9 +35,7 @@ func TestInMemoryDB_SnapshotRestore(t *testing.T) {
 					},
 				})
 				_, err := db.CreateTable(t.Context(), input)
-				if err != nil {
-					return ""
-				}
+				require.NoError(t, err)
 
 				return "test-table"
 			},
@@ -50,12 +49,44 @@ func TestInMemoryDB_SnapshotRestore(t *testing.T) {
 		},
 		{
 			name:  "empty_backend_round_trip",
-			setup: func(_ *dynamodb.InMemoryDB) string { return "" },
+			setup: func(_ *testing.T, _ *dynamodb.InMemoryDB) string { return "" },
 			verify: func(t *testing.T, db *dynamodb.InMemoryDB, _ string) {
 				t.Helper()
 
 				tables := db.ListAllTables()
 				assert.Empty(t, tables)
+			},
+		},
+		{
+			name: "stream_shards_round_trip",
+			setup: func(t *testing.T, db *dynamodb.InMemoryDB) string {
+				t.Helper()
+				input := models.ToSDKCreateTableInput(&models.CreateTableInput{
+					TableName: "stream-table",
+					KeySchema: []models.KeySchemaElement{
+						{AttributeName: "id", KeyType: models.KeyTypeHash},
+					},
+					AttributeDefinitions: []models.AttributeDefinition{
+						{AttributeName: "id", AttributeType: "S"},
+					},
+					StreamSpecification: map[string]any{
+						"StreamEnabled":  true,
+						"StreamViewType": "NEW_AND_OLD_IMAGES",
+					},
+				})
+				_, err := db.CreateTable(t.Context(), input)
+				require.NoError(t, err)
+
+				return "stream-table"
+			},
+			verify: func(t *testing.T, db *dynamodb.InMemoryDB, tableName string) {
+				t.Helper()
+
+				table, ok := db.GetTable(tableName)
+				require.True(t, ok)
+				require.NotEmpty(t, table.StreamARN)
+				shards := db.StreamShards(tableName)
+				assert.NotEmpty(t, shards, "stream shards must not be empty after restore")
 			},
 		},
 	}
@@ -65,7 +96,7 @@ func TestInMemoryDB_SnapshotRestore(t *testing.T) {
 			t.Parallel()
 
 			original := dynamodb.NewInMemoryDB()
-			id := tt.setup(original)
+			id := tt.setup(t, original)
 
 			snap := original.Snapshot(t.Context())
 			require.NotNil(t, snap)

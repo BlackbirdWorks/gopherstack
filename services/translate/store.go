@@ -5,6 +5,7 @@ import (
 	"sort"
 	"sync"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
@@ -20,9 +21,9 @@ type InMemoryBackend struct {
 	jobs          *store.Table[TranslationJob]
 	tags          map[string]map[string]string
 	registry      *store.Registry
+	mu            *lockmetrics.RWMutex
 	accountID     string
 	region        string
-	mu            sync.RWMutex
 }
 
 // NewInMemoryBackend returns an initialized InMemoryBackend.
@@ -32,6 +33,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		region:    region,
 		registry:  store.NewRegistry(),
 		tags:      make(map[string]map[string]string),
+		mu:        lockmetrics.New("translate"),
 	}
 	registerAllTables(b)
 
@@ -46,7 +48,7 @@ func (b *InMemoryBackend) Region() string { return b.region }
 
 // Reset clears all stored state.
 func (b *InMemoryBackend) Reset() {
-	b.mu.Lock()
+	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
 	b.registry.ResetAll()

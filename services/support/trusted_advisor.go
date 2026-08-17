@@ -120,7 +120,7 @@ func (b *InMemoryBackend) DescribeTrustedAdvisorChecks() []TrustedAdvisorCheck {
 func (b *InMemoryBackend) DescribeTrustedAdvisorCheckRefreshStatuses(
 	checkIDs []string,
 ) []TrustedAdvisorCheckRefreshStatus {
-	b.mu.RLock()
+	b.mu.RLock("DescribeTrustedAdvisorCheckRefreshStatuses.check")
 	needsWrite := false
 
 	for _, id := range checkIDs {
@@ -150,7 +150,7 @@ func (b *InMemoryBackend) DescribeTrustedAdvisorCheckRefreshStatuses(
 	}
 
 	b.mu.RUnlock()
-	b.mu.Lock()
+	b.mu.Lock("DescribeTrustedAdvisorCheckRefreshStatuses.update")
 	defer b.mu.Unlock()
 
 	out := make([]TrustedAdvisorCheckRefreshStatus, 0, len(checkIDs))
@@ -182,7 +182,7 @@ func (b *InMemoryBackend) DescribeTrustedAdvisorCheckRefreshStatuses(
 // DescribeTrustedAdvisorCheckResult returns the result for the given Trusted Advisor check.
 // Stored results (written by RefreshTrustedAdvisorCheck) take precedence over the static default.
 func (b *InMemoryBackend) DescribeTrustedAdvisorCheckResult(checkID, _ string) *TrustedAdvisorCheckResult {
-	b.mu.RLock()
+	b.mu.RLock("DescribeTrustedAdvisorCheckResult")
 	if stored, ok := b.checkResults.Get(checkID); ok {
 		cp := *stored
 		b.mu.RUnlock()
@@ -220,7 +220,7 @@ func (b *InMemoryBackend) DescribeTrustedAdvisorCheckResult(checkID, _ string) *
 // DescribeTrustedAdvisorCheckSummaries returns summaries for the given check IDs,
 // derived from stored check results where available.
 func (b *InMemoryBackend) DescribeTrustedAdvisorCheckSummaries(checkIDs []string) []TrustedAdvisorCheckSummary {
-	b.mu.RLock()
+	b.mu.RLock("DescribeTrustedAdvisorCheckSummaries")
 	defer b.mu.RUnlock()
 
 	ts := time.Now().UTC().Format(time.RFC3339)
@@ -259,7 +259,7 @@ func (b *InMemoryBackend) DescribeTrustedAdvisorCheckSummaries(checkIDs []string
 // RefreshTrustedAdvisorCheck enqueues a refresh for the given Trusted Advisor check.
 // Evicts a random entry when the status map is at capacity to prevent unbounded growth.
 func (b *InMemoryBackend) RefreshTrustedAdvisorCheck(checkID string) (*TrustedAdvisorCheckRefreshStatus, error) {
-	b.mu.Lock()
+	b.mu.Lock("RefreshTrustedAdvisorCheck")
 	defer b.mu.Unlock()
 
 	if existing, ok := b.checkRefreshStatuses.Get(checkID); ok && time.Since(existing.RefreshTime) < time.Hour {

@@ -16,7 +16,7 @@ func (b *InMemoryBackend) PutLexicon(name, content string) error {
 		return err
 	}
 
-	b.mu.Lock()
+	b.mu.Lock("PutLexicon")
 	defer b.mu.Unlock()
 
 	// A new lexicon (not an overwrite of an existing name) counts against the
@@ -43,7 +43,7 @@ func (b *InMemoryBackend) PutLexicon(name, content string) error {
 
 // GetLexicon returns named lexicon.
 func (b *InMemoryBackend) GetLexicon(name string) (*Lexicon, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetLexicon")
 	defer b.mu.RUnlock()
 
 	lexicon, ok := b.lexicons.Get(name)
@@ -56,7 +56,7 @@ func (b *InMemoryBackend) GetLexicon(name string) (*Lexicon, error) {
 
 // DeleteLexicon removes named lexicon.
 func (b *InMemoryBackend) DeleteLexicon(name string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteLexicon")
 	defer b.mu.Unlock()
 
 	if !b.lexicons.Delete(name) {
@@ -70,7 +70,7 @@ func (b *InMemoryBackend) DeleteLexicon(name string) error {
 func (b *InMemoryBackend) ListLexicons() []*Lexicon {
 	var out []*Lexicon
 	func() {
-		b.mu.RLock()
+		b.mu.RLock("ListLexicons")
 		defer b.mu.RUnlock()
 		all := b.lexicons.All()
 		out = make([]*Lexicon, 0, len(all))

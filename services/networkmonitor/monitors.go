@@ -32,7 +32,7 @@ func (b *InMemoryBackend) CreateMonitor(
 		period = *aggregationPeriod
 	}
 
-	b.mu.Lock()
+	b.mu.Lock("CreateMonitor")
 	defer b.mu.Unlock()
 
 	key := regionKey(region, name)
@@ -140,7 +140,7 @@ func (b *InMemoryBackend) buildNestedProbes(
 func (b *InMemoryBackend) DeleteMonitor(ctx context.Context, name string) error {
 	region := getRegion(ctx, b.defaultRegion)
 
-	b.mu.Lock()
+	b.mu.Lock("DeleteMonitor")
 	defer b.mu.Unlock()
 
 	key := regionKey(region, name)
@@ -160,7 +160,7 @@ func (b *InMemoryBackend) DeleteMonitor(ctx context.Context, name string) error 
 func (b *InMemoryBackend) GetMonitor(ctx context.Context, name string) (*Monitor, error) {
 	region := getRegion(ctx, b.defaultRegion)
 
-	b.mu.RLock()
+	b.mu.RLock("GetMonitor")
 	defer b.mu.RUnlock()
 
 	m, exists := b.monitors.Get(regionKey(region, name))
@@ -183,7 +183,7 @@ func (b *InMemoryBackend) UpdateMonitor(
 
 	region := getRegion(ctx, b.defaultRegion)
 
-	b.mu.Lock()
+	b.mu.Lock("UpdateMonitor")
 	defer b.mu.Unlock()
 
 	m, exists := b.monitors.Get(regionKey(region, name))
@@ -206,7 +206,7 @@ func (b *InMemoryBackend) ListMonitors(
 ) ([]monitorSummary, string, error) {
 	region := getRegion(ctx, b.defaultRegion)
 
-	b.mu.RLock()
+	b.mu.RLock("ListMonitors")
 	defer b.mu.RUnlock()
 
 	sorted := slices.Clone(b.monitorsByRegion.Get(region))

@@ -5,10 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
-	"sync"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
@@ -143,10 +143,10 @@ type InMemoryBackend struct {
 	monitors         *store.Table[Monitor]
 	monitorsByRegion *store.Index[Monitor]
 	arnIndex         map[string]map[string]string
+	mu               *lockmetrics.RWMutex
 	accountID        string
 	defaultRegion    string
 	nextProbeSeq     int64
-	mu               sync.RWMutex
 }
 
 var _ StorageBackend = (*InMemoryBackend)(nil)
@@ -158,6 +158,7 @@ func NewInMemoryBackend(region, accountID string) *InMemoryBackend {
 		arnIndex:      make(map[string]map[string]string),
 		accountID:     accountID,
 		defaultRegion: region,
+		mu:            lockmetrics.New("networkmonitor"),
 	}
 
 	registerAllTables(b)
@@ -167,7 +168,7 @@ func NewInMemoryBackend(region, accountID string) *InMemoryBackend {
 
 // Reset clears all backend state.
 func (b *InMemoryBackend) Reset() {
-	b.mu.Lock()
+	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
 	b.registry.ResetAll()

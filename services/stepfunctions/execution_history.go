@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -118,17 +119,23 @@ func (r *historyRecorder) RecordStateExited(execARN, stateName, stateType string
 
 func (r *historyRecorder) RecordTaskScheduled(execARN, _ /* stateName */, resource string) {
 	r.backend.appendHistory(execARN, &HistoryEvent{
-		Timestamp:                 float64(time.Now().Unix()),
-		Type:                      "TaskScheduled",
-		TaskScheduledEventDetails: &TaskScheduledEventDetails{Resource: resource},
+		Timestamp: float64(time.Now().Unix()),
+		Type:      "TaskScheduled",
+		TaskScheduledEventDetails: &TaskScheduledEventDetails{
+			Resource:     resource,
+			ResourceType: resourceTypeFromResource(resource),
+		},
 	})
 }
 
 func (r *historyRecorder) RecordTaskSucceeded(execARN, _ /* stateName */ string, output any) {
 	r.backend.appendHistory(execARN, &HistoryEvent{
-		Timestamp:                 float64(time.Now().Unix()),
-		Type:                      "TaskSucceeded",
-		TaskSucceededEventDetails: &TaskSucceededEventDetails{Output: historyValueToJSON(output)},
+		Timestamp: float64(time.Now().Unix()),
+		Type:      "TaskSucceeded",
+		TaskSucceededEventDetails: &TaskSucceededEventDetails{
+			Output:        historyValueToJSON(output),
+			OutputDetails: &HistoryEventExecutionDataDetails{Truncated: false},
+		},
 	})
 }
 
@@ -143,6 +150,35 @@ func (r *historyRecorder) RecordTaskFailed(
 			Cause: cause,
 		},
 	})
+}
+
+func resourceTypeFromResource(resource string) string {
+	if resource == "" {
+		return ""
+	}
+	if strings.Contains(resource, ":activity:") {
+		return "activity"
+	}
+	if strings.Contains(resource, ":lambda:") || strings.Contains(resource, ":::lambda:") {
+		return "lambda"
+	}
+	if strings.Contains(resource, ":sqs:") || strings.Contains(resource, ":::sqs:") {
+		return "sqs"
+	}
+	if strings.Contains(resource, ":sns:") || strings.Contains(resource, ":::sns:") {
+		return "sns"
+	}
+	if strings.Contains(resource, ":dynamodb:") || strings.Contains(resource, ":::dynamodb:") {
+		return "dynamodb"
+	}
+	if strings.Contains(resource, ":s3:") || strings.Contains(resource, ":::s3:") {
+		return "s3"
+	}
+	if strings.Contains(resource, ":states:") {
+		return "stepfunctions"
+	}
+
+	return "lambda"
 }
 
 // historyValueToJSON marshals a state input/output value to its JSON string
