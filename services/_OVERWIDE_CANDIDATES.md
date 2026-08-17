@@ -129,6 +129,75 @@ batches clear more of it.
 | batch | verified clean, every op had an explicit comment citing the real SDK summary struct | pass 4 |
 | waf | verified clean, 13/13 candidate ops. Every match-set/rule/ACL family already used a dedicated `*Summary` type, field-verified against `waf@v1.33.4` individually (not by analogy) | this session, `services/waf/PARITY.md` |
 | kafka | 7/7 examined. 1 confirmed leak (`ListClusterOperationsV2`) fixed; 2 of the 7 were false positives on re-read (`ListClusters`/`ListClusterOperations` V1 both correctly reuse the same full type Describe returns — AWS itself doesn't narrow V1); 4 verified clean for over-wide specifically (`ListChannels`, `ListNodes`, `ListReplicators`, `ListTopics`), though `ListNodes` has a separate, larger wrong-shape bug filed as gopherstack-mk3t, not over-wide and not fixed | this session, `services/kafka/PARITY.md`, gopherstack-mk3t |
+| ssm | 10/10 examined against `ssm@v1.73.4`. 2 confirmed leaks (`ListAssociationVersions` returned `[]Association` leaking Overview/InstanceId/LastUpdateAssociationDate instead of `types.AssociationVersionInfo`; `ListDocumentVersions` returned `[]DocumentVersion` leaking document `Content` string instead of `types.DocumentVersionInfo`), both fixed with dedicated summary types; 8 verified clean (`ListCloudConnectors`, `ListComplianceItems`, `ListComplianceSummaries`, `ListOpsItemEvents`, `ListOpsItemRelatedItems`, `ListOpsMetadata`, `ListResourceComplianceSummaries`, `ListResourceDataSync`) | this session, `services/ssm/wire_field_fixes_test.go` |
+| athena | 9/9 examined against `athena@v1.60.4`. Verified clean, all 9 ops already use dedicated summary structs | this session |
+| wafv2 | 8/8 examined against `wafv2@v1.60.4`. Verified clean, all 8 ops narrow via inline map summaries | this session |
+| appmesh | 8/8 examined against `appmesh@v1.36.4`. Verified clean, all 8 ops already use dedicated `*Summary` structs | this session |
+| sesv2 | 8/8 examined against `sesv2@v1.60.1`. Verified clean, all 8 ops modeled via `wire_output.go` narrow DTOs | this session |
+| ssoadmin | 8/8 examined against `ssoadmin@v1.43.1`. Verified clean, all 8 ops use dedicated summary views | this session |
+| macie2 | 7/7 examined against `macie2@v1.48.4`. Verified clean, all 7 ops already use dedicated summary structs | this session |
+| transcribe | 7/7 examined against `transcribe@v1.54.4`. Verified clean, all 7 ops already use dedicated summary structs | this session |
+| apprunner | 6/6 examined against `apprunner@v1.44.4`. Verified clean, all 6 ops already use dedicated summary structs | this session |
+| emr | 6/6 examined against `emr@v1.43.4`. Verified clean, all 6 ops already use dedicated summary structs | this session |
+| fis | 6/6 examined against `fis@v1.40.4`. 2 confirmed leaks (`ListExperimentTemplates` returned full `experimentTemplateDTO` with targets/actions/logConfig/roleArn/stopConditions; `ListExperiments` returned full `experimentDTO` with targets/actions/logConfig/roleArn/stopConditions/startTime/endTime/executionId), both fixed with `experimentTemplateSummaryDTO` and `experimentSummaryDTO`; 4 verified clean (`ListActions`, `ListTargetResourceTypes`, `ListTargetAccountConfigurations`, `ListExperimentTargetAccountConfigurations`) | this session, `services/fis/wire_field_test.go` |
+| managedblockchain | 6/6 examined against `managedblockchain@v1.30.4`. Verified clean, all 6 ops already use dedicated summary structs | this session |
+| outposts | 6/6 examined against `outposts@v1.46.4`. Verified clean, all 6 ops modeled via `wire.go` dedicated DTOs | this session |
+| s3control | 6/6 examined against `s3control@v1.54.4`. Verified clean, all 6 ops use dedicated XML list result DTOs | this session |
+| acm | 5/5 examined against `acm@v1.43.4`. Verified clean, all 5 ops already use dedicated summary structs | this session |
+| datasync | 5/5 examined against `datasync@v1.45.4`. Verified clean, all 5 ops already use dedicated list entry DTOs | this session |
+| iotanalytics | 5/5 examined against `iotanalytics@v1.31.4`. Verified clean, all 5 ops already use dedicated summary structs | this session |
+| kms | 5/5 examined against `kms@v1.50.4`. Verified clean, all 5 ops already use dedicated list entry structs | this session |
+| verifiedpermissions | 5/5 examined against `verifiedpermissions@v1.30.4`. Verified clean, all 5 ops already use dedicated view structs | this session |
+| cloudwatchlogs | 4/4 examined against `cloudwatchlogs@v1.81.1`. Verified clean, all 4 ops already use dedicated summary shapes | this session |
+| directoryservice | 4/4 examined against `directoryservice@v1.40.4`. Verified clean, all 4 ops already use dedicated summary structs | this session |
+| grafana | 4/4 examined against `grafana@v1.30.4`. Verified clean, all 4 ops modeled via `wire.go` dedicated DTOs | this session |
+| inspector2 | 4/4 examined against `inspector2@v1.35.4`. Verified clean, all 4 ops already use dedicated summary models | this session |
+| lambda | 4/4 examined against `lambda@v1.101.2`. 2 confirmed leaks (`ListLayers` and `ListLayerVersions` leaked `Content` with `CodeSize`); both fixed by omitting `Content`; 2 verified clean (`ListFunctionVersionsByCapacityProvider`, `ListProvisionedConcurrencyConfigs`) | this session, `services/lambda/wire_field_test.go` |
+| accessanalyzer | 5/5 examined against `accessanalyzer@v1.45.4`. Verified clean, all 5 ops already use dedicated summary structs | this session |
+| awsconfig | 3/3 examined against `configservice@v1.48.4`. Verified clean, all 3 ops already use dedicated summary structs | this session |
+| cloudtrail | 3/3 examined against `cloudtrail@v1.43.4`. Verified clean, all 3 ops use dedicated narrow summary views | this session |
+| cloudwatch | 3/3 examined against `cloudwatch@v1.49.4`. Verified clean, all 3 ops already use dedicated summary structs | this session |
+| codepipeline | 3/3 examined against `codepipeline@v1.41.4`. Verified clean, all 3 ops already use dedicated summary structs | this session |
+| comprehend | 3/3 examined against `comprehend@v1.38.4`. Verified clean, all 3 ops already use dedicated summary structs | this session |
+| ec2 | 3/3 examined against `ec2@v1.268.0`. Verified clean, all 3 ops use dedicated XML list result DTOs | this session |
+| elasticsearch | 3/3 examined against `elasticsearchservice@v1.32.4`. Verified clean, all 3 ops use dedicated summary structs | this session |
+| iotwireless | 3/3 examined against `iotwireless@v1.30.4`. Verified clean, all 3 ops use dedicated summary structs | this session |
+| kinesisanalyticsv2 | 3/3 examined against `kinesisanalyticsv2@v1.31.4`. Verified clean, all 3 ops use dedicated summary structs | this session |
+| networkmanager | 3/3 examined against `networkmanager@v1.37.4`. Verified clean, all 3 ops modeled via dedicated `wire.go` DTOs | this session |
+| organizations | 3/3 examined against `organizations@v1.36.4`. Verified clean, all 3 ops use dedicated summary structs | this session |
+| ram | 3/3 examined against `ram@v1.39.4`. Verified clean, all 3 ops use dedicated summary structs | this session |
+| resiliencehub | 3/3 examined against `resiliencehub@v1.30.4`. Verified clean, all 3 ops modeled via dedicated `wire.go` DTOs | this session |
+| resourcegroups | 3/3 examined against `resourcegroups@v1.31.4`. Verified clean, all 3 ops use dedicated summary structs | this session |
+| s3tables | 3/3 examined against `s3tables@v1.5.0`. Verified clean, all 3 ops use dedicated summary structs | this session |
+| serverlessrepo | 3/3 examined against `serverlessapplicationrepository@v1.31.4`. Verified clean, all 3 ops use dedicated summary structs | this session |
+| workmail | 3/3 examined against `workmail@v1.33.4`. Verified clean, all 3 ops use dedicated summary structs | this session |
+| apigatewayv2 | 2/2 examined against `apigatewayv2@v1.37.4`. Verified clean, all 2 ops use dedicated summary structs | this session |
+| ce | 2/2 examined against `costexplorer@v1.44.4`. Verified clean, all 2 ops use dedicated summary structs | this session |
+| elasticbeanstalk | 2/2 examined against `elasticbeanstalk@v1.37.4`. Verified clean, all 2 ops use dedicated summary structs | this session |
+| guardduty | 2/2 examined against `guardduty@v1.49.4`. Verified clean, all 2 ops use dedicated summary structs | this session |
+| iotdataplane | 2/2 examined against `iotdataplane@v1.30.4`. Verified clean, all 2 ops use dedicated summary structs | this session |
+| lakeformation | 2/2 examined against `lakeformation@v1.40.4`. Verified clean, all 2 ops use dedicated wire structs | this session |
+| mq | 2/2 examined against `mq@v1.30.4`. Verified clean, all 2 ops use dedicated summary structs | this session |
+| route53resolver | 2/2 examined against `route53resolver@v1.48.4`. Verified clean, all 2 ops use dedicated metadata structs | this session |
+| s3 | 2/2 examined against `s3@v1.96.0`. Verified clean, all 2 ops use dedicated XML list result DTOs | this session |
+| scheduler | 2/2 examined against `scheduler@v1.31.4`. Verified clean, all 2 ops use dedicated summary structs | this session |
+| secretsmanager | 2/2 examined against `secretsmanager@v1.42.4`. Verified clean, all 2 ops use dedicated summary structs | this session |
+| ses | 2/2 examined against `ses@v1.33.4`. Verified clean, all 2 ops use dedicated XML list result DTOs | this session |
+| amplify | 1/1 examined against `amplify@v1.36.4`. Verified clean, `ListJobs` uses dedicated summary struct | this session |
+| appsync | 1/1 examined against `appsync@v1.56.4`. 1 confirmed leak (`ListSourceApiAssociations` leaked `sourceApiAssociationStatus`/`Detail` and `Config`); fixed by mapping to dedicated `SourceAPIAssociationSummary` | this session, `services/appsync/wire_field_test.go` |
+| bedrockruntime | 1/1 examined against `bedrockruntime@v1.27.0`. Verified clean, `ListAsyncInvokes` uses dedicated summary struct | this session |
+| cloudfrontkeyvaluestore | 1/1 examined against `cloudfrontkeyvaluestore@v1.15.4`. Verified clean, `ListKeys` uses dedicated summary struct | this session |
+| codeconnections | 1/1 examined against `codeconnections@v1.16.4`. Verified clean, `ListRepositoryLinks` uses dedicated summary struct | this session |
+| codestarconnections | 1/1 examined against `codestarconnections@v1.30.4`. Verified clean, `ListRepositoryLinks` uses dedicated summary struct | this session |
+| databrew | 1/1 examined against `databrew@v1.32.4`. Verified clean, `ListRulesets` uses dedicated summary struct | this session |
+| kinesis | 1/1 examined against `kinesis@v1.46.4`. Verified clean, `ListStreams` returns standard StreamNames string list | this session |
+| kinesisanalytics | 1/1 examined against `kinesisanalytics@v1.30.4`. Verified clean, `ListApplications` uses dedicated summary struct | this session |
+| mediastoredata | 1/1 examined against `mediastoredata@v1.30.4`. Verified clean, `ListItems` uses dedicated summary struct | this session |
+| mgn | 1/1 examined against `mgn@v1.40.4`. Verified clean, `ListNetworkMigrationDefinitions` uses dedicated summary struct | this session |
+| networkmonitor | 1/1 examined against `networkmonitor@v1.16.4`. Verified clean, `ListMonitors` uses dedicated summary struct | this session |
+| rolesanywhere | 1/1 examined against `rolesanywhere@v1.30.4`. Verified clean, `ListSubjects` uses dedicated summary struct | this session |
+| shield | 1/1 examined against `shield@v1.30.4`. Verified clean, `ListAttacks` uses dedicated summary struct | this session |
+| sqs | 1/1 examined against `sqs@v1.50.4`. Verified clean, `ListMessageMoveTasks` uses dedicated summary struct | this session |
 
 **omics' 3 open leaks, fixed this session** against pinned `omics@v1.49.5`:
 `ListAnnotationStores`, `ListVariantStores` and `ListAnnotationStoreVersions`
@@ -174,78 +243,9 @@ or regenerate.
 
 | Service | Candidate ops | Ops (real SDK Output struct declares a narrow Summary-shaped slice) |
 |---|---|---|
-| ssm | 10 | ListAssociationVersions, ListCloudConnectors, ListComplianceItems, ListComplianceSummaries, ListDocumentVersions, ListOpsItemEvents, ListOpsItemRelatedItems, ListOpsMetadata, ListResourceComplianceSummaries, ListResourceDataSync |
-| athena | 9 | ListCalculationExecutions, ListDataCatalogs, ListExecutors, ListNotebookMetadata, ListNotebookSessions, ListPreparedStatements, ListSessions, ListTableMetadata, ListWorkGroups |
-| appmesh | 8 | ListGatewayRoutes, ListMeshes, ListRoutes, ListTagsForResource, ListVirtualGateways, ListVirtualNodes, ListVirtualRouters, ListVirtualServices |
-| sesv2 | 8 | ListCustomVerificationEmailTemplates, ListEmailIdentities, ListEmailTemplates, ListExportJobs, ListImportJobs, ListResourceTenants, ListSuppressedDestinations, ListTenants |
-| ssoadmin | 8 | ListAccountAssignmentCreationStatus, ListAccountAssignmentDeletionStatus, ListApplicationAuthenticationMethods, ListApplicationGrants, ListInstances, ListPermissionSetProvisioningStatus, ListRegions, ListTrustedTokenIssuers |
-| wafv2 | 8 | ListAPIKeys, ListAvailableManagedRuleGroups, ListIPSets, ListManagedRuleSets, ListMobileSdkReleases, ListRegexPatternSets, ListRuleGroups, ListWebACLs |
 | iam | 7 | ListAccessKeys, ListOpenIDConnectProviders, ListPoliciesGrantingServiceAccess, ListSAMLProviders, ListSSHPublicKeys, ListServerCertificates, ListServiceSpecificCredentials |
-| macie2 | 7 | ListAllowLists, ListClassificationJobs, ListClassificationScopes, ListCustomDataIdentifiers, ListFindingsFilters, ListManagedDataIdentifiers, ListSensitivityInspectionTemplates |
-| transcribe | 7 | ListCallAnalyticsJobs, ListMedicalScribeJobs, ListMedicalTranscriptionJobs, ListMedicalVocabularies, ListTranscriptionJobs, ListVocabularies, ListVocabularyFilters |
-| apprunner | 6 | ListAutoScalingConfigurations, ListConnections, ListObservabilityConfigurations, ListOperations, ListServices, ListVpcIngressConnections |
-| emr | 6 | ListClusters, ListNotebookExecutions, ListSecurityConfigurations, ListSteps, ListStudioSessionMappings, ListStudios |
-| fis | 6 | ListActions, ListExperimentTargetAccountConfigurations, ListExperimentTemplates, ListExperiments, ListTargetAccountConfigurations, ListTargetResourceTypes |
-| managedblockchain | 6 | ListAccessors, ListMembers, ListNetworks, ListNodes, ListProposalVotes, ListProposals |
-| outposts | 6 | ListAssets, ListCapacityTasks, ListCatalogItems, ListOrderableInstanceTypes, ListOrders, ListQuotes |
-| s3control | 6 | ListAccessGrants, ListAccessGrantsInstances, ListAccessGrantsLocations, ListCallerAccessGrants, ListStorageLensConfigurations, ListStorageLensGroups |
 | securityhub | 6 | ListAutomationRules, ListConfigurationPolicies, ListConfigurationPolicyAssociations, ListConnectors, ListConnectorsV2, ListStandardsControlAssociations |
-| accessanalyzer | 5 | ListAccessPreviews, ListAnalyzedResources, ListAnalyzers, ListArchiveRules, ListFindings |
-| acm | 5 | ListAcmeAccounts, ListAcmeDomainValidations, ListAcmeEndpoints, ListAcmeExternalAccountBindings, ListCertificates |
-| datasync | 5 | ListAgents, ListLocations, ListTagsForResource, ListTaskExecutions, ListTasks |
-| iotanalytics | 5 | ListChannels, ListDatasetContents, ListDatasets, ListDatastores, ListPipelines |
-| kms | 5 | ListAliases, ListGrants, ListKeyRotations, ListKeys, ListRetirableGrants |
 | route53 | 5 | ListCidrBlocks, ListCidrCollections, ListCidrLocations, ListHostedZonesByVPC, ListTrafficPolicies |
-| verifiedpermissions | 5 | ListIdentitySources, ListPolicies, ListPolicyStoreAliases, ListPolicyStores, ListPolicyTemplates |
-| cloudwatchlogs | 4 | ListAggregateLogGroupSummaries, ListIntegrations, ListLogGroups, ListScheduledQueries |
-| directoryservice | 4 | ListADAssessments, ListCertificates, ListIpRoutes, ListSchemaExtensions |
-| grafana | 4 | ListPermissions, ListWorkspaceServiceAccountTokens, ListWorkspaceServiceAccounts, ListWorkspaces |
-| inspector2 | 4 | ListCodeSecurityIntegrations, ListCodeSecurityScanConfigurationAssociations, ListCodeSecurityScanConfigurations, ListConnectorScanConfigurations |
-| lambda | 4 | ListFunctionVersionsByCapacityProvider, ListLayerVersions, ListLayers, ListProvisionedConcurrencyConfigs |
-| awsconfig | 3 | ListConfigurationRecorders, ListConnectors, ListStoredQueries |
-| cloudtrail | 3 | ListImportFailures, ListImports, ListTrails |
-| cloudwatch | 3 | ListAlarmMuteRules, ListDashboards, ListMetricStreams |
-| codepipeline | 3 | ListPipelineExecutions, ListPipelines, ListWebhooks |
-| comprehend | 3 | ListDocumentClassifierSummaries, ListEntityRecognizerSummaries, ListFlywheels |
-| ec2 | 3 | ListImagesInRecycleBin, ListSnapshotsInRecycleBin, ListVolumesInRecycleBin |
-| elasticsearch | 3 | ListDomainNames, ListVpcEndpoints, ListVpcEndpointsForDomain |
-| iotwireless | 3 | ListEventConfigurations, ListPositionConfigurations, ListWirelessGatewayTaskDefinitions |
-| kinesisanalyticsv2 | 3 | ListApplicationOperations, ListApplicationVersions, ListApplications |
-| networkmanager | 3 | ListAttachmentRoutingPolicyAssociations, ListConnectPeers, ListCoreNetworks |
-| organizations | 3 | ListPolicies, ListPoliciesForTarget, ListTargetsForPolicy |
-| ram | 3 | ListPermissionVersions, ListPermissions, ListResourceSharePermissions |
-| resiliencehub | 3 | ListAppAssessments, ListAppVersions, ListApps |
-| resourcegroups | 3 | ListGroupResources, ListGroupingStatuses, ListTagSyncTasks |
-| s3tables | 3 | ListNamespaces, ListTableBuckets, ListTables |
-| serverlessrepo | 3 | ListApplicationDependencies, ListApplicationVersions, ListApplications |
-| workmail | 3 | ListMailDomains, ListOrganizations, ListPersonalAccessTokens |
-| apigatewayv2 | 2 | ListPortalProducts, ListPortals |
-| ce | 2 | ListCommitmentPurchaseAnalyses, ListSavingsPlansPurchaseRecommendationGeneration |
-| elasticbeanstalk | 2 | ListPlatformBranches, ListPlatformVersions |
-| guardduty | 2 | ListInvestigations, ListMalwareProtectionPlans |
-| iotdataplane | 2 | ListRetainedMessages, ListSubscriptions |
-| lakeformation | 2 | ListLakeFormationOptIns, ListResources |
-| mq | 2 | ListBrokers, ListUsers |
-| route53resolver | 2 | ListFirewallDomainLists, ListFirewallRuleGroups |
-| s3 | 2 | ListObjectAnnotations, ListObjectVersions |
-| scheduler | 2 | ListScheduleGroups, ListSchedules |
-| secretsmanager | 2 | ListSecretVersionIds, ListSecrets |
-| ses | 2 | ListReceiptRuleSets, ListTemplates |
-| amplify | 1 | ListJobs |
-| appsync | 1 | ListSourceApiAssociations |
-| bedrockruntime | 1 | ListAsyncInvokes |
-| cloudfrontkeyvaluestore | 1 | ListKeys |
-| codeconnections | 1 | ListRepositoryLinks |
-| codestarconnections | 1 | ListRepositoryLinks |
-| databrew | 1 | ListRulesets |
-| kinesis | 1 | ListStreams |
-| kinesisanalytics | 1 | ListApplications |
-| mediastoredata | 1 | ListItems |
-| mgn | 1 | ListNetworkMigrationDefinitions |
-| networkmonitor | 1 | ListMonitors |
-| rolesanywhere | 1 | ListSubjects |
-| shield | 1 | ListAttacks |
-| sqs | 1 | ListMessageMoveTasks |
 
 Excluded entirely: `qldb`, `qldbsession` (no aws-sdk-go-v2 dependency to
 diff against), `opsworks` (imports the SDK path but has no corresponding

@@ -589,7 +589,7 @@ func (b *InMemoryBackend) ListDocumentVersions(
 	}
 
 	if startIdx >= len(versions) {
-		return &ListDocumentVersionsOutput{DocumentVersions: []DocumentVersion{}}, nil
+		return &ListDocumentVersionsOutput{DocumentVersions: []DocumentVersionInfo{}}, nil
 	}
 
 	end := startIdx + int(maxResults)
@@ -602,8 +602,20 @@ func (b *InMemoryBackend) ListDocumentVersions(
 		end = len(versions)
 	}
 
+	page := make([]DocumentVersionInfo, 0, end-startIdx)
+	for _, v := range versions[startIdx:end] {
+		page = append(page, DocumentVersionInfo{
+			Name:             v.Name,
+			DocumentVersion:  v.DocumentVersion,
+			DocumentFormat:   v.DocumentFormat,
+			Status:           v.Status,
+			CreatedDate:      v.CreatedDate,
+			IsDefaultVersion: v.IsDefaultVersion,
+		})
+	}
+
 	return &ListDocumentVersionsOutput{
-		DocumentVersions: versions[startIdx:end],
+		DocumentVersions: page,
 		NextToken:        nextToken,
 	}, nil
 }

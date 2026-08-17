@@ -244,12 +244,44 @@ func (b *InMemoryBackend) ListAssociationVersions(
 
 	assoc, exists := b.associationsStore(region).Get(input.AssociationID)
 	if !exists {
-		return &ListAssociationVersionsOutputFull{AssociationVersions: []Association{}}, nil
+		return &ListAssociationVersionsOutputFull{AssociationVersions: []AssociationVersionInfo{}}, nil
 	}
 
 	return &ListAssociationVersionsOutputFull{
-		AssociationVersions: []Association{*assoc},
+		AssociationVersions: []AssociationVersionInfo{associationToVersionInfo(assoc)},
 	}, nil
+}
+
+func associationToVersionInfo(a *Association) AssociationVersionInfo {
+	if a == nil {
+		return AssociationVersionInfo{}
+	}
+
+	version := a.DocumentVersion
+	if version == "" {
+		version = "1"
+	}
+
+	return AssociationVersionInfo{
+		ApplyOnlyAtCronInterval:       a.ApplyOnlyAtCronInterval,
+		AssociationDispatchAssumeRole: a.AssociationDispatchAssumeRole,
+		AssociationID:                 a.AssociationID,
+		AssociationName:               a.AssociationName,
+		AssociationVersion:            version,
+		CalendarNames:                 a.CalendarNames,
+		ComplianceSeverity:            a.ComplianceSeverity,
+		CreatedDate:                   a.LastUpdateAssociationDate,
+		DocumentVersion:               a.DocumentVersion,
+		Duration:                      a.Duration,
+		MaxConcurrency:                a.MaxConcurrency,
+		MaxErrors:                     a.MaxErrors,
+		Name:                          a.Name,
+		OutputLocation:                copyAssocOutputLocation(a.OutputLocation),
+		Parameters:                    a.Parameters,
+		ScheduleExpression:            a.ScheduleExpression,
+		SyncCompliance:                a.SyncCompliance,
+		Targets:                       a.Targets,
+	}
 }
 
 const assocExecIDPrefix = "aexec-"

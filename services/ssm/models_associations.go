@@ -256,10 +256,33 @@ type ListAssociationsOutputFull struct {
 	Associations []Association `json:"Associations"`
 }
 
+// AssociationVersionInfo is the narrow element type for ListAssociationVersionsOutput.
+// Real AWS SDK v2 types.AssociationVersionInfo (api_op_ListAssociationVersions.go).
+type AssociationVersionInfo struct {
+	OutputLocation                *InstanceAssociationOutputLocation `json:"OutputLocation,omitempty"`
+	Duration                      *int32                             `json:"Duration,omitempty"`
+	Parameters                    map[string][]string                `json:"Parameters,omitempty"`
+	MaxErrors                     string                             `json:"MaxErrors,omitempty"`
+	DocumentVersion               string                             `json:"DocumentVersion,omitempty"`
+	AssociationDispatchAssumeRole string                             `json:"AssociationDispatchAssumeRole,omitempty"`
+	AssociationID                 string                             `json:"AssociationId,omitempty"`
+	AssociationName               string                             `json:"AssociationName,omitempty"`
+	AssociationVersion            string                             `json:"AssociationVersion,omitempty"`
+	ComplianceSeverity            string                             `json:"ComplianceSeverity,omitempty"`
+	SyncCompliance                string                             `json:"SyncCompliance,omitempty"`
+	MaxConcurrency                string                             `json:"MaxConcurrency,omitempty"`
+	ScheduleExpression            string                             `json:"ScheduleExpression,omitempty"`
+	Name                          string                             `json:"Name,omitempty"`
+	CalendarNames                 []string                           `json:"CalendarNames,omitempty"`
+	Targets                       []AssociationTarget                `json:"Targets,omitempty"`
+	CreatedDate                   float64                            `json:"CreatedDate,omitempty"`
+	ApplyOnlyAtCronInterval       bool                               `json:"ApplyOnlyAtCronInterval,omitempty"`
+}
+
 // ListAssociationVersionsOutputFull extends the empty output.
 type ListAssociationVersionsOutputFull struct {
-	NextToken           string        `json:"NextToken,omitempty"`
-	AssociationVersions []Association `json:"AssociationVersions"`
+	NextToken           string                   `json:"NextToken,omitempty"`
+	AssociationVersions []AssociationVersionInfo `json:"AssociationVersions"`
 }
 
 // DescribeAssociationExecutionsOutputFull extends the empty output.
