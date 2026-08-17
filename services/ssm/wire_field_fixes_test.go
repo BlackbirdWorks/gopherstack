@@ -138,3 +138,79 @@ func TestListDocuments_Tags_RealClient(t *testing.T) {
 	assert.Equal(t, "team", aws.ToString(entry.Tags[0].Key))
 	assert.Equal(t, "platform", aws.ToString(entry.Tags[0].Value))
 }
+
+func TestSSMListOps_NarrowSummaryParity(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		test func(t *testing.T, client *ssmsdk.Client)
+		name string
+	}{
+		{
+			name: "list_association_versions_narrow_shape",
+			test: func(t *testing.T, client *ssmsdk.Client) {
+				t.Helper()
+				ctx := t.Context()
+				docName := "assoc-narrow-doc"
+				_, err := client.CreateDocument(ctx, &ssmsdk.CreateDocumentInput{
+					Name:    aws.String(docName),
+					Content: aws.String(`{"schemaVersion":"2.2","mainSteps":[]}`),
+				})
+				require.NoError(t, err)
+
+				createOut, err := client.CreateAssociation(ctx, &ssmsdk.CreateAssociationInput{
+					Name:            aws.String(docName),
+					AssociationName: aws.String("my-assoc"),
+				})
+				require.NoError(t, err)
+				require.NotNil(t, createOut.AssociationDescription)
+				assocID := createOut.AssociationDescription.AssociationId
+
+				listOut, err := client.ListAssociationVersions(ctx, &ssmsdk.ListAssociationVersionsInput{
+					AssociationId: assocID,
+				})
+				require.NoError(t, err)
+				require.Len(t, listOut.AssociationVersions, 1)
+
+				v := listOut.AssociationVersions[0]
+				assert.Equal(t, aws.ToString(assocID), aws.ToString(v.AssociationId))
+				assert.Equal(t, "my-assoc", aws.ToString(v.AssociationName))
+				assert.Equal(t, docName, aws.ToString(v.Name))
+			},
+		},
+		{
+			name: "list_document_versions_narrow_shape",
+			test: func(t *testing.T, client *ssmsdk.Client) {
+				t.Helper()
+				ctx := t.Context()
+				docName := "doc-versions-narrow-doc"
+				_, err := client.CreateDocument(ctx, &ssmsdk.CreateDocumentInput{
+					Name:    aws.String(docName),
+					Content: aws.String(`{"schemaVersion":"2.2","mainSteps":[]}`),
+				})
+				require.NoError(t, err)
+
+				listOut, err := client.ListDocumentVersions(ctx, &ssmsdk.ListDocumentVersionsInput{
+					Name: aws.String(docName),
+				})
+				require.NoError(t, err)
+				require.Len(t, listOut.DocumentVersions, 1)
+
+				v := listOut.DocumentVersions[0]
+				assert.Equal(t, docName, aws.ToString(v.Name))
+				assert.Equal(t, "1", aws.ToString(v.DocumentVersion))
+				assert.True(t, v.IsDefaultVersion)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			backend := ssm.NewInMemoryBackend()
+			client := newTestSSMClient(t, ssm.NewHandler(backend))
+			tt.test(t, client)
+		})
+	}
+}

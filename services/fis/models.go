@@ -464,10 +464,21 @@ type experimentTemplateResponseDTO struct {
 	ExperimentTemplate experimentTemplateDTO `json:"experimentTemplate"`
 }
 
+// experimentTemplateSummaryDTO is the JSON representation of an experiment template summary (ListExperimentTemplates).
+// Mirrors real AWS SDK types.ExperimentTemplateSummary.
+type experimentTemplateSummaryDTO struct {
+	Tags           map[string]string `json:"tags,omitempty"`
+	ID             string            `json:"id"`
+	Arn            string            `json:"arn"`
+	Description    string            `json:"description,omitempty"`
+	CreationTime   float64           `json:"creationTime"`
+	LastUpdateTime float64           `json:"lastUpdateTime"`
+}
+
 // listExperimentTemplatesResponseDTO is the outer envelope for list responses.
 type listExperimentTemplatesResponseDTO struct {
-	NextToken           string                  `json:"nextToken,omitempty"`
-	ExperimentTemplates []experimentTemplateDTO `json:"experimentTemplates"`
+	NextToken           string                         `json:"nextToken,omitempty"`
+	ExperimentTemplates []experimentTemplateSummaryDTO `json:"experimentTemplates"`
 }
 
 // experimentTemplateDTO is the JSON representation of an experiment template.
@@ -492,10 +503,22 @@ type experimentResponseDTO struct {
 	Experiment experimentDTO `json:"experiment"`
 }
 
+// experimentSummaryDTO is the JSON representation of an experiment summary (ListExperiments).
+// Mirrors real AWS SDK types.ExperimentSummary.
+type experimentSummaryDTO struct {
+	Tags                 map[string]string               `json:"tags,omitempty"`
+	ExperimentOptions    *experimentExperimentOptionsDTO `json:"experimentOptions,omitempty"`
+	State                experimentStatusDTO             `json:"state"`
+	ID                   string                          `json:"id"`
+	Arn                  string                          `json:"arn"`
+	ExperimentTemplateID string                          `json:"experimentTemplateId"`
+	CreationTime         float64                         `json:"creationTime"`
+}
+
 // listExperimentsResponseDTO is the outer envelope for list experiments responses.
 type listExperimentsResponseDTO struct {
-	NextToken   string          `json:"nextToken,omitempty"`
-	Experiments []experimentDTO `json:"experiments"`
+	NextToken   string                 `json:"nextToken,omitempty"`
+	Experiments []experimentSummaryDTO `json:"experiments"`
 }
 
 // experimentDTO is the JSON representation of a running experiment.

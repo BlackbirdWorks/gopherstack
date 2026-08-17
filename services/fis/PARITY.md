@@ -203,3 +203,16 @@ full list in one page and `nextToken` was always absent, unlike their siblings
 (`ListExperimentTemplates`, `ListExperiments`, `ListActions`,
 `ListTargetResourceTypes`), which paginate correctly. Fixed: all three handlers
 now call `paginateWithToken`/`encodePageToken` exactly like their siblings.
+
+**`ListExperimentTemplates` and `ListExperiments` over-wide summaries fixed.**
+`ListExperimentTemplates` previously returned the full `experimentTemplateDTO`
+(leaking targets, actions, stopConditions, logConfiguration, roleArn, and
+experimentReportConfiguration) instead of `types.ExperimentTemplateSummary`
+(`arn`, `creationTime`, `description`, `id`, `lastUpdateTime`, `tags`).
+`ListExperiments` previously returned the full `experimentDTO` (leaking targets,
+actions, stopConditions, roleArn, logConfiguration, startTime, endTime,
+executionId, and experimentReport) instead of `types.ExperimentSummary`
+(`arn`, `creationTime`, `experimentOptions`, `experimentTemplateId`, `id`,
+`state`, `tags`). Dedicated `experimentTemplateSummaryDTO` and
+`experimentSummaryDTO` structs now enforce exact SDK wire parity.
+

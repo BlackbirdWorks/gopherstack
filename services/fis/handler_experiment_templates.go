@@ -90,10 +90,10 @@ func (h *Handler) handleListExperimentTemplates(c *echo.Context) error {
 	}
 
 	page := templates[start:end]
-	dtos := make([]experimentTemplateDTO, len(page))
+	dtos := make([]experimentTemplateSummaryDTO, len(page))
 
 	for i, t := range page {
-		dtos[i] = toTemplateDTO(t)
+		dtos[i] = toTemplateSummaryDTO(t)
 	}
 
 	return c.JSON(http.StatusOK, listExperimentTemplatesResponseDTO{
@@ -105,6 +105,17 @@ func (h *Handler) handleListExperimentTemplates(c *echo.Context) error {
 // ----------------------------------------
 // DTO conversion helpers
 // ----------------------------------------
+
+func toTemplateSummaryDTO(tpl *ExperimentTemplate) experimentTemplateSummaryDTO {
+	return experimentTemplateSummaryDTO{
+		ID:             tpl.ID,
+		Arn:            tpl.Arn,
+		Description:    tpl.Description,
+		Tags:           tpl.Tags,
+		CreationTime:   toUnix(tpl.CreationTime),
+		LastUpdateTime: toUnix(tpl.LastUpdateTime),
+	}
+}
 
 func toTemplateDTO(tpl *ExperimentTemplate) experimentTemplateDTO {
 	targets := make(map[string]experimentTemplateTargetDTO, len(tpl.Targets))

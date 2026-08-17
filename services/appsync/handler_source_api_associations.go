@@ -198,10 +198,15 @@ func (h *Handler) listSourceAPIAssociations(ctx context.Context, c *echo.Context
 		return h.handleError(ctx, c, opListSourceAPIAssociations, err)
 	}
 
+	summaries := make([]*SourceAPIAssociationSummary, 0, len(assocs))
+	for _, a := range assocs {
+		summaries = append(summaries, toSourceAPIAssociationSummary(a))
+	}
+
 	// The real AWS SDK's ListSourceApiAssociationsOutput wraps the list under
 	// "sourceApiAssociationSummaries" — NOT "sourceApiAssociations" (that name is only
 	// the URL path segment). A client would otherwise always see an empty list back.
-	return c.JSON(http.StatusOK, map[string]any{"sourceApiAssociationSummaries": assocs})
+	return c.JSON(http.StatusOK, map[string]any{"sourceApiAssociationSummaries": summaries})
 }
 
 // updateSourceAPIAssociation handles PUT /v1/mergedApis/{mergedApiId}/sourceApiAssociations/{assocId}.

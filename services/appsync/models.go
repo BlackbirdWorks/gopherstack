@@ -607,3 +607,32 @@ type SourceAPIAssociation struct {
 	AssociationStatus          string                      `json:"sourceApiAssociationStatus"`
 	AssociationStatusDetail    string                      `json:"sourceApiAssociationStatusDetail,omitempty"`
 }
+
+// SourceAPIAssociationSummary is the narrow wire shape for ListSourceApiAssociations items.
+// Matches aws-sdk-go-v2/service/appsync/types.SourceApiAssociationSummary (drops
+// sourceApiAssociationConfig, sourceApiAssociationStatus, and sourceApiAssociationStatusDetail).
+type SourceAPIAssociationSummary struct {
+	AssociationID  string `json:"associationId"`
+	AssociationARN string `json:"associationArn"`
+	SourceAPIID    string `json:"sourceApiId"`
+	SourceAPIARN   string `json:"sourceApiArn,omitempty"`
+	MergedAPIID    string `json:"mergedApiId"`
+	MergedAPIARN   string `json:"mergedApiArn,omitempty"`
+	Description    string `json:"description,omitempty"`
+}
+
+func toSourceAPIAssociationSummary(a *SourceAPIAssociation) *SourceAPIAssociationSummary {
+	if a == nil {
+		return nil
+	}
+
+	return &SourceAPIAssociationSummary{
+		AssociationID:  a.AssociationID,
+		AssociationARN: a.AssociationARN,
+		SourceAPIID:    a.SourceAPIID,
+		SourceAPIARN:   a.SourceAPIARN,
+		MergedAPIID:    a.MergedAPIID,
+		MergedAPIARN:   a.MergedAPIARN,
+		Description:    a.Description,
+	}
+}

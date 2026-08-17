@@ -220,10 +220,24 @@ type ListDocumentVersionsInput struct {
 	NextToken  string `json:"NextToken,omitempty"`
 }
 
+// DocumentVersionInfo is the narrow metadata shape for ListDocumentVersionsOutput
+// matching AWS SDK v2 types.DocumentVersionInfo (api_op_ListDocumentVersions.go).
+// Deliberately omits Content.
+type DocumentVersionInfo struct {
+	Name              string  `json:"Name"`
+	DocumentVersion   string  `json:"DocumentVersion"`
+	DocumentFormat    string  `json:"DocumentFormat"`
+	Status            string  `json:"Status"`
+	StatusInformation string  `json:"StatusInformation,omitempty"`
+	VersionName       string  `json:"VersionName,omitempty"`
+	CreatedDate       float64 `json:"CreatedDate"`
+	IsDefaultVersion  bool    `json:"IsDefaultVersion"`
+}
+
 // ListDocumentVersionsOutput is the response payload for ListDocumentVersions.
 type ListDocumentVersionsOutput struct {
-	NextToken        string            `json:"NextToken,omitempty"`
-	DocumentVersions []DocumentVersion `json:"DocumentVersions"`
+	NextToken        string                `json:"NextToken,omitempty"`
+	DocumentVersions []DocumentVersionInfo `json:"DocumentVersions"`
 }
 
 // UpdateDocumentDefaultVersionInput is the request payload for UpdateDocumentDefaultVersion.

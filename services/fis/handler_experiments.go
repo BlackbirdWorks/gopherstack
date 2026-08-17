@@ -101,10 +101,10 @@ func (h *Handler) handleListExperiments(c *echo.Context) error {
 	}
 
 	page := experiments[start:end]
-	dtos := make([]experimentDTO, len(page))
+	dtos := make([]experimentSummaryDTO, len(page))
 
 	for i, e := range page {
-		dtos[i] = toExperimentDTO(e)
+		dtos[i] = toExperimentSummaryDTO(e)
 	}
 
 	return c.JSON(http.StatusOK, listExperimentsResponseDTO{
@@ -227,6 +227,40 @@ func experimentLogConfigDTO(logConfig *ExperimentLogConfiguration) *experimentLo
 	}
 
 	return lc
+}
+
+func toExperimentSummaryDTO(exp *Experiment) experimentSummaryDTO {
+	statusDTO := experimentStatusDTO{
+		Status: exp.Status.Status,
+		Reason: exp.Status.Reason,
+	}
+
+	if exp.Status.Error != nil {
+		statusDTO.Error = &experimentStatusErrorDTO{
+			Code:      exp.Status.Error.Code,
+			Location:  exp.Status.Error.Location,
+			AccountID: exp.Status.Error.AccountID,
+		}
+	}
+
+	dto := experimentSummaryDTO{
+		ID:                   exp.ID,
+		Arn:                  exp.Arn,
+		ExperimentTemplateID: exp.ExperimentTemplateID,
+		State:                statusDTO,
+		Tags:                 exp.Tags,
+		CreationTime:         toUnix(exp.CreationTime),
+	}
+
+	if exp.ExperimentOptions != nil {
+		dto.ExperimentOptions = &experimentExperimentOptionsDTO{
+			AccountTargeting:          exp.ExperimentOptions.AccountTargeting,
+			EmptyTargetResolutionMode: exp.ExperimentOptions.EmptyTargetResolutionMode,
+			ActionsMode:               exp.ExperimentOptions.ActionsMode,
+		}
+	}
+
+	return dto
 }
 
 func toExperimentDTO(exp *Experiment) experimentDTO {
