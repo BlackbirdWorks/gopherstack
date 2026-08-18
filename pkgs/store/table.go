@@ -55,10 +55,10 @@
 package store
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
-
-	"github.com/blackbirdworks/gopherstack/pkgs/collections"
+	"slices"
 )
 
 // Table is a generic keyed collection over map[string]*V. The string key is
@@ -186,12 +186,18 @@ func (t *Table[V]) Reset() {
 // [Table.Restore] round-trips and JSON-marshaled snapshots byte-for-byte
 // deterministic across runs, which keeps snapshot-based tests and diffs stable.
 func (t *Table[V]) Snapshot() []*V {
-	ids := collections.SortedKeys(t.data)
-
-	out := make([]*V, len(ids))
-	for i, id := range ids {
-		out[i] = t.data[id]
+	if len(t.data) == 0 {
+		return nil
 	}
+
+	out := make([]*V, 0, len(t.data))
+	for _, v := range t.data {
+		out = append(out, v)
+	}
+
+	slices.SortFunc(out, func(a, b *V) int {
+		return cmp.Compare(t.keyFn(a), t.keyFn(b))
+	})
 
 	return out
 }

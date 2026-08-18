@@ -86,24 +86,6 @@ func toByteSlice(val any, errType error, errItem error) ([][]byte, error) {
 	}
 }
 
-func convertStringType(val any) (types.AttributeValue, error) {
-	s, matched := val.(string)
-	if !matched {
-		return nil, fmt.Errorf("%w, got %T", ErrInvalidTypeS, val)
-	}
-
-	return &types.AttributeValueMemberS{Value: s}, nil
-}
-
-func convertNumberType(val any) (types.AttributeValue, error) {
-	s, matched := val.(string)
-	if !matched {
-		return nil, fmt.Errorf("%w, got %T", ErrInvalidTypeN, val)
-	}
-
-	return &types.AttributeValueMemberN{Value: s}, nil
-}
-
 func convertBinaryType(val any) (types.AttributeValue, error) {
 	b, err := decodeBinary(val, ErrInvalidTypeB)
 	if err != nil {
@@ -111,24 +93,6 @@ func convertBinaryType(val any) (types.AttributeValue, error) {
 	}
 
 	return &types.AttributeValueMemberB{Value: b}, nil
-}
-
-func convertBoolType(val any) (types.AttributeValue, error) {
-	bVal, matched := val.(bool)
-	if !matched {
-		return nil, fmt.Errorf("%w, got %T", ErrInvalidTypeBOOL, val)
-	}
-
-	return &types.AttributeValueMemberBOOL{Value: bVal}, nil
-}
-
-func convertNullType(val any) (types.AttributeValue, error) {
-	b, matched := val.(bool)
-	if !matched {
-		return nil, fmt.Errorf("%w, got %T", ErrInvalidTypeNULL, val)
-	}
-
-	return &types.AttributeValueMemberNULL{Value: b}, nil
 }
 
 func convertStringSetType(val any) (types.AttributeValue, error) {
@@ -190,29 +154,58 @@ func ToSDKAttributeValue(v any) (types.AttributeValue, error) {
 	for k, val := range m {
 		switch k {
 		case "S":
-			return convertStringType(val)
+			s, matched := val.(string)
+			if !matched {
+				return nil, fmt.Errorf("%w, got %T", ErrInvalidTypeS, val)
+			}
+
+			return &types.AttributeValueMemberS{Value: s}, nil
 		case "N":
-			return convertNumberType(val)
-		case "B":
-			return convertBinaryType(val)
+			s, matched := val.(string)
+			if !matched {
+				return nil, fmt.Errorf("%w, got %T", ErrInvalidTypeN, val)
+			}
+
+			return &types.AttributeValueMemberN{Value: s}, nil
 		case "BOOL":
-			return convertBoolType(val)
+			bVal, matched := val.(bool)
+			if !matched {
+				return nil, fmt.Errorf("%w, got %T", ErrInvalidTypeBOOL, val)
+			}
+
+			return &types.AttributeValueMemberBOOL{Value: bVal}, nil
 		case "NULL":
-			return convertNullType(val)
-		case "M":
-			return convertMapType(val)
-		case "L":
-			return convertListType(val)
-		case "SS":
-			return convertStringSetType(val)
-		case "NS":
-			return convertNumberSetType(val)
-		case "BS":
-			return convertBinarySetType(val)
+			b, matched := val.(bool)
+			if !matched {
+				return nil, fmt.Errorf("%w, got %T", ErrInvalidTypeNULL, val)
+			}
+
+			return &types.AttributeValueMemberNULL{Value: b}, nil
+		default:
+			return toSDKComplexAttributeValue(k, val)
 		}
 	}
 
 	return nil, ErrUnknownAttributeType
+}
+
+func toSDKComplexAttributeValue(k string, val any) (types.AttributeValue, error) {
+	switch k {
+	case "B":
+		return convertBinaryType(val)
+	case "M":
+		return convertMapType(val)
+	case "L":
+		return convertListType(val)
+	case "SS":
+		return convertStringSetType(val)
+	case "NS":
+		return convertNumberSetType(val)
+	case "BS":
+		return convertBinarySetType(val)
+	default:
+		return nil, ErrUnknownAttributeType
+	}
 }
 
 func ToSDKMapAttribute(m map[string]any) (*types.AttributeValueMemberM, error) {

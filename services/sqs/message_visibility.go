@@ -202,6 +202,50 @@ func enqueueReceivedMessage(
 	}
 }
 
+// tryFastPickMessages attempts O(maxMessages) head-picking when the leading messages
+// are all visible, non-expired, and non-blocked. Returns (messages, true) on success.
+func tryFastPickMessages(
+	q *Queue,
+	blockedGroups map[string]bool,
+	maxMessages, vt int,
+	now time.Time,
+	cutoff time.Time,
+	accountID string,
+) ([]*Message, bool) {
+	if maxMessages <= 0 || len(q.messages) == 0 {
+		return nil, false
+	}
+
+	n := min(maxMessages, len(q.messages))
+	for i := range n {
+		msg := q.messages[i]
+		if time.UnixMilli(msg.SentTimestamp).Before(cutoff) {
+			return nil, false
+		}
+		if tryRouteToDLQ(q, msg, now) {
+			return nil, false
+		}
+		if q.IsFIFO && msg.MessageGroupID != "" && blockedGroups[msg.MessageGroupID] {
+			return nil, false
+		}
+		if now.Before(msg.VisibleAt) {
+			return nil, false
+		}
+	}
+
+	result := make([]*Message, n)
+	for i := range n {
+		msg := q.messages[i]
+		enqueueReceivedMessage(q, msg, blockedGroups, now, vt, accountID)
+		result[i] = msg
+		q.messages[i] = nil
+	}
+
+	q.messages = q.messages[n:]
+
+	return result, true
+}
+
 func prepareAndPickMessages(
 	q *Queue,
 	accountID string,
@@ -224,13 +268,20 @@ func prepareAndPickMessages(
 		blockedGroups = buildBlockedGroups(q.inFlightMessages)
 	}
 
-	result := pickVisibleMessages(q, blockedGroups, maxMessages, vt, now, cutoff, accountID)
+	var result []*Message
+	if fastResult, ok := tryFastPickMessages(q, blockedGroups, maxMessages, vt, now, cutoff, accountID); ok {
+		result = fastResult
+	} else {
+		result = pickVisibleMessages(q, blockedGroups, maxMessages, vt, now, cutoff, accountID)
+	}
 
-	// Recompute delayedCount from the remaining messages (#59).
-	q.delayedCount = 0
-	for _, msg := range q.messages {
-		if now.Before(msg.VisibleAt) {
-			q.delayedCount++
+	// Recompute delayedCount only when delayed messages are known to exist (#59).
+	if q.delayedCount > 0 {
+		q.delayedCount = 0
+		for _, msg := range q.messages {
+			if now.Before(msg.VisibleAt) {
+				q.delayedCount++
+			}
 		}
 	}
 

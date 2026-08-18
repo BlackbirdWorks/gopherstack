@@ -158,35 +158,58 @@ func CalculateAttrSize(v any) int64 {
 		return 1
 	}
 
-	if s, ok := m["S"].(string); ok {
-		return int64(len(s))
+	for t, val := range m {
+		return calcTypedAttrSize(t, val)
 	}
-	if n, ok := m["N"].(string); ok {
-		return calcNumericSize(n)
-	}
-	if b, ok := m["B"].(string); ok {
-		return base64DecodedLen(b)
-	}
-	if _, ok := m[typeBOOL]; ok {
+
+	return 1
+}
+
+func calcTypedAttrSize(t string, val any) int64 {
+	switch t {
+	case "S":
+		if s, ok := val.(string); ok {
+			return int64(len(s))
+		}
+	case "N":
+		if n, ok := val.(string); ok {
+			return calcNumericSize(n)
+		}
+	case "B":
+		if b, ok := val.(string); ok {
+			return base64DecodedLen(b)
+		}
+	case typeBOOL, typeNULL:
 		return 1
+	default:
+		return calcComplexAttrSize(t, val)
 	}
-	if _, ok := m[typeNULL]; ok {
-		return 1
-	}
-	if total, ok := calcSSSize(m["SS"]); ok {
-		return total
-	}
-	if total, ok := calcNSSize(m["NS"]); ok {
-		return total
-	}
-	if total, ok := calcBSSize(m["BS"]); ok {
-		return total
-	}
-	if nested, ok := m["M"].(map[string]any); ok {
-		return calcMapSize(nested)
-	}
-	if list, ok := m["L"].([]any); ok {
-		return calcListSize(list)
+
+	return 1
+}
+
+func calcComplexAttrSize(t string, val any) int64 {
+	switch t {
+	case "SS":
+		if total, ok := calcSSSize(val); ok {
+			return total
+		}
+	case "NS":
+		if total, ok := calcNSSize(val); ok {
+			return total
+		}
+	case "BS":
+		if total, ok := calcBSSize(val); ok {
+			return total
+		}
+	case "M":
+		if nested, ok := val.(map[string]any); ok {
+			return calcMapSize(nested)
+		}
+	case "L":
+		if list, ok := val.([]any); ok {
+			return calcListSize(list)
+		}
 	}
 
 	return 1
