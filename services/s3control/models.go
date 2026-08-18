@@ -87,6 +87,21 @@ type ObjectLambdaAccessPoint struct {
 	ObjectLambdaAccessPointArn string                        `json:"objectLambdaAccessPointArn"`
 }
 
+// cloneObjectLambdaAccessPoint returns a deep copy of an ObjectLambdaAccessPoint.
+func cloneObjectLambdaAccessPoint(src *ObjectLambdaAccessPoint) *ObjectLambdaAccessPoint {
+	if src == nil {
+		return nil
+	}
+
+	cp := *src
+	if src.Alias != nil {
+		aliasCopy := *src.Alias
+		cp.Alias = &aliasCopy
+	}
+
+	return &cp
+}
+
 // OutpostsBucket represents an S3 Outposts bucket.
 type OutpostsBucket struct {
 	AccountID string `json:"accountID"`

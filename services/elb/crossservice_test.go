@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/services/elb"
 )
@@ -134,28 +135,32 @@ func TestSetLoadBalancerListenerSSLCertificate_CertificateResolver(t *testing.T)
 	const knownCert = "arn:aws:acm:us-east-1:123456789012:certificate/known"
 
 	tests := []struct {
-		resolver   elb.CertificateResolver
-		certID     string
-		name       string
-		wantStatus int
+		resolver    elb.CertificateResolver
+		name        string
+		initialCert string
+		certID      string
+		wantStatus  int
 	}{
 		{
-			name:       "no_resolver_wired_accepts_any_cert",
-			resolver:   nil,
-			certID:     "arn:aws:acm:us-east-1:123456789012:certificate/unknown",
-			wantStatus: http.StatusOK,
+			name:        "no_resolver_wired_accepts_any_cert",
+			resolver:    nil,
+			initialCert: "arn:aws:acm:us-east-1:123456789012:certificate/unknown",
+			certID:      "arn:aws:acm:us-east-1:123456789012:certificate/unknown",
+			wantStatus:  http.StatusOK,
 		},
 		{
-			name:       "known_certificate_accepted",
-			resolver:   &fakeCertResolver{certs: map[string]bool{knownCert: true}},
-			certID:     knownCert,
-			wantStatus: http.StatusOK,
+			name:        "known_certificate_accepted",
+			resolver:    &fakeCertResolver{certs: map[string]bool{knownCert: true}},
+			initialCert: knownCert,
+			certID:      knownCert,
+			wantStatus:  http.StatusOK,
 		},
 		{
-			name:       "unknown_certificate_rejected",
-			resolver:   &fakeCertResolver{certs: map[string]bool{}},
-			certID:     "arn:aws:acm:us-east-1:123456789012:certificate/unknown",
-			wantStatus: http.StatusBadRequest,
+			name:        "unknown_certificate_rejected",
+			resolver:    &fakeCertResolver{certs: map[string]bool{knownCert: true}},
+			initialCert: knownCert,
+			certID:      "arn:aws:acm:us-east-1:123456789012:certificate/unknown",
+			wantStatus:  http.StatusBadRequest,
 		},
 	}
 
@@ -170,15 +175,16 @@ func TestSetLoadBalancerListenerSSLCertificate_CertificateResolver(t *testing.T)
 
 			h := elb.NewHandler(backend)
 			mustCreateLB(t, h, "cert-resolver-lb")
-			doELB(t, h, url.Values{
+			createRec := doELB(t, h, url.Values{
 				"Action":                              {"CreateLoadBalancerListeners"},
 				"Version":                             {"2012-06-01"},
 				"LoadBalancerName":                    {"cert-resolver-lb"},
 				"Listeners.member.1.Protocol":         {"HTTPS"},
 				"Listeners.member.1.LoadBalancerPort": {"443"},
 				"Listeners.member.1.InstancePort":     {"8443"},
-				"Listeners.member.1.SSLCertificateId": {tt.certID},
+				"Listeners.member.1.SSLCertificateId": {tt.initialCert},
 			})
+			require.Equal(t, http.StatusOK, createRec.Code)
 
 			rec := doELB(t, h, url.Values{
 				"Action":           {"SetLoadBalancerListenerSSLCertificate"},

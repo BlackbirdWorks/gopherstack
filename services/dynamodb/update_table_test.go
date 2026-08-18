@@ -337,6 +337,7 @@ func TestUpdateTable(t *testing.T) {
 				assert.EqualValues(t, 15, aws.ToInt64(out.TableDescription.ProvisionedThroughput.ReadCapacityUnits))
 				assert.EqualValues(t, 25, aws.ToInt64(out.TableDescription.ProvisionedThroughput.WriteCapacityUnits))
 				assert.True(t, aws.ToBool(out.TableDescription.DeletionProtectionEnabled))
+				require.NotNil(t, out.TableDescription.TableClassSummary)
 				assert.Equal(
 					t,
 					types.TableClassStandardInfrequentAccess,
@@ -347,7 +348,9 @@ func TestUpdateTable(t *testing.T) {
 					TableName: aws.String("combined-table"),
 				})
 				require.NoError(t, err)
+				require.NotNil(t, desc.Table)
 				assert.True(t, aws.ToBool(desc.Table.DeletionProtectionEnabled))
+				require.NotNil(t, desc.Table.TableClassSummary)
 				assert.Equal(t, types.TableClassStandardInfrequentAccess, desc.Table.TableClassSummary.TableClass)
 				assert.EqualValues(t, 15, aws.ToInt64(desc.Table.ProvisionedThroughput.ReadCapacityUnits))
 			},

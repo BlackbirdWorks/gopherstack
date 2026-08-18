@@ -303,11 +303,11 @@ func TestAPIGateway_ImportApiKeys_RESTRoute(t *testing.T) {
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 				ids, _ := resp["ids"].([]any)
 				require.Len(t, ids, tt.wantCount)
-
-				keys, err := backend.GetAPIKeys()
-				require.NoError(t, err)
-				require.Len(t, keys, tt.wantCount)
 			}
+
+			keys, err := backend.GetAPIKeys()
+			require.NoError(t, err)
+			require.Len(t, keys, tt.wantCount)
 		})
 	}
 }

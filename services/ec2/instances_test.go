@@ -392,7 +392,7 @@ func TestSetInstanceLaunchConfig(t *testing.T) {
 
 			err := b.SetInstanceLaunchConfig(id, tt.keyName, tt.securityGroups)
 			if tt.wantErr {
-				require.Error(t, err)
+				require.ErrorIs(t, err, ec2.ErrInstanceNotFound)
 
 				return
 			}

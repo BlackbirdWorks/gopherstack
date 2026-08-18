@@ -5279,7 +5279,9 @@ func (a *ec2AutoScalingLauncherAdapter) LaunchInstances(
 	for i, inst := range instances {
 		ids[i] = inst.ID
 		if spec.KeyName != "" || len(spec.SecurityGroups) > 0 {
-			_ = a.backend.SetInstanceLaunchConfig(inst.ID, spec.KeyName, spec.SecurityGroups)
+			if cfgErr := a.backend.SetInstanceLaunchConfig(inst.ID, spec.KeyName, spec.SecurityGroups); cfgErr != nil {
+				return ids, fmt.Errorf("setting launch config for instance %s: %w", inst.ID, cfgErr)
+			}
 		}
 	}
 

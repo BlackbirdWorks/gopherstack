@@ -554,48 +554,68 @@ func TestSendMessages_ResponseEnvelope(t *testing.T) {
 func TestGetInAppMessages(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		setup      func(t *testing.T, h *pinpoint.Handler) (string, string)
-		name       string
+	type args struct {
+		setup func(t *testing.T, h *pinpoint.Handler) (string, string)
+	}
+
+	type want struct {
 		wantStatus int
 		wantCount  int
+	}
+
+	tests := []struct {
+		args args
+		name string
+		want want
 	}{
 		{
 			name: "app_with_no_templates",
-			setup: func(t *testing.T, h *pinpoint.Handler) (string, string) {
-				t.Helper()
-				appID := createTestApp(t, h, "inapp-empty-app")
+			args: args{
+				setup: func(t *testing.T, h *pinpoint.Handler) (string, string) {
+					t.Helper()
+					appID := createTestApp(t, h, "inapp-empty-app")
 
-				return appID, "ep-1"
+					return appID, "ep-1"
+				},
 			},
-			wantStatus: http.StatusOK,
-			wantCount:  0,
+			want: want{
+				wantStatus: http.StatusOK,
+				wantCount:  0,
+			},
 		},
 		{
 			name: "app_with_inapp_templates",
-			setup: func(t *testing.T, h *pinpoint.Handler) (string, string) {
-				t.Helper()
-				appID := createTestApp(t, h, "inapp-with-tmpl-app")
-				rec := doPinpointRequest(t, h, http.MethodPost, "/v1/templates/tmpl-banner/inapp", map[string]any{
-					"InAppTemplateRequest": map[string]any{
-						"TemplateDescription": "Banner Template",
-					},
-				})
-				require.Equal(t, http.StatusCreated, rec.Code)
+			args: args{
+				setup: func(t *testing.T, h *pinpoint.Handler) (string, string) {
+					t.Helper()
+					appID := createTestApp(t, h, "inapp-with-tmpl-app")
+					rec := doPinpointRequest(t, h, http.MethodPost, "/v1/templates/tmpl-banner/inapp", map[string]any{
+						"InAppTemplateRequest": map[string]any{
+							"TemplateDescription": "Banner Template",
+						},
+					})
+					require.Equal(t, http.StatusCreated, rec.Code)
 
-				return appID, "ep-2"
+					return appID, "ep-2"
+				},
 			},
-			wantStatus: http.StatusOK,
-			wantCount:  1,
+			want: want{
+				wantStatus: http.StatusOK,
+				wantCount:  1,
+			},
 		},
 		{
 			name: "app_not_found",
-			setup: func(t *testing.T, _ *pinpoint.Handler) (string, string) {
-				t.Helper()
+			args: args{
+				setup: func(t *testing.T, _ *pinpoint.Handler) (string, string) {
+					t.Helper()
 
-				return "non-existent-app-id", "ep-3"
+					return "non-existent-app-id", "ep-3"
+				},
 			},
-			wantStatus: http.StatusNotFound,
+			want: want{
+				wantStatus: http.StatusNotFound,
+			},
 		},
 	}
 
@@ -604,7 +624,7 @@ func TestGetInAppMessages(t *testing.T) {
 			t.Parallel()
 
 			h := newHandlerForTest(t)
-			appID, endpointID := tt.setup(t, h)
+			appID, endpointID := tt.args.setup(t, h)
 
 			rec := doPinpointRequest(
 				t,
@@ -613,14 +633,14 @@ func TestGetInAppMessages(t *testing.T) {
 				"/v1/apps/"+appID+"/endpoints/"+endpointID+"/inappmessages",
 				nil,
 			)
-			require.Equal(t, tt.wantStatus, rec.Code)
+			require.Equal(t, tt.want.wantStatus, rec.Code)
 
-			if tt.wantStatus == http.StatusOK {
+			if tt.want.wantStatus == http.StatusOK {
 				var resp map[string]any
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 				campaigns, ok := resp["InAppMessageCampaigns"].([]any)
 				require.True(t, ok)
-				assert.Len(t, campaigns, tt.wantCount)
+				assert.Len(t, campaigns, tt.want.wantCount)
 			}
 		})
 	}
