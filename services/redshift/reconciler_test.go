@@ -31,7 +31,7 @@ func assertStopsPromptly(t *testing.T, timeout time.Duration, stop func()) {
 	select {
 	case <-stopped:
 	case <-time.After(timeout):
-		t.Fatal("reconciler goroutine did not exit after cancel/stop")
+		require.Fail(t, "reconciler goroutine did not exit after cancel/stop")
 	}
 }
 

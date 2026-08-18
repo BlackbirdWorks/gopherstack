@@ -5278,6 +5278,11 @@ func (a *ec2AutoScalingLauncherAdapter) LaunchInstances(
 	ids := make([]string, len(instances))
 	for i, inst := range instances {
 		ids[i] = inst.ID
+		if spec.KeyName != "" || len(spec.SecurityGroups) > 0 {
+			if cfgErr := a.backend.SetInstanceLaunchConfig(inst.ID, spec.KeyName, spec.SecurityGroups); cfgErr != nil {
+				return ids, fmt.Errorf("setting launch config for instance %s: %w", inst.ID, cfgErr)
+			}
+		}
 	}
 
 	if len(spec.Tags) > 0 {
@@ -5293,6 +5298,22 @@ func (a *ec2AutoScalingLauncherAdapter) TerminateInstances(_ context.Context, id
 	_, err := a.backend.TerminateInstances(ids)
 
 	return err
+}
+
+func (a *ec2AutoScalingLauncherAdapter) ResolveLaunchTemplate(
+	_ context.Context, id, name, version string,
+) (string, string, error) {
+	idOrName := id
+	if idOrName == "" {
+		idOrName = name
+	}
+
+	lt, err := a.backend.GetLaunchTemplate(idOrName, version)
+	if err != nil {
+		return "", "", err
+	}
+
+	return lt.ImageID, lt.InstanceType, nil
 }
 
 // cwSNSPublisherAdapter adapts the SNS backend to the cloudwatch.SNSPublisher interface.

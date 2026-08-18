@@ -277,14 +277,14 @@ func elbErrorCode(opErr error) (string, int) {
 
 	// Order matters: more-specific sentinels must come before generic ones.
 	mappings := []errorMapping{
-		{ErrPolicyTypeNotFound, "PolicyTypeNotFound", http.StatusNotFound},
-		{ErrPolicyNotFound, "PolicyNotFound", http.StatusNotFound},
-		{ErrPolicyAlreadyExists, "DuplicatePolicyName", http.StatusConflict},
-		{ErrDuplicateListener, "DuplicateListener", http.StatusConflict},
-		{ErrListenerNotFound, "ListenerNotFound", http.StatusNotFound},
+		{ErrPolicyTypeNotFound, "PolicyTypeNotFound", http.StatusBadRequest},
+		{ErrPolicyNotFound, "PolicyNotFound", http.StatusBadRequest},
+		{ErrPolicyAlreadyExists, "DuplicatePolicyName", http.StatusBadRequest},
+		{ErrDuplicateListener, "DuplicateListener", http.StatusBadRequest},
+		{ErrListenerNotFound, "ListenerNotFound", http.StatusBadRequest},
 		{ErrInvalidInstance, "InvalidInstance", http.StatusBadRequest},
-		{ErrLoadBalancerNotFound, "LoadBalancerNotFound", http.StatusNotFound},
-		{ErrLoadBalancerAlreadyExists, "DuplicateLoadBalancerName", http.StatusConflict},
+		{ErrLoadBalancerNotFound, "LoadBalancerNotFound", http.StatusBadRequest},
+		{ErrLoadBalancerAlreadyExists, "DuplicateLoadBalancerName", http.StatusBadRequest},
 		{ErrUnknownAction, "InvalidAction", http.StatusBadRequest},
 		{ErrInvalidConfiguration, "InvalidConfigurationRequest", http.StatusBadRequest},
 		{ErrTooManyLoadBalancers, "TooManyLoadBalancers", http.StatusBadRequest},
@@ -293,8 +293,8 @@ func elbErrorCode(opErr error) (string, int) {
 		{ErrInvalidScheme, "InvalidScheme", http.StatusBadRequest},
 		{ErrUnsupportedProtocol, "UnsupportedProtocol", http.StatusBadRequest},
 		{ErrInvalidSecurityGroup, "InvalidSecurityGroup", http.StatusBadRequest},
-		{ErrSubnetNotFound, "SubnetNotFound", http.StatusNotFound},
-		{ErrCertificateNotFound, "CertificateNotFound", http.StatusNotFound},
+		{ErrSubnetNotFound, "SubnetNotFound", http.StatusBadRequest},
+		{ErrCertificateNotFound, "CertificateNotFound", http.StatusBadRequest},
 		{awserr.ErrInvalidParameter, "ValidationError", http.StatusBadRequest},
 	}
 

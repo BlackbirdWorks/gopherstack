@@ -36,6 +36,7 @@ type TrainingJob struct {
 	FailureReason                         string                      `json:"FailureReason,omitempty"`
 	TrainingJobName                       string                      `json:"TrainingJobName"`
 	TrainingJobArn                        string                      `json:"TrainingJobArn"`
+	TuningJobArn                          string                      `json:"TuningJobArn,omitempty"`
 	RoleArn                               string                      `json:"RoleArn,omitempty"`
 	TrainingJobStatus                     string                      `json:"TrainingJobStatus"`
 	InputDataConfig                       []Channel                   `json:"InputDataConfig,omitempty"`

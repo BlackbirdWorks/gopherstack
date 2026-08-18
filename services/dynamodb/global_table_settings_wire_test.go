@@ -94,7 +94,128 @@ func findReplicaSettings(
 		}
 	}
 
-	t.Fatalf("no ReplicaSettingsDescription found for region %q", region)
+	require.FailNowf(t, "no ReplicaSettingsDescription found", "region %q", region)
 
 	return types.ReplicaSettingsDescription{}
+}
+
+func TestGlobalTableSettings_GSISettings(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		tableName  string
+		gsiName    string
+		initialRCU int64
+		updatedRCU int64
+	}{
+		{
+			name:       "describe and update GSI settings on replica",
+			tableName:  "gt-gsi-table-1",
+			gsiName:    "gsi-index-1",
+			initialRCU: 5,
+			updatedRCU: 42,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			backend := dynamodb.NewInMemoryDB()
+			t.Cleanup(backend.Close)
+			client := newTestDynamoDBClient(t, dynamodb.NewHandler(backend))
+
+			// Create table with GSI
+			_, err := client.CreateTable(t.Context(), &sdk.CreateTableInput{
+				TableName: aws.String(tt.tableName),
+				AttributeDefinitions: []types.AttributeDefinition{
+					{AttributeName: aws.String("pk"), AttributeType: types.ScalarAttributeTypeS},
+					{AttributeName: aws.String("sk"), AttributeType: types.ScalarAttributeTypeS},
+				},
+				KeySchema: []types.KeySchemaElement{
+					{AttributeName: aws.String("pk"), KeyType: types.KeyTypeHash},
+				},
+				GlobalSecondaryIndexes: []types.GlobalSecondaryIndex{
+					{
+						IndexName: aws.String(tt.gsiName),
+						KeySchema: []types.KeySchemaElement{
+							{AttributeName: aws.String("sk"), KeyType: types.KeyTypeHash},
+						},
+						Projection: &types.Projection{ProjectionType: types.ProjectionTypeAll},
+						ProvisionedThroughput: &types.ProvisionedThroughput{
+							ReadCapacityUnits:  aws.Int64(tt.initialRCU),
+							WriteCapacityUnits: aws.Int64(5),
+						},
+					},
+				},
+				BillingMode: types.BillingModeProvisioned,
+				ProvisionedThroughput: &types.ProvisionedThroughput{
+					ReadCapacityUnits:  aws.Int64(5),
+					WriteCapacityUnits: aws.Int64(5),
+				},
+			})
+			require.NoError(t, err)
+
+			_, err = client.CreateGlobalTable(t.Context(), &sdk.CreateGlobalTableInput{
+				GlobalTableName: aws.String(tt.tableName),
+				ReplicationGroup: []types.Replica{
+					{RegionName: aws.String("us-east-1")},
+					{RegionName: aws.String("eu-west-1")},
+				},
+			})
+			require.NoError(t, err)
+
+			// Describe settings before update
+			descOut1, err := client.DescribeGlobalTableSettings(t.Context(), &sdk.DescribeGlobalTableSettingsInput{
+				GlobalTableName: aws.String(tt.tableName),
+			})
+			require.NoError(t, err)
+			replica1 := findReplicaSettings(t, descOut1.ReplicaSettings, "us-east-1")
+			require.NotEmpty(t, replica1.ReplicaGlobalSecondaryIndexSettings)
+			assert.Equal(t, tt.gsiName, *replica1.ReplicaGlobalSecondaryIndexSettings[0].IndexName)
+			assert.Equal(
+				t,
+				tt.initialRCU,
+				*replica1.ReplicaGlobalSecondaryIndexSettings[0].ProvisionedReadCapacityUnits,
+			)
+
+			// Update GSI settings on replica
+			updateOut, err := client.UpdateGlobalTableSettings(t.Context(), &sdk.UpdateGlobalTableSettingsInput{
+				GlobalTableName: aws.String(tt.tableName),
+				ReplicaSettingsUpdate: []types.ReplicaSettingsUpdate{
+					{
+						RegionName: aws.String("us-east-1"),
+						ReplicaGlobalSecondaryIndexSettingsUpdate: []types.ReplicaGlobalSecondaryIndexSettingsUpdate{
+							{
+								IndexName:                    aws.String(tt.gsiName),
+								ProvisionedReadCapacityUnits: aws.Int64(tt.updatedRCU),
+							},
+						},
+					},
+				},
+			})
+			require.NoError(t, err)
+			upReplica := findReplicaSettings(t, updateOut.ReplicaSettings, "us-east-1")
+			require.NotEmpty(t, upReplica.ReplicaGlobalSecondaryIndexSettings)
+			assert.Equal(
+				t,
+				tt.updatedRCU,
+				*upReplica.ReplicaGlobalSecondaryIndexSettings[0].ProvisionedReadCapacityUnits,
+			)
+
+			// Describe again to verify persisted read capacity
+			descOut2, err := client.DescribeGlobalTableSettings(t.Context(), &sdk.DescribeGlobalTableSettingsInput{
+				GlobalTableName: aws.String(tt.tableName),
+			})
+			require.NoError(t, err)
+			replica2 := findReplicaSettings(t, descOut2.ReplicaSettings, "us-east-1")
+			require.NotEmpty(t, replica2.ReplicaGlobalSecondaryIndexSettings)
+			assert.Equal(
+				t,
+				tt.updatedRCU,
+				*replica2.ReplicaGlobalSecondaryIndexSettings[0].ProvisionedReadCapacityUnits,
+			)
+		})
+	}
 }

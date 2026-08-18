@@ -51,7 +51,7 @@ func TestModifyLoadBalancerAttributes(t *testing.T) {
 				"Version":          {"2012-06-01"},
 				"LoadBalancerName": {"no-such-lb"},
 			},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name: "missing_lb_name",
@@ -126,7 +126,7 @@ func TestDescribeLoadBalancerAttributes(t *testing.T) {
 				"Version":          {"2012-06-01"},
 				"LoadBalancerName": {"no-such-lb"},
 			},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name: "missing_lb_name",

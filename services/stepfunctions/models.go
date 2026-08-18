@@ -53,6 +53,11 @@ type CloudWatchLogsLogGroup struct {
 	LogGroupArn string `json:"logGroupArn,omitempty"`
 }
 
+// CloudWatchEventsExecutionDataDetails contains details about execution data.
+type CloudWatchEventsExecutionDataDetails struct {
+	Truncated bool `json:"truncated"`
+}
+
 // Execution represents a state machine execution.
 //
 // history holds the execution's history events inline (Phase 3.3: this
@@ -66,11 +71,13 @@ type CloudWatchLogsLogGroup struct {
 // executionSnapshot DTO adds it back as an ordinary exported field solely for
 // the on-disk snapshot round trip. See persistence.go for details.
 type Execution struct {
-	RedriveDate     *float64 `json:"redriveDate,omitempty"`
-	StopDate        *float64 `json:"stopDate,omitempty"`
-	Status          string   `json:"status"`
-	ExecutionArn    string   `json:"executionArn"`
-	StateMachineArn string   `json:"stateMachineArn"`
+	InputDetails    *CloudWatchEventsExecutionDataDetails `json:"inputDetails,omitempty"`
+	OutputDetails   *CloudWatchEventsExecutionDataDetails `json:"outputDetails,omitempty"`
+	RedriveDate     *float64                              `json:"redriveDate,omitempty"`
+	StopDate        *float64                              `json:"stopDate,omitempty"`
+	Status          string                                `json:"status"`
+	ExecutionArn    string                                `json:"executionArn"`
+	StateMachineArn string                                `json:"stateMachineArn"`
 	// StateMachineVersionArn is set only when this execution was started
 	// with a version-qualified or alias-qualified stateMachineArn (AWS:
 	// "If you start an execution from a StartExecution request without
@@ -86,6 +93,10 @@ type Execution struct {
 	Output               string          `json:"output,omitempty"`
 	Error                string          `json:"error,omitempty"`
 	Cause                string          `json:"cause,omitempty"`
+	TraceHeader          string          `json:"traceHeader,omitempty"`
+	RedriveStatus        string          `json:"redriveStatus,omitempty"`
+	RedriveStatusReason  string          `json:"redriveStatusReason,omitempty"`
+	MapRunArn            string          `json:"mapRunArn,omitempty"`
 	history              []*HistoryEvent `json:"-"`
 	StartDate            float64         `json:"startDate"`
 	RedriveCount         int             `json:"redriveCount,omitempty"`
@@ -96,6 +107,8 @@ type HistoryEvent struct {
 	StateEnteredEventDetails  *StateEnteredEventDetails  `json:"stateEnteredEventDetails,omitempty"`
 	StateExitedEventDetails   *StateExitedEventDetails   `json:"stateExitedEventDetails,omitempty"`
 	TaskScheduledEventDetails *TaskScheduledEventDetails `json:"taskScheduledEventDetails,omitempty"`
+	TaskStartedEventDetails   *TaskStartedEventDetails   `json:"taskStartedEventDetails,omitempty"`
+	TaskSubmittedEventDetails *TaskSubmittedEventDetails `json:"taskSubmittedEventDetails,omitempty"`
 	TaskSucceededEventDetails *TaskSucceededEventDetails `json:"taskSucceededEventDetails,omitempty"`
 	TaskFailedEventDetails    *TaskFailedEventDetails    `json:"taskFailedEventDetails,omitempty"`
 	Type                      string                     `json:"type"` // e.g. "ExecutionStarted", "ExecutionSucceeded"
@@ -116,22 +129,49 @@ type StateExitedEventDetails struct {
 	Output string `json:"output,omitempty"`
 }
 
+// HistoryEventExecutionDataDetails contains details about execution data.
+type HistoryEventExecutionDataDetails struct {
+	Truncated bool `json:"truncated"`
+}
+
 // TaskScheduledEventDetails holds details for TaskScheduled history events.
 type TaskScheduledEventDetails struct {
-	Resource string `json:"resource,omitempty"`
+	TimeoutInSeconds   *int64 `json:"timeoutInSeconds,omitempty"`
+	HeartbeatInSeconds *int64 `json:"heartbeatInSeconds,omitempty"`
+	Resource           string `json:"resource,omitempty"`
+	ResourceType       string `json:"resourceType,omitempty"`
+	Region             string `json:"region,omitempty"`
+	Parameters         string `json:"parameters,omitempty"`
+}
+
+// TaskStartedEventDetails holds details for TaskStarted history events.
+type TaskStartedEventDetails struct {
+	Resource     string `json:"resource,omitempty"`
+	ResourceType string `json:"resourceType,omitempty"`
+}
+
+// TaskSubmittedEventDetails holds details for TaskSubmitted history events.
+type TaskSubmittedEventDetails struct {
+	OutputDetails *HistoryEventExecutionDataDetails `json:"outputDetails,omitempty"`
+	Resource      string                            `json:"resource,omitempty"`
+	ResourceType  string                            `json:"resourceType,omitempty"`
+	Output        string                            `json:"output,omitempty"`
 }
 
 // TaskSucceededEventDetails holds details for TaskSucceeded history events.
 type TaskSucceededEventDetails struct {
-	Resource string `json:"resource,omitempty"`
-	Output   string `json:"output,omitempty"`
+	OutputDetails *HistoryEventExecutionDataDetails `json:"outputDetails,omitempty"`
+	Resource      string                            `json:"resource,omitempty"`
+	ResourceType  string                            `json:"resourceType,omitempty"`
+	Output        string                            `json:"output,omitempty"`
 }
 
 // TaskFailedEventDetails holds details for TaskFailed history events.
 type TaskFailedEventDetails struct {
-	Error    string `json:"error,omitempty"`
-	Cause    string `json:"cause,omitempty"`
-	Resource string `json:"resource,omitempty"`
+	Error        string `json:"error,omitempty"`
+	Cause        string `json:"cause,omitempty"`
+	Resource     string `json:"resource,omitempty"`
+	ResourceType string `json:"resourceType,omitempty"`
 }
 
 // Activity represents an AWS Step Functions activity resource.

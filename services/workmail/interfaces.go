@@ -8,7 +8,12 @@ import (
 // StorageBackend is the interface for WorkMail storage operations.
 type StorageBackend interface {
 	// Organizations
-	CreateOrganization(ctx context.Context, alias string, domains []string) (*Organization, error)
+	CreateOrganization(
+		ctx context.Context,
+		alias string,
+		domains []string,
+		enableInteroperability bool,
+	) (*Organization, error)
 	DescribeOrganization(orgID string) (*Organization, error)
 	DeleteOrganization(orgID string, deleteDirectory bool) error
 	ListOrganizations(ctx context.Context, maxResults int32, nextToken string) ([]*OrgSummary, string, error)
@@ -42,9 +47,17 @@ type StorageBackend interface {
 	) ([]*GroupSummary, string, error)
 
 	// Resources
-	CreateResource(orgID, name, resourceType, description string) (*Resource, error)
+	CreateResource(
+		orgID, name, resourceType, description string,
+		bookingOptions *BookingOptions,
+		hiddenFromGAL bool,
+	) (*Resource, error)
 	DescribeResource(orgID, entityID string) (*Resource, error)
-	UpdateResource(orgID, entityID, name, description string, hiddenFromGAL bool) error
+	UpdateResource(
+		orgID, entityID, name, description string,
+		hiddenFromGAL bool,
+		bookingOptions *BookingOptions,
+	) error
 	DeleteResource(orgID, entityID string) error
 	ListResources(
 		orgID string, filter *ResourceFilter, maxResults int32, nextToken string,
@@ -220,7 +233,8 @@ type Organization struct {
 	// interoperability/migration flow this backend does not simulate -- so
 	// it is always empty here, which correctly matches every organization
 	// that never configured migration.
-	MigrationAdmin string
+	MigrationAdmin          string
+	InteroperabilityEnabled bool
 }
 
 // OrgSummary is a summary of a WorkMail organization.
@@ -382,18 +396,26 @@ type Member struct {
 	MemberType   string
 }
 
+// BookingOptions mirrors aws-sdk-go-v2/service/workmail/types.BookingOptions.
+type BookingOptions struct {
+	AutoAcceptRequests             bool `json:"AutoAcceptRequests"`
+	AutoDeclineConflictingRequests bool `json:"AutoDeclineConflictingRequests"`
+	AutoDeclineRecurringRequests   bool `json:"AutoDeclineRecurringRequests"`
+}
+
 // Resource represents a WorkMail resource.
 type Resource struct {
-	CreatedAt    time.Time
-	EnabledDate  time.Time
-	DisabledDate time.Time
-	ResourceID   string
-	Name         string
-	Email        string
-	ResourceType string
-	Description  string
-	State        string
-	ARN          string
+	CreatedAt      time.Time
+	EnabledDate    time.Time
+	DisabledDate   time.Time
+	BookingOptions *BookingOptions
+	ResourceID     string
+	Name           string
+	Email          string
+	ResourceType   string
+	Description    string
+	State          string
+	ARN            string
 	// orgID is the store.Table composite-key qualifier (see orgKey in
 	// backend.go); carried through persistence via orgDTO.
 	orgID string

@@ -179,7 +179,13 @@ func (b *InMemoryBackend) BatchDescribeTypeConfigurations(
 		if cfg == "" {
 			cfg = "{}"
 		}
+		const defaultConfigSuffix = "/default"
+		configArn := ident.TypeConfigurationArn
+		if configArn == "" {
+			configArn = "arn:aws:cloudformation:::type-configuration/resource/" + name + defaultConfigSuffix
+		}
 		details = append(details, TypeConfigurationDetail{
+			Arn:                    configArn,
 			TypeName:               name,
 			TypeArn:                typeArn,
 			Alias:                  ident.TypeConfigurationAlias,

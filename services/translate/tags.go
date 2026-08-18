@@ -7,7 +7,7 @@ import (
 
 // TagResource adds or replaces tags on a resource.
 func (b *InMemoryBackend) TagResource(resourceARN string, newTags map[string]string) error {
-	b.mu.Lock()
+	b.mu.Lock("TagResource")
 	defer b.mu.Unlock()
 
 	if !b.arnExists(resourceARN) {
@@ -34,7 +34,7 @@ func (b *InMemoryBackend) TagResource(resourceARN string, newTags map[string]str
 
 // UntagResource removes specific tags from a resource.
 func (b *InMemoryBackend) UntagResource(resourceARN string, keys []string) error {
-	b.mu.Lock()
+	b.mu.Lock("UntagResource")
 	defer b.mu.Unlock()
 
 	if !b.arnExists(resourceARN) {
@@ -50,7 +50,7 @@ func (b *InMemoryBackend) UntagResource(resourceARN string, keys []string) error
 
 // ListTagsForResource returns tags for a resource.
 func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]string, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListTagsForResource")
 	defer b.mu.RUnlock()
 
 	if !b.arnExists(resourceARN) {
@@ -100,7 +100,7 @@ type TaggedEntry struct {
 // TaggedResources returns every terminology and parallel data ARN that
 // currently has at least one tag applied via TagResource.
 func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
-	b.mu.RLock()
+	b.mu.RLock("TaggedResources")
 	defer b.mu.RUnlock()
 
 	out := make([]TaggedEntry, 0, len(b.tags))

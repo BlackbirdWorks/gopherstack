@@ -252,7 +252,10 @@ func (h *Handler) dispatchPlanTemplateCatalogOps(
 	case opListBackupPlanVersions:
 		versions, err := h.Backend.ListBackupPlanVersions(route.resource)
 		if err != nil {
-			return true, c.JSON(http.StatusOK, map[string]any{"BackupPlanVersionsList": []any{}})
+			return true, c.JSON(
+				http.StatusBadRequest,
+				errResp("ResourceNotFoundException", "Backup plan with ID "+route.resource+" not found"),
+			)
 		}
 		items := make([]map[string]any, 0, len(versions))
 		for _, v := range versions {
@@ -268,7 +271,10 @@ func (h *Handler) dispatchPlanTemplateCatalogOps(
 	case opExportBackupPlanTemplate:
 		tmpl, err := h.Backend.ExportBackupPlanTemplate(route.resource)
 		if err != nil {
-			tmpl = "{}"
+			return true, c.JSON(
+				http.StatusBadRequest,
+				errResp("ResourceNotFoundException", "Backup plan with ID "+route.resource+" not found"),
+			)
 		}
 
 		return true, c.JSON(http.StatusOK, map[string]any{"BackupPlanTemplateJson": tmpl})

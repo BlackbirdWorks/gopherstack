@@ -39,6 +39,7 @@ type StorageBackend interface {
 		maxResults int,
 	) ([]StateMachineAlias, string, error)
 	StartExecution(stateMachineArn, name, input string) (*Execution, error)
+	StartExecutionWithTrace(stateMachineArn, name, input, traceHeader string) (*Execution, error)
 	StartSyncExecution(stateMachineArn, name, input string) (*SyncExecutionResult, error)
 	StopExecution(executionArn, errCode, cause string) error
 	RedriveExecution(executionARN string) (*Execution, error)

@@ -171,13 +171,13 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 
 		switch {
 		case cert.Status == statusPendingValidation:
-			t := time.AfterFunc(autoValidateDelayMS*time.Millisecond, func(r, a string) func() {
+			t := time.AfterFunc(b.getAutoValidateDelayLocked(), func(r, a string) func() {
 				return func() { b.autoValidate(r, a) }
 			}(region, arn))
 			b.timersStore(region)[arn] = t
 		case cert.RenewalSummary != nil &&
 			cert.RenewalSummary.RenewalStatus == renewalStatusPendingValidation:
-			t := time.AfterFunc(autoValidateDelayMS*time.Millisecond, func(r, a string) func() {
+			t := time.AfterFunc(b.getAutoValidateDelayLocked(), func(r, a string) func() {
 				return func() { b.autoValidateRenewal(r, a) }
 			}(region, arn))
 			b.timersStore(region)[arn] = t

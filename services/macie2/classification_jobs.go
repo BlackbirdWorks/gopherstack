@@ -56,6 +56,7 @@ func (b *InMemoryBackend) CreateClassificationJob(
 		SamplingPercentage:            pct,
 		InitialRun:                    initialRun,
 		ClientToken:                   clientToken,
+		LastRunTime:                   &now,
 		LastRunErrorStatus:            &JobLastRunErrorStatus{Code: "NONE"},
 		Statistics:                    &JobStatistics{NumberOfRuns: 1},
 	})

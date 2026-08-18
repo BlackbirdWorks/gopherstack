@@ -71,6 +71,23 @@ func TestBackendDeepDiveOperations(t *testing.T) {
 				require.Len(t, filtered, 1)
 				assert.Equal(t, template.ID, filtered[0].ID)
 
+				byID, err := b.GetLaunchTemplate(template.ID, "$Latest")
+				require.NoError(t, err)
+				assert.Equal(t, template.ID, byID.ID)
+				assert.Equal(t, "web-template", byID.Name)
+				assert.Equal(t, "ami-123", byID.ImageID)
+				assert.Equal(t, "t3.small", byID.InstanceType)
+
+				byName, err := b.GetLaunchTemplate("web-template", "")
+				require.NoError(t, err)
+				assert.Equal(t, template.ID, byName.ID)
+
+				_, err = b.GetLaunchTemplate("nonexistent", "")
+				require.Error(t, err)
+
+				_, err = b.GetLaunchTemplate("", "")
+				require.Error(t, err)
+
 			case "vpc_endpoint":
 				endpoint, err := b.CreateVpcEndpoint(
 					"vpc-default",

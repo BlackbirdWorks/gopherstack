@@ -49,7 +49,7 @@ const (
 // which is what a Terraform/SDK client comparing state expects. This exceeds
 // LocalStack, which returns no evaluation results at all.
 func (b *InMemoryBackend) GetAccuracyMetrics(predictorArn string) (map[string]any, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetAccuracyMetrics")
 	defer b.mu.RUnlock()
 
 	resource, ok := b.lookupLocked(kindPredictor, predictorArn)

@@ -59,7 +59,7 @@ func TestCreateAppCookieStickinessPolicy(t *testing.T) {
 				"PolicyName":       {"dup-policy"},
 				"CookieName":       {"SESSION"},
 			},
-			wantStatus: http.StatusConflict,
+			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name: "lb_not_found",
@@ -70,7 +70,7 @@ func TestCreateAppCookieStickinessPolicy(t *testing.T) {
 				"PolicyName":       {"my-policy"},
 				"CookieName":       {"SESSION"},
 			},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name: "missing_lb_name",
@@ -169,7 +169,7 @@ func TestCreateLBCookieStickinessPolicy(t *testing.T) {
 				"LoadBalancerName": {"no-lb"},
 				"PolicyName":       {"my-policy"},
 			},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name: "missing_lb_name",
@@ -244,7 +244,7 @@ func TestCreateLoadBalancerPolicy(t *testing.T) {
 				"PolicyName":       {"dup-policy"},
 				"PolicyTypeName":   {"ProxyProtocolPolicyType"},
 			},
-			wantStatus: http.StatusConflict,
+			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name: "lb_not_found",
@@ -255,7 +255,7 @@ func TestCreateLoadBalancerPolicy(t *testing.T) {
 				"PolicyName":       {"my-policy"},
 				"PolicyTypeName":   {"ProxyProtocolPolicyType"},
 			},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name: "missing_lb_name",
@@ -347,7 +347,7 @@ func TestDeleteLoadBalancerPolicy(t *testing.T) {
 				"LoadBalancerName": {"delpol2-lb"},
 				"PolicyName":       {"nonexistent-policy"},
 			},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name: "lb_not_found",
@@ -357,7 +357,7 @@ func TestDeleteLoadBalancerPolicy(t *testing.T) {
 				"LoadBalancerName": {"no-lb"},
 				"PolicyName":       {"some-policy"},
 			},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name: "missing_lb_name",
@@ -480,7 +480,7 @@ func TestDescribeLoadBalancerPolicies(t *testing.T) {
 				"Version":          {"2012-06-01"},
 				"LoadBalancerName": {"no-lb"},
 			},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 	}
 
@@ -773,7 +773,7 @@ func TestPolicyTypesUnknownReturnsError(t *testing.T) {
 		"Version":                  {"2012-06-01"},
 		"PolicyTypeNames.member.1": {"NoSuchPolicyType"},
 	})
-	assert.Equal(t, http.StatusNotFound, rec.Code)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 func TestSSLCipherPolicyCreateAndDescribe(t *testing.T) {
@@ -932,7 +932,7 @@ func TestDescribePoliciesFilterByPolicyName(t *testing.T) {
 	assert.Equal(t, "pol-b", resp.Result.PolicyDescriptions.Members[0].PolicyName)
 }
 
-func TestDescribePoliciesUnknownLBReturns404(t *testing.T) {
+func TestDescribePoliciesUnknownLBReturns400(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler()
@@ -941,7 +941,7 @@ func TestDescribePoliciesUnknownLBReturns404(t *testing.T) {
 		"Version":          {"2012-06-01"},
 		"LoadBalancerName": {"no-such-lb"},
 	})
-	assert.Equal(t, http.StatusNotFound, rec.Code)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 // TestStickinessPolicyTCPRejected verifies that attaching a stickiness
@@ -1100,7 +1100,7 @@ func TestSetLoadBalancerPoliciesOfListener(t *testing.T) {
 				"LoadBalancerName": {"lpol-noport"},
 				"LoadBalancerPort": {"9999"},
 			},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 	}
 
@@ -1137,8 +1137,8 @@ func TestSetLoadBalancerPoliciesOfListener(t *testing.T) {
 	}
 }
 
-// TestPolicyNotFoundReturns404 verifies ErrPolicyNotFound maps to HTTP 404.
-func TestPolicyNotFoundReturns404(t *testing.T) {
+// TestPolicyNotFoundReturns400 verifies ErrPolicyNotFound maps to HTTP 400.
+func TestPolicyNotFoundReturns400(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend()
@@ -1152,7 +1152,7 @@ func TestPolicyNotFoundReturns404(t *testing.T) {
 		"PolicyName":       {"no-such-policy"},
 	})
 
-	assert.Equal(t, http.StatusNotFound, rec.Code)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var errResp struct {
 		XMLName xml.Name `xml:"ErrorResponse"`
@@ -1165,8 +1165,8 @@ func TestPolicyNotFoundReturns404(t *testing.T) {
 	assert.Equal(t, "PolicyNotFound", errResp.Error.Code)
 }
 
-// TestPolicyAlreadyExistsReturns409 verifies ErrPolicyAlreadyExists maps to HTTP 409.
-func TestPolicyAlreadyExistsReturns409(t *testing.T) {
+// TestPolicyAlreadyExistsReturns400 verifies ErrPolicyAlreadyExists maps to HTTP 400.
+func TestPolicyAlreadyExistsReturns400(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend()
@@ -1189,7 +1189,7 @@ func TestPolicyAlreadyExistsReturns409(t *testing.T) {
 		"CookieName":       {"SID"},
 	})
 
-	assert.Equal(t, http.StatusConflict, rec.Code)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var errResp struct {
 		XMLName xml.Name `xml:"ErrorResponse"`
@@ -1331,7 +1331,7 @@ func TestSetPoliciesOfListenerRejectsUnknownPolicy(t *testing.T) {
 				mustCreateLB(t, h, "set-pol-lb")
 			},
 			policyName: "no-such-policy",
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 			wantCode:   "PolicyNotFound",
 		},
 		{

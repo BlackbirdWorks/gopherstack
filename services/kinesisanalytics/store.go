@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 	"regexp"
-	"sync"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
@@ -144,10 +144,10 @@ type InMemoryBackend struct {
 	cancelFuncs   map[string]context.CancelFunc
 	kinesisReader KinesisStreamReader
 	s3Reader      S3ObjectReader
+	mu            *lockmetrics.RWMutex
 	defaultRegion string
 	accountID     string
 	nextID        int64
-	mu            sync.RWMutex
 }
 
 var _ StorageBackend = (*InMemoryBackend)(nil)
@@ -170,6 +170,7 @@ func NewInMemoryBackendWithContext(svcCtx context.Context, region, accountID str
 		accountID:     accountID,
 		svcCtx:        svcCtx,
 		registry:      store.NewRegistry(),
+		mu:            lockmetrics.New("kinesisanalytics"),
 	}
 	registerAllTables(b)
 
@@ -183,7 +184,7 @@ func cancelKey(region, name string) string {
 
 // Reset clears all state and resets the ID counter.
 func (b *InMemoryBackend) Reset() {
-	b.mu.Lock()
+	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
 	for _, cancel := range b.cancelFuncs {
@@ -221,7 +222,7 @@ func (b *InMemoryBackend) Region() string { return b.defaultRegion }
 // SetKinesisStreamReader wires the Kinesis backend DiscoverInputSchema samples records from
 // when ResourceARN names a Kinesis stream. Not wired by cli.go today -- see README.
 func (b *InMemoryBackend) SetKinesisStreamReader(r KinesisStreamReader) {
-	b.mu.Lock()
+	b.mu.Lock("SetKinesisStreamReader")
 	defer b.mu.Unlock()
 	b.kinesisReader = r
 }
@@ -229,7 +230,7 @@ func (b *InMemoryBackend) SetKinesisStreamReader(r KinesisStreamReader) {
 // SetS3ObjectReader wires the S3 backend DiscoverInputSchema samples object content from when
 // S3Configuration is set. Not wired by cli.go today -- see README.
 func (b *InMemoryBackend) SetS3ObjectReader(r S3ObjectReader) {
-	b.mu.Lock()
+	b.mu.Lock("SetS3ObjectReader")
 	defer b.mu.Unlock()
 	b.s3Reader = r
 }

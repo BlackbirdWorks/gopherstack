@@ -75,7 +75,7 @@ func (b *InMemoryBackend) validateOptions(options SynthesisOptions) (SynthesisOp
 		return options, err
 	}
 
-	b.mu.RLock()
+	b.mu.RLock("validateSynthesisOptions")
 	defer b.mu.RUnlock()
 
 	if err := b.checkVoiceSupport(options.VoiceID, options.Engine, options.LanguageCode); err != nil {

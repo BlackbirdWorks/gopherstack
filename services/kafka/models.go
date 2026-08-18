@@ -531,7 +531,7 @@ type VpcConnection struct {
 type ClusterOperation struct {
 	SourceClusterInfo   *MutableClusterInfo `json:"sourceClusterInfo,omitempty"`
 	TargetClusterInfo   *MutableClusterInfo `json:"targetClusterInfo,omitempty"`
-	ClusterOperationArn string              `json:"clusterOperationArn"`
+	ClusterOperationArn string              `json:"operationArn"`
 	ClusterArn          string              `json:"clusterArn"`
 	OperationType       string              `json:"operationType"`
 	OperationState      string              `json:"operationState"`

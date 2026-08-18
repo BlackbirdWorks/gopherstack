@@ -7,40 +7,94 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/sagemaker"
 )
 
 func TestHandler_ListTrainingJobsForHyperParameterTuningJob(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler(t)
-
-	doSageMakerRequest(t, h, "CreateHyperParameterTuningJob", map[string]any{
-		"HyperParameterTuningJobName": "my-hp-job",
-		"HyperParameterTuningJobConfig": map[string]any{
-			"Strategy": "Bayesian",
+	tests := []struct {
+		setupJobs     func(t *testing.T, h *sagemaker.Handler)
+		name          string
+		jobName       string
+		wantCode      int
+		wantSummaries int
+	}{
+		{
+			name:          "empty_training_jobs",
+			jobName:       "my-hp-job",
+			setupJobs:     func(_ *testing.T, _ *sagemaker.Handler) {},
+			wantCode:      http.StatusOK,
+			wantSummaries: 0,
 		},
-	})
+		{
+			name:    "populated_training_jobs",
+			jobName: "my-hp-job-2",
+			setupJobs: func(t *testing.T, h *sagemaker.Handler) {
+				t.Helper()
+				doSageMakerRequest(t, h, "CreateTrainingJob", map[string]any{
+					"TrainingJobName": "my-hp-job-2-001",
+					"AlgorithmSpecification": map[string]any{
+						"TrainingInputMode": "File",
+					},
+					"RoleArn": "arn:aws:iam::123456789012:role/SageMakerRole",
+					"OutputDataConfig": map[string]any{
+						"S3OutputPath": "s3://bucket/output",
+					},
+					"ResourceConfig": map[string]any{
+						"InstanceCount":  1,
+						"InstanceType":   "ml.m5.large",
+						"VolumeSizeInGB": 10,
+					},
+					"StoppingCondition": map[string]any{
+						"MaxRuntimeInSeconds": 3600,
+					},
+				})
+			},
+			wantCode:      http.StatusOK,
+			wantSummaries: 1,
+		},
+		{
+			name:          "not_found",
+			jobName:       "nonexistent",
+			setupJobs:     func(_ *testing.T, _ *sagemaker.Handler) {},
+			wantCode:      http.StatusBadRequest,
+			wantSummaries: 0,
+		},
+	}
 
-	rec := doSageMakerRequest(t, h, "ListTrainingJobsForHyperParameterTuningJob", map[string]any{
-		"HyperParameterTuningJobName": "my-hp-job",
-	})
-	assert.Equal(t, http.StatusOK, rec.Code)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	summaries := resp["TrainingJobSummaries"].([]any)
-	assert.Empty(t, summaries)
-}
+			h := newTestHandler(t)
 
-func TestHandler_ListTrainingJobsForHyperParameterTuningJob_NotFound(t *testing.T) {
-	t.Parallel()
+			if tt.wantCode == http.StatusOK {
+				doSageMakerRequest(t, h, "CreateHyperParameterTuningJob", map[string]any{
+					"HyperParameterTuningJobName": tt.jobName,
+					"HyperParameterTuningJobConfig": map[string]any{
+						"Strategy": "Bayesian",
+					},
+				})
+			}
 
-	h := newTestHandler(t)
+			tt.setupJobs(t, h)
 
-	rec := doSageMakerRequest(t, h, "ListTrainingJobsForHyperParameterTuningJob", map[string]any{
-		"HyperParameterTuningJobName": "nonexistent",
-	})
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
+			rec := doSageMakerRequest(t, h, "ListTrainingJobsForHyperParameterTuningJob", map[string]any{
+				"HyperParameterTuningJobName": tt.jobName,
+			})
+			assert.Equal(t, tt.wantCode, rec.Code)
+
+			if tt.wantCode == http.StatusOK {
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				summaries, ok := resp["TrainingJobSummaries"].([]any)
+				require.True(t, ok)
+				assert.Len(t, summaries, tt.wantSummaries)
+			}
+		})
+	}
 }
 
 func TestHandler_DescribeHyperParameterTuningJob_WireShape(t *testing.T) {

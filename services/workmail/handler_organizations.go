@@ -17,8 +17,9 @@ type domainReq struct {
 }
 
 type createOrgReq struct {
-	Alias   string      `json:"Alias"`
-	Domains []domainReq `json:"Domains"`
+	Alias                  string      `json:"Alias"`
+	Domains                []domainReq `json:"Domains"`
+	EnableInteroperability bool        `json:"EnableInteroperability"`
 }
 
 type createOrgResp struct {
@@ -31,7 +32,7 @@ func (h *Handler) handleCreateOrganization(ctx context.Context, req *createOrgRe
 		domains = append(domains, d.DomainName)
 	}
 
-	org, err := h.Backend.CreateOrganization(ctx, req.Alias, domains)
+	org, err := h.Backend.CreateOrganization(ctx, req.Alias, domains, req.EnableInteroperability)
 	if err != nil {
 		return nil, err
 	}
@@ -64,16 +65,17 @@ func (h *Handler) handleDescribeOrganization(_ context.Context, req *describeOrg
 	}
 
 	return &describeOrgResp{
-		OrganizationID:    org.OrgID,
-		Alias:             org.Alias,
-		State:             org.State,
-		ARN:               org.ARN,
-		DirectoryID:       org.DirectoryID,
-		DirectoryType:     org.DirectoryType,
-		DefaultMailDomain: org.DefaultMailDomain,
-		ErrorMessage:      org.ErrorMessage,
-		MigrationAdmin:    org.MigrationAdmin,
-		CompletedDate:     org.CompletedDate.Unix(),
+		OrganizationID:          org.OrgID,
+		Alias:                   org.Alias,
+		State:                   org.State,
+		ARN:                     org.ARN,
+		DirectoryID:             org.DirectoryID,
+		DirectoryType:           org.DirectoryType,
+		DefaultMailDomain:       org.DefaultMailDomain,
+		ErrorMessage:            org.ErrorMessage,
+		MigrationAdmin:          org.MigrationAdmin,
+		CompletedDate:           org.CompletedDate.Unix(),
+		InteroperabilityEnabled: org.InteroperabilityEnabled,
 	}, nil
 }
 

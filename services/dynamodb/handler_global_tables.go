@@ -283,10 +283,16 @@ type tableClassSummaryWire struct {
 	TableClass string `json:"TableClass,omitempty"`
 }
 
+type gsiUpdateWire struct {
+	ProvisionedReadCapacityUnits *int64 `json:"ProvisionedReadCapacityUnits,omitempty"`
+	IndexName                    string `json:"IndexName"`
+}
+
 type replicaSettingsUpdateInputWire struct {
-	ReplicaProvisionedReadCapacityUnits *int64 `json:"ReplicaProvisionedReadCapacityUnits,omitempty"`
-	ReplicaTableClass                   string `json:"ReplicaTableClass,omitempty"`
-	RegionName                          string `json:"RegionName"`
+	ReplicaProvisionedReadCapacityUnits       *int64          `json:"ReplicaProvisionedReadCapacityUnits,omitempty"`
+	ReplicaTableClass                         string          `json:"ReplicaTableClass,omitempty"`
+	RegionName                                string          `json:"RegionName"`
+	ReplicaGlobalSecondaryIndexSettingsUpdate []gsiUpdateWire `json:"ReplicaGlobalSecondaryIndexSettingsUpdate,omitempty"`
 }
 
 type updateGlobalTableSettingsInput struct {
@@ -296,6 +302,13 @@ type updateGlobalTableSettingsInput struct {
 	ReplicaSettingsUpdate    []replicaSettingsUpdateInputWire `json:"ReplicaSettingsUpdate,omitempty"`
 }
 
+type replicaGSIDescWire struct {
+	ProvisionedReadCapacityUnits  *int64 `json:"ProvisionedReadCapacityUnits,omitempty"`
+	ProvisionedWriteCapacityUnits *int64 `json:"ProvisionedWriteCapacityUnits,omitempty"`
+	IndexName                     string `json:"IndexName"`
+	IndexStatus                   string `json:"IndexStatus,omitempty"`
+}
+
 type replicaSettingsDescWire struct {
 	ReplicaBillingModeSummary            *billingModeSummaryWire `json:"ReplicaBillingModeSummary,omitempty"`
 	ReplicaTableClassSummary             *tableClassSummaryWire  `json:"ReplicaTableClassSummary,omitempty"`
@@ -303,6 +316,7 @@ type replicaSettingsDescWire struct {
 	ReplicaProvisionedWriteCapacityUnits *int64                  `json:"ReplicaProvisionedWriteCapacityUnits,omitempty"`
 	RegionName                           string                  `json:"RegionName"`
 	ReplicaStatus                        string                  `json:"ReplicaStatus,omitempty"`
+	ReplicaGlobalSecondaryIndexSettings  []replicaGSIDescWire    `json:"ReplicaGlobalSecondaryIndexSettings,omitempty"`
 }
 
 // replicaSettingsDescWireFromSDK converts the SDK ReplicaSettingsDescription
@@ -338,6 +352,22 @@ func replicaSettingsDescWireFromSDK(rs types.ReplicaSettingsDescription) replica
 		w.ReplicaProvisionedWriteCapacityUnits = &wcu
 	}
 
+	for _, gsi := range rs.ReplicaGlobalSecondaryIndexSettings {
+		gw := replicaGSIDescWire{
+			IndexName:   ptrconv.String(gsi.IndexName),
+			IndexStatus: string(gsi.IndexStatus),
+		}
+		if gsi.ProvisionedReadCapacityUnits != nil {
+			rcu := *gsi.ProvisionedReadCapacityUnits
+			gw.ProvisionedReadCapacityUnits = &rcu
+		}
+		if gsi.ProvisionedWriteCapacityUnits != nil {
+			wcu := *gsi.ProvisionedWriteCapacityUnits
+			gw.ProvisionedWriteCapacityUnits = &wcu
+		}
+		w.ReplicaGlobalSecondaryIndexSettings = append(w.ReplicaGlobalSecondaryIndexSettings, gw)
+	}
+
 	return w
 }
 
@@ -368,11 +398,26 @@ func (h *DynamoDBHandler) handleUpdateGlobalTableSettings(
 		)
 		for i, ru := range req.ReplicaSettingsUpdate {
 			region := ru.RegionName
-			sdkInput.ReplicaSettingsUpdate[i] = types.ReplicaSettingsUpdate{
+			rUpdate := types.ReplicaSettingsUpdate{
 				RegionName:                          &region,
 				ReplicaTableClass:                   types.TableClass(ru.ReplicaTableClass),
 				ReplicaProvisionedReadCapacityUnits: ru.ReplicaProvisionedReadCapacityUnits,
 			}
+			if len(ru.ReplicaGlobalSecondaryIndexSettingsUpdate) > 0 {
+				gsiUpdates := make(
+					[]types.ReplicaGlobalSecondaryIndexSettingsUpdate,
+					len(ru.ReplicaGlobalSecondaryIndexSettingsUpdate),
+				)
+				for j, gu := range ru.ReplicaGlobalSecondaryIndexSettingsUpdate {
+					idxName := gu.IndexName
+					gsiUpdates[j] = types.ReplicaGlobalSecondaryIndexSettingsUpdate{
+						IndexName:                    &idxName,
+						ProvisionedReadCapacityUnits: gu.ProvisionedReadCapacityUnits,
+					}
+				}
+				rUpdate.ReplicaGlobalSecondaryIndexSettingsUpdate = gsiUpdates
+			}
+			sdkInput.ReplicaSettingsUpdate[i] = rUpdate
 		}
 	}
 

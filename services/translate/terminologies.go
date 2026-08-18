@@ -81,7 +81,7 @@ func (b *InMemoryBackend) ImportTerminology(
 		return nil, fmt.Errorf("%w: Directionality must be UNI or MULTI", ErrInvalidParameter)
 	}
 
-	b.mu.Lock()
+	b.mu.Lock("ImportTerminology")
 	defer b.mu.Unlock()
 
 	resourceARN := b.terminologyARN(name)
@@ -154,7 +154,7 @@ func (b *InMemoryBackend) ImportTerminology(
 
 // GetTerminology retrieves a terminology by name.
 func (b *InMemoryBackend) GetTerminology(name string) (*Terminology, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetTerminology")
 	defer b.mu.RUnlock()
 
 	t, ok := b.terminologies.Get(name)
@@ -173,7 +173,7 @@ func (b *InMemoryBackend) GetTerminology(name string) (*Terminology, error) {
 // ListTerminologies operation to get the available terminology lists"
 // implies the reference is validated, not silently ignored).
 func (b *InMemoryBackend) LookupTerminologies(names []string) ([]*Terminology, error) {
-	b.mu.RLock()
+	b.mu.RLock("LookupTerminologies")
 	defer b.mu.RUnlock()
 
 	out := make([]*Terminology, 0, len(names))
@@ -192,7 +192,7 @@ func (b *InMemoryBackend) LookupTerminologies(names []string) ([]*Terminology, e
 
 // DeleteTerminology removes a terminology by name.
 func (b *InMemoryBackend) DeleteTerminology(name string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteTerminology")
 	defer b.mu.Unlock()
 
 	if !b.terminologies.Has(name) {
@@ -208,7 +208,7 @@ func (b *InMemoryBackend) DeleteTerminology(name string) error {
 
 // ListTerminologies returns a paginated list of terminologies.
 func (b *InMemoryBackend) ListTerminologies(maxResults int, nextToken string) ([]*Terminology, string) {
-	b.mu.RLock()
+	b.mu.RLock("ListTerminologies")
 	defer b.mu.RUnlock()
 
 	names := sortedNames(b.terminologies.All(), func(t *Terminology) string { return t.Name })

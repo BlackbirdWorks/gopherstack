@@ -1,37 +1,25 @@
 package support
 
 import (
-	"sync"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 // InMemoryBackend is the in-memory store for Support cases.
 type InMemoryBackend struct {
-	// registry holds every "clean" store.Table (cases, attachments,
-	// checkRefreshStatuses, checkResults) so their Reset/Snapshot/Restore
-	// collapse to one call each. attachmentSets is a "dirty" table (see
-	// store_setup.go) and is NOT on this registry.
-	registry             *store.Registry
-	cases                *store.Table[Case]
-	attachmentSets       *store.Table[AttachmentSet]
-	attachments          *store.Table[Attachment]
-	checkRefreshStatuses *store.Table[TrustedAdvisorCheckRefreshStatus]
-	checkResults         *store.Table[TrustedAdvisorCheckResult]
-	// communications (caseID -> communications) is deliberately left a plain
-	// map: case communications are ORDER-SENSITIVE (chronological) and
-	// store.Table makes no iteration-order guarantee -- see store_setup.go.
-	communications map[string][]Communication
-	// attachmentSetCreationTimes / describeAttachmentCallTimes are sliding
-	// rate-limit windows backing AttachmentLimitExceeded and
-	// DescribeAttachmentLimitExceeded (see attachments.go). They are
-	// intentionally NOT part of the persisted snapshot: a restore resetting
-	// the throttle window is equivalent to a real service instance restart.
+	registry                    *store.Registry
+	cases                       *store.Table[Case]
+	attachmentSets              *store.Table[AttachmentSet]
+	attachments                 *store.Table[Attachment]
+	checkRefreshStatuses        *store.Table[TrustedAdvisorCheckRefreshStatus]
+	checkResults                *store.Table[TrustedAdvisorCheckResult]
+	communications              map[string][]Communication
+	mu                          *lockmetrics.RWMutex
 	attachmentSetCreationTimes  []time.Time
 	describeAttachmentCallTimes []time.Time
 	nextDisplayID               uint64
-	mu                          sync.RWMutex
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
@@ -39,6 +27,7 @@ func NewInMemoryBackend() *InMemoryBackend {
 	b := &InMemoryBackend{
 		registry:       store.NewRegistry(),
 		communications: make(map[string][]Communication),
+		mu:             lockmetrics.New("support"),
 	}
 	registerAllTables(b)
 
@@ -47,7 +36,7 @@ func NewInMemoryBackend() *InMemoryBackend {
 
 // Reset clears all backend state.
 func (b *InMemoryBackend) Reset() {
-	b.mu.Lock()
+	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
 	b.resetTablesLocked()

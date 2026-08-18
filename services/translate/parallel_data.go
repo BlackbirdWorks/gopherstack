@@ -43,7 +43,7 @@ func (b *InMemoryBackend) CreateParallelData(
 		return nil, err
 	}
 
-	b.mu.Lock()
+	b.mu.Lock("CreateParallelData")
 	defer b.mu.Unlock()
 
 	if b.parallelData.Has(name) {
@@ -112,7 +112,7 @@ func advanceParallelData(pd *ParallelData) {
 // matching DescribeTextTranslationJob's documented precedent in
 // text_translation_jobs.go.
 func (b *InMemoryBackend) GetParallelData(name string) (*ParallelData, error) {
-	b.mu.Lock()
+	b.mu.Lock("GetParallelData")
 	defer b.mu.Unlock()
 
 	pd, ok := b.parallelData.Get(name)
@@ -139,7 +139,7 @@ func (b *InMemoryBackend) UpdateParallelData(
 		return nil, err
 	}
 
-	b.mu.Lock()
+	b.mu.Lock("UpdateParallelData")
 	defer b.mu.Unlock()
 
 	pd, ok := b.parallelData.Get(name)
@@ -163,7 +163,7 @@ func (b *InMemoryBackend) UpdateParallelData(
 
 // DeleteParallelData removes a parallel data resource by name.
 func (b *InMemoryBackend) DeleteParallelData(name string) (*ParallelData, error) {
-	b.mu.Lock()
+	b.mu.Lock("DeleteParallelData")
 	defer b.mu.Unlock()
 
 	pd, ok := b.parallelData.Get(name)
@@ -180,7 +180,7 @@ func (b *InMemoryBackend) DeleteParallelData(name string) (*ParallelData, error)
 
 // ListParallelData returns a paginated list of parallel data resources.
 func (b *InMemoryBackend) ListParallelData(maxResults int, nextToken string) ([]*ParallelData, string) {
-	b.mu.RLock()
+	b.mu.RLock("ListParallelData")
 	defer b.mu.RUnlock()
 
 	names := sortedNames(b.parallelData.All(), func(pd *ParallelData) string { return pd.Name })

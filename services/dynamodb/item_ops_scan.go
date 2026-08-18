@@ -1,10 +1,11 @@
 package dynamodb
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"hash/fnv"
-	"sort"
+	"slices"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/dynamoattr"
 	"github.com/blackbirdworks/gopherstack/services/dynamodb/models"
@@ -106,11 +107,9 @@ func (db *InMemoryDB) ScanWithContext(
 	return db.buildScanOutput(ctx, tableName, billingMode, input, items, lastKey, scannedCount, snapshotTable)
 }
 
-// snapshotTableForScan copies the item slice and table metadata needed by a
-// Scan under a single table.mu.RLock/defer, then releases the lock -- the
-// caller does the actual scan work (which can be O(items)) unlocked. Using
-// defer here (rather than a manual RUnlock before returning) means a panic
-// from any of these copies can never leave table.mu read-locked forever.
+// snapshotTableForScan copies the item slice under a single table.mu.RLock/defer,
+// then releases the lock -- the caller does the actual scan work (which can be O(items))
+// unlocked. Table schema definitions are immutable and shared directly without copying.
 func snapshotTableForScan(table *Table) (
 	[]map[string]any,
 	string,
@@ -125,16 +124,14 @@ func snapshotTableForScan(table *Table) (
 
 	itemsCopy := make([]map[string]any, len(table.Items))
 	copy(itemsCopy, table.Items)
-	keySchema := make([]models.KeySchemaElement, len(table.KeySchema))
-	copy(keySchema, table.KeySchema)
-	gsiList := make([]models.GlobalSecondaryIndex, len(table.GlobalSecondaryIndexes))
-	copy(gsiList, table.GlobalSecondaryIndexes)
-	lsiList := make([]models.LocalSecondaryIndex, len(table.LocalSecondaryIndexes))
-	copy(lsiList, table.LocalSecondaryIndexes)
-	attrDefs := make([]models.AttributeDefinition, len(table.AttributeDefinitions))
-	copy(attrDefs, table.AttributeDefinitions)
 
-	return itemsCopy, table.TTLAttribute, keySchema, gsiList, lsiList, attrDefs, table.BillingMode
+	return itemsCopy,
+		table.TTLAttribute,
+		table.KeySchema,
+		table.GlobalSecondaryIndexes,
+		table.LocalSecondaryIndexes,
+		table.AttributeDefinitions,
+		table.BillingMode
 }
 
 // buildScanOutput enforces read throughput and assembles the ScanOutput.
@@ -249,7 +246,7 @@ func (db *InMemoryDB) doScan(
 	filter := aws.ToString(input.FilterExpression)
 
 	// Collect all non-expired items that are in the target index.
-	candidate := make([]map[string]any, 0, minScanAllocationSize)
+	candidate := make([]map[string]any, 0, len(items))
 	for _, item := range items {
 		if isItemExpired(item, ttlAttr) {
 			continue
@@ -402,35 +399,92 @@ func applySegmentFilter(
 	return filtered
 }
 
+type scanSortEntry struct {
+	item  map[string]any
+	pkStr string
+	skStr string
+	pkNum float64
+	skNum float64
+}
+
+func populateScanSortEntry(
+	item map[string]any,
+	pkDef, skDef models.KeySchemaElement,
+	pkType, skType string,
+) scanSortEntry {
+	entry := scanSortEntry{item: item}
+	if pkVal, ok := item[pkDef.AttributeName]; ok {
+		unwrapped := dynamoattr.UnwrapAttributeValue(pkVal)
+		if pkType == "N" {
+			entry.pkNum, _ = dynamoattr.ParseNumeric(unwrapped)
+		} else {
+			entry.pkStr = dynamoattr.ToString(unwrapped)
+		}
+	}
+	if skDef.AttributeName != "" {
+		if skVal, ok := item[skDef.AttributeName]; ok {
+			unwrapped := dynamoattr.UnwrapAttributeValue(skVal)
+			if skType == "N" {
+				entry.skNum, _ = dynamoattr.ParseNumeric(unwrapped)
+			} else {
+				entry.skStr = dynamoattr.ToString(unwrapped)
+			}
+		}
+	}
+
+	return entry
+}
+
+func compareScanSortEntries(a, b scanSortEntry, pkType, skType string, hasSK bool) int {
+	var pkRes int
+	if pkType == "N" {
+		pkRes = cmp.Compare(a.pkNum, b.pkNum)
+	} else {
+		pkRes = cmp.Compare(a.pkStr, b.pkStr)
+	}
+	if pkRes != 0 {
+		return pkRes
+	}
+
+	if hasSK {
+		if skType == "N" {
+			return cmp.Compare(a.skNum, b.skNum)
+		}
+
+		return cmp.Compare(a.skStr, b.skStr)
+	}
+
+	return 0
+}
+
 func sortScanResults(
 	items []map[string]any,
 	pkDef, skDef models.KeySchemaElement,
 	table *Table,
 ) {
+	if len(items) <= 1 {
+		return
+	}
+
 	pkType := getAttributeType(table.AttributeDefinitions, pkDef.AttributeName, "S")
 	var skType string
 	if skDef.AttributeName != "" {
 		skType = getAttributeType(table.AttributeDefinitions, skDef.AttributeName, "S")
 	}
 
-	sort.Slice(items, func(i, j int) bool {
-		v1pk := dynamoattr.UnwrapAttributeValue(items[i][pkDef.AttributeName])
-		v2pk := dynamoattr.UnwrapAttributeValue(items[j][pkDef.AttributeName])
-		pkRes := compareAny(v1pk, v2pk, pkType)
-		if pkRes != 0 {
-			return pkRes < 0
-		}
+	entries := make([]scanSortEntry, len(items))
+	for i, item := range items {
+		entries[i] = populateScanSortEntry(item, pkDef, skDef, pkType, skType)
+	}
 
-		if skDef.AttributeName != "" {
-			v1sk := dynamoattr.UnwrapAttributeValue(items[i][skDef.AttributeName])
-			v2sk := dynamoattr.UnwrapAttributeValue(items[j][skDef.AttributeName])
-			skRes := compareAny(v1sk, v2sk, skType)
-
-			return skRes < 0
-		}
-
-		return false
+	hasSK := skDef.AttributeName != ""
+	slices.SortFunc(entries, func(a, b scanSortEntry) int {
+		return compareScanSortEntries(a, b, pkType, skType, hasSK)
 	})
+
+	for i := range entries {
+		items[i] = entries[i].item
+	}
 }
 
 // isItemInIndex reports whether item should be included in the scan based solely

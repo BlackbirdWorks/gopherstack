@@ -148,7 +148,7 @@ func (b *InMemoryBackend) BatchAssociateUserStack(
 			a := assoc
 			errs = append(errs, UserStackAssociationError{
 				UserStackAssociation: &a,
-				ErrorCode:            "USER_NOT_FOUND",
+				ErrorCode:            "USER_NAME_NOT_FOUND",
 				ErrorMessage:         "User not found",
 			})
 
@@ -180,7 +180,7 @@ func (b *InMemoryBackend) BatchDisassociateUserStack(
 			a := assoc
 			errs = append(errs, UserStackAssociationError{
 				UserStackAssociation: &a,
-				ErrorCode:            "USER_NOT_FOUND",
+				ErrorCode:            "USER_NAME_NOT_FOUND",
 				ErrorMessage:         "User not found",
 			})
 

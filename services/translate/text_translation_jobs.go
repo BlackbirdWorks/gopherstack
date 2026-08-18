@@ -16,7 +16,7 @@ func (b *InMemoryBackend) StartTextTranslationJob(
 	inputCfg, outputCfg, settings map[string]any,
 	tags map[string]string,
 ) (*TranslationJob, error) {
-	b.mu.Lock()
+	b.mu.Lock("StartTextTranslationJob")
 	defer b.mu.Unlock()
 
 	// A referenced TerminologyNames/ParallelDataNames entry that doesn't
@@ -61,7 +61,7 @@ func (b *InMemoryBackend) StartTextTranslationJob(
 
 // StopTextTranslationJob requests stop of a translation job.
 func (b *InMemoryBackend) StopTextTranslationJob(jobID string) (*TranslationJob, error) {
-	b.mu.Lock()
+	b.mu.Lock("StopTextTranslationJob")
 	defer b.mu.Unlock()
 
 	job, ok := b.jobs.Get(jobID)
@@ -89,7 +89,7 @@ func (b *InMemoryBackend) StopTextTranslationJob(jobID string) (*TranslationJob,
 // DescribeTextTranslationJob (the documented way to track job progress) would
 // never observe completion.
 func (b *InMemoryBackend) DescribeTextTranslationJob(jobID string) (*TranslationJob, error) {
-	b.mu.Lock()
+	b.mu.Lock("DescribeTextTranslationJob")
 	defer b.mu.Unlock()
 
 	job, ok := b.jobs.Get(jobID)
@@ -130,7 +130,7 @@ func (b *InMemoryBackend) ListTextTranslationJobs(
 	maxResults int,
 	nextToken string,
 ) ([]*TranslationJob, string) {
-	b.mu.RLock()
+	b.mu.RLock("ListTextTranslationJobs")
 	defer b.mu.RUnlock()
 
 	ids := make([]string, 0, b.jobs.Len())

@@ -237,11 +237,6 @@ func (db *InMemoryDB) batchGetTable(
 	)
 	projector, _ := ParseProjector(proj, keysAndAttrs.ExpressionAttributeNames)
 
-	wireKeys := make([]map[string]any, len(keysAndAttrs.Keys))
-	for i, sdkKey := range keysAndAttrs.Keys {
-		wireKeys[i] = models.FromSDKItem(sdkKey)
-	}
-
 	type matchedEntry struct {
 		item     map[string]any
 		keyIndex int
@@ -252,8 +247,15 @@ func (db *InMemoryDB) batchGetTable(
 		table.mu.RLock("BatchGetItem")
 		defer table.mu.RUnlock()
 
-		for i, wireKey := range wireKeys {
-			item := db.lookupItem(table, wireKey, pkDef.AttributeName, skDef.AttributeName)
+		hasSK := skDef.AttributeName != ""
+		for i, sdkKey := range keysAndAttrs.Keys {
+			pkVal := BuildKeyStringFromSDK(sdkKey, pkDef.AttributeName)
+			var skVal string
+			if hasSK {
+				skVal = BuildKeyStringFromSDK(sdkKey, skDef.AttributeName)
+			}
+
+			item := db.lookupItemByKeys(table, pkVal, skVal)
 			if item != nil {
 				matched = append(matched, matchedEntry{keyIndex: i, item: item})
 			}

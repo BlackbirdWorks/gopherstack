@@ -290,19 +290,25 @@ type describeWorkspacesOutput struct {
 }
 
 type workspaceResp struct {
-	WorkspaceProperties         *workspacePropertiesResp `json:"WorkspaceProperties,omitempty"`
-	WorkspaceID                 string                   `json:"WorkspaceId"`
-	DirectoryID                 string                   `json:"DirectoryId"`
-	UserName                    string                   `json:"UserName"`
-	BundleID                    string                   `json:"BundleId"`
-	SubnetID                    string                   `json:"SubnetId,omitempty"`
-	VolumeEncryptionKey         string                   `json:"VolumeEncryptionKey,omitempty"`
-	ComputerName                string                   `json:"ComputerName,omitempty"`
-	ErrorCode                   string                   `json:"ErrorCode,omitempty"`
-	ErrorMessage                string                   `json:"ErrorMessage,omitempty"`
-	State                       string                   `json:"State"`
-	UserVolumeEncryptionEnabled bool                     `json:"UserVolumeEncryptionEnabled,omitempty"`
-	RootVolumeEncryptionEnabled bool                     `json:"RootVolumeEncryptionEnabled,omitempty"`
+	WorkspaceProperties         *workspacePropertiesResp     `json:"WorkspaceProperties,omitempty"`
+	DataReplicationSettings     *DataReplicationSettings     `json:"DataReplicationSettings,omitempty"`
+	VolumeEncryptionKey         string                       `json:"VolumeEncryptionKey,omitempty"`
+	SubnetID                    string                       `json:"SubnetId,omitempty"`
+	State                       string                       `json:"State"`
+	WorkspaceID                 string                       `json:"WorkspaceId"`
+	WorkspaceName               string                       `json:"WorkspaceName,omitempty"`
+	DirectoryID                 string                       `json:"DirectoryId"`
+	UserName                    string                       `json:"UserName"`
+	IPAddress                   string                       `json:"IpAddress,omitempty"`
+	BundleID                    string                       `json:"BundleId"`
+	ErrorMessage                string                       `json:"ErrorMessage,omitempty"`
+	ErrorCode                   string                       `json:"ErrorCode,omitempty"`
+	ComputerName                string                       `json:"ComputerName,omitempty"`
+	StandbyWorkspacesProperties []StandbyWorkspaceProperties `json:"StandbyWorkspacesProperties,omitempty"`
+	RelatedWorkspaces           []RelatedWorkspace           `json:"RelatedWorkspaces,omitempty"`
+	ModificationStates          []ModificationState          `json:"ModificationStates,omitempty"`
+	UserVolumeEncryptionEnabled bool                         `json:"UserVolumeEncryptionEnabled,omitempty"`
+	RootVolumeEncryptionEnabled bool                         `json:"RootVolumeEncryptionEnabled,omitempty"`
 }
 
 func (h *Handler) handleDescribeWorkspaces(
@@ -340,8 +346,10 @@ func (h *Handler) handleDescribeWorkspaces(
 func toWorkspaceResp(ws *Workspace) workspaceResp {
 	item := workspaceResp{
 		WorkspaceID:                 ws.WorkspaceID,
+		WorkspaceName:               ws.WorkspaceName,
 		DirectoryID:                 ws.DirectoryID,
 		UserName:                    ws.UserName,
+		IPAddress:                   ws.IPAddress,
 		BundleID:                    ws.BundleID,
 		State:                       ws.State,
 		SubnetID:                    ws.SubnetID,
@@ -351,6 +359,10 @@ func toWorkspaceResp(ws *Workspace) workspaceResp {
 		ComputerName:                ws.ComputerName,
 		ErrorCode:                   ws.ErrorCode,
 		ErrorMessage:                ws.ErrorMessage,
+		DataReplicationSettings:     ws.DataReplicationSettings,
+		StandbyWorkspacesProperties: ws.StandbyWorkspacesProperties,
+		RelatedWorkspaces:           ws.RelatedWorkspaces,
+		ModificationStates:          ws.ModificationStates,
 	}
 
 	if ws.Properties != nil {

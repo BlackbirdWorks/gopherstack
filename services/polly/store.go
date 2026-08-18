@@ -1,9 +1,8 @@
 package polly
 
 import (
-	"sync"
-
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
+	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
@@ -72,10 +71,10 @@ type InMemoryBackend struct {
 	lexicons  *store.Table[Lexicon]
 	tasks     *store.Table[SpeechSynthesisTask]
 	registry  *store.Registry
+	mu        *lockmetrics.RWMutex
 	accountID string
 	region    string
 	voices    []Voice
-	mu        sync.RWMutex
 }
 
 // NewInMemoryBackend creates a Polly backend configured for default AWS identity.
@@ -90,6 +89,7 @@ func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 		voices:    builtInVoices(),
 		accountID: accountID,
 		region:    region,
+		mu:        lockmetrics.New("polly"),
 	}
 	registerAllTables(b)
 
@@ -101,7 +101,7 @@ func (b *InMemoryBackend) Region() string { return b.region }
 
 // Reset clears stored resources.
 func (b *InMemoryBackend) Reset() {
-	b.mu.Lock()
+	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
 	b.registry.ResetAll()

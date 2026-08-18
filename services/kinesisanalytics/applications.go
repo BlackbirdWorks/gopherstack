@@ -442,7 +442,7 @@ func (b *InMemoryBackend) CreateApplication(
 
 	region := getRegion(ctx, b.defaultRegion)
 
-	b.mu.Lock()
+	b.mu.Lock("CreateApplication")
 	defer b.mu.Unlock()
 
 	if len(b.appsByRegion.Get(region)) >= maxApplicationsPerRegion {
@@ -505,7 +505,7 @@ func (b *InMemoryBackend) DeleteApplication(ctx context.Context, name string, cr
 
 	region := getRegion(ctx, b.defaultRegion)
 
-	b.mu.Lock()
+	b.mu.Lock("DeleteApplication")
 	defer b.mu.Unlock()
 
 	appKey := applicationKey(region, name)
@@ -542,7 +542,7 @@ func (b *InMemoryBackend) DeleteApplication(ctx context.Context, name string, cr
 		case <-time.After(transitionDelay):
 		}
 
-		b.mu.Lock()
+		b.mu.Lock("DeleteApplication.async")
 		defer b.mu.Unlock()
 
 		delete(b.cancelFuncs, key)
@@ -556,7 +556,7 @@ func (b *InMemoryBackend) DeleteApplication(ctx context.Context, name string, cr
 func (b *InMemoryBackend) DescribeApplication(ctx context.Context, name string) (*Application, error) {
 	region := getRegion(ctx, b.defaultRegion)
 
-	b.mu.RLock()
+	b.mu.RLock("DescribeApplication")
 	defer b.mu.RUnlock()
 
 	app, exists := b.apps.Get(applicationKey(region, name))
@@ -587,7 +587,7 @@ func (b *InMemoryBackend) ListApplications(
 
 	region := getRegion(ctx, b.defaultRegion)
 
-	b.mu.RLock()
+	b.mu.RLock("ListApplications")
 	defer b.mu.RUnlock()
 
 	regionApps := b.appsByRegion.Get(region)
@@ -658,7 +658,7 @@ func findInputIndex(inputs []InputDescription, inputID string) int {
 func (b *InMemoryBackend) StartApplication(ctx context.Context, name string, inputConfigs []inputConfiguration) error {
 	region := getRegion(ctx, b.defaultRegion)
 
-	b.mu.Lock()
+	b.mu.Lock("StartApplication")
 	defer b.mu.Unlock()
 
 	app, exists := b.apps.Get(applicationKey(region, name))
@@ -688,7 +688,7 @@ func (b *InMemoryBackend) StartApplication(ctx context.Context, name string, inp
 func (b *InMemoryBackend) StopApplication(ctx context.Context, name string) error {
 	region := getRegion(ctx, b.defaultRegion)
 
-	b.mu.Lock()
+	b.mu.Lock("StopApplication")
 	defer b.mu.Unlock()
 
 	app, exists := b.apps.Get(applicationKey(region, name))
@@ -731,7 +731,7 @@ func (b *InMemoryBackend) launchTransition(region, name, targetStatus string) {
 		case <-time.After(transitionDelay):
 		}
 
-		b.mu.Lock()
+		b.mu.Lock("launchTransition.async")
 		defer b.mu.Unlock()
 
 		app, exists := b.apps.Get(applicationKey(region, name))
@@ -887,7 +887,7 @@ func copyRefDataSources(src []ReferenceDataSourceDescription) []ReferenceDataSou
 // AddApplicationInternal is a test-only seed helper that stores an application directly.
 // The region is extracted from the application ARN.
 func (b *InMemoryBackend) AddApplicationInternal(app *Application) {
-	b.mu.Lock()
+	b.mu.Lock("AddApplicationInternal")
 	defer b.mu.Unlock()
 
 	cp := appCopy(app)

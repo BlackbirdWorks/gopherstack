@@ -29,7 +29,7 @@ func tagsFromInput(data map[string]any) map[string]string {
 // resource -- TagResource does not silently create tag state for ARNs no
 // resource ever owned.
 func (b *InMemoryBackend) TagResource(resourceARN string, tags map[string]string) error {
-	b.mu.Lock()
+	b.mu.Lock("TagResource")
 	defer b.mu.Unlock()
 
 	if _, ok := b.arnIndex[resourceARN]; !ok {
@@ -48,7 +48,7 @@ func (b *InMemoryBackend) TagResource(resourceARN string, tags map[string]string
 // ResourceNotFoundException when resourceARN does not identify an existing
 // resource.
 func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) error {
-	b.mu.Lock()
+	b.mu.Lock("UntagResource")
 	defer b.mu.Unlock()
 
 	if _, ok := b.arnIndex[resourceARN]; !ok {
@@ -68,7 +68,7 @@ func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) er
 // ResourceNotFoundException when resourceARN does not identify an existing
 // resource.
 func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]string, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListTagsForResource")
 	defer b.mu.RUnlock()
 
 	if _, ok := b.arnIndex[resourceARN]; !ok {

@@ -13,6 +13,7 @@ type batchDescribeTypeConfigurationsResponse struct {
 	XMLName xml.Name `xml:"BatchDescribeTypeConfigurationsResponse"`
 	Result  struct {
 		TypeConfigurations []struct {
+			Arn                    string `xml:"Arn"`
 			TypeName               string `xml:"TypeName"`
 			Configuration          string `xml:"Configuration"`
 			IsDefaultConfiguration bool   `xml:"IsDefaultConfiguration"`
@@ -96,6 +97,7 @@ func TestHandler_BatchDescribeTypeConfigurations(t *testing.T) {
 
 			if tt.wantConfigured {
 				require.Len(t, resp.Result.TypeConfigurations, 1)
+				assert.NotEmpty(t, resp.Result.TypeConfigurations[0].Arn)
 				assert.Equal(t, tt.identifierValue, resp.Result.TypeConfigurations[0].TypeName)
 				assert.Equal(t, tt.wantConfiguration, resp.Result.TypeConfigurations[0].Configuration)
 				assert.False(t, resp.Result.TypeConfigurations[0].IsDefaultConfiguration)

@@ -18,7 +18,7 @@ func (b *InMemoryBackend) AddApplicationOutput(
 ) error {
 	region := getRegion(ctx, b.defaultRegion)
 
-	b.mu.Lock()
+	b.mu.Lock("AddApplicationOutput")
 	defer b.mu.Unlock()
 
 	app, exists := b.apps.Get(applicationKey(region, name))
@@ -48,7 +48,7 @@ func (b *InMemoryBackend) DeleteApplicationOutput(
 ) error {
 	region := getRegion(ctx, b.defaultRegion)
 
-	b.mu.Lock()
+	b.mu.Lock("DeleteApplicationOutput")
 	defer b.mu.Unlock()
 
 	app, exists := b.apps.Get(applicationKey(region, name))
@@ -86,7 +86,7 @@ func (b *InMemoryBackend) AddApplicationReferenceDataSource(
 ) error {
 	region := getRegion(ctx, b.defaultRegion)
 
-	b.mu.Lock()
+	b.mu.Lock("AddApplicationReferenceDataSource")
 	defer b.mu.Unlock()
 
 	app, exists := b.apps.Get(applicationKey(region, name))
@@ -116,7 +116,7 @@ func (b *InMemoryBackend) DeleteApplicationReferenceDataSource(
 ) error {
 	region := getRegion(ctx, b.defaultRegion)
 
-	b.mu.Lock()
+	b.mu.Lock("DeleteApplicationReferenceDataSource")
 	defer b.mu.Unlock()
 
 	app, exists := b.apps.Get(applicationKey(region, name))

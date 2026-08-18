@@ -236,7 +236,7 @@ func (b *InMemoryBackend) recordNewCert(region, certARN, idempotencyToken, statu
 	}
 
 	if status == statusPendingValidation {
-		t := time.AfterFunc(autoValidateDelayMS*time.Millisecond, func() { b.autoValidate(region, certARN) })
+		t := time.AfterFunc(b.getAutoValidateDelayLocked(), func() { b.autoValidate(region, certARN) })
 		b.timersStore(region)[certARN] = t
 	}
 }
@@ -491,7 +491,7 @@ func (b *InMemoryBackend) RenewCertificate(ctx context.Context, certARN string) 
 	}
 
 	if status == statusPendingValidation {
-		t := time.AfterFunc(autoValidateDelayMS*time.Millisecond, func() { b.autoValidateRenewal(region, certARN) })
+		t := time.AfterFunc(b.getAutoValidateDelayLocked(), func() { b.autoValidateRenewal(region, certARN) })
 		// We can share the timer map, because normal validation is done
 		// if a renewal is happening (a cert must be issued to be renewed).
 		// Wait, if there's an existing timer, stop it first.

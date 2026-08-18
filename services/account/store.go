@@ -2,9 +2,9 @@ package account
 
 import (
 	"context"
-	"sync"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
@@ -37,20 +37,20 @@ type StorageBackend interface {
 
 // InMemoryBackend is an in-memory implementation of StorageBackend.
 type InMemoryBackend struct {
+	primaryEmailUpdateAt     time.Time
 	accountCreatedDate       time.Time
 	registry                 *store.Registry
 	alternateContacts        *store.Table[AlternateContact]
 	contactInfo              *ContactInformation
-	accountID                string
-	region                   string
+	mu                       *lockmetrics.RWMutex
 	accountName              string
 	primaryEmail             string
 	pendingEmail             string
 	pendingOTP               string
 	primaryEmailUpdateStatus PrimaryEmailUpdateStatus
-	primaryEmailUpdateAt     time.Time
+	region                   string
+	accountID                string
 	regions                  []*Region
-	mu                       sync.RWMutex
 }
 
 // simOTP is a fixed OTP used for simulation — callers pass it back to AcceptPrimaryEmailUpdate.
@@ -72,6 +72,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		primaryEmail:       defaultPrimaryEmail,
 		registry:           store.NewRegistry(),
 		accountCreatedDate: time.Now().UTC(),
+		mu:                 lockmetrics.New("account"),
 	}
 	registerAllTables(b)
 	b.initDefaultRegions()
@@ -93,9 +94,9 @@ func (b *InMemoryBackend) initDefaultRegions() {
 	}
 }
 
-// Reset clears all state.
+// Reset clears all in-memory state.
 func (b *InMemoryBackend) Reset() {
-	b.mu.Lock()
+	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
 	b.registry.ResetAll()

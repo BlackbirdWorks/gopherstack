@@ -159,3 +159,32 @@ func TestListBackupPlanTemplates_ReturnsBuiltinCatalog(t *testing.T) {
 		assert.NotEmpty(t, m["BackupPlanTemplateName"])
 	}
 }
+
+func TestExportBackupPlanTemplate_UnknownPlanNotFound(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		planID string
+	}{
+		{
+			name:   "non_existent_plan_id",
+			planID: "non-existent-plan-id",
+		},
+		{
+			name:   "empty_plan_id",
+			planID: "unknown-12345",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h, _ := newHandler(t)
+
+			resp := doRequest(t, h, http.MethodGet, "/backup/plans/"+tt.planID+"/toTemplate", "")
+			assert.Equal(t, http.StatusBadRequest, resp.Code)
+			assert.Contains(t, resp.Body.String(), "ResourceNotFoundException")
+		})
+	}
+}

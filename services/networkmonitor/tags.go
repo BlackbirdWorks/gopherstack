@@ -14,7 +14,7 @@ func (b *InMemoryBackend) ListTagsForResource(
 ) (map[string]string, error) {
 	region := getRegion(ctx, b.defaultRegion)
 
-	b.mu.RLock()
+	b.mu.RLock("ListTagsForResource")
 	defer b.mu.RUnlock()
 
 	return b.lookupTagsByARN(region, resourceARN)
@@ -28,7 +28,7 @@ func (b *InMemoryBackend) TagResource(
 ) error {
 	region := getRegion(ctx, b.defaultRegion)
 
-	b.mu.Lock()
+	b.mu.Lock("TagResource")
 	defer b.mu.Unlock()
 
 	m, probe, err := b.findResourceByARN(region, resourceARN)
@@ -61,7 +61,7 @@ func (b *InMemoryBackend) UntagResource(
 ) error {
 	region := getRegion(ctx, b.defaultRegion)
 
-	b.mu.Lock()
+	b.mu.Lock("UntagResource")
 	defer b.mu.Unlock()
 
 	m, probe, err := b.findResourceByARN(region, resourceARN)

@@ -182,7 +182,8 @@ func (b *InMemoryBackend) CreateSampleFindings(findingTypes []string) error {
 			UpdatedAt: now,
 		}
 
-		if category == categoryClassification {
+		switch category {
+		case categoryClassification:
 			finding.ResourcesAffected.S3Object = &AffectedS3Object{
 				BucketArn: bucketArn,
 				Key:       "sample-object.txt",
@@ -194,6 +195,19 @@ func (b *InMemoryBackend) CreateSampleFindings(findingTypes []string) error {
 					MimeType:       "text/plain",
 					SizeClassified: sampleObjectSizeBytes,
 					Status:         &ClassificationResultStatus{Code: "COMPLETE"},
+				},
+			}
+		case categoryPolicy:
+			finding.PolicyDetails = &PolicyDetails{
+				Action: &FindingAction{
+					ActionType: "AWS_API_CALL",
+				},
+				Actor: &FindingActor{
+					UserIdentity: &UserIdentity{
+						Type:        "IAMUser",
+						UserName:    "SampleUser",
+						PrincipalID: "AIDAEXAMPLEUSERID",
+					},
 				},
 			}
 		}

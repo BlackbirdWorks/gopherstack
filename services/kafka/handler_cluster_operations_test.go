@@ -154,7 +154,7 @@ func TestClusterOperationTracking_V1(t *testing.T) {
 	opArns := make([]string, 0, len(opList))
 	for _, o := range opList {
 		om, _ := o.(map[string]any)
-		if arn, arnOK := om["clusterOperationArn"].(string); arnOK {
+		if arn, arnOK := om["operationArn"].(string); arnOK {
 			opArns = append(opArns, arn)
 		}
 	}
@@ -170,7 +170,7 @@ func TestClusterOperationTracking_V1(t *testing.T) {
 		require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
 		opInfo, infoOK := descResp["clusterOperationInfo"].(map[string]any)
 		require.True(t, infoOK)
-		assert.Equal(t, opArn, opInfo["clusterOperationArn"])
+		assert.Equal(t, opArn, opInfo["operationArn"])
 		assert.Equal(t, clusterArn, opInfo["clusterArn"])
 		assert.NotEmpty(t, opInfo["operationType"])
 	}
@@ -208,7 +208,7 @@ func TestClusterOperationTracking_V2(t *testing.T) {
 	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
 	opInfo, ok := descResp["clusterOperationInfo"].(map[string]any)
 	require.True(t, ok)
-	assert.Equal(t, opArn, opInfo["clusterOperationArn"])
+	assert.Equal(t, opArn, opInfo["operationArn"])
 }
 
 // TestListClusterOperationsV2_OmitsDescribeOnlyFields covers gopherstack-dv4s:

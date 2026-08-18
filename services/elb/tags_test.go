@@ -126,7 +126,7 @@ func TestTagOperations(t *testing.T) {
 					"Tags.member.1.Key":          {"k"},
 					"Tags.member.1.Value":        {"v"},
 				})
-				assert.Equal(t, http.StatusNotFound, rec.Code)
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
 			},
 		},
 		{
@@ -138,7 +138,7 @@ func TestTagOperations(t *testing.T) {
 					"Version":                    {"2012-06-01"},
 					"LoadBalancerNames.member.1": {"no-lb"},
 				})
-				assert.Equal(t, http.StatusNotFound, rec.Code)
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
 			},
 		},
 		{
@@ -151,7 +151,7 @@ func TestTagOperations(t *testing.T) {
 					"LoadBalancerNames.member.1": {"no-lb"},
 					"Tags.member.1.Key":          {"k"},
 				})
-				assert.Equal(t, http.StatusNotFound, rec.Code)
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
 			},
 		},
 		{

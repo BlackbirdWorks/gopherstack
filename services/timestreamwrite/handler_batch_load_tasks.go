@@ -10,7 +10,6 @@ import (
 type dataSourceS3ConfigInput struct {
 	BucketName      string `json:"BucketName"`
 	ObjectKeyPrefix string `json:"ObjectKeyPrefix,omitempty"`
-	DataFormat      string `json:"DataFormat,omitempty"`
 }
 
 type dataSourceConfigInput struct {
@@ -125,7 +124,6 @@ func toBatchLoadTaskDescriptionView(task *BatchLoadTask) batchLoadTaskDescriptio
 			cfg.DataSourceS3Configuration = &dataSourceS3ConfigInput{
 				BucketName:      s3.BucketName,
 				ObjectKeyPrefix: s3.ObjectKeyPrefix,
-				DataFormat:      s3.DataFormat,
 			}
 		}
 
@@ -191,7 +189,6 @@ func (h *Handler) handleCreateBatchLoadTask(
 			dataSourceCfg.DataSourceS3Configuration = &DataSourceS3Configuration{
 				BucketName:      s3.BucketName,
 				ObjectKeyPrefix: s3.ObjectKeyPrefix,
-				DataFormat:      s3.DataFormat,
 			}
 		}
 	}

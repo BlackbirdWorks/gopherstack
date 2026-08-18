@@ -302,7 +302,7 @@ func (b *InMemoryBackend) UpdateApplication(
 ) (*Application, error) {
 	region := getRegion(ctx, b.defaultRegion)
 
-	b.mu.Lock()
+	b.mu.Lock("UpdateApplication")
 	defer b.mu.Unlock()
 
 	app, exists := b.apps.Get(applicationKey(region, name))

@@ -4,6 +4,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -103,17 +104,76 @@ func TestObjectLambdaAP(t *testing.T) {
 
 func TestHTTP_ListAccessPointsForObjectLambda(t *testing.T) {
 	t.Parallel()
-	h := s3control.NewHandler(s3control.NewInMemoryBackend())
 
-	resp := doS3ControlNewOpRequest(
-		t,
-		h,
-		http.MethodGet,
-		"/v20180820/accesspointforobjectlambda",
-		"000000000000",
-		"",
-	)
-	assert.Equal(t, http.StatusOK, resp.Code)
+	tests := []struct {
+		setup      func(t *testing.T, b *s3control.InMemoryBackend)
+		name       string
+		accountID  string
+		wantAlias  bool
+		wantStatus int
+		wantCount  int
+	}{
+		{
+			name:       "empty_list",
+			accountID:  "000000000000",
+			wantStatus: http.StatusOK,
+			wantCount:  0,
+		},
+		{
+			name:      "list_with_alias",
+			accountID: "123456789012",
+			setup: func(t *testing.T, b *s3control.InMemoryBackend) {
+				t.Helper()
+				b.CreateAccessPointForObjectLambda("123456789012", "my-olap")
+			},
+			wantStatus: http.StatusOK,
+			wantCount:  1,
+			wantAlias:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := s3control.NewInMemoryBackend()
+			if tt.setup != nil {
+				tt.setup(t, b)
+			}
+			h := s3control.NewHandler(b)
+
+			resp := doS3ControlNewOpRequest(
+				t,
+				h,
+				http.MethodGet,
+				"/v20180820/accesspointforobjectlambda",
+				tt.accountID,
+				"",
+			)
+			var listResp struct {
+				XMLName                     xml.Name `xml:"ListAccessPointsForObjectLambdaResult"`
+				NextToken                   string   `xml:"NextToken"`
+				ObjectLambdaAccessPointList []struct {
+					Name                       string `xml:"Name"`
+					ObjectLambdaAccessPointArn string `xml:"ObjectLambdaAccessPointArn"`
+					Alias                      struct {
+						Status string `xml:"Status"`
+						Value  string `xml:"Value"`
+					} `xml:"Alias"`
+				} `xml:"ObjectLambdaAccessPointList>ObjectLambdaAccessPoint"`
+			}
+			require.NoError(t, xml.Unmarshal(resp.Body.Bytes(), &listResp))
+			require.Len(t, listResp.ObjectLambdaAccessPointList, tt.wantCount)
+
+			if tt.wantAlias {
+				require.NotEmpty(t, listResp.ObjectLambdaAccessPointList)
+				alias := listResp.ObjectLambdaAccessPointList[0].Alias
+				assert.Equal(t, "READY", alias.Status)
+				assert.True(t, strings.HasSuffix(alias.Value, "--ol-s3"))
+				assert.LessOrEqual(t, len(alias.Value), 63)
+			}
+		})
+	}
 }
 
 func TestCreateAccessPointForObjectLambda(t *testing.T) {
@@ -276,4 +336,71 @@ func TestAccessPointConfigurationForObjectLambda_WireShape(t *testing.T) {
 	)
 	assert.Contains(t, body, "<TransformationConfigurations>")
 	assert.Contains(t, body, "GetObject")
+}
+
+func TestObjectLambdaAccessPoint_MutationIsolation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		mutate func(b *s3control.InMemoryBackend)
+		name   string
+	}{
+		{
+			name: "create_return_mutation_does_not_affect_get",
+			mutate: func(b *s3control.InMemoryBackend) {
+				ap := b.CreateAccessPointForObjectLambda("123456789012", "mut-ap")
+				ap.Name = "mutated"
+				if ap.Alias != nil {
+					ap.Alias.Value = "mutated-alias"
+					ap.Alias.Status = "MUTATED"
+				}
+			},
+		},
+		{
+			name: "get_return_mutation_does_not_affect_subsequent_get",
+			mutate: func(b *s3control.InMemoryBackend) {
+				b.CreateAccessPointForObjectLambda("123456789012", "mut-ap")
+				ap, err := b.GetAccessPointForObjectLambda("123456789012", "mut-ap")
+				if err == nil && ap != nil {
+					ap.Name = "mutated"
+					if ap.Alias != nil {
+						ap.Alias.Value = "mutated-alias"
+						ap.Alias.Status = "MUTATED"
+					}
+				}
+			},
+		},
+		{
+			name: "list_return_mutation_does_not_affect_get",
+			mutate: func(b *s3control.InMemoryBackend) {
+				b.CreateAccessPointForObjectLambda("123456789012", "mut-ap")
+				aps := b.ListAccessPointsForObjectLambda("123456789012")
+				for _, ap := range aps {
+					ap.Name = "mutated"
+					if ap.Alias != nil {
+						ap.Alias.Value = "mutated-alias"
+						ap.Alias.Status = "MUTATED"
+					}
+				}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := s3control.NewInMemoryBackend()
+			tt.mutate(b)
+
+			got, err := b.GetAccessPointForObjectLambda("123456789012", "mut-ap")
+			require.NoError(t, err)
+			require.NotNil(t, got)
+			assert.Equal(t, "mut-ap", got.Name)
+			require.NotNil(t, got.Alias)
+			assert.Equal(t, "READY", got.Alias.Status)
+			assert.True(t, strings.HasSuffix(got.Alias.Value, "--ol-s3"))
+			assert.NotEqual(t, "mutated-alias", got.Alias.Value)
+		})
+	}
 }

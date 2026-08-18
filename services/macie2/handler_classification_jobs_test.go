@@ -51,6 +51,7 @@ func TestClassificationJobs(t *testing.T) {
 				assert.Equal(t, "ONE_TIME", descResp["jobType"])
 				assert.Equal(t, "test-job", descResp["name"])
 				assert.Equal(t, createResp["jobArn"], descResp["jobArn"])
+				assert.NotEmpty(t, descResp["lastRunTime"])
 
 				// ListClassificationJobs
 				rec = doRequest(t, h, http.MethodPost, "/jobs/list", nil)
@@ -59,7 +60,9 @@ func TestClassificationJobs(t *testing.T) {
 				var listResp map[string]any
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
 				items, _ := listResp["items"].([]any)
-				assert.Len(t, items, 1)
+				require.Len(t, items, 1)
+				item0 := items[0].(map[string]any)
+				assert.NotEmpty(t, item0["lastRunTime"])
 
 				// UpdateClassificationJob
 				rec = doRequest(t, h, http.MethodPatch, "/jobs/"+jobID, map[string]any{

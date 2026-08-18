@@ -14,7 +14,7 @@ const (
 
 // AddCommunicationToCase adds a communication to an existing support case.
 func (b *InMemoryBackend) AddCommunicationToCase(caseID, body, attachmentSetID string) error {
-	b.mu.Lock()
+	b.mu.Lock("AddCommunicationToCase")
 	defer b.mu.Unlock()
 
 	if body == "" {
@@ -40,7 +40,7 @@ func (b *InMemoryBackend) AddCommunicationToCase(caseID, body, attachmentSetID s
 
 // DescribeCommunications returns communications for the given case.
 func (b *InMemoryBackend) DescribeCommunications(caseID string) ([]Communication, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeCommunications")
 	defer b.mu.RUnlock()
 
 	if !b.cases.Has(caseID) {
@@ -56,7 +56,7 @@ func (b *InMemoryBackend) DescribeCommunications(caseID string) ([]Communication
 
 // RecentCommunications returns up to five newest communications for DescribeCases.
 func (b *InMemoryBackend) RecentCommunications(caseID string) ([]Communication, string) {
-	b.mu.RLock()
+	b.mu.RLock("RecentCommunications")
 	defer b.mu.RUnlock()
 
 	comms := cloneCommunications(b.communications[caseID])
@@ -68,7 +68,7 @@ func (b *InMemoryBackend) RecentCommunications(caseID string) ([]Communication, 
 
 // AddCommunicationWithOptions stores a customer response and reopens a resolved case.
 func (b *InMemoryBackend) AddCommunicationWithOptions(in AddCommunicationOptions) error {
-	b.mu.Lock()
+	b.mu.Lock("AddCommunicationWithOptions")
 	defer b.mu.Unlock()
 
 	cs, ok := b.cases.Get(in.CaseID)
@@ -95,7 +95,7 @@ func (b *InMemoryBackend) AddCommunicationWithOptions(in AddCommunicationOptions
 func (b *InMemoryBackend) DescribeCommunicationsWithOptions(
 	in DescribeCommunicationsOptions,
 ) ([]Communication, string, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeCommunicationsWithOptions")
 	defer b.mu.RUnlock()
 
 	if !b.cases.Has(in.CaseID) {

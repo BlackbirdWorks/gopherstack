@@ -1,7 +1,9 @@
 package s3
 
 import (
+	"cmp"
 	"context"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -11,33 +13,28 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 )
 
-func applyDelimiter(
+func applyDelimiterToVersions(
 	prefix, delimiter string,
-	contents []types.Object,
-) ([]types.Object, []types.CommonPrefix) {
-	filtered := make([]types.Object, 0, len(contents))
+	versions []*StoredObjectVersion,
+) ([]*StoredObjectVersion, []types.CommonPrefix) {
+	filtered := make([]*StoredObjectVersion, 0, len(versions))
 	var cpList []types.CommonPrefix
-	seenPrefixes := make(map[string]struct{})
+	var lastCP string
 
-	for _, obj := range contents {
-		key := aws.ToString(obj.Key)
-		rest := key[len(prefix):]
+	for _, v := range versions {
+		rest := v.Key[len(prefix):]
 		idx := strings.Index(rest, delimiter)
 
 		if idx != -1 {
 			cp := prefix + rest[:idx+len(delimiter)]
-			if _, seen := seenPrefixes[cp]; !seen {
-				seenPrefixes[cp] = struct{}{}
+			if len(cpList) == 0 || cp != lastCP {
+				lastCP = cp
 				cpList = append(cpList, types.CommonPrefix{Prefix: aws.String(cp)})
 			}
 		} else {
-			filtered = append(filtered, obj)
+			filtered = append(filtered, v)
 		}
 	}
-
-	sort.Slice(cpList, func(i, j int) bool {
-		return aws.ToString(cpList[i].Prefix) < aws.ToString(cpList[j].Prefix)
-	})
 
 	return filtered, cpList
 }
@@ -61,8 +58,8 @@ func (b *InMemoryBackend) processListObjects(
 		}
 	}()
 
-	sort.Slice(objectSnapshots, func(i, j int) bool {
-		return objectSnapshots[i].Key < objectSnapshots[j].Key
+	slices.SortFunc(objectSnapshots, func(a, b *StoredObject) int {
+		return cmp.Compare(a.Key, b.Key)
 	})
 
 	// Apply Marker using binary search for O(log n) seek instead of O(n) linear scan.
@@ -107,14 +104,14 @@ func (b *InMemoryBackend) processListObjects(
 	}
 
 	// Delimiter grouping needs every matching key up front to compute
-	// CommonPrefixes correctly, so build the full page before truncating.
+	// CommonPrefixes correctly. We filter and truncate the lightweight version
+	// pointers first, so objectsFromVersions only allocates wire structs for the
+	// elements actually returned on the page.
 	versions := b.snapshotLatestVersions(objectSnapshots)
-	contents := objectsFromVersions(versions)
-	contents, cpList := applyDelimiter(prefix, delimiter, contents)
+	filteredVersions, cpList := applyDelimiterToVersions(prefix, delimiter, versions)
+	truncatedVersions, cpList, isTruncated, nextMarker := b.truncateVersionResults(filteredVersions, cpList, maxKeys)
 
-	contents, cpList, isTruncated, nextMarker := b.truncateListResults(contents, cpList, maxKeys)
-
-	return contents, cpList, isTruncated, nextMarker, maxKeys
+	return objectsFromVersions(truncatedVersions), cpList, isTruncated, nextMarker, maxKeys
 }
 
 // snapshotLatestVersions resolves each object's current (non-deleted) latest
@@ -505,30 +502,30 @@ func buildVersionPage(snapshots []versionSnapshot, maxKeys int32) (
 	return versions, deleteMarkers, false, "", ""
 }
 
-func (b *InMemoryBackend) truncateListResults(
-	contents []types.Object,
+func (b *InMemoryBackend) truncateVersionResults(
+	versions []*StoredObjectVersion,
 	cpList []types.CommonPrefix,
 	maxKeys int32,
-) ([]types.Object, []types.CommonPrefix, bool, string) {
+) ([]*StoredObjectVersion, []types.CommonPrefix, bool, string) {
 	// AWS clamps MaxKeys to [0, 1000]; a zero value means return no objects.
 	if maxKeys <= 0 {
-		return nil, nil, len(contents)+len(cpList) > 0, ""
+		return nil, nil, len(versions)+len(cpList) > 0, ""
 	}
 
-	totalCount64 := int64(len(contents)) + int64(len(cpList))
+	totalCount64 := int64(len(versions)) + int64(len(cpList))
 	if totalCount64 <= int64(maxKeys) {
-		return contents, cpList, false, ""
+		return versions, cpList, false, ""
 	}
 
 	isTruncated := true
 	var nextMarker string
 
-	if int64(len(contents)) > int64(maxKeys) {
-		nextMarker = aws.ToString(contents[maxKeys-1].Key)
-		contents = contents[:maxKeys]
+	if int64(len(versions)) > int64(maxKeys) {
+		nextMarker = versions[maxKeys-1].Key
+		versions = versions[:maxKeys]
 		cpList = nil
 	} else {
-		remaining := int64(maxKeys) - int64(len(contents))
+		remaining := int64(maxKeys) - int64(len(versions))
 		if remaining > 0 {
 			// Some CommonPrefixes fit on this page; the marker is the last prefix
 			// we return so the next page resumes after it.
@@ -539,10 +536,10 @@ func (b *InMemoryBackend) truncateListResults(
 			// pending. Resume from the last returned key and defer the prefixes to
 			// the next page, otherwise IsTruncated=true would carry an empty marker
 			// and the client could never fetch the remaining prefixes.
-			nextMarker = aws.ToString(contents[len(contents)-1].Key)
+			nextMarker = versions[len(versions)-1].Key
 			cpList = nil
 		}
 	}
 
-	return contents, cpList, isTruncated, nextMarker
+	return versions, cpList, isTruncated, nextMarker
 }

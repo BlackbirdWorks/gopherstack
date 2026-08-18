@@ -50,6 +50,7 @@ type restAPISpecEnvelope struct {
 	Body           string            `json:"body,omitempty"`
 	Mode           string            `json:"mode,omitempty"`
 	RestAPIID      string            `json:"restApiId,omitempty"`
+	Format         string            `json:"format,omitempty"`
 	FailOnWarnings bool              `json:"failOnWarnings,omitempty"`
 }
 
@@ -71,11 +72,16 @@ func decodeRestAPISpecPayload(b []byte) ([]byte, restAPISpecEnvelope) {
 	var fallback struct {
 		RestAPIID string `json:"restApiId,omitempty"`
 		Mode      string `json:"mode,omitempty"`
+		Format    string `json:"format,omitempty"`
 	}
 
 	_ = json.Unmarshal(b, &fallback)
 
-	return b, restAPISpecEnvelope{RestAPIID: fallback.RestAPIID, Mode: fallback.Mode}
+	return b, restAPISpecEnvelope{
+		RestAPIID: fallback.RestAPIID,
+		Mode:      fallback.Mode,
+		Format:    fallback.Format,
+	}
 }
 
 // restAPISpecActions returns the actionFn map for ImportRestApi and PutRestApi.
@@ -137,7 +143,12 @@ func (h *Handler) importActions() map[string]actionFn {
 		opImportAPIKeys: func(b []byte) (int, any, error) {
 			specBody, env := decodeRestAPISpecPayload(b)
 
-			ids, warnings, err := h.Backend.ImportAPIKeys(specBody, env.Parameters["format"], env.FailOnWarnings)
+			format := env.Format
+			if format == "" && env.Parameters != nil {
+				format = env.Parameters["format"]
+			}
+
+			ids, warnings, err := h.Backend.ImportAPIKeys(specBody, format, env.FailOnWarnings)
 			if err != nil {
 				return 0, nil, err
 			}

@@ -12,16 +12,33 @@ func (b *InMemoryBackend) CreateAccessPointForObjectLambda(accountID, name strin
 
 	arn := fmt.Sprintf(arnFmtObjectLambda, b.region, accountID, name)
 
+	const (
+		maxAliasLen = 63
+		aliasSuffix = "--ol-s3"
+	)
+
+	aliasPrefix := accountID
+	if len(aliasPrefix) > aliasAccountIDMaxLen {
+		aliasPrefix = aliasPrefix[:aliasAccountIDMaxLen]
+	}
+
+	alias := fmt.Sprintf("%s-%s%s", name, aliasPrefix, aliasSuffix)
+	if len(alias) > maxAliasLen {
+		alias = alias[:maxAliasLen]
+	}
+
 	ap := &ObjectLambdaAccessPoint{
 		AccountID:                  accountID,
 		Name:                       name,
 		ObjectLambdaAccessPointArn: arn,
+		Alias: &ObjectLambdaAccessPointAlias{
+			Value:  alias,
+			Status: "READY",
+		},
 	}
 	b.objectLambdaAccessPoints.Put(ap)
 
-	cp := *ap
-
-	return &cp
+	return cloneObjectLambdaAccessPoint(ap)
 }
 
 // ---- Object Lambda Access Points ----
@@ -39,7 +56,7 @@ func (b *InMemoryBackend) GetAccessPointForObjectLambda(
 		return nil, fmt.Errorf("%w: %s", errObjectLambdaAPNotFound, name)
 	}
 
-	return ap, nil
+	return cloneObjectLambdaAccessPoint(ap), nil
 }
 
 // DeleteAccessPointForObjectLambda removes an Object Lambda access point and
@@ -76,8 +93,7 @@ func (b *InMemoryBackend) ListAccessPointsForObjectLambda(
 	var out []*ObjectLambdaAccessPoint
 	for _, ap := range b.objectLambdaAccessPoints.All() {
 		if ap.AccountID == accountID {
-			cp := *ap
-			out = append(out, &cp)
+			out = append(out, cloneObjectLambdaAccessPoint(ap))
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })

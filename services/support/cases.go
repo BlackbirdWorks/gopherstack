@@ -46,7 +46,7 @@ func (b *InMemoryBackend) openCaseCountLocked() int {
 
 // CreateCase creates a new support case.
 func (b *InMemoryBackend) CreateCase(subject, serviceCode, categoryCode, severityCode, body string) (*Case, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateCase")
 	defer b.mu.Unlock()
 
 	if b.openCaseCountLocked() >= maxOpenCases {
@@ -77,7 +77,7 @@ func (b *InMemoryBackend) CreateCase(subject, serviceCode, categoryCode, severit
 // Fast path: when caseIDs are supplied, look them up directly in the
 // case-ID-keyed map instead of scanning every case in the backend.
 func (b *InMemoryBackend) DescribeCases(caseIDs []string, includeResolvedCases bool) []Case {
-	b.mu.RLock()
+	b.mu.RLock("DescribeCases")
 	defer b.mu.RUnlock()
 
 	if len(caseIDs) > 0 {
@@ -117,7 +117,7 @@ func (b *InMemoryBackend) DescribeCases(caseIDs []string, includeResolvedCases b
 // already-resolved case is a no-op (see ResolveCaseWithStatus): real AWS
 // Support has no "already resolved" error for this operation.
 func (b *InMemoryBackend) ResolveCase(caseID string) (*Case, error) {
-	b.mu.Lock()
+	b.mu.Lock("ResolveCase")
 	defer b.mu.Unlock()
 
 	c, ok := b.cases.Get(caseID)
@@ -138,7 +138,7 @@ func (b *InMemoryBackend) ResolveCase(caseID string) (*Case, error) {
 
 // AddCaseInternal seeds a case directly into the backend (for testing).
 func (b *InMemoryBackend) AddCaseInternal(c *Case) {
-	b.mu.Lock()
+	b.mu.Lock("AddCaseInternal")
 	defer b.mu.Unlock()
 
 	cp := *c
@@ -177,7 +177,7 @@ func (b *InMemoryBackend) DescribeCreateCaseOptions(_, _, _, language string) *D
 
 // CreateCaseWithOptions stores an AWS-shaped support case and its initial communication.
 func (b *InMemoryBackend) CreateCaseWithOptions(in CreateCaseOptions) (*Case, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateCaseWithOptions")
 	defer b.mu.Unlock()
 
 	// Checked before consuming the attachment set: a rejected case creation
@@ -226,7 +226,7 @@ func (b *InMemoryBackend) CreateCaseWithOptions(in CreateCaseOptions) (*Case, er
 
 // DescribeCasesWithOptions returns ordered and paginated cases matching API filters.
 func (b *InMemoryBackend) DescribeCasesWithOptions(in DescribeCasesOptions) ([]Case, string, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeCasesWithOptions")
 	defer b.mu.RUnlock()
 
 	all := b.cases.All()
@@ -254,7 +254,7 @@ func (b *InMemoryBackend) DescribeCasesWithOptions(in DescribeCasesOptions) ([]C
 // InternalServerError, and resolving an already-resolved case is a no-op that
 // reports resolved for both initialCaseStatus and finalCaseStatus.
 func (b *InMemoryBackend) ResolveCaseWithStatus(caseID string) (string, *Case, error) {
-	b.mu.Lock()
+	b.mu.Lock("ResolveCaseWithStatus")
 	defer b.mu.Unlock()
 
 	cs, ok := b.cases.Get(caseID)

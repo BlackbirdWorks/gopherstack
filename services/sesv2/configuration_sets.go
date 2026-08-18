@@ -2,6 +2,7 @@ package sesv2
 
 import (
 	"fmt"
+	"maps"
 	"slices"
 	"sort"
 	"strings"
@@ -30,6 +31,37 @@ type ConfigurationSet struct {
 	SuppressionReasons           []string          `json:"suppressionReasons,omitempty"`
 	SendingEnabled               bool              `json:"sendingEnabled"`
 	ReputationMetricsEnabled     bool              `json:"reputationMetricsEnabled"`
+}
+
+// Clone returns a deep copy of ConfigurationSet.
+func (cs *ConfigurationSet) Clone() *ConfigurationSet {
+	if cs == nil {
+		return nil
+	}
+
+	cp := *cs
+	if cs.Tags != nil {
+		cp.Tags = maps.Clone(cs.Tags)
+	}
+	if cs.ArchivingOptions != nil {
+		arch := *cs.ArchivingOptions
+		cp.ArchivingOptions = &arch
+	}
+	if cs.VdmOptions != nil {
+		vdm := &VdmOptions{}
+		if cs.VdmOptions.DashboardOptions != nil {
+			vdm.DashboardOptions = maps.Clone(cs.VdmOptions.DashboardOptions)
+		}
+		if cs.VdmOptions.GuardianOptions != nil {
+			vdm.GuardianOptions = maps.Clone(cs.VdmOptions.GuardianOptions)
+		}
+		cp.VdmOptions = vdm
+	}
+	if cs.SuppressionReasons != nil {
+		cp.SuppressionReasons = slices.Clone(cs.SuppressionReasons)
+	}
+
+	return &cp
 }
 
 // configurationSetARN builds the ARN for a configuration set:
@@ -66,9 +98,7 @@ func (b *InMemoryBackend) CreateConfigurationSet(name string, tags map[string]st
 		b.putResourceTagsLocked(b.configurationSetARN(name), tags)
 	}
 
-	cp := *cs
-
-	return &cp, nil
+	return cs.Clone(), nil
 }
 
 // GetConfigurationSet returns the configuration set with the given name.
@@ -81,10 +111,10 @@ func (b *InMemoryBackend) GetConfigurationSet(name string) (*ConfigurationSet, e
 		return nil, fmt.Errorf("%w: configuration set %s not found", ErrNotFound, name)
 	}
 
-	cp := *cs
+	cp := cs.Clone()
 	cp.Tags = b.liveTagsLocked(b.configurationSetARN(name))
 
-	return &cp, nil
+	return cp, nil
 }
 
 // ListConfigurationSets returns a paginated, sorted list of configuration sets.
@@ -99,8 +129,7 @@ func (b *InMemoryBackend) ListConfigurationSets(
 	out := make([]*ConfigurationSet, 0, len(snap))
 
 	for _, cs := range snap {
-		cp := *cs
-		out = append(out, &cp)
+		out = append(out, cs.Clone())
 	}
 
 	sort.Slice(out, func(i, j int) bool {

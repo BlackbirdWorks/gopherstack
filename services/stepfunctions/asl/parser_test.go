@@ -84,3 +84,75 @@ func TestParse_JitterStrategyValidation(t *testing.T) {
 		})
 	}
 }
+
+func TestParse_ItemProcessorConfigValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		def     string
+		wantErr bool
+	}{
+		{
+			name: "valid_distributed_mode",
+			def: `{"StartAt":"M","States":{"M":{"Type":"Map","End":true,"ItemProcessor":{
+				"ProcessorConfig":{"Mode":"DISTRIBUTED","ExecutionType":"STANDARD"},
+				"StartAt":"P","States":{"P":{"Type":"Pass","End":true}}},
+				"ToleratedFailureCount":5}}}`,
+			wantErr: false,
+		},
+		{
+			name: "valid_inline_mode",
+			def: `{"StartAt":"M","States":{"M":{"Type":"Map","End":true,"ItemProcessor":{
+				"ProcessorConfig":{"Mode":"INLINE","ExecutionType":"STANDARD"},
+				"StartAt":"P","States":{"P":{"Type":"Pass","End":true}}}}}}`,
+			wantErr: false,
+		},
+		{
+			name: "invalid_processor_mode",
+			def: `{"StartAt":"M","States":{"M":{"Type":"Map","End":true,"ItemProcessor":{
+				"ProcessorConfig":{"Mode":"ASYNC","ExecutionType":"STANDARD"},
+				"StartAt":"P","States":{"P":{"Type":"Pass","End":true}}}}}}`,
+			wantErr: true,
+		},
+		{
+			name: "invalid_execution_type",
+			def: `{"StartAt":"M","States":{"M":{"Type":"Map","End":true,"ItemProcessor":{
+				"ProcessorConfig":{"Mode":"DISTRIBUTED","ExecutionType":"FAST"},
+				"StartAt":"P","States":{"P":{"Type":"Pass","End":true}}}}}}`,
+			wantErr: true,
+		},
+		{
+			name: "inline_mode_with_tolerated_failure_rejected",
+			def: `{"StartAt":"M","States":{"M":{"Type":"Map","End":true,"ItemProcessor":{
+				"ProcessorConfig":{"Mode":"INLINE"},
+				"StartAt":"P","States":{"P":{"Type":"Pass","End":true}}},
+				"ToleratedFailureCount":3}}}`,
+			wantErr: true,
+		},
+		{
+			name: "inline_mode_with_item_reader_rejected",
+			def: `{"StartAt":"M","States":{"M":{"Type":"Map","End":true,"ItemProcessor":{
+				"ProcessorConfig":{"Mode":"INLINE"},
+				"StartAt":"P","States":{"P":{"Type":"Pass","End":true}}},
+				"ItemReader":{"Resource":"arn:aws:states:::s3:getObject"}}}}`,
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := asl.Parse(tt.def)
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.ErrorIs(t, err, asl.ErrParseError)
+
+				return
+			}
+
+			require.NoError(t, err)
+		})
+	}
+}

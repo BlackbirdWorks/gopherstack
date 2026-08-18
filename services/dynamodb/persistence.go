@@ -127,6 +127,17 @@ func restoreStreamSeq(t *Table) {
 		}
 	}
 	t.streamSeq = maxSeq
+
+	// If the table has streams enabled but has no shards (e.g. decoded from an older snapshot),
+	// ensure the initial stream shard is recreated.
+	if len(t.StreamShards) == 0 && t.StreamsEnabled && t.StreamARN != "" {
+		t.StreamShards = []StreamShard{
+			{
+				ShardID:             streamShardID,
+				StartingSequenceNum: 1,
+			},
+		}
+	}
 }
 
 // Snapshot implements persistence.Persistable by delegating to the backend.

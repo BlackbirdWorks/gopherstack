@@ -73,11 +73,33 @@ type AccessPoint struct {
 	CreationDate    string `json:"creationDate,omitempty"`
 }
 
+// ObjectLambdaAccessPointAlias represents an alias for an Object Lambda access point.
+type ObjectLambdaAccessPointAlias struct {
+	Status string `json:"status,omitempty"`
+	Value  string `json:"value,omitempty"`
+}
+
 // ObjectLambdaAccessPoint represents an S3 Object Lambda access point.
 type ObjectLambdaAccessPoint struct {
-	AccountID                  string `json:"accountID"`
-	Name                       string `json:"name"`
-	ObjectLambdaAccessPointArn string `json:"objectLambdaAccessPointArn"`
+	Alias                      *ObjectLambdaAccessPointAlias `json:"alias,omitempty"`
+	AccountID                  string                        `json:"accountID"`
+	Name                       string                        `json:"name"`
+	ObjectLambdaAccessPointArn string                        `json:"objectLambdaAccessPointArn"`
+}
+
+// cloneObjectLambdaAccessPoint returns a deep copy of an ObjectLambdaAccessPoint.
+func cloneObjectLambdaAccessPoint(src *ObjectLambdaAccessPoint) *ObjectLambdaAccessPoint {
+	if src == nil {
+		return nil
+	}
+
+	cp := *src
+	if src.Alias != nil {
+		aliasCopy := *src.Alias
+		cp.Alias = &aliasCopy
+	}
+
+	return &cp
 }
 
 // OutpostsBucket represents an S3 Outposts bucket.

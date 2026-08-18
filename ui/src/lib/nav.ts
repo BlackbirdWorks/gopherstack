@@ -93,7 +93,7 @@ export const implementedDashboardRouteIds = new Set<string>([
   "docdb",
   "efs",
   "sagemaker",
-  "sagemakeruntime",
+  "sagemakerruntime",
   "codecommit",
   "codeartifact",
   "ram",
@@ -504,10 +504,10 @@ export const sidebarCategories: DashboardCategory[] = [
     routes: [
       { id: "sagemaker", href: "/dashboard/sagemaker", label: "SageMaker", icon: "sagemaker" },
       {
-        id: "sagemakeruntime",
-        href: "/dashboard/sagemakeruntime",
+        id: "sagemakerruntime",
+        href: "/dashboard/sagemakerruntime",
         label: "SageMaker Runtime",
-        icon: "sagemakeruntime",
+        icon: "sagemakerruntime",
       },
       {
         id: "bedrock",

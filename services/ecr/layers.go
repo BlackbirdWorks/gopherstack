@@ -295,7 +295,8 @@ func (b *InMemoryBackend) InitiateLayerUpload(
 		b.layerUploadQueue = b.layerUploadQueue[1:]
 	}
 
-	uploadID := fmt.Sprintf("upload-%d", now.UnixNano())
+	b.layerUploadSeq++
+	uploadID := fmt.Sprintf("upload-%d-%d", now.UnixNano(), b.layerUploadSeq)
 	b.layerUploads[uploadID] = &layerUploadState{RepositoryName: repositoryName, CreatedAt: now}
 	if b.repoUploadIndex[repositoryName] == nil {
 		b.repoUploadIndex[repositoryName] = make(map[string]struct{})

@@ -2,6 +2,7 @@ package autoscaling_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 
@@ -17,6 +18,7 @@ import (
 // call so tests can assert on what was launched/terminated.
 type fakeEC2Launcher struct {
 	launchErr  error
+	resolveErr error
 	launches   []launchCall
 	terminated [][]string
 	nextID     int
@@ -51,6 +53,21 @@ func (f *fakeEC2Launcher) TerminateInstances(_ context.Context, ids []string) er
 	f.terminated = append(f.terminated, cp)
 
 	return nil
+}
+
+var errFakeLTNotFound = errors.New("launch template not found")
+
+func (f *fakeEC2Launcher) ResolveLaunchTemplate(
+	_ context.Context, id, name, _ string,
+) (string, string, error) {
+	if f.resolveErr != nil {
+		return "", "", f.resolveErr
+	}
+	if id == "lt-unresolvable" || name == "unresolvable" {
+		return "", "", errFakeLTNotFound
+	}
+
+	return "ami-template-123", "t3.medium", nil
 }
 
 // newLaunchConfigGroup creates a group backed by a LaunchConfiguration (the
@@ -171,13 +188,10 @@ func TestInMemoryBackend_EC2Launcher_ScaleOut(t *testing.T) {
 			},
 		},
 		{
-			name: "no_launch_configuration_falls_back_to_fabrication",
-			run: func(t *testing.T, b *autoscaling.InMemoryBackend, _ *fakeEC2Launcher) {
+			name: "launch_template_resolves_and_launches_real_instances",
+			run: func(t *testing.T, b *autoscaling.InMemoryBackend, launcher *fakeEC2Launcher) {
 				t.Helper()
 
-				// A group with a LaunchTemplate (not a LaunchConfiguration) has no
-				// resolvable EC2 launch spec (see the EC2Launcher doc comment), so
-				// it must still fabricate instances even with a launcher wired.
 				g, err := b.CreateAutoScalingGroup(autoscaling.CreateAutoScalingGroupInput{
 					AutoScalingGroupName: "asg-launch-template",
 					LaunchTemplate:       &autoscaling.LaunchTemplateSpecification{LaunchTemplateID: "lt-123"},
@@ -188,6 +202,64 @@ func TestInMemoryBackend_EC2Launcher_ScaleOut(t *testing.T) {
 				})
 				require.NoError(t, err)
 				require.Len(t, g.Instances, 2)
+				require.Len(t, launcher.launches, 1)
+
+				assert.Equal(t, "ami-template-123", launcher.launches[0].spec.ImageID)
+				assert.Equal(t, "t3.medium", launcher.launches[0].spec.InstanceType)
+				for _, inst := range g.Instances {
+					assert.Contains(t, inst.InstanceID, "ec2fake")
+				}
+			},
+		},
+		{
+			name: "mixed_instances_policy_resolves_and_overrides_instance_type",
+			run: func(t *testing.T, b *autoscaling.InMemoryBackend, launcher *fakeEC2Launcher) {
+				t.Helper()
+
+				g, err := b.CreateAutoScalingGroup(autoscaling.CreateAutoScalingGroupInput{
+					AutoScalingGroupName: "asg-mixed-instances",
+					MixedInstancesPolicy: &autoscaling.MixedInstancesPolicy{
+						LaunchTemplate: autoscaling.MixedInstancesLaunchTemplate{
+							LaunchTemplateSpecification: autoscaling.LaunchTemplateSpecification{
+								LaunchTemplateName: "my-template",
+							},
+							Overrides: []autoscaling.LaunchTemplateOverride{
+								{InstanceType: "c5.large"},
+							},
+						},
+					},
+					MinSize:           0,
+					MaxSize:           5,
+					DesiredCapacity:   2,
+					AvailabilityZones: []string{"us-east-1a"},
+				})
+				require.NoError(t, err)
+				require.Len(t, g.Instances, 2)
+				require.Len(t, launcher.launches, 1)
+
+				assert.Equal(t, "ami-template-123", launcher.launches[0].spec.ImageID)
+				assert.Equal(t, "c5.large", launcher.launches[0].spec.InstanceType)
+				for _, inst := range g.Instances {
+					assert.Contains(t, inst.InstanceID, "ec2fake")
+				}
+			},
+		},
+		{
+			name: "unresolvable_launch_template_falls_back_to_fabrication",
+			run: func(t *testing.T, b *autoscaling.InMemoryBackend, launcher *fakeEC2Launcher) {
+				t.Helper()
+
+				g, err := b.CreateAutoScalingGroup(autoscaling.CreateAutoScalingGroupInput{
+					AutoScalingGroupName: "asg-unresolvable-lt",
+					LaunchTemplate:       &autoscaling.LaunchTemplateSpecification{LaunchTemplateID: "lt-unresolvable"},
+					MinSize:              0,
+					MaxSize:              5,
+					DesiredCapacity:      2,
+					AvailabilityZones:    []string{"us-east-1a"},
+				})
+				require.NoError(t, err)
+				require.Len(t, g.Instances, 2)
+				assert.Empty(t, launcher.launches)
 
 				for _, inst := range g.Instances {
 					assert.NotContains(t, inst.InstanceID, "ec2fake")

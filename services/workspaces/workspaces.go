@@ -83,10 +83,36 @@ func (w *storedWorkspace) toWorkspace() *Workspace {
 		props = &p
 	}
 
+	var dataRepl *DataReplicationSettings
+	if w.DataReplicationSettings != nil {
+		d := *w.DataReplicationSettings
+		dataRepl = &d
+	}
+
+	var related []RelatedWorkspace
+	if len(w.RelatedWorkspaces) > 0 {
+		related = make([]RelatedWorkspace, len(w.RelatedWorkspaces))
+		copy(related, w.RelatedWorkspaces)
+	}
+
+	var standbyProps []StandbyWorkspaceProperties
+	if len(w.StandbyWorkspacesProperties) > 0 {
+		standbyProps = make([]StandbyWorkspaceProperties, len(w.StandbyWorkspacesProperties))
+		copy(standbyProps, w.StandbyWorkspacesProperties)
+	}
+
+	var modStates []ModificationState
+	if len(w.ModificationStates) > 0 {
+		modStates = make([]ModificationState, len(w.ModificationStates))
+		copy(modStates, w.ModificationStates)
+	}
+
 	return &Workspace{
 		WorkspaceID:                 w.WorkspaceID,
+		WorkspaceName:               w.WorkspaceName,
 		DirectoryID:                 w.DirectoryID,
 		UserName:                    w.UserName,
+		IPAddress:                   w.IPAddress,
 		BundleID:                    w.BundleID,
 		State:                       w.State,
 		ComputerName:                w.ComputerName,
@@ -98,6 +124,10 @@ func (w *storedWorkspace) toWorkspace() *Workspace {
 		ErrorMessage:                w.ErrorMessage,
 		Tags:                        tags,
 		Properties:                  props,
+		DataReplicationSettings:     dataRepl,
+		StandbyWorkspacesProperties: standbyProps,
+		RelatedWorkspaces:           related,
+		ModificationStates:          modStates,
 	}
 }
 
@@ -129,10 +159,19 @@ func (b *InMemoryBackend) CreateWorkspace(
 		props = &p
 	}
 
+	const maxDefaultSubnetHost = 250
+	ipAddr := fmt.Sprintf("172.16.0.%d", (b.counter%maxDefaultSubnetHost)+1)
+	wsName := spec.UserName
+	if wsName == "" {
+		wsName = workspaceID
+	}
+
 	w := &storedWorkspace{
 		WorkspaceID:                 workspaceID,
+		WorkspaceName:               wsName,
 		DirectoryID:                 spec.DirectoryID,
 		UserName:                    spec.UserName,
+		IPAddress:                   ipAddr,
 		BundleID:                    spec.BundleID,
 		SubnetID:                    spec.SubnetID,
 		VolumeEncryptionKey:         spec.VolumeEncryptionKey,
@@ -569,10 +608,26 @@ func (b *InMemoryBackend) CreateStandbyWorkspace(
 
 	w := &storedWorkspace{
 		WorkspaceID:         id,
+		WorkspaceName:       id,
 		DirectoryID:         spec.DirectoryID,
+		PrimaryWorkspaceID:  spec.PrimaryWorkspaceID,
+		DataReplication:     spec.DataReplication,
 		VolumeEncryptionKey: spec.VolumeEncryptionKey,
 		State:               statePending,
 		Tags:                tags,
+	}
+	if spec.DataReplication != "" {
+		w.DataReplicationSettings = &DataReplicationSettings{
+			DataReplication: spec.DataReplication,
+		}
+	}
+	if spec.PrimaryWorkspaceID != "" {
+		w.RelatedWorkspaces = []RelatedWorkspace{
+			{
+				WorkspaceID: spec.PrimaryWorkspaceID,
+				Type:        "PRIMARY",
+			},
+		}
 	}
 	b.workspaces.Put(w)
 	b.tags[id] = tags

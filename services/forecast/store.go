@@ -6,10 +6,10 @@ import (
 	"regexp"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
@@ -24,9 +24,9 @@ type InMemoryBackend struct {
 	tags        map[string]map[string]string
 	arnIndex    map[string]arnEntry // ARN → (kind, name) for O(1) cross-kind lookup
 	registry    *store.Registry
+	mu          *lockmetrics.RWMutex
 	accountID   string
 	region      string
-	mu          sync.RWMutex
 }
 
 // NewInMemoryBackend returns a stateful Amazon Forecast backend.
@@ -45,6 +45,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		registry:    store.NewRegistry(),
 		accountID:   accountID,
 		region:      region,
+		mu:          lockmetrics.New("forecast"),
 	}
 	registerAllTables(b)
 
@@ -54,7 +55,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 // Reset clears all in-memory Forecast state. It supports the
 // /_gopherstack/reset test hook so suites start from a clean slate.
 func (b *InMemoryBackend) Reset() {
-	b.mu.Lock()
+	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
 	b.registry.ResetAll()
@@ -91,7 +92,7 @@ func (b *InMemoryBackend) create(
 		)
 	}
 
-	b.mu.Lock()
+	b.mu.Lock("create")
 	defer b.mu.Unlock()
 
 	if err := b.validateCreateFieldsLocked(kind, action, data); err != nil {
@@ -131,7 +132,7 @@ func (b *InMemoryBackend) create(
 }
 
 func (b *InMemoryBackend) describe(kind resourceKind, nameOrARN string) (*Resource, error) {
-	b.mu.Lock()
+	b.mu.Lock("describe")
 	defer b.mu.Unlock()
 
 	resource, ok := b.lookupLocked(kind, nameOrARN)
@@ -149,7 +150,7 @@ func (b *InMemoryBackend) describe(kind resourceKind, nameOrARN string) (*Resour
 }
 
 func (b *InMemoryBackend) update(kind resourceKind, nameOrARN string, data map[string]any) (*Resource, error) {
-	b.mu.Lock()
+	b.mu.Lock("update")
 	defer b.mu.Unlock()
 
 	resource, ok := b.lookupLocked(kind, nameOrARN)
@@ -171,7 +172,7 @@ func (b *InMemoryBackend) update(kind resourceKind, nameOrARN string, data map[s
 }
 
 func (b *InMemoryBackend) delete(kind resourceKind, nameOrARN string) error {
-	b.mu.Lock()
+	b.mu.Lock("delete")
 	defer b.mu.Unlock()
 
 	resource, ok := b.lookupLocked(kind, nameOrARN)
@@ -192,7 +193,7 @@ func (b *InMemoryBackend) delete(kind resourceKind, nameOrARN string) error {
 }
 
 func (b *InMemoryBackend) list(kind resourceKind) []*Resource {
-	b.mu.RLock()
+	b.mu.RLock("list")
 	defer b.mu.RUnlock()
 
 	items := b.resources[kind].All()
@@ -206,7 +207,7 @@ func (b *InMemoryBackend) list(kind resourceKind) []*Resource {
 }
 
 func (b *InMemoryBackend) listMonitorEvaluations(monitorARN string) ([]MonitorEvaluation, error) {
-	b.mu.RLock()
+	b.mu.RLock("listMonitorEvaluations")
 	defer b.mu.RUnlock()
 
 	if _, ok := b.lookupLocked(kindMonitor, monitorARN); !ok {
@@ -304,7 +305,7 @@ func stringValue(value any) string {
 
 // UpdateResourceStatus handles StopResource and ResumeResource.
 func (b *InMemoryBackend) UpdateResourceStatus(resourceARN, newStatus string) error {
-	b.mu.Lock()
+	b.mu.Lock("UpdateResourceStatus")
 	defer b.mu.Unlock()
 
 	entry, ok := b.arnIndex[resourceARN]
@@ -322,7 +323,7 @@ func (b *InMemoryBackend) UpdateResourceStatus(resourceARN, newStatus string) er
 // DeleteResourceTree deletes a resource and all dependent child resources
 // transitively, mirroring AWS Forecast behavior.
 func (b *InMemoryBackend) DeleteResourceTree(targetARN string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteResourceTree")
 	defer b.mu.Unlock()
 
 	if _, ok := b.arnIndex[targetARN]; !ok {

@@ -11,11 +11,21 @@ import (
 // ErrParseError is returned when the state machine definition cannot be parsed.
 var ErrParseError = errors.New("parse error")
 
+// StateTypeMap is the ASL state type for Map states.
+const StateTypeMap = "Map"
+
+// ProcessorConfig specifies configuration for an ItemProcessor.
+type ProcessorConfig struct {
+	Mode          string `json:"Mode,omitempty"`
+	ExecutionType string `json:"ExecutionType,omitempty"`
+}
+
 // StateMachine represents a parsed ASL state machine definition.
 type StateMachine struct {
-	States  map[string]*State `json:"States"`
-	Comment string            `json:"Comment,omitempty"`
-	StartAt string            `json:"StartAt"`
+	ProcessorConfig *ProcessorConfig  `json:"ProcessorConfig,omitempty"`
+	States          map[string]*State `json:"States"`
+	Comment         string            `json:"Comment,omitempty"`
+	StartAt         string            `json:"StartAt"`
 }
 
 // ItemBatcher configures batching for a Map state's Distributed Map.
@@ -245,6 +255,10 @@ func Parse(definition string) (*StateMachine, error) {
 		return nil, err
 	}
 
+	if err := validateMapStates(sm.States); err != nil {
+		return nil, err
+	}
+
 	return &sm, nil
 }
 
@@ -318,4 +332,78 @@ func nestedStateMachines(st *State) []map[string]*State {
 	}
 
 	return subs
+}
+
+var validProcessorModes = map[string]bool{ //nolint:gochecknoglobals // static lookup table
+	"":            true,
+	"INLINE":      true,
+	"DISTRIBUTED": true,
+}
+
+var validExecutionTypes = map[string]bool{ //nolint:gochecknoglobals // static lookup table
+	"":         true,
+	"STANDARD": true,
+	"EXPRESS":  true,
+}
+
+func validateMapStates(states map[string]*State) error {
+	for name, st := range states {
+		if st == nil {
+			continue
+		}
+
+		if st.Type == StateTypeMap {
+			if err := validateSingleMapState(name, st); err != nil {
+				return err
+			}
+		}
+
+		for _, sub := range nestedStateMachines(st) {
+			if err := validateMapStates(sub); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+func validateSingleMapState(name string, st *State) error {
+	if st.ItemProcessor == nil || st.ItemProcessor.ProcessorConfig == nil {
+		return nil
+	}
+
+	cfg := st.ItemProcessor.ProcessorConfig
+	if !validProcessorModes[cfg.Mode] {
+		return fmt.Errorf(
+			"%w: state %q: ItemProcessor.ProcessorConfig.Mode %q must be \"INLINE\" or \"DISTRIBUTED\"",
+			ErrParseError, name, cfg.Mode,
+		)
+	}
+
+	if !validExecutionTypes[cfg.ExecutionType] {
+		return fmt.Errorf(
+			"%w: state %q: ItemProcessor.ProcessorConfig.ExecutionType %q must be \"STANDARD\" or \"EXPRESS\"",
+			ErrParseError, name, cfg.ExecutionType,
+		)
+	}
+
+	if cfg.Mode == "INLINE" && hasDistributedMapFields(st) {
+		return fmt.Errorf(
+			"%w: state %q: ItemProcessor with Mode=\"INLINE\" cannot configure Distributed Map features",
+			ErrParseError, name,
+		)
+	}
+
+	return nil
+}
+
+func hasDistributedMapFields(st *State) bool {
+	return st.ItemReader != nil ||
+		st.ResultWriter != nil ||
+		st.ItemBatcher != nil ||
+		st.ToleratedFailureCount != nil ||
+		st.ToleratedFailurePercentage != nil ||
+		st.ToleratedFailureCountPath != "" ||
+		st.ToleratedFailurePercentagePath != ""
 }

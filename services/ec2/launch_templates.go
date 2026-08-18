@@ -6,6 +6,34 @@ import (
 	"sort"
 )
 
+// GetLaunchTemplate returns a copy of the LaunchTemplate matching idOrName (by ID first,
+// then by Name), or (nil, ErrLaunchTemplateNotFound) if not found. The version argument is
+// accepted for versioned resolution (currently all templates in this mock have a single version).
+func (b *InMemoryBackend) GetLaunchTemplate(idOrName, _ string) (*LaunchTemplate, error) {
+	if idOrName == "" {
+		return nil, fmt.Errorf("%w: LaunchTemplateId or LaunchTemplateName is required", ErrInvalidParameter)
+	}
+
+	b.mu.RLock("GetLaunchTemplate")
+	defer b.mu.RUnlock()
+
+	if lt, ok := b.launchTemplates.Get(idOrName); ok {
+		cp := *lt
+
+		return &cp, nil
+	}
+
+	for _, lt := range b.launchTemplates.All() {
+		if lt.Name == idOrName {
+			cp := *lt
+
+			return &cp, nil
+		}
+	}
+
+	return nil, fmt.Errorf("%w: %s", ErrLaunchTemplateNotFound, idOrName)
+}
+
 // DeleteLaunchTemplate removes a launch template by ID and returns the
 // deleted template.
 func (b *InMemoryBackend) DeleteLaunchTemplate(id string) (*LaunchTemplate, error) {

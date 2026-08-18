@@ -990,3 +990,24 @@ func (b *InMemoryBackend) TerminateInstances(ids []string) ([]*InstanceStateChan
 
 	return result, nil
 }
+
+// SetInstanceLaunchConfig sets the key pair name and security groups on an instance.
+func (b *InMemoryBackend) SetInstanceLaunchConfig(instanceID, keyName string, securityGroups []string) error {
+	b.mu.Lock("SetInstanceLaunchConfig")
+	defer b.mu.Unlock()
+
+	inst, ok := b.instances.Get(instanceID)
+	if !ok {
+		return fmt.Errorf("%w: %s", ErrInstanceNotFound, instanceID)
+	}
+
+	if keyName != "" {
+		inst.KeyName = keyName
+	}
+
+	if len(securityGroups) > 0 {
+		inst.SecurityGroups = append([]string(nil), securityGroups...)
+	}
+
+	return nil
+}

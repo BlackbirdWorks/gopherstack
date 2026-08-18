@@ -2,8 +2,10 @@ package dynamodb
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -15,6 +17,8 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 	"github.com/blackbirdworks/gopherstack/services/dynamodb/models"
+
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 )
 
 // txnTokenTTL is how long a committed idempotency token is retained.
@@ -37,10 +41,16 @@ type StoredGlobalTable struct {
 	ReplicationGroup   []string                          `json:"ReplicationGroup"`
 }
 
+// StoredReplicaGSISettings holds per-GSI settings within a replica.
+type StoredReplicaGSISettings struct {
+	ReadCapacityUnits *int64 `json:"ReadCapacityUnits,omitempty"`
+}
+
 // StoredReplicaSettings holds per-replica settings persisted by UpdateGlobalTableSettings.
 type StoredReplicaSettings struct {
-	ReadCapacityUnits *int64 `json:"ReadCapacityUnits,omitempty"`
-	TableClass        string `json:"TableClass,omitempty"`
+	ReadCapacityUnits *int64                               `json:"ReadCapacityUnits,omitempty"`
+	GSISettings       map[string]*StoredReplicaGSISettings `json:"GSISettings,omitempty"`
+	TableClass        string                               `json:"TableClass,omitempty"`
 }
 
 // KinesisDestinationEntry stores a Kinesis streaming destination with its configuration.
@@ -293,8 +303,8 @@ type Table struct {
 	// though PITREnabled (persisted) still reports ENABLED. Do not revert this to
 	// unexported; see dynamodbSnapshotVersion's comment in persistence.go for why
 	// adding this field did not require bumping the snapshot version.
-	PITRSnapshots              []pitrSnapshot `json:"PITRSnapshots,omitempty"`
-	streamShards               []StreamShard
+	PITRSnapshots              []pitrSnapshot                          `json:"PITRSnapshots,omitempty"`
+	StreamShards               []StreamShard                           `json:"StreamShards,omitempty"`
 	StreamRecords              []models.StreamRecord                   `json:"StreamRecords,omitempty"`
 	ProvisionedThroughput      models.ProvisionedThroughputDescription `json:"ProvisionedThroughput"`
 	totalItemSizeBytes         int64
@@ -453,7 +463,7 @@ func (t *Table) appendStreamRecord(
 // Must be called with table.mu held (write lock).
 func (t *Table) overwriteRingSlot(record models.StreamRecord) {
 	// When StreamHead wraps to 0 we completed a full ring rotation — model as a shard split.
-	if t.StreamHead == 0 && len(t.streamShards) > 0 {
+	if t.StreamHead == 0 && len(t.StreamShards) > 0 {
 		t.splitActiveShard()
 	}
 
@@ -470,15 +480,15 @@ func (t *Table) overwriteRingSlot(record models.StreamRecord) {
 // splitActiveShard closes the current open shard and opens a new child shard.
 // Must be called with table.mu held (write lock).
 func (t *Table) splitActiveShard() {
-	last := &t.streamShards[len(t.streamShards)-1]
+	last := &t.StreamShards[len(t.StreamShards)-1]
 	if last.EndingSequenceNum != 0 {
 		return // already closed
 	}
 
 	endSeq := max(t.streamSeq-int64(maxStreamRecords), last.StartingSequenceNum)
 	last.EndingSequenceNum = endSeq
-	newIdx := int64(len(t.streamShards) + 1)
-	t.streamShards = append(t.streamShards, StreamShard{
+	newIdx := int64(len(t.StreamShards) + 1)
+	t.StreamShards = append(t.StreamShards, StreamShard{
 		ShardID:             fmt.Sprintf("shardId-%020d-00000001", newIdx),
 		ParentShardID:       last.ShardID,
 		StartingSequenceNum: t.streamSeq - int64(maxStreamRecords) + 1,
@@ -538,11 +548,56 @@ func (t *Table) streamRecordsInOrder() ([]models.StreamRecord, []models.StreamRe
 }
 
 func BuildKeyString(item map[string]any, attrName string) string {
-	if attrName == "" {
+	if attrName == "" || item == nil {
 		return ""
 	}
 
-	return dynamoattr.ToString(item[attrName])
+	val, ok := item[attrName]
+	if !ok || val == nil {
+		return ""
+	}
+
+	if s, isStr := val.(string); isStr {
+		return s
+	}
+
+	if m, isMap := val.(map[string]any); isMap {
+		for _, v := range m {
+			if s, isStr := v.(string); isStr {
+				return s
+			}
+
+			break
+		}
+	}
+
+	return dynamoattr.ToString(val)
+}
+
+// BuildKeyStringFromSDK extracts the string key directly from an SDK AttributeValue map
+// without converting the whole map to a wire-format map[string]any first.
+func BuildKeyStringFromSDK(key map[string]types.AttributeValue, attrName string) string {
+	if attrName == "" || key == nil {
+		return ""
+	}
+
+	av, ok := key[attrName]
+	if !ok || av == nil {
+		return ""
+	}
+
+	switch v := av.(type) {
+	case *types.AttributeValueMemberS:
+		return v.Value
+	case *types.AttributeValueMemberN:
+		return v.Value
+	case *types.AttributeValueMemberBOOL:
+		return strconv.FormatBool(v.Value)
+	case *types.AttributeValueMemberB:
+		return base64.StdEncoding.EncodeToString(v.Value)
+	default:
+		return dynamoattr.ToString(models.FromSDKAttributeValue(av))
+	}
 }
 
 // initializeIndexes creates empty index maps for a table, including one

@@ -19,7 +19,7 @@ func (b *InMemoryBackend) AddApplicationCloudWatchLoggingOption(
 
 	region := getRegion(ctx, b.defaultRegion)
 
-	b.mu.Lock()
+	b.mu.Lock("AddApplicationCloudWatchLoggingOption")
 	defer b.mu.Unlock()
 
 	app, exists := b.apps.Get(applicationKey(region, name))
@@ -54,7 +54,7 @@ func (b *InMemoryBackend) DeleteApplicationCloudWatchLoggingOption(
 ) error {
 	region := getRegion(ctx, b.defaultRegion)
 
-	b.mu.Lock()
+	b.mu.Lock("DeleteApplicationCloudWatchLoggingOption")
 	defer b.mu.Unlock()
 
 	app, exists := b.apps.Get(applicationKey(region, name))

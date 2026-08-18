@@ -53,7 +53,7 @@ func TestCreateLoadBalancer(t *testing.T) {
 				"Listeners.member.1.LoadBalancerPort": {"80"},
 				"Listeners.member.1.InstancePort":     {"8080"},
 			},
-			wantStatus: http.StatusConflict,
+			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name: "missing_name_returns_bad_request",
@@ -135,7 +135,7 @@ func TestDeleteLoadBalancer(t *testing.T) {
 				"Version":          {"2012-06-01"},
 				"LoadBalancerName": {"no-such-lb"},
 			},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name: "missing_name",
@@ -329,7 +329,7 @@ func TestDeleteLoadBalancerNotFoundReturns404(t *testing.T) {
 		"Version":          {"2012-06-01"},
 		"LoadBalancerName": {"no-such-lb"},
 	})
-	assert.Equal(t, http.StatusNotFound, rec.Code)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 func TestCreateLoadBalancerDuplicateName(t *testing.T) {
@@ -347,7 +347,7 @@ func TestCreateLoadBalancerDuplicateName(t *testing.T) {
 		"Listeners.member.1.LoadBalancerPort": {"80"},
 		"Listeners.member.1.InstancePort":     {"8080"},
 	})
-	assert.Equal(t, http.StatusConflict, rec.Code)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var errResp struct {
 		XMLName xml.Name `xml:"ErrorResponse"`

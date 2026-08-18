@@ -1,9 +1,10 @@
 package dynamodb
 
 import (
+	"cmp"
 	"context"
 	"fmt"
-	"sort"
+	"slices"
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/dynamoattr"
@@ -120,14 +121,6 @@ func (db *InMemoryDB) snapshotTableForQuery(
 	table.mu.RLock("Query")
 	defer table.mu.RUnlock()
 
-	keySchemaOrig := make([]models.KeySchemaElement, len(table.KeySchema))
-	copy(keySchemaOrig, table.KeySchema)
-	gsiList := make([]models.GlobalSecondaryIndex, len(table.GlobalSecondaryIndexes))
-	copy(gsiList, table.GlobalSecondaryIndexes)
-	lsiList := make([]models.LocalSecondaryIndex, len(table.LocalSecondaryIndexes))
-	copy(lsiList, table.LocalSecondaryIndexes)
-	attrDefs := make([]models.AttributeDefinition, len(table.AttributeDefinitions))
-	copy(attrDefs, table.AttributeDefinitions)
 	ttlAttr := table.TTLAttribute
 	billingMode := table.BillingMode
 
@@ -163,11 +156,12 @@ func (db *InMemoryDB) snapshotTableForQuery(
 	snapshotTable := &Table{
 		Items:                  itemsCopy,
 		itemsByOffset:          itemsByOffset,
-		KeySchema:              keySchemaOrig,
-		GlobalSecondaryIndexes: gsiList,
-		LocalSecondaryIndexes:  lsiList,
-		AttributeDefinitions:   attrDefs,
+		KeySchema:              table.KeySchema,
+		GlobalSecondaryIndexes: table.GlobalSecondaryIndexes,
+		LocalSecondaryIndexes:  table.LocalSecondaryIndexes,
+		AttributeDefinitions:   table.AttributeDefinitions,
 		TTLAttribute:           ttlAttr,
+		BillingMode:            billingMode,
 		pkIndex:                pkIndexCopy,
 		pkskIndex:              pkskIndexCopy,
 		activeSecondaryIndex:   activeSecondaryIndex,
@@ -473,12 +467,22 @@ func (db *InMemoryDB) filterCandidatesScan(
 	return candidates, nil
 }
 
+type querySortEntry struct {
+	item  map[string]any
+	skStr string
+	skNum float64
+}
+
 func (db *InMemoryDB) sortCandidates(
 	candidates []map[string]any,
 	skDef models.KeySchemaElement,
 	table *Table,
 	scanIndexForward bool,
 ) {
+	if len(candidates) <= 1 {
+		return
+	}
+
 	skType := getAttributeType(table.AttributeDefinitions, skDef.AttributeName, "")
 	if skType == "" {
 		skType = inferSKType(candidates, skDef.AttributeName)
@@ -487,16 +491,37 @@ func (db *InMemoryDB) sortCandidates(
 		skType = "S"
 	}
 
-	sort.Slice(candidates, func(i, j int) bool {
-		v1 := dynamoattr.UnwrapAttributeValue(candidates[i][skDef.AttributeName])
-		v2 := dynamoattr.UnwrapAttributeValue(candidates[j][skDef.AttributeName])
-		res := compareAny(v1, v2, skType)
+	entries := make([]querySortEntry, len(candidates))
+	for i, item := range candidates {
+		entry := querySortEntry{item: item}
+		if skVal, ok := item[skDef.AttributeName]; ok {
+			unwrapped := dynamoattr.UnwrapAttributeValue(skVal)
+			if skType == "N" {
+				entry.skNum, _ = dynamoattr.ParseNumeric(unwrapped)
+			} else {
+				entry.skStr = dynamoattr.ToString(unwrapped)
+			}
+		}
+		entries[i] = entry
+	}
+
+	slices.SortFunc(entries, func(a, b querySortEntry) int {
+		var res int
+		if skType == "N" {
+			res = cmp.Compare(a.skNum, b.skNum)
+		} else {
+			res = cmp.Compare(a.skStr, b.skStr)
+		}
 		if !scanIndexForward {
-			return res > 0
+			return -res
 		}
 
-		return res < 0
+		return res
 	})
+
+	for i := range entries {
+		candidates[i] = entries[i].item
+	}
 }
 
 func (db *InMemoryDB) processQueryResults(

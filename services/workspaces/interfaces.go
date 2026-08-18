@@ -243,20 +243,53 @@ type StorageBackend interface {
 	Restore(ctx context.Context, data []byte) error
 }
 
+// DataReplicationSettings holds data replication settings.
+type DataReplicationSettings struct {
+	RecoverySnapshotTime *time.Time `json:"RecoverySnapshotTime,omitempty"`
+	DataReplication      string     `json:"DataReplication,omitempty"`
+}
+
+// StandbyWorkspaceProperties holds standby workspace properties.
+type StandbyWorkspaceProperties struct {
+	RecoverySnapshotTime *time.Time `json:"RecoverySnapshotTime,omitempty"`
+	StandbyWorkspaceID   string     `json:"StandbyWorkspaceId,omitempty"`
+	DataReplication      string     `json:"DataReplication,omitempty"`
+}
+
+// RelatedWorkspace holds related workspace information.
+type RelatedWorkspace struct {
+	Region      string `json:"Region,omitempty"`
+	State       string `json:"State,omitempty"`
+	Type        string `json:"Type,omitempty"`
+	WorkspaceID string `json:"WorkspaceId,omitempty"`
+}
+
+// ModificationState holds modification state of a workspace.
+type ModificationState struct {
+	Resource string `json:"Resource,omitempty"`
+	State    string `json:"State,omitempty"`
+}
+
 // Workspace holds full WorkSpace details.
 type Workspace struct {
 	Properties                  *WorkspaceProperties
 	Tags                        map[string]string
+	DataReplicationSettings     *DataReplicationSettings
+	VolumeEncryptionKey         string
+	State                       string
+	ErrorMessage                string
 	WorkspaceID                 string
+	WorkspaceName               string
 	DirectoryID                 string
 	UserName                    string
+	IPAddress                   string
 	BundleID                    string
-	State                       string
+	ErrorCode                   string
 	ComputerName                string
 	SubnetID                    string
-	VolumeEncryptionKey         string
-	ErrorCode                   string
-	ErrorMessage                string
+	StandbyWorkspacesProperties []StandbyWorkspaceProperties
+	RelatedWorkspaces           []RelatedWorkspace
+	ModificationStates          []ModificationState
 	UserVolumeEncryptionEnabled bool
 	RootVolumeEncryptionEnabled bool
 }

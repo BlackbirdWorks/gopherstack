@@ -8,6 +8,7 @@ type startExecutionInput struct {
 	StateMachineArn string `json:"stateMachineArn"`
 	Name            string `json:"name"`
 	Input           string `json:"input"`
+	TraceHeader     string `json:"traceHeader"`
 }
 
 type startSyncExecutionInput struct {
@@ -171,7 +172,12 @@ func (h *Handler) handleStartExecution(b []byte) (any, error) {
 		return nil, err
 	}
 
-	exec, err := h.Backend.StartExecution(input.StateMachineArn, input.Name, input.Input)
+	exec, err := h.Backend.StartExecutionWithTrace(
+		input.StateMachineArn,
+		input.Name,
+		input.Input,
+		input.TraceHeader,
+	)
 	if err != nil {
 		return nil, err
 	}

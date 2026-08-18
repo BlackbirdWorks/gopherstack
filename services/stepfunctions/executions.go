@@ -242,6 +242,8 @@ func (b *InMemoryBackend) initializeExecutionRecord(
 		Name:                   name,
 		Status:                 statusRunning,
 		Input:                  input,
+		InputDetails:           &CloudWatchEventsExecutionDataDetails{Truncated: false},
+		RedriveStatus:          redriveStatusNotRedrivable,
 		history: []*HistoryEvent{
 			{Timestamp: now, Type: "ExecutionStarted", ID: executionStartedEventID, PreviousEventID: 0},
 		},
@@ -312,7 +314,7 @@ func (b *InMemoryBackend) startExecutionLocked(
 	// was a version or alias ARN -- see resolveExecutionTarget's doc comment.
 	baseSMArn := sm.StateMachineArn
 	execArn := b.execARN(baseSMArn, sm.Name, name)
-	if b.executions.Has(execArn) {
+	if sm.Type != "EXPRESS" && b.executions.Has(execArn) {
 		return nil, fmt.Errorf("%w: %s", ErrExecutionAlreadyExists, name)
 	}
 
@@ -360,6 +362,13 @@ func (b *InMemoryBackend) startExecutionLocked(
 
 // StartExecution creates an execution and runs the ASL interpreter asynchronously.
 func (b *InMemoryBackend) StartExecution(stateMachineArn, name, input string) (*Execution, error) {
+	return b.StartExecutionWithTrace(stateMachineArn, name, input, "")
+}
+
+// StartExecutionWithTrace creates an execution with a trace header and runs the ASL interpreter.
+func (b *InMemoryBackend) StartExecutionWithTrace(
+	stateMachineArn, name, input, traceHeader string,
+) (*Execution, error) {
 	if len(input) > maxExecutionInputBytes {
 		return nil, fmt.Errorf(
 			"%w: input exceeds %d bytes",
@@ -377,6 +386,10 @@ func (b *InMemoryBackend) StartExecution(stateMachineArn, name, input string) (*
 	started, err := b.startExecutionLocked(stateMachineArn, name, input)
 	if err != nil {
 		return nil, err
+	}
+
+	if traceHeader != "" {
+		started.exec.TraceHeader = traceHeader
 	}
 
 	// Run the ASL interpreter asynchronously.
@@ -492,6 +505,15 @@ func (b *InMemoryBackend) runParsedExecution(
 		return
 	}
 
+	b.finalizeExecutionRecordLocked(exec, execARN, result, execErr)
+}
+
+func (b *InMemoryBackend) finalizeExecutionRecordLocked(
+	exec *Execution,
+	execARN string,
+	result *asl.ExecutionResult,
+	execErr error,
+) {
 	now := float64(time.Now().Unix())
 	exec.StopDate = &now
 	nextID := int64(len(exec.history) + 1)
@@ -499,6 +521,7 @@ func (b *InMemoryBackend) runParsedExecution(
 	if execErr != nil {
 		exec.Status = statusFailed
 		exec.Error = execErr.Error()
+		exec.RedriveStatus = redriveStatusRedrivable
 		b.removeFromStatusBucket(exec.StateMachineArn, statusRunning, execARN)
 		b.addToStatusBucket(exec.StateMachineArn, exec.Status, execARN)
 		exec.history = append(exec.history, &HistoryEvent{
@@ -512,6 +535,7 @@ func (b *InMemoryBackend) runParsedExecution(
 		exec.Status = statusFailed
 		exec.Error = result.Error
 		exec.Cause = result.Cause
+		exec.RedriveStatus = redriveStatusRedrivable
 		b.removeFromStatusBucket(exec.StateMachineArn, statusRunning, execARN)
 		b.addToStatusBucket(exec.StateMachineArn, exec.Status, execARN)
 		exec.history = append(exec.history, &HistoryEvent{
@@ -524,6 +548,8 @@ func (b *InMemoryBackend) runParsedExecution(
 	outputBytes, _ := json.Marshal(result.Output)
 	exec.Status = statusSucceeded
 	exec.Output = string(outputBytes)
+	exec.OutputDetails = &CloudWatchEventsExecutionDataDetails{Truncated: false}
+	exec.RedriveStatus = redriveStatusNotRedrivable
 	b.removeFromStatusBucket(exec.StateMachineArn, statusRunning, execARN)
 	b.addToStatusBucket(exec.StateMachineArn, exec.Status, execARN)
 	exec.history = append(exec.history, &HistoryEvent{
@@ -552,6 +578,7 @@ func (b *InMemoryBackend) StopExecution(executionArn, errCode, cause string) err
 	exec.StopDate = &now
 	exec.Error = errCode
 	exec.Cause = cause
+	exec.RedriveStatus = redriveStatusRedrivable
 	b.removeFromStatusBucket(exec.StateMachineArn, statusRunning, executionArn)
 	b.addToStatusBucket(exec.StateMachineArn, statusAborted, executionArn)
 
@@ -643,6 +670,8 @@ func (b *InMemoryBackend) resetExecutionForRedrive(exec *Execution, executionARN
 	exec.StartDate = now
 	exec.RedriveCount++
 	exec.RedriveDate = &now
+	exec.RedriveStatus = redriveStatusNotRedrivable
+	exec.OutputDetails = nil
 	b.removeFromStatusBucket(smARN, oldStatus, executionARN)
 	b.addToStatusBucket(smARN, statusRunning, executionARN)
 	exec.history = []*HistoryEvent{

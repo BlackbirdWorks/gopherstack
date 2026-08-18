@@ -46,6 +46,9 @@ const (
 	statusAborted   = "ABORTED"
 	statusActive    = "ACTIVE"
 	statusDeleting  = "DELETING"
+
+	redriveStatusRedrivable    = "REDRIVABLE"
+	redriveStatusNotRedrivable = "NOT_REDRIVABLE"
 )
 
 // regionContextKey is the context key for the per-request AWS region.

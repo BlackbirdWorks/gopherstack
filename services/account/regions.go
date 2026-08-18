@@ -15,7 +15,7 @@ func (b *InMemoryBackend) ListRegions(
 	maxResults int,
 	nextToken string,
 ) ([]*Region, string, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListRegions")
 	defer b.mu.RUnlock()
 
 	filtered := make([]*Region, 0, len(b.regions))
@@ -60,7 +60,7 @@ func (b *InMemoryBackend) ListRegions(
 // EnableRegion transitions an opt-in region from DISABLED to ENABLED.
 // ENABLED_BY_DEFAULT regions return a ValidationException per AWS semantics.
 func (b *InMemoryBackend) EnableRegion(regionName string) error {
-	b.mu.Lock()
+	b.mu.Lock("EnableRegion")
 	defer b.mu.Unlock()
 
 	for _, r := range b.regions {
@@ -83,7 +83,7 @@ func (b *InMemoryBackend) EnableRegion(regionName string) error {
 // DisableRegion transitions an opt-in region from ENABLED to DISABLED.
 // ENABLED_BY_DEFAULT regions return a ValidationException per AWS semantics.
 func (b *InMemoryBackend) DisableRegion(regionName string) error {
-	b.mu.Lock()
+	b.mu.Lock("DisableRegion")
 	defer b.mu.Unlock()
 
 	for _, r := range b.regions {
@@ -105,7 +105,7 @@ func (b *InMemoryBackend) DisableRegion(regionName string) error {
 
 // GetRegionOptStatus returns the current opt-in status for a single region.
 func (b *InMemoryBackend) GetRegionOptStatus(regionName string) (RegionOptStatus, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetRegionOptStatus")
 	defer b.mu.RUnlock()
 
 	for _, r := range b.regions {

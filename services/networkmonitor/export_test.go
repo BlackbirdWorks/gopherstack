@@ -31,7 +31,7 @@ func (r UpdateProbeRequestForTest) ToUpdateProbeRequest() *updateProbeRequest {
 
 // MonitorCount returns the number of monitors stored across all regions.
 func MonitorCount(b *InMemoryBackend) int {
-	b.mu.RLock()
+	b.mu.RLock("MonitorCount")
 	defer b.mu.RUnlock()
 
 	return b.monitors.Len()

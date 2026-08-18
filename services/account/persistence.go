@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
@@ -73,7 +74,7 @@ type backendSnapshot struct {
 // Snapshot serializes the backend state to JSON. It implements
 // persistence.Persistable.
 func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
-	b.mu.RLock()
+	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
 	tables, err := b.registry.SnapshotAll()
@@ -110,7 +111,11 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		return err
 	}
 
-	b.mu.Lock()
+	if b.mu == nil {
+		b.mu = lockmetrics.New("account")
+	}
+
+	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
 
 	if snap.Version != accountSnapshotVersion {

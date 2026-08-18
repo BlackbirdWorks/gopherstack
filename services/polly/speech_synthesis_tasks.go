@@ -71,7 +71,7 @@ func (b *InMemoryBackend) StartSpeechSynthesisTask(
 		Options:            normal,
 	}
 
-	b.mu.Lock()
+	b.mu.Lock("StartSpeechSynthesisTask")
 	defer b.mu.Unlock()
 	b.tasks.Put(task)
 
@@ -88,7 +88,7 @@ func (b *InMemoryBackend) GetSpeechSynthesisTask(taskID string) (*SpeechSynthesi
 		return nil, fmt.Errorf("%w: task id %q", ErrInvalidTaskID, taskID)
 	}
 
-	b.mu.Lock()
+	b.mu.Lock("GetSpeechSynthesisTask")
 	defer b.mu.Unlock()
 
 	task, ok := b.tasks.Get(taskID)
@@ -176,7 +176,7 @@ func (b *InMemoryBackend) ListSpeechSynthesisTasks(
 		return nil, "", fmt.Errorf("%w: invalid Status %q", ErrValidation, status)
 	}
 
-	b.mu.Lock()
+	b.mu.Lock("ListSpeechSynthesisTasks")
 	defer b.mu.Unlock()
 
 	// Table.Snapshot returns tasks ordered by TaskID ascending, matching the

@@ -3,6 +3,7 @@ package sesv2
 import (
 	"fmt"
 	"maps"
+	"slices"
 	"sort"
 	"strings"
 
@@ -34,6 +35,23 @@ type EmailIdentity struct {
 	VerifiedForSending   bool              `json:"verifiedForSending"`
 	FeedbackForwarding   bool              `json:"feedbackForwarding"`
 	DkimSigningEnabled   bool              `json:"dkimSigningEnabled"`
+}
+
+// Clone returns a deep copy of EmailIdentity.
+func (ei *EmailIdentity) Clone() *EmailIdentity {
+	if ei == nil {
+		return nil
+	}
+
+	cp := *ei
+	if ei.Tags != nil {
+		cp.Tags = maps.Clone(ei.Tags)
+	}
+	if ei.DkimTokens != nil {
+		cp.DkimTokens = slices.Clone(ei.DkimTokens)
+	}
+
+	return &cp
 }
 
 // identityType determines the identity type from the identity string.
@@ -82,9 +100,7 @@ func (b *InMemoryBackend) CreateEmailIdentity(
 	b.identities.Put(ei)
 	b.putResourceTagsLocked(b.identityARN(identity), tags)
 
-	cp := *ei
-
-	return &cp, nil
+	return ei.Clone(), nil
 }
 
 const (
@@ -113,10 +129,10 @@ func (b *InMemoryBackend) GetEmailIdentity(identity string) (*EmailIdentity, err
 		return nil, fmt.Errorf("%w: identity %s not found", ErrNotFound, identity)
 	}
 
-	cp := *ei
+	cp := ei.Clone()
 	cp.Tags = b.liveTagsLocked(b.identityARN(identity))
 
-	return &cp, nil
+	return cp, nil
 }
 
 // ListEmailIdentities returns a paginated, sorted list of email identities.
@@ -134,8 +150,7 @@ func (b *InMemoryBackend) ListEmailIdentities(
 		out = make([]*EmailIdentity, 0, len(snap))
 
 		for _, ei := range snap {
-			cp := *ei
-			out = append(out, &cp)
+			out = append(out, ei.Clone())
 		}
 	}()
 
@@ -295,9 +310,7 @@ func (b *InMemoryBackend) PutEmailIdentityDkimSigningAttributes(identity string)
 		return nil, fmt.Errorf("%w: identity %s not found", ErrNotFound, identity)
 	}
 
-	cp := *ei
-
-	return &cp, nil
+	return ei.Clone(), nil
 }
 
 // PutEmailIdentityFeedbackAttributes sets the feedback forwarding flag for the identity.

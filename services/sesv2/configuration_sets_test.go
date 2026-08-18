@@ -408,21 +408,89 @@ func TestConfigSetCount(t *testing.T) {
 	assert.Equal(t, 1, sesv2.ConfigSetCount(backend))
 }
 
-// TestGetConfigurationSetDeepCopy verifies deep copy.
+// TestGetConfigurationSetDeepCopy verifies deep copy of configuration set and its nested fields.
 func TestGetConfigurationSetDeepCopy(t *testing.T) {
 	t.Parallel()
 
-	backend := sesv2.NewInMemoryBackend()
-	_, err := backend.CreateConfigurationSet("copy-set", nil)
-	require.NoError(t, err)
+	tests := []struct {
+		mutate func(cs *sesv2.ConfigurationSet)
+		check  func(t *testing.T, cs *sesv2.ConfigurationSet)
+		name   string
+	}{
+		{
+			name: "mutate_name",
+			mutate: func(cs *sesv2.ConfigurationSet) {
+				cs.Name = "mutated"
+			},
+			check: func(t *testing.T, cs *sesv2.ConfigurationSet) {
+				t.Helper()
+				assert.Equal(t, "copy-set", cs.Name)
+			},
+		},
+		{
+			name: "mutate_tags",
+			mutate: func(cs *sesv2.ConfigurationSet) {
+				if cs.Tags != nil {
+					cs.Tags["k1"] = "mutated_value"
+					cs.Tags["k_new"] = "new_value"
+				}
+			},
+			check: func(t *testing.T, cs *sesv2.ConfigurationSet) {
+				t.Helper()
+				assert.Equal(t, "v1", cs.Tags["k1"])
+				assert.NotContains(t, cs.Tags, "k_new")
+			},
+		},
+		{
+			name: "mutate_suppression_reasons",
+			mutate: func(cs *sesv2.ConfigurationSet) {
+				if len(cs.SuppressionReasons) > 0 {
+					cs.SuppressionReasons[0] = "COMPLAINT"
+				}
+			},
+			check: func(t *testing.T, cs *sesv2.ConfigurationSet) {
+				t.Helper()
+				assert.Equal(t, []string{"BOUNCE"}, cs.SuppressionReasons)
+			},
+		},
+		{
+			name: "mutate_vdm_options",
+			mutate: func(cs *sesv2.ConfigurationSet) {
+				if cs.VdmOptions != nil && cs.VdmOptions.DashboardOptions != nil {
+					cs.VdmOptions.DashboardOptions["EngagementMetrics"] = "DISABLED"
+				}
+			},
+			check: func(t *testing.T, cs *sesv2.ConfigurationSet) {
+				t.Helper()
+				assert.Equal(t, "ENABLED", cs.VdmOptions.DashboardOptions["EngagementMetrics"])
+			},
+		},
+	}
 
-	cs, err := backend.GetConfigurationSet("copy-set")
-	require.NoError(t, err)
-	cs.Name = "mutated"
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	cs2, err := backend.GetConfigurationSet("copy-set")
-	require.NoError(t, err)
-	assert.Equal(t, "copy-set", cs2.Name)
+			backend := sesv2.NewInMemoryBackend()
+			_, err := backend.CreateConfigurationSet("copy-set", map[string]string{"k1": "v1"})
+			require.NoError(t, err)
+
+			err = backend.PutConfigurationSetSuppressionOptions("copy-set", []string{"BOUNCE"})
+			require.NoError(t, err)
+
+			err = backend.PutConfigurationSetVdmOptions("copy-set", map[string]any{"EngagementMetrics": "ENABLED"}, nil)
+			require.NoError(t, err)
+
+			cs, err := backend.GetConfigurationSet("copy-set")
+			require.NoError(t, err)
+
+			tt.mutate(cs)
+
+			cs2, err := backend.GetConfigurationSet("copy-set")
+			require.NoError(t, err)
+			tt.check(t, cs2)
+		})
+	}
 }
 
 // TestDeleteConfigurationSetCascade verifies cascade delete of event destinations.
