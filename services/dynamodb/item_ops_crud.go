@@ -400,6 +400,31 @@ func (db *InMemoryDB) populatePutItemOutput(
 	return out
 }
 
+func resolveGetItemKeys(
+	key map[string]types.AttributeValue,
+	keySchema []models.KeySchemaElement,
+) (string, string, error) {
+	pkDef, skDef := getPKAndSK(keySchema)
+	pkVal := BuildKeyStringFromSDK(key, pkDef.AttributeName)
+	if pkVal == "" {
+		wireKey := models.FromSDKItem(key)
+
+		return "", "", validateKeySchema(wireKey, keySchema)
+	}
+
+	var skVal string
+	if skDef.AttributeName != "" {
+		skVal = BuildKeyStringFromSDK(key, skDef.AttributeName)
+		if skVal == "" {
+			wireKey := models.FromSDKItem(key)
+
+			return "", "", validateKeySchema(wireKey, keySchema)
+		}
+	}
+
+	return pkVal, skVal, nil
+}
+
 func (db *InMemoryDB) GetItem(
 	ctx context.Context,
 	input *dynamodb.GetItemInput,
@@ -416,7 +441,6 @@ func (db *InMemoryDB) GetItem(
 		return nil, projErr
 	}
 
-	wireKey := models.FromSDKItem(input.Key)
 	consistentRead := aws.ToBool(input.ConsistentRead)
 	rcu := applyConsistentReadMultiplier(models.ConsumedReadUnit, consistentRead)
 	region := getRegionFromContext(ctx, db)
@@ -431,8 +455,10 @@ func (db *InMemoryDB) GetItem(
 		table.mu.RLock("GetItem")
 		defer table.mu.RUnlock()
 
-		tableErr = validateKeySchema(wireKey, table.KeySchema)
-		if tableErr != nil {
+		pkVal, skVal, keyErr := resolveGetItemKeys(input.Key, table.KeySchema)
+		if keyErr != nil {
+			tableErr = keyErr
+
 			return
 		}
 
@@ -447,8 +473,7 @@ func (db *InMemoryDB) GetItem(
 			}
 		}
 
-		pkDef, skDef := getPKAndSK(table.KeySchema)
-		item = db.lookupItem(table, wireKey, pkDef.AttributeName, skDef.AttributeName)
+		item = db.lookupItemByKeys(table, pkVal, skVal)
 		ttlAttr = table.TTLAttribute
 	}()
 
@@ -673,7 +698,7 @@ func (db *InMemoryDB) buildDeleteItemOutput(
 
 	// ItemCollectionMetrics reflect the collection remaining after the delete.
 	pkDef, _ := getPKAndSK(table.KeySchema)
-	pkVal := BuildKeyString(models.FromSDKItem(input.Key), pkDef.AttributeName)
+	pkVal := BuildKeyStringFromSDK(input.Key, pkDef.AttributeName)
 	out.ItemCollectionMetrics = buildItemCollectionMetrics(
 		table,
 		input.ReturnItemCollectionMetrics,
@@ -986,7 +1011,7 @@ func (db *InMemoryDB) populateUpdateOutput(
 
 	// ItemCollectionMetrics reflect the collection after the update is applied.
 	pkDef, _ := getPKAndSK(table.KeySchema)
-	pkVal := BuildKeyString(models.FromSDKItem(input.Key), pkDef.AttributeName)
+	pkVal := BuildKeyStringFromSDK(input.Key, pkDef.AttributeName)
 	out.ItemCollectionMetrics = buildItemCollectionMetrics(
 		table,
 		input.ReturnItemCollectionMetrics,

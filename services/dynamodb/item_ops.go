@@ -172,14 +172,11 @@ func dbExtractValueFromToken(token string, attrValues map[string]any) string {
 	return dynamoattr.ToString(val)
 }
 
-func (db *InMemoryDB) lookupItem(
+func (db *InMemoryDB) lookupItemByKeys(
 	table *Table,
-	key map[string]any,
-	pkName, skName string,
+	pkVal, skVal string,
 ) map[string]any {
-	pkVal := BuildKeyString(key, pkName)
-	if skName != "" {
-		skVal := BuildKeyString(key, skName)
+	if skVal != "" {
 		if skMap, hasPK := table.pkskIndex[pkVal]; hasPK {
 			if itemIdx, hasSK := skMap[skVal]; hasSK {
 				return table.Items[itemIdx]
@@ -194,6 +191,20 @@ func (db *InMemoryDB) lookupItem(
 	}
 
 	return nil
+}
+
+func (db *InMemoryDB) lookupItem(
+	table *Table,
+	key map[string]any,
+	pkName, skName string,
+) map[string]any {
+	pkVal := BuildKeyString(key, pkName)
+	var skVal string
+	if skName != "" {
+		skVal = BuildKeyString(key, skName)
+	}
+
+	return db.lookupItemByKeys(table, pkVal, skVal)
 }
 
 func (db *InMemoryDB) lookupItemWithIndex(

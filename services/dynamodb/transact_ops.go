@@ -503,8 +503,12 @@ func (db *InMemoryDB) transactGetResponseItem(
 	}
 
 	pkDef, skDef := getPKAndSK(table.KeySchema)
-	wireKey := models.FromSDKItem(ti.Get.Key)
-	item := db.lookupItem(table, wireKey, pkDef.AttributeName, skDef.AttributeName)
+	pkVal := BuildKeyStringFromSDK(ti.Get.Key, pkDef.AttributeName)
+	var skVal string
+	if skDef.AttributeName != "" {
+		skVal = BuildKeyStringFromSDK(ti.Get.Key, skDef.AttributeName)
+	}
+	item := db.lookupItemByKeys(table, pkVal, skVal)
 
 	if item == nil || isItemExpired(item, table.TTLAttribute) {
 		return types.ItemResponse{}, nil

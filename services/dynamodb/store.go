@@ -2,8 +2,10 @@ package dynamodb
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -15,6 +17,8 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 	"github.com/blackbirdworks/gopherstack/services/dynamodb/models"
+
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 )
 
 // txnTokenTTL is how long a committed idempotency token is retained.
@@ -544,11 +548,56 @@ func (t *Table) streamRecordsInOrder() ([]models.StreamRecord, []models.StreamRe
 }
 
 func BuildKeyString(item map[string]any, attrName string) string {
-	if attrName == "" {
+	if attrName == "" || item == nil {
 		return ""
 	}
 
-	return dynamoattr.ToString(item[attrName])
+	val, ok := item[attrName]
+	if !ok || val == nil {
+		return ""
+	}
+
+	if s, isStr := val.(string); isStr {
+		return s
+	}
+
+	if m, isMap := val.(map[string]any); isMap {
+		for _, v := range m {
+			if s, isStr := v.(string); isStr {
+				return s
+			}
+
+			break
+		}
+	}
+
+	return dynamoattr.ToString(val)
+}
+
+// BuildKeyStringFromSDK extracts the string key directly from an SDK AttributeValue map
+// without converting the whole map to a wire-format map[string]any first.
+func BuildKeyStringFromSDK(key map[string]types.AttributeValue, attrName string) string {
+	if attrName == "" || key == nil {
+		return ""
+	}
+
+	av, ok := key[attrName]
+	if !ok || av == nil {
+		return ""
+	}
+
+	switch v := av.(type) {
+	case *types.AttributeValueMemberS:
+		return v.Value
+	case *types.AttributeValueMemberN:
+		return v.Value
+	case *types.AttributeValueMemberBOOL:
+		return strconv.FormatBool(v.Value)
+	case *types.AttributeValueMemberB:
+		return base64.StdEncoding.EncodeToString(v.Value)
+	default:
+		return dynamoattr.ToString(models.FromSDKAttributeValue(av))
+	}
 }
 
 // initializeIndexes creates empty index maps for a table, including one
