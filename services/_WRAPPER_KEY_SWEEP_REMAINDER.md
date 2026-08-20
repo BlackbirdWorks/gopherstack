@@ -1,6 +1,6 @@
 # Wrapper-key / nested-shape sweep remainder (gopherstack-6flj)
 
-**158 of 162 swept (156 of the 160 real services); see the tombstone note.** Read the "Provenance heuristic"
+**CAMPAIGN COMPLETE: all 160 real services swept (162 directories less the two QLDB tombstones). See the CAMPAIGN COMPLETE section at the end of this file for the closing summary and the six standing checks.** Read the "Provenance heuristic"
 section at the end of this file before judging any manifest's
 last_audit_commit -- four false accusations this session, zero true findings
 from the test that produced them. Earlier text: (15-, 13-, 12- and 11-L+D+G tiers
@@ -12563,3 +12563,107 @@ omission, unconfirmable without live AWS — cited, not guessed at. Commit
 **158 of 162 swept (156 of the 160 real services). 4 remain: dms,
 appconfigdata, apigatewaymanagementapi, sagemakerruntime, rdsdata** — dms and
 appconfigdata in flight.
+
+# ================= CAMPAIGN COMPLETE (2026-08-20) =================
+
+## dms (this session, 2026-08-20) — the service the tool hid
+
+**119 ops** — not the 23 this sweep's brief claimed, and not the 0
+`cmd/opcensus` reported. Protocol **awsjson1.1**. Three bugs plus one
+cosmetic.
+
+**Why it was unswept for the whole campaign**: the SDK module is
+`databasemigrationservice`, there is no `service/dms` module, and opcensus
+resolves the module from the DIRECTORY name. It found nothing and reported
+zero ops — **and a zero-op result is indistinguishable from "small service,
+nothing to sweep."** Filed as `gopherstack-mtqf`. Other known alias:
+`elb` → `elasticloadbalancing`.
+
+1. The `Endpoint` **ENVELOPE** was missing six real top-level members —
+   `CertificateArn`, `ExtraConnectionAttributes`, `KmsKeyId`,
+   `ServiceAccessRoleArn`, `SslMode`, `ExternalTableDefinition` — on both
+   request and response. **Distinct from the already-documented per-engine
+   settings-block gap**: these sit on the envelope, so they were missing
+   whatever engine an endpoint targets.
+2. `ReplicationInstance`'s envelope was missing four the same way.
+3. `DescribeOrderableReplicationInstances` emitted a release status of
+   `"GA"`; the real `ReleaseStatusValues` has exactly `"beta"` and `"prod"`.
+4. Cosmetic, handled honestly: `DescribeFleetAdvisorCollectors` used a
+   fabricated `Marker` where the real output carries `NextToken`. Per pipes'
+   reader check, nothing reads it — corrected and recorded as cosmetic rather
+   than given a test implying it mattered.
+
+Pagination verified across all 119 ops rather than assumed: seventy use
+`Marker`/`MaxRecords`, seven correctly use `NextToken`, exactly one was
+wrong. Coverage stated: four `ReplicationInstance` members left unfixed,
+three types not re-diffed, ~19 of 24 enums not individually re-checked.
+Commit `9acc4cc64`.
+
+## appconfigdata / apigatewaymanagementapi / rdsdata / sagemakerruntime (2026-08-20)
+
+The last four, all **zero bugs**, and each contributed a probe result worth
+keeping.
+
+**appconfigdata** (2 ops): all four response headers exact,
+`configuration_token` a query param not a path segment, and its payload
+deserializer body is `v.Configuration = buf.Bytes()` — the third no-JSON
+helper after polly and mediastoredata. Empty-vs-non-empty configuration
+semantics modelled via a content hash. Fixed a comment claiming the handler
+returns 401 when the test never touches HTTP and real AWS returns 400.
+Commit `f16ac0367`.
+
+**apigatewaymanagementapi** (3 ops): **three of its four modelled exceptions
+have deserializers that never read the response body at all** — only
+`PayloadTooLargeException`'s does. Classification is purely by error CODE
+(`X-Amzn-Errortype` header first, body `code`/`__type` second); the numeric
+status only gates whether the error path runs, **not which exception is
+produced.** gopherstack sets the header everywhere, so clients get typed
+exceptions. Same header-first mechanism mediastoredata got wrong today,
+checked here and found right. Commit `914e8b598`.
+
+**rdsdata** (6 ops): `Field`'s **seven** members (the brief said six)
+correctly discriminated in BOTH directions — it appears on the request side
+inside `SqlParameter` too. NULL never conflated with a zero value, since
+every member is a pointer or slice. Checked the DEPRECATED `ExecuteSql`
+rather than assuming it was dropped — it exists and is implemented. And it
+RAN the engine to establish a fact rather than reasoning about it: division
+by zero in this SQLite driver yields SQL NULL, not NaN, so the SDK's
+NaN/Infinity special-case is genuinely unreachable rather than a latent gap.
+Commit `8ea58ea9a`.
+
+**sagemakerruntime** (3 ops): zero bugs **structurally** rather than luckily
+— all three ops are flat HTTP binding plus an opaque blob, no nested struct,
+list or map anywhere. Binding asymmetries hold (`Content-Type` plain on one
+op, `X-Amzn-Sagemaker-Content-Type` on its sibling), and the three ops carry
+three genuinely different error sets. **Its missing `X-Amzn-ErrorType` is NOT
+a bug here** — restjson falls back to the body's `__type` and this service
+emits exactly that. Same probe as mediastoredata, opposite verdict, which is
+why it was run rather than assumed. New test drives the SDK's own
+`GetStream().Events()` reader and was verified non-vacuous by corrupting an
+event-stream header byte. Commit `32b492faa`.
+
+## Campaign close
+
+**All 160 real services swept** (162 directories minus the two QLDB
+tombstones). Roughly 110 real wire bugs fixed across the campaign, ~60 of
+them in this session's 60 services.
+
+**The six brief hints that did not survive the pinned source** — a type that
+does not exist at that version, a member count off by one, three "enums" that
+are plain strings, an op count off by a factor of five, a union member count,
+and a body/header split — were each caught because the brief said to verify
+rather than accept. **That instruction earned its place six times.**
+
+**The standing checks this campaign ended with**, in the order they pay off:
+1. Diff every op's Input/Output field list against the wire struct — **every
+   member, optional included, TYPES checked, not just names.**
+2. **Check enums BOTH ways**: every SDK value representable, and every
+   constant emitted is an SDK value. Go does not validate scalar enum strings
+   at decode time, so these fail silently.
+3. **Create, update and describe are THREE DIFFERENT CONTRACTS.** One Go
+   struct serving all three is the setup for firehose's six-family bug.
+4. **Read the deserializer function BODY** — not its name, not its call site.
+5. When you find a FABRICATED member, **grep for its READERS** before calling
+   it harmless.
+6. A wire contract includes **the transport's own rules** — mediastoredata's
+   error bodies were correct and unreadable.
