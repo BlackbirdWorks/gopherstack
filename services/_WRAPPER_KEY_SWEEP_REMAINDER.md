@@ -1,6 +1,6 @@
 # Wrapper-key / nested-shape sweep remainder (gopherstack-6flj)
 
-**151 of 162 services swept, 11 remain.** Read the "Provenance heuristic"
+**155 of 162 services swept, 7 remain.** Read the "Provenance heuristic"
 section at the end of this file before judging any manifest's
 last_audit_commit -- four false accusations this session, zero true findings
 from the test that produced them. Earlier text: (15-, 13-, 12- and 11-L+D+G tiers
@@ -171,7 +171,9 @@ session), **workmail** (this session), **workspaces** (this session),
 **iotdataplane** (2026-08-20), **mediastore** (2026-08-20),
 **serverlessrepo** (2026-08-20), **applicationautoscaling** (2026-08-20),
 **polly** (2026-08-20), **scheduler** (2026-08-20),
-**timestreamquery** (2026-08-20), **cloudcontrol** (2026-08-20).
+**timestreamquery** (2026-08-20), **cloudcontrol** (2026-08-20),
+**mediastoredata** (2026-08-20), **pipes** (2026-08-20),
+**kinesisanalytics** (2026-08-20).
 
 This alphabetical list is itself incomplete and always has been — it was
 last rewritten wholesale when the count read 64, and per-session sections
@@ -12301,3 +12303,97 @@ its immobility relative to the dates. **New check: did the stamp ADVANCE
 across passes?** Commit `bad4d6370`.
 
 **151 of 162 services swept, 11 remain.**
+
+## mediastoredata (this session, 2026-08-20)
+
+All 5 ops swept. Protocol **restjson1**. One bug, **the subtlest of the
+campaign**, and one this sweep's usual instruments would never have caught.
+
+No error response ever set the `X-Amzn-ErrorType` header. Every
+`deserializeOpError<Op>` in this SDK reads that header FIRST and only falls
+back to decoding a body. For PutObject, GetObject, DeleteObject and ListItems
+the fallback works, so nothing looked wrong.
+
+**`DescribeObject` is a HEAD request.** Go's `net/http` transport
+unconditionally discards a HEAD response body per RFC 7231, whatever the
+server sent. So there was no body to fall back to, and every DescribeObject
+error — `ObjectNotFoundException` included — arrived as an untyped
+`GenericAPIError{Code:"UnknownError"}`. A caller's
+`errors.As(&types.ObjectNotFoundException{})` could never match, on any
+error, ever.
+
+**The key names were right, the shapes were right, the JSON body was correct
+— it simply could not be read.** Worth carrying forward: a wire contract
+includes the transport's own rules, not just the document.
+
+Also independently confirms polly's finding:
+`deserializeOpDocumentGetObjectOutput` is called and its entire body is
+`v.Body = body`. And the greedy `/{Path+}` turns out structurally safe rather
+than merely correct — this repo's router has no route pattern at all,
+matching on User-Agent and `X-Amz-Target` and dispatching on the raw URL
+path, so a multi-segment object key cannot be split. Commit `17458c2f2`.
+
+## pipes (this session, 2026-08-20)
+
+All 10 ops swept. Protocol **restjson1**. **Five bugs** — the largest
+parameter-block surface left in the repo, nineteen variants across source,
+target and enrichment, and the bugs cluster in the target tree.
+
+1. `LogConfiguration` wrapped its destinations in a **fabricated
+   `Destinations` array**. The real `PipeLogConfiguration` and its Parameters
+   twin carry `CloudwatchLogsLogDestination`, `FirehoseLogDestination` and
+   `S3LogDestination` as three FLAT top-level members, so a correctly-shaped
+   client request configured no log destination at all. Worth recording what
+   was NOT wrong: the `Cloudwatch` casing, which managedblockchain got wrong
+   earlier in this campaign, is already correct here.
+2. `EcsTaskOverride` was missing `ContainerOverrides`, `EphemeralStorage` and
+   `InferenceAcceleratorOverrides` — three of its seven real members, and the
+   three carrying the actual override payload.
+3. `EcsTaskTargetParameters` was missing `PropagateTags`, `ReferenceId`, `Tags`.
+4. `BatchContainerOverrides.Environment` was `map[string]string` where the
+   real member is `[]BatchEnvironmentVariable`. **An object where the SDK
+   sends an array does not silently drop — it fails the unmarshal outright.**
+5. `ListPipes`' item emitted a `Description` that `types.Pipe` does not have.
+
+**A NEW SEVERITY RULE, and it inverts the usual one.** The top-level
+`DeadLetterConfig` is fabricated — the real API carries it only nested under
+`SourceParameters.{Kinesis,DynamoDBStream}Parameters`, which gopherstack
+models correctly — **but the runner and poller read ONLY the fabricated
+field**. So a client configuring a DLQ the one way the real API allows gets a
+200, sees it echoed back, and silently never receives a dead-lettered record.
+A prior note called it a cosmetic extra field, on the correct general
+principle that real deserializers ignore unknown keys. **That principle holds
+for the response and not for the behaviour.**
+
+**When you find a fabricated member, grep for its READERS before calling it
+harmless. An extra field is cosmetic only if nothing reads it.** Filed P2;
+too large to fix inside a wire pass. Commit `1316d6ed5`.
+
+## kinesisanalytics (this session, 2026-08-20)
+
+All 19 ops swept. Protocol **awsjson1.1**. One bug:
+`InputProcessingConfigurationDescription` emitted its nested processor under
+`InputLambdaProcessor`; that deserializer has exactly one case,
+`InputLambdaProcessorDescription`. gopherstack had reused the REQUEST-side
+sibling's member name — correctly named on the request type — for the
+RESPONSE-side Description type. Every `DescribeApplication` for an input with
+a processing configuration returned 200 with the preprocessor's ResourceARN
+and RoleARN decoding as nil.
+
+**The twin result is the headline.** This service was swept deliberately
+because its V2 sibling produced the campaign's two most consequential bugs —
+`Input.InputSchema` and `ReferenceDataSource.ReferenceSchema`, both required,
+never modelled in any direction. **V1 has the same type names and is CLEAN**:
+both fully modelled and populated, with the whole `SourceSchema`,
+`RecordColumn`, `RecordFormat` and `MappingParameters` sub-tree present and
+validated. A 2026-07-24 pass had already closed it, and this sweep re-derived
+that from the SDK rather than trusting the stamp.
+
+**Third twin check of the campaign — two positives (codeconnections, and
+pipes' DLQ by analogy), two negatives (applicationautoscaling,
+kinesisanalytics). Cheap either way, and the negatives carry their own
+information**: applicationautoscaling's told us opaque maps are structurally
+immune to the field-omission class, and this one tells us a catastrophic V2
+bug does not imply a V1 bug. Commit `b1c470fae`.
+
+**155 of 162 services swept, 7 remain.**
