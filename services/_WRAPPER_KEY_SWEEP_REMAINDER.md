@@ -1,8 +1,9 @@
 # Wrapper-key / nested-shape sweep remainder (gopherstack-6flj)
 
-**115 of 162 services swept, 47 remain** (shield, codestarconnections,
-kinesis, codeconnections and mediaconvert added 2026-08-19 from the 13-L+D+G
-tier -- and see the "Manifest provenance" section at the end of this file:
+**117 of 162 services swept, 45 remain** (the 15- and 13-L+D+G tiers are both
+closed as of 2026-08-20: codepipeline, fis, apprunner, ram, appmesh, acm,
+amplify, then kinesis, shield, codestarconnections, mediaconvert, glacier,
+managedblockchain, codeconnections. See the "Manifest provenance" section at the end of this file:
 every one of the 140 PARITY.md manifests cites a last_audit_commit
 unreachable from main, so the schema's own re-audit protocol has never
 worked, after the whole 15-L+D+G tier closed
@@ -146,7 +147,8 @@ session), **workmail** (this session), **workspaces** (this session),
 **ram** (2026-08-19), **acm** (2026-08-19), **appmesh** (2026-08-19),
 **amplify** (2026-08-19), **shield** (2026-08-19),
 **codestarconnections** (2026-08-19), **kinesis** (2026-08-19),
-**codeconnections** (2026-08-19), **mediaconvert** (2026-08-19).
+**codeconnections** (2026-08-19), **mediaconvert** (2026-08-19),
+**managedblockchain** (2026-08-20), **glacier** (2026-08-20).
 
 This alphabetical list is itself incomplete and always has been — it was
 last rewritten wholesale when the count read 64, and per-session sections
@@ -11144,3 +11146,99 @@ for this must use the date test or it will generate false accusations against
 correctly-written manifests.
 
 **115 of 162 services swept, 47 remain.**
+
+## managedblockchain (this session, 2026-08-20)
+
+All 27 ops swept. Protocol **restjson1** (56 `awsRestjson1_` functions);
+`managedblockchain@v1.34.4`, the control plane, distinct from the separate
+`managedblockchainquery` module. Every op routes through its OpDocument
+helper — no `gopherstack-cnhp` trap here. Four bugs.
+
+**All five summary/full pairs already use distinct wire structs** — Network,
+Member, Node, Proposal, Accessor — so the struct-reuse mistake that has
+dominated this campaign is structurally absent. Two of the summary sides had
+picked up fabricated members anyway, which is worth noting: distinct structs
+prevent reuse, not invention.
+
+1. `LogConfigurations` emitted `"CloudWatch"`. The real deserializer has
+   exactly one case, `"Cloudwatch"`, and restjson matches exactly — so
+   `GetMember`, `GetNode`, `UpdateMember` and `UpdateNode` all silently
+   dropped the ENTIRE log configuration object. Second case-sensitivity
+   near-miss of the campaign.
+2. **`UpdateNode` required `memberId` as a query parameter.** The real
+   `serializeOpHttpBindingsUpdateNodeInput` binds only `NetworkId` and
+   `NodeId` to the URI; `MemberId` goes in the body
+   (`serializeOpDocumentUpdateNodeInput`). Every real SDK call was rejected
+   with `InvalidRequestException`. **Request-side, not response-side** —
+   outside this sweep's usual scope, found by diffing the node family, and
+   worth generalising: the serializer's HTTP-binding function is as worth
+   reading as the deserializer.
+3. `ProposalSummary` emitted a fabricated `NetworkId`. Its deserializer has
+   eight cases and that is not one.
+4. `Invitation` emitted top-level `NetworkId`/`NetworkName`. The real type
+   has six cases and carries network identity only inside the nested
+   `NetworkSummary`.
+
+Three existing tests asserted the wrong shapes, one named for the bug it
+locked in (`TestHandler_ProposalSummaryHasNetworkID`). Disclosed, not fixed:
+`NodeConfiguration` does not model the optional create-time
+`LogPublishingConfiguration`, so log config can only be set post-creation.
+
+Manifest provenance CLEAN — cited sha dated the same day as its audit date,
+the test that cleared codestarconnections and caught appmesh. Commit
+`ff1e1400f`.
+
+## glacier (this session, 2026-08-20)
+
+All 33 ops swept. Protocol **restjson1**. **glacier is the first header-heavy
+service in this campaign**, and the sweep was widened to treat HTTP header
+bindings as first-class response members — the body-focused method would not
+have looked at any of them.
+
+1. `SelectParameters`' `InputSerialization`/`OutputSerialization` tagged
+   their nested member `"Csv"`. Both real deserializers have exactly one
+   case: lowercase `"csv"`. A real client's typed `Csv` was always nil on
+   `DescribeJob`/`ListJobs`. Third case-sensitivity near-miss.
+
+**Header surface came back clean**: nine ops binding thirteen headers —
+`Location`, `x-amz-archive-id`, `x-amz-sha256-tree-hash`,
+`x-amz-multipart-upload-id`, `x-amz-job-id`, `x-amz-job-output-path`,
+`x-amz-lock-id`, `x-amz-capacity-id`, and `GetJobOutput`'s
+`Accept-Ranges`/`Content-Range`/`Content-Type`/`x-amz-archive-description`,
+including its `206 Partial Content` on ranged reads.
+
+**The tree hash was checked against the SDK's own implementation**
+(`internal/customizations/treehash.go`), not against gopherstack's
+round-trip — a wrong-but-self-consistent implementation passes its own
+round-trip. Same algorithm: 1MiB SHA-256 leaves, pairwise
+concatenate-and-hash, odd node carried up. Worth copying as a habit wherever
+a checksum or derived value is involved.
+
+**THE `gopherstack-cnhp` TRAP FIRED FOR REAL AND WAS CAUGHT.**
+`GetVaultAccessPolicy` and `GetVaultNotifications` look wrapper-keyed if you
+read `deserializeOpDocument<Op>Output`. A "fix" wrapping both was written and
+then falsified within minutes by a real SDK round-trip test returning all-nil
+typed fields — for both ops that helper is dead code and the live
+`HandleDeserialize` calls
+`deserializeDocumentVaultNotificationConfig(&output.VaultNotificationConfig,
+shape)` on the raw body. Fully reverted; the two round-trip tests stay, so the
+flat shape is pinned against the next pass making the same inference.
+
+**The ordering is what saved it**: the round-trip test was written BEFORE the
+wrapper-key change was trusted. That is now standing instruction in these
+briefs, and it is the whole difference between this and appmesh, where the
+identical wrong inference was recorded as a "fixed" claim and survived until
+someone re-derived it. Per-service tally of how the trap resolves is in
+`gopherstack-cnhp` — restjson is the only protocol where the question arises,
+and it splits per-op INSIDE a single service.
+
+Disclosed, not fixed: `CompleteMultipartUpload` trusts the client-supplied
+tree-hash header without recomputing it over the concatenated parts, unlike
+`UploadArchive`. Request validation, not wire shape. Manifest provenance was
+stale and self-inconsistent (cited sha three weeks before its own audit date,
+and the manifest body documented a LATER pass than the date claimed);
+corrected. Commit `ea5c289af`.
+
+**117 of 162 services swept, 45 remain. The 13-L+D+G tier is now closed:
+kinesis, shield, codestarconnections, mediaconvert, glacier,
+managedblockchain, codeconnections.**
