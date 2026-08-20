@@ -12,8 +12,13 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/codeconnections"
 )
 
-// TestListHostsIncludesTags verifies Tags are included in ListHosts output items.
-func TestListHostsIncludesTags(t *testing.T) {
+// TestListHostsExcludesTags verifies ListHosts output items carry the real
+// Host field set but never a Tags member: aws-sdk-go-v2/service/
+// codeconnections@v1.13.4's types.Host has no Tags field at all (confirmed
+// against awsAwsjson10_deserializeDocumentHost's case switch) -- tags for a
+// host are only ever returned via ListTagsForResource. A previous version of
+// this test asserted Tags on ListHosts items as correct.
+func TestListHostsExcludesTags(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -52,6 +57,7 @@ func TestListHostsIncludesTags(t *testing.T) {
 
 			rec := doJSON(t, h, "CreateHost", body)
 			require.Equal(t, http.StatusOK, rec.Code)
+			hostArn := parseResp(t, rec)["HostArn"].(string)
 
 			listRec := doJSON(t, h, "ListHosts", nil)
 			require.Equal(t, http.StatusOK, listRec.Code)
@@ -64,7 +70,12 @@ func TestListHostsIncludesTags(t *testing.T) {
 			hostMap, isMap := hosts[0].(map[string]any)
 			require.True(t, isMap)
 
-			tags, _ := hostMap["Tags"].([]any)
+			_, hasTags := hostMap["Tags"]
+			assert.False(t, hasTags, "ListHosts item must not include a Tags member")
+
+			listTagsRec := doJSON(t, h, "ListTagsForResource", map[string]any{"ResourceArn": hostArn})
+			require.Equal(t, http.StatusOK, listTagsRec.Code)
+			tags, _ := parseResp(t, listTagsRec)["Tags"].([]any)
 			assert.Len(t, tags, tt.wantTags)
 		})
 	}
@@ -264,6 +275,7 @@ func TestBackendCreateHostNameNotUnique(t *testing.T) {
 		"GitHubEnterpriseServer",
 		"https://a.example.com",
 		nil,
+		nil,
 	)
 	require.NoError(t, err, "first create should succeed")
 
@@ -272,6 +284,7 @@ func TestBackendCreateHostNameNotUnique(t *testing.T) {
 		"unique-host-x",
 		"GitHubEnterpriseServer",
 		"https://b.example.com",
+		nil,
 		nil,
 	)
 	require.NoError(t, err, "duplicate host name must succeed")
@@ -299,6 +312,7 @@ func TestBackendHostsByNameDeleteRestores(t *testing.T) {
 				"GitHubEnterpriseServer",
 				"https://a.example.com",
 				nil,
+				nil,
 			)
 			require.NoError(t, err)
 
@@ -310,6 +324,7 @@ func TestBackendHostsByNameDeleteRestores(t *testing.T) {
 				"recycled-host",
 				"GitHubEnterpriseServer",
 				"https://b.example.com",
+				nil,
 				nil,
 			)
 			require.NoError(t, err, "name should be reusable after delete")
@@ -349,6 +364,7 @@ func TestBackendAddHostInternalThenCreateSameName(t *testing.T) {
 				"seeded-host",
 				"GitHubEnterpriseServer",
 				"https://other.example.com",
+				nil,
 				nil,
 			)
 			require.NoError(t, err)

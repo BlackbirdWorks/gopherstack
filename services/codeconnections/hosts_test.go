@@ -201,7 +201,7 @@ func TestDeleteHost_InUse(t *testing.T) {
 			ctx := context.Background()
 			b := newTestBackend()
 
-			host, err := b.CreateHost(ctx, "my-host", "GitHubEnterpriseServer", "https://ghe.example.com", nil)
+			host, err := b.CreateHost(ctx, "my-host", "GitHubEnterpriseServer", "https://ghe.example.com", nil, nil)
 			require.NoError(t, err)
 
 			if tt.attachConn {
@@ -260,7 +260,11 @@ func TestDeleteHostInUseWireErrorType(t *testing.T) {
 	}
 }
 
-// TestCreateHostWithTags verifies that tags can be passed when creating a host.
+// TestCreateHostWithTags verifies that tags passed to CreateHost are
+// persisted and retrievable via ListTagsForResource. GetHost's real response
+// shape has no Tags member at all (aws-sdk-go-v2/service/codeconnections@
+// v1.13.4 GetHostOutput) -- a previous version of this test asserted Tags on
+// the GetHost response, which was asserting a fabricated field as correct.
 func TestCreateHostWithTags(t *testing.T) {
 	t.Parallel()
 
@@ -304,8 +308,12 @@ func TestCreateHostWithTags(t *testing.T) {
 
 			getRec := doJSON(t, h, "GetHost", map[string]any{"HostArn": hostArn})
 			require.Equal(t, http.StatusOK, getRec.Code)
-			resp := parseResp(t, getRec)
-			tags, _ := resp["Tags"].([]any)
+			_, hasTags := parseResp(t, getRec)["Tags"]
+			assert.False(t, hasTags, "GetHost response must not include a Tags member")
+
+			listRec := doJSON(t, h, "ListTagsForResource", map[string]any{"ResourceArn": hostArn})
+			require.Equal(t, http.StatusOK, listRec.Code)
+			tags, _ := parseResp(t, listRec)["Tags"].([]any)
 			assert.Len(t, tags, tt.wantTags)
 		})
 	}
@@ -435,10 +443,12 @@ func TestHostGet(t *testing.T) {
 				t.Helper()
 
 				assert.Equal(t, "describe-host", m["Name"])
-				assert.NotEmpty(t, m["HostArn"])
 				assert.NotEmpty(t, m["ProviderType"])
 				assert.NotEmpty(t, m["ProviderEndpoint"])
 				assert.NotEmpty(t, m["Status"])
+
+				_, hasHostArn := m["HostArn"]
+				assert.False(t, hasHostArn, "GetHost response must not include a HostArn member")
 			},
 		},
 		{
@@ -498,8 +508,13 @@ func TestHostDelete(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
-// TestGetHostIncludesHostArn verifies HostArn is returned in GetHost response.
-func TestGetHostIncludesHostArn(t *testing.T) {
+// TestGetHostExcludesHostArn verifies GetHost's response carries the real
+// field set (Name/ProviderEndpoint/ProviderType/Status) and, per
+// aws-sdk-go-v2/service/codeconnections@v1.13.4's GetHostOutput, does NOT
+// echo HostArn back -- the caller already supplied it in the request. (The
+// full Host type used by ListHosts DOES carry HostArn; only GetHostOutput
+// omits it.)
+func TestGetHostExcludesHostArn(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -510,7 +525,7 @@ func TestGetHostIncludesHostArn(t *testing.T) {
 		wantFieldsSet bool
 	}{
 		{
-			name:          "host_arn_in_response",
+			name:          "host_fields_in_response",
 			hostName:      "my-ghe-host",
 			providerType:  "GitHubEnterpriseServer",
 			endpoint:      "https://ghe.example.com",
@@ -530,7 +545,8 @@ func TestGetHostIncludesHostArn(t *testing.T) {
 
 			resp := parseResp(t, rec)
 			if tt.wantFieldsSet {
-				assert.Equal(t, hostArn, resp["HostArn"])
+				_, hasHostArn := resp["HostArn"]
+				assert.False(t, hasHostArn, "GetHost response must not include a HostArn member")
 				assert.Equal(t, tt.hostName, resp["Name"])
 				assert.Equal(t, tt.endpoint, resp["ProviderEndpoint"])
 				assert.Equal(t, tt.providerType, resp["ProviderType"])
