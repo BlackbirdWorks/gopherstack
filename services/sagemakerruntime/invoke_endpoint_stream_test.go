@@ -4,11 +4,52 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	sagemakerruntimesdk "github.com/aws/aws-sdk-go-v2/service/sagemakerruntime"
+	"github.com/aws/aws-sdk-go-v2/service/sagemakerruntime/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 // --- InvokeEndpointWithResponseStream tests ---
+
+// TestSDKEventStreamFraming_RealReader drives InvokeEndpointWithResponseStream
+// through the real SDK client and reads the response with the SDK's own
+// GetStream().Events() reader (not hand-parsed bytes), proving the emulator's
+// binary event-stream frame (prelude/header/payload/CRC) is byte-compatible
+// with the pinned SDK's deserializer rather than merely "long enough".
+func TestSDKEventStreamFraming_RealReader(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestSDKClient(t, h)
+
+	in := &sagemakerruntimesdk.InvokeEndpointWithResponseStreamInput{
+		EndpointName: aws.String("stream-reader-ep"),
+		Body:         []byte("input"),
+	}
+
+	out, err := client.InvokeEndpointWithResponseStream(t.Context(), in)
+	require.NoError(t, err)
+
+	stream := out.GetStream()
+	t.Cleanup(func() { _ = stream.Close() })
+
+	var parts [][]byte
+	for event := range stream.Events() {
+		part, ok := event.(*types.ResponseStreamMemberPayloadPart)
+		require.Truef(
+			t,
+			ok,
+			"expected *types.ResponseStreamMemberPayloadPart, got %T (UnknownUnionMember means the frame didn't decode)",
+			event,
+		)
+		parts = append(parts, part.Value.Bytes)
+	}
+	require.NoError(t, stream.Err())
+	require.Len(t, parts, 1)
+	assert.Equal(t, "mock streaming response from Gopherstack", string(parts[0]))
+}
 
 func TestHandler_InvokeEndpointWithResponseStream(t *testing.T) {
 	t.Parallel()

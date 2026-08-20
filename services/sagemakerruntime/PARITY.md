@@ -1,9 +1,9 @@
 ---
 service: sagemakerruntime
 sdk_module: aws-sdk-go-v2/service/sagemakerruntime@v1.43.4
-last_audit_commit: 95ab0584
-last_audit_date: 2026-07-24
-overall: A            # genuine fixes found this pass (3): EndpointName existence/InService validation wired cross-service, NewSessionId Expires= wire-format bug, ClosedSessionId/session-expiry enforcement
+last_audit_commit: 914e8b59
+last_audit_date: 2026-08-20
+overall: A            # wrapper-key/nested-shape sweep this pass: zero wire bugs found (service is pure HTTP header binding + opaque payload, no nested JSON shapes to misplace); added a real-SDK GetStream()/Events() round-trip test for the event-stream framing claim
 ops:
   InvokeEndpoint: {wire: ok, errors: ok, state: ok, persist: n/a, note: "sync op; EndpointName is now validated against the wired services/sagemaker endpoint registry (existence + InService); NewSessionId's Expires= attribute now matches the SDK's RFC-3339 wire format; ClosedSessionId is now emitted when an expired session is touched. body is an opaque mock, other headers round-trip correctly"}
   InvokeEndpointAsync: {wire: ok, errors: ok, state: ok, persist: ok, note: "returns InferenceId (JSON body)/OutputLocation/FailureLocation headers correctly; EndpointName now validated like the other two ops"}
@@ -134,7 +134,7 @@ path segment (`extractEndpointName` cuts on the first `/` after the
   error paths have no request-side trigger (there is no real model to
   fail). `InternalStreamFailure`/`ModelStreamError` additionally have no
   `httpStatusCode` in `service-2.json`'s `error` trait at all (unlike the
-  other five, which map to 530/500/424/429/503/400 respectively) --
+  other six, which map to 530/500/424/429/503/400 respectively) --
   confirmed they are delivered as in-band event-stream exception events, not
   top-level HTTP error responses, which is why they're absent from the
   status-code table. Chaos-injection (ChaosServiceName/ChaosOperations/
@@ -156,3 +156,96 @@ header-bound -- and gopherstack's JSON-body-plus-headers response shape
 matches exactly), FIFO eviction bounds for sessions/async-invocations/
 invocation-history, and `Handler.Snapshot`/`Restore` delegation to the backend
 (all exercised by `persistence_test.go`).
+
+## 2026-08-20 wrapper-key/nested-shape sweep
+
+Re-derived every wire shape from scratch against the pinned
+`aws-sdk-go-v2/service/sagemakerruntime@v1.43.4` source
+(`serializers.go`/`deserializers.go`/`api_op_*.go`/`types/errors.go`),
+independent of this file's prior claims. **Zero bugs found.** This service
+is structurally almost immune to the wrapper-key/nested-shape bug class the
+rest of this campaign hunts: all three ops are pure HTTP header/URI binding
+plus an opaque `[]byte` payload -- `InvokeEndpointInput`/`Output`,
+`InvokeEndpointAsyncInput`/`Output`, and
+`InvokeEndpointWithResponseStreamInput`/`Output` have no nested structs, no
+lists, no maps, and (`ModelError`'s three extra scalar fields aside) no
+non-flat error shapes to mis-nest a key under.
+
+Verified line-for-line against the SDK source, all matching gopherstack's
+existing implementation exactly (see file:line citations already in this
+document from the 2026-07-24 pass, re-confirmed this pass):
+
+- Every request header binding, all three ops
+  (`serializers.go:82-149,215-273,343-402`), including the
+  `InvokeEndpointWithResponseStream`/`InvokeEndpoint` asymmetries
+  (`ContentType` on plain `Content-Type` vs `X-Amzn-Sagemaker-Accept` for
+  `Accept`; `TargetModel`/`EnableExplanations` present on `InvokeEndpoint`
+  only, absent from the stream op's input).
+- Every response header binding, all three ops
+  (`deserializers.go:141-166,317-333,483-497`).
+- Each op's own error switch is a **distinct set**, not shared across ops:
+  `InvokeEndpoint` = InternalDependencyException/InternalFailure/
+  ModelError/ModelNotReadyException/ServiceUnavailable/ValidationError
+  (`deserializers.go:113-131`); `InvokeEndpointAsync` = InternalFailure/
+  ServiceUnavailable/ValidationError only, no ModelError
+  (`deserializers.go:296-306`); `InvokeEndpointWithResponseStream` =
+  InternalFailure/InternalStreamFailure/ModelError/ModelStreamError/
+  ServiceUnavailable/ValidationError, no InternalDependencyException, no
+  ModelNotReadyException (`deserializers.go:451-471`). gopherstack never
+  hand-codes these switches (mock-only synchronous success path), so there
+  is nothing to mismatch, but the sets themselves are worth recording so a
+  future auditor doesn't assume they're identical.
+- `ModelError`'s extra members (`OriginalStatusCode *int32`,
+  `OriginalMessage *string`, `LogStreamArn *string`) and `ModelStreamError`'s
+  (`ErrorCode_ *string`) confirmed against `types/errors.go` -- unreachable
+  organically (no real model container to fail), same as the 2026-07-24
+  finding.
+- `X-Amzn-ErrorType` is never set by `handler.go`'s `errorResponse` path
+  (checked: only a JSON body with `__type`/`message` is written). Verified
+  this is **not** a bug here (unlike the mediastoredata precedent this
+  campaign flagged): the SDK's `awsRestjson1_deserializeOpErrorInvoke*`
+  functions call `restjson.GetErrorInfo`, which falls back to the body's
+  `__type` field whenever the header is absent
+  (`aws-sdk-go-v2@v1.43.4/aws/protocol/restjson/decoder_util.go:15-46`), and
+  `errorResponse`'s `{"__type": code, "message": msg}` shape is exactly what
+  that fallback expects -- confirmed a client still gets the correct typed
+  exception (e.g. `types.ValidationError`) without the header.
+- `InvokeEndpointAsyncInput`'s `Body []byte` member (the mutual-exclusivity
+  gap flagged 2026-08-11) re-confirmed present and unenforced; not fixed
+  this pass either -- it's an unenforced-validation gap, not one of the five
+  wrapper-key/nesting bug shapes this sweep targets, and was already
+  correctly disclosed.
+
+**New this pass:** added `TestSDKEventStreamFraming_RealReader`
+(`invoke_endpoint_stream_test.go`) -- drives
+`InvokeEndpointWithResponseStream` through the real SDK client and reads the
+response with the SDK's own `GetStream().Events()` reader (not hand-parsed
+bytes), asserting every event decodes to
+`*types.ResponseStreamMemberPayloadPart` (never `UnknownUnionMember`) with
+the expected `Bytes` content. The pre-existing `TestSDKResponseBindings`
+only asserted `GetStream().Close()` didn't error, which doesn't prove frame
+correctness (a truncated/malformed frame can still close cleanly without
+being read). Proved this test is not vacuous by hand-corrupting
+`eventStreamHeaderValueTypeString` from `7` to `3` (via the scratchpad
+`cp`-based hand-revert method): the new test fails with "unexpected EOF"
+while the pre-existing stream tests still pass, confirming only the new
+test actually exercises frame-level correctness.
+
+**Provenance:** the prior stamp (`last_audit_commit: 95ab0584`,
+`last_audit_date: 2026-07-24`) checked out: `git show -s --format=%ad
+95ab0584` -> `Mon Jul 13 10:54:25 2026 -0500`, an 11-day gap before the
+claimed audit date, which per this campaign's provenance heuristic
+("sha predates date" is the tell) is suspicious -- though note that commit
+is unrelated to this service (a `dlm` fix), consistent with this campaign's
+observation that commit-doesn't-touch-the-directory is not itself
+disqualifying. Separately, the 2026-08-11 SDK pin-correction pass
+(`d39bf33e4`, bumped `v1.39.3` -> `v1.43.4` and added the `Body`-field gap
+entry) touched this file's content but did **not** advance
+`last_audit_commit`/`last_audit_date` -- the stamp had gone stale relative
+to real work already done on the file. Both are refreshed by this pass to
+current HEAD (`914e8b59`, 2026-08-20).
+
+Gates: `go build`, `go vet`, `go fix -diff` (empty), `gofmt -l` (empty),
+`go test -race` (all green, including the new round-trip test),
+`golangci-lint run` (0 issues). `git status --short` outside this service
+directory: clean.
