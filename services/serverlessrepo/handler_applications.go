@@ -76,6 +76,9 @@ type versionResponse struct {
 }
 
 // applicationResponse represents the API response shape for a single application.
+// CreateApplicationOutput/GetApplicationOutput/UpdateApplicationOutput
+// (aws-sdk-go-v2/service/serverlessapplicationrepository@v1.33.4, api_op_GetApplication.go)
+// carry no top-level sourceCodeUrl -- that field exists only nested under Version.
 type applicationResponse struct {
 	Version           *versionResponse `json:"version,omitempty"`
 	HomePageURL       string           `json:"homePageUrl,omitempty"`
@@ -87,7 +90,6 @@ type applicationResponse struct {
 	LicenseURL        string           `json:"licenseUrl,omitempty"`
 	ReadmeURL         string           `json:"readmeUrl,omitempty"`
 	SpdxLicenseID     string           `json:"spdxLicenseId,omitempty"`
-	SourceCodeURL     string           `json:"sourceCodeUrl,omitempty"`
 	VerifiedAuthorURL string           `json:"verifiedAuthorUrl,omitempty"`
 	Labels            []string         `json:"labels,omitempty"`
 	IsVerifiedAuthor  bool             `json:"isVerifiedAuthor"`
@@ -111,7 +113,6 @@ func toApplicationResponse(a *Application) applicationResponse {
 		Name:              a.Name,
 		Description:       a.Description,
 		Author:            a.Author,
-		SourceCodeURL:     a.SourceCodeURL,
 		HomePageURL:       a.HomePageURL,
 		LicenseURL:        a.LicenseURL,
 		ReadmeURL:         a.ReadmeURL,
