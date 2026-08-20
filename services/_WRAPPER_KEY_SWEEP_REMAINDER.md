@@ -1,6 +1,6 @@
 # Wrapper-key / nested-shape sweep remainder (gopherstack-6flj)
 
-**155 of 162 services swept, 7 remain.** Read the "Provenance heuristic"
+**158 of 162 swept (156 of the 160 real services); see the tombstone note.** Read the "Provenance heuristic"
 section at the end of this file before judging any manifest's
 last_audit_commit -- four false accusations this session, zero true findings
 from the test that produced them. Earlier text: (15-, 13-, 12- and 11-L+D+G tiers
@@ -173,7 +173,8 @@ session), **workmail** (this session), **workspaces** (this session),
 **polly** (2026-08-20), **scheduler** (2026-08-20),
 **timestreamquery** (2026-08-20), **cloudcontrol** (2026-08-20),
 **mediastoredata** (2026-08-20), **pipes** (2026-08-20),
-**kinesisanalytics** (2026-08-20).
+**kinesisanalytics** (2026-08-20), **mwaa** (2026-08-20),
+**firehose** (2026-08-20), **bedrockruntime** (2026-08-20).
 
 This alphabetical list is itself incomplete and always has been — it was
 last rewritten wholesale when the count read 64, and per-session sections
@@ -12443,3 +12444,122 @@ services, genuinely low surface for this bug class") was correct.
 **Revised remaining list**: `dms` (23 ops, previously invisible),
 `appconfigdata`, `apigatewaymanagementapi`, `sagemakerruntime`, `rdsdata`,
 plus `firehose` and `bedrockruntime` in flight.
+
+## mwaa (this session, 2026-08-20)
+
+All 12 ops swept. Protocol **restjson1**. Two bugs.
+
+The accepted `AirflowVersion` set was wrong **in both directions** —
+accepting five versions AWS has removed (2.6.3, 2.5.1, 2.4.3, 2.2.2,
+1.10.12) and rejecting three real current ones (2.10.1, 2.11.0, 3.0.6). The
+authoritative list appears identically in three places in the pinned SDK and
+now matches exactly. **Rejecting a version AWS supports is the more visible
+half**: a client creating a current environment got a validation error for a
+valid request.
+
+**The request/response conflation, found for the FOURTH time — and here it
+runs the OPPOSITE way from the previous three.**
+`ModuleLoggingConfiguration` carries `CloudWatchLogGroupArn`; its `Input`
+twin does not, because the ARN is server-computed. One shared Go type meant
+a client could **SET** the ARN on a create or update request and have
+gopherstack echo it back as though AWS had generated it. The previous three
+leaked request-only fields INTO responses; this leaks a response-only field
+into the REQUEST path.
+
+pipes' reader check is what made it a bug rather than a curiosity —
+`buildEnvironment` and `UpdateEnvironment` copied it verbatim, so it was
+load-bearing. **The hand-revert here is a COMPILE ERROR rather than a failing
+assertion**, which is a stronger proof than the usual and worth reaching for
+when a fix splits a type.
+
+`Environment`'s thirty-four members were diffed individually. Stamp showed
+the cloudcontrol stuck-pointer pattern — never advanced across two later
+substantive passes that edited the manifest's own content. Commit
+`541f5045f`.
+
+## firehose (this session, 2026-08-20) — THE LARGEST SYSTEMIC FINDING
+
+All 12 ops swept. Protocol **awsjson1.1**. **Every destination carrying one
+nested S3 bucket uses a DIFFERENT wire key in each direction**, and
+gopherstack used a single fixed JSON tag across all three:
+
+```
+HttpEndpoint   S3Configuration / S3Update / S3DestinationDescription
+Splunk         S3Configuration / S3Update / S3DestinationDescription
+Elasticsearch  S3Configuration / S3Update / S3DestinationDescription
+OpenSearch     S3Configuration / S3Update / S3DestinationDescription
+Snowflake      S3Configuration / S3Update / S3DestinationDescription
+Redshift       S3Configuration / S3Update / S3DestinationDescription
+               + S3BackupConfiguration / S3BackupUpdate / S3BackupDescription
+ExtendedS3     S3BackupConfiguration / S3BackupUpdate / S3BackupDescription
+Iceberg        S3Configuration / S3Configuration        <- the ONE exception
+```
+
+Consequences per direction:
+- **Three families** (HttpEndpoint, OpenSearch, Splunk) tagged their create
+  field `S3BackupConfiguration` where the real key is `S3Configuration`,
+  which the SDK marks REQUIRED. A real client **could not populate the bucket
+  through CreateDeliveryStream at all.**
+- **Six families plus ExtendedS3's backup** recognised only the create key on
+  update, so `UpdateDestination` **silently left the bucket unchanged.**
+- **Four families** echoed under `S3BackupDescription` where the real
+  deserializer reads `S3DestinationDescription`, so **even a correctly stored
+  bucket never reached the client.**
+
+**None of these are fabricated members. They are real fields under wrong
+keys**, which is why nothing here is harmless: the staging and backup bucket
+for six of eight destination families was unreachable from a real client in
+at least one direction, and in three directions for HttpEndpoint, OpenSearch
+and Splunk.
+
+**Iceberg is the one family that genuinely keeps the same key on both create
+and update** — confirmed against its own serializer rather than generalised
+from its siblings, which is the entire reason this was checked per family.
+
+**THE RULE THIS ESTABLISHES: create, update and describe are THREE DIFFERENT
+CONTRACTS. Check each direction's own serializer/deserializer separately.**
+A single Go struct serving all three is the setup for exactly this.
+
+Three smaller fixes: Redshift alone among the destinations was missing
+`CloudWatchLoggingOptions` and `SecretsManagerConfiguration`, both real;
+`OrcSerDe` was missing `PaddingTolerance`; `ListDeliveryStreams`' type filter
+accepted two of the four real `DeliveryStreamType` values. Commit `a37fc3e38`.
+
+## bedrockruntime (this session, 2026-08-20)
+
+All 11 ops swept. Protocol **restjson1**. One bug: `ApplyGuardrail` returned
+a top-level `action` of `"BLOCKED"`.
+
+```
+GuardrailAction:            "NONE" | "GUARDRAIL_INTERVENED"
+GuardrailWordPolicyAction:  "BLOCKED" | "NONE"
+ApplyGuardrailOutput.Action types.GuardrailAction
+```
+
+`"BLOCKED"` is real — of a DIFFERENT enum, which this service uses correctly
+for `assessments[].wordPolicy.customWords[].action`. **One internal constant
+served two same-named-concept enums at two nesting levels.**
+
+**The failure mode is worth recording: Go does not validate scalar enum
+strings at decode time.** A real client received `GuardrailAction("BLOCKED")`
+with no error, and any typed switch against the two real values silently
+never fired. No crash, no decode failure — a branch that never matched. Six
+existing tests asserted it; the nested `customWords` assertion, correctly
+`"BLOCKED"`, was left alone, and that distinction is what makes this a real
+bug rather than a global rename.
+
+The union surface was **proven rather than read**: the new round-trip drives
+`ConverseStream` through the SDK's own eventstream reader and asserts no
+event decodes to `UnknownUnionMember`, including a check that a fabricated
+tag WOULD surface as one. That is the kinesis lesson applied.
+
+Disclosed with its reasoning: `GetAsyncInvoke` returns
+`ResourceNotFoundException`, but the pinned SDK's error deserializer for that
+op declares only four exceptions and that is not among them, unlike eight of
+the other ten ops. Genuinely ambiguous between an AWS quirk and an SDK model
+omission, unconfirmable without live AWS — cited, not guessed at. Commit
+`8755f3efc`.
+
+**158 of 162 swept (156 of the 160 real services). 4 remain: dms,
+appconfigdata, apigatewaymanagementapi, sagemakerruntime, rdsdata** — dms and
+appconfigdata in flight.
