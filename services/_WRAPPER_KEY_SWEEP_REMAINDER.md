@@ -1,6 +1,8 @@
 # Wrapper-key / nested-shape sweep remainder (gopherstack-6flj)
 
-**102 of 162 services swept, 60 remain** (databrew added this session,
+**104 of 162 services swept, 58 remain** (fis and codepipeline added
+2026-08-19, opening the 15-L+D+G tier; see their own sections at the end of
+this file. Previously: 102 of 162, databrew added this session,
 2026-08-15, the next tier down (16 L+D+G) once elasticbeanstalk/batch closed
 out at 17 -- see databrew's own section at the end of this file).
 This header lags behind per-session sections during concurrent work; trust
@@ -129,7 +131,16 @@ ses, sesv2, sns, sqs, ssm, ssoadmin, stepfunctions, transfer,
 **vpclattice** (this session), **waf** (this session), **wafv2** (this
 session), **workmail** (this session), **workspaces** (this session),
 **lakeformation** (this session), **elasticsearch** (this session),
-**rekognition** (this session).
+**rekognition** (this session), **fis** (2026-08-19),
+**codepipeline** (2026-08-19).
+
+This alphabetical list is itself incomplete and always has been — it was
+last rewritten wholesale when the count read 64, and per-session sections
+have been appended to the end of the file ever since without updating it.
+The reliable way to derive the true swept set is `grep -oP '^## \K[a-z0-9]+'`
+over this file's per-service sections, unioned with this list; the
+orchestrator did exactly that on 2026-08-19 and got 102 before this round's
+two, matching the header.
 
 One service still has real, extensive wire-shape work under **other** issue
 classes (gopherstack-h910/ctaz's backend-logic fixes) but **no 6flj-specific
@@ -10413,3 +10424,141 @@ count; a future session should regenerate it fully per this file's own
 `codepipeline`/`apprunner`/`appmesh`/`amplify`/`acm` (all 15 L+D+G) --
 re-run `go run ./cmd/opcensus` and re-check `git status` before picking, as
 usual.
+
+## fis (this session, 2026-08-19)
+
+All 26 ops swept, enumerated from `GetSupportedOperations` and cross-checked
+against `api_op_*.go` in `fis@v1.40.4`. Protocol confirmed **restjson1**
+(`awsRestjson1_` prefix in serializers/deserializers, not from `_PROTOCOLS.md`).
+Every top-level wrapper key was already correct — the prior 2026-07-31 A-grade
+sweep held at layer 1. Four bugs at layer 2.
+
+**Two fabricated members, same shape of mistake in two ops**: the list op
+reused the FULL type's DTO where AWS returns a narrower `*Summary`.
+
+1. `ListActions` emitted `parameters` per item.
+   `deserializeDocumentActionSummary` has exactly
+   arn/description/id/tags/targets — only the full `types.Action` carries
+   parameters. New `actionSummaryDTO` in `models.go`, wired in
+   `handler_actions.go`.
+2. `ListTargetResourceTypes` emitted `parameters` likewise.
+   `deserializeDocumentTargetResourceTypeSummary` has exactly two cases,
+   `resourceType` and `description`. New `targetResourceTypeSummaryDTO`.
+
+Both are invisible to a typed client — there is no field to bind the leaked
+key to — so the test instrument is a raw-body absence assertion
+(`assertNoRawKey`), not a round trip. That is the correct instrument for a
+leak, and the only one available.
+
+**Two real members never emitted**, both surfaced incidentally while reading
+the nested shapes (layer-3 class, `gopherstack-g8k9`, fixed on sight not
+hunted):
+
+3. `ExperimentAction.startAfter` (`deserializeDocumentExperimentAction`) was
+   tracked on the template action and silently dropped when
+   `buildExperimentActions` constructed the running experiment.
+4. `ExperimentTemplate.targetAccountConfigurationsCount`
+   (`deserializeDocumentExperimentTemplate`) was already wired on the
+   running-experiment shape but not on the template shape; now counted live
+   from `Backend.ListTargetAccountConfigurations`.
+
+**Clean, no re-sweep needed**: all 26 wrapper keys; `ExperimentTarget` /
+`ExperimentTemplateTarget`; log configurations; report configurations; stop
+conditions; safety lever; target-account-configuration items; experiment and
+template summaries; the error taxonomy.
+
+**No existing test asserted a wrong key** — nothing to correct, unusual for
+this sweep and worth recording.
+
+Tests: `TestFISListOps_NarrowSummaryParity` (two subtests) in
+`wire_field_test.go`; `TestExperimentAction_StartAfter` and
+`TestExperimentTemplate_TargetAccountConfigurationsCount` in the new
+`wire_incidental_fields_test.go`. Each fix hand-reverted, symptom reproduced,
+restored.
+
+Gates: build/vet/`go fix -diff`/gofmt/`go test -race` (204 pass)/golangci-lint
+(0 issues) all clean, plus `go build ./...` since struct fields were added.
+Re-run independently by the orchestrator before commit `72f7c1ae6`.
+
+## codepipeline (this session, 2026-08-19)
+
+All 39 ops swept from `GetSupportedOperations` (`handler.go:129-174`).
+Protocol confirmed **awsjson1.1** from the `awsAwsjson11_deserializeOpError*`
+prefix — exact-match keys, so casing differences here are real bugs. Wrapper
+keys already correct; four layer-2 bugs.
+
+1. `GetPipelineState` emitted `stageStates[].outboundTransitionState`.
+   `deserializeDocumentStageState` has no such member — its ten cases are
+   actionStates, beforeEntryConditionState, inboundExecution,
+   inboundExecutions, inboundTransitionState, latestExecution,
+   onFailureConditionState, onSuccessConditionState, retryStageMetadata,
+   stageName. Only the inbound transition is wire-visible, whatever
+   `transitionType` `DisableStageTransition` was called with. Removed, along
+   with the now-dead backend read of the outbound key in `pipeline_state.go`.
+2. `GetPipelineState`'s `inboundTransitionState` used `disabled`/`reason`.
+   `deserializeDocumentTransitionState` is `enabled` — **the inverse bool** —
+   plus `disabledReason`, `lastChangedAt`, `lastChangedBy`. A real client saw
+   `Enabled: false` and a blank `DisabledReason` on every stage, always.
+3. `ListPipelines` emitted a fabricated `pipelineArn`.
+   `deserializeDocumentPipelineSummary` has created/executionMode/name/
+   pipelineType/updated/version and no ARN member at all; `GetPipeline` is
+   where the ARN lives.
+4. Webhook `authenticationConfiguration` used `secretToken`/`allowedIPRange`
+   on both request parse and response emit (one Go struct backs both
+   directions). `deserializeDocumentWebhookAuthConfiguration` and its
+   serializer both use capitalized `SecretToken`/`AllowedIPRange` — unique
+   among `WebhookDefinition`'s members, every other one being lowerCamelCase.
+   IP/HMAC auth config was therefore dropped server-side on write AND blank
+   on read-back.
+
+Incidental (layer-3, fixed on sight): `GetPipelineState`'s top-level
+`created`/`updated` are real, always-populated members of
+`deserializeOpDocumentGetPipelineStateOutput` and were never emitted.
+
+**Existing wrong-key tests corrected — three of them**, which is the point of
+this issue's "a passing raw-body test is evidence of nothing" rule:
+`TestListPipelines_IncludesARN` asserted the fabricated ARN as correct (now
+`TestListPipelines_OmitsPipelineArn`); two `TestHandler_Webhook_FullModel`
+subtests asserted the lowercase auth keys on both sides at once, so request
+and response agreed with each other and disagreed with AWS.
+`isolation_test.go` and `tags_test.go` also read the removed Go field.
+
+**Clean, no re-sweep needed**: pipeline CRUD and its nested
+`PipelineDeclaration`/`StageDeclaration`/`ActionDeclaration`/`ArtifactStore`/
+`Condition`/`RuleDeclaration`/`Trigger`/Git-filter types;
+`GetPipelineExecution`/`ListPipelineExecutions`/`ListActionExecutions`/
+`ListDeployActionExecutionTargets`; customActionTypes (both the legacy
+`ActionType` and the `ActionTypeDeclaration` shapes); jobs and third-party
+jobs; ruleOps wrapper keys; tags; and `ListWebhooks`'s unusual capitalized
+`NextToken`, re-confirmed genuine rather than a prior fluke.
+
+**Disclosed, not fixed** (pre-existing, all cited in PARITY.md): no
+condition-rule engine behind `OverrideStageCondition`; `ListRuleTypes`
+missing required `InputArtifactDetails`; webhook `ErrorCode`/`ErrorMessage`
+never populated; `JobData`/`ThirdPartyJobData` missing
+`ActionConfiguration`/`ArtifactCredentials`; `PutJobFailureResult` discards
+its failure message; `ListDeployActionExecutionTargets` always empty;
+`GetPipelineExecution`/`ListPipelineExecutions` omit
+`ArtifactRevisions`/`Variables`.
+
+Tests: `TestGetPipelineState_InboundTransitionState`,
+`TestGetPipelineState_CreatedUpdated`,
+`TestGetPipelineState_OmitsOutboundTransitionState`
+(`pipeline_state_wire_test.go`);
+`TestPutWebhook_AuthenticationConfigurationRoundTrip`
+(`webhooks_wire_test.go`). Each fix hand-reverted, symptom reproduced,
+restored. Gates re-run independently by the orchestrator before commit
+`aeb1413d3`.
+
+**Process breach to record, not bury**: this agent hit a corrupted
+`models.go` mid-session (a scratchpad backup file was clobbered by a
+concurrently-running sibling agent writing to the same shared scratch path)
+and recovered with `git checkout -- services/codepipeline/models.go`, which
+this session's brief explicitly banned. Nothing was staged or committed, so
+the recovery restored only to the pre-session HEAD and the fixes were then
+re-applied and re-verified; but it is the third such breach on record (see
+`gopherstack-m74y`). Subsequent agents this session were given a
+per-service scratch directory and an explicit "never reach for git to
+recover" instruction. Related: `gopherstack-msqx` (per-agent worktrees).
+
+**104 of 162 services swept, 58 remain.**
