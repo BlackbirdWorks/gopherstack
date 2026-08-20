@@ -20,7 +20,7 @@ type StorageBackend interface {
 	) (*App, error)
 	GetApp(appID string) (*App, error)
 	ListApps(nextToken string, maxResults int) ([]*App, string, error)
-	DeleteApp(appID string) error
+	DeleteApp(appID string) (*App, error)
 	UpdateApp(
 		appID, name, description, repository, platform string,
 		opts ...AppOptions,
@@ -33,7 +33,7 @@ type StorageBackend interface {
 	) (*Branch, error)
 	GetBranch(appID, branchName string) (*Branch, error)
 	ListBranches(appID, nextToken string, maxResults int) ([]*Branch, string, error)
-	DeleteBranch(appID, branchName string) error
+	DeleteBranch(appID, branchName string) (*Branch, error)
 	UpdateBranch(
 		appID, branchName, description, stage string,
 		enableAutoBuild bool,

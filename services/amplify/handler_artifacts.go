@@ -88,7 +88,6 @@ func (h *Handler) listArtifacts(ctx context.Context, c *echo.Context, appID, bra
 
 type artifactView struct {
 	ArtifactID       string `json:"artifactId"`
-	ArtifactType     string `json:"artifactType"`
 	ArtifactFileName string `json:"artifactFileName"`
 }
 
@@ -97,7 +96,6 @@ func toArtifactViews(arts []*Artifact) []artifactView {
 	for i, a := range arts {
 		views[i] = artifactView{
 			ArtifactID:       a.ArtifactID,
-			ArtifactType:     a.ArtifactType,
 			ArtifactFileName: a.ArtifactFileName,
 		}
 	}

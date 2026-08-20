@@ -199,14 +199,16 @@ func (b *InMemoryBackend) ListApps(nextToken string, maxResults int) ([]*App, st
 // deleting an app would leave every child resource behind as a ghost row
 // still reachable by ListBranches/ListJobs/etc. under the deleted app's ID,
 // growing every table unboundedly across create/delete churn.
-func (b *InMemoryBackend) DeleteApp(appID string) error {
+func (b *InMemoryBackend) DeleteApp(appID string) (*App, error) {
 	b.mu.Lock("DeleteApp")
 	defer b.mu.Unlock()
 
 	app, ok := b.apps.Get(appID)
 	if !ok {
-		return fmt.Errorf("%w: app %s not found", ErrNotFound, appID)
+		return nil, fmt.Errorf("%w: app %s not found", ErrNotFound, appID)
 	}
+
+	view := b.appView(app)
 
 	app.Tags.Close()
 
@@ -228,7 +230,7 @@ func (b *InMemoryBackend) DeleteApp(appID string) error {
 
 	b.apps.Delete(appID)
 
-	return nil
+	return view, nil
 }
 
 // deleteBranchLocked deletes branch and every job/artifact that belongs to

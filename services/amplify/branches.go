@@ -231,7 +231,7 @@ func (b *InMemoryBackend) ListBranches(
 // without this, deleted branches would leave ghost job/artifact rows behind
 // under a branch name ListJobs/ListArtifacts can no longer reach by any
 // legitimate path once the branch itself 404s.
-func (b *InMemoryBackend) DeleteBranch(appID, branchName string) error {
+func (b *InMemoryBackend) DeleteBranch(appID, branchName string) (*Branch, error) {
 	b.mu.Lock("DeleteBranch")
 	defer b.mu.Unlock()
 
@@ -239,12 +239,14 @@ func (b *InMemoryBackend) DeleteBranch(appID, branchName string) error {
 
 	branch, ok := b.branches.Get(key)
 	if !ok {
-		return fmt.Errorf("%w: branch %s not found for app %s", ErrNotFound, branchName, appID)
+		return nil, fmt.Errorf("%w: branch %s not found for app %s", ErrNotFound, branchName, appID)
 	}
+
+	view := b.branchView(branch)
 
 	b.deleteBranchLocked(branch)
 
-	return nil
+	return view, nil
 }
 
 // UpdateBranch updates an existing Amplify branch. opts is optional (see

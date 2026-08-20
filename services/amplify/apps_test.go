@@ -270,7 +270,7 @@ func TestInMemoryBackend_DeleteApp(t *testing.T) {
 
 			b := newTestBackend()
 			appID := tt.setup(b)
-			err := b.DeleteApp(appID)
+			deleted, err := b.DeleteApp(appID)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -283,6 +283,8 @@ func TestInMemoryBackend_DeleteApp(t *testing.T) {
 			}
 
 			require.NoError(t, err)
+			require.NotNil(t, deleted)
+			assert.Equal(t, appID, deleted.AppID)
 
 			_, getErr := b.GetApp(appID)
 			require.Error(t, getErr)

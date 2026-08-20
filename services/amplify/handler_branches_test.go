@@ -247,7 +247,7 @@ func TestHandler_DeleteBranch(t *testing.T) {
 
 				return app.AppID, "main"
 			},
-			wantStatus: http.StatusNoContent,
+			wantStatus: http.StatusOK,
 		},
 		{
 			name: "returns_404_for_missing_branch",
@@ -269,6 +269,16 @@ func TestHandler_DeleteBranch(t *testing.T) {
 			rec := doRequest(t, h, http.MethodDelete, "/apps/"+appID+"/branches/"+branchName, nil)
 
 			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantStatus == http.StatusOK {
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				branch, ok := resp["branch"].(map[string]any)
+				require.True(
+					t, ok, "expected a \"branch\" key wrapping the deleted Branch, got body %s", rec.Body.String(),
+				)
+				assert.Equal(t, branchName, branch["branchName"])
+			}
 		})
 	}
 }

@@ -1,21 +1,28 @@
 ---
 service: amplify
 sdk_module: aws-sdk-go-v2/service/amplify@v1.41.4
-last_audit_commit: c807b481
-last_audit_date: 2026-07-23
-overall: A            # this sweep: full App/Branch field parity, Stage enum fix, commitTime,
-                       # real build steps, real artifact producer + cascade delete, enum validation
+last_audit_commit: 08bd3ef27
+last_audit_date: 2026-08-19
+overall: A            # 2026-08-19 wrapper-key/nested-shape sweep: DeleteApp/DeleteBranch now
+                       # return the deleted resource (were bare 204s, dropping a required
+                       # response member); GetArtifactUrl echoed the artifact TYPE under the
+                       # "artifactId" key instead of the real ID; DomainAssociation and
+                       # BackendEnvironment wire views each carried a fabricated "appId" key
+                       # with no case in the real deserializer. See "Fixed this sweep
+                       # (2026-08-19)" below. Prior sweep (2026-07-23): full App/Branch field
+                       # parity, Stage enum fix, commitTime, real build steps, real artifact
+                       # producer + cascade delete, enum validation.
 ops:
   CreateApp: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this sweep: full field parity -- see gaps history below"}
   GetApp: {wire: ok, errors: ok, state: ok, persist: ok}
   ListApps: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateApp: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this sweep: same field parity as CreateApp, plus correct partial-update (nil-means-unchanged) semantics"}
-  DeleteApp: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this sweep: now cascades jobs/artifacts/domains/webhooks/backendEnvironments, not just branches -- see leaks"}
+  DeleteApp: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed 2026-08-19: response was a bare 204 No Content dropping DeleteAppOutput.App (a required member, api_op_DeleteApp.go:44) entirely -- a real client's out.App decoded nil; now returns {\"app\": <App>} of the app as it existed pre-delete. 2026-07-23: cascades jobs/artifacts/domains/webhooks/backendEnvironments, not just branches -- see leaks"}
   CreateBranch: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this sweep: full field parity -- see gaps history below"}
   GetBranch: {wire: ok, errors: ok, state: ok, persist: ok}
   ListBranches: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateBranch: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this sweep: same field parity as CreateBranch, plus correct partial-update semantics"}
-  DeleteBranch: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this sweep: now cascades jobs/artifacts -- see leaks"}
+  DeleteBranch: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed 2026-08-19: same bug as DeleteApp -- bare 204 dropped DeleteBranchOutput.Branch (required, api_op_DeleteBranch.go:44); now returns {\"branch\": <Branch>}. 2026-07-23: cascades jobs/artifacts -- see leaks"}
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -29,7 +36,7 @@ ops:
   CreateDomainAssociation: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateDomainAssociation: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteDomainAssociation: {wire: ok, errors: ok, state: ok, persist: ok}
-  GetDomainAssociation: {wire: ok, errors: ok, state: ok, persist: ok}
+  GetDomainAssociation: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed 2026-08-19: domainAssociationView carried a fabricated \"appId\" field with no case in the real deserializer -- types.DomainAssociation has no AppId member at all (types/types.go:542); removed. Applies to every op returning a DomainAssociation (Create/Update/Delete/Get/List)."}
   ListDomainAssociations: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateWebhook: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateWebhook: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -37,22 +44,26 @@ ops:
   GetWebhook: {wire: ok, errors: ok, state: ok, persist: ok}
   ListWebhooks: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateBackendEnvironment: {wire: ok, errors: ok, state: ok, persist: ok}
-  GetBackendEnvironment: {wire: ok, errors: ok, state: ok, persist: ok}
+  GetBackendEnvironment: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed 2026-08-19: backendEnvironmentView carried a fabricated \"appId\" field with no case in the real deserializer -- types.BackendEnvironment has no AppId member at all (types/types.go:230); removed. Applies to every op returning a BackendEnvironment (Create/Delete/Get/List)."}
   DeleteBackendEnvironment: {wire: ok, errors: ok, state: ok, persist: ok}
   ListBackendEnvironments: {wire: ok, errors: ok, state: ok, persist: ok}
   GenerateAccessLogs: {wire: ok, errors: ok, state: ok, persist: n/a, note: "URL-only response, nothing to persist"}
-  GetArtifactUrl: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListArtifacts: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this sweep: janitor.go now creates a real Artifact record (type BUILD) for every job it advances to SUCCEED, indexed by job so ListArtifacts/GetArtifactUrl have real content -- see Notes"}
+  GetArtifactUrl: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed 2026-08-19: the \"artifactId\" key (required string, api_op_GetArtifactUrl.go:39) carried InMemoryBackend.GetArtifactURL's first return value, which was artifact.ArtifactType (\"BUILD\") not the artifact's real ID -- same key, wrong value, no decode failure since both are strings. Now echoes artifact.ArtifactID."}
+  ListArtifacts: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed 2026-08-19: per-item Artifact wire view (artifactView) carried a fabricated \"artifactType\" field with no case at all in the real deserializer (types.Artifact has only ArtifactId/ArtifactFileName, types/types.go:157) -- removed. 2026-07-23: janitor.go now creates a real Artifact record (type BUILD, an internal-only bookkeeping field, never on the wire) for every job it advances to SUCCEED, indexed by job so ListArtifacts/GetArtifactUrl have real content -- see Notes"}
 families:
   routing: {status: ok, note: "every op's HTTP method + REST path verified 1:1 against aws-sdk-go-v2/service/amplify@v1.40.0 serializers.go SplitURI/request.Method calls (all 35 ops); no route-matcher bugs found -- POST-not-PUT for UpdateApp/UpdateBranch/UpdateDomainAssociation/UpdateWebhook already correct, tag ARN scoping (amplifyServiceIdentifier check) already correct"}
   errors: {status: ok, note: "handleBackendError/amplifyErrorJSON emit both the X-Amzn-Errortype header and a __type body field; this sweep added a BadRequestException mapping for awserr.ErrInvalidParameter (the new Platform/Stage/JobType/RETRY-jobId validation errors) alongside the existing NotFoundException/AlreadyExists mappings"}
-gaps: []
-  # Every gap/deferred item from the prior audit (2026-07-13) was field-diffed
-  # against aws-sdk-go-v2/service/amplify@v1.40.0/types and fixed for real this
-  # sweep. See "Fixed this sweep" in Notes for what changed and why, and
-  # "Verified correct as-is (not a gap)" for two items that were reclassified
-  # after independently re-diffing them against the real SDK -- they don't
-  # belong under gaps at all, prior-audit language notwithstanding.
+gaps:
+  - "App: computeRoleArn, jobConfig, webhookCreateTime -- new optional response members added to types.App since the 2026-07-23 audit's v1.40.0 baseline (now v1.41.4); never emitted. Not required members, layer-3 (never-emitted), disclosed but not fixed this sweep per sweep scope."
+  - "Branch: backend, computeRoleArn, destinationBranch, enableSkewProtection, thumbnailUrl -- same: new optional types.Branch members since v1.40.0, never emitted, layer-3, disclosed not fixed."
+  - "JobSummary: sourceUrl, sourceUrlType -- optional members on types.JobSummary, never emitted (jobSummaryView), layer-3, disclosed not fixed."
+  - "DomainAssociation: certificate, updateStatus, autoSubDomainCreationPatterns, autoSubDomainIAMRole -- optional types.DomainAssociation members, never emitted (domainAssociationView), layer-3, disclosed not fixed."
+  # Every gap/deferred item from the 2026-07-23 audit was field-diffed against
+  # aws-sdk-go-v2/service/amplify@v1.40.0/types and fixed for real that sweep.
+  # The gaps above are new, surfaced by this sweep's field-diff against the
+  # now-pinned v1.41.4 -- all are optional (non-required) response members
+  # never emitted at all (layer 3), out of scope to fix per this sweep's
+  # brief; none is a wrong key/shape/type bug.
 deferred: []
   # "Full App/Branch field parity" and "server-side enum validation" (the two
   # prior deferred items) are both done this sweep -- see gaps history above.
@@ -62,6 +73,68 @@ leaks: {status: clean, note: "janitor.Run blocks on <-ctx.Done() and calls worke
 ## Notes
 
 Protocol: **restjson1**. Timestamps are Unix epoch-seconds `float64` (createTime/updateTime/startTime/endTime/commitTime/lastDeployTime), not ISO8601 -- already correct throughout (toAppView/toBranchView/toJobSummaryView/toProductionBranchView/etc.), including every new timestamp field added this sweep.
+
+### Fixed this sweep (2026-08-19)
+
+Wrapper-key / nested-shape sweep against the pinned `aws-sdk-go-v2/service/amplify@v1.41.4`.
+All 37 ops enumerated and re-verified (see method below); four real bugs found, each proven
+by hand-revert (reintroduce the bug, confirm the new test reproduces the exact predicted
+symptom, restore, confirm the source is byte-identical to before).
+
+1. **DeleteApp/DeleteBranch dropped a required response member entirely** (services/amplify/
+   handler_apps.go, handler_branches.go, apps.go, branches.go, interfaces.go). Real
+   `DeleteAppOutput.App` and `DeleteBranchOutput.Branch` are both required members
+   (api_op_DeleteApp.go:44, api_op_DeleteBranch.go:44) -- every Amplify Delete* op returns the
+   deleted resource, not an empty body. gopherstack answered both with a bare
+   `204 No Content`, so a real SDK client's `out.App`/`out.Branch` decoded as `nil` (the
+   restjson1 deserializer tolerates an empty body via `io.EOF`, so the call itself doesn't
+   error -- `err == nil`, silently wrong data, exactly the bug class this sweep hunts).
+   `InMemoryBackend.DeleteApp`/`DeleteBranch` now return `(*App, error)`/`(*Branch, error)`
+   (the view is computed via `appView`/`branchView` *before* the cascading delete, so it
+   reflects the resource as it existed at deletion time); the handlers now answer
+   `{"app": <App>}`/`{"branch": <Branch>}` at `200 OK`. `TestHandler_DeleteApp`/
+   `TestHandler_DeleteBranch` previously asserted `http.StatusNoContent` -- a wrong-key test
+   that locked in the bug -- corrected to assert `200` plus the wrapper key's presence. New
+   tests: `TestDeleteApp_RoundTrip`, `TestDeleteBranch_RoundTrip` (wire_shape_test.go), driven
+   through the real SDK client so the assertion is on the typed `out.App`/`out.Branch`, not a
+   raw body. Hand-revert symptom: `out.App`/`out.Branch` nil (require.NotNil failure).
+
+2. **GetArtifactUrl echoed the artifact TYPE under the "artifactId" key, not the artifact ID**
+   (services/amplify/artifacts.go). `GetArtifactUrlOutput.ArtifactId` is a required string
+   member that real Amplify echoes back (api_op_GetArtifactUrl.go:31,39).
+   `InMemoryBackend.GetArtifactURL`'s first return value was `artifact.ArtifactType` (always
+   `"BUILD"`) instead of `artifact.ArtifactID` -- the right JSON key, wrong value, no decode
+   failure (both are plain strings, so a real client's `*out.ArtifactId` silently read
+   `"BUILD"` for every artifact instead of its actual ID). Now returns `artifact.ArtifactID`.
+   New test: `TestGetArtifactUrl_RoundTrip` (wire_shape_test.go), through the real SDK client.
+   Hand-revert symptom: `out.ArtifactId == "BUILD"` instead of the real artifact ID.
+
+3. **DomainAssociation and BackendEnvironment wire views each fabricated an "appId" key with
+   no case at all in the real deserializer** (services/amplify/handler_domains.go,
+   handler_environments.go). `types.DomainAssociation` (types/types.go:542) and
+   `types.BackendEnvironment` (types/types.go:230) have no `AppId` member -- real Amplify
+   never returns one for either resource type (it's implicit in the request path, not
+   round-tripped in the body). `domainAssociationView`/`backendEnvironmentView` each carried
+   an extra `AppID string \`json:"appId"\`` field with nothing corresponding to it in
+   `awsRestjson1_deserializeDocumentDomainAssociation`/`...BackendEnvironment` -- the exact
+   fabricated-member pattern this sweep's brief calls out (codepipeline `pipelineArn`, acm
+   `KeyId`). Removed from both wire views (the internal `DomainAssociation.AppID`/
+   `BackendEnvironment.AppID` Go struct fields are unaffected -- still used internally for
+   backend indexing, just never serialized). Because the real SDK type has no field to
+   observe this on, a typed-client assertion can't prove the fix; new tests
+   `TestGetDomainAssociation_NoFabricatedAppID`/`TestGetBackendEnvironment_NoFabricatedAppID`
+   (wire_shape_test.go) use a raw-body key-absence assertion instead, per the sweep's
+   instrument-selection rule. Hand-revert symptom: `appId` key present in both response
+   bodies.
+
+**Method**: enumerated all 37 ops from `ls api_op_*.go` in the pinned SDK dir, matching 1:1
+against `GetSupportedOperations`' 37-op list (`sdk_completeness_test.go` already enforces
+this); confirmed protocol as `restjson1` from
+`awsRestjson1_deserializeOp*` prefixes in `deserializers.go` (not from `_PROTOCOLS.md`, per
+sweep brief); read every op's own `awsRestjson1_deserializeOpDocument<Op>Output` switch for
+its top-level wrapper key, then every nested type's own `awsRestjson1_deserializeDocument<Type>`
+switch for its full field/case list, diffed field-by-field against gopherstack's wire view
+structs and `toXView` functions -- never generalized from a sibling op or sibling type.
 
 ### Fixed this sweep (2026-07-23)
 
