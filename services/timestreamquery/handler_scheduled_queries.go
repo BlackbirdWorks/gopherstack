@@ -9,6 +9,45 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 )
 
+// multiMeasureAttributeMappingInput mirrors types.MultiMeasureAttributeMapping.
+type multiMeasureAttributeMappingInput struct {
+	SourceColumn                    string `json:"SourceColumn"`
+	TargetMultiMeasureAttributeName string `json:"TargetMultiMeasureAttributeName"`
+	MeasureValueType                string `json:"MeasureValueType"`
+}
+
+// multiMeasureMappingsInput mirrors types.MultiMeasureMappings.
+type multiMeasureMappingsInput struct {
+	TargetMultiMeasureName        string                              `json:"TargetMultiMeasureName"`
+	MultiMeasureAttributeMappings []multiMeasureAttributeMappingInput `json:"MultiMeasureAttributeMappings"`
+}
+
+// dimensionMappingInput mirrors types.DimensionMapping.
+type dimensionMappingInput struct {
+	Name               string `json:"Name"`
+	DimensionValueType string `json:"DimensionValueType"`
+}
+
+// mixedMeasureMappingInput mirrors types.MixedMeasureMapping.
+type mixedMeasureMappingInput struct {
+	MeasureName                   string                              `json:"MeasureName"`
+	SourceColumn                  string                              `json:"SourceColumn"`
+	TargetMeasureName             string                              `json:"TargetMeasureName"`
+	MeasureValueType              string                              `json:"MeasureValueType"`
+	MultiMeasureAttributeMappings []multiMeasureAttributeMappingInput `json:"MultiMeasureAttributeMappings"`
+}
+
+// timestreamConfigurationInput mirrors types.TimestreamConfiguration.
+type timestreamConfigurationInput struct {
+	MultiMeasureMappings *multiMeasureMappingsInput `json:"MultiMeasureMappings"`
+	DatabaseName         string                     `json:"DatabaseName"`
+	TableName            string                     `json:"TableName"`
+	TimeColumn           string                     `json:"TimeColumn"`
+	MeasureNameColumn    string                     `json:"MeasureNameColumn"`
+	DimensionMappings    []dimensionMappingInput    `json:"DimensionMappings"`
+	MixedMeasureMappings []mixedMeasureMappingInput `json:"MixedMeasureMappings"`
+}
+
 type createScheduledQueryInput struct {
 	ErrorReportConfiguration struct {
 		S3Configuration *struct {
@@ -29,15 +68,70 @@ type createScheduledQueryInput struct {
 		ScheduleExpression string `json:"ScheduleExpression"`
 	} `json:"ScheduleConfiguration"`
 	TargetConfiguration struct {
-		TimestreamConfiguration *struct {
-			DatabaseName string `json:"DatabaseName"`
-			TableName    string `json:"TableName"`
-		} `json:"TimestreamConfiguration"`
+		TimestreamConfiguration *timestreamConfigurationInput `json:"TimestreamConfiguration"`
 	} `json:"TargetConfiguration"`
 	Tags []struct {
 		Key   string `json:"Key"`
 		Value string `json:"Value"`
 	} `json:"Tags"`
+}
+
+// parseTargetConfiguration converts the parsed request-side TimestreamConfiguration
+// into the (targetDatabase, targetTable, targetDetail) triple CreateScheduledQuery
+// expects. Returns zero values / nil when tc is nil (TargetConfiguration is
+// optional on CreateScheduledQueryInput).
+func parseTargetConfiguration(tc *timestreamConfigurationInput) (string, string, *ScheduledQueryTargetDetail) {
+	if tc == nil {
+		return "", "", nil
+	}
+
+	detail := &ScheduledQueryTargetDetail{
+		TimeColumn:           tc.TimeColumn,
+		MeasureNameColumn:    tc.MeasureNameColumn,
+		MultiMeasureMappings: convertMultiMeasureMappings(tc.MultiMeasureMappings),
+	}
+
+	for _, dm := range tc.DimensionMappings {
+		detail.DimensionMappings = append(detail.DimensionMappings, DimensionMapping(dm))
+	}
+
+	for _, mm := range tc.MixedMeasureMappings {
+		detail.MixedMeasureMappings = append(detail.MixedMeasureMappings, MixedMeasureMapping{
+			MeasureName:                   mm.MeasureName,
+			SourceColumn:                  mm.SourceColumn,
+			TargetMeasureName:             mm.TargetMeasureName,
+			MeasureValueType:              mm.MeasureValueType,
+			MultiMeasureAttributeMappings: convertMultiMeasureAttributeMappings(mm.MultiMeasureAttributeMappings),
+		})
+	}
+
+	return tc.DatabaseName, tc.TableName, detail
+}
+
+func convertMultiMeasureMappings(mm *multiMeasureMappingsInput) *MultiMeasureMappings {
+	if mm == nil {
+		return nil
+	}
+
+	return &MultiMeasureMappings{
+		TargetMultiMeasureName:        mm.TargetMultiMeasureName,
+		MultiMeasureAttributeMappings: convertMultiMeasureAttributeMappings(mm.MultiMeasureAttributeMappings),
+	}
+}
+
+func convertMultiMeasureAttributeMappings(
+	in []multiMeasureAttributeMappingInput,
+) []MultiMeasureAttributeMapping {
+	if len(in) == 0 {
+		return nil
+	}
+
+	out := make([]MultiMeasureAttributeMapping, 0, len(in))
+	for _, am := range in {
+		out = append(out, MultiMeasureAttributeMapping(am))
+	}
+
+	return out
 }
 
 func (h *Handler) handleCreateScheduledQuery(ctx context.Context, body []byte) ([]byte, error) {
@@ -82,13 +176,7 @@ func (h *Handler) handleCreateScheduledQuery(ctx context.Context, body []byte) (
 	notificationTopicArn := req.NotificationConfiguration.SnsConfiguration.TopicArn
 	errorReportBucket := req.ErrorReportConfiguration.S3Configuration.BucketName
 
-	targetDB := ""
-	targetTable := ""
-
-	if req.TargetConfiguration.TimestreamConfiguration != nil {
-		targetDB = req.TargetConfiguration.TimestreamConfiguration.DatabaseName
-		targetTable = req.TargetConfiguration.TimestreamConfiguration.TableName
-	}
+	targetDB, targetTable, targetDetail := parseTargetConfiguration(req.TargetConfiguration.TimestreamConfiguration)
 
 	tags := make(map[string]string, len(req.Tags))
 
@@ -104,6 +192,7 @@ func (h *Handler) handleCreateScheduledQuery(ctx context.Context, body []byte) (
 		notificationTopicArn, errorReportBucket,
 		targetDB, targetTable, req.ClientToken, req.KmsKeyID,
 		tags,
+		targetDetail,
 	)
 	if err != nil {
 		return nil, err
@@ -230,6 +319,38 @@ func (h *Handler) handleUpdateScheduledQuery(ctx context.Context, body []byte) (
 	return nil, nil
 }
 
+// targetConfigurationView builds the TimestreamConfiguration response map for
+// a scheduled query with a target database configured.
+func targetConfigurationView(sq *ScheduledQuery) map[string]any {
+	tsConfig := map[string]any{
+		"DatabaseName": sq.TargetDatabase,
+		"TableName":    sq.TargetTable,
+	}
+
+	td := sq.TargetDetail
+	if td == nil {
+		return tsConfig
+	}
+
+	if td.TimeColumn != "" {
+		tsConfig["TimeColumn"] = td.TimeColumn
+	}
+	if td.MeasureNameColumn != "" {
+		tsConfig["MeasureNameColumn"] = td.MeasureNameColumn
+	}
+	if len(td.DimensionMappings) > 0 {
+		tsConfig["DimensionMappings"] = td.DimensionMappings
+	}
+	if len(td.MixedMeasureMappings) > 0 {
+		tsConfig["MixedMeasureMappings"] = td.MixedMeasureMappings
+	}
+	if td.MultiMeasureMappings != nil {
+		tsConfig["MultiMeasureMappings"] = td.MultiMeasureMappings
+	}
+
+	return tsConfig
+}
+
 // scheduledQueryToView converts a ScheduledQuery to an API response map.
 func scheduledQueryToView(sq *ScheduledQuery) map[string]any {
 	view := map[string]any{
@@ -272,10 +393,7 @@ func scheduledQueryToView(sq *ScheduledQuery) map[string]any {
 
 	if sq.TargetDatabase != "" {
 		view["TargetConfiguration"] = map[string]any{
-			"TimestreamConfiguration": map[string]string{
-				"DatabaseName": sq.TargetDatabase,
-				"TableName":    sq.TargetTable,
-			},
+			"TimestreamConfiguration": targetConfigurationView(sq),
 		}
 	}
 

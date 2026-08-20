@@ -4,20 +4,66 @@ import "time"
 
 // ScheduledQuery represents a Timestream scheduled query.
 type ScheduledQuery struct {
-	LastRunTime             time.Time         `json:"last_run_time"`
-	CreationTime            time.Time         `json:"creation_time"`
-	Tags                    map[string]string `json:"tags"`
-	NotificationTopicArn    string            `json:"notification_topic_arn"`
-	ScheduleExpression      string            `json:"schedule_expression"`
-	ExecutionRoleArn        string            `json:"execution_role_arn"`
-	QueryString             string            `json:"query_string"`
-	ErrorReportS3BucketName string            `json:"error_report_s3_bucket_name"`
-	TargetDatabase          string            `json:"target_database"`
-	TargetTable             string            `json:"target_table"`
-	State                   string            `json:"state"`
-	Name                    string            `json:"name"`
-	Arn                     string            `json:"arn"`
-	KmsKeyID                string            `json:"kms_key_id,omitempty"`
+	LastRunTime             time.Time                   `json:"last_run_time"`
+	CreationTime            time.Time                   `json:"creation_time"`
+	TargetDetail            *ScheduledQueryTargetDetail `json:"target_detail,omitempty"`
+	Tags                    map[string]string           `json:"tags"`
+	NotificationTopicArn    string                      `json:"notification_topic_arn"`
+	ScheduleExpression      string                      `json:"schedule_expression"`
+	ExecutionRoleArn        string                      `json:"execution_role_arn"`
+	QueryString             string                      `json:"query_string"`
+	ErrorReportS3BucketName string                      `json:"error_report_s3_bucket_name"`
+	TargetDatabase          string                      `json:"target_database"`
+	TargetTable             string                      `json:"target_table"`
+	State                   string                      `json:"state"`
+	Name                    string                      `json:"name"`
+	Arn                     string                      `json:"arn"`
+	KmsKeyID                string                      `json:"kms_key_id,omitempty"`
+}
+
+// ScheduledQueryTargetDetail holds the TargetConfiguration.TimestreamConfiguration
+// fields beyond DatabaseName/TableName. TimeColumn and DimensionMappings are
+// both required (types.TimestreamConfiguration, api_op_CreateScheduledQuery.go)
+// whenever TargetConfiguration is set; MeasureNameColumn/MixedMeasureMappings/
+// MultiMeasureMappings are optional.
+type ScheduledQueryTargetDetail struct {
+	MultiMeasureMappings *MultiMeasureMappings
+	TimeColumn           string
+	MeasureNameColumn    string
+	DimensionMappings    []DimensionMapping
+	MixedMeasureMappings []MixedMeasureMapping
+}
+
+// DimensionMapping maps a query result column to a dimension in the
+// destination table (types.DimensionMapping on the wire).
+type DimensionMapping struct {
+	Name               string `json:"Name"`
+	DimensionValueType string `json:"DimensionValueType"`
+}
+
+// MultiMeasureAttributeMapping maps a source column to a multi-measure
+// attribute (types.MultiMeasureAttributeMapping on the wire).
+type MultiMeasureAttributeMapping struct {
+	SourceColumn                    string `json:"SourceColumn"`
+	TargetMultiMeasureAttributeName string `json:"TargetMultiMeasureAttributeName,omitempty"`
+	MeasureValueType                string `json:"MeasureValueType"`
+}
+
+// MixedMeasureMapping maps a query result column to a measure
+// (types.MixedMeasureMapping on the wire).
+type MixedMeasureMapping struct {
+	MeasureName                   string                         `json:"MeasureName,omitempty"`
+	SourceColumn                  string                         `json:"SourceColumn,omitempty"`
+	TargetMeasureName             string                         `json:"TargetMeasureName,omitempty"`
+	MeasureValueType              string                         `json:"MeasureValueType"`
+	MultiMeasureAttributeMappings []MultiMeasureAttributeMapping `json:"MultiMeasureAttributeMappings,omitempty"`
+}
+
+// MultiMeasureMappings groups multi-measure attribute mappings
+// (types.MultiMeasureMappings on the wire).
+type MultiMeasureMappings struct {
+	TargetMultiMeasureName        string                         `json:"TargetMultiMeasureName,omitempty"`
+	MultiMeasureAttributeMappings []MultiMeasureAttributeMapping `json:"MultiMeasureAttributeMappings"`
 }
 
 // ScheduledQuerySummary is a reduced view used in list responses.
