@@ -71,6 +71,11 @@ func (h *Handler) handleDescribeReplicationConfigurations(c *echo.Context) error
 }
 
 func rcToResponse(rc *ReplicationConfiguration) map[string]any {
+	dests := make([]map[string]any, 0, len(rc.Destinations))
+	for _, d := range rc.Destinations {
+		dests = append(dests, destinationToResponse(d))
+	}
+
 	return map[string]any{
 		"OriginalSourceFileSystemArn": rc.OriginalSourceFileSystemARN,
 		"SourceFileSystemArn":         rc.SourceFileSystemARN,
@@ -78,8 +83,32 @@ func rcToResponse(rc *ReplicationConfiguration) map[string]any {
 		"SourceFileSystemOwnerId":     rc.SourceFileSystemOwnerID,
 		"SourceFileSystemRegion":      rc.SourceFileSystemRegion,
 		"CreationTime":                rc.CreationTime,
-		"Destinations":                rc.Destinations,
+		"Destinations":                dests,
 	}
+}
+
+// destinationToResponse builds the wire shape of a single replication
+// destination, matching the real SDK's response-side types.Destination
+// exactly (FileSystemId, Region, Status, LastReplicatedTimestamp, OwnerId,
+// RoleArn, StatusMessage -- deserializers.go's
+// awsRestjson1_deserializeDocumentDestination). FileSystemArn,
+// AvailabilityZoneName, and KmsKeyId belong only to the request-side
+// DestinationToCreate and must never appear here.
+func destinationToResponse(d ReplicationDestination) map[string]any {
+	resp := map[string]any{
+		"FileSystemId": d.FileSystemID,
+		"Region":       d.Region,
+		keyStatus:      d.Status,
+		"OwnerId":      d.OwnerID,
+	}
+	if d.RoleArn != "" {
+		resp["RoleArn"] = d.RoleArn
+	}
+	if d.LastReplicatedTimestamp != 0 {
+		resp["LastReplicatedTimestamp"] = d.LastReplicatedTimestamp
+	}
+
+	return resp
 }
 
 type updateFileSystemProtectionBody struct {

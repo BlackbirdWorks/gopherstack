@@ -34,6 +34,7 @@ const (
 	keyFileSystemID   = "FileSystemId"
 	keyLifeCycleState = "LifeCycleState"
 	keyOwnerID        = "OwnerId"
+	keyStatus         = "Status"
 )
 
 const (

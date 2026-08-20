@@ -371,10 +371,16 @@ func TestReplicationConfiguration_SourceOwnerInResponse(t *testing.T) {
 		"SourceFileSystemOwnerId must be present in CreateReplicationConfiguration response")
 }
 
-// TestReplicationConfiguration_DestinationHasArnAndOwner verifies that
-// destination entries in a replication configuration include FileSystemArn and OwnerId.
-// Real AWS generates a destination file system and includes its ARN and owning account.
-func TestReplicationConfiguration_DestinationHasArnAndOwner(t *testing.T) {
+// TestReplicationConfiguration_DestinationHasOwnerNoArn verifies that
+// destination entries in a replication configuration include FileSystemId and
+// OwnerId, but never a FileSystemArn. Real AWS's response-side
+// types.Destination (aws-sdk-go-v2/service/efs@v1.44.4 types/types.go) has no
+// ARN field at all -- only the request-side types.DestinationToCreate does --
+// and deserializers.go's awsRestjson1_deserializeDocumentDestination declares
+// no "FileSystemArn" case, so a real SDK client would silently drop it. A
+// prior version of this test asserted the opposite and locked in that
+// fabricated field.
+func TestReplicationConfiguration_DestinationHasOwnerNoArn(t *testing.T) {
 	t.Parallel()
 
 	h := newTestEFSHandler()
@@ -398,12 +404,20 @@ func TestReplicationConfiguration_DestinationHasArnAndOwner(t *testing.T) {
 		})
 	require.Equal(t, http.StatusOK, rcRec.Code, "CreateReplicationConfiguration failed: %s", rcRec.Body.String())
 
+	var raw map[string]any
+	require.NoError(t, json.Unmarshal(rcRec.Body.Bytes(), &raw))
+	dests, ok := raw["Destinations"].([]any)
+	require.True(t, ok)
+	require.Len(t, dests, 1)
+
+	dest, ok := dests[0].(map[string]any)
+	require.True(t, ok)
+
 	var rcOut struct {
 		Destinations []struct {
-			FileSystemID  string `json:"FileSystemId"`
-			FileSystemArn string `json:"FileSystemArn"`
-			OwnerID       string `json:"OwnerId"`
-			Status        string `json:"Status"`
+			FileSystemID string `json:"FileSystemId"`
+			OwnerID      string `json:"OwnerId"`
+			Status       string `json:"Status"`
 		} `json:"Destinations"`
 	}
 	require.NoError(t, json.Unmarshal(rcRec.Body.Bytes(), &rcOut))
@@ -411,10 +425,11 @@ func TestReplicationConfiguration_DestinationHasArnAndOwner(t *testing.T) {
 
 	d := rcOut.Destinations[0]
 	assert.NotEmpty(t, d.FileSystemID, "destination FileSystemId must be assigned")
-	assert.Contains(t, d.FileSystemArn, "arn:aws:elasticfilesystem:",
-		"destination FileSystemArn must be a valid ARN")
 	assert.NotEmpty(t, d.OwnerID, "destination OwnerId must be present")
 	assert.Equal(t, "ENABLED", d.Status)
+
+	_, hasArn := dest["FileSystemArn"]
+	assert.False(t, hasArn, "destination FileSystemArn must not appear on the wire")
 }
 
 // TestDescribeReplicationConfigurations_ByDestinationFileSystemID verifies that
