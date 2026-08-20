@@ -1,6 +1,6 @@
 # Wrapper-key / nested-shape sweep remainder (gopherstack-6flj)
 
-**146 of 162 services swept, 16 remain.** Read the "Provenance heuristic"
+**151 of 162 services swept, 11 remain.** Read the "Provenance heuristic"
 section at the end of this file before judging any manifest's
 last_audit_commit -- four false accusations this session, zero true findings
 from the test that produced them. Earlier text: (15-, 13-, 12- and 11-L+D+G tiers
@@ -169,7 +169,9 @@ session), **workmail** (this session), **workspaces** (this session),
 **timestreamwrite** (2026-08-20), **dax** (2026-08-20),
 **comprehend** (2026-08-20), **mediapackage** (2026-08-20),
 **iotdataplane** (2026-08-20), **mediastore** (2026-08-20),
-**serverlessrepo** (2026-08-20).
+**serverlessrepo** (2026-08-20), **applicationautoscaling** (2026-08-20),
+**polly** (2026-08-20), **scheduler** (2026-08-20),
+**timestreamquery** (2026-08-20), **cloudcontrol** (2026-08-20).
 
 This alphabetical list is itself incomplete and always has been — it was
 last rewritten wholesale when the count read 64, and per-session sections
@@ -12149,3 +12151,153 @@ genuinely distinct item types, exactly the shape omics got ten of eleven ops
 wrong on. Commit `bf7f0944b`.
 
 **146 of 162 services swept, 16 remain.**
+
+## applicationautoscaling (this session, 2026-08-20)
+
+All 14 ops swept. Protocol **awsjson1.1**. One bug, and it broke the
+operation outright. `GetPredictiveScalingForecast` emitted
+`LoadForecast[].MetricSpecification` as a fabricated STRING built by joining
+namespace, resource id and dimension. The real member is
+`*types.PredictiveScalingMetricSpecification`, marked required, so every real
+client failed the whole call:
+
+```
+unexpected JSON type ecs/service/my-cluster/my-service/ecs:service:DesiredCount
+```
+
+Fifth call-breaking wrong-type bug. The fix does not substitute another
+placeholder — it echoes the caller's own configured metric spec, real data the
+backend already holds from `PutScalingPolicy`, and returns an empty forecast
+when none was configured.
+
+**A NEGATIVE TWIN CHECK WORTH AS MUCH AS THE FIX.** `gopherstack-41di`
+records that `autoscaling`'s `PutScalingPolicy` drops `ResourceLabel`, so
+this service's `PredefinedMetricSpecification` was checked for the same bug.
+It does not reproduce, **and not by luck**: policy configurations here are
+held as opaque `map[string]any` end to end, and unmarshalling into a map
+preserves every key at any depth. `autoscaling`'s bug is a TYPED STRUCT that
+named some fields and omitted others. Same concept, architecturally different
+exposure — **so a twin check must look at how the data is HELD, not just
+whether the field name appears.** Commit `68ca109bb`.
+
+## polly (this session, 2026-08-20)
+
+All 10 ops swept. Protocol **restjson1**. One bug: `ListLexicons` emitted
+each entry FLAT — `Name` alongside all six attribute fields as siblings —
+where the real `types.LexiconDescription` has exactly two cases, `Name` and
+`Attributes`, and drops anything else at that level. Every client saw
+`Attributes == nil` while the data sat one level too high. **`GetLexicon` was
+already correct**, which makes this the wrong-nesting shape rather than a
+missing one: same data, right in one op, misplaced in its sibling. Also
+removed a stray `Name` from the shared `LexiconAttributes` payload — the real
+type has no such member.
+
+**THIS SERVICE SHARPENS THE `gopherstack-cnhp` CHECK ONE MORE TURN, AND THIS
+IS THE FINAL FORM OF THE RULE.** `SynthesizeSpeech`'s `HandleDeserialize`
+DOES call `deserializeOpDocumentSynthesizeSpeechOutput`, so both the "is it
+called" grep AND iotdataplane's "read the call" refinement would say the body
+is a document. It is not:
+
+```go
+func awsRestjson1_deserializeOpDocumentSynthesizeSpeechOutput(
+        v *SynthesizeSpeechOutput, body io.ReadCloser) error {
+	...
+	v.AudioStream = body
+```
+
+No JSON decode at all. The name is the only thing suggesting otherwise.
+**Read the function BODY — not the name, not the call site.**
+
+`VoiceId` was checked programmatically rather than by eye: all 106 values
+diffed against the SDK's own `Values()`, empty diff. Provenance genuinely
+stale, and the trace explains how the bug survived — a later commit bumped
+only `sdk_module` and the date without re-verifying shapes, leaving a
+manifest that looked current. Commit `615cda74e`.
+
+## scheduler (this session, 2026-08-20)
+
+All 12 ops swept. Protocol **restjson1**. **Five bugs**, all inside
+`Target.EcsParameters` — the one nested block this service gets wrong while
+its five siblings are right.
+
+**Four are casing, and the pattern is new: this service is INTERNALLY
+inconsistent.** Its ECS block is lower-camel on the wire while its sibling
+blocks are PascalCase, and gopherstack applied the sibling convention
+throughout:
+
+```
+NetworkConfiguration         -> case "awsvpcConfiguration"   (was "AwsvpcConfiguration")
+CapacityProviderStrategyItem -> base capacityProvider weight (was Base/CapacityProvider/Weight)
+PlacementConstraint          -> expression type              (was Expression/Type)
+PlacementStrategy            -> same shape
+```
+
+restjson matches exactly and its default case is a silent no-op, so each
+dropped its WHOLE OBJECT without error. Casing hits six through nine, and the
+first where a single service disagrees with itself rather than with a sibling
+service. **Check each block against its own deserializer, not the service's
+prevailing convention.**
+
+Plus `EcsParameters.Tags` modelled as `[]{Key,Value}` where the real member is
+`[]map[string]string`, and `Target.InputTransformer` fabricated entirely — an
+EventBridge Rules concept that does not carry over to Scheduler. Four
+existing tests asserted the wrong keys and shape.
+
+**Third self-contradicting manifest this session**: its 2026-07-24 note wrote
+down the correct `[]map[string]string` type and then, a line later, called
+the buggy `{Key,Value}` shape correct. Annotated in place. After mq and
+kinesisanalyticsv2. Commit `0be795d3c`.
+
+## timestreamquery (this session, 2026-08-20)
+
+All 15 ops swept. Protocol **awsjson1.0**. One bug: `CreateScheduledQuery`
+silently discarded `TargetConfiguration` entirely. Inside it,
+`DimensionMappings`, `TimeColumn`, `DatabaseName` and `TableName` are all
+marked required, and none of it was parsed, stored or echoed by
+`DescribeScheduledQuery`. **A scheduled query is defined by where its results
+land**, so this dropped the half of the request that says what the query is
+for.
+
+The recursive shapes that make this service risky came back clean and were
+read line by line rather than inferred: `Datum` recursing through
+`TimeSeriesValue`/`ArrayValue`/`RowValue`, and `ColumnInfo` through
+`ArrayColumnInfo`/`TimeSeriesMeasureValueColumnInfo`/`RowColumnInfo`. A wrong
+key in either breaks EVERY query result, not one field.
+
+Twelve enums both directions; `S3EncryptionOption` turns out entirely
+unmodelled, recorded as a gap rather than counted as a fix. Provenance stale
+in the clearest form yet — cited sha is an **mwaa** commit dated 2026-07-13
+against an audit date of 2026-08-10. Commit `569c029de`.
+
+## cloudcontrol (this session, 2026-08-20)
+
+All 8 ops swept. Protocol **awsjson1.0**. **Zero bugs**, plus round-trip
+coverage for all eight.
+
+The shapes that make this service easy to get wrong are correct: its
+JSON-STRING fields — `ResourceDescription.Properties`,
+`ProgressEvent.ResourceModel`, `CreateResourceInput.DesiredState`,
+`UpdateResourceInput.PatchDocument` — are `*string` on the real SDK and
+`string` throughout gopherstack, both directions. **A resource document
+serialised into a string field is exactly where the struct-where-a-string-
+belongs mistake gets made**, and that shape has broken five ops this campaign.
+
+Five ops share `ProgressEvent` and each was verified against its OWN Output
+rather than generalised. `HandlerErrorCode`'s sixteen values, `Operation`'s
+three and `OperationStatus`'s six all check both ways.
+
+**The brief was wrong for the third time this session** — it named
+`HookStatus`, `HookInvocationPoint` and `HookFailureMode` as enums to check.
+At the pinned version they are not enum types at all; the corresponding
+`HookProgressEvent` members are plain `*string`. The agent verified and
+reported the discrepancy rather than inventing values to check against.
+
+**A NEW PROVENANCE VARIANT, and a genuine defect rather than a false alarm**:
+`last_audit_commit` had been stuck at one sha across THREE successive passes
+that each advanced `last_audit_date`. The dates moved, the pointer never did,
+so the stamp described a state three audits old while looking maintained.
+Distinct from the stale-sha cases — nothing about the sha is suspicious, only
+its immobility relative to the dates. **New check: did the stamp ADVANCE
+across passes?** Commit `bad4d6370`.
+
+**151 of 162 services swept, 11 remain.**
