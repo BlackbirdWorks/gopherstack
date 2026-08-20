@@ -399,7 +399,12 @@ type brokerResponse struct {
 func toBrokerResponse(br *Broker) brokerResponse {
 	users := make([]UserSummary, 0, len(br.Users))
 	for _, u := range br.Users {
-		users = append(users, UserSummary{Username: u.Username, Console: u.Console})
+		summary := UserSummary{Username: u.Username}
+		if u.Pending != nil {
+			summary.PendingChange = u.Pending.PendingChange
+		}
+
+		users = append(users, summary)
 	}
 
 	sort.Slice(users, func(i, j int) bool { return users[i].Username < users[j].Username })

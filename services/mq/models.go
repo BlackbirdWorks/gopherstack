@@ -46,6 +46,13 @@ const (
 	// ChangeTypeDelete marks a broker user delete that is pending a broker
 	// reboot. Mirrors aws-sdk-go-v2/service/mq/types.ChangeTypeDelete.
 	ChangeTypeDelete = "DELETE"
+
+	// DataReplicationRoleReplica marks a broker created with a
+	// dataReplicationPrimaryBrokerArn as the replica side of a CRDR pair.
+	// aws-sdk-go-v2/service/mq/types.DataReplicationMetadataOutput.DataReplicationRole
+	// is a free string field (no generated enum), but types.BrokerStateReplica
+	// ("REPLICA") confirms this is the real spelling AWS uses.
+	DataReplicationRoleReplica = "REPLICA"
 )
 
 // BrokerInstance holds endpoint information for a broker instance.
@@ -102,11 +109,12 @@ type UserPendingChanges struct {
 	Groups        []string `json:"groups,omitempty"`
 }
 
-// UserSummary is a summary of a broker user (returned in lists).
+// UserSummary is a summary of a broker user (returned in lists). Real
+// aws-sdk-go-v2/service/mq/types.UserSummary carries only username and
+// pendingChange -- no consoleAccess -- see ListUsersOutput/DescribeBrokerOutput.Users.
 type UserSummary struct {
 	Username      string `json:"username"`
 	PendingChange string `json:"pendingChange,omitempty"`
-	Console       bool   `json:"consoleAccess"`
 }
 
 // ConfigurationID holds a reference to a broker configuration.
@@ -210,10 +218,22 @@ type ActionRequired struct {
 	ActionRequiredInfo string `json:"actionRequiredInfo,omitempty"`
 }
 
-// DataReplicationMetadata describes an active CRDR (cross-region disaster recovery) link.
+// DataReplicationMetadata describes an active CRDR (cross-region disaster
+// recovery) link. DataReplicationCounterpart is a nested object in the real
+// wire shape (aws-sdk-go-v2/service/mq/types.DataReplicationMetadataOutput),
+// not a bare ARN string -- see DataReplicationCounterpart below.
 type DataReplicationMetadata struct {
-	DataReplicationCounterpart string `json:"dataReplicationCounterpart,omitempty"`
-	DataReplicationRole        string `json:"dataReplicationRole,omitempty"`
+	DataReplicationCounterpart *DataReplicationCounterpart `json:"dataReplicationCounterpart,omitempty"`
+	DataReplicationRole        string                      `json:"dataReplicationRole,omitempty"`
+}
+
+// DataReplicationCounterpart identifies the paired broker in a CRDR data
+// replication relationship. Mirrors
+// aws-sdk-go-v2/service/mq/types.DataReplicationCounterpart (brokerId/region,
+// both required on the wire).
+type DataReplicationCounterpart struct {
+	BrokerID string `json:"brokerId"`
+	Region   string `json:"region"`
 }
 
 // ConfigurationRevision holds revision metadata for a configuration.
