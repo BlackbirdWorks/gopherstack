@@ -569,12 +569,18 @@ func (h *Handler) handleBatchGetPolicy(
 		// resolvePolicyStoreID). An unresolvable alias fails just that one
 		// item, not the whole batch, mirroring how the backend already
 		// reports a not-found policy store as a per-item error.
+		// resolvePolicyStoreID only errors when r.PolicyStoreID carried the
+		// alias prefix and resolution failed, so this is always an alias
+		// miss -- the real SDK's BatchGetPolicyErrorCode enum has a
+		// dedicated POLICY_STORE_ALIAS_NOT_FOUND value for exactly that,
+		// distinct from a bare-ID miss (POLICY_STORE_NOT_FOUND), which the
+		// backend's own item loop already reports correctly.
 		resolvedID, err := h.resolvePolicyStoreID(r.PolicyStoreID)
 		if err != nil {
 			unresolved = append(unresolved, batchGetPolicyErrorItem{
 				PolicyStoreID: r.PolicyStoreID,
 				PolicyID:      r.PolicyID,
-				Code:          "POLICY_STORE_NOT_FOUND",
+				Code:          "POLICY_STORE_ALIAS_NOT_FOUND",
 				Message:       err.Error(),
 			})
 
