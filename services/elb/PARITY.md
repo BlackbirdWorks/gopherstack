@@ -6,8 +6,8 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: elb
 sdk_module: aws-sdk-go-v2/service/elasticloadbalancing@v1.36.4   # version audited against
-last_audit_commit: c9c03908                       # HEAD when this audit began (working tree, pre-commit)
-last_audit_date: 2026-07-24
+last_audit_commit: 9249d4561                      # HEAD when this audit began (working tree, pre-commit)
+last_audit_date: 2026-08-20
 overall: A            # A = genuine fixes found; B = already-accurate, proven op-by-op
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
@@ -213,3 +213,137 @@ All four are covered by new/extended tests: `Test_SDKRoundTrip_LoadBalancerPolic
 `Test_SDKRoundTrip_DeleteLoadBalancerPolicyInUse_IsTyped`, the `malformed_cert_arn_rejected`
 case in `TestDuplicateListenerCreateListeners`, and
 `TestCreateLoadBalancerRejectsMalformedInlineCertARN`.
+
+## elb (this session, 2026-08-20)
+
+Wrapper-key / nested-shape wire-parity sweep, targeting AWS bug shapes (a)-(e) from the
+campaign brief: member generalized/missing across sibling types, wrong nesting level
+under the right key, wrong type, case near-misses (N/A for this query/XML service, see
+below), right key/wrong value, and request-only fields leaking into responses.
+
+**Result: zero new bugs.** All 29 ops, their envelope `<Xxx*Result>` element names,
+every `<member>` list wrapper, and every nested attribute-bag shape were re-verified
+directly against `aws-sdk-go-v2/service/elasticloadbalancing@v1.36.4`'s
+`deserializers.go` (both the per-op `HandleDeserialize`/`GetElement("<Op>Result")`
+functions and the per-shape `awsAwsquery_deserializeDocument*` functions) rather than
+trusting the prior pass's PARITY.md notes. This confirms, independently, everything the
+2026-07-24 (`parity-3`) pass already recorded — the extremely thorough prior sweeps
+(missing `Result` wrappers, missing `Policies` field, error-code fixes) left nothing
+in the wrapper-key/nesting space to find.
+
+- **Ops swept**: all 29 — `AddTags`, `ApplySecurityGroupsToLoadBalancer`,
+  `AttachLoadBalancerToSubnets`, `ConfigureHealthCheck`,
+  `CreateAppCookieStickinessPolicy`, `CreateLBCookieStickinessPolicy`,
+  `CreateLoadBalancer`, `CreateLoadBalancerListeners`, `CreateLoadBalancerPolicy`,
+  `DeleteLoadBalancer`, `DeleteLoadBalancerListeners`, `DeleteLoadBalancerPolicy`,
+  `DeregisterInstancesFromLoadBalancer`, `DescribeAccountLimits`,
+  `DescribeInstanceHealth`, `DescribeLoadBalancerAttributes`,
+  `DescribeLoadBalancerPolicies`, `DescribeLoadBalancerPolicyTypes`,
+  `DescribeLoadBalancers`, `DescribeTags`, `DetachLoadBalancerFromSubnets`,
+  `DisableAvailabilityZonesForLoadBalancer`, `EnableAvailabilityZonesForLoadBalancer`,
+  `ModifyLoadBalancerAttributes`, `RegisterInstancesWithLoadBalancer`, `RemoveTags`,
+  `SetLoadBalancerListenerSSLCertificate`, `SetLoadBalancerPoliciesForBackendServer`,
+  `SetLoadBalancerPoliciesOfListener` — matches `GetSupportedOperations()` exactly
+  (29/29) and matches `ls api_op_*.go` in the pinned SDK module exactly (29/29).
+- **Protocol**: confirmed `awsAwsquery_*` (AWS Query/XML), from both the generated
+  function-name prefix in `deserializers.go` and `RouteMatcher`'s own
+  `application/x-www-form-urlencoded` + `Version=2012-06-01` check
+  (`services/elb/handler.go`). `services/_PROTOCOLS.md` was not consulted per the
+  brief's instruction not to trust it; the live deserializer prefix is authoritative
+  and was read directly.
+- **Required-member grep**: ran `grep -n "This member is required"` over the pinned
+  SDK's `types/types.go`. Hits: `AccessLog.Enabled`, `ConnectionDraining.Enabled`,
+  `ConnectionSettings.IdleTimeout`, `CrossZoneLoadBalancing.Enabled`,
+  `HealthCheck.{HealthyThreshold,Interval,Target,Timeout,UnhealthyThreshold}`,
+  `Listener.{InstancePort,LoadBalancerPort,Protocol}`, `Tag.Key`. Every one of these
+  has a corresponding `xml:"..."` field with **no `omitempty`** in gopherstack's
+  wire structs (`xmlBoolAttribute.Enabled`, `xmlConnectionDraining.Enabled`,
+  `xmlConnectionSettings.IdleTimeout`, `xmlHealthCheck.*`, `xmlListener.*` sans
+  `SSLCertificateID`, `xmlTag.Key`) — confirmed always present on the wire, including
+  the zero-value case (e.g. an LB with no `ConfigureHealthCheck` call yet still emits
+  a full `<HealthCheck>` element with zero-valued fields rather than omitting it).
+- **`<member>` wrapping**: verified per list, not once for the service, by reading
+  each list's own `awsAwsquery_deserializeDocument<Name>` function:
+  `AvailabilityZones`, `BackendServerDescriptions`, `Instances`,
+  `ListenerDescriptions`, `SecurityGroups`, `Subnets`, `AdditionalAttributes`,
+  `TagDescriptions`/`Tags`, `AppCookieStickinessPolicies`/
+  `LBCookieStickinessPolicies`/`OtherPolicies`, `PolicyAttributeDescriptions`,
+  `PolicyAttributeTypeDescriptions`, `PolicyDescriptions`,
+  `PolicyTypeDescriptions`, `InstanceStates`, `Limits` — all 15+ distinct lists use
+  `case strings.EqualFold("member", t.Name.Local)`. All match gopherstack's
+  `xmlXxxList{Members []Xxx \`xml:"member"\`}` convention throughout
+  `handler_*.go`. Correct.
+- **`PolicyAttributeDescription` vs `PolicyAttributeTypeDescription`**: confirmed
+  distinct structs in the pinned SDK (`types/types.go:452-497`) — the former is
+  `{AttributeName, AttributeValue}` (used by `DescribeLoadBalancerPolicies`'
+  `PolicyDescription.PolicyAttributeDescriptions`), the latter is `{AttributeName,
+  AttributeType, Cardinality, DefaultValue, Description}` (used by
+  `DescribeLoadBalancerPolicyTypes`' `PolicyTypeDescription.PolicyAttributeTypeDescriptions`).
+  `services/elb/handler_policies.go` models them as two separate wire structs
+  (`xmlPolicyAttributeDescription` vs `xmlPolicyAttributeTypeDescription`) feeding two
+  separate list types, each populated from its own backend model
+  (`PolicyAttribute`/`models.go` vs `PolicyAttributeTypeDescription`/`models.go`) with
+  no cross-contamination. No pattern-(a) generalization found.
+- **Envelope names + ResponseMetadata**: verified the live deserializer path per op —
+  `HandleDeserialize` calls `smithyxml.FetchRootElement` (does **not** validate the
+  root element's name against `<Op>Response>`, confirming the brief's "check which
+  deserializer actually runs before reporting an envelope-name finding" — a root-tag
+  mismatch would be a false positive here, symmetric to the cloudfront finding) and
+  then unconditionally `decoder.GetElement("<Op>Result")` — this **is** load-bearing:
+  every response struct in `services/elb/handler_*.go` was checked to declare its
+  `Result` field with the exact matching `xml:"<Op>Result"` tag (this is what the
+  2026-07-24 pass's 8-op "missing Result wrapper" bug class targeted; re-verified
+  clean this pass, none regressed). Separately: `aws-sdk-go-v2`'s
+  `RequestIDRetriever` middleware (pinned core `v1.43.4`,
+  `aws/middleware/request_id_retriever.go`) reads the request ID from the
+  **`X-Amzn-Requestid`/`X-Amz-RequestId` HTTP headers**, not from the XML body's
+  `<ResponseMetadata><RequestId>` — so for this SDK version, the body-level
+  `ResponseMetadata` element is not actually consumed client-side for successful
+  responses (only relevant for the AWS-documented wire shape / other SDKs, e.g.
+  boto3). gopherstack still emits `<ResponseMetadata><RequestId>` on every response,
+  which is correct AWS wire behavior and harmless either way — noted here since the
+  brief specifically calls out verifying ResponseMetadata's presence.
+- **Case-sensitive near-misses**: none reported, per the brief — `strings.EqualFold`
+  element matching throughout `deserializers.go` (confirmed on every
+  `awsAwsquery_deserializeDocument*` case statement read this pass) makes XML tag
+  casing non-load-bearing for this protocol.
+- **Existing tests**: no wrong-key/wrong-nesting test assertions found. All response
+  assertions in `services/elb/*_test.go` go through typed Go structs (compile-time
+  field-name checking) or the real SDK client (`sdk_roundtrip_test.go`), not raw XML
+  string matching — grepped for `Contains(t, ..., "<...")`-style raw-XML assertions
+  and found none. Nothing to correct.
+- **Families CLEAN**: `LoadBalancerDescription` (all 20 fields, incl.
+  `SourceSecurityGroup`, `CanonicalHostedZoneName{,ID}`, `Scheme`, `VPCId`),
+  `DescribeLoadBalancerAttributes`/`ModifyLoadBalancerAttributes`'s nested attribute
+  bag (`AccessLog`/`ConnectionDraining`/`ConnectionSettings`/
+  `CrossZoneLoadBalancing`/`AdditionalAttributes` all sub-elements, not flattened —
+  the shape-(b) risk the brief called out did not materialize),
+  `DescribeInstanceHealth`, `DescribePolicies`/`DescribePolicyTypes`,
+  `DescribeTags`/`AddTags`/`RemoveTags`, `DescribeAccountLimits`, and the
+  Register/Deregister/Enable/Disable/Attach/Detach/Apply filtered-list-return family
+  (each confirmed returning its own correctly-named/typed list, not a sibling's).
+- **Gaps disclosed, not fixed** (pre-existing, out of scope for a wire-shape sweep,
+  not newly found this pass): the SDK models several typed exceptions gopherstack has
+  no sentinel for at all (`InvalidSubnetException`/`"InvalidSubnet"` — distinct from
+  the modeled `SubnetNotFoundException`/`"SubnetNotFound"` — plus
+  `DependencyThrottleException`, `LoadBalancerAttributeNotFoundException`,
+  `OperationNotPermittedException`, `TooManyPoliciesException`); these are
+  error-code-completeness gaps (Layer 3), not wrapper-key/nesting bugs, so left
+  untouched per this sweep's scope.
+- **Provenance verdict**: `last_audit_commit: c9c03908` vs `last_audit_date:
+  2026-07-24` — `git show -s --format=%ad c9c03908` returns `2026-07-24`, an exact
+  match (self-consistent, no drift). Stamp refreshed this pass to
+  `9249d4561` / `2026-08-20` (current HEAD / today).
+- **SDK-version check**: `go.mod` pins
+  `github.com/aws/aws-sdk-go-v2/service/elasticloadbalancing v1.36.4`, matching the
+  `sdk_module` header already recorded — no version drift since the last pass.
+- **Brief vs. pinned SDK disagreements**: none. Every wire-shape claim in the sweep
+  brief (field names, nesting, `<member>` wrapping, the
+  `PolicyAttributeDescription`/`PolicyAttributeTypeDescription` distinction) was
+  verified true against `elasticloadbalancing@v1.36.4`.
+- **Gates**: `go build ./services/elb/...` clean; `go vet ./services/elb/...` clean;
+  `go fix -diff ./services/elb/...` empty; `gofmt -l services/elb/` empty;
+  `go test -race ./services/elb/...` → `ok` (1.2s); `golangci-lint run
+  ./services/elb/...` → `0 issues`; no `nolint:cyclop|gocyclo|gocognit|funlen` in
+  `services/elb/`; `git status --short` shows no file under `services/elb/` touched
+  this session (all changes limited to this `PARITY.md`).
