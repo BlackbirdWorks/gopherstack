@@ -30,6 +30,8 @@ type StorageBackend interface {
 		targetDatabase, targetTable string,
 		dataSourceCfg *DataSourceConfiguration,
 		reportCfg *ReportConfiguration,
+		dataModelCfg *DataModelConfiguration,
+		recordVersion int64,
 	) (*BatchLoadTask, error)
 	DescribeBatchLoadTask(taskID string) (*BatchLoadTask, error)
 	ListBatchLoadTasks(statusFilter string) []BatchLoadTask

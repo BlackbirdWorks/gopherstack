@@ -138,6 +138,56 @@ type ReportConfiguration struct {
 	ReportS3Configuration *DataSourceS3Configuration `json:"ReportS3Configuration,omitempty"`
 }
 
+// DataModelS3Configuration holds the S3 location of a batch load task's data model.
+type DataModelS3Configuration struct {
+	BucketName string `json:"BucketName,omitempty"`
+	ObjectKey  string `json:"ObjectKey,omitempty"`
+}
+
+// DimensionMapping maps a CSV source column to a destination dimension column.
+type DimensionMapping struct {
+	SourceColumn      string `json:"SourceColumn,omitempty"`
+	DestinationColumn string `json:"DestinationColumn,omitempty"`
+}
+
+// MultiMeasureAttributeMapping maps a CSV source column to a multi-measure attribute.
+type MultiMeasureAttributeMapping struct {
+	SourceColumn                    string `json:"SourceColumn,omitempty"`
+	TargetMultiMeasureAttributeName string `json:"TargetMultiMeasureAttributeName,omitempty"`
+	MeasureValueType                string `json:"MeasureValueType,omitempty"`
+}
+
+// MultiMeasureMappings holds the column mappings for a MULTI-type measure.
+type MultiMeasureMappings struct {
+	TargetMultiMeasureName        string                         `json:"TargetMultiMeasureName,omitempty"`
+	MultiMeasureAttributeMappings []MultiMeasureAttributeMapping `json:"MultiMeasureAttributeMappings,omitempty"`
+}
+
+// MixedMeasureMapping maps a CSV source column to a target measure.
+type MixedMeasureMapping struct {
+	MeasureName                   string                         `json:"MeasureName,omitempty"`
+	SourceColumn                  string                         `json:"SourceColumn,omitempty"`
+	TargetMeasureName             string                         `json:"TargetMeasureName,omitempty"`
+	MeasureValueType              string                         `json:"MeasureValueType,omitempty"`
+	MultiMeasureAttributeMappings []MultiMeasureAttributeMapping `json:"MultiMeasureAttributeMappings,omitempty"`
+}
+
+// DataModel defines the source-to-target column mapping used by a batch load task.
+type DataModel struct {
+	MultiMeasureMappings *MultiMeasureMappings `json:"MultiMeasureMappings,omitempty"`
+	MeasureNameColumn    string                `json:"MeasureNameColumn,omitempty"`
+	TimeColumn           string                `json:"TimeColumn,omitempty"`
+	TimeUnit             string                `json:"TimeUnit,omitempty"`
+	DimensionMappings    []DimensionMapping    `json:"DimensionMappings,omitempty"`
+	MixedMeasureMappings []MixedMeasureMapping `json:"MixedMeasureMappings,omitempty"`
+}
+
+// DataModelConfiguration configures the schema mapping used by a batch load task.
+type DataModelConfiguration struct {
+	DataModel                *DataModel                `json:"DataModel,omitempty"`
+	DataModelS3Configuration *DataModelS3Configuration `json:"DataModelS3Configuration,omitempty"`
+}
+
 // BatchLoadTask represents a Timestream batch load task.
 type BatchLoadTask struct {
 	CreationTime            time.Time                `json:"creation_time"`
@@ -145,6 +195,7 @@ type BatchLoadTask struct {
 	ResumableUntil          *time.Time               `json:"resumable_until,omitempty"`
 	DataSourceConfiguration *DataSourceConfiguration `json:"data_source_configuration,omitempty"`
 	ReportConfiguration     *ReportConfiguration     `json:"report_configuration,omitempty"`
+	DataModelConfiguration  *DataModelConfiguration  `json:"data_model_configuration,omitempty"`
 	ProgressReport          *BatchLoadProgressReport `json:"progress_report,omitempty"`
 	TargetDatabaseName      string                   `json:"target_database_name"`
 	TargetTableName         string                   `json:"target_table_name"`

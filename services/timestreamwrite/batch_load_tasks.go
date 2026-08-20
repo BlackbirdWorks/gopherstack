@@ -26,6 +26,8 @@ func (b *InMemoryBackend) CreateBatchLoadTask(
 	targetDatabase, targetTable string,
 	dataSourceCfg *DataSourceConfiguration,
 	reportCfg *ReportConfiguration,
+	dataModelCfg *DataModelConfiguration,
+	recordVersion int64,
 ) (*BatchLoadTask, error) {
 	b.mu.Lock("CreateBatchLoadTask")
 	defer b.mu.Unlock()
@@ -51,6 +53,8 @@ func (b *InMemoryBackend) CreateBatchLoadTask(
 		LastUpdatedTime:         now,
 		DataSourceConfiguration: dataSourceCfg,
 		ReportConfiguration:     reportCfg,
+		DataModelConfiguration:  dataModelCfg,
+		RecordVersion:           recordVersion,
 	}
 	b.batchLoadTasks.Put(task)
 

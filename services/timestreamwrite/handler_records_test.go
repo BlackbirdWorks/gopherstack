@@ -162,9 +162,9 @@ func TestHandler_WriteRecords_RequiresMeasureName(t *testing.T) {
 func TestHandler_WriteRecords_DimensionNameRequired(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct { //nolint:govet // fieldalignment: readability over micro-optimization
-		name       string
+	tests := []struct {
 		dimension  map[string]any
+		name       string
 		wantStatus int
 	}{
 		{
@@ -219,9 +219,9 @@ func TestHandler_WriteRecords_DimensionNameRequired(t *testing.T) {
 func TestHandler_WriteRecords_MULTIConstraints(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct { //nolint:govet // fieldalignment: readability over micro-optimization
-		name       string
+	tests := []struct {
 		record     map[string]any
+		name       string
 		wantStatus int
 	}{
 		{

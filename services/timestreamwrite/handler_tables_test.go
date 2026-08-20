@@ -1159,11 +1159,11 @@ func TestHandler_UpdateTable_MagneticStoreWriteProperties(t *testing.T) {
 func TestHandler_CreateTable_DefaultRetentionProperties(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct { //nolint:govet // fieldalignment: readability over micro-optimization
+	tests := []struct {
+		createBody map[string]any
 		name       string
 		wantHours  int64
 		wantDays   int64
-		createBody map[string]any
 	}{
 		{
 			name:       "no_retention_specified_returns_defaults",
