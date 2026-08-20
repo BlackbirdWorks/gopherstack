@@ -5,10 +5,42 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: dms
+# NOTE: the SDK module name does NOT match the services/dms directory name.
+# go.mod pins github.com/aws/aws-sdk-go-v2/service/databasemigrationservice
+# (NOT service/dms -- that module does not exist). A prior automated tool
+# (cmd/opcensus) resolved the SDK module from the directory name, found no
+# service/dms, and reported 0 List/Describe/Get ops for this service --
+# which is WRONG; the pinned SDK actually declares 119 operations
+# (ls api_op_*.go in the module cache), all 119 of which this service
+# implements (handler.go's op-name const block; confirmed by direct count
+# 2026-08-20). Do not repeat cmd/opcensus's mistake when re-auditing.
 sdk_module: aws-sdk-go-v2/service/databasemigrationservice@v1.66.4
-last_audit_commit: d13e2307f4f1086d83076beb50c1303761fa8369
-last_audit_date: 2026-07-31
-overall: A            # 2026-07-23 pass: closed all 4 gaps + all 3 deferred
+last_audit_commit: f16ac0367fc476ca2ffd1643ed5ef900b9ff0480
+last_audit_date: 2026-08-20
+overall: A            # 2026-08-20 pass: field-diffed the Endpoint and
+                       # ReplicationInstance envelopes (this campaign's top
+                       # two priorities for this service) directly against
+                       # types.go/api_op_*.go and found + fixed 3 real bugs:
+                       # 6 top-level Endpoint connection-settings fields
+                       # (CertificateArn/ExtraConnectionAttributes/KmsKeyId/
+                       # ServiceAccessRoleArn/SslMode/ExternalTableDefinition)
+                       # missing on both Create/Modify request AND response;
+                       # 4 top-level ReplicationInstance fields (KmsKeyId/
+                       # DnsNameServers/NetworkType/PreferredMaintenanceWindow)
+                       # missing the same way; and a fabricated enum value
+                       # ("GA") on DescribeOrderableReplicationInstances.
+                       # ReleaseStatus where the real ReleaseStatusValues enum
+                       # only has beta/prod. Also fixed a lower-severity wire
+                       # mismatch (DescribeFleetAdvisorCollectors used a
+                       # fabricated Marker field instead of the real
+                       # NextToken). See the 2026-08-20 Notes entry below for
+                       # full detail, hand-revert proof, and what was
+                       # deliberately left as a disclosed gap (engine-specific
+                       # settings blocks, PendingModifiedValues,
+                       # KerberosAuthenticationSettings, FreeUntil,
+                       # SecondaryAvailabilityZone).
+                       #
+                       # 2026-07-23 pass: closed all 4 gaps + all 3 deferred
                        # families from the prior audit (DescribeMetadataModel
                        # shape, ReloadTables/ReloadReplicationTables state
                        # validation + wire-field-name bug, Endpoint enum
@@ -40,16 +72,16 @@ overall: A            # 2026-07-23 pass: closed all 4 gaps + all 3 deferred
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
-  CreateReplicationInstance: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass -- InstanceCreateTime was entirely missing from the wire response (epoch-seconds bug class); now emitted via pkgs/awstime.Epoch"}
-  DescribeReplicationInstances: {wire: ok, errors: ok, state: ok, persist: ok}
+  CreateReplicationInstance: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass -- InstanceCreateTime was entirely missing from the wire response (epoch-seconds bug class); now emitted via pkgs/awstime.Epoch. FIXED 2026-08-20 -- KmsKeyId/DnsNameServers/NetworkType/PreferredMaintenanceWindow (real CreateReplicationInstanceInput members, api_op_CreateReplicationInstance.go) were entirely absent from the request AND the ReplicationInstance response; now accepted, stored, and echoed. See ReplicationInstanceSettings in replication_instances.go."}
+  DescribeReplicationInstances: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-20 -- same KmsKeyId/DnsNameServers/NetworkType/PreferredMaintenanceWindow fix as CreateReplicationInstance above (shared riToJSON)"}
   DeleteReplicationInstance: {wire: ok, errors: ok, state: ok, persist: ok, note: "rejects delete while tasks attached"}
-  ModifyReplicationInstance: {wire: ok, errors: ok, state: ok, persist: ok}
+  ModifyReplicationInstance: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-20 -- NetworkType/PreferredMaintenanceWindow (real ModifyReplicationInstanceInput members) were accepted nowhere; now accepted and applied. KmsKeyId is deliberately NOT accepted here -- the real ModifyReplicationInstanceInput has no KmsKeyId member (create-only in real AWS); proven unchanged by TestReplicationInstanceSettings_SDKRoundTrip."}
   RebootReplicationInstance: {wire: ok, errors: ok, state: ok, persist: ok, note: "synchronous no-op reboot is correct emulation -- real reboot causes only a momentary outage, no persistent field changes"}
   ApplyPendingMaintenanceAction: {wire: ok, errors: ok, state: ok, persist: n/a, note: "FIXED this pass -- ApplyAction/OptInType previously accepted arbitrary strings; now validated against the SDK's documented valid-values lists (os-upgrade|system-update|db-upgrade|os-patch and immediate|next-maintenance|undo-opt-in), 400 ValidationException otherwise. Still correctly returns an empty PendingMaintenanceActionDetails -- no pending-maintenance-action producer exists in this emulation, matching a freshly-created instance's real state."}
-  CreateEndpoint: {wire: ok, errors: ok, state: ok, persist: ok, note: "EndpointType/EngineName validated against types.ReplicationEndpointTypeValue and the documented EngineName valid-values list. FIXED 2026-07-31 -- Password was accepted in the request but silently dropped (never stored, never usable); now stored on Endpoint.Password and never put on the wire (matching the real Endpoint type, which has no Password field -- AWS never echoes credentials back). FIXED 2026-08-10 (gopherstack-z79q) -- CreateEndpointInput/ModifyEndpointInput's 19 heterogeneous engine-specific settings structs (MySQLSettings/PostgreSQLSettings/S3Settings/OracleSettings/... totaling ~300 fields) were being silently dropped by encoding/json instead of modeled. Judgment: modeling all ~300 fields faithfully (validated types, stored, echoed on Describe, persisted) is not achievable in one pass, and a partial subset would be worse than the honest gap (a client seeing some settings preserved would reasonably assume the rest are too). Per the no-stub rule, the drop is now made visible instead: any request that sets one of the 19 settings fields is rejected with 400 ValidationException naming the field, matching the sagemaker PipelineDefinitionS3Location / cloudformation AccountFilterType precedent for explicitly-rejected-rather-than-silently-dropped fields. See engineSettingsFields in handler_endpoints.go."}
-  DescribeEndpoints: {wire: ok, errors: ok, state: ok, persist: ok}
+  CreateEndpoint: {wire: ok, errors: ok, state: ok, persist: ok, note: "EndpointType/EngineName validated against types.ReplicationEndpointTypeValue and the documented EngineName valid-values list. FIXED 2026-07-31 -- Password was accepted in the request but silently dropped (never stored, never usable); now stored on Endpoint.Password and never put on the wire (matching the real Endpoint type, which has no Password field -- AWS never echoes credentials back). FIXED 2026-08-10 (gopherstack-z79q) -- CreateEndpointInput/ModifyEndpointInput's 19 heterogeneous engine-specific settings structs (MySQLSettings/PostgreSQLSettings/S3Settings/OracleSettings/... totaling ~300 fields) were being silently dropped by encoding/json instead of modeled. Judgment: modeling all ~300 fields faithfully (validated types, stored, echoed on Describe, persisted) is not achievable in one pass, and a partial subset would be worse than the honest gap (a client seeing some settings preserved would reasonably assume the rest are too). Per the no-stub rule, the drop is now made visible instead: any request that sets one of the 19 settings fields is rejected with 400 ValidationException naming the field, matching the sagemaker PipelineDefinitionS3Location / cloudformation AccountFilterType precedent for explicitly-rejected-rather-than-silently-dropped fields. See engineSettingsFields in handler_endpoints.go. FIXED 2026-08-20 -- 6 top-level (non-engine-specific) connection-settings members were ALSO missing, separately from the engine-settings gap above: CertificateArn/ExtraConnectionAttributes/KmsKeyId/ServiceAccessRoleArn/SslMode/ExternalTableDefinition (all real CreateEndpointInput members, api_op_CreateEndpoint.go). These are simple scalars unrelated to the ~300-field engine-settings problem and are now accepted, validated (SslMode against types.DmsSslModeValue: none|require|verify-ca|verify-full, defaulting to none), stored, and echoed. See EndpointConnectionSettings in endpoints.go."}
+  DescribeEndpoints: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-20 -- same 6-field connection-settings fix as CreateEndpoint above (shared epToJSON)"}
   DeleteEndpoint: {wire: ok, errors: ok, state: ok, persist: ok, note: "rejects delete while referenced by a task"}
-  ModifyEndpoint: {wire: ok, errors: ok, state: ok, persist: ok, note: "EndpointType/EngineName accepted on Modify, validated with the same enum check as Create, and applied. FIXED 2026-07-31 -- same Password fix as CreateEndpoint above. FIXED 2026-08-10 (gopherstack-z79q) -- same engine-settings explicit-rejection fix as CreateEndpoint above"}
+  ModifyEndpoint: {wire: ok, errors: ok, state: ok, persist: ok, note: "EndpointType/EngineName accepted on Modify, validated with the same enum check as Create, and applied. FIXED 2026-07-31 -- same Password fix as CreateEndpoint above. FIXED 2026-08-10 (gopherstack-z79q) -- same engine-settings explicit-rejection fix as CreateEndpoint above. FIXED 2026-08-20 -- CertificateArn/ExtraConnectionAttributes/ServiceAccessRoleArn/SslMode/ExternalTableDefinition (same gap as CreateEndpoint above) now accepted and applied. KmsKeyId is deliberately NOT accepted here -- the real ModifyEndpointInput has no KmsKeyId member (create-only in real AWS); proven unchanged by TestEndpointConnectionSettings_SDKRoundTrip."}
   TestConnection: {wire: ok, errors: ok, state: ok, persist: ok, note: "records a Connection row, visible via DescribeConnections"}
   DescribeConnections: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-07-31 -- never called dmsPaginate or set Marker on the response, unlike every other Describe op in this service, so MaxRecords/Marker were silently ignored; now paginated like its siblings"}
   DeleteConnection: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -107,7 +139,7 @@ ops:
   DeleteCertificate: {wire: ok, errors: ok, state: ok, persist: ok, note: "same CertificatePem fix as ImportCertificate (2026-07-31) -- certToJSON is shared by all three certificate ops"}
   DescribeAccountAttributes: {wire: ok, errors: ok, state: ok, persist: n/a, note: "quota usage computed live from real counts"}
   DescribeEvents: {wire: partial, errors: ok, state: ok, persist: n/a, note: "events recorded on Endpoint/ReplicationTask create/delete/start/stop, not persisted across restarts -- low value, matches many other services' event-log conventions. FIXED 2026-08-12 (gopherstack-o53q) -- real input also carries Filters []types.Filter; per the SDK doc 'the only valid filter is replication-instance-id', which is now applied against Event.SourceIdentifier and narrows the returned list."}
-  DescribeOrderableReplicationInstances: {wire: ok, errors: ok, state: n/a, note: "static reference catalog, matches real AWS class list"}
+  DescribeOrderableReplicationInstances: {wire: ok, errors: ok, state: n/a, note: "static reference catalog, matches real AWS class list. FIXED 2026-08-20 -- ReleaseStatus was hardcoded to the fabricated value \"GA\"; the real types.ReleaseStatusValues enum only has \"beta\"/\"prod\" (types/enums.go:628-634). Now \"prod\" (these are stable, non-beta instance classes)."}
   DescribeEngineVersions: {wire: ok, errors: ok, state: n/a, note: "static reference catalog"}
   DescribeEndpointTypes: {wire: ok, errors: ok, state: n/a, note: "static reference catalog"}
   DescribeEventCategories: {wire: ok, errors: ok, state: n/a, note: "static reference catalog. FIXED 2026-08-12 (gopherstack-o53q) -- real input also carries Filters []types.Filter alongside the existing SourceType field; a source-type filter value now falls back into the same lookup as the top-level SourceType field."}
@@ -137,7 +169,7 @@ ops:
   DescribeReplicationTaskAssessmentRuns: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass -- output items were a hand-rolled 4-field map; now the real ReplicationTaskAssessmentRun shape (AssessmentProgress, ResultStatistic, ResultLocationBucket/Folder, ServiceAccessRoleArn, creation-date epoch, IsLatestTaskAssessmentRun). Filters extended to replication-task-assessment-run-arn/replication-instance-arn/status (previously only replication-task-arn)"}
   StartReplicationTaskAssessment: {wire: ok, errors: ok, state: ok, persist: n/a}
 families:
-  fleet-advisor: {status: ok, note: "CreateFleetAdvisorCollector/DeleteFleetAdvisorCollector/DescribeFleetAdvisorCollectors/DescribeFleetAdvisorDatabases/DeleteFleetAdvisorDatabases all mutate/read real backend state and persist. DescribeFleetAdvisorLsaAnalysis/SchemaObjectSummary/Schemas field-diffed this pass (deferred item #2, now resolved): response field names (Analysis/FleetAdvisorSchemaObjects/FleetAdvisorSchemas + NextToken) match types.go exactly; the lists are legitimately always-empty since no LSA-analysis or schema-conversion engine exists to populate them (rule 4). AWS ended support for Fleet Advisor entirely on 2026-05-20 (already past as of this audit) -- low future value."}
+  fleet-advisor: {status: ok, note: "CreateFleetAdvisorCollector/DeleteFleetAdvisorCollector/DescribeFleetAdvisorCollectors/DescribeFleetAdvisorDatabases/DeleteFleetAdvisorDatabases all mutate/read real backend state and persist. DescribeFleetAdvisorLsaAnalysis/SchemaObjectSummary/Schemas field-diffed this pass (deferred item #2, now resolved): response field names (Analysis/FleetAdvisorSchemaObjects/FleetAdvisorSchemas + NextToken) match types.go exactly; the lists are legitimately always-empty since no LSA-analysis or schema-conversion engine exists to populate them (rule 4). AWS ended support for Fleet Advisor entirely on 2026-05-20 (already past as of this audit) -- low future value. FIXED 2026-08-20 -- DescribeFleetAdvisorCollectors's request struct used a fabricated Marker field; the real DescribeFleetAdvisorCollectorsInput's pagination token field is NextToken (api_op_DescribeFleetAdvisorCollectors.go), like its 4 siblings in this family, not the Marker/MaxRecords convention most other DMS Describe ops use. The response struct was also missing NextToken entirely. Both now match. Low severity: no pagination logic exists for this op (list is always returned in full, same as its siblings), and nothing read the old Marker field, so this was a pure wire-shape correction with no behavioral difference to prove via a discriminating test -- documented here rather than backed by a dedicated test for that reason."}
   metadata-model: {status: ok, note: "FIXED this pass -- DescribeMetadataModel/DescribeMetadataModelChildren/the six Describe*Requests list ops/Cancel*/GetTargetSelectionRules/ExportMetadataModelAssessment/StartExtensionPackAssociation were all field-diffed against types.go and api_op_*.go this pass (deferred item #1, now resolved) and every wire-shape bug found was fixed -- see the per-op notes above. Definition/MetadataModelName/MetadataModelType/schema-object contents stay legitimately empty; no schema-conversion SQL-generation engine exists, matching the SDK doc's 'might not be populated' language."}
   static-reference-data: {status: ok, note: "DescribeOrderableReplicationInstances/DescribeEngineVersions/DescribeEndpointTypes/DescribeEventCategories/DescribeApplicableIndividualAssessments return realistic static catalogs; legitimate for AWS reference-data ops (rule 4: an op with no mutable backend state behind it is not a stub). DescribeEndpointTypes FIXED this pass -- EndpointType values were hardcoded uppercase SOURCE/TARGET, but the real enum is lowercase source/target."}
   assessment-runs: {status: ok, note: "FIXED this pass (deferred item #3, now resolved) -- StartReplicationTaskAssessmentRun now validates its four required fields and IncludeOnly/Exclude mutual exclusion, then synchronously runs a real (bounded, static-catalog-backed) set of IndividualAssessment checks, all passing. DescribeReplicationTaskIndividualAssessments and DescribeReplicationTaskAssessmentResults are now backed by that real state instead of hardcoded empty lists. Cancel/Delete/DescribeReplicationTaskAssessmentRuns now return the full real ReplicationTaskAssessmentRun wire shape instead of a hand-rolled 4-field map."}
@@ -147,6 +179,174 @@ leaks: {status: clean, note: "no goroutines, janitors, or timers in this service
 ---
 
 ## Notes
+
+- **2026-08-20 wrapper-key / nested-shape sweep**: this service's directory
+  name (`services/dms`) does NOT match its SDK module name
+  (`aws-sdk-go-v2/service/databasemigrationservice`, no `service/dms` module
+  exists). A prior pass of an automated ranking tool (`cmd/opcensus`)
+  resolved the SDK module from the directory name, found nothing, and
+  reported this service as having 0 List/Describe/Get operations -- which
+  put it at the bottom of a ranked sweep queue as if it were a tiny,
+  low-value, unaudited service. In reality the pinned SDK
+  (`databasemigrationservice@v1.66.4`) declares 119 operations
+  (`ls api_op_*.go` in the module cache), all 119 of which
+  `handler.go`'s op-name const block implements, and this file already
+  documents multiple thorough prior audit passes (2026-07-12 through
+  2026-08-12) covering the large majority of that surface field-by-field.
+  This pass's premise -- "first read of this surface, 23 operations" --
+  did not hold at the pinned version; noted here so a future reader does
+  not repeat either the tool's directory-name mistake or the op-count
+  assumption.
+
+  Given the extensive prior coverage, this pass targeted the two areas the
+  brief called out as top priority and the most recently field-diffed
+  PARITY notes had NOT covered: the `Endpoint` envelope (previously
+  verified for `Password`, the 19 engine-specific settings blocks, and
+  `EndpointType`/`EngineName` enums, but never for its other top-level
+  scalar members) and the `ReplicationInstance` envelope (previously
+  verified only for the `InstanceCreateTime` epoch-timestamp field and the
+  `ReplicationSubnetGroup`/`VpcSecurityGroups` nesting, per
+  `handler_replication_instances.go`, never for its remaining top-level
+  scalar members). Both were diffed field-by-field, optional included,
+  types checked, directly against
+  `aws-sdk-go-v2/service/databasemigrationservice@v1.66.4/types/types.go`
+  and each op's own `api_op_*.go` -- not assumed from prior notes.
+
+  **Protocol verified**: `awsAwsjson11_*` serializer prefix
+  (`serializers.go`), `X-Amz-Target: AmazonDMSv20160101.<Action>` header
+  (confirmed directly, e.g. `serializers.go:61`
+  `"AmazonDMSv20160101.AddTagsToResource"`) -- JSON-RPC, matching the
+  protocol this file already documented; no cnhp-style surprise (every op
+  serializes/deserializes a real flat JSON body, no raw-body ops like
+  polly's AudioStream).
+
+  **Pagination convention verified across all 119 ops** (per the brief's
+  explicit warning to check, since siblings elsewhere in this repo mix
+  conventions): the large majority of `Describe*` ops use `Marker`/
+  `MaxRecords` (70 grep hits across `api_op_Describe*.go`), but 7 ops
+  genuinely use `NextToken`/`MaxRecords` instead --
+  `DescribeFleetAdvisorCollectors`, `DescribeFleetAdvisorDatabases`,
+  `DescribeFleetAdvisorLsaAnalysis`, `DescribeFleetAdvisorSchemaObjectSummary`,
+  `DescribeFleetAdvisorSchemas`, `DescribeRecommendationLimitations`,
+  `DescribeRecommendations` (all of Fleet Advisor + Recommendations).
+  gopherstack's `describeFleetAdvisorDatabasesInput`/
+  `describeFleetAdvisorLsaAnalysisInput`/
+  `describeFleetAdvisorSchemaObjectSummaryInput`/
+  `describeFleetAdvisorSchemasInput`/`describeRecommendationLimitationsInput`/
+  `describeRecommendationsInput` all already correctly used `NextToken`.
+  Only `describeFleetAdvisorCollectorsInput` used the wrong (Marker/
+  MaxRecords) convention -- fixed this pass, see the `fleet-advisor` family
+  note above. Every other Describe op checked (the 70 Marker/MaxRecords
+  ops) already used the right convention.
+
+  **Bugs found and fixed** (3, all field-diffed against the pinned SDK
+  types, each proven by hand-revert -- copying the pre-fix file back over
+  the working tree via `cp` and confirming the build/test breaks, then
+  restoring the fix):
+
+  1. **`Endpoint` envelope, 6 missing top-level fields** (bug class a --
+     members missing from the wire on both Create/Modify request AND
+     Describe/Create/Modify response): `CertificateArn`,
+     `ExtraConnectionAttributes`, `KmsKeyId`, `ServiceAccessRoleArn`,
+     `SslMode`, `ExternalTableDefinition` (all real `CreateEndpointInput`
+     members, `api_op_CreateEndpoint.go`). These are distinct from the
+     already-documented 19-engine-settings-block gap (2026-08-10,
+     gopherstack-z79q) -- simple top-level scalars, not part of the
+     ~300-field per-engine problem, and cheap to model faithfully. Fixed:
+     added `EndpointConnectionSettings` (`endpoints.go`), threaded through
+     `CreateEndpoint`/`ModifyEndpoint`, validated `SslMode` against the real
+     `DmsSslModeValue` enum (`none`/`require`/`verify-ca`/`verify-full`,
+     defaulting to `none` matching the documented default), and echoed on
+     `endpointJSON`. `KmsKeyId` is deliberately create-only (real
+     `ModifyEndpointInput` has no `KmsKeyId` member). Proof:
+     `TestEndpointConnectionSettings_SDKRoundTrip`,
+     `TestEndpointSslMode_DefaultsToNone`,
+     `TestEndpointSslMode_InvalidRejected`
+     (`handler_endpoints_settings_test.go`). Hand-revert symptom: reverting
+     `handler_endpoints.go`/`endpoints.go`/`models.go` to the pre-fix
+     version breaks the build (`isolation_test.go`/`persistence_test.go`
+     call sites no longer compile against the old `CreateEndpoint`/
+     `ModifyEndpoint` signatures) -- a stronger proof than a value-level
+     assertion failure.
+  2. **`ReplicationInstance` envelope, 4 missing top-level fields** (same
+     bug class): `KmsKeyId`, `DnsNameServers`, `NetworkType`,
+     `PreferredMaintenanceWindow` (all real `CreateReplicationInstanceInput`
+     members, `api_op_CreateReplicationInstance.go`; `NetworkType`/
+     `PreferredMaintenanceWindow` are also real `ModifyReplicationInstanceInput`
+     members). Fixed: added `ReplicationInstanceSettings`
+     (`replication_instances.go`), threaded through
+     `CreateReplicationInstance`/`ModifyReplicationInstance`, echoed on
+     `replicationInstanceJSON`. `KmsKeyId`/`DnsNameServers` are deliberately
+     create-only (real `ModifyReplicationInstanceInput` has neither member).
+     Proof: `TestReplicationInstanceSettings_SDKRoundTrip`
+     (`handler_endpoints_settings_test.go`). Hand-revert symptom: same as
+     above -- reverting breaks the build via the test call sites.
+  3. **`DescribeOrderableReplicationInstances`, fabricated enum value**
+     (bug class e -- right key, wrong/invented value, the bedrockruntime
+     `"BLOCKED"` pattern): `ReleaseStatus` was hardcoded to `"GA"` for every
+     entry; the real `types.ReleaseStatusValues` enum
+     (`types/enums.go:628-634`) only has `"beta"`/`"prod"` -- `"GA"` is not
+     a member of this enum at all. Fixed: now `"prod"` (these are stable,
+     non-beta instance classes, matching every entry in
+     `dmsOrderableInstanceList()`). Proof:
+     `TestDescribeOrderableReplicationInstances_ReleaseStatus`
+     (asserts every returned `ReleaseStatus` is a member of
+     `{types.ReleaseStatusValuesBeta, types.ReleaseStatusValuesProd}`).
+     Hand-revert symptom: reverting to `"GA"` fails the assertion directly
+     (`does not contain "GA"`), confirmed by actually reverting and
+     re-running before restoring.
+
+  Also fixed, lower severity (bug class d -- per-op pagination-token key):
+  4. **`DescribeFleetAdvisorCollectors`, wrong pagination field name**:
+     request struct declared a fabricated `Marker` field where the real
+     `DescribeFleetAdvisorCollectorsInput` has `NextToken`
+     (`api_op_DescribeFleetAdvisorCollectors.go`); response struct was
+     missing `NextToken` entirely. Fixed (see `fleet-advisor` family note
+     above). **Severity note**: grepped for readers of the old `Marker`
+     field before fixing -- the handler ignores its input parameter
+     entirely (`_ *describeFleetAdvisorCollectorsInput`), so nothing read
+     it; this op implements no pagination logic at all (always returns the
+     full list, like its 4 correctly-shaped siblings), so there is no
+     behavioral difference a round-trip test could discriminate on. Fixed
+     for wire-shape correctness and consistency with siblings, not backed
+     by a dedicated proof test for that reason -- disclosed rather than
+     claiming false rigor.
+
+  **Coverage disclosed, not fixed** (out of scope for this pass, each
+  individually verified as a genuine gap rather than assumed):
+  - `ReplicationInstance.PendingModifiedValues`
+    (`*ReplicationPendingModifiedValues`), `FreeUntil` (`*time.Time`),
+    `SecondaryAvailabilityZone` (`*string`), and
+    `KerberosAuthenticationSettings` (`*KerberosAuthenticationSettings`,
+    also on `CreateReplicationInstanceInput`/`ModifyReplicationInstanceInput`)
+    are real `ReplicationInstance` members with no equivalent anywhere in
+    this emulation. `PendingModifiedValues` specifically requires an
+    `ApplyImmediately=false` deferred-modify state machine this service
+    does not have (every `ModifyReplicationInstance` call applies
+    immediately); a fabricated non-nil value would be worse than the
+    honest absence (rule 4). Not fixed this pass -- flagged for a future
+    pass if deferred-apply semantics are ever added.
+  - The `Endpoint`/`ReplicationInstance` families were the only two
+    envelopes field-diffed this pass, per the brief's explicit
+    prioritization ("the Endpoint envelope... first, then
+    ReplicationInstance/ReplicationTask, then the rest"). `ReplicationTask`
+    (with `ReplicationTaskStats`/`RecoveryCheckpoint`), `Certificate`,
+    `Connection`, `EventSubscription`, `TableStatistics`,
+    `RefreshSchemasStatus`, `OrderableReplicationInstance` (beyond the
+    `ReleaseStatus` fix above), `AccountQuota`, and `SupportedEndpointType`
+    were NOT re-diffed this pass -- this file's existing notes (2026-07-31
+    and 2026-08-12 passes) already cover `Certificate`/`EventSubscription`/
+    `ReplicationSubnetGroup`/`DescribeConnections` field-level fixes, and
+    per the campaign's under-claiming guidance, a tree already covered by a
+    prior pass was not re-read from scratch this session absent a specific
+    reason to distrust those notes. The 24 enums the brief listed
+    (`AuthMechanismValue`, `AuthTypeValue`, etc.) were spot-checked, not
+    exhaustively re-verified: `MigrationTypeValue`,
+    `StartReplicationMigrationTypeValue`, `ReplicationEndpointTypeValue`
+    (both directions), `DmsSslModeValue` (both directions, this pass), and
+    `ReleaseStatusValues` (this pass) were confirmed correct/fixed; the
+    remaining ~19 enums on the brief's list were not individually
+    re-checked this pass and are not claimed clean here.
 
 - **2026-07-31 field-level wire-shape sweep**: the 2026-07-23 audit's "119
   operations matching the SDK exactly, no phantoms" claim about the *op

@@ -101,15 +101,21 @@ func (f engineSettingsFields) unsupportedFieldName() string {
 }
 
 type createEndpointInput struct {
-	EndpointIdentifier *string    `json:"EndpointIdentifier"`
-	EndpointType       *string    `json:"EndpointType"`
-	EngineName         *string    `json:"EngineName"`
-	ServerName         *string    `json:"ServerName"`
-	DatabaseName       *string    `json:"DatabaseName"`
-	Username           *string    `json:"Username"`
-	Password           *string    `json:"Password"`
-	Port               *int32     `json:"Port"`
-	Tags               []tagEntry `json:"Tags"`
+	EndpointIdentifier        *string    `json:"EndpointIdentifier"`
+	EndpointType              *string    `json:"EndpointType"`
+	EngineName                *string    `json:"EngineName"`
+	ServerName                *string    `json:"ServerName"`
+	DatabaseName              *string    `json:"DatabaseName"`
+	Username                  *string    `json:"Username"`
+	Password                  *string    `json:"Password"`
+	Port                      *int32     `json:"Port"`
+	CertificateArn            *string    `json:"CertificateArn"`
+	ExtraConnectionAttributes *string    `json:"ExtraConnectionAttributes"`
+	KmsKeyID                  *string    `json:"KmsKeyId"`
+	ServiceAccessRoleArn      *string    `json:"ServiceAccessRoleArn"`
+	SslMode                   *string    `json:"SslMode"`
+	ExternalTableDefinition   *string    `json:"ExternalTableDefinition"`
+	Tags                      []tagEntry `json:"Tags"`
 	engineSettingsFields
 }
 
@@ -159,6 +165,21 @@ func validEngineNames(s string) bool {
 	return validEngineNamesTable()[s]
 }
 
+// validSslModesTable lazily builds the SslMode lookup table exactly once.
+//
+//nolint:gochecknoglobals // read-only package-level lookup table, apigatewayv2-style
+var validSslModesTable = sync.OnceValue(func() map[string]bool {
+	return map[string]bool{
+		"none": true, "require": true, "verify-ca": true, "verify-full": true,
+	}
+})
+
+// validSslMode mirrors types.DmsSslModeValue.Values() (databasemigrationservice
+// @v1.66.4, types/enums.go): none|require|verify-ca|verify-full.
+func validSslMode(s string) bool {
+	return validSslModesTable()[s]
+}
+
 func (h *Handler) handleCreateEndpoint(
 	ctx context.Context, in *createEndpointInput,
 ) (*createEndpointOutput, error) {
@@ -190,6 +211,14 @@ func (h *Handler) handleCreateEndpoint(
 		return nil, fmt.Errorf("%w: %s %s", ErrValidation, field, errUnsupportedEndpointSettingsMsg)
 	}
 
+	sslMode := ptrconv.String(in.SslMode)
+	if sslMode != "" && !validSslMode(sslMode) {
+		return nil, fmt.Errorf(
+			"%w: invalid SslMode %q; valid: none, require, verify-ca, verify-full",
+			ErrValidation, sslMode,
+		)
+	}
+
 	kv := tagsToMap(in.Tags)
 	ep, err := h.Backend.CreateEndpoint(
 		ctx,
@@ -202,6 +231,14 @@ func (h *Handler) handleCreateEndpoint(
 		ptrconv.String(in.Password),
 		ptrInt32(in.Port),
 		kv,
+		EndpointConnectionSettings{
+			CertificateArn:            ptrconv.String(in.CertificateArn),
+			ExtraConnectionAttributes: ptrconv.String(in.ExtraConnectionAttributes),
+			KmsKeyID:                  ptrconv.String(in.KmsKeyID),
+			ServiceAccessRoleArn:      ptrconv.String(in.ServiceAccessRoleArn),
+			SslMode:                   sslMode,
+			ExternalTableDefinition:   ptrconv.String(in.ExternalTableDefinition),
+		},
 	)
 	if err != nil {
 		return nil, err
@@ -274,28 +311,40 @@ func (h *Handler) handleDeleteEndpoint(
 }
 
 type endpointJSON struct {
-	EndpointIdentifier string `json:"EndpointIdentifier"`
-	EndpointArn        string `json:"EndpointArn"`
-	EndpointType       string `json:"EndpointType"`
-	EngineName         string `json:"EngineName"`
-	ServerName         string `json:"ServerName,omitempty"`
-	DatabaseName       string `json:"DatabaseName,omitempty"`
-	Username           string `json:"Username,omitempty"`
-	Status             string `json:"Status"`
-	Port               int32  `json:"Port,omitempty"`
+	EndpointIdentifier        string `json:"EndpointIdentifier"`
+	EndpointArn               string `json:"EndpointArn"`
+	EndpointType              string `json:"EndpointType"`
+	EngineName                string `json:"EngineName"`
+	ServerName                string `json:"ServerName,omitempty"`
+	DatabaseName              string `json:"DatabaseName,omitempty"`
+	Username                  string `json:"Username,omitempty"`
+	Status                    string `json:"Status"`
+	CertificateArn            string `json:"CertificateArn,omitempty"`
+	ExtraConnectionAttributes string `json:"ExtraConnectionAttributes,omitempty"`
+	KmsKeyID                  string `json:"KmsKeyId,omitempty"`
+	ServiceAccessRoleArn      string `json:"ServiceAccessRoleArn,omitempty"`
+	SslMode                   string `json:"SslMode"`
+	ExternalTableDefinition   string `json:"ExternalTableDefinition,omitempty"`
+	Port                      int32  `json:"Port,omitempty"`
 }
 
 func epToJSON(ep *Endpoint) endpointJSON {
 	return endpointJSON{
-		EndpointIdentifier: ep.EndpointIdentifier,
-		EndpointArn:        ep.EndpointArn,
-		EndpointType:       ep.EndpointType,
-		EngineName:         ep.EngineName,
-		ServerName:         ep.ServerName,
-		DatabaseName:       ep.DatabaseName,
-		Username:           ep.Username,
-		Status:             ep.Status,
-		Port:               ep.Port,
+		EndpointIdentifier:        ep.EndpointIdentifier,
+		EndpointArn:               ep.EndpointArn,
+		EndpointType:              ep.EndpointType,
+		EngineName:                ep.EngineName,
+		ServerName:                ep.ServerName,
+		DatabaseName:              ep.DatabaseName,
+		Username:                  ep.Username,
+		Status:                    ep.Status,
+		CertificateArn:            ep.CertificateArn,
+		ExtraConnectionAttributes: ep.ExtraConnectionAttributes,
+		KmsKeyID:                  ep.KmsKeyID,
+		ServiceAccessRoleArn:      ep.ServiceAccessRoleArn,
+		SslMode:                   ep.SslMode,
+		ExternalTableDefinition:   ep.ExternalTableDefinition,
+		Port:                      ep.Port,
 	}
 }
 
@@ -461,14 +510,19 @@ func (h *Handler) handleDescribeSchemas(
 }
 
 type modifyEndpointInput struct {
-	EndpointArn  *string `json:"EndpointArn"`
-	EndpointType *string `json:"EndpointType"`
-	EngineName   *string `json:"EngineName"`
-	ServerName   *string `json:"ServerName"`
-	DatabaseName *string `json:"DatabaseName"`
-	Username     *string `json:"Username"`
-	Password     *string `json:"Password"`
-	Port         *int32  `json:"Port"`
+	EndpointArn               *string `json:"EndpointArn"`
+	EndpointType              *string `json:"EndpointType"`
+	EngineName                *string `json:"EngineName"`
+	ServerName                *string `json:"ServerName"`
+	DatabaseName              *string `json:"DatabaseName"`
+	Username                  *string `json:"Username"`
+	Password                  *string `json:"Password"`
+	Port                      *int32  `json:"Port"`
+	CertificateArn            *string `json:"CertificateArn"`
+	ExtraConnectionAttributes *string `json:"ExtraConnectionAttributes"`
+	ServiceAccessRoleArn      *string `json:"ServiceAccessRoleArn"`
+	SslMode                   *string `json:"SslMode"`
+	ExternalTableDefinition   *string `json:"ExternalTableDefinition"`
 	engineSettingsFields
 }
 
@@ -493,6 +547,14 @@ func (h *Handler) handleModifyEndpoint(
 		return nil, fmt.Errorf("%w: %s %s", ErrValidation, field, errUnsupportedEndpointSettingsMsg)
 	}
 
+	sslMode := ptrconv.String(in.SslMode)
+	if sslMode != "" && !validSslMode(sslMode) {
+		return nil, fmt.Errorf(
+			"%w: invalid SslMode %q; valid: none, require, verify-ca, verify-full",
+			ErrValidation, sslMode,
+		)
+	}
+
 	ep, err := h.Backend.ModifyEndpoint(
 		ctx,
 		ptrconv.String(in.EndpointArn),
@@ -503,6 +565,13 @@ func (h *Handler) handleModifyEndpoint(
 		ptrconv.String(in.Username),
 		ptrconv.String(in.Password),
 		ptrInt32(in.Port),
+		EndpointConnectionSettings{
+			CertificateArn:            ptrconv.String(in.CertificateArn),
+			ExtraConnectionAttributes: ptrconv.String(in.ExtraConnectionAttributes),
+			ServiceAccessRoleArn:      ptrconv.String(in.ServiceAccessRoleArn),
+			SslMode:                   sslMode,
+			ExternalTableDefinition:   ptrconv.String(in.ExternalTableDefinition),
+		},
 	)
 	if err != nil {
 		return nil, err
