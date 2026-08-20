@@ -1,7 +1,7 @@
 # Wrapper-key / nested-shape sweep remainder (gopherstack-6flj)
 
-**104 of 162 services swept, 58 remain** (fis and codepipeline added
-2026-08-19, opening the 15-L+D+G tier; see their own sections at the end of
+**106 of 162 services swept, 56 remain** (fis, codepipeline, apprunner and
+ram added 2026-08-19, working through the 15-L+D+G tier; see their own sections at the end of
 this file. Previously: 102 of 162, databrew added this session,
 2026-08-15, the next tier down (16 L+D+G) once elasticbeanstalk/batch closed
 out at 17 -- see databrew's own section at the end of this file).
@@ -132,7 +132,8 @@ ses, sesv2, sns, sqs, ssm, ssoadmin, stepfunctions, transfer,
 session), **workmail** (this session), **workspaces** (this session),
 **lakeformation** (this session), **elasticsearch** (this session),
 **rekognition** (this session), **fis** (2026-08-19),
-**codepipeline** (2026-08-19).
+**codepipeline** (2026-08-19), **apprunner** (2026-08-19),
+**ram** (2026-08-19).
 
 This alphabetical list is itself incomplete and always has been — it was
 last rewritten wholesale when the count read 64, and per-session sections
@@ -10562,3 +10563,126 @@ per-service scratch directory and an explicit "never reach for git to
 recover" instruction. Related: `gopherstack-msqx` (per-agent worktrees).
 
 **104 of 162 services swept, 58 remain.**
+
+## apprunner (this session, 2026-08-19)
+
+All 37 ops swept. Enumerated twice, independently — `api_op_*.go` in
+`apprunner@v1.42.4` and `Handler.GetSupportedOperations` (`handler.go:56-96`)
+— and the two lists agree exactly, which is worth recording because this
+file's own history is a list of counts that turned out wrong. Protocol
+confirmed **awsjson1.0** from the `awsAwsjson10_deserializeOp*` prefix.
+Wrapper keys already correct; one layer-2 bug.
+
+1. `ListObservabilityConfigurations` emitted `Status`, `Latest` and
+   `CreatedAt` on every summary entry.
+   `deserializeDocumentObservabilityConfigurationSummary` has exactly three
+   cases — `ObservabilityConfigurationArn`, `...Name`, `...Revision` — so a
+   real client dropped all three keys with no error. Those fields are real,
+   but they live on the FULL `types.ObservabilityConfiguration` that
+   `DescribeObservabilityConfiguration` returns, and that op was already
+   correct. Third instance of the summary-vs-full confusion this session
+   after fis's two.
+
+Incidental (layer-3, fixed on sight): `AssociateCustomDomain` and
+`DisassociateCustomDomain` never emitted `VpcDNSTargets`, a real member of
+both output deserializers, while their sibling `DescribeCustomDomains` in the
+same file already emitted it as an empty list. Both now follow that
+convention. This one IS observable through a typed client: the real
+`deserializeDocumentVpcDNSTargetList` runs only when the key is present, so
+an omitted key leaves the field `nil` while a present empty array gives a
+non-nil empty slice.
+
+**Clean, no re-sweep needed**: the full `Service` shape and every nested
+sub-shape (`SourceConfiguration`, `CodeRepository`, `ImageRepository`,
+`NetworkConfiguration`, `HealthCheckConfiguration`,
+`EncryptionConfiguration`, `ServiceObservabilityConfiguration`), including
+the `AutoScalingConfigurationSummary` embedded on `Service` responses —
+correctly narrow at 7 fields against the full type's 12, no
+MaxConcurrency/MaxSize/MinSize leakage, which is precisely the trap that
+caught `ListObservabilityConfigurations`; `ServiceSummary`;
+`Connection`/`ConnectionSummary` (identical field sets on the real type);
+`AutoScalingConfiguration` and its list summary; `VpcConnector` (the real SDK
+has no separate summary type — confirmed, not assumed);
+`VpcIngressConnection` and `VpcIngressConnectionSummary` (correctly narrow at
+2 fields); `OperationSummary`; `ListServicesForAutoScalingConfiguration`;
+tags.
+
+**Disclosed, not fixed** (layer-3, out of scope as a hunt, all cited in
+PARITY.md): `ServiceSummary` omits `UpdatedAt`;
+`Service`/`VpcConnector`/`VpcIngressConnection` omit `DeletedAt` even though
+the domain structs already track it; `AutoScalingConfiguration` omits
+`Latest`, not tracked at all; `CustomDomain` omits
+`CertificateValidationRecords`, no cert-validation flow modelled.
+
+No existing test asserted either wrong shape, so none needed correcting.
+Tests: `TestListObservabilityConfigurations_SummaryHasNoFabricatedFields`
+(raw-body absence — the only instrument that can see a leaked key a typed
+client has no field to bind) and
+`TestListObservabilityConfigurations_RealClientSeesSummaryFields`;
+`TestAssociateDisassociateCustomDomain_VpcDNSTargetsPresent` (real client).
+Both fixes hand-reverted, symptoms reproduced, restored byte-identical.
+Gates re-run independently by the orchestrator before commit `96d040241`.
+
+## ram (this session, 2026-08-19)
+
+All 34 ops swept, enumerated from `api_op_*.go` in `ram@v1.39.4`. Protocol
+confirmed **restjson1** from `api_client.go` and the `awsRestjson1_` prefix.
+Three bugs, and one of them is the most severe this sweep has produced.
+
+1. `ListPermissionAssociations` emitted the permission ARN under
+   `permissionArn`; `deserializeDocumentAssociatedPermission`'s cases are
+   arn/defaultVersion/featureSet/lastUpdatedTime/permissionVersion/
+   resourceShareArn/resourceType/status. It ALSO emitted `permissionVersion`
+   as a JSON number where `types.AssociatedPermission.PermissionVersion` is
+   `*string`. **The type mismatch is not a silent drop — it fails the entire
+   call**: `operation error RAM: ListPermissionAssociations, deserialization
+   failed, expected String to be of type string, got json.Number instead`.
+   Worth generalising: this sweep's method compares key names, and a
+   right-key/wrong-JSON-type bug is louder than everything else it looks for.
+   Future passes should check the JSON type of every emitted member, not only
+   its name.
+2. `CreatePermissionVersion` built its response from the summary shape.
+   `CreatePermissionVersionOutput.Permission` is typed
+   `*types.ResourceSharePermissionDetail`
+   (`api_op_CreatePermissionVersion.go:100`), and the detail type carries the
+   `permission` policy-document text the summary has no member for — so a real
+   client's `output.Permission.Permission` always decoded nil.
+3. `ListPermissionVersions` had the **exact inverse**: it built each item from
+   the detail shape and leaked the policy document.
+   `ListPermissionVersionsOutput.Permissions` is
+   `[]types.ResourceSharePermissionSummary`
+   (`api_op_ListPermissionVersions.go:75`). Fixed with a new
+   `toPermissionVersionSummaryObject` that keeps the per-version
+   `version`/`defaultVersion` values the list op still legitimately needs.
+
+Two ops in one service getting the same summary/detail distinction wrong in
+opposite directions is the strongest argument yet for reading each op's own
+Output struct type rather than the service's prevailing convention.
+
+**Clean, no re-sweep needed** (31 ops): `ResourceShare`,
+`ResourceShareAssociation`, `ResourceShareInvitation`, `Principal`,
+`Resource`, `Tag`, `ServiceNameAndResourceType`, `AssociatedSource`,
+`ReplacePermissionAssociationsWork`, and both
+`ResourceSharePermissionSummary`/`Detail` where they are used correctly —
+each emitted field checked one-for-one against its own `deserializeDocument*`
+switch. Void ops (TagResource/UntagResource) correctly empty.
+
+**Disclosed, not fixed**: `ResourceShare` never emits
+`resourceShareConfiguration`; `Resource` never emits `resourceGroupArn`;
+`ResourceShareInvitation` never emits
+`receiverArn`/`resourceShareAssociations`.
+
+**No existing test caught any of the three** — and worth recording why:
+`TestListPermissionVersions_Pagination` and
+`TestListPermissionAssociations_Pagination` read only version strings and
+slice lengths through `[]any`, so they never touched the buggy fields. They
+did not assert a wrong key, so nothing needed correcting; they simply could
+not have failed.
+
+Tests: `Test_SDKRoundTrip_CreatePermissionVersion_ReturnsPolicyDocument`,
+`Test_ListPermissionVersions_OmitsPolicyDocumentField` (raw-body absence),
+`Test_SDKRoundTrip_ListPermissionAssociations_ArnAndVersionShape`. Each fix
+hand-reverted, symptom reproduced, restored byte-identical. Gates re-run
+independently by the orchestrator before commit `fcba24097`.
+
+**106 of 162 services swept, 56 remain.**
