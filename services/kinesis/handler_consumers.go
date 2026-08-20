@@ -21,7 +21,21 @@ type jsonRegisterStreamConsumerReq struct {
 	ConsumerName string `json:"ConsumerName"`
 }
 
+// jsonConsumer mirrors types.Consumer (deserializers.go:6279-6349): it has no
+// StreamARN member -- that field only exists on types.ConsumerDescription,
+// returned by DescribeStreamConsumer. RegisterStreamConsumer and
+// ListStreamConsumers both wire types.Consumer.
 type jsonConsumer struct {
+	ConsumerName              string  `json:"ConsumerName"`
+	ConsumerARN               string  `json:"ConsumerARN"`
+	ConsumerStatus            string  `json:"ConsumerStatus"`
+	ConsumerCreationTimestamp float64 `json:"ConsumerCreationTimestamp"`
+}
+
+// jsonConsumerDescription mirrors types.ConsumerDescription
+// (deserializers.go:6353-6432), which adds StreamARN on top of jsonConsumer's
+// fields.
+type jsonConsumerDescription struct {
 	ConsumerName              string  `json:"ConsumerName"`
 	ConsumerARN               string  `json:"ConsumerARN"`
 	ConsumerStatus            string  `json:"ConsumerStatus"`
@@ -40,7 +54,7 @@ type jsonDescribeStreamConsumerReq struct {
 }
 
 type jsonDescribeStreamConsumerResp struct {
-	ConsumerDescription jsonConsumer `json:"ConsumerDescription"`
+	ConsumerDescription jsonConsumerDescription `json:"ConsumerDescription"`
 }
 
 type jsonListStreamConsumersReq struct {
@@ -78,9 +92,22 @@ type jsonSubscribeToShardEvent struct {
 	MillisBehindLatest         int64        `json:"MillisBehindLatest"`
 }
 
-// toJSONConsumer converts a Consumer to its JSON representation.
+// toJSONConsumer converts a Consumer to its JSON representation (types.Consumer
+// shape -- no StreamARN). Used by RegisterStreamConsumer/ListStreamConsumers.
 func toJSONConsumer(c Consumer) jsonConsumer {
 	return jsonConsumer{
+		ConsumerName:              c.ConsumerName,
+		ConsumerARN:               c.ConsumerARN,
+		ConsumerStatus:            c.ConsumerStatus,
+		ConsumerCreationTimestamp: float64(c.ConsumerCreationTimestamp.UnixMilli()) / millisPerSecond,
+	}
+}
+
+// toJSONConsumerDescription converts a Consumer to its JSON representation
+// (types.ConsumerDescription shape -- includes StreamARN). Used by
+// DescribeStreamConsumer.
+func toJSONConsumerDescription(c Consumer) jsonConsumerDescription {
+	return jsonConsumerDescription{
 		ConsumerName:              c.ConsumerName,
 		ConsumerARN:               c.ConsumerARN,
 		ConsumerStatus:            c.ConsumerStatus,
@@ -129,7 +156,7 @@ func (h *Handler) handleDescribeStreamConsumer(
 		return nil, err
 	}
 
-	return jsonDescribeStreamConsumerResp{ConsumerDescription: toJSONConsumer(out.ConsumerDescription)}, nil
+	return jsonDescribeStreamConsumerResp{ConsumerDescription: toJSONConsumerDescription(out.ConsumerDescription)}, nil
 }
 
 func (h *Handler) handleListStreamConsumers(
