@@ -250,9 +250,11 @@ type NormalizedValue struct {
 	ValueType string `json:"ValueType"`
 }
 
-// AnalyzeIDDetections holds a detected ID field.
+// AnalyzeIDDetections holds a detected ID field. The real SDK's
+// types.AnalyzeIDDetections has no Geometry member (unlike the sibling
+// LendingDetection/ExpenseDetection types) -- Text, Confidence, and
+// NormalizedValue only.
 type AnalyzeIDDetections struct {
-	Geometry        *Geometry        `json:"Geometry,omitempty"`
 	NormalizedValue *NormalizedValue `json:"NormalizedValue,omitempty"`
 	Text            string           `json:"Text"`
 	Confidence      float64          `json:"Confidence"`
@@ -302,9 +304,14 @@ type LendingDocument struct {
 }
 
 // Extraction holds the extraction results for a single lending page.
+// IdentityDocument is a real member of the SDK's types.Extraction alongside
+// LendingDocument/ExpenseDocument, added here for wire-shape completeness;
+// nothing in this backend's lending mock currently classifies a page as an
+// identity document, so it is always nil/omitted -- see PARITY.md gaps.
 type Extraction struct {
-	LendingDocument *LendingDocument `json:"LendingDocument,omitempty"`
-	ExpenseDocument *ExpenseDocument `json:"ExpenseDocument,omitempty"`
+	LendingDocument  *LendingDocument  `json:"LendingDocument,omitempty"`
+	ExpenseDocument  *ExpenseDocument  `json:"ExpenseDocument,omitempty"`
+	IdentityDocument *IdentityDocument `json:"IdentityDocument,omitempty"`
 }
 
 // Prediction holds a classification value and its confidence. Used for

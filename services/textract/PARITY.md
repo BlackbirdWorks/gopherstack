@@ -6,9 +6,15 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: textract
 sdk_module: aws-sdk-go-v2/service/textract@v1.43.4   # bumped from v1.41.0 pin; AdaptersConfig/HumanLoopConfig field-diffed this pass
-last_audit_commit: 8c56f4eb9                          # HEAD when the 2026-08-07 pass (gopherstack-n1bo) was written
-last_audit_date: 2026-08-07
-overall: A            # 2026-08-07 (gopherstack-n1bo): implemented AdaptersConfig validation (real Adapter/AdapterVersion
+last_audit_commit: a8a59e4273e                        # HEAD as of the 2026-08-20 pass; see provenance note below
+last_audit_date: 2026-08-20
+overall: A            # 2026-08-20: wrapper-key/nested-shape sweep. Two real pattern-(a) fixes
+                      # (AnalyzeIDDetections.Geometry fabricated field removed; Extraction.IdentityDocument
+                      # missing field added), both latent/never-emitted in current mock data -- see the
+                      # dated section below. Block/enums/sync-vs-async pairs/adapters/lending/expense/tags
+                      # families re-verified clean. Grade held at A. last_audit_commit provenance for the
+                      # PRIOR entry (8c56f4eb9) found unreliable -- see provenance verdict below.
+                      # 2026-08-07 (gopherstack-n1bo): implemented AdaptersConfig validation (real Adapter/AdapterVersion
                       # state) and HumanLoopConfig required-field validation for AnalyzeDocument/StartDocumentAnalysis,
                       # closing the gap left by the 2026-07-24 pass below. HumanLoopActivationOutput's actual
                       # activation decision reclassified into structural_gaps (see there for why). Grade held at A.
@@ -19,7 +25,7 @@ ops:
   DetectDocumentText: {wire: ok, errors: ok, state: ok, persist: n/a, note: synchronous, deterministic mock Blocks}
   AnalyzeDocument: {wire: ok, errors: ok, state: ok, persist: n/a, note: "FeatureTypes + QueriesConfig validated; errors FIXED to InvalidParameterException (real SDK has no ValidationException case for this op). 2026-08-07 (gopherstack-n1bo): AdaptersConfig.Adapters now validated against real Adapter/AdapterVersion backend state (InvalidParameterException for an unknown adapter or version -- NOT ResourceNotFoundException, the trap: this op's real error set has no such case, unlike GetAdapter/UpdateAdapter/etc.); HumanLoopConfig's two required members validated; HumanLoopActivationOutput wired into the response shape but always omitted -- see structural_gaps for why activation itself can't be computed."}
   AnalyzeExpense: {wire: ok, errors: ok, state: ok, persist: n/a, note: "FIXED — ExpenseField.Currency/Type now ExpenseCurrency/ExpenseType, not ExpenseDetection"}
-  AnalyzeID: {wire: ok, errors: ok, state: ok, persist: n/a}
+  AnalyzeID: {wire: ok, errors: ok, state: ok, persist: n/a, note: "2026-08-20: FIXED — AnalyzeIDDetections.Geometry was a fabricated field (real types.AnalyzeIDDetections has only Text/Confidence/NormalizedValue). Never actually populated (always nil, omitempty), so it never leaked on the wire in practice; removed for wire-shape correctness."}
   StartDocumentTextDetection: {wire: ok, errors: ok, state: ok, persist: ok, note: "ClientRequestToken idempotency wired; errors FIXED to InvalidParameterException"}
   GetDocumentTextDetection: {wire: ok, errors: ok, state: ok, persist: ok, note: "NextToken pagination via paginateBlocks; errors FIXED to InvalidParameterException"}
   StartDocumentAnalysis: {wire: ok, errors: ok, state: ok, persist: ok, note: "ClientRequestToken idempotency wired; errors FIXED to InvalidParameterException. 2026-08-07 (gopherstack-n1bo): AdaptersConfig (this op's only adapter/human-loop-related field -- StartDocumentAnalysisInput has no HumanLoopConfig member) now validated the same way as AnalyzeDocument's."}
@@ -51,6 +57,7 @@ families:
   pagination: {status: ok, note: "FIXED — GetExpenseAnalysis/GetLendingAnalysis accepted MaxResults/NextToken but silently ignored them (no NextToken in response, no truncation); ListAdapters/ListAdapterVersions accepted no pagination fields at all. All four now paginate via pkgs/page.New and echo NextToken, matching GetDocumentAnalysis/GetDocumentTextDetection's pre-existing PaginateBlocks pattern."}
 gaps:                     # known divergences NOT fixed — link bd issue ids
   - "Geometry.RotationAngle (types.Geometry) was added to the Geometry struct (*float64, omitempty) for wire-shape completeness but nothing in synthetic_blocks.go ever populates it -- always nil/omitted. Harmless (matches real AWS behavior when a document has no detected rotation), flagging only so a future auditor doesn't assume it's untested/forgotten."
+  - "2026-08-20: Extraction.IdentityDocument (types.Extraction, aws-sdk-go-v2/service/textract@v1.43.4/types/types.go:613-625) was missing entirely -- gopherstack's Extraction only had LendingDocument/ExpenseDocument. Added the field (*IdentityDocument, omitempty) for wire-shape completeness, but nothing in lending_analysis.go's syntheticLendingResults() ever classifies a page as an identity document, so it stays nil/omitted, matching the RotationAngle precedent above. Real AnalyzeLending can return this when a lending package includes an ID page; gopherstack's mock lending flow always returns a fixed PAYSTUB/LendingDocument result."
 structural_gaps:
   - "AnalyzeDocument/StartDocumentAnalysis's HumanLoopConfig-triggered activation decision (AnalyzeDocumentOutput.HumanLoopActivationOutput) cannot be computed: real AWS evaluates the referenced FlowDefinition's HumanLoopActivationConditionsConfig, a JsonPath-based rules engine over per-block confidence scores that lives in SageMaker Augmented AI, a service gopherstack does not model the condition-evaluation semantics of anywhere (SageMaker's own FlowDefinition resource is tracked, but only as a CRUD record, not as an executable condition set). Approximating activation (e.g. a fixed probability, or a made-up confidence threshold) would fabricate a business decision, not derive one from held state -- exactly the failure mode this campaign removes. What IS buildable and built this pass (gopherstack-n1bo): HumanLoopConfig's two required members (FlowDefinitionArn, HumanLoopName) are validated, InvalidParameterException on either missing; HumanLoopActivationOutput is correctly omitted (nil) rather than fabricated. (bd: gopherstack-n1bo)"
 deferred:                 # consciously not audited this pass (scope) — next pass targets
@@ -174,6 +181,76 @@ Five pre-existing tests that asserted the old (wrong) error codes were corrected
 `TestHandler_HandleError_AdapterNotFound`, and two subtests of
 `TestHandler_ErrorEnvelope_TypeAndMessage`), and `TestHandler_AdapterVersion_EvaluationMetrics`
 was rewritten for the new list shape.
+
+### 2026-08-20 pass (wrapper-key / nested-shape sweep)
+
+Full re-derivation of protocol (JSON-RPC 1.1, `awsAwsjson11_*`, confirmed via
+`X-Amz-Target: Textract.<Op>` in `serializers.go` and `deserializeOpDocument<Op>Output`
+both defined AND called for every op -- the restjson flat-decode false-positive trap does
+not apply to awsjson1.1), all 25 ops enumerated against
+`aws-sdk-go-v2/service/textract@v1.43.4`'s `api_op_*.go` files (1:1 match, nothing added
+upstream since the last pin), `Block`'s full field list and every emitted `BlockType`/
+`EntityType`/`RelationshipType`/`SelectionStatus`/`TextType` enum value checked against
+`types/enums.go`, and every sync/async Output struct pair (`AnalyzeDocument` vs
+`GetDocumentAnalysis`, `DetectDocumentText` vs `GetDocumentTextDetection`, `AnalyzeExpense`
+vs `GetExpenseAnalysis`, `StartLendingAnalysis`'s `GetLendingAnalysis`/
+`GetLendingAnalysisSummary`) diffed field-by-field. Two real findings, both pattern (a)
+(member generalized from/missing relative to a sibling type), neither with an observable
+wire symptom in gopherstack's current mock data (both are always-nil fields, so the fix and
+its hand-revert produce byte-identical wire output except in a synthetic test that force-
+populates the field):
+
+1. **`AnalyzeIDDetections.Geometry` was fabricated.** The real
+   `types.AnalyzeIDDetections` (`types/types.go:135-150`) has only `Text` (required),
+   `Confidence`, `NormalizedValue` -- no `Geometry`, unlike the sibling
+   `LendingDetection`/`ExpenseDetection`/`SignatureDetection` types which do carry
+   `Geometry`. `id_analysis.go`'s `syntheticIDDocument` never set it (always nil,
+   `omitempty` hides it), so this never actually leaked onto the wire, but the field
+   itself had no basis in the real SDK and was a landmine for future population. Removed
+   from `models.go`. New test: `TestHandler_AnalyzeID_NoFabricatedGeometry`
+   (`handler_id_analysis_test.go`) asserts via raw JSON body (not the typed SDK client,
+   which has no case for an unrecognized key and would silently ignore it) that no
+   `IdentityDocumentFields[].Type`/`ValueDetection` object carries a `Geometry` key.
+   Hand-revert: re-added the field to the struct AND force-populated it in
+   `id_analysis.go` (a real client can't observe an unpopulated fabricated field, so the
+   struct-only revert alone wouldn't reproduce a symptom) -- test failed with the leaked
+   `"Geometry":{"BoundingBox":...}` key exactly as predicted; reverted, `models.go`
+   confirmed byte-identical to the pre-revert state via diff.
+
+2. **`Extraction.IdentityDocument` was missing** (found incidentally while diffing
+   `Extraction`'s field list, not from a Layer-3 hunt). Real `types.Extraction`
+   (`types/types.go:613-625`) has `ExpenseDocument`, `IdentityDocument`, `LendingDocument`;
+   gopherstack's `Extraction` only had the first and third. Added `IdentityDocument
+   *IdentityDocument` for wire-shape completeness (`models.go`). `lending_analysis.go`'s
+   `syntheticLendingResults()` never classifies a page as an identity document, so like
+   `Geometry.RotationAngle` above, this stays nil/omitted in practice -- documented as a
+   gap, not claimed as a behavioral fix.
+
+**`last_audit_commit` provenance verdict: the prior citation (`8c56f4eb9`, dated
+2026-08-07, matching the prior `last_audit_date` exactly) is misleading.** The PARITY.md
+content it labeled "2026-08-07 (gopherstack-n1bo)" -- including the AdaptersConfig/
+HumanLoopConfig work described there -- was actually committed in `d39bf33e4` ("Chore/parity
+upgrade (#2414)"), dated **2026-08-11**, four days later. `git merge-base 8c56f4eb9
+d39bf33e4` resolves to `e88712a92` (d39bf33e4's own parent) -- `8c56f4eb9` sits on a sibling
+branch (`chore/parity-upgrade`, an unrelated dynamodb/rds fix) that is **not an ancestor**
+of the commit that actually produced the audited state. The date match was coincidental,
+not proof of provenance; ancestry, not just date proximity, is the reliable check. This
+pass's own citation (`a8a59e4273e`) is today's actual HEAD, avoiding the same trap.
+
+**SDK version check**: `go.mod` pins `v1.43.4`; the manifest header already said
+`v1.43.4` correctly. The **prose** under the 2026-07-24 section still says
+`aws-sdk-go-v2/service/textract@v1.41.0` -- this is accurate as *historical narration* of
+what that pass actually read at the time (before the later `v1.41.0 -> v1.43.4` bump
+recorded in the header's own comment), not a live claim about the current pin, so it is
+not a manifest inconsistency.
+
+**"FIXED" claim re-derivation**: spot-re-verified bug #8 (op-aware `InvalidParameterException`
+vs `ValidationException`) against `GetDocumentAnalysis`'s live `deserializeOpError` switch
+this pass (`deserializers.go:1433-1497`) -- confirmed `InvalidJobIdException`,
+`InvalidParameterException` present, no `ValidationException` case, matching the claim.
+No other "FIXED" claims were found to fail re-derivation in the portions of the manifest
+covered this pass (see the report's coverage disclosure for what was and wasn't
+re-verified).
 
 ### Traps for the next auditor
 
