@@ -1,6 +1,6 @@
 # Wrapper-key / nested-shape sweep remainder (gopherstack-6flj)
 
-**142 of 162 services swept, 20 remain.** Read the "Provenance heuristic"
+**146 of 162 services swept, 16 remain.** Read the "Provenance heuristic"
 section at the end of this file before judging any manifest's
 last_audit_commit -- four false accusations this session, zero true findings
 from the test that produced them. Earlier text: (15-, 13-, 12- and 11-L+D+G tiers
@@ -167,7 +167,9 @@ session), **workmail** (this session), **workspaces** (this session),
 **redshiftdata** (2026-08-20), **acmpca** (2026-08-20), **sts** (2026-08-20),
 **translate** (2026-08-20), **account** (2026-08-20), **elb** (2026-08-20),
 **timestreamwrite** (2026-08-20), **dax** (2026-08-20),
-**comprehend** (2026-08-20).
+**comprehend** (2026-08-20), **mediapackage** (2026-08-20),
+**iotdataplane** (2026-08-20), **mediastore** (2026-08-20),
+**serverlessrepo** (2026-08-20).
 
 This alphabetical list is itself incomplete and always has been — it was
 last rewritten wholesale when the count read 64, and per-session sections
@@ -12036,3 +12038,114 @@ genuinely stale — sha predates its own audit date by fifteen days — and is
 refreshed. Commit `039f56e4b`.
 
 **142 of 162 services swept, 20 remain.**
+
+## mediapackage (this session, 2026-08-20)
+
+All 19 ops swept. Protocol **restjson1**. **Zero bugs.** All 19 Output structs
+are flat, so `gopherstack-cnhp` has no purchase — checked, not assumed. Full
+field-list diff including optional members across Channel, OriginEndpoint,
+HarvestJob, HlsIngest/IngestEndpoint, both access-log types, Authorization,
+the MssPackage chain down through MssEncryption, SpekeKeyProvider,
+EncryptionContractConfiguration and StreamSelection, and S3Destination.
+
+**The enum check came back clean for a STRUCTURAL reason, which is stronger
+than a lucky result**: gopherstack emits exactly two enum-typed constants,
+both real. The other fourteen enums live inside the opaque Hls/Dash/Cmaf
+package blobs, where the service echoes the client's own bytes and therefore
+*cannot* invent a value.
+
+That opacity is this service's standing deferral, and it has one consequence
+now named concretely rather than left implicit: because the `CmafPackage`
+request map is echoed verbatim, **gopherstack never adds the server-computed
+`HlsManifest.Url` that real AWS returns.**
+
+**The `cp`-based hand-revert landed here first and worked**: reverted
+`SpekeKeyProvider`'s `resourceId` tag to a typo via the scratchpad copy,
+watched the real client return an empty `ResourceId`, restored, confirmed
+byte-identical by md5sum. No git. Commit `67b92e0b9`.
+
+## iotdataplane (this session, 2026-08-20)
+
+All 11 ops swept. Protocol **restjson1**. **Zero wire bugs.** This was the
+highest false-positive risk left in the sweep — restjson AND payload-bound is
+exactly the `gopherstack-cnhp` condition — so body handling was resolved per
+op by reading each `HandleDeserialize` in full.
+
+**The result is a three-way split that a name-only check gets WRONG:**
+
+```
+err = awsRestjson1_deserializeOpDocumentGetThingShadowOutput(
+        output, response.Body, response.ContentLength)
+```
+
+- `GetThingShadow`/`UpdateThingShadow`/`DeleteThingShadow` read the RAW body,
+  and **the OpDocument helper is nonetheless the live path** — it just takes
+  `(output, response.Body, response.ContentLength)` instead of a decoded
+  shape. **So "the helper is called" does not by itself mean the body is a
+  JSON document. Read the call, not the name.**
+- `Publish`/`DeleteConnection` discard an empty body.
+- The other six genuinely JSON-decode through the helper.
+
+The HTTP bindings were the real surface, including the one that looks wrong
+and is not: `ListNamedShadowsForThing` lives at
+`/api/things/shadow/ListNamedShadowsForThing/{thingName}`, NOT under the
+`/things/{thingName}/shadow` prefix its siblings use. `Publish`'s
+`contentType` is a query parameter, not the HTTP header.
+
+Boundary stated rather than glossed: the shadow document's own JSON is opaque
+(`Payload []byte` is the sole SDK member), so gopherstack's shadow-merge
+semantics are outside this method's reach and nothing here verifies them.
+
+**Two comments fixed that CONTRADICTED correct code** — one asserting
+"RetainedMessageSummary does NOT include qos" beside a function correctly
+emitting qos; one claiming `ErrRequestTooLarge` is modelled only for
+`UpdateThingShadow` when `SendDirectMessage` models it too. Not wire bugs, but
+that is precisely how a later pass talks itself into a regression — which
+happened in comprehend earlier today. Commit `b61cda07b`.
+
+## mediastore (this session, 2026-08-20)
+
+All 21 ops swept. Protocol **awsjson1.1**. **Zero bugs.** The
+`gopherstack-cnhp` check came back in the AFFIRMATIVE rather than being
+dismissed: every op's OpDocument deserializer is the live path AND is
+decoding a real wrapper key, so every wrapper key in the handlers is
+load-bearing here.
+
+The per-op check that keeps finding bugs elsewhere came back clean — the
+`Container` item shape is identical across `CreateContainer`,
+`DescribeContainer` and `ListContainers`, all three sharing one conversion.
+Two type details that invite mistakes are right: `MaxAgeSeconds` is a JSON
+number against the SDK's int32, and the lifecycle policy is a plain **string**
+on both sides rather than a structure.
+
+Disclosed, not fixed: `CorsRule.AllowedMethods` values are not validated
+against the `MethodName` enum, and `LimitExceededException` — declared only
+for `CreateContainer`, for the per-account quota — is unmodelled.
+Commit `af89d3e6f`.
+
+## serverlessrepo (this session, 2026-08-20)
+
+All 13 ops swept. Protocol **restjson1**. One bug.
+
+`applicationResponse`, shared by `CreateApplication`, `GetApplication` and
+`UpdateApplication`, emitted a top-level `sourceCodeUrl`.
+`GetApplicationOutput` has thirteen members and none is `SourceCodeUrl` — the
+field is real, but on `CreateApplicationInput` as a REQUEST member, with its
+response-side home nested under `Version.sourceCodeUrl`. **Third request-only
+field found riding into a response today**, after efs's `DestinationToCreate`
+members and redshiftdata's `WithEvent`.
+
+**Worth recording what can and cannot detect this class**: a typed SDK client
+CANNOT, because it silently ignores unknown JSON keys. The test has to
+inspect the raw wire body. That is the same instrument the fabricated-member
+findings elsewhere in this campaign needed, and the reason a "clean" typed
+round-trip is not sufficient evidence against a leak.
+
+The three list ops were checked separately rather than generalised, which
+mattered: `ListApplications` returns `ApplicationSummary`,
+`ListApplicationVersions` returns `VersionSummary`, and
+`ListApplicationDependencies` returns `ApplicationDependencySummary` — three
+genuinely distinct item types, exactly the shape omics got ten of eleven ops
+wrong on. Commit `bf7f0944b`.
+
+**146 of 162 services swept, 16 remain.**
