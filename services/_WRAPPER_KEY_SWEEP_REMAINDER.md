@@ -1,6 +1,7 @@
 # Wrapper-key / nested-shape sweep remainder (gopherstack-6flj)
 
-**121 of 162 services swept, 41 remain** (15- and 13-L+D+G tiers closed,
+**126 of 162 services swept, 36 remain** (15-, 13- and 12-L+D+G tiers closed;
+11-tier all but `support` as of 2026-08-20. Earlier header text follows: 15- and 13-L+D+G tiers closed,
 12-tier closed too -- verifiedpermissions, mq, fsx, iotanalytics -- as of
 2026-08-20. NOTE a new sub-shape found in iotanalytics: a member at the
 WRONG NESTING LEVEL under the RIGHT key, which a pure key comparison cannot
@@ -153,7 +154,9 @@ session), **workmail** (this session), **workspaces** (this session),
 **codeconnections** (2026-08-19), **mediaconvert** (2026-08-19),
 **managedblockchain** (2026-08-20), **glacier** (2026-08-20),
 **verifiedpermissions** (2026-08-20), **mq** (2026-08-20),
-**fsx** (2026-08-20), **iotanalytics** (2026-08-20).
+**fsx** (2026-08-20), **iotanalytics** (2026-08-20), **swf** (2026-08-20),
+**efs** (2026-08-20), **detective** (2026-08-20),
+**emrserverless** (2026-08-20), **cognitoidentity** (2026-08-20).
 
 This alphabetical list is itself incomplete and always has been — it was
 last rewritten wholesale when the count read 64, and per-session sections
@@ -11431,3 +11434,159 @@ is fabricated — `UpdateDatastoreInput` has no such member — but no real
 client can reach it. Commit `26c405025`.
 
 **121 of 162 services swept, 41 remain.**
+
+# ---- 11-L+D+G tier (2026-08-20) ----
+
+## swf (this session, 2026-08-20)
+
+All 39 ops swept. Protocol **awsjson1.0**. Two bugs — and the structural
+finding matters more than either.
+
+**swf carries the deepest discriminated union in the repo**: `HistoryEvent`
+has ~40 mutually exclusive `*EventAttributes` members. A wrong key there is
+this campaign's bug class at its worst — the event still decodes, nothing
+errors, the entire payload vanishes, and a decider cannot decide. Forty
+hand-written keys would be forty chances to drift.
+
+**Zero wrong keys, because it never wrote them.** `eventAttrKey` derives each
+one as `lowerCamel(EventType) + "EventAttributes"`, checked against all 44
+cases in the real deserializer's switch with zero exceptions. Filed as
+`gopherstack-0shs` with the caveat that this only works where the naming is
+regular — AWS breaks its own conventions constantly, and this campaign has
+the counter-examples (shield's ALL-CAPS `ResourceARN`, apigateway's
+`apiId`/`restApiId`). The transferable recommendation there is a **test
+helper asserting a service's emitted keys against the pinned deserializer's
+case list**, which would have caught every wrong-key bug in this campaign
+without touching production code.
+
+Both bugs were in attribute CONTENT, which no naming scheme prevents:
+1. `RequestCancelWorkflowExecution` stamped `Cause: "OPERATOR_INITIATED"`.
+   The real `WorkflowExecutionCancelRequestedCause` enum defines exactly one
+   value, `CHILD_POLICY_APPLIED`. A prior pass had found this and left a
+   comment deferring it.
+2. `ChildWorkflowExecutionTimedOut` never emitted `TimeoutType`, which the
+   real type marks required.
+
+Disclosed, not fixed, all needing new state: `DecisionTaskScheduled`/`Started`
+are never recorded at all, so three required members always emit as 0;
+`TimerCanceled.StartedEventId` untracked; `DeprecationDate` never emitted on
+either type info. Commit `3d547792f`.
+
+## efs (this session, 2026-08-20)
+
+All 31 ops swept. Protocol **restjson1**; no op's Output has a single
+httpPayload member, so no `gopherstack-cnhp` trap. Two bugs.
+
+1. `mtToResponse` fabricated `MountTargetArn` and `SecurityGroups`.
+   `MountTargetDescription` has eleven cases and neither is among them —
+   mount targets have no ARN in the real API at all, and security groups are
+   reachable only through `DescribeMountTargetSecurityGroups`.
+2. **The replication `Destination` leaked `FileSystemArn`,
+   `AvailabilityZoneName` and `KmsKeyID` — members of the REQUEST-side
+   sibling `DestinationToCreate`.** The response-side `Destination` has seven
+   fields and none of those three; one was also cased wrong. **Name this
+   sub-trap: when one Go struct serves both directions, request-only fields
+   ride into the response.** Real `RoleArn`, never emitted, added while
+   rebuilding the shape.
+
+Four existing tests had locked in the fabricated fields, two named for them
+(`TestMountTargetArn`,
+`TestReplicationConfiguration_DestinationHasArnAndOwner`) — renamed and
+inverted rather than deleted.
+
+**A third staleness axis, found here**: the manifest's PROSE said it audited
+against `efs@v1.41.12` while go.mod pinned `v1.44.4` — two bumps later. A
+repo-wide survey found **0 manifests whose `sdk_module` HEADER disagrees with
+go.mod**, so this is a prose-only problem and the fix is a rule, not a
+migration: the version lives in `sdk_module` and nowhere else. See
+`gopherstack-z31a`. Commit `73f9bede0`.
+
+## detective (this session, 2026-08-20)
+
+All 29 ops swept. Protocol **restjson1**. **Zero wrapper-key bugs** — this
+service's real ones were caught by the 2026-08-11 pass, and every claim of
+that pass re-derived correctly, which several other manifests did not manage
+this session. One incidental fix: `TTPsObservedDetail` has seven cases
+including `Technique`, which gopherstack never carried, so a real client saw
+it nil on every `TTP_OBSERVED` indicator.
+
+Verified rather than assumed, and recorded so nobody re-checks: **the
+enum-keyed maps on both sides** — `DatasourcePackageIngestStates` and
+`ListDatasourcePackages`' return map — key on real `DatasourcePackage` values
+and value on real `DatasourcePackageIngestState` values. **A wrong enum used
+as a MAP KEY is invisible to a shape check**, which is why it was worth
+reading directly. All three `gopherstack-c902` gaps re-verified as still
+accurate.
+
+**A correction to this campaign's own provenance heuristic.** detective cited
+`40f05928` (2026-07-13) against a 2026-08-10 audit date — the same stale sha
+appmesh cited. That prompted a check of whether SHARING a sha is itself a
+signal. It is not:
+
+```
+7 manifests cite 2d47b51d4    3 cite b72533e7a
+7 manifests cite 198990e82    3 cite 3b90d4523
+4 manifests cite 8c56f4eb9    2 each cite four more
+```
+
+Sharing is the NORM and is legitimate — a session auditing seven services
+records the same HEAD in all seven, exactly as the schema asks. **Only the
+date gap discriminates.** Both weaker tests have now produced a false
+positive in practice: the directory test wrongly accused codestarconnections,
+and the sharing test would flag ~30 correct manifests. Commit `81a1aabf0`.
+
+## emrserverless (this session, 2026-08-20)
+
+All 22 ops swept. Protocol **restjson1**; all 17 body-bearing ops confirmed
+to route through their own live OpDocument helper, the other 5 correctly
+void. One bug: `ListJobRunAttempts` never emitted `mode`, one of
+`JobRunAttemptSummary`'s fifteen cases, so a client's `.Mode` was the zero
+value regardless of BATCH or STREAMING.
+
+**A second structural defence, different mechanism from swf's**, and the pair
+is worth understanding together. emrserverless has THREE request/response
+sibling pairs — `ImageConfiguration`/`Input`,
+`IdentityCenterConfiguration`/`Input`, plus twelve application-config
+sub-objects — which is exactly the shape that leaked in efs the same day.
+Nothing leaks here because **the service does not reconstruct a typed struct
+per direction**: it stores and echoes each sub-object as an opaque map keyed
+by the AWS wire field name, so it can only ever return field names the caller
+sent. Fabricating a response-only member is not expressible.
+
+**The cost is stated in `gopherstack-0shs` so nobody adopts it blindly**:
+opaque passthrough also makes this sweep BLIND — the same boundary
+mediaconvert's `JobSettings` and appmesh's specs hit — and it cannot express
+server-computed members, so `ImageConfiguration.resolvedImageDigest` and
+`IdentityCenterConfiguration.identityCenterApplicationArn` are never emitted
+at all. Passthrough for genuinely echo-shaped config; typed-and-SDK-checked
+for anything the server must add to.
+
+Manifest defect: `last_audit_commit: b0d0cfe0` is a `resourcegroupstaggingapi`
+commit dated 2026-07-13 against a stated audit date of 2026-08-13, with a
+code comment admitting the hash was unknown at edit time and never
+backfilled. Corrected to `adb374d97`. **Third stale sha dated 2026-07-13.**
+Commit `c372e9ade`.
+
+## cognitoidentity (this session, 2026-08-20)
+
+All 23 ops swept. Protocol **awsjson1.1**. **Zero bugs**, no code changed —
+and the near-miss is the point.
+
+`GetCredentialsForIdentity` returns `types.Credentials`, whose four cases are
+`AccessKeyId`, `Expiration`, **`SecretKey`** and `SessionToken`. Not
+`SecretAccessKey`, which is what STS calls the identical concept. That is the
+sibling-name trap this campaign keeps finding, sitting on the credentials
+path where a dropped field means a client cannot authenticate at all.
+gopherstack emits `SecretKey` correctly — from an internal Go field named
+`SecretAccessKey`, so the internal name is the confusing one and the wire tag
+is right.
+
+Also verified: `IdentityPool` vs `IdentityPoolShortDescription` use distinct
+wire structs with no leakage either way; the `RoleMappings` tree matches at
+every level, with no opportunity for an invented enum since the backend
+echoes what the caller supplied. Provenance sound — cited sha dated exactly
+its own audit date, and not the 2026-07-13 sha. This service had two prior
+deep passes; a clean result is evidence those held, not that nobody looked.
+Commit `80ed8eb54`.
+
+**126 of 162 services swept, 36 remain.**
