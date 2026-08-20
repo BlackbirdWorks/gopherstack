@@ -1,7 +1,10 @@
 # Wrapper-key / nested-shape sweep remainder (gopherstack-6flj)
 
-**106 of 162 services swept, 56 remain** (fis, codepipeline, apprunner and
-ram added 2026-08-19, working through the 15-L+D+G tier; see their own sections at the end of
+**108 of 162 services swept, 54 remain** (fis, codepipeline, apprunner, ram,
+acm and appmesh added 2026-08-19, working through the 15-L+D+G tier; read
+appmesh's section before trusting any singular-op wrapper-key finding
+anywhere -- it documents a dead-code deserializer that makes this file's core
+method report false positives; see their own sections at the end of
 this file. Previously: 102 of 162, databrew added this session,
 2026-08-15, the next tier down (16 L+D+G) once elasticbeanstalk/batch closed
 out at 17 -- see databrew's own section at the end of this file).
@@ -133,7 +136,7 @@ session), **workmail** (this session), **workspaces** (this session),
 **lakeformation** (this session), **elasticsearch** (this session),
 **rekognition** (this session), **fis** (2026-08-19),
 **codepipeline** (2026-08-19), **apprunner** (2026-08-19),
-**ram** (2026-08-19).
+**ram** (2026-08-19), **acm** (2026-08-19), **appmesh** (2026-08-19).
 
 This alphabetical list is itself incomplete and always has been — it was
 last rewritten wholesale when the count read 64, and per-session sections
@@ -282,6 +285,20 @@ candidate ops.
   not from `_PROTOCOLS.md` alone — one of its hand-checked rows was itself
   wrong (this issue's cloudwatch batch found it uses rpc-v2-cbor
   exclusively, not the awsQuery the doc implied).
+
+- **Check WHICH deserializer runs, not just what it says** (2026-08-19,
+  from appmesh; `gopherstack-cnhp`). smithy-go emits a
+  `deserializeOpDocument<Op>Output` that reads a wrapper key even for ops
+  where it is dead code -- when the output has one structure member and no
+  header bindings, the live path is
+  `deserializeOp<Op>.HandleDeserialize`, which decodes the body directly into
+  that member with no wrapper at all. Grepping the dead helper and trusting
+  its `case` list produces a confident, wrong "missing wrapper key" finding;
+  a prior appmesh audit recorded exactly that as a fabricated fix. One
+  command settles it:
+  `awk '/func \(m \*awsRestjson1_deserializeOp<Op>\) HandleDeserialize/,/^}/' deserializers.go | grep deserialize`.
+  List ops usually DO use the wrapper (two members), so a service can
+  legitimately be flat for singular ops and wrapped for list ops.
 
 ## Regenerate
 
@@ -10686,3 +10703,125 @@ hand-reverted, symptom reproduced, restored byte-identical. Gates re-run
 independently by the orchestrator before commit `fcba24097`.
 
 **106 of 162 services swept, 56 remain.**
+
+## acm (this session, 2026-08-19)
+
+All 39 ops swept (`api_op_*.go` and `GetSupportedOperations` agree). Protocol
+confirmed **awsjson1.1** from the `awsAwsjson11_` prefix, consistent with
+`handler.go`'s `X-Amz-Target: CertificateManager.<Op>`. One bug, small.
+
+1. `DescribeCertificate`'s `certificateDetail` declared a top-level `KeyId`.
+   `deserializeDocumentCertificateDetail` has thirty cases and `KeyId` is not
+   among them; the key belongs exclusively to
+   `GetAcmeExternalAccountBindingCredentialsOutput` (`deserializers.go:10053`),
+   which is correct and untouched. The backing `Certificate.KeyID` was never
+   assigned anywhere, so `omitempty` kept it off the wire in practice — but a
+   fabricated member in a response shape is one this sweep removes rather
+   than leaves, and a dead field is exactly how a future pass ends up wiring
+   it "back" to something.
+
+**A negative result worth as much as the fix**: acm defines four
+Detail/Summary type PAIRS in its ACME family (`AcmeEndpoint`/
+`AcmeEndpointSummary`, `AcmeExternalAccountBinding`/Summary, `AcmeAccount`/
+Summary, `AcmeDomainValidation`/Summary) and AWS models each pair as
+**field-identical structs**. gopherstack reusing one wire struct per pair is
+therefore correct here — it superficially matches the summary-vs-full bug
+that hit four other services this session and is not an instance of it. Check
+the two types' case lists before reporting that shape as a bug.
+
+**Clean, no re-sweep needed**: `CertificateDetail` and its nested
+`RenewalSummary`; `CertificateSummary`/`ListCertificates`; all four ACME
+pairs plus `PrevalidationDetails`/`PrevalidationOptions`; `SearchCertificates`
+(`CertificateSearchResult`, `AcmCertificateMetadata`, `X509Attributes`); the
+tag family; the account-configuration family; every scalar-output op.
+
+**Disclosed, not fixed** (layer-3, consistent with this service's documented
+ACME/DN scope boundary): `CertificateDetail.AcmeAccountId`/`AcmeEndpointArn`
+(`deserializers.go:6478-6494`); `ExtendedKeyUsage[].OID` (`:7925`);
+`AcmeDomainValidation.FailureDetails` (`:5613`);
+`AcmCertificateMetadata.AcmeAccountId`/`AcmeEndpointArn`/
+`CertificateKeyPairOrigin` (`:5157-5175`);
+`CertificateSummary.CertificateKeyPairOrigin` (`:6975`); `DistinguishedName`'s
+non-CommonName RDN components.
+
+No existing test asserted a wrong key. Test:
+`TestACMHandler_DescribeCertificate_NoFabricatedKeyId` (raw-body absence —
+the real typed struct has no `KeyId` field for a client to observe the leak
+through). Hand-reverted, symptom reproduced, restored. Gates re-run
+independently by the orchestrator before commit `e41397907`.
+
+## appmesh (this session, 2026-08-19)
+
+All 37 ops swept. Protocol confirmed **restjson1**. **Zero wire bugs** — and
+the real finding is about the audit record and about this sweep's own method.
+
+**A prior audit's PARITY.md claim was fabricated.** It recorded a "primary
+bug this sweep (fixed)": that every singular Create/Describe/Update/Delete
+response was missing its AWS resource-wrapper key, citing
+`awsRestjson1_deserializeOpDocument<Op>Output` functions that do read
+`case "mesh":`. Three independent tells, any one of which falsifies it in one
+command: its `last_audit_commit` `40f05928` is an unrelated
+`codestarconnections` commit; the cited `parity_a_test.go` does not exist;
+the cited `keyMesh`/`keyVirtualNode` constants exist nowhere in the repo.
+Filed against `gopherstack-1i5l` as a third instance, and the worse kind —
+kms and eventbridge asserted verdicts, this asserted a fix.
+
+**THE OPDOCUMENT TRAP — a method gap this whole sweep should absorb.** Filed
+as `gopherstack-cnhp`. For a restjson op whose output has exactly one
+structure member and no header bindings, smithy-go emits BOTH a
+`deserializeOpDocument<Op>Output` that reads a wrapper key AND a
+`deserializeOp<Op>.HandleDeserialize` that decodes the raw body DIRECTLY into
+that member. **Only the second is wired into the middleware stack.** On
+appmesh, `grep -c awsRestjson1_deserializeOpDocumentCreateMeshOutput` returns
+1 — its own definition, called by nothing — while `HandleDeserialize` does
+`deserializeDocumentMeshData(&output.Mesh, shape)` at `deserializers.go:244`.
+
+This sweep's method is "read that op's own deserializer and compare the
+emitted top-level key". Landing on the dead helper tells you a wrapper is
+required when the real client wants a flat body. The check is one command:
+
+```
+awk '/func \(m \*awsRestjson1_deserializeOp<Op>\) HandleDeserialize/,/^}/' \
+  deserializers.go | grep deserialize
+```
+
+Calls `deserializeDocument<Type>` directly → flat body, no wrapper key.
+Calls `deserializeOpDocument<Op>Output` → the wrapper is live. List ops
+almost always take the second path (two members: the list plus nextToken),
+which is exactly why appmesh's plural-key `listResp` wrapping was always
+correct in the same service where every singular op must be flat.
+
+This is the third case where "read the deserializer" turned out to need
+"...and check WHICH deserializer runs" — see also `gopherstack-m1gl`
+(route53's struct-level `XMLName` overriding the enclosing field tag) and
+this file's cloudfront note (its list deserializers fetch the root and decode
+children, ignoring the root tag). Any already-swept service where a finding
+was reported on a SINGULAR op's wrapper key is worth a targeted re-check.
+
+The agent trusted the fabricated claim, implemented the wrapping, and a new
+real-SDK round-trip test broke immediately (`CreateMeshOutput.Mesh` non-nil
+with every field nil) — which is how all of the above surfaced. Reverted; net
+handler diff zero. What landed is that regression coverage:
+`sdk_roundtrip_test.go` drives Create/Describe/Update/Delete through a real
+`aws-sdk-go-v2` client against the production router, table-driven across all
+seven families.
+
+**Clean, no re-sweep needed**: mesh, virtualNode, virtualRouter + route,
+virtualService, virtualGateway + gatewayRoute, tags — flat single-resource
+bodies and plural list wrappers both confirmed against each op's actually
+invoked deserializer. All seven `*Ref` list-item shapes checked field-by-field.
+Recorded because it nearly became a false positive: truncated greps suggested
+`RouteRef`/`GatewayRouteRef` were missing `virtualRouterName`/
+`virtualGatewayName`; full extraction showed both fields are present on the
+real types and gopherstack was correct.
+
+**Structurally unverifiable by this method** (not gaps, a boundary):
+`RouteSpec`, `VirtualNodeSpec`, `VirtualGatewaySpec` and `GatewayRouteSpec`
+are opaque `json.RawMessage` passthrough — four to five levels deep with
+multiple smithy unions each — so they round-trip whatever the client sends
+and a wrong key there cannot be detected by comparing emitted keys.
+`MeshSpec`, `VirtualRouterSpec` and `VirtualServiceSpec` do have structural
+validation. Also structurally absent: the `meshOwner` cross-account query
+param (`gopherstack-ddkf`).
+
+**108 of 162 services swept, 54 remain.**
