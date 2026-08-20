@@ -328,7 +328,9 @@ func TestHandler_DeleteApplicationInputProcessingConfiguration(t *testing.T) {
 				app, _ := b.DescribeApplication(context.Background(), "del-proc-app")
 				inputID := app.Inputs[0].InputID
 				cfg := &kinesisanalytics.InputProcessingConfigurationDesc{
-					InputLambdaProcessor: &kinesisanalytics.LambdaProcessorDesc{ResourceARN: "arn:aws:lambda::fn"},
+					InputLambdaProcessorDescription: &kinesisanalytics.LambdaProcessorDesc{
+						ResourceARN: "arn:aws:lambda::fn",
+					},
 				}
 				_ = b.AddApplicationInputProcessingConfiguration(context.Background(), "del-proc-app", 2, inputID, cfg)
 
@@ -427,7 +429,7 @@ func TestDeepCopyInput(t *testing.T) {
 		app2.ApplicationVersionID,
 		inputID,
 		&kinesisanalytics.InputProcessingConfigurationDesc{
-			InputLambdaProcessor: &kinesisanalytics.LambdaProcessorDesc{
+			InputLambdaProcessorDescription: &kinesisanalytics.LambdaProcessorDesc{
 				ResourceARN: "arn:aws:lambda:us-east-1:000:function:fn",
 			},
 		},
@@ -438,13 +440,13 @@ func TestDeepCopyInput(t *testing.T) {
 	require.NotNil(t, app3.Inputs[0].InputProcessingConfigurationDescription)
 
 	// Mutate the copy — original must be unaffected.
-	app3.Inputs[0].InputProcessingConfigurationDescription.InputLambdaProcessor.ResourceARN = "mutated"
+	app3.Inputs[0].InputProcessingConfigurationDescription.InputLambdaProcessorDescription.ResourceARN = "mutated"
 
 	app4, _ := b.DescribeApplication(context.Background(), "dc-input-app")
 	assert.Equal(
 		t,
 		"arn:aws:lambda:us-east-1:000:function:fn",
-		app4.Inputs[0].InputProcessingConfigurationDescription.InputLambdaProcessor.ResourceARN,
+		app4.Inputs[0].InputProcessingConfigurationDescription.InputLambdaProcessorDescription.ResourceARN,
 	)
 }
 

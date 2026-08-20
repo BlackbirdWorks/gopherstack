@@ -49,7 +49,7 @@ func applyOneInputUpdate(inp *InputDescription, iu *inputUpdate) error {
 	if iu.InputProcessingConfigurationUpdate != nil &&
 		iu.InputProcessingConfigurationUpdate.InputLambdaProcessor != nil {
 		inp.InputProcessingConfigurationDescription = &InputProcessingConfigurationDesc{
-			InputLambdaProcessor: &LambdaProcessorDesc{
+			InputLambdaProcessorDescription: &LambdaProcessorDesc{
 				ResourceARN: iu.InputProcessingConfigurationUpdate.InputLambdaProcessor.ResourceARN,
 				RoleARN:     iu.InputProcessingConfigurationUpdate.InputLambdaProcessor.RoleARN,
 			},
