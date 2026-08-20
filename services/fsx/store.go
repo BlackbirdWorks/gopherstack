@@ -43,6 +43,19 @@ const (
 	maxTagKeyLen       = 128
 	maxTagValueLen     = 256
 	maxTagsPerResource = 50
+
+	// AdministrativeActionType values (types/enums.go), matched exactly for
+	// the two ops that synthesize a completed AdministrativeAction inline:
+	// RestoreVolumeFromSnapshot and CopySnapshotAndUpdateVolume.
+	administrativeActionTypeVolumeRestore            = "VOLUME_RESTORE"
+	administrativeActionTypeVolumeUpdateWithSnapshot = "VOLUME_UPDATE_WITH_SNAPSHOT"
+	administrativeActionStatusCompleted              = "COMPLETED"
+
+	// S3AccessPointAttachmentType values (types/enums.go).
+	s3APTypeOntap   = "ONTAP"
+	s3APTypeOpenZFS = "OPENZFS"
+
+	s3AccessPointAliasHexLen = 16
 )
 
 // InMemoryBackend implements StorageBackend using in-memory maps.

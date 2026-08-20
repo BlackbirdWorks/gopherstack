@@ -110,7 +110,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	svmID := createSVM(t, h, fsID, "svm1")
 	volumeID := createVolume(t, h, fsID, "ONTAP", "vol1")
 	snapshotID := createVolSnapshot(t, h, volumeID)
-	apName := createS3AP(t, h, fsID)
+	apName := createS3AP(t, h, volumeID)
 
 	rec = doFSxRequest(t, h, "UpdateSharedVpcConfiguration", map[string]any{
 		"EnableSharedVpcOnFileSystemCreation": "true",
@@ -253,7 +253,7 @@ func assertFullStateRestored(t *testing.T, h *fsx.Handler, ids fullStateIDs) {
 
 	rec = doFSxRequest(t, h, "DescribeS3AccessPointAttachments", map[string]any{"Names": []string{ids.apName}})
 	require.Equal(t, http.StatusOK, rec.Code)
-	assertOutputLen(t, rec, "S3AccessPoints")
+	assertOutputLen(t, rec, "S3AccessPointAttachments")
 
 	rec = doFSxRequest(t, h, "DescribeSharedVpcConfiguration", map[string]any{})
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -407,20 +407,23 @@ func createVolSnapshot(t *testing.T, h *fsx.Handler, volumeID string) string {
 	return id
 }
 
-// createS3AP creates and attaches an S3 access point to fsID, returning its
-// name (S3AccessPoint's primary key).
-func createS3AP(t *testing.T, h *fsx.Handler, fsID string) string {
+// createS3AP creates and attaches an S3 access point to the ONTAP volumeID,
+// returning its name (S3AccessPointAttachment's primary key).
+func createS3AP(t *testing.T, h *fsx.Handler, volumeID string) string {
 	t.Helper()
 	rec := doFSxRequest(t, h, "CreateAndAttachS3AccessPoint", map[string]any{
-		"Name":         "ap1",
-		"FileSystemId": fsID,
+		"Name": "ap1",
+		"Type": "ONTAP",
+		"OntapConfiguration": map[string]any{
+			"VolumeId": volumeID,
+		},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
 
-	ap, ok := out["S3AccessPoint"].(map[string]any)
+	ap, ok := out["S3AccessPointAttachment"].(map[string]any)
 	require.True(t, ok)
 
 	name, ok := ap["Name"].(string)

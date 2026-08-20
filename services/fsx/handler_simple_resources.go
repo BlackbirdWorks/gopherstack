@@ -17,7 +17,7 @@ import "context"
 // --- CreateFileCache ---
 
 type createFileCacheOutput struct {
-	FileCache *FileCache `json:"FileCache"`
+	FileCache *FileCacheCreating `json:"FileCache"`
 }
 
 func (h *Handler) handleCreateFileCache(
