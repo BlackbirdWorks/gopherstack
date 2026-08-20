@@ -158,3 +158,30 @@ shape.
   `errors.As(err, &types.CaseIdNotFound{})` against a real `aws-sdk-go-v2`
   client would be the strongest remaining verification and is recommended as
   future work.
+
+- **2026-08-19/20 wrapper-key/nested-shape re-sweep (gopherstack-6flj), zero bugs.**
+  All 16 ops re-verified against `support@v1.34.4` (awsjson1.1,
+  `X-Amz-Target: AWSSupport_20130415.<Op>`); every op's live decode path is its own
+  `deserializeOpDocument<Op>Output` (grep count 2), so the restjson dead-helper trap
+  (`gopherstack-cnhp`) does not apply here. Three shapes checked specifically because
+  they are where this campaign's bugs cluster, all correct:
+  `CaseDetails.recentCommunications` is an OBJECT wrapping `{communications, nextToken}`
+  (`deserializeDocumentRecentCaseCommunications`), never a bare list nor flattened --
+  the wrong-nesting-level shape that bit iotanalytics; `types.Attachment` is
+  `Data`+`FileName` only while `types.AttachmentDetails` is `AttachmentId`+`FileName`
+  only, and gopherstack builds a separate `attachmentView` for output so the internal
+  `AttachmentID` never leaks into a `DescribeAttachment` response; the Trusted Advisor
+  tree matches at every level, including the singular `status`/`result` wrappers being
+  correctly distinct from the plural `statuses`/`summaries` ones.
+  Per-op modeled error sets were additionally cross-checked against botocore's
+  `support/2013-04-15/service-2.json` -- an authority independent of the Go SDK -- and
+  match exactly.
+  Provenance clean: `last_audit_commit` 5400868b3 is dated 2026-07-24, the same day as
+  `last_audit_date`, and `sdk_module` matches go.mod's pin. No prior "FIXED" claim
+  failed re-derivation.
+  One observation deliberately NOT changed: this service emits `ValidationException`
+  as the `__type` for generic input-validation failures, and botocore models no such
+  shape for any support operation. Unmodeled runtime-only error types are normal for
+  AWS JSON-RPC services and clients still surface them correctly, so there is no
+  evidence the value is wrong -- flagged for a future pass with access to real
+  Support error traffic rather than changed on a guess.
