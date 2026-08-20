@@ -293,8 +293,7 @@ func TestHandler_DescribeDatastore_IncludeStatistics(t *testing.T) {
 
 			var resp map[string]any
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-			ds, _ := resp["datastore"].(map[string]any)
-			_, hasStats := ds["statistics"]
+			_, hasStats := resp["statistics"]
 			assert.Equal(t, tt.wantStatistics, hasStats)
 		})
 	}

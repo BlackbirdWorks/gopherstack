@@ -1,36 +1,36 @@
 ---
 service: iotanalytics
 sdk_module: aws-sdk-go-v2/service/iotanalytics@v1.32.0
-last_audit_commit: be69d5ece
-last_audit_date: 2026-07-24
-overall: A            # RunPipelineActivity real per-activity transforms, ListDatasetContents schedule filters, CreateDatasetContent versionId, DatastorePartitions validation, lambda/deviceRegistryEnrich/deviceShadowEnrich cross-service wiring, math functions
+last_audit_commit: 8d4556e79
+last_audit_date: 2026-08-20
+overall: A            # wrapper-key/nested-shape sweep: fixed DescribeChannel/DescribeDatastore statistics sibling-key nesting, CreateDatastore/DescribeDatastore datastorePartitions wire key, 4 fabricated summary ARNs, fabricated GetDatasetContent versionId, fabricated IotSiteWise roleArn -- zero remaining wrapper-key bugs found
 ops:
   CreateChannel: {wire: ok, errors: ok, state: ok, persist: ok, note: "now validates tags (key/value charset, aws: prefix, max 50) before create, matching TagResource"}
-  DescribeChannel: {wire: ok, errors: ok, state: ok, persist: ok}
+  DescribeChannel: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-20: statistics was nested inside the channel object; AWS returns it as a sibling top-level member (deserializers.go:1851 awsRestjson1_deserializeOpDocumentDescribeChannelOutput has separate channel/statistics cases; awsRestjson1_deserializeDocumentChannel has no statistics case at all)"}
   UpdateChannel: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteChannel: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListChannels: {wire: ok, errors: ok, state: ok, persist: ok, note: "cursor pagination correct: Snapshot() is Name-ascending, cursor thresholds on Name"}
+  ListChannels: {wire: ok, errors: ok, state: ok, persist: ok, note: "cursor pagination correct: Snapshot() is Name-ascending, cursor thresholds on Name. FIXED 2026-08-20: channelSummary fabricated a channelArn member ChannelSummary doesn't have (deserializers.go:5795 awsRestjson1_deserializeDocumentChannelSummary has no arn case) -- removed"}
   SampleChannelData: {wire: ok, errors: ok, state: ok, persist: ok}
-  CreateDatastore: {wire: ok, errors: ok, state: ok, persist: ok, note: "now validates tags before create (see CreateChannel)"}
-  DescribeDatastore: {wire: ok, errors: ok, state: ok, persist: ok}
-  UpdateDatastore: {wire: ok, errors: ok, state: ok, persist: ok}
+  CreateDatastore: {wire: ok, errors: ok, state: ok, persist: ok, note: "now validates tags before create (see CreateChannel). FIXED 2026-08-20: request read the partitions member under the wrong wire key 'partitions'; AWS's key is 'datastorePartitions' (serializers.go:583 awsRestjson1_serializeOpDocumentCreateDatastoreInput) -- a real client's DatastorePartitions was silently dropped on create"}
+  DescribeDatastore: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-20: statistics was nested inside the datastore object; AWS returns it as a sibling top-level member (deserializers.go:2184 awsRestjson1_deserializeOpDocumentDescribeDatastoreOutput has separate datastore/statistics cases). FIXED 2026-08-20: datastoreDetail also emitted partitions under 'partitions' instead of AWS's 'datastorePartitions' (deserializers.go:7177 awsRestjson1_deserializeDocumentDatastore) -- a real client's Datastore.DatastorePartitions stayed nil even when the backend had partitions stored"}
+  UpdateDatastore: {wire: ok, errors: ok, state: ok, persist: ok, note: "updateDatastoreRequest still accepts a 'partitions' body field UpdateDatastoreInput has no real counterpart for (api_op_UpdateDatastore.go:32 UpdateDatastoreInput: DatastoreStorage/FileFormatConfiguration/RetentionPeriod only, no partitions member) -- disclosed, not fixed, see Notes"}
   DeleteDatastore: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListDatastores: {wire: ok, errors: ok, state: ok, persist: ok}
-  CreateDataset: {wire: ok, errors: ok, state: ok, persist: ok, note: "now validates tags before create (see CreateChannel)"}
-  DescribeDataset: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListDatastores: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-20: datastoreSummary fabricated a datastoreArn member DatastoreSummary doesn't have (deserializers.go:7677 awsRestjson1_deserializeDocumentDatastoreSummary has no arn case) -- removed. Gap disclosed, not fixed: DatastoreSummary also carries real datastorePartitions/fileFormatType members this backend's summary never emits, see Notes"}
+  CreateDataset: {wire: ok, errors: ok, state: ok, persist: ok, note: "now validates tags before create (see CreateChannel). Gap disclosed, not fixed: CreateDatasetInput/CreateDatasetOutput/Dataset all carry a real retentionPeriod member (deserializers.go:6271 awsRestjson1_deserializeDocumentDataset) this backend's Dataset model has no field for at all, see Notes"}
+  DescribeDataset: {wire: ok, errors: ok, state: ok, persist: ok, note: "same Dataset.retentionPeriod gap as CreateDataset, see Notes"}
   UpdateDataset: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteDataset: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListDatasets: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListDatasets: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-20: datasetSummary fabricated a datasetArn member DatasetSummary doesn't have (deserializers.go:7011 awsRestjson1_deserializeDocumentDatasetSummary has no arn case) -- removed. Gap disclosed, not fixed: DatasetSummary also carries real actions (as narrower DatasetActionSummary)/triggers members this backend's summary never emits"}
   CreatePipeline: {wire: ok, errors: ok, state: ok, persist: ok, note: "now validates tags before create (see CreateChannel)"}
   DescribePipeline: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdatePipeline: {wire: ok, errors: ok, state: ok, persist: ok}
   DeletePipeline: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListPipelines: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListPipelines: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-20: pipelineSummary fabricated a pipelineArn member PipelineSummary doesn't have (deserializers.go:9310 awsRestjson1_deserializeDocumentPipelineSummary has no arn case) -- removed"}
   StartPipelineReprocessing: {wire: ok, errors: ok, state: ok, persist: ok}
   CancelPipelineReprocessing: {wire: ok, errors: ok, state: ok, persist: ok}
   BatchPutMessage: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateDatasetContent: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED: now accepts and honors an explicit versionId body field (CreateDatasetContentInput.VersionId), previously silently discarded -- duplicate explicit versionId against the same dataset now returns ResourceAlreadyExistsException instead of being accepted. Still always synchronously SUCCEEDED (no CREATING/FAILED simulation) -- acceptable simplification, see Notes"}
-  GetDatasetContent: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED: now honors $LATEST / $LATEST_SUCCEEDED (uppercase, as sent by the SDK) in addition to an omitted versionId; previously matched only a non-wire-accurate lowercase '$latest'"}
+  GetDatasetContent: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED: now honors $LATEST / $LATEST_SUCCEEDED (uppercase, as sent by the SDK) in addition to an omitted versionId; previously matched only a non-wire-accurate lowercase '$latest'. FIXED 2026-08-20: response fabricated a versionId member GetDatasetContentOutput doesn't have (deserializers.go:2681 awsRestjson1_deserializeOpDocumentGetDatasetContentOutput: entries/status/timestamp only) -- removed, along with the test that asserted on its presence"}
   ListDatasetContents: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED: pagination cursor was VersionID-threshold (random UUID, unrelated to the CreationTime-descending sort) -- now offset-based. FIXED: underlying sort used slices.SortFunc (unstable) over second-resolution timestamps, so tied entries could reorder between calls -- now slices.SortStableFunc with a reversed-input tiebreak (see Notes). FIXED: scheduleTime was missing entirely from DatasetContentSummary (a real field, distinct from creationTime) and the scheduledBefore/scheduledOnOrAfter query filters were unimplemented -- both now implemented (see Notes)"}
   DeleteDatasetContent: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED: omitted versionId previously deleted ALL content versions; AWS defaults to $LATEST_SUCCEEDED (exactly one version). Now also honors explicit $LATEST / $LATEST_SUCCEEDED"}
   DescribeLoggingOptions: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -40,7 +40,7 @@ ops:
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok}
 families:
-  routing: {status: ok, note: "RouteMatcher + parseIoTAnalyticsPath verified path-prefix and HTTP-method-for-method against every awsRestjson1_serializeOpHttpBindings*/request.Method in aws-sdk-go-v2/service/iotanalytics@v1.32.0/serializers.go -- all 33 ops match (paths, GET/POST/PUT/DELETE, query param names incl. includeStatistics/maxMessages/maxResults/nextToken/resourceArn/tagKeys/versionId/scheduledBefore/scheduledOnOrAfter)"}
+  routing: {status: ok, note: "RouteMatcher + parseIoTAnalyticsPath verified path-prefix and HTTP-method-for-method against every awsRestjson1_serializeOpHttpBindings*/request.Method in aws-sdk-go-v2/service/iotanalytics@v1.32.0/serializers.go -- all 34 ops match (paths, GET/POST/PUT/DELETE, query param names incl. includeStatistics/maxMessages/maxResults/nextToken/resourceArn/tagKeys/versionId/scheduledBefore/scheduledOnOrAfter)"}
   timestamps: {status: ok, note: "creationTime/lastUpdateTime/lastMessageArrivalTime/completionTime/startTime/endTime/scheduleTime all epoch-seconds JSON numbers (awstime-equivalent; models.go epochSeconds), matches smithytime.ParseEpochSeconds/FormatEpochSeconds in the real deserializers/serializers"}
 gaps:
   - "GetDatasetContent always returns an empty entries array (no S3-backed data URIs) since this backend has no S3 delivery integration -- consistent with CreateDatasetContent's synchronous SUCCEEDED simulation, not tracked as a bug."
@@ -52,6 +52,140 @@ leaks: {status: clean, note: "no goroutines/janitors owned by this backend; svcC
 
 ## Notes
 
+- **2026-08-20 wrapper-key/nested-shape sweep (this pass).** Confirmed protocol REST-JSON
+  from `deserializers.go`'s `awsRestjson1_*` prefix (168 matching funcs) and `api_client.go`.
+  All 34 SDK ops (`ls api_op_*.go`) match `GetSupportedOperations` one-for-one
+  (`sdk_completeness_test.go`, `handler_sdk_route_table_test.go`). Confirmed every op's live
+  deserializer path calls its `deserializeOpDocument<Op>Output` function directly (not the
+  restjson1 flat-body dead-code trap that bit appmesh/glacier) -- iotanalytics has no flat ops.
+  - **`DescribeChannel`/`DescribeDatastore` statistics sibling-key bug (fixed, the dominant
+    find).** `DescribeChannelOutput`/`DescribeDatastoreOutput` each declare `Channel`/
+    `Datastore` and `Statistics` as two SEPARATE top-level members
+    (`api_op_DescribeChannel.go:51`, `api_op_DescribeDatastore.go:51`), and `types.Channel`/
+    `types.Datastore` themselves have no `statistics` field at all
+    (`awsRestjson1_deserializeDocumentChannel`/`awsRestjson1_deserializeDocumentDatastore`
+    have no `"statistics"` case). gopherstack nested `statistics` inside the `channel`/
+    `datastore` object instead, so a real typed client's `DescribeChannelOutput.Statistics`/
+    `DescribeDatastoreOutput.Statistics` stayed `nil` even with `IncludeStatistics=true` --
+    the includeStatistics HTTP binding itself was already correct (query param honored), only
+    the response shape was wrong. Fixed by moving `Statistics` onto
+    `describeChannelResponse`/`describeDatastoreResponse` as a sibling of `Channel`/
+    `Datastore`, off `channelDetail`/`datastoreDetail` (`models.go`,
+    `handler_channels.go:handleDescribeChannel`, `handler_datastores.go:handleDescribeDatastore`).
+    Proven by `TestDescribeChannel_Statistics_SDKRoundTrip`/
+    `TestDescribeDatastore_Statistics_SDKRoundTrip` (`wire_shape_sdk_roundtrip_test.go`) --
+    hand-reverting either fix reproduces `out.Statistics == nil` through the real client.
+    Two existing tests (`TestHandler_DescribeChannel_IncludeStatistics`,
+    `TestHandler_DescribeDatastore_IncludeStatistics`) asserted `hasStats` on the WRONG nested
+    location (`resp["channel"]["statistics"]`/`resp["datastore"]["statistics"]`) -- corrected
+    to assert on `resp["statistics"]` (top-level).
+  - **`CreateDatastore`/`DescribeDatastore` `datastorePartitions` wire key (fixed).** AWS's
+    wire key for the partitions member is `"datastorePartitions"` on BOTH the create request
+    (`awsRestjson1_serializeOpDocumentCreateDatastoreInput`, `serializers.go:583`) and the
+    datastore detail response (`awsRestjson1_deserializeDocumentDatastore`,
+    `deserializers.go:7177`), not `"partitions"`. gopherstack's `createDatastoreRequest` and
+    `datastoreDetail` both used `"partitions"`, so a real client's serialized
+    `datastorePartitions` was silently dropped on create (the field never reached the
+    backend), AND even a correctly-stored value would have come back under the wrong key on
+    describe, leaving `Datastore.DatastorePartitions` nil either way. Fixed in `models.go`.
+    Proven by `TestCreateDatastore_Partitions_SDKRoundTrip`; hand-reverting the request-side
+    key alone and the response-side key alone each independently reproduce
+    `out.Datastore.DatastorePartitions == nil`.
+  - **Fabricated ARN on all four `*Summary` shapes (fixed, pattern (a)).** AWS's
+    `ChannelSummary`/`DatastoreSummary`/`DatasetSummary`/`PipelineSummary` deserializers
+    (`deserializers.go:5795`/`7677`/`7011`/`9310`) declare NO arn member at all -- unlike
+    each resource's full `Channel`/`Datastore`/`Dataset`/`Pipeline` detail type, which does
+    have one. gopherstack's summary DTOs were generalized from the full detail type and
+    carried a `channelArn`/`datastoreArn`/`datasetArn`/`pipelineArn` field none of the real
+    summary shapes have. A real typed client can't observe this (the generated
+    `types.*Summary` structs simply have no such field to decode into), so proof is a raw-body
+    absence assertion: `TestListSummaries_NoFabricatedARN` (table-driven, all four ops).
+    Hand-reverting the channel case alone reproduces `hasARN == true` on exactly that subtest
+    while the other three (still fixed) continue to pass.
+  - **Fabricated `versionId` on `GetDatasetContent` (fixed).** `GetDatasetContentOutput` has
+    no `versionId` member (`awsRestjson1_deserializeOpDocumentGetDatasetContentOutput`,
+    `deserializers.go:2681`: `entries`/`status`/`timestamp` only). Removed from
+    `getDatasetContentResponse`. Two existing tests locked this bug in:
+    `TestHandler_GetDatasetContent_VersionAndEntries` asserted `resp["versionId"]` was
+    non-empty (now asserts it's ABSENT, plus checks `status`/`entries` are present); and
+    `TestHandler_GetDatasetContent_MagicVersionStrings` compared the `$LATEST`/
+    `$LATEST_SUCCEEDED` GET response's `versionId` against the create response's `versionId`
+    (now asserts a 200 with `status.state == "SUCCEEDED"` instead, since an unresolved magic
+    string 404s via `ErrDatasetContentNotFound` -- `datasets.go:GetDatasetContent` -- so a 200
+    is itself proof the sentinel resolved to the existing content version).
+  - **Fabricated `roleArn` on the IoT SiteWise nested storage variant (fixed, second-order
+    pattern (a)).** `types.IotSiteWiseCustomerManagedDatastoreS3Storage` (the type nested
+    under `datastoreStorage.iotSiteWiseMultiLayerStorage.customerManagedS3Storage`) has only
+    `bucket`/`keyPrefix`
+    (`awsRestjson1_deserializeDocumentIotSiteWiseCustomerManagedDatastoreS3Storage`,
+    `deserializers.go:8400`) -- unlike the wider `CustomerManagedDatastoreS3Storage` used
+    directly under `datastoreStorage.customerManagedS3`
+    (`awsRestjson1_deserializeDocumentCustomerManagedDatastoreS3Storage`,
+    `deserializers.go:6155`), which does have `roleArn`. gopherstack reused the wider Go type
+    for both, so the nested SiteWise variant fabricated a `roleArn` key. Split into a new
+    narrower `IotSiteWiseCustomerManagedS3Storage` type (`models.go`) with no `RoleArn` field.
+    A real typed client can't observe this (the generated type has no field for it), so proof
+    is a raw-body absence assertion: `TestDatastore_IotSiteWiseCustomerManagedS3Storage_NoRoleArn`.
+  - **`PipelineActivity` union (verified CLEAN, no fix needed).** All 10 discriminator keys
+    (`channel`/`lambda`/`datastore`/`addAttributes`/`removeAttributes`/`selectAttributes`/
+    `filter`/`math`/`deviceRegistryEnrich`/`deviceShadowEnrich`) match
+    `awsRestjson1_deserializeDocumentPipelineActivity` exactly, and every nested activity
+    type's field set matches its own deserializer
+    (`ChannelActivity`/`LambdaActivity`/`DatastoreActivity`/`AddAttributesActivity`/
+    `RemoveAttributesActivity`/`SelectAttributesActivity`/`FilterActivity`/`MathActivity`/
+    `DeviceRegistryEnrichActivity`/`DeviceShadowEnrichActivity`).
+  - **`DatasetContentDeliveryRule`/`Destination` union and `FileFormatConfiguration` union
+    (verified CLEAN).** `destination`/`entryName` match
+    `awsRestjson1_deserializeDocumentDatasetContentDeliveryRule`; the destination union
+    (`iotEventsDestinationConfiguration`/`s3DestinationConfiguration`) matches
+    `awsRestjson1_deserializeDocumentDatasetContentDeliveryDestination`;
+    `jsonConfiguration`/`parquetConfiguration` match
+    `awsRestjson1_deserializeDocumentFileFormatConfiguration`.
+  - **All other nested dataset/pipeline sub-shapes (verified CLEAN):**
+    `DatasetAction`/`ContainerDatasetAction`/`SqlQueryDatasetAction`/`ResourceConfiguration`/
+    `Variable`/`QueryFilter`/`DeltaTime`, `RetentionPeriod`, `VersioningConfiguration`,
+    `DatastorePartitions`/`DatastorePartition`/`Partition`/`TimestampPartition`,
+    `Column`/`SchemaDefinition`, `LateDataRule`/`LateDataRuleConfiguration`/
+    `DeltaTimeSessionWindowConfiguration`, `Schedule`/`TriggeringDataset`,
+    `BatchPutMessageErrorEntry`, `Tag`, `LoggingOptions`, `DatasetEntry`/
+    `DatasetContentStatus`/`DatasetContentSummary` -- every field name and nesting checked
+    against its own `awsRestjson1_deserializeDocument<Type>` and found matching.
+  - **Enum values (spot-checked CLEAN):** `ChannelStatus`/`DatastoreStatus`/`DatasetStatus`
+    (`CREATING`/`ACTIVE`/`DELETING`), `DatasetContentState`
+    (`CREATING`/`SUCCEEDED`/`FAILED`), `ReprocessingStatus`
+    (`RUNNING`/`SUCCEEDED`/`CANCELLED`/`FAILED`) all match the literal strings gopherstack
+    emits (`store.go` `statusActive`/`statusSucceeded` consts, `pipelines.go` `"RUNNING"`/
+    `"CANCELLED"`). Error codes (`ResourceNotFoundException`/`ResourceAlreadyExistsException`/
+    `InvalidRequestException`) match `types/errors.go` `ErrorCode()` spellings exactly.
+  - **Genuine gaps found, disclosed, NOT fixed** (Layer 3 members never emitted, out of scope
+    as a hunt per this sweep's method, but surfaced incidentally while checking wrapper
+    keys/wire shapes above): `Dataset`/`CreateDatasetInput`/`CreateDatasetOutput` all carry a
+    real `retentionPeriod` member (`awsRestjson1_deserializeDocumentDataset`,
+    `deserializers.go:6271`; `awsRestjson1_serializeOpDocumentCreateDatasetInput`,
+    `serializers.go:359`) this backend's `Dataset` model has no field for at all -- adding it
+    would require a model field plus create/update/describe wiring, out of scope for a
+    wire-shape sweep. `DatastoreSummary` carries real `datastorePartitions`/`fileFormatType`
+    members (`awsRestjson1_deserializeDocumentDatastoreSummary`) this backend's summary never
+    emits. `DatasetSummary` carries real `actions` (as the narrower `DatasetActionSummary`,
+    `actionName`+`actionType` only, NOT the full `DatasetAction`) and `triggers` members this
+    backend's summary never emits. `updateDatastoreRequest.Partitions` (json key
+    `"partitions"`, left unfixed) is a genuinely FABRICATED request member --
+    `UpdateDatastoreInput` has no partitions member at all in the real SDK
+    (`api_op_UpdateDatastore.go:32`: `DatastoreStorage`/`FileFormatConfiguration`/
+    `RetentionPeriod` only) -- but since no real typed client can ever populate a field the
+    generated `UpdateDatastoreInput` struct doesn't expose, this field is unreachable by any
+    real client regardless of its wire key; disclosed rather than removed to keep this pass
+    scoped to reachable, provable bugs.
+  - **`last_audit_commit` provenance check:** prior value `be69d5ece` dates to 2026-07-23
+    (`git show -s --format=%ad`), one day before the prior `last_audit_date` of 2026-07-24 --
+    consistent, not suspicious (the schema only requires HEAD-when-written, not an
+    iotanalytics-specific commit). None of the prior manifest's "FIXED" claims (versionId
+    handling, `$LATEST`/`$LATEST_SUCCEEDED` magic strings, `ListDatasetContents`
+    pagination/sort-stability/scheduleTime, `RunPipelineActivity` transforms/cross-service
+    wiring/math functions, `DatastorePartitions` validation) are wire-shape claims this pass
+    re-derives against -- they're backend-behavior fixes, and this pass's independent
+    re-derivation of every wire shape from the SDK found them consistent with what's
+    documented; none introduced a wrapper-key/nested-shape bug.
 - Protocol: restjson1. Service ARNs: `arn:aws:iotanalytics:<region>:<account>:<type>/<name>` via `pkgs/arn.Build`.
 - `/channels` path is shared with MediaPackage/MediaTailor matchers at the same routing
   priority; the RouteMatcher disambiguates via `httputils.ExtractServiceFromRequest` (SigV4
@@ -191,5 +325,5 @@ leaks: {status: clean, note: "no goroutines/janitors owned by this backend; svcC
   are plain maps folded into `backendSnapshot` alongside `registry.SnapshotAll()`. `Handler`
   delegates `Snapshot`/`Restore` to the backend via the `Snapshottable` interface -- verified
   present and wired correctly, nothing to fix.
-- `TestSDKCompleteness` (sdk_completeness_test.go) confirms all 33 SDK ops are handled with
+- `TestSDKCompleteness` (sdk_completeness_test.go) confirms all 34 SDK ops are handled with
   zero entries in the `notImplemented` acknowledgement list.

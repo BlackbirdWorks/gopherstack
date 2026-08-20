@@ -43,7 +43,6 @@ func (h *Handler) handleCreateDatastore(c *echo.Context, body []byte) error {
 	})
 }
 
-//nolint:dupl // mirrors handleListChannels — same pagination pattern, different resource types
 func (h *Handler) handleListDatastores(c *echo.Context) error {
 	maxResults, cursor := parsePagination(c)
 	datastores := h.Backend.ListDatastores()
@@ -67,7 +66,6 @@ func (h *Handler) handleListDatastores(c *echo.Context) error {
 
 		summaries = append(summaries, datastoreSummary{
 			DatastoreName:          ds.Name,
-			DatastoreARN:           ds.ARN,
 			DatastoreStorage:       ds.Storage,
 			Status:                 ds.Status,
 			CreationTime:           ds.CreationTime,
@@ -102,8 +100,10 @@ func (h *Handler) handleDescribeDatastore(c *echo.Context, name string) error {
 		LastUpdateTime:          ds.LastUpdate,
 	}
 
+	resp := describeDatastoreResponse{Datastore: detail}
+
 	if c.Request().URL.Query().Get("includeStatistics") == "true" {
-		detail.Statistics = &datastoreStatistics{
+		resp.Statistics = &datastoreStatistics{
 			Size: &datastoreStatisticsSize{
 				EstimatedSizeInBytes: 0,
 				EstimatedOn:          ds.LastUpdate,
@@ -111,7 +111,7 @@ func (h *Handler) handleDescribeDatastore(c *echo.Context, name string) error {
 		}
 	}
 
-	return c.JSON(http.StatusOK, describeDatastoreResponse{Datastore: detail})
+	return c.JSON(http.StatusOK, resp)
 }
 
 func (h *Handler) handleUpdateDatastore(c *echo.Context, name string, body []byte) error {
