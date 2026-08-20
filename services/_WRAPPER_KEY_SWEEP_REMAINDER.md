@@ -12397,3 +12397,49 @@ immune to the field-omission class, and this one tells us a catastrophic V2
 bug does not imply a V1 bug. Commit `b1c470fae`.
 
 **155 of 162 services swept, 7 remain.**
+
+## The five "unresolved" services, resolved (2026-08-20)
+
+This file's `cmd/opcensus` notes flagged five services the tool could not
+resolve — `qldbsession`, `dms`, `qldb`, `sagemakerruntime`, `rdsdata` — and
+said `dms`'s 0/0/0/0 was "worth a manual check: either DMS genuinely has no
+List/Describe/Get-named ops, or this is a fifth unresolved case". Checked.
+**Three different answers, and two of them change the denominator.**
+
+**`qldb` and `qldbsession` are TOMBSTONES, not services.** Each directory
+contains exactly one file, `README.md`, reading:
+
+> QLDB — REMOVED. Amazon QLDB is deprecated by AWS (end-of-support
+> 2025-07-31) and is not supported by gopherstack. This package was removed.
+> It will not be re-added.
+
+No Go code, no handler, not registered with the router. `cmd/opcensus` counts
+them because it walks `services/*` directories, so **the 162 denominator this
+campaign has been using includes two tombstones. The real sweepable
+population is 160.** Every "N of 162" line in this file is therefore two
+services pessimistic. Not corrected retroactively — the progression is the
+historical record — but the final count should be read against 160.
+
+**`dms` was a tool bug, not an empty service.** It declares **23 operations**
+and imports the SDK normally. `cmd/opcensus` looked for
+`aws-sdk-go-v2/service/dms` and go.mod pins
+`aws-sdk-go-v2/service/databasemigrationservice` — **the AWS Go module name
+does not match the gopherstack directory name.** The tool's resolution is
+keyed on the directory name, so it found nothing and reported zero.
+
+That is worth fixing in the tool rather than working around: any service whose
+SDK module name differs from its directory name will silently report zero
+ops and look swept-clean when nobody has read it. Known aliases in this repo
+include at least `dms` → `databasemigrationservice` and `elb` →
+`elasticloadbalancing`; a future `opcensus` pass should resolve the module
+name from the service's own imports rather than assuming the directory name.
+
+**`sagemakerruntime` (3 ops) and `rdsdata` (6 ops) are genuine and small** —
+both data-plane services with a handful of operations each, which is why they
+sat at the bottom of the ranked table rather than failing to resolve. The
+earlier note in this file predicting exactly that ("both are data-plane
+services, genuinely low surface for this bug class") was correct.
+
+**Revised remaining list**: `dms` (23 ops, previously invisible),
+`appconfigdata`, `apigatewaymanagementapi`, `sagemakerruntime`, `rdsdata`,
+plus `firehose` and `bedrockruntime` in flight.
