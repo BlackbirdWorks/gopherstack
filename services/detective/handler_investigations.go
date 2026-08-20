@@ -290,6 +290,7 @@ func indicatorDetailToJSON(d IndicatorDetail) map[string]any {
 	case d.TTPsObserved != nil:
 		result["TTPsObservedDetail"] = map[string]any{
 			"Tactic":          d.TTPsObserved.Tactic,
+			"Technique":       d.TTPsObserved.Technique,
 			"Procedure":       d.TTPsObserved.Procedure,
 			"APIName":         d.TTPsObserved.APIName,
 			keyIPAddress:      d.TTPsObserved.IPAddress,

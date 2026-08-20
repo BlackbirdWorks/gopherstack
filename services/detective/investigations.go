@@ -53,6 +53,7 @@ func builtInIndicators(inv *storedInvestigation) []*Indicator {
 			Detail: IndicatorDetail{
 				TTPsObserved: &TTPsObservedDetail{
 					Tactic:          "Discovery",
+					Technique:       "Permission Groups Discovery",
 					Procedure:       "Enumerated IAM permissions for " + inv.EntityARN,
 					APIName:         "ListRoles",
 					APISuccessCount: 1,
