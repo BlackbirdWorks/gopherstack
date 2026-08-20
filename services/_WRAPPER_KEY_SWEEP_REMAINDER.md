@@ -1,7 +1,7 @@
 # Wrapper-key / nested-shape sweep remainder (gopherstack-6flj)
 
-**117 of 162 services swept, 45 remain** (the 15- and 13-L+D+G tiers are both
-closed as of 2026-08-20: codepipeline, fis, apprunner, ram, appmesh, acm,
+**119 of 162 services swept, 43 remain** (15- and 13-L+D+G tiers closed,
+12-tier opened with verifiedpermissions and mq, as of 2026-08-20: codepipeline, fis, apprunner, ram, appmesh, acm,
 amplify, then kinesis, shield, codestarconnections, mediaconvert, glacier,
 managedblockchain, codeconnections. See the "Manifest provenance" section at the end of this file:
 every one of the 140 PARITY.md manifests cites a last_audit_commit
@@ -148,7 +148,8 @@ session), **workmail** (this session), **workspaces** (this session),
 **amplify** (2026-08-19), **shield** (2026-08-19),
 **codestarconnections** (2026-08-19), **kinesis** (2026-08-19),
 **codeconnections** (2026-08-19), **mediaconvert** (2026-08-19),
-**managedblockchain** (2026-08-20), **glacier** (2026-08-20).
+**managedblockchain** (2026-08-20), **glacier** (2026-08-20),
+**verifiedpermissions** (2026-08-20), **mq** (2026-08-20).
 
 This alphabetical list is itself incomplete and always has been — it was
 last rewritten wholesale when the count read 64, and per-session sections
@@ -11242,3 +11243,91 @@ corrected. Commit `ea5c289af`.
 **117 of 162 services swept, 45 remain. The 13-L+D+G tier is now closed:
 kinesis, shield, codestarconnections, mediaconvert, glacier,
 managedblockchain, codeconnections.**
+
+# ---- 12-L+D+G tier opens here (2026-08-20) ----
+
+## verifiedpermissions (this session, 2026-08-20)
+
+All 34 ops swept. Protocol **awsjson1.0**. Picked deliberately as the
+campaign's **first union-heavy target**, since nothing swept so far had
+stress-tested that shape. Two bugs.
+
+**THE UNIONS ALL CAME BACK CORRECT**, and that is the result worth recording
+rather than passing over in silence. A smithy union serializes as a
+single-key object, so a wrong discriminator drops the ENTIRE value — a
+higher-consequence failure than a wrong leaf key. Checked against the
+serializer's `object.Key(...)` lines rather than inferred from Go field
+names: `PolicyDefinition`/`Detail`/`Item` (`static` | `templateLinked`),
+`Configuration`/`Detail`/`Item` (`cognitoUserPoolConfiguration` |
+`openIdConnectConfiguration`), `OpenIdConnectTokenSelection`/`Detail`/`Item`
+(`identityTokenOnly` | `accessTokenOnly`, including the
+`clientIds`-vs-`audiences` split between them), `EntityReference`
+(`identifier` | `unspecified`), `SchemaDefinition` (`cedarJson`).
+
+1. `ListPolicyTemplates` emitted a `statement` field per item.
+   `types.PolicyTemplateItem` has six cases; `GetPolicyTemplateOutput` has
+   those same six plus `statement`. Fifteenth instance of the dominant
+   pattern.
+2. `BatchGetPolicy` coded every per-item alias-resolution failure as
+   `POLICY_STORE_NOT_FOUND`. `BatchGetPolicyErrorCode` declares a dedicated
+   `POLICY_STORE_ALIAS_NOT_FOUND` for exactly that case, so callers could not
+   distinguish a missing store from an unresolvable alias. **Right key, right
+   type, wrong VALUE** — invisible to a key-comparing sweep. This is why the
+   method now checks enum VALUES against `types/enums.go` and not merely
+   enum field names.
+
+Also confirmed genuinely field-identical (so reuse is correct, not a bug):
+`IdentitySourceItem` vs `GetIdentitySourceOutput`, and both the Cognito and
+OIDC Detail/Item structs. Disclosed, not fixed: `IsAuthorized` and
+`IsAuthorizedWithToken` never read a `context`/`entities` request field at
+all, unlike their batch siblings. Commit `0cc19c7a1`.
+
+## mq (this session, 2026-08-20)
+
+All 25 ops swept. Protocol **restjson1**; all 25 confirmed to route through
+their own live Document deserializer (`grep -c` == 2 on every one), so the
+`gopherstack-cnhp` trap does not apply anywhere in this service. All 25 HTTP
+method+path bindings also checked against the serializer — no pattern-(e)
+bugs. Two bugs.
+
+1. **`DataReplicationCounterpart` was seeded as a bare ARN string.** The real
+   member is a nested `{brokerId, region}` object whose deserializer
+   type-asserts and returns `unexpected JSON type` otherwise, so
+   `DescribeBroker` and `UpdateBroker` **failed outright** for any
+   CRDR-replica broker. Fourth call-breaking wrong-type bug of the campaign.
+   Fixed with a real type plus a best-effort ARN parse — this backend has no
+   cross-region broker registry to resolve against — and the required
+   `DataReplicationRole`, previously never populated, is now set.
+2. `UserSummary` carried `consoleAccess`. The real type has exactly two
+   cases, `username` and `pendingChange`; console access lives on the full
+   user shape `DescribeUser` returns. Removed from all three emit sites.
+
+Incidental: `DescribeBroker`'s Users loop never set `PendingChange` while
+`ListUsers`' equivalent did — the half-applied-fix shape `gopherstack-g8k9`
+closed on.
+
+**THE MOST IMPORTANT THING THIS SERVICE PRODUCED IS NOT A BUG.** Its
+manifest's content mostly held up on spot-check, and **both bugs above were
+introduced by the very pass the manifest records as "FIXED this pass"**. The
+manifest was not lying; it did the work, the work introduced a call-breaking
+bug, and it recorded the work as complete. A fabricated claim (appmesh) dies
+the moment you check whether its cited artifacts exist. This one survives
+every provenance check there is — only re-deriving the claim from the SDK
+catches it.
+
+**That inverts the schema's own re-audit instruction.** The header says
+"trust rows marked ok whose files are unchanged since last_audit_commit". The
+rows most likely to be wrong are the ones a recent pass just touched and
+marked fixed, not the ones nobody has looked at. Filed under
+`gopherstack-1i5l` with suggested wording: re-derive any row a recent pass
+marked `fixed`, since the fix itself is unverified until something reads the
+SDK again.
+
+Disclosed, not fixed: `storageSize`/`pendingStorageSize` on `DescribeBroker`,
+`storageSize`/`resourceShareArns` on `UpdateBroker`, `BrokerInstance.ipAddress`,
+and `Configuration.AuthenticationStrategy` — which the real type marks
+REQUIRED — are never emitted. `LdapServerMetadata`'s `json:"-"` on
+`ServiceAccountPassword` is right for the response but also blocks reading it
+from requests, since one struct serves both directions. Commit `7140cec69`.
+
+**119 of 162 services swept, 43 remain.**
