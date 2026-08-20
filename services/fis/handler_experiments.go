@@ -189,6 +189,7 @@ func experimentActionDTOs(actions map[string]ExperimentAction) map[string]experi
 			Description: a.Description,
 			Parameters:  a.Parameters,
 			Targets:     a.Targets,
+			StartAfter:  a.StartAfter,
 			Status: &experimentActionStatusDTO{
 				Status: a.Status.Status,
 				Reason: a.Status.Reason,
