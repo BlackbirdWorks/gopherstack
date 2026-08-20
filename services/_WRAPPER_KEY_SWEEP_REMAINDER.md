@@ -1,6 +1,7 @@
 # Wrapper-key / nested-shape sweep remainder (gopherstack-6flj)
 
-**109 of 162 services swept, 53 remain** (the whole 15-L+D+G tier closed
+**112 of 162 services swept, 50 remain** (shield, codestarconnections and
+kinesis added 2026-08-19 from the 13-L+D+G tier, after the whole 15-L+D+G tier closed
 2026-08-19: codepipeline, fis, apprunner, ram, appmesh, acm, amplify --
 17 real bugs, 8 existing tests corrected that asserted wrong keys or wrong
 status codes as correct. Read
@@ -139,7 +140,8 @@ session), **workmail** (this session), **workspaces** (this session),
 **rekognition** (this session), **fis** (2026-08-19),
 **codepipeline** (2026-08-19), **apprunner** (2026-08-19),
 **ram** (2026-08-19), **acm** (2026-08-19), **appmesh** (2026-08-19),
-**amplify** (2026-08-19).
+**amplify** (2026-08-19), **shield** (2026-08-19),
+**codestarconnections** (2026-08-19), **kinesis** (2026-08-19).
 
 This alphabetical list is itself incomplete and always has been — it was
 last rewritten wholesale when the count read 64, and per-session sections
@@ -10899,3 +10901,126 @@ orchestrator, including full `go build ./...` since `StorageBackend`'s
 codepipeline, fis, apprunner, ram, appmesh, acm, amplify — 7 services, 17
 real bugs, 8 existing tests corrected that had asserted wrong keys or wrong
 status codes as correct.**
+
+# ---- 13-L+D+G tier opens here (2026-08-19) ----
+
+## shield (this session, 2026-08-19)
+
+All 36 ops swept. Protocol **awsjson1.1**, `X-Amz-Target:
+AWSShield_20160616.<Op>`. **Zero bugs**, and the negative results are the
+point.
+
+**The `gopherstack-cnhp` dead-helper trap does not apply to awsjson1.x.**
+Confirmed by call-count on this service: every op's `HandleDeserialize`
+routes through its own `deserializeOpDocument<Op>Output`. The flattening that
+makes that helper dead code is a restjson single-payload behaviour, so the
+trap is protocol-scoped. Restjson services still need the per-op check.
+
+Re-verified from the live deserializer case lists rather than from the
+existing manifest: `Subscription` through `SubscriptionLimits`,
+`ProtectionLimits`, `ProtectionGroupLimits`,
+`ProtectionGroupPatternTypeLimits`, `ProtectionGroupArbitraryPatternLimits`
+and `Limit`; `AttackDetail` against `AttackSummary` — the summary-vs-full
+pair that produced most of this campaign's recent bugs, genuinely distinct
+here in the same way AWS models it — plus nested `SummarizedCounter`,
+`Mitigation`, `AttackVectorDescription`, `AttackStatisticsDataItem`,
+`AttackVolume`/`AttackVolumeStatistics`, `TimeRange`; the ALAR
+`Block`/`Count` union's empty-struct members; `Protection`,
+`ProtectionGroup`, `EmergencyContact`, `DescribeDRTAccessOutput`.
+
+**A sibling trap this service already handles correctly**, recorded so nobody
+"fixes" it: `TagResource`/`ListTagsForResource`/`UntagResource` use the
+ALL-CAPS `ResourceARN` wire key while every other shield op uses
+`ResourceArn`. Verified against `serializeOpDocumentTagResourceInput`. Same
+shape as apigateway's `apiId`-vs-`restApiId` pair from an earlier batch.
+
+Disclosed, not fixed, both pre-existing and re-confirmed:
+`AttackDetail.AttackProperties`/`.SubResources` (cannot be populated without
+fabricating traffic data), `LockedSubscriptionException` unmodelled. No code
+changed; only a dated re-audit note in PARITY.md. Commit `a4d4c728b`.
+
+## codestarconnections (this session, 2026-08-19)
+
+All 27 ops swept — the full surface, not just List/Get. Protocol
+**awsjson1.0**, `X-Amz-Target: CodeStar_connections_20191201.<Op>`, OpDocument
+path confirmed live. **Zero bugs.** Every response key, nesting, JSON type and
+epoch-seconds timestamp diffed by hand against `deserializers.go`. Two
+genuine asymmetries confirmed rather than "corrected": `GetHostOutput` is
+flat with no `StatusMessage`, unlike the `Host` type itself, and
+`UpdateHostOutput` is genuinely empty. No code changed.
+
+**THE TWIN COMPARISON IS A CHEAP DETECTOR THIS CAMPAIGN HAD NOT BEEN USING.**
+AWS renamed CodeStar Connections to CodeConnections, and gopherstack carries
+both as separate services with separate SDK modules. Diffing the twins found
+a real bug in the OTHER one: `services/codeconnections/handler_hosts.go`'s
+`GetHost` emits three fabricated members (`HostArn`, `StatusMessage`, `Tags`)
+and omits the real `VpcConfiguration`. The real `GetHostOutput` and its
+deserializer both have exactly five members. codestarconnections fixed this
+exact bug in a prior pass and recorded it; codeconnections never got the fix.
+Verified independently by the orchestrator before dispatching a fix. Any
+other near-duplicate service pair in this repo is worth the same one-hour
+diff.
+
+**A provenance finding, and a correction to it.** The sweep agent reported
+this manifest's `last_audit_commit` (`1d7169f66`, a firehose/cloudwatch/
+cleanrooms/elbv2 commit) as fabricated. **It is not.** The schema defines
+that field as "HEAD when this manifest was written", not "a commit touching
+this service", and `1d7169f66` is dated 2026-08-07 — the same day as this
+manifest's `last_audit_date`. That is materially different from the appmesh
+manifest retracted earlier in this branch, whose sha predates its own audit
+date by four weeks. **The date check is what separates the two cases**, and
+it costs one command: `git show -s --format=%ad <sha>`.
+
+What both DO share is a real defect: neither sha is reachable from `main`
+(`1d7169f66` lives only on the unmerged `chore/parity-upgrade`; `40f05928` is
+on no branch at all), so the schema's own
+`git diff <last_audit_commit>..HEAD` re-audit protocol is already broken and
+breaks permanently once those branches are pruned — which the session-close
+protocol actively encourages. Filed as `gopherstack-z31a` with a
+one-command survey. Commit `0bfeb61bd`.
+
+## kinesis (this session, 2026-08-19)
+
+All 39 ops swept, `GetSupportedOperations` and `api_op_*.go` in exact
+agreement. Protocol **awsjson1.1**; OpDocument path confirmed live by
+call-count, consistent with shield's finding that the restjson dead-helper
+trap is protocol-scoped. One bug.
+
+1. `RegisterStreamConsumer` and `ListStreamConsumers` return `types.Consumer`
+   — four cases: ConsumerARN, ConsumerCreationTimestamp, ConsumerName,
+   ConsumerStatus. `types.ConsumerDescription`, returned only by
+   `DescribeStreamConsumer`, is those four plus `StreamARN`. gopherstack
+   shared one wire struct across all three, leaking `StreamARN` onto both
+   narrow responses. **Eighth summary-vs-full confusion of this campaign and
+   the fifth fabricated member** — the pattern is not tapering.
+   Benign at runtime (the real switch drops unknown keys via `default:`), and
+   recorded as benign rather than inflated.
+
+**An existing test asserted the fabricated key as correct**
+(`TestConsumerLifecycle` read `regResp.Consumer.StreamARN`), which was only
+possible because the test used gopherstack's own client rather than the SDK's
+typed one — the typed `types.Consumer` has no such field to read. Replaced
+with a raw-body absence check. Worth generalising: a test that can express
+the bug is a test written against the wrong client.
+
+**Clean, no re-sweep needed**: `Shard`/`HashKeyRange`/`SequenceNumberRange`;
+`StreamDescription` vs `StreamDescriptionSummary` — a genuine summary/full
+pair, read separately, no confusion; `Record` (base64 `Data`, epoch-seconds
+timestamp); `EnhancedMetrics`; `StreamModeDetails`; `ChildShard`;
+`PutRecordsResultEntry`; `WarmThroughputObject`;
+`MinimumThroughputBillingCommitmentOutput`; every void-output op confirmed
+genuinely void against the SDK.
+
+Also lands `TestSubscribeToShard_RoundTrip`, the first test here to drive the
+SDK's own event-stream reader (`client.SubscribeToShard` →
+`out.GetStream().Events()`) rather than hand-parsing frames — so the
+`:event-type`/`:message-type` framing is proven by a real consumer instead of
+compared against a hand-written expectation.
+
+Disclosed, not fixed (layer-3): `StreamDescriptionSummary.MaxRecordSizeInKiB`
+and `.WarmThroughput` (backend has the data, not threaded through);
+`UpdateShardCountOutput.StreamARN` (needs a backend field, not a wire fix);
+`Record.EncryptionType`; `SubscribeToShardEvent.ChildShards`. Commit
+`8a554bd6e`.
+
+**112 of 162 services swept, 50 remain.**
