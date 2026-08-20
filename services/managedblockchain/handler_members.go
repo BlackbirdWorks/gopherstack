@@ -142,8 +142,8 @@ func buildMemberLogConfig(req *memberLogPublishingConfigReq) *MemberLogPublishin
 
 	if req.Fabric.CaLogs != nil {
 		caLogs := &LogConfigState{}
-		if req.Fabric.CaLogs.CloudWatch != nil {
-			caLogs.CloudWatch = &CloudWatchLogState{Enabled: req.Fabric.CaLogs.CloudWatch.Enabled}
+		if req.Fabric.CaLogs.Cloudwatch != nil {
+			caLogs.CloudWatch = &CloudWatchLogState{Enabled: req.Fabric.CaLogs.Cloudwatch.Enabled}
 		}
 		fabric.CALogs = caLogs
 	}
@@ -229,7 +229,7 @@ func toLogConfigRespObj(c *LogConfigState) *logConfigRespObj {
 	obj := &logConfigRespObj{}
 
 	if c.CloudWatch != nil {
-		obj.CloudWatch = &cloudWatchLogRespObj{Enabled: c.CloudWatch.Enabled}
+		obj.Cloudwatch = &cloudWatchLogRespObj{Enabled: c.CloudWatch.Enabled}
 	}
 
 	return obj

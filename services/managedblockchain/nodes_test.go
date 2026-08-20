@@ -51,9 +51,10 @@ func TestHandler_NodeLifecycle_RealWireShape(t *testing.T) {
 	assert.Equal(t, http.StatusOK, listRec.Code)
 
 	patchRec := doRoutedRequest(t, h, http.MethodPatch, nodePath, map[string]any{
+		"MemberId": memID,
 		"LogPublishingConfiguration": map[string]any{
 			"Fabric": map[string]any{
-				"ChaincodeLogs": map[string]any{"CloudWatch": map[string]any{"Enabled": true}},
+				"ChaincodeLogs": map[string]any{"Cloudwatch": map[string]any{"Enabled": true}},
 			},
 		},
 	})
@@ -318,8 +319,8 @@ func TestHandler_UpdateNode(t *testing.T) {
 				nodeID = tt.nodeID
 			}
 
-			path := fmt.Sprintf("/networks/%s/nodes/%s?memberId=%s", net.ID, nodeID, mem.ID)
-			rec := doRequest(t, h, http.MethodPatch, path, map[string]any{})
+			path := fmt.Sprintf("/networks/%s/nodes/%s", net.ID, nodeID)
+			rec := doRequest(t, h, http.MethodPatch, path, map[string]any{"MemberId": mem.ID})
 			assert.Equal(t, tt.wantStatus, rec.Code)
 		})
 	}
@@ -521,16 +522,18 @@ func TestHandler_UpdateNodeLogPublishingConfig(t *testing.T) {
 			h.AccountID = testAccountID
 			h.DefaultRegion = testRegion
 
-			patchPath := fmt.Sprintf("/networks/%s/nodes/%s?memberId=%s", n.ID, node.ID, m.ID)
+			patchPath := fmt.Sprintf("/networks/%s/nodes/%s", n.ID, node.ID)
+			getPath := patchPath + "?memberId=" + m.ID
 
 			rec := doRequest(t, h, http.MethodPatch, patchPath, map[string]any{
+				"MemberId": m.ID,
 				"LogPublishingConfiguration": map[string]any{
 					"Fabric": map[string]any{
 						"ChaincodeLogs": map[string]any{
-							"CloudWatch": map[string]any{"Enabled": tt.chaincodeEnabled},
+							"Cloudwatch": map[string]any{"Enabled": tt.chaincodeEnabled},
 						},
 						"PeerLogs": map[string]any{
-							"CloudWatch": map[string]any{"Enabled": tt.peerEnabled},
+							"Cloudwatch": map[string]any{"Enabled": tt.peerEnabled},
 						},
 					},
 				},
@@ -538,7 +541,7 @@ func TestHandler_UpdateNodeLogPublishingConfig(t *testing.T) {
 			require.Equal(t, http.StatusNoContent, rec.Code)
 
 			// GetNode and verify
-			rec2 := doRequest(t, h, http.MethodGet, patchPath, nil)
+			rec2 := doRequest(t, h, http.MethodGet, getPath, nil)
 			require.Equal(t, http.StatusOK, rec2.Code)
 
 			var getResp map[string]any
@@ -552,11 +555,11 @@ func TestHandler_UpdateNodeLogPublishingConfig(t *testing.T) {
 			fabric := logConfigMap["Fabric"].(map[string]any)
 
 			ccLogs := fabric["ChaincodeLogs"].(map[string]any)
-			ccCw := ccLogs["CloudWatch"].(map[string]any)
+			ccCw := ccLogs["Cloudwatch"].(map[string]any)
 			assert.Equal(t, tt.chaincodeEnabled, ccCw["Enabled"])
 
 			peerLogs := fabric["PeerLogs"].(map[string]any)
-			peerCw := peerLogs["CloudWatch"].(map[string]any)
+			peerCw := peerLogs["Cloudwatch"].(map[string]any)
 			assert.Equal(t, tt.peerEnabled, peerCw["Enabled"])
 		})
 	}

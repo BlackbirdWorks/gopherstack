@@ -116,17 +116,22 @@ func (h *Handler) handleDeleteNode(c *echo.Context, resource string) error {
 	return c.NoContent(http.StatusNoContent)
 }
 
-// handleUpdateNode handles PATCH /networks/{networkId}/nodes/{nodeId}. The
-// owning member is carried as the "memberId" query parameter, not the URI.
+// handleUpdateNode handles PATCH /networks/{networkId}/nodes/{nodeId}.
+// Unlike GetNode/ListNodes/DeleteNode, the owning member is carried as a
+// "MemberId" JSON body field, not a query parameter -- confirmed against
+// aws-sdk-go-v2 managedblockchain@v1.34.4's
+// awsRestjson1_serializeOpHttpBindingsUpdateNodeInput (serializers.go:2259),
+// which binds only NetworkId/NodeId to the URI and has no
+// encoder.SetQuery("memberId") call, versus
+// awsRestjson1_serializeOpDocumentUpdateNodeInput (serializers.go:2285),
+// which serializes MemberId into the request body. A real SDK client never
+// sends memberId as a query parameter here, so requiring it from the query
+// string (as gopherstack previously did) rejected every real UpdateNode call
+// with InvalidRequestException.
 func (h *Handler) handleUpdateNode(c *echo.Context, resource string, body []byte) error {
 	networkID, nodeID, ok := splitResource(resource)
 	if !ok {
 		return writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid resource path")
-	}
-
-	memberID := c.Request().URL.Query().Get("memberId")
-	if memberID == "" {
-		return writeError(c, http.StatusBadRequest, "InvalidRequestException", ErrMissingNodeMemberID.Error())
 	}
 
 	var req updateNodeRequest
@@ -137,7 +142,11 @@ func (h *Handler) handleUpdateNode(c *echo.Context, resource string, body []byte
 		}
 	}
 
-	_, err := h.Backend.UpdateNode(networkID, memberID, nodeID, buildNodeLogConfig(req.LogPublishingConfiguration))
+	if req.MemberID == "" {
+		return writeError(c, http.StatusBadRequest, "InvalidRequestException", ErrMissingNodeMemberID.Error())
+	}
+
+	_, err := h.Backend.UpdateNode(networkID, req.MemberID, nodeID, buildNodeLogConfig(req.LogPublishingConfiguration))
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -160,16 +169,16 @@ func buildNodeLogConfig(req *nodeLogPublishingConfigReq) *NodeLogPublishingConfi
 
 	if req.Fabric.ChaincodeLogs != nil {
 		cl := &LogConfigState{}
-		if req.Fabric.ChaincodeLogs.CloudWatch != nil {
-			cl.CloudWatch = &CloudWatchLogState{Enabled: req.Fabric.ChaincodeLogs.CloudWatch.Enabled}
+		if req.Fabric.ChaincodeLogs.Cloudwatch != nil {
+			cl.CloudWatch = &CloudWatchLogState{Enabled: req.Fabric.ChaincodeLogs.Cloudwatch.Enabled}
 		}
 		fabric.ChaincodeLogs = cl
 	}
 
 	if req.Fabric.PeerLogs != nil {
 		pl := &LogConfigState{}
-		if req.Fabric.PeerLogs.CloudWatch != nil {
-			pl.CloudWatch = &CloudWatchLogState{Enabled: req.Fabric.PeerLogs.CloudWatch.Enabled}
+		if req.Fabric.PeerLogs.Cloudwatch != nil {
+			pl.CloudWatch = &CloudWatchLogState{Enabled: req.Fabric.PeerLogs.Cloudwatch.Enabled}
 		}
 		fabric.PeerLogs = pl
 	}

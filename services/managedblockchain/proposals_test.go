@@ -466,7 +466,15 @@ func TestHandler_ProposalActionsStoredAndReturned(t *testing.T) {
 }
 
 // TestHandler_ProposalOutstandingVoteCount verifies OutstandingVoteCount is tracked correctly.
-func TestHandler_ProposalSummaryHasNetworkID(t *testing.T) {
+// TestHandler_ProposalSummaryOmitsNetworkID confirms ListProposals never
+// emits a NetworkId member on its proposal summaries. Real AWS's
+// ProposalSummary has no such member -- confirmed against aws-sdk-go-v2
+// managedblockchain@v1.34.4's awsRestjson1_deserializeDocumentProposalSummary
+// (deserializers.go:6573), whose case-sensitive switch has no "NetworkId"
+// case at all (unlike the full Proposal type returned by GetProposal, which
+// does). A prior gopherstack version fabricated it here; this test used to
+// assert the opposite (that it was present) and locked the bug in.
+func TestHandler_ProposalSummaryOmitsNetworkID(t *testing.T) {
 	t.Parallel()
 
 	b := managedblockchain.NewInMemoryBackend()
@@ -488,9 +496,8 @@ func TestHandler_ProposalSummaryHasNetworkID(t *testing.T) {
 	require.Len(t, proposals, 1)
 
 	p := proposals[0].(map[string]any)
-	networkID, ok := p["NetworkId"]
-	assert.True(t, ok, "NetworkId should be in proposal summary")
-	assert.Equal(t, n.ID, networkID)
+	_, ok := p["NetworkId"]
+	assert.False(t, ok, "real AWS's ProposalSummary has no NetworkId member")
 }
 
 // TestHandler_VoteThresholdFloatPrecision verifies that the vote threshold comparison
