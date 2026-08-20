@@ -1,7 +1,9 @@
 # Wrapper-key / nested-shape sweep remainder (gopherstack-6flj)
 
-**108 of 162 services swept, 54 remain** (fis, codepipeline, apprunner, ram,
-acm and appmesh added 2026-08-19, working through the 15-L+D+G tier; read
+**109 of 162 services swept, 53 remain** (the whole 15-L+D+G tier closed
+2026-08-19: codepipeline, fis, apprunner, ram, appmesh, acm, amplify --
+17 real bugs, 8 existing tests corrected that asserted wrong keys or wrong
+status codes as correct. Read
 appmesh's section before trusting any singular-op wrapper-key finding
 anywhere -- it documents a dead-code deserializer that makes this file's core
 method report false positives; see their own sections at the end of
@@ -136,7 +138,8 @@ session), **workmail** (this session), **workspaces** (this session),
 **lakeformation** (this session), **elasticsearch** (this session),
 **rekognition** (this session), **fis** (2026-08-19),
 **codepipeline** (2026-08-19), **apprunner** (2026-08-19),
-**ram** (2026-08-19), **acm** (2026-08-19), **appmesh** (2026-08-19).
+**ram** (2026-08-19), **acm** (2026-08-19), **appmesh** (2026-08-19),
+**amplify** (2026-08-19).
 
 This alphabetical list is itself incomplete and always has been — it was
 last rewritten wholesale when the count read 64, and per-session sections
@@ -10825,3 +10828,74 @@ validation. Also structurally absent: the `meshOwner` cross-account query
 param (`gopherstack-ddkf`).
 
 **108 of 162 services swept, 54 remain.**
+
+## amplify (this session, 2026-08-19)
+
+All 37 ops swept, 1:1 with `api_op_*.go` and `GetSupportedOperations`.
+Protocol confirmed **restjson1** (123 `awsRestjson1_` functions in the pinned
+`amplify@v1.41.4`). Four bugs, and two of them are shapes this sweep had not
+yet seen.
+
+1. **`DeleteApp`/`DeleteBranch` answered a bare `204 No Content`.**
+   `DeleteAppOutput.App` and `DeleteBranchOutput.Branch` are both marked
+   *This member is required* (`api_op_DeleteApp.go:46`) — every Amplify delete
+   returns the resource it deleted. A real client got `nil` back from a
+   successful call. Both backend methods now return the resource, computed
+   BEFORE the cascading delete runs, and the handlers emit it under the
+   wrapper key at 200. **This op was explicitly checked against
+   `gopherstack-cnhp`'s trap**: `deserializeOpDeleteApp.HandleDeserialize`
+   calls `deserializeOpDocumentDeleteAppOutput`, so the wrapper genuinely is
+   the live path here, unlike appmesh. Worth noting the two services sit in
+   the same protocol and disagree — the check is per-op, not per-service.
+   New shape for this sweep: a **wrong HTTP status carrying a missing
+   required member**. The method as written compares keys in a body; there
+   was no body at all to compare.
+2. **`GetArtifactUrl` returned the artifact TYPE ("BUILD") under the correct
+   `artifactId` key.** Right key, right JSON type, wrong VALUE — no decode
+   error, nothing for a shape-comparing sweep to catch, and every caller
+   resolving an artifact by the returned id was resolving the literal string
+   "BUILD". Second new shape: the sweep compares names and types, and this is
+   neither. Found only by reading what the backend actually assigned.
+3. `DomainAssociation` and `BackendEnvironment` wire views each emitted a
+   fabricated `appId`. Neither real deserializer has that case
+   (`DomainAssociation` has eleven, `BackendEnvironment` six). The internal
+   Go model fields stay — they are what the backend indexes by; only the wire
+   views were narrowed.
+4. `ListArtifacts`' per-item `Artifact` emitted a fabricated `artifactType`.
+   `deserializeDocumentArtifact` has exactly two cases, `artifactFileName`
+   and `artifactId`.
+
+**Existing tests corrected — three, and all three were locking in a bug**:
+`TestHandler_DeleteApp` and `TestHandler_DeleteBranch` asserted
+`http.StatusNoContent` as correct; an artifacts test asserted
+`artifactType == "BUILD"`, which was the wrong-value return being read back
+and confirmed.
+
+**Clean, no re-sweep needed**: App, Branch, Job/JobSummary/Step — including
+the `ListJobs → []JobSummary` vs `GetJob → Job{summary,steps}` distinction,
+checked precisely because it is the shape that produced six bugs elsewhere in
+this tier — Webhook, CreateDeployment/StartDeployment,
+ListTagsForResource, GenerateAccessLogs, SubDomain/SubDomainSetting,
+AutoBranchCreationConfig, CacheConfig, CustomRule, ProductionBranch.
+
+**Disclosed, not fixed** (layer-3; all are members the SDK gained between
+v1.40.0 and the pinned v1.41.4, i.e. this service's prior 2026-07-23 audit
+was correct when written): App `computeRoleArn`/`jobConfig`/
+`webhookCreateTime`; Branch `backend`/`computeRoleArn`/`destinationBranch`/
+`enableSkewProtection`/`thumbnailUrl`; JobSummary `sourceUrl`/`sourceUrlType`;
+DomainAssociation `certificate`/`updateStatus`/
+`autoSubDomainCreationPatterns`/`autoSubDomainIAMRole`. A pinned-SDK bump is
+its own source of new gaps and is worth checking whenever a manifest's date
+predates the current pin.
+
+Tests: five new in `wire_shape_test.go`, real SDK client except the two
+fabricated-`appId` cases, which use raw-body absence checks because the typed
+client has no field to observe them through. Each fix hand-reverted, symptom
+reproduced, restored byte-identical. Gates re-run independently by the
+orchestrator, including full `go build ./...` since `StorageBackend`'s
+`DeleteApp`/`DeleteBranch` signatures changed, before commit `fe7f33861`.
+
+**109 of 162 services swept, 53 remain. The 15-L+D+G tier is now closed:
+codepipeline, fis, apprunner, ram, appmesh, acm, amplify — 7 services, 17
+real bugs, 8 existing tests corrected that had asserted wrong keys or wrong
+status codes as correct.**
