@@ -1,6 +1,7 @@
 # Wrapper-key / nested-shape sweep remainder (gopherstack-6flj)
 
-**126 of 162 services swept, 36 remain** (15-, 13- and 12-L+D+G tiers closed;
+**131 of 162 services swept, 31 remain** (15-, 13-, 12- and 11-L+D+G tiers
+closed; 10-tier closed; 9-tier in progress as of 2026-08-20. Earlier text: 15-, 13- and 12-L+D+G tiers closed;
 11-tier all but `support` as of 2026-08-20. Earlier header text follows: 15- and 13-L+D+G tiers closed,
 12-tier closed too -- verifiedpermissions, mq, fsx, iotanalytics -- as of
 2026-08-20. NOTE a new sub-shape found in iotanalytics: a member at the
@@ -156,7 +157,10 @@ session), **workmail** (this session), **workspaces** (this session),
 **verifiedpermissions** (2026-08-20), **mq** (2026-08-20),
 **fsx** (2026-08-20), **iotanalytics** (2026-08-20), **swf** (2026-08-20),
 **efs** (2026-08-20), **detective** (2026-08-20),
-**emrserverless** (2026-08-20), **cognitoidentity** (2026-08-20).
+**emrserverless** (2026-08-20), **cognitoidentity** (2026-08-20),
+**support** (2026-08-20), **textract** (2026-08-20),
+**resourcegroups** (2026-08-20), **grafana** (2026-08-20),
+**rolesanywhere** (2026-08-20).
 
 This alphabetical list is itself incomplete and always has been — it was
 last rewritten wholesale when the count read 64, and per-session sections
@@ -11590,3 +11594,135 @@ deep passes; a clean result is evidence those held, not that nobody looked.
 Commit `80ed8eb54`.
 
 **126 of 162 services swept, 36 remain.**
+
+# ---- 10- and 9-L+D+G tiers (2026-08-20) ----
+
+## support (this session, 2026-08-20)
+
+All 16 ops swept. Protocol **awsjson1.1**. **Zero bugs.** Three shapes were
+checked specifically because they are where this campaign's bugs cluster, and
+all three are right: `CaseDetails.recentCommunications` is an OBJECT wrapping
+`{communications, nextToken}`, never a bare list nor flattened — the
+wrong-nesting-level shape that bit iotanalytics; `types.Attachment` is
+`Data`+`FileName` while `types.AttachmentDetails` is `AttachmentId`+`FileName`,
+and gopherstack builds a separate output view so its internal `AttachmentID`
+never leaks — the leak that bit efs; the Trusted Advisor tree matches at every
+level, including the singular `status`/`result` wrappers being correctly
+distinct from the plural `statuses`/`summaries`.
+
+**A verification source this campaign had not used**: per-op modeled error
+sets cross-checked against **botocore's own `service-2.json`**, available
+locally via the installed botocore package — an authority independent of the
+Go SDK. All 16 ops matched. Worth using wherever the error taxonomy is in
+question.
+
+One observation deliberately NOT changed: this service emits
+`ValidationException` as the `__type` for generic input-validation failures,
+and botocore models no such shape for any support operation. Unmodelled
+runtime-only error types are normal for AWS JSON-RPC services and clients
+surface them correctly either way, so there is no evidence the value is
+wrong. Flagged for a pass with real Support error traffic rather than changed
+on a guess. Commit `a8a59e427`.
+
+## textract (this session, 2026-08-20)
+
+All 25 ops swept. Protocol **awsjson1.1**. Two bugs, both LATENT — neither
+reachable with current mock data, so neither had an observable symptom
+without forcing one.
+
+1. `types.AnalyzeIDDetections` has exactly three members: `Text`,
+   `Confidence`, `NormalizedValue`. gopherstack also declared `Geometry`,
+   which its siblings `ExpenseDetection` and `LendingDetection` genuinely do
+   have. Nothing set it, so `omitempty` kept it off the wire — but a later
+   pass wiring that field up would have shipped a member the real type cannot
+   receive.
+2. `types.Extraction` has three members and gopherstack modelled two, omitting
+   `IdentityDocument`. Added for shape completeness, documented as always-nil.
+
+**The negative result is the more valuable half.** `Block` IS textract's
+entire payload, and a wrong `BlockType` string silently produces an unusable
+document tree rather than an error. Every field, JSON type and enum value
+gopherstack can emit was checked against `types/enums.go` — thirteen
+`BlockType` values, three `RelationshipType`, three `EntityType`, plus
+`SelectionStatus` and `TextType` — all valid. The sync and async Output
+structs were also diffed against each other: `AnalyzeDocument` really does
+carry `HumanLoopActivationOutput`, and the `Get*` ops really do carry
+`JobStatus`/`NextToken`/`StatusMessage`/`Warnings` their sync counterparts
+omit. No leakage either direction. Commit `46f2d26ff`.
+
+## resourcegroups (this session, 2026-08-20)
+
+All 23 ops swept. Protocol **restjson1**. **Zero bugs**; three prior sweeps
+had closed fourteen real ones and every one re-derived correctly.
+
+**The dual-field ops are why this service was worth re-reading, and both are
+right.** `ListGroupsOutput` really does carry both the current
+`GroupIdentifiers` and a deprecated `Groups` list, and gopherstack emits each
+with its own distinct shape — **`types.Group` uses `Name` while
+`types.GroupIdentifier` uses `GroupName`**, exactly the near-miss this
+campaign keeps finding. `ListGroupResourcesOutput` likewise carries both
+`Resources` and the deprecated `ResourceIdentifiers`.
+
+Also confirmed: `QueryError` uses `Message`, not `ErrorMessage`; the tag-sync
+ops are flat where the real Outputs are flat and list-nested where they are
+not; all 23 REST paths and methods match, including `Untag` being a PATCH.
+`CancelTagSyncTask` and `PutGroupConfiguration` have no OpDocument
+deserializer at all because both real Outputs are empty — **legitimately void,
+not the `gopherstack-cnhp` dead-helper trap**, and worth distinguishing.
+
+Disclosed, not fixed, both UNPROVABLE rather than merely unfixed: `ListGroups`'
+deprecated `Groups[]` omits `ApplicationTag`, a real member no operation in
+this backend ever sets — a fix could not be demonstrated by a round trip
+because the field would serialize as absent before and after.
+`GetGroupConfiguration` never populates `ProposedConfiguration`/`FailureReason`
+because `PutGroupConfiguration` is synchronous here. Commit `e75a8cecd`.
+
+## grafana (this session, 2026-08-20)
+
+All 24 ops swept. Protocol **restjson1**. **Zero bugs.** Picked because it
+carries three confusingly-named summary/full pairs at once, and all three are
+correct: `WorkspaceDescription`'s 28 fields against `WorkspaceSummary`'s 13,
+with the fifteen description-only members properly absent;
+`AuthenticationDescription` against `AuthenticationSummary`, whose names
+differ by one word and whose member sets barely overlap; and
+`ServiceAccountTokenSummary` against `ServiceAccountTokenSummaryWithKey`,
+where the key is returned only by `CreateWorkspaceServiceAccountToken` and
+never leaks into the list op.
+
+The `idpMetadata` union is right too — `url` and `xml` mutually exclusive on
+the wire, proven by a real-client round trip. A wrong discriminator there
+drops the entire SAML metadata value. The `gopherstack-cnhp` trap was checked
+per op: every body-bearing op's OpDocument deserializer is referenced twice,
+so every wrapper key is load-bearing; the three with zero references are
+legitimately void. Commit `c3a1503b4`.
+
+## rolesanywhere (this session, 2026-08-20)
+
+All 30 ops swept. Protocol **restjson1**. **Zero bugs.**
+
+**This service was flagged as unusually exposed to `gopherstack-cnhp`**,
+because nearly every one of its outputs is a single structure member — the
+exact condition that orphans the wrapper-key deserializer. Checked per op by
+reading each `HandleDeserialize` in full: all 28 body-bearing ops genuinely
+call their own OpDocument deserializer, no output member is `httpPayload`-bound
+anywhere in the service, and `TagResource`/`UntagResource` have no output
+members at all. **Every wrapper key here is load-bearing** — recorded
+precisely because the opposite was true in appmesh and glacier.
+
+Field sets verified against the live per-shape deserializers rather than
+siblings: `TrustAnchorDetail` 8/8, `ProfileDetail` 14/14, `CrlDetail` 8/8,
+`SubjectSummary` 7/7, `NotificationSettingDetail` 5/5, plus `AttributeMapping`
+and `MappingRule`. HTTP status codes cross-checked against botocore's
+`service-2.json` for all 30 ops — 201 for the four creates, 200 otherwise.
+
+**A recorded gap that no longer exists**: `gopherstack-fccd` lists
+`CreateProfile.RoleArns` nil-or-empty as unrejected. The check is present and
+correct, fixed 2026-08-10 in `903d74b67`; the issue was never updated. Its
+title has been corrected and the other two gaps re-verified as still holding.
+**Second stale FOLLOW-UP found this way** — these issues record gaps at a
+moment in time and nothing re-checks them when the code changes, so a sweep
+that reads the service anyway is the cheapest opportunity to re-derive them.
+The briefs now ask agents to state explicitly whether a referenced issue's
+gaps still hold. Commit `aa31b1913`.
+
+**131 of 162 services swept, 31 remain.**
