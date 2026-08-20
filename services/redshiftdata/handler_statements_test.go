@@ -525,7 +525,11 @@ func TestHandler_DescribeStatement_AllFields(t *testing.T) {
 	assert.Equal(t, "testdb", resp["Database"])
 	assert.Equal(t, "myuser", resp["DbUser"])
 	assert.Equal(t, "arn:aws:secretsmanager:us-east-1:000000000000:secret:mysecret", resp["SecretArn"])
-	assert.Equal(t, "my-statement", resp["StatementName"])
+	// StatementName is a real StatementData (ListStatements item) member, not
+	// a DescribeStatementOutput one -- confirmed against
+	// aws-sdk-go-v2/service/redshiftdata@v1.43.4's DescribeStatementOutput
+	// struct, which has no StatementName field at all.
+	assert.NotContains(t, resp, "StatementName")
 }
 
 func TestHandler_BatchExecuteStatement_AllFields(t *testing.T) {
@@ -554,8 +558,24 @@ func TestHandler_BatchExecuteStatement_AllFields(t *testing.T) {
 	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &resp))
 
 	assert.Equal(t, id, resp["Id"])
-	assert.Equal(t, true, resp["IsBatchStatement"])
-	queryStrings, ok := resp["QueryStrings"].([]any)
+	// IsBatchStatement/QueryStrings are real StatementData (ListStatements
+	// item) members, not DescribeStatementOutput ones -- confirmed against
+	// aws-sdk-go-v2/service/redshiftdata@v1.43.4's DescribeStatementOutput
+	// struct, which has neither field.
+	assert.NotContains(t, resp, "IsBatchStatement")
+	assert.NotContains(t, resp, "QueryStrings")
+
+	listRec := doRequest(t, h, "ListStatements", map[string]any{})
+	require.Equal(t, http.StatusOK, listRec.Code)
+
+	var listResp struct {
+		Statements []map[string]any `json:"Statements"`
+	}
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	require.NotEmpty(t, listResp.Statements)
+
+	assert.Equal(t, true, listResp.Statements[0]["IsBatchStatement"])
+	queryStrings, ok := listResp.Statements[0]["QueryStrings"].([]any)
 	require.True(t, ok)
 	assert.Len(t, queryStrings, 2)
 }
