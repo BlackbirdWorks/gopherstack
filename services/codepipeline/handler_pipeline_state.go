@@ -14,10 +14,16 @@ type getPipelineStateInput struct {
 	Name string `json:"name"`
 }
 
+// getPipelineStateOutput's Created/Updated were previously never emitted at
+// all despite being real, always-populated members of
+// awsAwsjson11_deserializeOpDocumentGetPipelineStateOutput; fixed
+// incidentally while auditing this op's wrapper key.
 type getPipelineStateOutput struct {
 	PipelineName    string           `json:"pipelineName"`
 	StageStates     []map[string]any `json:"stageStates"`
 	PipelineVersion int              `json:"pipelineVersion"`
+	Created         float64          `json:"created"`
+	Updated         float64          `json:"updated"`
 }
 
 func (h *Handler) handleGetPipelineState(
@@ -44,17 +50,16 @@ func (h *Handler) handleGetPipelineState(
 			"stageName":    s.StageName,
 			"actionStates": s.ActionStates,
 		}
+		// Real types.StageState (deserializers.go awsAwsjson11_deserializeDocumentStageState)
+		// has no "outboundTransitionState" member -- only inboundTransitionState is
+		// wire-visible, regardless of DisableStageTransition's Outbound transitionType.
 		if s.InboundTransitionState != nil {
 			item["inboundTransitionState"] = map[string]any{
-				"disabled": s.InboundTransitionState.Disabled,
-				"reason":   s.InboundTransitionState.Reason,
-			}
-		}
-
-		if s.OutboundTransitionState != nil {
-			item["outboundTransitionState"] = map[string]any{
-				"disabled": s.OutboundTransitionState.Disabled,
-				"reason":   s.OutboundTransitionState.Reason,
+				// Real types.TransitionState (awsAwsjson11_deserializeDocumentTransitionState)
+				// has no "disabled"/"reason" members -- it is enabled (bool, inverse of our
+				// stored Disabled) and disabledReason, not disabled/reason.
+				"enabled":        !s.InboundTransitionState.Disabled,
+				"disabledReason": s.InboundTransitionState.Reason,
 			}
 		}
 
@@ -65,6 +70,8 @@ func (h *Handler) handleGetPipelineState(
 		PipelineName:    in.Name,
 		StageStates:     items,
 		PipelineVersion: p.Declaration.Version,
+		Created:         p.Metadata.Created,
+		Updated:         p.Metadata.Updated,
 	}, nil
 }
 

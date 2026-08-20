@@ -844,7 +844,12 @@ func TestListPipelines_NonNilWhenEmpty(t *testing.T) {
 	assert.NotNil(t, list)
 }
 
-func TestListPipelines_IncludesARN(t *testing.T) {
+// TestListPipelines_OmitsPipelineArn asserts ListPipelines' items carry no
+// "pipelineArn" key. Real types.PipelineSummary
+// (awsAwsjson11_deserializeDocumentPipelineSummary) has no such member -- a
+// prior version of this test wrongly asserted the opposite as correct. The
+// real ARN is only available via GetPipeline's PipelineMetadata.
+func TestListPipelines_OmitsPipelineArn(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -860,7 +865,16 @@ func TestListPipelines_IncludesARN(t *testing.T) {
 
 	list := out["pipelines"].([]any)
 	item := list[0].(map[string]any)
-	arn, ok := item["pipelineArn"].(string)
+	assert.NotContains(t, item, "pipelineArn")
+
+	getRec := doRequest(t, h, "GetPipeline", map[string]any{"name": "arn-pl"})
+	require.Equal(t, http.StatusOK, getRec.Code)
+
+	var getOut map[string]any
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut))
+
+	metadata := getOut["metadata"].(map[string]any)
+	arn, ok := metadata["pipelineArn"].(string)
 	require.True(t, ok)
 	assert.Contains(t, arn, "arn:aws:codepipeline")
 	assert.Contains(t, arn, "arn-pl")

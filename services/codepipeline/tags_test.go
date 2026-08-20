@@ -189,15 +189,12 @@ func TestSortedListTagsForResource(t *testing.T) {
 
 	h := newTestHandler(t)
 
-	_, err := h.Backend.CreatePipeline(context.Background(), samplePipeline("tag-pl"), map[string]string{
+	p, err := h.Backend.CreatePipeline(context.Background(), samplePipeline("tag-pl"), map[string]string{
 		"zzz": "last", "aaa": "first", "mmm": "mid",
 	})
 	require.NoError(t, err)
 
-	// Get the ARN by listing pipelines.
-	summaries := h.Backend.ListPipelines(context.Background())
-	require.Len(t, summaries, 1)
-	pipelineARN := summaries[0].PipelineArn
+	pipelineARN := p.Metadata.PipelineArn
 	require.NotEmpty(t, pipelineARN)
 
 	rec := doRequest(t, h, "ListTagsForResource", map[string]any{"resourceArn": pipelineARN})
@@ -222,11 +219,10 @@ func TestListTagsForResource_EmptySlice(t *testing.T) {
 
 	h := newTestHandler(t)
 
-	_, err := h.Backend.CreatePipeline(context.Background(), samplePipeline("notag-pl"), nil)
+	p, err := h.Backend.CreatePipeline(context.Background(), samplePipeline("notag-pl"), nil)
 	require.NoError(t, err)
 
-	summaries := h.Backend.ListPipelines(context.Background())
-	pipelineARN := summaries[0].PipelineArn
+	pipelineARN := p.Metadata.PipelineArn
 
 	rec := doRequest(t, h, "ListTagsForResource", map[string]any{"resourceArn": pipelineARN})
 	require.Equal(t, http.StatusOK, rec.Code)
