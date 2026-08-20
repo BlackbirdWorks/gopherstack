@@ -1,7 +1,10 @@
 # Wrapper-key / nested-shape sweep remainder (gopherstack-6flj)
 
-**119 of 162 services swept, 43 remain** (15- and 13-L+D+G tiers closed,
-12-tier opened with verifiedpermissions and mq, as of 2026-08-20: codepipeline, fis, apprunner, ram, appmesh, acm,
+**121 of 162 services swept, 41 remain** (15- and 13-L+D+G tiers closed,
+12-tier closed too -- verifiedpermissions, mq, fsx, iotanalytics -- as of
+2026-08-20. NOTE a new sub-shape found in iotanalytics: a member at the
+WRONG NESTING LEVEL under the RIGHT key, which a pure key comparison cannot
+see. Compare the PATH, not just the name. Services: codepipeline, fis, apprunner, ram, appmesh, acm,
 amplify, then kinesis, shield, codestarconnections, mediaconvert, glacier,
 managedblockchain, codeconnections. See the "Manifest provenance" section at the end of this file:
 every one of the 140 PARITY.md manifests cites a last_audit_commit
@@ -149,7 +152,8 @@ session), **workmail** (this session), **workspaces** (this session),
 **codestarconnections** (2026-08-19), **kinesis** (2026-08-19),
 **codeconnections** (2026-08-19), **mediaconvert** (2026-08-19),
 **managedblockchain** (2026-08-20), **glacier** (2026-08-20),
-**verifiedpermissions** (2026-08-20), **mq** (2026-08-20).
+**verifiedpermissions** (2026-08-20), **mq** (2026-08-20),
+**fsx** (2026-08-20), **iotanalytics** (2026-08-20).
 
 This alphabetical list is itself incomplete and always has been — it was
 last rewritten wholesale when the count read 64, and per-session sections
@@ -11331,3 +11335,99 @@ REQUIRED — are never emitted. `LdapServerMetadata`'s `json:"-"` on
 from requests, since one struct serves both directions. Commit `7140cec69`.
 
 **119 of 162 services swept, 43 remain.**
+
+## fsx (this session, 2026-08-20)
+
+All 48 ops swept. Protocol **awsjson1.1**, `X-Amz-Target:
+AWSSimbaAPIService_v20180301.<Op>`; all 48 OpDocument helpers defined AND
+called, so no `gopherstack-cnhp` trap. Three bugs, the widest set in one
+service so far.
+
+1. **The S3 access point feature modelled the wrong AWS type in BOTH
+   directions.** `CreateAndAttachS3AccessPointOutput` returns
+   `S3AccessPointAttachment`; `DescribeS3AccessPointAttachments` returns
+   `S3AccessPointAttachments`. gopherstack wrapped under
+   `S3AccessPoint`/`S3AccessPoints`. The real attachment type has no
+   top-level `FileSystemId`, `VolumeId`, `ResourceARN` or `Tags` — `VolumeId`
+   nests under `OntapConfiguration`/`OpenZFSConfiguration`, and ARN/Alias
+   belong to a **different type that is also called `S3AccessPoint`**, which
+   is how the two got conflated. The request shape was wrong too, so a real
+   typed client's call was rejected with a 400 before this.
+2. **`RestoreVolumeFromSnapshot` and `CopySnapshotAndUpdateVolume` wrapped
+   their responses under a fabricated `"Volume"` key.** Both real Output
+   structs have no such member — they return `Lifecycle`, `VolumeId` and
+   `AdministrativeActions` at the root — so a real client decoded an entirely
+   EMPTY response from a successful call. `AdministrativeAction` is now
+   modelled, reusing the `Volume` type for `TargetVolumeValues` exactly as
+   the real API does. Two existing tests had encoded the fabricated key.
+3. `FileCache` used one Go type for Create, Describe and Update. AWS splits
+   `types.FileCacheCreating` (carries `Tags`, returned only by
+   `CreateFileCache`) from `types.FileCache` (no `Tags` member at all).
+   Sixteenth instance of the dominant pattern, and the first where the two
+   types differ by exactly the field the narrower one lacks.
+
+**Coverage stated rather than implied.** Hand-verified: `FileSystem` and its
+four per-flavour configurations plus endpoints, `Backup`,
+`FileCache`/`FileCacheCreating`, `DataRepositoryAssociation`,
+`DataRepositoryTask`/`CompletionReport`, `Snapshot`,
+`StorageVirtualMachine`/`Volume` at top level,
+`S3AccessPointAttachment`/`S3AccessPoint`, `AdministrativeAction`,
+`SharedVpcConfiguration`, and every enum against `types/enums.go`. NOT
+reached: nested `ActiveDirectoryConfiguration`, `SvmEndpoints`,
+`OntapVolumeConfiguration`, `OpenZFSVolumeConfiguration`, `TieringPolicy`,
+`SnaplockConfiguration` — none of which gopherstack emits at all today.
+
+Disclosed, not fixed: `CreateVolume` reads `StorageVirtualMachineId` at top
+level where the real input nests it under `OntapConfiguration` — the same
+request-shape mistake the S3 access point fix corrects. Commit `00faca5b0`.
+
+## iotanalytics (this session, 2026-08-20)
+
+All 34 ops swept. Protocol **restjson1**; every op routes through its own
+OpDocument helper. **Five bugs — the largest single-service haul of this
+campaign.**
+
+1. **`DescribeChannel`/`DescribeDatastore` nested `statistics` INSIDE the
+   `channel`/`datastore` object.** `DescribeChannelOutput` has `Channel` and
+   `Statistics` as SIBLING top-level members. So `IncludeStatistics=true`
+   worked, the data was emitted, and a real client's `.Statistics` was
+   nil regardless. **First wrong-nesting-level bug where the key itself was
+   correct** — a new sub-shape for this sweep, and one a pure key comparison
+   cannot see. Worth adding to the method: compare the PATH, not just the
+   name.
+2. `CreateDatastore`/`DescribeDatastore` used `"partitions"`; the real key is
+   `"datastorePartitions"`, on both request and response. Silently discarded
+   on create, always nil on describe. Third case/spelling near-miss class
+   hit.
+3. **All four `*Summary` types emitted a fabricated ARN** — Channel,
+   Datastore, Dataset, Pipeline. None of the four real summary deserializers
+   has an `arn` case, unlike their full detail counterparts. One mistake
+   applied consistently across a whole service, which is how this class
+   usually presents (compare omics' ten-of-eleven).
+4. `GetDatasetContent` emitted a fabricated `versionId`; the real output is
+   `entries`/`status`/`timestamp` only.
+5. The IoT SiteWise `customerManagedS3Storage` variant emitted a `roleArn`.
+   The narrower nested type has only `bucket`/`keyPrefix`, while the wider
+   variant used directly under `datastoreStorage` does have `roleArn`. Two
+   same-named types, three levels deep.
+
+**The unions came back clean, and that is a result**: `PipelineActivity`'s
+TEN discriminators (channel, lambda, datastore, addAttributes,
+removeAttributes, selectAttributes, filter, math, deviceRegistryEnrich,
+deviceShadowEnrich), plus `Destination` and `FileFormatConfiguration`. A
+wrong discriminator there drops an entire pipeline stage.
+
+Three existing tests asserted the wrong shapes — two on the statistics
+nesting, one holding the fabricated `versionId` non-empty. Manifest
+provenance clean (sha dated one day before its audit date), and its "FIXED"
+claims are backend-behaviour rather than wire-shape, none of which introduced
+a bug on re-derivation — unlike mq.
+
+Disclosed, not fixed: `Dataset` has no `retentionPeriod` field at all though
+the real type carries one in both directions; `DatastoreSummary` omits
+`datastorePartitions`/`fileFormatType`; `DatasetSummary` omits
+`actions`/`triggers`. Noted, unreachable: `updateDatastoreRequest.Partitions`
+is fabricated — `UpdateDatastoreInput` has no such member — but no real
+client can reach it. Commit `26c405025`.
+
+**121 of 162 services swept, 41 remain.**
