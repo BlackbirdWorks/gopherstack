@@ -1,7 +1,11 @@
 # Wrapper-key / nested-shape sweep remainder (gopherstack-6flj)
 
-**112 of 162 services swept, 50 remain** (shield, codestarconnections and
-kinesis added 2026-08-19 from the 13-L+D+G tier, after the whole 15-L+D+G tier closed
+**115 of 162 services swept, 47 remain** (shield, codestarconnections,
+kinesis, codeconnections and mediaconvert added 2026-08-19 from the 13-L+D+G
+tier -- and see the "Manifest provenance" section at the end of this file:
+every one of the 140 PARITY.md manifests cites a last_audit_commit
+unreachable from main, so the schema's own re-audit protocol has never
+worked, after the whole 15-L+D+G tier closed
 2026-08-19: codepipeline, fis, apprunner, ram, appmesh, acm, amplify --
 17 real bugs, 8 existing tests corrected that asserted wrong keys or wrong
 status codes as correct. Read
@@ -141,7 +145,8 @@ session), **workmail** (this session), **workspaces** (this session),
 **codepipeline** (2026-08-19), **apprunner** (2026-08-19),
 **ram** (2026-08-19), **acm** (2026-08-19), **appmesh** (2026-08-19),
 **amplify** (2026-08-19), **shield** (2026-08-19),
-**codestarconnections** (2026-08-19), **kinesis** (2026-08-19).
+**codestarconnections** (2026-08-19), **kinesis** (2026-08-19),
+**codeconnections** (2026-08-19), **mediaconvert** (2026-08-19).
 
 This alphabetical list is itself incomplete and always has been — it was
 last rewritten wholesale when the count read 64, and per-session sections
@@ -11024,3 +11029,118 @@ and `.WarmThroughput` (backend has the data, not threaded through);
 `8a554bd6e`.
 
 **112 of 162 services swept, 50 remain.**
+
+## codeconnections (this session, 2026-08-19)
+
+All 27 ops swept. Protocol **awsjson1.0**, `X-Amz-Target:
+CodeConnections_20231201.<Op>`, OpDocument path confirmed live by call-count.
+Three bugs, all one class: a narrow output type given members that exist only
+on a wider sibling.
+
+**How the first one was found is the transferable part.** This service is the
+renamed twin of `codestarconnections`, which came back clean; diffing the two
+implementations against each other surfaced the divergence immediately.
+codestarconnections had already fixed this exact mistake and recorded it in
+its own manifest; codeconnections never got the fix. **Any near-duplicate
+service pair in this repo deserves the same diff** — it is an hour of work
+and it does not require reading the SDK at all to generate the candidate.
+
+1. `GetHost` emitted `HostArn`, `StatusMessage` and `Tags`, and omitted
+   `VpcConfiguration`. The real `GetHostOutput` and its deserializer both
+   have exactly Name/ProviderEndpoint/ProviderType/Status/VpcConfiguration.
+   The three fabricated members are real — on `types.Host`, the wider type.
+   `VpcConfiguration` is now backed by a real domain type and threaded
+   through `CreateHost`/`UpdateHost`, so the fix is observable end to end
+   rather than a permanently nil field.
+2. `ListHosts` emitted `Tags` per item. `types.Host` has seven cases and
+   `Tags` is not among them.
+3. `GetConnection`/`ListConnections` shared a wire struct emitting `Tags`.
+   `types.Connection` has six cases, no `Tags`; `Tags` exists on
+   `CreateConnectionOutput` only.
+
+**Five existing tests asserted the fabricated members as correct**, two of
+them *named for the bug they were locking in*
+(`TestGetHostIncludesHostArn`, `TestListHostsIncludesTags`). Renamed and
+inverted rather than deleted, so the record shows the premise flipped.
+
+Disclosed, not fixed: `SyncBlocker.Contexts` never emitted. Commit
+`ad75a48fe`.
+
+## mediaconvert (this session, 2026-08-19)
+
+All 33 real ops swept (`UpdateJob` correctly unadvertised — it is not a real
+op). Protocol **restjson1**; the `gopherstack-cnhp` trap was checked per op
+and **every** mediaconvert op with a body genuinely calls its OpDocument
+helper, unlike appmesh. One bug, the severe kind.
+
+1. `Job.LastShareDetails` was modelled as a nested
+   `*ShareDetails{ShareToken, SharedAt}`. The real member is `*string`
+   (`types/types.go:6202`), and its deserializer type-asserts:
+   `expected __string to be of type string, got map[string]interface {}
+   instead`. **This failed the ENTIRE `GetJob`/`ListJobs`/`SearchJobs` call**
+   for any job that had ever been resource-shared. Second hard-failure of
+   this shape after ram's numeric `permissionVersion`, and the reason this
+   sweep now checks each member's JSON TYPE and not only its name. Fixed by
+   JSON-encoding the token and timestamp into the string, so the information
+   survives without breaking the wire contract. An existing test had baked in
+   the object shape.
+
+**A boundary, established BEFORE reading any codec type and recorded rather
+than glossed**: `Settings` on `Job`/`JobTemplate`/`Preset` is opaque
+`map[string]any` passthrough. mediaconvert has the deepest type graph in AWS
+— `JobSettings` → `OutputGroup` → `Output` → per-codec setting unions — and
+none of it is verifiable by this method, because whatever the client sends
+round-trips consistently. What WAS verified is the envelope: `Job`, `Queue`,
+`ReservationPlan`, `JobTemplate`, `Preset`, `Policy`, `Timing`,
+`OutputDetail`/`OutputGroupDetail`/`VideoDetail`, `QueueTransition`,
+`JobMessages`, `HopDestination`, `WarningGroup`, `AccelerationSettings`.
+Under-claiming coverage honestly beats claiming a tree nobody read.
+
+**Negative result worth keeping**: the summary-vs-full confusion is
+structurally impossible in this service — `ListQueues`, `ListJobs`,
+`SearchJobs`, `ListJobTemplates` and `ListPresets` all reuse the same full
+type as their `Get` counterpart, because this SDK defines no summary structs.
+
+Disclosed, not fixed: `Job.ElementalInferenceConfiguration` unmodelled;
+`ListQueues`/`ListJobTemplates`/`ListPresets` never return `nextToken` while
+their siblings do (systemic across three ops, worth its own follow-up);
+`ListQueuesOutput.totalConcurrentJobs`/`unallocatedConcurrentJobs` never
+emitted. gopherstack's extra `Tags` on resource responses is additive and
+ignored by the real deserializer — noted, not a bug. Commit `82bae4fe6`.
+
+## Manifest provenance: surveyed repo-wide (2026-08-19)
+
+Two sweeps this session complained that a `PARITY.md` cited a
+`last_audit_commit` belonging to another service. One complaint was right and
+one was wrong, so the whole mechanism was surveyed. Full detail in
+`gopherstack-z31a`; the numbers:
+
+```
+manifests carrying a last_audit_commit: 140
+shas unreachable from origin/main:      140   (100%)
+sha >7 days older than last_audit_date:  53
+```
+
+**All 140.** The schema's own re-audit protocol,
+`git diff <last_audit_commit>..HEAD -- services/<svc>/`, has never worked for
+any manifest once its branch merged — audits run on a working branch, the
+branch is SQUASH-merged, and the recorded sha never exists on main. "Prune
+remote branches" in the session-close protocol destroys the last copy.
+
+The 53 with a stale DATE are a separate, real authoring defect: a sha weeks
+older than the manifest's own audit date cannot have been HEAD when written.
+Two were confirmed by hand — appmesh (`40f05928`) and codeconnections
+(`749ff939`), both 2026-07-13 shas cited by 2026-08-10 manifests, which is
+what suggested a copy-paste rather than two independent slips. A copied
+provenance line is a reason to re-check the CONTENT too; that is exactly how
+appmesh's fabricated fix claim got in.
+
+**The test that discriminates is the DATE, not the directory.**
+`git show -s --format=%ad <sha>` against `last_audit_date`. codestarconnections
+cites a firehose commit and is CLEAN — that sha is dated the same day as its
+audit date, which is precisely what the schema asks for. It was accused on
+the weaker "does it touch this service" test and cleared. Any tooling written
+for this must use the date test or it will generate false accusations against
+correctly-written manifests.
+
+**115 of 162 services swept, 47 remain.**
