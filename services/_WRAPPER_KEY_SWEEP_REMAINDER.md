@@ -12367,8 +12367,8 @@ principle that real deserializers ignore unknown keys. **That principle holds
 for the response and not for the behaviour.**
 
 **When you find a fabricated member, grep for its READERS before calling it
-harmless. An extra field is cosmetic only if nothing reads it.** Filed P2;
-too large to fix inside a wire pass. Commit `1316d6ed5`.
+harmless. An extra field is cosmetic only if nothing reads it.** Filed as
+`gopherstack-6ffg` (P2); too large to fix inside a wire pass. Commit `1316d6ed5`.
 
 ## kinesisanalytics (this session, 2026-08-20)
 
@@ -12576,7 +12576,7 @@ cosmetic.
 `databasemigrationservice`, there is no `service/dms` module, and opcensus
 resolves the module from the DIRECTORY name. It found nothing and reported
 zero ops — **and a zero-op result is indistinguishable from "small service,
-nothing to sweep."** Filed as `gopherstack-mtqf`. Other known alias:
+nothing to sweep."** Filed as `gopherstack-c7s3`. Other known alias:
 `elb` → `elasticloadbalancing`.
 
 1. The `Endpoint` **ENVELOPE** was missing six real top-level members —
@@ -12667,3 +12667,22 @@ rather than accept. **That instruction earned its place six times.**
    it harmless.
 6. A wire contract includes **the transport's own rules** — mediastoredata's
    error bodies were correct and unreadable.
+
+## Correction: follow-up issue IDs
+
+Two IDs were written into this file and the PR from a truncated `bd create`
+result before the real ones were read back. The correct ones:
+
+- **`gopherstack-c7s3`** — the `cmd/opcensus` alias bug that hid dms for the
+  entire campaign (written here earlier as `gopherstack-mtqf`, which is not a
+  real issue).
+- **`gopherstack-6ffg`** — pipes' fabricated-and-load-bearing top-level
+  `DeadLetterConfig`.
+
+The full follow-up set from this campaign: `gopherstack-cnhp` (P2, the
+dead-helper trap), `gopherstack-z31a` (P2, manifest provenance and the one
+test that discriminates), `gopherstack-c7s3` (P3, the opcensus alias bug),
+`gopherstack-6ffg` (P2, pipes DLQ), `gopherstack-0shs` (P3, structural
+defences against this bug class and their costs), plus updates to
+`gopherstack-1i5l`, `gopherstack-m74y`, `gopherstack-fccd` and
+`gopherstack-c902`.
