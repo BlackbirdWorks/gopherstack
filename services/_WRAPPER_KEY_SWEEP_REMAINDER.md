@@ -1,6 +1,9 @@
 # Wrapper-key / nested-shape sweep remainder (gopherstack-6flj)
 
-**131 of 162 services swept, 31 remain** (15-, 13-, 12- and 11-L+D+G tiers
+**138 of 162 services swept, 24 remain.** Read the "Provenance heuristic"
+section at the end of this file before judging any manifest's
+last_audit_commit -- four false accusations this session, zero true findings
+from the test that produced them. Earlier text: (15-, 13-, 12- and 11-L+D+G tiers
 closed; 10-tier closed; 9-tier in progress as of 2026-08-20. Earlier text: 15-, 13- and 12-L+D+G tiers closed;
 11-tier all but `support` as of 2026-08-20. Earlier header text follows: 15- and 13-L+D+G tiers closed,
 12-tier closed too -- verifiedpermissions, mq, fsx, iotanalytics -- as of
@@ -160,7 +163,9 @@ session), **workmail** (this session), **workspaces** (this session),
 **emrserverless** (2026-08-20), **cognitoidentity** (2026-08-20),
 **support** (2026-08-20), **textract** (2026-08-20),
 **resourcegroups** (2026-08-20), **grafana** (2026-08-20),
-**rolesanywhere** (2026-08-20).
+**rolesanywhere** (2026-08-20), **kinesisanalyticsv2** (2026-08-20),
+**redshiftdata** (2026-08-20), **acmpca** (2026-08-20), **sts** (2026-08-20),
+**translate** (2026-08-20), **account** (2026-08-20).
 
 This alphabetical list is itself incomplete and always has been — it was
 last rewritten wholesale when the count read 64, and per-session sections
@@ -11726,3 +11731,183 @@ The briefs now ask agents to state explicitly whether a referenced issue's
 gaps still hold. Commit `aa31b1913`.
 
 **131 of 162 services swept, 31 remain.**
+
+## kinesisanalyticsv2 (this session, 2026-08-20)
+
+All 33 ops swept. Protocol **awsjson1.1**. This service is built almost
+entirely from `*Configuration`/`*Description`/`*Update` triples — the richest
+possible ground for this campaign's dominant pattern — and it produced **the
+two most consequential missing members found so far.**
+
+`types.Input.InputSchema` and `types.ReferenceDataSource.ReferenceSchema` are
+both marked **"This member is required"**. Neither was modelled anywhere in
+the backend, in ANY of the three directions, so `AddApplicationInput`,
+`AddApplicationReferenceDataSource`, `DescribeApplication` and
+`UpdateApplication` all silently dropped the column and format mapping those
+operations exist to configure. **A code comment in
+`application_config_update.go` already admitted it** — "not modeled
+anywhere... ignored if present on the wire" — and it had never been surfaced
+as a gap in PARITY.md. Second time this session a manifest recorded a surface
+as audited while the code carried an admission that it was not (see mq, and
+`gopherstack-1i5l`).
+
+**This is the case for the `This member is required` grep as a standing step**
+— it is one command and it found the highest-value bugs of the campaign.
+
+A real asymmetry found while fixing and modelled rather than assumed:
+`InputUpdate.InputSchemaUpdate` is its own Update-suffixed shape, but
+`ReferenceDataSourceUpdate.ReferenceSchemaUpdate` is typed plain
+`*SourceSchema`, reused verbatim. Two sibling triples, opposite conventions.
+Also removed a fabricated top-level `Tags` from `ApplicationDetail`.
+
+Coverage stated rather than implied: 21 triples re-derived field-by-field, 9
+taken from the prior pass's explicit field lists since no code had changed
+under them. Commit `d6e9417be`.
+
+## redshiftdata (this session, 2026-08-20)
+
+All 12 ops swept. Protocol **awsjson1.1**. Two bugs.
+
+1. `ExecuteStatement`/`BatchExecuteStatement` never emitted `Status` or
+   `HasResultSet`. This backend completes every statement synchronously to
+   FINISHED, so `Status` is the one field a client actually checks on return
+   — and it came back `""` on every call.
+2. `DescribeStatement` leaked four members. `IsBatchStatement`,
+   `StatementName` and `QueryStrings` are real but belong to the wider
+   `StatementData` that `ListStatements` returns. **`WithEvent` exists on no
+   response shape at all** — it is request-only on `ExecuteStatementInput`.
+   One corrected test was literally named `TestWithEvent_StoredAndReturned`.
+
+Two negative results: the `Field` union backing `GetStatementResult` is clean
+across all six discriminators (a wrong one breaks every result set), and
+`CancelStatement.Status` is a bare JSON boolean unlike every other `Status` in
+the service — exactly the type confusion this sweep hunts, and correct.
+
+**The brief for this sweep was WRONG** — it named a `FormattedField` type for
+`GetStatementResultV2`. No such type exists at the pinned v1.43.4, which uses
+`[]types.QueryRecords`. The agent checked instead of accepting it and
+recorded the discrepancy. Briefs are hints to verify; the pinned SDK wins.
+Commit `3cec37291`.
+
+## acmpca (this session, 2026-08-20)
+
+All 23 ops swept. Protocol **awsjson1.1**. **Zero bugs.**
+
+`GeneralName` — a union of **eight** members (the brief said nine; the SDK
+says eight) — never appears on any response shape at all, living only under
+`IssueCertificateInput.ApiPassthrough`, which gopherstack does not echo. On
+the request side all eight are represented, three implemented and the other
+five rejected with `InvalidParameterException` rather than silently dropped,
+which is the right failure mode. `ApiPassthrough` is request-only and
+`IssueCertificateOutput` carries just `CertificateArn` — no leak.
+
+**What landed is coverage, not a fix, and the reason generalises**: this
+service's tests were all raw-JSON-map assertions, which **by construction
+cannot fail on a wrong key** — only on a missing expected one. The new
+round-trip drives a real `acmpcasdk.Client` through create and describe with
+a full nested `Subject` and `RevocationConfiguration`, proven meaningful by
+retagging a key to lowercase and watching it fail. Any service whose tests
+are all raw-map assertions is under-covered in exactly this way.
+Commit `bfc0729e6`.
+
+## sts (this session, 2026-08-20)
+
+All 11 ops swept. **Zero bugs.** Small service, but it is the credentials
+path for the whole emulator — a dropped field here breaks authentication
+rather than degrading a feature.
+
+Protocol confirmed **query/XML** (`awsAwsquery_`), which changes the rules
+this sweep applies to the thirty-odd JSON services: element matching and
+error-code routing are both `EqualFold`-based, verified at every case site,
+so **casing near-misses genuinely cannot matter here** — worth stating, since
+three of this campaign's bugs elsewhere were exactly that.
+
+`Credentials` uses **`SecretAccessKey`** — not the `SecretKey` that
+cognitoidentity's identically-named concept uses, a trap hit from the other
+side earlier today — and `Expiration` is RFC3339 against the SDK's own
+`ParseDateTime`. The three assume-role variants use three separate Go
+structs, field-diffed individually, no sibling leakage. All eleven
+`<Op>Result` envelope names byte-match the live `GetElement` calls, with
+`ResponseMetadata`/`RequestId` present and ordered. Request-side nesting
+checked too, including `AssumeRootInput.TaskPolicyArn`, a nested
+`PolicyDescriptorType` object that looks like a flat string.
+
+Disclosed, not fixed, with the reasoning that matters:
+`ErrIDPRejectedClaim` emits `"AccessDenied"` where the real exception uses
+`"IDPRejectedClaim"` — but it is **dead code, never constructed anywhere**, so
+there is no live response to prove a fix against and manufacturing a feature
+path to test it would exceed the finding. Cited, not guessed at. Audit stamp
+was three weeks stale. Commit `1efb1a758`.
+
+## translate (this session, 2026-08-20)
+
+All 19 ops swept. Protocol **awsjson1.1**. One bug:
+`GetParallelData`/`ListParallelData` silently dropped
+`ParallelDataProperties.EncryptionKey`. `CreateParallelData` accepts and
+persists it, and the sibling `terminologyToMap` already emits the analogous
+field on the analogous type — `parallelDataToMap` never did. **A half-applied
+fix with a correct neighbour beside it**, the shape `gopherstack-g8k9` closed
+on and which keeps recurring.
+
+All three request/response splits came back clean: `Document` carries
+`Content`+`ContentType` on the request while `TranslatedDocument` carries
+`Content` only; `TerminologyData` is request-only and its `File` never
+appears in a response; `ParallelDataConfig` nests inside
+`ParallelDataProperties` without being confused for the separate
+`ParallelDataDataLocation`.
+
+**RETRACTION.** This sweep reported the prior stamp (`2d47b51d4`, 2026-07-29)
+as failed provenance because that sha is an ec2 commit not touching this
+service. Wrong — the field means HEAD-at-write-time, the sha is dated exactly
+the audit date, and three sibling manifests cite it with the same date. Worse,
+the proposed fix **manufactured the defect it was hunting**, pairing a
+2026-07-24 commit with a 2026-08-20 audit date — a 27-day gap, the very tell
+used to find bad stamps. Retracted in the manifest itself. Commit `4cfa01673`.
+
+## account (this session, 2026-08-20)
+
+All 16 ops swept. Protocol **restjson1**. **Zero bugs.** The required-member
+grep came back fully satisfied: `ContactInformation`'s six,
+`PutAlternateContact`'s five, `GetGovCloudAccountInformationOutput`'s two, all
+modelled, populated and validated. `AlternateContact` itself has zero required
+members, verified directly rather than assumed symmetric.
+
+Two things right that are easy to get wrong: this service uses **two
+different timestamp formats on purpose** — `AccountCreatedDate` as ISO8601 via
+`ParseDateTime`, `UpdatedAt` as epoch seconds via `ParseEpochSeconds` — and
+the alternate-contact family has a direction asymmetry, with the contact type
+a request member on Put and Delete but nested inside the returned contact on
+Get. No request-only member leaks anywhere. Commit `bba779ef7`.
+
+## Provenance heuristic: FOUR false positives, and why it is sticky
+
+Recorded here rather than only in `gopherstack-z31a` because every future
+sweep reads this file.
+
+**The only test that discriminates is the gap between the cited sha's own
+commit date and `last_audit_date`.** Nothing else.
+
+Four agents this session reached instead for "the stamp should point at a
+commit touching this service", and all four were wrong:
+
+| service | accused on | outcome |
+|---|---|---|
+| codestarconnections | directory test | cleared — sha dated exactly its audit date |
+| (this file, earlier) | shared-sha as signal | retracted — sharing is the NORM, ~30 manifests |
+| translate | directory test | retracted — and the "fix" wrote a 27-day gap |
+| account | directory test | retracted — real gap was four days, inside noise |
+
+Against five confirmed real cases — appmesh, codeconnections, emrserverless,
+detective, sts — **every one of which failed the DATE test and none of which
+was found by the directory test.**
+
+**The stickiness is the finding.** Three of those four agents had a brief that
+said in as many words that sharing proves nothing and only the date gap
+discriminates, and used the directory test anyway. Wording does not fix it.
+Tooling must make the wrong test *unavailable*: expose one predicate,
+`dateGap(sha, last_audit_date) > threshold`, and never a per-service diff
+helper taking a sha and a path — that shape invites the bad test. Any
+stamp-rewriting path must assert its own output passes the date test before
+writing.
+
+**138 of 162 services swept, 24 remain.**
