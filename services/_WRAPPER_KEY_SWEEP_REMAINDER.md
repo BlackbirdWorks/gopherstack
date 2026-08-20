@@ -1,6 +1,6 @@
 # Wrapper-key / nested-shape sweep remainder (gopherstack-6flj)
 
-**138 of 162 services swept, 24 remain.** Read the "Provenance heuristic"
+**142 of 162 services swept, 20 remain.** Read the "Provenance heuristic"
 section at the end of this file before judging any manifest's
 last_audit_commit -- four false accusations this session, zero true findings
 from the test that produced them. Earlier text: (15-, 13-, 12- and 11-L+D+G tiers
@@ -165,7 +165,9 @@ session), **workmail** (this session), **workspaces** (this session),
 **resourcegroups** (2026-08-20), **grafana** (2026-08-20),
 **rolesanywhere** (2026-08-20), **kinesisanalyticsv2** (2026-08-20),
 **redshiftdata** (2026-08-20), **acmpca** (2026-08-20), **sts** (2026-08-20),
-**translate** (2026-08-20), **account** (2026-08-20).
+**translate** (2026-08-20), **account** (2026-08-20), **elb** (2026-08-20),
+**timestreamwrite** (2026-08-20), **dax** (2026-08-20),
+**comprehend** (2026-08-20).
 
 This alphabetical list is itself incomplete and always has been — it was
 last rewritten wholesale when the count read 64, and per-session sections
@@ -11911,3 +11913,126 @@ stamp-rewriting path must assert its own output passes the date test before
 writing.
 
 **138 of 162 services swept, 24 remain.**
+
+## elb (this session, 2026-08-20)
+
+All 29 Classic ELB ops swept. Protocol **query/XML**. **Zero bugs.**
+
+Query/XML changes what counts as a finding, and this section records the
+rules so the next query service does not re-derive them. Element matching is
+`EqualFold`-based, so **casing near-misses are not bugs here** — three of this
+campaign's bugs elsewhere were exactly that, all in JSON services. Member
+wrapping was checked **per list** rather than once for the service: fifteen-plus
+distinct lists, each against its own deserializer.
+
+**Two structural confirmations.** `FetchRootElement` does NOT validate the
+root element name, so a root-tag mismatch here would be a false positive —
+the same shape as this file's cloudfront note, now confirmed to **generalise
+to query services** rather than being a cloudfront quirk. But
+`GetElement("<Op>Result")` IS load-bearing, so the Result tag is worth
+checking even though the root is not.
+
+`PolicyAttributeDescription` against `PolicyAttributeTypeDescription` — the
+near-identical pair that made this service worth reading — is two separate
+structs with no cross-contamination, and the `LoadBalancerAttributes` nested
+bag is not flattened.
+
+The required-member grep came back satisfied in a way worth noting: every one
+is modelled **without `omitempty`**, so they stay on the wire at zero value —
+which is precisely what `omitempty` would silently break on a required bool
+like `AccessLog.Enabled`. Disclosed, not fixed: five modelled exceptions have
+no gopherstack sentinel. Commit `53664f525`.
+
+## timestreamwrite (this session, 2026-08-20)
+
+All 19 ops swept. Protocol **awsjson1.0**. One bug.
+
+`CreateBatchLoadTaskInput.DataModelConfiguration` and `.RecordVersion` had
+**no field at all** in the wire struct. `DataModelConfiguration` is the normal
+way to specify a batch load's CSV-to-table column mapping, so a compliant
+client had it silently dropped on create and never echoed on describe —
+`BatchLoadTaskDescription`'s deserializer has thirteen cases and both are
+among them. Fixed to full depth.
+
+**THIS REFINES THE STANDING CHECK.** The `This member is required` grep —
+which found the campaign's two biggest bugs — would NOT have caught this.
+Both members are **optional**. What caught it was diffing the Input struct's
+FULL field list against the wire struct, optional members included. The check
+is "every member, required or not", with required ones merely the
+highest-value subset.
+
+Two shapes verified because this service invites confusion, both correct:
+`Record.MeasureValue` is a singular string while `Record.MeasureValues` is a
+list of `{Name,Value,Type}` structs; and `RejectedRecordsException` carries
+its `RejectedRecords` list flat at the error body root rather than nested —
+**an error shape with a body, which this sweep has rarely tested.**
+Commit `b8ef75b1e`.
+
+## dax (this session, 2026-08-20)
+
+All 20 ops swept. Protocol **awsjson1.1** (`AmazonDAXV3` target prefix). One
+bug: `RebootNode` emitted Events with `SourceType: "NODE"`. The real
+`types.SourceType` enum has exactly CLUSTER, PARAMETER_GROUP, SUBNET_GROUP —
+a typed client got a value its enum cannot represent. Node-level events are
+attributed to the cluster in the real API, and now are.
+
+**WHY THE PRIOR PASS MISSED IT IS A GAP IN THE METHOD, not in that pass's
+diligence.** The 2026-08-10 audit checked that every ADVERTISED enum constant
+matched the SDK. It never checked the other direction: that no EXTRA constant
+existed and was being emitted. `EventSourceTypeNode` was defined in
+`models.go` and used at three call sites, and a check that only walks the
+SDK's values outward will never see it. **The enum check must run both ways** —
+every SDK value representable, and every constant the service emits is an SDK
+value. That is now a standing step.
+
+Three near-identical names all correct: `types.ParameterGroup`,
+`types.ParameterGroupStatus`, and `Cluster.ParameterGroup` (which is a
+`ParameterGroupStatus`, not a `ParameterGroup`). `Parameter` is genuinely
+shared, identically, between `DescribeParameters` and
+`DescribeDefaultParameters`. Commit `6fbeab7a7`.
+
+## comprehend (this session, 2026-08-20) — and a REGRESSION CAUGHT BEFORE COMMIT
+
+All 85 ops swept. Protocol **awsjson1.1**. One bug shipped, **one proposed fix
+rejected**, and the rejection is the more useful record.
+
+SHIPPED: `DetectTargetedSentiment` hung `Text`, `Score`, `BeginOffset`,
+`EndOffset` and `Type` directly off the entity root.
+`types.TargetedSentimentEntity` has exactly two members,
+`DescriptiveMentionIndex` and `Mentions`; those five belong on
+`types.TargetedSentimentMention` nested inside `Mentions`, and
+`DescriptiveMentionIndex` was never populated at all.
+`BatchDetectTargetedSentiment` shares the detector and was equally affected.
+
+**REJECTED AND REVERTED BEFORE COMMIT**: the sweep also reported
+`ClassifierMetadata.EvaluationMetrics` and `RecognizerMetadata`'s top-level
+`EvaluationMetrics` as emitting fabricated `F1Score`/`MicroF1Score`, and
+deleted them. **Both are real:**
+
+```
+ClassifierEvaluationMetrics:       Accuracy F1Score HammingLoss MicroF1Score
+                                   MicroPrecision MicroRecall Precision Recall
+EntityRecognizerEvaluationMetrics: F1Score Precision Recall
+EntityTypesEvaluationMetrics:      F1Score Precision Recall   <- identical
+```
+
+So the shared helper was already correct and the proposed split was
+unnecessary. **Worse, it had "corrected" the pre-existing test that asserted
+those fields present into asserting their ABSENCE** — locking the regression
+in behind a green suite. That is exactly the failure mode this campaign has
+been fixing in the other direction all session.
+
+**The lesson is narrow and worth keeping: a fabricated-member finding is only
+as sound as the type list it was checked against, and this one was checked
+against an incomplete one.** Read the whole struct, not a grep excerpt. The
+manifest records the retraction rather than quietly dropping it.
+
+The rest was genuinely read: all nine async-job `*Properties` and all five
+resource `*Properties` field-diffed individually rather than generalised, all
+six `BatchDetect` `ResultList`/`ErrorList` wrappers, the eight sync detect
+shapes, and the nested `Entity`/`KeyPhrase`/`SyntaxToken`/`PiiEntity`/
+`ToxicLabels`/`SentimentScore`/`DominantLanguage` types. Provenance was
+genuinely stale — sha predates its own audit date by fifteen days — and is
+refreshed. Commit `039f56e4b`.
+
+**142 of 162 services swept, 20 remain.**
