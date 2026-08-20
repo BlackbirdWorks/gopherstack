@@ -1080,7 +1080,11 @@ func TestS3BackupMode_PersistedInDescribe(t *testing.T) {
 						"Url": "https://endpoint.example.com",
 					},
 					"S3BackupMode": "Enabled",
-					"S3BackupConfiguration": map[string]any{
+					// "S3Configuration" is the real wire key for HttpEndpoint's single S3
+					// bucket (used only as the backup/failed-data sink) -- confirmed via
+					// awsAwsjson11_serializeDocumentHttpEndpointDestinationConfiguration.
+					// It is NOT "S3BackupConfiguration" despite the field's role.
+					"S3Configuration": map[string]any{
 						"BucketARN": "arn:aws:s3:::http-backup-bucket",
 						"RoleARN":   "arn:aws:iam::000000000000:role/firehose",
 					},
@@ -1090,6 +1094,11 @@ func TestS3BackupMode_PersistedInDescribe(t *testing.T) {
 				t.Helper()
 				d := singleDestination(t, desc, "HttpEndpointDestinationDescription")
 				assert.Equal(t, "Enabled", d["S3BackupMode"])
+				// HttpEndpoint's single S3 bucket is wire-keyed "S3DestinationDescription",
+				// not "S3BackupDescription" -- confirmed via
+				// awsAwsjson11_deserializeDocumentHttpEndpointDestinationDescription.
+				backup := d["S3DestinationDescription"].(map[string]any)
+				assert.Equal(t, "arn:aws:s3:::http-backup-bucket", backup["BucketARN"])
 			},
 		},
 	}
