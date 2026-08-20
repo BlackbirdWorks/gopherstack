@@ -461,6 +461,8 @@ func applyInputUpdate(app *Application, u InputUpdate) {
 
 	in := &app.InputDescriptions[idx]
 
+	streamNamesDirty := u.NamePrefixUpdate != "" || u.InputParallelismUpdate != nil
+
 	if u.NamePrefixUpdate != "" {
 		in.NamePrefix = u.NamePrefixUpdate
 	}
@@ -475,6 +477,22 @@ func applyInputUpdate(app *Application, u InputUpdate) {
 
 	if u.InputProcessingConfigurationUpdate != nil {
 		in.InputProcessingConfigurationDescription = u.InputProcessingConfigurationUpdate
+	}
+
+	if su := u.InputSchemaUpdate; su != nil {
+		in.InputSchema = &SourceSchemaDesc{
+			RecordFormat:   su.RecordFormatUpdate,
+			RecordEncoding: su.RecordEncodingUpdate,
+			RecordColumns:  su.RecordColumnUpdates,
+		}
+	}
+
+	if u.InputParallelismUpdate != nil {
+		in.InputParallelism = &InputParallelismDesc{Count: u.InputParallelismUpdate.CountUpdate}
+	}
+
+	if streamNamesDirty {
+		in.InAppStreamNames = inAppStreamNames(in.NamePrefix, in.InputParallelism)
 	}
 }
 
@@ -521,6 +539,10 @@ func applyReferenceDataSourceUpdate(app *Application, u ReferenceDataSourceUpdat
 
 	if u.S3ReferenceDataSourceUpdate != nil {
 		ref.S3ReferenceDataSourceDescription = u.S3ReferenceDataSourceUpdate
+	}
+
+	if u.ReferenceSchemaUpdate != nil {
+		ref.ReferenceSchema = u.ReferenceSchemaUpdate
 	}
 }
 

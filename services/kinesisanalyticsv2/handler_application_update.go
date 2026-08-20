@@ -107,6 +107,8 @@ type inputUpdateInput struct {
 	KinesisStreamsInputUpdate          *kinesisStreamsInputConfig  `json:"KinesisStreamsInputUpdate,omitempty"`
 	KinesisFirehoseInputUpdate         *kinesisFirehoseInputConfig `json:"KinesisFirehoseInputUpdate,omitempty"`
 	InputProcessingConfigurationUpdate *inputProcessingConfigInput `json:"InputProcessingConfigurationUpdate,omitempty"` //nolint:lll // AWS API name
+	InputSchemaUpdate                  *InputSchemaUpdateDesc      `json:"InputSchemaUpdate,omitempty"`
+	InputParallelismUpdate             *InputParallelismUpdateDesc `json:"InputParallelismUpdate,omitempty"` //nolint:lll // AWS API name
 	InputID                            string                      `json:"InputId"`
 	NamePrefixUpdate                   string                      `json:"NamePrefixUpdate,omitempty"`
 }
@@ -122,6 +124,7 @@ type outputUpdateInput struct {
 
 type referenceDataSourceUpdateInput struct {
 	S3ReferenceDataSourceUpdate *s3ReferenceDataSourceConfig `json:"S3ReferenceDataSourceUpdate,omitempty"`
+	ReferenceSchemaUpdate       *SourceSchemaDesc            `json:"ReferenceSchemaUpdate,omitempty"`
 	ReferenceID                 string                       `json:"ReferenceId"`
 	TableNameUpdate             string                       `json:"TableNameUpdate,omitempty"`
 }
@@ -416,6 +419,8 @@ func buildSQLConfigUpdate(in *sqlConfigUpdateInput) *SQLApplicationConfigUpdate 
 			KinesisStreamsInputUpdate:          buildKinesisStreamsInputDesc(u.KinesisStreamsInputUpdate),
 			KinesisFirehoseInputUpdate:         buildKinesisFirehoseInputDesc(u.KinesisFirehoseInputUpdate),
 			InputProcessingConfigurationUpdate: buildInputProcessingConfigDesc(u.InputProcessingConfigurationUpdate),
+			InputSchemaUpdate:                  u.InputSchemaUpdate,
+			InputParallelismUpdate:             u.InputParallelismUpdate,
 		})
 	}
 
@@ -435,6 +440,7 @@ func buildSQLConfigUpdate(in *sqlConfigUpdateInput) *SQLApplicationConfigUpdate 
 			ReferenceID:                 u.ReferenceID,
 			TableNameUpdate:             u.TableNameUpdate,
 			S3ReferenceDataSourceUpdate: buildS3RefDataSourceDesc(u.S3ReferenceDataSourceUpdate),
+			ReferenceSchemaUpdate:       u.ReferenceSchemaUpdate,
 		})
 	}
 

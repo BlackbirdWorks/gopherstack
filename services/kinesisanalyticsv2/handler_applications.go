@@ -151,6 +151,9 @@ type createApplicationInput struct {
 	Tags                     []Tag                          `json:"Tags,omitempty"`
 }
 
+// applicationDetailOutput mirrors real AWS's ApplicationDetail (types/types.go:179).
+// It deliberately carries no Tags field -- ApplicationDetail has none; a
+// real client retrieves tags via the separate ListTagsForResource operation.
 type applicationDetailOutput struct {
 	ApplicationConfigurationDescription            *appConfigDesc                `json:"ApplicationConfigurationDescription,omitempty"`            //nolint:lll // AWS API name
 	ApplicationMaintenanceConfigurationDescription *maintenanceConfigDescription `json:"ApplicationMaintenanceConfigurationDescription,omitempty"` //nolint:lll // AWS API name
@@ -165,7 +168,6 @@ type applicationDetailOutput struct {
 	ApplicationDescription                         string                        `json:"ApplicationDescription,omitempty"`
 	ApplicationMode                                string                        `json:"ApplicationMode,omitempty"`
 	ApplicationStatus                              string                        `json:"ApplicationStatus"`
-	Tags                                           []Tag                         `json:"Tags,omitempty"`
 	CloudWatchLoggingOptionDescriptions            []CloudWatchLoggingOptionDesc `json:"CloudWatchLoggingOptionDescriptions,omitempty"` //nolint:lll // AWS API name
 	ApplicationVersionID                           int64                         `json:"ApplicationVersionId"`
 	ApplicationVersionCreateTimestamp              float64                       `json:"ApplicationVersionCreateTimestamp,omitempty"` //nolint:lll // AWS API name
@@ -722,7 +724,6 @@ func toDetailOutput(app *Application) applicationDetailOutput {
 		ApplicationDescription:              app.ApplicationDescription,
 		ApplicationMode:                     app.ApplicationMode,
 		ApplicationVersionID:                app.ApplicationVersionID,
-		Tags:                                app.Tags,
 		CreateTimestamp:                     awstime.Epoch(app.CreatedAt),
 		LastUpdateTimestamp:                 awstime.Epoch(app.LastUpdateTimestamp),
 		ApplicationVersionCreateTimestamp:   awstime.Epoch(app.ApplicationVersionCreateTimestamp),
