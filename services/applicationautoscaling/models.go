@@ -119,9 +119,13 @@ type CapacityForecastData struct {
 	Values     []float64
 }
 
-// LoadForecastData holds the timestamps, values, and a metric specification label for a load forecast.
+// LoadForecastData holds the timestamps, values, and metric specification for
+// a load forecast. MetricSpecification mirrors the real AWS wire shape (an
+// object, PredictiveScalingMetricSpecification, not a string) by echoing back
+// the caller's own PredictiveScalingPolicyConfiguration.MetricSpecifications
+// entry -- see [InMemoryBackend.GetPredictiveScalingForecast].
 type LoadForecastData struct {
-	MetricSpecification string
+	MetricSpecification map[string]any
 	Timestamps          []time.Time
 	Values              []float64
 }
