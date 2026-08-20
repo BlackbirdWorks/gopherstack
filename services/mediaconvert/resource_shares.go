@@ -1,6 +1,7 @@
 package mediaconvert
 
 import (
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -24,10 +25,16 @@ func (b *InMemoryBackend) CreateResourceShare(jobID string) (string, error) {
 
 	token := uuid.NewString()
 	j.ShareStatus = "SHARED"
-	j.LastShareDetails = &ShareDetails{
-		ShareToken: token,
-		SharedAt:   epochSeconds(time.Now()),
+
+	details, err := json.Marshal(struct {
+		ShareToken string  `json:"shareToken"`
+		SharedAt   float64 `json:"sharedAt"`
+	}{ShareToken: token, SharedAt: epochSeconds(time.Now())})
+	if err != nil {
+		return "", fmt.Errorf("encode share details: %w", err)
 	}
+	detailsStr := string(details)
+	j.LastShareDetails = &detailsStr
 
 	return jobID, nil
 }
