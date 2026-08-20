@@ -492,7 +492,7 @@ func TestCreateSchedule_EcsParametersNetworkConfigurationRoundtrip(t *testing.T)
 			"EcsParameters": map[string]any{
 				"TaskDefinitionArn": "arn:aws:ecs:us-east-1:123:task-definition/my-td:1",
 				"NetworkConfiguration": map[string]any{
-					"AwsvpcConfiguration": map[string]any{
+					"awsvpcConfiguration": map[string]any{
 						"Subnets":        []string{"subnet-aaa", "subnet-bbb"},
 						"SecurityGroups": []string{"sg-ccc"},
 						"AssignPublicIp": "ENABLED",
@@ -514,7 +514,7 @@ func TestCreateSchedule_EcsParametersNetworkConfigurationRoundtrip(t *testing.T)
 						AssignPublicIP string   `json:"AssignPublicIp"`
 						SecurityGroups []string `json:"SecurityGroups"`
 						Subnets        []string `json:"Subnets"`
-					} `json:"AwsvpcConfiguration"`
+					} `json:"awsvpcConfiguration"`
 				} `json:"NetworkConfiguration"`
 			} `json:"EcsParameters"`
 		} `json:"Target"`
@@ -543,8 +543,8 @@ func TestCreateSchedule_EcsParametersCapacityProviderStrategyRoundtrip(t *testin
 			"EcsParameters": map[string]any{
 				"TaskDefinitionArn": "arn:aws:ecs:us-east-1:123:task-definition/td:1",
 				"CapacityProviderStrategy": []map[string]any{
-					{"CapacityProvider": "FARGATE", "Weight": 1, "Base": 0},
-					{"CapacityProvider": "FARGATE_SPOT", "Weight": 2, "Base": 0},
+					{"capacityProvider": "FARGATE", "weight": 1, "base": 0},
+					{"capacityProvider": "FARGATE_SPOT", "weight": 2, "base": 0},
 				},
 			},
 		},
@@ -558,8 +558,8 @@ func TestCreateSchedule_EcsParametersCapacityProviderStrategyRoundtrip(t *testin
 		Target struct {
 			EcsParameters struct {
 				CapacityProviderStrategy []struct {
-					CapacityProvider string `json:"CapacityProvider"`
-					Weight           int    `json:"Weight"`
+					CapacityProvider string `json:"capacityProvider"`
+					Weight           int    `json:"weight"`
 				} `json:"CapacityProviderStrategy"`
 			} `json:"EcsParameters"`
 		} `json:"Target"`
@@ -589,10 +589,10 @@ func TestCreateSchedule_EcsParametersPlacementConstraintsRoundtrip(t *testing.T)
 			"EcsParameters": map[string]any{
 				"TaskDefinitionArn": "arn:aws:ecs:us-east-1:123:task-definition/td:1",
 				"PlacementConstraints": []map[string]any{
-					{"Type": "memberOf", "Expression": "attribute:ecs.instance-type =~ g2.*"},
+					{"type": "memberOf", "expression": "attribute:ecs.instance-type =~ g2.*"},
 				},
 				"PlacementStrategy": []map[string]any{
-					{"Type": "spread", "Field": "attribute:ecs.availability-zone"},
+					{"type": "spread", "field": "attribute:ecs.availability-zone"},
 				},
 			},
 		},
@@ -606,12 +606,12 @@ func TestCreateSchedule_EcsParametersPlacementConstraintsRoundtrip(t *testing.T)
 		Target struct {
 			EcsParameters struct {
 				PlacementConstraints []struct {
-					Type       string `json:"Type"`
-					Expression string `json:"Expression"`
+					Type       string `json:"type"`
+					Expression string `json:"expression"`
 				} `json:"PlacementConstraints"`
 				PlacementStrategy []struct {
-					Type  string `json:"Type"`
-					Field string `json:"Field"`
+					Type  string `json:"type"`
+					Field string `json:"field"`
 				} `json:"PlacementStrategy"`
 			} `json:"EcsParameters"`
 		} `json:"Target"`
@@ -629,7 +629,11 @@ func TestCreateSchedule_EcsParametersPlacementConstraintsRoundtrip(t *testing.T)
 	assert.Equal(t, "attribute:ecs.availability-zone", strategy[0].Field)
 }
 
-// TestCreateSchedule_EcsParametersTaskTagsRoundtrip verifies ECS task-level Tags roundtrip.
+// TestCreateSchedule_EcsParametersTaskTagsRoundtrip verifies ECS task-level Tags
+// roundtrip. Real SDK's EcsParameters.Tags is []map[string]string -- a list of
+// free-form single-entry maps like {"env":"prod"} -- not a list of {Key,Value}
+// objects (aws-sdk-go-v2/service/scheduler/types.EcsParameters.Tags, serialized by
+// awsRestjson1_(de)serializeDocumentTags/...TagMap).
 func TestCreateSchedule_EcsParametersTaskTagsRoundtrip(t *testing.T) {
 	t.Parallel()
 
@@ -644,8 +648,8 @@ func TestCreateSchedule_EcsParametersTaskTagsRoundtrip(t *testing.T) {
 			"EcsParameters": map[string]any{
 				"TaskDefinitionArn": "arn:aws:ecs:us-east-1:123:task-definition/td:1",
 				"Tags": []map[string]string{
-					{"Key": "env", "Value": "prod"},
-					{"Key": "team", "Value": "data"},
+					{"env": "prod"},
+					{"team": "data"},
 				},
 			},
 		},
@@ -658,10 +662,7 @@ func TestCreateSchedule_EcsParametersTaskTagsRoundtrip(t *testing.T) {
 	var out struct {
 		Target struct {
 			EcsParameters struct {
-				Tags []struct {
-					Key   string `json:"Key"`
-					Value string `json:"Value"`
-				} `json:"Tags"`
+				Tags []map[string]string `json:"Tags"`
 			} `json:"EcsParameters"`
 		} `json:"Target"`
 	}
@@ -669,14 +670,16 @@ func TestCreateSchedule_EcsParametersTaskTagsRoundtrip(t *testing.T) {
 
 	ecsTags := out.Target.EcsParameters.Tags
 	require.Len(t, ecsTags, 2)
-	assert.Equal(t, "env", ecsTags[0].Key)
-	assert.Equal(t, "prod", ecsTags[0].Value)
-	assert.Equal(t, "team", ecsTags[1].Key)
-	assert.Equal(t, "data", ecsTags[1].Value)
+	assert.Equal(t, map[string]string{"env": "prod"}, ecsTags[0])
+	assert.Equal(t, map[string]string{"team": "data"}, ecsTags[1])
 }
 
-// TestCreateSchedule_InputTransformerRoundTrip verifies InputTransformer round-trips.
-func TestCreateSchedule_InputTransformerRoundTrip(t *testing.T) {
+// TestCreateSchedule_InputTransformerNotEchoed verifies that InputTransformer --
+// a field that exists on EventBridge Rules targets but not on EventBridge
+// Scheduler's Target (aws-sdk-go-v2/service/scheduler/types.Target has no such
+// member) -- is silently dropped rather than round-tripped, matching how a real
+// client parsing this response would just never see it.
+func TestCreateSchedule_InputTransformerNotEchoed(t *testing.T) {
 	t.Parallel()
 
 	h := newTestSchedulerHandler(t)
@@ -707,12 +710,8 @@ func TestCreateSchedule_InputTransformerRoundTrip(t *testing.T) {
 	var target map[string]json.RawMessage
 	require.NoError(t, json.Unmarshal(out["Target"], &target))
 
-	var it map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal(target["InputTransformer"], &it))
-
-	var template string
-	require.NoError(t, json.Unmarshal(it["InputTemplate"], &template))
-	assert.Equal(t, `{"msg": <body>}`, template)
+	_, present := target["InputTransformer"]
+	assert.False(t, present, "InputTransformer is not a real Scheduler Target member and must not be echoed back")
 }
 
 // TestFullTarget_UpdateRoundTrip verifies target fields survive an Update/Get round-trip.

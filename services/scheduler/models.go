@@ -57,12 +57,6 @@ type DeadLetterConfig struct {
 	Arn string `json:"arn"`
 }
 
-// InputTransformer maps input path expressions to a template string.
-type InputTransformer struct {
-	InputPathsMap map[string]string `json:"inputPathsMap,omitempty"`
-	InputTemplate string            `json:"inputTemplate"`
-}
-
 // EventBridgeParameters holds parameters for EventBridge bus targets.
 type EventBridgeParameters struct {
 	DetailType string `json:"detailType"`
@@ -121,13 +115,11 @@ type EcsPlacementStrategy struct {
 	Type  string `json:"type,omitempty"`
 }
 
-// EcsTag is a key/value tag applied to the ECS task at launch time.
-type EcsTag struct {
-	Key   string `json:"key"`
-	Value string `json:"value"`
-}
-
 // EcsParameters holds parameters for ECS task targets.
+//
+// Tags is a list of free-form single-entry maps (e.g. [{"env":"prod"}]), not a
+// list of {Key,Value} objects -- see aws-sdk-go-v2/service/scheduler/types.
+// EcsParameters.Tags and its TagMap (de)serializer.
 type EcsParameters struct {
 	NetworkConfiguration     *EcsNetworkConfiguration          `json:"networkConfiguration,omitempty"`
 	PropagateTags            string                            `json:"propagateTags,omitempty"`
@@ -138,7 +130,7 @@ type EcsParameters struct {
 	ReferenceID              string                            `json:"referenceId,omitempty"`
 	PlacementConstraints     []EcsPlacementConstraint          `json:"placementConstraints,omitempty"`
 	PlacementStrategy        []EcsPlacementStrategy            `json:"placementStrategy,omitempty"`
-	Tags                     []EcsTag                          `json:"tags,omitempty"`
+	Tags                     []map[string]string               `json:"tags,omitempty"`
 	CapacityProviderStrategy []EcsCapacityProviderStrategyItem `json:"capacityProviderStrategy,omitempty"`
 	TaskCount                int                               `json:"taskCount,omitempty"`
 	EnableECSManagedTags     bool                              `json:"enableECSManagedTags,omitempty"`
@@ -148,7 +140,6 @@ type EcsParameters struct {
 type Target struct {
 	RetryPolicy                 *RetryPolicy                 `json:"retryPolicy,omitempty"`
 	DeadLetterConfig            *DeadLetterConfig            `json:"deadLetterConfig,omitempty"`
-	InputTransformer            *InputTransformer            `json:"inputTransformer,omitempty"`
 	EventBridgeParameters       *EventBridgeParameters       `json:"eventBridgeParameters,omitempty"`
 	KinesisParameters           *KinesisParameters           `json:"kinesisParameters,omitempty"`
 	SqsParameters               *SqsParameters               `json:"sqsParameters,omitempty"`
