@@ -140,7 +140,7 @@ families:
   inference_recommendations_edge_packaging: {status: partial, note: "parity-5, wire-audited CreateInferenceRecommendationsJob/DescribeInferenceRecommendationsJob against api_op_{Create,Describe}InferenceRecommendationsJob.go. This is a DIFFERENT family from AIRecommendationJob (ai_recommendation_jobs.go, parity-4) — distinct SDK ops, distinct store, no shared state. FIXED this pass — InputConfig ([]types.RecommendationJobInputConfig-shaped) is 'This member is required' on both CreateInferenceRecommendationsJobInput and DescribeInferenceRecommendationsJobOutput but was not modeled, accepted, or returned at all (the struct had no field for it whatsoever) — now stored+echoed as opaque json.RawMessage passthrough (same established convention as ai_benchmark_job/ai_recommendation_job/ai_workload_config's own deeply-nested union fields, see gaps: below). Real client-populated content round-trips exactly. EdgePackagingJob portion not otherwise wire-audited this pass. gopherstack-muzq (2026-08-21): InferenceRecommendationsJob.Status was stamped IN_PROGRESS at Create and STOPPING at Stop, and nothing else in this backend ever advanced either -- confirmed via DescribeInferenceRecommendationsJob, which echoed the stored value verbatim forever. Fixed via scheduleInferenceRecommendationsJobCompletion (IN_PROGRESS -> COMPLETED) and a runDelayed continuation in StopInferenceRecommendationsJob (STOPPING -> STOPPED), same lifecycle.go runDelayed pattern as EdgePackagingJob's fix above."}
   training_plan: {status: partial, note: "FIXED this pass — TrainingPlan/ReservedCapacity/ReservedCapacitySummary timestamp encoding (see Notes). Not otherwise wire-audited this pass. FIXED 2026-08-21 (gopherstack-us9u kind-mismatch sweep) -- TrainingPlanExtension.ExtendedAt/StartDate/EndDate and TrainingPlanExtensionOffering.StartDate/EndDate were plain time.Time fields marshaled directly by ExtendTrainingPlan and SearchTrainingPlanOfferings (handler_training_plan.go's json.Marshal(map[string]any{...})), unlike the sibling TrainingPlan/ReservedCapacity types this same file already fixed with a MarshalJSON override -- these two types were missed by that pass. Real ExtendTrainingPlanOutput/SearchTrainingPlanOfferingsOutput deserialize these members via ParseEpochSeconds(json.Number), so every real SDK client's call failed outright once a training plan had any extension offering (SearchTrainingPlanOfferings always generates one when TrainingPlanArn is set) or purchased extension. Fixed via the same alias-embedding MarshalJSON/UnmarshalJSON pattern as TrainingPlan/ReservedCapacity. Proven via a real aws-sdk-go-v2/service/sagemaker client round trip through both ops (wire_training_plan_extension_test.go), hand-reverted/confirmed-failing (expected Timestamp to be a JSON Number, got string instead)/restored, md5sum-verified byte-identical."}
   monitoring_schedule_workteam_compilation_job: {status: partial, note: "FIXED this pass — MonitoringSchedule and CompilationJob Describe+List timestamp encoding (see Notes). Workteam field audit done separately (parity-20). CompilationJob's own deep field audit done parity-21 (gopherstack-oc9v): required-field validation, ModelArtifacts/FailureReason, Stopping FSM, List filter/sort — see ops: entries above and Notes: parity-21. MonitoringSchedule field audit still not done."}
-  studio_lifecycle_config: {status: ok, note: "FIXED this pass (gopherstack-5wj0) — CreateStudioLifecycleConfig accepted a request body with no field for StudioLifecycleConfigContent at all, even though it is 'This member is required' on CreateStudioLifecycleConfigRequest (botocore sagemaker service-2.json) and is also part of DescribeStudioLifecycleConfigResponse. Every real client's script content was silently discarded and Create succeeded without it, where real AWS would reject the request. Now required, stored, and returned by Describe."}
+  studio_lifecycle_config: {status: ok, note: "FIXED this pass (gopherstack-5wj0) — CreateStudioLifecycleConfig accepted a request body with no field for StudioLifecycleConfigContent at all, even though it is 'This member is required' on CreateStudioLifecycleConfigRequest (botocore sagemaker service-2.json) and is also part of DescribeStudioLifecycleConfigResponse. Every real client's script content was silently discarded and Create succeeded without it, where real AWS would reject the request. Now required, stored, and returned by Describe. FIXED 2026-08-21 (parity-23, gopherstack-oc9v) — StudioLifecycleConfigAppType (also 'This member is required' on CreateStudioLifecycleConfigInput) was accepted-and-dropped the same way Content once was, and ListStudioLifecycleConfigsInput's AppTypeEquals/CreationTimeAfter/CreationTimeBefore/ModifiedTimeAfter/ModifiedTimeBefore/NameContains/SortBy/SortOrder/MaxResults were all silently ignored (NextToken-only). Both fixed — see Notes: parity-23."}
 
 gaps:                     # known divergences NOT fixed — link bd issue ids
   - "Pagination across the service is a hand-rolled integer-offset NextToken (parseNextToken/strconv.Atoi) rather than pkgs/page's opaque-token helper. Functionally correct (AWS clients treat NextToken as opaque) and internally consistent, but is a pkgs-catalog convention deviation across ~15 call sites. Not fixed this pass — refactor is cross-cutting and out of budget for a single-family sweep. (no bd issue filed yet)"
@@ -3886,5 +3886,210 @@ campaign's standing instruction never to write `pending` or otherwise touch it c
 **64 of sagemaker's 362 inline structs now remain.** New boundary: a 9-file tier at 4
 (`handler_transform_jobs.go`, `handler_studio_lifecycle_configs.go`, `handler_processing_jobs.go`,
 `handler_pipeline_versions.go`, `handler_human_task_ui.go`, `handler_flow_definitions.go`,
+`handler_edge_packaging_jobs.go`, `handler_automl.go`, `handler_ai_workload_configs.go`) — not
+started this pass, purely an effort-budget stopping point.
+
+## parity-23 (2026-08-21, gopherstack-oc9v): StudioLifecycleConfig/HumanTaskUI/
+FlowDefinition field audit (3 files tied at 4, now zero)
+
+Seventeenth pass of the gopherstack-oc9v campaign. Per parity-22's boundary note, this pass took
+three of the nine files tied at 4 that parity-22 left unstarted purely for effort-budget reasons:
+`handler_studio_lifecycle_configs.go`, `handler_human_task_ui.go`, `handler_flow_definitions.go`,
+each verified by `grep -c 'var req struct {' <file>.go` = 4 before starting. All 12 of this pass's
+structs were converted to named types and wire-audited field-by-field against the pinned SDK
+(`v1.263.2`, confirmed from `go.mod`). **52 of sagemaker's 362 inline structs now remain** (64 minus
+this pass's 12), confirmed by `grep -rc 'var req struct {' services/sagemaker/*.go` summed, not
+arithmetic; all three files now have zero. **New boundary: a 6-file tier at 4**
+(`handler_transform_jobs.go`, `handler_processing_jobs.go`, `handler_pipeline_versions.go`,
+`handler_edge_packaging_jobs.go`, `handler_automl.go`, `handler_ai_workload_configs.go`) — not
+started this pass, per this pass's own effort budget rather than any difficulty found in them.
+
+**`handler_flow_definitions.go` — the most severe finding of this pass, a required member and
+three entire optional config families never read at all:**
+
+- **`CreateFlowDefinitionInput.OutputConfig`** (`This member is required`,
+  `api_op_CreateFlowDefinition.go:28-66`, `types.FlowDefinitionOutputConfig`) **was entirely absent
+  from decode** — only `FlowDefinitionName` and `RoleArn` were ever read. A real client's flow
+  definition create request always carries `OutputConfig.S3OutputPath` (also required); it was
+  silently discarded and Create succeeded anyway, where real AWS would reject the request outright.
+  Fixed: required, stored, and echoed by Describe (nested under `OutputConfig`, matching the real
+  response shape — `KmsKeyId` optional and round-tripped too).
+- **`HumanLoopActivationConfig`/`HumanLoopConfig`/`HumanLoopRequestSource`** (all optional but, once
+  present, each carrying their own required sub-members — `types.HumanLoopActivationConfig`
+  `types.types.go:9445-9454`, `types.HumanLoopConfig:9457-9560`,
+  `types.HumanLoopRequestSource:9722-9732`) **were entirely absent from decode** — every real
+  flow-definition-specific setting (what triggers a human loop, who reviews and what they see, which
+  managed AWS integration source populates it) was silently discarded on every Create. Fixed: added
+  `FlowDefinitionOptions`/`HumanLoopConfig` backend types mirroring the real shapes field-for-field
+  (`HumanTaskUiArn`/`WorkteamArn`/`TaskTitle`/`TaskDescription`/`TaskCount` required,
+  `TaskAvailabilityLifetimeInSeconds`/`TaskTimeLimitInSeconds`/`TaskKeywords` optional); all three
+  now decode, store, and round-trip through Describe via a real-SDK-client test
+  (`TestHandler_DescribeFlowDefinition_HumanLoopConfig_RealClient`).
+  `HumanLoopConfig.PublicWorkforceTaskPrice` remains unmodeled — this backend never simulates paid
+  Mechanical Turk work, disclosed, same reasoning already applied elsewhere in this campaign to
+  other billing/pricing sub-structures.
+- `ListFlowDefinitionsInput` (`api_op_ListFlowDefinitions.go:30-52`) was `NextToken`-only — added
+  `CreationTimeAfter`/`CreationTimeBefore`/`MaxResults`/`SortOrder`. The op declares no `SortBy`
+  field at all (only `SortOrder`) and its own doc states no default order either way; rather than
+  invent a sort dimension (e.g. `CreationTime`) no doc supports, `SortOrder` is applied to this
+  backend's own pre-existing default order (ascending by name, the accidental byproduct of its
+  former name-keyed pagination) — the same conservative stance parity-22's `ListFeatureGroups` took
+  on its own undocumented `SortBy`/`SortOrder` defaults.
+
+**`handler_human_task_ui.go` — the second finding, a required Create member never read and a
+required Describe member never emitted:**
+
+- **`CreateHumanTaskUiInput.UiTemplate`** (`This member is required`,
+  `api_op_CreateHumanTaskUi.go:29-46`, `types.UiTemplate{Content}`) **was entirely absent from
+  decode** — a client's worker-facing Liquid template was silently discarded and Create succeeded
+  anyway. Fixed: `UiTemplate.Content` now required and hashed at Create time
+  (`sha256.Sum256`/`hex.EncodeToString`, same pattern already used by
+  `services/codeartifact/handler_package_versions.go:555-556` for a content digest).
+- **`DescribeHumanTaskUiOutput.UiTemplate`** (`This member is required`,
+  `api_op_DescribeHumanTaskUi.go:60-63`, `types.UiTemplateInfo{ContentSha256, Url}`) **was
+  completely absent from the response** — real AWS never returns the raw template on Describe, only
+  its digest, so only the digest is retained (`HumanTaskUI.UITemplateContentSha256`, emitted nested
+  under `"UiTemplate"` by `HumanTaskUI.MarshalJSON`). `UiTemplateInfo.Url` remains unpopulated,
+  disclosed — this backend hosts no template-rendering URL.
+- `ListHumanTaskUisInput` (`api_op_ListHumanTaskUis.go:30-53`) was `NextToken`-only — added
+  `CreationTimeAfter`/`CreationTimeBefore`/`MaxResults`/`SortOrder`, same undocumented-default
+  reasoning as `ListFlowDefinitions` above (they are the only two ops in this pass with a bare
+  `SortOrder` and no `SortBy` at all).
+
+**`handler_studio_lifecycle_configs.go` — the third finding, a required Create member never
+validated and a List op's entire filter/sort surface silently dropped:**
+
+- **`CreateStudioLifecycleConfigInput.StudioLifecycleConfigAppType`** (`This member is required`,
+  `api_op_CreateStudioLifecycleConfig.go:28-52`) was decoded and passed through, but **never
+  validated present** — a request supplying only `StudioLifecycleConfigName`/`Content` still
+  succeeded with an empty `AppType`, where real AWS would reject it. Fixed: now enforced in the
+  handler, matching the required-field-validation convention parity-22 established for
+  `CreateFeatureGroup`.
+- **`ListStudioLifecycleConfigsInput`** (`api_op_ListStudioLifecycleConfigs.go:31-75`) was
+  `NextToken`-only — added `AppTypeEquals`/`CreationTimeAfter`/`CreationTimeBefore`/
+  `ModifiedTimeAfter`/`ModifiedTimeBefore`/`NameContains`/`SortBy`/`SortOrder`/`MaxResults`. Unlike
+  the two ops above, this op's own doc states explicit defaults (`SortBy` default `CreationTime`,
+  `SortOrder` default `Descending`), so those are honored rather than the conservative
+  keep-prior-order stance used elsewhere this pass. `StudioLifecycleConfigDetails.
+  StudioLifecycleConfigAppType` (a real, always-present List-item field) was also missing from the
+  emitted list items — added.
+
+**The six questions, answered explicitly:**
+
+1. **What does the handler read that AWS never sends?** Nothing found this pass — every field
+   decoded by this pass's converted handlers exists on the real request type.
+2. **Do request and response use the same key?** Checked separately throughout; no divergence found
+   this pass.
+3. **Is any required request member never read at all?** Yes, twice, both the most severe class:
+   `CreateFlowDefinitionInput.OutputConfig` and `CreateHumanTaskUiInput.UiTemplate` — see above.
+   `CreateStudioLifecycleConfigInput.StudioLifecycleConfigAppType` was read but never validated
+   present, the adjacent-but-distinct defect class parity-22 also found on `CreateFeatureGroup`.
+4. **Is any field parsed and then ignored, or worse, applied destructively?** Not found this pass —
+   every gap found was accept-and-drop (never decoded at all), not decode-then-discard.
+5. **Does it emit every declared member, and does any handler return a nil body where required
+   members are declared?** `DescribeHumanTaskUiOutput.UiTemplate` (required) was completely absent
+   from the response — see above, same bug class as parity-22's `DescribeFeatureGroup.NextToken`.
+   `StudioLifecycleConfigDetails.StudioLifecycleConfigAppType` was likewise missing from
+   `ListStudioLifecycleConfigs`' items. No nil-body case found.
+6. **Does any status or lifecycle field ever advance?** Checked: `FlowDefinitionStatus` and
+   `HumanTaskUiStatus` are each set once at Create (`Active`) and never transition — real AWS's
+   `FlowDefinitionStatus` enum also declares `Initializing`/`Failed`/`Deleting`
+   (`types/enums.go:3758-3766`), implying an async provisioning window this backend skips entirely.
+   Not fixed this pass (an effort-budget decision, not a difficulty found) — flagged as the natural
+   next step for `FlowDefinition` specifically, same bug class as parity-21/22's stuck-status
+   findings on `CompilationJob`/`FeatureGroup`.
+
+**Timestamps touched, each with its own serializer citation and a test that sets the value:**
+`ListFlowDefinitionsInput.CreationTimeAfter`/`CreationTimeBefore`
+(`api_op_ListFlowDefinitions.go:34-38`, decoded via `epochPtr`, asserted implicitly by
+`TestHandler_ListFlowDefinitions_FilterSort_RealClient`'s ordering); `ListHumanTaskUisInput.
+CreationTimeAfter`/`CreationTimeBefore` (`api_op_ListHumanTaskUis.go:34-38`, same pattern);
+`ListStudioLifecycleConfigsInput.CreationTimeAfter`/`CreationTimeBefore`/`ModifiedTimeAfter`/
+`ModifiedTimeBefore` (`api_op_ListStudioLifecycleConfigs.go:37-57`), all proven via
+`TestHandler_ListStudioLifecycleConfigs_FilterSort_RealClient`, a real-SDK-client test. No
+pre-existing timestamp-encoding bugs found this pass — all three types already had a correct
+`MarshalJSON`/`UnmarshalJSON` epoch-seconds pair from the systemic-timestamp-bug fix (see Notes:
+above, "Affected types (Describe path)"), which this pass extended rather than repaired.
+
+**Enums read per op, not generalized:** `StudioLifecycleConfigAppType`
+(`JupyterServer`/`KernelGateway`/`CodeEditor`/`JupyterLab` — `types/enums.go:9552-9560`);
+`StudioLifecycleConfigSortKey` (`CreationTime`/`LastModifiedTime`/`Name` — confirmed independently,
+not assumed from any sibling sort-key enum); `AwsManagedHumanLoopRequestSource`
+(`AWS/Rekognition/DetectModerationLabels/Image/V3`/`AWS/Textract/AnalyzeDocument/Forms/V1` —
+`types/enums.go:1513-1519`, both real ARN-shaped string values, not simple names); `SortOrder`
+(shared `Ascending`/`Descending`, `types/enums.go:9240-9246`) used by both `ListFlowDefinitions` and
+`ListHumanTaskUis`, each independently confirmed to declare no companion `SortBy` field at all.
+
+**Disclosures (not fixed, out of this pass's scope):** `HumanLoopConfig.PublicWorkforceTaskPrice`
+and `FlowDefinition`'s `Initializing`/`Failed` status transitions, both above.
+`HumanLoopActivationConditions`/`AwsManagedHumanLoopRequestSource` are stored and echoed as opaque
+strings/enum values respectively rather than semantically interpreted — this backend never
+evaluates a human-loop activation condition or calls a real Rekognition/Textract integration,
+disclosed, matching the established convention for opaque passthrough config elsewhere in this
+campaign.
+
+**Existing tests found ratifying the two missing-required-field-validation defects:**
+`TestHandler_CreateFlowDefinition`/`TestHandler_DescribeFlowDefinition`/
+`TestHandler_ListFlowDefinitions` created flow definitions with no `RoleArn` and no `OutputConfig`
+at all — passed only because neither was enforced; `handler_create_tags_test.go`'s own
+`CreateFlowDefinition` call already supplied both correctly and did not need changing.
+`TestHandler_CreateHumanTaskUI`/`TestHandler_DescribeHumanTaskUI`/`TestHandler_DeleteHumanTaskUI`/
+`TestHandler_ListHumanTaskUIs` created human task UIs with no `UiTemplate` at all — passed only
+because it was never read. All four rewritten to supply valid required fields; new
+`TestHandler_CreateFlowDefinition_RequiredFieldsEnforced`/
+`TestHandler_CreateHumanTaskUI_RequiredFieldsEnforced`/
+`TestHandler_CreateStudioLifecycleConfig_RequiredFieldsEnforced` table tests assert each required
+field is independently rejected when absent.
+
+**Hand-revert proof (all three fixes, one per file, each the most severe finding in that file):**
+
+1. `CreateFlowDefinition`'s `OutputConfig`/`HumanLoop*` accept-and-drop: reverted
+   `flow_definitions.go`/`handler_flow_definitions.go` to HEAD, rebuilt clean (the test file itself
+   only calls the real SDK client, so it compiles unchanged against either version), ran
+   `TestHandler_CreateFlowDefinition_RequiredFieldsEnforced`/
+   `TestHandler_DescribeFlowDefinition_HumanLoopConfig_RealClient`/
+   `TestHandler_ListFlowDefinitions_FilterSort_RealClient` — all failed exactly as predicted (200
+   instead of 400 on three missing-required-field cases; `HumanLoopActivationConfig` nil after
+   Describe; List returned unfiltered/unsorted results). Restored, `md5sum` byte-identical for both
+   files, all tests pass again.
+2. `CreateHumanTaskUI`'s `UiTemplate` never read: reverted `human_task_ui.go`/
+   `handler_human_task_ui.go` to HEAD, rebuilt clean, ran
+   `TestHandler_CreateHumanTaskUI_RequiredFieldsEnforced`/
+   `TestHandler_DescribeHumanTaskUI_UiTemplateContentSha256_RealClient`/
+   `TestHandler_ListHumanTaskUIs_SortOrder_RealClient` — all failed exactly as predicted (200
+   instead of 400; `UiTemplate` nil on Describe; List unsorted). Restored, `md5sum` byte-identical
+   for both files, all tests pass again.
+3. `ListStudioLifecycleConfigs`' filter/sort accept-and-drop plus `AppType` unvalidated: reverted
+   `studio_lifecycle_configs.go`/`handler_studio_lifecycle_configs.go` to HEAD, rebuilt clean, ran
+   `TestHandler_CreateStudioLifecycleConfig_RequiredFieldsEnforced`/
+   `TestHandler_ListStudioLifecycleConfigs_FilterSort_RealClient` — failed exactly as predicted (200
+   instead of 400 on missing `AppType`; List returned 3 items instead of 2, ignoring
+   `AppTypeEquals`). Restored, `md5sum` byte-identical for both files, all tests pass again.
+
+Gates for this session: `go build ./...`, `go vet ./services/sagemaker/...`,
+`go vet -tags e2e ./...`, `go vet -tags integration ./...`, `gofmt -l ./services/sagemaker/*.go`
+(empty), `go test -race -count=1 ./services/sagemaker/...` (pass), and
+`golangci-lint run ./services/sagemaker/...` (0 issues, after fixing: 1 `dupl` — extracted a shared
+`filterSortPaginateByNameWindow` generic helper in `list_helpers.go` for the two undocumented-
+SortBy-default List ops rather than leaving near-identical filter/sort/paginate bodies in both
+files; 3 `goconst` — a bare `"Name"` string literal this pass's own new `switch` case added crossed
+the existing `keyGenericName` constant's occurrence threshold in two other pre-existing files
+(`list_helpers.go`, `pipelines.go`) that had not previously tripped it, same "pass's new code pushed
+a pre-existing literal over threshold" pattern parity-22 also hit; 3 `golines`; 6 `govet`/
+`fieldalignment` — each struct reordered by hand (pointer-containing fields grouped first, then
+scalar fields, then string-plus-int32 config-carrier structs last), confirmed via non-`-fix`
+`fieldalignment ./services/sagemaker/...` output rather than the package-wide `-fix`; 2 `revive`
+var-naming — `UiTemplate`/`UiTemplateContentSha256` Go field names renamed to `UITemplate`/
+`UITemplateContentSha256` per Go initialism convention (JSON tags unchanged, still `"UiTemplate"`
+to match the real wire key); 2 `staticcheck` S1016 — `ListFlowDefinitionsFilter`/
+`ListHumanTaskUIsFilter` converted directly to `nameWindowSortParams` via a type conversion rather
+than a field-by-field literal, since their field sets are now identical; no `nolint` added). No
+`fieldalignment -fix` or `golangci-lint --fix` run (both would run package-wide).
+
+`last_audit_commit` left at its existing value (`5f91d37c7`) — not updated this pass, per the
+campaign's standing instruction never to write `pending` or otherwise touch it casually.
+
+**52 of sagemaker's 362 inline structs now remain.** New boundary: a 6-file tier at 4
+(`handler_transform_jobs.go`, `handler_processing_jobs.go`, `handler_pipeline_versions.go`,
 `handler_edge_packaging_jobs.go`, `handler_automl.go`, `handler_ai_workload_configs.go`) — not
 started this pass, purely an effort-budget stopping point.

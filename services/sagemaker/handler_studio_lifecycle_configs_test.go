@@ -5,6 +5,9 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	sagemakersdk "github.com/aws/aws-sdk-go-v2/service/sagemaker"
+	smtypes "github.com/aws/aws-sdk-go-v2/service/sagemaker/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -68,6 +71,35 @@ func TestHandler_CreateStudioLifecycleConfig_Content(t *testing.T) {
 	assert.Equal(t, "IyEvYmluL2Jhc2g=", resp["StudioLifecycleConfigContent"])
 }
 
+func TestHandler_CreateStudioLifecycleConfig_RequiredFieldsEnforced(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]map[string]any{
+		"missing name": {
+			"StudioLifecycleConfigAppType": "JupyterServer",
+			"StudioLifecycleConfigContent": "IyEvYmluL2Jhc2g=",
+		},
+		"missing app type": {
+			"StudioLifecycleConfigName":    "lc-req",
+			"StudioLifecycleConfigContent": "IyEvYmluL2Jhc2g=",
+		},
+		"missing content": {
+			"StudioLifecycleConfigName":    "lc-req",
+			"StudioLifecycleConfigAppType": "JupyterServer",
+		},
+	}
+
+	for name, body := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doSageMakerRequest(t, h, "CreateStudioLifecycleConfig", body)
+			assert.Equal(t, http.StatusBadRequest, rec.Code)
+		})
+	}
+}
+
 func TestHandler_DeleteStudioLifecycleConfig(t *testing.T) {
 	t.Parallel()
 
@@ -117,4 +149,38 @@ func TestHandler_ListStudioLifecycleConfigs(t *testing.T) {
 	assert.Len(t, configs, 1)
 	c := configs[0].(map[string]any)
 	assert.Equal(t, "my-config", c["StudioLifecycleConfigName"])
+}
+
+func TestHandler_ListStudioLifecycleConfigs_FilterSort_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestSageMakerClient(t, h)
+
+	for name, appType := range map[string]smtypes.StudioLifecycleConfigAppType{
+		"alpha-lc": smtypes.StudioLifecycleConfigAppTypeJupyterServer,
+		"beta-lc":  smtypes.StudioLifecycleConfigAppTypeJupyterServer,
+		"gamma-lc": smtypes.StudioLifecycleConfigAppTypeKernelGateway,
+	} {
+		_, err := client.CreateStudioLifecycleConfig(t.Context(), &sagemakersdk.CreateStudioLifecycleConfigInput{
+			StudioLifecycleConfigName:    aws.String(name),
+			StudioLifecycleConfigAppType: appType,
+			StudioLifecycleConfigContent: aws.String("IyEvYmluL2Jhc2g="),
+		})
+		require.NoError(t, err)
+	}
+
+	out, err := client.ListStudioLifecycleConfigs(t.Context(), &sagemakersdk.ListStudioLifecycleConfigsInput{
+		AppTypeEquals: smtypes.StudioLifecycleConfigAppTypeJupyterServer,
+		SortBy:        smtypes.StudioLifecycleConfigSortKeyName,
+		SortOrder:     smtypes.SortOrderDescending,
+	})
+	require.NoError(t, err)
+	require.Len(t, out.StudioLifecycleConfigs, 2)
+	assert.Equal(t, "beta-lc", aws.ToString(out.StudioLifecycleConfigs[0].StudioLifecycleConfigName))
+	assert.Equal(t, "alpha-lc", aws.ToString(out.StudioLifecycleConfigs[1].StudioLifecycleConfigName))
+	assert.Equal(t,
+		smtypes.StudioLifecycleConfigAppTypeJupyterServer,
+		out.StudioLifecycleConfigs[0].StudioLifecycleConfigAppType,
+	)
 }

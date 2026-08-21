@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -152,20 +154,79 @@ func (b *InMemoryBackend) DeleteStudioLifecycleConfig(ctx context.Context, name 
 	return nil
 }
 
-// ListStudioLifecycleConfigs returns all Studio lifecycle configs.
+// ListStudioLifecycleConfigsFilter bundles the filter/sort criteria for
+// ListStudioLifecycleConfigs (api_op_ListStudioLifecycleConfigs.go:31-75).
+// Previously this decoded only NextToken and dropped every filter and sort
+// control the op's own request shape declares.
+type ListStudioLifecycleConfigsFilter struct {
+	AppTypeEquals      string
+	CreationTimeAfter  *time.Time
+	CreationTimeBefore *time.Time
+	ModifiedTimeAfter  *time.Time
+	ModifiedTimeBefore *time.Time
+	NameContains       string
+	SortBy             string
+	SortOrder          string
+	MaxResults         int32
+}
+
+// ListStudioLifecycleConfigs returns Studio lifecycle configs matching f,
+// sorted and paginated. The op's own doc states explicit defaults of
+// CreationTime/Descending for SortBy/SortOrder, unlike ListFeatureGroups.
 func (b *InMemoryBackend) ListStudioLifecycleConfigs(
 	ctx context.Context,
 	nextToken string,
+	f ListStudioLifecycleConfigsFilter,
 ) ([]*StudioLifecycleConfig, string) {
 	b.mu.RLock("ListStudioLifecycleConfigs")
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
 
-	return sagemakerListKeyPaged(
-		b.studioLifecycleConfigsStoreRO(region),
-		nextToken,
-		cloneStudioLifecycleConfig,
-		func(v *StudioLifecycleConfig) string { return v.StudioLifecycleConfigName },
-	)
+	list := make([]*StudioLifecycleConfig, 0, b.studioLifecycleConfigsStoreRO(region).Len())
+
+	for _, c := range b.studioLifecycleConfigsStoreRO(region).All() {
+		if studioLifecycleConfigMatchesFilter(c, f) {
+			list = append(list, cloneStudioLifecycleConfig(c))
+		}
+	}
+
+	desc := f.SortOrder != sortOrderAscending
+	sort.SliceStable(list, func(i, k int) bool {
+		var less bool
+
+		switch f.SortBy {
+		case keyGenericName:
+			less = list[i].StudioLifecycleConfigName < list[k].StudioLifecycleConfigName
+		case "LastModifiedTime":
+			less = list[i].LastModifiedTime.Before(list[k].LastModifiedTime)
+		default:
+			less = list[i].CreationTime.Before(list[k].CreationTime)
+		}
+
+		if desc {
+			return !less
+		}
+
+		return less
+	})
+
+	return paginateSlice(list, nextToken, f.MaxResults)
+}
+
+func studioLifecycleConfigMatchesFilter(c *StudioLifecycleConfig, f ListStudioLifecycleConfigsFilter) bool {
+	if f.AppTypeEquals != "" && c.StudioLifecycleConfigAppType != f.AppTypeEquals {
+		return false
+	}
+
+	if f.NameContains != "" &&
+		!strings.Contains(strings.ToLower(c.StudioLifecycleConfigName), strings.ToLower(f.NameContains)) {
+		return false
+	}
+
+	if !timeWindowOK(c.CreationTime, f.CreationTimeAfter, f.CreationTimeBefore) {
+		return false
+	}
+
+	return timeWindowOK(c.LastModifiedTime, f.ModifiedTimeAfter, f.ModifiedTimeBefore)
 }

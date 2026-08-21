@@ -324,6 +324,50 @@ func parseNextToken(token string) int {
 	return idx
 }
 
+// nameWindowSortParams bundles the CreationTime-window filter and name-only
+// SortOrder shared by ListFlowDefinitions and ListHumanTaskUIs — both ops
+// declare no SortBy field at all (only SortOrder), so it is applied to each
+// backend's own pre-existing default order (ascending by name) rather than
+// an invented sort dimension neither op's own doc supports.
+type nameWindowSortParams struct {
+	CreationTimeAfter  *time.Time
+	CreationTimeBefore *time.Time
+	SortOrder          string
+	MaxResults         int32
+}
+
+// filterSortPaginateByNameWindow filters items by params.CreationTime window,
+// sorts by nameOf ascending (or descending if params.SortOrder is
+// "Descending"), then paginates.
+func filterSortPaginateByNameWindow[T any](
+	items []*T,
+	nextToken string,
+	params nameWindowSortParams,
+	creationTimeOf func(*T) time.Time,
+	nameOf func(*T) string,
+	clone func(*T) *T,
+) ([]*T, string) {
+	list := make([]*T, 0, len(items))
+
+	for _, item := range items {
+		if timeWindowOK(creationTimeOf(item), params.CreationTimeAfter, params.CreationTimeBefore) {
+			list = append(list, clone(item))
+		}
+	}
+
+	desc := params.SortOrder == sortOrderDescending
+	sort.SliceStable(list, func(i, k int) bool {
+		less := nameOf(list[i]) < nameOf(list[k])
+		if desc {
+			return !less
+		}
+
+		return less
+	})
+
+	return paginateSlice(list, nextToken, params.MaxResults)
+}
+
 // nameOrTimeSortParams bundles the type/source-URI/creation-window filter and
 // Name-or-CreationTime sort criteria shared by ListContexts and ListActions
 // (both real ops support exactly this shape: SortContextsBy/SortActionsBy
@@ -375,7 +419,7 @@ func filterSortPaginateByNameOrTime[T any](
 	desc := !strings.EqualFold(params.SortOrder, "Ascending")
 	sort.Slice(list, func(i, j int) bool {
 		var less bool
-		if params.SortBy == "Name" {
+		if params.SortBy == keyGenericName {
 			less = nameOf(list[i]) < nameOf(list[j])
 		} else {
 			less = creationTimeOf(list[i]).Before(creationTimeOf(list[j]))

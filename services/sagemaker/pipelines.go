@@ -219,7 +219,7 @@ func (b *InMemoryBackend) ListPipelines(ctx context.Context, params ListPipeline
 	desc := strings.EqualFold(params.SortOrder, sortOrderDescending)
 	sort.Slice(list, func(i, j int) bool {
 		var less bool
-		if params.SortBy == "Name" {
+		if params.SortBy == keyGenericName {
 			less = list[i].PipelineName < list[j].PipelineName
 		} else {
 			less = list[i].CreationTime.Before(list[j].CreationTime)
