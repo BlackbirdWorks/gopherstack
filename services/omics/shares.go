@@ -69,14 +69,26 @@ func (b *InMemoryBackend) DeleteShare(shareID string) (*Share, error) {
 	return &result, nil
 }
 
-// GetShare retrieves a share.
+// GetShare retrieves a share, advancing ACTIVATING→ACTIVE on first poll,
+// mirroring GetWorkflow/GetAnnotationStore/GetVariantStore's reap-on-read
+// pattern. AcceptShare stamped Status ACTIVATING and nothing else in this
+// backend ever advanced it -- a client polling GetShare for readiness never
+// saw a terminal status. PENDING is left alone: it is the correct
+// client-driven wait for AcceptShare/RejectShare, not a stall.
 func (b *InMemoryBackend) GetShare(shareID string) (*Share, error) {
-	b.mu.RLock("GetShare")
-	defer b.mu.RUnlock()
+	b.mu.Lock("GetShare")
+	defer b.mu.Unlock()
 
 	share, ok := b.shares.Get(shareID)
 	if !ok {
 		return nil, fmt.Errorf("%w: share %s not found", ErrNotFound, shareID)
+	}
+
+	if share.Status == "ACTIVATING" {
+		share.pollCount++
+		if share.pollCount >= 1 {
+			share.Status = "ACTIVE"
+		}
 	}
 
 	result := *share

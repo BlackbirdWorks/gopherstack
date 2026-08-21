@@ -36,13 +36,30 @@ func TestBatchEnableStandardsPath(t *testing.T) {
 	assert.Len(t, subs, 1)
 
 	sub := subs[0].(map[string]any)
-	assert.NotEmpty(t, sub["StandardsSubscriptionArn"])
+	arn, _ := sub["StandardsSubscriptionArn"].(string)
+	assert.NotEmpty(t, arn)
 	assert.Equal(
 		t,
 		"arn:aws:securityhub:us-east-1::standards/aws-foundational-security-best-practices/v/1.0.0",
 		sub["StandardsArn"],
 	)
 	assert.Equal(t, "PENDING", sub["StandardsStatus"])
+
+	// PENDING is right immediately after BatchEnableStandards, but this
+	// assertion alone cannot catch a machine that never advances --
+	// gopherstack-muzq: nothing ever wrote to StandardsStatus again.
+	// Confirm GetEnabledStandards actually reaps it to READY.
+	getRec := doRequest(t, h, http.MethodPost, "/standards/get", map[string]any{
+		"StandardsSubscriptionArns": []string{arn},
+	})
+	require.Equal(t, http.StatusOK, getRec.Code)
+
+	var getResp map[string]any
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+
+	gotSubs, _ := getResp["StandardsSubscriptions"].([]any)
+	require.Len(t, gotSubs, 1)
+	assert.Equal(t, "READY", gotSubs[0].(map[string]any)["StandardsStatus"])
 }
 
 // Batch-1 accuracy gap: BatchDisableStandards is POST /standards/deregister.

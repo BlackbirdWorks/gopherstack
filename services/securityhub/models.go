@@ -31,6 +31,7 @@ type StandardsSubscription struct {
 	StandardsSubscriptionArn string            `json:"StandardsSubscriptionArn"`
 	StandardsArn             string            `json:"StandardsArn"`
 	StandardsStatus          string            `json:"StandardsStatus"`
+	pollCount                int               // tracks PENDING→READY progression; not serialized
 }
 
 // Standard represents an available standard.

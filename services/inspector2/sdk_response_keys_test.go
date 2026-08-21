@@ -279,6 +279,12 @@ func TestBatchDisassociateCodeSecurityScanConfiguration_SuccessfulAssociations(t
 // scanId and status (inspector2@v1.54.1 deserializers.go
 // awsRestjson1_deserializeOpDocumentStartCodeSecurityScanOutput) -- omitting
 // status left a real client's Status field always empty.
+//
+// gopherstack-muzq (2026-08-21): IN_PROGRESS is the right status immediately
+// after Start, but an assertion that stops there cannot catch a machine that
+// never advances -- GetCodeSecurityScan previously never wrote Status again,
+// so a client polling for readiness never exited its loop. Confirm it
+// actually reaches a terminal status too.
 func TestStartCodeSecurityScan_Status(t *testing.T) {
 	t.Parallel()
 
@@ -293,6 +299,16 @@ func TestStartCodeSecurityScan_Status(t *testing.T) {
 	assert.Equal(
 		t, types.CodeScanStatusInProgress, out.Status,
 		"StartCodeSecurityScanOutput.Status must decode non-empty",
+	)
+
+	getOut, getErr := client.GetCodeSecurityScan(ctx, &inspector2sdk.GetCodeSecurityScanInput{
+		Resource: &types.CodeSecurityResourceMemberProjectId{Value: "roundtrip-scan-project"},
+		ScanId:   out.ScanId,
+	})
+	require.NoError(t, getErr)
+	assert.Equal(
+		t, types.CodeScanStatusSuccessful, getOut.Status,
+		"GetCodeSecurityScan must reap IN_PROGRESS to SUCCESSFUL on poll",
 	)
 }
 

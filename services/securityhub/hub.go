@@ -47,7 +47,7 @@ func (b *InMemoryBackend) EnableHub(enableDefaultStandards bool, tags map[string
 					StandardsSubscriptionArn: subArn,
 					StandardsArn:             std.StandardsArn,
 					StandardsInput:           map[string]string{},
-					StandardsStatus:          "READY",
+					StandardsStatus:          statusReady,
 				})
 			}
 		}

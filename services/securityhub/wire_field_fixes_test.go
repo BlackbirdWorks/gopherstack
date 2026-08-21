@@ -110,3 +110,42 @@ func TestListConnectorsV2_ProviderSummaryShape(t *testing.T) {
 	assert.Equal(t, "ACTIVE", string(summary.ProviderSummary.ConnectorStatus))
 	assert.Equal(t, "test-connector-v2", aws.ToString(summary.Name))
 }
+
+// TestBatchEnableStandards_ReachesReady is a real-SDK-client regression test
+// for gopherstack-muzq: BatchEnableStandards stamped StandardsStatus PENDING
+// and nothing else in this backend ever advanced it -- EnableHub's own
+// default-standards subscriptions are stamped the terminal READY directly,
+// which made the contrast easy to miss (a package where every explicitly-
+// requested standard stalls looks internally consistent). A client polling
+// GetEnabledStandards for readiness never saw a terminal status.
+func TestBatchEnableStandards_ReachesReady(t *testing.T) {
+	t.Parallel()
+
+	backend := securityhub.NewInMemoryBackend("000000000000", "us-east-1")
+	client := newTestSecurityHubClient(t, securityhub.NewHandler(backend))
+
+	enableOut, err := client.BatchEnableStandards(t.Context(), &securityhubsdk.BatchEnableStandardsInput{
+		StandardsSubscriptionRequests: []securityhubtypes.StandardsSubscriptionRequest{
+			{
+				StandardsArn: aws.String(
+					"arn:aws:securityhub:us-east-1::standards/aws-foundational-security-best-practices/v/1.0.0",
+				),
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.Len(t, enableOut.StandardsSubscriptions, 1)
+	require.Equal(t, securityhubtypes.StandardsStatusPending, enableOut.StandardsSubscriptions[0].StandardsStatus)
+
+	subArn := enableOut.StandardsSubscriptions[0].StandardsSubscriptionArn
+
+	getOut, err := client.GetEnabledStandards(t.Context(), &securityhubsdk.GetEnabledStandardsInput{
+		StandardsSubscriptionArns: []string{aws.ToString(subArn)},
+	})
+	require.NoError(t, err)
+	require.Len(t, getOut.StandardsSubscriptions, 1)
+	assert.Equal(
+		t, securityhubtypes.StandardsStatusReady, getOut.StandardsSubscriptions[0].StandardsStatus,
+		"GetEnabledStandards must reap PENDING to READY on poll",
+	)
+}

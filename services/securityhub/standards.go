@@ -143,14 +143,31 @@ func (b *InMemoryBackend) BatchDisableStandards(
 	return subscriptions, failures
 }
 
+// GetEnabledStandards returns enabled standards subscriptions, advancing any
+// PENDING subscription to READY on first poll. BatchEnableStandards stamped
+// StandardsStatus PENDING and nothing else in this backend ever advanced it
+// -- EnableHub's own default-standards subscriptions are stamped the
+// terminal READY directly (no async work modeled for those either), so the
+// contrast is exactly the sibling-resource pattern this bug class hides
+// behind. A client polling GetEnabledStandards for readiness never saw a
+// terminal status.
 func (b *InMemoryBackend) GetEnabledStandards(
 	subscriptionArns []string,
 	nextToken string,
 	maxResults int,
 ) ([]*StandardsSubscription, string) {
-	b.mu.RLock("GetEnabledStandards")
-	defer b.mu.RUnlock()
+	b.mu.Lock("GetEnabledStandards")
+	defer b.mu.Unlock()
 	results := filterOrAll(subscriptionArns, b.standardsSubscriptions)
+
+	for _, sub := range results {
+		if sub.StandardsStatus == "PENDING" {
+			sub.pollCount++
+			if sub.pollCount >= 1 {
+				sub.StandardsStatus = statusReady
+			}
+		}
+	}
 
 	return paginateSlice(results, nextToken, maxResults, maxStandardsResults)
 }

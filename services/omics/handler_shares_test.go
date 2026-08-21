@@ -6,6 +6,9 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	omicssdk "github.com/aws/aws-sdk-go-v2/service/omics"
+	"github.com/aws/aws-sdk-go-v2/service/omics/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -188,6 +191,38 @@ func TestOmics_GetShare_FullObjectFields(t *testing.T) {
 	assert.ElementsMatch(t, []string{
 		"shareId", "resourceArn", "principalSubscriber", "shareName", "status", "creationTime",
 	}, mapKeysExcept(share, "updateTime"))
+}
+
+// TestOmics_AcceptShare_ReachesActive is a real-SDK-client regression test
+// for gopherstack-muzq: AcceptShare stamped Status ACTIVATING and nothing in
+// this backend ever advanced it further, so a client polling GetShare for
+// readiness never saw a terminal status. PENDING is correctly left alone --
+// that wait is for AcceptShare itself, a client-driven call -- but ACTIVATING
+// has no client op to advance it; GetShare must reap it to ACTIVE on read,
+// mirroring GetWorkflow/GetAnnotationStore/GetVariantStore.
+func TestOmics_AcceptShare_ReachesActive(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestOmicsClient(t, h)
+
+	created, err := client.CreateShare(t.Context(), &omicssdk.CreateShareInput{
+		ResourceArn:         aws.String("arn:aws:omics:us-east-1:000000000000:annotationStore/mystore"),
+		PrincipalSubscriber: aws.String("123456789012"),
+		ShareName:           aws.String("my-share"),
+	})
+	require.NoError(t, err)
+	require.Equal(t, types.ShareStatusPending, created.Status)
+
+	accepted, err := client.AcceptShare(t.Context(), &omicssdk.AcceptShareInput{
+		ShareId: created.ShareId,
+	})
+	require.NoError(t, err)
+	require.Equal(t, types.ShareStatusActivating, accepted.Status)
+
+	got, err := client.GetShare(t.Context(), &omicssdk.GetShareInput{ShareId: created.ShareId})
+	require.NoError(t, err)
+	assert.Equal(t, types.ShareStatusActive, got.Share.Status, "GetShare must reap ACTIVATING to ACTIVE on poll")
 }
 
 // mapKeysExcept returns m's keys, dropping any in excl (used for keys that

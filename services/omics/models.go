@@ -735,6 +735,7 @@ type Share struct {
 	PrincipalSubscriber string     `json:"principalSubscriber"`
 	Name                string     `json:"shareName"`
 	Status              string     `json:"status"`
+	pollCount           int        // tracks ACTIVATING→ACTIVE progression; not serialized
 }
 
 // RunCache represents an HealthOmics run cache.

@@ -6,6 +6,19 @@ import (
 	"time"
 )
 
+// userImportJobCompletionDelay is the minimum time an InProgress import job
+// must have run before AdvanceUserImportJobStatuses completes it, mirroring
+// bedrock's AdvanceCustomizationJobStatuses(minAge) shape.
+const userImportJobCompletionDelay = 100 * time.Millisecond
+
+const (
+	userImportJobStatusCreated    = "Created"
+	userImportJobStatusPending    = "Pending"
+	userImportJobStatusInProgress = "InProgress"
+	userImportJobStatusStopped    = "Stopped"
+	userImportJobStatusSucceeded  = "Succeeded"
+)
+
 // CreateUserImportJob creates a new import job for a user pool. cloudWatchLogsRoleArn
 // is a required AWS request field (the IAM role Cognito logs import results to);
 // passwordHashingAlgorithm is optional.
@@ -24,7 +37,7 @@ func (b *InMemoryBackend) CreateUserImportJob(
 		JobID:                    jobID,
 		JobName:                  jobName,
 		UserPoolID:               userPoolID,
-		Status:                   "Created",
+		Status:                   userImportJobStatusCreated,
 		CreatedAt:                time.Now(),
 		CloudWatchLogsRoleArn:    cloudWatchLogsRoleArn,
 		PasswordHashingAlgorithm: passwordHashingAlgorithm,
@@ -97,12 +110,12 @@ func (b *InMemoryBackend) StartUserImportJob(userPoolID, jobID string) (*UserImp
 			ErrUserPoolNotFound, jobID, userPoolID)
 	}
 
-	if job.Status != "Created" && job.Status != "Pending" {
+	if job.Status != userImportJobStatusCreated && job.Status != userImportJobStatusPending {
 		return nil, fmt.Errorf("%w: import job %q cannot be started from status %q",
 			ErrInvalidParameter, jobID, job.Status)
 	}
 
-	job.Status = "InProgress"
+	job.Status = userImportJobStatusInProgress
 	job.StartedAt = time.Now()
 	cp := *job
 
@@ -124,16 +137,46 @@ func (b *InMemoryBackend) StopUserImportJob(userPoolID, jobID string) (*UserImpo
 			ErrUserPoolNotFound, jobID, userPoolID)
 	}
 
-	if job.Status != "InProgress" {
+	if job.Status != userImportJobStatusInProgress {
 		return nil, fmt.Errorf("%w: import job %q cannot be stopped from status %q",
 			ErrInvalidParameter, jobID, job.Status)
 	}
 
-	job.Status = "Stopped"
+	job.Status = userImportJobStatusStopped
 	// This backend has no real CSV-processing pipeline, so a stop is the only
-	// completion path a job ever reaches; CompletionDate marks that transition.
+	// client-driven completion path; CompletionDate marks that transition.
+	// The self-completion path (InProgress -> Succeeded on its own) is
+	// AdvanceUserImportJobStatuses below.
 	job.CompletedAt = time.Now()
 	cp := *job
 
 	return &cp, nil
+}
+
+// AdvanceUserImportJobStatuses transitions InProgress import jobs that have
+// run at least minAge to Succeeded. Called by the janitor (janitor.go).
+// StartUserImportJob stamped Status InProgress and, until now, nothing else
+// in this backend ever advanced it on its own -- StopUserImportJob reaches
+// Stopped correctly, but that path exists only for a client that explicitly
+// calls Stop; a job a client leaves alone (the common case) never finished.
+func (b *InMemoryBackend) AdvanceUserImportJobStatuses(minAge time.Duration) int {
+	b.mu.Lock("AdvanceUserImportJobStatuses")
+	defer b.mu.Unlock()
+
+	now := time.Now()
+	advanced := 0
+
+	for _, job := range b.userImportJobs.All() {
+		if job.Status != userImportJobStatusInProgress {
+			continue
+		}
+
+		if now.Sub(job.StartedAt) >= minAge {
+			job.Status = userImportJobStatusSucceeded
+			job.CompletedAt = now
+			advanced++
+		}
+	}
+
+	return advanced
 }

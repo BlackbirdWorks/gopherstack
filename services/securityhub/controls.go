@@ -136,7 +136,7 @@ func (b *InMemoryBackend) BatchGetSecurityControls(securityControlIDs []string) 
 			RemediationURL:        def.RemediationURL,
 			SeverityRating:        def.SeverityRating,
 			SecurityControlStatus: statusEnabled,
-			UpdateStatus:          "READY",
+			UpdateStatus:          statusReady,
 			Parameters:            params,
 		})
 	}
