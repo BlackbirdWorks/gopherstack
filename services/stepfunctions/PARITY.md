@@ -1,8 +1,8 @@
 ---
 service: stepfunctions
 sdk_module: aws-sdk-go-v2/service/sfn@v1.45.4
-last_audit_commit: HEAD
-last_audit_date: 2026-07-23
+last_audit_commit: pending (uncommitted this pass -- see git log at merge time)
+last_audit_date: 2026-08-21
 overall: A            # Re-audit against `43aa6d65` baseline (2026-07-11 zero-drift pass). This
                        # pass found real drift/gaps despite the "zero drift" label: two commits
                        # ("Parity 4" efc42cbc, "Go refactoring 2" 9d7e36e0) landed on
@@ -102,6 +102,14 @@ ops:
       closed). Still JSON/structural validation only beyond that one check
       -- other deep ASL semantic checks (e.g. ToleratedFailure+INLINE
       combos) remain unimplemented, see gaps.
+      FIXED 2026-08-21 (bd gopherstack-r80d, batch 10): the FAIL-path
+      diagnostic map only ever set "message"/"code", leaving
+      ValidateStateMachineDefinitionDiagnostic.Severity (types.go:1559-1586,
+      required) as the client-side zero value on every invalid definition
+      -- the common case this op exists to exercise, not an edge case.
+      Fixed by adding "severity": "ERROR" (ValidateStateMachineDefinitionSeverity
+      declares exactly ERROR/WARNING, enums.go:464-470; this handler only
+      ever emits the FAIL/blocking case, never WARNING).
   StartExecution:
     wire: fixed
     errors: ok
@@ -167,7 +175,31 @@ ops:
       declares itemCount/mapRunArn, which the domain Execution struct here
       does not track at all -- a separate missing-field gap (not
       over-wide), left for a future pass.
-  GetExecutionHistory: {wire: ok, errors: ok, state: ok, persist: ok, note: "unchanged this pass; TaskScheduled/TaskSucceeded/TaskFailed detail population fixed in a prior pass -- remaining gaps tracked at bd: gopherstack-996"}
+  GetExecutionHistory:
+    wire: fixed
+    errors: ok
+    state: ok
+    persist: ok
+    note: >
+      FIXED 2026-08-21 (bd gopherstack-r80d, batch 10; closes the
+      resource/region/parameters portion of gopherstack-996, open since
+      2026-07-05): TaskScheduledEventDetails.Region/Parameters (types.go:
+      1311-1339, both required) were never set at all -- RecordTaskScheduled
+      only ever populated Resource/ResourceType. TaskSucceededEventDetails.
+      Resource/ResourceType (types.go:1431-1450, required) and
+      TaskFailedEventDetails.Resource/ResourceType (types.go:1289-1307,
+      required) were also never set. All four are reachable on every normal
+      Task-state execution, not an edge case. Fixed by threading
+      state.Resource through RecordTaskSucceeded/RecordTaskFailed (asl/
+      executor.go's HistoryRecorder interface gained a resource param on
+      both) and the resolved post-Parameters-template task input through
+      RecordTaskScheduled for Parameters, with Region derived via the
+      existing regionFromARN(resource, backend.region) helper (same one
+      used for activity ARNs elsewhere in this package). gopherstack-996's
+      remaining scope (TaskSubmitted/TaskStarted events for .sync/
+      waitForTaskToken integration patterns) is a structural gap, not a
+      dropped-field bug -- this emulator never models those event kinds at
+      all, so no HistoryEvent ever claims to be one; left open, see gaps.
   CreateActivity:
     wire: fixed
     errors: ok
@@ -200,18 +232,33 @@ ops:
   SendTaskFailure: {wire: ok, errors: ok, state: ok, persist: ok}
   SendTaskHeartbeat: {wire: ok, errors: ok, state: ok, persist: ok, note: "States.HeartbeatTimeout enforced against HeartbeatSeconds"}
   DescribeMapRun:
-    wire: ok
+    wire: fixed
     errors: ok
     state: ok
     persist: ok
     note: >
-      ExecutionCounts (DescribeMapRunOutput) has no backing field in MapRun
-      (models.go:196-209), correctly so: AWS counts separate child
-      *executions*, which this emulator has no distributed-map model for --
-      iterations run in-process, not as separate Execution records. Same
-      structural gap already documented under DescribeExecution's MapRunArn
-      note above (bd: gopherstack-f5dc). ItemCounts (a real, distinct field)
-      is present and populated.
+      REVERSED 2026-08-21 (bd gopherstack-r80d, batch 10): a prior pass
+      concluded ExecutionCounts having no backing field was "correctly so"
+      because this emulator has no distributed-map child-execution model
+      (iterations run in-process, not as separate Execution records) --
+      true as far as it goes, but the conclusion drawn from it repeats the
+      exact mistake this campaign's own candidates file documents and
+      reverses for quicksight: "required-but-inapplicable means
+      present-and-empty, not absent." ExecutionCounts is required on
+      DescribeMapRunOutput (api_op_DescribeMapRun.go:57) and typed as a
+      *types.MapRunExecutionCounts pointer client-side -- omitting the key
+      entirely left that pointer nil, so a real client dereferencing
+      out.ExecutionCounts.Total would nil-pointer panic, not just see a
+      zero. Fixed by adding MapRunExecutionCounts (models.go, shape mirrors
+      MapRunItemCounts) and an ExecutionCounts field on MapRun, always
+      marshaled (no omitempty) with genuinely zero counts -- not fabricated,
+      since no per-child-execution data exists to report, matching the
+      real semantics of a Map Run that never started separate child
+      workflow executions. Same structural gap still documented under
+      DescribeExecution's MapRunArn note (bd: gopherstack-f5dc); that one is
+      unaffected, ExecutionCounts.Total staying 0 doesn't imply any
+      DISTRIBUTED-mode child-execution tracking exists. ItemCounts (a real,
+      distinct field) remains present and populated as before.
   ListMapRuns: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (gopherstack-dv4s): response marshaled the full MapRun struct per item, leaking status/itemCounts/toleratedFailurePercentage/maxConcurrency/toleratedFailureCount/redriveCount/redriveDate -- real MapRunListItem (types.go, sfn@v1.45.4) declares only executionArn/mapRunArn/startDate/stateMachineArn/stopDate. Now marshals a new mapRunListItem view."}
   UpdateMapRun: {wire: ok, errors: ok, state: ok, persist: ok, note: "ToleratedFailureCount/Percentage on the MapRun *resource* API were already real; the ASL-definition-level Map state fields were fixed in a prior pass"}
   TestState: {wire: ok, errors: ok, state: ok, persist: n/a}
@@ -457,3 +504,165 @@ StartExecution-on-EXPRESS / StartSyncExecution-on-STANDARD error-code fixes.
 Those `families:`/`ops:` verdicts are carried forward unchanged in the
 front-matter above (marked `ok` / not re-noted) since this pass found no new
 drift in them.
+
+## 2026-08-21 pass (bd gopherstack-r80d, batch 10): required OUTPUT members never populated
+
+`cmd/requiredoutputfields` puts stepfunctions at 54 required output fields
+across 23 ops-with-required (37 ops total) -- the largest remaining
+candidate not off-limits (sagemaker, 459 fields, is excluded: a concurrent
+agent was mid-conversion of its inline request structs for most of this
+session, confirmed via `git status` before and during this pass).
+
+**Wire shape**: stepfunctions is NOT the "one wrapper key around a nested
+domain object" shape pinpoint/bedrockagent/cleanrooms have -- most ops have
+several top-level required scalar members directly (`CreateActivity`:
+`activityArn`+`creationDate`; `DescribeMapRun`: nine required members
+directly on the op's own output struct), and every response is built via
+tagged Go structs (not `map[string]any` literals like s3tables/codecommit).
+So neither of the two documented shapes from prior batches applies at the
+op level -- but the flat 54-field/23-op count still badly undercounts the
+real required surface, for a THIRD reason not yet named in this campaign:
+stepfunctions' List ops return arrays of dedicated `*ListItem` structs
+(`ActivityListItem`, `ExecutionListItem`, `MapRunListItem`,
+`StateMachineAliasListItem`, `StateMachineListItem`,
+`StateMachineVersionListItem`), and `GetExecutionHistory` returns an array
+of polymorphic `HistoryEvent` structs whose `*EventDetails` sub-objects
+(`TaskScheduledEventDetails`, `TaskSucceededEventDetails`,
+`TaskFailedEventDetails`, plus nine more event-kind detail types this
+emulator never emits) each carry their own required members --
+`cmd/requiredoutputfields`'s flat per-op scan only sees each op's own
+top-level `<Op>Output` struct and has no visibility into a list *element*
+type's own requiredness, or a HistoryEvent's own nested detail structs. Read
+every nested/list-item/detail type in `types.go` (extracted via a one-off
+AST-style walk over every `type X struct { ... }` block, not a grep window,
+per this campaign's own standing method warning) against `models.go` and
+every handler that constructs one, not just the 23 ops the tool names.
+
+**Trusted vs re-derived**: this file already had several prior passes
+(2026-07-11 zero-drift baseline, 2026-07-23 re-audit, plus dv4s's List-item
+over-wide-leak fixes for every `List*` op named above) that verified
+`ListActivities`/`ListExecutions`/`ListMapRuns`/`ListStateMachines`/
+`ListStateMachineAliases`/`ListStateMachineVersions` each already emit a
+correctly-narrow `*ListItem` struct with all of ITS required members
+present and non-omitempty -- re-spot-checked one (`ActivityListItem`) against
+`types.go` rather than re-deriving all six from scratch; all six confirmed
+still correct, 0 bugs there. Did NOT trust the existing `DescribeMapRun`
+and `GetExecutionHistory` "wire: ok" verdicts for this specific bug class --
+both were re-derived field-by-field and both were wrong (see below).
+
+### 4 bugs found and fixed, all proven via real `aws-sdk-go-v2/service/sfn`
+### client round-trip tests (`wire_output_required_r80d_test.go`)
+
+1. **`TaskScheduledEventDetails.Region`/`.Parameters`** (types.go:1311-1339,
+   both required). `RecordTaskScheduled` (execution_history.go) only ever
+   set `Resource`/`ResourceType`; `Region`/`Parameters` were never assigned
+   at all, decoding as empty strings on every real client's
+   `GetExecutionHistory` call for any Task-state execution -- the common
+   case, not an edge case. Fixed by threading the resolved (post-Parameters-
+   template) task input through as `Parameters`, and deriving `Region` via
+   the same `regionFromARN(resource, backend.region)` helper already used
+   for activity ARNs (`activities.go:138`), applied here to the Task
+   state's resource ARN instead.
+2. **`TaskSucceededEventDetails.Resource`/`.ResourceType`**
+   (types.go:1431-1450, both required). `RecordTaskSucceeded` never set
+   either field. Fixed by threading `state.Resource` through from
+   `executeTask`'s already-in-scope `state` (asl/executor.go).
+3. **`TaskFailedEventDetails.Resource`/`.ResourceType`**
+   (types.go:1289-1307, both required). `RecordTaskFailed` never set either
+   field on either of its two call sites (the direct-failure path in
+   `executeTask` and the Catcher path in `checkCatchers`), both of which
+   already have `state` in scope. Fixed the same way.
+   `asl.HistoryRecorder`'s `RecordTaskSucceeded`/`RecordTaskFailed` (an
+   exported interface) both gained a `resource string` parameter to carry
+   this through; the one other implementation (`mockHistoryRecorder`,
+   asl/executor_test.go) was updated to match. `go build ./...`,
+   `go vet -tags e2e ./...`, `go vet -tags integration ./...` all re-run
+   repo-wide and clean.
+4. **`DescribeMapRun`'s `ExecutionCounts`** (api_op_DescribeMapRun.go:57,
+   required; `types.MapRunExecutionCounts`, types.go:841-906) had no backing
+   field on `MapRun` at all -- see the REVERSED note on `DescribeMapRun`
+   above for why the prior pass's "correctly so" verdict was wrong, and why
+   the fix is a genuinely-zero (not fabricated) `MapRunExecutionCounts`,
+   always marshaled. Verified via the AWS API reference page for
+   `DescribeMapRun` (fetched to check whether it documents ExecutionCounts
+   mirroring ItemCounts for non-distributed Map Runs before considering
+   that derivation -- it does not make that claim anywhere, so this pass
+   did not fabricate that mapping and used genuine zeros instead).
+
+### Reviewed, not a bug
+
+- **`ValidateStateMachineDefinitionDiagnostic.Severity`** counted above as
+  fixed (added to the map), but two adjacent fields on the same struct were
+  checked and found fine: `Code`/`Message` are both already populated
+  (`"SCHEMA_VALIDATION_FAILED"`/`err.Error()`) -- `Code` is a free-form
+  `*string` on the real type (types.go:1560-1563), not an enum, so an
+  invented-looking constant string is not a fabrication concern the way an
+  enum value would be.
+- **`EncryptionConfiguration.Type`** (types.go, required within the struct)
+  is only ever populated from a caller-supplied `EncryptionConfiguration` on
+  `CreateStateMachine`/`UpdateStateMachine`/`CreateActivity` -- reviewed and
+  left as-is: a real `aws-sdk-go-v2` client round trip constructing this
+  input always sets `Type` (it is the one field the SDK's own type gives no
+  zero-value-safe default for), so the omitempty-tagged zero-value case
+  needs a deliberately malformed request to reach, not a normal round trip.
+  Same "reviewed, not a bug" class the cleanrooms batch-8 note names
+  (required on input too, never actually reachable-empty from a real
+  client).
+- **`stateMachineAliasEntry.UpdateDate`** (wire key `updateDate`, required
+  on `UpdateStateMachineAlias`) is tagged `omitempty` but `UpdateStateMachineAlias`
+  (aliases.go) unconditionally sets `alias.UpdatedDate = time.Now().Unix()`
+  before returning -- the zero-value/omitted case is not reachable from any
+  code path, so left as-is rather than "fixed but not proven."
+- **`StopExecutionOutput.StopDate`** (`*float64`, no `omitempty`) is only
+  ever nil in principle if `StopExecution`'s no-op branch (already-terminal
+  execution) runs before `StopDate` was set -- traced every place
+  `exec.Status` transitions off `RUNNING`
+  (`finalizeExecutionRecordLocked`/`StopExecution` itself) and confirmed
+  each one sets `StopDate` in the same statement, so the no-op branch is
+  never reached with a nil `StopDate`. Not reachable, not a bug.
+- **`RoutingConfigurationListItem`** (`StateMachineVersionArn`/`Weight`,
+  both required) matches `AliasRoutingConfig` exactly, both fields already
+  non-`omitempty`. Clean.
+- **`ActivityListItem`/`ExecutionListItem`/`MapRunListItem`/
+  `StateMachineAliasListItem`/`StateMachineListItem`/
+  `StateMachineVersionListItem`** -- all six re-verified against
+  `types.go` field-by-field (see "trusted vs re-derived" above); all
+  required members present, non-`omitempty`. Clean, matches this file's
+  existing `dv4s`-pass notes.
+
+### Structurally unmodeled event kinds (disclosed, not fixed)
+
+Nine `*EventDetails` types this pass read against `types.go` have required
+members (`ActivityScheduledEventDetails.Resource`,
+`LambdaFunctionScheduledEventDetails.Resource`,
+`EvaluationFailedEventDetails.State`, `TaskStartedEventDetails.Resource`/
+`.ResourceType`, `TaskSubmittedEventDetails.Resource`/`.ResourceType`,
+`TaskStartFailedEventDetails.Resource`/`.ResourceType`,
+`TaskSubmitFailedEventDetails.Resource`/`.ResourceType`,
+`TaskTimedOutEventDetails.Resource`/`.ResourceType`) but this backend never
+emits the corresponding `HistoryEventType` values at all -- `execution_history.go`'s
+`historyRecorder` only ever produces
+`TaskScheduled`/`TaskSucceeded`/`TaskFailed` (generic, resource-agnostic
+event kinds) regardless of resource type or `.sync`/`.waitForTaskToken`
+integration pattern, never the Lambda-specific
+(`LambdaFunctionScheduled`/...), Activity-specific
+(`ActivityScheduled`/...), or submitted/started/timed-out variants real AWS
+emits for those patterns. Since no `HistoryEvent` in this emulator ever
+claims to be one of these kinds, there is no reachable case where an
+incomplete instance of one of these structs is returned -- this is the
+`GetExecutionHistory` scope of bd gopherstack-996 that remains open (a
+missing-feature gap, not a dropped-required-field bug), not something this
+pass fixed or fabricated a partial implementation of. Also confirmed via
+`asl.HistoryRecorder`'s interface: it has no method for any of these event
+kinds, and adding real Lambda/Activity-specific event-type differentiation
+(the `arn:aws:lambda:...` vs `arn:aws:states:::lambda:invoke` resource-form
+distinction real AWS uses) is out of this cut's scope -- a wire-shape
+feature gap, not a required-output-field bug, tracked at gopherstack-996.
+
+Total for this pass: 54 required output fields plus every nested
+list-item/history-event-detail struct read end to end across 23 ops with
+required output fields, 4 real bugs found and fixed, all proven via real
+`aws-sdk-go-v2/service/sfn` client round-trip tests
+(`wire_output_required_r80d_test.go`), each hand-reverted (all 5 touched
+files reverted to `HEAD` together, confirmed all 4 tests fail against the
+pre-fix code), confirmed failing, restored, `md5sum`-verified byte-identical.

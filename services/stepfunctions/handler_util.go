@@ -30,8 +30,9 @@ func (h *Handler) utilActions() map[string]actionFn {
 				return &validateStateMachineDefinitionOutput{
 					Result: "FAIL",
 					Diagnostics: []any{map[string]string{
-						"message": err.Error(),
-						"code":    "SCHEMA_VALIDATION_FAILED",
+						"message":  err.Error(),
+						"code":     "SCHEMA_VALIDATION_FAILED",
+						"severity": "ERROR",
 					}},
 				}, nil
 			}

@@ -117,22 +117,26 @@ func (r *historyRecorder) RecordStateExited(execARN, stateName, stateType string
 	})
 }
 
-func (r *historyRecorder) RecordTaskScheduled(execARN, _ /* stateName */, resource string) {
+func (r *historyRecorder) RecordTaskScheduled(execARN, _ /* stateName */, resource string, parameters any) {
 	r.backend.appendHistory(execARN, &HistoryEvent{
 		Timestamp: float64(time.Now().Unix()),
 		Type:      "TaskScheduled",
 		TaskScheduledEventDetails: &TaskScheduledEventDetails{
 			Resource:     resource,
 			ResourceType: resourceTypeFromResource(resource),
+			Region:       regionFromARN(resource, r.backend.region),
+			Parameters:   historyValueToJSON(parameters),
 		},
 	})
 }
 
-func (r *historyRecorder) RecordTaskSucceeded(execARN, _ /* stateName */ string, output any) {
+func (r *historyRecorder) RecordTaskSucceeded(execARN, _ /* stateName */, resource string, output any) {
 	r.backend.appendHistory(execARN, &HistoryEvent{
 		Timestamp: float64(time.Now().Unix()),
 		Type:      "TaskSucceeded",
 		TaskSucceededEventDetails: &TaskSucceededEventDetails{
+			Resource:      resource,
+			ResourceType:  resourceTypeFromResource(resource),
 			Output:        historyValueToJSON(output),
 			OutputDetails: &HistoryEventExecutionDataDetails{Truncated: false},
 		},
@@ -140,14 +144,16 @@ func (r *historyRecorder) RecordTaskSucceeded(execARN, _ /* stateName */ string,
 }
 
 func (r *historyRecorder) RecordTaskFailed(
-	execARN, _ /* stateName */, errCode, cause string,
+	execARN, _ /* stateName */, resource, errCode, cause string,
 ) {
 	r.backend.appendHistory(execARN, &HistoryEvent{
 		Timestamp: float64(time.Now().Unix()),
 		Type:      "TaskFailed",
 		TaskFailedEventDetails: &TaskFailedEventDetails{
-			Error: errCode,
-			Cause: cause,
+			Resource:     resource,
+			ResourceType: resourceTypeFromResource(resource),
+			Error:        errCode,
+			Cause:        cause,
 		},
 	})
 }
