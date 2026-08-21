@@ -153,7 +153,7 @@ func TestResetClearsAllMaps(t *testing.T) {
 	h, backend := newTestHandler(t)
 
 	doRequest(t, h, "CreateActivation", `{"IamRole":"arn:aws:iam::123:role/r"}`)
-	doRequest(t, h, "CreateOpsItem", `{"Title":"t","Source":"s"}`)
+	doRequest(t, h, "CreateOpsItem", `{"Title":"t","Source":"s","Description":"d"}`)
 	doRequest(t, h, "CreateMaintenanceWindow", `{"Name":"w","Schedule":"rate(1 day)","Duration":2,"Cutoff":0}`)
 	doRequest(t, h, "CreatePatchBaseline", `{"Name":"b"}`)
 	doRequest(t, h, "CreateOpsMetadata", `{"ResourceId":"res"}`)
@@ -410,7 +410,9 @@ func TestBackendOps_GetOpsMetadata(t *testing.T) {
 
 	out, err := b.GetOpsMetadata(context.TODO(), &ssm.GetOpsMetadataInput{OpsMetadataArn: createOut.OpsMetadataArn})
 	require.NoError(t, err)
-	assert.Equal(t, createOut.OpsMetadataArn, out.OpsMetadataArn)
+	// GetOpsMetadataOutput has no OpsMetadataArn member on the real op at all
+	// (api_op_GetOpsMetadata.go) -- only Metadata/NextToken/ResourceId.
+	assert.Equal(t, "arn:aws:ec2:us-east-1:123456789012:instance/i-meta-test", out.ResourceID)
 }
 func TestBackendOps_UpdateOpsMetadata(t *testing.T) {
 	t.Parallel()

@@ -98,7 +98,7 @@ func TestCreateOpsItem_Success(t *testing.T) {
 		},
 		{
 			name:       "minimal_ops_item",
-			body:       `{"Title":"Minimal","Source":"svc"}`,
+			body:       `{"Title":"Minimal","Source":"svc","Description":"d"}`,
 			wantStatus: http.StatusOK,
 		},
 	}
@@ -138,7 +138,13 @@ func TestCreateOpsItem_ValidationErrors(t *testing.T) {
 		},
 		{
 			name:       "missing_source",
-			body:       `{"Title":"My Title"}`,
+			body:       `{"Title":"My Title","Description":"d"}`,
+			wantStatus: http.StatusBadRequest,
+			wantErr:    "ValidationException",
+		},
+		{
+			name:       "missing_description",
+			body:       `{"Title":"My Title","Source":"my-app"}`,
 			wantStatus: http.StatusBadRequest,
 			wantErr:    "ValidationException",
 		},
@@ -190,7 +196,7 @@ func TestAssociateOpsItemRelatedItem(t *testing.T) {
 
 			body := tt.body
 			if tt.createItem {
-				rec := doRequest(t, h, "CreateOpsItem", `{"Title":"item","Source":"src"}`)
+				rec := doRequest(t, h, "CreateOpsItem", `{"Title":"item","Source":"src","Description":"d"}`)
 				require.Equal(t, http.StatusOK, rec.Code)
 
 				var createResp ssm.CreateOpsItemOutput
@@ -380,7 +386,7 @@ func TestOpsItem_PriorityRoundTrip(t *testing.T) {
 	ctx := context.TODO()
 
 	created, err := b.CreateOpsItem(ctx, &ssm.CreateOpsItemInput{
-		Title: "prioritized", Source: "test", Priority: 1,
+		Title: "prioritized", Source: "test", Priority: 1, Description: "d",
 	})
 	require.NoError(t, err)
 
@@ -419,15 +425,21 @@ func TestOpsItem_ChangeManagerFieldsRoundTrip(t *testing.T) {
 
 	cases := []struct {
 		update *ssm.UpdateOpsItemInput
-		check  func(t *testing.T, item ssm.OpsItem)
+		check  func(t *testing.T, item ssm.OpsItemOutput)
 		name   string
 		create ssm.CreateOpsItemInput
 	}{
 		{
+			// AccountId is intentionally NOT asserted here: it is tracked
+			// internally (DescribeOpsItems' AccountId filter key), but never
+			// wire-visible -- the real GetOpsItemOutput/DescribeOpsItems
+			// response types (types.OpsItem/types.OpsItemSummary) have no
+			// AccountId member at all. See TestGetOpsItem_AccountIdNotOnWire.
 			name: "create_populates_change_manager_fields",
 			create: ssm.CreateOpsItemInput{
 				Title:            "change request",
 				Source:           "test",
+				Description:      "d",
 				OpsItemType:      "/aws/changerequest",
 				AccountID:        "123456789012",
 				PlannedStartTime: &plannedStart,
@@ -435,9 +447,8 @@ func TestOpsItem_ChangeManagerFieldsRoundTrip(t *testing.T) {
 				Notifications:    []ssm.OpsItemNotification{{Arn: "arn:aws:sns:us-east-1:123456789012:topic"}},
 				RelatedOpsItems:  []ssm.RelatedOpsItemRef{{OpsItemID: "oi-other"}},
 			},
-			check: func(t *testing.T, item ssm.OpsItem) {
+			check: func(t *testing.T, item ssm.OpsItemOutput) {
 				t.Helper()
-				assert.Equal(t, "123456789012", item.AccountID)
 				require.NotNil(t, item.PlannedStartTime)
 				assert.InDelta(t, plannedStart, *item.PlannedStartTime, 0)
 				require.NotNil(t, item.PlannedEndTime)
@@ -453,6 +464,7 @@ func TestOpsItem_ChangeManagerFieldsRoundTrip(t *testing.T) {
 			create: ssm.CreateOpsItemInput{
 				Title:       "change request 2",
 				Source:      "test",
+				Description: "d",
 				OpsItemType: "/aws/changerequest",
 			},
 			update: &ssm.UpdateOpsItemInput{
@@ -460,7 +472,7 @@ func TestOpsItem_ChangeManagerFieldsRoundTrip(t *testing.T) {
 				ActualEndTime:   &actualEnd,
 				RelatedOpsItems: []ssm.RelatedOpsItemRef{{OpsItemID: "oi-related-1"}, {OpsItemID: "oi-related-2"}},
 			},
-			check: func(t *testing.T, item ssm.OpsItem) {
+			check: func(t *testing.T, item ssm.OpsItemOutput) {
 				t.Helper()
 				require.NotNil(t, item.ActualStartTime)
 				assert.InDelta(t, actualStart, *item.ActualStartTime, 0)
@@ -625,14 +637,16 @@ func TestFull_OpsItem_FilterByStatus(t *testing.T) {
 	h := newHandler()
 
 	_, out1 := postJSON(t, h, "CreateOpsItem", map[string]any{
-		"Title":  "Item A",
-		"Source": "manual",
+		"Title":       "Item A",
+		"Source":      "manual",
+		"Description": "d",
 	})
 	id1 := out1["OpsItemId"].(string)
 
 	postJSON(t, h, "CreateOpsItem", map[string]any{
-		"Title":  "Item B",
-		"Source": "manual",
+		"Title":       "Item B",
+		"Source":      "manual",
+		"Description": "d",
 	})
 
 	// Close item A
@@ -651,7 +665,10 @@ func TestFull_OpsItem_FilterByStatus(t *testing.T) {
 	assert.Len(t, items, 1)
 }
 
-// TestCreateOpsItem_Validation covers Title and Source validation.
+// TestCreateOpsItem_Validation covers Title, Source and Description
+// validation. Description is required on the real op
+// (api_op_CreateOpsItem.go marks it "This member is required.") but was
+// previously unvalidated.
 func TestCreateOpsItem_Validation(t *testing.T) {
 	t.Parallel()
 
@@ -663,25 +680,36 @@ func TestCreateOpsItem_Validation(t *testing.T) {
 		{
 			name: "missing_title",
 			input: ssm.CreateOpsItemInput{
-				Title:  "",
-				Source: "my-service",
+				Title:       "",
+				Source:      "my-service",
+				Description: "d",
 			},
 			wantErr: true,
 		},
 		{
 			name: "missing_source",
 			input: ssm.CreateOpsItemInput{
+				Title:       "Some issue",
+				Source:      "",
+				Description: "d",
+			},
+			wantErr: true,
+		},
+		{
+			name: "missing_description",
+			input: ssm.CreateOpsItemInput{
 				Title:  "Some issue",
-				Source: "",
+				Source: "my-service",
 			},
 			wantErr: true,
 		},
 		{
 			name: "valid_ops_item_with_tags",
 			input: ssm.CreateOpsItemInput{
-				Title:  "Valid OpsItem",
-				Source: "myapp",
-				Tags:   []ssm.Tag{{Key: "env", Value: "prod"}},
+				Title:       "Valid OpsItem",
+				Source:      "myapp",
+				Description: "d",
+				Tags:        []ssm.Tag{{Key: "env", Value: "prod"}},
 			},
 			wantErr: false,
 		},
@@ -744,8 +772,9 @@ func TestUpdateOpsItem_Branches(t *testing.T) {
 
 			if !tt.wantErr {
 				out, err := b.CreateOpsItem(context.TODO(), &ssm.CreateOpsItemInput{
-					Title:  "Initial Title",
-					Source: "test",
+					Title:       "Initial Title",
+					Source:      "test",
+					Description: "d",
 				})
 				require.NoError(t, err)
 				tt.update.OpsItemID = out.OpsItemID
@@ -812,13 +841,15 @@ func TestOpsItemMatchesFilters(t *testing.T) {
 
 			b := ssm.NewInMemoryBackend()
 			_, err := b.CreateOpsItem(context.TODO(), &ssm.CreateOpsItemInput{
-				Title:  "Alpha Issue",
-				Source: "source-a",
+				Title:       "Alpha Issue",
+				Source:      "source-a",
+				Description: "d",
 			})
 			require.NoError(t, err)
 			_, err = b.CreateOpsItem(context.TODO(), &ssm.CreateOpsItemInput{
-				Title:  "Beta Issue",
-				Source: "source-b",
+				Title:       "Beta Issue",
+				Source:      "source-b",
+				Description: "d",
 			})
 			require.NoError(t, err)
 
@@ -837,8 +868,9 @@ func TestOpsItem_OperationalData_CreateAndUpdate(t *testing.T) {
 
 	// Create with initial OperationalData.
 	item, err := b.CreateOpsItem(context.TODO(), &ssm.CreateOpsItemInput{
-		Title:  "DB Connection Failure",
-		Source: "ec2",
+		Title:       "DB Connection Failure",
+		Source:      "ec2",
+		Description: "d",
 		OperationalData: map[string]ssm.OpsItemDataValue{
 			"/aws/resources": {
 				Type:  "SearchableString",
@@ -914,6 +946,7 @@ func TestOpsItem_OperationalData_TableDriven(t *testing.T) {
 			item, err := b.CreateOpsItem(context.TODO(), &ssm.CreateOpsItemInput{
 				Title:           "Test Item",
 				Source:          "test",
+				Description:     "d",
 				OperationalData: tt.initialData,
 			})
 			require.NoError(t, err)
@@ -941,8 +974,9 @@ func TestOpsItemEvents_TrackCreates(t *testing.T) {
 	h, b := newTestHandler(t)
 
 	item, err := b.CreateOpsItem(context.TODO(), &ssm.CreateOpsItemInput{
-		Title:  "Tracked Item",
-		Source: "automation",
+		Title:       "Tracked Item",
+		Source:      "automation",
+		Description: "d",
 	})
 	require.NoError(t, err)
 
@@ -963,8 +997,9 @@ func TestOpsItemEvents_TrackUpdates(t *testing.T) {
 	h, b := newTestHandler(t)
 
 	item, err := b.CreateOpsItem(context.TODO(), &ssm.CreateOpsItemInput{
-		Title:  "Updated Item",
-		Source: "ec2",
+		Title:       "Updated Item",
+		Source:      "ec2",
+		Description: "d",
 	})
 	require.NoError(t, err)
 
@@ -991,9 +1026,11 @@ func TestOpsItemEvents_FilterByOpsItemID(t *testing.T) {
 
 	h, b := newTestHandler(t)
 
-	item1, err := b.CreateOpsItem(context.TODO(), &ssm.CreateOpsItemInput{Title: "Item 1", Source: "ec2"})
+	item1, err := b.CreateOpsItem(context.TODO(),
+		&ssm.CreateOpsItemInput{Title: "Item 1", Source: "ec2", Description: "d"})
 	require.NoError(t, err)
-	item2, err := b.CreateOpsItem(context.TODO(), &ssm.CreateOpsItemInput{Title: "Item 2", Source: "rds"})
+	item2, err := b.CreateOpsItem(context.TODO(),
+		&ssm.CreateOpsItemInput{Title: "Item 2", Source: "rds", Description: "d"})
 	require.NoError(t, err)
 
 	// Filter by item1 — should only get item1 events.
@@ -1039,10 +1076,11 @@ func TestUpdateOpsItem_TableDriven(t *testing.T) {
 			opsItemID := "oi-nonexistent"
 			if tt.setupFirst {
 				item, err := b.CreateOpsItem(context.Background(), &ssm.CreateOpsItemInput{
-					Title:    "Original Title",
-					Source:   "test",
-					Severity: "2",
-					Category: "Performance",
+					Title:       "Original Title",
+					Source:      "test",
+					Description: "d",
+					Severity:    "2",
+					Category:    "Performance",
 				})
 				require.NoError(t, err)
 				opsItemID = item.OpsItemID
@@ -1058,6 +1096,42 @@ func TestUpdateOpsItem_TableDriven(t *testing.T) {
 			if tt.wantErrMsg != "" {
 				assert.Contains(t, rec.Body.String(), tt.wantErrMsg)
 			}
+		})
+	}
+}
+
+// TestOpsItemRelatedItemOps_RequireRequiredFields locks in that
+// AssociateOpsItemRelatedItem requires AssociationType/ResourceType/
+// ResourceUri and DisassociateOpsItemRelatedItem requires OpsItemId and
+// AssociationId (api_op_AssociateOpsItemRelatedItem.go,
+// api_op_DisassociateOpsItemRelatedItem.go both mark every one of these
+// "This member is required."). Previously DisassociateOpsItemRelatedItem
+// silently accepted an empty body and returned 200.
+func TestOpsItemRelatedItemOps_RequireRequiredFields(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		op   string
+		body string
+	}{
+		{name: "associate_missing_fields", op: "AssociateOpsItemRelatedItem", body: `{"OpsItemId":"oi-x"}`},
+		{name: "disassociate_empty_body", op: "DisassociateOpsItemRelatedItem", body: `{}`},
+		{
+			name: "disassociate_missing_association_id",
+			op:   "DisassociateOpsItemRelatedItem",
+			body: `{"OpsItemId":"oi-x"}`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, _ := newTestHandler(t)
+			rec := doRequest(t, h, tt.op, tt.body)
+			assert.Equal(t, http.StatusBadRequest, rec.Code, "op=%s body=%s", tt.op, rec.Body.String())
+			assert.Contains(t, rec.Body.String(), "ValidationException")
 		})
 	}
 }

@@ -13,6 +13,27 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
+const (
+	signalTypeApprove   = "Approve"
+	signalTypeReject    = "Reject"
+	signalTypeStartStep = "StartStep"
+	signalTypeStopStep  = "StopStep"
+	signalTypeResume    = "Resume"
+	signalTypeRevoke    = "Revoke"
+)
+
+// isValidSignalType reports whether s is a real SDK SignalType enum value
+// (types/enums.go).
+func isValidSignalType(s string) bool {
+	switch s {
+	case signalTypeApprove, signalTypeReject, signalTypeStartStep, signalTypeStopStep,
+		signalTypeResume, signalTypeRevoke:
+		return true
+	default:
+		return false
+	}
+}
+
 func (b *InMemoryBackend) automationExecutionsStore(region string) *store.Table[AutomationExecution] {
 	return getOrCreateTable(
 		b, b.automationExecutions, "automationExecutions", region, automationExecutionKeyFn,
@@ -27,6 +48,10 @@ func (b *InMemoryBackend) StartAutomationExecution(
 	ctx context.Context,
 	input *StartAutomationExecutionInput,
 ) (*StartAutomationExecutionOutputFull, error) {
+	if input.DocumentName == "" {
+		return nil, fmt.Errorf("%w: DocumentName is required", ErrValidationException)
+	}
+
 	region := getRegion(ctx)
 	b.mu.Lock("StartAutomationExecution")
 	defer b.mu.Unlock()
@@ -46,8 +71,9 @@ func (b *InMemoryBackend) StartAutomationExecution(
 		Parameters:            input.Parameters,
 		Status:                automationStatusInProgress,
 		StartTime:             UnixTimeFloat(now),
-		ExecutionType:         "Standard",
 		Mode:                  mode,
+		MaxConcurrency:        input.MaxConcurrency,
+		MaxErrors:             input.MaxErrors,
 		Steps:                 b.buildAutomationSteps(region, input.DocumentName),
 	}
 
@@ -179,45 +205,75 @@ func (b *InMemoryBackend) DescribeAutomationExecutions(
 	return &DescribeAutomationExecutionsOutputFull{AutomationExecutionMetadataList: page, NextToken: next}, nil
 }
 
-// StopAutomationExecution marks an automation execution as stopped.
+// StopAutomationExecution marks an automation execution as stopped. Type
+// (Cancel/Complete, types.StopType) selects the terminal status: Complete
+// finishes the execution successfully, Cancel (the default, matching the
+// real op's own doc comment) cancels it. Real AutomationExecutionStatus
+// (types/enums.go) has no "Stopped" value at all -- Cancelled is correct.
 func (b *InMemoryBackend) StopAutomationExecution(
 	ctx context.Context,
 	input *StopAutomationExecutionInput,
 ) (*StopAutomationExecutionOutput, error) {
+	if input.AutomationExecutionID == "" {
+		return nil, fmt.Errorf("%w: AutomationExecutionId is required", ErrValidationException)
+	}
+
 	region := getRegion(ctx)
 	b.mu.Lock("StopAutomationExecution")
 	defer b.mu.Unlock()
 
-	if exec, exists := b.automationExecutionsStore(region).Get(input.AutomationExecutionID); exists {
-		exec.Status = automationStatusStopped
-		exec.EndTime = UnixTimeFloat(time.Now().UTC())
+	exec, exists := b.automationExecutionsStore(region).Get(input.AutomationExecutionID)
+	if !exists {
+		return nil, fmt.Errorf("%w: %q", ErrAutomationExecutionNotFound, input.AutomationExecutionID)
 	}
+
+	if input.Type == "Complete" {
+		exec.Status = automationStatusSuccess
+	} else {
+		exec.Status = automationStatusCancelled
+	}
+
+	exec.EndTime = UnixTimeFloat(time.Now().UTC())
 
 	return &StopAutomationExecutionOutput{}, nil
 }
 
 // SendAutomationSignal sends a signal to an automation execution.
-// Approve/Reject signals update the execution status accordingly.
+// Approve/Reject signals update the execution status accordingly. Payload
+// (real, required for StartStep/StopStep/Resume to name the target step) is
+// accepted but not consulted -- this backend has no per-step InProgress/
+// Waiting state for a signal to target (completeAutomationLocked drives every
+// step straight to Success), same simplification already disclosed for
+// WarningMessage.
 func (b *InMemoryBackend) SendAutomationSignal(
 	ctx context.Context,
 	input *SendAutomationSignalInput,
 ) (*SendAutomationSignalOutput, error) {
+	if input.AutomationExecutionID == "" {
+		return nil, fmt.Errorf("%w: AutomationExecutionId is required", ErrValidationException)
+	}
+
+	if !isValidSignalType(input.SignalType) {
+		return nil, fmt.Errorf("%w: SignalType %q is not a recognized signal type",
+			ErrValidationException, input.SignalType)
+	}
+
 	region := getRegion(ctx)
 	b.mu.Lock("SendAutomationSignal")
 	defer b.mu.Unlock()
 
 	exec, exists := b.automationExecutionsStore(region).Get(input.AutomationExecutionID)
 	if !exists {
-		return &SendAutomationSignalOutput{}, nil
+		return nil, fmt.Errorf("%w: %q", ErrAutomationExecutionNotFound, input.AutomationExecutionID)
 	}
 
 	switch input.SignalType {
-	case "Approve":
+	case signalTypeApprove:
 		exec.Status = "Approved"
-	case "Reject":
+	case signalTypeReject:
 		exec.Status = "Rejected"
-	case "StopStep":
-		exec.Status = automationStatusStopped
+	case signalTypeStopStep:
+		exec.Status = automationStatusCancelled
 	}
 
 	return &SendAutomationSignalOutput{}, nil
@@ -228,6 +284,10 @@ func (b *InMemoryBackend) DescribeAutomationStepExecutions(
 	ctx context.Context,
 	input *DescribeAutomationStepExecutionsInput,
 ) (*DescribeAutomationStepExecutionsOutputFull, error) {
+	if input.AutomationExecutionID == "" {
+		return nil, fmt.Errorf("%w: AutomationExecutionId is required", ErrValidationException)
+	}
+
 	region := getRegion(ctx)
 	b.mu.Lock("DescribeAutomationStepExecutions")
 	defer b.mu.Unlock()
@@ -284,7 +344,9 @@ func (b *InMemoryBackend) StartChangeRequestExecution(
 		DocumentName:          input.DocumentName,
 		Status:                automationStatusInProgress,
 		StartTime:             UnixTimeFloat(time.Now().UTC()),
-		ExecutionType:         "ChangeRequest",
+		AutomationSubtype:     "ChangeRequest",
+		MaxConcurrency:        input.Runbooks[0].MaxConcurrency,
+		MaxErrors:             input.Runbooks[0].MaxErrors,
 		Runbooks:              input.Runbooks,
 		Steps:                 b.buildAutomationSteps(region, input.Runbooks[0].DocumentName),
 	}
@@ -298,6 +360,10 @@ func (b *InMemoryBackend) StartExecutionPreview(
 	ctx context.Context,
 	input *StartExecutionPreviewInput,
 ) (*StartExecutionPreviewOutputFull, error) {
+	if input.DocumentName == "" {
+		return nil, fmt.Errorf("%w: DocumentName is required", ErrValidationException)
+	}
+
 	region := getRegion(ctx)
 	b.mu.Lock("StartExecutionPreview")
 	defer b.mu.Unlock()
@@ -317,6 +383,10 @@ func (b *InMemoryBackend) GetExecutionPreview(
 	ctx context.Context,
 	input *GetExecutionPreviewInput,
 ) (*GetExecutionPreviewOutputFull, error) {
+	if input.ExecutionPreviewID == "" {
+		return nil, fmt.Errorf("%w: ExecutionPreviewId is required", ErrValidationException)
+	}
+
 	region := getRegion(ctx)
 	b.mu.RLock("GetExecutionPreview")
 	defer b.mu.RUnlock()
@@ -347,7 +417,7 @@ func (b *InMemoryBackend) GetCalendarState(
 	input *GetCalendarStateInput,
 ) (*GetCalendarStateOutputFull, error) {
 	if len(input.CalendarNames) == 0 {
-		return &GetCalendarStateOutputFull{State: calendarStateOpen}, nil
+		return nil, fmt.Errorf("%w: CalendarNames is required", ErrValidationException)
 	}
 
 	region := getRegion(ctx)
@@ -370,5 +440,10 @@ func (b *InMemoryBackend) GetCalendarState(
 		}
 	}
 
-	return &GetCalendarStateOutputFull{State: calendarStateOpen}, nil
+	atTime := input.AtTime
+	if atTime == "" {
+		atTime = time.Now().UTC().Format(time.RFC3339)
+	}
+
+	return &GetCalendarStateOutputFull{State: calendarStateOpen, AtTime: atTime}, nil
 }

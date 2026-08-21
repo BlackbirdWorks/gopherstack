@@ -58,14 +58,54 @@ func TestStubOps_SimpleCalls(t *testing.T) {
 	// Name and DocumentVersion are both required on the real op but an empty
 	// body previously returned a silent empty-success stub instead of
 	// ValidationException. See TestUpdateDocumentDefaultVersion_RequiresFields.
+	// DescribeAssociationExecutionTargets, DescribeAssociationExecutions,
+	// ListAssociationVersions and StartAssociationsOnce are also NOT listed
+	// here (gopherstack-enpq): AssociationId (the first three) and
+	// AssociationIds (the last) are all required on the real ops
+	// (api_op_DescribeAssociationExecutionTargets.go,
+	// api_op_DescribeAssociationExecutions.go,
+	// api_op_ListAssociationVersions.go, api_op_StartAssociationsOnce.go) but
+	// an empty body previously returned a silent empty-success stub instead
+	// of ValidationException. See TestAssociationOps_RequireAssociationID in
+	// associations_test.go.
+	// GetCalendarState, DescribeAutomationStepExecutions, GetExecutionPreview,
+	// SendAutomationSignal, StartAutomationExecution, StartExecutionPreview
+	// and StopAutomationExecution are also NOT listed here (gopherstack-enpq):
+	// CalendarNames/AutomationExecutionId/ExecutionPreviewId/
+	// (AutomationExecutionId+SignalType)/DocumentName/DocumentName/
+	// AutomationExecutionId respectively are all required on the real ops but
+	// an empty body previously returned a silent empty-success stub instead
+	// of ValidationException -- see automations_test.go
+	// (TestGetCalendarState_RequiresCalendarNames and the *_Lifecycle/
+	// *_RealClient tests) and wire_field_fixes_test.go.
+	// DescribeAutomationExecutions stays on this list: its real input
+	// (Filters/MaxResults/NextToken) is entirely optional.
+	// DisassociateOpsItemRelatedItem is also NOT listed here (gopherstack-enpq):
+	// OpsItemId and AssociationId are both required on the real op
+	// (api_op_DisassociateOpsItemRelatedItem.go) but an empty body previously
+	// returned a silent empty-success stub instead of ValidationException.
+	// See TestOpsItemRelatedItemOps_RequireRequiredFields in ops_items_test.go.
+	// DescribeMaintenanceWindowExecutionTaskInvocations/-Tasks/-Executions,
+	// DescribeMaintenanceWindowTargets/-Tasks, DescribeMaintenanceWindowsForTarget,
+	// and GetMaintenanceWindowExecution/-Task/-TaskInvocation/GetMaintenanceWindowTask
+	// are also NOT listed here (gopherstack-enpq): each has at least one
+	// required field on the real op (WindowExecutionId+TaskId /
+	// WindowExecutionId / WindowId / WindowId / WindowId /
+	// ResourceType+Targets / WindowExecutionId / WindowExecutionId+
+	// TaskExecutionId / WindowExecutionId+TaskExecutionId+InvocationId /
+	// WindowId+WindowTaskId respectively) that was previously entirely
+	// unvalidated -- every one of these ops fabricated a synthetic
+	// "Succeeded" execution/task/invocation record even for a body missing
+	// every field. See TestMaintenanceWindowOps_RequireRequiredFields in
+	// maintenance_window_execution_test.go.
+	// DescribeMaintenanceWindowSchedule stays on this list: its real input
+	// (Filters/MaxResults/NextToken/ResourceType/Targets/WindowId) is
+	// entirely optional.
 	ops := []string{
 		"DeleteInventory",
 		"DeregisterManagedInstance",
 		"DescribeActivations",
-		"DescribeAssociationExecutionTargets",
-		"DescribeAssociationExecutions",
 		"DescribeAutomationExecutions",
-		"DescribeAutomationStepExecutions",
 		"DescribeAvailablePatches",
 		"DescribeEffectiveInstanceAssociations",
 		"DescribeEffectivePatchesForPatchBaseline",
@@ -76,34 +116,20 @@ func TestStubOps_SimpleCalls(t *testing.T) {
 		"DescribeInstancePatches",
 		"DescribeInstanceProperties",
 		"DescribeInventoryDeletions",
-		"DescribeMaintenanceWindowExecutionTaskInvocations",
-		"DescribeMaintenanceWindowExecutionTasks",
-		"DescribeMaintenanceWindowExecutions",
 		"DescribeMaintenanceWindowSchedule",
-		"DescribeMaintenanceWindowTargets",
-		"DescribeMaintenanceWindowTasks",
-		"DescribeMaintenanceWindowsForTarget",
 		"DescribePatchGroupState",
 		"DescribePatchGroups",
 		"DescribePatchProperties",
 		"DescribeSessions",
-		"DisassociateOpsItemRelatedItem",
-		"GetCalendarState",
 		"GetConnectionStatus",
 		"GetDeployablePatchSnapshotForInstance",
-		"GetExecutionPreview",
 		"GetInventory",
 		"GetInventorySchema",
-		"GetMaintenanceWindowExecution",
-		"GetMaintenanceWindowExecutionTask",
-		"GetMaintenanceWindowExecutionTaskInvocation",
-		"GetMaintenanceWindowTask",
 		"GetOpsSummary",
 		"GetPatchBaselineForPatchGroup",
 		"GetResourcePolicies",
 		"GetServiceSetting",
 		"LabelParameterVersion",
-		"ListAssociationVersions",
 		"ListAssociations",
 		"ListComplianceItems",
 		"ListComplianceSummaries",
@@ -118,12 +144,7 @@ func TestStubOps_SimpleCalls(t *testing.T) {
 		"RegisterDefaultPatchBaseline",
 		"ResetServiceSetting",
 		"ResumeSession",
-		"SendAutomationSignal",
-		"StartAssociationsOnce",
-		"StartAutomationExecution",
-		"StartExecutionPreview",
 		"StartSession",
-		"StopAutomationExecution",
 		"TerminateSession",
 		"UnlabelParameterVersion",
 		"UpdateManagedInstanceRole",
@@ -572,6 +593,15 @@ func TestCreateMaintenanceWindow_Validation(t *testing.T) {
 				Duration: 4,
 				Cutoff:   1,
 				Schedule: "cron(0 2 * * ? *)",
+			},
+			wantErr: true,
+		},
+		{
+			name: "schedule_empty",
+			input: ssm.CreateMaintenanceWindowInput{
+				Name:     "mw-test",
+				Duration: 4,
+				Cutoff:   1,
 			},
 			wantErr: true,
 		},

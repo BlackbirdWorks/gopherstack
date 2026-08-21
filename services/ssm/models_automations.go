@@ -58,10 +58,13 @@ type GetExecutionPreviewInput struct {
 // GetExecutionPreviewOutput is the response payload.
 type GetExecutionPreviewOutput struct{}
 
-// SendAutomationSignalInput is the request payload.
+// SendAutomationSignalInput is the request payload. Payload (real, required
+// for StartStep/StopStep/Resume signal types to name the target step) is
+// accepted but not consulted -- see SendAutomationSignal's doc comment.
 type SendAutomationSignalInput struct {
-	AutomationExecutionID string `json:"AutomationExecutionId"`
-	SignalType            string `json:"SignalType,omitempty"`
+	Payload               map[string][]string `json:"Payload,omitempty"`
+	AutomationExecutionID string              `json:"AutomationExecutionId"`
+	SignalType            string              `json:"SignalType,omitempty"`
 }
 
 // StartAutomationExecutionInput is the request payload.
@@ -107,9 +110,11 @@ type StartExecutionPreviewInput struct {
 // StartExecutionPreviewOutput is the response payload.
 type StartExecutionPreviewOutput struct{}
 
-// StopAutomationExecutionInput is the request payload.
+// StopAutomationExecutionInput is the request payload. Type selects Cancel
+// (the default) or Complete (real SDK types.StopType).
 type StopAutomationExecutionInput struct {
 	AutomationExecutionID string `json:"AutomationExecutionId"`
+	Type                  string `json:"Type,omitempty"`
 }
 
 // AutomationExecution represents a running or completed SSM automation execution.
@@ -120,9 +125,18 @@ type AutomationExecution struct {
 	DocumentName          string              `json:"DocumentName"`
 	DocumentVersion       string              `json:"DocumentVersion"`
 	Status                string              `json:"AutomationExecutionStatus"`
-	ExecutionType         string              `json:"ExecutionType"`
 	AutomationExecutionID string              `json:"AutomationExecutionId"`
 	FailureMessage        string              `json:"FailureMessage,omitempty"`
+	// AutomationSubtype (real SDK types.AutomationExecution.AutomationSubtype,
+	// types.go:874) -- "Currently, the only supported value is ChangeRequest";
+	// omitted for standard executions, matching real AWS. There is no real
+	// "ExecutionType" member on either AutomationExecution or
+	// AutomationExecutionMetadata at all -- that wire key belongs to the
+	// unrelated ComplianceExecutionSummary type
+	// (deserializers.go:27630/models_inventory.go's own ExecutionType field).
+	AutomationSubtype string `json:"AutomationSubtype,omitempty"`
+	MaxConcurrency    string `json:"MaxConcurrency,omitempty"`
+	MaxErrors         string `json:"MaxErrors,omitempty"`
 	// Never populated: real SSM sets this for a non-critical issue its engine
 	// detects mid-run (types.go:801-803), but every execution here always
 	// completes every step to Success (completeAutomationLocked) with no
@@ -178,6 +192,7 @@ type DescribeAutomationStepExecutionsOutputFull struct {
 // GetCalendarStateOutputFull has a State field.
 type GetCalendarStateOutputFull struct {
 	State              string `json:"State"`
+	AtTime             string `json:"AtTime,omitempty"`
 	NextTransitionTime string `json:"NextTransitionTime,omitempty"`
 }
 

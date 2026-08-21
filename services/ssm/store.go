@@ -398,17 +398,19 @@ func (b *InMemoryBackend) Region() string { return defaultRegion }
 const (
 	automationStatusPending    = "Pending"
 	automationStatusInProgress = "InProgress"
-	automationStatusStopped    = "Stopped"
-	automationStatusSuccess    = "Success"
-	automationStatusFailed     = "Failed"
-	calendarStateOpen          = "OPEN"
-	policyIDPrefix             = "pol-"
-	previewIDPrefix            = "ep-"
-	connectionStatusConnected  = "connected"
-	settingStatusCustomized    = "Customized"
-	settingStatusDefault       = "Default"
-	platformTypeLinux          = "Linux"
-	mwExecutionScheduleHours   = 24
+	// automationStatusCancelled is the real AutomationExecutionStatus enum
+	// value (types/enums.go); there is no "Stopped" value in the real API.
+	automationStatusCancelled = "Cancelled"
+	automationStatusSuccess   = "Success"
+	automationStatusFailed    = "Failed"
+	calendarStateOpen         = "OPEN"
+	policyIDPrefix            = "pol-"
+	previewIDPrefix           = "ep-"
+	connectionStatusConnected = "connected"
+	settingStatusCustomized   = "Customized"
+	settingStatusDefault      = "Default"
+	platformTypeLinux         = "Linux"
+	mwExecutionScheduleHours  = 24
 )
 
 // timeNow is a variable so tests can override it.

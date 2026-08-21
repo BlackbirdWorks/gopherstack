@@ -389,6 +389,8 @@ func classifySSMErrorExtended(reqErr error) (string, int) {
 		return "ActivationNotFound", statusCode
 	case errors.Is(reqErr, ErrAssociationNotFound):
 		return "AssociationDoesNotExist", statusCode
+	case errors.Is(reqErr, ErrAutomationExecutionNotFound):
+		return "AutomationExecutionNotFoundException", statusCode
 	case errors.Is(reqErr, ErrMaintenanceWindowExecutionNotFound):
 		return errCodeDoesNotExist, statusCode
 	case errors.Is(reqErr, ErrMaintenanceWindowNotFound):

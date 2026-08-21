@@ -28,9 +28,10 @@ func TestAutomationExecution_Lifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 	assertBodyContains(t, rec, "AWS-RunShellScript")
 
-	// Stop (empty ID → still ok)
+	// Stop with an empty body must reject: AutomationExecutionId is required
+	// on the real op (api_op_StopAutomationExecution.go).
 	rec = doRequest(t, h, "StopAutomationExecution", `{}`)
-	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 func TestChangeRequest(t *testing.T) {
 	t.Parallel()
@@ -87,18 +88,24 @@ func TestExecutionPreview(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 	assertBodyContains(t, rec, "ExecutionPreviewId")
 
-	// Get preview (with empty ID → returns default)
+	// GetExecutionPreview with an empty body must reject: ExecutionPreviewId
+	// is required on the real op (api_op_GetExecutionPreview.go).
 	rec = doRequest(t, h, "GetExecutionPreview", `{}`)
-	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
-func TestGetCalendarState(t *testing.T) {
+
+// TestGetCalendarState_RequiresCalendarNames locks in that CalendarNames is
+// required on the real op (api_op_GetCalendarState.go marks it "This member
+// is required."); an empty body previously defaulted to State:"OPEN" instead
+// of rejecting with ValidationException.
+func TestGetCalendarState_RequiresCalendarNames(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newTestHandler(t)
 
 	rec := doRequest(t, h, "GetCalendarState", `{}`)
-	require.Equal(t, http.StatusOK, rec.Code)
-	assertBodyContains(t, rec, "OPEN")
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "ValidationException")
 }
 func TestGetAutomationExecution_NotFound(t *testing.T) {
 	t.Parallel()
@@ -179,12 +186,12 @@ func TestGetAutomationExecution_Handler_NotFound(t *testing.T) {
 		{
 			name: "empty_body_returns_error",
 			body: `{}`,
-			want: http.StatusInternalServerError,
+			want: http.StatusBadRequest,
 		},
 		{
 			name: "unknown_id_returns_error",
 			body: `{"AutomationExecutionId":"auto-ghost"}`,
-			want: http.StatusInternalServerError,
+			want: http.StatusBadRequest,
 		},
 	}
 
@@ -436,15 +443,6 @@ func TestAutomationApprovals_RejectSignal(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), "Rejected")
 }
-func TestGetCalendarState_EmptyCalendarNames(t *testing.T) {
-	t.Parallel()
-
-	h, _ := newTestHandler(t)
-
-	rec := doRequest(t, h, "GetCalendarState", `{}`)
-	require.Equal(t, http.StatusOK, rec.Code)
-	assert.Contains(t, rec.Body.String(), "OPEN")
-}
 func TestAutomationExecution_WarningMessageAbsentFromWire(t *testing.T) {
 	t.Parallel()
 
@@ -505,4 +503,141 @@ func TestGetCalendarState_MissingDocumentReturnsError(t *testing.T) {
 	})
 	rec := doRequest(t, h, "GetCalendarState", string(body))
 	assert.NotEqual(t, http.StatusOK, rec.Code, "missing calendar should return error")
+}
+
+// TestAutomationOps_RequireRequiredFields locks in that DescribeAutomationStepExecutions,
+// GetExecutionPreview, SendAutomationSignal, StartAutomationExecution and
+// StartExecutionPreview all reject an empty body -- each has at least one
+// required field on the real op (api_op_DescribeAutomationStepExecutions.go,
+// api_op_GetExecutionPreview.go, api_op_SendAutomationSignal.go,
+// api_op_StartAutomationExecution.go, api_op_StartExecutionPreview.go) that
+// was previously unvalidated.
+func TestAutomationOps_RequireRequiredFields(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		op   string
+		body string
+	}{
+		{name: "describe_automation_step_executions", op: "DescribeAutomationStepExecutions", body: `{}`},
+		{name: "get_execution_preview", op: "GetExecutionPreview", body: `{}`},
+		{name: "send_automation_signal_missing_id", op: "SendAutomationSignal", body: `{"SignalType":"Approve"}`},
+		{
+			name: "send_automation_signal_bad_type",
+			op:   "SendAutomationSignal",
+			body: `{"AutomationExecutionId":"auto-x","SignalType":"Bogus"}`,
+		},
+		{name: "start_automation_execution", op: "StartAutomationExecution", body: `{}`},
+		{name: "start_execution_preview", op: "StartExecutionPreview", body: `{}`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, _ := newTestHandler(t)
+			rec := doRequest(t, h, tt.op, tt.body)
+			assert.Equal(t, http.StatusBadRequest, rec.Code, "op=%s body=%s", tt.op, rec.Body.String())
+			assert.Contains(t, rec.Body.String(), "ValidationException")
+		})
+	}
+}
+
+// TestStopAutomationExecution_TypeSelectsTerminalStatus locks in that Type
+// (Cancel/Complete, types.StopType) selects the terminal
+// AutomationExecutionStatus -- Complete finishes successfully, Cancel (the
+// default) cancels. Real AutomationExecutionStatus has no "Stopped" value.
+func TestStopAutomationExecution_TypeSelectsTerminalStatus(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		stopType   string
+		wantStatus string
+	}{
+		{name: "default_is_cancel", stopType: "", wantStatus: "Cancelled"},
+		{name: "explicit_cancel", stopType: "Cancel", wantStatus: "Cancelled"},
+		{name: "complete", stopType: "Complete", wantStatus: "Success"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newBackend(t)
+			ctx := context.Background()
+
+			started, err := b.StartAutomationExecution(ctx, &ssm.StartAutomationExecutionInput{
+				DocumentName: "AWS-RunShellScript",
+			})
+			require.NoError(t, err)
+
+			_, err = b.StopAutomationExecution(ctx, &ssm.StopAutomationExecutionInput{
+				AutomationExecutionID: started.AutomationExecutionID,
+				Type:                  tt.stopType,
+			})
+			require.NoError(t, err)
+
+			got, err := b.GetAutomationExecution(ctx, &ssm.GetAutomationExecutionInput{
+				AutomationExecutionID: started.AutomationExecutionID,
+			})
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantStatus, got.AutomationExecution.Status)
+		})
+	}
+}
+
+// TestStopAutomationExecution_NotFound locks in that stopping an unknown
+// execution ID returns ErrAutomationExecutionNotFound rather than silently
+// succeeding.
+func TestStopAutomationExecution_NotFound(t *testing.T) {
+	t.Parallel()
+
+	b := newBackend(t)
+	_, err := b.StopAutomationExecution(context.Background(), &ssm.StopAutomationExecutionInput{
+		AutomationExecutionID: "auto-does-not-exist",
+	})
+	require.ErrorIs(t, err, ssm.ErrAutomationExecutionNotFound)
+}
+
+// TestSendAutomationSignal_NotFound locks in that signaling an unknown
+// execution ID returns ErrAutomationExecutionNotFound rather than silently
+// succeeding.
+func TestSendAutomationSignal_NotFound(t *testing.T) {
+	t.Parallel()
+
+	b := newBackend(t)
+	_, err := b.SendAutomationSignal(context.Background(), &ssm.SendAutomationSignalInput{
+		AutomationExecutionID: "auto-does-not-exist",
+		SignalType:            "Approve",
+	})
+	require.ErrorIs(t, err, ssm.ErrAutomationExecutionNotFound)
+}
+
+// TestAutomationExecution_MaxConcurrencyMaxErrorsRoundTrip locks in that
+// StartAutomationExecutionInput.MaxConcurrency/MaxErrors (accepted since
+// before this fix) actually round-trip onto the execution record -- real
+// AutomationExecution/AutomationExecutionMetadata both declare these members
+// (types.go:727,730,917,920); previously they were parsed and then never
+// stored anywhere.
+func TestAutomationExecution_MaxConcurrencyMaxErrorsRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	b := newBackend(t)
+	ctx := context.Background()
+
+	started, err := b.StartAutomationExecution(ctx, &ssm.StartAutomationExecutionInput{
+		DocumentName:   "AWS-RunShellScript",
+		MaxConcurrency: "5",
+		MaxErrors:      "2",
+	})
+	require.NoError(t, err)
+
+	got, err := b.GetAutomationExecution(ctx, &ssm.GetAutomationExecutionInput{
+		AutomationExecutionID: started.AutomationExecutionID,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "5", got.AutomationExecution.MaxConcurrency)
+	assert.Equal(t, "2", got.AutomationExecution.MaxErrors)
 }

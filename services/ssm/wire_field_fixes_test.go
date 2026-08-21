@@ -1,11 +1,15 @@
 package ssm_test
 
 import (
+	"net/http"
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	ssmsdk "github.com/aws/aws-sdk-go-v2/service/ssm"
 	ssmtypes "github.com/aws/aws-sdk-go-v2/service/ssm/types"
+	smithy "github.com/aws/smithy-go"
+	smithyhttp "github.com/aws/smithy-go/transport/http"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -261,4 +265,407 @@ func TestSSMListOps_NarrowSummaryParity(t *testing.T) {
 			tt.test(t, client)
 		})
 	}
+}
+
+// TestUpdateAssociationStatus_RealClient covers a gopherstack-enpq bug:
+// AssociationDescription had no Go struct member for Status at all (real
+// types.AssociationDescription.Status, deserializers.go
+// awsAwsjson11_deserializeDocumentAssociationDescription case "Status"), so
+// every op returning an Association -- Create/CreateBatch/Update/
+// UpdateAssociationStatus/Describe/List -- silently dropped it regardless of
+// what UpdateAssociationStatus was called with. UpdateAssociationStatusInput's
+// own AssociationStatus was also modeled with a fabricated "ExecutionSummary"
+// member that appears nowhere in the real types.AssociationStatus wire shape
+// (serializers.go awsAwsjson11_serializeDocumentAssociationStatus only emits
+// AdditionalInfo/Date/Message/Name) and was missing the two other required
+// members, Date and Message.
+func TestUpdateAssociationStatus_RealClient(t *testing.T) {
+	t.Parallel()
+
+	backend := ssm.NewInMemoryBackend()
+	client := newTestSSMClient(t, ssm.NewHandler(backend))
+	ctx := t.Context()
+
+	created, err := client.CreateAssociation(ctx, &ssmsdk.CreateAssociationInput{
+		Name:       aws.String("AWS-RunShellScript"),
+		InstanceId: aws.String("i-wire-fixes-status"),
+	})
+	require.NoError(t, err)
+
+	statusDate := aws.Time(time.Date(2026, time.August, 21, 0, 0, 0, 0, time.UTC))
+
+	out, err := client.UpdateAssociationStatus(ctx, &ssmsdk.UpdateAssociationStatusInput{
+		InstanceId: aws.String("i-wire-fixes-status"),
+		Name:       aws.String("AWS-RunShellScript"),
+		AssociationStatus: &ssmtypes.AssociationStatus{
+			Name:           ssmtypes.AssociationStatusNameFailed,
+			Date:           statusDate,
+			Message:        aws.String("agent reported drift"),
+			AdditionalInfo: aws.String("agent-v1"),
+		},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, out.AssociationDescription)
+	require.NotNil(
+		t,
+		out.AssociationDescription.Status,
+		"AssociationDescription.Status must round-trip; pre-fix there was no Go member for it at all",
+	)
+	assert.Equal(t, ssmtypes.AssociationStatusNameFailed, out.AssociationDescription.Status.Name)
+	assert.Equal(t, "agent reported drift", aws.ToString(out.AssociationDescription.Status.Message))
+	assert.Equal(t, "agent-v1", aws.ToString(out.AssociationDescription.Status.AdditionalInfo))
+	require.NotNil(t, out.AssociationDescription.Status.Date)
+	assert.True(t, statusDate.Equal(*out.AssociationDescription.Status.Date))
+
+	assert.Equal(t, "1", aws.ToString(created.AssociationDescription.AssociationVersion),
+		"AssociationVersion must round-trip; pre-fix there was no Go member for it at all")
+
+	describeOut, err := client.DescribeAssociation(ctx, &ssmsdk.DescribeAssociationInput{
+		AssociationId: created.AssociationDescription.AssociationId,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, describeOut.AssociationDescription.Status)
+	assert.Equal(t, ssmtypes.AssociationStatusNameFailed, describeOut.AssociationDescription.Status.Name)
+}
+
+// TestUpdateAssociationStatus_RequiresDateAndMessage_HTTP locks in that
+// AssociationStatus.Date and AssociationStatus.Message are both required on
+// the real op (api_op_UpdateAssociationStatus.go via types.AssociationStatus)
+// -- an empty AssociationStatus previously reached the handler unvalidated.
+// This drives the handler directly over raw HTTP rather than through
+// ssmsdk.Client: the real SDK client validates AssociationStatus.Date/Message
+// client-side and refuses to even send a request missing them, so a request
+// this shape can never actually reach gopherstack from a well-behaved
+// aws-sdk-go-v2 caller -- but any other client (or a hand-built HTTP request)
+// still can, and the server must reject it the same way AWS would.
+func TestUpdateAssociationStatus_RequiresDateAndMessage_HTTP(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newTestHandler(t)
+	rec := doRequest(t, h, "UpdateAssociationStatus",
+		`{"InstanceId":"i-x","Name":"AWS-RunShellScript","AssociationStatus":{"Name":"Success"}}`)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "ValidationException")
+}
+
+// TestStopAutomationExecution_RealClient covers a gopherstack-enpq bug: the
+// wire key emitted for AutomationExecution's Automation subtype was
+// "ExecutionType", a key that belongs to a completely different type
+// (types.ComplianceExecutionSummary, deserializers.go:27630) and does not
+// exist anywhere on AutomationExecution/AutomationExecutionMetadata; the real
+// member is AutomationSubtype (deserializers.go:25863,
+// types.go:874, values are ChangeRequest/AccessRequest, not "Standard"/
+// "ChangeRequest"). It also covers StopAutomationExecution setting the
+// fabricated status "Stopped" -- not a valid AutomationExecutionStatus
+// enum value (types/enums.go) -- instead of the real Cancelled/Success pair
+// selected by Type, and MaxConcurrency/MaxErrors being parsed by
+// StartAutomationExecution and then never stored on the execution record.
+func TestStopAutomationExecution_RealClient(t *testing.T) {
+	t.Parallel()
+
+	backend := ssm.NewInMemoryBackend()
+	client := newTestSSMClient(t, ssm.NewHandler(backend))
+	ctx := t.Context()
+
+	started, err := client.StartAutomationExecution(ctx, &ssmsdk.StartAutomationExecutionInput{
+		DocumentName:   aws.String("AWS-RunShellScript"),
+		MaxConcurrency: aws.String("5"),
+		MaxErrors:      aws.String("2"),
+	})
+	require.NoError(t, err)
+	execID := aws.ToString(started.AutomationExecutionId)
+	require.NotEmpty(t, execID)
+
+	before, err := client.GetAutomationExecution(ctx, &ssmsdk.GetAutomationExecutionInput{
+		AutomationExecutionId: aws.String(execID),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "5", aws.ToString(before.AutomationExecution.MaxConcurrency),
+		"MaxConcurrency must round-trip; pre-fix it was parsed and then discarded")
+	assert.Equal(t, "2", aws.ToString(before.AutomationExecution.MaxErrors))
+	assert.Empty(t, before.AutomationExecution.AutomationSubtype,
+		"AutomationSubtype must be omitted for a standard execution, matching real AWS")
+
+	_, err = client.StopAutomationExecution(ctx, &ssmsdk.StopAutomationExecutionInput{
+		AutomationExecutionId: aws.String(execID),
+	})
+	require.NoError(t, err)
+
+	after, err := client.GetAutomationExecution(ctx, &ssmsdk.GetAutomationExecutionInput{
+		AutomationExecutionId: aws.String(execID),
+	})
+	require.NoError(t, err)
+	assert.Equal(
+		t,
+		ssmtypes.AutomationExecutionStatusCancelled,
+		after.AutomationExecution.AutomationExecutionStatus,
+		"real AutomationExecutionStatus has no \"Stopped\" value; a default Cancel-type stop must report Cancelled",
+	)
+}
+
+// TestStopAutomationExecution_NotFound_RealClient covers the same not-found
+// classification bug DescribeAutomationExecutions'
+// sibling GetAutomationExecution already had (gopherstack-enpq):
+// ErrAutomationExecutionNotFound was defined but never classified in
+// classifySSMErrorExtended, so a not-found error fell through to the default
+// 500 InternalServerError case instead of a 400
+// AutomationExecutionNotFoundException.
+func TestStopAutomationExecution_NotFound_RealClient(t *testing.T) {
+	t.Parallel()
+
+	backend := ssm.NewInMemoryBackend()
+	client := newTestSSMClient(t, ssm.NewHandler(backend))
+	ctx := t.Context()
+
+	_, err := client.StopAutomationExecution(ctx, &ssmsdk.StopAutomationExecutionInput{
+		AutomationExecutionId: aws.String("auto-does-not-exist"),
+	})
+	require.Error(t, err)
+
+	var apiErr smithy.APIError
+	require.ErrorAs(t, err, &apiErr)
+	assert.Equal(t, "AutomationExecutionNotFoundException", apiErr.ErrorCode())
+
+	var respErr *smithyhttp.ResponseError
+	require.ErrorAs(t, err, &respErr)
+	assert.Equal(t, http.StatusBadRequest, respErr.HTTPStatusCode(),
+		"pre-fix, this classified to the default case and returned 500")
+}
+
+// TestGetOpsItem_AccountIdNotOnWire_RealClient covers a gopherstack-enpq bug:
+// OpsItem was marshalled straight to the wire for GetOpsItemOutput, leaking
+// AccountId -- a field real types.OpsItem (and types.OpsItemSummary, used by
+// DescribeOpsItems) does not declare at all; it exists only on
+// CreateOpsItemInput. UpdateOpsItemInput also modeled AccountId (with no such
+// member on the real api_op_UpdateOpsItem.go either) and applied it, letting
+// a caller silently rewrite an OpsItem's AccountId through an op the real SDK
+// cannot even express. This also covers Version (types.OpsItem, real,
+// increments on every edit) having no Go member at all.
+func TestGetOpsItem_AccountIdNotOnWire_RealClient(t *testing.T) {
+	t.Parallel()
+
+	backend := ssm.NewInMemoryBackend()
+	client := newTestSSMClient(t, ssm.NewHandler(backend))
+	ctx := t.Context()
+
+	created, err := client.CreateOpsItem(ctx, &ssmsdk.CreateOpsItemInput{
+		Title:       aws.String("wire fixes"),
+		Source:      aws.String("test"),
+		Description: aws.String("wire fixes ops item"),
+		AccountId:   aws.String("123456789012"),
+	})
+	require.NoError(t, err)
+	opsItemID := aws.ToString(created.OpsItemId)
+
+	got, err := client.GetOpsItem(ctx, &ssmsdk.GetOpsItemInput{OpsItemId: aws.String(opsItemID)})
+	require.NoError(t, err)
+	assert.Equal(t, "1", aws.ToString(got.OpsItem.Version),
+		"Version must round-trip; pre-fix it had no Go member at all")
+
+	_, err = client.UpdateOpsItem(ctx, &ssmsdk.UpdateOpsItemInput{
+		OpsItemId: aws.String(opsItemID),
+		Title:     aws.String("updated title"),
+	})
+	require.NoError(t, err)
+
+	after, err := client.GetOpsItem(ctx, &ssmsdk.GetOpsItemInput{OpsItemId: aws.String(opsItemID)})
+	require.NoError(t, err)
+	assert.Equal(t, "2", aws.ToString(after.OpsItem.Version),
+		"Version must increment by one on every edit, matching the real op's own doc comment")
+
+	list, err := client.DescribeOpsItems(ctx, &ssmsdk.DescribeOpsItemsInput{})
+	require.NoError(t, err)
+	require.Len(t, list.OpsItemSummaries, 1)
+	assert.Equal(t, "updated title", aws.ToString(list.OpsItemSummaries[0].Title))
+}
+
+// TestRegisterTargetWithMaintenanceWindow_OwnerInformation_RealClient covers a
+// gopherstack-enpq bug: RegisterTargetWithMaintenanceWindowInput's
+// OwnerInformation member was modeled with the wire key "OwnerInfo", but the
+// real serializer (serializers.go awsAwsjson11_serializeOpRegisterTargetWithMaintenanceWindow)
+// emits "OwnerInformation" -- confirmed the same key is used consistently for
+// this field everywhere it appears (MaintenanceWindowTarget,
+// UpdateMaintenanceWindowTarget's input and output). A real client's
+// OwnerInformation was silently dropped by json.Unmarshal on every call.
+func TestRegisterTargetWithMaintenanceWindow_OwnerInformation_RealClient(t *testing.T) {
+	t.Parallel()
+
+	backend := ssm.NewInMemoryBackend()
+	client := newTestSSMClient(t, ssm.NewHandler(backend))
+	ctx := t.Context()
+
+	win, err := client.CreateMaintenanceWindow(ctx, &ssmsdk.CreateMaintenanceWindowInput{
+		Name:     aws.String("wire-fixes-window"),
+		Schedule: aws.String("rate(7 days)"),
+		Duration: aws.Int32(2),
+		Cutoff:   1,
+	})
+	require.NoError(t, err)
+
+	target, err := client.RegisterTargetWithMaintenanceWindow(ctx, &ssmsdk.RegisterTargetWithMaintenanceWindowInput{
+		WindowId:         win.WindowId,
+		ResourceType:     ssmtypes.MaintenanceWindowResourceTypeInstance,
+		OwnerInformation: aws.String("owner-team-x"),
+		Targets: []ssmtypes.Target{
+			{Key: aws.String("InstanceIds"), Values: []string{"i-abc"}},
+		},
+	})
+	require.NoError(t, err)
+
+	got, err := client.DescribeMaintenanceWindowTargets(ctx, &ssmsdk.DescribeMaintenanceWindowTargetsInput{
+		WindowId: win.WindowId,
+	})
+	require.NoError(t, err)
+	require.Len(t, got.Targets, 1)
+	assert.Equal(t, "owner-team-x", aws.ToString(got.Targets[0].OwnerInformation),
+		"OwnerInformation must round-trip; pre-fix the wire key was the wrong \"OwnerInfo\"")
+	assert.Equal(t, aws.ToString(target.WindowTargetId), aws.ToString(got.Targets[0].WindowTargetId))
+}
+
+// TestMaintenanceWindowTask_TypeVsTaskType_RealClient covers a gopherstack-enpq
+// bug: the task-type member's real wire key differs by which op returns it --
+// GetMaintenanceWindowTaskOutput itself uses "TaskType"
+// (deserializers.go awsAwsjson11_deserializeOpDocumentGetMaintenanceWindowTaskOutput,
+// case "TaskType") while the shared types.MaintenanceWindowTask
+// DescribeMaintenanceWindowTasks returns uses "Type" instead
+// (awsAwsjson11_deserializeDocumentMaintenanceWindowTask, case "Type") -- an
+// AWS API inconsistency confirmed by reading both deserializer functions
+// directly. gopherstack previously modeled both with one shared Go type and
+// one wire key, which could only ever be right for one of the two ops; fixed
+// by splitting GetMaintenanceWindowTaskOutput into its own projection.
+func TestMaintenanceWindowTask_TypeVsTaskType_RealClient(t *testing.T) {
+	t.Parallel()
+
+	backend := ssm.NewInMemoryBackend()
+	client := newTestSSMClient(t, ssm.NewHandler(backend))
+	ctx := t.Context()
+
+	win, err := client.CreateMaintenanceWindow(ctx, &ssmsdk.CreateMaintenanceWindowInput{
+		Name:     aws.String("wire-fixes-task-type-window"),
+		Schedule: aws.String("rate(7 days)"),
+		Duration: aws.Int32(2),
+		Cutoff:   1,
+	})
+	require.NoError(t, err)
+
+	task, err := client.RegisterTaskWithMaintenanceWindow(ctx, &ssmsdk.RegisterTaskWithMaintenanceWindowInput{
+		WindowId: win.WindowId,
+		TaskArn:  aws.String("AWS-RunShellScript"),
+		TaskType: ssmtypes.MaintenanceWindowTaskTypeRunCommand,
+	})
+	require.NoError(t, err)
+
+	getOut, err := client.GetMaintenanceWindowTask(ctx, &ssmsdk.GetMaintenanceWindowTaskInput{
+		WindowId:     win.WindowId,
+		WindowTaskId: task.WindowTaskId,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, ssmtypes.MaintenanceWindowTaskTypeRunCommand, getOut.TaskType,
+		"GetMaintenanceWindowTaskOutput.TaskType must round-trip via its real \"TaskType\" wire key")
+
+	descOut, err := client.DescribeMaintenanceWindowTasks(ctx, &ssmsdk.DescribeMaintenanceWindowTasksInput{
+		WindowId: win.WindowId,
+	})
+	require.NoError(t, err)
+	require.Len(t, descOut.Tasks, 1)
+	assert.Equal(t, ssmtypes.MaintenanceWindowTaskTypeRunCommand, descOut.Tasks[0].Type,
+		"MaintenanceWindowTask.Type must round-trip via its real \"Type\" wire key, "+
+			"not the \"TaskType\" key GetMaintenanceWindowTaskOutput uses")
+}
+
+// TestGetMaintenanceWindowExecutionTask_TypeKey_RealClient covers three
+// gopherstack-enpq bugs on GetMaintenanceWindowExecutionTask. (1)
+// GetMaintenanceWindowExecutionTaskInput's TaskExecutionID had the wrong wire
+// key "TaskExecutionId" -- the real request member
+// (api_op_GetMaintenanceWindowExecutionTask.go, confirmed against
+// serializers.go awsAwsjson11_serializeOpDocumentGetMaintenanceWindowExecutionTaskInput)
+// is "TaskId"; a real client's TaskId was silently dropped by json.Unmarshal
+// on every call, which this test exercises directly by using the real SDK's
+// own TaskId field name. (2) The output's task-type member has the real wire
+// key "Type" (deserializers.go
+// awsAwsjson11_deserializeOpDocumentGetMaintenanceWindowExecutionTaskOutput,
+// case "Type"), not "TaskType" as its own sibling
+// MaintenanceWindowExecutionTaskIdentity (DescribeMaintenanceWindowExecutionTasks)
+// genuinely does use -- an AWS API inconsistency confirmed by reading both
+// deserializer functions directly. (3) ServiceRole (real, no Go member at
+// all).
+func TestGetMaintenanceWindowExecutionTask_TypeKey_RealClient(t *testing.T) {
+	t.Parallel()
+
+	backend := ssm.NewInMemoryBackend()
+	client := newTestSSMClient(t, ssm.NewHandler(backend))
+	ctx := t.Context()
+
+	win, err := client.CreateMaintenanceWindow(ctx, &ssmsdk.CreateMaintenanceWindowInput{
+		Name:     aws.String("wire-fixes-task-window"),
+		Schedule: aws.String("rate(7 days)"),
+		Duration: aws.Int32(2),
+		Cutoff:   1,
+	})
+	require.NoError(t, err)
+
+	task, err := client.RegisterTaskWithMaintenanceWindow(ctx, &ssmsdk.RegisterTaskWithMaintenanceWindowInput{
+		WindowId:       win.WindowId,
+		TaskArn:        aws.String("AWS-RunShellScript"),
+		TaskType:       ssmtypes.MaintenanceWindowTaskTypeRunCommand,
+		ServiceRoleArn: aws.String("arn:aws:iam::123456789012:role/mw-service-role"),
+	})
+	require.NoError(t, err)
+
+	execTaskID := "taskexec-" + aws.ToString(task.WindowTaskId)
+
+	got, err := client.GetMaintenanceWindowExecutionTask(ctx, &ssmsdk.GetMaintenanceWindowExecutionTaskInput{
+		WindowExecutionId: aws.String("mwexec-" + aws.ToString(win.WindowId)),
+		TaskId:            aws.String(execTaskID),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, ssmtypes.MaintenanceWindowTaskTypeRunCommand, got.Type,
+		"Type must round-trip; pre-fix the wire key was the wrong \"TaskType\"")
+	assert.Equal(t, "arn:aws:iam::123456789012:role/mw-service-role", aws.ToString(got.ServiceRole),
+		"ServiceRole must round-trip; pre-fix it had no Go member at all")
+}
+
+// TestGetMaintenanceWindowExecutionTaskInvocation_TaskIdKey_RealClient covers
+// the same wrong-wire-key bug on GetMaintenanceWindowExecutionTaskInvocation's
+// TaskExecutionID (real member is "TaskId",
+// api_op_GetMaintenanceWindowExecutionTaskInvocation.go) as its sibling
+// GetMaintenanceWindowExecutionTask -- exercised directly with the real SDK's
+// own TaskId field name, which a pre-fix server would have silently dropped.
+// Also covers OwnerInformation (real, no Go member at all).
+func TestGetMaintenanceWindowExecutionTaskInvocation_TaskIdKey_RealClient(t *testing.T) {
+	t.Parallel()
+
+	backend := ssm.NewInMemoryBackend()
+	client := newTestSSMClient(t, ssm.NewHandler(backend))
+	ctx := t.Context()
+
+	win, err := client.CreateMaintenanceWindow(ctx, &ssmsdk.CreateMaintenanceWindowInput{
+		Name:     aws.String("wire-fixes-invocation-window"),
+		Schedule: aws.String("rate(7 days)"),
+		Duration: aws.Int32(2),
+		Cutoff:   1,
+	})
+	require.NoError(t, err)
+
+	_, err = client.RegisterTargetWithMaintenanceWindow(ctx, &ssmsdk.RegisterTargetWithMaintenanceWindowInput{
+		WindowId:         win.WindowId,
+		ResourceType:     ssmtypes.MaintenanceWindowResourceTypeInstance,
+		OwnerInformation: aws.String("owner-team-y"),
+		Targets: []ssmtypes.Target{
+			{Key: aws.String("InstanceIds"), Values: []string{"i-def"}},
+		},
+	})
+	require.NoError(t, err)
+
+	got, err := client.GetMaintenanceWindowExecutionTaskInvocation(
+		ctx,
+		&ssmsdk.GetMaintenanceWindowExecutionTaskInvocationInput{
+			WindowExecutionId: aws.String("mwexec-" + aws.ToString(win.WindowId)),
+			TaskId:            aws.String("taskexec-some-task"),
+			InvocationId:      aws.String("inv-1"),
+		},
+	)
+	require.NoError(t, err)
+	assert.Equal(t, "owner-team-y", aws.ToString(got.OwnerInformation),
+		"OwnerInformation must round-trip; pre-fix it had no Go member at all")
 }

@@ -150,7 +150,10 @@ func TestProvider_WiresSageMakerEndpointLookup(t *testing.T) {
 	}}, nil)
 	require.NoError(t, err)
 
-	_, err = smBackend.CreateEndpointFSM(t.Context(), "wired-endpoint", "cfg", nil)
+	_, err = smBackend.CreateEndpointFSM(t.Context(), sagemaker.CreateEndpointOptions{
+		Name:               "wired-endpoint",
+		EndpointConfigName: "cfg",
+	})
 	require.NoError(t, err)
 
 	require.Eventually(t, func() bool {
