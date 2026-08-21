@@ -484,7 +484,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 
 | Service | Parity | Operations | Notes |
 |---|---|---|---|
-| [Backup](services/backup/README.md) | A | 50 | clean |
+| [Backup](services/backup/README.md) | A | 53 | clean |
 | [Data Lifecycle Manager](services/dlm/README.md) | A | 8 | clean |
 | [EFS](services/efs/README.md) | A | 31 | 2 gaps; 2 deferred |
 | [FSx](services/fsx/README.md) | A | — | 13 families; 4 gaps |
