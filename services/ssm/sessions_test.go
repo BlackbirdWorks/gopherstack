@@ -7,6 +7,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	ssmsdk "github.com/aws/aws-sdk-go-v2/service/ssm"
+	ssmtypes "github.com/aws/aws-sdk-go-v2/service/ssm/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -174,23 +177,25 @@ func TestFull_Session_StartTerminateDescribe(t *testing.T) {
 	assert.Equal(t, "Terminated", terminated["Status"])
 	assert.Greater(t, terminated["EndDate"].(float64), float64(0))
 }
+
+// TestSession_Parameters_RoundTrip locks in that StartSession accepts
+// Parameters (used only to drive the session, e.g. a run-as document) but
+// DescribeSessions never echoes them back -- types.Session
+// (aws-sdk-go-v2/service/ssm@v1.73.4) has no Parameters member at all.
 func TestSession_Parameters_RoundTrip(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
 		parameters map[string][]string
-		wantKey    string
+		name       string
 	}{
 		{
 			name:       "with_parameters",
 			parameters: map[string][]string{"command": {"ls -la"}, "runAsEnabled": {"true"}},
-			wantKey:    "command",
 		},
 		{
 			name:       "without_parameters",
 			parameters: nil,
-			wantKey:    "",
 		},
 	}
 
@@ -211,13 +216,11 @@ func TestSession_Parameters_RoundTrip(t *testing.T) {
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startResp))
 			assert.NotEmpty(t, startResp["SessionId"])
 
-			// DescribeSessions should show the session.
+			// DescribeSessions should show the session, but never a
+			// "Parameters" key -- real DescribeSessions has no such member.
 			rec = doRequest(t, h, "DescribeSessions", `{"State":"Active"}`)
 			require.Equal(t, http.StatusOK, rec.Code)
-
-			if tt.wantKey != "" {
-				assert.Contains(t, rec.Body.String(), tt.wantKey)
-			}
+			assert.NotContains(t, rec.Body.String(), "Parameters")
 		})
 	}
 }
@@ -387,4 +390,41 @@ func TestGetAccessToken_RequiresAccessRequestID(t *testing.T) {
 
 	code, _ := postJSON(t, h, "GetAccessToken", map[string]any{})
 	assert.Equal(t, http.StatusBadRequest, code)
+}
+
+// TestDescribeSessions_RealClient_NoFabricatedFields drives StartSession and
+// DescribeSessions through the real aws-sdk-go-v2 client. types.Session has
+// no Parameters/StreamUrl/TokenValue members, so gopherstack must not emit
+// them on the wire even though the internal Session record carries all three
+// (they used to leak straight through when DescribeSessionsOutputFull
+// marshalled the internal Session struct directly).
+func TestDescribeSessions_RealClient_NoFabricatedFields(t *testing.T) {
+	t.Parallel()
+
+	backend := ssm.NewInMemoryBackend()
+	client := newTestSSMClient(t, ssm.NewHandler(backend))
+
+	started, err := client.StartSession(t.Context(), &ssmsdk.StartSessionInput{
+		Target:     aws.String("i-real-client"),
+		Parameters: map[string][]string{"command": {"ls -la"}},
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, aws.ToString(started.StreamUrl))
+	require.NotEmpty(t, aws.ToString(started.TokenValue))
+
+	out, err := client.DescribeSessions(t.Context(), &ssmsdk.DescribeSessionsInput{
+		State: ssmtypes.SessionStateActive,
+	})
+	require.NoError(t, err)
+	require.Len(t, out.Sessions, 1)
+
+	sess := out.Sessions[0]
+	assert.Equal(t, aws.ToString(started.SessionId), aws.ToString(sess.SessionId))
+	assert.Equal(t, "i-real-client", aws.ToString(sess.Target))
+
+	rec := doRequest(t, ssm.NewHandler(backend), "DescribeSessions", `{"State":"Active"}`)
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.NotContains(t, rec.Body.String(), "Parameters")
+	assert.NotContains(t, rec.Body.String(), "StreamUrl")
+	assert.NotContains(t, rec.Body.String(), "TokenValue")
 }

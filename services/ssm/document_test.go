@@ -71,6 +71,14 @@ func TestCreateDocument_WithRequires(t *testing.T) {
 	assert.Len(t, requires, 1)
 	assert.Equal(t, "BaseDoc", requires[0].(map[string]any)["Name"])
 }
+
+// TestCreateDocument_WithAttachments locks in that CreateDocumentInput's
+// Attachments field is not a functional no-op: previously it parsed
+// successfully off the wire but the backend never consulted it at all, so an
+// attachment name a caller supplied never appeared anywhere in the response.
+// Real AWS reports it back under DocumentDescription.AttachmentsInformation
+// (types.AttachmentInformation, Name only -- aws-sdk-go-v2/service/ssm@v1.73.4
+// types/types.go:629), not under a key named "Attachments".
 func TestCreateDocument_WithAttachments(t *testing.T) {
 	t.Parallel()
 	h := newHandler()
@@ -84,8 +92,12 @@ func TestCreateDocument_WithAttachments(t *testing.T) {
 	})
 
 	assert.Equal(t, http.StatusOK, code)
-	// The document should be created successfully even with Attachments source.
-	require.NotNil(t, out["DocumentDescription"])
+	doc := out["DocumentDescription"].(map[string]any)
+	attachments, ok := doc["AttachmentsInformation"].([]any)
+	require.True(t, ok, "AttachmentsInformation must be present under its real wire key")
+	require.Len(t, attachments, 1)
+	assert.Equal(t, "script", attachments[0].(map[string]any)["Name"])
+	assert.NotContains(t, doc, "Attachments", "DocumentDescription has no real \"Attachments\" member")
 }
 func TestCreateAssociation_DocumentNotFound(t *testing.T) {
 	t.Parallel()

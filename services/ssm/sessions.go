@@ -111,7 +111,7 @@ func (b *InMemoryBackend) DescribeSessions(
 	defer b.mu.RUnlock()
 
 	sessions := b.sessionsStore(region)
-	list := make([]Session, 0, sessions.Len())
+	list := make([]SessionOutput, 0, sessions.Len())
 
 	for _, s := range sessions.All() {
 		if !sessionStateMatchesFilter(s.Status, input.State) {
@@ -129,7 +129,7 @@ func (b *InMemoryBackend) DescribeSessions(
 		}
 
 		if matched {
-			list = append(list, *s)
+			list = append(list, s.toOutput())
 		}
 	}
 

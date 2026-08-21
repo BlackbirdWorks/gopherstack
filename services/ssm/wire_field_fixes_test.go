@@ -94,6 +94,54 @@ func TestGetDocument_CreatedDateStatusInfoRequires_RealClient(t *testing.T) {
 	assert.Equal(t, wantCreatedDate, aws.ToTime(got.CreatedDate))
 }
 
+// TestCreateDocument_AttachmentsAndHash_RealClient covers a functional no-op
+// (gopherstack-enpq): CreateDocumentInput.Attachments parsed successfully off
+// the wire but the backend never consulted it, and DocumentDescription
+// marshalled its unused internal Attachments field under the wrong wire key
+// ("Attachments" instead of real AWS's "AttachmentsInformation", using the
+// wrong shape -- AttachmentInformation carries only Name, confirmed against
+// aws-sdk-go-v2/service/ssm@v1.73.4 types/types.go:629-635 and
+// deserializers.go's awsAwsjson11_deserializeDocumentDocumentDescription case
+// "AttachmentsInformation":). Separately, Hash/HashType were entirely
+// unmodeled even though they are directly computable from Content.
+func TestCreateDocument_AttachmentsAndHash_RealClient(t *testing.T) {
+	t.Parallel()
+
+	backend := ssm.NewInMemoryBackend()
+	client := newTestSSMClient(t, ssm.NewHandler(backend))
+	ctx := t.Context()
+
+	content := `{"schemaVersion":"2.2","mainSteps":[]}`
+
+	created, err := client.CreateDocument(ctx, &ssmsdk.CreateDocumentInput{
+		Name:    aws.String("attach-hash-doc"),
+		Content: aws.String(content),
+		Attachments: []ssmtypes.AttachmentsSource{
+			{
+				Key:    ssmtypes.AttachmentsSourceKeySourceUrl,
+				Name:   aws.String("script"),
+				Values: []string{"https://example.com/s.ps1"},
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	require.Len(
+		t,
+		created.DocumentDescription.AttachmentsInformation,
+		1,
+		"AttachmentsInformation must round-trip the supplied attachment name; pre-fix it was silently dropped",
+	)
+	assert.Equal(t, "script", aws.ToString(created.DocumentDescription.AttachmentsInformation[0].Name))
+
+	require.NotNil(t, created.DocumentDescription.Hash, "Hash must be computed from Content")
+	assert.Equal(t, ssmtypes.DocumentHashTypeSha256, created.DocumentDescription.HashType)
+
+	described, err := client.DescribeDocument(ctx, &ssmsdk.DescribeDocumentInput{Name: aws.String("attach-hash-doc")})
+	require.NoError(t, err)
+	assert.Equal(t, aws.ToString(created.DocumentDescription.Hash), aws.ToString(described.Document.Hash))
+}
+
 // TestListDocuments_Tags_RealClient covers a layer-3 bug (gopherstack-g8k9):
 // CreateDocument's Tags input is already stored into the backend's generic
 // miscResourceTags store (documents.go's CreateDocument, readable back via

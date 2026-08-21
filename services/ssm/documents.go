@@ -2,6 +2,9 @@ package ssm
 
 import (
 	"context"
+	"crypto/sha1" //nolint:gosec // Sha1 is a real DocumentDescription field kept for backward compatibility, not for security
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"slices"
 	"sort"
@@ -10,6 +13,36 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
+
+const documentHashTypeSha256 = "Sha256"
+
+// documentHashes computes DocumentDescription's Hash/HashType/Sha1 members
+// from a document's content. Real AWS computes Hash as the SHA256 (default
+// HashType) of the document content, and separately populates the deprecated
+// Sha1 field for backward compatibility (aws-sdk-go-v2/service/ssm@v1.73.4
+// types/enums.go:708-724, DocumentHashType Sha256|Sha1).
+func documentHashes(content string) (string, string) {
+	sum256 := sha256.Sum256([]byte(content))
+	sum1 := sha1.Sum([]byte(content)) //nolint:gosec // content-integrity hash, not a security boundary
+
+	return hex.EncodeToString(sum256[:]), hex.EncodeToString(sum1[:])
+}
+
+// attachmentsInformation projects CreateDocument/UpdateDocument's Attachments
+// source list down to the Name-only shape real AWS returns in
+// DocumentDescription.AttachmentsInformation (types.AttachmentInformation).
+func attachmentsInformation(sources []AttachmentsSource) []AttachmentInformation {
+	if len(sources) == 0 {
+		return nil
+	}
+
+	out := make([]AttachmentInformation, 0, len(sources))
+	for _, s := range sources {
+		out = append(out, AttachmentInformation{Name: s.Name})
+	}
+
+	return out
+}
 
 func (b *InMemoryBackend) documentsStore(region string) *store.Table[Document] {
 	return getOrCreateTable(b, b.documents, "documents", region, documentKeyFn)
@@ -112,21 +145,27 @@ func (b *InMemoryBackend) CreateDocument(
 	}
 
 	now := UnixTimeFloat(time.Now())
+	hash, sha1Hex := documentHashes(input.Content)
 	doc := Document{
-		Name:            input.Name,
-		Content:         input.Content,
-		DocumentType:    docType,
-		DocumentFormat:  format,
-		Status:          statusActive,
-		TargetType:      input.TargetType,
-		Description:     input.Description,
-		PlatformTypes:   input.PlatformTypes,
-		SchemaVersion:   "2.2",
-		CreatedDate:     now,
-		DocumentVersion: "1",
-		LatestVersion:   "1",
-		DefaultVersion:  "1",
-		Requires:        input.Requires,
+		Name:                   input.Name,
+		DisplayName:            input.DisplayName,
+		Content:                input.Content,
+		DocumentType:           docType,
+		DocumentFormat:         format,
+		Status:                 statusActive,
+		TargetType:             input.TargetType,
+		Description:            input.Description,
+		PlatformTypes:          input.PlatformTypes,
+		SchemaVersion:          "2.2",
+		CreatedDate:            now,
+		DocumentVersion:        "1",
+		LatestVersion:          "1",
+		DefaultVersion:         "1",
+		Requires:               input.Requires,
+		Hash:                   hash,
+		HashType:               documentHashTypeSha256,
+		Sha1:                   sha1Hex,
+		AttachmentsInformation: attachmentsInformation(input.Attachments),
 	}
 
 	documentsTable.Put(&doc)
@@ -137,6 +176,7 @@ func (b *InMemoryBackend) CreateDocument(
 	versionStore[input.Name] = []DocumentVersion{
 		{
 			Name:             input.Name,
+			DisplayName:      input.DisplayName,
 			DocumentVersion:  "1",
 			CreatedDate:      now,
 			IsDefaultVersion: true,
@@ -169,22 +209,26 @@ func (b *InMemoryBackend) CreateDocument(
 // includes Content in these metadata responses.
 func (d Document) asDocumentDescription(docTags []Tag) DocumentDescription {
 	return DocumentDescription{
-		TargetType:        d.TargetType,
-		LatestVersion:     d.LatestVersion,
-		DocumentType:      d.DocumentType,
-		DocumentFormat:    d.DocumentFormat,
-		Status:            d.Status,
-		StatusInformation: d.StatusInformation,
-		DefaultVersion:    d.DefaultVersion,
-		Name:              d.Name,
-		SchemaVersion:     d.SchemaVersion,
-		Description:       d.Description,
-		DocumentVersion:   d.DocumentVersion,
-		PlatformTypes:     d.PlatformTypes,
-		Attachments:       d.Attachments,
-		Requires:          d.Requires,
-		Tags:              docTags,
-		CreatedDate:       d.CreatedDate,
+		TargetType:             d.TargetType,
+		LatestVersion:          d.LatestVersion,
+		DocumentType:           d.DocumentType,
+		DocumentFormat:         d.DocumentFormat,
+		Status:                 d.Status,
+		StatusInformation:      d.StatusInformation,
+		DefaultVersion:         d.DefaultVersion,
+		Name:                   d.Name,
+		DisplayName:            d.DisplayName,
+		SchemaVersion:          d.SchemaVersion,
+		Description:            d.Description,
+		DocumentVersion:        d.DocumentVersion,
+		Hash:                   d.Hash,
+		HashType:               d.HashType,
+		Sha1:                   d.Sha1,
+		PlatformTypes:          d.PlatformTypes,
+		AttachmentsInformation: d.AttachmentsInformation,
+		Requires:               d.Requires,
+		Tags:                   docTags,
+		CreatedDate:            d.CreatedDate,
 	}
 }
 
@@ -273,6 +317,7 @@ func (b *InMemoryBackend) GetDocument(
 		return &GetDocumentOutput{
 			Name:              doc.Name,
 			Content:           v.Content,
+			DisplayName:       doc.DisplayName,
 			DocumentType:      doc.DocumentType,
 			DocumentFormat:    v.DocumentFormat,
 			DocumentVersion:   v.DocumentVersion,
@@ -339,6 +384,9 @@ func (b *InMemoryBackend) DescribeDocument(
 				description.DocumentVersion = v.DocumentVersion
 				description.DocumentFormat = v.DocumentFormat
 				description.Status = v.Status
+				description.DisplayName = v.DisplayName
+				description.Hash, description.Sha1 = documentHashes(v.Content)
+				description.HashType = documentHashTypeSha256
 				found = true
 
 				break
@@ -377,6 +425,7 @@ func (b *InMemoryBackend) ListDocuments(
 
 		all = append(all, DocumentIdentifier{
 			Name:            doc.Name,
+			DisplayName:     doc.DisplayName,
 			DocumentType:    doc.DocumentType,
 			DocumentFormat:  doc.DocumentFormat,
 			DocumentVersion: doc.DocumentVersion,
@@ -454,15 +503,33 @@ func (b *InMemoryBackend) UpdateDocument(
 	}
 
 	now := UnixTimeFloat(time.Now())
+	hash, sha1Hex := documentHashes(input.Content)
 	doc.Content = input.Content
 	doc.DocumentVersion = newVer
 	doc.LatestVersion = newVer
 	doc.DocumentFormat = format
+	doc.Hash = hash
+	doc.HashType = documentHashTypeSha256
+	doc.Sha1 = sha1Hex
+
+	if input.DisplayName != "" {
+		doc.DisplayName = input.DisplayName
+	}
+
+	if input.TargetType != "" {
+		doc.TargetType = input.TargetType
+	}
+
+	if input.Attachments != nil {
+		doc.AttachmentsInformation = attachmentsInformation(input.Attachments)
+	}
+
 	docsTable.Put(&doc)
 
 	versionStore := b.documentVersionsStore(region)
 	versionStore[input.Name] = append(versionStore[input.Name], DocumentVersion{
 		Name:             input.Name,
+		DisplayName:      doc.DisplayName,
 		DocumentVersion:  newVer,
 		CreatedDate:      now,
 		IsDefaultVersion: false,
@@ -606,6 +673,7 @@ func (b *InMemoryBackend) ListDocumentVersions(
 	for _, v := range versions[startIdx:end] {
 		page = append(page, DocumentVersionInfo{
 			Name:             v.Name,
+			DisplayName:      v.DisplayName,
 			DocumentVersion:  v.DocumentVersion,
 			DocumentFormat:   v.DocumentFormat,
 			Status:           v.Status,
@@ -627,8 +695,12 @@ func (b *InMemoryBackend) UpdateDocumentDefaultVersion(
 	ctx context.Context,
 	input *UpdateDocumentDefaultVersionInput,
 ) (*UpdateDocumentDefaultVersionOutput, error) {
-	if input.Name == "" || input.DocumentVersion == "" {
-		return &UpdateDocumentDefaultVersionOutput{}, nil
+	if input.Name == "" {
+		return nil, fmt.Errorf("%w: Name is required", ErrValidationException)
+	}
+
+	if input.DocumentVersion == "" {
+		return nil, fmt.Errorf("%w: DocumentVersion is required", ErrValidationException)
 	}
 
 	region := getRegion(ctx)
@@ -687,8 +759,8 @@ func (b *InMemoryBackend) UpdateDocumentMetadata(
 	ctx context.Context,
 	input *UpdateDocumentMetadataInput,
 ) (*UpdateDocumentMetadataOutput, error) {
-	if input.Name == "" {
-		return &UpdateDocumentMetadataOutput{}, nil
+	if err := validateUpdateDocumentMetadataInput(input); err != nil {
+		return nil, err
 	}
 
 	region := getRegion(ctx)
@@ -702,6 +774,29 @@ func (b *InMemoryBackend) UpdateDocumentMetadata(
 	return &UpdateDocumentMetadataOutput{}, nil
 }
 
+// validateUpdateDocumentMetadataInput enforces UpdateDocumentMetadata's
+// required fields: Name and DocumentReviews (with its own required Action)
+// are both required on the real op, but were previously entirely
+// unvalidated -- an empty body silently succeeded instead of rejecting with
+// ValidationException.
+func validateUpdateDocumentMetadataInput(input *UpdateDocumentMetadataInput) error {
+	if input.Name == "" {
+		return fmt.Errorf("%w: Name is required", ErrValidationException)
+	}
+
+	if input.DocumentReviews == nil {
+		return fmt.Errorf("%w: DocumentReviews is required", ErrValidationException)
+	}
+
+	// Real DocumentReviewAction enum values (aws-sdk-go-v2/service/ssm@v1.73.4 types/enums.go:780-798).
+	validActions := []string{"SendForReview", "UpdateReview", "Approve", "Reject"}
+	if !slices.Contains(validActions, input.DocumentReviews.Action) {
+		return fmt.Errorf("%w: DocumentReviews.Action must be one of %v", ErrValidationException, validActions)
+	}
+
+	return nil
+}
+
 // ListDocumentMetadataHistory returns an empty approval history.
 // The in-memory backend does not track document review history; this returns
 // a well-formed empty response consistent with the stateless stub approach.
@@ -710,11 +805,12 @@ func (b *InMemoryBackend) ListDocumentMetadataHistory(
 	input *ListDocumentMetadataHistoryInput,
 ) (*ListDocumentMetadataHistoryOutput, error) {
 	if input.Name == "" {
-		return &ListDocumentMetadataHistoryOutput{
-			Metadata: &DocumentMetadataResponseInfo{
-				ReviewerResponse: []DocumentReviewerResponseSource{},
-			},
-		}, nil
+		return nil, fmt.Errorf("%w: Name is required", ErrValidationException)
+	}
+
+	// DocumentMetadataEnum has exactly one real value (types/enums.go:727-745).
+	if input.Metadata != "DocumentReviews" {
+		return nil, fmt.Errorf(`%w: Metadata must be "DocumentReviews"`, ErrValidationException)
 	}
 
 	region := getRegion(ctx)

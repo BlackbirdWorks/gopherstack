@@ -47,6 +47,17 @@ func TestStubOps_SimpleCalls(t *testing.T) {
 	// could never be reached again except via UpdateResourceDataSync. Now
 	// S3Destination is required (SyncType defaults to SyncToDestination when
 	// omitted). See TestCreateResourceDataSync_RequiredFields.
+	// UpdateDocumentMetadata and ListDocumentMetadataHistory are also NOT
+	// listed here (gopherstack-enpq): both now correctly reject an empty
+	// body -- Name (both) and DocumentReviews/Metadata (respectively) are
+	// required and were previously entirely unvalidated. See
+	// TestUpdateDocumentMetadata_RequiresDocumentReviews and
+	// TestListDocumentMetadataHistory_RequiresNameAndMetadata in
+	// document_metadata_test.go.
+	// UpdateDocumentDefaultVersion is also NOT listed here (gopherstack-enpq):
+	// Name and DocumentVersion are both required on the real op but an empty
+	// body previously returned a silent empty-success stub instead of
+	// ValidationException. See TestUpdateDocumentDefaultVersion_RequiresFields.
 	ops := []string{
 		"DeleteInventory",
 		"DeregisterManagedInstance",
@@ -96,7 +107,6 @@ func TestStubOps_SimpleCalls(t *testing.T) {
 		"ListAssociations",
 		"ListComplianceItems",
 		"ListComplianceSummaries",
-		"ListDocumentMetadataHistory",
 		"ListInventoryEntries",
 		"ListNodes",
 		"ListOpsItemEvents",
@@ -116,8 +126,6 @@ func TestStubOps_SimpleCalls(t *testing.T) {
 		"StopAutomationExecution",
 		"TerminateSession",
 		"UnlabelParameterVersion",
-		"UpdateDocumentDefaultVersion",
-		"UpdateDocumentMetadata",
 		"UpdateManagedInstanceRole",
 		"UpdateServiceSetting",
 	}

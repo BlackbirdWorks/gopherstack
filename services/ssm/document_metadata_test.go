@@ -219,6 +219,35 @@ func TestBackendOps_UpdateDocumentDefaultVersion_NotFound(t *testing.T) {
 	require.Error(t, err)
 }
 
+// TestUpdateDocumentDefaultVersion_RequiresFields locks in that Name and
+// DocumentVersion are both required on the real op (aws-sdk-go-v2/service/ssm@v1.73.4
+// api_op_UpdateDocumentDefaultVersion.go) -- previously an empty body
+// returned a silent empty-success stub instead of ValidationException.
+func TestUpdateDocumentDefaultVersion_RequiresFields(t *testing.T) {
+	t.Parallel()
+
+	b := newBackend(t)
+
+	_, err := b.CreateDocument(context.TODO(), &ssm.CreateDocumentInput{
+		Name:    "DefVerDoc",
+		Content: `{"schemaVersion":"2.2"}`,
+	})
+	require.NoError(t, err)
+
+	_, err = b.UpdateDocumentDefaultVersion(context.TODO(), &ssm.UpdateDocumentDefaultVersionInput{})
+	require.ErrorIs(t, err, ssm.ErrValidationException)
+
+	_, err = b.UpdateDocumentDefaultVersion(context.TODO(), &ssm.UpdateDocumentDefaultVersionInput{
+		Name: "DefVerDoc",
+	})
+	require.ErrorIs(t, err, ssm.ErrValidationException)
+
+	_, err = b.UpdateDocumentDefaultVersion(context.TODO(), &ssm.UpdateDocumentDefaultVersionInput{
+		DocumentVersion: "1",
+	})
+	require.ErrorIs(t, err, ssm.ErrValidationException)
+}
+
 func TestBackendOps_UpdateDocumentMetadata(t *testing.T) {
 	t.Parallel()
 
@@ -231,10 +260,40 @@ func TestBackendOps_UpdateDocumentMetadata(t *testing.T) {
 	require.NoError(t, err)
 
 	out, err := b.UpdateDocumentMetadata(context.TODO(), &ssm.UpdateDocumentMetadataInput{
-		Name: "MetaDoc",
+		Name:            "MetaDoc",
+		DocumentReviews: &ssm.DocumentReviews{Action: "SendForReview"},
 	})
 	require.NoError(t, err)
 	assert.NotNil(t, out)
+}
+
+// TestUpdateDocumentMetadata_RequiresDocumentReviews locks in that Name and
+// DocumentReviews (with a valid Action) are both required on the real op
+// (aws-sdk-go-v2/service/ssm@v1.73.4 api_op_UpdateDocumentMetadata.go) --
+// previously an empty body silently succeeded instead of rejecting with
+// ValidationException.
+func TestUpdateDocumentMetadata_RequiresDocumentReviews(t *testing.T) {
+	t.Parallel()
+
+	b := newBackend(t)
+
+	_, err := b.CreateDocument(context.TODO(), &ssm.CreateDocumentInput{
+		Name:    "MetaDoc2",
+		Content: `{"schemaVersion":"2.2"}`,
+	})
+	require.NoError(t, err)
+
+	_, err = b.UpdateDocumentMetadata(context.TODO(), &ssm.UpdateDocumentMetadataInput{})
+	require.ErrorIs(t, err, ssm.ErrValidationException)
+
+	_, err = b.UpdateDocumentMetadata(context.TODO(), &ssm.UpdateDocumentMetadataInput{Name: "MetaDoc2"})
+	require.ErrorIs(t, err, ssm.ErrValidationException)
+
+	_, err = b.UpdateDocumentMetadata(context.TODO(), &ssm.UpdateDocumentMetadataInput{
+		Name:            "MetaDoc2",
+		DocumentReviews: &ssm.DocumentReviews{Action: "NotARealAction"},
+	})
+	require.ErrorIs(t, err, ssm.ErrValidationException)
 }
 
 func TestBackendOps_ListDocumentMetadataHistory(t *testing.T) {
@@ -249,12 +308,43 @@ func TestBackendOps_ListDocumentMetadataHistory(t *testing.T) {
 	require.NoError(t, err)
 
 	out, err := b.ListDocumentMetadataHistory(context.TODO(), &ssm.ListDocumentMetadataHistoryInput{
-		Name: "HistoryDoc",
+		Name:     "HistoryDoc",
+		Metadata: "DocumentReviews",
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "HistoryDoc", out.Name)
 	assert.NotNil(t, out.Metadata)
 	assert.Empty(t, out.Metadata.ReviewerResponse)
+}
+
+// TestListDocumentMetadataHistory_RequiresNameAndMetadata locks in that Name
+// and Metadata are both required on the real op (aws-sdk-go-v2/service/ssm@v1.73.4
+// api_op_ListDocumentMetadataHistory.go) -- previously an empty body silently
+// succeeded instead of rejecting with ValidationException.
+func TestListDocumentMetadataHistory_RequiresNameAndMetadata(t *testing.T) {
+	t.Parallel()
+
+	b := newBackend(t)
+
+	_, err := b.CreateDocument(context.TODO(), &ssm.CreateDocumentInput{
+		Name:    "HistoryDoc2",
+		Content: `{"schemaVersion":"2.2"}`,
+	})
+	require.NoError(t, err)
+
+	_, err = b.ListDocumentMetadataHistory(context.TODO(), &ssm.ListDocumentMetadataHistoryInput{})
+	require.ErrorIs(t, err, ssm.ErrValidationException)
+
+	_, err = b.ListDocumentMetadataHistory(context.TODO(), &ssm.ListDocumentMetadataHistoryInput{
+		Name: "HistoryDoc2",
+	})
+	require.ErrorIs(t, err, ssm.ErrValidationException)
+
+	_, err = b.ListDocumentMetadataHistory(context.TODO(), &ssm.ListDocumentMetadataHistoryInput{
+		Name:     "HistoryDoc2",
+		Metadata: "NotARealValue",
+	})
+	require.ErrorIs(t, err, ssm.ErrValidationException)
 }
 
 func TestFull_Document_CreateGetUpdateDelete(t *testing.T) {
