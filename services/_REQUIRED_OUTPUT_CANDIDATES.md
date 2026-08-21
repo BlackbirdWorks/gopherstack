@@ -143,8 +143,13 @@ from the ranked table) as future batches clear more of it.
 | cleanrooms | 88 | 83 (ops with required fields) | yes (5: `Membership`/`MembershipSummary.MemberAbilities`, `ConfiguredTable.AllowedColumns`/`AnalysisRuleTypes` + `ConfiguredTableSummary.AnalysisRuleTypes`, `ConfiguredTableAssociation.AnalysisRuleTypes`, `ConfiguredAudienceModelAssociationSummary.ConfiguredAudienceModelArn`, `PrivacyBudgetTemplate.AutoRefresh` -- see batch-8 note below) | gopherstack-r80d batch 8 |
 | s3tables | 60 | 28 (ops with required fields) | yes (1: `GetTableBucketEncryption` 404'd instead of AES256-defaulting for an unconfigured bucket -- see batch-9 note below) | gopherstack-r80d batch 9 |
 | codecommit | 55 | 31 (ops with required fields) | 0 (clean; already field-diffed against the pinned SDK in a very recent thorough pass, 2026-08-13 gopherstack-gvkf, which fixed 8 wire-shape bugs -- see batch-9 note below) | gopherstack-r80d batch 9 |
+| stepfunctions | 54 | 23 (ops with required fields) | yes (4: `TaskScheduledEventDetails.Region`/`.Parameters`, `TaskSucceededEventDetails.Resource`/`.ResourceType`, `TaskFailedEventDetails.Resource`/`.ResourceType`, `DescribeMapRun.ExecutionCounts` missing entirely -- see batch-10 note below) | gopherstack-r80d batch 10 |
+| apprunner | 44 | 32 (ops with required fields) | yes (1: `AssociateCustomDomain`/`DisassociateCustomDomain.VpcDNSTargets` missing entirely; +2 fixed-but-not-counted -- see batch-10 note below) | gopherstack-r80d batch 10 |
 
-21 services settled, 1786 required output fields read end to end. Batch 9
+23 services settled, 1884 required output fields read end to end. Batch 10
+(stepfunctions + apprunner) added 5 more counted bugs (4 + 1) -- see the
+batch-10 notes below for detail.
+Batch 9
 (s3tables + codecommit) added 1 more bug on top of the running total --
 see the batch-9 notes below for detail. Batch 7
 (omics + bedrockagent) added 12 more bugs (omics 4, bedrockagent 8) on top
@@ -422,13 +427,12 @@ for this bug class — a List-only or delete-only service, or one whose ops
 only declare optional output members). 159 of 162 service dirs resolved
 against a pinned `aws-sdk-go-v2` module; opsworks/qldb/qldbsession excluded
 (no SDK dependency). cleanrooms (88, settled batch 8), s3tables (60,
-settled batch 9), and codecommit (55, settled batch 9) removed from this
+settled batch 9), codecommit (55, settled batch 9), stepfunctions (54,
+settled batch 10), and apprunner (44, settled batch 10) removed from this
 table — see the "Already examined" table above.
 
 ```
  459  sagemaker                 ops=403  ops-with-required=188
-  54  stepfunctions             ops=37   ops-with-required=23
-  44  apprunner                 ops=37   ops-with-required=32
   43  databrew                  ops=44   ops-with-required=41
   41  backup                    ops=109  ops-with-required=13
   38  inspector2                ops=81   ops-with-required=29
@@ -501,11 +505,15 @@ Notes on the top of this table for the next batch:
 - **sagemaker** (459, 403 ops) overlaps the ongoing gopherstack-oc9v
   conversion per gopherstack-569k's note for the input-side sweep — same
   caution likely applies here; check for an in-flight conversion before
-  starting. It also had uncommitted concurrent-agent changes during batch 9
-  (services/sagemaker/handler_hub.go, handler_keys.go, hub.go,
-  handler_hub_test.go, PARITY.md) — re-check git status before starting;
-  do not touch it while another agent's work is in flight.
-- **stepfunctions** (54, 23 ops) is now the largest remaining single-service
+  starting. It had uncommitted concurrent-agent changes during batches 9
+  and 10 (services/sagemaker/handler_hub.go, handler_keys.go, hub.go,
+  handler_hub_test.go, PARITY.md, and later pipelines.go/
+  pipeline_executions.go/handler_pipelines.go) — those were committed by the
+  concurrent agent partway through batch 10 (`fbaed6fee`), but re-check
+  `git status` before starting; the conversion itself is still in flight
+  across multiple commits, so treat any uncommitted sagemaker diff as a live
+  exclusion, not a one-time check.
+- **databrew** (43, 44 ops) is now the largest remaining single-service
   reading commitment after sagemaker.
 - **omics settled (batch 7)** — do not re-derive, see the settled-services
   table above and services/omics/PARITY.md's 2026-08-21 entries. The
@@ -536,6 +544,44 @@ Notes on the top of this table for the next batch:
   `types/types.go`), so the nested-domain-struct undercount class that hit
   pinpoint/bedrockagent/cleanrooms structurally cannot apply here, and
   every required List field already uses a nil-guard or `make(...)`.
+- **stepfunctions settled (batch 10)** — do not re-derive, see the
+  settled-services table above and services/stepfunctions/PARITY.md's
+  2026-08-21 entries. Not the "one wrapper key" shape (pinpoint/
+  bedrockagent/cleanrooms) or the `map[string]any`-literal shape (s3tables/
+  codecommit) — responses are tagged structs with mostly-flat per-op
+  required members, but the flat op-level count still undercounts because
+  List ops return arrays of dedicated `*ListItem` structs and
+  `GetExecutionHistory` returns polymorphic `HistoryEvent`s whose
+  `*EventDetails` sub-objects each carry their own required members that
+  `cmd/requiredoutputfields`'s per-op scan can't see. 4 bugs found in the
+  nested `*EventDetails`/`DescribeMapRun` layer; all 6 List-item structs and
+  the alias `RoutingConfigurationListItem` came back clean on re-check.
+  Also reversed one prior-pass verdict: `DescribeMapRun.ExecutionCounts`
+  had been marked "correctly so" absent because this backend has no
+  distributed-map child-execution model — true, but the fix per this
+  campaign's own "required-but-inapplicable means present-and-empty"
+  convention is to emit it anyway, genuinely zero-valued, not omit the key.
+- **apprunner settled (batch 10)** — do not re-derive, see the
+  settled-services table above and services/apprunner/PARITY.md's
+  2026-08-21 entries. Narrower than most: an AST-style walk of every
+  `type X struct` in `types.go` found only `Service` and its nested
+  source-config family carry any required fields at all —
+  `AutoScalingConfiguration`/`Connection`/`ObservabilityConfiguration`/
+  `VpcConnector`/`VpcIngressConnection` and every one of their `*Summary`
+  siblings declare zero. 1 counted bug (`VpcDNSTargets` missing on
+  `AssociateCustomDomain`/`DisassociateCustomDomain`, the sibling op
+  `DescribeCustomDomains` already had it right) plus 2 fixed-but-not-
+  counted findings worth reading before the next batch hits a similar
+  case: `CodeRepository.SourceCodeVersion`'s omitted-input bug is real but
+  **not provable via a real aws-sdk-go-v2 client round trip** because the
+  SDK's own generated client-side `validateCodeRepository` already rejects
+  the malformed request before it's ever sent — a new failure mode this
+  campaign hadn't hit before (prior "not counted" cases were about
+  gopherstack-side unreachability, not the real SDK client refusing to
+  construct the request at all). `ObservabilityConfiguration.TraceConfiguration`
+  being dropped entirely is a real, provable bug but sits outside this
+  cut's precise scope since `TraceConfiguration` itself isn't
+  Smithy-required (only its nested `Vendor` is, once present).
 - **pinpoint settled (batch 5)** — see the settled-services table above for
   why its 120/122 density was structural (single httpPayload-style body
   member per op), not many per-op scalar checks. Don't re-derive; one bug
