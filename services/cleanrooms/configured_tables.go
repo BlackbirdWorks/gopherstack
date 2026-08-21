@@ -28,6 +28,13 @@ func (b *InMemoryBackend) CreateConfiguredTable(
 	}
 	id := uuid.NewString()
 	ts := b.now()
+	if allowedColumns == nil {
+		// AllowedColumns/AnalysisRuleTypes are required on the wire; a nil Go
+		// slice marshals as JSON null, indistinguishable from an absent key to
+		// a real client's deserializer -- must be non-nil so it marshals as []
+		// (gopherstack-r80d).
+		allowedColumns = []string{}
+	}
 	ct := &ConfiguredTable{
 		ConfiguredTableIdentifier: id,
 		Arn:                       b.configuredTableARN(id),
@@ -35,6 +42,7 @@ func (b *InMemoryBackend) CreateConfiguredTable(
 		Description:               description,
 		TableReference:            tableReference,
 		AllowedColumns:            allowedColumns,
+		AnalysisRuleTypes:         []string{},
 		AnalysisMethod:            analysisMethod,
 		CreateTime:                ts,
 		UpdateTime:                ts,

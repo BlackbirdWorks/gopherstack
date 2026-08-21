@@ -236,7 +236,7 @@ func contains(ss []string, s string) bool {
 }
 
 func removeFrom(ss []string, s string) []string {
-	var out []string
+	out := []string{}
 	for _, v := range ss {
 		if v != s {
 			out = append(out, v)

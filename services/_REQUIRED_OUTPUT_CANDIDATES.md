@@ -140,14 +140,18 @@ from the ranked table) as future batches clear more of it.
 | guardduty | 65 | 44 (ops with required fields) | 0 (clean; read end to end, one near-miss (`GetMemberDetectors`'s wire key genuinely is `"members"` despite the SDK's `MemberDataSourceConfigurations` Go field name -- confirmed via the deserializer's own key-switch before flagging, not just the Go struct name) | gopherstack-r80d batch 6 |
 | omics | 182 | 40 | yes (4: `CreateAnnotationStore.VersionName`, `AnnotationStoreVersion.Id`/`Name` wire key, `MultipartReadSetUpload.ReferenceArn` omitempty, `VariantStore.SseConfig`) | gopherstack-r80d batch 7 |
 | bedrockagent | 154 | 66 (ops with required fields) | yes (8: see batch-7 note below) | gopherstack-r80d batch 7 |
+| cleanrooms | 88 | 83 (ops with required fields) | yes (5: `Membership`/`MembershipSummary.MemberAbilities`, `ConfiguredTable.AllowedColumns`/`AnalysisRuleTypes` + `ConfiguredTableSummary.AnalysisRuleTypes`, `ConfiguredTableAssociation.AnalysisRuleTypes`, `ConfiguredAudienceModelAssociationSummary.ConfiguredAudienceModelArn`, `PrivacyBudgetTemplate.AutoRefresh` -- see batch-8 note below) | gopherstack-r80d batch 8 |
 
-18 services settled, 1583 required output fields read end to end. Batch 7
+19 services settled, 1671 required output fields read end to end. Batch 7
 (omics + bedrockagent) added 12 more bugs (omics 4, bedrockagent 8) on top
 of whatever the prior batches' running total was -- this file's own running
 count was already internally inconsistent between "24" and the bd issue's
 own comment stating "34" before this batch touched it; not reconciled here,
 out of this batch's scope, count bugs from the per-service rows above if
-you need an exact figure. Earlier history: 24 bugs found across the first 9
+you need an exact figure. Batch 8 (cleanrooms only) added 5 more bugs, all
+proven via real-SDK-client round-trip tests with hand-revert/confirm-fail/
+restore/md5sum verification -- see the batch-8 note below for detail.
+Earlier history: 24 bugs found across the first 9
 (per gopherstack-r80d's brief); verifiedpermissions,
 grafana and identitystore (batch 4) came back clean; pinpoint (batch 5) added
 one more of the empty-body-204 class first seen in lambda's
@@ -252,6 +256,47 @@ budget. Fixed anyway (harmless either way) but not claimed as proven --
 see `services/bedrockagent/PARITY.md`'s Notes section for the full
 reasoning.
 
+### cleanrooms (batch 8): 5 bugs, all "required-but-reachably-empty" tagged omitempty or a missing field
+
+88 required fields / 83 ops-with-required per `cmd/requiredoutputfields`, same
+"one wrapper key = the whole nested domain object" wire shape as
+pinpoint/bedrockagent, so the flat op count only reflects each op's own
+top-level required member -- read all 83 ops AND every domain struct in
+`models.go` (~36 types) against `types.go`'s `This member is required.`
+annotations directly. Unlike bedrock/bedrockagent, this service had already
+been through four prior passes doing real, cited SDK-deserializer field-diff
+work (2026-07-24, 2026-08-07 kiqa, 2026-08-13 bv5d, 2026-08-14 dv4s) -- none
+of them were looking for this specific bug class (a required field tagged
+`omitempty` that is *genuinely reachable empty* from a real client, as
+opposed to an invented field or a wrong response key), which is exactly what
+this pass targeted and found. One of the five was already found and
+explicitly deferred by the 2026-08-14 pass as "the opposite bug direction"
+(`ConfiguredAudienceModelAssociationSummary.ConfiguredAudienceModelArn`) --
+same "deferred is not fixed" lesson batch 7 already drew from omics/
+bedrockagent, reapplied here. The other four:
+`Membership`/`MembershipSummary.MemberAbilities` (empty when a collaboration
+is created with an empty `creatorMemberAbilities` list -- a valid, Smithy-legal
+state), `ConfiguredTable.AllowedColumns`/`AnalysisRuleTypes` +
+`ConfiguredTableSummary.AnalysisRuleTypes` (empty before the first analysis
+rule is attached -- a common window, not an edge case),
+`ConfiguredTableAssociation.AnalysisRuleTypes` (same class), and
+`PrivacyBudgetTemplate.AutoRefresh` (optional on input, defaulted to `NONE`
+when unspecified rather than left as the empty zero value). A `removeFrom`
+helper (`store.go`) had the same nil-on-empty-result bug on the delete-last-rule
+path, fixed alongside the two `AnalysisRuleTypes` bugs rather than counted
+separately. All 5 proven via real `aws-sdk-go-v2/service/cleanrooms` client
+round trips (`services/cleanrooms/wire_output_required_r80d_test.go`),
+hand-reverted/confirmed-failing/restored, md5sum-verified byte-identical. Two
+already-documented gaps were re-confirmed as genuinely unreachable rather than
+fixed (`Schema.Description`/`SchemaStatusDetails` -- no Create path for
+schemas exists anywhere in this backend, confirmed via a repo-wide grep for
+`b.schemas.Put`; `ProtectedQuerySummary`/`ProtectedJobSummary.ReceiverConfigurations`
+-- already named in the pre-existing gaps list). See
+`services/cleanrooms/PARITY.md`'s 2026-08-21 entries for full SDK file:line
+citations and the "reviewed, not a bug" list of every other `omitempty`
+required field checked and found safe (required-on-input too, so never
+actually reachable-empty from a real client).
+
 ### Why pinpoint's density is 120/122 and not a new bug class
 
 Read end to end (all 122 ops, all 120 required fields) — see
@@ -288,11 +333,11 @@ that fails against the un-reverted handler and passes against the fix
 for this bug class — a List-only or delete-only service, or one whose ops
 only declare optional output members). 159 of 162 service dirs resolved
 against a pinned `aws-sdk-go-v2` module; opsworks/qldb/qldbsession excluded
-(no SDK dependency).
+(no SDK dependency). cleanrooms (88, settled batch 8) removed from this table
+— see the "Already examined" table above.
 
 ```
  459  sagemaker                 ops=403  ops-with-required=188
-  88  cleanrooms                ops=100  ops-with-required=83
   60  s3tables                  ops=49   ops-with-required=28
   55  codecommit                ops=79   ops-with-required=31
   54  stepfunctions             ops=37   ops-with-required=23
@@ -379,8 +424,16 @@ Notes on the top of this table for the next batch:
   settled-services table above and services/bedrockagent/PARITY.md's
   2026-08-21 entries. **bedrock** (a different service, batch 6) — do not
   re-derive that either, see services/bedrock/PARITY.md's 2026-08-20 entries.
-- **cleanrooms** (88, 100 ops) is now the largest remaining single-service
-  reading commitment after sagemaker.
+- **cleanrooms settled (batch 8)** — do not re-derive, see the
+  settled-services table above and services/cleanrooms/PARITY.md's
+  2026-08-21 entries. **s3tables** (60, 49 ops) is now the largest remaining
+  single-service reading commitment after sagemaker — it already has an
+  extensive prior wire-shape audit (see its own PARITY.md, `overall: A`,
+  every op individually marked `wire: ok`, including a prior pass that fixed
+  the exact "empty 204 instead of required {status,versionToken}" bug class
+  in the replication family) but has NOT yet been checked specifically for
+  this campaign's reachable-empty-tagged-omitempty class the way cleanrooms
+  just was — don't assume clean without re-checking that specific angle.
 - **pinpoint settled (batch 5)** — see the settled-services table above for
   why its 120/122 density was structural (single httpPayload-style body
   member per op), not many per-op scalar checks. Don't re-derive; one bug

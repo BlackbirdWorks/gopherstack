@@ -47,6 +47,13 @@ func (b *InMemoryBackend) createMembershipLocked(
 ) *Membership {
 	id := uuid.NewString()
 	ts := b.now()
+	if memberAbilities == nil {
+		// MemberAbilities is required on the wire (Membership/MembershipSummary);
+		// a nil Go slice marshals as JSON null, which a real client's deserializer
+		// treats identically to the key being absent -- must be non-nil so it
+		// marshals as [] (gopherstack-r80d).
+		memberAbilities = []string{}
+	}
 	m := &Membership{
 		MembershipIdentifier:            id,
 		Arn:                             b.membershipARN(id),
