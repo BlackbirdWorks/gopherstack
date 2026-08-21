@@ -32,10 +32,7 @@ func (h *Handler) handleSendMessages(c *echo.Context, appID string) error {
 		return writeErrorResponse(c, http.StatusInternalServerError, "InternalServerErrorException", backendErr.Error())
 	}
 
-	httputils.WriteJSON(
-		c.Request().Context(), c.Response(),
-		http.StatusOK, sendMessagesResponse{MessageResponse: *resp},
-	)
+	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusOK, resp)
 
 	return nil
 }
@@ -63,10 +60,7 @@ func (h *Handler) handleSendUsersMessages(c *echo.Context, appID string) error {
 		return writeErrorResponse(c, http.StatusInternalServerError, "InternalServerErrorException", backendErr.Error())
 	}
 
-	httputils.WriteJSON(
-		c.Request().Context(), c.Response(),
-		http.StatusOK, sendUsersMessagesResponse{SendUsersMessageResponse: *resp},
-	)
+	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusOK, resp)
 
 	return nil
 }
@@ -98,7 +92,7 @@ func (h *Handler) handleVerifyOTPMessage(c *echo.Context, appID string) error {
 		_ = json.Unmarshal(body, &req)
 	}
 
-	code := req.VerifyOTPMessageRequestParameters.Otp
+	code := req.Otp
 
 	resp, err := h.Backend.VerifyOTPMessage(appID, code)
 	if err != nil {
@@ -126,7 +120,7 @@ func (h *Handler) handlePhoneNumberValidate(c *echo.Context) error {
 		return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", "invalid request body")
 	}
 
-	resp, backendErr := h.Backend.PhoneNumberValidate(req.NumberValidateRequest.PhoneNumber)
+	resp, backendErr := h.Backend.PhoneNumberValidate(req.PhoneNumber)
 	if backendErr != nil {
 		return writeErrorResponse(c, http.StatusInternalServerError, "InternalServerErrorException", backendErr.Error())
 	}

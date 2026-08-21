@@ -32,7 +32,7 @@ func (b *InMemoryBackend) SendMessages(
 
 	result := &messageResponse{ApplicationID: appID, Result: make(map[string]messageResult)}
 
-	for addr := range req.MessageRequest.Addresses {
+	for addr := range req.Addresses {
 		result.Result[addr] = messageResult{
 			DeliveryStatus: deliveryStatusSuccessful,
 			MessageID:      uuid.NewString(),
@@ -58,7 +58,7 @@ func (b *InMemoryBackend) SendUsersMessages(
 
 	result := make(map[string]map[string]messageResult)
 
-	for userID := range req.SendUsersMessageRequest.Users {
+	for userID := range req.Users {
 		endpointResults := make(map[string]messageResult)
 
 		for _, ep := range b.endpoints.All() {
@@ -90,7 +90,7 @@ func (b *InMemoryBackend) SendUsersMessages(
 }
 
 // SendOTPMessage sends an OTP message and stores the generated code.
-func (b *InMemoryBackend) SendOTPMessage(appID string) (*sendOTPMessageResponse, error) {
+func (b *InMemoryBackend) SendOTPMessage(appID string) (*messageResponse, error) {
 	b.mu.Lock("SendOTPMessage")
 	defer b.mu.Unlock()
 
@@ -105,12 +105,10 @@ func (b *InMemoryBackend) SendOTPMessage(appID string) (*sendOTPMessageResponse,
 
 	msgID := uuid.NewString()
 
-	return &sendOTPMessageResponse{
-		MessageResponse: messageResponse{
-			ApplicationID: appID,
-			Result: map[string]messageResult{
-				appID: {DeliveryStatus: deliveryStatusSuccessful, MessageID: msgID, StatusCode: statusCodeOK},
-			},
+	return &messageResponse{
+		ApplicationID: appID,
+		Result: map[string]messageResult{
+			appID: {DeliveryStatus: deliveryStatusSuccessful, MessageID: msgID, StatusCode: statusCodeOK},
 		},
 	}, nil
 }
@@ -179,7 +177,7 @@ func lookupCountry(e164 string) countryInfo {
 // PhoneNumberValidate validates a phone number and returns a cleaned E164 response.
 func (b *InMemoryBackend) PhoneNumberValidate(
 	phoneNumber string,
-) (*phoneNumberValidateResponse, error) {
+) (*numberValidateResponse, error) {
 	// Normalise to E164: strip non-digit chars, prepend + if missing.
 	digits := strings.Map(func(r rune) rune {
 		if r >= '0' && r <= '9' {
@@ -203,19 +201,17 @@ func (b *InMemoryBackend) PhoneNumberValidate(
 
 	country := lookupCountry(e164)
 
-	return &phoneNumberValidateResponse{
-		NumberValidateResponse: numberValidateResponse{
-			Carrier:                           "Unknown",
-			PhoneType:                         "MOBILE",
-			PhoneTypeCode:                     0,
-			CleansedPhoneNumberE164:           e164,
-			CleansedPhoneNumberNationalFormat: e164,
-			Country:                           country.Name,
-			CountryCodeIso2:                   country.ISO2,
-			CountryCodeNumeric:                country.NumericCode,
-			OriginalCountryCodeIso2:           country.ISO2,
-			OriginalPhoneNumber:               phoneNumber,
-			Timezone:                          country.Timezone,
-		},
+	return &numberValidateResponse{
+		Carrier:                           "Unknown",
+		PhoneType:                         "MOBILE",
+		PhoneTypeCode:                     0,
+		CleansedPhoneNumberE164:           e164,
+		CleansedPhoneNumberNationalFormat: e164,
+		Country:                           country.Name,
+		CountryCodeIso2:                   country.ISO2,
+		CountryCodeNumeric:                country.NumericCode,
+		OriginalCountryCodeIso2:           country.ISO2,
+		OriginalPhoneNumber:               phoneNumber,
+		Timezone:                          country.Timezone,
 	}, nil
 }

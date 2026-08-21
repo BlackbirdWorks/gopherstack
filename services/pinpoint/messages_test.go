@@ -63,11 +63,9 @@ func TestOTP_SendAndVerify(t *testing.T) {
 				},
 			},
 			verifyBody: map[string]any{
-				"VerifyOTPMessageRequestParameters": map[string]any{
-					"DestinationIdentity": "+15555550101",
-					"ReferenceID":         "ref-003",
-					"Otp":                 "123456",
-				},
+				"DestinationIdentity": "+15555550101",
+				"ReferenceID":         "ref-003",
+				"Otp":                 "123456",
 			},
 			wantSend:   http.StatusOK,
 			wantVerify: http.StatusOK,
@@ -139,8 +137,7 @@ func TestOTP_SendAndVerify_CodeMatch(t *testing.T) {
 				var sendResp map[string]any
 				require.NoError(t, json.Unmarshal(sendRec.Body.Bytes(), &sendResp))
 
-				msgResp, _ := sendResp["MessageResponse"].(map[string]any)
-				results, _ := msgResp["Result"].(map[string]any)
+				results, _ := sendResp["Result"].(map[string]any)
 				assert.NotEmpty(t, results, "SendOTP should return results")
 			}
 
@@ -200,11 +197,9 @@ func TestOTP_CodeMatch_WrongCode(t *testing.T) {
 	// Verify with a wrong code → Valid=false.
 	verifyRec := doPinpointRequest(t, h, http.MethodPost, "/v1/apps/"+appID+"/verify-otp",
 		map[string]any{
-			"VerifyOTPMessageRequestParameters": map[string]any{
-				"DestinationIdentity": "+15555550100",
-				"Otp":                 "999999",
-				"ReferenceId":         "ref-xyz",
-			},
+			"DestinationIdentity": "+15555550100",
+			"Otp":                 "999999",
+			"ReferenceId":         "ref-xyz",
 		})
 	require.Equal(t, http.StatusOK, verifyRec.Code)
 
@@ -222,9 +217,7 @@ func TestOTP_CodeMatch_NoOTPSent(t *testing.T) {
 	// Verify without ever sending an OTP → Valid=false even with a code.
 	verifyRec := doPinpointRequest(t, h, http.MethodPost, "/v1/apps/"+appID+"/verify-otp",
 		map[string]any{
-			"VerifyOTPMessageRequestParameters": map[string]any{
-				"Otp": "123456",
-			},
+			"Otp": "123456",
 		})
 	require.Equal(t, http.StatusOK, verifyRec.Code)
 
@@ -271,14 +264,12 @@ func TestSendUsersMessages_WithEndpoints(t *testing.T) {
 	sendRec := doPinpointRequest(t, h, http.MethodPost,
 		"/v1/apps/"+appID+"/users-messages",
 		map[string]any{
-			"SendUsersMessageRequest": map[string]any{
-				"Users": map[string]any{
-					"alice": map[string]any{},
-					"bob":   map[string]any{},
-				},
-				"MessageConfiguration": map[string]any{
-					"EmailMessage": map[string]any{"FromAddress": "noreply@example.com"},
-				},
+			"Users": map[string]any{
+				"alice": map[string]any{},
+				"bob":   map[string]any{},
+			},
+			"MessageConfiguration": map[string]any{
+				"EmailMessage": map[string]any{"FromAddress": "noreply@example.com"},
 			},
 		})
 	require.Equal(t, http.StatusOK, sendRec.Code)
@@ -286,10 +277,7 @@ func TestSendUsersMessages_WithEndpoints(t *testing.T) {
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(sendRec.Body.Bytes(), &resp))
 
-	envelope, _ := resp["SendUsersMessageResponse"].(map[string]any)
-	require.NotNil(t, envelope, "response must be nested under SendUsersMessageResponse")
-
-	result, _ := envelope["Result"].(map[string]any)
+	result, _ := resp["Result"].(map[string]any)
 	require.NotNil(t, result)
 
 	aliceResults, _ := result["alice"].(map[string]any)
@@ -319,10 +307,8 @@ func TestSendUsersMessages_UnknownUser(t *testing.T) {
 	sendRec := doPinpointRequest(t, h, http.MethodPost,
 		"/v1/apps/"+appID+"/users-messages",
 		map[string]any{
-			"SendUsersMessageRequest": map[string]any{
-				"Users": map[string]any{
-					"ghost": map[string]any{},
-				},
+			"Users": map[string]any{
+				"ghost": map[string]any{},
 			},
 		})
 	require.Equal(t, http.StatusOK, sendRec.Code)
@@ -330,10 +316,9 @@ func TestSendUsersMessages_UnknownUser(t *testing.T) {
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(sendRec.Body.Bytes(), &resp))
 
-	envelope, _ := resp["SendUsersMessageResponse"].(map[string]any)
-	require.NotNil(t, envelope, "response must be nested under SendUsersMessageResponse")
+	result, _ := resp["Result"].(map[string]any)
+	require.NotNil(t, result)
 
-	result, _ := envelope["Result"].(map[string]any)
 	ghostResults, _ := result["ghost"].(map[string]any)
 	require.NotNil(t, ghostResults, "unknown user still gets a result entry")
 }
@@ -346,15 +331,12 @@ func TestSendUsersMessages_EmptyBody(t *testing.T) {
 
 	rec := doPinpointRequest(t, h, http.MethodPost,
 		"/v1/apps/"+appID+"/users-messages",
-		map[string]any{
-			"SendUsersMessageRequest": map[string]any{},
-		})
+		map[string]any{})
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	envelope, _ := resp["SendUsersMessageResponse"].(map[string]any)
-	result, _ := envelope["Result"].(map[string]any)
+	result, _ := resp["Result"].(map[string]any)
 	assert.Empty(t, result, "no users in request → empty result")
 }
 
@@ -415,18 +397,17 @@ func TestPhoneNumberValidate_E164Input(t *testing.T) {
 
 			rec := doPinpointRequest(t, h, http.MethodPost, "/v1/phone/number/validate",
 				map[string]any{
-					"NumberValidateRequest": map[string]any{
-						"PhoneNumber": tc.phoneNumber,
-					},
+					"PhoneNumber": tc.phoneNumber,
 				})
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 
-			inner, ok := resp["NumberValidateResponse"].(map[string]any)
-			require.True(t, ok, "NumberValidateResponse must be present")
+			_, wrapped := resp["NumberValidateResponse"]
+			assert.False(t, wrapped, "NumberValidateResponse must not appear as a wrapper key")
 
+			inner := resp
 			assert.Equal(t, tc.wantCountryIso2, inner["CountryCodeIso2"],
 				"CountryCodeIso2 must match")
 			assert.Equal(t, tc.wantCountryIso2, inner["OriginalCountryCodeIso2"],
@@ -452,16 +433,14 @@ func TestPhoneNumberValidate_UnknownCountry(t *testing.T) {
 
 	rec := doPinpointRequest(t, h, http.MethodPost, "/v1/phone/number/validate",
 		map[string]any{
-			"NumberValidateRequest": map[string]any{
-				"PhoneNumber": "+99912345678",
-			},
+			"PhoneNumber": "+99912345678",
 		})
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 
-	inner := resp["NumberValidateResponse"].(map[string]any)
+	inner := resp
 	assert.Equal(t, "ZZ", inner["CountryCodeIso2"], "unknown country returns ZZ")
 	assert.Equal(t, "+99912345678", inner["OriginalPhoneNumber"])
 	assert.Equal(t, "+99912345678", inner["CleansedPhoneNumberE164"])
@@ -475,16 +454,14 @@ func TestPhoneNumberValidate_NationalFormat(t *testing.T) {
 	// 10-digit US number without + prefix should be normalized.
 	rec := doPinpointRequest(t, h, http.MethodPost, "/v1/phone/number/validate",
 		map[string]any{
-			"NumberValidateRequest": map[string]any{
-				"PhoneNumber": "2125551234",
-			},
+			"PhoneNumber": "2125551234",
 		})
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 
-	inner := resp["NumberValidateResponse"].(map[string]any)
+	inner := resp
 	assert.Equal(t, "+12125551234", inner["CleansedPhoneNumberE164"],
 		"10-digit US number must be normalized to +1 prefix")
 	assert.Equal(t, "US", inner["CountryCodeIso2"])
@@ -497,28 +474,32 @@ func TestPhoneNumberValidate_PhoneTypeAndCarrier(t *testing.T) {
 
 	rec := doPinpointRequest(t, h, http.MethodPost, "/v1/phone/number/validate",
 		map[string]any{
-			"NumberValidateRequest": map[string]any{
-				"PhoneNumber": "+12125551234",
-			},
+			"PhoneNumber": "+12125551234",
 		})
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 
-	inner := resp["NumberValidateResponse"].(map[string]any)
+	inner := resp
 	assert.NotEmpty(t, inner["PhoneType"], "PhoneType must be set")
 	assert.NotNil(t, inner["PhoneTypeCode"], "PhoneTypeCode must be present")
 }
 
 // ──────────────────────────────────────────────────
-// Parity Phase 4: SendMessages/SendUsersMessages response envelope
+// Parity Phase 4: SendMessages response body
 // ──────────────────────────────────────────────────
 
-// TestAudit6_SendMessages_ResponseEnvelope verifies SendMessages nests its
-// result under a top-level "MessageResponse" key (matching
-// SendMessagesOutput.MessageResponse in aws-sdk-go-v2), not a bare envelope.
-func TestSendMessages_ResponseEnvelope(t *testing.T) {
+// TestSendMessages_ResponseFlat verifies SendMessages returns MessageResponse's
+// fields at the top level of the body, not nested under a "MessageResponse"
+// key. gopherstack-lffs (re-audit of gopherstack-6flj): pinpoint@v1.42.4's
+// awsRestjson1_deserializeOpSendMessages decodes the whole HTTP body directly
+// into output.MessageResponse (deserializers.go) -- there is no wrapper key on
+// the wire, and a real client reading a "MessageResponse"-nested body would
+// see the required ApplicationId/Result fields as absent. See also
+// TestSendMessages_RealClient in messages_wrapper_fix_test.go for the
+// real-SDK-client version of this coverage.
+func TestSendMessages_ResponseFlat(t *testing.T) {
 	t.Parallel()
 
 	h := newHandlerForTest(t)
@@ -526,10 +507,8 @@ func TestSendMessages_ResponseEnvelope(t *testing.T) {
 
 	rec := doPinpointRequest(t, h, http.MethodPost, "/v1/apps/"+appID+"/messages",
 		map[string]any{
-			"MessageRequest": map[string]any{
-				"Addresses": map[string]any{
-					"+15555550100": map[string]any{"ChannelType": "SMS"},
-				},
+			"Addresses": map[string]any{
+				"+15555550100": map[string]any{"ChannelType": "SMS"},
 			},
 		})
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -537,11 +516,11 @@ func TestSendMessages_ResponseEnvelope(t *testing.T) {
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 
-	envelope, ok := resp["MessageResponse"].(map[string]any)
-	require.True(t, ok, "response must be nested under a MessageResponse key")
-	assert.Equal(t, appID, envelope["ApplicationId"])
+	_, wrapped := resp["MessageResponse"]
+	assert.False(t, wrapped, "MessageResponse must not appear as a wrapper key")
+	assert.Equal(t, appID, resp["ApplicationId"])
 
-	result, ok := envelope["Result"].(map[string]any)
+	result, ok := resp["Result"].(map[string]any)
 	require.True(t, ok)
 
 	entry, ok := result["+15555550100"].(map[string]any)
