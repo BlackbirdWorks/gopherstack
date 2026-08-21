@@ -156,12 +156,15 @@ from the ranked table) as future batches clear more of it.
 | efs | 30 | 31 (6 ops-with-required) | yes (1: `Destination.Region` omitempty, never defaulted for same-region replication -- see the batch-17 note below and services/efs/PARITY.md) | gopherstack-r80d batch 17 |
 | ce | 30 | 47 (18 ops-with-required) | 0 (clean; several dead/unreachable `omitempty` tags reviewed and left alone -- see the batch-17 note below and services/ce/PARITY.md) | gopherstack-r80d batch 17 |
 | swf | 30 | 39 (17 ops-with-required) | yes (3 findings / 4 member-level fixes: `DecisionTaskCompletedEventAttributes.scheduledEventId`/`.startedEventId` + `PollForDecisionTaskOutput.StartedEventId`, `ChildWorkflowExecutionTimedOutEventAttributes.timeoutType`, `TimerCanceledEventAttributes.startedEventId` -- see the batch-17 note below and services/swf/PARITY.md) | gopherstack-r80d batch 17 |
+| accessanalyzer | 28 | 39 (17 ops-with-required) | yes (1: `Location.Span`, nested inside `ValidatePolicyFinding.Locations`, invisible to the flat per-op scan and one level deeper than `ValidatePolicyFinding` itself -- see the batch-18 note below and services/accessanalyzer/PARITY.md) | gopherstack-r80d batch 18 |
 
-34 services settled, 2269 required output fields read end to end (the running
+35 services settled, 2297 required output fields read end to end (the running
 total counts each settled service's flat per-op `cmd/requiredoutputfields`
 number, as established by every prior batch -- glue's own real audited
 surface was substantially larger once its ~56 gopherstack-modeled domain
-structs were cross-checked, see the batch-15 note below). Batch 17
+structs were cross-checked, see the batch-15 note below). Batch 18
+(accessanalyzer only) added 1 more counted bug on top of the running total
+-- see the batch-18 note below for detail. Batch 17
 (efs + ce + swf, 30 fields each) added 4 more counted bugs (1 + 0 + 3) on top
 of the running total -- see the batch-17 note below for detail. Batch 16
 (batch only) added 6 more counted bugs on top of the running total -- see the
@@ -835,6 +838,81 @@ required output fields read end to end). Did not touch sagemaker
 (off-limits, confirmed via repeated `git status` checks) or attempt a
 fourth service this batch.
 
+### accessanalyzer (batch 18): 1 bug, one level deeper than a nested-domain-struct undercount
+
+28 fields / 39 ops / 17 ops-with-required per `cmd/requiredoutputfields`
+(re-verified via a fresh run, cross-checked against this file, both
+agreeing before starting). Before trusting any exemption, the campaign's
+own instrument was re-validated per the brief: two *independent*
+implementations of a full `types.go` domain-struct walk -- a
+character-level brace matcher and a `go/parser`/`go/ast`-based parser (a
+real Go parser, not a second hand-rolled text scanner) -- were built and
+cross-checked against each other on this service's `types.go`. They agreed
+exactly: 117 structs total, 41 carrying >=1 required member, 114 required
+fields summed. That domain-struct total (114) is nearly 4x the flat
+per-op count (28) -- the gap is fully explained, not just asserted: every
+"one wrapper key = the whole nested domain object" op (`GetAccessPreview`,
+`GetAnalyzer`, `GetArchiveRule`, `GetGeneratedPolicy`, every `List*`) hides
+its domain struct's own required members from the per-op scan, the same
+"one wrapper key" shape pinpoint/bedrockagent/cleanrooms established. Two
+ops don't even appear in the flat scan's 17-op list at all -- `GetFinding`
+and `GetAnalyzedResource`'s own top-level `Finding`/`Resource` fields
+aren't themselves Smithy-required -- yet nest `types.Finding`/
+`types.AnalyzedResource`, which carry 8 and 7 required members
+respectively; a per-op-only scan would have skipped both ops entirely.
+
+Read every op's response-building code end to end against every domain
+struct actually reachable from an `Output` field (verified via a
+repo-wide grep of every `api_op_*Output` struct's own `types.X` field
+types, not just the ones the flat scan flagged, to make sure nothing
+reachable was missed). Almost the entire required surface was already
+correct -- this service had two dedicated general-parity passes
+(2026-08-15 gopherstack-6flj, and gopherstack-kwht before it) that had
+already fixed this exact bug class by name for `AccessPreview`/
+`AccessPreviewFinding`/`AnalyzedResource`/`AnalyzedResourceSummary`/
+`Finding`/`FindingSummary`/`GeneratedPolicyResult`/`JobDetails`/
+`ValidatePolicyFinding.FindingDetails`, all re-confirmed rather than
+re-litigated. The 13-member `AnalyzerConfiguration`/`Configuration` union
+structs (`KmsGrantConfiguration`, `S3BucketAclGrantConfiguration`,
+`S3PublicAccessBlockConfiguration`, `VpcConfiguration`, `Trail`) are stored
+and echoed back as opaque `json.RawMessage`, never decoded field-by-field
+-- genuinely inapplicable to this bug class, not merely unaudited, since
+whatever a real client sends comes back byte-for-byte.
+
+**1 bug, one level deeper than the nested-domain-struct undercount class
+itself:** `ValidatePolicyFinding.Locations` (required, already correctly
+populated as `[]types.Location`) -- but `types.Location` itself requires
+both `Path` (already correct) and `Span` (types/types.go:1509-1521), and
+`Span` was never emitted at all. This is a *third* undercount shape this
+campaign hadn't quite named this way before: not "the op's own required
+field is missing a struct field" and not "the domain struct nested behind
+a non-required wrapper field has its own dropped members" (the
+`GetFinding`/`GetAnalyzedResource` shape above) -- here the *array element
+type of an already-correctly-populated required field* has its own
+required member missing. Fixed by recovering the real byte range from the
+original `policyDocument` text via each value's own `json.RawMessage`
+bytes (copied verbatim by `encoding/json`, not re-synthesized) rather than
+fabricating a placeholder position, with a step-by-step fallback toward
+the document root so `Span` is never dropped even when the exact key a
+finding is about is itself absent (e.g. a wholly missing `"Effect"`).
+Proven via a real `aws-sdk-go-v2/service/accessanalyzer` client round trip
+(`services/accessanalyzer/wire_output_required_r80d_test.go`), one test
+asserting `Span` is never nil across 4 finding shapes (including a
+2-statement case exercising duplicate-element disambiguation in the
+resolver) and a second asserting the span's byte range exactly bounds the
+real substring text, hand-reverted/confirmed-failing/restored, md5sum
+byte-identical. See services/accessanalyzer/PARITY.md's 2026-08-21 entry
+for full detail and SDK file:line citations.
+
+All gates (build/vet/gofmt/race-test/lint, repo-wide `go build ./...`) are
+green, 0 banned nolints, 0 new nolints, no exported signatures changed.
+`services/_REQUIRED_OUTPUT_CANDIDATES.md` updated: accessanalyzer moved
+from the ranked table into "Already examined" (settled-services count now
+35, 2297 required output fields read end to end). Did not touch sagemaker
+(off-limits, `git status` checked before and after) or services/pipes
+(concurrent sibling agent's timestamp-decoding sweep, committed as
+c79ebf1b5 partway through this batch) or attempt a second service.
+
 ### glue (batch 15): 6 member-level bugs, settled via domain-struct cross-reference rather than a per-op read
 
 Selected after re-verifying the table against a fresh `go run
@@ -976,12 +1054,12 @@ settled batch 10), apprunner (44, settled batch 10), databrew (43, settled
 batch 11), backup (41, settled batch 11), inspector2 (38, settled batch
 12), vpclattice (37, settled batch 13), appmesh (36, settled batch 13),
 amplify (35, settled batch 14), glue (34, settled batch 15), batch (31,
-settled batch 16), and ce/efs/swf (30 each, settled batch 17) removed from
-this table — see the "Already examined" table above.
+settled batch 16), ce/efs/swf (30 each, settled batch 17), and
+accessanalyzer (28, settled batch 18) removed from this table — see the
+"Already examined" table above.
 
 ```
  459  sagemaker                 ops=403  ops-with-required=188
-  28  accessanalyzer            ops=39   ops-with-required=17
   27  cognitoidp                ops=129  ops-with-required=25
   25  emrserverless             ops=22   ops-with-required=14
   22  networkmonitor            ops=12   ops-with-required=7
@@ -1116,9 +1194,15 @@ Notes on the top of this table for the next batch:
   2026-08-21 entries, plus the batch-17 note below for full detail. All
   three verified tied at 30 fields each via a fresh
   `cmd/requiredoutputfields` run before starting; taken in alphabetical
-  order, all three completed with full rigour. accessanalyzer (28,
-  ops=39/ops-with-required=17) is now the largest remaining candidate after
-  sagemaker.
+  order, all three completed with full rigour.
+- **accessanalyzer settled (batch 18)** — do not re-derive, see the
+  settled-services table above and services/accessanalyzer/PARITY.md's
+  2026-08-21 entry, plus the batch-18 note below for full detail. Verified
+  as the largest remaining candidate after sagemaker via a fresh
+  `cmd/requiredoutputfields` run cross-checked against this file before
+  starting (both agreed: accessanalyzer 28/39/17). **cognitoidp (27,
+  ops=129/ops-with-required=25) is now the largest remaining candidate
+  after sagemaker.**
 - **omics settled (batch 7)** — do not re-derive, see the settled-services
   table above and services/omics/PARITY.md's 2026-08-21 entries. The
   concurrent sibling agent's over-wide-List sweep this file previously

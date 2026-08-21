@@ -509,7 +509,10 @@ func validateStatement(i int, stmt iamStatement, policyType string) []ValidatePo
 func ValidatePolicy(policyDoc, policyType string) []ValidatePolicyFinding {
 	var raw map[string]json.RawMessage
 	if err := json.Unmarshal([]byte(policyDoc), &raw); err != nil {
-		return []ValidatePolicyFinding{errFinding("INVALID_POLICY_SYNTAX", rootLoc())}
+		findings := []ValidatePolicyFinding{errFinding("INVALID_POLICY_SYNTAX", rootLoc())}
+		attachSpans(policyDoc, findings)
+
+		return findings
 	}
 
 	p := parsePolicy(policyDoc)
@@ -520,5 +523,165 @@ func ValidatePolicy(policyDoc, policyType string) []ValidatePolicyFinding {
 		findings = append(findings, validateStatement(i, stmt, policyType)...)
 	}
 
+	attachSpans(policyDoc, findings)
+
 	return findings
+}
+
+// attachSpans fills in the required "span" member of every Location built by
+// rootLoc/fieldLoc/stmtLoc/stmtFieldLoc above. types.Location requires both
+// Path and Span (types/types.go:1509-1521, v1.51.4); this package built Path
+// only, leaving Span (and its own required Start/End Positions) off the wire
+// entirely for every ValidatePolicy finding.
+//
+// The byte range is recovered from the real document text, not synthesized:
+// each path step is resolved by locating its value's own json.RawMessage
+// bytes (which encoding/json copies verbatim from the source, whitespace and
+// all) inside its parent's bytes, so the offset is exact for any
+// well-formed, non-pathological policy document. A path that can't be
+// resolved this way (e.g. an absent "Effect" key is exactly what triggered
+// the finding) falls back one step at a time toward the document root,
+// which always resolves -- so span is never dropped.
+func attachSpans(doc string, findings []ValidatePolicyFinding) {
+	root := json.RawMessage(doc)
+
+	for i := range findings {
+		locs := findings[i].Locations
+		for j := range locs {
+			attachSpan(doc, root, locs[j])
+		}
+	}
+}
+
+// attachSpan resolves loc's "span" in place. loc is a map (a reference
+// type), so mutating it here mutates the same map attachSpans's caller
+// holds -- no index expression needs to survive past this call.
+func attachSpan(doc string, root json.RawMessage, loc map[string]any) {
+	path, _ := loc[keyPath].([]any)
+
+	for {
+		if raw, start, ok := resolveRawAt(root, 0, path); ok {
+			loc["span"] = spanJSON(doc, start, start+len(raw))
+
+			return
+		}
+
+		if len(path) == 0 {
+			return // unreachable: path=nil always resolves to the whole document
+		}
+
+		path = path[:len(path)-1]
+	}
+}
+
+// resolveRawAt walks node (whose own first byte sits at nodeStart within the
+// original document) down path, returning the raw bytes and absolute start
+// offset of the value path names. path elements are the same
+// map[string]any{keyValue: field} / map[string]any{keyIndex: i} shapes
+// rootLoc/fieldLoc/stmtLoc/stmtFieldLoc build (never JSON-decoded, so the
+// map values are concrete Go string/int, not float64/etc).
+func resolveRawAt(node json.RawMessage, nodeStart int, path []any) (json.RawMessage, int, bool) {
+	if len(path) == 0 {
+		return node, nodeStart, true
+	}
+
+	elem, _ := path[0].(map[string]any)
+	rest := path[1:]
+
+	if key, isKey := elem[keyValue].(string); isKey {
+		return resolveKeyStep(node, nodeStart, key, rest)
+	}
+
+	if idx, isIndex := elem[keyIndex].(int); isIndex {
+		return resolveIndexStep(node, nodeStart, idx, rest)
+	}
+
+	return nil, 0, false
+}
+
+// resolveKeyStep resolves a map[string]any{keyValue: key} path step: the
+// PathElementMemberValue shape rootLoc/fieldLoc/stmtFieldLoc build for "the
+// value at this object key".
+func resolveKeyStep(node json.RawMessage, nodeStart int, key string, rest []any) (json.RawMessage, int, bool) {
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(node, &m); err != nil {
+		return nil, 0, false
+	}
+
+	child, exists := m[key]
+	if !exists {
+		return nil, 0, false
+	}
+
+	rel := strings.Index(string(node), string(child))
+	if rel < 0 {
+		return nil, 0, false
+	}
+
+	return resolveRawAt(child, nodeStart+rel, rest)
+}
+
+// resolveIndexStep resolves a map[string]any{keyIndex: idx} path step: the
+// PathElementMemberIndex shape stmtLoc/stmtFieldLoc build for "the element
+// at this array index". Sequential search (rather than one strings.Index
+// against the whole node) so an earlier element byte-identical to arr[idx]
+// can't steal the match -- each element narrows the search window past
+// itself.
+func resolveIndexStep(node json.RawMessage, nodeStart, idx int, rest []any) (json.RawMessage, int, bool) {
+	var arr []json.RawMessage
+	if err := json.Unmarshal(node, &arr); err != nil {
+		return nil, 0, false
+	}
+
+	if idx < 0 || idx >= len(arr) {
+		return nil, 0, false
+	}
+
+	pos := 0
+	cur := string(node)
+
+	for i := 0; i <= idx; i++ {
+		rel := strings.Index(cur[pos:], string(arr[i]))
+		if rel < 0 {
+			return nil, 0, false
+		}
+
+		pos += rel
+		if i == idx {
+			return resolveRawAt(arr[i], nodeStart+pos, rest)
+		}
+
+		pos += len(arr[i])
+	}
+
+	return nil, 0, false
+}
+
+// positionJSON builds the types.Position wire shape (column/line/offset, all
+// required) for a byte offset into doc. line is 1-based, column is 0-based
+// counting bytes since the last newline, matching the real API's own
+// documented semantics (types/types.go:1917-1926, v1.51.4).
+func positionJSON(doc string, offset int) map[string]any {
+	line := 1
+	col := 0
+
+	for i := 0; i < offset && i < len(doc); i++ {
+		if doc[i] == '\n' {
+			line++
+			col = 0
+		} else {
+			col++
+		}
+	}
+
+	return map[string]any{"column": col, "line": line, "offset": offset}
+}
+
+// spanJSON builds the types.Span wire shape (start/end Positions, both
+// required) for the exclusive byte range [start, end) in doc.
+func spanJSON(doc string, start, end int) map[string]any {
+	return map[string]any{
+		"start": positionJSON(doc, start),
+		"end":   positionJSON(doc, end),
+	}
 }

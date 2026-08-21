@@ -6,9 +6,9 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: accessanalyzer
 sdk_module: aws-sdk-go-v2/service/accessanalyzer@v1.51.4
-last_audit_commit: 4719d4c94                             # HEAD when this manifest was written
-last_audit_date: 2026-08-15
-overall: A            # gopherstack-6flj wrapper-key/discarded-filter sweep: 1 union-key bug, 3 discarded-filter bugs, 2 archive-rule filter-matching bugs found and fixed; prior 2026-08-10 wire-shape audit (19eea66b2) re-confirmed, not re-litigated
+last_audit_commit: c79ebf1b5                             # HEAD when this manifest was written
+last_audit_date: 2026-08-21
+overall: A            # gopherstack-r80d batch 18 (required-output-member cut): Location.Span (nested 3 levels below ValidatePolicyOutput, invisible to a flat per-op required-field scan) was never emitted; fixed. Every other domain struct reachable from an Output field was re-verified end to end against accessanalyzer@v1.51.4/types/types.go and confirmed already correct, mostly by the 2026-08-15 gopherstack-6flj pass and gopherstack-kwht before it (re-confirmed, not re-litigated); prior 2026-08-10 wire-shape audit (19eea66b2) also re-confirmed, not re-litigated
 ops:
   CreateAnalyzer: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED THIS PASS: now accepts+persists the AnalyzerConfiguration union (\"configuration\") and the inline \"archiveRules\" array (each creates a real ArchiveRule via CreateArchiveRule, including its auto-archive-existing-findings side effect), neither of which was previously read from the request body at all."}
   GetAnalyzer: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED THIS PASS: response now includes \"configuration\" when the analyzer has one (previously never returned, since Configuration was not modeled)."}
@@ -45,7 +45,7 @@ ops:
   CheckAccessNotGranted: {wire: ok, errors: ok, state: ok, persist: n/a, note: "genuine IAM policy evaluation (policy_analysis.go), not a stub"}
   CheckNoNewAccess: {wire: ok, errors: ok, state: ok, persist: n/a}
   CheckNoPublicAccess: {wire: ok, errors: ok, state: ok, persist: n/a}
-  ValidatePolicy: {wire: ok, errors: ok, state: ok, persist: n/a, note: "FIXED THIS PASS (real wire-shape bug): findingDetails is a required types.ValidatePolicyFinding member (\"a localized message that explains the finding\") and was never emitted at all. Added findingDetailMessages, a static IssueCode->message lookup covering every code this package's validators can produce (locked in by TestValidatePolicy_FindingDetailsPopulated, which fails if any finding is emitted with an empty message)."}
+  ValidatePolicy: {wire: ok, errors: ok, state: ok, persist: n/a, note: "gopherstack-6flj FIXED: findingDetails is a required types.ValidatePolicyFinding member (\"a localized message that explains the finding\") and was never emitted at all. Added findingDetailMessages, a static IssueCode->message lookup covering every code this package's validators can produce (locked in by TestValidatePolicy_FindingDetailsPopulated, which fails if any finding is emitted with an empty message). 2026-08-21 gopherstack-r80d batch 18 FIXED (real bug, one level deeper): each types.Location within the required Locations array requires its own Span member (types/types.go:1509-1521, v1.51.4) -- Path was present but Span was never emitted at all (rootLoc/fieldLoc/stmtLoc/stmtFieldLoc, policy_analysis.go, built only \"path\"). A real client's Location.Span decoded to nil for every ValidatePolicy finding ever returned. This is a domain struct invisible to a flat per-op scan of ValidatePolicyOutput (whose own only required member is the top-level Findings array) AND one level deeper than ValidatePolicyFinding's own required Locations (which was already correctly populated) -- it's the Location entries *inside* Locations that were missing their own required member. Fixed with attachSpans/resolveRawAt (policy_analysis.go): each Location's real byte range is recovered from the original policyDocument text via its json.RawMessage bytes (copied verbatim by encoding/json, not re-synthesized), with a step-by-step fallback toward the document root so Span is never dropped even when the specific key a finding is about (e.g. a wholly absent \"Effect\") can't itself be located. Proven via a real aws-sdk-go-v2/service/accessanalyzer client round trip (wire_output_required_r80d_test.go): one test asserts Span/Start/End/Position fields are never nil across 4 finding shapes (root-span, field-span, and a 2-statement case exercising the duplicate-element search), a second asserts the span's byte range exactly bounds the real `\"Permit\"` substring for an INVALID_EFFECT finding. Hand-reverted/confirmed-failing (all 4 subtests + the accuracy test)/restored, md5sum byte-identical."}
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -56,6 +56,7 @@ gaps:                     # known divergences NOT fixed — link bd issue ids
   - "GetGeneratedPolicy.generatedPolicyResult.generatedPolicies is always [] -- actual IAM policy generation from CloudTrail activity is a distinct, large feature (statement synthesis from simulated CloudTrail events) with no backing data in this backend. properties (including cloudTrailProperties as of gopherstack-kwht)/jobDetails ARE real, state-backed. Tracked as bd issue gopherstack-kwht."
   - "gopherstack-6flj: ListFindings/ListFindingsV2/ListAccessPreviewFindings filter criteria only evaluate the Eq operator on status/resourceType/resource/id -- Contains/Neq/Exists, and any filter key not backed by a direct Finding field (principal.*, condition.*, action, isPublic, createdAt, resourceRegion), are not evaluated (matchesFindingFilter treats them as satisfied rather than excluding, which is closer to the pre-fix always-match baseline than silently hiding results a real client should see). Same limitation applies to CreateArchiveRule/ApplyArchiveRule's auto-archive matching, which reuses the same helper."
   - "gopherstack-6flj: types.AnalyzedResource's optional Actions/Error/SharedVia/Status members are never emitted by GetAnalyzedResource -- no backing state anywhere in this backend (AnalyzedResource and Finding are two unlinked synthetic-data paths); see the GetAnalyzedResource op note above for why deriving Status from a same-ARN Finding was declined rather than attempted."
+  - "gopherstack-r80d batch 18: ValidatePolicy's Locations never use the types.PathElementMemberSubstring path-element variant (\"substring\", pointing at a range within a literal string rather than a whole key/value/array-index) -- none of this package's validators (Version/Effect/Action-NotAction/Resource-NotResource/permissiveness) analyze substrings of a policy value, so the variant is correctly never constructed rather than dropped; a missing-feature gap (this analyzer's checks are coarser than real IAM Access Analyzer's), not a dropped-required-field bug, since PathElement itself (an interface/union) has no required members of its own to drop."
 deferred:                 # consciously not audited this pass (scope) — next pass targets
   - "store.go/store_setup.go/persistence.go internal locking and Table[T]/Index[T] generic implementation (pkgs/store) not re-audited line-by-line this pass beyond the DeleteAnalyzer cascade fix and the Configuration field addition to the Analyzer table's JSON shape (verified generically compatible with store.Table's JSON-marshal-based Snapshot/Restore, no special-casing needed); no correctness issues observed."
 leaks: {status: clean, note: "FIXED THIS PASS: DeleteAnalyzer previously left ghost rows in tags/findingRecommendations/analyzedResources/accessPreviews (see DeleteAnalyzer note above) -- these are now cascade-deleted. No goroutines/janitors in this service; all state is synchronous map/store access under lockmetrics.RWMutex, and every lock acquisition uses defer Unlock/RUnlock (re-verified this pass)."}
@@ -67,6 +68,103 @@ leaks: {status: clean, note: "FIXED THIS PASS: DeleteAnalyzer previously left gh
 on the real deserializer side (NOT epoch-seconds) -- `time.RFC3339` formatting used
 throughout gopherstack's handler*.go is correct; do not "fix" this to `awstime.Epoch`
 in a future pass.
+
+### 2026-08-21 gopherstack-r80d batch 18 (required OUTPUT member cut)
+
+Re-verified accessanalyzer end to end for this campaign's target class (a
+required response member the handler never populates), since the flat
+per-op `cmd/requiredoutputfields` count (28 fields / 39 ops / 17
+ops-with-required) only reflects each op's own top-level `<Op>Output`
+struct. Cross-checked with two independent implementations of a full
+`types.go` domain-struct walk (a character-level brace matcher and a
+`go/parser`/`go/ast`-based parser) that agreed exactly: 117 structs total,
+41 carrying at least one required member, 114 required fields summed --
+nearly 4x the flat count. Read every op's response-building code
+(`analyzers.go`/`archive_rules.go`/`findings.go`/
+`analyzed_resources.go`/`access_previews.go`/`policy_analysis.go`/
+`handler_*.go`) against every domain struct actually reachable from an
+Output field (cross-checked via a repo-wide grep of every `api_op_*Output`
+struct's own `types.X` field types, not just the ones the flat scan
+flagged): `AccessPreview(Finding/Summary)`, `AnalyzedResource(Summary)`,
+`AnalyzerSummary`, `ArchiveRuleSummary`, `Finding(Summary/SummaryV2)`,
+`GeneratedPolicyResult`/`GeneratedPolicyProperties`/`JobDetails`/
+`PolicyGeneration`, and `ValidatePolicyFinding`/`Location`/`Span`/
+`Position`. Two ops (`GetFinding`, `GetAnalyzedResource`) don't even appear
+in the flat scan's 17-op list -- their own top-level `Finding`/`Resource`
+fields aren't Smithy-required -- yet nest `Finding`/`AnalyzedResource`
+structs that themselves carry 8 and 7 required members respectively; both
+were already fully correct (fixed by the 2026-08-15 gopherstack-6flj pass).
+
+**1 bug found and fixed**: `ValidatePolicyFinding.Locations` (required,
+already correctly populated) is `[]types.Location`, and `types.Location`
+itself requires both `Path` (already correct) and `Span`
+(types/types.go:1509-1521) -- `Span` was never emitted at all by
+`rootLoc`/`fieldLoc`/`stmtLoc`/`stmtFieldLoc` (policy_analysis.go), so
+every `ValidatePolicy` finding a real client has ever decoded had
+`Location.Span == nil`. This is one level deeper than the
+already-known-good `Locations` array itself -- the *elements inside* it
+were missing their own required member, invisible to both the flat per-op
+scan and a naive struct-count of `ValidatePolicyFinding` alone. Fixed with
+`attachSpans`/`resolveRawAt` (policy_analysis.go): the real byte range is
+recovered from the original `policyDocument` text via each value's own
+`json.RawMessage` bytes (copied verbatim by `encoding/json`, not
+re-synthesized), walking the same path shape `rootLoc`/`fieldLoc`/
+`stmtLoc`/`stmtFieldLoc` already built; a step-by-step fallback toward the
+document root guarantees `Span` is never dropped even when the specific
+key a finding is about (e.g. a wholly absent `"Effect"`) can't itself be
+located. Proven via `wire_output_required_r80d_test.go` against a real
+`aws-sdk-go-v2/service/accessanalyzer` client: one test asserts
+`Span`/`Start`/`End`/`Line`/`Column`/`Offset` are never nil across 4
+finding shapes (root-span, field-span, and a 2-statement case exercising
+duplicate-element disambiguation), a second asserts the span's byte range
+exactly bounds the real `"Permit"` substring for an `INVALID_EFFECT`
+finding. Hand-reverted (all subtests fail without the fix, confirmed)/
+restored, md5sum byte-identical.
+
+**Everything else reachable from an Output field was already correct**,
+mostly from the 2026-08-15 gopherstack-6flj pass and gopherstack-kwht
+before it: `AccessPreview`/`AccessPreviewFinding`/`AccessPreviewSummary`
+(all 5/6/4 required members present, `Status` always
+`AccessPreviewStatusCompleted` synchronously), `AnalyzedResource`/
+`AnalyzedResourceSummary` (7/3 required members present, `IsPublic` a
+plain non-pointer `bool` so always emitted), `AnalyzerSummary` (5/5
+present), `ArchiveRuleSummary` (4/4 present; `Filter` is also required on
+*input* to `CreateArchiveRule`, api_op_CreateArchiveRule.go:43-46, so a
+real client can never construct one with a nil filter -- structurally
+unreachable, same class as ce's commitment-analysis fields from batch 17),
+`Finding`/`FindingSummary`/`FindingSummaryV2` (8/8/7 present, matching the
+already-fixed `condition`-always-present convention), `GeneratedPolicyResult`/
+`GeneratedPolicyProperties`/`JobDetails`/`PolicyGeneration` (1/1/3/4
+present, including `CloudTrailProperties.EndTime` -- required on output,
+optional on input, already correctly defaulted to now() when the caller
+omits it, the same "optional-on-input/required-on-output" shape as efs's
+`Destination.Region` from batch 17). The 13-member `AnalyzerConfiguration`/
+`Configuration` unions (`CreateAccessPreview`'s `Configurations`,
+`CreateAnalyzer`'s `configuration`) are stored and echoed back as opaque
+`json.RawMessage`, never decoded field-by-field -- so their constituent
+structs' own required members (`KmsGrantConfiguration`,
+`S3BucketAclGrantConfiguration`, `S3PublicAccessBlockConfiguration`,
+`VpcConfiguration`, `Trail`) are exactly whatever bytes a real client
+itself sent, genuinely inapplicable to this bug class rather than merely
+unaudited. `ReasonSummary` (`Check*` ops) and `FindingsStatistics`'s
+concrete union members have zero required fields at all (confirmed by both
+walk implementations), so nothing to check there.
+
+**Disclosed, not fixed** (no new state to derive from, matching this
+service's existing gap-disclosure convention -- see `gaps:` above):
+`GetFindingRecommendation`'s `RecommendedStep` union member
+(`UnusedPermissionsRecommendedStep.RecommendedAction`) is never
+constructed since `recommendedSteps` stays `[]` (pre-existing
+gopherstack-kwht gap); `JobDetails.JobError`/`GetFindingRecommendationOutput`'s
+`RecommendationError` are optional fields never populated since no job in
+this backend ever reaches a `FAILED` state (synchronous success only,
+consistent with `StartPolicyGeneration`'s existing documented behavior);
+`GeneratedPolicyResult.GeneratedPolicies` stays `[]` (pre-existing
+gopherstack-kwht gap, so its required `Policy` member is never
+constructed, vacuously safe); `types.PathElementMemberSubstring` is never
+used by any validator here (see `gaps:` above -- a missing-feature gap,
+not a dropped-required-field one, since `PathElement` itself has no
+required members).
 
 **This pass's fixes, in order of severity**:
 
