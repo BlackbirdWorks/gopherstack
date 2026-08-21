@@ -257,6 +257,98 @@ gaps: []
 // warning. This must fail against the pre-fix parser (doc.Ops has length 1,
 // not 2) -- confirmed by hand-reverting parser.go's block-entry support and
 // rerunning.
+// TestParseParityFile_UnrecognizedStatusToken proves gopherstack-cr41's fix:
+// an ops:/families: entry that parses fine but carries a status token
+// classifyToken doesn't recognize must fail the run exactly like an entry
+// that doesn't parse at all (gopherstack-7o96), rather than silently
+// bucketing it as "other".
+func TestParseParityFile_UnrecognizedStatusToken(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		content string
+		wantErr bool
+	}{
+		{
+			name: "closed vocabulary only",
+			content: `---
+service: example
+overall: A
+ops:
+  CreateThing: {wire: ok, errors: fixed, state: partial, persist: n/a}
+families:
+  core: {status: deferred}
+gaps: []
+---
+`,
+			wantErr: false,
+		},
+		{
+			name: "inline op field",
+			content: `---
+service: example
+overall: A
+ops:
+  CreateThing: {wire: ok (fixed), errors: ok, state: ok, persist: ok}
+gaps: []
+---
+`,
+			wantErr: true,
+		},
+		{
+			name: "block op field",
+			content: `---
+service: example
+overall: A
+ops:
+  CreateThing:
+    wire: ok
+    errors: ok
+    state: partial->ok
+    persist: ok
+gaps: []
+---
+`,
+			wantErr: true,
+		},
+		{
+			name: "family status field",
+			content: `---
+service: example
+overall: A
+families:
+  core: {status: honest-disclosed-limitation}
+gaps: []
+---
+`,
+			wantErr: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			dir := t.TempDir()
+			path := filepath.Join(dir, "PARITY.md")
+			require.NoError(t, os.WriteFile(path, []byte(tc.content), 0o600))
+
+			doc, err := ParseParityFile(path)
+			require.NoError(t, err)
+
+			runErr := checkParseWarnings([]*ParityDoc{doc})
+			if tc.wantErr {
+				assert.NotEmpty(t, doc.Warnings)
+				require.Error(t, runErr)
+			} else {
+				assert.Empty(t, doc.Warnings)
+				require.NoError(t, runErr)
+			}
+		})
+	}
+}
+
 func TestParseParityFile_BlockStyleOpCounted(t *testing.T) {
 	t.Parallel()
 

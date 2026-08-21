@@ -165,7 +165,7 @@ ops:
   ModifyDBRecommendation: {wire: ok, errors: ok, state: ok, persist: ok, note: "verified this pass — nests under <DBRecommendation>, matches"}
   CreateDBProxy/DeleteDBProxy/ModifyDBProxy: {wire: ok, errors: ok, state: ok, persist: ok, note: "spot-verified this pass — nests under <DBProxy>, matches (family already ok per prior audits)"}
   PurchaseReservedDBInstancesOffering: {wire: ok, errors: ok, state: ok, persist: ok, note: "spot-verified this pass — nests under <ReservedDBInstance>, matches"}
-  DescribeServerlessV2PlatformVersions: {wire: ok, errors: ok, state: partial, persist: n/a (static), note: >
+  DescribeServerlessV2PlatformVersions: {wire: ok, errors: ok, state: partial, persist: n/a, note: >
     NEW this pass (SDK bump to v1.123.0 added this op; TestSDKCompleteness flagged it).
     Confirmed request/response member names directly against
     aws-sdk-go-v2/service/rds@v1.123.0's api_op_DescribeServerlessV2PlatformVersions.go

@@ -152,8 +152,9 @@ func processService(slug string) (summaryEntry, *ParityDoc, bool, error) {
 // logParseWarnings surfaces every parsed doc's Warnings via the structured
 // logger, at Warn level, before run fails the build over them (see the
 // totalWarnings check in run) -- a PARITY.md line that looks like an entry
-// but doesn't parse must be loud, not silently undercounted (gopherstack-
-// udc7, gopherstack-7o96).
+// but doesn't parse, or an entry that parses but carries a status token
+// classifyToken doesn't recognize, must be loud, not silently undercounted
+// (gopherstack-udc7, gopherstack-7o96, gopherstack-cr41).
 func logParseWarnings(ctx context.Context, log *slog.Logger, docs []*ParityDoc) {
 	for _, doc := range docs {
 		for _, w := range doc.Warnings {
@@ -163,10 +164,14 @@ func logParseWarnings(ctx context.Context, log *slog.Logger, docs []*ParityDoc) 
 }
 
 // errUnparsedEntries is checkParseWarnings' sentinel: a PARITY.md line that
-// looked like an ops:/families: entry but didn't parse as one must fail the
-// run, not just undercount it -- the same principle as cmd/opcensus'
-// ERROR-row change (gopherstack-c7s3, gopherstack-7o96).
-var errUnparsedEntries = errors.New("PARITY.md line(s) looked like an ops:/families: entry but did not parse as one")
+// looked like an ops:/families: entry but didn't parse as one, or an entry
+// that parsed fine but carries a status token outside the closed vocabulary,
+// must fail the run, not just undercount it -- the same principle as
+// cmd/opcensus' ERROR-row change (gopherstack-c7s3, gopherstack-7o96,
+// gopherstack-cr41).
+var errUnparsedEntries = errors.New(
+	"PARITY.md line(s) either didn't parse as an ops:/families: entry, or used a status token gendocs doesn't recognize",
+)
 
 // checkParseWarnings turns a nonzero Warnings count across docs into a hard
 // error instead of a silent omission.

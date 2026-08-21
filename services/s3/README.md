@@ -7,7 +7,7 @@
 
 | Metric | Value |
 | --- | --- |
-| Operations audited | 20 (19 ok, 1 other) |
+| Operations audited | 20 (19 ok, 1 gap) |
 | Feature families | 8 (8 ok) |
 | Known gaps | 10 |
 | Deferred items | 0 |

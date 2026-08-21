@@ -11,27 +11,27 @@ ops:
   DeleteFileSystem:                  {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateFileSystem:                  {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateFileSystemProtection:        {wire: ok, errors: ok, state: ok, persist: ok}
-  CreateMountTarget:                 {wire: ok (fixed), errors: ok, state: ok, persist: ok, note: "IpAddressType/Ipv6Address (dual-stack) support added this pass -- was a real gap, not previously documented"}
-  DescribeMountTargets:              {wire: ok (fixed), errors: ok, state: ok, persist: ok, note: "Ipv6Address now emitted when set; pagination data-loss bug fixed this pass, see notes"}
+  CreateMountTarget:                 {wire: fixed, errors: ok, state: ok, persist: ok, note: "IpAddressType/Ipv6Address (dual-stack) support added this pass -- was a real gap, not previously documented"}
+  DescribeMountTargets:              {wire: fixed, errors: ok, state: ok, persist: ok, note: "Ipv6Address now emitted when set; pagination data-loss bug fixed this pass, see notes"}
   DeleteMountTarget:                 {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeMountTargetSecurityGroups: {wire: ok, errors: ok, state: ok, persist: ok}
-  ModifyMountTargetSecurityGroups:   {wire: ok, errors: ok (fixed), state: ok, persist: ok, note: "SecurityGroupLimitExceeded now 400 not 409"}
+  ModifyMountTargetSecurityGroups:   {wire: ok, errors: fixed, state: ok, persist: ok, note: "SecurityGroupLimitExceeded now 400 not 409"}
   CreateAccessPoint:                 {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeAccessPoints:              {wire: ok, errors: ok, state: ok, persist: ok, note: "pagination data-loss bug fixed this pass, see notes"}
   DeleteAccessPoint:                 {wire: ok, errors: ok, state: ok, persist: ok}
-  TagResource:                       {wire: ok (fixed), errors: ok, state: ok, persist: ok, note: "was unreachable via real SDK -- see route-matcher fix below"}
-  UntagResource:                     {wire: ok (fixed), errors: ok, state: ok, persist: ok, note: "was unreachable via real SDK -- see route-matcher fix below"}
-  ListTagsForResource:               {wire: ok (fixed), errors: ok, state: ok, persist: ok, note: "was unreachable via real SDK -- see route-matcher fix below"}
+  TagResource:                       {wire: fixed, errors: ok, state: ok, persist: ok, note: "was unreachable via real SDK -- see route-matcher fix below"}
+  UntagResource:                     {wire: fixed, errors: ok, state: ok, persist: ok, note: "was unreachable via real SDK -- see route-matcher fix below"}
+  ListTagsForResource:               {wire: fixed, errors: ok, state: ok, persist: ok, note: "was unreachable via real SDK -- see route-matcher fix below"}
   DescribeTags:                      {wire: ok, errors: ok, state: ok, persist: ok, note: "legacy GET-only op, distinct path from TagResource family; pagination (Marker/MaxItems) not applied server-side -- deferred, see gaps"}
   CreateTags:                        {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteTags:                        {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeLifecycleConfiguration:    {wire: ok, errors: ok, state: ok, persist: ok}
   PutLifecycleConfiguration:         {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (gopherstack-hnyl): isValidTransitionToIA/isValidTransitionToArchive were hand-copied lists each missing AFTER_1_DAY and each wrongly accepting values from other fields (TransitionToIA took a nonexistent \"NONE\"; TransitionToArchive took AFTER_1_ACCESS, which belongs to TransitionToPrimaryStorageClassRules, plus a typo'd AFTER_90_DAYS_1). Both now derive from types.TransitionToIARules.Values()/types.TransitionToArchiveRules.Values()."}
-  CreateReplicationConfiguration:    {wire: ok (fixed), errors: ok, state: ok, persist: ok, note: "Destination.LastReplicatedTimestamp now populated (epoch-seconds) at creation, simulating an instant initial sync -- was dormant/unset before this pass; 2026-08-21: Destination.Region (required output member, types/types.go:116-119) now defaulted to the source region for same-region replication (DestinationToCreate.Region is optional on input) -- see gopherstack-r80d batch 17 note below"}
+  CreateReplicationConfiguration:    {wire: fixed, errors: ok, state: ok, persist: ok, note: "Destination.LastReplicatedTimestamp now populated (epoch-seconds) at creation, simulating an instant initial sync -- was dormant/unset before this pass; 2026-08-21: Destination.Region (required output member, types/types.go:116-119) now defaulted to the source region for same-region replication (DestinationToCreate.Region is optional on input) -- see gopherstack-r80d batch 17 note below"}
   DeleteReplicationConfiguration:    {wire: ok, errors: ok, state: ok, persist: ok}
-  DescribeReplicationConfigurations: {wire: ok (fixed), errors: ok, state: ok, persist: ok, note: "NextToken/MaxResults pagination implemented this pass (was previously always a single unpaginated page); LastReplicatedTimestamp now int64 epoch-seconds matching types.Destination.LastReplicatedTimestamp *time.Time wire shape, and populated"}
+  DescribeReplicationConfigurations: {wire: fixed, errors: ok, state: ok, persist: ok, note: "NextToken/MaxResults pagination implemented this pass (was previously always a single unpaginated page); LastReplicatedTimestamp now int64 epoch-seconds matching types.Destination.LastReplicatedTimestamp *time.Time wire shape, and populated"}
   DescribeFileSystemPolicy:          {wire: ok, errors: ok, state: ok, persist: ok}
-  PutFileSystemPolicy:               {wire: ok, errors: ok (fixed), state: ok, persist: ok, note: "malformed/oversized policy now returns InvalidPolicyException (400), not ValidationException -- ValidationException isn't even in botocore's PutFileSystemPolicy error catalog (BadRequest, InternalServerError, FileSystemNotFound, InvalidPolicyException, IncorrectFileSystemLifeCycleState)"}
+  PutFileSystemPolicy:               {wire: ok, errors: fixed, state: ok, persist: ok, note: "malformed/oversized policy now returns InvalidPolicyException (400), not ValidationException -- ValidationException isn't even in botocore's PutFileSystemPolicy error catalog (BadRequest, InternalServerError, FileSystemNotFound, InvalidPolicyException, IncorrectFileSystemLifeCycleState)"}
   DeleteFileSystemPolicy:            {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeBackupPolicy:              {wire: ok, errors: ok, state: ok, persist: ok}
   PutBackupPolicy:                   {wire: ok, errors: ok, state: ok, persist: ok}

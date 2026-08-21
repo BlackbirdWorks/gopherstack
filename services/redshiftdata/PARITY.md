@@ -93,7 +93,7 @@ ops:
     missing) and Database-required validation added (same reasoning as ListDatabases).
     Prior-pass fix retained: TableName is a plain string (was a nested object). ColumnList
     is static demo data ignoring req.Schema/req.Table (acceptable mock).}
-  ListSessions: {wire: ok, errors: ok, state: partial, persist: n/a (derived), note: >
+  ListSessions: {wire: ok, errors: ok, state: partial, persist: n/a, note: >
     NEW this pass (SDK added this op since v1.41.0; confirmed target
     "RedshiftData.ListSessions" against awsAwsjson11_serializeOpListSessions in
     aws-sdk-go-v2/service/redshiftdata@v1.43.0's serializers.go). This backend has no

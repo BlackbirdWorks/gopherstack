@@ -20,7 +20,7 @@ ops:
   GetSubscriptionAttributes: {wire: ok, errors: ok, state: ok, persist: ok}
   SetSubscriptionAttributes: {wire: ok, errors: ok, state: ok, persist: ok, note: "FilterPolicy/FilterPolicyScope/RedrivePolicy(+DLQ existence check)/DeliveryPolicy/ReplayPolicy/RawMessageDelivery/SubscriptionRoleArn; fixed this pass: ReplayPolicy is now rejected (InvalidParameter) unless the subscription's topic is FIFO and its protocol is sqs/lambda/firehose (the real AWS application-to-application scope), was previously accepted unconditionally on any topic/protocol"}
   Publish: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this pass: Lambda/Firehose/SQS-emitter now share one signed envelope (buildPublishedEvent) instead of Lambda fabricating a random-UUID signature"}
-  PublishBatch: {wire: partial->ok, errors: ok, state: ok, persist: ok, note: "fixed this pass: per-entry MessageAttributes field prefix was missing '.MessageAttributes' segment (verified against serializers.go) — every batch entry's attributes were silently dropped, breaking FilterPolicy matching for PublishBatch"}
+  PublishBatch: {wire: fixed, errors: ok, state: ok, persist: ok, note: "fixed this pass: per-entry MessageAttributes field prefix was missing '.MessageAttributes' segment (verified against serializers.go) — every batch entry's attributes were silently dropped, breaking FilterPolicy matching for PublishBatch"}
   PublishToTargetArn (TargetArn publish): {wire: ok, errors: ok, state: ok, persist: n/a, note: "EndpointDisabled enforced"}
   PublishSMS (PhoneNumber publish): {wire: ok, errors: ok, state: ok, persist: n/a, note: "opt-out + sandbox-unverified enforced"}
   CreatePlatformApplication: {wire: ok, errors: ok, state: ok, persist: ok}

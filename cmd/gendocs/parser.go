@@ -93,6 +93,34 @@ func isBlockFieldName(name string) bool {
 	}
 }
 
+// checkStatusToken appends a Warnings entry when value is a non-empty status
+// token classifyToken cannot place in its closed vocabulary -- the same
+// hard-failure treatment gopherstack-7o96 gave an entry gendocs can't parse
+// at all (gopherstack-cr41).
+func checkStatusToken(doc *ParityDoc, path string, offset, lineIdx int, entryName, field, value string) {
+	if classifyToken(value) != bucketOther {
+		return
+	}
+
+	doc.Warnings = append(doc.Warnings, fmt.Sprintf(
+		"%s:%d: %s: field %q has unrecognized status value %q",
+		path, offset+lineIdx+1, entryName, field, value,
+	))
+}
+
+// checkOpStatusTokens runs checkStatusToken over every status field of op.
+func checkOpStatusTokens(doc *ParityDoc, path string, offset, lineIdx int, op OpStatus) {
+	checkStatusToken(doc, path, offset, lineIdx, op.Name, "wire", op.Wire)
+	checkStatusToken(doc, path, offset, lineIdx, op.Name, "errors", op.Errors)
+	checkStatusToken(doc, path, offset, lineIdx, op.Name, "state", op.State)
+	checkStatusToken(doc, path, offset, lineIdx, op.Name, "persist", op.Persist)
+}
+
+// checkFamilyStatusToken runs checkStatusToken over f's single status field.
+func checkFamilyStatusToken(doc *ParityDoc, path string, offset, lineIdx int, f FamilyStatus) {
+	checkStatusToken(doc, path, offset, lineIdx, f.Name, "status", f.Status)
+}
+
 // listItemRe matches a gaps:/deferred: list item, e.g. "  - some text".
 var listItemRe = regexp.MustCompile(`^\s*-\s+(.*)$`)
 
@@ -117,9 +145,10 @@ func isReservedKey(key string) bool {
 // ParseParityFile reads and tolerantly parses a services/<svc>/PARITY.md
 // file. It never returns an error for malformed/odd frontmatter content —
 // only for I/O failures — so callers can degrade gracefully on a partially
-// understood file. Content it could not confidently parse is instead
+// understood file. Content it could not confidently parse -- or an entry
+// whose status token isn't in classifyToken's closed vocabulary -- is instead
 // reported in the returned doc's Warnings, so callers can surface it without
-// failing the build (gopherstack-udc7).
+// failing the build here (gopherstack-udc7, gopherstack-cr41).
 func ParseParityFile(path string) (*ParityDoc, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -435,7 +464,8 @@ func isNoteFoldEnd(line string) bool {
 // continuation lines are never misread as a new block-style entry. A line
 // that looks like it was meant to be an entry but matched neither form is
 // recorded on doc.Warnings rather than silently folded into the previous
-// note (gopherstack-udc7, gopherstack-7o96).
+// note (gopherstack-udc7, gopherstack-7o96); so is a parsed entry carrying a
+// status token classifyToken doesn't recognize (gopherstack-cr41).
 func parseOpsBlock(lines []string, start int, doc *ParityDoc, path string, offset int) ([]OpStatus, int) {
 	var ops []OpStatus
 
@@ -451,13 +481,15 @@ func parseOpsBlock(lines []string, start int, doc *ParityDoc, path string, offse
 
 		if key, content, ok := matchEntry(lines[i]); ok {
 			head := beforeNote(content)
-			ops = append(ops, OpStatus{
+			op := OpStatus{
 				Name:    key,
 				Wire:    fieldValue(head, "wire"),
 				Errors:  fieldValue(head, "errors"),
 				State:   fieldValue(head, "state"),
 				Persist: fieldValue(head, "persist"),
-			})
+			}
+			checkOpStatusTokens(doc, path, offset, i, op)
+			ops = append(ops, op)
 			pendingFold = isNoteFoldStart(content)
 			i++
 
@@ -470,14 +502,17 @@ func parseOpsBlock(lines []string, start int, doc *ParityDoc, path string, offse
 
 		if key, keyIndent, ok := matchBlockEntryKey(lines, i); ok {
 			var fields map[string]string
+			entryLine := i
 			fields, i = consumeBlockEntry(lines, i, keyIndent)
-			ops = append(ops, OpStatus{
+			op := OpStatus{
 				Name:    key,
 				Wire:    fields["wire"],
 				Errors:  fields["errors"],
 				State:   fields["state"],
 				Persist: fields["persist"],
-			})
+			}
+			checkOpStatusTokens(doc, path, offset, entryLine, op)
+			ops = append(ops, op)
 
 			continue
 		}
@@ -507,10 +542,12 @@ func parseFamiliesBlock(lines []string, start int, doc *ParityDoc, path string, 
 
 		if key, content, ok := matchEntry(lines[i]); ok {
 			head := beforeNote(content)
-			families = append(families, FamilyStatus{
+			f := FamilyStatus{
 				Name:   key,
 				Status: fieldValue(head, "status"),
-			})
+			}
+			checkFamilyStatusToken(doc, path, offset, i, f)
+			families = append(families, f)
 			pendingFold = isNoteFoldStart(content)
 			i++
 
@@ -523,11 +560,14 @@ func parseFamiliesBlock(lines []string, start int, doc *ParityDoc, path string, 
 
 		if key, keyIndent, ok := matchBlockEntryKey(lines, i); ok {
 			var fields map[string]string
+			entryLine := i
 			fields, i = consumeBlockEntry(lines, i, keyIndent)
-			families = append(families, FamilyStatus{
+			f := FamilyStatus{
 				Name:   key,
 				Status: fields["status"],
-			})
+			}
+			checkFamilyStatusToken(doc, path, offset, entryLine, f)
+			families = append(families, f)
 
 			continue
 		}
