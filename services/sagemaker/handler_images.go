@@ -4,19 +4,23 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 )
 
 // ---------------------------------------------------------------------------
 // Image handlers
 // ---------------------------------------------------------------------------
 
+type createImageInput struct {
+	ImageName   string      `json:"ImageName"`
+	Description string      `json:"Description"`
+	DisplayName string      `json:"DisplayName"`
+	RoleArn     string      `json:"RoleArn"`
+	Tags        []tagObject `json:"Tags"`
+}
+
 func (h *Handler) handleCreateImage(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		ImageName   string      `json:"ImageName"`
-		Description string      `json:"Description"`
-		RoleArn     string      `json:"RoleArn"`
-		Tags        []tagObject `json:"Tags"`
-	}
+	var req createImageInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -26,7 +30,9 @@ func (h *Handler) handleCreateImage(ctx context.Context, body []byte) ([]byte, e
 		return nil, fmt.Errorf("%w: ImageName is required", errInvalidRequest)
 	}
 
-	result, err := h.Backend.CreateImage(ctx, req.ImageName, req.Description, req.RoleArn, fromTagObjects(req.Tags))
+	result, err := h.Backend.CreateImage(
+		ctx, req.ImageName, req.Description, req.DisplayName, req.RoleArn, fromTagObjects(req.Tags),
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -34,10 +40,12 @@ func (h *Handler) handleCreateImage(ctx context.Context, body []byte) ([]byte, e
 	return json.Marshal(map[string]any{"ImageArn": result.ImageArn})
 }
 
+type describeImageInput struct {
+	ImageName string `json:"ImageName"`
+}
+
 func (h *Handler) handleDescribeImage(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		ImageName string `json:"ImageName"`
-	}
+	var req describeImageInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -55,10 +63,12 @@ func (h *Handler) handleDescribeImage(ctx context.Context, body []byte) ([]byte,
 	return json.Marshal(result)
 }
 
+type deleteImageInput struct {
+	ImageName string `json:"ImageName"`
+}
+
 func (h *Handler) handleDeleteImage(ctx context.Context, body []byte) error {
-	var req struct {
-		ImageName string `json:"ImageName"`
-	}
+	var req deleteImageInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -71,26 +81,46 @@ func (h *Handler) handleDeleteImage(ctx context.Context, body []byte) error {
 	return h.Backend.DeleteImage(ctx, req.ImageName)
 }
 
+type listImagesInput struct {
+	CreationTimeAfter      *time.Time `json:"CreationTimeAfter"`
+	CreationTimeBefore     *time.Time `json:"CreationTimeBefore"`
+	LastModifiedTimeAfter  *time.Time `json:"LastModifiedTimeAfter"`
+	LastModifiedTimeBefore *time.Time `json:"LastModifiedTimeBefore"`
+	NameContains           string     `json:"NameContains"`
+	NextToken              string     `json:"NextToken"`
+	SortBy                 string     `json:"SortBy"`
+	SortOrder              string     `json:"SortOrder"`
+	MaxResults             int32      `json:"MaxResults"`
+}
+
 func (h *Handler) handleListImages(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		NextToken string `json:"NextToken"`
-	}
+	var req listImagesInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	items, next := h.Backend.ListImages(ctx, req.NextToken)
+	items, next := h.Backend.ListImages(ctx, ListImagesParams(req))
 
 	summaries := make([]map[string]any, 0, len(items))
 	for _, img := range items {
-		summaries = append(summaries, map[string]any{
+		s := map[string]any{
 			"ImageName":         img.ImageName,
 			"ImageArn":          img.ImageArn,
 			"ImageStatus":       img.ImageStatus,
 			keyCreationTime:     epochSeconds(img.CreationTime),
 			keyLastModifiedTime: epochSeconds(img.LastModifiedTime),
-		})
+		}
+
+		if img.Description != "" {
+			s["Description"] = img.Description
+		}
+
+		if img.DisplayName != "" {
+			s["DisplayName"] = img.DisplayName
+		}
+
+		summaries = append(summaries, s)
 	}
 
 	return json.Marshal(map[string]any{
@@ -99,14 +129,16 @@ func (h *Handler) handleListImages(ctx context.Context, body []byte) ([]byte, er
 	})
 }
 
+type updateImageInput struct {
+	ImageName        string   `json:"ImageName"`
+	Description      *string  `json:"Description"`
+	DisplayName      *string  `json:"DisplayName"`
+	RoleArn          *string  `json:"RoleArn"`
+	DeleteProperties []string `json:"DeleteProperties"`
+}
+
 func (h *Handler) handleUpdateImage(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		ImageName        string   `json:"ImageName"`
-		Description      *string  `json:"Description"`
-		DisplayName      *string  `json:"DisplayName"`
-		RoleArn          *string  `json:"RoleArn"`
-		DeleteProperties []string `json:"DeleteProperties"`
-	}
+	var req updateImageInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -133,10 +165,21 @@ func (h *Handler) handleUpdateImage(ctx context.Context, body []byte) ([]byte, e
 // ImageVersion handlers
 // ---------------------------------------------------------------------------
 
+type createImageVersionInput struct {
+	Horovod         *bool    `json:"Horovod"`
+	ImageName       string   `json:"ImageName"`
+	BaseImage       string   `json:"BaseImage"`
+	JobType         string   `json:"JobType"`
+	MLFramework     string   `json:"MLFramework"`
+	Processor       string   `json:"Processor"`
+	ProgrammingLang string   `json:"ProgrammingLang"`
+	ReleaseNotes    string   `json:"ReleaseNotes"`
+	VendorGuidance  string   `json:"VendorGuidance"`
+	Aliases         []string `json:"Aliases"`
+}
+
 func (h *Handler) handleCreateImageVersion(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		ImageName string `json:"ImageName"`
-	}
+	var req createImageVersionInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -146,7 +189,16 @@ func (h *Handler) handleCreateImageVersion(ctx context.Context, body []byte) ([]
 		return nil, fmt.Errorf("%w: ImageName is required", errInvalidRequest)
 	}
 
-	result, err := h.Backend.CreateImageVersion(ctx, req.ImageName)
+	result, err := h.Backend.CreateImageVersion(ctx, req.ImageName, req.BaseImage, CreateImageVersionOptions{
+		Aliases:         req.Aliases,
+		Horovod:         req.Horovod,
+		JobType:         req.JobType,
+		MLFramework:     req.MLFramework,
+		Processor:       req.Processor,
+		ProgrammingLang: req.ProgrammingLang,
+		ReleaseNotes:    req.ReleaseNotes,
+		VendorGuidance:  req.VendorGuidance,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -154,11 +206,14 @@ func (h *Handler) handleCreateImageVersion(ctx context.Context, body []byte) ([]
 	return json.Marshal(map[string]any{"ImageVersionArn": result.ImageVersionArn})
 }
 
+type describeImageVersionInput struct {
+	ImageName string `json:"ImageName"`
+	Alias     string `json:"Alias"`
+	Version   int    `json:"Version"`
+}
+
 func (h *Handler) handleDescribeImageVersion(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		ImageName string `json:"ImageName"`
-		Version   int    `json:"Version"`
-	}
+	var req describeImageVersionInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -168,7 +223,7 @@ func (h *Handler) handleDescribeImageVersion(ctx context.Context, body []byte) (
 		return nil, fmt.Errorf("%w: ImageName is required", errInvalidRequest)
 	}
 
-	result, err := h.Backend.DescribeImageVersion(ctx, req.ImageName, req.Version)
+	result, err := h.Backend.DescribeImageVersion(ctx, req.ImageName, req.Alias, req.Version)
 	if err != nil {
 		return nil, err
 	}
@@ -176,11 +231,14 @@ func (h *Handler) handleDescribeImageVersion(ctx context.Context, body []byte) (
 	return json.Marshal(result)
 }
 
+type deleteImageVersionInput struct {
+	ImageName string `json:"ImageName"`
+	Alias     string `json:"Alias"`
+	Version   int    `json:"Version"`
+}
+
 func (h *Handler) handleDeleteImageVersion(ctx context.Context, body []byte) error {
-	var req struct {
-		ImageName string `json:"ImageName"`
-		Version   int    `json:"Version"`
-	}
+	var req deleteImageVersionInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -190,14 +248,23 @@ func (h *Handler) handleDeleteImageVersion(ctx context.Context, body []byte) err
 		return fmt.Errorf("%w: ImageName is required", errInvalidRequest)
 	}
 
-	return h.Backend.DeleteImageVersion(ctx, req.ImageName, req.Version)
+	return h.Backend.DeleteImageVersion(ctx, req.ImageName, req.Alias, req.Version)
+}
+
+type listImageVersionsInput struct {
+	CreationTimeAfter      *time.Time `json:"CreationTimeAfter"`
+	CreationTimeBefore     *time.Time `json:"CreationTimeBefore"`
+	LastModifiedTimeAfter  *time.Time `json:"LastModifiedTimeAfter"`
+	LastModifiedTimeBefore *time.Time `json:"LastModifiedTimeBefore"`
+	ImageName              string     `json:"ImageName"`
+	NextToken              string     `json:"NextToken"`
+	SortBy                 string     `json:"SortBy"`
+	SortOrder              string     `json:"SortOrder"`
+	MaxResults             int32      `json:"MaxResults"`
 }
 
 func (h *Handler) handleListImageVersions(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		ImageName string `json:"ImageName"`
-		NextToken string `json:"NextToken"`
-	}
+	var req listImageVersionsInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -207,11 +274,21 @@ func (h *Handler) handleListImageVersions(ctx context.Context, body []byte) ([]b
 		return nil, fmt.Errorf("%w: ImageName is required", errInvalidRequest)
 	}
 
-	items, next := h.Backend.ListImageVersions(ctx, req.ImageName, req.NextToken)
+	items, next := h.Backend.ListImageVersions(ctx, req.ImageName, ListImageVersionsParams{
+		CreationTimeAfter:      req.CreationTimeAfter,
+		CreationTimeBefore:     req.CreationTimeBefore,
+		LastModifiedTimeAfter:  req.LastModifiedTimeAfter,
+		LastModifiedTimeBefore: req.LastModifiedTimeBefore,
+		NextToken:              req.NextToken,
+		SortBy:                 req.SortBy,
+		SortOrder:              req.SortOrder,
+		MaxResults:             req.MaxResults,
+	})
 
 	summaries := make([]map[string]any, 0, len(items))
 	for _, iv := range items {
 		summaries = append(summaries, map[string]any{
+			keyImageArn:          iv.ImageArn,
 			"ImageVersionArn":    iv.ImageVersionArn,
 			"ImageVersionStatus": iv.ImageVersionStatus,
 			"Version":            iv.Version,
@@ -226,20 +303,23 @@ func (h *Handler) handleListImageVersions(ctx context.Context, body []byte) ([]b
 	})
 }
 
+type updateImageVersionInput struct {
+	Horovod         *bool    `json:"Horovod"`
+	ImageName       string   `json:"ImageName"`
+	Alias           string   `json:"Alias"`
+	JobType         string   `json:"JobType"`
+	MLFramework     string   `json:"MLFramework"`
+	Processor       string   `json:"Processor"`
+	ProgrammingLang string   `json:"ProgrammingLang"`
+	ReleaseNotes    string   `json:"ReleaseNotes"`
+	VendorGuidance  string   `json:"VendorGuidance"`
+	AliasesToAdd    []string `json:"AliasesToAdd"`
+	AliasesToDelete []string `json:"AliasesToDelete"`
+	Version         int      `json:"Version"`
+}
+
 func (h *Handler) handleUpdateImageVersion(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		Horovod         *bool    `json:"Horovod"`
-		ImageName       string   `json:"ImageName"`
-		JobType         string   `json:"JobType"`
-		MLFramework     string   `json:"MLFramework"`
-		Processor       string   `json:"Processor"`
-		ProgrammingLang string   `json:"ProgrammingLang"`
-		ReleaseNotes    string   `json:"ReleaseNotes"`
-		VendorGuidance  string   `json:"VendorGuidance"`
-		AliasesToAdd    []string `json:"AliasesToAdd"`
-		AliasesToDelete []string `json:"AliasesToDelete"`
-		Version         int      `json:"Version"`
-	}
+	var req updateImageVersionInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -250,6 +330,7 @@ func (h *Handler) handleUpdateImageVersion(ctx context.Context, body []byte) ([]
 	}
 
 	result, err := h.Backend.UpdateImageVersion(ctx, req.ImageName, req.Version, UpdateImageVersionOptions{
+		Alias:           req.Alias,
 		Horovod:         req.Horovod,
 		JobType:         req.JobType,
 		MLFramework:     req.MLFramework,
@@ -271,12 +352,16 @@ func (h *Handler) handleUpdateImageVersion(ctx context.Context, body []byte) ([]
 // Image alias listing
 // ---------------------------------------------------------------------------
 
+type listAliasesInput struct {
+	ImageName  string `json:"ImageName"`
+	Alias      string `json:"Alias"`
+	NextToken  string `json:"NextToken,omitempty"`
+	Version    int32  `json:"Version,omitempty"`
+	MaxResults int32  `json:"MaxResults,omitempty"`
+}
+
 func (h *Handler) handleListAliases(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		ImageName string `json:"ImageName"`
-		NextToken string `json:"NextToken,omitempty"`
-		Version   int32  `json:"Version,omitempty"`
-	}
+	var req listAliasesInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -286,7 +371,9 @@ func (h *Handler) handleListAliases(ctx context.Context, body []byte) ([]byte, e
 		return nil, fmt.Errorf("%w: ImageName is required", errInvalidRequest)
 	}
 
-	aliases, nextToken, err := h.Backend.ListImageAliases(ctx, req.ImageName, req.Version, req.NextToken)
+	aliases, nextToken, err := h.Backend.ListImageAliases(
+		ctx, req.ImageName, req.Alias, req.Version, req.NextToken, req.MaxResults,
+	)
 	if err != nil {
 		return nil, err
 	}

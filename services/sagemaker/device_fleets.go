@@ -411,13 +411,16 @@ func (b *InMemoryBackend) ListDevices(ctx context.Context, fleetFilter, nextToke
 
 	region := getRegion(ctx, b.region)
 
-	return devicesInFleetPaged(b.devicesStoreRO(region), fleetFilter, nextToken)
+	return devicesInFleetPaged(b.devicesStoreRO(region), fleetFilter, nextToken, 0)
 }
 
 // devicesInFleetPaged filters tbl by fleetFilter (or all devices if empty),
-// sorts by "fleetName/deviceName", and paginates the result. Caller must hold
-// b.mu (read or write).
-func devicesInFleetPaged(tbl *store.Table[Device], fleetFilter, nextToken string) ([]*Device, string) {
+// sorts by "fleetName/deviceName", and paginates the result, capped at
+// maxResults (if positive) or sagemakerDefaultPageSize. Caller must hold b.mu
+// (read or write).
+func devicesInFleetPaged(
+	tbl *store.Table[Device], fleetFilter, nextToken string, maxResults int32,
+) ([]*Device, string) {
 	keys := make([]string, 0, tbl.Len())
 	for _, d := range tbl.All() {
 		if fleetFilter != "" && d.DeviceFleetName != fleetFilter {
@@ -440,7 +443,12 @@ func devicesInFleetPaged(tbl *store.Table[Device], fleetFilter, nextToken string
 		}
 	}
 
-	end := min(start+sagemakerDefaultPageSize, len(keys))
+	pageSize := sagemakerDefaultPageSize
+	if maxResults > 0 && int(maxResults) < pageSize {
+		pageSize = int(maxResults)
+	}
+
+	end := min(start+pageSize, len(keys))
 
 	out := make([]*Device, 0, end-start)
 	for _, composite := range keys[start:end] {

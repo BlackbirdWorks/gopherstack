@@ -5,6 +5,9 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	sagemakersdk "github.com/aws/aws-sdk-go-v2/service/sagemaker"
+	smtypes "github.com/aws/aws-sdk-go-v2/service/sagemaker/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -514,4 +517,178 @@ func TestHandler_UpdateDevices_UnknownFleet(t *testing.T) {
 		"Devices":         []any{map[string]any{"DeviceName": "dev-1"}},
 	})
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+// TestHandler_DescribeEdgeDeploymentPlan_StagesPaginated_RealClient asserts
+// DescribeEdgeDeploymentPlanInput's MaxResults/NextToken -- absent before
+// this pass -- actually paginate the Stages list rather than always
+// returning every stage in one response, matching
+// api_op_DescribeEdgeDeploymentPlan.go:39-41's "enough stages to require
+// tokening" contract.
+func TestHandler_DescribeEdgeDeploymentPlan_StagesPaginated_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestSageMakerClient(t, h)
+
+	_, err := client.CreateDeviceFleet(t.Context(), &sagemakersdk.CreateDeviceFleetInput{
+		DeviceFleetName: aws.String("paginated-fleet"),
+		OutputConfig:    &smtypes.EdgeOutputConfig{S3OutputLocation: aws.String("s3://bucket/out")},
+	})
+	require.NoError(t, err)
+
+	stages := make([]smtypes.DeploymentStage, 0, 3)
+	for i := range 3 {
+		stages = append(stages, smtypes.DeploymentStage{
+			StageName:             aws.String(stageName(i)),
+			DeviceSelectionConfig: &smtypes.DeviceSelectionConfig{DeviceSubsetType: smtypes.DeviceSubsetTypePercentage},
+		})
+	}
+
+	_, err = client.CreateEdgeDeploymentPlan(t.Context(), &sagemakersdk.CreateEdgeDeploymentPlanInput{
+		EdgeDeploymentPlanName: aws.String("paginated-plan"),
+		DeviceFleetName:        aws.String("paginated-fleet"),
+		ModelConfigs:           testEdgeModelConfigs(),
+		Stages:                 stages,
+	})
+	require.NoError(t, err)
+
+	out, err := client.DescribeEdgeDeploymentPlan(t.Context(), &sagemakersdk.DescribeEdgeDeploymentPlanInput{
+		EdgeDeploymentPlanName: aws.String("paginated-plan"),
+		MaxResults:             aws.Int32(2),
+	})
+	require.NoError(t, err)
+	require.Len(t, out.Stages, 2)
+	assert.NotEmpty(t, aws.ToString(out.NextToken))
+
+	out2, err := client.DescribeEdgeDeploymentPlan(t.Context(), &sagemakersdk.DescribeEdgeDeploymentPlanInput{
+		EdgeDeploymentPlanName: aws.String("paginated-plan"),
+		MaxResults:             aws.Int32(2),
+		NextToken:              out.NextToken,
+	})
+	require.NoError(t, err)
+	require.Len(t, out2.Stages, 1)
+	assert.Empty(t, aws.ToString(out2.NextToken))
+}
+
+func stageName(i int) string {
+	return "stage-" + string(rune('a'+i))
+}
+
+// testEdgeModelConfigs returns a minimal ModelConfigs value satisfying
+// CreateEdgeDeploymentPlanInput's required field -- the real SDK client
+// validates this locally before ever reaching the server.
+func testEdgeModelConfigs() []smtypes.EdgeDeploymentModelConfig {
+	return []smtypes.EdgeDeploymentModelConfig{
+		{ModelHandle: aws.String("handle-1"), EdgePackagingJobName: aws.String("job-1")},
+	}
+}
+
+// TestHandler_ListEdgeDeploymentPlans_FilterSortPage_RealClient asserts
+// ListEdgeDeploymentPlansInput's filter/sort/pagination fields -- absent
+// before this pass except NextToken -- narrow, reorder, and paginate the
+// result set.
+func TestHandler_ListEdgeDeploymentPlans_FilterSortPage_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestSageMakerClient(t, h)
+
+	_, err := client.CreateDeviceFleet(t.Context(), &sagemakersdk.CreateDeviceFleetInput{
+		DeviceFleetName: aws.String("lep-fleet"),
+		OutputConfig:    &smtypes.EdgeOutputConfig{S3OutputLocation: aws.String("s3://bucket/out")},
+	})
+	require.NoError(t, err)
+
+	names := []string{"alpha-plan", "beta-plan", "gamma-widget"}
+	for _, n := range names {
+		_, planErr := client.CreateEdgeDeploymentPlan(t.Context(), &sagemakersdk.CreateEdgeDeploymentPlanInput{
+			EdgeDeploymentPlanName: aws.String(n),
+			DeviceFleetName:        aws.String("lep-fleet"),
+			ModelConfigs:           testEdgeModelConfigs(),
+		})
+		require.NoError(t, planErr)
+	}
+
+	t.Run("name contains filters", func(t *testing.T) {
+		t.Parallel()
+
+		out, listErr := client.ListEdgeDeploymentPlans(t.Context(), &sagemakersdk.ListEdgeDeploymentPlansInput{
+			NameContains: aws.String("plan"),
+		})
+		require.NoError(t, listErr)
+		assert.Len(t, out.EdgeDeploymentPlanSummaries, 2)
+	})
+
+	t.Run("sort by name ascending", func(t *testing.T) {
+		t.Parallel()
+
+		out, listErr := client.ListEdgeDeploymentPlans(t.Context(), &sagemakersdk.ListEdgeDeploymentPlansInput{
+			SortBy:    smtypes.ListEdgeDeploymentPlansSortByName,
+			SortOrder: smtypes.SortOrderAscending,
+		})
+		require.NoError(t, listErr)
+		require.Len(t, out.EdgeDeploymentPlanSummaries, 3)
+		assert.Equal(t, "alpha-plan", aws.ToString(out.EdgeDeploymentPlanSummaries[0].EdgeDeploymentPlanName))
+		assert.Equal(t, "gamma-widget", aws.ToString(out.EdgeDeploymentPlanSummaries[2].EdgeDeploymentPlanName))
+	})
+
+	t.Run("max results caps the page and returns a token", func(t *testing.T) {
+		t.Parallel()
+
+		out, listErr := client.ListEdgeDeploymentPlans(t.Context(), &sagemakersdk.ListEdgeDeploymentPlansInput{
+			MaxResults: aws.Int32(1),
+			SortBy:     smtypes.ListEdgeDeploymentPlansSortByName,
+			SortOrder:  smtypes.SortOrderAscending,
+		})
+		require.NoError(t, listErr)
+		require.Len(t, out.EdgeDeploymentPlanSummaries, 1)
+		assert.Equal(t, "alpha-plan", aws.ToString(out.EdgeDeploymentPlanSummaries[0].EdgeDeploymentPlanName))
+		assert.NotEmpty(t, aws.ToString(out.NextToken))
+	})
+}
+
+// TestHandler_ListStageDevices_MaxResults_RealClient asserts
+// ListStageDevicesInput's MaxResults -- absent before this pass -- caps the
+// page of devices returned.
+func TestHandler_ListStageDevices_MaxResults_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestSageMakerClient(t, h)
+
+	_, err := client.CreateDeviceFleet(t.Context(), &sagemakersdk.CreateDeviceFleetInput{
+		DeviceFleetName: aws.String("lsd-rc-fleet"),
+		OutputConfig:    &smtypes.EdgeOutputConfig{S3OutputLocation: aws.String("s3://bucket/out")},
+	})
+	require.NoError(t, err)
+
+	_, err = client.RegisterDevices(t.Context(), &sagemakersdk.RegisterDevicesInput{
+		DeviceFleetName: aws.String("lsd-rc-fleet"),
+		Devices: []smtypes.Device{
+			{DeviceName: aws.String("dev-a")},
+			{DeviceName: aws.String("dev-b")},
+		},
+	})
+	require.NoError(t, err)
+
+	_, err = client.CreateEdgeDeploymentPlan(t.Context(), &sagemakersdk.CreateEdgeDeploymentPlanInput{
+		EdgeDeploymentPlanName: aws.String("lsd-rc-plan"),
+		DeviceFleetName:        aws.String("lsd-rc-fleet"),
+		ModelConfigs:           testEdgeModelConfigs(),
+		Stages: []smtypes.DeploymentStage{{
+			StageName:             aws.String("stage-1"),
+			DeviceSelectionConfig: &smtypes.DeviceSelectionConfig{DeviceSubsetType: smtypes.DeviceSubsetTypePercentage},
+		}},
+	})
+	require.NoError(t, err)
+
+	out, err := client.ListStageDevices(t.Context(), &sagemakersdk.ListStageDevicesInput{
+		EdgeDeploymentPlanName: aws.String("lsd-rc-plan"),
+		StageName:              aws.String("stage-1"),
+		MaxResults:             aws.Int32(1),
+	})
+	require.NoError(t, err)
+	require.Len(t, out.DeviceDeploymentSummaries, 1)
+	assert.NotEmpty(t, aws.ToString(out.NextToken))
 }

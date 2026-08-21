@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 )
 
 // edge deployment operation name constants.
@@ -119,17 +120,19 @@ func toEdgeDeploymentStageInputs(reqs []edgeDeploymentStageRequest) []EdgeDeploy
 	return inputs
 }
 
+type createEdgeDeploymentPlanInput struct {
+	EdgeDeploymentPlanName string `json:"EdgeDeploymentPlanName"`
+	DeviceFleetName        string `json:"DeviceFleetName"`
+	ModelConfigs           []struct {
+		ModelHandle          string `json:"ModelHandle"`
+		EdgePackagingJobName string `json:"EdgePackagingJobName"`
+	} `json:"ModelConfigs"`
+	Stages []edgeDeploymentStageRequest `json:"Stages"`
+	Tags   []tagObject                  `json:"Tags"`
+}
+
 func (h *Handler) handleCreateEdgeDeploymentPlan(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		EdgeDeploymentPlanName string `json:"EdgeDeploymentPlanName"`
-		DeviceFleetName        string `json:"DeviceFleetName"`
-		ModelConfigs           []struct {
-			ModelHandle          string `json:"ModelHandle"`
-			EdgePackagingJobName string `json:"EdgePackagingJobName"`
-		} `json:"ModelConfigs"`
-		Stages []edgeDeploymentStageRequest `json:"Stages"`
-		Tags   []tagObject                  `json:"Tags"`
-	}
+	var req createEdgeDeploymentPlanInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -182,16 +185,22 @@ func stageStatusSummary(s *EdgeDeploymentStage) map[string]any {
 	return summary
 }
 
+type describeEdgeDeploymentPlanInput struct {
+	EdgeDeploymentPlanName string `json:"EdgeDeploymentPlanName"`
+	NextToken              string `json:"NextToken"`
+	MaxResults             int32  `json:"MaxResults"`
+}
+
 func (h *Handler) handleDescribeEdgeDeploymentPlan(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		EdgeDeploymentPlanName string `json:"EdgeDeploymentPlanName"`
-	}
+	var req describeEdgeDeploymentPlanInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	p, err := h.Backend.DescribeEdgeDeploymentPlan(ctx, req.EdgeDeploymentPlanName)
+	p, nextToken, err := h.Backend.DescribeEdgeDeploymentPlan(
+		ctx, req.EdgeDeploymentPlanName, req.NextToken, req.MaxResults,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -209,7 +218,7 @@ func (h *Handler) handleDescribeEdgeDeploymentPlan(ctx context.Context, body []b
 		stages = append(stages, stageStatusSummary(s))
 	}
 
-	return json.Marshal(map[string]any{
+	resp := map[string]any{
 		keyDeviceFleetName:        p.DeviceFleetName,
 		keyEdgeDeploymentPlanArn:  p.EdgeDeploymentPlanArn,
 		keyEdgeDeploymentPlanName: p.EdgeDeploymentPlanName,
@@ -220,13 +229,21 @@ func (h *Handler) handleDescribeEdgeDeploymentPlan(ctx context.Context, body []b
 		"EdgeDeploymentFailed":    0,
 		keyCreationTime:           epochSeconds(p.CreationTime),
 		keyLastModifiedTime:       epochSeconds(p.LastModifiedTime),
-	})
+	}
+
+	if nextToken != "" {
+		resp[keyNextToken] = nextToken
+	}
+
+	return json.Marshal(resp)
+}
+
+type deleteEdgeDeploymentPlanInput struct {
+	EdgeDeploymentPlanName string `json:"EdgeDeploymentPlanName"`
 }
 
 func (h *Handler) handleDeleteEdgeDeploymentPlan(ctx context.Context, body []byte) error {
-	var req struct {
-		EdgeDeploymentPlanName string `json:"EdgeDeploymentPlanName"`
-	}
+	var req deleteEdgeDeploymentPlanInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -235,16 +252,27 @@ func (h *Handler) handleDeleteEdgeDeploymentPlan(ctx context.Context, body []byt
 	return h.Backend.DeleteEdgeDeploymentPlan(ctx, req.EdgeDeploymentPlanName)
 }
 
+type listEdgeDeploymentPlansInput struct {
+	CreationTimeAfter       *time.Time `json:"CreationTimeAfter"`
+	CreationTimeBefore      *time.Time `json:"CreationTimeBefore"`
+	LastModifiedTimeAfter   *time.Time `json:"LastModifiedTimeAfter"`
+	LastModifiedTimeBefore  *time.Time `json:"LastModifiedTimeBefore"`
+	DeviceFleetNameContains string     `json:"DeviceFleetNameContains"`
+	NameContains            string     `json:"NameContains"`
+	NextToken               string     `json:"NextToken"`
+	SortBy                  string     `json:"SortBy"`
+	SortOrder               string     `json:"SortOrder"`
+	MaxResults              int32      `json:"MaxResults"`
+}
+
 func (h *Handler) handleListEdgeDeploymentPlans(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		NextToken string `json:"NextToken"`
-	}
+	var req listEdgeDeploymentPlansInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	plans, nextToken := h.Backend.ListEdgeDeploymentPlans(ctx, req.NextToken)
+	plans, nextToken := h.Backend.ListEdgeDeploymentPlans(ctx, ListEdgeDeploymentPlansParams(req))
 
 	items := make([]map[string]any, 0, len(plans))
 	for _, p := range plans {
@@ -267,11 +295,13 @@ func (h *Handler) handleListEdgeDeploymentPlans(ctx context.Context, body []byte
 // EdgeDeploymentStage handlers
 // ---------------------------------------------------------------------------
 
+type createEdgeDeploymentStageInput struct {
+	EdgeDeploymentPlanName string                       `json:"EdgeDeploymentPlanName"`
+	Stages                 []edgeDeploymentStageRequest `json:"Stages"`
+}
+
 func (h *Handler) handleCreateEdgeDeploymentStage(ctx context.Context, body []byte) error {
-	var req struct {
-		EdgeDeploymentPlanName string                       `json:"EdgeDeploymentPlanName"`
-		Stages                 []edgeDeploymentStageRequest `json:"Stages"`
-	}
+	var req createEdgeDeploymentStageInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -280,11 +310,13 @@ func (h *Handler) handleCreateEdgeDeploymentStage(ctx context.Context, body []by
 	return h.Backend.CreateEdgeDeploymentStage(ctx, req.EdgeDeploymentPlanName, toEdgeDeploymentStageInputs(req.Stages))
 }
 
+type deleteEdgeDeploymentStageInput struct {
+	EdgeDeploymentPlanName string `json:"EdgeDeploymentPlanName"`
+	StageName              string `json:"StageName"`
+}
+
 func (h *Handler) handleDeleteEdgeDeploymentStage(ctx context.Context, body []byte) error {
-	var req struct {
-		EdgeDeploymentPlanName string `json:"EdgeDeploymentPlanName"`
-		StageName              string `json:"StageName"`
-	}
+	var req deleteEdgeDeploymentStageInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -293,11 +325,13 @@ func (h *Handler) handleDeleteEdgeDeploymentStage(ctx context.Context, body []by
 	return h.Backend.DeleteEdgeDeploymentStage(ctx, req.EdgeDeploymentPlanName, req.StageName)
 }
 
+type startEdgeDeploymentStageInput struct {
+	EdgeDeploymentPlanName string `json:"EdgeDeploymentPlanName"`
+	StageName              string `json:"StageName"`
+}
+
 func (h *Handler) handleStartEdgeDeploymentStage(ctx context.Context, body []byte) error {
-	var req struct {
-		EdgeDeploymentPlanName string `json:"EdgeDeploymentPlanName"`
-		StageName              string `json:"StageName"`
-	}
+	var req startEdgeDeploymentStageInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -306,11 +340,13 @@ func (h *Handler) handleStartEdgeDeploymentStage(ctx context.Context, body []byt
 	return h.Backend.StartEdgeDeploymentStage(ctx, req.EdgeDeploymentPlanName, req.StageName)
 }
 
+type stopEdgeDeploymentStageInput struct {
+	EdgeDeploymentPlanName string `json:"EdgeDeploymentPlanName"`
+	StageName              string `json:"StageName"`
+}
+
 func (h *Handler) handleStopEdgeDeploymentStage(ctx context.Context, body []byte) error {
-	var req struct {
-		EdgeDeploymentPlanName string `json:"EdgeDeploymentPlanName"`
-		StageName              string `json:"StageName"`
-	}
+	var req stopEdgeDeploymentStageInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -323,10 +359,12 @@ func (h *Handler) handleStopEdgeDeploymentStage(ctx context.Context, body []byte
 // GetDeviceFleetReport / ListStageDevices / UpdateDevices handlers
 // ---------------------------------------------------------------------------
 
+type getDeviceFleetReportInput struct {
+	DeviceFleetName string `json:"DeviceFleetName"`
+}
+
 func (h *Handler) handleGetDeviceFleetReport(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		DeviceFleetName string `json:"DeviceFleetName"`
-	}
+	var req getDeviceFleetReportInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -365,12 +403,16 @@ func (h *Handler) handleGetDeviceFleetReport(ctx context.Context, body []byte) (
 	return json.Marshal(resp)
 }
 
+type listStageDevicesInput struct {
+	EdgeDeploymentPlanName             string `json:"EdgeDeploymentPlanName"`
+	StageName                          string `json:"StageName"`
+	NextToken                          string `json:"NextToken"`
+	MaxResults                         int32  `json:"MaxResults"`
+	ExcludeDevicesDeployedInOtherStage bool   `json:"ExcludeDevicesDeployedInOtherStage"`
+}
+
 func (h *Handler) handleListStageDevices(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		EdgeDeploymentPlanName string `json:"EdgeDeploymentPlanName"`
-		StageName              string `json:"StageName"`
-		NextToken              string `json:"NextToken"`
-	}
+	var req listStageDevicesInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -378,6 +420,7 @@ func (h *Handler) handleListStageDevices(ctx context.Context, body []byte) ([]by
 
 	plan, devices, status, nextToken, err := h.Backend.ListStageDevices(
 		ctx, req.EdgeDeploymentPlanName, req.StageName, req.NextToken,
+		req.MaxResults, req.ExcludeDevicesDeployedInOtherStage,
 	)
 	if err != nil {
 		return nil, err
@@ -405,15 +448,17 @@ func (h *Handler) handleListStageDevices(ctx context.Context, body []byte) ([]by
 	return listResp("DeviceDeploymentSummaries", items, nextToken)
 }
 
+type updateDevicesInput struct {
+	DeviceFleetName string `json:"DeviceFleetName"`
+	Devices         []struct {
+		DeviceName   string `json:"DeviceName"`
+		Description  string `json:"Description"`
+		IotThingName string `json:"IotThingName"`
+	} `json:"Devices"`
+}
+
 func (h *Handler) handleUpdateDevices(ctx context.Context, body []byte) error {
-	var req struct {
-		DeviceFleetName string `json:"DeviceFleetName"`
-		Devices         []struct {
-			DeviceName   string `json:"DeviceName"`
-			Description  string `json:"Description"`
-			IotThingName string `json:"IotThingName"`
-		} `json:"Devices"`
-	}
+	var req updateDevicesInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidRequest, err)

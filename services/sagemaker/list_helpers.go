@@ -20,6 +20,12 @@ import (
 // literal (goconst).
 const sortOrderDescending = "Descending"
 
+// sortByLastModifiedTime is the "LAST_MODIFIED_TIME" SortBy value shared by
+// the Image/ImageVersion/EdgeDeploymentPlan sort-by enums (each its own
+// distinct type, but spelled identically) — pulled out so those call sites
+// don't each repeat the same string literal (goconst).
+const sortByLastModifiedTime = "LAST_MODIFIED_TIME"
+
 // tableGet returns the value stored under key in t, or nil if absent. It lets
 // a single-value store.Table lookup be substituted inline (including chained
 // field access, e.g. tableGet(t, key).Field) for the raw map[string]*V index

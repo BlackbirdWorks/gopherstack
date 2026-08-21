@@ -1733,3 +1733,208 @@ shortening the type name and rewrapping the affected lines — rather than suppr
 
 **258 of sagemaker's 362 inline structs now remain.** Next by size:
 `handler_images.go` (11), `handler_edge_deployment.go` (11), `handler_hyperpod_scheduling.go` (10).
+
+## parity-14 (2026-08-21, gopherstack-oc9v): Image/ImageVersion and EdgeDeploymentPlan/EdgeDeploymentStage family inline-struct sweep
+
+Eighth pass of the gopherstack-oc9v campaign. Per parity-13's boundary note ("258 of sagemaker's
+362 inline structs now remain ... `handler_images.go` (11), `handler_edge_deployment.go` (11),
+`handler_hyperpod_scheduling.go` (10)"), this pass took both `handler_images.go` and
+`handler_edge_deployment.go`, each verified by `grep -c 'var req struct {' <file>.go` = 11 before
+starting. All 22 were converted to named types (`createImageInput`, `describeImageInput`,
+`deleteImageInput`, `listImagesInput`, `updateImageInput`, `createImageVersionInput`,
+`describeImageVersionInput`, `deleteImageVersionInput`, `listImageVersionsInput`,
+`updateImageVersionInput`, `listAliasesInput`; `createEdgeDeploymentPlanInput`,
+`describeEdgeDeploymentPlanInput`, `deleteEdgeDeploymentPlanInput`,
+`listEdgeDeploymentPlansInput`, `createEdgeDeploymentStageInput`, `deleteEdgeDeploymentStageInput`,
+`startEdgeDeploymentStageInput`, `stopEdgeDeploymentStageInput`, `getDeviceFleetReportInput`,
+`listStageDevicesInput`, `updateDevicesInput`) and wire-audited field-by-field against the pinned
+SDK (`v1.263.2`, confirmed from `go.mod`, matching prior passes). **236 of sagemaker's 362 inline
+structs now remain** (362 − 19 − 19 − 15 − 14 − 14 − 12 − 11 − 11 − 11), confirmed by
+`grep -rc 'var req struct {' services/sagemaker/*.go` summed, not arithmetic; both files now have
+zero. This pass did not touch `handler_hyperpod_scheduling.go` or any other family — all still open
+for gopherstack-oc9v.
+
+**Enumerated vs. converted vs. audited — Image family:**
+
+- `CreateImageInput` (`api_op_CreateImage.go:32-55`) — was missing `DisplayName`, the only optional
+  field besides `Description`/`Tags` already present. Now threaded onto `SMImage.DisplayName` at
+  creation instead of only being settable via a later `UpdateImage` call.
+- `DescribeImageInput`/`DeleteImageInput` — already matched exactly (`ImageName` is each op's sole
+  field).
+- `ListImagesInput` (`api_op_ListImages.go:32-64`) — was missing **7 of 8** optional fields, only
+  `NextToken` existed: `CreationTimeAfter`, `CreationTimeBefore`, `LastModifiedTimeAfter`,
+  `LastModifiedTimeBefore`, `MaxResults`, `NameContains`, `SortBy`, `SortOrder`. All eight now real
+  via a new `ListImagesParams`/`matchesImageListParams`/`imageSortLess`. **The real default
+  `SortOrder` is Descending** (`api_op_ListImages.go:60`), not the Ascending default nearly every
+  other List op in this service uses — implemented as documented rather than reusing the more
+  common convention by reflex. `ImageSortBy`'s real values are the all-caps, underscore-separated
+  `CREATION_TIME`/`LAST_MODIFIED_TIME`/`IMAGE_NAME` (`types/enums.go:4180-4182`), a different casing
+  convention from the mixed-case `"Name"`/`"CreationTime"` sort keys most other List ops in this
+  service use — read from the enum constants, not assumed by analogy. The `Images` summary
+  (`types.Image`, `types/types.go:11531-11568`) was also missing `Description`/`DisplayName`; both
+  now populated when set.
+- `UpdateImageInput` — already matched exactly.
+- `CreateImageVersionInput` (`api_op_CreateImageVersion.go:30-100`) — **the standout finding of
+  this pass, matching parity-12's `UpdateModelPackage` in severity.** `BaseImage` ("This member is
+  required") was not modeled at all — the previous handler only decoded `ImageName`, so a version's
+  underlying container image could never be set at creation. Now required (`ErrValidation` if
+  empty) and threaded onto two new `ImageVersion` fields, `BaseImage` and `ContainerImage` (see
+  disclosure below). The other **7 of 7** optional fields (`Aliases`, `Horovod`, `JobType`,
+  `MLFramework`, `Processor`, `ProgrammingLang`, `ReleaseNotes`, `VendorGuidance`) were also entirely
+  absent, forcing every real client to make an immediate follow-up `UpdateImageVersion` call just to
+  set them — the same "no way to set at creation" class parity-12 found on
+  `CreateModelPackage.ModelApprovalStatus`. All now real. `ClientToken` (idempotency token, no
+  server-observable effect) is deliberately omitted, matching every other Create op in this service.
+- `DescribeImageVersionInput` (`api_op_DescribeImageVersion.go:34-48`) — missing `Alias`
+  entirely, and **the handler did not implement the documented default at all**: "Version: ... If
+  not specified, the latest version is described" (`:44`), but the previous code passed a
+  zero-value `int` straight through to a `versions[version]` lookup, so an unspecified Version
+  always 404'd instead of returning the latest version — a real functional bug independent of the
+  wire-field diff, caught by `TestHandler_DescribeImageVersion_DefaultsToLatest_RealClient` and
+  hand-reverted below. Fixed via a new `resolveImageVersionNumber`/`latestImageVersion` pair shared
+  with `UpdateImageVersion`/`DeleteImageVersion`/`ListAliases`.
+- `DeleteImageVersionInput`/`UpdateImageVersionInput` — each missing `Alias`. Both now resolve
+  `Alias` to a version number via the same shared helper as Describe. **Delete's doc states no
+  "if unspecified" default** (unlike Describe's explicit latest-version default), so
+  `DeleteImageVersion` now requires one of `Version`/`Alias` and returns `ErrValidation` if neither
+  is given, rather than guessing — the create/update/describe/delete-are-different-contracts
+  principle extended to a fourth op.
+- `ListImageVersionsInput` (`api_op_ListImageVersions.go:31-65`) — was missing **6 of 8**
+  optional fields, only `ImageName`/`NextToken` existed: `CreationTimeAfter`, `CreationTimeBefore`,
+  `LastModifiedTimeAfter`, `LastModifiedTimeBefore`, `MaxResults`, `SortBy`, `SortOrder`. All now
+  real via a new `ListImageVersionsParams`/`matchesImageVersionListParams`/`imageVersionSortLess`,
+  again with the real Descending default (`:61`) and the all-caps `ImageVersionSortBy` values
+  (`CREATION_TIME`/`LAST_MODIFIED_TIME`/`VERSION`, `types/enums.go:4249-4251`). **The
+  `ImageVersions` summary type (`types.ImageVersion`, `types/types.go:11606-11642`) requires
+  `ImageArn` — the previous handler never emitted it at all**, so every real client's
+  `ListImageVersions` call saw an empty `ImageArn` on every summary; fixed by adding it to the
+  response map. Confirmed load-bearing by hand-revert below.
+- `ListAliasesInput` (`api_op_ListAliases.go:28-50`) — missing `Alias`/`MaxResults`. `Alias`
+  resolves to a version the same way Describe/Update/Delete do (a version-or-alias identifier, not
+  a separate concept), narrowing the aggregation to that one version's aliases;
+  `MaxResults` now threaded into the existing `paginateSlice` call instead of a hardcoded `0`.
+
+**Two fabricated-wire-shape/behavior bugs found beyond the missing-field diff, both pre-dating this
+pass:**
+
+1. `DescribeImageVersion` called with no `Version`/`Alias` 404'd instead of returning the latest
+   version, contradicting the real op's own documented default. Fixed via `latestImageVersion`
+   (highest existing version key, not the create-time counter, so a deleted top version doesn't
+   leave the fallback pointing at nothing).
+2. `ListImageVersions`' summary never emitted the required `ImageArn` field.
+
+**Disclosed, not modeled:**
+
+- `SMImage`/`ImageVersion.FailureReason` — `ImageStatus`/`ImageVersionStatus` never reach
+  `CREATE_FAILED`/`UPDATE_FAILED`/`DELETE_FAILED` in this backend (no failure FSM), so there is no
+  real failure to report a reason for.
+- `ImageVersion.ContainerImage` is set equal to `BaseImage` at creation: this backend has no ECR
+  subsystem to resolve `BaseImage` to a distinct digest-pinned registry path the way real AWS can
+  after validation, so the two coincide for this backend's entire lifetime rather than only at
+  creation.
+
+**Enumerated vs. converted vs. audited — EdgeDeploymentPlan/EdgeDeploymentStage family:**
+
+- `CreateEdgeDeploymentPlanInput`/`CreateEdgeDeploymentStageInput`/
+  `Delete{EdgeDeploymentPlan,EdgeDeploymentStage}Input`/`Start/StopEdgeDeploymentStageInput`/
+  `GetDeviceFleetReportInput`/`UpdateDevicesInput` — already matched exactly; converted to named
+  types for tooling visibility with no field changes.
+- `DescribeEdgeDeploymentPlanInput` (`api_op_DescribeEdgeDeploymentPlan.go:43-58`) — missing
+  `MaxResults`/`NextToken` entirely, and consequently `DescribeEdgeDeploymentPlanOutput.NextToken`
+  was never emitted either: **`Stages` was always returned in full**, contradicting the op's own doc
+  ("If the edge deployment plan has enough stages to require tokening, then this is the response
+  from the last list of stages returned", `:50-56`). Fixed by paginating `Stages` with the existing
+  `paginateSlice` helper and returning `NextToken` when truncated. Confirmed load-bearing by
+  hand-revert below (a real client requesting 3 stages 2-at-a-time got all 3 back on the first
+  page instead of 2).
+- `ListEdgeDeploymentPlansInput` (`api_op_ListEdgeDeploymentPlans.go:30-65`) — was missing **8 of
+  9** optional fields, only `NextToken` existed: `CreationTimeAfter`, `CreationTimeBefore`,
+  `DeviceFleetNameContains`, `LastModifiedTimeAfter`, `LastModifiedTimeBefore`, `MaxResults`,
+  `NameContains`, `SortBy`, `SortOrder`. All eight now real via a new
+  `ListEdgeDeploymentPlansParams`/`matchesEdgeDeploymentPlanListParams`/
+  `edgeDeploymentPlanSortLess`. **The op's own doc comment lists `SortBy`'s values without
+  underscores — "NAME, DEVICEFLEETNAME, CREATIONTIME, LASTMODIFIEDTIME" — but the real
+  `ListEdgeDeploymentPlansSortBy` enum constants are `NAME`/`DEVICE_FLEET_NAME`/`CREATION_TIME`/
+  `LAST_MODIFIED_TIME`** (`types/enums.go:5312-5315`), underscored: another instance of this
+  campaign's doc-prose-vs-enum-source mismatch, caught by reading the constants directly rather than
+  the comment. No default `SortBy`/`SortOrder` is documented for this op (unlike `ListImages`'
+  explicit Descending default above); `CreationTime`/Ascending kept as the disclosed fallback,
+  this campaign's recurring `ListHubs`/`ListPipelines`/`ListNotebookInstanceLifecycleConfigs`
+  precedent for an undocumented default. `SortOrder` itself is the generic mixed-case
+  `types.SortOrder` (`"Ascending"`/`"Descending"`, `types/enums.go:9240-9246`), the same enum
+  `ListModelPackages` uses — unlike `ImageSortOrder` above, this op does *not* have its own
+  all-caps sort-order enum, only its own sort-*by* enum; the two List families sit on opposite
+  sides of that split, confirmed by reading each op's field type rather than assuming consistency
+  across the service.
+- `ListStageDevicesInput` (`api_op_ListStageDevices.go:30-53`) — missing
+  `ExcludeDevicesDeployedInOtherStage`/`MaxResults`. `MaxResults` now threads through
+  `devicesInFleetPaged` (a helper shared with the out-of-scope `ListDevices` op, updated to accept
+  it with a `0` default preserving that op's existing behavior). `ExcludeDevicesDeployedInOtherStage`
+  is accepted for wire-shape fidelity but is a **real, disclosed no-op**: this backend tracks one
+  `DeploymentStatus` per stage, not a per-device-per-stage assignment record, so there is no
+  "deployed in another stage" fact for a real device to be excluded on.
+
+**Bugs found beyond the wire diff, this family:**
+
+1. `DescribeEdgeDeploymentPlan` silently returning every stage regardless of `MaxResults`/
+   `NextToken`, contradicting the op's own doc.
+2. `ListEdgeDeploymentPlans` accepting only `NextToken` while silently dropping every filter/sort
+   control — the "parsed field, silently dropped" class this campaign exists to find.
+
+**Disclosed, not modeled:**
+
+- `EdgeDeploymentPlan`/`EdgeDeploymentPlanSummary.EdgeDeploymentSuccess`/`Pending`/`Failed` — always
+  zero, consistent with the pre-existing `stageStatusSummary` per-stage device-count disclosure:
+  this backend does not simulate per-device deployment progress at all.
+- `ListStageDevicesInput.ExcludeDevicesDeployedInOtherStage` — accepted but a real no-op, see above.
+
+**Storage-key check:** neither `SMImage` (keyed by `ImageName`), `ImageVersion` (keyed by
+`imageName`+`version` in a nested map), nor `EdgeDeploymentPlan` (keyed by
+`EdgeDeploymentPlanName`) changed key shape this pass.
+
+**Enums touched, all read from the constants:** `ImageStatus`, `ImageSortBy`, `ImageSortOrder`,
+`ImageVersionStatus`, `ImageVersionSortBy`, `ImageVersionSortOrder`, `JobType`, `Processor`,
+`VendorGuidance` (Image family — all match their doc comments' casing, unlike some prior passes'
+finds); `ListEdgeDeploymentPlansSortBy` (doc comment wrong, underscores omitted — see above) and
+the generic `SortOrder` (Edge family).
+
+**Tests:** real-`aws-sdk-go-v2`-client round-trip tests added for every new field —
+`TestHandler_CreateImage_DisplayName_RealClient`, `TestHandler_ListImages_FilterSortPage_RealClient`,
+`TestHandler_CreateImageVersion_FullFields_RealClient`,
+`TestHandler_DescribeImageVersion_DefaultsToLatest_RealClient`,
+`TestHandler_ImageVersionAlias_RealClient`,
+`TestHandler_DeleteImageVersion_RequiresIdentifier_RealClient`,
+`TestHandler_ListImageVersions_FilterSortPage_RealClient`,
+`TestHandler_ListAliases_AliasAndMaxResults_RealClient`,
+`TestHandler_DescribeEdgeDeploymentPlan_StagesPaginated_RealClient`,
+`TestHandler_ListEdgeDeploymentPlans_FilterSortPage_RealClient`,
+`TestHandler_ListStageDevices_MaxResults_RealClient`. All pre-existing Image/EdgeDeployment tests
+updated only where they exercised a field the real client is required to send
+(`CreateImageVersion`'s pre-existing tests all send `BaseImage` now) or otherwise pass unmodified.
+Verified against unfixed code by hand-reverting four representative fixes one at a time —
+`ListImageVersions`' `ImageArn` summary field (removed), `DescribeImageVersion`'s latest-version
+fallback (disabled, forcing the stale zero-value lookup), `DescribeEdgeDeploymentPlan`'s `Stages`
+pagination (disabled), and `ListEdgeDeploymentPlans`' `NameContains` filter (short-circuited) —
+confirming each corresponding test failed with the predicted symptom (empty `ImageArn`; "version 0
+not found"; 3 stages returned instead of 2; 3 plans returned instead of 2 for a substring filter)
+— then restoring; `images.go`/`handler_images.go`/`edge_deployment.go`/
+`handler_edge_deployment.go`/`device_fleets.go` verified byte-identical (`md5sum`) to their
+pre-revert state afterward.
+
+Gates for this session: `go build ./services/sagemaker/...`, `go vet ./services/sagemaker/...`,
+`go vet -tags e2e ./services/sagemaker/...`, `go vet -tags integration ./services/sagemaker/...`,
+`gofmt -l ./services/sagemaker` (empty), `go test -race ./services/sagemaker/...`, `go fix -diff
+./services/sagemaker/...` (no diff), and `golangci-lint run ./services/sagemaker/...` all clean;
+`go build ./...` (repo-wide) also clean. Zero `nolint` of any kind added — fixed a `goconst` finding
+by adding a shared `sortByLastModifiedTime` constant (the `"LAST_MODIFIED_TIME"` literal recurs
+across `Image`/`ImageVersion`/`EdgeDeploymentPlan`'s three distinct sort-by enums), a `revive
+unused-parameter` finding by naming `ListStageDevices`' disclosed-no-op parameter `_` (the same
+convention already used by `DescribeModelPackage`'s `IncludedData` parameter), and several
+`golines` line-length findings by rewrapping the affected call sites — rather than suppressing any
+of them.
+
+**`last_audit_commit` left at its existing value (`5f91d37c7`)** — not updated this pass, per the
+campaign's standing instruction never to write `pending` or otherwise touch it casually.
+
+**236 of sagemaker's 362 inline structs now remain.** Next by size:
+`handler_hyperpod_scheduling.go` (10), `handler_device_fleets.go` (9), `handler_cluster.go` (9).
