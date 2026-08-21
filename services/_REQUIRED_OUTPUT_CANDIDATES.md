@@ -158,12 +158,16 @@ from the ranked table) as future batches clear more of it.
 | swf | 30 | 39 (17 ops-with-required) | yes (3 findings / 4 member-level fixes: `DecisionTaskCompletedEventAttributes.scheduledEventId`/`.startedEventId` + `PollForDecisionTaskOutput.StartedEventId`, `ChildWorkflowExecutionTimedOutEventAttributes.timeoutType`, `TimerCanceledEventAttributes.startedEventId` -- see the batch-17 note below and services/swf/PARITY.md) | gopherstack-r80d batch 17 |
 | accessanalyzer | 28 | 39 (17 ops-with-required) | yes (1: `Location.Span`, nested inside `ValidatePolicyFinding.Locations`, invisible to the flat per-op scan and one level deeper than `ValidatePolicyFinding` itself -- see the batch-18 note below and services/accessanalyzer/PARITY.md) | gopherstack-r80d batch 18 |
 | cognitoidp | 27 | 129 (25 ops-with-required) | yes (4: `TermsType.Links`, `ListWebAuthnCredentialsOutput.Credentials`, `ResourceServerScopeType.ScopeName`/`.ScopeDescription`, `NotifyConfigurationType.SourceArn` -- see the batch-19 note below and services/cognitoidp/PARITY.md) | gopherstack-r80d batch 19 |
+| emrserverless | 25 | 22 (14 ops-with-required) | yes (2: `JobRun`/`JobRunSummary.releaseLabel` dropped when the owning application's own ReleaseLabel was an explicit empty string; `JobRunAttemptSummary.releaseLabel`/`.stateDetails` hardcoded empty despite both already tracked on the backing JobRun -- see the batch-20 note below and services/emrserverless/PARITY.md) | gopherstack-r80d batch 20 |
 
-36 services settled, 2324 required output fields read end to end (the running
+37 services settled, 2349 required output fields read end to end (the running
 total counts each settled service's flat per-op `cmd/requiredoutputfields`
 number, as established by every prior batch -- glue's own real audited
 surface was substantially larger once its ~56 gopherstack-modeled domain
-structs were cross-checked, see the batch-15 note below). Batch 19
+structs were cross-checked, see the batch-15 note below). Batch 20
+(emrserverless only) added 2 more counted bugs (plus 1 fixed-but-not-counted,
+`JobRun.jobDriver` -- see the batch-20 note below) on top of the running
+total. Batch 19
 (cognitoidp only) added 4 more counted bugs on top of the running total --
 see the batch-19 note below for detail. Batch 18
 (accessanalyzer only) added 1 more counted bug on top of the running total
@@ -907,6 +911,85 @@ after) or attempt a second service this batch, per the brief's "full rigour
 and no more" -- see services/cognitoidp/PARITY.md's 2026-08-21 entry for
 full detail and SDK file:line citations.
 
+### emrserverless (batch 20): 2 bugs, both the "output-required, input-only-nil-checked" releaseLabel
+
+25 fields / 22 ops / 14 ops-with-required per a fresh `cmd/requiredoutputfields`
+run, cross-checked against this file before starting (both agreed
+emrserverless is the largest remaining candidate after sagemaker, still
+off-limits -- `git status` showed its uncommitted conversion both before
+and after this batch). The instrument was re-validated per the brief before
+trusting it: a character-level brace matcher and a `go/parser`/`go/ast`
+walk of `types/types.go` agreed exactly (40 structs, 15 carrying >=1
+required member, 76 required fields summed); a third check
+(`grep -c "This member is required."` against the same file) also returned
+76.
+
+That domain-struct total (76) is larger than the flat per-op count (25) for
+the now-familiar "one wrapper key hides the domain object's own required
+members" reason (pinpoint/bedrockagent/cognitoidp), compounded by the
+"list of domain-struct elements" undercount (omics/cleanrooms):
+`GetApplication`/`UpdateApplication`/`GetJobRun`/`GetSession` each return
+one domain object counted as a single required field at the op level, and
+`ListApplications`/`ListJobRuns`/`ListJobRunAttempts`/`ListSessions` return
+arrays of the same objects, invisible to the per-op scan entirely. 66 of
+the 76 domain-struct fields trace back to exactly those 7 wrapper/list
+fields (`Application` 7, `ApplicationSummary` 7, `JobRun` 11,
+`JobRunSummary` 10, `JobRunAttemptSummary` 11, `Session` 10,
+`SessionSummary` 10); the remaining 10
+(`CloudWatchLoggingConfiguration`/`Configuration`/`Hive`/
+`ImageConfiguration`/`InitialCapacityConfig`/`MaximumAllowedResources`/
+`SparkSubmit`/`WorkerResourceConfig`) belong to the opaque
+echo-verbatim-as-`any` sub-object family (`applicationConfigFields`/
+`JobDriver`/`ConfigurationOverrides`) this backend never independently
+constructs, so it structurally cannot drop one of their required members --
+whatever valid content a client sends survives untouched.
+
+2 bugs counted, both the same reachability shape cognitoidp batch 19 named:
+a real SDK client-side validator that only null-checks a `*string` pointer,
+never its content, letting an explicit empty string reach the backend and
+then get dropped by an `omitempty`-style conditional. `JobRun`/
+`JobRunSummary.releaseLabel` is copied from the owning `Application`'s own
+`ReleaseLabel` at `StartJobRun` time; `Application.ReleaseLabel` is copied
+verbatim from `CreateApplicationInput.ReleaseLabel`, whose real
+`validateOpCreateApplicationInput` only checks `v.ReleaseLabel == nil` --
+never its content -- and gopherstack's own `CreateApplication` only
+rejects an empty `name`/`type`, not an empty `releaseLabel`. Every job run
+started under such an application then had `releaseLabel` vanish entirely
+from `GetJobRun`/`ListJobRuns`; fixed by making both map builders emit it
+unconditionally, matching the convention `Application`/`Session`'s own
+converters already used correctly for the same field name.
+`JobRunAttemptSummary.releaseLabel`/`.stateDetails` were a related but
+distinct bug: `ListJobRunAttempts`'s synthesized attempt hardcoded both to
+`""` under a comment claiming neither was tracked by the backend -- false,
+both are already stored on the backing `JobRun` the same function reads six
+other fields from. The wire key was never dropped there (present, just
+wrong), a data-fidelity bug rather than a dropped-key one, but still inside
+this cut's target class since the required member was never actually
+populated with real data. Both proven via real
+`aws-sdk-go-v2/service/emrserverless` client round trips
+(`wire_output_required_r80d_test.go`), hand-reverted/confirmed-failing/
+restored, md5sum byte-identical.
+
+Fixed but NOT counted: `JobRun.jobDriver`, guarded the same way as
+`releaseLabel` and reachable the same way (`JobDriver` is required on
+`types.JobRun` but genuinely optional on `StartJobRunInput` --
+`validateOpStartJobRunInput` only validates its content when non-nil).
+Unlike `releaseLabel`, this one is unprovable: reading
+`awsRestjson1_deserializeDocumentJobDriver` shows an empty `"jobDriver": {}`
+object and an entirely absent key both leave the typed field `nil` --
+no real client can observe the fix. Documented and fixed anyway (the wire
+key is now honestly always present), matching cognitoidp batch 19's
+`AccountTakeoverActionType.Notify` precedent for a real-but-unprovable fix.
+
+All gates green (build/vet/gofmt/race-test/lint, 0 banned nolints, 0 new
+nolints, no exported signatures changed). services/_REQUIRED_OUTPUT_CANDIDATES.md
+updated: emrserverless moved from the ranked table into "Already examined"
+(settled-services count now 37, 2349 required output fields read end to
+end). Did not touch sagemaker (off-limits, `git status` checked before and
+after) or attempt a second service this batch, per the brief's "full rigour
+and no more" -- see services/emrserverless/PARITY.md's 2026-08-21 entry for
+full detail and SDK file:line citations.
+
 ### accessanalyzer (batch 18): 1 bug, one level deeper than a nested-domain-struct undercount
 
 28 fields / 39 ops / 17 ops-with-required per `cmd/requiredoutputfields`
@@ -1124,13 +1207,12 @@ batch 11), backup (41, settled batch 11), inspector2 (38, settled batch
 12), vpclattice (37, settled batch 13), appmesh (36, settled batch 13),
 amplify (35, settled batch 14), glue (34, settled batch 15), batch (31,
 settled batch 16), ce/efs/swf (30 each, settled batch 17),
-accessanalyzer (28, settled batch 18), and cognitoidp (27, settled
-batch 19) removed from this table — see the "Already examined" table
-above.
+accessanalyzer (28, settled batch 18), cognitoidp (27, settled
+batch 19), and emrserverless (25, settled batch 20) removed from this
+table — see the "Already examined" table above.
 
 ```
  459  sagemaker                 ops=403  ops-with-required=188
-  25  emrserverless             ops=22   ops-with-required=14
   22  networkmonitor            ops=12   ops-with-required=7
   20  bedrockruntime            ops=11   ops-with-required=8
   18  cloudfrontkeyvaluestore   ops=6    ops-with-required=5
@@ -1275,9 +1357,15 @@ Notes on the top of this table for the next batch:
   2026-08-21 entry, plus the batch-19 note below for full detail. Verified
   as the largest remaining candidate after sagemaker via a fresh
   `cmd/requiredoutputfields` run cross-checked against this file before
-  starting (both agreed: cognitoidp 27/129/25). **emrserverless (25,
-  ops=22/ops-with-required=14) is now the largest remaining candidate
-  after sagemaker.**
+  starting (both agreed: cognitoidp 27/129/25).
+- **emrserverless settled (batch 20)** — do not re-derive, see the
+  settled-services table above and services/emrserverless/PARITY.md's
+  2026-08-21 entry, plus the batch-20 note below for full detail. Verified
+  as the largest remaining candidate after sagemaker via a fresh
+  `cmd/requiredoutputfields` run cross-checked against this file before
+  starting (both agreed: emrserverless 25/22/14). **networkmonitor (22,
+  ops=12/ops-with-required=7) is now the largest remaining candidate after
+  sagemaker.**
 - **omics settled (batch 7)** — do not re-derive, see the settled-services
   table above and services/omics/PARITY.md's 2026-08-21 entries. The
   concurrent sibling agent's over-wide-List sweep this file previously
