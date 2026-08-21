@@ -44,7 +44,11 @@ func TestClusterSchedulerConfigLifecycle_RealClient(t *testing.T) {
 	)
 	require.NoError(t, err)
 	assert.Equal(t, "hp-config", aws.ToString(desc.Name))
-	assert.Equal(t, smtypes.SchedulerResourceStatusCreating, desc.Status)
+	// SchedulerResourceStatusCreated, not ...Creating: this backend has no
+	// failure FSM to ever advance a "Creating" resource forward, so it lands
+	// directly on the terminal success state at creation, the same as its
+	// ComputeQuota sibling below.
+	assert.Equal(t, smtypes.SchedulerResourceStatusCreated, desc.Status)
 	assert.Equal(t, int32(1), aws.ToInt32(desc.ClusterSchedulerConfigVersion))
 
 	listOut, err := client.ListClusterSchedulerConfigs(t.Context(), &sagemakersdk.ListClusterSchedulerConfigsInput{})
@@ -428,4 +432,224 @@ func TestDescribeNotFound_RealClient(t *testing.T) {
 			require.ErrorAs(t, err, &notFound)
 		})
 	}
+}
+
+// TestListClusterSchedulerConfigs_FilterSortPage_RealClient covers
+// ListClusterSchedulerConfigsInput's ClusterArn/NameContains/Status/
+// CreatedAfter/CreatedBefore/SortBy/SortOrder/MaxResults -- all silently
+// dropped before this pass, when only NextToken existed -- and that
+// ClusterSchedulerConfigSummary.ClusterArn (optional but real,
+// types/types.go:5714-5715) is now emitted, where it was never included in
+// the summary map at all.
+func TestListClusterSchedulerConfigs_FilterSortPage_RealClient(t *testing.T) {
+	t.Parallel()
+
+	backend := sagemaker.NewInMemoryBackend("000000000000", smHyperpodRegion)
+	client := newTestSageMakerClient(t, sagemaker.NewHandler(backend))
+
+	clusterA := "arn:aws:sagemaker:us-east-1:000000000000:cluster/cluster-a"
+	clusterB := "arn:aws:sagemaker:us-east-1:000000000000:cluster/cluster-b"
+
+	names := []string{"alpha-config", "beta-config", "gamma-widget"}
+	clusterArns := []string{clusterA, clusterA, clusterB}
+
+	for i, n := range names {
+		_, err := client.CreateClusterSchedulerConfig(t.Context(), &sagemakersdk.CreateClusterSchedulerConfigInput{
+			Name:            aws.String(n),
+			ClusterArn:      aws.String(clusterArns[i]),
+			SchedulerConfig: &smtypes.SchedulerConfig{},
+		})
+		require.NoError(t, err)
+	}
+
+	t.Run("cluster arn emitted on summary", func(t *testing.T) {
+		t.Parallel()
+
+		out, err := client.ListClusterSchedulerConfigs(t.Context(), &sagemakersdk.ListClusterSchedulerConfigsInput{
+			ClusterArn: aws.String(clusterB),
+		})
+		require.NoError(t, err)
+		require.Len(t, out.ClusterSchedulerConfigSummaries, 1)
+		assert.Equal(t, clusterB, aws.ToString(out.ClusterSchedulerConfigSummaries[0].ClusterArn))
+	})
+
+	t.Run("name contains filters", func(t *testing.T) {
+		t.Parallel()
+
+		out, err := client.ListClusterSchedulerConfigs(t.Context(), &sagemakersdk.ListClusterSchedulerConfigsInput{
+			NameContains: aws.String("config"),
+		})
+		require.NoError(t, err)
+		assert.Len(t, out.ClusterSchedulerConfigSummaries, 2)
+	})
+
+	t.Run("status filters", func(t *testing.T) {
+		t.Parallel()
+
+		out, err := client.ListClusterSchedulerConfigs(t.Context(), &sagemakersdk.ListClusterSchedulerConfigsInput{
+			Status: smtypes.SchedulerResourceStatusCreated,
+		})
+		require.NoError(t, err)
+		assert.Len(t, out.ClusterSchedulerConfigSummaries, 3)
+	})
+
+	t.Run("ascending sort by name", func(t *testing.T) {
+		t.Parallel()
+
+		out, err := client.ListClusterSchedulerConfigs(t.Context(), &sagemakersdk.ListClusterSchedulerConfigsInput{
+			SortBy:    smtypes.SortClusterSchedulerConfigByName,
+			SortOrder: smtypes.SortOrderAscending,
+		})
+		require.NoError(t, err)
+		require.Len(t, out.ClusterSchedulerConfigSummaries, 3)
+		assert.Equal(t, "alpha-config", aws.ToString(out.ClusterSchedulerConfigSummaries[0].Name))
+		assert.Equal(t, "gamma-widget", aws.ToString(out.ClusterSchedulerConfigSummaries[2].Name))
+	})
+
+	t.Run("max results caps the page and returns a token", func(t *testing.T) {
+		t.Parallel()
+
+		out, err := client.ListClusterSchedulerConfigs(t.Context(), &sagemakersdk.ListClusterSchedulerConfigsInput{
+			MaxResults: aws.Int32(1),
+			SortBy:     smtypes.SortClusterSchedulerConfigByName,
+			SortOrder:  smtypes.SortOrderAscending,
+		})
+		require.NoError(t, err)
+		require.Len(t, out.ClusterSchedulerConfigSummaries, 1)
+		assert.Equal(t, "alpha-config", aws.ToString(out.ClusterSchedulerConfigSummaries[0].Name))
+		assert.NotEmpty(t, aws.ToString(out.NextToken))
+	})
+}
+
+// TestListComputeQuotas_FilterSortPage_RealClient mirrors the
+// ClusterSchedulerConfig list-filter test above for ComputeQuota --
+// ListComputeQuotasInput's ClusterArn/NameContains/Status/CreatedAfter/
+// CreatedBefore/SortBy/SortOrder/MaxResults were all silently dropped before
+// this pass.
+func TestListComputeQuotas_FilterSortPage_RealClient(t *testing.T) {
+	t.Parallel()
+
+	backend := sagemaker.NewInMemoryBackend("000000000000", smHyperpodRegion)
+	client := newTestSageMakerClient(t, sagemaker.NewHandler(backend))
+
+	names := []string{"alpha-quota", "beta-quota", "gamma-widget"}
+	for _, n := range names {
+		_, err := client.CreateComputeQuota(t.Context(), &sagemakersdk.CreateComputeQuotaInput{
+			Name:               aws.String(n),
+			ClusterArn:         aws.String("arn:aws:sagemaker:us-east-1:000000000000:cluster/hp-cluster"),
+			ComputeQuotaConfig: &smtypes.ComputeQuotaConfig{},
+			ComputeQuotaTarget: &smtypes.ComputeQuotaTarget{TeamName: aws.String("team-1")},
+		})
+		require.NoError(t, err)
+	}
+
+	t.Run("name contains filters", func(t *testing.T) {
+		t.Parallel()
+
+		out, err := client.ListComputeQuotas(t.Context(), &sagemakersdk.ListComputeQuotasInput{
+			NameContains: aws.String("quota"),
+		})
+		require.NoError(t, err)
+		assert.Len(t, out.ComputeQuotaSummaries, 2)
+	})
+
+	t.Run("ascending sort by name", func(t *testing.T) {
+		t.Parallel()
+
+		out, err := client.ListComputeQuotas(t.Context(), &sagemakersdk.ListComputeQuotasInput{
+			SortBy:    smtypes.SortQuotaByName,
+			SortOrder: smtypes.SortOrderAscending,
+		})
+		require.NoError(t, err)
+		require.Len(t, out.ComputeQuotaSummaries, 3)
+		assert.Equal(t, "alpha-quota", aws.ToString(out.ComputeQuotaSummaries[0].Name))
+		assert.Equal(t, "gamma-widget", aws.ToString(out.ComputeQuotaSummaries[2].Name))
+	})
+
+	t.Run("max results caps the page and returns a token", func(t *testing.T) {
+		t.Parallel()
+
+		out, err := client.ListComputeQuotas(t.Context(), &sagemakersdk.ListComputeQuotasInput{
+			MaxResults: aws.Int32(1),
+			SortBy:     smtypes.SortQuotaByName,
+			SortOrder:  smtypes.SortOrderAscending,
+		})
+		require.NoError(t, err)
+		require.Len(t, out.ComputeQuotaSummaries, 1)
+		assert.Equal(t, "alpha-quota", aws.ToString(out.ComputeQuotaSummaries[0].Name))
+		assert.NotEmpty(t, aws.ToString(out.NextToken))
+	})
+}
+
+// TestDescribeVersion_RealClient asserts both Describe ops' optional
+// Version parameter (ClusterSchedulerConfigVersion/ComputeQuotaVersion,
+// entirely undecoded before this pass): matching the resource's current
+// version succeeds, and requesting any other version returns NotFound rather
+// than silently returning the current version under a version number that
+// was never actually stored -- this backend keeps no historical
+// per-version snapshot to honor a mismatched request from.
+func TestDescribeVersion_RealClient(t *testing.T) {
+	t.Parallel()
+
+	t.Run("cluster scheduler config", func(t *testing.T) {
+		t.Parallel()
+
+		backend := sagemaker.NewInMemoryBackend("000000000000", smHyperpodRegion)
+		client := newTestSageMakerClient(t, sagemaker.NewHandler(backend))
+
+		created, err := client.CreateClusterSchedulerConfig(
+			t.Context(),
+			&sagemakersdk.CreateClusterSchedulerConfigInput{
+				Name:            aws.String("hp-config-ver"),
+				ClusterArn:      aws.String("arn:aws:sagemaker:us-east-1:000000000000:cluster/hp-cluster"),
+				SchedulerConfig: &smtypes.SchedulerConfig{},
+			},
+		)
+		require.NoError(t, err)
+
+		_, err = client.DescribeClusterSchedulerConfig(t.Context(), &sagemakersdk.DescribeClusterSchedulerConfigInput{
+			ClusterSchedulerConfigId:      created.ClusterSchedulerConfigId,
+			ClusterSchedulerConfigVersion: aws.Int32(1),
+		})
+		require.NoError(t, err)
+
+		_, err = client.DescribeClusterSchedulerConfig(t.Context(), &sagemakersdk.DescribeClusterSchedulerConfigInput{
+			ClusterSchedulerConfigId:      created.ClusterSchedulerConfigId,
+			ClusterSchedulerConfigVersion: aws.Int32(2),
+		})
+		require.Error(t, err)
+
+		var notFound *smtypes.ResourceNotFound
+		require.ErrorAs(t, err, &notFound)
+	})
+
+	t.Run("compute quota", func(t *testing.T) {
+		t.Parallel()
+
+		backend := sagemaker.NewInMemoryBackend("000000000000", smHyperpodRegion)
+		client := newTestSageMakerClient(t, sagemaker.NewHandler(backend))
+
+		created, err := client.CreateComputeQuota(t.Context(), &sagemakersdk.CreateComputeQuotaInput{
+			Name:               aws.String("hp-quota-ver"),
+			ClusterArn:         aws.String("arn:aws:sagemaker:us-east-1:000000000000:cluster/hp-cluster"),
+			ComputeQuotaConfig: &smtypes.ComputeQuotaConfig{},
+			ComputeQuotaTarget: &smtypes.ComputeQuotaTarget{TeamName: aws.String("team-1")},
+		})
+		require.NoError(t, err)
+
+		_, err = client.DescribeComputeQuota(t.Context(), &sagemakersdk.DescribeComputeQuotaInput{
+			ComputeQuotaId:      created.ComputeQuotaId,
+			ComputeQuotaVersion: aws.Int32(1),
+		})
+		require.NoError(t, err)
+
+		_, err = client.DescribeComputeQuota(t.Context(), &sagemakersdk.DescribeComputeQuotaInput{
+			ComputeQuotaId:      created.ComputeQuotaId,
+			ComputeQuotaVersion: aws.Int32(2),
+		})
+		require.Error(t, err)
+
+		var notFound *smtypes.ResourceNotFound
+		require.ErrorAs(t, err, &notFound)
+	})
 }

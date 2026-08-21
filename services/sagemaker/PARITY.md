@@ -1938,3 +1938,145 @@ campaign's standing instruction never to write `pending` or otherwise touch it c
 
 **236 of sagemaker's 362 inline structs now remain.** Next by size:
 `handler_hyperpod_scheduling.go` (10), `handler_device_fleets.go` (9), `handler_cluster.go` (9).
+
+## parity-15 (2026-08-21, gopherstack-oc9v): ClusterSchedulerConfig/ComputeQuota (HyperPod scheduling) inline-struct sweep
+
+Ninth pass of the gopherstack-oc9v campaign. Per parity-14's boundary note ("236 of sagemaker's
+362 inline structs now remain ... `handler_hyperpod_scheduling.go` (10), `handler_device_fleets.go`
+(9), `handler_cluster.go` (9)"), this pass took `handler_hyperpod_scheduling.go`, verified by
+`grep -c 'var req struct {' handler_hyperpod_scheduling.go` = 10 before starting. All 10 were
+converted to named types (`createClusterSchedulerConfigInput`,
+`describeClusterSchedulerConfigInput`, `listClusterSchedulerConfigsInput`,
+`updateClusterSchedulerConfigInput`, `deleteClusterSchedulerConfigInput`,
+`createComputeQuotaInput`, `describeComputeQuotaInput`, `listComputeQuotasInput`,
+`updateComputeQuotaInput`, `deleteComputeQuotaInput`) and wire-audited field-by-field against the
+pinned SDK (`v1.263.2`, confirmed from `go.mod`, matching prior passes). **226 of sagemaker's 362
+inline structs now remain** (362 − 19 − 19 − 15 − 14 − 14 − 12 − 11 − 11 − 10), confirmed by
+`grep -rc 'var req struct {' services/sagemaker/*.go` summed, not arithmetic; the file itself now
+has zero. This pass did not touch `handler_device_fleets.go`/`handler_cluster.go` or any other
+family — both still open for gopherstack-oc9v.
+
+This family's backend (`hyperpod_scheduling.go`) was already unusually well-audited going in — its
+existing comments already cite `api_op_*.go` line numbers and correctly disclose `ClusterArn` as
+Update-non-settable — so this pass's diff is narrower than most, but it still found a real Create
+bug and a real absent-field bug beyond the wire diff.
+
+**Enumerated vs. converted vs. audited — ClusterSchedulerConfig:**
+
+- `CreateClusterSchedulerConfigInput` (`api_op_CreateClusterSchedulerConfig.go:30-54`) — already
+  matched exactly (`ClusterArn`/`Name`/`SchedulerConfig`/`Description`/`Tags`).
+- `DescribeClusterSchedulerConfigInput` (`api_op_DescribeClusterSchedulerConfig.go:31-42`) — missing
+  the optional `ClusterSchedulerConfigVersion` entirely, previously undecoded. This backend keeps
+  only the live version counter, not a per-version historical snapshot, so a request for the
+  current version now succeeds and a request for any other version returns `ResourceNotFound`
+  rather than fabricating a snapshot that was never stored — disclosed in
+  `DescribeClusterSchedulerConfig`'s new doc comment, not silently ignored as before.
+- `ListClusterSchedulerConfigsInput` (`api_op_ListClusterSchedulerConfigs.go:30-68`) — was missing
+  **8 of 9** fields, only `NextToken` existed: `ClusterArn`, `CreatedAfter`, `CreatedBefore`,
+  `MaxResults`, `NameContains`, `SortBy`, `SortOrder`, `Status`. All eight now real via a new
+  `ListClusterSchedulerConfigsParams`/`matchesClusterSchedulerConfigListParams`/
+  `clusterSchedulerConfigSortLess`. Unlike the Image family (parity-14), this op's time filters are
+  named `CreatedAfter`/`CreatedBefore`, not `CreationTimeAfter`/`CreationTimeBefore` — read from
+  this op's own field list rather than assumed by analogy — and it has no `LastModifiedTime*`
+  filters at all. **The real default `SortOrder` is Descending** (`api_op_
+  ListClusterSchedulerConfigs.go:62`), the same explicit-Descending-default pattern as `ListImages`;
+  `SortBy`'s own default is undocumented, kept as the disclosed `CreationTime` fallback per this
+  campaign's recurring precedent. `SortClusterSchedulerConfigBy`'s real values
+  (`Name`/`CreationTime`/`Status`, `types/enums.go:9123-9125`) are mixed-case, matching most other
+  List ops in this service — unlike the Image family's all-caps enums, read from the constants
+  directly rather than assumed either way.
+- `UpdateClusterSchedulerConfigInput`/`DeleteClusterSchedulerConfigInput` — already matched exactly.
+
+**A real Create bug found beyond the wire diff, from this campaign's "does it honour its own
+documented defaults / does it ever reach a terminal state" question:** `CreateClusterSchedulerConfig`
+set the new resource's `Status` to `statusCreating` ("Creating") and nothing anywhere in this
+backend ever transitioned it forward — no ticker, no lifecycle goroutine, nothing else writes to a
+`ClusterSchedulerConfig`'s `Status` field at all. Every `DescribeClusterSchedulerConfig`/
+`ListClusterSchedulerConfigs` call showed `Status: "Creating"` for the entire lifetime of every
+cluster scheduler config ever created, in a backend with no failure FSM to ever advance it further.
+Its sibling `ComputeQuota` (same file) already set `Status: statusCreated` at creation, landing
+directly on the terminal state — the correct pattern. Fixed by matching that sibling. **The
+pre-existing `TestClusterSchedulerConfigLifecycle_RealClient` asserted
+`smtypes.SchedulerResourceStatusCreating` on a freshly created resource** — enshrining the bug, the
+same class of finding as parity-12's `UpdateModelPackage` test — and was updated to assert
+`SchedulerResourceStatusCreated` instead, matching `TestComputeQuotaLifecycle_RealClient`'s existing
+assertion two tests below it.
+
+**Enumerated vs. converted vs. audited — ComputeQuota:**
+
+- `CreateComputeQuotaInput` (`api_op_CreateComputeQuota.go:30-65`) — already matched exactly.
+- `DescribeComputeQuotaInput` (`api_op_DescribeComputeQuota.go:29-40`) — missing the optional
+  `ComputeQuotaVersion`, same fix and same rationale as `ClusterSchedulerConfig`'s above.
+- `ListComputeQuotasInput` (`api_op_ListComputeQuotas.go:30-68`) — was missing **8 of 9** fields,
+  only `NextToken` existed: same eight as `ListClusterSchedulerConfigs` above (`ClusterArn`,
+  `CreatedAfter`, `CreatedBefore`, `MaxResults`, `NameContains`, `SortBy`, `SortOrder`, `Status`).
+  All eight now real via a new `ListComputeQuotasParams`/`matchesComputeQuotaListParams`/
+  `computeQuotaSortLess`, again with the documented Descending `SortOrder` default (`:62`) and the
+  undocumented `SortBy` default kept as `CreationTime`. **`SortQuotaBy` has a fourth value beyond its
+  `SortClusterSchedulerConfigBy` sibling** — `Name`/`CreationTime`/`Status`/`ClusterArn`
+  (`types/enums.go:9301-9304`) — read from this op's own enum rather than assumed identical to the
+  three-value sibling right beside it.
+- `UpdateComputeQuotaInput`/`DeleteComputeQuotaInput` — already matched exactly.
+
+**An absent-field bug found beyond the wire diff:** `ClusterSchedulerConfigSummary`
+(`types/types.go:5687-5724`) has an optional but real `ClusterArn` field — the previous
+`ListClusterSchedulerConfigs` summary map never included it at all, so every real client's list call
+saw no cluster association for any entry, even though `Describe` on the same resource always
+returned it correctly. `ComputeQuotaSummary`'s sibling map already emitted its own `ClusterArn`
+correctly; only the `ClusterSchedulerConfig` side had the gap. Fixed by adding it to the summary map.
+
+**Disclosed, not modeled:**
+
+- `ClusterSchedulerConfig`/`ComputeQuota`'s `FailureReason` (both Describe outputs) and
+  `ClusterSchedulerConfig`'s `StatusDetails` — `Status` never reaches a Failed state in this backend
+  (no failure FSM), so there is no real failure to report a reason or per-status detail for.
+- `CreatedBy`/`LastModifiedBy` (`types.UserContext`) on both Describe outputs — this service models
+  no caller-identity concept anywhere, the same gap already disclosed for
+  `describeMlflowTrackingServerResponse`/`describeMlflowAppResponse`/`ModelPackageGroup`.
+- `DescribeClusterSchedulerConfigInput.ClusterSchedulerConfigVersion`/
+  `DescribeComputeQuotaInput.ComputeQuotaVersion` — modeled and enforced (see above) but only ever
+  honor the current version, since this backend keeps no historical per-version snapshot.
+
+**Storage-key check:** `ClusterSchedulerConfig` and `ComputeQuota` both stayed keyed by Name in
+their `store.Table`s (Describe/Update/Delete resolve `...Id` to the matching row via
+`clusterSchedulerConfigByID`/`computeQuotaByID`, both pre-existing and unchanged this pass) — no key
+shape change.
+
+**Enums touched, all read from the constants:** `SchedulerResourceStatus`,
+`SortClusterSchedulerConfigBy`, `SortQuotaBy`, `ActivationState` — the first two confirmed
+mixed-case (unlike the Image family) and confirmed to *not* share a value set (`SortQuotaBy`'s extra
+`ClusterArn`), read per-op rather than assumed.
+
+**Tests:** four new real-`aws-sdk-go-v2`-client round-trip tests —
+`TestListClusterSchedulerConfigs_FilterSortPage_RealClient` (covers `ClusterArn` filter and summary
+emission, `NameContains`, `Status`, `SortBy`/`SortOrder`, `MaxResults`),
+`TestListComputeQuotas_FilterSortPage_RealClient` (covers `NameContains`, `SortBy`/`SortOrder`,
+`MaxResults`), and `TestDescribeVersion_RealClient` (both resources: matching version succeeds,
+mismatched version returns `ResourceNotFound`). One pre-existing test
+(`TestClusterSchedulerConfigLifecycle_RealClient`) updated per the enshrined-bug finding above; all
+other pre-existing hyperpod-scheduling tests pass unmodified. Verified against unfixed code by
+hand-reverting three representative fixes one at a time — the `Status: statusCreated` correction
+(reverted to `statusCreating`), the `DescribeClusterSchedulerConfig`/`DescribeComputeQuota` version
+mismatch check (short-circuited to never fire), and `ListClusterSchedulerConfigs`' summary
+`ClusterArn` field (removed) — confirming each corresponding test failed with the predicted symptom
+(`Status` "Creating" instead of "Created"; mismatched-version Describe wrongly succeeding instead of
+erroring; empty `ClusterArn` instead of the real value) — then restoring; `hyperpod_scheduling.go`/
+`handler_hyperpod_scheduling.go` verified byte-identical (`md5sum`) to their pre-revert state
+afterward.
+
+Gates for this session: `go build ./services/sagemaker/...`, `go vet ./services/sagemaker/...`,
+`go vet -tags e2e ./services/sagemaker/...`, `go vet -tags integration ./services/sagemaker/...`,
+`gofmt -l ./services/sagemaker` (empty after one `gofmt -w` pass to realign a struct literal after
+an inserted comment), `go test -race ./services/sagemaker/...`, `go fix -diff
+./services/sagemaker/...` (no diff), and `golangci-lint run ./services/sagemaker/...` all clean;
+`go build ./...` (repo-wide) also clean. Zero `nolint` of any kind added — fixed two `golines`
+line-length findings (one from an inlined argument list, one in the new test file) by rewrapping via
+`golines -m 120 -w`, and two `fieldalignment` findings in `describeClusterSchedulerConfigInput`/
+`describeComputeQuotaInput` by reordering the pointer field ahead of the string field.
+
+**`last_audit_commit` left at its existing value (`5f91d37c7`)** — not updated this pass, per the
+campaign's standing instruction never to write `pending` or otherwise touch it casually.
+
+**226 of sagemaker's 362 inline structs now remain.** Next by size (tied):
+`handler_device_fleets.go` (9), `handler_cluster.go` (9), then `handler_monitoring_schedules.go` (7),
+`handler_model_cards.go` (7), `handler_jobs.go` (7), `handler_inference_experiments.go` (7).

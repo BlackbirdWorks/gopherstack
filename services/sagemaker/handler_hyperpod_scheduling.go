@@ -4,20 +4,23 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 )
 
 // ---------------------------------------------------------------------------
 // ClusterSchedulerConfig handlers
 // ---------------------------------------------------------------------------
 
+type createClusterSchedulerConfigInput struct {
+	SchedulerConfig            *SchedulerConfig `json:"SchedulerConfig"`
+	ClusterSchedulerConfigName string           `json:"Name"`
+	ClusterArn                 string           `json:"ClusterArn"`
+	Description                string           `json:"Description"`
+	Tags                       []tagObject      `json:"Tags"`
+}
+
 func (h *Handler) handleCreateClusterSchedulerConfig(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		SchedulerConfig            *SchedulerConfig `json:"SchedulerConfig"`
-		ClusterSchedulerConfigName string           `json:"Name"`
-		ClusterArn                 string           `json:"ClusterArn"`
-		Description                string           `json:"Description"`
-		Tags                       []tagObject      `json:"Tags"`
-	}
+	var req createClusterSchedulerConfigInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, err
@@ -40,16 +43,21 @@ func (h *Handler) handleCreateClusterSchedulerConfig(ctx context.Context, body [
 	})
 }
 
+type describeClusterSchedulerConfigInput struct {
+	ClusterSchedulerConfigVersion *int32 `json:"ClusterSchedulerConfigVersion"`
+	ClusterSchedulerConfigID      string `json:"ClusterSchedulerConfigId"`
+}
+
 func (h *Handler) handleDescribeClusterSchedulerConfig(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		ClusterSchedulerConfigID string `json:"ClusterSchedulerConfigId"`
-	}
+	var req describeClusterSchedulerConfigInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, err
 	}
 
-	c, err := h.Backend.DescribeClusterSchedulerConfig(ctx, req.ClusterSchedulerConfigID)
+	c, err := h.Backend.DescribeClusterSchedulerConfig(
+		ctx, req.ClusterSchedulerConfigID, req.ClusterSchedulerConfigVersion,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -57,16 +65,26 @@ func (h *Handler) handleDescribeClusterSchedulerConfig(ctx context.Context, body
 	return json.Marshal(c)
 }
 
+type listClusterSchedulerConfigsInput struct {
+	CreatedAfter  *time.Time `json:"CreatedAfter"`
+	CreatedBefore *time.Time `json:"CreatedBefore"`
+	ClusterArn    string     `json:"ClusterArn"`
+	NameContains  string     `json:"NameContains"`
+	NextToken     string     `json:"NextToken"`
+	SortBy        string     `json:"SortBy"`
+	SortOrder     string     `json:"SortOrder"`
+	Status        string     `json:"Status"`
+	MaxResults    int32      `json:"MaxResults"`
+}
+
 func (h *Handler) handleListClusterSchedulerConfigs(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		NextToken string `json:"NextToken"`
-	}
+	var req listClusterSchedulerConfigsInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, err
 	}
 
-	configs, next := h.Backend.ListClusterSchedulerConfigs(ctx, req.NextToken)
+	configs, next := h.Backend.ListClusterSchedulerConfigs(ctx, ListClusterSchedulerConfigsParams(req))
 
 	items := make([]map[string]any, 0, len(configs))
 	for _, c := range configs {
@@ -75,6 +93,7 @@ func (h *Handler) handleListClusterSchedulerConfigs(ctx context.Context, body []
 			keyClusterSchedulerConfigArn:     c.ClusterSchedulerConfigArn,
 			keyClusterSchedulerConfigID:      c.ClusterSchedulerConfigID,
 			keyClusterSchedulerConfigVersion: c.ClusterSchedulerConfigVersion,
+			keyClusterArn:                    c.ClusterArn,
 			keyStatus:                        c.Status,
 			keyCreationTime:                  epochSeconds(c.CreationTime),
 			keyLastModifiedTime:              epochSeconds(c.LastModifiedTime),
@@ -84,13 +103,15 @@ func (h *Handler) handleListClusterSchedulerConfigs(ctx context.Context, body []
 	return listResp("ClusterSchedulerConfigSummaries", items, next)
 }
 
+type updateClusterSchedulerConfigInput struct {
+	SchedulerConfig          *SchedulerConfig `json:"SchedulerConfig"`
+	Description              *string          `json:"Description"`
+	ClusterSchedulerConfigID string           `json:"ClusterSchedulerConfigId"`
+	TargetVersion            int32            `json:"TargetVersion"`
+}
+
 func (h *Handler) handleUpdateClusterSchedulerConfig(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		SchedulerConfig          *SchedulerConfig `json:"SchedulerConfig"`
-		Description              *string          `json:"Description"`
-		ClusterSchedulerConfigID string           `json:"ClusterSchedulerConfigId"`
-		TargetVersion            int32            `json:"TargetVersion"`
-	}
+	var req updateClusterSchedulerConfigInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, err
@@ -115,10 +136,12 @@ func (h *Handler) handleUpdateClusterSchedulerConfig(ctx context.Context, body [
 	})
 }
 
+type deleteClusterSchedulerConfigInput struct {
+	ClusterSchedulerConfigID string `json:"ClusterSchedulerConfigId"`
+}
+
 func (h *Handler) handleDeleteClusterSchedulerConfig(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		ClusterSchedulerConfigID string `json:"ClusterSchedulerConfigId"`
-	}
+	var req deleteClusterSchedulerConfigInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, err
@@ -135,16 +158,18 @@ func (h *Handler) handleDeleteClusterSchedulerConfig(ctx context.Context, body [
 // ComputeQuota handlers
 // ---------------------------------------------------------------------------
 
+type createComputeQuotaInput struct {
+	ComputeQuotaConfig *ComputeQuotaConfig `json:"ComputeQuotaConfig"`
+	ComputeQuotaTarget *ComputeQuotaTarget `json:"ComputeQuotaTarget"`
+	ComputeQuotaName   string              `json:"Name"`
+	ClusterArn         string              `json:"ClusterArn"`
+	ActivationState    string              `json:"ActivationState"`
+	Description        string              `json:"Description"`
+	Tags               []tagObject         `json:"Tags"`
+}
+
 func (h *Handler) handleCreateComputeQuota(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		ComputeQuotaConfig *ComputeQuotaConfig `json:"ComputeQuotaConfig"`
-		ComputeQuotaTarget *ComputeQuotaTarget `json:"ComputeQuotaTarget"`
-		ComputeQuotaName   string              `json:"Name"`
-		ClusterArn         string              `json:"ClusterArn"`
-		ActivationState    string              `json:"ActivationState"`
-		Description        string              `json:"Description"`
-		Tags               []tagObject         `json:"Tags"`
-	}
+	var req createComputeQuotaInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, err
@@ -169,16 +194,19 @@ func (h *Handler) handleCreateComputeQuota(ctx context.Context, body []byte) ([]
 	})
 }
 
+type describeComputeQuotaInput struct {
+	ComputeQuotaVersion *int32 `json:"ComputeQuotaVersion"`
+	ComputeQuotaID      string `json:"ComputeQuotaId"`
+}
+
 func (h *Handler) handleDescribeComputeQuota(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		ComputeQuotaID string `json:"ComputeQuotaId"`
-	}
+	var req describeComputeQuotaInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, err
 	}
 
-	q, err := h.Backend.DescribeComputeQuota(ctx, req.ComputeQuotaID)
+	q, err := h.Backend.DescribeComputeQuota(ctx, req.ComputeQuotaID, req.ComputeQuotaVersion)
 	if err != nil {
 		return nil, err
 	}
@@ -186,16 +214,26 @@ func (h *Handler) handleDescribeComputeQuota(ctx context.Context, body []byte) (
 	return json.Marshal(q)
 }
 
+type listComputeQuotasInput struct {
+	CreatedAfter  *time.Time `json:"CreatedAfter"`
+	CreatedBefore *time.Time `json:"CreatedBefore"`
+	ClusterArn    string     `json:"ClusterArn"`
+	NameContains  string     `json:"NameContains"`
+	NextToken     string     `json:"NextToken"`
+	SortBy        string     `json:"SortBy"`
+	SortOrder     string     `json:"SortOrder"`
+	Status        string     `json:"Status"`
+	MaxResults    int32      `json:"MaxResults"`
+}
+
 func (h *Handler) handleListComputeQuotas(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		NextToken string `json:"NextToken"`
-	}
+	var req listComputeQuotasInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, err
 	}
 
-	quotas, next := h.Backend.ListComputeQuotas(ctx, req.NextToken)
+	quotas, next := h.Backend.ListComputeQuotas(ctx, ListComputeQuotasParams(req))
 
 	items := make([]map[string]any, 0, len(quotas))
 	for _, q := range quotas {
@@ -217,15 +255,17 @@ func (h *Handler) handleListComputeQuotas(ctx context.Context, body []byte) ([]b
 	return listResp("ComputeQuotaSummaries", items, next)
 }
 
+type updateComputeQuotaInput struct {
+	ComputeQuotaConfig *ComputeQuotaConfig `json:"ComputeQuotaConfig"`
+	ComputeQuotaTarget *ComputeQuotaTarget `json:"ComputeQuotaTarget"`
+	ActivationState    *string             `json:"ActivationState"`
+	Description        *string             `json:"Description"`
+	ComputeQuotaID     string              `json:"ComputeQuotaId"`
+	TargetVersion      int32               `json:"TargetVersion"`
+}
+
 func (h *Handler) handleUpdateComputeQuota(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		ComputeQuotaConfig *ComputeQuotaConfig `json:"ComputeQuotaConfig"`
-		ComputeQuotaTarget *ComputeQuotaTarget `json:"ComputeQuotaTarget"`
-		ActivationState    *string             `json:"ActivationState"`
-		Description        *string             `json:"Description"`
-		ComputeQuotaID     string              `json:"ComputeQuotaId"`
-		TargetVersion      int32               `json:"TargetVersion"`
-	}
+	var req updateComputeQuotaInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, err
@@ -251,10 +291,12 @@ func (h *Handler) handleUpdateComputeQuota(ctx context.Context, body []byte) ([]
 	})
 }
 
+type deleteComputeQuotaInput struct {
+	ComputeQuotaID string `json:"ComputeQuotaId"`
+}
+
 func (h *Handler) handleDeleteComputeQuota(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		ComputeQuotaID string `json:"ComputeQuotaId"`
-	}
+	var req deleteComputeQuotaInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, err
