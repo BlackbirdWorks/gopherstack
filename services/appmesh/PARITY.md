@@ -8,6 +8,15 @@ service: appmesh
 sdk_module: aws-sdk-go-v2/service/appmesh@v1.38.4
 last_audit_commit: 40f05928
 last_audit_date: 2026-08-10
+# 2026-08-21 gopherstack-r80d batch 13 (required-output cut): last_audit_commit
+# left unchanged per this campaign's convention (the orchestrator, not this
+# pass, creates the commit; see gopherstack-z31a). 0 bugs found -- read every
+# required output member (36 fields/38 ops, plus every ResourceMetadata/
+# *Ref/*Data domain struct in types.go) end to end against the handlers and
+# real deserializers; came back clean. See the dated note at the bottom of
+# this file for detail, including one apparent false positive (a stale
+# "OpDocument" deserializer helper) ruled out via a real SDK client round
+# trip rather than trusted from static reading.
 overall: A            # genuine fixes found: the primary response-wrapping bug affected every
                        # Create/Describe/Update/Delete op in the service (28 handler call sites).
 ops:
@@ -282,3 +291,89 @@ this file rested on the drift; `sdk_module` corrected to `v1.38.4`.
    multi-day work, not a same-pass fix; per the no-stub/model-faithfully-or-leave-it rule
    they were left alone rather than partially modeled. See `gaps` above for the full
    type-by-type breakdown.
+
+### 2026-08-21 gopherstack-r80d batch 13: required-output cut, 0 bugs
+
+Selected as the second service this batch (after vpclattice) per
+`services/_REQUIRED_OUTPUT_CANDIDATES.md`'s ranked table: 36 required
+output fields / 38 ops (36 with at least one — nearly every op), confirmed
+with a fresh `go run ./cmd/requiredoutputfields` run against
+`appmesh@v1.38.4`. `git status` confirmed no concurrent-agent WIP on this
+service before starting.
+
+appmesh's op-level required set is the "one wrapper key" shape (every
+Create/Describe/Update/Delete op wraps its whole response in one required
+domain-object member: `Mesh`, `VirtualNode`, `VirtualRouter`, `Route`,
+`VirtualService`, `VirtualGateway`, `GatewayRoute`; every List op wraps an
+array under `Meshes`/`VirtualNodes`/etc.), so the flat 36/38 count
+undercounts the real surface the same way pinpoint/bedrockagent/cleanrooms/
+inspector2 did. Read every domain struct with `This member is required.`
+in `aws-sdk-go-v2/service/appmesh@v1.38.4/types/types.go` (an AST-style
+walk of all 90+ struct declarations, not a grep window) to find the real
+surface: each `<X>Data` struct (`MeshData`, `VirtualNodeData`, etc.)
+requires its own name field(s), `Metadata` (`ResourceMetadata`: Arn,
+CreatedAt, LastUpdatedAt, MeshOwner, ResourceOwner, Uid, Version — 7
+fields, shared by every resource type), `Spec`, and `Status` (a
+single-member wrapper, e.g. `MeshStatus.Status`); each `<X>Ref` struct used
+by List ops (`MeshRef`, `VirtualNodeRef`, etc.) requires the same
+Arn/CreatedAt/LastUpdatedAt/MeshOwner/ResourceOwner/Version set plus its
+own name field(s). `TagRef` (`ListTagsForResource`) requires Key/Value.
+
+**One apparent finding that was NOT a bug, verified rather than assumed:**
+this campaign's brief specifically warns that a `wire: ok` verdict can be
+wrong because raw-body tests can't catch a wrong wire contract. This
+service's own `handler_wire_test.go` doc comment (point 13) asserts
+"single-resource responses put fields at the response root -- there is no
+mesh/virtualNode/etc. wrapper key", which — combined with the real SDK
+requiring `Mesh`/`VirtualNode`/etc. as top-level required members of each
+`<Op>Output` struct — looked exactly like the class of bug this campaign
+exists to find (a missing wrapper key, same shape as opensearch's
+`GetIndex`/bedrock's `AutomatedReasoningPolicyTestCase`). A quick read of
+`deserializers.go`'s `awsRestjson1_deserializeOpDocumentCreateMeshOutput`
+(the unused codegen "OpDocument" helper this campaign has already learned
+not to trust, per batch 5's pinpoint note) appeared to confirm it: that
+helper switches on `case "mesh":` and would leave `Mesh` nil against
+gopherstack's actual unwrapped response. **Rather than counting this as a
+bug from static reading alone, it was checked against a real
+`aws-sdk-go-v2/service/appmesh` client round trip** (a throwaway probe
+test, discarded after use, not committed) — `CreateMesh` returned
+`out.Mesh` fully populated. Reading the *actual* per-operation deserializer
+(`awsRestjson1_deserializeOpCreateMesh`'s `HandleDeserialize`, not the
+unused `OpDocument` helper) showed why: it decodes the raw response body
+directly into `MeshData` via `awsRestjson1_deserializeDocumentMeshData(&output.Mesh,
+shape)` with no wrapper key at all — `Mesh` is an implicit httpPayload-style
+binding to the whole body, and the `case "mesh":` switch arm in the unused
+helper is dead code for restjson1's actual code path, exactly like pinpoint's
+`OpDocument` trap. gopherstack's flat-root shape is correct; the test
+suite's doc comment was right, and this campaign's own method (verify
+against the real client, not the static shape) caught a would-be false
+positive before it became a wasted "fix."
+
+With that resolved, every op was read end to end against its handler:
+`metaToWire`/`vnToWire`/`vrToWire`/`routeToWire`/`vsToWire`/`vgToWire`/
+`grToWire` (all in `handler.go` and the per-resource `handler_*.go` files)
+emit all 7 `ResourceMetadata` fields, the resource name field(s), `spec`
+(via `specOrEmpty`, which returns `{}` rather than `null` when unset — the
+"required-but-inapplicable means present-and-empty, not absent" shape,
+already handled correctly), and `status` as the required single-member
+wrapper object. Every `*SummaryToWire` function emits the full matching
+`*Ref` required set. Every List handler builds its slice with
+`make([]any, 0, len(items))`, never a nil slice, so a required list output
+is always `[]` not `null` for an empty mesh. Cross-checked timestamp/type
+shapes directly against the real deserializers (not assumed): `createdAt`/
+`lastUpdatedAt` are JSON-number epoch seconds (`smithytime.ParseEpochSeconds`)
+matching `.Unix()`; `version` is a JSON-number `Long` matching the `int64`
+field; `status` is a bare string, not an object — no wrong-type member (the
+class this batch's brief calls out as most severe) found anywhere in this
+service.
+
+Zero bugs. No fix, no new test needed (nothing to prove). Gates run scoped
+to `services/appmesh`: `go build ./...`, `go vet ./services/appmesh/...`,
+`gofmt -l services/appmesh/` (0 output), `go test -race
+./services/appmesh/...`, `golangci-lint run ./services/appmesh/...` (0
+issues). No files changed in this service; only this PARITY.md note and
+`services/_REQUIRED_OUTPUT_CANDIDATES.md` were touched.
+
+`services/_REQUIRED_OUTPUT_CANDIDATES.md` updated: appmesh moved from the
+ranked table into "Already examined" (settled-services count now 28, 2079
+required output fields read end to end).

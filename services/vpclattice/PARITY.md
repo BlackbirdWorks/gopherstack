@@ -2,6 +2,16 @@ service: vpclattice
 sdk_module: aws-sdk-go-v2/service/vpclattice@v1.25.5
 last_audit_commit: 198990e82
 last_audit_date: 2026-08-07
+# 2026-08-21 gopherstack-r80d batch 13 (required-output cut): last_audit_commit
+# left unchanged per this campaign's convention (the orchestrator, not this
+# pass, creates the commit; see gopherstack-z31a). 1 bug found and fixed,
+# proven via a real aws-sdk-go-v2/service/vpclattice client round trip
+# (wire_field_fixes_test.go), hand-reverted/confirmed-failing/restored,
+# md5sum-verified byte-identical: ListAccessLogSubscriptions dropped the
+# required lastUpdatedAt member on every summary item. Full required-output
+# surface (37 fields / 16 ops-with-required, plus AccessLogSubscriptionSummary
+# and DomainVerificationSummary's nested required members) read end to end;
+# see the dated note at the bottom of this file.
 overall: A            # gopherstack-lx2k: Resource Gateway/ResourceConfiguration/
                       # ServiceNetworkResourceAssociation/DomainVerification families
                       # (20 SDK ops) implemented for real against v1.25.5; PutAuthPolicy/
@@ -50,7 +60,7 @@ ops:
   GetAccessLogSubscription: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateAccessLogSubscription: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteAccessLogSubscription: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListAccessLogSubscriptions: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListAccessLogSubscriptions: {wire: fixed, errors: ok, state: ok, persist: ok, note: "fixed 2026-08-21 (gopherstack-r80d batch 13) -- alsSummaryToJSON (handler_access_log_subscriptions.go) dropped the required lastUpdatedAt member (types.go's AccessLogSubscriptionSummary, deserializers.go's awsRestjson1_deserializeDocumentAccessLogSubscriptionSummary confirms the wire key); a real client's typed field on every list item was always nil despite GetAccessLogSubscription already emitting it correctly. Prior verdict here was wire: ok, unverified against a real client."}
   PutAuthPolicy: {wire: ok, errors: ok, state: fixed, persist: ok, note: "FIXED this pass (gopherstack-lx2k) -- now normalizes resourceID (ID or ARN) to the resource's canonical ARN via resolvePolicyResourceARN before keying authPolicies, matching how DeleteService/DeleteServiceNetwork's cascade delete looks entries up. Previously a Put using the short ID left the entry permanently orphaned once the parent resource was deleted by ARN."}
   GetAuthPolicy: {wire: ok, errors: ok, state: fixed, persist: ok, note: "returns 404 when unset (fixed in a prior audit pass, see parity_a_test.go); now shares the same ARN normalization as PutAuthPolicy"}
   DeleteAuthPolicy: {wire: ok, errors: ok, state: fixed, persist: ok, note: "same ARN normalization fix"}
@@ -90,3 +100,84 @@ gaps:
   - "DomainVerification.Status can never advance past PENDING to VERIFIED (bd: gopherstack-lx2k). Real AWS polls public DNS for a caller-provisioned TXT record; this backend has no DNS to observe. Deliberately left PENDING rather than fabricating VERIFIED — a caller relying on verification completing will need to poll forever, which is the honest reflection of what this mock can and can't do."
   - "GetResourceGateway/UpdateResourceGateway/DeleteResourceGateway's ManagedBy/ServiceManaged fields (set when a resource gateway is provisioned by another AWS service, not directly by the caller) are never populated -- this backend has no cross-service provisioning path that would ever set them, so every resource gateway here is caller-managed. Not fabricated, just never non-default."
 leaks: {status: clean, note: "no goroutines/timers/background workers in this backend; Reset()/Snapshot()/Restore() all take the single lockmetrics.RWMutex and touch only in-memory maps/store.Table instances. No janitor loop to check. DeleteService/DeleteServiceNetwork now also cascade-delete their dependent listeners/rules/resourcePolicy/authPolicy/accessLogSubscriptions/tags instead of leaving ghost rows behind (previously: only tags were cleaned up on these two deletes; DeleteListener/DeleteTargetGroup already cascaded correctly and are unchanged)."
+
+### 2026-08-21 gopherstack-r80d batch 13: required-output cut, 1 bug
+
+Selected as the largest remaining candidate after sagemaker (off-limits,
+concurrent gopherstack-oc9v conversion in flight) per
+`services/_REQUIRED_OUTPUT_CANDIDATES.md`'s ranked table: 37 required
+output fields / 73 ops (16 with at least one), confirmed with a fresh
+`go run ./cmd/requiredoutputfields` run against `vpclattice@v1.25.5` and
+cross-checked against the candidates file, which agreed vpclattice was next
+after inspector2 settled batch 12.
+
+vpclattice's wire shape is neither the "one wrapper key" pattern nor
+map-literal responses -- every flagged op's required members sit directly
+on its own `<Op>Output` struct. All 16 ops-with-required funnel through
+exactly two domain families: `AccessLogSubscription`
+(Arn/DestinationArn/Id/ResourceArn/ResourceId, +CreatedAt/LastUpdatedAt on
+Get) and `DomainVerification` (Arn/DomainName/Id/Status, +CreatedAt on
+Get). Read all 16 ops end to end against their handlers, plus an AST-style
+walk of every `*Summary`/list-item type in `types/types.go` reachable
+through a List op's `Items` field (`AccessLogSubscriptionSummary`,
+`DomainVerificationSummary`, `ListenerSummary`,
+`ResourceEndpointAssociationSummary`, `RuleSummary`,
+`ServiceNetworkResourceAssociationSummary`,
+`ServiceNetworkServiceAssociationSummary`,
+`ServiceNetworkVpcAssociationSummary`, `ServiceNetworkEndpointAssociation`,
+`ServiceNetworkSummary`, `TargetSummary`, `ResourceGatewaySummary`,
+`ResourceConfigurationSummary`, `ServiceSummary`, `TargetGroupSummary`) to
+catch the nested-domain-struct undercount class this campaign has already
+named for pinpoint/bedrockagent/cleanrooms/inspector2 -- here it turned up
+only two candidates with any required members at all
+(`AccessLogSubscriptionSummary`: 7, `DomainVerificationSummary`: 5), both
+already covered by their sibling Get ops' required sets, so no additional
+undercounted surface existed beyond what the flat per-op scan found.
+
+1 bug found and fixed, proven via a real `aws-sdk-go-v2/service/vpclattice`
+client round trip (`wire_field_fixes_test.go`,
+`TestListAccessLogSubscriptions_LastUpdatedAt`), hand-reverted/confirmed-
+failing/restored, md5sum-verified byte-identical:
+
+1. **`ListAccessLogSubscriptions`** (`alsSummaryToJSON`,
+   `handler_access_log_subscriptions.go`) dropped required `lastUpdatedAt`
+   on every summary item (`types/types.go`'s `AccessLogSubscriptionSummary`;
+   confirmed against `deserializers.go`'s
+   `awsRestjson1_deserializeDocumentAccessLogSubscriptionSummary`, whose
+   `case "lastUpdatedAt":` switch arm matches exactly). The domain model
+   (`storedALS`/`AccessLogSubscriptionSummary` in `models.go`/`interfaces.go`)
+   already tracked the value correctly and `GetAccessLogSubscription`'s
+   sibling `alsToJSON` already emitted it -- only the List summary's JSON
+   serializer omitted the key, so a real client's typed `LastUpdatedAt`
+   field on every list item was always `nil` regardless of what was
+   created. The PARITY.md verdict for this op had read `wire: ok`; this is
+   another instance of a verdict that was never checked against a real
+   client -- this service already has a prior wire-shape sweep
+   (`wire_field_fixes_test.go`'s six other tests, all real-SDK-client) that
+   fixed the exact same shape of bug for `ListServices.LastUpdatedAt`
+   (non-required there) without catching this required sibling in the ALS
+   family.
+
+Zero other bugs. Every List op's array-of-summaries construction already
+emits required-but-empty fields correctly where applicable (no
+`omitempty`/`omitzero` misuse found); `StartDomainVerification` and
+`GetDomainVerification`'s required set (`Arn`/`DomainName`/`Id`/`Status`,
++`CreatedAt` on Get) were both already complete via `domainVerificationToJSON`.
+`ServiceNetworkLogType`/`Status`/enum fields are all emitted as bare Go
+strings on the wire (matching the SDK's plain-enum-as-string shape), not
+fabricated objects -- checked explicitly per this batch's "wrong-type
+member" directive; none found.
+
+Gates green: `go build ./...`, `go vet ./services/vpclattice/...`,
+`gofmt -l services/vpclattice/` (0 output), `go test -race
+./services/vpclattice/...`, `golangci-lint run ./services/vpclattice/...`
+(0 issues) all pass. No `//nolint` added or removed. Repo-wide `go build
+./...`/`go vet ./...` show only the pre-existing, unrelated,
+concurrently-in-flight `services/sagemaker` breakage (gopherstack-oc9v,
+off-limits this pass, untouched here) -- confirmed via `git status` and
+`git diff --stat` that `services/sagemaker/notebook_instances.go` was
+modified by a concurrent process during this batch, not by this pass.
+
+`services/_REQUIRED_OUTPUT_CANDIDATES.md` updated: vpclattice moved from
+the ranked table into "Already examined" (settled-services count now 27,
+2043 required output fields read end to end).

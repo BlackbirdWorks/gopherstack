@@ -107,5 +107,6 @@ func alsSummaryToJSON(a *AccessLogSubscriptionSummary) map[string]any {
 		keyDestinationARN:       a.DestinationARN,
 		"serviceNetworkLogType": a.ServiceNetworkLogType,
 		keyCreatedAt:            a.CreatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
+		keyLastUpdatedAt:        a.LastUpdatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
 	}
 }

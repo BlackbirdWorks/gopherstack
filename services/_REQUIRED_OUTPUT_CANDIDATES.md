@@ -148,8 +148,13 @@ from the ranked table) as future batches clear more of it.
 | databrew | 43 | 44 (41 ops-with-required) | yes (1: `Dataset.Input` tagged `omitempty(zero)`, reachably empty via a real client -- see the batch-11 bullet note below and services/databrew/PARITY.md) | gopherstack-r80d batch 11 |
 | backup | 41 | 13 (ops-with-required; entire required-output surface) | yes (2: `GetRestoreTestingPlan.RecoveryPointSelection` missing entirely, `DescribeScanJob`/`ListScanJobs` dropping 12 of 15 required members -- see the batch-11 bullet note below and services/backup/PARITY.md) | gopherstack-r80d batch 11 |
 | inspector2 | 38 | 81 (29 ops-with-required) | yes (4: `GetCodeSecurityIntegration`/`ListCodeSecurityIntegrations` dropping `type`/`statusReason`, `Finding.Remediation` missing entirely, `Finding.Resources` dropped when empty, `Finding.Severity` serialized as a fabricated `{label,score}` object instead of the real bare string enum -- see the batch-12 note below and services/inspector2/PARITY.md) | gopherstack-r80d batch 12 |
+| vpclattice | 37 | 73 (16 ops-with-required) | yes (1: `ListAccessLogSubscriptions`/`AccessLogSubscriptionSummary` dropping required `lastUpdatedAt` -- see the batch-13 note below and services/vpclattice/PARITY.md) | gopherstack-r80d batch 13 |
+| appmesh | 36 | 38 (36 ops-with-required) | 0 (clean; one apparent false positive -- a stale "OpDocument" deserializer helper made the flat response shape look like a missing-wrapper-key bug -- ruled out via a real SDK client round trip, see the batch-13 note below and services/appmesh/PARITY.md) | gopherstack-r80d batch 13 |
 
-26 services settled, 2006 required output fields read end to end. Batch 12
+28 services settled, 2079 required output fields read end to end. Batch 13
+(vpclattice + appmesh) added 1 more counted bug (vpclattice's
+`ListAccessLogSubscriptions.lastUpdatedAt`; appmesh came back clean) -- see
+the batch-13 note below for detail. Batch 12
 (inspector2 only) added 4 more counted bugs on top of the running total --
 see the batch-12 note below for detail. Batch 11
 (databrew + backup) added 3 more counted bugs (1 + 2) on top of the running
@@ -427,6 +432,71 @@ where `EndpointsResponse` is required — confirmed via a real-client test
 that fails against the un-reverted handler and passes against the fix
 (`services/pinpoint/wire_output_required_r80d_test.go`).
 
+### vpclattice + appmesh (batch 13): 1 bug total, plus a real-client-ruled-out false positive
+
+Selected in ranked order after re-verifying the table against a fresh
+`go run ./cmd/requiredoutputfields` run: vpclattice (37, 73 ops) confirmed
+as the largest remaining candidate after sagemaker (off-limits, concurrent
+gopherstack-oc9v conversion actively in flight this batch), then appmesh
+(36, 38 ops) next. Both had a clean `git status` before starting.
+
+**vpclattice (37 fields / 16 ops-with-required, 1 bug):** not the "one
+wrapper key" shape — every flagged op's required members sit directly on
+its own `<Op>Output` struct. All 16 ops funnel through exactly two domain
+families, `AccessLogSubscription` and `DomainVerification`. An AST-style
+walk of every `*Summary`/list-item type reachable through a List op's
+`Items` field found only two with any required members at all
+(`AccessLogSubscriptionSummary`: 7, `DomainVerificationSummary`: 5), both
+already covered by their sibling Get ops' required sets. 1 bug:
+`ListAccessLogSubscriptions`' `alsSummaryToJSON` dropped required
+`lastUpdatedAt` on every summary item (confirmed against
+`deserializers.go`'s key-switch, not just the Go field name) — the domain
+model already tracked it and the sibling `GetAccessLogSubscription` already
+emitted it, only the List summary's serializer omitted the key. Proven via
+a real `aws-sdk-go-v2/service/vpclattice` client round trip
+(`wire_field_fixes_test.go`), hand-reverted/confirmed-failing/restored,
+md5sum-verified byte-identical. See services/vpclattice/PARITY.md's
+2026-08-21 entry for full detail.
+
+**appmesh (36 fields / 36 ops-with-required, 0 bugs):** the "one wrapper
+key" shape (pinpoint/bedrockagent/cleanrooms/inspector2's class) — nearly
+every op wraps its whole response in one required domain-object member.
+Read every domain struct with `This member is required.` in `types.go`
+(90+ struct declarations) to find the real surface: each `<X>Data` struct
+requires its name field(s) + `Metadata` (`ResourceMetadata`, 7 fields,
+shared by all 7 resource types) + `Spec` + `Status`; each `<X>Ref` struct
+used by List ops requires the same Arn/CreatedAt/LastUpdatedAt/MeshOwner/
+ResourceOwner/Version set plus its own name field(s). One apparent finding
+looked exactly like this campaign's target bug class from static reading
+alone — this service's own `handler_wire_test.go` doc comment says
+responses have no `mesh`/`virtualNode`/etc. wrapper key, and the unused
+`awsRestjson1_deserializeOpDocumentCreateMeshOutput` "OpDocument" codegen
+helper (the same dead-code trap batch 5 already flagged for pinpoint)
+switches on `case "mesh":`, which would leave `Mesh` nil against
+gopherstack's unwrapped response if that helper were actually used. **A
+real SDK client round trip (throwaway probe test, not committed) proved
+`Mesh` populates correctly** — the actual per-op deserializer
+(`awsRestjson1_deserializeOpCreateMesh`'s `HandleDeserialize`) decodes the
+raw body directly into `MeshData` with no wrapper key at all (an implicit
+httpPayload-style binding), so the flat-root shape is genuinely correct and
+the doc comment was right all along. This is exactly the kind of
+verify-against-a-real-client discipline this campaign's brief asks for,
+applied to rule a false positive OUT rather than to find a true one. Every
+other required member (metadata fields, spec presence, status wrapper,
+list-item Ref sets, timestamp epoch-seconds encoding, version as JSON
+Long) was read end to end against the handlers and real deserializers and
+came back clean. See services/appmesh/PARITY.md's 2026-08-21 entry for
+full detail.
+
+Both services' gates (build/vet/gofmt/race-test/lint) are green, 0 banned
+nolints, no exported signatures changed. `services/_REQUIRED_OUTPUT_CANDIDATES.md`
+updated: both moved from the ranked table into "Already examined"
+(settled-services count now 28, 2079 required output fields read end to
+end). Did not touch sagemaker (off-limits, concurrent conversion still
+actively modifying `services/sagemaker/notebook_instances.go` and sibling
+files mid-batch, confirmed via repeated `git status`/`git diff --stat`
+checks) or attempt a third service this batch.
+
 ## Ranked candidates (services not yet examined for this bug class)
 
 89 services have >=1 required output field; 70 have zero (nothing to check
@@ -436,13 +506,12 @@ against a pinned `aws-sdk-go-v2` module; opsworks/qldb/qldbsession excluded
 (no SDK dependency). cleanrooms (88, settled batch 8), s3tables (60,
 settled batch 9), codecommit (55, settled batch 9), stepfunctions (54,
 settled batch 10), apprunner (44, settled batch 10), databrew (43, settled
-batch 11), backup (41, settled batch 11), and inspector2 (38, settled
-batch 12) removed from this table — see the "Already examined" table above.
+batch 11), backup (41, settled batch 11), inspector2 (38, settled batch
+12), vpclattice (37, settled batch 13), and appmesh (36, settled batch 13)
+removed from this table — see the "Already examined" table above.
 
 ```
  459  sagemaker                 ops=403  ops-with-required=188
-  37  vpclattice                ops=73   ops-with-required=16
-  36  appmesh                   ops=38   ops-with-required=36
   35  amplify                   ops=37   ops-with-required=33
   34  glue                      ops=299  ops-with-required=17
   31  batch                     ops=45   ops-with-required=15
@@ -539,8 +608,19 @@ Notes on the top of this table for the next batch:
   its recovery point anywhere in this backend.
 - **inspector2 settled (batch 12)** — do not re-derive, see the
   settled-services table above and services/inspector2/PARITY.md's
-  2026-08-21 entries. **vpclattice** (37, 73 ops) is now the largest
-  remaining single-service reading commitment after sagemaker.
+  2026-08-21 entries.
+- **vpclattice settled (batch 13)** — do not re-derive, see the
+  settled-services table above and services/vpclattice/PARITY.md's
+  2026-08-21 entry. 1 bug (`ListAccessLogSubscriptions` dropping required
+  `lastUpdatedAt`); the rest of its narrow 2-domain-family required surface
+  (AccessLogSubscription/DomainVerification) was already clean.
+- **appmesh settled (batch 13)** — do not re-derive, see the
+  settled-services table above and services/appmesh/PARITY.md's 2026-08-21
+  entry. 0 bugs; one apparent finding (a stale "OpDocument" deserializer
+  helper making the flat response shape look like a missing-wrapper-key
+  bug) was ruled out via a real SDK client round trip rather than counted.
+  **amplify** (35, 37 ops) is now the largest remaining single-service
+  reading commitment after sagemaker.
 - **omics settled (batch 7)** — do not re-derive, see the settled-services
   table above and services/omics/PARITY.md's 2026-08-21 entries. The
   concurrent sibling agent's over-wide-List sweep this file previously
