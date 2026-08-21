@@ -93,7 +93,7 @@ type StorageBackend interface {
 	) (*Application, error)
 	UpdateTrustedTokenIssuer(
 		trustedTokenIssuerArn, name, issuerType string,
-		cfg *TrustedTokenIssuerConfiguration,
+		cfg *TrustedTokenIssuerUpdateConfiguration,
 	) (*TrustedTokenIssuer, error)
 	CreateApplication(
 		instanceArn, applicationProviderArn, name, description string,

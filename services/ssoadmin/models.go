@@ -304,6 +304,27 @@ type TrustedTokenIssuerConfiguration struct {
 	OidcJwtConfiguration *OidcJwtConfiguration `json:"OidcJwtConfiguration,omitempty"`
 }
 
+// OidcJwtUpdateConfiguration mirrors types.OidcJwtUpdateConfiguration --
+// UpdateTrustedTokenIssuerInput's OIDC shape (ssoadmin@v1.43.1 types.go:623),
+// distinct from OidcJwtConfiguration: real AWS drops IssuerUrl from the
+// update contract entirely (an issuer's IssuerUrl is immutable after
+// creation) and the remaining three fields are independently-optional
+// pointers for partial updates, unlike Create's all-required scalars
+// (gopherstack-c8ge).
+type OidcJwtUpdateConfiguration struct {
+	ClaimAttributePath         *string `json:"ClaimAttributePath,omitempty"`
+	IdentityStoreAttributePath *string `json:"IdentityStoreAttributePath,omitempty"`
+	JwksRetrievalOption        *string `json:"JwksRetrievalOption,omitempty"`
+}
+
+// TrustedTokenIssuerUpdateConfiguration mirrors
+// types.TrustedTokenIssuerUpdateConfiguration, UpdateTrustedTokenIssuerInput's
+// configuration union (gopherstack only supports the OIDC_JWT member, as
+// TrustedTokenIssuerConfiguration already does on the Create/Describe side).
+type TrustedTokenIssuerUpdateConfiguration struct {
+	OidcJwtConfiguration *OidcJwtUpdateConfiguration `json:"OidcJwtConfiguration,omitempty"`
+}
+
 // TrustedTokenIssuer represents a trusted token issuer.
 type TrustedTokenIssuer struct {
 	Tags                            map[string]string                `json:"Tags"`

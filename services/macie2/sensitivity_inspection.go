@@ -56,9 +56,14 @@ func (b *InMemoryBackend) ListSensitivityInspectionTemplates() ([]*SensitivityIn
 	return result, nil
 }
 
-// UpdateSensitivityInspectionTemplate updates a template.
+// UpdateSensitivityInspectionTemplate updates a template. The real input
+// (types.UpdateSensitivityInspectionTemplateInput) carries Description,
+// Excludes, and Includes as independently-optional pointers -- a client
+// changing only one must not wipe the other two, so each is merged only
+// when actually provided (gopherstack-c8ge).
 func (b *InMemoryBackend) UpdateSensitivityInspectionTemplate(
-	templateID, name, description string,
+	templateID, name string,
+	description *string,
 	excludes, includes map[string]any,
 ) error {
 	b.mu.Lock("UpdateSensitivityInspectionTemplate")
@@ -72,10 +77,15 @@ func (b *InMemoryBackend) UpdateSensitivityInspectionTemplate(
 	if name != "" {
 		tmpl.Name = name
 	}
-
-	tmpl.Description = description
-	tmpl.Excludes = excludes
-	tmpl.Includes = includes
+	if description != nil {
+		tmpl.Description = *description
+	}
+	if excludes != nil {
+		tmpl.Excludes = excludes
+	}
+	if includes != nil {
+		tmpl.Includes = includes
+	}
 
 	return nil
 }

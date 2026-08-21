@@ -18,12 +18,30 @@ func (b *InMemoryBackend) UpdateAccountSettings(
 	b.mu.Lock("UpdateAccountSettings")
 	defer b.mu.Unlock()
 
+	// DeletionProtection/VendedMetrics are themselves pointer-scalar structs
+	// (gopherstack-c8ge): a client updating only Enabled and omitting
+	// ProtectionPeriodInMinutes must not wipe a previously-set
+	// ProtectionPeriodInMinutes, so merge field by field rather than
+	// swapping the sub-struct pointer wholesale.
 	if deletionProtection != nil {
-		b.accountSettings.DeletionProtection = deletionProtection
+		if b.accountSettings.DeletionProtection == nil {
+			b.accountSettings.DeletionProtection = &DeletionProtectionSettings{}
+		}
+		if deletionProtection.Enabled != nil {
+			b.accountSettings.DeletionProtection.Enabled = deletionProtection.Enabled
+		}
+		if deletionProtection.ProtectionPeriodInMinutes != nil {
+			b.accountSettings.DeletionProtection.ProtectionPeriodInMinutes = deletionProtection.ProtectionPeriodInMinutes
+		}
 	}
 
 	if vendedMetrics != nil {
-		b.accountSettings.VendedMetrics = vendedMetrics
+		if b.accountSettings.VendedMetrics == nil {
+			b.accountSettings.VendedMetrics = &VendedMetricsSettings{}
+		}
+		if vendedMetrics.Enabled != nil {
+			b.accountSettings.VendedMetrics.Enabled = vendedMetrics.Enabled
+		}
 	}
 
 	cp := b.accountSettings

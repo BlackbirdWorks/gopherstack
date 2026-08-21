@@ -175,10 +175,9 @@ func (h *Handler) handleUpdateTrustedTokenIssuer(c *echo.Context, body []byte) e
 	var req struct {
 		TrustedTokenIssuerConfiguration *struct {
 			OidcJwtConfiguration *struct {
-				IssuerURL                  string `json:"IssuerUrl"`
-				ClaimAttributePath         string `json:"ClaimAttributePath"`
-				IdentityStoreAttributePath string `json:"IdentityStoreAttributePath"`
-				JwksRetrievalOption        string `json:"JwksRetrievalOption"`
+				ClaimAttributePath         *string `json:"ClaimAttributePath"`
+				IdentityStoreAttributePath *string `json:"IdentityStoreAttributePath"`
+				JwksRetrievalOption        *string `json:"JwksRetrievalOption"`
 			} `json:"OidcJwtConfiguration"`
 		} `json:"TrustedTokenIssuerConfiguration"`
 		TrustedTokenIssuerArn  string `json:"TrustedTokenIssuerArn"`
@@ -189,13 +188,17 @@ func (h *Handler) handleUpdateTrustedTokenIssuer(c *echo.Context, body []byte) e
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 
-	var cfg *TrustedTokenIssuerConfiguration
+	// Real UpdateTrustedTokenIssuerInput.TrustedTokenIssuerConfiguration
+	// (types.OidcJwtUpdateConfiguration) has no IssuerUrl member at all --
+	// an issuer's IssuerUrl is immutable after creation -- and its remaining
+	// fields are independently optional, so decode straight into the
+	// pointer-scalar update shape rather than reusing Create's type.
+	var cfg *TrustedTokenIssuerUpdateConfiguration
 	if req.TrustedTokenIssuerConfiguration != nil {
-		cfg = &TrustedTokenIssuerConfiguration{}
+		cfg = &TrustedTokenIssuerUpdateConfiguration{}
 		if req.TrustedTokenIssuerConfiguration.OidcJwtConfiguration != nil {
 			oidc := req.TrustedTokenIssuerConfiguration.OidcJwtConfiguration
-			cfg.OidcJwtConfiguration = &OidcJwtConfiguration{
-				IssuerURL:                  oidc.IssuerURL,
+			cfg.OidcJwtConfiguration = &OidcJwtUpdateConfiguration{
 				ClaimAttributePath:         oidc.ClaimAttributePath,
 				IdentityStoreAttributePath: oidc.IdentityStoreAttributePath,
 				JwksRetrievalOption:        oidc.JwksRetrievalOption,

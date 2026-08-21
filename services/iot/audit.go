@@ -96,6 +96,13 @@ type AccountAuditConfiguration struct {
 	RoleARN                  string                       `json:"roleArn,omitempty"`
 }
 
+// UpdateAccountAuditConfiguration merges roleARN and checks into the
+// account's audit configuration. checks is a map[checkName]*AuditCheckConfig
+// (types.UpdateAccountAuditConfigurationInput.AuditCheckConfigurations); a
+// real client only ever names the checks it's changing, so merging by key
+// keeps checks omitted from this call at whatever state a previous call left
+// them in, rather than wholesale-replacing the map and disabling every check
+// not named this time (gopherstack-c8ge).
 func (b *InMemoryBackend) UpdateAccountAuditConfiguration(roleARN string, checks map[string]*AuditCheckConfig) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -107,7 +114,10 @@ func (b *InMemoryBackend) UpdateAccountAuditConfiguration(roleARN string, checks
 		b.auditConfiguration.RoleARN = roleARN
 	}
 	if len(checks) > 0 {
-		b.auditConfiguration.AuditCheckConfigurations = checks
+		if b.auditConfiguration.AuditCheckConfigurations == nil {
+			b.auditConfiguration.AuditCheckConfigurations = make(map[string]*AuditCheckConfig, len(checks))
+		}
+		maps.Copy(b.auditConfiguration.AuditCheckConfigurations, checks)
 	}
 
 	return nil

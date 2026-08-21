@@ -278,6 +278,11 @@ func (b *InMemoryBackend) GetPackageConfiguration() *PackageConfiguration {
 	return &cp
 }
 
+// UpdatePackageConfiguration merges cfg into the stored
+// VersionUpdateByJobsConfig. The real input (types.VersionUpdateByJobsConfig)
+// has two independently-optional pointer scalars, Enabled and RoleArn; a
+// client updating just one must not wipe the other, so merge by key rather
+// than replacing the map wholesale (gopherstack-c8ge).
 func (b *InMemoryBackend) UpdatePackageConfiguration(cfg map[string]any) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -286,7 +291,10 @@ func (b *InMemoryBackend) UpdatePackageConfiguration(cfg map[string]any) error {
 		b.packageConfig = &PackageConfiguration{}
 	}
 	if cfg != nil {
-		b.packageConfig.VersionUpdateByJobsConfig = cfg
+		if b.packageConfig.VersionUpdateByJobsConfig == nil {
+			b.packageConfig.VersionUpdateByJobsConfig = make(map[string]any, len(cfg))
+		}
+		maps.Copy(b.packageConfig.VersionUpdateByJobsConfig, cfg)
 	}
 
 	return nil

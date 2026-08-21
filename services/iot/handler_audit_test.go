@@ -5,6 +5,53 @@ import (
 	"testing"
 )
 
+// TestUpdateAccountAuditConfiguration_ChecksSurviveIndependentUpdates guards
+// gopherstack-c8ge: AuditCheckConfigurations is a map[checkName]*AuditCheckConfig
+// (types.UpdateAccountAuditConfigurationInput) that a real client only ever
+// names the checks it's changing in. Enabling check B in a later call must
+// not disable check A, which an earlier call enabled and this one never
+// mentions.
+func TestUpdateAccountAuditConfiguration_ChecksSurviveIndependentUpdates(t *testing.T) {
+	t.Parallel()
+	h := newIoTHandler(t)
+
+	// Update A: enable one check.
+	iotOK(t, h, http.MethodPatch, "/audit/configuration", map[string]any{
+		"auditCheckConfigurations": map[string]any{
+			"DEVICE_CERTIFICATE_EXPIRING_CHECK": map[string]any{"enabled": true},
+		},
+	})
+
+	// Update B: enable a different check, without mentioning A's.
+	iotOK(t, h, http.MethodPatch, "/audit/configuration", map[string]any{
+		"auditCheckConfigurations": map[string]any{
+			"CA_CERTIFICATE_EXPIRING_CHECK": map[string]any{"enabled": true},
+		},
+	})
+
+	out := iotOK(t, h, http.MethodGet, "/audit/configuration", nil)
+	checks, ok := out["auditCheckConfigurations"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected auditCheckConfigurations map, got %#v", out["auditCheckConfigurations"])
+	}
+
+	aCheck, ok := checks["DEVICE_CERTIFICATE_EXPIRING_CHECK"].(map[string]any)
+	if !ok {
+		t.Fatalf("DEVICE_CERTIFICATE_EXPIRING_CHECK must survive an Update that never mentioned it, got %#v", checks)
+	}
+	if aCheck["enabled"] != true {
+		t.Errorf("DEVICE_CERTIFICATE_EXPIRING_CHECK.enabled = %v, want true", aCheck["enabled"])
+	}
+
+	bCheck, ok := checks["CA_CERTIFICATE_EXPIRING_CHECK"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected CA_CERTIFICATE_EXPIRING_CHECK to be present, got %#v", checks)
+	}
+	if bCheck["enabled"] != true {
+		t.Errorf("CA_CERTIFICATE_EXPIRING_CHECK.enabled = %v, want true", bCheck["enabled"])
+	}
+}
+
 // TestBatch2_AuditConfiguration tests audit configuration.
 func TestAuditConfiguration(t *testing.T) {
 	t.Parallel()

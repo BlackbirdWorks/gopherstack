@@ -69,6 +69,35 @@ func TestPackageConfiguration(t *testing.T) {
 	}
 }
 
+// TestUpdatePackageConfiguration_FieldsSurviveIndependentUpdates guards
+// gopherstack-c8ge: types.VersionUpdateByJobsConfig has two
+// independently-optional pointer scalars, Enabled and RoleArn. Updating
+// RoleArn alone in a later call must not wipe Enabled set by an earlier,
+// unrelated call.
+func TestUpdatePackageConfiguration_FieldsSurviveIndependentUpdates(t *testing.T) {
+	t.Parallel()
+	h, _ := newHandlerForBatch3Test(t)
+
+	// Update A: set enabled.
+	iotOK(t, h, http.MethodPatch, "/package-configuration", map[string]any{
+		"versionUpdateByJobsConfig": map[string]any{"enabled": true},
+	})
+
+	// Update B: set roleArn only, omitting enabled.
+	iotOK(t, h, http.MethodPatch, "/package-configuration", map[string]any{
+		"versionUpdateByJobsConfig": map[string]any{
+			"roleArn": "arn:aws:iam::000000000000:role/PackageJobsRole",
+		},
+	})
+
+	out := iotOK(t, h, http.MethodGet, "/package-configuration", nil)
+	cfg, ok := out["versionUpdateByJobsConfig"].(map[string]any)
+	require.True(t, ok, "expected versionUpdateByJobsConfig, got %v", out)
+
+	assert.Equal(t, "arn:aws:iam::000000000000:role/PackageJobsRole", cfg["roleArn"], "B's own field must apply")
+	assert.Equal(t, true, cfg["enabled"], "A's enabled must survive an Update that never mentioned it")
+}
+
 // TestListPackages_SummaryScoping proves handleListPackages stops leaking
 // tags/packageArn/description (none of which types.PackageSummary,
 // iot@v1.77.4 types.go:3386-3401, declares) and wraps the list under

@@ -11,6 +11,83 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/macie2"
 )
 
+// TestUpdateClassificationScope_ExcludedBucketsSurviveIndependentAdds guards
+// gopherstack-c8ge: types.S3ClassificationScopeExclusionUpdate carries an
+// explicit ADD/REMOVE/REPLACE Operation discriminator rather than accepting
+// a full replacement list. Adding bucket B in a later call must not drop
+// bucket A, added by an earlier, unrelated ADD call; a later REMOVE must
+// only take out the bucket it names.
+func TestUpdateClassificationScope_ExcludedBucketsSurviveIndependentAdds(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, http.MethodGet, "/classification-scopes", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var listResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	scopes, _ := listResp["classificationScopes"].([]any)
+	require.Len(t, scopes, 1)
+	scope0, _ := scopes[0].(map[string]any)
+	scopeID, _ := scope0["id"].(string)
+	require.NotEmpty(t, scopeID)
+
+	// Update A: ADD bucket-a.
+	rec = doRequest(t, h, http.MethodPatch, "/classification-scopes/"+scopeID, map[string]any{
+		"s3": map[string]any{
+			"excludes": map[string]any{
+				"bucketNames": []any{"bucket-a"},
+				"operation":   "ADD",
+			},
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	// Update B: ADD bucket-b, without mentioning bucket-a.
+	rec = doRequest(t, h, http.MethodPatch, "/classification-scopes/"+scopeID, map[string]any{
+		"s3": map[string]any{
+			"excludes": map[string]any{
+				"bucketNames": []any{"bucket-b"},
+				"operation":   "ADD",
+			},
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doRequest(t, h, http.MethodGet, "/classification-scopes/"+scopeID, nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var got map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+	s3, ok := got["s3"].(map[string]any)
+	require.True(t, ok, "got %#v", got)
+	excludes, ok := s3["excludes"].(map[string]any)
+	require.True(t, ok, "got %#v", s3)
+	assert.ElementsMatch(t, []any{"bucket-a", "bucket-b"}, excludes["bucketNames"],
+		"bucket-a must survive an ADD that never mentioned it")
+
+	// Update C: REMOVE bucket-a only.
+	rec = doRequest(t, h, http.MethodPatch, "/classification-scopes/"+scopeID, map[string]any{
+		"s3": map[string]any{
+			"excludes": map[string]any{
+				"bucketNames": []any{"bucket-a"},
+				"operation":   "REMOVE",
+			},
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doRequest(t, h, http.MethodGet, "/classification-scopes/"+scopeID, nil)
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+	s3, ok = got["s3"].(map[string]any)
+	require.True(t, ok)
+	excludes, ok = s3["excludes"].(map[string]any)
+	require.True(t, ok)
+	assert.ElementsMatch(t, []any{"bucket-b"}, excludes["bucketNames"],
+		"REMOVE must only take out the bucket it names")
+}
+
 func TestClassificationJobs(t *testing.T) {
 	t.Parallel()
 
@@ -191,7 +268,8 @@ func TestClassificationConfig(t *testing.T) {
 				rec = doRequest(t, h, http.MethodPatch, "/classification-scopes/"+scopeID, map[string]any{
 					"s3": map[string]any{
 						"excludes": map[string]any{
-							"and": []any{},
+							"bucketNames": []any{"bucket1"},
+							"operation":   "ADD",
 						},
 					},
 				})

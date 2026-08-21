@@ -9,6 +9,13 @@ sdk_module: aws-sdk-go-v2/service/macie2@v1.54.4
 last_audit_commit: 82c8a1c8
 last_audit_date: 2026-07-23
 overall: A                # all 5 prior gaps + both deferred field audits closed this pass; zero gaps/deferred remain
+                          # 2026-08-21 (gopherstack-c8ge): fixed two singleton-config-with-no-Create-op
+                          # merge bugs -- UpdateSensitivityInspectionTemplate wholesale-assigned
+                          # Description/Excludes/Includes even when a request omitted them (all three are
+                          # independently-optional on the real input), and UpdateClassificationScope
+                          # wholesale-replaced Excludes instead of honoring the real
+                          # ADD/REMOVE/REPLACE Operation discriminator (types.S3ClassificationScopeExclusionUpdate).
+                          # See the op rows below.
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
@@ -75,7 +82,7 @@ ops:
   PutClassificationExportConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
   GetClassificationScope: {wire: ok, errors: ok, state: ok, persist: ok}
   ListClassificationScopes: {wire: ok, errors: ok, state: ok, persist: ok}
-  UpdateClassificationScope: {wire: ok, errors: ok, state: ok, persist: ok}
+  UpdateClassificationScope: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "2026-08-21 (gopherstack-c8ge): singleton with no Create op. Real UpdateClassificationScopeInput.S3 is types.S3ClassificationScopeUpdate{Excludes: *S3ClassificationScopeExclusionUpdate{BucketNames, Operation}} -- an explicit ADD/REMOVE/REPLACE discriminator, not a replacement list -- but the handler decoded S3 as the same freeform map[string]any Excludes used for Get/List and wholesale-replaced the stored value with whatever the request carried, so an ADD call silently dropped every bucket a prior ADD had added. Modeled ClassificationScopeS3Update/ClassificationScopeS3ExclusionUpdate distinct from the Get/List-side ClassificationScopeS3/ClassificationScopeS3Exclusion (now BucketNames []string, not a map) and implemented real ADD/REMOVE/REPLACE list semantics. See TestUpdateClassificationScope_ExcludedBucketsSurviveIndependentAdds."}
   GetFindingsPublicationConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
   PutFindingsPublicationConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
   GetResourceProfile: {wire: fixed, errors: ok, state: ok, persist: ok, note: "2026-08-15 pass: response key 'sensitivityScoreOverride' does not exist on the real GetResourceProfileOutput (real key is 'sensitivityScoreOverridden', past participle) -- a real client's SensitivityScoreOverridden was always false even after UpdateResourceProfile set a manual override. Also fixed ResourceStatistics's 'totalDetectionsWithoutSuppression'->'totalDetectionsSuppressed' and 'totalItemsSkippedPermissionError'->'totalItemsSkippedPermissionDenied' (real deserializers.go field names); ResourceStatistics is always the zero-value struct in this backend (nothing populates real numbers), so the value itself is currently unobservable -- key names fixed and disclosed as untested rather than given a hollow test. 'totalItemsSensitive' remains entirely unmodeled."}
@@ -89,7 +96,7 @@ ops:
   GetSensitiveDataOccurrencesAvailability: {wire: ok, errors: ok, state: ok, persist: n/a}
   GetSensitivityInspectionTemplate: {wire: ok, errors: ok, state: ok, persist: ok}
   ListSensitivityInspectionTemplates: {wire: ok, errors: ok, state: ok, persist: ok}
-  UpdateSensitivityInspectionTemplate: {wire: fixed, errors: ok, state: ok, persist: ok, note: "route method was PATCH; real SDK sends PUT /templates/sensitivity-inspections/{id} -- unreachable via real client before fix"}
+  UpdateSensitivityInspectionTemplate: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "route method was PATCH; real SDK sends PUT /templates/sensitivity-inspections/{id} -- unreachable via real client before fix. 2026-08-21 (gopherstack-c8ge): singleton with no Create op. Real UpdateSensitivityInspectionTemplateInput carries Description/Excludes/Includes as independently-optional pointers, but the handler wholesale-assigned all three every call (Description as a bare string, indistinguishable omitted-vs-empty), so updating just one wiped the other two. Description is now decoded as *string and all three merge only when actually provided. See TestUpdateSensitivityInspectionTemplate_FieldsSurviveIndependentUpdates."}
   GetUsageStatistics: {wire: ok, errors: ok, state: ok, persist: n/a}
   GetUsageTotals: {wire: fixed, errors: ok, state: ok, persist: n/a, note: "query param was read as 'currencyCode' (not a real GetUsageTotalsInput field at all); real key is 'timeRange' -- fixed extraction/naming. Backend still ignores the value and returns static zeroed totals, matching a no-billing emulator; low functional impact."}
   ListManagedDataIdentifiers: {wire: ok, errors: ok, state: ok, persist: n/a, note: "FIXED 2026-08-13 (gopherstack-jqh2 pass 2): parseManagedDataIDsPath (handler_custom_data_identifiers.go) required http.MethodGet for POST /managed-data-identifiers/list -- confirmed against awsRestjson1_serializeOpListManagedDataIdentifiers, real SDK sends POST -- so the op, despite a complete handler and backend, was permanently unroutable by a real client. A pre-existing unit test (handler_usage_test.go) encoded the same wrong GET method and passed anyway (it drives h.Handler() directly); fixed to POST alongside the routing fix. Caught by the new handler_sdk_route_table_test.go (TestExtractOperation_SDKRouteTable, full 81/81 SDK-path coverage)."}

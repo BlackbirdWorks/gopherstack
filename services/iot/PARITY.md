@@ -4,7 +4,12 @@ sdk_module: aws-sdk-go-v2/service/iot@v1.77.4
 sibling_sdk_modules: [aws-sdk-go-v2/service/iotdataplane@v1.35.0]  # device-shadow ops (Get/Update/DeleteThingShadow, ListNamedShadowsForThing); see device_shadows family
 last_audit_commit: 2a94081753c196de1bbad6b25b8f9b9a90dce321  # pass #4; pass #5 below is uncommitted at write time
 last_audit_date: 2026-08-13
-overall: A            # 2026-07-25 pass #4 (this pass): closed the ONE remaining partial
+overall: A            # 2026-08-21 (gopherstack-c8ge): fixed two singleton-configs-with-no-Create-op
+                       # merge bugs -- UpdateAccountAuditConfiguration and UpdatePackageConfiguration both
+                       # wholesale-replaced a stored map with whatever the request carried instead of
+                       # merging per key, so naming one check/field in a call silently reset every
+                       # other one a prior call had set. See the two op rows.
+                       # 2026-07-25 pass #4 (this pass): closed the ONE remaining partial
                        # family, security_profiles, the sole reason pass #3 stayed at A-.
                        # CreateSecurityProfile silently dropped Behaviors/AlertTargets/
                        # AdditionalMetricsToRetain/AdditionalMetricsToRetainV2/
@@ -188,6 +193,8 @@ ops:
   DeleteJobExecution: {wire: fixed, errors: fixed, state: fixed, persist: ok, note: "(2026-07-25 #2) same routing bug (real path also carries an executionNumber URI segment), fixed. Also silently ignored force; now rejects deleting a non-terminal (QUEUED/IN_PROGRESS) execution without force=true"}
   ListJobExecutionsForJob: {wire: fixed, errors: ok, state: ok, persist: ok, note: "(2026-07-25 #2) response was flat {jobId,thingName,status} per entry; real ListJobExecutionsForJobOutput.executionSummaries is []JobExecutionSummaryForJob{thingArn, jobExecutionSummary:{...}} (confirmed against awsRestjson1_deserializeDocumentJobExecutionSummaryForJob) -- a real client's deserializer would have found none of the keys it looks for and returned entirely empty summaries. Fixed."}
   ListJobExecutionsForThing: {wire: fixed, errors: ok, state: ok, persist: ok, note: "same bug and fix as ListJobExecutionsForJob, for the sibling JobExecutionSummaryForThing{jobId, jobExecutionSummary:{...}} shape"}
+  UpdateAccountAuditConfiguration: {wire: ok, errors: ok, state: fixed, persist: ok, note: "2026-08-21 (gopherstack-c8ge): singleton config with no Create op. AuditCheckConfigurations is map[checkName]*AuditCheckConfig (types.UpdateAccountAuditConfigurationInput); a real client only ever names the checks it's changing in one call, but the handler wholesale-replaced the stored map with whatever the request carried, so a later call enabling check B silently disabled every check enabled by an earlier call that never mentioned it. Fixed to merge per key. See TestUpdateAccountAuditConfiguration_ChecksSurviveIndependentUpdates."}
+  UpdatePackageConfiguration: {wire: ok, errors: ok, state: fixed, persist: ok, note: "2026-08-21 (gopherstack-c8ge): singleton config with no Create op. VersionUpdateByJobsConfig (types.VersionUpdateByJobsConfig) has two independently-optional pointer scalars, Enabled and RoleArn; the handler wholesale-replaced the stored map[string]any with whatever the request carried, so an Update naming only roleArn wiped a previously-set enabled. Fixed to merge per key. See TestUpdatePackageConfiguration_FieldsSurviveIndependentUpdates."}
   CancelAuditTask: {wire: ok, errors: fixed, state: fixed, persist: ok, note: "unconditionally set status to CANCELED for any task ID; now returns ResourceNotFoundException for an unknown task and InvalidRequestException if it isn't IN_PROGRESS (gopherstack-ep0r)"}
   CancelAuditMitigationActionsTask: {wire: ok, errors: fixed, state: fixed, persist: ok, note: "same class of bug as CancelAuditTask; fixed identically (gopherstack-ep0r)"}
   ListAuditFindings: {wire: fixed, errors: ok, state: ok, persist: ok, note: "(2026-07-25 #2) was routed on GET; real AWS's ListAuditFindings is POST /audit/findings with filters in a JSON body (confirmed against serializers.go http bindings) -- completely unreachable by a real SDK client. Also ignored every filter field entirely. Both fixed: now POST-routed and implements checkName/taskId/listSuppressedFindings/startTime/endTime filtering (resourceIdentifier filtering remains unimplemented -- see families: device_defender)"}

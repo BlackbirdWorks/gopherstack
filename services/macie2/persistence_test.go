@@ -154,8 +154,11 @@ func seedFullState(t *testing.T, original *macie2.InMemoryBackend) restoredIDs {
 	require.NoError(t, err)
 	require.Len(t, scopes, 1)
 	scopeID := scopes[0].ID
-	require.NoError(t, original.UpdateClassificationScope(scopeID, &macie2.ClassificationScopeS3{
-		Excludes: map[string]any{"and": []any{}},
+	require.NoError(t, original.UpdateClassificationScope(scopeID, &macie2.ClassificationScopeS3Update{
+		Excludes: &macie2.ClassificationScopeS3ExclusionUpdate{
+			BucketNames: []string{"bucket1"},
+			Operation:   "ADD",
+		},
 	}))
 
 	require.NoError(t, original.PutFindingsPublicationConfiguration(&macie2.FindingsPublicationConfig{
@@ -169,8 +172,9 @@ func seedFullState(t *testing.T, original *macie2.InMemoryBackend) restoredIDs {
 	require.NoError(t, err)
 	require.Len(t, templates, 1)
 	templateID := templates[0].ID
+	desc := "desc"
 	require.NoError(t, original.UpdateSensitivityInspectionTemplate(
-		templateID, "tmpl1", "desc", map[string]any{"a": 1}, nil,
+		templateID, "tmpl1", &desc, map[string]any{"a": 1}, nil,
 	))
 
 	return restoredIDs{

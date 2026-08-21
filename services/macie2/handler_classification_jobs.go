@@ -277,7 +277,7 @@ func (h *Handler) handleListClassificationScopes() (any, int, error) {
 
 func (h *Handler) handleUpdateClassificationScope(scopeID string, body []byte) (int, error) {
 	var req struct {
-		S3 *ClassificationScopeS3 `json:"s3"`
+		S3 *ClassificationScopeS3Update `json:"s3"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {

@@ -324,8 +324,14 @@ func (b *InMemoryBackend) ListClassificationScopes() ([]*ClassificationScopeSumm
 	return result, nil
 }
 
-// UpdateClassificationScope updates a scope's S3 settings.
-func (b *InMemoryBackend) UpdateClassificationScope(scopeID string, s3 *ClassificationScopeS3) error {
+// UpdateClassificationScope applies an ADD/REMOVE/REPLACE change to a
+// scope's excluded-bucket list. Real AWS
+// (types.S3ClassificationScopeExclusionUpdate) never accepts a full
+// replacement list implicitly -- Operation is a required discriminator, so
+// wholesale-replacing the stored Excludes with whatever the request carries
+// would silently drop every bucket name an ADD/REMOVE call didn't mention
+// (gopherstack-c8ge).
+func (b *InMemoryBackend) UpdateClassificationScope(scopeID string, s3 *ClassificationScopeS3Update) error {
 	b.mu.Lock("UpdateClassificationScope")
 	defer b.mu.Unlock()
 
@@ -334,11 +340,61 @@ func (b *InMemoryBackend) UpdateClassificationScope(scopeID string, s3 *Classifi
 		return ErrClassificationScopeNotFound
 	}
 
-	if s3 != nil {
-		scope.S3 = s3
+	if s3 != nil && s3.Excludes != nil {
+		if scope.S3 == nil {
+			scope.S3 = &ClassificationScopeS3{}
+		}
+		scope.S3.Excludes = mergeClassificationScopeExclusion(scope.S3.Excludes, s3.Excludes)
 	}
 
 	scope.UpdatedAt = time.Now().UTC()
 
 	return nil
+}
+
+// mergeClassificationScopeExclusion applies upd's ADD/REMOVE/REPLACE
+// operation to existing, returning the resulting bucket-name list. An
+// unrecognized or empty Operation falls back to REPLACE.
+func mergeClassificationScopeExclusion(
+	existing *ClassificationScopeS3Exclusion,
+	upd *ClassificationScopeS3ExclusionUpdate,
+) *ClassificationScopeS3Exclusion {
+	var current []string
+	if existing != nil {
+		current = existing.BucketNames
+	}
+
+	switch upd.Operation {
+	case "ADD":
+		seen := make(map[string]struct{}, len(current))
+		merged := append([]string(nil), current...)
+		for _, n := range current {
+			seen[n] = struct{}{}
+		}
+		for _, n := range upd.BucketNames {
+			if _, ok := seen[n]; !ok {
+				seen[n] = struct{}{}
+				merged = append(merged, n)
+			}
+		}
+
+		return &ClassificationScopeS3Exclusion{BucketNames: merged}
+
+	case "REMOVE":
+		remove := make(map[string]struct{}, len(upd.BucketNames))
+		for _, n := range upd.BucketNames {
+			remove[n] = struct{}{}
+		}
+		kept := make([]string, 0, len(current))
+		for _, n := range current {
+			if _, ok := remove[n]; !ok {
+				kept = append(kept, n)
+			}
+		}
+
+		return &ClassificationScopeS3Exclusion{BucketNames: kept}
+
+	default: // "REPLACE" and anything unrecognized.
+		return &ClassificationScopeS3Exclusion{BucketNames: append([]string(nil), upd.BucketNames...)}
+	}
 }
