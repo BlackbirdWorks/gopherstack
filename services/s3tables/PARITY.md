@@ -6,9 +6,12 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: s3tables
 sdk_module: aws-sdk-go-v2/service/s3tables@v1.18.4   # version audited against
-last_audit_commit: 9eeab1c09                         # HEAD when this manifest was written
-last_audit_date: 2026-07-24
-overall: A            # replication family had a real (not just deferred) wire-shape bug; now fixed
+last_audit_commit: pending (uncommitted this pass -- see git log at merge time)
+last_audit_date: 2026-08-21
+overall: A            # gopherstack-r80d batch 9: checked specifically for the reachable-empty-required-output
+                      # class (batch 8's cleanrooms lesson); one real bug found and fixed (GetTableBucketEncryption
+                      # 404'd instead of AES256-defaulting). Replication family had a real (not just deferred)
+                      # wire-shape bug from a prior pass; now fixed.
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
@@ -22,7 +25,7 @@ ops:
   PutTableBucketMaintenanceConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
   GetTableBucketMaintenanceConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
   PutTableBucketEncryption: {wire: ok, errors: ok, state: ok, persist: ok}
-  GetTableBucketEncryption: {wire: ok, errors: ok, state: ok, persist: ok}
+  GetTableBucketEncryption: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed (gopherstack-r80d batch 9): the required encryptionConfiguration was dropped (404 NotFoundException) for any bucket with no explicit PutTableBucketEncryption override -- the common, default path, since encryptionConfiguration is optional on CreateTableBucketInput. Every table bucket has encryption at rest; now falls back to AES256, matching GetTableEncryption's own table-level fallback (tables.go's defaultSSEAlgorithm)."}
   DeleteTableBucketEncryption: {wire: ok, errors: ok, state: ok, persist: ok}
   PutTableBucketMetricsConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
   GetTableBucketMetricsConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -72,6 +75,84 @@ leaks: {status: clean, note: "no goroutines/janitors in this service; all state 
 ---
 
 ## Notes
+
+**2026-08-21 (gopherstack-r80d batch 9):** checked specifically for the
+reachable-empty-required-output-field class that batch 8 (cleanrooms,
+commit c790de062) found and named as this service's open item -- 60
+required fields / 28 ops-with-required, all 28 ops read end to end against
+`s3tables@v1.18.4`'s `api_op_*.go`, plus every handler that constructs its
+JSON response body (this service builds responses as explicit
+`map[string]any` literals via `json.Marshal`, not tagged structs, so the
+literal cleanrooms-style `omitempty`-on-a-struct-tag shape does not apply
+here -- confirmed only 2 `omitempty` tags exist in the whole package
+(`models.go`'s `MetricsConfigurationID`, `TableRecordExpiryConfig.Days`),
+neither of which is ever engaged by a response marshal). Every required
+List/map field (`TableBuckets`, `Namespaces`, `Tables`, `Destinations`,
+`Configuration`/`Status` maps) is already built via `make(..., 0, len(...))`
+or an explicit non-nil literal and assigned to the response map
+unconditionally (never gated behind an `if len(...) > 0`), so the omitted-
+key shape cleanrooms hit does not reproduce here structurally.
+
+One real bug found instead, in the adjacent "required-but-defaultable
+means present-with-a-derived-default, not absent" shape (the same
+principle behind batch 8's `PrivacyBudgetTemplate.AutoRefresh` fix, just
+manifesting as a full `NotFoundException` instead of a dropped field):
+`GetTableBucketEncryption` (`handler_table_buckets.go`) returned
+`awserr.ErrNotFound` whenever `tb.Encryption == nil` -- i.e. whenever no
+`PutTableBucketEncryption` override was ever set, which is the common,
+default path since `encryptionConfiguration` is optional on
+`CreateTableBucketInput` (confirmed via
+`aws-sdk-go-v2/service/s3tables@v1.18.4`'s
+`api_op_CreateTableBucket.go`/`api_op_GetTableBucketEncryption.go`: no
+member is conditionally required, and `GetTableBucketEncryptionOutput.
+EncryptionConfiguration` is unconditionally `This member is required`).
+Real S3 Tables buckets always have encryption at rest (SSE-S3/AES256 by
+default) -- this service's own `GetTableEncryption` (table-level) already
+implements the correct table-override → bucket-default → AES256-fallback
+chain (`tables.go:328-360`, `defaultSSEAlgorithm`) and explicitly documents
+"There is no PutTableEncryption operation for individual tables ... every
+table has an effective encryption configuration"; the bucket-level sibling
+had the same real Put/Delete pair (`PutTableBucketEncryption`/
+`DeleteTableBucketEncryption` both exist as real SDK ops -- `Delete`'s own
+SDK doc comment says only "Deletes the encryption configuration for a
+table bucket", i.e. clears a customization, not "removes encryption
+entirely") but never got the matching fallback, so a fresh bucket's
+encryption was unreachable via `GetTableBucketEncryption` even though the
+real API would return the AES256 default. Fixed by giving
+`handleGetTableBucketEncryption` the same AES256 fallback
+`GetTableEncryption` already has; `DeleteTableBucketEncryption`'s own
+backend comment was corrected from "reverting ... to the AWS default (no
+configuration set)" (which conflated the default *value* with an absent
+*response* -- the bug's original root-cause misunderstanding, dated back
+to a prior pass) to "reverting ... to the AWS default (SSE-S3/AES256)".
+Proven via a real `aws-sdk-go-v2/service/s3tables` client round trip
+(`wire_output_required_r80d_test.go`,
+`Test_SDKRoundTrip_GetTableBucketEncryption_NeverNotFound`) that fails
+against the hand-reverted handler (404 `NotFoundException`) and passes
+against the fix; hand-revert/confirm-fail/restore was md5sum-verified
+byte-identical. Three pre-existing tests baked in the old (wrong)
+NotFound-for-unconfigured assumption and were updated to assert the
+AES256-default behavior instead: `TestHandler_TableBucketEncryption_
+PutGetDeleteRoundTrip`, `TestHandler_DeleteTableBucketEncryptionClears
+Config` (`handler_table_bucket_config_test.go`), and `TestHandler_
+Encryption`/`TestHandler_BucketEncryptionAndMetricsRoute`
+(`handler_table_maintenance_test.go`).
+
+No other bugs found in this cut. `GetTableBucketPolicy`/`GetTablePolicy`
+correctly keep 404-until-configured semantics (real AWS has no default
+resource policy, unlike encryption, so this is not the same shape).
+`GetTableBucketReplication`/`GetTableReplication` correctly 404 until a
+replication config is ever Put (real AWS requires an explicit Put before
+replication exists at all; confirmed no `TableBucketReplicationConfiguration.
+Rules`/`Destinations` nil-vs-empty gap is reachable via a real client, since
+both are validated non-nil-but-possibly-empty client-side by `validators.go`
+and gopherstack's `parseReplicationConfiguration`/`parseReplicationDestinations`
+already build non-nil empty slices via `make(..., 0, len(...))` in that case).
+
+Only s3tables was taken this batch (gopherstack-r80d batch 9); sagemaker
+remained off-limits (concurrent agent). See
+`services/_REQUIRED_OUTPUT_CANDIDATES.md` for the updated ranked table and
+settled-services entry.
 
 **2026-08-13 (gopherstack-jqh2 pass 3):** re-extracted all 49 ops' real
 method+path directly from `s3tables@v1.18.4` serializers.go and drove them

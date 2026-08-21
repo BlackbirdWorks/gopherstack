@@ -373,8 +373,10 @@ func (b *InMemoryBackend) PutTableBucketEncryption(bucketARN string, config map[
 	return nil
 }
 
-// DeleteTableBucketEncryption clears the encryption configuration for a bucket,
-// reverting GetTableBucketEncryption to the AWS default (no configuration set).
+// DeleteTableBucketEncryption clears a bucket's custom encryption override,
+// reverting GetTableBucketEncryption to the AWS default (SSE-S3/AES256) --
+// not to an absent/NotFound response, since every bucket has encryption at
+// rest.
 func (b *InMemoryBackend) DeleteTableBucketEncryption(bucketARN string) error {
 	b.muBuckets.Lock("DeleteTableBucketEncryption")
 	defer b.muBuckets.Unlock()

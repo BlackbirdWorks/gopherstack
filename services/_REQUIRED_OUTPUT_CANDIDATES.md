@@ -141,8 +141,12 @@ from the ranked table) as future batches clear more of it.
 | omics | 182 | 40 | yes (4: `CreateAnnotationStore.VersionName`, `AnnotationStoreVersion.Id`/`Name` wire key, `MultipartReadSetUpload.ReferenceArn` omitempty, `VariantStore.SseConfig`) | gopherstack-r80d batch 7 |
 | bedrockagent | 154 | 66 (ops with required fields) | yes (8: see batch-7 note below) | gopherstack-r80d batch 7 |
 | cleanrooms | 88 | 83 (ops with required fields) | yes (5: `Membership`/`MembershipSummary.MemberAbilities`, `ConfiguredTable.AllowedColumns`/`AnalysisRuleTypes` + `ConfiguredTableSummary.AnalysisRuleTypes`, `ConfiguredTableAssociation.AnalysisRuleTypes`, `ConfiguredAudienceModelAssociationSummary.ConfiguredAudienceModelArn`, `PrivacyBudgetTemplate.AutoRefresh` -- see batch-8 note below) | gopherstack-r80d batch 8 |
+| s3tables | 60 | 28 (ops with required fields) | yes (1: `GetTableBucketEncryption` 404'd instead of AES256-defaulting for an unconfigured bucket -- see batch-9 note below) | gopherstack-r80d batch 9 |
+| codecommit | 55 | 31 (ops with required fields) | 0 (clean; already field-diffed against the pinned SDK in a very recent thorough pass, 2026-08-13 gopherstack-gvkf, which fixed 8 wire-shape bugs -- see batch-9 note below) | gopherstack-r80d batch 9 |
 
-19 services settled, 1671 required output fields read end to end. Batch 7
+21 services settled, 1786 required output fields read end to end. Batch 9
+(s3tables + codecommit) added 1 more bug on top of the running total --
+see the batch-9 notes below for detail. Batch 7
 (omics + bedrockagent) added 12 more bugs (omics 4, bedrockagent 8) on top
 of whatever the prior batches' running total was -- this file's own running
 count was already internally inconsistent between "24" and the bd issue's
@@ -297,6 +301,90 @@ citations and the "reviewed, not a bug" list of every other `omitempty`
 required field checked and found safe (required-on-input too, so never
 actually reachable-empty from a real client).
 
+### s3tables (batch 9): 1 bug, and why the cleanrooms class doesn't reproduce here
+
+60 required fields / 28 ops-with-required per `cmd/requiredoutputfields` --
+read all 28 ops end to end against `s3tables@v1.18.4`'s `api_op_*.go`, plus
+every handler that constructs a JSON response body. Unlike
+pinpoint/bedrockagent/cleanrooms, this service's wire shape is mostly flat
+(most ops have several top-level required members directly, not one
+wrapper key around a whole nested domain object), and unlike cleanrooms it
+builds every response as an explicit `map[string]any` literal via
+`json.Marshal` rather than a tagged struct -- so the literal
+struct-tag-`omitempty`-on-a-required-field shape cleanrooms hit cannot
+reproduce here syntactically (only 2 `omitempty` tags exist anywhere in the
+package, `models.go`'s `MetricsConfigurationID` and
+`TableRecordExpiryConfig.Days`, and neither is ever engaged by a response
+marshal -- no handler marshals a domain struct directly). Every required
+List/map field (`TableBuckets`, `Namespaces`, `Tables`, `Destinations`,
+`Configuration`/`Status` maps) is built via `make(..., 0, len(...))` or an
+explicit non-nil literal and assigned to the response map unconditionally,
+never gated behind an `if len(...) > 0` check, so the omitted-key shape
+does not appear.
+
+One real bug found instead, in the adjacent "required-but-defaultable means
+present-with-a-derived-default, not absent" shape (same principle as batch
+8's `PrivacyBudgetTemplate.AutoRefresh` derivation, here manifesting as a
+full 404 instead of a dropped field): `GetTableBucketEncryption` returned
+`NotFoundException` whenever no `PutTableBucketEncryption` override was
+ever set -- the common, default path, since `encryptionConfiguration` is
+optional on `CreateTableBucketInput`. Every S3 Tables bucket has encryption
+at rest (SSE-S3/AES256 by default); this service's own `GetTableEncryption`
+(table-level) already implements the correct fallback chain and says so in
+its own doc comment, but the bucket-level sibling never got the same
+treatment despite having the same real Put/Delete pair. Fixed by giving
+`GetTableBucketEncryption` the same AES256 fallback; proven via a real
+`aws-sdk-go-v2/service/s3tables` client round trip
+(`services/s3tables/wire_output_required_r80d_test.go`), hand-reverted/
+confirmed-failing/restored, md5sum-verified byte-identical. Three
+pre-existing tests baked in the old NotFound-for-unconfigured assumption
+and were updated rather than left contradicting the fix. See
+`services/s3tables/PARITY.md`'s 2026-08-21 entry for full detail and SDK
+file:line citations.
+
+### codecommit (batch 9): 0 bugs -- nested domain structs have no required fields at all
+
+55 required fields / 31 ops-with-required per `cmd/requiredoutputfields`.
+Several of these ops (`ApprovalRuleTemplate`/`PullRequest`/`ApprovalRule`
+Create/Get/Update families) wrap a single nested domain object the same
+way pinpoint/bedrockagent/cleanrooms do, so the flat op-level count could
+in principle undercount real required surface the same way -- checked by
+reading every domain struct this service's responses build
+(`ApprovalRuleTemplate`, `PullRequest`, `PullRequestTarget`, `Commit`,
+`ApprovalRule`, `Conflict`/`ConflictMetadata`/`MergeHunk`,
+`BatchDescribeMergeConflictsError`) against `codecommit@v1.36.4`'s
+`types/types.go` directly. Unlike those other three services, this SDK's
+Smithy model marks **zero** fields required on any nested/domain output
+struct -- a repo-wide `grep -c "This member is required" types/types.go`
+returns 15 hits, and every one of them belongs to a request-only input
+struct (`DeleteFileEntry`, `PutFileEntry`, `ReplaceContentEntry`,
+`RepositoryTrigger`, `SetFileModeEntry`, `SourceFileSpecifier`, `Target`),
+never a response type. So the nested-domain-struct undercount class that
+produced bugs in pinpoint/bedrockagent/cleanrooms does not apply here at
+all -- there is nothing nested to violate.
+
+Read all 31 ops end to end against their handlers (`handler_approval_
+rules.go`, `handler_pull_requests.go`, `handler_merges.go`,
+`handler_files.go`, `handler_commits.go`, `handler_reactions.go`) for the
+reachable-empty-omitempty class specifically. This service builds every
+response as an explicit `map[string]any` (like s3tables, not like
+cleanrooms's tagged structs), and every required List field found
+(`AssociatedRepositoryNames`/`DisassociatedRepositoryNames`,
+`PullRequestEvents`, `ReactionsForComment`, `PullRequestIds`,
+`RevisionDag`, `Conflicts`, `ConflictMetadataList`, `MergeHunks`) is
+already built via `make(..., 0, len(...))` or an explicit nil-guard
+(`if x == nil { x = []T{} }`) before being assigned to the response map
+unconditionally. This service had already been through a very recent,
+unusually thorough pass (2026-08-13, gopherstack-gvkf) that fixed 8 real
+wire-shape bugs (the entire `Comment` family's undecodable
+string-vs-JSON-number timestamps, plus two wrong-response-key bugs in
+`GetCommentsForComparedCommit`/`GetCommentsForPullRequest`) -- none of
+those were this campaign's target class, but the density of prior
+scrutiny plus the SDK's own lack of nested-required fields makes this a
+genuine clean result, not an under-checked one. No code changes made; see
+`services/codecommit/PARITY.md`'s existing entries (unchanged) for the
+prior wire-shape work.
+
 ### Why pinpoint's density is 120/122 and not a new bug class
 
 Read end to end (all 122 ops, all 120 required fields) — see
@@ -333,13 +421,12 @@ that fails against the un-reverted handler and passes against the fix
 for this bug class — a List-only or delete-only service, or one whose ops
 only declare optional output members). 159 of 162 service dirs resolved
 against a pinned `aws-sdk-go-v2` module; opsworks/qldb/qldbsession excluded
-(no SDK dependency). cleanrooms (88, settled batch 8) removed from this table
-— see the "Already examined" table above.
+(no SDK dependency). cleanrooms (88, settled batch 8), s3tables (60,
+settled batch 9), and codecommit (55, settled batch 9) removed from this
+table — see the "Already examined" table above.
 
 ```
  459  sagemaker                 ops=403  ops-with-required=188
-  60  s3tables                  ops=49   ops-with-required=28
-  55  codecommit                ops=79   ops-with-required=31
   54  stepfunctions             ops=37   ops-with-required=23
   44  apprunner                 ops=37   ops-with-required=32
   43  databrew                  ops=44   ops-with-required=41
@@ -414,7 +501,12 @@ Notes on the top of this table for the next batch:
 - **sagemaker** (459, 403 ops) overlaps the ongoing gopherstack-oc9v
   conversion per gopherstack-569k's note for the input-side sweep — same
   caution likely applies here; check for an in-flight conversion before
-  starting.
+  starting. It also had uncommitted concurrent-agent changes during batch 9
+  (services/sagemaker/handler_hub.go, handler_keys.go, hub.go,
+  handler_hub_test.go, PARITY.md) — re-check git status before starting;
+  do not touch it while another agent's work is in flight.
+- **stepfunctions** (54, 23 ops) is now the largest remaining single-service
+  reading commitment after sagemaker.
 - **omics settled (batch 7)** — do not re-derive, see the settled-services
   table above and services/omics/PARITY.md's 2026-08-21 entries. The
   concurrent sibling agent's over-wide-List sweep this file previously
@@ -426,14 +518,24 @@ Notes on the top of this table for the next batch:
   re-derive that either, see services/bedrock/PARITY.md's 2026-08-20 entries.
 - **cleanrooms settled (batch 8)** — do not re-derive, see the
   settled-services table above and services/cleanrooms/PARITY.md's
-  2026-08-21 entries. **s3tables** (60, 49 ops) is now the largest remaining
-  single-service reading commitment after sagemaker — it already has an
-  extensive prior wire-shape audit (see its own PARITY.md, `overall: A`,
-  every op individually marked `wire: ok`, including a prior pass that fixed
-  the exact "empty 204 instead of required {status,versionToken}" bug class
-  in the replication family) but has NOT yet been checked specifically for
-  this campaign's reachable-empty-tagged-omitempty class the way cleanrooms
-  just was — don't assume clean without re-checking that specific angle.
+  2026-08-21 entries.
+- **s3tables settled (batch 9)** — do not re-derive, see the
+  settled-services table above and services/s3tables/PARITY.md's
+  2026-08-21 entries. This service builds every response as an explicit
+  `map[string]any` literal rather than a tagged struct, so the literal
+  cleanrooms-style struct-tag `omitempty` shape does not apply (only 2
+  `omitempty` tags exist in the whole package, and neither is ever engaged
+  by a response marshal); the one bug found instead was the adjacent
+  "required-but-defaultable means present-with-a-derived-default, not
+  absent" shape manifesting as a full 404 rather than a dropped field
+  (`GetTableBucketEncryption`).
+- **codecommit settled (batch 9)** — do not re-derive, see the
+  settled-services table above and the batch-9 note above for detail. Came
+  back clean (0 bugs): this SDK's Smithy model marks zero fields required
+  on any nested/domain output struct (confirmed via a repo-wide grep of
+  `types/types.go`), so the nested-domain-struct undercount class that hit
+  pinpoint/bedrockagent/cleanrooms structurally cannot apply here, and
+  every required List field already uses a nil-guard or `make(...)`.
 - **pinpoint settled (batch 5)** — see the settled-services table above for
   why its 120/122 density was structural (single httpPayload-style body
   member per op), not many per-op scalar checks. Don't re-derive; one bug
