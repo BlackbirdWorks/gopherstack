@@ -1,4 +1,4 @@
-.PHONY: build build-check ui-install ui-lint ui-check ui-lint-fix ui-fmt ui-fmt-fix ui-test ui-build install-deps install-tofu lint lint-changed lint-fix test integration-test terraform-test e2e e2e-test total-coverage clean demo all dev-mcp-install dev-mcp-check pgo docs check-pins
+.PHONY: build build-check ui-install ui-lint ui-check ui-lint-fix ui-fmt ui-fmt-fix ui-test ui-build install-deps install-tofu lint lint-changed lint-fix test integration-test terraform-test e2e e2e-test total-coverage clean demo all dev-mcp-install dev-mcp-check pgo docs check-pins bd-audit
 
 BINARY_NAME=gopherstack
 VERSION_PKG=github.com/blackbirdworks/gopherstack/pkgs/version
@@ -218,6 +218,15 @@ docs:
 # claim audited against it. See cmd/checkpins.
 check-pins:
 	go run ./cmd/checkpins
+
+# Report bd issues whose state disagrees with git history: a Closes/Fixes/
+# Resolves trailer on this branch's own commits (origin/main..HEAD) naming
+# an issue bd doesn't show closed, or naming an issue id that doesn't exist
+# in bd at all (a typo). Also prints a heuristic suspicion list of open
+# issues that plausibly shipped already without ever being named in a
+# trailer (see cmd/bdaudit). Reports only -- never closes anything in bd.
+bd-audit:
+	go run ./cmd/bdaudit
 
 demo: ui-build
 	docker compose down
