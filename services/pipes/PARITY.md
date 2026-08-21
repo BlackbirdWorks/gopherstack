@@ -1,13 +1,13 @@
 ---
 service: pipes
 sdk_module: aws-sdk-go-v2/service/pipes@v1.26.4
-last_audit_commit: 5d5b2188
-last_audit_date: 2026-07-24
+last_audit_commit: ef59a15b0
+last_audit_date: 2026-08-21
 overall: A            # both execution gaps closed for real (runner.go source pollers + cli.go target/DLQ wiring); the only remaining gap is a proven genuine impossibility (no in-repo Kafka/AMQP broker)
 ops:
-  CreatePipe: {wire: ok, errors: ok, state: ok, persist: ok, note: "added max-50-tags validation to match TagResource's existing limit; RoleArn is now enforced as a required field (ValidationException when absent/empty), matching validateOpCreatePipeInput -- closes the gap previously left open in the 2026-07-13 pass. ~40 call sites across the test suite (Go CreatePipeInput{} literals and raw-HTTP JSON bodies) updated to supply RoleArn now that it's enforced"}
-  DescribePipe: {wire: ok, errors: ok, state: ok, persist: ok, note: "DesiredState now reports DELETED while CurrentState=DELETING, per RequestedPipeStateDescribeResponse"}
-  UpdatePipe: {wire: ok, errors: ok, state: ok, persist: ok, note: "added ConflictException guard against updating a pipe that is DELETING (was silently resurrecting it, corrupting the pending async delete); RoleArn is now enforced as a required field on every UpdatePipe call (ValidationException when absent/empty), matching validateOpUpdatePipeInput -- real AWS requires RoleArn to be resupplied on every update, even when unchanged. Validation order is Name/DesiredState/SourceParameters-batch-size -> RoleArn -> pipe-lookup, so a request missing RoleArn against a nonexistent pipe now correctly surfaces ValidationException, not NotFoundException (adjusted TestErrors/update_nonexistent_pipe_returns_404 to supply a valid RoleArn so it still exercises the NotFound path specifically)"}
+  CreatePipe: {wire: ok, errors: ok, state: ok, persist: ok, note: "added max-50-tags validation to match TagResource's existing limit; RoleArn is now enforced as a required field (ValidationException when absent/empty), matching validateOpCreatePipeInput -- closes the gap previously left open in the 2026-07-13 pass. ~40 call sites across the test suite (Go CreatePipeInput{} literals and raw-HTTP JSON bodies) updated to supply RoleArn now that it's enforced. 2026-08-21: KinesisStreamSourceParameters.StartingPositionTimestamp (a Kinesis-source-only filter) decoded straight into *time.Time, which encoding/json cannot unmarshal from the epoch-seconds JSON number restjson1 actually sends -- rejecting the entire request body for any real client setting it (gopherstack-5mr2). Fixed via wire_time.go's MarshalJSON/UnmarshalJSON pair, not a field-type change, since the same struct also serves DescribePipe's response and the persistence snapshot round trip"}
+  DescribePipe: {wire: ok, errors: ok, state: ok, persist: ok, note: "DesiredState now reports DELETED while CurrentState=DELETING, per RequestedPipeStateDescribeResponse. 2026-08-21: StartingPositionTimestamp response encoding fixed by the same wire_time.go change as CreatePipe (see its note) -- it was previously emitted as an RFC3339 string, which the real client's deserializer (expecting the epoch-seconds number restjson1's own serializer always used on the request side) would have rejected"}
+  UpdatePipe: {wire: ok, errors: ok, state: ok, persist: ok, note: "added ConflictException guard against updating a pipe that is DELETING (was silently resurrecting it, corrupting the pending async delete); RoleArn is now enforced as a required field on every UpdatePipe call (ValidationException when absent/empty), matching validateOpUpdatePipeInput -- real AWS requires RoleArn to be resupplied on every update, even when unchanged. Validation order is Name/DesiredState/SourceParameters-batch-size -> RoleArn -> pipe-lookup, so a request missing RoleArn against a nonexistent pipe now correctly surfaces ValidationException, not NotFoundException (adjusted TestErrors/update_nonexistent_pipe_returns_404 to supply a valid RoleArn so it still exercises the NotFound path specifically). Note: types.UpdatePipeSourceKinesisStreamParameters has no StartingPositionTimestamp member in the real SDK at all, so this field is not reachable via UpdatePipe by any real client regardless of the 2026-08-21 fix"}
   DeletePipe: {wire: ok, errors: ok, state: ok, persist: ok, note: "DesiredState now reports DELETED, matching UpdatePipe fix's shared toPipeResponse"}
   ListPipes: {wire: ok, errors: ok, state: ok, persist: ok}
   StartPipe: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -238,3 +238,51 @@ just closed on paper.
    itself against fakes: filter application, DLQ-on-target-failure, iterator
    advancement (no re-delivery), `GetRecords`-error recovery, and the shard
    iterator sweep bounding cache growth once a pipe stops.
+
+3. **2026-08-21: `KinesisStreamSourceParameters.StartingPositionTimestamp`
+   epoch-seconds fix (gopherstack-5mr2).** `sources.go` declared this field as
+   plain `*time.Time` with a `json` tag, decoded/encoded by encoding/json's
+   default machinery. Real `CreatePipe`/`UpdatePipe` requests carry it as a
+   restjson1 epoch-seconds JSON number
+   (`aws-sdk-go-v2/service/pipes@v1.26.4/serializers.go:1903-1905`:
+   `ok.Double(smithytime.FormatEpochSeconds(*v.StartingPositionTimestamp))`),
+   which `time.Time.UnmarshalJSON` rejects outright
+   (`Time.UnmarshalJSON: input is not a JSON string`) -- failing the whole
+   CreatePipe request body for any real client that sets an `AT_TIMESTAMP`
+   Kinesis source. The same struct is shared, unconverted, between the
+   CreatePipe/UpdatePipe decode target, `Pipe.SourceParameters` (the domain
+   model), DescribePipe's response encoding, and the persistence snapshot
+   round trip, so a plain field-type change to `*float64` (the pattern used
+   in `services/emr/handler_clusters.go`) was not a fit -- it would have
+   pushed raw epoch floats into the domain model and every other consumer.
+   Instead, `wire_time.go` adds `KinesisStreamSourceParameters.MarshalJSON`/
+   `UnmarshalJSON` (the alias-embedding pattern already used by
+   `services/eventbridge/wire_time.go` and `services/cloudtrail/models.go`'s
+   `Event`), keeping the domain field a real `time.Time` while the wire
+   encoding/decoding goes through `*float64` + `epochSecondsPtr`/
+   `timeFromEpochSecondsPtr`. This also fixes a second, previously-unnoticed
+   bug for free: DescribePipe was encoding this field as an RFC3339 string,
+   which a real client's deserializer (expecting the same epoch-seconds
+   shape on responses; deserializers.go:4988-4996) would also have rejected.
+   `UpdatePipe` cannot exercise this field at all in the real API --
+   `types.UpdatePipeSourceKinesisStreamParameters` has no
+   `StartingPositionTimestamp` member -- so only CreatePipe/DescribePipe are
+   reachable by a real client; `wire_time_test.go` covers both, plus a
+   direct-`UnmarshalJSON` table test proving the exact old failure mode and
+   that an RFC3339 string is still correctly rejected (not silently
+   misparsed) post-fix.
+
+   Scope check performed for this pass (not just the four fields named in
+   gopherstack-5mr2's floor count): a go/packages-based static analyzer
+   walked every `json.Unmarshal`/`json.Decoder.Decode`/echo `Context.Bind`
+   call site across all of `services/` (164 packages, generic `decodeBody[T]`/
+   `parseBody[T]`/`unmarshalAction[T]` helpers included) and flagged every
+   struct field of type `time.Time`/`*time.Time` reachable from a decode
+   target, recursively through nested/slice fields. Every other hit was a
+   false positive already covered by an existing fix: `services/eventbridge`
+   (`EventEntry`, `StartReplayInput`) and `services/cloudtrail` (`Event`)
+   already have the alias/custom-`UnmarshalJSON` pattern; `services/kinesis`
+   (`ShardIterator`) round-trips only through its own opaque, never-AWS-wire
+   base64 token; `services/sagemaker` hits are the pre-existing (and
+   off-limits for this pass) alias pattern. `KinesisStreamSourceParameters`
+   was the only remaining genuine gap in the whole tree.
