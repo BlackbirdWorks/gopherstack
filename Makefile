@@ -4,6 +4,11 @@ BINARY_NAME=gopherstack
 VERSION_PKG=github.com/blackbirdworks/gopherstack/pkgs/version
 BUILD_VERSION=$(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 
+# Single source of truth for the golangci-lint version. ci.yml and
+# copilot-setup-steps.yml grep this line and pass it to the action's
+# `version:` input, so local and CI can't drift apart (gopherstack-ht49).
+GOLANGCI_LINT_VERSION=2.12.2
+
 build: ui-build
 	go build \
 		-trimpath \
@@ -57,25 +62,17 @@ build-linux:
 		-o bin/$(BINARY_NAME)-linux .
 
 install-deps:
-	@echo "Checking for golangci-lint..."
-	@if ! command -v golangci-lint >/dev/null 2>&1; then \
-		echo "Installing golangci-lint..."; \
-		if command -v brew >/dev/null 2>&1; then \
-			brew install golangci-lint; \
-		else \
-			echo "Homebrew not found. Trying go install from source..."; \
-			GOMODCACHE=$$(mktemp -d) go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest || { \
-				echo "go install failed; cloning and building from source..."; \
-				TMPDIR=$$(mktemp -d) && git clone --depth=1 https://github.com/golangci/golangci-lint "$${TMPDIR}/golangci-lint" && \
-				cd "$${TMPDIR}/golangci-lint" && go build -o "$$(go env GOPATH)/bin/golangci-lint" ./cmd/golangci-lint; \
-			}; \
-		fi \
+	@echo "Checking for golangci-lint $(GOLANGCI_LINT_VERSION)..."
+	@installed_version=$$(golangci-lint version 2>/dev/null | sed -n 's/.*has version \([0-9.]*\).*/\1/p'); \
+	if [ "$$installed_version" != "$(GOLANGCI_LINT_VERSION)" ]; then \
+		echo "Installing golangci-lint $(GOLANGCI_LINT_VERSION) (found: $${installed_version:-none})..."; \
+		GOMODCACHE=$$(mktemp -d) go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v$(GOLANGCI_LINT_VERSION) || { \
+			echo "go install failed; cloning and building v$(GOLANGCI_LINT_VERSION) from source..."; \
+			TMPDIR=$$(mktemp -d) && git clone --branch v$(GOLANGCI_LINT_VERSION) --depth=1 https://github.com/golangci/golangci-lint "$${TMPDIR}/golangci-lint" && \
+			cd "$${TMPDIR}/golangci-lint" && go build -o "$$(go env GOPATH)/bin/golangci-lint" ./cmd/golangci-lint; \
+		}; \
 	else \
-		echo "golangci-lint is already installed."; \
-		if command -v brew >/dev/null 2>&1; then \
-			echo "Upgrading golangci-lint via brew..."; \
-			brew upgrade golangci-lint || true; \
-		fi \
+		echo "golangci-lint $(GOLANGCI_LINT_VERSION) is already installed."; \
 	fi
 	@echo "Checking for fieldalignment..."
 	@if ! command -v fieldalignment >/dev/null 2>&1; then \
