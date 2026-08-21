@@ -298,3 +298,12 @@ the untouched legacy `settings` (via `ListActionTypes`) are present afterward.
 **Grade**: this was the sole stated reason for the same-day A->B downgrade above ("Flagged as
 the primary reason for this pass's overall grade (A->B)"). No other new gap was found or
 introduced closing it. Restored to **A**.
+
+## gopherstack-y1zn (2026-08-21): unknown-key sweep, 1 confirmed bug
+
+`GetPipelineState`: {wire: fixed} -- each stage's inbound/outbound transition
+state emitted "disabled"/"reason"; real member (types.TransitionState,
+deserializers.go) is "enabled" (inverted polarity) and "disabledReason".
+Proven via `TestGetPipelineState_EnabledDisabledReasonKeys_RealClient`
+(wire_field_fixes_y1zn_test.go), hand-reverted/confirmed-failing/restored/
+`md5sum`-verified byte-identical.

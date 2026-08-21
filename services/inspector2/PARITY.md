@@ -415,3 +415,28 @@ own error text/restored/`md5sum`-verified byte-identical. Gates:
 in `persistence.go`/`store.go`, files this pass did not touch, left alone).
 `last_audit_commit` left at its existing value per this file's own
 standing convention (r80d note above) -- not updated this pass.
+
+## gopherstack-y1zn (2026-08-21): unknown-key sweep, 4 confirmed bugs
+
+Part of the gopherstack-us9u/g479 map-literal scanner's 526-key unknown-key
+bucket triage. All 4 proven via real `aws-sdk-go-v2/service/inspector2`
+client round trips or raw-body assertion
+(`wire_field_fixes_y1zn_test.go`), hand-reverted, confirmed failing,
+restored, `md5sum`-verified byte-identical.
+
+- `GetCisScanResultDetails`: {wire: fixed} -- wrapped results under
+  "checkResults"; real member (deserializers.go's
+  awsRestjson1_deserializeOpDocumentGetCisScanResultDetailsOutput) is
+  "scanResultDetails".
+- `ListCisScans`: {wire: fixed} -- emitted a flat "targetAccountId" string;
+  types.CisScan has no such member -- account IDs live under
+  "targets.accountIds" (types.CisTargets). TargetResourceTags remains
+  honestly absent (this backend tracks no such state).
+- `ListFindingAggregations`: {wire: fixed} -- severityCounts included a "low"
+  key; types.SeverityCounts declares only all/critical/high/medium -- LOW
+  findings fold into "all" only, there is no separate low bucket in the real
+  API.
+- `GetEc2DeepInspectionConfiguration`: {wire: fixed} -- wrapped a fabricated
+  "ec2ScanModeState" object (scanMode/scanModeStatus, neither real) into the
+  response; GetEc2DeepInspectionConfigurationOutput declares only
+  errorMessage/orgPackagePaths/packagePaths/status.

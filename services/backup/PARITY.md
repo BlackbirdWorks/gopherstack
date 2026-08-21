@@ -280,3 +280,12 @@ Verified by hand-revert for both fixes: each fix's files were reverted to
 their pre-fix `git show HEAD:<path>` content, the corresponding tests failed
 with the predicted symptom (`Condition never satisfied`), then were restored
 and confirmed `md5sum`-identical to the fixed versions.
+
+## gopherstack-y1zn (2026-08-21): unknown-key sweep, 1 confirmed bug
+
+`UpdateBackupPlan`: {wire: fixed} -- emitted "UpdateDate"; real member
+(UpdateBackupPlanOutput, deserializers.go) is "CreationDate"
+(UpdateBackupPlan creates a new plan version, so the timestamp represents
+that version's creation). Proven via `TestUpdateBackupPlanUpdateDate`
+(handler_backup_plans_test.go, strengthened in place), hand-reverted/
+confirmed-failing/restored/`md5sum`-verified byte-identical.

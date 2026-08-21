@@ -23,11 +23,10 @@ const (
 	keyRefreshType      = "RefreshType"
 	keyAnswers          = "Answers"
 	keyAnswerIDs        = "AnswerIds"
-	keySucceededAnswer  = "SucceededAnswer"
+	keySucceededAnswer  = "SucceededAnswers"
 	keyInvalidAnswers   = "InvalidAnswers"
 	keyAnswerID         = "AnswerId"
 	keyQuestion         = "Question"
-	keyMode             = "Mode"
 	keyPrimaryVisual    = "PrimaryVisual"
 	keyTemplateField    = "Template"
 	keyUserExpVersion   = "UserExperienceVersion"
@@ -589,11 +588,14 @@ func (h *Handler) handleListTopicReviewedAnswers(c *echo.Context) error {
 
 	items := make([]map[string]any, 0, len(answers))
 	for _, a := range answers {
+		// No "Mode" key: types.TopicReviewedAnswer (quicksight@v1.123.1
+		// deserializers.go's awsRestjson1_deserializeDocumentTopicReviewedAnswer)
+		// has no such member -- AnswerId/Arn/DatasetArn/Mir/PrimaryVisual/
+		// Question/Template only.
 		items = append(items, map[string]any{
 			keyAnswerID:      a.AnswerID,
 			keyDatasetArn:    a.DatasetArn,
 			keyQuestion:      a.Question,
-			keyMode:          a.Mode,
 			keyPrimaryVisual: a.PrimaryVisual,
 			keyTemplateField: a.Template,
 		})

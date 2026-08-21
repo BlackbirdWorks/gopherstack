@@ -265,13 +265,15 @@ func protectionToMap(p *Protection, alarCfg *ALARConfig) map[string]any {
 		healthChecks = []string{}
 	}
 
+	// No "CreationTime" key: types.Protection (shield@v1.37.4 types/types.go)
+	// has no such member -- ApplicationLayerAutomaticResponseConfiguration/
+	// HealthCheckIds/Id/Name/ProtectionArn/ResourceArn only.
 	m := map[string]any{
 		"Id":             p.ID,
 		"ProtectionArn":  p.ProtectionArn,
 		"Name":           p.Name,
 		keyResourceArn:   p.ResourceARN,
 		"HealthCheckIds": healthChecks,
-		"CreationTime":   floatSeconds(p.CreationTime),
 	}
 
 	// Gap 4: include ALAR config when present.

@@ -103,7 +103,7 @@ func TestCisScans_ResultDetailsReflectConfig(t *testing.T) {
 
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	results, _ := resp["checkResults"].([]any)
+	results, _ := resp["scanResultDetails"].([]any)
 
 	// Two target accounts x catalog checks => non-empty, and every result is
 	// tagged with one of the configured accounts.
@@ -214,7 +214,7 @@ func TestCisScans_UnknownScanArnDegradesBenignly(t *testing.T) {
 		key  string
 	}{
 		{"/cis/scan/report/get", "status"},
-		{"/cis/scan-result/details/get", "checkResults"},
+		{"/cis/scan-result/details/get", "scanResultDetails"},
 		{"/cis/scan-result/check/list", "checkAggregations"},
 		{"/cis/scan-result/resource/list", "targetResourceAggregations"},
 	}
@@ -564,7 +564,7 @@ func TestCisSessionOps(t *testing.T) {
 			},
 		},
 		{
-			name:   "GetCisScanResultDetails returns checkResults",
+			name:   "GetCisScanResultDetails returns scanResultDetails",
 			method: http.MethodPost,
 			path:   "/cis/scan-result/details/get",
 			body:   map[string]any{"scanArn": "arn:aws:inspector2:us-east-1:123456789012:cis-scan/test"},
@@ -573,7 +573,7 @@ func TestCisSessionOps(t *testing.T) {
 				assert.Equal(t, http.StatusOK, code)
 				var resp map[string]any
 				require.NoError(t, json.Unmarshal(body, &resp))
-				_, ok := resp["checkResults"]
+				_, ok := resp["scanResultDetails"]
 				assert.True(t, ok)
 			},
 		},

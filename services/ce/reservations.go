@@ -230,7 +230,7 @@ func (b *InMemoryBackend) GetReservationPurchaseRecommendations(
 			RecommendationSummary: map[string]string{
 				"TotalEstimatedMonthlySavingsAmount":     fmt.Sprintf("%.4f", savings),
 				"TotalEstimatedMonthlySavingsPercentage": "40.0000",
-				"CurrencyCode":                           metricUnitUSD,
+				mapKeyCurrencyCode:                       metricUnitUSD,
 			},
 		},
 	}

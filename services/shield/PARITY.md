@@ -141,3 +141,21 @@ leaks: {status: clean, note: "no goroutines/janitors in this service; all state 
   lockstep -- it now derives the expected `arn:{partition}:shield::` prefix from `b.region`
   instead of hardcoding `arn:aws:shield::`. Regression test:
   `TestInMemoryBackend_TagResourceByShieldARNGovCloudPartition` (tags_test.go).
+
+## gopherstack-y1zn (2026-08-21): unknown-key sweep, 3 confirmed bugs
+
+- `DescribeProtection`/`ListProtections`: {wire: fixed} -- protectionToMap
+  emitted "CreationTime"; types.Protection has no such member
+  (ApplicationLayerAutomaticResponseConfiguration/HealthCheckIds/Id/Name/
+  ProtectionArn/ResourceArn only).
+- `DescribeProtectionGroup`/`ListProtectionGroups`: {wire: fixed} --
+  protectionGroupToMap emitted "CreationTime"; types.ProtectionGroup has no
+  such member.
+- `DescribeSubscription`: {wire: fixed} -- ProtectionLimits carried a
+  fabricated "MaxProtections" key; types.ProtectionLimits declares only
+  ProtectedResourceTypeLimits.
+
+All 3 proven via real `aws-sdk-go-v2/service/shield` client round trips or
+raw-body assertion (handler_protections_test.go strengthened in place,
+wire_field_fixes_y1zn_test.go new), hand-reverted/confirmed-failing/
+restored/`md5sum`-verified byte-identical.

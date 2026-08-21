@@ -101,7 +101,10 @@ func (h *Handler) handleListAggregatorsV2(c *echo.Context) error {
 		out = []map[string]any{}
 	}
 
-	resp := map[string]any{"Aggregators": out}
+	// ListAggregatorsV2Output (securityhub@v1.75.4 deserializers.go's
+	// awsRestjson1_deserializeOpDocumentListAggregatorsV2Output) wraps the
+	// list under "AggregatorsV2", not "Aggregators".
+	resp := map[string]any{"AggregatorsV2": out}
 
 	if next != "" {
 		resp["NextToken"] = next

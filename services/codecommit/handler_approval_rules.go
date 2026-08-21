@@ -27,10 +27,12 @@ type batchDisassociateApprovalRuleTemplateInput struct {
 }
 
 func approvalRuleTemplateToMap(t *ApprovalRuleTemplate) map[string]any {
+	// No "approvalRuleTemplateArn" key: types.ApprovalRuleTemplate
+	// (codecommit@v1.36.4 types/types.go) has no ARN member -- templates are
+	// identified by ApprovalRuleTemplateId only.
 	m := map[string]any{
 		"approvalRuleTemplateId":          t.ApprovalRuleTemplateID,
 		"approvalRuleTemplateName":        t.ApprovalRuleTemplateName,
-		"approvalRuleTemplateArn":         t.ApprovalRuleTemplateARN,
 		"approvalRuleTemplateContent":     t.ApprovalRuleTemplateContent,
 		"approvalRuleTemplateDescription": t.ApprovalRuleTemplateDescription,
 		keyCreationDate:                   t.CreationDate.Unix(),

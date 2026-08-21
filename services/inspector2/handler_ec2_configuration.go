@@ -23,14 +23,14 @@ const (
 	pathEc2MemberBatchUpdate = "/ec2deepinspectionstatus/member/batch/update"
 )
 
+// GetEc2DeepInspectionConfigurationOutput (inspector2@v1.54.1 deserializers.go's
+// awsRestjson1_deserializeOpDocumentGetEc2DeepInspectionConfigurationOutput)
+// has exactly errorMessage/orgPackagePaths/packagePaths/status -- no
+// "ec2ScanModeState" member at all.
 func (h *Handler) handleGetEc2DeepInspectionConfiguration(c *echo.Context) error {
 	cfg := h.Backend.GetEc2DeepInspectionConfiguration()
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"ec2ScanModeState": map[string]any{
-			"scanMode":       "EC2_SSM_AGENT_BASED",
-			"scanModeStatus": "SUCCESS",
-		},
 		keyErrorMessage: cfg.ErrorMessage,
 		"packagePaths":  cfg.PackagePaths,
 		keyStatus:       cfg.Status,
@@ -120,7 +120,7 @@ func (h *Handler) handleBatchGetMemberEc2DeepInspectionStatus(c *echo.Context) e
 	statuses := h.Backend.BatchGetMemberEc2DeepInspectionStatus(req.AccountIDs)
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"accountIds":       statuses,
+		keyAccountIDs:      statuses,
 		"failedAccountIds": []any{},
 	})
 }
@@ -164,7 +164,7 @@ func (h *Handler) handleBatchUpdateMemberEc2DeepInspectionStatus(c *echo.Context
 	updated := h.Backend.BatchUpdateMemberEc2DeepInspectionStatus(updates)
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"accountIds":       updated,
+		keyAccountIDs:      updated,
 		"failedAccountIds": []any{},
 	})
 }

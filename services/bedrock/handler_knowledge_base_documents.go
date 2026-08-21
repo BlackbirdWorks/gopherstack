@@ -7,6 +7,8 @@ import (
 	"github.com/labstack/echo/v5"
 )
 
+const respDocumentDetails = "documentDetails"
+
 // dispatchDocumentOps handles the .../documents collection path. The real
 // bedrock-agent wire distinguishes IngestKnowledgeBaseDocuments and
 // ListKnowledgeBaseDocuments by HTTP method alone (both share this exact
@@ -53,12 +55,12 @@ func (h *AgentsHandler) handleIngestKBDocuments(
 		return c.JSON(http.StatusNotFound, agentErrResp("ResourceNotFoundException", err.Error()))
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"documents": docs})
+	return c.JSON(http.StatusOK, map[string]any{respDocumentDetails: docs})
 }
 
 func (h *AgentsHandler) handleListKBDocuments(c *echo.Context, kbID, dsID string) error {
 	list, outToken := h.Backend.ListKnowledgeBaseDocuments(kbID, dsID, 0, c.QueryParam("nextToken"))
-	resp := map[string]any{"documentDetails": list}
+	resp := map[string]any{respDocumentDetails: list}
 
 	if outToken != "" {
 		resp["nextToken"] = outToken
@@ -83,7 +85,7 @@ func (h *AgentsHandler) handleGetKBDocuments(
 		return c.JSON(http.StatusNotFound, agentErrResp("ResourceNotFoundException", err.Error()))
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"documentDetails": docs})
+	return c.JSON(http.StatusOK, map[string]any{respDocumentDetails: docs})
 }
 
 func (h *AgentsHandler) handleDeleteKBDocuments(

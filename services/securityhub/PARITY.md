@@ -472,3 +472,31 @@ service.
   require the hub to be enabled, and no existing test asserts either
   behavior, so flipping it risks breaking passing integrations without clear
   spec backing. Revisit if a concrete AWS error transcript surfaces.
+
+## gopherstack-y1zn (2026-08-21): unknown-key sweep, 3 fixed, 2 deferred
+
+Part of the gopherstack-us9u/g479 map-literal scanner's 526-key unknown-key
+bucket triage. Fixed items proven via real `aws-sdk-go-v2/service/securityhub`
+client round trips or raw-body assertion (`wire_field_fixes_y1zn_test.go`),
+hand-reverted, confirmed failing, restored, `md5sum`-verified byte-identical.
+
+- `ListAggregatorsV2`: {wire: fixed} -- wrapped the list under "Aggregators";
+  real member (deserializers.go's
+  awsRestjson1_deserializeOpDocumentListAggregatorsV2Output) is
+  "AggregatorsV2".
+- `DeclineInvitations`/`DeleteInvitations`: {wire: fixed} -- each emitted an
+  extra "ProcessedAccounts" key alongside the real "UnprocessedAccounts";
+  neither DeclineInvitationsOutput nor DeleteInvitationsOutput has a
+  ProcessedAccounts member -- success is implied by an account's absence from
+  UnprocessedAccounts, not a separate echo.
+- `GenerateRecommendedPolicyV2`/`GetRecommendedPolicyV2`: {wire: deferred,
+  note: "confirmed real bug, deeper than a key rename -- deferred. Both
+  return {MetadataUid, Policy, GenerationTime}; GetRecommendedPolicyV2Output
+  (deserializers.go) has Error/NextToken/RecommendationSteps/
+  RecommendationType/ResourceArn/Status instead -- an entirely different,
+  asynchronous-workflow-shaped response, not a returned policy document.
+  Separately, GenerateRecommendedPolicyV2 is not a real operation at all --
+  only GET .../recommendedPolicyV2/{MetadataUid} exists in the pinned SDK; the
+  POST route this handler answers is unreachable by any real client
+  regardless. Needs the whole family remodeled around
+  RecommendationSteps/RecommendationType/Status/Error, not a quick fix."}

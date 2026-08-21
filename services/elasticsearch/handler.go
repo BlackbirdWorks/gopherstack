@@ -30,7 +30,7 @@ const (
 	keyWarmEnabled            = "WarmEnabled"
 	keyWarmType               = "WarmType"
 	keyWarmCount              = "WarmCount"
-	keyColdStorageEnabled     = "ColdStorageEnabled"
+	keyEnabled                = "Enabled"
 
 	keyCrossClusterSearchConnection = "CrossClusterSearchConnection"
 	minimumInstanceCount            = 1

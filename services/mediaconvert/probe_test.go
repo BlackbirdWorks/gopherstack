@@ -91,7 +91,8 @@ func TestProbe_ResultContainsContainer(t *testing.T) {
 	require.Len(t, results, 1)
 
 	entry, _ := results[0].(map[string]any)
-	probeResult, _ := entry["probeResult"].(map[string]any)
-	container, _ := probeResult["container"].(map[string]any)
-	assert.NotEmpty(t, container, "probeResult must include a container field")
+	assert.NotContains(t, entry, "probeResult",
+		"types.ProbeResult is the flat item itself, not wrapped under probeResult")
+	container, _ := entry["container"].(map[string]any)
+	assert.NotEmpty(t, container, "probe result must include a container field")
 }

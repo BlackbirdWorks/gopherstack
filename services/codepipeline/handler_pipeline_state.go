@@ -44,17 +44,21 @@ func (h *Handler) handleGetPipelineState(
 			"stageName":    s.StageName,
 			"actionStates": s.ActionStates,
 		}
+		// types.TransitionState (codepipeline@v1.49.4 deserializers.go's
+		// awsAwsjson11_deserializeDocumentTransitionState) declares "enabled"
+		// (not "disabled" -- inverted polarity) and "disabledReason" (not
+		// "reason").
 		if s.InboundTransitionState != nil {
 			item["inboundTransitionState"] = map[string]any{
-				"disabled": s.InboundTransitionState.Disabled,
-				"reason":   s.InboundTransitionState.Reason,
+				"enabled":        !s.InboundTransitionState.Disabled,
+				"disabledReason": s.InboundTransitionState.Reason,
 			}
 		}
 
 		if s.OutboundTransitionState != nil {
 			item["outboundTransitionState"] = map[string]any{
-				"disabled": s.OutboundTransitionState.Disabled,
-				"reason":   s.OutboundTransitionState.Reason,
+				"enabled":        !s.OutboundTransitionState.Disabled,
+				"disabledReason": s.OutboundTransitionState.Reason,
 			}
 		}
 

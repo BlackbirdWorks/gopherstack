@@ -491,3 +491,37 @@ operation"). See `TestSDKRoundTrip_DataSetPhysicalTableMap` and
 which drive the real `aws-sdk-go-v2` client end to end -- create with a
 populated `PhysicalTableMap`/`LogicalTableMap`, then describe and assert the
 exact typed union variant and field values round-trip, not just a 2xx.
+
+## gopherstack-y1zn (2026-08-21): unknown-key sweep, 5 confirmed bugs
+
+Part of the gopherstack-us9u/g479 map-literal scanner's 526-key unknown-key
+bucket triage. All 5 proven via real `aws-sdk-go-v2/service/quicksight`
+client round trips or raw-body assertion, hand-reverted against `git show
+HEAD:<path>`, confirmed failing, restored, `md5sum`-verified byte-identical.
+
+- `CreateAccountSubscription`: {wire: fixed} -- `SignupResponse.UserLoginName`
+  was emitted PascalCase ("UserLoginName"); the real member
+  (deserializers.go's awsRestjson1_deserializeDocumentSignupResponse) is the
+  one lowercase-first member on that type, "userLoginName".
+- `DescribeKeyRegistration`: {wire: fixed} -- wrapped the list under
+  "RegisteredCustomerManagedKeys" (the name of the array's own item type,
+  types.RegisteredCustomerManagedKey); real member is "KeyRegistration".
+- `DescribeDefaultQBusinessApplication`: {wire: fixed} -- wrapped its result
+  under a fabricated "DefaultQBusinessApplication" key with a "Namespace"
+  echo; the real output (deserializers.go) is flat -- ApplicationId/RequestId
+  only, no wrapper, no Namespace (Namespace is Input-side only).
+- `BatchCreateTopicReviewedAnswer`/`BatchDeleteTopicReviewedAnswer`: {wire:
+  fixed} -- wrapped the succeeded list under "SucceededAnswer" (singular);
+  real member is "SucceededAnswers" (plural).
+- `ListTopicReviewedAnswers`: {wire: fixed} -- each item emitted a fabricated
+  "Mode" key; types.TopicReviewedAnswer has no such member
+  (AnswerId/Arn/DatasetArn/Mir/PrimaryVisual/Question/Template only; Arn/Mir
+  remain honestly absent gaps, not touched this pass).
+- `UpdateSelfUpgrade`/`ListSelfUpgrades` (selfUpgradeRequestDetailToMap):
+  {wire: fixed} -- "LastUpdateAttemptTime"/"LastUpdateFailureReason" were
+  PascalCase, matching every sibling member on the type; the real wire keys
+  (deserializers.go's awsRestjson1_deserializeDocumentSelfUpgradeRequestDetail)
+  are lowercase-first for these two specific members only, unlike every other
+  member on the same type.
+
+New test file: `wire_field_fixes_y1zn_test.go`.

@@ -742,3 +742,33 @@ own error text/restored/`md5sum`-verified byte-identical. Gates: `go build`,
 `go vet`, `gofmt -l` (clean), `go test -race` (pass), `golangci-lint run`
 (0 issues). `last_audit_commit` left unchanged -- this pass's own commit sha
 is not known at edit time.
+
+## gopherstack-y1zn (2026-08-21): unknown-key sweep, one confirmed bug
+
+`ListInstanceTypeDetails`: {wire: fixed, errors: ok, state: n/a, persist: n/a} --
+`AppLogEnabled` (singular "Log") was the wire key for every returned
+`InstanceTypeDetails` entry; the real member (types.InstanceTypeDetails,
+deserializers.go) is `AppLogsEnabled` (plural). A real client's
+`AppLogsEnabled` field decoded nil regardless of the emitted value. Proven via
+a real `aws-sdk-go-v2/service/opensearch` client round trip
+(`TestListInstanceTypeDetails_AppLogsEnabledKey_RealClient`,
+wire_maplit_fixes_test.go), hand-reverted/confirmed-failing/restored/
+`md5sum`-verified byte-identical.
+
+64 opensearch candidates from the gopherstack-us9u/g479 map-literal scanner's
+526-key unknown-key bucket were triaged this pass (see gopherstack-y1zn for
+the full campaign): 22 are the Elasticsearch-compatible data-plane surface
+(handler_indices.go, not the control-plane SDK); 33 resolve cleanly against
+the sibling `opensearchserverless` module once compared against the right
+module (the dir-hosts-two-modules false positive already named above), except
+3 (`networkPolicyDetail`/`networkPolicySummaries` in handler_serverless.go)
+which are genuine wire-key bugs on a REST-path dispatcher this repo's own
+gopherstack-92ft note already documents as unreachable by any real AOSS client
+(bedrockagent-style dead duplicate; the live JSON-RPC dispatcher,
+handler_serverless_jsonrpc.go, already emits the correct
+`securityPolicyDetail`/`securityPolicySummaries`) -- not touched, per that
+precedent. 3 were stale (already fixed by the prior gopherstack-g479 pass
+before this session started; the scan snapshot predates that commit). 1
+(`LimitsByRole.data`) is a `map[string]types.Limits` dynamic role-name key, not
+a struct field -- correctly absent from the SDK's per-key case-switch table by
+construction, not a bug.

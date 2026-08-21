@@ -81,3 +81,31 @@ func TestDescribeInstanceTypeLimits_MinimumCountDecodesAsNumber(t *testing.T) {
 	require.NoError(t, err, "real SDK client must decode DescribeInstanceTypeLimits without error")
 	require.NotNil(t, out.LimitsByRole)
 }
+
+// TestListInstanceTypeDetails_AppLogsEnabledKey_RealClient covers
+// gopherstack-y1zn. ListInstanceTypeDetails emitted "AppLogEnabled";
+// types.InstanceTypeDetails (opensearch@v1.75.4 deserializers.go's
+// awsRestjson1_deserializeDocumentInstanceTypeDetails) declares
+// "AppLogsEnabled" (plural "Logs"). A real client's AppLogsEnabled field
+// stays nil regardless of the singular key's value, since the case switch
+// never matches it.
+func TestListInstanceTypeDetails_AppLogsEnabledKey_RealClient(t *testing.T) {
+	t.Parallel()
+
+	b := opensearch.NewInMemoryBackend("123456789012", "us-east-1")
+	h := opensearch.NewHandler(b)
+	client := newTestOpenSearchClient(t, h)
+
+	out, err := client.ListInstanceTypeDetails(t.Context(), &opensearchsdk.ListInstanceTypeDetailsInput{
+		EngineVersion: aws.String("OpenSearch_2.11"),
+	})
+	require.NoError(t, err, "real SDK client must decode ListInstanceTypeDetails without error")
+	require.NotEmpty(t, out.InstanceTypeDetails)
+
+	for _, d := range out.InstanceTypeDetails {
+		require.NotNil(
+			t, d.AppLogsEnabled,
+			"AppLogsEnabled must decode; the wire key was the singular \"AppLogEnabled\", which no case matches",
+		)
+	}
+}

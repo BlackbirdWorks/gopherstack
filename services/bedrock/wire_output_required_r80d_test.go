@@ -119,6 +119,11 @@ func TestGetARPBuildWorkflowResultAssets_PolicyArn_RealClient(t *testing.T) {
 	)
 	require.NoError(t, err)
 	assert.Equal(t, policyARN, aws.ToString(got.PolicyArn))
+	assert.Nil(
+		t, got.BuildWorkflowAssets,
+		"backend generates no result-asset content; the union member must be "+
+			"absent, not a JSON array (which fails to decode into it at all)",
+	)
 }
 
 // TestGetARPTestCase_WrappedShape_RealClient covers gopherstack-r80d.

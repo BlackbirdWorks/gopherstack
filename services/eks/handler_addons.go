@@ -91,9 +91,12 @@ func addonToJSON(a *Addon) map[string]any {
 		m["serviceAccountRoleArn"] = a.ServiceAccountRoleARN
 	}
 
-	if a.MarketplaceVersion != "" {
-		m["marketplaceVersion"] = a.MarketplaceVersion
-	}
+	// No "marketplaceVersion" or "resolveConflicts" keys: types.Addon
+	// (eks@v1.90.4 deserializers.go's awsRestjson1_deserializeDocumentAddon)
+	// has neither -- the real Marketplace field is the nested
+	// "marketplaceInformation" object (productId/productUrl), which this
+	// backend does not track, and resolveConflicts is a CreateAddon/
+	// UpdateAddon request-only member, never echoed back.
 
 	if a.Health != nil {
 		m["health"] = map[string]any{
@@ -103,10 +106,6 @@ func addonToJSON(a *Addon) map[string]any {
 
 	if a.Configuration != "" {
 		m["configurationValues"] = a.Configuration
-	}
-
-	if a.ResolveConflicts != "" {
-		m["resolveConflicts"] = a.ResolveConflicts
 	}
 
 	return m

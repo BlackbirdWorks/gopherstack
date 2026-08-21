@@ -1,6 +1,7 @@
 package directoryservice_test
 
 import (
+	"net/http"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -232,4 +233,27 @@ func TestAcceptSharedDirectory_RealClientRoundTrip(t *testing.T) {
 	assert.Equal(t, "222222222222", aws.ToString(accepted.SharedDirectory.SharedAccountId))
 	assert.Equal(t, types.ShareStatusShared, accepted.SharedDirectory.ShareStatus)
 	assert.NotNil(t, accepted.SharedDirectory.LastUpdatedDateTime)
+}
+
+// TestDescribeDirectoryDataAccess_DataAccessStatusKey_RealClient covers
+// gopherstack-y1zn. handleDescribeDirectoryDataAccess emitted
+// "DirectoryDataAccessStatus"; DescribeDirectoryDataAccessOutput
+// (directoryservice@v1.41.4 deserializers.go's
+// awsAwsjson11_deserializeOpDocumentDescribeDirectoryDataAccessOutput)
+// declares only "DataAccessStatus". A typed client silently ignores the
+// unknown key, so the proof is the raw body.
+func TestDescribeDirectoryDataAccess_DataAccessStatusKey_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	dirID := mustCreateSimpleAD(t, h, "y1zn.example.com")
+
+	rec := doRequest(t, h, "DescribeDirectoryDataAccess", map[string]any{"DirectoryId": dirID})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	body := rec.Body.String()
+	assert.NotContains(t, body, `"DirectoryDataAccessStatus"`,
+		"DescribeDirectoryDataAccessOutput has no DirectoryDataAccessStatus member")
+	assert.Contains(t, body, `"DataAccessStatus"`,
+		"DescribeDirectoryDataAccessOutput's real member is DataAccessStatus")
 }

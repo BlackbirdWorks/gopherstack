@@ -141,8 +141,12 @@ func (h *Handler) handleUpdateBackupPlan(c *echo.Context, id string, body []byte
 		keyBackupPlanID:  p.BackupPlanID,
 		keyVersionID:     p.VersionID,
 	}
+	// UpdateBackupPlanOutput's real member is "CreationDate" (backup@v1.59.4
+	// deserializers.go's awsRestjson1_deserializeOpDocumentUpdateBackupPlanOutput)
+	// -- there is no "UpdateDate" member. UpdateBackupPlan creates a new plan
+	// version, so the timestamp represents that version's creation.
 	if p.UpdateTime != nil {
-		resp["UpdateDate"] = epochSeconds(*p.UpdateTime)
+		resp["CreationDate"] = epochSeconds(*p.UpdateTime)
 	}
 
 	return c.JSON(http.StatusOK, resp)

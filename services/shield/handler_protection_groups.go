@@ -223,6 +223,8 @@ func protectionGroupToMap(pg *ProtectionGroup) map[string]any {
 		members = []string{}
 	}
 
+	// No "CreationTime" key: types.ProtectionGroup (shield@v1.37.4
+	// types/types.go) has no such member.
 	return map[string]any{
 		"ProtectionGroupId":  pg.ID,
 		"ProtectionGroupArn": pg.ProtectionGroupArn,
@@ -230,7 +232,6 @@ func protectionGroupToMap(pg *ProtectionGroup) map[string]any {
 		"Pattern":            pg.Pattern,
 		"ResourceType":       pg.ResourceType,
 		"Members":            members,
-		"CreationTime":       floatSeconds(pg.CreationTime),
 	}
 }
 

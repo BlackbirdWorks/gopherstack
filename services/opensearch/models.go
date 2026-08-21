@@ -137,7 +137,7 @@ const (
 	jsonKeySourceVersion           = "SourceVersion"
 	jsonKeyTargetVersions          = "TargetVersions"
 	jsonKeyInstanceType            = "InstanceType"
-	jsonKeyAppLogEnabled           = "AppLogEnabled"
+	jsonKeyAppLogEnabled           = "AppLogsEnabled"
 	jsonKeyCognitoEnabled          = "CognitoEnabled"
 	jsonKeyEncryptEnabled          = "EncryptionEnabled"
 	jsonKeyWarmEnabled             = "WarmEnabled"

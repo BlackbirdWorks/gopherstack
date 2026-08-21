@@ -334,3 +334,26 @@ and the call returned success with unfiltered/unsorted results. Three shapes of 
 No op needed a bare "accept and ignore" fix — every Filter/SortBy field added either has
 a real, non-fabricated effect today, or is explicitly documented as inert with the reason
 why, per the parity principle against disguised stubs.
+
+## gopherstack-y1zn (2026-08-21): unknown-key sweep, 3 confirmed bugs
+
+- `GetSavingsPlanPurchaseRecommendationDetails`/
+  `GetSavingsPlansPurchaseRecommendation`: {wire: fixed} -- the recommendation
+  detail and summary maps used `handlerCurrencyCode`'s own VALUE ("USD") as
+  the map KEY, producing `{"USD": "USD"}`; real member (costexplorer@v1.67.4
+  deserializers.go) is "CurrencyCode". Introduced/reused the existing
+  `mapKeyCurrencyCode` constant.
+- `GetReservationPurchaseRecommendation`: {wire: fixed} -- its Metadata map
+  carried both the same USD-as-key bug AND a fabricated
+  "RecommendationTotalCount" key; types.ReservationPurchaseRecommendationMetadata
+  has neither (only AdditionalMetadata/GenerationTimestamp/RecommendationId,
+  none tracked by this backend) -- Metadata now correctly omitted entirely.
+- `GetSavingsPlansPurchaseRecommendation`'s own Metadata map had the identical
+  fabricated "RecommendationTotalCount" key (types.
+  SavingsPlansPurchaseRecommendationMetadata has the same three real members,
+  no total-count field) -- removed, GenerationTimestamp/AdditionalMetadata
+  kept.
+
+All proven via real `aws-sdk-go-v2/service/costexplorer` client round trips
+(wire_field_fixes_test.go), hand-reverted/confirmed-failing/restored/
+`md5sum`-verified byte-identical.

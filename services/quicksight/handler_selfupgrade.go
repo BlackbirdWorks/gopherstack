@@ -139,11 +139,14 @@ func selfUpgradeRequestDetailToMap(r *SelfUpgradeRequestDetail) map[string]any {
 	if r.RequestNote != "" {
 		m["RequestNote"] = r.RequestNote
 	}
+	// lastUpdateAttemptTime/lastUpdateFailureReason are lowercase-first, unlike
+	// every sibling member here (quicksight@v1.123.1 deserializers.go's
+	// awsRestjson1_deserializeDocumentSelfUpgradeRequestDetail).
 	if r.LastUpdateAttemptTime != 0 {
-		m["LastUpdateAttemptTime"] = r.LastUpdateAttemptTime
+		m["lastUpdateAttemptTime"] = r.LastUpdateAttemptTime
 	}
 	if r.LastUpdateFailureReason != "" {
-		m["LastUpdateFailureReason"] = r.LastUpdateFailureReason
+		m["lastUpdateFailureReason"] = r.LastUpdateFailureReason
 	}
 	if r.UserName != "" {
 		m["UserName"] = r.UserName

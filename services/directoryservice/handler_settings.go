@@ -90,8 +90,12 @@ func (h *Handler) handleDescribeDirectoryDataAccess(c *echo.Context) error {
 		dataAccessStatus = "Enabled" //nolint:goconst // existing issue.
 	}
 
+	// DescribeDirectoryDataAccessOutput's real member is "DataAccessStatus"
+	// (directoryservice@v1.41.4 deserializers.go's
+	// awsAwsjson11_deserializeOpDocumentDescribeDirectoryDataAccessOutput),
+	// not "DirectoryDataAccessStatus".
 	return c.JSON(http.StatusOK, map[string]any{
-		"DirectoryDataAccessStatus": dataAccessStatus,
+		"DataAccessStatus": dataAccessStatus,
 	})
 }
 

@@ -151,12 +151,14 @@ func (h *Handler) handleGetReservationPurchaseRecommendation(
 		recs = []ReservationRecommendation{}
 	}
 
+	// No Metadata: types.ReservationPurchaseRecommendationMetadata
+	// (costexplorer@v1.67.4 types/types.go) has only
+	// AdditionalMetadata/GenerationTimestamp/RecommendationId, none of which
+	// this backend tracks -- "RecommendationTotalCount" and "USD" (a stray
+	// use of handlerCurrencyCode's own value as a map key) were both
+	// fabricated.
 	return &getReservationPurchaseRecommendationOutput{
 		Recommendations: recs,
-		Metadata: map[string]string{
-			metadataRecommendationTotalCount: strconv.Itoa(len(recs)),
-			handlerCurrencyCode:              metricUnitUSD,
-		},
 	}, nil
 }
 

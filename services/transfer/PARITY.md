@@ -108,3 +108,28 @@ leaks: {status: clean, note: "Shutdown(ctx) stops the backend's worker (StartSer
   `docs.aws.amazon.com/transfer/latest/userguide/security-policies.html` (servers) or
   `.../security-policies-connectors.html` (connectors) -- the per-policy JSON blocks on those pages
   are the ground truth; don't guess at names or algorithm lists.
+
+## gopherstack-y1zn (2026-08-21): unknown-key sweep, 1 fixed, 1 deferred, 2 false positives
+
+Part of the gopherstack-us9u/g479 map-literal scanner's 526-key unknown-key
+bucket triage.
+
+- `CreateWorkflow`/`DescribeWorkflow`: {wire: fixed} -- workflowStepToMap
+  emitted "Timeout" for a CUSTOM step; real member
+  (types.CustomStepDetails) is "TimeoutSeconds". Proven via
+  `TestDescribeWorkflow_CustomStepTimeoutSecondsKey_RealClient`
+  (wire_field_fixes_test.go), hand-reverted/confirmed-failing/restored/
+  `md5sum`-verified byte-identical.
+- `ListFileTransferResults`: {wire: deferred, note: "confirmed real bug,
+  deferred. Each entry emits a \"FilePaths\" array (this backend's r.Files);
+  the real per-item member (types.ConnectorFileTransferResult) is a singular
+  \"FilePath\" string -- each real result row covers exactly one file, not a
+  list. Fixing requires flattening one row per file (a cardinality change,
+  not a rename) -- deferred rather than rushed."}
+- `DescribeSecurityPolicy`: rejected, not a bug. `ContentEncryptionCiphers`/
+  `HashAlgorithms` (AS2) look unknown to the pinned SDK's
+  `types.DescribedSecurityPolicy` struct, but a prior pass (see
+  `securityPolicyDef`'s doc comment, handler_security_policies.go) already
+  verified against current AWS documentation that real AWS sends these
+  fields on the wire -- the pinned SDK's Go struct just hasn't caught up yet.
+  Left as-is per that prior, already-documented decision.

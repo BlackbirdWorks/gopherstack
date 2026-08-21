@@ -455,3 +455,17 @@ findings from field-diffing the file/commit/merge-conflict/pagination surface ag
   sentinel with no matching `errCodeLookup` row will silently fall through to generic
   `ValidationException` again. Diff `errors.go`'s `Err*` declarations against
   `errCodeLookup`'s `sentinel:` entries by hand if you add or suspect one.
+
+## gopherstack-y1zn (2026-08-21): unknown-key sweep, 2 confirmed bugs
+
+- `CreateApprovalRuleTemplate`/`GetApprovalRuleTemplate`/
+  `UpdateApprovalRuleTemplateContent`: {wire: fixed} -- approvalRuleTemplateToMap
+  emitted "approvalRuleTemplateArn"; types.ApprovalRuleTemplate has no ARN
+  member -- templates are identified by approvalRuleTemplateId only.
+- `TestRepositoryTriggers`: {wire: fixed} -- wrapped each successful trigger
+  name in a `{"triggerName": ...}` object; real member
+  (TestRepositoryTriggersOutput.SuccessfulExecutions) is `[]string`.
+
+Both proven via real `aws-sdk-go-v2/service/codecommit` client round trips
+(wire_field_fixes_y1zn_test.go), hand-reverted/confirmed-failing/restored/
+`md5sum`-verified byte-identical.

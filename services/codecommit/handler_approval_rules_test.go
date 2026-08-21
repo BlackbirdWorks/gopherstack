@@ -333,7 +333,8 @@ func TestHandler_ApprovalRuleTemplate_CRUD_TableDriven(t *testing.T) {
 				assert.Equal(t, tt.tmplName, tmpl["approvalRuleTemplateName"])
 				assert.Equal(t, tt.content, tmpl["approvalRuleTemplateContent"])
 				assert.NotEmpty(t, tmpl["approvalRuleTemplateId"])
-				assert.NotEmpty(t, tmpl["approvalRuleTemplateArn"])
+				assert.NotContains(t, tmpl, "approvalRuleTemplateArn",
+					"types.ApprovalRuleTemplate has no ARN member")
 				assert.NotEmpty(t, tmpl["ruleContentSha256"])
 				assert.NotNil(t, tmpl["creationDate"])
 				assert.NotNil(t, tmpl["lastModifiedDate"])

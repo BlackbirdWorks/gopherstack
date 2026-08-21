@@ -599,10 +599,19 @@ func (b *InMemoryBackend) GetAutomatedReasoningPolicyNextScenario(
 // (bedrock@v1.66.4 api_op_GetAutomatedReasoningPolicyBuildWorkflowResultAssets.go)
 // deliberately rather than fixing it: this backend never generates
 // result-asset content (build workflows here don't run a real
-// document-ingestion/policy-generation pipeline), so resultAssets is always
-// []. Threading AssetType through to filter an always-empty list can't be
-// observed by any test, real-client or otherwise (gopherstack-4sov). Revisit
-// only if/when this backend starts producing real result-asset content.
+// document-ingestion/policy-generation pipeline), so buildWorkflowAssets is
+// always omitted. Threading AssetType through to filter an always-absent
+// union can't be observed by any test, real-client or otherwise
+// (gopherstack-4sov). Revisit only if/when this backend starts producing
+// real result-asset content.
+//
+// buildWorkflowAssets (types.AutomatedReasoningPolicyBuildResultAssets,
+// deserializers.go's awsRestjson1_deserializeDocumentAutomatedReasoningPolicyBuildResultAssets)
+// is a union object keyed by asset kind (assetManifest/buildLog/...), not a
+// list -- emitting it as [] previously fed a real client's deserializer a
+// JSON array where it type-switches on a JSON object, an outright decode
+// failure. BuildWorkflowAssets is optional on the output, so the honest
+// empty state is to omit the key entirely, matching Go's nil zero value.
 func (b *InMemoryBackend) GetAutomatedReasoningPolicyBuildWorkflowResultAssets(
 	policyARN, workflowID string,
 ) (map[string]any, error) {
@@ -620,7 +629,6 @@ func (b *InMemoryBackend) GetAutomatedReasoningPolicyBuildWorkflowResultAssets(
 	return map[string]any{
 		keyBuildWorkflowID: workflowID,
 		keyPolicyArn:       policyARN,
-		"resultAssets":     []any{},
 	}, nil
 }
 

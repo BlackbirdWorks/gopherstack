@@ -224,3 +224,13 @@ leaks: {status: clean, note: "janitor.go uses pkgs/worker.Group.Ticker bound to 
   a field, gopherstack silently drops it" in a hand-modeled service is the
   `pkgs/sdkcheck`-style diff sweep that found this gap in the first place
   (gopherstack-u8my), not a code-level mechanism change.
+
+## gopherstack-y1zn (2026-08-21): unknown-key sweep, 1 confirmed bug
+
+`Probe`: {wire: fixed} -- each result was double-wrapped as
+`{"probeResult": {"container": ..., "inputFile": ...}}`; ProbeOutput.ProbeResults
+(api_op_Probe.go) is `[]types.ProbeResult` directly -- each item IS the
+Container/Metadata/TrackMappings object, not wrapped under a "probeResult"
+key, and there is no "inputFile" echo member at all. Proven via
+`TestProbe_ResultContainsContainer` (probe_test.go, strengthened in place),
+hand-reverted/confirmed-failing/restored/`md5sum`-verified byte-identical.
