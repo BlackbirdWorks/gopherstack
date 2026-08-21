@@ -23,6 +23,14 @@
 // says nothing about whether any individual op is correct; that is still
 // a per-op hand read against the pinned SDK deserializer.
 //
+// gopherstack-c7s3: each service's pinned SDK module is resolved from its
+// package's own imports, never the directory name (services/dms pins
+// databasemigrationservice, not dms) -- reported alongside the op count as
+// a cross-check, and a directory with no .go files (a tombstone, e.g.
+// qldb/qldbsession) is skipped rather than counted as a zero-op row. Any
+// service whose module or op list can't be resolved prints as an explicit
+// ERROR row, distinct from a real zero-op service.
+//
 // Usage:
 //
 //	go run ./cmd/opcensus                # ranked summary to stdout
@@ -39,6 +47,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -52,17 +61,24 @@ const (
 	maxWalkDepth = 8
 )
 
-var opNameRe = regexp.MustCompile(`^[A-Z][A-Za-z0-9]*$`)
+var (
+	opNameRe    = regexp.MustCompile(`^[A-Z][A-Za-z0-9]*$`)
+	sdkModuleRe = regexp.MustCompile(`aws-sdk-go-v2/service/([a-z0-9]+)`)
+)
 
 type serviceResult struct {
 	Service     string   `json:"service"`
 	Resolution  string   `json:"resolution"` // direct, chased, dynamic-fallback, unresolved
+	ErrorReason string   `json:"errorReason,omitempty"`
+	SDKModules  []string `json:"sdkModules"` // aws-sdk-go-v2/service/<x> names found in the package's own imports
 	AllOps      []string `json:"allOps"`
 	ListOps     []string `json:"listOps"`
 	DescribeOps []string `json:"describeOps"`
 	GetOps      []string `json:"getOps"`
 	Total       int      `json:"total"`
-	LDG         int      `json:"ldg"` // len(ListOps)+len(DescribeOps)+len(GetOps)
+	LDG         int      `json:"ldg"`     // len(ListOps)+len(DescribeOps)+len(GetOps)
+	Aliased     bool     `json:"aliased"` // true when no resolved SDK module matches the directory name
+	Error       bool     `json:"error,omitempty"`
 }
 
 func main() {
@@ -97,12 +113,75 @@ func censusAll(servicesDir string) ([]serviceResult, error) {
 		if !e.IsDir() || strings.HasPrefix(e.Name(), "_") {
 			continue
 		}
-		results = append(results, censusService(filepath.Join(servicesDir, e.Name()), e.Name()))
+		dir := filepath.Join(servicesDir, e.Name())
+		if !hasGoFiles(dir) {
+			// A tombstone directory (e.g. qldb, qldbsession: deprecated
+			// service, README only, no Go code, not wired into the router).
+			// Not a service to sweep, so it doesn't belong in the census at
+			// all -- counting it as a 0-op row would make it indistinguishable
+			// from an unresolved real service.
+			continue
+		}
+		results = append(results, censusService(dir, e.Name()))
 	}
 
-	sort.Slice(results, func(i, j int) bool { return results[i].LDG > results[j].LDG })
+	sort.Slice(results, func(i, j int) bool {
+		if results[i].Error != results[j].Error {
+			return results[i].Error // error rows sort to the top, ahead of any LDG rank
+		}
+
+		return results[i].LDG > results[j].LDG
+	})
 
 	return results, nil
+}
+
+func hasGoFiles(dir string) bool {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return false
+	}
+	for _, e := range entries {
+		if !e.IsDir() && strings.HasSuffix(e.Name(), ".go") {
+			return true
+		}
+	}
+
+	return false
+}
+
+// resolveSDKModules finds every aws-sdk-go-v2/service/<x> import path used
+// anywhere in the service's own .go files (including tests), by scanning
+// file contents directly rather than the directory name -- the directory
+// name and the pinned SDK module diverge for some services (services/dms
+// pins databasemigrationservice, services/elb pins elasticloadbalancing).
+func resolveSDKModules(dir string) []string {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+
+	seen := map[string]bool{}
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".go") {
+			continue
+		}
+		data, readErr := os.ReadFile(filepath.Join(dir, e.Name()))
+		if readErr != nil {
+			continue
+		}
+		for _, m := range sdkModuleRe.FindAllStringSubmatch(string(data), -1) {
+			seen[m[1]] = true
+		}
+	}
+
+	mods := make([]string, 0, len(seen))
+	for m := range seen {
+		mods = append(mods, m)
+	}
+	sort.Strings(mods)
+
+	return mods
 }
 
 func writeJSON(path string, results []serviceResult) error {
@@ -122,11 +201,50 @@ func writeJSON(path string, results []serviceResult) error {
 }
 
 func printReport(w *os.File, results []serviceResult) {
-	fmt.Fprintf(w, "%-28s %6s %6s %6s %6s %6s  %s\n", "service", "total", "list", "descr", "get", "L+D+G", "resolution")
+	printErrorBanner(w, results)
+
+	fmt.Fprintf(w, "%-28s %6s %6s %6s %6s %6s  %-16s %-14s %s\n",
+		"service", "total", "list", "descr", "get", "L+D+G", "resolution", "sdk-module", "")
 	for _, r := range results {
-		fmt.Fprintf(w, "%-28s %6d %6d %6d %6d %6d  %s\n",
-			r.Service, r.Total, len(r.ListOps), len(r.DescribeOps), len(r.GetOps), r.LDG, r.Resolution)
+		module := formatModule(r)
+		if r.Error {
+			fmt.Fprintf(w, "%-28s %6s %6s %6s %6s %6s  %-16s %-14s ERROR: %s\n",
+				r.Service, "ERROR", "ERROR", "ERROR", "ERROR", "ERROR", r.Resolution, module, r.ErrorReason)
+
+			continue
+		}
+		fmt.Fprintf(w, "%-28s %6d %6d %6d %6d %6d  %-16s %-14s\n",
+			r.Service, r.Total, len(r.ListOps), len(r.DescribeOps), len(r.GetOps), r.LDG, r.Resolution, module)
 	}
+}
+
+func printErrorBanner(w *os.File, results []serviceResult) {
+	var errs []serviceResult
+	for _, r := range results {
+		if r.Error {
+			errs = append(errs, r)
+		}
+	}
+	if len(errs) == 0 {
+		return
+	}
+
+	fmt.Fprintf(w,
+		"ERROR: %d service(s) could not be fully resolved -- these are NOT zero-op services, they are unchecked:\n",
+		len(errs))
+	for _, r := range errs {
+		fmt.Fprintf(w, "  %-28s %s\n", r.Service, r.ErrorReason)
+	}
+	fmt.Fprintln(w)
+}
+
+func formatModule(r serviceResult) string {
+	module := strings.Join(r.SDKModules, ",")
+	if r.Aliased {
+		module += " (alias)"
+	}
+
+	return module
 }
 
 // pkgIndex is the parsed, indexed form of one service package: every
@@ -352,12 +470,26 @@ func (w *opWalker) resolveDynamicSources() {
 func (w *opWalker) visitFallbackNode(n ast.Node) {
 	switch v := n.(type) {
 	case *ast.KeyValueExpr:
-		lit, isStringKey := v.Key.(*ast.BasicLit)
-		if isStringKey && lit.Kind == token.STRING {
-			w.recordLiteral(lit)
-		}
+		w.recordFallbackKey(v.Key)
 	case *ast.IndexExpr:
 		w.visitFallbackIndex(v)
+	}
+}
+
+// recordFallbackKey handles both literal-string map keys (map[string]T{"Foo": ...})
+// and named-const keys (map[string]T{opFoo: ...}, dms's style across its
+// opsXxx() family builders) -- mirroring the const resolution extractLiterals
+// already does for dynamic-source var initializers.
+func (w *opWalker) recordFallbackKey(key ast.Expr) {
+	switch k := key.(type) {
+	case *ast.BasicLit:
+		if k.Kind == token.STRING {
+			w.recordLiteral(k)
+		}
+	case *ast.Ident:
+		if s, ok := w.idx.constVals[k.Name]; ok && opNameRe.MatchString(s) {
+			w.seen[s] = true
+		}
 	}
 }
 
@@ -380,11 +512,13 @@ func (w *opWalker) visitFallbackIndex(v *ast.IndexExpr) {
 }
 
 func censusService(dir, name string) serviceResult {
+	modules := resolveSDKModules(dir)
+
 	idx := indexPackage(dir)
 
 	entry, ok := idx.funcDecls["GetSupportedOperations"]
 	if !ok {
-		return serviceResult{Service: name, Resolution: resolutionUnresolved}
+		return finalizeResult(name, resolutionUnresolved, modules, nil)
 	}
 
 	w := newOpWalker(idx)
@@ -402,7 +536,34 @@ func censusService(dir, name string) serviceResult {
 		resolution = resolutionUnresolved
 	}
 
-	return bucketize(name, resolution, w.seen)
+	return finalizeResult(name, resolution, modules, w.seen)
+}
+
+// finalizeResult buckets the resolved ops and marks the row as an explicit
+// error -- rather than a bare zero -- whenever either resolution axis failed:
+// no SDK module could be identified from the package's own imports, or no
+// operations could be resolved from GetSupportedOperations. Either failure
+// means the numeric columns are "not checked," not "checked and found
+// small," and a reader must be able to tell those apart without cross-
+// referencing the resolution column by hand.
+func finalizeResult(name, resolution string, modules []string, seen map[string]bool) serviceResult {
+	r := bucketize(name, resolution, seen)
+	r.SDKModules = modules
+	r.Aliased = len(modules) > 0 && !slices.Contains(modules, name)
+
+	var reasons []string
+	if len(modules) == 0 {
+		reasons = append(reasons, "no aws-sdk-go-v2/service/* import found in package")
+	}
+	if resolution == resolutionUnresolved {
+		reasons = append(reasons, "no operations resolved from GetSupportedOperations")
+	}
+	if len(reasons) > 0 {
+		r.Error = true
+		r.ErrorReason = strings.Join(reasons, "; ")
+	}
+
+	return r
 }
 
 func bucketize(name, resolution string, seen map[string]bool) serviceResult {
