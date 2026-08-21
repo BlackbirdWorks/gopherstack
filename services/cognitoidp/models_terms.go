@@ -33,8 +33,9 @@ type createTermsInput struct {
 }
 
 // termsType mirrors types.TermsType (cognitoidentityprovider@1.67.4 types/types.go:2225).
+// Links is required on the wire even when empty -- toTermsType never leaves it nil.
 type termsType struct {
-	Links            map[string]string `json:"Links,omitempty"`
+	Links            map[string]string `json:"Links"`
 	ClientID         string            `json:"ClientId,omitempty"`
 	TermsID          string            `json:"TermsId,omitempty"`
 	UserPoolID       string            `json:"UserPoolId,omitempty"`

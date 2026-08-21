@@ -82,9 +82,15 @@ type compromisedCredRiskConfigJSON struct {
 	EventFilter []string                    `json:"EventFilter,omitempty"`
 }
 
+// Notify is required and real for a false value (e.g. "don't notify" for a
+// low-risk assessment) -- omitempty on a bool drops the key precisely when
+// the value is false, indistinguishable from Go's zero value to gofmt but
+// wrong on AWS's own wire contract. Not provable via a real SDK client round
+// trip (an omitted key and an explicit false both decode to false), so this
+// is fixed but excluded from the r80d bug tally.
 type accountTakeoverActionTypeJSON struct {
 	EventAction string `json:"EventAction,omitempty"`
-	Notify      bool   `json:"Notify,omitempty"`
+	Notify      bool   `json:"Notify"`
 }
 
 type accountTakeoverActionsJSON struct {
@@ -99,13 +105,17 @@ type notifyEmailTypeJSON struct {
 	TextBody string `json:"TextBody,omitempty"`
 }
 
+// SourceArn is required whenever NotifyConfiguration is present. The real
+// SDK's client-side validator only null-checks the *string pointer, not its
+// content, so a real client can send an empty-string SourceArn -- it must
+// still round-trip, never be omitted.
 type notifyConfigJSON struct {
 	BlockEmail    *notifyEmailTypeJSON `json:"BlockEmail,omitempty"`
 	MfaEmail      *notifyEmailTypeJSON `json:"MfaEmail,omitempty"`
 	NoActionEmail *notifyEmailTypeJSON `json:"NoActionEmail,omitempty"`
 	From          string               `json:"From,omitempty"`
 	ReplyTo       string               `json:"ReplyTo,omitempty"`
-	SourceArn     string               `json:"SourceArn,omitempty"`
+	SourceArn     string               `json:"SourceArn"`
 }
 
 type accountTakeoverRiskConfigJSON struct {

@@ -14,9 +14,13 @@ type ResourceServer struct {
 	Scopes     []ResourceServerScope `json:"Scopes,omitempty"`
 }
 
+// ScopeName and ScopeDescription are both required per scope element, and the
+// real SDK's client-side validator only null-checks the pointer, not its
+// content -- a real client can send an empty-string scope name/description,
+// so both must round-trip even when empty, never omitted.
 type resourceServerScopeType struct {
-	ScopeName        string `json:"ScopeName,omitempty"`
-	ScopeDescription string `json:"ScopeDescription,omitempty"`
+	ScopeName        string `json:"ScopeName"`
+	ScopeDescription string `json:"ScopeDescription"`
 }
 
 type resourceServerAccurateType struct {

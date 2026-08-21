@@ -157,12 +157,15 @@ from the ranked table) as future batches clear more of it.
 | ce | 30 | 47 (18 ops-with-required) | 0 (clean; several dead/unreachable `omitempty` tags reviewed and left alone -- see the batch-17 note below and services/ce/PARITY.md) | gopherstack-r80d batch 17 |
 | swf | 30 | 39 (17 ops-with-required) | yes (3 findings / 4 member-level fixes: `DecisionTaskCompletedEventAttributes.scheduledEventId`/`.startedEventId` + `PollForDecisionTaskOutput.StartedEventId`, `ChildWorkflowExecutionTimedOutEventAttributes.timeoutType`, `TimerCanceledEventAttributes.startedEventId` -- see the batch-17 note below and services/swf/PARITY.md) | gopherstack-r80d batch 17 |
 | accessanalyzer | 28 | 39 (17 ops-with-required) | yes (1: `Location.Span`, nested inside `ValidatePolicyFinding.Locations`, invisible to the flat per-op scan and one level deeper than `ValidatePolicyFinding` itself -- see the batch-18 note below and services/accessanalyzer/PARITY.md) | gopherstack-r80d batch 18 |
+| cognitoidp | 27 | 129 (25 ops-with-required) | yes (4: `TermsType.Links`, `ListWebAuthnCredentialsOutput.Credentials`, `ResourceServerScopeType.ScopeName`/`.ScopeDescription`, `NotifyConfigurationType.SourceArn` -- see the batch-19 note below and services/cognitoidp/PARITY.md) | gopherstack-r80d batch 19 |
 
-35 services settled, 2297 required output fields read end to end (the running
+36 services settled, 2324 required output fields read end to end (the running
 total counts each settled service's flat per-op `cmd/requiredoutputfields`
 number, as established by every prior batch -- glue's own real audited
 surface was substantially larger once its ~56 gopherstack-modeled domain
-structs were cross-checked, see the batch-15 note below). Batch 18
+structs were cross-checked, see the batch-15 note below). Batch 19
+(cognitoidp only) added 4 more counted bugs on top of the running total --
+see the batch-19 note below for detail. Batch 18
 (accessanalyzer only) added 1 more counted bug on top of the running total
 -- see the batch-18 note below for detail. Batch 17
 (efs + ce + swf, 30 fields each) added 4 more counted bugs (1 + 0 + 3) on top
@@ -838,6 +841,72 @@ required output fields read end to end). Did not touch sagemaker
 (off-limits, confirmed via repeated `git status` checks) or attempt a
 fourth service this batch.
 
+### cognitoidp (batch 19): 4 bugs, all "client only null-checks the pointer, not its content"
+
+27 fields / 129 ops / 25 ops-with-required per a fresh `cmd/requiredoutputfields`
+run, cross-checked against this file before starting (both agreed cognitoidp
+is the largest remaining candidate after sagemaker, still off-limits --
+`git status` showed its gopherstack-oc9v conversion with uncommitted changes
+both before and after this batch). Before trusting the flat count, the
+campaign's own instrument was re-validated per the brief: two independent
+implementations of a full `types.go` domain-struct walk -- a character-level
+brace matcher and a `go/parser`/`go/ast`-based parser -- were built and
+cross-checked against each other. They agreed exactly: 93 structs, 29
+carrying >=1 required member, 64 required fields summed; a third check
+(`grep -c "This member is required."`) also returned 64.
+
+That domain-struct total (64) is larger than the flat per-op count (27) for
+the same "one wrapper key hides the domain struct's own required members"
+reason established by pinpoint/bedrockagent/accessanalyzer:
+`CreateTerms`/`DescribeTerms`/`UpdateTerms` don't appear in the 25-op flat
+list at all (their `Terms` field isn't itself required) yet each nests
+`types.TermsType`, which alone carries 9 required members.
+
+4 bugs, all a variant of the dominant class this cut names but with an
+extra wrinkle not previously logged this precisely: a required `*string`/map
+member's real SDK client-side validator only null-checks the pointer, not
+its content, so a real client can send an explicit **empty-string** value
+where gopherstack's wire type assumed "empty means absent" and tagged the
+field `omitempty`. `TermsType.Links` (Create/DescribeTerms omit Links
+entirely, since it's optional on input); `ListWebAuthnCredentialsOutput.
+Credentials` (omitempty drops a required array the handler already built
+non-nil, for a user with zero passkeys); `ResourceServerScopeType.ScopeName`/
+`.ScopeDescription` and `NotifyConfigurationType.SourceArn` (both real
+`*string` fields the SDK's own validator only nil-checks, confirmed by
+reading `validateResourceServerScopeType`/`validateNotifyConfigurationType`
+in validators.go directly, not assumed). All 4 proven via real
+`aws-sdk-go-v2/service/cognitoidentityprovider` client round trips
+(`wire_output_required_r80d_test.go`), hand-reverted/confirmed-failing/
+restored, md5sum byte-identical. One more (`AccountTakeoverActionType.
+Notify`, a required `bool`) was fixed but not counted: `omitempty` drops
+the key exactly when `Notify == false`, but an omitted key and an explicit
+`false` decode identically for any real client, so nothing can prove it --
+the amplify batch-14 `Branch.Stage` class, reapplied.
+
+Disclosed, not fixed: `EventFeedbackType.Provider` looked like the "no
+struct field at all" class until the data path was traced further --
+`b.authEvents` (auth_events.go) is only ever read, never written, by any
+op in this backend, so `AdminListUserAuthEvents` always returns empty to a
+real client and the feedback path can never be reached at all. A
+missing-feature gap (this emulator never synthesizes adaptive-auth risk
+events), the same class as swf's undelivered `*EventAttributes` types
+(batch 17), not this cut's bug. `UserPoolAddOnsType.AdvancedSecurityMode`/
+`UsernameConfigurationType.CaseSensitive`/`RefreshTokenRotationType.Feature`
+are likewise unmodeled features (zero references anywhere in the package).
+`UserPoolType.LambdaConfig`/`AccountRecoverySetting` and
+`ManagedLoginBranding.Assets` are opaque `map[string]any` pass-through,
+genuinely inapplicable rather than unaudited (the accessanalyzer
+`AnalyzerConfiguration` precedent).
+
+All gates green (build/vet/gofmt/race-test/lint, 0 banned nolints, 0 new
+nolints, no exported signatures changed). services/_REQUIRED_OUTPUT_CANDIDATES.md
+updated: cognitoidp moved from the ranked table into "Already examined"
+(settled-services count now 36, 2324 required output fields read end to
+end). Did not touch sagemaker (off-limits, `git status` checked before and
+after) or attempt a second service this batch, per the brief's "full rigour
+and no more" -- see services/cognitoidp/PARITY.md's 2026-08-21 entry for
+full detail and SDK file:line citations.
+
 ### accessanalyzer (batch 18): 1 bug, one level deeper than a nested-domain-struct undercount
 
 28 fields / 39 ops / 17 ops-with-required per `cmd/requiredoutputfields`
@@ -1054,13 +1123,13 @@ settled batch 10), apprunner (44, settled batch 10), databrew (43, settled
 batch 11), backup (41, settled batch 11), inspector2 (38, settled batch
 12), vpclattice (37, settled batch 13), appmesh (36, settled batch 13),
 amplify (35, settled batch 14), glue (34, settled batch 15), batch (31,
-settled batch 16), ce/efs/swf (30 each, settled batch 17), and
-accessanalyzer (28, settled batch 18) removed from this table — see the
-"Already examined" table above.
+settled batch 16), ce/efs/swf (30 each, settled batch 17),
+accessanalyzer (28, settled batch 18), and cognitoidp (27, settled
+batch 19) removed from this table — see the "Already examined" table
+above.
 
 ```
  459  sagemaker                 ops=403  ops-with-required=188
-  27  cognitoidp                ops=129  ops-with-required=25
   25  emrserverless             ops=22   ops-with-required=14
   22  networkmonitor            ops=12   ops-with-required=7
   20  bedrockruntime            ops=11   ops-with-required=8
@@ -1200,8 +1269,14 @@ Notes on the top of this table for the next batch:
   2026-08-21 entry, plus the batch-18 note below for full detail. Verified
   as the largest remaining candidate after sagemaker via a fresh
   `cmd/requiredoutputfields` run cross-checked against this file before
-  starting (both agreed: accessanalyzer 28/39/17). **cognitoidp (27,
-  ops=129/ops-with-required=25) is now the largest remaining candidate
+  starting (both agreed: accessanalyzer 28/39/17).
+- **cognitoidp settled (batch 19)** — do not re-derive, see the
+  settled-services table above and services/cognitoidp/PARITY.md's
+  2026-08-21 entry, plus the batch-19 note below for full detail. Verified
+  as the largest remaining candidate after sagemaker via a fresh
+  `cmd/requiredoutputfields` run cross-checked against this file before
+  starting (both agreed: cognitoidp 27/129/25). **emrserverless (25,
+  ops=22/ops-with-required=14) is now the largest remaining candidate
   after sagemaker.**
 - **omics settled (batch 7)** — do not re-derive, see the settled-services
   table above and services/omics/PARITY.md's 2026-08-21 entries. The

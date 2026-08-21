@@ -8,6 +8,11 @@ import (
 )
 
 func toTermsType(t *Terms) *termsType {
+	links := t.Links
+	if links == nil {
+		links = map[string]string{}
+	}
+
 	return &termsType{
 		ClientID:         t.ClientID,
 		TermsID:          t.TermsID,
@@ -15,7 +20,7 @@ func toTermsType(t *Terms) *termsType {
 		TermsName:        t.TermsName,
 		Enforcement:      t.Enforcement,
 		TermsSource:      t.TermsSource,
-		Links:            t.Links,
+		Links:            links,
 		CreationDate:     awstime.Epoch(t.CreatedAt),
 		LastModifiedDate: awstime.Epoch(t.LastModifiedAt),
 	}
