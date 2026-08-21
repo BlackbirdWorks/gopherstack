@@ -5,7 +5,11 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
+	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	sagemakersdk "github.com/aws/aws-sdk-go-v2/service/sagemaker"
+	smtypes "github.com/aws/aws-sdk-go-v2/service/sagemaker/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -20,12 +24,58 @@ func TestHandler_CreateCompilationJob(t *testing.T) {
 	rec := doSageMakerRequest(t, h, "CreateCompilationJob", map[string]any{
 		"CompilationJobName": "my-compile",
 		"RoleArn":            "arn:test",
+		"OutputConfig":       map[string]any{"S3OutputLocation": "s3://bucket/out/"},
+		"StoppingCondition":  map[string]any{"MaxRuntimeInSeconds": 3600},
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]string
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	assert.Contains(t, resp["CompilationJobArn"], "my-compile")
+}
+
+// TestHandler_CreateCompilationJob_RequiredFieldsEnforced asserts
+// RoleArn/OutputConfig/StoppingCondition (all "This member is required" per
+// api_op_CreateCompilationJob.go:60,98,102) are each independently
+// rejected when absent -- previously none of the three were validated, so
+// a request supplying none of them still succeeded (see
+// TestHandler_CreateCompilationJob above, before this pass).
+func TestHandler_CreateCompilationJob_RequiredFieldsEnforced(t *testing.T) {
+	t.Parallel()
+
+	validBody := map[string]any{
+		"CompilationJobName": "cj-required",
+		"RoleArn":            "arn:test",
+		"OutputConfig":       map[string]any{"S3OutputLocation": "s3://bucket/out/"},
+		"StoppingCondition":  map[string]any{"MaxRuntimeInSeconds": 3600},
+	}
+
+	tests := []struct {
+		name   string
+		remove string
+	}{
+		{name: "missing role arn", remove: "RoleArn"},
+		{name: "missing output config", remove: "OutputConfig"},
+		{name: "missing stopping condition", remove: "StoppingCondition"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			body := make(map[string]any, len(validBody))
+			for k, v := range validBody {
+				if k != tt.remove {
+					body[k] = v
+				}
+			}
+
+			rec := doSageMakerRequest(t, h, "CreateCompilationJob", body)
+			assert.Equal(t, http.StatusBadRequest, rec.Code)
+		})
+	}
 }
 
 func TestHandler_DescribeCompilationJob(t *testing.T) {
@@ -37,7 +87,12 @@ func TestHandler_DescribeCompilationJob(t *testing.T) {
 		t,
 		h,
 		"CreateCompilationJob",
-		map[string]any{"CompilationJobName": "cj-1", "RoleArn": "arn:test"},
+		map[string]any{
+			"CompilationJobName": "cj-1",
+			"RoleArn":            "arn:test",
+			"OutputConfig":       map[string]any{"S3OutputLocation": "s3://bucket/out/"},
+			"StoppingCondition":  map[string]any{"MaxRuntimeInSeconds": 3600},
+		},
 	)
 
 	rec := doSageMakerRequest(t, h, "DescribeCompilationJob", map[string]any{"CompilationJobName": "cj-1"})
@@ -49,6 +104,9 @@ func TestHandler_DescribeCompilationJob(t *testing.T) {
 	assert.Equal(t, "INPROGRESS", resp["CompilationJobStatus"])
 }
 
+// TestHandler_StopCompilationJob asserts the real INPROGRESS -> STOPPING ->
+// STOPPED sequence (api_op_StopCompilationJob.go:16-19) -- previously Stop
+// set STOPPED directly, so a client would never observe STOPPING at all.
 func TestHandler_StopCompilationJob(t *testing.T) {
 	t.Parallel()
 
@@ -58,7 +116,12 @@ func TestHandler_StopCompilationJob(t *testing.T) {
 		t,
 		h,
 		"CreateCompilationJob",
-		map[string]any{"CompilationJobName": "cj-stop", "RoleArn": "arn:test"},
+		map[string]any{
+			"CompilationJobName": "cj-stop",
+			"RoleArn":            "arn:test",
+			"OutputConfig":       map[string]any{"S3OutputLocation": "s3://bucket/out/"},
+			"StoppingCondition":  map[string]any{"MaxRuntimeInSeconds": 3600},
+		},
 	)
 	rec := doSageMakerRequest(t, h, "StopCompilationJob", map[string]any{"CompilationJobName": "cj-stop"})
 	assert.Equal(t, http.StatusOK, rec.Code)
@@ -66,7 +129,15 @@ func TestHandler_StopCompilationJob(t *testing.T) {
 	rec = doSageMakerRequest(t, h, "DescribeCompilationJob", map[string]any{"CompilationJobName": "cj-stop"})
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	assert.Equal(t, "STOPPED", resp["CompilationJobStatus"])
+	assert.Equal(t, "STOPPING", resp["CompilationJobStatus"])
+
+	require.Eventually(t, func() bool {
+		descRec := doSageMakerRequest(t, h, "DescribeCompilationJob", map[string]any{"CompilationJobName": "cj-stop"})
+		var out map[string]any
+		require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &out))
+
+		return out["CompilationJobStatus"] == "STOPPED"
+	}, 2*time.Second, 10*time.Millisecond)
 }
 
 func TestHandler_ListCompilationJobs(t *testing.T) {
@@ -74,18 +145,19 @@ func TestHandler_ListCompilationJobs(t *testing.T) {
 
 	h := newTestHandler(t)
 
-	doSageMakerRequest(
-		t,
-		h,
-		"CreateCompilationJob",
-		map[string]any{"CompilationJobName": "cj-a", "RoleArn": "arn:test"},
-	)
-	doSageMakerRequest(
-		t,
-		h,
-		"CreateCompilationJob",
-		map[string]any{"CompilationJobName": "cj-b", "RoleArn": "arn:test"},
-	)
+	for _, name := range []string{"cj-a", "cj-b"} {
+		doSageMakerRequest(
+			t,
+			h,
+			"CreateCompilationJob",
+			map[string]any{
+				"CompilationJobName": name,
+				"RoleArn":            "arn:test",
+				"OutputConfig":       map[string]any{"S3OutputLocation": "s3://bucket/out/"},
+				"StoppingCondition":  map[string]any{"MaxRuntimeInSeconds": 3600},
+			},
+		)
+	}
 
 	rec := doSageMakerRequest(t, h, "ListCompilationJobs", map[string]any{})
 	assert.Equal(t, http.StatusOK, rec.Code)
@@ -119,7 +191,7 @@ func TestCompilationJob_InputOutputConfigRoundtrip(t *testing.T) {
 	}
 	sc := &sagemaker.StoppingCondition{MaxRuntimeInSeconds: 300}
 
-	err = b.SetCompilationJobExtras(ctx, "roundtrip-job", inputCfg, outputCfg, sc)
+	err = b.SetCompilationJobExtras(ctx, "roundtrip-job", inputCfg, outputCfg, sc, "", nil)
 	require.NoError(t, err)
 
 	got, err := b.DescribeCompilationJob(ctx, "roundtrip-job")
@@ -207,6 +279,8 @@ func TestCompilationJob_InitialStatus_InProgress(t *testing.T) {
 	doSageMakerRequest(t, h, "CreateCompilationJob", map[string]any{
 		"CompilationJobName": "compile-status",
 		"RoleArn":            "arn:test",
+		"OutputConfig":       map[string]any{"S3OutputLocation": "s3://bucket/out/"},
+		"StoppingCondition":  map[string]any{"MaxRuntimeInSeconds": 3600},
 	})
 
 	rec := doSageMakerRequest(t, h, "DescribeCompilationJob", map[string]any{
@@ -227,6 +301,8 @@ func TestStopCompilationJob_Terminal_Rejected(t *testing.T) {
 	doSageMakerRequest(t, h, "CreateCompilationJob", map[string]any{
 		"CompilationJobName": "compile-terminal",
 		"RoleArn":            "arn:test",
+		"OutputConfig":       map[string]any{"S3OutputLocation": "s3://bucket/out/"},
+		"StoppingCondition":  map[string]any{"MaxRuntimeInSeconds": 3600},
 	})
 	doSageMakerRequest(t, h, "StopCompilationJob", map[string]any{
 		"CompilationJobName": "compile-terminal",
@@ -396,4 +472,117 @@ func TestHandler_AIBenchmarkJobLifecycle(t *testing.T) {
 			tt.run(t)
 		})
 	}
+}
+
+// TestHandler_ListAIBenchmarkJobs_DefaultSortOrder_RealClient asserts the
+// op's own doc default (api_op_ListAIBenchmarkJobs.go:44,49: SortBy
+// CreationTime, SortOrder Descending) -- previously an unset SortBy/
+// SortOrder fell through to Name/Ascending instead, the reverse of the
+// real default.
+func TestHandler_ListAIBenchmarkJobs_DefaultSortOrder_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestSageMakerClient(t, h)
+
+	doSageMakerRequest(t, h, "CreateAIWorkloadConfig", map[string]any{"AIWorkloadConfigName": "wc-sort"})
+
+	for _, name := range []string{"first-bench", "second-bench"} {
+		rec := doSageMakerRequest(t, h, "CreateAIBenchmarkJob", map[string]any{
+			"AIBenchmarkJobName":         name,
+			"AIWorkloadConfigIdentifier": "wc-sort",
+			"RoleArn":                    "arn:aws:iam::000000000000:role/TestRole",
+			"BenchmarkTarget": map[string]any{
+				"Endpoint": map[string]any{"Identifier": "my-endpoint"},
+			},
+			"OutputConfig": map[string]any{"S3OutputLocation": "s3://bucket/out/"},
+		})
+		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	}
+
+	out, err := client.ListAIBenchmarkJobs(t.Context(), &sagemakersdk.ListAIBenchmarkJobsInput{})
+	require.NoError(t, err)
+	require.Len(t, out.AIBenchmarkJobs, 2)
+	assert.Equal(t, "second-bench", aws.ToString(out.AIBenchmarkJobs[0].AIBenchmarkJobName))
+	assert.Equal(t, "first-bench", aws.ToString(out.AIBenchmarkJobs[1].AIBenchmarkJobName))
+}
+
+// TestHandler_CompilationJob_ExtrasRoundTrip_RealClient asserts
+// ModelPackageVersionArn/VpcConfig -- previously entirely absent from
+// decode -- now round-trip through DescribeCompilationJob.
+func TestHandler_CompilationJob_ExtrasRoundTrip_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestSageMakerClient(t, h)
+
+	_, err := client.CreateCompilationJob(t.Context(), &sagemakersdk.CreateCompilationJobInput{
+		CompilationJobName:     aws.String("cj-extras"),
+		RoleArn:                aws.String("arn:aws:iam::000000000000:role/TestRole"),
+		OutputConfig:           &smtypes.OutputConfig{S3OutputLocation: aws.String("s3://bucket/out")},
+		StoppingCondition:      &smtypes.StoppingCondition{MaxRuntimeInSeconds: aws.Int32(3600)},
+		ModelPackageVersionArn: aws.String("arn:aws:sagemaker:us-east-1:000000000000:model-package/pkg/1"),
+		VpcConfig: &smtypes.NeoVpcConfig{
+			SecurityGroupIds: []string{"sg-1"},
+			Subnets:          []string{"subnet-1"},
+		},
+	})
+	require.NoError(t, err)
+
+	out, err := client.DescribeCompilationJob(t.Context(), &sagemakersdk.DescribeCompilationJobInput{
+		CompilationJobName: aws.String("cj-extras"),
+	})
+	require.NoError(t, err)
+	assert.Equal(
+		t,
+		"arn:aws:sagemaker:us-east-1:000000000000:model-package/pkg/1",
+		aws.ToString(out.ModelPackageVersionArn),
+	)
+	require.NotNil(t, out.VpcConfig)
+	assert.Equal(t, []string{"sg-1"}, out.VpcConfig.SecurityGroupIds)
+	assert.Equal(t, []string{"subnet-1"}, out.VpcConfig.Subnets)
+}
+
+// TestHandler_CompilationJob_ReachesCompleted_RealClient asserts
+// CompilationJobStatus advances INPROGRESS -> COMPLETED on its own --
+// previously nothing ever advanced it past INPROGRESS unless a client
+// called StopCompilationJob -- and that ModelArtifacts (a required
+// DescribeCompilationJobOutput member, types.go/api_op_DescribeCompilationJob.go:88)
+// is populated once it does, derived from OutputConfig.S3OutputLocation.
+func TestHandler_CompilationJob_ReachesCompleted_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestSageMakerClient(t, h)
+
+	_, err := client.CreateCompilationJob(t.Context(), &sagemakersdk.CreateCompilationJobInput{
+		CompilationJobName: aws.String("cj-completes"),
+		RoleArn:            aws.String("arn:aws:iam::000000000000:role/TestRole"),
+		OutputConfig:       &smtypes.OutputConfig{S3OutputLocation: aws.String("s3://bucket/out")},
+		StoppingCondition:  &smtypes.StoppingCondition{MaxRuntimeInSeconds: aws.Int32(3600)},
+	})
+	require.NoError(t, err)
+
+	out, err := client.DescribeCompilationJob(t.Context(), &sagemakersdk.DescribeCompilationJobInput{
+		CompilationJobName: aws.String("cj-completes"),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, smtypes.CompilationJobStatusInprogress, out.CompilationJobStatus)
+
+	require.Eventually(t, func() bool {
+		polled, pollErr := client.DescribeCompilationJob(t.Context(), &sagemakersdk.DescribeCompilationJobInput{
+			CompilationJobName: aws.String("cj-completes"),
+		})
+		require.NoError(t, pollErr)
+
+		return polled.CompilationJobStatus == smtypes.CompilationJobStatusCompleted
+	}, 2*time.Second, 10*time.Millisecond)
+
+	out, err = client.DescribeCompilationJob(t.Context(), &sagemakersdk.DescribeCompilationJobInput{
+		CompilationJobName: aws.String("cj-completes"),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, out.ModelArtifacts)
+	assert.Equal(t, "s3://bucket/out/model.tar.gz", aws.ToString(out.ModelArtifacts.S3ModelArtifacts))
+	assert.NotNil(t, out.CompilationEndTime)
 }

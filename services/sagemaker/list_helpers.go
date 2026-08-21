@@ -20,6 +20,12 @@ import (
 // literal (goconst).
 const sortOrderDescending = "Descending"
 
+// sortOrderAscending is the "Ascending" SortOrder value shared by every
+// List* op family whose real default is Descending (so the code compares
+// against the non-default value explicitly) — pulled out so those call
+// sites don't each repeat the same string literal (goconst).
+const sortOrderAscending = "Ascending"
+
 // sortByLastModifiedTime is the "LAST_MODIFIED_TIME" SortBy value shared by
 // the Image/ImageVersion/EdgeDeploymentPlan sort-by enums (each its own
 // distinct type, but spelled identically) — pulled out so those call sites

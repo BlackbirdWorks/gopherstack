@@ -51,6 +51,13 @@ const (
 	// DescribeHyperParameterTuningJob showed Stopping for the entire
 	// remaining lifetime of every stopped job.
 	hpTuningJobStoppingToStopped = 150 * time.Millisecond
+	// compilationJobInProgressToCompleted/compilationJobStoppingToStopped
+	// drive CompilationJob's own INPROGRESS -> COMPLETED and
+	// STOPPING -> STOPPED transitions. Previously nothing ever advanced
+	// INPROGRESS at all, and Stop set STOPPED directly with no STOPPING
+	// step, contradicting api_op_StopCompilationJob.go's own doc.
+	compilationJobInProgressToCompleted = 300 * time.Millisecond
+	compilationJobStoppingToStopped     = 150 * time.Millisecond
 )
 
 // ---------------------------------------------------------------------------

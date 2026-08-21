@@ -76,16 +76,34 @@ ops:
   DescribeAIBenchmarkJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "required fields (Arn/Name/Status/AIWorkloadConfigIdentifier/BenchmarkTarget/CreationTime/OutputConfig/RoleArn) always emitted; BenchmarkTarget/OutputConfig/NetworkConfig are json.RawMessage passthrough of the Create payload — see aiBenchmarkJob family note"}
   DeleteAIBenchmarkJob: {wire: ok, errors: ok, state: ok, persist: ok}
   StopAIBenchmarkJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "InProgress->Stopping->Stopped FSM via stopSimpleJobFSM (lifecycle.go)"}
-  ListAIBenchmarkJobs: {wire: ok, errors: ok, state: ok, persist: ok, note: "StatusEquals/NameContains/CreationTimeAfter/Before/SortBy/SortOrder/MaxResults all real filters; AIWorkloadConfigName derived from the stored identifier"}
-  CreateAIRecommendationJob: {wire: ok, errors: ok, state: ok, persist: ok}
-  DescribeAIRecommendationJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "required fields always emitted; ModelSource/OutputConfig/PerformanceTarget/ComputeSpec/InferenceSpecification are json.RawMessage passthrough — see aiRecommendationJob family note; Recommendations intentionally always empty, see gaps:"}
+  ListAIBenchmarkJobs: {wire: fixed, errors: ok, state: ok, persist: ok, note: "StatusEquals/NameContains/CreationTimeAfter/Before/SortBy/SortOrder/MaxResults all real filters; AIWorkloadConfigName derived from the stored identifier. parity-21: an unset SortBy/SortOrder fell through to Name/Ascending, the reverse of the op's own doc default (CreationTime/Descending) -- fixed."}
+  CreateAIRecommendationJob: {wire: fixed, errors: ok, state: ok, persist: ok, note: "parity-21: AdapterSource was entirely absent from decode -- added as json.RawMessage passthrough, threaded through Create and echoed on Describe."}
+  DescribeAIRecommendationJob: {wire: fixed, errors: ok, state: ok, persist: ok, note: "required fields always emitted; ModelSource/OutputConfig/PerformanceTarget/ComputeSpec/InferenceSpecification/AdapterSource are json.RawMessage passthrough — see aiRecommendationJob family note; Recommendations intentionally always empty, see gaps:"}
   DeleteAIRecommendationJob: {wire: ok, errors: ok, state: ok, persist: ok}
   StopAIRecommendationJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "InProgress->Stopping->Stopped FSM via stopSimpleJobFSM (lifecycle.go)"}
-  ListAIRecommendationJobs: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListAIRecommendationJobs: {wire: fixed, errors: ok, state: ok, persist: ok, note: "parity-21: same SortBy/SortOrder default bug as ListAIBenchmarkJobs (real default CreationTime/Descending, was falling through to Name/Ascending) -- fixed."}
   CreateAIWorkloadConfig: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeAIWorkloadConfig: {wire: ok, errors: ok, state: ok, persist: ok, note: "AIWorkloadConfigs/DatasetConfig are json.RawMessage passthrough of the Create payload"}
   DeleteAIWorkloadConfig: {wire: ok, errors: ok, state: ok, persist: ok}
   ListAIWorkloadConfigs: {wire: ok, errors: ok, state: ok, persist: ok}
+
+  # --- parity-21: CompilationJob/AppImageConfig/CodeRepository field audit
+  # (previously ungraded -- neither family had ops: entries at all) ---
+  CreateCompilationJob: {wire: fixed, errors: ok, state: ok, persist: ok, note: "parity-21: RoleArn/OutputConfig/StoppingCondition (all required) were entirely unvalidated -- a request omitting all three still succeeded; now enforced. ModelPackageVersionArn/VpcConfig were absent from decode entirely -- added as passthrough."}
+  DescribeCompilationJob: {wire: fixed, errors: ok, state: ok, persist: ok, note: "parity-21: ModelArtifacts (required) and FailureReason were entirely absent from the struct and always nil/missing -- added; ModelArtifacts now populated once a job reaches COMPLETED."}
+  DeleteCompilationJob: {wire: ok, errors: ok, state: ok, persist: ok}
+  StopCompilationJob: {wire: ok, errors: ok, state: fixed, persist: ok, note: "parity-21: set STOPPED directly with no STOPPING step at all, contradicting the op's own doc (\"changes ... to Stopping. After ... stops the job, it sets ... to Stopped\"). Fixed via a real Stopping->Stopped FSM (compilationJobStoppingToStopped, 150ms)."}
+  ListCompilationJobs: {wire: fixed, errors: ok, state: ok, persist: ok, note: "parity-21: was NextToken-only -- added CreationTimeAfter/Before, LastModifiedTimeAfter/Before, MaxResults, NameContains, SortBy(Name/CreationTime/LastModifiedTime, default Name), SortOrder (default Ascending, confirmed per-op)."}
+  CreateAppImageConfig: {wire: fixed, errors: ok, state: ok, persist: ok, note: "parity-21: KernelGatewayImageConfig/JupyterLabAppImageConfig/CodeEditorAppImageConfig (the entire real payload of this resource) were entirely absent from decode -- a client's chosen kernel/container config was silently dropped on every Create. Added as json.RawMessage passthrough."}
+  DescribeAppImageConfig: {wire: fixed, errors: ok, state: ok, persist: ok, note: "parity-21: the three config fields now echoed (previously never captured, so never present to echo)."}
+  UpdateAppImageConfig: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "parity-21: decoded and applied nothing beyond the name -- a client changing an image's kernel/container config had every field silently dropped, the same class as UpdateTrainingJob's prior no-op. Now applies all three config fields."}
+  DeleteAppImageConfig: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListAppImageConfigs: {wire: fixed, errors: ok, state: ok, persist: ok, note: "parity-21: was NextToken-only -- added CreationTimeAfter/Before, ModifiedTimeAfter/Before (note the op's own field name -- not LastModifiedTime* like most sibling ops), MaxResults, NameContains, SortBy(Name/CreationTime/LastModifiedTime, default CreationTime), SortOrder (default Descending, confirmed per-op)."}
+  CreateCodeRepository: {wire: fixed, errors: ok, state: ok, persist: ok, note: "parity-21: GitConfig (required) and its RepositoryUrl (required within it) were entirely unvalidated -- a request omitting GitConfig outright still succeeded."}
+  DescribeCodeRepository: {wire: ok, errors: ok, state: ok, persist: ok}
+  UpdateCodeRepository: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "parity-21, most severe finding this pass: Update replaced the entire stored GitConfig map wholesale with whatever the client sent, silently deleting RepositoryUrl/Branch on any real call -- UpdateCodeRepositoryInput.GitConfig is actually types.GitConfigForUpdate, which has only SecretArn (RepositoryUrl/Branch are Create-only/immutable). Fixed to merge only SecretArn, leaving RepositoryUrl/Branch untouched."}
+  DeleteCodeRepository: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListCodeRepositories: {wire: fixed, errors: ok, state: ok, persist: ok, note: "parity-21: was NextToken-only -- added CreationTimeAfter/Before, LastModifiedTimeAfter/Before, MaxResults, NameContains, SortBy(Name/CreationTime/LastModifiedTime, default Name), SortOrder (default Ascending, confirmed per-op)."}
   CreateJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "JobConfigSchemaVersion validated against jobConfigSchemaVersionsForCategory before create (real ResourceNotFound if unknown)"}
   DescribeJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "required fields (incl. SecondaryStatus/SecondaryStatusTransitions) always emitted; scoped by (JobCategory,JobName) — a category mismatch 404s, see jobs.go doc comment"}
   DeleteJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "rejects a still-InProgress job with ResourceInUse (StopJob required first), matching DeleteJob's doc comment + error deserializer"}
@@ -121,7 +139,7 @@ families:
   cluster: {status: partial, note: "parity-5, wire-audited CreateCluster/DescribeCluster/UpdateCluster against api_op_{Create,Describe,Update}Cluster.go. FIXED parity-5 — ClusterRole and VpcConfig (both real optional CreateClusterInput/DescribeClusterOutput fields; VpcConfig reuses the existing shared VpcConfig type from training_jobs.go) were accepted-and-dropped entirely — CreateCluster's signature didn't have parameters for them at all. FIXED this pass (gopherstack-i359) — AutoScaling (types.ClusterAutoScalingConfig, Mode/AutoScalerType; DescribeCluster reports the required Status as InService, mirroring instanceGroupStatusInService's existing no-async-provisioning convention), NodeProvisioningMode (plain string), and TieredStorageConfig (types.ClusterTieredStorageConfig, Mode/InstanceMemoryAllocationPercentage) are now accepted on Create+Update and returned by Describe. Orchestrator (types.ClusterOrchestrator) is also now modeled — confirmed via botocore sagemaker/2017-07-24@1.43.56 service-2.json (`shapes.ClusterOrchestrator.type == \"structure\"`, not `\"union\"`) and serializers.go:27593-27612 that despite AWS's docs saying 'exactly one of Eks or Slurm', this is a plain struct with two independent optional members, not a discriminated wire union — so both fields decode independently and the exactly-one rule is enforced as a runtime ValidationException (api_op_CreateCluster.go:76-78) instead of a union tag. ALSO FIXED this pass (gopherstack-i359) — a persistence bug found while wiring the above: ClusterRole and VpcConfig (parity-5's fix) were never added to persistedCluster (persistence.go's hand-maintained Cluster DTO), so both were silently dropped across Snapshot/Restore even though CreateCluster/DescribeCluster round-tripped them correctly in memory; fixed alongside the four new fields. NOT fixed (see gaps:): RestrictedInstanceGroups/RestrictedInstanceGroupsConfig — judged too large to model faithfully within this pass's budget (ClusterRestrictedInstanceGroupSpecification alone nests EnvironmentConfig->FSxLustreConfig, a real 3-member InstanceStorageConfig union, and ScheduledUpdateConfig->DeploymentConfiguration->RollingDeploymentPolicy/AlarmDetails — six more nested types beyond the top-level spec); left entirely untouched rather than partially modeled. Re-examined a third time (gopherstack-i359, session 3): same conclusion, with the scope confirmed even larger than previously written up — see gaps: for the session-3 detail, including a wholly separate RestrictedInstanceGroupsConfig field this campaign hadn't previously named. StartClusterHealthCheck (parity-4) unaffected."}
   inference_recommendations_edge_packaging: {status: partial, note: "parity-5, wire-audited CreateInferenceRecommendationsJob/DescribeInferenceRecommendationsJob against api_op_{Create,Describe}InferenceRecommendationsJob.go. This is a DIFFERENT family from AIRecommendationJob (ai_recommendation_jobs.go, parity-4) — distinct SDK ops, distinct store, no shared state. FIXED this pass — InputConfig ([]types.RecommendationJobInputConfig-shaped) is 'This member is required' on both CreateInferenceRecommendationsJobInput and DescribeInferenceRecommendationsJobOutput but was not modeled, accepted, or returned at all (the struct had no field for it whatsoever) — now stored+echoed as opaque json.RawMessage passthrough (same established convention as ai_benchmark_job/ai_recommendation_job/ai_workload_config's own deeply-nested union fields, see gaps: below). Real client-populated content round-trips exactly. EdgePackagingJob portion not otherwise wire-audited this pass. gopherstack-muzq (2026-08-21): InferenceRecommendationsJob.Status was stamped IN_PROGRESS at Create and STOPPING at Stop, and nothing else in this backend ever advanced either -- confirmed via DescribeInferenceRecommendationsJob, which echoed the stored value verbatim forever. Fixed via scheduleInferenceRecommendationsJobCompletion (IN_PROGRESS -> COMPLETED) and a runDelayed continuation in StopInferenceRecommendationsJob (STOPPING -> STOPPED), same lifecycle.go runDelayed pattern as EdgePackagingJob's fix above."}
   training_plan: {status: partial, note: "FIXED this pass — TrainingPlan/ReservedCapacity/ReservedCapacitySummary timestamp encoding (see Notes). Not otherwise wire-audited this pass. FIXED 2026-08-21 (gopherstack-us9u kind-mismatch sweep) -- TrainingPlanExtension.ExtendedAt/StartDate/EndDate and TrainingPlanExtensionOffering.StartDate/EndDate were plain time.Time fields marshaled directly by ExtendTrainingPlan and SearchTrainingPlanOfferings (handler_training_plan.go's json.Marshal(map[string]any{...})), unlike the sibling TrainingPlan/ReservedCapacity types this same file already fixed with a MarshalJSON override -- these two types were missed by that pass. Real ExtendTrainingPlanOutput/SearchTrainingPlanOfferingsOutput deserialize these members via ParseEpochSeconds(json.Number), so every real SDK client's call failed outright once a training plan had any extension offering (SearchTrainingPlanOfferings always generates one when TrainingPlanArn is set) or purchased extension. Fixed via the same alias-embedding MarshalJSON/UnmarshalJSON pattern as TrainingPlan/ReservedCapacity. Proven via a real aws-sdk-go-v2/service/sagemaker client round trip through both ops (wire_training_plan_extension_test.go), hand-reverted/confirmed-failing (expected Timestamp to be a JSON Number, got string instead)/restored, md5sum-verified byte-identical."}
-  monitoring_schedule_workteam_compilation_job: {status: partial, note: "FIXED this pass — MonitoringSchedule and CompilationJob Describe+List timestamp encoding (see Notes). Workteam and deeper MonitoringSchedule/CompilationJob field audit not done this pass."}
+  monitoring_schedule_workteam_compilation_job: {status: partial, note: "FIXED this pass — MonitoringSchedule and CompilationJob Describe+List timestamp encoding (see Notes). Workteam field audit done separately (parity-20). CompilationJob's own deep field audit done parity-21 (gopherstack-oc9v): required-field validation, ModelArtifacts/FailureReason, Stopping FSM, List filter/sort — see ops: entries above and Notes: parity-21. MonitoringSchedule field audit still not done."}
   studio_lifecycle_config: {status: ok, note: "FIXED this pass (gopherstack-5wj0) — CreateStudioLifecycleConfig accepted a request body with no field for StudioLifecycleConfigContent at all, even though it is 'This member is required' on CreateStudioLifecycleConfigRequest (botocore sagemaker service-2.json) and is also part of DescribeStudioLifecycleConfigResponse. Every real client's script content was silently discarded and Create succeeded without it, where real AWS would reject the request. Now required, stored, and returned by Describe."}
 
 gaps:                     # known divergences NOT fixed — link bd issue ids
@@ -3430,3 +3448,224 @@ campaign's standing instruction never to write `pending` or otherwise touch it c
 `handler_experiments.go`, `handler_feature_groups.go`) — next in line per the campaign's
 largest-pile-first ordering, now that all files previously tied at 6 or higher, and all eight
 previously tied at 5, are cleared.
+
+## parity-21 (2026-08-21, gopherstack-oc9v): AIBenchmarkJob/AIRecommendationJob
+List sort-order default + CompilationJob/AppImageConfig/CodeRepository field audit
+(5 of 8 files tied at 5)
+
+Fifteenth pass of the gopherstack-oc9v campaign. Per parity-20's boundary note, this pass took
+five of the eight files tied at 5 (`handler_ai_benchmark_jobs.go`, `handler_ai_recommendation_jobs.go`,
+`handler_app_image_configs.go`, `handler_code_repositories.go`, `handler_compilation_jobs.go`), each
+verified by `grep -c 'var req struct {' <file>.go` = 5 before starting; the remaining three
+(`handler_automl_search.go`, `handler_experiments.go`, `handler_feature_groups.go`) were not started
+this pass, per this pass's own effort budget rather than any difficulty found in them. All 25 of
+this pass's structs were converted to named types and wire-audited field-by-field against the pinned
+SDK (`v1.263.2`, confirmed from `go.mod`, matching prior passes). **79 of sagemaker's 362 inline
+structs now remain** (362 minus the running total through parity-20's 104, minus this pass's 25),
+confirmed by `grep -rc 'var req struct {' services/sagemaker/*.go` summed, not arithmetic; all five
+files now have zero. **New boundary: 3 files tied at 5** (`handler_automl_search.go`,
+`handler_experiments.go`, `handler_feature_groups.go`), then an 8-file tier at 4.
+
+**`handler_code_repositories.go` (CodeRepository family) — the most severe finding of this pass,
+a destructive-write bug rather than an absence:**
+
+- **`UpdateCodeRepository` replaced the entire stored `GitConfig` map wholesale with whatever the
+  client sent**, silently deleting `RepositoryUrl`/`Branch` on any real Update call. The real
+  `UpdateCodeRepositoryInput.GitConfig` (`api_op_UpdateCodeRepository.go:35-38`) is
+  `*types.GitConfigForUpdate`, which has **only `SecretArn`** (`types.go:9239-9248`) — unlike
+  `CreateCodeRepositoryInput.GitConfig` (`*types.GitConfig`, `RepositoryUrl`/`Branch`/`SecretArn`,
+  `types.go:9216-9231`). A real client's Update call can never even construct a payload containing
+  `RepositoryUrl`, so this backend's own generic `map[string]string` storage silently corrupting
+  itself on the first Update was previously invisible to any test that didn't check the field
+  survived. Fixed: `UpdateCodeRepository` now takes a bare `secretArn string` and merges only that
+  key into the existing map.
+- **`CreateCodeRepositoryInput.GitConfig`** (`api_op_CreateCodeRepository.go:44`, required) **and
+  its `RepositoryUrl`** (required within it, `types.go:9216-9221`) **were never validated** — a
+  request omitting `GitConfig` entirely still succeeded, and this exact gap was itself present in a
+  pre-existing test (`TestHandler_UpdateCodeRepository`, which created its fixture repository with
+  no `GitConfig` at all). Fixed: both now enforced.
+- `ListCodeRepositoriesInput` (`api_op_ListCodeRepositories.go:29-64`) was `NextToken`-only — added
+  `CreationTimeAfter`/`Before`, `LastModifiedTimeAfter`/`Before`, `MaxResults`, `NameContains`,
+  `SortBy`(`Name`/`CreationTime`/`LastModifiedTime`, default `Name` per the op's own doc),
+  `SortOrder` (default `Ascending`, confirmed per-op — the opposite default from this pass's other
+  four List ops).
+
+**`handler_compilation_jobs.go` (CompilationJob family) — the second-most severe finding, and the
+first family in this campaign to reach this depth of audit (a prior pass fixed only its timestamp
+encoding, per PARITY.md's own `monitoring_schedule_workteam_compilation_job` entry):**
+
+- **`StopCompilationJob` set `STOPPED` directly with no `STOPPING` step at all**, contradicting the
+  op's own doc text verbatim (`api_op_StopCompilationJob.go:16-19`: "Amazon SageMaker AI changes the
+  CompilationJobStatus of the job to Stopping. After Amazon SageMaker stops the job, it sets the
+  CompilationJobStatus to Stopped."). No existing test asserted the immediate post-Stop value, so
+  nothing caught a client polling immediately after Stop seeing a state one call further along than
+  real AWS would ever show. Fixed via a real `Stopping->Stopped` FSM
+  (`compilationJobStoppingToStopped`, 150ms), matching this campaign's established convention.
+- **`CompilationJobStatus` never advanced past `INPROGRESS` on its own at all** — every sibling
+  "job" family in this service (`AIBenchmarkJob`, `AIRecommendationJob`, `TrainingJob`, ...) auto-
+  completes after a fixed delay; `CompilationJob` had no such transition, so a job stayed
+  `INPROGRESS` forever unless a client explicitly called `StopCompilationJob`. Fixed with a
+  `compilationJobInProgressToCompleted` (300ms) FSM matching the established pattern, populating
+  `ModelArtifacts` (see below) on completion.
+- **`RoleArn`/`OutputConfig`/`StoppingCondition`** (all `This member is required` per
+  `api_op_CreateCompilationJob.go:60,98,102`) **were entirely unvalidated** — a request supplying
+  only `CompilationJobName` still succeeded, and this exact gap was ratified by five pre-existing
+  tests (see below). Fixed: all three now enforced.
+- **`ModelArtifacts`** (required, `api_op_DescribeCompilationJob.go:88`) **and `FailureReason`
+  were entirely absent from the `CompilationJob` struct** — a required response member permanently
+  missing, the same bug class as parity-20's `OptimizationJobSummary` fields. Fixed: `ModelArtifacts`
+  (reusing the existing `ModelArtifacts` type already defined in `training_jobs.go`, avoiding a
+  duplicate) is populated with a derived `S3ModelArtifacts` once the job reaches `COMPLETED`;
+  `FailureReason` added for wire-shape completeness (this backend never simulates a failed
+  compilation, so it is always empty — disclosed, not modeled).
+- `ModelPackageVersionArn`/`VpcConfig` (both optional) were absent from decode entirely — added as
+  passthrough, threaded through Create and echoed on Describe.
+- `ListCompilationJobsInput` (`api_op_ListCompilationJobs.go:33-73`) was `NextToken`-only — added
+  the same six filter/sort/pagination fields as `ListCodeRepositories` above, with the *same*
+  `Name`/`Ascending` defaults (confirmed independently for this op, not assumed from the sibling).
+
+**`handler_app_image_configs.go` (AppImageConfig family) — the third-most severe finding, the
+entire real payload of the resource silently dropped:**
+
+- **`KernelGatewayImageConfig`/`JupyterLabAppImageConfig`/`CodeEditorAppImageConfig`** — the three
+  mutually-exclusive union members that are the actual configured content of an AppImageConfig
+  (`api_op_CreateAppImageConfig.go:28-52`) — **were entirely absent from both Create and Update
+  decode.** `CreateAppImageConfig` accepted only a bare name and tags; `UpdateAppImageConfig`
+  decoded and applied nothing beyond the name at all, an `UpdateTrainingJob`-class complete no-op.
+  Fixed: all three added as `json.RawMessage` passthrough (this backend never runs a real Studio
+  app image), threaded through Create/Update, and echoed on Describe/List.
+- `ListAppImageConfigsInput` (`api_op_ListAppImageConfigs.go:31-64`) was `NextToken`-only — added
+  `CreationTimeAfter`/`Before`, **`ModifiedTimeAfter`/`Before`** (this op's own field name — not
+  `LastModifiedTime*` like every sibling List op in this pass, confirmed per-op), `MaxResults`,
+  `NameContains`, `SortBy`(`Name`/`CreationTime`/`LastModifiedTime`, default `CreationTime`),
+  `SortOrder` (default `Descending`) — and the three config fields are now also emitted per-item in
+  `AppImageConfigDetails`, which the real op's response type (`types.go:1961-1985`) declares them on
+  too, previously silently omitted from List even though Describe would have shown them (once the
+  Describe-side gap above was also fixed).
+
+**`handler_ai_benchmark_jobs.go`/`handler_ai_recommendation_jobs.go` (AIBenchmarkJob/
+AIRecommendationJob families) — the same sort-order-default bug found independently in both:**
+
+- **`sortAIBenchmarkJobs`/`sortAIRecommendationJobs` treated an unset `SortBy`/`SortOrder` as
+  `Name`/`Ascending`**, but both ops' own doc text states the real default is `CreationTime`/
+  `Descending` (`api_op_ListAIBenchmarkJobs.go:44,49`, `api_op_ListAIRecommendationJobs.go:51,55`) —
+  the exact reverse. A client calling either List op with no sort parameters got results in the
+  wrong order and wrong field. Both fixed to default explicitly rather than falling through a
+  switch's zero-value case, verified with a real-SDK-client round-trip test per file.
+- `AIRecommendationJob`'s `AdapterSource` (`api_op_CreateAIRecommendationJob.go`'s optional LoRA-
+  adapter union) was entirely absent from decode — added as `json.RawMessage` passthrough, threaded
+  through Create and echoed on Describe.
+
+**The six questions, answered explicitly:**
+
+1. **What does the handler read that AWS never sends?** Nothing found this pass — every field
+   this pass's five handlers decoded does exist on the real request type.
+2. **Do request and response use the same key?** Checked separately throughout; one real
+   divergence found and preserved correctly by the fix, not created by it: `UpdateCodeRepository`'s
+   real request type (`GitConfigForUpdate`) has a strictly narrower key set than `Create`'s
+   (`GitConfig`) for the same conceptual field — the bug was treating them as interchangeable, not
+   a response/request key mismatch.
+3. **Is any required request member never read at all?** `CreateCompilationJob`'s
+   `RoleArn`/`OutputConfig`/`StoppingCondition` (all three, decoded but never validated present) —
+   `CreateCodeRepository`'s `GitConfig`/`GitConfig.RepositoryUrl` (same pattern) — see above for
+   both.
+4. **Is any field parsed and then ignored?** `UpdateCodeRepository`'s entire `GitConfig` map was
+   parsed and then used to *destructively overwrite* stored state rather than being ignored or
+   correctly merged — a new variant of this bug class (accept-and-corrupt rather than accept-and-
+   drop), the most severe found this pass. `UpdateAppImageConfig` was the more familiar
+   accept-and-drop variant: it decoded nothing beyond the name in the first place, so there was
+   nothing to parse-then-ignore — the fields were simply never read.
+5. **Does it emit every declared member, and does any handler return a nil body where required
+   members are declared?** `DescribeCompilationJob`'s `ModelArtifacts` (required) was completely
+   absent from the struct — see above. `ListAppImageConfigs`' three config fields were absent from
+   every summary despite the real `AppImageConfigDetails` response type declaring them.
+6. **Does any status or lifecycle field ever advance?** `CompilationJobStatus` never left
+   `INPROGRESS` on its own at all (the fourth instance of this campaign's stuck-status bug class,
+   and the first where the gap was a missing completion path entirely rather than a stalled
+   intermediate state) — fixed via FSM. `StopCompilationJob` additionally skipped the `STOPPING`
+   intermediate status the op's own doc requires — fixed via a second FSM. `AIBenchmarkJob`'s own
+   `StopAIBenchmarkJob`/`scheduleAIBenchmarkJobCompletion` FSMs (established by an earlier pass)
+   were re-verified correct and left untouched.
+
+**Timestamps touched, each with its own serializer citation and a test that sets the value:**
+`CompilationJob.CompilationStartTime`/`CompilationEndTime` (`api_op_DescribeCompilationJob.go:109-121`,
+both optional `*time.Time`, decoded/encoded via the established `epochSecondsPtr`/
+`timeFromEpochSecondsPtr` pair, asserted in `TestHandler_CompilationJob_ReachesCompleted_RealClient`);
+`ListCompilationJobsInput`/`ListCodeRepositoriesInput`/`ListAppImageConfigsInput`'s four time filters
+each (asserted in `TestHandler_ListCompilationJobs`-family and
+`TestHandler_ListCodeRepositories_FilterSort_RealClient` — the last of which also exercises
+`NameContains`). None left nil in any test.
+
+**Five existing tests found ratifying defects, all from `CreateCompilationJob`'s missing
+required-field validation, plus one from `UpdateCodeRepository`'s destructive overwrite:**
+
+1. `TestHandler_CreateCompilationJob`/`TestHandler_DescribeCompilationJob`/
+   `TestHandler_StopCompilationJob`/`TestHandler_ListCompilationJobs`/
+   `TestCompilationJob_InitialStatus_InProgress` all created a compilation job with only
+   `CompilationJobName`(+`RoleArn`), never `OutputConfig`/`StoppingCondition` — every one passed
+   only because neither was enforced. Rewritten to supply both; a new
+   `TestHandler_CreateCompilationJob_RequiredFieldsEnforced` table test asserts each of
+   `RoleArn`/`OutputConfig`/`StoppingCondition` is independently rejected when absent.
+2. `TestHandler_UpdateCodeRepository` created its fixture repository with no `GitConfig` at all,
+   then updated with `{"Branch": "main"}` — a real UpdateCodeRepositoryInput.GitConfig can never
+   even contain `Branch`, and the test never checked the result's `GitConfig` content, so it could
+   not have caught the wholesale-overwrite bug even before this pass's Create fix made the fixture
+   itself invalid. Rewritten with a real `RepositoryUrl` at Create, a real `SecretArn`-only Update,
+   and an explicit assertion that `RepositoryUrl` survives the Update untouched.
+
+**Enums read per op, not generalized:** `ListAIBenchmarkJobsSortBy`/`ListAIRecommendationJobsSortBy`
+share the `Name`/`CreationTime`/`Status` set (verified independently, not assumed identical because
+of the shared behavior fix — they are, but for two mechanically separate reasons: same doc text,
+different files); `AppImageConfigSortKey` (`Name`/`CreationTime`/`LastModifiedTime` — no `Status`,
+unlike the two above, since an AppImageConfig has no status field at all);
+`CodeRepositorySortBy`/`ListCompilationJobsSortBy` share `Name`/`CreationTime`/`LastModifiedTime`.
+No doc-versus-enum mismatch found this pass (contrast parity-20's `ListWorkteamsSortByOptions`).
+
+**Disclosures (not fixed, out of this pass's scope):** `CompilationJob`'s `DerivedInformation`/
+`ModelDigests`/`InferenceImage` remain unmodeled — this backend never runs real Neo compilation, so
+there is no derived-platform or digest information to report; `ModelArtifacts.S3ModelArtifacts` is
+a synthesized path (`<S3OutputLocation>/model.tar.gz`) rather than anything a real compiler wrote,
+disclosed the same way `TrainingJob`'s equivalent field already is. `AppImageConfig`'s three kernel
+configs are opaque passthrough, not semantically validated (e.g. a client could send a
+`KernelGatewayImageConfig` with no `KernelSpecs`, which real AWS validation would reject) — wire-shape
+fidelity only, matching this campaign's established convention for deeply-nested union configs.
+
+**Hand-revert proof (four representative fixes, the most severe found this pass):**
+
+1. `UpdateCodeRepository` destructive overwrite: reverted `code_repositories.go`/
+   `handler_code_repositories.go` to HEAD, rebuilt clean, ran `TestHandler_UpdateCodeRepository` —
+   failed exactly as predicted (`RepositoryUrl` came back `nil` after Update). Restored, `md5sum`
+   byte-identical for both files, test passes again.
+2. `StopCompilationJob` skipped-`STOPPING` bug: reverted `compilation_jobs.go`/
+   `handler_compilation_jobs.go`/`handler_compilation_jobs_test.go` to HEAD (the test file needed a
+   matching temporary edit to compile against the old 5-arg `SetCompilationJobExtras`), rebuilt
+   clean, ran `TestHandler_StopCompilationJob` — failed exactly as predicted (`STOPPED` immediately,
+   never observed `STOPPING`). Restored, `md5sum` byte-identical for all three files, test passes
+   again.
+3. `CreateCompilationJob` missing required-field validation: removed just the three new `if`
+   blocks from `handler_compilation_jobs.go`, rebuilt clean, ran
+   `TestHandler_CreateCompilationJob_RequiredFieldsEnforced` — all three subtests failed exactly as
+   predicted (`expected: 400, actual: 200`). Restored, `md5sum` byte-identical, test passes again.
+4. `ListAIBenchmarkJobs` sort-order default: reverted `sortAIBenchmarkJobs` in `ai_benchmark_jobs.go`
+   to its pre-fix body, rebuilt clean, ran
+   `TestHandler_ListAIBenchmarkJobs_DefaultSortOrder_RealClient` — failed exactly as predicted
+   (results returned `Name`/`Ascending` instead of `CreationTime`/`Descending`). Restored, `md5sum`
+   byte-identical, test passes again.
+
+Gates for this session: `go build ./...`, `go vet ./services/sagemaker/...`,
+`go vet -tags e2e ./...`, `go vet -tags integration ./...`, `gofmt -l ./services/sagemaker/*.go`
+(empty), `go test -race -count=1 ./services/sagemaker/...` (pass), and
+`golangci-lint run ./services/sagemaker/...` (0 issues, after fixing 4 goconst/1 golines/2
+govet/3 unconvert findings introduced by this pass's own new code — no `nolint` added). No
+`fieldalignment -fix` run this pass (no struct-heavy files warranted it).
+
+`last_audit_commit` left at its existing value (`5f91d37c7`) — not updated this pass, per the
+campaign's standing instruction never to write `pending` or otherwise touch it casually.
+
+**79 of sagemaker's 362 inline structs now remain.** New boundary: 3 files tied at 5
+(`handler_automl_search.go`, `handler_experiments.go`, `handler_feature_groups.go`), then a 9-file
+tier at 4 (`handler_transform_jobs.go`, `handler_studio_lifecycle_configs.go`,
+`handler_processing_jobs.go`, `handler_pipeline_versions.go`, `handler_human_task_ui.go`,
+`handler_flow_definitions.go`, `handler_edge_packaging_jobs.go`, `handler_automl.go`,
+`handler_ai_workload_configs.go`) — not started this pass; no difficulty found in them, purely an
+effort-budget stopping point.

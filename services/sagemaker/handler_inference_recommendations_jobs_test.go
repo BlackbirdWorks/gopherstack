@@ -428,3 +428,82 @@ func TestHandler_AIRecommendationJobLifecycle(t *testing.T) {
 		})
 	}
 }
+
+// TestHandler_ListAIRecommendationJobs_DefaultSortOrder_RealClient asserts
+// the op's own doc default (api_op_ListAIRecommendationJobs.go:51,55: SortBy
+// CreationTime, SortOrder Descending) -- previously an unset SortBy/
+// SortOrder fell through to Name/Ascending instead, the reverse of the real
+// default.
+func TestHandler_ListAIRecommendationJobs_DefaultSortOrder_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestSageMakerClient(t, h)
+
+	doSageMakerRequest(t, h, "CreateAIWorkloadConfig", map[string]any{"AIWorkloadConfigName": "wc-rec-sort"})
+
+	body := func(name string) map[string]any {
+		return map[string]any{
+			"AIRecommendationJobName":    name,
+			"AIWorkloadConfigIdentifier": "wc-rec-sort",
+			"RoleArn":                    "arn:aws:iam::000000000000:role/TestRole",
+			"ModelSource":                map[string]any{"S3": map[string]any{"S3Uri": "s3://bucket/model/"}},
+			"OutputConfig":               map[string]any{"S3OutputLocation": "s3://bucket/out/"},
+			"PerformanceTarget":          map[string]any{"MetricName": "ttft-ms", "Threshold": 100},
+		}
+	}
+
+	for _, name := range []string{"first-rec", "second-rec"} {
+		rec := doSageMakerRequest(t, h, "CreateAIRecommendationJob", body(name))
+		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	}
+
+	out, err := client.ListAIRecommendationJobs(t.Context(), &sagemakersdk.ListAIRecommendationJobsInput{})
+	require.NoError(t, err)
+	require.Len(t, out.AIRecommendationJobs, 2)
+	assert.Equal(t, "second-rec", aws.ToString(out.AIRecommendationJobs[0].AIRecommendationJobName))
+	assert.Equal(t, "first-rec", aws.ToString(out.AIRecommendationJobs[1].AIRecommendationJobName))
+}
+
+// TestHandler_CreateAIRecommendationJob_AdapterSourceRoundTrip_RealClient
+// asserts AdapterSource -- previously entirely absent from decode -- now
+// round-trips through DescribeAIRecommendationJob.
+func TestHandler_CreateAIRecommendationJob_AdapterSourceRoundTrip_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestSageMakerClient(t, h)
+
+	doSageMakerRequest(t, h, "CreateAIWorkloadConfig", map[string]any{"AIWorkloadConfigName": "wc-rec-adapter"})
+
+	_, err := client.CreateAIRecommendationJob(t.Context(), &sagemakersdk.CreateAIRecommendationJobInput{
+		AIRecommendationJobName:    aws.String("rec-adapter"),
+		AIWorkloadConfigIdentifier: aws.String("wc-rec-adapter"),
+		RoleArn:                    aws.String("arn:aws:iam::000000000000:role/TestRole"),
+		ModelSource: &smtypes.AIModelSourceMemberS3{
+			Value: smtypes.AIModelSourceS3{S3Uri: aws.String("s3://bucket/model/")},
+		},
+		OutputConfig: &smtypes.AIRecommendationOutputConfig{
+			S3OutputLocation: aws.String("s3://bucket/out/"),
+		},
+		PerformanceTarget: &smtypes.AIRecommendationPerformanceTarget{
+			Constraints: []smtypes.AIRecommendationConstraint{{Metric: smtypes.AIRecommendationMetricThroughput}},
+		},
+		AdapterSource: &smtypes.AIAdapterSourceMemberS3Uris{
+			Value: []smtypes.AIAdapterS3Entry{
+				{AdapterId: aws.String("adapter-1"), S3Uri: aws.String("s3://bucket/adapter/")},
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	out, err := client.DescribeAIRecommendationJob(t.Context(), &sagemakersdk.DescribeAIRecommendationJobInput{
+		AIRecommendationJobName: aws.String("rec-adapter"),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, out.AdapterSource)
+	member, ok := out.AdapterSource.(*smtypes.AIAdapterSourceMemberS3Uris)
+	require.True(t, ok)
+	require.Len(t, member.Value, 1)
+	assert.Equal(t, "s3://bucket/adapter/", aws.ToString(member.Value[0].S3Uri))
+}

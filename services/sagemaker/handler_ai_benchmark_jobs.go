@@ -48,16 +48,20 @@ func (h *Handler) dispatchAIBenchmarkJobOps(
 	return nil, false, nil
 }
 
+// createAIBenchmarkJobInput mirrors CreateAIBenchmarkJobInput
+// (api_op_CreateAIBenchmarkJob.go:33-73).
+type createAIBenchmarkJobInput struct {
+	BenchmarkTarget            json.RawMessage `json:"BenchmarkTarget"`
+	OutputConfig               json.RawMessage `json:"OutputConfig"`
+	NetworkConfig              json.RawMessage `json:"NetworkConfig"`
+	AIBenchmarkJobName         string          `json:"AIBenchmarkJobName"`
+	AIWorkloadConfigIdentifier string          `json:"AIWorkloadConfigIdentifier"`
+	RoleArn                    string          `json:"RoleArn"`
+	Tags                       []tagObject     `json:"Tags"`
+}
+
 func (h *Handler) handleCreateAIBenchmarkJob(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		BenchmarkTarget            json.RawMessage `json:"BenchmarkTarget"`
-		OutputConfig               json.RawMessage `json:"OutputConfig"`
-		NetworkConfig              json.RawMessage `json:"NetworkConfig"`
-		AIBenchmarkJobName         string          `json:"AIBenchmarkJobName"`
-		AIWorkloadConfigIdentifier string          `json:"AIWorkloadConfigIdentifier"`
-		RoleArn                    string          `json:"RoleArn"`
-		Tags                       []tagObject     `json:"Tags"`
-	}
+	var req createAIBenchmarkJobInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -79,10 +83,14 @@ func (h *Handler) handleCreateAIBenchmarkJob(ctx context.Context, body []byte) (
 	return json.Marshal(map[string]string{keyAIBenchmarkJobArn: j.AIBenchmarkJobArn})
 }
 
+// describeAIBenchmarkJobInput mirrors DescribeAIBenchmarkJobInput
+// (api_op_DescribeAIBenchmarkJob.go:33-38).
+type describeAIBenchmarkJobInput struct {
+	AIBenchmarkJobName string `json:"AIBenchmarkJobName"`
+}
+
 func (h *Handler) handleDescribeAIBenchmarkJob(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		AIBenchmarkJobName string `json:"AIBenchmarkJobName"`
-	}
+	var req describeAIBenchmarkJobInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -100,10 +108,14 @@ func (h *Handler) handleDescribeAIBenchmarkJob(ctx context.Context, body []byte)
 	return json.Marshal(j)
 }
 
+// deleteAIBenchmarkJobInput mirrors DeleteAIBenchmarkJobInput
+// (api_op_DeleteAIBenchmarkJob.go:27-32).
+type deleteAIBenchmarkJobInput struct {
+	AIBenchmarkJobName string `json:"AIBenchmarkJobName"`
+}
+
 func (h *Handler) handleDeleteAIBenchmarkJob(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		AIBenchmarkJobName string `json:"AIBenchmarkJobName"`
-	}
+	var req deleteAIBenchmarkJobInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -121,10 +133,14 @@ func (h *Handler) handleDeleteAIBenchmarkJob(ctx context.Context, body []byte) (
 	return json.Marshal(map[string]string{keyAIBenchmarkJobArn: jobARN})
 }
 
+// stopAIBenchmarkJobInput mirrors StopAIBenchmarkJobInput
+// (api_op_StopAIBenchmarkJob.go:27-32).
+type stopAIBenchmarkJobInput struct {
+	AIBenchmarkJobName string `json:"AIBenchmarkJobName"`
+}
+
 func (h *Handler) handleStopAIBenchmarkJob(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		AIBenchmarkJobName string `json:"AIBenchmarkJobName"`
-	}
+	var req stopAIBenchmarkJobInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -142,17 +158,21 @@ func (h *Handler) handleStopAIBenchmarkJob(ctx context.Context, body []byte) ([]
 	return json.Marshal(map[string]string{keyAIBenchmarkJobArn: jobARN})
 }
 
+// listAIBenchmarkJobsInput mirrors ListAIBenchmarkJobsInput
+// (api_op_ListAIBenchmarkJobs.go:31-59).
+type listAIBenchmarkJobsInput struct {
+	CreationTimeAfter  *float64 `json:"CreationTimeAfter"`
+	CreationTimeBefore *float64 `json:"CreationTimeBefore"`
+	NameContains       string   `json:"NameContains"`
+	StatusEquals       string   `json:"StatusEquals"`
+	NextToken          string   `json:"NextToken"`
+	SortBy             string   `json:"SortBy"`
+	SortOrder          string   `json:"SortOrder"`
+	MaxResults         int32    `json:"MaxResults"`
+}
+
 func (h *Handler) handleListAIBenchmarkJobs(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		CreationTimeAfter  *float64 `json:"CreationTimeAfter"`
-		CreationTimeBefore *float64 `json:"CreationTimeBefore"`
-		NameContains       string   `json:"NameContains"`
-		StatusEquals       string   `json:"StatusEquals"`
-		NextToken          string   `json:"NextToken"`
-		SortBy             string   `json:"SortBy"`
-		SortOrder          string   `json:"SortOrder"`
-		MaxResults         int32    `json:"MaxResults"`
-	}
+	var req listAIBenchmarkJobsInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
