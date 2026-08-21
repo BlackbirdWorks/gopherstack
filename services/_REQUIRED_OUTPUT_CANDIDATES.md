@@ -163,12 +163,17 @@ from the ranked table) as future batches clear more of it.
 | bedrockruntime | 20 | 11 (8 ops-with-required) | 0 (clean; the `Converse`/`ConverseStream` polymorphic union family is real but gopherstack only ever constructs a plain-text `ContentBlock`, a documented scope limit not a dropped field -- see the batch-21 note below and services/bedrockruntime/PARITY.md) | gopherstack-r80d batch 21 |
 | cloudfrontkeyvaluestore | 18 | 6 (5 ops-with-required) | 0 (clean; read end to end including the nested `ListKeysResponseListItem` domain struct and the `ETag` HTTP-header binding -- see the batch-21 note below and services/cloudfrontkeyvaluestore/PARITY.md) | gopherstack-r80d batch 21 |
 | sesv2 | 18 | 112 (13 ops-with-required) | yes (1: `TrackingOptions.CustomRedirectDomain` tagged omitempty despite being reachably empty whenever a real client sets `HttpsPolicy` alone via `PutConfigurationSetTrackingOptions` -- see the batch-21 note below and services/sesv2/PARITY.md) | gopherstack-r80d batch 21 |
+| elasticsearch | 16 | 51 (12 ops-with-required) | 0 (clean; read end to end including the nested `ElasticsearchDomainStatus` domain struct (4 required members, reachable through `DescribeElasticsearchDomain(s)Output`) and the `*Status`-wrapper family reachable through `ElasticsearchDomainConfig` (0 required itself; every `Options`/`Status` pair it wraps is always emitted together, never split) -- see the batch-22 note below) | gopherstack-r80d batch 22 |
+| rolesanywhere | 16 | 30 (16 ops-with-required) | 0 (clean; every domain struct reachable through this service's 16 required-output ops -- `TrustAnchorDetail`/`CrlDetail`/`ProfileDetail`/`SubjectDetail` -- carries zero required members in the real Smithy model, confirmed via AST walk, so the flat op-level count is already the complete surface; already through an unusually thorough 2026-08-10 general-parity pass -- see the batch-22 note below) | gopherstack-r80d batch 22 |
 
-41 services settled, 2427 required output fields read end to end (the running
+43 services settled, 2459 required output fields read end to end (the running
 total counts each settled service's flat per-op `cmd/requiredoutputfields`
 number, as established by every prior batch -- glue's own real audited
 surface was substantially larger once its ~56 gopherstack-modeled domain
-structs were cross-checked, see the batch-15 note below). Batch 21
+structs were cross-checked, see the batch-15 note below). Batch 22
+(elasticsearch + rolesanywhere, re-verified tied at 16 each) added 0 counted
+bugs -- both came back clean on a full end-to-end read including every
+reachable domain struct -- see the batch-22 note below for detail. Batch 21
 (networkmonitor + bedrockruntime + cloudfrontkeyvaluestore + sesv2) added 1
 more counted bug (sesv2's `TrackingOptions.CustomRedirectDomain`; the other
 three came back clean) on top of the running total -- see the batch-21 note
@@ -1012,6 +1017,102 @@ required output fields read end to end). Did not touch sagemaker (off-limits,
 `git status` checked before and throughout) or `cmd/gendocs`, and did not
 attempt a fifth service.
 
+### elasticsearch + rolesanywhere (batch 22): 0 bugs, both clean
+
+Instrument re-validated per the brief before selecting a candidate: the
+existing `cmd/requiredoutputfields` (a character-level brace matcher for
+locating each `<Op>Output` struct's body, then a blank-line/brace-depth
+field-block split for the required-doc-comment scan within it) was run
+fresh, then cross-checked against a from-scratch `go/parser`/`go/ast` walk
+(a real Go parser, not a text heuristic -- `go/ast.StructType` fields with a
+`This member is required.` doc or line comment) written for this batch, plus
+a raw `grep -rc "This member is required." <pkg>/*.go <pkg>/types/*.go`
+total. All three agreed exactly for both candidates: elasticsearch
+16 required output fields / 12 ops-with-required (AST) against 124 total
+required-field instances across every struct in the package (grep -c 124,
+matched exactly); rolesanywhere 16 / 16 (AST) against 61 total (grep -c 61,
+matched exactly). No discrepancy this time, unlike batch 17's swf
+line-based-walker miss -- both structures happened not to trigger that
+specific edge case.
+
+Confirmed via the fresh `cmd/requiredoutputfields` run and this file's own
+ranked table that elasticsearch and rolesanywhere were tied at 16 fields
+each, the largest remaining candidates after sagemaker (off-limits all
+batch -- `git status` showed only `services/sagemaker/*` dirty throughout,
+from a concurrent agent's in-flight conversion, confirmed untouched here).
+Took both in one batch since each was narrow (12 and 16 ops-with-required
+respectively).
+
+**elasticsearch (16 fields / 51 ops, 12 ops-with-required, 0 bugs):** not a
+shallow surface despite the small flat count -- `DescribeElasticsearchDomain`/
+`DescribeElasticsearchDomains`'s required `DomainStatus`/`DomainStatusList`
+wrap `types.ElasticsearchDomainStatus`, itself carrying 4 more required
+members one level deeper (`ARN`/`DomainId`/`DomainName`/
+`ElasticsearchClusterConfig`, elasticsearchservice@v1.45.4 types/types.go)
+invisible to the flat per-op scan -- read via `toDomainStatusJSON`
+(`handler_domains.go`), all four emitted unconditionally, no `omitempty`.
+`DescribeElasticsearchDomainConfig`/`UpdateElasticsearchDomainConfig`'s
+required `DomainConfig` wraps `types.ElasticsearchDomainConfig`, which
+itself declares zero required members (every one of its ~18 sub-fields,
+e.g. `AccessPolicies *AccessPoliciesStatus`, is optional) but each
+populated sub-object is itself a `{Options, Status}` pair both required
+(`AccessPoliciesStatus` et al.) -- read `buildDomainConfigOutput`
+(`handler_domain_config.go`) and confirmed every one of the 12 sub-fields
+this backend populates constructs both `Options` and `Status`
+unconditionally via the shared `elasticsearchConfigValue`/
+`domainConfigStatus` helpers, and the one genuinely optional member
+(`VPCOptions`) is correctly omitted only when nil and always carries both
+sub-fields when present. The remaining 10 ops-with-required (VPC endpoint
+and access-authorization family) wrap flat, already-emitted domain objects
+(`VpcEndpoint`, `VpcEndpointSummary`, `AuthorizedPrincipal`) that this
+service's own PARITY.md documents as already fixed for required-field drops
+across 6 prior audit passes (most recently 2026-08-15, gopherstack-6flj) --
+re-read end to end rather than trusted, and confirmed still correct
+(`handler_vpc_endpoints.go`'s `NextToken` is always emitted as `""`, never
+omitted; `VpcEndpointErrors`/`VpcEndpoints`/`VpcEndpointSummaryList`/
+`AuthorizedPrincipalList` are always non-nil `make(...)`/literal slices,
+never gated behind a length check). No code changes; PARITY.md left
+unchanged (this pass added no new finding beyond re-confirming existing
+`wire: ok` rows for this specific bug class).
+
+**rolesanywhere (16 fields / 30 ops, 16 ops-with-required, 0 bugs):**
+narrower than it looks -- every one of the 16 required-output ops wraps
+exactly one nested domain object (`TrustAnchor`/`Crl`/`Profile`, the "one
+wrapper key" shape first named by pinpoint/batch 5), but unlike
+bedrockagent/amplify/cleanrooms the wrapped domain structs themselves
+(`TrustAnchorDetail`/`CrlDetail`/`ProfileDetail`/`SubjectDetail`,
+rolesanywhere@v1.26.3 types/types.go) carry **zero** required members in
+the real Smithy model -- every field on all four is optional. Confirmed via
+the AST walk (no entries for any of the four `*Detail` types in the
+required-field listing) before concluding there is no nested-domain-struct
+undercount here at all, rather than assuming the "one wrapper key" shape
+always hides one (batch 13's appmesh precedent: verify, don't infer from
+the shape alone). This service's own PARITY.md already documents an
+unusually thorough 2026-08-10 general-parity pass (gopherstack-cf439a0b1)
+that fixed 4 real bugs adjacent to this territory (an invented `tags` field
+on `TrustAnchorDetail`/`ProfileDetail`, a wrong `TagResource` status code,
+missing `ResourceNotFoundException` validation) -- read all 16 handlers
+(`handler_trust_anchors.go`, `handler_crls.go`, `handler_profiles.go`,
+`handler_attribute_mappings.go`, `handler_notification_settings.go`) end to
+end for this cut's specific class (the wrapper key itself ever omitted or
+the wrapped object ever empty/nil on a success path) and found every one
+constructs a non-nil `map[string]any{keyX: ...}` unconditionally on every
+success return; the shared `handleREST` dispatcher's `result == nil` early
+return (which would produce the empty-body-204 class) is only reached by
+this service's genuinely void-result ops (`TagResource`/`UntagResource`/
+etc.), none of which appear in the 16-op required-output set. No code
+changes; PARITY.md left unchanged.
+
+Both services' gates (build/vet/gofmt/race-test/lint) are green, 0 banned
+nolints, no exported signatures changed (no code changed at all this
+batch); repo-wide `go build ./...` re-run and clean (confirmed the only
+dirty files anywhere in the tree were the excluded `services/sagemaker/*`).
+`services/_REQUIRED_OUTPUT_CANDIDATES.md` updated: both moved from the
+ranked table into "Already examined" (settled-services count now 43, 2459
+required output fields read end to end); `awsconfig` (15) is now the
+largest remaining candidate after sagemaker. Did not attempt a third
+service this batch.
+
 ### emrserverless (batch 20): 2 bugs, both the "output-required, input-only-nil-checked" releaseLabel
 
 25 fields / 22 ops / 14 ops-with-required per a fresh `cmd/requiredoutputfields`
@@ -1311,12 +1412,11 @@ settled batch 16), ce/efs/swf (30 each, settled batch 17),
 accessanalyzer (28, settled batch 18), cognitoidp (27, settled
 batch 19), emrserverless (25, settled batch 20), and networkmonitor/
 bedrockruntime/cloudfrontkeyvaluestore/sesv2 (22/20/18/18, settled batch
-21) removed from this table — see the "Already examined" table above.
+21), and elasticsearch/rolesanywhere (16 each, settled batch 22) removed
+from this table — see the "Already examined" table above.
 
 ```
  459  sagemaker                 ops=403  ops-with-required=188
-  16  elasticsearch             ops=51   ops-with-required=12
-  16  rolesanywhere             ops=30   ops-with-required=16
   15  awsconfig                 ops=102  ops-with-required=12
   15  codeconnections           ops=27   ops-with-required=14
   15  codestarconnections       ops=27   ops-with-required=14
@@ -1468,10 +1568,13 @@ Notes on the top of this table for the next batch:
   note above for full detail. Verified via a fresh `cmd/requiredoutputfields`
   run cross-checked against this file before starting (all four agreed:
   networkmonitor 22/12/7, bedrockruntime 20/11/8,
-  cloudfrontkeyvaluestore 18/6/5, sesv2 18/112/13). **elasticsearch and
-  rolesanywhere are now tied at 16 fields each (ops=51/ops-with-required=12
-  and ops=30/ops-with-required=16 respectively) as the largest remaining
-  candidates after sagemaker; re-verify the tie before picking one.**
+  cloudfrontkeyvaluestore 18/6/5, sesv2 18/112/13).
+- **elasticsearch / rolesanywhere settled (batch 22)** — do not re-derive,
+  see the batch-22 note below for full detail. Re-verified the tie via a
+  fresh `cmd/requiredoutputfields` run and a from-scratch `go/parser`
+  AST cross-check (both agreed exactly: elasticsearch 16/51/12,
+  rolesanywhere 16/30/16) before starting; both came back clean. **awsconfig
+  (15) is now the largest remaining candidate after sagemaker.**
 - **omics settled (batch 7)** — do not re-derive, see the settled-services
   table above and services/omics/PARITY.md's 2026-08-21 entries. The
   concurrent sibling agent's over-wide-List sweep this file previously
