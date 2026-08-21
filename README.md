@@ -499,7 +499,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 |---|---|---|---|
 | [DAX](services/dax/README.md) | A | 21 | 1 deferred |
 | [DocumentDB](services/docdb/README.md) | A | 55 | 8 gaps; 1 deferred |
-| [DynamoDB](services/dynamodb/README.md) | A | — | 8 families; 5 gaps; 2 deferred |
+| [DynamoDB](services/dynamodb/README.md) | A | — | 9 families; 6 gaps; 2 deferred |
 | [DynamoDB Streams](services/dynamodbstreams/README.md) | A | 4 | clean |
 | [ElastiCache](services/elasticache/README.md) | A | 75 | 1 gap; 2 deferred |
 | [MemoryDB](services/memorydb/README.md) | A | 45 | 6 gaps; 3 deferred |
