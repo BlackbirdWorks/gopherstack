@@ -570,24 +570,45 @@ func TestStorageConfig_RoundTrip(t *testing.T) {
 	}
 }
 
+// TestNetworkingConfig_RoundTrip covers gopherstack-tp8x: the real
+// KubernetesNetworkConfigRequest/Response (eks@v1.90.4 types/types.go:1597,
+// 1645) both declare ElasticLoadBalancing as a sibling of ipFamily/
+// serviceIpv4Cidr/serviceIpv6Cidr under ONE "kubernetesNetworkConfig" key --
+// there is no separate top-level "networkingConfig" object in real AWS. A
+// real client's ElasticLoadBalancing setting must be sent inside
+// kubernetesNetworkConfig and is returned the same way.
 func TestNetworkingConfig_RoundTrip(t *testing.T) {
 	t.Parallel()
 
 	h := newTestEKSHandler(t)
 	rec := doREST(t, h, http.MethodPost, "/clusters", map[string]any{
 		"name": "net-cluster",
-		"networkingConfig": map[string]any{
+		"kubernetesNetworkConfig": map[string]any{
+			"ipFamily":             "ipv4",
 			"elasticLoadBalancing": map[string]any{"enabled": true},
 		},
 	})
-	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	createCluster := parseResp(t, rec)["cluster"].(map[string]any)
+	assert.NotContains(t, createCluster, "networkingConfig",
+		"ElasticLoadBalancing must not be echoed under a separate top-level key")
+
+	createNC, ok := createCluster["kubernetesNetworkConfig"].(map[string]any)
+	require.True(t, ok, "kubernetesNetworkConfig must be present")
+	assert.Equal(t, "ipv4", createNC["ipFamily"], "siblings of elasticLoadBalancing must still round-trip")
+	createELB := createNC["elasticLoadBalancing"].(map[string]any)
+	assert.Equal(t, true, createELB["enabled"])
 
 	desc := doREST(t, h, http.MethodGet, "/clusters/net-cluster", nil)
 	cluster := parseResp(t, desc)["cluster"].(map[string]any)
 
-	nc, ok := cluster["networkingConfig"].(map[string]any)
-	require.True(t, ok, "networkingConfig must be present")
-	elb := nc["elasticLoadBalancing"].(map[string]any)
+	assert.NotContains(t, cluster, "networkingConfig")
+
+	nc, ok := cluster["kubernetesNetworkConfig"].(map[string]any)
+	require.True(t, ok, "kubernetesNetworkConfig must be present")
+	elb, ok := nc["elasticLoadBalancing"].(map[string]any)
+	require.True(t, ok, "elasticLoadBalancing must live inside kubernetesNetworkConfig")
 	assert.Equal(t, true, elb["enabled"])
 }
 

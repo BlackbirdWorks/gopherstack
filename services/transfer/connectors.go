@@ -229,6 +229,25 @@ func (b *InMemoryBackend) ListFileFileTransferResults(connectorID string) []*Fil
 	return out
 }
 
+// GetFileTransferResult returns the transfer record identified by connectorID
+// and transferID, or nil if no such transfer exists. ListFileTransferResults
+// (the real op) is scoped to exactly one transfer -- both ConnectorId and
+// TransferId are required members -- unlike ListFileFileTransferResults above,
+// which lists every transfer for a connector for internal/persistence use.
+func (b *InMemoryBackend) GetFileTransferResult(connectorID, transferID string) *FileTransferResult {
+	b.mu.RLock("GetFileTransferResult")
+	defer b.mu.RUnlock()
+
+	r, ok := b.transferRecords.Get(transferID)
+	if !ok || r.ConnectorID != connectorID {
+		return nil
+	}
+
+	cp := *r
+
+	return &cp
+}
+
 // StartAsyncOperationRecord persists an async operation record and returns the operationID.
 func (b *InMemoryBackend) StartAsyncOperationRecord(connectorID, opType string) string {
 	b.mu.Lock("StartAsyncOperationRecord")

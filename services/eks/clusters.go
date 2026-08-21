@@ -15,17 +15,16 @@ const clusterTransitionDelay = 100 * time.Millisecond
 
 // ClusterOptionalConfig groups optional cluster configuration for CreateCluster.
 type ClusterOptionalConfig struct {
-	AccessConfig     *AccessConfig
-	ComputeConfig    *ComputeConfig
-	StorageConfig    *StorageConfig
-	NetworkingConfig *NetworkingConfig
+	AccessConfig  *AccessConfig
+	ComputeConfig *ComputeConfig
+	StorageConfig *StorageConfig
 }
 
 // resolveClusterOptionalConfig deep-copies the (at most one) supplied
 // ClusterOptionalConfig into independent, nil-safe fields for CreateCluster.
 func resolveClusterOptionalConfig(
 	opts ...ClusterOptionalConfig,
-) (*AccessConfig, *ComputeConfig, *StorageConfig, *NetworkingConfig) {
+) (*AccessConfig, *ComputeConfig, *StorageConfig) {
 	var opt ClusterOptionalConfig
 	if len(opts) > 0 {
 		opt = opts[0]
@@ -50,13 +49,25 @@ func resolveClusterOptionalConfig(
 		storageCfg = &cp
 	}
 
-	var networkingCfg *NetworkingConfig
-	if opt.NetworkingConfig != nil {
-		cp := *opt.NetworkingConfig
-		networkingCfg = &cp
+	return accessCfg, computeCfg, storageCfg
+}
+
+// cloneKubernetesNetworkConfig deep-copies a KubernetesNetworkConfig,
+// including its nested ElasticLoadBalancing pointer, so the stored Cluster
+// never aliases the caller's config.
+func cloneKubernetesNetworkConfig(cfg *KubernetesNetworkConfig) *KubernetesNetworkConfig {
+	if cfg == nil {
+		return nil
 	}
 
-	return accessCfg, computeCfg, storageCfg, networkingCfg
+	cp := *cfg
+
+	if cfg.ElasticLoadBalancing != nil {
+		elbCp := *cfg.ElasticLoadBalancing
+		cp.ElasticLoadBalancing = &elbCp
+	}
+
+	return &cp
 }
 
 // newClusterLocked builds a new Cluster value for CreateCluster. Must be
@@ -79,13 +90,9 @@ func (b *InMemoryBackend) newClusterLocked(
 		vpcCopy = cloneVpcConfig(vpcConfig, name)
 	}
 
-	var netCopy *KubernetesNetworkConfig
-	if networkConfig != nil {
-		cp := *networkConfig
-		netCopy = &cp
-	}
+	netCopy := cloneKubernetesNetworkConfig(networkConfig)
 
-	accessCfg, computeCfg, storageCfg, networkingCfg := resolveClusterOptionalConfig(opts...)
+	accessCfg, computeCfg, storageCfg := resolveClusterOptionalConfig(opts...)
 
 	return &Cluster{
 		Name:                    name,
@@ -105,7 +112,6 @@ func (b *InMemoryBackend) newClusterLocked(
 		AccessConfig:            accessCfg,
 		ComputeConfig:           computeCfg,
 		StorageConfig:           storageCfg,
-		NetworkingConfig:        networkingCfg,
 		CertificateAuthority:    stableID(name + "/ca"),
 	}
 }

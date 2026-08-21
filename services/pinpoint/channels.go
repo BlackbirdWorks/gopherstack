@@ -33,6 +33,40 @@ const (
 	ChannelTypePush = "PUSH"
 )
 
+// Lowercase channel-type URL segments, as used by the /v1/apps/{appId}/channels/{channelType}
+// dispatch and per-type request/response field parsing.
+const (
+	channelKeyADM             = "adm"
+	channelKeyAPNS            = "apns"
+	channelKeyAPNSSandbox     = "apns_sandbox"
+	channelKeyAPNSVoip        = "apns_voip"
+	channelKeyAPNSVoipSandbox = "apns_voip_sandbox"
+	channelKeyBaidu           = "baidu"
+	channelKeyGCM             = "gcm"
+)
+
+// Per-channel-type request/response field names shared between parsing
+// (parse*ChannelExtra) and echo filtering (filterChannelExtraForEcho).
+const (
+	extraKeyDefaultAuthenticationMethod = "DefaultAuthenticationMethod"
+	extraKeyAPIKey                      = "ApiKey"
+	extraKeyServiceJSON                 = "ServiceJson"
+	extraKeyBundleID                    = "BundleId"
+	extraKeyCertificate                 = "Certificate"
+	extraKeyTeamID                      = "TeamId"
+	extraKeyTokenKey                    = "TokenKey"
+	extraKeyTokenKeyID                  = "TokenKeyId"
+	extraKeyClientID                    = "ClientId"
+	extraKeyClientSecret                = "ClientSecret"
+	extraKeySecretKey                   = "SecretKey"
+	extraKeyFromAddress                 = "FromAddress"
+
+	// wireKeyCredential is the real *ChannelResponse member name
+	// (GCMChannelResponse.Credential / BaiduChannelResponse.Credential) for
+	// what the request side calls ApiKey.
+	wireKeyCredential = "Credential"
+)
+
 // isValidEndpointChannelType reports whether ct is a valid ChannelType for UpdateEndpoint.
 func isValidEndpointChannelType(ct string) bool {
 	switch ct {
@@ -49,18 +83,19 @@ func isValidEndpointChannelType(ct string) bool {
 
 // Channel represents a generic Pinpoint channel response.
 type Channel struct {
-	ExtraData         map[string]any `json:"ExtraData,omitempty"`
-	ApplicationID     string         `json:"ApplicationId"`
-	ChannelType       string         `json:"ChannelType"`
-	Platform          string         `json:"Platform,omitempty"`
-	CreationDate      string         `json:"CreationDate,omitempty"`
-	LastModifiedDate  string         `json:"LastModifiedDate,omitempty"`
-	Version           int            `json:"Version,omitempty"`
-	MessagesPerSecond int            `json:"MessagesPerSecond,omitempty"`
-	Enabled           bool           `json:"Enabled"`
-	IsArchived        bool           `json:"IsArchived"`
-	HasCredential     bool           `json:"HasCredential,omitempty"`
-	HasTokenKey       bool           `json:"HasTokenKey,omitempty"`
+	ExtraData                map[string]any `json:"ExtraData,omitempty"`
+	ApplicationID            string         `json:"ApplicationId"`
+	ChannelType              string         `json:"ChannelType"`
+	Platform                 string         `json:"Platform,omitempty"`
+	CreationDate             string         `json:"CreationDate,omitempty"`
+	LastModifiedDate         string         `json:"LastModifiedDate,omitempty"`
+	Version                  int            `json:"Version,omitempty"`
+	MessagesPerSecond        int            `json:"MessagesPerSecond,omitempty"`
+	Enabled                  bool           `json:"Enabled"`
+	IsArchived               bool           `json:"IsArchived"`
+	HasCredential            bool           `json:"HasCredential,omitempty"`
+	HasTokenKey              bool           `json:"HasTokenKey,omitempty"`
+	HasFcmServiceCredentials bool           `json:"HasFcmServiceCredentials,omitempty"`
 }
 
 // GetChannel retrieves or synthesises a channel response for an app.
@@ -85,15 +120,20 @@ func (b *InMemoryBackend) GetChannel(appID, channelType string) *Channel {
 	}
 }
 
-// channelCredentialFlags derives HasCredential and HasTokenKey from extra channel data.
-func channelCredentialFlags(extra map[string]any) (bool, bool) {
+// channelCredentialFlags derives HasCredential, HasTokenKey and
+// HasFcmServiceCredentials from extra channel data. These booleans -- not the
+// raw secret values in extra -- are what the real *ChannelResponse types echo.
+func channelCredentialFlags(extra map[string]any) (bool, bool, bool) {
 	if extra == nil {
-		return false, false
+		return false, false, false
 	}
 
 	cred := false
 
-	for _, k := range []string{"ApiKey", "BundleId", "Certificate", "ClientId", "FromAddress"} {
+	credentialKeys := []string{
+		extraKeyAPIKey, extraKeyBundleID, extraKeyCertificate, extraKeyClientID, extraKeyFromAddress,
+	}
+	for _, k := range credentialKeys {
 		if v, ok := extra[k].(string); ok && v != "" {
 			cred = true
 
@@ -102,12 +142,16 @@ func channelCredentialFlags(extra map[string]any) (bool, bool) {
 	}
 
 	tokenKey := false
-
-	if v, ok := extra["TokenKey"].(string); ok && v != "" {
+	if v, ok := extra[extraKeyTokenKey].(string); ok && v != "" {
 		tokenKey = true
 	}
 
-	return cred, tokenKey
+	fcmServiceCredentials := false
+	if v, ok := extra[extraKeyServiceJSON].(string); ok && v != "" {
+		fcmServiceCredentials = true
+	}
+
+	return cred, tokenKey, fcmServiceCredentials
 }
 
 // UpsertChannel creates or updates a channel for an app with type-specific data.
@@ -130,7 +174,7 @@ func (b *InMemoryBackend) UpsertChannel(
 		version = existing.Version + 1
 	}
 
-	hasCredential, hasTokenKey := channelCredentialFlags(extra)
+	hasCredential, hasTokenKey, hasFcmServiceCredentials := channelCredentialFlags(extra)
 
 	creationDate := now
 
@@ -139,16 +183,17 @@ func (b *InMemoryBackend) UpsertChannel(
 	}
 
 	ch := &Channel{
-		ApplicationID:    appID,
-		ChannelType:      channelType,
-		Platform:         strings.ToUpper(channelType),
-		Enabled:          enabled,
-		HasCredential:    hasCredential,
-		HasTokenKey:      hasTokenKey,
-		Version:          version,
-		CreationDate:     creationDate,
-		LastModifiedDate: now,
-		ExtraData:        cloneAnyMap(extra),
+		ApplicationID:            appID,
+		ChannelType:              channelType,
+		Platform:                 strings.ToUpper(channelType),
+		Enabled:                  enabled,
+		HasCredential:            hasCredential,
+		HasTokenKey:              hasTokenKey,
+		HasFcmServiceCredentials: hasFcmServiceCredentials,
+		Version:                  version,
+		CreationDate:             creationDate,
+		LastModifiedDate:         now,
+		ExtraData:                cloneAnyMap(extra),
 	}
 
 	b.channels.Put(ch)

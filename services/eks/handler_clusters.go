@@ -131,11 +131,6 @@ func appendClusterOptionalInfra(c *Cluster, m map[string]any) {
 			"blockStorage": map[string]any{keyEnabled: c.StorageConfig.BlockStorage.Enabled},
 		}
 	}
-	if c.NetworkingConfig != nil && c.NetworkingConfig.ElasticLoadBalancing != nil {
-		m["networkingConfig"] = map[string]any{
-			"elasticLoadBalancing": map[string]any{keyEnabled: c.NetworkingConfig.ElasticLoadBalancing.Enabled},
-		}
-	}
 	if c.CertificateAuthority != "" {
 		m["certificateAuthority"] = map[string]string{"data": c.CertificateAuthority}
 	}
@@ -144,6 +139,11 @@ func appendClusterOptionalInfra(c *Cluster, m map[string]any) {
 	}
 }
 
+// clusterNetConfigJSON converts a KubernetesNetworkConfig to its wire shape.
+// ElasticLoadBalancing is a sibling of ipFamily/serviceIpv4Cidr/
+// serviceIpv6Cidr under this single "kubernetesNetworkConfig" object in real
+// AWS (eks@v1.90.4 types.KubernetesNetworkConfigResponse) -- it is not a
+// separate top-level "networkingConfig" key.
 func clusterNetConfigJSON(cfg *KubernetesNetworkConfig) map[string]any {
 	if cfg == nil {
 		return nil
@@ -157,6 +157,9 @@ func clusterNetConfigJSON(cfg *KubernetesNetworkConfig) map[string]any {
 	}
 	if cfg.ServiceIPv6CIDR != "" {
 		net["serviceIpv6Cidr"] = cfg.ServiceIPv6CIDR
+	}
+	if cfg.ElasticLoadBalancing != nil {
+		net["elasticLoadBalancing"] = map[string]any{keyEnabled: cfg.ElasticLoadBalancing.Enabled}
 	}
 	if len(net) == 0 {
 		return nil
@@ -204,9 +207,10 @@ type vpcConfigJSON struct {
 }
 
 type kubernetesNetworkConfigJSON struct {
-	IPFamily        string `json:"ipFamily"`
-	ServiceIPv4CIDR string `json:"serviceIpv4Cidr"`
-	ServiceIPv6CIDR string `json:"serviceIpv6Cidr"`
+	ElasticLoadBalancing *elasticLoadBalancingConfigJSON `json:"elasticLoadBalancing,omitempty"`
+	IPFamily             string                          `json:"ipFamily"`
+	ServiceIPv4CIDR      string                          `json:"serviceIpv4Cidr"`
+	ServiceIPv6CIDR      string                          `json:"serviceIpv6Cidr"`
 }
 
 type accessConfigJSON struct {
@@ -232,10 +236,6 @@ type elasticLoadBalancingConfigJSON struct {
 	Enabled *bool `json:"enabled,omitempty"`
 }
 
-type networkingConfigJSON struct {
-	ElasticLoadBalancing *elasticLoadBalancingConfigJSON `json:"elasticLoadBalancing,omitempty"`
-}
-
 type createClusterBody struct {
 	Tags                    map[string]string            `json:"tags"`
 	ResourcesVpcConfig      *vpcConfigJSON               `json:"resourcesVpcConfig"`
@@ -243,7 +243,6 @@ type createClusterBody struct {
 	AccessConfig            *accessConfigJSON            `json:"accessConfig"`
 	ComputeConfig           *computeConfigJSON           `json:"computeConfig"`
 	StorageConfig           *storageConfigJSON           `json:"storageConfig"`
-	NetworkingConfig        *networkingConfigJSON        `json:"networkingConfig"`
 	Name                    string                       `json:"name"`
 	Version                 string                       `json:"version"`
 	RoleArn                 string                       `json:"roleArn"`
@@ -281,6 +280,13 @@ func (h *Handler) handleCreateCluster(c *echo.Context, body []byte) error {
 			IPFamily:        in.KubernetesNetworkConfig.IPFamily,
 			ServiceIPv4CIDR: in.KubernetesNetworkConfig.ServiceIPv4CIDR,
 			ServiceIPv6CIDR: in.KubernetesNetworkConfig.ServiceIPv6CIDR,
+		}
+
+		if elb := in.KubernetesNetworkConfig.ElasticLoadBalancing; elb != nil {
+			netCfg.ElasticLoadBalancing = &ElasticLoadBalancingConfig{}
+			if elb.Enabled != nil {
+				netCfg.ElasticLoadBalancing.Enabled = *elb.Enabled
+			}
 		}
 	}
 
@@ -327,14 +333,6 @@ func buildClusterOptConfig(in createClusterBody) ClusterOptionalConfig {
 			sc.BlockStorage.Enabled = *in.StorageConfig.BlockStorage.Enabled
 		}
 		opt.StorageConfig = sc
-	}
-
-	if in.NetworkingConfig != nil && in.NetworkingConfig.ElasticLoadBalancing != nil {
-		nc := &NetworkingConfig{ElasticLoadBalancing: &ElasticLoadBalancingConfig{}}
-		if in.NetworkingConfig.ElasticLoadBalancing.Enabled != nil {
-			nc.ElasticLoadBalancing.Enabled = *in.NetworkingConfig.ElasticLoadBalancing.Enabled
-		}
-		opt.NetworkingConfig = nc
 	}
 
 	return opt

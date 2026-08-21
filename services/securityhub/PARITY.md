@@ -120,8 +120,8 @@ ops:
   GetResourcesStatisticsV2: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED this pass (gopherstack-4ggy request side, gopherstack-jo2r sweep response side) -- request read a fabricated body[\"GroupByAttributes\"]; real required input member is GroupByRules ([]types.ResourceGroupByRule -- types.go:17851-17862). Response emitted \"ResourceStatistics\"; real required key is \"GroupByResults\" (types.go:15698-15707). Same GroupByField-echo/lookup-translation shape as GetFindingStatisticsV2, but no OCSF->internal field map exists for resources (GetResourcesV2 has never honored Filters either), so lookups use the client's field name verbatim against this backend's ASFF Resource keys."}
   GetResourcesTrendsV2: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED this pass (gopherstack-jo2r) -- handler emitted \"ResourcesTrends\" and dropped required Granularity/TrendsMetrics (securityhub@v1.75.4 api_op_GetResourcesTrendsV2.go:22-58). Also found by reading the full real input: GetResourcesTrendsV2Input has no GroupByAttribute member either, so that request-side read was removed. Now returns one ResourcesTrendsMetricsResult (Timestamp+TrendsValues.ResourcesCount.AllResources); Granularity uses the same time-span heuristic as GetFindingsTrendsV2."}
   DescribeProductsV2: {wire: fixed, errors: ok, state: ok, persist: n/a, note: "FIXED this pass (gopherstack-jo2r) -- handler emitted \"Products\"; the real required key is \"ProductsV2\" ([]types.ProductV2 -- api_op_DescribeProductsV2.go:36-51), so a real client decoded a nil slice regardless of catalog content. Also renamed the per-item fields ProductV2 actually has (ProductV2Name, IntegrationV2Types) and dropped ProductArn, which ProductV2 has no member for at all (types.go:17113-17141); MarketplaceProductId left absent, no backing field on the shared Product model."}
-  GenerateRecommendedPolicyV2: {wire: ok, errors: ok, state: ok, persist: ok}
-  GetRecommendedPolicyV2: {wire: ok, errors: ok, state: ok, persist: ok}
+  GenerateRecommendedPolicyV2: {wire: fixed, errors: ok, state: ok, persist: ok, note: "gopherstack-tp8x (2026-08-21): returned {MetadataUid,Policy,GenerationTime}, a fabricated shape. GenerateRecommendedPolicyV2Output (securityhub@v1.75.4 api_op_GenerateRecommendedPolicyV2.go) has NO members at all besides ResultMetadata -- it only starts async generation. Fixed to return {}. NOTE: the y1zn filing's claim that this op 'is not a real operation at all' and the POST route is 'unreachable by any real client' is wrong -- verified against awsRestjson1_serializeOpGenerateRecommendedPolicyV2 (serializers.go), which sends POST /recommendedPolicyV2/{MetadataUid}, exactly this handler's route. A prior 'confirmed' verdict is not evidence; re-verify against the serializer before trusting a rejection note. Locked by TestGenerateGetRecommendedPolicyV2_RealClient."}
+  GetRecommendedPolicyV2: {wire: fixed, errors: ok, state: ok, persist: ok, note: "gopherstack-tp8x (2026-08-21): returned {MetadataUid,Policy,GenerationTime}; real GetRecommendedPolicyV2Output is an async-retrieval-status shape (Status/RecommendationType/ResourceArn/RecommendationSteps/Error/NextToken, deserializers.go), not a returned policy document. RecommendationSteps is a union tagged \"UnusedPermissions\" (types.RecommendationStepMemberUnusedPermissions), each step carrying RecommendedAction/RecommendedPolicy/ExistingPolicy/ExistingPolicyId/PolicyUpdatedAt (types.UnusedPermissionsRecommendationStep). This backend generates synchronously so Status is always SUCCEEDED and Error/NextToken are never populated; ResourceArn is omitted (not tracked -- no Finding-to-metadataUid linkage exists in this backend, honest gap rather than a fabricated ARN). Locked by TestGenerateGetRecommendedPolicyV2_RealClient (real-client decode of the RecommendationStepMemberUnusedPermissions union member)."}
   # CSPM Connectors (parity-4, new in v1.75.0): third-party CLOUD PROVIDER
   # connectors (currently Azure only -- CspmProviderConfiguration is a
   # single-member union) that let Security Hub CSPM ingest findings/resource
@@ -489,14 +489,11 @@ hand-reverted, confirmed failing, restored, `md5sum`-verified byte-identical.
   neither DeclineInvitationsOutput nor DeleteInvitationsOutput has a
   ProcessedAccounts member -- success is implied by an account's absence from
   UnprocessedAccounts, not a separate echo.
-- `GenerateRecommendedPolicyV2`/`GetRecommendedPolicyV2`: {wire: deferred,
-  note: "confirmed real bug, deeper than a key rename -- deferred. Both
-  return {MetadataUid, Policy, GenerationTime}; GetRecommendedPolicyV2Output
-  (deserializers.go) has Error/NextToken/RecommendationSteps/
-  RecommendationType/ResourceArn/Status instead -- an entirely different,
-  asynchronous-workflow-shaped response, not a returned policy document.
-  Separately, GenerateRecommendedPolicyV2 is not a real operation at all --
-  only GET .../recommendedPolicyV2/{MetadataUid} exists in the pinned SDK; the
-  POST route this handler answers is unreachable by any real client
-  regardless. Needs the whole family remodeled around
-  RecommendationSteps/RecommendationType/Status/Error, not a quick fix."}
+- `GenerateRecommendedPolicyV2`/`GetRecommendedPolicyV2`: {wire: fixed, note:
+  "confirmed real bug, then deferred to gopherstack-tp8x, now fixed
+  (2026-08-21) -- see the ops entries above for the full fix. The deferral
+  note's claim that GenerateRecommendedPolicyV2 'is not a real operation at
+  all' was itself wrong (verified: it is real, POST
+  /recommendedPolicyV2/{MetadataUid}, matching this handler's existing
+  route exactly) -- a reminder that a prior pass's rejection reasoning needs
+  re-verification against the serializer, same as any other claim."}

@@ -507,8 +507,9 @@ func TestGetChannels_IncludesExtraFields(t *testing.T) {
 
 	gcm, ok := channels["gcm"].(map[string]any)
 	require.True(t, ok, "GCM channel must be present")
-	assert.Equal(t, "AIzaSy_test", gcm["ApiKey"],
-		"GetChannels must include per-type ApiKey")
+	assert.Equal(t, "AIzaSy_test", gcm["Credential"],
+		"GetChannels must include per-type Credential (GCMChannelResponse's real member, not ApiKey)")
+	assert.NotContains(t, gcm, "ApiKey")
 }
 
 // ──────────────────────────────────────────────────

@@ -126,7 +126,7 @@ ops:
   GetVpcLinks: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteVpcLink: {wire: ok, errors: ok, state: ok, persist: ok}
   GetExport: {wire: ok, errors: ok, state: ok, persist: n/a, note: "Swagger 2.0 + OAS 3.0 export, real per-API/stage synthesis"}
-  GetSdk: {wire: ok, errors: ok, state: ok, persist: n/a}
+  GetSdk: {wire: gap, errors: ok, state: ok, persist: n/a, note: "found 2026-08-21 while fixing gopherstack-tp8x's medialive DescribeInputDeviceThumbnail (same bug class, not fixed here -- out of that task's scope). Real GetSdkOutput's ContentType/ContentDisposition are HTTP response headers and Body is the raw binary payload (types.go / deserializers.go), never JSON fields. handler_sdk.go's opGetSdk action returns {\"contentType\",\"contentDisposition\",\"body\"} as a map, which handler.go's dispatch()/dispatchAndRespond() then JSON-marshals via c.JSONBlob() with Content-Type application/json -- no header-setting or raw-body path exists anywhere in the dispatch chain for this op. A prior PARITY.md pass marked this 'wire: ok'; it was not -- do not trust that verdict without re-diffing against the deserializer. Needs the same c.Blob-with-real-headers treatment as iotdataplane's GetThingShadow / medialive's DescribeInputDeviceThumbnail (see that service's PARITY.md InputDevice note); file a follow-up issue rather than re-deferring silently."}
   GetSdkType: {wire: ok, errors: ok, state: ok, persist: n/a}
   GetSdkTypes: {wire: ok, errors: ok, state: ok, persist: n/a}
   ImportApiKeys: {wire: ok, errors: ok, state: ok, persist: ok}

@@ -32,21 +32,21 @@ func (h *Handler) extractChannelOp(method, channelType string) string {
 // e.g. "adm" → "Adm", "apns" → "Apns", "apns_sandbox" → "ApnsSandbox".
 func channelTypeOpName(channelType string) string {
 	switch strings.ToLower(channelType) {
-	case "adm":
+	case channelKeyADM:
 		return "Adm"
-	case "apns":
+	case channelKeyAPNS:
 		return "Apns"
-	case "apns_sandbox":
+	case channelKeyAPNSSandbox:
 		return "ApnsSandbox"
-	case "apns_voip":
+	case channelKeyAPNSVoip:
 		return "ApnsVoip"
-	case "apns_voip_sandbox":
+	case channelKeyAPNSVoipSandbox:
 		return "ApnsVoipSandbox"
-	case "baidu":
+	case channelKeyBaidu:
 		return "Baidu"
 	case templateTypeEmail:
 		return "Email"
-	case "gcm":
+	case channelKeyGCM:
 		return "Gcm"
 	case templateTypeSMS:
 		return "Sms"
@@ -70,6 +70,59 @@ func (h *Handler) dispatchChannelByType(c *echo.Context, appID, channelType stri
 	return writeErrorResponse(c, http.StatusMethodNotAllowed, "MethodNotAllowedException", "method not allowed")
 }
 
+// filterChannelExtraForEcho returns only the subset of extra that the real
+// SDK's *ChannelResponse type for channelType actually declares, renamed to
+// the real wire key where it differs from the request-side extra key
+// (types.go: GCMChannelResponse and BaiduChannelResponse both call the
+// credential "Credential", not the request's "ApiKey"). Credential/secret
+// extras with no response member at all -- ADM's ClientId/ClientSecret,
+// Baidu's SecretKey, APNS's BundleId/Certificate/TeamId/TokenKey/TokenKeyId,
+// GCM's ServiceJson -- are dropped entirely: the real types echo only the
+// HasCredential/HasTokenKey/HasFcmServiceCredentials booleans, never the raw
+// secret.
+func filterChannelExtraForEcho(channelType string, extra map[string]any) map[string]any {
+	if extra == nil {
+		return nil
+	}
+
+	switch strings.ToLower(channelType) {
+	case templateTypeEmail, templateTypeSMS:
+		return extra // every extra key here is already a real response member
+	case channelKeyGCM:
+		const gcmEchoFieldCount = 2
+
+		out := make(map[string]any, gcmEchoFieldCount)
+
+		if v, ok := extra[extraKeyDefaultAuthenticationMethod]; ok {
+			out[extraKeyDefaultAuthenticationMethod] = v
+		}
+
+		if v, ok := extra[extraKeyAPIKey]; ok {
+			out[wireKeyCredential] = v
+		}
+
+		return out
+	case channelKeyBaidu:
+		out := make(map[string]any, 1)
+
+		if v, ok := extra[extraKeyAPIKey]; ok {
+			out[wireKeyCredential] = v
+		}
+
+		return out
+	case channelKeyAPNS, channelKeyAPNSSandbox, channelKeyAPNSVoip, channelKeyAPNSVoipSandbox:
+		out := make(map[string]any, 1)
+
+		if v, ok := extra[extraKeyDefaultAuthenticationMethod]; ok {
+			out[extraKeyDefaultAuthenticationMethod] = v
+		}
+
+		return out
+	default:
+		return nil // ADM and others: no extra field is a real response member
+	}
+}
+
 // toChannelResponse converts a Channel to its wire format including per-type extra fields.
 func toChannelResponse(ch *Channel) map[string]any {
 	resp := map[string]any{
@@ -91,11 +144,15 @@ func toChannelResponse(ch *Channel) map[string]any {
 		resp["HasTokenKey"] = true
 	}
 
+	if ch.HasFcmServiceCredentials {
+		resp["HasFcmServiceCredentials"] = true
+	}
+
 	if ch.MessagesPerSecond > 0 {
 		resp["MessagesPerSecond"] = ch.MessagesPerSecond
 	}
 
-	maps.Copy(resp, ch.ExtraData)
+	maps.Copy(resp, filterChannelExtraForEcho(ch.ChannelType, ch.ExtraData))
 
 	return resp
 }
@@ -126,14 +183,14 @@ func parseGCMChannelExtra(body []byte) (bool, map[string]any) {
 		return false, nil
 	}
 
-	extra := map[string]any{"DefaultAuthenticationMethod": req.DefaultAuthenticationMethod}
+	extra := map[string]any{extraKeyDefaultAuthenticationMethod: req.DefaultAuthenticationMethod}
 
 	if req.APIKey != "" {
-		extra["ApiKey"] = req.APIKey
+		extra[extraKeyAPIKey] = req.APIKey
 	}
 
 	if req.ServiceJSON != "" {
-		extra["ServiceJson"] = req.ServiceJSON
+		extra[extraKeyServiceJSON] = req.ServiceJSON
 	}
 
 	return req.Enabled, extra
@@ -145,11 +202,11 @@ func parseAPNSChannelExtra(body []byte) (bool, map[string]any) {
 		return false, nil
 	}
 
-	extra := map[string]any{"DefaultAuthenticationMethod": req.DefaultAuthenticationMethod}
+	extra := map[string]any{extraKeyDefaultAuthenticationMethod: req.DefaultAuthenticationMethod}
 
 	for k, v := range map[string]string{
-		"BundleId": req.BundleID, "Certificate": req.Certificate,
-		"TeamId": req.TeamID, "TokenKey": req.TokenKey, "TokenKeyId": req.TokenKeyID,
+		extraKeyBundleID: req.BundleID, extraKeyCertificate: req.Certificate,
+		extraKeyTeamID: req.TeamID, extraKeyTokenKey: req.TokenKey, extraKeyTokenKeyID: req.TokenKeyID,
 	} {
 		if v != "" {
 			extra[k] = v
@@ -168,7 +225,7 @@ func parseEmailChannelExtra(body []byte) (bool, map[string]any) {
 	extra := map[string]any{}
 
 	for k, v := range map[string]string{
-		"FromAddress": req.FromAddress, "Identity": req.Identity,
+		extraKeyFromAddress: req.FromAddress, "Identity": req.Identity,
 		"RoleArn": req.RoleArn, "ConfigurationSet": req.ConfigurationSet,
 		"OrchestrationSendingRoleArn": req.OrchestrationSendingRoleArn,
 	} {
@@ -202,15 +259,15 @@ func parseSMSChannelExtra(body []byte) (bool, map[string]any) {
 // parseChannelExtra extracts per-channel extra fields from the request body.
 func parseChannelExtra(channelType string, body []byte) (bool, map[string]any) {
 	switch strings.ToLower(channelType) {
-	case "gcm":
+	case channelKeyGCM:
 		return parseGCMChannelExtra(body)
-	case "apns", "apns_sandbox", "apns_voip", "apns_voip_sandbox":
+	case channelKeyAPNS, channelKeyAPNSSandbox, channelKeyAPNSVoip, channelKeyAPNSVoipSandbox:
 		return parseAPNSChannelExtra(body)
-	case "email":
+	case templateTypeEmail:
 		return parseEmailChannelExtra(body)
-	case "sms":
+	case templateTypeSMS:
 		return parseSMSChannelExtra(body)
-	case "adm":
+	case channelKeyADM:
 		var req updateADMChannelRequest
 		if err := json.Unmarshal(body, &req); err != nil {
 			return false, nil
@@ -219,15 +276,15 @@ func parseChannelExtra(channelType string, body []byte) (bool, map[string]any) {
 		extra := map[string]any{}
 
 		if req.ClientID != "" {
-			extra["ClientId"] = req.ClientID
+			extra[extraKeyClientID] = req.ClientID
 		}
 
 		if req.ClientSecret != "" {
-			extra["ClientSecret"] = req.ClientSecret
+			extra[extraKeyClientSecret] = req.ClientSecret
 		}
 
 		return req.Enabled, extra
-	case "baidu":
+	case channelKeyBaidu:
 		var req updateBaiduChannelRequest
 		if err := json.Unmarshal(body, &req); err != nil {
 			return false, nil
@@ -236,11 +293,11 @@ func parseChannelExtra(channelType string, body []byte) (bool, map[string]any) {
 		extra := map[string]any{}
 
 		if req.APIKey != "" {
-			extra["ApiKey"] = req.APIKey
+			extra[extraKeyAPIKey] = req.APIKey
 		}
 
 		if req.SecretKey != "" {
-			extra["SecretKey"] = req.SecretKey
+			extra[extraKeySecretKey] = req.SecretKey
 		}
 
 		return req.Enabled, extra

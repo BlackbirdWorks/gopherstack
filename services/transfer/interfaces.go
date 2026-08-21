@@ -117,6 +117,7 @@ type StorageBackend interface {
 	ListExecutions(workflowID string) ([]*Execution, error)
 	StartFileFileTransferResult(connectorID string, files []string) string
 	ListFileFileTransferResults(connectorID string) []*FileTransferResult
+	GetFileTransferResult(connectorID, transferID string) *FileTransferResult
 	StartAsyncOperationRecord(connectorID, opType string) string
 	TestIdentityProvider(serverID, userName string) (int, string)
 	SendWorkflowStepStateRecord(workflowID, executionID, token, status string) error

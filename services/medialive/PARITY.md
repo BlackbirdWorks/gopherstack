@@ -360,6 +360,35 @@ families:
       is now a pure existence-check no-op, matching StartInputDevice/
       StopInputDevice's existing pattern (StartInputDeviceMaintenanceWindowOutput
       carries no fields on the real wire either).
+      gopherstack-tp8x (2026-08-21), FIXED: DescribeInputDeviceThumbnail was
+      a header-vs-body confusion, not a key-casing bug -- confirmed against
+      awsRestjson1_deserializeOpHttpBindingsDescribeInputDeviceThumbnailOutput,
+      which binds ContentType/ContentLength/ETag/LastModified to the
+      Content-Type/Content-Length/ETag/Last-Modified HTTP response headers,
+      and awsRestjson1_deserializeOpDocumentDescribeInputDeviceThumbnailOutput,
+      which sets Body directly from the raw response body (no JSON
+      unwrapping). The handler wrote a JSON object
+      {"ContentType":"image/jpeg","ContentLength":0} with none of those as
+      real headers, so a real client's typed ContentType/ContentLength
+      fields decoded as zero values regardless of what was "sent". Fixed to
+      set real ETag/Last-Modified headers and return the body via c.Blob
+      with a real Content-Type header -- same convention as
+      iotdataplane's GetThingShadow. No real thumbnail image is captured by
+      this backend (body is empty bytes); only the wire *shape* is fixed.
+      Locked by TestDescribeInputDeviceThumbnail_HeadersNotBody_RealClient.
+      NOTE: gopherstack-tp8x's filing cited apigateway's GetSdk as an
+      existing correct example of this same header/raw-body convention --
+      checked while fixing this, and that citation is wrong: apigateway's
+      GetSdk (handler_sdk.go) still JSON-marshals
+      {"contentType","contentDisposition","body"} through the same
+      dispatch()/c.JSONBlob() path as every other apigateway op, with no
+      header-setting or raw-body special case anywhere in the dispatch
+      chain (handler.go's dispatch/dispatchAndRespond). apigateway's GetSdk
+      has the same header-vs-body bug this entry just fixed for medialive;
+      it was NOT touched by this pass (out of gopherstack-tp8x's scope) and
+      is now a known, confirmed gap for apigateway -- see that service's
+      PARITY.md / file a follow-up before trusting the old "already
+      correct" note again.
   Cluster:
     status: ok
     note: >
