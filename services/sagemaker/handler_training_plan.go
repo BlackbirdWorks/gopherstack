@@ -56,6 +56,23 @@ func (h *Handler) dispatchTrainingPlanExtOps(
 	return nil, false, nil
 }
 
+// trainingPlanTotalUltraServerCount counts t's UltraServer-type reserved
+// capacities. This catalog only ever attaches one UltraServer per
+// UltraServer-type ReservedCapacity (training_plan.go's createReservedCapacity),
+// so each such summary contributes exactly 1 to TrainingPlanSummary's
+// TotalUltraServerCount (types/types.go:22894-22895).
+func trainingPlanTotalUltraServerCount(t *TrainingPlan) int32 {
+	var n int32
+
+	for _, rc := range t.ReservedCapacitySummaries {
+		if rc.ReservedCapacityType == "UltraServer" {
+			n++
+		}
+	}
+
+	return n
+}
+
 func trainingPlanSummaryJSON(t *TrainingPlan) map[string]any {
 	summary := map[string]any{
 		"TrainingPlanName": t.TrainingPlanName,
@@ -76,11 +93,11 @@ func trainingPlanSummaryJSON(t *TrainingPlan) map[string]any {
 	}
 
 	if t.StartTime != nil {
-		summary[trainingPlanSortByStartTime] = t.StartTime
+		summary[trainingPlanSortByStartTime] = epochSeconds(*t.StartTime)
 	}
 
 	if t.EndTime != nil {
-		summary["EndTime"] = t.EndTime
+		summary["EndTime"] = epochSeconds(*t.EndTime)
 	}
 
 	if len(t.ReservedCapacitySummaries) > 0 {
@@ -95,17 +112,43 @@ func trainingPlanSummaryJSON(t *TrainingPlan) map[string]any {
 		summary["InUseInstanceCount"] = t.InUseInstanceCount
 	}
 
+	if t.StatusMessage != "" {
+		summary["StatusMessage"] = t.StatusMessage
+	}
+
+	if len(t.TargetResources) > 0 {
+		summary["TargetResources"] = t.TargetResources
+	}
+
+	if t.TotalInstanceCount > 0 {
+		summary["TotalInstanceCount"] = t.TotalInstanceCount
+	}
+
+	if t.UpfrontFee != "" {
+		summary["UpfrontFee"] = t.UpfrontFee
+	}
+
+	if n := trainingPlanTotalUltraServerCount(t); n > 0 {
+		summary["TotalUltraServerCount"] = n
+	}
+
 	return summary
 }
 
+// listTrainingPlansInput mirrors ListTrainingPlansInput
+// (api_op_ListTrainingPlans.go:30-71), all members optional.
+type listTrainingPlansInput struct {
+	StartTimeAfter  *float64                `json:"StartTimeAfter,omitempty"`
+	StartTimeBefore *float64                `json:"StartTimeBefore,omitempty"`
+	SortBy          string                  `json:"SortBy"`
+	SortOrder       string                  `json:"SortOrder"`
+	NextToken       string                  `json:"NextToken"`
+	Filters         []trainingPlanFilterReq `json:"Filters"`
+	MaxResults      int32                   `json:"MaxResults"`
+}
+
 func (h *Handler) handleListTrainingPlans(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		SortBy     string                  `json:"SortBy"`
-		SortOrder  string                  `json:"SortOrder"`
-		NextToken  string                  `json:"NextToken"`
-		Filters    []trainingPlanFilterReq `json:"Filters"`
-		MaxResults int32                   `json:"MaxResults"`
-	}
+	var req listTrainingPlansInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -120,11 +163,13 @@ func (h *Handler) handleListTrainingPlans(ctx context.Context, body []byte) ([]b
 	}
 
 	plans, next := h.Backend.ListTrainingPlans(ctx, ListTrainingPlansParams{
-		StatusEquals: statusEquals,
-		SortBy:       req.SortBy,
-		SortOrder:    req.SortOrder,
-		NextToken:    req.NextToken,
-		MaxResults:   req.MaxResults,
+		StatusEquals:    statusEquals,
+		SortBy:          req.SortBy,
+		SortOrder:       req.SortOrder,
+		NextToken:       req.NextToken,
+		StartTimeAfter:  timeFromEpochSecondsPtr(req.StartTimeAfter),
+		StartTimeBefore: timeFromEpochSecondsPtr(req.StartTimeBefore),
+		MaxResults:      req.MaxResults,
 	})
 
 	summaries := make([]map[string]any, 0, len(plans))
@@ -140,27 +185,40 @@ type trainingPlanFilterReq struct {
 	Value string `json:"Value"`
 }
 
+// searchTrainingPlanOfferingsInput mirrors SearchTrainingPlanOfferingsInput
+// (api_op_SearchTrainingPlanOfferings.go:26-71), all members optional.
+// EndTimeBefore/StartTimeAfter are decoded for wire-shape fidelity but are a
+// disclosed no-op: trainingPlanOfferingCatalog's static entries have no
+// absolute start/end time of their own (only a relative duration) until
+// purchased into a TrainingPlan/ReservedCapacity, so there is nothing for
+// either filter to compare against.
+type searchTrainingPlanOfferingsInput struct {
+	StartTimeAfter   *float64 `json:"StartTimeAfter,omitempty"`
+	EndTimeBefore    *float64 `json:"EndTimeBefore,omitempty"`
+	InstanceType     string   `json:"InstanceType"`
+	UltraServerType  string   `json:"UltraServerType"`
+	TrainingPlanArn  string   `json:"TrainingPlanArn"`
+	TargetResources  []string `json:"TargetResources"`
+	DurationHours    int64    `json:"DurationHours"`
+	InstanceCount    int32    `json:"InstanceCount"`
+	UltraServerCount int32    `json:"UltraServerCount"`
+}
+
 func (h *Handler) handleSearchTrainingPlanOfferings(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		InstanceType    string   `json:"InstanceType"`
-		UltraServerType string   `json:"UltraServerType"`
-		TrainingPlanArn string   `json:"TrainingPlanArn"`
-		TargetResources []string `json:"TargetResources"`
-		DurationHours   int64    `json:"DurationHours"`
-		InstanceCount   int32    `json:"InstanceCount"`
-	}
+	var req searchTrainingPlanOfferingsInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
 	offerings, extOfferings, err := h.Backend.SearchTrainingPlanOfferings(ctx, SearchTrainingPlanOfferingsParams{
-		InstanceType:    req.InstanceType,
-		UltraServerType: req.UltraServerType,
-		TrainingPlanArn: req.TrainingPlanArn,
-		TargetResources: req.TargetResources,
-		DurationHours:   req.DurationHours,
-		InstanceCount:   req.InstanceCount,
+		InstanceType:     req.InstanceType,
+		UltraServerType:  req.UltraServerType,
+		TrainingPlanArn:  req.TrainingPlanArn,
+		TargetResources:  req.TargetResources,
+		DurationHours:    req.DurationHours,
+		InstanceCount:    req.InstanceCount,
+		UltraServerCount: req.UltraServerCount,
 	})
 	if err != nil {
 		return nil, err
@@ -186,10 +244,15 @@ func (h *Handler) handleSearchTrainingPlanOfferings(ctx context.Context, body []
 	})
 }
 
+// extendTrainingPlanInput mirrors ExtendTrainingPlanInput
+// (api_op_ExtendTrainingPlan.go:24-33): TrainingPlanExtensionOfferingId is its
+// sole, required member.
+type extendTrainingPlanInput struct {
+	TrainingPlanExtensionOfferingID string `json:"TrainingPlanExtensionOfferingId"`
+}
+
 func (h *Handler) handleExtendTrainingPlan(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		TrainingPlanExtensionOfferingID string `json:"TrainingPlanExtensionOfferingId"`
-	}
+	var req extendTrainingPlanInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -207,12 +270,18 @@ func (h *Handler) handleExtendTrainingPlan(ctx context.Context, body []byte) ([]
 	return json.Marshal(map[string]any{"TrainingPlanExtensions": extensions})
 }
 
+// describeTrainingPlanExtensionHistoryInput mirrors
+// DescribeTrainingPlanExtensionHistoryInput
+// (api_op_DescribeTrainingPlanExtensionHistory.go:24-38): TrainingPlanArn is
+// required, MaxResults/NextToken optional.
+type describeTrainingPlanExtensionHistoryInput struct {
+	TrainingPlanArn string `json:"TrainingPlanArn"`
+	NextToken       string `json:"NextToken"`
+	MaxResults      int32  `json:"MaxResults"`
+}
+
 func (h *Handler) handleDescribeTrainingPlanExtensionHistory(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		TrainingPlanArn string `json:"TrainingPlanArn"`
-		NextToken       string `json:"NextToken"`
-		MaxResults      int32  `json:"MaxResults"`
-	}
+	var req describeTrainingPlanExtensionHistoryInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -232,10 +301,15 @@ func (h *Handler) handleDescribeTrainingPlanExtensionHistory(ctx context.Context
 	return json.Marshal(map[string]any{"TrainingPlanExtensions": extensions, keyNextToken: next})
 }
 
+// describeReservedCapacityInput mirrors DescribeReservedCapacityInput
+// (api_op_DescribeReservedCapacity.go:24-33): ReservedCapacityArn is its
+// sole, required member.
+type describeReservedCapacityInput struct {
+	ReservedCapacityArn string `json:"ReservedCapacityArn"`
+}
+
 func (h *Handler) handleDescribeReservedCapacity(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		ReservedCapacityArn string `json:"ReservedCapacityArn"`
-	}
+	var req describeReservedCapacityInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -253,12 +327,18 @@ func (h *Handler) handleDescribeReservedCapacity(ctx context.Context, body []byt
 	return json.Marshal(rc)
 }
 
+// listUltraServersByReservedCapacityInput mirrors
+// ListUltraServersByReservedCapacityInput
+// (api_op_ListUltraServersByReservedCapacity.go:24-40): ReservedCapacityArn
+// is required, MaxResults/NextToken optional.
+type listUltraServersByReservedCapacityInput struct {
+	ReservedCapacityArn string `json:"ReservedCapacityArn"`
+	NextToken           string `json:"NextToken"`
+	MaxResults          int32  `json:"MaxResults"`
+}
+
 func (h *Handler) handleListUltraServersByReservedCapacity(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		ReservedCapacityArn string `json:"ReservedCapacityArn"`
-		NextToken           string `json:"NextToken"`
-		MaxResults          int32  `json:"MaxResults"`
-	}
+	var req listUltraServersByReservedCapacityInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)

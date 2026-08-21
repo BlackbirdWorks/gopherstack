@@ -4,7 +4,11 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
+	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	sagemakersdk "github.com/aws/aws-sdk-go-v2/service/sagemaker"
+	smtypes "github.com/aws/aws-sdk-go-v2/service/sagemaker/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -207,4 +211,181 @@ func TestHandler_CreateTrainingPlan_WithoutOffering_StaysMinimal(t *testing.T) {
 	require.NoError(t, json.Unmarshal(describeRec.Body.Bytes(), &resp))
 	assert.Equal(t, "Active", resp["Status"])
 	assert.Nil(t, resp["ReservedCapacitySummaries"])
+}
+
+// TestHandler_DescribeReservedCapacity_UltraServerSummary_RealClient asserts
+// DescribeReservedCapacityOutput.UltraServerSummary -- previously entirely
+// absent -- is now populated for an UltraServer-backed reserved capacity.
+func TestHandler_DescribeReservedCapacity_UltraServerSummary_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestSageMakerClient(t, h)
+
+	search, err := client.SearchTrainingPlanOfferings(
+		t.Context(), &sagemakersdk.SearchTrainingPlanOfferingsInput{
+			UltraServerType: aws.String("ml.u-p6e-gb200x72"),
+		},
+	)
+	require.NoError(t, err)
+	require.NotEmpty(t, search.TrainingPlanOfferings)
+
+	_, err = client.CreateTrainingPlan(t.Context(), &sagemakersdk.CreateTrainingPlanInput{
+		TrainingPlanName:       aws.String("ultraserver-summary-plan"),
+		TrainingPlanOfferingId: search.TrainingPlanOfferings[0].TrainingPlanOfferingId,
+	})
+	require.NoError(t, err)
+
+	desc, err := client.DescribeTrainingPlan(t.Context(), &sagemakersdk.DescribeTrainingPlanInput{
+		TrainingPlanName: aws.String("ultraserver-summary-plan"),
+	})
+	require.NoError(t, err)
+	require.Len(t, desc.ReservedCapacitySummaries, 1)
+
+	rc, err := client.DescribeReservedCapacity(t.Context(), &sagemakersdk.DescribeReservedCapacityInput{
+		ReservedCapacityArn: desc.ReservedCapacitySummaries[0].ReservedCapacityArn,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, rc.UltraServerSummary)
+	assert.Equal(t, "ml.u-p6e-gb200x72", aws.ToString(rc.UltraServerSummary.UltraServerType))
+	assert.EqualValues(t, 1, aws.ToInt32(rc.UltraServerSummary.UltraServerCount))
+}
+
+// TestHandler_SearchTrainingPlanOfferings_InstanceUltraServerCount_RealClient
+// asserts InstanceCount and UltraServerCount actually filter the catalog --
+// InstanceCount was decoded and threaded through but never applied by the
+// matching loop (a no-effect absence, not a decode absence), and
+// UltraServerCount was not even decoded by the handler.
+func TestHandler_SearchTrainingPlanOfferings_InstanceUltraServerCount_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestSageMakerClient(t, h)
+
+	t.Run("instance count above every offering's capacity returns nothing", func(t *testing.T) {
+		t.Parallel()
+
+		out, err := client.SearchTrainingPlanOfferings(
+			t.Context(), &sagemakersdk.SearchTrainingPlanOfferingsInput{
+				InstanceType:  smtypes.ReservedCapacityInstanceType("ml.p5.48xlarge"),
+				InstanceCount: aws.Int32(1000),
+			},
+		)
+		require.NoError(t, err)
+		assert.Empty(t, out.TrainingPlanOfferings)
+	})
+
+	t.Run("instance count within capacity still matches", func(t *testing.T) {
+		t.Parallel()
+
+		out, err := client.SearchTrainingPlanOfferings(
+			t.Context(), &sagemakersdk.SearchTrainingPlanOfferingsInput{
+				InstanceType:  smtypes.ReservedCapacityInstanceType("ml.p5.48xlarge"),
+				InstanceCount: aws.Int32(8),
+			},
+		)
+		require.NoError(t, err)
+		assert.NotEmpty(t, out.TrainingPlanOfferings)
+	})
+
+	t.Run("ultra server count above what any offering can supply returns nothing", func(t *testing.T) {
+		t.Parallel()
+
+		out, err := client.SearchTrainingPlanOfferings(
+			t.Context(), &sagemakersdk.SearchTrainingPlanOfferingsInput{
+				UltraServerType:  aws.String("ml.u-p6e-gb200x72"),
+				UltraServerCount: aws.Int32(2),
+			},
+		)
+		require.NoError(t, err)
+		assert.Empty(t, out.TrainingPlanOfferings)
+	})
+
+	t.Run("ultra server count of one still matches", func(t *testing.T) {
+		t.Parallel()
+
+		out, err := client.SearchTrainingPlanOfferings(
+			t.Context(), &sagemakersdk.SearchTrainingPlanOfferingsInput{
+				UltraServerType:  aws.String("ml.u-p6e-gb200x72"),
+				UltraServerCount: aws.Int32(1),
+			},
+		)
+		require.NoError(t, err)
+		assert.NotEmpty(t, out.TrainingPlanOfferings)
+	})
+}
+
+// TestHandler_ListTrainingPlans_StartTimeFilter_RealClient asserts
+// ListTrainingPlansInput.StartTimeAfter/StartTimeBefore -- previously both
+// entirely absent -- now decode without error and filter correctly.
+func TestHandler_ListTrainingPlans_StartTimeFilter_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestSageMakerClient(t, h)
+
+	search, searchErr := client.SearchTrainingPlanOfferings(
+		t.Context(), &sagemakersdk.SearchTrainingPlanOfferingsInput{InstanceType: "ml.p5.48xlarge"},
+	)
+	require.NoError(t, searchErr)
+	require.NotEmpty(t, search.TrainingPlanOfferings)
+
+	_, createErr := client.CreateTrainingPlan(t.Context(), &sagemakersdk.CreateTrainingPlanInput{
+		TrainingPlanName:       aws.String("start-time-plan"),
+		TrainingPlanOfferingId: search.TrainingPlanOfferings[0].TrainingPlanOfferingId,
+	})
+	require.NoError(t, createErr)
+
+	t.Run("start time after in the past includes the plan", func(t *testing.T) {
+		t.Parallel()
+
+		out, err := client.ListTrainingPlans(t.Context(), &sagemakersdk.ListTrainingPlansInput{
+			StartTimeAfter: aws.Time(time.Now().Add(-time.Hour)),
+		})
+		require.NoError(t, err)
+		assert.NotEmpty(t, out.TrainingPlanSummaries)
+	})
+
+	t.Run("start time before in the past excludes the plan", func(t *testing.T) {
+		t.Parallel()
+
+		out, err := client.ListTrainingPlans(t.Context(), &sagemakersdk.ListTrainingPlansInput{
+			StartTimeBefore: aws.Time(time.Now().Add(-time.Hour)),
+		})
+		require.NoError(t, err)
+		assert.Empty(t, out.TrainingPlanSummaries)
+	})
+}
+
+// TestHandler_ListTrainingPlans_SummaryFields_RealClient asserts
+// TrainingPlanSummary's StatusMessage/TargetResources/TotalInstanceCount/
+// UpfrontFee/TotalUltraServerCount -- previously all absent from the List
+// summary even though CreateTrainingPlan populates the underlying data --
+// are now emitted.
+func TestHandler_ListTrainingPlans_SummaryFields_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestSageMakerClient(t, h)
+
+	search, err := client.SearchTrainingPlanOfferings(
+		t.Context(), &sagemakersdk.SearchTrainingPlanOfferingsInput{InstanceType: "ml.p5.48xlarge"},
+	)
+	require.NoError(t, err)
+	require.NotEmpty(t, search.TrainingPlanOfferings)
+
+	_, err = client.CreateTrainingPlan(t.Context(), &sagemakersdk.CreateTrainingPlanInput{
+		TrainingPlanName:       aws.String("summary-fields-plan"),
+		TrainingPlanOfferingId: search.TrainingPlanOfferings[0].TrainingPlanOfferingId,
+	})
+	require.NoError(t, err)
+
+	out, err := client.ListTrainingPlans(t.Context(), &sagemakersdk.ListTrainingPlansInput{})
+	require.NoError(t, err)
+	require.Len(t, out.TrainingPlanSummaries, 1)
+
+	s := out.TrainingPlanSummaries[0]
+	assert.NotEmpty(t, aws.ToString(s.UpfrontFee))
+	assert.NotEmpty(t, s.TargetResources)
+	assert.Positive(t, aws.ToInt32(s.TotalInstanceCount))
 }

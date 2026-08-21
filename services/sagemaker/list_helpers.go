@@ -168,6 +168,50 @@ func sagemakerListKeyPaged[T any](
 	return out, next
 }
 
+// sagemakerListKeyPagedN is [sagemakerListKeyPaged] with a caller-supplied
+// page size — maxResults <= 0 falls back to sagemakerDefaultPageSize,
+// matching every other List op's undocumented-MaxResults behavior in this
+// service.
+func sagemakerListKeyPagedN[T any](
+	tbl *store.Table[T],
+	nextToken string,
+	maxResults int32,
+	clone func(*T) *T,
+	keyFn func(*T) string,
+) ([]*T, string) {
+	items := tbl.Snapshot()
+
+	start := 0
+	if nextToken != "" {
+		for i, item := range items {
+			if keyFn(item) == nextToken {
+				start = i
+
+				break
+			}
+		}
+	}
+
+	pageSize := int(maxResults)
+	if pageSize <= 0 {
+		pageSize = sagemakerDefaultPageSize
+	}
+
+	end := min(start+pageSize, len(items))
+
+	out := make([]*T, 0, end-start)
+	for _, item := range items[start:end] {
+		out = append(out, clone(item))
+	}
+
+	next := ""
+	if end < len(items) {
+		next = keyFn(items[end])
+	}
+
+	return out, next
+}
+
 // sagemakerCreate handles the common create-resource-by-name pattern:
 // acquire lock, check for duplicate, build ARN, build item, store, return clone.
 func sagemakerCreate[T any](

@@ -2568,3 +2568,228 @@ campaign's standing instruction never to write `pending` or otherwise touch it c
 **180 of sagemaker's 362 inline structs now remain.** Next by size (tied at 6):
 `handler_trial_components.go`, `handler_training_plan.go`, `handler_partner_apps.go`,
 `handler_labeling.go`, `handler_inference_components.go`, `handler_endpoints.go`.
+
+## parity-18 (2026-08-21, gopherstack-oc9v): TrialComponent/TrainingPlan/PartnerApp inline-struct
+sweep (partial — 3 of the 6 tied-at-6 files)
+
+Twelfth pass of the gopherstack-oc9v campaign. Per parity-17's boundary note, this pass took the
+first three of the six files tied at 6 (`handler_trial_components.go`, `handler_training_plan.go`,
+`handler_partner_apps.go`), each verified by `grep -c 'var req struct {' <file>.go` = 6 before
+starting. **`handler_labeling.go`, `handler_inference_components.go`, and `handler_endpoints.go` were
+not started this pass** — full files were taken with full rigor rather than spreading thin across
+all six. All 18 of this pass's structs were converted to named types and wire-audited field-by-field
+against the pinned SDK (`v1.263.2`, confirmed from `go.mod`, matching prior passes). **162 of
+sagemaker's 362 inline structs now remain** (362 − 19 − 19 − 15 − 14 − 14 − 12 − 11 − 11 − 10 − 9 − 9
+− 7 − 7 − 7 − 7 − 6 − 6 − 6), confirmed by `grep -rc 'var req struct {' services/sagemaker/*.go`
+summed, not arithmetic; all three files now have zero.
+
+**`handler_trial_components.go` (TrialComponent family):**
+
+- `CreateTrialComponentInput` (`api_op_CreateTrialComponent.go:44-91`) was missing optional
+  `MetadataProperties` (`types.MetadataProperties`) entirely. Now decoded directly into this
+  service's existing shared `MetadataProperties` type (`lineage.go:56-61`, whose JSON tags already
+  match the wire shape byte-for-byte — reused rather than re-declaring a second wire-shape struct).
+- `DescribeTrialComponentOutput` (`api_op_DescribeTrialComponent.go:36-83`) was missing
+  `LineageGroupArn` entirely. SageMaker has no `CreateLineageGroup` op (confirmed absent from the
+  pinned SDK) — every account has exactly one auto-provisioned default lineage group
+  (`lineage.go`'s `defaultLineageGroupName`), and every trial component belongs to it. Fixed via a
+  new `trialComponentLineageGroupArn` backend method mirroring the existing
+  `DescribeLineageGroup`/`ListLineageGroups` ARN construction. `MetadataProperties` is now echoed
+  back when set.
+- `ListTrialComponentsInput` (`api_op_ListTrialComponents.go:30-71`) was missing **6 of 9** optional
+  fields, only `ExperimentName`/`TrialName`/`NextToken` existed: `CreatedAfter`, `CreatedBefore`,
+  `MaxResults`, `SortBy`, `SortOrder`, `SourceArn`. The first five are now real via a new
+  `ListTrialComponentsParams`/sort-by-params rewrite of the backend method (previously a bare
+  3-argument function with no filter/sort/page-size support at all). **This op's own doc states both
+  real defaults explicitly**: `SortBy` defaults to `CreationTime`, `SortOrder` to `Descending` —
+  implemented as documented. `SourceArn` is decoded for wire-shape fidelity but is a disclosed
+  no-op: `CreateTrialComponentInput` has no `Source` field at all (a trial component's
+  `TrialComponentSource` is only ever populated when SageMaker auto-tracks a processing/training job,
+  which this backend never does), so no trial component ever has a source ARN to filter by.
+  `SortTrialComponentsBy`'s real values are `Name`/`CreationTime` (`types/enums.go:9345-9346`,
+  mixed-case) — read from the enum constants, not assumed.
+- `UpdateTrialComponentInput` (`api_op_UpdateTrialComponent.go:28-70`) was missing
+  `InputArtifactsToRemove`/`OutputArtifactsToRemove`/`ParametersToRemove` entirely — a real client
+  could add or replace parameters/artifacts but never remove one. Fixed: applied additive-then-remove,
+  matching this file's sibling lineage handlers' (`UpdateAction`/`UpdateArtifact`/`UpdateContext`)
+  existing `PropertiesToRemove` pattern in `lineage.go`.
+- `DeleteTrialComponentInput`/`DisassociateTrialComponentInput` — already matched exactly; converted
+  to named types for tooling visibility with no field changes.
+
+**Disclosed, not modeled (TrialComponent):** `DescribeTrialComponentOutput`'s `CreatedBy`/
+`LastModifiedBy` (`types.UserContext`, no caller-identity concept anywhere in this service, the same
+gap disclosed repeatedly in prior passes); `Metrics` (`[]types.TrialComponentMetricSummary`,
+populated only by the separate `sagemaker-metrics` service's `BatchPutMetrics`, not implemented
+here); `Source`/`Sources` (`types.TrialComponentSource`, see `SourceArn` above).
+
+**`handler_training_plan.go` (TrainingPlan/ReservedCapacity extras) — a repo-spanning response-side
+epoch-time bug, the same class this campaign has repeatedly found on the request-decode side, found
+here for the first time on the response-encode side:**
+
+`trainingPlanSummaryJSON` (the `ListTrainingPlans` summary builder) assigned `t.StartTime`/`t.EndTime`
+— both `*time.Time` — directly into the response `map[string]any`, bypassing `TrainingPlan`'s own
+correct `MarshalJSON` override (`training_plans.go:112-126`, which the sibling `DescribeTrainingPlan`
+handler uses safely via `json.Marshal(result)`). A bare map has no such override, so `encoding/json`
+fell back to Go's default `time.Time` marshaling — an RFC3339 **string** — for a field the real
+`ListTrainingPlansOutput` (`api_op_ListTrainingPlans.go`) declares as an awsjson1.1 **number**.
+**Any real client's `ListTrainingPlans` call against a plan with a `StartTime`/`EndTime` set (i.e. any
+purchased plan) failed outright** with `deserialization failed ... expected Timestamp to be a JSON
+Number, got string instead` — the same failure signature parity-16 found across five List-filter ops,
+here on a List *response* field instead. Fixed by converting through `epochSeconds`/`epochSeconds(*...)`
+before assignment; confirmed via hand-revert below.
+
+- `ListTrainingPlansInput` (`api_op_ListTrainingPlans.go:30-71`) was also missing `StartTimeAfter`/
+  `StartTimeBefore` entirely (now `*float64`/`timeFromEpochSecondsPtr`, threaded into a new
+  `ListTrainingPlansParams.StartTimeAfter`/`StartTimeBefore` and applied against
+  `trainingPlanStartTime(t)`, the existing StartTime-or-CreationTime fallback the sort logic already
+  used).
+- `TrainingPlanSummary` (`types/types.go:22825-22903`) was missing **5 of 15** members in the List
+  summary even though `CreateTrainingPlan` already populates the underlying data:
+  `StatusMessage`, `TargetResources`, `TotalInstanceCount`, `UpfrontFee` (all pre-existing `TrainingPlan`
+  fields tagged `json:"-"` since `DescribeTrainingPlan` doesn't need a hand-built map — but
+  `trainingPlanSummaryJSON` builds one manually and can read them as ordinary Go fields), and
+  `TotalUltraServerCount` (not tracked directly; computed by counting `ReservedCapacitySummaries` with
+  `ReservedCapacityType == "UltraServer"`, disclosed as relying on this catalog's one-UltraServer-per-
+  offering design in `trainingPlanTotalUltraServerCount`'s doc comment).
+  `DescribeTrainingPlanOutput`'s identical `UpfrontFee`/`TargetResources`/`TotalInstanceCount` gap
+  (`handler_training_plans.go`, a sibling file not in this pass's scope) was found but not fixed —
+  flagged for follow-up, see Notes.
+- `SearchTrainingPlanOfferingsInput` (`api_op_SearchTrainingPlanOfferings.go:26-71`) had two absent-
+  effect bugs, not just absent-decode ones: **`InstanceCount` was already decoded and threaded through
+  to `SearchTrainingPlanOfferingsParams` but the matching loop never checked it at all** — a real
+  client's instance-count requirement was silently ignored regardless of value. **`UltraServerCount`
+  was worse: present on `SearchTrainingPlanOfferingsParams` (a struct field nobody ever wrote to) but
+  never even decoded by the handler.** Both are now real filters
+  (`offeringMatchesInstanceCount`/`offeringMatchesUltraServerCount` in `training_plan.go`); the latter
+  is disclosed as only ever satisfiable at 0 or 1 given this catalog's one-UltraServer-per-offering
+  design. `StartTimeAfter`/`EndTimeBefore` are decoded for wire-shape fidelity but disclosed no-ops:
+  the static catalog's entries have no absolute start/end time of their own (only a relative
+  duration) until purchased into a `TrainingPlan`/`ReservedCapacity`.
+- `DescribeReservedCapacityOutput` (`api_op_DescribeReservedCapacity.go`) was missing
+  `UltraServerSummary` entirely — `ReservedCapacity.UltraServers` was tracked internally
+  (`json:"-"`, used only by `ListUltraServersByReservedCapacity`) but never projected into the
+  Describe response. Fixed via a new `ultraServerSummary()` method on `*ReservedCapacity`, wired into
+  its existing `MarshalJSON` override; `UnhealthyInstanceCount` is always 0, disclosed as this
+  backend never simulating an unhealthy UltraServer.
+- `ExtendTrainingPlanInput`/`DescribeTrainingPlanExtensionHistoryInput`/`DescribeReservedCapacityInput`/
+  `ListUltraServersByReservedCapacityInput` — already matched exactly; converted to named types for
+  tooling visibility with no field changes.
+
+Also added `sagemakerListKeyPagedN` (`list_helpers.go`), a maxResults-aware sibling of the
+pre-existing `sagemakerListKeyPaged` (14 other call sites left untouched — this pass's `ListPartnerApps`
+is its only caller), since `ListPartnerAppsInput.MaxResults` needed threading through and changing the
+shared helper's signature would have touched 14 unrelated ops out of scope.
+
+**Disclosed, not modeled (TrainingPlan):** `ListClustersInput.TrainingPlanArn`-class gaps are
+pre-existing and unrelated; `ListTrainingPlansInput`/`SearchTrainingPlanOfferingsInput`'s no-op
+filters above.
+
+**`handler_partner_apps.go` (PartnerApp family) — the largest field gap found this pass, across
+every op:**
+
+- `CreatePartnerAppInput` (`api_op_CreatePartnerApp.go`) declares `AuthType`/`ExecutionRoleArn`/
+  `Name`/`Tier`/`Type` all **required**, but only `Name` was ever validated — a real client's
+  hand-crafted (SDK-bypassing) request missing any of the other four previously succeeded anyway.
+  Now all five are enforced. Also missing entirely: `EnableAutoMinorVersionUpgrade`,
+  `EnableIamSessionBasedIdentity`, `KmsKeyId`, `MaintenanceConfig` (`types.PartnerAppMaintenanceConfig`,
+  a single-field struct modeled directly rather than as `json.RawMessage`). `ClientToken` is
+  deliberately omitted, matching this service's repo-wide convention (see `CreateModelPackageOptions`)
+  that a pure client-side idempotency token has no server-observable effect.
+- `DescribePartnerAppOutput` (`api_op_DescribePartnerApp.go:36-125`) was missing **9 of 19** members:
+  `AvailableUpgrade`, `BaseUrl`, `CurrentVersionEolDate`, `EnableAutoMinorVersionUpgrade`,
+  `EnableIamSessionBasedIdentity`, `Error`, `KmsKeyId`, `MaintenanceConfig`, `Version`. The four
+  simple stored fields are now echoed back. `BaseUrl` is synthesized (mirroring
+  `CreatePartnerAppPresignedURL`'s own synthesized host — this backend has no real partner-app-hosting
+  infrastructure to derive one from). `AvailableUpgrade`/`CurrentVersionEolDate`/`Version` are
+  disclosed, not modeled: this backend tracks no minor-version-upgrade catalog at all. `Error`
+  (`types.ErrorInfo`) is disclosed: `Status` never reaches `Failed`/`UpdateFailed` in this backend, so
+  there is never a failure to describe. `DescribePartnerAppInput.IncludeAvailableUpgrade` is decoded
+  for wire-shape fidelity but is a disclosed no-op for the same reason.
+- `UpdatePartnerAppInput` (`api_op_UpdatePartnerApp.go:24-71`) was missing **`Tags` — a real,
+  observable bug**: `PartnerApp` is already tag-lookup-registered (`tags.go`'s
+  `statefulTagLookupsPart2`), so `ListTagsForResource`/`AddTags` already worked against it, but a
+  client updating tags through `UpdatePartnerApp` itself (the field exists on the real input) had
+  them silently discarded. Fixed: threaded through and merged via the existing `mergeTags` helper.
+  Also missing: `EnableAutoMinorVersionUpgrade`, `EnableIamSessionBasedIdentity`, `MaintenanceConfig`
+  (all now real). `AppVersion` is decoded for wire-shape fidelity but is a disclosed no-op — no
+  version state exists to advance, consistent with `DescribePartnerAppOutput.Version`'s disclosure
+  above.
+- `ListPartnerAppsInput` (`api_op_ListPartnerApps.go:24-38`) was missing `MaxResults` entirely — the
+  backend's `ListPartnerApps` had no page-size parameter at all before this pass (see
+  `sagemakerListKeyPagedN` above).
+- `CreatePartnerAppPresignedUrlInput` (`api_op_CreatePartnerAppPresignedUrl.go:24-38`) was missing
+  `ExpiresInSeconds`/`SessionExpirationDurationInSeconds`. Both are decoded for wire-shape fidelity
+  but disclosed no-ops: the response is a bare `{Url}`, and this backend's already-synthetic
+  presigned URL carries no verified real query-parameter format to encode an expiry into.
+- `DeletePartnerAppInput` — already matched exactly (`ClientToken` omitted per the same convention as
+  Create/Update); converted to a named type for tooling visibility.
+
+**An existing test used an invalid enum value, found but not treated as a wrong-shape assertion**:
+the pre-existing `TestHandler_CreatePartnerApp` sent `"Type": "custom"` — `PartnerAppType`
+(`types/enums.go:6905-6912`) has exactly four real values (`lakera-guard`/`comet`/
+`deepchecks-llm-evaluation`/`fiddler`), none of which is `"custom"`. This wasn't ratifying a defect
+(the handler never validated `Type` against the enum, before or after this pass — matching this
+service's convention of not whitelisting every open string field), but the now-added required-field
+validation would have made the test's other omissions fail regardless; fixed to send a real value
+and all five required fields, alongside three sibling tests with the same gap
+(`TestHandler_DescribePartnerApp`/`DeletePartnerApp`/`DeletePartnerApp_ReturnsArn`).
+
+**Enums touched, all read from the constants:** `SortTrialComponentsBy` (TrialComponent family);
+`TrainingPlanSortBy`/`TrainingPlanFilterName` (confirmed `TrainingPlanFilterName` has exactly one
+real value, `Status` — the pre-existing status-only filter was already complete, not a gap),
+`ReservedCapacityType`/`ReservedCapacityStatus` (confirmed the pre-existing `"UltraServer"`/
+`"Instance"`/`"Active"` literals already matched real enum values) (TrainingPlan family);
+`PartnerAppAuthType` (confirmed exactly one real value, `IAM`), `PartnerAppType` (PartnerApp family,
+see the invalid-test-value finding above).
+
+**Storage-key check:** `TrialComponent` (keyed by `TrialComponentName`), `TrainingPlan` (keyed by
+`TrainingPlanName`), `ReservedCapacity`/`PartnerApp` (both keyed by ARN) all stayed keyed the same;
+no new field changed any table's key shape.
+
+**Tests:** real-`aws-sdk-go-v2`-client round-trip tests added —
+`TestHandler_CreateTrialComponent_MetadataProperties_RealClient`,
+`TestHandler_ListTrialComponents_FilterSortPage_RealClient`,
+`TestHandler_UpdateTrialComponent_RemoveLists_RealClient`,
+`TestHandler_DescribeReservedCapacity_UltraServerSummary_RealClient`,
+`TestHandler_SearchTrainingPlanOfferings_InstanceUltraServerCount_RealClient`,
+`TestHandler_ListTrainingPlans_StartTimeFilter_RealClient`,
+`TestHandler_ListTrainingPlans_SummaryFields_RealClient`,
+`TestHandler_CreatePartnerApp_FullFields_RealClient`, `TestHandler_UpdatePartnerApp_Tags_RealClient`,
+`TestHandler_ListPartnerApps_MaxResults_RealClient`; plus a raw-HTTP
+`TestHandler_CreatePartnerApp_RequiredFieldsEnforced` (table-driven over the four newly-required
+fields). Four pre-existing raw-HTTP tests updated to supply `CreatePartnerApp`'s newly-required
+fields (see above). Verified against unfixed code by hand-reverting one representative fix per file
+(five total) one at a time: `ListTrialComponents`' `ParametersToRemove` handling (confirmed
+`TestHandler_UpdateTrialComponent_RemoveLists_RealClient` failed asserting the removed key's
+absence); `CreateTrialComponent`'s `MetadataProperties` storage (confirmed
+`TestHandler_CreateTrialComponent_MetadataProperties_RealClient` failed on a nil field);
+`trainingPlanSummaryJSON`'s `epochSeconds` conversion (confirmed
+`TestHandler_ListTrainingPlans_SummaryFields_RealClient` failed with the exact predicted
+`expected Timestamp to be a JSON Number, got string instead` deserialization error);
+`ReservedCapacity.ultraServerSummary`'s early return (confirmed
+`TestHandler_DescribeReservedCapacity_UltraServerSummary_RealClient` failed on a nil field);
+`UpdatePartnerApp`'s `Tags` merge (confirmed `TestHandler_UpdatePartnerApp_Tags_RealClient` failed
+with zero tags); and `CreatePartnerApp`'s four required-field checks (confirmed all four
+`TestHandler_CreatePartnerApp_RequiredFieldsEnforced` subtests failed) — each restored and
+`md5sum`-verified byte-identical to its pre-revert state afterward.
+
+Gates for this session: `go build ./services/sagemaker/...`, `go vet ./services/sagemaker/...`,
+`go vet -tags e2e ./services/sagemaker/...`, `go vet -tags integration ./services/sagemaker/...`,
+`gofmt -l ./services/sagemaker` (empty), `go test -race ./services/sagemaker/...`, `go fix -diff
+./services/sagemaker/...` (no diff), and `golangci-lint run ./services/sagemaker/...` (0 issues) all
+clean; `go build ./...` (repo-wide) also clean. Zero new `nolint` added. Fixed real findings by
+editing, not suppressing: `fieldalignment -fix` (multiple structs across
+`handler_partner_apps.go`/`partner_apps.go`/`handler_training_plan.go`/`training_plan.go`/
+`handler_trial_components.go`/`trial_components.go`), and two `govet shadow` findings in
+`handler_training_plan_test.go` (renamed shadowing `err` variables to `searchErr`/`createErr`).
+
+**`last_audit_commit` left at its existing value (`5f91d37c7`)** — not updated this pass, per the
+campaign's standing instruction never to write `pending` or otherwise touch it casually.
+
+**162 of sagemaker's 362 inline structs now remain.** `handler_labeling.go`,
+`handler_inference_components.go`, and `handler_endpoints.go` — all three still tied at 6, carried
+over unstarted from parity-17's boundary note — are next.
+
+Filed follow-up: `handler_training_plans.go`'s `DescribeTrainingPlanOutput` shares
+`trainingPlanSummaryJSON`'s absent `UpfrontFee`/`TargetResources`/`TotalInstanceCount` gap (see
+above) but is a sibling file outside this pass's scope; not fixed here.
