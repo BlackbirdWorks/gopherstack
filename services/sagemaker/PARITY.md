@@ -101,7 +101,7 @@ families:
   ai_recommendation_job: {status: partial, note: "parity-4, new family. Field-diffed against api_op_{Create,Describe,Delete,Stop,List}AIRecommendationJob.go + types.AIRecommendationJobStatus/AIRecommendationJobSummary. Distinct from the older InferenceRecommendationsJob family (inference_recommendations_jobs.go) — different store, different wire shape, no shared state. PARTIAL for the same json.RawMessage-passthrough reason as ai_benchmark_job (ModelSource/OutputConfig/PerformanceTarget/ComputeSpec/InferenceSpecification), plus Recommendations ([]types.AIRecommendation) is intentionally always empty rather than fabricated — see gaps:."}
   ai_workload_config: {status: partial, note: "parity-4, new family. No status/lifecycle in the real API (DescribeAIWorkloadConfigOutput has no status field) — CRUD only. WorkloadSpec (wire field name AIWorkloadConfigs, confusingly same as the resource-family name)/DatasetConfig stored as json.RawMessage passthrough for the same reason as the two job families above."}
   job_and_job_schema_version: {status: partial, note: "parity-4, new generic 'model customization job' family (CreateJob/DescribeJob/DeleteJob/StopJob/ListJobs/DescribeJobSchemaVersion/ListJobSchemaVersions). NOT the same as TrainingJob/ProcessingJob/TransformJob/AutoMLJob/CompilationJob/etc — keyed by JobName alone (matches CreateJob's doc: unique per account+region), Describe/Delete/Stop additionally scoped by JobCategory (mismatch => ResourceNotFound), own JobSecondaryStatusTransition type (does not alias training_jobs.go's SecondaryStatusTransition despite the identical shape), own store (b.jobs). DeleteJob correctly rejects a still-InProgress job with ResourceInUse per its doc comment. PARTIAL: DescribeJobSchemaVersion/ListJobSchemaVersions serve a single synthetic '1.0' schema version with a generic (not per-category, not AWS's real unpublished) JSON-schema document — AWS does not ship real per-JobCategory schema content in the SDK, so this is the most honest deterministic approximation available, not a wire-shape bug, but is disclosed as a depth limit."}
-  model_endpoint_config_crud: {status: ok, note: "CreateModel/DescribeModel/ListModels/DeleteModel and CreateEndpointConfig/DescribeEndpointConfig/ListEndpointConfigs/DeleteEndpointConfig verified op-by-op against handler.go + backend.go: correct ARN building via pkgs/arn, epoch timestamps via epochSeconds (float64 unix seconds, matches awsjson1.1 numeric timestamp), errCodeLookup-equivalent sentinel wiring (awserr.New wraps ErrNotFound/ErrConflict, handler.go handleError maps to ValidationException/ResourceInUse), persistence.go backendSnapshot wiring confirmed for both models and endpointConfigs keyed by region."
+  model_endpoint_config_crud: {status: ok, note: "CreateModel/DescribeModel/ListModels/DeleteModel and CreateEndpointConfig/DescribeEndpointConfig/ListEndpointConfigs/DeleteEndpointConfig verified op-by-op against handler.go + backend.go: correct ARN building via pkgs/arn, epoch timestamps via epochSeconds (float64 unix seconds, matches awsjson1.1 numeric timestamp), errCodeLookup-equivalent sentinel wiring (awserr.New wraps ErrNotFound/ErrConflict, handler.go handleError maps to ValidationException/ResourceInUse), persistence.go backendSnapshot wiring confirmed for both models and endpointConfigs keyed by region."}
   endpoint_lifecycle: {status: ok, note: "CreateEndpoint/UpdateEndpoint/DescribeEndpoint/DeleteEndpoint/ListEndpoints + UpdateEndpointWeightsAndCapacities audited and FIXED — see Notes. FSM-driven Creating/Updating -> InService transitions (backend_accuracy.go scheduleEndpointTransition) verified correct after fix."}
   training_job: {status: ok, note: "CreateTrainingJob(Full)/DescribeTrainingJob(Full)/ListTrainingJobs(Filtered)/StopTrainingJob(FSM)/DeleteTrainingJob/UpdateTrainingJob verified: InProgress->Completed FSM populates ModelArtifacts, BillableTimeInSeconds, SecondaryStatusTransitions with epoch timestamps; StopTrainingJobFSM drives InProgress->Stopping->Stopped."}
   tags: {status: ok, note: "AddTags/ListTags/DeleteTags verified against findTagMapLocked, which indexes ~20 resource kinds by ARN. Not-found path returns ValidationException (400), matching real AWS TagKeys validation error class."}
@@ -1387,3 +1387,187 @@ runs are both clean, as is `go build ./...`.
 **281 of sagemaker's 362 inline structs now remain.** Next by size, per this pass's own count:
 `handler_model_packages.go` (12), `handler_notebook_instances.go` (11), `handler_images.go` (11),
 `handler_edge_deployment.go` (11).
+
+## parity-12 (2026-08-21, gopherstack-oc9v): ModelPackage / ModelPackageGroup family inline-struct sweep
+
+Sixth pass of the gopherstack-oc9v campaign. Also fixed in passing: the `model_endpoint_config_crud`
+manifest entry (line 104) was missing its closing `}` — a brace-counting parser regressed on it
+(the old gendocs parser never checked brace balance). Fixed in place, kept inline per repo
+convention (`cmd/gendocs` now accepts block style too, but inline remains the convention here) —
+no other change to that entry.
+
+Per parity-11's boundary note ("281 of sagemaker's 362 inline structs now remain ...
+`handler_model_packages.go` (12), `handler_notebook_instances.go` (11), `handler_images.go` (11),
+`handler_edge_deployment.go` (11)"), this pass took `handler_model_packages.go`, verified by
+`grep -c 'var req struct {' handler_model_packages.go` = 12 before starting. All 12 were converted
+to named types (`createModelPackageInput`, `describeModelPackageInput`, `deleteModelPackageInput`,
+`listModelPackagesInput`, `createModelPackageGroupInput`, `describeModelPackageGroupInput`,
+`deleteModelPackageGroupInput`, `listModelPackageGroupsInput`, `getModelPackageGroupPolicyInput`,
+`putModelPackageGroupPolicyInput`, `deleteModelPackageGroupPolicyInput`, `updateModelPackageInput`)
+and wire-audited field-by-field against the pinned SDK (`v1.263.2`, confirmed from `go.mod`,
+matching prior passes). **269 of sagemaker's 362 inline structs now remain** (362 − 19 − 19 − 15 −
+14 − 14 − 12), confirmed by `grep -rc 'var req struct {' services/sagemaker/*.go` summed, not
+arithmetic; `handler_model_packages.go` itself now has zero. `BatchDescribeModelPackage` was already
+a named type (`batchDescribeModelPackageRequest`) before this pass and so was not one of the 12 —
+untouched. This pass did not touch `handler_notebook_instances.go`/`handler_images.go`/
+`handler_edge_deployment.go` or any other family — all still open for gopherstack-oc9v.
+
+**Enumerated vs. converted vs. audited:** every one of the 12 had absent members, several by a
+wide margin — this family's `CreateModelPackageInput` is the largest single-op gap this campaign
+has found, surpassing `ListMlflowApps`' nine of ten:
+
+- `CreateModelPackageInput` (`api_op_CreateModelPackage.go:47-171`) — was missing **19 of 20**
+  optional fields, keeping only `ModelPackageName`/`ModelPackageGroupName`/
+  `ModelPackageDescription`/`Tags`. Simple scalars/enums now real and threaded onto new
+  `ModelPackage` fields: `ModelApprovalStatus` (previously settable only via a later
+  `UpdateModelPackage` call — no real client could set initial approval status at creation time),
+  `Domain`, `Task`, `SamplePayloadUrl`, `SourceUri`, `ManagedStorageType`,
+  `ModelPackageRegistrationType`, `SkipModelValidation`, `CertifyForMarketplace`,
+  `CustomerMetadataProperties`. Deeply-nested union/config shapes —
+  `InferenceSpecification`/`SourceAlgorithmSpecification`/`ValidationSpecification`/
+  `DriftCheckBaselines`/`ModelMetrics`/`ModelCard`/`ModelLifeCycle`/`MetadataProperties`/
+  `SecurityConfig`/`AdditionalInferenceSpecifications` — are carried as opaque `json.RawMessage`
+  passthrough, the same established convention as `ai_workload_configs.go`'s
+  `WorkloadSpec`/`DatasetConfig`: every field a client actually sends round-trips exactly (proven
+  with real `types.InferenceSpecification` values in
+  `TestHandler_CreateModelPackage_FullFields_RealClient`), out of this pass's budget to fully type.
+  `ClientToken` (idempotency token, no server-observable effect, same as every other Create op in
+  this service) is deliberately omitted.
+- `DescribeModelPackageInput` (`api_op_DescribeModelPackage.go:16-42`) — missing `IncludedData`
+  (`AllData`/`MetadataOnly`, controls whether `ModelCard.ModelCardContent` is KMS-redacted). Now
+  accepted for wire-shape fidelity but **disclosed as a no-op**: this backend has no KMS-gated
+  redaction mechanism to apply either way, and `ModelCard` is already opaque passthrough with no
+  field-level access control, so `MetadataOnly` cannot honestly sanitize it further than `AllData`
+  already does.
+- `ListModelPackagesInput` (`api_op_ListModelPackages.go:29-77`) — missing **7 of 9** optional
+  fields (only `ModelPackageGroupName`/`NextToken` existed): `CreationTimeAfter`,
+  `CreationTimeBefore`, `MaxResults`, `ModelApprovalStatus`, `ModelPackageType`, `NameContains`,
+  `SortBy`, `SortOrder`. All seven now real via a new `ListModelPackagesParams`/
+  `modelPackageMatchesListParams`/`modelPackageMatchesGroupAndType`, with the documented default
+  sort (`CreationTime`, `Ascending` — `api_op_ListModelPackages.go:71,74`) implemented as stated.
+  **`ModelPackageType`'s three enum values are `"Versioned"`/`"Unversioned"`/`"Both"`
+  (`types/enums.go:6115-6122`), not the all-caps `UNVERSIONED`/`VERSIONED`/`BOTH` the op's own doc
+  comment uses** — caught by checking the enum source directly rather than trusting the prose (the
+  campaign's own recurring lesson), and confirmed load-bearing by hand-revert (below): the
+  all-caps version silently breaks the `Versioned`/`Both` branches while the default branch
+  happens to still match. This backend interprets "versioned" as "has a `ModelPackageGroupName`"
+  — the only sense in which it distinguishes versioned from unversioned models, since it does not
+  implement AWS's group+version ARN addressing scheme (see `ModelPackageVersion` disclosure below).
+- `CreateModelPackageGroupInput` (`api_op_CreateModelPackageGroup.go:16-40`) — missing
+  `ManagedConfiguration` (a new `*ManagedConfiguration` type, `types/types.go:13591` — a
+  single-field wrapper around `ManagedStorageType`); now threaded through Create and returned by
+  Describe/List.
+- `DescribeModelPackageGroupOutput` — `CreatedBy` (`types.UserContext`) is `"This member is
+  required"` but **disclosed absent, not fabricated** — no IAM-identity model exists in this
+  service to honestly derive it from, the same class-d gap as every other `CreatedBy`/
+  `LastModifiedBy` field already disclosed for Pipeline/MlflowApp/TrialComponent.
+- `ListModelPackageGroupsInput` (`api_op_ListModelPackageGroups.go:29-72`) — missing **6 of 7**
+  optional fields (only `NextToken` existed): `CreationTimeAfter`, `CreationTimeBefore`,
+  `CrossAccountFilterOption`, `MaxResults`, `NameContains`, `SortBy`, `SortOrder`. All six now real
+  via a new `ListModelPackageGroupsParams`/pagination path mirroring `ListPipelines`'
+  `paginateSlice` convention (previously this op used a distinct key-based-token style; switched to
+  match the rest of this campaign's List ops, harmless since `NextToken` is opaque to any real
+  client). `CrossAccountFilterOption` is honored but **disclosed as a real, not fabricated,
+  no-op**: this backend has no cross-account resource-sharing model at all (grepped repo-wide), so
+  a `CrossAccount` request correctly returns empty — the true answer for an account with zero
+  shared groups, not a guess.
+- `UpdateModelPackageInput` (`api_op_UpdateModelPackage.go:26-95`) — **the standout finding of this
+  pass.** The real op's sole identifier is `ModelPackageArn` ("This member is required") —
+  `UpdateModelPackageInput` has **no `ModelPackageName` field at all**. The previous handler decoded
+  `"ModelPackageName"` from the request body instead, a field no genuine `aws-sdk-go-v2` client
+  could ever populate for this op, since the real client always serializes `ModelPackageArn`. Every
+  real `UpdateModelPackage` call against this backend therefore failed outright with
+  `"ModelPackageName is required"` — confirmed by the pre-existing `TestHandler_UpdateModelPackage`
+  test, which had enshrined the bug by sending `ModelPackageName` itself (fixed alongside; a new
+  `TestHandler_UpdateModelPackage_RealClient` proves the real-client path now works, and hand-revert
+  reproduces the exact original failure, below). The same wire-shape-fabrication class parity-10
+  found on `SendPipelineExecutionStepSuccess`/`Failure`'s `PipelineExecutionArn`/`StepName`. Beyond
+  the identifier, **6 of 7** optional fields were also missing (only `ModelApprovalStatus` existed):
+  `ApprovalDescription`, `ModelPackageRegistrationType`, `SourceUri`, `CustomerMetadataProperties`
+  (merged, not replaced, matching every other Update op in this service),
+  `CustomerMetadataPropertiesToRemove` (deletes the named keys), `InferenceSpecification`,
+  `ModelCard`, `ModelLifeCycle` (all three replace the corresponding opaque field wholesale, since
+  the real op's doc doesn't describe a merge for these), and
+  `AdditionalInferenceSpecificationsToAdd` — implemented as a real JSON-array append onto the
+  existing `AdditionalInferenceSpecifications`, per the op's own doc: "to be added to the existing
+  array" (not a replace), proven with
+  `TestHandler_UpdateModelPackage_AdditionalInferenceSpecificationsToAdd_RealClient` asserting both
+  the pre-existing and newly-added entries are present, in order, after the call.
+
+**Bugs found beyond the wire diff:** four, all beyond a raw field-presence count:
+
+1. `UpdateModelPackage` reading `ModelPackageName`, a field that does not exist on the real
+   `UpdateModelPackageInput` at all — every real client's `UpdateModelPackage` call failed
+   outright. The pre-existing test suite had encoded this bug as expected behavior.
+2. `ListModelPackages`/`ListModelPackageGroups` accepting only `ModelPackageGroupName`/`NextToken`
+   and `NextToken` respectively while silently dropping every other filter/sort control — the
+   "parsed field, silently dropped" class this campaign exists to find, with
+   `CreateModelPackageInput`'s 19-of-20 gap the largest single-op count yet.
+3. `CreateModelPackage` had no way to set `ModelApprovalStatus` at creation time at all — a real,
+   optional `CreateModelPackageInput` field — forcing every real client to make an immediate
+   follow-up `UpdateModelPackage` call just to set the approval status a single `Create` call could
+   have set.
+4. The `ModelPackageType` enum-casing bug described above — caught during this pass (not shipped),
+   but load-bearing enough to hand-revert and confirm below, since it is exactly the kind of "doc
+   prose vs. SDK source" mismatch this campaign's method (grep the enum source, not the comment) is
+   meant to catch before it ships, not after.
+
+**Storage-key check:** neither `ModelPackage` (keyed by `ModelPackageArn`, `store.go:417`) nor
+`ModelPackageGroup` (keyed by `ModelPackageGroupName`, `store.go:440`) changed key shape this pass.
+`UpdateModelPackage`'s identifier changed from a decoded `ModelPackageName` to a decoded
+`ModelPackageArn`, but the backend method itself already accepted an ARN directly via
+`modelPackagesStore(region).Get(arnStr)` — only the handler's request-decoding field was wrong, not
+the backend's lookup path, so no key-shape change was needed to fix it.
+
+**Disclosed, not modeled** (structural, not accept-and-drop):
+
+- `ModelPackageVersion` (`ModelPackageSummary`/`DescribeModelPackageOutput`) — this backend does not
+  implement AWS's group+version ARN addressing scheme (a versioned model package is identified by
+  `model-package/<group-name>/<version>`, not by its own name); implementing that would mean
+  rekeying `ModelPackage`'s entire identity model, well beyond a wire-field-audit pass. Disclosed
+  rather than fabricating a version counter that wouldn't match a real client's ARN expectations.
+- `CreatedBy`/`LastModifiedBy` (`types.UserContext`, both `ModelPackage` and `ModelPackageGroup`) —
+  no IAM-identity model exists in this service (class-d, same as every other family).
+- `DescribeModelPackageInput.IncludedData` — accepted but a real no-op, see above.
+
+**Tests:** every fix has a real-`aws-sdk-go-v2`-client round-trip test (`newTestSageMakerClient`) —
+`TestHandler_UpdateModelPackage_RealClient`, `TestHandler_CreateModelPackage_FullFields_RealClient`,
+`TestHandler_ListModelPackages_FilterSortPage_RealClient`,
+`TestHandler_ListModelPackages_ApprovalStatusFilter_RealClient`,
+`TestHandler_ListModelPackages_ModelPackageType_RealClient`,
+`TestHandler_ListModelPackageGroups_FilterSortPage_RealClient`,
+`TestHandler_CreateModelPackageGroup_ManagedConfiguration_RealClient`,
+`TestHandler_UpdateModelPackage_FullFields_RealClient`,
+`TestHandler_UpdateModelPackage_CustomerMetadataPropertiesToRemove_RealClient`,
+`TestHandler_UpdateModelPackage_AdditionalInferenceSpecificationsToAdd_RealClient` — plus the
+pre-existing `TestHandler_UpdateModelPackage`/`TestHandler_UpdateModelPackage_NotFound` updated to
+send `ModelPackageArn` (the real wire field) instead of the bug they had previously enshrined, and a
+new `TestHandler_UpdateModelPackage_MissingArn` covering the validation path. Verified against
+unfixed code by hand-reverting four representative fixes one at a time —
+`UpdateModelPackage`'s `ModelPackageArn`/`ModelPackageName` identifier (reverted to decoding
+`ModelPackageName` again), `CreateModelPackageGroup`'s `ManagedConfiguration` threading (disabled),
+`ListModelPackages`' `ModelPackageType` enum casing (reverted to all-caps), and
+`UpdateModelPackage`'s `CustomerMetadataPropertiesToRemove` loop (disabled) — confirming each
+corresponding test failed with the predicted symptom (`"ModelPackageName is required"` from a real
+client sending `ModelPackageArn`; `ManagedConfiguration` nil; `Versioned`/`Both` filters silently
+returning the wrong set while the default branch coincidentally still passed; a removed key still
+present) — then restoring; `handler_model_packages.go`/`model_packages.go` verified byte-identical
+(`md5sum`) to their pre-revert state afterward.
+
+Gates for this session: `go build ./services/sagemaker/...`, `go vet ./services/sagemaker/...`,
+`go vet -tags e2e ./services/sagemaker/...`, `go vet -tags integration ./services/sagemaker/...`,
+`gofmt -l ./services/sagemaker` (empty), `go test -race ./services/sagemaker/...`, `go fix -diff
+./services/sagemaker/...` (no diff), and `golangci-lint run ./services/sagemaker/...` all clean;
+zero `nolint` of any kind added (fixed a `cyclop` finding by extracting
+`modelPackageMatchesGroupAndType` out of `modelPackageMatchesListParams`, a `goconst` finding by
+adding `keyModelPackageGroupName`, a `gocritic appendAssign` and a `prealloc` finding in the new
+`appendInferenceSpecifications` helper, a `golines` formatting issue, two `fieldalignment` findings
+via `fieldalignment -fix`, two `revive var-naming` findings (`SamplePayloadUrl`/`SourceUri` →
+`SamplePayloadURL`/`SourceURI`), a `revive` doc-comment mismatch, and three `govet shadow` findings
+in the new tests — rather than suppressing any of them). `go build ./...` (repo-wide) was clean at
+the time this pass ran; the `services/backup`/`services/databrew` breakage a concurrent agent's
+in-progress edit was expected to cause was not observed, so nothing outside `services/sagemaker/`
+needed to be worked around this session.
+
+**269 of sagemaker's 362 inline structs now remain.** Next by size:
+`handler_notebook_instances.go` (11), `handler_images.go` (11), `handler_edge_deployment.go` (11).

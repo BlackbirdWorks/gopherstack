@@ -312,7 +312,7 @@ var searchablePropertiesByResource = map[string][]string{
 	resourcePipeline:    {keyPipelineNameProp, keyPipelineStatusProp, keyPipelineArn, keyCreationTime, keyRoleArn},
 	"Experiment":        {"ExperimentName", keyExperimentArn, keyCreationTime},
 	"ModelPackage":      {"ModelPackageName", keyModelApprovalStatus, keyModelPackageArn},
-	"ModelPackageGroup": {"ModelPackageGroupName", keyModelPackageGroupArn},
+	"ModelPackageGroup": {keyModelPackageGroupName, keyModelPackageGroupArn},
 	"Endpoint":          {keyEndpointNameField, "EndpointStatus", "EndpointArn"},
 	resourceModel:       {"ModelName", "ModelArn", keyCreationTime},
 	"FeatureGroup":      {keyFeatureGroupName, keyFeatureGroupStatus, keyFeatureGroupArn},

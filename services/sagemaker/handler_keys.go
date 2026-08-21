@@ -44,6 +44,7 @@ const (
 	keyModelCardExportJobArn         = "ModelCardExportJobArn"
 	keyModelPackageArn               = "ModelPackageArn"
 	keyModelPackageGroupArn          = "ModelPackageGroupArn"
+	keyModelPackageGroupName         = "ModelPackageGroupName"
 	keyMonitoringScheduleArn         = "MonitoringScheduleArn"
 	keyNotebookLifecycleConfigArn    = "NotebookInstanceLifecycleConfigArn"
 	keyOptimizationJobArn            = "OptimizationJobArn"
