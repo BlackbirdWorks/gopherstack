@@ -83,4 +83,5 @@ const (
 	statusInService                  = clusterStatusInService
 	statusCreated                    = "Created"
 	statusActive                     = "Active"
+	statusUpdating                   = "Updating"
 )

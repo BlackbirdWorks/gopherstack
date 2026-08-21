@@ -87,11 +87,11 @@ type StorageBackend interface {
 	) (*Action, error)
 	CreateAlgorithm(ctx context.Context, opts CreateAlgorithmOptions) (*Algorithm, error)
 
-	CreateEndpoint(ctx context.Context, name, endpointConfigName string, tags map[string]string) (*Endpoint, error)
+	CreateEndpoint(ctx context.Context, opts CreateEndpointOptions) (*Endpoint, error)
 	DescribeEndpoint(ctx context.Context, name string) (*Endpoint, error)
-	ListEndpoints(ctx context.Context, nextToken string) ([]*Endpoint, string)
+	ListEndpoints(ctx context.Context, filter ListEndpointsFilter) ([]*Endpoint, string)
 	DeleteEndpoint(ctx context.Context, name string) error
-	UpdateEndpoint(ctx context.Context, name, endpointConfigName string) (*Endpoint, error)
+	UpdateEndpoint(ctx context.Context, name string, opts UpdateEndpointOptions) (*Endpoint, error)
 
 	CreateTrainingJob(
 		ctx context.Context,

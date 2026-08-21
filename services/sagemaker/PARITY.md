@@ -46,11 +46,11 @@ ops:
   DescribeEndpointConfig: {wire: ok, errors: ok, state: ok, persist: ok}
   ListEndpointConfigs: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteEndpointConfig: {wire: ok, errors: ok, state: ok, persist: ok}
-  CreateEndpoint: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass — see Notes"}
-  DescribeEndpoint: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass — ProductionVariants now populated with AWS-accurate ProductionVariantSummary shape"}
-  ListEndpoints: {wire: ok, errors: ok, state: ok, persist: ok}
-  UpdateEndpoint: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass — see Notes"}
-  UpdateEndpointWeightsAndCapacities: {wire: ok, errors: ok, state: ok, persist: ok, note: "updated to new ProductionVariantSummary field names as part of this pass"}
+  CreateEndpoint: {wire: fixed, errors: ok, state: ok, persist: ok, note: "parity-19: added missing DeploymentConfig (json.RawMessage passthrough, echoed as LastDeploymentConfig on Describe)"}
+  DescribeEndpoint: {wire: fixed, errors: ok, state: ok, persist: ok, note: "parity-19: added AsyncInferenceConfig/DataCaptureConfig/ShadowProductionVariants/LastDeploymentConfig, all previously absent"}
+  ListEndpoints: {wire: fixed, errors: ok, state: ok, persist: ok, note: "parity-19: was NextToken-only; added CreationTimeAfter/Before, LastModifiedTimeAfter/Before, MaxResults, NameContains, SortBy, SortOrder, StatusEquals"}
+  UpdateEndpoint: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "parity-19: RetainAllVariantProperties/ExcludeRetainedVariantProperties/RetainDeploymentConfig were entirely absent — Desired* was ALWAYS taken from the new EndpointConfig regardless of client intent; now real"}
+  UpdateEndpointWeightsAndCapacities: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteEndpoint: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateTrainingJob: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeTrainingJob: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -2793,3 +2793,285 @@ over unstarted from parity-17's boundary note — are next.
 Filed follow-up: `handler_training_plans.go`'s `DescribeTrainingPlanOutput` shares
 `trainingPlanSummaryJSON`'s absent `UpfrontFee`/`TargetResources`/`TotalInstanceCount` gap (see
 above) but is a sibling file outside this pass's scope; not fixed here.
+
+## parity-19 (2026-08-21, gopherstack-oc9v): LabelingJob/InferenceComponent/Endpoint
+inline-struct sweep (all three remaining tied-at-6 files)
+
+Thirteenth pass of the gopherstack-oc9v campaign. Per parity-18's boundary note, this pass took the
+final three files tied at 6 (`handler_labeling.go`, `handler_inference_components.go`,
+`handler_endpoints.go`), each verified by `grep -c 'var req struct {' <file>.go` = 6 before starting.
+All 18 of this pass's structs were converted to named types and wire-audited field-by-field against
+the pinned SDK (`v1.263.2`, confirmed from `go.mod`, matching prior passes). **144 of sagemaker's 362
+inline structs now remain** (362 − 19 − 19 − 15 − 14 − 14 − 12 − 11 − 11 − 10 − 9 − 9 − 7 − 7 − 7 − 7
+− 6 − 6 − 6 − 6 − 6 − 6), confirmed by `grep -rc 'var req struct {' services/sagemaker/*.go` summed,
+not arithmetic; all three files now have zero. **New boundary: 8 files tied at 5**
+(`handler_workteams.go`, `handler_workforces.go`, `handler_trials.go`, `handler_training_jobs.go`,
+`handler_projects.go`, `handler_optimization_jobs.go`, `handler_inference_recommendations_jobs.go`,
+`handler_hp_tuning_jobs.go`).
+
+**`handler_labeling.go` (LabelingJob/SubscribedWorkteam family):**
+
+- `CreateLabelingJobInput` (`api_op_CreateLabelingJob.go:68-116`) had every field decoded already
+  except that **`LabelAttributeName` is documented `This member is required` but was never
+  validated** — a real client's request missing it previously succeeded silently. Fixed: now
+  enforced like the other four required members.
+- `ListLabelingJobsInput` (`api_op_ListLabelingJobs.go:30-71`) was missing **6 of 10** fields: only
+  `NextToken`/`NameContains`/`StatusEquals`/`MaxResults` existed. `CreationTimeAfter`/
+  `CreationTimeBefore`/`LastModifiedTimeAfter`/`LastModifiedTimeBefore` are now `*float64`/
+  `timeFromEpochSecondsPtr`; `SortBy`/`SortOrder` are real (this op's own doc states both defaults
+  explicitly: `CreationTime`/Ascending — implemented as documented, **not** generalized from
+  sibling ops, several of which default to Descending instead). `LabelingJobSummary`
+  (`types/types.go:13460-13520`) was also missing **2 of 12** response members —
+  `InputConfig`/`LabelingJobOutput` — despite the backend already storing both; now echoed.
+- `ListLabelingJobsForWorkteamInput` (`api_op_ListLabelingJobsForWorkteam.go:30-64`) was missing
+  **4 of 7** optional fields: `CreationTimeAfter`/`CreationTimeBefore`/`JobReferenceCodeContains`/
+  `SortBy`. `SortBy`'s real enum (`ListLabelingJobsForWorkteamSortByOptions`,
+  `types/enums.go:5379-5383`) has exactly **one** value, `CreationTime` — decoded for wire-shape
+  fidelity but disclosed as a no-op, since no alternate order exists to apply.
+  `LabelingJobForWorkteamSummary` (`types/types.go:13262-13290`) already matched exactly — no
+  response gap here.
+- `ListSubscribedWorkteamsInput` (`api_op_ListSubscribedWorkteams.go:31-46`) was missing
+  `MaxResults` entirely (only `NextToken`/`NameContains` existed) — disclosed as a no-op along with
+  the pre-existing `NameContains`, since this backend models no Marketplace-vendor subscriptions at
+  all and the list is always empty.
+- `DescribeLabelingJobOutput` (`api_op_DescribeLabelingJob.go:39-97`) was already complete —
+  control data point, not an oversight (matches parity-17's `handler_jobs.go` precedent for a
+  fully-correct family found on inspection).
+- `StopLabelingJob`/`DescribeSubscribedWorkteam`/`CreateLabelingJob` request shapes (beyond the
+  `LabelAttributeName` gap above) already matched exactly; converted to named types for tooling
+  visibility with no further field changes.
+
+**`handler_inference_components.go` (InferenceComponent family) — the largest gap found this pass,
+and this file's own `statusCreating` was the campaign's second "stuck-forever status" bug:**
+
+- **Status never advanced.** `CreateInferenceComponent` set `InferenceComponentStatus: statusCreating`
+  and nothing in the file ever transitioned it — identical to parity-15's ClusterSchedulerConfig
+  finding, here for InferenceComponent. Real values are `InService`/`Creating`/`Updating`/`Failed`/
+  `Deleting` (`types/enums.go:4390-4398`). Fixed via `scheduleInferenceComponentTransition`
+  (mirroring `endpoints.go`'s `scheduleEndpointTransition` FSM pattern exactly): Creating ->
+  InService on Create, Updating -> InService on both Update ops, `CurrentCopyCount` catching up to
+  `CopyCount` only once InService — confirmed via hand-revert below.
+- **A fabricated request field.** `UpdateInferenceComponentInput`
+  (`api_op_UpdateInferenceComponent.go:24-53`) has **no `VariantName` member at all** — a variant is
+  fixed at Create time and cannot be moved via Update — yet the handler decoded and (harmlessly,
+  since no real client ever sends it) applied one. Removed; replaced with the op's four real optional
+  members: `DeploymentConfig`, `RuntimeConfig`, `Specification`, `Specifications`, none of which were
+  previously decoded at all.
+- **`CreateInferenceComponentInput`** (`api_op_CreateInferenceComponent.go:68-116`) was missing
+  `Specification`/`Specifications` entirely — the request shape carried only `RuntimeConfig.CopyCount`
+  plus identity fields; the whole model/container/compute-resource deployment spec was silently
+  dropped. Modeled via new `InferenceComponentSpecification`/`InferenceComponentContainerSpec` types.
+  `ComputeResourceRequirements`/`DataCacheConfig`/`SchedulingConfig`/`StartupParameters` are carried
+  as opaque `json.RawMessage`: each of those four sub-types (`types/types.go:11705-11727`,
+  `11788-11815`, `11922-11941`, `12037-12051`) is used **unchanged** by both this request type and its
+  response-side Summary counterpart (`InferenceComponentSpecificationSummary`,
+  `types/types.go:12002-12034`), so a byte-for-byte passthrough between Create/Update and
+  Describe/List is wire-correct without semantic modeling. Only `Container` needed real translation
+  (see below).
+- **`DescribeInferenceComponentOutput`** (`api_op_DescribeInferenceComponent.go:39-97`) was missing
+  **`EndpointArn` — a required member, absent entirely** (synthesized via
+  `arn.Build("sagemaker", region, accountID, "endpoint/"+name)`, matching `endpoints.go`'s own
+  scheme byte-for-byte) plus `LastDeploymentConfig`, `RuntimeConfig` (Summary), `Specification`/
+  `Specifications` (Summary). **A fabricated response field found and removed**: the previous
+  handler called `json.Marshal(c)` directly on the internal storage struct, which carries a `Tags`
+  field with no wire counterpart at all — `DescribeInferenceComponentOutput` has no `Tags` member;
+  every real client's Describe call was receiving an extra field no SDK deserializer expects. Fixed
+  by building a dedicated `inferenceComponentResponseMap` (mirroring `handler_labeling.go`'s
+  `labelingJobResponseMap` pattern) instead of marshaling the storage type directly.
+  `RuntimeConfig.CurrentCopyCount`/`DesiredCopyCount` are now real (`types/types.go:11906-11920`);
+  `PlacementStatus` is disclosed not modeled (this backend simulates no per-instance-type placement).
+  `Container.Image` (request) is echoed back as `Container.DeployedImage.SpecifiedImage` (response) —
+  the one field where request/response shapes genuinely diverge
+  (`InferenceComponentContainerSpecification.Image` vs
+  `InferenceComponentContainerSpecificationSummary.DeployedImage`, `types/types.go:11731-11785`);
+  `DeployedImage.ResolvedImage`/`ResolutionTime` are disclosed no-ops since this backend never
+  resolves a registry digest. `LastDeploymentConfig` is `DeploymentConfig` echoed verbatim — both
+  request and response use the **identical** `types.InferenceComponentDeploymentConfig`
+  (`types/types.go:11820-11832`), so raw passthrough is wire-correct.
+- **`ListInferenceComponentsInput`** (`api_op_ListInferenceComponents.go:30-71`) was missing **9 of
+  12** optional fields — only `NextToken`/`EndpointNameEquals` existed (and under a fabricated
+  `EndpointNameEquals` JSON tag on a Go field misleadingly named `EndpointName` in the old code).
+  `CreationTimeAfter`/`CreationTimeBefore`/`LastModifiedTimeAfter`/`LastModifiedTimeBefore`/
+  `MaxResults`/`NameContains`/`SortBy`/`SortOrder`/`StatusEquals`/`VariantNameEquals` are all now
+  real. `InferenceComponentSummary` (`types/types.go:12054-12096`) was also missing **2 of 8**
+  members, both **required**: `EndpointArn` and `VariantName` were absent entirely from the List
+  response even though both were already stored per-component.
+- **Disclosed, not modeled (InferenceComponent):** `ExplainerConfig`/`MetricsConfig`-class detail
+  inside `Specification`'s sub-configs is carried opaquely (see above); no per-instance-type
+  `PlacementStatus` simulation.
+
+**`handler_endpoints.go` (Endpoint family) — a real behavioral bug found in `UpdateEndpoint`, not
+just absent fields:**
+
+- **`UpdateEndpointInput`** (`api_op_UpdateEndpoint.go:1-56`) was missing **`RetainAllVariantProperties`,
+  `ExcludeRetainedVariantProperties`, `RetainDeploymentConfig`, `DeploymentConfig`** — all four
+  optional members entirely absent. Worse than a missing field: **the existing code unconditionally
+  behaved as if `RetainAllVariantProperties` were always false** (`Desired*` was always taken from
+  the new EndpointConfig), silently discarding a real client's explicit request to retain the old
+  deployment's variant properties (the doc's own default is `false`, so the *shape* looked
+  plausible while the true-case behavior was simply unreachable). Fixed via
+  `carryOverVariantProperties`: `Current*` still always carries over from the same-named old variant
+  (traffic keeps flowing on old counts regardless of the flag — that part was already correct);
+  `Desired*` now retains from the old variant when `RetainAllVariantProperties` is true, unless the
+  specific `VariantPropertyType` (`types/enums.go:10837-10844`: `DesiredInstanceCount`/
+  `DesiredWeight`/`DataCaptureConfig`) is listed in `ExcludeRetainedVariantProperties` — the
+  `DataCaptureConfig` value has no effect here since this backend tracks data capture per-endpoint,
+  not per-variant, disclosed in the type's doc comment. `RetainDeploymentConfig`/`DeploymentConfig`
+  are real: retaining keeps the endpoint's prior `DeploymentConfig`, otherwise the new value (which
+  may be absent, clearing it) is applied. Confirmed via hand-revert below.
+- **`CreateEndpointInput`** (`api_op_CreateEndpoint.go:1-49`) was missing `DeploymentConfig` entirely.
+- **`DescribeEndpointOutput`** (`api_op_DescribeEndpoint.go:39-97`) was missing **7 of 15** members:
+  `AsyncInferenceConfig`, `DataCaptureConfig` (Summary), `ShadowProductionVariants`,
+  `LastDeploymentConfig`, plus the always-disclosed `ExplainerConfig`/`MetricsConfig`/
+  `PendingDeploymentSummary`. The first three were a genuine parsed-then-ignored bug: this backend's
+  `EndpointConfig` (`models.go:148-161`) already stores `AsyncInferenceConfig`/`DataCaptureConfig`/
+  `ShadowProductionVariants` from `CreateEndpointConfig`, but `DescribeEndpoint` never copied them
+  onto the `Endpoint` at Create/Update time — every real client asking for an endpoint's data-capture
+  or async-inference configuration got nothing back despite having configured one. Fixed: both
+  Create and Update now copy all three from the active `EndpointConfig`; a new
+  `dataCaptureConfigSummary` builds the real `DataCaptureConfigSummary` shape
+  (`types/types.go:6685-6715`) from the stored `DataCaptureConfig`, with `CaptureStatus` mirroring
+  `EnableCapture` (`Started`/`Stopped`, `types/enums.go:1809-1814`). `LastDeploymentConfig` is
+  `DeploymentConfig` echoed verbatim (same identical-type passthrough rationale as
+  InferenceComponent's, above — `types.DeploymentConfig` is shared by `CreateEndpointInput`,
+  `UpdateEndpointInput`, and `DescribeEndpointOutput.LastDeploymentConfig`). `ExplainerConfig`/
+  `MetricsConfig` are disclosed not modeled: this service's `EndpointConfig` type has no counterpart
+  field for either, and adding one is out of this pass's scope (a `CreateEndpointConfig` change, a
+  sibling op outside `handler_endpoints.go`). `PendingDeploymentSummary` is disclosed not simulated —
+  this backend's FSM does not track fine-grained in-progress-deployment state.
+- **`ListEndpointsInput`** (`api_op_ListEndpoints.go:30-64`) was missing **9 of 10** optional fields —
+  only `NextToken` existed, and the backend had no filtering at all (`ListEndpoints(ctx, nextToken)`).
+  All nine now real: `CreationTimeAfter`/`CreationTimeBefore`/`LastModifiedTimeAfter`/
+  `LastModifiedTimeBefore`/`MaxResults`/`NameContains`/`SortBy`/`SortOrder`/`StatusEquals`.
+  `EndpointSummary` (`types/types.go:8329-8386`) already matched exactly — no response gap.
+- **`DeleteEndpointInput`**/`UpdateEndpointWeightsAndCapacitiesInput` already matched exactly;
+  converted to named types for tooling visibility with no field changes.
+
+**The six questions, answered explicitly:**
+
+1. **What does the handler read that AWS never sends?** `UpdateInferenceComponentInput`'s
+   `VariantName` (see above) — the real op has no such member.
+2. **Do request and response use the same key?** Checked separately throughout: `Container.Image`
+   (request) vs `Container.DeployedImage.SpecifiedImage` (response) diverge — the one place a naive
+   passthrough would have been wrong-shaped; `DeploymentConfig`/`LastDeploymentConfig` and every
+   `ComputeResourceRequirements`/`DataCacheConfig`/`SchedulingConfig`/`StartupParameters` sub-config
+   confirmed **identical** on both sides before choosing raw passthrough for those.
+3. **Is any required request member never read at all?** `CreateLabelingJobInput.LabelAttributeName`
+   (required per doc, never validated) — see above.
+4. **Is any field parsed and then ignored?** `UpdateEndpointInput.RetainAllVariantProperties` was the
+   most severe instance this pass — not merely absent-decode but active wrong-default behavior (see
+   above). This backend's `EndpointConfig.AsyncInferenceConfig`/`DataCaptureConfig`/
+   `ShadowProductionVariants` were also stored-then-never-read by `DescribeEndpoint`.
+5. **Does it emit every declared member, and does any handler return a nil body where the op
+   declares required members?** `InferenceComponentSummary.EndpointArn`/`VariantName` (both
+   required) were completely absent from `ListInferenceComponents`' response; `DescribeInferenceComponentOutput.EndpointArn`
+   (required) likewise absent from Describe.
+6. **Does any status or lifecycle field ever advance?** `InferenceComponentStatus` stayed
+   `Creating` forever — see the FSM fix above, the campaign's second instance of this bug class
+   after parity-15's ClusterSchedulerConfig.
+
+**Timestamps touched, each with its own serializer/deserializer citation and a test that sets the
+value:** `ListLabelingJobsInput.CreationTimeAfter/CreationTimeBefore/LastModifiedTimeAfter/LastModifiedTimeBefore`
+and `ListLabelingJobsForWorkteamInput.CreationTimeAfter/CreationTimeBefore` (all `*time.Time` per
+`api_op_ListLabelingJobs.go:30-71`/`api_op_ListLabelingJobsForWorkteam.go:30-64`, awsjson1.1 numbers,
+decoded as `*float64`/`timeFromEpochSecondsPtr`); `ListInferenceComponentsInput`'s four time filters
+(`api_op_ListInferenceComponents.go:30-71`, same treatment); `ListEndpointsInput`'s four time filters
+(`api_op_ListEndpoints.go:30-64`, same treatment). Every one has a table-driven test
+(`TestHandler_ListLabelingJobs_TimeFilters`, `TestHandler_ListLabelingJobsForWorkteam_Filters`,
+`TestHandler_ListInferenceComponents_Filters`, `TestHandler_ListEndpoints_Filters`) asserting a
+future value excludes and a past value includes — none left nil.
+
+**An existing test found ratifying the fabricated-status bug:** `TestHandler_InferenceComponentLifecycle`
+asserted `assert.Equal(t, "Creating", descResp["InferenceComponentStatus"])` immediately after
+Create — correct in isolation (Creating is the right status right after Create) but the test never
+checked the status ever left Creating, so it never caught that it never did. Fixed: the immediate
+assertion is kept (still valid), plus a new `require.Eventually` block confirming the FSM reaches
+`InService` and `CurrentCopyCount` catches up to `CopyCount`. The same test's `UpdateInferenceComponent`
+call sent the fabricated `"VariantName": "variant-2"` — replaced with a real `DeploymentConfig`
+payload and an assertion that it round-trips through `LastDeploymentConfig`.
+
+**Enums touched, all read from the constants, none generalized across ops:** `SortBy`/`SortOrder`
+(shared `types.SortBy`/`types.SortOrder`, `ListLabelingJobsInput` — default `CreationTime`/Ascending,
+confirmed from this op's own doc, **not** assumed from sibling ops); `LabelingJobStatus`
+(`types/enums.go:5114-5123`); `ListLabelingJobsForWorkteamSortByOptions` (confirmed exactly one real
+value, `CreationTime` — the field is a disclosed no-op, not a gap, since no second value exists to
+sort by); `InferenceComponentStatus`/`InferenceComponentSortKey`/`OrderKey`
+(`types/enums.go:4369-4398`, `6798-6803` — `ListInferenceComponentsInput`'s own doc gives
+`CreationTime`/Descending as defaults, **differing** from `ListLabelingJobsInput`'s
+`CreationTime`/Ascending in the same pass, confirming per-op defaults rather than a service-wide
+convention); `EndpointStatus`/`EndpointSortKey`/`OrderKey`/`VariantPropertyType`
+(`types/enums.go:3386-3398`, `3365-3371`, `10837-10844` — `ListEndpointsInput`'s doc also gives
+`CreationTime`/Descending, matching InferenceComponent's but confirmed independently from this op's
+own doc text, not copied over).
+
+**Disclosures (all three files):** `TrialComponentSource`-class ARN filters n/a here;
+`LabelingJobsForWorkteam.SortBy` (one real value, no-op); `ListSubscribedWorkteams`
+filters (always-empty backend); InferenceComponent's `PlacementStatus`/`ExplainerConfig`/
+`MetricsConfig`/`PendingDeploymentSummary` (all not modeled, stated above with the reason each
+lacks a backing field).
+
+**Hand-revert results (one representative fix per file, each restored and `md5sum`-verified
+byte-identical to its pre-revert state afterward):**
+- `handler_labeling.go`: stripped `ListLabelingJobs`' four `timeFromEpochSecondsPtr` assignments back
+  to omitted — `TestHandler_ListLabelingJobs_TimeFilters` failed exactly as predicted (all four
+  "excludes" subtests returned the filtered-out job instead of an empty list).
+- `handler_inference_components.go`: removed `CreateInferenceComponent`'s
+  `scheduleInferenceComponentTransition` call — `TestHandler_InferenceComponentLifecycle`'s new
+  `require.Eventually` block failed with "Condition never satisfied" (2s timeout), reproducing the
+  stuck-`Creating`-forever bug precisely.
+- `handler_endpoints.go`: removed the `RetainAllVariantProperties`-gated block from
+  `carryOverVariantProperties` (reverting to the original always-take-new-config behavior) —
+  `TestHandler_UpdateEndpoint_RetainAllVariantProperties`'s "keeps the old Desired values" and
+  "ExcludeRetainedVariantProperties" subtests both failed with the exact predicted symptom
+  (`Desired*` values from the new EndpointConfig instead of the retained old ones).
+
+**Tests added:** `TestHandler_CreateLabelingJob_MissingRequiredFields` (table, extended with the
+`LabelAttributeName` case), `TestHandler_ListLabelingJobs_TimeFilters`,
+`TestHandler_ListLabelingJobs_SortBy`, `TestHandler_ListLabelingJobs_ResponseIncludesInputConfigAndOutput`,
+`TestHandler_ListLabelingJobsForWorkteam_Filters`; `TestHandler_CreateInferenceComponent_MissingRequiredFields`,
+`TestHandler_CreateInferenceComponent_SpecificationContainerImage`,
+`TestHandler_ListInferenceComponents_Filters`, `TestHandler_ListInferenceComponents_SortByName`;
+`TestHandler_DescribeEndpoint_DataCaptureAndAsyncInferenceConfig`,
+`TestHandler_CreateEndpoint_DeploymentConfigEchoedOnDescribe`,
+`TestHandler_UpdateEndpoint_RetainAllVariantProperties` (table, three subtests),
+`TestHandler_ListEndpoints_Filters`, `TestHandler_ListEndpoints_SortByName`. All `t.Parallel()`
+outer+subtest, short lowercase subtest names, `require`/`assert` split. One pre-existing unbubbled
+`time.Sleep(400ms)` in `TestHandler_DescribeEndpoint_EventuallyInService` converted to
+`require.Eventually` as a drive-by fix while already restructuring this test file (flagged by this
+repo's own no-`time.Sleep`-in-tests convention, not part of this pass's assigned scope but trivial
+to fix in passing).
+
+**Refactoring for `cyclop`/`gocognit` (no `nolint` used, per the ban on suppressing these):**
+`ListEndpoints`/`ListInferenceComponents`/`ListLabelingJobs` each decomposed into a
+`*MatchesFilter`/`less*` helper pair (`endpointMatchesFilter`/`lessEndpoint`,
+`inferenceComponentMatchesFilter`/`lessInferenceComponent`, `labelingJobMatchesFilter`/
+`lessLabelingJob`); `inferenceComponentMatchesFilter` further split into
+`inferenceComponentMatchesIdentityFilters`/`inferenceComponentMatchesTimeFilters` to clear cyclop's
+15-branch limit; `UpdateEndpoint`'s per-variant retention loop extracted into
+`carryOverVariantProperties`. `goconst` findings (my new code pushed five wire-key strings —
+`"EndpointArn"`/`"EndpointName"`/`"Name"`/`"Status"`/`"Updating"` — over the 3-occurrence threshold,
+which also flagged four **pre-existing, untouched** files sharing those strings) fixed by routing
+through the existing `keyEndpointArn`/`keyEndpointNameField`/`keyGenericName`/`keyStatus` constants
+and a new shared `statusUpdating` constant (`handler_keys.go`), rather than touching the unrelated
+flagged files. `revive var-naming` (`ArtifactUrl` -> `ArtifactURL`, JSON tag unchanged) and a
+`modernize mapsloop` (`maps.Copy` in a test) also fixed. `fieldalignment -fix` run repo-wide-scoped
+to `./services/sagemaker/...` (no other packages touched).
+
+Gates for this session: `go build ./services/sagemaker/...`, `go build ./...` (repo-wide), `go vet
+./services/sagemaker/...`, `go vet -tags e2e ./services/sagemaker/...`, `go vet -tags integration
+./services/sagemaker/...`, `go vet -vettool=$(go tool -n mulint-vet) ./services/sagemaker/...`,
+`gofmt -l ./services/sagemaker/*.go` (empty), `go test -race ./services/sagemaker/...` (pass, run
+twice plus `-count=1` to rule out FSM-timing flakiness after two `StatusEquals` list-filter tests
+were found racing the async Creating->InService transition under full-suite load — fixed by waiting
+for InService via `require.Eventually` before asserting on `StatusEquals` rather than depending on
+transient `Creating`), and `golangci-lint run ./services/sagemaker/...` (0 issues) all clean. Zero
+`nolint` added.
+
+**`last_audit_commit` left at its existing value (`5f91d37c7`)** — not updated this pass, per the
+campaign's standing instruction never to write `pending` or otherwise touch it casually.
+
+**144 of sagemaker's 362 inline structs now remain.** New boundary: 8 files tied at 5
+(`handler_workteams.go`, `handler_workforces.go`, `handler_trials.go`, `handler_training_jobs.go`,
+`handler_projects.go`, `handler_optimization_jobs.go`, `handler_inference_recommendations_jobs.go`,
+`handler_hp_tuning_jobs.go`) — next in line per the campaign's largest-pile-first ordering, now that
+all files previously tied at 6 or higher are cleared.

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"maps"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -25,75 +26,136 @@ var (
 	ErrInferenceComponentAlreadyExists = awserr.New("ResourceInUse", awserr.ErrConflict)
 )
 
+// InferenceComponentContainerSpec mirrors the request-side
+// InferenceComponentContainerSpecification (types/types.go:11731-11756). Image
+// is echoed back as DeployedImage.SpecifiedImage on Describe/List — this
+// backend never resolves a registry digest, so DeployedImage.ResolvedImage/
+// ResolutionTime are disclosed no-ops.
+type InferenceComponentContainerSpec struct {
+	Environment            map[string]string `json:"Environment,omitempty"`
+	ArtifactURL            string            `json:"ArtifactUrl,omitempty"`
+	Image                  string            `json:"Image,omitempty"`
+	ContainerMetricsConfig json.RawMessage   `json:"ContainerMetricsConfig,omitempty"`
+}
+
+// InferenceComponentSpecification mirrors types.InferenceComponentSpecification
+// (types/types.go:11947-11996). ComputeResourceRequirements/DataCacheConfig/
+// SchedulingConfig/StartupParameters are carried as opaque json.RawMessage:
+// each of those four sub-types is used unchanged by both this request type
+// and its response-side Summary counterpart (types/types.go:12002-12034), so
+// a byte-for-byte passthrough between Create/Update and Describe/List is
+// wire-correct without needing semantic modeling. Only Container needs real
+// translation, since the request's Image field becomes the response's
+// DeployedImage.
+type InferenceComponentSpecification struct {
+	Container                   *InferenceComponentContainerSpec `json:"Container,omitempty"`
+	BaseInferenceComponentName  string                           `json:"BaseInferenceComponentName,omitempty"`
+	InstanceType                string                           `json:"InstanceType,omitempty"`
+	ModelName                   string                           `json:"ModelName,omitempty"`
+	ComputeResourceRequirements json.RawMessage                  `json:"ComputeResourceRequirements,omitempty"`
+	DataCacheConfig             json.RawMessage                  `json:"DataCacheConfig,omitempty"`
+	SchedulingConfig            json.RawMessage                  `json:"SchedulingConfig,omitempty"`
+	StartupParameters           json.RawMessage                  `json:"StartupParameters,omitempty"`
+}
+
+// inferenceComponentSpecificationSummary builds the InferenceComponentSpecificationSummary
+// wire shape (types/types.go:12002-12034) from a stored InferenceComponentSpecification.
+func inferenceComponentSpecificationSummary(s *InferenceComponentSpecification) map[string]any {
+	summary := map[string]any{}
+
+	if s.BaseInferenceComponentName != "" {
+		summary["BaseInferenceComponentName"] = s.BaseInferenceComponentName
+	}
+
+	if s.ComputeResourceRequirements != nil {
+		summary["ComputeResourceRequirements"] = s.ComputeResourceRequirements
+	}
+
+	if s.Container != nil {
+		container := map[string]any{}
+
+		if s.Container.ArtifactURL != "" {
+			container["ArtifactUrl"] = s.Container.ArtifactURL
+		}
+
+		if s.Container.ContainerMetricsConfig != nil {
+			container["ContainerMetricsConfig"] = s.Container.ContainerMetricsConfig
+		}
+
+		if len(s.Container.Environment) > 0 {
+			container["Environment"] = s.Container.Environment
+		}
+
+		if s.Container.Image != "" {
+			container["DeployedImage"] = map[string]any{"SpecifiedImage": s.Container.Image}
+		}
+
+		summary["Container"] = container
+	}
+
+	if s.DataCacheConfig != nil {
+		summary["DataCacheConfig"] = s.DataCacheConfig
+	}
+
+	if s.InstanceType != "" {
+		summary["InstanceType"] = s.InstanceType
+	}
+
+	if s.ModelName != "" {
+		summary["ModelName"] = s.ModelName
+	}
+
+	if s.SchedulingConfig != nil {
+		summary["SchedulingConfig"] = s.SchedulingConfig
+	}
+
+	if s.StartupParameters != nil {
+		summary["StartupParameters"] = s.StartupParameters
+	}
+
+	return summary
+}
+
 // InferenceComponent represents a SageMaker inference component.
 type InferenceComponent struct {
-	CreationTime             time.Time         `json:"CreationTime"`
-	LastModifiedTime         time.Time         `json:"LastModifiedTime"`
-	Tags                     map[string]string `json:"Tags,omitempty"`
-	InferenceComponentName   string            `json:"InferenceComponentName"`
-	InferenceComponentArn    string            `json:"InferenceComponentArn"`
-	EndpointName             string            `json:"EndpointName"`
-	VariantName              string            `json:"VariantName,omitempty"`
-	InferenceComponentStatus string            `json:"InferenceComponentStatus"`
-	CopyCount                int               `json:"CopyCount,omitempty"`
-	CurrentCopyCount         int               `json:"CurrentCopyCount,omitempty"`
+	CreationTime             time.Time
+	LastModifiedTime         time.Time
+	Specification            *InferenceComponentSpecification
+	Tags                     map[string]string
+	InferenceComponentName   string
+	InferenceComponentArn    string
+	EndpointName             string
+	EndpointArn              string
+	VariantName              string
+	InferenceComponentStatus string
+	FailureReason            string
+	DeploymentConfig         json.RawMessage
+	Specifications           []InferenceComponentSpecification
+	CopyCount                int32
+	CurrentCopyCount         int32
 }
 
 func cloneInferenceComponent(c *InferenceComponent) *InferenceComponent {
 	cp := *c
 	cp.Tags = maps.Clone(c.Tags)
+	cp.Specifications = append([]InferenceComponentSpecification(nil), c.Specifications...)
 
 	return &cp
-}
-
-// MarshalJSON emits CreationTime/LastModifiedTime as AWS awsjson1.1
-// epoch-seconds numbers rather than Go's default RFC3339 strings — this
-// struct is marshaled directly by handleDescribeInferenceComponent.
-func (c *InferenceComponent) MarshalJSON() ([]byte, error) {
-	type alias InferenceComponent
-
-	return json.Marshal(struct {
-		*alias
-		CreationTime     float64 `json:"CreationTime"`
-		LastModifiedTime float64 `json:"LastModifiedTime"`
-	}{
-		alias:            (*alias)(c),
-		CreationTime:     epochSeconds(c.CreationTime),
-		LastModifiedTime: epochSeconds(c.LastModifiedTime),
-	})
-}
-
-// UnmarshalJSON is the inverse of [InferenceComponent.MarshalJSON], read by
-// persistence.go's snapshot restore path.
-func (c *InferenceComponent) UnmarshalJSON(data []byte) error {
-	type alias InferenceComponent
-
-	aux := struct {
-		*alias
-		CreationTime     float64 `json:"CreationTime"`
-		LastModifiedTime float64 `json:"LastModifiedTime"`
-	}{alias: (*alias)(c)}
-
-	if err := json.Unmarshal(data, &aux); err != nil {
-		return err
-	}
-
-	c.CreationTime = timeFromEpochSeconds(aux.CreationTime)
-	c.LastModifiedTime = timeFromEpochSeconds(aux.LastModifiedTime)
-
-	return nil
 }
 
 // CreateInferenceComponentOptions holds input fields for CreateInferenceComponent.
 type CreateInferenceComponentOptions struct {
 	Tags                   map[string]string
+	Specification          *InferenceComponentSpecification
 	InferenceComponentName string
 	EndpointName           string
 	VariantName            string
-	CopyCount              int
+	Specifications         []InferenceComponentSpecification
+	CopyCount              int32
 }
 
-// CreateInferenceComponent creates a SageMaker inference component.
+// CreateInferenceComponent creates a SageMaker inference component and
+// schedules its Creating -> InService transition.
 func (b *InMemoryBackend) CreateInferenceComponent(
 	ctx context.Context,
 	opts CreateInferenceComponentOptions,
@@ -121,23 +183,57 @@ func (b *InMemoryBackend) CreateInferenceComponent(
 		b.accountID,
 		"inference-component/"+opts.InferenceComponentName,
 	)
+	endpointARN := arn.Build("sagemaker", region, b.accountID, "endpoint/"+opts.EndpointName)
 	now := time.Now()
 
 	c := &InferenceComponent{
 		InferenceComponentName:   opts.InferenceComponentName,
 		InferenceComponentArn:    compARN,
 		EndpointName:             opts.EndpointName,
+		EndpointArn:              endpointARN,
 		VariantName:              opts.VariantName,
 		InferenceComponentStatus: statusCreating,
 		CopyCount:                opts.CopyCount,
-		CurrentCopyCount:         0,
+		Specification:            opts.Specification,
+		Specifications:           opts.Specifications,
 		Tags:                     mergeTags(nil, opts.Tags),
 		CreationTime:             now,
 		LastModifiedTime:         now,
 	}
 	b.inferenceComponentsStore(region).Put(c)
 
+	b.scheduleInferenceComponentTransition(
+		b.lifecycleCtx, region, opts.InferenceComponentName, statusInService, inferenceComponentCreatingToInService,
+	)
+
 	return cloneInferenceComponent(c), nil
+}
+
+// scheduleInferenceComponentTransition drives an inference component to
+// nextStatus after delay, and — when nextStatus is InService — catches
+// CurrentCopyCount up to the desired CopyCount. ctx must be b.lifecycleCtx
+// captured by the caller while holding b.mu.
+func (b *InMemoryBackend) scheduleInferenceComponentTransition(
+	ctx context.Context,
+	region, name, nextStatus string,
+	delay time.Duration,
+) {
+	b.runDelayed(ctx, delay, func() {
+		b.mu.Lock("scheduleInferenceComponentTransition.goroutine")
+		defer b.mu.Unlock()
+
+		c, ok := b.inferenceComponentsStore(region).Get(name)
+		if !ok {
+			return
+		}
+
+		c.InferenceComponentStatus = nextStatus
+		c.LastModifiedTime = time.Now()
+
+		if nextStatus == statusInService {
+			c.CurrentCopyCount = c.CopyCount
+		}
+	})
 }
 
 // DescribeInferenceComponent returns an inference component by name.
@@ -155,10 +251,88 @@ func (b *InMemoryBackend) DescribeInferenceComponent(ctx context.Context, name s
 	return cloneInferenceComponent(c), nil
 }
 
-// ListInferenceComponents returns all inference components with pagination.
+// ListInferenceComponentsFilter narrows the results of ListInferenceComponents
+// (api_op_ListInferenceComponents.go:30-71). SortBy defaults to CreationTime,
+// SortOrder to Descending — both documented defaults for this op.
+type ListInferenceComponentsFilter struct {
+	CreationTimeAfter      *time.Time
+	CreationTimeBefore     *time.Time
+	LastModifiedTimeAfter  *time.Time
+	LastModifiedTimeBefore *time.Time
+	EndpointNameEquals     string
+	NameContains           string
+	StatusEquals           string
+	VariantNameEquals      string
+	SortBy                 string
+	SortOrder              string
+	NextToken              string
+	MaxResults             int32
+}
+
+// inferenceComponentMatchesIdentityFilters reports whether c satisfies filter's
+// name/endpoint/variant/status fields.
+func inferenceComponentMatchesIdentityFilters(c *InferenceComponent, filter ListInferenceComponentsFilter) bool {
+	if filter.EndpointNameEquals != "" && c.EndpointName != filter.EndpointNameEquals {
+		return false
+	}
+
+	if filter.VariantNameEquals != "" && c.VariantName != filter.VariantNameEquals {
+		return false
+	}
+
+	if filter.StatusEquals != "" && c.InferenceComponentStatus != filter.StatusEquals {
+		return false
+	}
+
+	return filter.NameContains == "" ||
+		strings.Contains(strings.ToLower(c.InferenceComponentName), strings.ToLower(filter.NameContains))
+}
+
+// inferenceComponentMatchesTimeFilters reports whether c satisfies filter's
+// creation/last-modified time-window fields.
+func inferenceComponentMatchesTimeFilters(c *InferenceComponent, filter ListInferenceComponentsFilter) bool {
+	if filter.CreationTimeAfter != nil && !c.CreationTime.After(*filter.CreationTimeAfter) {
+		return false
+	}
+
+	if filter.CreationTimeBefore != nil && !c.CreationTime.Before(*filter.CreationTimeBefore) {
+		return false
+	}
+
+	if filter.LastModifiedTimeAfter != nil && !c.LastModifiedTime.After(*filter.LastModifiedTimeAfter) {
+		return false
+	}
+
+	if filter.LastModifiedTimeBefore != nil && !c.LastModifiedTime.Before(*filter.LastModifiedTimeBefore) {
+		return false
+	}
+
+	return true
+}
+
+// inferenceComponentMatchesFilter reports whether c satisfies every set field of filter.
+func inferenceComponentMatchesFilter(c *InferenceComponent, filter ListInferenceComponentsFilter) bool {
+	return inferenceComponentMatchesIdentityFilters(c, filter) && inferenceComponentMatchesTimeFilters(c, filter)
+}
+
+// lessInferenceComponent orders a before b by sortBy (Name/Status/default CreationTime).
+func lessInferenceComponent(a, b *InferenceComponent, sortBy string) bool {
+	switch sortBy {
+	case keyGenericName:
+		return a.InferenceComponentName < b.InferenceComponentName
+	case keyStatus:
+		return a.InferenceComponentStatus < b.InferenceComponentStatus
+	default:
+		return a.CreationTime.Before(b.CreationTime)
+	}
+}
+
+// ListInferenceComponents returns inference components matching filter,
+// sorted by filter.SortBy (default CreationTime) / filter.SortOrder (default
+// Descending).
 func (b *InMemoryBackend) ListInferenceComponents(
 	ctx context.Context,
-	endpointFilter, nextToken string,
+	filter ListInferenceComponentsFilter,
 ) ([]*InferenceComponent, string) {
 	b.mu.RLock("ListInferenceComponents")
 	defer b.mu.RUnlock()
@@ -166,45 +340,51 @@ func (b *InMemoryBackend) ListInferenceComponents(
 	region := getRegion(ctx, b.region)
 	store := b.inferenceComponentsStoreRO(region)
 
-	keys := make([]string, 0, store.Len())
+	list := make([]*InferenceComponent, 0, store.Len())
+
 	for _, c := range store.All() {
-		if endpointFilter != "" && c.EndpointName != endpointFilter {
-			continue
-		}
-
-		keys = append(keys, c.InferenceComponentName)
-	}
-
-	sort.Strings(keys)
-
-	start := 0
-	if nextToken != "" {
-		for i, k := range keys {
-			if k == nextToken {
-				start = i
-
-				break
-			}
+		if inferenceComponentMatchesFilter(c, filter) {
+			list = append(list, cloneInferenceComponent(c))
 		}
 	}
 
-	end := min(start+sagemakerDefaultPageSize, len(keys))
+	desc := !strings.EqualFold(filter.SortOrder, "Ascending")
+	sort.Slice(list, func(i, k int) bool {
+		less := lessInferenceComponent(list[i], list[k], filter.SortBy)
+		if desc {
+			return !less
+		}
 
-	out := make([]*InferenceComponent, 0, end-start)
-	for _, k := range keys[start:end] {
-		out = append(out, cloneInferenceComponent(tableGet(store, k)))
-	}
+		return less
+	})
 
-	next := ""
-	if end < len(keys) {
-		next = keys[end]
-	}
-
-	return out, next
+	return paginateSlice(list, filter.NextToken, filter.MaxResults)
 }
 
-// UpdateInferenceComponent updates an inference component's variant or copy count.
-func (b *InMemoryBackend) UpdateInferenceComponent(ctx context.Context, name, variantName string, copyCount int) error {
+// UpdateInferenceComponentOptions holds the fields UpdateInferenceComponent
+// (api_op_UpdateInferenceComponent.go:24-53) can change. There is no
+// VariantName member on the real input — a production variant is fixed at
+// Create time and cannot be moved via Update.
+type UpdateInferenceComponentOptions struct {
+	DeploymentConfig json.RawMessage
+	RuntimeConfig    *InferenceComponentRuntimeConfigInput
+	Specification    *InferenceComponentSpecification
+	Specifications   []InferenceComponentSpecification
+}
+
+// InferenceComponentRuntimeConfigInput mirrors types.InferenceComponentRuntimeConfig
+// (types/types.go:11893-11902).
+type InferenceComponentRuntimeConfigInput struct {
+	CopyCount int32 `json:"CopyCount"`
+}
+
+// UpdateInferenceComponent applies opts and schedules an Updating -> InService
+// transition (real AWS behavior while the new configuration rolls out).
+func (b *InMemoryBackend) UpdateInferenceComponent(
+	ctx context.Context,
+	name string,
+	opts UpdateInferenceComponentOptions,
+) error {
 	b.mu.Lock("UpdateInferenceComponent")
 	defer b.mu.Unlock()
 
@@ -215,21 +395,39 @@ func (b *InMemoryBackend) UpdateInferenceComponent(ctx context.Context, name, va
 		return fmt.Errorf("%w: inference component %q", ErrInferenceComponentNotFound, name)
 	}
 
-	if variantName != "" {
-		c.VariantName = variantName
+	if opts.RuntimeConfig != nil {
+		c.CopyCount = opts.RuntimeConfig.CopyCount
 	}
 
-	if copyCount > 0 {
-		c.CopyCount = copyCount
+	if opts.Specification != nil {
+		c.Specification = opts.Specification
 	}
 
+	if opts.Specifications != nil {
+		c.Specifications = opts.Specifications
+	}
+
+	if opts.DeploymentConfig != nil {
+		c.DeploymentConfig = opts.DeploymentConfig
+	}
+
+	c.InferenceComponentStatus = statusUpdating
 	c.LastModifiedTime = time.Now()
+
+	b.scheduleInferenceComponentTransition(
+		b.lifecycleCtx, region, name, statusInService, inferenceComponentUpdatingToInService,
+	)
 
 	return nil
 }
 
-// UpdateInferenceComponentRuntimeConfig updates the copy count for an inference component.
-func (b *InMemoryBackend) UpdateInferenceComponentRuntimeConfig(ctx context.Context, name string, copyCount int) error {
+// UpdateInferenceComponentRuntimeConfig updates the desired copy count for an
+// inference component and schedules an Updating -> InService transition.
+func (b *InMemoryBackend) UpdateInferenceComponentRuntimeConfig(
+	ctx context.Context,
+	name string,
+	copyCount int32,
+) error {
 	b.mu.Lock("UpdateInferenceComponentRuntimeConfig")
 	defer b.mu.Unlock()
 
@@ -241,8 +439,12 @@ func (b *InMemoryBackend) UpdateInferenceComponentRuntimeConfig(ctx context.Cont
 	}
 
 	c.CopyCount = copyCount
-	c.CurrentCopyCount = copyCount
+	c.InferenceComponentStatus = statusUpdating
 	c.LastModifiedTime = time.Now()
+
+	b.scheduleInferenceComponentTransition(
+		b.lifecycleCtx, region, name, statusInService, inferenceComponentUpdatingToInService,
+	)
 
 	return nil
 }

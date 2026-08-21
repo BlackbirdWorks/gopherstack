@@ -363,14 +363,70 @@ func (b *InMemoryBackend) StopLabelingJob(ctx context.Context, name string) erro
 	return nil
 }
 
-// ListLabelingJobsFilter narrows the results of ListLabelingJobs.
+// ListLabelingJobsFilter narrows the results of ListLabelingJobs
+// (api_op_ListLabelingJobs.go:30-71). SortBy defaults to CreationTime,
+// SortOrder to Ascending — both documented defaults for this op.
 type ListLabelingJobsFilter struct {
-	NameContains string
-	StatusEquals string
-	MaxResults   int32
+	CreationTimeAfter      *time.Time
+	CreationTimeBefore     *time.Time
+	LastModifiedTimeAfter  *time.Time
+	LastModifiedTimeBefore *time.Time
+	NameContains           string
+	StatusEquals           string
+	SortBy                 string
+	SortOrder              string
+	MaxResults             int32
 }
 
-// ListLabelingJobs returns labeling jobs sorted by creation time.
+// labelingJobMatchesFilter reports whether j satisfies every set field of filter.
+func labelingJobMatchesFilter(j *LabelingJob, filter ListLabelingJobsFilter) bool {
+	if filter.StatusEquals != "" && j.LabelingJobStatus != filter.StatusEquals {
+		return false
+	}
+
+	if filter.NameContains != "" &&
+		!strings.Contains(strings.ToLower(j.LabelingJobName), strings.ToLower(filter.NameContains)) {
+		return false
+	}
+
+	if filter.CreationTimeAfter != nil && !j.CreationTime.After(*filter.CreationTimeAfter) {
+		return false
+	}
+
+	if filter.CreationTimeBefore != nil && !j.CreationTime.Before(*filter.CreationTimeBefore) {
+		return false
+	}
+
+	if filter.LastModifiedTimeAfter != nil && !j.LastModifiedTime.After(*filter.LastModifiedTimeAfter) {
+		return false
+	}
+
+	if filter.LastModifiedTimeBefore != nil && !j.LastModifiedTime.Before(*filter.LastModifiedTimeBefore) {
+		return false
+	}
+
+	return true
+}
+
+// lessLabelingJob orders a before b by sortBy (Name/Status/default CreationTime,
+// tie-broken by name).
+func lessLabelingJob(a, b *LabelingJob, sortBy string) bool {
+	switch sortBy {
+	case keyGenericName:
+		return a.LabelingJobName < b.LabelingJobName
+	case keyStatus:
+		return a.LabelingJobStatus < b.LabelingJobStatus
+	default:
+		if a.CreationTime.Equal(b.CreationTime) {
+			return a.LabelingJobName < b.LabelingJobName
+		}
+
+		return a.CreationTime.Before(b.CreationTime)
+	}
+}
+
+// ListLabelingJobs returns labeling jobs matching filter, sorted by
+// filter.SortBy (default CreationTime) / filter.SortOrder (default Ascending).
 func (b *InMemoryBackend) ListLabelingJobs(
 	ctx context.Context,
 	nextToken string,
@@ -384,34 +440,43 @@ func (b *InMemoryBackend) ListLabelingJobs(
 	list := make([]*LabelingJob, 0, b.labelingJobsStoreRO(region).Len())
 
 	for _, j := range b.labelingJobsStoreRO(region).All() {
-		if filter.StatusEquals != "" && j.LabelingJobStatus != filter.StatusEquals {
-			continue
+		if labelingJobMatchesFilter(j, filter) {
+			list = append(list, cloneLabelingJob(j))
 		}
-
-		if filter.NameContains != "" &&
-			!strings.Contains(strings.ToLower(j.LabelingJobName), strings.ToLower(filter.NameContains)) {
-			continue
-		}
-
-		list = append(list, cloneLabelingJob(j))
 	}
 
+	desc := strings.EqualFold(filter.SortOrder, "Descending")
 	sort.Slice(list, func(i, k int) bool {
-		if list[i].CreationTime.Equal(list[k].CreationTime) {
-			return list[i].LabelingJobName < list[k].LabelingJobName
+		less := lessLabelingJob(list[i], list[k], filter.SortBy)
+		if desc {
+			return !less
 		}
 
-		return list[i].CreationTime.Before(list[k].CreationTime)
+		return less
 	})
 
 	return paginateSlice(list, nextToken, filter.MaxResults)
+}
+
+// ListLabelingJobsForWorkteamFilter narrows the results of
+// ListLabelingJobsForWorkteam (api_op_ListLabelingJobsForWorkteam.go:30-64).
+// SortBy has exactly one real value (CreationTime,
+// types.ListLabelingJobsForWorkteamSortByOptions), so it is decoded for
+// wire-shape fidelity but not threaded into the sort — CreationTime order is
+// this op's only possible order regardless of the value sent.
+type ListLabelingJobsForWorkteamFilter struct {
+	CreationTimeAfter        *time.Time
+	CreationTimeBefore       *time.Time
+	JobReferenceCodeContains string
+	SortOrder                string
+	MaxResults               int32
 }
 
 // ListLabelingJobsForWorkteam returns labeling jobs assigned to a workteam.
 func (b *InMemoryBackend) ListLabelingJobsForWorkteam(
 	ctx context.Context,
 	workteamArn, nextToken string,
-	maxResults int32,
+	filter ListLabelingJobsForWorkteamFilter,
 ) ([]*LabelingJob, string) {
 	b.mu.RLock("ListLabelingJobsForWorkteam")
 	defer b.mu.RUnlock()
@@ -421,18 +486,41 @@ func (b *InMemoryBackend) ListLabelingJobsForWorkteam(
 	list := make([]*LabelingJob, 0, b.labelingJobsStoreRO(region).Len())
 
 	for _, j := range b.labelingJobsStoreRO(region).All() {
-		if j.HumanTaskConfig.WorkteamArn == workteamArn {
-			list = append(list, cloneLabelingJob(j))
+		if j.HumanTaskConfig.WorkteamArn != workteamArn {
+			continue
 		}
+
+		if filter.JobReferenceCodeContains != "" &&
+			!strings.Contains(j.JobReferenceCode, filter.JobReferenceCodeContains) {
+			continue
+		}
+
+		if filter.CreationTimeAfter != nil && !j.CreationTime.After(*filter.CreationTimeAfter) {
+			continue
+		}
+
+		if filter.CreationTimeBefore != nil && !j.CreationTime.Before(*filter.CreationTimeBefore) {
+			continue
+		}
+
+		list = append(list, cloneLabelingJob(j))
 	}
 
+	desc := strings.EqualFold(filter.SortOrder, "Descending")
 	sort.Slice(list, func(i, k int) bool {
+		var less bool
 		if list[i].CreationTime.Equal(list[k].CreationTime) {
-			return list[i].LabelingJobName < list[k].LabelingJobName
+			less = list[i].LabelingJobName < list[k].LabelingJobName
+		} else {
+			less = list[i].CreationTime.Before(list[k].CreationTime)
 		}
 
-		return list[i].CreationTime.Before(list[k].CreationTime)
+		if desc {
+			return !less
+		}
+
+		return less
 	})
 
-	return paginateSlice(list, nextToken, maxResults)
+	return paginateSlice(list, nextToken, filter.MaxResults)
 }

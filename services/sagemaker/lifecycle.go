@@ -12,15 +12,17 @@ import (
 // ---------------------------------------------------------------------------
 
 const (
-	notebookPendingToInServiceDelay = 250 * time.Millisecond
-	notebookStoppingToStoppedDelay  = 150 * time.Millisecond
-	notebookUpdatingToInService     = 200 * time.Millisecond
-	trainingInProgressToCompleted   = 300 * time.Millisecond
-	trainingStoppingToStopped       = 150 * time.Millisecond
-	endpointCreatingToInService     = 300 * time.Millisecond
-	endpointUpdatingToInService     = 250 * time.Millisecond
-	processingJobCompletionDelay    = 300 * time.Millisecond
-	processingJobStopDelay          = 150 * time.Millisecond
+	notebookPendingToInServiceDelay       = 250 * time.Millisecond
+	notebookStoppingToStoppedDelay        = 150 * time.Millisecond
+	notebookUpdatingToInService           = 200 * time.Millisecond
+	trainingInProgressToCompleted         = 300 * time.Millisecond
+	trainingStoppingToStopped             = 150 * time.Millisecond
+	endpointCreatingToInService           = 300 * time.Millisecond
+	endpointUpdatingToInService           = 250 * time.Millisecond
+	inferenceComponentCreatingToInService = 300 * time.Millisecond
+	inferenceComponentUpdatingToInService = 250 * time.Millisecond
+	processingJobCompletionDelay          = 300 * time.Millisecond
+	processingJobStopDelay                = 150 * time.Millisecond
 	// aiJobInProgressToCompleted/aiJobStoppingToStopped drive the InProgress
 	// -> Completed and Stopping -> Stopped transitions shared by the
 	// AIBenchmarkJob, AIRecommendationJob, and generic Job families (added
