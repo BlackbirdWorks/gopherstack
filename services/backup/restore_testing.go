@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"slices"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -12,9 +13,16 @@ import (
 )
 
 // CreateRestoreTestingPlan creates a restore testing plan.
+// RecoveryPointSelection is required on the real RestoreTestingPlanForCreate
+// (validators.go:2400-2419 rejects a nil value) and on RestoreTestingPlanForGet,
+// so it must always come out non-nil -- if the caller passed nil (only
+// reachable via a raw request bypassing the SDK's own client-side
+// validation), a genuinely-empty selection is stored instead of leaving the
+// required member absent.
 func (b *InMemoryBackend) CreateRestoreTestingPlan(
 	name, scheduleExpression string,
 	startWindowHours int64,
+	recoveryPointSelection *RestoreTestingRecoveryPointSelection,
 ) (*RestoreTestingPlan, error) {
 	b.mu.Lock("CreateRestoreTestingPlan")
 	defer b.mu.Unlock()
@@ -23,11 +31,16 @@ func (b *InMemoryBackend) CreateRestoreTestingPlan(
 		return nil, fmt.Errorf("%w: restore testing plan %s already exists", ErrAlreadyExists, name)
 	}
 
+	if recoveryPointSelection == nil {
+		recoveryPointSelection = &RestoreTestingRecoveryPointSelection{}
+	}
+
 	planARN := arn.Build("backup", b.region, b.accountID, "restore-testing-plan:"+name)
 	rtp := &RestoreTestingPlan{
 		RestoreTestingPlanName: name,
 		RestoreTestingPlanArn:  planARN,
 		ScheduleExpression:     scheduleExpression,
+		RecoveryPointSelection: recoveryPointSelection,
 		StartWindowHours:       startWindowHours,
 		CreationTime:           time.Now().UTC(),
 	}
@@ -127,9 +140,13 @@ func (b *InMemoryBackend) ListRestoreTestingPlans() []*RestoreTestingPlan {
 }
 
 // UpdateRestoreTestingPlan updates a restore testing plan.
+// RecoveryPointSelection is optional on the real RestoreTestingPlanForUpdate
+// (types.go:2431-2456, no "required" marker), so an omitted (nil) value
+// leaves the plan's existing selection unchanged rather than clearing it.
 func (b *InMemoryBackend) UpdateRestoreTestingPlan(
 	planName, scheduleExpression string,
 	startWindowHours int64,
+	recoveryPointSelection *RestoreTestingRecoveryPointSelection,
 ) (*RestoreTestingPlan, error) {
 	b.mu.Lock("UpdateRestoreTestingPlan")
 	defer b.mu.Unlock()
@@ -142,6 +159,9 @@ func (b *InMemoryBackend) UpdateRestoreTestingPlan(
 	rtp.ScheduleExpression = scheduleExpression
 	if startWindowHours > 0 {
 		rtp.StartWindowHours = startWindowHours
+	}
+	if recoveryPointSelection != nil {
+		rtp.RecoveryPointSelection = recoveryPointSelection
 	}
 	cp := *rtp
 
@@ -286,24 +306,51 @@ func (b *InMemoryBackend) DeleteRestoreTestingSelection(planName, selectionName 
 
 // --- Framework read/update/delete methods ---
 
+// scanJobResourceName derives ResourceName from a resource ARN's trailing
+// segment (after the last "/" or ":") -- the same non-fabricating,
+// derive-from-already-stored-state approach this campaign used for
+// bedrock's SourceAccountId. ResourceName itself is not tracked anywhere
+// else in this backend.
+func scanJobResourceName(resourceArn string) string {
+	if i := strings.LastIndexAny(resourceArn, "/:"); i >= 0 {
+		return resourceArn[i+1:]
+	}
+
+	return resourceArn
+}
+
 // StartScanJob creates a new scan job for a backup vault.
+// ResourceArn/ResourceType are derived from the recovery point
+// input.RecoveryPointArn identifies, when this backend is tracking one --
+// left absent (not fabricated) when it isn't.
 func (b *InMemoryBackend) StartScanJob(backupVaultArn string, input StartScanJobInput) *ScanJob {
 	b.mu.Lock("StartScanJob")
 	defer b.mu.Unlock()
+
+	var resourceArn, resourceType string
+	if rp, ok := b.findRecoveryPointByArn(input.RecoveryPointArn); ok {
+		resourceArn = rp.ResourceArn
+		resourceType = rp.ResourceType
+	}
 
 	now := time.Now().UTC()
 	done := now
 	job := &ScanJob{
 		ScanJobID:                "scan-job-" + uuid.New().String()[:8],
 		BackupVaultArn:           backupVaultArn,
+		BackupVaultName:          input.BackupVaultName,
 		Status:                   statusCompleted,
 		CreationTime:             now,
 		CompletionTime:           &done,
 		IamRoleArn:               input.IamRoleArn,
 		MalwareScanner:           input.MalwareScanner,
 		RecoveryPointArn:         input.RecoveryPointArn,
+		ResourceArn:              resourceArn,
+		ResourceName:             scanJobResourceName(resourceArn),
+		ResourceType:             resourceType,
 		ScanMode:                 input.ScanMode,
 		ScannerRoleArn:           input.ScannerRoleArn,
+		AccountID:                b.accountID,
 		ContinuousScanEndTime:    input.ContinuousScanEndTime,
 		IdempotencyToken:         input.IdempotencyToken,
 		ScanBaseRecoveryPointArn: input.ScanBaseRecoveryPointArn,

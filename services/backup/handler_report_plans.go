@@ -265,15 +265,12 @@ func (h *Handler) dispatchReportJobOps(
 			)
 		}
 
-		return true, c.JSON(
-			http.StatusOK,
-			map[string]any{keyScanJobID: job.ScanJobID, keyStatus: job.Status},
-		)
+		return true, c.JSON(http.StatusOK, scanJobToJSON(job))
 	case opListScanJobs:
 		jobs := h.Backend.ListScanJobs()
 		items := make([]map[string]any, 0, len(jobs))
 		for _, j := range jobs {
-			items = append(items, map[string]any{keyScanJobID: j.ScanJobID, keyStatus: j.Status})
+			items = append(items, scanJobToJSON(j))
 		}
 
 		return true, c.JSON(http.StatusOK, map[string]any{"ScanJobs": items})
@@ -291,6 +288,46 @@ func (h *Handler) dispatchReportJobOps(
 	}
 
 	return false, nil
+}
+
+// scanJobToJSON renders the required members of DescribeScanJobOutput /
+// types.ScanJob (api_op_DescribeScanJob.go:39-146, types.go:2779-2871,
+// backup@v1.59.4) that this backend tracks. Before gopherstack-r80d batch
+// 11, both DescribeScanJob and ListScanJobs emitted only ScanJobId/Status,
+// silently dropping the other 12+ required members below even though the
+// backend already had most of them in ScanJob.
+//
+// CreatedBy (types.ScanJobCreator: BackupPlanArn/Id/Version + RuleId) is
+// required but deliberately NOT emitted: this backend has no association
+// between a scan job (or its recovery point) and an originating backup
+// plan/rule to source it from, and fabricating one would violate the
+// no-fabrication rule -- see PARITY.md's disclosed gap for this op.
+func scanJobToJSON(job *ScanJob) map[string]any {
+	resp := map[string]any{
+		keyAccountID:        job.AccountID,
+		keyBackupVaultArn:   job.BackupVaultArn,
+		keyBackupVaultName:  job.BackupVaultName,
+		keyCreationDate:     epochSeconds(job.CreationTime),
+		keyIamRoleArn:       job.IamRoleArn,
+		"MalwareScanner":    job.MalwareScanner,
+		keyRecoveryPointArn: job.RecoveryPointArn,
+		keyResourceArn:      job.ResourceArn,
+		"ResourceName":      job.ResourceName,
+		keyResourceType:     job.ResourceType,
+		keyScanJobID:        job.ScanJobID,
+		"ScanMode":          job.ScanMode,
+		"ScannerRoleArn":    job.ScannerRoleArn,
+		keyState:            job.Status,
+	}
+	if job.CompletionTime != nil {
+		resp["CompletionDate"] = epochSeconds(*job.CompletionTime)
+	}
+	if job.ContinuousScanEndTime != nil {
+		resp["ContinuousScanEndTime"] = epochSeconds(*job.ContinuousScanEndTime)
+	}
+	setOptionalStr(resp, "ScanBaseRecoveryPointArn", job.ScanBaseRecoveryPointArn)
+
+	return resp
 }
 
 // handleStartScanJob serves StartScanJob: StartScanJobInput carries

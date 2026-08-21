@@ -256,13 +256,35 @@ type RestoreAccessVault struct {
 	VaultState            string `json:"vaultState"`
 }
 
+// RestoreTestingRecoveryPointSelection selects which recovery points a
+// restore testing plan draws from
+// (aws-sdk-go-v2/service/backup/types.RestoreTestingRecoveryPointSelection).
+// None of its own members are Smithy-required -- only the pointer itself is
+// required on RestoreTestingPlanForGet/-ForCreate -- so a real client can
+// send an empty object.
+type RestoreTestingRecoveryPointSelection struct {
+	Algorithm           string   `json:"algorithm,omitempty"`
+	ExcludeVaults       []string `json:"excludeVaults,omitempty"`
+	IncludeVaults       []string `json:"includeVaults,omitempty"`
+	RecoveryPointTypes  []string `json:"recoveryPointTypes,omitempty"`
+	SelectionWindowDays int32    `json:"selectionWindowDays,omitempty"`
+}
+
 // RestoreTestingPlan represents an AWS Backup restore testing plan.
+//
+// RecoveryPointSelection is required on RestoreTestingPlanForGet
+// (types.go:2307-2371) -- gopherstack had no field for it at all until this
+// pass, so GetRestoreTestingPlan dropped a required response member
+// entirely for every plan (gopherstack-r80d batch 11). It is not required on
+// RestoreTestingPlanForList (types.go:2376-2419, no such member exists
+// there at all), so ListRestoreTestingPlans correctly omits it.
 type RestoreTestingPlan struct {
-	CreationTime           time.Time `json:"creationTime"`
-	RestoreTestingPlanName string    `json:"restoreTestingPlanName"`
-	RestoreTestingPlanArn  string    `json:"restoreTestingPlanArn"`
-	ScheduleExpression     string    `json:"scheduleExpression,omitempty"`
-	StartWindowHours       int64     `json:"startWindowHours,omitempty"`
+	CreationTime           time.Time                             `json:"creationTime"`
+	RecoveryPointSelection *RestoreTestingRecoveryPointSelection `json:"recoveryPointSelection"`
+	RestoreTestingPlanName string                                `json:"restoreTestingPlanName"`
+	RestoreTestingPlanArn  string                                `json:"restoreTestingPlanArn"`
+	ScheduleExpression     string                                `json:"scheduleExpression,omitempty"`
+	StartWindowHours       int64                                 `json:"startWindowHours,omitempty"`
 }
 
 // RestoreTestingSelection represents a selection within a restore testing plan.
@@ -464,18 +486,36 @@ type ReportJob struct {
 }
 
 // ScanJob represents an AWS Backup restore testing scan job.
+// ScanJob represents an AWS Backup malware scan job.
+//
+// AccountID/BackupVaultName/ResourceArn/ResourceType/ResourceName are
+// required on the real DescribeScanJobOutput and types.ScanJob
+// (types.go:2779-2871, backup@v1.59.4) but had no field at all here until
+// gopherstack-r80d batch 11 -- DescribeScanJob/ListScanJobs's handlers
+// returned only ScanJobId/Status, silently dropping 12+ required members.
+// CreatedBy (types.ScanJobCreator: BackupPlanArn/Id/Version + RuleId) is
+// also required but is NOT modeled: this backend has no association between
+// a scan job (or the recovery point it targets) and an originating backup
+// plan/rule, and StartScanJobInput itself carries no such reference either
+// -- fabricating one would violate the no-fabrication rule, so it stays a
+// disclosed gap (see PARITY.md).
 type ScanJob struct {
 	CreationTime             time.Time  `json:"creationTime"`
 	CompletionTime           *time.Time `json:"completionTime,omitempty"`
 	ContinuousScanEndTime    *time.Time `json:"continuousScanEndTime,omitempty"`
 	ScanJobID                string     `json:"scanJobId"`
 	BackupVaultArn           string     `json:"backupVaultArn"`
+	BackupVaultName          string     `json:"backupVaultName"`
 	Status                   string     `json:"status"`
 	IamRoleArn               string     `json:"iamRoleArn"`
 	MalwareScanner           string     `json:"malwareScanner"`
 	RecoveryPointArn         string     `json:"recoveryPointArn"`
+	ResourceArn              string     `json:"resourceArn,omitempty"`
+	ResourceName             string     `json:"resourceName,omitempty"`
+	ResourceType             string     `json:"resourceType,omitempty"`
 	ScanMode                 string     `json:"scanMode"`
 	ScannerRoleArn           string     `json:"scannerRoleArn"`
+	AccountID                string     `json:"accountId"`
 	IdempotencyToken         string     `json:"idempotencyToken,omitempty"`
 	ScanBaseRecoveryPointArn string     `json:"scanBaseRecoveryPointArn,omitempty"`
 }

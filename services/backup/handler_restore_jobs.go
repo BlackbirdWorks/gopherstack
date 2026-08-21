@@ -15,7 +15,7 @@ func restoreJobToJSON(j *RestoreJob) map[string]any {
 		keyRestoreJobID:    j.RestoreJobID,
 		keyStatus:          j.Status,
 		"RecoveryPointArn": j.RecoveryPointArn,
-		"IamRoleArn":       j.IAMRoleArn,
+		keyIamRoleArn:      j.IAMRoleArn,
 		"PercentDone":      j.PercentDone,
 		keyAccountID:       j.AccountID,
 		"CreationDate":     epochSeconds(j.StartTime),

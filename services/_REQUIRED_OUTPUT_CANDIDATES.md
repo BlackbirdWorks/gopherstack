@@ -145,8 +145,12 @@ from the ranked table) as future batches clear more of it.
 | codecommit | 55 | 31 (ops with required fields) | 0 (clean; already field-diffed against the pinned SDK in a very recent thorough pass, 2026-08-13 gopherstack-gvkf, which fixed 8 wire-shape bugs -- see batch-9 note below) | gopherstack-r80d batch 9 |
 | stepfunctions | 54 | 23 (ops with required fields) | yes (4: `TaskScheduledEventDetails.Region`/`.Parameters`, `TaskSucceededEventDetails.Resource`/`.ResourceType`, `TaskFailedEventDetails.Resource`/`.ResourceType`, `DescribeMapRun.ExecutionCounts` missing entirely -- see batch-10 note below) | gopherstack-r80d batch 10 |
 | apprunner | 44 | 32 (ops with required fields) | yes (1: `AssociateCustomDomain`/`DisassociateCustomDomain.VpcDNSTargets` missing entirely; +2 fixed-but-not-counted -- see batch-10 note below) | gopherstack-r80d batch 10 |
+| databrew | 43 | 44 (41 ops-with-required) | yes (1: `Dataset.Input` tagged `omitempty(zero)`, reachably empty via a real client -- see the batch-11 bullet note below and services/databrew/PARITY.md) | gopherstack-r80d batch 11 |
+| backup | 41 | 13 (ops-with-required; entire required-output surface) | yes (2: `GetRestoreTestingPlan.RecoveryPointSelection` missing entirely, `DescribeScanJob`/`ListScanJobs` dropping 12 of 15 required members -- see the batch-11 bullet note below and services/backup/PARITY.md) | gopherstack-r80d batch 11 |
 
-23 services settled, 1884 required output fields read end to end. Batch 10
+25 services settled, 1968 required output fields read end to end. Batch 11
+(databrew + backup) added 3 more counted bugs (1 + 2) on top of the running
+total -- see the batch-11 notes below for detail. Batch 10
 (stepfunctions + apprunner) added 5 more counted bugs (4 + 1) -- see the
 batch-10 notes below for detail.
 Batch 9
@@ -428,13 +432,12 @@ only declare optional output members). 159 of 162 service dirs resolved
 against a pinned `aws-sdk-go-v2` module; opsworks/qldb/qldbsession excluded
 (no SDK dependency). cleanrooms (88, settled batch 8), s3tables (60,
 settled batch 9), codecommit (55, settled batch 9), stepfunctions (54,
-settled batch 10), and apprunner (44, settled batch 10) removed from this
+settled batch 10), apprunner (44, settled batch 10), databrew (43, settled
+batch 11), and backup (41, settled batch 11) removed from this
 table — see the "Already examined" table above.
 
 ```
  459  sagemaker                 ops=403  ops-with-required=188
-  43  databrew                  ops=44   ops-with-required=41
-  41  backup                    ops=109  ops-with-required=13
   38  inspector2                ops=81   ops-with-required=29
   37  vpclattice                ops=73   ops-with-required=16
   36  appmesh                   ops=38   ops-with-required=36
@@ -513,7 +516,26 @@ Notes on the top of this table for the next batch:
   `git status` before starting; the conversion itself is still in flight
   across multiple commits, so treat any uncommitted sagemaker diff as a live
   exclusion, not a one-time check.
-- **databrew** (43, 44 ops) is now the largest remaining single-service
+- **databrew settled (batch 11)** — do not re-derive, see the
+  settled-services table above and services/databrew/PARITY.md's 2026-08-21
+  entries. 1 bug (`Dataset.Input` reachably-empty-`omitzero`); everything
+  else clean, including every List op's array construction and every
+  domain struct's required members, most already unreachable-empty thanks
+  to the real SDK's own client-side validators for the substructures that
+  matter (`Output.Location`, `DataCatalogOutput`/`DatabaseOutput`).
+- **backup settled (batch 11)** — do not re-derive, see the
+  settled-services table above and services/backup/PARITY.md's 2026-08-21
+  entries. 2 bugs across this service's entire 41-field/13-op required-output
+  surface (the restore-testing-plan/selection and scan-job families, the
+  only ops with any required output at all): `GetRestoreTestingPlan`'s
+  `RecoveryPointSelection` had no field at all despite the real SDK client
+  enforcing it non-nil on Create; `DescribeScanJob`/`ListScanJobs` had been
+  returning only `ScanJobId`/`Status`, dropping 12 of 15 required members
+  behind a stale `wire: ok` verdict that had only checked an unrelated
+  status-code bug. `ScanJobCreator` (`CreatedBy`) stays a disclosed,
+  unfixable gap — no backup-plan/rule lineage is tracked for a scan job or
+  its recovery point anywhere in this backend.
+- **inspector2** (38, 81 ops) is now the largest remaining single-service
   reading commitment after sagemaker.
 - **omics settled (batch 7)** — do not re-derive, see the settled-services
   table above and services/omics/PARITY.md's 2026-08-21 entries. The

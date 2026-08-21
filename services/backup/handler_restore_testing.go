@@ -7,10 +7,60 @@ import (
 	"github.com/labstack/echo/v5"
 )
 
+// restoreTestingRecoveryPointSelectionJSON is the wire shape of
+// types.RestoreTestingRecoveryPointSelection. None of its members are
+// individually Smithy-required (only the RecoveryPointSelection pointer
+// itself is, on RestoreTestingPlanForGet/-ForCreate), so a real client can
+// send an empty object and every field here stays optional.
+type restoreTestingRecoveryPointSelectionJSON struct {
+	Algorithm           string   `json:"Algorithm,omitempty"`
+	ExcludeVaults       []string `json:"ExcludeVaults,omitempty"`
+	IncludeVaults       []string `json:"IncludeVaults,omitempty"`
+	RecoveryPointTypes  []string `json:"RecoveryPointTypes,omitempty"`
+	SelectionWindowDays int32    `json:"SelectionWindowDays,omitempty"`
+}
+
+func (j *restoreTestingRecoveryPointSelectionJSON) toModel() *RestoreTestingRecoveryPointSelection {
+	if j == nil {
+		return nil
+	}
+
+	return &RestoreTestingRecoveryPointSelection{
+		Algorithm:           j.Algorithm,
+		ExcludeVaults:       j.ExcludeVaults,
+		IncludeVaults:       j.IncludeVaults,
+		RecoveryPointTypes:  j.RecoveryPointTypes,
+		SelectionWindowDays: j.SelectionWindowDays,
+	}
+}
+
+func restoreTestingRecoveryPointSelectionToJSON(sel *RestoreTestingRecoveryPointSelection) map[string]any {
+	if sel == nil {
+		sel = &RestoreTestingRecoveryPointSelection{}
+	}
+	out := map[string]any{}
+	setOptionalStr(out, "Algorithm", sel.Algorithm)
+	if len(sel.ExcludeVaults) > 0 {
+		out["ExcludeVaults"] = sel.ExcludeVaults
+	}
+	if len(sel.IncludeVaults) > 0 {
+		out["IncludeVaults"] = sel.IncludeVaults
+	}
+	if len(sel.RecoveryPointTypes) > 0 {
+		out["RecoveryPointTypes"] = sel.RecoveryPointTypes
+	}
+	if sel.SelectionWindowDays > 0 {
+		out["SelectionWindowDays"] = sel.SelectionWindowDays
+	}
+
+	return out
+}
+
 type restoreTestingPlanDoc struct {
-	RestoreTestingPlanName string `json:"RestoreTestingPlanName"`
-	ScheduleExpression     string `json:"ScheduleExpression,omitempty"`
-	StartWindowHours       int64  `json:"StartWindowHours,omitempty"`
+	RecoveryPointSelection *restoreTestingRecoveryPointSelectionJSON `json:"RecoveryPointSelection,omitempty"`
+	RestoreTestingPlanName string                                    `json:"RestoreTestingPlanName"`
+	ScheduleExpression     string                                    `json:"ScheduleExpression,omitempty"`
+	StartWindowHours       int64                                     `json:"StartWindowHours,omitempty"`
 }
 
 type createRestoreTestingPlanBody struct {
@@ -35,6 +85,7 @@ func (h *Handler) handleCreateRestoreTestingPlan(c *echo.Context, body []byte) e
 		in.RestoreTestingPlan.RestoreTestingPlanName,
 		in.RestoreTestingPlan.ScheduleExpression,
 		in.RestoreTestingPlan.StartWindowHours,
+		in.RestoreTestingPlan.RecoveryPointSelection.toModel(),
 	)
 	if err != nil {
 		return h.handleError(c, err)
@@ -204,6 +255,7 @@ func (h *Handler) handleGetRestoreTestingPlan(c *echo.Context, planName string) 
 		keyRestoreTestingPlanArn:  rtp.RestoreTestingPlanArn,
 		keyRestoreTestingPlanName: rtp.RestoreTestingPlanName,
 		"ScheduleExpression":      rtp.ScheduleExpression,
+		"RecoveryPointSelection":  restoreTestingRecoveryPointSelectionToJSON(rtp.RecoveryPointSelection),
 		keyCreationTime:           epochSeconds(rtp.CreationTime),
 	}
 	if rtp.StartWindowHours > 0 {
@@ -267,6 +319,7 @@ func (h *Handler) handleUpdateRestoreTestingPlan(
 		planName,
 		in.RestoreTestingPlan.ScheduleExpression,
 		in.RestoreTestingPlan.StartWindowHours,
+		in.RestoreTestingPlan.RecoveryPointSelection.toModel(),
 	)
 	if err != nil {
 		return h.handleError(c, err)

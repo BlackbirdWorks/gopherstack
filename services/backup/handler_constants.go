@@ -208,6 +208,7 @@ const (
 	keyVaultState                  = "VaultState"
 	keyReportJobID                 = "ReportJobId"
 	keyScanJobID                   = "ScanJobId"
+	keyIamRoleArn                  = "IamRoleArn"
 	keyTieringConfigurations       = "TieringConfigurations"
 
 	// Status value constants.
