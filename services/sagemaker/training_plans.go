@@ -97,13 +97,58 @@ type TrainingPlan struct {
 // TrainingPlanExtension records one purchased extension of a training plan's
 // duration, mirroring types.TrainingPlanExtension.
 type TrainingPlanExtension struct {
-	ExtendedAt                      time.Time `json:"ExtendedAt"`
-	StartDate                       time.Time `json:"StartDate"`
-	EndDate                         time.Time `json:"EndDate"`
+	ExtendedAt                      time.Time `json:"-"`
+	StartDate                       time.Time `json:"-"`
+	EndDate                         time.Time `json:"-"`
 	TrainingPlanExtensionOfferingID string    `json:"TrainingPlanExtensionOfferingId"`
 	CurrencyCode                    string    `json:"CurrencyCode,omitempty"`
 	PaymentStatus                   string    `json:"PaymentStatus,omitempty"`
 	DurationHours                   int32     `json:"DurationHours"`
+}
+
+// MarshalJSON emits ExtendedAt/StartDate/EndDate as AWS awsjson1.1
+// epoch-seconds numbers rather than Go's default RFC3339 strings --
+// ExtendTrainingPlan and SearchTrainingPlanOfferings both marshal
+// []*TrainingPlanExtension directly (handler_training_plan.go), and this
+// type is also embedded in TrainingPlan.Extensions, which rides along on
+// TrainingPlan's own persistence round trip.
+func (e TrainingPlanExtension) MarshalJSON() ([]byte, error) {
+	type alias TrainingPlanExtension
+
+	return json.Marshal(struct {
+		alias
+		ExtendedAt float64 `json:"ExtendedAt"`
+		StartDate  float64 `json:"StartDate"`
+		EndDate    float64 `json:"EndDate"`
+	}{
+		alias:      alias(e),
+		ExtendedAt: epochSeconds(e.ExtendedAt),
+		StartDate:  epochSeconds(e.StartDate),
+		EndDate:    epochSeconds(e.EndDate),
+	})
+}
+
+// UnmarshalJSON is the inverse of [TrainingPlanExtension.MarshalJSON], read
+// by TrainingPlan's persistence round trip (see persistence.go).
+func (e *TrainingPlanExtension) UnmarshalJSON(data []byte) error {
+	type alias TrainingPlanExtension
+
+	aux := struct {
+		*alias
+		ExtendedAt float64 `json:"ExtendedAt"`
+		StartDate  float64 `json:"StartDate"`
+		EndDate    float64 `json:"EndDate"`
+	}{alias: (*alias)(e)}
+
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+
+	e.ExtendedAt = timeFromEpochSeconds(aux.ExtendedAt)
+	e.StartDate = timeFromEpochSeconds(aux.StartDate)
+	e.EndDate = timeFromEpochSeconds(aux.EndDate)
+
+	return nil
 }
 
 // MarshalJSON emits CreationTime/StartTime/EndTime as AWS awsjson1.1

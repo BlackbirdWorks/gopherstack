@@ -61,7 +61,7 @@ func (b *InMemoryBackend) StartCalculationExecution(
 			SubmissionDateTime: now,
 			CompletionDateTime: now,
 		},
-		Statistics: CalculationStatistics{Progress: 100}, //nolint:mnd // mock progress
+		Statistics: CalculationStatistics{Progress: "COMPLETED"},
 		Result: CalculationResult{
 			ResultType:    "JSON",
 			ResultS3URI:   fmt.Sprintf("s3://athena-mock/%s/result.json", id),

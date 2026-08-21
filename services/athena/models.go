@@ -346,10 +346,13 @@ type SessionSummary struct {
 	Status          SessionStatus `json:"Status,omitzero"`
 }
 
-// CalculationStatistics holds calculation runtime stats.
+// CalculationStatistics holds calculation runtime stats. Progress is a
+// string on the real shape (types.go), not a number -- the deserializer's
+// case "Progress" type-switches on value.(string), so a numeric Progress
+// fails every real client's decode outright.
 type CalculationStatistics struct {
-	DpuExecutionInMillis int64 `json:"DpuExecutionInMillis,omitempty"`
-	Progress             int64 `json:"Progress,omitempty"`
+	Progress             string `json:"Progress,omitempty"`
+	DpuExecutionInMillis int64  `json:"DpuExecutionInMillis,omitempty"`
 }
 
 // CalculationStatus holds the lifecycle of a calculation.
@@ -371,13 +374,13 @@ type CalculationResult struct {
 // CalculationExecution is a Spark calculation run within a session.
 type CalculationExecution struct {
 	Result        CalculationResult     `json:"Result,omitzero"`
+	Statistics    CalculationStatistics `json:"Statistics,omitzero"`
 	CalculationID string                `json:"CalculationExecutionId"`
 	SessionID     string                `json:"SessionId"`
 	Description   string                `json:"Description,omitempty"`
 	WorkingDir    string                `json:"WorkingDirectory,omitempty"`
 	CodeBlock     string                `json:"CodeBlock,omitempty"`
 	Status        CalculationStatus     `json:"Status"`
-	Statistics    CalculationStatistics `json:"Statistics,omitzero"`
 }
 
 // CalculationSummary is the list view of a calculation execution.

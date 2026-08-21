@@ -450,12 +450,50 @@ func offeringMatchesUltraServerCount(o *TrainingPlanOffering, wantCount int32) b
 // training plan, returned by SearchTrainingPlanOfferings when TrainingPlanArn
 // is specified.
 type TrainingPlanExtensionOffering struct {
-	StartDate                       time.Time `json:"StartDate"`
-	EndDate                         time.Time `json:"EndDate"`
+	StartDate                       time.Time `json:"-"`
+	EndDate                         time.Time `json:"-"`
 	TrainingPlanExtensionOfferingID string    `json:"TrainingPlanExtensionOfferingId"`
 	CurrencyCode                    string    `json:"CurrencyCode,omitempty"`
 	AvailabilityZone                string    `json:"AvailabilityZone,omitempty"`
 	DurationHours                   int32     `json:"DurationHours"`
+}
+
+// MarshalJSON emits StartDate/EndDate as AWS awsjson1.1 epoch-seconds
+// numbers rather than Go's default RFC3339 strings --
+// SearchTrainingPlanOfferings marshals []*TrainingPlanExtensionOffering
+// directly (handler_training_plan.go).
+func (o TrainingPlanExtensionOffering) MarshalJSON() ([]byte, error) {
+	type alias TrainingPlanExtensionOffering
+
+	return json.Marshal(struct {
+		alias
+		StartDate float64 `json:"StartDate"`
+		EndDate   float64 `json:"EndDate"`
+	}{
+		alias:     alias(o),
+		StartDate: epochSeconds(o.StartDate),
+		EndDate:   epochSeconds(o.EndDate),
+	})
+}
+
+// UnmarshalJSON is the inverse of [TrainingPlanExtensionOffering.MarshalJSON].
+func (o *TrainingPlanExtensionOffering) UnmarshalJSON(data []byte) error {
+	type alias TrainingPlanExtensionOffering
+
+	aux := struct {
+		*alias
+		StartDate float64 `json:"StartDate"`
+		EndDate   float64 `json:"EndDate"`
+	}{alias: (*alias)(o)}
+
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+
+	o.StartDate = timeFromEpochSeconds(aux.StartDate)
+	o.EndDate = timeFromEpochSeconds(aux.EndDate)
+
+	return nil
 }
 
 // pendingTrainingPlanExtension is the internal state recorded when

@@ -163,12 +163,18 @@ type KinesisStreamSourceDescription struct {
 	RoleARN                string `json:"RoleARN,omitempty"`
 }
 
-// MSKSourceDescription describes an MSK cluster source.
+// MSKSourceDescription describes an MSK cluster source. ReadFromTimestamp is
+// float64 (epoch seconds), not string: both serializers.go (request) and
+// deserializers.go (response) encode/decode it as a JSON number via
+// FormatEpochSeconds/ParseEpochSeconds, so a string here breaks CreateDeliveryStream's
+// request decode outright for any real client that sets it, and would
+// equally break DescribeDeliveryStream's response decode once only the
+// request side were fixed.
 type MSKSourceDescription struct {
 	AuthenticationConfiguration *MSKAuthenticationConfiguration `json:"AuthenticationConfiguration,omitempty"`
 	MSKClusterARN               string                          `json:"MSKClusterARN,omitempty"`
 	TopicName                   string                          `json:"TopicName,omitempty"`
-	ReadFromTimestamp           string                          `json:"ReadFromTimestamp,omitempty"`
+	ReadFromTimestamp           float64                         `json:"ReadFromTimestamp,omitempty"`
 }
 
 // MSKAuthenticationConfiguration holds MSK connectivity and role config.

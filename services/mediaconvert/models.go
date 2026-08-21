@@ -1,6 +1,9 @@
 package mediaconvert
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 // ReservationPlan holds reservation plan details for a queue.
 type ReservationPlan struct {
@@ -118,7 +121,7 @@ type ShareDetails struct {
 type Job struct {
 	AccelerationSettings      *AccelerationSettings `json:"accelerationSettings,omitempty"`
 	Messages                  *JobMessages          `json:"messages,omitempty"`
-	LastShareDetails          *ShareDetails         `json:"lastShareDetails,omitempty"`
+	LastShareDetails          *ShareDetails         `json:"-"`
 	Timing                    *JobTiming            `json:"timing,omitempty"`
 	Settings                  map[string]any        `json:"settings,omitempty"`
 	Tags                      map[string]string     `json:"tags,omitempty"`
@@ -149,6 +152,57 @@ type Job struct {
 	JobPercentComplete        int                   `json:"jobPercentComplete"`
 	Priority                  int                   `json:"priority"`
 	RetryCount                int                   `json:"retryCount"`
+}
+
+// jobLastShareDetailsWire projects Job.LastShareDetails onto the real wire
+// shape. The real types.Job.LastShareDetails is a bare *string (types.go) --
+// gopherstack previously emitted a {shareToken, sharedAt} object, which
+// fails every real client's decode ("expected __string to be of type
+// string, got map[string]interface {} instead") once a job has ever been
+// shared. The share token carries the identifying information; sharedAt has
+// no documented place in the real string form and is dropped rather than
+// invented into it.
+func jobLastShareDetailsWire(d *ShareDetails) *string {
+	if d == nil {
+		return nil
+	}
+
+	return &d.ShareToken
+}
+
+// MarshalJSON renders LastShareDetails as the plain string the real
+// aws-sdk-go-v2 mediaconvert client expects, keeping the richer
+// ShareDetails struct for internal/domain use (CreateResourceShare,
+// existing tests asserting on ShareToken/SharedAt directly).
+func (j Job) MarshalJSON() ([]byte, error) {
+	type alias Job
+
+	return json.Marshal(struct {
+		LastShareDetails *string `json:"lastShareDetails,omitempty"`
+		alias
+	}{alias: alias(j), LastShareDetails: jobLastShareDetailsWire(j.LastShareDetails)})
+}
+
+// UnmarshalJSON is the inverse of [Job.MarshalJSON], needed so a Job
+// round-trips through persistence.go's snapshot/restore path without
+// losing LastShareDetails.
+func (j *Job) UnmarshalJSON(data []byte) error {
+	type alias Job
+
+	aux := struct {
+		*alias
+		LastShareDetails *string `json:"lastShareDetails,omitempty"`
+	}{alias: (*alias)(j)}
+
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+
+	if aux.LastShareDetails != nil {
+		j.LastShareDetails = &ShareDetails{ShareToken: *aux.LastShareDetails}
+	}
+
+	return nil
 }
 
 // Preset represents a MediaConvert output preset.

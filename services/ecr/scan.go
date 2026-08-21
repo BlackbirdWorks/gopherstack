@@ -209,9 +209,9 @@ func buildBasicFindings(selected []cveEntry) []ImageScanFinding {
 			Severity:    cve.severity,
 			Description: cve.desc,
 			URI:         cve.uri,
-			Attributes: map[string]string{
-				"package_name":    cve.pkg,
-				"package_version": fmt.Sprintf("1.%d.0", i),
+			Attributes: []Attribute{
+				{Key: "package_name", Value: cve.pkg},
+				{Key: "package_version", Value: fmt.Sprintf("1.%d.0", i)},
 			},
 		})
 	}

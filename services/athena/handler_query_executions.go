@@ -5,13 +5,13 @@ import (
 	"fmt"
 )
 
-type startQueryExecutionInput struct { //nolint:govet // field order mirrors AWS API shape, not alignment
+type startQueryExecutionInput struct {
+	ResultReuseConfiguration *ResultReuseConfiguration `json:"ResultReuseConfiguration,omitempty"`
+	ResultConfiguration      ResultConfiguration       `json:"ResultConfiguration"`
+	QueryExecutionContext    QueryExecutionContext     `json:"QueryExecutionContext"`
 	QueryString              string                    `json:"QueryString"`
 	WorkGroup                string                    `json:"WorkGroup"`
-	QueryExecutionContext    QueryExecutionContext     `json:"QueryExecutionContext"`
-	ResultConfiguration      ResultConfiguration       `json:"ResultConfiguration"`
 	ExecutionParameters      []string                  `json:"ExecutionParameters"`
-	ResultReuseConfiguration *ResultReuseConfiguration `json:"ResultReuseConfiguration,omitempty"`
 }
 
 type stopQueryExecutionInput struct {

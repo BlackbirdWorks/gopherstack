@@ -1,6 +1,8 @@
 package appsync
 
 import (
+	"encoding/json"
+
 	"github.com/vektah/gqlparser/v2/ast"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
@@ -188,8 +190,55 @@ type Resolver struct {
 	Code                    string         `json:"code,omitempty"`
 	Kind                    string         `json:"kind,omitempty"`
 	MetricsConfig           string         `json:"metricsConfig,omitempty"`
-	PipelineConfig          []string       `json:"pipelineConfig,omitempty"`
+	PipelineConfig          []string       `json:"-"`
 	MaxBatchSize            int32          `json:"maxBatchSize,omitempty"`
+}
+
+// pipelineConfigWire is the real AppSync PipelineConfig shape
+// (types.go: struct{ Functions []string }) -- gopherstack previously emitted
+// PipelineConfig as a bare array, which every real SDK client's deserializer
+// rejects (it calls awsRestjson1_deserializeDocumentPipelineConfig, which
+// asserts the value is a JSON object with a "functions" member).
+type pipelineConfigWire struct {
+	Functions []string `json:"functions"`
+}
+
+// MarshalJSON projects PipelineConfig into its real wire shape while
+// keeping the Go field a plain []string for internal/test use.
+func (r Resolver) MarshalJSON() ([]byte, error) {
+	type alias Resolver
+
+	var pc *pipelineConfigWire
+	if len(r.PipelineConfig) > 0 {
+		pc = &pipelineConfigWire{Functions: r.PipelineConfig}
+	}
+
+	return json.Marshal(struct {
+		PipelineConfig *pipelineConfigWire `json:"pipelineConfig,omitempty"`
+		alias
+	}{alias: alias(r), PipelineConfig: pc})
+}
+
+// UnmarshalJSON is the inverse of [Resolver.MarshalJSON], needed so a
+// Resolver round-trips through persistence.go's snapshot/restore path
+// without losing PipelineConfig.
+func (r *Resolver) UnmarshalJSON(data []byte) error {
+	type alias Resolver
+
+	aux := struct {
+		*alias
+		PipelineConfig *pipelineConfigWire `json:"pipelineConfig,omitempty"`
+	}{alias: (*alias)(r)}
+
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+
+	if aux.PipelineConfig != nil {
+		r.PipelineConfig = aux.PipelineConfig.Functions
+	}
+
+	return nil
 }
 
 // OpenIDConnectConfig holds the OpenID Connect configuration for an API.

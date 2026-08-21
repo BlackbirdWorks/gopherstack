@@ -405,8 +405,16 @@ func (h *Handler) handleDescribePullRequestEvents(body []byte) (any, error) {
 		return nil, err
 	}
 
+	wireEvents := make([]map[string]any, len(events))
+	for i, e := range events {
+		wireEvents[i] = map[string]any{
+			"pullRequestEventType": e.PullRequestEventType,
+			"eventDate":            e.EventDate.Unix(),
+		}
+	}
+
 	return map[string]any{
-		"pullRequestEvents": events,
+		"pullRequestEvents": wireEvents,
 	}, nil
 }
 

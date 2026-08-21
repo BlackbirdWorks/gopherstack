@@ -23,7 +23,7 @@ ops:
   ListDataSources: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteDataSource: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateResolver: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-08-15: added real \"metricsConfig\" member (ENABLED/DISABLED), previously discarded entirely on both create and update. apiId field on the wire object is fabricated (not on the real Resolver type) but harmless, disclosed not fixed"}
-  GetResolver: {wire: ok, errors: ok, state: ok, persist: ok}
+  GetResolver: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-21 (gopherstack-us9u kind-mismatch sweep) -- Resolver.PipelineConfig was emitted as a bare array; the real types.PipelineConfig is an object wrapping a Functions list (deserializers.go: awsRestjson1_deserializeDocumentPipelineConfig requires a JSON object), so every real SDK client's Get/ListResolvers(ByFunction)/Create/UpdateResolver call failed outright for any PIPELINE-kind resolver. Fixed via a MarshalJSON/UnmarshalJSON pair on Resolver projecting PipelineConfig into {functions: [...]} at the wire boundary, keeping the Go field a plain []string for internal/test use. Proven via a real aws-sdk-go-v2/service/appsync client round trip (wire_pipeline_config_test.go), hand-reverted/confirmed-failing (deserialization error)/restored, md5sum-verified byte-identical."}
   UpdateResolver: {wire: ok, errors: ok, state: ok, persist: ok, note: "was unreachable (PUT/PATCH-only); fixed, PUT/PATCH kept as alias. 2026-08-15: metricsConfig now round-trips (see CreateResolver note)"}
   ListResolvers: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteResolver: {wire: ok, errors: ok, state: ok, persist: ok}

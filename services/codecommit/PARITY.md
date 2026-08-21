@@ -71,7 +71,7 @@ ops:
   UpdatePullRequestTitle: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdatePullRequestDescription: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdatePullRequestStatus: {wire: ok, errors: ok, state: ok, persist: ok}
-  DescribePullRequestEvents: {wire: ok, errors: ok, state: ok, persist: ok}
+  DescribePullRequestEvents: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-21 (gopherstack-us9u kind-mismatch sweep) -- PullRequestEvent.EventDate was a string built via time.Now().UTC().Format(time.RFC3339); the real EventDate deserializes via ParseEpochSeconds(json.Number) (deserializers.go, case \"eventDate\"), so every real SDK client's DescribePullRequestEvents call failed outright once any pull request event existed (always true after OverridePullRequestApprovalRules). Fixed by changing the domain field to time.Time and projecting to epoch seconds at the handler's wire-build step. Proven via a real aws-sdk-go-v2/service/codecommit client round trip (wire_pull_request_event_test.go), hand-reverted/confirmed-failing (expected EventDate to be a JSON Number, got string instead)/restored, md5sum-verified byte-identical."}
   CreatePullRequestApprovalRule: {wire: ok, errors: ok, state: ok, persist: ok}
   DeletePullRequestApprovalRule: {wire: ok, errors: fixed, state: ok, persist: ok, note: "rule-not-found now ApprovalRuleDoesNotExistException, was RepositoryDoesNotExistException"}
   UpdatePullRequestApprovalRuleContent: {wire: ok, errors: fixed, state: ok, persist: ok, note: "rule-not-found now ApprovalRuleDoesNotExistException, was RepositoryDoesNotExistException"}

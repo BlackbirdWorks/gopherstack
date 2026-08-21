@@ -49,11 +49,23 @@ type BatchJobDependency struct {
 	Type  string `json:"Type,omitempty"`
 }
 
+// BatchEnvironmentVariable is a single name/value pair in
+// BatchContainerOverrides.Environment. The real Batch shape (types.go) is a
+// list of these, not a bare map -- both serializers.go (request) and
+// deserializers.go (response) reuse the same BatchContainerOverrides type,
+// so a map here breaks CreatePipe's request decode for any real client
+// setting environment variables, and would equally break DescribePipe's
+// response decode once fixed on the input side alone.
+type BatchEnvironmentVariable struct {
+	Name  string `json:"Name,omitempty"`
+	Value string `json:"Value,omitempty"`
+}
+
 // BatchContainerOverrides holds container override values for a Batch job.
 type BatchContainerOverrides struct {
-	Environment  map[string]string `json:"Environment,omitempty"`
-	InstanceType string            `json:"InstanceType,omitempty"`
-	Command      []string          `json:"Command,omitempty"`
+	Environment  []BatchEnvironmentVariable `json:"Environment,omitempty"`
+	InstanceType string                     `json:"InstanceType,omitempty"`
+	Command      []string                   `json:"Command,omitempty"`
 }
 
 // LambdaFunctionParameters holds Lambda-specific target configuration.
@@ -237,7 +249,7 @@ func cloneBatchJobParameters(src *BatchJobTargetParameters) *BatchJobTargetParam
 	if v.ContainerOverrides != nil {
 		co := *v.ContainerOverrides
 		co.Command = append([]string(nil), v.ContainerOverrides.Command...)
-		co.Environment = maps.Clone(v.ContainerOverrides.Environment)
+		co.Environment = append([]BatchEnvironmentVariable(nil), v.ContainerOverrides.Environment...)
 		v.ContainerOverrides = &co
 	}
 	v.DependsOn = append([]BatchJobDependency(nil), src.DependsOn...)

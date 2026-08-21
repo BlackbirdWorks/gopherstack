@@ -148,7 +148,7 @@ func (b *InMemoryBackend) OverridePullRequestApprovalRules(prID, overrideStatus,
 	b.prOverriders[prID] = overriderARN
 	b.prEvents[prID] = append(b.prEvents[prID], PullRequestEvent{
 		PullRequestEventType: "PULL_REQUEST_APPROVAL_RULE_OVERRIDDEN",
-		EventDate:            time.Now().UTC().Format(time.RFC3339),
+		EventDate:            time.Now().UTC(),
 	})
 
 	return nil

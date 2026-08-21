@@ -64,11 +64,15 @@ type kinesisStreamSrcInput struct {
 }
 
 // mskSourceConfigurationInput holds MSK cluster source config.
+// ReadFromTimestamp is float64 (epoch seconds): the real client serializes
+// it as a JSON number (serializers.go: ok.Double(smithytime.FormatEpochSeconds(...))),
+// so a string field here fails to decode the request body outright the
+// moment a real client sets it.
 type mskSourceConfigurationInput struct {
 	AuthenticationConfiguration *MSKAuthenticationConfiguration `json:"AuthenticationConfiguration"`
 	MSKClusterARN               string                          `json:"MSKClusterARN"`
 	TopicName                   string                          `json:"TopicName"`
-	ReadFromTimestamp           string                          `json:"ReadFromTimestamp"`
+	ReadFromTimestamp           float64                         `json:"ReadFromTimestamp"`
 }
 
 // redshiftDestinationInput holds the Redshift destination configuration.
