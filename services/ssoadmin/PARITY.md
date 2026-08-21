@@ -4,6 +4,10 @@ sdk_module: aws-sdk-go-v2/service/ssoadmin@v1.43.1
 last_audit_commit: 1d7169f66
 last_audit_date: 2026-08-07
 overall: A            # multiple severe client-breaking wire-shape bugs found and fixed 2026-07-24 sweep.
+                      # 2026-08-21 (gopherstack-1vv2): fixed UpdateApplication wholesale-replacing
+                      # PortalOptions on every call (even ones never mentioning it), erasing
+                      # Visibility -- a field UpdateApplicationInput.PortalOptions can never carry.
+                      # See the UpdateApplication op row.
                       # gopherstack-dbwi pass: implemented the ProvisioningStatus filter on
                       # ListPermissionSetsProvisionedToAccount/ListAccountsForProvisionedPermissionSet
                       # (real provisioned-vs-edited-since-provisioned drift tracking) and
@@ -28,7 +32,7 @@ ops:
   ListAccountsForProvisionedPermissionSet: {wire: ok, errors: ok, state: fixed, persist: ok, note: "Same ProvisioningStatus filter fix as ListPermissionSetsProvisionedToAccount, same underlying drift-tracking mechanism."}
   CreateApplication: {wire: ok, errors: ok, state: ok, persist: ok, note: "SEVERE: response wrapped the full application under an invented 'Application' object; real CreateApplicationOutput is exactly {ApplicationArn, IdentityStoreArn, InstanceArn} flat, and IdentityStoreArn was never returned. Fixed; backend now derives ApplicationAccount/CreatedFrom/IdentityStoreArn."}
   DescribeApplication: {wire: ok, errors: ok, state: ok, persist: ok, note: "SEVERE: entire response was nested one level too deep under an invented 'Application' wrapper (plus a fabricated 'Tags' member) -- a real aws-sdk-go-v2 client parsing this would get every DescribeApplicationOutput field nil. Real shape is flat: ApplicationAccount/ApplicationArn/ApplicationProviderArn/CreatedDate/CreatedFrom/Description/IdentityStoreArn/InstanceArn/Name/PortalOptions/Status, no Tags. Fixed; tags now only reachable via ListTagsForResource like every other taggable resource."}
-  UpdateApplication: {wire: ok, errors: ok, state: ok, persist: ok, note: "response echoed a full invented 'Application' object; real UpdateApplicationOutput is void. Fixed to {}."}
+  UpdateApplication: {wire: ok, errors: ok, state: ok, persist: fixed, note: "response echoed a full invented 'Application' object; real UpdateApplicationOutput is void. Fixed to {}. 2026-08-21 (gopherstack-1vv2): persist was accept-and-corrupt — UpdateApplicationInput.PortalOptions is types.UpdateApplicationPortalOptions (SignInOptions only, no Visibility, unlike Create-side types.PortalOptions), and the handler wholesale-replaced app.PortalOptions with a freshly-decoded struct on EVERY UpdateApplication call, even ones that never mentioned PortalOptions at all — silently zeroing Visibility and SignInOptions every time. Fixed: PortalOptions is now a nil-able pointer at decode time and the backend merges only SignInOptions into the existing PortalOptions, leaving Visibility untouched. See TestUpdateApplication_PreservesVisibility."}
   ListApplications: {wire: ok, errors: ok, state: ok, persist: ok, note: "was missing ApplicationAccount/CreatedFrom/IdentityStoreArn (present on the real per-item Application type) and MaxResults/NextToken pagination; both fixed"}
   DescribeApplicationAssignment: {wire: ok, errors: ok, state: ok, persist: ok, note: "SEVERE: response nested under an invented 'ApplicationAssignment' wrapper; real DescribeApplicationAssignmentOutput is flat {ApplicationArn, PrincipalId, PrincipalType}. Fixed."}
   ListApplicationAssignments: {wire: ok, errors: ok, state: ok, persist: ok, note: "MaxResults/NextToken were ignored; now paginated"}

@@ -4,6 +4,10 @@ sdk_module: aws-sdk-go-v2/service/athena@v1.60.4
 last_audit_commit: c47d785b7
 last_audit_date: 2026-07-23
 overall: A            # genuine wire-shape fixes found in a previously well-built, well-tested service
+                       # 2026-08-21 (gopherstack-1vv2): fixed UpdateWorkGroup wholesale-replacing
+                       # Configuration with the narrower ConfigurationUpdates payload, destroying
+                       # fields (ResultConfiguration/EngineVersion/etc.) any single-field Update
+                       # didn't mention. See the WorkGroup op row.
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
@@ -17,7 +21,7 @@ ops:
   GetQueryResults: {wire: ok, errors: ok, state: ok, persist: ok, note: "ResultSet/Row/Datum/ColumnInfo shapes verified against awsAwsjson11 deserializers; header row only on first page, matching AWS."}
   ListQueryExecutions: {wire: ok, errors: ok, state: ok, persist: ok, note: "opaque-token pagination via pkgs' page-token codec"}
   BatchGetQueryExecution: {wire: ok, errors: ok, state: ok, persist: ok}
-  WorkGroup (Create/Get/List/Update/Delete): {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (2026-07-23) — WorkGroup carried an invented Tags field (real GetWorkGroupOutput.WorkGroup has none; tags are TagResource/ListTagsForResource-only) that also went stale the moment TagResource/UntagResource were called, since those never touched it. Field removed; CreateWorkGroup's Tags input now flows only into resourceTags. Also FIXED (previous pass) — ResultConfiguration.ACLConfiguration was tagged json:\"ACLConfiguration\"; real wire key is \"AclConfiguration\"."}
+  WorkGroup (Create/Get/List/Update/Delete): {wire: ok, errors: ok, state: ok, persist: fixed, note: "FIXED (2026-07-23) — WorkGroup carried an invented Tags field (real GetWorkGroupOutput.WorkGroup has none; tags are TagResource/ListTagsForResource-only) that also went stale the moment TagResource/UntagResource were called, since those never touched it. Field removed; CreateWorkGroup's Tags input now flows only into resourceTags. Also FIXED (previous pass) — ResultConfiguration.ACLConfiguration was tagged json:\"ACLConfiguration\"; real wire key is \"AclConfiguration\". 2026-08-21 (gopherstack-1vv2): persist was accept-and-corrupt — UpdateWorkGroupInput.ConfigurationUpdates is types.WorkGroupConfigurationUpdates, a partial-update shape a real client only ever sends the changed fields of, but the handler decoded it into the same WorkGroupConfiguration type as Create and the backend wholesale-replaced wg.Configuration with it -- so any single-field Update (e.g. just EnforceWorkGroupConfiguration) silently erased ResultConfiguration/EngineVersion/etc. set at Create. Fixed: new WorkGroupConfigurationUpdates type (pointer scalars, so omitted is distinguishable from explicit false/0/empty) with a MergeInto that only touches fields actually present. See TestHandler_UpdateWorkGroup_PreservesUnmentionedConfiguration. IdentityCenterConfiguration/ManagedQueryResultsConfiguration and ResultConfigurationUpdates' Remove* explicit-clear flags remain unmodeled -- separate gaps, not fixed this pass."}
   NamedQuery (Create/Get/List/BatchGet/Delete/Update): {wire: ok, errors: ok, state: ok, persist: ok}
   DataCatalog (Create/Get/List/Update/Delete): {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (2026-07-23) — CreateDataCatalogOutput/DeleteDataCatalogOutput now populate the optional DataCatalog object (SDK v1.57.2) with the created/just-deleted record. Also FIXED — DataCatalog carried the same invented Tags field as WorkGroup (see above); removed, CreateDataCatalog's Tags input now flows only into resourceTags."}
   PreparedStatement (Create/Get/List/BatchGet/Delete/Update): {wire: ok, errors: ok, state: ok, persist: ok}

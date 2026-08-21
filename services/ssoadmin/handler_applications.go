@@ -229,34 +229,37 @@ func (h *Handler) handleListApplications(c *echo.Context, body []byte) error {
 	})
 }
 
+// UpdateApplicationInput.PortalOptions is types.UpdateApplicationPortalOptions,
+// which declares only SignInOptions -- unlike the Create-side
+// types.PortalOptions, it has no Visibility field at all, so a real client
+// can never send one here.
 func (h *Handler) handleUpdateApplication(c *echo.Context, body []byte) error {
 	var req struct {
-		ApplicationArn string `json:"ApplicationArn"`
-		Name           string `json:"Name"`
-		Description    string `json:"Description"`
-		Status         string `json:"Status"`
-		PortalOptions  struct {
-			Visibility    string `json:"Visibility"`
+		PortalOptions *struct {
 			SignInOptions struct {
 				Origin         string `json:"Origin"`
 				ApplicationURL string `json:"ApplicationUrl"`
 			} `json:"SignInOptions"`
 		} `json:"PortalOptions"`
+		ApplicationArn string `json:"ApplicationArn"`
+		Name           string `json:"Name"`
+		Description    string `json:"Description"`
+		Status         string `json:"Status"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 
-	portalOptions := &PortalOptions{
-		Visibility: req.PortalOptions.Visibility,
-		SignInOptions: SignInOptions{
+	var signInOptions *SignInOptions
+	if req.PortalOptions != nil {
+		signInOptions = &SignInOptions{
 			Origin:         req.PortalOptions.SignInOptions.Origin,
 			ApplicationURL: req.PortalOptions.SignInOptions.ApplicationURL,
-		},
+		}
 	}
 
 	if _, err := h.Backend.UpdateApplication(
-		req.ApplicationArn, req.Name, req.Description, req.Status, portalOptions,
+		req.ApplicationArn, req.Name, req.Description, req.Status, signInOptions,
 	); err != nil {
 		return handleBackendError(c, err, "application not found: "+req.ApplicationArn)
 	}

@@ -661,3 +661,80 @@ func TestApplicationProviderDisplayDataStruct(t *testing.T) {
 	assert.True(t, ok, "DisplayData should be a struct/object, not a string")
 	assert.NotEmpty(t, displayDataMap["DisplayName"])
 }
+
+// TestUpdateApplication_PreservesVisibility guards against gopherstack-1vv2:
+// UpdateApplicationInput.PortalOptions is types.UpdateApplicationPortalOptions,
+// which declares only SignInOptions -- unlike the Create-side
+// types.PortalOptions, it has no Visibility field at all, so a real client's
+// Update payload can never carry one. Wholesale-replacing the application's
+// stored PortalOptions with that narrower payload used to silently erase
+// Visibility (and even wipe SignInOptions to empty) on every Update call,
+// including ones that never mentioned PortalOptions at all.
+func TestUpdateApplication_PreservesVisibility(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+	instanceArn := createInstance(t, h, "app-update-visibility-inst")
+
+	rec := doRequest(t, h, "CreateApplication", map[string]any{
+		"InstanceArn":            instanceArn,
+		"ApplicationProviderArn": "arn:aws:sso::123456789012:applicationProvider/custom",
+		"Name":                   "VisibilityApp",
+		"PortalOptions": map[string]any{
+			"Visibility": "ENABLED",
+			"SignInOptions": map[string]any{
+				"Origin": "IDENTITY_CENTER",
+			},
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+	appArn := parseResponse(t, rec)["ApplicationArn"].(string)
+	require.NotEmpty(t, appArn)
+
+	// A real client's Update payload can only ever carry
+	// PortalOptions.SignInOptions -- never Visibility.
+	rec = doRequest(t, h, "UpdateApplication", map[string]any{
+		"ApplicationArn": appArn,
+		"PortalOptions": map[string]any{
+			"SignInOptions": map[string]any{
+				"Origin":         "APPLICATION",
+				"ApplicationUrl": "https://example.com/app",
+			},
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doRequest(t, h, "DescribeApplication", map[string]any{"ApplicationArn": appArn})
+	require.Equal(t, http.StatusOK, rec.Code)
+	resp := parseResponse(t, rec)
+
+	portalOptions, ok := resp["PortalOptions"].(map[string]any)
+	require.True(t, ok, "PortalOptions must survive the update")
+	assert.Equal(
+		t,
+		"ENABLED",
+		portalOptions["Visibility"],
+		"Visibility set at Create must survive an Update that can never send it",
+	)
+
+	signInOptions, ok := portalOptions["SignInOptions"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "APPLICATION", signInOptions["Origin"], "SignInOptions must reflect the new Update value")
+
+	// An update that never mentions PortalOptions at all must leave it untouched.
+	rec = doRequest(t, h, "UpdateApplication", map[string]any{
+		"ApplicationArn": appArn,
+		"Description":    "no portal options here",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doRequest(t, h, "DescribeApplication", map[string]any{"ApplicationArn": appArn})
+	require.Equal(t, http.StatusOK, rec.Code)
+	resp = parseResponse(t, rec)
+	portalOptions, ok = resp["PortalOptions"].(map[string]any)
+	require.True(t, ok, "PortalOptions must survive an update that never mentions it")
+	assert.Equal(t, "ENABLED", portalOptions["Visibility"])
+	signInOptions, ok = portalOptions["SignInOptions"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "APPLICATION", signInOptions["Origin"])
+}

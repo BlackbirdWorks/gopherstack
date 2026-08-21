@@ -185,9 +185,16 @@ func (b *InMemoryBackend) ListApplications(instanceArn string) []*Application {
 }
 
 // UpdateApplication updates mutable fields on an application.
+//
+// UpdateApplicationInput.PortalOptions is types.UpdateApplicationPortalOptions,
+// which declares only SignInOptions -- unlike CreateApplicationInput's
+// types.PortalOptions, it has no Visibility. A real client's Update payload
+// can therefore never carry Visibility, so only SignInOptions is merged;
+// Visibility (and anything else already on the application's PortalOptions)
+// survives untouched.
 func (b *InMemoryBackend) UpdateApplication(
 	applicationArn, name, description, status string,
-	portalOptions *PortalOptions,
+	signInOptions *SignInOptions,
 ) (*Application, error) {
 	b.mu.Lock("UpdateApplication")
 	defer b.mu.Unlock()
@@ -209,8 +216,12 @@ func (b *InMemoryBackend) UpdateApplication(
 	if status != "" {
 		app.Status = status
 	}
-	if portalOptions != nil {
-		app.PortalOptions = portalOptions
+	if signInOptions != nil {
+		if app.PortalOptions == nil {
+			app.PortalOptions = &PortalOptions{}
+		}
+
+		app.PortalOptions.SignInOptions = *signInOptions
 	}
 
 	return copyApplication(app), nil

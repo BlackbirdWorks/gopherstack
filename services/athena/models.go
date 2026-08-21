@@ -59,6 +59,63 @@ type WorkGroupConfiguration struct {
 	RequesterPays                          bool                `json:"RequesterPaysEnabled,omitempty"`
 }
 
+// WorkGroupConfigurationUpdates mirrors types.WorkGroupConfigurationUpdates,
+// UpdateWorkGroupInput's ConfigurationUpdates shape. Unlike
+// CreateWorkGroupInput's WorkGroupConfiguration, every scalar member is a
+// pointer so an omitted field is distinguishable from an explicit
+// zero/false/empty value -- required to merge an update into the stored
+// configuration instead of wholesale-replacing it (gopherstack-1vv2: a real
+// client's Update payload never repeats fields it isn't changing, so
+// replacing the whole struct silently erased everything else, e.g.
+// ResultConfiguration or EngineVersion, on every single-field update).
+type WorkGroupConfigurationUpdates struct {
+	CustomerContentEncryptionConfiguration *CustomerEncCfg      `json:"CustomerContentEncryptionConfiguration,omitempty"`
+	ResultConfiguration                    *ResultConfiguration `json:"ResultConfigurationUpdates,omitempty"`
+	EngineVersion                          *EngineVersion       `json:"EngineVersion,omitempty"`
+	AdditionalConfiguration                *string              `json:"AdditionalConfiguration,omitempty"`
+	ExecutionRole                          *string              `json:"ExecutionRole,omitempty"`
+	BytesScannedCutoffPerQuery             *int64               `json:"BytesScannedCutoffPerQuery,omitempty"`
+	EnableMinEnc                           *bool                `json:"EnableMinimumEncryptionConfiguration,omitempty"`
+	EnforceWGCfg                           *bool                `json:"EnforceWorkGroupConfiguration,omitempty"`
+	PublishCWMetrics                       *bool                `json:"PublishCloudWatchMetricsEnabled,omitempty"`
+	RequesterPays                          *bool                `json:"RequesterPaysEnabled,omitempty"`
+}
+
+// MergeInto applies only the members u actually carries onto cfg, leaving
+// everything else untouched.
+func (u *WorkGroupConfigurationUpdates) MergeInto(cfg *WorkGroupConfiguration) {
+	if u.CustomerContentEncryptionConfiguration != nil {
+		cfg.CustomerContentEncryptionConfiguration = u.CustomerContentEncryptionConfiguration
+	}
+	if u.ResultConfiguration != nil {
+		cfg.ResultConfiguration = *u.ResultConfiguration
+	}
+	if u.EngineVersion != nil {
+		cfg.EngineVersion = *u.EngineVersion
+	}
+	if u.AdditionalConfiguration != nil {
+		cfg.AdditionalConfiguration = *u.AdditionalConfiguration
+	}
+	if u.ExecutionRole != nil {
+		cfg.ExecutionRole = *u.ExecutionRole
+	}
+	if u.BytesScannedCutoffPerQuery != nil {
+		cfg.BytesScannedCutoffPerQuery = *u.BytesScannedCutoffPerQuery
+	}
+	if u.EnableMinEnc != nil {
+		cfg.EnableMinEnc = *u.EnableMinEnc
+	}
+	if u.EnforceWGCfg != nil {
+		cfg.EnforceWGCfg = *u.EnforceWGCfg
+	}
+	if u.PublishCWMetrics != nil {
+		cfg.PublishCWMetrics = *u.PublishCWMetrics
+	}
+	if u.RequesterPays != nil {
+		cfg.RequesterPays = *u.RequesterPays
+	}
+}
+
 // WorkGroup represents an Athena workgroup.
 //
 // AWS's real GetWorkGroupOutput.WorkGroup carries no Tags field -- tags for a

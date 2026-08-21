@@ -52,9 +52,8 @@ func kafkaClusterDescriptionFrom(kc ClusterConfig) kafkaClusterDescriptionDTO {
 	}
 }
 
-// topicReplicationDTO mirrors types.TopicReplication (CreateReplicator) /
-// types.TopicReplicationUpdate (UpdateReplicationInfo); both share the same
-// field set on the wire, so a single DTO covers both request shapes.
+// topicReplicationDTO mirrors types.TopicReplication, the CreateReplicator
+// request shape.
 type topicReplicationDTO struct {
 	StartingPosition *struct {
 		Type string `json:"type,omitempty"`
@@ -85,6 +84,35 @@ func (d topicReplicationDTO) toConfig() TopicReplicationConfig {
 	}
 
 	return cfg
+}
+
+// topicReplicationUpdateDTO mirrors types.TopicReplicationUpdate, the
+// UpdateReplicationInfo request shape. Unlike types.TopicReplication
+// (CreateReplicator), it declares no startingPosition/topicNameConfiguration
+// at all -- those are immutable after Create, so a real client's Update
+// payload can never carry them.
+type topicReplicationUpdateDTO struct {
+	TopicsToExclude                 []string `json:"topicsToExclude,omitempty"`
+	TopicsToReplicate               []string `json:"topicsToReplicate,omitempty"`
+	CopyAccessControlListsForTopics bool     `json:"copyAccessControlListsForTopics"`
+	CopyTopicConfigurations         bool     `json:"copyTopicConfigurations"`
+	DetectAndCopyNewTopics          bool     `json:"detectAndCopyNewTopics"`
+}
+
+// toConfig converts the fields a real UpdateReplicationInfo call can carry.
+// StartingPositionType/TopicNameConfigurationType are deliberately left zero
+// -- UpdateReplicationInfo backend merges this in, preserving whatever the
+// flow already has for both (gopherstack-1vv2: wholesale-replacing the
+// stored TopicReplication with this narrower payload used to silently erase
+// both on every Update call).
+func (d topicReplicationUpdateDTO) toConfig() TopicReplicationConfig {
+	return TopicReplicationConfig{
+		TopicsToReplicate:               d.TopicsToReplicate,
+		TopicsToExclude:                 d.TopicsToExclude,
+		CopyAccessControlListsForTopics: d.CopyAccessControlListsForTopics,
+		CopyTopicConfigurations:         d.CopyTopicConfigurations,
+		DetectAndCopyNewTopics:          d.DetectAndCopyNewTopics,
+	}
 }
 
 func topicReplicationDTOFrom(cfg TopicReplicationConfig) topicReplicationDTO {
@@ -396,7 +424,7 @@ func (h *Handler) handleListReplicators(ctx context.Context, c *echo.Context) er
 // updateReplicationInfoInput mirrors UpdateReplicationInfoInput.
 type updateReplicationInfoInput struct {
 	ConsumerGroupReplication *consumerGroupReplicationDTO `json:"consumerGroupReplication,omitempty"`
-	TopicReplication         *topicReplicationDTO         `json:"topicReplication,omitempty"`
+	TopicReplication         *topicReplicationUpdateDTO   `json:"topicReplication,omitempty"`
 	CurrentVersion           string                       `json:"currentVersion"`
 	SourceKafkaClusterArn    string                       `json:"sourceKafkaClusterArn"`
 	TargetKafkaClusterArn    string                       `json:"targetKafkaClusterArn"`
