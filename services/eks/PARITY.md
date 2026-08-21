@@ -12,8 +12,8 @@ ops:
   DescribeCluster: {wire: ok, errors: ok, state: ok, persist: ok}
   ListClusters: {wire: fixed, errors: ok, state: ok, persist: ok, note: "now supports maxResults/nextToken pagination via pkgs/page (was returning the full list in one page)"}
   DeleteCluster: {wire: ok, errors: ok, state: ok, persist: ok}
-  UpdateClusterConfig: {wire: fixed, errors: ok, state: ok, persist: ok, note: "was routed as bare-path PUT /clusters/{name}; real path is POST /clusters/{name}/update-config"}
-  UpdateClusterVersion: {wire: fixed, errors: ok, state: ok, persist: ok, note: "was routed at fictional POST /clusters/{name}/update-version; real path is POST /clusters/{name}/updates (shared with ListUpdates GET)"}
+  UpdateClusterConfig: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "was routed as bare-path PUT /clusters/{name}; real path is POST /clusters/{name}/update-config. gopherstack-muzq (2026-08-21): the returned Update record was stamped InProgress and never advanced -- DescribeUpdate polled InProgress forever; now scheduled to Successful via scheduleUpdateTransition"}
+  UpdateClusterVersion: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "was routed at fictional POST /clusters/{name}/update-version; real path is POST /clusters/{name}/updates (shared with ListUpdates GET). gopherstack-muzq (2026-08-21): same InProgress-forever bug and fix as UpdateClusterConfig"}
   RegisterCluster: {wire: fixed, errors: ok, state: ok, persist: ok, note: "was routed at /clusters/{placeholder}/register; real path is global POST /cluster-registrations (name comes from body, always did)"}
   DeregisterCluster: {wire: fixed, errors: ok, state: ok, persist: ok, note: "was routed as POST /clusters/{name}/deregister; real path is DELETE /cluster-registrations/{name}"}
   DescribeClusterVersions: {wire: ok, errors: ok, state: ok, persist: n/a}
@@ -22,8 +22,8 @@ ops:
   DescribeNodegroup: {wire: ok, errors: ok, state: ok, persist: ok}
   ListNodegroups: {wire: fixed, errors: ok, state: ok, persist: ok, note: "now supports maxResults/nextToken pagination"}
   DeleteNodegroup: {wire: ok, errors: ok, state: ok, persist: ok}
-  UpdateNodegroupConfig: {wire: fixed, errors: ok, state: ok, persist: ok, note: "was reachable on a bare POST to the nodegroup path with no suffix check, so real SDK traffic to .../update-config fell through with a corrupted nodegroupName (the literal suffix baked in); now requires the real /update-config suffix"}
-  UpdateNodegroupVersion: {wire: ok, errors: ok, state: ok, persist: ok}
+  UpdateNodegroupConfig: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "was reachable on a bare POST to the nodegroup path with no suffix check, so real SDK traffic to .../update-config fell through with a corrupted nodegroupName (the literal suffix baked in); now requires the real /update-config suffix. gopherstack-muzq (2026-08-21): the Update record built in the handler was stamped InProgress and never advanced; now scheduled to Successful"}
+  UpdateNodegroupVersion: {wire: ok, errors: ok, state: fixed, persist: ok, note: "gopherstack-muzq (2026-08-21): the returned Update record was stamped InProgress and never advanced -- DescribeUpdate polled InProgress forever; now scheduled to Successful via scheduleUpdateTransition"}
   CreateAddon: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeAddon: {wire: ok, errors: ok, state: ok, persist: ok}
   ListAddons: {wire: fixed, errors: ok, state: ok, persist: ok, note: "now supports maxResults/nextToken pagination"}
@@ -49,7 +49,7 @@ ops:
   ListPodIdentityAssociations: {wire: fixed, errors: ok, state: ok, persist: ok, note: "was emitting the FULL PodIdentityAssociation shape (roleArn/createdAt/tags included); real ListPodIdentityAssociations returns the PodIdentityAssociationSummary shape which deliberately omits those fields -- verified against types.PodIdentityAssociationSummary. Also now supports maxResults/nextToken pagination"}
   DeletePodIdentityAssociation: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdatePodIdentityAssociation: {wire: fixed, errors: ok, state: ok, persist: ok, note: "was routed as PUT; real method is POST to the same leaf path. Now also accepts Policy/DisableSessionTags and sets ModifiedAt"}
-  AssociateIdentityProviderConfig: {wire: fixed, errors: ok, state: ok, persist: ok, note: "now captures groupsPrefix/usernamePrefix/requiredClaims (previously dropped) and generates a real ARN (previously unset)"}
+  AssociateIdentityProviderConfig: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "now captures groupsPrefix/usernamePrefix/requiredClaims (previously dropped) and generates a real ARN (previously unset). gopherstack-muzq (2026-08-21): Status was stamped CREATING and nothing ever advanced it -- no ticker, no later call, while sibling cluster/addon/nodegroup resources transition correctly; now scheduled to ACTIVE mirroring scheduleClusterActivation"}
   DescribeIdentityProviderConfig: {wire: fixed, errors: ok, state: ok, persist: n/a, note: "response was a flat {clusterName,name,type,status,oidc,createdAt} object; real shape (aws-sdk-go-v2/service/eks/types.IdentityProviderConfigResponse) nests the full OidcIdentityProviderConfig under an 'oidc' key with identityProviderConfigName/identityProviderConfigArn/clientId/issuerUrl/usernameClaim/usernamePrefix/groupsClaim/groupsPrefix/requiredClaims/tags/status fields, none of which matched gopherstack's flat shape. Route-match looseness (any 3rd path segment) is unchanged, still intentional"}
   ListIdentityProviderConfigs: {wire: fixed, errors: ok, state: ok, persist: ok, note: "now supports maxResults/nextToken pagination (envelope shape {name,type} pairs was already correct)"}
   DisassociateIdentityProviderConfig: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -245,3 +245,54 @@ key.
   don't expect a literal `null` in the map like the real SDK's Go struct
   (`*string` marshals to `null`); gopherstack's map-based JSON just omits the
   key, which decodes identically on the client side (`NextToken` stays nil).
+
+## gopherstack-muzq (2026-08-21): resources stuck in a transitional status forever
+
+Continues gopherstack-oc9v/gopherstack-muzq's cross-service sweep for resources
+stamped with a transitional status at construction that nothing in the backend
+ever advances -- a client polling for readiness never exits its loop, even
+though the emulator answers 200 with a well-formed body every time.
+
+**Two confirmed instances in this service, both fixed:**
+
+- `AssociateIdentityProviderConfig` stamped `IdentityProviderConfig.Status` as
+  `CREATING` and nothing else in the backend ever wrote to that field --
+  `clusters.go`/`addons.go`/`node_groups.go`'s sibling `CREATING`→`ACTIVE`
+  transitions (via `b.work.After` + a `*TransitionDelay` constant) are the
+  correct pattern in this exact service; `identity_providers.go` alone never
+  had one. Fixed by adding `identityProviderTransitionDelay` and scheduling the
+  transition the same way, right after `Put`. The existing
+  `TestIDPConfigCreatesAsCreating` asserted `CREATING` immediately after
+  associate -- true, but it never checked the status ever changed -- and was
+  strengthened with a `require.Eventually` block confirming `ACTIVE`.
+- `UpdateClusterConfig`/`UpdateClusterVersion`/`UpdateNodegroupVersion`, plus
+  the node-group-config handler's inline `Update` construction, all stamped
+  the returned `Update.Status` as `InProgress` and nothing ever advanced it --
+  the only other writer of an `Update`'s `Status` is `CancelUpdate`, which only
+  handles `VersionRollback`-type updates and only transitions to `Cancelled`.
+  A real client's `DescribeUpdate` waiter (the standard EKS "did my update
+  finish" poll) never saw a terminal status. Fixed via a new
+  `scheduleUpdateTransition` helper (mirroring `scheduleClusterActivation`)
+  called from all four sites, advancing `InProgress`→`Successful`.
+  `TestDescribeUpdate_Status_Successful` is a striking case of this bug class:
+  the test is *named* after the terminal state but its body asserted
+  `InProgress` and stopped there. Also strengthened:
+  `TestUpdateClusterConfig_Status_InProgress`,
+  `TestUpdateNodegroupVersion_Status_InProgress`; added
+  `TestNodegroup_UpdateConfig_UpdateRecordReachesSuccessful` for the handler
+  path, which had no status test at all.
+
+Both fixes reuse `b.work` (`*worker.Group`, already present on
+`InMemoryBackend` and used by every sibling `*TransitionDelay` mechanism in
+this service) -- no new async infrastructure was introduced.
+
+Cleared (real advancing path found, not a bug): `CreateCluster`/`CreateAddon`/
+`CreateFargateProfile`/`CreateNodegroup` all correctly schedule their own
+`CREATING`→`ACTIVE` transitions already. `UpdateClusterVpcEndpoint` sets
+`Successful` synchronously at creation (no async work exists for a pure
+config-flag flip) -- correct as-is, not a bug.
+
+Verified by hand-revert: each fix's file was reverted to its pre-fix `git
+show HEAD:<path>` content, the corresponding test failed with the predicted
+symptom (`Condition never satisfied` -- the status stayed transitional), then
+was restored and confirmed `md5sum`-identical to the fixed version.

@@ -13,9 +13,10 @@ const (
 	defaultBackupJanitorInterval = time.Minute
 	defaultBackupJobTTL          = 24 * time.Hour
 
-	backupWorkerServiceName = "backup"
-	jobSweeperComponent     = "CompletedJobSweeper"
-	jobAdvanceComponent     = "CreatedJobAdvancer"
+	backupWorkerServiceName            = "backup"
+	jobSweeperComponent                = "CompletedJobSweeper"
+	jobAdvanceComponent                = "CreatedJobAdvancer"
+	restoreAccessVaultAdvanceComponent = "RestoreAccessVaultAdvancer"
 )
 
 // isTerminalJob reports whether the given backup job state is terminal.
@@ -67,6 +68,7 @@ func (j *Janitor) Run(ctx context.Context) {
 // SweepOnce runs a single sweep pass. Exposed for testing.
 func (j *Janitor) SweepOnce(ctx context.Context) {
 	j.advanceCreatedJobs(ctx)
+	j.advanceRestoreAccessVaults(ctx)
 	j.sweepCompletedJobs(ctx)
 }
 
@@ -101,6 +103,45 @@ func (j *Janitor) advanceCreatedJobs(ctx context.Context) {
 
 	logger.Load(ctx).InfoContext(
 		ctx, "Backup janitor: backup jobs completed", "count", len(toComplete),
+	)
+}
+
+// advanceRestoreAccessVaults completes restore access backup vaults still in
+// the CREATING state, moving them to AVAILABLE. CreateRestoreAccessBackupVault
+// stamped VaultState CREATING and nothing else in this backend ever advanced
+// it -- no ticker, no later call -- so ListRestoreAccessBackupVaults showed
+// CREATING for the entire lifetime of every restore access vault ever
+// created. CreateRestoreAccessBackupVault itself stays synchronous so callers
+// immediately observe CREATING, matching AWS's own response, the same
+// StartBackupJob-shaped rationale as advanceCreatedJobs above.
+func (j *Janitor) advanceRestoreAccessVaults(ctx context.Context) {
+	var toAdvance []string
+
+	j.Backend.mu.RLock("BackupJanitorAdvanceRestoreAccessVaultsLock")
+	for _, v := range j.Backend.restoreAccessVaults.All() {
+		if v.VaultState == statusCreating {
+			toAdvance = append(toAdvance, v.RestoreAccessBackupVaultName)
+		}
+	}
+	j.Backend.mu.RUnlock()
+
+	if len(toAdvance) == 0 {
+		return
+	}
+
+	j.Backend.mu.Lock("BackupJanitorAdvanceRestoreAccessVaultsLock")
+	for _, name := range toAdvance {
+		if v, ok := j.Backend.restoreAccessVaults.Get(name); ok && v.VaultState == statusCreating {
+			v.VaultState = statusAvailable
+		}
+	}
+	j.Backend.mu.Unlock()
+
+	telemetry.RecordWorkerTask(backupWorkerServiceName, restoreAccessVaultAdvanceComponent, "success")
+	telemetry.RecordWorkerItems(backupWorkerServiceName, restoreAccessVaultAdvanceComponent, len(toAdvance))
+
+	logger.Load(ctx).InfoContext(
+		ctx, "Backup janitor: restore access vaults became available", "count", len(toAdvance),
 	)
 }
 

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -72,6 +73,42 @@ func TestHandler_InferenceRecommendationsJobLifecycle(t *testing.T) {
 	})
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
 	assert.Equal(t, "STOPPING", descResp["Status"])
+
+	// Correct immediately after Stop, but an assertion that only checks this
+	// moment cannot catch a machine that never advances -- confirm it
+	// actually reaches STOPPED.
+	require.Eventually(t, func() bool {
+		descRec := doSageMakerRequest(t, h, "DescribeInferenceRecommendationsJob", map[string]any{
+			"JobName": "my-rec-job",
+		})
+		var out map[string]any
+		require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &out))
+
+		return out["Status"] == "STOPPED"
+	}, 2*time.Second, 10*time.Millisecond)
+}
+
+func TestHandler_InferenceRecommendationsJob_ReachesCompleted(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doSageMakerRequest(t, h, "CreateInferenceRecommendationsJob", map[string]any{
+		"JobName": "rec-job-completes",
+		"JobType": "Default",
+		"RoleArn": "arn:aws:iam::000000000000:role/TestRole",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	require.Eventually(t, func() bool {
+		descRec := doSageMakerRequest(t, h, "DescribeInferenceRecommendationsJob", map[string]any{
+			"JobName": "rec-job-completes",
+		})
+		var out map[string]any
+		require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &out))
+
+		return out["Status"] == "COMPLETED"
+	}, 2*time.Second, 10*time.Millisecond)
 }
 
 func TestHandler_CreateInferenceRecommendationsJob_InputConfigRoundTrip(t *testing.T) {

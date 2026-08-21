@@ -341,6 +341,7 @@ func (b *InMemoryBackend) UpdateNodegroupVersion(
 		CreatedAt:   time.Now().UTC(),
 	}
 	b.storeUpdateLocked(u)
+	b.scheduleUpdateTransition(clusterName, u.ID)
 
 	return u, nil
 }

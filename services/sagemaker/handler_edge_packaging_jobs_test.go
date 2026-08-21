@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -56,12 +57,47 @@ func TestHandler_EdgePackagingJobLifecycle(t *testing.T) {
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
 
-	// Verify stopped
+	// Verify stopping -- correct immediately after Stop, but an assertion that
+	// only checks this moment cannot catch a machine that never advances.
 	rec = doSageMakerRequest(t, h, "DescribeEdgePackagingJob", map[string]any{
 		"EdgePackagingJobName": "my-edge-job",
 	})
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
 	assert.Equal(t, "STOPPING", descResp["EdgePackagingJobStatus"])
+
+	// Confirm it actually reaches STOPPED.
+	require.Eventually(t, func() bool {
+		descRec := doSageMakerRequest(t, h, "DescribeEdgePackagingJob", map[string]any{
+			"EdgePackagingJobName": "my-edge-job",
+		})
+		var out map[string]any
+		require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &out))
+
+		return out["EdgePackagingJobStatus"] == "STOPPED"
+	}, 2*time.Second, 10*time.Millisecond)
+}
+
+func TestHandler_EdgePackagingJob_ReachesCompleted(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doSageMakerRequest(t, h, "CreateEdgePackagingJob", map[string]any{
+		"EdgePackagingJobName": "edge-job-completes",
+		"ModelName":            "my-model",
+		"RoleArn":              "arn:aws:iam::000000000000:role/TestRole",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	require.Eventually(t, func() bool {
+		descRec := doSageMakerRequest(t, h, "DescribeEdgePackagingJob", map[string]any{
+			"EdgePackagingJobName": "edge-job-completes",
+		})
+		var out map[string]any
+		require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &out))
+
+		return out["EdgePackagingJobStatus"] == "COMPLETED"
+	}, 2*time.Second, 10*time.Millisecond)
 }
 
 func TestHandler_EdgePackagingJob_NotFound(t *testing.T) {

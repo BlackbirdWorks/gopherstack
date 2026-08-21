@@ -32,6 +32,19 @@ const (
 	// TrainingJob's FSM.
 	aiJobInProgressToCompleted = 300 * time.Millisecond
 	aiJobStoppingToStopped     = 150 * time.Millisecond
+	// edgePackagingJobStartingToCompleted/edgePackagingJobStoppingToStopped
+	// drive EdgePackagingJob's STARTING -> COMPLETED and STOPPING -> STOPPED
+	// transitions. Kept as their own constants rather than reusing the
+	// aiJob* pair above, matching this file's own established precedent for
+	// independently-retimeable families.
+	edgePackagingJobStartingToCompleted = 300 * time.Millisecond
+	edgePackagingJobStoppingToStopped   = 150 * time.Millisecond
+	// inferenceRecommendationsJobInProgressToCompleted/-StoppingToStopped
+	// drive InferenceRecommendationsJob's own IN_PROGRESS -> COMPLETED and
+	// STOPPING -> STOPPED transitions, kept independent of the aiJob*/
+	// edgePackagingJob* constants above for the same retiming reason.
+	inferenceRecommendationsJobInProgressToCompleted = 300 * time.Millisecond
+	inferenceRecommendationsJobStoppingToStopped     = 150 * time.Millisecond
 )
 
 // ---------------------------------------------------------------------------

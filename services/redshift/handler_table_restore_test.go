@@ -3,6 +3,7 @@ package redshift_test
 import (
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -117,6 +118,27 @@ func TestBackend_TableRestoreStatus(t *testing.T) {
 				assert.Equal(t, "IN_PROGRESS", tr.Status)
 				assert.Equal(t, "my-cluster", tr.ClusterIdentifier)
 				assert.NotEmpty(t, tr.TableRestoreRequestID)
+			},
+		},
+		{
+			// create_returns_in_progress (above) is correct in isolation --
+			// IN_PROGRESS is AWS's own documented initial response -- but it
+			// never checked the status ever left IN_PROGRESS. An assertion
+			// that only tests the first moment cannot catch a machine that
+			// never moves.
+			name: "reaches_succeeded",
+			run: func(t *testing.T, b *redshift.InMemoryBackend) {
+				t.Helper()
+				_, err := b.CreateTableRestoreStatus(
+					"succeeded-cluster", "snap-1", "db1", "t1", "db1", "t1_new",
+				)
+				require.NoError(t, err)
+
+				require.Eventually(t, func() bool {
+					statuses, descErr := b.DescribeTableRestoreStatus("succeeded-cluster")
+
+					return descErr == nil && len(statuses) == 1 && statuses[0].Status == "SUCCEEDED"
+				}, 2*time.Second, 10*time.Millisecond)
 			},
 		},
 		{

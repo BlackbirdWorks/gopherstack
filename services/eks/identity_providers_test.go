@@ -3,6 +3,7 @@ package eks_test
 import (
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -246,6 +247,15 @@ func TestIDPConfigCreatesAsCreating(t *testing.T) {
 			)
 			require.NoError(t, err)
 			assert.Equal(t, "CREATING", cfg.Status, tc.name)
+
+			// The immediate CREATING status is right, but a machine that never
+			// advances would pass that assertion forever -- confirm it
+			// actually reaches ACTIVE too.
+			require.Eventually(t, func() bool {
+				got, descErr := b.DescribeIdentityProviderConfig("cl", "my-idp")
+
+				return descErr == nil && got.Status == "ACTIVE"
+			}, 2*time.Second, 10*time.Millisecond, tc.name)
 		})
 	}
 }

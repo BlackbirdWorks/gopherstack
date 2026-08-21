@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -705,6 +706,15 @@ func TestUpdateClusterConfig_Status_InProgress(t *testing.T) {
 	}})
 	require.NoError(t, err)
 	assert.Equal(t, "InProgress", upd.Status)
+
+	// The immediate status is right, but a machine that never leaves InProgress
+	// would pass the assertion above forever -- confirm it actually reaches
+	// Successful too.
+	require.Eventually(t, func() bool {
+		got, descErr := b.DescribeUpdate("upd-inprog-cluster", upd.ID)
+
+		return descErr == nil && got.Status == "Successful"
+	}, 2*time.Second, 10*time.Millisecond)
 }
 
 func TestDescribeUpdate_Status_Successful(t *testing.T) {
@@ -719,6 +729,12 @@ func TestDescribeUpdate_Status_Successful(t *testing.T) {
 	upd, err := b.DescribeUpdate("desc-upd-cluster", created.ID)
 	require.NoError(t, err)
 	assert.Equal(t, "InProgress", upd.Status)
+
+	require.Eventually(t, func() bool {
+		got, descErr := b.DescribeUpdate("desc-upd-cluster", created.ID)
+
+		return descErr == nil && got.Status == "Successful"
+	}, 2*time.Second, 10*time.Millisecond)
 }
 
 func TestDescribeUpdate_NotFound(t *testing.T) {

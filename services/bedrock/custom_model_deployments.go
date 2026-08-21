@@ -113,6 +113,30 @@ func (b *InMemoryBackend) UpdateCustomModelDeployment(deployARN string) (*Custom
 	return &cp, nil
 }
 
+// AdvanceCustomModelDeploymentStatuses transitions deployments from Creating
+// to Active. Called by the janitor (janitor.go), the same shape as
+// AdvanceProvisionedModelThroughputStatuses -- CreateCustomModelDeployment
+// stamped Status Creating and nothing else in this backend ever advanced it.
+func (b *InMemoryBackend) AdvanceCustomModelDeploymentStatuses() int {
+	b.mu.Lock("AdvanceCustomModelDeploymentStatuses")
+	defer b.mu.Unlock()
+
+	now := time.Now().UTC()
+	advanced := 0
+
+	for _, d := range b.customModelDeployments.All() {
+		if d.Status != statusCreating {
+			continue
+		}
+
+		d.Status = statusActive
+		d.LastModifiedTime = now
+		advanced++
+	}
+
+	return advanced
+}
+
 // DeleteCustomModelDeployment removes a deployment.
 func (b *InMemoryBackend) DeleteCustomModelDeployment(deployARN string) error {
 	b.mu.Lock("DeleteCustomModelDeployment")

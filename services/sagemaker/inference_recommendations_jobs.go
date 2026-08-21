@@ -22,6 +22,13 @@ var (
 	ErrInferenceRecommendationsJobAlreadyExists = awserr.New("ResourceInUse", awserr.ErrConflict)
 )
 
+const (
+	inferenceRecommendationsJobStatusInProgress = "IN_PROGRESS"
+	inferenceRecommendationsJobStatusCompleted  = "COMPLETED"
+	inferenceRecommendationsJobStatusStopping   = "STOPPING"
+	inferenceRecommendationsJobStatusStopped    = "STOPPED"
+)
+
 // InferenceRecommendationsJob represents a SageMaker inference recommendations job.
 type InferenceRecommendationsJob struct {
 	CreationTime     time.Time         `json:"CreationTime"`
@@ -84,7 +91,7 @@ func (b *InMemoryBackend) CreateInferenceRecommendationsJob(
 		JobArn:           jobARN,
 		JobType:          opts.JobType,
 		JobDescription:   opts.JobDescription,
-		Status:           "IN_PROGRESS",
+		Status:           inferenceRecommendationsJobStatusInProgress,
 		RoleArn:          opts.RoleArn,
 		InputConfig:      opts.InputConfig,
 		Tags:             mergeTags(nil, opts.Tags),
@@ -93,7 +100,29 @@ func (b *InMemoryBackend) CreateInferenceRecommendationsJob(
 	}
 	b.inferenceRecommendationsJobsStore(region).Put(j)
 
+	b.scheduleInferenceRecommendationsJobCompletion(b.lifecycleCtx, region, opts.JobName)
+
 	return cloneInferenceRecommendationsJob(j), nil
+}
+
+// scheduleInferenceRecommendationsJobCompletion drives IN_PROGRESS ->
+// COMPLETED after [inferenceRecommendationsJobInProgressToCompleted].
+// Nothing previously advanced an IN_PROGRESS job -- no ticker, no later call
+// -- so DescribeInferenceRecommendationsJob showed IN_PROGRESS for the
+// entire lifetime of every job ever created.
+func (b *InMemoryBackend) scheduleInferenceRecommendationsJobCompletion(ctx context.Context, region, name string) {
+	b.runDelayed(ctx, inferenceRecommendationsJobInProgressToCompleted, func() {
+		b.mu.Lock("scheduleInferenceRecommendationsJobCompletion.goroutine")
+		defer b.mu.Unlock()
+
+		j, ok := b.inferenceRecommendationsJobsStore(region).Get(name)
+		if !ok || j.Status != inferenceRecommendationsJobStatusInProgress {
+			return
+		}
+
+		j.Status = inferenceRecommendationsJobStatusCompleted
+		j.LastModifiedTime = time.Now()
+	})
 }
 
 // DescribeInferenceRecommendationsJob returns an inference recommendations job by name.
@@ -134,8 +163,21 @@ func (b *InMemoryBackend) StopInferenceRecommendationsJob(ctx context.Context, n
 		)
 	}
 
-	j.Status = "STOPPING"
+	j.Status = inferenceRecommendationsJobStatusStopping
 	j.LastModifiedTime = time.Now()
+
+	b.runDelayed(b.lifecycleCtx, inferenceRecommendationsJobStoppingToStopped, func() {
+		b.mu.Lock("StopInferenceRecommendationsJob.goroutine")
+		defer b.mu.Unlock()
+
+		j2, found := b.inferenceRecommendationsJobsStore(region).Get(name)
+		if !found || j2.Status != inferenceRecommendationsJobStatusStopping {
+			return
+		}
+
+		j2.Status = inferenceRecommendationsJobStatusStopped
+		j2.LastModifiedTime = time.Now()
+	})
 
 	return nil
 }

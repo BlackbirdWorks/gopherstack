@@ -216,6 +216,7 @@ const (
 	statusCreated   = "CREATED"
 	statusCreating  = "CREATING"
 	statusActive    = "ACTIVE"
+	statusAvailable = "AVAILABLE"
 )
 
 // The supportedOps* helpers partition the full set of operations returned by

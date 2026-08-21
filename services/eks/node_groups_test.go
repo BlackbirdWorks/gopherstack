@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -612,6 +613,12 @@ func TestUpdateNodegroupVersion_Status_InProgress(t *testing.T) {
 	upd, err := b.UpdateNodegroupVersion("ng-inprog-cluster", "ng1", "1.33")
 	require.NoError(t, err)
 	assert.Equal(t, "InProgress", upd.Status)
+
+	require.Eventually(t, func() bool {
+		got, descErr := b.DescribeUpdate("ng-inprog-cluster", upd.ID)
+
+		return descErr == nil && got.Status == "Successful"
+	}, 2*time.Second, 10*time.Millisecond)
 }
 
 func TestNodegroup_UpdateConfig_Create(t *testing.T) {
@@ -691,6 +698,42 @@ func TestNodegroup_UpdateConfig_Via_UpdateNodegroupConfig(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestNodegroup_UpdateConfig_UpdateRecordReachesSuccessful(t *testing.T) {
+	t.Parallel()
+
+	h := newTestEKSHandler(t)
+	doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "ng-uc-successful"})
+	doREST(t, h, http.MethodPost, "/clusters/ng-uc-successful/node-groups", map[string]any{
+		"nodegroupName": "ng1",
+		"nodeRole":      "arn:aws:iam::123456789012:role/ng",
+		"subnets":       []string{"subnet-x"},
+	})
+
+	rec := doREST(t, h, http.MethodPost, "/clusters/ng-uc-successful/node-groups/ng1/update-config", map[string]any{
+		"updateConfig": map[string]any{"maxUnavailable": 2},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	upd := parseResp(t, rec)["update"].(map[string]any)
+	updateID, ok := upd["id"].(string)
+	require.True(t, ok, "response must carry the update id")
+	assert.Equal(t, "InProgress", upd["status"])
+
+	// The immediate InProgress status is right, but a machine that never
+	// advances would pass that assertion forever -- confirm DescribeUpdate
+	// eventually reports Successful too.
+	require.Eventually(t, func() bool {
+		desc := doREST(t, h, http.MethodGet, "/clusters/ng-uc-successful/updates/"+updateID, nil)
+		if desc.Code != http.StatusOK {
+			return false
+		}
+
+		got := parseResp(t, desc)["update"].(map[string]any)
+
+		return got["status"] == "Successful"
+	}, 2*time.Second, 10*time.Millisecond)
 }
 
 func TestUpdateNodegroupConfig_Labels(t *testing.T) {

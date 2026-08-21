@@ -23,6 +23,13 @@ var (
 	ErrEdgePackagingJobAlreadyExists = awserr.New("ResourceInUse", awserr.ErrConflict)
 )
 
+const (
+	edgePackagingJobStatusStarting  = "STARTING"
+	edgePackagingJobStatusCompleted = "COMPLETED"
+	edgePackagingJobStatusStopping  = "STOPPING"
+	edgePackagingJobStatusStopped   = "STOPPED"
+)
+
 // EdgePackagingJob represents a SageMaker edge packaging job.
 type EdgePackagingJob struct {
 	CreationTime           time.Time         `json:"CreationTime"`
@@ -83,7 +90,7 @@ func (b *InMemoryBackend) CreateEdgePackagingJob(
 	j := &EdgePackagingJob{
 		EdgePackagingJobName:   opts.EdgePackagingJobName,
 		EdgePackagingJobArn:    jobARN,
-		EdgePackagingJobStatus: "STARTING",
+		EdgePackagingJobStatus: edgePackagingJobStatusStarting,
 		ModelName:              opts.ModelName,
 		ModelVersion:           opts.ModelVersion,
 		RoleArn:                opts.RoleArn,
@@ -94,7 +101,29 @@ func (b *InMemoryBackend) CreateEdgePackagingJob(
 	}
 	b.edgePackagingJobsStore(region).Put(j)
 
+	b.scheduleEdgePackagingJobCompletion(b.lifecycleCtx, region, opts.EdgePackagingJobName)
+
 	return cloneEdgePackagingJob(j), nil
+}
+
+// scheduleEdgePackagingJobCompletion drives STARTING -> COMPLETED after
+// [edgePackagingJobStartingToCompleted]. Nothing previously advanced a
+// STARTING job -- no ticker, no later call -- so DescribeEdgePackagingJob
+// showed STARTING for the entire lifetime of every edge packaging job ever
+// created.
+func (b *InMemoryBackend) scheduleEdgePackagingJobCompletion(ctx context.Context, region, name string) {
+	b.runDelayed(ctx, edgePackagingJobStartingToCompleted, func() {
+		b.mu.Lock("scheduleEdgePackagingJobCompletion.goroutine")
+		defer b.mu.Unlock()
+
+		j, ok := b.edgePackagingJobsStore(region).Get(name)
+		if !ok || j.EdgePackagingJobStatus != edgePackagingJobStatusStarting {
+			return
+		}
+
+		j.EdgePackagingJobStatus = edgePackagingJobStatusCompleted
+		j.LastModifiedTime = time.Now()
+	})
 }
 
 // DescribeEdgePackagingJob returns an edge packaging job by name.
@@ -124,8 +153,21 @@ func (b *InMemoryBackend) StopEdgePackagingJob(ctx context.Context, name string)
 		return fmt.Errorf("%w: edge packaging job %q not found", ErrEdgePackagingJobNotFound, name)
 	}
 
-	j.EdgePackagingJobStatus = "STOPPING"
+	j.EdgePackagingJobStatus = edgePackagingJobStatusStopping
 	j.LastModifiedTime = time.Now()
+
+	b.runDelayed(b.lifecycleCtx, edgePackagingJobStoppingToStopped, func() {
+		b.mu.Lock("StopEdgePackagingJob.goroutine")
+		defer b.mu.Unlock()
+
+		j2, found := b.edgePackagingJobsStore(region).Get(name)
+		if !found || j2.EdgePackagingJobStatus != edgePackagingJobStatusStopping {
+			return
+		}
+
+		j2.EdgePackagingJobStatus = edgePackagingJobStatusStopped
+		j2.LastModifiedTime = time.Now()
+	})
 
 	return nil
 }

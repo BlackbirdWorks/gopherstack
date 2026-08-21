@@ -9,6 +9,29 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 )
 
+// updateTransitionDelay is the async delay before an InProgress Update reaches
+// Successful, matching the 100ms scale used by clusterTransitionDelay/
+// addonTransitionDelay/nodegroupTransitionDelay/fargateProfileTransitionDelay.
+const updateTransitionDelay = 100 * time.Millisecond
+
+// scheduleUpdateTransition schedules the async InProgress -> Successful
+// transition for the given update, mirroring scheduleClusterActivation.
+// UpdateClusterConfig/UpdateClusterVersion/UpdateNodegroupVersion/
+// UpdateNodegroupConfig previously stamped Status: statusInProgress and left it
+// there forever -- no ticker, no later call, nothing else ever wrote to an
+// Update's Status except CancelUpdate (VersionRollback-only). A client polling
+// DescribeUpdate never saw a terminal status.
+func (b *InMemoryBackend) scheduleUpdateTransition(clusterName, updateID string) {
+	b.work.After("UpdateTransition", updateTransitionDelay, func() {
+		b.mu.Lock("UpdateTransition-async")
+		defer b.mu.Unlock()
+
+		if u, ok := b.updates.Get(updateKey(clusterName, updateID)); ok && u.Status == statusInProgress {
+			u.Status = statusSuccessful
+		}
+	})
+}
+
 // AssociateEncryptionConfig associates encryption configuration with a cluster.
 // Each call replaces the stored configuration rather than appending.
 func (b *InMemoryBackend) AssociateEncryptionConfig(
@@ -106,6 +129,7 @@ func (b *InMemoryBackend) UpdateClusterConfig(clusterName string, upd ClusterCon
 		CreatedAt:   time.Now().UTC(),
 	}
 	b.storeUpdateLocked(u)
+	b.scheduleUpdateTransition(clusterName, u.ID)
 
 	return u, nil
 }
@@ -222,6 +246,7 @@ func (b *InMemoryBackend) UpdateClusterVersion(clusterName, version string) (*Up
 		CreatedAt:   time.Now().UTC(),
 	}
 	b.storeUpdateLocked(u)
+	b.scheduleUpdateTransition(clusterName, u.ID)
 
 	return u, nil
 }

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -539,6 +540,49 @@ func TestCreateLogicallyAirGappedBackupVault(t *testing.T) {
 			tt.ops(t, h)
 		})
 	}
+}
+
+// TestLogicallyAirGappedBackupVault_ReachesAvailable verifies a freshly
+// created air-gapped vault -- which correctly starts CREATING (see
+// TestCreateLogicallyAirGappedBackupVault) -- does not report CREATING
+// forever through ListBackupVaults. CREATING is right immediately after
+// create, but an assertion that only checks that moment cannot catch a
+// machine that never advances: ListBackupVaults previously reported CREATING
+// unconditionally for every air-gapped vault regardless of age, while
+// DescribeBackupVault on the very same vault always reported AVAILABLE --
+// two read paths for one resource that could never agree.
+func TestLogicallyAirGappedBackupVault_ReachesAvailable(t *testing.T) {
+	t.Parallel()
+
+	h := newTestBackupHandler()
+
+	rec := doREST(t, h, http.MethodPut, "/logically-air-gapped-backup-vaults/lag-avail", map[string]any{
+		"MinRetentionDays": 7,
+		"MaxRetentionDays": 365,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "CREATING", parseResp(t, rec)["VaultState"])
+
+	require.Eventually(t, func() bool {
+		listRec := doREST(t, h, http.MethodGet, "/backup-vaults", nil)
+		if listRec.Code != http.StatusOK {
+			return false
+		}
+
+		list, ok := parseResp(t, listRec)["BackupVaultList"].([]any)
+		if !ok || len(list) != 1 {
+			return false
+		}
+
+		item, ok := list[0].(map[string]any)
+
+		return ok && item["VaultState"] == "AVAILABLE"
+	}, 2*time.Second, 10*time.Millisecond)
+
+	// DescribeBackupVault must agree once ListBackupVaults does.
+	descRec := doREST(t, h, http.MethodGet, "/backup-vaults/lag-avail", nil)
+	require.Equal(t, http.StatusOK, descRec.Code)
+	assert.Equal(t, "AVAILABLE", parseResp(t, descRec)["VaultState"])
 }
 
 // TestCreateRestoreAccessBackupVault exercises the restore access vault creation.

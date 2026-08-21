@@ -12,6 +12,13 @@ import (
 
 var ErrIntegrationNotFound = fmt.Errorf("integration not found: %w", ErrNotFound)
 
+// integrationTransitionDelay is the async delay before a CREATING integration
+// reaches ACTIVE, on the same 100-200ms scale as crawlerTransitionDelay/
+// jobTransitionDelay. Applied via b.integrationReadyAt and reconciled by
+// reconcileLocked (services/glue/reconciler.go), mirroring the crawler
+// RUNNING->READY mechanism exactly.
+const integrationTransitionDelay = 150 * time.Millisecond
+
 // integrationARN returns the ARN for a Glue Zero-ETL integration, following
 // this service's established "<resourceType>/<name>" convention (see
 // blueprintARN, connectionARN, etc.).
@@ -49,6 +56,7 @@ func (b *InMemoryBackend) CreateIntegration(
 		return nil, fmt.Errorf("%w: TargetArn is required", ErrValidation)
 	}
 
+	now := time.Now().UTC()
 	ig := &Integration{
 		IntegrationName: name,
 		IntegrationArn:  b.integrationARN(name),
@@ -56,9 +64,15 @@ func (b *InMemoryBackend) CreateIntegration(
 		TargetArn:       targetArn,
 		Status:          "CREATING",
 		Tags:            tags,
-		CreatedAt:       time.Now().UTC(),
+		CreatedAt:       now,
 	}
 	b.integrations.Put(ig)
+
+	// Nothing previously advanced a CREATING integration -- no ticker, no later
+	// call. Schedule the async CREATING -> ACTIVE transition, reconciled by
+	// reconcileLocked exactly like crawlerReadyAt's RUNNING -> READY.
+	b.integrationReadyAt[name] = now.Add(integrationTransitionDelay)
+
 	cp := *ig
 
 	return &cp, nil
@@ -86,6 +100,8 @@ func (b *InMemoryBackend) DeleteIntegration(identifier string) (*Integration, er
 
 // ListIntegrations returns all integrations.
 func (b *InMemoryBackend) ListIntegrations() []*Integration {
+	b.advanceStates(time.Now())
+
 	b.mu.RLock("ListIntegrations")
 	defer b.mu.RUnlock()
 

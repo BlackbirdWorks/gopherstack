@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -240,6 +241,46 @@ func TestIntegration(t *testing.T) {
 	assert.Equal(t, "arn:aws:s3:::my-source-bucket", deleteOut["SourceArn"])
 	assert.Equal(t, "arn:aws:redshift:us-east-1:123456789012:cluster/my-target", deleteOut["TargetArn"])
 	assert.Equal(t, "DELETING", deleteOut["Status"])
+}
+
+// TestIntegration_ReachesActive verifies a freshly created integration -- which
+// correctly starts CREATING -- does not stay there forever. CREATING is right
+// immediately after Create, but an assertion that only checks that moment
+// cannot catch a machine that never advances; DescribeIntegrations must
+// eventually report ACTIVE with no further client call.
+func TestIntegration_ReachesActive(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doGlueRequest(t, h, "CreateIntegration", map[string]any{
+		"IntegrationName": "integ-reaches-active",
+		"SourceArn":       "arn:aws:s3:::integ-active-source",
+		"TargetArn":       "arn:aws:redshift:us-east-1:123456789012:cluster/integ-active-target",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var createOut map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createOut))
+	assert.Equal(t, "CREATING", createOut["Status"])
+
+	require.Eventually(t, func() bool {
+		descRec := doGlueRequest(t, h, "DescribeIntegrations", map[string]any{
+			"IntegrationIdentifier": createOut["IntegrationArn"],
+		})
+		if descRec.Code != http.StatusOK {
+			return false
+		}
+
+		var out struct {
+			Integrations []struct {
+				Status string `json:"Status"`
+			} `json:"Integrations"`
+		}
+		require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &out))
+
+		return len(out.Integrations) == 1 && out.Integrations[0].Status == "ACTIVE"
+	}, 2*time.Second, 10*time.Millisecond)
 }
 
 // TestListIntegrationResourceProperties_ReturnsStoredEntries verifies the op
