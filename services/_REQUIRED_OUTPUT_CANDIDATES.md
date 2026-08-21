@@ -152,12 +152,15 @@ from the ranked table) as future batches clear more of it.
 | appmesh | 36 | 38 (36 ops-with-required) | 0 (clean; one apparent false positive -- a stale "OpDocument" deserializer helper made the flat response shape look like a missing-wrapper-key bug -- ruled out via a real SDK client round trip, see the batch-13 note below and services/appmesh/PARITY.md) | gopherstack-r80d batch 13 |
 | amplify | 35 | 37 (33 ops-with-required) | yes (13 member-level bugs across 5 findings: `App.EnvironmentVariables`/`Description`/`Repository`, `Branch.ActiveJobId`/`CustomDomains`/`Description`/`Framework`/`EnvironmentVariables`, `DomainAssociation.StatusReason`, `Webhook.Description`, `JobSummary.CommitId`/`CommitMessage`/`CommitTime` -- see the batch-14 note below and services/amplify/PARITY.md) | gopherstack-r80d batch 14 |
 | glue | 34 | 299 (17 ops-with-required) | yes (6 member-level bugs across 3 findings: `Catalog.Name` (CreateCatalog read the name off a nonexistent `CatalogInput.Name`), `GrokClassifier.Classification`/`GrokPattern`, `XMLClassifier.Classification`, `JsonClassifier.JsonPath`, `ColumnStatistics.ColumnType` -- see the batch-15 note below and services/glue/PARITY.md) | gopherstack-r80d batch 15 |
+| batch | 31 | 45 (15 ops-with-required) | yes (6: `JobDetail.StartedAt`, `DescribeServiceJobOutput.StartedAt`, `ComputeResource.MaxvCpus`, `JobQueueDetail.ComputeEnvironmentOrder`, `QuotaShareCapacityLimit.MaxCapacity`, `ServiceJobRetryStrategy.Attempts` -- see the batch-16 note below and services/batch/PARITY.md) | gopherstack-r80d batch 16 |
 
-30 services settled, 2148 required output fields read end to end (the running
+31 services settled, 2179 required output fields read end to end (the running
 total counts each settled service's flat per-op `cmd/requiredoutputfields`
 number, as established by every prior batch -- glue's own real audited
 surface was substantially larger once its ~56 gopherstack-modeled domain
-structs were cross-checked, see the batch-15 note below). Batch 15
+structs were cross-checked, see the batch-15 note below). Batch 16
+(batch only) added 6 more counted bugs on top of the running total -- see the
+batch-16 note below for detail. Batch 15
 (glue only) added 6 more counted bugs on top of the running total -- see the
 batch-15 note below for detail. Batch 14
 (amplify only) added 13 more counted bugs on top of the running total -- see
@@ -586,6 +589,127 @@ and no more" — amplify's "one wrapper key" shape made a single-service read
 already substantial (20 domain structs, 63 required members, 5 separate
 wire-view files).
 
+### batch (batch 16): 6 member-level bugs, all "required member tagged omitempty in a reachable zero/empty state"
+
+Selected after re-verifying the table against a fresh `go run
+./cmd/requiredoutputfields` run and re-reading `services/_REQUIRED_OUTPUT_
+CANDIDATES.md`'s own ranked table: with sagemaker (459 fields, off-limits,
+concurrent conversion under gopherstack-oc9v) excluded and all settled
+services removed, `batch` (31 fields, 45 ops, 15 ops-with-required) is the
+largest remaining candidate, ahead of `ce`/`efs`/`swf` (30 each). `git
+status` confirmed a clean tree throughout.
+
+Followed the batch-15 method: parsed the pinned SDK's 5,706-line
+`types/types.go` with an AST-style walk (blank-line/brace-depth block
+splitting, not a grep window) to attribute every `This member is required.`
+to its own struct before reading any handler. Found 48 domain structs with
+at least one required member (`ComputeEnvironmentDetail`,
+`ComputeEnvironmentOrder`, `ComputeResource`, `ConsumableResourceSummary`,
+`JobDefinition`, `JobDetail`, `JobQueueDetail`, `JobSummary`,
+`ListJobsByConsumableResourceSummary`, `QuotaShareCapacityLimit`,
+`QuotaSharePolicy`, `QuotaSharePreemptionConfiguration`,
+`QuotaShareResourceSharingConfiguration`, `SchedulingPolicyDetail`,
+`SchedulingPolicyListingDetail`, `ServiceEnvironmentDetail`,
+`ServiceJobRetryStrategy`, `ServiceJobSummary`, and 30 more, mostly
+container/EKS leaf types), read every one against gopherstack's
+`services/batch/models.go`/handler struct tags and construction sites. The
+op-level flat scan (31 fields/15 ops) undercounts the real surface for the
+same reason batch 10's stepfunctions did: several ops (`DescribeComputeEnvironments`,
+`DescribeJobQueues`, `DescribeServiceEnvironments`, `RegisterJobDefinition`/
+`DescribeJobDefinitions`) return the shared domain struct directly as the
+wire type, so their nested required members (e.g. `ComputeResource.MaxvCpus`
+inside `ComputeEnvironmentDetail.ComputeResources`) are invisible to a
+per-op scan that only sees the op's own top-level required list.
+
+6 bugs, all the dominant class this campaign has now confirmed on every
+service it's touched -- a required member tagged `omitempty` in a state a
+real client actually reaches, because the real SDK's own client-side
+validator (or, in one case, this backend's own weaker validation) only
+rejects a nil pointer, not a zero/empty value:
+
+1. `JobDetail.StartedAt` (`DescribeJobs`) and `DescribeServiceJobOutput.StartedAt`
+   (`DescribeServiceJob`) -- both required unconditionally even before a job
+   reaches RUNNING; nil until this backend's opt-in janitor (never started in
+   tests, ticks every 1 minute by default) advances the job, so any
+   real-client `Describe*` call on a freshly submitted job saw the key
+   vanish entirely instead of decoding a documented zero timestamp.
+2. `ComputeResource.MaxvCpus` (`DescribeComputeEnvironments`, via
+   `ComputeEnvironmentDetail.ComputeResources`) -- the real client-side
+   `validateComputeResource` only rejects a nil `MaxvCpus` pointer, not
+   zero, and this backend never validates it at all.
+3. `JobQueueDetail.ComputeEnvironmentOrder` (`DescribeJobQueues`) -- required
+   unconditionally, but `CreateJobQueueInput` itself declares
+   `ComputeEnvironmentOrder`/`ServiceEnvironmentOrder` mutually exclusive, so
+   a queue built purely from `serviceEnvironmentOrder` legitimately has an
+   empty `ComputeEnvironmentOrder` -- the "required-but-inapplicable means
+   present-and-empty, not absent" shape, same principle as stepfunctions
+   batch 10's `DescribeMapRun.ExecutionCounts`.
+4. `QuotaShareCapacityLimit.MaxCapacity` (`DescribeQuotaShare`/
+   `ListQuotaShares`) -- the real client-side `validateQuotaShareCapacityLimit`
+   only rejects a nil `MaxCapacity` pointer, not zero, and this backend
+   never validates it.
+5. `ServiceJobRetryStrategy.Attempts` (`DescribeServiceJob`, via the
+   `RetryStrategy` echo) -- the real client-side
+   `validateServiceJobRetryStrategy` only rejects a nil `Attempts` pointer,
+   not zero (the documented 1-10 range isn't enforced client-side), and
+   `SubmitServiceJob` passes it through unvalidated.
+
+All 6 proven via real `aws-sdk-go-v2/service/batch` client round trips
+(`services/batch/wire_output_required_r80d_test.go`), hand-reverted
+(5 files: `models.go`, `handler_jobs.go`, `handler_service_jobs.go`,
+`handler.go`, `job_queues.go`)/confirmed all 6 fail/restored, md5sum-verified
+byte-identical.
+
+Ruled out, not counted: `ComputeResource.Type` and `QuotaSharePolicy.
+IdleResourceAssignmentStrategy`/`QuotaSharePreemptionConfiguration.
+InSharePreemption`/`QuotaShareResourceSharingConfiguration.Strategy` are all
+required string enums whose own real-SDK client-side validators reject an
+empty string (not just a nil pointer) -- unreachable, the same class glue
+batch 15 first identified for `EncryptionAtRest.CatalogEncryptionMode`.
+`QuotaShareCapacityLimit.CapacityUnit` is required and reachable-by-AWS's-own-
+rules, but this backend's own `CreateQuotaShare`/`UpdateQuotaShare`
+independently rejects an empty `capacityUnit` before storage -- stricter
+than real AWS, and unreachable through this backend specifically (a
+separate, unfixed over-validation gap, out of scope here).
+`ListJobsByConsumableResourceSummary.ConsumableResourceProperties` is
+required unconditionally, but this op's own backend filter
+(`jobReferencesConsumableResource`) requires a non-nil
+`ConsumableResourceProperties` before a job is ever included in the result
+set, so the omitempty tag on it is dead code, not a reachable drop.
+
+Named, not audited further: four sub-features are entirely unmodeled on
+both the input and output side, so their own required members can never
+surface -- `EFSVolumeConfiguration.FileSystemId`,
+`S3FilesVolumeConfiguration.FileSystemArn`, `EksPersistentVolumeClaim.
+ClaimName`, `FirelensConfiguration.Type` (all container/EKS volume or
+logging sub-structs gopherstack's `Volume`/`EksVolume`/`ContainerProperties`/
+`ContainerDetail` have no fields for at all), and
+`NodePropertyOverride.TargetNodes` (`SubmitJob` never accepts a
+`nodeOverrides` parameter). Verified structurally absent by grepping
+`models.go`'s field lists directly against the real SDK types, not sampled.
+Consistent with, and now naming the specifics behind, the service's
+pre-existing disclosed multi-node/ECS/EKS-describe-side gap. `ServiceResourceId`
+(required `Name`/`Value`) is likewise unreachable -- it only appears inside
+`LatestServiceJobAttempt`/`ServiceJobAttemptDetail`/`ServiceJobPreemptedAttempt`,
+all part of the already-disclosed unmodeled `attempts`/`capacityUsage`/
+`latestAttempt`/`preemptionSummary` family. `ShareAttributes` (required
+`ShareIdentifier`) was checked and found already correctly modeled as
+`FairsharePolicy`'s `ShareDistribution` with no omitempty bug.
+
+All gates green for `services/batch/` (build/vet/gofmt/race-test/lint, 0
+banned nolints, 0 new nolints); repo-wide `go build ./...`, `go vet ./...`,
+`go vet -tags e2e ./...`, `go vet -tags integration ./...` all clean too. No
+exported signature changed except the addition of the new unexported
+`int64OrZero` helper (`handler.go`). Did not attempt a second service this
+batch, per the brief's "full rigour and no more" -- `batch`'s 48-struct
+domain-cross-reference alone was the full scope for this pass.
+services/_REQUIRED_OUTPUT_CANDIDATES.md updated: moved from the ranked table
+into "Already examined" (settled-services count now 31, 2179 required
+output fields read end to end); `ce`, `efs`, and `swf` are now tied at the
+top of the ranked remainder (30 fields each) after sagemaker -- `ce` (47
+ops, 18 ops-with-required), `swf` (39 ops, 17 ops-with-required), `efs` (31
+ops, 6 ops-with-required).
+
 ### glue (batch 15): 6 member-level bugs, settled via domain-struct cross-reference rather than a per-op read
 
 Selected after re-verifying the table against a fresh `go run
@@ -726,12 +850,12 @@ settled batch 9), codecommit (55, settled batch 9), stepfunctions (54,
 settled batch 10), apprunner (44, settled batch 10), databrew (43, settled
 batch 11), backup (41, settled batch 11), inspector2 (38, settled batch
 12), vpclattice (37, settled batch 13), appmesh (36, settled batch 13),
-amplify (35, settled batch 14), and glue (34, settled batch 15) removed from
-this table — see the "Already examined" table above.
+amplify (35, settled batch 14), glue (34, settled batch 15), and batch (31,
+settled batch 16) removed from this table — see the "Already examined"
+table above.
 
 ```
  459  sagemaker                 ops=403  ops-with-required=188
-  31  batch                     ops=45   ops-with-required=15
   30  ce                        ops=47   ops-with-required=18
   30  efs                       ops=31   ops-with-required=6
   30  swf                       ops=39   ops-with-required=17
@@ -856,9 +980,17 @@ Notes on the top of this table for the next batch:
   Job.CodeGenConfigurationNodes has no backing field in this backend).
   6 member-level bugs across Catalog/GrokClassifier/XMLClassifier/
   JsonClassifier/ColumnStatistics; 4 more fixed but not counted, all
-  unreachable via any real client. **batch** (31, 45 ops, 15
-  ops-with-required) is now the largest remaining candidate after
-  sagemaker.
+  unreachable via any real client.
+- **batch settled (batch 16)** — do not re-derive, see the settled-services
+  table above and services/batch/PARITY.md's 2026-08-21 entries, plus the
+  batch-16 note above for the full per-member breakdown and the 48-struct
+  domain-cross-reference method used. 6 member-level bugs, all the
+  "required member tagged omitempty in a reachable zero/empty state" shape:
+  `JobDetail.StartedAt`, `DescribeServiceJobOutput.StartedAt`,
+  `ComputeResource.MaxvCpus`, `JobQueueDetail.ComputeEnvironmentOrder`,
+  `QuotaShareCapacityLimit.MaxCapacity`, `ServiceJobRetryStrategy.Attempts`.
+  `ce`, `efs`, and `swf` are now tied at the top of the remaining ranked
+  table (30 fields each) after sagemaker.
 - **omics settled (batch 7)** — do not re-derive, see the settled-services
   table above and services/omics/PARITY.md's 2026-08-21 entries. The
   concurrent sibling agent's over-wide-List sweep this file previously

@@ -43,9 +43,12 @@ type ComputeResources struct {
 	LaunchTemplate     *LaunchTemplate    `json:"launchTemplate,omitempty"`
 	Ec2Configuration   []Ec2Configuration `json:"ec2Configuration,omitempty"`
 	MinvCpus           int32              `json:"minvCpus,omitempty"`
-	MaxvCpus           int32              `json:"maxvCpus,omitempty"`
-	DesiredvCpus       int32              `json:"desiredvCpus,omitempty"`
-	BidPercentage      int32              `json:"bidPercentage,omitempty"`
+	// MaxvCpus is required whenever ComputeResources is present (the real
+	// SDK client only rejects a nil pointer, not a zero value), so it must
+	// never be dropped even when explicitly 0.
+	MaxvCpus      int32 `json:"maxvCpus"`
+	DesiredvCpus  int32 `json:"desiredvCpus,omitempty"`
+	BidPercentage int32 `json:"bidPercentage,omitempty"`
 }
 
 // EksConfiguration specifies EKS cluster configuration for a CE.
@@ -104,15 +107,19 @@ type JobQueue struct {
 	Tags map[string]string `json:"tags"`
 	// region is the store.Table composite-key qualifier (see regionKey); see
 	// ComputeEnvironment.region for why it is unexported.
-	region                   string
-	JobQueueName             string                    `json:"jobQueueName"`
-	JobQueueArn              string                    `json:"jobQueueArn"`
-	State                    string                    `json:"state"`
-	Status                   string                    `json:"status"`
-	StatusReason             string                    `json:"statusReason,omitempty"`
-	SchedulingPolicyArn      string                    `json:"schedulingPolicyArn,omitempty"`
-	JobQueueType             string                    `json:"jobQueueType,omitempty"`
-	ComputeEnvironmentOrder  []ComputeEnvironmentOrder `json:"computeEnvironmentOrder,omitempty"`
+	region              string
+	JobQueueName        string `json:"jobQueueName"`
+	JobQueueArn         string `json:"jobQueueArn"`
+	State               string `json:"state"`
+	Status              string `json:"status"`
+	StatusReason        string `json:"statusReason,omitempty"`
+	SchedulingPolicyArn string `json:"schedulingPolicyArn,omitempty"`
+	JobQueueType        string `json:"jobQueueType,omitempty"`
+	// ComputeEnvironmentOrder is required on JobQueueDetail even when the
+	// queue was built purely from ServiceEnvironmentOrder instead (the two
+	// are mutually exclusive on input) -- must serialize as [] not be
+	// omitted; see cloneJobQueueWithTags.
+	ComputeEnvironmentOrder  []ComputeEnvironmentOrder `json:"computeEnvironmentOrder"`
 	ServiceEnvironmentOrder  []ServiceEnvironmentOrder `json:"serviceEnvironmentOrder,omitempty"`
 	JobStateTimeLimitActions []JobStateTimeLimitAction `json:"jobStateTimeLimitActions,omitempty"`
 	Priority                 int32                     `json:"priority"`
@@ -588,10 +595,15 @@ type SchedulingPolicy struct {
 // QuotaShareCapacityLimit specifies the quantity and type of compute capacity
 // allocated to a quota share. See
 // aws-sdk-go-v2/service/batch/types.QuotaShareCapacityLimit -- both fields
-// are required on the real API.
+// are required on the real API. CapacityUnit keeps omitempty: this
+// backend's own CreateQuotaShare/UpdateQuotaShare validation already rejects
+// an empty capacityUnit (see quota_shares.go), so unlike MaxCapacity, no
+// client can ever store one empty here. MaxCapacity has no such guard --
+// the real SDK client only rejects a nil pointer, not zero -- so it must
+// never be dropped.
 type QuotaShareCapacityLimit struct {
 	CapacityUnit string `json:"capacityUnit,omitempty"`
-	MaxCapacity  int32  `json:"maxCapacity,omitempty"`
+	MaxCapacity  int32  `json:"maxCapacity"`
 }
 
 // QuotaSharePreemptionConfiguration specifies the preemption behavior for
@@ -668,7 +680,10 @@ type ServiceJobEvaluateOnExit struct {
 // RetryStrategy -- it has no OnReason/OnExitCode matching.
 type ServiceJobRetryStrategy struct {
 	EvaluateOnExit []ServiceJobEvaluateOnExit `json:"evaluateOnExit,omitempty"`
-	Attempts       int32                      `json:"attempts,omitempty"`
+	// Attempts is required whenever RetryStrategy is present -- the real SDK
+	// client only rejects a nil pointer, not zero -- so it must never be
+	// dropped even when explicitly 0.
+	Attempts int32 `json:"attempts"`
 }
 
 // ServiceJobTimeout configures the maximum duration for a service job attempt.

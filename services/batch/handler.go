@@ -401,6 +401,18 @@ func tagsOrEmpty(tags map[string]string) map[string]string {
 	return tags
 }
 
+// int64OrZero dereferences p, or returns 0 if p is nil. Used for required
+// output timestamp members (e.g. JobDetail.StartedAt) that this backend
+// tracks as a nilable pointer internally but must always emit -- AWS marks
+// them required even for a job that hasn't reached that state yet.
+func int64OrZero(p *int64) int64 {
+	if p == nil {
+		return 0
+	}
+
+	return *p
+}
+
 func pathToOperation(path string) string {
 	ops := map[string]string{
 		"/v1/createcomputeenvironment":     "CreateComputeEnvironment",

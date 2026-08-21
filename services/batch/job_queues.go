@@ -119,6 +119,9 @@ func (b *InMemoryBackend) CreateJobQueue(
 func cloneJobQueueWithTags(jq *JobQueue) *JobQueue {
 	cp := *jq
 	cp.Tags = tagsCloneOrEmpty(jq.Tags)
+	if cp.ComputeEnvironmentOrder == nil {
+		cp.ComputeEnvironmentOrder = []ComputeEnvironmentOrder{}
+	}
 
 	return &cp
 }

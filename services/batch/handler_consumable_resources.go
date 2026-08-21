@@ -231,6 +231,13 @@ type listJobsByConsumableResourceInput struct {
 // from the full Job (jobQueueArn/jobStatus/quantity, not the full job
 // detail).
 type listJobsByConsumableResourceSummary struct {
+	// ConsumableResourceProperties is required on the real
+	// ListJobsByConsumableResourceSummary even for a job with no consumable
+	// resources -- but every job this op returns matches
+	// jobReferencesConsumableResource, which itself requires a non-nil
+	// ConsumableResourceProperties, so the omitempty here is never actually
+	// reachable through this op. Left as omitempty only because no real
+	// client can observe the difference; see PARITY.md.
 	ConsumableResourceProperties *ConsumableResourceProperties `json:"consumableResourceProperties,omitempty"`
 	JobDefinitionArn             string                        `json:"jobDefinitionArn,omitempty"`
 	JobArn                       string                        `json:"jobArn"`
