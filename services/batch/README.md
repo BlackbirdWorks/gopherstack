@@ -8,7 +8,7 @@
 | Metric | Value |
 | --- | --- |
 | Operations audited | 45 (42 ok, 3 partial) |
-| Known gaps | 4 |
+| Known gaps | 5 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
@@ -18,6 +18,7 @@
 - ContainerDetail (job-level, EKS-nested EksContainer/EksPodProperties) is missing a few leaf fields real AWS has (imagePullPolicy, imagePullSecrets on EKS container/pod types) -- spot-checked against the real serializer, not exhaustively field-by-field; low priority since these are pass-through config fields with no state-machine implications (bd: file follow-up, low priority)
 - gopherstack-6flj (this session): GetJobQueueSnapshotOutput.frontOfQuotaShares and .queueUtilization (types.FrontOfQuotaSharesDetail/QueueSnapshotUtilizationDetail) are unmodeled -- both require simulating quota-share-based job ordering and per-share capacity-usage accounting this backend doesn't do (no scheduler groups RUNNABLE jobs by quota share or tracks utilization at all). frontOfQuotaShares was a previously-unflagged coverage gap in the prior audit's own field-diff note, which named only FrontOfQueueDetail/FrontOfQueueJobSummary and queueUtilization (bd: file follow-up)
 - gopherstack-6flj (this session): DescribeServiceJobOutput.attempts/capacityUsage/latestAttempt/preemptionSummary are unmodeled -- same root cause as DescribeJobs's disclosed attempts/nodeDetails gap above (no per-attempt execution simulation), plus preemptionSummary specifically requires this backend to actually preempt service jobs under quota-share contention, which it never does (bd: file follow-up)
+- 2026-08-21 (gopherstack-r80d batch 16, required-output cut): four volume/logging/multi-node sub-features are entirely unmodeled on both the input and output side, so their own required members (EFSVolumeConfiguration.FileSystemId, S3FilesVolumeConfiguration.FileSystemArn, EksPersistentVolumeClaim.ClaimName, FirelensConfiguration.Type, NodePropertyOverride.TargetNodes, all required per types/types.go) can never be populated -- gopherstack's Volume/EksVolume/ContainerProperties/ContainerDetail structs (models.go) have no fields for EFS/S3/PVC volumes or Firelens log routing at all, and SubmitJob never accepts a nodeOverrides parameter. Verified structurally absent, not sampled: grepped models.go's Volume/EksVolume/ContainerProperties/ContainerDetail field lists directly against the real types.go members. Not new bugs -- consistent with the already-disclosed multi-node/ECS/EKS-describe-side gap above; naming the specific sub-structs here so a future pass doesn't re-derive this (bd: file follow-up, low priority)
 
 ## More
 

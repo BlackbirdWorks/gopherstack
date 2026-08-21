@@ -467,7 +467,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 |---|---|---|---|
 | [App Runner](services/apprunner/README.md) | A | 37 | 1 gap |
 | [Auto Scaling](services/autoscaling/README.md) | A | 66 | 1 gap |
-| [Batch](services/batch/README.md) | A | 45 | 4 gaps |
+| [Batch](services/batch/README.md) | A | 45 | 5 gaps |
 | [EC2](services/ec2/README.md) | A | — | 20 families; 2 gaps; 1 structural gap; 8 deferred |
 | [Elastic Beanstalk](services/elasticbeanstalk/README.md) | A | 46 | 11 gaps; 3 deferred |
 | [Lambda](services/lambda/README.md) | A | — | 9 families |
@@ -595,7 +595,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Cognito Identity Provider](services/cognitoidp/README.md) | A | 67 | 4 gaps; 4 deferred |
 | [Directory Service](services/directoryservice/README.md) | A | 80 | 8 gaps; 2 deferred |
 | [IAM](services/iam/README.md) | A | 21 | clean |
-| [IAM Access Analyzer](services/accessanalyzer/README.md) | A | 39 | 4 gaps; 1 deferred |
+| [IAM Access Analyzer](services/accessanalyzer/README.md) | A | 39 | 5 gaps; 1 deferred |
 | [IAM Identity Center (SSO)](services/ssoadmin/README.md) | A | 56 | 4 gaps |
 | [IAM Roles Anywhere](services/rolesanywhere/README.md) | A | 30 | 4 gaps |
 | [Identity Store](services/identitystore/README.md) | A | 19 | 2 gaps; 1 deferred |
