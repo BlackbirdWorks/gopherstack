@@ -83,6 +83,7 @@ type StorageBackend interface {
 		source ActionSource,
 		properties map[string]string,
 		tags map[string]string,
+		metadataProperties *MetadataProperties,
 	) (*Action, error)
 	CreateAlgorithm(ctx context.Context, opts CreateAlgorithmOptions) (*Algorithm, error)
 

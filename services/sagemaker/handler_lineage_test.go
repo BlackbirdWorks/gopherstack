@@ -5,7 +5,11 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
+	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	sagemakersdk "github.com/aws/aws-sdk-go-v2/service/sagemaker"
+	smtypes "github.com/aws/aws-sdk-go-v2/service/sagemaker/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -142,6 +146,143 @@ func TestHandler_ListArtifacts_FilterByType(t *testing.T) {
 	assert.Equal(t, "a2", summaries[0].(map[string]any)["ArtifactName"])
 }
 
+// TestHandler_Artifact_MetadataProperties_RoundTrip proves, through the real
+// aws-sdk-go-v2 client, that CreateArtifactInput.MetadataProperties — absent
+// from this wire struct entirely before this pass (types/types.go:13617) —
+// is not just parsed but reaches DescribeArtifact's response.
+func TestHandler_Artifact_MetadataProperties_RoundTrip(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestSageMakerClient(t, h)
+
+	created, err := client.CreateArtifact(t.Context(), &sagemakersdk.CreateArtifactInput{
+		ArtifactType: aws.String("Model"),
+		Source:       &smtypes.ArtifactSource{SourceUri: aws.String("s3://bucket/model")},
+		MetadataProperties: &smtypes.MetadataProperties{
+			CommitId:    aws.String("abc123"),
+			GeneratedBy: aws.String("pipeline-x"),
+			ProjectId:   aws.String("proj-1"),
+			Repository:  aws.String("git@example.com:org/repo"),
+		},
+	})
+	require.NoError(t, err)
+
+	desc, err := client.DescribeArtifact(t.Context(), &sagemakersdk.DescribeArtifactInput{
+		ArtifactArn: created.ArtifactArn,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, desc.MetadataProperties)
+	assert.Equal(t, "abc123", aws.ToString(desc.MetadataProperties.CommitId))
+	assert.Equal(t, "pipeline-x", aws.ToString(desc.MetadataProperties.GeneratedBy))
+	assert.Equal(t, "proj-1", aws.ToString(desc.MetadataProperties.ProjectId))
+	assert.Equal(t, "git@example.com:org/repo", aws.ToString(desc.MetadataProperties.Repository))
+}
+
+// TestHandler_DeleteArtifact_BySource proves DeleteArtifactInput.Source —
+// the real alternative identity to ArtifactArn per
+// docs.aws.amazon.com/sagemaker/latest/APIReference/API_DeleteArtifact.html
+// ("Either ArtifactArn or Source must be specified"), previously absent from
+// this wire struct entirely — actually deletes through the real SDK client.
+func TestHandler_DeleteArtifact_BySource(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestSageMakerClient(t, h)
+
+	created, err := client.CreateArtifact(t.Context(), &sagemakersdk.CreateArtifactInput{
+		ArtifactType: aws.String("Model"),
+		Source:       &smtypes.ArtifactSource{SourceUri: aws.String("s3://bucket/by-source")},
+	})
+	require.NoError(t, err)
+
+	deleted, err := client.DeleteArtifact(t.Context(), &sagemakersdk.DeleteArtifactInput{
+		Source: &smtypes.ArtifactSource{SourceUri: aws.String("s3://bucket/by-source")},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, aws.ToString(created.ArtifactArn), aws.ToString(deleted.ArtifactArn))
+
+	_, err = client.DescribeArtifact(t.Context(), &sagemakersdk.DescribeArtifactInput{
+		ArtifactArn: created.ArtifactArn,
+	})
+	require.Error(t, err)
+}
+
+// TestHandler_ListArtifacts_CreatedWindowAndSort proves ListArtifactsInput's
+// CreatedAfter/CreatedBefore/SortBy/SortOrder — previously absent from this
+// wire struct entirely — narrow and order the real result set, through the
+// real SDK client.
+func TestHandler_ListArtifacts_CreatedWindowAndSort(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestSageMakerClient(t, h)
+
+	older, err := client.CreateArtifact(t.Context(), &sagemakersdk.CreateArtifactInput{
+		ArtifactName: aws.String("older"), ArtifactType: aws.String("Model"),
+		Source: &smtypes.ArtifactSource{SourceUri: aws.String("s3://bucket/older")},
+	})
+	require.NoError(t, err)
+
+	newer, err := client.CreateArtifact(t.Context(), &sagemakersdk.CreateArtifactInput{
+		ArtifactName: aws.String("newer"), ArtifactType: aws.String("Model"),
+		Source: &smtypes.ArtifactSource{SourceUri: aws.String("s3://bucket/newer")},
+	})
+	require.NoError(t, err)
+
+	future := time.Now().Add(365 * 24 * time.Hour)
+	past := time.Now().Add(-365 * 24 * time.Hour)
+
+	out, err := client.ListArtifacts(t.Context(), &sagemakersdk.ListArtifactsInput{
+		CreatedAfter:  &past,
+		CreatedBefore: &future,
+		SortOrder:     smtypes.SortOrderAscending,
+	})
+	require.NoError(t, err)
+	require.Len(t, out.ArtifactSummaries, 2)
+	assert.Equal(t, aws.ToString(older.ArtifactArn), aws.ToString(out.ArtifactSummaries[0].ArtifactArn))
+	assert.Equal(t, aws.ToString(newer.ArtifactArn), aws.ToString(out.ArtifactSummaries[1].ArtifactArn))
+
+	excluded, err := client.ListArtifacts(t.Context(), &sagemakersdk.ListArtifactsInput{
+		CreatedAfter: &future,
+	})
+	require.NoError(t, err)
+	assert.Empty(t, excluded.ArtifactSummaries)
+}
+
+// TestHandler_ListArtifacts_MaxResults proves MaxResults/NextToken —
+// previously absent — actually cap and page the real result set.
+func TestHandler_ListArtifacts_MaxResults(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestSageMakerClient(t, h)
+
+	for _, name := range []string{"a1", "a2"} {
+		_, err := client.CreateArtifact(t.Context(), &sagemakersdk.CreateArtifactInput{
+			ArtifactName: aws.String(name), ArtifactType: aws.String("Model"),
+			Source: &smtypes.ArtifactSource{SourceUri: aws.String("s3://bucket/" + name)},
+		})
+		require.NoError(t, err)
+	}
+
+	page1, err := client.ListArtifacts(t.Context(), &sagemakersdk.ListArtifactsInput{MaxResults: aws.Int32(1)})
+	require.NoError(t, err)
+	require.Len(t, page1.ArtifactSummaries, 1)
+	require.NotNil(t, page1.NextToken)
+
+	page2, err := client.ListArtifacts(t.Context(), &sagemakersdk.ListArtifactsInput{
+		MaxResults: aws.Int32(1),
+		NextToken:  page1.NextToken,
+	})
+	require.NoError(t, err)
+	require.Len(t, page2.ArtifactSummaries, 1)
+	assert.NotEqual(t,
+		aws.ToString(page1.ArtifactSummaries[0].ArtifactArn),
+		aws.ToString(page2.ArtifactSummaries[0].ArtifactArn),
+	)
+}
+
 // ---------------------------------------------------------------------------
 // Context
 // ---------------------------------------------------------------------------
@@ -227,6 +368,45 @@ func TestHandler_CreateContext_Duplicate(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec2.Code)
 }
 
+// TestHandler_ListContexts_SortByNameAndMaxResults proves ListContextsInput's
+// SortBy=Name and MaxResults/NextToken — previously absent from this wire
+// struct entirely — actually order and page the real result set, through the
+// real SDK client.
+func TestHandler_ListContexts_SortByNameAndMaxResults(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestSageMakerClient(t, h)
+
+	for _, name := range []string{"zeta-context", "alpha-context"} {
+		_, err := client.CreateContext(t.Context(), &sagemakersdk.CreateContextInput{
+			ContextName: aws.String(name),
+			ContextType: aws.String("Endpoint"),
+			Source: &smtypes.ContextSource{
+				SourceUri: aws.String("arn:aws:sagemaker:us-east-1:0:endpoint/" + name),
+			},
+		})
+		require.NoError(t, err)
+	}
+
+	out, err := client.ListContexts(t.Context(), &sagemakersdk.ListContextsInput{
+		SortBy:    smtypes.SortContextsByName,
+		SortOrder: smtypes.SortOrderAscending,
+	})
+	require.NoError(t, err)
+	require.Len(t, out.ContextSummaries, 2)
+	assert.Equal(t, "alpha-context", aws.ToString(out.ContextSummaries[0].ContextName))
+	assert.Equal(t, "zeta-context", aws.ToString(out.ContextSummaries[1].ContextName))
+
+	page1, err := client.ListContexts(t.Context(), &sagemakersdk.ListContextsInput{
+		SortBy: smtypes.SortContextsByName, SortOrder: smtypes.SortOrderAscending, MaxResults: aws.Int32(1),
+	})
+	require.NoError(t, err)
+	require.Len(t, page1.ContextSummaries, 1)
+	require.NotNil(t, page1.NextToken)
+	assert.Equal(t, "alpha-context", aws.ToString(page1.ContextSummaries[0].ContextName))
+}
+
 // ---------------------------------------------------------------------------
 // Action (Describe/Update/Delete/List; Create is tested elsewhere)
 // ---------------------------------------------------------------------------
@@ -288,6 +468,65 @@ func TestHandler_Action_NotFound(t *testing.T) {
 			assert.Equal(t, http.StatusBadRequest, rec.Code)
 		})
 	}
+}
+
+// TestHandler_Action_MetadataProperties_RoundTrip proves, through the real
+// SDK client, that CreateActionInput.MetadataProperties — the same gap
+// disclosed for CreateArtifact in parity-5, fixed alongside it here — reaches
+// DescribeAction's response.
+func TestHandler_Action_MetadataProperties_RoundTrip(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestSageMakerClient(t, h)
+
+	_, err := client.CreateAction(t.Context(), &sagemakersdk.CreateActionInput{
+		ActionName: aws.String("metadata-action"),
+		ActionType: aws.String("ModelDeployment"),
+		Source:     &smtypes.ActionSource{SourceUri: aws.String("arn:aws:sagemaker:us-east-1:0:endpoint/e")},
+		MetadataProperties: &smtypes.MetadataProperties{
+			CommitId:   aws.String("def456"),
+			ProjectId:  aws.String("proj-2"),
+			Repository: aws.String("git@example.com:org/other"),
+		},
+	})
+	require.NoError(t, err)
+
+	desc, err := client.DescribeAction(t.Context(), &sagemakersdk.DescribeActionInput{
+		ActionName: aws.String("metadata-action"),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, desc.MetadataProperties)
+	assert.Equal(t, "def456", aws.ToString(desc.MetadataProperties.CommitId))
+	assert.Equal(t, "proj-2", aws.ToString(desc.MetadataProperties.ProjectId))
+	assert.Equal(t, "git@example.com:org/other", aws.ToString(desc.MetadataProperties.Repository))
+}
+
+// TestHandler_ListActions_CreatedWindow proves ListActionsInput's
+// CreatedAfter/CreatedBefore — previously absent from this wire struct
+// entirely — narrow the real result set, through the real SDK client.
+func TestHandler_ListActions_CreatedWindow(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestSageMakerClient(t, h)
+
+	_, err := client.CreateAction(t.Context(), &sagemakersdk.CreateActionInput{
+		ActionName: aws.String("windowed-action"),
+		ActionType: aws.String("ModelDeployment"),
+		Source:     &smtypes.ActionSource{SourceUri: aws.String("arn:aws:sagemaker:us-east-1:0:endpoint/e")},
+	})
+	require.NoError(t, err)
+
+	future := time.Now().Add(365 * 24 * time.Hour)
+
+	included, err := client.ListActions(t.Context(), &sagemakersdk.ListActionsInput{CreatedBefore: &future})
+	require.NoError(t, err)
+	assert.Len(t, included.ActionSummaries, 1)
+
+	excluded, err := client.ListActions(t.Context(), &sagemakersdk.ListActionsInput{CreatedAfter: &future})
+	require.NoError(t, err)
+	assert.Empty(t, excluded.ActionSummaries)
 }
 
 // ---------------------------------------------------------------------------
@@ -684,6 +923,110 @@ func TestHandler_QueryLineage_UnknownArn(t *testing.T) {
 	assert.Empty(t, vertices[0].(map[string]any)["Type"])
 }
 
+// TestHandler_QueryLineage_FiltersLineageTypesAndProperties proves
+// QueryLineageInput.Filters — previously absent from this wire struct
+// entirely — actually narrows the real traversal's result vertices, through
+// the real SDK client.
+func TestHandler_QueryLineage_FiltersLineageTypesAndProperties(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestSageMakerClient(t, h)
+
+	ctxOut, err := client.CreateContext(t.Context(), &sagemakersdk.CreateContextInput{
+		ContextName: aws.String("filter-train-job"),
+		ContextType: aws.String("Experiment"),
+		Source:      &smtypes.ContextSource{SourceUri: aws.String("arn:aws:sagemaker:us-east-1:0:experiment/e")},
+	})
+	require.NoError(t, err)
+
+	actionOut, err := client.CreateAction(t.Context(), &sagemakersdk.CreateActionInput{
+		ActionName: aws.String("filter-deploy"),
+		ActionType: aws.String("ModelDeployment"),
+		Source:     &smtypes.ActionSource{SourceUri: aws.String("arn:aws:sagemaker:us-east-1:0:endpoint/e")},
+		Properties: map[string]string{"team": "ml-platform"},
+	})
+	require.NoError(t, err)
+
+	artifactOut, err := client.CreateArtifact(t.Context(), &sagemakersdk.CreateArtifactInput{
+		ArtifactType: aws.String("Model"),
+		Source:       &smtypes.ArtifactSource{SourceUri: aws.String("s3://bucket/filter-model")},
+	})
+	require.NoError(t, err)
+
+	_, err = client.AddAssociation(t.Context(), &sagemakersdk.AddAssociationInput{
+		SourceArn: ctxOut.ContextArn, DestinationArn: actionOut.ActionArn,
+		AssociationType: smtypes.AssociationEdgeTypeContributedTo,
+	})
+	require.NoError(t, err)
+
+	_, err = client.AddAssociation(t.Context(), &sagemakersdk.AddAssociationInput{
+		SourceArn: actionOut.ActionArn, DestinationArn: artifactOut.ArtifactArn,
+		AssociationType: smtypes.AssociationEdgeTypeProduced,
+	})
+	require.NoError(t, err)
+
+	byType, err := client.QueryLineage(t.Context(), &sagemakersdk.QueryLineageInput{
+		StartArns: []string{aws.ToString(ctxOut.ContextArn)},
+		Filters:   &smtypes.QueryFilters{LineageTypes: []smtypes.LineageType{smtypes.LineageTypeArtifact}},
+	})
+	require.NoError(t, err)
+	require.Len(t, byType.Vertices, 1)
+	assert.Equal(t, aws.ToString(artifactOut.ArtifactArn), aws.ToString(byType.Vertices[0].Arn))
+
+	byProps, err := client.QueryLineage(t.Context(), &sagemakersdk.QueryLineageInput{
+		StartArns: []string{aws.ToString(ctxOut.ContextArn)},
+		Filters:   &smtypes.QueryFilters{Properties: map[string]string{"team": "ml-platform"}},
+	})
+	require.NoError(t, err)
+	require.Len(t, byProps.Vertices, 1)
+	assert.Equal(t, aws.ToString(actionOut.ActionArn), aws.ToString(byProps.Vertices[0].Arn))
+}
+
+// TestHandler_QueryLineage_MaxResults proves QueryLineageInput.MaxResults/
+// NextToken — previously absent — actually page the real vertex result set.
+func TestHandler_QueryLineage_MaxResults(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestSageMakerClient(t, h)
+
+	a1, err := client.CreateArtifact(t.Context(), &sagemakersdk.CreateArtifactInput{
+		ArtifactType: aws.String("DataSet"),
+		Source:       &smtypes.ArtifactSource{SourceUri: aws.String("s3://bucket/maxres-a1")},
+	})
+	require.NoError(t, err)
+
+	a2, err := client.CreateArtifact(t.Context(), &sagemakersdk.CreateArtifactInput{
+		ArtifactType: aws.String("DataSet"),
+		Source:       &smtypes.ArtifactSource{SourceUri: aws.String("s3://bucket/maxres-a2")},
+	})
+	require.NoError(t, err)
+
+	_, err = client.AddAssociation(t.Context(), &sagemakersdk.AddAssociationInput{
+		SourceArn: a1.ArtifactArn, DestinationArn: a2.ArtifactArn,
+		AssociationType: smtypes.AssociationEdgeTypeContributedTo,
+	})
+	require.NoError(t, err)
+
+	page1, err := client.QueryLineage(t.Context(), &sagemakersdk.QueryLineageInput{
+		StartArns:  []string{aws.ToString(a1.ArtifactArn)},
+		MaxResults: aws.Int32(1),
+	})
+	require.NoError(t, err)
+	require.Len(t, page1.Vertices, 1)
+	require.NotNil(t, page1.NextToken)
+
+	page2, err := client.QueryLineage(t.Context(), &sagemakersdk.QueryLineageInput{
+		StartArns:  []string{aws.ToString(a1.ArtifactArn)},
+		MaxResults: aws.Int32(1),
+		NextToken:  page1.NextToken,
+	})
+	require.NoError(t, err)
+	require.Len(t, page2.Vertices, 1)
+	assert.NotEqual(t, aws.ToString(page1.Vertices[0].Arn), aws.ToString(page2.Vertices[0].Arn))
+}
+
 // ---------------------------------------------------------------------------
 // LineageGroup
 // ---------------------------------------------------------------------------
@@ -725,6 +1068,32 @@ func TestHandler_ListLineageGroups(t *testing.T) {
 	summaries := out["LineageGroupSummaries"].([]any)
 	require.Len(t, summaries, 1)
 	assert.Equal(t, "sagemaker-default-lineage-group", summaries[0].(map[string]any)["LineageGroupName"])
+}
+
+// TestHandler_ListLineageGroups_CreatedWindow proves ListLineageGroupsInput's
+// CreatedAfter/CreatedBefore — previously absent from this wire struct
+// entirely — are real filters even though there is only ever one lineage
+// group: a window that excludes it must actually return an empty list, not
+// silently ignore the filter, through the real SDK client.
+func TestHandler_ListLineageGroups_CreatedWindow(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestSageMakerClient(t, h)
+
+	future := time.Now().Add(365 * 24 * time.Hour)
+
+	excluded, err := client.ListLineageGroups(t.Context(), &sagemakersdk.ListLineageGroupsInput{
+		CreatedAfter: &future,
+	})
+	require.NoError(t, err)
+	assert.Empty(t, excluded.LineageGroupSummaries)
+
+	included, err := client.ListLineageGroups(t.Context(), &sagemakersdk.ListLineageGroupsInput{
+		CreatedBefore: &future,
+	})
+	require.NoError(t, err)
+	assert.Len(t, included.LineageGroupSummaries, 1)
 }
 
 func TestHandler_GetLineageGroupPolicy_NoPolicyAttached(t *testing.T) {

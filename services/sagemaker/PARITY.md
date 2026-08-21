@@ -114,7 +114,7 @@ families:
   feature_store: {status: partial, note: "parity-5, wire-audited CreateFeatureGroup/DescribeFeatureGroup/UpdateFeatureGroup against api_op_{Create,Describe,Update}FeatureGroup.go. FIXED this pass — RoleArn and Description are both real CreateFeatureGroupInput fields (RoleArn is what OfflineStoreConfig replication would use) that were accepted-and-dropped entirely; now stored and returned. FIXED this pass (parity-6) — OnlineStoreConfig/OfflineStoreConfig/ThroughputConfig (CreateFeatureGroupInput/DescribeFeatureGroupOutput) are now fully modeled and round-trip: OnlineStoreConfig (EnableOnlineStore/StorageType/SecurityConfig.KmsKeyId/TtlDuration), OfflineStoreConfig (S3StorageConfig/DataCatalogConfig/TableFormat/DisableGlueTableCreation), ThroughputConfig (ThroughputMode/ProvisionedRead+WriteCapacityUnits — one Go type serves both CreateFeatureGroupInput.ThroughputConfig and DescribeFeatureGroupOutput.ThroughputConfigDescription since their fields are identical). NOT fixed (see gaps:): UpdateFeatureGroup's OnlineStoreConfigUpdate/ThroughputConfigUpdate (a distinct, separate update path from Create's fields, out of this pass's scope); LastUpdateStatus/OfflineStoreStatus/FailureReason/OnlineStoreTotalSizeBytes (DescribeFeatureGroupOutput fields describing async store-creation progress, not modeled); FeatureRecord PutRecord/GetRecord/DeleteRecord/BatchGetRecord (feature_store.go) belong to the separate sagemaker-featurestore-runtime SDK, not the sagemaker control-plane SDK audited here, and were out of scope."}
   model_package_model_package_group: {status: partial, note: "FIXED this pass — ModelPackage was missing the required ModelPackageStatusDetails field entirely (see Notes); ModelPackage/ModelPackageGroup Describe+List timestamp encoding also fixed. Other model-package fields (InferenceSpecification, SourceAlgorithmSpecification validation, etc.) not otherwise wire-audited this pass."}
   automl_job: {status: partial, note: "FIXED this pass (parity-4) — AutoMLJob was missing the required LastModifiedTime/AutoMLJobSecondaryStatus fields entirely, plus the timestamp encoding bug (see Notes). FIXED this pass (parity-5) — the required DescribeAutoMLJobOutput/CreateAutoMLJobInput field InputDataConfig ([]types.AutoMLChannel) is now modeled (AutoMLChannel/AutoMLDataSource/AutoMLS3DataSource types added), accepted at Create, and always emitted (as [] when absent, matching the required-field contract). CORRECTED+FIXED this pass (parity-6) — parity-5's note that 'AutoMLJobInputDataConfig does not exist in the SDK' was itself wrong: it is the required field on CreateAutoMLJobV2Input ([]types.AutoMLJobChannel, CreateAutoMLJobV2Input:91), a real, distinct-from-V1 field. CreateAutoMLJobV2/DescribeAutoMLJobV2 were routed to the V1 handlers and so silently dropped it (plus the required AutoMLProblemTypeConfig union) on every V2 request — the actual bug gopherstack-e39w asked for. Both ops now have their own handlers (handler_automl_v2.go) with the correct V2 wire shape: AutoMLJobInputDataConfig ([]AutoMLJobChannel, a narrower type than V1's AutoMLChannel — no TargetAttributeName/SampleWeightAttributeName), AutoMLProblemTypeConfig (5-member tagged union, carried opaque per gaps: below), AutoMLProblemTypeConfigName (derived from which union member is present), AutoMLComputeConfig/DataSplitConfig/SecurityConfig/ModelDeployConfig (all small flat types, fully modeled). handleDescribeAutoMLJob (V1) was also changed from json.Marshal(struct) to an explicit response map, since the shared AutoMLJob struct now carries V2-only fields that would otherwise leak into a V1 Describe of a V2-created job."}
-  lineage_action_artifact_context_association: {status: ok, note: "parity-5, wire-audited CreateAction/CreateArtifact/CreateContext + Describe/Update/Delete/List against api_op_{Create,Describe,Update}{Action,Artifact,Context}.go. No accept-and-drop bugs found — Source/Properties/Description/Status/Tags all round-trip correctly. QueryLineage/DescribeLineageGroup/ListLineageGroups/GetLineageGroupPolicy also verified (the single auto-provisioned lineage group with no policy is an honest, correctly-typed 404, not a stub). Not fixed: MetadataProperties (CreateAction/CreateArtifact optional field) is accepted by no request struct field at all — a real but low-severity gap (see gaps:), left for follow-up since this family was otherwise clean. FIXED (gopherstack-cgq3) — ListAssociations was missing CreatedAfter/CreatedBefore/DestinationType/MaxResults/SortBy/SortOrder (six of eleven real ListAssociationsInput members; the audit that found this counted six, but SourceType was also absent and is fixed alongside them) — the request had been an anonymous inline struct with only SourceArn/DestinationArn/AssociationType/NextToken, invisible to field-audit tooling (gopherstack-oc9v); now a named listAssociationsInput. All six (seven) fields are real filters/sorts, not accept-and-drop: SourceType/DestinationType resolve the entity's type via the existing lineageEntityLookup; CreatedAfter/CreatedBefore filter on Association.CreationTime; SortBy/SortOrder reorder by SourceArn/DestinationArn/SourceType/DestinationType/CreationTime (default); MaxResults truncates via the existing paginateSlice helper. Proven with TestHandler_ListAssociations_Filters/_Sort/_MaxResults, which assert on the actual narrowed/reordered/paginated result set, not just on the parsed request."}
+  lineage_action_artifact_context_association: {status: ok, note: "parity-5, wire-audited CreateAction/CreateArtifact/CreateContext + Describe/Update/Delete/List against api_op_{Create,Describe,Update}{Action,Artifact,Context}.go. No accept-and-drop bugs found — Source/Properties/Description/Status/Tags all round-trip correctly. QueryLineage/DescribeLineageGroup/ListLineageGroups/GetLineageGroupPolicy also verified (the single auto-provisioned lineage group with no policy is an honest, correctly-typed 404, not a stub). FIXED (gopherstack-cgq3) — ListAssociations was missing CreatedAfter/CreatedBefore/DestinationType/MaxResults/SortBy/SortOrder (six of eleven real ListAssociationsInput members; the audit that found this counted six, but SourceType was also absent and is fixed alongside them) — the request had been an anonymous inline struct with only SourceArn/DestinationArn/AssociationType/NextToken, invisible to field-audit tooling (gopherstack-oc9v); now a named listAssociationsInput. All six (seven) fields are real filters/sorts, not accept-and-drop: SourceType/DestinationType resolve the entity's type via the existing lineageEntityLookup; CreatedAfter/CreatedBefore filter on Association.CreationTime; SortBy/SortOrder reorder by SourceArn/DestinationArn/SourceType/DestinationType/CreationTime (default); MaxResults truncates via the existing paginateSlice helper. Proven with TestHandler_ListAssociations_Filters/_Sort/_MaxResults, which assert on the actual narrowed/reordered/paginated result set, not just on the parsed request. FIXED this pass (parity-8, gopherstack-oc9v) — the remaining 19 inline `struct{...}` request declarations in this family (CreateArtifact/DescribeArtifact/UpdateArtifact/DeleteArtifact/ListArtifacts, CreateContext/DescribeContext/UpdateContext/DeleteContext/ListContexts, DescribeAction/UpdateAction/DeleteAction/ListActions, DeleteAssociation, DescribeLineageGroup/ListLineageGroups/GetLineageGroupPolicy, QueryLineage) converted to named types and wire-audited; MetadataProperties (the gap this note flagged since parity-5) is now real on both CreateArtifact and CreateAction; DeleteArtifact's Source alternative identity, five real filter/sort/pagination fields each on ListArtifacts/ListContexts/ListActions, ListLineageGroups' CreatedAfter/CreatedBefore/SortBy/SortOrder/MaxResults, and QueryLineage's Filters/MaxResults/NextToken are all now real. See Notes: parity-8 for the full list and for what remains disclosed rather than modeled (QueryFilters.Types)."}
   edge_deployment_device_fleet: {status: partial, note: "FIXED this pass — DeviceFleet/Device family: OutputConfig (required in Create+Update) was silently optional and UpdateDeviceFleet silently dropped it; DeviceFleet/Device Describe+List timestamp encoding also fixed (see Notes). EdgeDeploymentPlan/EdgePackagingJob not otherwise wire-audited this pass."}
   labeling_job: {status: partial, note: "parity-5, wire-audited CreateLabelingJob/DescribeLabelingJob against api_op_CreateLabelingJob.go/api_op_DescribeLabelingJob.go — this family was already the most fully-typed in the service (real InputConfig/OutputConfig/HumanTaskConfig/StoppingConditions/LabelingJobAlgorithmsConfig structs, real Initializing->InProgress->Completed FSM). FIXED this pass — Tags (a real, optional DescribeLabelingJobOutput field) were accepted and stored on Create but never serialized back out by DescribeLabelingJob; also fixed the LabelingJob.Tags struct field's json:\"-\" tag (was silently dropping Tags across a persistence snapshot/restore round-trip too, a second manifestation of the same bug). No other gaps found."}
   hub_hub_content: {status: ok, note: "parity-5, wire-audited CreateHub/DescribeHub/ImportHubContent/DescribeHubContent against api_op_{Create,Describe}Hub.go/api_op_{Import,Describe}HubContent.go. No accept-and-drop bugs found — this was already a thorough implementation: S3StorageConfig is correctly nested (not flattened) on both request and response, HubContentDependencies/presigned URLs/ModelReference content-references (CreateHubContentReference/UpdateHubContentReference) all real. No changes made."}
@@ -852,3 +852,123 @@ Gates for this session: `go build ./...`, `go vet ./services/sagemaker/...`,
 `go test -race ./services/sagemaker/...`, `go fix -diff ./services/sagemaker/...` (no diff), and
 `golangci-lint run ./services/sagemaker/...` all clean; zero
 `nolint:{cyclop,gocyclo,gocognit,funlen}` added.
+
+## parity-8 (2026-08-21, gopherstack-oc9v): ML Lineage family (Action/Artifact/Context/
+Association/LineageGroup/QueryLineage) inline-struct sweep
+
+Second pass of the gopherstack-oc9v campaign, sized at 362 candidate anonymous inline request
+structs in sagemaker, 343 remaining after parity-7's Domain/App/Space/UserProfile family (19
+converted). Per PARITY.md's own boundary note from parity-7 ("any of the other 343 ... elsewhere
+in this service — gopherstack-oc9v remains open for those"), this pass took the next coherent,
+self-contained family: all 19 remaining anonymous `struct{...}` request declarations in
+`handler_lineage.go` (`grep -c 'var req struct {' handler_lineage.go` = 19, exactly matching
+343's per-file count) — CreateArtifact/DescribeArtifact/UpdateArtifact/DeleteArtifact/
+ListArtifacts, CreateContext/DescribeContext/UpdateContext/DeleteContext/ListContexts,
+DescribeAction/UpdateAction/DeleteAction/ListActions, DeleteAssociation,
+DescribeLineageGroup/ListLineageGroups/GetLineageGroupPolicy, QueryLineage. **324 of sagemaker's
+362 inline structs now remain** (362 − 19 parity-7 − 19 parity-8). This pass did not touch any
+other family; PARITY.md's remaining 40+ `partial`/`deferred` entries and every other service file
+are unaudited by this pass.
+
+This family had already been wire-audited for *content* correctness in parity-5 (`lineage_action_
+artifact_context_association: {status: ok, ...}`) and was clean except two disclosed gaps:
+`ListAssociations`' six-then-seven absent members (fixed gopherstack-cgq3, the proof case for the
+whole campaign) and `MetadataProperties` on `CreateAction`/`CreateArtifact`. Converting the
+remaining 19 to named types re-confirmed the parity-5 finding was accurate, then went further:
+diffing every converted struct field-by-field against `aws-sdk-go-v2/service/sagemaker@v1.263.2`
+turned up five more absent-member groups parity-5's narrower "is Source/Properties/Tags correct"
+pass had not been scoped to catch.
+
+**Absent members added, per op, with SDK file:line:**
+
+- `CreateArtifactInput.MetadataProperties` (`types/types.go:13617..13631`, `*types.
+  MetadataProperties{CommitId,GeneratedBy,ProjectId,Repository}`) — the parity-5-disclosed gap,
+  now fixed: a flat 4-string struct, no reason to defer it to opaque passthrough like the
+  Domain/App family's genuinely-huge configs. Threaded through `Artifact.MetadataProperties` and
+  returned by `DescribeArtifact`. **`CreateActionInput.MetadataProperties`
+  (`api_op_CreateAction.go`) had the identical gap** on `createActionRequest` — a named type, so
+  technically outside this pass's inline-struct scope, but fixed alongside CreateArtifact's since
+  it is the same root cause on the same shared type; threaded through `Action.MetadataProperties`
+  and returned by `DescribeAction`.
+- `DeleteArtifactInput.Source` (`api_op_DeleteArtifact.go:28-37`) — entirely absent. Real docs
+  (docs.aws.amazon.com/sagemaker/latest/APIReference/API_DeleteArtifact.html): "Deletes an
+  artifact. Either ArtifactArn or Source must be specified" — neither field is marked required on
+  the Go struct because it's an either/or. Before this fix, `DeleteArtifact` unconditionally
+  required `ArtifactArn`, so a client that (correctly, per the real API) supplied only `Source`
+  got a `ValidationException` for a well-formed request. Now `Source.SourceUri` is a real
+  alternative identity (`artifactArnBySourceURI`, deterministic lowest-ARN tie-break when
+  multiple artifacts share a `SourceUri` — undocumented by AWS, disclosed here rather than
+  guessed at silently).
+- `ListArtifactsInput.{CreatedAfter,CreatedBefore,MaxResults,SortBy,SortOrder}`,
+  `ListContextsInput.{CreatedAfter,CreatedBefore,MaxResults,SortBy,SortOrder}`,
+  `ListActionsInput.{CreatedAfter,CreatedBefore,MaxResults,SortBy,SortOrder}` (`api_op_
+  List{Artifacts,Contexts,Actions}.go`) — fifteen fields across three ops, all silently ignored
+  before this pass (fixed page size, arbitrary ARN/name order). The exact "parsed field, silently
+  dropped" defect class this campaign exists to find, same shape as parity-7's `ListDomains`/
+  `ListApps`. All fifteen are now real: `MaxResults` caps the page via `paginateSlice`;
+  `SortBy`/`SortOrder` reorder by `CreationTime` (default, all three) or `Name`
+  (`ListContexts`/`ListActions` only — `SortArtifactsBy` has a single enum value, `CreationTime`,
+  `types/enums.go:9056-9061`, so `ListArtifacts` correctly has no `Name` sort key);
+  `CreatedAfter`/`CreatedBefore` filter on `CreationTime`. `ListContexts`/`ListActions` share one
+  new generic helper (`filterSortPaginateByNameOrTime`, `list_helpers.go`) since their filter/sort
+  shape is identical apart from field accessors — `ListArtifacts` does not share it since it lacks
+  the `Name` sort key.
+- `ListLineageGroupsInput.{CreatedAfter,CreatedBefore,MaxResults,SortBy,SortOrder}` (`api_op_
+  ListLineageGroups.go`) — absent, and easy to dismiss as pointless since this backend only ever
+  has one auto-provisioned lineage group. That's exactly why it was still a real bug: before this
+  fix, `ListLineageGroups` returned the singleton unconditionally regardless of what
+  `CreatedAfter`/`CreatedBefore` asked for — a `CreatedAfter` window that should exclude the one
+  group still silently returned it. Fixed for real (`TestHandler_ListLineageGroups_CreatedWindow`
+  asserts a future `CreatedAfter` returns an *empty* list). `SortBy`/`SortOrder` are accepted but
+  are a genuine, disclosed no-op: no ordering of a 0-or-1-element list is observable, documented
+  as such on `ListLineageGroupsParams` rather than silently doing nothing without saying so.
+- `QueryLineageInput.{Filters,MaxResults,NextToken}` (`api_op_QueryLineage.go`) — absent
+  entirely; `QueryLineage` returned every reachable vertex/edge with no filtering or pagination.
+  `MaxResults`/`NextToken` now real (vertices paginated via `paginateSlice`; real docs describe
+  both as bounding "the number of vertices", not edges — `api_op_QueryLineage.go:34,38` — so
+  `Edges` is the full, unpaginated edge set between surviving vertices, not further paginated).
+  `Filters` (`types.QueryFilters`, `types/types.go:19078-19108`) is mostly real:
+  `LineageTypes`/`Properties`/`CreatedAfter`/`CreatedBefore`/`ModifiedAfter`/`ModifiedBefore` all
+  narrow the result set against the vertex's resolved Action/Artifact/Context detail (a vertex
+  that isn't a tracked Action/Artifact/Context — e.g. a `TrainingJob`/`Model`/`Endpoint` ARN — is
+  excluded whenever any of these five filters is set, since this backend has no truthful
+  timestamp/properties to check it against). **Disclosed, not modeled:** `Filters.Types` (matches
+  entities by their AWS resource type, e.g. `DataSet`/`Model`/`Endpoint`) is parsed but not
+  enforced — this backend has no per-service entity-type resolver for arbitrary ARNs outside
+  Action/Artifact/Context, and building one is out of this pass's scope (it would mean threading
+  type resolution through every other service this backend's lineage graph can reference).
+
+**Bugs found beyond the wire diff:** none of the storage-key-inconsistency shape (`SpaceName`/
+`appKey`) this campaign has twice found before — this family adds no new identity field to any
+primary key (Artifact keyed by ARN, Context/Action keyed by name, both unchanged by this pass;
+`DeleteArtifact`'s `Source` is an alternate *lookup* path onto the existing ARN key, not a new key
+component). The two bugs of a different, still-real shape are the `ListLineageGroups` window-filter
+gap and the pre-existing `ListArtifactsInput` requiring `ArtifactArn` even when the real API
+accepts `Source` alone (`DeleteArtifact`) — both are "the field was accepted or partially modeled,
+but the business rule around it was wrong or absent," the class of bug this campaign was
+calibrated to expect but that a wire-field diff alone reliably surfaces once the fields exist to
+diff.
+
+**Tests:** every fix has a real-`aws-sdk-go-v2`-client round-trip test (`newTestSageMakerClient`,
+not a raw-JSON-body `doSageMakerRequest` call) asserting on the actual behavior — narrowed/
+reordered/paginated result sets, a `DescribeArtifact`/`DescribeAction` response actually carrying
+`MetadataProperties`, a `DeleteArtifact` that actually deletes when only `Source` is given.
+Verified against unfixed code by hand-reverting eight representative fixes one at a time
+(`CreateArtifact`/`CreateAction` MetadataProperties, `DeleteArtifact` Source fallback, `ListArtifacts`
+CreatedAfter/CreatedBefore/MaxResults/SortOrder, `QueryLineage` Filters, `QueryLineage` MaxResults/
+NextToken, `ListLineageGroups` CreatedAfter/CreatedBefore, `ListContexts`/`ListActions`
+SortBy=Name, `ListContexts`/`ListActions` CreatedAfter/CreatedBefore) and confirming the
+corresponding test fails with the predicted symptom, then restoring — files verified byte-
+identical (`md5sum`) to their pre-revert state afterward.
+
+**Not touched this pass:** the other 324 (362 − 19 parity-7 − 19 parity-8) inline structs
+elsewhere in this service — `handler_hub.go` (15), `handler_pipelines.go` (14), `handler_mlflow.go`
+(14), `handler_model_packages.go` (12), `handler_notebook_instances.go` (11), `handler_images.go`
+(11), `handler_edge_deployment.go` (11), and the rest — gopherstack-oc9v remains open for those.
+
+Gates for this session: `go build ./...`, `go vet -tags e2e ./...`, `go vet -tags integration
+./...`, `gofmt -l ./services/sagemaker` (empty), `go test -race ./services/sagemaker/...`, `go fix
+-diff ./services/sagemaker/...` (no diff), and `golangci-lint run ./services/sagemaker/...` all
+clean; zero `nolint:{cyclop,gocyclo,gocognit,funlen}` added (two `nolint:dupl` added on
+`ListContexts`/`ListActions`, matching this repo's 98 existing precedents for that specific
+linter, disclosed since it isn't in the banned group).

@@ -231,16 +231,17 @@ type ActionSource struct {
 
 // Action represents a SageMaker ML lineage action.
 type Action struct {
-	CreationTime     time.Time         `json:"CreationTime"`
-	LastModifiedTime time.Time         `json:"LastModifiedTime"`
-	Tags             map[string]string `json:"Tags,omitempty"`
-	Properties       map[string]string `json:"Properties,omitempty"`
-	Source           ActionSource      `json:"Source"`
-	ActionName       string            `json:"ActionName"`
-	ActionArn        string            `json:"ActionArn"`
-	ActionType       string            `json:"ActionType"`
-	Description      string            `json:"Description,omitempty"`
-	Status           string            `json:"Status,omitempty"`
+	CreationTime       time.Time           `json:"CreationTime"`
+	LastModifiedTime   time.Time           `json:"LastModifiedTime"`
+	Tags               map[string]string   `json:"Tags,omitempty"`
+	Properties         map[string]string   `json:"Properties,omitempty"`
+	MetadataProperties *MetadataProperties `json:"MetadataProperties,omitempty"`
+	Source             ActionSource        `json:"Source"`
+	ActionName         string              `json:"ActionName"`
+	ActionArn          string              `json:"ActionArn"`
+	ActionType         string              `json:"ActionType"`
+	Description        string              `json:"Description,omitempty"`
+	Status             string              `json:"Status,omitempty"`
 }
 
 // cloneAction returns a deep copy of a.
@@ -248,6 +249,11 @@ func cloneAction(a *Action) *Action {
 	cp := *a
 	cp.Tags = maps.Clone(a.Tags)
 	cp.Properties = maps.Clone(a.Properties)
+
+	if a.MetadataProperties != nil {
+		mp := *a.MetadataProperties
+		cp.MetadataProperties = &mp
+	}
 
 	return &cp
 }

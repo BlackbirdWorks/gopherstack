@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -260,4 +261,71 @@ func parseNextToken(token string) int {
 	}
 
 	return idx
+}
+
+// nameOrTimeSortParams bundles the type/source-URI/creation-window filter and
+// Name-or-CreationTime sort criteria shared by ListContexts and ListActions
+// (both real ops support exactly this shape: SortContextsBy/SortActionsBy
+// are each Name|CreationTime — types/enums.go:9037-9044,9141-9148).
+type nameOrTimeSortParams struct {
+	CreatedAfter  *time.Time
+	CreatedBefore *time.Time
+	TypeFilter    string
+	SourceURI     string
+	NextToken     string
+	SortBy        string
+	SortOrder     string
+	MaxResults    int32
+}
+
+// filterSortPaginateByNameOrTime filters items by params.TypeFilter/SourceURI/
+// creation-time window, sorts by Name (SortBy="Name") or CreationTime
+// (default), applying SortOrder (default Descending), then paginates.
+func filterSortPaginateByNameOrTime[T any](
+	items []*T,
+	params nameOrTimeSortParams,
+	typeOf, sourceURIOf, nameOf func(*T) string,
+	creationTimeOf func(*T) time.Time,
+	clone func(*T) *T,
+) ([]*T, string) {
+	list := make([]*T, 0, len(items))
+
+	for _, item := range items {
+		if params.TypeFilter != "" && typeOf(item) != params.TypeFilter {
+			continue
+		}
+
+		if params.SourceURI != "" && sourceURIOf(item) != params.SourceURI {
+			continue
+		}
+
+		ct := creationTimeOf(item)
+		if params.CreatedAfter != nil && !ct.After(*params.CreatedAfter) {
+			continue
+		}
+
+		if params.CreatedBefore != nil && !ct.Before(*params.CreatedBefore) {
+			continue
+		}
+
+		list = append(list, clone(item))
+	}
+
+	desc := !strings.EqualFold(params.SortOrder, "Ascending")
+	sort.Slice(list, func(i, j int) bool {
+		var less bool
+		if params.SortBy == "Name" {
+			less = nameOf(list[i]) < nameOf(list[j])
+		} else {
+			less = creationTimeOf(list[i]).Before(creationTimeOf(list[j]))
+		}
+
+		if desc {
+			return !less
+		}
+
+		return less
+	})
+
+	return paginateSlice(list, params.NextToken, params.MaxResults)
 }
