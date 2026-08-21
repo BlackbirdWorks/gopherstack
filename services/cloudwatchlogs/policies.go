@@ -3,11 +3,60 @@ package cloudwatchlogs
 import (
 	"fmt"
 	"sort"
+	"strconv"
 	"time"
 )
 
-// PutResourcePolicy creates or updates a resource-based policy.
-func (b *InMemoryBackend) PutResourcePolicy(policyName, policyDocument string) (*ResourcePolicy, error) {
+// resourcePolicyStoreKey is this backend's storage key for a resource
+// policy. Real AWS enforces "a maximum of 10 policies without resourceARN
+// and one per LogGroup resourceARN" (PutResourcePolicy doc comment), so
+// account-scope policies are keyed by name and resource-scope policies are
+// keyed by their (unique) resourceArn.
+func resourcePolicyStoreKey(policyName, resourceArn string) string {
+	if resourceArn != "" {
+		return "resource:" + resourceArn
+	}
+
+	return "account:" + policyName
+}
+
+// checkResourcePolicyRevision enforces Put/DeleteResourcePolicy's optional
+// optimistic-concurrency check (ExpectedRevisionId -- "Required when
+// resourceArn is provided to prevent concurrent modifications").
+// expected == nil means the caller didn't ask for one.
+func checkResourcePolicyRevision(existing *ResourcePolicy, expected *string) error {
+	if expected == nil {
+		return nil
+	}
+
+	var current string
+	if existing != nil {
+		current = existing.RevisionID
+	}
+
+	if *expected != current {
+		return fmt.Errorf("%w: expectedRevisionId does not match the current policy revision", ErrValidation)
+	}
+
+	return nil
+}
+
+func nextResourcePolicyRevision(existing *ResourcePolicy) string {
+	if existing == nil {
+		return "1"
+	}
+
+	n, _ := strconv.Atoi(existing.RevisionID)
+
+	return strconv.Itoa(n + 1)
+}
+
+// PutResourcePolicy creates or updates a resource-based policy. resourceArn
+// (optional) selects the newer resource-scoped policy family over the
+// legacy account-scoped one; see resourcePolicyStoreKey.
+func (b *InMemoryBackend) PutResourcePolicy(
+	policyName, policyDocument, resourceArn string, expectedRevisionID *string,
+) (*ResourcePolicy, error) {
 	if policyName == "" {
 		return nil, fmt.Errorf("%w: policyName is required", ErrValidation)
 	}
@@ -15,10 +64,25 @@ func (b *InMemoryBackend) PutResourcePolicy(policyName, policyDocument string) (
 	b.mu.Lock("PutResourcePolicy")
 	defer b.mu.Unlock()
 
+	key := resourcePolicyStoreKey(policyName, resourceArn)
+	existing, _ := b.resourcePolicies.Get(key)
+
+	if err := checkResourcePolicyRevision(existing, expectedRevisionID); err != nil {
+		return nil, err
+	}
+
+	scope := policyScopeAccount
+	if resourceArn != "" {
+		scope = policyScopeResource
+	}
+
 	p := ResourcePolicy{
-		PolicyName:     policyName,
-		PolicyDocument: policyDocument,
-		LastUpdated:    time.Now().UTC(),
+		PolicyName:      policyName,
+		PolicyDocument:  policyDocument,
+		ResourceArn:     resourceArn,
+		PolicyScope:     scope,
+		RevisionID:      nextResourcePolicyRevision(existing),
+		LastUpdatedTime: time.Now().UTC().UnixMilli(),
 	}
 	stored := p
 	b.resourcePolicies.Put(&stored)
@@ -26,13 +90,33 @@ func (b *InMemoryBackend) PutResourcePolicy(policyName, policyDocument string) (
 	return &p, nil
 }
 
-// DescribeResourcePolicies returns all resource policies, sorted by name.
-func (b *InMemoryBackend) DescribeResourcePolicies() []ResourcePolicy {
+// DescribeResourcePolicies returns resource policies, sorted by name.
+// resourceArn (when set) looks up the single resource-scoped policy on that
+// ARN. Otherwise policyScope filters by scope, defaulting to ACCOUNT per
+// DescribeResourcePoliciesInput's own doc comment ("When not specified,
+// defaults to ACCOUNT").
+func (b *InMemoryBackend) DescribeResourcePolicies(policyScope, resourceArn string) []ResourcePolicy {
 	b.mu.RLock("DescribeResourcePolicies")
 	defer b.mu.RUnlock()
 
+	if resourceArn != "" {
+		p, ok := b.resourcePolicies.Get(resourcePolicyStoreKey("", resourceArn))
+		if !ok {
+			return []ResourcePolicy{}
+		}
+
+		return []ResourcePolicy{*p}
+	}
+
+	if policyScope == "" {
+		policyScope = policyScopeAccount
+	}
+
 	out := make([]ResourcePolicy, 0, b.resourcePolicies.Len())
 	for _, p := range b.resourcePolicies.All() {
+		if p.PolicyScope != policyScope {
+			continue
+		}
 		out = append(out, *p)
 	}
 
@@ -41,14 +125,24 @@ func (b *InMemoryBackend) DescribeResourcePolicies() []ResourcePolicy {
 	return out
 }
 
-// DeleteResourcePolicy removes a resource policy by name.
-func (b *InMemoryBackend) DeleteResourcePolicy(policyName string) error {
+// DeleteResourcePolicy removes a resource policy by name (account scope) or
+// resourceArn (resource scope).
+func (b *InMemoryBackend) DeleteResourcePolicy(policyName, resourceArn string, expectedRevisionID *string) error {
 	b.mu.Lock("DeleteResourcePolicy")
 	defer b.mu.Unlock()
 
-	if !b.resourcePolicies.Delete(policyName) {
+	key := resourcePolicyStoreKey(policyName, resourceArn)
+
+	existing, ok := b.resourcePolicies.Get(key)
+	if !ok {
 		return fmt.Errorf("%w: resource policy %q not found", ErrResourcePolicyNotFound, policyName)
 	}
+
+	if err := checkResourcePolicyRevision(existing, expectedRevisionID); err != nil {
+		return err
+	}
+
+	b.resourcePolicies.Delete(key)
 
 	return nil
 }
@@ -65,7 +159,8 @@ func (b *InMemoryBackend) PutIndexPolicy(logGroupIdentifier, policyDocument stri
 	p := IndexPolicy{
 		LogGroupIdentifier: logGroupIdentifier,
 		PolicyDocument:     policyDocument,
-		LastUpdated:        time.Now().UTC(),
+		LastUpdateTime:     time.Now().UTC().UnixMilli(),
+		Source:             indexSourceLogGroup,
 	}
 	stored := p
 	b.indexPolicies.Put(&stored)

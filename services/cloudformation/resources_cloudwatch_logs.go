@@ -258,7 +258,7 @@ func (rc *ResourceCreator) createLogsResourcePolicy(
 		return policyName, nil
 	}
 
-	if _, err := mem.PutResourcePolicy(policyName, policyDoc); err != nil {
+	if _, err := mem.PutResourcePolicy(policyName, policyDoc, "", nil); err != nil {
 		return "", fmt.Errorf("create CloudWatch Logs resource policy %s: %w", policyName, err)
 	}
 
@@ -275,7 +275,7 @@ func (rc *ResourceCreator) deleteLogsResourcePolicy(policyName string) error {
 		return nil
 	}
 
-	return mem.DeleteResourcePolicy(policyName)
+	return mem.DeleteResourcePolicy(policyName, "", nil)
 }
 
 func (rc *ResourceCreator) createLogsQueryDefinition(
@@ -295,7 +295,7 @@ func (rc *ResourceCreator) createLogsQueryDefinition(
 	queryString := strProp(props, "QueryString", params, physicalIDs)
 	groupNames := strSliceProp(props["LogGroupNames"], params, physicalIDs)
 
-	id, err := rc.backends.CloudWatchLogs.Backend.PutQueryDefinition(name, queryString, "", groupNames)
+	id, err := rc.backends.CloudWatchLogs.Backend.PutQueryDefinition(name, queryString, "", groupNames, nil)
 	if err != nil {
 		return "", fmt.Errorf("create CloudWatch Logs query definition %s: %w", name, err)
 	}

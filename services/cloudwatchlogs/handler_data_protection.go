@@ -136,18 +136,25 @@ func (h *Handler) handleGetDataProtectionPolicy(
 	}
 
 	policyDoc := "{}"
+	var lastUpdatedTime int64
 	if b := cwlBackend(h); b != nil {
-		p, err := b.GetDataProtectionPolicy(in.LogGroupIdentifier)
+		p, updated, err := b.GetDataProtectionPolicy(in.LogGroupIdentifier)
 		if err != nil {
 			return nil, err
 		}
 		policyDoc = p
+		lastUpdatedTime = updated
 	}
 
-	return map[string]any{
+	resp := map[string]any{
 		completenessKeyLogGroupIdentifier: in.LogGroupIdentifier,
 		completenessKeyPolicyDocument:     policyDoc,
-	}, nil
+	}
+	if lastUpdatedTime != 0 {
+		resp[keyLastUpdatedTime] = lastUpdatedTime
+	}
+
+	return resp, nil
 }
 
 type putDataProtectionPolicyInput struct {

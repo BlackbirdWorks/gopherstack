@@ -415,7 +415,7 @@ func (h *Handler) handleError(ctx context.Context, c *echo.Context, action strin
 		errors.Is(reqErr, ErrDeliverySourceNotFound), errors.Is(reqErr, ErrDestinationNotFound),
 		errors.Is(reqErr, ErrIndexPolicyNotFound), errors.Is(reqErr, ErrTransformerNotFound),
 		errors.Is(reqErr, ErrIntegrationNotFound), errors.Is(reqErr, ErrLookupTableNotFound),
-		errors.Is(reqErr, ErrSyslogConfigurationNotFound):
+		errors.Is(reqErr, ErrSyslogConfigurationNotFound), errors.Is(reqErr, ErrS3TableIntegrationNotFound):
 		errType = "ResourceNotFoundException"
 		statusCode = http.StatusNotFound
 	case errors.Is(reqErr, ErrLogGroupAlreadyExists), errors.Is(reqErr, ErrLogStreamAlreadyExist),
@@ -489,7 +489,6 @@ const (
 const (
 	keyName                = "name"
 	keyArn                 = "arn"
-	keyPolicyName          = "policyName"
 	keyDeliveryDestination = "deliveryDestination"
 	keyDeliverySource      = "deliverySource"
 	keyDestinationName     = "destinationName"

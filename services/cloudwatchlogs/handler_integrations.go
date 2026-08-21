@@ -226,11 +226,28 @@ func (h *Handler) handleDeleteIntegration(
 	return struct{}{}, nil
 }
 
+type disassociateSourceFromS3TableIntegrationInput struct {
+	Identifier string `json:"identifier"`
+}
+
+type disassociateSourceFromS3TableIntegrationOutput struct {
+	Identifier string `json:"identifier,omitempty"`
+}
+
 func (h *Handler) handleDisassociateSourceFromS3TableIntegration(
 	ctx context.Context, //nolint:revive // existing issue.
-	_ []byte,
+	body []byte,
 ) (any, error) {
-	return struct{}{}, nil
+	var in disassociateSourceFromS3TableIntegrationInput
+	if err := json.Unmarshal(body, &in); err != nil {
+		return nil, fmt.Errorf("%w: invalid JSON: %w", ErrValidation, err)
+	}
+
+	if err := h.Backend.DisassociateSourceFromS3TableIntegration(in.Identifier); err != nil {
+		return nil, err
+	}
+
+	return &disassociateSourceFromS3TableIntegrationOutput{Identifier: in.Identifier}, nil
 }
 
 func (h *Handler) handleListSourcesForS3TableIntegration(

@@ -27,6 +27,23 @@ func (b *InMemoryBackend) AssociateSourceToS3TableIntegration(
 	return id, nil
 }
 
+// DisassociateSourceFromS3TableIntegration removes a source association by
+// its identifier (the ID AssociateSourceToS3TableIntegration returned).
+func (b *InMemoryBackend) DisassociateSourceFromS3TableIntegration(identifier string) error {
+	if identifier == "" {
+		return fmt.Errorf("%w: identifier is required", ErrValidation)
+	}
+
+	b.mu.Lock("DisassociateSourceFromS3TableIntegration")
+	defer b.mu.Unlock()
+
+	if !b.s3TableIntegrations.Delete(identifier) {
+		return fmt.Errorf("%w: S3 table integration source %q not found", ErrS3TableIntegrationNotFound, identifier)
+	}
+
+	return nil
+}
+
 // PutIntegration creates or updates an integration. resourceConfig is
 // required (PutIntegrationInput.ResourceConfig, verified against
 // validateOpPutIntegrationInput, validators.go); its own required members

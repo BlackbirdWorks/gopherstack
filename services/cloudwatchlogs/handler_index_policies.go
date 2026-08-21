@@ -11,6 +11,10 @@ type putIndexPolicyInput struct {
 	PolicyDocument     string `json:"policyDocument"`
 }
 
+type putIndexPolicyOutput struct {
+	IndexPolicy *IndexPolicy `json:"indexPolicy,omitempty"`
+}
+
 func (h *Handler) handlePutIndexPolicy(
 	ctx context.Context, //nolint:revive // existing issue.
 	body []byte,
@@ -26,13 +30,14 @@ func (h *Handler) handlePutIndexPolicy(
 			return nil, err
 		}
 
-		return map[string]any{"indexPolicy": map[string]any{
-			completenessKeyLogGroupIdentifier: p.LogGroupIdentifier,
-			completenessKeyPolicyDocument:     p.PolicyDocument,
-		}}, nil
+		return &putIndexPolicyOutput{IndexPolicy: p}, nil
 	}
 
-	return map[string]any{"indexPolicy": map[string]any{}}, nil
+	return &putIndexPolicyOutput{IndexPolicy: &IndexPolicy{}}, nil
+}
+
+type describeIndexPoliciesOutput struct {
+	IndexPolicies []IndexPolicy `json:"indexPolicies"`
 }
 
 func (h *Handler) handleDescribeIndexPolicies(
@@ -40,19 +45,10 @@ func (h *Handler) handleDescribeIndexPolicies(
 	_ []byte,
 ) (any, error) {
 	if b := cwlBackend(h); b != nil {
-		policies := b.DescribeIndexPolicies()
-		out := make([]map[string]any, 0, len(policies))
-		for _, p := range policies {
-			out = append(out, map[string]any{
-				completenessKeyLogGroupIdentifier: p.LogGroupIdentifier,
-				completenessKeyPolicyDocument:     p.PolicyDocument,
-			})
-		}
-
-		return map[string]any{"indexPolicies": out}, nil
+		return &describeIndexPoliciesOutput{IndexPolicies: b.DescribeIndexPolicies()}, nil
 	}
 
-	return map[string]any{"indexPolicies": []any{}}, nil
+	return &describeIndexPoliciesOutput{IndexPolicies: []IndexPolicy{}}, nil
 }
 
 type deleteIndexPolicyInput struct {

@@ -382,12 +382,12 @@ func TestInMemoryBackend_SnapshotRestore_CompletenessMapsSurvive(t *testing.T) {
 			name: "resource_policy_survives",
 			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
 				t.Helper()
-				_, err := b.PutResourcePolicy("my-policy", `{"Version":"2012-10-17"}`)
+				_, err := b.PutResourcePolicy("my-policy", `{"Version":"2012-10-17"}`, "", nil)
 				require.NoError(t, err)
 			},
 			verify: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
 				t.Helper()
-				policies := b.DescribeResourcePolicies()
+				policies := b.DescribeResourcePolicies("", "")
 				require.Len(t, policies, 1)
 				assert.Equal(t, "my-policy", policies[0].PolicyName)
 			},
@@ -526,7 +526,7 @@ func TestInMemoryBackend_SnapshotRestore_CompletenessMapsSurvive(t *testing.T) {
 			name: "query_definitions_survive",
 			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
 				t.Helper()
-				_, err := b.PutQueryDefinition("my-query", "fields @message | limit 20", "", nil)
+				_, err := b.PutQueryDefinition("my-query", "fields @message | limit 20", "", nil, nil)
 				require.NoError(t, err)
 			},
 			verify: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
@@ -546,7 +546,7 @@ func TestInMemoryBackend_SnapshotRestore_CompletenessMapsSurvive(t *testing.T) {
 			},
 			verify: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
 				t.Helper()
-				doc, err := b.GetDataProtectionPolicy("/grp")
+				doc, _, err := b.GetDataProtectionPolicy("/grp")
 				require.NoError(t, err)
 				assert.Contains(t, doc, "protect")
 			},

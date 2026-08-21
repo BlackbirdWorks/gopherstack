@@ -14,6 +14,7 @@ import (
 func (b *InMemoryBackend) PutQueryDefinition(
 	name, queryString, queryDefinitionID string,
 	logGroupNames []string,
+	parameters []QueryParameter,
 ) (string, error) {
 	if name == "" {
 		return "", fmt.Errorf("%w: name is required", ErrValidation)
@@ -43,7 +44,9 @@ func (b *InMemoryBackend) PutQueryDefinition(
 		QueryDefinitionID: id,
 		Name:              name,
 		QueryString:       queryString,
+		QueryLanguage:     queryLanguageCWLI,
 		LogGroupNames:     slices.Clone(logGroupNames),
+		Parameters:        slices.Clone(parameters),
 		LastModified:      time.Now().UnixMilli(),
 	}
 	b.queryDefinitions.Put(qd)
@@ -68,6 +71,7 @@ func (b *InMemoryBackend) DescribeQueryDefinitions(
 		}
 		cp := *qd
 		cp.LogGroupNames = slices.Clone(qd.LogGroupNames)
+		cp.Parameters = slices.Clone(qd.Parameters)
 		all = append(all, cp)
 	}
 	sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })

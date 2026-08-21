@@ -38,8 +38,9 @@ func TestCloudWatchLogsBackend_QueryDefinitionLifecycle(t *testing.T) {
 					"fields @message | filter @message like /ERROR/",
 					"",
 					nil,
+					nil,
 				)
-				_, _ = b.PutQueryDefinition("dev-logs", "fields @message | limit 10", "", nil)
+				_, _ = b.PutQueryDefinition("dev-logs", "fields @message | limit 10", "", nil, nil)
 			},
 			op:      "describe_prefix",
 			prefix:  "prod",
@@ -48,7 +49,7 @@ func TestCloudWatchLogsBackend_QueryDefinitionLifecycle(t *testing.T) {
 		{
 			name: "delete_existing",
 			setup: func(b *cloudwatchlogs.InMemoryBackend) {
-				_, _ = b.PutQueryDefinition("q1", "fields @message", "", nil)
+				_, _ = b.PutQueryDefinition("q1", "fields @message", "", nil, nil)
 			},
 			op: "delete_first",
 		},
@@ -79,7 +80,7 @@ func TestCloudWatchLogsBackend_QueryDefinitionLifecycle(t *testing.T) {
 			switch tt.op {
 			case "put_then_describe":
 				var id string
-				id, err = b.PutQueryDefinition(tt.opName, tt.queryString, "", nil)
+				id, err = b.PutQueryDefinition(tt.opName, tt.queryString, "", nil, nil)
 				require.NoError(t, err)
 				assert.NotEmpty(t, id)
 				var defs []cloudwatchlogs.QueryDefinition
@@ -104,7 +105,7 @@ func TestCloudWatchLogsBackend_QueryDefinitionLifecycle(t *testing.T) {
 			case "delete_direct":
 				err = b.DeleteQueryDefinition(tt.id)
 			case "put_direct":
-				_, err = b.PutQueryDefinition(tt.opName, tt.queryString, "", nil)
+				_, err = b.PutQueryDefinition(tt.opName, tt.queryString, "", nil, nil)
 			}
 
 			if tt.wantErr != nil {
@@ -152,11 +153,11 @@ func TestCloudWatchLogsBackend_PutQueryDefinition_UpdateVerifiesID(t *testing.T)
 			queryID := tt.queryDefinitionID
 			if tt.createFirst {
 				var err error
-				queryID, err = b.PutQueryDefinition("initial", "fields @message", "", nil)
+				queryID, err = b.PutQueryDefinition("initial", "fields @message", "", nil, nil)
 				require.NoError(t, err)
 			}
 
-			_, err := b.PutQueryDefinition("updated", "fields @timestamp", queryID, nil)
+			_, err := b.PutQueryDefinition("updated", "fields @timestamp", queryID, nil, nil)
 
 			if tt.wantErr != nil {
 				require.ErrorIs(t, err, tt.wantErr)

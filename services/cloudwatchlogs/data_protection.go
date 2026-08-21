@@ -37,23 +37,25 @@ func (b *InMemoryBackend) PutDataProtectionPolicy(logGroupIdentifier, policyDocu
 	b.dataProtectionPolicies.Put(&dataProtectionPolicyEntry{
 		LogGroupIdentifier: logGroupIdentifier,
 		PolicyDocument:     policyDocument,
+		LastUpdatedTime:    time.Now().UTC().UnixMilli(),
 	})
 
 	return nil
 }
 
-// GetDataProtectionPolicy returns the data protection policy for a log group.
-// Returns an empty policy document if none has been set.
-func (b *InMemoryBackend) GetDataProtectionPolicy(logGroupIdentifier string) (string, error) {
+// GetDataProtectionPolicy returns the data protection policy and its last
+// update time for a log group. Returns an empty policy document and a zero
+// timestamp if none has been set.
+func (b *InMemoryBackend) GetDataProtectionPolicy(logGroupIdentifier string) (string, int64, error) {
 	b.mu.RLock("GetDataProtectionPolicy")
 	defer b.mu.RUnlock()
 
 	entry, ok := b.dataProtectionPolicies.Get(logGroupIdentifier)
 	if !ok {
-		return "{}", nil
+		return "{}", 0, nil
 	}
 
-	return entry.PolicyDocument, nil
+	return entry.PolicyDocument, entry.LastUpdatedTime, nil
 }
 
 // DeleteDataProtectionPolicy removes the data protection policy for a log group.

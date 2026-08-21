@@ -7,8 +7,15 @@ import (
 )
 
 type putResourcePolicyInput struct {
-	PolicyName     string `json:"policyName"`
-	PolicyDocument string `json:"policyDocument"`
+	ExpectedRevisionID *string `json:"expectedRevisionId,omitempty"`
+	PolicyName         string  `json:"policyName"`
+	PolicyDocument     string  `json:"policyDocument"`
+	ResourceArn        string  `json:"resourceArn,omitempty"`
+}
+
+type putResourcePolicyOutput struct {
+	ResourcePolicy *ResourcePolicy `json:"resourcePolicy,omitempty"`
+	RevisionID     string          `json:"revisionId,omitempty"`
 }
 
 func (h *Handler) handlePutResourcePolicy(
@@ -21,47 +28,50 @@ func (h *Handler) handlePutResourcePolicy(
 	}
 
 	if b := cwlBackend(h); b != nil {
-		p, err := b.PutResourcePolicy(in.PolicyName, in.PolicyDocument)
+		p, err := b.PutResourcePolicy(in.PolicyName, in.PolicyDocument, in.ResourceArn, in.ExpectedRevisionID)
 		if err != nil {
 			return nil, err
 		}
 
-		return map[string]any{
-			"resourcePolicy": map[string]any{
-				keyPolicyName:                 p.PolicyName,
-				completenessKeyPolicyDocument: p.PolicyDocument,
-			},
-		}, nil
+		return &putResourcePolicyOutput{ResourcePolicy: p, RevisionID: p.RevisionID}, nil
 	}
 
-	return map[string]any{"resourcePolicy": map[string]any{
-		keyPolicyName:                 in.PolicyName,
-		completenessKeyPolicyDocument: in.PolicyDocument,
-	}}, nil
+	return &putResourcePolicyOutput{
+		ResourcePolicy: &ResourcePolicy{PolicyName: in.PolicyName, PolicyDocument: in.PolicyDocument},
+	}, nil
+}
+
+type describeResourcePoliciesInput struct {
+	PolicyScope string `json:"policyScope,omitempty"`
+	ResourceArn string `json:"resourceArn,omitempty"`
+}
+
+type describeResourcePoliciesOutput struct {
+	ResourcePolicies []ResourcePolicy `json:"resourcePolicies"`
 }
 
 func (h *Handler) handleDescribeResourcePolicies(
 	ctx context.Context, //nolint:revive // existing issue.
-	_ []byte,
+	body []byte,
 ) (any, error) {
-	if b := cwlBackend(h); b != nil {
-		policies := b.DescribeResourcePolicies()
-		out := make([]map[string]any, 0, len(policies))
-		for _, p := range policies {
-			out = append(out, map[string]any{
-				keyPolicyName:                 p.PolicyName,
-				completenessKeyPolicyDocument: p.PolicyDocument,
-			})
-		}
-
-		return map[string]any{"resourcePolicies": out}, nil
+	var in describeResourcePoliciesInput
+	if err := json.Unmarshal(body, &in); err != nil {
+		return nil, fmt.Errorf("%w: invalid JSON: %w", ErrValidation, err)
 	}
 
-	return map[string]any{"resourcePolicies": []any{}}, nil
+	if b := cwlBackend(h); b != nil {
+		policies := b.DescribeResourcePolicies(in.PolicyScope, in.ResourceArn)
+
+		return &describeResourcePoliciesOutput{ResourcePolicies: policies}, nil
+	}
+
+	return &describeResourcePoliciesOutput{ResourcePolicies: []ResourcePolicy{}}, nil
 }
 
 type deleteResourcePolicyInput struct {
-	PolicyName string `json:"policyName"`
+	ExpectedRevisionID *string `json:"expectedRevisionId,omitempty"`
+	PolicyName         string  `json:"policyName"`
+	ResourceArn        string  `json:"resourceArn,omitempty"`
 }
 
 func (h *Handler) handleDeleteResourcePolicy(
@@ -74,7 +84,7 @@ func (h *Handler) handleDeleteResourcePolicy(
 	}
 
 	if b := cwlBackend(h); b != nil {
-		if err := b.DeleteResourcePolicy(in.PolicyName); err != nil {
+		if err := b.DeleteResourcePolicy(in.PolicyName, in.ResourceArn, in.ExpectedRevisionID); err != nil {
 			return nil, err
 		}
 	}

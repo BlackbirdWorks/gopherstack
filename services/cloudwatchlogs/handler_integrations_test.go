@@ -220,10 +220,16 @@ func TestHandler_S3TableIntegrationSourceOperations(t *testing.T) {
 			wantListField: "sources",
 		},
 		{
-			name:     "DisassociateSourceFromS3TableIntegration/OK",
+			name:     "DisassociateSourceFromS3TableIntegration/EmptyIdentifier",
 			action:   "DisassociateSourceFromS3TableIntegration",
 			body:     map[string]any{},
-			wantCode: http.StatusOK,
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "DisassociateSourceFromS3TableIntegration/NotFound",
+			action:   "DisassociateSourceFromS3TableIntegration",
+			body:     map[string]any{"identifier": "ghost"},
+			wantCode: http.StatusNotFound,
 		},
 	}
 
@@ -246,6 +252,37 @@ func TestHandler_S3TableIntegrationSourceOperations(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestHandler_DisassociateSourceFromS3TableIntegration_RoundTrip(t *testing.T) {
+	t.Parallel()
+
+	h, e := newTestHandler(t)
+
+	assocRec := doLogsRequest(t, h, e, "AssociateSourceToS3TableIntegration",
+		`{"integrationArn":"arn:aws:logs::123456789012:integration:my-integration",`+
+			`"dataSource":{"name":"my-source","type":"S3"}}`)
+	require.Equal(t, http.StatusOK, assocRec.Code)
+
+	var assocResp map[string]any
+	require.NoError(t, json.Unmarshal(assocRec.Body.Bytes(), &assocResp))
+	identifier, ok := assocResp["identifier"].(string)
+	require.True(t, ok, "expected identifier in AssociateSourceToS3TableIntegration response")
+	require.NotEmpty(t, identifier)
+
+	disRec := doLogsRequest(t, h, e, "DisassociateSourceFromS3TableIntegration",
+		`{"identifier":"`+identifier+`"}`)
+	require.Equal(t, http.StatusOK, disRec.Code)
+
+	var disResp map[string]any
+	require.NoError(t, json.Unmarshal(disRec.Body.Bytes(), &disResp))
+	assert.Equal(t, identifier, disResp["identifier"])
+
+	// A second disassociate of the same identifier must now fail: the
+	// association was actually removed, not silently accepted.
+	repeatRec := doLogsRequest(t, h, e, "DisassociateSourceFromS3TableIntegration",
+		`{"identifier":"`+identifier+`"}`)
+	assert.Equal(t, http.StatusNotFound, repeatRec.Code)
 }
 
 func TestHandler_IntegrationResponseShape(t *testing.T) {

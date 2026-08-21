@@ -38,6 +38,7 @@ var (
 	ErrIndexPolicyNotFound         = errors.New("ResourceNotFoundException")
 	ErrTransformerNotFound         = errors.New("ResourceNotFoundException")
 	ErrIntegrationNotFound         = errors.New("ResourceNotFoundException")
+	ErrS3TableIntegrationNotFound  = errors.New("ResourceNotFoundException")
 )
 
 var (
