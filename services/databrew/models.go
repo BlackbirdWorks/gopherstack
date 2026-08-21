@@ -112,7 +112,7 @@ type DatabaseInput struct {
 type Dataset struct {
 	PathOptions      *PathOptions         `json:"PathOptions,omitempty"`
 	FormatOptions    DatasetFormatOptions `json:"FormatOptions,omitzero"`
-	Input            DatasetInput         `json:"Input,omitzero"`
+	Input            DatasetInput         `json:"Input"`
 	Tags             map[string]string    `json:"Tags,omitempty"`
 	Name             string               `json:"Name"`
 	Arn              string               `json:"ResourceArn"`
