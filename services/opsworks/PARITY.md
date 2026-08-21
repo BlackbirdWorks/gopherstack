@@ -479,3 +479,17 @@ hand during the pass); 0 `cyclop`/`gocyclo`/`gocognit`/`funlen` nolints
 No subagents used. No git-mutating commands run — orchestrator must
 commit/push. `git status` re-checked before every edit batch; only
 `services/opsworks/*` files touched by this pass.
+
+## 2026-08-20 — gopherstack-jqh2 pass 4: SDK route table test added
+
+Re-extracted all 74 OpsWorks ops from `opsworks@v1.31.0` serializers.go
+(`X-Amz-Target: OpsWorks_20130218.<Op>` in each
+`awsAwsjson11_serializeOp<Op>.HandleSerialize`) and cross-diffed against
+both existing op-name tables: `GetSupportedOperations()`'s literal slice and
+`buildOps()`'s dispatch map. All three (SDK, GetSupportedOperations,
+buildOps) match exactly, 74/74, zero drift in any pairing — no shape-3
+parallel-table bug. Added `handler_sdk_route_table_test.go`
+(`TestExtractOperation_SDKRouteTable`), which builds a real X-Amz-Target
+request per op and drives it through the real `Handler()`, asserting it
+does not fall through to the "unknown action" dispatch-miss branch
+(handler.go:262-263). No stale PARITY.md entries found.
