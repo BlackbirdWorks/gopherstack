@@ -38,12 +38,15 @@ var updateGolden = flag.Bool("update", false, "regenerate pkgs/persistence/testd
 // persisted state on the exact upgrade that was only meant to extend it.
 //
 // The guard walks every services/*/persistence.go, extracts the <service>SnapshotVersion
-// constant and the sibling fields of its version-carrying struct, and compares them
-// against the checked-in golden at testdata/snapshot_inventory.json. If the version
-// changed and the new field set is a pure superset of the golden one (every old field
-// still present, unchanged; only additions) that is exactly the destructive pattern --
-// the test fails unconditionally, even under -update, so there is no way to silence it
-// by just refreshing the golden.
+// constant and the fields of every "*Snapshot"-suffixed struct in the file (not just the
+// one carrying the version int -- gopherstack-5i6p: apigateway's additive Tags field
+// landed on the nested stageSnapshot, invisible to a scan limited to the top-level
+// struct, and the version bump slipped through as a soft warning instead of a hard
+// block), and compares that combined field set against the checked-in golden at
+// testdata/snapshot_inventory.json. If the version changed and the new field set is a
+// pure superset of the golden one (every old field still present, unchanged; only
+// additions) that is exactly the destructive pattern -- the test fails unconditionally,
+// even under -update, so there is no way to silence it by just refreshing the golden.
 //
 // A genuine incompatible change (a field removed or retyped) is not a superset, so it
 // passes this check; run with -update to refresh the golden once you've confirmed the
@@ -373,7 +376,7 @@ func scanPersistenceFile(path string) (snapshotInfo, bool, error) {
 		return snapshotInfo{}, false, nil
 	}
 
-	fields, err := findVersionStructFields(fset, f)
+	fields, err := findAllSnapshotStructFields(fset, f)
 	if err != nil {
 		return snapshotInfo{}, false, fmt.Errorf(
 			"found a *SnapshotVersion const but no matching int-typed Version struct field: %w", err)
@@ -418,10 +421,26 @@ func findVersionConst(f *ast.File) (int, bool, error) {
 	return 0, false, nil
 }
 
-// findVersionStructFields locates the struct type declared in f that has a field
-// literally named "Version" of type "int", and returns the descriptors ("Name Type
-// `tag`") of its other fields, sorted.
-func findVersionStructFields(fset *token.FileSet, f *ast.File) ([]string, error) {
+// snapshotStructRE matches the codebase-wide convention (156 of 158
+// persistence.go files, gopherstack-5i6p) of naming every persisted DTO
+// "*Snapshot": backendSnapshot itself plus nested ones like stageSnapshot or
+// invalidationSnapshot that hold fields the top-level struct never sees directly.
+var snapshotStructRE = regexp.MustCompile(`(?i)snapshot$`)
+
+// findAllSnapshotStructFields returns the field descriptors of every
+// "*Snapshot"-suffixed struct type declared in f, each prefixed with its
+// struct name (e.g. "stageSnapshot.Tags *tags.Tags `json:\"tags,omitempty\"`").
+// Scanning only the struct with the literal Version field (the pre-gopherstack-5i6p
+// behavior) missed additive fields on nested snapshot DTOs entirely: apigateway's
+// Tags field landed on stageSnapshot, not backendSnapshot, so the version-bump
+// guard saw an unchanged field list and only soft-warned instead of hard-blocking.
+// Requires at least one struct to literally carry the int-typed Version field,
+// same as before, so a *SnapshotVersion const with no matching struct still errors.
+func findAllSnapshotStructFields(fset *token.FileSet, f *ast.File) ([]string, error) {
+	var fields []string
+
+	hasVersionStruct := false
+
 	for _, decl := range f.Decls {
 		gd, ok := decl.(*ast.GenDecl)
 		if !ok || gd.Tok != token.TYPE {
@@ -435,15 +454,25 @@ func findVersionStructFields(fset *token.FileSet, f *ast.File) ([]string, error)
 			}
 
 			st, isStructType := ts.Type.(*ast.StructType)
-			if !isStructType || !hasIntVersionField(st) {
+			if !isStructType || !snapshotStructRE.MatchString(ts.Name.Name) {
 				continue
 			}
 
-			return structFieldDescriptors(fset, st), nil
+			if hasIntVersionField(st) {
+				hasVersionStruct = true
+			}
+
+			for _, d := range structFieldDescriptors(fset, st) {
+				fields = append(fields, ts.Name.Name+"."+d)
+			}
 		}
 	}
 
-	return nil, errNoVersionStruct
+	if !hasVersionStruct {
+		return nil, errNoVersionStruct
+	}
+
+	return fields, nil
 }
 
 func hasIntVersionField(st *ast.StructType) bool {
