@@ -402,11 +402,11 @@ func (r *Runner) pollSQSPipe(ctx context.Context, p *Pipe) {
 func (r *Runner) handlePipeFailure(
 	ctx context.Context, p *Pipe, msgs []*SQSMessage, payload []byte, cause error,
 ) {
-	if p.DeadLetterConfig == nil || p.DeadLetterConfig.Arn == "" {
+	dlqARN := pipeDeadLetterARN(p)
+	if dlqARN == "" {
 		return
 	}
 
-	dlqARN := p.DeadLetterConfig.Arn
 	if sendErr := r.sendToDLQ(ctx, dlqARN, payload); sendErr != nil {
 		logger.Load(ctx).WarnContext(ctx, "pipes: failed to send to DLQ",
 			"pipe", p.Name, "dlq", dlqARN, "error", sendErr, "cause", cause)
@@ -516,6 +516,26 @@ func filterCriteriaFilters(p *Pipe) []Filter {
 	}
 
 	return p.SourceParameters.FilterCriteria.Filters
+}
+
+// pipeDeadLetterARN resolves the pipe's configured dead-letter queue ARN from
+// the source parameters that actually carry a DeadLetterConfig in the real
+// Pipes API: SourceParameters.KinesisStreamParameters and
+// .DynamoDBStreamParameters (see aws-sdk-go-v2/service/pipes/types).
+// Other source types (SQS, MSK, self-managed Kafka, ActiveMQ, RabbitMQ) have
+// no DLQ config in the real API, so this returns "" for them.
+func pipeDeadLetterARN(p *Pipe) string {
+	if p.SourceParameters == nil {
+		return ""
+	}
+	if kp := p.SourceParameters.KinesisStreamParameters; kp != nil && kp.DeadLetterConfig != nil {
+		return kp.DeadLetterConfig.Arn
+	}
+	if dp := p.SourceParameters.DynamoDBStreamParameters; dp != nil && dp.DeadLetterConfig != nil {
+		return dp.DeadLetterConfig.Arn
+	}
+
+	return ""
 }
 
 // invokeTargetWithPayload dispatches the pre-marshalled payload to the pipe's target.
