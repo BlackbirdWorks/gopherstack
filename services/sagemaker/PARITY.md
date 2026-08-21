@@ -1571,3 +1571,165 @@ needed to be worked around this session.
 
 **269 of sagemaker's 362 inline structs now remain.** Next by size:
 `handler_notebook_instances.go` (11), `handler_images.go` (11), `handler_edge_deployment.go` (11).
+
+## parity-13 (2026-08-21, gopherstack-oc9v): NotebookInstance / NotebookInstanceLifecycleConfig family inline-struct sweep
+
+Seventh pass of the gopherstack-oc9v campaign. Per parity-12's boundary note ("269 of sagemaker's
+362 inline structs now remain ... `handler_notebook_instances.go` (11), `handler_images.go` (11),
+`handler_edge_deployment.go` (11)"), this pass took `handler_notebook_instances.go`, verified by
+`grep -c 'var req struct {' handler_notebook_instances.go` = 11 before starting. All 11 were
+converted to named types (`describeNotebookInstanceLifecycleConfigInput`,
+`updateNotebookInstanceLifecycleConfigInput`, `deleteNotebookInstanceLifecycleConfigInput`,
+`listNotebookInstanceLifecycleConfigsInput`, `describeNotebookInstanceInput`,
+`updateNotebookInstanceInput`, `listNotebookInstancesInput`, `deleteNotebookInstanceInput`,
+`startNotebookInstanceInput`, `stopNotebookInstanceInput`,
+`createPresignedNotebookInstanceURLInput`) and wire-audited field-by-field against the pinned SDK
+(`v1.263.2`, confirmed from `go.mod`, matching prior passes). **258 of sagemaker's 362 inline
+structs now remain** (362 − 19 − 19 − 15 − 14 − 14 − 12 − 11), confirmed by
+`grep -rc 'var req struct {' services/sagemaker/*.go` summed, not arithmetic; `handler_notebook_
+instances.go` itself now has zero. `createNotebookInstanceFullRequest` (Create) was already a named
+type before this pass and so was not one of the 11, but was still wire-audited and fixed alongside
+its Update/Describe/List siblings since the same `NotebookInstance` model and the same two
+fabricated-wire-shape bugs (below) run through all of them. This pass did not touch
+`handler_images.go`/`handler_edge_deployment.go` or any other family — all still open for
+gopherstack-oc9v.
+
+**Enumerated vs. converted vs. audited:**
+
+- `DescribeNotebookInstanceLifecycleConfigInput`/`DeleteNotebookInstanceLifecycleConfigInput`
+  (`api_op_{Describe,Delete}NotebookInstanceLifecycleConfig.go:23-31`) — already matched exactly
+  (`NotebookInstanceLifecycleConfigName` is each op's sole field).
+- `UpdateNotebookInstanceLifecycleConfigInput` (`api_op_UpdateNotebookInstanceLifecycleConfig.go:
+  24-41`) — already matched exactly (`NotebookInstanceLifecycleConfigName`/`OnCreate`/`OnStart`).
+- `ListNotebookInstanceLifecycleConfigsInput` (`api_op_ListNotebookInstanceLifecycleConfigs.go:
+  30-72`) — was missing **8 of 9** fields, only `NextToken` existed: `CreationTimeAfter`,
+  `CreationTimeBefore`, `LastModifiedTimeAfter`, `LastModifiedTimeBefore`, `MaxResults`,
+  `NameContains`, `SortBy`, `SortOrder`. All eight now real via a new
+  `ListNotebookInstanceLifecycleConfigsParams`/`matchesLifecycleConfigParams`/
+  `lifecycleConfigSortLess`, with the documented default sort key (`CreationTime` —
+  `api_op_ListNotebookInstanceLifecycleConfigs.go:62`) implemented as stated and `SortOrder`'s
+  undocumented default kept as the disclosed Ascending fallback (this campaign's recurring
+  ListHubs/ListPipelines precedent).
+- `DescribeNotebookInstanceInput` (`api_op_DescribeNotebookInstance.go:34-42`) — already matched
+  exactly, but `DescribeNotebookInstanceOutput` (`api_op_DescribeNotebookInstance.go:44-158`) was
+  missing `InstanceMetadataServiceConfiguration`/`IpAddressType` (both real, now threaded) and
+  `FailureReason`/`NetworkInterfaceId` (disclosed absent below).
+- `UpdateNotebookInstanceInput` (`api_op_UpdateNotebookInstance.go:38-143`) — was missing
+  `InstanceMetadataServiceConfiguration`, `IpAddressType`, `PlatformIdentifier`, `RootAccess` — all
+  four now real via new `NotebookUpdateOptions` fields. `AcceleratorTypes`/
+  `DisassociateAcceleratorTypes` are not modeled: both are marked "no longer supported. Elastic
+  Inference (EI) is no longer available" directly in AWS's own doc comment
+  (`api_op_UpdateNotebookInstance.go:45-49,72-76`) — a real client sending them is a documented
+  no-op on real AWS too, not a gap this backend introduces.
+- `ListNotebookInstancesInput` (`api_op_ListNotebookInstances.go:31-90`) — was missing **9 of 12**
+  fields, only `NextToken`/`StatusEquals`/`NameContains` existed:
+  `AdditionalCodeRepositoryEquals`, `CreationTimeAfter`, `CreationTimeBefore`,
+  `DefaultCodeRepositoryContains`, `LastModifiedTimeAfter`, `LastModifiedTimeBefore`, `MaxResults`,
+  `NotebookInstanceLifecycleConfigNameContains`, `SortBy`/`SortOrder`. All now real via a new
+  `ListNotebookInstancesParams`/`matchesNotebookParams`/`notebookInstanceSortLess`, with the
+  documented default sort key (`Name` — `api_op_ListNotebookInstances.go:80`) implemented as
+  stated and `SortOrder`'s undocumented default kept as the disclosed Ascending fallback.
+  `NotebookInstanceSummary` (`types/types.go:16173-16225`) was also missing
+  `AdditionalCodeRepositories`/`DefaultCodeRepository`/`NotebookInstanceLifecycleConfigName`/`Url` —
+  all four now populated.
+- `DeleteNotebookInstanceInput`/`StartNotebookInstanceInput`/`StopNotebookInstanceInput`
+  (`api_op_DeleteNotebookInstance.go:33-41, api_op_StartNotebookInstance.go:31-39, api_op_StopNotebookInstance.go:35-43`) — already matched exactly
+  (`NotebookInstanceName` is each op's sole field).
+- `CreatePresignedNotebookInstanceUrlInput` (`api_op_CreatePresignedNotebookInstanceUrl.go:49-60`)
+  — missing `SessionExpirationDurationInSeconds`. Modeled for wire visibility but disclosed no-op:
+  this backend's presigned URL (below) is a static string with no TTL/session-expiry enforcement
+  mechanism, the same structural gap already disclosed for parity-11's
+  `CreatePresignedMlflowAppUrl`/`CreatePresignedMlflowTrackingServerUrl` and `hub.go`'s
+  `PresignedUrlAccessConfig`.
+
+**Two fabricated-wire-shape bugs found beyond the missing-field diff — both from the campaign's
+"what does the handler read that AWS never sends" question, and both pre-dating this pass:**
+
+1. **`CreateNotebookInstanceInput`/`UpdateNotebookInstanceInput`'s `LifecycleConfigName` wire key is
+   literally `"LifecycleConfigName"`, not `"NotebookInstanceLifecycleConfigName"`** — confirmed
+   directly from the generated protocol code, not the Go struct field name alone: sagemaker uses
+   the `awsjson11` (AWS JSON 1.1 RPC) protocol, and `serializers.go:41852` /`serializers.go:51314`
+   both emit the object key `LifecycleConfigName` for these two ops, while
+   `deserializers.go:117035` and `deserializers.go:84325`'s sibling
+   `NotebookInstanceLifecycleConfigName` case confirm the *response* side really does use the
+   longer name for the same concept — AWS's own request and response field names disagree here.
+   `createNotebookInstanceFullRequest`/the old anonymous Update struct both decoded
+   `NotebookInstanceLifecycleConfigName` from the request body, a key no real SDK client sending
+   `LifecycleConfigName` ever populates: every genuine `CreateNotebookInstance`/
+   `UpdateNotebookInstance` call that set a lifecycle config was silently ignored by this backend.
+   Caught by a real-client round-trip test (`TestHandler_ListNotebookInstances_FilterSortPage_
+   RealClient`) failing with the lifecycle-config-name field coming back empty despite being set on
+   `Create`, then confirmed against `serializers.go` directly rather than assumed from the Go field
+   name. Fixed by correcting both structs' `json` tags to `LifecycleConfigName`.
+2. **`NotebookInstance.URL` was declared on the model and read by both `DescribeNotebookInstance`
+   and `NotebookInstanceSummary`'s response builders, but never populated anywhere except the
+   already-existing `CreatePresignedNotebookInstanceURL` call** — so `Describe`/`ListNotebookInstances`'
+   `Url` field was unconditionally empty for every notebook instance that had never had a presigned
+   URL requested for it, i.e. almost always in practice. Fixed by extracting the existing URL
+   construction (`"https://" + arn + ".notebook.sagemaker.aws/lab"`) into a shared
+   `notebookInstanceURL` helper and calling it at creation time (`CreateNotebookInstanceFull`, and
+   the otherwise-unused legacy `CreateNotebookInstance`), so `Url` is populated from the moment a
+   notebook instance exists, matching `NotebookInstanceSummary.Url`'s doc comment ("The URL that you
+   use to connect...") rather than only after a separate presigned-URL call.
+
+Both bugs discarded a real field for the entire lifetime of the resource (case 1) or its entire
+existence up to an unrelated later call (case 2) — the same "field decoded/declared but silently
+never populated by the real path" class as parity-11/parity-12's discarded response bodies, just on
+the request-decoding and model-population sides respectively rather than the response-assembly
+side.
+
+**A doc-vs-behavior judgment call:** `ListNotebookInstances`/`ListNotebookInstanceLifecycleConfigs`
+both document a default sort key explicitly (`Name`/`CreationTime` respectively) but neither
+documents a default `SortOrder`. Kept Ascending as the disclosed fallback, consistent with every
+prior pass that hit this same gap (`ListHubs`, `ListPipelines`, parity-11's `ListMlflowApps`/
+`ListMlflowTrackingServers`).
+
+**Disclosures:**
+
+- `DescribeNotebookInstanceOutput.FailureReason` — this backend's notebook FSM (`lifecycle.go`)
+  only ever transitions through Pending/InService/Stopping/Stopped; it never reaches `Failed`, so
+  there is no real failure to report a reason for.
+- `DescribeNotebookInstanceOutput.NetworkInterfaceId` — no VPC ENI-provisioning subsystem exists in
+  this service to generate a real network interface ID from.
+- `UpdateNotebookInstanceInput.AcceleratorTypes`/`DisassociateAcceleratorTypes` — both are AWS's own
+  documented no-ops (Elastic Inference is retired); not modeling them changes nothing a real client
+  can observe.
+- `CreatePresignedNotebookInstanceUrlInput.SessionExpirationDurationInSeconds` — accepted for wire
+  shape but has no session-expiry mechanism to enforce against, the same class as parity-11's two
+  Mlflow presigned-URL ops.
+
+**Tests:** three real-`aws-sdk-go-v2`-client round-trip tests added —
+`TestHandler_ListNotebookInstances_FilterSortPage_RealClient` (covers
+`AdditionalCodeRepositoryEquals`/`CreationTimeAfter`/`CreationTimeBefore`/
+`DefaultCodeRepositoryContains`/`NotebookInstanceLifecycleConfigNameContains`/`SortBy`/`SortOrder`/
+`MaxResults`, plus the four new `NotebookInstanceSummary` fields, and is the test that caught bug
+1), `TestHandler_ListNotebookInstanceLifecycleConfigs_FilterSortPage_RealClient` (covers
+`CreationTimeAfter`/`CreationTimeBefore`/`MaxResults`/`NameContains`/`SortBy`/`SortOrder`), and
+`TestHandler_CreateUpdateNotebookInstance_FullFields_RealClient` (covers `IpAddressType`/
+`InstanceMetadataServiceConfiguration` on both Create and Update, and `PlatformIdentifier`/
+`RootAccess` on Update). All pre-existing notebook tests (`TestHandler_NotebookInstanceLifecycle`,
+`TestListNotebookInstances_Filters`, `TestCreateNotebookInstance_Validation`,
+`TestUpdateNotebookInstance_RequiresStoppedState`) still pass unmodified. Verified against unfixed
+code by hand-reverting both bug fixes one at a time — the `LifecycleConfigName` wire-key correction
+(reverted to `NotebookInstanceLifecycleConfigName` in both `createNotebookInstanceFullRequest` and
+`updateNotebookInstanceInput`) and the `nb.URL` population at creation (removed from
+`CreateNotebookInstanceFull`) — confirming each corresponding assertion in
+`TestHandler_ListNotebookInstances_FilterSortPage_RealClient` failed with the predicted symptom
+(lifecycle config name empty / filter returning zero matches; `Url` empty), then restoring;
+`handler_notebook_instances.go`/`notebook_instances.go` verified byte-identical (`md5sum`) to their
+pre-revert state afterward.
+
+Gates for this session: `go build ./services/sagemaker/...`, `go vet ./services/sagemaker/...`,
+`go vet -tags e2e ./services/sagemaker/...`, `go vet -tags integration ./services/sagemaker/...`,
+`gofmt -l ./services/sagemaker` (empty), `go test -race ./services/sagemaker/...`, `go fix -diff
+./services/sagemaker/...` (no diff), and `golangci-lint run ./services/sagemaker/...` all clean;
+`go build ./...` (repo-wide) also clean. Zero `nolint` of any kind added — fixed two `cyclop`
+findings by extracting `matchesNotebookStringFilters`/`matchesNotebookTimeWindows` out of
+`matchesNotebookParams` and `applyNotebookUpdateOptions` out of `UpdateNotebookInstanceFull`, one
+`fieldalignment` finding by reordering `createPresignedNotebookInstanceURLInput`'s fields, one
+`govet shadow` finding in a new test, and several `golines`/`lll` line-length findings (mostly from
+a long shared `imdsConfigRequest` type name pushing struct-tag alignment past 120 columns) by
+shortening the type name and rewrapping the affected lines — rather than suppressing any of them.
+
+**258 of sagemaker's 362 inline structs now remain.** Next by size:
+`handler_images.go` (11), `handler_edge_deployment.go` (11), `handler_hyperpod_scheduling.go` (10).

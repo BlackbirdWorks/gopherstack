@@ -112,8 +112,7 @@ type StorageBackend interface {
 	DescribeNotebookInstance(ctx context.Context, name string) (*NotebookInstance, error)
 	ListNotebookInstances(
 		ctx context.Context,
-		nextToken string,
-		filter ListNotebookInstancesFilter,
+		params ListNotebookInstancesParams,
 	) ([]*NotebookInstance, string)
 	DeleteNotebookInstance(ctx context.Context, name string) error
 	StartNotebookInstance(ctx context.Context, name string) error
