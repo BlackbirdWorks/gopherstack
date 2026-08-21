@@ -205,8 +205,14 @@ type Agent struct {
 	Description                 string         `json:"description,omitempty"`
 	FoundationModel             string         `json:"foundationModel,omitempty"`
 	Instruction                 string         `json:"instruction,omitempty"`
-	RoleARN                     string         `json:"agentResourceRoleArn,omitempty"`
-	IdleSessionTTLInSeconds     int            `json:"idleSessionTTLInSeconds"`
+	// RoleARN is real types.Agent's required "agentResourceRoleArn"
+	// (deserializers.go) despite CreateAgentInput.AgentResourceRoleArn being
+	// optional -- previously tagged omitempty, so an agent created without a
+	// role dropped the key entirely instead of emitting an empty string, a
+	// required field a real client decodes as missing (gopherstack-r80d
+	// batch 7).
+	RoleARN                 string `json:"agentResourceRoleArn"`
+	IdleSessionTTLInSeconds int    `json:"idleSessionTTLInSeconds"`
 }
 
 // AgentSummary is the condensed agent representation used in list responses.
@@ -219,22 +225,35 @@ type AgentSummary struct {
 }
 
 // AgentVersion holds a snapshot version of an agent.
+//
+// IdleSessionTTLInSeconds is real types.AgentVersion's required
+// "idleSessionTTLInSeconds" (deserializers.go) -- previously not a field on
+// this struct at all, the "member with no struct field" class. RoleARN is
+// real types.AgentVersion's required "agentResourceRoleArn" despite
+// CreateAgentInput.AgentResourceRoleArn being optional -- previously tagged
+// omitempty, same class as Agent's own fix above (gopherstack-r80d batch 7).
 type AgentVersion struct {
-	CreatedAt       time.Time `json:"createdAt"`
-	UpdatedAt       time.Time `json:"updatedAt"`
-	AgentID         string    `json:"agentId"`
-	AgentARN        string    `json:"agentArn"`
-	AgentName       string    `json:"agentName"`
-	AgentStatus     string    `json:"agentStatus"`
-	AgentVersion    string    `json:"agentVersion"`
-	Description     string    `json:"description,omitempty"`
-	FoundationModel string    `json:"foundationModel,omitempty"`
-	Instruction     string    `json:"instruction,omitempty"`
-	RoleARN         string    `json:"agentResourceRoleArn,omitempty"`
+	CreatedAt               time.Time `json:"createdAt"`
+	UpdatedAt               time.Time `json:"updatedAt"`
+	AgentID                 string    `json:"agentId"`
+	AgentARN                string    `json:"agentArn"`
+	AgentName               string    `json:"agentName"`
+	AgentStatus             string    `json:"agentStatus"`
+	AgentVersion            string    `json:"agentVersion"`
+	Description             string    `json:"description,omitempty"`
+	FoundationModel         string    `json:"foundationModel,omitempty"`
+	Instruction             string    `json:"instruction,omitempty"`
+	RoleARN                 string    `json:"agentResourceRoleArn"`
+	IdleSessionTTLInSeconds int       `json:"idleSessionTTLInSeconds"`
 }
 
 // AgentVersionSummary is used in list-agent-versions responses.
+//
+// CreatedAt is real types.AgentVersionSummary's required "createdAt"
+// (deserializers.go) -- previously not a field on this struct at all
+// (gopherstack-r80d batch 7).
 type AgentVersionSummary struct {
+	CreatedAt    time.Time `json:"createdAt"`
 	UpdatedAt    time.Time `json:"updatedAt"`
 	AgentName    string    `json:"agentName"`
 	AgentStatus  string    `json:"agentStatus"`
@@ -258,11 +277,16 @@ type AgentActionGroup struct {
 }
 
 // ActionGroupSummary is used in list responses.
+//
+// UpdatedAt is real types.ActionGroupSummary's required "updatedAt"
+// (deserializers.go) -- previously not a field on this struct at all
+// (gopherstack-r80d batch 7).
 type ActionGroupSummary struct {
-	ActionGroupID    string `json:"actionGroupId"`
-	ActionGroupName  string `json:"actionGroupName"`
-	ActionGroupState string `json:"actionGroupState"`
-	Description      string `json:"description,omitempty"`
+	UpdatedAt        time.Time `json:"updatedAt"`
+	ActionGroupID    string    `json:"actionGroupId"`
+	ActionGroupName  string    `json:"actionGroupName"`
+	ActionGroupState string    `json:"actionGroupState"`
+	Description      string    `json:"description,omitempty"`
 }
 
 // AliasRouting maps an alias to an agent version.
@@ -286,17 +310,30 @@ type AgentAlias struct {
 }
 
 // AgentAliasSummary is used in list responses.
+//
+// CreatedAt and UpdatedAt are real types.AgentAliasSummary's required
+// "createdAt"/"updatedAt" (deserializers.go) -- previously not fields on
+// this struct at all (gopherstack-r80d batch 7).
 type AgentAliasSummary struct {
-	AgentAliasID     string `json:"agentAliasId"`
-	AgentAliasName   string `json:"agentAliasName"`
-	AgentAliasStatus string `json:"agentAliasStatus"`
-	Description      string `json:"description,omitempty"`
+	CreatedAt        time.Time `json:"createdAt"`
+	UpdatedAt        time.Time `json:"updatedAt"`
+	AgentAliasID     string    `json:"agentAliasId"`
+	AgentAliasName   string    `json:"agentAliasName"`
+	AgentAliasStatus string    `json:"agentAliasStatus"`
+	Description      string    `json:"description,omitempty"`
 }
 
 // AgentCollaborator links two agents for multi-agent collaboration.
+//
+// UpdatedAt is real types.AgentCollaborator/AgentCollaboratorSummary's
+// required "lastUpdatedAt" (deserializers.go) -- this struct previously
+// tagged it "updatedAt", a key no real deserializer for this shape reads,
+// so a real client's LastUpdatedAt decoded nil on every op in this family
+// (Associate/Get/Update/ListAgentCollaborators all share this struct)
+// (gopherstack-r80d batch 7).
 type AgentCollaborator struct {
 	CreatedAt                time.Time      `json:"createdAt"`
-	UpdatedAt                time.Time      `json:"updatedAt"`
+	UpdatedAt                time.Time      `json:"lastUpdatedAt"`
 	AgentDescriptor          map[string]any `json:"agentDescriptor,omitempty"`
 	AgentID                  string         `json:"agentId"`
 	AgentVersion             string         `json:"agentVersion"`
@@ -420,9 +457,16 @@ type Flow struct {
 }
 
 // FlowSummary is used in list responses.
+//
+// Arn and CreatedAt are real types.FlowSummary required members
+// (deserializers.go, awsRestjson1_deserializeDocumentFlowSummary) --
+// previously not fields on this struct at all, the "member with no struct
+// field" class (gopherstack-r80d batch 7).
 type FlowSummary struct {
+	CreatedAt   time.Time `json:"createdAt"`
 	UpdatedAt   time.Time `json:"updatedAt"`
 	FlowID      string    `json:"id"`
+	FlowARN     string    `json:"arn"`
 	Name        string    `json:"name"`
 	Status      string    `json:"status"`
 	Description string    `json:"description,omitempty"`
@@ -430,6 +474,12 @@ type FlowSummary struct {
 }
 
 // FlowVersion is a snapshot of a flow.
+//
+// RoleARN is real Create/GetFlowVersionOutput's required "executionRoleArn"
+// (api_op_CreateFlowVersion.go/api_op_GetFlowVersion.go) -- previously not a
+// field on this struct at all, the "member with no struct field" class
+// (gopherstack-r80d batch 7). Populated by snapshotting the parent Flow's
+// already-stored RoleARN at version-creation time, not fabricated.
 type FlowVersion struct {
 	CreatedAt   time.Time      `json:"createdAt"`
 	Definition  map[string]any `json:"definition,omitempty"`
@@ -439,6 +489,7 @@ type FlowVersion struct {
 	Status      string         `json:"status"`
 	Version     string         `json:"version"`
 	Description string         `json:"description,omitempty"`
+	RoleARN     string         `json:"executionRoleArn"`
 }
 
 // FlowVersionSummary is used in list responses. Real types.FlowVersionSummary
@@ -515,8 +566,15 @@ type PromptSummary struct {
 }
 
 // PromptVersion is an immutable snapshot of a prompt.
+//
+// UpdatedAt is real CreatePromptVersionOutput/GetPromptVersionOutput's
+// required "updatedAt" (api_op_CreatePromptVersion.go) -- previously not a
+// field on this struct at all, the "member with no struct field" class
+// (gopherstack-r80d batch 7). Set equal to CreatedAt at creation time, since
+// a prompt version is an immutable snapshot that's never updated afterward.
 type PromptVersion struct {
 	CreatedAt   time.Time        `json:"createdAt"`
+	UpdatedAt   time.Time        `json:"updatedAt"`
 	PromptARN   string           `json:"arn"`
 	PromptID    string           `json:"id"`
 	Name        string           `json:"name"`

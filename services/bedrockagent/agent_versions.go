@@ -49,17 +49,18 @@ func (b *InMemoryBackend) newAgentVersionLocked(agentID, description string) (*A
 
 	now := time.Now().UTC()
 	av := &AgentVersion{
-		AgentID:         agentID,
-		AgentARN:        a.AgentARN,
-		AgentName:       a.AgentName,
-		AgentVersion:    version,
-		AgentStatus:     agentStatusPrepared,
-		FoundationModel: a.FoundationModel,
-		Instruction:     a.Instruction,
-		RoleARN:         a.RoleARN,
-		Description:     description,
-		CreatedAt:       now,
-		UpdatedAt:       now,
+		AgentID:                 agentID,
+		AgentARN:                a.AgentARN,
+		AgentName:               a.AgentName,
+		AgentVersion:            version,
+		AgentStatus:             agentStatusPrepared,
+		FoundationModel:         a.FoundationModel,
+		Instruction:             a.Instruction,
+		RoleARN:                 a.RoleARN,
+		IdleSessionTTLInSeconds: a.IdleSessionTTLInSeconds,
+		Description:             description,
+		CreatedAt:               now,
+		UpdatedAt:               now,
 	}
 
 	b.agentVersions.Put(av)
@@ -173,8 +174,6 @@ func (b *InMemoryBackend) deleteSubResourcesLocked(agentID, version string) {
 }
 
 // ListAgentVersions returns paginated agent version summaries.
-//
-//nolint:dupl // structurally mirrors ListFlowVersions but filters a distinct table/type
 func (b *InMemoryBackend) ListAgentVersions(
 	_ context.Context, agentID string, maxResults int, nextToken string,
 ) ([]*AgentVersionSummary, string, error) {
@@ -198,6 +197,7 @@ func (b *InMemoryBackend) ListAgentVersions(
 			AgentVersion: av.AgentVersion,
 			AgentStatus:  av.AgentStatus,
 			Description:  av.Description,
+			CreatedAt:    av.CreatedAt,
 			UpdatedAt:    av.UpdatedAt,
 		})
 	}

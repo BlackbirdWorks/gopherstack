@@ -138,9 +138,17 @@ from the ranked table) as future batches clear more of it.
 | resiliencehub | 94 | 55 (ops with required fields) | yes (2: `ListAppVersionResources`/`ListUnsupportedAppVersionResources`, same `resolutionId` omitempty bug) | gopherstack-r80d batch 6 |
 | transfer | 69 | 52 (ops with required fields) | 0 (clean; already field-diffed against the pinned SDK multiple times, including a prior pass that fixed this exact bug class in the Start* op family) | gopherstack-r80d batch 6 |
 | guardduty | 65 | 44 (ops with required fields) | 0 (clean; read end to end, one near-miss (`GetMemberDetectors`'s wire key genuinely is `"members"` despite the SDK's `MemberDataSourceConfigurations` Go field name -- confirmed via the deserializer's own key-switch before flagging, not just the Go struct name) | gopherstack-r80d batch 6 |
+| omics | 182 | 40 | yes (4: `CreateAnnotationStore.VersionName`, `AnnotationStoreVersion.Id`/`Name` wire key, `MultipartReadSetUpload.ReferenceArn` omitempty, `VariantStore.SseConfig`) | gopherstack-r80d batch 7 |
+| bedrockagent | 154 | 66 (ops with required fields) | yes (8: see batch-7 note below) | gopherstack-r80d batch 7 |
 
-16 services settled, 1247 required output fields read end to end, 24 bugs
-found across the first 9 (per gopherstack-r80d's brief); verifiedpermissions,
+18 services settled, 1583 required output fields read end to end. Batch 7
+(omics + bedrockagent) added 12 more bugs (omics 4, bedrockagent 8) on top
+of whatever the prior batches' running total was -- this file's own running
+count was already internally inconsistent between "24" and the bd issue's
+own comment stating "34" before this batch touched it; not reconciled here,
+out of this batch's scope, count bugs from the per-service rows above if
+you need an exact figure. Earlier history: 24 bugs found across the first 9
+(per gopherstack-r80d's brief); verifiedpermissions,
 grafana and identitystore (batch 4) came back clean; pinpoint (batch 5) added
 one more of the empty-body-204 class first seen in lambda's
 `DeleteCapacityProvider` (batch 1); bedrock (batch 6) added 9 more, all in
@@ -205,6 +213,45 @@ own request parser cannot decode at all -- a real SDK client's
 CreateEvaluationJob 400s today whenever it supplies real union content,
 independent of this batch's fixes.
 
+### bedrockagent (batch 7): 8 bugs, all in nested domain-struct required members the flat op-scan misses
+
+154 required fields / 66 ops-with-required per `cmd/requiredoutputfields`,
+but that count only reflects each op's own top-level `<Op>Output` struct.
+bedrockagent's real wire shape is almost entirely "one wrapper key = the
+whole nested domain object" (`{"agent": {...}}`, `{"agentCollaborator":
+{...}}`, etc. -- the same structural pattern pinpoint's batch 5 found), so
+the flat op-level scan undercounts the real required surface substantially.
+Read all 66 ops end to end AND every domain struct (`Agent`, `AgentVersion`,
+`AgentAlias`, `AgentCollaborator`, `AgentActionGroup`, `DataSource`,
+`KnowledgeBase`, `Flow`, `FlowVersion`, `FlowAlias`, `Prompt`,
+`PromptVersion`) plus their `*Summary` List-element siblings against their
+real SDK types directly -- 6 of the 8 bugs found were only visible this way,
+not from the tool's op list alone. All 8: `FlowVersion.RoleARN`
+(`executionRoleArn`, missing field), `FlowSummary.Arn`/`CreatedAt` (missing
+fields), `PromptVersion.UpdatedAt` (missing field), `AgentCollaborator`'s
+`UpdatedAt` tagged the wrong wire key (`updatedAt` vs real `lastUpdatedAt`,
+affecting Associate/Get/Update/ListAgentCollaborators), `AgentVersion`'s
+`IdleSessionTTLInSeconds` (missing field) and `RoleARN` (wrongly
+`omitempty`), `AgentVersionSummary.CreatedAt` (missing field),
+`ActionGroupSummary.UpdatedAt` (missing field), `AgentAliasSummary.CreatedAt`/
+`UpdatedAt` (missing fields). All proven via real `aws-sdk-go-v2/service/
+bedrockagent` client round trips (`services/bedrockagent/
+wire_output_required_r80d_test.go`), each hand-reverted/confirmed-failing/
+restored, md5sum-verified byte-identical. See `services/bedrockagent/
+PARITY.md`'s 2026-08-21 entries for full SDK file:line citations.
+
+One finding NOT counted as a bug: `Agent.RoleARN`
+(`agentResourceRoleArn`) was also wrongly `omitempty` on a required field,
+structurally identical to the `ReferenceArn`-class bug fixed elsewhere in
+this campaign (optional on the input, required on the output) -- but unlike
+the counted bugs above, this one was left unproven: confirming a real SDK
+client can actually trigger the omission (rather than some other codepath
+always filling the value first) needs more than the round-trip technique
+this campaign standardizes on, and was deprioritized given the batch's time
+budget. Fixed anyway (harmless either way) but not claimed as proven --
+see `services/bedrockagent/PARITY.md`'s Notes section for the full
+reasoning.
+
 ### Why pinpoint's density is 120/122 and not a new bug class
 
 Read end to end (all 122 ops, all 120 required fields) — see
@@ -245,8 +292,6 @@ against a pinned `aws-sdk-go-v2` module; opsworks/qldb/qldbsession excluded
 
 ```
  459  sagemaker                 ops=403  ops-with-required=188
- 182  omics                     ops=107  ops-with-required=40
- 154  bedrockagent              ops=75   ops-with-required=66
   88  cleanrooms                ops=100  ops-with-required=83
   60  s3tables                  ops=49   ops-with-required=28
   55  codecommit                ops=79   ops-with-required=31
@@ -325,13 +370,17 @@ Notes on the top of this table for the next batch:
   conversion per gopherstack-569k's note for the input-side sweep — same
   caution likely applies here; check for an in-flight conversion before
   starting.
-- **omics** was, at the time this file was written, being actively edited by
-  a sibling agent's over-wide-List sweep (`services/omics/*` uncommitted).
-  Check `git status` before touching it.
-- **bedrockagent** (154, 66 ops) is now the largest remaining single-service
-  reading commitment after sagemaker/omics; **bedrock settled (batch 6)** —
-  do not re-derive, see the settled-services table above and
-  services/bedrock/PARITY.md's 2026-08-20 entries.
+- **omics settled (batch 7)** — do not re-derive, see the settled-services
+  table above and services/omics/PARITY.md's 2026-08-21 entries. The
+  concurrent sibling agent's over-wide-List sweep this file previously
+  warned about had already finished and committed by the time batch 7
+  started (git status was clean).
+- **bedrockagent settled (batch 7)** — do not re-derive, see the
+  settled-services table above and services/bedrockagent/PARITY.md's
+  2026-08-21 entries. **bedrock** (a different service, batch 6) — do not
+  re-derive that either, see services/bedrock/PARITY.md's 2026-08-20 entries.
+- **cleanrooms** (88, 100 ops) is now the largest remaining single-service
+  reading commitment after sagemaker.
 - **pinpoint settled (batch 5)** — see the settled-services table above for
   why its 120/122 density was structural (single httpPayload-style body
   member per op), not many per-op scalar checks. Don't re-derive; one bug

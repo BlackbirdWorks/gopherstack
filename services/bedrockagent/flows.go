@@ -142,10 +142,12 @@ func (b *InMemoryBackend) ListFlows(
 		f, _ := b.flows.Get(id)
 		out = append(out, &FlowSummary{
 			FlowID:      f.FlowID,
+			FlowARN:     f.FlowARN,
 			Name:        f.Name,
 			Status:      f.Status,
 			Description: f.Description,
 			Version:     f.Version,
+			CreatedAt:   f.CreatedAt,
 			UpdatedAt:   f.UpdatedAt,
 		})
 	}
@@ -205,6 +207,7 @@ func (b *InMemoryBackend) CreateFlowVersion(
 		Definition:  f.Definition,
 		Description: description,
 		CreatedAt:   time.Now().UTC(),
+		RoleARN:     f.RoleARN,
 	}
 
 	b.flowVersions.Put(fv)
@@ -253,8 +256,6 @@ func (b *InMemoryBackend) DeleteFlowVersion(_ context.Context, flowID, flowVersi
 }
 
 // ListFlowVersions returns paginated flow version summaries.
-//
-//nolint:dupl // structurally mirrors ListAgentVersions but filters a distinct table/type
 func (b *InMemoryBackend) ListFlowVersions(
 	_ context.Context, flowID string, maxResults int, nextToken string,
 ) ([]*FlowVersionSummary, string, error) {
