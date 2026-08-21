@@ -2323,3 +2323,248 @@ campaign's standing instruction never to write `pending` or otherwise touch it c
 **208 of sagemaker's 362 inline structs now remain.** Next by size (tied):
 `handler_monitoring_schedules.go` (7), `handler_model_cards.go` (7), `handler_jobs.go` (7),
 `handler_inference_experiments.go` (7).
+
+## parity-17 (2026-08-21, gopherstack-oc9v): Job/ModelCard/MonitoringSchedule/InferenceExperiment inline-struct sweep
+
+Eleventh pass of the gopherstack-oc9v campaign. Per parity-16's boundary note ("208 of sagemaker's
+362 inline structs now remain ... `handler_monitoring_schedules.go` (7), `handler_model_cards.go`
+(7), `handler_jobs.go` (7), `handler_inference_experiments.go` (7)"), this pass took all four
+tied-at-7 files, each verified by `grep -c 'var req struct {' <file>.go` = 7 before starting. All 28
+were converted to named types and wire-audited field-by-field against the pinned SDK (`v1.263.2`,
+confirmed from `go.mod`, matching prior passes). **180 of sagemaker's 362 inline structs now
+remain** (362 − 19 − 19 − 15 − 14 − 14 − 12 − 11 − 11 − 10 − 9 − 9 − 7 − 7 − 7 − 7), confirmed by
+`grep -rc 'var req struct {' services/sagemaker/*.go` summed, not arithmetic; all four files now
+have zero.
+
+**`handler_jobs.go` (generic Job/JobSchemaVersion family) — already correct going in.** Every field
+of `CreateJobInput`/`DescribeJobInput`/`DeleteJobInput`/`StopJobInput`/`ListJobsInput`/
+`DescribeJobSchemaVersionInput`/`ListJobSchemaVersionsInput` was already decoded, including
+`ListJobs`' four time filters, which were already `*float64`/`epochPtr` — this family was added in
+an earlier SDK-bump pass (see the file's own `aiAndGenericJobOpsSupported` doc comment) that had
+already applied this campaign's time-filter lesson before parity-16 even discovered the bug
+elsewhere. `jobs.go`'s pre-existing comments already cite `deserializers.go`/doc text directly. This
+pass only converted the 7 anonymous structs to named types (`createJobInput`, `describeJobInput`,
+`deleteJobInput`, `stopJobInput`, `listJobsInput`, `describeJobSchemaVersionInput`,
+`listJobSchemaVersionsInput`) for tooling visibility — zero field changes, zero new bugs found. This
+is the campaign's first pass to convert a fully-correct family without finding anything: recorded
+here as a control data point, not an oversight.
+
+**`handler_model_cards.go` (ModelCard family) — the largest gap found this pass.** Full detail:
+
+- `CreateModelCardInput` (`api_op_CreateModelCard.go:32-66`) — was missing **required**
+  `ModelCardStatus` entirely (the handler hardcoded every card to `"Draft"`, silently discarding
+  whatever status a real client sent) and optional `SecurityConfig` (`types.ModelCardSecurityConfig`,
+  one member, `KmsKeyId`). Fixed: `ModelCardStatus` is now read, validated against
+  `types.ModelCardStatus`'s real values (`Draft`/`PendingReview`/`Approved`/`Archived`,
+  `types/enums.go:5910-5913`), and stored; `SecurityConfig` is stored and echoed back on Describe.
+- `DescribeModelCardInput` (`api_op_DescribeModelCard.go:36-59`) — was missing optional
+  `ModelCardVersion` and `IncludedData` (`types.IncludedData`: `AllData`/`MetadataOnly`,
+  `types/enums.go:4314-4315`). `ModelCardVersion` now honors the current (only tracked) version and
+  returns `ResourceNotFound` for any other, matching parity-15's `ClusterSchedulerConfigVersion`
+  precedent. `IncludedData=MetadataOnly` now genuinely sanitizes `Content` down to the five JSON
+  paths the op's own doc comment lists (`model_overview.model_id`/`model_overview.model_name`/
+  `intended_uses.risk_rating`/`model_package_details.model_package_group_name`/
+  `model_package_details.model_package_arn`) rather than accepting the parameter and doing nothing —
+  a real client requesting `MetadataOnly` previously received the full, un-redacted `Content` back,
+  including whatever sensitive fields it contained.
+- `UpdateModelCardInput` (`api_op_UpdateModelCard.go:31-59`) — was missing `ModelCardStatus`
+  entirely, so no real client could ever approve/archive a model card through this emulator. Its doc
+  comment states "You cannot update both model card content and model card status in a single
+  call" — enforced now (mutual-exclusion `ValidationException`). A status-only update does not bump
+  `ModelCardVersion` (real versioning tracks content revisions, not approval-workflow transitions);
+  a content update still increments it, matching pre-existing behavior.
+- `ListModelCardsInput` (`api_op_ListModelCards.go:30-59`) — was missing all 8 optional fields, only
+  `NextToken` existed: `CreationTimeAfter`, `CreationTimeBefore`, `MaxResults`, `ModelCardStatus`,
+  `NameContains`, `SortBy`, `SortOrder`. All seven now real via `ListModelCardsParams`/
+  `matchesModelCardListParams`/`sortModelCardsByParams`. Neither `SortBy` nor `SortOrder` has a
+  documented default; kept as the disclosed `CreationTime`/Ascending fallback, this campaign's
+  recurring precedent for undocumented cases. **A fabricated response field found and removed:**
+  the pre-existing summary map included a `"ModelCardVersion"` key — `ModelCardSummary`
+  (`types/types.go`) has no such member at all; only its sibling `ModelCardVersionSummary` does.
+  Every real client's `ListModelCards` call previously received an extra field with no wire
+  counterpart.
+- `ListModelCardVersionsInput` (`api_op_ListModelCardVersions.go:30-59`) — was missing all 7 optional
+  filters beyond `ModelCardName`. This backend keeps no historical per-version snapshot (only the
+  card's current state), so the op still returns at most one synthetic entry, but
+  `ModelCardStatus`/`CreationTimeAfter`/`CreationTimeBefore` now genuinely filter that single entry
+  in or out rather than being silently ignored; `SortBy`/`SortOrder`/`MaxResults` are disclosed
+  no-ops for the same one-entry-max reason.
+- `ListModelCardExportJobsInput` (`api_op_ListModelCardExportJobs.go:29-61`) — was missing
+  `CreationTimeAfter`, `CreationTimeBefore`, `ModelCardVersion`, `SortBy`, `SortOrder` (only
+  `ModelCardName`/`ModelCardExportJobNameContains`/`StatusEquals`/`NextToken`/`MaxResults` existed).
+  All five now real via a new `ListModelCardExportJobsParams`/`matchesModelCardExportJobListParams`/
+  `modelCardExportJobSortLess` in `modelcard_export.go` (the sibling file backing this op, not itself
+  one of this pass's four target files, but touched as a necessary consequence). `SortBy` defaults to
+  `CreationTime` (documented); `SortOrder` has no documented default, kept as Ascending.
+
+**Existing test found asserting a wrong shape:** `TestHandler_ListModelCards` asserted
+`assert.EqualValues(t, 1, s["ModelCardVersion"])` against the fabricated field above — the same class
+of finding as parity-12/15's enshrined-bug tests. Updated to assert the field's absence instead.
+
+**`handler_monitoring_schedules.go` (MonitoringSchedule family) — the most severe gap found this
+pass.** `CreateMonitoringScheduleInput.MonitoringScheduleConfig` (`api_op_CreateMonitoringSchedule.go:29-50`)
+is **required** and was never read at all — every real client's monitoring job definition, cron
+schedule expression, and endpoint association was silently discarded, and the resulting
+`MonitoringSchedule` carried none of it. `UpdateMonitoringScheduleInput` had the identical gap
+(`api_op_UpdateMonitoringSchedule.go:28-45`). Both now require the field (`ValidationException` if
+absent — the real client's own `validateOpCreateMonitoringScheduleInput`/
+`validateOpUpdateMonitoringScheduleInput` enforce non-nil-ness the same way, confirmed by reading
+`validators.go` directly; neither validates `MonitoringJobDefinition`/`MonitoringJobDefinitionName`
+as a required oneof beyond that, so this backend doesn't either — an intentionally-empty
+`&smtypes.MonitoringScheduleConfig{}`, as the pre-existing `TestCreateOpsWithTags_RoundTrip` sends,
+still succeeds). `MonitoringScheduleConfig.MonitoringJobDefinition` (`types.MonitoringJobDefinition`)
+is deeply nested (`MonitoringAppSpecification`/`MonitoringInputs`/`MonitoringOutputConfig`/
+`MonitoringResources`/`NetworkConfig`/...) and is carried as opaque `json.RawMessage` passthrough per
+this campaign's established convention for such types — stored and echoed back verbatim on
+Describe/List, never simulated. `ScheduleConfig` (3 flat strings) is modeled directly. `EndpointName`
+(optional on both `DescribeMonitoringScheduleOutput` and `ListMonitoringSchedulesInput`) is
+best-effort derived from `MonitoringInputs[0].EndpointInput.EndpointName` inside the stored raw
+document — the only place this backend ever parses that document's contents.
+
+`ListMonitoringSchedulesInput` (`api_op_ListMonitoringSchedules.go:29-72`) was missing all 11
+optional fields beyond `NextToken`: `CreationTimeAfter`, `CreationTimeBefore`, `EndpointName`,
+`LastModifiedTimeAfter`, `LastModifiedTimeBefore`, `MaxResults`, `MonitoringJobDefinitionName`,
+`MonitoringTypeEquals`, `NameContains`, `SortBy`, `SortOrder`, `StatusEquals`. All now real via
+`ListMonitoringSchedulesParams`/`matchesMonitoringScheduleNameParams`/
+`matchesMonitoringScheduleTimeParams`/`sortMonitoringSchedulesByParams`. **Both `SortBy`
+("`CreationTime` by default") and `SortOrder` ("`Descending` by default") are documented in this
+op's own doc comment** — implemented as documented, this campaign's first op with both defaults
+explicitly stated. **A doc/enum mismatch found:** the doc prose says results can be sorted "by the
+`Status`, `CreationTime`, or `ScheduledTime` field", but the real `MonitoringScheduleSortKey` enum
+(`types/enums.go:6363-6365`) only declares `Name`/`CreationTime`/`Status` — no `ScheduledTime` value
+exists at all. Implemented per the enum, not the prose, per this campaign's standing rule that "a doc
+comment is prose about the API; the enum block is the API."
+
+**`handler_inference_experiments.go` (InferenceExperiment family) — the largest field gap and two
+discarded-response-body bugs found this pass.**
+
+- `CreateInferenceExperimentInput` (`api_op_CreateInferenceExperiment.go:29-90`) was missing all
+  three of its non-`Name`/`Type` **required** fields: `EndpointName`, `ModelVariants`
+  (`[]types.ModelVariantConfig`), `ShadowModeConfig`. No real client could previously create an
+  inference experiment that referenced an actual endpoint, defined actual model variants, or
+  configured an actual shadow split — the emulator accepted the call and silently produced an
+  experiment with none of that. Also missing: optional `DataStorageConfig`, `KmsKey`, `Schedule`.
+  All six now modeled with real Go types (`ModelVariantConfig`/`ModelInfrastructureConfig`/
+  `RealTimeInferenceConfig`/`ShadowModeConfig`/`ShadowModelVariantConfig`/
+  `InferenceExperimentDataStorageConfig`/`CaptureContentTypeHeader`/`InferenceExperimentSchedule`) —
+  all flat/shallow enough not to need `json.RawMessage` passthrough.
+- **`DescribeInferenceExperimentOutput.EndpointMetadata` and `.ModelVariants` are both required**
+  (`api_op_DescribeInferenceExperiment.go:32-46`) and were both entirely absent. `EndpointMetadata`
+  is now freshly computed from the live `Endpoint` store at Describe time (never persisted, so it
+  can never go stale). **`ModelVariants` uses the same wire key on request and response with two
+  different shapes**: the request-side `types.ModelVariantConfig` has no `Status`; the response-side
+  `types.ModelVariantConfigSummary` requires one. This backend stores the request shape
+  (`InferenceExperiment.ModelVariants`, tagged with the persistence-only key `ModelVariantConfigs` to
+  avoid colliding with the real wire name) and projects it into the response shape at marshal time,
+  synthesizing `Status: "InService"` (`types.ModelVariantStatusInService`) since there is no
+  per-variant deployment FSM.
+- **`StopInferenceExperimentOutput.InferenceExperimentArn` and
+  `DeleteInferenceExperimentOutput.InferenceExperimentArn` are both required**
+  (`api_op_StopInferenceExperiment.go:59-65`, `api_op_DeleteInferenceExperiment.go:36-42`) and were
+  both **entirely discarded** — `dispatchMlopsOps` routed both ops through `return nil, true, err`,
+  so every real client's `StopInferenceExperiment`/`DeleteInferenceExperiment` call received an empty
+  response body where a required ARN belonged. Fixed: both handlers now return the ARN; `Delete`'s
+  backend method changed from `error` to `(string, error)`.
+- `StopInferenceExperimentInput.ModelVariantActions` (`map[string]types.ModelVariantAction`) is
+  **required** and was entirely absent — no real client's Promote/Remove/Retain instruction was ever
+  applied. Fixed: `Promote` keeps only that variant, `Remove` drops it, `Retain` is a no-op, applied
+  to the stored variant list. `DesiredModelVariants` (optional) replaces the list outright when
+  supplied. `DesiredState`/`Reason` (both optional) now set the resulting `Status`/`StatusReason`
+  instead of always hardcoding `"Cancelled"`.
+- `UpdateInferenceExperimentInput` was missing `DataStorageConfig`/`ModelVariants`/`Schedule`/
+  `ShadowModeConfig` entirely (only `Description` was ever applied). All four now real.
+- `ListInferenceExperimentsInput` (`api_op_ListInferenceExperiments.go:29-59`) was missing all 10
+  optional fields, only `NextToken` existed. All ten now real via `ListInferenceExperimentsParams`/
+  `matchesInferenceExperimentListParams`/`matchesInferenceExperimentTimeParams`/
+  `sortInferenceExperimentsByParams`. Neither `SortBy` nor `SortOrder` is documented; kept as the
+  disclosed `CreationTime`/Ascending fallback. Also fixed: the summary map's `Type` field (required
+  by `InferenceExperimentSummary`) was previously emitted conditionally (`if e.Type != ""`) instead
+  of unconditionally — harmless in practice since `Type` is required at Create and therefore never
+  actually empty, but corrected to always emit per the real required-ness.
+
+**Disclosed, not modeled:**
+
+- `DescribeModelCardOutput.CreatedBy`/`LastModifiedBy` (`types.UserContext`) — this service models no
+  caller-identity concept anywhere, the same gap already disclosed repeatedly in prior passes.
+- `DescribeModelCardOutput.ModelCardProcessingStatus` — only ever populated during an in-progress
+  deletion; `DeleteModelCard` is synchronous in this backend, so there is never an observable
+  in-progress deletion state.
+- `ListDevicesInput`-class no-ops carried over unchanged from prior passes are not re-listed here.
+- `MonitoringScheduleConfig.MonitoringJobDefinitionName`/`MonitoringType` are modeled (flat fields,
+  used for `ListMonitoringSchedules` filtering) but this backend never actually runs a monitoring
+  job — no periodic execution, no `MonitoringExecutionSummary`, no `FailureReason` — consistent with
+  `DescribeMonitoringScheduleOutput.LastMonitoringExecutionSummary`/`FailureReason` never being
+  populated.
+- `CreateInferenceExperimentInput.DataStorageConfig`/`KmsKey`/`Schedule` are stored and echoed back
+  verbatim but inert: no data-capture or scheduling simulation exists in this backend.
+- `InferenceExperiment.CompletionTime` — `Status` never reaches `"Completed"` in this backend (no
+  experiment-duration FSM), so there is never a real completion timestamp to report; the field is
+  never populated, consistent with disclosing rather than fabricating one.
+
+**Storage-key check:** `ModelCard` (keyed by `ModelCardName`), `MonitoringSchedule` (keyed by
+`MonitoringScheduleName`), and `InferenceExperiment` (keyed by `Name`) all stayed keyed the same;
+none of this pass's new fields changed any table's key shape.
+
+**Enums touched, all read from the constants:** `ModelCardStatus`, `ModelCardSortBy`,
+`ModelCardVersionSortBy`, `ModelCardExportJobSortBy`, `IncludedData` (ModelCard family);
+`ScheduleStatus`, `MonitoringScheduleSortKey`, `MonitoringType` (MonitoringSchedule family, the
+`ScheduledTime` doc/enum mismatch noted above); `InferenceExperimentStatus`,
+`InferenceExperimentStopDesiredState`, `ModelVariantAction`, `ModelVariantStatus`,
+`SortInferenceExperimentsBy` (InferenceExperiment family) — all confirmed mixed-case, none assumed
+by analogy to a sibling.
+
+**Tests:** real-`aws-sdk-go-v2`-client round-trip tests added —
+`TestHandler_CreateModelCard_Status_SecurityConfig_RealClient`,
+`TestHandler_UpdateModelCard_StatusOnly_RealClient`,
+`TestHandler_DescribeModelCard_MetadataOnly_RealClient`,
+`TestHandler_DescribeModelCard_Version_RealClient`,
+`TestHandler_ListModelCards_FilterSortPage_RealClient`,
+`TestHandler_ListModelCardExportJobs_Version_RealClient`,
+`TestHandler_MonitoringScheduleConfig_RealClient`,
+`TestHandler_UpdateMonitoringSchedule_ConfigRequired_RealClient`,
+`TestHandler_ListMonitoringSchedules_FilterSortPage_RealClient`,
+`TestHandler_CreateInferenceExperiment_FullFields_RealClient`,
+`TestHandler_StopInferenceExperiment_Arn_RealClient`,
+`TestHandler_DeleteInferenceExperiment_Arn_RealClient`,
+`TestHandler_ListInferenceExperiments_FilterSortPage_RealClient`. Pre-existing raw-HTTP tests for all
+three now-required-config ops (`CreateModelCard`/`CreateMonitoringSchedule`/
+`CreateInferenceExperiment`) updated to supply the newly-required fields; new
+`_RequiredFieldsEnforced`/`_ConfigRequired` tests added asserting the previously-silent gaps now
+reject. Verified against unfixed code by hand-reverting one representative fix per file (eight
+total) one at a time: `ModelCard`'s `CreateModelCard` ignoring `opts.Status` (confirmed
+`TestHandler_CreateModelCard_Status_SecurityConfig_RealClient` failed with `"Draft"` instead of
+`"Approved"`); the fabricated `ModelCardVersion` summary field re-added (confirmed
+`TestHandler_ListModelCards` failed asserting its absence); `MetadataOnly` sanitization
+short-circuited (confirmed the full, un-redacted `Content` including the secret `training_details`
+field was returned); `CreateMonitoringSchedule`'s config-required check disabled (confirmed a nil
+`MonitoringScheduleConfig` panicked with a nil-pointer dereference rather than a clean 400 — a worse
+symptom than predicted, and confirming the check's necessity all the more); `EndpointName`
+derivation short-circuited to always `""` (confirmed); `ListMonitoringSchedules`' documented
+Descending default flipped to Ascending (confirmed the wrong sort order); `CreateInferenceExperiment`'s
+`ShadowModeConfig`-required check disabled (confirmed only that one subtest of
+`TestHandler_CreateInferenceExperiment_RequiredFieldsEnforced` started passing incorrectly); and
+`applyModelVariantActions`' `Promote` handling disabled (confirmed both variants survived instead of
+only the promoted one) — each restored and `md5sum`-verified byte-identical to its pre-revert state
+afterward.
+
+Gates for this session: `go build ./services/sagemaker/...`, `go vet ./services/sagemaker/...`,
+`go vet -tags e2e ./services/sagemaker/...`, `go vet -tags integration ./services/sagemaker/...`,
+`gofmt -l ./services/sagemaker` (empty), `go test -race ./services/sagemaker/...`, `go fix -diff
+./services/sagemaker/...` (no diff), and `golangci-lint run ./services/sagemaker/...` (0 issues) all
+clean; `go build ./...` (repo-wide) also clean. Two `//nolint:gochecknoglobals` added
+(`modelCardStatusValues`/`modelCardMetadataOnlyPaths` lookup tables), matching this repo's
+pre-existing precedent (`automl_v2.go`/`automl_search.go`/`persistence.go`/`training_plan.go` all
+carry the identical justification) — no cyclop/gocyclo/gocognit/funlen suppressions, which remain
+banned. Also fixed real findings by editing, not suppressing: `fieldalignment -fix` (six structs),
+`golines -m 120 -w` (two files), a `cyclop` finding in `matchesMonitoringScheduleListParams` fixed by
+decomposing it into `matchesMonitoringScheduleNameParams`/`matchesMonitoringScheduleTimeParams`
+rather than suppressed, a `revive var-naming` rename (`JsonContentTypes` field → `JSONContentTypes`,
+JSON tag unchanged), and two `govet shadow` findings in test files (renamed shadowing `err`
+variables).
+
+**`last_audit_commit` left at its existing value (`5f91d37c7`)** — not updated this pass, per the
+campaign's standing instruction never to write `pending` or otherwise touch it casually.
+
+**180 of sagemaker's 362 inline structs now remain.** Next by size (tied at 6):
+`handler_trial_components.go`, `handler_training_plan.go`, `handler_partner_apps.go`,
+`handler_labeling.go`, `handler_inference_components.go`, `handler_endpoints.go`.

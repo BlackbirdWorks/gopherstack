@@ -15,7 +15,8 @@ func TestHandler_ModelCardExportJob_Lifecycle(t *testing.T) {
 	h := newTestHandler(t)
 
 	doSageMakerRequest(t, h, "CreateModelCard", map[string]any{
-		"ModelCardName": "my-card",
+		"ModelCardName":   "my-card",
+		"ModelCardStatus": "Draft",
 	})
 
 	createRec := doSageMakerRequest(t, h, "CreateModelCardExportJob", map[string]any{

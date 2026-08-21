@@ -326,9 +326,13 @@ func (h *Handler) dispatchAppImageInferenceExperimentOps(
 
 		return r, true, err
 	case "StopInferenceExperiment":
-		return nil, true, h.handleStopInferenceExperiment(ctx, body)
+		r, err := h.handleStopInferenceExperiment(ctx, body)
+
+		return r, true, err
 	case "DeleteInferenceExperiment":
-		return nil, true, h.handleDeleteInferenceExperiment(ctx, body)
+		r, err := h.handleDeleteInferenceExperiment(ctx, body)
+
+		return r, true, err
 	case "StartInferenceExperiment":
 		r, err := h.handleStartInferenceExperiment(ctx, body)
 

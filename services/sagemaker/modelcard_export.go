@@ -112,12 +112,29 @@ func (b *InMemoryBackend) DescribeModelCardExportJob(
 	return cloneModelCardExportJob(j), nil
 }
 
+// ListModelCardExportJobsParams bundles the filter/sort criteria for
+// ListModelCardExportJobs, mirroring ListModelCardExportJobsInput
+// (api_op_ListModelCardExportJobs.go:29-61).
+type ListModelCardExportJobsParams struct {
+	CreationTimeAfter  *time.Time
+	CreationTimeBefore *time.Time
+	ModelCardName      string
+	NameContains       string
+	StatusEquals       string
+	SortBy             string
+	SortOrder          string
+	NextToken          string
+	ModelCardVersion   int32
+	MaxResults         int32
+}
+
 // ListModelCardExportJobs lists export jobs for a model card, optionally
-// filtered by name-contains and status, sorted by creation time.
+// filtered and sorted per params. SortBy defaults to CreationTime (the real
+// op's documented default); SortOrder has no documented default and is kept
+// as Ascending, this campaign's recurring undocumented-default fallback.
 func (b *InMemoryBackend) ListModelCardExportJobs(
 	ctx context.Context,
-	modelCardName, nameContains, statusEquals, nextToken string,
-	maxResults int32,
+	params ListModelCardExportJobsParams,
 ) ([]*ModelCardExportJob, string) {
 	region := getRegion(ctx, b.region)
 
@@ -127,22 +144,61 @@ func (b *InMemoryBackend) ListModelCardExportJobs(
 	list := make([]*ModelCardExportJob, 0)
 
 	for _, j := range b.modelCardExportJobsStoreRO(region).All() {
-		if modelCardName != "" && j.ModelCardName != modelCardName {
-			continue
-		}
-
-		if nameContains != "" && !strings.Contains(j.ModelCardExportJobName, nameContains) {
-			continue
-		}
-
-		if statusEquals != "" && j.Status != statusEquals {
+		if !matchesModelCardExportJobListParams(j, params) {
 			continue
 		}
 
 		list = append(list, cloneModelCardExportJob(j))
 	}
 
-	sort.Slice(list, func(i, j int) bool { return list[i].CreatedAt.Before(list[j].CreatedAt) })
+	sort.Slice(list, func(i, k int) bool { return modelCardExportJobSortLess(list[i], list[k], params) })
 
-	return paginateSlice(list, nextToken, maxResults)
+	return paginateSlice(list, params.NextToken, params.MaxResults)
+}
+
+func matchesModelCardExportJobListParams(j *ModelCardExportJob, params ListModelCardExportJobsParams) bool {
+	if params.ModelCardName != "" && j.ModelCardName != params.ModelCardName {
+		return false
+	}
+
+	if params.NameContains != "" && !strings.Contains(j.ModelCardExportJobName, params.NameContains) {
+		return false
+	}
+
+	if params.StatusEquals != "" && j.Status != params.StatusEquals {
+		return false
+	}
+
+	if params.ModelCardVersion != 0 && j.ModelCardVersion != int(params.ModelCardVersion) {
+		return false
+	}
+
+	if params.CreationTimeAfter != nil && !j.CreatedAt.After(*params.CreationTimeAfter) {
+		return false
+	}
+
+	if params.CreationTimeBefore != nil && !j.CreatedAt.Before(*params.CreationTimeBefore) {
+		return false
+	}
+
+	return true
+}
+
+func modelCardExportJobSortLess(a, b *ModelCardExportJob, params ListModelCardExportJobsParams) bool {
+	var less bool
+
+	switch params.SortBy {
+	case keyGenericName:
+		less = a.ModelCardExportJobName < b.ModelCardExportJobName
+	case keyStatus:
+		less = a.Status < b.Status
+	default:
+		less = a.CreatedAt.Before(b.CreatedAt)
+	}
+
+	if params.SortOrder == sortOrderDescending {
+		return !less
+	}
+
+	return less
 }

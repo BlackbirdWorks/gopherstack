@@ -72,15 +72,20 @@ func (h *Handler) dispatchJobOps(ctx context.Context, op string, body []byte) ([
 	return nil, false, nil
 }
 
+// createJobInput mirrors CreateJobInput (api_op_CreateJob.go:29-63):
+// JobCategory/JobConfigDocument/JobConfigSchemaVersion/JobName/RoleArn are
+// all required; Tags is the sole optional member.
+type createJobInput struct {
+	JobCategory            string      `json:"JobCategory"`
+	JobConfigDocument      string      `json:"JobConfigDocument"`
+	JobConfigSchemaVersion string      `json:"JobConfigSchemaVersion"`
+	JobName                string      `json:"JobName"`
+	RoleArn                string      `json:"RoleArn"`
+	Tags                   []tagObject `json:"Tags"`
+}
+
 func (h *Handler) handleCreateJob(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		JobCategory            string      `json:"JobCategory"`
-		JobConfigDocument      string      `json:"JobConfigDocument"`
-		JobConfigSchemaVersion string      `json:"JobConfigSchemaVersion"`
-		JobName                string      `json:"JobName"`
-		RoleArn                string      `json:"RoleArn"`
-		Tags                   []tagObject `json:"Tags"`
-	}
+	var req createJobInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -101,11 +106,15 @@ func (h *Handler) handleCreateJob(ctx context.Context, body []byte) ([]byte, err
 	return json.Marshal(map[string]string{keyJobArn: j.JobArn})
 }
 
+// describeJobInput mirrors DescribeJobInput (api_op_DescribeJob.go:27-38):
+// both members required.
+type describeJobInput struct {
+	JobCategory string `json:"JobCategory"`
+	JobName     string `json:"JobName"`
+}
+
 func (h *Handler) handleDescribeJob(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		JobCategory string `json:"JobCategory"`
-		JobName     string `json:"JobName"`
-	}
+	var req describeJobInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -123,11 +132,15 @@ func (h *Handler) handleDescribeJob(ctx context.Context, body []byte) ([]byte, e
 	return json.Marshal(j)
 }
 
+// deleteJobInput mirrors DeleteJobInput (api_op_DeleteJob.go:27-38): both
+// members required.
+type deleteJobInput struct {
+	JobCategory string `json:"JobCategory"`
+	JobName     string `json:"JobName"`
+}
+
 func (h *Handler) handleDeleteJob(ctx context.Context, body []byte) error {
-	var req struct {
-		JobCategory string `json:"JobCategory"`
-		JobName     string `json:"JobName"`
-	}
+	var req deleteJobInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -140,11 +153,15 @@ func (h *Handler) handleDeleteJob(ctx context.Context, body []byte) error {
 	return h.Backend.DeleteJob(ctx, req.JobCategory, req.JobName)
 }
 
+// stopJobInput mirrors StopJobInput (api_op_StopJob.go:27-38): both members
+// required.
+type stopJobInput struct {
+	JobCategory string `json:"JobCategory"`
+	JobName     string `json:"JobName"`
+}
+
 func (h *Handler) handleStopJob(ctx context.Context, body []byte) error {
-	var req struct {
-		JobCategory string `json:"JobCategory"`
-		JobName     string `json:"JobName"`
-	}
+	var req stopJobInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -157,20 +174,27 @@ func (h *Handler) handleStopJob(ctx context.Context, body []byte) error {
 	return h.Backend.StopJob(ctx, req.JobCategory, req.JobName)
 }
 
+// listJobsInput mirrors ListJobsInput (api_op_ListJobs.go:29-70): JobCategory
+// is the sole required member. The four time filters are awsjson1.1
+// epoch-second numbers on the wire (confirmed by this campaign's
+// repo-spanning time-decode bug, parity-16) — decoded as *float64, never
+// *time.Time.
+type listJobsInput struct {
+	CreationTimeAfter      *float64 `json:"CreationTimeAfter"`
+	CreationTimeBefore     *float64 `json:"CreationTimeBefore"`
+	LastModifiedTimeAfter  *float64 `json:"LastModifiedTimeAfter"`
+	LastModifiedTimeBefore *float64 `json:"LastModifiedTimeBefore"`
+	JobCategory            string   `json:"JobCategory"`
+	NameContains           string   `json:"NameContains"`
+	StatusEquals           string   `json:"StatusEquals"`
+	NextToken              string   `json:"NextToken"`
+	SortBy                 string   `json:"SortBy"`
+	SortOrder              string   `json:"SortOrder"`
+	MaxResults             int32    `json:"MaxResults"`
+}
+
 func (h *Handler) handleListJobs(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		CreationTimeAfter      *float64 `json:"CreationTimeAfter"`
-		CreationTimeBefore     *float64 `json:"CreationTimeBefore"`
-		LastModifiedTimeAfter  *float64 `json:"LastModifiedTimeAfter"`
-		LastModifiedTimeBefore *float64 `json:"LastModifiedTimeBefore"`
-		JobCategory            string   `json:"JobCategory"`
-		NameContains           string   `json:"NameContains"`
-		StatusEquals           string   `json:"StatusEquals"`
-		NextToken              string   `json:"NextToken"`
-		SortBy                 string   `json:"SortBy"`
-		SortOrder              string   `json:"SortOrder"`
-		MaxResults             int32    `json:"MaxResults"`
-	}
+	var req listJobsInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -216,11 +240,17 @@ func (h *Handler) handleListJobs(ctx context.Context, body []byte) ([]byte, erro
 	return listResp("JobSummaries", items, nextToken)
 }
 
+// describeJobSchemaVersionInput mirrors DescribeJobSchemaVersionInput
+// (api_op_DescribeJobSchemaVersion.go:27-38): JobCategory required,
+// JobConfigSchemaVersion optional ("If not specified, the latest version is
+// returned").
+type describeJobSchemaVersionInput struct {
+	JobCategory            string `json:"JobCategory"`
+	JobConfigSchemaVersion string `json:"JobConfigSchemaVersion"`
+}
+
 func (h *Handler) handleDescribeJobSchemaVersion(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		JobCategory            string `json:"JobCategory"`
-		JobConfigSchemaVersion string `json:"JobConfigSchemaVersion"`
-	}
+	var req describeJobSchemaVersionInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -242,12 +272,17 @@ func (h *Handler) handleDescribeJobSchemaVersion(ctx context.Context, body []byt
 	})
 }
 
+// listJobSchemaVersionsInput mirrors ListJobSchemaVersionsInput
+// (api_op_ListJobSchemaVersions.go:27-40): JobCategory required, MaxResults/
+// NextToken optional.
+type listJobSchemaVersionsInput struct {
+	JobCategory string `json:"JobCategory"`
+	NextToken   string `json:"NextToken"`
+	MaxResults  int32  `json:"MaxResults"`
+}
+
 func (h *Handler) handleListJobSchemaVersions(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		JobCategory string `json:"JobCategory"`
-		NextToken   string `json:"NextToken"`
-		MaxResults  int32  `json:"MaxResults"`
-	}
+	var req listJobSchemaVersionsInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)

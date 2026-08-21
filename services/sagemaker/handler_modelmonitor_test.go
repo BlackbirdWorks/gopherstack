@@ -216,7 +216,10 @@ func TestHandler_UpdateMonitoringAlert_CreatesThenUpdates(t *testing.T) {
 
 	h := newTestHandler(t)
 
-	doSageMakerRequest(t, h, "CreateMonitoringSchedule", map[string]any{"MonitoringScheduleName": "mm-sched"})
+	doSageMakerRequest(t, h, "CreateMonitoringSchedule", map[string]any{
+		"MonitoringScheduleName":   "mm-sched",
+		"MonitoringScheduleConfig": map[string]any{},
+	})
 
 	rec := doSageMakerRequest(t, h, "UpdateMonitoringAlert", map[string]any{
 		"MonitoringScheduleName": "mm-sched",
@@ -271,7 +274,10 @@ func TestHandler_ListMonitoringAlerts_EmptyForFreshSchedule(t *testing.T) {
 
 	h := newTestHandler(t)
 
-	doSageMakerRequest(t, h, "CreateMonitoringSchedule", map[string]any{"MonitoringScheduleName": "fresh-sched"})
+	doSageMakerRequest(t, h, "CreateMonitoringSchedule", map[string]any{
+		"MonitoringScheduleName":   "fresh-sched",
+		"MonitoringScheduleConfig": map[string]any{},
+	})
 
 	rec := doSageMakerRequest(t, h, "ListMonitoringAlerts", map[string]any{
 		"MonitoringScheduleName": "fresh-sched",
