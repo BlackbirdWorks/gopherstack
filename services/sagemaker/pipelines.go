@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"maps"
 	"sort"
-	"strconv"
+	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -74,18 +74,16 @@ type PipelineExecution struct {
 	StartTime                    time.Time                 `json:"StartTime"`
 	ParallelismConfiguration     *ParallelismConfiguration `json:"ParallelismConfiguration,omitempty"`
 	SelectiveExecutionConfig     *SelectiveExecutionConfig `json:"SelectiveExecutionConfig,omitempty"`
-	PipelineArn                  string                    `json:"PipelineArn"`
+	PipelineExecutionDisplayName string                    `json:"PipelineExecutionDisplayName,omitempty"`
 	PipelineExecutionArn         string                    `json:"PipelineExecutionArn"`
 	PipelineExecutionStatus      string                    `json:"PipelineExecutionStatus"`
-	PipelineExecutionDisplayName string                    `json:"PipelineExecutionDisplayName,omitempty"`
+	PipelineArn                  string                    `json:"PipelineArn"`
 	PipelineExecutionDescription string                    `json:"PipelineExecutionDescription,omitempty"`
 	FailureReason                string                    `json:"FailureReason,omitempty"`
-	// PipelineDefinition is the JSON pipeline definition snapshot captured from
-	// the parent pipeline when this execution started, returned verbatim by
-	// DescribePipelineDefinitionForExecution.
-	PipelineDefinition string              `json:"PipelineDefinition,omitempty"`
-	PipelineParameters []PipelineParameter `json:"PipelineParameters,omitempty"`
-	PipelineVersionID  int64               `json:"PipelineVersionId,omitempty"`
+	PipelineDefinition           string                    `json:"PipelineDefinition,omitempty"`
+	MlflowExperimentName         string                    `json:"MlflowExperimentName,omitempty"`
+	PipelineParameters           []PipelineParameter       `json:"PipelineParameters,omitempty"`
+	PipelineVersionID            int64                     `json:"PipelineVersionId,omitempty"`
 }
 
 func clonePipelineExecution(pe *PipelineExecution) *PipelineExecution {
@@ -172,26 +170,102 @@ func (b *InMemoryBackend) DescribePipeline(
 		result.PipelineDefinition = v.PipelineDefinition
 	}
 
-	var lastRunTime time.Time
-
-	for _, pe := range b.pipelineExecutionsStoreRO(region).All() {
-		if pe.PipelineArn == p.PipelineArn && pe.StartTime.After(lastRunTime) {
-			lastRunTime = pe.StartTime
-		}
-	}
+	lastRunTime := latestExecutionStartTime(b.pipelineExecutionsStoreRO(region).All(), p.PipelineArn)
 
 	return result, lastRunTime, nil
 }
 
-// ListPipelines returns all pipelines.
-func (b *InMemoryBackend) ListPipelines(ctx context.Context, nextToken string) ([]*Pipeline, string) {
+// ListPipelinesParams bundles ListPipelines' filter/sort/pagination input
+// (api_op_ListPipelines.go:29-58, sagemaker@v1.263.2).
+type ListPipelinesParams struct {
+	CreatedAfter       *time.Time
+	CreatedBefore      *time.Time
+	PipelineNamePrefix string
+	NextToken          string
+	SortBy             string
+	SortOrder          string
+	MaxResults         int32
+}
+
+// ListPipelines returns pipelines matching params, sorted per params.SortBy
+// (documented default CreationTime, api_op_ListPipelines.go:51) / SortOrder
+// (no default documented — docs.aws.amazon.com/sagemaker/latest/APIReference/
+// API_ListPipelines.html states none, so ascending is kept as the disclosed
+// fallback, matching ListHubs' precedent), capped at params.MaxResults.
+func (b *InMemoryBackend) ListPipelines(ctx context.Context, params ListPipelinesParams) ([]*Pipeline, string) {
 	b.mu.RLock("ListPipelines")
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
+	tbl := b.pipelinesStoreRO(region)
+	list := make([]*Pipeline, 0, tbl.Len())
 
-	return sagemakerListPaged(b.pipelinesStoreRO(region), nextToken, clonePipeline,
-		func(a, b *Pipeline) bool { return a.PipelineName < b.PipelineName })
+	for _, p := range tbl.All() {
+		if params.PipelineNamePrefix != "" && !strings.HasPrefix(p.PipelineName, params.PipelineNamePrefix) {
+			continue
+		}
+
+		if params.CreatedAfter != nil && !p.CreationTime.After(*params.CreatedAfter) {
+			continue
+		}
+
+		if params.CreatedBefore != nil && !p.CreationTime.Before(*params.CreatedBefore) {
+			continue
+		}
+
+		list = append(list, clonePipeline(p))
+	}
+
+	desc := strings.EqualFold(params.SortOrder, sortOrderDescending)
+	sort.Slice(list, func(i, j int) bool {
+		var less bool
+		if params.SortBy == "Name" {
+			less = list[i].PipelineName < list[j].PipelineName
+		} else {
+			less = list[i].CreationTime.Before(list[j].CreationTime)
+		}
+
+		if desc {
+			return !less
+		}
+
+		return less
+	})
+
+	return paginateSlice(list, params.NextToken, params.MaxResults)
+}
+
+// PipelineLastExecutionTime returns the StartTime of the most recent
+// PipelineExecution belonging to pipelineArn, or the zero time if it has
+// never been run. Exported so handleListPipelines can enrich
+// PipelineSummary.LastExecutionTime (api_op_ListPipelines.go response) without
+// reaching into the backend's internal store tables directly.
+func (b *InMemoryBackend) PipelineLastExecutionTime(ctx context.Context, pipelineArn string) time.Time {
+	b.mu.RLock("PipelineLastExecutionTime")
+	defer b.mu.RUnlock()
+
+	region := getRegion(ctx, b.region)
+
+	return latestExecutionStartTime(b.pipelineExecutionsStoreRO(region).All(), pipelineArn)
+}
+
+// latestExecutionStartTime returns the StartTime of the most recent
+// PipelineExecution belonging to pipelineArn, or the zero time if it has
+// never been run. Shared by DescribePipeline (LastRunTime) and
+// PipelineLastExecutionTime (LastExecutionTime) — both surface the same
+// underlying value under different response field names (api_op_
+// DescribePipeline.go:52, api_op_ListPipelines.go response PipelineSummary.
+// LastExecutionTime).
+func latestExecutionStartTime(execs []*PipelineExecution, pipelineArn string) time.Time {
+	var latest time.Time
+
+	for _, pe := range execs {
+		if pe.PipelineArn == pipelineArn && pe.StartTime.After(latest) {
+			latest = pe.StartTime
+		}
+	}
+
+	return latest
 }
 
 // UpdatePipeline updates a pipeline definition.
@@ -280,47 +354,70 @@ func (b *InMemoryBackend) DescribePipelineExecution(ctx context.Context, execArn
 	return clonePipelineExecution(pe), nil
 }
 
-// ListPipelineExecutions returns executions for a pipeline.
+// ListPipelineExecutionsParams bundles ListPipelineExecutions' filter/sort/
+// pagination input (api_op_ListPipelineExecutions.go:29-62, sagemaker@v1.263.2).
+type ListPipelineExecutionsParams struct {
+	CreatedAfter  *time.Time
+	CreatedBefore *time.Time
+	PipelineName  string
+	NextToken     string
+	SortBy        string
+	SortOrder     string
+	MaxResults    int32
+}
+
+// ListPipelineExecutions returns executions for a pipeline matching params,
+// sorted per params.SortBy (documented default CreationTime, api_op_
+// ListPipelineExecutions.go:51) / SortOrder (no default documented, ascending
+// kept as the disclosed fallback), capped at params.MaxResults.
 func (b *InMemoryBackend) ListPipelineExecutions(
 	ctx context.Context,
-	pipelineName, nextToken string,
+	params ListPipelineExecutionsParams,
 ) ([]*PipelineExecution, string) {
 	b.mu.RLock("ListPipelineExecutions")
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
 
-	p, ok := b.pipelinesStoreRO(region).Get(pipelineName)
+	p, ok := b.pipelinesStoreRO(region).Get(params.PipelineName)
 	execStore := b.pipelineExecutionsStoreRO(region)
 	list := make([]*PipelineExecution, 0, execStore.Len())
 
 	if ok {
 		for _, pe := range execStore.All() {
-			if pe.PipelineArn == p.PipelineArn {
-				list = append(list, clonePipelineExecution(pe))
+			if pe.PipelineArn != p.PipelineArn {
+				continue
 			}
+
+			if params.CreatedAfter != nil && !pe.StartTime.After(*params.CreatedAfter) {
+				continue
+			}
+
+			if params.CreatedBefore != nil && !pe.StartTime.Before(*params.CreatedBefore) {
+				continue
+			}
+
+			list = append(list, clonePipelineExecution(pe))
 		}
 	}
 
+	desc := strings.EqualFold(params.SortOrder, sortOrderDescending)
 	sort.Slice(list, func(i, j int) bool {
-		return list[i].PipelineExecutionArn < list[j].PipelineExecutionArn
+		var less bool
+		if params.SortBy == "PipelineExecutionArn" {
+			less = list[i].PipelineExecutionArn < list[j].PipelineExecutionArn
+		} else {
+			less = list[i].StartTime.Before(list[j].StartTime)
+		}
+
+		if desc {
+			return !less
+		}
+
+		return less
 	})
 
-	startIdx := parseNextToken(nextToken)
-	if startIdx >= len(list) {
-		return []*PipelineExecution{}, ""
-	}
-
-	end := startIdx + sagemakerDefaultPageSize
-	var outToken string
-
-	if end < len(list) {
-		outToken = strconv.Itoa(end)
-	} else {
-		end = len(list)
-	}
-
-	return list[startIdx:end], outToken
+	return paginateSlice(list, params.NextToken, params.MaxResults)
 }
 
 // CreatePipelineOptions holds full input for CreatePipeline.
@@ -415,6 +512,7 @@ type StartPipelineExecutionOptions struct {
 	PipelineName                 string
 	PipelineExecutionDisplayName string
 	PipelineExecutionDescription string
+	MlflowExperimentName         string
 	PipelineParameters           []PipelineParameter
 	PipelineVersionID            int64
 }
@@ -451,6 +549,7 @@ func (b *InMemoryBackend) StartPipelineExecutionFull(
 		ParallelismConfiguration:     opts.ParallelismConfiguration,
 		SelectiveExecutionConfig:     opts.SelectiveExecutionConfig,
 		PipelineVersionID:            opts.PipelineVersionID,
+		MlflowExperimentName:         opts.MlflowExperimentName,
 		StartTime:                    time.Now(),
 	}
 	b.pipelineExecutionsStore(region).Put(pe)

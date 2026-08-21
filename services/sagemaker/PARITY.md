@@ -1071,3 +1071,142 @@ run ./services/sagemaker/...` all clean; zero `nolint` of any kind added (fixed 
 `ListHubContents` into a `hubContentMatchesListParams` helper, reusing the existing
 `keyCreationTime` constant and a new `keyHubContentStatus` constant, reordering two structs'
 fields, and renaming three shadowed test `err`s — rather than suppressing any of them).
+
+## parity-10 (2026-08-21, gopherstack-oc9v): Pipeline / PipelineExecution family inline-struct sweep
+
+Fourth pass of the gopherstack-oc9v campaign. Per parity-9's boundary note ("309 of sagemaker's 362
+inline structs now remain ... `handler_pipelines.go` (14), `handler_mlflow.go` (14), `handler_
+model_packages.go` (12) ..."), this pass took `handler_pipelines.go`, verified by `grep -c 'var req
+struct {' handler_pipelines.go` = 14 before starting. All 14 were converted to named types
+(`retryPipelineExecutionInput`, `stopPipelineExecutionInput`, `sendPipelineExecutionStepSuccess
+Input`, `sendPipelineExecutionStepFailureInput`, `listPipelineExecutionStepsInput`, `createPipeline
+Input`, `updatePipelineInput`, `startPipelineExecutionInput`, `listPipelineParametersForExecution
+Input`, `describePipelineInput`, `listPipelinesInput`, `deletePipelineInput`, `describePipeline
+ExecutionInput`, `listPipelineExecutionsInput`) and wire-audited field-by-field against the pinned
+SDK (`v1.263.2`, confirmed from `go.mod`, matching prior passes' assumption). **295 of sagemaker's
+362 inline structs now remain** (362 − 19 − 19 − 15 − 14); `handler_pipelines.go` itself now has
+zero. This pass did not touch `handler_mlflow.go`/`handler_model_packages.go` or any other family —
+all still open for gopherstack-oc9v.
+
+**Enumerated vs. converted vs. audited:** of the 14 ops, 4 already matched the real SDK struct
+exactly once named (`StopPipelineExecution`, `UpdatePipeline`, `DescribePipeline`, `DescribePipeline
+Execution`, `DeletePipeline` — modulo `ClientRequestToken`, see below). The rest had absent members
+or, in two ops, fields that do not exist on the real wire at all:
+
+- `ListPipelinesInput` (`api_op_ListPipelines.go:29-58`) — was missing **six** of its seven
+  optional fields: `CreatedAfter`, `CreatedBefore`, `MaxResults`, `PipelineNamePrefix`, `SortBy`,
+  `SortOrder` (only `NextToken` existed). The exact "parsed field, silently dropped" class this
+  campaign exists to find. All six now real: `CreatedAfter`/`CreatedBefore` filter on
+  `CreationTime`; `PipelineNamePrefix` filters by prefix; `MaxResults` caps the page via
+  `paginateSlice`; `SortBy` orders by `CreationTime` (documented default,
+  docs.aws.amazon.com/sagemaker/latest/APIReference/API_ListPipelines.html: "The default is
+  CreatedTime") or `Name`; `SortOrder` has no documented default (confirmed by fetching the same
+  page — only `SortBy`'s default is stated), so ascending is kept as the disclosed fallback,
+  matching `ListHubs`'/`ListLineageGroups`' precedent.
+- `ListPipelineExecutionsInput` (`api_op_ListPipelineExecutions.go:29-62`) — missing `CreatedAfter`,
+  `CreatedBefore`, `MaxResults`, `SortBy`, `SortOrder` (five of seven real fields, only
+  `PipelineName`/`NextToken` existed). Same shape and same fix pattern as `ListPipelines`; `SortBy`
+  orders by `CreationTime` (documented default) or `PipelineExecutionArn`.
+- `ListPipelineExecutionStepsInput` (`api_op_ListPipelineExecutionSteps.go:29-43`) — missing
+  `MaxResults` and `SortOrder` (the op has no `SortBy`, sorting always by `CreationTime`/`StartTime`
+  per its documented default); previously hardcoded ascending-by-`StepName`.
+- `ListPipelineParametersForExecutionInput` (`api_op_ListPipelineParametersForExecution.go:29-42`)
+  — missing `MaxResults`; previously returned every parameter unconditionally.
+- `RetryPipelineExecutionInput` (`api_op_RetryPipelineExecution.go:29-45`) — missing
+  `ParallelismConfiguration` entirely. Real docs: "if specified, overrides the parallelism
+  configuration of the parent pipeline" — implying the *default*, unspecified case still applies
+  the parent pipeline's configuration. Before this fix, a retried execution carried no parallelism
+  configuration at all, not even the one its own pipeline was created with; now
+  `RetryPipelineExecution` defaults to the parent `Pipeline.ParallelismConfiguration` via the
+  existing `findPipelineByARNLocked` helper (`pipeline_versions.go`) when the caller doesn't
+  override it.
+- `StartPipelineExecutionInput` (`api_op_StartPipelineExecution.go:29-63`) — missing
+  `MlflowExperimentName`. Threaded through to `PipelineExecution.MlflowExperimentName` and returned
+  as `DescribePipelineExecutionOutput.MLflowConfig.MlflowExperimentName` (`types.MLflowConfiguration`,
+  `types/types.go:13862`). **Disclosed, not modeled:** `MLflowConfig.MlflowResourceArn` (the
+  tracking-server ARN) is left absent — this backend has no notion of which MLflow tracking server
+  (`handler_mlflow.go`, a separate op family untouched by this pass) an execution is attached to, so
+  fabricating an ARN would be a guess, not a fact.
+- `SendPipelineExecutionStepSuccessInput`/`SendPipelineExecutionStepFailureInput` (`api_op_
+  SendPipelineExecutionStepSuccess.go:29-43`, `api_op_SendPipelineExecutionStepFailure.go:29-42) —
+  the real wire shape is `CallbackToken` (+ `OutputParameters` for Success, `FailureReason` for
+  Failure) and nothing else. **The previous handler read two fields, `PipelineExecutionArn` and
+  `StepName`, that do not exist on either real input type at all** — no real `aws-sdk-go-v2` client
+  can ever populate them, since AWS resolves the target step from the opaque `CallbackToken` alone.
+  `OutputParameters` — entirely absent before this pass — is the real gap: before this fix, a
+  callback step's output parameters were silently discarded. Fixed for real: `PipelineExecutionStep`
+  now carries `OutputParameters` and a `CallbackToken` field, both returned via `ListPipelineExecution
+  Steps`' new `Metadata.Callback` (`types.CallbackStepMetadata`, `types/types.go:3641` — `SqsQueueUrl`
+  is not modeled, since this backend never notifies a real SQS queue). This backend has no
+  pipeline-definition step graph to generate distinct per-step callback tokens the way real AWS
+  does, so — disclosed rather than silently narrowed — it treats the caller-supplied `CallbackToken`
+  as the target execution's ARN (matching the existing test suite's own usage before this pass) and
+  can record at most one trackable callback step per execution, under a fixed step name.
+- `ClientRequestToken`, required on six of these fourteen ops (`RetryPipelineExecution`,
+  `StopPipelineExecution`, `CreatePipeline`, `DeletePipeline`, `StartPipelineExecution`, and — via
+  `SendPipelineExecutionStepSuccess`/`Failure` — two more), is a pure client-side idempotency token
+  with no server-observable effect and, per a repo-wide grep, is not modeled by any op in this
+  service — omitted here too rather than introducing the service's first (inert) instance of it.
+
+**Bugs found beyond the wire diff:** three, all beyond a raw field-presence count:
+
+1. `ListPipelines`/`ListPipelineExecutions` silently dropping every filter/sort control except
+   `NextToken` (and, for the latter, `PipelineName`) — the "parsed field, silently dropped" class,
+   at the largest per-op count this campaign has found outside `ListHubs`.
+2. `SendPipelineExecutionStepSuccess`/`Failure` reading two fields no real client can ever send
+   (`PipelineExecutionArn`, `StepName`) while silently dropping the one real field
+   (`OutputParameters`) that exists beyond the identifier — the inverse of every prior finding in
+   this campaign, which were all "real field present in the model, absent from the wire." Converting
+   surfaced a wire-shape *fabrication*, not just an omission.
+3. `RetryPipelineExecution` producing a retried execution with no parallelism configuration at all,
+   even when the parent pipeline had one — silently narrower than both the explicit-override and the
+   implicit-inherit paths the real API documents.
+
+**Storage-key check:** none of this family's ops changed a primary key's shape. `Pipeline` is keyed
+by `PipelineName`, `PipelineExecution` by `PipelineExecutionArn`, `PipelineExecutionStep` by
+`ExecutionArn|StepName` (`pipelineExecutionStepsKey`) — the fixed callback step name introduced by
+this pass replaces a caller-controllable value with a constant, which *narrows* addressability
+(disclosed above) but does not change the key's shape or introduce inconsistency with any other
+computation of it (there is exactly one `keyFn`, in `store_domain.go`'s `pipelineExecStepsStore`,
+consistent before and after).
+
+**Response-side completeness fixed alongside:** `PipelineSummary` (`ListPipelines`) was returning
+only 5 of 8 real response fields (missing `PipelineDescription`, `PipelineDisplayName`, `RoleArn`,
+`LastExecutionTime` — all data the backend already stored or could derive) and `PipelineExecution
+Summary` (`ListPipelineExecutions`) only 3 of 6 (missing `PipelineExecutionDisplayName`,
+`PipelineExecutionDescription`, `PipelineExecutionFailureReason`). Both fixed via a new exported
+`(*InMemoryBackend).PipelineLastExecutionTime` helper (reusing the `latestExecutionStartTime` logic
+`DescribePipeline`'s `LastRunTime` already relied on) and straightforward field copies. These are
+response-side, not request-struct, gaps, so strictly outside this pass's inline-struct scope —
+fixed anyway since they were adjacent, free, and directly observable by any real client.
+
+**Tests:** every fix has a real-`aws-sdk-go-v2`-client round-trip test (`newTestSageMakerClient`)
+asserting on actual behavior — narrowed/reordered/paginated result sets, `MLflowConfig` actually
+present on `DescribePipelineExecution`, a retried execution's `ParallelismConfiguration` actually
+inheriting or overriding, `ListPipelineExecutionSteps`' `Metadata.Callback` actually round-tripping
+`OutputParameters`. Verified against unfixed code by hand-reverting six representative fixes one at
+a time (`ListPipelines`' `PipelineNamePrefix`, `ListPipelineExecutions`' `CreatedAfter`/
+`CreatedBefore`, `RetryPipelineExecution`'s `ParallelismConfiguration` inheritance/override,
+`SendPipelineExecutionStepSuccess`'s `OutputParameters`, `StartPipelineExecution`'s
+`MlflowExperimentName`, `ListPipelineParametersForExecution`'s `MaxResults`) and confirming each
+corresponding test failed with the predicted symptom, then restoring — `pipelines.go`/`pipeline_
+executions.go`/`handler_pipelines.go` verified byte-identical (`md5sum`) to their pre-revert state
+afterward.
+
+**Disclosed, not tested:** `ListPipelineExecutionSteps`' `MaxResults` truncation branch is real,
+working code that cannot be exercised through any public request shape on this backend — Success/
+Failure both write under the same fixed callback-step key, so a single execution can have at most
+one step record ever, and `ListPipelineExecutionSteps` filters to one execution at a time. Same
+shape as parity-9's `CreateHubContentPresignedUrls` disclosure: the test proves `MaxResults=1`
+returns the one step with no `NextToken`, and says why a second page can't exist, rather than
+fabricating a multi-step scenario this backend cannot produce.
+
+Gates for this session: `go build ./...`, `go vet ./services/sagemaker/...`, `go vet -tags e2e
+./...`, `go vet -tags integration ./...`, `gofmt -l ./services/sagemaker` (empty), `go test -race
+./services/sagemaker/...`, `go fix -diff ./services/sagemaker/...` (no diff), and `golangci-lint run
+./services/sagemaker/...` all clean; zero `nolint` of any kind added (fixed `golines`,
+two `govet shadow`s, `prealloc`, `staticcheck S1016`, `testifylint`, and two `fieldalignment`
+findings golangci-lint raised mid-pass — the latter two via `fieldalignment -fix` reordering
+`PipelineExecutionStep`/`PipelineExecution`'s fields — rather than suppressing any of them).
+
+Next by size, per parity-9's own list: `handler_mlflow.go` (14), `handler_model_packages.go` (12).

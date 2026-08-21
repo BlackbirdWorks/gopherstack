@@ -24,10 +24,18 @@ type pipelineDefinitionS3Location struct {
 	VersionID string `json:"VersionId,omitempty"`
 }
 
+// retryPipelineExecutionInput mirrors RetryPipelineExecutionInput
+// (api_op_RetryPipelineExecution.go:29-45, sagemaker@v1.263.2).
+// ClientRequestToken (required by AWS) is a pure idempotency token this
+// single-process in-memory backend has no use for — omitted, matching this
+// service's existing convention (no sagemaker op models it).
+type retryPipelineExecutionInput struct {
+	ParallelismConfiguration *ParallelismConfiguration `json:"ParallelismConfiguration,omitempty"`
+	PipelineExecutionArn     string                    `json:"PipelineExecutionArn"`
+}
+
 func (h *Handler) handleRetryPipelineExecution(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		PipelineExecutionArn string `json:"PipelineExecutionArn"`
-	}
+	var req retryPipelineExecutionInput
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
@@ -35,7 +43,7 @@ func (h *Handler) handleRetryPipelineExecution(ctx context.Context, body []byte)
 		return nil, fmt.Errorf("%w: PipelineExecutionArn is required", errInvalidRequest)
 	}
 
-	exec, err := h.Backend.RetryPipelineExecution(ctx, req.PipelineExecutionArn)
+	exec, err := h.Backend.RetryPipelineExecution(ctx, req.PipelineExecutionArn, req.ParallelismConfiguration)
 	if err != nil {
 		return nil, err
 	}
@@ -46,10 +54,15 @@ func (h *Handler) handleRetryPipelineExecution(ctx context.Context, body []byte)
 	return json.Marshal(map[string]string{keyPipelineExecutionArn: exec.PipelineExecutionArn})
 }
 
+// stopPipelineExecutionInput mirrors StopPipelineExecutionInput
+// (api_op_StopPipelineExecution.go:29-38, sagemaker@v1.263.2). ClientRequestToken
+// omitted for the same reason as retryPipelineExecutionInput.
+type stopPipelineExecutionInput struct {
+	PipelineExecutionArn string `json:"PipelineExecutionArn"`
+}
+
 func (h *Handler) handleStopPipelineExecution(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		PipelineExecutionArn string `json:"PipelineExecutionArn"`
-	}
+	var req stopPipelineExecutionInput
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
@@ -68,45 +81,51 @@ func (h *Handler) handleStopPipelineExecution(ctx context.Context, body []byte) 
 	return json.Marshal(map[string]string{keyPipelineExecutionArn: exec.PipelineExecutionArn})
 }
 
-// handleSendPipelineExecutionStepSuccess handles the AWS callback token API.
-// AWS uses CallbackToken (opaque) rather than PipelineExecutionArn+StepName.
-// We use the token as both the step key and (by convention) accept execArn if provided.
+// sendPipelineExecutionStepSuccessInput mirrors SendPipelineExecutionStepSuccessInput
+// (api_op_SendPipelineExecutionStepSuccess.go:29-43, sagemaker@v1.263.2).
+// AWS resolves the target step from CallbackToken alone; there is no
+// PipelineExecutionArn or StepName field on the real wire shape at all (the
+// previous version of this handler read both, which no real client ever
+// sends). ClientRequestToken (idempotency-only) is omitted like the other
+// pipeline ops above.
+type sendPipelineExecutionStepSuccessInput struct {
+	CallbackToken    string              `json:"CallbackToken"`
+	OutputParameters []PipelineParameter `json:"OutputParameters,omitempty"`
+}
+
 func (h *Handler) handleSendPipelineExecutionStepSuccess(
 	ctx context.Context,
 	body []byte,
 ) ([]byte, error) {
-	var req struct {
-		PipelineExecutionArn string `json:"PipelineExecutionArn"`
-		CallbackToken        string `json:"CallbackToken"`
-		StepName             string `json:"StepName"`
-	}
+	var req sendPipelineExecutionStepSuccessInput
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
-
-	execArn := req.PipelineExecutionArn
-	if execArn == "" {
-		execArn = req.CallbackToken
-	}
-	stepName := req.StepName
-	if stepName == "" {
-		stepName = "callback-step"
+	if req.CallbackToken == "" {
+		return nil, fmt.Errorf("%w: CallbackToken is required", errInvalidRequest)
 	}
 
-	// Propagate error when execArn is known; be lenient when it's empty
-	// (callback token may reference executions from before this session).
-	if execArn != "" {
-		if err := h.Backend.SendPipelineExecutionStepSuccess(ctx, execArn, stepName); err != nil {
-			return nil, err
-		}
-	} else {
-		_ = h.Backend.SendPipelineExecutionStepSuccess(ctx, execArn, stepName)
+	if err := h.Backend.SendPipelineExecutionStepSuccess(ctx, req.CallbackToken, req.OutputParameters); err != nil {
+		return nil, err
 	}
 
 	log := logger.Load(ctx)
-	log.InfoContext(ctx, "sagemaker: sent pipeline step success", "token", execArn)
+	log.InfoContext(ctx, "sagemaker: sent pipeline step success", "token", req.CallbackToken)
 
-	return json.Marshal(map[string]string{keyPipelineExecutionArn: execArn})
+	// Per pipelineCallbackStepName's doc comment, CallbackToken is this
+	// backend's execution-ARN convention, so it doubles as the real
+	// response's PipelineExecutionArn (SendPipelineExecutionStepSuccessOutput,
+	// api_op_SendPipelineExecutionStepSuccess.go:48-50).
+	return json.Marshal(map[string]string{keyPipelineExecutionArn: req.CallbackToken})
+}
+
+// sendPipelineExecutionStepFailureInput mirrors SendPipelineExecutionStepFailureInput
+// (api_op_SendPipelineExecutionStepFailure.go:29-42, sagemaker@v1.263.2) — see
+// sendPipelineExecutionStepSuccessInput's doc comment for why PipelineExecutionArn
+// and StepName are gone.
+type sendPipelineExecutionStepFailureInput struct {
+	CallbackToken string `json:"CallbackToken"`
+	FailureReason string `json:"FailureReason,omitempty"`
 }
 
 // handleSendPipelineExecutionStepFailure handles the AWS callback token API.
@@ -114,54 +133,61 @@ func (h *Handler) handleSendPipelineExecutionStepFailure(
 	ctx context.Context,
 	body []byte,
 ) ([]byte, error) {
-	var req struct {
-		PipelineExecutionArn string `json:"PipelineExecutionArn"`
-		CallbackToken        string `json:"CallbackToken"`
-		StepName             string `json:"StepName"`
-		FailureReason        string `json:"FailureReason,omitempty"`
-	}
+	var req sendPipelineExecutionStepFailureInput
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
-
-	execArn := req.PipelineExecutionArn
-	if execArn == "" {
-		execArn = req.CallbackToken
-	}
-	stepName := req.StepName
-	if stepName == "" {
-		stepName = "callback-step"
+	if req.CallbackToken == "" {
+		return nil, fmt.Errorf("%w: CallbackToken is required", errInvalidRequest)
 	}
 
-	// Propagate error when execArn is known; be lenient when it's empty (stale callback token).
-	if execArn != "" {
-		if err := h.Backend.SendPipelineExecutionStepFailure(ctx, execArn, stepName, req.FailureReason); err != nil {
-			return nil, err
-		}
-	} else {
-		_ = h.Backend.SendPipelineExecutionStepFailure(ctx, execArn, stepName, req.FailureReason)
+	if err := h.Backend.SendPipelineExecutionStepFailure(ctx, req.CallbackToken, req.FailureReason); err != nil {
+		return nil, err
 	}
 
 	log := logger.Load(ctx)
-	log.InfoContext(ctx, "sagemaker: sent pipeline step failure", "token", execArn)
+	log.InfoContext(ctx, "sagemaker: sent pipeline step failure", "token", req.CallbackToken)
 
-	return json.Marshal(map[string]string{keyPipelineExecutionArn: execArn})
+	return json.Marshal(map[string]string{keyPipelineExecutionArn: req.CallbackToken})
+}
+
+// pipelineStepCallbackMetadata mirrors types.CallbackStepMetadata
+// (types/types.go:3641, sagemaker@v1.263.2). SqsQueueUrl is not modeled: this
+// backend never notifies a real SQS queue, so there is no URL to report.
+type pipelineStepCallbackMetadata struct {
+	CallbackToken    string              `json:"CallbackToken,omitempty"`
+	OutputParameters []PipelineParameter `json:"OutputParameters,omitempty"`
+}
+
+// pipelineStepMetadata mirrors types.PipelineExecutionStepMetadata
+// (types/types.go:17421, sagemaker@v1.263.2). Only the Callback member is
+// modeled — this backend has no per-step-type job metadata for
+// TrainingJob/ProcessingJob/etc. to report, since it doesn't run real steps.
+type pipelineStepMetadata struct {
+	Callback *pipelineStepCallbackMetadata `json:"Callback,omitempty"`
 }
 
 type pipelineExecStepSummary struct {
-	StepName      string  `json:"StepName"`
-	StepType      string  `json:"StepType,omitempty"`
-	StepStatus    string  `json:"StepStatus"`
-	FailureReason string  `json:"FailureReason,omitempty"`
-	StartTime     float64 `json:"StartTime,omitempty"`
-	EndTime       float64 `json:"EndTime,omitempty"`
+	Metadata      *pipelineStepMetadata `json:"Metadata,omitempty"`
+	StepName      string                `json:"StepName"`
+	StepType      string                `json:"StepType,omitempty"`
+	StepStatus    string                `json:"StepStatus"`
+	FailureReason string                `json:"FailureReason,omitempty"`
+	StartTime     float64               `json:"StartTime,omitempty"`
+	EndTime       float64               `json:"EndTime,omitempty"`
+}
+
+// listPipelineExecutionStepsInput mirrors ListPipelineExecutionStepsInput
+// (api_op_ListPipelineExecutionSteps.go:29-43, sagemaker@v1.263.2).
+type listPipelineExecutionStepsInput struct {
+	PipelineExecutionArn string `json:"PipelineExecutionArn"`
+	NextToken            string `json:"NextToken"`
+	SortOrder            string `json:"SortOrder"`
+	MaxResults           int32  `json:"MaxResults"`
 }
 
 func (h *Handler) handleListPipelineExecutionSteps(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		PipelineExecutionArn string `json:"PipelineExecutionArn"`
-		NextToken            string `json:"NextToken"`
-	}
+	var req listPipelineExecutionStepsInput
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
@@ -174,11 +200,12 @@ func (h *Handler) handleListPipelineExecutionSteps(ctx context.Context, body []b
 		return nil, err
 	}
 
-	steps, nextToken := h.Backend.ListPipelineExecutionSteps(
-		ctx,
-		req.PipelineExecutionArn,
-		req.NextToken,
-	)
+	steps, nextToken := h.Backend.ListPipelineExecutionSteps(ctx, ListPipelineExecutionStepsParams{
+		ExecutionArn: req.PipelineExecutionArn,
+		NextToken:    req.NextToken,
+		SortOrder:    req.SortOrder,
+		MaxResults:   req.MaxResults,
+	})
 	summaries := make([]pipelineExecStepSummary, 0, len(steps))
 	for _, s := range steps {
 		sum := pipelineExecStepSummary{
@@ -190,6 +217,12 @@ func (h *Handler) handleListPipelineExecutionSteps(ctx context.Context, body []b
 		}
 		if !s.EndTime.IsZero() {
 			sum.EndTime = epochSeconds(s.EndTime)
+		}
+		if s.StepType == stepTypeCallback {
+			sum.Metadata = &pipelineStepMetadata{Callback: &pipelineStepCallbackMetadata{
+				CallbackToken:    s.CallbackToken,
+				OutputParameters: s.OutputParameters,
+			}}
 		}
 		summaries = append(summaries, sum)
 	}
@@ -206,17 +239,22 @@ func (h *Handler) handleListPipelineExecutionSteps(ctx context.Context, body []b
 // Extended CreatePipeline/UpdatePipeline/StartPipelineExecution handlers (gaps #23, #25)
 // ---------------------------------------------------------------------------
 
+// createPipelineInput mirrors CreatePipelineInput (api_op_CreatePipeline.go:
+// 29-64, sagemaker@v1.263.2). ClientRequestToken omitted, see
+// retryPipelineExecutionInput's doc comment.
+type createPipelineInput struct {
+	ParallelismConfiguration     *ParallelismConfiguration     `json:"ParallelismConfiguration,omitempty"`
+	PipelineDefinitionS3Location *pipelineDefinitionS3Location `json:"PipelineDefinitionS3Location,omitempty"`
+	PipelineName                 string                        `json:"PipelineName"`
+	PipelineDefinition           string                        `json:"PipelineDefinition,omitempty"`
+	PipelineDisplayName          string                        `json:"PipelineDisplayName,omitempty"`
+	PipelineDescription          string                        `json:"PipelineDescription,omitempty"`
+	RoleArn                      string                        `json:"RoleArn,omitempty"`
+	Tags                         []tagObject                   `json:"Tags,omitempty"`
+}
+
 func (h *Handler) handleCreatePipelineFull(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		ParallelismConfiguration     *ParallelismConfiguration     `json:"ParallelismConfiguration,omitempty"`
-		PipelineDefinitionS3Location *pipelineDefinitionS3Location `json:"PipelineDefinitionS3Location,omitempty"`
-		PipelineName                 string                        `json:"PipelineName"`
-		PipelineDefinition           string                        `json:"PipelineDefinition,omitempty"`
-		PipelineDisplayName          string                        `json:"PipelineDisplayName,omitempty"`
-		PipelineDescription          string                        `json:"PipelineDescription,omitempty"`
-		RoleArn                      string                        `json:"RoleArn,omitempty"`
-		Tags                         []tagObject                   `json:"Tags,omitempty"`
-	}
+	var req createPipelineInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -255,16 +293,20 @@ func (h *Handler) handleCreatePipelineFull(ctx context.Context, body []byte) ([]
 	return json.Marshal(map[string]string{keyPipelineArn: p.PipelineArn})
 }
 
+// updatePipelineInput mirrors UpdatePipelineInput (api_op_UpdatePipeline.go:
+// 29-52, sagemaker@v1.263.2).
+type updatePipelineInput struct {
+	ParallelismConfiguration     *ParallelismConfiguration     `json:"ParallelismConfiguration,omitempty"`
+	PipelineDefinitionS3Location *pipelineDefinitionS3Location `json:"PipelineDefinitionS3Location,omitempty"`
+	PipelineName                 string                        `json:"PipelineName"`
+	PipelineDefinition           string                        `json:"PipelineDefinition,omitempty"`
+	PipelineDisplayName          string                        `json:"PipelineDisplayName,omitempty"`
+	PipelineDescription          string                        `json:"PipelineDescription,omitempty"`
+	RoleArn                      string                        `json:"RoleArn,omitempty"`
+}
+
 func (h *Handler) handleUpdatePipelineFull(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		ParallelismConfiguration     *ParallelismConfiguration     `json:"ParallelismConfiguration,omitempty"`
-		PipelineDefinitionS3Location *pipelineDefinitionS3Location `json:"PipelineDefinitionS3Location,omitempty"`
-		PipelineName                 string                        `json:"PipelineName"`
-		PipelineDefinition           string                        `json:"PipelineDefinition,omitempty"`
-		PipelineDisplayName          string                        `json:"PipelineDisplayName,omitempty"`
-		PipelineDescription          string                        `json:"PipelineDescription,omitempty"`
-		RoleArn                      string                        `json:"RoleArn,omitempty"`
-	}
+	var req updatePipelineInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -303,19 +345,28 @@ func (h *Handler) handleUpdatePipelineFull(ctx context.Context, body []byte) ([]
 	return json.Marshal(map[string]string{keyPipelineArn: p.PipelineArn})
 }
 
+// startPipelineExecutionInput mirrors StartPipelineExecutionInput
+// (api_op_StartPipelineExecution.go:29-63, sagemaker@v1.263.2).
+// ClientRequestToken omitted, see retryPipelineExecutionInput's doc comment.
+// Field order and types must stay identical to StartPipelineExecutionOptions
+// (pipelines.go) — handleStartPipelineExecutionFull converts req to it
+// directly rather than copying field by field.
+type startPipelineExecutionInput struct {
+	ParallelismConfiguration     *ParallelismConfiguration `json:"ParallelismConfiguration,omitempty"`
+	SelectiveExecutionConfig     *SelectiveExecutionConfig `json:"SelectiveExecutionConfig,omitempty"`
+	PipelineName                 string                    `json:"PipelineName"`
+	PipelineExecutionDisplayName string                    `json:"PipelineExecutionDisplayName,omitempty"`
+	PipelineExecutionDescription string                    `json:"PipelineExecutionDescription,omitempty"`
+	MlflowExperimentName         string                    `json:"MlflowExperimentName,omitempty"`
+	PipelineParameters           []PipelineParameter       `json:"PipelineParameters,omitempty"`
+	PipelineVersionID            int64                     `json:"PipelineVersionId,omitempty"`
+}
+
 func (h *Handler) handleStartPipelineExecutionFull(
 	ctx context.Context,
 	body []byte,
 ) ([]byte, error) {
-	var req struct {
-		ParallelismConfiguration     *ParallelismConfiguration `json:"ParallelismConfiguration,omitempty"`
-		SelectiveExecutionConfig     *SelectiveExecutionConfig `json:"SelectiveExecutionConfig,omitempty"`
-		PipelineName                 string                    `json:"PipelineName"`
-		PipelineExecutionDisplayName string                    `json:"PipelineExecutionDisplayName,omitempty"`
-		PipelineExecutionDescription string                    `json:"PipelineExecutionDescription,omitempty"`
-		PipelineParameters           []PipelineParameter       `json:"PipelineParameters,omitempty"`
-		PipelineVersionID            int64                     `json:"PipelineVersionId,omitempty"`
-	}
+	var req startPipelineExecutionInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -325,15 +376,7 @@ func (h *Handler) handleStartPipelineExecutionFull(
 		return nil, fmt.Errorf("%w: PipelineName is required", errInvalidRequest)
 	}
 
-	pe, err := h.Backend.StartPipelineExecutionFull(ctx, StartPipelineExecutionOptions{
-		PipelineName:                 req.PipelineName,
-		PipelineExecutionDisplayName: req.PipelineExecutionDisplayName,
-		PipelineExecutionDescription: req.PipelineExecutionDescription,
-		PipelineParameters:           req.PipelineParameters,
-		ParallelismConfiguration:     req.ParallelismConfiguration,
-		SelectiveExecutionConfig:     req.SelectiveExecutionConfig,
-		PipelineVersionID:            req.PipelineVersionID,
-	})
+	pe, err := h.Backend.StartPipelineExecutionFull(ctx, StartPipelineExecutionOptions(req))
 	if err != nil {
 		return nil, err
 	}
@@ -352,14 +395,20 @@ func (h *Handler) handleStartPipelineExecutionFull(
 // ListPipelineParametersForExecution — gap #25
 // ---------------------------------------------------------------------------
 
+// listPipelineParametersForExecutionInput mirrors
+// ListPipelineParametersForExecutionInput (api_op_ListPipelineParametersForExecution.go:
+// 29-42, sagemaker@v1.263.2).
+type listPipelineParametersForExecutionInput struct {
+	PipelineExecutionArn string `json:"PipelineExecutionArn"`
+	NextToken            string `json:"NextToken,omitempty"`
+	MaxResults           int32  `json:"MaxResults,omitempty"`
+}
+
 func (h *Handler) handleListPipelineParametersForExecution(
 	ctx context.Context,
 	body []byte,
 ) ([]byte, error) {
-	var req struct {
-		PipelineExecutionArn string `json:"PipelineExecutionArn"`
-		NextToken            string `json:"NextToken,omitempty"`
-	}
+	var req listPipelineParametersForExecutionInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -379,18 +428,29 @@ func (h *Handler) handleListPipelineParametersForExecution(
 		params = []PipelineParameter{}
 	}
 
-	return json.Marshal(map[string]any{"PipelineParameters": params})
+	page, nextToken := paginateSlice(params, req.NextToken, req.MaxResults)
+
+	resp := map[string]any{"PipelineParameters": page}
+	if nextToken != "" {
+		resp["NextToken"] = nextToken
+	}
+
+	return json.Marshal(resp)
 }
 
 // ---------------------------------------------------------------------------
 // Pipeline handlers
 // ---------------------------------------------------------------------------
 
+// describePipelineInput mirrors DescribePipelineInput (api_op_DescribePipeline.go:
+// 29-38, sagemaker@v1.263.2).
+type describePipelineInput struct {
+	PipelineName      string `json:"PipelineName"`
+	PipelineVersionID int64  `json:"PipelineVersionId,omitempty"`
+}
+
 func (h *Handler) handleDescribePipeline(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		PipelineName      string `json:"PipelineName"`
-		PipelineVersionID int64  `json:"PipelineVersionId,omitempty"`
-	}
+	var req describePipelineInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -431,33 +491,66 @@ func (h *Handler) handleDescribePipeline(ctx context.Context, body []byte) ([]by
 }
 
 type pipelineSummary struct {
-	PipelineName     string  `json:"PipelineName"`
-	PipelineArn      string  `json:"PipelineArn"`
-	PipelineStatus   string  `json:"PipelineStatus"`
-	CreationTime     float64 `json:"CreationTime"`
-	LastModifiedTime float64 `json:"LastModifiedTime"`
+	PipelineName        string  `json:"PipelineName"`
+	PipelineArn         string  `json:"PipelineArn"`
+	PipelineStatus      string  `json:"PipelineStatus"`
+	PipelineDescription string  `json:"PipelineDescription,omitempty"`
+	PipelineDisplayName string  `json:"PipelineDisplayName,omitempty"`
+	RoleArn             string  `json:"RoleArn,omitempty"`
+	CreationTime        float64 `json:"CreationTime"`
+	LastModifiedTime    float64 `json:"LastModifiedTime"`
+	LastExecutionTime   float64 `json:"LastExecutionTime,omitempty"`
+}
+
+// listPipelinesInput mirrors ListPipelinesInput (api_op_ListPipelines.go:
+// 29-58, sagemaker@v1.263.2). Timestamps are epoch-seconds floats on the
+// wire, like every other List* op in this service (epochSeconds/
+// timeFromEpochSecondsPtr, handler.go).
+type listPipelinesInput struct {
+	CreatedAfter       *float64 `json:"CreatedAfter"`
+	CreatedBefore      *float64 `json:"CreatedBefore"`
+	NextToken          string   `json:"NextToken"`
+	PipelineNamePrefix string   `json:"PipelineNamePrefix"`
+	SortBy             string   `json:"SortBy"`
+	SortOrder          string   `json:"SortOrder"`
+	MaxResults         int32    `json:"MaxResults"`
 }
 
 func (h *Handler) handleListPipelines(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		NextToken string `json:"NextToken"`
-	}
+	var req listPipelinesInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	ps, nextToken := h.Backend.ListPipelines(ctx, req.NextToken)
+	ps, nextToken := h.Backend.ListPipelines(ctx, ListPipelinesParams{
+		CreatedAfter:       timeFromEpochSecondsPtr(req.CreatedAfter),
+		CreatedBefore:      timeFromEpochSecondsPtr(req.CreatedBefore),
+		PipelineNamePrefix: req.PipelineNamePrefix,
+		NextToken:          req.NextToken,
+		SortBy:             req.SortBy,
+		SortOrder:          req.SortOrder,
+		MaxResults:         req.MaxResults,
+	})
 	summaries := make([]pipelineSummary, 0, len(ps))
 
 	for _, p := range ps {
-		summaries = append(summaries, pipelineSummary{
-			PipelineName:     p.PipelineName,
-			PipelineArn:      p.PipelineArn,
-			PipelineStatus:   p.PipelineStatus,
-			CreationTime:     epochSeconds(p.CreationTime),
-			LastModifiedTime: epochSeconds(p.LastModifiedTime),
-		})
+		sum := pipelineSummary{
+			PipelineName:        p.PipelineName,
+			PipelineArn:         p.PipelineArn,
+			PipelineStatus:      p.PipelineStatus,
+			PipelineDescription: p.PipelineDescription,
+			PipelineDisplayName: p.PipelineDisplayName,
+			RoleArn:             p.RoleArn,
+			CreationTime:        epochSeconds(p.CreationTime),
+			LastModifiedTime:    epochSeconds(p.LastModifiedTime),
+		}
+
+		if last := h.Backend.PipelineLastExecutionTime(ctx, p.PipelineArn); !last.IsZero() {
+			sum.LastExecutionTime = epochSeconds(last)
+		}
+
+		summaries = append(summaries, sum)
 	}
 
 	resp := map[string]any{"PipelineSummaries": summaries}
@@ -468,10 +561,15 @@ func (h *Handler) handleListPipelines(ctx context.Context, body []byte) ([]byte,
 	return json.Marshal(resp)
 }
 
+// deletePipelineInput mirrors DeletePipelineInput (api_op_DeletePipeline.go:
+// 29-38, sagemaker@v1.263.2). ClientRequestToken omitted, see
+// retryPipelineExecutionInput's doc comment.
+type deletePipelineInput struct {
+	PipelineName string `json:"PipelineName"`
+}
+
 func (h *Handler) handleDeletePipeline(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		PipelineName string `json:"PipelineName"`
-	}
+	var req deletePipelineInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -491,10 +589,14 @@ func (h *Handler) handleDeletePipeline(ctx context.Context, body []byte) ([]byte
 	return json.Marshal(map[string]string{keyPipelineArn: p.PipelineArn})
 }
 
+// describePipelineExecutionInput mirrors DescribePipelineExecutionInput
+// (api_op_DescribePipelineExecution.go:29-35, sagemaker@v1.263.2).
+type describePipelineExecutionInput struct {
+	PipelineExecutionArn string `json:"PipelineExecutionArn"`
+}
+
 func (h *Handler) handleDescribePipelineExecution(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		PipelineExecutionArn string `json:"PipelineExecutionArn"`
-	}
+	var req describePipelineExecutionInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -536,21 +638,36 @@ func (h *Handler) handleDescribePipelineExecution(ctx context.Context, body []by
 	if pe.SelectiveExecutionConfig != nil {
 		resp["SelectiveExecutionConfig"] = pe.SelectiveExecutionConfig
 	}
+	if pe.MlflowExperimentName != "" {
+		resp["MLflowConfig"] = map[string]string{"MlflowExperimentName": pe.MlflowExperimentName}
+	}
 
 	return json.Marshal(resp)
 }
 
 type pipelineExecutionSummary struct {
-	PipelineExecutionArn    string  `json:"PipelineExecutionArn"`
-	PipelineExecutionStatus string  `json:"PipelineExecutionStatus"`
-	StartTime               float64 `json:"StartTime"`
+	PipelineExecutionArn           string  `json:"PipelineExecutionArn"`
+	PipelineExecutionDisplayName   string  `json:"PipelineExecutionDisplayName,omitempty"`
+	PipelineExecutionDescription   string  `json:"PipelineExecutionDescription,omitempty"`
+	PipelineExecutionFailureReason string  `json:"PipelineExecutionFailureReason,omitempty"`
+	PipelineExecutionStatus        string  `json:"PipelineExecutionStatus"`
+	StartTime                      float64 `json:"StartTime"`
+}
+
+// listPipelineExecutionsInput mirrors ListPipelineExecutionsInput
+// (api_op_ListPipelineExecutions.go:29-62, sagemaker@v1.263.2).
+type listPipelineExecutionsInput struct {
+	CreatedAfter  *float64 `json:"CreatedAfter"`
+	CreatedBefore *float64 `json:"CreatedBefore"`
+	PipelineName  string   `json:"PipelineName"`
+	NextToken     string   `json:"NextToken"`
+	SortBy        string   `json:"SortBy"`
+	SortOrder     string   `json:"SortOrder"`
+	MaxResults    int32    `json:"MaxResults"`
 }
 
 func (h *Handler) handleListPipelineExecutions(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		PipelineName string `json:"PipelineName"`
-		NextToken    string `json:"NextToken"`
-	}
+	var req listPipelineExecutionsInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -560,14 +677,25 @@ func (h *Handler) handleListPipelineExecutions(ctx context.Context, body []byte)
 		return nil, fmt.Errorf("%w: PipelineName is required", errInvalidRequest)
 	}
 
-	pes, nextToken := h.Backend.ListPipelineExecutions(ctx, req.PipelineName, req.NextToken)
+	pes, nextToken := h.Backend.ListPipelineExecutions(ctx, ListPipelineExecutionsParams{
+		CreatedAfter:  timeFromEpochSecondsPtr(req.CreatedAfter),
+		CreatedBefore: timeFromEpochSecondsPtr(req.CreatedBefore),
+		PipelineName:  req.PipelineName,
+		NextToken:     req.NextToken,
+		SortBy:        req.SortBy,
+		SortOrder:     req.SortOrder,
+		MaxResults:    req.MaxResults,
+	})
 	summaries := make([]pipelineExecutionSummary, 0, len(pes))
 
 	for _, pe := range pes {
 		summaries = append(summaries, pipelineExecutionSummary{
-			PipelineExecutionArn:    pe.PipelineExecutionArn,
-			PipelineExecutionStatus: pe.PipelineExecutionStatus,
-			StartTime:               epochSeconds(pe.StartTime),
+			PipelineExecutionArn:           pe.PipelineExecutionArn,
+			PipelineExecutionDisplayName:   pe.PipelineExecutionDisplayName,
+			PipelineExecutionDescription:   pe.PipelineExecutionDescription,
+			PipelineExecutionFailureReason: pe.FailureReason,
+			PipelineExecutionStatus:        pe.PipelineExecutionStatus,
+			StartTime:                      epochSeconds(pe.StartTime),
 		})
 	}
 
