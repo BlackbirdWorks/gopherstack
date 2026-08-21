@@ -2,6 +2,7 @@ package sagemaker_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	sagemakersdk "github.com/aws/aws-sdk-go-v2/service/sagemaker"
@@ -519,6 +520,20 @@ func TestListClusterSchedulerConfigs_FilterSortPage_RealClient(t *testing.T) {
 		assert.Equal(t, "alpha-config", aws.ToString(out.ClusterSchedulerConfigSummaries[0].Name))
 		assert.NotEmpty(t, aws.ToString(out.NextToken))
 	})
+
+	// The real client sends CreatedAfter/CreatedBefore as awsjson1.1
+	// epoch-second numbers, never RFC3339 strings. A *time.Time-typed request
+	// field cannot decode that shape, so any real client call setting either
+	// filter used to fail outright.
+	t.Run("created after filter does not error", func(t *testing.T) {
+		t.Parallel()
+
+		out, err := client.ListClusterSchedulerConfigs(t.Context(), &sagemakersdk.ListClusterSchedulerConfigsInput{
+			CreatedAfter: aws.Time(time.Now().Add(-time.Hour)),
+		})
+		require.NoError(t, err)
+		assert.Len(t, out.ClusterSchedulerConfigSummaries, 3)
+	})
 }
 
 // TestListComputeQuotas_FilterSortPage_RealClient mirrors the
@@ -578,6 +593,16 @@ func TestListComputeQuotas_FilterSortPage_RealClient(t *testing.T) {
 		require.Len(t, out.ComputeQuotaSummaries, 1)
 		assert.Equal(t, "alpha-quota", aws.ToString(out.ComputeQuotaSummaries[0].Name))
 		assert.NotEmpty(t, aws.ToString(out.NextToken))
+	})
+
+	t.Run("created after filter does not error", func(t *testing.T) {
+		t.Parallel()
+
+		out, err := client.ListComputeQuotas(t.Context(), &sagemakersdk.ListComputeQuotasInput{
+			CreatedAfter: aws.Time(time.Now().Add(-time.Hour)),
+		})
+		require.NoError(t, err)
+		assert.Len(t, out.ComputeQuotaSummaries, 3)
 	})
 }
 

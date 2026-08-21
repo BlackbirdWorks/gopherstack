@@ -219,8 +219,6 @@ func statefulTagLookups() []tagLookup {
 // Part1/2/3 read as duplicates of each other to the dupl linter -- they are a
 // registration table, so repeating the same one-entry-per-kind shape is the
 // point, not accidental copy-paste.
-//
-//nolint:dupl // registration table, not copy-paste -- see comment above.
 func statefulTagLookupsPart1() []tagLookup {
 	return []tagLookup{
 		scanTagLookup(
@@ -320,6 +318,11 @@ func statefulTagLookupsPart2() []tagLookup {
 			func(v *DeviceFleet) *map[string]string { return &v.Tags },
 		),
 		scanTagLookup(
+			(*InMemoryBackend).devicesStoreRO,
+			func(v *Device) string { return v.DeviceArn },
+			func(v *Device) *map[string]string { return &v.Tags },
+		),
+		scanTagLookup(
 			(*InMemoryBackend).edgeDeploymentPlansStoreRO,
 			func(v *EdgeDeploymentPlan) string { return v.EdgeDeploymentPlanArn },
 			func(v *EdgeDeploymentPlan) *map[string]string { return &v.Tags },
@@ -362,6 +365,7 @@ func statefulTagLookupsPart2() []tagLookup {
 	}
 }
 
+//nolint:dupl // see statefulTagLookupsPart1.
 func statefulTagLookupsPart3() []tagLookup {
 	return []tagLookup{
 		scanTagLookup(

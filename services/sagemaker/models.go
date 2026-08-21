@@ -375,6 +375,7 @@ type ClusterNodeVolume struct {
 
 // ClusterNode represents a node in a SageMaker cluster.
 type ClusterNode struct {
+	CreationTime      time.Time           `json:"CreationTime"`
 	NodeID            string              `json:"NodeId"`
 	InstanceType      string              `json:"InstanceType,omitempty"`
 	NodeStatus        string              `json:"NodeStatus"`

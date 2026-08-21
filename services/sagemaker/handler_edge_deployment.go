@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"time"
 )
 
 // edge deployment operation name constants.
@@ -253,16 +252,16 @@ func (h *Handler) handleDeleteEdgeDeploymentPlan(ctx context.Context, body []byt
 }
 
 type listEdgeDeploymentPlansInput struct {
-	CreationTimeAfter       *time.Time `json:"CreationTimeAfter"`
-	CreationTimeBefore      *time.Time `json:"CreationTimeBefore"`
-	LastModifiedTimeAfter   *time.Time `json:"LastModifiedTimeAfter"`
-	LastModifiedTimeBefore  *time.Time `json:"LastModifiedTimeBefore"`
-	DeviceFleetNameContains string     `json:"DeviceFleetNameContains"`
-	NameContains            string     `json:"NameContains"`
-	NextToken               string     `json:"NextToken"`
-	SortBy                  string     `json:"SortBy"`
-	SortOrder               string     `json:"SortOrder"`
-	MaxResults              int32      `json:"MaxResults"`
+	CreationTimeAfter       *float64 `json:"CreationTimeAfter"`
+	CreationTimeBefore      *float64 `json:"CreationTimeBefore"`
+	LastModifiedTimeAfter   *float64 `json:"LastModifiedTimeAfter"`
+	LastModifiedTimeBefore  *float64 `json:"LastModifiedTimeBefore"`
+	DeviceFleetNameContains string   `json:"DeviceFleetNameContains"`
+	NameContains            string   `json:"NameContains"`
+	NextToken               string   `json:"NextToken"`
+	SortBy                  string   `json:"SortBy"`
+	SortOrder               string   `json:"SortOrder"`
+	MaxResults              int32    `json:"MaxResults"`
 }
 
 func (h *Handler) handleListEdgeDeploymentPlans(ctx context.Context, body []byte) ([]byte, error) {
@@ -272,7 +271,18 @@ func (h *Handler) handleListEdgeDeploymentPlans(ctx context.Context, body []byte
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	plans, nextToken := h.Backend.ListEdgeDeploymentPlans(ctx, ListEdgeDeploymentPlansParams(req))
+	plans, nextToken := h.Backend.ListEdgeDeploymentPlans(ctx, ListEdgeDeploymentPlansParams{
+		CreationTimeAfter:       timeFromEpochSecondsPtr(req.CreationTimeAfter),
+		CreationTimeBefore:      timeFromEpochSecondsPtr(req.CreationTimeBefore),
+		LastModifiedTimeAfter:   timeFromEpochSecondsPtr(req.LastModifiedTimeAfter),
+		LastModifiedTimeBefore:  timeFromEpochSecondsPtr(req.LastModifiedTimeBefore),
+		DeviceFleetNameContains: req.DeviceFleetNameContains,
+		NameContains:            req.NameContains,
+		NextToken:               req.NextToken,
+		SortBy:                  req.SortBy,
+		SortOrder:               req.SortOrder,
+		MaxResults:              req.MaxResults,
+	})
 
 	items := make([]map[string]any, 0, len(plans))
 	for _, p := range plans {

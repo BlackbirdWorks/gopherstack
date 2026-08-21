@@ -53,6 +53,7 @@ func newClusterNode(c *Cluster, ig ClusterInstanceGroup) *ClusterNode {
 		InstanceType:      ig.InstanceType,
 		InstanceGroupName: ig.InstanceGroupName,
 		NodeStatus:        statusRunning,
+		CreationTime:      time.Now(),
 	}
 }
 
@@ -165,27 +166,87 @@ func (b *InMemoryBackend) DescribeCluster(ctx context.Context, nameOrArn string)
 	return cloneCluster(c), nil
 }
 
-// ListClusters returns all clusters, optionally filtered by a NameContains substring.
-func (b *InMemoryBackend) ListClusters(
-	ctx context.Context,
-	nextToken, nameContains string,
-) ([]*Cluster, string) {
+// ListClustersParams bundles ListClusters' filter/sort/pagination criteria
+// (api_op_ListClusters.go:30-71, sagemaker@v1.263.2). TrainingPlanArn is
+// decoded by the handler for wire-shape fidelity but is a disclosed no-op
+// here: CreateClusterInput has no TrainingPlanArn field at all (nor does
+// Cluster/ClusterInstanceGroupSpecification), so no cluster ever has a
+// training-plan association to filter by.
+type ListClustersParams struct {
+	CreationTimeAfter  *time.Time
+	CreationTimeBefore *time.Time
+	NameContains       string
+	NextToken          string
+	SortBy             string
+	SortOrder          string
+	MaxResults         int32
+}
+
+// ListClusters returns clusters matching params, sorted by params.SortBy
+// (default CreationTime) / params.SortOrder (default Ascending, per
+// api_op_ListClusters.go's documented defaults), capped at params.MaxResults.
+func (b *InMemoryBackend) ListClusters(ctx context.Context, params ListClustersParams) ([]*Cluster, string) {
 	b.mu.RLock("ListClusters")
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
-	all := b.clustersStoreRO(region)
+	tbl := b.clustersStoreRO(region)
 
-	filtered := make(map[string]*Cluster, all.Len())
+	list := make([]*Cluster, 0, tbl.Len())
 
-	for _, c := range all.All() {
-		if nameContains == "" || strings.Contains(c.ClusterName, nameContains) {
-			filtered[c.ClusterName] = c
+	for _, c := range tbl.All() {
+		if !matchesClusterListParams(c, params) {
+			continue
+		}
+
+		list = append(list, cloneCluster(c))
+	}
+
+	asc := !strings.EqualFold(params.SortOrder, sortOrderDescending)
+	sort.Slice(list, func(i, j int) bool {
+		less := clusterSortLess(list[i], list[j], params.SortBy)
+		if asc {
+			return less
+		}
+
+		return !less
+	})
+
+	return paginateSlice(list, params.NextToken, params.MaxResults)
+}
+
+// matchesClusterListParams reports whether c satisfies every filter in params.
+func matchesClusterListParams(c *Cluster, p ListClustersParams) bool {
+	if p.NameContains != "" && !strings.Contains(c.ClusterName, p.NameContains) {
+		return false
+	}
+
+	if p.CreationTimeAfter != nil && !c.CreationTime.After(*p.CreationTimeAfter) {
+		return false
+	}
+
+	if p.CreationTimeBefore != nil && !c.CreationTime.Before(*p.CreationTimeBefore) {
+		return false
+	}
+
+	return true
+}
+
+// clusterSortLess orders two clusters by sortBy -- one of ClusterSortBy's
+// real values (CREATION_TIME/NAME, types/enums.go:2775-2776).
+func clusterSortLess(a, b *Cluster, sortBy string) bool {
+	switch sortBy {
+	case sortByName:
+		if a.ClusterName != b.ClusterName {
+			return a.ClusterName < b.ClusterName
+		}
+	default:
+		if !a.CreationTime.Equal(b.CreationTime) {
+			return a.CreationTime.Before(b.CreationTime)
 		}
 	}
 
-	return sagemakerListPagedMap(filtered, nextToken, cloneCluster,
-		func(a, b *Cluster) bool { return a.ClusterName < b.ClusterName })
+	return a.ClusterName < b.ClusterName
 }
 
 // DeleteCluster removes a cluster by name or ARN, returning its ARN.
@@ -435,10 +496,30 @@ func (b *InMemoryBackend) DescribeClusterNode(
 	return &cp, nil
 }
 
-// ListClusterNodes returns a paginated list of nodes belonging to a cluster.
+// ListClusterNodesParams bundles ListClusterNodes' filter/sort/pagination
+// criteria (api_op_ListClusterNodes.go:30-70). IncludeNodeLogicalIds is
+// decoded by the handler for wire-shape fidelity but is a disclosed no-op
+// here: every node in this backend gets its NodeId assigned synchronously at
+// creation (see newClusterNode) -- there is no still-provisioning,
+// logical-id-only node state for the flag to include or exclude.
+type ListClusterNodesParams struct {
+	CreationTimeAfter         *time.Time
+	CreationTimeBefore        *time.Time
+	InstanceGroupNameContains string
+	NextToken                 string
+	SortBy                    string
+	SortOrder                 string
+	MaxResults                int32
+}
+
+// ListClusterNodes returns nodes belonging to a cluster matching params,
+// sorted by params.SortBy (default CreationTime) / params.SortOrder (default
+// Ascending, per api_op_ListClusterNodes.go's documented defaults), capped
+// at params.MaxResults.
 func (b *InMemoryBackend) ListClusterNodes(
 	ctx context.Context,
-	clusterNameOrArn, nextToken string,
+	clusterNameOrArn string,
+	params ListClusterNodesParams,
 ) ([]*ClusterNode, string, error) {
 	b.mu.RLock("ListClusterNodes")
 	defer b.mu.RUnlock()
@@ -450,13 +531,67 @@ func (b *InMemoryBackend) ListClusterNodes(
 		return nil, "", err
 	}
 
-	nodes, next := sagemakerListKeyPagedMap(c.Nodes, nextToken, func(n *ClusterNode) *ClusterNode {
-		cp := *n
+	list := make([]*ClusterNode, 0, len(c.Nodes))
 
-		return &cp
+	for _, n := range c.Nodes {
+		if !matchesClusterNodeListParams(n, params) {
+			continue
+		}
+
+		cp := *n
+		list = append(list, &cp)
+	}
+
+	asc := !strings.EqualFold(params.SortOrder, sortOrderDescending)
+	sort.Slice(list, func(i, j int) bool {
+		less := clusterNodeSortLess(list[i], list[j], params.SortBy)
+		if asc {
+			return less
+		}
+
+		return !less
 	})
 
+	nodes, next := paginateSlice(list, params.NextToken, params.MaxResults)
+
 	return nodes, next, nil
+}
+
+// matchesClusterNodeListParams reports whether n satisfies every filter in params.
+func matchesClusterNodeListParams(n *ClusterNode, p ListClusterNodesParams) bool {
+	if p.InstanceGroupNameContains != "" && !strings.Contains(n.InstanceGroupName, p.InstanceGroupNameContains) {
+		return false
+	}
+
+	if p.CreationTimeAfter != nil && !n.CreationTime.After(*p.CreationTimeAfter) {
+		return false
+	}
+
+	if p.CreationTimeBefore != nil && !n.CreationTime.Before(*p.CreationTimeBefore) {
+		return false
+	}
+
+	return true
+}
+
+// clusterNodeSortLess orders two nodes by sortBy -- one of ClusterSortBy's
+// real values (CREATION_TIME/NAME, types/enums.go:2775-2776), reused
+// unchanged from ListClusters even though a node has no Name of its own; NAME
+// is interpreted as its InstanceGroupName, the closest analogous field a node
+// carries.
+func clusterNodeSortLess(a, b *ClusterNode, sortBy string) bool {
+	switch sortBy {
+	case sortByName:
+		if a.InstanceGroupName != b.InstanceGroupName {
+			return a.InstanceGroupName < b.InstanceGroupName
+		}
+	default:
+		if !a.CreationTime.Equal(b.CreationTime) {
+			return a.CreationTime.Before(b.CreationTime)
+		}
+	}
+
+	return a.NodeID < b.NodeID
 }
 
 // DescribeClusterEvent looks up a single cluster event by ID. This emulator

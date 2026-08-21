@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	sagemakersdk "github.com/aws/aws-sdk-go-v2/service/sagemaker"
@@ -433,6 +434,21 @@ func TestHandler_ListImages_FilterSortPage_RealClient(t *testing.T) {
 		require.Len(t, out.Images, 1)
 		assert.Equal(t, "alpha-image", aws.ToString(out.Images[0].ImageName))
 		assert.NotEmpty(t, aws.ToString(out.NextToken))
+	})
+
+	// The real client serializes *time.Time filters as awsjson1.1 epoch-second
+	// numbers (serializers.go:45256-45258), never as RFC3339 strings. A
+	// listImagesInput field typed *time.Time cannot decode that shape at all
+	// -- json.Unmarshal errors with "input is not a JSON string" -- so any
+	// real client call setting a time filter used to fail outright.
+	t.Run("creation time filters do not error", func(t *testing.T) {
+		t.Parallel()
+
+		out, err := client.ListImages(t.Context(), &sagemakersdk.ListImagesInput{
+			CreationTimeAfter: aws.Time(time.Now().Add(-time.Hour)),
+		})
+		require.NoError(t, err)
+		assert.Len(t, out.Images, 3)
 	})
 }
 

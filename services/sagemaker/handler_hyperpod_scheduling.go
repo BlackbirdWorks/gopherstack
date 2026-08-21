@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"time"
 )
 
 // ---------------------------------------------------------------------------
@@ -66,15 +65,15 @@ func (h *Handler) handleDescribeClusterSchedulerConfig(ctx context.Context, body
 }
 
 type listClusterSchedulerConfigsInput struct {
-	CreatedAfter  *time.Time `json:"CreatedAfter"`
-	CreatedBefore *time.Time `json:"CreatedBefore"`
-	ClusterArn    string     `json:"ClusterArn"`
-	NameContains  string     `json:"NameContains"`
-	NextToken     string     `json:"NextToken"`
-	SortBy        string     `json:"SortBy"`
-	SortOrder     string     `json:"SortOrder"`
-	Status        string     `json:"Status"`
-	MaxResults    int32      `json:"MaxResults"`
+	CreatedAfter  *float64 `json:"CreatedAfter"`
+	CreatedBefore *float64 `json:"CreatedBefore"`
+	ClusterArn    string   `json:"ClusterArn"`
+	NameContains  string   `json:"NameContains"`
+	NextToken     string   `json:"NextToken"`
+	SortBy        string   `json:"SortBy"`
+	SortOrder     string   `json:"SortOrder"`
+	Status        string   `json:"Status"`
+	MaxResults    int32    `json:"MaxResults"`
 }
 
 func (h *Handler) handleListClusterSchedulerConfigs(ctx context.Context, body []byte) ([]byte, error) {
@@ -84,7 +83,17 @@ func (h *Handler) handleListClusterSchedulerConfigs(ctx context.Context, body []
 		return nil, err
 	}
 
-	configs, next := h.Backend.ListClusterSchedulerConfigs(ctx, ListClusterSchedulerConfigsParams(req))
+	configs, next := h.Backend.ListClusterSchedulerConfigs(ctx, ListClusterSchedulerConfigsParams{
+		CreatedAfter:  timeFromEpochSecondsPtr(req.CreatedAfter),
+		CreatedBefore: timeFromEpochSecondsPtr(req.CreatedBefore),
+		ClusterArn:    req.ClusterArn,
+		NameContains:  req.NameContains,
+		NextToken:     req.NextToken,
+		SortBy:        req.SortBy,
+		SortOrder:     req.SortOrder,
+		Status:        req.Status,
+		MaxResults:    req.MaxResults,
+	})
 
 	items := make([]map[string]any, 0, len(configs))
 	for _, c := range configs {
@@ -215,15 +224,15 @@ func (h *Handler) handleDescribeComputeQuota(ctx context.Context, body []byte) (
 }
 
 type listComputeQuotasInput struct {
-	CreatedAfter  *time.Time `json:"CreatedAfter"`
-	CreatedBefore *time.Time `json:"CreatedBefore"`
-	ClusterArn    string     `json:"ClusterArn"`
-	NameContains  string     `json:"NameContains"`
-	NextToken     string     `json:"NextToken"`
-	SortBy        string     `json:"SortBy"`
-	SortOrder     string     `json:"SortOrder"`
-	Status        string     `json:"Status"`
-	MaxResults    int32      `json:"MaxResults"`
+	CreatedAfter  *float64 `json:"CreatedAfter"`
+	CreatedBefore *float64 `json:"CreatedBefore"`
+	ClusterArn    string   `json:"ClusterArn"`
+	NameContains  string   `json:"NameContains"`
+	NextToken     string   `json:"NextToken"`
+	SortBy        string   `json:"SortBy"`
+	SortOrder     string   `json:"SortOrder"`
+	Status        string   `json:"Status"`
+	MaxResults    int32    `json:"MaxResults"`
 }
 
 func (h *Handler) handleListComputeQuotas(ctx context.Context, body []byte) ([]byte, error) {
@@ -233,7 +242,17 @@ func (h *Handler) handleListComputeQuotas(ctx context.Context, body []byte) ([]b
 		return nil, err
 	}
 
-	quotas, next := h.Backend.ListComputeQuotas(ctx, ListComputeQuotasParams(req))
+	quotas, next := h.Backend.ListComputeQuotas(ctx, ListComputeQuotasParams{
+		CreatedAfter:  timeFromEpochSecondsPtr(req.CreatedAfter),
+		CreatedBefore: timeFromEpochSecondsPtr(req.CreatedBefore),
+		ClusterArn:    req.ClusterArn,
+		NameContains:  req.NameContains,
+		NextToken:     req.NextToken,
+		SortBy:        req.SortBy,
+		SortOrder:     req.SortOrder,
+		Status:        req.Status,
+		MaxResults:    req.MaxResults,
+	})
 
 	items := make([]map[string]any, 0, len(quotas))
 	for _, q := range quotas {

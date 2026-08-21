@@ -2080,3 +2080,246 @@ campaign's standing instruction never to write `pending` or otherwise touch it c
 **226 of sagemaker's 362 inline structs now remain.** Next by size (tied):
 `handler_device_fleets.go` (9), `handler_cluster.go` (9), then `handler_monitoring_schedules.go` (7),
 `handler_model_cards.go` (7), `handler_jobs.go` (7), `handler_inference_experiments.go` (7).
+
+## parity-16 (2026-08-21, gopherstack-oc9v): DeviceFleet/Device and HyperPod Cluster inline-struct sweep, plus a repo-spanning epoch-time-decode bug found across three prior passes
+
+Tenth pass of the gopherstack-oc9v campaign. Per parity-15's boundary note ("226 of sagemaker's 362
+inline structs now remain ... `handler_device_fleets.go` (9), `handler_cluster.go` (9)"), this pass
+took both files, each verified by `grep -c 'var req struct {' <file>.go` = 9 before starting. All 18
+were converted to named types (`createDeviceFleetInput`, `describeDeviceFleetInput`,
+`listDeviceFleetsInput`, `updateDeviceFleetInput`, `deleteDeviceFleetInput`, `registerDevicesInput`,
+`deregisterDevicesInput`, `describeDeviceInput`, `listDevicesInput`; `startClusterHealthCheckInput`,
+`describeClusterInput`, `listClustersInput`, `deleteClusterInput`, `updateClusterSoftwareInput`,
+`describeClusterNodeInput`, `listClusterNodesInput`, `describeClusterEventInput`,
+`listClusterEventsInput`) and wire-audited field-by-field against the pinned SDK (`v1.263.2`,
+confirmed from `go.mod`, matching prior passes). **208 of sagemaker's 362 inline structs now remain**
+(362 − 19 − 19 − 15 − 14 − 14 − 12 − 11 − 11 − 10 − 9 − 9), confirmed by
+`grep -rc 'var req struct {' services/sagemaker/*.go` summed, not arithmetic; both files now have
+zero.
+
+**A repo-spanning bug found first, before any new code was written:** deciding how to decode this
+pass's own time filters required checking how the *previous three passes* (parity-14 x2,
+parity-15 x2) had done it, since their List ops establish the pattern this pass would otherwise copy.
+`ListImages`/`ListImageVersions` (`handler_images.go`), `ListEdgeDeploymentPlans`
+(`handler_edge_deployment.go`), and `ListClusterSchedulerConfigs`/`ListComputeQuotas`
+(`handler_hyperpod_scheduling.go`) all decoded their `CreationTimeAfter`/`CreationTimeBefore`/
+`CreatedAfter`/`CreatedBefore` filters straight into a `*time.Time`-typed request field. The real
+client serializes these as awsjson1.1 epoch-second **numbers** (confirmed at
+`serializers.go:45256-45258` for `ListImages`), never RFC3339 strings — and Go's `encoding/json`
+cannot unmarshal a bare number into `time.Time` (`Time.UnmarshalJSON: input is not a JSON string`),
+confirmed by a standalone repro. **Any real client call setting any of those five ops' time filters
+failed outright** with a 400, the entire request rejected by the top-level `json.Unmarshal` error,
+not just the filter silently ignored. No existing test caught it because each pass's own
+`_FilterSortPage_RealClient` test exercised `NameContains`/`SortBy`/`SortOrder`/`MaxResults` but never
+the time filters themselves. The correct pattern, already used correctly by
+`handler_notebook_instances.go`/`handler_hub.go`/`handler_pipelines.go`/`handler_lineage.go`/
+`handler_mlflow.go`/`handler_model_packages.go`/`handler_trial_components.go`, decodes to `*float64`
+and converts via `timeFromEpochSecondsPtr`. **Fixed in all five prior ops** (both `handler_images.go`
+List ops, `handler_edge_deployment.go`'s, and both `handler_hyperpod_scheduling.go` ops) as a
+prerequisite to writing this pass's own five time-filtered List ops correctly, with a regression
+subtest (`creation time filter(s) do not error` / `created after filter does not error`) added to
+each op's existing `_FilterSortPage_RealClient` test. Hand-reverted `handler_images.go`'s fix alone,
+confirmed `TestHandler_ListImages_FilterSortPage_RealClient/creation_time_filters_do_not_error` failed
+with exactly the predicted `Time.UnmarshalJSON` error, then restored (`md5sum`-verified). This is the
+same bug class the `time.Time`/`*float64` distinction always is in this campaign, just never
+previously triggered because no test had populated those particular fields.
+
+**Enumerated vs. converted vs. audited — DeviceFleet:**
+
+- `CreateDeviceFleetInput` (`api_op_CreateDeviceFleet.go:28-59`) — was missing `EnableIotRoleAlias`
+  entirely, and `OutputConfig` (`types.EdgeOutputConfig`, `types/types.go:7856-7903`) was missing two
+  of its four fields, `PresetDeploymentConfig`/`PresetDeploymentType`. `EnableIotRoleAlias` now
+  synthesizes `DescribeDeviceFleetOutput.IotRoleAlias` as `"SageMakerEdge-{DeviceFleetName}"`, exactly
+  the pattern the input doc itself specifies — previously **`IotRoleAlias` had no source at all**,
+  not even a stub field on `DeviceFleet`. `UpdateDeviceFleetInput` had the identical gap and is fixed
+  the same way, including toggling the alias back off when explicitly disabled.
+- `DescribeDeviceFleetInput`/`DeleteDeviceFleetInput` — already matched exactly.
+- `ListDeviceFleetsInput` (`api_op_ListDeviceFleets.go:30-61`) — was missing **8 of 9** optional
+  fields, only `NextToken` existed: `CreationTimeAfter`, `CreationTimeBefore`,
+  `LastModifiedTimeAfter`, `LastModifiedTimeBefore`, `MaxResults`, `NameContains`, `SortBy`,
+  `SortOrder`. All eight now real via a new `ListDeviceFleetsParams`/`matchesDeviceFleetListParams`/
+  `deviceFleetSortLess`. No default `SortBy`/`SortOrder` is documented for this op; `CreationTime`/
+  Ascending kept as the disclosed undocumented-default fallback, this campaign's recurring precedent.
+  `ListDeviceFleetsSortBy`'s real values are `NAME`/`CREATION_TIME`/`LAST_MODIFIED_TIME`
+  (`types/enums.go:5291-5293`), all-caps like the Image family, not mixed-case like most other List
+  ops — read from the enum constants, not assumed.
+- `RegisterDevicesInput` (`api_op_RegisterDevices.go:28-40`) — **the standout finding of this
+  family.** The previous handler read `Tags` from a **per-device key that does not exist on the real
+  wire at all**: `types.Device` (`types/types.go:7222-7236`), the wire type for each
+  `RegisterDevicesInput.Devices` entry, has only `DeviceName`/`Description`/`IotThingName` — no
+  `Tags` field. The real, top-level `RegisterDevicesInput.Tags` (applying to every device in the
+  batch) was never read at all. Net effect: **every real client's `RegisterDevices` call silently
+  lost its tags**, regardless of whether it sent them per-device (ignored, since that shape isn't
+  real) or correctly at the top level (never read). Fixed by removing the fabricated per-device
+  `Tags` field and threading the real top-level `Tags` through a new `tags` parameter on
+  `InMemoryBackend.RegisterDevices`, applied to every device created in that call. Device tags were
+  also previously unreachable through `ListTagsForResource`/`AddTags`/`DeleteTags` at all — `tags.go`
+  had no `scanTagLookup` entry for `devicesStoreRO`; added one, mirroring the pre-existing
+  `DeviceFleet` entry beside it.
+- `DeregisterDevicesInput` — already matched exactly.
+- `DescribeDeviceInput` (`api_op_DescribeDevice.go:28-43`) — missing `NextToken` (paginates the
+  `Models` field within one device's description). Decoded for wire-shape fidelity but a disclosed
+  no-op: this backend's `Device` never carries `Models` at all (see below), so there is never a
+  second page to token into.
+- `ListDevicesInput` (`api_op_ListDevices.go:30-49`) — missing `MaxResults` (real; now threaded
+  through the pre-existing `devicesInFleetPaged` helper, which already accepted a `maxResults`
+  parameter the handler had simply never passed), `LatestHeartbeatAfter`, and `ModelName`. The latter
+  two are decoded for wire-shape fidelity but are disclosed no-ops: `AgentVersion`, `LatestHeartbeat`,
+  `Models`, and `MaxModels` on `DescribeDeviceOutput`/`DeviceSummary` all come from the SageMaker Edge
+  Manager device-agent runtime protocol (`SendHeartbeat`/`GetDeviceRegistration`, on the *separate*
+  `sagemakeredge` service, not `sagemaker`) — this backend has no device-agent simulation of any
+  kind, so there is no heartbeat timestamp or model registration ever to have.
+
+**Disclosed, not modeled (DeviceFleet/Device):**
+
+- `ListDevicesInput.LatestHeartbeatAfter`/`ModelName`, `DescribeDeviceInput.NextToken` — see above.
+- `DescribeDeviceOutput`/`DeviceSummary`'s `AgentVersion`/`LatestHeartbeat`/`Models`/`MaxModels` — no
+  device-agent runtime exists in this backend at all (separate service, not implemented here).
+- `DeviceFleetOutputConfig.PresetDeploymentConfig`/`PresetDeploymentType` are stored and echoed back
+  verbatim but otherwise inert: this backend has no edge-packaging-job subsystem to actually act on a
+  preset deployment configuration.
+
+**Enums touched, all read from the constants:** `ListDeviceFleetsSortBy` (all-caps, confirmed
+distinct from the mixed-case convention most other List ops use), `EdgePresetDeploymentType` (single
+value, `GreengrassV2Component`).
+
+**Storage-key check:** `DeviceFleet` (keyed by `DeviceFleetName`) and `Device` (keyed by
+`fleetName|deviceName` composite) both stayed keyed the same. `Device`'s tag reachability changed
+(see `RegisterDevicesInput` above), not its storage key.
+
+**Enumerated vs. converted vs. audited — HyperPod Cluster:**
+
+- `StartClusterHealthCheckInput`/`DescribeClusterInput`/`DeleteClusterInput`/
+  `DescribeClusterEventInput` — already matched exactly; converted to named types for tooling
+  visibility with no field changes.
+- `ListClustersInput` (`api_op_ListClusters.go:30-71`) — was missing **6 of 8** optional fields, only
+  `NameContains`/`NextToken` existed: `CreationTimeAfter`, `CreationTimeBefore`, `MaxResults`,
+  `SortBy`, `SortOrder`, `TrainingPlanArn`. The first five are now real via a new
+  `ListClustersParams`/`matchesClusterListParams`/`clusterSortLess`, replacing the previous
+  map-then-`sagemakerListPagedMap` implementation (which had no `MaxResults` support at all — that
+  helper is now dead code and removed). **The op's own doc states both real defaults explicitly**:
+  `SortBy` defaults to `CREATION_TIME`, `SortOrder` to `Ascending` — the latter is this campaign's
+  first *documented* Ascending default found (every prior documented default was Descending);
+  implemented as documented, not assumed. `TrainingPlanArn` is decoded for wire-shape fidelity but is
+  a disclosed no-op: `CreateClusterInput` has no `TrainingPlanArn` field at all (confirmed by reading
+  the real op's full field list), so no cluster in this backend has ever had a training-plan
+  association to filter by.
+- `UpdateClusterSoftwareInput` (`api_op_UpdateClusterSoftware.go:28-63`) — was missing
+  `DeploymentConfig`/`ImageId`/`InstanceGroups` entirely. All three now decoded (the array via a new
+  `updateClusterSoftwareInstanceGroupRequest`) but are disclosed no-ops, consistent with this op's
+  pre-existing doc comment in `cluster.go`: "this emulator applies the request immediately with no
+  observable software-version state to update" — there is no per-instance-group AMI/version field
+  anywhere in this backend's `ClusterInstanceGroup` for a requested image ID or rollout policy to act
+  on.
+- `DescribeClusterNodeInput` (`api_op_DescribeClusterNode.go:28-42`) — missing `NodeLogicalId`
+  (optional; "You can specify either `NodeLogicalId` or [NodeId], but not both... `NodeLogicalId` can
+  be used to describe nodes that are still being provisioned and don't yet have an `InstanceId`
+  assigned"). Decoded for wire-shape fidelity but a disclosed no-op: every node in this backend gets
+  its `NodeId` assigned synchronously at creation (`newClusterNode`), so there is never a
+  still-provisioning, logical-id-only node for it to resolve — this handler's pre-existing
+  requires-`NodeId` validation is therefore still correct, not a bug, just previously undocumented as
+  a deliberate choice rather than an oversight.
+- `ListClusterNodesInput` (`api_op_ListClusterNodes.go:30-70`) — was missing **7 of 9** optional
+  fields, only `NextToken` existed: `CreationTimeAfter`, `CreationTimeBefore`,
+  `IncludeNodeLogicalIds`, `InstanceGroupNameContains`, `MaxResults`, `SortBy`, `SortOrder`. The five
+  real ones are now live via a new `ListClusterNodesParams`/`matchesClusterNodeListParams`/
+  `clusterNodeSortLess`, which required adding a `CreationTime` field to `ClusterNode` itself (set at
+  node creation in `newClusterNode`) since nothing tracked when a node was created before this pass.
+  Both documented defaults (`CREATION_TIME`/`Ascending`) match `ListClusters`' above.
+  `IncludeNodeLogicalIds` is decoded but a disclosed no-op for the same reason as
+  `DescribeClusterNode`'s `NodeLogicalId` above — no still-provisioning node state exists to include
+  or exclude.
+- `ListClusterEventsInput` (`api_op_ListClusterEvents.go:29-72`) — was missing **8 of 9** optional
+  fields, only `ClusterName` was read. All eight (`EventTimeAfter`, `EventTimeBefore`,
+  `InstanceGroupName`, `MaxResults`, `NextToken`, `NodeId`, `ResourceType`, `SortBy`, `SortOrder`) are
+  now decoded for wire-shape fidelity, but every one is a disclosed no-op consistent with this op's
+  pre-existing doc comment: this backend never generates a single cluster event (`DescribeClusterEvent`
+  always errors "not found" for the same reason), so every filter is trivially satisfied by the
+  always-empty result set — there is nothing behaviorally different a real filter could produce here.
+
+**A real absent-required-field bug found beyond the wire diff, matching this campaign's severest
+class of finding (parity-14's `ListImageVersions.ImageArn`, parity-15's
+`ListClusterSchedulerConfigs.ClusterArn`):** `ClusterNodeSummary` (`types/types.go:5398-5423`)
+declares `LaunchTime` as a **required** member — **the previous `ListClusterNodes` handler never
+emitted it at all**, so every real client's `ListClusterNodes` call saw every node summary missing a
+required field, even though `DescribeClusterNode`'s sibling `ClusterNodeDetails.LaunchTime` (optional
+there) was equally never populated for the single-node case. Both are now sourced from the new
+`ClusterNode.CreationTime` field (the node's real creation timestamp, not a fabricated value — nodes
+are created synchronously and immediately begin running in this backend, so creation time and launch
+time coincide exactly). Confirmed load-bearing by hand-revert below.
+
+**Disclosed, not modeled (HyperPod Cluster):**
+
+- `ListClustersInput.TrainingPlanArn` — no training-plan-to-cluster association exists anywhere in
+  this backend's `CreateClusterInput`/`Cluster` modeling.
+- `UpdateClusterSoftwareInput.DeploymentConfig`/`ImageId`/`InstanceGroups` — no per-instance-group
+  AMI/version state exists to update, consistent with `UpdateClusterSoftware`'s pre-existing
+  disclosure.
+- `DescribeClusterNodeInput.NodeLogicalId`/`ListClusterNodesInput.IncludeNodeLogicalIds` — no
+  still-provisioning, logical-id-only node lifecycle stage exists; every node has its `NodeId`
+  assigned synchronously at creation.
+- `ListClusterEventsInput`'s eight filter fields — this backend never generates a cluster event,
+  consistent with `DescribeClusterEvent`'s pre-existing disclosure.
+- `ClusterNodeDetails`' many optional infrastructure-simulation fields (`CapacityType`, the
+  Current/DesiredImage* AMI-patch fields, `KubernetesConfig`, `NetworkInterface`, `Placement`,
+  `PrivateDnsHostname`/`PrivatePrimaryIp`, `ThreadsPerCore`, `UltraServerInfo`) — this backend
+  simulates none of the underlying EC2/network/Kubernetes state these would require, and are out of
+  this pass's scope (only `clusterNodeDetails`'/`clusterNodeSummary`'s pre-existing anonymous-struct
+  request/response shapes were in scope, not `ClusterInstanceGroupSpecification`'s own many optional
+  fields, which are behind the already-named, not-anonymous `clusterInstanceGroupRequest` type and
+  were not touched this pass).
+
+**Storage-key check:** `Cluster` (keyed by `ClusterName`, ARN-indexed) and `ClusterNode` (keyed by
+`NodeId` within its parent `Cluster.Nodes` map) both stayed keyed the same; `ClusterNode` gained a
+`CreationTime` field but no key-shape change.
+
+**Enums touched, all read from the constants:** `ClusterSortBy` (`CREATION_TIME`/`NAME`,
+types/enums.go:2775-2776 — reused unchanged by `ListClusterNodesInput`, even though a node has no
+`Name` of its own; interpreted as `InstanceGroupName`, the closest analogous field, and disclosed as
+such rather than silently assumed), `EventSortBy` (single value, `EventTime`),
+`ClusterEventResourceType` (`Cluster`/`InstanceGroup`/`Instance`).
+
+**Tests:** real-`aws-sdk-go-v2`-client round-trip tests added —
+`TestHandler_CreateDeviceFleet_IotRoleAlias_RealClient`,
+`TestHandler_CreateDeviceFleet_PresetDeploymentConfig_RealClient`,
+`TestHandler_ListDeviceFleets_FilterSortPage_RealClient`,
+`TestHandler_RegisterDevices_Tags_RealClient`, `TestHandler_ListDevices_MaxResults_RealClient`,
+`TestHandler_ListClusters_FilterSortPage_RealClient`,
+`TestHandler_ListClusterNodes_FilterSortPage_RealClient`; plus a `creation time filter(s) do not
+error` subtest added to each of the five previously-broken time-filtered List ops named above.
+Pre-existing `TestHandler_ClusterLifecycle` extended with `LaunchTime` presence assertions at both
+the List and Describe call sites. No pre-existing test asserted a now-fixed defect's wrong shape
+directly (unlike parity-12/15's enshrined-bug finds) — the `LaunchTime`/`RegisterDevices` Tags/
+`EnableIotRoleAlias` gaps were pure absences no test had touched. Verified against unfixed code by
+hand-reverting three representative fixes one at a time — `ListClusterNodes`' summary `LaunchTime`
+field (removed, confirming the first assertion attempt with a bare `assert.NotZero` was too weak to
+catch a zero-valued-but-still-epoch-1970 `LaunchTime` and had to be strengthened to
+`assert.WithinDuration` before the revert would actually fail), `RegisterDevices`' tags parameter
+(short-circuited to `nil`), and `CreateDeviceFleet`'s `EnableIotRoleAlias` handling (removed) —
+confirming each corresponding test failed with the predicted symptom, then restoring;
+`handler_cluster.go`/`device_fleets.go` verified byte-identical (`md5sum`) to their pre-revert state
+afterward. The `handler_images.go` time-filter fix was also hand-reverted and restored the same way
+(see above).
+
+Gates for this session: `go build ./services/sagemaker/...`, `go vet ./services/sagemaker/...`,
+`go vet -tags e2e ./services/sagemaker/...`, `go vet -tags integration ./services/sagemaker/...`,
+`gofmt -l ./services/sagemaker` (empty), `go test -race ./services/sagemaker/...`, `go fix -diff
+./services/sagemaker/...` (no diff), and `golangci-lint run ./services/sagemaker/...` (0 issues) all
+clean; `go build ./...` (repo-wide) also clean. Zero new `nolint` added. One pre-existing
+`//nolint:dupl` moved (not added): adding `devicesStoreRO` to `tags.go`'s `statefulTagLookupsPart2`
+shifted which pair of the three structurally-identical `statefulTagLookupsPart{1,2,3}` registration
+functions the `dupl` linter matched (previously `Part1`↔`Part2`, now `Part2`↔`Part3`); the existing
+justified suppression moved from `Part1` to `Part3` rather than being duplicated or dropped. Also
+fixed real findings by editing, not suppressing: `goconst` (a new shared `sortByName` constant,
+alongside the pre-existing `sortByLastModifiedTime`/`sortOrderDescending`, for the `"NAME"` literal
+now repeated across `Cluster`/`DeviceFleet`/`EdgeDeploymentPlan`'s three distinct sort-by enums),
+`golines` (one call-site rewrap), `fieldalignment -fix` (two structs), a `revive var-naming` rename
+(`IncludeNodeLogicalIds` field → `IncludeNodeLogicalIDs`, JSON tag unchanged), a `staticcheck S1016`
+struct-conversion simplification, and a `testifylint` `assert.JSONEq` swap.
+
+**`last_audit_commit` left at its existing value (`5f91d37c7`)** — not updated this pass, per the
+campaign's standing instruction never to write `pending` or otherwise touch it casually.
+
+**208 of sagemaker's 362 inline structs now remain.** Next by size (tied):
+`handler_monitoring_schedules.go` (7), `handler_model_cards.go` (7), `handler_jobs.go` (7),
+`handler_inference_experiments.go` (7).

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	sagemakersdk "github.com/aws/aws-sdk-go-v2/service/sagemaker"
@@ -89,6 +90,9 @@ func TestHandler_ClusterLifecycle(t *testing.T) {
 	nodeID, ok := firstNode["InstanceId"].(string)
 	require.True(t, ok)
 	assert.Equal(t, "worker-group", firstNode["InstanceGroupName"])
+	// LaunchTime is a required member of ClusterNodeSummary
+	// (types/types.go:5420-5423) -- previously omitted entirely.
+	assert.NotEmpty(t, firstNode["LaunchTime"])
 
 	// DescribeClusterNode.
 	rec = doSageMakerRequest(t, h, "DescribeClusterNode", map[string]any{
@@ -103,6 +107,7 @@ func TestHandler_ClusterLifecycle(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, nodeID, nodeDetails["InstanceId"])
 	assert.Equal(t, "ml.m5.xlarge", nodeDetails["InstanceType"])
+	assert.NotEmpty(t, nodeDetails["LaunchTime"])
 
 	// UpdateCluster: grow the instance group to 3 nodes and switch node recovery off.
 	rec = doSageMakerRequest(t, h, "UpdateCluster", map[string]any{
@@ -1158,4 +1163,134 @@ func TestHandler_StartClusterHealthCheck(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestHandler_ListClusters_FilterSortPage_RealClient asserts
+// ListClustersInput's NameContains/SortBy/SortOrder/MaxResults/
+// CreationTimeAfter -- all silently dropped before this pass except
+// NameContains -- now work. The real client sends CreationTimeAfter as an
+// awsjson1.1 epoch-second number, which a *time.Time-typed request field
+// cannot decode at all.
+func TestHandler_ListClusters_FilterSortPage_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestSageMakerClient(t, h)
+
+	names := []string{"alpha-cluster", "beta-cluster", "gamma-widget"}
+	for _, n := range names {
+		_, err := client.CreateCluster(t.Context(), &sagemakersdk.CreateClusterInput{ClusterName: aws.String(n)})
+		require.NoError(t, err)
+	}
+
+	t.Run("name contains filters", func(t *testing.T) {
+		t.Parallel()
+
+		out, err := client.ListClusters(t.Context(), &sagemakersdk.ListClustersInput{
+			NameContains: aws.String("cluster"),
+		})
+		require.NoError(t, err)
+		assert.Len(t, out.ClusterSummaries, 2)
+	})
+
+	t.Run("ascending sort by name", func(t *testing.T) {
+		t.Parallel()
+
+		out, err := client.ListClusters(t.Context(), &sagemakersdk.ListClustersInput{
+			SortBy:    smtypes.ClusterSortByName,
+			SortOrder: smtypes.SortOrderAscending,
+		})
+		require.NoError(t, err)
+		require.Len(t, out.ClusterSummaries, 3)
+		assert.Equal(t, "alpha-cluster", aws.ToString(out.ClusterSummaries[0].ClusterName))
+		assert.Equal(t, "gamma-widget", aws.ToString(out.ClusterSummaries[2].ClusterName))
+	})
+
+	t.Run("max results caps the page and returns a token", func(t *testing.T) {
+		t.Parallel()
+
+		out, err := client.ListClusters(t.Context(), &sagemakersdk.ListClustersInput{
+			MaxResults: aws.Int32(1),
+			SortBy:     smtypes.ClusterSortByName,
+			SortOrder:  smtypes.SortOrderAscending,
+		})
+		require.NoError(t, err)
+		require.Len(t, out.ClusterSummaries, 1)
+		assert.Equal(t, "alpha-cluster", aws.ToString(out.ClusterSummaries[0].ClusterName))
+		assert.NotEmpty(t, aws.ToString(out.NextToken))
+	})
+
+	t.Run("creation time filter does not error", func(t *testing.T) {
+		t.Parallel()
+
+		out, err := client.ListClusters(t.Context(), &sagemakersdk.ListClustersInput{
+			CreationTimeAfter: aws.Time(time.Now().Add(-time.Hour)),
+		})
+		require.NoError(t, err)
+		assert.Len(t, out.ClusterSummaries, 3)
+	})
+}
+
+// TestHandler_ListClusterNodes_FilterSortPage_RealClient asserts
+// ListClusterNodesInput's InstanceGroupNameContains/MaxResults/
+// CreationTimeAfter -- all silently dropped before this pass -- now work,
+// and that every returned ClusterNodeSummary carries the required LaunchTime
+// (types/types.go:5420-5423), previously omitted entirely.
+func TestHandler_ListClusterNodes_FilterSortPage_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestSageMakerClient(t, h)
+
+	_, err := client.CreateCluster(t.Context(), &sagemakersdk.CreateClusterInput{
+		ClusterName: aws.String("node-filter-cluster"),
+		InstanceGroups: []smtypes.ClusterInstanceGroupSpecification{
+			{
+				InstanceGroupName: aws.String("workers"),
+				InstanceCount:     aws.Int32(2),
+				ExecutionRole:     aws.String("arn:aws:iam::000000000000:role/HyperPodRole"),
+			},
+			{
+				InstanceGroupName: aws.String("head-nodes"),
+				InstanceCount:     aws.Int32(1),
+				ExecutionRole:     aws.String("arn:aws:iam::000000000000:role/HyperPodRole"),
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	t.Run("instance group name contains filters", func(t *testing.T) {
+		t.Parallel()
+
+		out, listErr := client.ListClusterNodes(t.Context(), &sagemakersdk.ListClusterNodesInput{
+			ClusterName:               aws.String("node-filter-cluster"),
+			InstanceGroupNameContains: aws.String("worker"),
+		})
+		require.NoError(t, listErr)
+		require.Len(t, out.ClusterNodeSummaries, 2)
+		assert.WithinDuration(t, time.Now(), aws.ToTime(out.ClusterNodeSummaries[0].LaunchTime), time.Minute)
+	})
+
+	t.Run("max results caps the page and returns a token", func(t *testing.T) {
+		t.Parallel()
+
+		out, listErr := client.ListClusterNodes(t.Context(), &sagemakersdk.ListClusterNodesInput{
+			ClusterName: aws.String("node-filter-cluster"),
+			MaxResults:  aws.Int32(1),
+		})
+		require.NoError(t, listErr)
+		require.Len(t, out.ClusterNodeSummaries, 1)
+		assert.NotEmpty(t, aws.ToString(out.NextToken))
+	})
+
+	t.Run("creation time filter does not error", func(t *testing.T) {
+		t.Parallel()
+
+		out, listErr := client.ListClusterNodes(t.Context(), &sagemakersdk.ListClusterNodesInput{
+			ClusterName:       aws.String("node-filter-cluster"),
+			CreationTimeAfter: aws.Time(time.Now().Add(-time.Hour)),
+		})
+		require.NoError(t, listErr)
+		assert.Len(t, out.ClusterNodeSummaries, 3)
+	})
 }

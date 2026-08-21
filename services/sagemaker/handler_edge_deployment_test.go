@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	sagemakersdk "github.com/aws/aws-sdk-go-v2/service/sagemaker"
@@ -645,6 +646,20 @@ func TestHandler_ListEdgeDeploymentPlans_FilterSortPage_RealClient(t *testing.T)
 		require.Len(t, out.EdgeDeploymentPlanSummaries, 1)
 		assert.Equal(t, "alpha-plan", aws.ToString(out.EdgeDeploymentPlanSummaries[0].EdgeDeploymentPlanName))
 		assert.NotEmpty(t, aws.ToString(out.NextToken))
+	})
+
+	// The real client sends time filters as awsjson1.1 epoch-second numbers
+	// (serializers.go:45303-45304 for this op), never RFC3339 strings. A
+	// *time.Time-typed request field cannot decode that shape, so any real
+	// client call setting a time filter used to fail outright.
+	t.Run("creation time filter does not error", func(t *testing.T) {
+		t.Parallel()
+
+		out, listErr := client.ListEdgeDeploymentPlans(t.Context(), &sagemakersdk.ListEdgeDeploymentPlansInput{
+			CreationTimeAfter: aws.Time(time.Now().Add(-time.Hour)),
+		})
+		require.NoError(t, listErr)
+		assert.Len(t, out.EdgeDeploymentPlanSummaries, 3)
 	})
 }
 

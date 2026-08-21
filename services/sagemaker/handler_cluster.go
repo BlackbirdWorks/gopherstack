@@ -98,11 +98,15 @@ type instanceGroupHealthCheckConfigRequest struct {
 	InstanceIDs       []string `json:"InstanceIds"`
 }
 
+// startClusterHealthCheckInput is StartClusterHealthCheck's request shape
+// (api_op_StartClusterHealthCheck.go:28-40).
+type startClusterHealthCheckInput struct {
+	ClusterName                   string                                  `json:"ClusterName"`
+	DeepHealthCheckConfigurations []instanceGroupHealthCheckConfigRequest `json:"DeepHealthCheckConfigurations"`
+}
+
 func (h *Handler) handleStartClusterHealthCheck(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		ClusterName                   string                                  `json:"ClusterName"`
-		DeepHealthCheckConfigurations []instanceGroupHealthCheckConfigRequest `json:"DeepHealthCheckConfigurations"`
-	}
+	var req startClusterHealthCheckInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -271,10 +275,14 @@ func (h *Handler) describeClusterResponse(c *Cluster) []byte {
 	return b
 }
 
+// describeClusterInput is DescribeCluster's request shape
+// (api_op_DescribeCluster.go:28-36).
+type describeClusterInput struct {
+	ClusterName string `json:"ClusterName"`
+}
+
 func (h *Handler) handleDescribeCluster(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		ClusterName string `json:"ClusterName"`
-	}
+	var req describeClusterInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -300,17 +308,36 @@ type clusterSummary struct {
 	CreationTime  float64 `json:"CreationTime"`
 }
 
+// listClustersInput is ListClusters' request shape (api_op_ListClusters.go:
+// 30-71). TrainingPlanArn is decoded for wire-shape fidelity but is a
+// disclosed no-op -- see ListClustersParams' doc comment in cluster.go.
+type listClustersInput struct {
+	CreationTimeAfter  *float64 `json:"CreationTimeAfter"`
+	CreationTimeBefore *float64 `json:"CreationTimeBefore"`
+	NameContains       string   `json:"NameContains"`
+	NextToken          string   `json:"NextToken"`
+	SortBy             string   `json:"SortBy"`
+	SortOrder          string   `json:"SortOrder"`
+	TrainingPlanArn    string   `json:"TrainingPlanArn"`
+	MaxResults         int32    `json:"MaxResults"`
+}
+
 func (h *Handler) handleListClusters(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		NameContains string `json:"NameContains"`
-		NextToken    string `json:"NextToken"`
-	}
+	var req listClustersInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	clusters, nextToken := h.Backend.ListClusters(ctx, req.NextToken, req.NameContains)
+	clusters, nextToken := h.Backend.ListClusters(ctx, ListClustersParams{
+		CreationTimeAfter:  timeFromEpochSecondsPtr(req.CreationTimeAfter),
+		CreationTimeBefore: timeFromEpochSecondsPtr(req.CreationTimeBefore),
+		NameContains:       req.NameContains,
+		NextToken:          req.NextToken,
+		SortBy:             req.SortBy,
+		SortOrder:          req.SortOrder,
+		MaxResults:         req.MaxResults,
+	})
 	summaries := make([]clusterSummary, 0, len(clusters))
 
 	for _, c := range clusters {
@@ -330,10 +357,14 @@ func (h *Handler) handleListClusters(ctx context.Context, body []byte) ([]byte, 
 	return json.Marshal(resp)
 }
 
+// deleteClusterInput is DeleteCluster's request shape
+// (api_op_DeleteCluster.go:28-36).
+type deleteClusterInput struct {
+	ClusterName string `json:"ClusterName"`
+}
+
 func (h *Handler) handleDeleteCluster(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		ClusterName string `json:"ClusterName"`
-	}
+	var req deleteClusterInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -394,10 +425,31 @@ func (h *Handler) handleUpdateCluster(ctx context.Context, body []byte) ([]byte,
 	return json.Marshal(map[string]string{keyClusterArn: c.ClusterArn})
 }
 
+// updateClusterSoftwareInstanceGroupRequest is the wire shape for one entry
+// of UpdateClusterSoftwareInput.InstanceGroups
+// (types.UpdateClusterSoftwareInstanceGroupSpecification, types/types.go:
+// 24134-24146).
+type updateClusterSoftwareInstanceGroupRequest struct {
+	InstanceGroupName   string `json:"InstanceGroupName"`
+	ImageReleaseVersion string `json:"ImageReleaseVersion"`
+}
+
+// updateClusterSoftwareInput is UpdateClusterSoftware's request shape
+// (api_op_UpdateClusterSoftware.go:28-63). DeploymentConfig/ImageId/
+// InstanceGroups are decoded for wire-shape fidelity but are disclosed
+// no-ops: this backend applies an UpdateClusterSoftware request immediately
+// with no observable AMI/software-version state to update per instance group
+// (see UpdateClusterSoftware's doc comment in cluster.go), so there is
+// nothing for a per-group image ID/version or rollout policy to act on.
+type updateClusterSoftwareInput struct {
+	DeploymentConfig json.RawMessage                             `json:"DeploymentConfig"`
+	ClusterName      string                                      `json:"ClusterName"`
+	ImageID          string                                      `json:"ImageId"`
+	InstanceGroups   []updateClusterSoftwareInstanceGroupRequest `json:"InstanceGroups"`
+}
+
 func (h *Handler) handleUpdateClusterSoftware(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		ClusterName string `json:"ClusterName"`
-	}
+	var req updateClusterSoftwareInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -423,12 +475,20 @@ type clusterInstanceStatusDetails struct {
 	Status string `json:"Status"`
 }
 
-// clusterNodeDetails is the wire shape for DescribeClusterNode's NodeDetails.
+// clusterNodeDetails is the wire shape for DescribeClusterNode's NodeDetails
+// (types.ClusterNodeDetails, types/types.go:5306-5389). LaunchTime is the
+// only field of this (large, mostly infrastructure-simulation) response type
+// this backend populates; CapacityType, the Current/DesiredImage* AMI-patch
+// fields, KubernetesConfig, NetworkInterface, Placement,
+// PrivateDnsHostname/PrivatePrimaryIp, ThreadsPerCore, and UltraServerInfo
+// all describe EC2/network/Kubernetes state this emulator does not simulate
+// and are disclosed, not modeled.
 type clusterNodeDetails struct {
 	InstanceGroupName string                       `json:"InstanceGroupName,omitempty"`
 	InstanceID        string                       `json:"InstanceId,omitempty"`
 	InstanceType      string                       `json:"InstanceType,omitempty"`
 	InstanceStatus    clusterInstanceStatusDetails `json:"InstanceStatus"`
+	LaunchTime        float64                      `json:"LaunchTime"`
 }
 
 func toClusterNodeDetails(n *ClusterNode) clusterNodeDetails {
@@ -437,14 +497,24 @@ func toClusterNodeDetails(n *ClusterNode) clusterNodeDetails {
 		InstanceID:        n.NodeID,
 		InstanceType:      n.InstanceType,
 		InstanceStatus:    clusterInstanceStatusDetails{Status: n.NodeStatus},
+		LaunchTime:        epochSeconds(n.CreationTime),
 	}
 }
 
+// describeClusterNodeInput is DescribeClusterNode's request shape
+// (api_op_DescribeClusterNode.go:28-42). NodeLogicalId is decoded for
+// wire-shape fidelity but is a disclosed no-op: every node in this backend
+// gets its NodeId assigned synchronously at creation (see newClusterNode),
+// so there is never a still-provisioning node reachable only by a separate
+// logical ID for it to resolve.
+type describeClusterNodeInput struct {
+	ClusterName   string `json:"ClusterName"`
+	NodeID        string `json:"NodeId"`
+	NodeLogicalID string `json:"NodeLogicalId"`
+}
+
 func (h *Handler) handleDescribeClusterNode(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		ClusterName string `json:"ClusterName"`
-		NodeID      string `json:"NodeId"`
-	}
+	var req describeClusterNodeInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -466,19 +536,38 @@ func (h *Handler) handleDescribeClusterNode(ctx context.Context, body []byte) ([
 	return json.Marshal(map[string]any{"NodeDetails": toClusterNodeDetails(n)})
 }
 
-// clusterNodeSummary is the wire shape for a ListClusterNodes entry.
+// clusterNodeSummary is the wire shape for a ListClusterNodes entry
+// (types.ClusterNodeSummary, types/types.go:5398-5423). LaunchTime is a
+// required member -- previously omitted entirely, so every real client's
+// ListClusterNodes call saw every summary missing it, even though
+// DescribeClusterNode always populated ClusterNodeDetails.LaunchTime's
+// equivalent for the same node.
 type clusterNodeSummary struct {
 	InstanceGroupName string                       `json:"InstanceGroupName,omitempty"`
 	InstanceID        string                       `json:"InstanceId,omitempty"`
 	InstanceType      string                       `json:"InstanceType,omitempty"`
 	InstanceStatus    clusterInstanceStatusDetails `json:"InstanceStatus"`
+	LaunchTime        float64                      `json:"LaunchTime"`
+}
+
+// listClusterNodesInput is ListClusterNodes' request shape
+// (api_op_ListClusterNodes.go:30-70). IncludeNodeLogicalIds is decoded for
+// wire-shape fidelity but is a disclosed no-op -- see
+// ListClusterNodesParams' doc comment in cluster.go.
+type listClusterNodesInput struct {
+	CreationTimeAfter         *float64 `json:"CreationTimeAfter"`
+	CreationTimeBefore        *float64 `json:"CreationTimeBefore"`
+	ClusterName               string   `json:"ClusterName"`
+	InstanceGroupNameContains string   `json:"InstanceGroupNameContains"`
+	NextToken                 string   `json:"NextToken"`
+	SortBy                    string   `json:"SortBy"`
+	SortOrder                 string   `json:"SortOrder"`
+	MaxResults                int32    `json:"MaxResults"`
+	IncludeNodeLogicalIDs     bool     `json:"IncludeNodeLogicalIds"`
 }
 
 func (h *Handler) handleListClusterNodes(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		ClusterName string `json:"ClusterName"`
-		NextToken   string `json:"NextToken"`
-	}
+	var req listClusterNodesInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -488,7 +577,15 @@ func (h *Handler) handleListClusterNodes(ctx context.Context, body []byte) ([]by
 		return nil, fmt.Errorf("%w: ClusterName is required", errInvalidRequest)
 	}
 
-	nodes, nextToken, err := h.Backend.ListClusterNodes(ctx, req.ClusterName, req.NextToken)
+	nodes, nextToken, err := h.Backend.ListClusterNodes(ctx, req.ClusterName, ListClusterNodesParams{
+		CreationTimeAfter:         timeFromEpochSecondsPtr(req.CreationTimeAfter),
+		CreationTimeBefore:        timeFromEpochSecondsPtr(req.CreationTimeBefore),
+		InstanceGroupNameContains: req.InstanceGroupNameContains,
+		NextToken:                 req.NextToken,
+		SortBy:                    req.SortBy,
+		SortOrder:                 req.SortOrder,
+		MaxResults:                req.MaxResults,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -500,6 +597,7 @@ func (h *Handler) handleListClusterNodes(ctx context.Context, body []byte) ([]by
 			InstanceID:        n.NodeID,
 			InstanceType:      n.InstanceType,
 			InstanceStatus:    clusterInstanceStatusDetails{Status: n.NodeStatus},
+			LaunchTime:        epochSeconds(n.CreationTime),
 		})
 	}
 
@@ -511,11 +609,15 @@ func (h *Handler) handleListClusterNodes(ctx context.Context, body []byte) ([]by
 	return json.Marshal(resp)
 }
 
+// describeClusterEventInput is DescribeClusterEvent's request shape
+// (api_op_DescribeClusterEvent.go:28-40).
+type describeClusterEventInput struct {
+	ClusterName string `json:"ClusterName"`
+	EventID     string `json:"EventId"`
+}
+
 func (h *Handler) handleDescribeClusterEvent(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		ClusterName string `json:"ClusterName"`
-		EventID     string `json:"EventId"`
-	}
+	var req describeClusterEventInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -538,10 +640,27 @@ func (h *Handler) handleDescribeClusterEvent(ctx context.Context, body []byte) (
 	return json.Marshal(map[string]any{})
 }
 
+// listClusterEventsInput is ListClusterEvents' request shape
+// (api_op_ListClusterEvents.go:29-72). Every field besides ClusterName is
+// decoded for wire-shape fidelity but is a disclosed no-op: this backend
+// never generates a single cluster event (see DescribeClusterEvent/
+// ListClusterEvents' doc comments in cluster.go), so every filter is
+// trivially satisfied by the always-empty result set.
+type listClusterEventsInput struct {
+	EventTimeAfter    *float64 `json:"EventTimeAfter"`
+	EventTimeBefore   *float64 `json:"EventTimeBefore"`
+	ClusterName       string   `json:"ClusterName"`
+	InstanceGroupName string   `json:"InstanceGroupName"`
+	NextToken         string   `json:"NextToken"`
+	NodeID            string   `json:"NodeId"`
+	ResourceType      string   `json:"ResourceType"`
+	SortBy            string   `json:"SortBy"`
+	SortOrder         string   `json:"SortOrder"`
+	MaxResults        int32    `json:"MaxResults"`
+}
+
 func (h *Handler) handleListClusterEvents(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		ClusterName string `json:"ClusterName"`
-	}
+	var req listClusterEventsInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)

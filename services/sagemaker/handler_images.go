@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"time"
 )
 
 // ---------------------------------------------------------------------------
@@ -82,15 +81,15 @@ func (h *Handler) handleDeleteImage(ctx context.Context, body []byte) error {
 }
 
 type listImagesInput struct {
-	CreationTimeAfter      *time.Time `json:"CreationTimeAfter"`
-	CreationTimeBefore     *time.Time `json:"CreationTimeBefore"`
-	LastModifiedTimeAfter  *time.Time `json:"LastModifiedTimeAfter"`
-	LastModifiedTimeBefore *time.Time `json:"LastModifiedTimeBefore"`
-	NameContains           string     `json:"NameContains"`
-	NextToken              string     `json:"NextToken"`
-	SortBy                 string     `json:"SortBy"`
-	SortOrder              string     `json:"SortOrder"`
-	MaxResults             int32      `json:"MaxResults"`
+	CreationTimeAfter      *float64 `json:"CreationTimeAfter"`
+	CreationTimeBefore     *float64 `json:"CreationTimeBefore"`
+	LastModifiedTimeAfter  *float64 `json:"LastModifiedTimeAfter"`
+	LastModifiedTimeBefore *float64 `json:"LastModifiedTimeBefore"`
+	NameContains           string   `json:"NameContains"`
+	NextToken              string   `json:"NextToken"`
+	SortBy                 string   `json:"SortBy"`
+	SortOrder              string   `json:"SortOrder"`
+	MaxResults             int32    `json:"MaxResults"`
 }
 
 func (h *Handler) handleListImages(ctx context.Context, body []byte) ([]byte, error) {
@@ -100,7 +99,17 @@ func (h *Handler) handleListImages(ctx context.Context, body []byte) ([]byte, er
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	items, next := h.Backend.ListImages(ctx, ListImagesParams(req))
+	items, next := h.Backend.ListImages(ctx, ListImagesParams{
+		CreationTimeAfter:      timeFromEpochSecondsPtr(req.CreationTimeAfter),
+		CreationTimeBefore:     timeFromEpochSecondsPtr(req.CreationTimeBefore),
+		LastModifiedTimeAfter:  timeFromEpochSecondsPtr(req.LastModifiedTimeAfter),
+		LastModifiedTimeBefore: timeFromEpochSecondsPtr(req.LastModifiedTimeBefore),
+		NameContains:           req.NameContains,
+		NextToken:              req.NextToken,
+		SortBy:                 req.SortBy,
+		SortOrder:              req.SortOrder,
+		MaxResults:             req.MaxResults,
+	})
 
 	summaries := make([]map[string]any, 0, len(items))
 	for _, img := range items {
@@ -252,15 +261,15 @@ func (h *Handler) handleDeleteImageVersion(ctx context.Context, body []byte) err
 }
 
 type listImageVersionsInput struct {
-	CreationTimeAfter      *time.Time `json:"CreationTimeAfter"`
-	CreationTimeBefore     *time.Time `json:"CreationTimeBefore"`
-	LastModifiedTimeAfter  *time.Time `json:"LastModifiedTimeAfter"`
-	LastModifiedTimeBefore *time.Time `json:"LastModifiedTimeBefore"`
-	ImageName              string     `json:"ImageName"`
-	NextToken              string     `json:"NextToken"`
-	SortBy                 string     `json:"SortBy"`
-	SortOrder              string     `json:"SortOrder"`
-	MaxResults             int32      `json:"MaxResults"`
+	CreationTimeAfter      *float64 `json:"CreationTimeAfter"`
+	CreationTimeBefore     *float64 `json:"CreationTimeBefore"`
+	LastModifiedTimeAfter  *float64 `json:"LastModifiedTimeAfter"`
+	LastModifiedTimeBefore *float64 `json:"LastModifiedTimeBefore"`
+	ImageName              string   `json:"ImageName"`
+	NextToken              string   `json:"NextToken"`
+	SortBy                 string   `json:"SortBy"`
+	SortOrder              string   `json:"SortOrder"`
+	MaxResults             int32    `json:"MaxResults"`
 }
 
 func (h *Handler) handleListImageVersions(ctx context.Context, body []byte) ([]byte, error) {
@@ -275,10 +284,10 @@ func (h *Handler) handleListImageVersions(ctx context.Context, body []byte) ([]b
 	}
 
 	items, next := h.Backend.ListImageVersions(ctx, req.ImageName, ListImageVersionsParams{
-		CreationTimeAfter:      req.CreationTimeAfter,
-		CreationTimeBefore:     req.CreationTimeBefore,
-		LastModifiedTimeAfter:  req.LastModifiedTimeAfter,
-		LastModifiedTimeBefore: req.LastModifiedTimeBefore,
+		CreationTimeAfter:      timeFromEpochSecondsPtr(req.CreationTimeAfter),
+		CreationTimeBefore:     timeFromEpochSecondsPtr(req.CreationTimeBefore),
+		LastModifiedTimeAfter:  timeFromEpochSecondsPtr(req.LastModifiedTimeAfter),
+		LastModifiedTimeBefore: timeFromEpochSecondsPtr(req.LastModifiedTimeBefore),
 		NextToken:              req.NextToken,
 		SortBy:                 req.SortBy,
 		SortOrder:              req.SortOrder,

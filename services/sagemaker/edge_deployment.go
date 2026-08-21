@@ -326,7 +326,7 @@ func edgeDeploymentPlanSortLess(a, b *EdgeDeploymentPlan, sortBy string) bool {
 		if !a.LastModifiedTime.Equal(b.LastModifiedTime) {
 			return a.LastModifiedTime.Before(b.LastModifiedTime)
 		}
-	case "NAME":
+	case sortByName:
 		if a.EdgeDeploymentPlanName != b.EdgeDeploymentPlanName {
 			return a.EdgeDeploymentPlanName < b.EdgeDeploymentPlanName
 		}

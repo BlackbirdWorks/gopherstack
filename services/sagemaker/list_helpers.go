@@ -26,6 +26,12 @@ const sortOrderDescending = "Descending"
 // don't each repeat the same string literal (goconst).
 const sortByLastModifiedTime = "LAST_MODIFIED_TIME"
 
+// sortByName is the "NAME" SortBy value shared by the
+// Cluster/DeviceFleet/EdgeDeploymentPlan sort-by enums (each its own
+// distinct type, but spelled identically) — pulled out so those call sites
+// don't each repeat the same string literal (goconst).
+const sortByName = "NAME"
+
 // tableGet returns the value stored under key in t, or nil if absent. It lets
 // a single-value store.Table lookup be substituted inline (including chained
 // field access, e.g. tableGet(t, key).Field) for the raw map[string]*V index
@@ -48,24 +54,6 @@ func sagemakerListPaged[T any](
 	less func(a, b *T) bool,
 ) ([]*T, string) {
 	return sagemakerListPagedSlice(tbl.All(), nextToken, clone, less)
-}
-
-// sagemakerListPagedMap paginates a plain map[string]*T using index-based
-// tokens. It preserves the pre-conversion behavior for callers that build a
-// local, already-filtered map (e.g. a subset matching a query filter) rather
-// than listing a store.Table directly.
-func sagemakerListPagedMap[T any](
-	m map[string]*T,
-	nextToken string,
-	clone func(*T) *T,
-	less func(a, b *T) bool,
-) ([]*T, string) {
-	items := make([]*T, 0, len(m))
-	for _, item := range m {
-		items = append(items, item)
-	}
-
-	return sagemakerListPagedSlice(items, nextToken, clone, less)
 }
 
 // sagemakerListPagedSlice is the shared index-based-token pagination core
