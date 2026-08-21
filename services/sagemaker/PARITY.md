@@ -54,16 +54,16 @@ ops:
   DeleteEndpoint: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateTrainingJob: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeTrainingJob: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListTrainingJobs: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListTrainingJobs: {wire: fixed, errors: ok, state: ok, persist: ok, note: "parity-20: was sorted ascending-by-name unconditionally, contradicting the doc's real default (CreationTime/Ascending); added LastModifiedTimeAfter/Before, SortBy(Name/Status/CreationTime), SortOrder, TrainingPlanArnEquals/WarmPoolStatusEquals (both decoded and disclosed as always-no-match — this backend never associates a job with a training plan or warm-pool status, so no job can ever match a non-empty value of either)"}
   StopTrainingJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "routes to FSM (InProgress->Stopping->Stopped)"}
   DeleteTrainingJob: {wire: ok, errors: ok, state: ok, persist: ok}
   AddTags: {wire: ok, errors: ok, state: ok, persist: ok, note: "covers models/endpoints/endpoint-configs/training jobs/notebooks/HPO jobs/processing/transform/clusters/domains/feature-groups/pipelines/experiments/trials/trial-components/actions/algorithms/model-packages/associations"}
   ListTags: {wire: ok, errors: ok, state: ok, persist: ok, note: "paginated via offset NextToken, sagemakerDefaultPageSize=100"}
   DeleteTags: {wire: ok, errors: ok, state: ok, persist: ok}
-  CreateHyperParameterTuningJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass — see Notes"}
-  DescribeHyperParameterTuningJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass — HyperParameterTuningJobConfig now nested correctly, ObjectiveStatusCounters/TrainingJobStatusCounters (both required) now always emitted"}
-  ListHyperParameterTuningJobs: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass — ResourceLimits/ObjectiveStatusCounters/TrainingJobStatusCounters (all required) now always emitted"}
-  StopHyperParameterTuningJob: {wire: ok, errors: ok, state: ok, persist: ok}
+  CreateHyperParameterTuningJob: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED this pass — see Notes. parity-20: Autotune/WarmStartConfig/TrainingJobDefinition/TrainingJobDefinitions were entirely absent from decode; HyperParameterTuningJobObjective/ParameterRanges/RandomSeed/StrategyConfig/TrainingJobEarlyStoppingType/TuningJobCompletionCriteria (all real optional HyperParameterTuningJobConfig sub-fields) were silently dropped by the flat Strategy/ResourceLimits-only decode. Now the full config is captured as json.RawMessage passthrough (Strategy/ResourceLimits also kept typed for internal filter/sort use) and Autotune/WarmStartConfig/TrainingJobDefinition(s) are accepted."}
+  DescribeHyperParameterTuningJob: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED this pass — HyperParameterTuningJobConfig now nested correctly, ObjectiveStatusCounters/TrainingJobStatusCounters (both required) now always emitted. parity-20: HyperParameterTuningJobConfig response is now the full raw config verbatim (previously only Strategy/ResourceLimits were reconstructed, silently dropping every other sub-field the client sent); Autotune/WarmStartConfig/TrainingJobDefinition/TrainingJobDefinitions now echoed. BestTrainingJob/OverallBestTrainingJob/ConsumedResources/TuningJobCompletionDetails/HyperParameterTuningEndTime disclosed not modeled — this backend never launches or executes child training jobs, so there is no real search result to report."}
+  ListHyperParameterTuningJobs: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED this pass — ResourceLimits/ObjectiveStatusCounters/TrainingJobStatusCounters (all required) now always emitted. parity-20: was NextToken-only; added CreationTimeAfter/Before, LastModifiedTimeAfter/Before, MaxResults, NameContains, SortBy(Name/Status/CreationTime, default Name per the op's own doc — unlike most sibling List ops, which default to CreationTime), SortOrder, StatusEquals"}
+  StopHyperParameterTuningJob: {wire: ok, errors: ok, state: fixed, persist: ok, note: "parity-20: set status to Stopping and never advanced it — no ticker, no later call. Every stopped job stayed Stopping forever. Third instance of this bug class after parity-15's ClusterSchedulerConfig and parity-19's InferenceComponent. Fixed via a Stopping->Stopped FSM (hpTuningJobStoppingToStopped, 150ms) matching the sibling FSMs already established in lifecycle.go."}
   DeleteHyperParameterTuningJob: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateDeviceFleet: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass — OutputConfig (required) now validated at Create"}
   DescribeDeviceFleet: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass — see Notes"}
@@ -103,11 +103,11 @@ families:
   job_and_job_schema_version: {status: partial, note: "parity-4, new generic 'model customization job' family (CreateJob/DescribeJob/DeleteJob/StopJob/ListJobs/DescribeJobSchemaVersion/ListJobSchemaVersions). NOT the same as TrainingJob/ProcessingJob/TransformJob/AutoMLJob/CompilationJob/etc — keyed by JobName alone (matches CreateJob's doc: unique per account+region), Describe/Delete/Stop additionally scoped by JobCategory (mismatch => ResourceNotFound), own JobSecondaryStatusTransition type (does not alias training_jobs.go's SecondaryStatusTransition despite the identical shape), own store (b.jobs). DeleteJob correctly rejects a still-InProgress job with ResourceInUse per its doc comment. PARTIAL: DescribeJobSchemaVersion/ListJobSchemaVersions serve a single synthetic '1.0' schema version with a generic (not per-category, not AWS's real unpublished) JSON-schema document — AWS does not ship real per-JobCategory schema content in the SDK, so this is the most honest deterministic approximation available, not a wire-shape bug, but is disclosed as a depth limit."}
   model_endpoint_config_crud: {status: ok, note: "CreateModel/DescribeModel/ListModels/DeleteModel and CreateEndpointConfig/DescribeEndpointConfig/ListEndpointConfigs/DeleteEndpointConfig verified op-by-op against handler.go + backend.go: correct ARN building via pkgs/arn, epoch timestamps via epochSeconds (float64 unix seconds, matches awsjson1.1 numeric timestamp), errCodeLookup-equivalent sentinel wiring (awserr.New wraps ErrNotFound/ErrConflict, handler.go handleError maps to ValidationException/ResourceInUse), persistence.go backendSnapshot wiring confirmed for both models and endpointConfigs keyed by region."}
   endpoint_lifecycle: {status: ok, note: "CreateEndpoint/UpdateEndpoint/DescribeEndpoint/DeleteEndpoint/ListEndpoints + UpdateEndpointWeightsAndCapacities audited and FIXED — see Notes. FSM-driven Creating/Updating -> InService transitions (backend_accuracy.go scheduleEndpointTransition) verified correct after fix."}
-  training_job: {status: ok, note: "CreateTrainingJob(Full)/DescribeTrainingJob(Full)/ListTrainingJobs(Filtered)/StopTrainingJob(FSM)/DeleteTrainingJob/UpdateTrainingJob verified: InProgress->Completed FSM populates ModelArtifacts, BillableTimeInSeconds, SecondaryStatusTransitions with epoch timestamps; StopTrainingJobFSM drives InProgress->Stopping->Stopped."}
+  training_job: {status: ok, note: "CreateTrainingJob(Full)/DescribeTrainingJob(Full)/ListTrainingJobs(Filtered)/StopTrainingJob(FSM)/DeleteTrainingJob verified: InProgress->Completed FSM populates ModelArtifacts, BillableTimeInSeconds, SecondaryStatusTransitions with epoch timestamps; StopTrainingJobFSM drives InProgress->Stopping->Stopped. CORRECTION parity-20: the prior 'UpdateTrainingJob verified' claim above was never true — the handler decoded no fields at all and simply re-Described the job, so every UpdateTrainingJob request silently did nothing; this was found and fixed this pass (see Notes) rather than being a pre-existing verified op. FIXED this pass — UpdateTrainingJob now applies ResourceConfig.KeepAlivePeriodInSeconds via a real backend UpdateTrainingJob method (previously did not exist at all); ProfilerConfig/ProfilerRuleConfigurations/RemoteDebugConfig remain disclosed not modeled (no such concept anywhere in this backend's TrainingJob, Create included)."}
   tags: {status: ok, note: "AddTags/ListTags/DeleteTags verified against findTagMapLocked, which indexes ~20 resource kinds by ARN. Not-found path returns ValidationException (400), matching real AWS TagKeys validation error class."}
   processing_transform_job: {status: ok, note: "Wire-audited this pass: DescribeProcessingJob/DescribeTransformJob field-by-field against SDK output structs — field names, optional-field gating, and epoch-seconds timestamps all correct. No bugs found."}
   notebook_instance: {status: ok, note: "Wire-audited this pass: DescribeNotebookInstanceFull field-by-field against SDK — all optional fields correctly gated, epoch-seconds timestamps correct. No bugs found."}
-  hyperparameter_tuning_job: {status: ok, note: "FIXED this pass — see Notes (wire-shape bug: flat Strategy instead of nested HyperParameterTuningJobConfig, missing required ObjectiveStatusCounters/TrainingJobStatusCounters/ResourceLimits)."}
+  hyperparameter_tuning_job: {status: partial, note: "FIXED this pass — see Notes (wire-shape bug: flat Strategy instead of nested HyperParameterTuningJobConfig, missing required ObjectiveStatusCounters/TrainingJobStatusCounters/ResourceLimits). FIXED parity-20 (gopherstack-oc9v) — all 5 inline structs converted to named types; StopHyperParameterTuningJob's Stopping-forever status bug fixed via a real FSM; CreateHyperParameterTuningJob/DescribeHyperParameterTuningJob now capture and echo the full HyperParameterTuningJobConfig (ParameterRanges/HyperParameterTuningJobObjective/RandomSeed/StrategyConfig/TrainingJobEarlyStoppingType/TuningJobCompletionCriteria) plus Autotune/WarmStartConfig/TrainingJobDefinition/TrainingJobDefinitions, all previously entirely absent; ListHyperParameterTuningJobs/ListTrainingJobsForHyperParameterTuningJob gained real filter/sort/pagination (previously NextToken-only / unpaginated). PARTIAL because BestTrainingJob/OverallBestTrainingJob/ConsumedResources/TuningJobCompletionDetails/HyperParameterTuningEndTime and the full semantic content of TrainingJobDefinition(s)/ParameterRanges/StrategyConfig remain json.RawMessage passthrough rather than modeled (this backend never launches or searches child training jobs) — every field a client sends round-trips exactly, but no real hyperparameter search ever runs."}
   domain_app_userprofile_space: {status: partial, note: "Space's Describe/List timestamp encoding FIXED parity-4 (see systemic timestamp bug in Notes). FIXED this pass (parity-7, gopherstack-oc9v) — this family was the largest concentration of anonymous inline request structs in the service (part of the 362 counted repo-wide) and had never been wire-audited; converted all 19 Create/Describe/List/Delete/Update handlers across Domain/App/Space/UserProfile to named types and found real gaps, not just a tooling blind spot. See Notes: parity-7 for the full list; highlights: CreateDomain was missing DefaultUserSettings entirely — a 'This member is required' CreateDomainInput field — so it was silently accepted-and-dropped rather than rejected; CreateApp had no way to create a Space-owned app at all (CreateAppInput.SpaceName, the real alternative to UserProfileName, didn't exist on the wire struct), so any client without a UserProfile could never launch an app even though this backend has supported Spaces since spaces.go; ListDomains/ListApps/ListSpaces/ListUserProfiles all silently ignored MaxResults and had none of ListApps'/ListSpaces'/ListUserProfiles' real SortBy/SortOrder/*Equals/*Contains filter-and-sort fields — the exact 'parsed field, silently ignored' defect class this campaign targets. All now real: MaxResults caps the page via paginateSlice, SortBy/SortOrder reorder by CreationTime/LastModifiedTime, UserProfileNameEquals/SpaceNameEquals/SpaceNameContains/UserProfileNameContains narrow the result set. DefaultSpaceSettings/DomainSettings/DomainSettingsForUpdate/UserSettings/OwnershipSettings/SpaceSettings/SpaceSharingSettings/ResourceSpec are carried as opaque json.RawMessage passthrough (established convention, see ai_workload_configs.go) rather than fully typed — these are all deeply-nested union/config shapes (UserSettings alone has ~20 app-specific sub-configs) out of this pass's budget; every field a client actually sends round-trips exactly. UpdateDomain went from a pure no-op (only bumped LastModifiedTime) to a real partial update of AppNetworkAccessType/AppSecurityGroupManagement/HomeEfsFileSystemCreation/TagPropagation/VpcId/SubnetIds/DefaultUserSettings/DefaultSpaceSettings/DomainSettingsForUpdate. See gaps: for what's still not modeled (DescribeApp/DescribeDomain's remaining server-derived/identity fields, UserSettings' internal structure)."}
   pipeline_pipeline_execution: {status: partial, note: "parity-5, wire-audited op-by-op against api_op_{Create,Update,Delete,Describe,List}Pipeline*.go. FIXED this pass — DescribePipelineExecution silently dropped ParallelismConfiguration even though it was already stored on the backend struct (class-a bug); StartPipelineExecution/DescribePipelineExecution now also accept+echo PipelineVersionId and SelectiveExecutionConfig (previously accepted-and-dropped, both real optional CreateInput/DescribeOutput fields). FIXED this pass (parity-6) — DescribePipeline now accepts the optional PipelineVersionId input (previously ignored, always describing the current version regardless; an unknown version now correctly errors instead of silently returning the current one) and returns LastRunTime (derived as the max StartTime across the pipeline's PipelineExecutions, or omitted if it has never run — a real, not fabricated, value). FIXED this pass (gopherstack-i359, session 2) — CreatePipeline/UpdatePipeline's PipelineDefinitionS3Location (api_op_CreatePipeline.go:59, api_op_UpdatePipeline.go:43) was previously accepted-and-dropped; honoring it for real needed a cross-service S3 GetObject call (out of scope that session — cli.go's S3 wiring was owned elsewhere), so it was rejected explicitly with a ValidationException instead of silently ignored. FIXED for real this pass (gopherstack-i359, session 3) — CreatePipeline/UpdatePipeline now fetch the real object through the backend's wired S3Accessor (services/sagemaker/s3pipeline.go, cli.go's wireSageMakerS3, same registry pattern as wireMGNS3/wireDynamoDBS3) and use its body as PipelineDefinition. The ValidationException path is retained only for the genuinely-unreadable case (no S3 backend wired, or GetObject/read failure against a real bucket/key) — an honest error, not a fabricated definition. Remaining gaps (not fixed, see gaps:): DescribePipeline still omits PipelineVersionDescription/PipelineVersionDisplayName/CreatedBy/LastModifiedBy; ListPipelines summary is missing PipelineDescription/PipelineDisplayName/RoleArn/LastExecutionTime."}
   experiment_trial_trial_component: {status: partial, note: "parity-5, wire-audited against api_op_{Create,Describe,List}{Experiment,Trial,TrialComponent}.go. FIXED this pass — CreateExperiment/CreateTrial silently dropped DisplayName (and Experiment's Description), both real optional Create fields, so a client-supplied display name never round-tripped through Describe/List until a later Update call; ListExperiments/ListTrials summaries also gained DisplayName/LastModifiedTime (real ExperimentSummary/TrialSummary fields). CreateTrialComponent was the worst finding in this family: it silently dropped StartTime/EndTime/Status/Parameters/InputArtifacts/OutputArtifacts/DisplayName entirely — every field a client actually uses a TrialComponent for — now accepted and stored. Also fixed a genuine wire-shape bug (not accept-and-drop, but same severity class): TrialComponent.Status was serialized as a bare JSON string, but the real DescribeTrialComponentOutput.Status/TrialComponentSummary.Status is a {PrimaryStatus,Message} object (types.TrialComponentStatus) — a real AWS SDK client's JSON deserializer would fail outright on the old shape. The pre-existing TestHandler_UpdateTrialComponent test literally asserted the buggy bare-string shape; updated it to the correct object shape as part of this fix. Not fixed (see gaps:): CreatedBy/LastModifiedBy/Source (UserContext — no identity model to derive from, class d)."}
@@ -3075,3 +3075,358 @@ campaign's standing instruction never to write `pending` or otherwise touch it c
 `handler_projects.go`, `handler_optimization_jobs.go`, `handler_inference_recommendations_jobs.go`,
 `handler_hp_tuning_jobs.go`) — next in line per the campaign's largest-pile-first ordering, now that
 all files previously tied at 6 or higher are cleared.
+
+## parity-20 (2026-08-21, gopherstack-oc9v): Workteam/Workforce/Trial/TrainingJob/
+Project/OptimizationJob/InferenceRecommendationsJob/HyperParameterTuningJob
+inline-struct sweep (all eight files tied at 5)
+
+Fourteenth pass of the gopherstack-oc9v campaign. Per parity-19's boundary note, this pass took all
+eight files tied at 5 (`handler_workteams.go`, `handler_workforces.go`, `handler_trials.go`,
+`handler_training_jobs.go`, `handler_projects.go`, `handler_optimization_jobs.go`,
+`handler_inference_recommendations_jobs.go`, `handler_hp_tuning_jobs.go`), each verified by
+`grep -c 'var req struct {' <file>.go` = 5 before starting. All 40 of this pass's structs were
+converted to named types and wire-audited field-by-field against the pinned SDK (`v1.263.2`,
+confirmed from `go.mod`, matching prior passes). **104 of sagemaker's 362 inline structs now
+remain** (362 − 19 − 19 − 15 − 14 − 14 − 12 − 11 − 11 − 10 − 9 − 9 − 7 − 7 − 7 − 7 − 6 − 6 − 6 − 6 −
+6 − 6 − 5 − 5 − 5 − 5 − 5 − 5 − 5 − 5), confirmed by `grep -rc 'var req struct {' services/sagemaker/*.go`
+summed, not arithmetic; all eight files now have zero. **New boundary: 8 files tied at 5**
+(`handler_ai_benchmark_jobs.go`, `handler_ai_recommendation_jobs.go`, `handler_app_image_configs.go`,
+`handler_automl_search.go`, `handler_code_repositories.go`, `handler_compilation_jobs.go`,
+`handler_experiments.go`, `handler_feature_groups.go`).
+
+**`handler_workteams.go` (Workteam family):**
+
+- `CreateWorkteamInput`/`UpdateWorkteamInput` (`api_op_CreateWorkteam.go:35-83`,
+  `api_op_UpdateWorkteam.go:28-70`) were both missing `NotificationConfiguration` and
+  `WorkerAccessConfiguration` entirely — new `NotificationConfiguration`/`WorkerAccessConfiguration`/
+  `S3Presign`/`IamPolicyConstraints` types added (`workteams.go`), threaded through Create/Update and
+  echoed on Describe/List.
+- `ListWorkteamsInput` (`api_op_ListWorkteams.go:31-51`) was `NextToken`-only — `NameContains`,
+  `SortBy`/`SortOrder`, `MaxResults` all now real. **Doc-versus-enum mismatch**: the op's own doc
+  says "The default is `CreationTime`", but `ListWorkteamsSortByOptions`
+  (`types/enums.go:5441-5442`) has only `Name`/`CreateDate` — no `CreationTime` value exists.
+  `CreateDate` (the timestamp field the doc was clearly describing) is used as the real default,
+  not the nonexistent documented string.
+
+**`handler_workforces.go` (Workforce family):**
+
+- `CreateWorkforceInput`/`UpdateWorkforceInput` (`api_op_CreateWorkforce.go:48-86`,
+  `api_op_UpdateWorkforce.go:65-93`) were both missing `IpAddressType` — added, stored, echoed.
+- `ListWorkforcesInput` (`api_op_ListWorkforces.go:31-48`) was `NextToken`-only — `NameContains`,
+  `SortBy`/`SortOrder`, `MaxResults` all now real (functionally bounded to ≤1 result, since AWS
+  allows only one private workforce per account per region, but the filter/sort/pagination fields
+  are wire-decoded and honored for shape fidelity regardless).
+
+**`handler_trials.go` (Trial family) — `ExperimentName` was a documented filter that had never
+actually been wired:**
+
+- `CreateTrialInput` (`api_op_CreateTrial.go:44-71`) was missing `MetadataProperties` — added,
+  reusing the existing shared `MetadataProperties` type (`lineage.go:56-61`, established by
+  parity-18 for the identical field on `CreateTrialComponent`).
+- `ListTrialsInput` (`api_op_ListTrials.go:34-63`) was `NextToken`-only. **A pre-existing test,
+  `TestHandler_TrialLifecycle`, sent `"ExperimentName": "trial-experiment"` to `ListTrials` and
+  asserted exactly 1 result — passing only because the single trial created happened to belong to
+  that experiment anyway, never because the filter did anything.** `ExperimentName`,
+  `TrialComponentName` (real, resolved via the existing `trialComponentAssociationsStoreRO`
+  association store), `CreatedAfter`/`CreatedBefore`, `MaxResults`, `SortBy`/`SortOrder` are now all
+  real. The op's own doc states both real defaults explicitly: `CreationTime`/`Ascending`.
+  `SortTrialsBy`'s values are `Name`/`CreationTime` (`types/enums.go:9364-9365`) — no
+  doc/enum mismatch here, unlike Workteam's `SortBy` above.
+
+**`handler_training_jobs.go` (TrainingJob family) — the most severe finding of this pass:**
+
+- **`UpdateTrainingJob` was a complete no-op.** The handler decoded zero fields beyond
+  `TrainingJobName`, called `DescribeTrainingJob`, and returned its ARN — every real
+  `UpdateTrainingJobInput` field (`ResourceConfig.KeepAlivePeriodInSeconds`, `ProfilerConfig`,
+  `ProfilerRuleConfigurations`, `RemoteDebugConfig`, all `api_op_UpdateTrainingJob.go:29-56`) was
+  silently discarded, and there was no backend `UpdateTrainingJob` method at all. **This service's
+  own `families:` manifest entry (line 106) falsely claimed `UpdateTrainingJob verified` as part of
+  an `ok` grade** — corrected inline (see above) rather than silently overwritten, per this
+  campaign's standing instruction to treat existing claims as suspect and disclose corrections
+  explicitly. Fixed: a real `UpdateTrainingJob` backend method now applies
+  `ResourceConfig.KeepAlivePeriodInSeconds` (the one field this backend's `ResourceConfig` already
+  modeled); `ProfilerConfig`/`ProfilerRuleConfigurations`/`RemoteDebugConfig` are decoded for
+  wire-shape fidelity only and disclosed not modeled — this backend's `TrainingJob` has no
+  profiler/remote-debug concept at all, `CreateTrainingJob` included, so there is nothing on the
+  resource for an Update to mutate.
+- `ListTrainingJobsInput` (`api_op_ListTrainingJobs.go:33-84`) was unconditionally sorted
+  ascending-by-name regardless of what was requested, **contradicting the op's own documented
+  default (`CreationTime`/`Ascending`)** — a real, previously-undetected sort-order bug, not merely
+  an absent field. `LastModifiedTimeAfter`/`Before`, `SortBy`(`Name`/`Status`/`CreationTime`),
+  `SortOrder` all now real. `TrainingPlanArnEquals`/`WarmPoolStatusEquals` are decoded and correctly
+  return zero matches when set — this backend never associates a job with either concept, so
+  "zero jobs match a training plan/warm-pool status" is the true answer, not a silently-ignored
+  filter (disclosed, not modeled).
+
+**`handler_projects.go` (Project family) — a fabricated-response-field bug, the same class as
+parity-19's `DescribeInferenceComponent`:**
+
+- **`DescribeProject` marshaled the internal storage struct directly** (`json.Marshal(result)`),
+  and `Project`'s storage type carries `Tags`. Real `DescribeProjectOutput` has **no `Tags` member
+  at all** (a real client fetches tags via `ListTags`) — every real client's Describe call was
+  receiving a field the SDK deserializer never expects. Fixed via a dedicated
+  `projectResponseMap` (matching parity-19's `inferenceComponentResponseMap`/
+  `labelingJobResponseMap` precedent) instead of marshaling the storage type directly.
+- `CreateProjectInput` (`api_op_CreateProject.go:30-59`) was missing
+  `ServiceCatalogProvisioningDetails`/`TemplateProviders` entirely — added as `json.RawMessage`
+  passthrough (this backend never simulates actual Service Catalog provisioning) and echoed on
+  Describe. `LastModifiedTime` (required per `DescribeProjectOutput`) was entirely absent from the
+  `Project` struct — added, threaded through Create/Update.
+- `UpdateProjectInput`'s `ServiceCatalogProvisioningUpdateDetails`/`TemplateProvidersToUpdate` are
+  disclosed not modeled (not decoded at all, so nothing is accepted-and-dropped) — applying either
+  for real requires simulating an actual provisioned-product update, out of this pass's scope.
+- `ListProjectsInput` (`api_op_ListProjects.go:30-58`) was `NextToken`-only — `CreationTimeAfter`/
+  `Before`, `NameContains`, `SortBy`/`SortOrder`, `MaxResults` all now real.
+
+**`handler_optimization_jobs.go` (OptimizationJob family) — the second-most severe finding, on par
+with TrainingJob's:**
+
+- **`CreateOptimizationJobInput`'s five other required members were never decoded at all**:
+  `ModelSource`, `OptimizationConfigs`, `OutputConfig`, `DeploymentInstanceType`,
+  `StoppingCondition` (all `api_op_CreateOptimizationJob.go:48-114`, all `This member is required`)
+  — a request missing every one of them previously succeeded. Fixed: all five now decoded (the
+  three deeply-nested ones as `json.RawMessage` passthrough, matching this file's
+  `ai_workload_config`/`ai_benchmark_job` precedent) and validated present, matching the real API's
+  required-field contract.
+- `OptimizationJobSummary` (`types/types.go:16620-16660`) was missing **two required members**:
+  `DeploymentInstanceType` and `OptimizationTypes`. `OptimizationTypes` has no formal enum in the
+  pinned SDK (it is a bare `[]string`), so its real values were derived from the
+  `OptimizationConfig` union's four member wire keys (`ModelCompilationConfig` →
+  `"Compilation"`, `ModelQuantizationConfig` → `"Quantization"` — both confirmed by the op's own
+  doc text for `OptimizationContains`; `ModelShardingConfig` → `"Sharding"`,
+  `ModelSpeculativeDecodingConfig` → `"SpeculativeDecoding"` inferred from the same
+  `Model*Config`-stripped naming convention, not independently confirmed against a real wire
+  example — disclosed).
+- `ListOptimizationJobsInput` (`api_op_ListOptimizationJobs.go:30-72`) was `NextToken`-only —
+  `CreationTimeAfter`/`Before`, `LastModifiedTimeAfter`/`Before`, `NameContains`,
+  `OptimizationContains` (real, derived from the same technique-name mapping above),
+  `StatusEquals`, `SortBy`/`SortOrder`, `MaxResults` all now real.
+
+**`handler_inference_recommendations_jobs.go` (InferenceRecommendationsJob family):**
+
+- `CreateInferenceRecommendationsJobInput`'s `RoleArn` and `InputConfig`
+  (`api_op_CreateInferenceRecommendationsJob.go:1-58`, both `This member is required`) were decoded
+  but **never validated as present** — now enforced. `OutputConfig`/`StoppingConditions` were
+  entirely absent — added as `json.RawMessage` passthrough; `OutputConfig` is deliberately never
+  echoed by Describe (real `DescribeInferenceRecommendationsJobOutput` has no `OutputConfig` member
+  at all — an asymmetry by design, not a gap) while `StoppingConditions` is echoed (it is a real
+  optional Describe field). **`JobType` doc-versus-required mismatch**: flagged `This member is
+  required` in the generated struct comment, but the op's own prose says "If left unspecified,
+  Amazon SageMaker Inference Recommender will run ... (DEFAULT)" — implemented as documented
+  (default `"Default"` when absent) rather than hard-rejecting a request that omits it, matching
+  this campaign's standing rule to read the doc text over the required-flag alone. (The pinned
+  Go SDK's own client-side validation middleware does still reject an omitted `JobType`, so no real
+  Go SDK caller can currently exercise the default path — but a non-Go client that skips
+  client-side validation could, and the documented default is honored either way.)
+- `ListInferenceRecommendationsJobsInput` (`api_op_ListInferenceRecommendationsJobs.go:30-63`) was
+  `NextToken`-only — `CreationTimeAfter`/`Before`, `LastModifiedTimeAfter`/`Before`, `NameContains`,
+  `ModelNameEquals`/`ModelPackageVersionArnEquals` (real, decoded from the opaque stored
+  `InputConfig`'s `ModelName`/`ModelPackageVersionArn` sub-fields via a small
+  `inputConfigModelIdentity` shim), `StatusEquals`, `SortBy`/`SortOrder`, `MaxResults` all now real.
+- `ListInferenceRecommendationsJobStepsInput`'s `MaxResults`/`Status`/`StepType` are decoded for
+  wire-shape fidelity but disclosed no-ops — this backend never populates any job's `Steps` at all
+  (no recommender-subtask simulation exists), so there is nothing to filter or page over.
+
+**`handler_hp_tuning_jobs.go` (HyperParameterTuningJob family) — the third instance of the
+stuck-status bug class:**
+
+- **`HyperParameterTuningJobStatus` never left `Stopping`.** `StopHyperParameterTuningJob` set the
+  status and nothing in the file ever transitioned it — the third instance of this bug class after
+  parity-15's ClusterSchedulerConfig and parity-19's InferenceComponent, this time with **no
+  existing test even asserting the immediate post-Stop value**, let alone checking it advanced.
+  Fixed via a `hpTuningJobStoppingToStopped` (150ms) FSM matching the sibling FSMs already
+  established in `lifecycle.go`.
+- **`CreateHyperParameterTuningJobInput`'s `Autotune`/`WarmStartConfig`/`TrainingJobDefinition`/
+  `TrainingJobDefinitions`** (`api_op_CreateHyperParameterTuningJob.go:44-77`) **were entirely
+  absent from decode** — a real client could never actually configure what training job the tuning
+  job launches. Fixed as `json.RawMessage` passthrough (the same convention as the campaign's other
+  deeply-nested-union families), threaded through Create and echoed verbatim on Describe (real
+  `DescribeHyperParameterTuningJobOutput` never mutates any of these after Create, so raw passthrough
+  is wire-correct, not merely convenient).
+- **`HyperParameterTuningJobConfig`'s own sub-fields beyond `Strategy`/`ResourceLimits`** —
+  `HyperParameterTuningJobObjective`, `ParameterRanges`, `RandomSeed`, `StrategyConfig`,
+  `TrainingJobEarlyStoppingType`, `TuningJobCompletionCriteria`
+  (`types/types.go:11052-11113`) — **were silently dropped by the existing flat
+  Strategy/ResourceLimits-only decode**, and `DescribeHyperParameterTuningJob`'s hand-rebuilt
+  `map[string]any{"Strategy":..., "ResourceLimits":...}` response threw them away a second time on
+  the way out. Fixed: the full config is now captured as raw JSON at Create (Strategy/ResourceLimits
+  are *also* decoded a second time from that same blob into their own typed fields, since this
+  file's internal filter/sort/summary logic needs them independent of the raw blob — a single JSON
+  key cannot bind to two struct fields in one `Unmarshal` pass, so this is a genuine second decode,
+  not a redundant one) and echoed verbatim on Describe.
+- **`TrainingJobEarlyStoppingType` doc-versus-enum casing mismatch**: the field's doc prose says
+  "the default value is `OFF`" (and separately narrates `AUTO`), but
+  `TrainingJobEarlyStoppingType`'s real enum values (`types/enums.go:10293-10295`) are
+  `"Off"`/`"Auto"` — Titlecase, not the all-caps the prose implies. Confirmed via a real-SDK-client
+  round-trip test (`TestHandler_CreateHyperParameterTuningJob_ExtrasRoundTrip_RealClient`) rather
+  than assumed.
+- `ListHyperParameterTuningJobsInput` (`api_op_ListHyperParameterTuningJobs.go:30-64`) was
+  `NextToken`-only — `CreationTimeAfter`/`Before`, `LastModifiedTimeAfter`/`Before`, `NameContains`,
+  `StatusEquals`, `SortBy`(`Name`/`Status`/`CreationTime`), `SortOrder`, `MaxResults` all now real.
+  The op's own doc states the real default explicitly: `SortBy` is `Name` — **not** `CreationTime`
+  like most sibling List ops in this service, confirmed per-op rather than generalized.
+- `ListTrainingJobsForHyperParameterTuningJobInput` (`api_op_ListTrainingJobsForHyperParameterTuningJob.go:27-56`)
+  previously discarded its `nextToken` parameter entirely (named `_`) and returned every matching
+  training job unpaginated. Added real `StatusEquals`, `SortBy`(`Name`/`Status`/`CreationTime`,
+  default `Name` per the op's own doc), `SortOrder`, `MaxResults`/pagination via the shared
+  `paginateSlice` helper. `SortBy == "FinalObjectiveMetricValue"` is a disclosed, genuinely-correct
+  no-op: the doc's own text says a training job with no objective metric is excluded entirely when
+  sorting by it, and this backend never computes an objective metric for any child training job, so
+  always-empty is the correct answer, not a convenient shortcut.
+
+**The six questions, answered explicitly:**
+
+1. **What does the handler read that AWS never sends?** Nothing found this pass — every field this
+   pass's eight handlers previously decoded does exist on the real request type. (Contrast with
+   prior passes' fabricated-field finds; this pass's severe bugs were all absences, not fabrications,
+   on the request-decode side.)
+2. **Do request and response use the same key?** Checked separately throughout; no divergence found
+   this pass (contrast parity-19's `Container.Image`/`Container.DeployedImage.SpecifiedImage`).
+   Confirmed several identical-shape passthroughs are wire-correct: `ServiceCatalogProvisioningDetails`
+   (same `types.ServiceCatalogProvisioningDetails` on both Create request and Describe response),
+   `HyperParameterTuningJobConfig` (never mutated between Create and Describe).
+3. **Is any required request member never read at all?** `CreateOptimizationJobInput.ModelSource`/
+   `OptimizationConfigs`/`OutputConfig`/`DeploymentInstanceType`/`StoppingCondition` (all five,
+   simultaneously — the most severe instance of this bug class found in this pass) —
+   `CreateInferenceRecommendationsJobInput.RoleArn`/`InputConfig` (decoded but unvalidated) — see
+   above for both.
+4. **Is any field parsed and then ignored?** None found parsed-then-ignored this pass in the sense
+   of a decoded field silently discarded at apply time (contrast parity-19's
+   `UpdateEndpoint.RetainAllVariantProperties`); this pass's analogous bugs were fields never
+   decoded in the first place, which is the adjacent but distinct failure mode this campaign exists
+   to find.
+5. **Does it emit every declared member, and does any handler return a nil body where required
+   members are declared?** `OptimizationJobSummary.DeploymentInstanceType`/`OptimizationTypes`
+   (both required) were completely absent from `ListOptimizationJobs`' response — see above.
+   `Project`'s `LastModifiedTime` (required per `DescribeProjectOutput`) didn't exist on the struct
+   at all before this pass.
+6. **Does any status or lifecycle field ever advance?** `HyperParameterTuningJobStatus` stayed
+   `Stopping` forever after Stop — the third instance of this bug class, fixed via FSM (see above).
+   `InferenceRecommendationsJob`'s own IN_PROGRESS→COMPLETED and STOPPING→STOPPED FSMs (added by an
+   earlier pass, per this file's own doc comments) were re-verified correct and left untouched — a
+   control data point showing this file's own prior author already knew and fixed this exact bug
+   class for a sibling status field.
+
+**Timestamps touched, each with its own serializer citation and a test that sets the value:**
+`ListTrialsInput.CreatedAfter/CreatedBefore` (`*time.Time` per `api_op_ListTrials.go:37-40`, decoded
+as `*float64`/`timeFromEpochSecondsPtr`, asserted in
+`TestHandler_ListTrials_FilterSortPage_RealClient`'s `created after future excludes`/`past includes`
+subtests); `ListTrainingJobsInput.LastModifiedTimeAfter/Before`
+(`api_op_ListTrainingJobs.go:33-84`, asserted in `TestHandler_ListTrainingJobs_FilterSortPage_RealClient`);
+`ListOptimizationJobsInput`'s four time filters (`api_op_ListOptimizationJobs.go:30-72`, asserted in
+`TestHandler_ListOptimizationJobs_FilterSortPage_RealClient`); `ListInferenceRecommendationsJobsInput`'s
+four time filters (asserted in `TestHandler_ListInferenceRecommendationsJobs_Filters_RealClient`);
+`ListProjectsInput.CreationTimeAfter/Before` (asserted in `TestHandler_ListProjects_Filters`);
+`ListHyperParameterTuningJobsInput`'s four time filters (asserted in
+`TestHandler_ListHyperParameterTuningJobs_FilterSortPage_RealClient`). `Project.LastModifiedTime`
+and `OptimizationJob`'s existing `MarshalJSON`/`UnmarshalJSON` epoch-seconds override (already
+correct from an earlier pass) were extended, not rewritten, to also cover the new field. None left
+nil in any test.
+
+**Four existing tests found ratifying defects, three not previously disclosed:**
+
+1. `TestHandler_TrialLifecycle` sent `ExperimentName` to `ListTrials` and asserted a matching count
+   — passing only because the sole trial happened to belong to that experiment regardless of
+   whether the filter did anything (it didn't, until this pass).
+2. `TestHandler_CreateOptimizationJob`/`TestHandler_DescribeOptimizationJob`/
+   `TestHandler_StopOptimizationJob`/`TestHandler_DeleteOptimizationJob`/`TestHandler_ListOptimizationJobs`
+   all sent a request with only `OptimizationJobName` (`ListOptimizationJobs`' variant also sent
+   `RoleArn`) and asserted success — every one of `ModelSource`/`OptimizationConfigs`/
+   `OutputConfig`/`DeploymentInstanceType`/`StoppingCondition` absent, none rejected. Rewritten
+   around a shared `validOptimizationJobBody` helper carrying every required field, plus a new
+   table-driven `TestHandler_CreateOptimizationJob_RequiredFieldsEnforced` asserting each one is
+   independently enforced.
+3. `TestHandler_InferenceRecommendationsJobLifecycle`/`TestHandler_InferenceRecommendationsJob_ReachesCompleted`/
+   `TestHandler_CreateInferenceRecommendationsJob_InputConfigRoundTrip` sent `RoleArn` but no
+   `InputConfig` (the first two), silently accepted because `InputConfig` was decoded but never
+   validated present. Fixed by adding `InputConfig` to all three and asserting the omission is now
+   rejected (`TestHandler_CreateInferenceRecommendationsJob_RequiredFieldsEnforced`).
+4. `TestHandler_GetScalingConfigurationRecommendation` (`handler_automl_search_test.go`, outside
+   this pass's file scope but a cross-file consumer of `CreateInferenceRecommendationsJob`) also
+   sent no `InputConfig` and broke once the new validation landed — fixed as a knock-on correction
+   in the same file, not a new defect introduced by this pass's validation (the request it was
+   sending was never valid against the real API to begin with).
+
+**Enums read per op, not generalized:** `ListWorkteamsSortByOptions` (`Name`/`CreateDate` — doc says
+`CreationTime`, a mismatch); `HyperParameterTuningJobSortByOptions` (`Name`/`Status`/`CreationTime`,
+default `Name` — unlike most sibling ops); `TrainingJobSortByOptions` (adds
+`FinalObjectiveMetricValue`, a fourth value none of this service's other `SortBy` enums have);
+`OptimizationJobStatus` (`INPROGRESS`/`COMPLETED`/`FAILED`/`STARTING`/`STOPPING`/`STOPPED` — all
+caps, unlike most sibling status enums in this service, confirmed matching the pre-existing
+`"COMPLETED"` hardcode rather than assumed); `TrainingJobEarlyStoppingType` (`Off`/`Auto` — doc
+prose says `OFF`/`AUTO`, a casing mismatch); `RecommendationJobType` (`Default`/`Advanced` — doc
+says a request may omit it and get `DEFAULT` behavior despite the struct being flagged required).
+
+**Disclosures (not fixed, out of this pass's scope):** `HyperParameterTuningJob`'s
+`TrainingJobDefinition(s)`/`ParameterRanges`/`StrategyConfig`/`HyperParameterTuningJobObjective`/
+`TuningJobCompletionCriteria` remain opaque passthrough, not semantically modeled — actually running
+a hyperparameter search or launching child training jobs is out of scope for an in-memory emulator
+of this depth. `OptimizationJob`'s `ModelSource`/`OutputConfig`/`VpcConfig` likewise. `Project`'s
+`ServiceCatalogProvisioningUpdateDetails`/`TemplateProvidersToUpdate` (Update-only) not accepted at
+all, disclosed rather than silently dropped. `InferenceRecommendationsJob`'s `Steps` always empty
+(no recommender-subtask simulation). None of these are wire-shape bugs — every field a real client
+sends round-trips exactly; the gap is in simulated *behavior*, disclosed the same way this file's
+`ai_workload_config`/`ai_benchmark_job`/`ai_recommendation_job` families already are.
+
+**Hand-revert proof (four representative fixes, the most severe found this pass):**
+
+1. `UpdateTrainingJob` no-op: reverted `handler_training_jobs.go`/`training_jobs.go` to HEAD,
+   rebuilt clean, ran `TestHandler_UpdateTrainingJob_KeepAlivePeriod_RealClient` — failed exactly as
+   predicted (`expected: 600, actual: 0`). Restored, `md5sum` byte-identical, test passes again.
+2. `StopHyperParameterTuningJob` stuck-forever status: reverted `hp_tuning_jobs.go`/`lifecycle.go`/
+   `handler_hp_tuning_jobs.go`/`interfaces.go` to HEAD, rebuilt clean, ran
+   `TestHandler_StopHyperParameterTuningJob_ReachesStopped` — failed exactly as predicted
+   (`Condition never satisfied`, stuck at `Stopping` for the full 2s timeout). Restored, `md5sum`
+   byte-identical for all four files, test passes again.
+3. `CreateOptimizationJob` missing required-field validation: reverted `optimization_jobs.go`/
+   `handler_optimization_jobs.go` to HEAD, rebuilt clean, ran
+   `TestHandler_CreateOptimizationJob_RequiredFieldsEnforced` — all five subtests failed exactly as
+   predicted (`expected: 400, actual: 200`). Restored, `md5sum` byte-identical, test passes again.
+4. `DescribeProject` Tags leak: reverted `handler_projects.go`/`projects.go` to HEAD, rebuilt clean,
+   ran `TestHandler_DescribeProject_NoTagsLeak` — failed exactly as predicted (`Tags":{"env":"prod"}`
+   present in the response map, `LastModifiedTime` absent/`nil`). Restored, `md5sum` byte-identical,
+   test passes again.
+
+**Refactoring for `cyclop`/`gocognit` (no `nolint` used, per the ban on suppressing these):**
+`inferenceRecommendationsJobMatchesFilter`/`optimizationJobMatchesFilter` each decomposed into a
+`*MatchesModelIdentity`/`*MatchesOptimizationContains` helper plus a new shared `timeWindowOK`
+(`list_helpers.go`) collapsing the repeated `CreationTimeAfter`/`CreationTimeBefore`/
+`LastModifiedTimeAfter`/`LastModifiedTimeBefore` if-pairs this pass introduced across six files into
+one two-line call; `(*InMemoryBackend).ListTrainingJobsFiltered`/`ListTrials` each decomposed into a
+`*MatchesListFilter`/`less*` helper pair (`trainingJobMatchesListFilter`/`lessTrainingJobBySortBy`,
+`trialMatchesFilter`/`lessTrial`, the latter also extracting `trialNamesForComponent` for the
+`TrialComponentName` association lookup). `gochecknoglobals` (`optimizationConfigTypeNames`
+map) converted to a `switch`-based `optimizationConfigTypeName` function with the wire-key list
+moved into a function-local array, eliminating the package-level var entirely rather than
+suppressing the finding. `goconst` findings (this pass's new code pushed `ProjectArn`/`ProjectId`/
+`ProjectName`/`ProjectStatus`/`LastModifiedTime`/`CreationTime` over the 3-occurrence threshold)
+fixed by adding `keyProjectID`/`keyProjectName`/`keyProjectStatus` to the existing `handler_keys.go`
+constant block and routing through them plus the pre-existing `keyProjectArn`/`keyCreationTime`/
+`keyLastModifiedTime`, rather than leaving literals in place; two pre-existing, untouched
+`automl_search.go`/`notebook_instances.go` `goconst` findings left alone (not this pass's files).
+`revive var-naming` (`workteams.go`'s `IamPolicyConstraints.SourceIp`/`VpcSourceIp` →
+`SourceIP`/`VpcSourceIP`, JSON tags unchanged) and six `govet shadow` findings in
+`handler_trials_test.go` (renamed shadowing `err` to `setupErr`/`createErr`) also fixed.
+`fieldalignment -fix` run scoped to `./services/sagemaker/...`; confirmed via a before/after
+`git status --short` file-listing diff that only the same set of files this pass already touched
+were modified (all nine flagged structs lived in files this pass authored: `handler_hp_tuning_jobs.go`,
+`handler_inference_recommendations_jobs.go`, `handler_training_jobs.go`, `hp_tuning_jobs.go`,
+`optimization_jobs.go`, `projects.go`) — no unintended files touched.
+
+Gates for this session: `go build ./services/sagemaker/...`, `go vet ./services/sagemaker/...`,
+`go vet -tags e2e ./services/sagemaker/...`, `go vet -tags integration ./services/sagemaker/...`,
+`gofmt -l ./services/sagemaker/*.go` (empty), `go test -race -count=1 ./services/sagemaker/...`
+(pass), and `golangci-lint run ./services/sagemaker/...` (0 issues) all clean. Zero `nolint` added.
+(`go build ./...` repo-wide shows pre-existing, unrelated failures in `services/opensearch` from a
+concurrent agent's in-progress map-literal sweep — confirmed via `git status --short` showing those
+files modified outside this session's changes, not touched by this pass.)
+
+**`last_audit_commit` left at its existing value (`5f91d37c7`)** — not updated this pass, per the
+campaign's standing instruction never to write `pending` or otherwise touch it casually.
+
+**104 of sagemaker's 362 inline structs now remain.** New boundary: 8 files tied at 5
+(`handler_ai_benchmark_jobs.go`, `handler_ai_recommendation_jobs.go`, `handler_app_image_configs.go`,
+`handler_automl_search.go`, `handler_code_repositories.go`, `handler_compilation_jobs.go`,
+`handler_experiments.go`, `handler_feature_groups.go`) — next in line per the campaign's
+largest-pile-first ordering, now that all files previously tied at 6 or higher, and all eight
+previously tied at 5, are cleared.

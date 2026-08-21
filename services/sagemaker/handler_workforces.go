@@ -75,18 +75,26 @@ func workforceResponseMap(w *Workforce) map[string]any {
 		resp["SubDomain"] = w.SubDomain
 	}
 
+	if w.IPAddressType != "" {
+		resp["IpAddressType"] = w.IPAddressType
+	}
+
 	return resp
 }
 
+// createWorkforceInput mirrors CreateWorkforceInput (api_op_CreateWorkforce.go:48-86).
+type createWorkforceInput struct {
+	CognitoConfig      *CognitoConfig      `json:"CognitoConfig"`
+	OidcConfig         *oidcConfigRequest  `json:"OidcConfig"`
+	SourceIPConfig     *SourceIPConfig     `json:"SourceIpConfig"`
+	WorkforceVpcConfig *WorkforceVpcConfig `json:"WorkforceVpcConfig"`
+	WorkforceName      string              `json:"WorkforceName"`
+	IPAddressType      string              `json:"IpAddressType"`
+	Tags               []tagObject         `json:"Tags"`
+}
+
 func (h *Handler) handleCreateWorkforce(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		CognitoConfig      *CognitoConfig      `json:"CognitoConfig"`
-		OidcConfig         *oidcConfigRequest  `json:"OidcConfig"`
-		SourceIPConfig     *SourceIPConfig     `json:"SourceIpConfig"`
-		WorkforceVpcConfig *WorkforceVpcConfig `json:"WorkforceVpcConfig"`
-		WorkforceName      string              `json:"WorkforceName"`
-		Tags               []tagObject         `json:"Tags"`
-	}
+	var req createWorkforceInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -103,6 +111,7 @@ func (h *Handler) handleCreateWorkforce(ctx context.Context, body []byte) ([]byt
 		SourceIPConfig:     req.SourceIPConfig,
 		WorkforceVpcConfig: req.WorkforceVpcConfig,
 		Tags:               fromTagObjects(req.Tags),
+		IPAddressType:      req.IPAddressType,
 	})
 	if err != nil {
 		return nil, err
@@ -111,10 +120,13 @@ func (h *Handler) handleCreateWorkforce(ctx context.Context, body []byte) ([]byt
 	return json.Marshal(map[string]any{keyWorkforceArn: result.WorkforceArn})
 }
 
+// describeWorkforceInput mirrors DescribeWorkforceInput (api_op_DescribeWorkforce.go:34-42).
+type describeWorkforceInput struct {
+	WorkforceName string `json:"WorkforceName"`
+}
+
 func (h *Handler) handleDescribeWorkforce(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		WorkforceName string `json:"WorkforceName"`
-	}
+	var req describeWorkforceInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -132,13 +144,17 @@ func (h *Handler) handleDescribeWorkforce(ctx context.Context, body []byte) ([]b
 	return json.Marshal(map[string]any{"Workforce": workforceResponseMap(result)})
 }
 
+// updateWorkforceInput mirrors UpdateWorkforceInput (api_op_UpdateWorkforce.go:65-93).
+type updateWorkforceInput struct {
+	OidcConfig         *oidcConfigRequest  `json:"OidcConfig"`
+	SourceIPConfig     *SourceIPConfig     `json:"SourceIpConfig"`
+	WorkforceVpcConfig *WorkforceVpcConfig `json:"WorkforceVpcConfig"`
+	WorkforceName      string              `json:"WorkforceName"`
+	IPAddressType      string              `json:"IpAddressType"`
+}
+
 func (h *Handler) handleUpdateWorkforce(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		OidcConfig         *oidcConfigRequest  `json:"OidcConfig"`
-		SourceIPConfig     *SourceIPConfig     `json:"SourceIpConfig"`
-		WorkforceVpcConfig *WorkforceVpcConfig `json:"WorkforceVpcConfig"`
-		WorkforceName      string              `json:"WorkforceName"`
-	}
+	var req updateWorkforceInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -153,6 +169,7 @@ func (h *Handler) handleUpdateWorkforce(ctx context.Context, body []byte) ([]byt
 		OidcConfig:         req.OidcConfig.toOidcConfig(),
 		SourceIPConfig:     req.SourceIPConfig,
 		WorkforceVpcConfig: req.WorkforceVpcConfig,
+		IPAddressType:      req.IPAddressType,
 	})
 	if err != nil {
 		return nil, err
@@ -161,10 +178,13 @@ func (h *Handler) handleUpdateWorkforce(ctx context.Context, body []byte) ([]byt
 	return json.Marshal(map[string]any{"Workforce": workforceResponseMap(result)})
 }
 
+// deleteWorkforceInput mirrors DeleteWorkforceInput (api_op_DeleteWorkforce.go:39-44).
+type deleteWorkforceInput struct {
+	WorkforceName string `json:"WorkforceName"`
+}
+
 func (h *Handler) handleDeleteWorkforce(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		WorkforceName string `json:"WorkforceName"`
-	}
+	var req deleteWorkforceInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -181,16 +201,28 @@ func (h *Handler) handleDeleteWorkforce(ctx context.Context, body []byte) ([]byt
 	return json.Marshal(map[string]any{})
 }
 
+// listWorkforcesInput mirrors ListWorkforcesInput (api_op_ListWorkforces.go:31-48).
+type listWorkforcesInput struct {
+	NextToken    string `json:"NextToken"`
+	NameContains string `json:"NameContains"`
+	SortBy       string `json:"SortBy"`
+	SortOrder    string `json:"SortOrder"`
+	MaxResults   int32  `json:"MaxResults"`
+}
+
 func (h *Handler) handleListWorkforces(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		NextToken string `json:"NextToken"`
-	}
+	var req listWorkforcesInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	items, next := h.Backend.ListWorkforces(ctx, req.NextToken)
+	items, next := h.Backend.ListWorkforces(ctx, req.NextToken, ListWorkforcesFilter{
+		NameContains: req.NameContains,
+		SortBy:       req.SortBy,
+		SortOrder:    req.SortOrder,
+		MaxResults:   req.MaxResults,
+	})
 
 	summaries := make([]map[string]any, 0, len(items))
 	for _, w := range items {

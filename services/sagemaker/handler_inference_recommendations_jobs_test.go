@@ -6,6 +6,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	sagemakersdk "github.com/aws/aws-sdk-go-v2/service/sagemaker"
+	smtypes "github.com/aws/aws-sdk-go-v2/service/sagemaker/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -21,6 +24,7 @@ func TestHandler_InferenceRecommendationsJobLifecycle(t *testing.T) {
 		"JobType":        "Default",
 		"JobDescription": "Test recommendation job",
 		"RoleArn":        "arn:aws:iam::000000000000:role/TestRole",
+		"InputConfig":    map[string]any{"ModelName": "my-model"},
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
 
@@ -94,9 +98,10 @@ func TestHandler_InferenceRecommendationsJob_ReachesCompleted(t *testing.T) {
 	h := newTestHandler(t)
 
 	rec := doSageMakerRequest(t, h, "CreateInferenceRecommendationsJob", map[string]any{
-		"JobName": "rec-job-completes",
-		"JobType": "Default",
-		"RoleArn": "arn:aws:iam::000000000000:role/TestRole",
+		"JobName":     "rec-job-completes",
+		"JobType":     "Default",
+		"RoleArn":     "arn:aws:iam::000000000000:role/TestRole",
+		"InputConfig": map[string]any{"ModelName": "my-model"},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -140,6 +145,131 @@ func TestHandler_CreateInferenceRecommendationsJob_InputConfigRoundTrip(t *testi
 	inputConfig, ok := descResp["InputConfig"].(map[string]any)
 	require.True(t, ok, "DescribeInferenceRecommendationsJob must return the accepted InputConfig")
 	assert.Equal(t, "my-model", inputConfig["ModelName"])
+}
+
+// TestHandler_CreateInferenceRecommendationsJob_RequiredFieldsEnforced
+// asserts RoleArn/InputConfig are validated -- previously neither was
+// decoded at all, so a request missing both succeeded.
+func TestHandler_CreateInferenceRecommendationsJob_RequiredFieldsEnforced(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body map[string]any
+		name string
+	}{
+		{name: "missing role arn", body: map[string]any{
+			"JobName":     "opt-missing-role",
+			"InputConfig": map[string]any{"ModelName": "m"},
+		}},
+		{name: "missing input config", body: map[string]any{
+			"JobName": "opt-missing-input",
+			"RoleArn": "arn:aws:iam::000000000000:role/TestRole",
+		}},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doSageMakerRequest(t, h, "CreateInferenceRecommendationsJob", tc.body)
+			assert.Equal(t, http.StatusBadRequest, rec.Code)
+		})
+	}
+}
+
+// TestHandler_CreateInferenceRecommendationsJob_JobTypeDefault asserts
+// JobType defaults to "Default" when omitted, per the op's own doc ("If left
+// unspecified, ... will run ... (DEFAULT)"), rather than being rejected as a
+// missing required field despite the generated struct comment saying
+// required.
+func TestHandler_CreateInferenceRecommendationsJob_JobTypeDefault(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doSageMakerRequest(t, h, "CreateInferenceRecommendationsJob", map[string]any{
+		"JobName":     "rec-job-default-type",
+		"RoleArn":     "arn:aws:iam::000000000000:role/TestRole",
+		"InputConfig": map[string]any{"ModelName": "my-model"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doSageMakerRequest(t, h, "DescribeInferenceRecommendationsJob", map[string]any{
+		"JobName": "rec-job-default-type",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Equal(t, "Default", resp["JobType"])
+}
+
+// TestHandler_ListInferenceRecommendationsJobs_Filters_RealClient asserts
+// ListInferenceRecommendationsJobsInput's ModelNameEquals and SortBy/SortOrder
+// -- previously the handler decoded only NextToken.
+func TestHandler_ListInferenceRecommendationsJobs_Filters_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestSageMakerClient(t, h)
+
+	names := []string{"beta-rec", "alpha-rec"}
+	for _, n := range names {
+		_, err := client.CreateInferenceRecommendationsJob(
+			t.Context(),
+			&sagemakersdk.CreateInferenceRecommendationsJobInput{
+				JobName: aws.String(n),
+				JobType: smtypes.RecommendationJobTypeDefault,
+				RoleArn: aws.String("arn:aws:iam::000000000000:role/TestRole"),
+				InputConfig: &smtypes.RecommendationJobInputConfig{
+					ModelName: aws.String("shared-model"),
+				},
+			},
+		)
+		require.NoError(t, err)
+	}
+
+	t.Run("ascending sort by name", func(t *testing.T) {
+		t.Parallel()
+
+		out, err := client.ListInferenceRecommendationsJobs(
+			t.Context(),
+			&sagemakersdk.ListInferenceRecommendationsJobsInput{
+				SortBy: smtypes.ListInferenceRecommendationsJobsSortByName, SortOrder: smtypes.SortOrderAscending,
+			},
+		)
+		require.NoError(t, err)
+		require.Len(t, out.InferenceRecommendationsJobs, 2)
+		assert.Equal(t, "alpha-rec", aws.ToString(out.InferenceRecommendationsJobs[0].JobName))
+		assert.Equal(t, "beta-rec", aws.ToString(out.InferenceRecommendationsJobs[1].JobName))
+	})
+
+	t.Run("model name equals matches both", func(t *testing.T) {
+		t.Parallel()
+
+		out, err := client.ListInferenceRecommendationsJobs(
+			t.Context(),
+			&sagemakersdk.ListInferenceRecommendationsJobsInput{
+				ModelNameEquals: aws.String("shared-model"),
+			},
+		)
+		require.NoError(t, err)
+		assert.Len(t, out.InferenceRecommendationsJobs, 2)
+	})
+
+	t.Run("model name equals no match", func(t *testing.T) {
+		t.Parallel()
+
+		out, err := client.ListInferenceRecommendationsJobs(
+			t.Context(),
+			&sagemakersdk.ListInferenceRecommendationsJobsInput{
+				ModelNameEquals: aws.String("other-model"),
+			},
+		)
+		require.NoError(t, err)
+		assert.Empty(t, out.InferenceRecommendationsJobs)
+	})
 }
 
 func TestHandler_InferenceRecommendationsJob_NotFound(t *testing.T) {

@@ -171,9 +171,10 @@ func TestHandler_GetScalingConfigurationRecommendation(t *testing.T) {
 	h := newTestHandler(t)
 
 	doSageMakerRequest(t, h, "CreateInferenceRecommendationsJob", map[string]any{
-		"JobName": "my-rec-job",
-		"JobType": "Default",
-		"RoleArn": "arn:aws:iam::000000000000:role/TestRole",
+		"JobName":     "my-rec-job",
+		"JobType":     "Default",
+		"RoleArn":     "arn:aws:iam::000000000000:role/TestRole",
+		"InputConfig": map[string]any{"ModelName": "my-model"},
 	})
 
 	rec := doSageMakerRequest(t, h, "GetScalingConfigurationRecommendation", map[string]any{

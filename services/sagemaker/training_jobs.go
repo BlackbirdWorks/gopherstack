@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"maps"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -412,16 +411,66 @@ func (b *InMemoryBackend) StopTrainingJobFSM(ctx context.Context, name string) e
 	return nil
 }
 
-// ListTrainingJobsFilter narrows ListTrainingJobs results.
+// ListTrainingJobsFilter narrows and orders the results of ListTrainingJobs
+// (api_op_ListTrainingJobs.go:33-84). The op's own doc states both real
+// defaults explicitly: SortBy is CreationTime, SortOrder is Ascending.
+// TrainingPlanArnEquals/WarmPoolStatusEquals are decoded for wire-shape
+// fidelity but are disclosed no-ops: this backend never associates a
+// TrainingJob with a training plan ARN or a warm-pool status, so no job can
+// ever match a non-empty value of either — the correct answer given neither
+// concept is modeled, not a silently-ignored filter.
 type ListTrainingJobsFilter struct {
-	CreationTimeAfter  *time.Time
-	CreationTimeBefore *time.Time
-	StatusEquals       string
-	NameContains       string
-	MaxResults         int32
+	CreationTimeAfter      *time.Time
+	CreationTimeBefore     *time.Time
+	LastModifiedTimeAfter  *time.Time
+	LastModifiedTimeBefore *time.Time
+	StatusEquals           string
+	NameContains           string
+	SortBy                 string
+	SortOrder              string
+	TrainingPlanArnEquals  string
+	WarmPoolStatusEquals   string
+	MaxResults             int32
 }
 
-// ListTrainingJobsFiltered returns training jobs matching filter.
+// ListTrainingJobsFiltered returns training jobs matching filter, sorted by
+// filter.SortBy (default CreationTime) / filter.SortOrder (default Ascending).
+// trainingJobMatchesListFilter reports whether tj satisfies every set field
+// of f (api_op_ListTrainingJobs.go:33-84's StatusEquals/NameContains/
+// CreationTime*/LastModifiedTime* filters).
+func trainingJobMatchesListFilter(tj *TrainingJob, f ListTrainingJobsFilter) bool {
+	if f.StatusEquals != "" && !strings.EqualFold(tj.TrainingJobStatus, f.StatusEquals) {
+		return false
+	}
+
+	if f.NameContains != "" && !strings.Contains(strings.ToLower(tj.TrainingJobName), strings.ToLower(f.NameContains)) {
+		return false
+	}
+
+	if !timeWindowOK(tj.CreationTime, f.CreationTimeAfter, f.CreationTimeBefore) {
+		return false
+	}
+
+	return timeWindowOK(tj.LastModifiedTime, f.LastModifiedTimeAfter, f.LastModifiedTimeBefore)
+}
+
+// lessTrainingJobBySortBy orders a before b by sortBy (Name/Status/default
+// CreationTime, tie-broken by name).
+func lessTrainingJobBySortBy(a, b *TrainingJob, sortBy string) bool {
+	switch sortBy {
+	case keyGenericName:
+		return a.TrainingJobName < b.TrainingJobName
+	case keyStatus:
+		return a.TrainingJobStatus < b.TrainingJobStatus
+	default:
+		if a.CreationTime.Equal(b.CreationTime) {
+			return a.TrainingJobName < b.TrainingJobName
+		}
+
+		return a.CreationTime.Before(b.CreationTime)
+	}
+}
+
 func (b *InMemoryBackend) ListTrainingJobsFiltered(
 	ctx context.Context,
 	nextToken string,
@@ -432,47 +481,63 @@ func (b *InMemoryBackend) ListTrainingJobsFiltered(
 
 	region := getRegion(ctx, b.region)
 
-	list := make([]*TrainingJob, 0, b.trainingJobsStoreRO(region).Len())
-	for _, tj := range b.trainingJobsStoreRO(region).All() {
-		if f.StatusEquals != "" && !strings.EqualFold(tj.TrainingJobStatus, f.StatusEquals) {
-			continue
-		}
-		if f.NameContains != "" &&
-			!strings.Contains(
-				strings.ToLower(tj.TrainingJobName),
-				strings.ToLower(f.NameContains),
-			) {
-			continue
-		}
-		if f.CreationTimeAfter != nil && !tj.CreationTime.After(*f.CreationTimeAfter) {
-			continue
-		}
-		if f.CreationTimeBefore != nil && !tj.CreationTime.Before(*f.CreationTimeBefore) {
-			continue
-		}
-		list = append(list, cloneTrainingJob(tj))
-	}
-	sort.Slice(
-		list,
-		func(i, j int) bool { return list[i].TrainingJobName < list[j].TrainingJobName },
-	)
-
-	pageSize := sagemakerDefaultPageSize
-	if f.MaxResults > 0 && int(f.MaxResults) < pageSize {
-		pageSize = int(f.MaxResults)
-	}
-
-	startIdx := parseNextToken(nextToken)
-	if startIdx >= len(list) {
+	if f.TrainingPlanArnEquals != "" || f.WarmPoolStatusEquals != "" {
 		return []*TrainingJob{}, ""
 	}
-	end := startIdx + pageSize
-	var outToken string
-	if end < len(list) {
-		outToken = strconv.Itoa(end)
-	} else {
-		end = len(list)
+
+	list := make([]*TrainingJob, 0, b.trainingJobsStoreRO(region).Len())
+
+	for _, tj := range b.trainingJobsStoreRO(region).All() {
+		if trainingJobMatchesListFilter(tj, f) {
+			list = append(list, cloneTrainingJob(tj))
+		}
 	}
 
-	return list[startIdx:end], outToken
+	desc := strings.EqualFold(f.SortOrder, "Descending")
+	sort.Slice(list, func(i, k int) bool {
+		less := lessTrainingJobBySortBy(list[i], list[k], f.SortBy)
+		if desc {
+			return !less
+		}
+
+		return less
+	})
+
+	return paginateSlice(list, nextToken, f.MaxResults)
+}
+
+// UpdateTrainingJobOptions holds the parameters for updating a training job
+// (api_op_UpdateTrainingJob.go:29-56). ProfilerConfig/ProfilerRuleConfigurations/
+// RemoteDebugConfig are disclosed not modeled: this backend's TrainingJob has
+// no profiler or remote-debug concept at all (Create never captures them
+// either), so there is nothing on the resource for an Update to mutate.
+type UpdateTrainingJobOptions struct {
+	KeepAlivePeriodInSeconds *int32
+}
+
+// UpdateTrainingJob applies a partial update to a training job's
+// ResourceConfig.KeepAlivePeriodInSeconds, the only field of
+// UpdateTrainingJobInput this backend's data model can honor.
+func (b *InMemoryBackend) UpdateTrainingJob(
+	ctx context.Context,
+	name string,
+	opts UpdateTrainingJobOptions,
+) (*TrainingJob, error) {
+	b.mu.Lock("UpdateTrainingJob")
+	defer b.mu.Unlock()
+
+	region := getRegion(ctx, b.region)
+
+	tj, ok := b.trainingJobsStore(region).Get(name)
+	if !ok {
+		return nil, fmt.Errorf("%w: training job %q not found", ErrTrainingJobNotFound, name)
+	}
+
+	if opts.KeepAlivePeriodInSeconds != nil {
+		tj.ResourceConfig.KeepAlivePeriodInSeconds = *opts.KeepAlivePeriodInSeconds
+	}
+
+	tj.LastModifiedTime = time.Now()
+
+	return cloneTrainingJob(tj), nil
 }

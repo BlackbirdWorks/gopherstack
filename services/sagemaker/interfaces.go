@@ -121,13 +121,12 @@ type StorageBackend interface {
 	CreatePresignedNotebookInstanceURL(ctx context.Context, name string) (string, error)
 
 	CreateHyperParameterTuningJob(
-		ctx context.Context,
-		name, strategy string,
-		limits HPResourceLimits,
-		tags map[string]string,
+		ctx context.Context, opts CreateHyperParameterTuningJobOptions,
 	) (*HyperParameterTuningJob, error)
 	DescribeHyperParameterTuningJob(ctx context.Context, name string) (*HyperParameterTuningJob, error)
-	ListHyperParameterTuningJobs(ctx context.Context, nextToken string) ([]*HyperParameterTuningJob, string)
+	ListHyperParameterTuningJobs(
+		ctx context.Context, nextToken string, filter ListHyperParameterTuningJobsFilter,
+	) ([]*HyperParameterTuningJob, string)
 	StopHyperParameterTuningJob(ctx context.Context, name string) error
 	DeleteHyperParameterTuningJob(ctx context.Context, name string) error
 

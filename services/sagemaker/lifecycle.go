@@ -45,6 +45,12 @@ const (
 	// edgePackagingJob* constants above for the same retiming reason.
 	inferenceRecommendationsJobInProgressToCompleted = 300 * time.Millisecond
 	inferenceRecommendationsJobStoppingToStopped     = 150 * time.Millisecond
+	// hpTuningJobStoppingToStopped drives HyperParameterTuningJob's own
+	// Stopping -> Stopped transition. Nothing previously advanced a
+	// Stopping job -- no ticker, no later call -- so
+	// DescribeHyperParameterTuningJob showed Stopping for the entire
+	// remaining lifetime of every stopped job.
+	hpTuningJobStoppingToStopped = 150 * time.Millisecond
 )
 
 // ---------------------------------------------------------------------------

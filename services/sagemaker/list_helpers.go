@@ -246,6 +246,23 @@ func sagemakerDupErr(kind, name string) error {
 	return fmt.Errorf("%w: %s %q already exists", ErrValidation, kind, name)
 }
 
+// timeWindowOK reports whether t falls on or after `after` and on or before
+// `before` — either bound nil means unconstrained on that side. Shared by
+// every List op's CreationTime*/LastModifiedTime* window filter added in the
+// gopherstack-oc9v inline-struct campaign, collapsing what would otherwise
+// be a repeated pair of if-continue checks per time field.
+func timeWindowOK(t time.Time, after, before *time.Time) bool {
+	if after != nil && !t.After(*after) {
+		return false
+	}
+
+	if before != nil && !t.Before(*before) {
+		return false
+	}
+
+	return true
+}
+
 // compareTimes returns -1, 0 or 1 depending on whether a is before, equal to,
 // or after b. It is used to build strict weak orderings for sort.Slice-style
 // comparators that need to support both ascending and descending order.
