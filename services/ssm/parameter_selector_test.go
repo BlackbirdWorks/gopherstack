@@ -138,7 +138,7 @@ func TestGetParameters_SelectorAndArn(t *testing.T) {
 	require.Len(t, out.Parameters, 2)
 	assert.ElementsMatch(t, []string{"/app/missing", "/app/a:99"}, out.InvalidParameters)
 
-	byName := map[string]ssm.Parameter{}
+	byName := map[string]ssm.ParameterOutput{}
 	for _, p := range out.Parameters {
 		byName[p.Name] = p
 		assert.True(t, strings.HasPrefix(p.ARN, "arn:aws:ssm:"), "ARN populated")

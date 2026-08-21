@@ -19,8 +19,23 @@ type UpdateResourceDataSyncOutput struct{}
 
 // CreateResourceDataSyncInput is the request for CreateResourceDataSync.
 type CreateResourceDataSyncInput struct {
-	SyncName string `json:"SyncName"`
-	SyncType string `json:"SyncType,omitempty"`
+	S3Destination *ResourceDataSyncS3Destination `json:"S3Destination,omitempty"`
+	SyncSource    *ResourceDataSyncSource        `json:"SyncSource,omitempty"`
+	SyncName      string                         `json:"SyncName"`
+	SyncType      string                         `json:"SyncType,omitempty"`
+}
+
+// ResourceDataSyncS3Destination mirrors types.ResourceDataSyncS3Destination
+// (types.go:5561). DestinationDataSharing (Organizations cross-account
+// prefix sharing) is deliberately not modeled, matching the same
+// shallow-scalar convention ResourceDataSyncSource already documents for its
+// own AwsOrganizationsSource member.
+type ResourceDataSyncS3Destination struct {
+	BucketName   string `json:"BucketName"`
+	Region       string `json:"Region"`
+	SyncFormat   string `json:"SyncFormat"`
+	AWSKMSKeyARN string `json:"AWSKMSKeyARN,omitempty"`
+	Prefix       string `json:"Prefix,omitempty"`
 }
 
 // DeleteActivationInput is the request for DeleteActivation.
@@ -129,18 +144,13 @@ type CreateActivationOutput struct {
 
 // ResourceDataSync represents a resource data sync configuration.
 type ResourceDataSync struct {
-	SyncSource      *ResourceDataSyncSource `json:"SyncSource,omitempty"`
-	SyncName        string                  `json:"SyncName"`
-	SyncType        string                  `json:"SyncType"`
-	LastStatus      string                  `json:"LastStatus"`
-	SyncCreatedTime float64                 `json:"SyncCreatedTime"`
-	LastSyncTime    float64                 `json:"LastSyncTime,omitempty"`
-}
-
-// CreateResourceDataSyncInputFull replaces the empty stub for CreateResourceDataSync.
-type CreateResourceDataSyncInputFull struct {
-	SyncName string `json:"SyncName"`
-	SyncType string `json:"SyncType,omitempty"`
+	SyncSource      *ResourceDataSyncSource        `json:"SyncSource,omitempty"`
+	S3Destination   *ResourceDataSyncS3Destination `json:"S3Destination,omitempty"`
+	SyncName        string                         `json:"SyncName"`
+	SyncType        string                         `json:"SyncType"`
+	LastStatus      string                         `json:"LastStatus"`
+	SyncCreatedTime float64                        `json:"SyncCreatedTime"`
+	LastSyncTime    float64                        `json:"LastSyncTime,omitempty"`
 }
 
 // ListResourceDataSyncOutputFull extends the empty stub output.

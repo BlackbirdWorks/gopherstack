@@ -41,8 +41,13 @@ func TestStubOps_SimpleCalls(t *testing.T) {
 	// ComplianceType/ExecutionSummary (with ExecutionSummary.ExecutionTime)
 	// are all required and were previously dropped entirely. See
 	// TestPutComplianceItems_RequiredFields in inventory_test.go.
+	// CreateResourceDataSync is also NOT listed here (gopherstack-enpq):
+	// S3Destination/SyncSource had NO Go struct members at all, so an empty
+	// body always created a sync with no destination/source config that
+	// could never be reached again except via UpdateResourceDataSync. Now
+	// S3Destination is required (SyncType defaults to SyncToDestination when
+	// omitted). See TestCreateResourceDataSync_RequiredFields.
 	ops := []string{
-		"CreateResourceDataSync",
 		"DeleteInventory",
 		"DeregisterManagedInstance",
 		"DescribeActivations",

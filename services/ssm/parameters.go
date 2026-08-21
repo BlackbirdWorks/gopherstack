@@ -13,6 +13,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 // validParamNameRegex matches only alphanumeric, ., -, _, and / characters.
@@ -340,6 +341,30 @@ func validatePutParameterInput(input *PutParameterInput) (putParameterValidated,
 
 	return putParameterValidated{dataType: dataType, tier: tier}, nil
 }
+
+// applyPutParameterTagsLocked applies PutParameterInput.Tags -- only
+// meaningful when creating a brand-new parameter (api_op_PutParameter.go:203:
+// "To add tags to an existing Systems Manager parameter, use the
+// AddTagsToResource operation"). Must be called with b.mu held for writing.
+func (b *InMemoryBackend) applyPutParameterTagsLocked(region, name string, tagList []Tag) {
+	if len(tagList) == 0 {
+		return
+	}
+
+	if b.tags[region] == nil {
+		b.tags[region] = make(map[string]*tags.Tags)
+	}
+
+	tagsStore := b.tagsStore(region)
+	if tagsStore[name] == nil {
+		tagsStore[name] = tags.New("ssm." + name + ".tags")
+	}
+
+	for _, t := range tagList {
+		tagsStore[name].Set(t.Key, t.Value)
+	}
+}
+
 func (b *InMemoryBackend) PutParameter(
 	ctx context.Context,
 	input *PutParameterInput,
@@ -411,24 +436,40 @@ func (b *InMemoryBackend) PutParameter(
 
 	params.Put(&param)
 
+	if !exists {
+		b.applyPutParameterTagsLocked(region, input.Name, input.Tags)
+	}
+
 	// A write always resets LastModifiedDate and wholesale-replaces Policies,
 	// invalidating any previously-recorded policy-notification dedupe state
 	// for this parameter (see clearParameterPolicyNotificationStateLocked).
 	b.clearParameterPolicyNotificationStateLocked(region, input.Name)
 
-	// Store in history (store encrypted value for SecureString)
+	b.recordParameterHistoryLocked(region, input, value, dataType, tier, param.LastModifiedDate, version)
+
+	return &PutParameterOutput{Version: version, Tier: tier}, nil
+}
+
+// recordParameterHistoryLocked appends a ParameterHistory entry for a
+// PutParameter write (store encrypted value for SecureString) and evicts the
+// oldest entry once history exceeds maxHistoryCap. Must be called with b.mu
+// held for writing.
+func (b *InMemoryBackend) recordParameterHistoryLocked(
+	region string, input *PutParameterInput, value, dataType, tier string, lastModifiedDate float64, version int64,
+) {
 	paramHistory := ParameterHistory{
 		Name:             input.Name,
 		Type:             input.Type,
 		Value:            value,
 		Version:          version,
-		LastModifiedDate: param.LastModifiedDate,
+		LastModifiedDate: lastModifiedDate,
 		Labels:           []string{},
 		KeyID:            input.KeyID,
 		Tier:             tier,
 		AllowedPattern:   input.AllowedPattern,
 		DataType:         dataType,
 		Description:      input.Description,
+		Policies:         input.Policies,
 	}
 	if b.history[region] == nil {
 		b.history[region] = make(map[string][]ParameterHistory)
@@ -441,8 +482,8 @@ func (b *InMemoryBackend) PutParameter(
 		evicted := history[input.Name][:len(history[input.Name])-maxHistoryCap]
 		history[input.Name] = history[input.Name][len(history[input.Name])-maxHistoryCap:]
 
-		// Evicted versions can never be labeled here (the pre-check above bars
-		// evicting a labeled oldest version) but their version-label map
+		// Evicted versions can never be labeled here (PutParameter's pre-check
+		// bars evicting a labeled oldest version) but their version-label map
 		// entries — created lazily on first label — may still exist as empty
 		// slices; drop them so parameterLabels doesn't grow unboundedly.
 		if versionLabels := b.parameterLabelsStore(region)[input.Name]; versionLabels != nil {
@@ -451,8 +492,6 @@ func (b *InMemoryBackend) PutParameter(
 			}
 		}
 	}
-
-	return &PutParameterOutput{Version: version, Tier: tier}, nil
 }
 
 // GetParameter retrieves a single parameter. The name may carry a version or
@@ -491,7 +530,7 @@ func (b *InMemoryBackend) GetParameter(
 		param.Selector = ":" + selector
 	}
 
-	return &GetParameterOutput{Parameter: param}, nil
+	return &GetParameterOutput{Parameter: param.toParameterOutput()}, nil
 }
 
 // GetParameters retrieves multiple parameters. Missing names are returned as InvalidParameters.
@@ -506,7 +545,7 @@ func (b *InMemoryBackend) GetParameters(
 	defer b.mu.RUnlock()
 
 	output := &GetParametersOutput{
-		Parameters:        make([]Parameter, 0, len(input.Names)),
+		Parameters:        make([]ParameterOutput, 0, len(input.Names)),
 		InvalidParameters: make([]string, 0, len(input.Names)),
 	}
 
@@ -538,7 +577,7 @@ func (b *InMemoryBackend) GetParameters(
 		if selector != "" {
 			param.Selector = ":" + selector
 		}
-		output.Parameters = append(output.Parameters, param)
+		output.Parameters = append(output.Parameters, param.toParameterOutput())
 	}
 
 	return output, nil
@@ -679,7 +718,7 @@ func (b *InMemoryBackend) GetParameterHistory(
 	startIdx := parseNextToken(input.NextToken)
 
 	if startIdx >= n {
-		return &GetParameterHistoryOutput{Parameters: []ParameterHistory{}}, nil
+		return &GetParameterHistoryOutput{Parameters: []ParameterHistoryOutput{}}, nil
 	}
 
 	end := startIdx + int(maxResults)
@@ -692,8 +731,13 @@ func (b *InMemoryBackend) GetParameterHistory(
 		end = n
 	}
 
+	page := make([]ParameterHistoryOutput, 0, end-startIdx)
+	for _, h := range reversed[startIdx:end] {
+		page = append(page, h.toParameterHistoryOutput())
+	}
+
 	return &GetParameterHistoryOutput{
-		Parameters: reversed[startIdx:end],
+		Parameters: page,
 		NextToken:  nextToken,
 	}, nil
 }
@@ -842,7 +886,7 @@ func (b *InMemoryBackend) GetParametersByPath(
 	}
 
 	if startIdx >= len(matched) {
-		return &GetParametersByPathOutput{Parameters: []Parameter{}}, nil
+		return &GetParametersByPathOutput{Parameters: []ParameterOutput{}}, nil
 	}
 
 	end := startIdx + int(maxResults)
@@ -856,12 +900,12 @@ func (b *InMemoryBackend) GetParametersByPath(
 	}
 
 	return &GetParametersByPathOutput{
-		Parameters: b.decryptParamsSlice(
+		Parameters: toParameterOutputs(b.decryptParamsSlice(
 			matched[startIdx:end],
 			input.WithDecryption,
 			region,
 			account,
-		),
+		)),
 		NextToken: nextToken,
 	}, nil
 }
@@ -891,7 +935,7 @@ func (b *InMemoryBackend) DescribeParameters(
 			Tier:             p.Tier,
 			AllowedPattern:   p.AllowedPattern,
 			DataType:         p.DataType,
-			Policies:         p.Policies,
+			Policies:         parameterPoliciesToWire(p.Policies),
 			ARN:              parameterARN(region, account, p.Name),
 		})
 	}

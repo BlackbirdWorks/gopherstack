@@ -74,6 +74,38 @@ func parseParameterPolicies(policiesJSON string) []parameterStorePolicy {
 	return policies
 }
 
+// parameterPoliciesToWire converts a PutParameterInput-style Policies JSON
+// string into the real ParameterMetadata.Policies wire shape
+// ([]types.ParameterInlinePolicy, types/types.go:4840-4857) --
+// DescribeParameters previously echoed the raw request string verbatim,
+// which is not the real response shape at all: a real aws-sdk-go-v2 client
+// would fail to unmarshal a JSON string where it expects an array of
+// {PolicyText, PolicyType, PolicyStatus} objects. PolicyStatus is always
+// "Finished": this backend applies every policy synchronously and in full
+// on PutParameter, with no Pending/InProgress/Failed phase to observe.
+func parameterPoliciesToWire(policiesJSON string) []ParameterInlinePolicy {
+	parsed := parseParameterPolicies(policiesJSON)
+	if len(parsed) == 0 {
+		return nil
+	}
+
+	wire := make([]ParameterInlinePolicy, 0, len(parsed))
+	for _, p := range parsed {
+		text, err := json.Marshal(p)
+		if err != nil {
+			continue
+		}
+
+		wire = append(wire, ParameterInlinePolicy{
+			PolicyText:   string(text),
+			PolicyType:   p.Type,
+			PolicyStatus: "Finished",
+		})
+	}
+
+	return wire
+}
+
 // policyNotificationDedupKey builds a stable per-policy-instance dedupe key
 // so a policy only ever notifies once per distinct (Type, Attributes)
 // combination. This lets a parameter carry more than one ExpirationNotification

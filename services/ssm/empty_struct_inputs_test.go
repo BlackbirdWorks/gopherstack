@@ -80,10 +80,23 @@ func TestListResourceDataSync_FilterAndPagination(t *testing.T) {
 	}
 
 	for _, s := range syncs {
-		_, err := client.CreateResourceDataSync(t.Context(), &ssmsdk.CreateResourceDataSyncInput{
+		in := &ssmsdk.CreateResourceDataSyncInput{
 			SyncName: aws.String(s.name),
 			SyncType: aws.String(s.syncType),
-		})
+		}
+		if s.syncType == "SyncFromSource" {
+			in.SyncSource = &ssmtypes.ResourceDataSyncSource{
+				SourceType:    aws.String("SingleAccountMultiRegions"),
+				SourceRegions: []string{"us-east-1"},
+			}
+		} else {
+			in.S3Destination = &ssmtypes.ResourceDataSyncS3Destination{
+				BucketName: aws.String("b"),
+				Region:     aws.String("us-east-1"),
+				SyncFormat: ssmtypes.ResourceDataSyncS3FormatJsonSerde,
+			}
+		}
+		_, err := client.CreateResourceDataSync(t.Context(), in)
 		require.NoError(t, err)
 	}
 

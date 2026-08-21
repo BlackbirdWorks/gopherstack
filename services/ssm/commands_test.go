@@ -337,6 +337,7 @@ func TestGetCommandInvocation_OutputFields(t *testing.T) {
 
 	_, sendOut := postJSON(t, h, "SendCommand", map[string]any{
 		"DocumentName":       "MyDoc",
+		"DocumentVersion":    "2",
 		"InstanceIds":        []string{"i-abc"},
 		"Comment":            "run now",
 		"OutputS3BucketName": "my-bucket",
@@ -356,6 +357,8 @@ func TestGetCommandInvocation_OutputFields(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, code)
 	assert.Equal(t, "run now", invOut["Comment"])
+	assert.Equal(t, "2", invOut["DocumentVersion"])
+	assert.NotEmpty(t, invOut["ExecutionStartDateTime"])
 }
 func TestCancelCommand_Success(t *testing.T) {
 	t.Parallel()
@@ -477,6 +480,108 @@ func TestCancelCommand_CancelsInvocations(t *testing.T) {
 		})
 	}
 }
+
+// TestCancelCommand_ScopedToInstanceIDs proves CancelCommandInput.InstanceIds
+// (api_op_CancelCommand.go: "If not provided, the command is canceled on
+// every node on which it was requested") actually scopes cancellation --
+// previously the field was read into the struct but never applied, so
+// CancelCommand always cancelled every invocation regardless of InstanceIds.
+func TestCancelCommand_ScopedToInstanceIDs(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newTestHandler(t)
+
+	sendRec := doRequest(
+		t, h, "SendCommand",
+		`{"DocumentName":"AWS-RunShellScript","InstanceIds":["i-001","i-002"]}`,
+	)
+	require.Equal(t, http.StatusOK, sendRec.Code)
+
+	var sendResp map[string]any
+	require.NoError(t, json.Unmarshal(sendRec.Body.Bytes(), &sendResp))
+	cmdID := sendResp["Command"].(map[string]any)["CommandId"].(string)
+
+	cancelRec := doRequest(t, h, "CancelCommand", `{"CommandId":"`+cmdID+`","InstanceIds":["i-001"]}`)
+	require.Equal(t, http.StatusOK, cancelRec.Code)
+
+	invRec := doRequest(t, h, "GetCommandInvocation", `{"CommandId":"`+cmdID+`","InstanceId":"i-001"}`)
+	require.Equal(t, http.StatusOK, invRec.Code)
+
+	var cancelledInv map[string]any
+	require.NoError(t, json.Unmarshal(invRec.Body.Bytes(), &cancelledInv))
+	assert.Equal(t, "Cancelled", cancelledInv["Status"])
+
+	otherRec := doRequest(t, h, "GetCommandInvocation", `{"CommandId":"`+cmdID+`","InstanceId":"i-002"}`)
+	require.Equal(t, http.StatusOK, otherRec.Code)
+
+	var otherInv map[string]any
+	require.NoError(t, json.Unmarshal(otherRec.Body.Bytes(), &otherInv))
+	assert.NotEqual(t, "Cancelled", otherInv["Status"], "un-named instance's invocation must not be cancelled")
+}
+
+// TestListCommands_FilterByInstanceID proves ListCommandsInput.InstanceId
+// (api_op_ListCommands.go) actually filters -- previously the field existed
+// on the struct but was never read in the handler body, so a real client's
+// InstanceId filter silently returned every command regardless.
+func TestListCommands_FilterByInstanceID(t *testing.T) {
+	t.Parallel()
+
+	b := ssm.NewInMemoryBackend()
+	_, err := b.CreateDocument(context.TODO(), &ssm.CreateDocumentInput{
+		Name: "AWS-RunShellScript", Content: `{"schemaVersion":"2.2"}`,
+	})
+	_ = err
+
+	_, err = b.SendCommand(context.TODO(), &ssm.SendCommandInput{
+		DocumentName: "AWS-RunShellScript", InstanceIDs: []string{"i-1111"},
+	})
+	require.NoError(t, err)
+
+	_, err = b.SendCommand(context.TODO(), &ssm.SendCommandInput{
+		DocumentName: "AWS-RunShellScript", InstanceIDs: []string{"i-2222"},
+	})
+	require.NoError(t, err)
+
+	out, err := b.ListCommands(context.TODO(), &ssm.ListCommandsInput{InstanceID: "i-1111"})
+	require.NoError(t, err)
+	require.Len(t, out.Commands, 1)
+	assert.Equal(t, []string{"i-1111"}, out.Commands[0].InstanceIDs)
+}
+
+// TestSendCommand_RoundTripsRealSDKFields proves DocumentVersion,
+// ServiceRoleArn (echoed as Command.ServiceRole -- the input/output member
+// names genuinely differ), MaxConcurrency and MaxErrors -- all real
+// SendCommandInput/types.Command members with no prior Go struct member at
+// all -- now round-trip, and that TargetCount/CompletedCount/ErrorCount are
+// computed from the command's own invocations rather than left at zero.
+func TestSendCommand_RoundTripsRealSDKFields(t *testing.T) {
+	t.Parallel()
+
+	b := ssm.NewInMemoryBackend()
+	_, err := b.CreateDocument(context.TODO(), &ssm.CreateDocumentInput{
+		Name: "AWS-RunShellScript", Content: `{"schemaVersion":"2.2"}`,
+	})
+	_ = err
+
+	out, err := b.SendCommand(context.TODO(), &ssm.SendCommandInput{
+		DocumentName:    "AWS-RunShellScript",
+		DocumentVersion: "3",
+		ServiceRoleArn:  "arn:aws:iam::000000000000:role/SSMRole",
+		MaxConcurrency:  "50%",
+		MaxErrors:       "0",
+		InstanceIDs:     []string{"i-1111", "i-2222"},
+	})
+	require.NoError(t, err)
+
+	assert.Equal(t, "3", out.Command.DocumentVersion)
+	assert.Equal(t, "arn:aws:iam::000000000000:role/SSMRole", out.Command.ServiceRole)
+	assert.Equal(t, "50%", out.Command.MaxConcurrency)
+	assert.Equal(t, "0", out.Command.MaxErrors)
+	assert.EqualValues(t, 2, out.Command.TargetCount)
+	assert.EqualValues(t, 2, out.Command.CompletedCount)
+	assert.EqualValues(t, 0, out.Command.ErrorCount)
+}
+
 func TestFull_Command_SendListGetCancel(t *testing.T) {
 	t.Parallel()
 	h := newHandler()
