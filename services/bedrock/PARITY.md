@@ -54,8 +54,8 @@ ops:
   GetModelInvocationLoggingConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
   PutModelInvocationLoggingConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteModelInvocationLoggingConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
-  CreateEvaluationJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-11 -- request field was wire-tagged tags; the real CreateEvaluationJobRequest field is jobTags, so every real client's tags were silently discarded"}
-  GetEvaluationJob: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-20 (gopherstack-r80d, required-output sweep) -- OutputDataConfig (required, api_op_GetEvaluationJob.go:78) had no input parsing, no model field, and no response key at all; RoleArn was present but conditionally omitted when empty (harmless in practice: CreateEvaluationJob's real SDK client already requires roleArn, so it is always set by the time Get runs). Now OutputDataConfig round-trips Create->Get (empty {validators:[]}-style present-not-absent when omitted on Create) and roleArn is unconditional. NOT fixed: JobType (required, api_op_GetEvaluationJob.go:72) has no counterpart anywhere -- real AWS derives it from which variant of the EvaluationConfig union (Automated|Human) the caller supplied on Create, and gopherstack does not model that union at all. SEPARATELY DISCOVERED, more severe, NOT fixed: CreateEvaluationJobInput's real evaluationConfig/inferenceConfig are polymorphic union objects (types.EvaluationConfig/types.EvaluationInferenceConfig); gopherstack's createEvaluationJobInput instead expects evaluationConfig as a bare ARRAY and inferenceConfig as a flat object with unrelated field names. A real aws-sdk-go-v2 client's CreateEvaluationJob request 400s against gopherstack today whenever it supplies these two required members (confirmed while writing this fix's proof test) -- this op is effectively unreachable by a real client with real config content, independent of the OutputDataConfig fix. Both left open as file-follow-up: fixing them means redesigning the union parsing, out of this pass's required-output-member scope."}
+  CreateEvaluationJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-11 -- request field was wire-tagged tags; the real CreateEvaluationJobRequest field is jobTags, so every real client's tags were silently discarded. FIXED 2026-08-21 (gopherstack-39ps) -- evaluationConfig/inferenceConfig are polymorphic unions (types.EvaluationConfig, types/types.go:2850; types.EvaluationInferenceConfig, types/types.go:2964) that smithy-go encodes as a single-key object naming the variant (serializers.go:10697-10719, 10795-10817); gopherstack's parser instead expected evaluationConfig as a bare ARRAY and inferenceConfig as a flat object with unrelated field names, so a real aws-sdk-go-v2 client sending genuine union content got a 400 ValidationException (\"invalid request body\") outright -- confirmed against the unmodified handler before this fix. Now modeled as real Go unions (EvaluationConfig{Automated,Human}, EvaluationInferenceConfig{Models,RagConfigs}, models.go) dispatched via encoding/json's own field-presence matching on the single-key struct tags, which mirrors smithy-go's single-key-object mechanism directly rather than flattening the variants into one shape. Also fixed in passing: the old flat shape's inferenceConfig.ragConfig key was singular; the real field is ragConfigs (plural, serializers.go:10806-10810) -- this alone meant a real client's RAG evaluation jobs silently vanished on the wire even before the union bug, since the client always sent the plural key and gopherstack's decoder never matched it. Proven via a real-SDK-client round trip covering both EvaluationConfig variants and both InferenceConfig variants (evaluation_job_unions_test.go), including a RagConfigs entry whose nested union (KnowledgeBaseConfig->RetrieveConfig) round-trips back through the real client's own decoder. NOT modeled, disclosed rather than fabricated: AutomatedEvaluationConfig.CustomMetricConfig (wraps AutomatedEvaluationCustomMetricSource, types/types.go:196, itself a union, plus a nested CustomMetricEvaluatorModelConfig) and RAGConfig's two variant payloads (KnowledgeBaseConfig/PrecomputedRagSourceConfig, each themselves unions bottoming out in a recursive ~12-variant RetrievalFilter tree, types/types.go:6165-6344) are stored verbatim as received (json.RawMessage) rather than field-by-field modeled -- gopherstack's evaluation-job store is inert (never runs a real evaluation, never interprets retrieval filters or custom-metric prompts), so opaque, byte-for-byte round-trip storage is honest and the RAG round-trip test above confirms it is faithful; modeling those trees field-by-field would be pure surface area with no behavior depending on it. See gaps for the full list."}
+  GetEvaluationJob: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-20 (gopherstack-r80d, required-output sweep) -- OutputDataConfig (required, api_op_GetEvaluationJob.go:78) had no input parsing, no model field, and no response key at all; RoleArn was present but conditionally omitted when empty (harmless in practice: CreateEvaluationJob's real SDK client already requires roleArn, so it is always set by the time Get runs). Now OutputDataConfig round-trips Create->Get (empty {validators:[]}-style present-not-absent when omitted on Create) and roleArn is unconditional. FIXED 2026-08-21 (gopherstack-39ps) -- JobType (required, api_op_GetEvaluationJob.go:72) previously had no counterpart anywhere. Once CreateEvaluationJob's EvaluationConfig union was modeled (see that op's entry above), JobType fell out for free: real AWS's EvaluationJobType enum is literally \"Automated\"|\"Human\" (types/enums.go:548-551), the same two tags naming the EvaluationConfig variant the caller supplied on Create -- no new state, just EvaluationConfig.JobType() reading which of the two struct pointers is set. Verified: real-client GetEvaluationJob now returns the correct JobType for both variants (evaluation_job_unions_test.go)."}
   ListEvaluationJobs: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed — took zero params and always returned the full unbounded table in one page, ignoring nextToken entirely (unlike every sibling List op). Now supports nextToken/statusEquals/nameContains/creationTimeAfter/creationTimeBefore query filters via a real ListEvaluationJobsInput, mirroring ListModelInvocationJobs' filter pattern. applicationTypeEquals/sortBy/sortOrder still unhandled — see gaps."}
   BatchDeleteEvaluationJob: {wire: ok, errors: ok, state: ok, persist: ok}
   StopEvaluationJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed — was routed as DELETE /evaluation-jobs/{id} (plural); real SDK sends POST /evaluation-job/{id}/stop (SINGULAR, different HTTP verb). Completely unreachable by real clients before this fix — a route-matcher-class bug."}
@@ -134,21 +134,27 @@ families:
   FoundationModelAvailability: {status: ok, note: "fixed — field-diffed for real this pass. See GetFoundationModelAvailability ops entry."}
 
 gaps:
-  - "gopherstack-r80d (2026-08-20, required-output-member sweep): two related,
-    NOT-fixed gaps found while fixing GetEvaluationJob's OutputDataConfig (see
-    its ops entry above for the full detail). (1) GetEvaluationJobOutput's
-    required JobType (api_op_GetEvaluationJob.go:72) has no counterpart --
-    real AWS derives it from which variant (Automated|Human) of the
-    EvaluationConfig union the caller supplied on Create, and gopherstack
-    does not model that union. (2) SEPARATELY, more severe: real
-    CreateEvaluationJobInput's evaluationConfig/inferenceConfig are
-    polymorphic union objects; gopherstack's own request parser instead
-    expects evaluationConfig as a bare array and inferenceConfig as an
-    unrelated flat shape, so a real aws-sdk-go-v2 client's CreateEvaluationJob
-    request 400s whenever it actually supplies real config content --
-    confirmed while writing wire_output_required_r80d_test.go. Fixing either
-    means redesigning the union parsing/response shape, out of this pass's
-    required-output-member scope. (bd: file follow-up)"
+  - "gopherstack-r80d/gopherstack-39ps (2026-08-20/21): BOTH gaps this entry
+    used to record are now FIXED -- see CreateEvaluationJob/GetEvaluationJob
+    ops entries above for the full detail (union modeling + JobType
+    derivation). What remains, disclosed rather than fabricated by the
+    gopherstack-39ps fix: AutomatedEvaluationConfig.CustomMetricConfig and
+    RAGConfig's two variant payloads (knowledgeBaseConfig /
+    precomputedRagSourceConfig) are stored verbatim (json.RawMessage) instead
+    of field-by-field modeled. Both wrap further unions -- CustomMetricConfig
+    via AutomatedEvaluationCustomMetricSource (types/types.go:196) plus a
+    nested CustomMetricEvaluatorModelConfig; RAGConfig's variants via
+    KnowledgeBaseConfig/EvaluationPrecomputedRagSourceConfig, themselves
+    bottoming out in a recursive ~12-variant RetrievalFilter tree
+    (types/types.go:6165-6344, AndAll/OrAll take []RetrievalFilter
+    recursively). gopherstack's evaluation-job store is inert (it tracks job
+    lifecycle/status only and never runs a real evaluation, never applies a
+    retrieval filter or a custom-metric prompt), so opaque byte-for-byte
+    storage is honest here, not a shortcut around real behavior; a real-client
+    round trip through a RagConfigs entry with nested KnowledgeBaseConfig
+    content confirms the storage is faithful end to end
+    (evaluation_job_unions_test.go). Revisit only if this backend starts
+    interpreting evaluation content rather than just persisting it."
   - "AgentsHandler (bedrock-agent sub-API, handler_agents_dispatch.go) GetSupportedOperations
     phantom-triage pass (parity-5, 2026-07-31): the reverse sdkcheck (gopherstack-vhw2,
     checked against bedrockagentsdk.Client) previously flagged 7 fabricated entries.

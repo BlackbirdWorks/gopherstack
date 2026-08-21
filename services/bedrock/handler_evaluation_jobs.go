@@ -55,7 +55,7 @@ func (h *Handler) routeEvaluationJob(
 }
 
 type createEvaluationJobInput struct {
-	EvaluatorConfig  *EvaluationModelConfig     `json:"evaluatorConfig,omitempty"`
+	EvaluationConfig *EvaluationConfig          `json:"evaluationConfig,omitempty"`
 	InferenceConfig  *EvaluationInferenceConfig `json:"inferenceConfig,omitempty"`
 	OutputDataConfig *outputDataConfigInput     `json:"outputDataConfig,omitempty"`
 	JobName          string                     `json:"jobName"`
@@ -63,7 +63,6 @@ type createEvaluationJobInput struct {
 	RoleArn          string                     `json:"roleArn,omitempty"`
 	ApplicationType  string                     `json:"applicationType,omitempty"`
 	Tags             []Tag                      `json:"jobTags,omitempty"`
-	EvalConfig       []EvaluationTaskConfig     `json:"evaluationConfig,omitempty"`
 }
 
 type createEvaluationJobOutput struct {
@@ -80,12 +79,11 @@ func (h *Handler) handleCreateEvaluationJob(c *echo.Context, body []byte) error 
 	}
 
 	opts := &CreateEvaluationJobInput{
-		JobDescription:  in.JobDescription,
-		RoleArn:         in.RoleArn,
-		ApplicationType: in.ApplicationType,
-		EvaluatorConfig: in.EvaluatorConfig,
-		InferenceConfig: in.InferenceConfig,
-		EvalConfig:      in.EvalConfig,
+		JobDescription:   in.JobDescription,
+		RoleArn:          in.RoleArn,
+		ApplicationType:  in.ApplicationType,
+		EvaluationConfig: in.EvaluationConfig,
+		InferenceConfig:  in.InferenceConfig,
 	}
 	if in.OutputDataConfig != nil {
 		opts.OutputDataConfig = OutputDataConfig{S3Uri: in.OutputDataConfig.S3Uri}
@@ -154,14 +152,17 @@ func (h *Handler) handleGetEvaluationJob(c *echo.Context, jobARN string) error {
 	if job.JobDescription != "" {
 		resp["jobDescription"] = job.JobDescription
 	}
-	if job.EvaluatorConfig != nil {
-		resp["evaluatorConfig"] = job.EvaluatorConfig
-	}
 	if job.InferenceConfig != nil {
 		resp["inferenceConfig"] = job.InferenceConfig
 	}
-	if len(job.EvaluationConfig) > 0 {
+	if job.EvaluationConfig != nil {
 		resp["evaluationConfig"] = job.EvaluationConfig
+		// JobType (required, api_op_GetEvaluationJob.go:72) is derivable now
+		// that EvaluationConfig's union is modeled: real AWS reads it from
+		// which variant the caller supplied on Create (types/enums.go:548-551).
+		if jt := job.EvaluationConfig.JobType(); jt != "" {
+			resp["jobType"] = jt
+		}
 	}
 
 	return c.JSON(http.StatusOK, resp)

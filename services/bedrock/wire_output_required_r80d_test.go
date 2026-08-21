@@ -1,7 +1,6 @@
 package bedrock_test
 
 import (
-	"net/http"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -246,41 +245,48 @@ func TestGetModelCustomizationJob_ValidationDataConfig_RealClient(t *testing.T) 
 // real client sent on Create (the "member with no struct field at all"
 // class, matching iam's JobCompletionDate from the input-side sweep).
 //
-// Create is driven through doRequest with gopherstack's OWN (pre-existing,
-// separately broken) evaluationConfig/inferenceConfig request shape rather
-// than a real client, because the real CreateEvaluationJobInput serializes
-// those two required members as polymorphic union objects
-// (types.EvaluationConfig/types.EvaluationInferenceConfig) and gopherstack's
-// createEvaluationJobInput instead expects an evaluationConfig ARRAY and a
-// flat inferenceConfig object -- a real client's request 400s on this
-// service today independent of the r80d fix here (found while writing this
-// test; recorded in PARITY.md as a distinct, severe, input-side gap, not
-// fixed by this pass). Get is still driven through the real client, which is
-// what proves the OutputDataConfig fix itself.
+// Create now goes through the real client too: gopherstack-39ps fixed the
+// separate evaluationConfig/inferenceConfig union bug this doc comment used
+// to describe (types.EvaluationConfig/types.EvaluationInferenceConfig are now
+// modeled as real single-key unions, see models.go), so a genuine union value
+// no longer 400s here.
 func TestGetEvaluationJob_OutputDataConfig_RealClient(t *testing.T) {
 	t.Parallel()
 
 	h := bedrock.NewHandler(bedrock.NewInMemoryBackend("123456789012", "us-east-1"))
 	client := newTestBedrockClient(t, h)
 
-	// evaluationConfig/inferenceConfig are omitted here: gopherstack's own
-	// request/response shape for both is separately broken (see doc comment
-	// above), and sending either would make GetEvaluationJob's real-client
-	// deserialization fail for a reason unrelated to the fix under test.
-	rec := doRequest(t, h, http.MethodPost, "/evaluation-jobs", map[string]any{
-		"jobName":          "r80d-eval-output-config",
-		"roleArn":          "arn:aws:iam::123456789012:role/eval-role",
-		"outputDataConfig": map[string]any{"s3Uri": "s3://bucket/eval-output"},
+	createOut, err := client.CreateEvaluationJob(t.Context(), &bedrocksdk.CreateEvaluationJobInput{
+		JobName: aws.String("r80d-eval-output-config"),
+		RoleArn: aws.String("arn:aws:iam::123456789012:role/eval-role"),
+		OutputDataConfig: &types.EvaluationOutputDataConfig{
+			S3Uri: aws.String("s3://bucket/eval-output"),
+		},
+		EvaluationConfig: &types.EvaluationConfigMemberAutomated{
+			Value: types.AutomatedEvaluationConfig{
+				DatasetMetricConfigs: []types.EvaluationDatasetMetricConfig{
+					{
+						TaskType:    types.EvaluationTaskTypeSummarization,
+						MetricNames: []string{"Builtin.Accuracy"},
+						Dataset:     &types.EvaluationDataset{Name: aws.String("squad-v2")},
+					},
+				},
+			},
+		},
+		InferenceConfig: &types.EvaluationInferenceConfigMemberModels{
+			Value: []types.EvaluationModelConfig{
+				&types.EvaluationModelConfigMemberBedrockModel{
+					Value: types.EvaluationBedrockModel{
+						ModelIdentifier: aws.String("amazon.titan-text-express-v1"),
+					},
+				},
+			},
+		},
 	})
-	require.Equal(t, http.StatusCreated, rec.Code)
-
-	var createOut map[string]any
-	mustUnmarshal(t, rec, &createOut)
-	jobARN, ok := createOut["jobArn"].(string)
-	require.True(t, ok)
+	require.NoError(t, err)
 
 	got, err := client.GetEvaluationJob(
-		t.Context(), &bedrocksdk.GetEvaluationJobInput{JobIdentifier: aws.String(jobARN)},
+		t.Context(), &bedrocksdk.GetEvaluationJobInput{JobIdentifier: createOut.JobArn},
 	)
 	require.NoError(t, err)
 	require.NotNil(t, got.OutputDataConfig)
