@@ -147,8 +147,11 @@ from the ranked table) as future batches clear more of it.
 | apprunner | 44 | 32 (ops with required fields) | yes (1: `AssociateCustomDomain`/`DisassociateCustomDomain.VpcDNSTargets` missing entirely; +2 fixed-but-not-counted -- see batch-10 note below) | gopherstack-r80d batch 10 |
 | databrew | 43 | 44 (41 ops-with-required) | yes (1: `Dataset.Input` tagged `omitempty(zero)`, reachably empty via a real client -- see the batch-11 bullet note below and services/databrew/PARITY.md) | gopherstack-r80d batch 11 |
 | backup | 41 | 13 (ops-with-required; entire required-output surface) | yes (2: `GetRestoreTestingPlan.RecoveryPointSelection` missing entirely, `DescribeScanJob`/`ListScanJobs` dropping 12 of 15 required members -- see the batch-11 bullet note below and services/backup/PARITY.md) | gopherstack-r80d batch 11 |
+| inspector2 | 38 | 81 (29 ops-with-required) | yes (4: `GetCodeSecurityIntegration`/`ListCodeSecurityIntegrations` dropping `type`/`statusReason`, `Finding.Remediation` missing entirely, `Finding.Resources` dropped when empty, `Finding.Severity` serialized as a fabricated `{label,score}` object instead of the real bare string enum -- see the batch-12 note below and services/inspector2/PARITY.md) | gopherstack-r80d batch 12 |
 
-25 services settled, 1968 required output fields read end to end. Batch 11
+26 services settled, 2006 required output fields read end to end. Batch 12
+(inspector2 only) added 4 more counted bugs on top of the running total --
+see the batch-12 note below for detail. Batch 11
 (databrew + backup) added 3 more counted bugs (1 + 2) on top of the running
 total -- see the batch-11 notes below for detail. Batch 10
 (stepfunctions + apprunner) added 5 more counted bugs (4 + 1) -- see the
@@ -433,12 +436,11 @@ against a pinned `aws-sdk-go-v2` module; opsworks/qldb/qldbsession excluded
 (no SDK dependency). cleanrooms (88, settled batch 8), s3tables (60,
 settled batch 9), codecommit (55, settled batch 9), stepfunctions (54,
 settled batch 10), apprunner (44, settled batch 10), databrew (43, settled
-batch 11), and backup (41, settled batch 11) removed from this
-table — see the "Already examined" table above.
+batch 11), backup (41, settled batch 11), and inspector2 (38, settled
+batch 12) removed from this table — see the "Already examined" table above.
 
 ```
  459  sagemaker                 ops=403  ops-with-required=188
-  38  inspector2                ops=81   ops-with-required=29
   37  vpclattice                ops=73   ops-with-required=16
   36  appmesh                   ops=38   ops-with-required=36
   35  amplify                   ops=37   ops-with-required=33
@@ -535,8 +537,10 @@ Notes on the top of this table for the next batch:
   status-code bug. `ScanJobCreator` (`CreatedBy`) stays a disclosed,
   unfixable gap — no backup-plan/rule lineage is tracked for a scan job or
   its recovery point anywhere in this backend.
-- **inspector2** (38, 81 ops) is now the largest remaining single-service
-  reading commitment after sagemaker.
+- **inspector2 settled (batch 12)** — do not re-derive, see the
+  settled-services table above and services/inspector2/PARITY.md's
+  2026-08-21 entries. **vpclattice** (37, 73 ops) is now the largest
+  remaining single-service reading commitment after sagemaker.
 - **omics settled (batch 7)** — do not re-derive, see the settled-services
   table above and services/omics/PARITY.md's 2026-08-21 entries. The
   concurrent sibling agent's over-wide-List sweep this file previously
