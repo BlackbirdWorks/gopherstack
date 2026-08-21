@@ -219,6 +219,10 @@ func (h *Handler) dispatchAnomalyMetricStreamCBOR(
 		return true, h.cborGetMetricStream(input, c)
 	case opDeleteMetricStream:
 		return true, h.cborDeleteMetricStream(input, c)
+	case opStartMetricStreams:
+		return true, h.cborStartMetricStreams(input, c)
+	case opStopMetricStreams:
+		return true, h.cborStopMetricStreams(input, c)
 	case opDescribeAlarmContributors:
 		return true, h.cborDescribeAlarmContributors(input, c)
 	}

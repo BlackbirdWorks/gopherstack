@@ -165,3 +165,19 @@ func (h *Handler) cborDeleteMetricStream(input cbor.Map, c *echo.Context) error 
 
 	return writeCBOR(c, cbor.Map{})
 }
+
+func (h *Handler) cborStartMetricStreams(input cbor.Map, c *echo.Context) error {
+	if err := h.Backend.StartMetricStreams(cborStrList(input, "Names")); err != nil {
+		return h.cborError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
+	}
+
+	return writeCBOR(c, cbor.Map{})
+}
+
+func (h *Handler) cborStopMetricStreams(input cbor.Map, c *echo.Context) error {
+	if err := h.Backend.StopMetricStreams(cborStrList(input, "Names")); err != nil {
+		return h.cborError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
+	}
+
+	return writeCBOR(c, cbor.Map{})
+}

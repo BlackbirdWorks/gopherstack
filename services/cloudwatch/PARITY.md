@@ -477,3 +477,53 @@ op-list diff) originally exercised `UpdateInsightRule` too and were fixed the sa
 (same `wantCode: http.StatusBadRequest`, now asserting `InvalidAction` rather than
 `ResourceNotFoundException` under the hood — both happen to be 400, so the numeric assertion
 didn't need to change, only its meaning).
+
+## 2026-08-20 — gopherstack-jqh2 pass 4: dispatchCBOR shape-3 bug found and fixed
+
+Re-extracted all 50 CloudWatch ops from `cloudwatch@v1.66.3`'s
+`request_snapshot/*.request.snap` files (this SDK version is schema-driven —
+no hand-written `serializers.go` — so the snapshots are the authoritative
+source instead) and cross-diffed against CloudWatch's three op-name tables:
+`GetSupportedOperations()`'s literal slice, the query/form dispatch chain
+(`dispatchFormAction` et al, handler.go), and `dispatchCBOR`'s chain
+(rpcv2cbor.go).
+
+`GetSupportedOperations()` and the form dispatch chain both matched the SDK
+50/50. `dispatchCBOR` did not: **`StartMetricStreams` and
+`StopMetricStreams` had no case anywhere in the CBOR dispatch chain**
+(`dispatchCBOR` → `dispatchDashboardCBOR` → `dispatchResourceManagementCBOR`
+→ `dispatchAlarmCBOR` → `dispatchExtendedCBOR` →
+`dispatchAnomalyMetricStreamCBOR`/`dispatchInsightRuleCBOR`), even though
+both were correctly listed in `GetSupportedOperations` and correctly wired
+into the form dispatch chain. Since `cloudwatch@v1.66.3`'s real client
+speaks rpc-v2-cbor exclusively (confirmed via `request_snapshot/`, no
+`awsQuery` serializer exists in this SDK version), every real
+`StartMetricStreams`/`StopMetricStreams` call from a real client landed in
+`dispatchInsightRuleCBOR`'s default case: `InvalidAction: unknown
+operation: <Op>`. This is the gopherstack-jqh2 shape-3 bug (a parallel
+resolution table drifting from the real dispatch) — RouteMatcher and
+ExtractOperation both looked correct because they only check
+`GetSupportedOperations` membership, not `dispatchCBOR` completeness.
+
+**Fix**: added `cborStartMetricStreams`/`cborStopMetricStreams` to
+`rpcv2cbor_metric_streams.go` (input: `Names []string`, output: empty map,
+matching the real `StartMetricStreamsInput`/`StopMetricStreamsInput` shape
+and `request_snapshot`/`response_snapshot`) and wired both into
+`dispatchAnomalyMetricStreamCBOR`.
+
+**Proven by hand-revert**: reverted both changed files to `git show HEAD`,
+confirmed `TestSDK_StartStopMetricStreams` (new, drives a real
+`aws-sdk-go-v2/service/cloudwatch` client through both ops) failed with the
+exact predicted error (`api error InvalidAction: unknown operation:
+StartMetricStreams`), then restored both files byte-identical
+(`md5sum`-verified) before reapplying the fix.
+
+**New tests**: `handler_sdk_route_table_test.go`
+(`TestExtractOperation_SDKRouteTable`) drives all 50 ops through the real
+`Handler()` and asserts none falls through to the `InvalidAction`
+dispatch-miss sentinel — this is what would have caught the bug above, since
+a test that only checks `ExtractOperation`/`RouteMatcher` (gopherstack-ey26)
+would not have (see that reasoning in the test's doc comment).
+`sdk_metric_streams_start_stop_test.go`
+(`TestSDK_StartStopMetricStreams`) is the real-SDK-client regression test
+for this specific bug. No stale PARITY.md entries found otherwise.
