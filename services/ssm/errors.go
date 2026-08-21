@@ -50,4 +50,11 @@ var (
 	// declared exceptions (awsAwsjson11_deserializeOpErrorListNodesSummary,
 	// ssm@v1.73.4 deserializers.go), not the generic ValidationException.
 	ErrInvalidAggregator = errors.New("InvalidAggregatorException")
+	// ErrDocumentStillShared is returned by DeleteDocument when the document
+	// still has active AccountIdsToAdd shares. InvalidDocumentOperation is one
+	// of DeleteDocument's own declared exceptions (ssm@v1.73.4
+	// deserializers.go:2225-2226), whose message reads: you attempted to
+	// delete a document while it is still shared, and must stop sharing it
+	// first.
+	ErrDocumentStillShared = errors.New("InvalidDocumentOperation")
 )

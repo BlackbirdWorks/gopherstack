@@ -54,6 +54,17 @@ func (b *InMemoryBackend) documentPermissionsStore(region string) map[string][]s
 	return b.documentPermissions[region]
 }
 
+// documentSharedVersionsStore returns the per-document, per-account
+// SharedDocumentVersion pins for region (document name -> account ID ->
+// pinned version), a companion to documentPermissionsStore's plain account-ID
+// list. Kept as a separate additive map rather than reshaping
+// documentPermissions itself, so restoring an older snapshot (which has no
+// such pins) stays a safe, purely additive zero-value default instead of
+// requiring an incompatible ssmSnapshotVersion bump (gopherstack-5i6p).
+func (b *InMemoryBackend) documentSharedVersionsStore(region string) map[string]map[string]string {
+	return b.documentSharedVersions[region]
+}
+
 // registerDefaultDocuments pre-registers the built-in AWS documents.
 func (b *InMemoryBackend) registerDefaultDocuments(region string) {
 	now := UnixTimeFloat(time.Now())
@@ -549,7 +560,67 @@ func (b *InMemoryBackend) UpdateDocument(
 	}, nil
 }
 
-// DeleteDocument removes a document and all its versions and permissions.
+// deleteDocumentVersionScoped removes a single version from doc, leaving the
+// document and its other versions intact. Called only when versions has more
+// than one entry -- the caller falls back to a full delete when the targeted
+// version is the last one remaining, matching "if not provided, all versions
+// of the document are deleted" (api_op_DeleteDocument.go:34-49) applied to
+// the degenerate one-version case.
+func (b *InMemoryBackend) deleteDocumentVersionScoped(
+	region string, doc Document, versions []DocumentVersion, idx int,
+) *DeleteDocumentOutput {
+	removed := versions[idx]
+	versions = slices.Delete(versions, idx, idx+1)
+
+	if removed.DocumentVersion == doc.LatestVersion {
+		newLatest := versions[len(versions)-1]
+		doc.LatestVersion = newLatest.DocumentVersion
+		doc.DocumentVersion = newLatest.DocumentVersion
+		doc.Content = newLatest.Content
+		doc.DocumentFormat = newLatest.DocumentFormat
+		doc.Status = newLatest.Status
+		doc.Hash, doc.Sha1 = documentHashes(newLatest.Content)
+
+		if newLatest.DisplayName != "" {
+			doc.DisplayName = newLatest.DisplayName
+		}
+	}
+
+	if removed.DocumentVersion == doc.DefaultVersion {
+		newDefault := versions[len(versions)-1].DocumentVersion
+		doc.DefaultVersion = newDefault
+
+		for i := range versions {
+			versions[i].IsDefaultVersion = versions[i].DocumentVersion == newDefault
+		}
+	}
+
+	b.documentsStore(region).Put(&doc)
+	b.documentVersionsStore(region)[doc.Name] = versions
+
+	return &DeleteDocumentOutput{}
+}
+
+// resolveDeleteDocumentVersionIdx finds the index in versions matching
+// input's DocumentVersion/VersionName selector, or -1 if unresolvable.
+// VersionName never resolves: no Go field on DocumentVersion tracks it (see
+// models_documents.go), a disclosed gap -- routing it through
+// resolveDocumentVersionSelector would risk colliding with the numeric
+// DocumentVersion namespace instead of honestly reporting "not found".
+func resolveDeleteDocumentVersionIdx(doc Document, versions []DocumentVersion, input *DeleteDocumentInput) int {
+	if input.DocumentVersion == "" {
+		return -1
+	}
+
+	target := resolveDocumentVersionSelector(doc, input.DocumentVersion)
+
+	return slices.IndexFunc(versions, func(v DocumentVersion) bool { return v.DocumentVersion == target })
+}
+
+// DeleteDocument removes a document, or one version of it when
+// DocumentVersion/VersionName is given (see DeleteDocumentInput's doc
+// comment). Real AWS also rejects deleting a still-shared document with
+// InvalidDocumentOperation (ErrDocumentStillShared) -- deserializers.go:2225-2226.
 func (b *InMemoryBackend) DeleteDocument(
 	ctx context.Context,
 	input *DeleteDocumentInput,
@@ -558,24 +629,50 @@ func (b *InMemoryBackend) DeleteDocument(
 	b.mu.Lock("DeleteDocument")
 	defer b.mu.Unlock()
 
-	if !b.documentsStore(region).Has(input.Name) {
+	docPtr, exists := b.documentsStore(region).Get(input.Name)
+	if !exists {
 		return nil, ErrDocumentNotFound
+	}
+
+	doc := *docPtr
+
+	if input.DocumentVersion != "" || input.VersionName != "" {
+		versions := b.documentVersionsStore(region)[input.Name]
+
+		idx := resolveDeleteDocumentVersionIdx(doc, versions, input)
+		if idx == -1 {
+			return nil, ErrDocumentNotFound
+		}
+
+		if len(versions) > 1 {
+			return b.deleteDocumentVersionScoped(region, doc, versions, idx), nil
+		}
+		// Exactly one version remains: deleting it deletes the document,
+		// falling through to the full delete below.
+	}
+
+	if len(b.documentPermissionsStore(region)[input.Name]) > 0 {
+		return nil, ErrDocumentStillShared
 	}
 
 	b.documentsStore(region).Delete(input.Name)
 	delete(b.documentVersionsStore(region), input.Name)
 	delete(b.documentPermissionsStore(region), input.Name)
+	delete(b.documentSharedVersionsStore(region), input.Name)
 
 	// b.documents itself is not pruned here — see the comment on
 	// cleanupEmptyParamRegion above for why a Table-backed region entry must
 	// never be removed from its outer map once registered.
 	cleanupEmptyInnerMap(b.documentVersions, region)
 	cleanupEmptyInnerMap(b.documentPermissions, region)
+	cleanupEmptyInnerMap(b.documentSharedVersions, region)
 
 	return &DeleteDocumentOutput{}, nil
 }
 
-// DescribeDocumentPermission returns the sharing permissions for a document.
+// DescribeDocumentPermission returns the sharing permissions for a document,
+// paginated by MaxResults/NextToken (previously unimplemented: every call
+// returned the full unpaginated list regardless of MaxResults).
 func (b *InMemoryBackend) DescribeDocumentPermission(
 	ctx context.Context,
 	input *DescribeDocumentPermissionInput,
@@ -589,17 +686,53 @@ func (b *InMemoryBackend) DescribeDocumentPermission(
 	}
 
 	accountIDs := b.documentPermissionsStore(region)[input.Name]
-	if accountIDs == nil {
-		accountIDs = []string{}
+	sharedVersions := b.documentSharedVersionsStore(region)[input.Name]
+
+	startIdx := parseNextToken(input.NextToken)
+
+	maxResults := int64(defaultListDocMaxResults)
+	if input.MaxResults != nil && *input.MaxResults > 0 {
+		maxResults = *input.MaxResults
+	}
+
+	if startIdx >= len(accountIDs) {
+		return &DescribeDocumentPermissionOutput{
+			AccountIDs:             []string{},
+			AccountSharingInfoList: []AccountSharingInfo{},
+		}, nil
+	}
+
+	end := startIdx + int(maxResults)
+
+	var nextToken string
+
+	if end < len(accountIDs) {
+		nextToken = strconv.Itoa(end)
+	} else {
+		end = len(accountIDs)
+	}
+
+	page := accountIDs[startIdx:end]
+	infoList := make([]AccountSharingInfo, 0, len(page))
+
+	for _, id := range page {
+		infoList = append(infoList, AccountSharingInfo{
+			AccountID:             id,
+			SharedDocumentVersion: sharedVersions[id],
+		})
 	}
 
 	return &DescribeDocumentPermissionOutput{
-		AccountIDs:             accountIDs,
-		AccountSharingInfoList: []any{},
+		AccountIDs:             page,
+		AccountSharingInfoList: infoList,
+		NextToken:              nextToken,
 	}, nil
 }
 
 // ModifyDocumentPermission updates the sharing permissions for a document.
+// SharedDocumentVersion is pinned per account in documentSharedVersionsStore;
+// an omitted SharedDocumentVersion shares the document's current
+// DefaultVersion instead, matching api_op_ModifyDocumentPermission.go:51-53.
 func (b *InMemoryBackend) ModifyDocumentPermission(
 	ctx context.Context,
 	input *ModifyDocumentPermissionInput,
@@ -608,7 +741,8 @@ func (b *InMemoryBackend) ModifyDocumentPermission(
 	b.mu.Lock("ModifyDocumentPermission")
 	defer b.mu.Unlock()
 
-	if !b.documentsStore(region).Has(input.Name) {
+	docPtr, exists := b.documentsStore(region).Get(input.Name)
+	if !exists {
 		return nil, ErrDocumentNotFound
 	}
 
@@ -618,14 +752,30 @@ func (b *InMemoryBackend) ModifyDocumentPermission(
 	permStore := b.documentPermissionsStore(region)
 	current := permStore[input.Name]
 
+	if b.documentSharedVersions[region] == nil {
+		b.documentSharedVersions[region] = make(map[string]map[string]string)
+	}
+	sharedVersions := b.documentSharedVersionsStore(region)
+	if sharedVersions[input.Name] == nil {
+		sharedVersions[input.Name] = make(map[string]string)
+	}
+
+	pinned := input.SharedDocumentVersion
+	if pinned == "" {
+		pinned = docPtr.DefaultVersion
+	}
+
 	for _, id := range input.AccountIDsToAdd {
 		if !slices.Contains(current, id) {
 			current = append(current, id)
 		}
+
+		sharedVersions[input.Name][id] = pinned
 	}
 
 	for _, id := range input.AccountIDsToRemove {
 		current = slices.DeleteFunc(current, func(v string) bool { return v == id })
+		delete(sharedVersions[input.Name], id)
 	}
 
 	permStore[input.Name] = current

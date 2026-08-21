@@ -2121,6 +2121,7 @@
       "backendSnapshot.CommandInvocations map[string]map[string][]CommandInvocation `json:\"command_invocations\"`",
       "backendSnapshot.Compliance map[string]map[string][]ComplianceItem `json:\"compliance\"`",
       "backendSnapshot.DocumentPermissions map[string]map[string][]string `json:\"document_permissions\"`",
+      "backendSnapshot.DocumentSharedVersions map[string]map[string]map[string]string `json:\"document_shared_versions\"`",
       "backendSnapshot.DocumentVersions map[string]map[string][]DocumentVersion `json:\"document_versions\"`",
       "backendSnapshot.History map[string]map[string][]ParameterHistory `json:\"history\"`",
       "backendSnapshot.InstancePatches map[string]map[string][]PatchComplianceData `json:\"instance_patches\"`",

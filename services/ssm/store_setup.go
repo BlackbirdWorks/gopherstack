@@ -40,11 +40,13 @@ package ssm
 //     (map[string][]V) — there is no single V to key a Table by; these stay
 //     slice-valued maps, same as ec2's spotFleetHistory/subnetCIDRAssociations
 //     pattern.
-//   - documentPermissions ([]string), patchGroupToBaseline (string),
-//     parameterLabels (map[int64][]string), miscResourceTags
-//     (map[string]string), resourceIDToOpsMetadataArn (string): the stored
-//     value carries no identity field of its own (a bare string/slice/map),
-//     so there is no pure func(*V) string to write — same rationale as ec2's
+//   - documentPermissions ([]string), documentSharedVersions
+//     (map[string]string, region -> document -> accountID -> pinned
+//     SharedDocumentVersion), patchGroupToBaseline (string), parameterLabels
+//     (map[int64][]string), miscResourceTags (map[string]string),
+//     resourceIDToOpsMetadataArn (string): the stored value carries no
+//     identity field of its own (a bare string/slice/map), so there is no
+//     pure func(*V) string to write — same rationale as ec2's
 //     instanceIMDSOptions/verifiedAccessEndpointPolicies exclusions.
 //   - opsItemEvents, availablePatches, inventoryDeletions: single-level
 //     region -> []V logs/catalogues, not a keyed collection at all.

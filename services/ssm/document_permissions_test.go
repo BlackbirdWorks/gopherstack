@@ -516,6 +516,13 @@ func TestInMemoryBackend_DocumentPermissions(t *testing.T) {
 	assert.Contains(t, permOut2.AccountIDs, "222222222222")
 }
 
+// TestInMemoryBackend_DeleteDocumentCleansUp previously asserted that
+// deleting a still-shared document succeeded -- real AWS rejects that with
+// InvalidDocumentOperation (ErrDocumentStillShared,
+// deserializers.go:2225-2226: "You attempted to delete a document while it
+// is still shared. You must stop sharing the document before you can delete
+// it."). Corrected to prove both halves: the rejection while shared, and
+// that unsharing then lets delete through and clean up.
 func TestInMemoryBackend_DeleteDocumentCleansUp(t *testing.T) {
 	t.Parallel()
 
@@ -528,6 +535,16 @@ func TestInMemoryBackend_DeleteDocumentCleansUp(t *testing.T) {
 		Name:            "ToDelete",
 		PermissionType:  "Share",
 		AccountIDsToAdd: []string{"123456789012"},
+	})
+	require.NoError(t, err)
+
+	_, err = backend.DeleteDocument(context.TODO(), &ssm.DeleteDocumentInput{Name: "ToDelete"})
+	require.ErrorIs(t, err, ssm.ErrDocumentStillShared)
+
+	_, err = backend.ModifyDocumentPermission(context.TODO(), &ssm.ModifyDocumentPermissionInput{
+		Name:               "ToDelete",
+		PermissionType:     "Share",
+		AccountIDsToRemove: []string{"123456789012"},
 	})
 	require.NoError(t, err)
 

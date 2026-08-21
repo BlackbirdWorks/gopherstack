@@ -60,6 +60,7 @@ type InMemoryBackend struct {
 	associations               map[string]*store.Table[Association]
 	documentVersions           map[string]map[string][]DocumentVersion
 	documentPermissions        map[string]map[string][]string
+	documentSharedVersions     map[string]map[string]map[string]string
 	commands                   map[string]*store.Table[Command]
 	commandInvocations         map[string]map[string][]CommandInvocation
 	history                    map[string]map[string][]ParameterHistory
@@ -107,6 +108,7 @@ func NewInMemoryBackend() *InMemoryBackend {
 		documents:                  make(map[string]*store.Table[Document]),
 		documentVersions:           make(map[string]map[string][]DocumentVersion),
 		documentPermissions:        make(map[string]map[string][]string),
+		documentSharedVersions:     make(map[string]map[string]map[string]string),
 		commands:                   make(map[string]*store.Table[Command]),
 		commandInvocations:         make(map[string]map[string][]CommandInvocation),
 		activations:                make(map[string]*store.Table[Activation]),
@@ -302,6 +304,7 @@ func (b *InMemoryBackend) Reset() {
 	b.documents = make(map[string]*store.Table[Document])
 	b.documentVersions = make(map[string]map[string][]DocumentVersion)
 	b.documentPermissions = make(map[string]map[string][]string)
+	b.documentSharedVersions = make(map[string]map[string]map[string]string)
 	b.commands = make(map[string]*store.Table[Command])
 	b.commandInvocations = make(map[string]map[string][]CommandInvocation)
 	b.activations = make(map[string]*store.Table[Activation])

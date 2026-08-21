@@ -91,12 +91,6 @@ type DocumentVersion struct {
 	IsDefaultVersion bool    `json:"IsDefaultVersion"`
 }
 
-// DocumentPermissionInfo contains the sharing permissions of a document.
-type DocumentPermissionInfo struct {
-	AccountIDs             []string `json:"AccountIds"`
-	AccountSharingInfoList []any    `json:"AccountSharingInfoList"`
-}
-
 // DocumentIdentifier is a lightweight document listing entry.
 type DocumentIdentifier struct {
 	Name            string             `json:"Name"`
@@ -200,9 +194,17 @@ type UpdateDocumentOutput struct {
 	DocumentDescription DocumentDescription `json:"DocumentDescription"`
 }
 
-// DeleteDocumentInput is the request payload for DeleteDocument.
+// DeleteDocumentInput is the request payload for DeleteDocument. DocumentVersion/
+// VersionName scope the delete to a single version (aws-sdk-go-v2/service/
+// ssm@v1.73.4 api_op_DeleteDocument.go:34-49: "If not provided, all versions of
+// the document are deleted"); omitting both deletes every version. Force is
+// parsed but not consulted -- real AWS requires it only to delete a document of
+// type ApplicationConfigurationSchema, which this backend does not model.
 type DeleteDocumentInput struct {
-	Name string `json:"Name"`
+	Name            string `json:"Name"`
+	DocumentVersion string `json:"DocumentVersion,omitempty"`
+	VersionName     string `json:"VersionName,omitempty"`
+	Force           bool   `json:"Force,omitempty"`
 }
 
 // DeleteDocumentOutput is the response payload for DeleteDocument.
@@ -212,20 +214,35 @@ type DeleteDocumentOutput struct{}
 type DescribeDocumentPermissionInput struct {
 	Name           string `json:"Name"`
 	PermissionType string `json:"PermissionType"`
+	MaxResults     *int64 `json:"MaxResults,omitempty"`
+	NextToken      string `json:"NextToken,omitempty"`
+}
+
+// AccountSharingInfo is the wire shape of one DescribeDocumentPermissionOutput.
+// AccountSharingInfoList entry (aws-sdk-go-v2/service/ssm@v1.73.4
+// types.AccountSharingInfo: AccountId, SharedDocumentVersion).
+type AccountSharingInfo struct {
+	AccountID             string `json:"AccountId,omitempty"`
+	SharedDocumentVersion string `json:"SharedDocumentVersion,omitempty"`
 }
 
 // DescribeDocumentPermissionOutput is the response payload for DescribeDocumentPermission.
 type DescribeDocumentPermissionOutput struct {
-	AccountIDs             []string `json:"AccountIds"`
-	AccountSharingInfoList []any    `json:"AccountSharingInfoList"`
+	NextToken              string               `json:"NextToken,omitempty"`
+	AccountIDs             []string             `json:"AccountIds"`
+	AccountSharingInfoList []AccountSharingInfo `json:"AccountSharingInfoList"`
 }
 
 // ModifyDocumentPermissionInput is the request payload for ModifyDocumentPermission.
+// SharedDocumentVersion pins the version shared with the added accounts; if
+// omitted, real AWS shares the document's current DefaultVersion instead
+// (api_op_ModifyDocumentPermission.go:51-53).
 type ModifyDocumentPermissionInput struct {
-	Name               string   `json:"Name"`
-	PermissionType     string   `json:"PermissionType"`
-	AccountIDsToAdd    []string `json:"AccountIdsToAdd,omitempty"`
-	AccountIDsToRemove []string `json:"AccountIdsToRemove,omitempty"`
+	Name                  string   `json:"Name"`
+	PermissionType        string   `json:"PermissionType"`
+	SharedDocumentVersion string   `json:"SharedDocumentVersion,omitempty"`
+	AccountIDsToAdd       []string `json:"AccountIdsToAdd,omitempty"`
+	AccountIDsToRemove    []string `json:"AccountIdsToRemove,omitempty"`
 }
 
 // ModifyDocumentPermissionOutput is the response payload for ModifyDocumentPermission.

@@ -806,3 +806,272 @@ func TestDescribeAvailablePatches_NoFabricatedState_RealClient(t *testing.T) {
 	assert.NotContains(t, rec.Body.String(), `"State"`,
 		"types.Patch has no State member; pre-fix the built-in catalogue leaked one onto the wire")
 }
+
+// TestDeleteDocument_VersionScoped_RealClient covers gopherstack-enpq:
+// DeleteDocumentInput had no Go member for DocumentVersion at all, so a
+// version-scoped delete request silently deleted the ENTIRE document instead
+// of just the one version (aws-sdk-go-v2/service/ssm@v1.73.4
+// api_op_DeleteDocument.go:34-38: "The version of the document that you want
+// to delete. If not provided, all versions of the document are deleted").
+// Proves the version-scoped case specifically: deleting version 1 must
+// leave version 2 (and the document itself) intact.
+func TestDeleteDocument_VersionScoped_RealClient(t *testing.T) {
+	t.Parallel()
+
+	backend := ssm.NewInMemoryBackend()
+	client := newTestSSMClient(t, ssm.NewHandler(backend))
+	ctx := t.Context()
+
+	_, err := client.CreateDocument(ctx, &ssmsdk.CreateDocumentInput{
+		Name:    aws.String("VersionScopedDelete"),
+		Content: aws.String(`{"v":1}`),
+	})
+	require.NoError(t, err)
+
+	_, err = client.UpdateDocument(ctx, &ssmsdk.UpdateDocumentInput{
+		Name:    aws.String("VersionScopedDelete"),
+		Content: aws.String(`{"v":2}`),
+	})
+	require.NoError(t, err)
+
+	_, err = client.DeleteDocument(ctx, &ssmsdk.DeleteDocumentInput{
+		Name:            aws.String("VersionScopedDelete"),
+		DocumentVersion: aws.String("1"),
+	})
+	require.NoError(t, err)
+
+	// Version 1 is gone...
+	_, err = client.GetDocument(ctx, &ssmsdk.GetDocumentInput{
+		Name:            aws.String("VersionScopedDelete"),
+		DocumentVersion: aws.String("1"),
+	})
+	require.Error(t, err, "pre-fix this always succeeded because the whole document, including v2, was deleted")
+
+	// ...but the document and its other version survive.
+	got, err := client.GetDocument(ctx, &ssmsdk.GetDocumentInput{
+		Name:            aws.String("VersionScopedDelete"),
+		DocumentVersion: aws.String("2"),
+	})
+	require.NoError(t, err, "pre-fix, a version-scoped delete removed the entire document")
+	assert.JSONEq(t, `{"v":2}`, aws.ToString(got.Content))
+
+	versions, err := client.ListDocumentVersions(ctx, &ssmsdk.ListDocumentVersionsInput{
+		Name: aws.String("VersionScopedDelete"),
+	})
+	require.NoError(t, err)
+	require.Len(t, versions.DocumentVersions, 1)
+	assert.Equal(t, "2", aws.ToString(versions.DocumentVersions[0].DocumentVersion))
+}
+
+// TestDeleteDocument_LastVersion_DeletesDocument_RealClient covers the
+// degenerate case DeleteDocumentInput's own doc comment implies: deleting the
+// only remaining version deletes the document itself (there is no such thing
+// as a zero-version document).
+func TestDeleteDocument_LastVersion_DeletesDocument_RealClient(t *testing.T) {
+	t.Parallel()
+
+	backend := ssm.NewInMemoryBackend()
+	client := newTestSSMClient(t, ssm.NewHandler(backend))
+	ctx := t.Context()
+
+	_, err := client.CreateDocument(ctx, &ssmsdk.CreateDocumentInput{
+		Name:    aws.String("SoleVersionDelete"),
+		Content: aws.String(`{}`),
+	})
+	require.NoError(t, err)
+
+	_, err = client.DeleteDocument(ctx, &ssmsdk.DeleteDocumentInput{
+		Name:            aws.String("SoleVersionDelete"),
+		DocumentVersion: aws.String("1"),
+	})
+	require.NoError(t, err)
+
+	_, err = client.GetDocument(ctx, &ssmsdk.GetDocumentInput{Name: aws.String("SoleVersionDelete")})
+	require.Error(t, err, "deleting a document's only version must delete the document")
+}
+
+// TestDeleteDocument_NonexistentVersion_RealClient covers the same
+// previously-ignored-field bug from the version-not-found angle: a
+// DocumentVersion that was never created must be rejected, not silently
+// treated as "delete everything" (the pre-fix behavior, since the field was
+// never read at all).
+func TestDeleteDocument_NonexistentVersion_RealClient(t *testing.T) {
+	t.Parallel()
+
+	backend := ssm.NewInMemoryBackend()
+	client := newTestSSMClient(t, ssm.NewHandler(backend))
+	ctx := t.Context()
+
+	_, err := client.CreateDocument(ctx, &ssmsdk.CreateDocumentInput{
+		Name:    aws.String("NoSuchVersionDelete"),
+		Content: aws.String(`{}`),
+	})
+	require.NoError(t, err)
+
+	_, err = client.DeleteDocument(ctx, &ssmsdk.DeleteDocumentInput{
+		Name:            aws.String("NoSuchVersionDelete"),
+		DocumentVersion: aws.String("99"),
+	})
+	require.Error(t, err)
+
+	got, err := client.GetDocument(ctx, &ssmsdk.GetDocumentInput{Name: aws.String("NoSuchVersionDelete")})
+	require.NoError(t, err, "a rejected version-scoped delete must not have removed the document")
+	assert.Equal(t, "1", aws.ToString(got.DocumentVersion))
+}
+
+// TestDeleteDocument_StillShared_RealClient covers one of DeleteDocument's
+// own declared errors (InvalidDocumentOperation,
+// deserializers.go:2225-2226): "You attempted to delete a document while it
+// is still shared." Pre-fix, DeleteDocument ignored documentPermissions
+// entirely and let a shared document through.
+func TestDeleteDocument_StillShared_RealClient(t *testing.T) {
+	t.Parallel()
+
+	backend := ssm.NewInMemoryBackend()
+	client := newTestSSMClient(t, ssm.NewHandler(backend))
+	ctx := t.Context()
+
+	_, err := client.CreateDocument(ctx, &ssmsdk.CreateDocumentInput{
+		Name:    aws.String("SharedThenDeleted"),
+		Content: aws.String(`{}`),
+	})
+	require.NoError(t, err)
+
+	_, err = client.ModifyDocumentPermission(ctx, &ssmsdk.ModifyDocumentPermissionInput{
+		Name:            aws.String("SharedThenDeleted"),
+		PermissionType:  ssmtypes.DocumentPermissionTypeShare,
+		AccountIdsToAdd: []string{"123456789012"},
+	})
+	require.NoError(t, err)
+
+	_, err = client.DeleteDocument(ctx, &ssmsdk.DeleteDocumentInput{Name: aws.String("SharedThenDeleted")})
+	require.Error(t, err)
+
+	var apiErr smithy.APIError
+	require.ErrorAs(t, err, &apiErr)
+	assert.Equal(t, "InvalidDocumentOperation", apiErr.ErrorCode())
+
+	_, err = client.ModifyDocumentPermission(ctx, &ssmsdk.ModifyDocumentPermissionInput{
+		Name:               aws.String("SharedThenDeleted"),
+		PermissionType:     ssmtypes.DocumentPermissionTypeShare,
+		AccountIdsToRemove: []string{"123456789012"},
+	})
+	require.NoError(t, err)
+
+	_, err = client.DeleteDocument(ctx, &ssmsdk.DeleteDocumentInput{Name: aws.String("SharedThenDeleted")})
+	require.NoError(t, err, "unsharing must let the delete through")
+}
+
+// TestModifyDocumentPermission_SharedDocumentVersion_RealClient covers
+// gopherstack-enpq: ModifyDocumentPermissionInput.SharedDocumentVersion had
+// no Go member at all, so a caller sharing a specific document version had
+// that pinning silently dropped, and DescribeDocumentPermissionOutput.
+// AccountSharingInfoList was a permanently-empty stub
+// (api_op_ModifyDocumentPermission.go:51-53, types.AccountSharingInfo).
+func TestModifyDocumentPermission_SharedDocumentVersion_RealClient(t *testing.T) {
+	t.Parallel()
+
+	backend := ssm.NewInMemoryBackend()
+	client := newTestSSMClient(t, ssm.NewHandler(backend))
+	ctx := t.Context()
+
+	_, err := client.CreateDocument(ctx, &ssmsdk.CreateDocumentInput{
+		Name:    aws.String("PinnedShareDoc"),
+		Content: aws.String(`{"v":1}`),
+	})
+	require.NoError(t, err)
+
+	_, err = client.UpdateDocument(ctx, &ssmsdk.UpdateDocumentInput{
+		Name:    aws.String("PinnedShareDoc"),
+		Content: aws.String(`{"v":2}`),
+	})
+	require.NoError(t, err)
+
+	// UpdateDocument advances LatestVersion but never DefaultVersion -- move
+	// the default to "2" explicitly so the two accounts below get distinct
+	// pins and this test proves the pin tracks DefaultVersion, not LatestVersion.
+	_, err = client.UpdateDocumentDefaultVersion(ctx, &ssmsdk.UpdateDocumentDefaultVersionInput{
+		Name:            aws.String("PinnedShareDoc"),
+		DocumentVersion: aws.String("2"),
+	})
+	require.NoError(t, err)
+
+	_, err = client.ModifyDocumentPermission(ctx, &ssmsdk.ModifyDocumentPermissionInput{
+		Name:                  aws.String("PinnedShareDoc"),
+		PermissionType:        ssmtypes.DocumentPermissionTypeShare,
+		AccountIdsToAdd:       []string{"111111111111"},
+		SharedDocumentVersion: aws.String("1"),
+	})
+	require.NoError(t, err)
+
+	// Sharing a second account with no SharedDocumentVersion must pin the
+	// document's current DefaultVersion ("2"), not silently drop the field.
+	_, err = client.ModifyDocumentPermission(ctx, &ssmsdk.ModifyDocumentPermissionInput{
+		Name:            aws.String("PinnedShareDoc"),
+		PermissionType:  ssmtypes.DocumentPermissionTypeShare,
+		AccountIdsToAdd: []string{"222222222222"},
+	})
+	require.NoError(t, err)
+
+	out, err := client.DescribeDocumentPermission(ctx, &ssmsdk.DescribeDocumentPermissionInput{
+		Name:           aws.String("PinnedShareDoc"),
+		PermissionType: ssmtypes.DocumentPermissionTypeShare,
+	})
+	require.NoError(t, err)
+	require.Len(t, out.AccountSharingInfoList, 2,
+		"pre-fix AccountSharingInfoList was a permanently-empty stub")
+
+	pins := make(map[string]string, len(out.AccountSharingInfoList))
+	for _, info := range out.AccountSharingInfoList {
+		pins[aws.ToString(info.AccountId)] = aws.ToString(info.SharedDocumentVersion)
+	}
+	assert.Equal(t, "1", pins["111111111111"], "explicit SharedDocumentVersion must round-trip")
+	assert.Equal(t, "2", pins["222222222222"], "an omitted SharedDocumentVersion must pin the current DefaultVersion")
+}
+
+// TestDescribeDocumentPermission_Pagination_RealClient covers
+// gopherstack-enpq: DescribeDocumentPermissionInput had no MaxResults/
+// NextToken members at all, so every call returned every shared account
+// regardless of MaxResults.
+func TestDescribeDocumentPermission_Pagination_RealClient(t *testing.T) {
+	t.Parallel()
+
+	backend := ssm.NewInMemoryBackend()
+	client := newTestSSMClient(t, ssm.NewHandler(backend))
+	ctx := t.Context()
+
+	_, err := client.CreateDocument(ctx, &ssmsdk.CreateDocumentInput{
+		Name:    aws.String("PaginatedShareDoc"),
+		Content: aws.String(`{}`),
+	})
+	require.NoError(t, err)
+
+	_, err = client.ModifyDocumentPermission(ctx, &ssmsdk.ModifyDocumentPermissionInput{
+		Name:            aws.String("PaginatedShareDoc"),
+		PermissionType:  ssmtypes.DocumentPermissionTypeShare,
+		AccountIdsToAdd: []string{"111111111111", "222222222222", "333333333333"},
+	})
+	require.NoError(t, err)
+
+	page1, err := client.DescribeDocumentPermission(ctx, &ssmsdk.DescribeDocumentPermissionInput{
+		Name:           aws.String("PaginatedShareDoc"),
+		PermissionType: ssmtypes.DocumentPermissionTypeShare,
+		MaxResults:     aws.Int32(2),
+	})
+	require.NoError(t, err)
+	require.Len(t, page1.AccountIds, 2, "pre-fix MaxResults had no Go member and was ignored")
+	require.NotEmpty(t, aws.ToString(page1.NextToken))
+
+	page2, err := client.DescribeDocumentPermission(ctx, &ssmsdk.DescribeDocumentPermissionInput{
+		Name:           aws.String("PaginatedShareDoc"),
+		PermissionType: ssmtypes.DocumentPermissionTypeShare,
+		MaxResults:     aws.Int32(2),
+		NextToken:      page1.NextToken,
+	})
+	require.NoError(t, err)
+	require.Len(t, page2.AccountIds, 1)
+	assert.Empty(t, aws.ToString(page2.NextToken))
+
+	all := append(append([]string{}, page1.AccountIds...), page2.AccountIds...)
+	assert.ElementsMatch(t, []string{"111111111111", "222222222222", "333333333333"}, all)
+}
