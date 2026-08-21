@@ -88,6 +88,86 @@ func TestUpdateAndDescribeTableReplicaAutoScaling_AgreeOnReplicaStatus(t *testin
 	}
 }
 
+// TestUpdateTableReplicaAutoScaling_WriteAndGSIUpdatesDontClobberEachOther
+// guards against gopherstack-1vv2/c8ge: ProvisionedWriteCapacityAutoScalingUpdate
+// and GlobalSecondaryIndexUpdates are independently optional on the real input
+// (api_op_UpdateTableReplicaAutoScaling.go) -- a caller may update one without
+// mentioning the other. mergeAutoScalingSettingsFromInput used to be
+// autoScalingSettingsFromInput, building a brand-new autoScalingSettings from
+// only the current call's fields and assigning it wholesale over
+// table.AutoScaling, so a call updating only the GSI settings silently wiped
+// whatever an earlier call had set for write-capacity autoscaling, and vice
+// versa.
+func TestUpdateTableReplicaAutoScaling_WriteAndGSIUpdatesDontClobberEachOther(t *testing.T) {
+	t.Parallel()
+
+	db := NewInMemoryDB()
+	ctx := t.Context()
+	tableName := "as-no-clobber"
+
+	rc, wc := int64(5), int64(5)
+	_, err := db.CreateTable(ctx, &sdkdynamodb.CreateTableInput{
+		TableName: aws.String(tableName),
+		KeySchema: []sdktypes.KeySchemaElement{
+			{AttributeName: aws.String("pk"), KeyType: sdktypes.KeyTypeHash},
+		},
+		AttributeDefinitions: []sdktypes.AttributeDefinition{
+			{AttributeName: aws.String("pk"), AttributeType: sdktypes.ScalarAttributeTypeS},
+		},
+		ProvisionedThroughput: &sdktypes.ProvisionedThroughput{
+			ReadCapacityUnits:  &rc,
+			WriteCapacityUnits: &wc,
+		},
+	})
+	require.NoError(t, err)
+
+	_, err = db.UpdateTableReplicaAutoScaling(ctx, &sdkdynamodb.UpdateTableReplicaAutoScalingInput{
+		TableName: aws.String(tableName),
+		ProvisionedWriteCapacityAutoScalingUpdate: &sdktypes.AutoScalingSettingsUpdate{
+			MinimumUnits: aws.Int64(5),
+			MaximumUnits: aws.Int64(500),
+		},
+	})
+	require.NoError(t, err)
+
+	table, ok := db.tables.Get(tableKey(db.defaultRegion, tableName))
+	require.True(t, ok)
+	require.NotNil(t, table.AutoScaling)
+	require.NotNil(t, table.AutoScaling.Write, "write-capacity settings must be stored")
+	assert.Equal(t, int64(5), aws.ToInt64(table.AutoScaling.Write.MinCapacity))
+	assert.Equal(t, int64(500), aws.ToInt64(table.AutoScaling.Write.MaxCapacity))
+
+	// Second call only mentions a GSI update -- ProvisionedWriteCapacityAutoScalingUpdate
+	// is entirely absent, matching a real client updating just one index.
+	_, err = db.UpdateTableReplicaAutoScaling(ctx, &sdkdynamodb.UpdateTableReplicaAutoScalingInput{
+		TableName: aws.String(tableName),
+		GlobalSecondaryIndexUpdates: []sdktypes.GlobalSecondaryIndexAutoScalingUpdate{
+			{
+				IndexName: aws.String("gsi1"),
+				ProvisionedWriteCapacityAutoScalingUpdate: &sdktypes.AutoScalingSettingsUpdate{
+					MinimumUnits: aws.Int64(2),
+					MaximumUnits: aws.Int64(20),
+				},
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	table, ok = db.tables.Get(tableKey(db.defaultRegion, tableName))
+	require.True(t, ok)
+	require.NotNil(
+		t,
+		table.AutoScaling.Write,
+		"write-capacity settings set by the first call must survive an Update that never mentioned them",
+	)
+	assert.Equal(t, int64(5), aws.ToInt64(table.AutoScaling.Write.MinCapacity))
+	assert.Equal(t, int64(500), aws.ToInt64(table.AutoScaling.Write.MaxCapacity))
+
+	require.NotNil(t, table.AutoScaling.GlobalSecondaryIndexes["gsi1"], "the second call's own GSI update must apply")
+	assert.Equal(t, int64(2), aws.ToInt64(table.AutoScaling.GlobalSecondaryIndexes["gsi1"].MinCapacity))
+	assert.Equal(t, int64(20), aws.ToInt64(table.AutoScaling.GlobalSecondaryIndexes["gsi1"].MaxCapacity))
+}
+
 // TestTableAutoScaling_TableStatusSourcedFromSameField proves
 // applyAutoScalingSettingsLocked (used by UpdateTableReplicaAutoScaling) and
 // replicaAutoScalingDescriptionsRLocked (used by
