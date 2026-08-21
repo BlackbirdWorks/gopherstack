@@ -1,7 +1,7 @@
 ---
 service: stepfunctions
 sdk_module: aws-sdk-go-v2/service/sfn@v1.45.4
-last_audit_commit: pending (uncommitted this pass -- see git log at merge time)
+last_audit_commit: b989093b4
 last_audit_date: 2026-08-21
 overall: A            # Re-audit against `43aa6d65` baseline (2026-07-11 zero-drift pass). This
                        # pass found real drift/gaps despite the "zero drift" label: two commits
@@ -175,31 +175,7 @@ ops:
       declares itemCount/mapRunArn, which the domain Execution struct here
       does not track at all -- a separate missing-field gap (not
       over-wide), left for a future pass.
-  GetExecutionHistory:
-    wire: fixed
-    errors: ok
-    state: ok
-    persist: ok
-    note: >
-      FIXED 2026-08-21 (bd gopherstack-r80d, batch 10; closes the
-      resource/region/parameters portion of gopherstack-996, open since
-      2026-07-05): TaskScheduledEventDetails.Region/Parameters (types.go:
-      1311-1339, both required) were never set at all -- RecordTaskScheduled
-      only ever populated Resource/ResourceType. TaskSucceededEventDetails.
-      Resource/ResourceType (types.go:1431-1450, required) and
-      TaskFailedEventDetails.Resource/ResourceType (types.go:1289-1307,
-      required) were also never set. All four are reachable on every normal
-      Task-state execution, not an edge case. Fixed by threading
-      state.Resource through RecordTaskSucceeded/RecordTaskFailed (asl/
-      executor.go's HistoryRecorder interface gained a resource param on
-      both) and the resolved post-Parameters-template task input through
-      RecordTaskScheduled for Parameters, with Region derived via the
-      existing regionFromARN(resource, backend.region) helper (same one
-      used for activity ARNs elsewhere in this package). gopherstack-996's
-      remaining scope (TaskSubmitted/TaskStarted events for .sync/
-      waitForTaskToken integration patterns) is a structural gap, not a
-      dropped-field bug -- this emulator never models those event kinds at
-      all, so no HistoryEvent ever claims to be one; left open, see gaps.
+  GetExecutionHistory: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-21 (bd gopherstack-r80d, batch 10; closes the resource/region/parameters portion of gopherstack-996, open since 2026-07-05): TaskScheduledEventDetails.Region/Parameters (types.go: 1311-1339, both required) were never set at all -- RecordTaskScheduled only ever populated Resource/ResourceType. TaskSucceededEventDetails. Resource/ResourceType (types.go:1431-1450, required) and TaskFailedEventDetails.Resource/ResourceType (types.go:1289-1307, required) were also never set. All four are reachable on every normal Task-state execution, not an edge case. Fixed by threading state.Resource through RecordTaskSucceeded/RecordTaskFailed (asl/ executor.go's HistoryRecorder interface gained a resource param on both) and the resolved post-Parameters-template task input through RecordTaskScheduled for Parameters, with Region derived via the existing regionFromARN(resource, backend.region) helper (same one used for activity ARNs elsewhere in this package). gopherstack-996's remaining scope (TaskSubmitted/TaskStarted events for .sync/ waitForTaskToken integration patterns) is a structural gap, not a dropped-field bug -- this emulator never models those event kinds at all, so no HistoryEvent ever claims to be one; left open, see gaps."}
   CreateActivity:
     wire: fixed
     errors: ok
