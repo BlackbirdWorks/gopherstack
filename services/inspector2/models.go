@@ -128,9 +128,18 @@ type DelegatedAdminAccount struct {
 }
 
 // OrgConfiguration holds organization-level Inspector2 settings.
+//
+// AutoEnable is a per-scan-type object (ec2/ecr/lambda/lambdaCode/
+// codeRepository), not a single bool -- confirmed against
+// aws-sdk-go-v2/service/inspector2@v1.54.1's deserializers.go
+// (awsRestjson1_deserializeOpDocumentDescribeOrganizationConfigurationOutput,
+// case "autoEnable": awsRestjson1_deserializeDocumentAutoEnable) and
+// types/types.go's AutoEnable struct. DescribeOrganizationConfiguration
+// previously collapsed it to one bool, which failed a real client's decode
+// outright.
 type OrgConfiguration struct {
-	AutoEnable             bool `json:"autoEnable"`
-	MaxAccountLimitReached bool `json:"maxAccountLimitReached"`
+	AutoEnable             map[string]bool `json:"autoEnable"`
+	MaxAccountLimitReached bool            `json:"maxAccountLimitReached"`
 }
 
 // OrgEc2DeepInspectionConfig holds org-level EC2 deep inspection settings.

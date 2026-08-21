@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -348,32 +349,47 @@ func (b *InMemoryBackend) DeregisterCluster(name string) (*Cluster, error) {
 	return b.DeleteCluster(name)
 }
 
+// supportDate parses a static "YYYY-MM-DD" date into the epoch-seconds
+// number awsjson1.1/restjson1 expects on the wire -- confirmed against
+// aws-sdk-go-v2/service/eks@v1.90.4's deserializers.go (case
+// "endOfStandardSupportDate"/"endOfExtendedSupportDate": json.Number via
+// smithytime.ParseEpochSeconds). Emitting the literal date string instead
+// failed DescribeClusterVersions outright for every real client.
+func supportDate(date string) float64 {
+	t, err := time.Parse(time.DateOnly, date)
+	if err != nil {
+		panic("eks: invalid static support date " + date)
+	}
+
+	return awstime.Epoch(t)
+}
+
 // DescribeClusterVersions returns supported cluster versions.
 func (b *InMemoryBackend) DescribeClusterVersions() []map[string]any {
 	return []map[string]any{
 		{
 			keyClusterVersion:           defaultK8sVersion,
 			keyDefaultVersion:           true,
-			keyEndOfStandardSupportDate: "2027-04-01",
-			keyEndOfExtendedSupportDate: "2028-04-01",
+			keyEndOfStandardSupportDate: supportDate("2027-04-01"),
+			keyEndOfExtendedSupportDate: supportDate("2028-04-01"),
 		},
 		{
 			keyClusterVersion:           "1.31",
 			keyDefaultVersion:           false,
-			keyEndOfStandardSupportDate: "2026-11-01",
-			keyEndOfExtendedSupportDate: "2027-11-01",
+			keyEndOfStandardSupportDate: supportDate("2026-11-01"),
+			keyEndOfExtendedSupportDate: supportDate("2027-11-01"),
 		},
 		{
 			keyClusterVersion:           "1.30",
 			keyDefaultVersion:           false,
-			keyEndOfStandardSupportDate: "2026-07-01",
-			keyEndOfExtendedSupportDate: "2027-07-01",
+			keyEndOfStandardSupportDate: supportDate("2026-07-01"),
+			keyEndOfExtendedSupportDate: supportDate("2027-07-01"),
 		},
 		{
 			keyClusterVersion:           "1.29",
 			keyDefaultVersion:           false,
-			keyEndOfStandardSupportDate: "2026-03-01",
-			keyEndOfExtendedSupportDate: "2027-03-01",
+			keyEndOfStandardSupportDate: supportDate("2026-03-01"),
+			keyEndOfExtendedSupportDate: supportDate("2027-03-01"),
 		},
 	}
 }

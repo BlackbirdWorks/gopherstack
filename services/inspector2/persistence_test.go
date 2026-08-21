@@ -56,7 +56,9 @@ func newPersistenceTestBackend(t *testing.T) (*inspector2.InMemoryBackend, persi
 	require.NoError(t, b.EnableDelegatedAdminAccount("333333333333"))
 
 	// orgConfig raw struct.
-	require.NoError(t, b.UpdateOrganizationConfiguration(inspector2.OrgConfiguration{AutoEnable: true}))
+	require.NoError(t, b.UpdateOrganizationConfiguration(
+		inspector2.OrgConfiguration{AutoEnable: map[string]bool{"ec2": true}},
+	))
 
 	// ec2DeepConfig raw struct.
 	require.NoError(t, b.UpdateEc2DeepInspectionConfiguration([]string{"/opt/pkg"}))
@@ -217,7 +219,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	assert.Equal(t, "333333333333", admin.AccountID)
 
 	// orgConfig raw struct.
-	assert.True(t, fresh.DescribeOrganizationConfiguration().AutoEnable)
+	assert.Equal(t, map[string]bool{"ec2": true}, fresh.DescribeOrganizationConfiguration().AutoEnable)
 
 	// ec2DeepConfig raw struct.
 	ec2Cfg := fresh.GetEc2DeepInspectionConfiguration()
@@ -355,7 +357,7 @@ func TestInMemoryBackend_RestoreVersionMismatch(t *testing.T) {
 	_, err = b.GetDelegatedAdminAccount()
 	require.ErrorIs(t, err, inspector2.ErrDelegatedAdminNotFound)
 
-	assert.False(t, b.DescribeOrganizationConfiguration().AutoEnable)
+	assert.Empty(t, b.DescribeOrganizationConfiguration().AutoEnable)
 
 	ec2Cfg := b.GetEc2DeepInspectionConfiguration()
 	assert.Empty(t, ec2Cfg.PackagePaths)

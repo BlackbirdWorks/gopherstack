@@ -386,3 +386,32 @@ practice). `AutoEnable`'s `Ec2`/`Ecr` are both real-client-guaranteed present
 Did not touch sagemaker (off-limits, mid-conversion under gopherstack-oc9v
 this session — `git status` showed uncommitted `services/sagemaker/`
 changes throughout).
+
+# 2026-08-21 gopherstack-g479 (ad hoc map[string]any blind spot)
+`DescribeOrganizationConfiguration`: {wire: fixed, errors: ok, state: fixed, persist: ok} --
+`OrgConfiguration.AutoEnable` was stored and echoed as a single collapsed
+`bool`; real `DescribeOrganizationConfigurationOutput.AutoEnable` is the
+per-scan-type object (`ec2`/`ecr`/`lambda`/`lambdaCode`/`codeRepository`),
+confirmed against `aws-sdk-go-v2/service/inspector2@v1.54.1`'s
+`deserializers.go`
+(`awsRestjson1_deserializeOpDocumentDescribeOrganizationConfigurationOutput`,
+case `"autoEnable"`) and `types/types.go`'s `AutoEnable` struct. A real
+client's `DescribeOrganizationConfiguration` failed outright with
+`"unexpected JSON type true"`. The prior audit (r80d, see above) confirmed
+`UpdateOrganizationConfiguration`'s echo-the-request-map approach was safe,
+but never exercised the Describe side against a real client, which is where
+this collapse actually lived. `OrgConfiguration.AutoEnable` is now
+`map[string]bool`; `UpdateOrganizationConfiguration` stores the real map
+instead of collapsing it, then reads its own write back rather than echoing
+the raw request. Found via a new map-literal/index-assign kind-mismatch
+scanner (go/types-based, not text-matched) built for gopherstack-g479 --
+this class (`map[string]any{}` literals with no struct-field path) had zero
+automated coverage before. Proven via a real `aws-sdk-go-v2/service/inspector2`
+client round trip (`TestDescribeOrganizationConfiguration_AutoEnableObject`,
+`sdk_response_keys_test.go`), hand-reverted/confirmed-failing with the SDK's
+own error text/restored/`md5sum`-verified byte-identical. Gates:
+`go build`, `go vet`, `gofmt -l` (clean), `go test -race` (pass),
+`golangci-lint run` (0 new issues; 2 pre-existing `fieldalignment` findings
+in `persistence.go`/`store.go`, files this pass did not touch, left alone).
+`last_audit_commit` left at its existing value per this file's own
+standing convention (r80d note above) -- not updated this pass.

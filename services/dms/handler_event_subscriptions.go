@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 	"github.com/blackbirdworks/gopherstack/pkgs/ptrconv"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -246,12 +247,17 @@ func (h *Handler) handleDescribeEvents(
 			continue
 		}
 
+		// Date deserializes from a json.Number via ParseEpochSeconds --
+		// confirmed against aws-sdk-go-v2/service/
+		// databasemigrationservice@v1.66.4's deserializers.go
+		// (awsAwsjson11_deserializeDocumentEvent, case "Date"). An RFC3339
+		// string failed DescribeEvents' decode outright.
 		all = append(all, map[string]any{
 			"SourceIdentifier": e.SourceIdentifier,
 			"SourceType":       e.SourceType,
 			"Message":          e.Message,
 			"EventCategories":  e.EventCategories,
-			"Date":             e.Date,
+			"Date":             awstime.Epoch(e.Date),
 		})
 	}
 

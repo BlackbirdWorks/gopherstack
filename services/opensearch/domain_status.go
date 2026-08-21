@@ -2,10 +2,24 @@ package opensearch
 
 import (
 	"fmt"
+	"strconv"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 )
 
 // GetDomainHealth returns computed health metrics for a domain.
+//
+// TotalShards/TotalUnAssignedShards/DataNodeCount/WarmNodeCount/
+// ActiveAvailabilityZoneCount are all NumberOfShards/NumberOfNodes/NumberOfAZs
+// shapes, which deserialize as JSON strings -- confirmed against
+// aws-sdk-go-v2/service/opensearch@v1.75.4's deserializers.go
+// (awsRestjson1_deserializeOpDocumentDescribeDomainHealthOutput). Emitting
+// them as raw numbers failed DescribeDomainHealth's decode outright.
+// "ActiveShards", "UnAssignedShards" (without "Total") and "DocumentCount"
+// are not members of that shape at all -- dropped rather than renamed
+// blind, since real AWS's DescribeDomainHealth genuinely has no per-domain
+// document count.
 func (b *InMemoryBackend) GetDomainHealth(domainName string) (map[string]any, error) {
 	b.mu.RLock("GetDomainHealth")
 	defer b.mu.RUnlock()
@@ -29,21 +43,14 @@ func (b *InMemoryBackend) GetDomainHealth(domainName string) (map[string]any, er
 
 	dedicatedMaster := d.ClusterConfig.DedicatedMasterEnabled
 
-	docCount := 0
-	for _, idx := range b.domainIndexesByDomain.Get(domainName) {
-		docCount += idx.DocumentCount
-	}
-
 	return map[string]any{
 		"DomainState":                 domainStatusActive,
-		"TotalShards":                 totalShards,
-		"ActiveShards":                totalShards,
-		"UnAssignedShards":            0,
-		"DataNodeCount":               instanceCount,
-		"WarmNodeCount":               warmNodes,
+		"TotalShards":                 strconv.Itoa(totalShards),
+		"TotalUnAssignedShards":       strconv.Itoa(0),
+		"DataNodeCount":               strconv.Itoa(instanceCount),
+		"WarmNodeCount":               strconv.Itoa(warmNodes),
 		"DedicatedMaster":             dedicatedMaster,
-		"ActiveAvailabilityZoneCount": 1,
-		"DocumentCount":               docCount,
+		"ActiveAvailabilityZoneCount": strconv.Itoa(1),
 	}, nil
 }
 
@@ -130,7 +137,13 @@ func (b *InMemoryBackend) GetChangeProgress(domainName string) (map[string]any, 
 		changeID = changeProgressStub
 	}
 
-	now := time.Now().UTC().Format(time.RFC3339)
+	// StartTime/LastUpdatedTime deserialize from a json.Number via
+	// smithytime.ParseEpochSeconds -- confirmed against
+	// aws-sdk-go-v2/service/opensearch@v1.75.4's deserializers.go
+	// (awsRestjson1_deserializeDocumentChangeProgressStatusDetails). An
+	// RFC3339 string failed GetChangeProgress's/GetDomainChangeProgress's
+	// decode outright.
+	now := awstime.Epoch(time.Now().UTC())
 
 	return map[string]any{
 		"ChangeId":            changeID,

@@ -59,9 +59,12 @@ func TestIndexDocumentLifecycle(t *testing.T) {
 	// Domain-wide stats aggregate the count.
 	assert.Equal(t, 2, b.DomainDocumentCount("dom"))
 
-	health, err := b.GetDomainHealth("dom")
+	// GetDomainHealth itself carries no document count -- real
+	// DescribeDomainHealthOutput has no such member (aws-sdk-go-v2/service/
+	// opensearch@v1.75.4's deserializers.go); DomainDocumentCount above is
+	// the accurate, separately-modeled aggregate.
+	_, err = b.GetDomainHealth("dom")
 	require.NoError(t, err)
-	assert.Equal(t, 2, health["DocumentCount"])
 
 	// Re-index existing ID updates, does not create.
 	_, createdAgain, err := b.IndexDocument("dom", "products", "p1", map[string]any{"name": "widget2"})

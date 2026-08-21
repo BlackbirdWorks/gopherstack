@@ -3,7 +3,10 @@ package forecast
 import (
 	"fmt"
 	"hash/fnv"
+	"strconv"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 )
 
 const (
@@ -73,10 +76,23 @@ func (b *InMemoryBackend) GetAccuracyMetrics(predictorArn string) (map[string]an
 		mape := mapeBase + float64(windowSeed%mapeSeedMod)/mapeSeedScale
 		mase := maseBase + float64(windowSeed%maseSeedMod)/maseSeedScale
 
+		// Quantile is a JSON number (or the Smithy-special "NaN"/"Infinity"/
+		// "-Infinity" strings) -- confirmed against aws-sdk-go-v2/service/
+		// forecast@v1.44.4's deserializers.go
+		// (awsAwsjson11_deserializeDocumentWeightedQuantileLoss). Any other
+		// string, including a plain "0.1" label, fails GetAccuracyMetrics'
+		// decode with "unknown JSON number value". ForecastTypes can also
+		// include "mean", which is not a quantile and has no
+		// WeightedQuantileLosses entry in the real API.
 		quantileLosses := make([]map[string]any, 0, len(quantiles))
 		for i, q := range quantiles {
+			qv, err := strconv.ParseFloat(q, 64)
+			if err != nil {
+				continue
+			}
+
 			quantileLosses = append(quantileLosses, map[string]any{
-				"Quantile":  q,
+				"Quantile":  qv,
 				"LossValue": lossValueBase + float64((windowSeed+uint32(i))%lossValueMod)/lossValueScale,
 			})
 		}
@@ -84,8 +100,8 @@ func (b *InMemoryBackend) GetAccuracyMetrics(predictorArn string) (map[string]an
 		windows = append(windows, map[string]any{
 			"EvaluationType":  evaluationTypeForWindow(w),
 			"ItemCount":       int64(itemCountBase + windowSeed%itemCountMod),
-			"TestWindowStart": resource.CreatedAt.UTC().Format(time.RFC3339),
-			"TestWindowEnd":   resource.CreatedAt.UTC().Add(backtestWindowDuration).Format(time.RFC3339),
+			"TestWindowStart": awstime.Epoch(resource.CreatedAt.UTC()),
+			"TestWindowEnd":   awstime.Epoch(resource.CreatedAt.UTC().Add(backtestWindowDuration)),
 			"Metrics": map[string]any{
 				"RMSE":                   rmse,
 				"WeightedQuantileLosses": quantileLosses,

@@ -16,8 +16,8 @@ ops:
   UpdateClusterVersion: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "was routed at fictional POST /clusters/{name}/update-version; real path is POST /clusters/{name}/updates (shared with ListUpdates GET). gopherstack-muzq (2026-08-21): same InProgress-forever bug and fix as UpdateClusterConfig"}
   RegisterCluster: {wire: fixed, errors: ok, state: ok, persist: ok, note: "was routed at /clusters/{placeholder}/register; real path is global POST /cluster-registrations (name comes from body, always did)"}
   DeregisterCluster: {wire: fixed, errors: ok, state: ok, persist: ok, note: "was routed as POST /clusters/{name}/deregister; real path is DELETE /cluster-registrations/{name}"}
-  DescribeClusterVersions: {wire: ok, errors: ok, state: ok, persist: n/a}
-  AssociateEncryptionConfig: {wire: ok, errors: ok, state: ok, persist: ok}
+  DescribeClusterVersions: {wire: fixed, errors: ok, state: ok, persist: n/a, note: "gopherstack-g479 (2026-08-21): endOfStandardSupportDate/endOfExtendedSupportDate were static YYYY-MM-DD strings in a hand-built map[string]any table; real deserializers.go parses json.Number via ParseEpochSeconds. Confirmed against aws-sdk-go-v2/service/eks@v1.90.4's deserializers.go; failed with 'expected Timestamp to be a JSON Number, got string instead' pre-fix. Found via a new go/types-based map-literal kind scanner (map[string]any{} literals had zero automated coverage before this pass)."}
+  AssociateEncryptionConfig: {wire: fixed, errors: ok, state: ok, persist: ok, note: "gopherstack-g479 (2026-08-21): the returned Update.params was a hand-built {\"encryptionConfig\": ...} object; real Update.Params is an array of {type, value} pairs (deserializers.go's deserializeDocumentUpdate, case \"params\") with UpdateParamTypeEncryptionConfig = \"EncryptionConfig\". Failed with 'unexpected JSON type map[...]' pre-fix."}
   CreateNodegroup: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeNodegroup: {wire: ok, errors: ok, state: ok, persist: ok}
   ListNodegroups: {wire: fixed, errors: ok, state: ok, persist: ok, note: "now supports maxResults/nextToken pagination"}
@@ -30,7 +30,7 @@ ops:
   DeleteAddon: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateAddon: {wire: fixed, errors: ok, state: ok, persist: ok, note: "was PUT to bare addon path; real op is POST .../addons/{addonName}/update"}
   DescribeAddonVersions: {wire: fixed, errors: ok, state: n/a, persist: n/a, note: "path was /addon-versions; real path is /addons/supported-versions — was completely unreachable by the real SDK client"}
-  DescribeAddonConfiguration: {wire: fixed, errors: ok, state: n/a, persist: n/a, note: "path was /addon-configuration; real path is /addons/configuration-schemas — was completely unreachable"}
+  DescribeAddonConfiguration: {wire: fixed, errors: ok, state: n/a, persist: n/a, note: "path was /addon-configuration; real path is /addons/configuration-schemas — was completely unreachable. gopherstack-g479 (2026-08-21): configurationSchema was ALSO a nested JSON object where the real member (deserializers.go, case \"configurationSchema\": value.(string)) is the schema as a raw JSON string; failed with 'expected String to be of type string, got map[string]interface {} instead' pre-fix. Found via a new go/types-based map-literal kind scanner."}
   CreateAccessEntry: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeAccessEntry: {wire: fixed, errors: ok, state: ok, persist: ok, note: "added ModifiedAt (real aws-sdk-go-v2/service/eks/types.AccessEntry.ModifiedAt was entirely unmodeled); set on create and every update"}
   ListAccessEntries: {wire: fixed, errors: ok, state: ok, persist: ok, note: "now supports maxResults/nextToken pagination"}

@@ -28,8 +28,8 @@ const (
 // remain plain maps because their values are not *T (see store_setup.go's
 // file doc comment for the full persistence audit).
 type InMemoryBackend struct {
-	codeSecurityScanConfigs        *store.Table[CodeSecurityScanConfiguration]
-	enabledTypes                   map[string]bool
+	scanConfigAssociations         *store.Table[CodeSecurityScanConfigurationAssociation]
+	scanConfigAssociationsByConfig *store.Index[CodeSecurityScanConfigurationAssociation]
 	filters                        *store.Table[Filter]
 	findings                       *store.Table[storedFinding]
 	codeSecurityIntegrations       *store.Table[CodeSecurityIntegration]
@@ -44,9 +44,9 @@ type InMemoryBackend struct {
 	encryptionKeys                 *store.Table[EncryptionKey]
 	delegatedAdmins                *store.Table[DelegatedAdminAccount]
 	cisSessions                    *store.Table[CisSession]
-	scanConfigAssociations         *store.Table[CodeSecurityScanConfigurationAssociation]
-	scanConfigAssociationsByConfig *store.Index[CodeSecurityScanConfigurationAssociation]
+	enabledTypes                   map[string]bool
 	coverageEntries                *store.Table[CoverageEntry]
+	codeSecurityScanConfigs        *store.Table[CodeSecurityScanConfiguration]
 	vulnerabilities                *store.Table[Vulnerability]
 	codeSnippets                   *store.Table[codeSnippet]
 	connectors                     *store.Table[Connector]
@@ -58,9 +58,9 @@ type InMemoryBackend struct {
 	config                         Configuration
 	accountID                      string
 	region                         string
+	orgConfig                      OrgConfiguration
 	ec2DeepConfig                  Ec2DeepInspectionConfig
 	orgEc2Config                   OrgEc2DeepInspectionConfig
-	orgConfig                      OrgConfiguration
 }
 
 // NewInMemoryBackend creates a new backend for the given account and region.

@@ -459,3 +459,34 @@ func TestCodeArtifactSDK_ListPackageVersions_StatusSortByDefaultDisplay(t *testi
 		assert.Equal(t, "9.0.0", aws.ToString(out.Versions[1].Version))
 	})
 }
+
+// TestDescribePackage_NoInventedFields_RealClient covers gopherstack-g479:
+// packageToMap emitted domainName, domainOwner and repository, none of
+// which are members of types.PackageDescription -- confirmed against
+// aws-sdk-go-v2/service/codeartifact@v1.41.4's deserializers.go
+// (awsRestjson1_deserializeDocumentPackageDescription) and types/types.go,
+// which together declare only format/name/namespace/originConfiguration.
+// A typed real client silently ignores unknown JSON keys, so the only
+// direct way to prove the fields are gone is the raw response body.
+func TestDescribePackage_NoInventedFields_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	setupDomain(t, h, "dpi-domain")
+	setupRepo(t, h, "dpi-domain", "dpi-repo")
+
+	rec := doRequest(
+		t, h, http.MethodGet,
+		"/v1/package?domain=dpi-domain&repository=dpi-repo&format=npm&package=lodash",
+		nil,
+	)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	body := rec.Body.String()
+	assert.NotContains(t, body, `"domainName"`,
+		"types.PackageDescription has no domainName member")
+	assert.NotContains(t, body, `"domainOwner"`,
+		"types.PackageDescription has no domainOwner member")
+	assert.NotContains(t, body, `"repository"`,
+		"types.PackageDescription has no repository member")
+}

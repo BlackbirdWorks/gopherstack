@@ -97,14 +97,26 @@ func (h *Handler) handleAssociateEncryptionConfig(c *echo.Context, clusterName s
 		return h.handleError(c, err)
 	}
 
+	encryptionConfigJSON, err := json.Marshal(result)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	// Update.Params is an array of {type, value} pairs -- confirmed against
+	// aws-sdk-go-v2/service/eks@v1.90.4's deserializers.go
+	// (awsRestjson1_deserializeDocumentUpdate, case "params":
+	// awsRestjson1_deserializeDocumentUpdateParams, an array) and the
+	// UpdateParamTypeEncryptionConfig = "EncryptionConfig" enum value
+	// (types/enums.go). A nested {"encryptionConfig": ...} object failed
+	// decoding outright for every real client.
 	return c.JSON(http.StatusOK, map[string]any{
 		keyUpdate: map[string]any{
 			"id":           uuid.NewString()[:8],
 			keyStatusField: statusInProgress,
 			keyType:        opAssociateEncryptionConfig,
 			keyClusterName: clusterName,
-			"params": map[string]any{
-				"encryptionConfig": result,
+			"params": []UpdateParam{
+				{Type: "EncryptionConfig", Value: string(encryptionConfigJSON)},
 			},
 		},
 	})

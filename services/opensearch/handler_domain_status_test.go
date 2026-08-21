@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -35,11 +36,10 @@ func TestOpenSearchHandler_DescribeDomainHealth(t *testing.T) {
 	require.NoError(t, json.NewDecoder(healthResp.Body).Decode(&out))
 
 	assert.Equal(t, "Active", out["DomainState"])
-	// 3 instances * 5 shards = 15
-	totalShards, ok := out["TotalShards"].(float64)
-	require.True(t, ok)
-	assert.InDelta(t, float64(15), totalShards, 0)
-	assert.Equal(t, out["TotalShards"], out["ActiveShards"])
+	// 3 instances * 5 shards = 15. TotalShards is NumberOfShards, a string
+	// on the wire (aws-sdk-go-v2/service/opensearch@v1.75.4's
+	// deserializers.go), not a JSON number.
+	assert.Equal(t, "15", out["TotalShards"])
 }
 
 func TestOpenSearchHandler_DescribeDomainNodes(t *testing.T) {
@@ -209,14 +209,15 @@ func TestDescribeDomainHealth_AdditionalFields(t *testing.T) {
 			// Existing fields.
 			assert.Equal(t, "Active", out["DomainState"])
 
-			// New fields.
-			unassigned, ok := out["UnAssignedShards"].(float64)
-			require.True(t, ok, "UnAssignedShards must be present")
-			assert.InDelta(t, float64(0), unassigned, 0)
+			// New fields. TotalUnAssignedShards/DataNodeCount are
+			// NumberOfShards/NumberOfNodes, strings on the wire.
+			unassigned, ok := out["TotalUnAssignedShards"].(string)
+			require.True(t, ok, "TotalUnAssignedShards must be present")
+			assert.Equal(t, "0", unassigned)
 
-			dataCount, ok := out["DataNodeCount"].(float64)
+			dataCount, ok := out["DataNodeCount"].(string)
 			require.True(t, ok, "DataNodeCount must be present")
-			assert.InDelta(t, tt.wantDataNodeCount, dataCount, 0)
+			assert.Equal(t, strconv.Itoa(int(tt.wantDataNodeCount)), dataCount)
 
 			dedicated, ok := out["DedicatedMaster"].(bool)
 			require.True(t, ok, "DedicatedMaster must be present")
@@ -340,7 +341,7 @@ func TestGetDomainHealth_WarmNodeCount(t *testing.T) {
 	var out map[string]any
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
 
-	warmCount, ok := out["WarmNodeCount"].(float64)
+	warmCount, ok := out["WarmNodeCount"].(string)
 	require.True(t, ok, "WarmNodeCount must be present")
-	assert.InDelta(t, float64(3), warmCount, 0)
+	assert.Equal(t, "3", warmCount)
 }

@@ -707,3 +707,38 @@ trio, etc.) were corrected to the real shapes, not preserved.
 `items_still_open` above). The index/document *data-plane* sub-routes this
 emulator invents under `/index/{name}/_doc`, `/_search`, `/_count` are not
 real SDK control-plane operations and were left as-is.
+
+# 2026-08-21 gopherstack-g479 (ad hoc map[string]any blind spot)
+3 of the "Un-re-verified ops outside the assigned scope/deferred list" above
+now fixed, found via a new go/types-based map-literal/index-assign kind
+scanner (map[string]any{} literals had zero automated coverage before this
+pass -- the prior passes' struct-field diffing couldn't see them):
+
+- **DescribeDomainHealth**: {wire: fixed, errors: ok, state: ok, persist: n/a} --
+  `TotalShards`/`DataNodeCount`/`WarmNodeCount`/`ActiveAvailabilityZoneCount`/
+  `TotalUnAssignedShards` are all `NumberOfShards`/`NumberOfNodes`/`NumberOfAZs`
+  shapes, which deserialize as JSON *strings* (confirmed against
+  `aws-sdk-go-v2/service/opensearch@v1.75.4`'s `deserializers.go`,
+  `awsRestjson1_deserializeOpDocumentDescribeDomainHealthOutput`) -- gopherstack
+  emitted raw numbers, failing with `"expected NumberOfNodes to be of type
+  string, got json.Number instead"`. Also dropped two invented keys that are
+  not members of this shape at all: `ActiveShards` and `UnAssignedShards`
+  (real member is `TotalUnAssignedShards`), and `DocumentCount`, which has no
+  real per-domain-health equivalent (`DomainDocumentCount` remains the
+  correct, separately-modeled aggregate).
+- **DescribeDomainChangeProgress** (`GetChangeProgress`): {wire: fixed, errors: ok, state: ok, persist: n/a} --
+  `ChangeProgressStatusDetails.StartTime`/`LastUpdatedTime` deserialize from a
+  `json.Number` via `ParseEpochSeconds`, not an RFC3339 string; failed with
+  `"expected UpdateTimestamp to be a JSON Number, got string instead"`.
+- **DescribeInstanceTypeLimits**: {wire: fixed, errors: ok, state: ok, persist: ok} --
+  the static instance-limits table's `MinimumInstanceCount` was the string
+  constant `"1"` (`MaximumInstanceCount` siblings were already correctly
+  numeric); real member is a `json.Number`. Failed with `"expected
+  MinimumInstanceCount to be json.Number, got string instead"`.
+
+All 3 proven via real `aws-sdk-go-v2/service/opensearch` client round trips
+(`wire_maplit_fixes_test.go`), hand-reverted/confirmed-failing with the SDK's
+own error text/restored/`md5sum`-verified byte-identical. Gates: `go build`,
+`go vet`, `gofmt -l` (clean), `go test -race` (pass), `golangci-lint run`
+(0 issues). `last_audit_commit` left unchanged -- this pass's own commit sha
+is not known at edit time.

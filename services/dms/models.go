@@ -318,12 +318,15 @@ type Connection struct {
 	Region                        string
 }
 
-// Event records an operational event emitted by a DMS resource.
+// Event records an operational event emitted by a DMS resource. Date
+// deserializes from a json.Number via smithytime.ParseEpochSeconds --
+// confirmed against aws-sdk-go-v2/service/databasemigrationservice@v1.66.4's
+// deserializers.go (awsAwsjson11_deserializeDocumentEvent, case "Date").
 type Event struct {
 	SourceIdentifier string
 	SourceType       string
 	Message          string
-	Date             string
+	Date             time.Time
 	EventCategories  []string
 }
 
