@@ -134,12 +134,76 @@ from the ranked table) as future batches clear more of it.
 | grafana | 34 | 25 | 0 (clean; last hand-audited 2026-08-06 with an integration suite) | gopherstack-r80d batch 4 |
 | identitystore | 25 | 19 | 0 (clean; last hand-audited 2026-07-25) | gopherstack-r80d batch 4 |
 | pinpoint | 120 | 122 | yes (1: `DeleteUserEndpoints` empty-body 204) | gopherstack-r80d batch 5 |
+| bedrock | 172 | 58 (ops with required fields) | yes (9: see batch-6 note below) | gopherstack-r80d batch 6 |
+| resiliencehub | 94 | 55 (ops with required fields) | yes (2: `ListAppVersionResources`/`ListUnsupportedAppVersionResources`, same `resolutionId` omitempty bug) | gopherstack-r80d batch 6 |
+| transfer | 69 | 52 (ops with required fields) | 0 (clean; already field-diffed against the pinned SDK multiple times, including a prior pass that fixed this exact bug class in the Start* op family) | gopherstack-r80d batch 6 |
+| guardduty | 65 | 44 (ops with required fields) | 0 (clean; read end to end, one near-miss (`GetMemberDetectors`'s wire key genuinely is `"members"` despite the SDK's `MemberDataSourceConfigurations` Go field name -- confirmed via the deserializer's own key-switch before flagging, not just the Go struct name) | gopherstack-r80d batch 6 |
 
-12 services settled, 847 required output fields read end to end, 13 bugs
+16 services settled, 1247 required output fields read end to end, 24 bugs
 found across the first 9 (per gopherstack-r80d's brief); verifiedpermissions,
 grafana and identitystore (batch 4) came back clean; pinpoint (batch 5) added
 one more of the empty-body-204 class first seen in lambda's
-`DeleteCapacityProvider` (batch 1).
+`DeleteCapacityProvider` (batch 1); bedrock (batch 6) added 9 more, all in
+the AutomatedReasoningPolicy sub-resource family plus two one-off finds
+(GetEvaluationJob, GetModelCopyJob) -- see below; resiliencehub (batch 6)
+added 2 more, both the same `resolutionId` omitempty-on-required-field bug
+in sibling List ops (`ListAppVersionResources`/
+`ListUnsupportedAppVersionResources`) -- otherwise exceptionally clean: read
+end to end, every other response shape already emitted required-but-empty
+arrays correctly (`[]struct{}{}` with no omitempty), matching the standing
+convention this campaign established; transfer (batch 6) came back clean,
+all 52 ops with required fields read end to end (struct-tag sweep across
+every `*Output`/`*Response` type plus direct handler reads for the
+non-struct `map[string]any` responses) -- unsurprising, since a prior
+general-parity pass had already fixed this exact bug class for this service
+(the `StartOperations` family: `StartDirectoryListing` was missing the
+required `OutputFileName`, `StartRemoteDelete`/`StartRemoteMove` used wrong
+output key names) before this campaign reached transfer by name; guardduty
+(batch 6) also came back clean, all 44 ops read end to end directly against
+their handler functions (this service builds `map[string]any` responses
+inline rather than through tagged structs, so the wire.go struct-tag sweep
+technique doesn't apply -- every handler was read by hand instead). One
+near-miss worth recording as a method note: `GetMemberDetectors`'s handler
+emits the required field under the key `"members"`, which looks wrong
+against the SDK's Go field name `MemberDataSourceConfigurations` at a
+glance -- reading the real deserializer's key-switch (not just the Go
+struct field name) confirmed the wire key genuinely is `"members"`,
+so this was correctly not flagged. This is the input-side sweep's
+established lesson applied to outputs: verify against the deserializer,
+not the field name.
+
+### bedrock (batch 6): 9 bugs, all outside the ops already hardened by prior parity passes
+
+bedrock had already been through several general-parity passes (parity-4,
+parity-5, gopherstack-lx5h, gopherstack-4sov, gopherstack-7znk,
+gopherstack-ii4c, gopherstack-2wuv) that incidentally did required-output
+field-diffing as part of routine wire-shape work, well before this campaign
+reached bedrock by name. Read end to end (all 58 ops with required fields,
+all 172 required members) against that backdrop -- most of the service was
+already clean. The 9 real bugs found this batch cluster almost entirely in
+one family: GetAutomatedReasoningPolicyBuildWorkflow/
+ListAutomatedReasoningPolicyBuildWorkflows (dropped CreatedAt/UpdatedAt --
+not tracked on the model at all), GetAutomatedReasoningPolicyAnnotations
+(dropped 4 of 6 required members), GetAutomatedReasoningPolicyBuildWorkflowResultAssets
+(dropped PolicyArn), GetAutomatedReasoningPolicyTestCase (wrong response
+shape -- test case fields inlined instead of wrapped under the required
+"testCase" key), Get/ListAutomatedReasoningPolicyTestResult(s) (wrong
+response shape -- flat differently-keyed object instead of the required
+"testResult"/nested-item wrapper), plus two unrelated one-offs:
+GetModelCopyJob (dropped SourceAccountId, derived honestly from the
+already-stored SourceModelArn's own account segment) and GetEvaluationJob
+(OutputDataConfig had no wiring at all -- the "member with no struct field"
+class). All 9 proven via real aws-sdk-go-v2 client round trips
+(services/bedrock/wire_output_required_r80d_test.go) that fail against each
+hand-reverted handler; see services/bedrock/PARITY.md's dated 2026-08-20
+entries for full SDK file:line citations. Two adjacent, NOT-fixed findings
+recorded as gaps rather than bugs (out of this cut's scope, need a union-type
+parsing redesign): GetEvaluationJob's required JobType has no real-AWS-shaped
+source data to derive it from, and CreateEvaluationJob's real
+evaluationConfig/inferenceConfig are polymorphic unions that gopherstack's
+own request parser cannot decode at all -- a real SDK client's
+CreateEvaluationJob 400s today whenever it supplies real union content,
+independent of this batch's fixes.
 
 ### Why pinpoint's density is 120/122 and not a new bug class
 
@@ -182,12 +246,8 @@ against a pinned `aws-sdk-go-v2` module; opsworks/qldb/qldbsession excluded
 ```
  459  sagemaker                 ops=403  ops-with-required=188
  182  omics                     ops=107  ops-with-required=40
- 172  bedrock                   ops=108  ops-with-required=58
  154  bedrockagent              ops=75   ops-with-required=66
-  94  resiliencehub             ops=63   ops-with-required=55
   88  cleanrooms                ops=100  ops-with-required=83
-  69  transfer                  ops=71   ops-with-required=52
-  65  guardduty                 ops=90   ops-with-required=44
   60  s3tables                  ops=49   ops-with-required=28
   55  codecommit                ops=79   ops-with-required=31
   54  stepfunctions             ops=37   ops-with-required=23
@@ -268,9 +328,10 @@ Notes on the top of this table for the next batch:
 - **omics** was, at the time this file was written, being actively edited by
   a sibling agent's over-wide-List sweep (`services/omics/*` uncommitted).
   Check `git status` before touching it.
-- **bedrock**/**bedrockagent** together are 326 required fields across 183
-  ops — the single highest-yield pair remaining, but also the largest
-  reading commitment after sagemaker.
+- **bedrockagent** (154, 66 ops) is now the largest remaining single-service
+  reading commitment after sagemaker/omics; **bedrock settled (batch 6)** —
+  do not re-derive, see the settled-services table above and
+  services/bedrock/PARITY.md's 2026-08-20 entries.
 - **pinpoint settled (batch 5)** — see the settled-services table above for
   why its 120/122 density was structural (single httpPayload-style body
   member per op), not many per-op scalar checks. Don't re-derive; one bug

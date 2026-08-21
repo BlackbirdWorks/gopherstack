@@ -67,7 +67,7 @@ ops:
   ListApps: {wire: ok, errors: ok, state: ok, persist: ok, note: "apps.go; GET, single-filter-at-a-time"}
   ListAppVersionAppComponents: {wire: ok, errors: ok, state: ok, persist: ok, note: "appversions.go"}
   ListAppVersionResourceMappings: {wire: ok, errors: ok, state: ok, persist: ok, note: "resources.go"}
-  ListAppVersionResources: {wire: ok, errors: ok, state: ok, persist: ok, note: "resources.go"}
+  ListAppVersionResources: {wire: fixed, errors: ok, state: ok, persist: ok, note: "resources.go; FIXED 2026-08-20 (gopherstack-r80d, required-output-member sweep) -- ResolutionId is required (api_op_ListAppVersionResources.go:67-70) but wire.go's omitempty tag dropped the key entirely for an app version that has never gone through ResolveAppVersionResources (v.Resolution == nil, a fully reachable state for any freshly created app). Now emitted present-but-empty in that case; only the wire.go struct tag changed, no handler logic. Proven via a real aws-sdk-go-v2 client round trip that fails against the unfixed tag (wire_output_required_r80d_test.go)."}
   ListAppVersions: {wire: ok, errors: ok, state: ok, persist: ok, note: "appversions.go; draft + every published snapshot, [startTime,endTime] filter"}
   ListMetrics: {wire: ok, errors: ok, state: partial, persist: n/a, note: "metrics.go; always empty (no historical metrics store; ResiliencyScore itself is a placeholder)"}
   ListRecommendationTemplates: {wire: ok, errors: ok, state: ok, persist: ok, note: "templates.go; GET, filters + reverseOrder"}
@@ -77,7 +77,7 @@ ops:
   ListSuggestedResiliencyPolicies: {wire: ok, errors: ok, state: partial, persist: n/a, note: "policies.go; GET, static 5-tier stand-in table (documented, non-authoritative), NOT the real backend's ResiliencyPolicies table"}
   ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: n/a, note: "tagging.go; GET /tags/{resourceArn}, resolves App/Policy/Assessment by ARN marker"}
   ListTestRecommendations: {wire: ok, errors: ok, state: partial, persist: n/a, note: "recommendations.go; always empty"}
-  ListUnsupportedAppVersionResources: {wire: ok, errors: ok, state: ok, persist: ok, note: "resources.go; real classification against the two closed PhysicalResourceId.Type lists"}
+  ListUnsupportedAppVersionResources: {wire: fixed, errors: ok, state: ok, persist: ok, note: "resources.go; real classification against the two closed PhysicalResourceId.Type lists. FIXED 2026-08-20 (gopherstack-r80d) -- same ResolutionId-omitempty bug and fix as ListAppVersionResources above (api_op_ListUnsupportedAppVersionResources.go:62-67)."}
   PublishAppVersion: {wire: ok, errors: ok, state: ok, persist: ok, note: "appversions.go; deep-copy snapshot into a new numbered version, draft continues mutating forward"}
   PutDraftAppVersionTemplate: {wire: ok, errors: ok, state: ok, persist: ok, note: "appversions.go; draft-only"}
   RejectResourceGroupingRecommendations: {wire: ok, errors: ok, state: partial, persist: n/a, note: "grouping.go; same honest-failure rationale as Accept"}
