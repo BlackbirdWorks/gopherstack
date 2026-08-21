@@ -4,14 +4,24 @@ import (
 	"context"
 )
 
-// createCatalogInput holds input for CreateCatalog.
+// createCatalogInput holds input for CreateCatalog. Name is required and, per
+// the real serializer (serializers.go's
+// awsAwsjson11_serializeOpDocumentCreateCatalogInput), sits at the top level
+// of the request body, a sibling of CatalogInput. The real
+// CreateCatalogInput (api_op_CreateCatalog.go) has no CatalogId member at
+// all -- unlike Get/Update/Delete/ImportCatalogToGlue, a catalog is created
+// and addressed purely by Name, so Name doubles as this backend's storage
+// key. A prior version of this struct instead expected a fictional top-level
+// CatalogId and read Name from a nonexistent CatalogInput.Name, so a real
+// client's Name was silently dropped: every created catalog was stored under
+// the empty-string key with an empty Name, and any later GetCatalog(CatalogId:
+// <the name the client used>) would 404.
 type createCatalogInput struct {
 	CatalogInput struct {
 		Parameters  map[string]string `json:"Parameters,omitzero"`
-		Name        string            `json:"Name,omitempty"`
 		Description string            `json:"Description,omitempty"`
 	} `json:"CatalogInput"`
-	CatalogID string `json:"CatalogId"`
+	Name string `json:"Name"`
 }
 
 func (h *Handler) handleCreateCatalog(
@@ -19,8 +29,8 @@ func (h *Handler) handleCreateCatalog(
 	in *createCatalogInput,
 ) (*emptyOutput, error) {
 	return &emptyOutput{}, h.Backend.CreateCatalog(
-		in.CatalogID,
-		in.CatalogInput.Name,
+		in.Name,
+		in.Name,
 		in.CatalogInput.Description,
 		in.CatalogInput.Parameters,
 	)

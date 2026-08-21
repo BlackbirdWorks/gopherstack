@@ -414,7 +414,7 @@ type Blueprint struct {
 // CustomEntityType represents a Glue custom entity type.
 type CustomEntityType struct {
 	Name         string   `json:"Name"`
-	RegexString  string   `json:"RegexString,omitempty"`
+	RegexString  string   `json:"RegexString"`
 	ContextWords []string `json:"ContextWords,omitempty"`
 }
 
@@ -902,8 +902,8 @@ type ColumnStatisticsData struct {
 type ColumnStatistics struct {
 	StatisticsData ColumnStatisticsData `json:"StatisticsData"`
 	ColumnName     string               `json:"ColumnName"`
-	ColumnType     string               `json:"ColumnType,omitempty"`
-	AnalyzedTime   float64              `json:"AnalyzedTime,omitempty"`
+	ColumnType     string               `json:"ColumnType"`
+	AnalyzedTime   float64              `json:"AnalyzedTime"`
 }
 
 type resourcePolicyEntry struct {
@@ -990,7 +990,7 @@ type MLTransformOptions struct {
 type CatalogEntry struct {
 	Parameters  map[string]string `json:"Parameters,omitzero"`
 	CatalogID   string            `json:"CatalogId"`
-	Name        string            `json:"Name,omitempty"`
+	Name        string            `json:"Name"`
 	Description string            `json:"Description,omitempty"`
 	CreateTime  float64           `json:"CreateTime,omitempty"`
 }
@@ -1003,7 +1003,7 @@ type DataCatalogEncryptionSettings struct {
 
 // EncryptionAtRest holds at-rest encryption config.
 type EncryptionAtRest struct {
-	CatalogEncryptionMode        string `json:"CatalogEncryptionMode,omitempty"`
+	CatalogEncryptionMode        string `json:"CatalogEncryptionMode"`
 	SseAwsKmsKeyID               string `json:"SseAwsKmsKeyId,omitempty"`
 	CatalogEncryptionServiceRole string `json:"CatalogEncryptionServiceRole,omitempty"`
 }
@@ -1233,22 +1233,22 @@ type WorkflowRunStatistics struct {
 // GrokClassifier is a Grok-based classifier.
 type GrokClassifier struct {
 	Name           string `json:"Name"`
-	Classification string `json:"Classification,omitempty"`
-	GrokPattern    string `json:"GrokPattern,omitempty"`
+	Classification string `json:"Classification"`
+	GrokPattern    string `json:"GrokPattern"`
 	CustomPatterns string `json:"CustomPatterns,omitempty"`
 }
 
 // XMLClassifier is an XML-based classifier.
 type XMLClassifier struct {
 	Name           string `json:"Name"`
-	Classification string `json:"Classification,omitempty"`
+	Classification string `json:"Classification"`
 	RowTag         string `json:"RowTag,omitempty"`
 }
 
 // JSONClassifier is a JSON-based classifier.
 type JSONClassifier struct {
 	Name     string `json:"Name"`
-	JSONPath string `json:"JsonPath,omitempty"`
+	JSONPath string `json:"JsonPath"`
 }
 
 // CsvClassifier is a CSV-based classifier.

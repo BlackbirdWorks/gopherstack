@@ -151,8 +151,15 @@ from the ranked table) as future batches clear more of it.
 | vpclattice | 37 | 73 (16 ops-with-required) | yes (1: `ListAccessLogSubscriptions`/`AccessLogSubscriptionSummary` dropping required `lastUpdatedAt` -- see the batch-13 note below and services/vpclattice/PARITY.md) | gopherstack-r80d batch 13 |
 | appmesh | 36 | 38 (36 ops-with-required) | 0 (clean; one apparent false positive -- a stale "OpDocument" deserializer helper made the flat response shape look like a missing-wrapper-key bug -- ruled out via a real SDK client round trip, see the batch-13 note below and services/appmesh/PARITY.md) | gopherstack-r80d batch 13 |
 | amplify | 35 | 37 (33 ops-with-required) | yes (13 member-level bugs across 5 findings: `App.EnvironmentVariables`/`Description`/`Repository`, `Branch.ActiveJobId`/`CustomDomains`/`Description`/`Framework`/`EnvironmentVariables`, `DomainAssociation.StatusReason`, `Webhook.Description`, `JobSummary.CommitId`/`CommitMessage`/`CommitTime` -- see the batch-14 note below and services/amplify/PARITY.md) | gopherstack-r80d batch 14 |
+| glue | 34 | 299 (17 ops-with-required) | yes (6 member-level bugs across 3 findings: `Catalog.Name` (CreateCatalog read the name off a nonexistent `CatalogInput.Name`), `GrokClassifier.Classification`/`GrokPattern`, `XMLClassifier.Classification`, `JsonClassifier.JsonPath`, `ColumnStatistics.ColumnType` -- see the batch-15 note below and services/glue/PARITY.md) | gopherstack-r80d batch 15 |
 
-29 services settled, 2114 required output fields read end to end. Batch 14
+30 services settled, 2148 required output fields read end to end (the running
+total counts each settled service's flat per-op `cmd/requiredoutputfields`
+number, as established by every prior batch -- glue's own real audited
+surface was substantially larger once its ~56 gopherstack-modeled domain
+structs were cross-checked, see the batch-15 note below). Batch 15
+(glue only) added 6 more counted bugs on top of the running total -- see the
+batch-15 note below for detail. Batch 14
 (amplify only) added 13 more counted bugs on top of the running total -- see
 the batch-14 note below for detail. Batch 13
 (vpclattice + appmesh) added 1 more counted bug (vpclattice's
@@ -579,6 +586,135 @@ and no more" — amplify's "one wrapper key" shape made a single-service read
 already substantial (20 domain structs, 63 required members, 5 separate
 wire-view files).
 
+### glue (batch 15): 6 member-level bugs, settled via domain-struct cross-reference rather than a per-op read
+
+Selected after re-verifying the table against a fresh `go run
+./cmd/requiredoutputfields` run: glue (34 fields, 299 ops, only 17
+ops-with-required) confirmed as the largest remaining candidate after
+sagemaker (off-limits, `git status` confirmed a clean glue tree and an
+in-flight sagemaker conversion before starting, unrelated files untouched
+throughout).
+
+glue's flat op-level density (17 of 299 ops) is the lowest of any settled
+service so far by a wide margin, and this shape made a per-op read the wrong
+tool: unlike pinpoint/bedrockagent/cleanrooms/inspector2/amplify's "one
+wrapper key" undercount (where the flat count understates a much larger
+per-op surface), most of glue's 299 ops return domain objects
+(`Job`/`Crawler`/`Trigger`/`Workflow`/`DevEndpoint`/`Connection`/`Session`/
+`Blueprint`/`Partition`) whose real SDK types declare **zero** required
+members at all -- confirmed via a direct AST-style walk of every `type X
+struct` in the pinned SDK's 13,275-line `types/types.go` (184 struct
+declarations carry at least one `This member is required.` annotation; a
+repo-wide check of `Job`/`Crawler`/`Trigger`/`Workflow`/`MLTransform`/
+`DevEndpoint`/`Connection`/`Session`/`Blueprint`/`Partition`/`Classifier`/
+`DataQualityResult`/`MappingEntry` found each carries exactly 0). This is the
+codecommit-batch-9 lesson (a service whose Smithy model marks nothing
+required on its response types cannot have this bug class) applied at far
+larger scale: an entire ~250-op swath of glue structurally cannot violate
+this campaign's target class, verified by reading the SDK's own declarations
+directly rather than by hand-auditing every op's handler.
+
+The remaining, genuinely checkable surface is the 184 required-bearing
+structs themselves. Cross-referenced every one against gopherstack's own
+`services/glue/*.go` source by exact Go type name: 56 of the 184 names
+appear literally in this backend's code (the rest -- almost entirely the
+Glue Studio visual-ETL `CodeGenConfigurationNode` union family: `Aggregate`,
+`Filter`, `Join`, ~40 `*ConnectorSource`/`*ConnectorTarget`/
+`*CatalogSource`/`*CatalogTarget` variants, `S3CsvSource`, `SparkSQL`, etc. --
+do not appear at all, confirmed by grep, because `Job.CodeGenConfigurationNodes`
+itself has no backing field anywhere in this backend's `Job` model; the
+entire visual-ETL-script feature is unimplemented, so none of those ~120
+struct types can ever be emitted by any op here -- a verified non-finding,
+not an unexamined one, the same class as stepfunctions batch 10's 9
+undisclosed `*EventDetails` kinds). Read all 56 present names end to end
+against every handler/model file that constructs them, including two
+reachability classes this campaign has already named (a nested type reachable
+only through a sibling op's non-required field: `Integration`/
+`InboundIntegration` via `DescribeIntegrations`/`DescribeInboundIntegrations`;
+`CustomEntityType` via `BatchGetCustomEntityTypes`/`ListCustomEntityTypes`) --
+neither is caught by `cmd/requiredoutputfields`'s per-op scan since the
+required members sit on the nested struct, not the op's own `<Op>Output`.
+One false positive ruled out with evidence: the real SDK's `types.CatalogEntry`
+(a `DatabaseName`/`TableName` pair used only by `GetMapping`/`GetPlan`'s
+input) happens to share a name with this backend's own, unrelated
+`CatalogEntry` wire-view type for `GetCatalog`/`GetCatalogs` -- confirmed via
+`grep -rln "types.CatalogEntry" api_op_*.go` that the real type is
+input-only everywhere in the SDK, so it is not this campaign's target class
+at all, a coincidental name collision only.
+
+6 bugs, across 3 findings:
+
+1. **`Catalog.Name`** (required, `types/types.go`) -- not a simple missed tag:
+   `CreateCatalog`'s handler read the name from a nonexistent
+   `CatalogInput.Name` field. The real `CreateCatalogInput`
+   (`api_op_CreateCatalog.go`) has no `CatalogId` member at all and puts
+   `Name` at the top level, a sibling of `CatalogInput` (confirmed against
+   `serializers.go`'s `awsAwsjson11_serializeOpDocumentCreateCatalogInput`
+   and `types.CatalogInput` itself, which has no `Name` field) -- a catalog
+   is created and addressed purely by `Name`. Every catalog a real client
+   ever created was silently stored under the empty-string key with an
+   empty `Name`; a later `GetCatalog(CatalogId: <the name the client used>)`
+   would 404, and `Catalog.Name`'s `omitempty` tag meant even a successful
+   `GetCatalogs` dropped the required key entirely. Fixed by reading the
+   real top-level `Name` and using it as both the catalog's `Name` and this
+   backend's storage key, and removing the `omitempty` tag.
+2. **`GrokClassifier.Classification`/`.GrokPattern`, `XMLClassifier.Classification`,
+   `JsonClassifier.JsonPath`** (all required, `types/types.go`) -- reachable
+   because `CreateGrokClassifierRequest`/`CreateXMLClassifierRequest`/
+   `CreateJsonClassifierRequest`'s own client-side validators (`validators.go`)
+   only reject a nil pointer, never an empty string, and this backend's
+   `CreateClassifier`/`UpdateClassifier` store whatever content is supplied
+   with no further validation. Fixed by removing all four `omitempty` tags.
+3. **`ColumnStatistics.ColumnType`** (required) -- same reachability shape:
+   `UpdateColumnStatisticsForTable`/`ForPartition`'s client-side
+   `validateColumnStatistics` also only rejects a nil `ColumnType` pointer,
+   and this backend stores it verbatim. Fixed by removing the `omitempty`
+   tag.
+
+All 6 proven via real `aws-sdk-go-v2/service/glue` client round trips
+(`wire_output_required_r80d_test.go`), hand-reverted (all three touched files
+-- `handler_catalogs.go`, `handler_catalogs_test.go`, `models.go` -- reverted
+to HEAD together, confirmed all 5 new test (sub)cases fail)/confirmed-failing/
+restored, md5sum-verified byte-identical.
+
+**4 more findings fixed but NOT counted**, all unreachable via any real
+client despite carrying the same dead `omitempty` tag: `ColumnStatistics.AnalyzedTime`
+is overwritten server-side to `time.Now()` on every real Update call
+regardless of client input, so it can never actually be zero-valued in a
+stored record; `integrationSummary.CreateTime` (`DescribeIntegrations`) is
+likewise always derived from `Integration.CreatedAt`, which the sole
+construction site (`CreateIntegration`) always sets to `time.Now().UTC()`;
+`CustomEntityType.RegexString` is required and the real client-side
+validator only rejects a nil pointer, but this backend's own
+`CreateCustomEntityType` independently rejects an empty `RegexString` with
+`ErrValidation` before ever storing a record, so no real client can reach a
+stored empty one; `EncryptionAtRest.CatalogEncryptionMode` is required, but
+unlike every counted bug above, the real `PutDataCatalogEncryptionSettingsInput`'s
+own `validateEncryptionAtRest` checks `len(v.CatalogEncryptionMode) == 0`
+(a string-length check, not just a nil-pointer check), so a real client
+cannot send an empty value at all -- the first case this batch found where
+the SDK's own client-side validation, not this backend's, closes the gap.
+All four tags removed as harmless cleanup, not claimed as proven bugs.
+
+Gates (build/vet/gofmt/race-test/lint) all green, 0 banned nolints, 1 new
+nolint avoided by using `require.Empty` instead of `require.Equal(t, "",
+...)` (testifylint), no exported signatures changed outside
+`services/glue/`. Repo-wide `go build ./...` clean; `go vet ./...` and both
+tagged vets show only the pre-existing, unrelated sagemaker
+concurrent-conversion failure (`services/sagemaker/handler_edge_deployment_test.go`,
+untouched by this batch, confirmed via `git status`). See
+`services/glue/PARITY.md`'s 2026-08-21 entries (`catalogs`/`classifiers`/
+`column_statistics`) for the full per-member breakdown and SDK file:line
+citations.
+
+Did not attempt a second service this batch. Not started, disclosed rather
+than silently skipped: the ~120 Glue Studio `CodeGenConfigurationNode` ETL
+node types are a verified non-finding for THIS bug class (see above) but
+represent a real missing-feature gap in their own right (visual ETL script
+authoring/execution) -- out of scope for r80d, not filed as a new bd issue
+by this batch since no evidence was gathered on how large that lift would
+be beyond "the whole feature does not exist."
+
 ## Ranked candidates (services not yet examined for this bug class)
 
 89 services have >=1 required output field; 70 have zero (nothing to check
@@ -589,13 +725,12 @@ against a pinned `aws-sdk-go-v2` module; opsworks/qldb/qldbsession excluded
 settled batch 9), codecommit (55, settled batch 9), stepfunctions (54,
 settled batch 10), apprunner (44, settled batch 10), databrew (43, settled
 batch 11), backup (41, settled batch 11), inspector2 (38, settled batch
-12), vpclattice (37, settled batch 13), appmesh (36, settled batch 13), and
-amplify (35, settled batch 14) removed from this table — see the "Already
-examined" table above.
+12), vpclattice (37, settled batch 13), appmesh (36, settled batch 13),
+amplify (35, settled batch 14), and glue (34, settled batch 15) removed from
+this table — see the "Already examined" table above.
 
 ```
  459  sagemaker                 ops=403  ops-with-required=188
-  34  glue                      ops=299  ops-with-required=17
   31  batch                     ops=45   ops-with-required=15
   30  ce                        ops=47   ops-with-required=18
   30  efs                       ops=31   ops-with-required=6
@@ -708,9 +843,22 @@ Notes on the top of this table for the next batch:
   JobSummary, all the "required member tagged omitempty/omitzero on a
   reachably-empty real-client state" shape; 1 adjacent finding
   (`Branch.Stage`) fixed but not counted since no real-client test can
-  observe the difference for a non-pointer enum field. **glue** (34, 299
-  ops, only 17 ops-with-required) is now the largest remaining candidate
-  after sagemaker.
+  observe the difference for a non-pointer enum field.
+- **glue settled (batch 15)** — do not re-derive, see the settled-services
+  table above and services/glue/PARITY.md's 2026-08-21 entries
+  (`catalogs`/`classifiers`/`column_statistics`), plus the batch-15 note
+  above for the full per-member breakdown and the domain-struct
+  cross-reference method used (this service's 299-op, 17-ops-with-required
+  flat density made a per-op read the wrong tool; ~250 ops return domain
+  types the SDK marks zero required fields on at all, confirmed via a
+  direct AST walk of types.go, and the ~120-struct Glue Studio
+  CodeGenConfigurationNode ETL family is entirely unreachable since
+  Job.CodeGenConfigurationNodes has no backing field in this backend).
+  6 member-level bugs across Catalog/GrokClassifier/XMLClassifier/
+  JsonClassifier/ColumnStatistics; 4 more fixed but not counted, all
+  unreachable via any real client. **batch** (31, 45 ops, 15
+  ops-with-required) is now the largest remaining candidate after
+  sagemaker.
 - **omics settled (batch 7)** — do not re-derive, see the settled-services
   table above and services/omics/PARITY.md's 2026-08-21 entries. The
   concurrent sibling agent's over-wide-List sweep this file previously
