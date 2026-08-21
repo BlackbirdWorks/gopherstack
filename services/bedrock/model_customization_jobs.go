@@ -31,6 +31,7 @@ func (b *InMemoryBackend) newCustomizationJobID() string {
 func (b *InMemoryBackend) CreateModelCustomizationJob(
 	jobName, customModelName, baseModelID, customizationType, roleArn string,
 	outputDataConfig OutputDataConfig, trainingDataConfig TrainingDataConfig,
+	validatorS3Uris []string,
 	tags []Tag,
 ) (*ModelCustomizationJob, error) {
 	b.mu.Lock("CreateModelCustomizationJob")
@@ -89,6 +90,7 @@ func (b *InMemoryBackend) CreateModelCustomizationJob(
 		RoleArn:            roleArn,
 		OutputDataConfig:   outputDataConfig,
 		TrainingDataConfig: trainingDataConfig,
+		ValidatorS3Uris:    validatorS3Uris,
 		CreationTime:       now,
 		LastModifiedTime:   now,
 		Tags:               copyTags(tags),

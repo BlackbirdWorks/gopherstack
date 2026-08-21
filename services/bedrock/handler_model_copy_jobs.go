@@ -121,10 +121,23 @@ func (h *Handler) handleGetModelCopyJob(c *echo.Context, jobARN string) error {
 	return c.JSON(http.StatusOK, modelCopyJobToOutput(job))
 }
 
+// accountIDFromARN extracts the account segment (index 4 of arnFieldCount)
+// from a well-formed ARN this backend built itself via pkgs/arn.Build --
+// not a fabricated value, just re-deriving what's already embedded.
+func accountIDFromARN(arn string) string {
+	parts := strings.SplitN(arn, ":", arnFieldCount)
+	if len(parts) != arnFieldCount {
+		return ""
+	}
+
+	return parts[4]
+}
+
 func modelCopyJobToOutput(j *ModelCopyJob) map[string]any {
 	out := map[string]any{
 		keyJobArn:           j.JobArn,
 		"sourceModelArn":    j.SourceModelArn,
+		"sourceAccountId":   accountIDFromARN(j.SourceModelArn),
 		"targetModelArn":    j.TargetModelArn,
 		keyStatus:           j.Status,
 		keyCreationTime:     j.CreationTime.Format(time.RFC3339),

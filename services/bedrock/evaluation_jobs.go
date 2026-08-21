@@ -53,6 +53,7 @@ func (b *InMemoryBackend) CreateEvaluationJob(
 		job.EvaluatorConfig = opt.EvaluatorConfig
 		job.InferenceConfig = opt.InferenceConfig
 		job.EvaluationConfig = opt.EvalConfig
+		job.OutputDataConfig = opt.OutputDataConfig
 	}
 
 	b.evaluationJobs.Put(job)

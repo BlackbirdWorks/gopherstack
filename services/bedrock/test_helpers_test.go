@@ -54,7 +54,7 @@ func createCustomizationJob(
 	return b.CreateModelCustomizationJob(
 		jobName, customModelName, "amazon.titan-text-express-v1", "",
 		testCustomizationRoleArn, testOutputDataConfig(), testTrainingDataConfig(),
-		nil,
+		nil, nil,
 	)
 }
 

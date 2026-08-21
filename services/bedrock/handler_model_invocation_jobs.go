@@ -103,7 +103,7 @@ func modelInvocationJobToSummary(j *ModelInvocationJob) map[string]any {
 		keyJobArn:           j.JobArn,
 		keyJobName:          j.JobName,
 		keyModelID:          j.ModelID,
-		"roleArn":           j.RoleArn,
+		keyRoleArn:          j.RoleArn,
 		"inputDataConfig":   j.InputDataConfig,
 		"outputDataConfig":  j.OutputDataConfig,
 		keyStatus:           j.Status,

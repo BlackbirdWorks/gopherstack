@@ -226,6 +226,7 @@ func seedJobResources(
 		"arn:aws:iam::000000000000:role/cust-role",
 		bedrock.OutputDataConfig{S3Uri: "s3://my-bucket/output/"},
 		bedrock.TrainingDataConfig{S3Uri: "s3://my-bucket/training/"},
+		nil,
 		tags,
 	)
 	require.NoError(t, err)

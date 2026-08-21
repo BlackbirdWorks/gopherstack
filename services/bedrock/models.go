@@ -205,16 +205,17 @@ type EvaluationInferenceConfig struct {
 type EvaluationJob struct {
 	CreationTime     time.Time                  `json:"creationTime"`
 	LastModifiedTime time.Time                  `json:"lastModifiedTime"`
-	JobArn           string                     `json:"jobArn"`
+	InferenceConfig  *EvaluationInferenceConfig `json:"inferenceConfig,omitempty"`
+	EvaluatorConfig  *EvaluationModelConfig     `json:"evaluatorConfig,omitempty"`
+	ApplicationType  string                     `json:"applicationType,omitempty"`
 	JobName          string                     `json:"jobName"`
 	JobDescription   string                     `json:"jobDescription,omitempty"`
 	RoleArn          string                     `json:"roleArn,omitempty"`
 	Status           string                     `json:"status"`
-	ApplicationType  string                     `json:"applicationType,omitempty"`
-	Tags             []Tag                      `json:"tags,omitempty"`
-	EvaluatorConfig  *EvaluationModelConfig     `json:"evaluatorConfig,omitempty"`
-	InferenceConfig  *EvaluationInferenceConfig `json:"inferenceConfig,omitempty"`
+	JobArn           string                     `json:"jobArn"`
+	OutputDataConfig OutputDataConfig           `json:"outputDataConfig"`
 	EvaluationConfig []EvaluationTaskConfig     `json:"evaluationConfig,omitempty"`
+	Tags             []Tag                      `json:"tags,omitempty"`
 }
 
 // AutomatedReasoningPolicy represents an Automated Reasoning policy.
@@ -238,9 +239,11 @@ type AutomatedReasoningPolicy struct {
 
 // AutomatedReasoningPolicyBuildWorkflow represents a build workflow for a policy.
 type AutomatedReasoningPolicyBuildWorkflow struct {
-	BuildWorkflowID string `json:"buildWorkflowId"`
-	PolicyArn       string `json:"policyArn"`
-	Status          string `json:"status"`
+	CreatedAt       time.Time `json:"createdAt"`
+	UpdatedAt       time.Time `json:"updatedAt"`
+	BuildWorkflowID string    `json:"buildWorkflowId"`
+	PolicyArn       string    `json:"policyArn"`
+	Status          string    `json:"status"`
 	// BuildWorkflowType and SourceContent come from
 	// StartAutomatedReasoningPolicyBuildWorkflow's real path/body
 	// (bedrock@v1.66.4 serializers.go:8008: buildWorkflowType is a path
@@ -407,7 +410,12 @@ type ModelCustomizationJob struct {
 	RoleArn            string             `json:"roleArn"`
 	OutputDataConfig   OutputDataConfig   `json:"outputDataConfig"`
 	TrainingDataConfig TrainingDataConfig `json:"trainingDataConfig"`
-	Tags               []Tag              `json:"tags,omitempty"`
+	// ValidatorS3Uris holds Validator.S3Uri from the optional
+	// CreateModelCustomizationJobInput.ValidationDataConfig (bedrock@v1.66.4
+	// serializers.go:13249); GetModelCustomizationJobOutput.ValidationDataConfig
+	// is required regardless, so it's always emitted, empty or not.
+	ValidatorS3Uris []string `json:"validatorS3Uris,omitempty"`
+	Tags            []Tag    `json:"tags,omitempty"`
 }
 
 // InferenceProfile represents an inference profile resource. ModelSource is
@@ -460,14 +468,15 @@ type ModelInvocationLoggingConfiguration struct {
 
 // CreateEvaluationJobInput holds all parameters for CreateEvaluationJob.
 type CreateEvaluationJobInput struct {
-	JobName         string
-	JobDescription  string
-	RoleArn         string
-	ApplicationType string
-	Tags            []Tag
-	EvaluatorConfig *EvaluationModelConfig
-	InferenceConfig *EvaluationInferenceConfig
-	EvalConfig      []EvaluationTaskConfig
+	EvaluatorConfig  *EvaluationModelConfig
+	InferenceConfig  *EvaluationInferenceConfig
+	JobName          string
+	JobDescription   string
+	RoleArn          string
+	ApplicationType  string
+	OutputDataConfig OutputDataConfig
+	Tags             []Tag
+	EvalConfig       []EvaluationTaskConfig
 }
 
 // BatchDeleteEvaluationJobError describes a single job deletion failure.

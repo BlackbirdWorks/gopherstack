@@ -186,6 +186,7 @@ func TestAccuracy_AdvanceCustomizationJobStatus(t *testing.T) {
 		testOutputDataConfig(),
 		testTrainingDataConfig(),
 		nil,
+		nil,
 	)
 	require.NoError(t, err)
 	assert.Equal(t, "InProgress", job.Status)
@@ -222,6 +223,7 @@ func TestAccuracy_CustomizationJob_StopTransitionsStatus(t *testing.T) {
 				testCustomizationRoleArn,
 				testOutputDataConfig(),
 				testTrainingDataConfig(),
+				nil,
 				nil,
 			)
 			require.NoError(t, err)
@@ -271,6 +273,7 @@ func TestAccuracy_CustomizationJob_ListViaHTTP(t *testing.T) {
 					testCustomizationRoleArn,
 					testOutputDataConfig(),
 					testTrainingDataConfig(),
+					nil,
 					nil,
 				)
 				require.NoError(t, err)
