@@ -25,7 +25,7 @@ func (h *Handler) handleCreateShare(c *echo.Context) error {
 	return c.JSON(http.StatusCreated, map[string]any{
 		"shareId":   share.ShareID,
 		"shareName": share.Name,
-		"status":    share.Status,
+		keyStatus:   share.Status,
 	})
 }
 
@@ -35,7 +35,7 @@ func (h *Handler) handleAcceptShare(c *echo.Context, shareID string) error {
 		return h.mapError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"status": share.Status})
+	return c.JSON(http.StatusOK, map[string]any{keyStatus: share.Status})
 }
 
 func (h *Handler) handleDeleteShare(c *echo.Context, shareID string) error {
@@ -44,7 +44,7 @@ func (h *Handler) handleDeleteShare(c *echo.Context, shareID string) error {
 		return h.mapError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"status": share.Status})
+	return c.JSON(http.StatusOK, map[string]any{keyStatus: share.Status})
 }
 
 func (h *Handler) handleGetShare(c *echo.Context, shareID string) error {
