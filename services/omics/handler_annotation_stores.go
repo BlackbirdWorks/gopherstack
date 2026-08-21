@@ -14,6 +14,7 @@ func (h *Handler) handleCreateAnnotationStore(c *echo.Context) error {
 		StoreOptions map[string]any    `json:"storeOptions"`
 		Name         string            `json:"name"`
 		StoreFormat  string            `json:"storeFormat"`
+		VersionName  string            `json:"versionName"`
 	}
 
 	if err := readJSON(c, &req); err != nil {
@@ -32,7 +33,13 @@ func (h *Handler) handleCreateAnnotationStore(c *echo.Context) error {
 		return h.mapError(c, err)
 	}
 
-	return c.JSON(http.StatusCreated, as)
+	return c.JSON(http.StatusCreated, CreateAnnotationStoreResponse{
+		CreationTime: as.CreationTime,
+		ID:           as.ID,
+		Name:         as.Name,
+		Status:       as.Status,
+		VersionName:  req.VersionName,
+	})
 }
 
 func (h *Handler) handleDeleteAnnotationStore(c *echo.Context, name string) error {

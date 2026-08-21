@@ -348,6 +348,7 @@ func (b *InMemoryBackend) CreateAnnotationStoreVersion(
 
 	now := time.Now().UTC()
 	v := &AnnotationStoreVersion{
+		ID:           newID(),
 		StoreID:      as.ID,
 		StoreName:    name,
 		VersionName:  versionName,
@@ -474,7 +475,9 @@ func newAnnotationStoreVersionSummary(v *AnnotationStoreVersion) AnnotationStore
 		CreationTime:     v.CreationTime,
 		UpdateTime:       v.UpdateTime,
 		VersionArn:       v.VersionArn,
+		ID:               v.ID,
 		StoreID:          v.StoreID,
+		StoreName:        v.StoreName,
 		VersionName:      v.VersionName,
 		Description:      v.Description,
 		Status:           v.Status,

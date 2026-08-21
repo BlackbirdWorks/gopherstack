@@ -240,7 +240,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	require.NoError(t, err)
 
 	// VariantStore + variantImportJobs.
-	varStore, err := original.CreateVariantStore("var-store-1", nil, map[string]string{"env": "test"})
+	varStore, err := original.CreateVariantStore("var-store-1", nil, nil, map[string]string{"env": "test"})
 	require.NoError(t, err)
 
 	varImportJob, err := original.StartVariantImportJob(

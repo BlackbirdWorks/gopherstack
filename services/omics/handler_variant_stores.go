@@ -10,6 +10,7 @@ func (h *Handler) handleCreateVariantStore(c *echo.Context) error {
 	var req struct {
 		Tags      map[string]string `json:"tags"`
 		Reference map[string]any    `json:"reference"`
+		SseConfig map[string]any    `json:"sseConfig"`
 		Name      string            `json:"name"`
 	}
 
@@ -17,7 +18,7 @@ func (h *Handler) handleCreateVariantStore(c *echo.Context) error {
 		return err
 	}
 
-	vs, err := h.Backend.CreateVariantStore(req.Name, req.Reference, req.Tags)
+	vs, err := h.Backend.CreateVariantStore(req.Name, req.Reference, req.SseConfig, req.Tags)
 	if err != nil {
 		return h.mapError(c, err)
 	}

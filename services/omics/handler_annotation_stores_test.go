@@ -32,7 +32,13 @@ func TestOmics_AnnotationStore(t *testing.T) {
 				t.Helper()
 				var resp map[string]any
 				require.NoError(t, json.Unmarshal(body, &resp))
-				assert.Contains(t, resp["storeArn"], "arn:aws:omics:")
+				// Real CreateAnnotationStoreOutput is narrower than
+				// GetAnnotationStoreOutput -- no storeArn/reference member
+				// (api_op_CreateAnnotationStore.go:68-95); storeArn is
+				// exercised via GetAnnotationStore instead, see
+				// TestCreateAnnotationStore_ResponseShape.
+				assert.NotEmpty(t, resp["id"])
+				assert.Equal(t, "ann-store", resp["name"])
 			},
 		},
 		{
@@ -72,7 +78,10 @@ func TestOmics_AnnotationStore(t *testing.T) {
 }
 
 // TestCreateAnnotationStoreStoresReference verifies that CreateAnnotationStore
-// accepts and returns a reference field. Real AWS requires this for VCF/TSV stores.
+// accepts a reference field and that a subsequent GetAnnotationStore returns
+// it. Real CreateAnnotationStoreOutput has no reference member
+// (api_op_CreateAnnotationStore.go:68-95) -- only GetAnnotationStoreOutput
+// does -- so the reference is checked via Get, not Create's own response.
 func TestCreateAnnotationStoreStoresReference(t *testing.T) {
 	t.Parallel()
 
@@ -88,10 +97,43 @@ func TestCreateAnnotationStoreStoresReference(t *testing.T) {
 	})
 	require.Equal(t, http.StatusCreated, rec.Code)
 
+	var createResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	assert.Equal(t, "CREATING", createResp["status"])
+
+	getRec := doRequest(t, h, http.MethodGet, "/annotationStore/ann-store-ref", nil)
+	require.Equal(t, http.StatusOK, getRec.Code)
+
+	var getResp map[string]any
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+	assert.NotNil(t, getResp["reference"])
+	// GetAnnotationStore advances CREATING->ACTIVE on its first poll (the
+	// waiter-hang fix -- see PARITY.md), so the immediate Get after Create
+	// observes ACTIVE, not the CREATING status Create itself returned.
+	assert.Equal(t, "ACTIVE", getResp["status"])
+}
+
+// TestCreateAnnotationStore_ResponseShape locks down the narrower real
+// CreateAnnotationStoreOutput shape (gopherstack-r80d batch 7): creationTime/
+// id/name/status/versionName, no storeArn/reference/tags/etc, and confirms
+// versionName echoes the caller-supplied CreateAnnotationStoreInput.VersionName
+// (real, optional, api_op_CreateAnnotationStore.go:61-62) verbatim.
+func TestCreateAnnotationStore_ResponseShape(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doRequest(t, h, http.MethodPost, "/annotationStore", map[string]any{
+		"name":        "ann-store-shape",
+		"storeFormat": "VCF",
+		"versionName": "v1",
+	})
+	require.Equal(t, http.StatusCreated, rec.Code)
+
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	assert.NotNil(t, resp["reference"])
-	assert.Equal(t, "CREATING", resp["status"])
+	assert.Equal(t, "v1", resp["versionName"])
+	assert.NotContains(t, resp, "storeArn")
+	assert.NotContains(t, resp, "reference")
 }
 
 // TestListAnnotationImportJobs_FiltersByStatusStoreNameAndIds verifies

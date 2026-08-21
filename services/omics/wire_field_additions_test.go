@@ -884,3 +884,174 @@ func Test_SDKRoundTrip_CompleteMultipartReadSetUpload_ReadSetId(t *testing.T) {
 	require.NotNil(t, got.Id)
 	assert.Equal(t, *completed.ReadSetId, *got.Id)
 }
+
+// Test_SDKRoundTrip_VariantStore_SseConfig proves GetVariantStoreOutput/
+// ListVariantStoresOutput's required "sseConfig" (types.go, VariantStoreItem
+// and GetVariantStoreOutput) decodes through the real SDK client.
+// VariantStore previously had no SseConfig field at all -- the "member with
+// no struct field" class (like iam's JobCompletionDate) -- and
+// CreateVariantStore's handler didn't even read the real (optional)
+// CreateVariantStoreInput.SseConfig (gopherstack-r80d batch 7).
+func Test_SDKRoundTrip_VariantStore_SseConfig(t *testing.T) {
+	t.Parallel()
+
+	backend := omics.NewInMemoryBackend("000000000000", wireTestRegion)
+	h := omics.NewHandler(backend)
+	client := newTestOmicsClient(t, h)
+
+	_, err := client.CreateVariantStore(t.Context(), &omicssdk.CreateVariantStoreInput{
+		Name:      aws.String("var-store-sseconfig-test"),
+		Reference: &types.ReferenceItemMemberReferenceArn{Value: testReferenceArn},
+		SseConfig: &types.SseConfig{
+			Type:   types.EncryptionTypeKms,
+			KeyArn: aws.String("arn:aws:kms:us-east-1:000000000000:key/test"),
+		},
+	})
+	require.NoError(t, err)
+
+	got, err := client.GetVariantStore(t.Context(), &omicssdk.GetVariantStoreInput{
+		Name: aws.String("var-store-sseconfig-test"),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, got.SseConfig, "SseConfig must decode from the real \"sseConfig\" wire key")
+	assert.Equal(t, types.EncryptionTypeKms, got.SseConfig.Type)
+	require.NotNil(t, got.SseConfig.KeyArn)
+	assert.Equal(t, "arn:aws:kms:us-east-1:000000000000:key/test", *got.SseConfig.KeyArn)
+
+	listed, err := client.ListVariantStores(t.Context(), &omicssdk.ListVariantStoresInput{})
+	require.NoError(t, err)
+	require.Len(t, listed.VariantStores, 1)
+	require.NotNil(
+		t, listed.VariantStores[0].SseConfig,
+		"SseConfig must decode from the real \"sseConfig\" wire key on the List element too",
+	)
+	assert.Equal(t, types.EncryptionTypeKms, listed.VariantStores[0].SseConfig.Type)
+}
+
+// Test_SDKRoundTrip_CreateMultipartReadSetUpload_ReferenceArn proves
+// CreateMultipartReadSetUploadOutput.ReferenceArn (real required
+// "referenceArn", api_op_CreateMultipartReadSetUpload.go:82-85) decodes
+// through the real SDK client even when the caller omits the (optional on
+// the input side) ReferenceArn field. Before the fix the backend tagged the
+// field "referenceArn,omitempty", so an empty ReferenceArn dropped the key
+// from the response entirely instead of emitting it as an empty string --
+// a required field a real client decodes as missing, not as "" (gopherstack-
+// r80d batch 7).
+func Test_SDKRoundTrip_CreateMultipartReadSetUpload_ReferenceArn(t *testing.T) {
+	t.Parallel()
+
+	backend := omics.NewInMemoryBackend("000000000000", wireTestRegion)
+	h := omics.NewHandler(backend)
+	client := newTestOmicsClient(t, h)
+
+	store, err := client.CreateSequenceStore(t.Context(), &omicssdk.CreateSequenceStoreInput{
+		Name: aws.String("seq-store-refarn-test"),
+	})
+	require.NoError(t, err)
+
+	upload, err := client.CreateMultipartReadSetUpload(t.Context(), &omicssdk.CreateMultipartReadSetUploadInput{
+		SequenceStoreId: store.Id,
+		Name:            aws.String("rs-refarn-test"),
+		SourceFileType:  types.FileTypeFastq,
+		SubjectId:       aws.String("subject-1"),
+		SampleId:        aws.String("sample-1"),
+		// ReferenceArn deliberately omitted -- optional on the input, but
+		// required on the output.
+	})
+	require.NoError(t, err)
+	require.NotNil(
+		t, upload.ReferenceArn,
+		"ReferenceArn must decode from the real \"referenceArn\" wire key even when empty",
+	)
+	assert.Empty(t, *upload.ReferenceArn)
+}
+
+// Test_SDKRoundTrip_CreateAnnotationStore_VersionName proves
+// CreateAnnotationStoreOutput.VersionName (real required "versionName",
+// deserializers.go:1290 -- this backend previously had no field for it at
+// all, gopherstack-r80d batch 7) decodes through the real SDK client and
+// echoes the caller-supplied CreateAnnotationStoreInput.VersionName.
+func Test_SDKRoundTrip_CreateAnnotationStore_VersionName(t *testing.T) {
+	t.Parallel()
+
+	backend := omics.NewInMemoryBackend("000000000000", wireTestRegion)
+	h := omics.NewHandler(backend)
+	client := newTestOmicsClient(t, h)
+
+	got, err := client.CreateAnnotationStore(t.Context(), &omicssdk.CreateAnnotationStoreInput{
+		Name:        aws.String("store-versionname-test"),
+		StoreFormat: types.StoreFormatVcf,
+		VersionName: aws.String("v1"),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, got.VersionName, "VersionName must decode from the real \"versionName\" wire key")
+	assert.Equal(t, "v1", *got.VersionName)
+}
+
+// Test_SDKRoundTrip_AnnotationStoreVersion_IdAndName proves Get/Update/
+// CreateAnnotationStoreVersionOutput's required "id" and "name" members
+// (deserializers.go:6501/6510 for Get; the same two keys on Create/Update)
+// decode through the real SDK client. Both were entirely absent from this
+// backend's AnnotationStoreVersion struct: no field at all backed "id", and
+// "name" was present under the struct but tagged the invented key
+// "storeName", which no real deserializer for this shape reads. Flagged but
+// deliberately left unfixed by two prior passes (gopherstack-lx5h/kb66,
+// gopherstack-dv4s) as out of their scope; closed here (gopherstack-r80d
+// batch 7).
+func Test_SDKRoundTrip_AnnotationStoreVersion_IdAndName(t *testing.T) {
+	t.Parallel()
+
+	backend := omics.NewInMemoryBackend("000000000000", wireTestRegion)
+	h := omics.NewHandler(backend)
+	client := newTestOmicsClient(t, h)
+
+	_, err := client.CreateAnnotationStore(t.Context(), &omicssdk.CreateAnnotationStoreInput{
+		Name:        aws.String("store-version-idname-test"),
+		StoreFormat: types.StoreFormatVcf,
+	})
+	require.NoError(t, err)
+
+	created, err := client.CreateAnnotationStoreVersion(t.Context(), &omicssdk.CreateAnnotationStoreVersionInput{
+		Name:        aws.String("store-version-idname-test"),
+		VersionName: aws.String("v1"),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, created.Id, "Id must decode from the real \"id\" wire key")
+	assert.NotEmpty(t, *created.Id)
+	require.NotNil(t, created.Name, "Name must decode from the real \"name\" wire key")
+	assert.Equal(t, "store-version-idname-test", *created.Name)
+
+	got, err := client.GetAnnotationStoreVersion(t.Context(), &omicssdk.GetAnnotationStoreVersionInput{
+		Name:        aws.String("store-version-idname-test"),
+		VersionName: aws.String("v1"),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, got.Id, "Id must decode from the real \"id\" wire key")
+	assert.Equal(t, *created.Id, *got.Id)
+	require.NotNil(t, got.Name, "Name must decode from the real \"name\" wire key")
+	assert.Equal(t, "store-version-idname-test", *got.Name)
+
+	updated, err := client.UpdateAnnotationStoreVersion(t.Context(), &omicssdk.UpdateAnnotationStoreVersionInput{
+		Name:        aws.String("store-version-idname-test"),
+		VersionName: aws.String("v1"),
+		Description: aws.String("updated"),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, updated.Id, "Id must decode from the real \"id\" wire key")
+	assert.Equal(t, *created.Id, *updated.Id)
+	require.NotNil(t, updated.Name, "Name must decode from the real \"name\" wire key")
+	assert.Equal(t, "store-version-idname-test", *updated.Name)
+
+	listed, err := client.ListAnnotationStoreVersions(t.Context(), &omicssdk.ListAnnotationStoreVersionsInput{
+		Name: aws.String("store-version-idname-test"),
+	})
+	require.NoError(t, err)
+	require.Len(t, listed.AnnotationStoreVersions, 1)
+	require.NotNil(
+		t, listed.AnnotationStoreVersions[0].Id,
+		"Id must decode from the real \"id\" wire key on the List element too",
+	)
+	assert.Equal(t, *created.Id, *listed.AnnotationStoreVersions[0].Id)
+	require.NotNil(t, listed.AnnotationStoreVersions[0].Name)
+	assert.Equal(t, "store-version-idname-test", *listed.AnnotationStoreVersions[0].Name)
+}
