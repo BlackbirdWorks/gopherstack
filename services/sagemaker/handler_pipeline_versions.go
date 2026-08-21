@@ -133,8 +133,8 @@ func (h *Handler) handleDescribePipelineDefinitionForExecution(ctx context.Conte
 	}
 
 	return json.Marshal(map[string]any{
-		"PipelineDefinition": definition,
-		keyCreationTime:      epochSeconds(creationTime),
+		keyPipelineDefinition: definition,
+		keyCreationTime:       epochSeconds(creationTime),
 	})
 }
 

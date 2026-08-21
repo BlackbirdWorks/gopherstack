@@ -870,9 +870,9 @@ func (h *Handler) handleBatchDeleteClusterNodes(ctx context.Context, body []byte
 	}
 
 	return json.Marshal(map[string]any{
-		keyClusterArn: clusterArn,
-		"Errors":      errored,
-		"Successful":  successful,
+		keyClusterArn:    clusterArn,
+		"Errors":         errored,
+		statusSuccessful: successful,
 	})
 }
 
@@ -913,9 +913,9 @@ func (h *Handler) handleBatchRebootClusterNodes(ctx context.Context, body []byte
 	}
 
 	return json.Marshal(map[string]any{
-		keyClusterArn: clusterArn,
-		"Failures":    failures,
-		"Successful":  successful,
+		keyClusterArn:    clusterArn,
+		"Failures":       failures,
+		statusSuccessful: successful,
 	})
 }
 

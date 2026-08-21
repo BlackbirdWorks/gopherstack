@@ -466,13 +466,13 @@ func (h *Handler) handleDescribePipeline(ctx context.Context, body []byte) ([]by
 	}
 
 	resp := map[string]any{
-		"PipelineName":       p.PipelineName,
-		keyPipelineArn:       p.PipelineArn,
-		"PipelineStatus":     p.PipelineStatus,
-		"PipelineDefinition": p.PipelineDefinition,
-		keyRoleArn:           p.RoleArn,
-		keyCreationTime:      epochSeconds(p.CreationTime),
-		keyLastModifiedTime:  epochSeconds(p.LastModifiedTime),
+		"PipelineName":        p.PipelineName,
+		keyPipelineArn:        p.PipelineArn,
+		"PipelineStatus":      p.PipelineStatus,
+		keyPipelineDefinition: p.PipelineDefinition,
+		keyRoleArn:            p.RoleArn,
+		keyCreationTime:       epochSeconds(p.CreationTime),
+		keyLastModifiedTime:   epochSeconds(p.LastModifiedTime),
 	}
 	if p.PipelineDisplayName != "" {
 		resp["PipelineDisplayName"] = p.PipelineDisplayName

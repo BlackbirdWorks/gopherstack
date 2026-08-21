@@ -17,10 +17,14 @@ func TestHandler_UpdateAndDescribeFeatureMetadata(t *testing.T) {
 
 	h := newTestHandler(t)
 
+	// RecordIdentifierFeatureName was previously misspelled
+	// "RecordIdentifierFeatureDefinition" here -- the same typo found and
+	// fixed in handler_feature_groups_test.go, hidden until this required
+	// field was validated.
 	doSageMakerRequest(t, h, "CreateFeatureGroup", map[string]any{
-		"FeatureGroupName":                  "meta-features",
-		"RecordIdentifierFeatureDefinition": "id",
-		"EventTimeFeatureName":              "event_time",
+		"FeatureGroupName":            "meta-features",
+		"RecordIdentifierFeatureName": "id",
+		"EventTimeFeatureName":        "event_time",
 		"FeatureDefinitions": []map[string]any{
 			{"FeatureName": "id", "FeatureType": "Integral"},
 			{"FeatureName": "event_time", "FeatureType": "String"},

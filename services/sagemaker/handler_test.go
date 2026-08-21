@@ -226,7 +226,15 @@ func TestHandler_SageMakerReset(t *testing.T) {
 		"ModelName":        "reset-model",
 		"ExecutionRoleArn": "arn:aws:iam::000000000000:role/test",
 	})
-	doSageMakerRequest(t, h, "CreateFeatureGroup", map[string]any{"FeatureGroupName": "reset-fg"})
+	recCreateFG := doSageMakerRequest(t, h, "CreateFeatureGroup", map[string]any{
+		"FeatureGroupName":            "reset-fg",
+		"RecordIdentifierFeatureName": "id",
+		"EventTimeFeatureName":        "ts",
+		"FeatureDefinitions": []any{
+			map[string]any{"FeatureName": "id", "FeatureType": "String"},
+		},
+	})
+	require.Equal(t, http.StatusOK, recCreateFG.Code, recCreateFG.Body.String())
 	doSageMakerRequest(t, h, "CreatePipeline", map[string]any{"PipelineName": "reset-pipeline"})
 	doSageMakerRequest(t, h, "CreateDomain", map[string]any{
 		"DomainName":          "reset-domain",

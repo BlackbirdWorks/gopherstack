@@ -3669,3 +3669,222 @@ tier at 4 (`handler_transform_jobs.go`, `handler_studio_lifecycle_configs.go`,
 `handler_flow_definitions.go`, `handler_edge_packaging_jobs.go`, `handler_automl.go`,
 `handler_ai_workload_configs.go`) — not started this pass; no difficulty found in them, purely an
 effort-budget stopping point.
+
+## parity-22 (2026-08-21, gopherstack-oc9v): AutoMLSearch/Experiment/FeatureGroup
+field audit (3 files tied at 5, now zero)
+
+Sixteenth pass of the gopherstack-oc9v campaign. Per parity-21's boundary note, this pass took the
+three files tied at 5 that parity-21 left unstarted purely for effort-budget reasons:
+`handler_automl_search.go`, `handler_experiments.go`, `handler_feature_groups.go`, each verified by
+`grep -c 'var req struct {' <file>.go` = 5 before starting. All 15 of this pass's structs were
+converted to named types and wire-audited field-by-field against the pinned SDK (`v1.263.2`,
+confirmed from `go.mod`). **64 of sagemaker's 362 inline structs now remain** (79 minus this
+pass's 15), confirmed by `grep -rc 'var req struct {' services/sagemaker/*.go` summed, not
+arithmetic; all three files now have zero. **New boundary: a 9-file tier at 4**
+(`handler_transform_jobs.go`, `handler_studio_lifecycle_configs.go`, `handler_processing_jobs.go`,
+`handler_pipeline_versions.go`, `handler_human_task_ui.go`, `handler_flow_definitions.go`,
+`handler_edge_packaging_jobs.go`, `handler_automl.go`, `handler_ai_workload_configs.go`) — not
+started this pass, per this pass's own effort budget rather than any difficulty found in them.
+
+**`handler_feature_groups.go` (FeatureGroup family) — the most severe finding of this pass, two of
+three real Update mechanisms silently dropped:**
+
+- **`UpdateFeatureGroupInput.OnlineStoreConfig` and `.ThroughputConfig`** (both optional,
+  `api_op_UpdateFeatureGroup.go:38-63`) **were entirely absent from decode** — only `FeatureAdditions`
+  was ever read. The op's own doc says a client "can update the online store configuration by using
+  the `OnlineStoreConfig` request parameter" and "can switch between on-demand and provisioned modes"
+  via `ThroughputConfig`; a real call to either got a 200 and no effect whatsoever. Fixed: added
+  `OnlineStoreConfigUpdate`/`ThroughputConfigUpdate` types (mirroring the real
+  `types.OnlineStoreConfigUpdate`/`types.ThroughputConfigUpdate`, which are narrower than their
+  Create-side counterparts — the same create/update contract-split bug class parity-21's
+  `UpdateCodeRepository` fix addressed), merged into the stored config, and added `LastUpdateStatus`
+  (`types.LastUpdateStatus`, always `Successful` since every update here is synchronous — disclosed,
+  not modeled as a real async FSM).
+- **`CreateFeatureGroupInput.EventTimeFeatureName`/`FeatureDefinitions`/`RecordIdentifierFeatureName`**
+  (all three `This member is required`, `api_op_CreateFeatureGroup.go:29-119`) **were never
+  validated** — a request supplying only `FeatureGroupName` still succeeded, and this exact gap was
+  ratified by four pre-existing tests, one of them via a typo (see below). Fixed: all three now
+  enforced.
+- **`DescribeFeatureGroupOutput.NextToken`** (`This member is required`,
+  `api_op_DescribeFeatureGroup.go:60-63`) **was completely absent from the response** — the same bug
+  class as parity-20's `OptimizationJobSummary` fields and parity-21's `CompilationJob.ModelArtifacts`.
+  Fixed: always emitted (empty string — this backend never paginates `FeatureDefinitions`, the field
+  it controls on the real op, disclosed rather than silently accepted-and-dropped).
+- `FeatureGroup` had no `LastModifiedTime` field at all (only `CreationTime`) despite
+  `DescribeFeatureGroupOutput` declaring one — added, set on Create and bumped on every Update.
+  `OfflineStoreStatus` (`Active`/`Blocked`/`Disabled`) was likewise absent — added as a static
+  `Active` once an `OfflineStoreConfig` is configured (this backend never simulates offline
+  replication failure, disclosed).
+- `ListFeatureGroupsInput` (`api_op_ListFeatureGroups.go:29-64`) was `NextToken`-only — added
+  `CreationTimeAfter`/`Before`, `FeatureGroupStatusEquals`, `MaxResults`, `NameContains`,
+  `OfflineStoreStatusEquals`, `SortBy`/`SortOrder`. Unlike every List op parity-21 touched, this op's
+  own doc states no explicit SortBy/SortOrder default, so the pre-existing `Name`/`Ascending`
+  behavior was kept rather than invented.
+
+**`handler_automl_search.go` (AutoML candidates / Search / model metadata family) — the second
+finding, and the one that turned up a pre-existing wire-format bug outside this pass's own new
+code:**
+
+- **`Search`'s `SortBy`/`SortOrder` were decoded by the handler and then never forwarded to the
+  backend at all** — a real request specifying either had no effect, the exact "parsed and ignored"
+  bug class. Fixed: both now reach `InMemoryBackend.Search`, which sorts by the named property
+  (default `LastModifiedTime`/`Descending` per `api_op_Search.go:56,60`) after the existing key-based
+  stable sort for determinism among ties.
+- **Fixing that surfaced a second, independent, pre-existing bug**: `Search`'s `TrainingJob`/`Pipeline`
+  results were emitted via a direct `json.Marshal` of the raw stored struct (`toJSONFlatMap`, then
+  stored as-is on the response). Neither `TrainingJob` nor `Pipeline` has a custom `MarshalJSON`
+  (unlike `CompilationJob`), so `CreationTime`/`LastModifiedTime`/etc. serialized as Go's default
+  RFC3339 strings instead of the epoch-second JSON numbers the real awsjson1.1 protocol requires —
+  a real SDK client's `Search` call against either of the only two fully-supported resource types
+  failed outright with "expected Timestamp to be a JSON Number, got string instead". This was caught
+  by this pass's own new `TestHandler_Search_SortByAndCrossAccount_RealClient`, not found by
+  inspection. Fixed: added `trainingJobSearchView`/`pipelineSearchView`, reusing
+  `addTrainingJobOptionalFields` (already used by `DescribeTrainingJob`) so there is one source of
+  truth for the epoch-safe shape rather than a second field list to drift.
+- `SearchInput.CrossAccountFilterOption` was absent from decode — added; `CrossAccount` now
+  correctly returns zero results, since this single-tenant backend models no other account's
+  resources to discover. `VisibilityConditions` remains undecoded and disclosed unmodeled — this
+  service has no per-resource caller-visibility ACL concept anywhere, the same reasoning already
+  applied to `CreatedBy`/`LastModifiedBy` (`types.UserContext`) elsewhere in this service.
+  `SearchOutput.TotalHits` was absent — added (`Relation: EqualTo`, since this backend's counts are
+  always exact).
+- **`GetScalingConfigurationRecommendationInput.ScalingPolicyObjective`** (optional,
+  `api_op_GetScalingConfigurationRecommendation.go:27-53`) **was entirely absent from decode** — the
+  real response echoes it back verbatim ("An object representing the anticipated traffic pattern...
+  that you specified in the request"), so a real client got a response with the field simply missing.
+  Fixed: decoded and echoed; `GetScalingConfigurationRecommendationOutput.Metric` (also previously
+  absent) added with disclosed synthesized values (this backend never benchmarks a real endpoint).
+- `ListCandidatesForAutoMLJobInput.SortBy`/`SortOrder` were absent from decode — added
+  (`CandidateSortBy`: `CreationTime`/`Status`/`FinalObjectiveMetricValue`). This op's own doc text on
+  the `SortBy` field reads "The default is Descending" — not a valid `CandidateSortBy` value at all,
+  so that half of the doc is corrupted copy-paste (see Enums below) and not trusted; the `SortOrder`
+  field's doc ("The default is Ascending") is internally consistent and taken at face value.
+
+**`handler_experiments.go` (Experiment family) — the third finding, an unreachable "remove"
+operation the op's own doc promises:**
+
+- **`UpdateExperimentInput.DisplayName`/`Description`** (`api_op_UpdateExperiment.go:28-43`, both
+  `*string` on the real type) **were decoded as plain non-pointer strings**, so an omitted key and an
+  explicit `""` were indistinguishable — the op's own doc says it "adds, updates, or **removes** the
+  description", but removal (sending an explicit empty string) was silently treated as "no change".
+  Fixed: both now `*string`, `nil` meaning unchanged and a present `""` meaning clear, matching the
+  established convention already used by `UpdateImage`/`UpdateHub` elsewhere in this service.
+- `ListExperimentsInput` (`api_op_ListExperiments.go:32-55`) was `NextToken`-only — added
+  `CreatedAfter`/`CreatedBefore`, `SortBy`(`Name`/`CreationTime`, default `CreationTime` per the
+  op's own doc), `SortOrder` (default `Descending`), `MaxResults`. Previously every List call
+  returned `Name`/`Ascending` order regardless of request or default.
+- `DescribeExperimentOutput.CreatedBy`/`LastModifiedBy` (`types.UserContext`) and `.Source`
+  (`types.ExperimentSource`) remain disclosed absent — this service models no caller-identity
+  concept, and experiments here are always created directly rather than derived from another
+  resource (e.g. a Pipeline execution).
+
+**The six questions, answered explicitly:**
+
+1. **What does the handler read that AWS never sends?** Nothing found this pass — every field
+   decoded by this pass's converted handlers exists on the real request type.
+2. **Do request and response use the same key?** Checked separately throughout; no divergence found
+   this pass (contrast parity-21's `UpdateCodeRepository`/`CreateCodeRepository` `GitConfig` split).
+3. **Is any required request member never read at all?** `CreateFeatureGroup`'s
+   `EventTimeFeatureName`/`FeatureDefinitions`/`RecordIdentifierFeatureName` (all three, decoded but
+   never validated present) — see above.
+4. **Is any field parsed and then ignored, or worse, applied destructively?** `Search`'s
+   `SortBy`/`SortOrder` were parsed and then dropped before reaching the backend (a real, if
+   comparatively mild, instance of this bug class — no data was corrupted, only ordering silently
+   ignored). `UpdateFeatureGroup`'s `OnlineStoreConfig`/`ThroughputConfig` were the more severe
+   accept-and-drop variant: not even parsed, so two of the op's three real update mechanisms were
+   invisible to the handler entirely.
+5. **Does it emit every declared member, and does any handler return a nil body where required
+   members are declared?** `DescribeFeatureGroup`'s `NextToken` (required) was completely absent
+   from the response — see above. No nil-body case found this pass.
+6. **Does any status or lifecycle field ever advance?** Checked: `FeatureGroupStatus` is set once at
+   Create (`Created`) and never transitions through a `Creating` intermediate the real async
+   provisioning doc implies, but this pass did not add a new FSM for it — declined this pass, see
+   Disclosures. `LastUpdateStatus` (new this pass) is always `Successful` synchronously rather than
+   passing through `InProgress`, disclosed rather than modeled as a real async FSM. No stuck-forever
+   status found (contrast parity-21's fourth/fifth instances on `CompilationJob`).
+
+**Timestamps touched, each with its own serializer citation and a test that sets the value:**
+`ListExperimentsInput.CreatedAfter`/`CreatedBefore` (`api_op_ListExperiments.go:34-38`, decoded via
+`epochPtr`, asserted in `TestHandler_ListExperiments_CreatedAfterFilter_RealClient`);
+`ListFeatureGroupsInput.CreationTimeAfter`/`CreationTimeBefore`
+(`api_op_ListFeatureGroups.go:33-37`, same pattern, asserted in
+`TestHandler_ListFeatureGroups_FilterSort_RealClient`, which also exercises `NameContains`/`SortBy`).
+The `TrainingJob`/`Pipeline` Search-view fix above is also a timestamp fix in substance (RFC3339
+string to epoch-seconds number), asserted by
+`TestHandler_Search_SortByAndCrossAccount_RealClient` — a real-SDK-client test that would have
+failed to deserialize the response at all before the fix (confirmed by hand-revert, see below).
+
+**Two existing tests found ratifying the missing-required-field-validation defect, plus one earlier
+still hiding it via a typo:** `TestHandler_FeatureGroup_Duplicate` and
+`TestHandler_Tags_FeatureGroup`/`TestHandler_CreateFeatureGroup_RoleArnAndDescription` created
+feature groups with `EventTimeFeatureName`/`RecordIdentifierFeatureName` present but no
+`FeatureDefinitions` at all — passed only because the field wasn't enforced.
+`TestHandler_FeatureGroupLifecycle` (and, independently, `TestHandler_UpdateAndDescribeFeatureMetadata`
+in `handler_feature_metadata_test.go`, a file outside this pass's own scope but broken by this pass's
+new validation) sent `"RecordIdentifierFeatureDefinition"` — a typo'd key that is not
+`RecordIdentifierFeatureName` at all — so the real required field was silently never sent, and the
+test still passed because nothing validated its presence. All four rewritten to supply valid
+required fields; a new `TestHandler_CreateFeatureGroup_RequiredFieldsEnforced` table test asserts
+each of the three required fields is independently rejected when absent.
+
+**Enums read per op, not generalized:** `CandidateSortBy`
+(`CreationTime`/`Status`/`FinalObjectiveMetricValue` — see the doc-vs-source mismatch on its own
+`SortBy` field's default-value prose, noted above); `SortExperimentsBy` (`Name`/`CreationTime`, no
+`Status` option, unlike `CandidateSortBy`); `FeatureGroupSortBy`
+(`Name`/`FeatureGroupStatus`/`OfflineStoreStatus`/`CreationTime` — confirmed independently, not
+assumed from any sibling); `FeatureGroupStatus`/`OfflineStoreStatusValue`/`LastUpdateStatusValue`
+read for the new fields added this pass. `ThroughputMode`'s real values are `OnDemand`/`Provisioned`
+(camelCase) — this backend's `ThroughputConfig.ThroughputMode` remains opaque string passthrough
+with no enum validation (matching parity-21's `AppImageConfig` kernel-config precedent), and the
+pre-existing round-trip test at `handler_feature_groups_stores_test.go:35` sends `"PROVISIONED"`
+(uppercase), which is not a real SDK value — disclosed, not fixed, since fixing it would mean adding
+enum validation this campaign has not applied to any other opaque passthrough config.
+
+**Disclosures (not fixed, out of this pass's scope):** `FeatureGroupStatus` never transitions
+through a `Creating` intermediate state before landing on `Created` — real AWS provisioning is
+documented as taking "approximately 10-15 minutes" for an `InMemory` online store, implying an
+async `Creating` window this backend skips entirely by setting `Created` synchronously at Create
+time. Not fixed this pass (an effort-budget decision, not a difficulty found) — this is the same
+bug class as parity-21's `CompilationJob` stuck-status fixes and is flagged as the natural next step
+for `FeatureGroup` specifically. `DescribeFeatureGroupOutput.FailureReason` remains unmodeled (this
+backend never fails an offline-store replication). `Search`'s `VisibilityConditions` and
+`GetScalingConfigurationRecommendation`'s synthesized `Metric` values are disclosed above.
+
+**Hand-revert proof (three representative fixes, the most severe found this pass):**
+
+1. `UpdateFeatureGroup` accept-and-drop on `OnlineStoreConfig`/`ThroughputConfig`: reverted
+   `feature_groups.go`/`handler_feature_groups.go` to HEAD, rebuilt clean, ran
+   `TestHandler_UpdateFeatureGroup_StoreConfigs_RealClient` — failed exactly as predicted
+   (`OnlineStoreConfig` came back `nil` after Update). Restored, `md5sum` byte-identical for both
+   files, test passes again.
+2. `Search`'s raw-struct timestamp bug: with `automl_search.go` otherwise at its post-fix state (the
+   fix spans the same file as several others this pass, so a whole-file revert does not build
+   standalone), reverted just the one line storing `raw: view` back to `raw: tj` for the
+   `TrainingJob` case, rebuilt clean, ran `TestHandler_Search_SortByAndCrossAccount_RealClient` —
+   failed exactly as predicted (`deserialization failed... expected Timestamp to be a JSON Number,
+   got string instead`). Restored, `md5sum` byte-identical, test passes again.
+3. `UpdateExperiment` unreachable description-clear: reverted `experiments.go`/
+   `handler_experiments.go` to HEAD (both revert cleanly together since this fix's parts live only
+   in these two files), rebuilt clean, ran
+   `TestHandler_UpdateExperiment_ClearsDescription_RealClient` — failed exactly as predicted (an
+   explicit empty-string `Description` update left the original value in place). Restored, `md5sum`
+   byte-identical for both files, test passes again.
+
+Gates for this session: `go build ./...`, `go vet ./services/sagemaker/...`,
+`go vet -tags e2e ./...`, `go vet -tags integration ./...`, `gofmt -l ./services/sagemaker/*.go`
+(empty), `go test -race -count=1 ./services/sagemaker/...` (pass), and
+`golangci-lint run ./services/sagemaker/...` (0 issues, after fixing 11 goconst findings — several
+in pre-existing files whose own already-repeated literals crossed goconst's threshold only once this
+pass's new code added one more occurrence — 1 golines, 4 govet/fieldalignment, and 1 nonamedreturns
+finding, all introduced by this pass's own new code; no `nolint` added). No `fieldalignment -fix` or
+`golangci-lint --fix` run (both would run package-wide); each fieldalignment struct was reordered by
+hand after reading the analyzer's plain-mode (non-`-fix`) output.
+
+`last_audit_commit` left at its existing value (`5f91d37c7`) — not updated this pass, per the
+campaign's standing instruction never to write `pending` or otherwise touch it casually.
+
+**64 of sagemaker's 362 inline structs now remain.** New boundary: a 9-file tier at 4
+(`handler_transform_jobs.go`, `handler_studio_lifecycle_configs.go`, `handler_processing_jobs.go`,
+`handler_pipeline_versions.go`, `handler_human_task_ui.go`, `handler_flow_definitions.go`,
+`handler_edge_packaging_jobs.go`, `handler_automl.go`, `handler_ai_workload_configs.go`) — not
+started this pass, purely an effort-budget stopping point.

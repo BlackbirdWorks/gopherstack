@@ -12,19 +12,26 @@ import (
 // FeatureGroup handlers
 // ---------------------------------------------------------------------------
 
+// createFeatureGroupInput mirrors CreateFeatureGroupInput
+// (api_op_CreateFeatureGroup.go:29-119). EventTimeFeatureName,
+// FeatureDefinitions and RecordIdentifierFeatureName are all "This member is
+// required" but were previously never validated -- a request supplying only
+// FeatureGroupName still succeeded.
+type createFeatureGroupInput struct {
+	FeatureGroupName            string              `json:"FeatureGroupName"`
+	RecordIdentifierFeatureName string              `json:"RecordIdentifierFeatureName"`
+	EventTimeFeatureName        string              `json:"EventTimeFeatureName"`
+	Description                 string              `json:"Description,omitempty"`
+	RoleArn                     string              `json:"RoleArn,omitempty"`
+	OnlineStoreConfig           *OnlineStoreConfig  `json:"OnlineStoreConfig,omitempty"`
+	OfflineStoreConfig          *OfflineStoreConfig `json:"OfflineStoreConfig,omitempty"`
+	ThroughputConfig            *ThroughputConfig   `json:"ThroughputConfig,omitempty"`
+	FeatureDefinitions          []FeatureDefinition `json:"FeatureDefinitions"`
+	Tags                        []tagObject         `json:"Tags"`
+}
+
 func (h *Handler) handleCreateFeatureGroup(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		FeatureGroupName            string              `json:"FeatureGroupName"`
-		RecordIdentifierFeatureName string              `json:"RecordIdentifierFeatureName"`
-		EventTimeFeatureName        string              `json:"EventTimeFeatureName"`
-		Description                 string              `json:"Description,omitempty"`
-		RoleArn                     string              `json:"RoleArn,omitempty"`
-		OnlineStoreConfig           *OnlineStoreConfig  `json:"OnlineStoreConfig,omitempty"`
-		OfflineStoreConfig          *OfflineStoreConfig `json:"OfflineStoreConfig,omitempty"`
-		ThroughputConfig            *ThroughputConfig   `json:"ThroughputConfig,omitempty"`
-		FeatureDefinitions          []FeatureDefinition `json:"FeatureDefinitions"`
-		Tags                        []tagObject         `json:"Tags"`
-	}
+	var req createFeatureGroupInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -32,6 +39,18 @@ func (h *Handler) handleCreateFeatureGroup(ctx context.Context, body []byte) ([]
 
 	if req.FeatureGroupName == "" {
 		return nil, fmt.Errorf("%w: FeatureGroupName is required", errInvalidRequest)
+	}
+
+	if req.RecordIdentifierFeatureName == "" {
+		return nil, fmt.Errorf("%w: RecordIdentifierFeatureName is required", errInvalidRequest)
+	}
+
+	if req.EventTimeFeatureName == "" {
+		return nil, fmt.Errorf("%w: EventTimeFeatureName is required", errInvalidRequest)
+	}
+
+	if len(req.FeatureDefinitions) == 0 {
+		return nil, fmt.Errorf("%w: FeatureDefinitions is required", errInvalidRequest)
 	}
 
 	fg, err := h.Backend.CreateFeatureGroup(ctx, CreateFeatureGroupOptions{
@@ -56,10 +75,19 @@ func (h *Handler) handleCreateFeatureGroup(ctx context.Context, body []byte) ([]
 	return json.Marshal(map[string]string{keyFeatureGroupArn: fg.FeatureGroupArn})
 }
 
+// describeFeatureGroupInput mirrors DescribeFeatureGroupInput
+// (api_op_DescribeFeatureGroup.go:29-42). NextToken paginates
+// FeatureDefinitions on the real op; this backend never paginates them (a
+// FeatureGroup here always returns every definition at once), so the
+// request value is accepted but has no effect -- disclosed, not silently
+// dropped, since the response always carries its own required NextToken="".
+type describeFeatureGroupInput struct {
+	FeatureGroupName string `json:"FeatureGroupName"`
+	NextToken        string `json:"NextToken,omitempty"`
+}
+
 func (h *Handler) handleDescribeFeatureGroup(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		FeatureGroupName string `json:"FeatureGroupName"`
-	}
+	var req describeFeatureGroupInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -82,6 +110,10 @@ func (h *Handler) handleDescribeFeatureGroup(ctx context.Context, body []byte) (
 		keyEventTimeFeatureName:        fg.EventTimeFeatureName,
 		keyFeatureDefinitions:          fg.FeatureDefinitions,
 		keyCreationTime:                epochSeconds(fg.CreationTime),
+		keyLastModifiedTime:            epochSeconds(fg.LastModifiedTime),
+		// api_op_DescribeFeatureGroup.go:60-63: NextToken is "This member is
+		// required" on the response -- previously absent entirely.
+		keyNextToken: "",
 	}
 	if fg.Description != "" {
 		resp["Description"] = fg.Description
@@ -102,6 +134,14 @@ func (h *Handler) handleDescribeFeatureGroup(ctx context.Context, body []byte) (
 		resp["ThroughputConfig"] = fg.ThroughputConfig
 	}
 
+	if fg.OfflineStoreStatus != "" {
+		resp["OfflineStoreStatus"] = fg.OfflineStoreStatus
+	}
+
+	if fg.LastUpdateStatus != nil {
+		resp["LastUpdateStatus"] = fg.LastUpdateStatus
+	}
+
 	return json.Marshal(resp)
 }
 
@@ -109,19 +149,42 @@ type featureGroupSummary struct {
 	FeatureGroupName   string  `json:"FeatureGroupName"`
 	FeatureGroupArn    string  `json:"FeatureGroupArn"`
 	FeatureGroupStatus string  `json:"FeatureGroupStatus"`
+	OfflineStoreStatus string  `json:"OfflineStoreStatus,omitempty"`
 	CreationTime       float64 `json:"CreationTime"`
 }
 
+// listFeatureGroupsInput mirrors ListFeatureGroupsInput
+// (api_op_ListFeatureGroups.go:29-64). Previously this decoded only
+// NextToken.
+type listFeatureGroupsInput struct {
+	CreationTimeAfter        *float64 `json:"CreationTimeAfter"`
+	CreationTimeBefore       *float64 `json:"CreationTimeBefore"`
+	FeatureGroupStatusEquals string   `json:"FeatureGroupStatusEquals"`
+	NameContains             string   `json:"NameContains"`
+	OfflineStoreStatusEquals string   `json:"OfflineStoreStatusEquals"`
+	SortBy                   string   `json:"SortBy"`
+	SortOrder                string   `json:"SortOrder"`
+	NextToken                string   `json:"NextToken"`
+	MaxResults               int32    `json:"MaxResults"`
+}
+
 func (h *Handler) handleListFeatureGroups(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		NextToken string `json:"NextToken"`
-	}
+	var req listFeatureGroupsInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	fgs, nextToken := h.Backend.ListFeatureGroups(ctx, req.NextToken)
+	fgs, nextToken := h.Backend.ListFeatureGroups(ctx, req.NextToken, ListFeatureGroupsFilter{
+		CreationTimeAfter:        epochPtr(req.CreationTimeAfter),
+		CreationTimeBefore:       epochPtr(req.CreationTimeBefore),
+		FeatureGroupStatusEquals: req.FeatureGroupStatusEquals,
+		NameContains:             req.NameContains,
+		OfflineStoreStatusEquals: req.OfflineStoreStatusEquals,
+		SortBy:                   req.SortBy,
+		SortOrder:                req.SortOrder,
+		MaxResults:               req.MaxResults,
+	})
 	summaries := make([]featureGroupSummary, 0, len(fgs))
 
 	for _, fg := range fgs {
@@ -129,6 +192,7 @@ func (h *Handler) handleListFeatureGroups(ctx context.Context, body []byte) ([]b
 			FeatureGroupName:   fg.FeatureGroupName,
 			FeatureGroupArn:    fg.FeatureGroupArn,
 			FeatureGroupStatus: fg.FeatureGroupStatus,
+			OfflineStoreStatus: fg.OfflineStoreStatus,
 			CreationTime:       epochSeconds(fg.CreationTime),
 		})
 	}
@@ -141,10 +205,14 @@ func (h *Handler) handleListFeatureGroups(ctx context.Context, body []byte) ([]b
 	return json.Marshal(resp)
 }
 
+// deleteFeatureGroupInput mirrors DeleteFeatureGroupInput
+// (api_op_DeleteFeatureGroup.go:29-37).
+type deleteFeatureGroupInput struct {
+	FeatureGroupName string `json:"FeatureGroupName"`
+}
+
 func (h *Handler) handleDeleteFeatureGroup(ctx context.Context, body []byte) error {
-	var req struct {
-		FeatureGroupName string `json:"FeatureGroupName"`
-	}
+	var req deleteFeatureGroupInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -168,11 +236,19 @@ func (h *Handler) handleDeleteFeatureGroup(ctx context.Context, body []byte) err
 // UpdateFeatureGroup handler (gap #19)
 // ---------------------------------------------------------------------------
 
+// updateFeatureGroupInput mirrors UpdateFeatureGroupInput
+// (api_op_UpdateFeatureGroup.go:38-63). OnlineStoreConfig and
+// ThroughputConfig were previously entirely absent from decode -- see
+// [UpdateFeatureGroupOptions]'s doc for the bug this fixes.
+type updateFeatureGroupInput struct {
+	FeatureGroupName   string                   `json:"FeatureGroupName"`
+	OnlineStoreConfig  *OnlineStoreConfigUpdate `json:"OnlineStoreConfig,omitempty"`
+	ThroughputConfig   *ThroughputConfigUpdate  `json:"ThroughputConfig,omitempty"`
+	FeatureDefinitions []FeatureDefinition      `json:"FeatureAdditions,omitempty"`
+}
+
 func (h *Handler) handleUpdateFeatureGroup(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		FeatureGroupName   string              `json:"FeatureGroupName"`
-		FeatureDefinitions []FeatureDefinition `json:"FeatureAdditions,omitempty"`
-	}
+	var req updateFeatureGroupInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -182,7 +258,11 @@ func (h *Handler) handleUpdateFeatureGroup(ctx context.Context, body []byte) ([]
 		return nil, fmt.Errorf("%w: FeatureGroupName is required", errInvalidRequest)
 	}
 
-	fg, err := h.Backend.UpdateFeatureGroup(ctx, req.FeatureGroupName, req.FeatureDefinitions)
+	fg, err := h.Backend.UpdateFeatureGroup(ctx, req.FeatureGroupName, UpdateFeatureGroupOptions{
+		FeatureAdditions:  req.FeatureDefinitions,
+		OnlineStoreConfig: req.OnlineStoreConfig,
+		ThroughputConfig:  req.ThroughputConfig,
+	})
 	if err != nil {
 		return nil, err
 	}

@@ -117,9 +117,9 @@ func (h *Handler) handleDescribeTrainingJobFull(ctx context.Context, body []byte
 	}
 
 	resp := map[string]any{
-		"TrainingJobName":        tj.TrainingJobName,
+		keyTrainingJobName:       tj.TrainingJobName,
 		keyTrainingJobArn:        tj.TrainingJobArn,
-		"TrainingJobStatus":      tj.TrainingJobStatus,
+		keyTrainingJobStatus:     tj.TrainingJobStatus,
 		"SecondaryStatus":        tj.SecondaryStatus,
 		keyRoleArn:               tj.RoleArn,
 		"AlgorithmSpecification": tj.AlgorithmSpecification,

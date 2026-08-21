@@ -83,8 +83,12 @@ const (
 	keyStatus                        = "Status"
 	keyCreationTime                  = "CreationTime"
 	keyLastModifiedTime              = "LastModifiedTime"
+	keyTrainingJobName               = "TrainingJobName"
+	keyTrainingJobStatus             = "TrainingJobStatus"
+	keyPipelineDefinition            = "PipelineDefinition"
 	statusInService                  = clusterStatusInService
 	statusCreated                    = "Created"
 	statusActive                     = "Active"
 	statusUpdating                   = "Updating"
+	statusSuccessful                 = "Successful"
 )

@@ -51,14 +51,20 @@ func (h *Handler) dispatchAutoMLSearchExtOps(
 	return nil, false, nil
 }
 
+// listCandidatesForAutoMLJobInput mirrors ListCandidatesForAutoMLJobInput
+// (api_op_ListCandidatesForAutoMLJob.go:27-52).
+type listCandidatesForAutoMLJobInput struct {
+	AutoMLJobName       string `json:"AutoMLJobName"`
+	CandidateNameEquals string `json:"CandidateNameEquals"`
+	StatusEquals        string `json:"StatusEquals"`
+	SortBy              string `json:"SortBy"`
+	SortOrder           string `json:"SortOrder"`
+	NextToken           string `json:"NextToken"`
+	MaxResults          int32  `json:"MaxResults"`
+}
+
 func (h *Handler) handleListCandidatesForAutoMLJob(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		AutoMLJobName       string `json:"AutoMLJobName"`
-		CandidateNameEquals string `json:"CandidateNameEquals"`
-		StatusEquals        string `json:"StatusEquals"`
-		NextToken           string `json:"NextToken"`
-		MaxResults          int32  `json:"MaxResults"`
-	}
+	var req listCandidatesForAutoMLJobInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -72,6 +78,8 @@ func (h *Handler) handleListCandidatesForAutoMLJob(ctx context.Context, body []b
 		ctx, req.AutoMLJobName, ListCandidatesForAutoMLJobParams{
 			CandidateNameEquals: req.CandidateNameEquals,
 			StatusEquals:        req.StatusEquals,
+			SortBy:              req.SortBy,
+			SortOrder:           req.SortOrder,
 			NextToken:           req.NextToken,
 			MaxResults:          req.MaxResults,
 		},
@@ -83,18 +91,25 @@ func (h *Handler) handleListCandidatesForAutoMLJob(ctx context.Context, body []b
 	return json.Marshal(map[string]any{"Candidates": candidates, keyNextToken: next})
 }
 
+// searchInput mirrors SearchInput (api_op_Search.go:27-63). VisibilityConditions
+// is not decoded: this backend is single-tenant and models no per-resource
+// caller-visibility ACL concept anywhere, the same reasoning already applied
+// to CreatedBy/LastModifiedBy (types.UserContext) elsewhere in this service.
+type searchInput struct {
+	Resource                 string `json:"Resource"`
+	CrossAccountFilterOption string `json:"CrossAccountFilterOption"`
+	SortBy                   string `json:"SortBy"`
+	SortOrder                string `json:"SortOrder"`
+	NextToken                string `json:"NextToken"`
+	SearchExpression         struct {
+		Operator string         `json:"Operator"`
+		Filters  []SearchFilter `json:"Filters"`
+	} `json:"SearchExpression"`
+	MaxResults int32 `json:"MaxResults"`
+}
+
 func (h *Handler) handleSearch(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		Resource         string `json:"Resource"`
-		SortBy           string `json:"SortBy"`
-		SortOrder        string `json:"SortOrder"`
-		NextToken        string `json:"NextToken"`
-		SearchExpression struct {
-			Operator string         `json:"Operator"`
-			Filters  []SearchFilter `json:"Filters"`
-		} `json:"SearchExpression"`
-		MaxResults int32 `json:"MaxResults"`
-	}
+	var req searchInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -104,28 +119,39 @@ func (h *Handler) handleSearch(ctx context.Context, body []byte) ([]byte, error)
 		return nil, fmt.Errorf("%w: Resource is required", errInvalidRequest)
 	}
 
-	results, next, err := h.Backend.Search(ctx, SearchParams{
-		Resource:        req.Resource,
-		BooleanOperator: req.SearchExpression.Operator,
-		Filters:         req.SearchExpression.Filters,
-		NextToken:       req.NextToken,
-		MaxResults:      req.MaxResults,
+	results, total, next, err := h.Backend.Search(ctx, SearchParams{
+		Resource:                 req.Resource,
+		BooleanOperator:          req.SearchExpression.Operator,
+		Filters:                  req.SearchExpression.Filters,
+		NextToken:                req.NextToken,
+		SortBy:                   req.SortBy,
+		SortOrder:                req.SortOrder,
+		CrossAccountFilterOption: req.CrossAccountFilterOption,
+		MaxResults:               req.MaxResults,
 	})
 	if err != nil {
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{"Results": results, keyNextToken: next})
+	return json.Marshal(map[string]any{
+		"Results":    results,
+		"TotalHits":  map[string]any{"Value": total, "Relation": "EqualTo"},
+		keyNextToken: next,
+	})
+}
+
+// listModelMetadataInput mirrors ListModelMetadataInput
+// (api_op_ListModelMetadata.go:27-42).
+type listModelMetadataInput struct {
+	NextToken        string `json:"NextToken"`
+	SearchExpression struct {
+		Filters []ModelMetadataFilter `json:"Filters"`
+	} `json:"SearchExpression"`
+	MaxResults int32 `json:"MaxResults"`
 }
 
 func (h *Handler) handleListModelMetadata(body []byte) ([]byte, error) {
-	var req struct {
-		NextToken        string `json:"NextToken"`
-		SearchExpression struct {
-			Filters []ModelMetadataFilter `json:"Filters"`
-		} `json:"SearchExpression"`
-		MaxResults int32 `json:"MaxResults"`
-	}
+	var req listModelMetadataInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -147,15 +173,19 @@ func (h *Handler) handleListModelMetadata(body []byte) ([]byte, error) {
 	return json.Marshal(map[string]any{"ModelMetadataSummaries": summaries, keyNextToken: next})
 }
 
+// getSearchSuggestionsInput mirrors GetSearchSuggestionsInput
+// (api_op_GetSearchSuggestions.go:27-38).
+type getSearchSuggestionsInput struct {
+	Resource        string `json:"Resource"`
+	SuggestionQuery struct {
+		PropertyNameQuery struct {
+			PropertyNameHint string `json:"PropertyNameHint"`
+		} `json:"PropertyNameQuery"`
+	} `json:"SuggestionQuery"`
+}
+
 func (h *Handler) handleGetSearchSuggestions(_ context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		Resource        string `json:"Resource"`
-		SuggestionQuery struct {
-			PropertyNameQuery struct {
-				PropertyNameHint string `json:"PropertyNameHint"`
-			} `json:"PropertyNameQuery"`
-		} `json:"SuggestionQuery"`
-	}
+	var req getSearchSuggestionsInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -178,13 +208,21 @@ func (h *Handler) handleGetSearchSuggestions(_ context.Context, body []byte) ([]
 	return json.Marshal(map[string]any{"PropertyNameSuggestions": suggestions})
 }
 
+// getScalingConfigurationRecommendationInput mirrors
+// GetScalingConfigurationRecommendationInput
+// (api_op_GetScalingConfigurationRecommendation.go:27-53). ScalingPolicyObjective
+// was previously entirely absent from decode -- an accept-and-drop gap, since
+// the real response echoes it back verbatim.
+type getScalingConfigurationRecommendationInput struct {
+	InferenceRecommendationsJobName string                  `json:"InferenceRecommendationsJobName"`
+	EndpointName                    string                  `json:"EndpointName"`
+	ScalingPolicyObjective          *ScalingPolicyObjective `json:"ScalingPolicyObjective"`
+	RecommendationID                string                  `json:"RecommendationId"`
+	TargetCPUUtilizationPerCore     int32                   `json:"TargetCpuUtilizationPerCore"`
+}
+
 func (h *Handler) handleGetScalingConfigurationRecommendation(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		InferenceRecommendationsJobName string `json:"InferenceRecommendationsJobName"`
-		EndpointName                    string `json:"EndpointName"`
-		RecommendationID                string `json:"RecommendationId"`
-		TargetCPUUtilizationPerCore     int32  `json:"TargetCpuUtilizationPerCore"`
-	}
+	var req getScalingConfigurationRecommendationInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -201,7 +239,7 @@ func (h *Handler) handleGetScalingConfigurationRecommendation(ctx context.Contex
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{
+	resp := map[string]any{
 		"InferenceRecommendationsJobName": req.InferenceRecommendationsJobName,
 		keyEndpointNameField:              req.EndpointName,
 		"RecommendationId":                req.RecommendationID,
@@ -212,5 +250,15 @@ func (h *Handler) handleGetScalingConfigurationRecommendation(ctx context.Contex
 			"ScaleInCooldown":  rec.ScaleInCooldown,
 			"ScaleOutCooldown": rec.ScaleOutCooldown,
 		},
-	})
+		"Metric": map[string]any{
+			"InvocationsPerInstance": rec.InvocationsPerInstance,
+			"ModelLatency":           rec.ModelLatency,
+		},
+	}
+
+	if req.ScalingPolicyObjective != nil {
+		resp["ScalingPolicyObjective"] = req.ScalingPolicyObjective
+	}
+
+	return json.Marshal(resp)
 }

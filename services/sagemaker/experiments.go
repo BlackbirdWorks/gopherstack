@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"sort"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -17,7 +18,11 @@ var (
 	ErrExperimentAlreadyExists = awserr.New("ResourceInUse", awserr.ErrConflict)
 )
 
-// Experiment represents a SageMaker Experiment.
+// Experiment represents a SageMaker Experiment. CreatedBy/LastModifiedBy
+// (types.UserContext) and Source (types.ExperimentSource) are disclosed
+// absent -- this service models no caller-identity concept, and experiments
+// here are always created directly rather than derived from another
+// resource (e.g. a Pipeline execution).
 type Experiment struct {
 	CreationTime     time.Time         `json:"CreationTime"`
 	LastModifiedTime time.Time         `json:"LastModifiedTime"`
@@ -67,7 +72,9 @@ func (b *InMemoryBackend) CreateExperiment(
 	return cloneExperiment(e), nil
 }
 
-// DescribeExperiment returns an experiment by name.
+// DescribeExperiment returns an experiment by name. CreatedBy/LastModifiedBy
+// and Source are absent from the response -- see the disclosure on
+// [Experiment] above.
 func (b *InMemoryBackend) DescribeExperiment(ctx context.Context, name string) (*Experiment, error) {
 	b.mu.RLock("DescribeExperiment")
 	defer b.mu.RUnlock()
@@ -82,15 +89,60 @@ func (b *InMemoryBackend) DescribeExperiment(ctx context.Context, name string) (
 	return cloneExperiment(e), nil
 }
 
-// ListExperiments returns all experiments.
-func (b *InMemoryBackend) ListExperiments(ctx context.Context, nextToken string) ([]*Experiment, string) {
+// ListExperimentsFilter bundles the filter/sort criteria for ListExperiments
+// (api_op_ListExperiments.go:32-55). Previously this decoded only NextToken
+// and dropped every filter and sort control the op's own request shape
+// declares.
+type ListExperimentsFilter struct {
+	CreatedAfter  *time.Time
+	CreatedBefore *time.Time
+	SortBy        string
+	SortOrder     string
+	MaxResults    int32
+}
+
+// ListExperiments returns experiments matching f, sorted and paginated.
+//
+// api_op_ListExperiments.go:48,51: real defaults are CreationTime/Descending.
+func (b *InMemoryBackend) ListExperiments(
+	ctx context.Context,
+	nextToken string,
+	f ListExperimentsFilter,
+) ([]*Experiment, string) {
 	b.mu.RLock("ListExperiments")
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
 
-	return sagemakerListPaged(b.experimentsStoreRO(region), nextToken, cloneExperiment,
-		func(a, b *Experiment) bool { return a.ExperimentName < b.ExperimentName })
+	list := make([]*Experiment, 0, b.experimentsStoreRO(region).Len())
+
+	for _, e := range b.experimentsStoreRO(region).All() {
+		if !timeWindowOK(e.CreationTime, f.CreatedAfter, f.CreatedBefore) {
+			continue
+		}
+
+		list = append(list, cloneExperiment(e))
+	}
+
+	desc := f.SortOrder != sortOrderAscending
+	sort.SliceStable(list, func(i, k int) bool {
+		var less bool
+
+		switch f.SortBy {
+		case keyGenericName:
+			less = list[i].ExperimentName < list[k].ExperimentName
+		default:
+			less = list[i].CreationTime.Before(list[k].CreationTime)
+		}
+
+		if desc {
+			return !less
+		}
+
+		return less
+	})
+
+	return paginateSlice(list, nextToken, f.MaxResults)
 }
 
 // DeleteExperiment deletes an experiment.
@@ -113,9 +165,16 @@ func (b *InMemoryBackend) DeleteExperiment(ctx context.Context, name string) (*E
 }
 
 // UpdateExperiment mutates DisplayName and Description on an experiment.
+// Both are *string, matching UpdateExperimentInput
+// (api_op_UpdateExperiment.go:28-43): nil means "leave unchanged", a
+// present-but-empty string means "clear" -- the op's own doc says it
+// "adds, updates, or removes the description", but a plain (non-pointer)
+// string field can never distinguish an omitted key from an explicit "",
+// making removal unreachable. That was the previous bug.
 func (b *InMemoryBackend) UpdateExperiment(
 	ctx context.Context,
-	name, displayName, description string,
+	name string,
+	displayName, description *string,
 ) (*Experiment, error) {
 	b.mu.Lock("UpdateExperiment")
 	defer b.mu.Unlock()
@@ -127,11 +186,11 @@ func (b *InMemoryBackend) UpdateExperiment(
 		return nil, fmt.Errorf("%w: experiment %q not found", ErrExperimentNotFound, name)
 	}
 
-	if displayName != "" {
-		e.DisplayName = displayName
+	if displayName != nil {
+		e.DisplayName = *displayName
 	}
-	if description != "" {
-		e.Description = description
+	if description != nil {
+		e.Description = *description
 	}
 	e.LastModifiedTime = time.Now()
 

@@ -604,7 +604,7 @@ func lifecycleConfigSortLess(a, b *NotebookInstanceLifecycleConfig, sortBy strin
 		if a.Name != b.Name {
 			return a.Name < b.Name
 		}
-	case "LastModifiedTime":
+	case keyLastModifiedTime:
 		if !a.LastModifiedTime.Equal(b.LastModifiedTime) {
 			return a.LastModifiedTime.Before(b.LastModifiedTime)
 		}
