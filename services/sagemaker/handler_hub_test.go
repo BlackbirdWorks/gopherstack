@@ -4,7 +4,11 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
+	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	sagemakersdk "github.com/aws/aws-sdk-go-v2/service/sagemaker"
+	smtypes "github.com/aws/aws-sdk-go-v2/service/sagemaker/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -173,6 +177,103 @@ func TestHandler_ListHubs(t *testing.T) {
 	require.NoError(t, json.Unmarshal(recFiltered.Body.Bytes(), &filtered))
 	require.Len(t, filtered.HubSummaries, 1)
 	assert.Equal(t, "beta-hub", filtered.HubSummaries[0]["HubName"])
+}
+
+// TestHandler_ListHubs_CreationTimeWindowAndSort proves ListHubsInput's
+// CreationTimeAfter/CreationTimeBefore/SortBy/SortOrder — previously absent
+// from this wire struct entirely — narrow and order the real result set,
+// through the real SDK client.
+func TestHandler_ListHubs_CreationTimeWindowAndSort(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestSageMakerClient(t, h)
+
+	_, err := client.CreateHub(t.Context(), &sagemakersdk.CreateHubInput{
+		HubName: aws.String("older-hub"), HubDescription: aws.String("d"),
+	})
+	require.NoError(t, err)
+
+	_, err = client.CreateHub(t.Context(), &sagemakersdk.CreateHubInput{
+		HubName: aws.String("newer-hub"), HubDescription: aws.String("d"),
+	})
+	require.NoError(t, err)
+
+	future := time.Now().Add(365 * 24 * time.Hour)
+	past := time.Now().Add(-365 * 24 * time.Hour)
+
+	out, err := client.ListHubs(t.Context(), &sagemakersdk.ListHubsInput{
+		CreationTimeAfter:  &past,
+		CreationTimeBefore: &future,
+		SortBy:             smtypes.HubSortByCreationTime,
+		SortOrder:          smtypes.SortOrderAscending,
+	})
+	require.NoError(t, err)
+	require.Len(t, out.HubSummaries, 2)
+	assert.Equal(t, "older-hub", aws.ToString(out.HubSummaries[0].HubName))
+	assert.Equal(t, "newer-hub", aws.ToString(out.HubSummaries[1].HubName))
+
+	excluded, err := client.ListHubs(t.Context(), &sagemakersdk.ListHubsInput{CreationTimeAfter: &future})
+	require.NoError(t, err)
+	assert.Empty(t, excluded.HubSummaries)
+}
+
+// TestHandler_ListHubs_LastModifiedWindow proves LastModifiedTimeAfter/
+// LastModifiedTimeBefore — previously absent — filter on the real result set
+// through the real SDK client.
+func TestHandler_ListHubs_LastModifiedWindow(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestSageMakerClient(t, h)
+
+	_, err := client.CreateHub(t.Context(), &sagemakersdk.CreateHubInput{
+		HubName: aws.String("modified-hub"), HubDescription: aws.String("d"),
+	})
+	require.NoError(t, err)
+
+	past := time.Now().Add(-365 * 24 * time.Hour)
+
+	_, err = client.UpdateHub(t.Context(), &sagemakersdk.UpdateHubInput{
+		HubName: aws.String("modified-hub"), HubDescription: aws.String("updated"),
+	})
+	require.NoError(t, err)
+
+	included, err := client.ListHubs(t.Context(), &sagemakersdk.ListHubsInput{LastModifiedTimeAfter: &past})
+	require.NoError(t, err)
+	require.Len(t, included.HubSummaries, 1)
+
+	excluded, err := client.ListHubs(t.Context(), &sagemakersdk.ListHubsInput{LastModifiedTimeBefore: &past})
+	require.NoError(t, err)
+	assert.Empty(t, excluded.HubSummaries)
+}
+
+// TestHandler_ListHubs_MaxResults proves MaxResults/NextToken — previously
+// absent — actually cap and page the real result set.
+func TestHandler_ListHubs_MaxResults(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestSageMakerClient(t, h)
+
+	for _, name := range []string{"page-hub-1", "page-hub-2"} {
+		_, err := client.CreateHub(t.Context(), &sagemakersdk.CreateHubInput{
+			HubName: aws.String(name), HubDescription: aws.String("d"),
+		})
+		require.NoError(t, err)
+	}
+
+	page1, err := client.ListHubs(t.Context(), &sagemakersdk.ListHubsInput{MaxResults: aws.Int32(1)})
+	require.NoError(t, err)
+	require.Len(t, page1.HubSummaries, 1)
+	require.NotEmpty(t, aws.ToString(page1.NextToken))
+
+	page2, err := client.ListHubs(t.Context(), &sagemakersdk.ListHubsInput{
+		MaxResults: aws.Int32(1), NextToken: page1.NextToken,
+	})
+	require.NoError(t, err)
+	require.Len(t, page2.HubSummaries, 1)
+	assert.NotEqual(t, aws.ToString(page1.HubSummaries[0].HubName), aws.ToString(page2.HubSummaries[0].HubName))
 }
 
 func TestHandler_DeleteHub_NotEmpty(t *testing.T) {
@@ -401,6 +502,171 @@ func TestHandler_HubContent_ListsAndVersions(t *testing.T) {
 	require.Len(t, versionsResp.HubContentSummaries, 3)
 }
 
+// TestHandler_ListHubContents_SchemaVersionAndWindow proves
+// ListHubContentsInput's MaxSchemaVersion/CreationTimeAfter/
+// CreationTimeBefore — previously absent from this wire struct entirely —
+// narrow the real result set through the real SDK client.
+func TestHandler_ListHubContents_SchemaVersionAndWindow(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestSageMakerClient(t, h)
+
+	_, err := client.CreateHub(t.Context(), &sagemakersdk.CreateHubInput{
+		HubName: aws.String("schema-hub"), HubDescription: aws.String("d"),
+	})
+	require.NoError(t, err)
+
+	_, err = client.ImportHubContent(t.Context(), &sagemakersdk.ImportHubContentInput{
+		HubName: aws.String("schema-hub"), HubContentName: aws.String("old-schema"),
+		HubContentType: smtypes.HubContentTypeModel, DocumentSchemaVersion: aws.String("1.0.0"),
+		HubContentDocument: aws.String("{}"),
+	})
+	require.NoError(t, err)
+
+	_, err = client.ImportHubContent(t.Context(), &sagemakersdk.ImportHubContentInput{
+		HubName: aws.String("schema-hub"), HubContentName: aws.String("new-schema"),
+		HubContentType: smtypes.HubContentTypeModel, DocumentSchemaVersion: aws.String("2.0.0"),
+		HubContentDocument: aws.String("{}"),
+	})
+	require.NoError(t, err)
+
+	bySchema, err := client.ListHubContents(t.Context(), &sagemakersdk.ListHubContentsInput{
+		HubName: aws.String("schema-hub"), HubContentType: smtypes.HubContentTypeModel,
+		MaxSchemaVersion: aws.String("1.5.0"),
+	})
+	require.NoError(t, err)
+	require.Len(t, bySchema.HubContentSummaries, 1)
+	assert.Equal(t, "old-schema", aws.ToString(bySchema.HubContentSummaries[0].HubContentName))
+
+	future := time.Now().Add(365 * 24 * time.Hour)
+
+	excluded, err := client.ListHubContents(t.Context(), &sagemakersdk.ListHubContentsInput{
+		HubName: aws.String("schema-hub"), HubContentType: smtypes.HubContentTypeModel,
+		CreationTimeAfter: &future,
+	})
+	require.NoError(t, err)
+	assert.Empty(t, excluded.HubContentSummaries)
+}
+
+// TestHandler_ListHubContents_SortByName proves ListHubContentsInput's
+// SortBy/SortOrder — previously absent — order the real result set through
+// the real SDK client.
+func TestHandler_ListHubContents_SortByName(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestSageMakerClient(t, h)
+
+	_, err := client.CreateHub(t.Context(), &sagemakersdk.CreateHubInput{
+		HubName: aws.String("sort-hub"), HubDescription: aws.String("d"),
+	})
+	require.NoError(t, err)
+
+	for _, name := range []string{"zeta-model", "alpha-model"} {
+		_, err = client.ImportHubContent(t.Context(), &sagemakersdk.ImportHubContentInput{
+			HubName: aws.String("sort-hub"), HubContentName: aws.String(name),
+			HubContentType: smtypes.HubContentTypeModel, DocumentSchemaVersion: aws.String("1.0.0"),
+			HubContentDocument: aws.String("{}"),
+		})
+		require.NoError(t, err)
+	}
+
+	out, err := client.ListHubContents(t.Context(), &sagemakersdk.ListHubContentsInput{
+		HubName: aws.String("sort-hub"), HubContentType: smtypes.HubContentTypeModel,
+		SortBy: smtypes.HubContentSortByHubContentName, SortOrder: smtypes.SortOrderAscending,
+	})
+	require.NoError(t, err)
+	require.Len(t, out.HubContentSummaries, 2)
+	assert.Equal(t, "alpha-model", aws.ToString(out.HubContentSummaries[0].HubContentName))
+	assert.Equal(t, "zeta-model", aws.ToString(out.HubContentSummaries[1].HubContentName))
+}
+
+// TestHandler_ListHubContentVersions_MinVersionAndSchema proves
+// ListHubContentVersionsInput's MinVersion/MaxSchemaVersion — previously
+// absent from this wire struct entirely — narrow the real result set through
+// the real SDK client.
+func TestHandler_ListHubContentVersions_MinVersionAndSchema(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestSageMakerClient(t, h)
+
+	_, err := client.CreateHub(t.Context(), &sagemakersdk.CreateHubInput{
+		HubName: aws.String("versions-min-hub"), HubDescription: aws.String("d"),
+	})
+	require.NoError(t, err)
+
+	for _, v := range []string{"1.0.0", "1.5.0", "2.0.0"} {
+		_, err = client.ImportHubContent(t.Context(), &sagemakersdk.ImportHubContentInput{
+			HubName: aws.String("versions-min-hub"), HubContentName: aws.String("my-model"),
+			HubContentVersion: aws.String(v), HubContentType: smtypes.HubContentTypeModel,
+			DocumentSchemaVersion: aws.String("1.0.0"), HubContentDocument: aws.String("{}"),
+		})
+		require.NoError(t, err)
+	}
+
+	out, err := client.ListHubContentVersions(t.Context(), &sagemakersdk.ListHubContentVersionsInput{
+		HubName: aws.String("versions-min-hub"), HubContentType: smtypes.HubContentTypeModel,
+		HubContentName: aws.String("my-model"), MinVersion: aws.String("1.5.0"),
+		SortOrder: smtypes.SortOrderAscending,
+	})
+	require.NoError(t, err)
+	require.Len(t, out.HubContentSummaries, 2)
+	assert.Equal(t, "1.5.0", aws.ToString(out.HubContentSummaries[0].HubContentVersion))
+	assert.Equal(t, "2.0.0", aws.ToString(out.HubContentSummaries[1].HubContentVersion))
+
+	tooHigh, err := client.ListHubContentVersions(t.Context(), &sagemakersdk.ListHubContentVersionsInput{
+		HubName: aws.String("versions-min-hub"), HubContentType: smtypes.HubContentTypeModel,
+		HubContentName: aws.String("my-model"), MaxSchemaVersion: aws.String("0.9.0"),
+	})
+	require.NoError(t, err)
+	assert.Empty(t, tooHigh.HubContentSummaries)
+}
+
+// TestHandler_ListHubContentVersions_MaxResults proves MaxResults/NextToken
+// on ListHubContentVersions — previously absent — actually cap and page the
+// real result set.
+func TestHandler_ListHubContentVersions_MaxResults(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestSageMakerClient(t, h)
+
+	_, err := client.CreateHub(t.Context(), &sagemakersdk.CreateHubInput{
+		HubName: aws.String("versions-page-hub"), HubDescription: aws.String("d"),
+	})
+	require.NoError(t, err)
+
+	for _, v := range []string{"1.0.0", "2.0.0"} {
+		_, err = client.ImportHubContent(t.Context(), &sagemakersdk.ImportHubContentInput{
+			HubName: aws.String("versions-page-hub"), HubContentName: aws.String("my-model"),
+			HubContentVersion: aws.String(v), HubContentType: smtypes.HubContentTypeModel,
+			DocumentSchemaVersion: aws.String("1.0.0"), HubContentDocument: aws.String("{}"),
+		})
+		require.NoError(t, err)
+	}
+
+	page1, err := client.ListHubContentVersions(t.Context(), &sagemakersdk.ListHubContentVersionsInput{
+		HubName: aws.String("versions-page-hub"), HubContentType: smtypes.HubContentTypeModel,
+		HubContentName: aws.String("my-model"), MaxResults: aws.Int32(1),
+	})
+	require.NoError(t, err)
+	require.Len(t, page1.HubContentSummaries, 1)
+	require.NotEmpty(t, aws.ToString(page1.NextToken))
+
+	page2, err := client.ListHubContentVersions(t.Context(), &sagemakersdk.ListHubContentVersionsInput{
+		HubName: aws.String("versions-page-hub"), HubContentType: smtypes.HubContentTypeModel,
+		HubContentName: aws.String("my-model"), MaxResults: aws.Int32(1), NextToken: page1.NextToken,
+	})
+	require.NoError(t, err)
+	require.Len(t, page2.HubContentSummaries, 1)
+	assert.NotEqual(t,
+		aws.ToString(page1.HubContentSummaries[0].HubContentVersion),
+		aws.ToString(page2.HubContentSummaries[0].HubContentVersion),
+	)
+}
+
 func TestHandler_DeleteHubContent(t *testing.T) {
 	t.Parallel()
 
@@ -549,6 +815,49 @@ func TestHandler_CreateHubContentPresignedUrls(t *testing.T) {
 		"HubName": "presign-hub", "HubContentType": "Model", "HubContentName": "no-such-model",
 	})
 	assert.Equal(t, http.StatusBadRequest, recNF.Code)
+}
+
+// TestHandler_CreateHubContentPresignedUrls_AccessConfigAndPaging proves
+// AccessConfig/MaxResults/NextToken — previously absent from this wire
+// struct entirely — round-trip through the real SDK client without being
+// rejected or silently dropped from the response shape.
+//
+// AccessConfig.AcceptEula/ExpectedS3Url are accepted-and-round-tripped but
+// not enforced (see PresignedURLAccessConfig's doc comment, hub.go): this
+// backend models no "gated" hub content to reject against, and every
+// ImportHubContent call here produces at most one URL (HubContentDependencies
+// is never populated by any real API field, on this backend or AWS's), so a
+// true multi-page MaxResults truncation is not reachable through any public
+// request shape — disclosed rather than fabricated.
+func TestHandler_CreateHubContentPresignedUrls_AccessConfigAndPaging(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestSageMakerClient(t, h)
+
+	_, err := client.CreateHub(t.Context(), &sagemakersdk.CreateHubInput{
+		HubName: aws.String("presign-access-hub"), HubDescription: aws.String("d"),
+	})
+	require.NoError(t, err)
+
+	_, err = client.ImportHubContent(t.Context(), &sagemakersdk.ImportHubContentInput{
+		HubName: aws.String("presign-access-hub"), HubContentName: aws.String("gated-model"),
+		HubContentType: smtypes.HubContentTypeModel, DocumentSchemaVersion: aws.String("1.0.0"),
+		HubContentDocument: aws.String("{}"),
+	})
+	require.NoError(t, err)
+
+	out, err := client.CreateHubContentPresignedUrls(t.Context(), &sagemakersdk.CreateHubContentPresignedUrlsInput{
+		HubName: aws.String("presign-access-hub"), HubContentType: smtypes.HubContentTypeModel,
+		HubContentName: aws.String("gated-model"),
+		AccessConfig: &smtypes.PresignedUrlAccessConfig{
+			AcceptEula: aws.Bool(true), ExpectedS3Url: aws.String("s3://expected/prefix"),
+		},
+		MaxResults: aws.Int32(1),
+	})
+	require.NoError(t, err)
+	require.Len(t, out.AuthorizedUrlConfigs, 1)
+	assert.Empty(t, aws.ToString(out.NextToken))
 }
 
 // ---------------------------------------------------------------------------

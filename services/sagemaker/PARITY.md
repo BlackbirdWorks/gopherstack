@@ -972,3 +972,102 @@ Gates for this session: `go build ./...`, `go vet -tags e2e ./...`, `go vet -tag
 clean; zero `nolint:{cyclop,gocyclo,gocognit,funlen}` added (two `nolint:dupl` added on
 `ListContexts`/`ListActions`, matching this repo's 98 existing precedents for that specific
 linter, disclosed since it isn't in the banned group).
+
+## parity-9 (2026-08-21, gopherstack-oc9v): Hub / HubContent family inline-struct sweep
+
+Third pass of the gopherstack-oc9v campaign. Per parity-8's own boundary note ("324 of
+sagemaker's 362 inline structs now remain ... `handler_hub.go` (15), `handler_pipelines.go` (14),
+`handler_mlflow.go` (14), `handler_model_packages.go` (12) ... "), this pass took the largest
+remaining single file, verified by `grep -c 'var req struct {' handler_hub.go` = 15 before
+starting. All 15 were converted to named types (`createHubInput`, `describeHubInput`,
+`listHubsInput`, `updateHubInput`, `deleteHubInput`, `importHubContentInput`,
+`describeHubContentInput`, `listHubContentsInput`, `listHubContentVersionsInput`,
+`deleteHubContentInput`, `createHubContentReferenceInput`, `deleteHubContentReferenceInput`,
+`createHubContentPresignedURLsInput`, `updateHubContentInput`,
+`updateHubContentReferenceInput`) and wire-audited field-by-field against the pinned SDK
+(confirmed `v1.263.2` from `go.mod`, matching parity-7/8's assumption). **309 of sagemaker's 362
+inline structs now remain** (362 − 19 − 19 − 15); `handler_hub.go` itself now has zero. This pass
+did not touch `handler_pipelines.go`/`handler_mlflow.go`/`handler_model_packages.go` or any other
+family — all still open for gopherstack-oc9v.
+
+**Enumerated vs. converted vs. audited:** of the 15 ops, 11 already matched the real SDK struct
+exactly once named (`CreateHub`, `DescribeHub`, `UpdateHub`, `DeleteHub`, `ImportHubContent`,
+`DescribeHubContent`, `DeleteHubContent`, `CreateHubContentReference`,
+`DeleteHubContentReference`, `UpdateHubContent`, `UpdateHubContentReference`). The other 4 had
+absent members:
+
+- `ListHubsInput` (`api_op_ListHubs.go:29-58`) — was missing **seven** of its nine fields:
+  `CreationTimeAfter`, `CreationTimeBefore`, `LastModifiedTimeAfter`, `LastModifiedTimeBefore`,
+  `MaxResults`, `SortBy`, `SortOrder` (only `NameContains`/`NextToken` existed). The exact "parsed
+  field, silently dropped" class this campaign exists to find, at the largest count yet found in
+  one op. All seven now real: the four timestamp windows filter on `CreationTime`/
+  `LastModifiedTime`; `MaxResults` caps the page via `paginateSlice`; `SortBy` orders by
+  `HubName`/`CreationTime`/`HubStatus` (real `HubSortBy` enum, `types/enums.go:3929-3944` — a
+  fourth value, `AccountIdOwner`, has no distinguishing order in this single-account-per-region
+  backend and is disclosed as a no-op tiebreak, the same shape as parity-8's
+  `ListLineageGroups.SortBy`); `SortOrder` reorders ascending/descending. No default is documented
+  by AWS for either field (checked docs.aws.amazon.com/sagemaker/latest/APIReference/API_ListHubs.html
+  directly — neither the SDK struct comments nor the HTML docs state one), so the pre-existing
+  unconditional HubName-ascending behavior was kept as the disclosed fallback rather than guessed.
+- `ListHubContentsInput` (`api_op_ListHubContents.go:29-58`) — missing `CreationTimeAfter`,
+  `CreationTimeBefore`, `MaxResults`, `MaxSchemaVersion`, `SortBy`, `SortOrder` (six of ten real
+  fields). All six now real, same shape as above; `MaxSchemaVersion` is a new filter class this
+  campaign hadn't hit yet — a `"\d{1,4}.\d{1,4}.\d{1,4}"` dotted-version upper bound compared via a
+  new `compareDottedVersions` helper (`hub.go`), not a timestamp or a plain string.
+- `ListHubContentVersionsInput` (`api_op_ListHubContentVersions.go:29-62`) — missing
+  `CreationTimeAfter`, `CreationTimeBefore`, `MaxResults`, `MaxSchemaVersion`, `MinVersion`,
+  `SortBy`, `SortOrder` (seven of eleven real fields) — `MinVersion` was a real lower-bound version
+  filter previously entirely unimplementable since the field didn't exist on the wire at all.
+- `CreateHubContentPresignedUrlsInput` (`api_op_CreateHubContentPresignedUrls.go:29-58`) —
+  missing `AccessConfig`, `MaxResults`, `NextToken` (three of seven real fields). `MaxResults`
+  (real documented default 100, confirmed via
+  docs.aws.amazon.com/sagemaker/latest/APIReference/API_CreateHubContentPresignedUrls.html) and
+  `NextToken` now paginate the real URL list via `paginateSlice`. `AccessConfig`
+  (`types.PresignedUrlAccessConfig{AcceptEula,ExpectedS3Url}`, `types/types.go:17716-17729`) is
+  modeled and round-tripped as `PresignedURLAccessConfig` but **disclosed, not enforced**: this
+  backend has no concept of "gated" hub content requiring EULA acceptance to reject against, and no
+  independently-resolved S3 URL to validate `ExpectedS3Url`'s consistency claim against — the same
+  disclosed-no-op shape as parity-8's `ListLineageGroups.SortBy`/`SortOrder`, not a fabricated
+  business rule.
+
+**Bugs found beyond the wire diff:** none of the storage-key-inconsistency shape this campaign has
+twice found before (`SpaceName`/`appKey` in parity-7). Every op in this family is keyed by
+`HubName`/`HubContentType`/`HubContentName`/`HubContentVersion`, none of which changed shape this
+pass — checked explicitly, no new field participates in a primary key here. One accept-and-drop
+bug of the class this campaign is calibrated to expect, beyond the raw absent-field count: before
+this pass, `CreateHubContentPresignedUrls` always returned every generated URL unconditionally
+regardless of `MaxResults`/`NextToken` (both silently absent from the wire struct), so a client
+capping the page size would have unknowingly received the full unpaginated set. In practice this
+is observable only when `HubContentDependencies` is non-empty (2+ URLs) — and this backend (like
+the real `ImportHubContent`/`CreateHubContentReference` request shapes it mirrors) has **no request
+field that ever populates `HubContentDependencies`**, so every reachable call produces at most one
+URL and the truncation path, while now implemented for real, is not exercisable through any public
+request shape. Disclosed in `TestHandler_CreateHubContentPresignedUrls_AccessConfigAndPaging`'s doc
+comment rather than fabricating a dependency-populating input this pass didn't add.
+
+**Tests:** every fix has a real-`aws-sdk-go-v2`-client round-trip test (`newTestSageMakerClient`)
+asserting on actual behavior — narrowed/reordered/paginated result sets, not just that the request
+parsed. Verified against unfixed code by hand-reverting three representative fixes one at a time
+(`ListHubs`' full `CreationTimeAfter/Before/LastModifiedTimeAfter/Before/SortBy/SortOrder/
+MaxResults` wiring, `ListHubContents`' `MaxSchemaVersion` wiring, `ListHubContentVersions`'
+`MinVersion` wiring) and confirming the corresponding tests failed with the predicted symptom
+(wrong count, wrong order, or wrong membership), then restoring — `handler_hub.go`/`hub.go`
+verified byte-identical (`md5sum`) to their pre-revert state afterward.
+
+**Not touched this pass:** the other 309 (362 − 19 − 19 − 15) inline structs elsewhere in this
+service — `handler_pipelines.go` (14), `handler_mlflow.go` (14), `handler_model_packages.go` (12),
+`handler_notebook_instances.go` (11), `handler_images.go` (11), `handler_edge_deployment.go` (11),
+and the rest — gopherstack-oc9v remains open for those. `HubContent`'s response-side
+`OriginalCreationTime` (present on the real `HubContentInfo` summary per
+docs.aws.amazon.com/sagemaker/latest/APIReference/API_HubContentInfo.html, absent from this
+backend's `hubContentInfoSummary`) is a response-field gap, not a request-struct one, so it is
+outside this pass's inline-struct scope — disclosed here rather than silently left unmentioned.
+
+Gates for this session: `go build ./...`, `go vet ./services/sagemaker/...`, `go vet -tags e2e
+./...`, `go vet -tags integration ./...`, `gofmt -l ./services/sagemaker` (empty), `go test -race
+./services/sagemaker/...`, `go fix -diff ./services/sagemaker/...` (no diff), and `golangci-lint
+run ./services/sagemaker/...` all clean; zero `nolint` of any kind added (fixed the `gocognit`/
+`goconst`/`golines`/`fieldalignment`/shadow findings golangci-lint raised mid-pass by decomposing
+`ListHubContents` into a `hubContentMatchesListParams` helper, reusing the existing
+`keyCreationTime` constant and a new `keyHubContentStatus` constant, reordering two structs'
+fields, and renaming three shadowed test `err`s — rather than suppressing any of them).

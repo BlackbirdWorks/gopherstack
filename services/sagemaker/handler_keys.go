@@ -33,6 +33,7 @@ const (
 	keyFlowDefinitionArn             = "FlowDefinitionArn"
 	keyHubArn                        = "HubArn"
 	keyHubContentArn                 = "HubContentArn"
+	keyHubContentStatus              = "HubContentStatus"
 	keyHumanTaskUIArn                = "HumanTaskUiArn"
 	keyImageArn                      = "ImageArn"
 	keyImageVersionArn               = "ImageVersionArn"

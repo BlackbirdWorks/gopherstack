@@ -141,15 +141,19 @@ type hubS3StorageConfigJSON struct {
 	S3OutputPath string `json:"S3OutputPath,omitempty"`
 }
 
+// createHubInput is the CreateHub request shape (named, not inline — see
+// gopherstack-oc9v). Matches CreateHubInput (api_op_CreateHub.go) exactly.
+type createHubInput struct {
+	HubName           string                  `json:"HubName"`
+	HubDescription    string                  `json:"HubDescription"`
+	HubDisplayName    string                  `json:"HubDisplayName"`
+	HubSearchKeywords []string                `json:"HubSearchKeywords"`
+	S3StorageConfig   *hubS3StorageConfigJSON `json:"S3StorageConfig"`
+	Tags              []tagObject             `json:"Tags"`
+}
+
 func (h *Handler) handleCreateHub(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		HubName           string                  `json:"HubName"`
-		HubDescription    string                  `json:"HubDescription"`
-		HubDisplayName    string                  `json:"HubDisplayName"`
-		HubSearchKeywords []string                `json:"HubSearchKeywords"`
-		S3StorageConfig   *hubS3StorageConfigJSON `json:"S3StorageConfig"`
-		Tags              []tagObject             `json:"Tags"`
-	}
+	var req createHubInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -213,10 +217,14 @@ func hubToDescribeResponse(hub *Hub) map[string]any {
 	return resp
 }
 
+// describeHubInput is the DescribeHub request shape (named, not inline — see
+// gopherstack-oc9v). Matches DescribeHubInput (api_op_DescribeHub.go) exactly.
+type describeHubInput struct {
+	HubName string `json:"HubName"`
+}
+
 func (h *Handler) handleDescribeHub(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		HubName string `json:"HubName"`
-	}
+	var req describeHubInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -245,17 +253,38 @@ type hubInfoSummary struct {
 	LastModifiedTime  float64  `json:"LastModifiedTime"`
 }
 
+// listHubsInput is the ListHubs request shape (named, not inline — see
+// gopherstack-oc9v). Matches ListHubsInput (api_op_ListHubs.go) exactly.
+type listHubsInput struct {
+	CreationTimeAfter      *float64 `json:"CreationTimeAfter"`
+	CreationTimeBefore     *float64 `json:"CreationTimeBefore"`
+	LastModifiedTimeAfter  *float64 `json:"LastModifiedTimeAfter"`
+	LastModifiedTimeBefore *float64 `json:"LastModifiedTimeBefore"`
+	NameContains           string   `json:"NameContains"`
+	NextToken              string   `json:"NextToken"`
+	SortBy                 string   `json:"SortBy"`
+	SortOrder              string   `json:"SortOrder"`
+	MaxResults             int32    `json:"MaxResults"`
+}
+
 func (h *Handler) handleListHubs(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		NameContains string `json:"NameContains"`
-		NextToken    string `json:"NextToken"`
-	}
+	var req listHubsInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	hubs, nextToken := h.Backend.ListHubs(ctx, req.NameContains, req.NextToken)
+	hubs, nextToken := h.Backend.ListHubs(ctx, ListHubsParams{
+		NameContains:           req.NameContains,
+		NextToken:              req.NextToken,
+		SortBy:                 req.SortBy,
+		SortOrder:              req.SortOrder,
+		MaxResults:             req.MaxResults,
+		CreationTimeAfter:      timeFromEpochSecondsPtr(req.CreationTimeAfter),
+		CreationTimeBefore:     timeFromEpochSecondsPtr(req.CreationTimeBefore),
+		LastModifiedTimeAfter:  timeFromEpochSecondsPtr(req.LastModifiedTimeAfter),
+		LastModifiedTimeBefore: timeFromEpochSecondsPtr(req.LastModifiedTimeBefore),
+	})
 	summaries := make([]hubInfoSummary, 0, len(hubs))
 
 	for _, hub := range hubs {
@@ -279,13 +308,17 @@ func (h *Handler) handleListHubs(ctx context.Context, body []byte) ([]byte, erro
 	return json.Marshal(resp)
 }
 
+// updateHubInput is the UpdateHub request shape (named, not inline — see
+// gopherstack-oc9v). Matches UpdateHubInput (api_op_UpdateHub.go) exactly.
+type updateHubInput struct {
+	HubDescription    *string   `json:"HubDescription"`
+	HubDisplayName    *string   `json:"HubDisplayName"`
+	HubSearchKeywords *[]string `json:"HubSearchKeywords"`
+	HubName           string    `json:"HubName"`
+}
+
 func (h *Handler) handleUpdateHub(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		HubDescription    *string   `json:"HubDescription"`
-		HubDisplayName    *string   `json:"HubDisplayName"`
-		HubSearchKeywords *[]string `json:"HubSearchKeywords"`
-		HubName           string    `json:"HubName"`
-	}
+	var req updateHubInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -309,10 +342,14 @@ func (h *Handler) handleUpdateHub(ctx context.Context, body []byte) ([]byte, err
 	return json.Marshal(map[string]string{keyHubArn: hub.HubArn})
 }
 
+// deleteHubInput is the DeleteHub request shape (named, not inline — see
+// gopherstack-oc9v). Matches DeleteHubInput (api_op_DeleteHub.go) exactly.
+type deleteHubInput struct {
+	HubName string `json:"HubName"`
+}
+
 func (h *Handler) handleDeleteHub(ctx context.Context, body []byte) error {
-	var req struct {
-		HubName string `json:"HubName"`
-	}
+	var req deleteHubInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -335,21 +372,26 @@ func (h *Handler) handleDeleteHub(ctx context.Context, body []byte) error {
 // HubContent handlers
 // ---------------------------------------------------------------------------
 
+// importHubContentInput is the ImportHubContent request shape (named, not
+// inline — see gopherstack-oc9v). Matches ImportHubContentInput
+// (api_op_ImportHubContent.go) exactly.
+type importHubContentInput struct {
+	HubContentName           string      `json:"HubContentName"`
+	HubContentVersion        string      `json:"HubContentVersion"`
+	HubContentType           string      `json:"HubContentType"`
+	DocumentSchemaVersion    string      `json:"DocumentSchemaVersion"`
+	HubName                  string      `json:"HubName"`
+	HubContentDisplayName    string      `json:"HubContentDisplayName"`
+	HubContentDescription    string      `json:"HubContentDescription"`
+	HubContentMarkdown       string      `json:"HubContentMarkdown"`
+	HubContentDocument       string      `json:"HubContentDocument"`
+	SupportStatus            string      `json:"SupportStatus"`
+	HubContentSearchKeywords []string    `json:"HubContentSearchKeywords"`
+	Tags                     []tagObject `json:"Tags"`
+}
+
 func (h *Handler) handleImportHubContent(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		HubContentName           string      `json:"HubContentName"`
-		HubContentVersion        string      `json:"HubContentVersion"`
-		HubContentType           string      `json:"HubContentType"`
-		DocumentSchemaVersion    string      `json:"DocumentSchemaVersion"`
-		HubName                  string      `json:"HubName"`
-		HubContentDisplayName    string      `json:"HubContentDisplayName"`
-		HubContentDescription    string      `json:"HubContentDescription"`
-		HubContentMarkdown       string      `json:"HubContentMarkdown"`
-		HubContentDocument       string      `json:"HubContentDocument"`
-		SupportStatus            string      `json:"SupportStatus"`
-		HubContentSearchKeywords []string    `json:"HubContentSearchKeywords"`
-		Tags                     []tagObject `json:"Tags"`
-	}
+	var req importHubContentInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -429,7 +471,7 @@ func hubContentToDescribeResponse(hc *HubContent) map[string]any {
 		keyHubName:              hc.HubName,
 		keyHubArn:               hc.HubArn,
 		"HubContentDocument":    hc.HubContentDocument,
-		"HubContentStatus":      hc.HubContentStatus,
+		keyHubContentStatus:     hc.HubContentStatus,
 		keyCreationTime:         epochSeconds(hc.CreationTime),
 	}
 
@@ -480,13 +522,18 @@ func addOptionalHubContentFields(resp map[string]any, hc *HubContent) {
 	}
 }
 
+// describeHubContentInput is the DescribeHubContent request shape (named,
+// not inline — see gopherstack-oc9v). Matches DescribeHubContentInput
+// (api_op_DescribeHubContent.go) exactly.
+type describeHubContentInput struct {
+	HubName           string `json:"HubName"`
+	HubContentType    string `json:"HubContentType"`
+	HubContentName    string `json:"HubContentName"`
+	HubContentVersion string `json:"HubContentVersion"`
+}
+
 func (h *Handler) handleDescribeHubContent(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		HubName           string `json:"HubName"`
-		HubContentType    string `json:"HubContentType"`
-		HubContentName    string `json:"HubContentName"`
-		HubContentVersion string `json:"HubContentVersion"`
-	}
+	var req describeHubContentInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -540,13 +587,24 @@ func toHubContentInfoSummary(hc *HubContent) hubContentInfoSummary {
 	}
 }
 
+// listHubContentsInput is the ListHubContents request shape (named, not
+// inline — see gopherstack-oc9v). Matches ListHubContentsInput
+// (api_op_ListHubContents.go) exactly.
+type listHubContentsInput struct {
+	CreationTimeAfter  *float64 `json:"CreationTimeAfter"`
+	CreationTimeBefore *float64 `json:"CreationTimeBefore"`
+	HubName            string   `json:"HubName"`
+	HubContentType     string   `json:"HubContentType"`
+	MaxSchemaVersion   string   `json:"MaxSchemaVersion"`
+	NameContains       string   `json:"NameContains"`
+	NextToken          string   `json:"NextToken"`
+	SortBy             string   `json:"SortBy"`
+	SortOrder          string   `json:"SortOrder"`
+	MaxResults         int32    `json:"MaxResults"`
+}
+
 func (h *Handler) handleListHubContents(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		HubName        string `json:"HubName"`
-		HubContentType string `json:"HubContentType"`
-		NameContains   string `json:"NameContains"`
-		NextToken      string `json:"NextToken"`
-	}
+	var req listHubContentsInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -556,7 +614,16 @@ func (h *Handler) handleListHubContents(ctx context.Context, body []byte) ([]byt
 		return nil, fmt.Errorf("%w: HubName and HubContentType are required", errInvalidRequest)
 	}
 
-	items, nextToken := h.Backend.ListHubContents(ctx, req.HubName, req.HubContentType, req.NameContains, req.NextToken)
+	items, nextToken := h.Backend.ListHubContents(ctx, req.HubName, req.HubContentType, ListHubContentsParams{
+		NameContains:       req.NameContains,
+		NextToken:          req.NextToken,
+		SortBy:             req.SortBy,
+		SortOrder:          req.SortOrder,
+		MaxSchemaVersion:   req.MaxSchemaVersion,
+		MaxResults:         req.MaxResults,
+		CreationTimeAfter:  timeFromEpochSecondsPtr(req.CreationTimeAfter),
+		CreationTimeBefore: timeFromEpochSecondsPtr(req.CreationTimeBefore),
+	})
 	summaries := make([]hubContentInfoSummary, 0, len(items))
 
 	for _, hc := range items {
@@ -571,13 +638,25 @@ func (h *Handler) handleListHubContents(ctx context.Context, body []byte) ([]byt
 	return json.Marshal(resp)
 }
 
+// listHubContentVersionsInput is the ListHubContentVersions request shape
+// (named, not inline — see gopherstack-oc9v). Matches
+// ListHubContentVersionsInput (api_op_ListHubContentVersions.go) exactly.
+type listHubContentVersionsInput struct {
+	CreationTimeAfter  *float64 `json:"CreationTimeAfter"`
+	CreationTimeBefore *float64 `json:"CreationTimeBefore"`
+	HubName            string   `json:"HubName"`
+	HubContentType     string   `json:"HubContentType"`
+	HubContentName     string   `json:"HubContentName"`
+	MaxSchemaVersion   string   `json:"MaxSchemaVersion"`
+	MinVersion         string   `json:"MinVersion"`
+	NextToken          string   `json:"NextToken"`
+	SortBy             string   `json:"SortBy"`
+	SortOrder          string   `json:"SortOrder"`
+	MaxResults         int32    `json:"MaxResults"`
+}
+
 func (h *Handler) handleListHubContentVersions(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		HubName        string `json:"HubName"`
-		HubContentType string `json:"HubContentType"`
-		HubContentName string `json:"HubContentName"`
-		NextToken      string `json:"NextToken"`
-	}
+	var req listHubContentVersionsInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -590,7 +669,16 @@ func (h *Handler) handleListHubContentVersions(ctx context.Context, body []byte)
 	}
 
 	items, nextToken := h.Backend.ListHubContentVersions(
-		ctx, req.HubName, req.HubContentType, req.HubContentName, req.NextToken,
+		ctx, req.HubName, req.HubContentType, req.HubContentName, ListHubContentVersionsParams{
+			NextToken:          req.NextToken,
+			SortBy:             req.SortBy,
+			SortOrder:          req.SortOrder,
+			MaxSchemaVersion:   req.MaxSchemaVersion,
+			MinVersion:         req.MinVersion,
+			MaxResults:         req.MaxResults,
+			CreationTimeAfter:  timeFromEpochSecondsPtr(req.CreationTimeAfter),
+			CreationTimeBefore: timeFromEpochSecondsPtr(req.CreationTimeBefore),
+		},
 	)
 	summaries := make([]hubContentInfoSummary, 0, len(items))
 
@@ -606,13 +694,18 @@ func (h *Handler) handleListHubContentVersions(ctx context.Context, body []byte)
 	return json.Marshal(resp)
 }
 
+// deleteHubContentInput is the DeleteHubContent request shape (named, not
+// inline — see gopherstack-oc9v). Matches DeleteHubContentInput
+// (api_op_DeleteHubContent.go) exactly.
+type deleteHubContentInput struct {
+	HubName           string `json:"HubName"`
+	HubContentType    string `json:"HubContentType"`
+	HubContentName    string `json:"HubContentName"`
+	HubContentVersion string `json:"HubContentVersion"`
+}
+
 func (h *Handler) handleDeleteHubContent(ctx context.Context, body []byte) error {
-	var req struct {
-		HubName           string `json:"HubName"`
-		HubContentType    string `json:"HubContentType"`
-		HubContentName    string `json:"HubContentName"`
-		HubContentVersion string `json:"HubContentVersion"`
-	}
+	var req deleteHubContentInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -636,14 +729,19 @@ func (h *Handler) handleDeleteHubContent(ctx context.Context, body []byte) error
 	return nil
 }
 
+// createHubContentReferenceInput is the CreateHubContentReference request
+// shape (named, not inline — see gopherstack-oc9v). Matches
+// CreateHubContentReferenceInput (api_op_CreateHubContentReference.go) exactly.
+type createHubContentReferenceInput struct {
+	HubName                      string      `json:"HubName"`
+	SageMakerPublicHubContentArn string      `json:"SageMakerPublicHubContentArn"`
+	HubContentName               string      `json:"HubContentName"`
+	MinVersion                   string      `json:"MinVersion"`
+	Tags                         []tagObject `json:"Tags"`
+}
+
 func (h *Handler) handleCreateHubContentReference(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		HubName                      string      `json:"HubName"`
-		SageMakerPublicHubContentArn string      `json:"SageMakerPublicHubContentArn"`
-		HubContentName               string      `json:"HubContentName"`
-		MinVersion                   string      `json:"MinVersion"`
-		Tags                         []tagObject `json:"Tags"`
-	}
+	var req createHubContentReferenceInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -666,12 +764,17 @@ func (h *Handler) handleCreateHubContentReference(ctx context.Context, body []by
 	return json.Marshal(map[string]string{keyHubArn: hc.HubArn, keyHubContentArn: hc.HubContentArn})
 }
 
+// deleteHubContentReferenceInput is the DeleteHubContentReference request
+// shape (named, not inline — see gopherstack-oc9v). Matches
+// DeleteHubContentReferenceInput (api_op_DeleteHubContentReference.go) exactly.
+type deleteHubContentReferenceInput struct {
+	HubName        string `json:"HubName"`
+	HubContentType string `json:"HubContentType"`
+	HubContentName string `json:"HubContentName"`
+}
+
 func (h *Handler) handleDeleteHubContentReference(ctx context.Context, body []byte) error {
-	var req struct {
-		HubName        string `json:"HubName"`
-		HubContentType string `json:"HubContentType"`
-		HubContentName string `json:"HubContentName"`
-	}
+	var req deleteHubContentReferenceInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -686,18 +789,23 @@ func (h *Handler) handleDeleteHubContentReference(ctx context.Context, body []by
 	return h.Backend.DeleteHubContentReference(ctx, req.HubName, req.HubContentType, req.HubContentName)
 }
 
+// updateHubContentInput is the UpdateHubContent request shape (named, not
+// inline — see gopherstack-oc9v). Matches UpdateHubContentInput
+// (api_op_UpdateHubContent.go) exactly.
+type updateHubContentInput struct {
+	HubName                  string   `json:"HubName"`
+	HubContentType           string   `json:"HubContentType"`
+	HubContentName           string   `json:"HubContentName"`
+	HubContentVersion        string   `json:"HubContentVersion"`
+	HubContentDescription    string   `json:"HubContentDescription,omitempty"`
+	HubContentDisplayName    string   `json:"HubContentDisplayName,omitempty"`
+	HubContentMarkdown       string   `json:"HubContentMarkdown,omitempty"`
+	SupportStatus            string   `json:"SupportStatus,omitempty"`
+	HubContentSearchKeywords []string `json:"HubContentSearchKeywords,omitempty"`
+}
+
 func (h *Handler) handleUpdateHubContent(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		HubName                  string   `json:"HubName"`
-		HubContentType           string   `json:"HubContentType"`
-		HubContentName           string   `json:"HubContentName"`
-		HubContentVersion        string   `json:"HubContentVersion"`
-		HubContentDescription    string   `json:"HubContentDescription,omitempty"`
-		HubContentDisplayName    string   `json:"HubContentDisplayName,omitempty"`
-		HubContentMarkdown       string   `json:"HubContentMarkdown,omitempty"`
-		SupportStatus            string   `json:"SupportStatus,omitempty"`
-		HubContentSearchKeywords []string `json:"HubContentSearchKeywords,omitempty"`
-	}
+	var req updateHubContentInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -726,13 +834,18 @@ func (h *Handler) handleUpdateHubContent(ctx context.Context, body []byte) ([]by
 	return json.Marshal(map[string]string{keyHubArn: hc.HubArn, keyHubContentArn: hc.HubContentArn})
 }
 
+// updateHubContentReferenceInput is the UpdateHubContentReference request
+// shape (named, not inline — see gopherstack-oc9v). Matches
+// UpdateHubContentReferenceInput (api_op_UpdateHubContentReference.go) exactly.
+type updateHubContentReferenceInput struct {
+	HubName        string `json:"HubName"`
+	HubContentType string `json:"HubContentType"`
+	HubContentName string `json:"HubContentName"`
+	MinVersion     string `json:"MinVersion,omitempty"`
+}
+
 func (h *Handler) handleUpdateHubContentReference(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		HubName        string `json:"HubName"`
-		HubContentType string `json:"HubContentType"`
-		HubContentName string `json:"HubContentName"`
-		MinVersion     string `json:"MinVersion,omitempty"`
-	}
+	var req updateHubContentReferenceInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -754,13 +867,29 @@ func (h *Handler) handleUpdateHubContentReference(ctx context.Context, body []by
 	return json.Marshal(map[string]string{keyHubArn: hc.HubArn, keyHubContentArn: hc.HubContentArn})
 }
 
+// presignedURLAccessConfigJSON is the wire shape of PresignedUrlAccessConfig
+// (types/types.go:17716-17729).
+type presignedURLAccessConfigJSON struct {
+	ExpectedS3URL string `json:"ExpectedS3Url,omitempty"`
+	AcceptEula    bool   `json:"AcceptEula,omitempty"`
+}
+
+// createHubContentPresignedURLsInput is the CreateHubContentPresignedUrls
+// request shape (named, not inline — see gopherstack-oc9v). Matches
+// CreateHubContentPresignedUrlsInput (api_op_CreateHubContentPresignedUrls.go)
+// exactly.
+type createHubContentPresignedURLsInput struct {
+	AccessConfig      *presignedURLAccessConfigJSON `json:"AccessConfig"`
+	HubName           string                        `json:"HubName"`
+	HubContentType    string                        `json:"HubContentType"`
+	HubContentName    string                        `json:"HubContentName"`
+	HubContentVersion string                        `json:"HubContentVersion"`
+	NextToken         string                        `json:"NextToken"`
+	MaxResults        int32                         `json:"MaxResults"`
+}
+
 func (h *Handler) handleCreateHubContentPresignedURLs(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		HubName           string `json:"HubName"`
-		HubContentType    string `json:"HubContentType"`
-		HubContentName    string `json:"HubContentName"`
-		HubContentVersion string `json:"HubContentVersion"`
-	}
+	var req createHubContentPresignedURLsInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -772,8 +901,21 @@ func (h *Handler) handleCreateHubContentPresignedURLs(ctx context.Context, body 
 		)
 	}
 
-	urls, err := h.Backend.CreateHubContentPresignedURLs(
+	var accessConfig PresignedURLAccessConfig
+	if req.AccessConfig != nil {
+		accessConfig = PresignedURLAccessConfig{
+			AcceptEula:    req.AccessConfig.AcceptEula,
+			ExpectedS3URL: req.AccessConfig.ExpectedS3URL,
+		}
+	}
+
+	urls, nextToken, err := h.Backend.CreateHubContentPresignedURLs(
 		ctx, req.HubName, req.HubContentType, req.HubContentName, req.HubContentVersion,
+		CreateHubContentPresignedURLsParams{
+			AccessConfig: accessConfig,
+			NextToken:    req.NextToken,
+			MaxResults:   req.MaxResults,
+		},
 	)
 	if err != nil {
 		return nil, err
@@ -784,5 +926,10 @@ func (h *Handler) handleCreateHubContentPresignedURLs(ctx context.Context, body 
 		configs = append(configs, map[string]string{keyURL: u.URL, "LocalPath": u.LocalPath})
 	}
 
-	return json.Marshal(map[string]any{"AuthorizedUrlConfigs": configs})
+	resp := map[string]any{"AuthorizedUrlConfigs": configs}
+	if nextToken != "" {
+		resp["NextToken"] = nextToken
+	}
+
+	return json.Marshal(resp)
 }
