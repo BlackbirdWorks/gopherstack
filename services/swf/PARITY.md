@@ -1,7 +1,7 @@
 ---
 service: swf
 sdk_module: aws-sdk-go-v2/service/swf@v1.37.4   # verified this pass; go.mod pin, was stale at v1.33.14
-last_audit_commit: pending (agent instructed not to commit; see git log for this pass's commit)
+last_audit_commit: fd65c414d
 last_audit_date: 2026-08-10
 overall: A            # genuine fixes found this pass (see Notes)
 ops:
@@ -35,12 +35,12 @@ ops:
   CountPendingActivityTasks: {wire: ok, errors: ok, state: ok, persist: n/a}
   CountPendingDecisionTasks: {wire: ok, errors: ok, state: ok, persist: n/a}
   PollForActivityTask: {wire: ok, errors: ok, state: ok, persist: partial, note: "activityQueues intentionally ephemeral, see Notes. Now also sweeps expired executions first (gopherstack-7gse), defense-in-depth consistency -- see Notes: timeout enforcement"}
-  PollForDecisionTask: {wire: ok, errors: ok, state: ok, persist: partial, note: "decisionQueues intentionally ephemeral, see Notes. Now also sweeps expired executions first (gopherstack-7gse), same as PollForActivityTask"}
+  PollForDecisionTask: {wire: ok (fixed), errors: ok, state: ok, persist: partial, note: "decisionQueues intentionally ephemeral, see Notes. Now also sweeps expired executions first (gopherstack-7gse), same as PollForActivityTask. 2026-08-21 (gopherstack-r80d batch 17): required StartedEventId was always 0 (no struct field anywhere tracked a real DecisionTaskStarted event) -- now a real DecisionTaskStarted event is recorded and its ID threaded through, see Notes"}
   RecordActivityTaskHeartbeat: {wire: ok, errors: ok, state: ok, persist: ok, note: "now also sweeps expired executions first (gopherstack-7gse), same as PollForActivityTask"}
   RespondActivityTaskCanceled: {wire: ok, errors: ok, state: ok, persist: ok, note: "now also sweeps expired executions first (gopherstack-7gse), same as PollForActivityTask"}
   RespondActivityTaskCompleted: {wire: ok, errors: ok, state: fixed, persist: ok, note: "now propagates ChildWorkflowExecutionCompleted to the parent execution, see Notes. Also sweeps expired executions first (gopherstack-7gse), same as PollForActivityTask"}
   RespondActivityTaskFailed: {wire: ok, errors: ok, state: ok, persist: ok, note: "now also sweeps expired executions first (gopherstack-7gse), same as PollForActivityTask"}
-  RespondDecisionTaskCompleted: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "ContinueAsNewWorkflowExecution/StartChildWorkflowExecution/SignalExternalWorkflowExecution/RequestCancelExternalWorkflowExecution now perform real state mutation instead of recording an empty *Initiated event; decisionTaskCompletedEventId was missing from every decision-derived history event; StartTimer/CancelTimer now validate timerId state; see Notes. Also sweeps expired executions first (gopherstack-7gse), same as PollForActivityTask"}
+  RespondDecisionTaskCompleted: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "ContinueAsNewWorkflowExecution/StartChildWorkflowExecution/SignalExternalWorkflowExecution/RequestCancelExternalWorkflowExecution now perform real state mutation instead of recording an empty *Initiated event; decisionTaskCompletedEventId was missing from every decision-derived history event; StartTimer/CancelTimer now validate timerId state; see Notes. Also sweeps expired executions first (gopherstack-7gse), same as PollForActivityTask. 2026-08-21 (gopherstack-r80d batch 17): DecisionTaskCompletedEventAttributes' required scheduledEventId/startedEventId had no struct field at all (dropped on every decision task completion); TimerCanceledEventAttributes' required startedEventId was likewise dropped on every CancelTimer decision; ChildWorkflowExecutionTimedOutEventAttributes' required timeoutType was dropped on every child-execution timeout propagation. All three fixed, see Notes"}
   ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok}
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -428,3 +428,121 @@ separately:
   (see store.go) -- don't add a wire-visible field with the same name by
   accident, and don't assume they need special `persistence.go` wiring if you
   add more.
+
+### 2026-08-21: three required output members dropped entirely (gopherstack-r80d batch 17)
+
+An AST-style walk of `swf@v1.37.4`'s 3,606-line `types/types.go` (brace-depth
+block splitting, not a grep window -- the naive line-based version of this
+walk silently skipped `ChildWorkflowExecutionTerminatedEventAttributes`
+entirely; re-verified with a character-level brace matcher before trusting
+the result) found 80 of 88 structs carry at least one required member --
+almost entirely the `*EventAttributes`/`*DecisionAttributes` family, the
+same "polymorphic `HistoryEvent` sub-object" undercount shape stepfunctions'
+batch 10 named (each event type's own required members are invisible to
+`cmd/requiredoutputfields`'s per-op scan, since every op's own
+`<Op>Output` struct is mostly flat). Read every event type this backend
+actually emits (`appendHistoryEventLocked` call sites across
+`activity_tasks.go`, `decision_tasks.go`, `decision_orchestration.go`,
+`workflow_executions.go`, `signals.go`, `timeout_sweep.go`) against its
+matching struct's required members.
+
+Three bugs, all in event types emitted on a real, common (not edge-case)
+path:
+
+1. **`DecisionTaskCompletedEventAttributes.scheduledEventId`/`.startedEventId`**
+   (types.go:~2000, both `This member is required.`) had no struct field
+   anywhere -- this backend never recorded a `DecisionTaskScheduled` or
+   `DecisionTaskStarted` history event at all, so every
+   `RespondDecisionTaskCompleted` call's `DecisionTaskCompleted` event
+   carried only `executionContext`. This also meant
+   `PollForDecisionTaskOutput.StartedEventId` (api_op_PollForDecisionTask.go,
+   required) stayed at its Go zero value (0) forever -- present on the wire
+   (no `omitempty` tag) but a value no real event ID can take (real AWS IDs
+   start at 1). Fixed by mirroring the already-correct
+   `ActivityTaskScheduled`/`ActivityTaskStarted`/`ActivityTaskCompleted`
+   chain (`activity_tasks.go`): `enqueueDecisionTaskLocked` (store.go) now
+   records `DecisionTaskScheduled` (required `taskList`) and threads its
+   event ID onto the queued `DecisionTask`; `PollForDecisionTask` now
+   records `DecisionTaskStarted` (required `scheduledEventId`) and threads
+   both IDs onto `activeDecisionTaskRecord`; `RespondDecisionTaskCompleted`
+   reads them back onto `DecisionTaskCompleted`. This is the single most
+   common event in SWF's entire history stream (recorded on every decision
+   task response), not an edge case.
+2. **`ChildWorkflowExecutionTimedOutEventAttributes.timeoutType`**
+   (types.go:625-628, required) -- `propagateChildClosureLocked`'s base attrs
+   (`initiatedEventId`/`startedEventId`/`workflowExecution`/`workflowType`)
+   cover every other Child* closure event's required set, but
+   `timeoutExecutionLocked` (timeout_sweep.go) called it with `extra: nil`
+   for the TimedOut case specifically, silently dropping the one member that
+   family alone requires beyond the base four. Fixed by passing
+   `{timeoutType: timeoutTypeStartToClose}` as `extra`, reusing the same
+   constant already used two lines above for the parent's own
+   `WorkflowExecutionTimedOut` event.
+   `ChildWorkflowExecutionTerminatedEventAttributes` (types.go:577-605,
+   passed `nil` the same way from `terminateExecutionLocked`) needs no
+   `extra` at all -- its required set is exactly the base four -- so that
+   call site was correctly left alone.
+3. **`TimerCanceledEventAttributes.startedEventId`** (types.go, required)
+   -- `handleCancelTimerDecision`'s `TimerCanceled` event carried only
+   `decisionTaskCompletedEventId`/`timerId`; nothing on `WorkflowExecution`
+   tracked which `TimerStarted` event a given open `timerId` referred to.
+   Fixed by adding `WorkflowExecution.TimerStartedEventIDs
+   map[string]int64`, populated in `handleStartTimerDecision` (whose own
+   `appendHistoryEventLocked` return value was previously discarded) and
+   consumed-then-deleted in `handleCancelTimerDecision`.
+
+All three proven via real `aws-sdk-go-v2/service/swf` client round trips
+(`wire_output_required_r80d_test.go`), hand-reverted (`store.go`,
+`models.go`, `decision_tasks.go`, `timeout_sweep.go` together) /
+confirmed-failing / restored, md5sum byte-identical. `go test
+./services/swf/...` passed unchanged both before and after (no existing
+test hard-coded an event-index/count that the two new
+`DecisionTaskScheduled`/`DecisionTaskStarted` events per cycle would have
+shifted), so no existing test needed correction.
+
+**Named, not fixed -- structurally unreachable via any real client:**
+`DecisionTaskScheduledEventAttributes.taskList` and
+`DecisionTaskStartedEventAttributes.scheduledEventId` are satisfied by the
+fix above and not separately counted. `TimerFiredEventAttributes` (required
+`startedEventId`/`timerId`) is never emitted at all -- this backend has no
+autonomous timer-firing mechanism (see the pre-existing gaps entry on
+`OpenTimerIDs`/no `TimerFired`), so the type can never be violated; a
+missing-feature gap (already documented), not a dropped-required-field bug.
+Likewise never emitted, for the same reason (this backend's decision-task
+lifecycle has no separate scheduled/started/timed-out task states beyond
+what's now fixed above, and Lambda tasks are out of scope, see the
+pre-existing gaps entry): `DecisionTaskTimedOutEventAttributes`,
+`LambdaFunctionScheduled/Started/Completed/Failed/TimedOutEventAttributes`,
+`ScheduleActivityTaskFailedEventAttributes`,
+`RequestCancelActivityTaskFailedEventAttributes`,
+`RecordMarkerFailedEventAttributes`,
+`CompleteWorkflowExecutionFailedEventAttributes`,
+`FailWorkflowExecutionFailedEventAttributes`. `WorkflowType`/`ActivityType`'s
+`CreationDate` (required on `WorkflowTypeInfo`/`ActivityTypeInfo`, tagged
+`omitempty` in `models.go`) is unreachable via any real client path --
+`RegisterWorkflowType`/`RegisterActivityType` unconditionally stamp it at
+registration time, and the only code path that skips it
+(`AddWorkflowTypeInternal`) is a Go-only test-seed helper no real SDK client
+can reach, the same class as `EnqueueDecisionTaskInternal` (batch 17's own
+scope note applies equally here). Everything else read end to end came back
+clean: `ActivityTaskScheduled/Started/Completed/Failed/Canceled`,
+`ActivityTaskCancelRequested`, `StartTimerFailed`/`TimerStarted`/
+`CancelTimerFailed`, `MarkerRecorded`, the four cross-execution `*Initiated`/
+`*Failed` pairs (`StartChildWorkflowExecution`/
+`SignalExternalWorkflowExecution`/`RequestCancelExternalWorkflowExecution`),
+`ChildWorkflowExecutionStarted/Completed/Failed/Canceled`,
+`WorkflowExecutionStarted/Completed/Failed/Canceled/Signaled/
+CancelRequested/Terminated/ContinuedAsNew`, and
+`DescribeDomain`/`DescribeWorkflowType`/`DescribeActivityType`/
+`DescribeWorkflowExecution`'s `Configuration`/`TypeInfo`/`ExecutionInfo`/
+`OpenCounts` wrapper members.
+
+`fieldalignment -fix` was run on `models.go` after adding
+`TimerStartedEventIDs`/`ScheduledEventID` (govet's `fieldalignment` flagged
+the reordered struct); reordering only, no field renamed or retyped, `git
+diff` confirmed.
+
+`last_audit_commit: pending` was already the value from the prior pass
+(2026-08-10) before this batch touched the file -- left as-is per this
+campaign's standing rule (never write a fresh `pending`), not introduced
+here.

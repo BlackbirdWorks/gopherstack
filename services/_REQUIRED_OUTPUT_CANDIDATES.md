@@ -153,12 +153,17 @@ from the ranked table) as future batches clear more of it.
 | amplify | 35 | 37 (33 ops-with-required) | yes (13 member-level bugs across 5 findings: `App.EnvironmentVariables`/`Description`/`Repository`, `Branch.ActiveJobId`/`CustomDomains`/`Description`/`Framework`/`EnvironmentVariables`, `DomainAssociation.StatusReason`, `Webhook.Description`, `JobSummary.CommitId`/`CommitMessage`/`CommitTime` -- see the batch-14 note below and services/amplify/PARITY.md) | gopherstack-r80d batch 14 |
 | glue | 34 | 299 (17 ops-with-required) | yes (6 member-level bugs across 3 findings: `Catalog.Name` (CreateCatalog read the name off a nonexistent `CatalogInput.Name`), `GrokClassifier.Classification`/`GrokPattern`, `XMLClassifier.Classification`, `JsonClassifier.JsonPath`, `ColumnStatistics.ColumnType` -- see the batch-15 note below and services/glue/PARITY.md) | gopherstack-r80d batch 15 |
 | batch | 31 | 45 (15 ops-with-required) | yes (6: `JobDetail.StartedAt`, `DescribeServiceJobOutput.StartedAt`, `ComputeResource.MaxvCpus`, `JobQueueDetail.ComputeEnvironmentOrder`, `QuotaShareCapacityLimit.MaxCapacity`, `ServiceJobRetryStrategy.Attempts` -- see the batch-16 note below and services/batch/PARITY.md) | gopherstack-r80d batch 16 |
+| efs | 30 | 31 (6 ops-with-required) | yes (1: `Destination.Region` omitempty, never defaulted for same-region replication -- see the batch-17 note below and services/efs/PARITY.md) | gopherstack-r80d batch 17 |
+| ce | 30 | 47 (18 ops-with-required) | 0 (clean; several dead/unreachable `omitempty` tags reviewed and left alone -- see the batch-17 note below and services/ce/PARITY.md) | gopherstack-r80d batch 17 |
+| swf | 30 | 39 (17 ops-with-required) | yes (3 findings / 4 member-level fixes: `DecisionTaskCompletedEventAttributes.scheduledEventId`/`.startedEventId` + `PollForDecisionTaskOutput.StartedEventId`, `ChildWorkflowExecutionTimedOutEventAttributes.timeoutType`, `TimerCanceledEventAttributes.startedEventId` -- see the batch-17 note below and services/swf/PARITY.md) | gopherstack-r80d batch 17 |
 
-31 services settled, 2179 required output fields read end to end (the running
+34 services settled, 2269 required output fields read end to end (the running
 total counts each settled service's flat per-op `cmd/requiredoutputfields`
 number, as established by every prior batch -- glue's own real audited
 surface was substantially larger once its ~56 gopherstack-modeled domain
-structs were cross-checked, see the batch-15 note below). Batch 16
+structs were cross-checked, see the batch-15 note below). Batch 17
+(efs + ce + swf, 30 fields each) added 4 more counted bugs (1 + 0 + 3) on top
+of the running total -- see the batch-17 note below for detail. Batch 16
 (batch only) added 6 more counted bugs on top of the running total -- see the
 batch-16 note below for detail. Batch 15
 (glue only) added 6 more counted bugs on top of the running total -- see the
@@ -710,6 +715,126 @@ top of the ranked remainder (30 fields each) after sagemaker -- `ce` (47
 ops, 18 ops-with-required), `swf` (39 ops, 17 ops-with-required), `efs` (31
 ops, 6 ops-with-required).
 
+### ce/efs/swf (batch 17): 4 member-level bugs across 3 findings, taken alphabetically after re-verifying the tie
+
+Selected after re-reading the brief and re-running `go run
+./cmd/requiredoutputfields`: `ce`, `efs`, and `swf` confirmed tied at 30
+required output fields each (batch 16 had already named this tie; this
+batch re-verified it rather than trusting the prior note blind). `git
+status` was clean for all three throughout; sagemaker stayed off-limits
+(uncommitted `gopherstack-oc9v` conversion changes present the whole
+batch). All three were small enough by ops-with-required (efs 6, swf 17, ce
+18) that full rigour on all three fit in one batch, unlike glue/batch's
+single-service-only batches.
+
+Both efs and swf needed the same tooling correction the input-side sweep
+already established for output structs generally, reapplied here at the
+implementation level: the line-based AST walk this campaign has used since
+batch 15 silently dropped `ChildWorkflowExecutionTerminatedEventAttributes`
+from swf's 88-struct `types.go` (a brace-count edge case, not a bug in the
+method's *design* -- a doc-comment blank line inside a still-open block
+desynced the line-based blank-line/brace-depth tracker for exactly one
+struct). Rewritten as a character-level brace matcher and cross-checked
+against efs/ce (same struct counts both ways, confirming those two were
+never affected) before trusting swf's result. **Any future AST-walk
+implementation should verify itself against a character-level brace
+matcher once per session, not assume the line-based shortcut generalizes.**
+
+**efs (30 fields / 6 ops-with-required, 1 bug):** flat, `map[string]any`
+literal responses (no tagged wire structs), so no domain-struct undercount
+risk -- read all 6 ops plus every nested domain struct with required
+members (`PosixUser`, `CreationInfo`, both reachable only through
+`AccessPoint`'s optional `PosixUser`/`RootDirectory.CreationInfo` fields,
+both correctly never-omitempty once their optional parent is present).
+1 bug: `Destination.Region` (efs@v1.44.4 types/types.go:116-119, required)
+tagged `omitempty` in `ReplicationDestination.Region` and never defaulted
+when a `CreateReplicationConfiguration` caller omits it -- the documented
+same-region-replication path (`DestinationToCreate.Region` carries no
+"This member is required." at all). Fixed by defaulting to the source
+region, same as the existing `Status`/`OwnerID` defaults. See
+services/efs/PARITY.md's 2026-08-21 entry.
+
+**ce (30 fields / 18 ops-with-required, 0 bugs):** already carried
+substantial prior wire-shape scrutiny (this pass's own
+`wire_field_fixes_test.go` predates it) -- read all 18 ops plus all 20
+domain structs with required members end to end. Every required field
+already unconditionally present except a cluster in the commitment-
+purchase-analysis family (`GetCommitmentPurchaseAnalysisOutput`/
+`StartCommitmentPurchaseAnalysisOutput`'s `AnalysisId`/`AnalysisStatus`/
+`AnalysisStartedTime`/`EstimatedCompletionTime`, all tagged `omitempty`)
+which are all structurally unreachable: `CommitmentAnalysis` has exactly
+one construction site (`CreateCommitmentAnalysis`) and it unconditionally
+populates all four -- the same "dead omitempty tag" class batch 16 first
+named for `ListJobsByConsumableResourceSummary`. `AnomalyRootCause`'s
+optional `Impact` (`RootCauseImpact.Contribution`, required once present)
+is correctly never populated at all -- this backend doesn't model root-
+cause impact breakdowns, an honest absence, not a bug. `CostCategory`'s
+`SplitChargeRules` is tracked on the backend model but never echoed on any
+output at all; not counted since `SplitChargeRules` itself isn't
+Smithy-required on `CostCategory`, only named here as a general-parity gap
+outside this cut's scope. See services/ce/PARITY.md (no dated entry added
+since 0 bugs found; existing 2026-07-29 entry stands).
+
+**swf (30 fields / 17 ops-with-required, 3 findings / 4 member-level
+fixes):** the "polymorphic `HistoryEvent` sub-object" undercount shape
+stepfunctions' batch 10 first named, at larger scale -- 80 of 88 structs in
+`types.go` carry required members (nearly the entire
+`*EventAttributes`/`*DecisionAttributes` family), all invisible to the
+flat per-op scan since every op's own `<Op>Output` is nearly flat. Read
+every event type this backend actually emits (`appendHistoryEventLocked`
+call sites across `activity_tasks.go`/`decision_tasks.go`/
+`decision_orchestration.go`/`workflow_executions.go`/`signals.go`/
+`timeout_sweep.go`) against its struct's required set. 3 findings: (1)
+`DecisionTaskCompletedEventAttributes.scheduledEventId`/`.startedEventId`
+had no struct field at all -- this backend never recorded
+`DecisionTaskScheduled`/`DecisionTaskStarted` history events, so the single
+most common event in SWF's entire history stream (every decision task
+response) dropped both required members, and
+`PollForDecisionTaskOutput.StartedEventId` stayed at Go-zero (0) forever;
+fixed by mirroring the already-correct Activity* event chain; (2)
+`ChildWorkflowExecutionTimedOutEventAttributes.timeoutType` was dropped
+because `propagateChildClosureLocked`'s shared base attrs cover every other
+Child* closure event's required set but not this one's extra member, and
+the TimedOut call site passed `nil` for it; fixed by passing the same
+`timeoutTypeStartToClose` constant the sibling `WorkflowExecutionTimedOut`
+event already uses two lines above (`ChildWorkflowExecutionTerminated`'s
+own `nil` extra was verified correct and left alone -- its required set is
+exactly the shared base four); (3) `TimerCanceledEventAttributes.
+startedEventId` was dropped because nothing tracked which `TimerStarted`
+event a given open `timerId` referred to; fixed by adding
+`WorkflowExecution.TimerStartedEventIDs map[string]int64`. All 4
+member-level fixes proven via real `aws-sdk-go-v2/service/swf` client round
+trips, hand-reverted (4 files together)/confirmed-failing/restored,
+md5sum-verified byte-identical; `go test ./services/swf/...` passed
+unchanged both before and after (no existing test hard-coded an
+event-index/count the two new decision-task events per cycle would have
+shifted). `TimerFiredEventAttributes` and 7 other `*EventAttributes` types
+(`DecisionTaskTimedOut`, the `LambdaFunction*` family, `ScheduleActivityTaskFailed`,
+`RequestCancelActivityTaskFailed`, `RecordMarkerFailed`,
+`CompleteWorkflowExecutionFailed`, `FailWorkflowExecutionFailed`) are never
+emitted at all by this backend -- named as a missing-feature gap (already
+documented for timers; newly named here for the rest), not a
+dropped-required-field bug, matching stepfunctions batch 10's precedent for
+HistoryEventTypes an emulator can never produce.
+`WorkflowType`/`ActivityType.CreationDate` (required, tagged `omitempty`)
+is unreachable via any real client the same way ce's commitment-analysis
+fields are -- `RegisterWorkflowType`/`RegisterActivityType` always stamp
+it; the only code path that skips it (`AddWorkflowTypeInternal`) is a
+Go-only test-seed helper no real SDK client can reach. `fieldalignment
+-fix` was run on `models.go` after adding two int64/map fields (reordering
+only, `git diff`-verified). See services/swf/PARITY.md's 2026-08-21 entry
+for full SDK file:line citations.
+
+All three services' gates (build/vet/gofmt/race-test/lint) are green, 0
+banned nolints, 0 new nolints, no exported signatures changed outside swf's
+internal `activeDecisionTaskRecord`/`DecisionTask`/`WorkflowExecution`
+struct fields (none of which cross a package boundary).
+`services/_REQUIRED_OUTPUT_CANDIDATES.md` updated: all three moved from the
+ranked table into "Already examined" (settled-services count now 34, 2269
+required output fields read end to end). Did not touch sagemaker
+(off-limits, confirmed via repeated `git status` checks) or attempt a
+fourth service this batch.
+
 ### glue (batch 15): 6 member-level bugs, settled via domain-struct cross-reference rather than a per-op read
 
 Selected after re-verifying the table against a fresh `go run
@@ -850,15 +975,12 @@ settled batch 9), codecommit (55, settled batch 9), stepfunctions (54,
 settled batch 10), apprunner (44, settled batch 10), databrew (43, settled
 batch 11), backup (41, settled batch 11), inspector2 (38, settled batch
 12), vpclattice (37, settled batch 13), appmesh (36, settled batch 13),
-amplify (35, settled batch 14), glue (34, settled batch 15), and batch (31,
-settled batch 16) removed from this table — see the "Already examined"
-table above.
+amplify (35, settled batch 14), glue (34, settled batch 15), batch (31,
+settled batch 16), and ce/efs/swf (30 each, settled batch 17) removed from
+this table — see the "Already examined" table above.
 
 ```
  459  sagemaker                 ops=403  ops-with-required=188
-  30  ce                        ops=47   ops-with-required=18
-  30  efs                       ops=31   ops-with-required=6
-  30  swf                       ops=39   ops-with-required=17
   28  accessanalyzer            ops=39   ops-with-required=17
   27  cognitoidp                ops=129  ops-with-required=25
   25  emrserverless             ops=22   ops-with-required=14
@@ -989,8 +1111,14 @@ Notes on the top of this table for the next batch:
   `JobDetail.StartedAt`, `DescribeServiceJobOutput.StartedAt`,
   `ComputeResource.MaxvCpus`, `JobQueueDetail.ComputeEnvironmentOrder`,
   `QuotaShareCapacityLimit.MaxCapacity`, `ServiceJobRetryStrategy.Attempts`.
-  `ce`, `efs`, and `swf` are now tied at the top of the remaining ranked
-  table (30 fields each) after sagemaker.
+- **ce/efs/swf settled (batch 17)** — do not re-derive, see the
+  settled-services table above and services/{ce,efs,swf}/PARITY.md's
+  2026-08-21 entries, plus the batch-17 note below for full detail. All
+  three verified tied at 30 fields each via a fresh
+  `cmd/requiredoutputfields` run before starting; taken in alphabetical
+  order, all three completed with full rigour. accessanalyzer (28,
+  ops=39/ops-with-required=17) is now the largest remaining candidate after
+  sagemaker.
 - **omics settled (batch 7)** — do not re-derive, see the settled-services
   table above and services/omics/PARITY.md's 2026-08-21 entries. The
   concurrent sibling agent's over-wide-List sweep this file previously

@@ -55,6 +55,13 @@ func (b *InMemoryBackend) CreateReplicationConfiguration(
 		if dests[i].OwnerID == "" {
 			dests[i].OwnerID = b.accountID
 		}
+		// Region is required on the response Destination but optional on the
+		// request DestinationToCreate (same-region replication omits it) --
+		// default to the source region rather than leave it empty, or the
+		// required "Region" key vanishes under its own omitempty tag.
+		if dests[i].Region == "" {
+			dests[i].Region = region
+		}
 		// The mock completes the initial sync synchronously, so the destination is
 		// immediately caught up as of creation time. Real AWS leaves this unset until
 		// the first background sync completes, which can take longer.
@@ -62,20 +69,14 @@ func (b *InMemoryBackend) CreateReplicationConfiguration(
 		// Assign a destination file-system ID and ARN when not provided by the caller.
 		// Real AWS creates a read-only replica; we record a synthetic ID here.
 		if dests[i].FileSystemID == "" {
-			destRegion := dests[i].Region
-			if destRegion == "" {
-				destRegion = region
-			}
 			destFSID := "fs-" + uuid.NewString()[:8]
 			dests[i].FileSystemID = destFSID
-			dests[i].FileSystemArn = arn.Build("elasticfilesystem", destRegion, b.accountID, "file-system/"+destFSID)
-		} else if dests[i].FileSystemArn == "" {
-			destRegion := dests[i].Region
-			if destRegion == "" {
-				destRegion = region
-			}
 			dests[i].FileSystemArn = arn.Build(
-				"elasticfilesystem", destRegion, b.accountID, "file-system/"+dests[i].FileSystemID,
+				"elasticfilesystem", dests[i].Region, b.accountID, "file-system/"+destFSID,
+			)
+		} else if dests[i].FileSystemArn == "" {
+			dests[i].FileSystemArn = arn.Build(
+				"elasticfilesystem", dests[i].Region, b.accountID, "file-system/"+dests[i].FileSystemID,
 			)
 		}
 	}

@@ -77,6 +77,12 @@ func (b *InMemoryBackend) timeoutExecutionLocked(domain string, exec *WorkflowEx
 		},
 	}
 	b.appendHistoryEventLocked(domain, exec.WorkflowID, exec.RunID, "WorkflowExecutionTimedOut", attrs)
-	b.propagateChildClosureLocked(domain, exec, "ChildWorkflowExecutionTimedOut", nil)
+	// ChildWorkflowExecutionTimedOutEventAttributes requires timeoutType (unlike
+	// ChildWorkflowExecutionTerminatedEventAttributes, which carries none) --
+	// propagateChildClosureLocked's base attrs don't cover it, so it must ride
+	// along as extra or the required wire key vanishes on the parent's event.
+	b.propagateChildClosureLocked(domain, exec, "ChildWorkflowExecutionTimedOut", map[string]any{
+		attrTimeoutType: timeoutTypeStartToClose,
+	})
 	b.applyChildPolicyLocked(domain, exec, exec.ChildPolicy)
 }

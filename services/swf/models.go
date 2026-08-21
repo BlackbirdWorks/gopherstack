@@ -190,6 +190,7 @@ type DecisionTask struct {
 	Events                 []HistoryEvent `json:"events"`
 	StartedEventID         int64          `json:"startedEventId"`
 	PreviousStartedEventID int64          `json:"previousStartedEventId"`
+	ScheduledEventID       int64          `json:"-"`
 }
 
 // Domain represents an SWF domain.
@@ -225,30 +226,31 @@ type WorkflowType struct {
 
 // WorkflowExecution represents an SWF workflow execution.
 type WorkflowExecution struct {
-	ChildPolicy                  string   `json:"childPolicy,omitempty"`
-	TaskPriority                 string   `json:"taskPriority,omitempty"`
-	RunID                        string   `json:"runID"`
-	TaskList                     string   `json:"taskList,omitempty"`
-	CloseStatus                  string   `json:"closeStatus,omitempty"`
-	LatestExecutionContext       string   `json:"latestExecutionContext,omitempty"`
-	TaskStartToCloseTimeout      string   `json:"taskStartToCloseTimeout,omitempty"`
-	WorkflowTypeName             string   `json:"workflowTypeName,omitempty"`
-	WorkflowID                   string   `json:"workflowID"`
-	Input                        string   `json:"input,omitempty"`
-	LambdaRole                   string   `json:"lambdaRole,omitempty"`
-	Status                       string   `json:"status"`
-	ParentRunID                  string   `json:"parentRunID,omitempty"`
-	Domain                       string   `json:"domain"`
-	ExecutionStartToCloseTimeout string   `json:"executionStartToCloseTimeout,omitempty"`
-	ParentWorkflowID             string   `json:"parentWorkflowID,omitempty"`
-	WorkflowTypeVersion          string   `json:"workflowTypeVersion,omitempty"`
-	TagList                      []string `json:"tagList,omitempty"`
-	OpenTimerIDs                 []string `json:"openTimerIDs,omitempty"`
-	StartTimestamp               float64  `json:"startTimestamp"`
-	CloseTimestamp               float64  `json:"closeTimestamp,omitempty"`
-	ParentInitiatedEventID       int64    `json:"parentInitiatedEventID,omitempty"`
-	ParentStartedEventID         int64    `json:"parentStartedEventID,omitempty"`
-	CancelRequested              bool     `json:"cancelRequested,omitempty"`
+	TimerStartedEventIDs         map[string]int64 `json:"-"`
+	ParentRunID                  string           `json:"parentRunID,omitempty"`
+	WorkflowTypeName             string           `json:"workflowTypeName,omitempty"`
+	TaskList                     string           `json:"taskList,omitempty"`
+	CloseStatus                  string           `json:"closeStatus,omitempty"`
+	LatestExecutionContext       string           `json:"latestExecutionContext,omitempty"`
+	TaskStartToCloseTimeout      string           `json:"taskStartToCloseTimeout,omitempty"`
+	ChildPolicy                  string           `json:"childPolicy,omitempty"`
+	WorkflowID                   string           `json:"workflowID"`
+	Input                        string           `json:"input,omitempty"`
+	LambdaRole                   string           `json:"lambdaRole,omitempty"`
+	RunID                        string           `json:"runID"`
+	Status                       string           `json:"status"`
+	TaskPriority                 string           `json:"taskPriority,omitempty"`
+	ExecutionStartToCloseTimeout string           `json:"executionStartToCloseTimeout,omitempty"`
+	ParentWorkflowID             string           `json:"parentWorkflowID,omitempty"`
+	WorkflowTypeVersion          string           `json:"workflowTypeVersion,omitempty"`
+	Domain                       string           `json:"domain"`
+	OpenTimerIDs                 []string         `json:"openTimerIDs,omitempty"`
+	TagList                      []string         `json:"tagList,omitempty"`
+	StartTimestamp               float64          `json:"startTimestamp"`
+	CloseTimestamp               float64          `json:"closeTimestamp,omitempty"`
+	ParentInitiatedEventID       int64            `json:"parentInitiatedEventID,omitempty"`
+	ParentStartedEventID         int64            `json:"parentStartedEventID,omitempty"`
+	CancelRequested              bool             `json:"cancelRequested,omitempty"`
 }
 
 // StartWorkflowExecutionInput holds all parameters for starting a workflow execution.
@@ -291,10 +293,12 @@ type activeActivityTaskRecord struct {
 // TaskToken carries the same store.Table keyFn / persistence caveats as
 // [activeActivityTaskRecord.TaskToken] above.
 type activeDecisionTaskRecord struct {
-	Domain     string
-	WorkflowID string
-	RunID      string
-	TaskToken  string `json:"-"`
+	Domain           string
+	WorkflowID       string
+	RunID            string
+	TaskToken        string `json:"-"`
+	ScheduledEventID int64
+	StartedEventID   int64
 }
 
 // CompleteWorkflowExecutionDecisionAttrs holds attributes for CompleteWorkflowExecution.
