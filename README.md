@@ -539,7 +539,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [EventBridge](services/eventbridge/README.md) | A | 61 | 1 gap; 2 deferred |
 | [EventBridge Pipes](services/pipes/README.md) | A | 10 | 1 gap |
 | [EventBridge Scheduler](services/scheduler/README.md) | A | 12 | 1 gap |
-| [Pinpoint](services/pinpoint/README.md) | A | 36 | 3 deferred |
+| [Pinpoint](services/pinpoint/README.md) | A | 39 | 3 deferred |
 | [SES](services/ses/README.md) | A | 71 | 6 gaps; 1 deferred |
 | [SES v2](services/sesv2/README.md) | A | 112 | clean |
 | [SNS](services/sns/README.md) | A | 34 | 1 gap; 2 deferred |
@@ -613,7 +613,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [CloudFormation](services/cloudformation/README.md) | A | 70 | 5 gaps |
 | [CloudTrail](services/cloudtrail/README.md) | A | 60 | 9 gaps |
 | [CloudWatch](services/cloudwatch/README.md) | A | 49 | 5 deferred |
-| [CloudWatch Logs](services/cloudwatchlogs/README.md) | A | 72 | 22 gaps; 3 deferred |
+| [CloudWatch Logs](services/cloudwatchlogs/README.md) | A | 80 | 26 gaps; 3 deferred |
 | [Config](services/awsconfig/README.md) | A | 102 | 5 gaps; 1 deferred |
 | [Cost Explorer](services/ce/README.md) | A | 37 | 1 gap; 2 deferred |
 | [Fault Injection Simulator](services/fis/README.md) | A | 26 | 2 gaps; 1 deferred |
@@ -622,7 +622,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Resource Access Manager](services/ram/README.md) | A | 36 | 2 deferred |
 | [Resource Groups](services/resourcegroups/README.md) | A | 23 | 3 gaps |
 | [Resource Groups Tagging API](services/resourcegroupstaggingapi/README.md) | A | 9 | 9 gaps; 2 deferred |
-| [Systems Manager](services/ssm/README.md) | A | 100 | 10 gaps |
+| [Systems Manager](services/ssm/README.md) | A | 102 | 13 gaps |
 
 ### Developer Tools
 
@@ -643,7 +643,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 
 | Service | Parity | Operations | Notes |
 |---|---|---|---|
-| [Bedrock](services/bedrock/README.md) | A | 80 | 10 gaps |
+| [Bedrock](services/bedrock/README.md) | A | 80 | 11 gaps |
 | [Bedrock Agent](services/bedrockagent/README.md) | A | 77 | 5 gaps; 2 deferred |
 | [Bedrock Runtime](services/bedrockruntime/README.md) | A | 11 | 6 gaps |
 | [Comprehend](services/comprehend/README.md) | A | 28 | 1 gap; 1 deferred |
