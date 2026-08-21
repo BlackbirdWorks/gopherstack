@@ -1210,3 +1210,180 @@ findings golangci-lint raised mid-pass — the latter two via `fieldalignment -f
 `PipelineExecutionStep`/`PipelineExecution`'s fields — rather than suppressing any of them).
 
 Next by size, per parity-9's own list: `handler_mlflow.go` (14), `handler_model_packages.go` (12).
+
+## parity-11 (2026-08-21, gopherstack-oc9v): MlflowTrackingServer / MlflowApp family inline-struct sweep
+
+Fifth pass of the gopherstack-oc9v campaign. Per parity-10's boundary note ("295 of sagemaker's
+362 inline structs now remain ... `handler_mlflow.go` (14), `handler_model_packages.go` (12) ..."),
+this pass took `handler_mlflow.go`, verified by `grep -c 'var req struct {' handler_mlflow.go` = 14
+before starting. All 14 were converted to named types (`createMlflowTrackingServerInput`,
+`describeMlflowTrackingServerInput`, `deleteMlflowTrackingServerInput`,
+`startMlflowTrackingServerInput`, `stopMlflowTrackingServerInput`,
+`createPresignedMlflowTrackingServerURLInput`, `createMlflowAppInput`, `describeMlflowAppInput`,
+`deleteMlflowAppInput`, `updateMlflowAppInput`, `listMlflowAppsInput`,
+`createPresignedMlflowAppURLInput`, `listMlflowTrackingServersInput`,
+`updateMlflowTrackingServerInput`) and wire-audited field-by-field against the pinned SDK
+(`v1.263.2`, confirmed from `go.mod`, matching prior passes). **281 of sagemaker's 362 inline
+structs now remain** (362 − 19 − 19 − 15 − 14 − 14, confirmed by `grep -rc 'var req struct {'
+services/sagemaker/*.go` summed, not arithmetic); `handler_mlflow.go` itself now has zero. This
+pass did not touch `handler_model_packages.go` or any other family — all still open for
+gopherstack-oc9v.
+
+**Enumerated vs. converted vs. audited:** of the 14 ops, only `DescribeMlflowApp` already matched
+its real SDK input struct exactly (its *output* has a real gap, disclosed below). Every other op
+had absent members — this family has the highest per-op gap density this campaign has found:
+
+- `CreateMlflowTrackingServerInput` (`api_op_CreateMlflowTrackingServer.go:31-96`) — was missing
+  **six** of its nine fields, including a *required* one: `ArtifactStoreUri` (required — the
+  backend had never stored an artifact store URI for a tracking server at all, unlike
+  `MlflowApp` which already had one), `AutomaticModelRegistration` (default `false`, documented),
+  `S3BucketOwnerAccountId`, `S3BucketOwnerVerification` (default `true`, documented),
+  `TrackingServerSize` (default `"Small"`, documented), `WeeklyMaintenanceWindowStart`. Only
+  `TrackingServerName`/`RoleArn`/`MlflowVersion`/`Tags` existed. All six now real and threaded onto
+  a new `MlflowTrackingServer.ArtifactStoreURI`/`AutomaticModelRegistration`/
+  `S3BucketOwnerAccountID`/`S3BucketOwnerVerification`/`TrackingServerSize`/
+  `WeeklyMaintenanceWindowStart`.
+- `DescribeMlflowTrackingServerOutput` (`api_op_DescribeMlflowTrackingServer.go:39-106`) — was
+  returning only 8 of 17 real response fields (the handler previously marshaled the persisted
+  struct directly via its own `MarshalJSON`). Now built from a dedicated
+  `describeMlflowTrackingServerResponse` (matching the `describeMlflowAppResponse` precedent from
+  parity-8/9): adds every `CreateMlflowTrackingServerInput` field above (all describable) plus two
+  derived fields with no client-supplied value to thread: `IsActive` (`types.IsTrackingServerActive`,
+  `types/enums.go:4962-4975` — derived `Active` iff `TrackingServerStatus == "Running"`, i.e. the
+  same state Start/Stop already drive, not a guess) and `TrackingServerUrl` (built the same
+  real-shaped-but-unsigned way as the existing `CreatePresignedMlflowTrackingServerURL`, factored
+  into a shared `mlflowTrackingServerURL` helper). `CreatedBy`/`LastModifiedBy`
+  (`types.UserContext`) and `TrackingServerMaintenanceStatus` are disclosed absent: grepped
+  repo-wide, no op in this service models a caller-identity concept, and no maintenance subsystem
+  exists to report a real status from.
+- `DeleteMlflowTrackingServerOutput`/`StartMlflowTrackingServerOutput`/
+  `StopMlflowTrackingServerOutput` (`api_op_{Delete,Start,Stop}MlflowTrackingServer.go`) — all
+  three previously returned **no body at all** (`dispatchMlflowTrackingServerOps` called them for
+  their side effect only, discarding the real `TrackingServerArn` every one of these ops returns
+  on success). All three now return `{"TrackingServerArn": "..."}`, requiring the three backend
+  methods to return `(string, error)` instead of bare `error`.
+- `DeleteMlflowAppOutput` (`api_op_DeleteMlflowApp.go:37-43`) — same class: previously no body,
+  real output is `Arn`. Fixed without a backend signature change, since the request already
+  carries the app's `Arn` as its sole identifier — the handler echoes `req.Arn` back after a
+  successful delete.
+- `CreateMlflowAppInput`/`UpdateMlflowAppInput`/`DescribeMlflowAppOutput`
+  (`api_op_{Create,Update,Describe}MlflowApp.go`) — all three were missing
+  `WeeklyMaintenanceWindowStart`, now threaded onto a new `MlflowApp.WeeklyMaintenanceWindowStart`.
+  `UpdateMlflowAppInput.Name` is decoded but deliberately not threaded — see the bug-class writeup
+  below.
+- `ListMlflowAppsInput` (`api_op_ListMlflowApps.go:30-73`) — was missing **nine of ten** fields:
+  `AccountDefaultStatus`, `CreatedAfter`, `CreatedBefore`, `DefaultForDomainId`, `MaxResults`,
+  `MlflowVersion`, `SortBy`, `SortOrder`, `Status` (only `NextToken` existed) — the largest
+  absent-field count this campaign has found in a single op, surpassing `ListHubs`' seven. All nine
+  now real via a new `ListMlflowAppsParams`/`mlflowAppMatchesListParams`/`mlflowAppSortLess`, with
+  the default sort resolved from the op's own doc comment rather than guessed: "By default, MLflow
+  Apps are listed in Descending order by creation time" (`api_op_ListMlflowApps.go:22-24`) — unlike
+  `ListHubs`/`ListPipelines`, where no default was documented and ascending was kept as a disclosed
+  fallback, this op states both the default sort key *and* the default order explicitly, so both are
+  implemented as documented. `MlflowVersion` (both the input filter and the newly-modeled
+  `Summaries[].MlflowVersion`) is real-shaped but disclosed unreachable: neither
+  `CreateMlflowAppInput` nor `UpdateMlflowAppInput` carries an `MlflowVersion` field at all (checked
+  both `api_op_` files directly), so no real client can ever populate a non-empty value for this
+  backend to filter or sort on — the same "implemented for real, unreachable through any public
+  request shape" disclosure as parity-9's `CreateHubContentPresignedUrls` truncation path and
+  parity-10's `ListPipelineExecutionSteps` pagination.
+- `ListMlflowTrackingServersInput` (`api_op_ListMlflowTrackingServers.go:30-72`) — missing seven of
+  eight fields: `CreatedAfter`, `CreatedBefore`, `MaxResults`, `MlflowVersion`, `SortBy`, `SortOrder`,
+  `TrackingServerStatus` (only `NextToken` existed). Same fix pattern and same documented
+  Descending-by-CreationTime default as `ListMlflowApps` above, via a new
+  `ListMlflowTrackingServersParams`/`mlflowTrackingServerMatchesListParams`/
+  `mlflowTrackingServerSortLess`. `Summaries[].IsActive` (`types.TrackingServerSummary`,
+  `types/types.go:22152-22176`) — absent before this pass — now populated from the same
+  `mlflowTrackingServerIsActive` derivation as `DescribeMlflowTrackingServer`.
+- `UpdateMlflowTrackingServerInput` (`api_op_UpdateMlflowTrackingServer.go:28-63`) — was missing all
+  six of its optional fields beyond the required `TrackingServerName`: `ArtifactStoreUri`,
+  `AutomaticModelRegistration`, `S3BucketOwnerAccountId`, `S3BucketOwnerVerification`,
+  `TrackingServerSize`, `WeeklyMaintenanceWindowStart` (the handler previously threaded only
+  `MlflowVersion`). All six now real via a new `UpdateMlflowTrackingServerOptions`, with the two
+  booleans as `*bool` (precedented elsewhere in this service — `ai_recommendation_jobs.go`,
+  `automl_v2.go`, `feature_groups.go`, `images.go` — for exactly this reason) so the handler can
+  tell "omitted" from "explicitly false" apart. See the doc-vs-behavior judgment call below.
+- `CreatePresignedMlflowAppUrlInput`/`CreatePresignedMlflowTrackingServerUrlInput`
+  (`api_op_CreatePresignedMlflow{App,TrackingServer}Url.go`) — both missing `ExpiresInSeconds` and
+  `SessionExpirationDurationInSeconds`. Modeled on the named request types for wire visibility but
+  disclosed no-op: this backend generates presigned URLs with no TTL/session-expiry enforcement
+  mechanism anywhere in the service (grepped repo-wide) — the same structural gap as `hub.go`'s
+  `PresignedUrlAccessConfig`.
+
+**A doc-vs-behavior judgment call, disclosed rather than silently resolved either way:**
+`UpdateMlflowTrackingServerInput.AutomaticModelRegistration`'s AWS doc page
+(`API_UpdateMlflowTrackingServer.html`, fetched directly) restates
+`CreateMlflowTrackingServerInput`'s "if not specified, defaults to False" language verbatim for
+this *update* op. Read literally, every update call omitting the field would silently reset it to
+`false` — destructive PATCH-as-PUT semantics inconsistent with every one of this same op's other
+five optional fields (all leave-unchanged-if-omitted) and with every other Update op in this
+service (none resets a value to a constant on omission). Treated as leave-unchanged, matching the
+surrounding fields and the rest of the service, with the doc's literal text recorded in a comment
+on `UpdateMlflowTrackingServerOptions` rather than silently picked either way. A real-client test
+(`TestHandler_UpdateMlflowTrackingServer_FullFields_RealClient`) proves an update that sets other
+fields but omits `AutomaticModelRegistration`/`S3BucketOwnerVerification` leaves their prior
+explicit values in place.
+
+**A second judgment call:** `UpdateMlflowAppInput.Name` — "The name of the MLflow App to update" —
+gets no further description on AWS's own doc page either (fetched directly; identical text to the
+SDK comment). This backend's `MlflowApp` is stored by an `Arn` built from `Name` at creation
+(`mlflow-app/<name>`), so treating `Name` as a rename would require rekeying the store, and neither
+AWS's nor this repo's docs establish that a rename is what this field does. Decoded but not
+threaded, disclosed on `UpdateMlflowAppOptions`' doc comment; proved with
+`TestHandler_UpdateMlflowApp_NameIsNoOp_RealClient`, which sends a different `Name` on update and
+confirms `DescribeMlflowApp` still reports the original.
+
+**Bugs found beyond the wire diff:**
+
+1. `CreateMlflowTrackingServer` never stored an artifact store URI at all — `ArtifactStoreUri` is a
+   *required* real input field with no counterpart anywhere in the old `MlflowTrackingServer`
+   struct, unlike `MlflowApp`, which already had one. Every tracking server created by this backend
+   was answering `DescribeMlflowTrackingServer` with no artifact store information whatsoever.
+2. `DeleteMlflowTrackingServer`/`StartMlflowTrackingServer`/`StopMlflowTrackingServer`/
+   `DeleteMlflowApp` all discarded their real response body entirely (`ok, err := ...; return nil,
+   true, err`-style dispatch) — a real field silently dropped at the widest possible scope, the
+   entire response.
+3. `ListMlflowApps`/`ListMlflowTrackingServers` accepting only `NextToken` while silently dropping
+   every filter and sort control — the "parsed field, silently dropped" class this campaign exists
+   to find, at the largest single-op count yet (`ListMlflowApps`, nine of ten fields).
+
+No storage-key inconsistency of the `SpaceName`/`appKey` kind: `MlflowTrackingServer` is keyed by
+`TrackingServerName`, `MlflowApp` by `Arn` (already built from `Name` at creation, unchanged by this
+pass) — checked explicitly, and the one field that could plausibly touch a key (`UpdateMlflowApp`'s
+`Name`) is exactly the field disclosed as not threaded, above.
+
+**Tests:** every fix has a real-`aws-sdk-go-v2`-client round-trip test (`newTestSageMakerClient`) —
+`TestHandler_CreateMlflowTrackingServer_FullFields_RealClient`,
+`TestHandler_CreateMlflowTrackingServer_Defaults_RealClient`,
+`TestHandler_UpdateMlflowTrackingServer_FullFields_RealClient`,
+`TestHandler_ListMlflowTrackingServers_FilterSortPage_RealClient`,
+`TestHandler_StartStopMlflowTrackingServer_IsActive_RealClient`,
+`TestHandler_MlflowApp_WeeklyMaintenanceWindowStart_RealClient`,
+`TestHandler_UpdateMlflowApp_NameIsNoOp_RealClient`,
+`TestHandler_ListMlflowApps_FilterSortPage_RealClient` — plus updated assertions on the
+pre-existing `TestHandler_StartStopMlflowTrackingServer`/`TestHandler_DeleteMlflowTrackingServer`/
+`TestHandler_MlflowApp_Lifecycle` proving the newly-real response bodies. Verified against unfixed
+code by hand-reverting three representative fixes one at a time — `CreateMlflowTrackingServer`'s
+new-field threading (reverted to the old four-argument call), `ListMlflowApps`' full filter/sort
+wiring (reverted to `NextToken`-only), and `mlflowTrackingServerIsActive` (reverted to
+unconditional `"Inactive"`) — confirming the corresponding tests failed with the predicted symptom
+(fields empty, wrong sort/filter/page membership, `IsActive` stuck at `Inactive`), then restoring —
+`mlflow.go`/`handler_mlflow.go`/`handler_mlops.go` verified byte-identical (`md5sum`) to their
+pre-revert state afterward.
+
+Gates for this session: `go build ./...`, `go vet ./services/sagemaker/...`, `go vet -tags e2e
+./services/sagemaker/...`, `go vet -tags integration ./services/sagemaker/...`, `gofmt -l
+./services/sagemaker` (empty), `go test -race ./services/sagemaker/...`, `go fix -diff
+./services/sagemaker/...` (no diff), and `golangci-lint run ./services/sagemaker/...` all clean;
+zero `nolint` of any kind added (fixed the `goconst` finding on a third `"Active"` literal — which
+also caught one pre-existing occurrence in `pipelines.go` sharing the same constant — and two
+`fieldalignment`/one `staticcheck S1016` finding golangci-lint raised mid-pass via
+`golangci-lint run --fix`, rather than suppressing any of them). Repo-wide `go vet -tags e2e ./...`
+fails in `services/apprunner_test` on an unrelated, untracked, in-progress file
+(`wire_output_required_r80d_test.go`) from a concurrent agent sweeping a different service — outside
+this pass's `services/sagemaker/` scope; the sagemaker-scoped and repo-wide `integration`-tagged vet
+runs are both clean, as is `go build ./...`.
+
+**281 of sagemaker's 362 inline structs now remain.** Next by size, per this pass's own count:
+`handler_model_packages.go` (12), `handler_notebook_instances.go` (11), `handler_images.go` (11),
+`handler_edge_deployment.go` (11).

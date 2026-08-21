@@ -126,7 +126,7 @@ func (b *InMemoryBackend) CreatePipeline(
 	p := &Pipeline{
 		PipelineName:       name,
 		PipelineArn:        pArn,
-		PipelineStatus:     "Active",
+		PipelineStatus:     statusActive,
 		PipelineDefinition: definition,
 		RoleArn:            roleArn,
 		CreationTime:       now,

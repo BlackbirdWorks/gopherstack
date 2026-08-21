@@ -5,6 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"slices"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -24,14 +27,20 @@ var (
 
 // MlflowTrackingServer represents a SageMaker MLflow tracking server.
 type MlflowTrackingServer struct {
-	CreationTime         time.Time         `json:"CreationTime"`
-	LastModifiedTime     time.Time         `json:"LastModifiedTime"`
-	Tags                 map[string]string `json:"Tags,omitempty"`
-	TrackingServerName   string            `json:"TrackingServerName"`
-	TrackingServerArn    string            `json:"TrackingServerArn"`
-	TrackingServerStatus string            `json:"TrackingServerStatus"`
-	RoleArn              string            `json:"RoleArn,omitempty"`
-	MlflowVersion        string            `json:"MlflowVersion,omitempty"`
+	CreationTime                 time.Time         `json:"CreationTime"`
+	LastModifiedTime             time.Time         `json:"LastModifiedTime"`
+	Tags                         map[string]string `json:"Tags,omitempty"`
+	TrackingServerName           string            `json:"TrackingServerName"`
+	TrackingServerArn            string            `json:"TrackingServerArn"`
+	TrackingServerStatus         string            `json:"TrackingServerStatus"`
+	RoleArn                      string            `json:"RoleArn,omitempty"`
+	MlflowVersion                string            `json:"MlflowVersion,omitempty"`
+	ArtifactStoreURI             string            `json:"ArtifactStoreUri,omitempty"`
+	S3BucketOwnerAccountID       string            `json:"S3BucketOwnerAccountId,omitempty"`
+	TrackingServerSize           string            `json:"TrackingServerSize,omitempty"`
+	WeeklyMaintenanceWindowStart string            `json:"WeeklyMaintenanceWindowStart,omitempty"`
+	AutomaticModelRegistration   bool              `json:"AutomaticModelRegistration"`
+	S3BucketOwnerVerification    bool              `json:"S3BucketOwnerVerification"`
 }
 
 func cloneMlflowTrackingServer(s *MlflowTrackingServer) *MlflowTrackingServer {
@@ -79,30 +88,54 @@ func (s *MlflowTrackingServer) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// CreateMlflowTrackingServerOptions holds the fields accepted by
+// CreateMlflowTrackingServer (api_op_CreateMlflowTrackingServer.go:31-96,
+// sagemaker@v1.263.2). Callers resolve the documented AutomaticModelRegistration
+// (default false), S3BucketOwnerVerification (default true) and TrackingServerSize
+// (default "Small") defaults before calling, since the wire request must
+// distinguish "not sent" from "explicitly false" for the two booleans.
+type CreateMlflowTrackingServerOptions struct {
+	Tags                         map[string]string
+	TrackingServerName           string
+	ArtifactStoreURI             string
+	RoleArn                      string
+	MlflowVersion                string
+	S3BucketOwnerAccountID       string
+	TrackingServerSize           string
+	WeeklyMaintenanceWindowStart string
+	AutomaticModelRegistration   bool
+	S3BucketOwnerVerification    bool
+}
+
 // CreateMlflowTrackingServer creates an MLflow tracking server.
 func (b *InMemoryBackend) CreateMlflowTrackingServer(
 	ctx context.Context,
-	name, roleArn, mlflowVersion string,
-	tags map[string]string,
+	opts CreateMlflowTrackingServerOptions,
 ) (*MlflowTrackingServer, error) {
-	if name == "" {
+	if opts.TrackingServerName == "" {
 		return nil, fmt.Errorf("%w: TrackingServerName is required", ErrValidation)
 	}
 
 	return sagemakerCreate(ctx, b,
-		"CreateMlflowTrackingServer", name, "mlflow-tracking-server",
+		"CreateMlflowTrackingServer", opts.TrackingServerName, "mlflow-tracking-server",
 		b.mlflowTrackingServersStore,
 		func(n string) error { return sagemakerDupErr("MLflow tracking server", n) },
 		func(arnStr string, now time.Time) *MlflowTrackingServer {
 			return &MlflowTrackingServer{
-				TrackingServerName:   name,
-				TrackingServerArn:    arnStr,
-				TrackingServerStatus: "Created",
-				RoleArn:              roleArn,
-				MlflowVersion:        mlflowVersion,
-				Tags:                 mergeTags(nil, tags),
-				CreationTime:         now,
-				LastModifiedTime:     now,
+				TrackingServerName:           opts.TrackingServerName,
+				TrackingServerArn:            arnStr,
+				TrackingServerStatus:         statusCreated,
+				RoleArn:                      opts.RoleArn,
+				MlflowVersion:                opts.MlflowVersion,
+				ArtifactStoreURI:             opts.ArtifactStoreURI,
+				AutomaticModelRegistration:   opts.AutomaticModelRegistration,
+				S3BucketOwnerAccountID:       opts.S3BucketOwnerAccountID,
+				S3BucketOwnerVerification:    opts.S3BucketOwnerVerification,
+				TrackingServerSize:           opts.TrackingServerSize,
+				WeeklyMaintenanceWindowStart: opts.WeeklyMaintenanceWindowStart,
+				Tags:                         mergeTags(nil, opts.Tags),
+				CreationTime:                 now,
+				LastModifiedTime:             now,
 			}
 		},
 		cloneMlflowTrackingServer,
@@ -127,8 +160,10 @@ func (b *InMemoryBackend) DescribeMlflowTrackingServer(
 	return cloneMlflowTrackingServer(s), nil
 }
 
-// DeleteMlflowTrackingServer removes an MLflow tracking server by name.
-func (b *InMemoryBackend) DeleteMlflowTrackingServer(ctx context.Context, name string) error {
+// DeleteMlflowTrackingServer removes an MLflow tracking server by name and
+// returns its ARN (DeleteMlflowTrackingServerOutput.TrackingServerArn,
+// api_op_DeleteMlflowTrackingServer.go:39-45).
+func (b *InMemoryBackend) DeleteMlflowTrackingServer(ctx context.Context, name string) (string, error) {
 	region := getRegion(ctx, b.region)
 
 	b.mu.Lock("DeleteMlflowTrackingServer")
@@ -136,17 +171,21 @@ func (b *InMemoryBackend) DeleteMlflowTrackingServer(ctx context.Context, name s
 
 	store := b.mlflowTrackingServersStore(region)
 
-	if _, ok := store.Get(name); !ok {
-		return fmt.Errorf("%w: MLflow tracking server %q not found", ErrMlflowTrackingServerNotFound, name)
+	s, ok := store.Get(name)
+	if !ok {
+		return "", fmt.Errorf("%w: MLflow tracking server %q not found", ErrMlflowTrackingServerNotFound, name)
 	}
 
+	arnStr := s.TrackingServerArn
 	store.Delete(name)
 
-	return nil
+	return arnStr, nil
 }
 
-// StartMlflowTrackingServer sets an MLflow tracking server status to "Running".
-func (b *InMemoryBackend) StartMlflowTrackingServer(ctx context.Context, name string) error {
+// StartMlflowTrackingServer sets an MLflow tracking server status to "Running"
+// and returns its ARN (StartMlflowTrackingServerOutput.TrackingServerArn,
+// api_op_StartMlflowTrackingServer.go:37-43).
+func (b *InMemoryBackend) StartMlflowTrackingServer(ctx context.Context, name string) (string, error) {
 	region := getRegion(ctx, b.region)
 
 	b.mu.Lock("StartMlflowTrackingServer")
@@ -154,17 +193,19 @@ func (b *InMemoryBackend) StartMlflowTrackingServer(ctx context.Context, name st
 
 	s, ok := b.mlflowTrackingServersStore(region).Get(name)
 	if !ok {
-		return fmt.Errorf("%w: MLflow tracking server %q not found", ErrMlflowTrackingServerNotFound, name)
+		return "", fmt.Errorf("%w: MLflow tracking server %q not found", ErrMlflowTrackingServerNotFound, name)
 	}
 
-	s.TrackingServerStatus = "Running"
+	s.TrackingServerStatus = statusRunning
 	s.LastModifiedTime = time.Now()
 
-	return nil
+	return s.TrackingServerArn, nil
 }
 
-// StopMlflowTrackingServer sets an MLflow tracking server status to "Stopped".
-func (b *InMemoryBackend) StopMlflowTrackingServer(ctx context.Context, name string) error {
+// StopMlflowTrackingServer sets an MLflow tracking server status to "Stopped"
+// and returns its ARN (StopMlflowTrackingServerOutput.TrackingServerArn,
+// api_op_StopMlflowTrackingServer.go:37-43).
+func (b *InMemoryBackend) StopMlflowTrackingServer(ctx context.Context, name string) (string, error) {
 	region := getRegion(ctx, b.region)
 
 	b.mu.Lock("StopMlflowTrackingServer")
@@ -172,13 +213,33 @@ func (b *InMemoryBackend) StopMlflowTrackingServer(ctx context.Context, name str
 
 	s, ok := b.mlflowTrackingServersStore(region).Get(name)
 	if !ok {
-		return fmt.Errorf("%w: MLflow tracking server %q not found", ErrMlflowTrackingServerNotFound, name)
+		return "", fmt.Errorf("%w: MLflow tracking server %q not found", ErrMlflowTrackingServerNotFound, name)
 	}
 
 	s.TrackingServerStatus = pipelineStatusStopped
 	s.LastModifiedTime = time.Now()
 
-	return nil
+	return s.TrackingServerArn, nil
+}
+
+// mlflowTrackingServerURL builds the (unsigned, real-shaped) MLflow UI base
+// URL for a tracking server, shared by DescribeMlflowTrackingServer's
+// TrackingServerUrl and CreatePresignedMlflowTrackingServerURL's AuthorizedUrl.
+func mlflowTrackingServerURL(name, region string) string {
+	return "https://" + name + ".mlflow-tracking-server.sagemaker." + region + ".amazonaws.com"
+}
+
+// mlflowTrackingServerIsActive derives IsTrackingServerActive
+// (types/enums.go:4962-4969) from status: real AWS's own description of the
+// field ("whether the tracking server is currently active") means Active
+// exactly when the tracking server is Running, matching this backend's own
+// Start/Stop-driven TrackingServerStatus values.
+func mlflowTrackingServerIsActive(status string) string {
+	if status == statusRunning {
+		return statusActive
+	}
+
+	return "Inactive"
 }
 
 // CreatePresignedMlflowTrackingServerURL returns a one-time presigned URL for
@@ -193,8 +254,7 @@ func (b *InMemoryBackend) CreatePresignedMlflowTrackingServerURL(ctx context.Con
 		return "", fmt.Errorf("%w: MLflow tracking server %q not found", ErrMlflowTrackingServerNotFound, name)
 	}
 
-	return "https://" + name + ".mlflow-tracking-server.sagemaker." + region +
-		".amazonaws.com/auth?authToken=" + generateID(), nil
+	return mlflowTrackingServerURL(name, region) + "/auth?authToken=" + generateID(), nil
 }
 
 // ---------------------------------------------------------------------------
@@ -203,18 +263,19 @@ func (b *InMemoryBackend) CreatePresignedMlflowTrackingServerURL(ctx context.Con
 
 // MlflowApp represents a SageMaker MLflow App.
 type MlflowApp struct {
-	CreationTime          time.Time         `json:"CreationTime"`
-	LastModifiedTime      time.Time         `json:"LastModifiedTime"`
-	Tags                  map[string]string `json:"Tags,omitempty"`
-	Name                  string            `json:"Name"`
-	Arn                   string            `json:"Arn"`
-	Status                string            `json:"Status"`
-	ArtifactStoreURI      string            `json:"ArtifactStoreUri,omitempty"`
-	RoleArn               string            `json:"RoleArn,omitempty"`
-	MlflowVersion         string            `json:"MlflowVersion,omitempty"`
-	AccountDefaultStatus  string            `json:"AccountDefaultStatus,omitempty"`
-	ModelRegistrationMode string            `json:"ModelRegistrationMode,omitempty"`
-	DefaultDomainIDList   []string          `json:"DefaultDomainIdList,omitempty"`
+	CreationTime                 time.Time         `json:"CreationTime"`
+	LastModifiedTime             time.Time         `json:"LastModifiedTime"`
+	Tags                         map[string]string `json:"Tags,omitempty"`
+	Name                         string            `json:"Name"`
+	Arn                          string            `json:"Arn"`
+	Status                       string            `json:"Status"`
+	ArtifactStoreURI             string            `json:"ArtifactStoreUri,omitempty"`
+	RoleArn                      string            `json:"RoleArn,omitempty"`
+	MlflowVersion                string            `json:"MlflowVersion,omitempty"`
+	AccountDefaultStatus         string            `json:"AccountDefaultStatus,omitempty"`
+	ModelRegistrationMode        string            `json:"ModelRegistrationMode,omitempty"`
+	WeeklyMaintenanceWindowStart string            `json:"WeeklyMaintenanceWindowStart,omitempty"`
+	DefaultDomainIDList          []string          `json:"DefaultDomainIdList,omitempty"`
 }
 
 func cloneMlflowApp(m *MlflowApp) *MlflowApp {
@@ -227,13 +288,14 @@ func cloneMlflowApp(m *MlflowApp) *MlflowApp {
 
 // CreateMlflowAppOptions holds the fields accepted by CreateMlflowApp.
 type CreateMlflowAppOptions struct {
-	Tags                  map[string]string
-	Name                  string
-	ArtifactStoreURI      string
-	RoleArn               string
-	AccountDefaultStatus  string
-	ModelRegistrationMode string
-	DefaultDomainIDList   []string
+	Tags                         map[string]string
+	Name                         string
+	ArtifactStoreURI             string
+	RoleArn                      string
+	AccountDefaultStatus         string
+	ModelRegistrationMode        string
+	WeeklyMaintenanceWindowStart string
+	DefaultDomainIDList          []string
 }
 
 // CreateMlflowApp creates an MLflow App. Stores by ARN; Name is used only to build the ARN.
@@ -256,17 +318,18 @@ func (b *InMemoryBackend) CreateMlflowApp(ctx context.Context, opts CreateMlflow
 
 	now := time.Now()
 	m := &MlflowApp{
-		Name:                  opts.Name,
-		Arn:                   appARN,
-		Status:                statusCreated,
-		ArtifactStoreURI:      opts.ArtifactStoreURI,
-		RoleArn:               opts.RoleArn,
-		AccountDefaultStatus:  opts.AccountDefaultStatus,
-		ModelRegistrationMode: opts.ModelRegistrationMode,
-		DefaultDomainIDList:   opts.DefaultDomainIDList,
-		Tags:                  mergeTags(nil, opts.Tags),
-		CreationTime:          now,
-		LastModifiedTime:      now,
+		Name:                         opts.Name,
+		Arn:                          appARN,
+		Status:                       statusCreated,
+		ArtifactStoreURI:             opts.ArtifactStoreURI,
+		RoleArn:                      opts.RoleArn,
+		AccountDefaultStatus:         opts.AccountDefaultStatus,
+		ModelRegistrationMode:        opts.ModelRegistrationMode,
+		WeeklyMaintenanceWindowStart: opts.WeeklyMaintenanceWindowStart,
+		DefaultDomainIDList:          opts.DefaultDomainIDList,
+		Tags:                         mergeTags(nil, opts.Tags),
+		CreationTime:                 now,
+		LastModifiedTime:             now,
 	}
 	store.Put(m)
 
@@ -307,12 +370,20 @@ func (b *InMemoryBackend) DeleteMlflowApp(ctx context.Context, arnStr string) er
 }
 
 // UpdateMlflowAppOptions holds the mutable fields accepted by UpdateMlflowApp.
+// Name (api_op_UpdateMlflowApp.go:29-72) is deliberately not modeled here:
+// AWS's own doc page (API_UpdateMlflowApp.html) gives Name no description
+// beyond "The name of the MLflow App to update", and this backend's MlflowApp
+// is stored by an Arn built from Name at creation time (mlflow-app/<name>),
+// so treating Name as a rename would require rekeying the store — a
+// consistency-vs-fabrication tradeoff the docs don't resolve either way.
+// Disclosed rather than guessed.
 type UpdateMlflowAppOptions struct {
-	Arn                   string
-	ArtifactStoreURI      string
-	AccountDefaultStatus  string
-	ModelRegistrationMode string
-	DefaultDomainIDList   []string
+	Arn                          string
+	ArtifactStoreURI             string
+	AccountDefaultStatus         string
+	ModelRegistrationMode        string
+	WeeklyMaintenanceWindowStart string
+	DefaultDomainIDList          []string
 }
 
 // UpdateMlflowApp updates an MLflow App's mutable fields.
@@ -339,6 +410,10 @@ func (b *InMemoryBackend) UpdateMlflowApp(ctx context.Context, opts UpdateMlflow
 		m.ModelRegistrationMode = opts.ModelRegistrationMode
 	}
 
+	if opts.WeeklyMaintenanceWindowStart != "" {
+		m.WeeklyMaintenanceWindowStart = opts.WeeklyMaintenanceWindowStart
+	}
+
 	if opts.DefaultDomainIDList != nil {
 		m.DefaultDomainIDList = opts.DefaultDomainIDList
 	}
@@ -348,19 +423,105 @@ func (b *InMemoryBackend) UpdateMlflowApp(ctx context.Context, opts UpdateMlflow
 	return cloneMlflowApp(m), nil
 }
 
-// ListMlflowApps returns a page of MLflow Apps.
-func (b *InMemoryBackend) ListMlflowApps(ctx context.Context, nextToken string) ([]*MlflowApp, string) {
+// ListMlflowAppsParams bundles ListMlflowApps' filter/sort/pagination input
+// (api_op_ListMlflowApps.go:30-73, sagemaker@v1.263.2).
+type ListMlflowAppsParams struct {
+	CreatedAfter         *time.Time
+	CreatedBefore        *time.Time
+	AccountDefaultStatus string
+	DefaultForDomainID   string
+	MlflowVersion        string
+	NextToken            string
+	SortBy               string
+	SortOrder            string
+	Status               string
+	MaxResults           int32
+}
+
+// ListMlflowApps returns MLflow Apps matching params, sorted per params.SortBy
+// (one of Name/CreationTime/Status) / params.SortOrder — both defaulted to
+// CreationTime/Descending per the real op's documented default ("By default,
+// MLflow Apps are listed in Descending order by creation time",
+// api_op_ListMlflowApps.go:22-24) — capped at params.MaxResults.
+func (b *InMemoryBackend) ListMlflowApps(ctx context.Context, params ListMlflowAppsParams) ([]*MlflowApp, string) {
 	region := getRegion(ctx, b.region)
 
 	b.mu.RLock("ListMlflowApps")
 	defer b.mu.RUnlock()
 
-	return sagemakerListKeyPaged(
-		b.mlflowAppsStoreRO(region),
-		nextToken,
-		cloneMlflowApp,
-		func(v *MlflowApp) string { return v.Arn },
-	)
+	tbl := b.mlflowAppsStoreRO(region)
+	list := make([]*MlflowApp, 0, tbl.Len())
+
+	for _, m := range tbl.All() {
+		if !mlflowAppMatchesListParams(m, params) {
+			continue
+		}
+
+		list = append(list, cloneMlflowApp(m))
+	}
+
+	desc := !strings.EqualFold(params.SortOrder, "Ascending")
+	sort.Slice(list, func(i, j int) bool {
+		less := mlflowAppSortLess(list[i], list[j], params.SortBy)
+		if desc {
+			return !less
+		}
+
+		return less
+	})
+
+	return paginateSlice(list, params.NextToken, params.MaxResults)
+}
+
+// mlflowAppMatchesListParams reports whether m passes every filter in params.
+func mlflowAppMatchesListParams(m *MlflowApp, params ListMlflowAppsParams) bool {
+	if params.AccountDefaultStatus != "" && m.AccountDefaultStatus != params.AccountDefaultStatus {
+		return false
+	}
+
+	if params.Status != "" && m.Status != params.Status {
+		return false
+	}
+
+	if params.MlflowVersion != "" && m.MlflowVersion != params.MlflowVersion {
+		return false
+	}
+
+	if params.DefaultForDomainID != "" && !slices.Contains(m.DefaultDomainIDList, params.DefaultForDomainID) {
+		return false
+	}
+
+	if params.CreatedAfter != nil && !m.CreationTime.After(*params.CreatedAfter) {
+		return false
+	}
+
+	if params.CreatedBefore != nil && !m.CreationTime.Before(*params.CreatedBefore) {
+		return false
+	}
+
+	return true
+}
+
+// mlflowAppSortLess orders two MLflow Apps by sortBy — one of SortMlflowAppBy's
+// real values (Name, CreationTime, Status; types/enums.go:9219-9233) — falling
+// through to the Arn tiebreak for a stable order.
+func mlflowAppSortLess(a, b *MlflowApp, sortBy string) bool {
+	switch sortBy {
+	case keyGenericName:
+		if a.Name != b.Name {
+			return a.Name < b.Name
+		}
+	case keyStatus:
+		if a.Status != b.Status {
+			return a.Status < b.Status
+		}
+	default:
+		if !a.CreationTime.Equal(b.CreationTime) {
+			return a.CreationTime.Before(b.CreationTime)
+		}
+	}
+
+	return a.Arn < b.Arn
 }
 
 // CreatePresignedMlflowAppURL returns a one-time presigned URL for accessing
@@ -380,23 +541,69 @@ func (b *InMemoryBackend) CreatePresignedMlflowAppURL(ctx context.Context, arnSt
 		".amazonaws.com/auth?authToken=" + generateID(), nil
 }
 
+// UpdateMlflowTrackingServerOptions holds the mutable fields accepted by
+// UpdateMlflowTrackingServer (api_op_UpdateMlflowTrackingServer.go:28-63,
+// sagemaker@v1.263.2). AutomaticModelRegistration/S3BucketOwnerVerification
+// are *bool: AWS's own doc page restates Create's "defaults to
+// False"/"defaults to True if not provided" language verbatim for this
+// partial-update op, but every one of this op's other five optional fields
+// behaves as leave-unchanged-if-omitted, and no other Update op in this
+// service resets a value to a constant on omission — so nil (not sent) means
+// leave-unchanged here too, disclosed rather than silently reset.
+type UpdateMlflowTrackingServerOptions struct {
+	AutomaticModelRegistration   *bool
+	S3BucketOwnerVerification    *bool
+	TrackingServerName           string
+	ArtifactStoreURI             string
+	MlflowVersion                string
+	S3BucketOwnerAccountID       string
+	TrackingServerSize           string
+	WeeklyMaintenanceWindowStart string
+}
+
 // UpdateMlflowTrackingServer updates an MLflow tracking server.
 func (b *InMemoryBackend) UpdateMlflowTrackingServer(
 	ctx context.Context,
-	name, mlflowVersion string,
+	opts UpdateMlflowTrackingServerOptions,
 ) (*MlflowTrackingServer, error) {
 	b.mu.Lock("UpdateMlflowTrackingServer")
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
 
-	s, ok := b.mlflowTrackingServersStore(region).Get(name)
+	s, ok := b.mlflowTrackingServersStore(region).Get(opts.TrackingServerName)
 	if !ok {
-		return nil, fmt.Errorf("%w: MLflow tracking server %q not found", ErrMlflowTrackingServerNotFound, name)
+		return nil, fmt.Errorf(
+			"%w: MLflow tracking server %q not found", ErrMlflowTrackingServerNotFound, opts.TrackingServerName,
+		)
 	}
 
-	if mlflowVersion != "" {
-		s.MlflowVersion = mlflowVersion
+	if opts.MlflowVersion != "" {
+		s.MlflowVersion = opts.MlflowVersion
+	}
+
+	if opts.ArtifactStoreURI != "" {
+		s.ArtifactStoreURI = opts.ArtifactStoreURI
+	}
+
+	if opts.S3BucketOwnerAccountID != "" {
+		s.S3BucketOwnerAccountID = opts.S3BucketOwnerAccountID
+	}
+
+	if opts.TrackingServerSize != "" {
+		s.TrackingServerSize = opts.TrackingServerSize
+	}
+
+	if opts.WeeklyMaintenanceWindowStart != "" {
+		s.WeeklyMaintenanceWindowStart = opts.WeeklyMaintenanceWindowStart
+	}
+
+	if opts.AutomaticModelRegistration != nil {
+		s.AutomaticModelRegistration = *opts.AutomaticModelRegistration
+	}
+
+	if opts.S3BucketOwnerVerification != nil {
+		s.S3BucketOwnerVerification = *opts.S3BucketOwnerVerification
 	}
 
 	s.LastModifiedTime = time.Now()
@@ -404,20 +611,99 @@ func (b *InMemoryBackend) UpdateMlflowTrackingServer(
 	return cloneMlflowTrackingServer(s), nil
 }
 
-// ListMlflowTrackingServers returns all MLflow tracking servers.
+// ListMlflowTrackingServersParams bundles ListMlflowTrackingServers'
+// filter/sort/pagination input (api_op_ListMlflowTrackingServers.go:30-72,
+// sagemaker@v1.263.2).
+type ListMlflowTrackingServersParams struct {
+	CreatedAfter         *time.Time
+	CreatedBefore        *time.Time
+	MlflowVersion        string
+	NextToken            string
+	SortBy               string
+	SortOrder            string
+	TrackingServerStatus string
+	MaxResults           int32
+}
+
+// ListMlflowTrackingServers returns tracking servers matching params, sorted
+// per params.SortBy (one of Name/CreationTime/Status) / params.SortOrder —
+// both defaulted to CreationTime/Descending per the real op's documented
+// default ("By default, tracking servers are listed in Descending order by
+// creation time", api_op_ListMlflowTrackingServers.go:20-22) — capped at
+// params.MaxResults.
 func (b *InMemoryBackend) ListMlflowTrackingServers(
 	ctx context.Context,
-	nextToken string,
+	params ListMlflowTrackingServersParams,
 ) ([]*MlflowTrackingServer, string) {
 	b.mu.RLock("ListMlflowTrackingServers")
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
+	tbl := b.mlflowTrackingServersStoreRO(region)
+	list := make([]*MlflowTrackingServer, 0, tbl.Len())
 
-	return sagemakerListKeyPaged(
-		b.mlflowTrackingServersStoreRO(region),
-		nextToken,
-		cloneMlflowTrackingServer,
-		func(v *MlflowTrackingServer) string { return v.TrackingServerName },
-	)
+	for _, s := range tbl.All() {
+		if !mlflowTrackingServerMatchesListParams(s, params) {
+			continue
+		}
+
+		list = append(list, cloneMlflowTrackingServer(s))
+	}
+
+	desc := !strings.EqualFold(params.SortOrder, "Ascending")
+	sort.Slice(list, func(i, j int) bool {
+		less := mlflowTrackingServerSortLess(list[i], list[j], params.SortBy)
+		if desc {
+			return !less
+		}
+
+		return less
+	})
+
+	return paginateSlice(list, params.NextToken, params.MaxResults)
+}
+
+// mlflowTrackingServerMatchesListParams reports whether s passes every filter
+// in params.
+func mlflowTrackingServerMatchesListParams(s *MlflowTrackingServer, params ListMlflowTrackingServersParams) bool {
+	if params.TrackingServerStatus != "" && s.TrackingServerStatus != params.TrackingServerStatus {
+		return false
+	}
+
+	if params.MlflowVersion != "" && s.MlflowVersion != params.MlflowVersion {
+		return false
+	}
+
+	if params.CreatedAfter != nil && !s.CreationTime.After(*params.CreatedAfter) {
+		return false
+	}
+
+	if params.CreatedBefore != nil && !s.CreationTime.Before(*params.CreatedBefore) {
+		return false
+	}
+
+	return true
+}
+
+// mlflowTrackingServerSortLess orders two tracking servers by sortBy — one of
+// SortTrackingServerBy's real values (Name, CreationTime, Status;
+// types/enums.go:9320-9334) — falling through to the TrackingServerArn
+// tiebreak for a stable order.
+func mlflowTrackingServerSortLess(a, b *MlflowTrackingServer, sortBy string) bool {
+	switch sortBy {
+	case keyGenericName:
+		if a.TrackingServerName != b.TrackingServerName {
+			return a.TrackingServerName < b.TrackingServerName
+		}
+	case keyStatus:
+		if a.TrackingServerStatus != b.TrackingServerStatus {
+			return a.TrackingServerStatus < b.TrackingServerStatus
+		}
+	default:
+		if !a.CreationTime.Equal(b.CreationTime) {
+			return a.CreationTime.Before(b.CreationTime)
+		}
+	}
+
+	return a.TrackingServerArn < b.TrackingServerArn
 }
