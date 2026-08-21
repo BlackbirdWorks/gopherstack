@@ -101,3 +101,38 @@ pairs were silently dropped across a restart before this. Removed the dead
 `/2020-05-31/key-value-store/{id}/keys/...` handlers, op constants, and
 routing from services/cloudfront (kept the backend methods, now called by
 this package instead).
+
+## 2026-08-21: gopherstack-r80d batch 21 -- required-output-member cut, 0 bugs
+
+Tied with sesv2 at 18 required output fields (5 ops, all 5 with >=1) per a
+fresh `cmd/requiredoutputfields` run cross-checked against
+`services/_REQUIRED_OUTPUT_CANDIDATES.md`; taken first (alphabetical tie).
+Instrument cross-checked three ways (character-level brace matcher,
+`go/parser` AST walk, raw `grep -c`) across `types/types.go` + every
+`api_op_*.go` file -- all three agree at 52 total required fields / 22
+structs (only 6 ops total in this SDK, so the surface is small and mostly
+input-only).
+
+`types/types.go`'s `ListKeysResponseListItem` (`Key`/`Value`, both
+required) is the one nested-domain-struct undercount case here: it backs
+`ListKeysOutput.Items`, which is itself NOT required (so `ListKeys` never
+appeared in the flat per-op required-field list at all) -- checked anyway.
+`wire.go`'s `keyValuePairJSON.Key`/`.Value` are plain, non-omitempty
+strings, always present.
+
+Every other required member is present on every real-client-reachable
+path: `getKeyOutput`/`mutateKeyOutput` (`ItemCount`/`TotalSizeInBytes`/
+`Key`/`Value`) are plain non-pointer fields with no `omitempty`.
+`describeKeyValueStoreOutput`'s `KvsARN`/`Status`/`Created`/`ItemCount`/
+`TotalSizeInBytes` are likewise always-present plain fields. `ETag`
+(required on `DeleteKey`/`PutKey`/`UpdateKeys`/`DescribeKeyValueStore`) is
+served as an HTTP header, not a body field -- confirmed the real
+deserializer (`awsRestjson1_deserializeOpHttpBindingsPutKeyOutput`) only
+sets it `if len(headerValues) != 0`, i.e. silently leaves it nil if the
+transport ever omitted the header -- but `handler.go` sets the `ETag`
+header unconditionally on all four ops, and the backing
+`services/cloudfront`'s `kvsDataETag`/`PutKVSValue`/`DeleteKVSValue`/
+`UpdateKVSValues` always generate a non-empty `uuid.NewString()`, so the
+header is never actually absent or empty on a real client's request. No
+code changes; see `services/_REQUIRED_OUTPUT_CANDIDATES.md`'s
+settled-services table.

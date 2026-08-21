@@ -108,3 +108,40 @@ leaks: {status: clean, note: "no goroutines/janitors in this service; InMemoryBa
 - `TestHandler_RouteMatcher` and `TestHandler_ExtractOperation_MethodPathMatrix`
   (`handler_test.go`) exercise `RouteMatcher()` and the method+path matrix
   directly, since prior tests only ever called `Handler()` end-to-end.
+
+### 2026-08-21: gopherstack-r80d batch 21 -- required-output-member cut, 0 bugs
+
+Verified as the largest remaining `gopherstack-r80d` candidate after
+sagemaker (22 required output fields, 12 ops, 7 with >=1) via a fresh
+`cmd/requiredoutputfields` run cross-checked against
+`services/_REQUIRED_OUTPUT_CANDIDATES.md`. Read all 7 ops end to end
+against `handler.go`, plus every domain struct in
+`networkmonitor@v1.16.4`'s 158-line `types/types.go` (only 4 structs
+declare required members at all: `CreateMonitorProbeInput`/`ProbeInput`
+are input-only; `MonitorSummary` and `Probe` are the two
+output-relevant ones, reachable through `ListMonitorsOutput.Monitors` and
+`GetMonitorOutput.Probes` respectively -- neither field is itself required,
+so this is the nested-domain-struct undercount class, checked anyway).
+Instrument cross-checked three ways (character-level brace matcher,
+`go/parser` AST walk, raw `grep -c`) -- all three agree at 52 total
+required fields / 22 structs across `types/types.go` + every `api_op_*.go`
+file, of which 22 fields across 7 ops are output-relevant (the rest are
+`*Input` structs).
+
+Came back clean: `GetMonitorOutput.CreatedAt`/`ModifiedAt` carry
+`,omitempty` on `*float64` fields but are structurally unreachable --
+`CreateMonitor` (the sole construction site for `Monitor`) unconditionally
+stamps both with `time.Now()`, so no real client can observe them
+omitted. `MonitorSummary.MonitorArn`/`MonitorName`/`State` and
+`Probe.Destination`/`Protocol`/`SourceArn` are plain (non-pointer,
+non-omitempty) strings in gopherstack's wire structs, and
+`validateProbeInput` rejects an empty `destination`/`protocol`/`sourceArn`
+for real (not just a nil check), so they can never be reachably empty
+either. `DeleteMonitor`/`DeleteProbe`/`ListTagsForResource`/`TagResource`/
+`UntagResource` all have zero required output members on the real SDK, so
+their bare/omitted-body responses violate nothing. Verified against the
+real deserializer's `awsRestjson1_deserializeOpDocument<Op>Output` bodies
+directly (not just the Go field names) for `CreateMonitor`/`GetMonitor` to
+confirm the flat, unwrapped response shape and exact epoch-seconds
+timestamp encoding. No code changes; see
+`services/_REQUIRED_OUTPUT_CANDIDATES.md`'s settled-services table.

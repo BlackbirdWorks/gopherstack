@@ -159,12 +159,20 @@ from the ranked table) as future batches clear more of it.
 | accessanalyzer | 28 | 39 (17 ops-with-required) | yes (1: `Location.Span`, nested inside `ValidatePolicyFinding.Locations`, invisible to the flat per-op scan and one level deeper than `ValidatePolicyFinding` itself -- see the batch-18 note below and services/accessanalyzer/PARITY.md) | gopherstack-r80d batch 18 |
 | cognitoidp | 27 | 129 (25 ops-with-required) | yes (4: `TermsType.Links`, `ListWebAuthnCredentialsOutput.Credentials`, `ResourceServerScopeType.ScopeName`/`.ScopeDescription`, `NotifyConfigurationType.SourceArn` -- see the batch-19 note below and services/cognitoidp/PARITY.md) | gopherstack-r80d batch 19 |
 | emrserverless | 25 | 22 (14 ops-with-required) | yes (2: `JobRun`/`JobRunSummary.releaseLabel` dropped when the owning application's own ReleaseLabel was an explicit empty string; `JobRunAttemptSummary.releaseLabel`/`.stateDetails` hardcoded empty despite both already tracked on the backing JobRun -- see the batch-20 note below and services/emrserverless/PARITY.md) | gopherstack-r80d batch 20 |
+| networkmonitor | 22 | 12 (7 ops-with-required) | 0 (clean; read end to end including the nested `MonitorSummary`/`Probe` domain structs -- see the batch-21 note below and services/networkmonitor/PARITY.md) | gopherstack-r80d batch 21 |
+| bedrockruntime | 20 | 11 (8 ops-with-required) | 0 (clean; the `Converse`/`ConverseStream` polymorphic union family is real but gopherstack only ever constructs a plain-text `ContentBlock`, a documented scope limit not a dropped field -- see the batch-21 note below and services/bedrockruntime/PARITY.md) | gopherstack-r80d batch 21 |
+| cloudfrontkeyvaluestore | 18 | 6 (5 ops-with-required) | 0 (clean; read end to end including the nested `ListKeysResponseListItem` domain struct and the `ETag` HTTP-header binding -- see the batch-21 note below and services/cloudfrontkeyvaluestore/PARITY.md) | gopherstack-r80d batch 21 |
+| sesv2 | 18 | 112 (13 ops-with-required) | yes (1: `TrackingOptions.CustomRedirectDomain` tagged omitempty despite being reachably empty whenever a real client sets `HttpsPolicy` alone via `PutConfigurationSetTrackingOptions` -- see the batch-21 note below and services/sesv2/PARITY.md) | gopherstack-r80d batch 21 |
 
-37 services settled, 2349 required output fields read end to end (the running
+41 services settled, 2427 required output fields read end to end (the running
 total counts each settled service's flat per-op `cmd/requiredoutputfields`
 number, as established by every prior batch -- glue's own real audited
 surface was substantially larger once its ~56 gopherstack-modeled domain
-structs were cross-checked, see the batch-15 note below). Batch 20
+structs were cross-checked, see the batch-15 note below). Batch 21
+(networkmonitor + bedrockruntime + cloudfrontkeyvaluestore + sesv2) added 1
+more counted bug (sesv2's `TrackingOptions.CustomRedirectDomain`; the other
+three came back clean) on top of the running total -- see the batch-21 note
+below for detail. Batch 20
 (emrserverless only) added 2 more counted bugs (plus 1 fixed-but-not-counted,
 `JobRun.jobDriver` -- see the batch-20 note below) on top of the running
 total. Batch 19
@@ -911,6 +919,99 @@ after) or attempt a second service this batch, per the brief's "full rigour
 and no more" -- see services/cognitoidp/PARITY.md's 2026-08-21 entry for
 full detail and SDK file:line citations.
 
+### networkmonitor + bedrockruntime + cloudfrontkeyvaluestore + sesv2 (batch 21): 1 bug, three clean
+
+Instrument re-validated before use per the brief: a character-level brace
+matcher, a `go/parser`/`go/ast` walk, and a raw `grep -c "This member is
+required."` count were built and cross-checked against each other on every
+service touched this batch -- all three agreed exactly every time
+(networkmonitor: 52/22; bedrockruntime: 161/90; cloudfrontkeyvaluestore:
+52/22; sesv2: 232/143), so no service's result rests on a single
+unvalidated tool.
+
+Selected in ranked order after re-verifying the table against a fresh `go
+run ./cmd/requiredoutputfields` run (agreed with this file's own ranked
+table): networkmonitor (22, largest remaining after sagemaker), then
+bedrockruntime (20), then cloudfrontkeyvaluestore (tied with sesv2 at 18,
+taken first alphabetically). Did four services this batch since the first
+three came back clean quickly (networkmonitor and cloudfrontkeyvaluestore
+are small SDKs with almost no output-relevant domain-struct surface once
+the input-only structs are excluded; bedrockruntime's large 90-struct
+surface is almost entirely the `Converse`/`ConverseStream` polymorphic
+union family, which resolved quickly once `handler_converse.go` was read
+and found to construct only a single plain-text content block, never any
+of the other union variants) -- all four still read end to end, not
+sampled.
+
+**networkmonitor (22 fields / 12 ops, 7 ops-with-required, 0 bugs):** the
+flat per-op count already captures the real surface almost completely --
+only `MonitorSummary` (reachable through `ListMonitorsOutput`'s required
+`Monitors` field) and `Probe` (reachable through `GetMonitorOutput`'s
+optional `Probes` field) are nested domain structs with their own required
+members, and both are correctly modelled as plain non-omitempty strings in
+gopherstack's wire structs. `GetMonitorOutput.CreatedAt`/`ModifiedAt` carry
+a dead `omitempty` tag (structurally unreachable: `CreateMonitor` is the
+sole construction site and unconditionally stamps both). See
+services/networkmonitor/PARITY.md's 2026-08-21 entry.
+
+**bedrockruntime (20 fields / 11 ops, 8 ops-with-required, 0 bugs):** 161
+required fields across 90 structs once every `api_op_*.go` file and
+`types/types.go` are walked together, but the flat 8-op surface already
+covers everything gopherstack's Converse/ApplyGuardrail/InvokeGuardrailChecks/
+InvokeModel/async-invoke handlers actually construct -- the other ~80
+structs (every `ContentBlock`/`GuardrailConverse*`/`*EventAttributes`
+variant beyond plain text) are never built at all, a documented,
+already-disclosed scope limit (this backend has no image/video/document/
+tool-use/search-result content generation), not a dropped required field.
+See services/bedrockruntime/PARITY.md's 2026-08-21 entry.
+
+**cloudfrontkeyvaluestore (18 fields / 6 ops, 5 ops-with-required, 0
+bugs):** smallest SDK touched this batch (6 ops total). The one nested
+domain struct with required members, `ListKeysResponseListItem`
+(`Key`/`Value`), backs `ListKeys`' non-required `Items` field and is
+already emitted correctly. `ETag` (required on 4 ops) rides an HTTP
+header, not the JSON body -- the real deserializer silently leaves it nil
+if the header is ever absent, but `handler.go` sets it unconditionally from
+a `uuid.NewString()`-backed value that can never be empty. See
+services/cloudfrontkeyvaluestore/PARITY.md's 2026-08-21 entry.
+
+**sesv2 (18 fields / 112 ops, 13 ops-with-required, 1 bug):** tied with
+cloudfrontkeyvaluestore by the flat count, but 232 required fields across
+143 domain structs once walked -- almost entirely `*Input` structs for
+this service's large identity/configuration-set/contact/tenant CRUD
+surface, not response types (the gap runs the "structural-analysis" note's
+other direction: a large struct/field count that does NOT translate into
+a large *output*-relevant surface, the opposite of accessanalyzer's
+28-flat/114-real gap). 1 bug: `TrackingOptions.CustomRedirectDomain`
+(required on `types.TrackingOptions`) was tagged `omitempty` in
+`handler_configuration_sets.go`, dropping the key whenever a real client
+called `PutConfigurationSetTrackingOptions` with `HttpsPolicy` alone
+(`CustomRedirectDomain` is optional on that op's own input) -- the
+"required-but-inapplicable means present-and-empty, not absent" shape this
+campaign has repeatedly named. Every other output-relevant domain struct
+checked this pass (`SuppressedDestination`/`SuppressedDestinationSummary`,
+`DedicatedIp`/`DedicatedIpPool`, `EventDestination`, `MailFromAttributes`,
+`BulkEmailEntryResult`, `DeliverabilityTestReport`/`IspPlacement`/
+`OverallVolume`/`DailyVolume`, `ContactList`, `VdmOptions`/
+`DashboardOptions`/`GuardianOptions`, `ArchivingOptions`, `BlacklistEntry`)
+came back clean -- most declare zero required members on the pinned SDK at
+all, confirmed by reading `types.go` directly rather than assuming from
+the struct's presence in gopherstack's domain model. Proven via a real
+`aws-sdk-go-v2/service/sesv2` client round trip
+(`wire_output_required_r80d_test.go`), hand-reverted/confirmed-failing/
+restored, md5sum-verified byte-identical. See services/sesv2/PARITY.md's
+2026-08-21 entry for full detail.
+
+All four services' gates (build/vet/gofmt/race-test/lint) are green, 0
+banned nolints, 0 new nolints, no exported signatures changed; repo-wide
+`go build ./...`, `go vet ./...`, `go vet -tags e2e ./...`, `go vet -tags
+integration ./...` all re-run and clean.
+`services/_REQUIRED_OUTPUT_CANDIDATES.md` updated: all four moved from the
+ranked table into "Already examined" (settled-services count now 41, 2427
+required output fields read end to end). Did not touch sagemaker (off-limits,
+`git status` checked before and throughout) or `cmd/gendocs`, and did not
+attempt a fifth service.
+
 ### emrserverless (batch 20): 2 bugs, both the "output-required, input-only-nil-checked" releaseLabel
 
 25 fields / 22 ops / 14 ops-with-required per a fresh `cmd/requiredoutputfields`
@@ -1208,15 +1309,12 @@ batch 11), backup (41, settled batch 11), inspector2 (38, settled batch
 amplify (35, settled batch 14), glue (34, settled batch 15), batch (31,
 settled batch 16), ce/efs/swf (30 each, settled batch 17),
 accessanalyzer (28, settled batch 18), cognitoidp (27, settled
-batch 19), and emrserverless (25, settled batch 20) removed from this
-table — see the "Already examined" table above.
+batch 19), emrserverless (25, settled batch 20), and networkmonitor/
+bedrockruntime/cloudfrontkeyvaluestore/sesv2 (22/20/18/18, settled batch
+21) removed from this table — see the "Already examined" table above.
 
 ```
  459  sagemaker                 ops=403  ops-with-required=188
-  22  networkmonitor            ops=12   ops-with-required=7
-  20  bedrockruntime            ops=11   ops-with-required=8
-  18  cloudfrontkeyvaluestore   ops=6    ops-with-required=5
-  18  sesv2                     ops=112  ops-with-required=13
   16  elasticsearch             ops=51   ops-with-required=12
   16  rolesanywhere             ops=30   ops-with-required=16
   15  awsconfig                 ops=102  ops-with-required=12
@@ -1363,9 +1461,17 @@ Notes on the top of this table for the next batch:
   2026-08-21 entry, plus the batch-20 note below for full detail. Verified
   as the largest remaining candidate after sagemaker via a fresh
   `cmd/requiredoutputfields` run cross-checked against this file before
-  starting (both agreed: emrserverless 25/22/14). **networkmonitor (22,
-  ops=12/ops-with-required=7) is now the largest remaining candidate after
-  sagemaker.**
+  starting (both agreed: emrserverless 25/22/14).
+- **networkmonitor / bedrockruntime / cloudfrontkeyvaluestore / sesv2
+  settled (batch 21)** — do not re-derive, see the settled-services table
+  above and each service's PARITY.md 2026-08-21 entry, plus the batch-21
+  note above for full detail. Verified via a fresh `cmd/requiredoutputfields`
+  run cross-checked against this file before starting (all four agreed:
+  networkmonitor 22/12/7, bedrockruntime 20/11/8,
+  cloudfrontkeyvaluestore 18/6/5, sesv2 18/112/13). **elasticsearch and
+  rolesanywhere are now tied at 16 fields each (ops=51/ops-with-required=12
+  and ops=30/ops-with-required=16 respectively) as the largest remaining
+  candidates after sagemaker; re-verify the tie before picking one.**
 - **omics settled (batch 7)** — do not re-derive, see the settled-services
   table above and services/omics/PARITY.md's 2026-08-21 entries. The
   concurrent sibling agent's over-wide-List sweep this file previously

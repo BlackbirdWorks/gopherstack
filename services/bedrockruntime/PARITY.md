@@ -180,3 +180,46 @@ leaks: {status: clean, note: "unchanged this pass; janitor (RunJanitor/StartWork
   it. gopherstack has no real latency-optimized inference tier, so it reflects the caller's request value
   instead of fabricating one; omitted entirely (not defaulted to "standard") when the caller didn't send
   it, to avoid inventing a value with no backing semantics.
+
+## 2026-08-21: gopherstack-r80d batch 21 -- required-output-member cut, 0 bugs
+
+Second-largest remaining `gopherstack-r80d` candidate after sagemaker (20
+required output fields, 11 ops, 8 with >=1, per `cmd/requiredoutputfields`).
+Instrument cross-checked three ways (character-level brace matcher,
+`go/parser` AST walk, raw `grep -c`) across `types/types.go` + every
+`api_op_*.go` file -- all three agree at 161 total required fields / 90
+structs. Most of that 90-struct surface is the `Converse`/`ConverseStream`
+polymorphic `ContentBlock`/`*EventAttributes` union family (`ImageBlock`,
+`DocumentBlock`, `VideoBlock`, `AudioBlock`, `ToolUseBlock`,
+`ToolResultBlock`, `SearchResultBlock`, the `GuardrailChecks*`/`Guardrail*`
+assessment leaf types, and every `ConverseStream` event-detail type) --
+`handler_converse.go`'s `buildConverseResponse`/`handleConverseStream` only
+ever construct a single plain-text content block (`ContentBlockMemberText`),
+never any of the other union variants, a documented, disclosed scope limit
+(not a dropped-required-field bug, since those variants are never
+constructed at all).
+
+Read all 8 ops with required output fields end to end against their
+handlers (`handler_converse.go`, `handler_guardrails.go`,
+`handler_guardrail_checks.go`, `handler_invoke.go`,
+`handler_async_invoke.go`), verified against the real
+`awsRestjson1_deserializeOpDocument<Op>Output`/
+`awsRestjson1_deserializeDocument<Type>` functions directly (not just Go
+field names) for `Converse`'s `output`/`message`/`content` union chain and
+`GuardrailChecks*`'s result/usage wrapper keys. Every required member is
+present on every real-client-reachable path: `ConverseOutput.Metrics/
+Output/StopReason/Usage`, `ApplyGuardrailOutput.Action/Assessments/Outputs/
+Usage` (including the nested `GuardrailUsage`'s 6 required unit-count
+fields, `GuardrailWordPolicyAssessment.CustomWords/ManagedWordLists`, and
+`GuardrailCustomWord.Action/Match`), `GetAsyncInvokeOutput`/
+`AsyncInvokeSummary`'s `InvocationArn/ModelArn/OutputDataConfig/SubmitTime`
+(`Status` is genuinely NOT required on `AsyncInvokeSummary`, confirmed by
+reading the struct directly -- only on `GetAsyncInvokeOutput`),
+`InvokeGuardrailChecksOutput.Results/Usage` and each check family's own
+required `Results`/`TextUnits` sub-fields (contentFilter/promptAttack
+results lists are honestly empty per the pre-existing ML-classifier gap,
+already disclosed above -- not a new finding), `InvokeModelOutput.Body/
+ContentType`, `InvokeModelWithResponseStreamOutput.ContentType`,
+`CountTokensOutput.InputTokens`, `StartAsyncInvokeOutput.InvocationArn`. No
+code changes; see `services/_REQUIRED_OUTPUT_CANDIDATES.md`'s
+settled-services table.
