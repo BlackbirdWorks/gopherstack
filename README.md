@@ -545,7 +545,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [SNS](services/sns/README.md) | A | 34 | 1 gap; 2 deferred |
 | [SQS](services/sqs/README.md) | A | 20 | 4 gaps; 4 deferred |
 | [SWF](services/swf/README.md) | A | 39 | 6 gaps; 1 deferred |
-| [Step Functions](services/stepfunctions/README.md) | A | 26 | 7 gaps |
+| [Step Functions](services/stepfunctions/README.md) | A | 37 | 7 gaps |
 | [WorkMail](services/workmail/README.md) | A | 92 | 3 gaps |
 
 ### Analytics
@@ -612,7 +612,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Cloud Control API](services/cloudcontrol/README.md) | A | 8 | 3 gaps |
 | [CloudFormation](services/cloudformation/README.md) | A | 70 | 5 gaps |
 | [CloudTrail](services/cloudtrail/README.md) | A | 60 | 9 gaps |
-| [CloudWatch](services/cloudwatch/README.md) | A | 49 | 5 deferred |
+| [CloudWatch](services/cloudwatch/README.md) | A | 50 | 5 deferred |
 | [CloudWatch Logs](services/cloudwatchlogs/README.md) | A | 80 | 26 gaps; 3 deferred |
 | [Config](services/awsconfig/README.md) | A | 102 | 5 gaps; 1 deferred |
 | [Cost Explorer](services/ce/README.md) | A | 37 | 1 gap; 2 deferred |
@@ -662,7 +662,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | Service | Parity | Operations | Notes |
 |---|---|---|---|
 | [MediaConvert](services/mediaconvert/README.md) | A | 34 | 2 gaps; 1 deferred |
-| [MediaLive](services/medialive/README.md) | A | — | 4 gaps |
+| [MediaLive](services/medialive/README.md) | A | — | 26 families; 4 gaps |
 | [MediaPackage](services/mediapackage/README.md) | A | 19 | 1 deferred |
 | [MediaStore](services/mediastore/README.md) | A | 21 | clean |
 | [MediaStore Data](services/mediastoredata/README.md) | A | 5 | 4 gaps; 1 deferred |

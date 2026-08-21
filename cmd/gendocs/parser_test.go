@@ -250,3 +250,211 @@ gaps: []
 	require.Len(t, doc.Families, 3, "the three widened-charset keys must parse as entries")
 	assert.Len(t, doc.Warnings, 1, "the comma-joined key must be reported, not silently dropped")
 }
+
+// TestParseParityFile_BlockStyleOpCounted reproduces gopherstack-7o96 exactly:
+// a services/stepfunctions/PARITY.md op entry rewritten from the repo's
+// inline convention into YAML block style vanished from the count with no
+// warning. This must fail against the pre-fix parser (doc.Ops has length 1,
+// not 2) -- confirmed by hand-reverting parser.go's block-entry support and
+// rerunning.
+func TestParseParityFile_BlockStyleOpCounted(t *testing.T) {
+	t.Parallel()
+
+	content := `---
+service: stepfunctions
+overall: A
+ops:
+  CreateActivity: {wire: ok, errors: ok, state: ok, persist: ok}
+  GetExecutionHistory:
+    wire: fixed
+    errors: ok
+    state: ok
+    persist: ok
+    note: >
+      FIXED 2026-08-21 (bd gopherstack-r80d, batch 10): a long note that
+      wraps across several physical lines, the same shape that triggered
+      the real services/stepfunctions/PARITY.md regression this reproduces.
+gaps: []
+---
+`
+	dir := t.TempDir()
+	path := filepath.Join(dir, "PARITY.md")
+	require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
+
+	doc, err := ParseParityFile(path)
+	require.NoError(t, err)
+
+	require.Len(t, doc.Ops, 2, "the block-style GetExecutionHistory entry must be counted, not silently dropped")
+	assert.Empty(t, doc.Warnings)
+
+	names := make([]string, len(doc.Ops))
+	for i, op := range doc.Ops {
+		names[i] = op.Name
+	}
+	assert.Equal(t, []string{"CreateActivity", "GetExecutionHistory"}, names)
+
+	geh := doc.Ops[1]
+	assert.Equal(t, "fixed", geh.Wire)
+	assert.Equal(t, "ok", geh.Errors)
+	assert.Equal(t, "ok", geh.State)
+	assert.Equal(t, "ok", geh.Persist)
+}
+
+func TestParseOpsBlock_BlockStyleEntry(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		lines     []string
+		wantNames []string
+		wantNext  int
+	}{
+		{
+			name: "block entry then inline entry",
+			lines: []string{
+				"  GetExecutionHistory:",
+				"    wire: fixed",
+				"    errors: ok",
+				"    state: ok",
+				"    persist: ok",
+				"    note: >",
+				"      a wrapped note, several lines long.",
+				"  CreateActivity: {wire: ok, errors: ok, state: ok, persist: ok}",
+				"gaps:",
+			},
+			wantNames: []string{"GetExecutionHistory", "CreateActivity"},
+			wantNext:  8,
+		},
+		{
+			name: "block entry at column 0",
+			lines: []string{
+				"  FirstOp: {wire: ok, errors: ok}",
+				"SecondOp:",
+				"  wire: ok",
+				"  errors: ok",
+			},
+			wantNames: []string{"FirstOp", "SecondOp"},
+			wantNext:  4,
+		},
+		{
+			name: "block entry immediately before terminator",
+			lines: []string{
+				"  OnlyOp:",
+				"    wire: ok",
+				"    errors: ok",
+				"overall: A",
+			},
+			wantNames: []string{"OnlyOp"},
+			wantNext:  3,
+		},
+		{
+			name: "ad hoc list key not treated as entry",
+			lines: []string{
+				"  RealOp: {wire: ok, errors: ok}",
+				"invented_ops_removed:",
+				`  - "SomeOp: not a real action, deleted this sweep"`,
+				"gaps:",
+			},
+			wantNames: []string{"RealOp"},
+			wantNext:  3,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			doc := &ParityDoc{}
+			ops, next := parseOpsBlock(tc.lines, 0, doc, "services/example/PARITY.md", 0)
+
+			names := make([]string, len(ops))
+			for i, op := range ops {
+				names[i] = op.Name
+			}
+
+			require.Equal(t, tc.wantNames, names)
+			assert.Equal(t, tc.wantNext, next)
+			assert.Empty(t, doc.Warnings)
+		})
+	}
+}
+
+// TestParseFamiliesBlock_MultilineInlineNote guards the one real
+// bare-colon-in-a-block false-positive risk found across every
+// services/*/PARITY.md: services/redshiftdata's error_codes family uses an
+// inline flow map whose "note: >" folds across several physical lines,
+// including one that itself ends in a bare colon. Brace-depth tracking must
+// treat every line up to the closing "}" as that same entry's continuation,
+// never as a new block-style entry.
+func TestParseFamiliesBlock_MultilineInlineNote(t *testing.T) {
+	t.Parallel()
+
+	lines := []string{
+		"  error_codes: {status: ok, note: >",
+		"    ValidationException and ResourceNotFoundException are the only two",
+		"    error types this backend can actually produce, and both are field-diffed this pass:",
+		"    ErrorFault Client -> HTTP 400 for both, matching handler.go exactly.}",
+		"  NextFamily: {status: ok}",
+		"gaps:",
+	}
+
+	doc := &ParityDoc{}
+	families, next := parseFamiliesBlock(lines, 0, doc, "services/example/PARITY.md", 0)
+
+	names := make([]string, len(families))
+	for i, f := range families {
+		names[i] = f.Name
+	}
+
+	require.Equal(t, []string{"error_codes", "NextFamily"}, names)
+	assert.Equal(t, 5, next)
+	assert.Empty(t, doc.Warnings)
+}
+
+func TestWarnUnparsedEntry_BlockForm(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		line        string
+		wantWarning bool
+	}{
+		{
+			name:        "comma-joined bare-colon key reported",
+			line:        "  Delete/UpdateServerCertificate, DeleteInstanceProfile:",
+			wantWarning: true,
+		},
+		{
+			name:        "ordinary wrapped note prose stays silent",
+			line:        "  this continues the previous op's note across a wrapped line",
+			wantWarning: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			lines := []string{
+				"  FirstOp: {wire: ok, errors: ok, state: ok, persist: ok}",
+				tc.line,
+				"  irrelevant continuation, not a list item",
+				"overall: A",
+			}
+
+			doc := &ParityDoc{}
+			ops, next := parseOpsBlock(lines, 0, doc, "services/example/PARITY.md", 0)
+
+			require.Len(t, ops, 1, "the malformed line must not be counted as an op")
+			assert.Equal(t, "FirstOp", ops[0].Name)
+			assert.Equal(t, 3, next, "block must stop at the reserved overall: terminator")
+
+			if tc.wantWarning {
+				require.Len(t, doc.Warnings, 1)
+				assert.Contains(t, doc.Warnings[0], "services/example/PARITY.md:2:")
+			} else {
+				assert.Empty(t, doc.Warnings)
+			}
+		})
+	}
+}

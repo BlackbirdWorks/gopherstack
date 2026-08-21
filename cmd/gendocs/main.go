@@ -85,6 +85,10 @@ func run(ctx context.Context, log *slog.Logger) error {
 
 	logParseWarnings(ctx, log, docs)
 
+	if warnErr := checkParseWarnings(docs); warnErr != nil {
+		return warnErr
+	}
+
 	log.InfoContext(ctx, "gendocs complete",
 		"services_total", len(entries),
 		"readmes_generated", generated,
@@ -146,15 +150,38 @@ func processService(slug string) (summaryEntry, *ParityDoc, bool, error) {
 }
 
 // logParseWarnings surfaces every parsed doc's Warnings via the structured
-// logger, at Warn level. These never fail the build: a PARITY.md line that
-// looks like an entry but doesn't parse should be visible to whoever next
-// touches that file, not silently undercounted (gopherstack-udc7).
+// logger, at Warn level, before run fails the build over them (see the
+// totalWarnings check in run) -- a PARITY.md line that looks like an entry
+// but doesn't parse must be loud, not silently undercounted (gopherstack-
+// udc7, gopherstack-7o96).
 func logParseWarnings(ctx context.Context, log *slog.Logger, docs []*ParityDoc) {
 	for _, doc := range docs {
 		for _, w := range doc.Warnings {
 			log.WarnContext(ctx, "PARITY.md entry did not parse", "detail", w)
 		}
 	}
+}
+
+// errUnparsedEntries is checkParseWarnings' sentinel: a PARITY.md line that
+// looked like an ops:/families: entry but didn't parse as one must fail the
+// run, not just undercount it -- the same principle as cmd/opcensus'
+// ERROR-row change (gopherstack-c7s3, gopherstack-7o96).
+var errUnparsedEntries = errors.New("PARITY.md line(s) looked like an ops:/families: entry but did not parse as one")
+
+// checkParseWarnings turns a nonzero Warnings count across docs into a hard
+// error instead of a silent omission.
+func checkParseWarnings(docs []*ParityDoc) error {
+	n := 0
+	for _, doc := range docs {
+		n += len(doc.Warnings)
+	}
+
+	if n == 0 {
+		return nil
+	}
+
+	return fmt.Errorf("%d %w (see warnings above) -- fix the manifest, don't silently undercount it",
+		n, errUnparsedEntries)
 }
 
 // guideExists reports whether a hand-written docs/services/<svc>.md guide
