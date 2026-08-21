@@ -24,7 +24,6 @@ type Patch struct {
 	Product        string `json:"Product"`
 	Classification string `json:"Classification"`
 	Severity       string `json:"Severity"`
-	State          string `json:"State,omitempty"`
 }
 
 // DescribeAvailablePatchesInput is the request for DescribeAvailablePatches.
@@ -253,8 +252,9 @@ type DescribePatchGroupStateOutput struct {
 
 // DescribePatchGroupsInput is the request payload for DescribePatchGroups.
 type DescribePatchGroupsInput struct {
-	MaxResults *int64 `json:"MaxResults,omitempty"`
-	NextToken  string `json:"NextToken,omitempty"`
+	MaxResults *int64        `json:"MaxResults,omitempty"`
+	NextToken  string        `json:"NextToken,omitempty"`
+	Filters    []PatchFilter `json:"Filters,omitempty"`
 }
 
 // PatchGroupPatchBaselineMapping maps a patch group to a baseline identity.
@@ -295,11 +295,16 @@ type EffectivePatch struct {
 	PatchStatus *PatchStatus `json:"PatchStatus,omitempty"`
 }
 
-// PatchStatus holds the deployment/compliance status of a patch.
+// PatchStatus holds the deployment/compliance status of a patch. ApprovalDate
+// is epoch seconds, not an RFC3339 string -- confirmed against
+// aws-sdk-go-v2/service/ssm@v1.73.4's deserializers.go
+// (awsAwsjson11_deserializeDocumentPatchStatus, case "ApprovalDate":
+// ParseEpochSeconds(f64)); the real member is a JSON number like every other
+// timestamp this awsjson1.1 service emits.
 type PatchStatus struct {
-	ApprovalDate     string `json:"ApprovalDate,omitempty"`
-	ComplianceLevel  string `json:"ComplianceLevel,omitempty"`
-	DeploymentStatus string `json:"DeploymentStatus,omitempty"`
+	ComplianceLevel  string  `json:"ComplianceLevel,omitempty"`
+	DeploymentStatus string  `json:"DeploymentStatus,omitempty"`
+	ApprovalDate     float64 `json:"ApprovalDate,omitempty"`
 }
 
 // DescribeEffectivePatchesForPatchBaselineOutput is the response payload.

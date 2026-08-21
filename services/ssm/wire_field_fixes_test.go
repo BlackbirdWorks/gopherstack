@@ -669,3 +669,140 @@ func TestGetMaintenanceWindowExecutionTaskInvocation_TaskIdKey_RealClient(t *tes
 	assert.Equal(t, "owner-team-y", aws.ToString(got.OwnerInformation),
 		"OwnerInformation must round-trip; pre-fix it had no Go member at all")
 }
+
+// TestDescribeEffectivePatches_ApprovalDate_RealClient covers a layer-3 bug
+// (gopherstack-enpq, patch-baselines pass): PatchStatus.ApprovalDate was
+// modeled as a plain string carrying an RFC3339 timestamp, but the real
+// member is a JSON number (epoch seconds) -- confirmed against
+// aws-sdk-go-v2/service/ssm@v1.73.4's deserializers.go
+// (awsAwsjson11_deserializeDocumentPatchStatus, case "ApprovalDate":
+// ParseEpochSeconds(f64)). Pre-fix, the real SDK client failed to unmarshal
+// this field at all for any baseline with an explicitly-approved patch.
+func TestDescribeEffectivePatches_ApprovalDate_RealClient(t *testing.T) {
+	t.Parallel()
+
+	backend := ssm.NewInMemoryBackend()
+	client := newTestSSMClient(t, ssm.NewHandler(backend))
+	ctx := t.Context()
+
+	before := time.Now().Add(-time.Minute)
+
+	created, err := client.CreatePatchBaseline(ctx, &ssmsdk.CreatePatchBaselineInput{
+		Name:            aws.String("approval-date-baseline"),
+		OperatingSystem: ssmtypes.OperatingSystemAmazonLinux2,
+		ApprovedPatches: []string{"CVE-2024-9999"},
+	})
+	require.NoError(t, err)
+
+	out, err := client.DescribeEffectivePatchesForPatchBaseline(
+		ctx,
+		&ssmsdk.DescribeEffectivePatchesForPatchBaselineInput{BaselineId: created.BaselineId},
+	)
+	require.NoError(t, err, "a string ApprovalDate would fail to unmarshal into the real *time.Time field")
+
+	var found bool
+
+	for _, ep := range out.EffectivePatches {
+		if ep.Patch == nil || aws.ToString(ep.Patch.Name) != "CVE-2024-9999" {
+			continue
+		}
+
+		found = true
+
+		require.NotNil(t, ep.PatchStatus)
+		require.NotNil(t, ep.PatchStatus.ApprovalDate)
+		assert.True(t, ep.PatchStatus.ApprovalDate.After(before),
+			"ApprovalDate must decode to a real, recent time")
+	}
+
+	assert.True(t, found, "the explicitly-approved patch must appear in the effective set")
+}
+
+// TestDescribeAvailablePatches_Filters_RealClient covers gopherstack-enpq: the
+// backend accepted DescribeAvailablePatchesInput.Filters but never consulted
+// it, so any real client filtering the built-in catalogue by PRODUCT (or
+// NAME/SEVERITY/CLASSIFICATION) got every patch regardless. Filter keys
+// confirmed against api_op_DescribeAvailablePatches.go's doc comment.
+func TestDescribeAvailablePatches_Filters_RealClient(t *testing.T) {
+	t.Parallel()
+
+	backend := ssm.NewInMemoryBackend()
+	client := newTestSSMClient(t, ssm.NewHandler(backend))
+	ctx := t.Context()
+
+	out, err := client.DescribeAvailablePatches(ctx, &ssmsdk.DescribeAvailablePatchesInput{
+		Filters: []ssmtypes.PatchOrchestratorFilter{
+			{Key: aws.String("PRODUCT"), Values: []string{"AmazonLinux2"}},
+		},
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, out.Patches, "the built-in catalogue must have AmazonLinux2 entries")
+
+	for _, p := range out.Patches {
+		assert.Equal(t, "AmazonLinux2", aws.ToString(p.Product),
+			"pre-fix, Filters was parsed and silently ignored")
+	}
+}
+
+// TestDescribePatchGroups_Filters_RealClient covers gopherstack-enpq:
+// DescribePatchGroupsInput had no Filters member at all (real op has one,
+// confirmed against api_op_DescribePatchGroups.go), so a real client could
+// never narrow the mapping list by OPERATING_SYSTEM/NAME_PREFIX.
+func TestDescribePatchGroups_Filters_RealClient(t *testing.T) {
+	t.Parallel()
+
+	backend := ssm.NewInMemoryBackend()
+	client := newTestSSMClient(t, ssm.NewHandler(backend))
+	ctx := t.Context()
+
+	linux, err := client.CreatePatchBaseline(ctx, &ssmsdk.CreatePatchBaselineInput{
+		Name:            aws.String("linux-group-baseline"),
+		OperatingSystem: ssmtypes.OperatingSystemAmazonLinux2,
+	})
+	require.NoError(t, err)
+
+	windows, err := client.CreatePatchBaseline(ctx, &ssmsdk.CreatePatchBaselineInput{
+		Name:            aws.String("windows-group-baseline"),
+		OperatingSystem: ssmtypes.OperatingSystemWindows,
+	})
+	require.NoError(t, err)
+
+	_, err = client.RegisterPatchBaselineForPatchGroup(ctx, &ssmsdk.RegisterPatchBaselineForPatchGroupInput{
+		BaselineId: linux.BaselineId,
+		PatchGroup: aws.String("linux-group"),
+	})
+	require.NoError(t, err)
+
+	_, err = client.RegisterPatchBaselineForPatchGroup(ctx, &ssmsdk.RegisterPatchBaselineForPatchGroupInput{
+		BaselineId: windows.BaselineId,
+		PatchGroup: aws.String("windows-group"),
+	})
+	require.NoError(t, err)
+
+	out, err := client.DescribePatchGroups(ctx, &ssmsdk.DescribePatchGroupsInput{
+		Filters: []ssmtypes.PatchOrchestratorFilter{
+			{Key: aws.String("OPERATING_SYSTEM"), Values: []string{"AMAZON_LINUX_2"}},
+		},
+	})
+	require.NoError(t, err)
+	require.Len(t, out.Mappings, 1, "pre-fix, Filters had no Go member and was dropped entirely")
+	assert.Equal(t, "linux-group", aws.ToString(out.Mappings[0].PatchGroup))
+}
+
+// TestDescribeAvailablePatches_NoFabricatedState_RealClient covers
+// gopherstack-enpq: Patch.State had no wire representation in
+// aws-sdk-go-v2/service/ssm@v1.73.4's types.Patch at all, yet the built-in
+// catalogue set it on every seeded entry, so it leaked onto the wire for both
+// DescribeAvailablePatches and DescribeEffectivePatchesForPatchBaseline. A
+// typed real client silently ignores unknown JSON keys, so the only direct
+// way to prove the field is gone is the raw response body.
+func TestDescribeAvailablePatches_NoFabricatedState_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newTestHandler(t)
+
+	rec := doRequest(t, h, "DescribeAvailablePatches", `{}`)
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.NotContains(t, rec.Body.String(), `"State"`,
+		"types.Patch has no State member; pre-fix the built-in catalogue leaked one onto the wire")
+}

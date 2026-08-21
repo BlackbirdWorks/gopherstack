@@ -362,11 +362,13 @@ func TestDeregisterPatchBaselineForPatchGroup_TableDriven(t *testing.T) {
 			wantPatchGroup: "Production",
 		},
 		{
-			name:           "empty_baseline_id_returns_ok",
-			baselineID:     "",
-			patchGroup:     "Staging",
-			wantStatus:     http.StatusOK,
-			wantPatchGroup: "Staging",
+			// BaselineId is required (validateOpDeregisterPatchBaselineForPatchGroupInput
+			// in aws-sdk-go-v2/service/ssm@v1.73.4's validators.go); an empty
+			// value must be rejected, not silently accepted as a no-op success.
+			name:       "empty_baseline_id_rejected",
+			baselineID: "",
+			patchGroup: "Staging",
+			wantStatus: http.StatusBadRequest,
 		},
 	}
 

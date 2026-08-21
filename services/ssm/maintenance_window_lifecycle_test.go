@@ -101,6 +101,24 @@ func TestStubOps_SimpleCalls(t *testing.T) {
 	// DescribeMaintenanceWindowSchedule stays on this list: its real input
 	// (Filters/MaxResults/NextToken/ResourceType/Targets/WindowId) is
 	// entirely optional.
+	// DescribeEffectivePatchesForPatchBaseline, DescribePatchGroupState,
+	// DescribePatchProperties, GetDeployablePatchSnapshotForInstance and
+	// GetPatchBaselineForPatchGroup are also NOT listed here (gopherstack-enpq):
+	// BaselineId / PatchGroup / OperatingSystem+Property / InstanceId+SnapshotId
+	// / PatchGroup respectively are all required on the real ops
+	// (api_op_DescribeEffectivePatchesForPatchBaseline.go,
+	// api_op_DescribePatchGroupState.go, api_op_DescribePatchProperties.go,
+	// api_op_GetDeployablePatchSnapshotForInstance.go,
+	// api_op_GetPatchBaselineForPatchGroup.go) but an empty body previously
+	// returned a silent empty/synthetic success instead of ValidationException.
+	// See TestPatchBaselineOps_RequireRequiredFields in patch_baselines_test.go.
+	// RegisterDefaultPatchBaseline is also NOT listed here (gopherstack-enpq):
+	// BaselineId is required on the real op
+	// (api_op_RegisterDefaultPatchBaseline.go) but an empty body previously
+	// returned success with an empty BaselineId instead of ValidationException.
+	// See TestPatchBaselineOps_RequireRequiredFields.
+	// DescribeAvailablePatches and DescribePatchGroups stay on this list: their
+	// real inputs (Filters/MaxResults/NextToken) are entirely optional.
 	ops := []string{
 		"DeleteInventory",
 		"DeregisterManagedInstance",
@@ -108,7 +126,6 @@ func TestStubOps_SimpleCalls(t *testing.T) {
 		"DescribeAutomationExecutions",
 		"DescribeAvailablePatches",
 		"DescribeEffectiveInstanceAssociations",
-		"DescribeEffectivePatchesForPatchBaseline",
 		"DescribeInstanceAssociationsStatus",
 		"DescribeInstanceInformation",
 		"DescribeInstancePatchStates",
@@ -117,16 +134,12 @@ func TestStubOps_SimpleCalls(t *testing.T) {
 		"DescribeInstanceProperties",
 		"DescribeInventoryDeletions",
 		"DescribeMaintenanceWindowSchedule",
-		"DescribePatchGroupState",
 		"DescribePatchGroups",
-		"DescribePatchProperties",
 		"DescribeSessions",
 		"GetConnectionStatus",
-		"GetDeployablePatchSnapshotForInstance",
 		"GetInventory",
 		"GetInventorySchema",
 		"GetOpsSummary",
-		"GetPatchBaselineForPatchGroup",
 		"GetResourcePolicies",
 		"GetServiceSetting",
 		"LabelParameterVersion",
@@ -141,7 +154,6 @@ func TestStubOps_SimpleCalls(t *testing.T) {
 		"ListResourceComplianceSummaries",
 		"ListResourceDataSync",
 		"PutInventory",
-		"RegisterDefaultPatchBaseline",
 		"ResetServiceSetting",
 		"ResumeSession",
 		"StartSession",
