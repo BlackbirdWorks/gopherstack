@@ -66,8 +66,14 @@ jobs:
           check-latest: true
           cache: true
 
+      - name: Read golangci-lint version
+        id: golangci-lint-version
+        run: echo "version=$(grep '^GOLANGCI_LINT_VERSION=' Makefile | cut -d= -f2)" >> "$GITHUB_OUTPUT"
+
       - name: golangci-lint
         uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9
+        with:
+          version: v${{ steps.golangci-lint-version.outputs.version }}
 
   modernize:
     runs-on: ubuntu-latest
