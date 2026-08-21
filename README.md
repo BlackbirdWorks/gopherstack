@@ -539,7 +539,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [EventBridge](services/eventbridge/README.md) | A | 61 | 1 gap; 2 deferred |
 | [EventBridge Pipes](services/pipes/README.md) | A | 10 | 1 gap |
 | [EventBridge Scheduler](services/scheduler/README.md) | A | 12 | 1 gap |
-| [Pinpoint](services/pinpoint/README.md) | A | 39 | 3 deferred |
+| [Pinpoint](services/pinpoint/README.md) | A | 45 | 3 deferred |
 | [SES](services/ses/README.md) | A | 71 | 6 gaps; 1 deferred |
 | [SES v2](services/sesv2/README.md) | A | 112 | clean |
 | [SNS](services/sns/README.md) | A | 34 | 1 gap; 2 deferred |
@@ -594,7 +594,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Cognito Identity](services/cognitoidentity/README.md) | A | 23 | 2 gaps; 4 deferred |
 | [Cognito Identity Provider](services/cognitoidp/README.md) | A | 67 | 4 gaps; 4 deferred |
 | [Directory Service](services/directoryservice/README.md) | A | 80 | 8 gaps; 2 deferred |
-| [IAM](services/iam/README.md) | A | 21 | clean |
+| [IAM](services/iam/README.md) | A | 22 | clean |
 | [IAM Access Analyzer](services/accessanalyzer/README.md) | A | 39 | 5 gaps; 1 deferred |
 | [IAM Identity Center (SSO)](services/ssoadmin/README.md) | A | 56 | 4 gaps |
 | [IAM Roles Anywhere](services/rolesanywhere/README.md) | A | 30 | 4 gaps |
@@ -651,7 +651,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Personalize](services/personalize/README.md) | A | 73 | clean |
 | [Polly](services/polly/README.md) | A | 10 | clean |
 | [Rekognition](services/rekognition/README.md) | A | 50 | 1 gap; 4 deferred |
-| [SageMaker](services/sagemaker/README.md) | A | 54 | 15 gaps; 5 deferred |
+| [SageMaker](services/sagemaker/README.md) | A | 69 | 15 gaps; 5 deferred |
 | [SageMaker Runtime](services/sagemakerruntime/README.md) | A | 3 | 1 gap |
 | [Textract](services/textract/README.md) | A | 25 | 1 gap; 1 structural gap; 1 deferred |
 | [Transcribe](services/transcribe/README.md) | A | 43 | 2 gaps |
@@ -673,7 +673,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | Service | Parity | Operations | Notes |
 |---|---|---|---|
 | [IoT Analytics](services/iotanalytics/README.md) | A | 34 | 3 gaps |
-| [IoT Core](services/iot/README.md) | A | 74 | clean |
+| [IoT Core](services/iot/README.md) | A | 76 | clean |
 | [IoT Data Plane](services/iotdataplane/README.md) | A | 11 | 5 gaps; 1 deferred |
 | [IoT Wireless](services/iotwireless/README.md) | A | 15 | 1 gap |
 
@@ -683,7 +683,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 |---|---|---|---|
 | [DataSync](services/datasync/README.md) | A | 53 | 4 gaps; 1 deferred |
 | [Database Migration Service](services/dms/README.md) | A | 96 | clean |
-| [Transfer Family](services/transfer/README.md) | A | — | 17 families |
+| [Transfer Family](services/transfer/README.md) | A | — | 18 families |
 
 ### Other
 
