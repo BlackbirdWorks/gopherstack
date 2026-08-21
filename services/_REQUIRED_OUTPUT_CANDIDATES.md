@@ -150,8 +150,11 @@ from the ranked table) as future batches clear more of it.
 | inspector2 | 38 | 81 (29 ops-with-required) | yes (4: `GetCodeSecurityIntegration`/`ListCodeSecurityIntegrations` dropping `type`/`statusReason`, `Finding.Remediation` missing entirely, `Finding.Resources` dropped when empty, `Finding.Severity` serialized as a fabricated `{label,score}` object instead of the real bare string enum -- see the batch-12 note below and services/inspector2/PARITY.md) | gopherstack-r80d batch 12 |
 | vpclattice | 37 | 73 (16 ops-with-required) | yes (1: `ListAccessLogSubscriptions`/`AccessLogSubscriptionSummary` dropping required `lastUpdatedAt` -- see the batch-13 note below and services/vpclattice/PARITY.md) | gopherstack-r80d batch 13 |
 | appmesh | 36 | 38 (36 ops-with-required) | 0 (clean; one apparent false positive -- a stale "OpDocument" deserializer helper made the flat response shape look like a missing-wrapper-key bug -- ruled out via a real SDK client round trip, see the batch-13 note below and services/appmesh/PARITY.md) | gopherstack-r80d batch 13 |
+| amplify | 35 | 37 (33 ops-with-required) | yes (13 member-level bugs across 5 findings: `App.EnvironmentVariables`/`Description`/`Repository`, `Branch.ActiveJobId`/`CustomDomains`/`Description`/`Framework`/`EnvironmentVariables`, `DomainAssociation.StatusReason`, `Webhook.Description`, `JobSummary.CommitId`/`CommitMessage`/`CommitTime` -- see the batch-14 note below and services/amplify/PARITY.md) | gopherstack-r80d batch 14 |
 
-28 services settled, 2079 required output fields read end to end. Batch 13
+29 services settled, 2114 required output fields read end to end. Batch 14
+(amplify only) added 13 more counted bugs on top of the running total -- see
+the batch-14 note below for detail. Batch 13
 (vpclattice + appmesh) added 1 more counted bug (vpclattice's
 `ListAccessLogSubscriptions.lastUpdatedAt`; appmesh came back clean) -- see
 the batch-13 note below for detail. Batch 12
@@ -497,6 +500,85 @@ actively modifying `services/sagemaker/notebook_instances.go` and sibling
 files mid-batch, confirmed via repeated `git status`/`git diff --stat`
 checks) or attempt a third service this batch.
 
+### amplify (batch 14): 13 member-level bugs, the "one wrapper key" shape again
+
+Selected after re-verifying the table against a fresh `go run
+./cmd/requiredoutputfields` run: amplify (35, 37 ops) confirmed as the
+largest remaining candidate after sagemaker (off-limits, `git status`
+confirmed a clean amplify tree and a still-in-flight sagemaker conversion
+before starting). Did one service with full rigour and stopped there per
+the brief's "as many as you can with full rigour and no more," since the
+"one wrapper key" shape (see below) made this a full-service, multi-struct
+read rather than a quick per-op scan.
+
+Not the flat-per-op shape — every one of amplify's 37 ops wraps its whole
+response in one required domain-object member (`{"app": {...}}`,
+`{"branch": {...}}`, `{"job": {"summary": ..., "steps": [...]}}`, etc.), the
+same class pinpoint/bedrockagent/cleanrooms/inspector2 already established,
+so the flat op-level tool count (35 fields/37 ops) undercounts the real
+surface. Read every domain struct with `This member is required.` in the
+pinned SDK's `types/types.go` end to end (App, Artifact, BackendEnvironment,
+Branch, DomainAssociation, Job, JobConfig, JobSummary, Step, SubDomain,
+SubDomainSetting, Webhook — 20 struct declarations, 63 required members
+total) against every wire-view struct in `handler_apps.go`/
+`handler_branches.go`/`handler_domains.go`/`handler_jobs.go`/
+`handler_webhooks.go`, not grepped.
+
+This service had already been through an unusually thorough general-parity
+sweep (2026-07-23, PARITY.md's `overall: A`) that fixed 8 findings including
+adding several required members this exact sweep would otherwise have found
+missing entirely (`Branch.EnableBasicAuth` etc.) — but that sweep audited
+for *missing* fields, not for fields that exist yet are still tagged
+`omitempty`/`omitzero` on a member reachably empty from a real client. That
+gap is exactly this campaign's target class, and is where all 13 bugs were
+found: `App.EnvironmentVariables`/`Description`/`Repository` (all three
+required but optional on `CreateAppInput`, dropped when unset);
+`Branch.ActiveJobId`/`CustomDomains`/`Description`/`Framework`/
+`EnvironmentVariables` (`ActiveJobId` is a *computed* field genuinely `""`
+for any branch with no jobs yet — a normal, not edge-case, state;
+`CustomDomains` was never assigned anywhere in `branches.go`, always nil);
+`DomainAssociation.StatusReason` (never tracked at all — disclosed,
+honestly-empty, not fabricated); `Webhook.Description` (required, optional
+on `CreateWebhookInput`); `JobSummary.CommitId`/`CommitMessage` (required,
+optional on `StartJobInput`) and `CommitTime` (required — the 2026-07-23
+sweep's own `StartJob` doc comment *deliberately* omits this key when the
+job has no real commit timestamp, which per this campaign's established
+"required-but-inapplicable means present-and-empty, not absent" convention
+(already reversed once for stepfunctions' `DescribeMapRun.ExecutionCounts`)
+is itself the bug — fixed by falling back to the job's own `StartTime`,
+mirroring the fallback `toStepViews` already applies to a still-running
+step's `EndTime` in this same file).
+
+One adjacent finding fixed but **not counted**: `Branch.Stage` carried the
+same dead `omitempty` tag, but `Stage` is a non-pointer enum on the real SDK
+(`types.Stage`, not `*Stage`) — a missing key and a present-but-empty key
+decode to the identical Go zero value for any real client, so no
+real-client test can distinguish the fix from its absence. `DefaultDomain`
+(App) and `TTL`/`DisplayName`/`TotalNumberOfJobs` (Branch) and
+`SubDomain.DnsRecord` carried the same dead tag but are never reachably
+empty through any real client path (all computed unconditionally non-empty)
+— tags removed as harmless cleanup, not bugs.
+
+All 13 counted bugs proven via real `aws-sdk-go-v2/service/amplify` client
+round trips (`services/amplify/wire_output_required_r80d_test.go`, 5 test
+functions), hand-reverted (all 5 touched handler files reverted to HEAD
+together, confirmed all 5 tests fail)/confirmed-failing/restored,
+md5sum-verified byte-identical (`apps.go`/`branches.go` needed no changes
+at all and are confirmed unchanged against HEAD). Existing tests needed no
+correction — `go test ./services/amplify/...` passed unchanged both before
+and after, confirming no pre-existing test encoded any of these wrong
+shapes. Gates (build/vet/gofmt/race-test/lint) all green, 0 banned nolints,
+0 new nolints, no exported signatures changed. Repo-wide `go build ./...`,
+`go vet ./...`, `go vet -tags e2e ./...`, `go vet -tags integration ./...`
+all re-run and clean. See `services/amplify/PARITY.md`'s 2026-08-21 entry
+for the full per-member breakdown and SDK file:line citations.
+
+Did not touch sagemaker (off-limits, confirmed via `git status` before and
+after) or attempt a second service this batch, per the brief's "full rigour
+and no more" — amplify's "one wrapper key" shape made a single-service read
+already substantial (20 domain structs, 63 required members, 5 separate
+wire-view files).
+
 ## Ranked candidates (services not yet examined for this bug class)
 
 89 services have >=1 required output field; 70 have zero (nothing to check
@@ -507,12 +589,12 @@ against a pinned `aws-sdk-go-v2` module; opsworks/qldb/qldbsession excluded
 settled batch 9), codecommit (55, settled batch 9), stepfunctions (54,
 settled batch 10), apprunner (44, settled batch 10), databrew (43, settled
 batch 11), backup (41, settled batch 11), inspector2 (38, settled batch
-12), vpclattice (37, settled batch 13), and appmesh (36, settled batch 13)
-removed from this table — see the "Already examined" table above.
+12), vpclattice (37, settled batch 13), appmesh (36, settled batch 13), and
+amplify (35, settled batch 14) removed from this table — see the "Already
+examined" table above.
 
 ```
  459  sagemaker                 ops=403  ops-with-required=188
-  35  amplify                   ops=37   ops-with-required=33
   34  glue                      ops=299  ops-with-required=17
   31  batch                     ops=45   ops-with-required=15
   30  ce                        ops=47   ops-with-required=18
@@ -619,8 +701,16 @@ Notes on the top of this table for the next batch:
   entry. 0 bugs; one apparent finding (a stale "OpDocument" deserializer
   helper making the flat response shape look like a missing-wrapper-key
   bug) was ruled out via a real SDK client round trip rather than counted.
-  **amplify** (35, 37 ops) is now the largest remaining single-service
-  reading commitment after sagemaker.
+- **amplify settled (batch 14)** — do not re-derive, see the
+  settled-services table above and services/amplify/PARITY.md's 2026-08-21
+  entry, plus the batch-14 note above for the full per-member breakdown.
+  13 member-level bugs across App/Branch/DomainAssociation/Webhook/
+  JobSummary, all the "required member tagged omitempty/omitzero on a
+  reachably-empty real-client state" shape; 1 adjacent finding
+  (`Branch.Stage`) fixed but not counted since no real-client test can
+  observe the difference for a non-pointer enum field. **glue** (34, 299
+  ops, only 17 ops-with-required) is now the largest remaining candidate
+  after sagemaker.
 - **omics settled (batch 7)** — do not re-derive, see the settled-services
   table above and services/omics/PARITY.md's 2026-08-21 entries. The
   concurrent sibling agent's over-wide-List sweep this file previously

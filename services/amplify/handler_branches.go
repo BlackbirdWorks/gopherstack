@@ -232,23 +232,23 @@ func parseBranchOperation(method string) string {
 // epoch float64 values, as required by the AWS SDK v2 deserialiser.
 type branchView struct {
 	Tags                       map[string]string `json:"tags,omitempty"`
-	EnvironmentVariables       map[string]string `json:"environmentVariables,omitempty"`
+	EnvironmentVariables       map[string]string `json:"environmentVariables"`
 	BasicAuthCredentials       string            `json:"basicAuthCredentials,omitempty"`
 	DisplayName                string            `json:"displayName,omitempty"`
 	AppID                      string            `json:"appId"`
 	BranchARN                  string            `json:"branchArn"`
 	BranchName                 string            `json:"branchName"`
-	Description                string            `json:"description,omitempty"`
+	Description                string            `json:"description"`
 	BuildSpec                  string            `json:"buildSpec,omitempty"`
-	Framework                  string            `json:"framework,omitempty"`
+	Framework                  string            `json:"framework"`
 	TTL                        string            `json:"ttl,omitempty"`
-	ActiveJobID                string            `json:"activeJobId,omitempty"`
+	ActiveJobID                string            `json:"activeJobId"`
 	BackendEnvironmentARN      string            `json:"backendEnvironmentArn,omitempty"`
 	TotalNumberOfJobs          string            `json:"totalNumberOfJobs,omitempty"`
-	Stage                      Stage             `json:"stage,omitempty"`
+	Stage                      Stage             `json:"stage"`
 	PullRequestEnvironmentName string            `json:"pullRequestEnvironmentName,omitempty"`
 	SourceBranch               string            `json:"sourceBranch,omitempty"`
-	CustomDomains              []string          `json:"customDomains,omitempty"`
+	CustomDomains              []string          `json:"customDomains"`
 	AssociatedResources        []string          `json:"associatedResources,omitempty"`
 	CreateTime                 float64           `json:"createTime"`
 	UpdateTime                 float64           `json:"updateTime"`
@@ -265,10 +265,20 @@ func toBranchView(b *Branch) branchView {
 		tagMap = b.Tags.Clone()
 	}
 
+	envVars := b.EnvironmentVariables
+	if envVars == nil {
+		envVars = map[string]string{}
+	}
+
+	customDomains := b.CustomDomains
+	if customDomains == nil {
+		customDomains = []string{}
+	}
+
 	return branchView{
 		Tags:                       tagMap,
-		EnvironmentVariables:       b.EnvironmentVariables,
-		CustomDomains:              b.CustomDomains,
+		EnvironmentVariables:       envVars,
+		CustomDomains:              customDomains,
 		AssociatedResources:        b.AssociatedResources,
 		CreateTime:                 float64(b.CreateTime.Unix()),
 		UpdateTime:                 float64(b.UpdateTime.Unix()),

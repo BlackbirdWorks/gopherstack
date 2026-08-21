@@ -170,7 +170,7 @@ type domainAssociationView struct {
 	DomainName                       string          `json:"domainName"`
 	ARN                              string          `json:"domainAssociationArn"`
 	DomainStatus                     string          `json:"domainStatus"`
-	StatusReason                     string          `json:"statusReason,omitempty"`
+	StatusReason                     string          `json:"statusReason"`
 	CertificateVerificationDNSRecord string          `json:"certificateVerificationDNSRecord,omitempty"`
 	SubDomains                       []subDomainView `json:"subDomains"`
 	EnableAutoSubDomain              bool            `json:"enableAutoSubDomain"`

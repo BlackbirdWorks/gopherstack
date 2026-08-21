@@ -270,16 +270,16 @@ func toProductionBranchView(pb *ProductionBranch) *productionBranchView {
 // float64 values, as required by the AWS SDK v2 deserialiser.
 type appView struct {
 	Tags                       map[string]string         `json:"tags,omitempty"`
-	EnvironmentVariables       map[string]string         `json:"environmentVariables,omitempty"`
+	EnvironmentVariables       map[string]string         `json:"environmentVariables"`
 	AutoBranchCreationConfig   *AutoBranchCreationConfig `json:"autoBranchCreationConfig,omitempty"`
 	CacheConfig                *CacheConfig              `json:"cacheConfig,omitempty"`
 	ProductionBranch           *productionBranchView     `json:"productionBranch,omitempty"`
 	BuildSpec                  string                    `json:"buildSpec,omitempty"`
 	IAMServiceRoleArn          string                    `json:"iamServiceRoleArn,omitempty"`
 	Name                       string                    `json:"name"`
-	Description                string                    `json:"description,omitempty"`
-	Repository                 string                    `json:"repository,omitempty"`
-	DefaultDomain              string                    `json:"defaultDomain,omitempty"`
+	Description                string                    `json:"description"`
+	Repository                 string                    `json:"repository"`
+	DefaultDomain              string                    `json:"defaultDomain"`
 	BasicAuthCredentials       string                    `json:"basicAuthCredentials,omitempty"`
 	AppID                      string                    `json:"appId"`
 	CustomHeaders              string                    `json:"customHeaders,omitempty"`
@@ -302,9 +302,14 @@ func toAppView(a *App) appView {
 		tagMap = a.Tags.Clone()
 	}
 
+	envVars := a.EnvironmentVariables
+	if envVars == nil {
+		envVars = map[string]string{}
+	}
+
 	return appView{
 		Tags:                       tagMap,
-		EnvironmentVariables:       a.EnvironmentVariables,
+		EnvironmentVariables:       envVars,
 		AutoBranchCreationConfig:   a.AutoBranchCreationConfig,
 		CacheConfig:                a.CacheConfig,
 		ProductionBranch:           toProductionBranchView(a.ProductionBranch),

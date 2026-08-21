@@ -152,7 +152,7 @@ type webhookView struct {
 	WebhookARN  string  `json:"webhookArn"`
 	AppID       string  `json:"appId"`
 	BranchName  string  `json:"branchName"`
-	Description string  `json:"description,omitempty"`
+	Description string  `json:"description"`
 	WebhookURL  string  `json:"webhookUrl"`
 	CreateTime  float64 `json:"createTime"`
 	UpdateTime  float64 `json:"updateTime"`
