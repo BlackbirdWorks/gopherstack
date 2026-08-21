@@ -165,12 +165,19 @@ from the ranked table) as future batches clear more of it.
 | sesv2 | 18 | 112 (13 ops-with-required) | yes (1: `TrackingOptions.CustomRedirectDomain` tagged omitempty despite being reachably empty whenever a real client sets `HttpsPolicy` alone via `PutConfigurationSetTrackingOptions` -- see the batch-21 note below and services/sesv2/PARITY.md) | gopherstack-r80d batch 21 |
 | elasticsearch | 16 | 51 (12 ops-with-required) | 0 (clean; read end to end including the nested `ElasticsearchDomainStatus` domain struct (4 required members, reachable through `DescribeElasticsearchDomain(s)Output`) and the `*Status`-wrapper family reachable through `ElasticsearchDomainConfig` (0 required itself; every `Options`/`Status` pair it wraps is always emitted together, never split) -- see the batch-22 note below) | gopherstack-r80d batch 22 |
 | rolesanywhere | 16 | 30 (16 ops-with-required) | 0 (clean; every domain struct reachable through this service's 16 required-output ops -- `TrustAnchorDetail`/`CrlDetail`/`ProfileDetail`/`SubjectDetail` -- carries zero required members in the real Smithy model, confirmed via AST walk, so the flat op-level count is already the complete surface; already through an unusually thorough 2026-08-10 general-parity pass -- see the batch-22 note below) | gopherstack-r80d batch 22 |
+| awsconfig | 15 | 102 (12 ops-with-required) | 0 (clean; domain-struct cross-reference found `ConnectorSummary`/`ConfigurationRecorderSummary` add 8 required members the flat op count misses, both fully emitted; two dead `omitempty` tags on `Connector`/`ConnectorSummary` reviewed and ruled out as structurally unreachable -- see the batch-23 note below) | gopherstack-r80d batch 23 |
+| codeconnections | 15 | 27 (14 ops-with-required) | 0 (clean; "one wrapper key" shape, `GetResourceSyncStatus`/`GetRepositorySyncStatus` already fixed by a prior pass; one dead `omitempty` tag (`RepositorySyncDefinition.Parent`) reviewed and ruled out -- see the batch-23 note below) | gopherstack-r80d batch 23 |
+| codestarconnections | 15 | 27 (14 ops-with-required) | 0 (clean; identical wire shape to codeconnections but a separate implementation -- `GetResourceSyncStatus`'s `InitialRevision`/`TargetRevision` gap already disclosed as a `structural_gap` by a very recent prior pass (gopherstack-7mmd); same dead `omitempty` tag reviewed and ruled out -- see the batch-23 note below) | gopherstack-r80d batch 23 |
 
-43 services settled, 2459 required output fields read end to end (the running
+46 services settled, 2504 required output fields read end to end (the running
 total counts each settled service's flat per-op `cmd/requiredoutputfields`
 number, as established by every prior batch -- glue's own real audited
 surface was substantially larger once its ~56 gopherstack-modeled domain
-structs were cross-checked, see the batch-15 note below). Batch 22
+structs were cross-checked, see the batch-15 note below). Batch 23
+(awsconfig + codeconnections + codestarconnections, tied at 15 each) added 0
+counted bugs -- all three came back clean; see the batch-23 note below for
+detail. `ses` (13 fields, 71 ops, 13 ops-with-required) is now the largest
+remaining candidate after sagemaker. Batch 22
 (elasticsearch + rolesanywhere, re-verified tied at 16 each) added 0 counted
 bugs -- both came back clean on a full end-to-end read including every
 reachable domain struct -- see the batch-22 note below for detail. Batch 21
@@ -1112,6 +1119,129 @@ ranked table into "Already examined" (settled-services count now 43, 2459
 required output fields read end to end); `awsconfig` (15) is now the
 largest remaining candidate after sagemaker. Did not attempt a third
 service this batch.
+
+### awsconfig + codeconnections + codestarconnections (batch 23): 0 bugs across all three
+
+Instrument re-validated per the brief before selecting: the existing
+`cmd/requiredoutputfields` char-level brace matcher was re-run fresh, then
+cross-checked against a from-scratch `go/parser`/`go/ast` walk written for
+this batch (parses every `api_op_<Op>.go`, walks each `type <Op>Output
+struct`'s fields, flags any whose `ast.CommentGroup` contains the line "This
+member is required."), plus a raw `grep -c "This member is required."`
+totalled across each module's `api_op_*.go` + `types/types.go` as a magnitude
+sanity check. All three agreed exactly for all three services: `configservice`
+15/15 fields, 12 ops-with-required (grep-c total 211, entirely expected to be
+far larger since it counts every input struct's required members too, per
+this method's established shape); `codeconnections` 15/15, 14
+ops-with-required (grep-c 114); `codestarconnections` 15/15, 14
+ops-with-required (grep-c 114, identical to codeconnections since both pin
+near-identical Smithy models for what AWS renamed CodeStar Connections to
+CodeConnections). No discrepancy.
+
+Confirmed via the fresh `cmd/requiredoutputfields` run and this file's own
+ranked table that `awsconfig`/`codeconnections`/`codestarconnections` were
+tied at 15 fields each, the largest remaining candidates after sagemaker
+(off-limits all batch -- `git status` showed only `services/sagemaker/*`
+dirty throughout, from a concurrent agent's in-flight conversion, confirmed
+untouched here and re-checked at the end). Also confirmed the module-name
+trap the brief calls out: `awsconfig`'s directory maps to the `configservice`
+SDK module (`cmd/requiredoutputfields`'s `dirModuleOverride` table, not
+inferred from the directory name), while `codeconnections`/
+`codestarconnections` need no override -- directory and module name already
+match for both. Took all three in one batch since each was narrow (12-14
+ops-with-required) and two of the three are near-duplicate wire shapes.
+
+**awsconfig (15 fields / 102 ops, 12 ops-with-required, 0 bugs):** several
+ops wrap a single required domain object (`GetConnector`'s `Connector`,
+`ListConnectors`' `ConnectorSummaries`, `ListConfigurationRecorders`'
+`ConfigurationRecorderSummaries`, `AssociateResourceTypes`/
+`DisassociateResourceTypes`' `ConfigurationRecorder`), so read every reachable
+domain struct one level deeper against `configservice@v1.68.4`'s
+`types/types.go`: `ConnectorSummary` (5 required: `Arn`/`CreatedTime`/`Name`/
+`Provider`/`TenantIdentifier`) and `ConfigurationRecorderSummary` (3
+required: `Arn`/`Name`/`RecordingScope`) add 8 members the flat op-level scan
+misses entirely; `ConfigurationRecorder`, `ConformancePackRuleCompliance`
+(the `DescribeConformancePackCompliance` list-item type), and
+`ConformancePackEvaluationResult`'s own nested `EvaluationResultIdentifier`
+all declare **zero** required members, confirmed via the AST walk rather
+than assumed from the wrapper shape (appmesh/rolesanywhere batch-13/22
+precedent). All 8 extra members plus the 15 flat ones read end to end
+against `connectors.go`/`configuration_recorders.go`/
+`handler_conformance_packs.go`/`handler_resources.go` -- every required
+member is emitted without `omitempty` except `Connector.
+ConnectorConfiguration`/`.CreatedTime` and `ConnectorSummary.CreatedTime`,
+which carry `omitempty` despite being required but are structurally
+unreachable-empty: `PutConnector` (`connectors.go`) is the sole construction
+site for both types (confirmed via a repo-wide grep for `Connector{`/
+`ConnectorSummary{`) and unconditionally populates both fields on every
+success path, so the tag is dead code, not a reachable drop -- reviewed, not
+fixed, the same "dead tag" class amplify batch 14 first named. No code
+changes.
+
+**codeconnections (15 fields / 27 ops, 14 ops-with-required, 0 bugs):**
+almost entirely the "one wrapper key" shape -- `GetRepositorySyncStatus`/
+`GetResourceSyncStatus` wrap a whole `RepositorySyncAttempt`/
+`ResourceSyncAttempt`, themselves nesting a further-required `Revision`
+(6 required members) and `[]SyncEvent` (3 required members each), so read
+every one of those against `codeconnections@v1.13.4`'s `types/types.go`
+directly rather than trusting the flat 15/14 count. This exact gap
+(`InitialRevision`/`Target`/`TargetRevision` entirely missing) was already
+found and fixed by a prior pass -- `handler_repository_sync.go`'s own doc
+comments say so explicitly ("previously missing entirely from this response
+shape") -- re-read end to end and confirmed the fix is still correctly
+wired, not re-flagged as new. `RepositoryLinkInfo` (6 required),
+`SyncConfiguration` (8 required), `SyncBlockerSummary`/`SyncBlocker` (1 + 5
+required), and `RepositorySyncDefinition` (4 required) all read against
+their handlers (`handler_repository_links.go`, `handler_sync_
+configurations.go`) and found fully populated without `omitempty` on any
+required member. One tagged-`omitempty`-on-a-required-member reviewed and
+ruled out: `repositorySyncDefinitionItem.Parent` (required per the real
+`RepositorySyncDefinition`) is tagged `omitempty`, but its only value source
+is `SyncConfiguration.ResourceName`, and `handleCreateSyncConfiguration`/
+`handleUpdateSyncConfiguration` both reject an empty `ResourceName` with
+`ErrValidation` before any `SyncConfiguration` -- and therefore any
+`RepositorySyncDefinition` -- is ever stored. The real SDK's own
+client-side validator only rejects a *nil* `ResourceName` pointer, not an
+empty string (`aws-sdk-go-v2/service/codeconnections@v1.13.4/
+validators.go:722-748`, `validateOpCreateSyncConfigurationInput`), so this
+backend is stricter than real AWS here and the empty state is genuinely
+unreachable through it -- the same "stricter than real AWS, unreachable"
+class the `batch` service (batch 16) named for `QuotaShareCapacityLimit.
+CapacityUnit`. No code changes.
+
+**codestarconnections (15 fields / 27 ops, 14 ops-with-required, 0 bugs):**
+same real-AWS wire shape as codeconnections (AWS renamed CodeStar
+Connections to CodeConnections; both SDK modules declare identical required
+sets) but a separate gopherstack implementation with its own file layout
+(`handler_sync_statuses.go`/`handler_sync_blockers.go` split rather than
+codeconnections' single `handler_repository_sync.go`) -- read independently,
+not assumed identical from the sibling result. Its own
+`GetResourceSyncStatus` has the mirror-image gap: `LatestSync.
+InitialRevision`/`.TargetRevision` (both required members of
+`types.ResourceSyncAttempt`) are never populated, but this is not a new
+finding -- `handler_sync_statuses.go`'s own doc comment and
+`services/codestarconnections/PARITY.md`'s `structural_gaps` entry (from a
+very recent prior pass, `gopherstack-7mmd`) already disclose it in detail,
+with a specific no-fabrication justification: this service's data model has
+no concept of repository content (no file tree, commit graph, or branch
+HEAD) to honestly derive a git commit SHA from, and no customer-facing
+operation ever generates one internally, so omitting the whole
+`Revision`-bearing wrapper is judged wire-correct, not a stub. Re-read and
+confirmed this still matches current behavior; not re-flagged. Same
+`RepositorySyncDefinition.Parent` dead-`omitempty`-tag class as
+codeconnections, ruled out the same way (`handleCreateSyncConfiguration`
+rejects empty `ResourceName` via `errInvalidRequest` before storage). No
+code changes.
+
+All three services' gates (build/vet/gofmt/race-test/lint) are green, 0
+banned nolints, no exported signatures changed (no code changed at all this
+batch); repo-wide `go build ./...` re-run and clean (confirmed the only
+dirty files anywhere in the tree were the excluded `services/sagemaker/*`).
+`services/_REQUIRED_OUTPUT_CANDIDATES.md` updated: all three moved from the
+ranked table into "Already examined" (settled-services count now 46, 2504
+required output fields read end to end); `ses` (13 fields, 71 ops, 13
+ops-with-required) is now the largest remaining candidate after sagemaker.
+Did not attempt a fourth service this batch.
 
 ### emrserverless (batch 20): 2 bugs, both the "output-required, input-only-nil-checked" releaseLabel
 

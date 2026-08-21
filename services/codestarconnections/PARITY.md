@@ -212,3 +212,26 @@ untrue in every case, since no such commit was ever seen by anything. That cross
 - **`UpdateSyncBlocker` wire shape** (fixed in a prior audit, unchanged this
   pass): response key is the real singular `SyncBlocker`, not a fabricated
   `SyncBlockerSummary` list.
+
+- 2026-08-21 (gopherstack-r80d batch 23, required-OUTPUT-member cut): read all
+  14 ops-with-required (15 required fields total, tied with
+  codeconnections/awsconfig as the largest remaining candidates after
+  sagemaker) end to end against `aws-sdk-go-v2/service/codestarconnections@
+  v1.38.4`'s `api_op_*.go`, plus every nested domain struct one level deeper
+  (`RepositoryLinkInfo`, `SyncConfiguration`, `SyncBlockerSummary`/
+  `SyncBlocker`, `RepositorySyncDefinition`) against `types/types.go`
+  directly. 0 new bugs. The one real gap in this territory --
+  `GetResourceSyncStatus`'s `LatestSync.InitialRevision`/`.TargetRevision`
+  (both required members of `types.ResourceSyncAttempt`) never populated --
+  is already fully disclosed, reclassified from `gaps` to `structural_gaps`
+  by a very recent prior pass (`gopherstack-7mmd`, see `structural_gaps`
+  above) with a well-reasoned no-fabrication justification (this service has
+  no git-content data model to honestly derive a commit SHA from); re-read
+  `handler_sync_statuses.go`'s own doc comment and confirmed it still matches
+  current behavior, not re-flagged as new. Same tagged-`omitempty`-on-a-
+  required-member reviewed and ruled out as codeconnections found:
+  `repositorySyncDefinitionItem.Parent` is unreachable-empty because
+  `handleCreateSyncConfiguration` rejects an empty `ResourceName` (its only
+  value source) via `errInvalidRequest` before storage, stricter than the
+  real SDK's nil-only client-side check. services/_REQUIRED_OUTPUT_CANDIDATES.md
+  updated.

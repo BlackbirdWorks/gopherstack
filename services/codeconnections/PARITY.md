@@ -168,3 +168,34 @@ leaks: {status: clean, note: "no goroutines/janitors in this service; all state 
   `validTriggerResourceUpdateOn` in `models.go`, matching the
   `validProviderTypes`/`validSyncTypes` pattern already used elsewhere in this
   service.
+
+- 2026-08-21 (gopherstack-r80d batch 23, required-OUTPUT-member cut): read all
+  14 ops-with-required (15 required fields total, tied with
+  codestarconnections/awsconfig as the largest remaining candidates after
+  sagemaker) end to end against `aws-sdk-go-v2/service/codeconnections@
+  v1.13.4`'s `api_op_*.go`, plus every nested domain struct one level deeper
+  (`RepositoryLinkInfo`, `SyncConfiguration`, `SyncBlockerSummary`/
+  `SyncBlocker`, `RepositorySyncDefinition`, `ResourceSyncAttempt`/
+  `RepositorySyncAttempt`, `Revision`, `ResourceSyncEvent`/
+  `RepositorySyncEvent`) against `types/types.go` directly -- this service's
+  `GetResourceSyncStatus`/`GetRepositorySyncStatus` are the "one wrapper key"
+  shape (`LatestSync` wraps a whole `ResourceSyncAttempt`/
+  `RepositorySyncAttempt`), so the flat op-level count undercounts
+  substantially; `handler_repository_sync.go`'s own doc comments record that a
+  prior pass already closed this exact gap
+  (`InitialRevision`/`Target`/`TargetRevision` "were previously missing
+  entirely from this response shape"), confirmed still correctly wired this
+  pass. 0 new bugs. One tagged-`omitempty`-on-a-required-member reviewed and
+  ruled out: `repositorySyncDefinitionItem.Parent` (wire member of
+  `RepositorySyncDefinition`, required) is tagged `omitempty`, but its only
+  value source is `SyncConfiguration.ResourceName`, which
+  `handleCreateSyncConfiguration`/`handleUpdateSyncConfiguration` both reject
+  as empty via `ErrValidation` before any `SyncConfiguration` (and therefore
+  any `RepositorySyncDefinition`) is ever stored -- the real SDK's own
+  client-side validator only rejects a nil `ResourceName` pointer, not an
+  empty string (`validateOpCreateSyncConfigurationInput`,
+  `aws-sdk-go-v2/service/codeconnections@v1.13.4/validators.go:722-748`), so
+  this backend is stricter than real AWS and the empty state is genuinely
+  unreachable through it -- same "stricter than real AWS, unreachable" class
+  `batch` (service) named for `QuotaShareCapacityLimit.CapacityUnit`.
+  services/_REQUIRED_OUTPUT_CANDIDATES.md updated.

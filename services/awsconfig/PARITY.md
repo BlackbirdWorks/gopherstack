@@ -310,3 +310,31 @@ leaks: {status: clean, note: "no goroutines/janitors in this service; single coa
   several disguised no-ops (`AssociateResourceTypes`, `BatchGetResourceConfig`,
   `BatchGetAggregateResourceConfig`, `DeleteResourceConfig`, `DisassociateResourceTypes`,
   `DeleteEvaluationResults`) that discarded real backend state instead of acting on it.
+
+- 2026-08-21 (gopherstack-r80d batch 23, required-OUTPUT-member cut): read all 12
+  ops-with-required (15 required fields total, largest remaining candidate after
+  sagemaker) end to end against `aws-sdk-go-v2/service/configservice@v1.68.4`'s
+  `api_op_*.go`, plus every domain struct reachable through a wrapper-key op
+  (`Connector`/`ConnectorSummary`/`ConfigurationRecorderSummary`/
+  `ConformancePackRuleCompliance`/`ConformancePackEvaluationResult`/
+  `EvaluationResultIdentifier`) against `types/types.go` directly -- the flat
+  op-level count undercounts by 12 members once `ConnectorSummary` (5 required:
+  `Arn`/`CreatedTime`/`Name`/`Provider`/`TenantIdentifier`, reachable through
+  `ListConnectors`' required `ConnectorSummaries`) and
+  `ConfigurationRecorderSummary` (3 required: `Arn`/`Name`/`RecordingScope`,
+  reachable through `ListConfigurationRecorders`) are added; `ConfigurationRecorder`,
+  `ConformancePackRuleCompliance`, `ConformancePackEvaluationResult`'s only
+  Config-specific nested type (`EvaluationResultIdentifier`) declare zero
+  required members each, confirmed via the same AST walk rather than assumed
+  from the wrapper shape (appmesh/rolesanywhere precedent: verify, don't infer).
+  0 bugs -- every required member found is either tagged without `omitempty`
+  (always emitted regardless of value, per this campaign's established
+  convention) or, for `Connector.ConnectorConfiguration`/`.CreatedTime` and
+  `ConnectorSummary.CreatedTime` (tagged `omitempty` despite being required),
+  structurally unreachable-empty: `connectors.go`'s `PutConnector` is the sole
+  construction site for both types and unconditionally sets both fields on
+  every success path (repo-wide grep for `Connector{`/`ConnectorSummary{`
+  confirms no second construction site), so the `omitempty` tag is dead code,
+  never actually reachable via any real client path -- reviewed, not fixed,
+  same "dead tag" class amplify batch 14 first named for `Branch.Stage`.
+  services/_REQUIRED_OUTPUT_CANDIDATES.md updated.
