@@ -382,20 +382,23 @@ func (h *Handler) handleTargetRequest(c *echo.Context, r *http.Request) (bool, e
 		return false, nil
 	}
 
-	input := cbor.Map{}
 	body, err := httputils.ReadBody(r)
-	if err != nil || len(body) == 0 {
-		return true, h.dispatchCBOR(target, input, c)
+	if err != nil {
+		return true, h.cborError(c, http.StatusBadRequest, "SerializationException", "cannot read body")
+	}
+
+	if len(body) == 0 {
+		return true, h.dispatchCBOR(target, cbor.Map{}, c)
 	}
 
 	val, decErr := cbor.Decode(body)
 	if decErr != nil {
-		return true, h.dispatchCBOR(target, input, c)
+		return true, h.dispatchCBOR(target, cbor.Map{}, c)
 	}
 
 	m, ok := val.(cbor.Map)
 	if !ok {
-		return true, h.dispatchCBOR(target, input, c)
+		return true, h.dispatchCBOR(target, cbor.Map{}, c)
 	}
 
 	return true, h.dispatchCBOR(target, m, c)

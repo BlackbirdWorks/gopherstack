@@ -789,3 +789,37 @@ Proof: `TestRouteMatcher_OversizedFormBodyRoutesInsteadOf404` (raw HTTP, see abo
 the RouteMatcher fix; `TestHandler_NormalSizedBodyStillRoutes` (real SDK client, rpc-v2-cbor)
 is the regression guard. Gates: `go build`, `go vet`, `gofmt -l` (clean), `go test -race
 ./services/cloudwatch/...` (pass), `golangci-lint run ./services/cloudwatch/...` (0 issues).
+
+**2026-08-22 (gopherstack-vgnp) -- `handleTargetRequest` conflated a body-read failure with
+an empty body**: filed by the ifzn sweep as "the CBOR path a real client actually hits";
+that framing does not hold up. Verified against the pinned client's actual wire behavior
+(`smithy-go@v1.27.6/transport/http/protocol/rpcv2/rpcv2.go:66-68`,
+`Protocol.SerializeRequest`): it builds `req.URL.Path =
+"/service/GraniteServiceVersion20100801/operation/{op}"` unconditionally and never sets
+`X-Amz-Target` -- that header belongs to the distinct `awsjson` protocol family
+(`smithy-go@v1.27.6/transport/http/protocol/awsjson/awsjson.go`), which no cached cloudwatch
+SDK version (checked v1.55.1 through the pinned v1.66.3) has ever used. `isCBORRequest`
+(rpcv2cbor.go) matches that path prefix, so every real client request routes to `handleCBOR`,
+never to `handleFormRequest`/`handleTargetRequest` -- confirmed independently by
+`sdk_roundtrip_helper_test.go`'s own doc comment ("this round trip exercises rpcv2cbor.go,
+not the legacy XML/form handler.go path") and by `TestHandler_CBOROversizedBodyAlreadyTyped`,
+which the ifzn entry above already documents as passing, unaffected, against `handleCBOR`.
+
+So `handleTargetRequest` is reachable only by a raw request that sets `X-Amz-Target` while
+avoiding the CBOR path prefix -- no real SDK client can drive it, the same shape as the
+form-urlencoded branch the ifzn sweep fixed. The bug itself is real regardless: on a
+`ReadBody` failure it fell into the same `err != nil || len(body) == 0` branch as a
+genuinely empty body and dispatched with a silently-empty input map instead of surfacing the
+read failure. Fixed by splitting the `err != nil` case out to return a typed
+`SerializationException`/400 (`h.cborError`, matching `handleCBOR`'s own convention),
+leaving `len(body) == 0` to dispatch with an empty map as before.
+
+Proof: `TestHandleTargetRequest_DistinguishesReadFailureFromEmptyBody` (raw HTTP with
+`X-Amz-Target`, since no real client reaches this branch) has two subtests -- an oversized
+body now gets `SerializationException`/400 (fails pre-fix: got 200 with the exception-type
+header empty), and a genuinely empty body still gets a normal 200 dispatch, proving the fix
+distinguishes the two rather than just rejecting everything.
+`TestHandleTargetRequest_ValidCBORBodyStillDispatches` is the regression guard for the
+success path. Gates: `go build`, `go vet`, `gofmt -l` (clean), `go test -race
+./services/cloudwatch/...` (pass), `golangci-lint run ./services/cloudwatch/...` (0 issues,
+0 new nolints). No exported signature changed.

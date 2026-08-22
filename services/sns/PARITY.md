@@ -412,3 +412,42 @@ confirmed failing pre-fix with `UnknownError`; passes now with a typed
 `InvalidParameter`/400 (not `InternalFailure`, see above). `TestHandler_NormalSizedBodyStillRoutes`
 is the regression guard. Gates: `go build`, `go vet`, `gofmt -l` (clean), `go test -race
 ./services/sns/...` (pass), `golangci-lint run ./services/sns/...` (0 issues).
+
+**2026-08-22 (gopherstack-ioww) -- the `InvalidParameter`/400 wrong-code gap flagged above,
+fixed without migrating off `ParseForm`**: the `ParseForm` migration this entry's own note
+flagged as the risk was not needed. `Handler()` now calls `httputils.ReadBody(c.Request())`
+itself, immediately before `c.Request().ParseForm()`, and answers a `ReadBody` failure with
+`"InternalError"`/500 instead of letting it fall into `ParseForm`'s own error, which was
+always mapped to `"InvalidParameter"`/400 regardless of cause.
+
+This works because of how `pkgs/httputils.ReadBody` and `net/http`'s own `ParseForm` compose
+on the same `r.Body`: a first `ReadBody` failure (oversized body, over
+`httputils.MaxRequestBodyBytes`) replaces `r.Body` with a `bodyReadErrCloser` that returns
+the identical cached error on every subsequent read (see the type's doc comment in
+httputils.go) -- so `parsePostForm`'s own read (`net/http`'s `request.go`, `parsePostForm`,
+which applies its own independent 10 MiB cap via `io.LimitReader` since `r.Body` is not a
+`*maxBytesReader`) sees that same error immediately and `ParseForm` returns it verbatim. A
+successful first `ReadBody` instead replaces `r.Body` with a `bodyReadCloser` wrapping a
+seekable `*bytes.Reader`, which the added call rewinds (`Seek(0, io.SeekStart)`) on this
+second invocation, so `ParseForm`'s subsequent read still sees the full body and succeeds
+exactly as before. Net effect: the pre-check adds no second real read, changes nothing about
+the successful path, and turns only the read-failure case into a distinguishable branch --
+no `url.Values` needs threading through the ~50 `c.Request().FormValue(...)` call sites this
+entry flagged as out of scope for a full migration, and none were touched.
+
+`"InternalError"` (not `InternalFailure`) is confirmed as SNS's own modelled code for this:
+`sns@v1.42.4/types/errors.go:198-220`, `InternalErrorException.ErrorCode()` returns
+`"InternalError"` with `ErrorFault() == smithy.FaultServer`; wired into the error-code switch
+of effectively every operation's deserializer in `deserializers.go` (39
+`case strings.EqualFold("InternalError", errorCode)` sites across 34 op-level error
+deserializers) -- not a code invented for this fix, and already this package's existing
+fallback in `errorCode()`/`handleBackendError()` (handler_errors.go) for any unclassified
+error, so this now uses the same convention rather than a new one.
+
+Proof: `TestHandler_OversizedBodySurfacesTypedError` updated -- confirmed failing pre-fix
+(got `"InvalidParameter"`, `ErrorFault() == FaultClient`); passes now with `"InternalError"`
+and `FaultServer`. `TestHandler_NormalSizedBodyStillRoutes` (unchanged) is the regression
+guard, plus the full `-race` suite confirms none of the `FormValue` call sites regressed.
+Gates: `go build`, `go vet`, `gofmt -l` (clean), `go test -race ./services/sns/...` (pass,
+~21s), `golangci-lint run ./services/sns/...` (0 issues, 0 new nolints). No exported
+signature changed.
