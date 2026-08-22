@@ -1,11 +1,14 @@
 // Command keycheck verifies that the string keys a service handler writes
-// into its map[string]<T> wire responses actually exist in the pinned AWS
-// SDK's own response deserializer -- not the Go field name, the
-// deserializer's literal switch-case string. It exists for gopherstack-zquj:
-// a hand-written map[string]any response key is checked by no compiler and
-// no existing scan, so a typo'd or wrong-cased key is silently dropped by
-// any real client and invisible to a raw-body test (which asserts the same
-// key the author typed).
+// into its map[string]<T> wire responses, AND the json struct tags on any
+// locally-declared *Output-suffixed struct it constructs, actually exist in
+// the pinned AWS SDK's own response deserializer -- not the Go field name,
+// the deserializer's literal switch-case string. It exists for
+// gopherstack-zquj (the map-key half) and gopherstack-v4a4 (the struct-tag
+// half, added after glue's querySchemaVersionMetadataOutput was found
+// tagged json:"MetadataInfo" where the SDK expects "MetadataInfoMap",
+// commit c3aa73e59): a wrong key or tag is checked by no compiler and no
+// existing scan, so it is silently dropped by any real client and invisible
+// to a raw-body test (which asserts the same key the author typed).
 //
 // For each op it builds the real wire key set from the pinned SDK's
 // <prefix>deserializeOpDocument<Op>Output case-switch, recursing through
@@ -100,6 +103,36 @@
 // data (language codes, entity-type names, metric names) rather than
 // members of a fixed schema before trusting it.
 //
+// KNOWN BLIND SPOT #5, the struct-tag half added for gopherstack-v4a4: only a
+// composite literal of a locally-declared struct type whose NAME ends in
+// "Output" is recognised (this repo's overwhelming convention, 542 non-test
+// occurrences) -- an anonymous struct literal, a differently-named type, or a
+// struct built field-by-field via `var out X; out.Field = ...` rather than
+// one literal contributes nothing and is invisible to this scan. A field with
+// no json tag at all is assumed to marshal under its Go field name (encoding/
+// json's real default), which is occasionally wrong on its own and is not
+// itself flagged. Neither gap is fixed to keep the corresponding NoWrittenKeys
+// (N/A) path honest rather than silently under-reporting as clean.
+//
+// KNOWN BLIND SPOT #6, found live sweeping sqs for gopherstack-v4a4: when a
+// package declares TWO handler functions for the same op name -- sqs hosts
+// both a "handle<Op>" JSON handler (the one the pinned aws-sdk-go-v2 client
+// actually talks to, confirmed in services/_PROTOCOLS.md) and a legacy
+// "query<Op>" XML/Query-protocol handler for the same op string, left over
+// from before SQS's protocol switch -- ps.opToHandler's case-dispatch scan
+// has no concept of "these two bindings conflict"; whichever case clause
+// ast.Inspect visits last (file processing is alphabetical by filename, so
+// query_messages.go's case overwrote handler_messages.go's) silently wins.
+// Every MISMATCH this tool reported for sqs traced to the XML handler's
+// `xml:"..."` (or untagged) fields being checked against the JSON SDK's key
+// set -- a meaningless comparison, not a real bug. Confirmed by hand: sqs's
+// real JSON handler (handleDeleteMessageBatch) already writes correctly
+// under a type the struct-tag scan doesn't even reach. Not fixed (would
+// need same-op multi-handler detection, out of scope for a tag-only pass);
+// any service where `grep -c '^func (h \*Handler) query[A-Z]'` finds
+// handler-shaped functions alongside `handle`/`json` ones for the same op
+// needs this same distrust before trusting a MISMATCH.
+//
 // KNOWN BLIND SPOT #3: a written key absent from the real reachable shape is
 // reported identically whether it REPLACES a real required key (the real
 // value is silently dropped on every client -- the gopherstack-6flj/zquj
@@ -128,8 +161,10 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -431,6 +466,7 @@ type pkgScan struct {
 	funcDecls     map[string]*ast.FuncDecl
 	constVals     map[string]string
 	funcTypeNames map[string]bool
+	structTypes   map[string]*ast.StructType
 	mapAnyVars    map[string]bool
 	opToHandler   map[string]string
 }
@@ -442,6 +478,7 @@ func scanPackage(dir string) (*pkgScan, error) {
 		funcDecls:     map[string]*ast.FuncDecl{},
 		constVals:     map[string]string{},
 		funcTypeNames: map[string]bool{},
+		structTypes:   map[string]*ast.StructType{},
 		mapAnyVars:    map[string]bool{},
 		opToHandler:   map[string]string{},
 	}
@@ -484,6 +521,7 @@ func (ps *pkgScan) indexFile(f *ast.File) {
 		case *ast.GenDecl:
 			ps.indexConsts(d)
 			ps.indexFuncTypes(d)
+			ps.indexStructTypes(d)
 		}
 	}
 }
@@ -503,6 +541,25 @@ func (ps *pkgScan) indexFuncTypes(d *ast.GenDecl) {
 		}
 		if _, isFunc := ts.Type.(*ast.FuncType); isFunc {
 			ps.funcTypeNames[ts.Name.Name] = true
+		}
+	}
+}
+
+// indexStructTypes records every package-level `type X struct{...}`
+// declaration so collectStructTagKeys can resolve a composite literal's json
+// tags, and structTagFields can recurse into a field's own locally-declared
+// struct type.
+func (ps *pkgScan) indexStructTypes(d *ast.GenDecl) {
+	if d.Tok != token.TYPE {
+		return
+	}
+	for _, spec := range d.Specs {
+		ts, ok := spec.(*ast.TypeSpec)
+		if !ok {
+			continue
+		}
+		if st, isStruct := ts.Type.(*ast.StructType); isStruct {
+			ps.structTypes[ts.Name.Name] = st
 		}
 	}
 }
@@ -905,6 +962,7 @@ func (ps *pkgScan) walkFuncBody(
 		switch v := n.(type) {
 		case *ast.CompositeLit:
 			dynamicSkipped += ps.collectLitKeys(v, keys)
+			ps.collectStructTagKeys(v, keys)
 		case *ast.AssignStmt:
 			dynamicSkipped += ps.collectIndexAssignKeys(v, keys)
 		case *ast.CallExpr:
@@ -946,6 +1004,122 @@ func (ps *pkgScan) collectLitKeys(v *ast.CompositeLit, keys map[string]bool) int
 	}
 
 	return dynamicSkipped
+}
+
+// outputStructRe scopes struct-tag detection to this repo's overwhelming
+// response-type naming convention (542 non-test `type XOutput struct`
+// occurrences) so the same-call-graph BFS (blind spot #2) doesn't pull in an
+// unrelated locally-declared struct's tags.
+var outputStructRe = regexp.MustCompile(`Output$`)
+
+// collectStructTagKeys is the struct-tag analogue of collectLitKeys: where
+// that catches a map[string]<T> wire key typo, this catches a json struct
+// tag typo on the *Output-suffixed struct type the handler actually
+// constructs (gopherstack-v4a4, glue's querySchemaVersionMetadataOutput
+// tagged json:"MetadataInfo" instead of the real "MetadataInfoMap",
+// commit c3aa73e59). It has no dynamic-key concept -- a struct tag is
+// always a compile-time literal -- so unlike collectLitKeys it returns
+// nothing to add to dynamicSkipped.
+func (ps *pkgScan) collectStructTagKeys(v *ast.CompositeLit, keys map[string]bool) {
+	id, isIdent := v.Type.(*ast.Ident)
+	if !isIdent || !outputStructRe.MatchString(id.Name) {
+		return
+	}
+	if _, known := ps.structTypes[id.Name]; !known {
+		return
+	}
+	for k := range ps.structTagFields(id.Name, map[string]bool{}, 0) {
+		if !isErrorEnvelopeKey(k) {
+			keys[k] = true
+		}
+	}
+}
+
+// structTagFields returns every wire key reachable from typeName's own
+// json-tagged fields, recursing into any field whose type (after unwrapping
+// a pointer, slice, or map value) resolves to another locally-declared
+// struct type -- the handler-side mirror of reachable() on the SDK side. An
+// embedded field contributes no key of its own (Go flattens it into the
+// parent object) but is still recursed into. A field with no json tag falls
+// back to its Go field name, matching encoding/json's real default.
+func (ps *pkgScan) structTagFields(typeName string, visited map[string]bool, depth int) map[string]bool {
+	const maxDepth = 14
+
+	keys := map[string]bool{}
+	if depth > maxDepth || visited[typeName] {
+		return keys
+	}
+	visited[typeName] = true
+
+	st, ok := ps.structTypes[typeName]
+	if !ok {
+		return keys
+	}
+
+	for _, field := range st.Fields.List {
+		key, skip := jsonTagKey(field)
+		if skip {
+			continue
+		}
+		if len(field.Names) > 0 {
+			if key == "" {
+				key = field.Names[0].Name
+			}
+			keys[key] = true
+		}
+		if nested := localStructName(field.Type); nested != "" {
+			for k := range ps.structTagFields(nested, visited, depth+1) {
+				keys[k] = true
+			}
+		}
+	}
+
+	return keys
+}
+
+// jsonTagKey extracts a struct field's json tag key. skip is true for an
+// explicit json:"-" (the field never marshals). An empty key with skip false
+// means no json tag was present at all -- the caller falls back to the Go
+// field name.
+func jsonTagKey(field *ast.Field) (string, bool) {
+	if field.Tag == nil {
+		return "", false
+	}
+	raw, err := strconv.Unquote(field.Tag.Value)
+	if err != nil {
+		return "", false
+	}
+	tag := reflect.StructTag(raw).Get("json")
+	if tag == "" {
+		return "", false
+	}
+	name, _, _ := strings.Cut(tag, ",")
+	if name == "-" {
+		return "", true
+	}
+
+	return name, false
+}
+
+// localStructName unwraps a pointer, slice, or map-value type expression
+// down to a bare identifier, so a field like `Foo *Bar`, `Foo []Bar`, or
+// `Foo map[string]Bar` all resolve to "Bar" for the recursive tag walk. It
+// does not verify Bar is actually a locally-declared struct -- the caller's
+// ps.structTypes lookup does that, returning an empty map for anything else
+// (a builtin, an imported type, or a plain scalar) with no infinite-loop risk.
+func localStructName(t ast.Expr) string {
+	switch v := t.(type) {
+	case *ast.Ident:
+		return v.Name
+	case *ast.StarExpr:
+		return localStructName(v.X)
+	case *ast.ArrayType:
+		return localStructName(v.Elt)
+	case *ast.MapType:
+		return localStructName(v.Value)
+	default:
+		return ""
+	}
 }
 
 func (ps *pkgScan) collectIndexAssignKeys(v *ast.AssignStmt, keys map[string]bool) int {
@@ -1030,7 +1204,7 @@ type checkResult struct {
 	HandlerOpsResolved int
 	TotalWritten       int
 	TotalDynSkipped    int
-	NoMapAnyLiterals   bool
+	NoWrittenKeys      bool
 }
 
 func runCheck(sdkPath, prefix, svcDir, onlyOp string) (*checkResult, error) {
@@ -1093,7 +1267,7 @@ func runCheck(sdkPath, prefix, svcDir, onlyOp string) (*checkResult, error) {
 		res.OpsChecked = append(res.OpsChecked, or)
 	}
 
-	res.NoMapAnyLiterals = res.TotalWritten == 0 && len(res.OpsChecked) > 0
+	res.NoWrittenKeys = res.TotalWritten == 0 && len(res.OpsChecked) > 0
 
 	return res, nil
 }
@@ -1229,10 +1403,11 @@ func report(res *checkResult, svcDir, prefix string) int {
 			op, op)
 	}
 
-	if res.NoMapAnyLiterals {
+	if res.NoWrittenKeys {
 		fmt.Fprintf(os.Stdout,
-			"N/A: %s writes zero map[string]<T> literal keys -- struct-tag construction, out of scope\n"+
-				"for keycheck.\n",
+			"N/A: %s writes zero detectable wire-output keys -- no map[string]<T> literal and no\n"+
+				"locally-declared *Output-suffixed struct literal reachable. Out of scope for keycheck\n"+
+				"(see KNOWN BLIND SPOT #5).\n",
 			svcDir)
 	}
 

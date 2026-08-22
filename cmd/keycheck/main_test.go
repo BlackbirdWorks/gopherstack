@@ -764,7 +764,15 @@ func TestRunCheck_SliceBindingDispatch(t *testing.T) {
 	assert.Empty(t, res.OpsChecked[0].NotInTree)
 }
 
-func TestRunCheck_NoMapAnyLiterals(t *testing.T) {
+// TestRunCheck_NoWrittenKeys covers what remains genuinely undetectable
+// after gopherstack-v4a4 taught keycheck to read *Output-suffixed struct
+// literals: an ANONYMOUS struct literal (no named type, so collectStructTagKeys'
+// v.Type.(*ast.Ident) match cannot fire, KNOWN BLIND SPOT #5). Before
+// gopherstack-v4a4 this same N/A path was (wrongly) reported for every
+// struct-literal-only service, including named *Output structs like glue's
+// -- see the struct-tag-mismatch test below for proof that named case is now
+// actually checked, not just excused as N/A.
+func TestRunCheck_NoWrittenKeys(t *testing.T) {
 	t.Parallel()
 
 	sdkDir := t.TempDir()
@@ -773,10 +781,6 @@ func TestRunCheck_NoMapAnyLiterals(t *testing.T) {
 	writeFile(t, svcDir, "handler.go", `package svc
 
 type Handler struct{}
-
-type getScheduleOutput struct {
-	Target string
-}
 
 func (h *Handler) Dispatch(op string, body []byte) any {
 	switch op {
@@ -787,14 +791,128 @@ func (h *Handler) Dispatch(op string, body []byte) any {
 }
 
 func (h *Handler) handleGetSchedule(body []byte) any {
-	return getScheduleOutput{Target: "x"}
+	return struct{ Target string }{Target: "x"}
 }
 `)
 
 	res, err := runCheck(filepath.Join(sdkDir, "deserializers.go"), "awsRestjson1_", svcDir, "")
 	require.NoError(t, err)
-	assert.True(t, res.NoMapAnyLiterals, "a struct-literal-only service should report N/A, not a false clean")
+	assert.True(t, res.NoWrittenKeys, "an anonymous struct literal should report N/A, not a false clean")
 	assert.Zero(t, res.TotalWritten)
 	assert.Empty(t, res.UnresolvedOps)
 	assert.Equal(t, exitClean, report(res, svcDir, "awsRestjson1_"))
+}
+
+// sdkQuerySchemaVersionMetadataFixture reproduces the real awsjson1.1 shape
+// (glue@v1.152.0) whose case list this campaign's actual bug (c3aa73e59) was
+// checked against: MetadataInfoMap and SchemaVersionId.
+const sdkQuerySchemaVersionMetadataFixture = `package fakesdk
+
+type QuerySchemaVersionMetadataOutput struct{}
+
+func awsAwsjson11_deserializeOpDocumentQuerySchemaVersionMetadataOutput(
+	v **QuerySchemaVersionMetadataOutput, value interface{},
+) error {
+	shape, ok := value.(map[string]interface{})
+	if !ok {
+		return nil
+	}
+	sv := *v
+	for key, val := range shape {
+		switch key {
+		case "MetadataInfoMap":
+			_ = val
+		case "SchemaVersionId":
+			_ = val
+		}
+	}
+	*v = sv
+	return nil
+}
+`
+
+// svcQuerySchemaVersionMetadataFixture builds the wire response from a
+// locally-declared *Output struct, parameterised on its json tag so the
+// table below can drive both the real pre-fix bug (json:"MetadataInfo") and
+// its fix (json:"MetadataInfoMap").
+func svcQuerySchemaVersionMetadataFixture(metadataTag string) string {
+	return `package svc
+
+type Handler struct{}
+
+type querySchemaVersionMetadataOutput struct {
+	MetadataInfo    map[string]any ` + "`json:\"" + metadataTag + "\"`" + `
+	SchemaVersionID string         ` + "`json:\"SchemaVersionId\"`" + `
+}
+
+func (h *Handler) Dispatch(op string, body []byte) any {
+	switch op {
+	case "QuerySchemaVersionMetadata":
+		return h.handleQuerySchemaVersionMetadata(body)
+	}
+	return nil
+}
+
+func (h *Handler) handleQuerySchemaVersionMetadata(body []byte) any {
+	return querySchemaVersionMetadataOutput{
+		MetadataInfo:    map[string]any{},
+		SchemaVersionID: "v1",
+	}
+}
+`
+}
+
+// TestRunCheck_StructTagMismatch is gopherstack-v4a4's own precedent test:
+// it reproduces glue's actual pre-fix bug (c3aa73e59) as a synthetic
+// fixture and confirms the struct-tag scan (KNOWN BLIND SPOT #5's fix)
+// catches it. Before this session's change, BOTH rows below reported
+// NoWrittenKeys (N/A) -- keycheck never read a struct tag at all, so the
+// bad tag was as invisible to the tool as it was to the two raw-body tests
+// that shipped it (both decoded through their own locally re-typed struct
+// tagged the same wrong way).
+func TestRunCheck_StructTagMismatch(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		tag          string
+		wantMismatch bool
+	}{
+		{
+			name: "known-bad pre-fix glue tag (c3aa73e59)", tag: "MetadataInfo",
+			wantMismatch: true,
+		},
+		{name: "known-good post-fix glue tag", tag: "MetadataInfoMap", wantMismatch: false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			sdkDir := t.TempDir()
+			writeFile(t, sdkDir, "deserializers.go", sdkQuerySchemaVersionMetadataFixture)
+			svcDir := t.TempDir()
+			writeFile(t, svcDir, "handler.go", svcQuerySchemaVersionMetadataFixture(tc.tag))
+
+			res, err := runCheck(filepath.Join(sdkDir, "deserializers.go"), "awsAwsjson11_", svcDir, "")
+			require.NoError(t, err)
+			require.Len(t, res.OpsChecked, 1)
+			require.Empty(t, res.UnresolvedOps)
+			require.False(t, res.NoWrittenKeys,
+				"the struct-tag scan must read the *Output literal, not excuse it as N/A")
+
+			op := res.OpsChecked[0]
+			if !tc.wantMismatch {
+				assert.Empty(t, op.NotInTree, "known-good tag must not report a mismatch")
+
+				return
+			}
+
+			require.NotEmpty(t, op.NotInTree,
+				"keycheck did not catch the known-bad struct tag it was extended to catch")
+			assert.Contains(t, op.NotInTree, "MetadataInfo")
+			assert.NotContains(t, op.NotInTree, "SchemaVersionId",
+				"the correctly-tagged sibling field must not false-positive")
+		})
+	}
 }
