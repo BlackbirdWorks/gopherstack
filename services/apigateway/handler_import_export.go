@@ -210,9 +210,13 @@ func (h *Handler) dispatchRestAPISpec(
 		return c.String(http.StatusInternalServerError, "internal server error")
 	}
 
-	statusCode, response, reqErr := h.dispatch(ctx, action, envelope)
+	statusCode, response, raw, reqErr := h.dispatch(ctx, action, envelope)
 	if reqErr != nil {
 		return h.handleError(ctx, c, action, reqErr)
+	}
+
+	if raw != nil {
+		return writeRawBinaryResponse(c, statusCode, raw)
 	}
 
 	c.Response().Header().Set("Content-Type", contentTypeJSON)

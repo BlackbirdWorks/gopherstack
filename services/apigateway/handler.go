@@ -410,9 +410,13 @@ func (h *Handler) handleJSONProtocol(c *echo.Context) error {
 
 	log.DebugContext(ctx, "APIGateway request", "action", action)
 
-	statusCode, response, reqErr := h.dispatch(ctx, action, body)
+	statusCode, response, raw, reqErr := h.dispatch(ctx, action, body)
 	if reqErr != nil {
 		return h.handleError(ctx, c, action, reqErr)
+	}
+
+	if raw != nil {
+		return writeRawBinaryResponse(c, statusCode, raw)
 	}
 
 	c.Response().Header().Set(headerContentType, "application/x-amz-json-1.1")
@@ -505,9 +509,13 @@ func (h *Handler) handleRESTAPI(c *echo.Context) error {
 func (h *Handler) dispatchAndRespond(
 	ctx context.Context, c *echo.Context, action string, body []byte, contentType string,
 ) error {
-	statusCode, response, reqErr := h.dispatch(ctx, action, body)
+	statusCode, response, raw, reqErr := h.dispatch(ctx, action, body)
 	if reqErr != nil {
 		return h.handleError(ctx, c, action, reqErr)
+	}
+
+	if raw != nil {
+		return writeRawBinaryResponse(c, statusCode, raw)
 	}
 
 	c.Response().Header().Set(headerContentType, contentType)
@@ -516,6 +524,17 @@ func (h *Handler) dispatchAndRespond(
 	}
 
 	return c.JSONBlob(statusCode, response)
+}
+
+// writeRawBinaryResponse writes a *rawBinaryResponse with its real
+// Content-Type/Content-Disposition headers and raw body, bypassing the
+// JSON envelope dispatchAndRespond/handleJSONProtocol otherwise write.
+func writeRawBinaryResponse(c *echo.Context, statusCode int, raw *rawBinaryResponse) error {
+	if raw.contentDisposition != "" {
+		c.Response().Header().Set("Content-Disposition", raw.contentDisposition)
+	}
+
+	return c.Blob(statusCode, raw.contentType, raw.body)
 }
 
 // detectImportRESTAPI recognises ImportRestApi (POST /restapis?mode=import) and
@@ -589,6 +608,24 @@ func injectJSONFieldAPIGW(body []byte, key, value string) []byte {
 }
 
 type actionFn func([]byte) (int, any, error)
+
+// rawBinaryResponse marks an actionFn result that must reach the client
+// as-is: real Content-Type/Content-Disposition headers plus a raw payload,
+// never a JSON envelope. GetSdk and GetExport are the only apigateway
+// operations whose real Output structs bind ContentType/ContentDisposition
+// to HTTP headers and Body to the raw response payload (apigateway@v1.42.4
+// deserializers.go: awsRestjson1_deserializeOpHttpBindingsGetSdkOutput /
+// awsRestjson1_deserializeOpHttpBindingsGetExportOutput bind the headers;
+// awsRestjson1_deserializeOpDocumentGetSdkOutput /
+// awsRestjson1_deserializeOpDocumentGetExportOutput copy the response body
+// straight into Body with no JSON parsing). An actionFn returning
+// *rawBinaryResponse makes dispatch skip json.Marshal so dispatchAndRespond
+// can write it with c.Blob and the real headers instead.
+type rawBinaryResponse struct {
+	contentType        string
+	contentDisposition string
+	body               []byte
+}
 
 // handleStageProxyEcho routes /proxy/{apiId}/{stageName}/{path} requests to the Lambda proxy handler.
 func (h *Handler) handleStageProxyEcho(c *echo.Context) error {
@@ -702,24 +739,33 @@ func (h *Handler) buildDispatchTable() map[string]actionFn {
 	return table
 }
 
-// dispatch routes the action to the correct handler function.
-func (h *Handler) dispatch(_ context.Context, action string, body []byte) (int, []byte, error) {
-	fn, ok := h.dispatchTable()[action]
-	if !ok {
-		return 0, nil, fmt.Errorf("%w:%s", errUnknownOperation, action)
+// dispatch routes the action to the correct handler function. When the
+// handler returns a *rawBinaryResponse (see its doc comment), raw is
+// non-nil and encoded is unset -- the caller must write raw's body and
+// headers directly instead of JSON-encoding the response.
+func (h *Handler) dispatch(
+	_ context.Context, action string, body []byte,
+) (int, []byte, *rawBinaryResponse, error) {
+	fn, found := h.dispatchTable()[action]
+	if !found {
+		return 0, nil, nil, fmt.Errorf("%w:%s", errUnknownOperation, action)
 	}
 
 	statusCode, response, err := fn(body)
 	if err != nil {
-		return 0, nil, err
+		return 0, nil, nil, err
+	}
+
+	if raw, isRaw := response.(*rawBinaryResponse); isRaw {
+		return statusCode, nil, raw, nil
 	}
 
 	encoded, err := json.Marshal(response)
 	if err != nil {
-		return 0, nil, err
+		return 0, nil, nil, err
 	}
 
-	return statusCode, encoded, nil
+	return statusCode, encoded, nil, nil
 }
 
 // handleError writes a standardized JSON error response.
