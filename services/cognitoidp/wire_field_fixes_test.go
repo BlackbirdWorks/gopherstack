@@ -160,3 +160,95 @@ func TestListUsersInGroup_MFAOptionsPopulated(t *testing.T) {
 	assert.Equal(t, types.DeliveryMediumTypeSms, got[0].DeliveryMedium)
 	assert.Equal(t, "phone_number", aws.ToString(got[0].AttributeName))
 }
+
+// TestAdminCreateUser_UserAttributesKey_RealSDKClient proves AdminCreateUser's
+// User field decodes its attribute list. adminUserJSON (gopherstack-zquj)
+// tagged it "UserAttributes", but AdminCreateUserOutput.User is a UserType,
+// whose own member is "Attributes" (cognitoidentityprovider@v1.67.4
+// deserializers.go, case "Attributes" in
+// awsAwsjson11_deserializeDocumentUserType) -- every real client's
+// User.Attributes decoded nil regardless of what attributes were supplied.
+func TestAdminCreateUser_UserAttributesKey_RealSDKClient(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestCognitoIDPClient(t, h)
+
+	pool, err := client.CreateUserPool(t.Context(), &cognitoidpsdk.CreateUserPoolInput{
+		PoolName: aws.String("admin-create-attrs-pool"),
+	})
+	require.NoError(t, err)
+	poolID := aws.ToString(pool.UserPool.Id)
+
+	created, err := client.AdminCreateUser(t.Context(), &cognitoidpsdk.AdminCreateUserInput{
+		UserPoolId: aws.String(poolID),
+		Username:   aws.String("attruser"),
+		UserAttributes: []types.AttributeType{
+			{Name: aws.String("email"), Value: aws.String("attruser@example.com")},
+		},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, created.User)
+
+	var email string
+
+	for _, a := range created.User.Attributes {
+		if aws.ToString(a.Name) == "email" {
+			email = aws.ToString(a.Value)
+		}
+	}
+
+	assert.Equal(t, "attruser@example.com", email, "User.Attributes must decode the supplied attribute")
+}
+
+// TestListUsersInGroup_AttributesKey_RealSDKClient is the same finding as
+// TestAdminCreateUser_UserAttributesKey_RealSDKClient, on ListUsersInGroup's
+// adminUserJSON item shape.
+func TestListUsersInGroup_AttributesKey_RealSDKClient(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestCognitoIDPClient(t, h)
+
+	poolID, clientID := setupHandlerPoolAndClient(t, h, "attrs-group-pool")
+
+	_, err := client.SignUp(t.Context(), &cognitoidpsdk.SignUpInput{
+		ClientId: aws.String(clientID),
+		Username: aws.String("groupattruser"),
+		Password: aws.String("Pass1234!"),
+		UserAttributes: []types.AttributeType{
+			{Name: aws.String("email"), Value: aws.String("groupattruser@example.com")},
+		},
+	})
+	require.NoError(t, err)
+
+	_, err = client.CreateGroup(t.Context(), &cognitoidpsdk.CreateGroupInput{
+		UserPoolId: aws.String(poolID),
+		GroupName:  aws.String("attrs-group"),
+	})
+	require.NoError(t, err)
+
+	_, err = client.AdminAddUserToGroup(t.Context(), &cognitoidpsdk.AdminAddUserToGroupInput{
+		UserPoolId: aws.String(poolID),
+		Username:   aws.String("groupattruser"),
+		GroupName:  aws.String("attrs-group"),
+	})
+	require.NoError(t, err)
+
+	listed, err := client.ListUsersInGroup(t.Context(), &cognitoidpsdk.ListUsersInGroupInput{
+		UserPoolId: aws.String(poolID),
+		GroupName:  aws.String("attrs-group"),
+	})
+	require.NoError(t, err)
+	require.Len(t, listed.Users, 1)
+
+	var email string
+
+	for _, a := range listed.Users[0].Attributes {
+		if aws.ToString(a.Name) == "email" {
+			email = aws.ToString(a.Value)
+		}
+	}
+
+	assert.Equal(t, "groupattruser@example.com", email, "Users[].Attributes must decode the supplied attribute")
+}

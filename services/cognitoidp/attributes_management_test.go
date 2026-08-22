@@ -515,6 +515,14 @@ func TestIDTokenUserAttributeClaims(t *testing.T) {
 }
 
 // TestParityB_AdminCreateUserSubInAttributes verifies sub appears in AdminCreateUser response.
+//
+// gopherstack-zquj: this read user["UserAttributes"] until 2026-08-22, which
+// happened to match the wrong key adminUserJSON was tagged with at the time
+// -- a raw-body assertion of the exact key the author typed, ratifying that
+// bug rather than catching it. The real UserType member (and now this
+// backend's own wire tag) is "Attributes"; see
+// TestAdminCreateUser_UserAttributesKey_RealSDKClient
+// (wire_field_fixes_test.go) for the real-SDK-client-side proof.
 func TestAdminCreateUserSubInAttributes(t *testing.T) {
 	t.Parallel()
 
@@ -532,7 +540,7 @@ func TestAdminCreateUserSubInAttributes(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 
 	user := resp["User"].(map[string]any)
-	attrs := user["UserAttributes"].([]any)
+	attrs := user["Attributes"].([]any)
 
 	var subAttr map[string]any
 
