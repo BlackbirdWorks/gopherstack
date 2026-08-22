@@ -416,8 +416,11 @@ func addNotebookOptionalFields(resp map[string]any, nb *NotebookInstance) {
 	if nb.VolumeSizeInGB > 0 {
 		resp["VolumeSizeInGB"] = nb.VolumeSizeInGB
 	}
+	// DescribeNotebookInstanceOutput's member is "SecurityGroups", not
+	// "SecurityGroupIds" (api_op_DescribeNotebookInstance.go); the latter is
+	// only the CreateNotebookInstanceInput field name.
 	if len(nb.SecurityGroupIDs) > 0 {
-		resp["SecurityGroupIds"] = nb.SecurityGroupIDs
+		resp["SecurityGroups"] = nb.SecurityGroupIDs
 	}
 	if len(nb.AcceleratorTypes) > 0 {
 		resp["AcceleratorTypes"] = nb.AcceleratorTypes

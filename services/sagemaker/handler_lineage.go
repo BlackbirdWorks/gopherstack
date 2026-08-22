@@ -1113,7 +1113,12 @@ func (h *Handler) handleAddAssociation(ctx context.Context, body []byte) ([]byte
 	log := logger.Load(ctx)
 	log.InfoContext(ctx, "sagemaker: added association", "arn", assoc.AssociationArn)
 
-	return json.Marshal(map[string]string{"AssociationArn": assoc.AssociationArn})
+	// AddAssociationOutput has no AssociationArn member at all -- it echoes
+	// back SourceArn and DestinationArn (api_op_AddAssociation.go).
+	return json.Marshal(map[string]string{
+		"SourceArn":      req.SourceArn,
+		"DestinationArn": req.DestinationArn,
+	})
 }
 
 // associateTrialComponentRequest is the request body for AssociateTrialComponent.

@@ -4801,3 +4801,65 @@ byte-identical.
 
 **Gates:** `go build ./services/sagemaker/...`, `go vet ./services/sagemaker/...`, `gofmt -l
 services/sagemaker/` (clean), `go test -race ./services/sagemaker/...` (pass).
+
+## 2026-08-22 (gopherstack-zquj, keycheck sweep): two dropped-value key bugs fixed, one high-severity gap flagged
+
+`cmd/keycheck` swept all 399 non-internal ops. Two confirmed dropped-required-value bugs,
+same class as wafv2's `CheckCapacity` (b97408b98):
+
+- **`AddAssociation`** wrote a single invented `"AssociationArn"` key. The real
+  `AddAssociationOutput` (`aws-sdk-go-v2/service/sagemaker@v1.263.2`
+  `api_op_AddAssociation.go:66-78`) has no such member at all -- it echoes back
+  `SourceArn`/`DestinationArn` from the request. Every real client got both fields nil on
+  every call. Fixed in `handler_lineage.go`'s `handleAddAssociation` to marshal
+  `{"SourceArn": req.SourceArn, "DestinationArn": req.DestinationArn}`.
+  `TestHandler_AddAssociation`'s raw-body assertion (`handler_lineage_test.go`), which had
+  ratified the wrong key by asserting `resp["AssociationArn"]`, now asserts both real keys.
+  Proof: `TestAddAssociation_EchoesSourceAndDestinationArn`
+  (`wire_association_notebook_fixes_test.go`) drives the real SDK client and asserts both
+  members decode correctly; confirmed failing (`expected: ..., actual: ""`) against the
+  pre-fix key via hand-revert (`git show HEAD:services/sagemaker/handler_lineage.go`,
+  restored, md5sum-verified byte-identical after re-fixing).
+
+- **`DescribeNotebookInstance`** wrote its VPC security groups under `"SecurityGroupIds"`.
+  The real `DescribeNotebookInstanceOutput` member is `"SecurityGroups"`
+  (`api_op_DescribeNotebookInstance.go:142`) -- `SecurityGroupIds` is only the
+  `CreateNotebookInstanceInput` field name for the same data, a name collision across
+  request/response that doesn't hold on this op. Fixed in `handler_notebook_instances.go`'s
+  `addNotebookOptionalFields`. Proof:
+  `TestDescribeNotebookInstance_SecurityGroupsDecodesNonEmpty`
+  (`wire_association_notebook_fixes_test.go`) creates a notebook instance with
+  `SecurityGroupIds` via the real client, describes it, and asserts `out.SecurityGroups`
+  decodes non-empty; confirmed failing against the pre-fix key via the same hand-revert
+  procedure, byte-identical restore confirmed.
+
+**NOT fixed -- flagged as a high-severity follow-up (no bd issue filed yet):**
+`BatchAddClusterNodes`, `BatchDeleteClusterNodes`, `BatchRebootClusterNodes`, and
+`BatchReplaceClusterNodes` all share `batchClusterNodesWithFailures` (`handler_cluster.go:773`),
+which writes an invented top-level `"ClusterArn"` plus a flat `[]string` under `"Failures"`
+(`"Errors"` for Delete) and **never writes `"Successful"` at all**. The real outputs
+(`api_op_Batch{Add,Delete,Reboot,Replace}ClusterNodes.go`) all require `Failed` (a list of
+per-op-typed error structs -- `types.Batch{Add,Delete,Reboot,Replace}ClusterNodesError`, each
+with different fields, e.g. `BatchAddClusterNodesError` keys errors by
+`InstanceGroupName`+`FailedCount`, the other three key by node/instance ID) and `Successful`
+(`[]string` for Delete/Reboot/Replace, `[]types.NodeAdditionResult` for Add). Net effect: a
+real client calling any of these four ops always gets `Failed == nil` and
+`Successful == nil`, regardless of what actually happened -- the same severity as the
+`CheckCapacity` bug, but across 4 ops, and not a same-shape fix: it needs per-type error
+structs (not a renamed string list) and, for `BatchAddClusterNodes`, a backend signature
+change to actually return which nodes succeeded (today it returns failures only). Deferred
+rather than half-fixed given this campaign's "fix keys, don't restructure" constraint --
+building the four distinct `Failed` item shapes is itself a struct-introduction, not a
+key rename.
+
+Other `keycheck` hits this pass, hand-verified as harmless extra/invented keys (the real
+required members are present and correct elsewhere in the same response; a real client's
+typed struct simply has no slot for the extra key) -- not fixed, no severity: `CreateEdgePackagingJob`
+(`"EdgePackagingJobArn"`, a confirmed-empty-output op), `DescribeEdgePackagingJob`
+(`"FailureReason"`), `DescribePipelineExecution` (`"PipelineParameters"`, `"StartTime"`),
+`DescribeTransformJob` (`"LastModifiedTime"` -- real `CreationTime`/`TransformStartTime`/
+`TransformEndTime` are all separately present and correct), `ListInferenceExperiments`
+(`"Arn"`), `ListSpaces` (`"SpaceArn"`, `"SpaceStatus"`), `Search` (`"PipelineDefinition"`).
+
+**Gates:** `go build`, `go vet`, `gofmt -l`, `go test -race`, `golangci-lint run`, all clean
+for `services/sagemaker/...`.

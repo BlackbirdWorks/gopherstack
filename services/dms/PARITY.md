@@ -307,6 +307,31 @@ leaks: {status: clean, note: "no goroutines, janitors, or timers in this service
   conflate this with `ReloadTablesInput.ReplicationTaskArn`, which is the
   correct field name for the *non*-serverless `ReloadTables` op.
 
+- **2026-08-22 (gopherstack-zquj, keycheck sweep)**: `DescribeFleetAdvisorDatabases`
+  wrote each database's engine info under a flat `"EngineName"` key and its
+  discovering collector under a flat `"CollectorReferencedId"` key. The real
+  `DatabaseResponse` (`aws-sdk-go-v2/service/databasemigrationservice@v1.66.4`
+  `types/types.go:332`) has neither member: engine info is nested under
+  `SoftwareDetails.Engine` (`types.go:301`,
+  `awsAwsjson11_deserializeDocumentDatabaseInstanceSoftwareDetailsResponse`,
+  case `"Engine"`), and the collector ID is nested under
+  `Collectors[].CollectorReferencedId` (`types.go:178`,
+  `awsAwsjson11_deserializeDocumentCollectorShortInfoResponse`, case
+  `"CollectorReferencedId"`). An exact-case real client dropped both values
+  silently on every `DescribeFleetAdvisorDatabases` call, and
+  `TestFleetAdvisorDatabases` ratified the wrong flat key by asserting
+  `db0["EngineName"]` directly. Fixed by nesting both under their real
+  parent objects in `handleDescribeFleetAdvisorDatabases`
+  (`handler_fleet_advisor.go`); the ratifying test now asserts
+  `db0["SoftwareDetails"]["Engine"]`. Proof:
+  `TestDescribeFleetAdvisorDatabases_EngineDecodesNested`
+  (`wire_maplit_fixes_test.go`) drives the real
+  `aws-sdk-go-v2/service/databasemigrationservice` client end-to-end and
+  asserts both `SoftwareDetails.Engine` and `Collectors[0].CollectorReferencedId`
+  decode non-empty; confirmed failing against the pre-fix flat keys via
+  hand-revert (`git show HEAD:services/dms/handler_fleet_advisor.go`,
+  restored, md5sum-verified byte-identical after re-fixing).
+
 - **Premigration assessment runs complete synchronously in this emulation**:
   real AWS runs `StartReplicationTaskAssessmentRun` asynchronously against
   actual source/target connectivity; gopherstack has neither, so (matching

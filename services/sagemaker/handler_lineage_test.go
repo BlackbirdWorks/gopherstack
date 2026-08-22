@@ -1340,7 +1340,8 @@ func TestHandler_AddAssociation(t *testing.T) {
 			if tt.wantARN {
 				var resp map[string]string
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-				assert.Contains(t, resp["AssociationArn"], "arn:aws:sagemaker")
+				assert.Contains(t, resp["SourceArn"], "arn:aws:sagemaker")
+				assert.Contains(t, resp["DestinationArn"], "arn:aws:sagemaker")
 			}
 		})
 	}
