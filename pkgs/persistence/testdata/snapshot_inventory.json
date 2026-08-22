@@ -14611,6 +14611,7 @@
       "Consumer.ConsumerName string `json:\"consumerName\"`",
       "Consumer.ConsumerStatus string `json:\"consumerStatus\"`",
       "Consumer.StreamARN string `json:\"streamARN\"`",
+      "Consumer.Tags map[string]string `json:\"tags,omitempty\"`",
       "MinimumThroughputBillingCommitmentOutput.EarliestAllowedEndAt time.Time `json:\"earliestAllowedEndAt\"`",
       "MinimumThroughputBillingCommitmentOutput.EndedAt time.Time `json:\"endedAt\"`",
       "MinimumThroughputBillingCommitmentOutput.StartedAt time.Time `json:\"startedAt\"`",
