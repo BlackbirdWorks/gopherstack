@@ -871,3 +871,38 @@ is byte-identical, and `deserializers.go` has zero diffs touching any of the
 timestamp shapes named above between v1.97.2 and v1.101.4 -- op count is
 123/123 in both. All citations now correctly read v1.101.4, and `sdk_module`
 above is corrected to match.
+
+## 2026-08-22 gopherstack-wlo1: error envelope is wire shape too
+
+Two dispatch-failure sites in `handleREST` -- the "invalid JSON body" 400
+and the "unknown operation" 404 -- wrote a JSON body via `keyMessage` alone,
+without ever setting `amznErrorTypeHeader` (X-Amzn-Errortype). The genuine
+backend-error path (`respondErr`, which calls `errType(err)`) already set
+this header correctly, so this affected only these two malformed/dispatch
+paths, not every operation. aws-sdk-go-v2/service/medialive@v1.101.4's
+`awsRestjson1_deserializeOpError*` functions read X-Amzn-ErrorType first,
+falling back to a body `code`/`__type` field only if absent (confirmed via
+`deserializeOpErrorDescribeChannel`, which models `NotFoundException`, and
+`deserializeOpErrorCreateChannel`, which models `BadRequestException` --
+both in deserializers.go). With neither header nor body type set, both
+paths decoded client-side as `smithy.GenericAPIError{Code:"UnknownError"}`.
+
+Fixed by setting `amznErrorTypeHeader` to `"BadRequestException"` (matches
+`errType`'s `awserr.ErrInvalidParameter` mapping) before the malformed-body
+response, and to `"NotFoundException"` (matches `errType`'s
+`awserr.ErrNotFound` mapping, and the 404 status already in use) before the
+unknown-operation response.
+
+Proof: since no real SDK operation can construct a malformed body or an
+unrecognised route on its own, `handler_error_type_test.go` adds two tests
+that drive a genuine `medialivesdk.Client` through smithy middleware that
+corrupts the outgoing request after normal serialization/signing --
+`TestCreateChannel_MalformedBodySurfacesBadRequestException` (corrupts the
+body) and `TestCreateChannel_UnrecognisedRouteSurfacesNotFoundException`
+(rewrites the path to one `classifyPath` doesn't recognise, keeping the
+`/prod/` prefix `RouteMatcher` requires). Both confirmed failing against
+the unfixed `handler.go` (asserted "UnknownError" instead of the intended
+code) via hand-revert, then restored byte-identical (md5sum-verified).
+Same bug class as the sibling mediatailor (f41d5b42f) and vpclattice
+(gopherstack-wlo1, this session) services, and the s3control/iot instances
+that opened gopherstack-wlo1.

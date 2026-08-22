@@ -13,10 +13,7 @@ func (h *Handler) handleCreateResourceConfiguration(c *echo.Context, body map[st
 	resourceType, _ := body[keyType].(string)
 
 	if name == "" || resourceType == "" {
-		return c.JSON(
-			http.StatusBadRequest,
-			map[string]any{keyMessage: "name and type are required"},
-		)
+		return validationError(c, "name and type are required")
 	}
 
 	protocol, _ := body[keyProtocol].(string)

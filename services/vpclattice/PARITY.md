@@ -178,6 +178,47 @@ off-limits this pass, untouched here) -- confirmed via `git status` and
 `git diff --stat` that `services/sagemaker/notebook_instances.go` was
 modified by a concurrent process during this batch, not by this pass.
 
+# 2026-08-22 gopherstack-wlo1: error envelope is wire shape too. 12 call
+sites across this package wrote a 400/404 JSON body (via the direct
+required-field checks in handler_access_log_subscriptions.go,
+handler_domain_verifications.go, handler_listeners.go,
+handler_resource_configurations.go, handler_resource_gateways.go,
+handler_rules.go, handler_service_network_associations.go (x2),
+handler_service_networks.go, handler_target_groups.go, plus handler.go's
+"invalid JSON body" and "unknown operation" dispatch-failure paths) without
+ever setting X-Amzn-Errortype or a body code/__type field. vpclattice's own
+handleError already did this correctly for genuine backend errors (see the
+existing amznErrorTypeHeader comment) -- these 12 sites bypass handleError
+entirely, so they were mute. aws-sdk-go-v2/service/vpclattice@v1.25.5's
+awsRestjson1_deserializeOpError* functions (e.g. deserializers.go's
+CreateService error path) read X-Amzn-ErrorType first, falling back to a
+body "code"/"__type" field only if the header is absent -- with neither
+present, every one of these 12 responses decoded client-side as
+smithy.GenericAPIError{Code:"UnknownError"}, discarding the real
+ValidationException/ResourceNotFoundException classification (though the
+message text itself did survive, since these paths used the correct
+"message" key).
+
+Fixed via a shared `validationError(c, msg)` helper (sets
+X-Amzn-Errortype: ValidationException, matching handleError's
+awserr.ErrInvalidParameter mapping) for the 11 required-field/malformed-body
+sites, and an explicit header set for "unknown operation" using
+ResourceNotFoundException (matching the 404 status already in use, and
+handleError's awserr.ErrNotFound mapping).
+
+Proof: TestCreateService_EmptyNameSurfacesValidationException
+(handler_error_type_test.go) drives a real vpclatticesdk.Client with an
+explicit empty (not nil) Name -- validateOpCreateServiceInput
+(validators.go:1946-1958) only rejects a nil Name client-side, so the empty
+string reaches the server and exercises handleCreateService's own check.
+Confirmed failing against the unfixed code (asserted "UnknownError" instead
+of "ValidationException") via hand-revert of all 11 touched files, restored
+byte-identical (md5sum-verified). This is the same bug class already fixed
+in mediatailor (f41d5b42f) and confirmed again in vpclattice's sibling
+GetService test (TestGetService_UnknownServiceSurfacesResourceNotFoundException,
+gopherstack-ifni) -- this pass found and fixed the remaining 12 direct
+validation call sites that neither of those two prior fixes touched.
+
 `services/_REQUIRED_OUTPUT_CANDIDATES.md` updated: vpclattice moved from
 the ranked table into "Already examined" (settled-services count now 27,
 2043 required output fields read end to end).

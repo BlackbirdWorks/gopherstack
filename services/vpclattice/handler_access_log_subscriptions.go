@@ -14,10 +14,7 @@ func (h *Handler) handleCreateALS(c *echo.Context, body map[string]any) error {
 	logType, _ := body["serviceNetworkLogType"].(string)
 
 	if resourceID == "" || destArn == "" {
-		return c.JSON(
-			http.StatusBadRequest,
-			map[string]any{keyMessage: "resourceIdentifier and destinationArn are required"},
-		)
+		return validationError(c, "resourceIdentifier and destinationArn are required")
 	}
 
 	ctx := c.Request().Context()

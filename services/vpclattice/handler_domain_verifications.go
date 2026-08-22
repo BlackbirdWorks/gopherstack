@@ -11,7 +11,7 @@ import (
 func (h *Handler) handleStartDomainVerification(c *echo.Context, body map[string]any) error {
 	domainName, _ := body[keyDomainName].(string)
 	if domainName == "" {
-		return c.JSON(http.StatusBadRequest, map[string]any{keyMessage: "domainName is required"})
+		return validationError(c, "domainName is required")
 	}
 
 	ctx := c.Request().Context()

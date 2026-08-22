@@ -15,7 +15,7 @@ func (h *Handler) handleCreateRule(
 ) error {
 	name, _ := body[keyName].(string)
 	if name == "" {
-		return c.JSON(http.StatusBadRequest, map[string]any{keyMessage: keyNameRequired})
+		return validationError(c, keyNameRequired)
 	}
 
 	priority := bodyInt32(body, keyPriority)

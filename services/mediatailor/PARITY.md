@@ -565,3 +565,41 @@ the two cascade-delete leak fixes noted above.
     `go test -race ./pkgs/...` — all green, 0 new `//nolint` for
     cyclop/gocyclo/gocognit/funlen. SDK pinned (`go.mod`), no
     dependency-boundary exception needed.
+
+## 2026-08-22 gopherstack-wlo1: error envelope is wire shape too
+
+Two dispatch-failure sites in `handleREST` -- the "invalid JSON body" 400
+and the "unknown operation" 404 -- wrote a JSON body via `keyMessage`
+alone, without ever setting `amznErrorTypeHeader` (X-Amzn-Errortype). The
+genuine backend-error path (`respondErr`/`errType`) already set this header
+correctly (per its own doc comment, itself a fix for this exact class in
+f41d5b42f), so this affected only these two malformed/dispatch paths.
+aws-sdk-go-v2/service/mediatailor@v1.63.4's
+`awsRestjson1_deserializeOpError*` functions read X-Amzn-ErrorType first,
+falling back to a body `code`/`__type` field only if absent -- confirmed
+against `deserializeOpErrorGetPlaybackConfiguration` (deserializers.go),
+whose `switch` has only a `default` branch producing
+`smithy.GenericAPIError{Code: errorCode}` from whatever code the header/body
+resolved to, so an absent header/body type is indistinguishable from a
+deliberately-generic error at deserialize time. With neither set, both
+paths decoded client-side as `Code:"UnknownError"`.
+
+Fixed by setting `amznErrorTypeHeader` to `"BadRequestException"` before the
+malformed-body response and to `"NotFoundException"` before the
+unknown-operation response, matching `errType`'s
+`awserr.ErrInvalidParameter`/`awserr.ErrNotFound` mappings respectively (and
+the 400/404 statuses already in use).
+
+Proof: `handler_error_type_test.go` (new) drives a genuine
+`mediatailorsdk.Client` through smithy middleware that corrupts the
+outgoing request after normal serialization/signing --
+`TestPutPlaybackConfiguration_MalformedBodySurfacesBadRequestException`
+(corrupts the body) and
+`TestPutPlaybackConfiguration_UnrecognisedRouteSurfacesNotFoundException`
+(rewrites the request to `PATCH /playbackConfiguration/{name}`, a
+combination `isMediaTailorPath` accepts but `classifyPath` doesn't
+recognise). Both confirmed failing against the unfixed `handler.go`
+(asserted "UnknownError") via hand-revert, then restored byte-identical
+(md5sum-verified). Same bug class as the sibling medialive service
+(gopherstack-wlo1, this session) and the s3control/iot instances that
+opened gopherstack-wlo1.

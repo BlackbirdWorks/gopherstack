@@ -444,6 +444,8 @@ func (h *Handler) handleREST(c *echo.Context) error {
 	if c.Request().ContentLength != 0 {
 		if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil &&
 			err.Error() != "EOF" {
+			c.Response().Header().Set(amznErrorTypeHeader, "BadRequestException")
+
 			return c.JSON(http.StatusBadRequest, map[string]any{keyMessage: "invalid JSON body"})
 		}
 	}
@@ -459,6 +461,8 @@ func (h *Handler) handleREST(c *echo.Context) error {
 	if fn, ok := h.parityHandlers(c, resource, body)[op]; ok {
 		return fn()
 	}
+
+	c.Response().Header().Set(amznErrorTypeHeader, "NotFoundException")
 
 	return c.JSON(http.StatusNotFound, map[string]any{keyMessage: "unknown operation"})
 }
