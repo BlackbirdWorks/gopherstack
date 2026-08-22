@@ -193,6 +193,43 @@ func TestWireShape_AddJobFlowSteps_ExecutionRoleArn(t *testing.T) {
 		awssdk.ToString(descOut.Step.ExecutionRoleArn))
 }
 
+// TestWireShape_DescribeJobFlows_LastStateChangeReason proves the legacy
+// DescribeJobFlows response keys its execution status message
+// LastStateChangeReason, not StateChangeReason: real
+// types.JobFlowExecutionStatusDetail (emr@v1.64.4 deserializers.go's
+// awsAwsjson11_deserializeDocumentJobFlowExecutionStatusDetail case list) has
+// no StateChangeReason member at all. Before this fix every real client's
+// LastStateChangeReason decoded empty regardless of backend state.
+func TestWireShape_DescribeJobFlows_LastStateChangeReason(t *testing.T) {
+	t.Parallel()
+
+	backend := emr.NewInMemoryBackend(testAccountID, testRegion)
+	h := emr.NewHandler(backend)
+	client := newTestEMRClient(t, h)
+	ctx := t.Context()
+
+	runOut, err := client.RunJobFlow(ctx, &emrsdk.RunJobFlowInput{
+		Name:      awssdk.String("job-flows-state-reason-cluster"),
+		Instances: &emrtypes.JobFlowInstancesConfig{},
+	})
+	require.NoError(t, err)
+
+	_, err = client.TerminateJobFlows(ctx, &emrsdk.TerminateJobFlowsInput{
+		JobFlowIds: []string{awssdk.ToString(runOut.JobFlowId)},
+	})
+	require.NoError(t, err)
+
+	//nolint:staticcheck // SA1019: DescribeJobFlows is deprecated but still real on the wire
+	descOut, err := client.DescribeJobFlows(ctx, &emrsdk.DescribeJobFlowsInput{
+		JobFlowIds: []string{awssdk.ToString(runOut.JobFlowId)},
+	})
+	require.NoError(t, err)
+	require.Len(t, descOut.JobFlows, 1)
+	require.NotNil(t, descOut.JobFlows[0].ExecutionStatusDetail)
+	assert.Equal(t, "Terminated by user request",
+		awssdk.ToString(descOut.JobFlows[0].ExecutionStatusDetail.LastStateChangeReason))
+}
+
 // TestWireShape_Cluster_TerminatedAt_NotOnWire proves the internal
 // terminatedAt cleanup timestamp (janitor.go's TTL sweep) never reaches a
 // real client: real types.Cluster has no such member (emr@v1.64.4
