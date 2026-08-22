@@ -93,6 +93,28 @@ func isBlockFieldName(name string) bool {
 	}
 }
 
+// lastAuditCommitRe matches a bare git commit sha, short or full. Empty is
+// allowed (schema's "absent field" class -- gopherstack-33in's own fix for
+// an unrecoverable stamp); anything else non-empty must be sha-shaped.
+var lastAuditCommitRe = regexp.MustCompile(`^[0-9a-f]{7,40}$`)
+
+// checkLastAuditCommitToken appends a Warnings entry when value is non-empty
+// and not sha-shaped. gopherstack-33in found 20 manifests carrying prose
+// ("pending", "HEAD", "PENDING_COMMIT", "UNKNOWN_SEE_GIT_LOG", ...) in a
+// field the re-audit protocol (git diff <last_audit_commit>..HEAD) treats as
+// a commit-ish; this is the same hard-failure treatment checkStatusToken
+// gives an unrecognized status token, so the defect can't recur silently.
+func checkLastAuditCommitToken(doc *ParityDoc, path string, offset, lineIdx int, value string) {
+	if value == "" || lastAuditCommitRe.MatchString(value) {
+		return
+	}
+
+	doc.Warnings = append(doc.Warnings, fmt.Sprintf(
+		"%s:%d: last_audit_commit: value %q is not a commit sha",
+		path, offset+lineIdx+1, value,
+	))
+}
+
 // checkStatusToken appends a Warnings entry when value is a non-empty status
 // token classifyToken cannot place in its closed vocabulary -- the same
 // hard-failure treatment gopherstack-7o96 gave an entry gendocs can't parse
@@ -129,12 +151,17 @@ var listItemRe = regexp.MustCompile(`^\s*-\s+(.*)$`)
 // name in services/rds/PARITY.md — see matchEntry (gopherstack-jw5s).
 const keyLeaks = "leaks"
 
+// keyLastAuditCommit is the reserved top-level "last_audit_commit:" key,
+// named separately so checkLastAuditCommitToken's validation site doesn't
+// duplicate the literal (goconst).
+const keyLastAuditCommit = "last_audit_commit"
+
 // reservedTopLevelKeys are the only keys the schema defines at column 0.
 // Anything else found at column 0 inside an ops:/families: block is treated
 // as a (mis-indented) block entry rather than a new section.
 func isReservedKey(key string) bool {
 	switch key {
-	case "service", "sdk_module", "last_audit_commit", "last_audit_date",
+	case "service", "sdk_module", keyLastAuditCommit, "last_audit_date",
 		"overall", "protocol", "ops", "families", "gaps", "structural_gaps", labelDeferred, keyLeaks:
 		return true
 	default:
@@ -212,6 +239,9 @@ func parseFrontmatter(lines []string, doc *ParityDoc, path string, offset int) {
 
 		key, rest := m[1], m[2]
 		if parseScalarField(doc, key, rest) {
+			if key == keyLastAuditCommit {
+				checkLastAuditCommitToken(doc, path, offset, i, doc.LastAuditCommit)
+			}
 			i++
 
 			continue
@@ -244,7 +274,7 @@ func parseScalarField(doc *ParityDoc, key, rest string) bool {
 		doc.Service = cleanScalar(rest)
 	case "sdk_module":
 		doc.SDKModule = cleanScalar(rest)
-	case "last_audit_commit":
+	case keyLastAuditCommit:
 		doc.LastAuditCommit = cleanScalar(rest)
 	case "last_audit_date":
 		doc.LastAuditDate = cleanScalar(rest)
@@ -262,9 +292,15 @@ func parseScalarField(doc *ParityDoc, key, rest string) bool {
 }
 
 // cleanScalar trims a single-line frontmatter scalar value: strips a
-// trailing " #..." comment, then surrounding quotes.
+// trailing " #..." comment, then surrounding quotes. A value that is only
+// whitespace before the comment (e.g. "key:   # note") trims to an empty
+// string rather than the comment text -- gopherstack-33in's fix left
+// several last_audit_commit fields exactly this shape on purpose.
 func cleanScalar(raw string) string {
 	v := strings.TrimSpace(raw)
+	if strings.HasPrefix(v, "#") {
+		return ""
+	}
 	if idx := strings.Index(v, " #"); idx >= 0 {
 		v = strings.TrimSpace(v[:idx])
 	}

@@ -349,6 +349,108 @@ gaps: []
 	}
 }
 
+func TestParseParityFile_LastAuditCommitToken(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		content string
+		wantErr bool
+	}{
+		{
+			name: "short sha",
+			content: `---
+service: example
+last_audit_commit: c79ebf1b5
+overall: A
+---
+`,
+			wantErr: false,
+		},
+		{
+			name: "full sha",
+			content: `---
+service: example
+last_audit_commit: 8ddfcca9b7157a079a75e8cda1d26d70118f4ae9
+overall: A
+---
+`,
+			wantErr: false,
+		},
+		{
+			name: "absent value",
+			content: `---
+service: example
+last_audit_commit:                                # unknown: pass ran without git access -- gopherstack-33in
+overall: A
+---
+`,
+			wantErr: false,
+		},
+		{
+			name: "field omitted entirely",
+			content: `---
+service: example
+overall: A
+---
+`,
+			wantErr: false,
+		},
+		{
+			name: "HEAD placeholder",
+			content: `---
+service: example
+last_audit_commit: HEAD
+overall: A
+---
+`,
+			wantErr: true,
+		},
+		{
+			name: "prose placeholder",
+			content: `---
+service: example
+last_audit_commit: pending (uncommitted this pass -- see git log at merge time)
+overall: A
+---
+`,
+			wantErr: true,
+		},
+		{
+			name: "sha with trailing suffix",
+			content: `---
+service: example
+last_audit_commit: 749ff939+wt
+overall: A
+---
+`,
+			wantErr: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			dir := t.TempDir()
+			path := filepath.Join(dir, "PARITY.md")
+			require.NoError(t, os.WriteFile(path, []byte(tc.content), 0o600))
+
+			doc, err := ParseParityFile(path)
+			require.NoError(t, err)
+
+			runErr := checkParseWarnings([]*ParityDoc{doc})
+			if tc.wantErr {
+				assert.NotEmpty(t, doc.Warnings)
+				require.Error(t, runErr)
+			} else {
+				assert.Empty(t, doc.Warnings)
+				require.NoError(t, runErr)
+			}
+		})
+	}
+}
+
 func TestParseParityFile_BlockStyleOpCounted(t *testing.T) {
 	t.Parallel()
 
