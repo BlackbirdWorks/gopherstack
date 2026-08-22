@@ -87,6 +87,20 @@
 // actually wrote the flagged key, and whether that write reaches the HTTP
 // response, before trusting any MISMATCH this tool reports.
 //
+// TWO RECURRING SHAPES of blind spot #2, both found live re-sweeping for
+// gopherstack-zquj and worth naming explicitly rather than re-discovering
+// per service: (a) a shared helper writes a key inside an "if cond"
+// conditional (e.g. comprehend's matchResult only sets "Type" when its kind
+// argument is non-empty); every caller of the helper is credited with the
+// key regardless of whether that call site's arguments ever satisfy the
+// condition, so a caller that always passes the empty case (DetectKeyPhrases
+// calling matchResult with kind="") gets a false MISMATCH for a key it can
+// never actually emit. (b) the walk reaches an op's own error-path
+// construction (a *_test.go-free exception/failure type built for the same
+// op, e.g. timestreamwrite's RejectedRecords[].ExistingVersion), which is
+// real and correct on the error response but doesn't appear in the success
+// deserializer this tool diffs against.
+//
 // KNOWN BLIND SPOT #4, found live during the gopherstack-0kk8 dispatch-table
 // sweep: analyzeFunc/extractCases only understands a deserializer function
 // shaped as a map[string]interface{} type-assert followed by a switch on
@@ -148,6 +162,23 @@
 // wafv2 (CheckCapacity's "ConsumedCapacity" replaced the real "Capacity" and
 // dropped the value entirely; GetWebACLForResource's "LockToken" sits beside
 // a correct response and is just ignored noise).
+//
+// KNOWN BLIND SPOT #7, found live during the gopherstack-zquj re-sweep: op
+// resolution matches the handler's dispatch-table KEY against the SDK's
+// PascalCase operation name verbatim. Several restjson1 services key their
+// dispatch table by REST path (or method+path) instead of the operation name
+// -- account ("/acceptPrimaryEmailUpdate"), batch ("/v1/canceljob"), mgn
+// ("DELETE tags"), appmesh ("meshes"), xray ("/CancelTraceRetrieval"), and at
+// least eight more -- so every op in the service reports UnresolvedOps even
+// though HandlerOpsResolved shows the dispatch table itself resolved fully
+// (mgn: 95/95, resiliencehub: 63/63, xray: 38/38). This is a fail-loud false
+// negative on the whole service, not a false clean, so it is safe by this
+// tool's own contract -- but it means a large share of the "unresolved" exit
+// code across restjson1 services is this gap, not a genuinely unreadable
+// dispatch table, and should not be assumed equivalent to services with zero
+// HandlerOpsResolved. Not fixed here: the resolver would need the same
+// operation-name recovery a real router does (path template matching against
+// each op's http trait), which is real work, not a one-line change.
 //
 // Usage:
 //

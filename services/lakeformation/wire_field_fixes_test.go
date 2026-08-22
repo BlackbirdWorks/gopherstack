@@ -306,3 +306,39 @@ func TestUpdateIdentityCenterConfiguration_ShareRecipients_EmptyListClears(t *te
 		assert.Empty(t, desc.ShareRecipients)
 	})
 }
+
+// TestGetEffectivePermissionsForPath_RealSDKClient_PermissionsKey proves
+// gopherstack-zquj: getEffectivePermissionsForPathOutput tagged its grant
+// list json:"PrincipalResourcePermissions" (correct for ListPermissions'
+// sibling type) but the real GetEffectivePermissionsForPathOutput
+// deserializer switches on "Permissions"
+// (deserializers.go: awsRestjson1_deserializeOpDocumentGetEffectivePermissionsForPathOutput,
+// lakeformation@v1.50.4) -- every real client decoded Permissions as nil.
+func TestGetEffectivePermissionsForPath_RealSDKClient_PermissionsKey(t *testing.T) {
+	t.Parallel()
+
+	h := lakeformation.NewHandler(lakeformation.NewInMemoryBackend())
+	client := newTestLakeFormationClient(t, h)
+
+	_, err := client.GrantPermissions(t.Context(), &lakeformationsdk.GrantPermissionsInput{
+		Principal: &types.DataLakePrincipal{
+			DataLakePrincipalIdentifier: aws.String("arn:aws:iam::123456789012:user/alice"),
+		},
+		Resource: &types.Resource{
+			Database: &types.DatabaseResource{Name: aws.String("salesdb")},
+		},
+		Permissions: []types.Permission{types.PermissionDescribe},
+	})
+	require.NoError(t, err)
+
+	out, err := client.GetEffectivePermissionsForPath(
+		t.Context(),
+		&lakeformationsdk.GetEffectivePermissionsForPathInput{
+			ResourceArn: aws.String("arn:aws:glue:us-east-1:123456789012:database/salesdb"),
+		},
+	)
+	require.NoError(t, err)
+	require.Len(t, out.Permissions, 1)
+	assert.Equal(t, "arn:aws:iam::123456789012:user/alice",
+		aws.ToString(out.Permissions[0].Principal.DataLakePrincipalIdentifier))
+}

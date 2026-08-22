@@ -25325,7 +25325,7 @@
       "SubtitlesOutput.Formats []string `json:\"Formats,omitempty\"`",
       "SubtitlesOutput.OutputStartIndex int32 `json:\"OutputStartIndex,omitempty\"`",
       "SubtitlesOutput.SubtitleFileURIs []string `json:\"SubtitleFileUris,omitempty\"`",
-      "SummarizationSettings.GenerateSummary bool `json:\"GenerateSummary\"`",
+      "SummarizationSettings.GenerateAbstractiveSummary bool `json:\"GenerateAbstractiveSummary\"`",
       "ToxicityDetectionSettings.ToxicityCategories []string `json:\"ToxicityCategories\"`",
       "TranscriptFilter.AbsoluteTimeRange *AbsoluteTimeRange `json:\"AbsoluteTimeRange,omitempty\"`",
       "TranscriptFilter.Negate bool `json:\"Negate,omitempty\"`",
@@ -25386,7 +25386,7 @@
       "backendSnapshot.ResourceTags map[string]map[string]string `json:\"resourceTags\"`",
       "backendSnapshot.Tables map[string]json.RawMessage `json:\"tables\"`"
     ],
-    "version": 1
+    "version": 2
   },
   "transfer": {
     "fields": [

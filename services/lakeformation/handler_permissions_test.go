@@ -246,7 +246,7 @@ func TestGetEffectivePermissionsForPath_Empty(t *testing.T) {
 
 	var out map[string]any
 	require.NoError(t, jsonDecode(rec.Body, &out))
-	assert.NotNil(t, out["PrincipalResourcePermissions"])
+	assert.NotNil(t, out["Permissions"])
 }
 
 // --- ListTableStorageOptimizers type filter ---

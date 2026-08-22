@@ -1098,8 +1098,8 @@ type getEffectivePermissionsForPathInput struct {
 	MaxResults  int    `json:"MaxResults,omitempty"`
 }
 type getEffectivePermissionsForPathOutput struct {
-	NextToken                    string                 `json:"NextToken,omitempty"`
-	PrincipalResourcePermissions []*permissionEntryWire `json:"PrincipalResourcePermissions"`
+	NextToken   string                 `json:"NextToken,omitempty"`
+	Permissions []*permissionEntryWire `json:"Permissions"`
 }
 
 type getLFTagExpressionInput struct {

@@ -150,7 +150,9 @@ func (h *Handler) handleListHostKeys(
 			keyArn:         hostKeyARN(hk.AccountID, hk.Region, hk.ServerID, hk.HostKeyID),
 		}
 		if hk.Fingerprint != "" {
-			item["HostKeyFingerprint"] = hk.Fingerprint
+			// Real ListedHostKey's member is "Fingerprint" -- DescribedHostKey
+			// (DescribeHostKey, above) is the one that uses "HostKeyFingerprint".
+			item["Fingerprint"] = hk.Fingerprint
 		}
 		out[i] = item
 	}

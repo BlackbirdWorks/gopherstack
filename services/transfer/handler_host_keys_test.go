@@ -96,9 +96,9 @@ func TestHandler_ListHostKeysIncludesFingerprintAndArn(t *testing.T) {
 
 	item := hostKeys[0].(map[string]any)
 
-	fp, hasFp := item["HostKeyFingerprint"].(string)
-	assert.True(t, hasFp, "HostKeyFingerprint must be present in ListHostKeys items")
-	assert.Contains(t, fp, "SHA256:", "HostKeyFingerprint must start with SHA256:")
+	fp, hasFp := item["Fingerprint"].(string)
+	assert.True(t, hasFp, "Fingerprint must be present in ListHostKeys items (ListedHostKey's real member name)")
+	assert.Contains(t, fp, "SHA256:", "Fingerprint must start with SHA256:")
 
 	dateImported, hasDate := item["DateImported"].(float64)
 	assert.True(t, hasDate, "DateImported must be present in ListHostKeys items as an epoch-seconds JSON number")
