@@ -4,7 +4,25 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"time"
 )
+
+// revisionOf builds the ConfigurationRevision snapshot for c's current
+// (and, in this stub, only) revision. Real MSK bumps the revision number on
+// every UpdateConfiguration call; this backend keeps the single-revision
+// simplification ListConfigurationRevisions/DescribeConfigurationRevision's
+// doc comments already documented before this fix, so revision is always 1
+// and CreationTime mirrors the configuration's own (not the revision's own,
+// distinct in real MSK) creation time.
+func revisionOf(c *Configuration) *ConfigurationRevision {
+	return &ConfigurationRevision{
+		ConfigurationArn: c.Arn,
+		Revision:         1,
+		Description:      c.Description,
+		ServerProperties: c.ServerProperties,
+		CreationTime:     c.CreationTime,
+	}
+}
 
 // CreateConfiguration creates a new MSK configuration.
 func (b *InMemoryBackend) CreateConfiguration(
@@ -37,8 +55,11 @@ func (b *InMemoryBackend) CreateConfiguration(
 		Description:      description,
 		KafkaVersions:    kvs,
 		ServerProperties: serverProperties,
+		CreationTime:     time.Now().UTC().Format(time.RFC3339),
+		State:            ClusterStateActive,
 		Tags:             make(map[string]string),
 	}
+	config.LatestRevision = revisionOf(config)
 	b.configurations.Put(config)
 
 	return cloneConfiguration(config), nil
@@ -111,12 +132,10 @@ func (b *InMemoryBackend) DescribeConfigurationRevision(
 		return nil, ErrNotFound
 	}
 
-	return &ConfigurationRevision{
-		ConfigurationArn: c.Arn,
-		Revision:         revision,
-		Description:      c.Description,
-		ServerProperties: c.ServerProperties,
-	}, nil
+	rev := revisionOf(c)
+	rev.Revision = revision
+
+	return rev, nil
 }
 
 // UpdateConfiguration updates a configuration's server properties and description.
@@ -140,6 +159,8 @@ func (b *InMemoryBackend) UpdateConfiguration(
 		c.ServerProperties = serverProperties
 	}
 
+	c.LatestRevision = revisionOf(c)
+
 	return cloneConfiguration(c), nil
 }
 
@@ -157,14 +178,7 @@ func (b *InMemoryBackend) ListConfigurationRevisions(
 		return nil, ErrNotFound
 	}
 
-	return []*ConfigurationRevision{
-		{
-			ConfigurationArn: c.Arn,
-			Revision:         1,
-			Description:      c.Description,
-			ServerProperties: c.ServerProperties,
-		},
-	}, nil
+	return []*ConfigurationRevision{revisionOf(c)}, nil
 }
 
 func (b *InMemoryBackend) AddConfigurationInternal(name string) *Configuration {
@@ -176,8 +190,11 @@ func (b *InMemoryBackend) AddConfigurationInternal(name string) *Configuration {
 		Arn:           configArn,
 		Name:          name,
 		KafkaVersions: []string{"2.8.0"},
+		CreationTime:  time.Now().UTC().Format(time.RFC3339),
+		State:         ClusterStateActive,
 		Tags:          make(map[string]string),
 	}
+	config.LatestRevision = revisionOf(config)
 	b.configurations.Put(config)
 
 	return cloneConfiguration(config)
@@ -190,12 +207,21 @@ func cloneConfiguration(c *Configuration) *Configuration {
 	kvs := make([]string, len(c.KafkaVersions))
 	copy(kvs, c.KafkaVersions)
 
+	var latestRevision *ConfigurationRevision
+	if c.LatestRevision != nil {
+		rev := *c.LatestRevision
+		latestRevision = &rev
+	}
+
 	return &Configuration{
 		Arn:              c.Arn,
 		Name:             c.Name,
 		Description:      c.Description,
 		ServerProperties: c.ServerProperties,
+		CreationTime:     c.CreationTime,
+		State:            c.State,
 		KafkaVersions:    kvs,
+		LatestRevision:   latestRevision,
 		Tags:             nonNilTagsCopy(c.Tags),
 	}
 }

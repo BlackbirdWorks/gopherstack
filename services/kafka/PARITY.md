@@ -9,6 +9,13 @@ overall: A            # topic/replicator field-name/shape gaps closed; two prior
                        # destroying StartingPositionType/TopicNameConfigurationType (immutable
                        # after Create, so a real client's Update can never resend them). See the
                        # UpdateReplicationInfo op row.
+                       # 2026-08-21 (gopherstack-r80d batch 27): fixed ListConfigurations/
+                       # ListConfigurationRevisions dropping required Configuration.CreationTime/
+                       # LatestRevision and ConfigurationRevision.CreationTime (structurally
+                       # absent fields, not just omitempty). last_audit_commit intentionally left
+                       # unchanged -- this pass's own sha is unknown to the sweep agent, which
+                       # cannot run git; see the dated Notes entry below for the real prior sha
+                       # this work sits on top of.
 ops:
   UpdateBrokerCount: {wire: ok, errors: ok, state: ok, persist: ok, note: "route fixed: was under /api/v2/clusters (wrong, unreachable), now /v1/clusters/{arn}/nodes/count. CurrentVersion now advances on success (see cluster_current_version_advance)."}
   UpdateBrokerStorage: {wire: ok, errors: ok, state: ok, persist: ok, note: "route fixed: now /v1/clusters/{arn}/nodes/storage"}
@@ -33,13 +40,13 @@ ops:
   ListClustersV2: {wire: ok, errors: ok, state: ok, persist: ok, note: "Shares clusterInfoV2/toClusterInfoV2 with DescribeClusterV2 -- inherits the 2026-08-15 gopherstack-6flj fixes above."}
   DeleteCluster: {wire: ok, errors: ok, state: ok, persist: ok}
   GetBootstrapBrokers: {wire: ok, errors: ok, state: ok, persist: n/a, note: "field-diffed this pass against deserializers.go's switch on awsRestjson1_deserializeOpDocumentGetBootstrapBrokersOutput -- found and fixed 4 wrong JSON field names (see notes below). Was marked wire:ok pre-existing without ever being field-diffed; the bug predates this pass."}
-  CreateConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
-  DescribeConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListConfigurations: {wire: ok, errors: ok, state: ok, persist: ok}
+  CreateConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "CreateConfigurationOutput itself marks no member required (Smithy leaves Arn/CreationTime/LatestRevision/Name/State all optional at this op's own level), so this op was never in the required-output-member bug's scope; unaffected by the 2026-08-21 fix below."}
+  DescribeConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "same as CreateConfiguration: DescribeConfigurationOutput's own fields carry zero required annotations in the real SDK, out of this bug class's scope."}
+  ListConfigurations: {wire: fixed, errors: ok, state: ok, persist: ok, note: "2026-08-21 (gopherstack-r80d batch 27): ListConfigurationsOutput.Configurations is []types.Configuration -- the real domain struct, marshaled directly by this handler -- and types.Configuration requires CreationTime (*time.Time) and LatestRevision (*types.ConfigurationRevision), neither of which existed as a field on gopherstack's Configuration model at all (not an omitempty tag, a structurally absent member -- the 'member with no struct field at all' class). Every ListConfigurations call therefore decoded both as nil on a real client despite the SDK's required-field contract, 100% of the time, not an edge case. Fixed: added both fields, populated at CreateConfiguration/UpdateConfiguration/AddConfigurationInternal and propagated through cloneConfiguration. types.Configuration.State (ConfigurationState, non-pointer enum) was also structurally absent -- fixed alongside (harmless either way) but NOT counted as a proven bug per the campaign's provability rule: a non-pointer enum's omitted-vs-zero-value states decode identically to a real client, so no test can distinguish them. Description (*string, required, was tagged omitempty and reachably empty since CreateConfigurationInput.Description is optional) also had its omitempty tag removed so the key is always present, matching the 'required-but-inapplicable means present-and-empty, not absent' convention. Proven via TestListConfigurations_RequiredFields (wire_output_required tests, configuration_field_fixes_test.go), hand-reverted/confirmed-failing/restored, md5sum-verified byte-identical."}
   DeleteConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
-  UpdateConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "route was already correct: PUT /v1/configurations/{arn}"}
-  DescribeConfigurationRevision: {wire: ok, errors: ok, state: ok, persist: n/a}
-  ListConfigurationRevisions: {wire: ok, errors: ok, state: ok, persist: n/a}
+  UpdateConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "route was already correct: PUT /v1/configurations/{arn}. UpdateConfigurationOutput itself marks no member required either (same as Create/Describe above) -- out of this bug class's scope directly, but now also keeps the backing Configuration.LatestRevision in sync so ListConfigurations reflects a post-update Description/ServerProperties (see ListConfigurations note)."}
+  DescribeConfigurationRevision: {wire: ok, errors: ok, state: ok, persist: n/a, note: "DescribeConfigurationRevisionOutput duplicates ConfigurationRevision's fields directly on its own (unrequired) Output struct rather than embedding types.ConfigurationRevision, so this op's own CreationTime is not required by the wire contract -- out of the counted bug's scope, though the backend now populates it anyway via the shared revisionOf helper (see ListConfigurationRevisions note), so the gap closed as a side effect without being separately proven."}
+  ListConfigurationRevisions: {wire: fixed, errors: ok, state: ok, persist: n/a, note: "2026-08-21 (gopherstack-r80d batch 27): Revisions is []types.ConfigurationRevision -- the real domain struct, marshaled directly -- and types.ConfigurationRevision requires CreationTime (*time.Time, provable), structurally absent from gopherstack's ConfigurationRevision model (same class as ListConfigurations above, same fix commit). Every call unconditionally omitted the key. Fixed by adding the field, threaded through a new revisionOf(c *Configuration) helper CreateConfiguration/UpdateConfiguration/DescribeConfigurationRevision/ListConfigurationRevisions/AddConfigurationInternal all now share, so the one revision this stub models (see the pre-existing 'single revision' doc comments) always carries the same CreationTime as its owning Configuration. Proven via TestListConfigurationRevisions_CreationTime, hand-reverted/confirmed-failing/restored, md5sum-verified byte-identical."}
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: n/a}
@@ -79,7 +86,7 @@ families:
   cluster_v1_v2_crud: {status: ok, note: "CreateCluster(V2)/DescribeCluster(V2)/ListClusters(V2)/DeleteCluster verified wire-accurate; CREATING->ACTIVE lazy-poll transition confirmed correct"}
   cluster_update_ops: {status: ok, note: "10 Update* ops were 100% unreachable pre-fix (routed under wrong /api/v2/clusters prefix while the real SDK sends them to /v1/clusters/{arn}/...); fixed. CurrentVersion optimistic-lock token now advances on every successful update (see cluster_current_version_advance) -- a second Update* call against the same cluster must fetch the version the first call left behind, matching real MSK; TestClusterOperationTracking_V1 and TestUpdateOpsRequireCurrentVersion cover both the advance and the stale-version rejection."}
   cluster_current_version_advance: {status: ok, note: "Cluster.CurrentVersion (and Replicator.CurrentVersion, same mechanism) now advances via nextVersionToken() on every successful mutating operation (newClusterOperationLocked for clusters; UpdateReplicationInfo for replicators), closing the gap where a second update against the same resource incorrectly succeeded while reusing a stale version."}
-  configuration_crud_and_revisions: {status: ok}
+  configuration_crud_and_revisions: {status: ok, note: "2026-08-21 (gopherstack-r80d batch 27): fixed required-output-member gaps in the List* ops' domain-struct item shapes (Configuration.CreationTime/LatestRevision, ConfigurationRevision.CreationTime) -- see ListConfigurations/ListConfigurationRevisions op notes."}
   tags: {status: ok}
   scram_secrets: {status: ok}
   vpc_connection: {status: ok, note: "ListClientVpcConnections had a real wire-envelope/shape bug (wrong JSON key + wrong item shape, returning an empty list to every real client) found and fixed this pass despite being marked ok previously -- see the ListClientVpcConnections op note. CreateVpcConnection/DescribeVpcConnection field-diffed and closed (clientSubnets/securityGroups/creationTime were missing). ListVpcConnections and RejectClientVpcConnection route fixes from the prior pass reconfirmed correct."}
@@ -143,6 +150,83 @@ leaks: {status: clean, note: "no goroutines/timers introduced or found this pass
 ---
 
 ## Notes
+
+**2026-08-21 (gopherstack-r80d batch 27, required-output-member sweep):**
+Module confirmed as `aws-sdk-go-v2/service/kafka@v1.57.2` directly (no
+`dirModuleOverride` entry; only one `kafka` directory/module exists in this
+repo, no `kafkaconnect`/near-name sibling to confuse it with). `git status`
+clean for `services/kafka/` before starting.
+
+`cmd/requiredoutputfields` flags 9 required fields across 4 ops, all the
+Channel family: `CreateChannel`/`DeleteChannel`/`UpdateChannel` (`ChannelArn`,
+`*string`) and `DescribeChannel` (`ChannelArn`/`ChannelName`/`CreationTime`/
+`DestinationType`/`Status`/`TopicConfigurationList`). Independently
+reproduced via a fresh `go/parser` AST walk (scratch tool, not committed)
+with zero disagreement.
+
+**Channel family: 0 bugs, 1 candidate rejected.** `ChannelArn`/`ChannelName`/
+`DestinationType`/`Status`/`TopicConfigurationList` all carry no `omitempty`
+in `describeChannelOutput`/`channelOperationOutput` (`handler_channels.go`)
+-- always emitted regardless of value. `CreationTime` (`*time.Time` in the
+SDK, provable) IS tagged `omitempty` here and looked like a live candidate,
+but is **disqualified under the "populated on every write path" ground**:
+`CreateChannel` (`channels.go:77`) always sets it via
+`time.Now().UTC().Format(time.RFC3339)`, `cloneChannel` (`channels.go:372`)
+always preserves it, and `UpdateChannel` mutates through `cloneChannel` too
+-- there is no code path that ever persists a `Channel` with an empty
+`CreationTime`, so the `omitempty` tag is structurally dead, not a live gap.
+The one path that *does* construct a zero-`CreationTime` `Channel`
+(`DeleteChannel`'s return value, `channels.go:236`) is never rendered
+through `describeChannelOutput` -- `handleDeleteChannel` uses the separate
+`channelOperationOutput` shape, which has no `CreationTime` field at all.
+Looked one level deeper via `ListChannels`' `types.ChannelInfo` item shape
+(0 required fields at `ListChannelsOutput`'s own op level, but `ChannelInfo`
+itself requires the same 5 members as `DescribeChannelOutput`) -- same
+conclusion: `channelInfoOutput.CreationTime` is also `omitempty` but also
+always populated by the same `Channel`-store invariant.
+
+**Configuration family: 2 bugs found and fixed, both "member with no struct
+field at all" (not merely `omitempty`).** Unlike the Channel family, this
+family's op-level Output structs (`CreateConfigurationOutput`,
+`DescribeConfigurationOutput`, `DescribeConfigurationRevisionOutput`,
+`UpdateConfigurationOutput`) mark **zero** members required in the real SDK
+-- Smithy leaves them all optional at that op's own level, confirmed by
+reading each `api_op_*.go` directly, so those four ops are out of this bug
+class's scope entirely regardless of what gopherstack does. But
+`ListConfigurationsOutput.Configurations` is typed `[]types.Configuration`
+and `ListConfigurationRevisionsOutput.Revisions` is `[]types.ConfigurationRevision`
+-- the real domain structs, marshaled directly by gopherstack's handlers,
+not a per-op DTO -- and those domain structs *do* carry real required
+members (`types.Configuration`: `Arn`/`CreationTime`/`Description`/
+`KafkaVersions`/`LatestRevision`/`Name`/`State`; `types.ConfigurationRevision`:
+`CreationTime`/`Revision`), invisible to the flat per-op scan since the
+wrapping `Configurations`/`Revisions` fields themselves aren't required.
+gopherstack's `Configuration`/`ConfigurationRevision` models had no
+`CreationTime` or `LatestRevision` field **at all** (not an `omitempty`
+choice -- structurally absent, the same class as a prior pass's iam
+`JobCompletionDate` finding), so both `List*` ops omitted these unconditionally,
+on every call, not as an edge case. Fixed: added both fields to the models,
+populated at `CreateConfiguration`/`UpdateConfiguration`/
+`AddConfigurationInternal` and threaded through a new shared `revisionOf`
+helper so `DescribeConfigurationRevision`/`ListConfigurationRevisions` stay
+consistent with the owning `Configuration`'s own timestamp (this backend
+already documented a "single revision" simplification predating this fix;
+not expanded here). `State` (`ConfigurationState`, non-pointer enum) was
+also structurally absent and fixed alongside for correctness, but is **not**
+counted as a proven bug: a non-pointer enum's omitted-vs-zero-value states
+decode identically to a real client, so no test distinguishes them (same
+provability rule the campaign has applied throughout). `Description`
+(`*string`, required, reachably empty since `CreateConfigurationInput.Description`
+is optional) had its `omitempty` tag removed too, so the key is always
+present per the "required-but-inapplicable means present-and-empty"
+convention. Both counted fixes proven via real `aws-sdk-go-v2/service/kafka`
+client round trips (`configuration_field_fixes_test.go`:
+`TestListConfigurations_RequiredFields`, `TestListConfigurationRevisions_CreationTime`),
+hand-reverted against `git show HEAD:services/kafka/{models,configurations}.go`
+(confirmed both tests fail against the pre-fix code), restored, md5sum-verified
+byte-identical. No exported function signatures changed (only new fields on
+existing exported structs); `go build ./...`, `go vet -tags e2e ./...`, and
+`go vet -tags integration ./...` all clean repo-wide.
 
 **2026-08-15 (gopherstack-6flj wrapper-key sweep):** kafka was already
 heavily audited under other issue classes (h910, jqh2, dv4s, mk3t) with

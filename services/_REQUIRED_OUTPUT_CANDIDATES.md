@@ -175,18 +175,25 @@ from the ranked table) as future batches clear more of it.
 | timestreamquery | 11 | 15 (7 ops-with-required) | yes (1: `DescribeScheduledQuery`'s `ScheduledQuery.TargetConfiguration.TimestreamConfiguration` missing required `TimeColumn`/`DimensionMappings` entirely -- see the batch-25 note below and services/timestreamquery/PARITY.md) | gopherstack-r80d batch 25 |
 | cloudformation | 10 | 90 (7 ops-with-required) | 0 (clean; drift-detection quartet had no prior ops: rows at all, `types.StackResourceDrift`'s 5 required members one level below the flat scan all confirmed populated on both code paths; stack-refactor family's wrapped `StackRefactorSummary`/`StackRefactorAction` confirmed to declare zero required members in the real SDK model -- see the batch-26 note below and services/cloudformation/PARITY.md) | gopherstack-r80d batch 26 |
 | emr | 10 | 65 (6 ops-with-required) | yes (1: `GetBlockPublicAccessConfiguration`'s `BlockPublicAccessConfigurationMetadata.CreatedByArn` (`*string`, provable) tagged `omitempty` despite being required, dropped for any region that never called `PutBlockPublicAccessConfiguration` -- see the batch-26 note below and services/emr/PARITY.md) | gopherstack-r80d batch 26 |
+| cognitoidentity | 9 | 23 (3 ops-with-required) | 0 (clean; all 3 flagged ops' required fields already emitted without `omitempty`; one level deeper, `GetIdentityPoolRoles`/`SetIdentityPoolRoles` wrap `RoleMapping`/`RulesConfigurationType` (3 more required members via an AST walk of `types.go`, invisible to the flat scan) and those are also always emitted without `omitempty` -- see the batch-27 note below and services/cognitoidentity/PARITY.md) | gopherstack-r80d batch 27 |
+| kafka | 9 | 64 (4 ops-with-required) | yes (2: `ListConfigurations`/`ListConfigurationRevisions` marshal `types.Configuration`/`types.ConfigurationRevision` directly as list-item shapes, and both gopherstack models were missing `CreationTime`/`LatestRevision` (Configuration) and `CreationTime` (ConfigurationRevision) as struct fields entirely -- not just `omitempty`, invisible to the flat op-level scan since neither op's own wrapping field is itself required. One candidate rejected: Channel family's `CreationTime` `omitempty` tag is disqualified by "populated on every write path" -- see the batch-27 note below and services/kafka/PARITY.md) | gopherstack-r80d batch 27 |
 
-51 services settled, 2563 required output fields read end to end (the running
+55 services settled, 2581 required output fields read end to end (the running
 total counts each settled service's flat per-op `cmd/requiredoutputfields`
 number, as established by every prior batch -- glue's own real audited
 surface was substantially larger once its ~56 gopherstack-modeled domain
-structs were cross-checked, see the batch-15 note below). Batch 25
+structs were cross-checked, see the batch-15 note below). Batch 27
+(cognitoidentity + kafka, tied at 9 each) added 2 more counted bugs, both in
+kafka's Configuration/ConfigurationRevision List-op item shapes
+(cognitoidentity came back clean) -- see the batch-27 note below for detail.
+`firehose` (8 fields, 12 ops, 5 ops-with-required) is now the largest
+remaining candidate after sagemaker. Batch 25
 (rekognition + timestreamquery, tied at 11 each) added 1 more counted bug
 (timestreamquery's `DescribeScheduledQuery` `TargetConfiguration.
 TimestreamConfiguration.TimeColumn`/`DimensionMappings`; rekognition came back
 clean) on top of the running total -- see the batch-25 note below for detail.
-`cloudformation` and `emr` (tied at 10 fields each) are now the largest
-remaining candidates after sagemaker. Batch 24
+`cloudformation` and `emr` (tied at 10 fields each) were the largest
+remaining candidates after sagemaker before batch 26 settled them. Batch 24
 (ses + athena + comprehend, tied at 12-13 each) added 2 more counted findings
 (4 member-level fixes, both in ses; athena and comprehend both came back
 clean) on top of the running total -- see the batch-24 note below for
@@ -2124,3 +2131,122 @@ changed (the fix is a JSON struct-tag edit on an unexported type).
 examined" (settled-services count now 53, 2573 required output fields read
 end to end); `cognitoidentity` (9) is now the largest remaining candidate
 after sagemaker. Did not attempt a third service this batch.
+
+### cognitoidentity + kafka (batch 27): 2 bugs, both kafka, plus one Channel-family candidate rejected
+
+Re-ran `go run ./cmd/requiredoutputfields` fresh rather than trusting the
+ledger's prior "`cognitoidentity` (9) is now the largest remaining
+candidate" note: reproduced exactly (`cognitoidentity` 9/23 ops/3
+ops-with-required; `kafka` also 9/64 ops/4 ops-with-required, a tie the
+ledger's prose hadn't called out). Instrument validated two ways per the
+brief: a fresh standalone `go/parser`/`go/ast` walk (scratch tool, not
+committed) reproduced both services' per-op required-field lists exactly,
+zero disagreement; a raw `grep -c "This member is required." api_op_*.go`
+whole-module sum (cognitoidentity 50, kafka 115 — expected to run higher
+than the Output-only count, since it also counts every Input struct's
+required members, same as batch 26's cloudformation/emr sanity check) was
+consistent with that expectation, not a mismatch. `git status` clean for
+both service directories before starting; `services/sagemaker/` untouched
+and off limits per the brief throughout (confirmed dirty from a concurrent
+agent both before and after this batch's work).
+
+Module resolution: `cognitoidentity` resolves directly to
+`aws-sdk-go-v2/service/cognitoidentity@v1.36.4` (no `dirModuleOverride`
+entry) — confirmed distinct from the sibling `cognitoidp` directory, which
+resolves to `cognitoidentityprovider`, a different module entirely (the
+exact `cognitoidentity`-vs-`cognitoidentityprovider` trap the brief called
+out by name). `kafka` resolves directly to
+`aws-sdk-go-v2/service/kafka@v1.57.2` (no override either); only one
+`kafka` directory/module exists in this repo (no `kafkaconnect` or other
+near-name sibling to confuse it with).
+
+**cognitoidentity (9 fields/23 ops/3 ops-with-required, 0 bugs):** all three
+flagged ops (`CreateIdentityPool`/`DescribeIdentityPool`/`UpdateIdentityPool`,
+sharing `identityPoolOutput`) already emit `IdentityPoolId`/`IdentityPoolName`
+(`*string`, provable)/`AllowUnauthenticatedIdentities` (`bool`, not provable)
+without any `omitempty` tag — the omission this bug class targets cannot
+occur regardless of reachability. Looked one level deeper via an AST walk of
+`types/types.go`: only 3 domain structs anywhere in this module carry
+required members outside the 3 flagged ops (`RoleMapping`/
+`RulesConfigurationType`/`MappingRule`, reachable only through
+`GetIdentityPoolRoles`/`SetIdentityPoolRoles`, both 0-required-at-op-level
+and hence invisible to the flat scan) — read `handler_identity_pool_roles.go`
+end to end and confirmed the same "always emitted, no `omitempty`"
+conclusion holds there too. Every other op's `*Output` struct and every
+domain struct it references (`Credentials`, `IdentityDescription`,
+`UnprocessedIdentityId`) confirmed to carry zero required members. See
+services/cognitoidentity/PARITY.md's 2026-08-21 entry.
+
+**kafka (9 fields/64 ops/4 ops-with-required, 2 bugs, 1 candidate
+rejected):** the 4 flagged ops are entirely the Channel family
+(`CreateChannel`/`DeleteChannel`/`UpdateChannel`'s `ChannelArn`,
+`DescribeChannel`'s 6 members). All required members except `CreationTime`
+already carry no `omitempty`. `CreationTime` (`*time.Time`, provable) does
+carry `omitempty` and looked like a live candidate, but is **disqualified
+under the "populated on every write path" ground**: `CreateChannel` always
+sets it, `cloneChannel` always preserves it on every mutation path, and the
+one code path that does construct a zero-`CreationTime` `Channel`
+(`DeleteChannel`'s return value) is never rendered through the DTO that has
+a `CreationTime` field at all. Looked one level deeper via `ListChannels`'
+`types.ChannelInfo` item shape (0 required at `ListChannelsOutput`'s own op
+level, but the item type requires the same 5 members) — same disqualifying
+conclusion applies to `channelInfoOutput.CreationTime`.
+
+The 2 real bugs sit **outside** the flat-scanned ops entirely, in the
+Configuration family, following the brief's "look deeper" instruction to
+its logical end: `CreateConfigurationOutput`/`DescribeConfigurationOutput`/
+`DescribeConfigurationRevisionOutput`/`UpdateConfigurationOutput` mark
+**zero** members required in the real SDK (Smithy leaves them all optional
+at each op's own level — confirmed by reading every `api_op_*.go` directly),
+so those four ops are genuinely out of this bug class's scope, not merely
+under-scanned. But `ListConfigurationsOutput.Configurations` is typed
+`[]types.Configuration` and `ListConfigurationRevisionsOutput.Revisions` is
+`[]types.ConfigurationRevision` — the real domain structs, marshaled
+directly by gopherstack's handlers rather than a per-op DTO — and those
+domain structs do carry real required members
+(`types.Configuration`: `Arn`/`CreationTime`/`Description`/`KafkaVersions`/
+`LatestRevision`/`Name`/`State`; `types.ConfigurationRevision`:
+`CreationTime`/`Revision`), invisible to the flat per-op scan since neither
+wrapping field (`Configurations`/`Revisions`) is itself required.
+gopherstack's `Configuration`/`ConfigurationRevision` models had no
+`CreationTime` or `LatestRevision` field **at all** — not an `omitempty`
+choice, a structurally absent member, the same "member with no struct field
+at all" class a prior pass found in iam's `JobCompletionDate` — so both
+`List*` ops omitted these unconditionally, on every single call, not as an
+edge case. Fixed: added both fields to the models, populated at
+`CreateConfiguration`/`UpdateConfiguration`/`AddConfigurationInternal` and
+threaded through a new shared `revisionOf` helper so
+`DescribeConfigurationRevision`/`ListConfigurationRevisions` stay consistent
+with the owning `Configuration`'s own timestamp. `State`
+(`ConfigurationState`, non-pointer enum) was also structurally absent and
+fixed alongside for correctness, but is **not counted** as a proven bug per
+the provability rule: a non-pointer enum's omitted-vs-zero-value states
+decode identically to a real client, so no test can distinguish them.
+`Description` (`*string`, required, reachably empty since
+`CreateConfigurationInput.Description` is optional) had its `omitempty` tag
+removed too, matching the "required-but-inapplicable means
+present-and-empty, not absent" convention. Both counted fixes proven via
+real `aws-sdk-go-v2/service/kafka` client round trips
+(`services/kafka/configuration_field_fixes_test.go`), hand-reverted against
+`git show HEAD:services/kafka/{models,configurations}.go` (confirmed both
+new tests fail against the pre-fix code), restored, md5sum-verified byte
+identical. See services/kafka/PARITY.md's 2026-08-21 entry for full detail.
+
+Total for this batch: 18 required output fields (9+9) read end to end
+across 7 ops-with-required (3+4) at the flat level, plus the Configuration
+family's deeper domain-struct surface; 2 real bugs found and fixed (kafka),
+0 in cognitoidentity, 1 candidate rejected (kafka Channel `CreationTime`).
+Both fixes proven via real-aws-sdk-go-v2-client tests with
+hand-revert/confirm-fail/restore/md5sum verification. Gates green for both
+services (`go build`, `go vet`, `gofmt -l`, `go test -race`,
+`golangci-lint run` — 0 issues, 0 banned nolints, 0 new nolints); repo-wide
+`go build ./...`, `go vet -tags e2e ./...`, and `go vet -tags integration
+./...` all clean (only `services/sagemaker/*` and an unrelated concurrent
+agent's `services/codepipeline/*`/`services/rekognition/*` changes dirty,
+neither touched by this batch). No exported function signatures changed
+(only new fields added to two existing exported structs).
+`services/_REQUIRED_OUTPUT_CANDIDATES.md` updated: both moved into "Already
+examined" (settled-services count now 55, 2581 required output fields read
+end to end); `firehose` (8 fields, 12 ops, 5 ops-with-required) is now the
+largest remaining candidate after sagemaker. Did not attempt a third service
+this batch.
