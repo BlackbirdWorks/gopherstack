@@ -1,0 +1,30 @@
+name: "gopherstack CodeQL config"
+
+# services/ssm/document_hashes.go is excluded from analysis, NOT the
+# go/weak-sensitive-data-hashing query itself.
+#
+# That file computes DocumentDescription's Hash, HashType and the deprecated
+# Sha1 member. Real AWS declares Sha1 (aws-sdk-go-v2/service/ssm@v1.73.4
+# types/enums.go:708-724, DocumentHashType Sha256|Sha1), so an emulator cannot
+# populate that field without computing SHA1. The value is a content-integrity
+# checksum echoed back on the wire: never an authentication credential, never
+# compared against a stored secret. The query's premise -- that this is
+# password hashing needing a computationally expensive function -- does not
+# hold here, and deleting the field would reintroduce the missing-required-
+# member bug class this repo has spent a campaign removing.
+#
+# Two narrower-than-obvious choices, both deliberate:
+#
+# 1. Excluding the FILE, not the QUERY. A query-filters exclude on
+#    go/weak-sensitive-data-hashing would disable it repo-wide and hide a
+#    genuine weak-hashing bug introduced anywhere else later.
+#
+# 2. The hashing was MOVED into its own file to make that exclusion small.
+#    It previously lived in documents.go, which is 982 lines; excluding that
+#    would have blinded the scanner across the whole SSM document surface.
+#    document_hashes.go is the function and nothing else.
+#
+# Recorded here in the repo, where it is reviewable in a diff, rather than
+# dismissed invisibly in the Security tab. See gopherstack-ziv9.
+paths-ignore:
+  - services/ssm/document_hashes.go
