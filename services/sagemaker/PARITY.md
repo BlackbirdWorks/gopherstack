@@ -4775,3 +4775,29 @@ services/sagemaker/*.go` summed to `0`, not arithmetic. **Sagemaker's inline-str
 campaign (gopherstack-oc9v) is closed out.** No further tiers remain in this service; the blind
 spot's other services (`cleanrooms` 97, `iot` 79, `ssoadmin` 77, and the rest of the ranked list in
 gopherstack-oc9v's own notes) are unaffected by this pass and remain open work for a future session.
+
+## 2026-08-21 (gopherstack-hjdd): snapshot-version guard, 3 unbumped shape changes
+
+`sagemakerSnapshotVersion` bumped 1 -> 2. Three registered-table shape changes landed on
+this branch (parity-25/26, `ddcf7c3dc`, `22491c31e`) without a version bump, each unsafe for
+a v1 snapshot: `ProcessingJob.VpcConfig` moved to `NetworkConfig.VpcConfig` (old top-level key
+silently dropped), `TransformJob.RoleArn` removed entirely (old key silently dropped), and
+`TrainingPlanExtension`'s three timestamp fields switched from RFC3339-string to
+epoch-seconds-float encoding (old strings fail the new `UnmarshalJSON`'s float64 decode
+outright, erroring the whole `trainingPlans` table restore).
+
+Found via `pkgs/persistence`'s snapshot-version guard, extended this session
+(gopherstack-hjdd) to recursively expand fields of every type reached through a
+`store.Register`/`store.New` table registration, not just fields declared directly on a
+`*Snapshot`-suffixed struct — the previous scan was blind to exactly this class, since
+`Tables map[string]json.RawMessage` erases the real domain type from view.
+
+**Proof:** `TestInMemoryBackend_RestoreV1SnapshotDiscarded` (persistence_test.go) builds a
+v1-shaped snapshot with `ProcessingJob.VpcConfig` and `TransformJob.RoleArn` populated and
+asserts both jobs are absent after restore (discarded, not silently decoded with those
+fields gone). Hand-reverted to version 1: the same test then fails with both jobs present
+and the old fields dropped, confirming the symptom; restored and `md5sum`-verified
+byte-identical.
+
+**Gates:** `go build ./services/sagemaker/...`, `go vet ./services/sagemaker/...`, `gofmt -l
+services/sagemaker/` (clean), `go test -race ./services/sagemaker/...` (pass).

@@ -214,6 +214,46 @@ func TestStorePersistence_IncompatibleVersionDiscardsCleanly(t *testing.T) {
 	assert.Empty(t, gotRepos, "incompatible-version snapshot must reset to empty, not partially decode")
 }
 
+// TestStorePersistence_V1ScanFindingsAttributesDiscarded proves
+// gopherstack-hjdd's fix: a v1 snapshot holding ImageScanFinding.Attributes
+// in the pre-d83f4b5d3 map[string]string shape must be discarded cleanly now
+// that ecrSnapshotVersion is 2, rather than erroring Restore outright when
+// the registered imageScanFindings table's array-typed field can't decode a
+// JSON object.
+func TestStorePersistence_V1ScanFindingsAttributesDiscarded(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	b := ecr.NewInMemoryBackend("123456789012", "us-east-1", "localhost:5000")
+
+	_, err := b.CreateRepository(ctx, "seed-repo", "MUTABLE", false, "AES256", "")
+	require.NoError(t, err)
+
+	v1Snapshot := []byte(`{
+		"version": 1,
+		"tables": {
+			"imageScanFindings": [{
+				"repositoryName": "old-repo",
+				"registryId": "123456789012",
+				"imageId": {"imageDigest": "sha256:deadbeef"},
+				"status": "COMPLETE",
+				"description": "old",
+				"findings": [{
+					"name": "CVE-old",
+					"attributes": {"package_name": "openssl"}
+				}]
+			}]
+		}
+	}`)
+
+	require.NoError(t, b.Restore(ctx, v1Snapshot),
+		"a v1 snapshot must be discarded via the version guard, not error out of RestoreAll")
+
+	gotRepos, err := b.DescribeRepositories(ctx, nil)
+	require.NoError(t, err)
+	assert.Empty(t, gotRepos, "incompatible-version snapshot must reset to empty, not partially decode")
+}
+
 // TestPersistence_TagsRoundTrip verifies that resource tags (a raw map, not a
 // store.Table) survive a snapshot/restore cycle.
 func TestPersistence_TagsRoundTrip(t *testing.T) {

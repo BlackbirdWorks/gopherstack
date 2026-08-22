@@ -947,3 +947,24 @@ as both scanned and newly-indexed. The other five counters
 zero rather than fabricated, since this backend does not track a prior-job
 document snapshot to diff against; see `deferred` for the honest limitation.
 Locked in with `handler_ingestion_jobs_test.go`.
+
+## 2026-08-21 (gopherstack-hjdd): snapshot-version guard, unbumped key rename
+
+`bedrockagentSnapshotVersion` bumped 2 -> 3. `732c2bafa` retagged
+`AgentCollaborator.UpdatedAt` (a registered table's value type) from the wrong wire key
+`updatedAt` to the real deserializer's `lastUpdatedAt`, without bumping the snapshot
+version. A pre-fix (v2) snapshot's `updatedAt` data is unrecognized by the new tag and
+would silently decode as the zero time on restore.
+
+Found via `pkgs/persistence`'s snapshot-version guard, extended this session
+(gopherstack-hjdd) to recursively expand fields of every type reached through a
+`store.Register`/`store.New` table registration.
+
+**Proof:** `TestInMemoryBackend_RestoreV2SnapshotDiscarded` (persistence_test.go) builds a
+v2-shaped snapshot with an `AgentCollaborator` tagged `updatedAt` and asserts it is absent
+(`ErrNotFound`) after restore, not silently decoded with `UpdatedAt` zeroed. Hand-reverted to
+version 2: the same test then fails (the record surfaces, `UpdatedAt` silently dropped),
+confirming the symptom; restored and `md5sum`-verified byte-identical.
+
+**Gates:** `go build`, `go vet` (default/e2e/integration), `gofmt -l` (clean), `go test -race`
+(pass), `golangci-lint run` (0 issues).

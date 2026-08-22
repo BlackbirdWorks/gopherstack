@@ -408,3 +408,49 @@ func TestPersistenceRoundtrip_Domain(t *testing.T) {
 	assert.ElementsMatch(t, []any{"subnet-1"}, out["SubnetIds"])
 	assert.NotEmpty(t, out["DefaultUserSettings"])
 }
+
+// TestInMemoryBackend_RestoreV1SnapshotDiscarded proves gopherstack-hjdd's fix:
+// a v1 snapshot holding ProcessingJob.VpcConfig at the top level (moved under
+// NetworkConfig.VpcConfig by ddcf7c3dc) and TransformJob.RoleArn (removed
+// entirely by the same commit) must be discarded wholesale now that
+// sagemakerSnapshotVersion is 2, not silently decoded with those fields gone.
+func TestInMemoryBackend_RestoreV1SnapshotDiscarded(t *testing.T) {
+	t.Parallel()
+
+	b := sagemaker.NewInMemoryBackend("000000000000", "us-east-1")
+
+	_, err := b.CreateModel(context.Background(), "seed-model",
+		"arn:aws:iam::000000000000:role/r", nil, nil, nil)
+	require.NoError(t, err)
+
+	v1Snapshot := `{
+		"version": 1,
+		"accountID": "000000000000",
+		"region": "us-east-1",
+		"tables": {
+			"processingJobs:us-east-1": [{
+				"ProcessingJobName": "old-job",
+				"ProcessingJobArn": "arn:aws:sagemaker:us-east-1:000000000000:processing-job/old-job",
+				"ProcessingJobStatus": "Completed",
+				"VpcConfig": {"SecurityGroupIds": ["sg-1"], "Subnets": ["subnet-1"]}
+			}],
+			"transformJobs:us-east-1": [{
+				"TransformJobName": "old-transform",
+				"TransformJobArn": "arn:aws:sagemaker:us-east-1:000000000000:transform-job/old-transform",
+				"TransformJobStatus": "Completed",
+				"RoleArn": "arn:aws:iam::000000000000:role/old-role"
+			}]
+		}
+	}`
+
+	require.NoError(t, b.Restore(t.Context(), []byte(v1Snapshot)))
+
+	_, err = b.DescribeModel(context.Background(), "seed-model")
+	require.Error(t, err, "v1 snapshot must be discarded wholesale, not merged with pre-restore state")
+
+	jobs, _ := b.ListProcessingJobs(context.Background(), "", sagemaker.ListProcessingJobsFilter{})
+	assert.Empty(t, jobs, "a v1-shaped ProcessingJob must never surface with VpcConfig silently dropped")
+
+	transforms, _ := b.ListTransformJobs(context.Background(), "", sagemaker.ListTransformJobsFilter{})
+	assert.Empty(t, transforms, "a v1-shaped TransformJob must never surface with RoleArn silently dropped")
+}

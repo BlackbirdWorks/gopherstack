@@ -542,3 +542,27 @@ in `image_scanning_test.go`.
 Everything else in this file (all other L+D+G ops, the router, the protocol,
 error mapping, credential sweep) was independently re-verified this round and
 found already correct — see the session report for the full per-op list.
+
+## 2026-08-21 (gopherstack-hjdd): snapshot-version guard, unbumped retype
+
+`ecrSnapshotVersion` bumped 1 -> 2. `d83f4b5d3` retyped `ImageScanFinding.Attributes`
+(nested inside the registered `imageScanFindings` table) from `map[string]string` to
+`[]Attribute`, matching the real deserializer, without bumping the snapshot version. A
+pre-fix (v1) snapshot's `"attributes"` object no longer unmarshals into the new array field
+at all -- `RestoreAll` now errors outright rather than silently losing data, but the whole
+backend then fails to restore, which the version guard exists to convert into a clean,
+recoverable "discard and start empty" instead.
+
+Found via `pkgs/persistence`'s snapshot-version guard, extended this session
+(gopherstack-hjdd) to recursively expand fields of every type reached through a
+`store.Register`/`store.New` table registration.
+
+**Proof:** `TestStorePersistence_V1ScanFindingsAttributesDiscarded` (persistence_test.go)
+builds a v1-shaped `imageScanFindings` snapshot with a map-shaped `attributes` object and
+asserts `Restore` succeeds (discarding cleanly) rather than erroring. Hand-reverted to
+version 1: the same test then fails with `Restore` returning
+`json: cannot unmarshal object into Go struct field ...Attributes of type []ecr.Attribute`,
+confirming the symptom; restored and `md5sum`-verified byte-identical.
+
+**Gates:** `go build`, `go vet` (default/e2e/integration), `gofmt -l` (clean), `go test -race`
+(pass), `golangci-lint run` (0 issues).
