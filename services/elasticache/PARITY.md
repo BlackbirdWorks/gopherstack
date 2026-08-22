@@ -473,3 +473,62 @@ investigated and confirmed unreproducible**:
    the docs; only the `Heavy Utilization` example exists, and that offering type is legacy/
    pre-2017 and not modeled by this emulator at all). Left unchanged: this is the "genuinely
    unreproducible" case, not the "wrongly assumed absent" case, per this issue's framing.
+
+**2026-08-22 (gopherstack-3a8t) -- RouteMatcher swallowed a body-read failure as a 404,
+masking gopherstack-o7gx's fix**: `RouteMatcher` calls `httputils.ReadBody` to inspect the
+form body and decide ownership; on a read failure (oversized body) it returned `false`, so
+the router found no owner and answered a generic 404 instead of ever reaching `Handler()` --
+hiding the `InternalFailure` gopherstack-o7gx's fix already produces once the request
+actually gets there. This is why that fix's own test (`handler_oversized_body_test.go`) had
+to mount `Handler()` directly, bypassing routing, to prove anything at all.
+
+Surveyed every `RouteMatcher() service.Matcher` in the repo (162 services) for the same
+shape: reads the body via `httputils.ReadBody` and returns `false` on error. 17 do --
+elbv2, rds, sqs, autoscaling, elasticbeanstalk, cloudwatch, ses, iam, elasticache, sts, ec2,
+docdb, cloudformation, elb, neptune, sns, redshift -- all with the identical
+`if err != nil { return false }` shape. All 17 are form-urlencoded query-protocol services
+distinguished from each other (when the body IS readable) solely by the body's
+`Version`/`Action` values; none uses the request's Host to disambiguate.
+
+That shared shape rules out the obvious fix ("claim on any read failure") for 15 of the 17:
+method + `Content-Type: application/x-www-form-urlencoded` is identical across all of them,
+so an oversized body bound for, say, EC2 would also satisfy ElastiCache's, IAM's, STS's, etc.
+pre-body checks -- claiming unconditionally would misroute it to whichever sibling sorts
+first by `MatchPriority` (STS, at 90) rather than to the client's actual target, trading one
+wrong answer (404) for a different wrong one (the wrong service's error shape). Verified this
+concretely: `docdb`/`neptune` are the only 2 of the 17 that already check a body-independent
+signal first (`service.MatchesUserAgentMarker(r.Header, "api/docdb"/"api/neptune")`, mirroring
+the real `AddSDKAgentKeyValue(awsmiddleware.APIMetadata, ...)` call every aws-sdk-go-v2 client
+makes, verified in the pinned `docdb@v1.51.4`/`neptune@v1.48.4` `api_client.go`) -- so only
+they could safely claim on read failure without ambiguity. Attempting that fix for docdb and
+neptune surfaced a second, unrelated bug: their `Handler()`/`ExtractOperation`/`ExtractResource`
+call `r.ParseForm()` directly instead of `httputils.ReadBody`, and `net/http`'s own `ParseForm`
+caches an empty-but-non-nil `r.PostForm` after its *first* call fails, so a second call (e.g.
+`Handler()` running after the telemetry wrapper's `ExtractOperation` already tried and failed)
+silently "succeeds" with an empty form instead of returning the read error -- proven by a
+failing `TestHandler_OversizedBodySurfacesInternalFailure` for both (got `MissingAction`, not
+`InternalFailure`) which was then reverted rather than shipped failing. **Not fixed here**:
+filed gopherstack-bahs to migrate docdb/neptune's three call sites to
+`httputils.ReadBody`+`url.ParseQuery` (matching elasticache's own pattern) before applying
+their now-safe matcher fix; filed gopherstack-ifzn to give the remaining 13 (elbv2, rds, sqs,
+autoscaling, elasticbeanstalk, cloudwatch, ses, iam, sts, ec2, cloudformation, elb, redshift)
+a per-service User-Agent marker, verified against each pinned SDK, before their matchers can
+safely stop swallowing a read failure as a plain 404.
+
+**The elasticache fix**: `RouteMatcher` now falls back to `service.MatchesUserAgentMarker(r.Header,
+"api/elasticache")` (verified against the pinned `elasticache@v1.56.4/api_client.go:637`
+`AddSDKAgentKeyValue` call) only on the `ReadBody` failure branch, leaving the existing
+readable-body `Version`/`Action` matching untouched -- so a real elasticache SDK client with an
+unreadable body is claimed and let through to `Handler()`'s already-typed `InternalFailure`,
+while any other service's oversized-body request (no `api/elasticache` marker) still falls
+through to the next matcher, unchanged from before. Also hardened `httputils.ReadBody` itself:
+a read failure is now cached on `r.Body` (a new `bodyReadErrCloser`) the same way a successful
+read already was, so a second `ReadBody` call on the same request (the telemetry wrapper's
+`ExtractOperation`/`ExtractResource`, then `Handler()`) returns the identical error instead of
+re-reading whatever is left of the now partially-drained underlying body, which previously
+would have silently returned a truncated body with no error at all. Proof:
+`TestHandler_OversizedBodySurfacesInternalFailure` in `handler_oversized_body_test.go` now
+drives a real SDK client through `service.NewRegistry`/`service.NewServiceRouter` (no more
+direct-`Handler()`-mount workaround), confirmed to fail against the pre-fix code with
+`UnknownError` instead of `InternalFailure`; `TestHandler_NormalSizedBodyStillRoutes` is the
+added regression guard for a normal-sized request still routing and succeeding.

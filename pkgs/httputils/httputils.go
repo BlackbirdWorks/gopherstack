@@ -28,6 +28,18 @@ type bodyReadCloser struct {
 
 func (b *bodyReadCloser) Close() error { return nil }
 
+// bodyReadErrCloser caches a body-read failure (e.g. an oversized body) so
+// that a second ReadBody call on the same request returns the identical
+// error instead of re-reading whatever is left of the now partially-drained
+// underlying r.Body — which would silently succeed with a truncated body
+// and no error, masking the original failure.
+type bodyReadErrCloser struct {
+	err error
+}
+
+func (b *bodyReadErrCloser) Read(_ []byte) (int, error) { return 0, b.err }
+func (b *bodyReadErrCloser) Close() error               { return nil }
+
 // MaxRequestBodyBytes caps every body read through ReadBody. AWS API request
 // payloads top out at 6 MiB (Lambda synchronous invoke) or 5 GiB streamed
 // (S3 PutObject, which uses its own streaming path and does not call ReadBody).
@@ -58,9 +70,17 @@ func ReadBody(r *http.Request) ([]byte, error) {
 		return brc.body, nil
 	}
 
+	// A prior call already hit a read failure on this request; return the
+	// same error rather than reading whatever remains of the drained body.
+	if erc, ok := r.Body.(*bodyReadErrCloser); ok {
+		return nil, erc.err
+	}
+
 	body, err := io.ReadAll(http.MaxBytesReader(nil, r.Body, MaxRequestBodyBytes))
 	_ = r.Body.Close() // Ensure original body is closed
 	if err != nil {
+		r.Body = &bodyReadErrCloser{err: err}
+
 		return nil, err
 	}
 
