@@ -146,6 +146,27 @@ func (b *InMemoryBackend) GetRuleGroup(ctx context.Context, id string) (*RuleGro
 	return cloneRuleGroup(rg), nil
 }
 
+// GetRuleGroupByARN returns a RuleGroup by ARN. Real GetRuleGroupInput
+// (wafv2@v1.77.3 api_op_GetRuleGroup.go) accepts ARN as an alternative to
+// Name+Scope+Id -- none of the four members is marked required, since
+// exactly one addressing mode is used per call -- gopherstack-4ly2.
+func (b *InMemoryBackend) GetRuleGroupByARN(ctx context.Context, ruleGroupARN string) (*RuleGroup, error) {
+	b.mu.RLock("GetRuleGroupByARN")
+	defer b.mu.RUnlock()
+
+	region := getRegion(ctx, b.region)
+	if regionFromARN(ruleGroupARN) != region {
+		return nil, fmt.Errorf("%w: rule group %q not found", ErrRuleGroupNotFound, ruleGroupARN)
+	}
+
+	rgs := b.ruleGroupsByARN.Get(ruleGroupARN)
+	if len(rgs) == 0 {
+		return nil, fmt.Errorf("%w: rule group %q not found", ErrRuleGroupNotFound, ruleGroupARN)
+	}
+
+	return cloneRuleGroup(rgs[0]), nil
+}
+
 // ListRuleGroups returns all RuleGroups sorted by name.
 func (b *InMemoryBackend) ListRuleGroups(ctx context.Context) []*RuleGroup {
 	b.mu.RLock("ListRuleGroups")

@@ -23,6 +23,7 @@ type StorageBackend interface {
 		tags map[string]string,
 	) (*WebACL, error)
 	GetWebACL(ctx context.Context, id string) (*WebACL, error)
+	GetWebACLByARN(ctx context.Context, webACLARN string) (*WebACL, error)
 	UpdateWebACL(
 		ctx context.Context,
 		id, description, lockToken string,
@@ -74,6 +75,7 @@ type StorageBackend interface {
 		tags map[string]string,
 	) (*RuleGroup, error)
 	GetRuleGroup(ctx context.Context, id string) (*RuleGroup, error)
+	GetRuleGroupByARN(ctx context.Context, ruleGroupARN string) (*RuleGroup, error)
 	ListRuleGroups(ctx context.Context) []*RuleGroup
 	UpdateRuleGroup(
 		ctx context.Context,

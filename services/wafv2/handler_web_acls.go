@@ -129,6 +129,7 @@ type getWebACLRequest struct {
 	ID    string `json:"Id"`
 	Name  string `json:"Name"`
 	Scope string `json:"Scope"`
+	ARN   string `json:"ARN"`
 }
 
 func (h *Handler) handleGetWebACL(ctx context.Context, body []byte) ([]byte, error) {
@@ -137,17 +138,30 @@ func (h *Handler) handleGetWebACL(ctx context.Context, body []byte) ([]byte, err
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	if req.ID == "" {
-		return nil, fmt.Errorf("%w: Id is required", errInvalidRequest)
+	// GetWebACLInput marks no member required (wafv2@v1.77.3
+	// api_op_GetWebACL.go): ARN is an alternative to Name+Scope+Id, so only
+	// their absence together is invalid -- gopherstack-4ly2.
+	if req.ID == "" && req.ARN == "" {
+		return nil, fmt.Errorf("%w: Id or ARN is required", errInvalidRequest)
 	}
 
-	w, err := h.Backend.GetWebACL(ctx, req.ID)
+	var (
+		w   *WebACL
+		err error
+	)
+
+	if req.ID != "" {
+		w, err = h.Backend.GetWebACL(ctx, req.ID)
+	} else {
+		w, err = h.Backend.GetWebACLByARN(ctx, req.ARN)
+	}
+
 	if err != nil {
 		return nil, err
 	}
 
 	if req.Scope != "" && w.Scope != req.Scope {
-		return nil, fmt.Errorf("%w: web ACL %q has scope %s, not %s", ErrWebACLNotFound, req.ID, w.Scope, req.Scope)
+		return nil, fmt.Errorf("%w: web ACL %q has scope %s, not %s", ErrWebACLNotFound, w.ID, w.Scope, req.Scope)
 	}
 
 	return h.marshalWebACL(w)

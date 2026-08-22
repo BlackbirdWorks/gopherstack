@@ -101,3 +101,63 @@ func TestDescribeAllManagedProducts_IsVersioningSupported(t *testing.T) {
 	require.True(t, ok)
 	assert.False(t, unversioned)
 }
+
+// TestGetWebACL_RealSDKClient_ARNOptional proves a request identifying the
+// WebACL by ARN alone (no Id) succeeds. GetWebACLInput marks no member
+// required (wafv2@v1.77.3 api_op_GetWebACL.go) -- ARN is an alternative to
+// Name+Scope+Id. The handler previously rejected any request without Id
+// with a 400 (gopherstack-4ly2).
+func TestGetWebACL_RealSDKClient_ARNOptional(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestWAFV2Client(t, h)
+
+	created, err := client.CreateWebACL(t.Context(), &wafv2sdk.CreateWebACLInput{
+		Name:  aws.String("arn-lookup-acl"),
+		Scope: types.ScopeRegional,
+		DefaultAction: &types.DefaultAction{
+			Allow: &types.AllowAction{},
+		},
+		VisibilityConfig: &types.VisibilityConfig{
+			CloudWatchMetricsEnabled: true,
+			MetricName:               aws.String("metric"),
+			SampledRequestsEnabled:   true,
+		},
+	})
+	require.NoError(t, err)
+
+	got, err := client.GetWebACL(t.Context(), &wafv2sdk.GetWebACLInput{ARN: created.Summary.ARN})
+	require.NoError(t, err)
+	assert.Equal(t, "arn-lookup-acl", aws.ToString(got.WebACL.Name))
+	assert.Equal(t, aws.ToString(created.Summary.Id), aws.ToString(got.WebACL.Id))
+}
+
+// TestGetRuleGroup_RealSDKClient_ARNOptional proves a request identifying
+// the RuleGroup by ARN alone (no Id) succeeds. GetRuleGroupInput marks no
+// member required (wafv2@v1.77.3 api_op_GetRuleGroup.go) -- ARN is an
+// alternative to Name+Scope+Id. The handler previously rejected any request
+// without Id with a 400 (gopherstack-4ly2).
+func TestGetRuleGroup_RealSDKClient_ARNOptional(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestWAFV2Client(t, h)
+
+	created, err := client.CreateRuleGroup(t.Context(), &wafv2sdk.CreateRuleGroupInput{
+		Name:     aws.String("arn-lookup-rg"),
+		Scope:    types.ScopeRegional,
+		Capacity: aws.Int64(10),
+		VisibilityConfig: &types.VisibilityConfig{
+			CloudWatchMetricsEnabled: true,
+			MetricName:               aws.String("metric"),
+			SampledRequestsEnabled:   true,
+		},
+	})
+	require.NoError(t, err)
+
+	got, err := client.GetRuleGroup(t.Context(), &wafv2sdk.GetRuleGroupInput{ARN: created.Summary.ARN})
+	require.NoError(t, err)
+	assert.Equal(t, "arn-lookup-rg", aws.ToString(got.RuleGroup.Name))
+	assert.Equal(t, aws.ToString(created.Summary.Id), aws.ToString(got.RuleGroup.Id))
+}

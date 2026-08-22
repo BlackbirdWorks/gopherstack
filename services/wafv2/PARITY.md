@@ -49,7 +49,7 @@ overall: A            # New this pass: the AI-bot pay-per-crawl monetization-rep
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
   CreateWebACL: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: Summary was missing Description field"}
-  GetWebACL: {wire: ok, errors: ok, state: ok, persist: ok, note: "ApplicationIntegrationURL top-level field not modeled (see gaps)"}
+  GetWebACL: {wire: ok, errors: fixed, state: ok, persist: ok, note: "ApplicationIntegrationURL top-level field not modeled (see gaps). gopherstack-4ly2 (2026-08-21): handler unconditionally required Id, but GetWebACLInput marks no member required (wafv2@v1.77.3 api_op_GetWebACL.go) -- ARN is a real alternative to Name+Scope+Id. Added GetWebACLByARN (region-scoped via the existing webACLsByARN index/webACLIDByARNInRegion) so an ARN-only request now resolves; Id-absent-and-ARN-absent still rejects."}
   UpdateWebACL: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteWebACL: {wire: ok, errors: ok, state: ok, persist: ok}
   ListWebACLs: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -64,7 +64,7 @@ ops:
   DeleteRegexPatternSet: {wire: ok, errors: ok, state: ok, persist: ok}
   ListRegexPatternSets: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateRuleGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: Summary was missing Description field"}
-  GetRuleGroup: {wire: ok, errors: ok, state: ok, persist: ok}
+  GetRuleGroup: {wire: ok, errors: fixed, state: ok, persist: ok, note: "gopherstack-4ly2 (2026-08-21): handler unconditionally required Id, but GetRuleGroupInput marks no member required (wafv2@v1.77.3 api_op_GetRuleGroup.go) -- ARN is a real alternative to Name+Scope+Id. Added GetRuleGroupByARN (region-scoped via the existing ruleGroupsByARN index) so an ARN-only request now resolves; Id-absent-and-ARN-absent still rejects."}
   UpdateRuleGroup: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteRuleGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "correctly blocks delete while referenced by a WebACL rule"}
   ListRuleGroups: {wire: ok, errors: ok, state: ok, persist: ok}
