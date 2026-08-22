@@ -23,6 +23,11 @@ const (
 const (
 	categoryCRM      = "CRM"
 	categoryCommerce = "COMMERCE"
+	// categoryDatabases and categoryTables are used only by the native Amazon S3
+	// Glue Data Catalog path (Entity.Category's doc: "databases or schemas or
+	// tables for sources like Amazon Redshift").
+	categoryDatabases = "DATABASES"
+	categoryTables    = "TABLES"
 )
 
 // Field filter operators advertised for filterable entity fields.
@@ -227,6 +232,103 @@ func lookupEntity(name string) (entityDefinition, bool) {
 	return def, ok
 }
 
+// nativeEntityName is the fully-qualified "database.table" form
+// listNativeCatalogEntities advertises for a native-catalog table entity, matching
+// ListEntitiesInput.ParentEntityName's doc ("a fully-qualified path of the
+// entity").
+func nativeEntityName(dbName, tableName string) string {
+	return dbName + "." + tableName
+}
+
+// splitNativeEntityName splits a "database.table" native entity name back apart.
+// ok is false for anything not in that form (including a bare database name).
+func splitNativeEntityName(name string) (string, string, bool) {
+	idx := strings.LastIndex(name, ".")
+	if idx <= 0 || idx == len(name)-1 {
+		return "", "", false
+	}
+
+	return name[:idx], name[idx+1:], true
+}
+
+// nativeEntityDefFromTable builds the entityDefinition GetEntityRecords' shared
+// sample-record synthesis needs for a native S3 Glue Data Catalog table: its
+// columns, including partition keys (equally queryable columns on a real table),
+// mapped to EntityField.
+func nativeEntityDefFromTable(t *Table) entityDefinition {
+	fields := make([]EntityField, 0, len(t.StorageDescriptor.Columns)+len(t.PartitionKeys))
+	for _, c := range t.StorageDescriptor.Columns {
+		fields = append(fields, columnToEntityField(c))
+	}
+
+	for _, c := range t.PartitionKeys {
+		fields = append(fields, columnToEntityField(c))
+	}
+
+	return entityDefinition{
+		descriptor: EntityDescriptor{
+			EntityName: nativeEntityName(t.DatabaseName, t.Name),
+			Label:      t.Name,
+			Category:   categoryTables,
+		},
+		fields: fields,
+	}
+}
+
+// columnToEntityField converts a Glue table Column into the EntityField shape
+// DescribeEntity/GetEntityRecords advertise, approximating AWS Glue's own
+// data-type mapping for native S3 Glue Data Catalog columns.
+func columnToEntityField(col Column) EntityField {
+	f := EntityField{
+		FieldName: col.Name, Label: col.Name, Description: col.Comment,
+		FieldType: tokString, NativeDataType: col.Type,
+		IsNullable: true, IsRetrievable: true,
+		IsFilterable: true, SupportedFilterOperators: stringFilterOps(),
+	}
+
+	switch nativeGlueTypeCategory(col.Type) {
+	case fieldTypeInt:
+		f.FieldType = fieldTypeInt
+	case fieldTypeDecimal:
+		f.FieldType = fieldTypeDecimal
+	case fieldTypeBoolean:
+		f.FieldType = fieldTypeBoolean
+		f.SupportedFilterOperators = []string{opEqualTo, opNotEqualTo}
+	case fieldTypeTimestamp:
+		f.FieldType = fieldTypeTimestamp
+		f.SupportedFilterOperators = []string{opGreaterThan, opLessThan, opEqualTo}
+	case fieldTypeDate:
+		f.FieldType = fieldTypeDate
+		f.SupportedFilterOperators = []string{opGreaterThan, opLessThan, opEqualTo}
+	}
+
+	return f
+}
+
+// nativeGlueTypeCategory maps a Glue/Hive column type string (e.g. "bigint",
+// "decimal(10,2)", "varchar(255)") onto one of this file's EntityField FieldType
+// constants by prefix, since Hive types carry parameters gopherstack's schema
+// tracking does not parse further. Returns tokString for anything unrecognized.
+func nativeGlueTypeCategory(hiveType string) string {
+	t := strings.ToLower(strings.TrimSpace(hiveType))
+
+	switch {
+	case strings.HasPrefix(t, "int"), strings.HasPrefix(t, "bigint"),
+		strings.HasPrefix(t, "smallint"), strings.HasPrefix(t, "tinyint"):
+		return fieldTypeInt
+	case strings.HasPrefix(t, "double"), strings.HasPrefix(t, "float"), strings.HasPrefix(t, "decimal"):
+		return fieldTypeDecimal
+	case strings.HasPrefix(t, "boolean"):
+		return fieldTypeBoolean
+	case strings.HasPrefix(t, "timestamp"):
+		return fieldTypeTimestamp
+	case strings.HasPrefix(t, "date"):
+		return fieldTypeDate
+	default:
+		return tokString
+	}
+}
+
 // entitySampleSeed is the deterministic number of sample records the emulator
 // synthesizes per entity, so GetEntityRecords returns AWS-shaped data rather than an
 // empty list. Records are generated deterministically from the schema.
@@ -252,7 +354,17 @@ func (b *InMemoryBackend) DescribeEntity(connectionName, entityName string) ([]E
 }
 
 // ListEntities returns the entities reachable through a connection, sorted by name.
-func (b *InMemoryBackend) ListEntities(connectionName string) ([]EntityDescriptor, error) {
+// ConnectionName is optional, matching ListEntitiesInput: with none given, AWS lists
+// entities from the native Amazon S3 based Glue Data Catalog instead of a connector,
+// and this backend serves that from its own database/table catalog. parentEntityName
+// filters to that native database's tables; it is not honored in connector mode
+// because entityCatalog's canned entities do not model any children (see
+// PARITY.md).
+func (b *InMemoryBackend) ListEntities(connectionName, parentEntityName string) ([]EntityDescriptor, error) {
+	if connectionName == "" {
+		return b.listNativeCatalogEntities(parentEntityName)
+	}
+
 	if _, err := b.GetConnection(connectionName); err != nil {
 		return nil, err
 	}
@@ -274,16 +386,66 @@ func (b *InMemoryBackend) ListEntities(connectionName string) ([]EntityDescripto
 	return out, nil
 }
 
+// listNativeCatalogEntities serves ListEntities' native-catalog path. With no
+// parentEntityName, it lists the catalog's databases (top-level entities, each
+// IsParentEntity). With parentEntityName set to a database name, it lists that
+// database's tables, named "database.table" — the fully-qualified form
+// ListEntitiesInput.ParentEntityName's doc describes and that GetEntityRecords'
+// native-catalog path parses back apart.
+func (b *InMemoryBackend) listNativeCatalogEntities(parentEntityName string) ([]EntityDescriptor, error) {
+	if parentEntityName == "" {
+		dbs := b.GetDatabases()
+
+		out := make([]EntityDescriptor, 0, len(dbs))
+		for _, db := range dbs {
+			out = append(out, EntityDescriptor{
+				EntityName:     db.Name,
+				Label:          db.Name,
+				Category:       categoryDatabases,
+				IsParentEntity: true,
+			})
+		}
+
+		sort.Slice(out, func(i, j int) bool { return out[i].EntityName < out[j].EntityName })
+
+		return out, nil
+	}
+
+	tables, err := b.GetTables(parentEntityName)
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]EntityDescriptor, 0, len(tables))
+	for _, t := range tables {
+		out = append(out, EntityDescriptor{
+			EntityName: nativeEntityName(t.DatabaseName, t.Name),
+			Label:      t.Name,
+			Category:   categoryTables,
+		})
+	}
+
+	sort.Slice(out, func(i, j int) bool { return out[i].EntityName < out[j].EntityName })
+
+	return out, nil
+}
+
 // GetEntityRecords returns deterministic sample records for an entity reachable
-// through a connection. It validates the connection and entity, then returns records
-// conforming to the entity schema (AWS-shaped documents), honoring limit and
-// nextToken index-based pagination. It never silently returns an empty success for a
-// valid entity.
+// through a connection, or, with no ConnectionName, through the native Amazon S3
+// based Glue Data Catalog (GetEntityRecordsInput.ConnectionName is optional — see
+// api_op_GetEntityRecords.go's doc comment). It validates the connection/catalog
+// table and entity, then returns records conforming to the entity schema
+// (AWS-shaped documents), honoring limit and nextToken index-based pagination. It
+// never silently returns an empty success for a valid entity.
 func (b *InMemoryBackend) GetEntityRecords(
 	connectionName, entityName string,
 	limit int,
 	nextToken string,
 ) ([]map[string]any, string, error) {
+	if connectionName == "" {
+		return b.getNativeCatalogRecords(entityName, limit, nextToken)
+	}
+
 	if _, err := b.GetConnection(connectionName); err != nil {
 		return nil, "", err
 	}
@@ -295,6 +457,40 @@ func (b *InMemoryBackend) GetEntityRecords(
 			awserr.ErrNotFound,
 		)
 	}
+
+	all := make([]map[string]any, 0, entitySampleSeed)
+	for i := range entitySampleSeed {
+		all = append(all, sampleRecord(def, i))
+	}
+
+	page, token := paginateSlice(all, nextToken, effectiveEntityLimit(limit))
+
+	return page, token, nil
+}
+
+// getNativeCatalogRecords serves GetEntityRecords' native-catalog path. entityName
+// must be the "database.table" form listNativeCatalogEntities advertises; anything
+// else — including a bare database name, which has no records of its own — is
+// EntityNotFoundException rather than an empty success.
+func (b *InMemoryBackend) getNativeCatalogRecords(
+	entityName string,
+	limit int,
+	nextToken string,
+) ([]map[string]any, string, error) {
+	dbName, tableName, ok := splitNativeEntityName(entityName)
+	if !ok {
+		return nil, "", awserr.New(
+			"entity "+entityName+" was not found in the Glue Data Catalog",
+			awserr.ErrNotFound,
+		)
+	}
+
+	t, err := b.GetTable(dbName, tableName)
+	if err != nil {
+		return nil, "", err
+	}
+
+	def := nativeEntityDefFromTable(t)
 
 	all := make([]map[string]any, 0, entitySampleSeed)
 	for i := range entitySampleSeed {

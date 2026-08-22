@@ -79,6 +79,8 @@ families:
   RegisterConnectionType: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "FIXED this pass (gopherstack-u90v): handler previously read only ConnectionType/Description and dropped ConnectionProperties, ConnectorAuthenticationConfiguration, IntegrationType and RestConfiguration, all required (glue@v1.152.0 api_op_RegisterConnectionType.go:38-70) — two more (ConnectionProperties, IntegrationType) than the sweep that filed this issue caught. Response was also fabricated: real RegisterConnectionTypeOutput carries only ConnectionTypeArn (api_op_RegisterConnectionType.go:79-84), not the previous ConnectionType/Status pair. Now requires all four (InvalidInputException if absent — ValidationException is also declared for this op, but InvalidInputException is what this handler's existing ErrValidation/awserr.ErrInvalidParameter convention already maps to, and it's in the same declared switch), validates IntegrationType against the SDK's own enum (\"REST\" only), validates ConnectorAuthenticationConfiguration.AuthenticationTypes is present (its own required sub-field), and returns a real ConnectionTypeArn. ConnectionProperties/ConnectorAuthenticationConfiguration are stored as opaque documents (map[string]any, not flattened) but never echoed anywhere: neither has a matching field on DescribeConnectionTypeOutput (its ConnectionProperties is a differently-shaped map[string]Property; its AuthenticationConfiguration is *types.AuthConfiguration, a distinct type) — genuinely inert, not an omission. RestConfiguration IS the same type on both sides and is now echoed on DescribeConnectionType."}
   DescribeConnectionType: {wire: ok, errors: ok, state: ok, persist: ok, note: "RestConfiguration added gopherstack-u90v (see RegisterConnectionType note) and echoes correctly. FIXED (gopherstack-ustu): Category was removed entirely -- confirmed not a field on the real DescribeConnectionTypeOutput at all (api_op_DescribeConnectionType.go) -- and Capabilities changed from a fabricated []string of \"READ\"/\"WRITE\" to the real *types.Capabilities shape (SupportedAuthenticationTypes/SupportedComputeEnvironments/SupportedDataOperations, all required; new local connectionCapabilities struct, handler_connection_types.go, since this backend hand-rolls wire structs rather than importing SDK types). A real SDK client's deserializer previously rejected the whole response body on the array-vs-object mismatch (confirmed: TestSDKRoundTrip_RegisterConnectionType_EchoesRequiredMembers could not drive DescribeConnectionType through the real client for this reason and fell back to raw HTTP -- it now uses the real client). This backend's existing per-type READ/WRITE data (rwCaps/readCaps) maps exactly onto SupportedDataOperations (types.DataOperation's only two enum values are literally \"READ\"/\"WRITE\") and is threaded through, not discarded; SupportedAuthenticationTypes/SupportedComputeEnvironments have no backing state anywhere in this backend and are modeled as real, present, empty slices (not fabricated) when Capabilities itself is present -- Capabilities is omitted entirely (not an empty-but-present object) for connector categories with no tracked DataOperations at all (NETWORK/MARKETPLACE/CUSTOM), since Capabilities is not itself a required member on this op's output."}
   ListConnectionTypes: {wire: partial, errors: ok, state: ok, persist: n/a, note: "NOT previously tracked in this ledger. FIXED (gopherstack-ustu, second-layer find made while fixing DescribeConnectionType's Capabilities bug): ConnectionTypeBrief has the same fabricated-[]string Capabilities bug as DescribeConnectionTypeOutput (same fix, shared connectionCapabilities/toConnectionCapabilities helper), PLUS a second, distinct shape bug not called out in the issue that filed this fix -- the real field is Categories (types.ConnectionTypeBrief, glue@v1.152.0 types/types.go:2533-2564), a []string (plural), not the singular Category string this backend emitted. This backend's ConnectionTypeInfo only ever models one category per type, so it is now echoed as the one-element list that shape implies -- not fabricated into several. DisplayName/LogoUrl/Vendor/ConnectionTypeVariants are also real ConnectionTypeBrief members with no backing state anywhere in this backend -- deliberately left absent (wire: partial for this reason) rather than invented; see gaps."}
+  ListEntities: {wire: ok, errors: ok, state: ok, persist: n/a, note: "FIXED (gopherstack-2wvq): ConnectionName was wrongly required -- ListEntitiesInput declares no required members at all (glue@v1.152.0 api_op_ListEntities.go:29-49). With none given, this now serves the native Amazon S3 Glue Data Catalog path the op's own doc describes, off this backend's real databases/tables (GetDatabases/GetTables), not fabricated data: top level lists databases (Category DATABASES, IsParentEntity true), ParentEntityName=<database> lists that database's tables as \"database.table\" (Category TABLES) -- see DescribeEntity note for why this qualified form was chosen. Also fixed the accept-and-drop half: ParentEntityName was a real input field silently ignored by every path; it is now honored for native-catalog listing. It is NOT honored in connector (ConnectionName given) mode -- entityCatalog()'s canned CRM/COMMERCE entities model no children (only ACCOUNT/CUSTOMER set IsParentEntity, with nothing underneath), so there is nothing to filter to; inventing child entities for those two would be exactly the half-feature this issue's rule warns against, so ParentEntityName stays a documented no-op there."}
+  GetEntityRecords: {wire: ok, errors: ok, state: ok, persist: n/a, note: "FIXED (gopherstack-2wvq): ConnectionName was wrongly required -- GetEntityRecordsInput's only required members are EntityName and Limit (glue@v1.152.0 api_op_GetEntityRecords.go:35-48); ConnectionName is optional (line 55), and the op's own doc says why: \"query preview data from a given connection type or from a native Amazon S3 based Glue Data Catalog\". Checked the OTHER direction too (this issue's rule 1): Limit is real-SDK-required (its client-side validator, validators.go:13344-13360, rejects a call omitting it before the request is ever sent) but this handler never enforced that -- now returns InvalidInputException for Limit<=0, closing that half. With no ConnectionName, EntityName must be the \"database.table\" form ListEntities' native-catalog path advertises (chosen, not AWS-specified, since GetEntityRecordsInput has no separate database/parent field to disambiguate a bare table name against multiple databases -- stated as chosen, in code (nativeEntityName/splitNativeEntityName) and here); a bare database name or an unqualified/unknown name is EntityNotFoundException, not an empty or fabricated success. Records are synthesized the same deterministic way as the connector path (sampleRecord over an entityDefinition), but the schema is real: columnToEntityField maps each StorageDescriptor.Column and PartitionKey's Glue/Hive type string (bigint/decimal(...)/boolean/timestamp/date/etc, matched by prefix) onto the same EntityField shape DescribeEntity uses for connector entities. DescribeEntity itself is out of this issue's scope (not one of the two ops named) and still requires ConnectionName -- it does not yet support native-catalog table lookups; a real client discovering a native entity via ListEntities and then calling DescribeEntity on it would get EntityNotFoundException today. That is a real, scoped-out gap, not silently papered over."}
   triggers: {status: ok, note: "fixed this pass (gopherstack-qd4.1): Trigger gained Description, WorkflowName, and EventBatchingCondition (BatchSize/BatchWindow); TriggerCondition gained CrawlerName and CrawlState (types.Condition supports crawler-state predicates, not just job-state — was entirely unmodeled); TriggerAction gained SecurityConfiguration/NotificationProperty/Timeout (types.Action fields silently dropped). CreateTrigger/UpdateTrigger now enforce AWS's documented 'max 2 crawler actions per trigger' soft limit (about-triggers.html), returning InvalidInputException over the limit. WorkflowName is create-only (not part of TriggerUpdate, confirmed against types.TriggerUpdate) so UpdateTrigger does not accept it."}
   workflows: {status: partial, note: "fixed this pass (gopherstack-qd3.5-era fix retained): Workflow gained MaxConcurrentRuns, enforced in StartWorkflowRun, returning ConcurrentRunsExceededException. gopherstack-dol3: Workflow.Graph and Workflow.LastRun are now real, derived fields -- GetWorkflow/BatchGetWorkflows gained IncludeGraph (confirmed on GetWorkflowInput/BatchGetWorkflowsInput; Graph is only populated when set, matching AWS). Graph (WorkflowGraph{Nodes,Edges}) is built by workflowGraphLocked (workflow_graph.go) purely from real state: every Trigger with WorkflowName==this workflow becomes a TRIGGER node (with real TriggerDetails.Trigger, confirmed types.TriggerNodeDetails.Trigger), each trigger's TriggerAction.JobName/CrawlerName become downstream JOB/CRAWLER nodes+edges, each trigger's TriggerPredicate.Conditions become upstream JOB/CRAWLER nodes+edges -- no fabricated topology. Node.UniqueId is \"<kind>/<name>\" (real ID-gen algorithm not discoverable from the SDK, same simplification already accepted here for FormType.Id). LastRun is the most recent entry from real StartWorkflowRun history (b.workflowRuns), absent until a run has actually happened. NEW this pass (gopherstack-vcor): the missing link is built. Verified against aws-sdk-go-v2/service/glue@v1.152.0 that neither JobRun nor Crawl/CrawlerHistory carries a WorkflowRunId on the wire (types.go:2815-2836,2916-2946,7134-7352) -- JobRun's only real correlation field is TriggerName (types.go:7350-7351), which this backend now also populates for the first time. StartWorkflowRun now fires the workflow's entry-point trigger(s) (WorkflowName==this workflow, Predicate==nil -- AWS calls this the workflow's \"start trigger\", workflows_overview.html) and stamps the new run's ID onto the job runs/crawls those actions start, via an internal-only (non-wire) WorkflowRunID field on JobRun/CrawlHistoryEntry that persists but is stripped before GetJobRun/GetJobRuns responses (ListCrawls was already safe: its crawlHistoryOut DTO copies fields explicitly). GetWorkflowRun/GetWorkflowRuns/GetWorkflow/BatchGetWorkflows now compute WorkflowRunStatistics live from that link (never stored, so it can't go stale); ErroredActions/WaitingActions count job runs only, per the SDK's own doc comments for those two fields (\"count of job runs in the ERROR/WAITING state\", types.go:13224-13225) unlike the other fields' generic \"Actions\" wording. Two things are deliberately still not modeled: (1) conditional (predicate-gated) triggers within a workflow never fire on their own -- this backend has no predicate-evaluation engine watching job/crawler completions, so only an entry trigger's own direct actions are ever linked to a run, not a full downstream DAG execution; (2) BlueprintDetails (still structurally unreachable, unchanged from gopherstack-dol3) and WorkflowRun.Graph/GetWorkflowRun's own IncludeGraph (types.Node.JobDetails.JobRuns/CrawlerDetails.Crawls) remain unpopulated -- the link now exists to build them, but that is real additional work (converting stamped runs into per-node run-history lists) not done this pass."}
   dev_endpoints: {status: ok, note: "fixed this pass: DevEndpoint/DevEndpointInput were previously missing ~20 of ~24 real fields (RoleArn, SecurityGroupIds, SubnetId, WorkerType, GlueVersion, NumberOfWorkers/Nodes, PublicKey(s), ExtraJarsS3Path/ExtraPythonLibsS3Path, SecurityConfiguration, VpcId, AvailabilityZone, YarnEndpointAddress/PrivateAddress/PublicAddress, FailureReason, LastUpdateStatus, ZeppelinRemoteSparkInterpreterPort, CreatedTimestamp/LastModifiedTimestamp) — CreateDevEndpoint took only a bare name. Field-diffed against types.DevEndpoint/CreateDevEndpointInput/UpdateDevEndpointInput and added all of them. RoleArn is a real AWS-required field and is now validated as such (was previously accepted as empty, which real AWS rejects). UpdateDevEndpoint gained AddPublicKeys/DeletePublicKeys/PublicKey/DeleteArguments (previously only AddArguments worked). Network address fields (VpcId/YarnEndpointAddress/PrivateAddress/PublicAddress) are deterministic mock values, not real network state — there is no VPC/networking simulation in this backend, consistent with every other service. NEW this pass (gopherstack-dol3): CreateDevEndpoint now enforces AWS's real, published default quota 'Max development endpoint per account: 25' (docs.aws.amazon.com/general/latest/gr/glue.html, verified via WebFetch this pass, not from memory) via a new ErrResourceNumberLimitExceeded sentinel -> ResourceNumberLimitExceededException, confirmed present in CreateDevEndpoint's real error catalog (deserializers.go's awsAwsjson11_deserializeOpErrorCreateDevEndpoint switch). See gap-list note on the other three quota/idempotency exceptions for why only this one resource kind got a limit this pass."}
@@ -752,3 +754,88 @@ Separately (found, NOT fixed — pre-existing, unrelated to this pass's Glue cha
 with 4 args but the (concurrently-edited-by-another-agent) Route53 backend method
 now takes 5. This is outside `services/glue/` and was left untouched per this
 task's scope; flagging for whichever pass owns Route53/CloudFormation.
+
+## 2026-08-22 gopherstack-2wvq: GetEntityRecords/ListEntities native-catalog path
+
+Fourth and fifth of gopherstack-2wvq's over-validation-whose-fix-is-a-feature
+class (after codepipeline, rekognition, cloudtrail, textract). Both ops
+wrongly required ConnectionName. The issue's own sizing called this "the most
+expensive remaining candidate after transfer", on the theory that gopherstack
+"indexes entities solely by connection name, with no concept of native-catalog
+entities at all". That sizing was too high, the same way textract's was: this
+backend already has a full, real Data Catalog (databases.go/tables.go,
+GetDatabases/GetTables/GetTable) that IS the native S3 Glue Data Catalog the
+SDK doc for GetEntityRecords names as the alternate path
+("query preview data from a given connection type or from a native Amazon S3
+based Glue Data Catalog"). No new storage or index was built -- only a mapping
+from an existing Table's StorageDescriptor.Columns/PartitionKeys onto the
+existing EntityField shape (columnToEntityField/nativeEntityDefFromTable,
+entities.go), reusing entityCatalog's own sampleRecord/paginateSlice
+machinery unchanged.
+
+Checked both ops in both directions (rule 1). ListEntities: ConnectionName
+over-required (fixed) and ParentEntityName -- a real input field -- was
+accepted and silently ignored by every code path (an accept-and-drop bug on
+the op's own input, not on a separate create/update path); it is now honored
+for native-catalog listing (drills a database down to its tables) and left as
+a documented no-op in connector mode, since entityCatalog's canned catalog
+models no children for any entity to filter to. GetEntityRecords: ConnectionName
+over-required (fixed) AND, the other direction, Limit is real-SDK-required
+(client-side validator in validators.go, not just doc prose) but was never
+enforced here -- now returns InvalidInputException for Limit<=0. That second
+half was not named in the issue at all; found only by reading the op's own
+required-member set against its own handler, same as codepipeline.
+
+Checked glue's create/update path for a matching accept-and-drop (rule 2):
+CreateTable/CreateDatabase already retain everything GetEntityRecords/
+ListEntities' native path needs (columns, partition keys, database names) --
+nothing is dropped there. GetEntityRecordsInput's own optional
+ConnectionOptions/SelectedFields members are still not captured on the wire
+struct; left alone since both are optional (not the required-field class this
+issue targets) and this backend's DescribeEntity/GetEntityRecords already
+return canned/synthesized data regardless of connector options, so capturing
+ConnectionOptions would have nothing real to feed. SelectedFields (field
+projection) is a genuine, cheap-ish gap -- GetEntityRecords always returns
+every field -- noted here as found but not fixed, out of the ConnectionName/
+Limit scope this pass targeted.
+
+Neither op sits on a create/update/destroy lifecycle leg (rule "one from
+today", gopherstack-jodk's over-validation-on-teardown class): both are
+read-only preview/discovery ops used ahead of building a real connector or
+crawler, not part of any resource's create or delete flow, so there is no
+teardown-leg risk here.
+
+EntityName for the native path is the "database.table" form ListEntities
+itself advertises (nativeEntityName/splitNativeEntityName) -- a chosen, not
+AWS-specified, convention, because GetEntityRecordsInput carries no separate
+parent/database field to disambiguate a bare table name that might exist in
+more than one database. A bare database name, or anything not in that form,
+is EntityNotFoundException, never an empty or fabricated 200 -- consistent
+with entities.go's existing DescribeEntity/GetEntityRecords behavior for
+unknown connector entities.
+
+DescribeEntity was deliberately left untouched: it is not one of the two ops
+this issue names, and it still requires ConnectionName. A real client that
+discovers a native-catalog table via the now-fixed ListEntities and then calls
+DescribeEntity on it gets EntityNotFoundException today, not a schema. That is
+a real, honestly-scoped-out gap (see the DescribeEntity/ListEntities/
+GetEntityRecords rows above), not silently papered over -- extending
+DescribeEntity is a natural, cheap follow-up but is out of this pass's edit
+scope (`services/glue/` changes were reviewed against this issue's exact
+two-op list).
+
+New tests: entities_test.go (TestBackend_ListEntities/TestBackend_GetEntityRecords
+updated for ListEntities' new parentEntityName parameter), handler_entities_test.go
+(TestHandler_ListEntities_NativeCatalog, TestHandler_GetEntityRecords_NativeCatalog,
+plus TestHandler_ListEntities/TestGetEntityRecords table updates -- the old
+"missing ConnectionName is 400" cases asserted the exact backwards behavior this
+issue exists to fix, rewritten rather than deleted, matching the codepipeline
+fix's precedent). Every new/changed assertion was hand-verified to fail against
+the pre-fix code (`entities.go`/`handler_entities.go`/`interfaces.go` restored
+from `git show HEAD:<path>`, confirmed red, restored, `md5sum` byte-identical to
+the fixed version).
+
+`StorageBackend.ListEntities`/`InMemoryBackend.ListEntities` gained a
+`parentEntityName` parameter (interfaces.go) -- confirmed via repo-wide grep
+that both are referenced only inside `services/glue/`; `make build-check`
+passes.

@@ -116,7 +116,7 @@ func TestBackend_ListEntities(t *testing.T) {
 
 	b := newBackendWithConn(t, "c")
 
-	entities, err := b.ListEntities("c")
+	entities, err := b.ListEntities("c", "")
 	require.NoError(t, err)
 	require.NotEmpty(t, entities)
 
@@ -131,7 +131,7 @@ func TestBackend_ListEntities(t *testing.T) {
 	// Sorted ascending by upper-cased name.
 	assert.IsIncreasing(t, names)
 
-	_, err = b.ListEntities("missing")
+	_, err = b.ListEntities("missing", "")
 	require.Error(t, err)
 }
 
