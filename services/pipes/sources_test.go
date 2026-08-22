@@ -649,7 +649,20 @@ func newStreamSourceHarness(t *testing.T, tc streamSourceCase) *streamSourceHarn
 		}
 	}
 	if tc.dlqARN != "" {
-		input.DeadLetterConfig = &pipes.DeadLetterConfig{Arn: tc.dlqARN}
+		if input.SourceParameters == nil {
+			input.SourceParameters = &pipes.SourceParameters{}
+		}
+		// The real Pipes API only allows a DeadLetterConfig nested under the
+		// source's own stream parameters, never at the top level.
+		if tc.isDynamoDB {
+			input.SourceParameters.DynamoDBStreamParameters = &pipes.DynamoDBStreamSourceParameters{
+				DeadLetterConfig: &pipes.DeadLetterConfig{Arn: tc.dlqARN},
+			}
+		} else {
+			input.SourceParameters.KinesisStreamParameters = &pipes.KinesisStreamSourceParameters{
+				DeadLetterConfig: &pipes.DeadLetterConfig{Arn: tc.dlqARN},
+			}
+		}
 	}
 
 	_, err := backend.CreatePipe(context.Background(), input)

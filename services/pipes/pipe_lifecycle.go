@@ -69,7 +69,6 @@ func (b *InMemoryBackend) CreatePipe(ctx context.Context, in CreatePipeInput) (*
 		Tags:                    mergeTags(nil, in.Tags),
 		SourceParameters:        in.SourceParameters,
 		TargetParameters:        in.TargetParameters,
-		DeadLetterConfig:        in.DeadLetterConfig,
 		LogConfiguration:        in.LogConfiguration,
 		EnrichmentParameters:    in.EnrichmentParameters,
 		RuntimeMetricsStreaming: in.RuntimeMetricsStreaming,
@@ -134,9 +133,6 @@ func applyUpdateFields(p *Pipe, in UpdatePipeInput) {
 	}
 	if in.TargetParameters != nil {
 		p.TargetParameters = in.TargetParameters
-	}
-	if in.DeadLetterConfig != nil {
-		p.DeadLetterConfig = in.DeadLetterConfig
 	}
 	if in.LogConfiguration != nil {
 		p.LogConfiguration = in.LogConfiguration
