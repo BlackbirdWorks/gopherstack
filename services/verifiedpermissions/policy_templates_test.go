@@ -30,7 +30,7 @@ func TestBackend_PolicyTemplate(t *testing.T) {
 				pt, err := b.CreatePolicyTemplate(
 					ps.PolicyStoreID,
 					"My Template",
-					"permit(principal == ?principal, action, resource);", "",
+					"permit(principal == ?principal, action, resource);", "", "",
 				)
 				require.NoError(t, err)
 
@@ -111,7 +111,7 @@ func TestBackend_ListPolicyTemplates(t *testing.T) {
 				_, err := b.CreatePolicyTemplate(
 					storeID,
 					fmt.Sprintf("template %d", i),
-					"permit(principal == ?principal, action, resource);", "",
+					"permit(principal == ?principal, action, resource);", "", "",
 				)
 				require.NoError(t, err)
 			}
@@ -150,7 +150,7 @@ func TestBackend_UpdatePolicyTemplate(t *testing.T) {
 				pt, err := b.CreatePolicyTemplate(
 					ps.PolicyStoreID,
 					"original",
-					"permit(principal == ?principal, action, resource);", "",
+					"permit(principal == ?principal, action, resource);", "", "",
 				)
 				require.NoError(t, err)
 
@@ -178,7 +178,7 @@ func TestBackend_UpdatePolicyTemplate(t *testing.T) {
 			b := newTestBackend()
 			storeID, templateID := tt.setup(t, b)
 
-			pt, err := b.UpdatePolicyTemplate(storeID, templateID, tt.newDesc, tt.newStmt)
+			pt, err := b.UpdatePolicyTemplate(storeID, templateID, tt.newDesc, tt.newStmt, "")
 			if tt.wantErr {
 				require.Error(t, err)
 
@@ -211,7 +211,7 @@ func TestBackend_DeletePolicyTemplate(t *testing.T) {
 				pt, err := b.CreatePolicyTemplate(
 					ps.PolicyStoreID,
 					"desc",
-					"permit(principal == ?principal, action, resource);", "",
+					"permit(principal == ?principal, action, resource);", "", "",
 				)
 				require.NoError(t, err)
 
@@ -271,6 +271,7 @@ func TestBackend_CreatePolicyTemplate_NonExistentStore(t *testing.T) {
 		"desc",
 		"permit(principal == ?principal, action, resource);",
 		"",
+		"",
 	)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, awserr.ErrNotFound)
@@ -293,7 +294,7 @@ func TestBackend_UpdatePolicyTemplate_NonExistentStore(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
-	_, err := b.UpdatePolicyTemplate("nonexistent-store", "nonexistent-template", "desc", "stmt")
+	_, err := b.UpdatePolicyTemplate("nonexistent-store", "nonexistent-template", "desc", "stmt", "")
 	require.Error(t, err)
 	assert.ErrorIs(t, err, awserr.ErrNotFound)
 }
@@ -311,7 +312,7 @@ func TestBackend_DeletePolicyTemplate_CascadesToLinkedPolicies(t *testing.T) {
 	ps := seedPolicyStore(t, b, "cascade store")
 
 	tmpl, err := b.CreatePolicyTemplate(
-		ps.PolicyStoreID, "tmpl", `permit(principal == ?principal, action, resource);`, "",
+		ps.PolicyStoreID, "tmpl", `permit(principal == ?principal, action, resource);`, "", "",
 	)
 	require.NoError(t, err)
 

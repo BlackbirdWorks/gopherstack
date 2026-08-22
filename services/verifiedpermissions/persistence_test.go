@@ -84,7 +84,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	require.NoError(t, err)
 
 	tmpl, err := original.CreatePolicyTemplate(
-		ps.PolicyStoreID, "a template", `permit(principal == ?principal, action, resource);`, "",
+		ps.PolicyStoreID, "a template", `permit(principal == ?principal, action, resource);`, "template-name", "",
 	)
 	require.NoError(t, err)
 
@@ -131,6 +131,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	gotTmpl, err := fresh.GetPolicyTemplate(ps.PolicyStoreID, tmpl.PolicyTemplateID)
 	require.NoError(t, err)
 	assert.Equal(t, tmpl.Statement, gotTmpl.Statement)
+	assert.Equal(t, "template-name", gotTmpl.Name, "Name must survive Snapshot/Restore (gopherstack-tpu3)")
 
 	// identitySources table ("clean").
 	gotSrc, err := fresh.GetIdentitySource(ps.PolicyStoreID, src.IdentitySourceID)
@@ -223,7 +224,7 @@ func TestBackend_PersistenceRoundTrip(t *testing.T) {
 		ps.PolicyStoreID,
 		verifiedpermissions.CreatePolicyParams{PolicyType: "STATIC", Statement: "permit(principal,action,resource);"},
 	)
-	_, _ = b.CreatePolicyTemplate(ps.PolicyStoreID, "tmpl", "permit(principal,action,resource);", "")
+	_, _ = b.CreatePolicyTemplate(ps.PolicyStoreID, "tmpl", "permit(principal,action,resource);", "", "")
 	_, _ = b.PutSchema(ps.PolicyStoreID, `{"ns":{}}`)
 	_, _ = b.CreateIdentitySource(
 		ps.PolicyStoreID,
@@ -279,7 +280,7 @@ func TestBackend_Snapshot_Restore(t *testing.T) {
 				require.NoError(t, err)
 
 				_, err = b.CreatePolicyTemplate(
-					ps.PolicyStoreID, "tpl", "permit(principal == ?principal, action, resource);", "",
+					ps.PolicyStoreID, "tpl", "permit(principal == ?principal, action, resource);", "", "",
 				)
 				require.NoError(t, err)
 

@@ -59,7 +59,7 @@ func TestBackend_DeleteOps_NoOrphanedResourceTags(t *testing.T) {
 		b := NewInMemoryBackend("123456789012", "us-east-1")
 		ps := whiteboxSeedPolicyStore(t, b, "store")
 		tmpl, err := b.CreatePolicyTemplate(
-			ps.PolicyStoreID, "tmpl", `permit(principal == ?principal, action, resource);`, "",
+			ps.PolicyStoreID, "tmpl", `permit(principal == ?principal, action, resource);`, "", "",
 		)
 		require.NoError(t, err)
 

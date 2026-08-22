@@ -397,6 +397,15 @@ type MSKVersion struct {
 	Status  string `json:"status"`
 }
 
+// CompatibleKafkaVersion groups the version a cluster is upgrading FROM with
+// the versions it can upgrade TO, matching aws-sdk-go-v2 kafka's
+// types.CompatibleKafkaVersion (types/types.go:576; deserializers.go:15252
+// keys "sourceVersion"/"targetVersions").
+type CompatibleKafkaVersion struct {
+	SourceVersion  string   `json:"sourceVersion"`
+	TargetVersions []string `json:"targetVersions"`
+}
+
 // ScramSecretError represents an error that occurred while associating or disassociating a SCRAM secret.
 type ScramSecretError struct {
 	SecretArn    string `json:"secretArn"`

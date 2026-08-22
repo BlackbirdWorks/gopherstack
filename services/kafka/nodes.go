@@ -45,9 +45,14 @@ func (b *InMemoryBackend) ListKafkaVersions(_ context.Context) []*MSKVersion {
 	}
 }
 
-// GetCompatibleKafkaVersions returns Kafka versions compatible with the cluster's current version.
-// KRaft clusters can only target KRaft versions. ZooKeeper clusters can target ZooKeeper versions up to 3.x.
-func (b *InMemoryBackend) GetCompatibleKafkaVersions(_ context.Context, clusterArn string) ([]*MSKVersion, error) {
+// GetCompatibleKafkaVersions returns the versions the cluster's current Kafka
+// version can upgrade to, grouped by that current (source) version. KRaft
+// clusters can only target KRaft versions. ZooKeeper clusters can target
+// ZooKeeper versions up to 3.x.
+func (b *InMemoryBackend) GetCompatibleKafkaVersions(
+	_ context.Context,
+	clusterArn string,
+) ([]*CompatibleKafkaVersion, error) {
 	b.mu.RLock("GetCompatibleKafkaVersions")
 	defer b.mu.RUnlock()
 
@@ -59,20 +64,12 @@ func (b *InMemoryBackend) GetCompatibleKafkaVersions(_ context.Context, clusterA
 	current := c.KafkaVersion
 	isKRaft := strings.HasSuffix(current, ".kraft")
 
+	targets := []string{kafkaVersion360, kafkaVersion351, "3.4.0", "3.3.2", "2.8.2.tiered"}
 	if isKRaft {
-		return []*MSKVersion{
-			{Version: "3.8.0.kraft", Status: ClusterStateActive},
-			{Version: "3.7.x.kraft", Status: ClusterStateActive},
-		}, nil
+		targets = []string{"3.8.0.kraft", "3.7.x.kraft"}
 	}
 
-	// ZooKeeper-based: return non-KRaft active versions higher than current.
-	// For simplicity, return a curated list of ZooKeeper-compatible upgrades.
-	return []*MSKVersion{
-		{Version: kafkaVersion360, Status: ClusterStateActive},
-		{Version: kafkaVersion351, Status: ClusterStateActive},
-		{Version: "3.4.0", Status: ClusterStateActive},
-		{Version: "3.3.2", Status: ClusterStateActive},
-		{Version: "2.8.2.tiered", Status: ClusterStateActive},
+	return []*CompatibleKafkaVersion{
+		{SourceVersion: current, TargetVersions: targets},
 	}, nil
 }

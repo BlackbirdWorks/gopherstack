@@ -25,10 +25,10 @@ type StorageBackend interface {
 	UpdatePolicy(policyStoreID, policyID string, params UpdatePolicyParams) (*Policy, error)
 	DeletePolicy(policyStoreID, policyID string) error
 	PolicyScope(p *Policy) *PolicyScopeResult
-	CreatePolicyTemplate(policyStoreID, description, statement, clientToken string) (*PolicyTemplate, error)
+	CreatePolicyTemplate(policyStoreID, description, statement, name, clientToken string) (*PolicyTemplate, error)
 	GetPolicyTemplate(policyStoreID, policyTemplateID string) (*PolicyTemplate, error)
 	ListPolicyTemplates(policyStoreID, nextToken string, maxResults int) ([]PolicyTemplate, string, error)
-	UpdatePolicyTemplate(policyStoreID, policyTemplateID, description, statement string) (*PolicyTemplate, error)
+	UpdatePolicyTemplate(policyStoreID, policyTemplateID, description, statement, name string) (*PolicyTemplate, error)
 	DeletePolicyTemplate(policyStoreID, policyTemplateID string) error
 	Reset()
 	TagResource(resourceARN string, tags map[string]string) error

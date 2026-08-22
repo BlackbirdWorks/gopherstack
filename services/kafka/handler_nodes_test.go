@@ -8,6 +8,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	kafkasdk "github.com/aws/aws-sdk-go-v2/service/kafka"
+	"github.com/aws/aws-sdk-go-v2/service/kafka/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -94,7 +97,9 @@ func TestListKafkaVersions_HTTP(t *testing.T) {
 	assert.True(t, foundKRaft, "3.8.0.kraft should be in version list")
 }
 
-// TestRefinement2_GetCompatibleKafkaVersions_KRaftOnly verifies KRaft clusters get KRaft targets.
+// TestRefinement2_GetCompatibleKafkaVersions_KRaftOnly verifies KRaft clusters get KRaft targets,
+// grouped under the cluster's current version as SourceVersion (kafka@v1.57.2
+// types.CompatibleKafkaVersion{SourceVersion, TargetVersions}).
 
 func TestGetCompatibleKafkaVersions_KRaftOnly(t *testing.T) {
 	t.Parallel()
@@ -102,21 +107,18 @@ func TestGetCompatibleKafkaVersions_KRaftOnly(t *testing.T) {
 	b := kafka.NewInMemoryBackend(testAccountID, testRegion)
 	cl := b.AddClusterInternal("kraft-cl", "3.7.x.kraft")
 
-	versions, err := b.GetCompatibleKafkaVersions(context.Background(), cl.ClusterArn)
+	groups, err := b.GetCompatibleKafkaVersions(context.Background(), cl.ClusterArn)
 	require.NoError(t, err)
-
-	versionStrs := make([]string, 0, len(versions))
-	for _, v := range versions {
-		versionStrs = append(versionStrs, v.Version)
-	}
+	require.Len(t, groups, 1)
+	assert.Equal(t, "3.7.x.kraft", groups[0].SourceVersion)
 
 	// KRaft clusters should only get KRaft targets.
-	for _, v := range versions {
-		assert.True(t, strings.HasSuffix(v.Version, ".kraft") || v.Version == "3.8.0.kraft",
-			"KRaft cluster should only get KRaft-compatible versions, got %q", v.Version)
+	for _, v := range groups[0].TargetVersions {
+		assert.True(t, strings.HasSuffix(v, ".kraft") || v == "3.8.0.kraft",
+			"KRaft cluster should only get KRaft-compatible versions, got %q", v)
 	}
 
-	assert.Contains(t, versionStrs, "3.8.0.kraft")
+	assert.Contains(t, groups[0].TargetVersions, "3.8.0.kraft")
 }
 
 // TestRefinement2_GetCompatibleKafkaVersions_ZooKeeperNoKRaft verifies ZK clusters don't get KRaft.
@@ -127,13 +129,15 @@ func TestGetCompatibleKafkaVersions_ZooKeeperNoKRaft(t *testing.T) {
 	b := kafka.NewInMemoryBackend(testAccountID, testRegion)
 	cl := b.AddClusterInternal("zk-cl", "2.8.1")
 
-	versions, err := b.GetCompatibleKafkaVersions(context.Background(), cl.ClusterArn)
+	groups, err := b.GetCompatibleKafkaVersions(context.Background(), cl.ClusterArn)
 	require.NoError(t, err)
-	require.NotEmpty(t, versions)
+	require.Len(t, groups, 1)
+	assert.Equal(t, "2.8.1", groups[0].SourceVersion)
+	require.NotEmpty(t, groups[0].TargetVersions)
 
-	for _, v := range versions {
-		assert.False(t, strings.HasSuffix(v.Version, ".kraft"),
-			"ZooKeeper cluster should not get KRaft versions, got %q", v.Version)
+	for _, v := range groups[0].TargetVersions {
+		assert.False(t, strings.HasSuffix(v, ".kraft"),
+			"ZooKeeper cluster should not get KRaft versions, got %q", v)
 	}
 }
 
@@ -145,6 +149,42 @@ func TestGetCompatibleKafkaVersions_NotFound(t *testing.T) {
 	b := kafka.NewInMemoryBackend(testAccountID, testRegion)
 	_, err := b.GetCompatibleKafkaVersions(context.Background(), "arn:aws:kafka:us-east-1:123:cluster/nonexistent/abc")
 	require.ErrorIs(t, err, kafka.ErrNotFound)
+}
+
+// TestGetCompatibleKafkaVersions_SDKRoundTrip drives GetCompatibleKafkaVersions
+// through a real aws-sdk-go-v2 kafka client and asserts
+// CompatibleKafkaVersions[0].SourceVersion/TargetVersions decode non-nil and
+// non-empty (gopherstack-35gu). Before this fix the backend returned a flat
+// []*MSKVersion{Version, Status}, which the real deserializer's
+// awsRestjson1_deserializeDocumentCompatibleKafkaVersion (keys "sourceVersion"/
+// "targetVersions") cannot match: every real client decoded an empty list.
+func TestGetCompatibleKafkaVersions_SDKRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	h := kafka.NewHandler(kafka.NewInMemoryBackend(testAccountID, testRegion))
+	client := newTestKafkaClient(t, h)
+
+	created, err := client.CreateCluster(t.Context(), &kafkasdk.CreateClusterInput{
+		ClusterName:         aws.String("compat-versions-sdk-cluster"),
+		KafkaVersion:        aws.String("2.8.1"),
+		NumberOfBrokerNodes: aws.Int32(3),
+		BrokerNodeGroupInfo: &types.BrokerNodeGroupInfo{
+			ClientSubnets: []string{"subnet-1", "subnet-2"},
+			InstanceType:  aws.String("kafka.m5.large"),
+		},
+	})
+	require.NoError(t, err)
+
+	out, err := client.GetCompatibleKafkaVersions(t.Context(), &kafkasdk.GetCompatibleKafkaVersionsInput{
+		ClusterArn: created.ClusterArn,
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, out.CompatibleKafkaVersions,
+		"CompatibleKafkaVersions decoded empty: the real deserializer keys on sourceVersion/targetVersions")
+
+	group := out.CompatibleKafkaVersions[0]
+	assert.Equal(t, "2.8.1", aws.ToString(group.SourceVersion))
+	assert.NotEmpty(t, group.TargetVersions)
 }
 
 // TestRefinement2_GetBootstrapBrokers_Variants tests bootstrap broker string generation.

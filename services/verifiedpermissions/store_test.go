@@ -306,7 +306,7 @@ func TestBackend_ExportHelpers(t *testing.T) {
 						Statement:  "permit(principal,action,resource);",
 					},
 				)
-				_, _ = b.CreatePolicyTemplate(ps.PolicyStoreID, "tmpl", "permit(principal,action,resource);", "")
+				_, _ = b.CreatePolicyTemplate(ps.PolicyStoreID, "tmpl", "permit(principal,action,resource);", "", "")
 				_, _ = b.CreateIdentitySource(
 					ps.PolicyStoreID,
 					"User",

@@ -29,7 +29,7 @@ ops:
   UpdateStorage: {wire: ok, errors: ok, state: ok, persist: ok, note: "route fixed: now /v1/clusters/{arn}/storage"}
   RejectClientVpcConnection: {wire: ok, errors: ok, state: ok, persist: ok, note: "route+wire fixed: PUT /v1/clusters/{arn}/client-vpc-connection (singular), vpcConnectionArn read from JSON body not path. Verified against SDK: no separate AcceptClientVpcConnection op exists in this SDK version -- Reject is the only client-VPC-connection mutation, so the family is complete, not partial."}
   ListVpcConnections: {wire: ok, errors: ok, state: ok, persist: ok, note: "route fixed: GET /v1/vpc-connections (plural root, distinct from singular Create/Describe/Delete root). Item shape (types.VpcConnection) field-diffed: targetClusterArn/vpcConnectionArn/authentication/creationTime/state/vpcId all present; creationTime added this pass (was missing)."}
-  GetCompatibleKafkaVersions: {wire: ok, errors: ok, state: ok, persist: n/a, note: "route fixed: top-level GET /v1/compatible-kafka-versions?clusterArn=..., was wrongly nested under /v1/clusters/{arn}/..."}
+  GetCompatibleKafkaVersions: {wire: fixed, errors: ok, state: ok, persist: n/a, note: "route fixed previously: top-level GET /v1/compatible-kafka-versions?clusterArn=..., was wrongly nested under /v1/clusters/{arn}/.... 2026-08-22 (gopherstack-35gu): even once reachable, the response body itself was the wrong shape entirely -- backend returned a flat []*MSKVersion{Version,Status}, but the real GetCompatibleKafkaVersionsOutput.CompatibleKafkaVersions is []types.CompatibleKafkaVersion{SourceVersion,TargetVersions[]} (types/types.go:576; deserializers.go:15252 keys sourceVersion/targetVersions), grouped by the version being upgraded FROM. Every real client decoded compatibleKafkaVersions as empty regardless of backend computation. Fixed: new CompatibleKafkaVersion model type, GetCompatibleKafkaVersions now returns a single-element []*CompatibleKafkaVersion{SourceVersion: cluster's current version, TargetVersions: the KRaft-or-ZooKeeper target list}. See TestGetCompatibleKafkaVersions_SDKRoundTrip."}
   DescribeTopicPartitions: {wire: ok, errors: ok, state: ok, persist: n/a, note: "route ok. Response body reworked to the real {nextToken, partitions:[{partition,leader,replicas,isr}]} shape (types.TopicPartitionInfo), field-diffed against deserializers.go. Backend synthesizes a round-robin leader/replica assignment over the cluster's broker IDs (1..NumberOfBrokerNodes) with the full replica set always reported in-sync (isr==replicas) -- this in-memory emulator has no real broker/ISR divergence to model; documented simplification, not a wire-shape gap."}
   UpdateReplicationInfo: {wire: ok, errors: ok, state: ok, persist: fixed, note: "route ok. Request/response now match the real UpdateReplicationInfoInput/Output: currentVersion/sourceKafkaClusterArn/targetKafkaClusterArn (required) + optional topicReplication/consumerGroupReplication updates applied to the matching ReplicationInfoConfig flow; response is replicatorArn/replicatorState only. Optimistic-lock currentVersion check added (mismatch -> BadRequestException); unknown (source,target) flow -> NotFoundException. 2026-08-21 (gopherstack-1vv2): persist was accept-and-corrupt — types.TopicReplicationUpdate (UpdateReplicationInfo) declares no startingPosition/topicNameConfiguration at all (both immutable after Create, unlike Create-side types.TopicReplication), but the shared topicReplicationDTO decoded both create and update requests into the same TopicReplicationConfig, and the backend wholesale-replaced the stored TopicReplication with it -- so a real client's Update payload (which can never carry either field) silently erased both on every call. Fixed: topicReplicationUpdateDTO now mirrors only the real Update fields, and UpdateReplicationInfo merges them in while explicitly preserving the flow's existing StartingPositionType/TopicNameConfigurationType. See TestUpdateReplicationInfo_PreservesStartingPositionAndTopicNameConfig. ConsumerGroupReplicationUpdate's one narrower field (ConsumerGroupOffsetSyncMode, missing vs Create-side ConsumerGroupReplication) is not modeled by this backend at either Create or Update, so no data is destroyed there -- separate accept-and-drop gap, not fixed this pass."}
   CreateCluster: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -92,7 +92,7 @@ families:
   vpc_connection: {status: ok, note: "ListClientVpcConnections had a real wire-envelope/shape bug (wrong JSON key + wrong item shape, returning an empty list to every real client) found and fixed this pass despite being marked ok previously -- see the ListClientVpcConnections op note. CreateVpcConnection/DescribeVpcConnection field-diffed and closed (clientSubnets/securityGroups/creationTime were missing). ListVpcConnections and RejectClientVpcConnection route fixes from the prior pass reconfirmed correct."}
   cluster_operations: {status: ok}
   cluster_policy: {status: ok}
-  nodes_versions_bootstrap: {status: ok, note: "GetCompatibleKafkaVersions was unreachable pre-fix (wrong nesting); fixed. GetBootstrapBrokers field-diffed this pass (previously only spot-checked, not adversarially verified) -- 4 wrong JSON field names found and fixed, see the op note. ListNodes/ListKafkaVersions verified."}
+  nodes_versions_bootstrap: {status: ok, note: "GetCompatibleKafkaVersions was unreachable pre-fix (wrong nesting); fixed. GetBootstrapBrokers field-diffed this pass (previously only spot-checked, not adversarially verified) -- 4 wrong JSON field names found and fixed, see the op note. ListNodes/ListKafkaVersions verified. 2026-08-22 (gopherstack-35gu): GetCompatibleKafkaVersions' response body shape itself was also wrong (flat []MSKVersion{Version,Status} instead of the real grouped CompatibleKafkaVersion{SourceVersion,TargetVersions[]}) -- see the op note."}
   replicator: {status: ok, note: "full ReplicationInfo/KafkaCluster topology now implemented end-to-end: CreateReplicator accepts and persists kafkaClusters/replicationInfoList; DescribeReplicator/ListReplicators resolve real KafkaClusterAlias/SourceKafkaClusterAlias/TargetKafkaClusterAlias from the live cluster table; UpdateReplicationInfo enforces the real currentVersion/source/target contract against a specific replication flow. See services/kafka/replicators_test.go TestCreateReplicator_TopologyAndAliasResolution and TestUpdateReplicationInfo_Backend."}
   topic: {status: ok, note: "CreateTopic/DescribeTopic/ListTopics/UpdateTopic field-name divergence closed (partitionCount/configs, topicArn/status, distinct TopicInfo list shape). DescribeTopicPartitions now returns the real {nextToken, partitions} shape with synthesized round-robin leader/replica placement. See services/kafka/topics_test.go and services/kafka/handler_topics_test.go."}
 gaps:
@@ -150,6 +150,49 @@ leaks: {status: clean, note: "no goroutines/timers introduced or found this pass
 ---
 
 ## Notes
+
+**2026-08-22 (gopherstack-35gu): GetCompatibleKafkaVersions returned the
+wrong item shape entirely.** Filed during the zquj keycheck sweep as
+structural (not a tag fix): the real
+`GetCompatibleKafkaVersionsOutput.CompatibleKafkaVersions` is
+`[]types.CompatibleKafkaVersion{SourceVersion *string, TargetVersions
+[]string}` (`types/types.go:576`), and the deserializer keys on
+`"sourceVersion"`/`"targetVersions"` (`deserializers.go:15252`,
+`awsRestjson1_deserializeDocumentCompatibleKafkaVersion`) -- grouped by the
+version being upgraded FROM, with the list of versions upgradeable TO.
+gopherstack's `Backend.GetCompatibleKafkaVersions` (`nodes.go`) instead
+returned a flat `[]*MSKVersion{Version, Status}`: neither the field names nor
+the shape (flat vs. grouped) matched, so every real client decoded
+`compatibleKafkaVersions` as an empty list regardless of what the backend
+computed.
+
+Fixed: added a new `CompatibleKafkaVersion{SourceVersion, TargetVersions}`
+model type (`models.go`), changed `Backend.GetCompatibleKafkaVersions`'s
+return type (interface signature change in `interfaces.go`) to
+`[]*CompatibleKafkaVersion`, and now returns a single-element slice grouping
+the cluster's current `KafkaVersion` as `SourceVersion` with the
+KRaft-or-ZooKeeper-appropriate target list as `TargetVersions`. This value is
+computed on the fly from `Cluster.KafkaVersion` at call time -- it is not
+part of the persisted `backendSnapshot` (confirmed absent from
+`persistence.go`), so no snapshot version bump applies.
+
+Proven end-to-end via a real `aws-sdk-go-v2` kafka client
+(`TestGetCompatibleKafkaVersions_SDKRoundTrip`,
+`services/kafka/handler_nodes_test.go`): CreateCluster with a known
+KafkaVersion, then GetCompatibleKafkaVersions, asserting
+`CompatibleKafkaVersions[0].SourceVersion`/`TargetVersions` decode non-nil
+and correct. Hand-reverted (`nodes.go`/`models.go`/`interfaces.go`/
+`handler_nodes.go` restored from `git show HEAD:...`) and confirmed the
+package fails to *compile* against the new test (the old `MSKVersion` type
+has neither field the test needs) -- the strongest possible confirmation
+that this is a structural gap, not a value bug; restored, md5sum
+byte-identical.
+
+Two existing backend-level tests
+(`TestGetCompatibleKafkaVersions_KRaftOnly`,
+`TestGetCompatibleKafkaVersions_ZooKeeperNoKRaft`) asserted the old flat
+`[]*MSKVersion` shape directly (`v.Version` per element); both corrected to
+the new grouped shape (`groups[0].SourceVersion`/`TargetVersions`).
 
 **2026-08-21 (gopherstack-r80d batch 27, required-output-member sweep):**
 Module confirmed as `aws-sdk-go-v2/service/kafka@v1.57.2` directly (no

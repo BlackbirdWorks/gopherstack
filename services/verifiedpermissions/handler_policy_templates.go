@@ -9,6 +9,7 @@ type createPolicyTemplateInput struct {
 	PolicyStoreID string `json:"policyStoreId"`
 	Description   string `json:"description"`
 	Statement     string `json:"statement"`
+	Name          string `json:"name,omitempty"`
 	ClientToken   string `json:"clientToken,omitempty"`
 }
 
@@ -36,7 +37,7 @@ func (h *Handler) handleCreatePolicyTemplate(
 		return nil, err
 	}
 
-	pt, err := h.Backend.CreatePolicyTemplate(resolvedID, in.Description, in.Statement, in.ClientToken)
+	pt, err := h.Backend.CreatePolicyTemplate(resolvedID, in.Description, in.Statement, in.Name, in.ClientToken)
 	if err != nil {
 		return nil, err
 	}
@@ -59,6 +60,7 @@ type policyTemplateView struct {
 	PolicyTemplateID string `json:"policyTemplateId"`
 	Description      string `json:"description"`
 	Statement        string `json:"statement"`
+	Name             string `json:"name,omitempty"`
 	CreatedDate      string `json:"createdDate"`
 	LastUpdatedDate  string `json:"lastUpdatedDate"`
 }
@@ -68,6 +70,7 @@ type getPolicyTemplateOutput struct {
 	PolicyTemplateID string `json:"policyTemplateId"`
 	Description      string `json:"description"`
 	Statement        string `json:"statement"`
+	Name             string `json:"name,omitempty"`
 	CreatedDate      string `json:"createdDate"`
 	LastUpdatedDate  string `json:"lastUpdatedDate"`
 }
@@ -99,6 +102,7 @@ func (h *Handler) handleGetPolicyTemplate(
 		PolicyTemplateID: pt.PolicyTemplateID,
 		Description:      pt.Description,
 		Statement:        pt.Statement,
+		Name:             pt.Name,
 		CreatedDate:      pt.CreatedDate.UTC().Format(timeFormat),
 		LastUpdatedDate:  pt.LastUpdated.UTC().Format(timeFormat),
 	}, nil
@@ -142,6 +146,7 @@ func (h *Handler) handleListPolicyTemplates(
 			PolicyTemplateID: pt.PolicyTemplateID,
 			Description:      pt.Description,
 			Statement:        pt.Statement,
+			Name:             pt.Name,
 			CreatedDate:      pt.CreatedDate.UTC().Format(timeFormat),
 			LastUpdatedDate:  pt.LastUpdated.UTC().Format(timeFormat),
 		})
@@ -155,6 +160,7 @@ type updatePolicyTemplateInput struct {
 	PolicyTemplateID string `json:"policyTemplateId"`
 	Description      string `json:"description"`
 	Statement        string `json:"statement"`
+	Name             string `json:"name,omitempty"`
 }
 
 func (h *Handler) handleUpdatePolicyTemplate(
@@ -178,7 +184,7 @@ func (h *Handler) handleUpdatePolicyTemplate(
 		return nil, err
 	}
 
-	pt, err := h.Backend.UpdatePolicyTemplate(resolvedID, in.PolicyTemplateID, in.Description, in.Statement)
+	pt, err := h.Backend.UpdatePolicyTemplate(resolvedID, in.PolicyTemplateID, in.Description, in.Statement, in.Name)
 	if err != nil {
 		return nil, err
 	}

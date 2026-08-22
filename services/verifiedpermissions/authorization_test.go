@@ -238,7 +238,7 @@ func TestBackend_IsAuthorized_TemplateLinkedPolicy(t *testing.T) {
 			ps := seedPolicyStore(t, b, "template-linked auth store")
 
 			tmpl, err := b.CreatePolicyTemplate(
-				ps.PolicyStoreID, "tmpl", `permit(principal == ?principal, action, resource == ?resource);`, "",
+				ps.PolicyStoreID, "tmpl", `permit(principal == ?principal, action, resource == ?resource);`, "", "",
 			)
 			require.NoError(t, err)
 
@@ -283,7 +283,7 @@ func TestBackend_IsAuthorized_TemplateLinkedPolicy_UnboundOptionalSlot(t *testin
 	ps := seedPolicyStore(t, b, "unbound slot store")
 
 	tmpl, err := b.CreatePolicyTemplate(
-		ps.PolicyStoreID, "tmpl", `permit(principal == ?principal, action, resource);`, "",
+		ps.PolicyStoreID, "tmpl", `permit(principal == ?principal, action, resource);`, "", "",
 	)
 	require.NoError(t, err)
 

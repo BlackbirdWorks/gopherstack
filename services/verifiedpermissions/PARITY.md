@@ -16,10 +16,10 @@ ops:
   ListPolicies: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (this pass): ListPolicies' STATIC definition item was echoing the full Cedar statement text -- the real SDK's StaticPolicyDefinitionItem (unlike GetPolicy's StaticPolicyDefinitionDetail) carries ONLY description, never the statement. Also gained the same effect/actions/principal/resource top-level fields as CreatePolicy/GetPolicy. FIXED last pass: filter.principal/resource wire as the EntityReference union."}
   UpdatePolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED: same effect/actions/principal/resource fix as CreatePolicy"}
   DeletePolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED: now also clears the deleted policy's resourceTags entry (was leaking a ghost tag-map row after delete)"}
-  CreatePolicyTemplate: {wire: ok, errors: ok, state: ok, persist: ok, note: "ClientToken idempotency now implemented"}
-  GetPolicyTemplate: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListPolicyTemplates: {wire: ok, errors: ok, state: ok, persist: ok}
-  UpdatePolicyTemplate: {wire: ok, errors: ok, state: ok, persist: ok}
+  CreatePolicyTemplate: {wire: fixed, errors: ok, state: ok, persist: ok, note: "ClientToken idempotency now implemented. 2026-08-22 (gopherstack-tpu3): CreatePolicyTemplateInput.Name (api_op_CreatePolicyTemplate.go:94) was never read by this handler at all -- Name now threaded through to the backend and stored (also folded into the idempotency fingerprint, since a retried token with a different Name must not silently keep the old one). Not echoed on CreatePolicyTemplateOutput itself: the real Output carries no Name member (only CreatedDate/LastUpdatedDate/PolicyStoreId/PolicyTemplateId), confirmed against the SDK struct."}
+  GetPolicyTemplate: {wire: fixed, errors: ok, state: ok, persist: ok, note: "2026-08-22 (gopherstack-tpu3): GetPolicyTemplateOutput requires a \"name\" key (deserializers.go:9615, awsAwsjson10_deserializeOpDocumentGetPolicyTemplateOutput) that this handler never emitted -- PolicyTemplate had no Name field at all. Fixed; see TestPolicyTemplate_NameRoundTrip."}
+  ListPolicyTemplates: {wire: fixed, errors: ok, state: ok, persist: ok, note: "2026-08-22 (gopherstack-tpu3): types.PolicyTemplateItem requires \"name\" too (deserializers.go:7584, awsAwsjson10_deserializeDocumentPolicyTemplateItem) -- same gap as GetPolicyTemplate, now fixed. Pre-existing, out-of-scope-for-this-fix note: policyTemplateView also emits a \"statement\" key PolicyTemplateItem does not have on the real SDK; harmless (unknown keys are ignored by the deserializer) but left as-is -- unrelated to Name."}
+  UpdatePolicyTemplate: {wire: fixed, errors: ok, state: ok, persist: ok, note: "2026-08-22 (gopherstack-tpu3): UpdatePolicyTemplateInput.Name (api_op_UpdatePolicyTemplate.go:104) was never read -- fixed, same empty-string-means-unchanged convention this handler already used for Description/Statement. Not echoed on UpdatePolicyTemplateOutput (no Name member there either, same as Create); visible on the next GetPolicyTemplate/ListPolicyTemplates instead."}
   DeletePolicyTemplate: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (state bug, not wire): the real SDK documents that DeletePolicyTemplate \"also deletes any policies that were created from the specified policy template\" -- gopherstack previously deleted only the template row, leaving every TEMPLATE_LINKED policy referencing it as a dangling reference (visible via GetPolicy/ListPolicies, silently dropped from Cedar evaluation). Now cascade-deletes those policies (row + arnIndex + resourceTags) and invalidates the store's compiled policy-set cache."}
   PutSchema: {wire: ok, errors: ok, state: ok, persist: ok}
   GetSchema: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -49,6 +49,44 @@ deferred: []              # the one item deferred last pass (CreatePolicyStore C
 leaks: {status: clean, note: "no goroutines/janitors in this service; InMemoryBackend uses a single lockmetrics.RWMutex. Prior pass fixed real ghost-row leaks: DeletePolicy/DeleteIdentitySource/DeletePolicyStore's cascade/DeletePolicyTemplate's cascade all clear resourceTags (previously only arnIndex was cleaned, so a tagged-then-deleted resource left its tag map entry behind forever); DeletePolicyStore also clears policySetCache/policySetDirty for the deleted store. This pass adds policyStoreAliases (a new store.Table registered on b.registry, keyed by AliasName) to that same cascade: DeletePolicyStore now also deletes every alias pointing at the store being deleted (see policy_stores.go's DeletePolicyStore -- the real API's docs are silent on this since DeletePolicyStore predates aliases entirely, so gopherstack picked cascade-delete per this campaign's documented-choice convention, proven by TestVPHandler_DeletePolicyStore_CascadesAliases/TestBackend_DeletePolicyStore_CascadesAliases). Aliases carry no arnIndex/resourceTags entries at all (not a taggable resource type in the real API -- TagResource's own doc says only policy stores can be tagged), so no ARN/tag cleanup was needed for them. clientTokens (ClientToken idempotency state) remains an ephemeral, never-persisted map; entries age out via the 8h idempotencyWindow check at lookup time (no janitor goroutine). Snapshot/Restore of the new policyStoreAliases table fully exercised by persistence_test.go's TestInMemoryBackend_SnapshotRestore_FullState (extended this pass) plus store_test.go's new alias tests."}
 
 ## Notes
+
+**2026-08-22 (gopherstack-tpu3): PolicyTemplate.Name missing end-to-end.**
+Filed during the zquj keycheck sweep as structural (not a tag rename), since
+`Name` had no field on the `PolicyTemplate` model at all -- confirmed against
+`verifiedpermissions@v1.36.4`: `CreatePolicyTemplateInput.Name`/
+`UpdatePolicyTemplateInput.Name` are real, settable request members
+(`api_op_CreatePolicyTemplate.go:94`, `api_op_UpdatePolicyTemplate.go:104`),
+and both `GetPolicyTemplateOutput` and `types.PolicyTemplateItem` (used by
+`ListPolicyTemplates`) require a `"name"` key in their deserializers
+(`deserializers.go:9615`, `:7584`). Neither Create/UpdatePolicyTemplateOutput
+carries a Name member, so it is not echoed there -- only on Get/List, which
+is what this fix wires up.
+
+Fixed: added `Name string` to the `PolicyTemplate` model (a `store.Table`
+value serialized directly into the snapshot -- purely additive, so
+`verifiedpermissionsSnapshotVersion` was **not** bumped; the
+`TestSnapshotVersionGuard` golden was refreshed with `-update` to add the one
+new field line, confirmed via `git diff` to touch nothing else), threaded
+`name` through `Backend.CreatePolicyTemplate`/`UpdatePolicyTemplate`
+(interface signature change, all callers updated) and through
+`createPolicyTemplateInput`/`updatePolicyTemplateInput`/
+`getPolicyTemplateOutput`/`policyTemplateView`. `CreatePolicyTemplate`'s
+idempotency fingerprint now includes `name` too, so a retried `ClientToken`
+with a different name is correctly treated as a conflicting request rather
+than silently keeping the first name.
+
+Proven end-to-end via a real `aws-sdk-go-v2` client
+(`TestPolicyTemplate_NameRoundTrip`,
+`services/verifiedpermissions/policy_template_name_test.go`):
+Create-with-Name -> Get/List both decode it -> Update-with-a-new-Name ->
+Get sees the new value. Hand-reverted (production files only, then also the
+call-site test edits, to isolate a genuine runtime assertion rather than a
+bare compile failure) and confirmed failing with `Name` decoding empty at
+every step; restored, md5sum byte-identical. Also extended
+`TestInMemoryBackend_SnapshotRestore_FullState` to set a Name and assert it
+survives Snapshot/Restore.
+
+No test asserted the old (missing-Name) shape, so none needed correcting.
 
 Protocol: awsjson1.0 (`application/x-amz-json-1.0`, `X-Amz-Target: VerifiedPermissions.<Op>`),
 correctly matched by `RouteMatcher`/`ExtractOperation` (targetPrefix check).

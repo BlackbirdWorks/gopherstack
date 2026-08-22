@@ -25732,6 +25732,7 @@
       "PolicyTemplate.CreatedDate time.Time `json:\"createdDate\"`",
       "PolicyTemplate.Description string `json:\"description\"`",
       "PolicyTemplate.LastUpdated time.Time `json:\"lastUpdated\"`",
+      "PolicyTemplate.Name string `json:\"name,omitempty\"`",
       "PolicyTemplate.PolicyStoreID string `json:\"policyStoreID\"`",
       "PolicyTemplate.PolicyTemplateID string `json:\"policyTemplateID\"`",
       "PolicyTemplate.Statement string `json:\"statement\"`",
