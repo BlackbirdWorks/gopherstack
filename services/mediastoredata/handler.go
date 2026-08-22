@@ -580,7 +580,7 @@ func errorResponse(code, msg string) map[string]string {
 // DescribeObject -- every such error silently degrades to an untyped
 // "UnknownError" smithy.GenericAPIError.
 func writeErrorJSON(c *echo.Context, status int, code, msg string) error {
-	c.Response().Header().Set("X-Amzn-ErrorType", code)
+	c.Response().Header().Set("X-Amzn-Errortype", code)
 
 	return c.JSON(status, errorResponse(code, msg))
 }
