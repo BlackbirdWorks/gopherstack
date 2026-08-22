@@ -81,7 +81,7 @@ func scanFixture(t *testing.T, src string) snapshotInfo {
 	path := filepath.Join(dir, "persistence.go")
 	require.NoError(t, os.WriteFile(path, []byte(src), 0o600))
 
-	info, ok, err := scanPersistenceFile(path)
+	info, ok, err := scanServiceDir(dir)
 	require.NoError(t, err)
 	require.True(t, ok)
 
