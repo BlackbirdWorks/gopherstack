@@ -15,12 +15,17 @@ build: ui-build
 		-ldflags "-w -s -X $(VERSION_PKG).Build=$(BUILD_VERSION)" \
 		-o bin/$(BINARY_NAME) .
 
-# Verify that all packages compile cleanly under default and tagged builds (e2e, integration)
-# to catch tag-gated signature/compile breaks fast before long test suites run (gopherstack-0bpp).
+# Verify that everything compiles under default and tagged builds (e2e, integration)
+# to catch tag-gated signature/compile breaks fast, before long test suites run
+# (gopherstack-0bpp). The e2e/integration steps use `go vet`, not `go build`: every
+# tagged file in this repo is a _test.go file, and `go build` never compiles
+# _test.go files regardless of tags -- it would silently pass over the exact
+# break class this target exists to catch. `go vet` type-checks test files too.
+# Tag list verified via: grep -rh '^//go:build' --include='*.go' . | sort -u
 build-check:
 	go build ./...
-	go build -tags e2e ./...
-	go build -tags integration ./...
+	go vet -tags e2e ./...
+	go vet -tags integration ./...
 
 ui-install:
 	PATH="/opt/homebrew/bin:$(PATH)" npm --prefix ui ci
@@ -131,7 +136,7 @@ install-tofu:
 		echo "OpenTofu $$TOFU_VER installed to bin/tofu"; \
 	fi
 
-lint: install-deps ui-lint ui-fmt ui-check
+lint: install-deps ui-lint ui-fmt ui-check build-check
 	golangci-lint run --timeout 20m ./...
 	go vet -vettool=$$(go tool -n mulint-vet) ./...
 	go tool govulncheck ./...
