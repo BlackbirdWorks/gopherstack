@@ -177,8 +177,9 @@ from the ranked table) as future batches clear more of it.
 | emr | 10 | 65 (6 ops-with-required) | yes (1: `GetBlockPublicAccessConfiguration`'s `BlockPublicAccessConfigurationMetadata.CreatedByArn` (`*string`, provable) tagged `omitempty` despite being required, dropped for any region that never called `PutBlockPublicAccessConfiguration` -- see the batch-26 note below and services/emr/PARITY.md) | gopherstack-r80d batch 26 |
 | cognitoidentity | 9 | 23 (3 ops-with-required) | 0 (clean; all 3 flagged ops' required fields already emitted without `omitempty`; one level deeper, `GetIdentityPoolRoles`/`SetIdentityPoolRoles` wrap `RoleMapping`/`RulesConfigurationType` (3 more required members via an AST walk of `types.go`, invisible to the flat scan) and those are also always emitted without `omitempty` -- see the batch-27 note below and services/cognitoidentity/PARITY.md) | gopherstack-r80d batch 27 |
 | kafka | 9 | 64 (4 ops-with-required) | yes (2: `ListConfigurations`/`ListConfigurationRevisions` marshal `types.Configuration`/`types.ConfigurationRevision` directly as list-item shapes, and both gopherstack models were missing `CreationTime`/`LatestRevision` (Configuration) and `CreationTime` (ConfigurationRevision) as struct fields entirely -- not just `omitempty`, invisible to the flat op-level scan since neither op's own wrapping field is itself required. One candidate rejected: Channel family's `CreationTime` `omitempty` tag is disqualified by "populated on every write path" -- see the batch-27 note below and services/kafka/PARITY.md) | gopherstack-r80d batch 27 |
+| firehose | 8 | 12 (5 ops-with-required) | yes (3: `S3DestinationDescription.BufferingHints`/`.EncryptionConfiguration` never defaulted when a client omits either optional input field (the common case); `.BucketARN`/`.RoleARN` tagged `omitempty` despite the real client-side validator only null-checking them (a real client can send an explicit empty string); the real SDK's `S3BackupConfiguration`/`S3BackupDescription` fields are literally typed as the full `S3DestinationConfiguration`/`S3DestinationDescription` (types.go:1496,1575,2568,2621), but gopherstack's own narrower `S3BackupDescription` struct had no `EncryptionConfiguration` field at all -- unconditionally dropped on every backup-enabled destination, not merely when omitted -- see the batch-28 note below and services/firehose/PARITY.md) | gopherstack-r80d batch 28 |
 
-55 services settled, 2581 required output fields read end to end (the running
+56 services settled, 2589 required output fields read end to end (the running
 total counts each settled service's flat per-op `cmd/requiredoutputfields`
 number, as established by every prior batch -- glue's own real audited
 surface was substantially larger once its ~56 gopherstack-modeled domain
@@ -186,8 +187,15 @@ structs were cross-checked, see the batch-15 note below). Batch 27
 (cognitoidentity + kafka, tied at 9 each) added 2 more counted bugs, both in
 kafka's Configuration/ConfigurationRevision List-op item shapes
 (cognitoidentity came back clean) -- see the batch-27 note below for detail.
-`firehose` (8 fields, 12 ops, 5 ops-with-required) is now the largest
-remaining candidate after sagemaker. Batch 25
+Batch 28 (firehose, the sole service at 8 fields, no tie) added 3 more
+counted bugs, all traced through the S3-family destination-description
+helpers shared across every S3/HTTP/Redshift/OpenSearch/Elasticsearch/Splunk
+destination -- see the batch-28 note below for detail. `autoscaling` and
+`sqs` (tied at 7 fields each) are now the largest remaining candidates after
+sagemaker -- verify the tie with a fresh `cmd/requiredoutputfields` run
+before starting, per this file's own standing instruction (batch 27 caught
+kafka tied with the ledger's named-alone cognitoidentity this same way).
+Batch 25
 (rekognition + timestreamquery, tied at 11 each) added 1 more counted bug
 (timestreamquery's `DescribeScheduledQuery` `TargetConfiguration.
 TimestreamConfiguration.TimeColumn`/`DimensionMappings`; rekognition came back
@@ -2250,3 +2258,138 @@ examined" (settled-services count now 55, 2581 required output fields read
 end to end); `firehose` (8 fields, 12 ops, 5 ops-with-required) is now the
 largest remaining candidate after sagemaker. Did not attempt a third service
 this batch.
+
+### firehose (batch 28): 3 bugs, all in shared S3-family destination-description helpers
+
+Re-ran `go run ./cmd/requiredoutputfields` fresh rather than trusting the
+ledger's prior "`firehose` (8) is now the largest remaining candidate" note:
+reproduced exactly (`firehose` 8/12 ops/5 ops-with-required, no tie at 8 --
+the next tier down, `autoscaling`/`sqs`, ties at 7). Instrument validated
+two ways per the brief: a manual per-op read of every `api_op_*.go`'s
+`<Op>Output` struct (5 ops: `DescribeDeliveryStream` 1, `ListDeliveryStreams`
+2, `ListTagsForDeliveryStream` 2, `PutRecord` 1, `PutRecordBatch` 2 = 8,
+matching exactly) plus a regex-based domain-struct walk of `types/types.go`
+(41 structs, cross-checked against a hand read of every
+`DestinationDescription`-family type); a raw `grep -c "This member is
+required." api_op_*.go` whole-module sum (25, expected higher than the
+Output-only count of 8 since it also counts every Input struct's required
+members, same as prior batches' sanity check) was consistent with that
+expectation, not a mismatch. `git status` showed only
+`services/sagemaker/*` (off-limits per the brief throughout) and an
+unrelated concurrent agent's `services/cloudpipeline`-adjacent WIP dirty at
+various points during the batch, neither touched here. Module resolution:
+`firehose` directory resolves directly to `aws-sdk-go-v2/service/firehose@
+v1.46.4` (no `dirModuleOverride` entry, no near-name sibling directory in
+this repo).
+
+**firehose (8 fields/12 ops/5 ops-with-required, 3 bugs):** the flat op-level
+scan undercounts badly here -- `DescribeDeliveryStreamOutput.
+DeliveryStreamDescription` is required but `types.DeliveryStreamDescription`
+itself carries 7 more required members one level down (`DeliveryStreamARN`/
+`DeliveryStreamName`/`DeliveryStreamStatus`/`DeliveryStreamType`/
+`Destinations`/`HasMoreDestinations`/`VersionId`), and `Destinations` is
+`[]types.DestinationDescription`, whose own `S3DestinationDescription`/
+`ExtendedS3DestinationDescription` (5 required each) and
+`RedshiftDestinationDescription` (4 required) go deeper still -- confirmed
+via the regex-based domain-struct walk that every *other* nested
+`*DestinationDescription` type (`AmazonOpenSearchServerlessDestination
+Description`, `AmazonopensearchserviceDestinationDescription`,
+`ElasticsearchDestinationDescription`, `HttpEndpointDestinationDescription`,
+`IcebergDestinationDescription`, `SnowflakeDestinationDescription`,
+`SplunkDestinationDescription`) declares **zero** required members, so only
+the S3-family and Redshift needed a hand read.
+
+`DeliveryStreamType`/`VersionId` (both non-`omitempty`-eligible per the
+"populated on every write path" ground: `CreateDeliveryStream` always
+defaults `DeliveryStreamType` to `"DirectPut"` and stamps `VersionID:"1"`)
+were reviewed and ruled out -- `DeliveryStreamType`'s Go type is also a
+non-pointer enum on the real SDK, doubly disqualified. Redshift's own
+top-level required set (`ClusterJDBCURL`/`CopyCommand`/`RoleARN`/
+`S3DestinationDescription`) is forced non-nil by the real client's own
+validator (`validateRedshiftDestinationConfiguration`, validators.go:1196)
+requiring all four non-nil on input -- reviewed and ruled out, not
+reachable via any real client.
+
+3 bugs, all traced through the two shared conversion helpers
+`buildS3DestinationDescription`/`buildS3BackupDescription`
+(handler_delivery_streams.go), both called from every S3/HTTP/Redshift/
+OpenSearch/Elasticsearch/Splunk destination's Create and Update path:
+
+1. `S3DestinationDescription.BufferingHints`/`.EncryptionConfiguration`
+   (`*BufferingHints`/`*EncryptionConfiguration`, both provable pointer
+   types) are required on the real response but optional on the request
+   (`validateS3DestinationConfiguration`/`validateExtendedS3Destination
+   Configuration`, validators.go:1280,681, only null-check `RoleARN`/
+   `BucketARN`) -- AWS's own doc comments document defaults ("The default
+   value is 300"/"5", "the default is no encryption") for exactly this case.
+   gopherstack passed the input pointers straight through with no
+   defaulting, and both wire fields were tagged `omitempty`, so any real
+   client that simply never set these two common optional fields -- the
+   ordinary case, not an edge case -- got a response with both required
+   members missing entirely. Fixed by defaulting to AWS's documented values
+   in `buildS3DestinationDescription`.
+2. `S3DestinationDescription.BucketARN`/`.RoleARN` (required `*string` on
+   the real type) were plain non-pointer `string` fields tagged `omitempty`
+   in gopherstack's model. The real client-side validator only null-checks
+   these (never checks for an empty string), so a real client can legally
+   construct `BucketARN: aws.String("")` and have it accepted -- the exact
+   "client only null-checks the pointer, not its content" class this
+   campaign's cognitoidp batch established. `omitempty` removed from both.
+3. Structurally-absent class, the deepest of the three found this batch: the
+   real SDK's `S3BackupConfiguration` (request)/`S3BackupDescription`
+   (response) fields -- present on every backup-capable destination type --
+   are literally typed as the exact same `S3DestinationConfiguration`/
+   `S3DestinationDescription` used for a primary S3 destination (types.go:
+   1496, 1575 for `ExtendedS3Destination{Configuration,Description}`; 2568,
+   2621 for `RedshiftDestination{Configuration,Description}`), so its
+   required set (including `EncryptionConfiguration`) applies to the backup
+   slot too. gopherstack instead modeled the backup slot as its own,
+   narrower `S3BackupDescription`/`s3BackupInput` struct pair that never had
+   an `EncryptionConfiguration` field **at all** -- unconditionally dropped
+   on every backup-enabled destination regardless of what the client sent,
+   not merely when a client happened to omit it (the same "member with no
+   struct field at all" shape batch 27 found in kafka's Configuration type).
+   Fixed by adding the field to both structs and routing it through
+   `buildS3BackupDescription`'s new defaulting (shared with fix #1);
+   `buildElasticsearchDestination`'s inline manual construction of
+   `S3BackupDescription` (the legacy Elasticsearch shape's own backup
+   convention) was refactored to call `buildS3BackupDescription` too, so it
+   gets the same fix rather than a second hand-copied gap.
+
+`CompressionFormat` (real type is a non-pointer `CompressionFormat` enum)
+was defaulted to `"UNCOMPRESSED"` alongside fix #1/#3 for correctness
+(matching the documented default) but is **not counted** as a proven bug --
+omitted and present-empty decode identically for any real client, the same
+non-pointer-enum class this campaign has ruled out repeatedly (kafka's
+`State`, ses's `BehaviorOnMXFailure`).
+
+`PutRecord`/`PutRecordBatch`/`ListTagsForDeliveryStream`/
+`ListDeliveryStreams` were all read end to end and confirmed clean:
+`RecordId` (required, always populated via `newRecordID`), `FailedPutCount`/
+`RequestResponses` (always a non-nil `make(...)` slice, no `omitempty`),
+`PutRecordBatchResponseEntry` (confirmed zero required members in the real
+SDK), `Tags`/`HasMoreTags` (same non-nil-slice convention, `tags.KV.Key`
+carries no `omitempty` matching the real `Tag` type's sole required
+member), `DeliveryStreamNames`/`HasMoreDeliveryStreams` (always a non-nil
+`make(...)` slice regardless of count).
+
+All 3 counted fixes proven via real `aws-sdk-go-v2/service/firehose` client
+round trips (`services/firehose/wire_output_required_r80d_test.go`, 3 test
+functions), hand-reverted (`models.go`/`handler_delivery_streams.go`/
+`delivery_s3.go` together, via `git show HEAD:<path>`, confirmed all 3 new
+tests fail against the pre-fix code)/restored, md5sum-verified byte
+identical against the post-lint-fix state. Gates green (`go build`,
+`go vet`, `gofmt -l`, `go test -race`, `golangci-lint run` -- 0 issues, 0
+banned nolints, 0 new nolints; two pre-existing `goconst`/`mnd` findings
+triggered by the fix itself were resolved by hoisting shared constants
+rather than suppressing); repo-wide `go build ./...`, `go vet ./...`,
+`go vet -tags e2e ./...`, `go vet -tags integration ./...` all clean. No
+exported function signatures changed (new fields added to two existing
+structs only).
+
+`services/_REQUIRED_OUTPUT_CANDIDATES.md` updated: firehose moved into
+"Already examined" (settled-services count now 56, 2589 required output
+fields read end to end); `autoscaling`/`sqs` (tied at 7 fields each) are now
+the largest remaining candidates after sagemaker. Did not attempt a second
+service this batch. Full detail, SDK file:line citations, and hand-revert
+proof are in services/firehose/PARITY.md's 2026-08-21 entries.

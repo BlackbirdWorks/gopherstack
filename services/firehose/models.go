@@ -104,8 +104,8 @@ type S3DestinationDescription struct {
 	CloudWatchLoggingOptions         *CloudWatchLoggingOptions         `json:"CloudWatchLoggingOptions,omitempty"`
 	DynamicPartitioningConfiguration *DynamicPartitioningConfiguration `json:"DynamicPartitioningConfiguration,omitempty"`
 	DataFormatConversion             *DataFormatConversionConfig       `json:"DataFormatConversionConfiguration,omitempty"`
-	BucketARN                        string                            `json:"BucketARN,omitempty"`
-	RoleARN                          string                            `json:"RoleARN,omitempty"`
+	BucketARN                        string                            `json:"BucketARN"`
+	RoleARN                          string                            `json:"RoleARN"`
 	Prefix                           string                            `json:"Prefix,omitempty"`
 	ErrorOutputPrefix                string                            `json:"ErrorOutputPrefix,omitempty"`
 	CompressionFormat                string                            `json:"CompressionFormat,omitempty"`
@@ -115,13 +115,17 @@ type S3DestinationDescription struct {
 	S3BackupMode                     string                            `json:"S3BackupMode,omitempty"`
 }
 
-// S3BackupDescription holds the S3 backup destination configuration.
+// S3BackupDescription holds the S3 backup destination configuration. The real SDK
+// reuses S3DestinationDescription itself for this field (types.go:1575,2621), so its
+// required set -- BucketARN/BufferingHints/CompressionFormat/EncryptionConfiguration/
+// RoleARN -- applies here too.
 type S3BackupDescription struct {
-	BufferingHints    *BufferingHints `json:"BufferingHints,omitempty"`
-	BucketARN         string          `json:"BucketARN,omitempty"`
-	RoleARN           string          `json:"RoleARN,omitempty"`
-	Prefix            string          `json:"Prefix,omitempty"`
-	CompressionFormat string          `json:"CompressionFormat,omitempty"`
+	BufferingHints          *BufferingHints            `json:"BufferingHints,omitempty"`
+	EncryptionConfiguration *S3EncryptionConfiguration `json:"EncryptionConfiguration,omitempty"`
+	BucketARN               string                     `json:"BucketARN"`
+	RoleARN                 string                     `json:"RoleARN"`
+	Prefix                  string                     `json:"Prefix,omitempty"`
+	CompressionFormat       string                     `json:"CompressionFormat,omitempty"`
 }
 
 // HTTPEndpointRequestConfiguration holds the content-encoding and attributes for HTTP requests.

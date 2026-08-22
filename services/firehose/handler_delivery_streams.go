@@ -9,6 +9,17 @@ import (
 
 const maxListLimit = 10000
 
+// compressionFormatUncompressed is the real SDK's documented default CompressionFormat
+// ("If no value is specified, the default is UNCOMPRESSED.").
+const compressionFormatUncompressed = "UNCOMPRESSED"
+
+// defaultS3BufferingSizeMBs and defaultS3BufferingIntervalSeconds are the real SDK's
+// documented BufferingHints defaults (types.go: "The default value is 5"/"300").
+const (
+	defaultS3BufferingSizeMBs         = 5
+	defaultS3BufferingIntervalSeconds = 300
+)
+
 // s3DestinationInput holds the S3 destination configuration from the API request.
 // It maps both S3DestinationConfiguration and ExtendedS3DestinationConfiguration fields.
 type s3DestinationInput struct {
@@ -29,13 +40,17 @@ type s3DestinationInput struct {
 	S3BackupMode                      string                            `json:"S3BackupMode"`
 }
 
-// s3BackupInput holds the S3 backup destination configuration.
+// s3BackupInput holds the S3 backup destination configuration. The real SDK types
+// S3BackupConfiguration/S3BackupDescription as the exact same S3DestinationConfiguration/
+// S3DestinationDescription used for a primary S3 destination (types.go:1496,1575), so its
+// required set -- including EncryptionConfiguration -- applies here too.
 type s3BackupInput struct {
-	BufferingHints    *BufferingHints `json:"BufferingHints"`
-	BucketARN         string          `json:"BucketARN"`
-	RoleARN           string          `json:"RoleARN"`
-	Prefix            string          `json:"Prefix"`
-	CompressionFormat string          `json:"CompressionFormat"`
+	BufferingHints          *BufferingHints            `json:"BufferingHints"`
+	EncryptionConfiguration *S3EncryptionConfiguration `json:"EncryptionConfiguration"`
+	BucketARN               string                     `json:"BucketARN"`
+	RoleARN                 string                     `json:"RoleARN"`
+	Prefix                  string                     `json:"Prefix"`
+	CompressionFormat       string                     `json:"CompressionFormat"`
 }
 
 // httpEndpointDestinationInput holds HTTP endpoint destination configuration.
@@ -212,7 +227,29 @@ type createDeliveryStreamOutput struct {
 	DeliveryStreamARN string `json:"DeliveryStreamARN"`
 }
 
+// defaultS3BufferingHints mirrors the real SDK's documented default (types.go's
+// BufferingHints doc comment: "The default value is 300"/"The default value is 5"),
+// applied whenever a real client omits BufferingHints from an S3-family destination
+// config -- AWS still requires the response's BufferingHints, so a real client that
+// never sets it must still get it back.
+func defaultS3BufferingHints() *BufferingHints {
+	return &BufferingHints{SizeInMBs: defaultS3BufferingSizeMBs, IntervalInSeconds: defaultS3BufferingIntervalSeconds}
+}
+
+// defaultS3EncryptionConfiguration mirrors the real SDK's documented default
+// (types.go's EncryptionConfiguration doc comment: "If no value is specified, the
+// default is no encryption"), applied whenever a real client omits
+// EncryptionConfiguration -- required on the response regardless.
+func defaultS3EncryptionConfiguration() *S3EncryptionConfiguration {
+	return &S3EncryptionConfiguration{NoEncryptionConfig: "NoEncryption"}
+}
+
 // buildS3DestinationDescription converts an s3DestinationInput to the backend type.
+// BufferingHints and EncryptionConfiguration are optional on the real request
+// (validateS3DestinationConfiguration/validateExtendedS3DestinationConfiguration only
+// null-check RoleARN/BucketARN) but required on the response, so a client that omits
+// either still gets AWS's documented default back rather than the field dropping
+// entirely.
 func buildS3DestinationDescription(raw *s3DestinationInput) *S3DestinationDescription {
 	if raw == nil {
 		return nil
@@ -233,6 +270,22 @@ func buildS3DestinationDescription(raw *s3DestinationInput) *S3DestinationDescri
 		CloudWatchLoggingOptions:         raw.CloudWatchLoggingOptions,
 		DynamicPartitioningConfiguration: raw.DynamicPartitioningConfiguration,
 		DataFormatConversion:             raw.DataFormatConversionConfiguration,
+	}
+
+	if dest.BufferingHints == nil {
+		dest.BufferingHints = defaultS3BufferingHints()
+	}
+
+	if dest.EncryptionConfiguration == nil {
+		dest.EncryptionConfiguration = defaultS3EncryptionConfiguration()
+	}
+
+	// CompressionFormat's real SDK type is a non-pointer enum, so omitted and
+	// present-empty decode identically to any real client -- defaulted here for
+	// correctness (matches the documented "default is UNCOMPRESSED"), not counted
+	// as a proven bug.
+	if dest.CompressionFormat == "" {
+		dest.CompressionFormat = compressionFormatUncompressed
 	}
 
 	dest.S3BackupDescription = buildS3BackupDescription(raw.S3BackupConfiguration)
@@ -352,14 +405,18 @@ func buildElasticsearchDestination(es *elasticsearchDestinationInput) *Elasticse
 
 	// AWS models S3Configuration as the required backup destination for legacy
 	// Elasticsearch (distinct from the optional-backup pattern used elsewhere).
+	// Routed through buildS3BackupDescription so it gets the same required-field
+	// defaults (BufferingHints/EncryptionConfiguration/CompressionFormat) as every
+	// other S3-family destination.
 	if es.S3Configuration != nil {
-		dest.S3BackupDescription = &S3BackupDescription{
-			BucketARN:         es.S3Configuration.BucketARN,
-			RoleARN:           es.S3Configuration.RoleARN,
-			Prefix:            es.S3Configuration.Prefix,
-			CompressionFormat: es.S3Configuration.CompressionFormat,
-			BufferingHints:    es.S3Configuration.BufferingHints,
-		}
+		dest.S3BackupDescription = buildS3BackupDescription(&s3BackupInput{
+			BucketARN:               es.S3Configuration.BucketARN,
+			RoleARN:                 es.S3Configuration.RoleARN,
+			Prefix:                  es.S3Configuration.Prefix,
+			CompressionFormat:       es.S3Configuration.CompressionFormat,
+			BufferingHints:          es.S3Configuration.BufferingHints,
+			EncryptionConfiguration: es.S3Configuration.EncryptionConfiguration,
+		})
 	}
 
 	return dest
@@ -440,18 +497,35 @@ func buildSnowflakeDestination(sf *snowflakeDestinationInput) *SnowflakeDestinat
 }
 
 // buildS3BackupDescription converts an s3BackupInput to the backend type.
+// BufferingHints/EncryptionConfiguration/CompressionFormat get the same real-SDK
+// defaults as buildS3DestinationDescription -- the wire type is identical.
 func buildS3BackupDescription(b *s3BackupInput) *S3BackupDescription {
 	if b == nil {
 		return nil
 	}
 
-	return &S3BackupDescription{
-		BucketARN:         b.BucketARN,
-		RoleARN:           b.RoleARN,
-		Prefix:            b.Prefix,
-		CompressionFormat: b.CompressionFormat,
-		BufferingHints:    b.BufferingHints,
+	dest := &S3BackupDescription{
+		BucketARN:               b.BucketARN,
+		RoleARN:                 b.RoleARN,
+		Prefix:                  b.Prefix,
+		CompressionFormat:       b.CompressionFormat,
+		BufferingHints:          b.BufferingHints,
+		EncryptionConfiguration: b.EncryptionConfiguration,
 	}
+
+	if dest.BufferingHints == nil {
+		dest.BufferingHints = defaultS3BufferingHints()
+	}
+
+	if dest.EncryptionConfiguration == nil {
+		dest.EncryptionConfiguration = defaultS3EncryptionConfiguration()
+	}
+
+	if dest.CompressionFormat == "" {
+		dest.CompressionFormat = compressionFormatUncompressed
+	}
+
+	return dest
 }
 
 // buildSourceDescription converts source config inputs to the backend type.
