@@ -133,8 +133,8 @@ type CrawlerTarget struct {
 // aws-sdk-go-v2/service/glue/types.DynamoDBTarget.
 type DynamoDBTarget struct {
 	Path     string  `json:"Path,omitempty"`
-	ScanAll  bool    `json:"ScanAll,omitempty"`
-	ScanRate float64 `json:"ScanRate,omitempty"`
+	ScanAll  bool    `json:"scanAll,omitempty"`
+	ScanRate float64 `json:"scanRate,omitempty"`
 }
 
 // DeltaTarget is a Delta Lake table crawl target, mirroring
@@ -844,8 +844,8 @@ type Statement struct {
 
 // TableOptimizerConfiguration holds the config for a table optimizer.
 type TableOptimizerConfiguration struct {
-	RoleARN string `json:"RoleArn,omitempty"`
-	Enabled bool   `json:"Enabled"`
+	RoleARN string `json:"roleArn,omitempty"`
+	Enabled bool   `json:"enabled"`
 }
 
 // TableOptimizerRun holds a single run record for a table optimizer. The Glue
@@ -859,14 +859,20 @@ type TableOptimizerRun struct {
 	EndedAt   float64 `json:"endTimestamp,omitempty"`
 }
 
-// TableOptimizer represents a single table optimizer resource.
+// TableOptimizer represents a single table optimizer resource. LastRun,
+// Type and Configuration are the real nested TableOptimizer document's own
+// members (deserializeDocumentTableOptimizer, glue@v1.152.0) and are always
+// lowerCamelCase; CatalogID/DatabaseName/TableName belong to the wrapping
+// GetTableOptimizerOutput/BatchTableOptimizer shapes instead (PascalCase and
+// lowerCamelCase respectively -- see gopherstack-v4a4's PARITY.md entry for
+// the structural gap that leaves this pre-existing).
 type TableOptimizer struct {
-	LastRun       *TableOptimizerRun          `json:"LastRun,omitempty"`
+	LastRun       *TableOptimizerRun          `json:"lastRun,omitempty"`
 	CatalogID     string                      `json:"CatalogId,omitempty"`
 	DatabaseName  string                      `json:"DatabaseName"`
 	TableName     string                      `json:"TableName"`
-	Type          string                      `json:"Type"`
-	Configuration TableOptimizerConfiguration `json:"Configuration,omitzero"`
+	Type          string                      `json:"type"`
+	Configuration TableOptimizerConfiguration `json:"configuration,omitzero"`
 }
 
 // BatchGetTableOptimizerEntry is one request entry for BatchGetTableOptimizer.

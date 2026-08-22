@@ -839,3 +839,92 @@ the fixed version).
 `parentEntityName` parameter (interfaces.go) -- confirmed via repo-wide grep
 that both are referenced only inside `services/glue/`; `make build-check`
 passes.
+
+## 2026-08-22 gopherstack-v4a4: struct-tag casing bugs found by cmd/keycheck's new struct-tag scan
+
+`cmd/keycheck` was extended (gopherstack-v4a4) to check `json` struct tags on
+locally-declared `*Output`-suffixed structs against the pinned SDK's real
+deserializer case list, the same way it already checked hand-written
+`map[string]any` keys (gopherstack-zquj). Sweeping glue with it surfaced two
+real, previously-uncaught casing bugs, both matching the exact class this
+tool exists to catch: a field silently dropped by every real client because
+gopherstack's tag doesn't match the SDK's literal switch-case string.
+
+**DynamoDBTarget.ScanAll/.ScanRate** (`services/glue/models.go`): tagged
+`json:"ScanAll,omitempty"` / `json:"ScanRate,omitempty"`, but
+`awsAwsjson11_deserializeDocumentDynamoDBTarget` (glue@v1.152.0
+deserializers.go) switches on `scanAll` / `scanRate` (lowerCamelCase) while
+its sibling `Path` stays `Path` (PascalCase) in the same type -- the exact
+"casing is not uniform within one nested tree" trap already documented for
+scheduler's awsvpcConfiguration bug (commit 8469dcdd9). Confirmed both
+directions broken: `awsAwsjson11_serializeDocumentDynamoDBTarget`
+(serializers.go:22835) also emits `scanAll`/`scanRate` on the request side,
+and gopherstack's `CrawlerTarget`/`DynamoDBTarget` is the same Go type for
+both directions, so a real client's `CreateCrawler` input AND
+`GetCrawler`/`BatchGetCrawlers` output both silently dropped these two
+fields. Fixed by lowercasing both tags. Proof:
+`TestSDKRoundTrip_GetCrawler_DynamoDBTargetScanFields`
+(handler_dynamodb_target_realclient_test.go), drives CreateCrawler+GetCrawler
+through the real `aws-sdk-go-v2/service/glue` client; confirmed to fail
+(`ScanAll must decode non-nil`) against the pre-fix tag by hand-revert.
+
+**TableOptimizer.Type/.Configuration/.LastRun and
+TableOptimizerConfiguration.Enabled/.RoleARN** (`services/glue/models.go`):
+tagged PascalCase, but the real nested `TableOptimizer` document
+(`awsAwsjson11_deserializeDocumentTableOptimizer`, deserializers.go) switches
+on `configuration`/`configurationSource`/`lastRun`/`type`, and its own nested
+`TableOptimizerConfiguration` switches on `enabled`/`roleArn` (plus
+`compactionConfiguration`/`orphanFileDeletionConfiguration`/
+`retentionConfiguration`/`vpcConfiguration`, not modeled here and out of
+scope for a tag-only pass) -- all lowerCamelCase, confirmed against
+`GetTableOptimizerOutput`'s own deserializer (`case "TableOptimizer":` calls
+the same `deserializeDocumentTableOptimizer`, so nesting here is genuinely
+correct; only the tags were wrong). Fixed by lowercasing all five tags.
+`CatalogID`/`DatabaseName`/`TableName` were deliberately left untouched --
+see the structural-gap note below. Proof:
+`TestSDKRoundTrip_GetTableOptimizer_ConfigurationFields`
+(handler_table_optimizer_realclient_test.go), drives
+CreateTableOptimizer+GetTableOptimizer through the real SDK client; confirmed
+to fail (`Type` decodes as `""`, `Configuration` decodes nil) against the
+pre-fix tags by hand-revert. The pre-existing raw-body test `TestTableOptimizer`
+(handler_table_optimizers_test.go) asserted the WRONG PascalCase keys as
+correct -- a "test that ratifies the defect" of the same shape the glue
+MetadataInfo/MetadataInfoMap pair (fixed in c3aa73e59) already demonstrated;
+updated to assert the real lowercase keys instead.
+
+**Structural gap found, NOT fixed (restructuring is out of scope for this
+tag-only campaign):** `BatchGetTableOptimizerOutput`'s real per-entry shape
+is `BatchTableOptimizer` (`awsAwsjson11_deserializeDocumentBatchTableOptimizer`),
+whose own case list is `catalogId`/`databaseName`/`tableName`/`tableOptimizer`
+-- note `tableOptimizer` is itself a NESTED sub-object wrapping the same
+`TableOptimizer` document, one level deeper than `GetTableOptimizerOutput`'s
+shape (which has `TableOptimizer` nested directly under the op output, with
+sibling top-level `CatalogId`/`DatabaseName`/`TableName`, confirmed correct
+above). gopherstack's `batchGetTableOptimizerOutput.TableOptimizers
+[]*TableOptimizer` reuses the SAME flat `TableOptimizer` struct for both
+ops, so for `BatchGetTableOptimizer` specifically, `Type`/`Configuration`/
+`LastRun` are siblings of `CatalogID`/`DatabaseName`/`TableName` instead of
+nested under a `tableOptimizer` key -- casing alone cannot fix this; the
+struct needs splitting into a wrapper (`BatchTableOptimizer`-shaped) and the
+existing `TableOptimizer` nested inside it, forbidden under this campaign's
+"fix tags only, do not restructure" rule. `CatalogID`/`DatabaseName`/
+`TableName` tags were left PascalCase (their current, unfixed value)
+rather than lowercased to `catalogId`/`databaseName`/`tableName`, because
+the same struct is also used as `GetTableOptimizerOutput`'s nested
+`TableOptimizer.CatalogID`/etc., which are themselves fabricated duplicate
+fields there (the real inner `TableOptimizer` document has no such members
+at all -- `GetTableOptimizerOutput`'s real `CatalogId`/`DatabaseName`/
+`TableName` live one level up, already correctly present and PascalCase on
+`getTableOptimizerOutput` itself) -- lowercasing them would be right for one
+op sharing the type and wrong for the other. Filed as a follow-up
+(`bd list --search v4a4` context; needs a new bd issue for the
+BatchGetTableOptimizer nesting split) rather than guessed at here.
+
+**Tool method note:** the struct-tag scan's own precision was checked against
+its own known blind spots before any of the above were trusted. glue's
+`BatchCreatePartition` MISMATCH (`Partitions`, `StorageDescriptor`, and 20+
+nested keys) is a harmless-extra false positive (blind spot #3): the real
+`BatchCreatePartitionOutput` has only `Errors`, and gopherstack's
+`batchCreatePartitionOutput.Partitions` field is a fabricated field a real
+client's typed struct has no slot to receive -- not a dropped required key.
+Not fixed (out of scope; noted for a future audit pass, not this campaign).
