@@ -48,6 +48,41 @@ leaks: {status: clean, note: "no goroutines/janitors in this service; job lifecy
 
 ## Notes
 
+- 2026-08-22, gopherstack-r80d batch 31 (required-output-member audit):
+  translate (6 required output fields / 19 ops, 2 ops-with-required per a
+  fresh `cmd/requiredoutputfields` run, cross-checked against an independent
+  standalone `go/ast` walk of `translate@v1.36.4`'s `api_op_*.go` files --
+  both agreed exactly at 6, lowest op-count of this batch's six-way tie).
+  Module resolved directly: directory `translate` == SDK module
+  `aws-sdk-go-v2/service/translate@v1.36.4` per `go.mod`, no sibling-module
+  ambiguity for this name.
+
+  `TranslateText` (`SourceLanguageCode`/`TargetLanguageCode`/`TranslatedText`,
+  all `*string`) and `TranslateDocument` (same two language codes plus
+  `*types.TranslatedDocument`, itself requiring `Content []byte`,
+  types.go:512-520) are both built as a `map[string]any` literal
+  (`translateText`/`translateDocument`, handler_translation.go:50-102,
+  109-172) passed straight to `json.Marshal` by the shared op dispatcher
+  (`json.Marshal(output)`, handler.go:154) -- not a tagged struct, matching
+  batch 30's ssoadmin/mediatailor/shield finding for the same reason: there
+  is no struct tag for an `omitempty` mistake to hide behind, so shape 1 of
+  this campaign's bug class cannot occur syntactically here. Checked shape 2:
+  `TargetLanguageCode` is validated non-empty before either function runs
+  (`"TargetLanguageCode is required"`, handler_translation.go:59,113);
+  `SourceLanguageCode` defaults to `"auto"` rather than being left empty
+  (handler_translation.go:65-67,116-118) if the request omits it (gopherstack
+  is intentionally more lenient here than the real SDK's own client-side
+  validator, which requires it non-nil -- a pre-existing, separately-scoped
+  input-validation gap, not this cut's target); `TranslatedText` is derived
+  from `Text`, itself required non-empty (handler_translation.go:52-54), so
+  it can only gain a language prefix or terminology substitutions, never
+  become empty; `TranslatedDocument.Content` mirrors `Document.Content`
+  byte-for-byte through a base64 round trip (handler_translation.go:138-147) --
+  an explicitly empty (but present) `Content` is honest given a real client
+  can legally send one (the real SDK's `validateDocument`, translate's
+  validators.go, only null-checks `Content`/`ContentType`, not length), and
+  the map-literal `"Content"` key is written unconditionally regardless.
+  Result: 0 bugs. No code changes.
 Protocol: **awsjson1.1** (single POST endpoint, `X-Amz-Target: AWSShineFrontendService_20170701.<Op>`,
 `application/x-amz-json-1.1`) — confirmed against `translateTargetPrefix` in handler.go and the real
 SDK's `httpBindingEncoder.SetHeader("Content-Type").String("application/x-amz-json-1.1")` in

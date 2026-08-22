@@ -60,6 +60,44 @@ leaks: {status: clean, note: "New Application fields (CodeConfig/FlinkConfig/Env
 
 ## Notes
 
+- 2026-08-22, gopherstack-r80d batch 31 (required-output-member audit):
+  kinesisanalyticsv2 (6 required output fields / 33 ops, 6 ops-with-required
+  per a fresh `cmd/requiredoutputfields` run, cross-checked against an
+  independent standalone `go/ast` walk of `kinesisanalyticsv2@v1.41.4`'s
+  `api_op_*.go` files -- both agreed exactly at 6). Module resolved directly:
+  directory `kinesisanalyticsv2` == SDK module
+  `aws-sdk-go-v2/service/kinesisanalyticsv2@v1.41.4` per `go.mod`, with no
+  `dirModuleOverride` entry and no import of the sibling v1 module -- verified
+  by grepping this service's own source for its SDK import, distinct from
+  `services/kinesisanalytics`, which imports `aws-sdk-go-v2/service/kinesisanalytics`
+  and was not touched by this batch.
+
+  All 6 flagged ops -- `CreateApplication`, `DescribeApplication`,
+  `DescribeApplicationSnapshot`, `ListApplications`, `RollbackApplication`,
+  `UpdateApplication` -- are the "one wrapper key" shape this campaign has
+  named repeatedly (pinpoint/bedrockagent precedent): 5 of 6 wrap
+  `*types.ApplicationDetail` (types.go:179-252, 5 required members --
+  ApplicationARN/ApplicationName/ApplicationStatus/ApplicationVersionId/
+  RuntimeEnvironment), `ListApplications` wraps `[]types.ApplicationSummary`
+  (types.go:439-471, the same 5 required members), `DescribeApplicationSnapshot`
+  wraps `*types.SnapshotDetails` (types.go:2349-2376, 3 required --
+  ApplicationVersionId/SnapshotName/SnapshotStatus). Unlike the tagged
+  structs this campaign usually finds bugs in, gopherstack's own wire types
+  (`applicationDetailOutput`, handler_applications.go:154-174;
+  `applicationSummary`, models.go:413-420; `snapshotDetail`, models.go:435-441)
+  tag every one of these members with no `omitempty`, so shape 1 of this
+  campaign's bug class cannot occur syntactically here. Checked shape 2
+  instead (never populated on some write path): `toDetailOutput`
+  (handler_applications.go:715-747), `toSummary` (models.go:423-431), and
+  `toSnapshotDetail` (models.go:444-451) all read straight from the backend's
+  `Application`/`Snapshot` structs, whose ApplicationARN/ApplicationName/
+  ApplicationStatus/RuntimeEnvironment/ApplicationVersionID are all set
+  unconditionally in `CreateApplication` (applications.go:14-51) and never
+  cleared afterward (`ApplicationStatus` only ever transitions
+  Ready<->Running, applications.go:341,405, both real non-empty values);
+  `RollbackApplication`/`UpdateApplication` share the same `toDetailOutput`
+  call, so they inherit the same guarantee. Result: 0 bugs. No code changes.
+
 Protocol: awsjson1.1 (X-Amz-Target: `KinesisAnalytics_20180523.<Op>`, single POST
 endpoint). RouteMatcher/ExtractOperation unchanged this pass.
 

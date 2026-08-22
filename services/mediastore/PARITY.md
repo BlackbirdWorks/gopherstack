@@ -40,6 +40,45 @@ leaks: {status: clean, note: "No goroutines, timers, or janitors in this service
 
 ## Notes
 
+- 2026-08-22, gopherstack-r80d batch 31 (required-output-member audit):
+  mediastore (6 required output fields / 21 ops, 6 ops-with-required per a
+  fresh `cmd/requiredoutputfields` run, cross-checked against an independent
+  standalone `go/ast` walk of `mediastore@v1.32.4`'s `api_op_*.go` files --
+  both agreed exactly at 6). Module resolved directly: directory `mediastore`
+  == SDK module `aws-sdk-go-v2/service/mediastore@v1.32.4` per `go.mod`, with
+  no `dirModuleOverride` entry -- verified this service's own source imports
+  `aws-sdk-go-v2/service/mediastore`, not `mediastoredata` (a separate
+  directory/module for the data-plane API, settled independently, not
+  touched by this batch).
+
+  6 flagged ops: `CreateContainer`/`ListContainers` wrap `types.Container`
+  (types.go:12-48), which declares **zero** required members of its own
+  (confirmed against the SDK type directly, not assumed from the shape) --
+  gopherstack's `createContainerResponse`/`listContainersResponse`
+  (models.go:177-190) tag their `Container`/`Containers` wrapper key with no
+  `omitempty` either way, so the only real requirement (the wrapper key
+  itself) is always satisfied. `GetContainerPolicy` (`Policy *string`),
+  `GetLifecyclePolicy` (`LifecyclePolicy *string`), and `GetMetricPolicy`
+  (`*types.MetricPolicy`, itself requiring `ContainerLevelMetrics`,
+  types.go:106-122) all use non-`omitempty` string/struct wire fields
+  (models.go:193-210) and are only ever returned once a real value exists --
+  `GetContainerPolicy`/`GetLifecyclePolicy`/`GetMetricPolicy`
+  (containers.go:216-232, lifecycle_policy.go:29-44, metric_policy.go:76-92)
+  each return `ErrPolicyNotFound`/`ErrLifecyclePolicyNotFound`/
+  `ErrMetricPolicyNotFound` when unset rather than an empty success value,
+  and the corresponding `Put*` handlers reject an empty/invalid value before
+  storage (`PutMetricPolicy`, metric_policy.go:44-57, rejects any
+  `ContainerLevelMetrics` other than `ENABLED`/`DISABLED`; `PutContainerPolicy`/
+  `PutLifecyclePolicy` reject non-valid-JSON, which excludes the empty
+  string). `GetCorsPolicy` wraps `[]types.CorsRule` (types.go:52-95, 2
+  required members per rule -- `AllowedHeaders`/`AllowedOrigins`, both
+  `[]string`) -- `PutCorsPolicy` (cors_policy.go:16-19) rejects any rule with
+  an empty `AllowedOrigins`/`AllowedHeaders` before storage, and `GetCorsPolicy`
+  errors `ErrCorsPolicyNotFound` when no policy is set. Followed
+  `MetricPolicyRule` (types.go:131-145, 2 required members --
+  `ObjectGroup`/`ObjectGroupName`) one level below `MetricPolicy.MetricPolicyRules`:
+  `validateMetricPolicyRule` (metric_policy.go:29-41) rejects an empty/invalid
+  value for either before storage. Result: 0 bugs. No code changes.
 - Protocol: awsjson1.1, single POST endpoint, `X-Amz-Target: MediaStore_20170901.<Op>` --
   confirmed byte-for-byte against `aws-sdk-go-v2/service/mediastore@v1.29.23`'s
   `serializers.go` header-setting calls for every operation.

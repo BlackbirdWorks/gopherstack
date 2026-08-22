@@ -183,12 +183,20 @@ from the ranked table) as future batches clear more of it.
 | ssoadmin | 6 | 79 (6 ops-with-required) | 0 (clean; all 6 ops build responses as `map[string]any` literals, not tagged structs, so the omitempty tag-rule doesn't apply at all -- every required key written unconditionally; one wrapped type followed (`ScopeDetails.Scope`, required, one level below `ListApplicationAccessScopes`, already a genuine tagged struct with no omitempty) -- see the batch-30 note below and services/ssoadmin/PARITY.md) | gopherstack-r80d batch 30 |
 | mediatailor | 6 | 48 (4 ops-with-required) | 0 (clean; same map-literal shape as ssoadmin -- tag-rule doesn't apply; two wrapped types followed (`LogConfigurationForChannel`: zero required members; `types.Function`, reused verbatim by `ListFunctions`: both required members already threaded through) -- see the batch-30 note below and services/mediatailor/PARITY.md) | gopherstack-r80d batch 30 |
 | shield | 6 | 36 (5 ops-with-required) | 0 (clean; same map-literal shape again; two wrapped types followed (`TimeRange`: zero required members; `AttackStatisticsDataItem.AttackCount`, required, one level below `DescribeAttackStatistics.DataItems`, already tagged with no omitempty and the array itself guaranteed non-empty; `ProtectionGroup`'s 4 required members all written unconditionally by `protectionGroupToMap`) -- see the batch-30 note below and services/shield/PARITY.md) | gopherstack-r80d batch 30 |
+| kinesisanalyticsv2 | 6 | 33 (6 ops-with-required) | 0 (clean; "one wrapper key" shape (`ApplicationDetail`/`ApplicationSummary`/`SnapshotDetails`) but gopherstack's own wire types tag every required member with no `omitempty`, so the tag-rule bug class cannot occur syntactically; checked shape 2 instead -- `ApplicationARN`/`ApplicationName`/`ApplicationStatus`/`RuntimeEnvironment`/`ApplicationVersionID` all set unconditionally at `CreateApplication` and never cleared -- see the batch-31 note below and services/kinesisanalyticsv2/PARITY.md) | gopherstack-r80d batch 31 |
+| mediastore | 6 | 21 (6 ops-with-required) | 0 (clean; `types.Container` (wrapped by Create/ListContainers) declares zero required members of its own, confirmed against the SDK type directly; `GetContainerPolicy`/`GetCorsPolicy`/`GetLifecyclePolicy`/`GetMetricPolicy` all error `NotFound` rather than returning an empty success value when unset, and their `Put*` counterparts reject empty/invalid values before storage -- see the batch-31 note below and services/mediastore/PARITY.md) | gopherstack-r80d batch 31 |
+| translate | 6 | 19 (2 ops-with-required) | 0 (clean; `TranslateText`/`TranslateDocument` both build their response as a `map[string]any` literal passed straight to `json.Marshal`, the same structural immunity batch 30 found in ssoadmin/mediatailor/shield -- `TargetLanguageCode` validated non-empty, `SourceLanguageCode` defaulted to `"auto"` rather than left empty, `TranslatedText`/`TranslatedDocument.Content` both derived from required-non-empty input -- see the batch-31 note below and services/translate/PARITY.md) | gopherstack-r80d batch 31 |
 
-61 services settled, 2621 required output fields read end to end (the running
+64 services settled, 2639 required output fields read end to end (the running
 total counts each settled service's flat per-op `cmd/requiredoutputfields`
 number, as established by every prior batch -- glue's own real audited
 surface was substantially larger once its ~56 gopherstack-modeled domain
-structs were cross-checked, see the batch-15 note below). Batch 30
+structs were cross-checked, see the batch-15 note below). Batch 31
+(kinesisanalyticsv2 + mediastore + translate, the six-way tie's remainder)
+added 0 counted bugs -- all three came back clean; see the batch-31 note
+below for detail, including confirmed module resolution for both
+sibling-risk names (`kinesisanalyticsv2` vs `kinesisanalytics`, `mediastore`
+vs `mediatailor`). Batch 30
 (ssoadmin + mediatailor + shield, tied at 6 each, taken by op count out of a
 six-way tie -- see below) added 0 counted bugs; all three came back clean,
 each because its handlers build responses as `map[string]any` literals
@@ -197,12 +205,8 @@ on doesn't apply -- see the batch-30 note below for detail. The prior
 batch-29 note's "five-way tie at 6" was a miscount: a fresh
 `cmd/requiredoutputfields` run lists exactly **six** names at 6 fields each
 (`kinesisanalyticsv2`, `mediastore`, `mediatailor`, `shield`, `ssoadmin`,
-`translate`) -- six items, not five, reconciled this batch. Of those,
-`kinesisanalyticsv2`/`mediastore` remain open (each has a same-named-directory
-sibling module, `kinesisanalytics`/`mediastoredata`, already settled
-separately -- not to be confused when a future batch picks them up), as does
-`translate` (fewest total ops of the six, 19, so lowest priority by the
-"most ops" tiebreak this batch used). Batch 29
+`translate`) -- six items, not five, reconciled batch 30. All six are now
+settled as of batch 31. Batch 29
 (autoscaling + sqs, tied at 7 each) added 2 more counted bugs, both in
 autoscaling (`Activity.Cause`, `LoadForecast.MetricSpecification`; sqs came
 back clean) -- see the batch-29 note below for detail. Batch 27
@@ -1592,7 +1596,9 @@ accessanalyzer (28, settled batch 18), cognitoidp (27, settled
 batch 19), emrserverless (25, settled batch 20), and networkmonitor/
 bedrockruntime/cloudfrontkeyvaluestore/sesv2 (22/20/18/18, settled batch
 21), and elasticsearch/rolesanywhere (16 each, settled batch 22) removed
-from this table — see the "Already examined" table above.
+from this table — see the "Already examined" table above. The six-way tie
+at 6 fields (kinesisanalyticsv2, mediastore, mediatailor, shield, ssoadmin,
+translate; settled batches 30-31) is also fully removed from this table.
 
 ```
  459  sagemaker                 ops=403  ops-with-required=188
@@ -1609,12 +1615,6 @@ from this table — see the "Already examined" table above.
    8  firehose                  ops=12   ops-with-required=5
    7  autoscaling               ops=66   ops-with-required=5
    7  sqs                       ops=23   ops-with-required=4
-   6  kinesisanalyticsv2        ops=33   ops-with-required=6
-   6  mediastore                ops=21   ops-with-required=6
-   6  mediatailor               ops=48   ops-with-required=4
-   6  shield                    ops=36   ops-with-required=5
-   6  ssoadmin                  ops=79   ops-with-required=6
-   6  translate                 ops=19   ops-with-required=2
    5  mgn                       ops=95   ops-with-required=5
    5  redshiftdata              ops=12   ops-with-required=5
    5  scheduler                 ops=12   ops-with-required=5
@@ -1832,6 +1832,20 @@ Notes on the top of this table for the next batch:
   why its 120/122 density was structural (single httpPayload-style body
   member per op), not many per-op scalar checks. Don't re-derive; one bug
   found (`DeleteUserEndpoints`).
+- **kinesisanalyticsv2 / mediastore / translate settled (batch 31)** — the
+  six-way tie at 6 fields is now fully closed (ssoadmin/mediatailor/shield
+  batch 30, these three batch 31). Do not re-derive; see the
+  settled-services table above, the batch-31 note below, and each service's
+  own `PARITY.md` 2026-08-22 entry. 0 bugs across all three. Module
+  resolution was the point of this batch: `services/kinesisanalyticsv2`
+  imports `aws-sdk-go-v2/service/kinesisanalyticsv2`, not the sibling
+  `kinesisanalytics` (a separate directory/module, already settled
+  separately); `services/mediastore` imports
+  `aws-sdk-go-v2/service/mediastore`, not the sibling `mediastoredata`
+  (also a separate directory/module, already settled separately) — both
+  confirmed by grepping each service's own source for its SDK import, not
+  inferred from directory names. The next tier is a three-way tie at 5
+  fields: `mgn` (95 ops), `redshiftdata` (12 ops), `scheduler` (12 ops).
 
 ### ses + athena + comprehend (batch 24): 2 findings / 4 member-level fixes, both in ses
 
@@ -2677,3 +2691,112 @@ candidates after sagemaker. Full detail and SDK file:line citations are in
 each service's own `PARITY.md` 2026-08-22 Notes entry; none needed a
 `last_audit_commit` bump since no code changed, matching the standing
 convention established by prior clean batches (22/23/24).
+
+### kinesisanalyticsv2 + mediastore + translate (batch 31): 0 bugs, all clean -- the six-way tie's remainder, and sibling-module resolution
+
+**Instrument validated two independent ways** before auditing: the existing
+`cmd/requiredoutputfields` (char-level brace-depth walk) and a from-scratch
+independent `go/parser`/`go/ast` walk over each pinned SDK module's
+`api_op_*.go` files, built standalone for this batch. Both agreed exactly:
+`kinesisanalyticsv2` 6/6 (6 ops-with-required), `mediastore` 6/6 (6
+ops-with-required), `translate` 6/2 (2 ops-with-required). A fresh
+`cmd/requiredoutputfields` run also re-confirmed the ranking hadn't shifted
+since batch 30: the three remain tied at 6, with `mgn`/`redshiftdata`/
+`scheduler` (5 each) as the next tier down.
+
+**Sibling-module risk was this batch's whole point, resolved via `go.mod` and
+each service's own import, not directory names or `dirModuleOverride`.**
+Neither `kinesisanalyticsv2` nor `mediastore` appears in
+`cmd/requiredoutputfields`'s `dirModuleOverride` table -- both directories
+equal their SDK module names directly. Confirmed by grepping each service's
+own source for its literal SDK import path, not by assuming from the
+directory name:
+- `services/kinesisanalyticsv2` imports
+  `github.com/aws/aws-sdk-go-v2/service/kinesisanalyticsv2` (aliased
+  `kinesisanalyticsv2sdk`) -- distinct from `services/kinesisanalytics`,
+  which imports `github.com/aws/aws-sdk-go-v2/service/kinesisanalytics`
+  (aliased `kinesisanalyticssdk`, v1.33.4). The two are separate
+  directories, separate `go.mod` entries (v1.41.4 vs v1.33.4), and separate
+  gopherstack implementations; `kinesisanalytics` (4 fields, already
+  settled, not re-touched here) was never at risk of being audited by
+  mistake because its own source only ever references its own SDK module.
+- `services/mediastore` imports `github.com/aws/aws-sdk-go-v2/service/mediastore`
+  (aliased `mediastoresdk`) -- distinct from `services/mediastoredata`,
+  which imports `github.com/aws/aws-sdk-go-v2/service/mediastoredata`
+  (aliased `mediastoredatasdk`). Same separation: two directories, two
+  `go.mod` entries, two implementations; `mediastoredata` (1 field, already
+  settled, not re-touched here) carries its own distinct data-plane API
+  (`PutObject`/`GetObject`/`DeleteObject`/`ListItems`/`DescribeObject`) with
+  no overlap in operation names.
+- `services/translate` has no sibling-module ambiguity at all (no
+  same-directory/different-module conflict the way the other two do).
+
+**kinesisanalyticsv2 (6 fields/33 ops, 6 ops-with-required): 0 bugs.** All 6
+flagged ops -- `CreateApplication`, `DescribeApplication`,
+`DescribeApplicationSnapshot`, `ListApplications`, `RollbackApplication`,
+`UpdateApplication` -- are the "one wrapper key" shape this campaign has
+named repeatedly. Unlike most prior findings, gopherstack's own wire types
+here (`applicationDetailOutput`, `applicationSummary`, `snapshotDetail`) are
+genuine tagged structs whose 5/5/3 required members (respectively) are ALL
+tagged with no `omitempty` -- so shape 1 of this campaign's bug class
+(reachable zero state dropped by a stale tag) cannot occur syntactically.
+Checked shape 2 instead (never populated on some write path): every
+required member traces back to the backend's `Application`/`Snapshot`
+structs, whose `ApplicationARN`/`ApplicationName`/`ApplicationStatus`/
+`RuntimeEnvironment`/`ApplicationVersionID` are all set unconditionally at
+`CreateApplication` and never cleared afterward. Full SDK file:line
+citations in `services/kinesisanalyticsv2/PARITY.md`'s 2026-08-22 entry.
+
+**mediastore (6 fields/21 ops, 6 ops-with-required): 0 bugs.**
+`CreateContainer`/`ListContainers` wrap `types.Container`, which declares
+**zero** required members of its own (confirmed against the SDK type
+directly, not assumed from the shape) -- the only real requirement is the
+wrapper key itself, always present with no `omitempty`.
+`GetContainerPolicy`/`GetCorsPolicy`/`GetLifecyclePolicy`/`GetMetricPolicy`
+all use non-`omitempty` wire fields and are only ever returned once a real
+value exists -- each op's backend method returns a distinct `NotFound` error
+rather than an empty success value when unset, and every corresponding
+`Put*` rejects an empty/invalid value before storage (`PutMetricPolicy`
+rejects any `ContainerLevelMetrics` other than `ENABLED`/`DISABLED`;
+`PutCorsPolicy` rejects any rule with empty `AllowedOrigins`/`AllowedHeaders`;
+`PutContainerPolicy`/`PutLifecyclePolicy` reject non-valid-JSON, which
+excludes the empty string). Followed `MetricPolicyRule` one level below
+`MetricPolicy.MetricPolicyRules`: both required members
+(`ObjectGroup`/`ObjectGroupName`) are validated non-empty per-rule before
+storage. Full SDK file:line citations in `services/mediastore/PARITY.md`'s
+2026-08-22 entry.
+
+**translate (6 fields/19 ops, 2 ops-with-required): 0 bugs.** `TranslateText`
+and `TranslateDocument` both build their response as a `map[string]any`
+literal passed straight to `json.Marshal` by the shared op dispatcher --
+the same structural immunity batch 30 found in ssoadmin/mediatailor/shield:
+no struct tag exists for an `omitempty` mistake to hide behind. Checked
+shape 2: `TargetLanguageCode` is validated non-empty before either op runs;
+`SourceLanguageCode` defaults to `"auto"` rather than being left empty when
+omitted (gopherstack is intentionally more lenient here than the real SDK's
+own client-side validator, which requires it non-nil -- a pre-existing,
+separately-scoped input-validation gap, not this cut's target);
+`TranslatedText` is derived from `Text`, itself required non-empty, so it
+can only gain a language prefix or terminology substitutions, never become
+empty; `TranslatedDocument.Content` mirrors `Document.Content` byte-for-byte
+through a base64 round trip -- an explicitly empty (but present) `Content`
+is honest given a real client can legally send one (the real SDK's
+`validateDocument` only null-checks `Content`/`ContentType`, not length),
+and the map-literal `"Content"` key is written unconditionally regardless.
+Full SDK file:line citations in `services/translate/PARITY.md`'s 2026-08-22
+entry.
+
+**Result: 0 bugs across all three, 18 required fields (6+6+6) / 14
+ops-with-required (6+6+2) read end to end, no code changes.** The six-way
+tie at 6 fields is now fully closed across batches 30-31. Gates
+(build/vet/gofmt/race-test/lint) green for all three -- no source touched;
+repo-wide `go build ./...`, `go vet ./...`, `go vet -tags e2e ./...`,
+`go vet -tags integration ./...` all clean (working tree otherwise clean --
+no concurrent-agent dirt from `services/sagemaker`/`services/apigateway`/
+`services/eks` at the time of this batch, all off-limits per this batch's
+brief and confirmed untouched throughout). `services/_REQUIRED_OUTPUT_CANDIDATES.md`
+updated: all three moved into "Already examined" (settled-services count
+now 64, 2639 required output fields read end to end); the next tier is a
+three-way tie at 5 fields: `mgn` (95 ops), `redshiftdata` (12 ops),
+`scheduler` (12 ops) -- `mgn` is the largest remaining candidate after
+sagemaker by op count.
