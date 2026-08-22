@@ -159,3 +159,41 @@ leaks: {status: clean, note: "Janitor.Run uses pkgs/worker.Group with Ticker + S
   `DesiredSamplingPercentage`/`ActualSamplingPercentage`): RE-VERIFIED this pass (WebSearch
   against CloudWatch Transaction Search docs) -- AWS's actual default indexing rate is
   1%, confirming this constant was already correct. No change needed.
+
+## gopherstack-o7gx (2026-08-22): ReadBody-failure path wrote untyped errors
+
+`Handler()`'s `httputils.ReadBody` failure branch wrote a bare
+`c.String(http.StatusInternalServerError, "internal server error")`.
+xray is restjson1 (confirmed from `xray@v1.39.4` deserializers.go's
+`awsRestjson1_deserializeOpError*` prefix); plain text doesn't decode
+through `restjson.GetErrorInfo`, so a real client got `*json.SyntaxError`,
+not even `UnknownError`.
+
+Fixed by routing the ReadBody error through this handler's own
+`handleError(c, path, err)` (the unused second parameter is the request
+path, threaded here since `op` isn't extracted yet at this point in
+`Handler()`): none of its typed `case`s (`awserr.ErrNotFound`,
+`awserr.ErrConflict`, `awserr.ErrInvalidParameter`, `errInvalidRequest`,
+`errUnknownPath`, syntax/type errors) match a `*http.MaxBytesError`/read
+error, so it falls through to the pre-existing default (`__type:
+"InternalServiceError"`, 500).
+
+NOTE (pre-existing, NOT fixed by this pass): `"InternalServiceError"` does
+not appear in `xray@v1.39.4` `types/errors.go`'s modeled list
+(`InvalidPolicyRevisionIdException`, `InvalidRequestException`,
+`LockoutPreventionException`, `MalformedPolicyDocumentException`,
+`PolicyCountLimitExceededException`, `PolicySizeLimitExceededException`,
+`ResourceNotFoundException`, `RuleLimitExceededException`,
+`ThrottledException`, `TooManyTagsException`) -- it falls through to the
+client's generic `smithy.GenericAPIError` branch rather than a modeled
+struct. Still surfaces the correct `ErrorCode()` (proof standard met), but
+a possible pre-existing wire-code mismatch in the genuine per-operation
+default, out of this ticket's ReadBody-only scope.
+
+Proven with a real `aws-sdk-go-v2/service/xray` client's `CreateGroup`,
+whose `FilterExpression` field alone exceeds
+`httputils.MaxRequestBodyBytes` (16 MiB).
+`TestHandler_OversizedBodySurfacesInternalServiceError`
+(`handler_oversized_body_test.go`) asserts `apiErr.ErrorCode() ==
+"InternalServiceError"`; confirmed it fails pre-fix with
+`*json.SyntaxError` (hand-reverted, byte-identical restore after).

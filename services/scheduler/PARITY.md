@@ -441,3 +441,33 @@ scheduler's 2.
     this pass; neither owns a goroutine or ticker of its own (both are read/written
     synchronously from the existing poll loop or HTTP handler goroutines), so
     neither needed wiring into `Handler.StartWorker`/`Shutdown`'s ctx-parenting.
+
+## gopherstack-o7gx (2026-08-22): handleREST's ReadBody-failure path wrote untyped errors
+
+`handleREST`'s `httputils.ReadBody` failure branch wrote a bare
+`c.String(http.StatusInternalServerError, "internal server error")`.
+scheduler is restjson1 (confirmed from `scheduler@v1.20.4` deserializers.go's
+`awsRestjson1_deserializeOpError*` prefix); plain text doesn't decode
+through `aws/protocol/restjson.GetErrorInfo`, so a real client got
+`*json.SyntaxError`, not even `UnknownError`. (This is a different, REST-shaped
+site from the one gopherstack-he80/58567cc03 already typed -- that earlier
+fix covered `handleError`'s own catch-all branches; this one is the
+framework-level `ReadBody` call in `handleREST` itself, upstream of
+`handleError` ever being reached.)
+
+Fixed by routing the ReadBody error through this handler's own
+`handleError(ctx, c, action, err)`: none of its typed `case`s
+(`ErrNotFound`, `ErrAlreadyExists`, `ErrValidation`, `errInvalidRequest`,
+`errUnknownAction`, syntax/type errors) match a `*http.MaxBytesError`/read
+error, so it falls through to the pre-existing default -- `{Type:
+"InternalServerException", Message: ...}` via `service.JSONErrorResponse`
+(shared with `pkgs/service`), modeled at `scheduler@v1.20.4`
+`types/errors.go:45`.
+
+Proven with a real `aws-sdk-go-v2/service/scheduler` client's
+`CreateSchedule`, whose `Description` field alone exceeds
+`httputils.MaxRequestBodyBytes` (16 MiB).
+`TestHandleREST_OversizedBodySurfacesInternalServerException`
+(`handler_oversized_body_test.go`) asserts `apiErr.ErrorCode() ==
+"InternalServerException"`; confirmed it fails pre-fix with
+`*json.SyntaxError` (hand-reverted, byte-identical restore after).

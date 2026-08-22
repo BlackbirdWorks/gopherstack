@@ -242,3 +242,47 @@ and cross-account/shared-namespace support were re-verified with fresh evidence 
   `api_op_CreateService.go`'s doc comment distinguishing DNS-discoverable namespaces (where
   case-only name variants would produce ambiguous DNS records) from HTTP-only namespaces
   (which have no DNS record to collide over).
+
+## gopherstack-o7gx (2026-08-22): ReadBody-failure path wrote untyped errors
+
+`Handler()`'s `httputils.ReadBody` failure branch wrote a bare
+`c.String(http.StatusInternalServerError, "internal server error")`.
+servicediscovery is awsjson1.1 (confirmed from `servicediscovery@v1.43.4`
+deserializers.go's `awsAwsjson11_deserializeOpError*` prefix); its
+per-operation deserializer still calls `restjson.GetErrorInfo` to
+JSON-decode `__type`/`message`, so plain text doesn't decode -- a real
+client got `*json.SyntaxError`, not even `UnknownError`.
+
+Fixed by routing the ReadBody error through this handler's own
+`handleError(c, err)`: it checks `sentinelErrorCodes()` and
+`isMalformedRequest(err)` (which only matches `errInvalidRequest`,
+`json.SyntaxError`, `json.UnmarshalTypeError`) -- a `*http.MaxBytesError`/
+read error matches neither, so it falls through to the pre-existing
+default (`__type: "InternalServiceError"`, 500).
+
+NOTE (pre-existing, NOT fixed by this pass): `"InternalServiceError"` does
+not appear in `servicediscovery@v1.43.4` `types/errors.go`'s modeled list
+(`CustomHealthNotFound`, `DuplicateRequest`, `InstanceNotFound`,
+`InvalidInput`, `NamespaceAlreadyExists`, `NamespaceNotFound`,
+`OperationNotFound`, `RequestLimitExceeded`, `ResourceInUse`,
+`ResourceLimitExceeded`, `ResourceNotFoundException`,
+`ServiceAlreadyExists`, `ServiceAttributesLimitExceededException`,
+`ServiceNotFound`, `TooManyTagsException`) -- it falls through to the
+client's generic `smithy.GenericAPIError` branch rather than a modeled
+struct, which still surfaces the correct `ErrorCode()` but is a possible
+pre-existing wire-code mismatch in the genuine per-operation default, out
+of this ticket's ReadBody-only scope.
+
+CONFIRMED (documented "left untyped" decision distinct from the above):
+this file's Notes elsewhere record a deliberate choice not to simplify a
+validation branch that looks redundant at a glance (line ~237) -- a
+different kind of gap (modeling ambiguity, not error-typing) that this fix
+does not touch.
+
+Proven with a real `aws-sdk-go-v2/service/servicediscovery` client's
+`CreateService`, whose `Description` field alone exceeds
+`httputils.MaxRequestBodyBytes` (16 MiB).
+`TestHandler_OversizedBodySurfacesInternalServiceError`
+(`handler_oversized_body_test.go`) asserts `apiErr.ErrorCode() ==
+"InternalServiceError"`; confirmed it fails pre-fix with
+`*json.SyntaxError` (hand-reverted, byte-identical restore after).

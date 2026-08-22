@@ -5147,3 +5147,45 @@ rather than suppressed, a `goconst` finding resolved via `errCodeInstanceIDNotFo
 `revive` var-naming findings renaming `...LogicalIdsError` types to `...LogicalIDsError`), and
 `make build-check` (`go build ./...` + `go vet -tags e2e ./...` + `go vet -tags integration
 ./...`) all clean. No `//nolint` added.
+
+## gopherstack-o7gx (2026-08-22): ReadBody-failure path wrote untyped errors
+
+`Handler()`'s `httputils.ReadBody` failure branch wrote a bare
+`c.String(http.StatusInternalServerError, "internal server error")`.
+sagemaker is awsjson1.1 (confirmed from `sagemaker@v1.263.2`
+deserializers.go's `awsAwsjson11_deserializeOpError*` prefix); its
+per-operation deserializer still calls `restjson.GetErrorInfo` to
+JSON-decode `__type`/`message`, so plain text doesn't decode -- a real
+client got `*json.SyntaxError`, not even `UnknownError`.
+
+`sagemaker@v1.263.2` `types/errors.go` models exactly 4 exceptions
+(`ConflictException`, `ResourceInUse`, `ResourceLimitExceeded`,
+`ResourceNotFound`) -- no generic internal-failure shape exists to reuse
+for this framework-level path, unlike redshiftdata/resiliencehub/scheduler
+above. Per DO-NOT-INVENT-AN-EXCEPTION-TYPE, this does not fabricate a new
+named Go exception; it sends the standard unmodeled `"InternalFailure"`
+wire code in a new `writeInternalServerError` helper. Since
+`"InternalFailure"` matches none of the 4 modeled names, the client-side
+deserializer's per-op switch falls through to its generic
+`smithy.GenericAPIError` branch with the wire code intact -- satisfying
+`ErrorCode() != "UnknownError"` without claiming a modeled exception this
+service doesn't have.
+
+CONFIRMED AND LEFT ALONE (the documented "left untyped" gap named in
+gopherstack-o7gx for this service): `handleError`'s own
+`errInvalidRequest`/`errUnknownAction`/syntax/type-error catch-all (line
+~937) and its `default:` fallback (line ~960) are themselves untyped
+(`map[string]string{keyMessageField: err.Error()}`, no `__type`) -- a
+single shared branch spanning every operation's malformed-input and
+internal-error cases, for which no single wire exception is safe to assume
+across the whole service. This is a different, pre-existing gap from the
+ReadBody-failure path this fix addresses (a distinct call site earlier in
+`Handler()`, before dispatch is even reached) and is untouched here.
+
+Proven with a real `aws-sdk-go-v2/service/sagemaker` client's
+`CreateModelPackageGroup`, whose `ModelPackageGroupDescription` field alone
+exceeds `httputils.MaxRequestBodyBytes` (16 MiB).
+`TestHandler_OversizedBodySurfacesInternalFailure`
+(`handler_oversized_body_test.go`) asserts `apiErr.ErrorCode() ==
+"InternalFailure"`; confirmed it fails pre-fix with `*json.SyntaxError`
+(hand-reverted, byte-identical restore after).

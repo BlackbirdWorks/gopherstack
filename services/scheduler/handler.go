@@ -410,7 +410,7 @@ func (h *Handler) handleREST(c *echo.Context) error {
 	if err != nil {
 		logger.Load(ctx).ErrorContext(ctx, "failed to read request body", "error", err)
 
-		return c.String(http.StatusInternalServerError, "internal server error")
+		return h.handleError(ctx, c, action, err)
 	}
 
 	q := c.Request().URL.Query()

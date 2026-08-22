@@ -425,3 +425,32 @@ echoed them back -- extended this pass to assert the round-trip).
   synchronously (no BUSY window) and SessionKeepAliveSeconds not being tracked anywhere
   (no TTL to compare against for CLOSED). See the `ListSessions` gaps entry before changing
   this.
+
+## gopherstack-o7gx (2026-08-22): ReadBody-failure path wrote untyped errors
+
+`Handler()`'s `httputils.ReadBody` failure branch wrote a bare
+`c.String(http.StatusInternalServerError, "internal server error")`.
+redshiftdata is awsjson1.1 (confirmed from `redshiftdata@v1.43.4`
+deserializers.go's `awsAwsjson11_deserializeOpError*` prefix, not from
+`services/_PROTOCOLS.md`), whose per-operation deserializer still calls
+`aws/protocol/restjson.GetErrorInfo` to JSON-decode `__type`/`message` from
+the body; plain text doesn't decode, so a real client got
+`*json.SyntaxError`, not even `UnknownError`.
+
+Fixed by writing `{"__type": "InternalServerException", "message":
+"internal server error"}` (new `writeInternalServerError` helper),
+matching this handler's own `handleError` `default:` fallback, which
+already uses the same code -- modeled at `redshiftdata@v1.43.4`
+`types/errors.go:183`.
+
+Proven with a real `aws-sdk-go-v2/service/redshiftdata` client's
+`ExecuteStatement`, whose `Sql` field alone exceeds
+`httputils.MaxRequestBodyBytes` (16 MiB). Note: `ExtractResource` also
+calls `httputils.ReadBody` earlier in the request lifecycle and swallows
+its own error to `""`, so by the time `Handler()` reads the body it hits
+"invalid Read on closed Body" rather than "request body too large" --
+still the same `ReadBody`-failure branch, same fix.
+`TestHandler_OversizedBodySurfacesInternalServerException`
+(`handler_oversized_body_test.go`) asserts `apiErr.ErrorCode() ==
+"InternalServerException"`; confirmed it fails pre-fix with
+`*json.SyntaxError` (hand-reverted, byte-identical restore after).

@@ -906,3 +906,30 @@ AWS-behavior divergence):
   per assessment under the `app-assessment/` prefix instead — almost
   certainly correcting a copy-paste doc-generation artifact in the upstream
   SDK, not a disagreement with real AWS behavior.
+
+## gopherstack-o7gx (2026-08-22): ReadBody-failure path wrote untyped errors
+
+`Handler()`'s `httputils.ReadBody` failure branch wrote a bare
+`c.String(http.StatusInternalServerError, "internal server error")`.
+resiliencehub is restjson1 (confirmed from `resiliencehub@v1.38.3`
+deserializers.go's `awsRestjson1_deserializeOpError*` prefix); its
+client-side decoder (`aws/protocol/restjson.GetErrorInfo`) JSON-decodes the
+body, so plain text doesn't decode -- a real client got `*json.SyntaxError`,
+not even `UnknownError`.
+
+Fixed by routing the ReadBody error through this handler's own
+`handleError(c, err)` instead of the bare `c.String`: `handleError`'s
+`switch` has no case matching a `*http.MaxBytesError`/read error, so it
+falls through to its pre-existing default (`status =
+http.StatusInternalServerError; errType = "InternalServerException"`) --
+already correctly modeled (`resiliencehub@v1.38.3` `types/errors.go:80`)
+and already sets the `X-Amzn-Errortype` header. No new helper needed; the
+one-line change is `return h.handleError(c, err)`.
+
+Proven with a real `aws-sdk-go-v2/service/resiliencehub` client's
+`CreateApp`, whose `Description` field alone exceeds
+`httputils.MaxRequestBodyBytes` (16 MiB).
+`TestHandler_OversizedBodySurfacesInternalServerException`
+(`handler_oversized_body_test.go`) asserts `apiErr.ErrorCode() ==
+"InternalServerException"`; confirmed it fails pre-fix with
+`*json.SyntaxError` (hand-reverted, byte-identical restore after).

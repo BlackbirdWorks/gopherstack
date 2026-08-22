@@ -336,3 +336,30 @@ leaks: {status: clean, note: "no goroutines/janitors in this service; all state 
   `_UpdateExpiryNotFound`, `_UpdateExpiryVersionNotFound`, `_GetNotFound`, and
   `TestListManagedRuleSets_ScopeFilter` to supply the now-required fields (the last one no
   longer exercises a no-longer-valid "list without Scope" call).
+
+## gopherstack-o7gx (2026-08-22): ReadBody-failure path wrote untyped errors
+
+`Handler()`'s `httputils.ReadBody` failure branch wrote a bare
+`c.String(http.StatusInternalServerError, "internal server error")`.
+wafv2 is awsjson1.1 (confirmed from `wafv2@v1.77.3` deserializers.go's
+`awsAwsjson11_deserializeOpError*` prefix); plain text doesn't decode
+through `restjson.GetErrorInfo`, so a real client got `*json.SyntaxError`,
+not even `UnknownError`.
+
+Fixed by routing the ReadBody error through this handler's own
+`handleError(c, err)`: none of its typed `case`s (`awserr.ErrNotFound`,
+`ErrOptimisticLock`, `ErrAssociatedItem`, `ErrLimitsExceeded`,
+`ErrTagOperation`, `ErrUnavailableEntity`, `awserr.ErrConflict`,
+`ErrConfigurationWarning`, `errInvalidRequest`, syntax/type errors,
+`errUnknownAction`) match a `*http.MaxBytesError`/read error, so it falls
+through to the pre-existing default (`"WAFInternalErrorException"`, 500,
+with the `X-Amzn-Errortype` header this handler already sets). Modeled at
+`wafv2@v1.77.3` `types/errors.go:172`.
+
+Proven with a real `aws-sdk-go-v2/service/wafv2` client's `CreateIPSet`,
+whose `Description` field alone exceeds `httputils.MaxRequestBodyBytes`
+(16 MiB).
+`TestHandler_OversizedBodySurfacesWAFInternalErrorException`
+(`handler_oversized_body_test.go`) asserts `apiErr.ErrorCode() ==
+"WAFInternalErrorException"`; confirmed it fails pre-fix with
+`*json.SyntaxError` (hand-reverted, byte-identical restore after).

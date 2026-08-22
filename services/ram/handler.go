@@ -369,7 +369,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		if err != nil {
 			log.ErrorContext(ctx, "ram: failed to read request body", "error", err)
 
-			return c.String(http.StatusInternalServerError, "internal server error")
+			return writeInternalServerError(c)
 		}
 
 		op := h.ExtractOperation(c)
@@ -645,6 +645,25 @@ func (h *Handler) dispatchListOps(
 	default:
 		return nil, false, nil
 	}
+}
+
+// writeInternalServerError renders a ReadBody-failure (body too large, read
+// error) as ram's own restjson1 error envelope. aws-sdk-go-v2's
+// restjson.GetErrorInfo (aws/protocol/restjson/decoder_util.go) JSON-decodes
+// the body for __type/message, so the bare text/plain this used to send
+// deserialized client-side as smithy.GenericAPIError{Code:"UnknownError"}
+// (gopherstack-o7gx). ServerInternalException is ram's own modeled internal
+// error (ram@v1.39.4 types/errors.go).
+func writeInternalServerError(c *echo.Context) error {
+	payload, err := json.Marshal(map[string]string{
+		keyTypeField:    "ServerInternalException",
+		keyMessageField: "internal server error",
+	})
+	if err != nil {
+		return err
+	}
+
+	return c.JSONBlob(http.StatusInternalServerError, payload)
 }
 
 func (h *Handler) handleError(c *echo.Context, err error) error {

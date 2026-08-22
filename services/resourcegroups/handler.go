@@ -296,7 +296,7 @@ func (h *Handler) handleREST(ctx context.Context, c *echo.Context, action string
 	if err != nil {
 		logger.Load(ctx).ErrorContext(ctx, "failed to read request body", "error", err)
 
-		return c.String(http.StatusInternalServerError, "internal server error")
+		return h.handleError(ctx, c, action, err)
 	}
 
 	response, dispErr := h.dispatch(ctx, action, body)

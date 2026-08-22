@@ -33,7 +33,7 @@ func (h *Handler) handleTagRequest(ctx context.Context, c *echo.Context, log *sl
 	if err != nil {
 		log.ErrorContext(ctx, "failed to read Tag request body", "error", err)
 
-		return c.String(http.StatusInternalServerError, "internal server error")
+		return h.handleError(ctx, c, "Tag", err)
 	}
 
 	var in tagResourceInput
@@ -82,7 +82,7 @@ func (h *Handler) extractUntagKeys(ctx context.Context, c *echo.Context, log *sl
 	if err != nil {
 		log.ErrorContext(ctx, "failed to read Untag request body", "error", err)
 
-		return nil, c.String(http.StatusInternalServerError, "internal server error")
+		return nil, h.handleError(ctx, c, "Untag", err)
 	}
 
 	if len(body) == 0 {
@@ -127,7 +127,7 @@ func (h *Handler) handleResourceTags(ctx context.Context, c *echo.Context) error
 		if err != nil {
 			log.ErrorContext(ctx, "failed to read Untag request body", "error", err)
 
-			return c.String(http.StatusInternalServerError, "internal server error")
+			return h.handleError(ctx, c, "Untag", err)
 		}
 
 		var in untagResourceInput

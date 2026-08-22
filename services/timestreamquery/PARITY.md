@@ -270,3 +270,30 @@ Traps for the next auditor:
   PreviousInvocationTime/TargetDestination, no QueryString/full config). The emulator
   correctly uses two distinct response-builder functions (`scheduledQueryToView` vs
   `buildScheduledQueryListEntry`) for this — don't try to unify them.
+
+## gopherstack-o7gx (2026-08-22): ReadBody-failure path wrote untyped errors
+
+`Handler()`'s `httputils.ReadBody` failure branch wrote a bare
+`c.String(http.StatusInternalServerError, "internal server error")`.
+timestreamquery is awsjson1.0 (confirmed from `timestreamquery@v1.39.4`
+deserializers.go's `awsAwsjson10_deserializeOpError*` prefix -- note this
+is 1.0, not 1.1 like several sibling services in this same sweep); plain
+text doesn't decode through `restjson.GetErrorInfo`, so a real client got
+`*json.SyntaxError`, not even `UnknownError`.
+
+Fixed by routing the ReadBody error through this handler's own
+`handleError(c, err)`: none of its typed `case`s (`ErrNotFound`,
+`ErrAlreadyExists`, `ErrValidation`, `ErrUnknownOperation`) match a
+`*http.MaxBytesError`/read error, so it falls through to the pre-existing
+default -- `errorPayload("InternalServerException", ...)`, 500, with the
+`Content-Type: application/x-amz-json-1.0` header this handler already
+sets. Modeled at `timestreamquery@v1.39.4` `types/errors.go:71`.
+
+Proven with a real `aws-sdk-go-v2/service/timestreamquery` client's
+`Query`, whose `QueryString` field alone exceeds
+`httputils.MaxRequestBodyBytes` (16 MiB) -- the only required field on
+this op, kept the test minimal.
+`TestHandler_OversizedBodySurfacesInternalServerException`
+(`handler_oversized_body_test.go`) asserts `apiErr.ErrorCode() ==
+"InternalServerException"`; confirmed it fails pre-fix with
+`*json.SyntaxError` (hand-reverted, byte-identical restore after).

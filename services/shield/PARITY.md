@@ -261,3 +261,36 @@ mid-session next to someone else's in-flight edits. Its source is
 preserved (not in this repo) for promotion; see gopherstack-zquj's
 followup issue for reusing it the way `cmd/opcensus` is reused, rather
 than re-deriving the SDK-deserializer-AST approach per sweep.
+
+## gopherstack-o7gx (2026-08-22): ReadBody-failure path wrote untyped errors
+
+`Handler()`'s `httputils.ReadBody` failure branch wrote a bare
+`c.String(http.StatusInternalServerError, "internal server error")`.
+shield is awsjson1.1 (confirmed from `shield@v1.37.4` deserializers.go's
+`awsAwsjson11_deserializeOpError*` prefix); plain text doesn't decode
+through `restjson.GetErrorInfo`, so a real client got `*json.SyntaxError`,
+not even `UnknownError`.
+
+Fixed by routing the ReadBody error through this handler's own
+`handleError(c, err)`: `classifyShieldError` checks for
+`json.SyntaxError`/`json.UnmarshalTypeError` first (neither matches a
+`*http.MaxBytesError`/read error) then `shieldErrorRules()` sentinels, so
+it falls through to the pre-existing default (`"InternalErrorException"`,
+500) -- modeled at `shield@v1.37.4` `types/errors.go:80`.
+
+CONFIRMED (documented "left untyped"/deliberate-gap decisions distinct
+from error-typing, already on file for this service, not touched by this
+fix): `LockedSubscriptionException` is deliberately not modeled
+(gopherstack-kp7b, this file's Notes) since gopherstack subscriptions have
+no historical passage of time; `OptimisticLockException` is deliberately
+not modeled since the coarse per-backend lock makes every mutation atomic
+(same note, also chaos-injectable). Neither is an error-dispatch gap like
+the ReadBody-failure path this fix addresses.
+
+Proven with a real `aws-sdk-go-v2/service/shield` client's
+`CreateProtection`, whose `Name` field alone exceeds
+`httputils.MaxRequestBodyBytes` (16 MiB).
+`TestHandler_OversizedBodySurfacesInternalErrorException`
+(`handler_oversized_body_test.go`) asserts `apiErr.ErrorCode() ==
+"InternalErrorException"`; confirmed it fails pre-fix with
+`*json.SyntaxError` (hand-reverted, byte-identical restore after).

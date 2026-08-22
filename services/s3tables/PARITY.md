@@ -350,3 +350,36 @@ New table tests prove the rule itself, not just that fixtures still pass:
 `TestBackend_CreateTable_NameValidation` (each in the corresponding existing
 `_test.go` file) cover length bounds, character-class violations, reserved
 prefixes/suffixes, and the namespace-only `aws`-prefix rule.
+
+## gopherstack-o7gx (2026-08-22): ReadBody-failure path wrote untyped errors
+
+`Handler()`'s `httputils.ReadBody` failure branch wrote a bare
+`c.String(http.StatusInternalServerError, "internal server error")`.
+s3tables is restjson1 (confirmed from `s3tables@v1.18.4` deserializers.go's
+`awsRestjson1_deserializeOpError*` prefix); its client-side decoder
+JSON-decodes the body, so plain text doesn't decode -- a real client got
+`*json.SyntaxError`, not even `UnknownError`.
+
+Fixed by routing the ReadBody error through this handler's own
+`handleError(c, err)`: none of its typed `case`s
+(`awserr.ErrNotFound`/`ErrConflict`/`ErrInvalidParameter`,
+`errInvalidRequest`, `errUnknownPath`) match a `*http.MaxBytesError`/read
+error, so it falls through to the pre-existing default (`errType =
+"InternalError"`, 500, `x-amzn-errortype` header set).
+
+NOTE (pre-existing, NOT fixed by this pass, out of this ticket's scope):
+that default's `"InternalError"` does not match
+`s3tables@v1.18.4` `types/errors.go`'s modeled
+`InternalServerErrorException` (line 124) -- a possible separate wire-type
+mismatch in the genuine per-operation error path, distinct from the
+ReadBody-failure defect this fix addresses. Flagging for a future pass
+rather than changing it here, since it's the service's existing default for
+every unmatched backend error, not something introduced by this fix.
+
+Proven with a real `aws-sdk-go-v2/service/s3tables` client's
+`CreateTableBucket`, whose `Name` field alone exceeds
+`httputils.MaxRequestBodyBytes` (16 MiB).
+`TestHandler_OversizedBodySurfacesInternalError`
+(`handler_oversized_body_test.go`) asserts `apiErr.ErrorCode() ==
+"InternalError"`; confirmed it fails pre-fix with `*json.SyntaxError`
+(hand-reverted, byte-identical restore after).
