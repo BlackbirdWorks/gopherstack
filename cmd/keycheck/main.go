@@ -570,9 +570,8 @@ func (ps *pkgScan) findOpDispatch(f *ast.File) {
 func (ps *pkgScan) recordCaseDispatch(cc *ast.CaseClause) {
 	var opNames []string
 	for _, expr := range cc.List {
-		lit, ok := expr.(*ast.BasicLit)
-		if ok && lit.Kind == token.STRING {
-			opNames = append(opNames, trimQuotes(lit.Value))
+		if op, dyn := ps.resolveKey(expr); !dyn && op != "" {
+			opNames = append(opNames, op)
 		}
 	}
 	if len(opNames) == 0 {
@@ -616,21 +615,26 @@ func (ps *pkgScan) findHandlerCall(stmts []ast.Stmt) string {
 	return handler
 }
 
+// recordMapDispatch handles both dispatch-table conventions this repo uses:
+// a string literal key (map[string]T{"CreateFoo": ...}) and a package-level
+// const identifier key (map[string]T{opCreateFoo: ...}, e.g. dms's op
+// families) resolved through ps.constVals, already populated by indexFile
+// before findOpDispatch runs.
 func (ps *pkgScan) recordMapDispatch(cl *ast.CompositeLit) {
 	for _, elt := range cl.Elts {
 		kv, ok := elt.(*ast.KeyValueExpr)
 		if !ok {
 			continue
 		}
-		lit, ok := kv.Key.(*ast.BasicLit)
-		if !ok || lit.Kind != token.STRING {
+		key, dyn := ps.resolveKey(kv.Key)
+		if dyn || key == "" {
 			continue
 		}
 		name := findHandlerSelector(kv.Value)
 		if name == "" {
 			continue
 		}
-		ps.opToHandler[trimQuotes(lit.Value)] = name
+		ps.opToHandler[key] = name
 	}
 }
 

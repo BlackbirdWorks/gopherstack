@@ -416,6 +416,75 @@ func (h *Handler) handleGetSchedule(body []byte) []byte {
 	assert.Empty(t, res.OpsChecked[0].NotInTree)
 }
 
+// svcConstKeyDispatchFixture reproduces dms's real dispatch-table shape
+// (services/dms/handler_*.go, e.g. opsTags(): map[string]service.JSONOpFunc{
+// opAddTagsToResource: service.WrapOp(h.handleAddTagsToResource), ...}):
+// dispatch keys are package-level string consts, not string literals. Found
+// live during the gopherstack-zquj sweep -- dms defines 96 ops this way and
+// only 4 (the ones some family funcs happened to key with an inline literal)
+// were visible to the pre-fix scanner. The other 92 didn't appear as
+// UnresolvedOps either: they vanished from the report entirely, which is
+// what made runCheck report dms as a false "N/A: writes zero map[string]<T>
+// literal keys" (read as clean) instead of "mostly never actually checked".
+const svcConstKeyDispatchFixture = `package svc
+
+const opGetSchedule = "GetSchedule"
+
+type Handler struct{}
+type opFunc func([]byte) []byte
+
+var dispatchTable = map[string]opFunc{
+	"TotallyUnknownOp": (&Handler{}).handleTotallyUnknownOp,
+	opGetSchedule:      (&Handler{}).handleGetSchedule,
+}
+
+func (h *Handler) handleTotallyUnknownOp(body []byte) []byte {
+	resp := map[string]any{"Whatever": true}
+	_ = resp
+	return nil
+}
+
+func (h *Handler) handleGetSchedule(body []byte) []byte {
+	resp := map[string]any{
+		"Target": map[string]any{
+			"EcsParameters": map[string]any{
+				"NetworkConfiguration": map[string]any{
+					"awsvpcConfiguration": map[string]any{},
+				},
+			},
+		},
+	}
+	_ = resp
+	return nil
+}
+`
+
+func TestRunCheck_ConstKeyedMapDispatch(t *testing.T) {
+	t.Parallel()
+
+	sdkDir := t.TempDir()
+	writeFile(t, sdkDir, "deserializers.go", sdkGoodFixture)
+	svcDir := t.TempDir()
+	writeFile(t, svcDir, "handler.go", svcConstKeyDispatchFixture)
+
+	res, err := runCheck(filepath.Join(sdkDir, "deserializers.go"), "awsRestjson1_", svcDir, "")
+	require.NoError(t, err)
+
+	assert.Equal(t, 2, res.HandlerOpsResolved,
+		"both the literal-keyed and const-keyed dispatch entries must resolve")
+	assert.Contains(t, res.UnresolvedOps, "TotallyUnknownOp")
+
+	var found bool
+	for _, or := range res.OpsChecked {
+		if or.Op == "GetSchedule" {
+			found = true
+			assert.Empty(t, or.NotInTree)
+		}
+	}
+	require.True(t, found,
+		"a dispatch table keyed by a package-level const (dms's real shape) must not vanish from the report")
+}
+
 func TestRunCheck_InternalOpSkipped(t *testing.T) {
 	t.Parallel()
 
