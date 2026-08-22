@@ -84,11 +84,13 @@ func (b *InMemoryBackend) CreateDataCellsFilter(filter *DataCellsFilter) error {
 }
 
 // DeleteDataCellsFilter removes the named data cells filter.
+//
+// DeleteDataCellsFilterInput marks no member required
+// (api_op_DeleteDataCellsFilter.go, lakeformation@v1.50.4) -- unlike
+// Get/Create/Update, none of TableCatalogId/DatabaseName/TableName/Name is
+// mandatory. A request omitting Name simply misses the map and falls
+// through to the existing not-found path below.
 func (b *InMemoryBackend) DeleteDataCellsFilter(tableCatalogID, databaseName, tableName, name string) error {
-	if strings.TrimSpace(name) == "" {
-		return fmt.Errorf("Name is required: %w", ErrValidation)
-	}
-
 	b.mu.Lock("DeleteDataCellsFilter")
 	defer b.mu.Unlock()
 
@@ -146,9 +148,25 @@ func (b *InMemoryBackend) ListDataCellsFilter(
 }
 
 // GetDataCellsFilter returns the named data cells filter.
+//
+// GetDataCellsFilterInput marks all four of TableCatalogId, DatabaseName,
+// TableName and Name required (api_op_GetDataCellsFilter.go,
+// lakeformation@v1.50.4); only Name was previously enforced.
 func (b *InMemoryBackend) GetDataCellsFilter(
 	tableCatalogID, databaseName, tableName, name string,
 ) (*DataCellsFilter, error) {
+	if strings.TrimSpace(tableCatalogID) == "" {
+		return nil, fmt.Errorf("TableCatalogId is required: %w", ErrValidation)
+	}
+
+	if strings.TrimSpace(databaseName) == "" {
+		return nil, fmt.Errorf("DatabaseName is required: %w", ErrValidation)
+	}
+
+	if strings.TrimSpace(tableName) == "" {
+		return nil, fmt.Errorf("TableName is required: %w", ErrValidation)
+	}
+
 	if strings.TrimSpace(name) == "" {
 		return nil, fmt.Errorf("Name is required: %w", ErrValidation)
 	}

@@ -82,6 +82,53 @@ func TestListDataCellsFilter_RealSDKClient_TableOptional(t *testing.T) {
 	assert.Empty(t, out.DataCellsFilters)
 }
 
+// TestDeleteDataCellsFilter_RealSDKClient_AllFieldsOptional proves a real
+// SDK client can send a DeleteDataCellsFilter request with every field
+// omitted -- DeleteDataCellsFilterInput marks no member required
+// (api_op_DeleteDataCellsFilter.go, lakeformation@v1.50.4). The real
+// client's own client-side validator would reject the call before it ever
+// reached the wire if any of these were required, so a successful dial-out
+// here is itself proof none are: gopherstack-i8lo.
+func TestDeleteDataCellsFilter_RealSDKClient_AllFieldsOptional(t *testing.T) {
+	t.Parallel()
+
+	h := lakeformation.NewHandler(lakeformation.NewInMemoryBackend())
+	client := newTestLakeFormationClient(t, h)
+
+	_, err := client.DeleteDataCellsFilter(t.Context(), &lakeformationsdk.DeleteDataCellsFilterInput{})
+	require.Error(t, err)
+	// No matching filter exists, so the request reaches gopherstack's
+	// ordinary not-found path -- proof it was never rejected client-side
+	// (InvalidParamsError) or by a server-side 400 (InvalidInputException).
+	var notFound *types.EntityNotFoundException
+	require.ErrorAs(t, err, &notFound)
+}
+
+// TestGetDataCellsFilter_RealSDKClient_RequiredFieldsRejectedClientSide
+// proves GetDataCellsFilterInput's four required members (TableCatalogId,
+// DatabaseName, TableName, Name -- api_op_GetDataCellsFilter.go,
+// lakeformation@v1.50.4) are enforced by the real SDK client itself: a
+// call omitting TableCatalogId never reaches gopherstack at all. This is
+// exactly why the missing server-side check on gopherstack's own backend
+// (three of the four were previously unvalidated: gopherstack-i8lo) went
+// unnoticed by any typed-client caller for so long -- the gap is only
+// reachable by a raw HTTP request, which is what the table-driven
+// TestGetDataCellsFilter_RequiredFields test exercises instead.
+func TestGetDataCellsFilter_RealSDKClient_RequiredFieldsRejectedClientSide(t *testing.T) {
+	t.Parallel()
+
+	h := lakeformation.NewHandler(lakeformation.NewInMemoryBackend())
+	client := newTestLakeFormationClient(t, h)
+
+	_, err := client.GetDataCellsFilter(t.Context(), &lakeformationsdk.GetDataCellsFilterInput{
+		DatabaseName: aws.String("db"),
+		TableName:    aws.String("tbl"),
+		Name:         aws.String("f"),
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "TableCatalogId")
+}
+
 // TestGetTemporaryGlueTableCredentials_RealSDKClient_VendedS3Path proves
 // S3Path (a real request member that was previously parsed nowhere) reaches
 // the backend and comes back as VendedS3Path (a real response member that

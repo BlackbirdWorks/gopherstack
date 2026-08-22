@@ -30,10 +30,10 @@ ops:
   AddLFTagsToResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: now rejects non-Database/Table/TableWithColumns Resource kinds (was a permissive superset of what AWS accepts, see gopherstack-kbnu); resourceToKey also fixed to key TableWithColumns distinctly (previously had no case for it at all -- every TableWithColumns resource collided under the same empty-string key)"}
   RemoveLFTagsFromResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "same resource-kind restriction fix as AddLFTagsToResource"}
   GetResourceLFTags: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: same resource-kind restriction as AddLFTagsToResource/RemoveLFTagsFromResource; also fixed getResourceLFTagsOutput.LFTagsOnColumns, which was typed []LFTagPair -- the real GetResourceLFTagsOutput.LFTagsOnColumns is []types.ColumnLFTag (Name+LFTags) -- and was never populated by any code path (disguised stub)"}
-  CreateDataCellsFilter: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: ColumnWildcard (ExcludedColumnNames) now accepted/persisted; ColumnNames+ColumnWildcard together rejected as InvalidInputException (real API: must specify exactly one); VersionId now assigned"}
-  GetDataCellsFilter: {wire: ok, errors: ok, state: ok, persist: ok}
-  UpdateDataCellsFilter: {wire: ok, errors: ok, state: ok, persist: ok, note: "same ColumnWildcard/VersionId fix as CreateDataCellsFilter"}
-  DeleteDataCellsFilter: {wire: ok, errors: ok, state: ok, persist: ok}
+  CreateDataCellsFilter: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: ColumnWildcard (ExcludedColumnNames) now accepted/persisted; ColumnNames+ColumnWildcard together rejected as InvalidInputException (real API: must specify exactly one); VersionId now assigned. gopherstack-i8lo (2026-08-22): re-verified all four of DataCellsFilter's required members (DatabaseName/Name/TableCatalogId/TableName, types.go:154-173) against the backend -- already fully validated (CreateDataCellsFilter, data_cells_filter.go:47-61); no fix needed. UpdateDataCellsFilter shares the same validation, same file."}
+  GetDataCellsFilter: {wire: ok, errors: fixed, state: ok, persist: ok, note: "UNDER-VALIDATION FIXED (gopherstack-i8lo, 2026-08-22): GetDataCellsFilterInput marks all four of TableCatalogId/DatabaseName/TableName/Name required (api_op_GetDataCellsFilter.go:29-48, lakeformation@v1.50.4) -- only Name was enforced. Three checks added, data_cells_filter.go."}
+  UpdateDataCellsFilter: {wire: ok, errors: ok, state: ok, persist: ok, note: "same ColumnWildcard/VersionId fix as CreateDataCellsFilter; gopherstack-i8lo (2026-08-22): all four required members already validated, same as Create -- no fix needed"}
+  DeleteDataCellsFilter: {wire: ok, errors: fixed, state: ok, persist: ok, note: "OVER-VALIDATION FIXED (gopherstack-i8lo, 2026-08-22): DeleteDataCellsFilterInput marks NO member required (api_op_DeleteDataCellsFilter.go:27-42, lakeformation@v1.50.4) -- gopherstack demanded Name. Check removed; a request without Name now falls through to the existing not-found path instead of a spurious 400."}
   ListDataCellsFilter: {wire: ok, errors: fixed, state: ok, persist: ok, note: "gopherstack-4ly2 (2026-08-21): handler wrongly rejected any request without Table (and Table without DatabaseName) with a 400. ListDataCellsFilterInput marks no member required (api_op_ListDataCellsFilter.go, lakeformation@v1.50.4) -- ListDataCellsFilter's own backend already documented tableCatalogID/databaseName/tableName as optional filters, so the handler's checks were redundant with, and contradicted, the backend's own design. Now Table (and its sub-fields) narrow the listing only when supplied. Two existing tests asserted the wrong 400 (TestListDataCellsFilter_Empty citing a nonexistent 'issue #15', TestListDataCellsFilter_RequiresTable) and were corrected."}
   CreateLFTagExpression: {wire: ok, errors: ok, state: ok, persist: ok, note: "impl moved lf_tag_policy.go -> lf_tag_expression.go (file name was misleading: it implements LFTagExpression, not the distinct LFTagPolicyResource permission-resource kind added this pass)"}
   GetLFTagExpression: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -89,6 +89,68 @@ leaks: {status: clean, note: "no new goroutines/janitors added this pass; all ne
 ---
 
 ## Notes
+
+**2026-08-22 (gopherstack-i8lo):** verified the DataCellsFilter op family's
+required-member handling in both directions, following up on a report that
+had misfiled `CreateDataCellsFilter` as a glue op (it is Lake Formation's;
+does not exist in glue at all) and had undercounted its required members
+by one (three named, not the real four).
+
+`CreateDataCellsFilterInput` marks one top-level member required --
+`TableData *types.DataCellsFilter` (`api_op_CreateDataCellsFilter.go:29-37`,
+`lakeformation@v1.50.4`, confirmed identical on `v1.47.3`) -- and
+`types.DataCellsFilter` itself marks **four** required, one level down:
+`DatabaseName`, `Name`, `TableCatalogId`, `TableName` (`types/types.go:153-173`).
+Both `CreateDataCellsFilter` and `UpdateDataCellsFilter`
+(`data_cells_filter.go:42-84`, `168-198`) already validated all four before
+this pass -- confirmed by the pre-existing table-driven
+`TestCreateDataCellsFilter_RequiredFields`/`TestUpdateDataCellsFilter_RequiresAllFields`.
+No fix needed on either op; the original report's claim of three
+unvalidated members on `CreateDataCellsFilter` was wrong.
+
+Reading the rest of the family (this service already had two
+over-validations fixed this session, `GetTemporaryDataLocationCredentials`
+and `ListDataCellsFilter` -- gopherstack-4ly2) turned up two real, opposite
+bugs the issue never named:
+
+- **`GetDataCellsFilter` -- under-validated.** `GetDataCellsFilterInput`
+  marks all four of `TableCatalogId`, `DatabaseName`, `TableName`, `Name`
+  required (`api_op_GetDataCellsFilter.go:29-48`; confirmed against the
+  official AWS API reference, which lists all four `Required: Yes`). The
+  backend (`GetDataCellsFilter`, `data_cells_filter.go:149-153` pre-fix)
+  validated only `Name`. Fixed by adding the three missing checks, same
+  file. Proof: `TestGetDataCellsFilter_RequiredFields` (table-driven, raw
+  JSON -- a real SDK client cannot produce this malformed a request at
+  all, since its own generated `validateDataCellsFilter`
+  (`validators.go:1259-1279`) rejects the same four client-side before
+  dialing out; `TestGetDataCellsFilter_RealSDKClient_RequiredFieldsRejectedClientSide`
+  demonstrates that client-side rejection directly, and is why this gap
+  was unreachable by any typed caller). Hand-reverted to confirm both new
+  tests fail against the pre-fix code, then restored byte-identical
+  (md5sum-verified).
+- **`DeleteDataCellsFilter` -- over-validated.** `DeleteDataCellsFilterInput`
+  marks **none** of its four members required (`api_op_DeleteDataCellsFilter.go:27-42`;
+  confirmed against the official AWS API reference, all four
+  `Required: No`) -- the mirror of the Get bug above, same op family. The
+  backend demanded `Name` be non-empty. Removed; a request omitting Name
+  now falls through to the pre-existing not-found path instead of a
+  synthetic 400, since nothing in the store is keyed by an empty name.
+  Proof: `TestDeleteDataCellsFilter_RealSDKClient_AllFieldsOptional` sends
+  a real, all-fields-omitted `DeleteDataCellsFilterInput` through an
+  unmodified `aws-sdk-go-v2` client -- a successful dial-out is itself
+  proof the client's own validator does not consider any of these fields
+  required, since it would otherwise refuse to send the request at all.
+  The existing `TestDeleteDataCellsFilter_MissingName` fixture had ratified
+  the defect (asserted 400 for empty Name); corrected to assert 404.
+
+Checks considered and **not** added: none. Both directions of this op
+family are now confirmed against the pinned SDK's required markers and the
+official AWS API reference; no additional ambiguous/conditional members
+were found on Create/Update/Get/Delete/List.
+
+`ListDataCellsFilter` was previously fixed for the same over-validation
+class (gopherstack-4ly2, see its ops-table note above) and needed no
+further change this pass.
 
 **2026-08-15 (gopherstack-6flj wrapper-key sweep):** re-verified all 26
 List/Describe/Get ops against the real deserializer/serializer independently

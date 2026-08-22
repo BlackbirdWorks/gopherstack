@@ -296,6 +296,13 @@ func TestCreateDataCellsFilter_RequiredFields(t *testing.T) {
 	}
 }
 
+// TestDeleteDataCellsFilter_MissingName verifies an empty Name is not
+// rejected as a validation error. DeleteDataCellsFilterInput marks no
+// member required (api_op_DeleteDataCellsFilter.go, lakeformation@v1.50.4)
+// -- unlike Get/Create/Update, Name is optional here. A prior version of
+// this test asserted 400, ratifying an over-validation: gopherstack-i8lo.
+// The request is well-formed, so it falls through to the ordinary
+// not-found path since no filter is keyed by an empty Name.
 func TestDeleteDataCellsFilter_MissingName(t *testing.T) {
 	t.Parallel()
 
@@ -309,7 +316,7 @@ func TestDeleteDataCellsFilter_MissingName(t *testing.T) {
 		"Name":           "",
 	})
 
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
 
 func TestUpdateDataCellsFilter_RequiresAllFields(t *testing.T) {
@@ -395,6 +402,52 @@ func TestGetDataCellsFilter_RoundTrip(t *testing.T) {
 	var out map[string]any
 	require.NoError(t, jsonDecode(rec.Body, &out))
 	assert.NotNil(t, out["DataCellsFilter"])
+}
+
+// TestGetDataCellsFilter_RequiredFields proves the three members that
+// were previously unvalidated -- TableCatalogId, DatabaseName, TableName
+// -- are now rejected when missing. GetDataCellsFilterInput marks all four
+// of TableCatalogId, DatabaseName, TableName and Name required
+// (api_op_GetDataCellsFilter.go, lakeformation@v1.50.4): gopherstack-i8lo.
+func TestGetDataCellsFilter_RequiredFields(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body   map[string]any
+		name   string
+		status int
+	}{
+		{
+			name:   "missing_table_catalog_id",
+			body:   map[string]any{"DatabaseName": "db", "TableName": "tbl", "Name": "f"},
+			status: http.StatusBadRequest,
+		},
+		{
+			name:   "missing_database_name",
+			body:   map[string]any{"TableCatalogId": "123", "TableName": "tbl", "Name": "f"},
+			status: http.StatusBadRequest,
+		},
+		{
+			name:   "missing_table_name",
+			body:   map[string]any{"TableCatalogId": "123", "DatabaseName": "db", "Name": "f"},
+			status: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := lakeformation.NewInMemoryBackend()
+			h := lakeformation.NewHandler(b)
+			b.AddDataCellsFilterInternal(&lakeformation.DataCellsFilter{
+				TableCatalogID: "123", DatabaseName: "db", TableName: "tbl", Name: "f",
+			})
+
+			rec := postJSON(t, h, "/GetDataCellsFilter", tt.body)
+			assert.Equal(t, tt.status, rec.Code)
+		})
+	}
 }
 
 func TestGetDataCellsFilter_NotFound(t *testing.T) {
