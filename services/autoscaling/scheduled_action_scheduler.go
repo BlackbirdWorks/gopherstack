@@ -2,6 +2,7 @@ package autoscaling
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -140,9 +141,13 @@ func (b *InMemoryBackend) fireScheduledActionLocked(ctx context.Context, a *Sche
 		ActivityID:           uuid.NewString(),
 		AutoScalingGroupName: a.AutoScalingGroupName,
 		Description:          "Scheduled action \"" + a.ScheduledActionName + "\" applied capacity change",
-		StatusCode:           statusCodeSuccessful,
-		Progress:             completedProgress,
-		StartTime:            now,
-		EndTime:              now,
+		Cause: fmt.Sprintf(
+			"At %s scheduled action %q changed the group's capacity settings.",
+			now.UTC().Format(time.RFC3339), a.ScheduledActionName,
+		),
+		StatusCode: statusCodeSuccessful,
+		Progress:   completedProgress,
+		StartTime:  now,
+		EndTime:    now,
 	})
 }

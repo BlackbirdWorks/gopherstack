@@ -8,6 +8,12 @@ import (
 	"github.com/google/uuid"
 )
 
+// scalingActivityCause builds Activity.Cause (required, types.go:298) in AWS's
+// documented "At <time> a user request <verb> instance <id>." narrative form.
+func scalingActivityCause(verb, instanceID string) string {
+	return fmt.Sprintf("At %s a user request %s instance %s.", time.Now().UTC().Format(time.RFC3339), verb, instanceID)
+}
+
 // AttachInstances adds the given instance IDs to the specified Auto Scaling group.
 func (b *InMemoryBackend) AttachInstances(groupName string, instanceIDs []string) error {
 	b.mu.Lock("AttachInstances")
@@ -95,6 +101,7 @@ func (b *InMemoryBackend) TerminateInstanceInAutoScalingGroup(
 			AutoScalingGroupName: targetGroup.AutoScalingGroupName,
 			Description: "Terminating EC2 instance: " + instanceID +
 				" (waiting for lifecycle hook '" + hook.LifecycleHookName + "')",
+			Cause:      scalingActivityCause("terminated", instanceID),
 			StatusCode: statusInProgress,
 			Progress:   50, //nolint:mnd // AWS reports partial progress mid-wait; no finer granularity to model
 			StartTime:  time.Now(),
@@ -142,6 +149,7 @@ func (b *InMemoryBackend) TerminateInstanceInAutoScalingGroup(
 		ActivityID:           uuid.NewString(),
 		AutoScalingGroupName: targetGroup.AutoScalingGroupName,
 		Description:          "Terminating EC2 instance: " + instanceID,
+		Cause:                scalingActivityCause("terminated", instanceID),
 		StatusCode:           statusCodeSuccessful,
 		Progress:             completedProgress,
 		StartTime:            time.Now(),
@@ -282,6 +290,7 @@ func (b *InMemoryBackend) finishTermination(g *AutoScalingGroup, action *pending
 		ActivityID:           uuid.NewString(),
 		AutoScalingGroupName: g.AutoScalingGroupName,
 		Description:          "Terminating EC2 instance: " + action.InstanceID,
+		Cause:                scalingActivityCause("terminated", action.InstanceID),
 		StatusCode:           statusCodeSuccessful,
 		Progress:             completedProgress,
 		StartTime:            time.Now(),
@@ -341,6 +350,7 @@ func (b *InMemoryBackend) DetachInstances(
 			ActivityID:           uuid.NewString(),
 			AutoScalingGroupName: groupName,
 			Description:          "Detaching EC2 instance: " + id,
+			Cause:                scalingActivityCause("detached", id),
 			StatusCode:           statusCodeSuccessful,
 			Progress:             completedProgress,
 			StartTime:            time.Now(),
@@ -395,6 +405,7 @@ func (b *InMemoryBackend) EnterStandby(
 			ActivityID:           uuid.NewString(),
 			AutoScalingGroupName: groupName,
 			Description:          "Moving EC2 instance to Standby: " + id,
+			Cause:                scalingActivityCause("moved to standby", id),
 			StatusCode:           statusCodeSuccessful,
 			Progress:             completedProgress,
 			StartTime:            time.Now(),
@@ -434,6 +445,7 @@ func (b *InMemoryBackend) ExitStandby(groupName string, instanceIDs []string) ([
 			ActivityID:           uuid.NewString(),
 			AutoScalingGroupName: groupName,
 			Description:          "Moving EC2 instance out of Standby: " + id,
+			Cause:                scalingActivityCause("moved out of standby", id),
 			StatusCode:           statusCodeSuccessful,
 			Progress:             completedProgress,
 			StartTime:            time.Now(),

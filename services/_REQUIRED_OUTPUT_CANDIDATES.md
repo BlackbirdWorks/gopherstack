@@ -178,24 +178,27 @@ from the ranked table) as future batches clear more of it.
 | cognitoidentity | 9 | 23 (3 ops-with-required) | 0 (clean; all 3 flagged ops' required fields already emitted without `omitempty`; one level deeper, `GetIdentityPoolRoles`/`SetIdentityPoolRoles` wrap `RoleMapping`/`RulesConfigurationType` (3 more required members via an AST walk of `types.go`, invisible to the flat scan) and those are also always emitted without `omitempty` -- see the batch-27 note below and services/cognitoidentity/PARITY.md) | gopherstack-r80d batch 27 |
 | kafka | 9 | 64 (4 ops-with-required) | yes (2: `ListConfigurations`/`ListConfigurationRevisions` marshal `types.Configuration`/`types.ConfigurationRevision` directly as list-item shapes, and both gopherstack models were missing `CreationTime`/`LatestRevision` (Configuration) and `CreationTime` (ConfigurationRevision) as struct fields entirely -- not just `omitempty`, invisible to the flat op-level scan since neither op's own wrapping field is itself required. One candidate rejected: Channel family's `CreationTime` `omitempty` tag is disqualified by "populated on every write path" -- see the batch-27 note below and services/kafka/PARITY.md) | gopherstack-r80d batch 27 |
 | firehose | 8 | 12 (5 ops-with-required) | yes (3: `S3DestinationDescription.BufferingHints`/`.EncryptionConfiguration` never defaulted when a client omits either optional input field (the common case); `.BucketARN`/`.RoleARN` tagged `omitempty` despite the real client-side validator only null-checking them (a real client can send an explicit empty string); the real SDK's `S3BackupConfiguration`/`S3BackupDescription` fields are literally typed as the full `S3DestinationConfiguration`/`S3DestinationDescription` (types.go:1496,1575,2568,2621), but gopherstack's own narrower `S3BackupDescription` struct had no `EncryptionConfiguration` field at all -- unconditionally dropped on every backup-enabled destination, not merely when omitted -- see the batch-28 note below and services/firehose/PARITY.md) | gopherstack-r80d batch 28 |
+| autoscaling | 7 | 66 (5 ops-with-required) | yes (2: `Activity.Cause` (required, structurally absent -- no backing field at all, 8 construction sites) via `DescribeScalingActivities`; `LoadForecast.MetricSpecification` (required, structurally absent) via `GetPredictiveScalingForecast`, now wired from the referenced policy's own stored `PredictiveScalingConfiguration.MetricSpecifications` -- see the batch-29 note below and services/autoscaling/PARITY.md) | gopherstack-r80d batch 29 |
+| sqs | 7 | 23 (4 ops-with-required) | 0 (clean; `SendMessageBatch`/`DeleteMessageBatch`/`ChangeMessageVisibilityBatch`'s shared `jsonBatchSuccess`/`jsonBatchFailure` types and `ListDeadLetterSourceQueues.QueueUrls` all confirmed always-emitted non-nil/non-omitted on the real awsjson1.0 protocol path the pinned SDK client uses; one dead `omitempty` pair reviewed and ruled out (`jsonBatchSuccess.MessageID`/`.MD5OfMessageBody`, required only for `SendMessageBatch`, populated on every write path via `uuid.New()`/MD5-of-anything -- never reachably empty) -- see the batch-29 note below) | gopherstack-r80d batch 29 |
 
-56 services settled, 2589 required output fields read end to end (the running
+58 services settled, 2603 required output fields read end to end (the running
 total counts each settled service's flat per-op `cmd/requiredoutputfields`
 number, as established by every prior batch -- glue's own real audited
 surface was substantially larger once its ~56 gopherstack-modeled domain
-structs were cross-checked, see the batch-15 note below). Batch 27
+structs were cross-checked, see the batch-15 note below). Batch 29
+(autoscaling + sqs, tied at 7 each) added 2 more counted bugs, both in
+autoscaling (`Activity.Cause`, `LoadForecast.MetricSpecification`; sqs came
+back clean) -- see the batch-29 note below for detail. A fresh
+`cmd/requiredoutputfields` run after settling both shows a 5-way tie at 6
+fields each (`kinesisanalyticsv2`, `mediastore`, `mediatailor`, `shield`,
+`ssoadmin`, `translate`) as the next candidates after sagemaker. Batch 27
 (cognitoidentity + kafka, tied at 9 each) added 2 more counted bugs, both in
 kafka's Configuration/ConfigurationRevision List-op item shapes
 (cognitoidentity came back clean) -- see the batch-27 note below for detail.
 Batch 28 (firehose, the sole service at 8 fields, no tie) added 3 more
 counted bugs, all traced through the S3-family destination-description
 helpers shared across every S3/HTTP/Redshift/OpenSearch/Elasticsearch/Splunk
-destination -- see the batch-28 note below for detail. `autoscaling` and
-`sqs` (tied at 7 fields each) are now the largest remaining candidates after
-sagemaker -- verify the tie with a fresh `cmd/requiredoutputfields` run
-before starting, per this file's own standing instruction (batch 27 caught
-kafka tied with the ledger's named-alone cognitoidentity this same way).
-Batch 25
+destination -- see the batch-28 note below for detail. Batch 25
 (rekognition + timestreamquery, tied at 11 each) added 1 more counted bug
 (timestreamquery's `DescribeScheduledQuery` `TargetConfiguration.
 TimestreamConfiguration.TimeColumn`/`DimensionMappings`; rekognition came back
@@ -2393,3 +2396,162 @@ fields read end to end); `autoscaling`/`sqs` (tied at 7 fields each) are now
 the largest remaining candidates after sagemaker. Did not attempt a second
 service this batch. Full detail, SDK file:line citations, and hand-revert
 proof are in services/firehose/PARITY.md's 2026-08-21 entries.
+
+### autoscaling + sqs (batch 29): 2 bugs, both in autoscaling; sqs clean
+
+Instrument re-validated: `go run ./cmd/requiredoutputfields` reproduced the
+ledger's `autoscaling`/`sqs` tie at 7 fields each exactly (`autoscaling`
+66 ops/5 ops-with-required; `sqs` 23 ops/4 ops-with-required). `git status`
+showed only the pre-existing `services/sagemaker/*` dirt from a concurrent
+agent's conversion, confirmed untouched throughout.
+
+Both modules resolve directly, no `dirModuleOverride` entry needed:
+`services/autoscaling` -> `aws-sdk-go-v2/service/autoscaling@v1.70.4`
+(distinct from the sibling `applicationautoscaling@v1.45.4` and
+`autoscalingplans` modules also pinned in go.mod -- confirmed by reading the
+package's own import, not inferred from the directory name, per this file's
+own trap warning). `services/sqs` -> `aws-sdk-go-v2/service/sqs@v1.46.4`.
+
+**Protocol established before applying any tag rule, per this batch's own
+brief:** `autoscaling`'s `serializers.go` imports
+`github.com/aws/aws-sdk-go-v2/aws/protocol/query` -- query/XML, not JSON.
+gopherstack's own response construction already uses Go's `encoding/xml`
+with tagged structs (`xml:"...,omitempty"`), so the JSON-service tag
+reasoning (`omitempty` fires on `len==0`/zero-value) applies directly here
+too -- `encoding/xml`'s `omitempty` has the same zero-value semantics for
+scalars/slices. `sqs`'s `serializers.go` imports `smithyjson`/uses
+`awsAwsjson10_serialize*` -- confirmed `awsjson1.0`, not the legacy Query
+protocol some of gopherstack's own `sqs/query_*.go` files also implement
+for non-SDK clients; the pinned `aws-sdk-go-v2` client this campaign's proof
+technique uses only ever speaks the JSON protocol, so that is the surface
+audited for provability (the Query-protocol mirror types were also read and
+found structurally identical, see below).
+
+**autoscaling (7 fields/66 ops, 5 ops-with-required, 2 bugs):** flat op-level
+scan undercounts real surface -- three of the five flagged ops
+(`DescribeAutoScalingGroups`, `DescribeLaunchConfigurations`,
+`DescribeNotificationConfigurations`) wrap `AutoScalingGroup`/
+`LaunchConfiguration`/`NotificationConfiguration` list items each carrying
+their own required members one level deeper (8, 4, and 0 respectively, via
+an AST-style read of `types.go`). All of `AutoScalingGroup`'s 8
+(`AutoScalingGroupName`/`AvailabilityZones`/`CreatedTime`/
+`DefaultCooldown`/`DesiredCapacity`/`HealthCheckType`/`MaxSize`/`MinSize`)
+and `LaunchConfiguration`'s 4 (`CreatedTime`/`ImageId`/`InstanceType`/
+`LaunchConfigurationName`) confirmed already emitted without `omitempty` at
+their single construction sites -- clean, matching this A-graded service's
+extensive prior audit history. `NotificationConfiguration` declares zero
+required members in the real Smithy model.
+
+The 2 bugs were both the "structurally absent" shape (batch 28's
+`S3BackupDescription` class), one level below `DescribeScalingActivities`
+and `GetPredictiveScalingForecast`'s own flagged fields:
+
+1. `types.Activity.Cause` (types/types.go:298, `*string`, required) had no
+   backing field on gopherstack's `ScalingActivity` model at all --
+   `DescribeScalingActivities` (and every op that returns a `ScalingActivity`
+   pointer: `TerminateInstanceInAutoScalingGroup`, `DetachInstances`,
+   `EnterStandby`, `ExitStandby`) decoded a nil `Cause` on every activity, in
+   every reachable state, since the field never existed to populate. Fixed
+   by adding `ScalingActivity.Cause` and threading a real, derived narrative
+   ("At `<time>` a user request `<verb>` instance `<id>`.", matching AWS's
+   own documented Cause prose form) through all 8 construction sites across
+   `auto_scaling_groups.go`, `instances.go` (6 sites), and
+   `scheduled_action_scheduler.go` -- not fabricated data, built from the
+   same real group/instance/hook identifiers `Description` already carries
+   at each site, via a shared `scalingActivityCause` helper.
+2. `types.LoadForecast.MetricSpecification` (types/types.go:2670,
+   `*PredictiveScalingMetricSpecification`, required) was structurally
+   absent from every `LoadForecast` entry `GetPredictiveScalingForecast`
+   returned -- always nil on a real client, even though the referenced
+   policy's own `PredictiveScalingConfiguration.MetricSpecifications`
+   (parsed and stored by `PutScalingPolicy`, bd gopherstack-2uti) already
+   carries the real data needed to populate it, since
+   `GetPredictiveScalingForecastInput.PolicyName` is itself required.
+   `handleGetPredictiveScalingForecast` previously ignored `PolicyName`
+   entirely. Fixed by reading it, looking the policy up via the
+   already-exported `DescribePolicies` (no new `StorageBackend` method
+   needed), and emitting one `LoadForecast` entry per configured metric
+   specification with `MetricSpecification` populated from the real stored
+   data -- `toXMLPredictiveScalingMetricSpecification` was extracted from
+   the existing `PutScalingPolicy`/`DescribePolicies` converter
+   (`toXMLPredictiveScalingConfiguration`) so both paths share one
+   conversion instead of duplicating it. Falls back to a single unlabeled
+   series (`MetricSpecification` nil) only when the policy or its
+   predictive-scaling config can't be found -- a pre-existing, out-of-scope
+   gap (this op has no `PolicyName`/`PolicyType` validation at all, so a
+   real client could already reference a non-predictive-scaling policy)
+   left unchanged, not made worse.
+
+Both proven via real `aws-sdk-go-v2/service/autoscaling` client round trips
+(`services/autoscaling/wire_output_required_r80d_test.go`), hand-reverted
+(7 files: `models.go`, `handler.go`, `handler_predictive_scaling.go`,
+`handler_scaling_policies.go`, `auto_scaling_groups.go`, `instances.go`,
+`scheduled_action_scheduler.go`, restored via `git show HEAD:<path>` and
+confirmed both new tests fail)/restored, md5sum-verified byte-identical.
+
+Reviewed and ruled OUT, not a bug: `PutScalingPolicy`'s
+`parsePredictiveScalingMetricSpecifications` accepts a metric specification
+element with no `TargetValue` (defaulting it to Go-zero `0.0`) as long as
+some other predefined/customized sub-field is present, even though AWS's
+own doc comment says `TargetValue` is required on every element and its
+client-side validator (`validators.go:1660`
+`validatePredictiveScalingMetricSpecification`) unconditionally rejects a
+nil `TargetValue`. This is an input-validation permissiveness gap, not a
+dropped required OUTPUT field (the wire-side `TargetValue` member has no
+`omitempty` and is always echoed correctly whatever value it holds) --
+out of this cut's scope. It is also unreachable via any real
+`aws-sdk-go-v2` client under this campaign's proof standard, since the
+SDK's own validator blocks the request before it is ever sent -- the same
+"unreachable via any real Go SDK client" class apprunner's batch 10 hit for
+`SourceCodeVersion`. Left unfixed; disclosed in
+`services/autoscaling/PARITY.md`'s gaps list.
+
+**sqs (7 fields/23 ops, 4 ops-with-required, 0 bugs):** all 4 flagged ops
+share two response item types across the JSON protocol path (`jsonBatchSuccess`/
+`jsonBatchFailure`, mirroring the real `SendMessageBatchResultEntry`/
+`DeleteMessageBatchResultEntry`/`ChangeMessageVisibilityBatchResultEntry`/
+`BatchResultErrorEntry`). `ListDeadLetterSourceQueues.QueueUrls` has an
+explicit nil-guard (`if queueURLs == nil { queueURLs = []string{} }`) before
+the no-`omitempty` `queueUrls` key is emitted -- always present. All three
+batch ops' `Successful`/`Failed` slices are always non-nil
+`make([]T, 0, len(...))`, no `omitempty` on either key. Per-item required
+members (`BatchResultErrorEntry.Code`/`.Id` -- both plain strings, no
+`omitempty`, always populated from `entry.ID`/`err.Error()`, both
+guaranteed non-empty at their only 4 construction sites) all confirmed
+correct.
+
+One dead `omitempty` pair reviewed and ruled out, same class as batch
+23/24's dead-tag findings: `jsonBatchSuccess.MessageID`/`.MD5OfMessageBody`
+are tagged `omitempty` and correctly so for `DeleteMessageBatch`/
+`ChangeMessageVisibilityBatch` (their own `DeleteMessageBatchResultEntry`/
+`ChangeMessageVisibilityBatchResultEntry` types have no such members at all
+in the real Smithy model -- omitting them is required, not optional).
+For `SendMessageBatch`, where `MessageId`/`MD5OfMessageBody` genuinely are
+required, the tag is dead code rather than a reachable drop:
+`processSendMessageBatchEntries` (`messages.go:620`) is the sole
+construction site and unconditionally sets both from `sendOut.MessageID`
+(`uuid.New().String()`, never empty) and `sendOut.MD5OfBody` (an MD5 hex
+digest, never empty even for an empty message body) on every success path
+-- "populated on every write path," the same disqualifying ground batch 28
+established for `DeliveryStreamType`/`VersionId`. The Query/XML mirror
+types (`XMLSendMessageBatchResultEntry` etc., used by gopherstack's own
+non-SDK Query-protocol surface, not by the pinned `aws-sdk-go-v2` client)
+were also read and found structurally identical -- no additional finding
+there. No code changes; sqs was already through a very recent (2026-08-10)
+unusually thorough audit pass (`last_audit_commit: f51bf624e`) and this
+cut's specific class did not turn up anything new.
+
+Both services' gates green (`go build`, `go vet` [plus `-tags e2e`/
+`-tags integration`], `gofmt -l`, `go test -race`, `golangci-lint run` --
+0 issues, 0 banned nolints, 0 new nolints); repo-wide `go build ./...`,
+`go vet ./...`, `go vet -tags e2e ./...`, `go vet -tags integration ./...`
+all clean (only sagemaker dirty, untouched). No exported signatures
+changed. `services/_REQUIRED_OUTPUT_CANDIDATES.md` updated: both moved
+into "Already examined" (settled-services count now 58, 2603 required
+output fields read end to end); the 5-way tie at 6 fields
+(`kinesisanalyticsv2`/`mediastore`/`mediatailor`/`shield`/`ssoadmin`/
+`translate`) is now the largest remaining candidate group after sagemaker.
+Did not attempt a third service this batch. Full detail, SDK file:line
+citations, and hand-revert proof are in
+`services/autoscaling/PARITY.md`'s 2026-08-21 entries; sqs has no new
+PARITY.md entry since no code changed.

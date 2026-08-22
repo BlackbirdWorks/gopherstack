@@ -501,6 +501,7 @@ func toXMLScalingActivity(a *ScalingActivity) xmlScalingActivity {
 		ActivityID:           a.ActivityID,
 		AutoScalingGroupName: a.AutoScalingGroupName,
 		Description:          a.Description,
+		Cause:                a.Cause,
 		StatusCode:           a.StatusCode,
 		StatusMessage:        a.StatusMessage,
 		Progress:             a.Progress,
@@ -548,11 +549,15 @@ type xmlScalingActivity struct {
 	ActivityID           string `xml:"ActivityId"`
 	AutoScalingGroupName string `xml:"AutoScalingGroupName"`
 	Description          string `xml:"Description,omitempty"`
-	StatusCode           string `xml:"StatusCode"`
-	StatusMessage        string `xml:"StatusMessage,omitempty"`
-	StartTime            string `xml:"StartTime"`
-	EndTime              string `xml:"EndTime,omitempty"`
-	Progress             int32  `xml:"Progress"`
+	// Cause is required (types.go:298, Activity) and, unlike Description, has no
+	// omitempty -- every construction site below sets it to a real, non-empty
+	// narrative of why the activity happened.
+	Cause         string `xml:"Cause"`
+	StatusCode    string `xml:"StatusCode"`
+	StatusMessage string `xml:"StatusMessage,omitempty"`
+	StartTime     string `xml:"StartTime"`
+	EndTime       string `xml:"EndTime,omitempty"`
+	Progress      int32  `xml:"Progress"`
 }
 
 type xmlScalingActivityList struct {
