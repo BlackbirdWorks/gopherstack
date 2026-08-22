@@ -13,6 +13,8 @@ type createEndpointConfigRequest struct {
 	DataCaptureConfig        *DataCaptureConfig    `json:"DataCaptureConfig,omitempty"`
 	AsyncInferenceConfig     *AsyncInferenceConfig `json:"AsyncInferenceConfig,omitempty"`
 	VpcConfig                *VpcConfig            `json:"VpcConfig,omitempty"`
+	ExplainerConfig          json.RawMessage       `json:"ExplainerConfig,omitempty"`
+	MetricsConfig            json.RawMessage       `json:"MetricsConfig,omitempty"`
 	EndpointConfigName       string                `json:"EndpointConfigName"`
 	ExecutionRoleArn         string                `json:"ExecutionRoleArn,omitempty"`
 	KmsKeyID                 string                `json:"KmsKeyId,omitempty"`
@@ -34,6 +36,8 @@ type describeEndpointConfigResponse struct {
 	DataCaptureConfig        *DataCaptureConfig    `json:"DataCaptureConfig,omitempty"`
 	AsyncInferenceConfig     *AsyncInferenceConfig `json:"AsyncInferenceConfig,omitempty"`
 	VpcConfig                *VpcConfig            `json:"VpcConfig,omitempty"`
+	ExplainerConfig          json.RawMessage       `json:"ExplainerConfig,omitempty"`
+	MetricsConfig            json.RawMessage       `json:"MetricsConfig,omitempty"`
 	EndpointConfigArn        string                `json:"EndpointConfigArn"`
 	EndpointConfigName       string                `json:"EndpointConfigName"`
 	ExecutionRoleArn         string                `json:"ExecutionRoleArn,omitempty"`
@@ -69,7 +73,8 @@ func (h *Handler) handleCreateEndpointConfig(ctx context.Context, body []byte) (
 
 	hasExtras := req.DataCaptureConfig != nil || req.AsyncInferenceConfig != nil ||
 		req.VpcConfig != nil || req.ExecutionRoleArn != "" || req.KmsKeyID != "" ||
-		len(req.ShadowProductionVariants) > 0 || req.EnableNetworkIsolation
+		len(req.ShadowProductionVariants) > 0 || req.EnableNetworkIsolation ||
+		len(req.ExplainerConfig) > 0 || len(req.MetricsConfig) > 0
 
 	if hasExtras {
 		if extErr := h.Backend.SetEndpointConfigExtras(
@@ -82,6 +87,8 @@ func (h *Handler) handleCreateEndpointConfig(ctx context.Context, body []byte) (
 			req.KmsKeyID,
 			req.ShadowProductionVariants,
 			req.EnableNetworkIsolation,
+			req.ExplainerConfig,
+			req.MetricsConfig,
 		); extErr != nil {
 			return nil, extErr
 		}
@@ -100,10 +107,13 @@ func (h *Handler) handleCreateEndpointConfig(ctx context.Context, body []byte) (
 	return json.Marshal(map[string]string{"EndpointConfigArn": ec.EndpointConfigARN})
 }
 
+// describeEndpointConfigRequest is the request body for DescribeEndpointConfig.
+type describeEndpointConfigRequest struct {
+	EndpointConfigName string `json:"EndpointConfigName"`
+}
+
 func (h *Handler) handleDescribeEndpointConfig(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		EndpointConfigName string `json:"EndpointConfigName"`
-	}
+	var req describeEndpointConfigRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -126,6 +136,8 @@ func (h *Handler) handleDescribeEndpointConfig(ctx context.Context, body []byte)
 		DataCaptureConfig:        ec.DataCaptureConfig,
 		AsyncInferenceConfig:     ec.AsyncInferenceConfig,
 		VpcConfig:                ec.VpcConfig,
+		ExplainerConfig:          ec.ExplainerConfig,
+		MetricsConfig:            ec.MetricsConfig,
 		ExecutionRoleArn:         ec.ExecutionRoleArn,
 		KmsKeyID:                 ec.KmsKeyID,
 		ShadowProductionVariants: ec.ShadowProductionVariants,
@@ -144,15 +156,13 @@ func (h *Handler) handleDescribeEndpointConfig(ctx context.Context, body []byte)
 }
 
 func (h *Handler) handleListEndpointConfigs(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		NextToken string `json:"NextToken"`
-	}
+	var req nameTimeListRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	configs, nextToken := h.Backend.ListEndpointConfigs(ctx, req.NextToken)
+	configs, nextToken := h.Backend.ListEndpointConfigs(ctx, req.NextToken, req.toFilter())
 	summaries := make([]endpointConfigSummary, 0, len(configs))
 
 	for _, ec := range configs {
@@ -171,10 +181,13 @@ func (h *Handler) handleListEndpointConfigs(ctx context.Context, body []byte) ([
 	return json.Marshal(resp)
 }
 
+// deleteEndpointConfigRequest is the request body for DeleteEndpointConfig.
+type deleteEndpointConfigRequest struct {
+	EndpointConfigName string `json:"EndpointConfigName"`
+}
+
 func (h *Handler) handleDeleteEndpointConfig(ctx context.Context, body []byte) error {
-	var req struct {
-		EndpointConfigName string `json:"EndpointConfigName"`
-	}
+	var req deleteEndpointConfigRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidRequest, err)

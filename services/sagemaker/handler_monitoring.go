@@ -10,13 +10,16 @@ import (
 // MonitoringAlert / MonitoringExecution handlers
 // ---------------------------------------------------------------------------
 
+// updateMonitoringAlertRequest is the request body for UpdateMonitoringAlert.
+type updateMonitoringAlertRequest struct {
+	MonitoringScheduleName string `json:"MonitoringScheduleName"`
+	MonitoringAlertName    string `json:"MonitoringAlertName"`
+	DatapointsToAlert      int32  `json:"DatapointsToAlert"`
+	EvaluationPeriod       int32  `json:"EvaluationPeriod"`
+}
+
 func (h *Handler) handleUpdateMonitoringAlert(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		MonitoringScheduleName string `json:"MonitoringScheduleName"`
-		MonitoringAlertName    string `json:"MonitoringAlertName"`
-		DatapointsToAlert      int32  `json:"DatapointsToAlert"`
-		EvaluationPeriod       int32  `json:"EvaluationPeriod"`
-	}
+	var req updateMonitoringAlertRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -28,6 +31,14 @@ func (h *Handler) handleUpdateMonitoringAlert(ctx context.Context, body []byte) 
 
 	if req.MonitoringAlertName == "" {
 		return nil, fmt.Errorf("%w: MonitoringAlertName is required", errInvalidRequest)
+	}
+
+	if req.DatapointsToAlert == 0 {
+		return nil, fmt.Errorf("%w: DatapointsToAlert is required", errInvalidRequest)
+	}
+
+	if req.EvaluationPeriod == 0 {
+		return nil, fmt.Errorf("%w: EvaluationPeriod is required", errInvalidRequest)
 	}
 
 	alert, scheduleArn, err := h.Backend.UpdateMonitoringAlert(
@@ -43,11 +54,15 @@ func (h *Handler) handleUpdateMonitoringAlert(ctx context.Context, body []byte) 
 	})
 }
 
+// listMonitoringAlertsRequest is the request body for ListMonitoringAlerts.
+type listMonitoringAlertsRequest struct {
+	MonitoringScheduleName string `json:"MonitoringScheduleName"`
+	NextToken              string `json:"NextToken"`
+	MaxResults             int32  `json:"MaxResults,omitempty"`
+}
+
 func (h *Handler) handleListMonitoringAlerts(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		MonitoringScheduleName string `json:"MonitoringScheduleName"`
-		NextToken              string `json:"NextToken"`
-	}
+	var req listMonitoringAlertsRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -57,7 +72,7 @@ func (h *Handler) handleListMonitoringAlerts(ctx context.Context, body []byte) (
 		return nil, fmt.Errorf("%w: MonitoringScheduleName is required", errInvalidRequest)
 	}
 
-	items, next, err := h.Backend.ListMonitoringAlerts(ctx, req.MonitoringScheduleName, req.NextToken)
+	items, next, err := h.Backend.ListMonitoringAlerts(ctx, req.MonitoringScheduleName, req.NextToken, req.MaxResults)
 	if err != nil {
 		return nil, err
 	}
@@ -85,17 +100,20 @@ func (h *Handler) handleListMonitoringAlerts(ctx context.Context, body []byte) (
 	return json.Marshal(resp)
 }
 
+// listMonitoringAlertHistoryRequest is the request body for ListMonitoringAlertHistory.
+type listMonitoringAlertHistoryRequest struct {
+	CreationTimeAfter      *float64 `json:"CreationTimeAfter,omitempty"`
+	CreationTimeBefore     *float64 `json:"CreationTimeBefore,omitempty"`
+	MonitoringScheduleName string   `json:"MonitoringScheduleName,omitempty"`
+	MonitoringAlertName    string   `json:"MonitoringAlertName,omitempty"`
+	StatusEquals           string   `json:"StatusEquals,omitempty"`
+	SortOrder              string   `json:"SortOrder,omitempty"`
+	NextToken              string   `json:"NextToken,omitempty"`
+	MaxResults             int32    `json:"MaxResults,omitempty"`
+}
+
 func (h *Handler) handleListMonitoringAlertHistory(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		CreationTimeAfter      *float64 `json:"CreationTimeAfter,omitempty"`
-		CreationTimeBefore     *float64 `json:"CreationTimeBefore,omitempty"`
-		MonitoringScheduleName string   `json:"MonitoringScheduleName,omitempty"`
-		MonitoringAlertName    string   `json:"MonitoringAlertName,omitempty"`
-		StatusEquals           string   `json:"StatusEquals,omitempty"`
-		SortOrder              string   `json:"SortOrder,omitempty"`
-		NextToken              string   `json:"NextToken,omitempty"`
-		MaxResults             int32    `json:"MaxResults,omitempty"`
-	}
+	var req listMonitoringAlertHistoryRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)

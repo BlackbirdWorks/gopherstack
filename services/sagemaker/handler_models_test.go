@@ -311,10 +311,15 @@ func TestHandler_ListModelsPagination(t *testing.T) {
 	}
 }
 
-// TestCreateModel_RequiresExecutionRoleArn verifies that CreateModel rejects
-// requests with a missing ExecutionRoleArn. Real AWS requires this field on all
-// CreateModel calls; the emulator previously created models with an empty role ARN.
-func TestCreateModel_RequiresExecutionRoleArn(t *testing.T) {
+// TestCreateModel_ExecutionRoleArnOptional verifies that CreateModel accepts a
+// request with no ExecutionRoleArn. CreateModelInput
+// (api_op_CreateModel.go:50-90, sagemaker@v1.263.2) marks only ModelName "This
+// member is required" — ExecutionRoleArn carries no such tag. A prior version
+// of this test asserted the opposite (rejecting a missing/empty
+// ExecutionRoleArn as a 400), which was itself wrong: it rejected valid real
+// requests this backend should accept. ModelName absent is still rejected,
+// since that member is genuinely required.
+func TestCreateModel_ExecutionRoleArnOptional(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -323,17 +328,17 @@ func TestCreateModel_RequiresExecutionRoleArn(t *testing.T) {
 		wantCode int
 	}{
 		{
-			name: "absent_role_arn_rejected",
+			name: "absent_role_arn_accepted",
 			body: map[string]any{
 				"ModelName": "my-model",
 				"PrimaryContainer": map[string]any{
 					"Image": "123456789012.dkr.ecr.us-east-1.amazonaws.com/my-image:latest",
 				},
 			},
-			wantCode: http.StatusBadRequest,
+			wantCode: http.StatusOK,
 		},
 		{
-			name: "empty_role_arn_rejected",
+			name: "empty_role_arn_accepted",
 			body: map[string]any{
 				"ModelName":        "my-model",
 				"ExecutionRoleArn": "",
@@ -341,7 +346,7 @@ func TestCreateModel_RequiresExecutionRoleArn(t *testing.T) {
 					"Image": "123456789012.dkr.ecr.us-east-1.amazonaws.com/my-image:latest",
 				},
 			},
-			wantCode: http.StatusBadRequest,
+			wantCode: http.StatusOK,
 		},
 		{
 			name: "valid_role_arn_accepted",
@@ -353,6 +358,16 @@ func TestCreateModel_RequiresExecutionRoleArn(t *testing.T) {
 				},
 			},
 			wantCode: http.StatusOK,
+		},
+		{
+			name: "absent_model_name_rejected",
+			body: map[string]any{
+				"ExecutionRoleArn": "arn:aws:iam::123456789012:role/SageMakerRole",
+				"PrimaryContainer": map[string]any{
+					"Image": "123456789012.dkr.ecr.us-east-1.amazonaws.com/my-image:latest",
+				},
+			},
+			wantCode: http.StatusBadRequest,
 		},
 	}
 
@@ -389,6 +404,43 @@ func TestCreateModel_PrimaryContainerAndContainersAreMutuallyExclusive(t *testin
 	assert.Equal(t, http.StatusBadRequest, rec.Code,
 		"CreateModel with both PrimaryContainer and Containers must return 400; body: %s",
 		rec.Body.String())
+}
+
+// TestHandler_ListModels_FilterSort verifies ListModelsInput's
+// NameContains/SortBy/SortOrder (api_op_ListModels.go, previously entirely
+// dropped except NextToken) are honored.
+func TestHandler_ListModels_FilterSort(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	for _, name := range []string{"alpha-model", "beta-model", "other"} {
+		doSageMakerRequest(t, h, "CreateModel", map[string]any{
+			"ModelName": name,
+			"PrimaryContainer": map[string]any{
+				"Image": "123456789012.dkr.ecr.us-east-1.amazonaws.com/my-image:latest",
+			},
+		})
+	}
+
+	rec := doSageMakerRequest(t, h, "ListModels", map[string]any{
+		"NameContains": "-model",
+		"SortBy":       "Name",
+		"SortOrder":    "Ascending",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+	list, ok := resp["Models"].([]any)
+	require.True(t, ok)
+	require.Len(t, list, 2)
+
+	first, _ := list[0].(map[string]any)
+	second, _ := list[1].(map[string]any)
+	assert.Equal(t, "alpha-model", first["ModelName"])
+	assert.Equal(t, "beta-model", second["ModelName"])
 }
 
 func TestDeleteModel_NotFound(t *testing.T) {

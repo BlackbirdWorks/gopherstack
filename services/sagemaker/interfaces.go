@@ -1,6 +1,9 @@
 package sagemaker
 
-import "context"
+import (
+	"context"
+	"encoding/json"
+)
 
 // StorageBackend defines the interface for SageMaker backend implementations.
 // All mutating methods must be safe for concurrent use.
@@ -13,7 +16,7 @@ type StorageBackend interface {
 		tags map[string]string,
 	) (*Model, error)
 	DescribeModel(ctx context.Context, name string) (*Model, error)
-	ListModels(ctx context.Context, nextToken string) ([]*Model, string)
+	ListModels(ctx context.Context, nextToken string, filter nameTimeFilter) ([]*Model, string)
 	DeleteModel(ctx context.Context, name string) error
 	SetModelExtras(
 		ctx context.Context,
@@ -30,7 +33,9 @@ type StorageBackend interface {
 		tags map[string]string,
 	) (*EndpointConfig, error)
 	DescribeEndpointConfig(ctx context.Context, name string) (*EndpointConfig, error)
-	ListEndpointConfigs(ctx context.Context, nextToken string) ([]*EndpointConfig, string)
+	ListEndpointConfigs(
+		ctx context.Context, nextToken string, filter nameTimeFilter,
+	) ([]*EndpointConfig, string)
 	DeleteEndpointConfig(ctx context.Context, name string) error
 	SetEndpointConfigExtras(
 		ctx context.Context,
@@ -42,6 +47,7 @@ type StorageBackend interface {
 		kmsKeyID string,
 		shadowProductionVariants []ProductionVariant,
 		enableNetworkIsolation bool,
+		explainerConfig, metricsConfig json.RawMessage,
 	) error
 
 	AddTags(ctx context.Context, resourceARN string, tags map[string]string) error

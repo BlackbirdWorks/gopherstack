@@ -4,23 +4,41 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strconv"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
-func (h *Handler) handleAddTags(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		ResourceArn string      `json:"ResourceArn"`
-		Tags        []tagObject `json:"Tags"`
-	}
+// addTagsRequest is the request body for AddTags.
+type addTagsRequest struct {
+	ResourceArn string      `json:"ResourceArn"`
+	Tags        []tagObject `json:"Tags"`
+}
 
+// listTagsRequest is the request body for ListTags.
+type listTagsRequest struct {
+	ResourceArn string `json:"ResourceArn"`
+	NextToken   string `json:"NextToken"`
+	MaxResults  int32  `json:"MaxResults,omitempty"`
+}
+
+// deleteTagsRequest is the request body for DeleteTags.
+type deleteTagsRequest struct {
+	ResourceArn string   `json:"ResourceArn"`
+	TagKeys     []string `json:"TagKeys"`
+}
+
+func (h *Handler) handleAddTags(ctx context.Context, body []byte) ([]byte, error) {
+	var req addTagsRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
 	if req.ResourceArn == "" {
 		return nil, fmt.Errorf("%w: ResourceArn is required", errInvalidRequest)
+	}
+
+	if len(req.Tags) == 0 {
+		return nil, fmt.Errorf("%w: Tags is required", errInvalidRequest)
 	}
 
 	tags := fromTagObjects(req.Tags)
@@ -32,15 +50,16 @@ func (h *Handler) handleAddTags(ctx context.Context, body []byte) ([]byte, error
 	log := logger.Load(ctx)
 	log.InfoContext(ctx, "sagemaker: added tags", "resource", req.ResourceArn)
 
-	return json.Marshal(map[string]any{})
+	allTags, err := h.Backend.ListTags(ctx, req.ResourceArn)
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(map[string]any{"Tags": toTagObjects(allTags)})
 }
 
 func (h *Handler) handleListTags(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		ResourceArn string `json:"ResourceArn"`
-		NextToken   string `json:"NextToken"`
-	}
-
+	var req listTagsRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
@@ -54,20 +73,9 @@ func (h *Handler) handleListTags(ctx context.Context, body []byte) ([]byte, erro
 		return nil, err
 	}
 
-	allTags := toTagObjects(tags)
-	startIdx := parseNextToken(req.NextToken)
-	if startIdx >= len(allTags) {
-		return json.Marshal(map[string]any{"Tags": []tagObject{}})
-	}
-	end := startIdx + sagemakerDefaultPageSize
-	var outToken string
-	if end < len(allTags) {
-		outToken = strconv.Itoa(end)
-	} else {
-		end = len(allTags)
-	}
+	page, outToken := paginateSlice(toTagObjects(tags), req.NextToken, req.MaxResults)
 
-	resp := map[string]any{"Tags": allTags[startIdx:end]}
+	resp := map[string]any{"Tags": page}
 	if outToken != "" {
 		resp["NextToken"] = outToken
 	}
@@ -76,17 +84,17 @@ func (h *Handler) handleListTags(ctx context.Context, body []byte) ([]byte, erro
 }
 
 func (h *Handler) handleDeleteTags(ctx context.Context, body []byte) error {
-	var req struct {
-		ResourceArn string   `json:"ResourceArn"`
-		TagKeys     []string `json:"TagKeys"`
-	}
-
+	var req deleteTagsRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
 	if req.ResourceArn == "" {
 		return fmt.Errorf("%w: ResourceArn is required", errInvalidRequest)
+	}
+
+	if len(req.TagKeys) == 0 {
+		return fmt.Errorf("%w: TagKeys is required", errInvalidRequest)
 	}
 
 	if err := h.Backend.DeleteTags(ctx, req.ResourceArn, req.TagKeys); err != nil {

@@ -105,19 +105,27 @@ func (b *InMemoryBackend) DeleteAlgorithm(ctx context.Context, name string) erro
 	return nil
 }
 
-// ListAlgorithms returns a page of algorithms, ordered by name.
-func (b *InMemoryBackend) ListAlgorithms(ctx context.Context, nextToken string) ([]*Algorithm, string) {
+// ListAlgorithms returns algorithms matching filter, sorted per
+// filter.SortBy/SortOrder (default CreationTime/Ascending,
+// api_op_ListAlgorithms.go — the one List op in this trio whose real default
+// SortOrder is Ascending rather than Descending), with pagination capped at
+// filter.MaxResults.
+func (b *InMemoryBackend) ListAlgorithms(
+	ctx context.Context, nextToken string, filter nameTimeFilter,
+) ([]*Algorithm, string) {
 	region := getRegion(ctx, b.region)
 
 	b.mu.RLock("ListAlgorithms")
 	defer b.mu.RUnlock()
 
-	return sagemakerListKeyPaged(
-		b.algorithmsStoreRO(region),
-		nextToken,
-		cloneAlgorithm,
-		func(v *Algorithm) string { return v.AlgorithmName },
-	)
+	all := make([]*Algorithm, 0, b.algorithmsStoreRO(region).Len())
+	for _, al := range b.algorithmsStoreRO(region).All() {
+		all = append(all, cloneAlgorithm(al))
+	}
+
+	return filterSortPaginateByName(all, nextToken, filter, false,
+		func(al *Algorithm) string { return al.AlgorithmName },
+		func(al *Algorithm) time.Time { return al.CreationTime })
 }
 
 // AddAlgorithmInternal adds an algorithm directly for seeding tests.

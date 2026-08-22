@@ -114,6 +114,7 @@ func sagemakerListKeyPagedMap[T any](
 	m map[string]*T,
 	nextToken string,
 	clone func(*T) *T,
+	maxResults int32,
 ) ([]*T, string) {
 	keys := collections.SortedKeys(m)
 
@@ -128,7 +129,12 @@ func sagemakerListKeyPagedMap[T any](
 		}
 	}
 
-	end := min(start+sagemakerDefaultPageSize, len(keys))
+	pageSize := sagemakerDefaultPageSize
+	if maxResults > 0 && int(maxResults) < pageSize {
+		pageSize = int(maxResults)
+	}
+
+	end := min(start+pageSize, len(keys))
 
 	out := make([]*T, 0, end-start)
 	for _, k := range keys[start:end] {
@@ -143,51 +149,13 @@ func sagemakerListKeyPagedMap[T any](
 	return out, next
 }
 
-// sagemakerListKeyPaged paginates a store.Table using name-key-based tokens.
-// keyFn must reproduce the exact same primary key the table was registered
-// with (i.e. its keyFn), so nextToken values remain meaningful key strings.
-// clone must return a deep copy of its argument.
-func sagemakerListKeyPaged[T any](
-	tbl *store.Table[T],
-	nextToken string,
-	clone func(*T) *T,
-	keyFn func(*T) string,
-) ([]*T, string) {
-	// tbl.Snapshot() is already sorted ascending by the table's own primary
-	// key, i.e. by keyFn(item) — the same order collections.SortedKeys(map)
-	// produced over the raw map this table replaced.
-	items := tbl.Snapshot()
-
-	start := 0
-	if nextToken != "" {
-		for i, item := range items {
-			if keyFn(item) == nextToken {
-				start = i
-
-				break
-			}
-		}
-	}
-
-	end := min(start+sagemakerDefaultPageSize, len(items))
-
-	out := make([]*T, 0, end-start)
-	for _, item := range items[start:end] {
-		out = append(out, clone(item))
-	}
-
-	next := ""
-	if end < len(items) {
-		next = keyFn(items[end])
-	}
-
-	return out, next
-}
-
-// sagemakerListKeyPagedN is [sagemakerListKeyPaged] with a caller-supplied
-// page size — maxResults <= 0 falls back to sagemakerDefaultPageSize,
-// matching every other List op's undocumented-MaxResults behavior in this
-// service.
+// sagemakerListKeyPagedN paginates a store.Table using name-key-based tokens,
+// like sagemakerListKeyPagedMap but reading a store.Table directly instead of
+// a plain map, with a caller-supplied page size — maxResults <= 0 falls back
+// to sagemakerDefaultPageSize, matching every other List op's
+// undocumented-MaxResults behavior in this service. keyFn must reproduce the
+// exact same primary key the table was registered with, so nextToken values
+// remain meaningful key strings.
 func sagemakerListKeyPagedN[T any](
 	tbl *store.Table[T],
 	nextToken string,
@@ -226,6 +194,98 @@ func sagemakerListKeyPagedN[T any](
 	}
 
 	return out, next
+}
+
+// nameTimeFilter is the common NameContains/creation-time-window/SortBy/
+// SortOrder/MaxResults filter shape shared by ListModels, ListEndpointConfigs,
+// and ListAlgorithms — each supports only a name substring filter, a
+// creation-time window, sorting by "Name" or (default) "CreationTime", and
+// MaxResults-capped pagination.
+type nameTimeFilter struct {
+	CreationTimeAfter  *time.Time
+	CreationTimeBefore *time.Time
+	NameContains       string
+	SortBy             string
+	SortOrder          string
+	MaxResults         int32
+}
+
+// nameTimeListRequest is the request body shape shared by ListModels,
+// ListEndpointConfigs, and ListAlgorithms — each supports only a name
+// substring filter, a creation-time window, SortBy/SortOrder, NextToken, and
+// MaxResults.
+type nameTimeListRequest struct {
+	CreationTimeAfter  *float64 `json:"CreationTimeAfter,omitempty"`
+	CreationTimeBefore *float64 `json:"CreationTimeBefore,omitempty"`
+	NameContains       string   `json:"NameContains,omitempty"`
+	SortBy             string   `json:"SortBy,omitempty"`
+	SortOrder          string   `json:"SortOrder,omitempty"`
+	NextToken          string   `json:"NextToken,omitempty"`
+	MaxResults         int32    `json:"MaxResults,omitempty"`
+}
+
+// toFilter converts r to the nameTimeFilter shape filterSortPaginateByName
+// consumes, decoding its epoch-seconds timestamps via epochPtr.
+func (r nameTimeListRequest) toFilter() nameTimeFilter {
+	return nameTimeFilter{
+		CreationTimeAfter:  epochPtr(r.CreationTimeAfter),
+		CreationTimeBefore: epochPtr(r.CreationTimeBefore),
+		NameContains:       r.NameContains,
+		SortBy:             r.SortBy,
+		SortOrder:          r.SortOrder,
+		MaxResults:         r.MaxResults,
+	}
+}
+
+// filterSortPaginateByName filters all by filter.NameContains/creation-time
+// window, sorts by filter.SortBy (keyGenericName, else CreationTime) and
+// filter.SortOrder (falling back to defaultDescending when SortOrder is
+// unset), then paginates at filter.MaxResults.
+func filterSortPaginateByName[T any](
+	all []*T,
+	nextToken string,
+	filter nameTimeFilter,
+	defaultDescending bool,
+	nameOf func(*T) string,
+	creationTimeOf func(*T) time.Time,
+) ([]*T, string) {
+	list := make([]*T, 0, len(all))
+
+	for _, item := range all {
+		if filter.NameContains != "" && !strings.Contains(nameOf(item), filter.NameContains) {
+			continue
+		}
+
+		if !timeWindowOK(creationTimeOf(item), filter.CreationTimeAfter, filter.CreationTimeBefore) {
+			continue
+		}
+
+		list = append(list, item)
+	}
+
+	desc := defaultDescending
+	if filter.SortOrder != "" {
+		desc = filter.SortOrder != sortOrderAscending
+	}
+
+	sort.Slice(list, func(i, k int) bool {
+		var less bool
+
+		switch filter.SortBy {
+		case keyGenericName:
+			less = nameOf(list[i]) < nameOf(list[k])
+		default:
+			less = creationTimeOf(list[i]).Before(creationTimeOf(list[k]))
+		}
+
+		if desc {
+			return !less
+		}
+
+		return less
+	})
+
+	return paginateSlice(list, nextToken, filter.MaxResults)
 }
 
 // sagemakerCreate handles the common create-resource-by-name pattern:

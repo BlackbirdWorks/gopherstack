@@ -119,10 +119,13 @@ families:
   ai_recommendation_job: {status: partial, note: "parity-4, new family. Field-diffed against api_op_{Create,Describe,Delete,Stop,List}AIRecommendationJob.go + types.AIRecommendationJobStatus/AIRecommendationJobSummary. Distinct from the older InferenceRecommendationsJob family (inference_recommendations_jobs.go) — different store, different wire shape, no shared state. PARTIAL for the same json.RawMessage-passthrough reason as ai_benchmark_job (ModelSource/OutputConfig/PerformanceTarget/ComputeSpec/InferenceSpecification), plus Recommendations ([]types.AIRecommendation) is intentionally always empty rather than fabricated — see gaps:."}
   ai_workload_config: {status: partial, note: "parity-4, new family. No status/lifecycle in the real API (DescribeAIWorkloadConfigOutput has no status field) — CRUD only. WorkloadSpec (wire field name AIWorkloadConfigs, confusingly same as the resource-family name)/DatasetConfig stored as json.RawMessage passthrough for the same reason as the two job families above. FIXED parity-24 (gopherstack-oc9v) — DescribeAIWorkloadConfigOutput.Tags ([]types.Tag, a JSON array of {Key,Value} objects) was being serialized from this backend's internal map[string]string Tags field directly, which encodes as a JSON object; a real aws-sdk-go-v2 client's []types.Tag deserializer rejects that outright. AIWorkloadConfig.MarshalJSON now shadows Tags with toTagObjects(c.Tags), proven via a real-SDK-client test. The 4 anonymous request structs in handler_ai_workload_configs.go were also converted to named types this pass."}
   job_and_job_schema_version: {status: partial, note: "parity-4, new generic 'model customization job' family (CreateJob/DescribeJob/DeleteJob/StopJob/ListJobs/DescribeJobSchemaVersion/ListJobSchemaVersions). NOT the same as TrainingJob/ProcessingJob/TransformJob/AutoMLJob/CompilationJob/etc — keyed by JobName alone (matches CreateJob's doc: unique per account+region), Describe/Delete/Stop additionally scoped by JobCategory (mismatch => ResourceNotFound), own JobSecondaryStatusTransition type (does not alias training_jobs.go's SecondaryStatusTransition despite the identical shape), own store (b.jobs). DeleteJob correctly rejects a still-InProgress job with ResourceInUse per its doc comment. PARTIAL: DescribeJobSchemaVersion/ListJobSchemaVersions serve a single synthetic '1.0' schema version with a generic (not per-category, not AWS's real unpublished) JSON-schema document — AWS does not ship real per-JobCategory schema content in the SDK, so this is the most honest deterministic approximation available, not a wire-shape bug, but is disclosed as a depth limit."}
-  model_endpoint_config_crud: {status: ok, note: "CreateModel/DescribeModel/ListModels/DeleteModel and CreateEndpointConfig/DescribeEndpointConfig/ListEndpointConfigs/DeleteEndpointConfig verified op-by-op against handler.go + backend.go: correct ARN building via pkgs/arn, epoch timestamps via epochSeconds (float64 unix seconds, matches awsjson1.1 numeric timestamp), errCodeLookup-equivalent sentinel wiring (awserr.New wraps ErrNotFound/ErrConflict, handler.go handleError maps to ValidationException/ResourceInUse), persistence.go backendSnapshot wiring confirmed for both models and endpointConfigs keyed by region."}
+  model_endpoint_config_crud: {status: partial, note: "CreateModel/DescribeModel/ListModels/DeleteModel and CreateEndpointConfig/DescribeEndpointConfig/ListEndpointConfigs/DeleteEndpointConfig verified op-by-op against handler.go + backend.go: correct ARN building via pkgs/arn, epoch timestamps via epochSeconds (float64 unix seconds, matches awsjson1.1 numeric timestamp), errCodeLookup-equivalent sentinel wiring (awserr.New wraps ErrNotFound/ErrConflict, handler.go handleError maps to ValidationException/ResourceInUse), persistence.go backendSnapshot wiring confirmed for both models and endpointConfigs keyed by region. CORRECTION parity-25 (gopherstack-oc9v): the 'ok' verdict above covered ARN/timestamp/error/persistence plumbing only, not full request-field completeness, and did not hold on the request side. FIXED parity-25 — CreateModelInput.ExecutionRoleArn was rejected as required (test TestCreateModel_RequiresExecutionRoleArn asserted this explicitly), but CreateModelInput (api_op_CreateModel.go:50-90) marks only ModelName 'This member is required' — ExecutionRoleArn is optional; a real client's valid model-without-role request was wrongly rejected. Validation removed, test rewritten (TestCreateModel_ExecutionRoleArnOptional) to assert the correct behavior. FIXED parity-25 — ListModelsInput's CreationTimeAfter/CreationTimeBefore/NameContains/SortBy/SortOrder (api_op_ListModels.go) and ListEndpointConfigsInput's identical five fields (api_op_ListEndpointConfigs.go) were NextToken-only, dropping the entire filter/sort surface on both ops; both now real (SortBy default CreationTime/SortOrder default Descending on each, per each op's own doc), proven by TestHandler_ListModels_FilterSort/TestHandler_ListEndpointConfigs_FilterSort. FIXED parity-25 — CreateEndpointConfigInput's ExplainerConfig/MetricsConfig (both real, optional fields) had no field for them anywhere in the request struct at all; now stored+echoed as opaque json.RawMessage passthrough (same convention as algorithms.go's TrainingSpecification), proven via a real-SDK-client round-trip test (TestHandler_CreateEndpointConfig_ExplainerAndMetricsConfig_RealClient). All 6 anonymous request structs across handler_models.go/handler_endpoint_configs.go converted to named types this pass (a single shared nameTimeListRequest/nameTimeFilter serves all three of ListModels/ListEndpointConfigs/ListAlgorithms, since their filter shape is identical)."}
   endpoint_lifecycle: {status: ok, note: "CreateEndpoint/UpdateEndpoint/DescribeEndpoint/DeleteEndpoint/ListEndpoints + UpdateEndpointWeightsAndCapacities audited and FIXED — see Notes. FSM-driven Creating/Updating -> InService transitions (backend_accuracy.go scheduleEndpointTransition) verified correct after fix."}
   training_job: {status: ok, note: "CreateTrainingJob(Full)/DescribeTrainingJob(Full)/ListTrainingJobs(Filtered)/StopTrainingJob(FSM)/DeleteTrainingJob verified: InProgress->Completed FSM populates ModelArtifacts, BillableTimeInSeconds, SecondaryStatusTransitions with epoch timestamps; StopTrainingJobFSM drives InProgress->Stopping->Stopped. CORRECTION parity-20: the prior 'UpdateTrainingJob verified' claim above was never true — the handler decoded no fields at all and simply re-Described the job, so every UpdateTrainingJob request silently did nothing; this was found and fixed this pass (see Notes) rather than being a pre-existing verified op. FIXED this pass — UpdateTrainingJob now applies ResourceConfig.KeepAlivePeriodInSeconds via a real backend UpdateTrainingJob method (previously did not exist at all); ProfilerConfig/ProfilerRuleConfigurations/RemoteDebugConfig remain disclosed not modeled (no such concept anywhere in this backend's TrainingJob, Create included)."}
-  tags: {status: ok, note: "AddTags/ListTags/DeleteTags verified against findTagMapLocked, which indexes ~20 resource kinds by ARN. Not-found path returns ValidationException (400), matching real AWS TagKeys validation error class."}
+  tags: {status: ok, note: "AddTags/ListTags/DeleteTags verified against findTagMapLocked, which indexes ~20 resource kinds by ARN. Not-found path returns ValidationException (400), matching real AWS TagKeys validation error class. CORRECTION parity-25 (gopherstack-oc9v): the 'ok' verdict above covered not-found error mapping only. FIXED parity-25 — AddTagsOutput.Tags ([]types.Tag, 'A list of tags associated with the SageMaker resource') was never emitted; the handler returned a bare `{}` on every AddTags call. Now returns the resource's full current tag set (via a ListTags call after the write), proven by a new assertion in TestHandler_Tags — a pre-existing gap in that same test's coverage (it round-tripped AddTags without ever reading its response body, so nothing caught the missing field). FIXED parity-25 — AddTagsInput.Tags and DeleteTagsInput.TagKeys (both 'This member is required') were accepted with no presence check at all; both now enforced (TestHandler_AddTags_RequiresTags/TestHandler_DeleteTags_RequiresTagKeys). FIXED parity-25 — ListTagsInput.MaxResults (api_op_ListTags.go, default 100) was decoded nowhere; ListTags paginated at a fixed sagemakerDefaultPageSize regardless of what a client requested. Now honored via paginateSlice (TestHandler_ListTags_MaxResults). All 3 anonymous request structs in handler_tags.go converted to named types this pass."}
+  algorithm: {status: partial, note: "parity-25 (gopherstack-oc9v), first wire audit of this family — CreateAlgorithm/DescribeAlgorithm/DeleteAlgorithm/ListAlgorithm, field-diffed against api_op_{Create,Describe,Delete,List}Algorithm.go. FIXED — CreateAlgorithmInput.TrainingSpecification is 'This member is required' (alongside AlgorithmName), but only AlgorithmName was ever validated present; a request missing it silently succeeded with an empty spec, and DescribeAlgorithmOutput.TrainingSpecification (itself required on that output) would then be emitted as an empty/absent value. Now enforced, and describeAlgorithmResponse's TrainingSpecification json tag had its incorrect omitempty removed to match. FIXED — ListAlgorithmsInput was NextToken-only, dropping CreationTimeAfter/CreationTimeBefore/NameContains/SortBy/SortOrder entirely (SortBy default CreationTime, SortOrder default Ascending per api_op_ListAlgorithms.go — the one op in this pass's List trio whose real SortOrder default is Ascending, not Descending); all now real, proven by TestHandler_ListAlgorithms_FilterSort. AlgorithmStatusDetails/CreationTime/AlgorithmStatus (all required DescribeAlgorithmOutput fields) were already correctly emitted with no omitempty. TrainingSpecification/InferenceSpecification/ValidationSpecification remain opaque json.RawMessage passthrough (same convention as ai_benchmark_job etc., see gaps:) rather than fully-typed TrainingSpecification/InferenceSpecification/AlgorithmValidationSpecification structs — each is a deep, low-traffic nested type (ChannelSpecification/MetricDefinition/HyperParameterSpecification/...). All 3 anonymous request structs in handler_algorithms.go converted to named types this pass."}
+  monitoring_alert: {status: partial, note: "parity-25 (gopherstack-oc9v), first wire audit of this family — UpdateMonitoringAlert/ListMonitoringAlerts/ListMonitoringAlertHistory, field-diffed against api_op_{Update,List}MonitoringAlert*.go. FIXED — UpdateMonitoringAlertInput.DatapointsToAlert/EvaluationPeriod are both 'This member is required', but neither was validated present (a zero/absent value looks identical for a non-pointer int32, so this follows the same == 0 convention as this campaign's other required-int-field fixes, e.g. TransformResources.InstanceCount). FIXED — ListMonitoringAlertsInput.MaxResults (api_op_ListMonitoringAlerts.go, default 100) was decoded nowhere; the backend's sagemakerListKeyPagedMap helper had no maxResults parameter at all, always paging at the fixed sagemakerDefaultPageSize. Both the handler and the helper now thread it through, proven by TestHandler_ListMonitoringAlerts_MaxResults. ListMonitoringAlertHistoryInput's CreationTimeAfter/CreationTimeBefore/MonitoringScheduleName/MonitoringAlertName/StatusEquals/SortOrder/NextToken/MaxResults were already all real — no gap found there. All 3 anonymous request structs in handler_monitoring.go converted to named types this pass (a fourth, ListMonitoringExecutions, was already a named type from an earlier pass)."}
+  presigned_session: {status: ok, note: "parity-25 (gopherstack-oc9v), first wire audit of this family — CreatePresignedDomainUrl/RenderUiTemplate/StartSession, field-diffed against api_op_{CreatePresignedDomainUrl,RenderUiTemplate,StartSession}.go. FIXED — RenderUiTemplateInput.Task ('This member is required') and its own required Input field (types.RenderableTask, types/types.go:19548) were accepted with no presence check; an absent Task.Input silently rendered the template unchanged (via the existing empty-string early-return in renderUITemplateContent) rather than being rejected. Now enforced, proven by TestHandler_RenderUiTemplate_MissingTaskInput. StartSessionInput/Output already matched exactly (ResourceIdentifier in; SessionId/StreamUrl/TokenValue out). CreatePresignedDomainUrlInput's ExpiresInSeconds/LandingUri/SessionExpirationDurationInSeconds (real, optional fields) are now decoded (for tooling visibility) but are disclosed no-ops — CreatePresignedDomainUrlOutput is a bare {AuthorizedUrl}, and this backend's synthetic URL (a token appended to the domain's stored URL) carries no verified real query-parameter format to encode an expiry or landing path into, the same disclosed-no-op stance as PartnerApps' identical fields. All 3 anonymous request structs in handler_presigned_session.go converted to named types this pass."}
   processing_transform_job: {status: partial, note: "Wire-audited this pass: DescribeProcessingJob/DescribeTransformJob field-by-field against SDK output structs — field names, optional-field gating, and epoch-seconds timestamps all correct. No bugs found. CORRECTION parity-24 (gopherstack-oc9v): the 'No bugs found' claim above covered only the Describe response shape, not the full request surface, and did not hold there. FIXED parity-24 — CreateProcessingJobInput's VPC settings nest under NetworkConfig.VpcConfig (api_op_CreateProcessingJob.go); this handler instead decoded a top-level \"VpcConfig\" key that does not exist anywhere on the real request, so every real client's VPC-isolated processing job silently lost its network settings (and the accepted top-level key was dead code no real client would ever populate). Now ProcessingNetworkConfig nests VpcConfig/EnableInterContainerTrafficEncryption/EnableNetworkIsolation under NetworkConfig, proven via a real-SDK-client test. CreateProcessingJobInput's RoleArn/AppSpecification/ProcessingResources (all 'This member is required') were also never validated present — fixed. ExperimentConfig (ExperimentName/RunName/TrialComponentDisplayName/TrialName) and StoppingCondition (MaxRuntimeInSeconds) were both accept-and-drop, now fully modeled and round-tripped (both small flat types, no passthrough needed). ListProcessingJobs accepted only NextToken/StatusEquals/MaxResults, dropping CreationTimeAfter/CreationTimeBefore/LastModifiedTimeAfter/LastModifiedTimeBefore/NameContains/SortBy/SortOrder entirely (SortBy default CreationTime, SortOrder default Ascending per api_op_ListProcessingJobs.go) — all now real. FIXED parity-24 — CreateTransformJobInput has no RoleArn field at all (api_op_CreateTransformJob.go:55-166); this handler accepted, stored, and echoed one anyway on every Create/Describe, a fabricated field no real client ever sends. Removed entirely (TransformJob/TransformJobOptions/decode/emit), proven by a test asserting RoleArn is absent from Describe's response even when supplied on Create. ListTransformJobs gained the same CreationTimeAfter/CreationTimeBefore/LastModifiedTimeAfter/LastModifiedTimeBefore/SortBy/SortOrder surface (SortOrder default Descending per that op's doc) it was missing. CreateTransformJobInput's other four required members (ModelName already checked; TransformInput.DataSource.S3DataSource.S3Uri/TransformOutput.S3OutputPath/TransformResources.InstanceType+InstanceCount) were also never validated present — fixed. ProcessingJob's ProcessingInput.DatasetDefinition sub-fields beyond DataDistributionType/InputMode, ProcessingOutput.FeatureStoreOutput, and TransformJob's DataCaptureConfig/DataProcessing/ExperimentConfig/ModelClientConfig/LabelingJobArn/AutoMLJobArn remain accept-and-drop or unmodeled — see gaps:. All 8 anonymous request structs across handler_processing_jobs.go/handler_transform_jobs.go converted to named types this pass."}
   notebook_instance: {status: ok, note: "Wire-audited this pass: DescribeNotebookInstanceFull field-by-field against SDK — all optional fields correctly gated, epoch-seconds timestamps correct. No bugs found."}
   hyperparameter_tuning_job: {status: partial, note: "FIXED this pass — see Notes (wire-shape bug: flat Strategy instead of nested HyperParameterTuningJobConfig, missing required ObjectiveStatusCounters/TrainingJobStatusCounters/ResourceLimits). FIXED parity-20 (gopherstack-oc9v) — all 5 inline structs converted to named types; StopHyperParameterTuningJob's Stopping-forever status bug fixed via a real FSM; CreateHyperParameterTuningJob/DescribeHyperParameterTuningJob now capture and echo the full HyperParameterTuningJobConfig (ParameterRanges/HyperParameterTuningJobObjective/RandomSeed/StrategyConfig/TrainingJobEarlyStoppingType/TuningJobCompletionCriteria) plus Autotune/WarmStartConfig/TrainingJobDefinition/TrainingJobDefinitions, all previously entirely absent; ListHyperParameterTuningJobs/ListTrainingJobsForHyperParameterTuningJob gained real filter/sort/pagination (previously NextToken-only / unpaginated). PARTIAL because BestTrainingJob/OverallBestTrainingJob/ConsumedResources/TuningJobCompletionDetails/HyperParameterTuningEndTime and the full semantic content of TrainingJobDefinition(s)/ParameterRanges/StrategyConfig remain json.RawMessage passthrough rather than modeled (this backend never launches or searches child training jobs) — every field a client sends round-trips exactly, but no real hyperparameter search ever runs."}
@@ -162,6 +165,9 @@ gaps:                     # known divergences NOT fixed — link bd issue ids
   - "parity-24 (gopherstack-oc9v): TransformJob's DataCaptureConfig/DataProcessing/ExperimentConfig/ModelClientConfig (all real, optional CreateTransformJobInput fields) and LabelingJobArn/AutoMLJobArn (real, optional DescribeTransformJobOutput-only fields) remain accept-and-drop or unmodeled — this pass fixed the fabricated RoleArn field and the List filter/sort surface instead, both higher severity. (no bd issue filed yet)"
   - "parity-24 (gopherstack-oc9v): CreateAutoMLJobInput's AutoMLJobConfig (CandidateGenerationConfig/CompletionCriteria/Mode) remains accept-and-drop on the V1 path — DataSplitConfig/SecurityConfig are already modeled (reused from CreateAutoMLJobV2) but not wired to V1 Create, since V1's own AutoMLJobConfig field is itself still unmodeled. StopAutoMLJob also transitions directly InProgress->Stopped with no intermediate Stopping state, unlike the real AutoMLJobStatus enum (which declares Stopping) and unlike this backend's own TransformJob/ProcessingJob/EdgePackagingJob FSMs — pre-existing, not introduced this pass, left as a disclosed stuck-status-class finding for a future pass. (no bd issue filed yet)"
   - "parity-24 (gopherstack-oc9v): DescribeEdgePackagingJobOutput's ModelArtifact/ModelSignature/PresetDeploymentOutput/EdgePackagingJobStatusMessage remain unmodeled — server-derived fields from an async packaging pipeline this backend does not simulate; left absent rather than fabricated. (no bd issue filed yet)"
+  - "parity-25 (gopherstack-oc9v): algorithm's TrainingSpecification/InferenceSpecification/ValidationSpecification (all now required-checked/present, see families: algorithm) remain opaque json.RawMessage passthrough rather than fully-typed structs — TrainingSpecification alone nests ChannelSpecification/MetricDefinition/HyperParameterSpecification, deep and low-traffic; every field a client sends round-trips exactly. (no bd issue filed yet)"
+  - "parity-25 (gopherstack-oc9v): model_endpoint_config_crud's CreateEndpointConfigInput.ExplainerConfig (types.ExplainerConfig -> ClarifyExplainerConfig -> ClarifyShapConfig/...) is stored+echoed as opaque json.RawMessage rather than fully modeled, same passthrough convention as algorithm's specs above; every field a client sends round-trips exactly, proven via a real-SDK-client test. (no bd issue filed yet)"
+  - "parity-25 (gopherstack-oc9v): presigned_session's CreatePresignedDomainUrlInput.ExpiresInSeconds/LandingUri/SessionExpirationDurationInSeconds are decoded but are disclosed no-ops — CreatePresignedDomainUrlOutput has no field to reflect them into, and this backend's synthetic authorized-URL token carries no verified real query-parameter format to encode them, the same stance already established for PartnerApps' identical fields. (no bd issue filed yet)"
 
 deferred:                 # consciously not (fully) audited this pass (scope) — next pass targets
   - model_package_model_package_group (beyond ModelPackageStatusDetails fix; InferenceSpecification etc. not audited)
@@ -4316,3 +4322,228 @@ campaign's standing instruction never to write `pending` or otherwise touch it c
 (`handler_tags.go`, `handler_presigned_session.go`, `handler_monitoring.go`, `handler_models.go`,
 `handler_endpoint_configs.go`, `handler_algorithms.go`) — not started this pass, purely an
 effort-budget stopping point.
+
+## parity-25 (2026-08-21, gopherstack-oc9v): Tags/PresignedSession/MonitoringAlert/
+Models/EndpointConfigs/Algorithms field audit (the six-file tier at 3, now zero)
+
+Nineteenth pass of the gopherstack-oc9v campaign. Per parity-24's boundary note, this pass took the
+entire six-file tier it left unstarted: `handler_tags.go`, `handler_presigned_session.go`,
+`handler_monitoring.go`, `handler_models.go`, `handler_endpoint_configs.go`,
+`handler_algorithms.go`, each verified by `grep -c 'var req struct {' <file>.go` = 3 before starting.
+All 18 structs converted to named types and wire-audited field-by-field against the pinned SDK
+(`v1.263.2`, confirmed from `go.mod` and the module cache path). **28 minus this pass's 18 leaves
+10 remaining**, confirmed by `grep -rc 'var req struct {' services/sagemaker/*.go` summed, not
+arithmetic. **New boundary: a 5-file tier at 2**
+(`handler_automl_v2.go`, `handler_feature_metadata.go`, `handler_modelcard_export.go`,
+`handler_monitoring_job_definitions.go`, `handler_training_plans.go`) — not started this pass, per
+this pass's own effort budget.
+
+**`handler_models.go` — the most severe finding of this pass, an existing test that had ratified an
+over-validation bug (a real client's valid request was being rejected):**
+
+- **`CreateModelInput.ExecutionRoleArn` is *not* required.** `CreateModelInput`
+  (`api_op_CreateModel.go:50-90`) marks only `ModelName` `This member is required` —
+  `ExecutionRoleArn` carries no such tag. This handler rejected any `CreateModel` request missing
+  it with a 400, and a pre-existing test, `TestCreateModel_RequiresExecutionRoleArn`, asserted this
+  behavior explicitly ("Real AWS requires this field on all CreateModel calls" — a claim the SDK's
+  own struct tags contradict). Fixed by removing the validation; the test was rewritten as
+  `TestCreateModel_ExecutionRoleArnOptional`, asserting the corrected behavior (missing/empty
+  `ExecutionRoleArn` accepted, missing `ModelName` still rejected).
+- `ListModelsInput`'s `CreationTimeAfter`/`CreationTimeBefore`/`NameContains`/`SortBy`/`SortOrder`
+  (`api_op_ListModels.go`) were entirely dropped (`NextToken`-only) — added, `SortBy` default
+  `CreationTime`/`SortOrder` default `Descending` per that op's own doc, proven by
+  `TestHandler_ListModels_FilterSort`.
+
+**`handler_algorithms.go` — the second finding, a required member never validated, with a
+consequence on the required response side too:**
+
+- **`CreateAlgorithmInput.TrainingSpecification`** (`This member is required`,
+  `api_op_CreateAlgorithm.go`) — only `AlgorithmName` was ever checked. A request omitting it
+  silently succeeded with an empty spec, and `DescribeAlgorithmOutput.TrainingSpecification`
+  (itself `This member is required`, `api_op_DescribeAlgorithm.go`) carried an incorrect
+  `omitempty` tag that would have silently dropped the field from the response even after this fix
+  if left uncorrected — both fixed together. 5 pre-existing tests across this file created
+  algorithms with no `TrainingSpecification` at all (the test-trap class this campaign keeps
+  finding); all rewritten to supply a minimal structurally-valid fixture
+  (`minimalTrainingSpecification()`, `TrainingImage`/`SupportedTrainingInstanceTypes`/
+  `TrainingChannels` — the type's own three required members,
+  `types/types.go:22937-22954`), plus a new subtest asserting the 400.
+- `ListAlgorithmsInput`'s `CreationTimeAfter`/`CreationTimeBefore`/`NameContains`/`SortBy`/
+  `SortOrder` were dropped — added, `SortBy` default `CreationTime`/`SortOrder` default
+  `Ascending` per `api_op_ListAlgorithms.go` (the one op in this pass's List trio whose real
+  default `SortOrder` is Ascending, not Descending — checked per-op rather than assumed uniform),
+  proven by `TestHandler_ListAlgorithms_FilterSort`.
+
+**`handler_tags.go` — the third finding, a required response member never emitted (this pass's
+sixth false-verdict-narrower-than-it-reads case), plus two required request members never
+validated:**
+
+- **`AddTagsOutput.Tags`** (`[]types.Tag`, "A list of tags associated with the SageMaker resource")
+  was never emitted — `handleAddTags` returned a bare `{}` on every call. The manifest's `tags:`
+  entry claimed `status: ok` based on not-found error-code mapping alone, never checked against the
+  response shape. Fixed: `AddTags` now returns the resource's current tag set (a `ListTags` call
+  after the write, reusing the existing `toTagObjects` shape — the same `[]{Key,Value}` array shape
+  Q5 asks about, and exactly the class parity-24 found on `DescribeAIWorkloadConfig`). A
+  pre-existing test, `TestHandler_Tags`, round-tripped `AddTags` without ever asserting on its
+  response body — the "missing assertion that would have caught the bug" class this campaign's
+  brief calls out; a new assertion was added to that same test rather than only to a new one.
+- `AddTagsInput.Tags` and `DeleteTagsInput.TagKeys` are both `This member is required` but neither
+  was checked non-empty — both now enforced (`TestHandler_AddTags_RequiresTags`/
+  `TestHandler_DeleteTags_RequiresTagKeys`).
+- `ListTagsInput.MaxResults` (`api_op_ListTags.go`, default 100) was decoded nowhere — `ListTags`
+  paginated at a fixed `sagemakerDefaultPageSize` regardless of what a client requested. Now
+  honored via the existing `paginateSlice` helper, proven by `TestHandler_ListTags_MaxResults`.
+
+**`handler_monitoring.go` — the fourth finding, two required request members never validated, plus
+a `MaxResults` field with no plumbing anywhere in the stack:**
+
+- `UpdateMonitoringAlertInput.DatapointsToAlert`/`EvaluationPeriod` are both `This member is
+  required` but neither was checked (`== 0`, the same convention this campaign already established
+  for `TransformResources.InstanceCount` — a non-pointer required numeric field can't distinguish
+  "absent" from a real zero, so an explicit zero-check is the established stance) — both now
+  enforced.
+- `ListMonitoringAlertsInput.MaxResults` (`api_op_ListMonitoringAlerts.go`, default 100) was decoded
+  nowhere, and the backend helper it would have needed — `sagemakerListKeyPagedMap` — had no
+  `maxResults` parameter at all, always paging at the fixed `sagemakerDefaultPageSize`. Both the
+  handler and the helper (its one call site) now thread it through, proven by
+  `TestHandler_ListMonitoringAlerts_MaxResults`.
+- `ListMonitoringAlertHistoryInput`'s full field set was already real (checked, not assumed, since
+  it looked suspiciously complete already) — no gap found there.
+
+**`handler_presigned_session.go` — the fifth finding, a required member never validated:**
+
+- `RenderUiTemplateInput.Task` is `This member is required`, and `types.RenderableTask.Input`
+  (`types/types.go:19548`) is itself `This member is required` — neither was checked. A request
+  with no `Task.Input` silently rendered the template unchanged (the existing empty-string
+  early-return in `renderUITemplateContent`) instead of being rejected. Now enforced, proven by
+  `TestHandler_RenderUiTemplate_MissingTaskInput`. `StartSessionInput`/`Output` and
+  `RenderUiTemplateInput`'s other members already matched the real shape exactly — no other gaps
+  found in this file.
+
+**`handler_endpoint_configs.go` — the sixth finding, two real optional fields absent from decode
+entirely:**
+
+- `CreateEndpointConfigInput.ExplainerConfig`/`MetricsConfig` (both real, optional fields,
+  `api_op_CreateEndpointConfig.go`) had no field for them anywhere in the request struct — accepted
+  and silently dropped. Now stored+echoed as opaque `json.RawMessage` passthrough (the same
+  convention this file already uses for `algorithm`'s `TrainingSpecification` and others), proven
+  via a real `aws-sdk-go-v2` client round-trip test
+  (`TestHandler_CreateEndpointConfig_ExplainerAndMetricsConfig_RealClient`) that constructs a
+  structurally valid `ClarifyExplainerConfig`/`MetricsConfig` and confirms both survive Create ->
+  Describe through the real client's own (de)serializer.
+- `ListEndpointConfigsInput`'s `CreationTimeAfter`/`CreationTimeBefore`/`NameContains`/`SortBy`/
+  `SortOrder` were dropped — added, same `CreationTime`/`Descending` defaults as `ListModels`,
+  proven by `TestHandler_ListEndpointConfigs_FilterSort`.
+
+**Dedup note:** `ListModels`/`ListEndpointConfigs`/`ListAlgorithms` share an identical filter shape
+(`NameContains`/creation-time window/`SortBy`/`SortOrder`/`MaxResults`), so rather than three
+near-copies of the same decode-filter-sort-paginate logic (which `golangci-lint`'s `dupl` correctly
+flagged on the first pass at this), a single shared `nameTimeListRequest`/`nameTimeFilter`/
+`filterSortPaginateByName[T]` in `list_helpers.go` now serves all three — each op still gets its
+own named request type identity for handler-level clarity, but the request struct itself, the
+filter struct, and the filter/sort/paginate algorithm are shared. `sagemakerListKeyPaged` (the
+old `ListModels`/`ListAlgorithms` pagination helper, superseded by the filtered rewrite) had no
+remaining callers and was deleted rather than left dead.
+
+**A manifest claim this pass found false or narrower than it reads:** two, both corrected inline
+(see `families:` entries) rather than silently replaced — `model_endpoint_config_crud`'s `ok`
+verdict covered ARN/timestamp/error/persistence plumbing only, not request-field completeness, and
+`tags`'s `ok` verdict covered not-found error-code mapping only, not the response/request field
+surface. Seventh and eighth false verdicts this campaign has found, third and fourth inside
+sagemaker's own records.
+
+**The six questions, answered explicitly:**
+
+1. **What does the handler read that AWS never sends?** None found this pass — every finding was
+   either a required member never validated, a required member never emitted, or an optional
+   member never decoded. Unlike parity-24 (which found two fabricated/misplaced fields), this
+   pass's over-validation finding (`ExecutionRoleArn`) is the mirror-image defect: the handler
+   rejected something AWS *does* accept, not something AWS never sends.
+2. **Do request and response use the same key?** Checked across all six files — no mismatch found
+   this pass.
+3. **Is any required request member never read?**
+   `CreateAlgorithmInput.TrainingSpecification`, `UpdateMonitoringAlertInput.DatapointsToAlert`/
+   `EvaluationPeriod`, `RenderUiTemplateInput.Task.Input`, `AddTagsInput.Tags`,
+   `DeleteTagsInput.TagKeys` — five instances this pass, the most of any single pass in this
+   campaign so far.
+4. **Is any field parsed then ignored, or applied destructively?** Not found this pass — every gap
+   found was accept-and-drop (never decoded) or read-but-never-validated, not decode-then-discard
+   or destructive overwrite.
+5. **Does it emit every declared member, in the right JSON kind?** `AddTagsOutput.Tags` was not
+   emitted at all (nil-body case, distinct from parity-22/24's wrong-JSON-*kind* cases) — fixed as
+   the array-of-`{Key,Value}` shape Q5 asks about, per the task brief's specific flag on
+   `handler_tags.go`. No wrong-kind case found this pass.
+6. **Does any status or lifecycle field ever advance?** None of the six files' resources have a
+   status/lifecycle field at all — `Model`/`EndpointConfig`/`Algorithm` are static CRUD resources
+   (confirmed against `DescribeModelOutput`/`DescribeEndpointConfigOutput`/`DescribeAlgorithmOutput`
+   — `Algorithm` does have `AlgorithmStatus`, but it is stamped `Completed` at Create and this
+   backend does not simulate the real async validation/scan pipeline that would otherwise advance
+   it, a pre-existing depth limit unchanged by this pass), `MonitoringAlert.AlertStatus` is set
+   once at Create and never advances (`AWS` has no API to transition it directly either — it is
+   driven by monitoring-execution outcomes this backend does not simulate), and presigned-session
+   resources are stateless per-call tokens with no lifecycle at all. Not applicable this pass.
+
+**Timestamps touched:** none this pass required a *fix* — `ListModelsInput`/`ListEndpointConfigsInput`/
+`ListAlgorithmsInput`'s new `CreationTimeAfter`/`CreationTimeBefore` fields use the established
+`*float64`/`epochPtr` pattern (never a bare `*time.Time`), matching every other List op's filter
+fields in this file; no test needed to catch a decode failure because none was introduced. Report
+negatives, per the task brief: no timestamp bug found or introduced this pass.
+
+**Enums touched:** `types.ModelSortKey` (`Name`/`CreationTime`, `types/enums.go:6155-6161`),
+`types.EndpointConfigSortKey` (`Name`/`CreationTime`, `types/enums.go:3346-3352`), and
+`types.AlgorithmSortBy` (`Name`/`CreationTime`, `types/enums.go:358-364`) were each read from
+`types/enums.go` directly, confirming all three really do share the same two-value shape before
+routing them through the shared `filterSortPaginateByName` helper — `types.OrderKey`
+(`Ascending`/`Descending`, `types/enums.go:6798-6804`) likewise confirmed shared by `ListModels`/
+`ListEndpointConfigs`, while `ListAlgorithms`'s own doc-stated default (`Ascending`) was verified to
+differ from the other two's (`Descending`) rather than assumed uniform — the one place this pass's
+dedup could have silently introduced a real behavioral bug if the default had been hard-coded
+instead of passed as a parameter.
+
+**Test-trap check:** two pre-existing tests ratified real defects this pass fixed —
+`TestCreateModel_RequiresExecutionRoleArn` asserted the over-validation bug directly (rewritten to
+`TestCreateModel_ExecutionRoleArnOptional`, asserting the corrected behavior), and 5 `CreateAlgorithm`
+tests across `handler_algorithms_test.go` created algorithms with no `TrainingSpecification`
+(rewritten to supply `minimalTrainingSpecification()`). `TestHandler_Tags` was the subtler
+"missing assertion" form the brief warns about: it called `AddTags` and asserted only the HTTP
+status, never reading the response body, so the missing-`Tags`-field bug produced no test failure
+for as long as that assertion was absent — a new assertion was added to the *existing* test rather
+than routed only through a new one, so the coverage gap itself is closed, not just the bug.
+
+**Hand-revert:** five of this pass's fixes were reverted individually against the post-conversion
+working tree (a literal `git show HEAD:<path>` whole-file revert was not viable for these six files,
+since `list_helpers.go`/`interfaces.go` changed in the same pass and a HEAD-only handler file no
+longer matches the new shared-helper signatures — each revert instead removed or restored just the
+specific validation/storage lines the fix added, per this pass's actual diff): removing
+`CreateAlgorithm`'s `TrainingSpecification` check (predicted and reproduced: the `missing
+TrainingSpecification` subtest now passes when it should fail — i.e. wrongly accepts); restoring
+`CreateModel`'s `ExecutionRoleArn` check (predicted and reproduced: `TestCreateModel_ExecutionRoleArnOptional`
+fails, rejecting valid requests again); removing `AddTags`'s `ListTags`-and-return call (predicted and
+reproduced: `TestHandler_Tags` fails on the new response-body assertion); removing
+`SetEndpointConfigExtras`'s `ExplainerConfig`/`MetricsConfig` storage (predicted and reproduced: the
+real-client round-trip test fails on a nil `Expected value not to be nil`); and removing
+`UpdateMonitoringAlert`'s two required-field checks (predicted and reproduced: both subtests of
+`TestHandler_UpdateMonitoringAlert_RequiresDatapointsAndPeriod` fail, wrongly accepting). Each was
+then restored and `md5sum`-verified byte-identical to the pre-revert working tree.
+
+**Gates:** `go build ./services/sagemaker/...`, `go vet ./services/sagemaker/...`,
+`go vet -tags e2e ./services/sagemaker/...`, `go vet -tags integration ./services/sagemaker/...`
+(all clean), `gofmt -l services/sagemaker/` (clean), `go test -race ./services/sagemaker/...`
+(pass, ~3.2s), `golangci-lint run ./services/sagemaker/...` (0 issues after fixing 3 `goconst` —
+three `"Name"` sort-by-literal call sites switched to the pre-existing shared `keyGenericName`
+constant — 1 `unused` — deleted the now-dead `sagemakerListKeyPaged` — 4 `dupl` — the
+`nameTimeListRequest`/`nameTimeFilter`/`filterSortPaginateByName[T]` dedup described above — and 1
+`govet`/`fieldalignment` in a new test — hand-reordered two struct fields, confirmed via the
+non-`-fix` lint output, not the package-wide `-fix`; no `nolint` added). A concurrent, unrelated
+session's in-progress `services/timestreamquery` changes are visible in `git status` but untouched
+by and unrelated to this pass — confirmed dirty before this pass began.
+
+`last_audit_commit` left at its existing value (`5f91d37c7`) — not updated this pass, per the
+campaign's standing instruction never to write `pending` or otherwise touch it casually.
+
+**10 of sagemaker's 362 inline structs now remain.** New boundary: a 5-file tier at 2
+(`handler_automl_v2.go`, `handler_feature_metadata.go`, `handler_modelcard_export.go`,
+`handler_monitoring_job_definitions.go`, `handler_training_plans.go`) — not started this pass,
+purely an effort-budget stopping point. This is the smallest remaining tier in the campaign's
+history; a single further pass could plausibly close out the rest of sagemaker's inline-struct
+count entirely.

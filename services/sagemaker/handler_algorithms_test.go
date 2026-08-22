@@ -16,14 +16,30 @@ import (
 // Algorithm — DescribeAlgorithm / DeleteAlgorithm / ListAlgorithms
 // ---------------------------------------------------------------------------
 
+// minimalTrainingSpecification is a structurally valid TrainingSpecification
+// (types.TrainingSpecification, TrainingImage/SupportedTrainingInstanceTypes/
+// TrainingChannels all "This member is required") — the smallest fixture that
+// satisfies CreateAlgorithmInput.TrainingSpecification, itself "This member is
+// required" on CreateAlgorithmInput (api_op_CreateAlgorithm.go).
+func minimalTrainingSpecification() map[string]any {
+	return map[string]any{
+		"TrainingImage":                  "123456789012.dkr.ecr.us-east-1.amazonaws.com/my-algo:latest",
+		"SupportedTrainingInstanceTypes": []string{"ml.m5.large"},
+		"TrainingChannels": []map[string]any{
+			{"Name": "train"},
+		},
+	}
+}
+
 func TestHandler_DescribeAlgorithm(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
 
 	createRec := doSageMakerRequest(t, h, "CreateAlgorithm", map[string]any{
-		"AlgorithmName":        "my-algo",
-		"AlgorithmDescription": "a description",
+		"AlgorithmName":         "my-algo",
+		"AlgorithmDescription":  "a description",
+		"TrainingSpecification": minimalTrainingSpecification(),
 	})
 	require.Equal(t, http.StatusOK, createRec.Code)
 
@@ -63,7 +79,10 @@ func TestHandler_DeleteAlgorithm(t *testing.T) {
 
 	h := newTestHandler(t)
 
-	doSageMakerRequest(t, h, "CreateAlgorithm", map[string]any{"AlgorithmName": "algo-del"})
+	doSageMakerRequest(t, h, "CreateAlgorithm", map[string]any{
+		"AlgorithmName":         "algo-del",
+		"TrainingSpecification": minimalTrainingSpecification(),
+	})
 
 	rec := doSageMakerRequest(t, h, "DeleteAlgorithm", map[string]any{"AlgorithmName": "algo-del"})
 	assert.Equal(t, http.StatusOK, rec.Code)
@@ -93,8 +112,14 @@ func TestHandler_ListAlgorithms(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	assert.Empty(t, resp["AlgorithmSummaryList"])
 
-	doSageMakerRequest(t, h, "CreateAlgorithm", map[string]any{"AlgorithmName": "algo-a"})
-	doSageMakerRequest(t, h, "CreateAlgorithm", map[string]any{"AlgorithmName": "algo-b"})
+	doSageMakerRequest(t, h, "CreateAlgorithm", map[string]any{
+		"AlgorithmName":         "algo-a",
+		"TrainingSpecification": minimalTrainingSpecification(),
+	})
+	doSageMakerRequest(t, h, "CreateAlgorithm", map[string]any{
+		"AlgorithmName":         "algo-b",
+		"TrainingSpecification": minimalTrainingSpecification(),
+	})
 
 	rec = doSageMakerRequest(t, h, "ListAlgorithms", map[string]any{})
 	assert.Equal(t, http.StatusOK, rec.Code)
@@ -147,8 +172,9 @@ func TestCreateAlgorithm_TagsPresent(t *testing.T) {
 		{
 			name: "create algorithm with tags",
 			body: map[string]any{
-				"AlgorithmName": "my-algo",
-				"Tags":          []map[string]string{{"Key": "env", "Value": "dev"}},
+				"AlgorithmName":         "my-algo",
+				"TrainingSpecification": minimalTrainingSpecification(),
+				"Tags":                  []map[string]string{{"Key": "env", "Value": "dev"}},
 			},
 			wantCode: http.StatusOK,
 			wantTags: true,
@@ -189,9 +215,10 @@ func TestHandler_CreateAlgorithm(t *testing.T) {
 		{
 			name: "success with description and tags",
 			body: map[string]any{
-				"AlgorithmName":        "my-algorithm",
-				"AlgorithmDescription": "a great algorithm",
-				"Tags":                 []map[string]string{{"Key": "owner", "Value": "team-a"}},
+				"AlgorithmName":         "my-algorithm",
+				"AlgorithmDescription":  "a great algorithm",
+				"TrainingSpecification": minimalTrainingSpecification(),
+				"Tags":                  []map[string]string{{"Key": "owner", "Value": "team-a"}},
 			},
 			wantCode: http.StatusOK,
 			wantARN:  true,
@@ -199,7 +226,8 @@ func TestHandler_CreateAlgorithm(t *testing.T) {
 		{
 			name: "success minimal",
 			body: map[string]any{
-				"AlgorithmName": "minimal-algo",
+				"AlgorithmName":         "minimal-algo",
+				"TrainingSpecification": minimalTrainingSpecification(),
 			},
 			wantCode: http.StatusOK,
 			wantARN:  true,
@@ -207,6 +235,13 @@ func TestHandler_CreateAlgorithm(t *testing.T) {
 		{
 			name:     "missing AlgorithmName",
 			body:     map[string]any{"AlgorithmDescription": "desc"},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "missing TrainingSpecification",
+			body: map[string]any{
+				"AlgorithmName": "no-training-spec-algo",
+			},
 			wantCode: http.StatusBadRequest,
 		},
 		{
@@ -240,13 +275,49 @@ func TestHandler_CreateAlgorithm(t *testing.T) {
 	}
 }
 
+// TestHandler_ListAlgorithms_FilterSort verifies ListAlgorithmsInput's
+// NameContains/SortBy/SortOrder (api_op_ListAlgorithms.go, previously
+// entirely dropped except NextToken) are honored.
+func TestHandler_ListAlgorithms_FilterSort(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	for _, name := range []string{"alpha-algo", "beta-algo", "other"} {
+		doSageMakerRequest(t, h, "CreateAlgorithm", map[string]any{
+			"AlgorithmName":         name,
+			"TrainingSpecification": minimalTrainingSpecification(),
+		})
+	}
+
+	rec := doSageMakerRequest(t, h, "ListAlgorithms", map[string]any{
+		"NameContains": "-algo",
+		"SortBy":       "Name",
+		"SortOrder":    "Descending",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+	list, ok := resp["AlgorithmSummaryList"].([]any)
+	require.True(t, ok)
+	require.Len(t, list, 2)
+
+	first, _ := list[0].(map[string]any)
+	second, _ := list[1].(map[string]any)
+	assert.Equal(t, "beta-algo", first["AlgorithmName"])
+	assert.Equal(t, "alpha-algo", second["AlgorithmName"])
+}
+
 func TestHandler_CreateAlgorithm_Duplicate(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
 
 	body := map[string]any{
-		"AlgorithmName": "dup-algo",
+		"AlgorithmName":         "dup-algo",
+		"TrainingSpecification": minimalTrainingSpecification(),
 	}
 
 	rec := doSageMakerRequest(t, h, "CreateAlgorithm", body)

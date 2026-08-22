@@ -80,15 +80,23 @@ func (b *InMemoryBackend) DescribeModel(ctx context.Context, name string) (*Mode
 	return cloneModel(m), nil
 }
 
-// ListModels returns models sorted by name, with optional pagination.
-func (b *InMemoryBackend) ListModels(ctx context.Context, nextToken string) ([]*Model, string) {
+// ListModels returns models matching filter, sorted per filter.SortBy/SortOrder
+// (default CreationTime/Descending, api_op_ListModels.go), with pagination
+// capped at filter.MaxResults.
+func (b *InMemoryBackend) ListModels(ctx context.Context, nextToken string, filter nameTimeFilter) ([]*Model, string) {
 	b.mu.RLock("ListModels")
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
 
-	return sagemakerListPaged(b.modelsStoreRO(region), nextToken, cloneModel,
-		func(a, b *Model) bool { return a.ModelName < b.ModelName })
+	all := make([]*Model, 0, b.modelsStoreRO(region).Len())
+	for _, m := range b.modelsStoreRO(region).All() {
+		all = append(all, cloneModel(m))
+	}
+
+	return filterSortPaginateByName(all, nextToken, filter, true,
+		func(m *Model) string { return m.ModelName },
+		func(m *Model) time.Time { return m.CreationTime })
 }
 
 // DeleteModel deletes a model by name.

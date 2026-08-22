@@ -2,6 +2,7 @@ package sagemaker_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"testing"
 
@@ -256,6 +257,88 @@ func TestHandler_UpdateMonitoringAlert_CreatesThenUpdates(t *testing.T) {
 	assert.InEpsilon(t, float64(5), listResp.MonitoringAlertSummaries[0]["DatapointsToAlert"], 0)
 	assert.InEpsilon(t, float64(6), listResp.MonitoringAlertSummaries[0]["EvaluationPeriod"], 0)
 	assert.Equal(t, "OK", listResp.MonitoringAlertSummaries[0]["AlertStatus"])
+}
+
+// TestHandler_UpdateMonitoringAlert_RequiresDatapointsAndPeriod verifies that
+// UpdateMonitoringAlert rejects a missing DatapointsToAlert or
+// EvaluationPeriod. Both are "This member is required" on
+// UpdateMonitoringAlertInput (api_op_UpdateMonitoringAlert.go).
+func TestHandler_UpdateMonitoringAlert_RequiresDatapointsAndPeriod(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body map[string]any
+		name string
+	}{
+		{
+			name: "missing DatapointsToAlert",
+			body: map[string]any{
+				"MonitoringScheduleName": "mm-sched",
+				"MonitoringAlertName":    "alert-1",
+				"EvaluationPeriod":       3,
+			},
+		},
+		{
+			name: "missing EvaluationPeriod",
+			body: map[string]any{
+				"MonitoringScheduleName": "mm-sched",
+				"MonitoringAlertName":    "alert-1",
+				"DatapointsToAlert":      2,
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			doSageMakerRequest(t, h, "CreateMonitoringSchedule", map[string]any{
+				"MonitoringScheduleName":   "mm-sched",
+				"MonitoringScheduleConfig": map[string]any{},
+			})
+
+			rec := doSageMakerRequest(t, h, "UpdateMonitoringAlert", tt.body)
+			assert.Equal(t, http.StatusBadRequest, rec.Code)
+		})
+	}
+}
+
+// TestHandler_ListMonitoringAlerts_MaxResults verifies
+// ListMonitoringAlertsInput.MaxResults (api_op_ListMonitoringAlerts.go,
+// previously silently ignored) caps the page size.
+func TestHandler_ListMonitoringAlerts_MaxResults(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	doSageMakerRequest(t, h, "CreateMonitoringSchedule", map[string]any{
+		"MonitoringScheduleName":   "max-results-sched",
+		"MonitoringScheduleConfig": map[string]any{},
+	})
+
+	for i := range 5 {
+		doSageMakerRequest(t, h, "UpdateMonitoringAlert", map[string]any{
+			"MonitoringScheduleName": "max-results-sched",
+			"MonitoringAlertName":    fmt.Sprintf("alert-%d", i),
+			"DatapointsToAlert":      1,
+			"EvaluationPeriod":       1,
+		})
+	}
+
+	rec := doSageMakerRequest(t, h, "ListMonitoringAlerts", map[string]any{
+		"MonitoringScheduleName": "max-results-sched",
+		"MaxResults":             2,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp struct {
+		NextToken                string           `json:"NextToken"`
+		MonitoringAlertSummaries []map[string]any `json:"MonitoringAlertSummaries"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Len(t, resp.MonitoringAlertSummaries, 2)
+	assert.NotEmpty(t, resp.NextToken)
 }
 
 func TestHandler_ListMonitoringAlerts_UnknownScheduleReturnsError(t *testing.T) {

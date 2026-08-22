@@ -50,10 +50,6 @@ func (h *Handler) handleCreateModel(ctx context.Context, body []byte) ([]byte, e
 		return nil, fmt.Errorf("%w: ModelName is required", errInvalidRequest)
 	}
 
-	if req.ExecutionRoleArn == "" {
-		return nil, fmt.Errorf("%w: ExecutionRoleArn is required", errInvalidRequest)
-	}
-
 	if req.PrimaryContainer != nil && len(req.Containers) > 0 {
 		return nil, fmt.Errorf(
 			"%w: provide either PrimaryContainer or Containers, not both",
@@ -93,10 +89,13 @@ func (h *Handler) handleCreateModel(ctx context.Context, body []byte) ([]byte, e
 	return json.Marshal(map[string]string{"ModelArn": m.ModelARN})
 }
 
+// describeModelRequest is the request body for DescribeModel.
+type describeModelRequest struct {
+	ModelName string `json:"ModelName"`
+}
+
 func (h *Handler) handleDescribeModel(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		ModelName string `json:"ModelName"`
-	}
+	var req describeModelRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -131,15 +130,13 @@ func (h *Handler) handleDescribeModel(ctx context.Context, body []byte) ([]byte,
 }
 
 func (h *Handler) handleListModels(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		NextToken string `json:"NextToken"`
-	}
+	var req nameTimeListRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	models, nextToken := h.Backend.ListModels(ctx, req.NextToken)
+	models, nextToken := h.Backend.ListModels(ctx, req.NextToken, req.toFilter())
 	summaries := make([]modelSummary, 0, len(models))
 
 	for _, m := range models {
@@ -158,10 +155,13 @@ func (h *Handler) handleListModels(ctx context.Context, body []byte) ([]byte, er
 	return json.Marshal(resp)
 }
 
+// deleteModelRequest is the request body for DeleteModel.
+type deleteModelRequest struct {
+	ModelName string `json:"ModelName"`
+}
+
 func (h *Handler) handleDeleteModel(ctx context.Context, body []byte) error {
-	var req struct {
-		ModelName string `json:"ModelName"`
-	}
+	var req deleteModelRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidRequest, err)

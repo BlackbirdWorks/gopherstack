@@ -24,12 +24,21 @@ func TestHandler_Tags(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	// Add tags.
+	// Add tags. AddTagsOutput.Tags (api_op_AddTags.go) is the full current tag
+	// set for the resource, not an empty ack — assert it here so a future
+	// regression to an empty-body response fails this test.
 	rec := doSageMakerRequest(t, h, "AddTags", map[string]any{
 		"ResourceArn": m.ModelARN,
 		"Tags":        []map[string]string{{"Key": "Env", "Value": "test"}},
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var addResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &addResp))
+
+	addTags, ok := addResp["Tags"].([]any)
+	require.True(t, ok, "AddTags response body: %s", rec.Body.String())
+	require.Len(t, addTags, 1)
 
 	// List tags.
 	rec = doSageMakerRequest(t, h, "ListTags", map[string]any{
@@ -133,4 +142,71 @@ func TestDeleteTags_NotFound(t *testing.T) {
 			assert.Equal(t, tt.wantCode, rec.Code)
 		})
 	}
+}
+
+// TestHandler_AddTags_RequiresTags verifies that AddTags rejects a request
+// with no Tags. AddTagsInput.Tags (api_op_AddTags.go) is "This member is
+// required" — an empty/absent Tags slice must not silently succeed.
+func TestHandler_AddTags_RequiresTags(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doSageMakerRequest(t, h, "AddTags", map[string]any{
+		"ResourceArn": "arn:aws:sagemaker:us-east-1:000000000000:model/my-model",
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+// TestHandler_DeleteTags_RequiresTagKeys verifies that DeleteTags rejects a
+// request with no TagKeys. DeleteTagsInput.TagKeys (api_op_DeleteTags.go) is
+// "This member is required" — an empty/absent TagKeys slice must not
+// silently succeed.
+func TestHandler_DeleteTags_RequiresTagKeys(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doSageMakerRequest(t, h, "DeleteTags", map[string]any{
+		"ResourceArn": "arn:aws:sagemaker:us-east-1:000000000000:model/my-model",
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+// TestHandler_ListTags_MaxResults verifies ListTagsInput.MaxResults
+// (api_op_ListTags.go, default 100) caps the page size, which was previously
+// silently ignored (always sagemakerDefaultPageSize).
+func TestHandler_ListTags_MaxResults(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	m, err := h.Backend.CreateModel(context.Background(), "many-tags-model",
+		"arn:aws:iam::000000000000:role/test", nil, nil, nil)
+	require.NoError(t, err)
+
+	tags := make([]map[string]string, 0, 5)
+	for i := range 5 {
+		tags = append(tags, map[string]string{"Key": string(rune('a' + i)), "Value": "v"})
+	}
+
+	rec := doSageMakerRequest(t, h, "AddTags", map[string]any{
+		"ResourceArn": m.ModelARN,
+		"Tags":        tags,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doSageMakerRequest(t, h, "ListTags", map[string]any{
+		"ResourceArn": m.ModelARN,
+		"MaxResults":  2,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+	page, ok := resp["Tags"].([]any)
+	require.True(t, ok)
+	assert.Len(t, page, 2)
+	assert.NotEmpty(t, resp["NextToken"])
 }

@@ -41,6 +41,23 @@ func TestHandler_RenderUiTemplate_MissingRoleArn(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
+// TestHandler_RenderUiTemplate_MissingTaskInput verifies that RenderUiTemplate
+// rejects a request with no Task.Input. Task is "This member is required" on
+// RenderUiTemplateInput, and RenderableTask.Input is itself "This member is
+// required" (types/types.go:19548) — previously accepted silently, rendering
+// the template unchanged instead of rejecting the request.
+func TestHandler_RenderUiTemplate_MissingTaskInput(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doSageMakerRequest(t, h, "RenderUiTemplate", map[string]any{
+		"RoleArn":    "arn:aws:iam::000000000000:role/test",
+		"UiTemplate": map[string]any{"Content": "<p></p>"},
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
 func TestHandler_StartSession(t *testing.T) {
 	t.Parallel()
 

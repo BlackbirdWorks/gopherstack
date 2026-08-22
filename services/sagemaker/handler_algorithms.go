@@ -29,6 +29,10 @@ func (h *Handler) handleCreateAlgorithm(ctx context.Context, body []byte) ([]byt
 		return nil, fmt.Errorf("%w: AlgorithmName is required", errInvalidRequest)
 	}
 
+	if len(req.TrainingSpecification) == 0 {
+		return nil, fmt.Errorf("%w: TrainingSpecification is required", errInvalidRequest)
+	}
+
 	tags := fromTagObjects(req.Tags)
 
 	al, err := h.Backend.CreateAlgorithm(ctx, CreateAlgorithmOptions{
@@ -58,6 +62,11 @@ func (h *Handler) handleCreateAlgorithm(ctx context.Context, body []byte) ([]byt
 }
 
 // describeAlgorithmResponse is the response body for DescribeAlgorithm.
+//
+// AlgorithmStatusDetails/TrainingSpecification are both "This member is
+// required" on the real DescribeAlgorithmOutput (api_op_DescribeAlgorithm.go)
+// and so carry no omitempty — CreateAlgorithm now enforces TrainingSpecification
+// non-empty, so this always has a real value to emit.
 type describeAlgorithmResponse struct {
 	AlgorithmArn            string                 `json:"AlgorithmArn"`
 	AlgorithmName           string                 `json:"AlgorithmName"`
@@ -65,17 +74,20 @@ type describeAlgorithmResponse struct {
 	AlgorithmDescription    string                 `json:"AlgorithmDescription,omitempty"`
 	ProductID               string                 `json:"ProductId,omitempty"`
 	AlgorithmStatusDetails  AlgorithmStatusDetails `json:"AlgorithmStatusDetails"`
-	TrainingSpecification   json.RawMessage        `json:"TrainingSpecification,omitempty"`
+	TrainingSpecification   json.RawMessage        `json:"TrainingSpecification"`
 	InferenceSpecification  json.RawMessage        `json:"InferenceSpecification,omitempty"`
 	ValidationSpecification json.RawMessage        `json:"ValidationSpecification,omitempty"`
 	CreationTime            float64                `json:"CreationTime"`
 	CertifyForMarketplace   bool                   `json:"CertifyForMarketplace,omitempty"`
 }
 
+// describeAlgorithmRequest is the request body for DescribeAlgorithm.
+type describeAlgorithmRequest struct {
+	AlgorithmName string `json:"AlgorithmName"`
+}
+
 func (h *Handler) handleDescribeAlgorithm(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		AlgorithmName string `json:"AlgorithmName"`
-	}
+	var req describeAlgorithmRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -105,10 +117,13 @@ func (h *Handler) handleDescribeAlgorithm(ctx context.Context, body []byte) ([]b
 	})
 }
 
+// deleteAlgorithmRequest is the request body for DeleteAlgorithm.
+type deleteAlgorithmRequest struct {
+	AlgorithmName string `json:"AlgorithmName"`
+}
+
 func (h *Handler) handleDeleteAlgorithm(ctx context.Context, body []byte) error {
-	var req struct {
-		AlgorithmName string `json:"AlgorithmName"`
-	}
+	var req deleteAlgorithmRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -122,15 +137,13 @@ func (h *Handler) handleDeleteAlgorithm(ctx context.Context, body []byte) error 
 }
 
 func (h *Handler) handleListAlgorithms(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		NextToken string `json:"NextToken"`
-	}
+	var req nameTimeListRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	algorithms, nextToken := h.Backend.ListAlgorithms(ctx, req.NextToken)
+	algorithms, nextToken := h.Backend.ListAlgorithms(ctx, req.NextToken, req.toFilter())
 
 	items := make([]map[string]any, 0, len(algorithms))
 	for _, al := range algorithms {

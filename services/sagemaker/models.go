@@ -145,12 +145,19 @@ type AsyncOutputConfig struct {
 }
 
 // EndpointConfig represents a SageMaker endpoint configuration.
+//
+// ExplainerConfig/MetricsConfig are carried as opaque json.RawMessage
+// passthrough rather than fully-typed structs, the same convention as
+// ModelPackage's deep union/config fields — every field a client actually
+// sends round-trips exactly.
 type EndpointConfig struct {
 	CreationTime             time.Time             `json:"CreationTime"`
 	Tags                     map[string]string     `json:"Tags,omitempty"`
 	VpcConfig                *VpcConfig            `json:"VpcConfig,omitempty"`
 	DataCaptureConfig        *DataCaptureConfig    `json:"DataCaptureConfig,omitempty"`
 	AsyncInferenceConfig     *AsyncInferenceConfig `json:"AsyncInferenceConfig,omitempty"`
+	ExplainerConfig          json.RawMessage       `json:"ExplainerConfig,omitempty"`
+	MetricsConfig            json.RawMessage       `json:"MetricsConfig,omitempty"`
 	EndpointConfigName       string                `json:"EndpointConfigName"`
 	EndpointConfigARN        string                `json:"EndpointConfigARN"`
 	ExecutionRoleArn         string                `json:"ExecutionRoleArn,omitempty"`
@@ -200,6 +207,8 @@ func cloneEndpointConfig(ec *EndpointConfig) *EndpointConfig {
 		aic := *ec.AsyncInferenceConfig
 		cp.AsyncInferenceConfig = &aic
 	}
+	cp.ExplainerConfig = append(json.RawMessage(nil), ec.ExplainerConfig...)
+	cp.MetricsConfig = append(json.RawMessage(nil), ec.MetricsConfig...)
 
 	return &cp
 }
