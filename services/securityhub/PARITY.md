@@ -497,3 +497,69 @@ hand-reverted, confirmed failing, restored, `md5sum`-verified byte-identical.
   /recommendedPolicyV2/{MetadataUid}, matching this handler's existing
   route exactly) -- a reminder that a prior pass's rejection reasoning needs
   re-verification against the serializer, same as any other claim."}
+
+## gopherstack-wlo1 (2026-08-22): dispatch-miss error path was the one call site gopherstack-aitg left untyped
+
+gopherstack-aitg (2026-08-11, commit 695aa1c20) added a central error path
+(`typedErrorResponse`, handler.go) and audited every named call site against
+securityhub's real per-operation exception lists. `handleREST`'s own
+dispatch-miss fallback -- reached when `classifyPath` returns `opUnknown`,
+i.e. no `classify*Path` function recognises the request's method+path --
+was not one of the sites that pass touched, and unlike every genuinely
+ambiguous `ErrHubNotEnabled` site in this file (each carries a comment
+explaining why it's deliberately left unheadered), this one had no such
+note. It wrote `{"Message": "unknown operation"}` with no
+`X-Amzn-Errortype` header and no body `code`/`__type` field, so
+`restjson.GetErrorInfo` (aws-sdk-go-v2's
+`aws/protocol/restjson/decoder_util.go`) had nothing to read and the error
+deserialized client-side as `UnknownError` regardless of the underlying
+cause.
+
+Reachability: cross-checked every op constant this package wires into
+`opHandlerGroups()`'s dispatch tables (116 distinct `map[string]func()`
+entries) against every `api_op_*.go` file in the pinned
+`securityhub@v1.75.4` module (116 real operations) -- exact 1:1 match, zero
+missing. So this fallback is structurally unreachable for any
+legitimately-constructed SDK request; it can only be reached by rewriting
+the request after signing (proven below), the same white-box category as
+medialive/mediatailor's analogous fixes in ea67f34cf.
+
+Fixed: `handleREST` now calls `typedErrorResponse(c, http.StatusNotFound,
+"ResourceNotFoundException", "unknown operation")` -- the same helper (and
+the same code) `GetSecurityControlDefinition`'s unknown-control path
+already uses (handler_error_type_test.go's existing
+`TestGetSecurityControlDefinition_UnknownControlSurfacesResourceNotFoundException`),
+so no new exception vocabulary was introduced.
+
+Proof: `TestGetInsightResults_UnrecognisedRouteSurfacesResourceNotFoundException`
+(handler_error_type_test.go) drives a real `securityhubsdk.Client`'s
+`GetInsightResults` through a Finalize-stage middleware that rewrites the
+signed request's path from `/insights/results/{InsightArn+}` down to bare
+`/insights` -- still inside RouteMatcher's `/insights` prefix (so the
+request still reaches this package's Handler) but matching none of
+`classifyInsightsPath`'s method/path cases for a GET, landing in
+`handleREST`'s fallback. Hand-reverted `handler.go` to `git show HEAD` (the
+pre-fix state, still carrying the bare map literal), confirmed the test
+fails with `apiErr.ErrorCode() == "UnknownError"`, restored the fix,
+`md5sum`-confirmed byte-identical to the pre-revert file.
+
+Not a repeat of the `ErrHubNotEnabled` ambiguity: those sites are ambiguous
+*between two real, named exceptions* a specific operation models. This site
+doesn't know the operation at all (routing itself failed), so there is no
+per-operation vocabulary to disambiguate between -- a generic
+`ResourceNotFoundException` (already the modeled 404 shape used elsewhere
+in this file, e.g. `GetSecurityControlDefinition`) is the closest fit, not
+a guess among named alternatives.
+
+Confirmed still-deliberate and left untouched: every `ErrHubNotEnabled`
+bare-message site (handler_hub.go, handler_insights.go, handler_findings.go,
+handler_products.go, handler_action_targets.go) -- each carries its own
+comment citing the specific operation's real error list from
+`securityhub@v1.75.4 deserializers.go` and the reason no single exception
+can be chosen without guessing. Re-spot-checked `DisableSecurityHubV2`
+(deserializers.go:7744) directly: its real error list is
+`AccessDeniedException`/`InternalServerException`/`ThrottlingException`/
+`ValidationException` -- no `ResourceNotFoundException`, confirming the
+comment's claim -- and left as documented rather than "resolved by
+elimination", since the real "not enabled" AWS status for this call is not
+independently verified here.

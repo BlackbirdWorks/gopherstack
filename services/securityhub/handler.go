@@ -582,9 +582,7 @@ func (h *Handler) handleREST(c *echo.Context) error {
 		}
 	}
 
-	return c.JSON(http.StatusNotFound, map[string]any{
-		keyMessage: "unknown operation",
-	})
+	return typedErrorResponse(c, http.StatusNotFound, "ResourceNotFoundException", "unknown operation")
 }
 
 // pathClassifier pairs a path predicate with the classify*Path function to
