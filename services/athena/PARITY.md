@@ -202,3 +202,28 @@ entries to the already-persisted `resourceTags` map (no new top-level
 `backendSnapshot` field required) — round trip verified by
 `TestInMemoryBackend_TagResource_CapacityReservation` and
 `TestInMemoryBackend_DeleteCapacityReservation_CascadesTags`.
+
+## 2026-08-21 (gopherstack-hjdd): snapshot-version guard, unbumped retype
+
+`athenaSnapshotVersion` bumped 1 -> 2. `d83f4b5d3` retyped
+`CalculationExecution.Statistics.Progress` (nested inside the registered `calculations`
+table's value type) from `int64` to `string`, matching the real deserializer's type
+switch, without bumping the snapshot version. A pre-fix (v1) snapshot's numeric
+`"Progress"` no longer unmarshals into the new string field at all -- `RestoreAll` now
+errors outright rather than silently losing data, but the whole backend then fails to
+restore, which the version guard exists to convert into a clean, recoverable "discard and
+start empty" instead.
+
+Found via `pkgs/persistence`'s snapshot-version guard, extended this session
+(gopherstack-hjdd) to recursively expand fields of every type reached through a
+`store.Register`/`store.New` table registration.
+
+**Proof:** `Test_InMemoryBackend_Restore_V1CalculationProgressDiscarded` (persistence_test.go)
+builds a v1-shaped `calculations` snapshot with a numeric `Statistics.Progress` and asserts
+`Restore` succeeds (discarding cleanly) rather than erroring. Hand-reverted to version 1:
+the same test then fails with `Restore` returning `json: cannot unmarshal number into Go
+struct field CalculationStatistics.Statistics.Progress of type string`, confirming the
+symptom; restored and `md5sum`-verified byte-identical.
+
+**Gates:** `go build`, `go vet` (default/e2e/integration), `gofmt -l` (clean), `go test -race`
+(pass), `golangci-lint run` (0 issues).

@@ -279,3 +279,44 @@ green for `services/macie2`; `go test -race ./pkgs/...` green.
   being bucket-level), but does not synthesize a `policyDetails` value. If a
   future pass needs it, `PolicyDetails`/`FindingAction`/`FindingActor` in
   `types/types.go` are the reference shapes.
+
+## 2026-08-21 (gopherstack-hjdd): snapshot-version guard, unbumped retype
+
+`macie2SnapshotVersion` bumped 1 -> 2. `1217df451` retagged `ResourceProfile.
+SensitivityScoreOverride` (the registered `resourceProfiles` table's value type) to the
+real deserializer's `sensitivityScoreOverridden`, without bumping the snapshot version.
+`UpdateResourceProfile` genuinely sets this flag, so it is real, backend-controlled state;
+a pre-fix (v1) snapshot's `"sensitivityScoreOverride": true` no longer matches the new key
+at all and silently decodes as `false` on restore -- not an error, a quiet loss of a real
+user-triggered flag.
+
+The sibling rename in the same commit, `ResourceStatistics`'s two field renames
+(`TotalDetectionsWithoutSuppression`->`TotalDetectionsSuppressed`,
+`TotalItemsSkippedPermissionError`->`TotalItemsSkippedPermissionDenied`), is not a
+compatibility concern: the commit's own doc comment discloses that struct is never
+populated with real data by this backend (`GetResourceProfileOutput.Statistics` always
+decodes/encodes as the zero-value struct), so no user data was ever stored under either
+name. Two further candidates examined and disqualified the same way: `17237c95e`'s
+`Severity.Score` float64->int64 retype is compatible in practice -- the only value this
+backend ever sets is the constant `5.0`, which `encoding/json` renders as the bare number
+`5`, so old data decodes into the new int64 field without error (verified with a standalone
+round-trip); and `c37164f25`'s `ClassificationScopeS3.Excludes` map->struct retype keeps the
+same `bucketNames` wire key, so the meaningful data survives the decode (the map's other key,
+the `operation` discriminator from the pre-fix wholesale-replace bug this same commit fixed,
+is silently dropped, but it never represented durable state a user would notice losing).
+
+Found via `pkgs/persistence`'s snapshot-version guard, extended this session
+(gopherstack-hjdd) to recursively expand fields of every type reached through a
+`store.Register`/`store.New` table registration.
+
+**Proof:** `TestInMemoryBackend_RestoreV1SensitivityScoreOverrideDiscarded`
+(persistence_test.go) builds a v1-shaped `resourceProfiles` snapshot with
+`sensitivityScoreOverride: true` and asserts `GetResourceProfile` synthesizes a fresh
+default (override `false`) after restore, not a silently-decoded record with the override
+lost but the score retained. Hand-reverted to version 1: the same test then shows exactly
+that split symptom -- `SensitivityScore` correctly restores as `50` while
+`SensitivityScoreOverridden` silently decodes `false` -- confirming the predicted failure;
+restored and `md5sum`-verified byte-identical.
+
+**Gates:** `go build`, `go vet` (default/e2e/integration), `gofmt -l` (clean), `go test -race`
+(pass), `golangci-lint run` (0 issues).

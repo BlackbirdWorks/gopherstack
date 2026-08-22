@@ -286,3 +286,29 @@ just closed on paper.
    base64 token; `services/sagemaker` hits are the pre-existing (and
    off-limits for this pass) alias pattern. `KinesisStreamSourceParameters`
    was the only remaining genuine gap in the whole tree.
+
+## 2026-08-21 (gopherstack-hjdd): snapshot-version guard, unbumped retype
+
+`pipesSnapshotVersion` bumped 1 -> 2. `d83f4b5d3` retyped
+`BatchContainerOverrides.Environment` (nested inside a registered `pipes/<region>` table's
+value type via `Pipe.TargetParameters.BatchJobParameters`) from `map[string]string` to
+`[]BatchEnvironmentVariable`, matching the real deserializer, without bumping the snapshot
+version. A pre-fix (v1) snapshot's `"Environment"` object no longer unmarshals into the
+new array field at all -- `RestoreAll` now errors outright rather than silently losing
+data, but the whole backend then fails to restore, which the version guard exists to
+convert into a clean, recoverable "discard and start empty" instead.
+
+Found via `pkgs/persistence`'s snapshot-version guard, extended this session
+(gopherstack-hjdd) to recursively expand fields of every type reached through a
+`store.Register`/`store.New` table registration.
+
+**Proof:** `TestRestore_V1BatchEnvironmentDiscarded` (persistence_test.go) builds a
+v1-shaped `pipes/eu-west-1` snapshot with an object-shaped `Environment` and asserts
+`Restore` succeeds (discarding cleanly) rather than erroring. Hand-reverted to version 1:
+the same test then fails with `Restore` returning `json: cannot unmarshal object into Go
+struct field BatchContainerOverrides.targetParameters.BatchJobParameters.
+ContainerOverrides.Environment of type []pipes.BatchEnvironmentVariable`, confirming the
+symptom; restored and `md5sum`-verified byte-identical.
+
+**Gates:** `go build`, `go vet` (default/e2e/integration), `gofmt -l` (clean), `go test -race`
+(pass), `golangci-lint run` (0 issues).

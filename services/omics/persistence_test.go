@@ -64,6 +64,65 @@ func TestInMemoryBackend_RestoreOldSnapshotDecodesAsZero(t *testing.T) {
 	assert.Empty(t, groups)
 }
 
+// TestInMemoryBackend_RestoreV1AnnotationStoreVersionDiscarded proves
+// gopherstack-hjdd's fix: a v1 snapshot holding AnnotationStore.Arn and
+// AnnotationStoreVersion.Arn/StoreName under the pre-c41d36cb6/95edfe255 keys
+// ("arn", "storeName") must be discarded wholesale now that
+// omicsSnapshotVersion is 2, not silently decoded with StoreArn/VersionArn/
+// StoreName zero-valued.
+func TestInMemoryBackend_RestoreV1AnnotationStoreVersionDiscarded(t *testing.T) {
+	t.Parallel()
+
+	b := omics.NewInMemoryBackend("000000000000", "us-east-1")
+
+	v1Snapshot := `{
+		"version": 1,
+		"accountID": "000000000000",
+		"region": "us-east-1",
+		"tables": {
+			"annotationStores": [{
+				"creationTime": "2024-01-01T00:00:00Z",
+				"updateTime": "2024-01-01T00:00:00Z",
+				"tags": {},
+				"arn": "arn:aws:omics:us-east-1:000000000000:annotationStore/store-1",
+				"id": "store-1",
+				"name": "store-1",
+				"description": "",
+				"storeFormat": "TSV",
+				"status": "ACTIVE"
+			}],
+			"annotationVersions": [{
+				"creationTime": "2024-01-01T00:00:00Z",
+				"updateTime": "2024-01-01T00:00:00Z",
+				"tags": {},
+				"arn": "arn:aws:omics:us-east-1:000000000000:annotationStore/store-1/version/v1",
+				"storeId": "store-1",
+				"storeName": "store-1",
+				"versionName": "v1",
+				"description": "",
+				"status": "ACTIVE"
+			}]
+		}
+	}`
+
+	require.NoError(t, b.Restore(t.Context(), []byte(v1Snapshot)))
+
+	_, err := b.GetAnnotationStoreVersion("store-1", "v1")
+	require.ErrorIs(t, err, omics.ErrNotFound,
+		"a v1-shaped AnnotationStoreVersion must never surface with StoreName/VersionArn silently zeroed")
+
+	// AnnotationStore.Name was never renamed, so under the pre-fix bug this
+	// store would still decode and be findable by "store-1" (the version
+	// lookup above would fail either way, from a clean discard or from the
+	// version's own StoreName/VersionArn silently zeroing and misfiling it --
+	// this is the assertion that actually distinguishes the two: a clean
+	// discard clears the whole registry, so the store itself must also be
+	// gone, not just its version).
+	_, err = b.GetAnnotationStore("store-1")
+	require.ErrorIs(t, err, omics.ErrNotFound,
+		"incompatible-version snapshot must reset to empty, not just fail the (misfiled) version lookup")
+}
+
 // TestInMemoryBackend_SnapshotRestore_EmptyState verifies an empty backend
 // round-trips to another empty backend without error.
 func TestInMemoryBackend_SnapshotRestore_EmptyState(t *testing.T) {

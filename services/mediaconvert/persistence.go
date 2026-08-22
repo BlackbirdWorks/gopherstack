@@ -20,7 +20,15 @@ import (
 // field at all, so an old snapshot decodes with Version == 0, which is
 // guaranteed to mismatch mediaconvertSnapshotVersion and is discarded the
 // same way any other incompatible snapshot is.
-const mediaconvertSnapshotVersion = 1
+//
+// Bumped 1 -> 2 (gopherstack-hjdd) for d83f4b5d3: Job.LastShareDetails (the
+// registered "jobs" table's value type) switched its wire representation from
+// a {shareToken, sharedAt} object to the real deserializer's bare string, via
+// a custom Job.MarshalJSON/UnmarshalJSON pair. A Version-1 snapshot's object
+// no longer unmarshals into the new string field at all -- an outright decode
+// error that takes down the whole restore, not silent loss -- so it must be
+// discarded like any other shape-incompatible snapshot.
+const mediaconvertSnapshotVersion = 2
 
 // counterSnapshot and tokenSnapshot are DTOs used only for Snapshot/Restore
 // of the "dirty" tables -- see store_setup.go's file doc comment for why

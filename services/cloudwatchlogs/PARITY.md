@@ -365,3 +365,58 @@ golangci-lint (0 findings).
   prior sweep, see the "PutLogEvents sequenceToken is a no-op today" note above) and its
   `handler.go` errType mapping was already removed in that same prior sweep, so the var itself
   was dead code left behind; removed it (de-stub hygiene: no orphaned symbols).
+
+## 2026-08-21 (gopherstack-hjdd): snapshot-version guard, three unbumped shape changes
+
+`cwlSnapshotVersion` bumped 1 -> 2. Three registered tables' value types changed shape with
+no bump applied, found via `pkgs/persistence`'s snapshot-version guard extended this session
+(gopherstack-hjdd) to recursively expand fields of every type reached through a
+`store.Register`/`store.New` table registration:
+
+- **`ca3afb3ca`**: `IndexPolicy.LastUpdated` (`time.Time`) retyped to `LastUpdateTime`
+  (`int64`), same wire key `"lastUpdateTime"`. `PutIndexPolicy` genuinely sets this to
+  `time.Now()`, so a pre-fix snapshot's RFC3339 string no longer unmarshals into the new
+  `int64` field at all -- an outright decode error (loud) that takes down the whole restore.
+- **`9f62f7f5d`**: `ScheduledQuery.Arn` retagged `"arn"` -> `ScheduledQueryArn` `"scheduledQueryArn"`.
+  `scheduledQueryKeyFn` keys the `scheduledQueries` table on exactly this field, so a pre-fix
+  snapshot's ARN silently decodes empty (silent, not loud) and every restored scheduled query
+  collides onto the same `""` key -- the same collapse-to-one-record class as bedrock's
+  `Flow`/`Prompt` bug (gopherstack-hjdd, same session).
+- **`9f62f7f5d`**: `ImportTask.Status` retagged `"status"` -> `"importStatus"`, and
+  `LogAnomalyDetector.DetectorStatus` retagged `"detectorStatus"` -> `AnomalyDetectorStatus`
+  `"anomalyDetectorStatus"`. Neither field is part of its table's key, so both are narrower
+  silent losses (the status field alone decodes empty) rather than a key collision.
+
+**Examined and disqualified as bump candidates:**
+
+- `357edbc07`'s `Delivery.CreationTime` `"creationTime"` -> `"-"` only affects an internal
+  bookkeeping field used solely to order `DescribeDeliveries` results -- its own doc comment
+  discloses it has no real-AWS wire counterpart at all ("an earlier revision fabricated one").
+  Losing it on restore reorders a list; it does not destroy any field a real AWS client would
+  observe on `Delivery` itself.
+- `9f62f7f5d`'s `ImportTask.ImportRoleArn` `"importRoleArn"` -> `"-"` is a real bug but a
+  different class: `json:"-"` excludes the field from **every** future snapshot unconditionally,
+  old or new, so bumping the version constant cannot fix it (a fresh snapshot taken after the
+  bump would still lose it). Filed separately rather than folded into this bump; needs its own
+  fix (giving `ImportTask` a persistence-only DTO, mirroring `logGroupSnapshot` et al., that
+  carries `ImportRoleArn` under an exported key distinct from the wire response's own shape).
+- `567e2c4f8`'s `Anomaly` field renames (`suppressedState` -> `state`, plus several
+  previously-absent required members) are moot for persistence: `Anomaly` is registered on
+  `b.ephemeralRegistry` (`b.anomalies`), never included in `backendSnapshot` -- confirmed by
+  `Snapshot`'s own doc comment, which lists `b.ephemeralRegistry` among the state deliberately
+  excluded from every snapshot.
+
+**Proof:** `TestInMemoryBackend_RestoreV1IndexPolicyLastUpdateTimeDiscarded` (persistence_test.go)
+builds a v1-shaped `indexPolicies` snapshot with an RFC3339-string `lastUpdateTime` and asserts
+`Restore` succeeds (discarding cleanly) rather than erroring; hand-reverted to version 1, the
+same test fails with `Restore` returning `json: cannot unmarshal string into Go struct field
+IndexPolicy.lastUpdateTime of type int64`, confirming the symptom.
+`TestInMemoryBackend_RestoreV1ScheduledQueryArnDiscarded` builds a v1-shaped `scheduledQueries`
+snapshot tagged `"arn"` and asserts `ListScheduledQueries` returns empty after restore;
+hand-reverted, the same snapshot instead restores one scheduled query with `ScheduledQueryArn`
+silently empty (while `Name`/`QueryString`/`State`, never renamed, restore correctly) --
+confirming the predicted key-collision symptom. Both hand-reverts restored and
+`md5sum`-verified byte-identical.
+
+**Gates:** `go build`, `go vet` (default/e2e/integration), `gofmt -l` (clean), `go test -race`
+(pass), `golangci-lint run` (0 issues).

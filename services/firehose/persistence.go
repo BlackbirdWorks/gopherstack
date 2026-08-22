@@ -19,7 +19,16 @@ import (
 // all, so an old snapshot decodes with Version == 0, which is guaranteed to
 // mismatch firehoseSnapshotVersion and is discarded the same way any other
 // incompatible snapshot is.
-const firehoseSnapshotVersion = 1
+//
+// Bumped 1 -> 2 (gopherstack-hjdd) for d83f4b5d3: MSKSourceDescription.
+// ReadFromTimestamp (nested inside the registered "streams" table's value
+// type, via DeliveryStream.Source) changed from string to float64, matching
+// the real deserializer's epoch-seconds number. A Version-1 snapshot with a
+// non-empty "ReadFromTimestamp" string no longer unmarshals into the new
+// float64 field -- an outright decode error that takes down the whole
+// restore, not silent loss -- so it must be discarded like any other
+// shape-incompatible snapshot.
+const firehoseSnapshotVersion = 2
 
 // backendSnapshot is the top-level on-disk shape for the Firehose backend.
 //

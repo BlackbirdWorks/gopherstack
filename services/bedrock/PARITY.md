@@ -275,3 +275,31 @@ leaks: {status: clean, note: "no new goroutines, tickers, or unregistered maps i
   resourcePolicyRevisionCounter now (the table itself was already covered by
   registry.ResetAll, but the standalone revision counter needed an explicit
   reset alongside this method's other manually-listed counters)."}
+
+## 2026-08-21 (gopherstack-hjdd): snapshot-version guard, unbumped retype
+
+`bedrockSnapshotVersion` bumped 1 -> 2. `f16063cd2` retagged `Flow.FlowID`/`FlowArn`,
+`FlowAlias.FlowAliasID`/`FlowAliasArn`, `FlowVersion.FlowID`, and `Prompt.PromptID`/
+`PromptArn` (all registered tables' value types: `flows`, `flowAliases`,
+`flowVersions:<id>`, `prompts`) from `flowId`/`flowArn`/`flowAliasId`/`flowAliasArn`/
+`promptId`/`promptArn` to the real deserializer's flat `id`/`arn`, without bumping the
+snapshot version. A pre-fix (v1) snapshot's old keys no longer match at all, so these
+identity fields silently decode empty on restore -- and since `flowsKeyFn`/`promptsKeyFn`
+key their table on exactly these fields, every restored flow/prompt would collide onto the
+same empty key, silently discarding all but one.
+
+Found via `pkgs/persistence`'s snapshot-version guard, extended this session
+(gopherstack-hjdd) to recursively expand fields of every type reached through a
+`store.Register`/`store.New` table registration.
+
+**Proof:** `TestInMemoryBackend_RestoreV1FlowIDDiscarded` (persistence_test.go) builds a
+v1-shaped `flows` snapshot tagged `flowId`/`flowArn` and asserts `ListFlows` returns empty
+after restore (clean wholesale discard) -- not a `GetFlow` miss alone, since a corrupted
+restore also fails that lookup (the flow is misfiled under key `""`, not the real id), so
+`ListFlows` is the assertion that actually distinguishes a clean discard from silent
+corruption. Hand-reverted to version 1: the same snapshot decodes with a single flow whose
+`FlowID`/`FlowArn` are silently empty while `Name` (never renamed) restores correctly --
+confirming the predicted symptom; restored and `md5sum`-verified byte-identical.
+
+**Gates:** `go build`, `go vet` (default/e2e/integration), `gofmt -l` (clean), `go test -race`
+(pass), `golangci-lint run` (0 issues).

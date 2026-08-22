@@ -1895,7 +1895,7 @@
       "backendSnapshot.APIKeys map[string]map[string]*APIKey `json:\"apiKeys,omitempty\"`",
       "backendSnapshot.Tables map[string]json.RawMessage `json:\"tables\"`"
     ],
-    "version": 1
+    "version": 2
   },
   "athena": {
     "fields": [
@@ -2083,7 +2083,7 @@
       "tableMetadataSnapshot.Database string `json:\"database\"`",
       "tableMetadataSnapshot.Record TableMetadata `json:\"record\"`"
     ],
-    "version": 1
+    "version": 2
   },
   "autoscaling": {
     "fields": [
@@ -3564,7 +3564,7 @@
       "backendSnapshot.Tables map[string]json.RawMessage `json:\"tables\"`",
       "backendSnapshot.UseCaseFormData []byte `json:\"useCaseFormData,omitempty\"`"
     ],
-    "version": 1
+    "version": 2
   },
   "bedrockagent": {
     "fields": [
@@ -4826,7 +4826,7 @@
       "AlarmHistoryItem.HistoryItemType string `json:\"HistoryItemType\"`",
       "AlarmHistoryItem.HistorySummary string `json:\"HistorySummary\"`",
       "AlarmHistoryItem.Timestamp time.Time `json:\"Timestamp\"`",
-      "AlarmMuteRule.AlarmNames []string `json:\"AlarmNames,omitempty\"`",
+      "AlarmMuteRule.AlarmNames []string `json:\"AlarmNames\"`",
       "AlarmMuteRule.Arn string `json:\"Arn\"`",
       "AlarmMuteRule.CreationTime time.Time `json:\"CreationTime\"`",
       "AlarmMuteRule.Description string `json:\"Description,omitempty\"`",
@@ -4956,8 +4956,13 @@
       "MetricStream.OutputFormat string `json:\"OutputFormat\"`",
       "MetricStream.RoleArn string `json:\"RoleArn\"`",
       "MetricStream.State string `json:\"State\"`",
+      "MetricStream.StatisticsConfigurations []MetricStreamStatisticsConfiguration `json:\"StatisticsConfigurations,omitempty\"`",
       "MetricStreamFilter.MetricNames []string `json:\"MetricNames,omitempty\"`",
       "MetricStreamFilter.Namespace string `json:\"Namespace\"`",
+      "MetricStreamStatisticsConfiguration.AdditionalStatistics []string `json:\"AdditionalStatistics\"`",
+      "MetricStreamStatisticsConfiguration.IncludeMetrics []MetricStreamStatisticsMetric `json:\"IncludeMetrics\"`",
+      "MetricStreamStatisticsMetric.MetricName string `json:\"MetricName\"`",
+      "MetricStreamStatisticsMetric.Namespace string `json:\"Namespace\"`",
       "OTelEnrichmentState.Key string `json:\"Key\"`",
       "OTelEnrichmentState.Status string `json:\"Status\"`",
       "ScheduleConfiguration.EndTimeOffset int64 `json:\"EndTimeOffset,omitempty\"`",
@@ -5251,7 +5256,7 @@
       "storedQuery.stats QueryStatistics",
       "subscriptionFilterSnapshot.Region string `json:\"region\"`"
     ],
-    "version": 1
+    "version": 2
   },
   "codeartifact": {
     "fields": [
@@ -11551,7 +11556,7 @@
       "flushSnapshot.streamARN string",
       "flushSnapshot.streamName string"
     ],
-    "version": 1
+    "version": 2
   },
   "fis": {
     "fields": [
@@ -15956,7 +15961,7 @@
       "backendSnapshot.Tables map[string]json.RawMessage `json:\"tables\"`",
       "backendSnapshot.Tags map[string]map[string]string `json:\"tags\"`"
     ],
-    "version": 1
+    "version": 2
   },
   "managedblockchain": {
     "fields": [
@@ -16193,7 +16198,7 @@
       "tokenSnapshot.Entry tokenEntry `json:\"entry\"`",
       "tokenSnapshot.Token string `json:\"token\"`"
     ],
-    "version": 1
+    "version": 2
   },
   "medialive": {
     "fields": [
@@ -18956,7 +18961,7 @@
       "backendSnapshot.UploadPartData map[string]map[string]map[string]map[int][]byte `json:\"uploadPartData\"`",
       "backendSnapshot.UploadParts map[string]map[string][]*ReadSetUploadPart `json:\"uploadParts\"`"
     ],
-    "version": 1
+    "version": 2
   },
   "opensearch": {
     "fields": [
@@ -20303,7 +20308,7 @@
       "enrichmentCounter.Count int64 `json:\"count\"`",
       "enrichmentCounter.Name string `json:\"name\"`"
     ],
-    "version": 1
+    "version": 2
   },
   "polly": {
     "fields": [

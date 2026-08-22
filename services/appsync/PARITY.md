@@ -298,3 +298,28 @@ ID string, including ones that were never started. Fixed:
   introspect. This is called out explicitly in `deferred` above rather than silently
   passed off as full parity; a real fix would require a cross-service RDS Data API
   integration, out of this task's `services/appsync/` edit boundary.
+
+### 2026-08-21 (gopherstack-hjdd): snapshot-version guard, unbumped retype
+
+`appsyncSnapshotVersion` bumped 1 -> 2. `d83f4b5d3` gave `Resolver` (the registered
+`resolvers` table's value type) the `MarshalJSON`/`UnmarshalJSON` pair described above
+(`GetResolver`'s note), rendering `PipelineConfig` as `{functions: [...]}` instead of a
+bare array, without bumping the snapshot version at the time. A pre-fix (v1) snapshot's
+array no longer unmarshals into the new object field at all -- `RestoreAll` now errors
+outright rather than silently losing data, but the whole backend then fails to restore,
+which the version guard exists to convert into a clean, recoverable "discard and start
+empty" instead.
+
+Found via `pkgs/persistence`'s snapshot-version guard, extended this session
+(gopherstack-hjdd) to recursively expand fields of every type reached through a
+`store.Register`/`store.New` table registration.
+
+**Proof:** `Test_InMemoryBackend_Restore_V1PipelineConfigDiscarded` (persistence_test.go)
+builds a v1-shaped `resolvers` snapshot with an array-shaped `pipelineConfig` and asserts
+`Restore` succeeds (discarding cleanly) rather than erroring. Hand-reverted to version 1:
+the same test then fails with `Restore` returning `json: cannot unmarshal array into Go
+struct field .pipelineConfig of type appsync.pipelineConfigWire`, confirming the symptom;
+restored and `md5sum`-verified byte-identical.
+
+**Gates:** `go build`, `go vet` (default/e2e/integration), `gofmt -l` (clean), `go test -race`
+(pass), `golangci-lint run` (0 issues).

@@ -137,3 +137,48 @@ func TestRestore_MissingEnrichmentCallCount(t *testing.T) {
 	// Must not panic; count for unknown pipe is zero.
 	assert.Equal(t, int64(0), b.GetEnrichmentCallCount(context.Background(), "any-pipe"))
 }
+
+// TestRestore_V1BatchEnvironmentDiscarded proves gopherstack-hjdd's fix: a v1
+// snapshot holding BatchContainerOverrides.Environment in the
+// pre-d83f4b5d3 map shape must be discarded cleanly now that
+// pipesSnapshotVersion is 2, rather than erroring Restore outright when the
+// registered "pipes/<region>" table's array-typed field can't decode a JSON
+// object.
+func TestRestore_V1BatchEnvironmentDiscarded(t *testing.T) {
+	t.Parallel()
+
+	b := b3Backend()
+
+	v1Snapshot := []byte(`{
+		"version": 1,
+		"accountID": "111122223333",
+		"region": "eu-west-1",
+		"tables": {
+			"pipes/eu-west-1": [{
+				"name": "old-pipe",
+				"arn": "arn:aws:pipes:eu-west-1:111122223333:pipe/old-pipe",
+				"source": "arn:aws:sqs:eu-west-1:111122223333:src",
+				"target": "arn:aws:batch:eu-west-1:111122223333:job-queue/q",
+				"roleArn": "arn:aws:iam::111122223333:role/PipesRole",
+				"desiredState": "RUNNING",
+				"currentState": "RUNNING",
+				"accountID": "111122223333",
+				"region": "eu-west-1",
+				"targetParameters": {
+					"BatchJobParameters": {
+						"ContainerOverrides": {
+							"Environment": {"KEY": "value"}
+						}
+					}
+				}
+			}]
+		}
+	}`)
+
+	require.NoError(t, b.Restore(t.Context(), v1Snapshot),
+		"a v1 snapshot must be discarded via the version guard, not error out of RestoreAll")
+
+	_, err := b.GetPipe(t.Context(), "old-pipe")
+	require.ErrorIs(t, err, pipes.ErrNotFound,
+		"incompatible-version snapshot must reset to empty, not partially decode")
+}

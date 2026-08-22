@@ -288,3 +288,30 @@ covers `ErrRecordTooLarge`/`ErrBatchTooLarge` since both wrap
 `awserr.ErrInvalidParameter`. No missing `errCodeLookup`-style gap found (all sentinel
 errors route through the switch above; nothing falls through to the generic 500 bucket
 except genuinely unexpected internal errors).
+
+## 2026-08-21 (gopherstack-hjdd): snapshot-version guard, unbumped retype
+
+`firehoseSnapshotVersion` bumped 1 -> 2. `d83f4b5d3` retyped
+`MSKSourceDescription.ReadFromTimestamp` (nested inside the registered `streams` table's
+value type via `DeliveryStream.Source`) from `string` to `float64`, matching the real
+deserializer's epoch-seconds number, without bumping the snapshot version. A pre-fix (v1)
+snapshot's non-empty `"ReadFromTimestamp"` string no longer unmarshals into the new
+float64 field at all -- `RestoreAll` now errors outright rather than silently losing data,
+but the whole backend then fails to restore, which the version guard exists to convert
+into a clean, recoverable "discard and start empty" instead. (The sibling request-side DTO
+`mskSourceConfigurationInput`, changed in the same commit, is a handler-only unmarshal
+target, never persisted, so it carries no snapshot-compatibility concern of its own.)
+
+Found via `pkgs/persistence`'s snapshot-version guard, extended this session
+(gopherstack-hjdd) to recursively expand fields of every type reached through a
+`store.Register`/`store.New` table registration.
+
+**Proof:** `TestInMemoryBackend_RestoreV1MSKReadFromTimestampDiscarded` (persistence_test.go)
+builds a v1-shaped `streams` snapshot with a string-valued `ReadFromTimestamp` and asserts
+`Restore` succeeds (discarding cleanly) rather than erroring. Hand-reverted to version 1:
+the same test then fails with `Restore` returning `json: cannot unmarshal string into Go
+struct field MSKSourceDescription.source.MSKSourceDescription.ReadFromTimestamp of type
+float64`, confirming the symptom; restored and `md5sum`-verified byte-identical.
+
+**Gates:** `go build`, `go vet` (default/e2e/integration), `gofmt -l` (clean), `go test -race`
+(pass), `golangci-lint run` (0 issues).

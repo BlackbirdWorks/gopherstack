@@ -23,7 +23,18 @@ import (
 // without a matching Version (including one with no version field, which
 // decodes as 0) is discarded the same way any other incompatible snapshot
 // is.
-const macie2SnapshotVersion = 1
+//
+// Bumped 1 -> 2 (gopherstack-hjdd) for 1217df451: ResourceProfile (the
+// registered "resourceProfiles" table's value type) retagged
+// SensitivityScoreOverride to the real deserializer's
+// sensitivityScoreOverridden, a flag UpdateResourceProfile genuinely sets. A
+// Version-1 snapshot's "sensitivityScoreOverride" key no longer matches the
+// new field name at all -- an older true value silently decodes as false,
+// not an error -- so it must be discarded like any other shape-incompatible
+// snapshot. (ResourceStatistics's sibling renames in the same commit are not
+// a compatibility concern: that struct is never populated with real data by
+// this backend, disclosed as untested in the commit itself.)
+const macie2SnapshotVersion = 2
 
 // backendSnapshot is the top-level on-disk shape for the Macie2 backend.
 //

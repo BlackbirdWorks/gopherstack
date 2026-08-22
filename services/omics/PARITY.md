@@ -468,3 +468,30 @@ returning the terminal state immediately is correct and matches how a fast
 real backend would eventually settle. Confirm by checking whether the SDK
 ships a `*Waiter` for the corresponding `Get*`/`Describe*` op before flagging
 this pattern again.
+
+## 2026-08-21 (gopherstack-hjdd): snapshot-version guard, unbumped key renames
+
+`omicsSnapshotVersion` bumped 1 -> 2. `c41d36cb6` retagged `AnnotationStore.Arn` and
+`AnnotationStoreVersion.Arn` (both registered table value types) to `storeArn`/`versionArn`,
+and `95edfe255` retagged `AnnotationStoreVersion.StoreName` from `storeName` to `name`,
+neither bump applied at the time. A pre-fix snapshot's `"arn"`/`"storeName"` data is
+unrecognized by the new tags: `StoreArn`/`VersionArn`/`StoreName` silently decode as empty
+strings, and since `AnnotationStoreVersion`'s secondary `byStore` index is keyed on
+`StoreName`, the zeroed field also misfiles the restored version out of its store's version
+list entirely (silent, not loud).
+
+Found via `pkgs/persistence`'s snapshot-version guard, extended this session
+(gopherstack-hjdd) to recursively expand fields of every type reached through a
+`store.Register`/`store.New` table registration.
+
+**Proof:** `TestInMemoryBackend_RestoreV1AnnotationStoreVersionDiscarded` (persistence_test.go)
+builds a v1-shaped snapshot with an `AnnotationStore`/`AnnotationStoreVersion` tagged
+`arn`/`storeName` and asserts `GetAnnotationStoreVersion` returns `ErrNotFound` after restore
+(clean wholesale discard), not silently decoded with the identity fields zeroed.
+Hand-reverted to version 1: `ListAnnotationStoreVersions("store-1", ...)` on the same
+snapshot returns 0 versions instead of the 1 restored (the version record decodes but is
+misfiled under the zeroed `StoreName` key, so it silently vanishes from every store-scoped
+lookup) -- confirming the original symptom; restored and `md5sum`-verified byte-identical.
+
+**Gates:** `go build`, `go vet` (default/e2e/integration), `gofmt -l` (clean), `go test -race`
+(pass), `golangci-lint run` (0 issues).

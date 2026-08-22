@@ -72,6 +72,40 @@ func TestInMemoryBackend_RestoreOldSnapshotDecodesAsZero(t *testing.T) {
 	assert.Equal(t, 0, mediaconvert.QueueCount(b))
 }
 
+// TestInMemoryBackend_RestoreV1JobLastShareDetailsDiscarded proves
+// gopherstack-hjdd's fix: a v1 snapshot holding Job.LastShareDetails in the
+// pre-d83f4b5d3 object shape must be discarded cleanly now that
+// mediaconvertSnapshotVersion is 2, rather than erroring Restore outright
+// when the registered "jobs" table's custom UnmarshalJSON can't decode a
+// JSON object into the new bare-string field.
+func TestInMemoryBackend_RestoreV1JobLastShareDetailsDiscarded(t *testing.T) {
+	t.Parallel()
+
+	b := mediaconvert.NewInMemoryBackend(testAccountID, testRegion)
+
+	v1Snapshot := `{
+		"version": 1,
+		"accountID": "` + testAccountID + `",
+		"region": "` + testRegion + `",
+		"tables": {
+			"jobs": [{
+				"id": "job-1",
+				"arn": "arn:aws:mediaconvert:us-east-1:000000000000:jobs/job-1",
+				"role": "arn:aws:iam::000000000000:role/Role",
+				"status": "COMPLETE",
+				"lastShareDetails": {"shareToken": "tok-1", "sharedAt": 1700000000}
+			}]
+		}
+	}`
+
+	require.NoError(t, b.Restore(t.Context(), []byte(v1Snapshot)),
+		"a v1 snapshot must be discarded via the version guard, not error out of RestoreAll")
+
+	_, err := b.GetJob("job-1")
+	require.ErrorIs(t, err, mediaconvert.ErrNotFound,
+		"incompatible-version snapshot must reset to empty, not partially decode")
+}
+
 // TestInMemoryBackend_SnapshotRestore_FullState exercises a Snapshot->Restore
 // round trip across every store.Table-backed resource family the Phase 3.3
 // conversion touched (queues incl. the byARN secondary index, jobTemplates,

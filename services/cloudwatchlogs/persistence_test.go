@@ -279,6 +279,71 @@ func TestInMemoryBackend_RestoreInvalidData(t *testing.T) {
 	require.Error(t, err)
 }
 
+// TestInMemoryBackend_RestoreV1IndexPolicyLastUpdateTimeDiscarded proves
+// gopherstack-hjdd's fix: a v1 snapshot holding IndexPolicy.LastUpdateTime in
+// the pre-ca3afb3ca time.Time shape must be discarded cleanly now that
+// cwlSnapshotVersion is 2, rather than erroring Restore outright when the
+// registered "indexPolicies" table's int64-typed field can't decode an
+// RFC3339 JSON string.
+func TestInMemoryBackend_RestoreV1IndexPolicyLastUpdateTimeDiscarded(t *testing.T) {
+	t.Parallel()
+
+	b := cloudwatchlogs.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
+
+	v1Snapshot := []byte(`{
+		"version": 1,
+		"accountID": "000000000000",
+		"region": "us-east-1",
+		"tables": {
+			"indexPolicies": [{
+				"logGroupIdentifier": "my-log-group",
+				"policyDocument": "{}",
+				"lastUpdateTime": "2024-01-01T00:00:00Z"
+			}]
+		}
+	}`)
+
+	require.NoError(t, b.Restore(t.Context(), v1Snapshot),
+		"a v1 snapshot must be discarded via the version guard, not error out of RestoreAll")
+
+	assert.Empty(t, b.DescribeIndexPolicies(),
+		"incompatible-version snapshot must reset to empty, not partially decode")
+}
+
+// TestInMemoryBackend_RestoreV1ScheduledQueryArnDiscarded proves
+// gopherstack-hjdd's fix: a v1 snapshot holding ScheduledQuery.Arn under the
+// pre-9f62f7f5d key "arn" must be discarded cleanly now that
+// cwlSnapshotVersion is 2, rather than silently decoding it empty and
+// colliding every restored scheduled query onto the same "" key
+// (scheduledQueryKeyFn keys the table on this exact field).
+func TestInMemoryBackend_RestoreV1ScheduledQueryArnDiscarded(t *testing.T) {
+	t.Parallel()
+
+	b := cloudwatchlogs.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
+
+	v1Snapshot := []byte(`{
+		"version": 1,
+		"accountID": "000000000000",
+		"region": "us-east-1",
+		"tables": {
+			"scheduledQueries": [{
+				"arn": "arn:aws:logs:us-east-1:000000000000:scheduled-query:old-query",
+				"name": "old-query",
+				"queryString": "fields @timestamp",
+				"state": "ENABLED"
+			}]
+		}
+	}`)
+
+	require.NoError(t, b.Restore(t.Context(), v1Snapshot),
+		"a v1 snapshot must be discarded via the version guard, not partially decoded")
+
+	queries, _, err := b.ListScheduledQueries(10, "")
+	require.NoError(t, err)
+	assert.Empty(t, queries,
+		"incompatible-version snapshot must reset to empty, not restore a scheduled query with a corrupted arn")
+}
+
 func TestHandler_SnapshotRestore_PreservesTags(t *testing.T) {
 	t.Parallel()
 

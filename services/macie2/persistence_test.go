@@ -36,6 +36,43 @@ func TestInMemoryBackend_RestoreVersionMismatch(t *testing.T) {
 	assert.Equal(t, 0, macie2.CustomDataIDCount(b))
 }
 
+// TestInMemoryBackend_RestoreV1SensitivityScoreOverrideDiscarded proves
+// gopherstack-hjdd's fix: a v1 snapshot holding ResourceProfile's override
+// flag under the pre-1217df451 key "sensitivityScoreOverride" must be
+// discarded cleanly now that macie2SnapshotVersion is 2, rather than
+// silently decoding it as false under the new key
+// "sensitivityScoreOverridden".
+func TestInMemoryBackend_RestoreV1SensitivityScoreOverrideDiscarded(t *testing.T) {
+	t.Parallel()
+
+	b := macie2.NewInMemoryBackend("111111111111", "us-east-1")
+
+	const arn = "arn:aws:s3:::old-bucket"
+
+	v1Snapshot := `{
+		"version": 1,
+		"accountID": "111111111111",
+		"region": "us-east-1",
+		"tables": {
+			"resourceProfiles": [{
+				"resourceArn": "` + arn + `",
+				"sensitivityScore": 50,
+				"sensitivityScoreOverride": true
+			}]
+		}
+	}`
+
+	require.NoError(t, b.Restore(t.Context(), []byte(v1Snapshot)),
+		"a v1 snapshot must be discarded via the version guard, not partially decoded")
+
+	got, err := b.GetResourceProfile(arn)
+	require.NoError(t, err, "GetResourceProfile synthesizes a default rather than erroring")
+	assert.False(t, got.SensitivityScoreOverridden,
+		"incompatible-version snapshot must reset to empty, "+
+			"not silently decode the override as false under the wrong key")
+	assert.Zero(t, got.SensitivityScore)
+}
+
 func TestHandler_SnapshotRestoreDelegate(t *testing.T) {
 	t.Parallel()
 

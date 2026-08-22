@@ -272,3 +272,42 @@ func TestInMemoryBackend_RestoreVersionMismatch(t *testing.T) {
 		})
 	}
 }
+
+// TestInMemoryBackend_RestoreV1MSKReadFromTimestampDiscarded proves
+// gopherstack-hjdd's fix: a v1 snapshot holding
+// MSKSourceDescription.ReadFromTimestamp in the pre-d83f4b5d3 string shape
+// must be discarded cleanly now that firehoseSnapshotVersion is 2, rather
+// than erroring Restore outright when the registered "streams" table's
+// float64-typed field can't decode a JSON string.
+func TestInMemoryBackend_RestoreV1MSKReadFromTimestampDiscarded(t *testing.T) {
+	t.Parallel()
+
+	b := firehose.NewInMemoryBackend("000000000000", "us-east-1")
+
+	v1Snapshot := []byte(`{
+		"version": 1,
+		"tables": {
+			"streams": [{
+				"name": "old-stream",
+				"arn": "arn:aws:firehose:us-east-1:000000000000:deliverystream/old-stream",
+				"status": "ACTIVE",
+				"accountID": "000000000000",
+				"region": "us-east-1",
+				"source": {
+					"MSKSourceDescription": {
+						"MSKClusterARN": "arn:aws:kafka:us-east-1:000000000000:cluster/c1",
+						"TopicName": "topic-1",
+						"ReadFromTimestamp": "2024-01-01T00:00:00Z"
+					}
+				}
+			}]
+		}
+	}`)
+
+	require.NoError(t, b.Restore(t.Context(), v1Snapshot),
+		"a v1 snapshot must be discarded via the version guard, not error out of RestoreAll")
+
+	_, err := b.DescribeDeliveryStream(t.Context(), "old-stream")
+	require.ErrorIs(t, err, firehose.ErrNotFound,
+		"incompatible-version snapshot must reset to empty, not partially decode")
+}

@@ -234,3 +234,28 @@ Container/Metadata/TrackMappings object, not wrapped under a "probeResult"
 key, and there is no "inputFile" echo member at all. Proven via
 `TestProbe_ResultContainsContainer` (probe_test.go, strengthened in place),
 hand-reverted/confirmed-failing/restored/`md5sum`-verified byte-identical.
+
+## 2026-08-21 (gopherstack-hjdd): snapshot-version guard, unbumped retype
+
+`mediaconvertSnapshotVersion` bumped 1 -> 2. `d83f4b5d3` gave `Job` (the registered
+`jobs` table's value type) a custom `MarshalJSON`/`UnmarshalJSON` pair that renders
+`LastShareDetails` as the real deserializer's bare string instead of the previous
+`{shareToken, sharedAt}` object, without bumping the snapshot version. A pre-fix (v1)
+snapshot's object no longer unmarshals into the new string field at all -- `RestoreAll`
+now errors outright rather than silently losing data, but the whole backend then fails
+to restore, which the version guard exists to convert into a clean, recoverable
+"discard and start empty" instead.
+
+Found via `pkgs/persistence`'s snapshot-version guard, extended this session
+(gopherstack-hjdd) to recursively expand fields of every type reached through a
+`store.Register`/`store.New` table registration.
+
+**Proof:** `TestInMemoryBackend_RestoreV1JobLastShareDetailsDiscarded` (persistence_test.go)
+builds a v1-shaped `jobs` snapshot with an object-shaped `lastShareDetails` and asserts
+`Restore` succeeds (discarding cleanly) rather than erroring. Hand-reverted to version 1:
+the same test then fails with `Restore` returning `json: cannot unmarshal object into Go
+struct field .lastShareDetails of type string`, confirming the symptom; restored and
+`md5sum`-verified byte-identical.
+
+**Gates:** `go build`, `go vet` (default/e2e/integration), `gofmt -l` (clean), `go test -race`
+(pass), `golangci-lint run` (0 issues).

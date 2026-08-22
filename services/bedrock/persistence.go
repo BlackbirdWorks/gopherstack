@@ -38,7 +38,19 @@ import (
 // version: bedrock had no persistence at all before this file (neither
 // Handler/AgentsHandler nor InMemoryBackend implemented Snapshot/Restore), so
 // there is no legacy snapshot shape to be compatible with.
-const bedrockSnapshotVersion = 1
+//
+// Bumped 1 -> 2 (gopherstack-hjdd) for f16063cd2: Flow.FlowID/FlowArn,
+// FlowAlias.FlowAliasID/FlowAliasArn, FlowVersion.FlowID, and
+// Prompt.PromptID/PromptArn (all registered tables' value types: flows,
+// flowAliases, flowVersions:<id>, prompts) were retagged from
+// flowId/flowArn/flowAliasId/flowAliasArn/promptId/promptArn to the real
+// deserializer's flat id/arn. A Version-1 snapshot's old keys no longer
+// match at all, so these identity fields silently decode empty -- and since
+// flowsKeyFn/promptsKeyFn key their table on exactly these fields, every
+// restored flow/prompt would collide on the same empty key, silently
+// discarding all but one. Must be discarded like any other
+// shape-incompatible snapshot.
+const bedrockSnapshotVersion = 2
 
 // backendSnapshot is the top-level on-disk shape for the Bedrock backend.
 //
