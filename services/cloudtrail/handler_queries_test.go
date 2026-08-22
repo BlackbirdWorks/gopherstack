@@ -45,7 +45,7 @@ func TestCloudTrailQuery(t *testing.T) {
 			ops: func(t *testing.T, h *cloudtrail.Handler) {
 				t.Helper()
 				// Create a query via StartQuery in backend directly
-				q, err := h.Backend.StartQuery("SELECT eventName, eventSource FROM events LIMIT 10", "", "")
+				q, err := h.Backend.StartQuery("SELECT eventName, eventSource FROM events LIMIT 10", "", "", "")
 				require.NoError(t, err)
 				require.NotEmpty(t, q.QueryID)
 
@@ -69,7 +69,7 @@ func TestCloudTrailQuery(t *testing.T) {
 			name: "cancel_already_cancelled_query",
 			ops: func(t *testing.T, h *cloudtrail.Handler) {
 				t.Helper()
-				q, err := h.Backend.StartQuery("SELECT 1", "", "")
+				q, err := h.Backend.StartQuery("SELECT 1", "", "", "")
 				require.NoError(t, err)
 
 				// Cancel it once

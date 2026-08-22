@@ -41,7 +41,8 @@ func eventDataStoreKeyFn(v *EventDataStore) string     { return v.EventDataStore
 func eventDataStoreARNKeyFn(v *EventDataStore) string  { return v.EventDataStoreARN }
 func eventDataStoreNameKeyFn(v *EventDataStore) string { return v.Name }
 
-func queryKeyFn(v *Query) string { return v.QueryID }
+func queryKeyFn(v *Query) string      { return v.QueryID }
+func queryAliasKeyFn(v *Query) string { return v.QueryAlias }
 
 func resourcePolicyKeyFn(v *ResourcePolicy) string { return v.ResourceARN }
 
@@ -69,6 +70,7 @@ func registerAllTables(b *InMemoryBackend) {
 	b.edsByName = b.eventDataStores.AddIndex("byName", eventDataStoreNameKeyFn)
 
 	b.queries = store.Register(b.registry, "queries", store.New(queryKeyFn))
+	b.queriesByAlias = b.queries.AddIndex("byAlias", queryAliasKeyFn)
 
 	b.resourcePolicies = store.Register(b.registry, "resourcePolicies", store.New(resourcePolicyKeyFn))
 

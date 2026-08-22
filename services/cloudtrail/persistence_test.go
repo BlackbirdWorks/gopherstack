@@ -46,7 +46,7 @@ func newPersistenceTestBackend(t *testing.T) *cloudtrail.InMemoryBackend {
 	require.NoError(t, err)
 
 	// queries table.
-	_, err = b.StartQuery("SELECT * FROM events", eds.EventDataStoreARN, "")
+	_, err = b.StartQuery("SELECT * FROM events", eds.EventDataStoreARN, "", "")
 	require.NoError(t, err)
 
 	// resourcePolicies table.
@@ -410,7 +410,7 @@ func TestPersistenceRoundTripAllResourceTypes(t *testing.T) {
 	doCloudTrailOp(t, h, "CreateEventDataStore", map[string]any{
 		"Name": "persist-eds",
 	})
-	q, err := h.Backend.StartQuery("SELECT eventName FROM events LIMIT 1", "", "")
+	q, err := h.Backend.StartQuery("SELECT eventName FROM events LIMIT 1", "", "", "")
 	require.NoError(t, err)
 
 	snap := h.Snapshot(t.Context())
