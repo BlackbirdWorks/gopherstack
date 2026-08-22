@@ -175,7 +175,7 @@ func TestLookupTable_CRUD(t *testing.T) {
 			name: "create_and_get",
 			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
 				t.Helper()
-				table, err := b.CreateLookupTable("my_table", csvBody, "desc", "kms-1")
+				table, err := b.CreateLookupTable("my_table", csvBody, "desc", "kms-1", "")
 				require.NoError(t, err)
 				assert.Equal(t, "my_table", table.LookupTableName)
 				assert.Equal(t, []string{"id", "name"}, table.TableFields)
@@ -196,9 +196,9 @@ func TestLookupTable_CRUD(t *testing.T) {
 			name: "create_duplicate_name_errors",
 			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
 				t.Helper()
-				_, err := b.CreateLookupTable("dup_table", csvBody, "", "")
+				_, err := b.CreateLookupTable("dup_table", csvBody, "", "", "")
 				require.NoError(t, err)
-				_, err = b.CreateLookupTable("dup_table", csvBody, "", "")
+				_, err = b.CreateLookupTable("dup_table", csvBody, "", "", "")
 				require.ErrorIs(t, err, cloudwatchlogs.ErrLookupTableAlreadyExists)
 			},
 		},
@@ -206,7 +206,7 @@ func TestLookupTable_CRUD(t *testing.T) {
 			name: "create_invalid_name_errors",
 			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
 				t.Helper()
-				_, err := b.CreateLookupTable("bad name!", csvBody, "", "")
+				_, err := b.CreateLookupTable("bad name!", csvBody, "", "", "")
 				require.ErrorIs(t, err, cloudwatchlogs.ErrValidation)
 			},
 		},
@@ -214,7 +214,7 @@ func TestLookupTable_CRUD(t *testing.T) {
 			name: "create_empty_body_errors",
 			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
 				t.Helper()
-				_, err := b.CreateLookupTable("empty_body", "", "", "")
+				_, err := b.CreateLookupTable("empty_body", "", "", "", "")
 				require.ErrorIs(t, err, cloudwatchlogs.ErrValidation)
 			},
 		},
@@ -222,7 +222,7 @@ func TestLookupTable_CRUD(t *testing.T) {
 			name: "create_malformed_csv_errors",
 			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
 				t.Helper()
-				_, err := b.CreateLookupTable("malformed", `"unterminated`, "", "")
+				_, err := b.CreateLookupTable("malformed", `"unterminated`, "", "", "")
 				require.ErrorIs(t, err, cloudwatchlogs.ErrValidation)
 			},
 		},
@@ -230,12 +230,12 @@ func TestLookupTable_CRUD(t *testing.T) {
 			name: "update_replaces_body",
 			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
 				t.Helper()
-				table, err := b.CreateLookupTable("upd_table", csvBody, "old", "")
+				table, err := b.CreateLookupTable("upd_table", csvBody, "old", "", "")
 				require.NoError(t, err)
 
 				newBody := "id,name,extra\n1,foo,x\n"
 				newDesc := "new"
-				updated, err := b.UpdateLookupTable(table.LookupTableArn, newBody, &newDesc, nil)
+				updated, err := b.UpdateLookupTable(table.LookupTableArn, newBody, &newDesc, nil, "")
 				require.NoError(t, err)
 				assert.Equal(t, table.LookupTableArn, updated.LookupTableArn)
 			},
@@ -253,7 +253,7 @@ func TestLookupTable_CRUD(t *testing.T) {
 			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
 				t.Helper()
 				_, err := b.UpdateLookupTable(
-					"arn:aws:logs:us-east-1:000000000000:lookup-table:ghost", csvBody, nil, nil,
+					"arn:aws:logs:us-east-1:000000000000:lookup-table:ghost", csvBody, nil, nil, "",
 				)
 				require.ErrorIs(t, err, cloudwatchlogs.ErrLookupTableNotFound)
 			},
@@ -262,7 +262,7 @@ func TestLookupTable_CRUD(t *testing.T) {
 			name: "delete_removes",
 			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
 				t.Helper()
-				table, err := b.CreateLookupTable("del_table", csvBody, "", "")
+				table, err := b.CreateLookupTable("del_table", csvBody, "", "", "")
 				require.NoError(t, err)
 				require.NoError(t, b.DeleteLookupTable(table.LookupTableArn))
 				_, err = b.GetLookupTable(table.LookupTableArn)
@@ -286,9 +286,9 @@ func TestLookupTable_CRUD(t *testing.T) {
 			name: "describe_filters_by_prefix",
 			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
 				t.Helper()
-				_, err := b.CreateLookupTable("prod_users", csvBody, "", "")
+				_, err := b.CreateLookupTable("prod_users", csvBody, "", "", "")
 				require.NoError(t, err)
-				_, err = b.CreateLookupTable("dev_users", csvBody, "", "")
+				_, err = b.CreateLookupTable("dev_users", csvBody, "", "", "")
 				require.NoError(t, err)
 			},
 			verify: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {

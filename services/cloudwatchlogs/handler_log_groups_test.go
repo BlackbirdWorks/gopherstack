@@ -5,6 +5,9 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	cwlsdk "github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
+	cwltypes "github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs/types"
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -512,4 +515,39 @@ func TestHandler_AggregateLogGroupSummariesEmpty(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestListAggregateLogGroupSummaries_RealShape drives
+// ListAggregateLogGroupSummaries through the real aws-sdk-go-v2 client.
+// types.AggregateLogGroupSummary (confirmed against deserializers.go's
+// awsAwsjson11_deserializeDocumentAggregateLogGroupSummary) is a grouped
+// bucket -- GroupingIdentifiers + LogGroupCount -- not a per-log-group
+// record. A previous revision modeled per-log-group fields (logGroupName/
+// logGroupArn/logGroupClass/storedBytes/logEventCount) that do not exist on
+// the real type at all, so a real client's GroupingIdentifiers/LogGroupCount
+// always decoded empty/nil regardless of how many log groups existed.
+func TestListAggregateLogGroupSummaries_RealShape(t *testing.T) {
+	t.Parallel()
+
+	backend := cloudwatchlogs.NewInMemoryBackend()
+	client := newTestCloudWatchLogsClient(t, cloudwatchlogs.NewHandler(backend))
+
+	_, err := client.CreateLogGroup(t.Context(), &cwlsdk.CreateLogGroupInput{
+		LogGroupName: aws.String("agg-group-1"),
+	})
+	require.NoError(t, err)
+
+	_, err = client.CreateLogGroup(t.Context(), &cwlsdk.CreateLogGroupInput{
+		LogGroupName: aws.String("agg-group-2"),
+	})
+	require.NoError(t, err)
+
+	out, err := client.ListAggregateLogGroupSummaries(t.Context(), &cwlsdk.ListAggregateLogGroupSummariesInput{
+		GroupBy: cwltypes.ListAggregateLogGroupSummariesGroupByDataSourceNameAndType,
+	})
+	require.NoError(t, err)
+	require.Len(t, out.AggregateLogGroupSummaries, 1)
+	require.NotNil(t, out.AggregateLogGroupSummaries[0].LogGroupCount)
+	assert.Equal(t, int32(2), *out.AggregateLogGroupSummaries[0].LogGroupCount)
+	assert.Empty(t, out.AggregateLogGroupSummaries[0].GroupingIdentifiers)
 }

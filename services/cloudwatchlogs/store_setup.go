@@ -142,8 +142,11 @@ type kmsKeyEntry struct {
 func kmsKeyEntryKeyFn(e *kmsKeyEntry) string { return e.Key }
 
 type s3TableIntegrationEntry struct {
-	ID             string `json:"id"`
-	IntegrationArn string `json:"integrationArn"`
+	ID               string `json:"id"`
+	IntegrationArn   string `json:"integrationArn"`
+	DataSourceName   string `json:"dataSourceName"`
+	DataSourceType   string `json:"dataSourceType"`
+	CreatedTimeStamp int64  `json:"createdTimeStamp"`
 }
 
 func s3TableIntegrationEntryKeyFn(e *s3TableIntegrationEntry) string { return e.ID }

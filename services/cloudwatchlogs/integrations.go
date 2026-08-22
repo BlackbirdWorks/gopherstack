@@ -11,7 +11,7 @@ import (
 // AssociateSourceToS3TableIntegration associates a data source with an S3 table integration.
 // Returns a unique identifier for the association.
 func (b *InMemoryBackend) AssociateSourceToS3TableIntegration(
-	integrationArn, _, _ string,
+	integrationArn, dataSourceName, dataSourceType string,
 ) (string, error) {
 	if integrationArn == "" {
 		return "", fmt.Errorf("%w: integrationArn is required", ErrValidation)
@@ -22,7 +22,13 @@ func (b *InMemoryBackend) AssociateSourceToS3TableIntegration(
 	b.mu.Lock("AssociateSourceToS3TableIntegration")
 	defer b.mu.Unlock()
 
-	b.s3TableIntegrations.Put(&s3TableIntegrationEntry{ID: id, IntegrationArn: integrationArn})
+	b.s3TableIntegrations.Put(&s3TableIntegrationEntry{
+		ID:               id,
+		IntegrationArn:   integrationArn,
+		DataSourceName:   dataSourceName,
+		DataSourceType:   dataSourceType,
+		CreatedTimeStamp: time.Now().UnixMilli(),
+	})
 
 	return id, nil
 }
@@ -42,6 +48,54 @@ func (b *InMemoryBackend) DisassociateSourceFromS3TableIntegration(identifier st
 	}
 
 	return nil
+}
+
+// s3TableIntegrationSourceLimit is ListSourcesForS3TableIntegrationInput's
+// documented "Valid range is 1 to 100" (api_op_ListSourcesForS3TableIntegration.go:39).
+const s3TableIntegrationSourceLimit = 100
+
+// ListSourcesForS3TableIntegration returns data source associations for the
+// given integration ARN, oldest first, with maxResults/nextToken pagination
+// (api_op_ListSourcesForS3TableIntegration.go).
+func (b *InMemoryBackend) ListSourcesForS3TableIntegration(
+	integrationArn, nextToken string, maxResults int,
+) ([]s3TableIntegrationEntry, string, error) {
+	if integrationArn == "" {
+		return nil, "", fmt.Errorf("%w: integrationArn is required", ErrValidation)
+	}
+
+	b.mu.RLock("ListSourcesForS3TableIntegration")
+	defer b.mu.RUnlock()
+
+	var all []s3TableIntegrationEntry
+
+	for _, e := range b.s3TableIntegrations.All() {
+		if e.IntegrationArn == integrationArn {
+			all = append(all, *e)
+		}
+	}
+
+	sort.Slice(all, func(i, j int) bool { return all[i].CreatedTimeStamp < all[j].CreatedTimeStamp })
+
+	if maxResults <= 0 || maxResults > s3TableIntegrationSourceLimit {
+		maxResults = defaultDescribeLimit
+	}
+
+	startIdx := parseNextToken(nextToken)
+	if startIdx >= len(all) {
+		return []s3TableIntegrationEntry{}, "", nil
+	}
+
+	end := startIdx + maxResults
+
+	var outToken string
+	if end < len(all) {
+		outToken = encodeNextToken(end)
+	} else {
+		end = len(all)
+	}
+
+	return all[startIdx:end], outToken, nil
 }
 
 // PutIntegration creates or updates an integration. resourceConfig is

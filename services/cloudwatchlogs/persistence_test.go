@@ -620,7 +620,7 @@ func TestInMemoryBackend_SnapshotRestore_CompletenessMapsSurvive(t *testing.T) {
 			name: "lookup_table_survives",
 			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
 				t.Helper()
-				_, err := b.CreateLookupTable("my_table", "id,name\n1,foo\n2,bar\n", "desc", "")
+				_, err := b.CreateLookupTable("my_table", "id,name\n1,foo\n2,bar\n", "desc", "", "")
 				require.NoError(t, err)
 			},
 			verify: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {

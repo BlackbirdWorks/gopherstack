@@ -224,8 +224,9 @@ type StorageBackend interface {
 		nextToken string,
 		maxResults int,
 	) ([]ScheduledQueryRunSummary, string, error)
-	// UpdateAnomaly updates anomaly suppression settings. No actual anomaly data is stored.
-	UpdateAnomaly(anomalyID, anomalyDetectorArn string, suppressionType string) error
+	// UpdateAnomaly updates anomaly suppression settings, by anomalyID or,
+	// when anomalyID is empty, every anomaly sharing patternID.
+	UpdateAnomaly(anomalyID, anomalyDetectorArn, suppressionType, patternID string) error
 	// ListLogGroups is the newer paginated list operation, equivalent to DescribeLogGroups.
 	ListLogGroups(
 		ctx context.Context,

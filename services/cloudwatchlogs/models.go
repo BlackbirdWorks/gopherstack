@@ -574,13 +574,30 @@ type OpenSearchResourceConfig struct {
 	DashboardViewerPrincipals []string
 }
 
-// AggregateLogGroupSummary describes aggregated statistics for a single log group.
+// GroupingIdentifier is a key-value pair identifying a data-source
+// characteristic used to group an aggregate log group summary
+// (aws-sdk-go-v2 types.GroupingIdentifier; key format uses dot notation,
+// e.g. "dataSource.Name"/"dataSource.Type"/"dataSource.Format").
+type GroupingIdentifier struct {
+	Key   string `json:"key"`
+	Value string `json:"value"`
+}
+
+// AggregateLogGroupSummary describes one bucket of log groups grouped by a
+// data-source characteristic (aws-sdk-go-v2 types.AggregateLogGroupSummary,
+// confirmed against deserializers.go's
+// awsAwsjson11_deserializeDocumentAggregateLogGroupSummary: "groupingIdentifiers"
+// + "logGroupCount", not a per-log-group record). A previous revision
+// modeled this as per-log-group fields (LogGroupName/LogGroupArn/
+// LogGroupClass/StoredBytes/LogEventCount) that do not exist anywhere on the
+// real type, so a real client's GroupingIdentifiers/LogGroupCount were
+// always empty/nil regardless of what this backend returned. This backend
+// has no per-log-group data-source classification (dataSource.Name/Type/
+// Format) to group by, so GroupingIdentifiers is honestly left empty rather
+// than fabricated; LogGroupCount is real (see gaps in PARITY.md).
 type AggregateLogGroupSummary struct {
-	LogGroupName  string `json:"logGroupName"`
-	LogGroupArn   string `json:"logGroupArn"`
-	LogGroupClass string `json:"logGroupClass,omitempty"`
-	StoredBytes   int64  `json:"storedBytes"`
-	LogEventCount int64  `json:"logEventCount"`
+	GroupingIdentifiers []GroupingIdentifier `json:"groupingIdentifiers"`
+	LogGroupCount       int32                `json:"logGroupCount"`
 }
 
 // TestTransformerOutput is a single transformed log event result. It mirrors the

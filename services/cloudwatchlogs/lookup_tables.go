@@ -78,11 +78,97 @@ func parseLookupTableCSV(body string) ([]string, int64, error) {
 	return header, rows, nil
 }
 
-// CreateLookupTable creates a new lookup table from real CSV content
-// (see the LookupTable doc comment in models.go for why this backend
-// stores/parses TableBody directly rather than referencing S3).
+// resolveLookupTableBody enforces CreateLookupTableInput/UpdateLookupTableInput's
+// documented "You must specify either tableBody or queryId, but not both"
+// (api_op_CreateLookupTable.go, api_op_UpdateLookupTable.go) and, when queryID is
+// given, synthesizes CSV content from that query's completed results via
+// lookupTableBodyFromQuery.
+func (b *InMemoryBackend) resolveLookupTableBody(tableBody, queryID string) (string, error) {
+	switch {
+	case tableBody != "" && queryID != "":
+		return "", fmt.Errorf("%w: must specify either tableBody or queryId, but not both", ErrValidation)
+	case tableBody != "":
+		if len(tableBody) > lookupTableMaxBodyBytes {
+			return "", fmt.Errorf("%w: tableBody exceeds the 10 MB limit", ErrValidation)
+		}
+
+		return tableBody, nil
+	case queryID != "":
+		return b.lookupTableBodyFromQuery(queryID)
+	default:
+		return "", fmt.Errorf("%w: must specify either tableBody or queryId", ErrValidation)
+	}
+}
+
+// lookupTableBodyFromQuery renders a completed Logs Insights query's results
+// ([][]ResultField) as CSV, matching CreateLookupTableInput's doc comment ("The
+// ID of a completed CloudWatch Logs query whose results populate the lookup
+// table."). Column order follows the first result row's field order.
+func (b *InMemoryBackend) lookupTableBodyFromQuery(queryID string) (string, error) {
+	results, _, status, err := b.GetQueryResults(queryID)
+	if err != nil {
+		return "", err
+	}
+
+	if status != QueryStatusComplete {
+		return "", fmt.Errorf("%w: query %s has not completed (status %s)", ErrValidation, queryID, status)
+	}
+
+	if len(results) == 0 {
+		return "", fmt.Errorf("%w: query %s returned no results to build a lookup table from", ErrValidation, queryID)
+	}
+
+	header := make([]string, 0, len(results[0]))
+	seen := make(map[string]bool, len(results[0]))
+
+	for _, f := range results[0] {
+		if !seen[f.Field] {
+			seen[f.Field] = true
+			header = append(header, f.Field)
+		}
+	}
+
+	var sb strings.Builder
+
+	w := csv.NewWriter(&sb)
+	if writeErr := w.Write(header); writeErr != nil {
+		//nolint:errorlint // wrapped for message only.
+		return "", fmt.Errorf("%w: %v", ErrValidation, writeErr)
+	}
+
+	for _, row := range results {
+		values := make(map[string]string, len(row))
+		for _, f := range row {
+			values[f.Field] = f.Value
+		}
+
+		record := make([]string, len(header))
+		for i, name := range header {
+			record[i] = values[name]
+		}
+
+		if writeErr := w.Write(record); writeErr != nil {
+			//nolint:errorlint // wrapped for message only.
+			return "", fmt.Errorf("%w: %v", ErrValidation, writeErr)
+		}
+	}
+
+	w.Flush()
+
+	if flushErr := w.Error(); flushErr != nil {
+		//nolint:errorlint // wrapped for message only.
+		return "", fmt.Errorf("%w: %v", ErrValidation, flushErr)
+	}
+
+	return sb.String(), nil
+}
+
+// CreateLookupTable creates a new lookup table from real CSV content, or from a
+// completed query's results when queryID is given (see the LookupTable doc
+// comment in models.go for why this backend stores/parses TableBody directly
+// rather than referencing S3).
 func (b *InMemoryBackend) CreateLookupTable(
-	name, tableBody, description, kmsKeyID string,
+	name, tableBody, description, kmsKeyID, queryID string,
 ) (*LookupTable, error) {
 	if name == "" {
 		return nil, fmt.Errorf("%w: lookupTableName is required", ErrValidation)
@@ -95,15 +181,12 @@ func (b *InMemoryBackend) CreateLookupTable(
 		)
 	}
 
-	if tableBody == "" {
-		return nil, fmt.Errorf("%w: tableBody is required", ErrValidation)
+	body, err := b.resolveLookupTableBody(tableBody, queryID)
+	if err != nil {
+		return nil, err
 	}
 
-	if len(tableBody) > lookupTableMaxBodyBytes {
-		return nil, fmt.Errorf("%w: tableBody exceeds the 10 MB limit", ErrValidation)
-	}
-
-	fields, records, err := parseLookupTableCSV(tableBody)
+	fields, records, err := parseLookupTableCSV(body)
 	if err != nil {
 		return nil, err
 	}
@@ -122,10 +205,10 @@ func (b *InMemoryBackend) CreateLookupTable(
 		LookupTableName: name,
 		Description:     description,
 		KmsKeyID:        kmsKeyID,
-		TableBody:       tableBody,
+		TableBody:       body,
 		TableFields:     fields,
 		RecordsCount:    records,
-		SizeBytes:       int64(len(tableBody)),
+		SizeBytes:       int64(len(body)),
 		CreatedAt:       now,
 		LastUpdatedTime: now,
 	}
@@ -161,21 +244,18 @@ func (b *InMemoryBackend) GetLookupTable(lookupTableArn string) (*LookupTable, e
 // when the caller supplies them (nil means leave unchanged, matching the
 // real Input's *string/optional-pointer fields).
 func (b *InMemoryBackend) UpdateLookupTable(
-	lookupTableArn, tableBody string, description, kmsKeyID *string,
+	lookupTableArn, tableBody string, description, kmsKeyID *string, queryID string,
 ) (*LookupTable, error) {
 	if lookupTableArn == "" {
 		return nil, fmt.Errorf("%w: lookupTableArn is required", ErrValidation)
 	}
 
-	if tableBody == "" {
-		return nil, fmt.Errorf("%w: tableBody is required", ErrValidation)
+	body, err := b.resolveLookupTableBody(tableBody, queryID)
+	if err != nil {
+		return nil, err
 	}
 
-	if len(tableBody) > lookupTableMaxBodyBytes {
-		return nil, fmt.Errorf("%w: tableBody exceeds the 10 MB limit", ErrValidation)
-	}
-
-	fields, records, err := parseLookupTableCSV(tableBody)
+	fields, records, err := parseLookupTableCSV(body)
 	if err != nil {
 		return nil, err
 	}
@@ -188,10 +268,10 @@ func (b *InMemoryBackend) UpdateLookupTable(
 		return nil, fmt.Errorf("%w: lookup table %s not found", ErrLookupTableNotFound, lookupTableArn)
 	}
 
-	t.TableBody = tableBody
+	t.TableBody = body
 	t.TableFields = fields
 	t.RecordsCount = records
-	t.SizeBytes = int64(len(tableBody))
+	t.SizeBytes = int64(len(body))
 
 	if description != nil {
 		t.Description = *description
