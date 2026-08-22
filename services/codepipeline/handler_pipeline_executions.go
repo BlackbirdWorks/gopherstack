@@ -276,8 +276,11 @@ func (h *Handler) handleListDeployActionExecutionTargets(
 	ctx context.Context,
 	in *listDeployActionExecutionTargetsInput,
 ) (*listDeployActionExecutionTargetsOutput, error) {
-	if in.PipelineName == "" {
-		return nil, fmt.Errorf("%w: pipelineName is required", errInvalidRequest)
+	// ListDeployActionExecutionTargetsInput marks only ActionExecutionId
+	// required (codepipeline@v1.49.4 api_op_ListDeployActionExecutionTargets.go);
+	// pipelineName is an optional narrowing filter -- gopherstack-2wvq.
+	if in.ActionExecutionID == "" {
+		return nil, fmt.Errorf("%w: actionExecutionId is required", errInvalidRequest)
 	}
 
 	items, err := h.Backend.ListDeployActionExecutionTargets(ctx, in.PipelineName, in.ActionExecutionID)

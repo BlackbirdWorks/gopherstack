@@ -2,6 +2,7 @@ package codepipeline_test
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"testing"
 
@@ -104,6 +105,16 @@ func TestHandler_ListExecutionsAndRules(t *testing.T) {
 	})
 	require.Equal(t, 200, rec.Code)
 
+	var actionExecs struct {
+		ActionExecutionDetails []struct {
+			ActionExecutionID string `json:"actionExecutionId"`
+		} `json:"actionExecutionDetails"`
+	}
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&actionExecs))
+	require.NotEmpty(t, actionExecs.ActionExecutionDetails)
+	actionExecutionID := actionExecs.ActionExecutionDetails[0].ActionExecutionID
+	require.NotEmpty(t, actionExecutionID)
+
 	// Missing pipeline name
 	rec = doRequest(t, h, "ListActionExecutions", map[string]any{})
 	assert.Equal(t, 400, rec.Code)
@@ -124,8 +135,8 @@ func TestHandler_ListExecutionsAndRules(t *testing.T) {
 
 	// List deploy action execution targets
 	rec = doRequest(t, h, "ListDeployActionExecutionTargets", map[string]any{
-		"pipelineName":        "el-pipeline",
-		"pipelineExecutionId": "some-exec-id",
+		"pipelineName":      "el-pipeline",
+		"actionExecutionId": actionExecutionID,
 	})
 	require.Equal(t, 200, rec.Code)
 }
