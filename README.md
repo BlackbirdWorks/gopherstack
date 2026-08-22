@@ -510,7 +510,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [RDS Data](services/rdsdata/README.md) | A | 6 | 2 gaps |
 | [Redshift](services/redshift/README.md) | A | 9 | clean |
 | [Redshift Data](services/redshiftdata/README.md) | A | 12 | 8 gaps; 1 deferred |
-| [Timestream Query](services/timestreamquery/README.md) | A | 12 | 2 gaps; 1 deferred |
+| [Timestream Query](services/timestreamquery/README.md) | A | 12 | 3 gaps; 1 deferred |
 | [Timestream Write](services/timestreamwrite/README.md) | A | 19 | 4 gaps |
 
 ### Networking & Content Delivery
@@ -610,7 +610,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [AppConfig Data](services/appconfigdata/README.md) | A | 2 | 2 gaps |
 | [Application Auto Scaling](services/applicationautoscaling/README.md) | A | 14 | 3 gaps; 2 deferred |
 | [Cloud Control API](services/cloudcontrol/README.md) | A | 8 | 3 gaps |
-| [CloudFormation](services/cloudformation/README.md) | A | 70 | 5 gaps |
+| [CloudFormation](services/cloudformation/README.md) | A | 74 | 5 gaps |
 | [CloudTrail](services/cloudtrail/README.md) | A | 60 | 9 gaps |
 | [CloudWatch](services/cloudwatch/README.md) | A | 50 | 5 deferred |
 | [CloudWatch Logs](services/cloudwatchlogs/README.md) | A | 80 | 26 gaps; 3 deferred |
@@ -651,7 +651,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Personalize](services/personalize/README.md) | A | 73 | clean |
 | [Polly](services/polly/README.md) | A | 10 | clean |
 | [Rekognition](services/rekognition/README.md) | A | 50 | 1 gap; 4 deferred |
-| [SageMaker](services/sagemaker/README.md) | A | 69 | 15 gaps; 5 deferred |
+| [SageMaker](services/sagemaker/README.md) | A | 69 | 22 gaps; 5 deferred |
 | [SageMaker Runtime](services/sagemakerruntime/README.md) | A | 3 | 1 gap |
 | [Textract](services/textract/README.md) | A | 25 | 1 gap; 1 structural gap; 1 deferred |
 | [Transcribe](services/transcribe/README.md) | A | 43 | 2 gaps |
