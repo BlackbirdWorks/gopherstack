@@ -15,14 +15,14 @@ type Command struct {
 	// ServiceRole is the real wire key for SendCommandInput.ServiceRoleArn
 	// echoed on Command (api_op_SendCommand.go/types.Command -- the input and
 	// output member names genuinely differ).
-	ServiceRole       string   `json:"ServiceRole,omitempty"`
-	MaxConcurrency    string   `json:"MaxConcurrency,omitempty"`
-	MaxErrors         string   `json:"MaxErrors,omitempty"`
-	InstanceIDs       []string `json:"InstanceIds,omitempty"`
-	Targets           []any    `json:"Targets,omitempty"`
-	RequestedDateTime float64  `json:"RequestedDateTime"`
-	ExpiresAfter      float64  `json:"ExpiresAfter"`
-	TimeoutSeconds    int32    `json:"TimeoutSeconds,omitempty"`
+	ServiceRole       string          `json:"ServiceRole,omitempty"`
+	MaxConcurrency    string          `json:"MaxConcurrency,omitempty"`
+	MaxErrors         string          `json:"MaxErrors,omitempty"`
+	InstanceIDs       []string        `json:"InstanceIds,omitempty"`
+	Targets           []CommandTarget `json:"Targets,omitempty"`
+	RequestedDateTime float64         `json:"RequestedDateTime"`
+	ExpiresAfter      float64         `json:"ExpiresAfter"`
+	TimeoutSeconds    int32           `json:"TimeoutSeconds,omitempty"`
 	// TargetCount/CompletedCount/ErrorCount are computed from the command's
 	// invocations at read time (commandCounts, commands.go) -- not stored,
 	// so they can never drift from the invocations they summarize.
@@ -81,8 +81,19 @@ type SendCommandInput struct {
 	MaxConcurrency     string              `json:"MaxConcurrency,omitempty"`
 	MaxErrors          string              `json:"MaxErrors,omitempty"`
 	InstanceIDs        []string            `json:"InstanceIds,omitempty"`
-	Targets            []any               `json:"Targets,omitempty"`
+	Targets            []CommandTarget     `json:"Targets,omitempty"`
 	TimeoutSeconds     int32               `json:"TimeoutSeconds,omitempty"`
+}
+
+// CommandTarget names managed nodes via a Key/Values search criterion.
+// Matches the SDK's generic types.Target{Key,Values} shape (same convention
+// as AccessRequestTarget in models_sessions.go). SendCommand's own doc
+// comment on types.Command.Targets: "Targets is required if you don't
+// provide one or more managed node IDs in the call" -- the documented
+// at-scale alternative to InstanceIds.
+type CommandTarget struct {
+	Key    string   `json:"Key"`
+	Values []string `json:"Values"`
 }
 
 // SendCommandOutput is the response payload for SendCommand.

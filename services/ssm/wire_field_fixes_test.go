@@ -1075,3 +1075,90 @@ func TestDescribeDocumentPermission_Pagination_RealClient(t *testing.T) {
 	all := append(append([]string{}, page1.AccountIds...), page2.AccountIds...)
 	assert.ElementsMatch(t, []string{"111111111111", "222222222222", "333333333333"}, all)
 }
+
+// TestSendCommand_TargetsOnly_RealClient covers a functional no-op bug
+// (gopherstack-enpq): SendCommandInput.Targets is documented, verbatim, on
+// types.Command.Targets (api_op_SendCommand.go / types/types.go) as
+// "required if you don't provide one or more managed node IDs in the call"
+// -- the recommended way to address commands at scale (api_op_SendCommand.go:
+// InstanceIds' own doc comment: "we recommend using Targets instead"). The
+// field round-tripped (echoed back on Command) but the invocation-building
+// loop in commands.go only ever ranged over InstanceIds, so a Targets-only
+// caller -- exactly AWS's documented pattern -- got a command with
+// TargetCount 0 and zero CommandInvocations: nothing actually ran.
+func TestSendCommand_TargetsOnly_RealClient(t *testing.T) {
+	t.Parallel()
+
+	backend := ssm.NewInMemoryBackend()
+	client := newTestSSMClient(t, ssm.NewHandler(backend))
+	ctx := t.Context()
+
+	_, err := client.CreateDocument(ctx, &ssmsdk.CreateDocumentInput{
+		Name:    aws.String("TargetsOnlyDoc"),
+		Content: aws.String(`{"schemaVersion":"2.2"}`),
+	})
+	require.NoError(t, err)
+
+	out, err := client.SendCommand(ctx, &ssmsdk.SendCommandInput{
+		DocumentName: aws.String("TargetsOnlyDoc"),
+		Targets: []ssmtypes.Target{
+			{Key: aws.String("InstanceIds"), Values: []string{"i-targets-1", "i-targets-2"}},
+		},
+	})
+	require.NoError(t, err)
+	assert.EqualValues(t, 2, out.Command.TargetCount,
+		"pre-fix: Targets round-tripped but the invocation loop never consulted it, so TargetCount stayed 0")
+
+	invs, err := client.ListCommandInvocations(ctx, &ssmsdk.ListCommandInvocationsInput{
+		CommandId: out.Command.CommandId,
+	})
+	require.NoError(t, err)
+	require.Len(t, invs.CommandInvocations, 2)
+
+	gotIDs := []string{
+		aws.ToString(invs.CommandInvocations[0].InstanceId),
+		aws.ToString(invs.CommandInvocations[1].InstanceId),
+	}
+	assert.ElementsMatch(t, []string{"i-targets-1", "i-targets-2"}, gotIDs)
+
+	// Targets is still echoed back exactly as given, unmerged with InstanceIds.
+	require.Len(t, out.Command.Targets, 1)
+	assert.Equal(t, "InstanceIds", aws.ToString(out.Command.Targets[0].Key))
+}
+
+// TestSendCommand_InstanceIDsAndTargets_Dedup_RealClient covers the union
+// path: a node named in both InstanceIds and Targets must be invoked once,
+// not twice.
+func TestSendCommand_InstanceIDsAndTargets_Dedup_RealClient(t *testing.T) {
+	t.Parallel()
+
+	backend := ssm.NewInMemoryBackend()
+	client := newTestSSMClient(t, ssm.NewHandler(backend))
+	ctx := t.Context()
+
+	_, err := client.CreateDocument(ctx, &ssmsdk.CreateDocumentInput{
+		Name:    aws.String("DedupDoc"),
+		Content: aws.String(`{"schemaVersion":"2.2"}`),
+	})
+	require.NoError(t, err)
+
+	out, err := client.SendCommand(ctx, &ssmsdk.SendCommandInput{
+		DocumentName: aws.String("DedupDoc"),
+		InstanceIds:  []string{"i-shared", "i-only-instanceids"},
+		Targets: []ssmtypes.Target{
+			{Key: aws.String("InstanceIds"), Values: []string{"i-shared", "i-only-targets"}},
+		},
+	})
+	require.NoError(t, err)
+	assert.EqualValues(t, 3, out.Command.TargetCount)
+
+	invs, err := client.ListCommandInvocations(ctx, &ssmsdk.ListCommandInvocationsInput{
+		CommandId: out.Command.CommandId,
+	})
+	require.NoError(t, err)
+	gotIDs := make([]string, len(invs.CommandInvocations))
+	for i, inv := range invs.CommandInvocations {
+		gotIDs[i] = aws.ToString(inv.InstanceId)
+	}
+	assert.ElementsMatch(t, []string{"i-shared", "i-only-instanceids", "i-only-targets"}, gotIDs)
+}

@@ -8,7 +8,19 @@ service: ssm
 sdk_module: aws-sdk-go-v2/service/ssm@v1.73.4
 last_audit_commit: d3b4494d3
 last_audit_date: 2026-08-21
-overall: A                 # gopherstack-enpq (2026-08-21, structfielddiff pass 10): documents is now
+overall: A                 # gopherstack-enpq (2026-08-22, doc-prose/bidirectional re-audit pass 11):
+                            # pass 10 closed out ssm by cmd/structfielddiff's own method (field-list
+                            # diff against the pinned SDK). That method never asks whether an op can be
+                            # CALLED the way its own doc prose prescribes -- exactly the gap that turned
+                            # kinesis's claimed A-grade sweep into 11 more real bugs and cloudwatchlogs's
+                            # into 2 missing alternate identifiers (see gopherstack-enpq's own bd notes).
+                            # Applying that lens to ssm found one real bug of the same class: SendCommand
+                            # (commands family) -- see families.commands below. This pass's coverage is
+                            # partial and explicitly NOT a re-audit of all 152 ops; see the dated note
+                            # under families.commands and the "doc-prose pass 11" ## Notes section below
+                            # for exactly what was and was not covered.
+                            # --- structfielddiff pass 10 (2026-08-21) history below, preserved ---
+                            # gopherstack-enpq (2026-08-21, structfielddiff pass 10): documents is now
                             # FIXED, closing out the gopherstack-enpq ssm sweep -- every family this
                             # campaign touched is settled and no family remains partial. The three ops
                             # pass 7 diffed but disclosed rather than fixed (documentPermissionsStore was
@@ -309,7 +321,7 @@ families:
 
   resource-data-sync: {status: ok, note: "gopherstack-enpq (2026-08-21, structfielddiff pass 6): genuinely untouched by any prior audit pass (unlike most of this file's other families, no op-by-op history existed for this one at all). 1 real bug fixed: CreateResourceDataSync's S3Destination/SyncSource had no Go struct members at all -- see CreateResourceDataSync ops: note. DeleteResourceDataSync/ListResourceDataSync/UpdateResourceDataSync re-verified, one small addition (S3Destination now echoed on List, matching Create's fix). DeleteResourceDataSync.SyncType and S3Destination.DestinationDataSharing/SyncSource.AwsOrganizationsSource remain unmodeled -- see gaps."}
   nodes: {status: ok, note: "gopherstack-enpq (2026-08-21, structfielddiff pass 6): RE-VERIFIED via structfielddiff -- ListNodes/ListNodesSummary were already fully field-diffed and fixed op-by-op in prior passes (gopherstack-6uag, gopherstack-m53b); this pass independently re-confirms via the mechanical struct-field-diff method rather than trusting the prior op-by-op note, per this issue's own governing rule that a prior claim is not evidence. No new findings -- both ops' Go structs match the real wire exactly, including the previously-fixed Node/NodeType/NodeInstanceInfo/NodeOwnerInfo nesting. This is the one family this pass touched where the stronger method found nothing the weaker method had missed."}
-  commands: {status: ok, note: "gopherstack-enpq (2026-08-21, structfielddiff pass 6): 3 real bugs fixed across SendCommand/ListCommands/CancelCommand/GetCommandInvocation -- see each op's own ops: note for full detail. Headline pattern: two of the three (ListCommands.InstanceId, CancelCommand.InstanceIds) were fields that existed on the Go struct and were even read off the wire correctly, but the handler body never consulted them -- the exact 'field parsed, never applied' functional-no-op class pass 5 (cloudwatchlogs) flagged as its worst find, here scoped to individual parameters rather than a whole handler. AlarmConfiguration/CloudWatchOutputConfig/NotificationConfig/CommandPlugins/DocumentHash/DocumentHashType/ResponseCode/Filters remain unmodeled -- structural gaps (no alarm/CloudWatch/notification-firing/per-plugin-execution infra exists in this backend), disclosed rather than fabricated -- see gaps."}
+  commands: {status: ok, note: "gopherstack-enpq (2026-08-22, doc-prose re-audit pass 11): SendCommand's own doc comment on InstanceIds says, verbatim, 'we recommend using Targets instead' for at-scale sends, and types.Command.Targets' doc comment says 'Targets is required if you don't provide one or more managed node IDs in the call' -- the same required-alternate-identifier shape as kinesis's StreamARN bug. Targets round-tripped (echoed back on Command/SendCommandOutput, previously typed as a raw []any) but the invocation-building loop in commands.go only ever ranged over InstanceIds -- a Targets-only caller, exactly AWS's documented pattern, got TargetCount 0 and zero CommandInvocations. Fixed: Targets retyped to a new CommandTarget{Key,Values} struct (matches types.Target; purely a type refinement of the same JSON shape, confirmed compatible with pkgs/persistence's TestSnapshotVersionGuard, no ssmSnapshotVersion bump needed) and a new mergeUniqueInstanceIDs(InstanceIds, commandTargetInstanceIDs(Targets)) union now drives both the invocation loop and the AWS-RunPatchBaseline apply loop, deduped so a node named in both stays single-invoked. commandTargetInstanceIDs treats every target's Values as literal node IDs regardless of Key, matching the same simplification associations.go's buildAssocExecTargets already makes for AssociationTarget -- no tag-based resolution infra exists in this backend and this keeps the convention consistent rather than inventing a second one. Proven by TestSendCommand_TargetsOnly_RealClient and TestSendCommand_InstanceIDsAndTargets_Dedup_RealClient (wire_field_fixes_test.go) via the real aws-sdk-go-v2 client; both hand-verified to fail against the pre-fix code (TargetCount 0 / missing third invocation) before the fix was restored byte-identical. CancelCommand/ListCommands/ListCommandInvocations/GetCommandInvocation re-checked for the same doc-prescribed-alternate pattern this pass and found clean (no Targets-shaped alternate on any of them). Two of pass 6's original 3 bugs already covered (ListCommands.InstanceId, CancelCommand.InstanceIds); this is a 4th, independently found bug in the same family via the different method. Everything pass 6 already disclosed as unmodeled (AlarmConfiguration/CloudWatchOutputConfig/NotificationConfig/CommandPlugins/DocumentHash/DocumentHashType/ResponseCode/Filters) re-confirmed still accurate -- see gaps."}
   parameter-store: {status: ok, note: "FIXED (parity-sweep-3, PutParameter): 15-level hierarchy limit (HierarchyLevelLimitExceededException, previously unenforced), labeled-oldest-version eviction guard (ParameterMaxVersionLimitExceeded, previously silently evicted labeled versions and leaked their parameterLabels entries forever), Intelligent-Tiering auto-upgrade-to-Advanced on >4KiB value or Policies attached (previously hard-rejected instead of auto-selecting Advanced, defeating the entire point of Intelligent-Tiering), Policies-require-Advanced-tier (previously any tier accepted policies). Tier value-size limits (4096 Standard / 8192 Advanced), AllowedPattern regex validation, SecureString KMS encrypt/decrypt round-trip via per-instance AES-256 key, parameter selector suffix (:version/:label) parsing were all already correct. FIXED phase-2 (2026-07-24) — NoChangeNotification/ExpirationNotification policies were stored and round-tripped but never evaluated; now a new janitor sweep (sweepParameterPolicyNotifications, parameter_policy_notifications.go) evaluates every parameter's Policies each tick and reports newly-due policies through an injectable ParameterPolicyNotifier, with per-policy-instance dedupe (never refires until the parameter is re-written, matching AWS's documented LastModifiedTime-reset semantics for NoChangeNotification) and cascade cleanup on delete (no ghost dedupe rows). The EventBridge-side adapter is implemented for real (services/eventbridge/ssm_integration.go, publishes source=\"aws.ssm\"/detail-type=\"Parameter Store Policy Action\"/detail={\"parameter-name\",\"policy-type\"} — confirmed via sysman-paramstore-cwe.html) and proven by TestNotifyParameterPolicyAction using an EventBridge Archive with a matching EventPattern as an independent wire-shape observer. Only the cli.go line wiring InMemoryBackend.SetParameterPolicyNotifier(ebBackend) remains — see Notes. RE-AUDITED via structfielddiff (gopherstack-enpq, 2026-08-21, structfielddiff pass 6), the first time this family was checked by this mechanical method rather than op-by-op reads -- see each op's own ops: note above for the 3 real bugs found this pass (PutParameter.Tags, and the Get*-family's fabricated-metadata-fields/DescribeParameters' wrong-Policies-type headline finding). All 10 parameter-store ops are now individually re-verified via structfielddiff; DeleteParameter/DeleteParameters/UnlabelParameterVersion were already trivially correct and needed no change."}
   documents: {status: fixed, note: "gopherstack-enpq pass 10 (2026-08-21): all 12 ops now genuinely fixed, closing out the last family this campaign's method had left partial. DeleteDocument/DescribeDocumentPermission/ModifyDocumentPermission -- disclosed rather than fixed since pass 7 pending a documentPermissionsStore reshape -- are now settled (see each op's own note): DeleteDocument honors DocumentVersion/VersionName scoping and rejects deleting a still-shared document; ModifyDocumentPermission tracks a per-account SharedDocumentVersion pin via the new additive documentSharedVersionsStore; DescribeDocumentPermission paginates and reports real AccountSharingInfoList entries. The other 9 ops (CreateDocument/UpdateDocument/DescribeDocument/GetDocument/ListDocuments/ListDocumentVersions/ListDocumentMetadataHistory/UpdateDocumentMetadata/UpdateDocumentDefaultVersion) were already fixed in prior passes (7). One remaining disclosed gap survives verification: VersionName (modeled on DocumentVersionInfo only, never populated, and entirely absent from CreateDocumentInput/UpdateDocumentInput/DocumentDescription/GetDocumentOutput) still needs a full selector redesign mirroring resolveDocumentVersionSelector's $LATEST/$DEFAULT handling -- DeleteDocument's own VersionName parameter is parsed but can never resolve a match for the same reason, so a VersionName-scoped delete request is honestly rejected as not-found rather than silently mismatched against the numeric DocumentVersion namespace. — Prior-pass notes preserved: CreateDocument/UpdateDocument/DescribeDocument content-leak and $DEFAULT/$LATEST conflation (bd gopherstack-1hg, closed) fixed; the version-cap eviction (maxDocumentVersionCap=1000) never evicts the DefaultVersion-pinned entry."}
   command-execution: {status: ok, note: "no goroutines/timers in command_exec.go or automation_exec.go — command progression is driven synchronously plus the single ctx-cancel-aware janitor sweep (janitor.go), not per-command background workers. Nothing to leak."}
@@ -360,6 +372,50 @@ leaks: {status: clean, note: "Janitor (janitor.go) is the only background gorout
 ---
 
 ## Notes
+
+### 2026-08-22 (gopherstack-enpq, doc-prose/bidirectional re-audit pass 11)
+
+Passes 4–10 swept all 152 ssm ops with `cmd/structfielddiff` (field-list diff against the pinned
+SDK) and closed every family the campaign named. That method compares field lists; it does not ask
+whether an op can be **called the way its own documentation prescribes** — the gap that turned
+kinesis's claimed A-grade sweep into 11 more bugs (`23acbec3b`) and cloudwatchlogs's into 2 missing
+alternate identifiers, both found only once the doc prose was read directly. This pass applied that
+same lens to a slice of ssm rather than re-running structfielddiff.
+
+**Ops covered by this pass's doc-prose method** (not a re-diff — a fresh read of each op's SDK doc
+comment plus its request validator, checked in both directions): `SendCommand`, `CancelCommand`,
+`ListCommands`, `ListCommandInvocations`, `GetCommandInvocation` (commands family, full);
+`DescribeInstanceInformation` (re-checked its documented `InstanceInformationFilterList`-is-legacy
+note — already correctly modeled, no bug); `UpdateAssociation` (re-confirmed the existing
+merge-vs-replace disclosure in `families.state-manager-associations` still describes reality);
+`GetPatchBaseline`/`RegisterDefaultPatchBaseline` (checked, see rejected candidate below);
+`StartAutomationExecution`/`Runbook.Targets`/`TargetParameterName`/`TargetMaps` (re-confirmed the
+existing `models_automations.go` disclosure — deliberately unmodeled, still accurate);
+`PutComplianceItems` (re-checked its validator against `validateOpPutComplianceItemsInput` —
+matches exactly, no over/under-strict mismatch found).
+
+**Ops NOT covered by this pass's method** — the remaining ~145 ops across
+activations/associations/automation-executions/cloud-connectors/compliance/documents/inventory/
+maintenance-windows/managed-instance/nodes/ops-center/parameter-store/patch-baselines/
+resource-data-sync/resource-policies/service-settings/sessions/state-manager-associations/tags were
+NOT re-read against their doc prose this pass. They carry passes 4–10's structfielddiff-class
+verification (field-list diff, hand-verified against serializers/deserializers) but not this pass's
+"can it be called the documented way, checked both directions" method. Treat that as the honest
+boundary of this pass, not as those families being fully clean by this stronger method.
+
+**Bug found and fixed**: `SendCommand`'s `Targets` (see `families.commands` above for full detail)
+— a required-alternate-identifier gap of the same shape as kinesis's `StreamARN`, fixed via a new
+`CommandTarget` type and an instance-ID union in `commands.go`.
+
+**Rejected candidate**: `GetPatchBaseline`/`RegisterDefaultPatchBaseline`'s doc comments say a
+caller "can specify the full patch baseline Amazon Resource Name (ARN)... instead of" the plain
+`pb-...` ID, scoped explicitly to **AWS-managed** baselines (e.g. `AWS-AmazonLinuxDefaultPatchBaseline`).
+Not counted: gopherstack does not model AWS-managed/predefined patch baselines at all (no baseline
+is ever seeded, and `CreatePatchBaseline` only ever hands back a plain `pb-`-prefixed ID, never an
+ARN) — there is no reachable path by which a real caller would end up needing to pass the specific
+ARN form the docs describe, since the managed baselines that alternate identifier is documented for
+don't exist in this backend. Disqualified as not reachable, not as a false positive on the field
+diff itself.
 
 SSM speaks the **json-1.1 protocol** (`AmazonSSM.<Op>` `X-Amz-Target`, `application/x-amz-json-1.1`
 content type) — confirmed via `handler.go`'s `classifySSMError`/`handleError` using

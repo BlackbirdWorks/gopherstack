@@ -41,6 +41,13 @@ func (b *InMemoryBackend) SendCommand(
 	now := UnixTimeFloat(time.Now())
 	cmdID := uuid.NewString()
 
+	// resolvedInstanceIDs drives the actual invocation set: InstanceIds plus
+	// whatever Targets resolves to (AWS: "Targets is required if you don't
+	// provide one or more managed node IDs in the call"). A Targets-only
+	// caller -- the pattern AWS documents as required for at-scale sends --
+	// must still get real invocations, not zero.
+	resolvedInstanceIDs := mergeUniqueInstanceIDs(input.InstanceIDs, commandTargetInstanceIDs(input.Targets))
+
 	timeoutSecs := input.TimeoutSeconds
 	if timeoutSecs == 0 {
 		timeoutSecs = 3600
@@ -74,13 +81,13 @@ func (b *InMemoryBackend) SendCommand(
 	stdout, stderr, finalStatus := renderCommandOutput(input.DocumentName, input.Parameters)
 
 	if input.DocumentName == docRunPatchBaseline {
-		for _, instanceID := range input.InstanceIDs {
+		for _, instanceID := range resolvedInstanceIDs {
 			b.applyPatchBaselineOperation(region, instanceID, input.Parameters)
 		}
 	}
 
-	invocations := make([]CommandInvocation, 0, len(input.InstanceIDs))
-	for _, instanceID := range input.InstanceIDs {
+	invocations := make([]CommandInvocation, 0, len(resolvedInstanceIDs))
+	for _, instanceID := range resolvedInstanceIDs {
 		inv := CommandInvocation{
 			CommandID:         cmdID,
 			InstanceID:        instanceID,
@@ -122,6 +129,38 @@ func (b *InMemoryBackend) SendCommand(
 	finalCmd.TargetCount, finalCmd.CompletedCount, finalCmd.ErrorCount = commandCounts(invocations)
 
 	return &SendCommandOutput{Command: finalCmd}, nil
+}
+
+// commandTargetInstanceIDs flattens a SendCommand Targets list into instance
+// IDs, treating every target's Values as literal node IDs regardless of Key
+// -- the same simplification buildAssocExecTargets (associations.go) already
+// makes for AssociationTarget, kept consistent here rather than adding
+// tag-based resolution this backend has no matching infra for.
+func commandTargetInstanceIDs(targets []CommandTarget) []string {
+	ids := make([]string, 0, len(targets))
+	for _, t := range targets {
+		ids = append(ids, t.Values...)
+	}
+
+	return ids
+}
+
+// mergeUniqueInstanceIDs unions a and b, preserving first-seen order and
+// dropping duplicates so a node named in both InstanceIds and Targets is
+// only invoked once.
+func mergeUniqueInstanceIDs(a, b []string) []string {
+	seen := make(map[string]struct{}, len(a)+len(b))
+	out := make([]string, 0, len(a)+len(b))
+
+	for _, id := range slices.Concat(a, b) {
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		out = append(out, id)
+	}
+
+	return out
 }
 
 // commandCounts computes real types.Command members TargetCount/
