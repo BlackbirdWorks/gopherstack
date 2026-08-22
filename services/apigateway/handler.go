@@ -380,24 +380,46 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
+// writeJSONProtocolDispatchError writes an ErrorResponse for a failure in
+// handleJSONProtocol itself (bad method, missing/malformed X-Amz-Target,
+// body-read failure) -- framework-level errors that never reach dispatch or
+// handleError. These previously went out as bare text/plain, which the
+// __type/message JSON error decoder shared by the JSON-RPC family
+// (aws-sdk-go-v2@v1.43.4 aws/protocol/restjson.GetErrorInfo) cannot read:
+// every such response reached a client as
+// smithy.GenericAPIError{Code:"UnknownError"} (gopherstack-wlo1).
+func writeJSONProtocolDispatchError(c *echo.Context, status int, errType, message string) error {
+	c.Response().Header().Set(headerContentType, "application/x-amz-json-1.1")
+
+	payload, err := json.Marshal(ErrorResponse{Type: errType, Message: message})
+	if err != nil {
+		return err
+	}
+
+	return c.JSONBlob(status, payload)
+}
+
 // handleJSONProtocol handles requests using the JSON protocol (X-Amz-Target header).
 func (h *Handler) handleJSONProtocol(c *echo.Context) error {
 	ctx := c.Request().Context()
 	log := logger.Load(ctx)
 
 	if c.Request().Method != http.MethodPost {
-		return c.String(http.StatusMethodNotAllowed, "Method not allowed")
+		return writeJSONProtocolDispatchError(c, http.StatusMethodNotAllowed,
+			"UnknownOperationException", "Method not allowed")
 	}
 
 	target := c.Request().Header.Get("X-Amz-Target")
 	if target == "" {
-		return c.String(http.StatusBadRequest, "Missing X-Amz-Target")
+		return writeJSONProtocolDispatchError(c, http.StatusBadRequest,
+			"UnknownOperationException", "Missing X-Amz-Target")
 	}
 
 	parts := strings.Split(target, ".")
 	const targetParts = 2
 	if len(parts) != targetParts {
-		return c.String(http.StatusBadRequest, "Invalid X-Amz-Target")
+		return writeJSONProtocolDispatchError(c, http.StatusBadRequest,
+			"UnknownOperationException", "Invalid X-Amz-Target")
 	}
 	action := parts[1]
 
@@ -405,7 +427,8 @@ func (h *Handler) handleJSONProtocol(c *echo.Context) error {
 	if err != nil {
 		log.ErrorContext(ctx, "failed to read request body", "error", err)
 
-		return c.String(http.StatusInternalServerError, "internal server error")
+		return writeJSONProtocolDispatchError(c, http.StatusInternalServerError,
+			"InternalFailure", "internal server error")
 	}
 
 	log.DebugContext(ctx, "APIGateway request", "action", action)

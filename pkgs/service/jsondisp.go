@@ -85,19 +85,22 @@ func HandleTarget(
 	}
 
 	if c.Request().Method != http.MethodPost {
-		return c.String(http.StatusMethodNotAllowed, "Method not allowed")
+		return writeDispatchError(c, contentType, http.StatusMethodNotAllowed,
+			"UnknownOperationException", "Method not allowed")
 	}
 
 	target := c.Request().Header.Get("X-Amz-Target")
 	if target == "" {
-		return c.String(http.StatusBadRequest, "Missing X-Amz-Target")
+		return writeDispatchError(c, contentType, http.StatusBadRequest,
+			"UnknownOperationException", "Missing X-Amz-Target")
 	}
 
 	parts := strings.Split(target, ".")
 
 	const targetParts = 2
 	if len(parts) != targetParts {
-		return c.String(http.StatusBadRequest, "Invalid X-Amz-Target")
+		return writeDispatchError(c, contentType, http.StatusBadRequest,
+			"UnknownOperationException", "Invalid X-Amz-Target")
 	}
 
 	action := parts[1]
@@ -106,7 +109,8 @@ func HandleTarget(
 	if err != nil {
 		log.ErrorContext(ctx, "failed to read request body", "error", err)
 
-		return c.String(http.StatusInternalServerError, "internal server error")
+		return writeDispatchError(c, contentType, http.StatusInternalServerError,
+			"InternalFailure", "internal server error")
 	}
 
 	log.DebugContext(ctx, serviceName+" request", "action", action)
@@ -119,4 +123,21 @@ func HandleTarget(
 	c.Response().Header().Set("Content-Type", contentType)
 
 	return c.JSONBlob(http.StatusOK, response)
+}
+
+// writeDispatchError writes a JSONErrorResponse for a failure in HandleTarget
+// itself (bad method, missing/malformed X-Amz-Target, body-read failure) --
+// framework-level errors that never reach the service's own ErrorHandlerFunc.
+// These previously went out as bare text/plain, which the real SDK's JSON
+// protocol error decoder (__type/message) cannot read: every such response
+// reached a client as smithy.GenericAPIError{Code:"UnknownError"}.
+func writeDispatchError(c *echo.Context, contentType string, status int, errType, message string) error {
+	c.Response().Header().Set("Content-Type", contentType)
+
+	payload, err := json.Marshal(JSONErrorResponse{Type: errType, Message: message})
+	if err != nil {
+		return err
+	}
+
+	return c.JSONBlob(status, payload)
 }
