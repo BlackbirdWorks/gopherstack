@@ -295,3 +295,67 @@ the shared helper.
 - Carried over unmodified from the prior sweep (still verified correct): the awsjson1.1
   `X-Amz-Target` routing, epoch-seconds timestamp handling, and the Region family's
   ADDING/ACTIVE/REMOVING lazy-transition + lazy-prune pattern.
+
+## gopherstack-zquj (2026-08-22): type-checked hand-written-key sweep, clean
+
+Direct followup to the required-output-member note above, which found
+ssoadmin's map-literal responses immune to `omitempty` bugs but flagged
+that immunity as exposure to a *different*, unchecked class: a hand-typed
+map key with a typo or wrong case is dropped on the wire by a real client
+and caught by nothing in this repo. 89 `map[string](any|interface{}|
+string)` literal openings in the non-test package (`grep -rEo
+'map\[string\](any|interface\{\}|string)\{'`), against ssoadmin@v1.43.1.
+
+Built a type-checked scanner (`keycheck`, same tool as shield's zquj note
+above; not committed into this repo this pass, see that note for why) that
+diffs every hand-written key against the real key set derived from
+`ssoadmin@v1.43.1`'s `deserializers.go` AST (`awsAwsjson11_
+deserializeOpDocument*`/`awsAwsjson11_deserializeDocument*` case-switch
+lists), not the Go struct field names. Instrument validated in two parts
+before trusting a clean result: the SDK-side case-list parser against the
+known-bad scheduler casing bug (gopherstack-r80d batch 32, commit
+`8469dcdd9` -- see shield's zquj note for detail); the handler-side
+map-literal/`X["key"]=` walker against a synthetic fixture with a planted
+typo'd key, caught with zero false positives on correctly-keyed siblings.
+
+**Two scanner false-positive classes found and excluded before trusting a
+clean result** (same as shield): `map[string]struct{}`/`map[string]bool`
+validation-set literals excluded by value type; the shared
+`__type`/`message` error-envelope keys (written by `writeError`,
+handler.go:702-706, reachable from nearly every op's error path) excluded
+as protocol-reserved -- confirmed by grep that `"message"`/`"__type"`
+never appear as a case key in any *success*-path `OpDocument*Output`
+deserializer in this SDK version, only in exception-type deserializers, so
+excluding them cannot mask a real success-path bug.
+
+**Result: 73 real ops resolved (79 dispatched minus 6 ops whose
+`*Output` struct is genuinely empty -- `DeleteApplicationAccessScope`/
+`DeleteApplicationAuthenticationMethod`/`DeleteApplicationGrant`/
+`PutApplicationAccessScope`/`PutApplicationAuthenticationMethod`/
+`PutApplicationGrant` -- confirmed by reading each `api_op_*.go`: the
+output struct holds only `ResultMetadata`/`noSmithyDocumentSerde`, so the
+SDK's codegen emits no `OpDocument*Output` deserializer at all, and the
+handlers correctly write `map[string]any{}`), 129 tracked written keys, 0
+keys outside the op's real reachable wire shape.**
+
+Spot-checked the highest-surface ops by hand rather than trusting the tool
+alone: `DescribeApplication`'s 11 written keys
+(handler_applications.go:128-140, already carrying a comment citing
+`awsAwsjson11_deserializeOpDocumentDescribeApplicationOutput`,
+deserializers.go:14289) match exactly; `CreateAccountAssignment` and its
+sibling status ops (written=1, allowed=10) turned out to wrap an
+already-audited tagged struct (`accountAssignmentStatusView`,
+handler.go:549-559) inside one `map[string]any` key -- the low written
+count is the scanner correctly not descending into a struct literal it
+doesn't need to check (that construction is covered by the required-field
+sweep above), not a missed site.
+
+**Known blind spot, disclosed**: the scanner checks "does this key exist
+anywhere in the op's reachable shape," not "at the right nesting level" --
+a same-named key misplaced one level off would not be caught. None found
+on manual spot-check of the largest-surface ops (above). Site count here
+(89) differs from the 622 cited when gopherstack-zquj was filed; per
+zquj's own warning that grep-derived scopes in this campaign have been
+wrong by as much as 11x, that gap is expected and is exactly why this
+sweep verified per-op against the real deserializer rather than trusting
+either number.

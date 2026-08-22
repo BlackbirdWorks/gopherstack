@@ -189,3 +189,75 @@ All 3 proven via real `aws-sdk-go-v2/service/shield` client round trips or
 raw-body assertion (handler_protections_test.go strengthened in place,
 wire_field_fixes_y1zn_test.go new), hand-reverted/confirmed-failing/
 restored/`md5sum`-verified byte-identical.
+
+## gopherstack-zquj (2026-08-22): type-checked hand-written-key sweep, clean
+
+zquj's premise: shield's map-literal responses (41 `map[string](any|
+interface{}|string)` literal openings across the non-test package, per
+`grep -rEo 'map\[string\](any|interface\{\}|string)\{'`) are immune to
+`omitempty`/struct-tag bugs but have no compiler, struct-tag scanner, or
+raw-body test checking their hand-typed key strings against anything real
+-- exactly the shape y1zn (above) had already found 3 bugs in a day
+earlier. Built a type-checked scanner (`keycheck`, not committed into this
+repo this pass -- see the note below) rather than grepping, per zquj's
+explicit instruction: it parses `shield@v1.37.4`'s `deserializers.go` AST to build
+each op's real wire-key tree from the `awsAwsjson11_deserializeOpDocument*`
+/ `awsAwsjson11_deserializeDocument*` case-switch lists (the deserializer
+is the authority, not the Go field name), then parses the service's own
+handler `.go` files for every string-keyed map literal and `X["key"]=`
+assignment reachable from each op's dispatch handler, and diffs.
+
+**Instrument validated against gopherstack-r80d batch 32's scheduler
+casing bug (commit `8469dcdd9`) before trusting it**: fed the scanner's
+SDK-side parser `scheduler@v1.20.4`'s deserializers.go and confirmed it
+extracts `NetworkConfiguration`'s real case key as lowercase-first
+`"awsvpcConfiguration"` (deserializers.go:2723-2748) and
+`CapacityProviderStrategyItem`'s as `"capacityProvider"`/`"base"`/
+`"weight"` (deserializers.go:2254-2287) -- not the pre-fix capitalized Go
+field names -- so a hand-written `"AwsvpcConfiguration"`/
+`"CapacityProvider"` would correctly diff as not-in-tree. Handler-side
+const-key resolution, nested-map traversal, and `X["key"]=` tracking were
+separately validated against a synthetic fixture with a known-planted
+typo'd key, which the scanner caught with zero false positives on its
+correctly-keyed siblings (including a const-resolved key and a
+nested-through-two-levels `IndexExpr` assignment).
+
+**Two scanner false-positive classes found and fixed before trusting a
+clean result**: (1) `map[string]struct{}`/`map[string]bool` string-keyed
+literals are validation sets (`validAggregations`/`validPatterns` in
+protection_groups.go), not wire output -- excluded by value type; (2) the
+shared error-envelope keys `__type`/`message` are written by every op's
+error path via a common helper, which a call-graph BFS that can't
+distinguish success from error paths would otherwise attribute to every
+op's *success* shape -- excluded as protocol-reserved.
+
+**Result: 36 real ops resolved (37 dispatched minus the internal
+`__SimulateAttack` test-only op, which has no real SDK output type), 89
+tracked written keys, 0 keys outside the op's real reachable wire shape.**
+Spot-verified two of the largest-surface ops by hand against the raw
+deserializer rather than trusting the tool alone: `DescribeSubscription`'s
+8 written keys match `Subscription`'s case list exactly
+(deserializers.go:7048-7159, called from
+`awsAwsjson11_deserializeOpDocumentDescribeSubscriptionOutput` at
+deserializers.go:8291); the y1zn fixes above already removed this
+service's only known instances of this bug class, so a clean result here
+is corroboration, not a surprise.
+
+**Known blind spots, disclosed rather than hidden**: the scanner checks
+"does this key exist anywhere in the op's reachable shape," not "at the
+right nesting level" -- a key misplaced one level off from a same-named
+sibling field elsewhere in the same op's tree would not be caught (no such
+case found here on manual spot-check, see above). Two `X["key"]=` sites
+were skipped as dynamic (a `map[string]any`-named local in one function
+colliding, by name only, with an unrelated `map[string]struct{}` in
+`sliceToSet`, handler.go:414-425 -- harmless here since the skipped value
+was never a candidate wire key, but a real limitation of name-based rather
+than scope-based variable tracking).
+
+Did not commit the scanner into `cmd/` this pass -- a second agent was
+editing this working tree concurrently under `services/`, and a new
+whole-repo build unit is exactly the kind of change that shouldn't land
+mid-session next to someone else's in-flight edits. Its source is
+preserved (not in this repo) for promotion; see gopherstack-zquj's
+followup issue for reusing it the way `cmd/opcensus` is reused, rather
+than re-deriving the SDK-deserializer-AST approach per sweep.
