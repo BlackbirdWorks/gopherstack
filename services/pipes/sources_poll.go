@@ -265,13 +265,14 @@ func (r *Runner) deliverStreamPayload(ctx context.Context, p *Pipe, payload []by
 // Streams). Unlike handlePipeFailure (SQS), there are no source receipt
 // handles to delete after a successful DLQ send.
 func (r *Runner) sendToDLQIfConfigured(ctx context.Context, p *Pipe, payload []byte, cause error) {
-	if p.DeadLetterConfig == nil || p.DeadLetterConfig.Arn == "" {
+	dlqARN := pipeDeadLetterARN(p)
+	if dlqARN == "" {
 		return
 	}
 
-	if err := r.sendToDLQ(ctx, p.DeadLetterConfig.Arn, payload); err != nil {
+	if err := r.sendToDLQ(ctx, dlqARN, payload); err != nil {
 		logger.Load(ctx).WarnContext(ctx, "pipes: failed to send to DLQ",
-			"pipe", p.Name, "dlq", p.DeadLetterConfig.Arn, "error", err, "cause", cause)
+			"pipe", p.Name, "dlq", dlqARN, "error", err, "cause", cause)
 	}
 }
 

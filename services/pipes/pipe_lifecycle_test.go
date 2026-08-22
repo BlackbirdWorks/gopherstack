@@ -2,8 +2,9 @@ package pipes_test
 
 // Covers the pipe resource lifecycle: CREATING/UPDATING/DELETING/STARTING/
 // STOPPING state transitions, CRUD error paths, and cross-cutting pipe-level
-// attributes (KmsKeyIdentifier, DeadLetterConfig, LogConfiguration, ARN
-// format, timestamps).
+// attributes (KmsKeyIdentifier, LogConfiguration, ARN format, timestamps).
+// DeadLetterConfig round-tripping is covered in sources_test.go, nested under
+// the source parameters (its only real-API location).
 
 import (
 	"context"
@@ -1030,48 +1031,6 @@ func TestKmsKeyIdentifier_Update(t *testing.T) {
 			})
 			require.NoError(t, err)
 			assert.Equal(t, tt.updatedKey, updated.KmsKeyIdentifier)
-		})
-	}
-}
-
-// --- DeadLetterConfig tests ---
-
-// TestDeadLetterConfig verifies that DeadLetterConfig is stored and returned.
-func TestDeadLetterConfig(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name   string
-		dlqARN string
-	}{
-		{name: "sqs_dlq", dlqARN: "arn:aws:sqs:us-west-2:123456789012:dlq"},
-		{name: "no_dlq", dlqARN: ""},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := auditNewHandler(t)
-			body := map[string]any{
-				"RoleArn":      "arn:aws:iam::123456789012:role/r",
-				"Source":       "arn:aws:sqs:us-west-2:123456789012:q",
-				"Target":       "arn:aws:lambda:us-west-2:123456789012:function:fn",
-				"DesiredState": "RUNNING",
-			}
-			if tt.dlqARN != "" {
-				body["DeadLetterConfig"] = map[string]any{"Arn": tt.dlqARN}
-			}
-
-			resp := auditCreate(t, h, tt.name+"-pipe", body)
-
-			if tt.dlqARN != "" {
-				dlc, _ := resp["DeadLetterConfig"].(map[string]any)
-				require.NotNil(t, dlc, "DeadLetterConfig missing")
-				assert.Equal(t, tt.dlqARN, dlc["Arn"])
-			} else {
-				assert.Nil(t, resp["DeadLetterConfig"])
-			}
 		})
 	}
 }
