@@ -306,16 +306,16 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
 		body, err := httputils.ReadBody(c.Request())
 		if err != nil {
-			return c.String(http.StatusBadRequest, "cannot read body")
+			return xmlError(c, http.StatusInternalServerError, "InternalFailure", "cannot read body")
 		}
 		vals, err := url.ParseQuery(string(body))
 		if err != nil {
-			return c.String(http.StatusBadRequest, "cannot parse form")
+			return xmlError(c, http.StatusBadRequest, "InvalidParameterValue", "cannot parse form")
 		}
 		action := vals.Get("Action")
 		fn, ok := h.dispatchTable()[action]
 		if !ok {
-			return c.String(http.StatusBadRequest, "unknown action: "+action)
+			return xmlError(c, http.StatusBadRequest, "InvalidAction", "unknown action: "+action)
 		}
 
 		region := h.regionFromRequest(c)

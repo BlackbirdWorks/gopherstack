@@ -478,7 +478,8 @@ func (h *Handler) handleRESTAPI(c *echo.Context) error {
 	if err != nil {
 		logger.Load(ctx).ErrorContext(ctx, "failed to read request body", "error", err)
 
-		return c.String(http.StatusInternalServerError, "internal server error")
+		return writeJSONProtocolDispatchError(c, http.StatusInternalServerError,
+			"InternalFailure", "internal server error")
 	}
 
 	// OpenAPI import (ImportRestApi / PutRestApi) carries the raw spec document

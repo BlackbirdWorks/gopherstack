@@ -192,7 +192,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		if err != nil {
 			log.ErrorContext(ctx, "networkmanager: failed to read request body", "error", err)
 
-			return c.String(http.StatusInternalServerError, "internal server error")
+			return h.handleError(c, err)
 		}
 
 		entry, params, ok := matchRoute(h.routeTable(), c.Request().Method, rawPathSegments(c.Request()))

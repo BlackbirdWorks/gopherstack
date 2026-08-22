@@ -186,7 +186,8 @@ func (h *Handler) dispatchRestAPISpec(
 	if err != nil {
 		logger.Load(ctx).ErrorContext(ctx, "failed to read request body", "error", err)
 
-		return c.String(http.StatusInternalServerError, "internal server error")
+		return writeJSONProtocolDispatchError(c, http.StatusInternalServerError,
+			"InternalFailure", "internal server error")
 	}
 
 	env := restAPISpecEnvelope{
@@ -207,7 +208,8 @@ func (h *Handler) dispatchRestAPISpec(
 
 	envelope, err := json.Marshal(env)
 	if err != nil {
-		return c.String(http.StatusInternalServerError, "internal server error")
+		return writeJSONProtocolDispatchError(c, http.StatusInternalServerError,
+			"InternalFailure", "internal server error")
 	}
 
 	statusCode, response, raw, reqErr := h.dispatch(ctx, action, envelope)

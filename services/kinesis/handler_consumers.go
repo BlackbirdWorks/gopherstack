@@ -272,7 +272,7 @@ func (h *Handler) handleSubscribeToShardHTTP(c *echo.Context) error {
 	if err != nil {
 		log.ErrorContext(ctx, "SubscribeToShard: failed to read body", "error", err)
 
-		return c.String(http.StatusInternalServerError, "internal server error")
+		return h.handleError(ctx, c, "SubscribeToShard", err)
 	}
 
 	var req jsonSubscribeToShardReq

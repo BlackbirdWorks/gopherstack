@@ -182,12 +182,14 @@ func (h *Handler) Handler() echo.HandlerFunc {
 // header) differs from the JSON-RPC transport HandleTarget serves above.
 func (h *Handler) handleRuntimeREST(c *echo.Context, action string) error {
 	if c.Request().Method != http.MethodPost {
-		return c.String(http.StatusMethodNotAllowed, "Method not allowed")
+		return writeRuntimeRESTError(c, http.StatusMethodNotAllowed,
+			"UnknownOperationException", "Method not allowed")
 	}
 
 	body, err := httputils.ReadBody(c.Request())
 	if err != nil {
-		return c.String(http.StatusInternalServerError, "internal server error")
+		return writeRuntimeRESTError(c, http.StatusInternalServerError,
+			"InternalServerException", "internal server error")
 	}
 
 	out, dispatchErr := h.dispatch(c.Request().Context(), action, body)
@@ -200,13 +202,30 @@ func (h *Handler) handleRuntimeREST(c *echo.Context, action string) error {
 	return c.JSONBlob(http.StatusOK, out)
 }
 
-// handleRuntimeRESTError writes a REST-JSON1 error envelope: the real
+// writeRuntimeRESTError writes a REST-JSON1 error envelope for a failure in
+// handleRuntimeREST itself (bad method, body-read failure) -- framework-level
+// errors that never reach dispatch or handleRuntimeRESTError below. The real
 // protocol signals the error code via the X-Amzn-ErrorType header
 // (personalizeruntime@v1.36.4 deserializers.go's
 // awsRestjson1_deserializeOpErrorGetRecommendations reads
 // response.Header.Get("X-Amzn-ErrorType") first, falling back to a body
-// field only if the header is absent) rather than JSON-RPC's "__type" body
-// field that handleError below writes.
+// field only if the header is absent), which a bare text/plain body cannot
+// supply (gopherstack-o7gx).
+func writeRuntimeRESTError(c *echo.Context, status int, errType, message string) error {
+	c.Response().Header().Set("Content-Type", personalizeRuntimeContentType)
+	c.Response().Header().Set("X-Amzn-Errortype", errType)
+
+	payload, err := json.Marshal(map[string]string{"message": message})
+	if err != nil {
+		return err
+	}
+
+	return c.JSONBlob(status, payload)
+}
+
+// handleRuntimeRESTError writes a REST-JSON1 error envelope for a genuine
+// dispatch error, classifying it via the same X-Amzn-ErrorType convention
+// writeRuntimeRESTError uses above.
 func (h *Handler) handleRuntimeRESTError(c *echo.Context, err error) error {
 	errType := "InternalServerException"
 	status := http.StatusInternalServerError
@@ -218,15 +237,7 @@ func (h *Handler) handleRuntimeRESTError(c *echo.Context, err error) error {
 		errType, status = "InvalidInputException", http.StatusBadRequest
 	}
 
-	c.Response().Header().Set("Content-Type", personalizeRuntimeContentType)
-	c.Response().Header().Set("X-Amzn-Errortype", errType)
-
-	payload, marshalErr := json.Marshal(map[string]string{"message": err.Error()})
-	if marshalErr != nil {
-		return c.String(http.StatusInternalServerError, "internal server error")
-	}
-
-	return c.JSONBlob(status, payload)
+	return writeRuntimeRESTError(c, status, errType, err.Error())
 }
 
 func (h *Handler) dispatch(_ context.Context, action string, body []byte) ([]byte, error) {
