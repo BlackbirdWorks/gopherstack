@@ -559,7 +559,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Elasticsearch](services/elasticsearch/README.md) | A | 51 | 5 gaps |
 | [Glue](services/glue/README.md) | A | 54 | 14 gaps; 6 deferred |
 | [Glue DataBrew](services/databrew/README.md) | A | 44 | 4 gaps |
-| [Kinesis](services/kinesis/README.md) | A | 39 | 10 gaps; 1 deferred |
+| [Kinesis](services/kinesis/README.md) | A | 39 | 11 gaps; 1 deferred |
 | [Kinesis Analytics](services/kinesisanalytics/README.md) | A | 20 | 2 gaps |
 | [Kinesis Analytics v2](services/kinesisanalyticsv2/README.md) | A | 33 | 6 gaps; 1 deferred |
 | [Kinesis Data Firehose](services/firehose/README.md) | A | 12 | 4 gaps; 5 deferred |
