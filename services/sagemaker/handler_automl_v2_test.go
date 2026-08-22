@@ -44,14 +44,6 @@ func TestHandler_CreateAutoMLJobV2_RoundTrip(t *testing.T) {
 			},
 			wantProblemName: "Tabular",
 		},
-		{
-			name: "minimal",
-			body: map[string]any{
-				"AutoMLJobName": "automl-v2-minimal",
-				"RoleArn":       "arn:aws:iam::000000000000:role/test",
-			},
-			wantProblemName: "",
-		},
 	}
 
 	for _, tt := range tests {
@@ -106,6 +98,52 @@ func TestHandler_CreateAutoMLJobV2_RoundTrip(t *testing.T) {
 	}
 }
 
+func TestHandler_CreateAutoMLJobV2_RequiresAllRequiredMembers(t *testing.T) {
+	t.Parallel()
+
+	full := map[string]any{
+		"AutoMLJobName": "automl-v2-reqs",
+		"RoleArn":       "arn:aws:iam::000000000000:role/test",
+		"AutoMLJobInputDataConfig": []any{
+			map[string]any{"ChannelType": "training"},
+		},
+		"AutoMLProblemTypeConfig": map[string]any{
+			"TabularJobConfig": map[string]any{"TargetAttributeName": "label"},
+		},
+		"OutputDataConfig": map[string]any{
+			"S3OutputPath": "s3://bucket/out/",
+		},
+	}
+
+	tests := []struct {
+		name string
+		omit string
+	}{
+		{name: "missing role arn", omit: "RoleArn"},
+		{name: "missing input data config", omit: "AutoMLJobInputDataConfig"},
+		{name: "missing problem type config", omit: "AutoMLProblemTypeConfig"},
+		{name: "missing output data config", omit: "OutputDataConfig"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			body := make(map[string]any, len(full))
+			for k, v := range full {
+				if k != tt.omit {
+					body[k] = v
+				}
+			}
+
+			rec := doSageMakerRequest(t, h, "CreateAutoMLJobV2", body)
+			assert.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
+		})
+	}
+}
+
 func TestHandler_DescribeAutoMLJobV1_OmitsV2Fields(t *testing.T) {
 	t.Parallel()
 
@@ -119,6 +157,9 @@ func TestHandler_DescribeAutoMLJobV1_OmitsV2Fields(t *testing.T) {
 		},
 		"AutoMLProblemTypeConfig": map[string]any{
 			"TabularJobConfig": map[string]any{"TargetAttributeName": "label"},
+		},
+		"OutputDataConfig": map[string]any{
+			"S3OutputPath": "s3://bucket/out/",
 		},
 	})
 	require.Equal(t, http.StatusOK, createRec.Code, createRec.Body.String())

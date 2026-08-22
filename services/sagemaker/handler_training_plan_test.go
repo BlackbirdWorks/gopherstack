@@ -193,7 +193,14 @@ func TestHandler_DescribeReservedCapacity_NotFound(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
-func TestHandler_CreateTrainingPlan_WithoutOffering_StaysMinimal(t *testing.T) {
+// TestHandler_CreateTrainingPlan_RequiresTrainingPlanOfferingId replaces the
+// former TestHandler_CreateTrainingPlan_WithoutOffering_StaysMinimal, which
+// asserted a 200 for a request with no TrainingPlanOfferingId at all --
+// pinning an over-validation gap directly. CreateTrainingPlanInput
+// (api_op_CreateTrainingPlan.go) marks TrainingPlanOfferingId "This member is
+// required" alongside TrainingPlanName; only TrainingPlanName was previously
+// enforced.
+func TestHandler_CreateTrainingPlan_RequiresTrainingPlanOfferingId(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -201,16 +208,7 @@ func TestHandler_CreateTrainingPlan_WithoutOffering_StaysMinimal(t *testing.T) {
 	rec := doSageMakerRequest(t, h, "CreateTrainingPlan", map[string]any{
 		"TrainingPlanName": "no-offering-plan",
 	})
-	assert.Equal(t, http.StatusOK, rec.Code)
-
-	describeRec := doSageMakerRequest(t, h, "DescribeTrainingPlan", map[string]any{
-		"TrainingPlanName": "no-offering-plan",
-	})
-
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(describeRec.Body.Bytes(), &resp))
-	assert.Equal(t, "Active", resp["Status"])
-	assert.Nil(t, resp["ReservedCapacitySummaries"])
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 // TestHandler_DescribeReservedCapacity_UltraServerSummary_RealClient asserts

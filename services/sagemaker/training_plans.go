@@ -73,12 +73,19 @@ func (r *ReservedCapacitySummary) UnmarshalJSON(data []byte) error {
 }
 
 // TrainingPlan represents a SageMaker training plan.
+//
+// UpfrontFee/TargetResources/TotalInstanceCount are all real, optional
+// DescribeTrainingPlanOutput members (api_op_DescribeTrainingPlan.go) --
+// previously tagged json:"-", so handleDescribeTrainingPlan's direct
+// json.Marshal(result) silently dropped all three even though
+// trainingPlanSummaryJSON (handler_training_plan.go, ListTrainingPlans) had
+// already been projecting them into the List response the whole time.
 type TrainingPlan struct {
 	CreationTime              time.Time                  `json:"CreationTime"`
 	StartTime                 *time.Time                 `json:"StartTime,omitempty"`
 	EndTime                   *time.Time                 `json:"EndTime,omitempty"`
 	Tags                      map[string]string          `json:"Tags,omitempty"`
-	UpfrontFee                string                     `json:"-"`
+	UpfrontFee                string                     `json:"UpfrontFee,omitempty"`
 	CurrencyCode              string                     `json:"CurrencyCode,omitempty"`
 	StatusMessage             string                     `json:"StatusMessage,omitempty"`
 	TrainingPlanName          string                     `json:"TrainingPlanName"`
@@ -86,10 +93,10 @@ type TrainingPlan struct {
 	Status                    string                     `json:"Status"`
 	Extensions                []*TrainingPlanExtension   `json:"-"`
 	ReservedCapacitySummaries []*ReservedCapacitySummary `json:"ReservedCapacitySummaries,omitempty"`
-	TargetResources           []string                   `json:"-"`
+	TargetResources           []string                   `json:"TargetResources,omitempty"`
 	DurationHours             int64                      `json:"DurationHours,omitempty"`
 	DurationMinutes           int64                      `json:"DurationMinutes,omitempty"`
-	TotalInstanceCount        int32                      `json:"-"`
+	TotalInstanceCount        int32                      `json:"TotalInstanceCount,omitempty"`
 	AvailableInstanceCount    int32                      `json:"AvailableInstanceCount,omitempty"`
 	InUseInstanceCount        int32                      `json:"InUseInstanceCount,omitempty"`
 }

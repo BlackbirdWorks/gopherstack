@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"time"
 )
 
 // ---------------------------------------------------------------------------
@@ -24,9 +25,14 @@ type FeatureRecord struct {
 
 // FeatureMetadata stores metadata (description + parameters) for a feature in a group.
 type FeatureMetadata struct {
-	Description string            `json:"Description,omitempty"`
-	Parameters  map[string]string `json:"Parameters,omitempty"`
-	FeatureName string            `json:"FeatureName"`
+	// LastModifiedTime is the zero value until the first UpdateFeatureMetadata
+	// call; DescribeFeatureMetadataOutput.LastModifiedTime (This member is
+	// required, api_op_DescribeFeatureMetadata.go) falls back to the owning
+	// feature group's CreationTime for a feature never updated.
+	LastModifiedTime time.Time         `json:"LastModifiedTime"`
+	Description      string            `json:"Description,omitempty"`
+	Parameters       map[string]string `json:"Parameters,omitempty"`
+	FeatureName      string            `json:"FeatureName"`
 	// GroupName is the owning feature group's name, carried internally so the
 	// store.Table's keyFn can derive featureMetaKey(GroupName, FeatureName) and
 	// Restore can rebuild it after a JSON round-trip. Exported (with a json tag)
@@ -282,7 +288,8 @@ func (b *InMemoryBackend) GetFeatureMetadata(
 func (b *InMemoryBackend) UpdateFeatureMetadata(
 	ctx context.Context,
 	featureGroupName, featureName, description string,
-	parameters map[string]string,
+	parameterAdditions map[string]string,
+	parameterRemovals []string,
 ) error {
 	b.mu.Lock("UpdateFeatureMetadata")
 	defer b.mu.Unlock()
@@ -309,12 +316,18 @@ func (b *InMemoryBackend) UpdateFeatureMetadata(
 		existing.Description = description
 	}
 
-	if parameters != nil {
+	if parameterAdditions != nil {
 		if existing.Parameters == nil {
 			existing.Parameters = make(map[string]string)
 		}
-		maps.Copy(existing.Parameters, parameters)
+		maps.Copy(existing.Parameters, parameterAdditions)
 	}
+
+	for _, k := range parameterRemovals {
+		delete(existing.Parameters, k)
+	}
+
+	existing.LastModifiedTime = time.Now()
 
 	metaStore.Put(existing)
 

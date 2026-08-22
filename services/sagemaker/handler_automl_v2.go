@@ -16,20 +16,27 @@ import (
 // accurate subset of AutoMLJob's fields.
 // ---------------------------------------------------------------------------
 
+// createAutoMLJobV2Input mirrors CreateAutoMLJobV2Input
+// (api_op_CreateAutoMLJobV2.go:72-166): AutoMLJobInputDataConfig,
+// AutoMLJobName, AutoMLProblemTypeConfig, OutputDataConfig and RoleArn are
+// all "This member is required" -- only AutoMLJobName was previously
+// enforced.
+type createAutoMLJobV2Input struct {
+	Tags                     []tagObject             `json:"Tags"`
+	AutoMLProblemTypeConfig  json.RawMessage         `json:"AutoMLProblemTypeConfig"`
+	OutputDataConfig         *AutoMLOutputDataConfig `json:"OutputDataConfig"`
+	AutoMLJobObjective       *AutoMLJobObjective     `json:"AutoMLJobObjective"`
+	AutoMLComputeConfig      *AutoMLComputeConfig    `json:"AutoMLComputeConfig"`
+	DataSplitConfig          *AutoMLDataSplitConfig  `json:"DataSplitConfig"`
+	SecurityConfig           *AutoMLSecurityConfig   `json:"SecurityConfig"`
+	ModelDeployConfig        *ModelDeployConfig      `json:"ModelDeployConfig"`
+	AutoMLJobName            string                  `json:"AutoMLJobName"`
+	RoleArn                  string                  `json:"RoleArn"`
+	AutoMLJobInputDataConfig []AutoMLJobChannel      `json:"AutoMLJobInputDataConfig"`
+}
+
 func (h *Handler) handleCreateAutoMLJobV2(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		Tags                     []tagObject             `json:"Tags"`
-		AutoMLProblemTypeConfig  json.RawMessage         `json:"AutoMLProblemTypeConfig"`
-		OutputDataConfig         *AutoMLOutputDataConfig `json:"OutputDataConfig"`
-		AutoMLJobObjective       *AutoMLJobObjective     `json:"AutoMLJobObjective"`
-		AutoMLComputeConfig      *AutoMLComputeConfig    `json:"AutoMLComputeConfig"`
-		DataSplitConfig          *AutoMLDataSplitConfig  `json:"DataSplitConfig"`
-		SecurityConfig           *AutoMLSecurityConfig   `json:"SecurityConfig"`
-		ModelDeployConfig        *ModelDeployConfig      `json:"ModelDeployConfig"`
-		AutoMLJobName            string                  `json:"AutoMLJobName"`
-		RoleArn                  string                  `json:"RoleArn"`
-		AutoMLJobInputDataConfig []AutoMLJobChannel      `json:"AutoMLJobInputDataConfig"`
-	}
+	var req createAutoMLJobV2Input
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -37,6 +44,22 @@ func (h *Handler) handleCreateAutoMLJobV2(ctx context.Context, body []byte) ([]b
 
 	if req.AutoMLJobName == "" {
 		return nil, fmt.Errorf("%w: AutoMLJobName is required", errInvalidRequest)
+	}
+
+	if req.RoleArn == "" {
+		return nil, fmt.Errorf("%w: RoleArn is required", errInvalidRequest)
+	}
+
+	if len(req.AutoMLJobInputDataConfig) == 0 {
+		return nil, fmt.Errorf("%w: AutoMLJobInputDataConfig is required", errInvalidRequest)
+	}
+
+	if len(req.AutoMLProblemTypeConfig) == 0 {
+		return nil, fmt.Errorf("%w: AutoMLProblemTypeConfig is required", errInvalidRequest)
+	}
+
+	if req.OutputDataConfig == nil {
+		return nil, fmt.Errorf("%w: OutputDataConfig is required", errInvalidRequest)
 	}
 
 	result, err := h.Backend.CreateAutoMLJob(ctx, req.AutoMLJobName, req.RoleArn, fromTagObjects(req.Tags))
@@ -61,10 +84,15 @@ func (h *Handler) handleCreateAutoMLJobV2(ctx context.Context, body []byte) ([]b
 	return json.Marshal(map[string]any{keyAutoMLJobArn: result.AutoMLJobArn})
 }
 
+// describeAutoMLJobV2Input mirrors DescribeAutoMLJobV2Input
+// (api_op_DescribeAutoMLJobV2.go:32-40): AutoMLJobName is its sole, required
+// member.
+type describeAutoMLJobV2Input struct {
+	AutoMLJobName string `json:"AutoMLJobName"`
+}
+
 func (h *Handler) handleDescribeAutoMLJobV2(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		AutoMLJobName string `json:"AutoMLJobName"`
-	}
+	var req describeAutoMLJobV2Input
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)

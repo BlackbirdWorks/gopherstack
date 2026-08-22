@@ -19,7 +19,7 @@ import (
 func createDataQualityJobDef(t *testing.T, h *sagemaker.Handler, name, endpointName string) {
 	t.Helper()
 
-	body := map[string]any{"JobDefinitionName": name}
+	body := minimalJobDefinitionFixture(name, "DataQuality")
 	if endpointName != "" {
 		body["DataQualityJobInput"] = map[string]any{
 			"EndpointInput": map[string]any{"EndpointName": endpointName, "LocalPath": "/opt/ml/input"},
@@ -157,9 +157,8 @@ func TestHandler_ListModelQualityJobDefinitions_ReturnsCreated(t *testing.T) {
 
 	h := newTestHandler(t)
 
-	rec := doSageMakerRequest(t, h, "CreateModelQualityJobDefinition", map[string]any{
-		"JobDefinitionName": "mq-list-1",
-	})
+	rec := doSageMakerRequest(t, h, "CreateModelQualityJobDefinition",
+		minimalJobDefinitionFixture("mq-list-1", "ModelQuality"))
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	rec = doSageMakerRequest(t, h, "ListModelQualityJobDefinitions", map[string]any{})
@@ -178,9 +177,8 @@ func TestHandler_ListModelExplainabilityJobDefinitions_ReturnsCreated(t *testing
 
 	h := newTestHandler(t)
 
-	rec := doSageMakerRequest(t, h, "CreateModelExplainabilityJobDefinition", map[string]any{
-		"JobDefinitionName": "me-list-1",
-	})
+	rec := doSageMakerRequest(t, h, "CreateModelExplainabilityJobDefinition",
+		minimalJobDefinitionFixture("me-list-1", "ModelExplainability"))
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	rec = doSageMakerRequest(t, h, "ListModelExplainabilityJobDefinitions", map[string]any{})
