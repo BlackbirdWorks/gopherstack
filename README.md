@@ -613,7 +613,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [CloudFormation](services/cloudformation/README.md) | A | 74 | 5 gaps |
 | [CloudTrail](services/cloudtrail/README.md) | A | 60 | 11 gaps |
 | [CloudWatch](services/cloudwatch/README.md) | A | 50 | 5 deferred |
-| [CloudWatch Logs](services/cloudwatchlogs/README.md) | A | 80 | 26 gaps; 3 deferred |
+| [CloudWatch Logs](services/cloudwatchlogs/README.md) | A | 82 | 29 gaps; 3 deferred |
 | [Config](services/awsconfig/README.md) | A | 102 | 5 gaps; 1 deferred |
 | [Cost Explorer](services/ce/README.md) | A | 37 | 1 gap; 2 deferred |
 | [Fault Injection Simulator](services/fis/README.md) | A | 26 | 2 gaps; 1 deferred |
