@@ -49,12 +49,21 @@ func (b *InMemoryBackend) newMFASession(pool *UserPool, clientID, username, chal
 }
 
 // mfaChallengeType returns the challenge type to use given pool config and user preference.
+// A user with no configured preference and no previously verified software token has no MFA
+// factor to challenge for at all -- real Cognito returns MFA_SETUP in that case (InitiateAuth
+// doc: "For users who are required to setup an MFA factor before they can sign in"), not
+// SOFTWARE_TOKEN_MFA, which would be a dead end (RespondToMFAChallenge requires a TOTP secret
+// that was never associated).
 func mfaChallengeType(_ *UserPool, user *User) string {
 	if user.PreferredMfaSetting != "" {
 		return user.PreferredMfaSetting
 	}
 
-	return challengeSoftwareTokenMFA
+	if user.TOTPVerified {
+		return challengeSoftwareTokenMFA
+	}
+
+	return challengeMFASetup
 }
 
 // RespondToMFAChallenge validates an MFA session and the user-supplied code, then issues
@@ -153,68 +162,185 @@ const (
 	challengeNewPasswordRequired = "NEW_PASSWORD_REQUIRED"
 	challengeSMSMFA              = "SMS_MFA"
 	challengeEmailOTP            = "EMAIL_OTP"
+	challengeMFASetup            = "MFA_SETUP"
 )
 
 // totpSecretLen is the number of random bytes for a TOTP secret (160-bit secret per RFC 6238).
 const totpSecretLen = 20
 
-// AssociateSoftwareToken generates a new TOTP secret for the authenticated user and stores it.
-// Returns the base32-encoded secret for use with TOTP authenticator apps (RFC 6238).
-func (b *InMemoryBackend) AssociateSoftwareToken(accessToken string) (string, error) {
+// resolveMFASetupSubjectLocked resolves the user for AssociateSoftwareToken/
+// VerifySoftwareToken, which document Session as an alternate to AccessToken: "You can
+// provide either an access token or a session ID in the request"
+// (api_op_AssociateSoftwareToken.go); "The request takes an access token or a session
+// string, but not both" (api_op_VerifySoftwareToken.go). The session path serves the
+// documented MFA_SETUP continuation flow, where InitiateAuth/RespondToAuthChallenge
+// returned an MFA_SETUP challenge and no access token exists yet. Returns the resolved
+// user and, for the session path, the same session token (echoed back so callers can
+// thread it into their output's Session field). Caller must hold the write lock.
+func (b *InMemoryBackend) resolveMFASetupSubjectLocked(accessToken, session string) (*User, string, error) {
+	switch {
+	case accessToken != "" && session != "":
+		return nil, "", fmt.Errorf(
+			"%w: provide either AccessToken or Session, not both", ErrInvalidParameter,
+		)
+
+	case accessToken != "":
+		user, err := b.findUserByAccessTokenLocked(accessToken)
+
+		return user, "", err
+
+	case session != "":
+		entry, ok := b.mfaSessions[session]
+		if !ok {
+			return nil, "", fmt.Errorf("%w: session not found or expired", ErrNotAuthorized)
+		}
+
+		if !entry.ExpiresAt.IsZero() && time.Now().After(entry.ExpiresAt) {
+			delete(b.mfaSessions, session)
+
+			return nil, "", fmt.Errorf("%w: session not found or expired", ErrNotAuthorized)
+		}
+
+		if entry.ChallengeType != challengeMFASetup {
+			return nil, "", fmt.Errorf("%w: session is not an MFA_SETUP challenge", ErrNotAuthorized)
+		}
+
+		user, ok := b.users.Get(userKey(entry.PoolID, entry.Username))
+		if !ok {
+			return nil, "", fmt.Errorf("%w: user %q not found", ErrUserNotFound, entry.Username)
+		}
+
+		return user, session, nil
+
+	default:
+		return nil, "", fmt.Errorf("%w: AccessToken or Session is required", ErrInvalidParameter)
+	}
+}
+
+// AssociateSoftwareToken generates a new TOTP secret for the user resolved via accessToken
+// or session (exactly one must be supplied) and stores it. Returns the base32-encoded
+// secret for use with TOTP authenticator apps (RFC 6238), plus the session to echo back
+// when the caller used the session path (empty for the access-token path).
+func (b *InMemoryBackend) AssociateSoftwareToken(accessToken, session string) (string, string, error) {
 	b.mu.Lock("AssociateSoftwareToken")
 	defer b.mu.Unlock()
 
-	user, err := b.findUserByAccessTokenLocked(accessToken)
+	user, sess, err := b.resolveMFASetupSubjectLocked(accessToken, session)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 
 	secretBytes := make([]byte, totpSecretLen)
 	if _, err = rand.Read(secretBytes); err != nil {
-		return "", fmt.Errorf("generating TOTP secret: %w", err)
+		return "", "", fmt.Errorf("generating TOTP secret: %w", err)
 	}
 
 	secret := base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(secretBytes)
 	user.TOTPSecret = secret
 	user.TOTPVerified = false
 
-	return secret, nil
+	return secret, sess, nil
 }
 
 // VerifySoftwareToken validates userCode as a real RFC 6238 TOTP code for the secret
 // previously issued by AssociateSoftwareToken (HMAC-SHA1, 30s step, +/-1 step clock skew,
-// matching an authenticator app such as Google Authenticator/Authy). Only the code that the
-// secret actually produces at (approximately) the current time is accepted.
-func (b *InMemoryBackend) VerifySoftwareToken(accessToken, userCode string) error {
+// matching an authenticator app such as Google Authenticator/Authy) for the user resolved
+// via accessToken or session (exactly one must be supplied). Only the code that the secret
+// actually produces at (approximately) the current time is accepted. Returns the session to
+// echo back when the caller used the session path -- that session "satisfies an MFA_SETUP
+// challenge" and is the input RespondToAuthChallenge needs to complete sign-in
+// (api_op_VerifySoftwareToken.go).
+func (b *InMemoryBackend) VerifySoftwareToken(accessToken, session, userCode string) (string, error) {
 	b.mu.Lock("VerifySoftwareToken")
 	defer b.mu.Unlock()
 
-	user, err := b.findUserByAccessTokenLocked(accessToken)
+	user, sess, err := b.resolveMFASetupSubjectLocked(accessToken, session)
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	if user.TOTPSecret == "" {
-		return fmt.Errorf("%w: no TOTP secret associated; call AssociateSoftwareToken first", ErrNotAuthorized)
+		return "", fmt.Errorf("%w: no TOTP secret associated; call AssociateSoftwareToken first", ErrNotAuthorized)
 	}
 
 	if len(userCode) != totpCodeLen {
-		return fmt.Errorf("%w: TOTP code must be %d digits", ErrCodeMismatch, totpCodeLen)
+		return "", fmt.Errorf("%w: TOTP code must be %d digits", ErrCodeMismatch, totpCodeLen)
 	}
 
 	for _, ch := range userCode {
 		if ch < '0' || ch > '9' {
-			return fmt.Errorf("%w: TOTP code must contain only digits", ErrCodeMismatch)
+			return "", fmt.Errorf("%w: TOTP code must contain only digits", ErrCodeMismatch)
 		}
 	}
 
 	if !verifyTOTPCode(user.TOTPSecret, userCode, time.Now()) {
-		return fmt.Errorf("%w: invalid software token code", ErrCodeMismatch)
+		return "", fmt.Errorf("%w: invalid software token code", ErrCodeMismatch)
 	}
 
 	user.TOTPVerified = true
 
-	return nil
+	return sess, nil
+}
+
+// RespondToMFASetupChallenge completes an MFA_SETUP challenge (InitiateAuth/
+// AdminInitiateAuth doc: "use the session returned by VerifySoftwareToken as an input to
+// RespondToAuthChallenge or AdminRespondToAuthChallenge with challenge name MFA_SETUP to
+// complete sign-in"). The session must have had its software token associated and verified
+// via AssociateSoftwareToken/VerifySoftwareToken first. On success it records
+// SOFTWARE_TOKEN_MFA as the user's MFA preference (the only factor this backend's MFA_SETUP
+// path can establish) and issues tokens.
+func (b *InMemoryBackend) RespondToMFASetupChallenge(clientID, session string) (*TokenResult, error) {
+	b.mu.Lock("RespondToMFASetupChallenge")
+	defer b.mu.Unlock()
+
+	entry, ok := b.mfaSessions[session]
+	if !ok {
+		return nil, fmt.Errorf("%w: MFA_SETUP session not found or expired", ErrNotAuthorized)
+	}
+
+	if !entry.ExpiresAt.IsZero() && time.Now().After(entry.ExpiresAt) {
+		delete(b.mfaSessions, session)
+
+		return nil, fmt.Errorf("%w: MFA_SETUP session not found or expired", ErrNotAuthorized)
+	}
+
+	if entry.ChallengeType != challengeMFASetup {
+		return nil, fmt.Errorf("%w: session is not an MFA_SETUP challenge", ErrNotAuthorized)
+	}
+
+	if entry.ClientID != clientID {
+		return nil, fmt.Errorf("%w: MFA_SETUP session was issued for a different client", ErrNotAuthorized)
+	}
+
+	pool, ok := b.pools.Get(entry.PoolID)
+	if !ok {
+		return nil, fmt.Errorf("%w: user pool %q not found", ErrUserPoolNotFound, entry.PoolID)
+	}
+
+	user, ok := b.users.Get(userKey(entry.PoolID, entry.Username))
+	if !ok {
+		return nil, fmt.Errorf("%w: user %q not found", ErrUserNotFound, entry.Username)
+	}
+
+	if !user.TOTPVerified {
+		return nil, fmt.Errorf(
+			"%w: no verified software token; call AssociateSoftwareToken and VerifySoftwareToken first",
+			ErrNotAuthorized,
+		)
+	}
+
+	if err := b.applyMFAPreferenceLocked(user, false, true, challengeSoftwareTokenMFA); err != nil {
+		return nil, err
+	}
+
+	delete(b.mfaSessions, session)
+
+	result, err := b.issueTokensLocked(pool, clientID, user, triggerSourceTokenGenAuthentication)
+	if err != nil {
+		return nil, err
+	}
+
+	return result.Tokens, nil
 }
 
 // SetUserMFAPreference sets the preferred MFA method for the authenticated user.

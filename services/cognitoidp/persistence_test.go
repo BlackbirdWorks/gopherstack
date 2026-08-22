@@ -451,12 +451,13 @@ func TestPersistence_MFAFieldsSurviveSnapshot(t *testing.T) {
 
 				tokens := signUpConfirmAndLogin(t, b, clientID, username)
 
-				secret, err := b.AssociateSoftwareToken(tokens.AccessToken)
+				secret, _, err := b.AssociateSoftwareToken(tokens.AccessToken, "")
 				require.NoError(t, err)
 
 				code, err := cognitoidp.GenerateTOTPCode(secret, time.Now())
 				require.NoError(t, err)
-				require.NoError(t, b.VerifySoftwareToken(tokens.AccessToken, code))
+				_, err = b.VerifySoftwareToken(tokens.AccessToken, "", code)
+				require.NoError(t, err)
 				require.NoError(t, b.AdminSetUserMFASetting(poolID, username, false, true, "SOFTWARE_TOKEN_MFA"))
 
 				user, err := b.AdminGetUser(poolID, username)

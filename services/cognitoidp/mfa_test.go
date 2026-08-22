@@ -34,7 +34,7 @@ func TestSoftwareToken_PersistsSecret(t *testing.T) {
 	b, _, client := setupTestPoolAndClient(t)
 	tokens := signUpConfirmAndLogin(t, b, client.ClientID, "rosa")
 
-	secret, err := b.AssociateSoftwareToken(tokens.AccessToken)
+	secret, _, err := b.AssociateSoftwareToken(tokens.AccessToken, "")
 	require.NoError(t, err)
 	assert.NotEmpty(t, secret)
 	assert.Greater(t, len(secret), 16)
@@ -42,7 +42,7 @@ func TestSoftwareToken_PersistsSecret(t *testing.T) {
 	code, err := cognitoidp.GenerateTOTPCode(secret, time.Now())
 	require.NoError(t, err)
 
-	err = b.VerifySoftwareToken(tokens.AccessToken, code)
+	_, err = b.VerifySoftwareToken(tokens.AccessToken, "", code)
 	require.NoError(t, err)
 
 	user, err := b.GetUser(tokens.AccessToken)
@@ -56,7 +56,7 @@ func TestVerifySoftwareToken_RequiresAssociate(t *testing.T) {
 	b, _, client := setupTestPoolAndClient(t)
 	tokens := signUpConfirmAndLogin(t, b, client.ClientID, "sam")
 
-	err := b.VerifySoftwareToken(tokens.AccessToken, "123456")
+	_, err := b.VerifySoftwareToken(tokens.AccessToken, "", "123456")
 	require.ErrorIs(t, err, cognitoidp.ErrNotAuthorized)
 }
 

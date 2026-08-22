@@ -115,15 +115,34 @@ func (h *Handler) handleAdminResetUserPassword(
 	return &adminResetUserPasswordOutput{}, nil
 }
 
+// mfaChallengeCodeKey returns the ChallengeResponses key holding the user-supplied code for
+// challengeName ("" for a challenge that isn't a code-based MFA challenge). Shared by
+// RespondToAuthChallenge and AdminRespondToAuthChallenge, which accept the same three
+// code-based challenge names.
+func mfaChallengeCodeKey(challengeName string) string {
+	switch challengeName {
+	case challengeSoftwareTokenMFA:
+		return "SOFTWARE_TOKEN_MFA_CODE"
+	case challengeSMSMFA:
+		// SMS MFA: accept any numeric code (simulation — no real SMS gateway).
+		return "SMS_MFA_CODE"
+	case challengeEmailOTP:
+		// EMAIL_OTP: accept any numeric code (simulation).
+		return "EMAIL_OTP_CODE"
+	default:
+		return ""
+	}
+}
+
 func (h *Handler) handleRespondToAuthChallengeAccurate(
 	_ context.Context,
 	in *respondToAuthChallengeAccurateInput,
 ) (*respondToAuthChallengeAccurateOutput, error) {
 	switch in.ChallengeName {
-	case challengeSoftwareTokenMFA:
-		totpCode := in.ChallengeResponses["SOFTWARE_TOKEN_MFA_CODE"]
+	case challengeSoftwareTokenMFA, challengeSMSMFA, challengeEmailOTP:
+		code := in.ChallengeResponses[mfaChallengeCodeKey(in.ChallengeName)]
 
-		tokens, err := h.Backend.RespondToMFAChallenge(in.ClientID, in.Session, totpCode)
+		tokens, err := h.Backend.RespondToMFAChallenge(in.ClientID, in.Session, code)
 		if err != nil {
 			return nil, err
 		}
@@ -132,24 +151,8 @@ func (h *Handler) handleRespondToAuthChallengeAccurate(
 			AuthenticationResult: authResultFromTokenResult(tokens),
 		}, nil
 
-	case challengeSMSMFA:
-		// SMS MFA: accept any numeric code (simulation — no real SMS gateway).
-		totpCode := in.ChallengeResponses["SMS_MFA_CODE"]
-
-		tokens, err := h.Backend.RespondToMFAChallenge(in.ClientID, in.Session, totpCode)
-		if err != nil {
-			return nil, err
-		}
-
-		return &respondToAuthChallengeAccurateOutput{
-			AuthenticationResult: authResultFromTokenResult(tokens),
-		}, nil
-
-	case challengeEmailOTP:
-		// EMAIL_OTP: accept any numeric code (simulation).
-		otpCode := in.ChallengeResponses["EMAIL_OTP_CODE"]
-
-		tokens, err := h.Backend.RespondToMFAChallenge(in.ClientID, in.Session, otpCode)
+	case challengeMFASetup:
+		tokens, err := h.Backend.RespondToMFASetupChallenge(in.ClientID, in.Session)
 		if err != nil {
 			return nil, err
 		}
@@ -224,16 +227,7 @@ func (h *Handler) handleAdminRespondToAuthChallengeAccurate(
 ) (*adminRespondToAuthChallengeOutput, error) {
 	switch in.ChallengeName {
 	case challengeSoftwareTokenMFA, challengeSMSMFA, challengeEmailOTP:
-		var code string
-
-		switch in.ChallengeName {
-		case challengeSoftwareTokenMFA:
-			code = in.ChallengeResponses["SOFTWARE_TOKEN_MFA_CODE"]
-		case challengeSMSMFA:
-			code = in.ChallengeResponses["SMS_MFA_CODE"]
-		case challengeEmailOTP:
-			code = in.ChallengeResponses["EMAIL_OTP_CODE"]
-		}
+		code := in.ChallengeResponses[mfaChallengeCodeKey(in.ChallengeName)]
 
 		tokens, err := h.Backend.RespondToMFAChallenge(in.ClientID, in.Session, code)
 		if err != nil {
@@ -263,6 +257,16 @@ func (h *Handler) handleAdminRespondToAuthChallengeAccurate(
 		}
 
 		return adminChallengeOutputFromResult(result), nil
+
+	case challengeMFASetup:
+		tokens, err := h.Backend.RespondToMFASetupChallenge(in.ClientID, in.Session)
+		if err != nil {
+			return nil, err
+		}
+
+		return &adminRespondToAuthChallengeOutput{
+			AuthenticationResult: authResultFromTokenResult(tokens),
+		}, nil
 
 	case challengeCustomChallenge:
 		answer := in.ChallengeResponses["ANSWER"]

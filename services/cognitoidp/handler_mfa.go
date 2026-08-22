@@ -48,23 +48,24 @@ func (h *Handler) handleAssociateSoftwareTokenAccurate(
 	_ context.Context,
 	in *associateSoftwareTokenAccurateInput,
 ) (*associateSoftwareTokenAccurateOutput, error) {
-	secret, err := h.Backend.AssociateSoftwareToken(in.AccessToken)
+	secret, session, err := h.Backend.AssociateSoftwareToken(in.AccessToken, in.Session)
 	if err != nil {
 		return nil, err
 	}
 
-	return &associateSoftwareTokenAccurateOutput{SecretCode: secret}, nil
+	return &associateSoftwareTokenAccurateOutput{SecretCode: secret, Session: session}, nil
 }
 
 func (h *Handler) handleVerifySoftwareTokenAccurate(
 	_ context.Context,
 	in *verifySoftwareTokenAccurateInput,
 ) (*verifySoftwareTokenAccurateOutput, error) {
-	if err := h.Backend.VerifySoftwareToken(in.AccessToken, in.UserCode); err != nil {
+	session, err := h.Backend.VerifySoftwareToken(in.AccessToken, in.Session, in.UserCode)
+	if err != nil {
 		return nil, err
 	}
 
-	return &verifySoftwareTokenAccurateOutput{Status: "SUCCESS"}, nil
+	return &verifySoftwareTokenAccurateOutput{Status: "SUCCESS", Session: session}, nil
 }
 
 func (h *Handler) handleSetUserMFAPreferenceAccurate(

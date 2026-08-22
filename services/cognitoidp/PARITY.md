@@ -50,11 +50,11 @@ overall: A                # 2026-08-08 (gopherstack-kxow): restored from B to A 
 ops:
   InitiateAuth: {wire: ok, errors: ok, state: ok, persist: ok, note: "USER_PASSWORD_AUTH/ADMIN_USER_PASSWORD_AUTH/CUSTOM_AUTH/REFRESH_TOKEN_AUTH all real; PreventUserExistenceErrors masking (prior pass, gopherstack-2sp); PreTokenGeneration trigger fires on token issuance (prior pass, gopherstack-8fw); PreAuthentication/PostAuthentication/UserMigration triggers fire (prior pass); CUSTOM_AUTH a real Lambda-driven state machine (prior pass). THIS PASS (gopherstack-n7gh): USER_SRP_AUTH is now real SRP-6a (see srp.go) -- previously it required AuthParameters[PASSWORD] directly (a real SRP client never sends this, so every real-client USER_SRP_AUTH call had always failed with NotAuthorizedException). Routes to InitiateAuthSRP given AuthParameters[SRP_A]."}
   AdminInitiateAuth: {wire: ok, errors: ok, state: ok, persist: ok, note: "never masks UserNotFoundException, matching AWS (admin API); PreTokenGeneration trigger fires (prior pass); PreAuthentication/PostAuthentication/UserMigration/CUSTOM_AUTH real (prior pass). THIS PASS (gopherstack-n7gh): ADMIN_USER_SRP_AUTH is now real SRP-6a via AdminInitiateAuthSRP -- previously this flow name was not even in authenticate()'s accepted-flow switch (only \"USER_SRP_AUTH\" was), so a real client's AdminInitiateAuth SRP attempt got InvalidUserPoolConfigurationException outright, a second bug on top of the plaintext-password one."}
-  RespondToAuthChallenge: {wire: ok, errors: ok, state: ok, persist: ok, note: "SOFTWARE_TOKEN_MFA real RFC6238 TOTP; SMS_MFA/EMAIL_OTP require the generated one-time code; NEW_PASSWORD_REQUIRED real; PreTokenGeneration trigger fires on token issuance; CUSTOM_CHALLENGE handled for real (prior pass). THIS PASS (gopherstack-n7gh): PASSWORD_VERIFIER now verifies a real SRP-6a zero-knowledge password-claim signature (PASSWORD_CLAIM_SECRET_BLOCK/PASSWORD_CLAIM_SIGNATURE/TIMESTAMP against server-held (A,b,B,v) session state) instead of unconditionally issuing tokens for any session token that merely existed. Also fixed: success now runs the same FORCE_CHANGE_PASSWORD/MFA gate USER_PASSWORD_AUTH runs (postCredentialCheckLocked) -- previously RespondToSRPChallenge always issued tokens directly, bypassing NEW_PASSWORD_REQUIRED/MFA entirely for any SRP login."}
-  AdminRespondToAuthChallenge: {wire: ok, errors: ok, state: ok, persist: ok, note: "same fixes as RespondToAuthChallenge (shared backend method), including CUSTOM_CHALLENGE and PASSWORD_VERIFIER real SRP verification (this pass)"}
-  AssociateSoftwareToken: {wire: ok, errors: ok, state: ok, persist: ok}
-  VerifySoftwareToken: {wire: ok, errors: ok, state: ok, persist: ok, note: "now verifies a real RFC 6238 TOTP code against the associated secret (was: any 6 digits accepted) — gopherstack-2sp"}
-  SetUserMFAPreference: {wire: ok, errors: ok, state: ok, persist: ok}
+  RespondToAuthChallenge: {wire: ok, errors: ok, state: ok, persist: ok, note: "SOFTWARE_TOKEN_MFA real RFC6238 TOTP; SMS_MFA/EMAIL_OTP require the generated one-time code; NEW_PASSWORD_REQUIRED real; PreTokenGeneration trigger fires on token issuance; CUSTOM_CHALLENGE handled for real (prior pass). gopherstack-n7gh: PASSWORD_VERIFIER now verifies a real SRP-6a zero-knowledge password-claim signature (PASSWORD_CLAIM_SECRET_BLOCK/PASSWORD_CLAIM_SIGNATURE/TIMESTAMP against server-held (A,b,B,v) session state) instead of unconditionally issuing tokens for any session token that merely existed. Also fixed: success now runs the same FORCE_CHANGE_PASSWORD/MFA gate USER_PASSWORD_AUTH runs (postCredentialCheckLocked) -- previously RespondToSRPChallenge always issued tokens directly, bypassing NEW_PASSWORD_REQUIRED/MFA entirely for any SRP login. CLOSED 2026-08-22 (gopherstack-1b07): MFA_SETUP is now a real, reachable challenge. mfaChallengeType (mfa.go) previously defaulted every MFA-required user with no PreferredMfaSetting straight to SOFTWARE_TOKEN_MFA, including a user who had never called AssociateSoftwareToken -- a dead end, since RespondToMFAChallenge requires a TOTP secret that was never associated. It now returns MFA_SETUP (InitiateAuth doc: 'For users who are required to setup an MFA factor before they can sign in') unless the user already has a verified software token (user.TOTPVerified) or an explicit preference. RespondToAuthChallenge/AdminRespondToAuthChallenge handle ChallengeName=MFA_SETUP via new backend method RespondToMFASetupChallenge, which requires the session's user to have TOTPVerified (set by VerifySoftwareToken), records SOFTWARE_TOKEN_MFA as the user's MFA preference, and issues tokens -- completing InitiateAuth's documented 'use the session returned by VerifySoftwareToken as an input to RespondToAuthChallenge ... with challenge name MFA_SETUP to complete sign-in.' NOT modeled: the MFAS_CAN_SETUP challenge-parameter value InitiateAuth's doc says accompanies MFA_SETUP (ChallengeParameters is not populated for any of this backend's non-SRP challenges, a pre-existing gap this pass did not extend to fix) and any session single-use/rotation semantics across AssociateSoftwareToken -> VerifySoftwareToken -> RespondToAuthChallenge -- the SDK's doc prose never states whether each op consumes/rotates the session, so this backend echoes the same session token unchanged through all three calls (only the final RespondToAuthChallenge call actually deletes it) rather than inventing rotation behavior."}
+  AdminRespondToAuthChallenge: {wire: ok, errors: ok, state: ok, persist: ok, note: "same fixes as RespondToAuthChallenge (shared backend method), including CUSTOM_CHALLENGE and PASSWORD_VERIFIER real SRP verification (gopherstack-n7gh) and MFA_SETUP (gopherstack-1b07, this pass)"}
+  AssociateSoftwareToken: {wire: ok, errors: ok, state: ok, persist: ok, note: "CLOSED 2026-08-22 (gopherstack-1b07): now also accepts Session as documented alternate to AccessToken, resolving the user via the MFA_SETUP challenge session InitiateAuth/AdminInitiateAuth issues instead of always requiring findUserByAccessTokenLocked. See RespondToAuthChallenge note for the full flow."}
+  VerifySoftwareToken: {wire: ok, errors: ok, state: ok, persist: ok, note: "now verifies a real RFC 6238 TOTP code against the associated secret (was: any 6 digits accepted) — gopherstack-2sp. CLOSED 2026-08-22 (gopherstack-1b07): now also accepts Session as documented alternate to AccessToken (see AssociateSoftwareToken/RespondToAuthChallenge)."}
+  SetUserMFAPreference: {wire: ok, errors: ok, state: ok, persist: ok, note: "SetUserMFAPreferenceInput has NO Session field in the real SDK -- AccessToken is `This member is required` (api_op_SetUserMFAPreference.go). Earlier notes on this op family (gopherstack-1b07's own filing, and the PARITY entry it came from) incorrectly claimed a documented Session alternate here; corrected 2026-08-22. This op was never actually affected by the MFA_SETUP Session gap."}
   AdminSetUserMFAPreference: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateUserPool: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeUserPool: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -126,11 +126,144 @@ deferred:
   - "risk_config: RiskConfigurationType.LastModifiedDate is a real response field this backend doesn't track at all internally (no LastModifiedAt on the risk-config storage type, unlike domains/managed_login_branding where CreatedAt/LastModifiedAt already existed and just needed echoing) -- would need a new tracked field plus updates at every SetRiskConfiguration call site, not a one-line echo fix."
   - "Pagination is unimplemented on at least two List ops with real MaxResults/NextToken(or PaginationToken) contracts: ListUserImportJobs (MaxResults is REQUIRED on the real input, silently accepted by no field here) and ListResourceServers (MaxResults/PaginationToken optional, NextToken in output). Both always return every item in one page. ListUsers/ListWebAuthnCredentials/ListDevices already do this correctly (pkgs/page or hand-rolled token) -- the same pattern should be applied here in a future pass."
   - "domains: Routing and Version, two more real DomainDescriptionType fields (multi-region failover routing config; app version string), remain unpopulated -- this backend has no multi-region-domain-routing model and no meaningful 'app version' to report. Left absent rather than fabricated, per the same standard as terms/ above, just far smaller in scope."
-  - "AssociateSoftwareToken/VerifySoftwareToken/SetUserMFAPreference: the documented Session-based alternate to AccessToken (continuing an MFA_SETUP challenge with no access token yet) is entirely unimplemented -- the backend only resolves users via AccessToken, and the wire-side Session field, though correctly tagged, is never populated. Filed as gopherstack-1b07 (needs a session-continuation lookup, not a tag fix)."
+  - "MFA_SETUP's ChallengeParameters carries no MFAS_CAN_SETUP value (InitiateAuth doc: 'The MFA types activated for the user pool will be listed in the challenge parameters MFAS_CAN_SETUP value') -- this backend does not populate ChallengeParameters for any non-SRP challenge (SOFTWARE_TOKEN_MFA/SMS_MFA/EMAIL_OTP/NEW_PASSWORD_REQUIRED/MFA_SETUP all return an empty map), a pre-existing gap gopherstack-1b07 (2026-08-22) did not extend to fix. Also undetermined: the SDK's doc prose never states whether AssociateSoftwareToken/VerifySoftwareToken/RespondToAuthChallenge rotate or single-use the MFA_SETUP session between calls, so this backend echoes the same session token unchanged across all three (only RespondToAuthChallenge deletes it) rather than inventing rotation semantics."
 leaks: {status: clean, note: "janitor.go sweeps expired refresh tokens/mfa sessions/confirm codes/attr verification codes on a bounded interval (WithJanitor); ctx cancellation observed via StartWorker. This pass added custom_auth.go (CUSTOM_AUTH state machine) and user_migration.go (UserMigration trigger), both of which reuse the existing mfaSessions map/EvictExpiredMFASessions sweep for their session state -- no new maps, goroutines, or tickers introduced. All new backend methods (tryUserMigration, applyPostMigrationFinalStatus, startCustomAuth, customAuthRound, defineAuthChallenge, createAuthChallenge, verifyCustomAuthChallenge, preAuthenticationCheck, postAuthenticationNotify) are plain functions that assume the caller already holds b.mu (documented per-function), never call b.mu.Lock/RLock themselves -- verified no double-lock/deadlock paths and confirmed via `go test -race` (full suite, 233s, clean). De-stub hygiene: the ~15-op handler.go/handler_auth.go/handler_user_pools.go/handler_user_pool_clients.go/handler_users.go dead-code shadowing flagged as deferred in the prior sweep is now fully deleted (dead handlers + their now-orphaned model types removed across 4 files + models_auth.go/models_user_pools.go/models_user_pool_clients.go/models_users.go), closing that item; golangci-lint (0 issues) confirms nothing is newly unused."}
 ---
 
 ## Notes
+
+### What this pass fixed (2026-08-22, gopherstack-1b07)
+
+Closed the structural gap gopherstack-zquj filed as gopherstack-1b07 (see
+the now-updated `deferred`/`ops` entries above): `AssociateSoftwareToken`
+and `VerifySoftwareToken` document `Session` as an alternate to
+`AccessToken` for the real MFA_SETUP continuation flow -- confirmed by
+reading each op's actual input struct and doc prose in
+`cognitoidentityprovider@v1.67.4`:
+
+- `api_op_AssociateSoftwareToken.go`: `AccessToken *string` ("You can
+  provide either an access token or a session ID in the request") and
+  `Session *string` ("the session ID from a successful sign-in"), both
+  optional on the input; output carries `Session *string` too.
+- `api_op_VerifySoftwareToken.go`: same `AccessToken`/`Session` pair, doc
+  states plainly "The request takes an access token or a session string,
+  but not both." Output's `Session` doc: "This session ID satisfies an
+  MFA_SETUP challenge. Supply the session ID in your challenge response."
+- `api_op_InitiateAuth.go` (`ChallengeName` doc, `types.ChallengeNameType`
+  enum value `MFA_SETUP` in `types/enums.go:267`): "For users who are
+  required to setup an MFA factor before they can sign in ... To set up
+  time-based one-time password (TOTP) MFA, use the session returned in
+  this challenge from InitiateAuth or AdminInitiateAuth as an input to
+  AssociateSoftwareToken. Then, use the session returned by
+  VerifySoftwareToken as an input to RespondToAuthChallenge or
+  AdminRespondToAuthChallenge with challenge name MFA_SETUP to complete
+  sign-in." This is the full round trip the fix had to make reachable, not
+  just the two ops the issue named.
+
+**One correction to the filing this issue came from**: it (and the
+gopherstack-zquj note before it) also named `SetUserMFAPreference` as
+having this same documented `Session` alternate. It does not --
+`SetUserMFAPreferenceInput` in `api_op_SetUserMFAPreference.go` has
+`AccessToken *string` marked `This member is required` and no `Session`
+field at all. gopherstack's own `setUserMFAPreferenceAccurateInput`
+(models_mfa.go) already had no `Session` field either, so there was
+nothing broken there to fix -- confirmed by reading the full struct, not
+assumed from the pattern of the other two ops.
+
+**What was missing end to end, not just the two named ops**: before this
+fix, nothing in `InitiateAuth`/`AdminInitiateAuth` ever issued a session
+usable for this flow at all. `mfaChallengeType` (mfa.go) unconditionally
+defaulted any MFA-required user with no `PreferredMfaSetting` to
+`SOFTWARE_TOKEN_MFA` -- including a user who had never called
+`AssociateSoftwareToken`, for whom that challenge is an unconditional dead
+end (`RespondToMFAChallenge` requires a TOTP secret that was never
+associated). So even AccessToken-based `AssociateSoftwareToken` could not
+have rescued that user: the session that was issued named the wrong
+challenge, and no session at all was of type `MFA_SETUP`.
+
+Fixed by:
+
+1. `mfaChallengeType` now returns `MFA_SETUP` for a user with no
+   `PreferredMfaSetting` who has not verified a software token
+   (`user.TOTPVerified == false`), and only falls back to
+   `SOFTWARE_TOKEN_MFA` once a token has actually been verified -- this
+   preserves the existing regression test
+   (`TestHandler_RespondToAuthChallenge_SMSMFAFlow`, which enrolls TOTP via
+   AccessToken *before* turning MFA on, so `TOTPVerified` is already true
+   by the time `InitiateAuth` runs and the SOFTWARE_TOKEN_MFA challenge is
+   still correctly issued for that case).
+2. `resolveMFASetupSubjectLocked` (mfa.go): resolves the acting user from
+   either `accessToken` or `session`, matching VerifySoftwareToken's "either
+   ... or ... but not both" contract. The session path requires the
+   `mfaSessionEntry.ChallengeType` to be `MFA_SETUP` (not any other pending
+   challenge type) and not expired, exactly like the existing
+   `RespondToMFAChallenge`/`RespondToSRPChallenge`/
+   `RespondToNewPasswordRequired` session lookups it sits alongside.
+3. `AssociateSoftwareToken`/`VerifySoftwareToken` signatures both grew a
+   `session` parameter (and `VerifySoftwareToken` grew a `string` first
+   return, `AssociateSoftwareToken` a second `string` return) to thread the
+   resolved/echoed session through to the wire's already-correctly-tagged
+   `Session` output field. All in-package call sites (handler_mfa.go,
+   mfa_test.go, totp_test.go, persistence_test.go, users_test.go) updated;
+   confirmed via `go build ./...` (no callers outside `services/cognitoidp`
+   exist for either method).
+4. `RespondToMFASetupChallenge` (mfa.go), a new backend method, completes
+   the flow: it requires the session to be `MFA_SETUP` and its user to have
+   `TOTPVerified == true` (set by step 3's `VerifySoftwareToken`), records
+   `SOFTWARE_TOKEN_MFA` as the user's MFA preference via the existing
+   `applyMFAPreferenceLocked`, deletes the session, and issues tokens.
+   Wired into `RespondToAuthChallenge`/`AdminRespondToAuthChallenge` for
+   `ChallengeName == "MFA_SETUP"`.
+
+**Not modeled, disclosed rather than invented**: real Cognito's exact
+session single-use/rotation semantics across the
+`AssociateSoftwareToken -> VerifySoftwareToken -> RespondToAuthChallenge`
+round trip are not stated anywhere in the pinned SDK's doc prose (only that
+each op's output carries *a* session to use next). This backend echoes the
+same session token unchanged across all three calls -- only the final
+`RespondToAuthChallenge` call deletes it from `b.mfaSessions` -- rather
+than fabricating rotation behavior the SDK doesn't document. Also not
+modeled: the `MFAS_CAN_SETUP` value `InitiateAuth`'s doc says accompanies
+an `MFA_SETUP` challenge in `ChallengeParameters` -- this backend does not
+populate `ChallengeParameters` for any non-SRP challenge at all (a
+pre-existing gap predating this fix, not extended here). Both are recorded
+under `deferred` above.
+
+**Proof**: `mfa_setup_session_test.go` adds
+`TestMFASetupSession_CompletesSignInWithoutAccessToken`, which drives the
+full documented round trip through a real `aws-sdk-go-v2` client
+(`InitiateAuth` -> `AssociateSoftwareToken(Session)` ->
+`VerifySoftwareToken(Session)` -> `RespondToAuthChallenge(MFA_SETUP)`) with
+no `AccessToken` anywhere, and
+`TestAssociateAndVerifySoftwareToken_AccessTokenPath`, a same-shape
+regression guard proving the pre-existing `AccessToken` path is unchanged.
+Hand-reverted `mfa.go`/`handler_mfa.go`/`handler_auth.go` (plus the
+pre-existing test files' call sites, needed only so the package still
+compiled against the old 2-arg/1-return signatures) to `git show HEAD:...`
+and re-ran: `TestMFASetupSession_CompletesSignInWithoutAccessToken` failed
+at the very first real assertion --
+
+```
+mfa_setup_session_test.go:74:
+    Error: Not equal:
+      expected: "MFA_SETUP"
+      actual  : "SOFTWARE_TOKEN_MFA"
+```
+
+-- confirming the pre-fix backend never issues an `MFA_SETUP` challenge at
+all (the deeper of the two bugs this fix closes), while
+`TestAssociateAndVerifySoftwareToken_AccessTokenPath` still passed
+unfixed, confirming the AccessToken path was never broken. Restored all 7
+files from the saved fixed copies and confirmed `md5sum` byte-identical
+before continuing.
+
+Snapshot version: left at 2 (`cognitoidpSnapshotVersion`, persistence.go).
+This fix adds no new persisted field and changes no existing one --
+`mfaSessionEntry.ChallengeType` is an existing `string` field that simply
+takes on one more value (`"MFA_SETUP"`) it already had the type to hold,
+and `User.TOTPVerified`/`PreferredMfaSetting` (both pre-existing) are read,
+not restructured. Confirmed no `pkgs/persistence` golden regen was
+needed: `go test ./pkgs/persistence/...` passes unchanged.
 
 ### What this pass fixed (2026-08-22, gopherstack-xasq)
 
@@ -303,17 +436,30 @@ found.
   `MinLength`/`MaxLength`/`MinValue`/`MaxValue` cases). Every real client's
   schema attribute constraints decode unset. This is what keycheck reported
   as 4 mismatched keys each on CreateUserPool/DescribeUserPool.
-- **gopherstack-1b07**: `AssociateSoftwareToken`/`VerifySoftwareToken`/
-  `SetUserMFAPreference`'s documented `Session` alternate identifier to
+- **gopherstack-1b07** (CLOSED 2026-08-22): `AssociateSoftwareToken`/
+  `VerifySoftwareToken`'s documented `Session` alternate identifier to
   `AccessToken` (the real MFA_SETUP-challenge-continuation flow, used when
-  the caller has no access token yet) is wired on the wire side
+  the caller has no access token yet) was wired on the wire side
   (`associateSoftwareTokenAccurateOutput.Session`/
-  `verifySoftwareTokenAccurateOutput.Session` are correctly tagged) but the
-  backend (`mfa.go`) only ever resolves a user via
-  `findUserByAccessTokenLocked` -- there is no session-based lookup at all,
-  so a real client using the documented Session-only flow cannot complete
-  MFA setup. This is the "documented alternate identifier is the broken
-  one" pattern named in this pass's brief.
+  `verifySoftwareTokenAccurateOutput.Session` correctly tagged) but the
+  backend (`mfa.go`) only ever resolved a user via
+  `findUserByAccessTokenLocked` -- there was no session-based lookup at all,
+  so a real client using the documented Session-only flow could not complete
+  MFA setup. This was the "documented alternate identifier is the broken
+  one" pattern named in this pass's brief. Fixed by adding
+  `resolveMFASetupSubjectLocked` (mfa.go), a real MFA_SETUP challenge path in
+  `mfaChallengeType`, and `RespondToMFASetupChallenge` to complete sign-in --
+  see the RespondToAuthChallenge/AssociateSoftwareToken/VerifySoftwareToken
+  entries above for the full fix and what remains undetermined
+  (MFAS_CAN_SETUP, session rotation). **Correction to this finding's own
+  original scope**: `SetUserMFAPreference` does NOT have a documented
+  `Session` alternate at all -- `SetUserMFAPreferenceInput.AccessToken` is
+  `This member is required` in the real SDK, with no `Session` field
+  anywhere on that input (`api_op_SetUserMFAPreference.go`). Naming it
+  alongside AssociateSoftwareToken/VerifySoftwareToken was wrong in the
+  original filing (and in gopherstack-zquj's note before it); gopherstack's
+  own `setUserMFAPreferenceAccurateInput` already had no `Session` field
+  either, so there was nothing to fix there.
 
 **Two new `cmd/keycheck` blind-spot refinements found, documented in
 gopherstack-ck9f rather than in `cmd/keycheck/main.go` directly** (another
