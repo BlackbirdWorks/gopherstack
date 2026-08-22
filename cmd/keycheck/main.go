@@ -51,6 +51,9 @@
 //     HandleDeserialize body calling no deserializeOpDocument* function, not
 //     merely by the function's absence -- six ssoadmin ops are this case and
 //     are correctly resolved as empty, not unresolved.)
+//   - an op is bound to more than one distinct handler name (KNOWN BLIND
+//     SPOT #6, sqs's dual JSON/Query handlers) -- neither is silently
+//     preferred; the op is reported ambiguous instead of checked.
 //
 // The service writing zero map[string]<T> literal keys anywhere is reported
 // as N/A, not as "0 mismatches, clean": it means the service builds
@@ -114,24 +117,26 @@
 // itself flagged. Neither gap is fixed to keep the corresponding NoWrittenKeys
 // (N/A) path honest rather than silently under-reporting as clean.
 //
-// KNOWN BLIND SPOT #6, found live sweeping sqs for gopherstack-v4a4: when a
-// package declares TWO handler functions for the same op name -- sqs hosts
-// both a "handle<Op>" JSON handler (the one the pinned aws-sdk-go-v2 client
-// actually talks to, confirmed in services/_PROTOCOLS.md) and a legacy
+// KNOWN BLIND SPOT #6, found live sweeping sqs for gopherstack-v4a4, FIXED
+// for gopherstack-kiwf: a package can declare TWO handler functions for the
+// same op name -- sqs hosts both a "handle<Op>" JSON handler (the one the
+// pinned aws-sdk-go-v2 client actually talks to, confirmed against
+// deserializers.go: sqs is awsAwsjson10_, case-sensitive) and a legacy
 // "query<Op>" XML/Query-protocol handler for the same op string, left over
-// from before SQS's protocol switch -- ps.opToHandler's case-dispatch scan
-// has no concept of "these two bindings conflict"; whichever case clause
-// ast.Inspect visits last (file processing is alphabetical by filename, so
-// query_messages.go's case overwrote handler_messages.go's) silently wins.
-// Every MISMATCH this tool reported for sqs traced to the XML handler's
-// `xml:"..."` (or untagged) fields being checked against the JSON SDK's key
-// set -- a meaningless comparison, not a real bug. Confirmed by hand: sqs's
-// real JSON handler (handleDeleteMessageBatch) already writes correctly
-// under a type the struct-tag scan doesn't even reach. Not fixed (would
-// need same-op multi-handler detection, out of scope for a tag-only pass);
-// any service where `grep -c '^func (h \*Handler) query[A-Z]'` finds
-// handler-shaped functions alongside `handle`/`json` ones for the same op
-// needs this same distrust before trusting a MISMATCH.
+// from before SQS's protocol switch. Every op-to-handler write now goes
+// through pkgScan.bindOp, which detects a second, DIFFERENT handler name
+// claiming an already-bound op and refuses to pick either: the op is pulled
+// out of normal checking and reported as its own ERROR row (AmbiguousOps /
+// AmbiguousHandlers in checkResult) naming every conflicting handler, rather
+// than one silently winning by file-processing order. Before the fix, sqs's
+// ~13 dually-bound ops (handler.go's sqsDispatchTable vs query.go's
+// queryActionTable, e.g. DeleteMessageBatch) resolved to the XML handler
+// only because query.go sorts after handler.go, producing 85 MISMATCH rows
+// that were all comparing the wrong handler's fields against the JSON SDK's
+// key set -- confirmed by hand not real; sqs's real JSON handlers
+// (handleDeleteMessageBatch etc.) already write correctly.
+// TestRunCheck_AmbiguousHandlerBinding reproduces this exact shape as a
+// fixture and fails against the unfixed tool.
 //
 // KNOWN BLIND SPOT #3: a written key absent from the real reachable shape is
 // reported identically whether it REPLACES a real required key (the real
@@ -469,6 +474,7 @@ type pkgScan struct {
 	structTypes   map[string]*ast.StructType
 	mapAnyVars    map[string]bool
 	opToHandler   map[string]string
+	ambiguousOps  map[string]map[string]bool
 }
 
 func scanPackage(dir string) (*pkgScan, error) {
@@ -481,6 +487,7 @@ func scanPackage(dir string) (*pkgScan, error) {
 		structTypes:   map[string]*ast.StructType{},
 		mapAnyVars:    map[string]bool{},
 		opToHandler:   map[string]string{},
+		ambiguousOps:  map[string]map[string]bool{},
 	}
 
 	entries, err := os.ReadDir(dir)
@@ -682,8 +689,34 @@ func (ps *pkgScan) recordCaseDispatch(cc *ast.CaseClause) {
 		return
 	}
 	for _, op := range opNames {
-		ps.opToHandler[op] = handler
+		ps.bindOp(op, handler)
 	}
+}
+
+// bindOp records handler as op's dispatch target. If op is already bound to
+// a DIFFERENT handler name (sqs's real shape, gopherstack-kiwf: a modern
+// "handle<Op>" JSON handler and a legacy "query<Op>" XML handler both claim
+// the same op string), neither silently overwrites the other by
+// file-processing order. Both names are recorded in ambiguousOps so runCheck
+// can refuse to guess and report the conflict instead of comparing the
+// wrong handler's keys against the SDK.
+func (ps *pkgScan) bindOp(op, handler string) {
+	if handler == "" {
+		return
+	}
+	existing, bound := ps.opToHandler[op]
+	if !bound {
+		ps.opToHandler[op] = handler
+
+		return
+	}
+	if existing == handler {
+		return
+	}
+	if ps.ambiguousOps[op] == nil {
+		ps.ambiguousOps[op] = map[string]bool{existing: true}
+	}
+	ps.ambiguousOps[op][handler] = true
 }
 
 func (ps *pkgScan) findHandlerCall(stmts []ast.Stmt) string {
@@ -744,7 +777,7 @@ func (ps *pkgScan) recordMapDispatch(cl *ast.CompositeLit) {
 		if name == "" {
 			continue
 		}
-		ps.opToHandler[key] = name
+		ps.bindOp(key, name)
 	}
 }
 
@@ -866,7 +899,7 @@ func (ps *pkgScan) recordSliceBindingDispatch(cl *ast.CompositeLit) {
 		if handler == "" {
 			continue
 		}
-		ps.opToHandler[name] = handler
+		ps.bindOp(name, handler)
 	}
 }
 
@@ -1198,6 +1231,8 @@ type opResult struct {
 type checkResult struct {
 	OpsChecked         []opResult
 	UnresolvedOps      []string
+	AmbiguousOps       []string
+	AmbiguousHandlers  map[string][]string
 	InternalOpsSkipped []string
 	SDKOpsResolved     int
 	SDKTypesResolved   int
@@ -1205,6 +1240,59 @@ type checkResult struct {
 	TotalWritten       int
 	TotalDynSkipped    int
 	NoWrittenKeys      bool
+}
+
+// resolveCheckableOps returns the ops eligible for a normal SDK comparison,
+// sorted: onlyOp-filtered, with gopherstack-internal "__"-prefixed ops
+// routed into res.InternalOpsSkipped and ambiguously-bound ops (see
+// collectAmbiguousOps) excluded entirely.
+func resolveCheckableOps(ps *pkgScan, onlyOp string, res *checkResult) []string {
+	var ops []string
+	for op := range ps.opToHandler {
+		if onlyOp != "" && op != onlyOp {
+			continue
+		}
+		if strings.HasPrefix(op, "__") {
+			// gopherstack-internal chaos/test endpoint (e.g. shield's
+			// "__SimulateAttack"), not a real AWS operation -- there is no
+			// SDK deserializer to check it against by definition.
+			res.InternalOpsSkipped = append(res.InternalOpsSkipped, op)
+
+			continue
+		}
+		if _, ambiguous := ps.ambiguousOps[op]; ambiguous {
+			// Bound to more than one distinct handler (gopherstack-kiwf) --
+			// reported separately by collectAmbiguousOps so the wrong
+			// handler's keys are never compared against the SDK.
+			continue
+		}
+		ops = append(ops, op)
+	}
+	sort.Strings(ops)
+	sort.Strings(res.InternalOpsSkipped)
+
+	return ops
+}
+
+// collectAmbiguousOps fills res.AmbiguousOps/AmbiguousHandlers from every op
+// pkgScan.bindOp found bound to more than one distinct handler name.
+func collectAmbiguousOps(ps *pkgScan, onlyOp string, res *checkResult) {
+	for op, handlers := range ps.ambiguousOps {
+		if onlyOp != "" && op != onlyOp {
+			continue
+		}
+		if strings.HasPrefix(op, "__") {
+			continue
+		}
+		names := make([]string, 0, len(handlers))
+		for h := range handlers {
+			names = append(names, h)
+		}
+		sort.Strings(names)
+		res.AmbiguousOps = append(res.AmbiguousOps, op)
+		res.AmbiguousHandlers[op] = names
+	}
+	sort.Strings(res.AmbiguousOps)
 }
 
 func runCheck(sdkPath, prefix, svcDir, onlyOp string) (*checkResult, error) {
@@ -1222,25 +1310,11 @@ func runCheck(sdkPath, prefix, svcDir, onlyOp string) (*checkResult, error) {
 		SDKOpsResolved:     len(idx.ops),
 		SDKTypesResolved:   len(idx.types),
 		HandlerOpsResolved: len(ps.opToHandler),
+		AmbiguousHandlers:  map[string][]string{},
 	}
 
-	var ops []string
-	for op := range ps.opToHandler {
-		if onlyOp != "" && op != onlyOp {
-			continue
-		}
-		if strings.HasPrefix(op, "__") {
-			// gopherstack-internal chaos/test endpoint (e.g. shield's
-			// "__SimulateAttack"), not a real AWS operation -- there is no
-			// SDK deserializer to check it against by definition.
-			res.InternalOpsSkipped = append(res.InternalOpsSkipped, op)
-
-			continue
-		}
-		ops = append(ops, op)
-	}
-	sort.Strings(ops)
-	sort.Strings(res.InternalOpsSkipped)
+	ops := resolveCheckableOps(ps, onlyOp, res)
+	collectAmbiguousOps(ps, onlyOp, res)
 
 	for _, op := range ops {
 		info, ok := idx.ops[op]
@@ -1403,6 +1477,15 @@ func report(res *checkResult, svcDir, prefix string) int {
 			op, op)
 	}
 
+	for _, op := range res.AmbiguousOps {
+		fmt.Fprintf(os.Stderr,
+			"ERROR: op %s is bound to %d conflicting handlers (%s) -- a case clause or dispatch\n"+
+				"table entry rebinds an op already bound to a different handler, so ps.opToHandler\n"+
+				"cannot tell which one the real dispatcher uses; refusing to guess and compare the\n"+
+				"wrong handler's keys against the SDK. See KNOWN BLIND SPOT #6. NOT verified.\n",
+			op, len(res.AmbiguousHandlers[op]), strings.Join(res.AmbiguousHandlers[op], ", "))
+	}
+
 	if res.NoWrittenKeys {
 		fmt.Fprintf(os.Stdout,
 			"N/A: %s writes zero detectable wire-output keys -- no map[string]<T> literal and no\n"+
@@ -1413,12 +1496,13 @@ func report(res *checkResult, svcDir, prefix string) int {
 
 	mismatches := printOpResults(res.OpsChecked)
 
-	fmt.Fprintf(os.Stdout, "\nTotal ops checked: %d, unresolved sdk ops: %d, total mismatched keys: %d, "+
-		"total written keys: %d, total dynamic-key sites skipped: %d\n",
-		len(res.OpsChecked), len(res.UnresolvedOps), mismatches, res.TotalWritten, res.TotalDynSkipped)
+	fmt.Fprintf(os.Stdout, "\nTotal ops checked: %d, unresolved sdk ops: %d, ambiguous handler bindings: %d, "+
+		"total mismatched keys: %d, total written keys: %d, total dynamic-key sites skipped: %d\n",
+		len(res.OpsChecked), len(res.UnresolvedOps), len(res.AmbiguousOps), mismatches,
+		res.TotalWritten, res.TotalDynSkipped)
 
 	switch {
-	case len(res.UnresolvedOps) > 0:
+	case len(res.UnresolvedOps) > 0 || len(res.AmbiguousOps) > 0:
 		return exitUnresolved
 	case mismatches > 0:
 		return exitMismatch

@@ -916,3 +916,93 @@ func TestRunCheck_StructTagMismatch(t *testing.T) {
 		})
 	}
 }
+
+// svcAmbiguousHandlerBindingFixture and svcAmbiguousHandlerBindingQueryFixture
+// reproduce sqs's real gopherstack-kiwf shape: TWO package-level dispatch
+// tables, in separate files, bind the SAME op to two DIFFERENT handlers -- a
+// modern "handle<Op>" JSON handler (handler.go, matched by the strict
+// handleNameRe rule) and a legacy "query<Op>" handler wrapped in a closure
+// (query.go, resolved only through the findHandlerSelectorLoose fallback).
+// "query.go" sorts after "handler.go" alphabetically, exactly like sqs's
+// real handler.go/query.go, so the pre-fix last-write-wins scan silently
+// resolved the op to the wrong (query) handler and compared its fields
+// against the JSON SDK's key set -- 85 fabricated MISMATCH rows on real sqs.
+const svcAmbiguousHandlerBindingFixture = `package svc
+
+type Handler struct{}
+type dispatchFn func([]byte) []byte
+
+func (h *Handler) dispatchTable() map[string]dispatchFn {
+	return map[string]dispatchFn{
+		"GetSchedule": h.handleGetSchedule,
+	}
+}
+
+func (h *Handler) handleGetSchedule(body []byte) []byte {
+	resp := map[string]any{
+		"Target": map[string]any{
+			"EcsParameters": map[string]any{
+				"NetworkConfiguration": map[string]any{
+					"awsvpcConfiguration": map[string]any{},
+				},
+			},
+		},
+	}
+	_ = resp
+	return nil
+}
+`
+
+const svcAmbiguousHandlerBindingQueryFixture = `package svc
+
+func (h *Handler) queryActionTable() map[string]dispatchFn {
+	return map[string]dispatchFn{
+		"GetSchedule": func(body []byte) []byte {
+			return h.queryGetSchedule(body)
+		},
+	}
+}
+
+func (h *Handler) queryGetSchedule(body []byte) []byte {
+	resp := map[string]any{
+		"Target": map[string]any{
+			"EcsParameters": map[string]any{
+				"NetworkConfiguration": map[string]any{
+					"AwsvpcConfiguration": map[string]any{},
+				},
+			},
+		},
+	}
+	_ = resp
+	return nil
+}
+`
+
+func TestRunCheck_AmbiguousHandlerBinding(t *testing.T) {
+	t.Parallel()
+
+	sdkDir := t.TempDir()
+	writeFile(t, sdkDir, "deserializers.go", sdkGoodFixture)
+	svcDir := t.TempDir()
+	writeFile(t, svcDir, "handler.go", svcAmbiguousHandlerBindingFixture)
+	writeFile(t, svcDir, "query.go", svcAmbiguousHandlerBindingQueryFixture)
+
+	res, err := runCheck(filepath.Join(sdkDir, "deserializers.go"), "awsRestjson1_", svcDir, "")
+	require.NoError(t, err)
+
+	require.Contains(t, res.AmbiguousOps, "GetSchedule",
+		"an op bound to two different handlers in separate files must be reported ambiguous, "+
+			"not silently resolved by file-processing order")
+	assert.ElementsMatch(t, []string{"handleGetSchedule", "queryGetSchedule"}, res.AmbiguousHandlers["GetSchedule"],
+		"both conflicting handler names must be visible in the output")
+
+	for _, or := range res.OpsChecked {
+		assert.NotEqual(t, "GetSchedule", or.Op,
+			"an ambiguous op must never be checked against the SDK -- that means comparing the "+
+				"wrong handler's keys, which is how gopherstack-kiwf's 85 fabricated sqs "+
+				"mismatches happened")
+	}
+	assert.Empty(t, res.UnresolvedOps, "ambiguity is its own category, not an unresolved-sdk-op")
+	assert.Equal(t, exitUnresolved, report(res, svcDir, "awsRestjson1_"),
+		"an ambiguous binding must fail loud like every other 'not actually checked' state")
+}
