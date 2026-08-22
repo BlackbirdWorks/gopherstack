@@ -242,6 +242,8 @@ func (b *InMemoryBackend) DescribeStream(
 		EnhancedMonitoring:      append([]string{}, stream.EnhancedMonitoring...),
 		StreamCreationTimestamp: stream.CreatedAt,
 		StreamMode:              stream.StreamMode,
+		MaxRecordSizeBytes:      stream.MaxRecordSizeBytes,
+		WarmThroughputMiBps:     stream.WarmThroughputMiBps,
 	}, nil
 }
 

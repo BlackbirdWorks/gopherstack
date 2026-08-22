@@ -8,6 +8,7 @@ import (
 
 type jsonEnhancedMonitoringReq struct {
 	StreamName        string   `json:"StreamName"`
+	StreamARN         string   `json:"StreamARN"`
 	ShardLevelMetrics []string `json:"ShardLevelMetrics"`
 }
 
@@ -27,8 +28,10 @@ func (h *Handler) handleEnableEnhancedMonitoring(
 		return nil, ErrInvalidArgument
 	}
 
+	streamName, ctx := resolveStreamNameAndRegion(ctx, req.StreamName, req.StreamARN, h.defaultRegion())
+
 	out, err := h.Backend.EnableEnhancedMonitoring(ctx, &EnableEnhancedMonitoringInput{
-		StreamName:        req.StreamName,
+		StreamName:        streamName,
 		ShardLevelMetrics: req.ShardLevelMetrics,
 	})
 	if err != nil {
@@ -52,8 +55,10 @@ func (h *Handler) handleDisableEnhancedMonitoring(
 		return nil, ErrInvalidArgument
 	}
 
+	streamName, ctx := resolveStreamNameAndRegion(ctx, req.StreamName, req.StreamARN, h.defaultRegion())
+
 	out, err := h.Backend.DisableEnhancedMonitoring(ctx, &DisableEnhancedMonitoringInput{
-		StreamName:        req.StreamName,
+		StreamName:        streamName,
 		ShardLevelMetrics: req.ShardLevelMetrics,
 	})
 	if err != nil {

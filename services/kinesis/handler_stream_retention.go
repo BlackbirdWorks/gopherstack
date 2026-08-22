@@ -8,6 +8,7 @@ import (
 
 type jsonRetentionPeriodReq struct {
 	StreamName           string `json:"StreamName"`
+	StreamARN            string `json:"StreamARN"`
 	RetentionPeriodHours int    `json:"RetentionPeriodHours"`
 }
 
@@ -21,8 +22,10 @@ func (h *Handler) handleIncreaseStreamRetentionPeriod(
 		return nil, ErrInvalidArgument
 	}
 
+	streamName, ctx := resolveStreamNameAndRegion(ctx, req.StreamName, req.StreamARN, h.defaultRegion())
+
 	if err := h.Backend.IncreaseStreamRetentionPeriod(ctx, &IncreaseStreamRetentionPeriodInput{
-		StreamName:           req.StreamName,
+		StreamName:           streamName,
 		RetentionPeriodHours: req.RetentionPeriodHours,
 	}); err != nil {
 		return nil, err
@@ -41,8 +44,10 @@ func (h *Handler) handleDecreaseStreamRetentionPeriod(
 		return nil, ErrInvalidArgument
 	}
 
+	streamName, ctx := resolveStreamNameAndRegion(ctx, req.StreamName, req.StreamARN, h.defaultRegion())
+
 	if err := h.Backend.DecreaseStreamRetentionPeriod(ctx, &DecreaseStreamRetentionPeriodInput{
-		StreamName:           req.StreamName,
+		StreamName:           streamName,
 		RetentionPeriodHours: req.RetentionPeriodHours,
 	}); err != nil {
 		return nil, err

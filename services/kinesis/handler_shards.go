@@ -17,6 +17,7 @@ type jsonShardFilter struct {
 type jsonListShardsReq struct {
 	ShardFilter           *jsonShardFilter `json:"ShardFilter,omitempty"`
 	StreamName            string           `json:"StreamName"`
+	StreamARN             string           `json:"StreamARN"`
 	NextToken             string           `json:"NextToken"`
 	ExclusiveStartShardID string           `json:"ExclusiveStartShardId,omitempty"`
 	MaxResults            int              `json:"MaxResults"`
@@ -56,15 +57,17 @@ func (h *Handler) handleListShards(
 	}
 
 	// AWS rejects requests where NextToken is combined with StreamName,
-	// ExclusiveStartShardID, or ShardFilter — the token already encodes stream context.
-	if req.NextToken != "" && (req.StreamName != "" || req.ExclusiveStartShardID != "" || req.ShardFilter != nil) {
+	// StreamARN, ExclusiveStartShardID, or ShardFilter — the token already
+	// encodes stream context.
+	if req.NextToken != "" &&
+		(req.StreamName != "" || req.StreamARN != "" || req.ExclusiveStartShardID != "" || req.ShardFilter != nil) {
 		return nil, ErrValidation
 	}
 
 	// Decode the opaque NextToken to extract embedded stream name and shard cursor.
 	// Our token format is "streamName|shardId", base64-free since neither component
 	// contains "|".  When StreamName is present (first page), no decoding is needed.
-	streamName := req.StreamName
+	streamName, ctx := resolveStreamNameAndRegion(ctx, req.StreamName, req.StreamARN, h.defaultRegion())
 	backendNextToken := ""
 	if req.NextToken != "" {
 		const tokenParts = 2

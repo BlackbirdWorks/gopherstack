@@ -17,8 +17,9 @@ import (
 )
 
 type jsonRegisterStreamConsumerReq struct {
-	StreamARN    string `json:"StreamARN"`
-	ConsumerName string `json:"ConsumerName"`
+	Tags         map[string]string `json:"Tags,omitempty"`
+	StreamARN    string            `json:"StreamARN"`
+	ConsumerName string            `json:"ConsumerName"`
 }
 
 type jsonConsumer struct {
@@ -102,6 +103,7 @@ func (h *Handler) handleRegisterStreamConsumer(
 	out, err := h.Backend.RegisterStreamConsumer(ctx, &RegisterStreamConsumerInput{
 		StreamARN:    req.StreamARN,
 		ConsumerName: req.ConsumerName,
+		Tags:         req.Tags,
 	})
 	if err != nil {
 		return nil, err

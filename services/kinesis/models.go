@@ -267,6 +267,13 @@ type DescribeStreamOutput struct {
 	// HasMoreShards indicates the shard list was truncated by Limit and more
 	// shards can be fetched with a follow-up call using ExclusiveStartShardID.
 	HasMoreShards bool
+	// MaxRecordSizeBytes and WarmThroughputMiBps mirror the same-named Stream
+	// fields (see UpdateMaxRecordSize/UpdateStreamWarmThroughput). Real
+	// StreamDescriptionSummary carries both (MaxRecordSizeInKiB/WarmThroughput);
+	// StreamDescription (DescribeStream) does not, so only
+	// handleDescribeStreamSummary reads these.
+	MaxRecordSizeBytes  int
+	WarmThroughputMiBps int
 }
 
 // ShardDescription describes a shard in a DescribeStream response.
@@ -408,15 +415,17 @@ type ListShardsOutput struct {
 
 // Consumer represents a registered Kinesis enhanced fan-out consumer.
 type Consumer struct {
-	ConsumerCreationTimestamp time.Time `json:"consumerCreationTimestamp"`
-	ConsumerName              string    `json:"consumerName"`
-	ConsumerARN               string    `json:"consumerARN"`
-	ConsumerStatus            string    `json:"consumerStatus"`
-	StreamARN                 string    `json:"streamARN"`
+	ConsumerCreationTimestamp time.Time         `json:"consumerCreationTimestamp"`
+	Tags                      map[string]string `json:"tags,omitempty"`
+	ConsumerName              string            `json:"consumerName"`
+	ConsumerARN               string            `json:"consumerARN"`
+	ConsumerStatus            string            `json:"consumerStatus"`
+	StreamARN                 string            `json:"streamARN"`
 }
 
 // RegisterStreamConsumerInput is the input for RegisterStreamConsumer.
 type RegisterStreamConsumerInput struct {
+	Tags         map[string]string
 	StreamARN    string
 	ConsumerName string
 }
