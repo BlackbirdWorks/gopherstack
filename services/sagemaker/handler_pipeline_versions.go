@@ -37,12 +37,17 @@ func (h *Handler) dispatchPipelineVersionOps(
 	return nil, false, nil
 }
 
+type listPipelineVersionsRequest struct {
+	CreatedAfter  *float64 `json:"CreatedAfter,omitempty"`
+	CreatedBefore *float64 `json:"CreatedBefore,omitempty"`
+	PipelineName  string   `json:"PipelineName"`
+	NextToken     string   `json:"NextToken,omitempty"`
+	SortOrder     string   `json:"SortOrder,omitempty"`
+	MaxResults    int32    `json:"MaxResults,omitempty"`
+}
+
 func (h *Handler) handleListPipelineVersions(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		PipelineName string `json:"PipelineName"`
-		NextToken    string `json:"NextToken,omitempty"`
-		MaxResults   int32  `json:"MaxResults,omitempty"`
-	}
+	var req listPipelineVersionsRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -52,7 +57,14 @@ func (h *Handler) handleListPipelineVersions(ctx context.Context, body []byte) (
 		return nil, fmt.Errorf("%w: PipelineName is required", errInvalidRequest)
 	}
 
-	versions, nextToken, err := h.Backend.ListPipelineVersions(ctx, req.PipelineName, req.NextToken, req.MaxResults)
+	versions, nextToken, err := h.Backend.ListPipelineVersions(
+		ctx, req.PipelineName, req.NextToken, ListPipelineVersionsFilter{
+			CreatedAfter:  epochPtr(req.CreatedAfter),
+			CreatedBefore: epochPtr(req.CreatedBefore),
+			SortOrder:     req.SortOrder,
+			MaxResults:    req.MaxResults,
+		},
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -81,13 +93,15 @@ func (h *Handler) handleListPipelineVersions(ctx context.Context, body []byte) (
 	return listResp("PipelineVersionSummaries", summaries, nextToken)
 }
 
+type updatePipelineVersionRequest struct {
+	PipelineArn                string `json:"PipelineArn"`
+	PipelineVersionDescription string `json:"PipelineVersionDescription,omitempty"`
+	PipelineVersionDisplayName string `json:"PipelineVersionDisplayName,omitempty"`
+	PipelineVersionID          int64  `json:"PipelineVersionId"`
+}
+
 func (h *Handler) handleUpdatePipelineVersion(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		PipelineArn                string `json:"PipelineArn"`
-		PipelineVersionDescription string `json:"PipelineVersionDescription,omitempty"`
-		PipelineVersionDisplayName string `json:"PipelineVersionDisplayName,omitempty"`
-		PipelineVersionID          int64  `json:"PipelineVersionId"`
-	}
+	var req updatePipelineVersionRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -114,10 +128,12 @@ func (h *Handler) handleUpdatePipelineVersion(ctx context.Context, body []byte) 
 	})
 }
 
+type describePipelineDefinitionForExecutionRequest struct {
+	PipelineExecutionArn string `json:"PipelineExecutionArn"`
+}
+
 func (h *Handler) handleDescribePipelineDefinitionForExecution(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		PipelineExecutionArn string `json:"PipelineExecutionArn"`
-	}
+	var req describePipelineDefinitionForExecutionRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -138,13 +154,15 @@ func (h *Handler) handleDescribePipelineDefinitionForExecution(ctx context.Conte
 	})
 }
 
+type updatePipelineExecutionRequest struct {
+	ParallelismConfiguration     *ParallelismConfiguration `json:"ParallelismConfiguration,omitempty"`
+	PipelineExecutionArn         string                    `json:"PipelineExecutionArn"`
+	PipelineExecutionDescription string                    `json:"PipelineExecutionDescription,omitempty"`
+	PipelineExecutionDisplayName string                    `json:"PipelineExecutionDisplayName,omitempty"`
+}
+
 func (h *Handler) handleUpdatePipelineExecution(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		ParallelismConfiguration     *ParallelismConfiguration `json:"ParallelismConfiguration,omitempty"`
-		PipelineExecutionArn         string                    `json:"PipelineExecutionArn"`
-		PipelineExecutionDescription string                    `json:"PipelineExecutionDescription,omitempty"`
-		PipelineExecutionDisplayName string                    `json:"PipelineExecutionDisplayName,omitempty"`
-	}
+	var req updatePipelineExecutionRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -40,6 +41,42 @@ func TestHandler_PipelineVersions_Lifecycle(t *testing.T) {
 	require.Len(t, versions2, 2)
 	// Newest first.
 	assert.InDelta(t, float64(2), versions2[0].(map[string]any)["PipelineVersionId"], 0)
+
+	// SortOrder=Ascending reverses the default newest-first order.
+	recAsc := doSageMakerRequest(t, h, "ListPipelineVersions", map[string]any{
+		"PipelineName": "ver-pipeline", "SortOrder": "Ascending",
+	})
+	require.Equal(t, http.StatusOK, recAsc.Code)
+
+	var ascOut map[string]any
+	require.NoError(t, json.Unmarshal(recAsc.Body.Bytes(), &ascOut))
+	ascVersions, _ := ascOut["PipelineVersionSummaries"].([]any)
+	require.Len(t, ascVersions, 2)
+	assert.InDelta(t, float64(1), ascVersions[0].(map[string]any)["PipelineVersionId"], 0)
+	assert.InDelta(t, float64(2), ascVersions[1].(map[string]any)["PipelineVersionId"], 0)
+
+	// CreatedAfter/CreatedBefore actually filter, not just parse-and-drop.
+	recFuture := doSageMakerRequest(t, h, "ListPipelineVersions", map[string]any{
+		"PipelineName": "ver-pipeline",
+		"CreatedAfter": float64(time.Now().Add(time.Hour).Unix()),
+	})
+	require.Equal(t, http.StatusOK, recFuture.Code)
+
+	var futureOut map[string]any
+	require.NoError(t, json.Unmarshal(recFuture.Body.Bytes(), &futureOut))
+	futureVersions, _ := futureOut["PipelineVersionSummaries"].([]any)
+	assert.Empty(t, futureVersions, "CreatedAfter in the future must exclude every version")
+
+	recPast := doSageMakerRequest(t, h, "ListPipelineVersions", map[string]any{
+		"PipelineName":  "ver-pipeline",
+		"CreatedBefore": float64(time.Now().Add(-time.Hour).Unix()),
+	})
+	require.Equal(t, http.StatusOK, recPast.Code)
+
+	var pastOut map[string]any
+	require.NoError(t, json.Unmarshal(recPast.Body.Bytes(), &pastOut))
+	pastVersions, _ := pastOut["PipelineVersionSummaries"].([]any)
+	assert.Empty(t, pastVersions, "CreatedBefore in the past must exclude every version")
 
 	recDescribe := doSageMakerRequest(t, h, "DescribePipeline", map[string]any{"PipelineName": "ver-pipeline"})
 	var pipelineOut map[string]any

@@ -157,7 +157,7 @@ func labelingJobResponseMap(j *LabelingJob) map[string]any {
 		keyRoleArn:          j.RoleArn,
 		"LabelCounters":     j.LabelCounters,
 		"InputConfig":       j.InputConfig,
-		"OutputConfig":      j.OutputConfig,
+		keyOutputConfig:     j.OutputConfig,
 		"HumanTaskConfig":   j.HumanTaskConfig,
 	}
 

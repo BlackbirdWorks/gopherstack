@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -251,19 +253,74 @@ func (b *InMemoryBackend) StopAutoMLJob(ctx context.Context, name string) error 
 	return nil
 }
 
-// ListAutoMLJobs returns all AutoML jobs sorted by name.
-func (b *InMemoryBackend) ListAutoMLJobs(ctx context.Context, nextToken string) ([]*AutoMLJob, string) {
+// ListAutoMLJobsFilter holds optional filters for ListAutoMLJobs, mirroring
+// ListAutoMLJobsInput (api_op_ListAutoMLJobs.go:11-49). SortBy default "Name",
+// SortOrder default "Descending" per that op's own doc.
+type ListAutoMLJobsFilter struct {
+	CreationTimeAfter      *time.Time
+	CreationTimeBefore     *time.Time
+	LastModifiedTimeAfter  *time.Time
+	LastModifiedTimeBefore *time.Time
+	NameContains           string
+	StatusEquals           string
+	SortBy                 string
+	SortOrder              string
+	MaxResults             int32
+}
+
+// ListAutoMLJobs returns AutoML jobs matching filter, sorted per
+// filter.SortBy/SortOrder.
+func (b *InMemoryBackend) ListAutoMLJobs(
+	ctx context.Context, nextToken string, filter ListAutoMLJobsFilter,
+) ([]*AutoMLJob, string) {
 	b.mu.RLock("ListAutoMLJobs")
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
 
-	return sagemakerListKeyPaged(
-		b.autoMLJobsStoreRO(region),
-		nextToken,
-		cloneAutoMLJob,
-		func(v *AutoMLJob) string { return v.AutoMLJobName },
-	)
+	list := make([]*AutoMLJob, 0, b.autoMLJobsStoreRO(region).Len())
+
+	for _, j := range b.autoMLJobsStoreRO(region).All() {
+		if filter.StatusEquals != "" && j.AutoMLJobStatus != filter.StatusEquals {
+			continue
+		}
+
+		if filter.NameContains != "" && !strings.Contains(j.AutoMLJobName, filter.NameContains) {
+			continue
+		}
+
+		if !timeWindowOK(j.CreationTime, filter.CreationTimeAfter, filter.CreationTimeBefore) {
+			continue
+		}
+
+		if !timeWindowOK(j.LastModifiedTime, filter.LastModifiedTimeAfter, filter.LastModifiedTimeBefore) {
+			continue
+		}
+
+		list = append(list, cloneAutoMLJob(j))
+	}
+
+	desc := filter.SortOrder != sortOrderAscending
+	sort.Slice(list, func(i, k int) bool {
+		var less bool
+
+		switch filter.SortBy {
+		case sortByCreationTime:
+			less = list[i].CreationTime.Before(list[k].CreationTime)
+		case sortByStatus:
+			less = list[i].AutoMLJobStatus < list[k].AutoMLJobStatus
+		default:
+			less = list[i].AutoMLJobName < list[k].AutoMLJobName
+		}
+
+		if desc {
+			return !less
+		}
+
+		return less
+	})
+
+	return paginateSlice(list, nextToken, filter.MaxResults)
 }
 
 // SetAutoMLJobExtras sets optional configuration fields on an existing AutoML job
@@ -274,6 +331,7 @@ func (b *InMemoryBackend) SetAutoMLJobExtras(
 	outputDataConfig *AutoMLOutputDataConfig,
 	objective *AutoMLJobObjective,
 	inputDataConfig []AutoMLChannel,
+	modelDeployConfig *ModelDeployConfig,
 ) error {
 	b.mu.Lock("SetAutoMLJobExtras")
 	defer b.mu.Unlock()
@@ -297,6 +355,11 @@ func (b *InMemoryBackend) SetAutoMLJobExtras(
 
 	if inputDataConfig != nil {
 		j.InputDataConfig = append([]AutoMLChannel(nil), inputDataConfig...)
+	}
+
+	if modelDeployConfig != nil {
+		mdc := *modelDeployConfig
+		j.ModelDeployConfig = &mdc
 	}
 
 	return nil

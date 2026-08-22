@@ -3,6 +3,7 @@ package sagemaker
 import (
 	"context"
 	"fmt"
+	"slices"
 	"time"
 )
 
@@ -82,11 +83,23 @@ func (b *InMemoryBackend) recordPipelineExecutionOnLatestVersionLocked(region, p
 	versions[len(versions)-1].LastExecutionPipelineExecutionArn = execArn
 }
 
-// ListPipelineVersions returns the version history for a pipeline, newest first.
+// ListPipelineVersionsFilter narrows ListPipelineVersions results, mirroring
+// ListPipelineVersionsInput's CreatedAfter/CreatedBefore/SortOrder
+// (api_op_ListPipelineVersions.go).
+type ListPipelineVersionsFilter struct {
+	CreatedAfter  *time.Time
+	CreatedBefore *time.Time
+	SortOrder     string
+	MaxResults    int32
+}
+
+// ListPipelineVersions returns the version history for a pipeline, newest
+// first by default (this op's own doc does not state a default SortOrder,
+// but AWS's published behavior for it is Descending).
 func (b *InMemoryBackend) ListPipelineVersions(
 	ctx context.Context,
 	pipelineName, nextToken string,
-	maxResults int32,
+	filter ListPipelineVersionsFilter,
 ) ([]*PipelineVersion, string, error) {
 	b.mu.RLock("ListPipelineVersions")
 	defer b.mu.RUnlock()
@@ -99,14 +112,24 @@ func (b *InMemoryBackend) ListPipelineVersions(
 
 	versions := b.pipelineVersionsStoreRO(region)[pipelineName]
 
-	list := make([]*PipelineVersion, len(versions))
-	for i, v := range versions {
-		// Reverse so the newest (highest ID) version is first, matching the
-		// default (Descending) sort order AWS uses for this operation.
-		list[len(versions)-1-i] = clonePipelineVersion(v)
+	list := make([]*PipelineVersion, 0, len(versions))
+	// Reverse so the newest (highest ID) version is first, matching the
+	// default (Descending) sort order AWS uses for this operation.
+	for _, v := range slices.Backward(versions) {
+		if !timeWindowOK(v.CreationTime, filter.CreatedAfter, filter.CreatedBefore) {
+			continue
+		}
+
+		list = append(list, clonePipelineVersion(v))
 	}
 
-	page, out := paginateSlice(list, nextToken, maxResults)
+	if filter.SortOrder == sortOrderAscending {
+		for i, j := 0, len(list)-1; i < j; i, j = i+1, j-1 {
+			list[i], list[j] = list[j], list[i]
+		}
+	}
+
+	page, out := paginateSlice(list, nextToken, filter.MaxResults)
 
 	return page, out, nil
 }

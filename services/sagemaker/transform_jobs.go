@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"maps"
 	"sort"
-	"strconv"
+	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -77,7 +77,6 @@ type TransformJob struct {
 	TransformJobName        string             `json:"TransformJobName"`
 	TransformJobArn         string             `json:"TransformJobArn"`
 	TransformJobStatus      string             `json:"TransformJobStatus"`
-	RoleArn                 string             `json:"RoleArn,omitempty"`
 	BatchStrategy           string             `json:"BatchStrategy,omitempty"`
 	FailureReason           string             `json:"FailureReason,omitempty"`
 	TransformResources      TransformResources `json:"TransformResources"`
@@ -102,7 +101,6 @@ type TransformJobOptions struct {
 	TransformOutput         TransformOutput
 	TransformJobName        string
 	ModelName               string
-	RoleArn                 string
 	BatchStrategy           string
 	TransformResources      TransformResources
 	MaxConcurrentTransforms int32
@@ -144,7 +142,6 @@ func (b *InMemoryBackend) CreateTransformJob(ctx context.Context, opts Transform
 		TransformJobArn:         jobARN,
 		TransformJobStatus:      trainingJobStatusInProgress,
 		ModelName:               opts.ModelName,
-		RoleArn:                 opts.RoleArn,
 		BatchStrategy:           opts.BatchStrategy,
 		MaxConcurrentTransforms: opts.MaxConcurrentTransforms,
 		MaxPayloadInMB:          opts.MaxPayloadInMB,
@@ -235,13 +232,22 @@ func (b *InMemoryBackend) StopTransformJob(ctx context.Context, name string) err
 	return nil
 }
 
-// ListTransformJobsFilter narrows ListTransformJobs results.
+// ListTransformJobsFilter narrows ListTransformJobs results, mirroring
+// ListTransformJobsInput (api_op_ListTransformJobs.go). SortBy defaults to
+// CreationTime, SortOrder defaults to Descending per that op's own doc.
 type ListTransformJobsFilter struct {
-	StatusEquals string
-	NameContains string
+	CreationTimeAfter      *time.Time
+	CreationTimeBefore     *time.Time
+	LastModifiedTimeAfter  *time.Time
+	LastModifiedTimeBefore *time.Time
+	StatusEquals           string
+	NameContains           string
+	SortBy                 string
+	SortOrder              string
+	MaxResults             int32
 }
 
-// ListTransformJobs returns transform jobs sorted by name with optional pagination.
+// ListTransformJobs returns transform jobs matching filter.
 func (b *InMemoryBackend) ListTransformJobs(
 	ctx context.Context,
 	nextToken string,
@@ -258,39 +264,41 @@ func (b *InMemoryBackend) ListTransformJobs(
 		if filter.StatusEquals != "" && tj.TransformJobStatus != filter.StatusEquals {
 			continue
 		}
-		if filter.NameContains != "" {
-			var matched bool
-			for i := 0; i+len(filter.NameContains) <= len(tj.TransformJobName); i++ {
-				if tj.TransformJobName[i:i+len(filter.NameContains)] == filter.NameContains {
-					matched = true
 
-					break
-				}
-			}
-			if !matched {
-				continue
-			}
+		if filter.NameContains != "" && !strings.Contains(tj.TransformJobName, filter.NameContains) {
+			continue
 		}
+
+		if !timeWindowOK(tj.CreationTime, filter.CreationTimeAfter, filter.CreationTimeBefore) {
+			continue
+		}
+
+		if !timeWindowOK(tj.LastModifiedTime, filter.LastModifiedTimeAfter, filter.LastModifiedTimeBefore) {
+			continue
+		}
+
 		list = append(list, cloneTransformJob(tj))
 	}
 
-	sort.Slice(list, func(i, j int) bool {
-		return list[i].TransformJobName < list[j].TransformJobName
+	desc := filter.SortOrder != sortOrderAscending
+	sort.Slice(list, func(i, k int) bool {
+		var less bool
+
+		switch filter.SortBy {
+		case keyGenericName:
+			less = list[i].TransformJobName < list[k].TransformJobName
+		case sortByStatus:
+			less = list[i].TransformJobStatus < list[k].TransformJobStatus
+		default:
+			less = list[i].CreationTime.Before(list[k].CreationTime)
+		}
+
+		if desc {
+			return !less
+		}
+
+		return less
 	})
 
-	startIdx := parseNextToken(nextToken)
-	if startIdx >= len(list) {
-		return []*TransformJob{}, ""
-	}
-
-	end := startIdx + sagemakerDefaultPageSize
-	var outToken string
-
-	if end < len(list) {
-		outToken = strconv.Itoa(end)
-	} else {
-		end = len(list)
-	}
-
-	return list[startIdx:end], outToken
+	return paginateSlice(list, nextToken, filter.MaxResults)
 }

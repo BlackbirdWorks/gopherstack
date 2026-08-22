@@ -90,7 +90,7 @@ func (h *Handler) handleDescribeModelCardExportJob(ctx context.Context, body []b
 		keyModelCardNameField:    job.ModelCardName,
 		keyModelCardVersion:      job.ModelCardVersion,
 		keyStatus:                job.Status,
-		"OutputConfig":           map[string]any{"S3OutputPath": job.S3OutputPath},
+		keyOutputConfig:          map[string]any{"S3OutputPath": job.S3OutputPath},
 		"ExportArtifacts":        map[string]any{"S3ExportArtifacts": job.S3ExportArtifacts},
 	})
 }

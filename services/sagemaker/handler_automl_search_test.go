@@ -17,10 +17,7 @@ func TestHandler_ListCandidatesForAutoMLJob(t *testing.T) {
 
 	h := newTestHandler(t)
 
-	doSageMakerRequest(t, h, "CreateAutoMLJob", map[string]any{
-		"AutoMLJobName": "my-automl-job",
-		"RoleArn":       "arn:test",
-	})
+	doSageMakerRequest(t, h, "CreateAutoMLJob", autoMLJobRequestBody("my-automl-job"))
 
 	rec := doSageMakerRequest(t, h, "ListCandidatesForAutoMLJob", map[string]any{
 		"AutoMLJobName": "my-automl-job",
@@ -212,10 +209,7 @@ func TestHandler_ListCandidatesForAutoMLJob_SortByStatus(t *testing.T) {
 
 	h := newTestHandler(t)
 
-	doSageMakerRequest(t, h, "CreateAutoMLJob", map[string]any{
-		"AutoMLJobName": "sort-job",
-		"RoleArn":       "arn:test",
-	})
+	doSageMakerRequest(t, h, "CreateAutoMLJob", autoMLJobRequestBody("sort-job"))
 
 	rec := doSageMakerRequest(t, h, "ListCandidatesForAutoMLJob", map[string]any{
 		"AutoMLJobName": "sort-job",

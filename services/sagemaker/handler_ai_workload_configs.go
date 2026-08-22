@@ -43,13 +43,15 @@ func (h *Handler) dispatchAIWorkloadConfigOps(
 	return nil, false, nil
 }
 
+type createAIWorkloadConfigRequest struct {
+	WorkloadSpec         json.RawMessage `json:"AIWorkloadConfigs"`
+	DatasetConfig        json.RawMessage `json:"DatasetConfig"`
+	AIWorkloadConfigName string          `json:"AIWorkloadConfigName"`
+	Tags                 []tagObject     `json:"Tags"`
+}
+
 func (h *Handler) handleCreateAIWorkloadConfig(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		WorkloadSpec         json.RawMessage `json:"AIWorkloadConfigs"`
-		DatasetConfig        json.RawMessage `json:"DatasetConfig"`
-		AIWorkloadConfigName string          `json:"AIWorkloadConfigName"`
-		Tags                 []tagObject     `json:"Tags"`
-	}
+	var req createAIWorkloadConfigRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -72,10 +74,12 @@ func (h *Handler) handleCreateAIWorkloadConfig(ctx context.Context, body []byte)
 	return json.Marshal(map[string]string{keyAIWorkloadConfigArn: c.AIWorkloadConfigArn})
 }
 
+type describeAIWorkloadConfigRequest struct {
+	AIWorkloadConfigName string `json:"AIWorkloadConfigName"`
+}
+
 func (h *Handler) handleDescribeAIWorkloadConfig(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		AIWorkloadConfigName string `json:"AIWorkloadConfigName"`
-	}
+	var req describeAIWorkloadConfigRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -93,10 +97,12 @@ func (h *Handler) handleDescribeAIWorkloadConfig(ctx context.Context, body []byt
 	return json.Marshal(c)
 }
 
+type deleteAIWorkloadConfigRequest struct {
+	AIWorkloadConfigName string `json:"AIWorkloadConfigName"`
+}
+
 func (h *Handler) handleDeleteAIWorkloadConfig(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		AIWorkloadConfigName string `json:"AIWorkloadConfigName"`
-	}
+	var req deleteAIWorkloadConfigRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -114,16 +120,18 @@ func (h *Handler) handleDeleteAIWorkloadConfig(ctx context.Context, body []byte)
 	return json.Marshal(map[string]string{keyAIWorkloadConfigArn: configARN})
 }
 
+type listAIWorkloadConfigsRequest struct {
+	CreationTimeAfter  *float64 `json:"CreationTimeAfter"`
+	CreationTimeBefore *float64 `json:"CreationTimeBefore"`
+	NameContains       string   `json:"NameContains"`
+	NextToken          string   `json:"NextToken"`
+	SortBy             string   `json:"SortBy"`
+	SortOrder          string   `json:"SortOrder"`
+	MaxResults         int32    `json:"MaxResults"`
+}
+
 func (h *Handler) handleListAIWorkloadConfigs(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		CreationTimeAfter  *float64 `json:"CreationTimeAfter"`
-		CreationTimeBefore *float64 `json:"CreationTimeBefore"`
-		NameContains       string   `json:"NameContains"`
-		NextToken          string   `json:"NextToken"`
-		SortBy             string   `json:"SortBy"`
-		SortOrder          string   `json:"SortOrder"`
-		MaxResults         int32    `json:"MaxResults"`
-	}
+	var req listAIWorkloadConfigsRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)

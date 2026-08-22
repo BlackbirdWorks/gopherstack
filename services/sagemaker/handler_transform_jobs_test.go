@@ -177,6 +177,122 @@ func TestHandler_ListTransformJobs_StatusFilter(t *testing.T) {
 	assert.Equal(t, "tj-2", summaries[0].(map[string]any)["TransformJobName"])
 }
 
+func TestHandler_ListTransformJobs_SortByName(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	for _, name := range []string{"tj-alpha", "tj-beta"} {
+		doSageMakerRequest(t, h, "CreateTransformJob", map[string]any{
+			"TransformJobName": name,
+			"ModelName":        "model",
+			"TransformInput": map[string]any{
+				"DataSource": map[string]any{
+					"S3DataSource": map[string]any{"S3Uri": "s3://b/in"},
+				},
+			},
+			"TransformOutput":    map[string]any{"S3OutputPath": "s3://b/out"},
+			"TransformResources": map[string]any{"InstanceType": "ml.m5.large", "InstanceCount": 1},
+		})
+	}
+
+	rec := doSageMakerRequest(t, h, "ListTransformJobs", map[string]any{
+		"SortBy":    "Name",
+		"SortOrder": "Ascending",
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	summaries := resp["TransformJobSummaries"].([]any)
+	require.Len(t, summaries, 2)
+	assert.Equal(t, "tj-alpha", summaries[0].(map[string]any)["TransformJobName"])
+	assert.Equal(t, "tj-beta", summaries[1].(map[string]any)["TransformJobName"])
+}
+
+func TestHandler_CreateTransformJob_RequiredFields(t *testing.T) {
+	t.Parallel()
+
+	base := func() map[string]any {
+		return map[string]any{
+			"TransformJobName": "req-fields",
+			"ModelName":        "model",
+			"TransformInput": map[string]any{
+				"DataSource": map[string]any{
+					"S3DataSource": map[string]any{"S3Uri": "s3://b/in"},
+				},
+			},
+			"TransformOutput":    map[string]any{"S3OutputPath": "s3://b/out"},
+			"TransformResources": map[string]any{"InstanceType": "ml.m5.large", "InstanceCount": 1},
+		}
+	}
+
+	tests := []struct {
+		mutate func(map[string]any)
+		name   string
+	}{
+		{name: "missing model name", mutate: func(b map[string]any) { delete(b, "ModelName") }},
+		{name: "missing s3 uri", mutate: func(b map[string]any) {
+			b["TransformInput"] = map[string]any{"DataSource": map[string]any{"S3DataSource": map[string]any{}}}
+		}},
+		{name: "missing output path", mutate: func(b map[string]any) { b["TransformOutput"] = map[string]any{} }},
+		{name: "missing instance type", mutate: func(b map[string]any) {
+			b["TransformResources"] = map[string]any{"InstanceCount": 1}
+		}},
+		{name: "missing instance count", mutate: func(b map[string]any) {
+			b["TransformResources"] = map[string]any{"InstanceType": "ml.m5.large"}
+		}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			body := base()
+			tt.mutate(body)
+
+			rec := doSageMakerRequest(t, h, "CreateTransformJob", body)
+			assert.Equal(t, http.StatusBadRequest, rec.Code)
+		})
+	}
+}
+
+// TestHandler_CreateTransformJob_RoleArnNotPartOfWireShape proves RoleArn is
+// not a field CreateTransformJobInput declares at all
+// (api_op_CreateTransformJob.go:55-166) -- a fabricated field this handler
+// previously accepted, stored, and echoed back on Describe even though no
+// real client ever sends it.
+func TestHandler_CreateTransformJob_RoleArnNotPartOfWireShape(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doSageMakerRequest(t, h, "CreateTransformJob", map[string]any{
+		"TransformJobName": "no-role-arn",
+		"ModelName":        "model",
+		"RoleArn":          "arn:aws:iam::000000000000:role/ignored",
+		"TransformInput": map[string]any{
+			"DataSource": map[string]any{
+				"S3DataSource": map[string]any{"S3Uri": "s3://b/in"},
+			},
+		},
+		"TransformOutput":    map[string]any{"S3OutputPath": "s3://b/out"},
+		"TransformResources": map[string]any{"InstanceType": "ml.m5.large", "InstanceCount": 1},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doSageMakerRequest(t, h, "DescribeTransformJob", map[string]any{
+		"TransformJobName": "no-role-arn",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var descResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	_, present := descResp["RoleArn"]
+	assert.False(t, present, "RoleArn is not a real CreateTransformJobInput/DescribeTransformJobOutput field")
+}
+
 // ---------------------------------------------------------------------------
 // UpdateFeatureGroup tests (gap #19)
 // ---------------------------------------------------------------------------

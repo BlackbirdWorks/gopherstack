@@ -38,6 +38,16 @@ const sortByLastModifiedTime = "LAST_MODIFIED_TIME"
 // don't each repeat the same string literal (goconst).
 const sortByName = "NAME"
 
+// sortByCreationTime and sortByStatus are two of AutoMLSortBy's three values
+// (types/enums.go:1417-1424, "Name"|"CreationTime"|"Status" — mixed case,
+// distinct from the ALL_CAPS sortByName above which belongs to a different
+// enum family); "Name" needs no constant since it is each caller's default
+// branch.
+const (
+	sortByCreationTime = "CreationTime"
+	sortByStatus       = "Status"
+)
+
 // tableGet returns the value stored under key in t, or nil if absent. It lets
 // a single-value store.Table lookup be substituted inline (including chained
 // field access, e.g. tableGet(t, key).Field) for the raw map[string]*V index

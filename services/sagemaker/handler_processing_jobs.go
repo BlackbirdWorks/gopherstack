@@ -61,29 +61,70 @@ type processingOutputConfigRequest struct {
 	Outputs  []processingOutputRequest `json:"Outputs,omitempty"`
 }
 
-type createProcessingJobRequest struct {
-	VpcConfig              *VpcConfig                    `json:"VpcConfig,omitempty"`
-	Environment            map[string]string             `json:"Environment,omitempty"`
-	AppSpecification       processingAppSpecRequest      `json:"AppSpecification"`
-	ProcessingResources    processingResourcesRequest    `json:"ProcessingResources"`
-	ProcessingOutputConfig processingOutputConfigRequest `json:"ProcessingOutputConfig"`
-	ProcessingJobName      string                        `json:"ProcessingJobName"`
-	RoleArn                string                        `json:"RoleArn,omitempty"`
-	ProcessingInputs       []processingInputRequest      `json:"ProcessingInputs,omitempty"`
-	Tags                   []tagObject                   `json:"Tags"`
+// processingNetworkConfigRequest mirrors types.NetworkConfig
+// (api_op_CreateProcessingJob.go's NetworkConfig field) -- previously this
+// handler decoded a top-level "VpcConfig" key that does not exist anywhere
+// on CreateProcessingJobInput; the real VPC settings nest under
+// NetworkConfig.VpcConfig instead, so every real client's VPC-isolated
+// processing job silently lost its network settings.
+type processingNetworkConfigRequest struct {
+	VpcConfig                             *VpcConfig `json:"VpcConfig,omitempty"`
+	EnableInterContainerTrafficEncryption *bool      `json:"EnableInterContainerTrafficEncryption,omitempty"`
+	EnableNetworkIsolation                *bool      `json:"EnableNetworkIsolation,omitempty"`
 }
 
-func (h *Handler) handleCreateProcessingJob(ctx context.Context, body []byte) ([]byte, error) {
-	var req createProcessingJobRequest
-	if err := json.Unmarshal(body, &req); err != nil {
-		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
-	}
-	if req.ProcessingJobName == "" {
-		return nil, fmt.Errorf("%w: ProcessingJobName is required", errInvalidRequest)
+// toBackend converts r to its backend type, or returns nil for a nil
+// receiver -- lets callers write req.NetworkConfig.toBackend() unconditionally.
+func (r *processingNetworkConfigRequest) toBackend() *ProcessingNetworkConfig {
+	if r == nil {
+		return nil
 	}
 
-	inputs := make([]ProcessingInput, len(req.ProcessingInputs))
-	for i, inp := range req.ProcessingInputs {
+	return &ProcessingNetworkConfig{
+		VpcConfig:                             r.VpcConfig,
+		EnableInterContainerTrafficEncryption: r.EnableInterContainerTrafficEncryption,
+		EnableNetworkIsolation:                r.EnableNetworkIsolation,
+	}
+}
+
+type processingExperimentConfigRequest struct {
+	ExperimentName            string `json:"ExperimentName,omitempty"`
+	RunName                   string `json:"RunName,omitempty"`
+	TrialComponentDisplayName string `json:"TrialComponentDisplayName,omitempty"`
+	TrialName                 string `json:"TrialName,omitempty"`
+}
+
+func (r *processingExperimentConfigRequest) toBackend() *ProcessingExperimentConfig {
+	if r == nil {
+		return nil
+	}
+
+	return &ProcessingExperimentConfig{
+		ExperimentName:            r.ExperimentName,
+		RunName:                   r.RunName,
+		TrialComponentDisplayName: r.TrialComponentDisplayName,
+		TrialName:                 r.TrialName,
+	}
+}
+
+type processingStoppingConditionRequest struct {
+	MaxRuntimeInSeconds int32 `json:"MaxRuntimeInSeconds"`
+}
+
+func (r *processingStoppingConditionRequest) toBackend() *ProcessingStoppingCondition {
+	if r == nil {
+		return nil
+	}
+
+	return &ProcessingStoppingCondition{MaxRuntimeInSeconds: r.MaxRuntimeInSeconds}
+}
+
+// processingInputsFromRequest converts wire-level processing inputs to their
+// backend type.
+func processingInputsFromRequest(reqInputs []processingInputRequest) []ProcessingInput {
+	inputs := make([]ProcessingInput, len(reqInputs))
+
+	for i, inp := range reqInputs {
 		pi := ProcessingInput{InputName: inp.InputName, AppManaged: inp.AppManaged}
 		if inp.S3Input != nil {
 			pi.S3Input = &ProcessingS3Input{
@@ -98,8 +139,15 @@ func (h *Handler) handleCreateProcessingJob(ctx context.Context, body []byte) ([
 		inputs[i] = pi
 	}
 
-	outputs := make([]ProcessingOutput, len(req.ProcessingOutputConfig.Outputs))
-	for i, out := range req.ProcessingOutputConfig.Outputs {
+	return inputs
+}
+
+// processingOutputsFromRequest converts wire-level processing outputs to
+// their backend type.
+func processingOutputsFromRequest(reqOutputs []processingOutputRequest) []ProcessingOutput {
+	outputs := make([]ProcessingOutput, len(reqOutputs))
+
+	for i, out := range reqOutputs {
 		po := ProcessingOutput{OutputName: out.OutputName, AppManaged: out.AppManaged}
 		if out.S3Output != nil {
 			po.S3Output = &ProcessingS3Output{
@@ -109,6 +157,44 @@ func (h *Handler) handleCreateProcessingJob(ctx context.Context, body []byte) ([
 			}
 		}
 		outputs[i] = po
+	}
+
+	return outputs
+}
+
+type createProcessingJobRequest struct {
+	NetworkConfig          *processingNetworkConfigRequest     `json:"NetworkConfig,omitempty"`
+	ExperimentConfig       *processingExperimentConfigRequest  `json:"ExperimentConfig,omitempty"`
+	StoppingCondition      *processingStoppingConditionRequest `json:"StoppingCondition,omitempty"`
+	Environment            map[string]string                   `json:"Environment,omitempty"`
+	AppSpecification       processingAppSpecRequest            `json:"AppSpecification"`
+	ProcessingResources    processingResourcesRequest          `json:"ProcessingResources"`
+	ProcessingOutputConfig processingOutputConfigRequest       `json:"ProcessingOutputConfig"`
+	ProcessingJobName      string                              `json:"ProcessingJobName"`
+	RoleArn                string                              `json:"RoleArn,omitempty"`
+	ProcessingInputs       []processingInputRequest            `json:"ProcessingInputs,omitempty"`
+	Tags                   []tagObject                         `json:"Tags"`
+}
+
+func (h *Handler) handleCreateProcessingJob(ctx context.Context, body []byte) ([]byte, error) {
+	var req createProcessingJobRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+	if req.ProcessingJobName == "" {
+		return nil, fmt.Errorf("%w: ProcessingJobName is required", errInvalidRequest)
+	}
+
+	if req.RoleArn == "" {
+		return nil, fmt.Errorf("%w: RoleArn is required", errInvalidRequest)
+	}
+
+	if req.AppSpecification.ImageURI == "" {
+		return nil, fmt.Errorf("%w: AppSpecification.ImageUri is required", errInvalidRequest)
+	}
+
+	if req.ProcessingResources.ClusterConfig.InstanceType == "" {
+		return nil, fmt.Errorf("%w: ProcessingResources.ClusterConfig.InstanceType is required", errInvalidRequest)
 	}
 
 	pj, err := h.Backend.CreateProcessingJob(ctx, ProcessingJob{
@@ -127,14 +213,16 @@ func (h *Handler) handleCreateProcessingJob(ctx context.Context, body []byte) ([
 				VolumeKmsKeyID: req.ProcessingResources.ClusterConfig.VolumeKmsKeyID,
 			},
 		},
-		ProcessingInputs: inputs,
+		ProcessingInputs: processingInputsFromRequest(req.ProcessingInputs),
 		ProcessingOutputConfig: ProcessingOutputConfig{
-			Outputs:  outputs,
+			Outputs:  processingOutputsFromRequest(req.ProcessingOutputConfig.Outputs),
 			KmsKeyID: req.ProcessingOutputConfig.KmsKeyID,
 		},
-		VpcConfig:   req.VpcConfig,
-		Environment: req.Environment,
-		Tags:        fromTagObjects(req.Tags),
+		NetworkConfig:     req.NetworkConfig.toBackend(),
+		ExperimentConfig:  req.ExperimentConfig.toBackend(),
+		StoppingCondition: req.StoppingCondition.toBackend(),
+		Environment:       req.Environment,
+		Tags:              fromTagObjects(req.Tags),
 	})
 	if err != nil {
 		return nil, err
@@ -153,10 +241,12 @@ func (h *Handler) handleCreateProcessingJob(ctx context.Context, body []byte) ([
 	return json.Marshal(map[string]string{keyProcessingJobArn: pj.ProcessingJobArn})
 }
 
+type describeProcessingJobRequest struct {
+	ProcessingJobName string `json:"ProcessingJobName"`
+}
+
 func (h *Handler) handleDescribeProcessingJob(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		ProcessingJobName string `json:"ProcessingJobName"`
-	}
+	var req describeProcessingJobRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
@@ -190,14 +280,28 @@ func (h *Handler) handleDescribeProcessingJob(ctx context.Context, body []byte) 
 	if pj.FailureReason != "" {
 		resp["FailureReason"] = pj.FailureReason
 	}
+	if pj.NetworkConfig != nil {
+		resp["NetworkConfig"] = pj.NetworkConfig
+	}
+	if pj.ExperimentConfig != nil {
+		resp["ExperimentConfig"] = pj.ExperimentConfig
+	}
+	if pj.StoppingCondition != nil {
+		resp["StoppingCondition"] = pj.StoppingCondition
+	}
+	if len(pj.Environment) > 0 {
+		resp["Environment"] = pj.Environment
+	}
 
 	return json.Marshal(resp)
 }
 
+type stopProcessingJobRequest struct {
+	ProcessingJobName string `json:"ProcessingJobName"`
+}
+
 func (h *Handler) handleStopProcessingJob(ctx context.Context, body []byte) error {
-	var req struct {
-		ProcessingJobName string `json:"ProcessingJobName"`
-	}
+	var req stopProcessingJobRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
@@ -215,10 +319,12 @@ func (h *Handler) handleStopProcessingJob(ctx context.Context, body []byte) erro
 	return nil
 }
 
+type deleteProcessingJobRequest struct {
+	ProcessingJobName string `json:"ProcessingJobName"`
+}
+
 func (h *Handler) handleDeleteProcessingJob(ctx context.Context, body []byte) error {
-	var req struct {
-		ProcessingJobName string `json:"ProcessingJobName"`
-	}
+	var req deleteProcessingJobRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
@@ -243,17 +349,36 @@ type processingJobSummary struct {
 	LastModifiedTime    float64 `json:"LastModifiedTime"`
 }
 
+type listProcessingJobsRequest struct {
+	CreationTimeAfter      *float64 `json:"CreationTimeAfter,omitempty"`
+	CreationTimeBefore     *float64 `json:"CreationTimeBefore,omitempty"`
+	LastModifiedTimeAfter  *float64 `json:"LastModifiedTimeAfter,omitempty"`
+	LastModifiedTimeBefore *float64 `json:"LastModifiedTimeBefore,omitempty"`
+	NextToken              string   `json:"NextToken"`
+	StatusEquals           string   `json:"StatusEquals"`
+	NameContains           string   `json:"NameContains,omitempty"`
+	SortBy                 string   `json:"SortBy,omitempty"`
+	SortOrder              string   `json:"SortOrder,omitempty"`
+	MaxResults             int32    `json:"MaxResults"`
+}
+
 func (h *Handler) handleListProcessingJobs(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		NextToken    string `json:"NextToken"`
-		StatusEquals string `json:"StatusEquals"`
-		MaxResults   int32  `json:"MaxResults"`
-	}
+	var req listProcessingJobsRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	jobs, nextToken := h.Backend.ListProcessingJobs(ctx, req.NextToken, req.StatusEquals, req.MaxResults)
+	jobs, nextToken := h.Backend.ListProcessingJobs(ctx, req.NextToken, ListProcessingJobsFilter{
+		CreationTimeAfter:      epochPtr(req.CreationTimeAfter),
+		CreationTimeBefore:     epochPtr(req.CreationTimeBefore),
+		LastModifiedTimeAfter:  epochPtr(req.LastModifiedTimeAfter),
+		LastModifiedTimeBefore: epochPtr(req.LastModifiedTimeBefore),
+		StatusEquals:           req.StatusEquals,
+		NameContains:           req.NameContains,
+		SortBy:                 req.SortBy,
+		SortOrder:              req.SortOrder,
+		MaxResults:             req.MaxResults,
+	})
 	summaries := make([]processingJobSummary, 0, len(jobs))
 	for _, pj := range jobs {
 		summaries = append(summaries, processingJobSummary{

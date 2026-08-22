@@ -28,6 +28,7 @@ const (
 	keyEdgeDeploymentPlanName        = "EdgeDeploymentPlanName"
 	keyDeviceName                    = "DeviceName"
 	keyEndpointArn                   = "EndpointArn"
+	keyOutputConfig                  = "OutputConfig"
 	keyExperimentArn                 = "ExperimentArn"
 	keyFeatureGroupArn               = "FeatureGroupArn"
 	keyFlowDefinitionArn             = "FlowDefinitionArn"

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"maps"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -88,24 +87,52 @@ type ProcessingAppSpec struct {
 	ContainerEntrypoint []string `json:"ContainerEntrypoint,omitempty"`
 }
 
+// ProcessingNetworkConfig mirrors types.NetworkConfig
+// (api_op_CreateProcessingJob.go's NetworkConfig field). The request's VPC
+// settings nest under NetworkConfig.VpcConfig -- there is no top-level
+// VpcConfig on CreateProcessingJobInput at all.
+type ProcessingNetworkConfig struct {
+	VpcConfig                             *VpcConfig `json:"VpcConfig,omitempty"`
+	EnableInterContainerTrafficEncryption *bool      `json:"EnableInterContainerTrafficEncryption,omitempty"`
+	EnableNetworkIsolation                *bool      `json:"EnableNetworkIsolation,omitempty"`
+}
+
+// ProcessingExperimentConfig mirrors types.ExperimentConfig
+// (types/types.go — ExperimentName/RunName/TrialComponentDisplayName/TrialName).
+type ProcessingExperimentConfig struct {
+	ExperimentName            string `json:"ExperimentName,omitempty"`
+	RunName                   string `json:"RunName,omitempty"`
+	TrialComponentDisplayName string `json:"TrialComponentDisplayName,omitempty"`
+	TrialName                 string `json:"TrialName,omitempty"`
+}
+
+// ProcessingStoppingCondition mirrors types.ProcessingStoppingCondition
+// (MaxRuntimeInSeconds, "This member is required" on the type itself, but the
+// type as a whole is an optional CreateProcessingJobInput field).
+type ProcessingStoppingCondition struct {
+	MaxRuntimeInSeconds int32 `json:"MaxRuntimeInSeconds"`
+}
+
 // ProcessingJob represents a SageMaker processing job.
 type ProcessingJob struct {
-	CreationTime           time.Time              `json:"CreationTime"`
-	LastModifiedTime       time.Time              `json:"LastModifiedTime"`
-	ProcessingStartTime    *time.Time             `json:"ProcessingStartTime,omitempty"`
-	ProcessingEndTime      *time.Time             `json:"ProcessingEndTime,omitempty"`
-	Tags                   map[string]string      `json:"Tags,omitempty"`
-	Environment            map[string]string      `json:"Environment,omitempty"`
-	VpcConfig              *VpcConfig             `json:"VpcConfig,omitempty"`
-	ProcessingResources    ProcessingResources    `json:"ProcessingResources"`
-	ProcessingOutputConfig ProcessingOutputConfig `json:"ProcessingOutputConfig"`
-	ProcessingJobName      string                 `json:"ProcessingJobName"`
-	ProcessingJobArn       string                 `json:"ProcessingJobArn"`
-	ProcessingJobStatus    string                 `json:"ProcessingJobStatus"`
-	RoleArn                string                 `json:"RoleArn,omitempty"`
-	FailureReason          string                 `json:"FailureReason,omitempty"`
-	AppSpecification       ProcessingAppSpec      `json:"AppSpecification"`
-	ProcessingInputs       []ProcessingInput      `json:"ProcessingInputs,omitempty"`
+	CreationTime           time.Time                    `json:"CreationTime"`
+	LastModifiedTime       time.Time                    `json:"LastModifiedTime"`
+	ProcessingStartTime    *time.Time                   `json:"ProcessingStartTime,omitempty"`
+	ProcessingEndTime      *time.Time                   `json:"ProcessingEndTime,omitempty"`
+	Tags                   map[string]string            `json:"Tags,omitempty"`
+	Environment            map[string]string            `json:"Environment,omitempty"`
+	NetworkConfig          *ProcessingNetworkConfig     `json:"NetworkConfig,omitempty"`
+	ExperimentConfig       *ProcessingExperimentConfig  `json:"ExperimentConfig,omitempty"`
+	StoppingCondition      *ProcessingStoppingCondition `json:"StoppingCondition,omitempty"`
+	ProcessingResources    ProcessingResources          `json:"ProcessingResources"`
+	ProcessingOutputConfig ProcessingOutputConfig       `json:"ProcessingOutputConfig"`
+	ProcessingJobName      string                       `json:"ProcessingJobName"`
+	ProcessingJobArn       string                       `json:"ProcessingJobArn"`
+	ProcessingJobStatus    string                       `json:"ProcessingJobStatus"`
+	RoleArn                string                       `json:"RoleArn,omitempty"`
+	FailureReason          string                       `json:"FailureReason,omitempty"`
+	AppSpecification       ProcessingAppSpec            `json:"AppSpecification"`
+	ProcessingInputs       []ProcessingInput            `json:"ProcessingInputs,omitempty"`
 }
 
 // cloneProcessingJob returns a deep copy of pj.
@@ -168,7 +195,9 @@ func (b *InMemoryBackend) CreateProcessingJob(ctx context.Context, opts Processi
 		ProcessingInputs:       opts.ProcessingInputs,
 		ProcessingOutputConfig: opts.ProcessingOutputConfig,
 		ProcessingResources:    opts.ProcessingResources,
-		VpcConfig:              opts.VpcConfig,
+		NetworkConfig:          opts.NetworkConfig,
+		ExperimentConfig:       opts.ExperimentConfig,
+		StoppingCondition:      opts.StoppingCondition,
 		Environment:            maps.Clone(opts.Environment),
 		CreationTime:           now,
 		LastModifiedTime:       now,
@@ -272,11 +301,27 @@ func (b *InMemoryBackend) DeleteProcessingJob(ctx context.Context, name string) 
 	return nil
 }
 
-// ListProcessingJobs returns processing jobs sorted by name.
+// ListProcessingJobsFilter holds optional filters for ListProcessingJobs,
+// mirroring ListProcessingJobsInput (api_op_ListProcessingJobs.go). SortBy
+// defaults to CreationTime, SortOrder defaults to Ascending per that op's own
+// doc.
+type ListProcessingJobsFilter struct {
+	CreationTimeAfter      *time.Time
+	CreationTimeBefore     *time.Time
+	LastModifiedTimeAfter  *time.Time
+	LastModifiedTimeBefore *time.Time
+	StatusEquals           string
+	NameContains           string
+	SortBy                 string
+	SortOrder              string
+	MaxResults             int32
+}
+
+// ListProcessingJobs returns processing jobs matching filter.
 func (b *InMemoryBackend) ListProcessingJobs(
 	ctx context.Context,
-	nextToken, statusEquals string,
-	maxResults int32,
+	nextToken string,
+	filter ListProcessingJobsFilter,
 ) ([]*ProcessingJob, string) {
 	b.mu.RLock("ListProcessingJobs")
 	defer b.mu.RUnlock()
@@ -285,32 +330,44 @@ func (b *InMemoryBackend) ListProcessingJobs(
 
 	list := make([]*ProcessingJob, 0, b.processingJobsStoreRO(region).Len())
 	for _, pj := range b.processingJobsStoreRO(region).All() {
-		if statusEquals != "" && !strings.EqualFold(pj.ProcessingJobStatus, statusEquals) {
+		if filter.StatusEquals != "" && !strings.EqualFold(pj.ProcessingJobStatus, filter.StatusEquals) {
 			continue
 		}
+
+		if filter.NameContains != "" && !strings.Contains(pj.ProcessingJobName, filter.NameContains) {
+			continue
+		}
+
+		if !timeWindowOK(pj.CreationTime, filter.CreationTimeAfter, filter.CreationTimeBefore) {
+			continue
+		}
+
+		if !timeWindowOK(pj.LastModifiedTime, filter.LastModifiedTimeAfter, filter.LastModifiedTimeBefore) {
+			continue
+		}
+
 		list = append(list, cloneProcessingJob(pj))
 	}
-	sort.Slice(
-		list,
-		func(i, j int) bool { return list[i].ProcessingJobName < list[j].ProcessingJobName },
-	)
 
-	pageSize := sagemakerDefaultPageSize
-	if maxResults > 0 && int(maxResults) < pageSize {
-		pageSize = int(maxResults)
-	}
+	desc := filter.SortOrder == sortOrderDescending
+	sort.Slice(list, func(i, k int) bool {
+		var less bool
 
-	startIdx := parseNextToken(nextToken)
-	if startIdx >= len(list) {
-		return []*ProcessingJob{}, ""
-	}
-	end := startIdx + pageSize
-	var outToken string
-	if end < len(list) {
-		outToken = strconv.Itoa(end)
-	} else {
-		end = len(list)
-	}
+		switch filter.SortBy {
+		case keyGenericName:
+			less = list[i].ProcessingJobName < list[k].ProcessingJobName
+		case sortByStatus:
+			less = list[i].ProcessingJobStatus < list[k].ProcessingJobStatus
+		default:
+			less = list[i].CreationTime.Before(list[k].CreationTime)
+		}
 
-	return list[startIdx:end], outToken
+		if desc {
+			return !less
+		}
+
+		return less
+	})
+
+	return paginateSlice(list, nextToken, filter.MaxResults)
 }

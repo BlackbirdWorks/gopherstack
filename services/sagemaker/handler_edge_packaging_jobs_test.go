@@ -22,6 +22,9 @@ func TestHandler_EdgePackagingJobLifecycle(t *testing.T) {
 		"ModelVersion":         "1.0",
 		"RoleArn":              "arn:aws:iam::000000000000:role/TestRole",
 		"CompilationJobName":   "my-comp-job",
+		"OutputConfig": map[string]any{
+			"S3OutputLocation": "s3://bucket/edge-out",
+		},
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
 
@@ -41,6 +44,10 @@ func TestHandler_EdgePackagingJobLifecycle(t *testing.T) {
 	assert.Equal(t, "my-model", descResp["ModelName"])
 	assert.Equal(t, "1.0", descResp["ModelVersion"])
 	assert.Equal(t, "STARTING", descResp["EdgePackagingJobStatus"])
+
+	outputConfig, ok := descResp["OutputConfig"].(map[string]any)
+	require.True(t, ok, "DescribeEdgePackagingJob must return OutputConfig")
+	assert.Equal(t, "s3://bucket/edge-out", outputConfig["S3OutputLocation"])
 
 	// List
 	rec = doSageMakerRequest(t, h, "ListEdgePackagingJobs", map[string]any{})
@@ -85,7 +92,12 @@ func TestHandler_EdgePackagingJob_ReachesCompleted(t *testing.T) {
 	rec := doSageMakerRequest(t, h, "CreateEdgePackagingJob", map[string]any{
 		"EdgePackagingJobName": "edge-job-completes",
 		"ModelName":            "my-model",
+		"ModelVersion":         "1.0",
 		"RoleArn":              "arn:aws:iam::000000000000:role/TestRole",
+		"CompilationJobName":   "my-comp-job",
+		"OutputConfig": map[string]any{
+			"S3OutputLocation": "s3://bucket/edge-out",
+		},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -116,11 +128,56 @@ func TestHandler_EdgePackagingJob_Duplicate(t *testing.T) {
 
 	h := newTestHandler(t)
 
-	body := map[string]any{"EdgePackagingJobName": "dup-job"}
+	body := edgePackagingJobRequestBody("dup-job")
 	doSageMakerRequest(t, h, "CreateEdgePackagingJob", body)
 
 	rec := doSageMakerRequest(t, h, "CreateEdgePackagingJob", body)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+// edgePackagingJobRequestBody returns a minimal-but-complete CreateEdgePackagingJob
+// request body for name, supplying every member CreateEdgePackagingJobInput
+// declares required (api_op_CreateEdgePackagingJob.go:13-52).
+func edgePackagingJobRequestBody(name string) map[string]any {
+	return map[string]any{
+		"EdgePackagingJobName": name,
+		"ModelName":            "m",
+		"ModelVersion":         "1.0",
+		"RoleArn":              "arn:aws:iam::000000000000:role/TestRole",
+		"CompilationJobName":   "c",
+		"OutputConfig": map[string]any{
+			"S3OutputLocation": "s3://bucket/out",
+		},
+	}
+}
+
+func TestHandler_CreateEdgePackagingJob_RequiredFields(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		mutate func(map[string]any)
+		name   string
+	}{
+		{name: "missing name", mutate: func(b map[string]any) { delete(b, "EdgePackagingJobName") }},
+		{name: "missing model name", mutate: func(b map[string]any) { delete(b, "ModelName") }},
+		{name: "missing model version", mutate: func(b map[string]any) { delete(b, "ModelVersion") }},
+		{name: "missing role arn", mutate: func(b map[string]any) { delete(b, "RoleArn") }},
+		{name: "missing compilation job name", mutate: func(b map[string]any) { delete(b, "CompilationJobName") }},
+		{name: "missing output config", mutate: func(b map[string]any) { delete(b, "OutputConfig") }},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			body := edgePackagingJobRequestBody("req-fields")
+			tt.mutate(body)
+
+			rec := doSageMakerRequest(t, h, "CreateEdgePackagingJob", body)
+			assert.Equal(t, http.StatusBadRequest, rec.Code)
+		})
+	}
 }
 
 func TestHandler_ListEdgePackagingJobs_StatusFilter(t *testing.T) {
@@ -128,8 +185,8 @@ func TestHandler_ListEdgePackagingJobs_StatusFilter(t *testing.T) {
 
 	h := newTestHandler(t)
 
-	doSageMakerRequest(t, h, "CreateEdgePackagingJob", map[string]any{"EdgePackagingJobName": "job-a"})
-	doSageMakerRequest(t, h, "CreateEdgePackagingJob", map[string]any{"EdgePackagingJobName": "job-b"})
+	doSageMakerRequest(t, h, "CreateEdgePackagingJob", edgePackagingJobRequestBody("job-a"))
+	doSageMakerRequest(t, h, "CreateEdgePackagingJob", edgePackagingJobRequestBody("job-b"))
 	doSageMakerRequest(t, h, "StopEdgePackagingJob", map[string]any{"EdgePackagingJobName": "job-a"})
 
 	rec := doSageMakerRequest(t, h, "ListEdgePackagingJobs", map[string]any{
@@ -141,6 +198,39 @@ func TestHandler_ListEdgePackagingJobs_StatusFilter(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	summaries := resp["EdgePackagingJobSummaries"].([]any)
 	assert.Len(t, summaries, 1)
+}
+
+func TestHandler_ListEdgePackagingJobs_FilterSort(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	doSageMakerRequest(t, h, "CreateEdgePackagingJob", edgePackagingJobRequestBody("job-alpha"))
+	doSageMakerRequest(t, h, "CreateEdgePackagingJob", edgePackagingJobRequestBody("job-beta"))
+
+	// ModelNameContains: both jobs share ModelName "m", so this proves the
+	// filter is applied rather than a no-op.
+	rec := doSageMakerRequest(t, h, "ListEdgePackagingJobs", map[string]any{
+		"ModelNameContains": "nonexistent-model",
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Empty(t, resp["EdgePackagingJobSummaries"].([]any))
+
+	// SortBy=NAME, SortOrder=Descending reverses this backend's ascending
+	// default.
+	rec = doSageMakerRequest(t, h, "ListEdgePackagingJobs", map[string]any{
+		"SortBy":    "NAME",
+		"SortOrder": "Descending",
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	summaries := resp["EdgePackagingJobSummaries"].([]any)
+	require.Len(t, summaries, 2)
+	assert.Equal(t, "job-beta", summaries[0].(map[string]any)["EdgePackagingJobName"])
+	assert.Equal(t, "job-alpha", summaries[1].(map[string]any)["EdgePackagingJobName"])
 }
 
 // ---------------------------------------------------------------------------
