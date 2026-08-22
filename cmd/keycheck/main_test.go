@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -515,6 +516,252 @@ func (h *Handler) handleSimulateAttack(body []byte) []byte {
 	assert.Contains(t, res.InternalOpsSkipped, "__SimulateAttack")
 	assert.NotContains(t, res.UnresolvedOps, "__SimulateAttack")
 	assert.Empty(t, res.OpsChecked, "an internal-only op should not be checked against the SDK at all")
+}
+
+// svcBareLowercaseDispatchFixture reproduces comprehend/personalize/
+// translate's real dispatch-table shape (e.g. personalize's buildOps():
+// map[string]opFunc{"CreateDatasetGroup": h.createDatasetGroup, ...}): op
+// names map to a bare lowercase method value with no "handle"/"json" prefix
+// at all. Found live during the gopherstack-0kk8 sweep -- all three services
+// reported HandlerOpsResolved == 0 against the pre-fix scanner, which
+// resolves only the "handle"/"json"-prefixed convention.
+const svcBareLowercaseDispatchFixture = `package svc
+
+type opFunc func([]byte) []byte
+
+type Handler struct{}
+
+var dispatchTable = map[string]opFunc{
+	"GetSchedule": (&Handler{}).getSchedule,
+}
+
+func (h *Handler) getSchedule(body []byte) []byte {
+	resp := map[string]any{
+		"Target": map[string]any{
+			"EcsParameters": map[string]any{
+				"NetworkConfiguration": map[string]any{
+					%s
+				},
+			},
+		},
+	}
+	_ = resp
+	return nil
+}
+`
+
+func TestRunCheck_BareLowercaseMethodDispatch(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		field        string
+		wantMismatch bool
+	}{
+		{name: "correct wire casing", field: `"awsvpcConfiguration": map[string]any{},`},
+		{name: "wrong go-field casing", field: `"AwsvpcConfiguration": map[string]any{},`, wantMismatch: true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			sdkDir := t.TempDir()
+			writeFile(t, sdkDir, "deserializers.go", sdkGoodFixture)
+			svcDir := t.TempDir()
+			writeFile(t, svcDir, "handler.go", fmt.Sprintf(svcBareLowercaseDispatchFixture, tc.field))
+
+			res, err := runCheck(filepath.Join(sdkDir, "deserializers.go"), "awsRestjson1_", svcDir, "")
+			require.NoError(t, err)
+			require.Equal(t, 1, res.HandlerOpsResolved,
+				"a bare lowercase method value (no handle/json prefix) must still resolve a handler")
+			require.Empty(t, res.UnresolvedOps)
+			require.Len(t, res.OpsChecked, 1)
+
+			if !tc.wantMismatch {
+				assert.Empty(t, res.OpsChecked[0].NotInTree)
+
+				return
+			}
+			assert.Contains(t, res.OpsChecked[0].NotInTree, "AwsvpcConfiguration")
+		})
+	}
+}
+
+// svcWrappedBackendCallDispatchFixture reproduces ssm's real dispatch-table
+// shape (services/ssm/handler.go's ssm*Ops() family): op names map to a
+// real backend method wrapped in a single-argument helper call
+// (jsonOp(h.Backend.PutParameter)) -- the backend method name has no
+// handle/json prefix either, and findHandlerSelector's AST walk previously
+// found the "jsonOp" call itself before ever considering its argument.
+const svcWrappedBackendCallDispatchFixture = `package svc
+
+type ssmActionFn func([]byte) []byte
+
+type Backend struct{}
+type Handler struct{ Backend *Backend }
+
+var h = &Handler{}
+
+func jsonOp(fn func([]byte) []byte) ssmActionFn { return fn }
+
+var dispatchTable = map[string]ssmActionFn{
+	"GetSchedule": jsonOp(h.Backend.getSchedule),
+}
+
+func (b *Backend) getSchedule(body []byte) []byte {
+	resp := map[string]any{
+		"Target": map[string]any{
+			"EcsParameters": map[string]any{
+				"NetworkConfiguration": map[string]any{
+					"awsvpcConfiguration": map[string]any{},
+				},
+			},
+		},
+	}
+	_ = resp
+	return nil
+}
+`
+
+func TestRunCheck_WrappedBackendCallDispatch(t *testing.T) {
+	t.Parallel()
+
+	sdkDir := t.TempDir()
+	writeFile(t, sdkDir, "deserializers.go", sdkGoodFixture)
+	svcDir := t.TempDir()
+	writeFile(t, svcDir, "handler.go", svcWrappedBackendCallDispatchFixture)
+
+	res, err := runCheck(filepath.Join(sdkDir, "deserializers.go"), "awsRestjson1_", svcDir, "")
+	require.NoError(t, err)
+	require.Equal(t, 1, res.HandlerOpsResolved,
+		"a real backend method wrapped in a single-arg helper call (ssm's jsonOp) must still resolve a handler")
+	require.Empty(t, res.UnresolvedOps)
+	require.Len(t, res.OpsChecked, 1)
+	assert.Empty(t, res.OpsChecked[0].NotInTree)
+}
+
+// svcClosureDispatchFixture reproduces ssm's two inline-closure dispatch
+// entries (handler.go's AddTagsToResource/RemoveTagsFromResource): the
+// dispatch value is a func literal that decodes the body via a stdlib call
+// (encoding/json.Unmarshal, which has no local FuncDecl and must never be
+// mistaken for the handler) and calls the real backend method only in its
+// return statement. Scoping the search to return statements -- not the
+// whole closure body -- is what keeps this from grabbing an unrelated
+// helper call that happens to run earlier in the closure.
+const svcClosureDispatchFixture = `package svc
+
+import "encoding/json"
+
+type ssmActionFn func([]byte) []byte
+
+type Backend struct{}
+type Handler struct{ Backend *Backend }
+
+var h = &Handler{}
+
+var dispatchTable = map[string]ssmActionFn{
+	"GetSchedule": func(body []byte) []byte {
+		var input struct{}
+		_ = json.Unmarshal(body, &input)
+		return h.Backend.getSchedule(body)
+	},
+}
+
+func (b *Backend) getSchedule(body []byte) []byte {
+	resp := map[string]any{
+		"Target": map[string]any{
+			"EcsParameters": map[string]any{
+				"NetworkConfiguration": map[string]any{
+					"awsvpcConfiguration": map[string]any{},
+				},
+			},
+		},
+	}
+	_ = resp
+	return nil
+}
+`
+
+func TestRunCheck_ClosureDispatch(t *testing.T) {
+	t.Parallel()
+
+	sdkDir := t.TempDir()
+	writeFile(t, sdkDir, "deserializers.go", sdkGoodFixture)
+	svcDir := t.TempDir()
+	writeFile(t, svcDir, "handler.go", svcClosureDispatchFixture)
+
+	res, err := runCheck(filepath.Join(sdkDir, "deserializers.go"), "awsRestjson1_", svcDir, "")
+	require.NoError(t, err)
+	require.Equal(t, 1, res.HandlerOpsResolved,
+		"a closure that decodes the body then calls the real backend method in a return statement "+
+			"must still resolve to that backend method, not the json.Unmarshal decode step")
+	require.Empty(t, res.UnresolvedOps)
+	require.Len(t, res.OpsChecked, 1)
+	assert.Equal(t, "getSchedule", res.OpsChecked[0].Handler)
+	assert.Empty(t, res.OpsChecked[0].NotInTree)
+}
+
+// svcSliceBindingDispatchFixture reproduces glue's real dispatch-table shape
+// (handler_routing.go's glueOpBindings): the single ordered source of truth
+// is a package-level []struct{ bind func(*Handler) service.JSONOpFunc; name
+// string }{...} literal iterated in buildOps(), not a map[string]X{...}
+// literal -- recordMapDispatch only ever inspected CompositeLit map
+// literals with KeyValueExpr elements, never a slice of binding structs.
+// The bind field already uses the ordinary service.WrapOp(h.handleX) shape
+// this repo's other 36 wrapped-map-dispatch services use, so this pins only
+// the new slice-shape recognition, not any matcher loosening.
+const svcSliceBindingDispatchFixture = `package svc
+
+type opFunc func([]byte) []byte
+
+type Handler struct{}
+
+func wrapOp(f func([]byte) []byte) opFunc { return f }
+
+var glueOpBindings = []struct {
+	bind func(*Handler) opFunc
+	name string
+}{
+	{
+		name: "GetSchedule",
+		bind: func(h *Handler) opFunc {
+			return wrapOp(h.handleGetSchedule)
+		},
+	},
+}
+
+func (h *Handler) handleGetSchedule(body []byte) []byte {
+	resp := map[string]any{
+		"Target": map[string]any{
+			"EcsParameters": map[string]any{
+				"NetworkConfiguration": map[string]any{
+					"awsvpcConfiguration": map[string]any{},
+				},
+			},
+		},
+	}
+	_ = resp
+	return nil
+}
+`
+
+func TestRunCheck_SliceBindingDispatch(t *testing.T) {
+	t.Parallel()
+
+	sdkDir := t.TempDir()
+	writeFile(t, sdkDir, "deserializers.go", sdkGoodFixture)
+	svcDir := t.TempDir()
+	writeFile(t, svcDir, "handler.go", svcSliceBindingDispatchFixture)
+
+	res, err := runCheck(filepath.Join(sdkDir, "deserializers.go"), "awsRestjson1_", svcDir, "")
+	require.NoError(t, err)
+	require.Equal(t, 1, res.HandlerOpsResolved,
+		"an ordered-binding-slice dispatch table (glue's real shape) must not vanish from the report")
+	require.Empty(t, res.UnresolvedOps)
+	require.Len(t, res.OpsChecked, 1)
+	assert.Equal(t, "handleGetSchedule", res.OpsChecked[0].Handler)
+	assert.Empty(t, res.OpsChecked[0].NotInTree)
 }
 
 func TestRunCheck_NoMapAnyLiterals(t *testing.T) {

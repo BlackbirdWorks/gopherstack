@@ -81,6 +81,25 @@
 // actually wrote the flagged key, and whether that write reaches the HTTP
 // response, before trusting any MISMATCH this tool reports.
 //
+// KNOWN BLIND SPOT #4, found live during the gopherstack-0kk8 dispatch-table
+// sweep: analyzeFunc/extractCases only understands a deserializer function
+// shaped as a map[string]interface{} type-assert followed by a switch on
+// fixed, known key strings (an AWS "structure" shape). A genuine AWS *map*
+// member (map[string]T with caller-controlled dynamic keys, e.g. glue's
+// QuerySchemaVersionMetadata MetadataInfoMap or personalize's
+// GetSolutionMetrics Metrics) deserializes with the same map[string]
+// interface{} type-assert but a for-range-and-single-call loop instead of a
+// switch -- extractCases finds no *ast.SwitchStmt, so that type resolves
+// with an empty case list. Every key the handler legitimately writes into
+// the corresponding hand-written map then reports as a false NotInTree
+// MISMATCH. Confirmed live sweeping glue (MetadataInfoMap), ssm
+// (aggregation-result Count fields) and personalize (Metrics) after fixing
+// their dispatch-table resolution: all of their post-fix MISMATCH rows
+// trace to this gap or to blind spot #2, not to a real dropped key -- see
+// gopherstack-0kk8. Hand-check any MISMATCH whose written keys look like
+// data (language codes, entity-type names, metric names) rather than
+// members of a fixed schema before trusting it.
+//
 // KNOWN BLIND SPOT #3: a written key absent from the real reachable shape is
 // reported identically whether it REPLACES a real required key (the real
 // value is silently dropped on every client -- the gopherstack-6flj/zquj
@@ -408,21 +427,23 @@ func reachable(idx *sdkIndex, info funcInfo, visited map[string]bool, depth int)
 // ---------- handler-side: what the service actually writes ----------
 
 type pkgScan struct {
-	fset        *token.FileSet
-	funcDecls   map[string]*ast.FuncDecl
-	constVals   map[string]string
-	mapAnyVars  map[string]bool
-	opToHandler map[string]string
+	fset          *token.FileSet
+	funcDecls     map[string]*ast.FuncDecl
+	constVals     map[string]string
+	funcTypeNames map[string]bool
+	mapAnyVars    map[string]bool
+	opToHandler   map[string]string
 }
 
 func scanPackage(dir string) (*pkgScan, error) {
 	fset := token.NewFileSet()
 	ps := &pkgScan{
-		fset:        fset,
-		funcDecls:   map[string]*ast.FuncDecl{},
-		constVals:   map[string]string{},
-		mapAnyVars:  map[string]bool{},
-		opToHandler: map[string]string{},
+		fset:          fset,
+		funcDecls:     map[string]*ast.FuncDecl{},
+		constVals:     map[string]string{},
+		funcTypeNames: map[string]bool{},
+		mapAnyVars:    map[string]bool{},
+		opToHandler:   map[string]string{},
 	}
 
 	entries, err := os.ReadDir(dir)
@@ -462,6 +483,26 @@ func (ps *pkgScan) indexFile(f *ast.File) {
 			ps.funcDecls[d.Name.Name] = d
 		case *ast.GenDecl:
 			ps.indexConsts(d)
+			ps.indexFuncTypes(d)
+		}
+	}
+}
+
+// indexFuncTypes records every package-level `type X func(...)` declaration
+// (e.g. comprehend's "operation", ssm's "ssmActionFn"), so recordMapDispatch
+// can tell a real op-dispatch table (map[string]<func type>) apart from an
+// unrelated map literal before it loosens its handler-selector matching.
+func (ps *pkgScan) indexFuncTypes(d *ast.GenDecl) {
+	if d.Tok != token.TYPE {
+		return
+	}
+	for _, spec := range d.Specs {
+		ts, ok := spec.(*ast.TypeSpec)
+		if !ok {
+			continue
+		}
+		if _, isFunc := ts.Type.(*ast.FuncType); isFunc {
+			ps.funcTypeNames[ts.Name.Name] = true
 		}
 	}
 }
@@ -561,6 +602,7 @@ func (ps *pkgScan) findOpDispatch(f *ast.File) {
 			ps.recordCaseDispatch(v)
 		case *ast.CompositeLit:
 			ps.recordMapDispatch(v)
+			ps.recordSliceBindingDispatch(v)
 		}
 
 		return true
@@ -615,12 +657,20 @@ func (ps *pkgScan) findHandlerCall(stmts []ast.Stmt) string {
 	return handler
 }
 
-// recordMapDispatch handles both dispatch-table conventions this repo uses:
-// a string literal key (map[string]T{"CreateFoo": ...}) and a package-level
-// const identifier key (map[string]T{opCreateFoo: ...}, e.g. dms's op
-// families) resolved through ps.constVals, already populated by indexFile
-// before findOpDispatch runs.
+// recordMapDispatch handles this repo's dispatch-table conventions keyed by
+// a string literal (map[string]T{"CreateFoo": ...}) or a package-level const
+// identifier (map[string]T{opCreateFoo: ...}, e.g. dms's op families,
+// resolved through ps.constVals, already populated by indexFile before
+// findOpDispatch runs). The handler-selector match tries findHandlerSelector
+// (the handle/json-prefix convention) first; only when that fails AND the
+// literal's own map value type is a locally-declared function type
+// (mapValueIsFuncType) does it fall back to findHandlerSelectorLoose, which
+// covers comprehend/personalize/translate's bare lowercase method values and
+// ssm's jsonOp(h.Backend.X)-wrapped and closure-wrapped backend calls. The
+// func-type gate keeps the loosened match from firing on some unrelated
+// map[string]<non-func> literal that happens to reference a local function.
 func (ps *pkgScan) recordMapDispatch(cl *ast.CompositeLit) {
+	loose := ps.mapValueIsFuncType(cl.Type)
 	for _, elt := range cl.Elts {
 		kv, ok := elt.(*ast.KeyValueExpr)
 		if !ok {
@@ -631,11 +681,153 @@ func (ps *pkgScan) recordMapDispatch(cl *ast.CompositeLit) {
 			continue
 		}
 		name := findHandlerSelector(kv.Value)
+		if name == "" && loose {
+			name = ps.findHandlerSelectorLoose(kv.Value)
+		}
 		if name == "" {
 			continue
 		}
 		ps.opToHandler[key] = name
 	}
+}
+
+// mapValueIsFuncType reports whether t is a map[string]<F> type where F is
+// either an inline func type or a package-level function type indexed by
+// indexFuncTypes.
+func (ps *pkgScan) mapValueIsFuncType(t ast.Expr) bool {
+	mt, ok := t.(*ast.MapType)
+	if !ok {
+		return false
+	}
+	switch v := mt.Value.(type) {
+	case *ast.FuncType:
+		return true
+	case *ast.Ident:
+		return ps.funcTypeNames[v.Name]
+	default:
+		return false
+	}
+}
+
+// findHandlerSelectorLoose resolves a dispatch-table value to a handler name
+// for shapes findHandlerSelector's handle/json-prefix rule can't match: a
+// bare lowercase method value (comprehend's h.detectSentiment,
+// personalize/translate's h.createDatasetGroup) or a real backend method
+// wrapped in a single-argument helper call (ssm's
+// jsonOp(h.Backend.PutParameter)) or a closure that decodes the body and
+// calls the real backend method in its return statement (ssm's
+// AddTagsToResource/RemoveTagsFromResource). It requires the resolved name
+// to be a function actually DECLARED in this package (ps.funcDecls) -- that
+// is what keeps it from grabbing an unrelated call such as the
+// json.Unmarshal decode step every ssm closure calls before its real
+// backend call: encoding/json's Unmarshal has no local FuncDecl, so it is
+// never a candidate.
+func (ps *pkgScan) findHandlerSelectorLoose(e ast.Expr) string {
+	switch v := e.(type) {
+	case *ast.SelectorExpr:
+		if _, ok := ps.funcDecls[v.Sel.Name]; ok {
+			return v.Sel.Name
+		}
+	case *ast.CallExpr:
+		for _, arg := range v.Args {
+			if name := ps.findHandlerSelectorLoose(arg); name != "" {
+				return name
+			}
+		}
+	case *ast.FuncLit:
+		return ps.findLocalCallInReturns(v.Body)
+	}
+
+	return ""
+}
+
+// findLocalCallInReturns looks only inside return statements (nested ones
+// included) for a call to a locally-declared function -- scoped to returns,
+// not the whole body, so it finds ssm's real
+// "return struct{}{}, h.Backend.AddTagsToResource(ctx, &input)" call and not
+// the json.Unmarshal decode step that precedes it in the same closure.
+func (ps *pkgScan) findLocalCallInReturns(body *ast.BlockStmt) string {
+	name := ""
+	ast.Inspect(body, func(n ast.Node) bool {
+		if name != "" {
+			return false
+		}
+		ret, ok := n.(*ast.ReturnStmt)
+		if !ok {
+			return true
+		}
+		for _, res := range ret.Results {
+			call, isCall := res.(*ast.CallExpr)
+			if !isCall {
+				continue
+			}
+			sel, isSel := call.Fun.(*ast.SelectorExpr)
+			if !isSel {
+				continue
+			}
+			if _, isLocal := ps.funcDecls[sel.Sel.Name]; isLocal {
+				name = sel.Sel.Name
+
+				break
+			}
+		}
+
+		return false
+	})
+
+	return name
+}
+
+// recordSliceBindingDispatch handles glue's ordered-binding-slice dispatch
+// convention (handler_routing.go): a package-level
+// []struct{ bind func(*Handler) service.JSONOpFunc; name string }{...}
+// literal, iterated in buildOps() rather than a map[string]X{...} literal.
+// Gated on the slice's element type being an inline anonymous struct type,
+// so this cannot misattribute an unrelated named-struct slice elsewhere in
+// the package. The handler selector is resolved with the ordinary strict
+// findHandlerSelector (glue's binding funcs already use the
+// service.WrapOp(h.handleX) shape 36 other services use), so this convention
+// needs only the new slice-shape recognition, not a matching loosening.
+func (ps *pkgScan) recordSliceBindingDispatch(cl *ast.CompositeLit) {
+	at, isArray := cl.Type.(*ast.ArrayType)
+	if !isArray || at.Len != nil {
+		return
+	}
+	if _, isStruct := at.Elt.(*ast.StructType); !isStruct {
+		return
+	}
+	for _, elt := range cl.Elts {
+		ecl, isLit := elt.(*ast.CompositeLit)
+		if !isLit {
+			continue
+		}
+		name := ps.structFieldString(ecl)
+		if name == "" {
+			continue
+		}
+		handler := findHandlerSelector(ecl)
+		if handler == "" {
+			continue
+		}
+		ps.opToHandler[name] = handler
+	}
+}
+
+// structFieldString returns the first field value in a keyed struct literal
+// that resolves to a string literal or package-level string const (glue's
+// binding struct's "name" field) without hardcoding that field's name.
+func (ps *pkgScan) structFieldString(cl *ast.CompositeLit) string {
+	for _, elt := range cl.Elts {
+		kv, ok := elt.(*ast.KeyValueExpr)
+		if !ok {
+			continue
+		}
+		if s, dyn := ps.resolveKey(kv.Value); !dyn && s != "" {
+			return s
+		}
+	}
+
+	return ""
 }
 
 // findHandlerSelector returns the first handler-shaped method name (see
