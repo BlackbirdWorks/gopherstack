@@ -1,12 +1,12 @@
 ---
 service: scheduler
 sdk_module: aws-sdk-go-v2/service/scheduler@v1.20.4   # version audited against
-last_audit_commit: 174b1f53                            # HEAD when this audit pass started
-last_audit_date: 2026-08-11
+last_audit_commit: ee8d5788f                           # HEAD when this audit pass started
+last_audit_date: 2026-08-21
 overall: A            # genuine wire-breaking and next-invocation-computation bugs found and fixed (see Notes)
 ops:
   CreateSchedule:      {wire: ok, errors: ok, state: fixed, persist: ok, note: "ClientToken now idempotent (see Notes); ScheduleExpressionTimezone now validated as a real IANA name; ScheduleExpression now semantically validated (rate/cron/at), not just structurally; cron field values (ranges/names/wildcards) now validated per-field, see 2026-08-11 gopherstack-cz9e Notes"}
-  GetSchedule:         {wire: fixed, errors: ok, state: ok, persist: ok, note: "invented non-canonical Tags field deleted"}
+  GetSchedule:         {wire: fixed, errors: ok, state: ok, persist: ok, note: "invented non-canonical Tags field deleted; 2026-08-21 gopherstack-r80d batch 32: EcsParameters.NetworkConfiguration.AwsvpcConfiguration and CapacityProviderStrategyItem's members were wrong-cased wire keys, invisible to any real client; AwsVpcConfiguration.Subnets (required) was also tagged omitempty despite being reachably empty -- see Notes"}
   UpdateSchedule:      {wire: ok, errors: ok, state: fixed, persist: ok, note: "ScheduleExpressionTimezone now validated as a real IANA name (prior pass's State-omission fix re-verified still correct, see Notes); ScheduleExpression now semantically validated; cron field values now validated per-field, see 2026-08-11 gopherstack-cz9e Notes"}
   DeleteSchedule:      {wire: ok, errors: ok, state: ok, persist: ok}
   ListSchedules:       {wire: fixed, errors: ok, state: ok, persist: ok, note: "invented Target.RoleArn field deleted (real TargetSummary has only Arn)"}
@@ -26,6 +26,73 @@ gaps:
 deferred: []
 leaks: {status: clean, note: "leak_main_test.go (testleak.VerifyTestMain) passes under -race. The runner's poll goroutine remains the only background goroutine (ctx-parented via Handler.StartWorker/Shutdown, unchanged this pass). New state added this pass (Runner.locCache, Handler.idempotency) is plain in-memory data with no goroutines/tickers of its own; both are swept/bounded (locCache via the existing per-poll sweep alongside cronCache; idempotency via TTL-based lazy eviction) and cleared on Handler.Reset."}
 ---
+
+## Notes (2026-08-21 pass, gopherstack-r80d batch 32)
+
+Part of the mgn/redshiftdata/scheduler batch testing r80d's op-count-vs-
+field-count hypothesis (see `services/_REQUIRED_OUTPUT_CANDIDATES.md`).
+scheduler tied at 5 required output fields (12 ops); flat scan alone is
+clean (CreateSchedule/CreateScheduleGroup/UpdateSchedule's `ScheduleArn`/
+`ScheduleGroupArn`, ListScheduleGroups/ListSchedules's `ScheduleGroups`/
+`Schedules` are all always emitted). The bugs are both below the flat scan,
+in `GetScheduleOutput.Target` (itself not required, so invisible to the
+per-op ranking) wrapping `types.Target.EcsParameters.NetworkConfiguration.
+AwsvpcConfiguration` and `.CapacityProviderStrategy`.
+
+1. **Wrong wire key entirely, not a dropped value.**
+   scheduler@v1.20.4's `deserializers.go` (`awsRestjson1_deserializeDocumentNetworkConfiguration`)
+   switches on `"awsvpcConfiguration"` (lowercase first rune);
+   `awsRestjson1_deserializeDocumentCapacityProviderStrategyItem` switches on
+   `"capacityProvider"`/`"base"`/`"weight"` (same). gopherstack's
+   `scheduleTargetEcsNetworkConfiguration.AwsvpcConfiguration` and
+   `scheduleTargetEcsCapacityProviderStrategyItem`'s three members were tagged
+   with the capitalized Go-field-name spelling instead
+   (`"AwsvpcConfiguration"`/`"CapacityProvider"`/`"Base"`/`"Weight"`). A real
+   SDK client's response deserializer does an exact-case `switch`, so every
+   one of these wrong-cased keys fell into the `default: _, _ = key, value`
+   no-op branch on every decode -- the entire `AwsvpcConfiguration` object,
+   and `CapacityProviderStrategyItem`'s required `CapacityProvider` member
+   (`*string`, provable) along with it, were invisible to any real client on
+   `GetSchedule`, independent of value. (`PlacementConstraint.Expression`/
+   `.Type` and `PlacementStrategy.Field`/`.Type` carry the same lowercase-first
+   wire keys and had the same capitalized-tag mistake; fixed alongside since
+   it's the same mechanical error in the same ECS-target struct family, but
+   neither member is Smithy-required so this half is disclosed cleanup, not a
+   counted bug.) Fixed by re-tagging all four structs to the real
+   lowercase-first keys.
+2. **`AwsVpcConfiguration.Subnets` (required, `[]string`) tagged `omitempty`
+   despite being reachably empty.** The real client-side validator
+   (`validators.go`'s `validateAwsVpcConfiguration`) only null-checks it
+   (`if v.Subnets == nil`), never length-checks, and the request serializer
+   (`awsRestjson1_serializeDocumentAwsVpcConfiguration`, `if v.Subnets !=
+   nil`) will send a non-nil empty slice on the wire -- so a real client may
+   legally construct `Subnets: []string{}`. gopherstack validates
+   `EcsParameters.TaskDefinitionArn` and every other reachable-empty-string
+   candidate on this service's `Target` (all correctly disqualified: gopherstack's
+   own `validateTarget` rejects an empty `TaskDefinitionArn`/`PartitionKey`/
+   `DetailType`/`Source` before storage, stricter than AWS's null-only check),
+   but never validated `Subnets`'s length. Fixed by dropping `omitempty` and
+   normalizing a nil backend value to `[]string{}` in `ecsNetworkConfigToOutput`
+   (matching this campaign's "required-but-inapplicable means present-and-empty,
+   not absent" convention) rather than counting on the (also-fixed) wire-key
+   bug to mask it.
+
+Both proven via real `aws-sdk-go-v2/service/scheduler` client round trips
+(`services/scheduler/wire_output_required_r80d_test.go`, 2 test funcs),
+hand-reverted (`handler_schedules.go` restored via `git show
+HEAD:services/scheduler/handler_schedules.go`, confirmed both tests fail
+against the pre-fix file)/confirmed-failing/restored, md5sum-verified
+byte-identical. All of `scheduler`'s pre-existing tests (including 3 raw-JSON
+round-trip tests that already exercised these same nested types with
+non-empty values, e.g. `TestCreateSchedule_EcsParametersNetworkConfigurationRoundtrip`)
+continued to pass unchanged -- they drive the handler directly with
+gopherstack's own (previously wrong) capitalized keys rather than a real SDK
+client, which is why this class survived them.
+
+Companion services this batch (see `services/_REQUIRED_OUTPUT_CANDIDATES.md`
+for full detail): `mgn` (95 ops, the batch's primary hypothesis test) and
+`redshiftdata` (12 ops) both came back clean -- 0 bugs each, unlike
+scheduler's 2.
 
 ## Notes (2026-08-11 pass, gopherstack-cz9e)
 

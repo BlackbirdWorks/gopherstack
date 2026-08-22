@@ -49,8 +49,8 @@ sdk_module: aws-sdk-go-v2/service/mgn@v1.48.4   # gopherstack-u8my: go.mod had a
 # v1.48.4; the "unchanged since 2026-08-01" note was stale. Diffed v1.48.3 vs v1.48.4:
 # types/{types,enums,errors}.go, serializers.go, deserializers.go, validators.go byte-identical --
 # only client middleware plumbing differs, so no wire-shape claim in this file was affected.
-last_audit_commit: ef896bcf1
-last_audit_date: 2026-08-06
+last_audit_commit: ee8d5788f
+last_audit_date: 2026-08-21
 overall: A   # raised from A- (gopherstack-xd34): the SDK-driven integration suite this A-/B distinction
 # hinges on now exists and passes under Docker, and every buildable gap this pass found (5 items,
 # enumerated in the comment block above) is closed. What remains in gaps:/structural_gaps: below is
@@ -200,6 +200,71 @@ deferred:
   - "Nothing this pass. All 95 ops are implemented and this pass's own integration suite (test/integration/mgn_test.go) exercises every op family named in gopherstack-xd34's scope (source servers, replication/launch configuration templates, jobs, applications/waves, tagging, network migration, cross-service EC2/Organizations wiring)."
 leaks: {status: clean, note: "Handler.Reset()/Backend.Reset() close every SourceServer/Job/Application/Wave/etc.'s tags.Tags before clearing (tagging.go's 12 taggable kinds); InMemoryBackend.Close() stops the worker.Group backing every scheduled LifeCycleState/Job/ImportTask/NetworkMigrationJob transition timer -- verified by direct code read this pass, not re-derived from scratch."}
 ---
+
+## 2026-08-21 pass (gopherstack-r80d batch 32): required-output-member audit, clean
+
+Part of the mgn/redshiftdata/scheduler batch testing r80d's hypothesis that
+op count predicts this bug class better than required-field count (batches
+24-29 found bugs almost everywhere; batches 30-31 found none across six
+services tied at 6 fields; see `services/_REQUIRED_OUTPUT_CANDIDATES.md`).
+mgn is the hypothesis's primary test: **95 ops, only 5 required output
+fields** (`cmd/requiredoutputfields`, cross-checked against a standalone
+`go/ast`-style walk of `mgn@v1.48.4`'s `api_op_*.go` files -- both agreed
+exactly). Module resolved directly (directory `mgn` == SDK module
+`aws-sdk-go-v2/service/mgn@v1.48.4`, no `dirModuleOverride` entry needed);
+confirmed no `drs` or `applicationmigration` sibling directory exists in this
+repo to accidentally audit instead (`services/drs` doesn't exist; `drs` isn't
+even a pinned dependency in `go.mod`).
+
+The flat scan's 5 ops (`Create`/`UpdateLaunchConfigurationTemplate`,
+`Create`/`UpdateReplicationConfigurationTemplate`, `ListManagedAccounts`) are
+clean: `launchConfigurationTemplateWire.LaunchConfigurationTemplateID` and
+`replicationConfigurationTemplateWire.ReplicationConfigurationTemplateID`
+(wire.go:393,514) carry no `omitempty` and are always populated from a
+`newLaunchTemplateID()`/equivalent call at `Create` time (launchconfig.go:161,
+replicationconfig.go:222); `listManagedAccountsResponse.Items` (wire.go:1101)
+is built via `make([]managedAccountWire, len(accounts))`, never gated on
+length.
+
+**Below the flat scan** (this hypothesis's whole point, given 95 ops): an
+AST walk of `mgn@v1.48.4/types/types.go` found 19 domain structs carrying 34
+required members total. Of those reachable through a response (as opposed to
+request-only types like `StartNetworkMigrationMappingUpdateConstruct`/
+`Segment`, `S3BucketSource`, `EnrichmentSource`/`TargetS3Configuration`,
+`ChangeServerLifeCycleStateSourceServerLifecycle`, all confirmed
+request-only by reading their containing `api_op_*.go` `Input`/`Output`
+split): `types.Job.JobID` (via `TerminateTargetInstances`/`StartTest`/
+`StartCutover`/`DescribeJobs`) and `types.ParticipatingServer.SourceServerID`
+(nested one level inside `Job`) are always populated at job creation
+(`jobs.go`'s job-ID generation, `sourceservers.go:709-722`'s
+`startBatchJob`) and carry no `omitempty` on gopherstack's `jobWire`/
+`participatingServerWire` (wire.go:284-299). `types.TargetNetwork.Topology`,
+`types.TargetS3Configuration.{S3Bucket,S3BucketOwner}`, and
+`types.SourceConfiguration.{SourceEnvironment,SourceS3Configuration}`
+(reachable via `Get`/`Create`/`UpdateNetworkMigrationDefinition`, none of
+which have any required field at their own op level, so entirely invisible
+to the per-op ranking) are required on `CreateNetworkMigrationDefinitionInput`
+too (confirmed via the real SDK's own `validateOpCreateNetworkMigrationDefinitionInput`),
+so every stored definition has them, and gopherstack's
+`networkMigrationDefinitionWire`/`targetNetworkWire`/`targetS3ConfigurationWire`/
+`sourceConfigurationWire` (wire.go:1118-1153) carry no `omitempty` on any of
+them either. `types.StorageConfiguration.StorageType` (reachable via
+`Create`/`UpdateReplicationConfigurationTemplate`/`GetReplicationConfiguration`/
+`UpdateReplicationConfiguration`) and `types.ConnectorSsmCommandConfig.
+{CloudWatchOutputEnabled,S3OutputEnabled}` (via `Create`/`UpdateConnector`)
+are both non-pointer enum/bool types on the real SDK side (not provable per
+this campaign's rule) and, independently, carry no `omitempty` on
+gopherstack's wire structs either -- disqualified twice over.
+`types.SqlParameter`-equivalent `types.SsmParameterStoreParameter.
+{ParameterName,ParameterType}` (via `PutSourceServerAction`/`PutTemplateAction`,
+neither required at the op level) round-trip through `ssmParameterWire`
+(wire.go:16-18), also no `omitempty`.
+
+0 bugs found; no code changes. Companion services this batch: `scheduler`
+(2 bugs -- a wrong-cased wire key hiding `CapacityProviderStrategyItem.
+CapacityProvider` entirely, plus a reachably-empty `omitempty` on
+`AwsVpcConfiguration.Subnets`; see `services/scheduler/PARITY.md`) and
+`redshiftdata` (0 bugs; both came back clean too).
 
 ## Implementation summary (this pass)
 

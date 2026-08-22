@@ -186,8 +186,11 @@ from the ranked table) as future batches clear more of it.
 | kinesisanalyticsv2 | 6 | 33 (6 ops-with-required) | 0 (clean; "one wrapper key" shape (`ApplicationDetail`/`ApplicationSummary`/`SnapshotDetails`) but gopherstack's own wire types tag every required member with no `omitempty`, so the tag-rule bug class cannot occur syntactically; checked shape 2 instead -- `ApplicationARN`/`ApplicationName`/`ApplicationStatus`/`RuntimeEnvironment`/`ApplicationVersionID` all set unconditionally at `CreateApplication` and never cleared -- see the batch-31 note below and services/kinesisanalyticsv2/PARITY.md) | gopherstack-r80d batch 31 |
 | mediastore | 6 | 21 (6 ops-with-required) | 0 (clean; `types.Container` (wrapped by Create/ListContainers) declares zero required members of its own, confirmed against the SDK type directly; `GetContainerPolicy`/`GetCorsPolicy`/`GetLifecyclePolicy`/`GetMetricPolicy` all error `NotFound` rather than returning an empty success value when unset, and their `Put*` counterparts reject empty/invalid values before storage -- see the batch-31 note below and services/mediastore/PARITY.md) | gopherstack-r80d batch 31 |
 | translate | 6 | 19 (2 ops-with-required) | 0 (clean; `TranslateText`/`TranslateDocument` both build their response as a `map[string]any` literal passed straight to `json.Marshal`, the same structural immunity batch 30 found in ssoadmin/mediatailor/shield -- `TargetLanguageCode` validated non-empty, `SourceLanguageCode` defaulted to `"auto"` rather than left empty, `TranslatedText`/`TranslatedDocument.Content` both derived from required-non-empty input -- see the batch-31 note below and services/translate/PARITY.md) | gopherstack-r80d batch 31 |
+| mgn | 5 | 95 (5 ops-with-required) | 0 (clean; the batch's primary hypothesis test -- 95 ops, only 5 required fields, all already unconditionally populated (`launchConfigurationTemplateWire`/`replicationConfigurationTemplateWire`'s IDs carry no `omitempty` and are set at Create; `listManagedAccountsResponse.Items` is a non-nil `make(...)`). Below the flat scan: an AST walk of all 19 required-bearing domain structs in types.go found every response-reachable one (`Job`/`ParticipatingServer` via Terminate/StartTest/StartCutover/DescribeJobs; `TargetNetwork`/`TargetS3Configuration`/`SourceConfiguration` via Get/Create/UpdateNetworkMigrationDefinition, none required at their own op level and so invisible to the per-op ranking; `StorageConfiguration`/`ConnectorSsmCommandConfig`) already correctly wired, with the request-only types (`StartNetworkMigrationMappingUpdateConstruct`/`Segment`, `S3BucketSource`, both `EnrichmentS3Configuration` variants, `ChangeServerLifeCycleStateSourceServerLifecycle`) confirmed out of scope by reading their containing Input/Output split -- see the batch-32 note below and services/mgn/PARITY.md) | gopherstack-r80d batch 32 |
+| redshiftdata | 5 | 12 (5 ops-with-required) | 0 (clean; a control for the batch's hypothesis -- all 5 ops build `map[string]any` literals, the same structural immunity as ssoadmin/mediatailor/shield/translate; nested `SessionData`/`StatementData`/`SubStatementData` required members (one level below the flat scan) all backed by backend-generated non-empty IDs; `SqlParameter.{Name,Value}`'s lowercase wire tags confirmed correct (not a casing bug) against the real awsjson1.1 deserializer's own key switch -- see the batch-32 note below and services/redshiftdata/PARITY.md) | gopherstack-r80d batch 32 |
+| scheduler | 5 | 12 (5 ops-with-required) | yes (2: `EcsParameters.NetworkConfiguration.AwsvpcConfiguration` and every `CapacityProviderStrategyItem` member -- including required `CapacityProvider`, `*string`, provable -- were wrong-cased wire keys (gopherstack emitted the capitalized Go field name; the real wire is lowercase-first, e.g. `awsvpcConfiguration`/`capacityProvider`), invisible to any real client's exact-case response-deserializer switch regardless of value; separately, required `AwsVpcConfiguration.Subnets` was tagged `omitempty` despite the real client-side validator only null-checking it, reachably empty via a real client -- see the batch-32 note below and services/scheduler/PARITY.md) | gopherstack-r80d batch 32 |
 
-64 services settled, 2639 required output fields read end to end (the running
+67 services settled, 2654 required output fields read end to end (the running
 total counts each settled service's flat per-op `cmd/requiredoutputfields`
 number, as established by every prior batch -- glue's own real audited
 surface was substantially larger once its ~56 gopherstack-modeled domain
@@ -1599,6 +1602,8 @@ bedrockruntime/cloudfrontkeyvaluestore/sesv2 (22/20/18/18, settled batch
 from this table — see the "Already examined" table above. The six-way tie
 at 6 fields (kinesisanalyticsv2, mediastore, mediatailor, shield, ssoadmin,
 translate; settled batches 30-31) is also fully removed from this table.
+The three-way tie at 5 fields (mgn, redshiftdata, scheduler; settled batch
+32) is also fully removed from this table.
 
 ```
  459  sagemaker                 ops=403  ops-with-required=188
@@ -1615,9 +1620,6 @@ translate; settled batches 30-31) is also fully removed from this table.
    8  firehose                  ops=12   ops-with-required=5
    7  autoscaling               ops=66   ops-with-required=5
    7  sqs                       ops=23   ops-with-required=4
-   5  mgn                       ops=95   ops-with-required=5
-   5  redshiftdata              ops=12   ops-with-required=5
-   5  scheduler                 ops=12   ops-with-required=5
    4  cloudwatch                ops=50   ops-with-required=3
    4  codepipeline              ops=44   ops-with-required=4
    4  kinesisanalytics          ops=20   ops-with-required=3
@@ -1846,6 +1848,32 @@ Notes on the top of this table for the next batch:
   confirmed by grepping each service's own source for its SDK import, not
   inferred from directory names. The next tier is a three-way tie at 5
   fields: `mgn` (95 ops), `redshiftdata` (12 ops), `scheduler` (12 ops).
+- **mgn / redshiftdata / scheduler settled (batch 32) — HYPOTHESIS RESULT:
+  op count predicted correctly.** This was the batch the tapering signal
+  (below the batch-31 entry) proposed as a direct test: rank by op count
+  rather than field count, since every bug since batch 25 was found below
+  the flat op scan. `mgn` (95 ops, 5 fields) was the primary test; `redshiftdata`
+  and `scheduler` (12 ops each, 5 fields, same field tier) were the controls.
+  **The hypothesis held exactly as predicted**: `mgn`, despite having the
+  largest remaining op surface in the entire campaign, came back completely
+  clean (0 bugs) after following every one of its 19 required-bearing
+  domain structs below the flat scan. `redshiftdata` (12 ops, same low
+  field count as `scheduler`) also came back clean. `scheduler` (12 ops,
+  tied with `redshiftdata`) is the one that yielded — 2 bugs, both below
+  the flat op scan in `Target.EcsParameters`'s nested ECS types, invisible
+  to the per-op ranking because `GetScheduleOutput` itself has zero required
+  fields at its own top level. Op count alone did not predict within the
+  5-field tier (`redshiftdata` and `scheduler` are tied at 12 ops each, and
+  only one yielded) — but the batch's actual point, "bugs live below the
+  flat scan, not in it," held for the third time running (following
+  stepfunctions/swf's precedent for *shape*, not just presence): `scheduler`'s
+  bugs were only reachable by walking `GetScheduleOutput.Target` (not
+  required) into `EcsParameters.NetworkConfiguration.AwsvpcConfiguration`
+  and `.CapacityProviderStrategy`, two and three levels deep respectively.
+  Do not re-derive; see the settled-services table above, the batch-32 note
+  below, and `services/mgn/PARITY.md`, `services/redshiftdata/PARITY.md`,
+  `services/scheduler/PARITY.md`'s 2026-08-21 entries. `cloudwatch` (4
+  fields) is now the largest remaining candidate after sagemaker.
 
 ### ses + athena + comprehend (batch 24): 2 findings / 4 member-level fixes, both in ses
 
@@ -2800,3 +2828,151 @@ now 64, 2639 required output fields read end to end); the next tier is a
 three-way tie at 5 fields: `mgn` (95 ops), `redshiftdata` (12 ops),
 `scheduler` (12 ops) -- `mgn` is the largest remaining candidate after
 sagemaker by op count.
+
+### mgn + redshiftdata + scheduler (batch 32): the op-count hypothesis test -- confirmed
+
+**Instrument validated three ways** before auditing: the existing
+`cmd/requiredoutputfields` (char-level brace-depth walk), a from-scratch
+`go/ast`-based domain-struct walk (built standalone for this batch, applied
+to each pinned SDK module's `types/types.go` rather than just the per-op
+`api_op_*.go` files), and a raw `grep -c "This member is required."` total
+per module's `api_op_*.go` files. All three agreed exactly on the flat
+per-op counts: `mgn` 5/5 (5 ops-with-required, grep-c 139 total including
+inputs); `redshiftdata` 5/5 (5 ops-with-required, grep-c 15); `scheduler`
+5/5 (5 ops-with-required, grep-c 23). No discrepancy.
+
+**Module resolution.** All three resolve directly -- directory name equals
+SDK module name, no `dirModuleOverride` entry for any of them. Confirmed
+`mgn` (Application Migration Service) does not collide with any
+`applicationmigration`-style sibling or with `drs`: neither `services/drs`
+nor an `applicationmigration` directory exists in this repo, and `drs` is
+not even a pinned `go.mod` dependency, so there was no sibling to
+accidentally audit instead (the batch-24 near-miss this file's protocol
+section now warns every batch to check for).
+
+**This was the batch gopherstack-r80d's tapering signal proposed as a
+direct test of "op count predicts better than field count."** Batches
+24-29 found bugs in nearly every service audited; batches 30-31 found zero
+across six services tied at 6 fields. `mgn` (95 ops, only 5 required
+fields -- the largest remaining op surface in the entire campaign, near the
+bottom of the field ranking) was named as the test case; `redshiftdata` and
+`scheduler` (12 ops each, same 5-field tier) as the controls.
+
+**mgn (5 fields/95 ops, 5 ops-with-required): 0 bugs.** The flat scan's 5
+ops (`Create`/`UpdateLaunchConfigurationTemplate`, `Create`/
+`UpdateReplicationConfigurationTemplate`, `ListManagedAccounts`) were
+already clean -- every required ID field is generated at `Create` time and
+carries no `omitempty`; `ListManagedAccounts.Items` is a non-nil
+`make(...)`. Below the flat scan (the hypothesis's whole point, given 95
+ops): an AST walk of all 19 required-bearing domain structs in
+`mgn@v1.48.4/types/types.go` (34 required members total) found the
+response-reachable ones -- `Job`/`ParticipatingServer` (via
+`TerminateTargetInstances`/`StartTest`/`StartCutover`/`DescribeJobs`, none
+required at their own op level and so invisible to the per-op ranking),
+`TargetNetwork`/`TargetS3Configuration`/`SourceConfiguration` (via
+`Get`/`Create`/`UpdateNetworkMigrationDefinition`, same invisibility),
+`StorageConfiguration`/`ConnectorSsmCommandConfig` -- all already correctly
+wired, with the remaining request-only types
+(`StartNetworkMigrationMappingUpdateConstruct`/`Segment`, `S3BucketSource`,
+both `EnrichmentS3Configuration` variants,
+`ChangeServerLifeCycleStateSourceServerLifecycle`) confirmed out of scope
+by reading their containing `api_op_*.go` file's `Input`/`Output` struct
+split directly, not assumed from the type name. Full SDK file:line
+citations in `services/mgn/PARITY.md`'s 2026-08-21 entry.
+
+**redshiftdata (5 fields/12 ops, 5 ops-with-required): 0 bugs.** Every
+flagged op builds its response as a `map[string]any` literal passed
+straight to `json.Marshal` -- the same structural immunity batches 30-31
+found in ssoadmin/mediatailor/shield/translate, with required members
+assigned unconditionally (`Sessions`/`Statements` via
+`make([]map[string]any, 0, len(...))`, never nil). One level below the
+flat scan: `SessionData`/`StatementData`/`SubStatementData`'s own required
+members (`CreatedAt`/`SessionId`/`Status`/`Id`) are all backed by
+backend-generated, never-empty values (`uuid.NewString()`). One near-miss
+ruled out by reading the real deserializer rather than assuming from
+casing conventions: `SqlParameter.{Name,Value}` round-trips through
+gopherstack's own lowercase `name`/`value` JSON tags, which looked like a
+casing bug next to the top-level `Id`/`Records`/`Sessions`/`Statements`
+fields (all PascalCase) until `awsAwsjson11_deserializeDocumentSqlParameter`'s
+own key switch confirmed the real wire genuinely lowercases this one nested
+type's members while keeping op-level fields capitalized -- same lesson
+guardduty's batch-6 `GetMemberDetectors` near-miss established for the
+input-side sweep, reapplied here. Full SDK file:line citations in
+`services/redshiftdata/PARITY.md`'s 2026-08-21 entry.
+
+**scheduler (5 fields/12 ops, 5 ops-with-required): 2 bugs, both below the
+flat scan.** `GetScheduleOutput` itself has zero required fields at its own
+top level (it wraps an optional `*types.Target`), so this entire area is
+invisible to the per-op ranking -- reachable only by following
+`GetScheduleOutput.Target.EcsParameters.NetworkConfiguration` two levels
+deep and `.CapacityProviderStrategy` similarly.
+1. **Wrong wire key entirely.** `NetworkConfiguration.AwsvpcConfiguration`
+   and every member of `CapacityProviderStrategyItem`
+   (`CapacityProvider`/`Base`/`Weight`) are lowercase-first on the real wire
+   (`awsRestjson1_deserializeDocumentNetworkConfiguration`/
+   `...CapacityProviderStrategyItem`, scheduler@v1.20.4 deserializers.go),
+   but gopherstack's `scheduleTargetEcsNetworkConfiguration`/
+   `scheduleTargetEcsCapacityProviderStrategyItem` carried the capitalized
+   Go-field-name spelling instead. A real SDK client's response
+   deserializer does an exact-case switch, so every wrong-cased key fell
+   into the `default` no-op branch on every decode -- the entire
+   `AwsvpcConfiguration` object, and `CapacityProviderStrategyItem`'s
+   required `CapacityProvider` (`*string`, provable) with it, were
+   invisible to any real client regardless of value. `PlacementConstraint`/
+   `PlacementStrategy` carry the identical wrong-cased-key mistake (fixed
+   alongside, same struct family) but declare zero required members in the
+   real Smithy model, so that half is disclosed cleanup, not a counted bug.
+2. **`AwsVpcConfiguration.Subnets` (required, `[]string`) tagged `omitempty`
+   despite being reachably empty** -- the real client-side validator only
+   null-checks it, and the request serializer sends a non-nil empty slice
+   when constructed that way, so a real client may legally trigger the
+   omission. gopherstack validates every other reachable-empty-string
+   candidate on this service's `Target` (correctly disqualified: stricter
+   than AWS's null-only check), but never validated `Subnets`'s length.
+
+Both proven via real `aws-sdk-go-v2/service/scheduler` client round trips
+(`services/scheduler/wire_output_required_r80d_test.go`, 2 test funcs),
+hand-reverted (`git show HEAD:services/scheduler/handler_schedules.go`,
+confirmed both tests fail)/confirmed-failing/restored, md5sum-verified
+byte-identical. All of scheduler's pre-existing tests continued to pass
+unchanged -- they drive the handler with gopherstack's own (previously
+wrong) capitalized keys directly rather than a real SDK client, which is
+why this class survived them. Full SDK file:line citations in
+`services/scheduler/PARITY.md`'s 2026-08-21 entry.
+
+**Result: op count predicted correctly.** `mgn`, the batch's primary test
+with the largest remaining op surface in the campaign (95 ops) and the
+lowest field count of the three, came back completely clean. Within the
+5-field control tier, `redshiftdata` (12 ops) was also clean while
+`scheduler` (12 ops, identical op count) yielded 2 bugs -- so raw op count
+did not discriminate between the two controls, but the *mechanism* the
+hypothesis was actually about ("bugs live below the flat scan, where op
+count doesn't reach") held for a third consecutive class of undercount
+(after stepfunctions/swf's polymorphic-event-detail and
+bedrockagent/pinpoint's one-wrapper-key shapes): scheduler's two bugs were
+only reachable by walking a *non-required* top-level field two and three
+levels deep. 5 required output fields (15 total, 5 each) across 12
+ops-with-required (5+5+5) read end to end, 2 bugs found and fixed (both
+scheduler), 0 in the other two. Gates (build/vet/gofmt/race-test/lint, 0
+banned nolints, 0 new nolints) green for `scheduler`; `mgn`/`redshiftdata`
+gates re-run clean with no source changes. Repo-wide `go build ./...`/
+`go vet ./...` both clean (only the pre-existing concurrent-sibling dirt in
+`pkgs/persistence/*`/`services/sagemaker/*` noted at batch start, untouched
+by this pass). `services/_REQUIRED_OUTPUT_CANDIDATES.md` updated: all three
+moved into "Already examined" (settled-services count now 67, 2654 required
+output fields read end to end); `cloudwatch` (4 fields) is now the largest
+remaining candidate after sagemaker.
+
+**Recommendation for the next batch.** The hypothesis is confirmed as a
+useful heuristic for *where to look within a service* (below the flat scan,
+not in it) but not as a strict ranking key (12-op `redshiftdata` and
+12-op `scheduler` split on outcome despite identical op count). Given that
+even the 95-op ceiling of this campaign's remaining candidates came back
+clean, and the 5-field tier is now fully closed with a 2/15 bug yield
+(down from six services at the field-6 tier finding zero, and down further
+from the double-digit yields of batches 24-29), this class shows signs of
+running out at the tail end of the tier list. The next batch should take
+`cloudwatch` (4 fields, 50 ops) and see whether the yield continues to
+thin; if `cloudwatch` and its remaining same-tier peers also come back
+clean or near-clean, closing the campaign rather than continuing down to
+the 1-field services is the better use of a future session.

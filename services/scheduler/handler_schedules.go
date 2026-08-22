@@ -50,31 +50,46 @@ type scheduleTargetSageMakerPipelineParameters struct {
 type scheduleTargetEcsAwsvpcConfiguration struct {
 	AssignPublicIP string   `json:"AssignPublicIp,omitempty"`
 	SecurityGroups []string `json:"SecurityGroups,omitempty"`
-	Subnets        []string `json:"Subnets,omitempty"`
+	Subnets        []string `json:"Subnets"`
 }
 
 // scheduleTargetEcsNetworkConfiguration mirrors EcsNetworkConfiguration for handler input/output.
+//
+// The nested AwsvpcConfiguration member is one of a handful of scheduler
+// wire members whose real jsonName trait lowercases the first rune
+// (scheduler@v1.20.4 deserializers.go's awsRestjson1_deserializeDocumentNetworkConfiguration
+// switches on "awsvpcConfiguration", not "AwsvpcConfiguration") -- a real
+// SDK client's response deserializer does an exact-case switch, so the
+// capitalized tag this struct carried before silently dropped the entire
+// object on every GetSchedule/UpdateSchedule/ListSchedules response.
 type scheduleTargetEcsNetworkConfiguration struct {
-	AwsvpcConfiguration *scheduleTargetEcsAwsvpcConfiguration `json:"AwsvpcConfiguration,omitempty"`
+	AwsvpcConfiguration *scheduleTargetEcsAwsvpcConfiguration `json:"awsvpcConfiguration,omitempty"`
 }
 
 // scheduleTargetEcsCapacityProviderStrategyItem mirrors EcsCapacityProviderStrategyItem.
+// All three members are lowercase-first on the wire (deserializers.go's
+// awsRestjson1_deserializeDocumentCapacityProviderStrategyItem: "capacityProvider",
+// "base", "weight") -- see scheduleTargetEcsNetworkConfiguration's doc comment.
 type scheduleTargetEcsCapacityProviderStrategyItem struct {
-	CapacityProvider string `json:"CapacityProvider"`
-	Base             int    `json:"Base,omitempty"`
-	Weight           int    `json:"Weight,omitempty"`
+	CapacityProvider string `json:"capacityProvider"`
+	Base             int    `json:"base,omitempty"`
+	Weight           int    `json:"weight,omitempty"`
 }
 
 // scheduleTargetEcsPlacementConstraint mirrors EcsPlacementConstraint for handler input/output.
+// Both members are lowercase-first on the wire (deserializers.go's
+// awsRestjson1_deserializeDocumentPlacementConstraint: "expression", "type").
 type scheduleTargetEcsPlacementConstraint struct {
-	Expression string `json:"Expression,omitempty"`
-	Type       string `json:"Type,omitempty"`
+	Expression string `json:"expression,omitempty"`
+	Type       string `json:"type,omitempty"`
 }
 
 // scheduleTargetEcsPlacementStrategy mirrors EcsPlacementStrategy for handler input/output.
+// Both members are lowercase-first on the wire (deserializers.go's
+// awsRestjson1_deserializeDocumentPlacementStrategy: "field", "type").
 type scheduleTargetEcsPlacementStrategy struct {
-	Field string `json:"Field,omitempty"`
-	Type  string `json:"Type,omitempty"`
+	Field string `json:"field,omitempty"`
+	Type  string `json:"type,omitempty"`
 }
 
 // scheduleTargetEcsTag mirrors EcsTag for handler input/output.
@@ -472,8 +487,13 @@ func ecsNetworkConfigToOutput(in *EcsNetworkConfiguration) *scheduleTargetEcsNet
 	out := &scheduleTargetEcsNetworkConfiguration{}
 
 	if in.AwsvpcConfiguration != nil {
+		subnets := in.AwsvpcConfiguration.Subnets
+		if subnets == nil {
+			subnets = []string{}
+		}
+
 		out.AwsvpcConfiguration = &scheduleTargetEcsAwsvpcConfiguration{
-			Subnets:        in.AwsvpcConfiguration.Subnets,
+			Subnets:        subnets,
 			SecurityGroups: in.AwsvpcConfiguration.SecurityGroups,
 			AssignPublicIP: in.AwsvpcConfiguration.AssignPublicIP,
 		}
