@@ -238,6 +238,60 @@ func (b *InMemoryBackend) SearchUsers(collectionID, userID string, maxUsers int3
 	return matches, nil
 }
 
+// SearchUsersByFace returns up to maxUsers users with a simulated similarity
+// score, searching by FaceId rather than UserId. Real SearchUsersInput
+// (rekognition@v1.54.4 api_op_SearchUsers.go) documents that "If a FaceId is
+// provided, UserId isn't required to be present in the Collection" -- so
+// this only requires the face itself to exist, not that it be associated
+// with any User, and reuses the same facesByCollection index SearchFaces
+// does (faces.go) rather than adding a new one -- gopherstack-2wvq.
+func (b *InMemoryBackend) SearchUsersByFace(collectionID, faceID string, maxUsers int32) ([]*UserMatch, error) {
+	b.mu.RLock("SearchUsersByFace")
+	defer b.mu.RUnlock()
+
+	if !b.collections.Has(collectionID) {
+		return nil, ErrCollectionNotFound
+	}
+
+	found := false
+
+	for _, f := range b.facesByCollection.Get(collectionID) {
+		if f.FaceID == faceID {
+			found = true
+
+			break
+		}
+	}
+
+	if !found {
+		return nil, ErrFaceNotFound
+	}
+
+	group := b.usersByCollection.Get(collectionID)
+	if len(group) == 0 {
+		return []*UserMatch{}, nil
+	}
+
+	limit := int(maxUsers)
+	if limit <= 0 {
+		limit = 5
+	}
+
+	var matches []*UserMatch
+	for _, u := range group {
+		matches = append(matches, &UserMatch{
+			User:       u.toUser(),
+			Similarity: userSimilarity(faceID, u),
+		})
+
+		if len(matches) >= limit {
+			break
+		}
+	}
+
+	return matches, nil
+}
+
 // SearchUsersByImage returns up to maxUsers users with a deterministic similarity
 // score derived from the image reference and each candidate user's identity.
 func (b *InMemoryBackend) SearchUsersByImage(

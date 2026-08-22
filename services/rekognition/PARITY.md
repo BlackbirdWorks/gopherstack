@@ -21,7 +21,7 @@ ops:
   ListUsers: {wire: ok, errors: ok, state: ok, persist: ok}
   AssociateFaces: {wire: ok, errors: ok, state: ok, persist: ok, note: "real FaceId membership check against the collection; unknown faces reported in UnsuccessfulFaceAssociations with FACE_NOT_FOUND"}
   DisassociateFaces: {wire: ok, errors: ok, state: ok, persist: ok}
-  SearchUsers: {wire: ok, errors: ok, state: ok, persist: ok}
+  SearchUsers: {wire: ok, errors: fixed, state: ok, persist: ok, note: "gopherstack-2wvq (2026-08-21): handler unconditionally required UserId, but SearchUsersInput marks only CollectionId required (rekognition@v1.54.4 api_op_SearchUsers.go) -- 'The request must be provided with either FaceId or UserId... If a FaceId is provided, UserId isn't required to be present in the Collection.' Added SearchUsersByFace, reusing the existing facesByCollection index SearchFaces already uses (faces.go) rather than a new one, so a FaceId-only request now resolves (and errors ResourceNotFoundException if the face itself doesn't exist); UserId-absent-and-FaceId-absent still rejects. Response now emits SearchedFace (not SearchedUser) when searched by FaceId, matching the real SearchUsersOutput having both as distinct optional members."}
   SearchUsersByImage: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateStreamProcessor: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this sweep (2026-07-23): Input/Output/Settings/RegionsOfInterest/NotificationChannel/KmsKeyId/DataSharingPreference are now parsed from the request and stored (see Notes #5). Also FIXED prior sweep: duplicate Name now returns ResourceInUseException (was ResourceAlreadyExistsException) — see Notes #2"}
   DeleteStreamProcessor: {wire: ok, errors: ok, state: ok, persist: ok}

@@ -221,6 +221,7 @@ func (h *Handler) handleDisassociateFaces( //nolint:dupl // existing issue.
 type searchUsersReq struct {
 	CollectionId string `json:"CollectionId"` //nolint:revive,staticcheck // existing issue.
 	UserId       string `json:"UserId"`       //nolint:revive,staticcheck // existing issue.
+	FaceId       string `json:"FaceId"`       //nolint:revive,staticcheck // existing issue.
 	MaxUsers     int32  `json:"MaxUsers"`
 }
 
@@ -229,22 +230,41 @@ type userMatchEntry struct {
 	Similarity float64   `json:"Similarity"`
 }
 
-type searchUsersResp struct {
-	FaceModelVersion string           `json:"FaceModelVersion"`
-	SearchedUser     userEntry        `json:"SearchedUser"`
-	UserMatches      []userMatchEntry `json:"UserMatches"`
+type searchedFaceEntry struct {
+	FaceId string `json:"FaceId"` //nolint:revive,staticcheck // existing issue.
 }
 
+type searchUsersResp struct {
+	FaceModelVersion string             `json:"FaceModelVersion"`
+	SearchedUser     *userEntry         `json:"SearchedUser,omitempty"`
+	SearchedFace     *searchedFaceEntry `json:"SearchedFace,omitempty"`
+	UserMatches      []userMatchEntry   `json:"UserMatches"`
+}
+
+// handleSearchUsers. Real SearchUsersInput marks only CollectionId required
+// (rekognition@v1.54.4 api_op_SearchUsers.go): "The request must be
+// provided with either FaceId or UserId" -- FaceId need not already be
+// associated with a User. Previously only UserId was accepted --
+// gopherstack-2wvq.
 func (h *Handler) handleSearchUsers(_ context.Context, req *searchUsersReq) (*searchUsersResp, error) {
 	if req.CollectionId == "" {
 		return nil, fmt.Errorf("%w: CollectionId is required", ErrValidation)
 	}
 
-	if req.UserId == "" {
-		return nil, fmt.Errorf("%w: UserId is required", ErrValidation)
+	if req.UserId == "" && req.FaceId == "" {
+		return nil, fmt.Errorf("%w: UserId or FaceId is required", ErrValidation)
 	}
 
-	matches, err := h.Backend.SearchUsers(req.CollectionId, req.UserId, req.MaxUsers)
+	var (
+		matches []*UserMatch
+		err     error
+	)
+
+	if req.UserId != "" {
+		matches, err = h.Backend.SearchUsers(req.CollectionId, req.UserId, req.MaxUsers)
+	} else {
+		matches, err = h.Backend.SearchUsersByFace(req.CollectionId, req.FaceId, req.MaxUsers)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -260,11 +280,18 @@ func (h *Handler) handleSearchUsers(_ context.Context, req *searchUsersReq) (*se
 		})
 	}
 
-	return &searchUsersResp{
+	resp := &searchUsersResp{
 		FaceModelVersion: faceModelVersion,
-		SearchedUser:     userEntry{UserId: req.UserId, UserStatus: "ACTIVE"},
 		UserMatches:      entries,
-	}, nil
+	}
+
+	if req.UserId != "" {
+		resp.SearchedUser = &userEntry{UserId: req.UserId, UserStatus: "ACTIVE"}
+	} else {
+		resp.SearchedFace = &searchedFaceEntry{FaceId: req.FaceId}
+	}
+
+	return resp, nil
 }
 
 type searchUsersByImageReq struct {

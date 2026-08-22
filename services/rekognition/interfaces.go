@@ -78,6 +78,7 @@ type StorageBackend interface {
 		faceIDs []string,
 	) ([]*DisassociatedFace, []*UnsuccessfulFaceDisassociation, error)
 	SearchUsers(collectionID, userID string, maxUsers int32) ([]*UserMatch, error)
+	SearchUsersByFace(collectionID, faceID string, maxUsers int32) ([]*UserMatch, error)
 	SearchUsersByImage(collectionID string, maxUsers int32, imageKey string) ([]*UserMatch, error)
 
 	// Face Liveness
