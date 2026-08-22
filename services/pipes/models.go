@@ -96,7 +96,6 @@ type RuntimeMetricsStreaming struct {
 type Pipe struct {
 	SourceParameters        *SourceParameters        `json:"sourceParameters,omitempty"`
 	TargetParameters        *TargetParameters        `json:"targetParameters,omitempty"`
-	DeadLetterConfig        *DeadLetterConfig        `json:"deadLetterConfig,omitempty"`
 	LogConfiguration        *LogConfiguration        `json:"logConfiguration,omitempty"`
 	EnrichmentParameters    *EnrichmentParameters    `json:"enrichmentParameters,omitempty"`
 	RuntimeMetricsStreaming *RuntimeMetricsStreaming `json:"runtimeMetricsStreaming,omitempty"`
@@ -135,10 +134,6 @@ func clonePipe(p *Pipe) *Pipe {
 	}
 	if p.TargetParameters != nil {
 		cp.TargetParameters = cloneTargetParameters(p.TargetParameters)
-	}
-	if p.DeadLetterConfig != nil {
-		dlc := *p.DeadLetterConfig
-		cp.DeadLetterConfig = &dlc
 	}
 	if p.EnrichmentParameters != nil {
 		cp.EnrichmentParameters = cloneEnrichmentParameters(p.EnrichmentParameters)
@@ -181,7 +176,6 @@ type CreatePipeInput struct {
 	Tags                    map[string]string
 	SourceParameters        *SourceParameters
 	TargetParameters        *TargetParameters
-	DeadLetterConfig        *DeadLetterConfig
 	LogConfiguration        *LogConfiguration
 	EnrichmentParameters    *EnrichmentParameters
 	RuntimeMetricsStreaming *RuntimeMetricsStreaming
@@ -199,7 +193,6 @@ type CreatePipeInput struct {
 type UpdatePipeInput struct {
 	SourceParameters        *SourceParameters
 	TargetParameters        *TargetParameters
-	DeadLetterConfig        *DeadLetterConfig
 	LogConfiguration        *LogConfiguration
 	EnrichmentParameters    *EnrichmentParameters
 	RuntimeMetricsStreaming *RuntimeMetricsStreaming

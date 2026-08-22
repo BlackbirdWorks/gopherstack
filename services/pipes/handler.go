@@ -394,7 +394,6 @@ type createPipeRequest struct {
 	Tags                    map[string]string        `json:"Tags"`
 	SourceParameters        *SourceParameters        `json:"SourceParameters"`
 	TargetParameters        *TargetParameters        `json:"TargetParameters"`
-	DeadLetterConfig        *DeadLetterConfig        `json:"DeadLetterConfig"`
 	LogConfiguration        *LogConfiguration        `json:"LogConfiguration"`
 	EnrichmentParameters    *EnrichmentParameters    `json:"EnrichmentParameters"`
 	RuntimeMetricsStreaming *RuntimeMetricsStreaming `json:"RuntimeMetricsStreaming"`
@@ -410,7 +409,6 @@ type createPipeRequest struct {
 type updatePipeRequest struct {
 	SourceParameters        *SourceParameters        `json:"SourceParameters"`
 	TargetParameters        *TargetParameters        `json:"TargetParameters"`
-	DeadLetterConfig        *DeadLetterConfig        `json:"DeadLetterConfig"`
 	LogConfiguration        *LogConfiguration        `json:"LogConfiguration"`
 	EnrichmentParameters    *EnrichmentParameters    `json:"EnrichmentParameters"`
 	RuntimeMetricsStreaming *RuntimeMetricsStreaming `json:"RuntimeMetricsStreaming"`
@@ -425,7 +423,6 @@ type updatePipeRequest struct {
 type pipeResponse struct {
 	SourceParameters        *SourceParameters        `json:"SourceParameters,omitempty"`
 	TargetParameters        *TargetParameters        `json:"TargetParameters,omitempty"`
-	DeadLetterConfig        *DeadLetterConfig        `json:"DeadLetterConfig,omitempty"`
 	LogConfiguration        *LogConfiguration        `json:"LogConfiguration,omitempty"`
 	EnrichmentParameters    *EnrichmentParameters    `json:"EnrichmentParameters,omitempty"`
 	RuntimeMetricsStreaming *RuntimeMetricsStreaming `json:"RuntimeMetricsStreaming,omitempty"`
@@ -475,7 +472,6 @@ func toPipeResponse(p *Pipe) pipeResponse {
 		Tags:                    p.Tags,
 		SourceParameters:        p.SourceParameters,
 		TargetParameters:        p.TargetParameters,
-		DeadLetterConfig:        p.DeadLetterConfig,
 		LogConfiguration:        p.LogConfiguration,
 		EnrichmentParameters:    p.EnrichmentParameters,
 		RuntimeMetricsStreaming: p.RuntimeMetricsStreaming,
@@ -505,7 +501,6 @@ func (h *Handler) handleCreatePipe(ctx context.Context, path string, body []byte
 		Tags:                    req.Tags,
 		SourceParameters:        req.SourceParameters,
 		TargetParameters:        req.TargetParameters,
-		DeadLetterConfig:        req.DeadLetterConfig,
 		LogConfiguration:        req.LogConfiguration,
 		EnrichmentParameters:    req.EnrichmentParameters,
 		RuntimeMetricsStreaming: req.RuntimeMetricsStreaming,
@@ -629,7 +624,6 @@ func (h *Handler) handleUpdatePipe(ctx context.Context, path string, body []byte
 		DesiredState:            req.DesiredState,
 		SourceParameters:        req.SourceParameters,
 		TargetParameters:        req.TargetParameters,
-		DeadLetterConfig:        req.DeadLetterConfig,
 		LogConfiguration:        req.LogConfiguration,
 		EnrichmentParameters:    req.EnrichmentParameters,
 		RuntimeMetricsStreaming: req.RuntimeMetricsStreaming,

@@ -10,6 +10,7 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"testing"
 	"time"
 
@@ -479,9 +480,13 @@ func TestWirePipesRunner_DynamoDBStreamSource(t *testing.T) {
 }
 
 // TestWirePipesRunner_DLQDelivery proves that a failed target delivery (a
-// Lambda invocation, which fails deterministically since there is no Docker
-// runtime available in this test) is redirected to the real SQS DLQ, proving
-// both the Lambda target invoker and the SQS DLQ sender were wired.
+// Lambda invocation against a function that was never created, which fails
+// deterministically) is redirected to the real SQS DLQ, proving both the
+// Lambda target invoker and the SQS DLQ sender were wired. The DLQ is
+// configured nested under SourceParameters.KinesisStreamParameters -- the
+// only location the real Pipes API allows one (see
+// aws-sdk-go-v2/service/pipes/types; there is no top-level DeadLetterConfig,
+// and SQS sources have no DLQ config at all).
 func TestWirePipesRunner_DLQDelivery(t *testing.T) {
 	t.Parallel()
 	rig := newPipesWiringRig(t)
@@ -492,10 +497,11 @@ func TestWirePipesRunner_DLQDelivery(t *testing.T) {
 
 	lambdaARN := arn.Build("lambda", config.DefaultRegion, config.DefaultAccountID, "function:pipes-dlq-fn")
 
-	queueName := "dlq-pipe-src"
-	qOut, err := rig.sqsBk.CreateQueue(&sqsbackend.CreateQueueInput{QueueName: queueName})
-	require.NoError(t, err)
-	sourceARN := arn.Build("sqs", config.DefaultRegion, config.DefaultAccountID, queueName)
+	require.NoError(t, rig.kinesisBk.CreateStream(context.Background(), &kinesisbackend.CreateStreamInput{
+		StreamName: "pipes-dlq-source",
+		ShardCount: 1,
+	}))
+	sourceARN := arn.Build("kinesis", config.DefaultRegion, config.DefaultAccountID, "stream/pipes-dlq-source")
 
 	_, err = rig.pipesBk.CreatePipe(context.Background(), pipesbackend.CreatePipeInput{
 		Name:         "dlq-pipe",
@@ -503,15 +509,24 @@ func TestWirePipesRunner_DLQDelivery(t *testing.T) {
 		Source:       sourceARN,
 		Target:       lambdaARN,
 		DesiredState: "RUNNING",
-		DeadLetterConfig: &pipesbackend.DeadLetterConfig{
-			Arn: dlqARN,
+		SourceParameters: &pipesbackend.SourceParameters{
+			KinesisStreamParameters: &pipesbackend.KinesisStreamSourceParameters{
+				StartingPosition: "TRIM_HORIZON",
+				DeadLetterConfig: &pipesbackend.DeadLetterConfig{Arn: dlqARN},
+			},
 		},
 	})
 	require.NoError(t, err)
 	rig.waitPipeRunning(t, "dlq-pipe")
 
-	rig.sendSourceMessage(t, qOut.QueueURL, "hello-dlq")
+	_, err = rig.kinesisBk.PutRecord(context.Background(), &kinesisbackend.PutRecordInput{
+		StreamName:   "pipes-dlq-source",
+		PartitionKey: "pk",
+		Data:         []byte("hello-dlq"),
+	})
+	require.NoError(t, err)
 
+	wantData := base64.StdEncoding.EncodeToString([]byte("hello-dlq"))
 	require.Eventually(t, func() bool {
 		out, recvErr := rig.sqsBk.ReceiveMessage(&sqsbackend.ReceiveMessageInput{
 			QueueURL:            dlqOut.QueueURL,
@@ -519,9 +534,10 @@ func TestWirePipesRunner_DLQDelivery(t *testing.T) {
 		})
 
 		return recvErr == nil && len(out.Messages) == 1 &&
-			containsSubstring(out.Messages[0].Body, "hello-dlq")
+			containsSubstring(out.Messages[0].Body, wantData)
 	}, 3*time.Second, 20*time.Millisecond,
-		"a failed Lambda target delivery must be redirected to the real SQS DLQ via wirePipesRunner's wiring")
+		"a failed Lambda target delivery for a Kinesis-sourced pipe must be redirected to the real SQS "+
+			"DLQ configured under SourceParameters.KinesisStreamParameters.DeadLetterConfig")
 }
 
 // kinesisStreamContains reads every record currently on the stream's shards

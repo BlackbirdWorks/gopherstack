@@ -12,43 +12,12 @@ import (
 )
 
 const (
-	dlqSource      = "arn:aws:sqs:eu-west-1:111122223333:src"
-	dlqLambdaTgt   = "arn:aws:lambda:eu-west-1:111122223333:function:tgt"
-	dlqQueueARN    = "arn:aws:sqs:eu-west-1:111122223333:dlq"
-	dlqEnrichARN   = "arn:aws:lambda:eu-west-1:111122223333:function:enricher"
-	dlqSNSTopicARN = "arn:aws:sns:eu-west-1:111122223333:dlq-topic"
+	dlqKinesisSource = "arn:aws:kinesis:eu-west-1:111122223333:stream/src"
+	dlqLambdaTgt     = "arn:aws:lambda:eu-west-1:111122223333:function:tgt"
+	dlqQueueARN      = "arn:aws:sqs:eu-west-1:111122223333:dlq"
+	dlqEnrichARN     = "arn:aws:lambda:eu-west-1:111122223333:function:enricher"
+	dlqSNSTopicARN   = "arn:aws:sns:eu-west-1:111122223333:dlq-topic"
 )
-
-// dlqMockSQSReader records deleted receipt handles and serves one batch.
-type dlqMockSQSReader struct {
-	messages []*pipes.SQSMessage
-	deleted  []string
-	mu       sync.Mutex
-}
-
-func (m *dlqMockSQSReader) ReceivePipeMessages(_ string, _ int) ([]*pipes.SQSMessage, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	msgs := m.messages
-	m.messages = nil
-
-	return msgs, nil
-}
-
-func (m *dlqMockSQSReader) DeletePipeMessages(_ string, receiptHandles []string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.deleted = append(m.deleted, receiptHandles...)
-
-	return nil
-}
-
-func (m *dlqMockSQSReader) deletedHandles() []string {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	return append([]string(nil), m.deleted...)
-}
 
 type dlqMockSQSSender struct {
 	queueURLs []string
@@ -96,31 +65,44 @@ func dlqBackend() *pipes.InMemoryBackend {
 	return pipes.NewInMemoryBackend("111122223333", "eu-west-1")
 }
 
+// dlqKinesisSourceParams builds SourceParameters for a Kinesis-sourced pipe,
+// optionally with a DeadLetterConfig nested under KinesisStreamParameters --
+// the only place the real Pipes API allows configuring one (SQS sources have
+// no DLQ config at all: see aws-sdk-go-v2/service/pipes/types).
+func dlqKinesisSourceParams(dlqARN string) *pipes.SourceParameters {
+	kp := &pipes.KinesisStreamSourceParameters{StartingPosition: "TRIM_HORIZON"}
+	if dlqARN != "" {
+		kp.DeadLetterConfig = &pipes.DeadLetterConfig{Arn: dlqARN}
+	}
+
+	return &pipes.SourceParameters{KinesisStreamParameters: kp}
+}
+
+func dlqKinesisReaderWithRecord(data string) *fakeKinesisReader {
+	return &fakeKinesisReader{
+		shardIDs: []string{"shard-1"},
+		pending: map[string][]pipes.KinesisRecord{
+			"iter-shard-1-TRIM_HORIZON": {{PartitionKey: "pk1", SequenceNumber: "seq1", Data: []byte(data)}},
+		},
+	}
+}
+
 // TestRunner_EnrichmentFailure_RoutesToDLQ verifies that when an enrichment
 // invoker is unwired the runner does not silently drop the event: with a DLQ
-// configured the failed batch is sent to the DLQ and the source messages are
-// deleted; without a DLQ the source messages are retained for redelivery.
+// configured (nested under KinesisStreamParameters, the only real-API
+// location) the failed batch is sent to the DLQ; without a DLQ configured the
+// batch is dropped (there is no source-level redelivery for a stream source
+// once the shard iterator has advanced past it).
 func TestRunner_EnrichmentFailure_RoutesToDLQ(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		dlq         *pipes.DeadLetterConfig
 		name        string
+		dlqARN      string
 		wantDLQSent bool
-		wantDeleted bool
 	}{
-		{
-			name:        "enrichment_unwired_with_sqs_dlq",
-			dlq:         &pipes.DeadLetterConfig{Arn: dlqQueueARN},
-			wantDLQSent: true,
-			wantDeleted: true,
-		},
-		{
-			name:        "enrichment_unwired_without_dlq_retains_messages",
-			dlq:         nil,
-			wantDLQSent: false,
-			wantDeleted: false,
-		},
+		{name: "enrichment_unwired_with_dlq", dlqARN: dlqQueueARN, wantDLQSent: true},
+		{name: "enrichment_unwired_without_dlq_drops_batch", dlqARN: "", wantDLQSent: false},
 	}
 
 	for _, tt := range tests {
@@ -131,39 +113,29 @@ func TestRunner_EnrichmentFailure_RoutesToDLQ(t *testing.T) {
 			_, err := b.CreatePipe(context.Background(), pipes.CreatePipeInput{
 				Name:             tt.name,
 				RoleARN:          "arn:aws:iam::111122223333:role/r",
-				Source:           dlqSource,
+				Source:           dlqKinesisSource,
 				Target:           dlqLambdaTgt,
 				Enrichment:       dlqEnrichARN,
 				DesiredState:     "RUNNING",
-				DeadLetterConfig: tt.dlq,
+				SourceParameters: dlqKinesisSourceParams(tt.dlqARN),
 			})
 			require.NoError(t, err)
 			pipes.WaitPipeRunning(t, b, tt.name)
 
-			reader := &dlqMockSQSReader{
-				messages: []*pipes.SQSMessage{{MessageID: "m1", ReceiptHandle: "rh1", Body: "{}"}},
-			}
+			reader := dlqKinesisReaderWithRecord("boom")
 			sender := &dlqMockSQSSender{}
 
 			runner := pipes.NewRunner(b)
-			runner.SetSQSReader(reader)
+			runner.SetKinesisReader(reader)
 			runner.SetSQSSender(sender)
 			// Note: no Lambda invoker wired, so enrichment fails.
 
 			pipes.PollAllPipesOnce(t.Context(), runner)
 
 			if tt.wantDLQSent {
-				assert.Equal(t, []string{dlqQueueARN}, sender.sentTo(), "failed batch should be sent to DLQ")
+				assert.Equal(t, []string{tt.dlqARN}, sender.sentTo(), "failed batch should be sent to DLQ")
 			} else {
 				assert.Empty(t, sender.sentTo(), "no DLQ configured: nothing should be sent")
-			}
-
-			if tt.wantDeleted {
-				assert.Equal(t, []string{"rh1"}, reader.deletedHandles(),
-					"source messages should be deleted after DLQ send")
-			} else {
-				assert.Empty(t, reader.deletedHandles(),
-					"without DLQ the source messages must be retained for redelivery")
 			}
 		})
 	}
@@ -177,28 +149,25 @@ func TestRunner_EnrichmentFailure_SNSDLQ(t *testing.T) {
 	_, err := b.CreatePipe(context.Background(), pipes.CreatePipeInput{
 		Name:             "sns-dlq",
 		RoleARN:          "arn:aws:iam::111122223333:role/r",
-		Source:           dlqSource,
+		Source:           dlqKinesisSource,
 		Target:           dlqLambdaTgt,
 		Enrichment:       dlqEnrichARN,
 		DesiredState:     "RUNNING",
-		DeadLetterConfig: &pipes.DeadLetterConfig{Arn: dlqSNSTopicARN},
+		SourceParameters: dlqKinesisSourceParams(dlqSNSTopicARN),
 	})
 	require.NoError(t, err)
 	pipes.WaitPipeRunning(t, b, "sns-dlq")
 
-	reader := &dlqMockSQSReader{
-		messages: []*pipes.SQSMessage{{MessageID: "m1", ReceiptHandle: "rh1", Body: "{}"}},
-	}
+	reader := dlqKinesisReaderWithRecord("boom")
 	sns := &dlqMockSNSPublisher{}
 
 	runner := pipes.NewRunner(b)
-	runner.SetSQSReader(reader)
+	runner.SetKinesisReader(reader)
 	runner.SetSNSPublisher(sns)
 
 	pipes.PollAllPipesOnce(t.Context(), runner)
 
 	assert.Equal(t, []string{dlqSNSTopicARN}, sns.sentTo(), "failed batch should be published to SNS DLQ")
-	assert.Equal(t, []string{"rh1"}, reader.deletedHandles(), "source messages should be deleted after DLQ publish")
 }
 
 // TestRunner_TargetFailure_RoutesToDLQ verifies that an unwired target invoker
@@ -210,25 +179,22 @@ func TestRunner_TargetFailure_RoutesToDLQ(t *testing.T) {
 	_, err := b.CreatePipe(context.Background(), pipes.CreatePipeInput{
 		Name:             "target-dlq",
 		RoleARN:          "arn:aws:iam::111122223333:role/r",
-		Source:           dlqSource,
-		Target:           dlqLambdaTgt, // no Lambda invoker wired → target fails
+		Source:           dlqKinesisSource,
+		Target:           dlqLambdaTgt, // no Lambda invoker wired -> target fails
 		DesiredState:     "RUNNING",
-		DeadLetterConfig: &pipes.DeadLetterConfig{Arn: dlqQueueARN},
+		SourceParameters: dlqKinesisSourceParams(dlqQueueARN),
 	})
 	require.NoError(t, err)
 	pipes.WaitPipeRunning(t, b, "target-dlq")
 
-	reader := &dlqMockSQSReader{
-		messages: []*pipes.SQSMessage{{MessageID: "m1", ReceiptHandle: "rh1", Body: "{}"}},
-	}
+	reader := dlqKinesisReaderWithRecord("boom")
 	sender := &dlqMockSQSSender{}
 
 	runner := pipes.NewRunner(b)
-	runner.SetSQSReader(reader)
+	runner.SetKinesisReader(reader)
 	runner.SetSQSSender(sender)
 
 	pipes.PollAllPipesOnce(t.Context(), runner)
 
 	assert.Equal(t, []string{dlqQueueARN}, sender.sentTo(), "failed target batch should be sent to DLQ")
-	assert.Equal(t, []string{"rh1"}, reader.deletedHandles(), "source messages should be deleted after DLQ send")
 }
