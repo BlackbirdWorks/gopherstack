@@ -6,7 +6,7 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: emr
 sdk_module: aws-sdk-go-v2/service/emr@v1.64.4   # bumped from v1.64.0 pin; no new ops, field-diffed Cluster/MonitoringConfiguration/ListInstancesInput this pass
-last_audit_commit: 8c56f4eb9                    # HEAD when the 2026-08-07 pass (gopherstack-dqd8) below was written
+last_audit_commit: 8c56f4eb9                    # NOT updated this pass -- git commands are off-limits (gopherstack-r80d batch 26). HEAD when the 2026-08-07 pass (gopherstack-dqd8) below was written
 last_audit_date: 2026-08-07
 overall: A                # 2026-08-07 (gopherstack-dqd8): threaded MonitoringConfiguration/LogEncryptionKmsKeyId/
                            # RepoUpgradeOnBoot/RequestedAmiVersion/RunningAmiVersion through RunJobFlow->Cluster
@@ -68,7 +68,7 @@ ops:
   DescribeSecurityConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "same fix"}
   DeleteSecurityConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
   ListSecurityConfigurations: {wire: ok, errors: ok, state: ok, persist: ok, note: "SecurityConfigSummary.CreationDateTime was a raw time.Time (RFC3339 on wire); now epoch seconds"}
-  GetBlockPublicAccessConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed metadata CreationDateTime ISO8601-string->epoch-seconds"}
+  GetBlockPublicAccessConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed metadata CreationDateTime ISO8601-string->epoch-seconds. 2026-08-22 (gopherstack-r80d batch 26): BlockPublicAccessConfigurationMetadata.CreatedByArn (required, *string in aws-sdk-go-v2/service/emr@v1.64.4/types/types.go:172) was tagged `json:\"CreatedByArn,omitempty\"` -- for any region that never called PutBlockPublicAccessConfiguration (the default state), the backend's own meta record carries an empty CreatedByArn, so the tag dropped the key entirely instead of emitting it empty, decoding to nil on a real client (deserializers.go:7538-7545 only sets the field when the JSON key is present at all). Fixed by removing omitempty. Proven via services/emr/wire_output_required_r80d_test.go, hand-reverted/confirmed-failing/restored, md5sum-verified byte-identical. Prior 'wire: ok' verdict had not checked this member."}
   PutBlockPublicAccessConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
   GetClusterSessionCredentials: {wire: ok, errors: ok, state: ok, persist: n/a, note: "fixed ExpiresAt ISO8601-string->epoch-seconds"}
   CreateStudio: {wire: ok, errors: ok, state: ok, persist: ok, note: "CreationTime was a raw time.Time (RFC3339 on wire); now epoch seconds. 2026-07-31: createStudioInput never declared the real CreateStudioInput.Description field at all, so a real client's Description was silently dropped (unknown-JSON-field-ignored, same failure mode as the StartNotebookExecution bug this pass) even though UpdateStudio -- the sibling op -- already applied the same field correctly, an unintentional asymmetry. Added the field, threaded through Backend.CreateStudio's new description parameter."}
@@ -613,3 +613,70 @@ via `go doc` on the installed module and direct reads of `types/types.go`
 (`ClusterSummary`, `ExecutionEngineConfig`) and the relevant
 `api_op_CreateStudio.go`/`api_op_UpdateStudio.go`/`api_op_StartNotebookExecution.go`
 files. `go.mod`/`go.sum` untouched.
+
+## 2026-08-22: gopherstack-r80d batch 26 -- required-output-member sweep
+
+Module resolves directly: `services/emr` -> `aws-sdk-go-v2/service/emr@v1.64.4`
+(no `dirModuleOverride` entry; the repo also has a separate `emrserverless`
+directory/module, settled batch 20 under this same campaign, and no
+`emrcontainers` directory or module exists at all -- confirmed via `go.mod`
+and `ls services/`, so there was no third candidate to disambiguate against).
+
+Instrument validated three ways before trusting the ranking: the existing
+`cmd/requiredoutputfields` char-level brace matcher, a fresh standalone
+`go/parser`/`go/ast` walk, and a raw `grep -c "This member is required."
+api_op_*.go` sanity total. All three agreed on the op-level shape (10
+required fields / 65 ops / 6 ops-with-required); the grep-c total (100) is
+larger because it also counts every required *input* member across the same
+files, as expected and consistent with prior batches' use of that check.
+
+10 required output fields / 6 ops-with-required is entirely the session and
+block-public-access families (`CreateSecurityConfiguration`,
+`GetBlockPublicAccessConfiguration`, `GetSession`, `GetSessionEndpoint`,
+`StartSession`, `TerminateSession`) -- the other 59 ops declare zero
+required output members. Domain-struct depth: `GetBlockPublicAccessConfigurationOutput`
+wraps two nested required-bearing structs invisible to the flat per-op count
+-- `BlockPublicAccessConfiguration` (1 required: `BlockPublicSecurityGroupRules`)
+and `BlockPublicAccessConfigurationMetadata` (2 required: `CreatedByArn`,
+`CreationDateTime`); `GetSessionOutput.Session` wraps `types.Session` (4
+required: `Arn`, `ClusterId`, `Id`, `State`). Neither of those nested structs
+carries a further-nested required struct of its own (all their required
+members are scalar/timestamp), so this is one level of depth, not the
+two-levels-down shape batch 25 hit in timestreamquery -- but it was still
+where the one bug lived, since the flat op scan only sees the 2 wrapper
+field names (`BlockPublicAccessConfiguration`/`BlockPublicAccessConfigurationMetadata`),
+not the 3 members nested inside them.
+
+1 bug found (see `GetBlockPublicAccessConfiguration`'s ops: note above):
+`BlockPublicAccessConfigurationMetadata.CreatedByArn` tagged `omitempty`
+despite being required and a real `*string` in the SDK (distinguishable,
+provable class) -- reachable on every region that has never called
+`PutBlockPublicAccessConfiguration`, i.e. the default state. Fixed,
+proven via a real `aws-sdk-go-v2/service/emr` client round trip
+(`wire_output_required_r80d_test.go`), hand-reverted (confirmed the test
+fails with `CreatedByArn` nil)/restored, md5sum-verified byte-identical.
+
+Read all 6 ops end to end against their handlers (`handler_security_configurations.go`,
+`handler_policies.go`, `handler_sessions.go`) and the backing `InMemoryBackend`
+methods (`security_configurations.go`, `policies.go`, `sessions.go`) directly,
+not grepped. Everything else confirmed already correct: `CreateSecurityConfiguration`'s
+`Name`/`CreationDateTime` always populated; `BlockPublicAccessConfiguration.BlockPublicSecurityGroupRules`
+(bool, no omitempty) always emitted including the default-config fallback path;
+`Session.{Arn,ClusterId,Id,State}` (all plain `string`, no omitempty) always
+populated by both `StartSession` and `GetSession`/`ListSessions`' `clone()`
+path; `TerminateSessionOutput.{ClusterId,SessionId,State}` (no omitempty)
+always populated from the live session; `GetSessionEndpointOutput.Endpoint`
+(no omitempty) always synthesized via `sessionEndpointURL`, never empty.
+
+Gates: `go build ./...` (repo-wide, clean except the pre-existing untouched
+`services/sagemaker/*` dirt from a concurrent agent's in-flight conversion),
+`go vet ./services/emr/... ./services/cloudformation/...` clean, `gofmt -l`
+clean, `go test -race ./services/emr/...` passing (1.4s), `golangci-lint run
+./services/emr/... ./services/cloudformation/...` 0 issues. No exported
+signature changed (the only fix is a JSON struct-tag edit on an unexported
+type), so the e2e/integration build-tag vet from the brief wasn't strictly
+required by that rule, but repo-wide `go build ./...` was still run and is
+clean. `git status --short` at the end of this batch shows only
+`services/emr/handler_policies.go` (modified) and
+`services/emr/wire_output_required_r80d_test.go` (new) from this batch, plus
+the pre-existing untouched `services/sagemaker/*` concurrent-agent dirt.

@@ -1,7 +1,7 @@
 ---
 service: cloudformation
 sdk_module: aws-sdk-go-v2/service/cloudformation@v1.76.1
-last_audit_commit: 514ddad6
+last_audit_commit: 514ddad6                    # NOT updated this pass -- git commands are off-limits (gopherstack-r80d batch 26)
 last_audit_date: 2026-07-23
 overall: A            # This pass closed out all 4 documented gaps and independently re-verified/acted
                        # on all 6 documented deferred items (see gaps:/deferred: below for exact
@@ -61,6 +61,10 @@ ops:
   UpdateStackInstances: {wire: ok, errors: ok, state: ok, persist: ok, note: "gopherstack-g7b5: also accepts DeploymentTargets.OrganizationalUnitIds"}
   ListStackInstances: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeStackInstance: {wire: ok, errors: ok, state: ok, persist: ok}
+  DetectStackDrift: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-08-22 (gopherstack-r80d batch 26, NEW ops: row -- had no prior entry): required output StackDriftDetectionId always a real uuid, field-diffed against DetectStackDriftOutput; 0 bugs"}
+  DetectStackResourceDrift: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-08-22 (gopherstack-r80d batch 26, NEW ops: row): required output StackResourceDrift wraps types.StackResourceDrift (5 required members one level deeper than the flat op scan: LogicalResourceId/ResourceType/StackId/StackResourceDriftStatus/Timestamp) -- confirmed all 5 always populated on both the normal (compareStackResources) and template-parse-failure fallback path (driftDetailFor); driftXML's required fields carry no xml omitempty tag. 0 bugs"}
+  DescribeStackDriftDetectionStatus: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-08-22 (gopherstack-r80d batch 26, NEW ops: row): required DetectionStatus/StackDriftDetectionId/StackId/Timestamp all always populated (set at DetectStackDrift/SimulateDrift time), driftResult XML struct carries no omitempty on any of the four. 0 bugs"}
+  DescribeStackResourceDrifts: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-08-22 (gopherstack-r80d batch 26, NEW ops: row): required StackResourceDrifts wraps the same types.StackResourceDrift as DetectStackResourceDrift (5 required members per element); toDriftXML's shared helper confirmed to always populate all 5 for every element on both the detailMap-hit and status-only fallback path. 0 bugs"}
   DetectStackSetDrift: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass: was a disguised stub -- recorded a real SUCCEEDED operation but never actually ran per-instance drift comparison, so every stack instance's DriftStatus stayed NOT_CHECKED forever. Now runs the same compareStackResources logic DetectStackDrift uses against each instance's provisioned child stack and updates its DriftStatus (IN_SYNC/DRIFTED) in place. Verified via TestStackSetDrift_UpdatesInstanceDriftStatus (mutates a child-stack resource out of band, confirms DriftStatus flips to DRIFTED on re-detection)"}
   ListStackSetOperations: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeStackSetOperation: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass: now returns StackSetNotFoundException when the StackSetName itself doesn't exist (SDK models this as a distinct case from OperationNotFoundException, which is now reserved for a known StackSet with an unknown OperationId). Verified via TestDescribeStackSetOperation_NotFoundErrorCodes"}
@@ -68,11 +72,11 @@ ops:
   ListStackSetOperationResults: {wire: ok, errors: ok, state: ok, persist: ok}
   ListStackSetAutoDeploymentTargets: {wire: ok, errors: ok, state: ok, persist: ok, note: "gopherstack-g7b5: now groups by the real OrganizationalUnitId recorded on each SERVICE_MANAGED stack instance (see CreateStackInstances note) instead of always synthesizing one placeholder target per account; self-managed instances (no OU) still fall back to the per-account placeholder, matching real AWS semantics"}
   ImportStacksToStackSet: {wire: ok, errors: ok, state: ok, persist: ok}
-  CreateStackRefactor: {wire: ok, errors: ok, state: ok, persist: ok, note: "SDK models zero errors for this op (fire-and-forget) — verified via deserializers.go, no changes needed"}
+  CreateStackRefactor: {wire: ok, errors: ok, state: ok, persist: ok, note: "SDK models zero errors for this op (fire-and-forget) — verified via deserializers.go, no changes needed. 2026-08-22 (gopherstack-r80d batch 26): required output StackRefactorId re-confirmed always a real uuid.New().String() value, never empty; 0 bugs"}
   DescribeStackRefactor: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: unknown StackRefactorId previously returned 200 with an empty Status instead of StackRefactorNotFoundException, the one error this op does model (unlike its Create/Execute/List siblings, which are genuinely fire-and-forget per the SDK model)"}
   ExecuteStackRefactor: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass (gopherstack-g7b5): was a pure status-flip (`r.Status = \"EXECUTE_COMPLETE\"`) that never moved anything, a disguised no-op. CreateStackRefactor now parses ResourceMappings.member.N.{Source,Destination}.{StackName,LogicalResourceId} (verified against serializers.go's ResourceMapping/ResourceLocation encoders); Execute now validates every mapping (source/dest stack + source resource must exist) before mutating, then moves each StackResource entry between b.resources[stackID] maps under the destination's logical ID. Unknown refactor ID or a missing source resource now errors (StackRefactorNotFoundException / ValidationError) instead of silently no-oping. Verified via TestExecuteStackRefactor_MovesResourceBetweenStacks (reads both stacks back via DescribeStackResources)"}
-  ListStackRefactors: {wire: ok, errors: ok, state: ok, persist: ok, note: "SDK models zero errors for this op"}
-  ListStackRefactorActions: {wire: ok, errors: ok, state: ok, persist: ok, note: "now derives real MOVE actions from the stored ResourceMappings (previously always empty since CreateStackRefactor never parsed StackDefinitions/mappings at all)"}
+  ListStackRefactors: {wire: ok, errors: ok, state: ok, persist: ok, note: "SDK models zero errors for this op. 2026-08-22 (gopherstack-r80d batch 26): required output StackRefactorSummaries's element type (types.StackRefactorSummary) confirmed to declare ZERO required members in the real SDK model (AST walk of types.go) -- the flat op-level required field is exactly the wrapper array itself, no undercount; array always non-nil via make(...). 0 bugs"}
+  ListStackRefactorActions: {wire: ok, errors: ok, state: ok, persist: ok, note: "now derives real MOVE actions from the stored ResourceMappings (previously always empty since CreateStackRefactor never parsed StackDefinitions/mappings at all). 2026-08-22 (gopherstack-r80d batch 26): same as ListStackRefactors -- StackRefactorActions's element type (types.StackRefactorAction) also declares zero required members; array always non-nil. 0 bugs"}
   CreateGeneratedTemplate: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateGeneratedTemplate: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed wire code: GeneratedTemplateNotFoundException -> GeneratedTemplateNotFound (SDK's ErrorCode() is unsuffixed, same bug class as the earlier ChangeSetNotFound fix)"}
   DeleteGeneratedTemplate: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed wire code: GeneratedTemplateNotFoundException -> GeneratedTemplateNotFound"}
@@ -105,7 +109,7 @@ families:
   update_reconciliation: {status: ok, note: "updateResources/rollbackUpdateResources snapshot-and-restore semantics verified correct; deleteStaleResources runs only after all creates/updates succeed, matching AWS ordering"}
   exports_imports: {status: ok, note: "ADDED: delete-blocked-while-imported and update-blocked-while-imported (Export X cannot be deleted as it is in use by Y), the one concretely-named gap from the audit brief that was completely unimplemented before this pass"}
   error_code_mapping: {status: ok, note: "verified against aws-sdk-go-v2 deserializers.go: StackNotFoundException is modeled for exactly one op (ImportStacksToStackSet) — every other stack-lookup op correctly falls back to generic ValidationError, matching real AWS's query-protocol behaviour; this was already correct, not changed"}
-  drift_detection: {status: ok, note: "DetectStackDrift / DescribeStackResourceDrifts / legacy SimulateDrift fallback reviewed, logic is internally consistent; NOT re-verified against AWS's real per-property drift diff algorithm this pass (see deferred)"}
+  drift_detection: {status: ok, note: "DetectStackDrift / DescribeStackResourceDrifts / legacy SimulateDrift fallback reviewed, logic is internally consistent; NOT re-verified against AWS's real per-property drift diff algorithm this pass (see deferred). 2026-08-22 (gopherstack-r80d batch 26): swept all 4 drift ops (DetectStackDrift, DetectStackResourceDrift, DescribeStackDriftDetectionStatus, DescribeStackResourceDrifts) for required-output-member completeness specifically -- these had no ops: table rows at all before this pass, now added above. 0 bugs; every required member (including types.StackResourceDrift's own 5 required members, one level below the flat per-op scan) confirmed always populated with no omitempty gaps."}
   nested_stacks: {status: ok, note: "CreateNestedStack/DeleteNestedStack correctly reuse createStackLocked/deleteStackLocked under the parent's already-held lock (no double-lock/deadlock); ParentID wiring reviewed, looks correct"}
   stacksets: {status: ok, note: "spot-audited previously (all 17 StackSet/instance/operation ops cross-checked against deserializers.go's modeled error switch per op; DeleteStackSet idempotency fixed then). Prior pass fixed DetectStackSetDrift (was a disguised stub), DescribeStackSetOperation's error-code gap, and closed the DescribeStackSet field-completeness gap. Then (gopherstack-g7b5): services/organizations DOES have a real, queryable OU hierarchy (CreateOrganizationalUnit/ListAccountsForParent/ListOrganizationalUnitsForParent), so the SERVICE_MANAGED/OU-based deployment-target gap was honestly implementable and has been closed — see CreateStackInstances/DeleteStackInstances/UpdateStackInstances/ListStackSetAutoDeploymentTargets notes above. THIS PASS (gopherstack-nirx): AccountFilterType and AccountsUrl remain unimplemented (real edge cases) but AccountFilterType is now actually rejected when set to anything but NONE — the g7b5 pass's claim of explicit rejection was documentation-only, the field was never read by the handler and was silently dropped — see gaps."}
   stack_refactor: {status: ok, note: "spot-audited previously (all 5 ops cross-checked against deserializers.go; DescribeStackRefactor not-found handling fixed then). THIS PASS (gopherstack-g7b5): ExecuteStackRefactor now performs a real resource move — see its ops: note above. ListStackRefactorActions derives real MOVE actions from the stored mappings."}
@@ -303,3 +307,57 @@ CloudFormation's query protocol reports client errors.
   round-trips through `yamlToJSON` first (so only `UnmarshalJSON` actually runs at parse time) — left in
   place rather than deleted, since they're exported `yaml.Unmarshaler`/`json.Unmarshaler` implementations
   a caller outside this package's `ParseTemplate` could still reasonably invoke directly.
+
+## 2026-08-22: gopherstack-r80d batch 26 -- required-output-member sweep
+
+Module resolves directly: `services/cloudformation` -> `aws-sdk-go-v2/service/cloudformation@v1.76.1`
+(no `dirModuleOverride` entry).
+
+Instrument validated three ways before trusting the ranking: the existing
+`cmd/requiredoutputfields` char-level brace matcher, a fresh standalone
+`go/parser`/`go/ast` walk, and a raw `grep -c "This member is required."
+api_op_*.go` sanity total. All three agreed on the op-level shape (10
+required fields / 90 ops / 7 ops-with-required); the grep-c total (90)
+also counts required *input* members across the same files, as expected.
+
+10 required output fields / 7 ops-with-required splits into two unrelated
+families: the standalone drift-detection quartet (`DetectStackDrift`,
+`DetectStackResourceDrift`, `DescribeStackDriftDetectionStatus`,
+`DescribeStackResourceDrifts` -- none of which had an `ops:` table row at
+all before this pass, now added above) and the stack-refactor family
+(`CreateStackRefactor`, `ListStackRefactors`, `ListStackRefactorActions`).
+Domain-struct depth: `DescribeStackResourceDrifts`/`DetectStackResourceDrift`
+both wrap `types.StackResourceDrift`, which itself carries 5 required
+members (`LogicalResourceId`/`ResourceType`/`StackId`/`StackResourceDriftStatus`/
+`Timestamp`) invisible to the flat per-op scan -- confirmed all 5 always
+populated on every reachable path (the normal `compareStackResources`
+result and the template-parse-failure fallback in `driftDetailFor`), with
+no `xml:",omitempty"` on any of them in `driftXML`. By contrast,
+`ListStackRefactors`/`ListStackRefactorActions` wrap `types.StackRefactorSummary`/
+`types.StackRefactorAction`, both confirmed via the same AST walk to declare
+**zero** required members in the real SDK model -- so for this family the
+flat op-level count already is the complete required surface, no undercount
+(the opposite of the drift-quartet's shape, and worth recording since a
+"one wrapper key" shape doesn't always hide more depth -- it depends on
+what the real Smithy model marks required on the wrapped type, not on the
+shape alone; same lesson batch 22 drew for rolesanywhere).
+
+0 bugs found. Read all 7 ops end to end against `handler_drift_detection.go`/
+`drift_detection.go` and `handler_stack_refactors.go`/`stack_refactors.go`
+directly (not grepped), including the shared `toDriftXML`/`driftDetailFor`
+helpers and both of `DetectStackResourceDrift`'s code paths (template
+parses vs. template-parse-failure fallback). Also spot-checked
+`awsAwsquery_deserializeDocumentStackResourceDrift` in the pinned SDK's
+`deserializers.go` directly to confirm element-name matching is
+case-insensitive (`strings.EqualFold`), so this package's XML tag casing
+carries no wire-shape risk independent of the required-field question.
+
+Gates: `go build ./...` (repo-wide, clean except the pre-existing untouched
+`services/sagemaker/*` dirt from a concurrent agent's in-flight conversion),
+`go vet ./services/emr/... ./services/cloudformation/...` clean, `gofmt -l`
+clean, `go test -race ./services/cloudformation/...` passing (10.9s),
+`golangci-lint run ./services/emr/... ./services/cloudformation/...` 0
+issues. No source changes to this service this batch -- only `PARITY.md`
+and `services/_REQUIRED_OUTPUT_CANDIDATES.md` were touched; the batch's one
+counted bug was in the sibling `emr` service (tied with cloudformation for
+largest remaining candidate after sagemaker), not here.

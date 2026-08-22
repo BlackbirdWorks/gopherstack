@@ -173,6 +173,8 @@ from the ranked table) as future batches clear more of it.
 | comprehend | 12 | 85 (6 ops-with-required) | 0 (clean; all 6 `BatchDetect*` ops' required `ErrorList`/`ResultList` already always emitted as non-nil `make(...)` slices; every nested `*ItemResult`/`BatchItemError` type confirmed to declare zero required members via the AST walk, so the flat op-level count is already the complete surface -- see the batch-24 note below) | gopherstack-r80d batch 24 |
 | rekognition | 11 | 75 (5 ops-with-required) | 0 (clean; nested-domain-struct check on `MediaAnalysisInput.S3Object`/`MediaAnalysisOutputConfig.S3Bucket` -- both required one level below the flat op-level required fields -- found a prior pass had already wired both correctly, doc-comment citing `validateOpStartMediaAnalysisJobInput`; `CreateFaceLivenessSession`/`GetFaceLivenessSessionResults` always populate `SessionId`/`Status` from non-empty backend state -- see the batch-25 note below) | gopherstack-r80d batch 25 |
 | timestreamquery | 11 | 15 (7 ops-with-required) | yes (1: `DescribeScheduledQuery`'s `ScheduledQuery.TargetConfiguration.TimestreamConfiguration` missing required `TimeColumn`/`DimensionMappings` entirely -- see the batch-25 note below and services/timestreamquery/PARITY.md) | gopherstack-r80d batch 25 |
+| cloudformation | 10 | 90 (7 ops-with-required) | 0 (clean; drift-detection quartet had no prior ops: rows at all, `types.StackResourceDrift`'s 5 required members one level below the flat scan all confirmed populated on both code paths; stack-refactor family's wrapped `StackRefactorSummary`/`StackRefactorAction` confirmed to declare zero required members in the real SDK model -- see the batch-26 note below and services/cloudformation/PARITY.md) | gopherstack-r80d batch 26 |
+| emr | 10 | 65 (6 ops-with-required) | yes (1: `GetBlockPublicAccessConfiguration`'s `BlockPublicAccessConfigurationMetadata.CreatedByArn` (`*string`, provable) tagged `omitempty` despite being required, dropped for any region that never called `PutBlockPublicAccessConfiguration` -- see the batch-26 note below and services/emr/PARITY.md) | gopherstack-r80d batch 26 |
 
 51 services settled, 2563 required output fields read end to end (the running
 total counts each settled service's flat per-op `cmd/requiredoutputfields`
@@ -1570,8 +1572,6 @@ from this table — see the "Already examined" table above.
   12  comprehend                ops=85   ops-with-required=6
   11  rekognition               ops=75   ops-with-required=5
   11  timestreamquery           ops=15   ops-with-required=7
-  10  cloudformation            ops=90   ops-with-required=7
-  10  emr                       ops=65   ops-with-required=6
    9  cognitoidentity           ops=23   ops-with-required=3
    9  kafka                     ops=64   ops-with-required=4
    8  firehose                  ops=12   ops-with-required=5
@@ -1720,6 +1720,15 @@ Notes on the top of this table for the next batch:
   AST cross-check (both agreed exactly: elasticsearch 16/51/12,
   rolesanywhere 16/30/16) before starting; both came back clean. **awsconfig
   (15) is now the largest remaining candidate after sagemaker.**
+- **cloudformation / emr settled (batch 26)** — do not re-derive, see the
+  batch-26 note below and each service's `PARITY.md` 2026-08-22 entry.
+  Re-verified the tie via a fresh `cmd/requiredoutputfields` run, a
+  from-scratch `go/parser` AST walk, and a raw `grep -c` sanity total
+  (all agreed: cloudformation 10/90/7, emr 10/65/6) before starting.
+  cloudformation came back clean (0 bugs); emr had 1 bug
+  (`GetBlockPublicAccessConfiguration`'s `BlockPublicAccessConfigurationMetadata.CreatedByArn`).
+  **cognitoidentity (9) is now the largest remaining candidate after
+  sagemaker.**
 - **omics settled (batch 7)** — do not re-derive, see the settled-services
   table above and services/omics/PARITY.md's 2026-08-21 entries. The
   concurrent sibling agent's over-wide-List sweep this file previously
@@ -2030,3 +2039,88 @@ examined" (settled-services count now 51, 2563 required output fields read
 end to end); `cloudformation` and `emr` (tied at 10 each) are now the largest
 remaining candidates after sagemaker. Did not attempt a third service this
 batch.
+
+### cloudformation + emr (batch 26): 1 bug, taken alphabetically after re-verifying the tie
+
+Instrument re-validated three ways before picking a candidate: the existing
+`cmd/requiredoutputfields` char-level brace matcher, a fresh standalone
+`go/parser`/`go/ast` walk, and a raw `grep -c "This member is required."`
+total per module's `api_op_*.go` files. All agreed exactly: cloudformation
+10/10 fields (7 ops-with-required, grep-c 90); emr 10/10 (6 ops-with-required,
+grep-c 100). No discrepancy.
+
+Verified cloudformation/emr tied at 10 each, largest remaining candidates
+after sagemaker (off-limits all batch; `git status` showed only
+`services/sagemaker/*` dirty from a concurrent agent's conversion throughout,
+confirmed untouched). Module resolution: `cloudformation` resolves directly
+(no `dirModuleOverride`); `emr` also resolves directly to the `emr` module —
+the repo has a separate `emrserverless` directory/module (settled batch 20)
+but no `emrcontainers` directory or module exists at all, so there was no
+third candidate to disambiguate. Took both in one batch, full rigour.
+
+cloudformation (10 fields/90 ops, 7 ops-with-required, 0 bugs): splits into
+the standalone drift-detection quartet (`DetectStackDrift`,
+`DetectStackResourceDrift`, `DescribeStackDriftDetectionStatus`,
+`DescribeStackResourceDrifts` — none had an `ops:` table row at all before
+this pass) and the stack-refactor family (`CreateStackRefactor`,
+`ListStackRefactors`, `ListStackRefactorActions`). Domain-struct
+cross-reference found real depth in the drift quartet:
+`DescribeStackResourceDrifts`/`DetectStackResourceDrift` both wrap
+`types.StackResourceDrift`, itself carrying 5 required members
+(`LogicalResourceId`/`ResourceType`/`StackId`/`StackResourceDriftStatus`/
+`Timestamp`) invisible to the flat per-op scan — all 5 confirmed always
+populated on every reachable code path (`compareStackResources`'s normal
+result and `driftDetailFor`'s template-parse-failure fallback), with no XML
+`omitempty` on any of them. By contrast, the stack-refactor family's wrapped
+`types.StackRefactorSummary`/`types.StackRefactorAction` were confirmed via
+the same AST walk to declare **zero** required members in the real SDK
+model — the "one wrapper key" shape doesn't always hide more depth; it
+depends on what the real Smithy model marks required on the wrapped type,
+not on the shape alone (same lesson batch 22 drew for rolesanywhere). Read
+all 7 ops end to end against `handler_drift_detection.go`/`drift_detection.go`
+and `handler_stack_refactors.go`/`stack_refactors.go` directly, including
+both of `DetectStackResourceDrift`'s code paths; also spot-checked
+`awsAwsquery_deserializeDocumentStackResourceDrift` in the pinned SDK
+directly to confirm case-insensitive element-name matching. No code
+changes.
+
+emr (10 fields/65 ops, 6 ops-with-required, 1 bug): entirely the session and
+block-public-access families (`CreateSecurityConfiguration`,
+`GetBlockPublicAccessConfiguration`, `GetSession`, `GetSessionEndpoint`,
+`StartSession`, `TerminateSession`); the other 59 ops declare zero required
+output members. Domain-struct depth: `GetBlockPublicAccessConfigurationOutput`
+wraps `types.BlockPublicAccessConfiguration` (1 required) and
+`types.BlockPublicAccessConfigurationMetadata` (2 required) one level below
+the flat 2-field scan; `GetSessionOutput.Session` wraps `types.Session` (4
+required: `Arn`/`ClusterId`/`Id`/`State`) similarly. Neither nested struct
+carries a further-nested required struct (all scalar/timestamp members), so
+this is one level of depth, not the two-levels-down shape batch 25 hit in
+timestreamquery — but it was still where the one bug lived, since the flat
+scan only sees the 2 wrapper field names. 1 bug: `BlockPublicAccessConfigurationMetadata.CreatedByArn`
+(required, `*string` in the real SDK — a provable, distinguishable class)
+was tagged `json:"CreatedByArn,omitempty"`; for any region that has never
+called `PutBlockPublicAccessConfiguration` (the default state, a common and
+fully reachable one), the backend's own meta record carries an empty
+`CreatedByArn`, so the tag dropped the key entirely instead of emitting it
+empty, decoding to `nil` on a real client instead of a non-nil pointer to
+`""`. Fixed by removing `omitempty`. Proven via a real
+`aws-sdk-go-v2/service/emr` client round trip
+(`services/emr/wire_output_required_r80d_test.go`), hand-reverted (confirmed
+the test fails with `CreatedByArn` nil via `git show HEAD:services/emr/handler_policies.go`)/restored,
+md5sum-verified byte-identical. Everything else in emr's 10-field surface
+confirmed already correct end to end: `CreateSecurityConfiguration`'s
+`Name`/`CreationDateTime`; `BlockPublicAccessConfiguration.BlockPublicSecurityGroupRules`;
+`Session.{Arn,ClusterId,Id,State}` (`StartSession`/`GetSession`); `TerminateSessionOutput.{ClusterId,SessionId,State}`;
+`GetSessionEndpointOutput.Endpoint`.
+
+Total for this batch: 20 required output fields (10+10) read end to end
+across 13 ops-with-required (7+6), 1 real bug found and fixed, proven via a
+real-aws-sdk-go-v2-client test with hand-revert/confirm-fail/restore/md5sum
+verification. All gates green for both services (build/vet/gofmt/race-test/
+lint, 0 banned nolints, 0 new nolints); repo-wide `go build ./...` clean
+(only sagemaker dirty, untouched by this pass). No exported signature
+changed (the fix is a JSON struct-tag edit on an unexported type).
+`services/_REQUIRED_OUTPUT_CANDIDATES.md` updated: both moved into "Already
+examined" (settled-services count now 53, 2573 required output fields read
+end to end); `cognitoidentity` (9) is now the largest remaining candidate
+after sagemaker. Did not attempt a third service this batch.

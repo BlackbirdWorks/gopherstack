@@ -206,7 +206,7 @@ type getBlockPublicAccessConfigurationOutput struct {
 // deserializer parses it with smithytime.ParseEpochSeconds and rejects
 // RFC3339 strings.
 type blockPublicAccessConfigurationMetadata struct {
-	CreatedByArn     string  `json:"CreatedByArn,omitempty"`
+	CreatedByArn     string  `json:"CreatedByArn"`
 	CreationDateTime float64 `json:"CreationDateTime"`
 }
 
