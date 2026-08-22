@@ -171,17 +171,24 @@ from the ranked table) as future batches clear more of it.
 | ses | 13 | 71 (13 ops-with-required) | yes (2 findings / 4 member-level fixes: `GetIdentityMailFromDomainAttributes.MailFromDomain`, `GetIdentityNotificationAttributes.BounceTopic`/`ComplaintTopic`/`DeliveryTopic` -- see the batch-24 note below and services/ses/PARITY.md) | gopherstack-r80d batch 24 |
 | athena | 12 | 70 (8 ops-with-required) | 0 (clean; this exact bug class was already fixed by a dated prior pass -- `GetSessionEndpoint`/`CreatePresignedNotebookUrl`/`GetResourceDashboard` PARITY.md entries explicitly describe the 3-required-field shapes now emitted; one dead `omitempty` tag on `CapacityReservation.CreationTime` reviewed and ruled out (single unconditional construction site) -- see the batch-24 note below) | gopherstack-r80d batch 24 |
 | comprehend | 12 | 85 (6 ops-with-required) | 0 (clean; all 6 `BatchDetect*` ops' required `ErrorList`/`ResultList` already always emitted as non-nil `make(...)` slices; every nested `*ItemResult`/`BatchItemError` type confirmed to declare zero required members via the AST walk, so the flat op-level count is already the complete surface -- see the batch-24 note below) | gopherstack-r80d batch 24 |
+| rekognition | 11 | 75 (5 ops-with-required) | 0 (clean; nested-domain-struct check on `MediaAnalysisInput.S3Object`/`MediaAnalysisOutputConfig.S3Bucket` -- both required one level below the flat op-level required fields -- found a prior pass had already wired both correctly, doc-comment citing `validateOpStartMediaAnalysisJobInput`; `CreateFaceLivenessSession`/`GetFaceLivenessSessionResults` always populate `SessionId`/`Status` from non-empty backend state -- see the batch-25 note below) | gopherstack-r80d batch 25 |
+| timestreamquery | 11 | 15 (7 ops-with-required) | yes (1: `DescribeScheduledQuery`'s `ScheduledQuery.TargetConfiguration.TimestreamConfiguration` missing required `TimeColumn`/`DimensionMappings` entirely -- see the batch-25 note below and services/timestreamquery/PARITY.md) | gopherstack-r80d batch 25 |
 
-49 services settled, 2541 required output fields read end to end (the running
+51 services settled, 2563 required output fields read end to end (the running
 total counts each settled service's flat per-op `cmd/requiredoutputfields`
 number, as established by every prior batch -- glue's own real audited
 surface was substantially larger once its ~56 gopherstack-modeled domain
-structs were cross-checked, see the batch-15 note below). Batch 24
+structs were cross-checked, see the batch-15 note below). Batch 25
+(rekognition + timestreamquery, tied at 11 each) added 1 more counted bug
+(timestreamquery's `DescribeScheduledQuery` `TargetConfiguration.
+TimestreamConfiguration.TimeColumn`/`DimensionMappings`; rekognition came back
+clean) on top of the running total -- see the batch-25 note below for detail.
+`cloudformation` and `emr` (tied at 10 fields each) are now the largest
+remaining candidates after sagemaker. Batch 24
 (ses + athena + comprehend, tied at 12-13 each) added 2 more counted findings
 (4 member-level fixes, both in ses; athena and comprehend both came back
 clean) on top of the running total -- see the batch-24 note below for
-detail. `rekognition` and `timestreamquery` (tied at 11 fields each) are now
-the largest remaining candidates after sagemaker. Batch 23
+detail. Batch 23
 (awsconfig + codeconnections + codestarconnections, tied at 15 each) added 0
 counted bugs -- all three came back clean; see the batch-23 note below for
 detail. `ses` (13 fields, 71 ops, 13 ops-with-required) is now the largest
@@ -1919,3 +1926,107 @@ dirty, untouched). No exported signatures changed.
 fields read end to end); `rekognition` and `timestreamquery` (tied at 11
 each) are now the largest remaining candidates after sagemaker. Did not
 attempt a fourth service this batch.
+
+### rekognition + timestreamquery (batch 25): 1 bug, taken alphabetically after re-verifying the tie
+
+Instrument re-validated three ways before picking a candidate: the existing
+`cmd/requiredoutputfields` char-level brace matcher, a fresh standalone
+`go/parser`/`go/ast` walk, and a raw `grep -c "This member is required."`
+total per module's `api_op_*.go` files. All agreed exactly: rekognition
+11/11 fields (5 ops-with-required, grep-c 116 total across all api_op
+files, input+output structs combined); timestreamquery 11/11 (7
+ops-with-required, grep-c 31). No discrepancy. A fresh `go run
+./cmd/requiredoutputfields` run confirmed rekognition/timestreamquery still
+tied at 11 each, the largest remaining candidates after sagemaker (off-limits
+all batch; `git status` showed only `services/sagemaker/*` dirty from a
+concurrent agent's conversion throughout, confirmed untouched). Neither
+service's directory name diverges from its SDK module name (both resolve
+directly: `rekognition`@v1.54.4, `timestreamquery`@v1.39.4) -- confirmed via
+`cmd/requiredoutputfields`'s `dirModuleOverride` table, neither is listed.
+Took both in one batch, full rigour.
+
+**rekognition (11 fields / 75 ops, 5 ops-with-required, 0 bugs):**
+`CreateFaceLivenessSession`/`GetFaceLivenessSessionResults` always populate
+`SessionId`/`Status` from non-empty backend state (`face_liveness.go`'s
+`uuid.NewString()` and a fixed `jobStatusSucceeded` constant) -- neither
+field is ever reachably empty, and both wire tags lack `omitempty` regardless.
+`StartMediaAnalysisJob`/`GetMediaAnalysisJob`/`ListMediaAnalysisJobs` funnel
+through `GetMediaAnalysisJobOutput`'s 6 required members (`CreationTimestamp`/
+`Input`/`JobId`/`OperationsConfig`/`OutputConfig`/`Status`), 2 of which
+(`Input`, `OutputConfig`) wrap nested domain structs -- `types.
+MediaAnalysisInput.S3Object` and `types.MediaAnalysisOutputConfig.S3Bucket`
+are BOTH required one level deeper, invisible to the flat op-level scan
+(the same nested-domain-struct undercount class every batch since 6 has
+found bugs in). Checked both against `handler_media_analysis.go` directly:
+already correctly wired by a prior pass, with an explicit doc comment on
+`handleStartMediaAnalysisJob` citing `validateOpStartMediaAnalysisJobInput`
+(validators.go) as the source of the required-nested-member analysis --
+both are rejected as `ErrValidation` if absent on `CreateMediaAnalysisJob`'s
+own required-input path, so both are always non-nil/non-empty by
+construction on every stored job, and `mediaAnalysisInputFromDomain`/
+`mediaAnalysisOutputConfigFromDomain` always construct non-nil wrapper
+structs. `types.MediaAnalysisOperationsConfig` (also required, wraps
+`OperationsConfig`) declares zero required members itself (only
+`DetectModerationLabels`, optional) -- correctly optional either way.
+`ListMediaAnalysisJobsOutput.MediaAnalysisJobs` and `PrepareQuery`-style
+list-building are already non-nil via `make(...)`. No code changes.
+
+**timestreamquery (11 fields / 15 ops, 7 ops-with-required, 1 bug):** not
+the "one wrapper key" shape -- each op's required members sit directly on
+its own `<Op>Output` struct, but 2 of the 7 ops (`DescribeScheduledQuery`,
+`ListScheduledQueries`) wrap domain structs with further nested required
+members invisible to the flat scan: `types.ScheduledQueryDescription` (6
+required: Arn/Name/NotificationConfiguration/QueryString/
+ScheduleConfiguration/State) and `types.ScheduledQuery` (3 required:
+Arn/Name/State) respectively, each themselves wrapping deeper required
+structs (`NotificationConfiguration.SnsConfiguration.TopicArn`,
+`ScheduleConfiguration.ScheduleExpression`, and -- only reachable through
+`ScheduledQueryDescription`'s optional `TargetConfiguration` ->
+`TimestreamConfiguration`, once present -- `DatabaseName`/
+`DimensionMappings`/`TableName`/`TimeColumn`, all 4 required). Read every one
+of these against `scheduled_queries.go`/`handler_scheduled_queries.go`.
+
+1 bug: `TargetConfiguration.TimestreamConfiguration` was missing 2 of its 4
+required members (`TimeColumn`/`DimensionMappings`) entirely -- the request
+struct only ever declared `DatabaseName`/`TableName`, so a real client's
+fully valid `CreateScheduledQueryInput` (the SDK's own client-side validator
+requires all 4 once `TargetConfiguration` is set at all, per
+`validateTimestreamConfiguration`) silently lost both on ingest, and
+`DescribeScheduledQuery` echoed back an incomplete `TimestreamConfiguration`
+forever after. Fixed by adding `TargetTimeColumn`/`TargetDimensionMappings`
+to the domain model and threading them through request parsing, the
+`StorageBackend` interface, and the response view. Proven via a real
+`aws-sdk-go-v2/service/timestreamquery` client round trip
+(`wire_output_required_r80d_test.go`), hand-reverted (7 files together)/
+confirmed-failing/restored, md5sum-verified byte-identical. See
+`services/timestreamquery/PARITY.md`'s 2026-08-21 Notes #12 for full detail.
+
+Reviewed and ruled OUT, not bugs (both services): timestreamquery's
+`NotificationConfiguration`/`ScheduleConfiguration` wrapper-omission gates
+in `scheduledQueryToView` are unreachable via any real client, because
+gopherstack's own `handleCreateScheduledQuery` independently rejects an
+empty `TopicArn`/`ScheduleExpression` as `ValidationException` -- stricter
+than the real SDK's client-side validators, which only reject a nil pointer
+(same ruled-out class batch 23 established for codeconnections'
+`RepositorySyncDefinition.Parent`). `PrepareQueryOutput.Columns`
+(`types.SelectColumn`, wrapped) declares zero required members in the real
+Smithy model; `Query.ColumnInfo`/`PrepareQueryOutput.Parameters`
+(`types.ColumnInfo`/`types.ParameterMapping`) both have their required
+members (`Type`, `Name`+`Type`) always populated unconditionally by
+`marshalColumnInfos`/`inferColumnsFromSQL` -- the one apparent
+conditional-omission (`Name` only added if non-empty) is dead code for
+`Parameters`, since `inferColumnsFromSQL` always assigns a non-empty
+`"param%d"` name to every real parameter it detects.
+
+Both services' gates green (build/vet/gofmt/race-test/lint, 0 banned
+nolints, 0 new nolints); repo-wide `go build ./...`,
+`go vet ./...`, `go vet -tags e2e ./...`, `go vet -tags integration ./...`
+all clean (only sagemaker dirty, untouched). One exported signature changed
+(`StorageBackend.CreateScheduledQuery` / `InMemoryBackend.CreateScheduledQuery`
+gained 2 trailing parameters) -- all 13 existing direct-backend test call
+sites updated, all 2 SDK-client-based tests needed no changes.
+`services/_REQUIRED_OUTPUT_CANDIDATES.md` updated: both moved into "Already
+examined" (settled-services count now 51, 2563 required output fields read
+end to end); `cloudformation` and `emr` (tied at 10 each) are now the largest
+remaining candidates after sagemaker. Did not attempt a third service this
+batch.

@@ -14,10 +14,26 @@ type ScheduledQuery struct {
 	ErrorReportS3BucketName string            `json:"error_report_s3_bucket_name"`
 	TargetDatabase          string            `json:"target_database"`
 	TargetTable             string            `json:"target_table"`
+	TargetTimeColumn        string            `json:"target_time_column,omitempty"`
 	State                   string            `json:"state"`
 	Name                    string            `json:"name"`
 	Arn                     string            `json:"arn"`
 	KmsKeyID                string            `json:"kms_key_id,omitempty"`
+	// TargetDimensionMappings holds TargetConfiguration.TimestreamConfiguration's
+	// DimensionMappings, alongside TargetDatabase/TargetTable/TargetTimeColumn
+	// above -- all four are required members of types.TimestreamConfiguration
+	// once TargetConfiguration is present (validateTimestreamConfiguration).
+	// Placed last: a trailing slice lets the Go compiler exclude its non-pointer
+	// len/cap words from the struct's GC pointer-scan region (fieldalignment).
+	TargetDimensionMappings []DimensionMapping `json:"target_dimension_mappings,omitempty"`
+}
+
+// DimensionMapping maps a query result column to a dimension in the
+// destination table (types.DimensionMapping on the wire; both members are
+// required once a DimensionMapping is present).
+type DimensionMapping struct {
+	Name               string `json:"Name"`
+	DimensionValueType string `json:"DimensionValueType"`
 }
 
 // ScheduledQuerySummary is a reduced view used in list responses.

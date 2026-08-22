@@ -30,8 +30,13 @@ type createScheduledQueryInput struct {
 	} `json:"ScheduleConfiguration"`
 	TargetConfiguration struct {
 		TimestreamConfiguration *struct {
-			DatabaseName string `json:"DatabaseName"`
-			TableName    string `json:"TableName"`
+			DatabaseName      string `json:"DatabaseName"`
+			TableName         string `json:"TableName"`
+			TimeColumn        string `json:"TimeColumn"`
+			DimensionMappings []struct {
+				Name               string `json:"Name"`
+				DimensionValueType string `json:"DimensionValueType"`
+			} `json:"DimensionMappings"`
 		} `json:"TimestreamConfiguration"`
 	} `json:"TargetConfiguration"`
 	Tags []struct {
@@ -84,10 +89,22 @@ func (h *Handler) handleCreateScheduledQuery(ctx context.Context, body []byte) (
 
 	targetDB := ""
 	targetTable := ""
+	targetTimeColumn := ""
 
-	if req.TargetConfiguration.TimestreamConfiguration != nil {
-		targetDB = req.TargetConfiguration.TimestreamConfiguration.DatabaseName
-		targetTable = req.TargetConfiguration.TimestreamConfiguration.TableName
+	var targetDimensionMappings []DimensionMapping
+
+	if tc := req.TargetConfiguration.TimestreamConfiguration; tc != nil {
+		targetDB = tc.DatabaseName
+		targetTable = tc.TableName
+		targetTimeColumn = tc.TimeColumn
+
+		targetDimensionMappings = make([]DimensionMapping, 0, len(tc.DimensionMappings))
+		for _, dm := range tc.DimensionMappings {
+			targetDimensionMappings = append(targetDimensionMappings, DimensionMapping{
+				Name:               dm.Name,
+				DimensionValueType: dm.DimensionValueType,
+			})
+		}
 	}
 
 	tags := make(map[string]string, len(req.Tags))
@@ -104,6 +121,7 @@ func (h *Handler) handleCreateScheduledQuery(ctx context.Context, body []byte) (
 		notificationTopicArn, errorReportBucket,
 		targetDB, targetTable, req.ClientToken, req.KmsKeyID,
 		tags,
+		targetTimeColumn, targetDimensionMappings,
 	)
 	if err != nil {
 		return nil, err
@@ -271,10 +289,20 @@ func scheduledQueryToView(sq *ScheduledQuery) map[string]any {
 	}
 
 	if sq.TargetDatabase != "" {
+		dimensionMappings := make([]map[string]string, 0, len(sq.TargetDimensionMappings))
+		for _, dm := range sq.TargetDimensionMappings {
+			dimensionMappings = append(dimensionMappings, map[string]string{
+				"Name":               dm.Name,
+				"DimensionValueType": dm.DimensionValueType,
+			})
+		}
+
 		view["TargetConfiguration"] = map[string]any{
-			"TimestreamConfiguration": map[string]string{
-				"DatabaseName": sq.TargetDatabase,
-				"TableName":    sq.TargetTable,
+			"TimestreamConfiguration": map[string]any{
+				"DatabaseName":      sq.TargetDatabase,
+				"TableName":         sq.TargetTable,
+				"TimeColumn":        sq.TargetTimeColumn,
+				"DimensionMappings": dimensionMappings,
 			},
 		}
 	}

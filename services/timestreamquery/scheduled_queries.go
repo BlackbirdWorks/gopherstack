@@ -30,6 +30,7 @@ func (b *InMemoryBackend) CreateScheduledQuery(
 	name, queryString, scheduleExpression, executionRoleArn,
 	notificationTopicArn, errorReportS3BucketName, targetDatabase, targetTable, clientToken, kmsKeyID string,
 	tags map[string]string,
+	targetTimeColumn string, targetDimensionMappings []DimensionMapping,
 ) (*ScheduledQuery, error) {
 	if err := validateScheduleExpression(scheduleExpression); err != nil {
 		return nil, err
@@ -67,6 +68,8 @@ func (b *InMemoryBackend) CreateScheduledQuery(
 		ErrorReportS3BucketName: errorReportS3BucketName,
 		TargetDatabase:          targetDatabase,
 		TargetTable:             targetTable,
+		TargetTimeColumn:        targetTimeColumn,
+		TargetDimensionMappings: targetDimensionMappings,
 		KmsKeyID:                kmsKeyID,
 		State:                   scheduledQueryStateEnabled,
 		CreationTime:            time.Now(),
@@ -204,6 +207,11 @@ func cloneScheduledQuery(sq *ScheduledQuery) *ScheduledQuery {
 		cp.Tags = make(map[string]string, len(sq.Tags))
 
 		maps.Copy(cp.Tags, sq.Tags)
+	}
+
+	if sq.TargetDimensionMappings != nil {
+		cp.TargetDimensionMappings = make([]DimensionMapping, len(sq.TargetDimensionMappings))
+		copy(cp.TargetDimensionMappings, sq.TargetDimensionMappings)
 	}
 
 	return &cp
