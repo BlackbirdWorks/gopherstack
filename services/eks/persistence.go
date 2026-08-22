@@ -16,8 +16,13 @@ import (
 // there would make an older snapshot unsafe to decode as the current shape.
 // Restore compares this against the persisted value and discards (rather than
 // attempts to partially decode) any mismatch -- see Restore below. This
-// mirrors the services/ec2 and services/ses Phase 3.3 conversions.
-const eksSnapshotVersion = 1
+// mirrors the services/ec2 and services/ses Phase 3.3 conversions. Version 2
+// (gopherstack-tp8x item 1) dropped Cluster.NetworkingConfig and moved
+// ElasticLoadBalancing onto KubernetesNetworkConfig: a v1 snapshot's
+// Cluster.NetworkingConfig.ElasticLoadBalancing would silently vanish on
+// restore into the new shape instead of erroring, so it must not decode as
+// v2.
+const eksSnapshotVersion = 2
 
 type backendSnapshot struct {
 	Tables            map[string]json.RawMessage                       `json:"tables"`
