@@ -16,13 +16,15 @@ import (
 // type, or backendSnapshot itself would make an older snapshot unsafe to
 // decode as the current shape. Restore compares this against the persisted
 // value and discards (registry.ResetAll plus the dirty tables' own Reset,
-// not a partial decode) any mismatch -- see Restore below. This is the
+// not a partial decode) any mismatch -- see Restore below. Version 1 was the
 // first version: the pre-Phase-3.3 snapshot had a different top-level shape
 // (one field per resource map, no version field at all), so an old snapshot
 // decodes with Version == 0, which is guaranteed to mismatch
 // guarddutySnapshotVersion and is discarded the same way any other
-// incompatible snapshot is.
-const guarddutySnapshotVersion = 1
+// incompatible snapshot is. Version 2 (gopherstack-tp8x item 6) dropped
+// MalwareScan.TriggerDetails, a registered table's value type, so a v1
+// snapshot with that field present must not be decoded as v2.
+const guarddutySnapshotVersion = 2
 
 // detectorDTO wraps a detector-nested resource whose only hidden field is
 // DetectorID (Filter, IPSet, ThreatIntelSet, PublishingDestination,
