@@ -7,7 +7,7 @@
 
 | Metric | Value |
 | --- | --- |
-| Operations audited | 19 (18 ok, 1 partial) |
+| Operations audited | 20 (18 ok, 1 partial, 1 gap) |
 | Feature families | 6 (5 ok, 1 partial) |
 | Known gaps | 8 |
 | Deferred items | 4 |
@@ -21,7 +21,7 @@
 - webhooks: ListWebhookItem.ErrorCode/ErrorMessage (real members reporting third-party webhook-registration failures) are never populated -- this backend's RegisterWebhookWithThirdParty always succeeds, so there is genuinely never a failure to report (same honest-always-empty rationale as ListRuleExecutions).
 - jobsAndThirdPartyJobs: JobData/ThirdPartyJobData are only ever populated with ActionTypeId (fixed this pass, see families) -- ActionConfiguration, ArtifactCredentials (AWSSessionCredentials), ContinuationToken, EncryptionKey, InputArtifacts, OutputArtifacts, and PipelineContext are real members with no equivalent anywhere in this backend's Job model (no artifact-store, no STS-session-credential issuance, no pipeline-context propagation from the owning execution to its jobs). A real job worker driven against this backend could not actually do its job (fetch input artifacts, write output artifacts) from this data alone. Not fixed this pass -- large gap, same class as GetPipelineExecution's pre-existing ArtifactRevisions/Variables gap below.
 - jobsAndThirdPartyJobs: PutJobFailureResult/PutThirdPartyJobFailureResult parse FailureDetails.Message but discard it entirely (`_ = message`), and never parse FailureDetails.Type/ExternalExecutionId at all. Not fixed this pass: neither Job nor JobDetails (the only read-back shapes for a job) has anywhere to surface a stored failure message in the first place in real AWS either -- failure detail surfacing happens via GetPipelineExecution/GetActionExecution-style action-execution records, which this service DOES model for normal pipeline actions (ActionExecution.Summary) but jobs (the job-worker-facing side of a custom/third-party action) are a separate, unlinked record here. Fixing this properly means linking Job records back to their originating ActionExecution, out of scope for this pass.
-- ListDeployActionExecutionTargets always returns an empty list -- no deploy-target model exists (documented in source, consistent with ListRuleExecutions' scoped-down design). Unchanged this pass.
+- ListDeployActionExecutionTargets always returns an empty list for a resolved execution -- no deploy-target model exists (documented in source, consistent with ListRuleExecutions' scoped-down design). gopherstack-2wvq (2026-08-21) fixed the over-validation that required pipelineName (see ops); this empty-Targets gap itself is unchanged.
 - GetPipelineExecution/ListPipelineExecutions omit ArtifactRevisions/Variables/SourceRevisions/StatusSummary/StopTrigger -- no artifact-store content model, pipeline-variable resolution engine, or stop-reason tracking exists anywhere else in this backend to source real values from (all are optional fields, SDK-safe to omit).
 
 ### Deferred

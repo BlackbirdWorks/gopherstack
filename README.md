@@ -611,7 +611,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Application Auto Scaling](services/applicationautoscaling/README.md) | A | 14 | 3 gaps; 2 deferred |
 | [Cloud Control API](services/cloudcontrol/README.md) | A | 8 | 3 gaps |
 | [CloudFormation](services/cloudformation/README.md) | A | 74 | 5 gaps |
-| [CloudTrail](services/cloudtrail/README.md) | A | 60 | 9 gaps |
+| [CloudTrail](services/cloudtrail/README.md) | A | 60 | 11 gaps |
 | [CloudWatch](services/cloudwatch/README.md) | A | 50 | 5 deferred |
 | [CloudWatch Logs](services/cloudwatchlogs/README.md) | A | 80 | 26 gaps; 3 deferred |
 | [Config](services/awsconfig/README.md) | A | 102 | 5 gaps; 1 deferred |
@@ -634,7 +634,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [CodeCommit](services/codecommit/README.md) | A | 79 | 3 gaps |
 | [CodeConnections](services/codeconnections/README.md) | A | 27 | clean |
 | [CodeDeploy](services/codedeploy/README.md) | A | 47 | 4 gaps; 2 deferred |
-| [CodePipeline](services/codepipeline/README.md) | A | 19 | 8 gaps; 4 deferred |
+| [CodePipeline](services/codepipeline/README.md) | A | 20 | 8 gaps; 4 deferred |
 | [CodeStar Connections](services/codestarconnections/README.md) | A | 27 | 1 gap; 2 structural gaps |
 | [Serverless Application Repository](services/serverlessrepo/README.md) | A | 14 | clean |
 | [X-Ray](services/xray/README.md) | A | 38 | 7 gaps; 1 deferred |
