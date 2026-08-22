@@ -9,7 +9,7 @@
 | --- | --- |
 | Operations audited | 67 (67 ok) |
 | Known gaps | 4 |
-| Deferred items | 4 |
+| Deferred items | 6 |
 | Resource leaks | clean |
 
 ### Known gaps
@@ -25,6 +25,8 @@
 - risk_config: RiskConfigurationType.LastModifiedDate is a real response field this backend doesn't track at all internally (no LastModifiedAt on the risk-config storage type, unlike domains/managed_login_branding where CreatedAt/LastModifiedAt already existed and just needed echoing) -- would need a new tracked field plus updates at every SetRiskConfiguration call site, not a one-line echo fix.
 - Pagination is unimplemented on at least two List ops with real MaxResults/NextToken(or PaginationToken) contracts: ListUserImportJobs (MaxResults is REQUIRED on the real input, silently accepted by no field here) and ListResourceServers (MaxResults/PaginationToken optional, NextToken in output). Both always return every item in one page. ListUsers/ListWebAuthnCredentials/ListDevices already do this correctly (pkgs/page or hand-rolled token) -- the same pattern should be applied here in a future pass.
 - domains: Routing and Version, two more real DomainDescriptionType fields (multi-region failover routing config; app version string), remain unpopulated -- this backend has no multi-region-domain-routing model and no meaningful 'app version' to report. Left absent rather than fabricated, per the same standard as terms/ above, just far smaller in scope.
+- SchemaAttribute (CreateUserPool/DescribeUserPool/UpdateUserPool/ListUserPools) writes StringAttributeMinLength/MaxLength and NumberAttributeMinValue/MaxValue as flat top-level int64/float64 fields; the real SchemaAttributeType nests these as string-valued sub-objects (StringAttributeConstraints{MinLength,MaxLength}/NumberAttributeConstraints{MinValue,MaxValue}) -- every real client's schema attribute constraints decode unset. Filed as gopherstack-xasq (needs new nested types + string conversion, not a tag fix).
+- …and 1 more — see PARITY.md
 
 ## More
 
