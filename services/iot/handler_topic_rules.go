@@ -131,7 +131,7 @@ func (h *Handler) handleCreateTopicRule(c *echo.Context) error {
 
 	rawBody, err := io.ReadAll(c.Request().Body)
 	if err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
+		return c.JSON(http.StatusBadRequest, awsErrBody{errTypeInvalidRequest, err.Error()})
 	}
 
 	// Accept both wrapped {"topicRulePayload":{...}} and flat {...} formats.
@@ -139,7 +139,7 @@ func (h *Handler) handleCreateTopicRule(c *echo.Context) error {
 		TopicRulePayload *TopicRulePayload `json:"topicRulePayload"`
 	}
 	if jsonErr := json.Unmarshal(rawBody, &wrapped); jsonErr != nil && !errors.Is(jsonErr, io.EOF) {
-		return c.JSON(http.StatusBadRequest, map[string]string{keyError: jsonErr.Error()})
+		return c.JSON(http.StatusBadRequest, awsErrBody{errTypeInvalidRequest, jsonErr.Error()})
 	}
 
 	payload := wrapped.TopicRulePayload
@@ -226,10 +226,17 @@ func (h *Handler) handleListTopicRules(c *echo.Context) error {
 
 	out := make([]map[string]any, 0, len(rules))
 	for _, r := range rules {
+		// TopicRuleListItem (iot@v1.77.4 deserializers.go's
+		// awsRestjson1_deserializeDocumentTopicRuleListItem) has topicPattern,
+		// not sql -- a different shape from the full TopicRule GetTopicRule
+		// returns. Every real client's TopicPattern decoded empty before this
+		// fix.
+		parsed, _ := ParseRuleSQL(r.SQL)
+
 		out = append(out, map[string]any{
 			"ruleName":     r.RuleName,
 			"ruleArn":      r.ARN,
-			"sql":          r.SQL,
+			"topicPattern": parsed.TopicPattern,
 			"ruleDisabled": !r.Enabled,
 			keyCreatedAt:   awstime.Epoch(r.CreatedAt),
 		})
@@ -279,7 +286,7 @@ func (h *Handler) handleReplaceTopicRule(c *echo.Context) error {
 
 	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil &&
 		!errors.Is(err, io.EOF) {
-		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
+		return c.JSON(http.StatusBadRequest, awsErrBody{errTypeInvalidRequest, err.Error()})
 	}
 
 	payload := body.TopicRulePayload
@@ -303,7 +310,7 @@ func (h *Handler) handleCreateTopicRuleDestination(c *echo.Context) error {
 	}
 	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil &&
 		!errors.Is(err, io.EOF) {
-		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
+		return c.JSON(http.StatusBadRequest, awsErrBody{errTypeInvalidRequest, err.Error()})
 	}
 	dest, err := h.Backend.CreateTopicRuleDestination(&CreateTopicRuleDestinationInput{
 		DestinationConfiguration: body.DestinationConfiguration,
@@ -357,7 +364,7 @@ func (h *Handler) handleUpdateTopicRuleDestination(c *echo.Context) error {
 	}
 	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil &&
 		!errors.Is(err, io.EOF) {
-		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
+		return c.JSON(http.StatusBadRequest, awsErrBody{errTypeInvalidRequest, err.Error()})
 	}
 	if err := h.Backend.UpdateTopicRuleDestination(&UpdateTopicRuleDestinationInput{
 		ARN:    body.ARN,

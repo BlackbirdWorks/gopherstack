@@ -190,7 +190,7 @@ func (h *Handler) handleCreatePolicy(c *echo.Context) error {
 
 	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil &&
 		!errors.Is(err, io.EOF) {
-		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
+		return c.JSON(http.StatusBadRequest, awsErrBody{errTypeInvalidRequest, err.Error()})
 	}
 
 	out, err := h.Backend.CreatePolicy(&CreatePolicyInput{
@@ -219,7 +219,7 @@ func (h *Handler) handleAttachPolicy(c *echo.Context) error {
 
 	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil &&
 		!errors.Is(err, io.EOF) {
-		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
+		return c.JSON(http.StatusBadRequest, awsErrBody{errTypeInvalidRequest, err.Error()})
 	}
 
 	if err := h.Backend.AttachPolicy(&AttachPolicyInput{
@@ -291,7 +291,7 @@ func (h *Handler) handleDetachPolicy(c *echo.Context) error {
 
 	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil &&
 		!errors.Is(err, io.EOF) {
-		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
+		return c.JSON(http.StatusBadRequest, awsErrBody{errTypeInvalidRequest, err.Error()})
 	}
 
 	if err := h.Backend.DetachPolicy(&DetachPolicyInput{PolicyName: policyName, Target: body.Target}); err != nil {
@@ -308,7 +308,7 @@ func (h *Handler) handleListAttachedPolicies(c *echo.Context) error {
 	}
 	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil &&
 		!errors.Is(err, io.EOF) {
-		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
+		return c.JSON(http.StatusBadRequest, awsErrBody{errTypeInvalidRequest, err.Error()})
 	}
 	policies, err := h.Backend.ListAttachedPolicies(
 		&ListAttachedPoliciesInput{Target: body.Target, Recursive: body.Recursive},
@@ -364,7 +364,7 @@ func (h *Handler) handleCreatePolicyVersion(c *echo.Context) error {
 
 	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil &&
 		!errors.Is(err, io.EOF) {
-		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
+		return c.JSON(http.StatusBadRequest, awsErrBody{errTypeInvalidRequest, err.Error()})
 	}
 
 	setAsDefault := c.QueryParam("setAsDefault") == keyBoolTrue
@@ -394,7 +394,7 @@ func (h *Handler) handleCreatePolicyVersion(c *echo.Context) error {
 func (h *Handler) handleGetPolicyVersion(c *echo.Context) error {
 	policyName, versionID, ok := policyVersionIDParts(c.Request().URL.Path)
 	if !ok {
-		return c.JSON(http.StatusBadRequest, map[string]string{keyError: keyInvalidPath})
+		return c.JSON(http.StatusBadRequest, awsErrBody{errTypeInvalidRequest, keyInvalidPath})
 	}
 
 	pv, err := h.Backend.GetPolicyVersion(policyName, versionID)
@@ -447,7 +447,7 @@ func (h *Handler) handleListPolicyVersions(c *echo.Context) error {
 func (h *Handler) handleDeletePolicyVersion(c *echo.Context) error {
 	policyName, versionID, ok := policyVersionIDParts(c.Request().URL.Path)
 	if !ok {
-		return c.JSON(http.StatusBadRequest, map[string]string{keyError: keyInvalidPath})
+		return c.JSON(http.StatusBadRequest, awsErrBody{errTypeInvalidRequest, keyInvalidPath})
 	}
 	if err := h.Backend.DeletePolicyVersion(policyName, versionID); err != nil {
 		return h.handleError(c, err)
@@ -459,7 +459,7 @@ func (h *Handler) handleDeletePolicyVersion(c *echo.Context) error {
 func (h *Handler) handleSetDefaultPolicyVersion(c *echo.Context) error {
 	policyName, versionID, ok := policyVersionIDParts(c.Request().URL.Path)
 	if !ok {
-		return c.JSON(http.StatusBadRequest, map[string]string{keyError: keyInvalidPath})
+		return c.JSON(http.StatusBadRequest, awsErrBody{errTypeInvalidRequest, keyInvalidPath})
 	}
 	if err := h.Backend.SetDefaultPolicyVersion(policyName, versionID); err != nil {
 		return h.handleError(c, err)

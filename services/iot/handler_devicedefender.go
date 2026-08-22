@@ -409,7 +409,7 @@ func (h *Handler) handlePutVerificationStateOnViolation(c *echo.Context) error {
 	if req.VerificationState == "" {
 		return c.JSON(
 			http.StatusBadRequest,
-			map[string]string{keyError: "verificationState is required"},
+			awsErrBody{errTypeInvalidRequest, "verificationState is required"},
 		)
 	}
 

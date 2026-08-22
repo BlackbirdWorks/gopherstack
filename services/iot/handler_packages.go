@@ -37,7 +37,7 @@ func (h *Handler) handleAssociateSbomWithPackageVersion(c *echo.Context) error {
 
 	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil &&
 		!errors.Is(err, io.EOF) {
-		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
+		return c.JSON(http.StatusBadRequest, awsErrBody{errTypeInvalidRequest, err.Error()})
 	}
 
 	out, err := h.Backend.AssociateSbomWithPackageVersion(&AssociateSbomWithPackageVersionInput{
@@ -336,7 +336,7 @@ func (h *Handler) handleDisassociateSbomFromPackageVersion(c *echo.Context) erro
 	parts := strings.SplitN(trimmed, "/versions/", pathSplitTwo)
 
 	if len(parts) != pathSplitTwo {
-		return c.JSON(http.StatusBadRequest, map[string]string{keyError: keyInvalidPath})
+		return c.JSON(http.StatusBadRequest, awsErrBody{errTypeInvalidRequest, keyInvalidPath})
 	}
 
 	if err := h.Backend.DisassociateSbomFromPackageVersion(parts[0], parts[1]); err != nil {
@@ -353,7 +353,7 @@ func (h *Handler) handleListSbomValidationResults(c *echo.Context) error {
 	parts := strings.SplitN(trimmed, "/versions/", pathSplitTwo)
 
 	if len(parts) != pathSplitTwo {
-		return c.JSON(http.StatusBadRequest, map[string]string{keyError: keyInvalidPath})
+		return c.JSON(http.StatusBadRequest, awsErrBody{errTypeInvalidRequest, keyInvalidPath})
 	}
 
 	maxResults := parseInt32QueryParam(c, "maxResults")

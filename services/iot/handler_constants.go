@@ -1,7 +1,6 @@
 package iot
 
 const (
-	keyError      = "error"
 	keyThingName  = "thingName"
 	keyThingArn   = "thingArn"
 	keyPolicyName = "policyName"

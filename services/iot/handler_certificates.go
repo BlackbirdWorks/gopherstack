@@ -143,7 +143,7 @@ func (h *Handler) handleCreateCertificateFromCsr(c *echo.Context) error {
 	}
 	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil &&
 		!errors.Is(err, io.EOF) {
-		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
+		return c.JSON(http.StatusBadRequest, awsErrBody{errTypeInvalidRequest, err.Error()})
 	}
 	cert, err := h.Backend.CreateCertificateFromCsr(&CreateCertificateFromCsrInput{
 		CertificateSigningRequest: body.CertificateSigningRequest,
@@ -168,7 +168,7 @@ func (h *Handler) handleRegisterCertificate(c *echo.Context) error {
 	}
 	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil &&
 		!errors.Is(err, io.EOF) {
-		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
+		return c.JSON(http.StatusBadRequest, awsErrBody{errTypeInvalidRequest, err.Error()})
 	}
 	cert, err := h.Backend.RegisterCertificate(&RegisterCertificateInput{
 		CertificatePem: body.CertificatePem,
@@ -191,7 +191,7 @@ func (h *Handler) handleRegisterCertificateWithoutCA(c *echo.Context) error {
 	}
 	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil &&
 		!errors.Is(err, io.EOF) {
-		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
+		return c.JSON(http.StatusBadRequest, awsErrBody{errTypeInvalidRequest, err.Error()})
 	}
 	cert, err := h.Backend.RegisterCertificateWithoutCA(&RegisterCertificateInput{
 		CertificatePem: body.CertificatePem,
@@ -345,7 +345,7 @@ func (h *Handler) handleCreateCertificateProvider(c *echo.Context) error {
 
 	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil &&
 		!errors.Is(err, io.EOF) {
-		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
+		return c.JSON(http.StatusBadRequest, awsErrBody{errTypeInvalidRequest, err.Error()})
 	}
 
 	cp, err := h.Backend.CreateCertificateProvider(&CreateCertificateProviderInput{
@@ -404,7 +404,7 @@ func (h *Handler) handleUpdateCertificateProvider(c *echo.Context) error {
 
 	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil &&
 		!errors.Is(err, io.EOF) {
-		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
+		return c.JSON(http.StatusBadRequest, awsErrBody{errTypeInvalidRequest, err.Error()})
 	}
 
 	if err := h.Backend.UpdateCertificateProvider(&UpdateCertificateProviderInput{

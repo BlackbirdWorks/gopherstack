@@ -92,7 +92,7 @@ func (h *Handler) handleAddThingToThingGroup(c *echo.Context) error {
 
 	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil &&
 		!errors.Is(err, io.EOF) {
-		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
+		return c.JSON(http.StatusBadRequest, awsErrBody{errTypeInvalidRequest, err.Error()})
 	}
 
 	if err := h.Backend.AddThingToThingGroup(&body); err != nil {
@@ -117,7 +117,7 @@ func (h *Handler) handleCreateThingGroup(c *echo.Context) error {
 
 	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil &&
 		!errors.Is(err, io.EOF) {
-		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
+		return c.JSON(http.StatusBadRequest, awsErrBody{errTypeInvalidRequest, err.Error()})
 	}
 
 	desc := ""
@@ -184,9 +184,15 @@ func (h *Handler) handleListThingGroups(c *echo.Context) error {
 	groups := h.Backend.ListThingGroups()
 	out := make([]map[string]string, 0, len(groups))
 	for _, tg := range groups {
+		// ListThingGroups' items deserialize as types.GroupNameAndArn
+		// (iot@v1.77.4 deserializers.go's awsRestjson1_deserializeDocumentGroupNameAndArn:
+		// "groupName"/"groupArn"), a different shape from
+		// CreateThingGroupOutput/DescribeThingGroupOutput's "thingGroupName"/
+		// "thingGroupArn" -- every real client's GroupName/GroupArn decoded
+		// empty before this fix.
 		out = append(out, map[string]string{
-			keyThingGroupName: tg.ThingGroupName,
-			keyThingGroupArn:  tg.ThingGroupARN,
+			"groupName": tg.ThingGroupName,
+			"groupArn":  tg.ThingGroupARN,
 		})
 	}
 
@@ -206,7 +212,7 @@ func (h *Handler) handleUpdateThingGroup(c *echo.Context) error {
 
 	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil &&
 		!errors.Is(err, io.EOF) {
-		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
+		return c.JSON(http.StatusBadRequest, awsErrBody{errTypeInvalidRequest, err.Error()})
 	}
 
 	desc := ""
@@ -247,7 +253,7 @@ func (h *Handler) handleRemoveThingFromThingGroup(c *echo.Context) error {
 	var body RemoveThingFromThingGroupInput
 	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil &&
 		!errors.Is(err, io.EOF) {
-		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
+		return c.JSON(http.StatusBadRequest, awsErrBody{errTypeInvalidRequest, err.Error()})
 	}
 	if err := h.Backend.RemoveThingFromThingGroup(&body); err != nil {
 		return h.handleError(c, err)

@@ -23,7 +23,7 @@ func (h *Handler) handleAssociateTargetsWithJob(c *echo.Context) error {
 
 	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil &&
 		!errors.Is(err, io.EOF) {
-		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
+		return c.JSON(http.StatusBadRequest, awsErrBody{errTypeInvalidRequest, err.Error()})
 	}
 
 	out, err := h.Backend.AssociateTargetsWithJob(&AssociateTargetsWithJobInput{
@@ -354,7 +354,7 @@ func (h *Handler) handleCancelJobExecution(c *echo.Context) error {
 	}
 
 	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
-		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
+		return c.JSON(http.StatusBadRequest, awsErrBody{errTypeInvalidRequest, err.Error()})
 	}
 
 	err := h.Backend.CancelJobExecution(jobID, thingName, CancelJobExecutionOptions{

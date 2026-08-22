@@ -5,6 +5,9 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	iotsdk "github.com/aws/aws-sdk-go-v2/service/iot"
+	"github.com/aws/aws-sdk-go-v2/service/iot/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -358,6 +361,36 @@ func TestHandler_ListTopicRules_ResponseFormat(t *testing.T) {
 	rulesSlice, ok := rules.([]any)
 	require.True(t, ok)
 	assert.Len(t, rulesSlice, 2)
+}
+
+// TestListTopicRules_RealSDKClient_TopicPatternKey proves ListTopicRules'
+// items key their MQTT topic topicPattern (types.TopicRuleListItem,
+// iot@v1.77.4 deserializers.go's
+// awsRestjson1_deserializeDocumentTopicRuleListItem: createdAt/ruleArn/
+// ruleDisabled/ruleName/topicPattern -- no "sql" member at all), not "sql"
+// -- the correct key for GetTopicRule's DIFFERENT full TopicRule shape.
+// Before this fix every real client's TopicRuleListItem.TopicPattern
+// decoded empty.
+func TestListTopicRules_RealSDKClient_TopicPatternKey(t *testing.T) {
+	t.Parallel()
+
+	h := iot.NewHandler(iot.NewInMemoryBackend(), nil)
+	client := newTestIoTClient(t, h)
+	ctx := t.Context()
+
+	_, err := client.CreateTopicRule(ctx, &iotsdk.CreateTopicRuleInput{
+		RuleName: aws.String("pattern-rule"),
+		TopicRulePayload: &types.TopicRulePayload{
+			Sql:     aws.String("SELECT * FROM 'devices/+/telemetry'"),
+			Actions: []types.Action{},
+		},
+	})
+	require.NoError(t, err)
+
+	listOut, err := client.ListTopicRules(ctx, &iotsdk.ListTopicRulesInput{})
+	require.NoError(t, err)
+	require.Len(t, listOut.Rules, 1)
+	assert.Equal(t, "devices/+/telemetry", aws.ToString(listOut.Rules[0].TopicPattern))
 }
 
 func TestHandler_GetTopicRule_IncludesAWSSQLVersion(t *testing.T) {

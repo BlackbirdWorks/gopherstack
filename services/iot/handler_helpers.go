@@ -11,9 +11,14 @@ import (
 	"github.com/labstack/echo/v5"
 )
 
+// errTypeInvalidRequest is the AWS IoT restjson1 __type for a malformed or
+// otherwise invalid request body -- shared across every call site that
+// rejects a request before it reaches backend validation.
+const errTypeInvalidRequest = "InvalidRequestException"
+
 func readBody(c *echo.Context, dst any) error {
 	if err := json.NewDecoder(c.Request().Body).Decode(dst); err != nil && !errors.Is(err, io.EOF) {
-		if jsonErr := c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()}); jsonErr != nil {
+		if jsonErr := c.JSON(http.StatusBadRequest, awsErrBody{errTypeInvalidRequest, err.Error()}); jsonErr != nil {
 			return jsonErr
 		}
 
@@ -63,7 +68,7 @@ func writeIoTError(c *echo.Context, err error) error {
 		return respondNotFound(c, err.Error())
 	case errors.Is(err, ErrValidation):
 
-		return c.JSON(http.StatusBadRequest, awsErrBody{"InvalidRequestException", err.Error()})
+		return c.JSON(http.StatusBadRequest, awsErrBody{errTypeInvalidRequest, err.Error()})
 	case errors.Is(err, ErrAlreadyExists):
 
 		return respondConflict(c, err.Error())

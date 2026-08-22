@@ -349,12 +349,12 @@ func (h *Handler) handleDeleteProvisioningTemplateVersion(c *echo.Context) error
 	trimmed := strings.TrimPrefix(c.Request().URL.Path, "/provisioning-templates/")
 	parts := strings.SplitN(trimmed, "/versions/", twoparts)
 	if len(parts) != twoparts {
-		return c.JSON(http.StatusBadRequest, map[string]string{keyError: "invalid path"})
+		return c.JSON(http.StatusBadRequest, awsErrBody{errTypeInvalidRequest, "invalid path"})
 	}
 	name := parts[0]
 	var versionID int32
 	if err := parseInt32(parts[1], &versionID); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{keyError: "invalid versionId"})
+		return c.JSON(http.StatusBadRequest, awsErrBody{errTypeInvalidRequest, "invalid versionId"})
 	}
 	if err := h.Backend.DeleteProvisioningTemplateVersion(name, versionID); err != nil {
 		return respondErr(c, err)
@@ -369,12 +369,12 @@ func (h *Handler) handleDescribeProvisioningTemplateVersion(c *echo.Context) err
 	parts := strings.SplitN(trimmed, "/versions/", pathSplitTwo)
 
 	if len(parts) != pathSplitTwo {
-		return c.JSON(http.StatusBadRequest, map[string]string{keyError: keyInvalidPath})
+		return c.JSON(http.StatusBadRequest, awsErrBody{errTypeInvalidRequest, keyInvalidPath})
 	}
 
 	var versionID int32
 	if err := parseInt32(parts[1], &versionID); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{keyError: "invalid versionId"})
+		return c.JSON(http.StatusBadRequest, awsErrBody{errTypeInvalidRequest, "invalid versionId"})
 	}
 
 	v, err := h.Backend.DescribeProvisioningTemplateVersion(parts[0], versionID)
