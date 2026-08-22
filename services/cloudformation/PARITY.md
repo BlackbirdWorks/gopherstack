@@ -361,3 +361,35 @@ issues. No source changes to this service this batch -- only `PARITY.md`
 and `services/_REQUIRED_OUTPUT_CANDIDATES.md` were touched; the batch's one
 counted bug was in the sibling `emr` service (tied with cloudformation for
 largest remaining candidate after sagemaker), not here.
+
+**2026-08-22 (gopherstack-ifzn) -- RouteMatcher swallowed a body-read failure as a 404,
+masking Handler()'s already-typed InternalFailure**: same shape as autoscaling's entry
+above (see that entry or gopherstack-3a8t for the full survey/rationale). `RouteMatcher`
+now falls back to `service.MatchesUserAgentMarker(r.Header, "api/cloudformation")`
+(verified against the pinned `cloudformation@v1.76.1/api_client.go:641`
+`AddSDKAgentKeyValue` call) only on the `ReadBody` failure branch. Migrated
+`ExtractOperation`/`ExtractResource`/`Handler()` off `r.ParseForm()` onto
+`httputils.ReadBody`+`url.ParseQuery`. Handler()'s read-failure branch was also
+retyped from `InvalidParameterValue` (wrong -- that's a caller-fault code, not a
+server-side read failure) to the service's own existing `InternalFailure` code
+(already used elsewhere in this handler, e.g. `handler_type_registry.go`).
+
+Two package test helpers pre-drained the request body via their own
+`req.ParseForm()` call before invoking `Handler()`/`ExtractOperation`/`ExtractResource`
+directly (`handler_testutil_test.go`'s `postForm`, and two subtests in
+`handler_core_test.go`) -- valid only while those functions also called
+`r.ParseForm()` themselves (a second, idempotent-on-success call). Once migrated to
+`httputils.ReadBody`, that pre-drain left the body empty by the time `ReadBody` ran,
+breaking three previously-passing tests (`TestHandler_DetectStackResourceDrift/success`,
+`TestHandler_ExtractOperation/describe_stacks`, `TestHandler_ExtractResource/stack_name`).
+Fixed by removing the now-redundant pre-drain calls in those three tests --
+production traffic never called `req.ParseForm()` before `Handler()` either, so this
+brings the tests back in line with real request handling rather than working around it.
+
+Proof: `TestHandler_OversizedBodySurfacesInternalFailure` in
+`handler_oversized_body_test.go` drives a real cloudformation SDK client through
+`service.NewRegistry`/`service.NewServiceRouter`, confirmed failing pre-fix with
+`UnknownError`; passes now with `InternalFailure`. `TestHandler_NormalSizedBodyStillRoutes`
+is the regression guard. Gates: `go build`, `go vet`, `gofmt -l` (clean),
+`go test -race ./services/cloudformation/...` (pass), `golangci-lint run
+./services/cloudformation/...` (0 issues).

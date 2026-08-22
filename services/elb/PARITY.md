@@ -213,3 +213,18 @@ All four are covered by new/extended tests: `Test_SDKRoundTrip_LoadBalancerPolic
 `Test_SDKRoundTrip_DeleteLoadBalancerPolicyInUse_IsTyped`, the `malformed_cert_arn_rejected`
 case in `TestDuplicateListenerCreateListeners`, and
 `TestCreateLoadBalancerRejectsMalformedInlineCertARN`.
+
+**2026-08-22 (gopherstack-ifzn) -- RouteMatcher swallowed a body-read failure as a 404,
+masking Handler()'s already-typed InternalFailure**: same shape as autoscaling's entry
+(see that entry or gopherstack-3a8t for the full survey/rationale). `RouteMatcher` now
+falls back to `service.MatchesUserAgentMarker(r.Header, "api/elasticloadbalancing")`
+(verified against the pinned `elasticloadbalancing@v1.36.4/api_client.go:638`
+`AddSDKAgentKeyValue` call) only on the `ReadBody` failure branch. Migrated
+`ExtractOperation`/`ExtractResource`/`Handler()` off `r.ParseForm()` onto
+`httputils.ReadBody`+`url.ParseQuery`, per the docdb/neptune precedent (gopherstack-bahs).
+Proof: `TestHandler_OversizedBodySurfacesInternalFailure` in `handler_oversized_body_test.go`
+drives a real ELB (Classic) SDK client through `service.NewRegistry`/`service.NewServiceRouter`,
+confirmed failing pre-fix with `UnknownError`; passes now with `InternalFailure`.
+`TestHandler_NormalSizedBodyStillRoutes` is the regression guard. Gates: `go build`,
+`go vet`, `gofmt -l` (clean), `go test -race ./services/elb/...` (pass),
+`golangci-lint run ./services/elb/...` (0 issues).

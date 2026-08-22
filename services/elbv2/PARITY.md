@@ -277,3 +277,18 @@ Two related bugs in the trust-store revocation family, both traced by field-diff
 - Every `errors: ok` HTTP status in `ops` above now means **400**, not "whatever seems
   RESTful" — re-verify against api-2.json (not intuition) before changing any status
   code in `elbv2ErrorCode`.
+
+**2026-08-22 (gopherstack-ifzn) -- RouteMatcher swallowed a body-read failure as a 404,
+masking Handler()'s already-typed InternalFailure**: same shape as autoscaling's entry
+(see that entry or gopherstack-3a8t for the full survey/rationale). `RouteMatcher` now
+falls back to `service.MatchesUserAgentMarker(r.Header, "api/elasticloadbalancingv2")`
+(verified against the pinned `elasticloadbalancingv2@v1.58.5/api_client.go:638`
+`AddSDKAgentKeyValue` call) only on the `ReadBody` failure branch. Migrated
+`ExtractOperation`/`ExtractResource`/`Handler()` off `r.ParseForm()` onto
+`httputils.ReadBody`+`url.ParseQuery`, per the docdb/neptune precedent (gopherstack-bahs).
+Proof: `TestHandler_OversizedBodySurfacesInternalFailure` in `handler_oversized_body_test.go`
+drives a real ELBv2 SDK client through `service.NewRegistry`/`service.NewServiceRouter`,
+confirmed failing pre-fix with `UnknownError`; passes now with `InternalFailure`.
+`TestHandler_NormalSizedBodyStillRoutes` is the regression guard. Gates: `go build`,
+`go vet`, `gofmt -l` (clean), `go test -race ./services/elbv2/...` (pass),
+`golangci-lint run ./services/elbv2/...` (0 issues).

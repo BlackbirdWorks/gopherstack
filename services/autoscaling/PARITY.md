@@ -679,3 +679,27 @@ resumes at the right position instead of restarting or getting stuck.
   a wait without checking for a `*:Wait` instance first.
 - `ExecutePolicy` calling `b.applyDesiredCapacityChange` instead of its own
   `adjustInstances` call is intentional (bug fix, not a regression) - see above.
+
+**2026-08-22 (gopherstack-ifzn) -- RouteMatcher swallowed a body-read failure as a 404,
+masking Handler()'s already-typed InternalFailure**: `RouteMatcher` calls
+`httputils.ReadBody` to inspect the form body and decide ownership; on a read failure
+(oversized body) it returned `false`, so the router found no owner and answered a
+generic 404 instead of ever reaching `Handler()`. Autoscaling is one of 13 services (of
+17 total, per gopherstack-3a8t's survey; elasticache/docdb/neptune already fixed) sharing
+this shape, all form-urlencoded query-protocol services distinguished from each other only
+by the body's `Action`/`Version` -- so claiming unconditionally on a read failure would
+misroute a sibling service's oversized body. **The fix**: `RouteMatcher` now falls back to
+`service.MatchesUserAgentMarker(r.Header, "api/autoscaling")` (verified against the pinned
+`autoscaling@v1.70.4/api_client.go:641` `AddSDKAgentKeyValue` call) only on the `ReadBody`
+failure branch, leaving the readable-body `Version`/`Action` matching untouched. Also
+migrated `ExtractOperation`/`ExtractResource`/`Handler()` off `r.ParseForm()` onto
+`httputils.ReadBody`+`url.ParseQuery`: `net/http`'s `ParseForm` caches an empty-but-non-nil
+`r.PostForm` after its first failed call, so a second call (the telemetry wrapper's
+`ExtractOperation` runs before `Handler()`) would have silently "succeeded" empty instead
+of surfacing the read error, per the docdb/neptune precedent (gopherstack-bahs). Proof:
+`TestHandler_OversizedBodySurfacesInternalFailure` in `handler_oversized_body_test.go`
+drives a real autoscaling SDK client through `service.NewRegistry`/`service.NewServiceRouter`,
+confirmed failing pre-fix with `UnknownError`; passes now with `InternalFailure`.
+`TestHandler_NormalSizedBodyStillRoutes` is the regression guard. Gates: `go build`,
+`go vet`, `gofmt -l` (clean), `go test -race ./services/autoscaling/...` (pass),
+`golangci-lint run ./services/autoscaling/...` (0 issues).

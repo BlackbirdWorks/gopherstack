@@ -654,3 +654,20 @@ leaks: {status: fixed, note: "FOUND and FIXED this pass: DeleteDBCluster (Delete
   backend that settles into a steady state. `events` is capped at `maxEvents` (ring-buffer
   trim). No `context.Background()`-rooted unbounded goroutines outside `fis.go` (chaos
   fault-injection, out of this pass's scope) were found in non-test `.go` files.
+
+**2026-08-22 (gopherstack-ifzn) -- RouteMatcher swallowed a body-read failure as a 404,
+masking Handler()'s already-typed error**: same shape as autoscaling's entry (see that
+entry or gopherstack-3a8t for the full survey/rationale). `RouteMatcher` now falls back to
+`service.MatchesUserAgentMarker(r.Header, "api/rds")` (verified against the pinned
+`rds@v1.124.1/api_client.go:641` `AddSDKAgentKeyValue` call) only on the `ReadBody` failure
+branch. Migrated `ExtractOperation`/`ExtractResource`/`Handler()`
+(`handler_dispatch.go`) off `r.ParseForm()` onto `httputils.ReadBody`+`url.ParseQuery`, per
+the docdb/neptune precedent (gopherstack-bahs). Also retyped `Handler()`'s read-failure
+branch from `ValidationException` (400, a caller-fault code) to `InternalFailure` (500,
+this service's own existing code for internal errors) -- a body-read failure is not the
+caller's fault. Proof: `TestHandler_OversizedBodySurfacesInternalFailure` in
+`handler_oversized_body_test.go` drives a real RDS SDK client through
+`service.NewRegistry`/`service.NewServiceRouter`, confirmed failing pre-fix with
+`UnknownError`; passes now with `InternalFailure`. `TestHandler_NormalSizedBodyStillRoutes`
+is the regression guard. Gates: `go build`, `go vet`, `gofmt -l` (clean), `go test -race
+./services/rds/...` (pass), `golangci-lint run ./services/rds/...` (0 issues).

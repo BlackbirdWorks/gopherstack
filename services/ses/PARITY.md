@@ -194,3 +194,18 @@ within a 200/day quota. `AppendEmailForTest` calls the same internal `appendEmai
 business-rule preconditions (verification, quota, account-paused) that are orthogonal to what
 those specific tests assert. Don't be alarmed seeing it used for high-volume tests instead of
 `SendEmail` — that's intentional now, not a regression.
+
+**2026-08-22 (gopherstack-ifzn) -- RouteMatcher swallowed a body-read failure as a 404,
+masking Handler()'s already-typed InternalFailure**: same shape as autoscaling's entry
+(see that entry or gopherstack-3a8t for the full survey/rationale). `RouteMatcher` now
+falls back to `service.MatchesUserAgentMarker(r.Header, "api/ses")` (verified against the
+pinned `ses@v1.37.4/api_client.go:638` `AddSDKAgentKeyValue` call) only on the `ReadBody`
+failure branch, leaving the existing `Version`+`Action` matching untouched. Migrated
+`ExtractOperation`/`ExtractResource`/`Handler()` off `r.ParseForm()` onto
+`httputils.ReadBody`+`url.ParseQuery`, per the docdb/neptune precedent (gopherstack-bahs).
+Proof: `TestHandler_OversizedBodySurfacesInternalFailure` in `handler_oversized_body_test.go`
+drives a real SES SDK client through `service.NewRegistry`/`service.NewServiceRouter`,
+confirmed failing pre-fix with `UnknownError`; passes now with `InternalFailure`.
+`TestHandler_NormalSizedBodyStillRoutes` is the regression guard. Gates: `go build`,
+`go vet`, `gofmt -l` (clean), `go test -race ./services/ses/...` (pass),
+`golangci-lint run ./services/ses/...` (0 issues).

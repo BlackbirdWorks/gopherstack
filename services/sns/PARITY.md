@@ -384,3 +384,31 @@ mutable `certURLValue` field (set once via `SetSigningCertBaseURL` when the mock
 server's address becomes known, read on every signed delivery) — this is a
 single-field auxiliary lock, not a second backend-resource lock, so it does not
 violate the "one coarse lock per backend" rule.
+
+**2026-08-22 (gopherstack-ifzn) -- RouteMatcher swallowed a body-read failure as a 404**:
+same shape as autoscaling's entry (see that entry or gopherstack-3a8t for the full
+survey/rationale). `RouteMatcher` now falls back to
+`service.MatchesUserAgentMarker(c.Request().Header, "api/sns")` (verified against the
+pinned `sns@v1.42.4/api_client.go:638` `AddSDKAgentKeyValue` call) only on the `ReadBody`
+failure branch, leaving the existing `Version`-substring matching untouched.
+
+**Left alone deliberately**: `Handler()`'s own `c.Request().ParseForm()` call was NOT
+migrated. `ExtractOperation`/`ExtractResource` already use `httputils.ReadBody`, not
+`ParseForm`, so `Handler()`'s is the *only* `ParseForm()` call for a given request -- the
+docdb/neptune double-call landmine (a second call silently seeing a cached-empty,
+non-nil `r.PostForm`) does not apply here, verified via the oversized-body test below.
+However, every action handler in this package (`handleCreateTopic` and ~50 others) reads
+parameters via `c.Request().FormValue(...)`, which depends on `r.Form` already being
+populated by that one `ParseForm()` call; migrating it to `httputils.ReadBody` would mean
+threading parsed `url.Values` through every action handler, well beyond this bug's blast
+radius. The read failure IS surfaced (not silently emptied) -- just mapped to
+`InvalidParameter`/400 rather than a 500-class code, a pre-existing wrong-code gap, not a
+masked-empty-body bug. Not fixed; flagged here rather than silently left for the next
+pass to rediscover.
+
+Proof: `TestHandler_OversizedBodySurfacesTypedError` in `handler_oversized_body_test.go`
+drives a real SNS SDK client through `service.NewRegistry`/`service.NewServiceRouter`,
+confirmed failing pre-fix with `UnknownError`; passes now with a typed
+`InvalidParameter`/400 (not `InternalFailure`, see above). `TestHandler_NormalSizedBodyStillRoutes`
+is the regression guard. Gates: `go build`, `go vet`, `gofmt -l` (clean), `go test -race
+./services/sns/...` (pass), `golangci-lint run ./services/sns/...` (0 issues).

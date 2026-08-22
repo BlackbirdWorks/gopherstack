@@ -145,3 +145,29 @@ always `b.mu` (RLock to resolve/look up the queue) **then** `q.mu` — never the
 several functions (e.g. `GetQueueAttributes`, `Snapshot`) legitimately nest `q.mu.Lock()`
 inside an `b.mu.RLock()` critical section. Do not add a call path that acquires `q.mu`
 first and `b.mu` afterward.
+
+**2026-08-22 (gopherstack-ifzn) -- RouteMatcher's legacy Query-protocol branch swallowed a
+body-read failure as a 404**: same survey/rationale as gopherstack-3a8t (see autoscaling's
+entry). `RouteMatcher`'s form-urlencoded (Query-protocol) branch now falls back to
+`service.MatchesUserAgentMarker(r.Header, "api/sqs")` (verified against the pinned
+`sqs@v1.46.4/api_client.go:640` `AddSDKAgentKeyValue` call) only on the `ReadBody` failure
+branch. No `ParseForm` migration needed: `handleQueryProtocol` (`query.go`) already used
+`httputils.ReadBody`+`url.ParseQuery` exclusively and already wrote a typed `InternalError`
+on a read failure -- only `RouteMatcher` had the bug.
+
+**The pinned aws-sdk-go-v2 sqs client (v1.46.4) sends JSON-RPC** (`X-Amz-Target:
+AmazonSQS.*`), which `RouteMatcher`'s first branch matches on the header alone, without
+ever reading the body -- so a real client can't drive the Query-protocol branch this fix
+targets. That branch still matters for the AWS CLI, boto3, or other non-JSON SQS callers,
+so `TestRouteMatcher_OversizedQueryProtocolBodyRoutesInsteadOf404` sends a raw
+form-urlencoded POST with the real `api/sqs` marker rather than going through the SDK
+client, still routed through `service.NewRegistry`/`service.NewServiceRouter`. Separately,
+`TestHandler_OversizedBodySurfacesInternalFailure` drives the real (JSON-RPC) SDK client
+and confirms `pkgs/service.HandleTarget`'s pre-existing `ReadBody`-failure handling
+(typed `InternalFailure`) was already correct and is unaffected by this change.
+
+`TestHandler_NormalSizedBodyStillRoutes` is the regression guard. Gates: `go build`,
+`go vet`, `gofmt -l` (clean), `go test -race ./services/sqs/...` (pass; fixed a goroutine
+leak in the new test file by adding the package's established
+`t.Cleanup(backend.Close)` for the janitor goroutine), `golangci-lint run
+./services/sqs/...` (0 issues).

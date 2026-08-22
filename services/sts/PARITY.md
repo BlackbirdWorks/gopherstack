@@ -356,3 +356,28 @@ per-operator, so stripping the suffix before the per-operator switch cannot
 change any operator's present-key comparison semantics. `Null` is AWS's one
 documented exception (no `IfExists` variant — presence-testing is already
 its job) and is special-cased to run before that check entirely.
+
+**2026-08-22 (gopherstack-ifzn) -- RouteMatcher swallowed a body-read failure as a 404,
+masking Handler()'s already-typed InternalFailure**: same survey/rationale as
+gopherstack-3a8t (see autoscaling's entry). `RouteMatcher` now falls back to
+`service.MatchesUserAgentMarker(c.Request().Header, "api/sts")` (verified against the
+pinned `sts@v1.45.4/api_client.go:651` `AddSDKAgentKeyValue` call) only on the `ReadBody`
+failure branch, leaving the existing `Version`-substring matching untouched.
+
+**`dispatch()`'s single `r.ParseForm()` call was left as-is, verified safe rather than
+migrated.** `ExtractOperation`/`ExtractResource` already use `httputils.ReadBody` (via a
+manual `parseFormValues` helper), not `r.ParseForm()`, so `dispatch()`'s call is the
+*only* `ParseForm()` call for a given request -- the docdb/neptune double-call landmine
+(a second call silently seeing a cached-empty, non-nil `r.PostForm` instead of the real
+read error) requires a *second* call to manifest, and there isn't one here. Confirmed by
+the oversized-body test: it surfaces `InternalFailure` directly, with no intermediate
+`MissingAction` step.
+
+Proof: `TestHandler_OversizedBodySurfacesInternalFailure` in `handler_oversized_body_test.go`
+adds a new registry-routed test client (`newTestSTSRoutedClient`) -- this package's other
+helpers (`newTestHandler`+`postForm`, `buildSTSClient`+`newEchoServer`) all mount
+`Handler()` directly, bypassing `RouteMatcher` entirely, so none of them could prove the
+routing half of this fix. Confirmed failing pre-fix with `UnknownError`; passes now with
+`InternalFailure`. `TestHandler_NormalSizedBodyStillRoutes` is the regression guard.
+Gates: `go build`, `go vet`, `gofmt -l` (clean), `go test -race ./services/sts/...`
+(pass), `golangci-lint run ./services/sts/...` (0 issues).

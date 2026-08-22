@@ -202,7 +202,13 @@ func (h *Handler) RouteMatcher() service.Matcher {
 
 		body, err := httputils.ReadBody(r)
 		if err != nil {
-			return false
+			// Body unreadable (e.g. oversized): fall back to the User-Agent
+			// marker every aws-sdk-go-v2 cloudformation client sets
+			// (api_client.go's AddSDKAgentKeyValue -- "api/cloudformation").
+			// That still identifies this as ours, so claim it and let
+			// Handler() produce the typed error instead of masking the
+			// read failure as a 404.
+			return service.MatchesUserAgentMarker(r.Header, "api/cloudformation")
 		}
 
 		vals, err := url.ParseQuery(string(body))
@@ -223,35 +229,51 @@ func (h *Handler) MatchPriority() int { return cfnMatchPriority }
 
 // ExtractOperation extracts the Action from the form.
 func (h *Handler) ExtractOperation(c *echo.Context) string {
-	r := c.Request()
-	if err := r.ParseForm(); err != nil {
+	body, err := httputils.ReadBody(c.Request())
+	if err != nil {
 		return ""
 	}
 
-	return r.Form.Get("Action")
+	vals, err := url.ParseQuery(string(body))
+	if err != nil {
+		return ""
+	}
+
+	return vals.Get("Action")
 }
 
 // ExtractResource extracts the StackName from the form.
 func (h *Handler) ExtractResource(c *echo.Context) string {
-	r := c.Request()
-	if err := r.ParseForm(); err != nil {
+	body, err := httputils.ReadBody(c.Request())
+	if err != nil {
 		return ""
 	}
 
-	return r.Form.Get("StackName")
+	vals, err := url.ParseQuery(string(body))
+	if err != nil {
+		return ""
+	}
+
+	return vals.Get("StackName")
 }
 
 // Handler returns the Echo handler function.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
 		r := c.Request()
-		if err := r.ParseForm(); err != nil {
+		body, err := httputils.ReadBody(r)
+		if err != nil {
+			return h.xmlError(c, "InternalFailure", "failed to read request body")
+		}
+
+		vals, err := url.ParseQuery(string(body))
+		if err != nil {
 			return h.xmlError(c, "InvalidParameterValue", "cannot parse form body")
 		}
-		action := r.Form.Get("Action")
+		action := vals.Get("Action")
 		c.Response().Header().Set("Content-Type", "text/xml")
 
-		return h.dispatch(action, r.Form, c)
+		return h.dispatch(action, vals, c)
 	}
 }
 

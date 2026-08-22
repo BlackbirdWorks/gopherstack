@@ -34,7 +34,6 @@ func postForm(t *testing.T, h *cloudformation.Handler, body string) *httptest.Re
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
-	require.NoError(t, req.ParseForm())
 	err := h.Handler()(c)
 	require.NoError(t, err)
 

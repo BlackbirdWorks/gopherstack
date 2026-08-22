@@ -741,3 +741,51 @@ run` all green, scoped to `services/cloudwatch`; `make build-check` green.
 2 `fieldalignment` findings fixed by reordering struct fields (zero-sized
 `Result` field was landing last, forcing 8 bytes of trailing padding), not
 suppressed. 0 new nolints. No exported signature changed.
+
+**2026-08-22 (gopherstack-ifzn) -- RouteMatcher swallowed a body-read failure as a 404 on
+its legacy form-urlencoded (Query/XML) branch, and a second, unrelated silent-empty-input
+bug on its rpc-v2-cbor branch**: same survey/rationale as gopherstack-3a8t (see
+autoscaling's entry). `RouteMatcher`'s form-urlencoded branch now falls back to
+`service.MatchesUserAgentMarker(r.Header, "api/cloudwatch")` (verified against the pinned
+`cloudwatch@v1.66.3/api_client.go:719` `AddSDKAgentKeyValue` call) only on the `ReadBody`
+failure branch; `ExtractOperation`/`ExtractResource`/`handleFormRequest` migrated off a
+confused mix of `r.ParseForm()` and `httputils.ReadBody` (the pre-existing code called
+`r.ParseForm()` first and fell back to `httputils.ReadBody` only on error, relying on a
+stale "ParseForm is idempotent; RouteMatcher may have already called it" comment -- false:
+only the *first* `ParseForm()` call surfaces a read error, a second silently sees a
+cached-empty, non-nil `r.PostForm`) onto `httputils.ReadBody`+`url.ParseQuery` consistently.
+
+**The pinned aws-sdk-go-v2 cloudwatch client (v1.66.3) sets `options.Protocol =
+rpcv2.NewCBOR(...)` unconditionally** (`api_client.go:214`), so every operation a real Go
+SDK client issues uses rpc-v2-cbor, never the legacy form-urlencoded protocol the
+RouteMatcher fix above targets -- that branch still matters for the AWS CLI, boto3, or an
+older (<1.55) SDK, but no real client available here can drive it, so the corresponding
+test (`TestRouteMatcher_OversizedFormBodyRoutesInsteadOf404`) sends a raw form-urlencoded
+POST with the real `api/cloudwatch` User-Agent marker rather than going through the SDK
+client, still routed through `service.NewRegistry`/`service.NewServiceRouter`.
+
+The CBOR path a real client actually hits (`handleTargetRequest` -> `dispatchCBOR`) has
+its own, separate bug: on an oversized body it silently treats `err != nil` the same as
+`len(body) == 0` and proceeds with an *empty* input map rather than surfacing the read
+failure -- not the 404 this issue tracks (RouteMatcher's CBOR branch matches on
+`X-Amz-Target`/path alone, never reading the body), but a legitimate empty-input bug.
+**Left unfixed**: out of this issue's scope (it is not a masked-404, and dispatching with
+a silently-empty input is a distinct correctness bug worth its own pass); filed as a
+follow-up. `handleCBOR` (the direct rpc-v2-cbor path, used when `X-Amz-Target` is absent)
+already reads the body itself with its own cap and already returns a typed
+`SerializationException` on failure -- confirmed via
+`TestHandler_CBOROversizedBodyAlreadyTyped`, unaffected by any change here.
+
+Two test-level `req.ParseForm()`/`r.ParseForm()` pre-drain calls (`handler_test.go`'s
+`postForm`, `provider_test.go`'s `cwServer`) broke once `Handler()` stopped relying on
+`r.ParseForm()`'s idempotent-on-success caching; removed, same rationale as
+cloudformation's entry. `TestCloudWatchHandler_ExtractOperation_ParseFormError` and
+`TestCloudWatchHandler_ExtractResource_ParseFormError` tested a malformed *URL* query
+string (`r.ParseForm()` merges URL query params with the POST body; `httputils.ReadBody`+
+`url.ParseQuery` reads only the body) -- updated to put the malformed encoding in the body
+instead, preserving the tests' original intent (a `url.ParseQuery` failure returns empty).
+
+Proof: `TestRouteMatcher_OversizedFormBodyRoutesInsteadOf404` (raw HTTP, see above) confirms
+the RouteMatcher fix; `TestHandler_NormalSizedBodyStillRoutes` (real SDK client, rpc-v2-cbor)
+is the regression guard. Gates: `go build`, `go vet`, `gofmt -l` (clean), `go test -race
+./services/cloudwatch/...` (pass), `golangci-lint run ./services/cloudwatch/...` (0 issues).

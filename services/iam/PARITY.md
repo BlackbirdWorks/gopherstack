@@ -72,3 +72,19 @@ items_still_open:
 - Sweep 6 (2026-08-07): consolidated comprehensiveBackend's private sync.Mutex onto the coarse b.mu (bd gopherstack-gjp/gopherstack-2sz3) and added Marker/MaxItems/Filter support to GetAccountAuthorizationDetails — see items_still_open for detail. RoleDetail.InstanceProfileList (the other item gjp originally flagged) was already fixed in an earlier pass (6bad2f9, 2026-07-16); confirmed still correct, no action needed.
 - Sweep 5 (2026-07-24): full-surface invented-op audit (compared every routed dispatch-table key against the real aws-sdk-go-v2/service/iam v1.55.0 `api_op_*.go` file list — 176 real ops, all routed, 5 gopherstack-only fabrications found and deleted — see invented_ops_removed). Then field-diffed every Delete*/Update*(rename) op in the users/groups/roles/instance-profiles/policies family against the SDK doc comments' documented dependency-removal lists, finding and fixing 4 missing DeleteConflict checks (DeleteUser, DeleteRole, DeleteGroup, DeleteInstanceProfile) and 2 ghost-state leak classes (stale reverse policyAttachments index on rename; stale Handler-level tags on delete/rename of the 5 resource kinds tagged outside their backend model). Also fixed the comp() lazy-init data race (bd gopherstack-v9z0). Did not re-verify every family from scratch (see items_still_open) — this was a targeted correctness pass on the delete/rename lifecycle plus an invented-surface sweep, not a full field-by-field re-diff of every op.
 - Sweep 4 (2026-07-11): re-audit found local drift since 71cd5441 was entirely commit ce30166a ("Parity sweep 3"), whose fixes were already reflected in this ledger (last_audit_commit had gone stale — the ledger was written *by* that commit but never bumped its own pointer). The only other change in range was the e51c0de9 dependency bump (aws-sdk-go-v2/service/iam v1.54.7 -> v1.55.0); diffed the vendored module trees and confirmed no API-surface change (CHANGELOG.md/generated.json/go_module_metadata.go only). Real fix made: RoleDetail.InstanceProfileList.
+
+**2026-08-22 (gopherstack-ifzn) -- RouteMatcher swallowed a body-read failure as a 404,
+masking Handler()'s already-typed ServiceFailure**: same shape as autoscaling's entry
+(see that entry or gopherstack-3a8t for the full survey/rationale). `RouteMatcher` now
+falls back to `service.MatchesUserAgentMarker(r.Header, "api/iam")` (verified against the
+pinned `iam@v1.58.1/api_client.go:638` `AddSDKAgentKeyValue` call) only on the `ReadBody`
+failure branch. No `ParseForm` migration was needed: `ExtractOperation`, `ExtractResource`,
+and `Handler()` already used `httputils.ReadBody`+`url.ParseQuery` exclusively (never
+`r.ParseForm()`), and `Handler()` already wrote a typed `ServiceFailure` (500) on a read
+failure -- only `RouteMatcher` had the bug. Proof:
+`TestHandler_OversizedBodySurfacesInternalFailure` in `handler_oversized_body_test.go`
+drives a real IAM SDK client through `service.NewRegistry`/`service.NewServiceRouter`,
+confirmed failing pre-fix with `UnknownError`; passes now with `ServiceFailure`.
+`TestHandler_NormalSizedBodyStillRoutes` is the regression guard. Gates: `go build`,
+`go vet`, `gofmt -l` (clean), `go test -race ./services/iam/...` (pass),
+`golangci-lint run ./services/iam/...` (0 issues).

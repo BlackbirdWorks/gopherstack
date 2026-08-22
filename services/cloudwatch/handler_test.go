@@ -96,18 +96,23 @@ func TestHandler_Tags_MergedOnRetag(t *testing.T) {
 	assert.Contains(t, body, "k2")
 }
 
+// TestCloudWatchHandler_ExtractOperation_ParseFormError covers the
+// url.ParseQuery error path in ExtractOperation. ExtractOperation reads and
+// parses only the POST body (via httputils.ReadBody + url.ParseQuery), not
+// the URL's own query string, so the malformed input has to live in the
+// body to exercise the error branch.
 func TestCloudWatchHandler_ExtractOperation_ParseFormError(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name   string
-		rawURL string
-		want   string
+		name string
+		body string
+		want string
 	}{
 		{
-			name:   "invalid_query_string_returns_empty",
-			rawURL: "/?%zz=1",
-			want:   "",
+			name: "invalid_body_query_string_returns_empty",
+			body: "%zz=1",
+			want: "",
 		},
 	}
 
@@ -117,9 +122,8 @@ func TestCloudWatchHandler_ExtractOperation_ParseFormError(t *testing.T) {
 
 			h := cloudwatch.NewHandler(cloudwatch.NewInMemoryBackend())
 			e := echo.New()
-			req := httptest.NewRequest(http.MethodPost, tt.rawURL, strings.NewReader("Action=ListMetrics"))
+			req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(tt.body))
 			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-			req.RequestURI = tt.rawURL
 			c := e.NewContext(req, httptest.NewRecorder())
 
 			result := h.ExtractOperation(c)
@@ -128,18 +132,22 @@ func TestCloudWatchHandler_ExtractOperation_ParseFormError(t *testing.T) {
 	}
 }
 
+// TestCloudWatchHandler_ExtractResource_ParseFormError covers the
+// url.ParseQuery error path in ExtractResource. See
+// TestCloudWatchHandler_ExtractOperation_ParseFormError for why the
+// malformed input must live in the body rather than the URL.
 func TestCloudWatchHandler_ExtractResource_ParseFormError(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name   string
-		rawURL string
-		want   string
+		name string
+		body string
+		want string
 	}{
 		{
-			name:   "invalid_query_string_returns_empty",
-			rawURL: "/?%zz=1",
-			want:   "",
+			name: "invalid_body_query_string_returns_empty",
+			body: "%zz=1",
+			want: "",
 		},
 	}
 
@@ -149,9 +157,8 @@ func TestCloudWatchHandler_ExtractResource_ParseFormError(t *testing.T) {
 
 			h := cloudwatch.NewHandler(cloudwatch.NewInMemoryBackend())
 			e := echo.New()
-			req := httptest.NewRequest(http.MethodPost, tt.rawURL, strings.NewReader("Namespace=AWS/EC2"))
+			req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(tt.body))
 			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-			req.RequestURI = tt.rawURL
 			c := e.NewContext(req, httptest.NewRecorder())
 
 			result := h.ExtractResource(c)
@@ -370,7 +377,6 @@ func postForm(t *testing.T, h *cloudwatch.Handler, body string) *httptest.Respon
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
-	require.NoError(t, req.ParseForm())
 	err := h.Handler()(c)
 	require.NoError(t, err)
 

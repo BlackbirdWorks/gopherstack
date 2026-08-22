@@ -986,3 +986,17 @@ nested response subtrees) disproportionate to the traffic these fields see:
   zero pre-existing backend state (no `CreateReservation` call has ever run
   against this backend) to hang a reservation's identity on. Still tracked in
   `sdk_completeness_test.go`'s `notImplemented` slice.
+
+**2026-08-22 (gopherstack-ifzn) -- RouteMatcher swallowed a body-read failure as a 404,
+masking Handler()'s already-typed InternalFailure**: same shape as autoscaling's entry
+(see that entry or gopherstack-3a8t for the full survey/rationale). `RouteMatcher` now
+falls back to `service.MatchesUserAgentMarker(r.Header, "api/redshift")` (verified against
+the pinned `redshift@v1.65.4/api_client.go:637` `AddSDKAgentKeyValue` call) only on the
+`ReadBody` failure branch. Migrated `ExtractOperation`/`ExtractResource`/`Handler()` off
+`r.ParseForm()` onto `httputils.ReadBody`+`url.ParseQuery`, per the docdb/neptune precedent
+(gopherstack-bahs). Proof: `TestHandler_OversizedBodySurfacesInternalFailure` in
+`handler_oversized_body_test.go` drives a real Redshift SDK client through
+`service.NewRegistry`/`service.NewServiceRouter`, confirmed failing pre-fix with
+`UnknownError`; passes now with `InternalFailure`. `TestHandler_NormalSizedBodyStillRoutes`
+is the regression guard. Gates: `go build`, `go vet`, `gofmt -l` (clean), `go test -race
+./services/redshift/...` (pass), `golangci-lint run ./services/redshift/...` (0 issues).
