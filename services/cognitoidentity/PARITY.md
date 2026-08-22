@@ -103,6 +103,31 @@ leaks: {status: clean, note: "no goroutines/janitors in this service; single loc
   backend.go) via `store.Table`/`store.Index`, with per-request region resolved from
   `X-Amz-Region`/SigV4 via `regionContextKey`. Verified consistent across all ops.
 
+## 2026-08-22 — gopherstack-jodk: SetIdentityPoolRoles rejected a legal empty Roles map
+
+Found via PR #2433's `terraform-tests (2)` CI shard, which reproduces against
+the real terraform AWS provider: `tofu destroy` on an
+`aws_cognito_identity_pool_roles_attachment` sends `SetIdentityPoolRoles`
+with a non-nil, zero-length `Roles` map to clear the association, and
+gopherstack rejected it with `InvalidParameterException: Roles must contain
+at least one of authenticated or unauthenticated`
+(`handler_identity_pool_roles.go:43`), so the destroy could never complete.
+Verified against the pinned SDK's own client-side validator
+(`cognitoidentity@v1.36.4/validators.go:929`,
+`validateOpSetIdentityPoolRolesInput`): it checks only `v.Roles == nil`,
+never its length, so a real client is free to send an empty-but-non-nil map.
+Fixed by replacing the `len(in.Roles) == 0` rejection with `in.Roles == nil`.
+The pre-existing partial-merge semantics in `identity_pool_roles.go`
+(omitted keys preserved, tested by `TestInMemoryBackend_SetIdentityPoolRoles_MergePreservesExistingRole`)
+were left untouched — out of this bug's scope.
+
+Not a regression: `handler_identity_pool_roles.go` has no commits since this
+branch's merge-base with `origin/main`. Proven with a real aws-sdk-go-v2
+client test (`sdk_set_identity_pool_roles_empty_test.go`) that reproduces
+the exact reported error verbatim against unfixed code and passes against
+the fix. This is gopherstack-4ly2's over-validation class, caught on a
+destroy path that a static validator-reading sweep does not reach.
+
 ## 2026-08-21 pass — required-output-member sweep (gopherstack-r80d batch 27)
 
 Module confirmed as `aws-sdk-go-v2/service/cognitoidentity@v1.36.4` directly

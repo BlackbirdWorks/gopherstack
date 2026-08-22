@@ -38,9 +38,9 @@ func (h *Handler) handleSetIdentityPoolRoles(
 		return nil, fmt.Errorf("%w: IdentityPoolId is required", ErrInvalidParameter)
 	}
 
-	if len(in.Roles) == 0 {
+	if in.Roles == nil {
 		return nil, fmt.Errorf(
-			"%w: Roles must contain at least one of authenticated or unauthenticated",
+			"%w: Roles is required",
 			ErrInvalidParameter,
 		)
 	}
