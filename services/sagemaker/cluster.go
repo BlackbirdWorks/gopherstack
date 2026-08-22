@@ -763,21 +763,22 @@ func (b *InMemoryBackend) AttachClusterNodeVolume(
 }
 
 // BatchAddClusterNodes adds multiple nodes to a cluster.
-// Returns clusterArn and a slice of nodeIDs that failed to add.
+// Returns clusterArn, the nodes that were added, and the node configs that
+// failed (duplicate node ID).
 func (b *InMemoryBackend) BatchAddClusterNodes(
 	ctx context.Context,
 	clusterName string,
 	nodeConfigs []ClusterNode,
-) (string, []string, error) {
+) (string, []ClusterNode, []ClusterNode, error) {
 	b.mu.Lock("BatchAddClusterNodes")
 	defer b.mu.Unlock()
 
 	c, err := b.ensureClusterLocked(ctx, clusterName)
 	if err != nil {
-		return "", nil, err
+		return "", nil, nil, err
 	}
 
-	var failures []string
+	var successful, failed []ClusterNode
 
 	for i := range nodeConfigs {
 		node := &nodeConfigs[i]
@@ -790,16 +791,17 @@ func (b *InMemoryBackend) BatchAddClusterNodes(
 		}
 
 		if _, exists := c.Nodes[node.NodeID]; exists {
-			failures = append(failures, node.NodeID)
+			failed = append(failed, *node)
 
 			continue
 		}
 
 		nodeCopy := *node
 		c.Nodes[node.NodeID] = &nodeCopy
+		successful = append(successful, nodeCopy)
 	}
 
-	return c.ClusterArn, failures, nil
+	return c.ClusterArn, successful, failed, nil
 }
 
 // BatchDeleteClusterNodes removes multiple nodes from a cluster.
@@ -864,32 +866,33 @@ func (b *InMemoryBackend) BatchRebootClusterNodes(
 }
 
 // BatchReplaceClusterNodes replaces multiple nodes in a cluster.
-// Returns clusterArn and a slice of nodeIDs that failed to replace.
+// Returns clusterArn, the nodeIDs that failed to replace, and the nodeIDs
+// that were replaced successfully.
 func (b *InMemoryBackend) BatchReplaceClusterNodes(
 	ctx context.Context,
 	clusterName string,
 	nodes []ClusterNode,
-) (string, []string, error) {
+) (string, []string, []string, error) {
 	b.mu.Lock("BatchReplaceClusterNodes")
 	defer b.mu.Unlock()
 
 	c, err := b.ensureClusterLocked(ctx, clusterName)
 	if err != nil {
-		return "", nil, err
+		return "", nil, nil, err
 	}
 
-	var failures []string
+	var failed, successful []string
 
 	for i := range nodes {
 		node := &nodes[i]
 		if node.NodeID == "" {
-			failures = append(failures, "")
+			failed = append(failed, "")
 
 			continue
 		}
 
 		if _, ok := c.Nodes[node.NodeID]; !ok {
-			failures = append(failures, node.NodeID)
+			failed = append(failed, node.NodeID)
 
 			continue
 		}
@@ -897,7 +900,8 @@ func (b *InMemoryBackend) BatchReplaceClusterNodes(
 		nodeCopy := *node
 		nodeCopy.NodeStatus = statusRunning
 		c.Nodes[node.NodeID] = &nodeCopy
+		successful = append(successful, node.NodeID)
 	}
 
-	return c.ClusterArn, failures, nil
+	return c.ClusterArn, failed, successful, nil
 }

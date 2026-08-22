@@ -69,7 +69,11 @@ type StorageBackend interface {
 		clusterName, nodeID string,
 		volume ClusterNodeVolume,
 	) (string, string, error)
-	BatchAddClusterNodes(ctx context.Context, clusterName string, nodeConfigs []ClusterNode) (string, []string, error)
+	BatchAddClusterNodes(
+		ctx context.Context,
+		clusterName string,
+		nodeConfigs []ClusterNode,
+	) (string, []ClusterNode, []ClusterNode, error)
 	BatchDeleteClusterNodes(
 		ctx context.Context,
 		clusterName string,
@@ -81,7 +85,11 @@ type StorageBackend interface {
 		clusterName string,
 		nodeIDs []string,
 	) (string, []string, []string, error)
-	BatchReplaceClusterNodes(ctx context.Context, clusterName string, nodes []ClusterNode) (string, []string, error)
+	BatchReplaceClusterNodes(
+		ctx context.Context,
+		clusterName string,
+		nodes []ClusterNode,
+	) (string, []string, []string, error)
 
 	CreateAction(
 		ctx context.Context,

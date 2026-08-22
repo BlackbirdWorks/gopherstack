@@ -4863,3 +4863,127 @@ typed struct simply has no slot for the extra key) -- not fixed, no severity: `C
 
 **Gates:** `go build`, `go vet`, `gofmt -l`, `go test -race`, `golangci-lint run`, all clean
 for `services/sagemaker/...`.
+
+## 2026-08-22 (gopherstack-f31u): Batch{Add,Delete,Reboot,Replace}ClusterNodes output shape fixed
+
+Fixed the four ops the zquj sweep deferred above. Each of the three claims verified
+independently against `aws-sdk-go-v2/service/sagemaker@v1.263.2`, per op:
+
+- **Invented `ClusterArn`**: confirmed for all four. None of
+  `BatchAddClusterNodesOutput`/`BatchDeleteClusterNodesOutput`/
+  `BatchRebootClusterNodesOutput`/`BatchReplaceClusterNodesOutput`
+  (`api_op_Batch{Add,Delete,Reboot,Replace}ClusterNodes.go`) declare a `ClusterArn` member,
+  and none of the four `awsAwsjson11_deserializeOpDocumentBatch*Output` case lists
+  (`deserializers.go`) has a `"ClusterArn"` case — an exact-match deserializer drops it
+  silently. Removed from all four responses.
+- **Wrong-shape flat `Failures`/`Errors`**: confirmed, but the *starting point* differed by
+  op from the zquj note (verify-every-claim caught this): gopherstack's `Failures` was
+  correct for Add/Replace but Delete already used `"Errors"` (not `"Failures"`) and both
+  Delete/Reboot's `Failed`-equivalent lists were flat `[]string`, never the real per-op
+  typed struct. Real shapes: `Failed []types.BatchAddClusterNodesError`
+  (`api_op_BatchAddClusterNodes.go:60-66`, keyed by `InstanceGroupName`+`FailedCount`, both
+  `This member is required` along with `ErrorCode`), `Failed []types.BatchDeleteClusterNodesError`
+  (`api_op_BatchDeleteClusterNodes.go`, `Code`/`Message`/`NodeId`, `types/types.go:3254-3269`,
+  all three required), `Failed []types.BatchRebootClusterNodesError`
+  (`ErrorCode`/`Message`/`NodeId`, `types/types.go:3376-3391`, all required),
+  `Failed []types.BatchReplaceClusterNodesError` (same three fields,
+  `types/types.go:3448-3463`, all required). Note Delete's error-code field is JSON key
+  `"Code"`; Reboot/Replace's is `"ErrorCode"` — not interchangeable despite otherwise
+  identical shape. Deserializer case name for all four is `"Failed"`
+  (`deserializers.go:awsAwsjson11_deserializeOpDocumentBatch*Output`), not `"Failures"`/`"Errors"`.
+- **`Successful` never written**: confirmed for Add and Replace only — **refuting** the zquj
+  note's claim that this held for all four. Delete and Reboot's handlers already wrote a
+  `"Successful"` key with correct flat-`[]string` content (`api_op_BatchDeleteClusterNodes.go`'s
+  `Successful []string`, `api_op_BatchRebootClusterNodes.go`'s `Successful []string` both
+  match gopherstack's pre-existing flat shape); only their `Failed` shape was broken. Add and
+  Replace's shared `batchClusterNodesWithFailures` helper genuinely never returned or wrote
+  a `Successful` value at all. Add's real `Successful` type is `[]types.NodeAdditionResult`
+  (`InstanceGroupName`/`NodeLogicalId`/`Status`, all required, `types/types.go:16094-16118`);
+  Replace's is flat `[]string` like Delete/Reboot.
+
+**The four ops do not share one output shape.** Delete and Reboot are structurally identical
+to each other (flat `Successful []string` + typed `Failed`, differing only in the error
+struct's code-field JSON key) and are now served by one shared handler,
+`handleBatchNodeIDsOp`. Add is genuinely different: `Successful` is a list of structs
+(`NodeAdditionResult`), and `Failed` is keyed by `InstanceGroupName`+`FailedCount` (an
+aggregate over possibly many nodes), not by individual node ID like the other three. Replace
+is flat-`Successful` like Delete/Reboot but was left on its own path since its request shape
+(see below) already diverged.
+
+**Backend signature changes** (the deferred sizing said this was needed for Add only — it
+also turned out to be needed for Replace, since its shared helper with Add never returned a
+successful list either): `InMemoryBackend.BatchAddClusterNodes` now returns
+`(string, []ClusterNode, []ClusterNode, error)` (arn, successful, failed) instead of
+`(string, []string, error)` (arn, failures); `BatchReplaceClusterNodes` now returns
+`(string, []string, []string, error)` (arn, failed, successful) instead of
+`(string, []string, error)` (arn, failures). Delete/Reboot's backend signatures were already
+correct and untouched. New wire types in `handler_cluster.go`:
+`batchAddClusterNodesError`/`nodeAdditionResult`/`batchDeleteClusterNodesError`/
+`batchRebootClusterNodesError`/`batchReplaceClusterNodesError`. `batchClusterNodesWithFailures`
+(the old shared helper) is gone, replaced by per-op construction plus the new
+`handleBatchNodeIDsOp` shared by Delete/Reboot only.
+
+**Sizing check: bigger than estimated, in a way the deferred note didn't anticipate.**
+Writing the real-client proof test surfaced a **second, separate bug**, not covered by
+gopherstack-f31u or the zquj sweep: the *request* side of `BatchAddClusterNodes` and
+`BatchReplaceClusterNodes` is also silently broken, by the identical exact-match-decode-drops-
+unknown-key mechanism, just on gopherstack's inbound `json.Unmarshal` instead of the SDK's
+outbound deserializer. The real SDK client serializes `BatchAddClusterNodesInput` under
+`"NodesToAdd"` (`serializers.go:39038`, a `[]types.AddClusterNodeSpecification` of
+`InstanceGroupName`+`IncrementTargetCountBy`, an entirely different shape from node IDs) and
+`BatchReplaceClusterNodesInput` under `"NodeIds"` (`serializers.go:39123`, flat `[]string`,
+no per-node `InstanceType`) — gopherstack's request structs read `"NodeConfigs"` and
+`"Nodes"` (`[]{NodeId,InstanceType}`) respectively, neither of which the real client ever
+sends. **Both ops are currently a complete no-op via any real AWS SDK client**: the request
+body decodes to an empty node list every time, regardless of what the caller asked for. Delete
+and Reboot already read the correct `"NodeIds"` key and are unaffected. Add's fix would require
+a genuine request-model redesign (server-generated `NodeLogicalId`s, per-instance-group count
+tracking) rather than a rename; Replace's fix is a bounded rename+retype
+(`Nodes []clusterNodeRequest` -> `NodeIds []string`, dropping the never-real per-node
+`InstanceType`). Neither is fixed here — both are out of scope for f31u's output-shape fix and
+are flagged here as a new, not-yet-filed follow-up, same severity class as this pass (silently
+wrong data, not an error).
+
+**Proof:** `TestHandler_BatchDeleteClusterNodes_RealClient` and
+`TestHandler_BatchRebootClusterNodes_RealClient` (`handler_cluster_test.go`) drive the real
+SDK client end-to-end (seed a node via the backend, `NodeIds: [seeded, missing]`) and assert
+`out.Successful == [seeded]`, `out.Failed[0].{Code,ErrorCode}`/`NodeId`/`Message` are correct
+and non-empty. Confirmed failing pre-fix via hand-revert: `out.Failed` decoded to **0 items**
+(the real client silently dropped `"Failures"`/`"Errors"`, the invented key) even though a
+missing node ID was requested. Add and Replace can't get the same real-client-driven
+non-empty proof without also fixing the request-decode bug above, so they're proven two ways
+instead: `TestHandler_BatchAddClusterNodes_RealClient_ResponseShape` /
+`TestHandler_BatchReplaceClusterNodes_RealClient_ResponseShape` drive the real client through
+an empty-effect call and assert the response typed-decodes with no `ClusterArn` member and
+correctly-typed (empty) `Successful`/`Failed`; `TestHandler_BatchAddClusterNodes_DuplicateNodeFails`
+/ `TestHandler_BatchReplaceClusterNodes_MissingNodeFails` drive gopherstack's own accepted raw
+wire format directly and assert the actual non-empty structured `Failed` entries (`ErrorCode`,
+`InstanceGroupName`, `FailedCount` for Add; `ErrorCode`, `NodeId`, `Message` for Replace).
+Confirmed failing pre-fix: `DuplicateNodeFails` got a response containing the invented
+`"ClusterArn"` key plus flat `"Failures":["node-1"]`; `MissingNodeFails` got `"ClusterArn"`
+plus flat `"Failures":["missing-node"]`. All four hand-reverted via
+`cp` to scratch + `git show HEAD:<path>`, restored, `md5sum` byte-identical after re-fixing.
+
+**Tests that ratified the invented shape, now corrected:** `TestHandler_BatchAddClusterNodes`
+asserted `resp["Failures"]` was `[]any{}`-typed and never checked `Successful` at all — now
+asserts `Failed`/`Successful` (the real keys) and that `ClusterArn` is absent.
+`TestHandler_BatchDeleteClusterNodes`/`TestHandler_BatchRebootClusterNodes`/
+`TestHandler_BatchReplaceClusterNodes` all asserted `resp["ClusterArn"]` was a valid ARN
+(a field that does not exist in the real output) and Reboot/Replace additionally asserted
+`Contains(resp, "Failures")` (the invented key) — all four now assert `ClusterArn` is absent
+and `Failed`/`Successful` are present. `TestHandler_BatchAddClusterNodes_DuplicateNodeFails`
+directly asserted the invented flat shape — `failures, _ := resp["Failures"].([]any); ...
+assert.Equal(t, "node-1", failures[0])` — the clearest ratification found this pass: it
+encoded the bug as the expected behavior. Now asserts the real key and structured entry
+(`InstanceGroupName`, `FailedCount`, `ErrorCode`).
+
+**Persistence golden:** not touched. No persisted model's field set changed — only handler
+wire (response-construction) types and `InMemoryBackend` in-memory method signatures changed;
+`ClusterNode`/`Cluster` (the persisted structs) are unmodified. `go test ./pkgs/persistence/...`
+confirmed clean without a `-update` run.
+
+**Gates:** `go build ./...`, `go vet ./...`, `gofmt -l`, `go test -race ./services/sagemaker/...`,
+`go test ./pkgs/persistence/...`, `golangci-lint run ./services/sagemaker/...`, and
+`make build-check` (`go build ./...` + `go vet -tags e2e,integration ./...`) all clean. No
+`//nolint` added; the `dupl` finding on Delete/Reboot's near-identical handlers was fixed by
+extracting `handleBatchNodeIDsOp` rather than suppressed.

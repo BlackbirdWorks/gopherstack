@@ -769,29 +769,46 @@ type clusterNodeRequest struct {
 	InstanceType string `json:"InstanceType,omitempty"`
 }
 
-// batchClusterNodesWithFailures is a shared helper for cluster batch operations that return Failures.
-func (h *Handler) batchClusterNodesWithFailures(
-	ctx context.Context,
-	clusterName, logMsg string,
-	nodes []ClusterNode,
-	fn func(context.Context, string, []ClusterNode) (string, []string, error),
-) ([]byte, error) {
-	clusterArn, failures, err := fn(ctx, clusterName, nodes)
-	if err != nil {
-		return nil, err
-	}
+// batchAddClusterNodesError mirrors types.BatchAddClusterNodesError
+// (types/types.go:3168, sagemaker@v1.263.2). ErrorCode, InstanceGroupName and
+// FailedCount are required members; Message is not.
+type batchAddClusterNodesError struct {
+	ErrorCode         string `json:"ErrorCode"`
+	InstanceGroupName string `json:"InstanceGroupName"`
+	Message           string `json:"Message,omitempty"`
+	FailedCount       int32  `json:"FailedCount"`
+}
 
-	log := logger.Load(ctx)
-	log.InfoContext(ctx, logMsg, "cluster", clusterArn)
+// nodeAdditionResult mirrors types.NodeAdditionResult (types/types.go:16094).
+// InstanceGroupName, NodeLogicalId and Status are all required members.
+type nodeAdditionResult struct {
+	InstanceGroupName string `json:"InstanceGroupName"`
+	NodeLogicalID     string `json:"NodeLogicalId"`
+	Status            string `json:"Status"`
+}
 
-	if failures == nil {
-		failures = []string{}
-	}
+// batchDeleteClusterNodesError mirrors types.BatchDeleteClusterNodesError
+// (types/types.go:3254). Code, Message and NodeId are all required members.
+type batchDeleteClusterNodesError struct {
+	Code    string `json:"Code"`
+	Message string `json:"Message"`
+	NodeID  string `json:"NodeId"`
+}
 
-	return json.Marshal(map[string]any{
-		keyClusterArn: clusterArn,
-		"Failures":    failures,
-	})
+// batchRebootClusterNodesError mirrors types.BatchRebootClusterNodesError
+// (types/types.go:3376). ErrorCode, Message and NodeId are all required members.
+type batchRebootClusterNodesError struct {
+	ErrorCode string `json:"ErrorCode"`
+	Message   string `json:"Message"`
+	NodeID    string `json:"NodeId"`
+}
+
+// batchReplaceClusterNodesError mirrors types.BatchReplaceClusterNodesError
+// (types/types.go:3448). ErrorCode, Message and NodeId are all required members.
+type batchReplaceClusterNodesError struct {
+	ErrorCode string `json:"ErrorCode"`
+	Message   string `json:"Message"`
+	NodeID    string `json:"NodeId"`
 }
 
 // toClusterNodes converts a slice of clusterNodeRequest to ClusterNode.
@@ -824,99 +841,148 @@ func (h *Handler) handleBatchAddClusterNodes(ctx context.Context, body []byte) (
 		return nil, fmt.Errorf("%w: ClusterName is required", errInvalidRequest)
 	}
 
-	return h.batchClusterNodesWithFailures(
+	clusterArn, successful, failed, err := h.Backend.BatchAddClusterNodes(
 		ctx,
 		req.ClusterName,
-		"sagemaker: batch added cluster nodes",
 		toClusterNodes(req.NodeConfigs),
-		h.Backend.BatchAddClusterNodes,
 	)
+	if err != nil {
+		return nil, err
+	}
+
+	log := logger.Load(ctx)
+	log.InfoContext(ctx, "sagemaker: batch added cluster nodes", "cluster", clusterArn)
+
+	successResults := make([]nodeAdditionResult, 0, len(successful))
+	for _, n := range successful {
+		successResults = append(successResults, nodeAdditionResult{
+			InstanceGroupName: n.InstanceGroupName,
+			NodeLogicalID:     n.NodeID,
+			Status:            n.NodeStatus,
+		})
+	}
+
+	failedResults := failedAddResultsByInstanceGroup(failed)
+
+	return json.Marshal(map[string]any{
+		keyFailed:        failedResults,
+		statusSuccessful: successResults,
+	})
 }
 
-// batchDeleteClusterNodesRequest is the request body for BatchDeleteClusterNodes.
-type batchDeleteClusterNodesRequest struct {
+// failedAddResultsByInstanceGroup groups BatchAddClusterNodes failures by
+// InstanceGroupName, matching the real API's per-group Failed shape
+// (types.BatchAddClusterNodesError, types/types.go:3168). gopherstack's
+// BatchAddClusterNodes request identifies failing nodes individually (by a
+// caller-supplied NodeId that already exists), a case AWS's error-code enum
+// has no member for; InvalidInstanceGroupStatus is used as the closest
+// available code and documented in PARITY.md as an approximation.
+func failedAddResultsByInstanceGroup(failed []ClusterNode) []batchAddClusterNodesError {
+	order := make([]string, 0, len(failed))
+	counts := make(map[string]int32, len(failed))
+
+	for _, n := range failed {
+		if _, ok := counts[n.InstanceGroupName]; !ok {
+			order = append(order, n.InstanceGroupName)
+		}
+
+		counts[n.InstanceGroupName]++
+	}
+
+	results := make([]batchAddClusterNodesError, 0, len(order))
+	for _, name := range order {
+		results = append(results, batchAddClusterNodesError{
+			ErrorCode:         "InvalidInstanceGroupStatus",
+			InstanceGroupName: name,
+			Message:           "one or more nodes in this instance group already exist in the cluster",
+			FailedCount:       counts[name],
+		})
+	}
+
+	return results
+}
+
+// batchNodeIDsRequest is the request body shared by BatchDeleteClusterNodes
+// and BatchRebootClusterNodes, whose real inputs are both just ClusterName
+// plus a flat NodeIds list.
+type batchNodeIDsRequest struct {
 	ClusterName string   `json:"ClusterName"`
 	NodeIDs     []string `json:"NodeIds"`
+}
+
+// handleBatchNodeIDsOp is the shared shape for BatchDeleteClusterNodes and
+// BatchRebootClusterNodes: both take ClusterName+NodeIds and return a flat
+// Successful []string plus a Failed list of per-op-typed error structs built
+// via buildFailed.
+func (h *Handler) handleBatchNodeIDsOp(
+	ctx context.Context,
+	body []byte,
+	logMsg string,
+	fn func(context.Context, string, []string) (string, []string, []string, error),
+	buildFailed func(nodeID string) any,
+) ([]byte, error) {
+	var req batchNodeIDsRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.ClusterName == "" {
+		return nil, fmt.Errorf("%w: ClusterName is required", errInvalidRequest)
+	}
+
+	clusterArn, failed, successful, err := fn(ctx, req.ClusterName, req.NodeIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	log := logger.Load(ctx)
+	log.InfoContext(ctx, logMsg, "cluster", clusterArn)
+
+	failedResults := make([]any, 0, len(failed))
+	for _, nodeID := range failed {
+		failedResults = append(failedResults, buildFailed(nodeID))
+	}
+
+	if successful == nil {
+		successful = []string{}
+	}
+
+	return json.Marshal(map[string]any{
+		keyFailed:        failedResults,
+		statusSuccessful: successful,
+	})
 }
 
 func (h *Handler) handleBatchDeleteClusterNodes(ctx context.Context, body []byte) ([]byte, error) {
-	var req batchDeleteClusterNodesRequest
-	if err := json.Unmarshal(body, &req); err != nil {
-		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
-	}
-
-	if req.ClusterName == "" {
-		return nil, fmt.Errorf("%w: ClusterName is required", errInvalidRequest)
-	}
-
-	clusterArn, errored, successful, err := h.Backend.BatchDeleteClusterNodes(
+	return h.handleBatchNodeIDsOp(
 		ctx,
-		req.ClusterName,
-		req.NodeIDs,
+		body,
+		"sagemaker: batch deleted cluster nodes",
+		h.Backend.BatchDeleteClusterNodes,
+		func(nodeID string) any {
+			return batchDeleteClusterNodesError{
+				Code:    "NodeIdNotFound",
+				Message: fmt.Sprintf("node %q not found in cluster", nodeID),
+				NodeID:  nodeID,
+			}
+		},
 	)
-	if err != nil {
-		return nil, err
-	}
-
-	log := logger.Load(ctx)
-	log.InfoContext(ctx, "sagemaker: batch deleted cluster nodes", "cluster", clusterArn)
-
-	if errored == nil {
-		errored = []string{}
-	}
-
-	if successful == nil {
-		successful = []string{}
-	}
-
-	return json.Marshal(map[string]any{
-		keyClusterArn:    clusterArn,
-		"Errors":         errored,
-		statusSuccessful: successful,
-	})
-}
-
-// batchRebootClusterNodesRequest is the request body for BatchRebootClusterNodes.
-type batchRebootClusterNodesRequest struct {
-	ClusterName string   `json:"ClusterName"`
-	NodeIDs     []string `json:"NodeIds"`
 }
 
 func (h *Handler) handleBatchRebootClusterNodes(ctx context.Context, body []byte) ([]byte, error) {
-	var req batchRebootClusterNodesRequest
-	if err := json.Unmarshal(body, &req); err != nil {
-		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
-	}
-
-	if req.ClusterName == "" {
-		return nil, fmt.Errorf("%w: ClusterName is required", errInvalidRequest)
-	}
-
-	clusterArn, failures, successful, err := h.Backend.BatchRebootClusterNodes(
+	return h.handleBatchNodeIDsOp(
 		ctx,
-		req.ClusterName,
-		req.NodeIDs,
+		body,
+		"sagemaker: batch rebooted cluster nodes",
+		h.Backend.BatchRebootClusterNodes,
+		func(nodeID string) any {
+			return batchRebootClusterNodesError{
+				ErrorCode: "InstanceIdNotFound",
+				Message:   fmt.Sprintf("node %q not found in cluster", nodeID),
+				NodeID:    nodeID,
+			}
+		},
 	)
-	if err != nil {
-		return nil, err
-	}
-
-	log := logger.Load(ctx)
-	log.InfoContext(ctx, "sagemaker: batch rebooted cluster nodes", "cluster", clusterArn)
-
-	if failures == nil {
-		failures = []string{}
-	}
-
-	if successful == nil {
-		successful = []string{}
-	}
-
-	return json.Marshal(map[string]any{
-		keyClusterArn:    clusterArn,
-		"Failures":       failures,
-		statusSuccessful: successful,
-	})
 }
 
 // batchReplaceClusterNodesRequest is the request body for BatchReplaceClusterNodes.
@@ -935,11 +1001,33 @@ func (h *Handler) handleBatchReplaceClusterNodes(ctx context.Context, body []byt
 		return nil, fmt.Errorf("%w: ClusterName is required", errInvalidRequest)
 	}
 
-	return h.batchClusterNodesWithFailures(
+	clusterArn, failed, successful, err := h.Backend.BatchReplaceClusterNodes(
 		ctx,
 		req.ClusterName,
-		"sagemaker: batch replaced cluster nodes",
 		toClusterNodes(req.Nodes),
-		h.Backend.BatchReplaceClusterNodes,
 	)
+	if err != nil {
+		return nil, err
+	}
+
+	log := logger.Load(ctx)
+	log.InfoContext(ctx, "sagemaker: batch replaced cluster nodes", "cluster", clusterArn)
+
+	failedResults := make([]batchReplaceClusterNodesError, 0, len(failed))
+	for _, nodeID := range failed {
+		failedResults = append(failedResults, batchReplaceClusterNodesError{
+			ErrorCode: "InstanceIdNotFound",
+			Message:   fmt.Sprintf("node %q not found in cluster", nodeID),
+			NodeID:    nodeID,
+		})
+	}
+
+	if successful == nil {
+		successful = []string{}
+	}
+
+	return json.Marshal(map[string]any{
+		keyFailed:        failedResults,
+		statusSuccessful: successful,
+	})
 }

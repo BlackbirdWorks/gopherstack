@@ -92,4 +92,5 @@ const (
 	statusActive                     = "Active"
 	statusUpdating                   = "Updating"
 	statusSuccessful                 = "Successful"
+	keyFailed                        = "Failed"
 )
