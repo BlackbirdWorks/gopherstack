@@ -668,3 +668,76 @@ validated against the known scheduler ground truth (`GetSchedule` → `Target`,
 to `services/cloudwatch`; 0 banned nolints, 0 new nolints (two `govet` shadow
 warnings were fixed by renaming, not suppressed). No exported signature
 changed.
+
+## 2026-08-22 — gopherstack-jodk: query/XML Result-wrapper family (DeleteDashboards and 13 siblings)
+
+Found via the same PR #2433 `terraform-tests (2)` CI shard, reproducing
+against the real terraform AWS provider: `tofu destroy` on an
+`aws_cloudwatch_dashboard` failed with `deserialization failed, failed to
+decode response body, DeleteDashboardsResult node not found` against a 200
+response. `handler_dashboards.go`'s `DeleteDashboards` emitted
+`<DeleteDashboardsResponse>` with no inner `<DeleteDashboardsResult>`.
+
+This corrects r80d batch 33's conclusion that cloudwatch's query/XML path is
+dead code because the pinned client (`cloudwatch@v1.66.3`) speaks rpc-v2-cbor
+exclusively (`api_client.go:214`). True of the pinned client, false as a
+general conclusion: the terraform AWS provider pins its own, older SDK that
+still speaks query/XML for cloudwatch, so that path is live. Both the
+query/XML and rpc-v2-cbor paths are fixed this pass, not just one.
+
+Root cause, traced through the real generated query-protocol deserializers
+still present for other services (`cloudformation@v1.76.1/deserializers.go`):
+`NodeDecoder.GetElement(wrapper)` (`smithy-go@1.27.6/encoding/xml/xml_decoder.go:82`)
+returns exactly `"<wrapper> node not found"` when the wrapper element is
+absent — the literal error reported in CI. Current aws-sdk-go-v2 codegen
+skips this lookup entirely for operations whose output shape has zero
+members (a "discard body" optimization, confirmed present for both classic
+`aws-sdk-go@v1.55.8` and every currently-cached `aws-sdk-go-v2` query-
+protocol service), which is why no cached SDK version reproduces the bug
+end-to-end here — terraform's own, older pinned SDK predates that
+optimization and always calls `GetElement`, so it does.
+
+Swept every cloudwatch query/XML op against botocore's authoritative
+`cloudwatch/2010-08-01/service-2.json` (`output`/`resultWrapper` keys — the
+model AWS generates every SDK, including the real server, from) to
+determine which ops need a `<XResult>` wrapper: any op with a declared
+output shape gets one, even with zero members; any op with no output shape
+at all correctly has none. Found 14 ops missing the wrapper despite having a
+declared output shape — DeleteDashboards (reported), AssociateDatasetKmsKey,
+DisassociateDatasetKmsKey, DeleteAnomalyDetector, DeleteMetricStream,
+PutInsightRule, StartMetricStreams, StopMetricStreams, StartOTelEnrichment,
+StopOTelEnrichment, TagResource, UntagResource — plus two that were also
+missing real output data: PutAnomalyDetector (silently dropped
+`AnomalyDetectorId`) and PutMetricStream (silently dropped `Arn`), both now
+populated and returned. Confirmed correct and left unchanged: every op with
+no output shape at all (DeleteAlarms, SetAlarmState, PutMetricData,
+DisableAlarmActions, EnableAlarmActions, PutMetricAlarm, PutCompositeAlarm,
+PutAlarmMuteRule, DeleteAlarmMuteRule, PutLogAlarm), and every op that
+already had a correctly-populated Result (GetDashboard, ListDashboards,
+PutDashboard, GetDataset, DescribeAnomalyDetectors, GetAlarmMuteRule,
+ListAlarmMuteRules, the DescribeAlarm* family, the Enable/Disable/Delete/
+Describe/PutManaged InsightRules family, GetInsightRuleReport,
+GetMetricStatistics, ListMetrics, GetMetricData, ListMetricStreams,
+GetMetricStream, GetOTelEnrichment, GetMetricWidgetImage,
+ListTagsForResource).
+
+Not a regression: every file touched this pass has no commits since this
+branch's merge-base with `origin/main`. This is a long-standing wire-shape
+gap the pinned rpc-v2-cbor client could never surface — only reachable by a
+real query/XML client.
+
+`handler_dashboards_test.go`'s `DeleteDashboards/success` case previously
+asserted only `Contains(body, "DeleteDashboardsResponse")`, true of both the
+broken and fixed output — corrected to also require the literal
+`<DeleteDashboardsResult` substring. New `query_result_wrapper_test.go`
+decodes each fixed op's real response through smithy-go's actual
+`encoding/xml` `GetElement` lookup — the same primitive the generated
+deserializers use — rather than any string match; reproduces the verbatim
+reported error against unfixed code for `deletedashboards` and passes
+against the fix, across all 14 ops.
+
+**Gates**: `go build`, `go vet`, `gofmt -l`, `go test -race`, `golangci-lint
+run` all green, scoped to `services/cloudwatch`; `make build-check` green.
+2 `fieldalignment` findings fixed by reordering struct fields (zero-sized
+`Result` field was landing last, forcing 8 bytes of trailing padding), not
+suppressed. 0 new nolints. No exported signature changed.

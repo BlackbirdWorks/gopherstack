@@ -83,6 +83,13 @@ const (
 
 const cloudwatchNS = "http://monitoring.amazonaws.com/doc/2010-08-01/"
 
+// xmlEmptyResult marshals to an empty <XxxResult></XxxResult> element. The AWS
+// query protocol wraps a wire response's data in a Result element whenever the
+// operation's output shape is declared (even with zero members) -- verified
+// against botocore's cloudwatch service-2.json resultWrapper/output keys, which
+// distinguish these from operations with no output shape at all (no wrapper).
+type xmlEmptyResult struct{}
+
 // errCodeInternalFailure is the AWS error code for an unclassified server-side failure.
 const errCodeInternalFailure = "InternalFailure"
 
@@ -602,9 +609,10 @@ func (h *Handler) handleTagResource(form url.Values, c *echo.Context) error {
 	h.setTags(arn, newTags)
 
 	type tagResourceResp struct {
-		XMLName   xml.Name `xml:"TagResourceResponse"`
-		Xmlns     string   `xml:"xmlns,attr"`
-		RequestID string   `xml:"ResponseMetadata>RequestId"`
+		XMLName   xml.Name       `xml:"TagResourceResponse"`
+		Result    xmlEmptyResult `xml:"TagResourceResult"`
+		Xmlns     string         `xml:"xmlns,attr"`
+		RequestID string         `xml:"ResponseMetadata>RequestId"`
 	}
 
 	return writeXML(c, tagResourceResp{Xmlns: cloudwatchNS, RequestID: uuid.New().String()})
@@ -616,9 +624,10 @@ func (h *Handler) handleUntagResource(form url.Values, c *echo.Context) error {
 	h.removeTags(arn, keys)
 
 	type untagResourceResp struct {
-		XMLName   xml.Name `xml:"UntagResourceResponse"`
-		Xmlns     string   `xml:"xmlns,attr"`
-		RequestID string   `xml:"ResponseMetadata>RequestId"`
+		XMLName   xml.Name       `xml:"UntagResourceResponse"`
+		Result    xmlEmptyResult `xml:"UntagResourceResult"`
+		Xmlns     string         `xml:"xmlns,attr"`
+		RequestID string         `xml:"ResponseMetadata>RequestId"`
 	}
 
 	return writeXML(c, untagResourceResp{Xmlns: cloudwatchNS, RequestID: uuid.New().String()})

@@ -49,9 +49,10 @@ func (h *Handler) handleDeleteAnomalyDetector(form url.Values, c *echo.Context) 
 	h.deleteResourceTags(detectorARN)
 
 	type response struct {
-		XMLName   xml.Name `xml:"DeleteAnomalyDetectorResponse"`
-		Xmlns     string   `xml:"xmlns,attr"`
-		RequestID string   `xml:"ResponseMetadata>RequestId"`
+		XMLName   xml.Name       `xml:"DeleteAnomalyDetectorResponse"`
+		Result    xmlEmptyResult `xml:"DeleteAnomalyDetectorResult"`
+		Xmlns     string         `xml:"xmlns,attr"`
+		RequestID string         `xml:"ResponseMetadata>RequestId"`
 	}
 
 	return writeXML(c, response{Xmlns: cloudwatchNS, RequestID: uuid.New().String()})
@@ -152,22 +153,31 @@ func (h *Handler) handlePutAnomalyDetector(form url.Values, c *echo.Context) err
 		bandWidth, _ = strconv.ParseFloat(bwStr, 64)
 	}
 
-	if err := h.Backend.PutAnomalyDetector(&AnomalyDetector{
+	detector := &AnomalyDetector{
 		Namespace:  namespace,
 		MetricName: metricName,
 		Stat:       stat,
 		Dimensions: dims,
 		BandWidth:  bandWidth,
 		StateValue: statusTrainedInsufficient,
-	}); err != nil {
+	}
+	if err := h.Backend.PutAnomalyDetector(detector); err != nil {
 		return h.xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
 
+	type putAnomalyDetectorResult struct {
+		AnomalyDetectorID string `xml:"AnomalyDetectorId"`
+	}
 	type response struct {
-		XMLName   xml.Name `xml:"PutAnomalyDetectorResponse"`
-		Xmlns     string   `xml:"xmlns,attr"`
-		RequestID string   `xml:"ResponseMetadata>RequestId"`
+		XMLName   xml.Name                 `xml:"PutAnomalyDetectorResponse"`
+		Xmlns     string                   `xml:"xmlns,attr"`
+		RequestID string                   `xml:"ResponseMetadata>RequestId"`
+		Result    putAnomalyDetectorResult `xml:"PutAnomalyDetectorResult"`
 	}
 
-	return writeXML(c, response{Xmlns: cloudwatchNS, RequestID: uuid.New().String()})
+	return writeXML(c, response{
+		Xmlns:     cloudwatchNS,
+		RequestID: uuid.New().String(),
+		Result:    putAnomalyDetectorResult{AnomalyDetectorID: detector.ID},
+	})
 }

@@ -38,9 +38,10 @@ func (h *Handler) handleStartOTelEnrichment(_ url.Values, c *echo.Context) error
 	}
 
 	type response struct {
-		XMLName   xml.Name `xml:"StartOTelEnrichmentResponse"`
-		Xmlns     string   `xml:"xmlns,attr"`
-		RequestID string   `xml:"ResponseMetadata>RequestId"`
+		XMLName   xml.Name       `xml:"StartOTelEnrichmentResponse"`
+		Result    xmlEmptyResult `xml:"StartOTelEnrichmentResult"`
+		Xmlns     string         `xml:"xmlns,attr"`
+		RequestID string         `xml:"ResponseMetadata>RequestId"`
 	}
 
 	return writeXML(c, response{Xmlns: cloudwatchNS, RequestID: uuid.New().String()})
@@ -52,9 +53,10 @@ func (h *Handler) handleStopOTelEnrichment(_ url.Values, c *echo.Context) error 
 	}
 
 	type response struct {
-		XMLName   xml.Name `xml:"StopOTelEnrichmentResponse"`
-		Xmlns     string   `xml:"xmlns,attr"`
-		RequestID string   `xml:"ResponseMetadata>RequestId"`
+		XMLName   xml.Name       `xml:"StopOTelEnrichmentResponse"`
+		Result    xmlEmptyResult `xml:"StopOTelEnrichmentResult"`
+		Xmlns     string         `xml:"xmlns,attr"`
+		RequestID string         `xml:"ResponseMetadata>RequestId"`
 	}
 
 	return writeXML(c, response{Xmlns: cloudwatchNS, RequestID: uuid.New().String()})
