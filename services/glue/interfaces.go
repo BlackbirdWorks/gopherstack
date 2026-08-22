@@ -296,7 +296,7 @@ type StorageBackend interface {
 	DeleteTableOptimizer(dbName, tableName, optimizerType string) error
 	BatchGetTableOptimizer(
 		entries []BatchGetTableOptimizerEntry,
-	) ([]*TableOptimizer, []BatchGetTableOptimizerError)
+	) ([]*BatchTableOptimizer, []BatchGetTableOptimizerError)
 
 	// Column statistics operations.
 	UpdateColumnStatisticsForTable(dbName, tableName string, stats []*ColumnStatistics) error

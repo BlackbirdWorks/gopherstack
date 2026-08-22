@@ -859,20 +859,29 @@ type TableOptimizerRun struct {
 	EndedAt   float64 `json:"endTimestamp,omitempty"`
 }
 
-// TableOptimizer represents a single table optimizer resource. LastRun,
-// Type and Configuration are the real nested TableOptimizer document's own
-// members (deserializeDocumentTableOptimizer, glue@v1.152.0) and are always
-// lowerCamelCase; CatalogID/DatabaseName/TableName belong to the wrapping
-// GetTableOptimizerOutput/BatchTableOptimizer shapes instead (PascalCase and
-// lowerCamelCase respectively -- see gopherstack-v4a4's PARITY.md entry for
-// the structural gap that leaves this pre-existing).
+// TableOptimizer is the real nested TableOptimizer document
+// (deserializeDocumentTableOptimizer, glue@v1.152.0): LastRun, Type and
+// Configuration only, all lowerCamelCase. The document has no
+// CatalogId/DatabaseName/TableName members of its own -- those live one
+// level up, on GetTableOptimizerOutput (PascalCase) or BatchTableOptimizer
+// (lowerCamelCase) instead. See gopherstack-5mvf.
 type TableOptimizer struct {
 	LastRun       *TableOptimizerRun          `json:"lastRun,omitempty"`
-	CatalogID     string                      `json:"CatalogId,omitempty"`
-	DatabaseName  string                      `json:"DatabaseName"`
-	TableName     string                      `json:"TableName"`
 	Type          string                      `json:"type"`
 	Configuration TableOptimizerConfiguration `json:"configuration,omitzero"`
+}
+
+// BatchTableOptimizer is one result entry from BatchGetTableOptimizer.
+// Unlike GetTableOptimizerOutput, which nests TableOptimizer directly under
+// the op output, BatchTableOptimizer wraps it one level deeper under a
+// "tableOptimizer" key, and CatalogId/DatabaseName/TableName here are
+// lowerCamelCase rather than GetTableOptimizerOutput's PascalCase
+// (deserializeDocumentBatchTableOptimizer, glue@v1.152.0).
+type BatchTableOptimizer struct {
+	TableOptimizer *TableOptimizer `json:"tableOptimizer"`
+	CatalogID      string          `json:"catalogId,omitempty"`
+	DatabaseName   string          `json:"databaseName,omitempty"`
+	TableName      string          `json:"tableName,omitempty"`
 }
 
 // BatchGetTableOptimizerEntry is one request entry for BatchGetTableOptimizer.
@@ -884,12 +893,14 @@ type BatchGetTableOptimizerEntry struct {
 }
 
 // BatchGetTableOptimizerError is one error entry from BatchGetTableOptimizer.
+// Its own keys are lowerCamelCase (deserializeDocumentBatchGetTableOptimizerError,
+// glue@v1.152.0); only the nested ErrorDetail document keeps PascalCase.
 type BatchGetTableOptimizerError struct {
-	CatalogID    string      `json:"CatalogId,omitempty"`
-	DatabaseName string      `json:"DatabaseName,omitempty"`
-	TableName    string      `json:"TableName,omitempty"`
-	Type         string      `json:"Type,omitempty"`
-	Error        ErrorDetail `json:"Error"`
+	CatalogID    string      `json:"catalogId,omitempty"`
+	DatabaseName string      `json:"databaseName,omitempty"`
+	TableName    string      `json:"tableName,omitempty"`
+	Type         string      `json:"type,omitempty"`
+	Error        ErrorDetail `json:"error"`
 }
 
 // ColumnStatisticsData holds statistics for a column.

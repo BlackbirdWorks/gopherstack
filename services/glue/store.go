@@ -175,7 +175,7 @@ type InMemoryBackend struct {
 	securityConfigs           *store.Table[SecurityConfiguration]
 	sessions                  *store.Table[Session]
 	sessionStatements         map[string][]*Statement // key: sessionID
-	tableOptimizers           *store.Table[TableOptimizer]
+	tableOptimizers           *store.Table[tableOptimizerRecord]
 	tableColumnStats          map[string]*ColumnStatistics    // key: "dbName|tableName|colName"
 	partitionColumnStats      map[string]*ColumnStatistics    // key: partKey+"|"+colName
 	resourcePolicies          map[string]*resourcePolicyEntry // key: resourceARN or "__global__"

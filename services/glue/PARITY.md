@@ -928,3 +928,96 @@ nested keys) is a harmless-extra false positive (blind spot #3): the real
 `batchCreatePartitionOutput.Partitions` field is a fabricated field a real
 client's typed struct has no slot to receive -- not a dropped required key.
 Not fixed (out of scope; noted for a future audit pass, not this campaign).
+
+## 2026-08-22 gopherstack-5mvf: BatchGetTableOptimizer wrapper/nested-TableOptimizer split
+
+Finished the restructuring gopherstack-v4a4 deliberately left open (tag-only
+campaign, restructuring forbidden). `GetTableOptimizerOutput` and
+`BatchGetTableOptimizerOutput` really do carry `TableOptimizer` at different
+nesting depths -- confirmed again directly against
+`awsAwsjson11_deserializeOpDocumentBatchGetTableOptimizerOutput`
+(deserializers.go:79707), `awsAwsjson11_deserializeDocumentBatchTableOptimizer`
+(deserializers.go:40608, case list `catalogId`/`databaseName`/`tableName`/
+`tableOptimizer`, all lowerCamelCase, with `tableOptimizer` itself calling
+`awsAwsjson11_deserializeDocumentTableOptimizer` one level deeper), and
+`awsAwsjson11_deserializeDocumentTableOptimizer` (deserializers.go:75671, case
+list `configuration`/`configurationSource`/`lastRun`/`type` only -- no
+`catalogId`/`databaseName`/`tableName` members at all on the real nested
+document, confirming those three were fabricated on `TableOptimizer` before
+this pass).
+
+**The split:** `TableOptimizer` (`services/glue/models.go`) is now exactly
+the real nested document -- `LastRun`/`Type`/`Configuration` only, all
+lowerCamelCase, no identifying fields. A new `BatchTableOptimizer` type wraps
+it for `BatchGetTableOptimizer`'s own shape: `TableOptimizer
+*TableOptimizer \`json:"tableOptimizer"\`` plus `CatalogID`/`DatabaseName`/
+`TableName` in lowerCamelCase (`catalogId`/`databaseName`/`tableName`),
+distinct from `getTableOptimizerOutput`'s own PascalCase
+`CatalogId`/`DatabaseName`/`TableName` (`services/glue/handler_table_optimizers.go`,
+unchanged -- that shape was already correct). `BatchGetTableOptimizer`'s
+backend method and `StorageBackend` interface (`services/glue/interfaces.go`)
+now return `[]*BatchTableOptimizer` instead of reusing `[]*TableOptimizer`.
+
+Casing stayed correct for both ops simultaneously because they no longer
+share one struct: `GetTableOptimizerOutput`'s wrapping PascalCase
+`CatalogId`/`DatabaseName`/`TableName` live on `getTableOptimizerOutput`
+(never touched), and `BatchTableOptimizer`'s lowerCamelCase equivalents live
+on the new type -- each casing lives on the shape that actually needs it, per
+the DynamoDBTarget precedent (mixed casing within one op family is normal
+here, not a bug to average out).
+
+**Internal storage fallout:** dropping `DatabaseName`/`TableName` from
+`TableOptimizer` broke `tableOptimizerEntryKeyFn` (`store_setup.go`), which
+derived the `tableOptimizers` `store.Table`'s primary key from those same
+fields on the stored value (required by `store.Table.Restore`, which
+recomputes every key via `keyFn` after a snapshot decode -- there is no
+separately persisted key). Introduced `tableOptimizerRecord`
+(`services/glue/table_optimizers.go`): an internal-only wrapper carrying
+`DatabaseName`/`TableName` plus the now-slim `TableOptimizer`, used only as
+the `tableOptimizers` store's value type. `CatalogID` was dropped entirely
+rather than moved into the record -- grepped for `.CatalogID` on any
+`*TableOptimizer`-typed value first and found none outside the flat-struct
+bug itself; `CreateTableOptimizer`'s `catalogID` parameter is now unused
+(renamed to `_`), confirmed harmless by a clean `golangci-lint run`
+(`unparam` included, 0 issues).
+
+**Failure arm:** `BatchGetTableOptimizerError` was checked against
+`awsAwsjson11_deserializeDocumentBatchGetTableOptimizerError`
+(deserializers.go:40331): `catalogId`/`databaseName`/`tableName`/`type`/
+`error`, all lowerCamelCase (only the nested `ErrorDetail` document, via
+`awsAwsjson11_deserializeDocumentErrorDetail`, deserializers.go:53346, keeps
+`ErrorCode`/`ErrorMessage` PascalCase). It was wrong: gopherstack had all five
+top-level keys PascalCase (`CatalogId`/`DatabaseName`/`TableName`/`Type`/
+`Error`) -- a second real bug in the same op, not previously flagged because
+gopherstack-v4a4's struct-tag scanner only checked `*Output`-suffixed structs
+directly, and `BatchGetTableOptimizerError` is a nested field type, not an
+op output itself. Fixed by lowercasing all five tags.
+
+**Snapshot version bumped 1 -> 2** (`services/glue/persistence.go`): this is
+a structural field removal/move, not additive or a pure-case rename -- an
+old snapshot's `tableOptimizers` entries have no `Optimizer` key at all, so
+decoding one as the new `tableOptimizerRecord` shape would silently zero out
+every optimizer's `Type`/`Configuration`/`LastRun` rather than erroring.
+Confirmed the bump was necessary, not just conservative: `go test
+./pkgs/persistence/... -run TestSnapshotVersionGuard` failed first
+(`incompatible struct change`) with `glueSnapshotVersion` at 2 and the golden
+still at 1, then passed clean after `-update`; the resulting golden diff was
+exactly this change (`TableOptimizer.CatalogID/.DatabaseName/.TableName`
+removed, `tableOptimizerRecord.DatabaseName/.TableName/.Optimizer` added, no
+other service's fields touched).
+
+**Proof:** `TestSDKRoundTrip_BatchGetTableOptimizer_NestedShape`
+(`handler_table_optimizer_realclient_test.go`) drives
+`CreateTableOptimizer`+`BatchGetTableOptimizer` through the real
+`aws-sdk-go-v2/service/glue` client with one found entry and one missing
+entry, asserting both the success arm's nested `TableOptimizer` and the
+failure arm's `Error` decode non-nil. Hand-reverted (`git show HEAD:<path>`
+restored over the six touched non-test files, confirmed byte-identical
+restore afterward via `md5sum`) to confirm it fails against the pre-fix
+shared flat struct: every identifier field decoded empty (`DatabaseName`/
+`TableName`/`Type` all `""`) and both `entry.TableOptimizer` and
+`failure.Error` decoded nil, since the old flat struct has no `tableOptimizer`
+key to nest under and the old PascalCase failure tags don't match the real
+lowerCamelCase keys either. No pre-existing test asserted the old flat batch
+shape as correct (`TestTableOptimizer`'s `BatchGetTableOptimizer` section
+only checks `len(TableOptimizers) == 1`), so nothing needed correcting there.

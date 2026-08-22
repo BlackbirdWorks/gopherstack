@@ -73,8 +73,8 @@ func securityConfigKeyFn(v *SecurityConfiguration) string { return v.Name }
 
 func sessionKeyFn(v *Session) string { return v.SessionID }
 
-func tableOptimizerEntryKeyFn(v *TableOptimizer) string {
-	return v.DatabaseName + "|" + v.TableName + "|" + v.Type
+func tableOptimizerEntryKeyFn(v *tableOptimizerRecord) string {
+	return v.DatabaseName + "|" + v.TableName + "|" + v.Optimizer.Type
 }
 
 func mlTransformKeyFn(v *MLTransform) string { return v.TransformID }

@@ -12443,11 +12443,8 @@
       "Table.StorageDescriptor StorageDescriptor `json:\"StorageDescriptor,omitzero\"`",
       "Table.TableType string `json:\"TableType,omitempty\"`",
       "Table.UpdateTime float64 `json:\"UpdateTime,omitempty\"`",
-      "TableOptimizer.CatalogID string `json:\"CatalogId,omitempty\"`",
       "TableOptimizer.Configuration TableOptimizerConfiguration `json:\"configuration,omitzero\"`",
-      "TableOptimizer.DatabaseName string `json:\"DatabaseName\"`",
       "TableOptimizer.LastRun *TableOptimizerRun `json:\"lastRun,omitempty\"`",
-      "TableOptimizer.TableName string `json:\"TableName\"`",
       "TableOptimizer.Type string `json:\"type\"`",
       "TableOptimizerConfiguration.Enabled bool `json:\"enabled\"`",
       "TableOptimizerConfiguration.RoleARN string `json:\"roleArn,omitempty\"`",
@@ -12560,9 +12557,12 @@
       "resourcePolicyEntry.EnableHybrid string `json:\"EnableHybrid,omitempty\"`",
       "resourcePolicyEntry.Hash string `json:\"Hash\"`",
       "resourcePolicyEntry.Policy string `json:\"Policy\"`",
-      "resourcePolicyEntry.UpdateTime float64 `json:\"UpdateTime,omitempty\"`"
+      "resourcePolicyEntry.UpdateTime float64 `json:\"UpdateTime,omitempty\"`",
+      "tableOptimizerRecord.DatabaseName string",
+      "tableOptimizerRecord.Optimizer TableOptimizer",
+      "tableOptimizerRecord.TableName string"
     ],
-    "version": 1
+    "version": 2
   },
   "grafana": {
     "fields": [

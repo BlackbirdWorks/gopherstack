@@ -17,7 +17,16 @@ import (
 // attempts to partially decode) any mismatch -- see Restore below. This
 // mirrors the services/ec2 (commit 12e611a4) and services/sqs (commit
 // 0f09d77c) conversions.
-const glueSnapshotVersion = 1
+//
+// Bumped 1 -> 2 (gopherstack-5mvf): the tableOptimizers table's stored value
+// changed from a flat TableOptimizer (with CatalogID/DatabaseName/TableName
+// as its own fields) to tableOptimizerRecord, which nests the now-slimmer
+// TableOptimizer one level deeper under an "Optimizer" key. An old snapshot
+// has no "Optimizer" key at all, so decoding it as the new shape would
+// silently zero out every optimizer's Type/Configuration/LastRun rather than
+// erroring -- not a case encoding/json's default zero-value-on-missing-field
+// behavior can absorb safely.
+const glueSnapshotVersion = 2
 
 // backendSnapshot is the top-level on-disk shape for the Glue backend.
 //
