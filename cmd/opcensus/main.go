@@ -10,18 +10,28 @@
 // GetSupportedOperations method (every service implements it; it is the
 // dispatcher's own declared operation set, not a doc comment or a guess),
 // and collects the string literals it returns -- following same-package
-// function calls it makes (ec2 delegates through two helper functions;
-// omics delegates through a dispatch-table constructor) and, where the
-// method instead ranges over a struct field populated elsewhere (a
-// "h.ops" map built in a constructor), falling back to a whole-package
-// scan for string-keyed map literals and index assignments on that field
-// name.
+// function and method calls it makes (ec2 delegates through two helper
+// functions; omics delegates through a dispatch-table constructor),
+// resolving named consts used as map keys or table entries in place of
+// literal strings, and, where the field it reads is only ever populated
+// indirectly -- assigned in a constructor from a same-package method call,
+// or threaded through an intermediate local variable
+// (`keys := collections.SortedKeys(h.ops)`) -- chasing that assignment
+// wherever it lives in the package (resolveName/chaseExpr/chaseCall).
 //
 // This counts what each service's own dispatcher claims to support, then
 // buckets by List/Describe/Get prefix -- a proxy for "collection or
 // nested-shape response surface," the shape of bug this issue tracks. It
 // says nothing about whether any individual op is correct; that is still
 // a per-op hand read against the pinned SDK deserializer.
+//
+// gopherstack-c7s3 / gopherstack-jq8x: a service whose op count could not be
+// resolved used to print as a bare 0 -- indistinguishable from a real
+// small, clean service, which is exactly how ssm and route53resolver went
+// unnoticed. Any service whose SDK module or op list can't be resolved now
+// prints as an explicit ERROR row instead, and the process exits non-zero,
+// so a silent zero is no longer possible: it is either a verified count or
+// a loud failure.
 //
 // Usage:
 //
@@ -39,6 +49,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -52,17 +63,24 @@ const (
 	maxWalkDepth = 8
 )
 
-var opNameRe = regexp.MustCompile(`^[A-Z][A-Za-z0-9]*$`)
+var (
+	opNameRe    = regexp.MustCompile(`^[A-Z][A-Za-z0-9]*$`)
+	sdkModuleRe = regexp.MustCompile(`aws-sdk-go-v2/service/([a-z0-9]+)`)
+)
 
 type serviceResult struct {
 	Service     string   `json:"service"`
 	Resolution  string   `json:"resolution"` // direct, chased, dynamic-fallback, unresolved
+	ErrorReason string   `json:"errorReason,omitempty"`
+	SDKModules  []string `json:"sdkModules"` // aws-sdk-go-v2/service/<x> names found in the package's own source
 	AllOps      []string `json:"allOps"`
 	ListOps     []string `json:"listOps"`
 	DescribeOps []string `json:"describeOps"`
 	GetOps      []string `json:"getOps"`
 	Total       int      `json:"total"`
-	LDG         int      `json:"ldg"` // len(ListOps)+len(DescribeOps)+len(GetOps)
+	LDG         int      `json:"ldg"`     // len(ListOps)+len(DescribeOps)+len(GetOps)
+	Aliased     bool     `json:"aliased"` // true when no resolved SDK module matches the directory name
+	Error       bool     `json:"error,omitempty"`
 }
 
 func main() {
@@ -84,6 +102,20 @@ func main() {
 	}
 
 	printReport(os.Stdout, results)
+
+	if hasErrors(results) {
+		os.Exit(1)
+	}
+}
+
+func hasErrors(results []serviceResult) bool {
+	for _, r := range results {
+		if r.Error {
+			return true
+		}
+	}
+
+	return false
 }
 
 func censusAll(servicesDir string) ([]serviceResult, error) {
@@ -97,12 +129,75 @@ func censusAll(servicesDir string) ([]serviceResult, error) {
 		if !e.IsDir() || strings.HasPrefix(e.Name(), "_") {
 			continue
 		}
-		results = append(results, censusService(filepath.Join(servicesDir, e.Name()), e.Name()))
+		dir := filepath.Join(servicesDir, e.Name())
+		if !hasGoFiles(dir) {
+			// A tombstone directory (e.g. qldb, qldbsession: deprecated
+			// service, README only, no Go code, not wired into the router).
+			// Not a service to sweep, so counting it as a 0-op row would make
+			// it indistinguishable from an unresolved real service.
+			continue
+		}
+		results = append(results, censusService(dir, e.Name()))
 	}
 
-	sort.Slice(results, func(i, j int) bool { return results[i].LDG > results[j].LDG })
+	sort.Slice(results, func(i, j int) bool {
+		if results[i].Error != results[j].Error {
+			return results[i].Error // error rows sort to the top, ahead of any rank
+		}
+
+		return results[i].LDG > results[j].LDG
+	})
 
 	return results, nil
+}
+
+func hasGoFiles(dir string) bool {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return false
+	}
+	for _, e := range entries {
+		if !e.IsDir() && strings.HasSuffix(e.Name(), ".go") {
+			return true
+		}
+	}
+
+	return false
+}
+
+// resolveSDKModules finds every aws-sdk-go-v2/service/<x> import path used
+// anywhere in the service's own .go files (including tests), by scanning
+// file contents directly rather than trusting the directory name -- the
+// directory name and the pinned SDK module diverge for some services
+// (services/dms pins databasemigrationservice, services/elb pins
+// elasticloadbalancing).
+func resolveSDKModules(dir string) []string {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+
+	seen := map[string]bool{}
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".go") {
+			continue
+		}
+		data, readErr := os.ReadFile(filepath.Join(dir, e.Name()))
+		if readErr != nil {
+			continue
+		}
+		for _, m := range sdkModuleRe.FindAllStringSubmatch(string(data), -1) {
+			seen[m[1]] = true
+		}
+	}
+
+	mods := make([]string, 0, len(seen))
+	for m := range seen {
+		mods = append(mods, m)
+	}
+	sort.Strings(mods)
+
+	return mods
 }
 
 func writeJSON(path string, results []serviceResult) error {
@@ -122,11 +217,50 @@ func writeJSON(path string, results []serviceResult) error {
 }
 
 func printReport(w *os.File, results []serviceResult) {
-	fmt.Fprintf(w, "%-28s %6s %6s %6s %6s %6s  %s\n", "service", "total", "list", "descr", "get", "L+D+G", "resolution")
+	printErrorBanner(w, results)
+
+	fmt.Fprintf(w, "%-28s %6s %6s %6s %6s %6s  %-16s %-14s %s\n",
+		"service", "total", "list", "descr", "get", "L+D+G", "resolution", "sdk-module", "")
 	for _, r := range results {
-		fmt.Fprintf(w, "%-28s %6d %6d %6d %6d %6d  %s\n",
-			r.Service, r.Total, len(r.ListOps), len(r.DescribeOps), len(r.GetOps), r.LDG, r.Resolution)
+		module := formatModule(r)
+		if r.Error {
+			fmt.Fprintf(w, "%-28s %6s %6s %6s %6s %6s  %-16s %-14s ERROR: %s\n",
+				r.Service, "ERROR", "ERROR", "ERROR", "ERROR", "ERROR", r.Resolution, module, r.ErrorReason)
+
+			continue
+		}
+		fmt.Fprintf(w, "%-28s %6d %6d %6d %6d %6d  %-16s %-14s\n",
+			r.Service, r.Total, len(r.ListOps), len(r.DescribeOps), len(r.GetOps), r.LDG, r.Resolution, module)
 	}
+}
+
+func printErrorBanner(w *os.File, results []serviceResult) {
+	var errs []serviceResult
+	for _, r := range results {
+		if r.Error {
+			errs = append(errs, r)
+		}
+	}
+	if len(errs) == 0 {
+		return
+	}
+
+	fmt.Fprintf(w,
+		"ERROR: %d service(s) could not be fully resolved -- these are NOT zero-op services, they are unchecked:\n",
+		len(errs))
+	for _, r := range errs {
+		fmt.Fprintf(w, "  %-28s %s\n", r.Service, r.ErrorReason)
+	}
+	fmt.Fprintln(w)
+}
+
+func formatModule(r serviceResult) string {
+	module := strings.Join(r.SDKModules, ",")
+	if r.Aliased {
+		module += " (alias)"
+	}
+
+	return module
 }
 
 // pkgIndex is the parsed, indexed form of one service package: every
@@ -138,6 +272,7 @@ type pkgIndex struct {
 	funcDecls map[string]*ast.FuncDecl
 	constVals map[string]string
 	varSpecs  map[string]ast.Expr
+	typeDecls map[string]ast.Expr
 }
 
 func indexPackage(dir string) pkgIndex {
@@ -146,6 +281,7 @@ func indexPackage(dir string) pkgIndex {
 		funcDecls: map[string]*ast.FuncDecl{},
 		constVals: map[string]string{},
 		varSpecs:  map[string]ast.Expr{},
+		typeDecls: map[string]ast.Expr{},
 	}
 
 	entries, err := os.ReadDir(dir)
@@ -181,7 +317,20 @@ func (idx pkgIndex) indexDecls(decls []ast.Decl) {
 		if !isGen {
 			continue
 		}
+		if gd.Tok == token.TYPE {
+			idx.indexTypeSpecs(gd.Specs)
+
+			continue
+		}
 		idx.indexValueSpecs(gd.Specs)
+	}
+}
+
+func (idx pkgIndex) indexTypeSpecs(specs []ast.Spec) {
+	for _, spec := range specs {
+		if ts, isType := spec.(*ast.TypeSpec); isType {
+			idx.typeDecls[ts.Name.Name] = ts.Type
+		}
 	}
 }
 
@@ -205,16 +354,17 @@ func (idx pkgIndex) indexValueSpecs(specs []ast.Spec) {
 func trimQuotes(s string) string { return strings.Trim(s, "\"`") }
 
 // opWalker accumulates operation-name string literals reachable from
-// GetSupportedOperations, chasing same-package function calls, function
-// values used as table entries, and const identifiers used in place of
-// literal strings. It also records "dynamic sources" -- range targets that
-// aren't literal string collections, resolved afterward by
-// resolveDynamicSources.
+// GetSupportedOperations, chasing same-package function and method calls,
+// function values used as table entries, and const identifiers used in
+// place of literal strings. It also records "dynamic sources" -- field or
+// variable names read but not defined in the walked function -- resolved
+// afterward by resolveDynamicSources.
 type opWalker struct {
 	idx            pkgIndex
 	seen           map[string]bool
 	visited        map[string]bool
 	dynamicSources map[string]bool
+	resolvedNames  map[string]bool
 }
 
 func newOpWalker(idx pkgIndex) *opWalker {
@@ -223,6 +373,7 @@ func newOpWalker(idx pkgIndex) *opWalker {
 		seen:           map[string]bool{},
 		visited:        map[string]bool{},
 		dynamicSources: map[string]bool{},
+		resolvedNames:  map[string]bool{},
 	}
 }
 
@@ -239,6 +390,18 @@ func (w *opWalker) walk(fd *ast.FuncDecl, depth int) {
 	if fd == nil || fd.Body == nil || depth > maxWalkDepth || w.visited[fd.Name.Name] {
 		return
 	}
+	if depth > 0 && !w.isTableShaped(fd) {
+		// Past the entry point, a function's own return shape is what
+		// tells a table-builder helper (single []string or map[string]X
+		// result) apart from an operation handler wired into the table as
+		// a value (comprehend's h.getIteration, signature
+		// func(map[string]any) (map[string]any, error)) -- the walker has
+		// no other way to tell them apart, since both are just an
+		// identifier that happens to name a local function. Walking into
+		// a handler pulls in whatever op-name-shaped strings its business
+		// logic happens to contain.
+		return
+	}
 	w.visited[fd.Name.Name] = true
 
 	ast.Inspect(fd.Body, func(n ast.Node) bool {
@@ -246,6 +409,37 @@ func (w *opWalker) walk(fd *ast.FuncDecl, depth int) {
 
 		return true
 	})
+}
+
+// isTableShaped reports whether fd's signature looks like a table-builder
+// (returns exactly one value, a slice or a map, possibly under a named type
+// like appstream's opTable) rather than an operation handler. Every op-table
+// builder in this codebase -- GetSupportedOperations itself, family functions
+// like ssmParameterOps, dispatch constructors like buildOps -- has this
+// shape; operation handlers uniformly don't (comprehend's operation is
+// func(map[string]any) (map[string]any, error), two results).
+func (w *opWalker) isTableShaped(fd *ast.FuncDecl) bool {
+	if fd.Type.Results == nil || len(fd.Type.Results.List) != 1 {
+		return false
+	}
+
+	return w.isTableType(fd.Type.Results.List[0].Type, 0)
+}
+
+func (w *opWalker) isTableType(t ast.Expr, depth int) bool {
+	if depth > maxWalkDepth {
+		return false
+	}
+	switch v := t.(type) {
+	case *ast.ArrayType, *ast.MapType:
+		return true
+	case *ast.Ident:
+		if underlying, ok := w.idx.typeDecls[v.Name]; ok {
+			return w.isTableType(underlying, depth+1)
+		}
+	}
+
+	return false
 }
 
 func (w *opWalker) visitNode(n ast.Node, depth int) {
@@ -262,6 +456,16 @@ func (w *opWalker) visitNode(n ast.Node, depth int) {
 		w.visitIdent(v, depth)
 	case *ast.RangeStmt:
 		w.recordRangeTarget(v.X)
+	case *ast.SelectorExpr:
+		// A field/method access anywhere in the walked body, not just a
+		// range target -- ssm reads its ops table via
+		// `slices.Collect(maps.Keys(h.ops))`, route53resolver via a bare
+		// `return h.supportedOpsCache`. Neither is a for-range, so
+		// recordRangeTarget alone never sees them. Recording every
+		// selector unconditionally is safe: it only feeds
+		// resolveDynamicSources, which is only consulted once the direct
+		// walk found zero literals (see censusService).
+		w.dynamicSources[v.Sel.Name] = true
 	}
 }
 
@@ -270,7 +474,10 @@ func (w *opWalker) visitNode(n ast.Node, depth int) {
 // []func() []string{ fooSupportedOps, ... } provider table (invoked
 // indirectly through a loop variable, never literally "fooSupportedOps()"),
 // or sqs's []string{ opAddPermission, ... } naming a package const instead
-// of writing the string inline.
+// of writing the string inline. It also fires on the Sel identifier of a
+// method call like h.ssmParameterOps(), since ast.Inspect visits that Sel
+// as its own *ast.Ident node -- that is how the walker chases method calls
+// even though the CallExpr case above only matches bare-identifier calls.
 func (w *opWalker) visitIdent(id *ast.Ident, depth int) {
 	if callee, ok := w.idx.funcDecls[id.Name]; ok {
 		w.walk(callee, depth+1)
@@ -318,22 +525,42 @@ func (w *opWalker) extractLiterals(n ast.Node) {
 	})
 }
 
-// resolveDynamicSources handles GetSupportedOperations bodies that range
-// over something other than a literal string collection.
+// resolveDynamicSources handles GetSupportedOperations bodies that don't
+// hand the walker literal op strings directly.
 //
-// Tier 1: the range target names a package-level var (glue's
+// Tier 1: the source names a package-level var (glue's
 // `for i, b := range glueOpBindings { names[i] = b.name }`) -- walk that
 // var's own declaration/initializer.
 //
-// Tier 2 (only if tier 1 found nothing): the range target is a bare struct
-// field with no matching package var (rekognition/appstream's "h.ops"
-// populated inside a constructor) -- scan every map literal and
-// index-assignment in the whole package for that field name.
+// Tier 2 (only if tier 1 found nothing): the source is a struct field or a
+// local variable with no matching package var -- resolveName searches the
+// whole package for wherever it is assigned (typically the constructor)
+// and chases that assignment, however many hops of indirection it takes
+// (ssm: one hop through a method call; route53resolver: two, through an
+// intermediate local variable). This is what resolves the shape that
+// motivated gopherstack-jq8x.
+//
+// Tier 3 (only if tier 2 also found nothing): scan every map literal and
+// index-assignment in the whole package for a key matching a known
+// operation name (rekognition/appstream's "h.ops" populated inline in a
+// constructor with no separate named builder to chase). This is
+// deliberately a last resort -- it isn't scoped to the field name, so it
+// can pick up unrelated map[string]T literals (dms's total was
+// historically overcounted this way); tier 2 resolving precisely is what
+// keeps most services out of this tier.
 func (w *opWalker) resolveDynamicSources() {
 	for src := range w.dynamicSources {
 		if val, ok := w.idx.varSpecs[src]; ok {
 			w.extractLiterals(val)
 		}
+	}
+
+	if len(w.seen) > 0 {
+		return
+	}
+
+	for src := range w.dynamicSources {
+		w.resolveName(src, 0)
 	}
 
 	if len(w.seen) > 0 {
@@ -349,15 +576,123 @@ func (w *opWalker) resolveDynamicSources() {
 	}
 }
 
+// resolveName searches every file in the package for an assignment whose
+// left-hand side names a field or variable called name (`h.ops = ...` or
+// `keys := ...`), and chases each match's right-hand side. Package-wide,
+// unscoped by function -- a heuristic, not a real dataflow analysis -- so
+// it is guarded by resolvedNames (visit each name once) and maxWalkDepth
+// (bound the hop count), same discipline the funcDecl chase already uses.
+func (w *opWalker) resolveName(name string, depth int) {
+	if depth > maxWalkDepth || w.resolvedNames[name] {
+		return
+	}
+	w.resolvedNames[name] = true
+
+	for _, f := range w.idx.files {
+		for _, rhs := range findAssignments(f, name) {
+			w.chaseExpr(rhs, depth+1)
+		}
+	}
+}
+
+// chaseExpr resolves one assigned expression. A call to a known
+// same-package function or method is walked like any other reachable
+// function. A call to something outside the package (maps.Keys,
+// collections.SortedKeys) can't itself be walked, but its arguments might
+// name the real source, so each identifier/selector argument is chased as
+// a name in turn. A bare identifier is chased as a name too, for a local
+// variable assigned from another local variable or field
+// (`h.supportedOpsCache = keys`, then `keys := ...` elsewhere).
+func (w *opWalker) chaseExpr(expr ast.Expr, depth int) {
+	switch e := expr.(type) {
+	case *ast.CallExpr:
+		w.chaseCall(e, depth)
+	case *ast.Ident:
+		w.resolveName(e.Name, depth)
+	case *ast.SelectorExpr:
+		w.resolveName(e.Sel.Name, depth)
+	}
+}
+
+func (w *opWalker) chaseCall(call *ast.CallExpr, depth int) {
+	if name := calleeName(call.Fun); name != "" {
+		if callee, ok := w.idx.funcDecls[name]; ok {
+			w.walk(callee, depth)
+
+			return
+		}
+	}
+	for _, arg := range call.Args {
+		w.chaseExpr(arg, depth)
+	}
+}
+
+func calleeName(fun ast.Expr) string {
+	switch f := fun.(type) {
+	case *ast.Ident:
+		return f.Name
+	case *ast.SelectorExpr:
+		return f.Sel.Name
+	default:
+		return ""
+	}
+}
+
+// findAssignments returns the right-hand side of every assignment in f
+// (`=` or `:=`) whose left-hand side is a bare identifier or a selector
+// (struct field) named name.
+func findAssignments(f *ast.File, name string) []ast.Expr {
+	var exprs []ast.Expr
+	ast.Inspect(f, func(n ast.Node) bool {
+		as, isAssign := n.(*ast.AssignStmt)
+		if !isAssign || len(as.Lhs) != len(as.Rhs) {
+			return true
+		}
+		for i, lhs := range as.Lhs {
+			if lhsName(lhs) == name {
+				exprs = append(exprs, as.Rhs[i])
+			}
+		}
+
+		return true
+	})
+
+	return exprs
+}
+
+func lhsName(e ast.Expr) string {
+	switch v := e.(type) {
+	case *ast.Ident:
+		return v.Name
+	case *ast.SelectorExpr:
+		return v.Sel.Name
+	default:
+		return ""
+	}
+}
+
 func (w *opWalker) visitFallbackNode(n ast.Node) {
 	switch v := n.(type) {
 	case *ast.KeyValueExpr:
-		lit, isStringKey := v.Key.(*ast.BasicLit)
-		if isStringKey && lit.Kind == token.STRING {
-			w.recordLiteral(lit)
-		}
+		w.recordFallbackKey(v.Key)
 	case *ast.IndexExpr:
 		w.visitFallbackIndex(v)
+	}
+}
+
+// recordFallbackKey handles both literal-string map keys
+// (map[string]T{"Foo": ...}) and named-const keys (map[string]T{opFoo: ...},
+// dms's style across its opsXxx() family builders).
+func (w *opWalker) recordFallbackKey(key ast.Expr) {
+	switch k := key.(type) {
+	case *ast.BasicLit:
+		if k.Kind == token.STRING {
+			w.recordLiteral(k)
+		}
+	case *ast.Ident:
+		if s, ok := w.idx.constVals[k.Name]; ok && opNameRe.MatchString(s) {
+			w.seen[s] = true
+		}
 	}
 }
 
@@ -380,11 +715,13 @@ func (w *opWalker) visitFallbackIndex(v *ast.IndexExpr) {
 }
 
 func censusService(dir, name string) serviceResult {
+	modules := resolveSDKModules(dir)
+
 	idx := indexPackage(dir)
 
 	entry, ok := idx.funcDecls["GetSupportedOperations"]
 	if !ok {
-		return serviceResult{Service: name, Resolution: resolutionUnresolved}
+		return finalizeResult(name, resolutionUnresolved, modules, nil)
 	}
 
 	w := newOpWalker(idx)
@@ -402,7 +739,34 @@ func censusService(dir, name string) serviceResult {
 		resolution = resolutionUnresolved
 	}
 
-	return bucketize(name, resolution, w.seen)
+	return finalizeResult(name, resolution, modules, w.seen)
+}
+
+// finalizeResult buckets the resolved ops and marks the row as an explicit
+// error -- rather than a bare zero -- whenever either resolution axis
+// failed: no SDK module could be identified from the package's own source,
+// or no operations could be resolved from GetSupportedOperations. Either
+// failure means the numeric columns are "not checked," not "checked and
+// found small," and a reader must be able to tell those apart without
+// cross-referencing the resolution column by hand.
+func finalizeResult(name, resolution string, modules []string, seen map[string]bool) serviceResult {
+	r := bucketize(name, resolution, seen)
+	r.SDKModules = modules
+	r.Aliased = len(modules) > 0 && !slices.Contains(modules, name)
+
+	var reasons []string
+	if len(modules) == 0 {
+		reasons = append(reasons, "no aws-sdk-go-v2/service/* import found in package")
+	}
+	if resolution == resolutionUnresolved {
+		reasons = append(reasons, "no operations resolved from GetSupportedOperations")
+	}
+	if len(reasons) > 0 {
+		r.Error = true
+		r.ErrorReason = strings.Join(reasons, "; ")
+	}
+
+	return r
 }
 
 func bucketize(name, resolution string, seen map[string]bool) serviceResult {
