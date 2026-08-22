@@ -11741,6 +11741,7 @@
       "storedBackup.BackupID string `json:\"backupId\"`",
       "storedBackup.BackupType string `json:\"backupType\"`",
       "storedBackup.CreationTime time.Time `json:\"creationTime\"`",
+      "storedBackup.FileSystem *storedFileSystem `json:\"fileSystem,omitempty\"`",
       "storedBackup.FileSystemID string `json:\"fileSystemId\"`",
       "storedBackup.Lifecycle string `json:\"lifecycle\"`",
       "storedBackup.ResourceARN string `json:\"resourceArn\"`",

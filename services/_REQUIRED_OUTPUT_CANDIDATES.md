@@ -190,8 +190,15 @@ from the ranked table) as future batches clear more of it.
 | redshiftdata | 5 | 12 (5 ops-with-required) | 0 (clean; a control for the batch's hypothesis -- all 5 ops build `map[string]any` literals, the same structural immunity as ssoadmin/mediatailor/shield/translate; nested `SessionData`/`StatementData`/`SubStatementData` required members (one level below the flat scan) all backed by backend-generated non-empty IDs; `SqlParameter.{Name,Value}`'s lowercase wire tags confirmed correct (not a casing bug) against the real awsjson1.1 deserializer's own key switch -- see the batch-32 note below and services/redshiftdata/PARITY.md) | gopherstack-r80d batch 32 |
 | scheduler | 5 | 12 (5 ops-with-required) | yes (2: `EcsParameters.NetworkConfiguration.AwsvpcConfiguration` and every `CapacityProviderStrategyItem` member -- including required `CapacityProvider`, `*string`, provable -- were wrong-cased wire keys (gopherstack emitted the capitalized Go field name; the real wire is lowercase-first, e.g. `awsvpcConfiguration`/`capacityProvider`), invisible to any real client's exact-case response-deserializer switch regardless of value; separately, required `AwsVpcConfiguration.Subnets` was tagged `omitempty` despite the real client-side validator only null-checking it, reachably empty via a real client -- see the batch-32 note below and services/scheduler/PARITY.md) | gopherstack-r80d batch 32 |
 | cloudwatch | 4 | 50 (3 ops-with-required) | yes (2 counted + 1 disclosed-not-provable: `GetAlarmMuteRule.MuteTargets` dropped entirely whenever a real client legally sent an empty-but-non-nil `AlarmNames` array (validator only null-checks it), now gated on nil rather than `len>0`; `GetMetricStream.StatisticsConfigurations` was structurally absent from gopherstack's model (never parsed on Put, never stored, never emitted); `GetInsightRuleReport`'s per-contributor `Datapoints` was never emitted at all but is NOT provable via a real client -- the rpc-v2-cbor deserializer collapses a present-but-zero-length list to nil identically to an absent key, confirmed for both this field and `MuteTargets.AlarmNames` itself -- see the batch-33 note below and services/cloudwatch/PARITY.md) | gopherstack-r80d batch 33 |
+| fsx | 0 (48 ops, all zero required at their own top level -- invisible to this table's ranking) | 48 | yes (1: `Backup.FileSystem`, `*types.FileSystem`, required, dropped once the source file system was deleted -- see the batch-34 note below and services/fsx/PARITY.md) | gopherstack-r80d batch 34 |
+| codebuild | 0 (59 ops, all zero required at their own top level -- invisible to this table's ranking) | 59 | 0 (clean; wrapped `ProjectEnvironment`/`ScopeConfiguration`/`ProjectSourceVersion` all correctly threaded through -- see the batch-34 note below and services/codebuild/PARITY.md) | gopherstack-r80d batch 34 |
 
-67 services settled, 2654 required output fields read end to end (the running
+69 services settled, 2654 required output fields read end to end (fsx/codebuild
+each contribute 0 to this total by the table's own flat-count convention --
+their entire audited surface, 16 required fields across `Backup`/
+`DataRepositoryTask`/`ProjectEnvironment`/`ScopeConfiguration`/
+`ProjectSourceVersion`, sits below what `cmd/requiredoutputfields` can see at
+all; see the batch-34 note below). The running
 total counts each settled service's flat per-op `cmd/requiredoutputfields`
 number, as established by every prior batch -- glue's own real audited
 surface was substantially larger once its ~56 gopherstack-modeled domain
@@ -3078,3 +3085,104 @@ looking), closing this campaign now and filing any residual curiosity as a
 narrowly-scoped follow-up issue (audit fsx/codebuild specifically for the
 wrapped-type shape, nothing more) is the better use of a future session than
 continuing the broad sweep down to the 1-field tier.
+
+## Batch 34 (2026-08-22): fsx + codebuild audited; the wrapped-type-shape mechanism tested; campaign closed
+
+The narrowly-scoped follow-up batch 33 recommended: `fsx` and `codebuild`,
+the two services batch 33's mechanism *selected* but did not hand-audit, per
+`bd show gopherstack-r80d`'s tapering note and batch 33's own section above.
+Full rigour per the standing rules, module resolution confirmed first.
+
+**Module resolution.** Neither `fsx` nor `codebuild` appears in
+`dirModuleOverride` (`cmd/requiredoutputfields/main.go`) -- both resolve
+directly. `go.mod` pins `aws-sdk-go-v2/service/fsx@v1.68.4` and
+`aws-sdk-go-v2/service/codebuild@v1.72.4`. Both pinned clients' generated
+`deserializers.go` use `awsAwsjson11_deserializeOp...` throughout (confirmed
+by grep, not assumed from service resemblance -- this campaign's cloudwatch
+lesson from batch 33 applies generally) -- both genuinely speak awsjson1.1,
+matching each service's own `PARITY.md` Protocol line
+(`services/fsx/PARITY.md:39`, `services/codebuild/PARITY.md:120`).
+
+**Confirmed both are structurally invisible to every ranking this campaign
+has used through batch 33:** a per-op walk of every `<Op>Output` struct in
+both SDKs found **zero** required fields at the top level of any of fsx's 48
+ops or codebuild's 59 ops. Neither appears anywhere in
+`cmd/requiredoutputfields`'s ranked output at all -- not even at the bottom
+of the 1-field tier. Required-field-count ranking, op-count ranking: both
+give these two services a floor value that looks identical to "nothing to
+check here." The wrapped-type-shape method is the only one of this
+campaign's three ranking attempts that can even see these services.
+
+**fsx (48 ops, 1 bug):** walked every non-slice field of every `<Op>Output`
+one hop into its own SDK type. Only two wrapped types declare >=2 required
+members: `Backup` (5 required, reached via `CreateBackup`/
+`DescribeBackups`/`CopyBackup`) and `DataRepositoryTask` (4 required, via
+`CreateDataRepositoryTask`/`DescribeDataRepositoryTasks`). `Backup.FileSystem`
+(`*types.FileSystem`, required, provable) was dropped whenever the backup's
+source file system had since been deleted -- gopherstack derived it from a
+live table lookup at read time instead of the doc-mandated persisted
+snapshot ("This metadata is persisted even if the file system is deleted").
+Fixed by snapshotting the file system's metadata onto `storedBackup` at
+backup-creation time (deep-copied, so the snapshot can't alias the live,
+mutable `fileSystems` table entry). Purely additive field on a persisted
+model -- `fsxSnapshotVersion` correctly not bumped, golden regenerated.
+Proven via a real `aws-sdk-go-v2/service/fsx` client round trip (create FS
+-> create backup -> delete FS -> `DescribeBackups`/`CopyBackup` still show
+`Backup.FileSystem`), hand-reverted/confirmed-failing/restored,
+`md5sum`-verified byte-identical. `DataRepositoryTask`'s 4 required members
+reviewed and found clean (both provable members, `TaskId`/`CreationTime`,
+always set; the other two are non-pointer enums, not provable regardless).
+Full detail and SDK file:line citations: `services/fsx/PARITY.md`'s
+2026-08-22 entry.
+
+**codebuild (59 ops, 0 bugs):** same walk found `ProjectEnvironment` (3
+required, nested in `Project`/`Build`/`BuildBatch`/`Sandbox` via a field
+named `Environment`) and `ScopeConfiguration` (2 required, nested in
+`Webhook`) as the only wrapped types with >=2 required members; one hop
+further, `ProjectSourceVersion` (2 required, both provable) nests inside
+`SecondarySourceVersions`. All three are correctly threaded through with no
+`omitempty` on any provable member and no dropped/fabricated values --
+`Environment` is always copied from the owning project at build time
+(`StartBuild`/`applyBuildOverrides`), `ScopeConfiguration`/
+`ProjectSourceVersion` are passed straight through from the request with no
+transformation. Also swept one hop further into `Fleet`/`ReportGroup`/
+`CommandExecution`/`Sandbox`'s other nested types (`ComputeConfiguration`,
+`ProxyConfiguration`, `ScalingConfigurationOutput`, `FleetStatus`,
+`LogsLocation`, `SandboxSession`, `LogsConfig`, `VpcConfig`,
+`ProjectSource`) -- all declare zero required members except
+`ProjectSource.Type` (a non-pointer enum, not provable). Full detail:
+`services/codebuild/PARITY.md`'s 2026-08-22 entry.
+
+### The wrapped-type-shape hypothesis: held, but low-yield
+
+Batch 33 named the mechanism but couldn't test it (fsx/codebuild were only
+selected, not audited). This batch closes that gap: **the hypothesis held**
+-- it found a real, provable bug (fsx's `Backup.FileSystem`) that was
+structurally invisible to both of this campaign's earlier ranking attempts,
+in exactly the shape batch 32 first described (a required member sitting
+two levels below an op whose own output declares nothing required at all).
+It is a real, distinct failure mode, not a restatement of the first two.
+
+But the yield across the two services this batch actually tested it against
+is 1 bug in 107 ops -- lower than the double-digit-per-batch yields of the
+required-field-count era (batches 1-29) and roughly in line with the
+near-zero yields of everything audited since batch 30 by any method. The
+mechanism finding a bug in one of two services it was tested against is a
+positive result, not a strong one.
+
+### Campaign closed
+
+`gopherstack-r80d` is closed with this batch. Summary across the full
+campaign: 69 services settled, 2654+ required output fields read end to end
+by the flat count alone (more once every wrapped/nested domain struct this
+campaign's batches read by hand is included), dozens of real bugs found and
+fixed across three distinct ranking methods (required-field count, op
+count, wrapped-type shape), each of which stopped predicting reliably in
+turn. The wrapped-type shape is confirmed real but batch-33's own caution
+holds: continuing to hunt for it across the remaining unranked services on
+the strength of one hit in two services is the same low-odds gamble the
+first two methods already played out. If a future session wants to pursue
+this specific shape further, file it as its own narrowly-scoped issue
+(re-run this batch's non-slice-field-wrapping-a-richly-required-type scan
+across the remaining unaudited services and hand-audit whatever it
+surfaces) rather than reopening the broad required-output-member sweep.
