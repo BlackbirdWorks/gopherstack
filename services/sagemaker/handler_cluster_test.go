@@ -550,12 +550,12 @@ func TestBatchRebootClusterNodes_PartialSuccess(t *testing.T) {
 			c := h.Backend.AddClusterInternal(context.Background(), tt.clusterName)
 			require.NotNil(t, c)
 
-			_, _, _, err := h.Backend.BatchAddClusterNodes(
+			node := h.Backend.AddClusterNodeInternal(
 				context.Background(),
 				tt.clusterName,
-				[]sagemaker.ClusterNode{{NodeID: "node-1", NodeStatus: "Running"}},
+				sagemaker.ClusterNode{NodeID: "node-1", NodeStatus: "Running"},
 			)
-			require.NoError(t, err)
+			require.NotNil(t, node)
 
 			rec := doSageMakerRequest(t, h, "BatchRebootClusterNodes", map[string]any{
 				"ClusterName": tt.clusterName,
@@ -657,13 +657,18 @@ func TestHandler_BatchAddClusterNodes(t *testing.T) {
 			name: "success",
 			setup: func(t *testing.T, h *sagemaker.Handler) {
 				t.Helper()
-				h.Backend.AddClusterInternal(context.Background(), "batch-cluster")
+				rec := doSageMakerRequest(t, h, "CreateCluster", map[string]any{
+					"ClusterName": "batch-cluster",
+					"InstanceGroups": []map[string]any{
+						{"InstanceGroupName": "workers", "InstanceType": "ml.p3.2xlarge", "InstanceCount": 1},
+					},
+				})
+				require.Equal(t, http.StatusOK, rec.Code)
 			},
 			body: map[string]any{
 				"ClusterName": "batch-cluster",
-				"NodeConfigs": []map[string]any{
-					{"NodeId": "n1", "InstanceType": "ml.p3.2xlarge"},
-					{"NodeId": "n2", "InstanceType": "ml.p3.2xlarge"},
+				"NodesToAdd": []map[string]any{
+					{"InstanceGroupName": "workers", "IncrementTargetCountBy": 2},
 				},
 			},
 			wantCode: http.StatusOK,
@@ -673,13 +678,26 @@ func TestHandler_BatchAddClusterNodes(t *testing.T) {
 			name: "cluster not found",
 			body: map[string]any{
 				"ClusterName": "nonexistent",
-				"NodeConfigs": []map[string]any{},
+				"NodesToAdd": []map[string]any{
+					{"InstanceGroupName": "workers", "IncrementTargetCountBy": 1},
+				},
 			},
 			wantCode: http.StatusBadRequest,
 		},
 		{
-			name:     "missing ClusterName",
-			body:     map[string]any{"NodeConfigs": []map[string]any{}},
+			name: "missing ClusterName",
+			body: map[string]any{"NodesToAdd": []map[string]any{
+				{"InstanceGroupName": "workers", "IncrementTargetCountBy": 1},
+			}},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "missing NodesToAdd",
+			setup: func(t *testing.T, h *sagemaker.Handler) {
+				t.Helper()
+				h.Backend.AddClusterInternal(context.Background(), "batch-cluster-empty")
+			},
+			body:     map[string]any{"ClusterName": "batch-cluster-empty"},
 			wantCode: http.StatusBadRequest,
 		},
 	}
@@ -708,6 +726,17 @@ func TestHandler_BatchAddClusterNodes(t *testing.T) {
 				assert.NotContains(t, resp, "ClusterArn")
 				assert.IsType(t, []any{}, resp["Failed"])
 				assert.IsType(t, []any{}, resp["Successful"])
+
+				if tt.name == "success" {
+					successful, _ := resp["Successful"].([]any)
+					require.Len(t, successful, 2)
+
+					entry, ok := successful[0].(map[string]any)
+					require.True(t, ok)
+					assert.Equal(t, "workers", entry["InstanceGroupName"])
+					assert.NotEmpty(t, entry["NodeLogicalId"])
+					assert.Equal(t, "Running", entry["Status"])
+				}
 			}
 		})
 	}
@@ -883,7 +912,7 @@ func TestHandler_BatchReplaceClusterNodes(t *testing.T) {
 			},
 			body: map[string]any{
 				"ClusterName": "replace-cluster",
-				"Nodes":       []map[string]any{},
+				"NodeIds":     []string{},
 			},
 			wantCode: http.StatusOK,
 			wantARN:  true,
@@ -896,9 +925,7 @@ func TestHandler_BatchReplaceClusterNodes(t *testing.T) {
 			},
 			body: map[string]any{
 				"ClusterName": "replace-cluster-2",
-				"Nodes": []map[string]any{
-					{"NodeId": "nonexistent", "InstanceType": "ml.p3.2xlarge"},
-				},
+				"NodeIds":     []string{"nonexistent"},
 			},
 			wantCode: http.StatusOK,
 			wantARN:  true,
@@ -907,13 +934,13 @@ func TestHandler_BatchReplaceClusterNodes(t *testing.T) {
 			name: "cluster not found",
 			body: map[string]any{
 				"ClusterName": "ghost",
-				"Nodes":       []map[string]any{},
+				"NodeIds":     []string{},
 			},
 			wantCode: http.StatusBadRequest,
 		},
 		{
 			name:     "missing ClusterName",
-			body:     map[string]any{"Nodes": []map[string]any{}},
+			body:     map[string]any{"NodeIds": []string{}},
 			wantCode: http.StatusBadRequest,
 		},
 	}
@@ -947,41 +974,13 @@ func TestHandler_BatchReplaceClusterNodes(t *testing.T) {
 	}
 }
 
-func TestHandler_BatchAddClusterNodes_DuplicateNodeFails(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-	h.Backend.AddClusterInternal(context.Background(), "dup-node-cluster")
-
-	// Add node-1 first time
-	body := map[string]any{
-		"ClusterName": "dup-node-cluster",
-		"NodeConfigs": []map[string]any{{"NodeId": "node-1"}},
-	}
-	rec := doSageMakerRequest(t, h, "BatchAddClusterNodes", body)
-	assert.Equal(t, http.StatusOK, rec.Code)
-
-	// Try to add node-1 again — should appear in Failed, grouped by
-	// InstanceGroupName (empty here, since the request has none).
-	rec2 := doSageMakerRequest(t, h, "BatchAddClusterNodes", body)
-	assert.Equal(t, http.StatusOK, rec2.Code)
-
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp))
-	assert.NotContains(t, resp, "ClusterArn")
-
-	failed, _ := resp["Failed"].([]any)
-	require.Len(t, failed, 1)
-
-	entry, ok := failed[0].(map[string]any)
-	require.True(t, ok)
-	assert.Empty(t, entry["InstanceGroupName"])
-	assert.InDelta(t, float64(1), entry["FailedCount"], 0)
-	assert.NotEmpty(t, entry["ErrorCode"])
-
-	successful, _ := resp["Successful"].([]any)
-	assert.Empty(t, successful)
-}
+// TestHandler_BatchAddClusterNodes_DuplicateNodeFails previously drove
+// gopherstack's own invented "NodeConfigs" wire format directly, since the
+// real request-decode bug (gopherstack-g4mx) meant no real SDK client could
+// ever exercise a non-empty BatchAddClusterNodes request through this
+// handler. Now that BatchAddClusterNodesInput.NodesToAdd binds for real, this
+// non-empty-Failed proof is covered by the real-client
+// TestHandler_BatchAddClusterNodes_RealClient below instead.
 
 // ---------------------------------------------------------------------------
 // StartClusterHealthCheck
@@ -1333,13 +1332,12 @@ func TestHandler_BatchDeleteClusterNodes_RealClient(t *testing.T) {
 
 	h.Backend.AddClusterInternal(t.Context(), "delete-rt-cluster")
 
-	_, successfulSeed, _, err := h.Backend.BatchAddClusterNodes(
+	seeded := h.Backend.AddClusterNodeInternal(
 		t.Context(),
 		"delete-rt-cluster",
-		[]sagemaker.ClusterNode{{NodeID: "node-keep", NodeStatus: "Running"}},
+		sagemaker.ClusterNode{NodeID: "node-keep", NodeStatus: "Running"},
 	)
-	require.NoError(t, err)
-	require.Len(t, successfulSeed, 1)
+	require.NotNil(t, seeded)
 
 	out, err := client.BatchDeleteClusterNodes(t.Context(), &sagemakersdk.BatchDeleteClusterNodesInput{
 		ClusterName: aws.String("delete-rt-cluster"),
@@ -1368,13 +1366,12 @@ func TestHandler_BatchRebootClusterNodes_RealClient(t *testing.T) {
 
 	h.Backend.AddClusterInternal(t.Context(), "reboot-rt-cluster")
 
-	_, successfulSeed, _, err := h.Backend.BatchAddClusterNodes(
+	seeded := h.Backend.AddClusterNodeInternal(
 		t.Context(),
 		"reboot-rt-cluster",
-		[]sagemaker.ClusterNode{{NodeID: "node-keep", NodeStatus: "Running"}},
+		sagemaker.ClusterNode{NodeID: "node-keep", NodeStatus: "Running"},
 	)
-	require.NoError(t, err)
-	require.Len(t, successfulSeed, 1)
+	require.NotNil(t, seeded)
 
 	out, err := client.BatchRebootClusterNodes(t.Context(), &sagemakersdk.BatchRebootClusterNodesInput{
 		ClusterName: aws.String("reboot-rt-cluster"),
@@ -1391,48 +1388,83 @@ func TestHandler_BatchRebootClusterNodes_RealClient(t *testing.T) {
 	assert.NotEmpty(t, aws.ToString(out.Failed[0].Message))
 }
 
-// TestHandler_BatchAddClusterNodes_RealClient_ResponseShape confirms
-// BatchAddClusterNodesOutput decodes through the real client with no
-// ClusterArn member and typed (empty but non-nil) Failed/Successful slices.
-// It cannot exercise a non-empty Failed/Successful through the real client:
-// the SDK serializes NodesToAdd (serializers.go:39038,
-// awsAwsjson11_serializeOpDocumentBatchAddClusterNodesInput), a field this
-// handler's request struct has never read — it reads "NodeConfigs" instead.
-// That is a separate, pre-existing request-decode bug (same silently-dropped-
-// key class, but on gopherstack's inbound decode rather than the SDK's
-// outbound one), out of scope for gopherstack-f31u's output-shape fix and
-// filed separately. TestHandler_BatchAddClusterNodes_DuplicateNodeFails below
-// exercises non-empty Failed/Successful against gopherstack's own accepted
-// wire format instead.
-func TestHandler_BatchAddClusterNodes_RealClient_ResponseShape(t *testing.T) {
+// TestHandler_BatchAddClusterNodes_RealClient replaces
+// TestHandler_BatchAddClusterNodes_RealClient_ResponseShape (which could only
+// prove the response typed-decodes on an always-empty result, since the
+// request never bound) now that gopherstack-g4mx's request-binding fix
+// means BatchAddClusterNodesInput.NodesToAdd (serializers.go:39038,
+// awsAwsjson11_serializeOpDocumentBatchAddClusterNodesInput) actually reaches
+// the backend. Drives the real SDK client end-to-end: adds 2 nodes to an
+// existing instance group and confirms they actually landed via a second
+// real-client call (ListClusterNodes), not just that the add response looked
+// right. Also proves the InstanceGroupNotFound failure path
+// (types.BatchAddClusterNodesErrorCodeInstanceGroupNotFound, enums.go:1537).
+func TestHandler_BatchAddClusterNodes_RealClient(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
 	client := newTestSageMakerClient(t, h)
 
-	h.Backend.AddClusterInternal(t.Context(), "add-rt-cluster")
+	_, err := client.CreateCluster(t.Context(), &sagemakersdk.CreateClusterInput{
+		ClusterName: aws.String("add-rt-cluster"),
+		InstanceGroups: []smtypes.ClusterInstanceGroupSpecification{
+			{
+				InstanceGroupName: aws.String("workers"),
+				InstanceType:      smtypes.ClusterInstanceTypeMlM5Xlarge,
+				InstanceCount:     aws.Int32(1),
+				ExecutionRole:     aws.String("arn:aws:iam::000000000000:role/HyperPodRole"),
+			},
+		},
+	})
+	require.NoError(t, err)
 
 	out, err := client.BatchAddClusterNodes(t.Context(), &sagemakersdk.BatchAddClusterNodesInput{
 		ClusterName: aws.String("add-rt-cluster"),
 		NodesToAdd: []smtypes.AddClusterNodeSpecification{
-			{InstanceGroupName: aws.String("workers"), IncrementTargetCountBy: aws.Int32(1)},
+			{InstanceGroupName: aws.String("workers"), IncrementTargetCountBy: aws.Int32(2)},
 		},
 	})
 	require.NoError(t, err)
-	assert.Empty(t, out.Successful)
 	assert.Empty(t, out.Failed)
+	require.Len(t, out.Successful, 2)
+
+	for _, r := range out.Successful {
+		assert.Equal(t, "workers", aws.ToString(r.InstanceGroupName))
+		assert.NotEmpty(t, aws.ToString(r.NodeLogicalId))
+		assert.Equal(t, smtypes.ClusterInstanceStatusRunning, r.Status)
+	}
+
+	listOut, err := client.ListClusterNodes(t.Context(), &sagemakersdk.ListClusterNodesInput{
+		ClusterName: aws.String("add-rt-cluster"),
+	})
+	require.NoError(t, err)
+	assert.Len(t, listOut.ClusterNodeSummaries, 3) // 1 from CreateCluster + 2 just added
+
+	failOut, err := client.BatchAddClusterNodes(t.Context(), &sagemakersdk.BatchAddClusterNodesInput{
+		ClusterName: aws.String("add-rt-cluster"),
+		NodesToAdd: []smtypes.AddClusterNodeSpecification{
+			{InstanceGroupName: aws.String("ghost-group"), IncrementTargetCountBy: aws.Int32(3)},
+		},
+	})
+	require.NoError(t, err)
+	assert.Empty(t, failOut.Successful)
+	require.Len(t, failOut.Failed, 1)
+	assert.Equal(t, smtypes.BatchAddClusterNodesErrorCodeInstanceGroupNotFound, failOut.Failed[0].ErrorCode)
+	assert.Equal(t, "ghost-group", aws.ToString(failOut.Failed[0].InstanceGroupName))
+	assert.EqualValues(t, 3, aws.ToInt32(failOut.Failed[0].FailedCount))
 }
 
-// TestHandler_BatchReplaceClusterNodes_RealClient_ResponseShape is
-// TestHandler_BatchAddClusterNodes_RealClient_ResponseShape's sibling for
-// BatchReplaceClusterNodesOutput. The real client serializes NodeIds
-// (serializers.go:39123), which this handler's request struct has never
-// read — it reads "Nodes" (a []{NodeId,InstanceType} shape AWS's
-// BatchReplaceClusterNodesInput doesn't have at all) instead. Same
-// separately-filed request-decode bug as BatchAddClusterNodes.
-// TestHandler_BatchReplaceClusterNodes_MissingNodeFails below exercises
-// non-empty Failed/Successful against gopherstack's own accepted wire format.
-func TestHandler_BatchReplaceClusterNodes_RealClient_ResponseShape(t *testing.T) {
+// TestHandler_BatchReplaceClusterNodes_RealClient replaces
+// TestHandler_BatchReplaceClusterNodes_RealClient_ResponseShape and
+// TestHandler_BatchReplaceClusterNodes_MissingNodeFails (the latter drove
+// gopherstack's own invented "Nodes" wire format directly, since the request
+// never bound through a real client before gopherstack-g4mx). Confirms
+// BatchReplaceClusterNodesInput.NodeIds (serializers.go:39123, a flat
+// []string) now binds: a seeded node ID is accepted as Successful, and a
+// nonexistent one reports the typed Failed shape
+// (types.BatchReplaceClusterNodesError: ErrorCode/Message/NodeId,
+// types/types.go:3448).
+func TestHandler_BatchReplaceClusterNodes_RealClient(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -1440,48 +1472,24 @@ func TestHandler_BatchReplaceClusterNodes_RealClient_ResponseShape(t *testing.T)
 
 	h.Backend.AddClusterInternal(t.Context(), "replace-rt-cluster")
 
+	seeded := h.Backend.AddClusterNodeInternal(
+		t.Context(),
+		"replace-rt-cluster",
+		sagemaker.ClusterNode{NodeID: "node-keep", NodeStatus: "Running"},
+	)
+	require.NotNil(t, seeded)
+
 	out, err := client.BatchReplaceClusterNodes(t.Context(), &sagemakersdk.BatchReplaceClusterNodesInput{
 		ClusterName: aws.String("replace-rt-cluster"),
-		NodeIds:     []string{"node-1"},
+		NodeIds:     []string{"node-keep", "node-missing"},
 	})
 	require.NoError(t, err)
-	assert.Empty(t, out.Successful)
-	assert.Empty(t, out.Failed)
-}
 
-// TestHandler_BatchReplaceClusterNodes_MissingNodeFails exercises the typed
-// Failed shape (types.BatchReplaceClusterNodesError: ErrorCode/Message/NodeId,
-// types/types.go:3448) against gopherstack's own accepted wire format, since
-// the real client can't drive a non-empty request through this handler yet
-// (see TestHandler_BatchReplaceClusterNodes_RealClient_ResponseShape).
-func TestHandler_BatchReplaceClusterNodes_MissingNodeFails(t *testing.T) {
-	t.Parallel()
+	require.Len(t, out.Successful, 1)
+	assert.Equal(t, "node-keep", out.Successful[0])
 
-	h := newTestHandler(t)
-	h.Backend.AddClusterInternal(context.Background(), "replace-missing-cluster")
-
-	body := map[string]any{
-		"ClusterName": "replace-missing-cluster",
-		"Nodes": []map[string]any{
-			{"NodeId": "missing-node"},
-		},
-	}
-	rec := doSageMakerRequest(t, h, "BatchReplaceClusterNodes", body)
-	assert.Equal(t, http.StatusOK, rec.Code)
-
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	assert.NotContains(t, resp, "ClusterArn")
-
-	failed, _ := resp["Failed"].([]any)
-	require.Len(t, failed, 1)
-
-	entry, ok := failed[0].(map[string]any)
-	require.True(t, ok)
-	assert.Equal(t, "missing-node", entry["NodeId"])
-	assert.Equal(t, "InstanceIdNotFound", entry["ErrorCode"])
-	assert.NotEmpty(t, entry["Message"])
-
-	successful, _ := resp["Successful"].([]any)
-	assert.Empty(t, successful)
+	require.Len(t, out.Failed, 1)
+	assert.Equal(t, smtypes.BatchReplaceClusterNodesErrorCodeInstanceIdNotFound, out.Failed[0].ErrorCode)
+	assert.Equal(t, "node-missing", aws.ToString(out.Failed[0].NodeId))
+	assert.NotEmpty(t, aws.ToString(out.Failed[0].Message))
 }

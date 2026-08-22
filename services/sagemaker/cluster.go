@@ -151,6 +151,31 @@ func (b *InMemoryBackend) CreateCluster(
 	return cloneCluster(c), nil
 }
 
+// AddClusterNodeInternal directly inserts a node into an existing cluster,
+// bypassing BatchAddClusterNodes' instance-group semantics, for seeding tests.
+func (b *InMemoryBackend) AddClusterNodeInternal(
+	ctx context.Context,
+	clusterName string,
+	node ClusterNode,
+) *ClusterNode {
+	b.mu.Lock("AddClusterNodeInternal")
+	defer b.mu.Unlock()
+
+	c, err := b.ensureClusterLocked(ctx, clusterName)
+	if err != nil {
+		return nil
+	}
+
+	if node.NodeStatus == "" {
+		node.NodeStatus = statusRunning
+	}
+
+	nodeCopy := node
+	c.Nodes[node.NodeID] = &nodeCopy
+
+	return &nodeCopy
+}
+
 // DescribeCluster returns a cluster by name or ARN.
 func (b *InMemoryBackend) DescribeCluster(ctx context.Context, nameOrArn string) (*Cluster, error) {
 	b.mu.RLock("DescribeCluster")
@@ -762,14 +787,48 @@ func (b *InMemoryBackend) AttachClusterNodeVolume(
 	return c.ClusterArn, nodeID, nil
 }
 
-// BatchAddClusterNodes adds multiple nodes to a cluster.
-// Returns clusterArn, the nodes that were added, and the node configs that
-// failed (duplicate node ID).
+// AddClusterNodeSpec is the backend-facing shape of one BatchAddClusterNodes
+// NodesToAdd entry (types.AddClusterNodeSpecification, types/types.go:79-99,
+// sagemaker@v1.263.2). AvailabilityZones/InstanceTypes are decoded by the
+// handler for wire-shape fidelity but are a disclosed no-op here: this
+// backend places every added node using its instance group's InstanceType,
+// the same convention CreateCluster's node provisioning already uses
+// (newClusterNode).
+type AddClusterNodeSpec struct {
+	InstanceGroupName      string
+	IncrementTargetCountBy int32
+}
+
+// BatchAddClusterNodesFailure describes one NodesToAdd spec that could not be
+// applied, mirroring types.BatchAddClusterNodesError's InstanceGroupName/
+// ErrorCode/FailedCount (types/types.go:3168-3184).
+type BatchAddClusterNodesFailure struct {
+	InstanceGroupName string
+	ErrorCode         string
+	FailedCount       int32
+}
+
+// instanceGroupIndexLocked returns the index of the named instance group in
+// c.InstanceGroups, or -1 if it does not exist (must be called with b.mu held).
+func instanceGroupIndexLocked(c *Cluster, instanceGroupName string) int {
+	for i, ig := range c.InstanceGroups {
+		if ig.InstanceGroupName == instanceGroupName {
+			return i
+		}
+	}
+
+	return -1
+}
+
+// BatchAddClusterNodes increments the target count for one or more instance
+// groups, provisioning IncrementTargetCountBy new running nodes per spec.
+// Returns clusterArn, the nodes added, and the specs that failed because
+// their InstanceGroupName does not exist on the cluster.
 func (b *InMemoryBackend) BatchAddClusterNodes(
 	ctx context.Context,
 	clusterName string,
-	nodeConfigs []ClusterNode,
-) (string, []ClusterNode, []ClusterNode, error) {
+	specs []AddClusterNodeSpec,
+) (string, []ClusterNode, []BatchAddClusterNodesFailure, error) {
 	b.mu.Lock("BatchAddClusterNodes")
 	defer b.mu.Unlock()
 
@@ -778,27 +837,30 @@ func (b *InMemoryBackend) BatchAddClusterNodes(
 		return "", nil, nil, err
 	}
 
-	var successful, failed []ClusterNode
+	var successful []ClusterNode
 
-	for i := range nodeConfigs {
-		node := &nodeConfigs[i]
-		if node.NodeID == "" {
-			node.NodeID = fmt.Sprintf("node-%d", len(c.Nodes)+1)
-		}
+	var failed []BatchAddClusterNodesFailure
 
-		if node.NodeStatus == "" {
-			node.NodeStatus = statusRunning
-		}
-
-		if _, exists := c.Nodes[node.NodeID]; exists {
-			failed = append(failed, *node)
+	for _, spec := range specs {
+		idx := instanceGroupIndexLocked(c, spec.InstanceGroupName)
+		if idx < 0 {
+			failed = append(failed, BatchAddClusterNodesFailure{
+				InstanceGroupName: spec.InstanceGroupName,
+				ErrorCode:         "InstanceGroupNotFound",
+				FailedCount:       spec.IncrementTargetCountBy,
+			})
 
 			continue
 		}
 
-		nodeCopy := *node
-		c.Nodes[node.NodeID] = &nodeCopy
-		successful = append(successful, nodeCopy)
+		ig := c.InstanceGroups[idx]
+		c.InstanceGroups[idx].InstanceCount += spec.IncrementTargetCountBy
+
+		for range spec.IncrementTargetCountBy {
+			node := newClusterNode(c, ig)
+			c.Nodes[node.NodeID] = node
+			successful = append(successful, *node)
+		}
 	}
 
 	return c.ClusterArn, successful, failed, nil
@@ -865,13 +927,15 @@ func (b *InMemoryBackend) BatchRebootClusterNodes(
 	return c.ClusterArn, failures, successful, nil
 }
 
-// BatchReplaceClusterNodes replaces multiple nodes in a cluster.
-// Returns clusterArn, the nodeIDs that failed to replace, and the nodeIDs
-// that were replaced successfully.
+// BatchReplaceClusterNodes replaces multiple nodes in a cluster, identified
+// by node ID (types.BatchReplaceClusterNodesInput.NodeIds is a flat []string
+// with no per-node InstanceType, api_op_BatchReplaceClusterNodes.go:60-92,
+// sagemaker@v1.263.2). Returns clusterArn, the nodeIDs that failed to
+// replace, and the nodeIDs that were replaced successfully.
 func (b *InMemoryBackend) BatchReplaceClusterNodes(
 	ctx context.Context,
 	clusterName string,
-	nodes []ClusterNode,
+	nodeIDs []string,
 ) (string, []string, []string, error) {
 	b.mu.Lock("BatchReplaceClusterNodes")
 	defer b.mu.Unlock()
@@ -883,24 +947,17 @@ func (b *InMemoryBackend) BatchReplaceClusterNodes(
 
 	var failed, successful []string
 
-	for i := range nodes {
-		node := &nodes[i]
-		if node.NodeID == "" {
-			failed = append(failed, "")
+	for _, nodeID := range nodeIDs {
+		node, ok := c.Nodes[nodeID]
+		if !ok {
+			failed = append(failed, nodeID)
 
 			continue
 		}
 
-		if _, ok := c.Nodes[node.NodeID]; !ok {
-			failed = append(failed, node.NodeID)
-
-			continue
-		}
-
-		nodeCopy := *node
-		nodeCopy.NodeStatus = statusRunning
-		c.Nodes[node.NodeID] = &nodeCopy
-		successful = append(successful, node.NodeID)
+		node.NodeStatus = statusRunning
+		node.CreationTime = time.Now()
+		successful = append(successful, nodeID)
 	}
 
 	return c.ClusterArn, failed, successful, nil

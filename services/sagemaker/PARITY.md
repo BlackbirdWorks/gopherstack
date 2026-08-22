@@ -4987,3 +4987,163 @@ confirmed clean without a `-update` run.
 `make build-check` (`go build ./...` + `go vet -tags e2e,integration ./...`) all clean. No
 `//nolint` added; the `dupl` finding on Delete/Reboot's near-identical handlers was fixed by
 extracting `handleBatchNodeIDsOp` rather than suppressed.
+
+## 2026-08-22 (gopherstack-g4mx): BatchAddClusterNodes/BatchReplaceClusterNodes request binding fixed; NodeLogicalIds alternate identifier added
+
+Fixed the request-decode bug the previous entry (f31u) surfaced but deferred, confirmed
+directly against `aws-sdk-go-v2/service/sagemaker@v1.263.2`:
+
+- **`BatchAddClusterNodesInput`** (`api_op_BatchAddClusterNodes.go:37-56`) declares
+  `ClusterName`, `NodesToAdd []types.AddClusterNodeSpecification`, `ClientToken` — the real
+  client serializes the list under `"NodesToAdd"` (`serializers.go:39024-39038`, each entry
+  `IncrementTargetCountBy`+`InstanceGroupName`+optional `AvailabilityZones`/`InstanceTypes`,
+  `serializers.go:24655-24682`, `types/types.go:79-99`). gopherstack decoded `"NodeConfigs"`
+  (a `[]{NodeId,InstanceType}` shape AWS's input doesn't have at all) — every real request's
+  `NodesToAdd` was silently dropped, decoding to an empty spec list every time.
+- **`BatchReplaceClusterNodesInput`** (`api_op_BatchReplaceClusterNodes.go:52-84`) declares
+  `ClusterName`, flat `NodeIds []string`, flat `NodeLogicalIds []string` — the real client
+  serializes both under those exact flat-array keys (`serializers.go:39100-39123`).
+  gopherstack decoded `"Nodes"` (again `[]{NodeId,InstanceType}`, a shape
+  `BatchReplaceClusterNodesInput` does not have), so `NodeIds` was silently dropped too.
+
+**Both ops were complete no-ops through any real AWS SDK client**: the request body decoded
+to an empty node/spec list regardless of what the caller sent, and the handler returned 200
+having done nothing. Confirmed pre-fix via hand-revert (`git show HEAD:<path>` restored,
+`cp`'d to scratch first, `md5sum` byte-identical after re-fixing): the pre-fix
+`TestHandler_BatchAddClusterNodes_RealClient_ResponseShape` /
+`TestHandler_BatchReplaceClusterNodes_RealClient_ResponseShape` tests (this campaign's own
+prior proof, see the f31u entry above) both re-passed with `Successful`/`Failed` empty even
+when a real client sent a populated `NodesToAdd`/`NodeIds` — the defining symptom of a
+never-bound field.
+
+**Add's fix is a genuine request-model redesign, not a rename** (as the f31u entry's sizing
+note anticipated): `NodesToAdd` targets *instance groups*, not individual node IDs, so
+`InMemoryBackend.BatchAddClusterNodes` now takes `[]AddClusterNodeSpec`
+(`InstanceGroupName`+`IncrementTargetCountBy`, `cluster.go`) instead of `[]ClusterNode`, looks
+up the named instance group on the cluster, and provisions `IncrementTargetCountBy` new
+running nodes via the existing `newClusterNode` helper (the same one `CreateCluster` already
+uses) — reusing established provisioning logic rather than inventing new node-creation code.
+A spec naming an instance group that doesn't exist on the cluster now fails with the real
+`InstanceGroupNotFound` error code (`types.BatchAddClusterNodesErrorCodeInstanceGroupNotFound`,
+`enums.go:1537`) instead of the old handler's invented `InvalidInstanceGroupStatus`
+approximation for a since-removed "duplicate node ID" scenario that doesn't exist under the
+real per-instance-group model. `AvailabilityZones`/`InstanceTypes` on each spec are decoded
+for wire fidelity but are a disclosed no-op, matching this backend's existing convention of
+placing every node using its instance group's own `InstanceType` (same as `CreateCluster`).
+
+**Replace's fix is the bounded rename+retype the f31u entry predicted**:
+`BatchReplaceClusterNodes` now takes `nodeIDs []string` instead of `[]ClusterNode`, dropping
+the never-real per-node `InstanceType` the old `"Nodes"` shape invented.
+
+**Proof (real-client, proving nodes actually land, not just that the response shape
+decodes):** `TestHandler_BatchAddClusterNodes_RealClient` creates a cluster with a real
+`"workers"` instance group via the real client, calls `BatchAddClusterNodes` with
+`NodesToAdd: [{InstanceGroupName: "workers", IncrementTargetCountBy: 2}]`, asserts
+`Successful` has 2 entries (`InstanceGroupName`/`NodeLogicalId`/`Status: Running`), and then
+makes a **second** real-client call, `ListClusterNodes`, confirming 3 nodes now exist on the
+cluster (1 from `CreateCluster` + 2 just added) — proving the nodes didn't just appear in the
+response, they're actually in backend state. A second case in the same test drives
+`InstanceGroupNotFound` against a real client. `TestHandler_BatchReplaceClusterNodes_RealClient`
+seeds a node via the new `AddClusterNodeInternal` backend helper, then a real client's
+`NodeIds: [seeded, missing]` returns `Successful: [seeded]` and a typed `Failed` entry for
+`missing`. Confirmed failing pre-fix as described above.
+
+**Placeholder tests replaced, as gopherstack-g4mx asked for by name:**
+`TestHandler_BatchAddClusterNodes_RealClient_ResponseShape` and
+`TestHandler_BatchReplaceClusterNodes_RealClient_ResponseShape` — the two real-client tests
+that could previously only assert an always-empty result, since the request never bound — are
+now `TestHandler_BatchAddClusterNodes_RealClient` / `TestHandler_BatchReplaceClusterNodes_RealClient`
+above, exercising non-empty success and failure. `TestHandler_BatchAddClusterNodes_DuplicateNodeFails`
+and `TestHandler_BatchReplaceClusterNodes_MissingNodeFails` — the two tests that drove
+gopherstack's own invented `"NodeConfigs"`/`"Nodes"` wire format directly (a self-consistent,
+unfalsifiable test: it asserts the shape the handler happened to write, the same trap found in
+glue's tag-pair tests, gopherstack-v4a4) — are deleted; their non-empty-`Failed` coverage is
+now subsumed by the real-client tests above, which drive the *correct* wire keys.
+
+**`FailedNodeLogicalIds`/`SuccessfulNodeLogicalIds` decision: emit for Delete/Reboot/Replace,
+not Add.** Checked each of the four `Batch*Output` types individually rather than assuming a
+shared shape (per f31u's own lesson about this family): `BatchDeleteClusterNodesOutput`
+(`api_op_BatchDeleteClusterNodes.go:60-82`), `BatchRebootClusterNodesOutput`
+(`api_op_BatchRebootClusterNodes.go:75-104`), and `BatchReplaceClusterNodesOutput`
+(`api_op_BatchReplaceClusterNodes.go:93-122`) each declare both
+`FailedNodeLogicalIds []types.Batch*ClusterNodeLogicalIdsError` and
+`SuccessfulNodeLogicalIds []string`, with deserializer cases at e.g.
+`deserializers.go:105261-105272` (Delete), `:105353-105364` (Reboot), `:105404-105415`
+(Replace). **`BatchAddClusterNodesOutput` (`api_op_BatchAddClusterNodes.go:60-77`) has no such
+fields at all** — grepping the whole SDK module for `FailedNodeLogicalIds`/
+`SuccessfulNodeLogicalIds` turns up only the three Delete/Reboot/Replace output types, never
+Add's. Implemented via `handler_cluster.go`'s `handleBatchNodeIDsOp` (shared by all three, now
+generalized from f31u's Delete/Reboot-only helper to also serve Replace): new
+`batchDeleteClusterNodeLogicalIDsError`/`batchRebootClusterNodeLogicalIDsError`/
+`batchReplaceClusterNodeLogicalIDsError` wire types mirror the real per-op error shapes
+(`Code`/`ErrorCode` field naming split the same way the base `Failed` errors already split,
+keyed by `NodeLogicalId` instead of `NodeId`/`InstanceId`). The two new keys are only emitted
+when the request actually carried `NodeLogicalIds`, matching the real API's doc text ("This
+field is only present when NodeLogicalIds were provided in the request.").
+
+**`NodeLogicalIds` as an alternate identifier: real, and gopherstack now accepts it — not the
+2wvq over-validation shape, because gopherstack never rejected the alternate arm in the first
+place.** Doc prose confirmed on Reboot and Replace verbatim: "Either NodeIds or NodeLogicalIds
+must be provided (or both), but at least one is required" (`api_op_BatchRebootClusterNodes.go:
+44-72`, `api_op_BatchReplaceClusterNodes.go:52-84`); Delete's doc text says the same thing
+using stale "InstanceIds" wording for what is actually the `NodeIds` field
+(`api_op_BatchDeleteClusterNodes.go:55-61`) — neither `NodeIds` nor `NodeLogicalIds` is
+individually `"This member is required"` on any of the three Go input structs, confirming
+they're true alternates, not one primary plus a decorative extra. Before this fix, gopherstack
+decoded `NodeIds` only; a request carrying only `NodeLogicalIds` wasn't *rejected* (there was
+no "NodeIds required" check to trigger 2wvq's over-validation bug) — it was silently accepted
+and treated as an empty batch, the same silent-no-op class as this issue's headline bug, just
+on the alternate-identifier arm instead of the primary one. Fixed by decoding
+`NodeLogicalIds` on the shared `batchNodeIDsRequest` (now used by Delete, Reboot, *and*
+Replace) and resolving each entry as a node ID: this backend assigns every node's `NodeId`
+synchronously at creation and never tracks a separate logical identifier for it, the same
+disclosed-no-op convention `DescribeClusterNode`'s `NodeLogicalId` handling already
+established. Deliberately did **not** add a "NodeIds or NodeLogicalIds required" validation
+error for an all-empty request — that would be new under-validation gopherstack-g4mx didn't
+ask for and isn't the 2wvq shape either way (2wvq is about wrongly *rejecting* valid alternate
+input, not under-*enforcing* a required-together rule); an all-empty request now behaves
+exactly as an empty `NodeIds` list already did before `NodeLogicalIds` existed here (accepted,
+processes nothing). Left as a possible small follow-up, not filed as its own issue.
+
+**Backend/interface signature changes:** `BatchAddClusterNodes(ctx, clusterName string,
+specs []AddClusterNodeSpec) (string, []ClusterNode, []BatchAddClusterNodesFailure, error)`
+(was `(string, []ClusterNode, nodeConfigs []ClusterNode) (string, []ClusterNode, []ClusterNode,
+error)`); `BatchReplaceClusterNodes(ctx, clusterName string, nodeIDs []string) (string,
+[]string, []string, error)` (was `nodes []ClusterNode`). New backend seeding helper
+`AddClusterNodeInternal` (mirrors the existing `AddClusterInternal`) replaces three tests'
+prior seeding-via-`BatchAddClusterNodes` calls, which broke once that signature changed to
+take instance-group specs instead of raw nodes. No persisted model changed —
+`ClusterNode`/`Cluster`/`ClusterInstanceGroup` (`models.go`) are untouched; only in-memory
+backend method signatures and handler wire types changed. `go test ./pkgs/persistence/...`
+confirmed clean for sagemaker (one unrelated pre-existing failure in `glue`'s
+`backendSnapshot`, from a concurrent, uncommitted edit to `services/glue/models.go` by another
+session — out of this issue's `services/sagemaker/`-only scope, not touched).
+
+**Fixtures corrected (beyond the two replaced placeholder tests above):**
+`TestHandler_BatchAddClusterNodes`'s body changed from the invented `"NodeConfigs"` key to
+`"NodesToAdd"`, its "success" case now seeds a real instance group via `CreateCluster` and
+asserts 2 real `Successful` entries instead of only type-checking an always-vacuous result, and
+gained a "missing NodesToAdd" case for the now-required-member validation.
+`TestHandler_BatchReplaceClusterNodes`'s body changed from `"Nodes": [{NodeId,InstanceType}]`
+to flat `"NodeIds": [...]`, matching the real wire shape. `TestBatchRebootClusterNodes_PartialSuccess`,
+`TestHandler_BatchDeleteClusterNodes_RealClient`, and `TestHandler_BatchRebootClusterNodes_RealClient`
+all seeded their node via `h.Backend.BatchAddClusterNodes(ctx, name, []ClusterNode{...})`, a
+call shape the signature change above broke; switched to `AddClusterNodeInternal`.
+
+**Not fixed, out of scope, named here so a future pass doesn't have to re-derive it:**
+`ClusterInstanceGroup.InstanceCount` (the response's `CurrentCount`/`TargetCount`) is set
+directly from the request/`IncrementTargetCountBy` math, not from an actual live count of
+`c.Nodes` entries in that group — a pre-existing inconsistency (predates this fix, visible
+already in `fromClusterInstanceGroups`) this pass didn't touch since `BatchAddClusterNodes`
+was already the narrowest change that made the count and the node set agree for the one op
+being fixed.
+
+**Gates:** `go build ./...`, `go vet ./...`, `gofmt -l services/sagemaker/`,
+`go test -race ./services/sagemaker/...`, `go test ./pkgs/persistence/...` (sagemaker clean,
+see glue note above), `golangci-lint run ./services/sagemaker/...` (0 issues after fixing a
+`gocheckcompilerdirectives` false-positive from a `// go:` line-wrap, a `gocognit` finding on
+`handleBatchNodeIDsOp` resolved by extracting `newNodeIdentifierArms`/`partitionByArm[T]`
+rather than suppressed, a `goconst` finding resolved via `errCodeInstanceIDNotFound`, and 3
+`revive` var-naming findings renaming `...LogicalIdsError` types to `...LogicalIDsError`), and
+`make build-check` (`go build ./...` + `go vet -tags e2e ./...` + `go vet -tags integration
+./...`) all clean. No `//nolint` added.

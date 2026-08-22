@@ -72,8 +72,8 @@ type StorageBackend interface {
 	BatchAddClusterNodes(
 		ctx context.Context,
 		clusterName string,
-		nodeConfigs []ClusterNode,
-	) (string, []ClusterNode, []ClusterNode, error)
+		specs []AddClusterNodeSpec,
+	) (string, []ClusterNode, []BatchAddClusterNodesFailure, error)
 	BatchDeleteClusterNodes(
 		ctx context.Context,
 		clusterName string,
@@ -88,7 +88,7 @@ type StorageBackend interface {
 	BatchReplaceClusterNodes(
 		ctx context.Context,
 		clusterName string,
-		nodes []ClusterNode,
+		nodeIDs []string,
 	) (string, []string, []string, error)
 
 	CreateAction(
