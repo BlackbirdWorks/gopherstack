@@ -49,7 +49,7 @@ ops:
   ListPodIdentityAssociations: {wire: fixed, errors: ok, state: ok, persist: ok, note: "was emitting the FULL PodIdentityAssociation shape (roleArn/createdAt/tags included); real ListPodIdentityAssociations returns the PodIdentityAssociationSummary shape which deliberately omits those fields -- verified against types.PodIdentityAssociationSummary. Also now supports maxResults/nextToken pagination"}
   DeletePodIdentityAssociation: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdatePodIdentityAssociation: {wire: fixed, errors: ok, state: ok, persist: ok, note: "was routed as PUT; real method is POST to the same leaf path. Now also accepts Policy/DisableSessionTags and sets ModifiedAt"}
-  AssociateIdentityProviderConfig: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "now captures groupsPrefix/usernamePrefix/requiredClaims (previously dropped) and generates a real ARN (previously unset). gopherstack-muzq (2026-08-21): Status was stamped CREATING and nothing ever advanced it -- no ticker, no later call, while sibling cluster/addon/nodegroup resources transition correctly; now scheduled to ACTIVE mirroring scheduleClusterActivation"}
+  AssociateIdentityProviderConfig: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "now captures groupsPrefix/usernamePrefix/requiredClaims (previously dropped) and generates a real ARN (previously unset). gopherstack-muzq (2026-08-21): Status was stamped CREATING and nothing ever advanced it -- no ticker, no later call, while sibling cluster/addon/nodegroup resources transition correctly; now scheduled to ACTIVE mirroring scheduleClusterActivation. gopherstack-i8lo (2026-08-22): oidc.identityProviderConfigName (OidcIdentityProviderConfigRequest, eks@v1.90.4 types/types.go:2120, required) was decoded but never validated -- a missing name silently defaulted to clientId instead of being rejected; ClientId/IssuerUrl (types.go:2115,2132) were already validated. Now rejects a missing identityProviderConfigName with InvalidParameterException."}
   DescribeIdentityProviderConfig: {wire: fixed, errors: ok, state: ok, persist: n/a, note: "response was a flat {clusterName,name,type,status,oidc,createdAt} object; real shape (aws-sdk-go-v2/service/eks/types.IdentityProviderConfigResponse) nests the full OidcIdentityProviderConfig under an 'oidc' key with identityProviderConfigName/identityProviderConfigArn/clientId/issuerUrl/usernameClaim/usernamePrefix/groupsClaim/groupsPrefix/requiredClaims/tags/status fields, none of which matched gopherstack's flat shape. Route-match looseness (any 3rd path segment) is unchanged, still intentional"}
   ListIdentityProviderConfigs: {wire: fixed, errors: ok, state: ok, persist: ok, note: "now supports maxResults/nextToken pagination (envelope shape {name,type} pairs was already correct)"}
   DisassociateIdentityProviderConfig: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -296,3 +296,36 @@ Verified by hand-revert: each fix's file was reverted to its pre-fix `git
 show HEAD:<path>` content, the corresponding test failed with the predicted
 symptom (`Condition never satisfied` -- the status stayed transitional), then
 was restored and confirmed `md5sum`-identical to the fixed version.
+
+### 2026-08-22 (gopherstack-i8lo): missing required-member validation
+
+`AssociateIdentityProviderConfig`'s `oidc.identityProviderConfigName` is
+marked `// This member is required.` on `OidcIdentityProviderConfigRequest`
+(`aws-sdk-go-v2/service/eks@v1.90.4` `types/types.go:2120`, alongside
+`ClientId:2115` and `IssuerUrl:2132`, also both required). The handler
+(`handler_identity_providers.go`) already rejected a missing `clientId`/
+`issuerUrl`, but a missing `identityProviderConfigName` silently defaulted to
+`clientId` instead of being rejected -- so a request omitting a required
+member was accepted and produced a config keyed under a name the caller never
+supplied, something real AWS's `validateOpAssociateIdentityProviderConfigInput`
+(`validators.go`) would reject before the request ever reaches the service.
+
+Fixed by adding the same `== ""` rejection used for the other two required
+fields, and removing the `clientId`-fallback default.
+
+The existing `TestEKS_AssociateIdentityProviderConfig/associate_idp_config_success`
+fixture (`identity_providers_test.go`) supplied only `issuerUrl`/`clientId`
+and omitted `identityProviderConfigName` while asserting `200 OK` -- exactly
+the fixture-ratifies-the-defect pattern this campaign keeps finding. Fixed to
+include the name, and a new `associate_idp_config_missing_config_name`
+subtest (expecting `400`) was added alongside it; `cluster_not_found` and
+`duplicate` subtests, which also omitted the name, were updated to supply
+one so they still test what their names say. `TestParseAssocPaths`
+(`handler_test.go`) sent `"configName"` (a field the handler never decodes --
+the real key is `identityProviderConfigName`), which also silently relied on
+the same fallback; corrected to the real field name.
+
+Confirmed via hand-revert: reverting `handler_identity_providers.go` to
+`git show HEAD:services/eks/handler_identity_providers.go` made the new
+`missing_config_name` subtest fail (`expected: 400, actual: 200`); restored
+and `md5sum`-verified identical to the fix.

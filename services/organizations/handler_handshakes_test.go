@@ -226,6 +226,12 @@ func TestHandler_HandshakeErrors(t *testing.T) {
 			body:       map[string]any{"Target": map[string]any{"Id": "", "Type": "ACCOUNT"}},
 			wantStatus: http.StatusBadRequest,
 		},
+		{
+			name:       "invite_missing_target_type",
+			op:         "InviteAccountToOrganization",
+			body:       map[string]any{"Target": map[string]any{"Id": "123456789012", "Type": ""}},
+			wantStatus: http.StatusBadRequest,
+		},
 	}
 
 	for _, tt := range tests {

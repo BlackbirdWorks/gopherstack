@@ -95,6 +95,13 @@ func (h *Handler) handleAssociateIdentityProviderConfig(c *echo.Context, cluster
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "oidc.clientId is required"))
 	}
 
+	if in.Oidc.IdentityProviderConfigName == "" {
+		return c.JSON(
+			http.StatusBadRequest,
+			errResp("InvalidParameterException", "oidc.identityProviderConfigName is required"),
+		)
+	}
+
 	params := map[string]string{
 		"issuerUrl": in.Oidc.IssuerURL,
 		"clientId":  in.Oidc.ClientID,
@@ -112,13 +119,8 @@ func (h *Handler) handleAssociateIdentityProviderConfig(c *echo.Context, cluster
 		params["groupsPrefix"] = in.Oidc.GroupsPrefix
 	}
 
-	configName := in.Oidc.IdentityProviderConfigName
-	if configName == "" {
-		configName = in.Oidc.ClientID
-	}
-
 	cfg, err := h.Backend.AssociateIdentityProviderConfig(
-		clusterName, "oidc", configName, params, in.Oidc.RequiredClaims, in.Tags,
+		clusterName, "oidc", in.Oidc.IdentityProviderConfigName, params, in.Oidc.RequiredClaims, in.Tags,
 	)
 	if err != nil {
 		return h.handleError(c, err)

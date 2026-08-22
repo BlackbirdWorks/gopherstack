@@ -100,8 +100,9 @@ func TestEKS_AssociateIdentityProviderConfig(t *testing.T) {
 			},
 			body: map[string]any{
 				"oidc": map[string]any{
-					"issuerUrl": "https://oidc.example.com",
-					"clientId":  "my-client",
+					"issuerUrl":                  "https://oidc.example.com",
+					"clientId":                   "my-client",
+					"identityProviderConfigName": "my-oidc",
 				},
 				"tags": map[string]string{"env": "test"},
 			},
@@ -126,8 +127,23 @@ func TestEKS_AssociateIdentityProviderConfig(t *testing.T) {
 			wantStatus: http.StatusBadRequest,
 		},
 		{
-			name:       "associate_idp_config_cluster_not_found",
-			body:       map[string]any{"oidc": map[string]any{"issuerUrl": "https://x.com", "clientId": "c"}},
+			name: "associate_idp_config_missing_config_name",
+			setup: func(t *testing.T, h *eks.Handler) {
+				t.Helper()
+				doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "my-cluster"})
+			},
+			body: map[string]any{
+				"oidc": map[string]any{"issuerUrl": "https://oidc.example.com", "clientId": "my-client"},
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "associate_idp_config_cluster_not_found",
+			body: map[string]any{
+				"oidc": map[string]any{
+					"issuerUrl": "https://x.com", "clientId": "c", "identityProviderConfigName": "c",
+				},
+			},
 			wantStatus: http.StatusNotFound,
 		},
 		{
@@ -141,12 +157,18 @@ func TestEKS_AssociateIdentityProviderConfig(t *testing.T) {
 					http.MethodPost,
 					"/clusters/my-cluster/identity-provider-configs/associate",
 					map[string]any{
-						"oidc": map[string]any{"issuerUrl": "https://oidc.example.com", "clientId": "dup-client"},
+						"oidc": map[string]any{
+							"issuerUrl": "https://oidc.example.com", "clientId": "dup-client",
+							"identityProviderConfigName": "dup-client",
+						},
 					},
 				)
 			},
 			body: map[string]any{
-				"oidc": map[string]any{"issuerUrl": "https://oidc.example.com", "clientId": "dup-client"},
+				"oidc": map[string]any{
+					"issuerUrl": "https://oidc.example.com", "clientId": "dup-client",
+					"identityProviderConfigName": "dup-client",
+				},
 			},
 			wantStatus: http.StatusConflict,
 		},
