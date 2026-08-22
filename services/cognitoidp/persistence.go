@@ -36,7 +36,12 @@ var (
 // real SDK client pre-redesign; its own required-member validation rejects
 // the request before it is ever sent). restoreTermsLocked handles the old
 // terms shape defensively instead -- see its doc comment.
-const cognitoidpSnapshotVersion = 1
+// Bumped 1 -> 2 for gopherstack-xasq: SchemaAttribute's constraint fields went from
+// flattened int64/float64 top-level fields to nested string-valued sub-objects
+// (StringAttributeConstraints/NumberAttributeConstraints), matching the real wire shape.
+// A structural reshape, not a rename or addition -- an old snapshot's flattened numeric
+// fields are simply gone, so decoding it as the new shape would silently lose them.
+const cognitoidpSnapshotVersion = 2
 
 // userPoolSnapshot holds the serializable fields of a UserPool.
 type userPoolSnapshot struct {

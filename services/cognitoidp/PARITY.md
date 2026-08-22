@@ -116,6 +116,7 @@ ops:
   user_pool_replicas: {status: ok, note: "parity-4, new family (multi-Region replication / MRR): CreateUserPoolReplica/ListUserPoolReplicas/UpdateUserPoolReplica/DeleteUserPoolReplica. UserPoolReplicaType field-diffed against the SDK (RegionName/Role/Status/UserPoolArn); the X-Amz-Target names and CreateUserPoolReplicaOutput/DeleteUserPoolReplicaOutput/UpdateUserPoolReplicaOutput/ListUserPoolReplicasOutput field names (all singular 'UserPoolReplica' except the List op's plural 'UserPoolReplicas') were confirmed against deserializers.go, not assumed from the (looser) dev-guide prose, which shows a JSON example using a 'Replica' key that does NOT match the real wire field -- a live trap for a future auditor who trusts the docs example over the SDK. CreateUserPoolReplica validates the pool exists (ResourceNotFoundException) and rejects a replica Region equal to the primary pool's own Region (InvalidParameterException) -- both real, documented AWS behaviors. It also enforces the real documented constraint 'You can have at most one secondary replica in an additional Region per user directory' by rejecting a second CreateUserPoolReplica call for the same pool regardless of region (InvalidParameterException) -- this is NOT an invented restriction, it is quoted verbatim from the Cognito multi-Region-replication developer guide. New replicas start Status=INACTIVE per that same guide ('New secondary user pools start in the INACTIVE state'); note the guide's own JSON example elsewhere shows an initial 'PENDING_CREATE' status that is not even a member of the SDK's ReplicaStatusType enum (CREATING/ACTIVE/INACTIVE/DELETING) -- INACTIVE was chosen as the only real, both-documented-and-enum-valid option; this is a explicit, documented assumption, not a fabrication, but flagged for the next auditor to re-verify against a live pool if ever possible. DeleteUserPoolReplica returns the replica with Status transitioned to DELETING (mirroring AWS's documented async deletion) before removing it. UserPoolTags on Create are stored under the replica's own ARN via the existing resourceTags/ListTagsForResource mechanism (real state, not dropped). Persisted via a new userPoolReplicas store.Table (composite poolID:region key, byPool index), round-tripped through Snapshot/Restore, covered by TestInMemoryBackend_SnapshotRestore's full_state_round_trip case."}
   provisioned_limits: {status: ok, note: "parity-4, new family: GetProvisionedLimit/UpdateProvisionedLimit. Confirmed ACCOUNT-LEVEL (not per-user-pool) by fetching the live Cognito quotas developer guide this pass: 'Provisioned limits are account-level resources. They apply to the aggregate rate of all requests from all user pools in one AWS Region in your AWS account' -- this backend models exactly one account+Region so GetProvisionedLimit/UpdateProvisionedLimit take no UserPoolId and do no pool-existence check, which is correct, not an oversight. LimitDefinitionType/LimitType field-diffed against the SDK (LimitClass/Attributes, FreeLimitValue/ProvisionedLimitValue/LimitDefinition). The 18 API_CATEGORY default (free) RPS values in provisioned_limits.go's category table (UserAuthentication=120, UserCreation=50, UserFederation=25, UserAccountRecovery=30, UserRead=120, UserUpdate=25, UserToken=120, UserResourceRead=50, UserResourceUpdate=25, UserList=30, UserPoolRead=15, UserPoolUpdate=15, UserPoolResourceRead=20, UserPoolResourceUpdate=15, UserPoolClientRead=15, UserPoolClientUpdate=15, ClientAuthentication=150, LimitManagement=1) and their Adjustable:Yes/No flags are the real, live-fetched values from 'Amazon Cognito user pools API operation categories and request rate quotas' -- not invented. UpdateProvisionedLimit rejects non-adjustable categories (InvalidParameterException, matching 'Only adjustable quota categories support provisioning') and rejects a negative RequestedLimitValue. One explicit, documented assumption: AWS's real two-tier model has a Service-Quotas-granted 'account-level max limit' above the provisioned limit, but that ceiling is account-specific (granted by AWS Support) with no universal published number -- this backend models an adjustable category's account-level max as 10x its documented default RPS (accountMaxMultiplier in provisioned_limits.go) and enforces it with ServiceQuotaExceededException, the real exception name AWS uses for this condition. Persisted via a new flat provisionedLimits map[string]int32 (Category -> current value), round-tripped through Snapshot/Restore."}
 gaps:
+  - "CLOSED 2026-08-22 (gopherstack-xasq): SchemaAttribute wrote StringAttributeMinLength/MaxLength (int64) and NumberAttributeMinValue/MaxValue (float64) as flat top-level fields; the real SchemaAttributeType nests these as string-valued sub-objects (StringAttributeConstraints{MinLength,MaxLength}/NumberAttributeConstraints{MinValue,MaxValue} -- confirmed via awsAwsjson11_deserializeDocumentSchemaAttributeType/...NumberAttributeConstraintsType/...StringAttributeConstraintsType, cognitoidentityprovider@v1.67.4 deserializers.go:25283/24065/25745, and the matching serializers.go:9250/8993/9437 on the request side). Fixed by replacing the four flat fields with two new nested, string-valued struct types (numberAttributeConstraintsJSON, stringAttributeConstraintsJSON). AddCustomAttributesInput.CustomAttributes is the one genuine request-side use of SchemaAttribute (serializers.go:9696-9713) -- confirmed broken pre-fix: constraints a caller set there were silently dropped, since the real client never sends the flat keys this backend read. CreateUserPool/DescribeUserPool responses (userPoolDataAccurate.SchemaAttributes) were the other affected surface. Two corrections to this bug's original scope: UpdateUserPool is NOT affected -- UpdateUserPoolOutput carries no UserPool/schema data at all in the real API (api_op_UpdateUserPool.go), and UpdateUserPoolInput has no Schema field either (schema is immutable after creation in real Cognito, confirmed by its absence from serializers.go's UpdateUserPoolInput serializer). ListUserPools is also not really affected by this specific defect -- UserPoolDescriptionType (its real response element) has no SchemaAttributes field at all (deserializers.go's case list for it: CreationDate/Id/LambdaConfig/LastModifiedDate/Name/ReplicaRegions/Status only), so gopherstack's userPoolData.SchemaAttributes there was already a harmless extra key ignored by any real client regardless of shape, not a min/max-dropping bug; left as-is since an unknown extra key costs nothing and no test depends on removing it. cognitoidpSnapshotVersion bumped 1 -> 2 (structural retype of a persisted field, not additive -- confirmed via pkgs/persistence's TestSnapshotVersionGuard, golden refreshed with -update). Proven via a real-SDK-client round trip (schema_attribute_constraints_test.go) confirmed to fail against the pre-fix flat shape (StringAttributeConstraints/NumberAttributeConstraints decoded nil) and pass after; a pre-existing test (TestInMemoryBackend_RestoreDropsPreRedesignTerms) hardcoded a literal snapshot version=1 and had to be updated to stop hardcoding it, since it happened to equal the then-current version rather than actually testing anything about that number."
   - "CLOSED 2026-08-08 (gopherstack-kxow): terms/ was built on an entirely invented wire model (createTermsInput={UserPoolId}, termsType={DefaultTermsAndConditions}) that no real aws-sdk-go-v2 client could ever reach -- CreateTerms's own client-side validation middleware rejects the request before it is even sent, since ClientId/Enforcement/TermsName/TermsSource are all required and none existed here. Full redesign: real input/output modeled for all 5 real ops (Create/Delete/Describe/List/Update -- there is no GetTerms), storage rescoped to a TermsID-keyed store.Table with a byPool index (was: one record per UserPoolID), TermsEnforcementType/TermsSourceType enums validated, TermsExistsException added, ListTerms pagination implemented for real. See families.terms above for full detail and SDK citations."
   - "CLOSED 2026-08-07 (gopherstack-n7gh, was gopherstack-p8i): USER_SRP_AUTH/ADMIN_USER_SRP_AUTH now implement real SRP-6a (services/cognitoidp/srp.go). The algorithm (3072-bit RFC 5054 N, g=2, k=H(PAD(N)|PAD(g)), x=H(PAD(salt)|H(poolName|username|\":\"|password)), server B=(k*v+g^b) mod N, server S=(A*v^u)^b mod N, HKDF-SHA256 with the \"Caldera Derived Key\" info string truncated to 16 bytes, HMAC-SHA256 password-claim signature over poolName|username|secretBlock|timestamp) was verified field-by-field against amazon-cognito-identity-js's AuthenticationHelper.js/CognitoUser.js/DateHelper.js -- the reference client implementation AWS itself publishes -- not reconstructed from memory. Locked in by an INDEPENDENTLY-written second implementation of the same client-side math in test code (srp_client_test.go, package cognitoidp_test, cannot see srp.go's unexported symbols) that performs a real handshake against the server and must derive the identical signature; see srp_test.go for the round-trip, FORCE_CHANGE_PASSWORD-after-SRP, tampered-signature-rejected, plaintext-InitiateAuth-rejected, and persistence-survival regression tests. Every password-setting call site (SignUp, SignUpWithValidation, ConfirmForgotPassword, ChangePassword, AdminSetUserPassword(Full), AdminCreateUser(WithPolicy/Full), RespondToNewPasswordRequired, UserMigration) now derives and stores a matching SRPSalt/SRPVerifier via the new hashAndSRP helper, and both fields survive Snapshot/Restore (persistence.go)."
   - "CLOSED 2026-08-08 (gopherstack-n7gh follow-up): UserMigration_ForgotPassword trigger source and domain AWSAccountId/ManagedLoginVersion/S3Bucket, the two items explicitly named but not reached in the SRP-6a pass -- see families.ForgotPassword and families.domains above for detail."
@@ -125,12 +126,118 @@ deferred:
   - "risk_config: RiskConfigurationType.LastModifiedDate is a real response field this backend doesn't track at all internally (no LastModifiedAt on the risk-config storage type, unlike domains/managed_login_branding where CreatedAt/LastModifiedAt already existed and just needed echoing) -- would need a new tracked field plus updates at every SetRiskConfiguration call site, not a one-line echo fix."
   - "Pagination is unimplemented on at least two List ops with real MaxResults/NextToken(or PaginationToken) contracts: ListUserImportJobs (MaxResults is REQUIRED on the real input, silently accepted by no field here) and ListResourceServers (MaxResults/PaginationToken optional, NextToken in output). Both always return every item in one page. ListUsers/ListWebAuthnCredentials/ListDevices already do this correctly (pkgs/page or hand-rolled token) -- the same pattern should be applied here in a future pass."
   - "domains: Routing and Version, two more real DomainDescriptionType fields (multi-region failover routing config; app version string), remain unpopulated -- this backend has no multi-region-domain-routing model and no meaningful 'app version' to report. Left absent rather than fabricated, per the same standard as terms/ above, just far smaller in scope."
-  - "SchemaAttribute (CreateUserPool/DescribeUserPool/UpdateUserPool/ListUserPools) writes StringAttributeMinLength/MaxLength and NumberAttributeMinValue/MaxValue as flat top-level int64/float64 fields; the real SchemaAttributeType nests these as string-valued sub-objects (StringAttributeConstraints{MinLength,MaxLength}/NumberAttributeConstraints{MinValue,MaxValue}) -- every real client's schema attribute constraints decode unset. Filed as gopherstack-xasq (needs new nested types + string conversion, not a tag fix)."
   - "AssociateSoftwareToken/VerifySoftwareToken/SetUserMFAPreference: the documented Session-based alternate to AccessToken (continuing an MFA_SETUP challenge with no access token yet) is entirely unimplemented -- the backend only resolves users via AccessToken, and the wire-side Session field, though correctly tagged, is never populated. Filed as gopherstack-1b07 (needs a session-continuation lookup, not a tag fix)."
 leaks: {status: clean, note: "janitor.go sweeps expired refresh tokens/mfa sessions/confirm codes/attr verification codes on a bounded interval (WithJanitor); ctx cancellation observed via StartWorker. This pass added custom_auth.go (CUSTOM_AUTH state machine) and user_migration.go (UserMigration trigger), both of which reuse the existing mfaSessions map/EvictExpiredMFASessions sweep for their session state -- no new maps, goroutines, or tickers introduced. All new backend methods (tryUserMigration, applyPostMigrationFinalStatus, startCustomAuth, customAuthRound, defineAuthChallenge, createAuthChallenge, verifyCustomAuthChallenge, preAuthenticationCheck, postAuthenticationNotify) are plain functions that assume the caller already holds b.mu (documented per-function), never call b.mu.Lock/RLock themselves -- verified no double-lock/deadlock paths and confirmed via `go test -race` (full suite, 233s, clean). De-stub hygiene: the ~15-op handler.go/handler_auth.go/handler_user_pools.go/handler_user_pool_clients.go/handler_users.go dead-code shadowing flagged as deferred in the prior sweep is now fully deleted (dead handlers + their now-orphaned model types removed across 4 files + models_auth.go/models_user_pools.go/models_user_pool_clients.go/models_users.go), closing that item; golangci-lint (0 issues) confirms nothing is newly unused."}
 ---
 
 ## Notes
+
+### What this pass fixed (2026-08-22, gopherstack-xasq)
+
+Fixed the structural gap gopherstack-zquj filed (see below): `SchemaAttribute`
+wrote `StringAttributeMinLength`/`StringAttributeMaxLength` (int64) and
+`NumberAttributeMinValue`/`NumberAttributeMaxValue` (float64) as flat
+top-level fields. The real `SchemaAttributeType` nests these one level
+deeper as string-valued sub-objects, confirmed against
+`cognitoidentityprovider@v1.67.4`:
+
+- `awsAwsjson11_deserializeDocumentSchemaAttributeType` (deserializers.go:25283)
+  switches on `"NumberAttributeConstraints"`/`"StringAttributeConstraints"`,
+  not flat keys.
+- `awsAwsjson11_deserializeDocumentNumberAttributeConstraintsType`
+  (deserializers.go:24065) and `...StringAttributeConstraintsType`
+  (deserializers.go:25745) both decode `MinValue`/`MaxValue` and
+  `MinLength`/`MaxLength` as `*string`, not a number -- a wire-type
+  mismatch, not just a wrong key: a real client would reject the old
+  flattened int64/float64 values outright, a harder failure than a missing
+  field.
+- The request-side serializers (serializers.go:9250, 8993, 9437) mirror the
+  same nested, string-valued shape, confirming both directions.
+
+Replaced the four flat fields with two new nested types
+(`numberAttributeConstraintsJSON`, `stringAttributeConstraintsJSON`), both
+string-valued, referenced via `*T` pointers so an attribute with no
+constraints omits the whole sub-object (matching the real serializer's
+`if v.NumberAttributeConstraints != nil` gate).
+
+**Request side was genuinely broken, not just the response.**
+`AddCustomAttributesInput.CustomAttributes` is the one place `SchemaAttribute`
+is decoded from a client request (serializers.go:9696 confirms the real
+client sends `CustomAttributes` as a list of the same nested
+`SchemaAttributeType`). Before this fix, any constraints a caller set via
+`AddCustomAttributes` were silently dropped: the real client never sends the
+flattened top-level keys this backend read, so `StringAttributeConstraints`/
+`NumberAttributeConstraints` always decoded as the Go zero value. Confirmed
+neither direction was a no-op stub returning success while doing nothing
+(the attribute itself, and every other field, bound correctly) -- only the
+constraints sub-object was affected.
+
+**Two corrections to the original bug report's scope**, both verified against
+the SDK rather than assumed:
+
+- `UpdateUserPool` is not actually affected. `UpdateUserPoolOutput` carries no
+  `UserPool`/schema data in the real API at all (api_op_UpdateUserPool.go),
+  and `UpdateUserPoolInput` has no `Schema` field either -- schema is
+  immutable after pool creation in real Cognito (confirmed by its absence
+  from serializers.go's `UpdateUserPoolInput` serializer, unlike
+  `CreateUserPoolInput` which does serialize `Schema`).
+- `ListUserPools` is not really affected by this defect either.
+  `UserPoolDescriptionType` (its real response element) has no
+  `SchemaAttributes` field at all -- deserializers.go's full case list for it
+  is `CreationDate`/`Id`/`LambdaConfig`/`LastModifiedDate`/`Name`/
+  `ReplicaRegions`/`Status`. gopherstack's `userPoolData.SchemaAttributes` on
+  `ListUserPools` was already a harmless extra key any real client ignores
+  regardless of shape, not a min/max-dropping bug. Left in place (an unknown
+  extra JSON key costs nothing and no test depends on removing it); worth a
+  follow-up cleanup issue, not fixed here.
+
+`CreateUserPool`'s request also never bound `Schema` at all in this
+backend -- `createUserPoolWithOptsInput` has no `Schema` field, so an initial
+schema on pool creation is silently dropped regardless of this fix. That is
+a missing-field gap, not a flattening defect (there is no `SchemaAttribute`
+value to be mis-shaped in the first place), so it is out of this bug's
+scope; custom attributes can only be added post-creation via
+`AddCustomAttributes` today.
+
+**Snapshot version bumped 1 -> 2.** `SchemaAttribute` is used unchanged as
+the persisted DTO for `UserPool.CustomAttributes`
+(`userPoolSnapshot.CustomAttributes`), so this is a structural retype of a
+persisted field (fields removed, not purely added) -- confirmed by
+`pkgs/persistence`'s `TestSnapshotVersionGuard`, which fails the bump
+otherwise. Golden refreshed via `-update`; the diff touched only
+`cognitoidp`'s entry (field list + version), confirmed via `git diff`
+before accepting it.
+
+**Proof**: `schema_attribute_constraints_test.go` drives `AddCustomAttributes`
+then `DescribeUserPool` through a real `aws-sdk-go-v2` client and asserts
+`StringAttributeConstraints`/`NumberAttributeConstraints` decode non-nil with
+the correct values. Hand-reverted `models_attributes.go` to the pre-fix
+flat shape (`cp` to scratchpad, restored via `git show HEAD:...`) and
+confirmed the test fails there (`StringAttributeConstraints decoded nil`),
+then restored the fix and confirmed the file was byte-for-byte identical to
+the pre-revert version (`md5sum`).
+
+**One pre-existing test needed updating, not because it defended the wrong
+shape, but as collateral from the version bump**:
+`TestInMemoryBackend_RestoreDropsPreRedesignTerms` hardcoded
+`raw["version"] = float64(1)` to simulate a legacy snapshot -- that literal
+happened to equal `cognitoidpSnapshotVersion` at the time the test was
+written, not because the test cared about the number "1" specifically. With
+the bump to 2, the hardcoded "1" made `Restore` treat the whole fixture as
+an incompatible version and discard everything (not just terms), failing the
+test. Fixed by no longer overwriting `raw["version"]` at all -- it already
+holds whatever version `b.Snapshot` just stamped, which is what the test
+actually needs. No test in the repo asserted on the old flattened keys
+(`StringAttributeMinLength` et al. never appeared in any test body), so no
+test was found ratifying the defect itself.
+
+Gates run: `go build ./...`, `go vet ./...`, `gofmt -l` (clean),
+`go test -race ./services/cognitoidp/...` (113s, clean),
+`go test ./pkgs/persistence/...` (clean), `golangci-lint run` on
+`services/cognitoidp/...` and `pkgs/persistence/...` (0 issues, including a
+`fieldalignment` finding on the reordered `SchemaAttribute` struct, fixed by
+hand rather than running `fieldalignment -fix`/`golangci-lint --fix`
+package-wide), `make build-check` (clean). No `//nolint` added.
 
 ### What this pass fixed (2026-08-22, gopherstack-zquj: keycheck ambiguous-binding sweep)
 

@@ -3,16 +3,35 @@ package cognitoidp
 import "time"
 
 // SchemaAttribute represents a custom attribute definition for a user pool.
+//
+// StringAttributeConstraints and NumberAttributeConstraints are nested
+// sub-objects on the wire, not flattened top-level fields, and their bounds
+// are string-valued even though semantically numeric -- see
+// awsAwsjson11_deserializeDocumentSchemaAttributeType and
+// ...NumberAttributeConstraintsType/...StringAttributeConstraintsType in
+// cognitoidentityprovider@v1.67.4's deserializers.go.
 type SchemaAttribute struct {
-	Name                     string  `json:"Name,omitempty"`
-	AttributeDataType        string  `json:"AttributeDataType,omitempty"`
-	StringAttributeMinLength int64   `json:"StringAttributeMinLength,omitempty"`
-	StringAttributeMaxLength int64   `json:"StringAttributeMaxLength,omitempty"`
-	NumberAttributeMinValue  float64 `json:"NumberAttributeMinValue,omitempty"`
-	NumberAttributeMaxValue  float64 `json:"NumberAttributeMaxValue,omitempty"`
-	Mutable                  bool    `json:"Mutable,omitempty"`
-	Required                 bool    `json:"Required,omitempty"`
-	DeveloperOnlyAttribute   bool    `json:"DeveloperOnlyAttribute,omitempty"`
+	StringAttributeConstraints *stringAttributeConstraintsJSON `json:"StringAttributeConstraints,omitempty"`
+	NumberAttributeConstraints *numberAttributeConstraintsJSON `json:"NumberAttributeConstraints,omitempty"`
+	Name                       string                          `json:"Name,omitempty"`
+	AttributeDataType          string                          `json:"AttributeDataType,omitempty"`
+	Mutable                    bool                            `json:"Mutable,omitempty"`
+	Required                   bool                            `json:"Required,omitempty"`
+	DeveloperOnlyAttribute     bool                            `json:"DeveloperOnlyAttribute,omitempty"`
+}
+
+// numberAttributeConstraintsJSON mirrors NumberAttributeConstraintsType: MinValue/MaxValue
+// are strings on the wire (serializers.go:8993, deserializers.go:24065).
+type numberAttributeConstraintsJSON struct {
+	MinValue string `json:"MinValue,omitempty"`
+	MaxValue string `json:"MaxValue,omitempty"`
+}
+
+// stringAttributeConstraintsJSON mirrors StringAttributeConstraintsType: MinLength/MaxLength
+// are strings on the wire (serializers.go:9437, deserializers.go:25745).
+type stringAttributeConstraintsJSON struct {
+	MinLength string `json:"MinLength,omitempty"`
+	MaxLength string `json:"MaxLength,omitempty"`
 }
 
 // attrVerificationEntry stores a pending attribute verification code.

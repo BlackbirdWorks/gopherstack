@@ -6319,11 +6319,9 @@
       "SchemaAttribute.DeveloperOnlyAttribute bool `json:\"DeveloperOnlyAttribute,omitempty\"`",
       "SchemaAttribute.Mutable bool `json:\"Mutable,omitempty\"`",
       "SchemaAttribute.Name string `json:\"Name,omitempty\"`",
-      "SchemaAttribute.NumberAttributeMaxValue float64 `json:\"NumberAttributeMaxValue,omitempty\"`",
-      "SchemaAttribute.NumberAttributeMinValue float64 `json:\"NumberAttributeMinValue,omitempty\"`",
+      "SchemaAttribute.NumberAttributeConstraints *numberAttributeConstraintsJSON `json:\"NumberAttributeConstraints,omitempty\"`",
       "SchemaAttribute.Required bool `json:\"Required,omitempty\"`",
-      "SchemaAttribute.StringAttributeMaxLength int64 `json:\"StringAttributeMaxLength,omitempty\"`",
-      "SchemaAttribute.StringAttributeMinLength int64 `json:\"StringAttributeMinLength,omitempty\"`",
+      "SchemaAttribute.StringAttributeConstraints *stringAttributeConstraintsJSON `json:\"StringAttributeConstraints,omitempty\"`",
       "SmsConfiguration.ExternalID string `json:\"ExternalId,omitempty\"`",
       "SmsConfiguration.SnsCallerArn string `json:\"SnsCallerArn,omitempty\"`",
       "SmsConfiguration.SnsRegion string `json:\"SnsRegion,omitempty\"`",
@@ -6452,11 +6450,15 @@
       "backendSnapshot.Tables map[string]json.RawMessage `json:\"tables,omitempty\"`",
       "backendSnapshot.TokenRevokedBefore map[string]time.Time `json:\"tokenRevokedBefore,omitempty\"`",
       "backendSnapshot.WebAuthnCredentials map[string]map[string]*WebAuthnCredential `json:\"webauthnCredentials,omitempty\"`",
+      "numberAttributeConstraintsJSON.MaxValue string `json:\"MaxValue,omitempty\"`",
+      "numberAttributeConstraintsJSON.MinValue string `json:\"MinValue,omitempty\"`",
       "refreshTokenEntry.AuthTime int64 `json:\"authTime,omitempty\"`",
       "refreshTokenEntry.ClientID string `json:\"clientId,omitempty\"`",
       "refreshTokenEntry.ExpiresAt time.Time `json:\"expiresAt\"`",
       "refreshTokenEntry.PoolID string `json:\"poolId,omitempty\"`",
       "refreshTokenEntry.Username string `json:\"username,omitempty\"`",
+      "stringAttributeConstraintsJSON.MaxLength string `json:\"MaxLength,omitempty\"`",
+      "stringAttributeConstraintsJSON.MinLength string `json:\"MinLength,omitempty\"`",
       "tokenIssuer.certErr error",
       "tokenIssuer.certOnce sync.Once",
       "tokenIssuer.certPEM string",
@@ -6499,7 +6501,7 @@
       "userSnapshot.UserPoolID string `json:\"userPoolId,omitempty\"`",
       "userSnapshot.Username string `json:\"username,omitempty\"`"
     ],
-    "version": 1
+    "version": 2
   },
   "comprehend": {
     "fields": [

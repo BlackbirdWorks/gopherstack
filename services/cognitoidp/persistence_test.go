@@ -547,10 +547,14 @@ func TestInMemoryBackend_RestoreDropsPreRedesignTerms(t *testing.T) {
 	require.True(t, ok)
 
 	// Pre-redesign shape: {UserPoolID, Text} keyed by UserPoolID, no TermsID field at all.
+	// raw["version"] is left as whatever b.Snapshot just stamped (the current
+	// cognitoidpSnapshotVersion) -- a pre-redesign terms row could appear under any
+	// snapshot version whose "tables" shape hasn't otherwise changed, and hardcoding a
+	// stale literal here would make this test start failing every time the version is
+	// bumped for an unrelated reason (gopherstack-xasq).
 	tables["terms"] = []map[string]string{
 		{"userPoolID": pool.ID, "text": "accept these terms"},
 	}
-	raw["version"] = float64(1)
 
 	spliced, err := json.Marshal(raw)
 	require.NoError(t, err)
