@@ -1006,3 +1006,265 @@ func TestRunCheck_AmbiguousHandlerBinding(t *testing.T) {
 	assert.Equal(t, exitUnresolved, report(res, svcDir, "awsRestjson1_"),
 		"an ambiguous binding must fail loud like every other 'not actually checked' state")
 }
+
+// TestRunCheck_StructTagIgnoresUnexportedField reproduces the real false
+// positive found live while triaging the blind-spot-#7 sweep's newly-checked
+// batch service: ComputeEnvironment carries an unexported `region string`
+// field (services/batch/models.go) whose own doc comment explains it is kept
+// unexported specifically so a plain json.Marshal never emits it. Before this
+// fix, structTagFields' no-json-tag fallback used field.Names[0].Name with no
+// exported check, so this single unexported field fabricated a "region"
+// MISMATCH on every op reachable from DescribeComputeEnvironmentsOutput ->
+// ComputeEnvironment -- five real batch ops, none of which have any actual
+// bug. encoding/json never marshals an unexported field regardless of tag.
+func TestRunCheck_StructTagIgnoresUnexportedField(t *testing.T) {
+	t.Parallel()
+
+	sdkDir := t.TempDir()
+	writeFile(t, sdkDir, "deserializers.go", sdkGoodFixture)
+	svcDir := t.TempDir()
+	writeFile(t, svcDir, "handler.go", `package svc
+
+type getScheduleOutput struct {
+	Target string
+	region string
+}
+
+type Handler struct{}
+
+func (h *Handler) Dispatch(op string, body []byte) any {
+	switch op {
+	case "GetSchedule":
+		return h.handleGetSchedule(body)
+	}
+	return nil
+}
+
+func (h *Handler) handleGetSchedule(body []byte) any {
+	return getScheduleOutput{Target: "x", region: "us-east-1"}
+}
+`)
+
+	res, err := runCheck(filepath.Join(sdkDir, "deserializers.go"), "awsRestjson1_", svcDir, "")
+	require.NoError(t, err)
+	require.Len(t, res.OpsChecked, 1)
+
+	assert.Empty(t, res.OpsChecked[0].NotInTree,
+		"an unexported Go field must never be treated as a wire key -- encoding/json never marshals it")
+}
+
+// svcPathKeyedDispatchFixture reproduces mgn's real dispatch-table shape
+// (services/mgn/handler_routes.go, e.g. routesTags():
+// map[string]routeEntry{"DELETE tags": {op: "UntagResource",
+// fn: h.handleUntagResource}, ...}): the dispatch table's KEY is a
+// method+path string, never the SDK's PascalCase operation name -- unlike
+// dms/glue/ssm's dispatch-shape variants (all fixed above), which just use a
+// different SYNTAX to say the real op name, mgn's syntax doesn't contain the
+// real op name in the key at ALL. Before KNOWN BLIND SPOT #7's fix,
+// idx.ops["POST GetSchedule"] and idx.ops["DELETE tags"] both miss and both
+// ops become UnresolvedOps even though HandlerOpsResolved shows the dispatch
+// table itself resolved (this is the real shape scored 95/95 for mgn during
+// the gopherstack-zquj re-sweep).
+const svcPathKeyedDispatchFixture = `package svc
+
+type routeEntry struct {
+	op string
+	fn func([]byte) []byte
+}
+
+type Handler struct{}
+
+func (h *Handler) routes() map[string]routeEntry {
+	return map[string]routeEntry{
+		"POST GetSchedule": {op: "GetSchedule", fn: h.handleGetSchedule},
+		"DELETE tags":      {op: "UntagResource", fn: h.handleUntagResource},
+	}
+}
+
+func (h *Handler) handleGetSchedule(body []byte) []byte {
+	resp := map[string]any{
+		"Target": map[string]any{
+			"EcsParameters": map[string]any{
+				"NetworkConfiguration": map[string]any{
+					"awsvpcConfiguration": map[string]any{},
+				},
+			},
+		},
+	}
+	_ = resp
+	return nil
+}
+
+func (h *Handler) handleUntagResource(body []byte) []byte {
+	return nil
+}
+`
+
+// TestRunCheck_PathKeyedDispatchOpNameRecovery pins KNOWN BLIND SPOT #7's
+// fix against mgn's real REST-path-keyed dispatch shape. Against the
+// unfixed tool (idx.ops looked up directly by the raw dispatch key, no
+// recoverOpName fallback) this reproduces exactly what the gopherstack-zquj
+// re-sweep found: HandlerOpsResolved shows the dispatch table fully
+// resolved (2/2 here), yet BOTH ops land in UnresolvedOps --
+//
+//	handler dispatch resolved: 2 ops
+//	ERROR: op POST GetSchedule has no deserializeOpDocumentPOST GetScheduleOutput function ...
+//	ERROR: op DELETE tags has no deserializeOpDocumentDELETE tagsOutput function ...
+//
+// -- even though GetSchedule is a real, fully-resolvable SDK op in
+// sdkGoodFixture. Confirmed by hand-reverting resolveOpNames to a bare
+// `idx.ops[op]` lookup (this test's own pre-fix state) before writing the
+// fix.
+func TestRunCheck_PathKeyedDispatchOpNameRecovery(t *testing.T) {
+	t.Parallel()
+
+	sdkDir := t.TempDir()
+	writeFile(t, sdkDir, "deserializers.go", sdkGoodFixture)
+	svcDir := t.TempDir()
+	writeFile(t, svcDir, "handler.go", svcPathKeyedDispatchFixture)
+
+	res, err := runCheck(filepath.Join(sdkDir, "deserializers.go"), "awsRestjson1_", svcDir, "")
+	require.NoError(t, err)
+
+	require.Equal(t, 2, res.HandlerOpsResolved,
+		"the dispatch table itself must resolve fully -- this is a naming gap, not a dispatch-shape gap")
+	require.Len(t, res.OpsChecked, 1, "GetSchedule is the only op in this fixture's minimal SDK")
+
+	or := res.OpsChecked[0]
+	assert.Equal(t, "GetSchedule", or.Op, "the recovered op name must be the real SDK name, not the raw dispatch key")
+	assert.Equal(t, "POST GetSchedule", or.DispatchKey,
+		"the raw dispatch key must stay visible in the report so a recovered op is traceable")
+	assert.Empty(t, or.NotInTree)
+
+	// "DELETE tags"/UntagResource has no match in this fixture's minimal SDK
+	// (only GetSchedule exists) -- it is correctly reported unresolved,
+	// proving recovery never fabricates a match that isn't really there.
+	assert.Contains(t, res.UnresolvedOps, "DELETE tags")
+
+	assert.Equal(t, exitPartial, report(res, svcDir, "awsRestjson1_"))
+}
+
+// TestRunCheck_PathKeyedDispatchAmbiguousRecovery proves the recovery added
+// for KNOWN BLIND SPOT #7 refuses to guess, the same contract KNOWN BLIND
+// SPOT #6 established: two different REST-path dispatch keys whose
+// handlers recover to the SAME real op name under DIFFERENT handler
+// functions must be reported ambiguous, never silently resolved to whichever
+// one happened to iterate first.
+func TestRunCheck_PathKeyedDispatchAmbiguousRecovery(t *testing.T) {
+	t.Parallel()
+
+	sdkDir := t.TempDir()
+	writeFile(t, sdkDir, "deserializers.go", sdkGoodFixture)
+	svcDir := t.TempDir()
+	writeFile(t, svcDir, "handler.go", `package svc
+
+type routeEntry struct {
+	fn func([]byte) []byte
+}
+
+type Handler struct{}
+
+func (h *Handler) routes() map[string]routeEntry {
+	return map[string]routeEntry{
+		"POST v1/schedule":   {fn: h.handleGetSchedule},
+		"POST v2/scheduleGet": {fn: h.jsonGetSchedule},
+	}
+}
+
+func (h *Handler) handleGetSchedule(body []byte) []byte { return nil }
+func (h *Handler) jsonGetSchedule(body []byte) []byte   { return nil }
+`)
+
+	res, err := runCheck(filepath.Join(sdkDir, "deserializers.go"), "awsRestjson1_", svcDir, "")
+	require.NoError(t, err)
+
+	require.Equal(t, 2, res.HandlerOpsResolved)
+	require.Empty(t, res.UnresolvedOps, "ambiguity is its own category, not an unresolved-sdk-op")
+	require.Contains(t, res.AmbiguousOps, "GetSchedule")
+	assert.ElementsMatch(t, []string{"handleGetSchedule", "jsonGetSchedule"}, res.AmbiguousHandlers["GetSchedule"],
+		"both conflicting handlers recovered to the same real op name must be visible in the output")
+
+	for _, or := range res.OpsChecked {
+		assert.NotEqual(t, "GetSchedule", or.Op,
+			"two dispatch keys colliding on the same recovered op name under different handlers "+
+				"must never be silently checked against the wrong one")
+	}
+
+	assert.Equal(t, exitUnresolved, report(res, svcDir, "awsRestjson1_"))
+}
+
+// TestReport_PartialVerdictDistinguishesFromUnresolved is priority #1 of
+// gopherstack-zquj's blind-spot-#7 pass: before this, res.UnresolvedOps>0
+// forced exitUnresolved regardless of how much of the service WAS checked,
+// so a service with 100+ ops checked and real mismatch data (cognitoidp:
+// 102 ops checked, 304 mismatched keys) exited identically to a service
+// with zero ops ever dispatched. exitPartial (and the VERDICT line) make
+// the two visually and mechanically distinguishable.
+func TestReport_PartialVerdictDistinguishesFromUnresolved(t *testing.T) {
+	t.Parallel()
+
+	t.Run("substantially checked service with a residual unresolved op is PARTIAL, not UNRESOLVED", func(t *testing.T) {
+		t.Parallel()
+
+		sdkDir := t.TempDir()
+		writeFile(t, sdkDir, "deserializers.go", sdkGoodFixture)
+		svcDir := t.TempDir()
+		writeFile(t, svcDir, "handler.go", `package svc
+
+type Handler struct{}
+
+func (h *Handler) Dispatch(op string, body []byte) []byte {
+	switch op {
+	case "GetSchedule":
+		return h.handleGetSchedule(body)
+	case "TotallyUnknownOp":
+		return h.handleTotallyUnknownOp(body)
+	}
+	return nil
+}
+
+func (h *Handler) handleGetSchedule(body []byte) []byte {
+	resp := map[string]any{
+		"Target": map[string]any{
+			"EcsParameters": map[string]any{
+				"NetworkConfiguration": map[string]any{
+					"awsvpcConfiguration": map[string]any{},
+				},
+			},
+		},
+	}
+	_ = resp
+	return nil
+}
+
+func (h *Handler) handleTotallyUnknownOp(body []byte) []byte { return nil }
+`)
+
+		res, err := runCheck(filepath.Join(sdkDir, "deserializers.go"), "awsRestjson1_", svcDir, "")
+		require.NoError(t, err)
+		require.Len(t, res.OpsChecked, 1)
+		require.Contains(t, res.UnresolvedOps, "TotallyUnknownOp")
+
+		assert.Equal(t, exitPartial, report(res, svcDir, "awsRestjson1_"),
+			"one checked op plus one unresolved op must report PARTIAL, distinct from a wholly "+
+				"unresolved service")
+	})
+
+	t.Run("zero ops checked at all is UNRESOLVED, not PARTIAL", func(t *testing.T) {
+		t.Parallel()
+
+		sdkDir := t.TempDir()
+		writeFile(t, sdkDir, "deserializers.go", sdkGoodFixture)
+		svcDir := t.TempDir()
+		writeFile(t, svcDir, "handler.go", `package svc
+
+func helper(x int) int { return x + 1 }
+`)
+
+		res, err := runCheck(filepath.Join(sdkDir, "deserializers.go"), "awsRestjson1_", svcDir, "")
+		require.NoError(t, err)
+		require.Empty(t, res.OpsChecked)
+
+		assert.Equal(t, exitUnresolved, report(res, svcDir, "awsRestjson1_"))
+	})
+}

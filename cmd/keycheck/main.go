@@ -129,7 +129,18 @@
 // no json tag at all is assumed to marshal under its Go field name (encoding/
 // json's real default), which is occasionally wrong on its own and is not
 // itself flagged. Neither gap is fixed to keep the corresponding NoWrittenKeys
-// (N/A) path honest rather than silently under-reporting as clean.
+// (N/A) path honest rather than silently under-reporting as clean. FIXED, in
+// the same fallback: an UNEXPORTED field with no json tag used to fall back
+// to its lowercase Go name too, which encoding/json never does -- it never
+// marshals an unexported field regardless of a tag's presence. Found live
+// triaging batch's newly-resolved (KNOWN BLIND SPOT #7) ops:
+// ComputeEnvironment's deliberately-unexported `region` field (kept off the
+// wire on purpose, see its own doc comment in services/batch/models.go)
+// fabricated a false "region" MISMATCH on every op reachable from
+// DescribeComputeEnvironmentsOutput -- five real ops, zero real bugs.
+// structTagFields now skips any field whose Names[0] is unexported entirely
+// (no key, no recursion into its type), pinned by
+// TestRunCheck_StructTagIgnoresUnexportedField.
 //
 // KNOWN BLIND SPOT #6, found live sweeping sqs for gopherstack-v4a4, FIXED
 // for gopherstack-kiwf: a package can declare TWO handler functions for the
@@ -163,29 +174,62 @@
 // dropped the value entirely; GetWebACLForResource's "LockToken" sits beside
 // a correct response and is just ignored noise).
 //
-// KNOWN BLIND SPOT #7, found live during the gopherstack-zquj re-sweep: op
-// resolution matches the handler's dispatch-table KEY against the SDK's
-// PascalCase operation name verbatim. Several restjson1 services key their
-// dispatch table by REST path (or method+path) instead of the operation name
-// -- account ("/acceptPrimaryEmailUpdate"), batch ("/v1/canceljob"), mgn
-// ("DELETE tags"), appmesh ("meshes"), xray ("/CancelTraceRetrieval"), and at
-// least eight more -- so every op in the service reports UnresolvedOps even
-// though HandlerOpsResolved shows the dispatch table itself resolved fully
-// (mgn: 95/95, resiliencehub: 63/63, xray: 38/38). This is a fail-loud false
-// negative on the whole service, not a false clean, so it is safe by this
-// tool's own contract -- but it means a large share of the "unresolved" exit
-// code across restjson1 services is this gap, not a genuinely unreadable
-// dispatch table, and should not be assumed equivalent to services with zero
-// HandlerOpsResolved. Not fixed here: the resolver would need the same
-// operation-name recovery a real router does (path template matching against
-// each op's http trait), which is real work, not a one-line change.
+// KNOWN BLIND SPOT #7, found live during the gopherstack-zquj re-sweep,
+// FIXED for op-naming, VERIFIED by a full sweep of all 70 restjson1
+// services (not the 69 last estimated -- see the sweep note below): op
+// resolution used to match the handler's dispatch-table KEY against the
+// SDK's PascalCase operation name verbatim. Several restjson1 services key
+// their dispatch table by REST path (or method+path) instead of the
+// operation name -- account ("/acceptPrimaryEmailUpdate"), batch
+// ("/v1/canceljob"), mgn ("DELETE tags"), xray ("/CancelTraceRetrieval") --
+// so every op reported UnresolvedOps even when HandlerOpsResolved showed the
+// dispatch table itself resolved fully (mgn: 95/95, resiliencehub: 63/63,
+// xray: 38/38). recoverOpName/resolveOpNames now recover the real op name
+// from the handler's OWN name (this repo's "handle<Op>"/"json<Op>"
+// convention, already used elsewhere in this file to find the handler in
+// the first place) whenever the raw dispatch key itself isn't found in the
+// SDK's op index, and refuse to guess (report AmbiguousOps instead) if that
+// recovery would make two differently-bound keys collide on the same real
+// op name.
+//
+// SWEPT 2026-08-22 against all 70 restjson1 services (protocol verified
+// per-service by reading each pinned deserializers.go directly, not assumed
+// from services/_PROTOCOLS.md, though that doc's independent classification
+// agreed): of the 13 services gopherstack-zquj's prior triage named as
+// affected, 10 were CONFIRMED and newly resolve at least one op --
+// account, apigatewayv2, appmesh, batch, bedrock, mgn, opensearch, pinpoint,
+// resiliencehub, xray -- and 5 of those 10 (account, bedrock, mgn, pinpoint,
+// resiliencehub) now resolve EVERY op their dispatch table binds, exiting
+// clean. The other 3 named services (amplify, appsync, outposts) get ZERO
+// benefit from this fix: their dispatch KEY is a bare resource path
+// ("branches", "webhooks", "capacity") whose single bound HANDLER itself
+// internally multiplexes several distinct real ops by HTTP method
+// (handleBranches serves both ListBranches and CreateBranch) -- there is no
+// single real op name to recover, so recoverOpName correctly finds nothing
+// and (where two such multiplexing handlers collide on one dispatch key,
+// amplify's actual shape) resolveOpNames's own ambiguity guard fires
+// instead. That is a genuinely different, deeper gap (a dispatch KEY
+// resolving to more than one real op, not a naming mismatch) and is not
+// fixed here. opensearch separately mixes in an unrelated-SDK gap: its
+// already-PascalCase dispatch keys (CreateCollection, CreateAccessPolicy,
+// ...) belong to OpenSearch Serverless, a different SDK package than
+// classic opensearch's pinned deserializers.go, so no op-name recovery
+// changes them; only 1 of its 96 SDK ops (a REST-path-keyed classic-domain
+// op) was actually fixed by this change.
 //
 // Usage:
 //
 //	go run ./cmd/keycheck -sdk <path to deserializers.go> -prefix awsAwsjson11_ -svc <service dir> [-op OpName]
 //
-// Exit codes: 0 clean or N/A, 1 the service could not be resolved (see
-// FAIL-LOUD), 2 a real key mismatch was found.
+// Exit codes: 0 clean or N/A, 1 NOTHING in the service was verified (see
+// FAIL-LOUD -- zero ops checked), 2 every dispatched op resolved and a real
+// key mismatch was found, 3 SOME ops were resolved and checked (real
+// MISMATCH data or a real clean result) but at least one other op remains
+// unresolved or ambiguous -- a substantially-checked service, never to be
+// conflated with exit 1's "nothing checked" (see VERDICT in the report,
+// added because exit 1 alone let 13 substantially-checked services,
+// cognitoidp alone 102 ops/304 mismatches, hide behind the same code as a
+// service with zero dispatch resolved).
 package main
 
 import (
@@ -1121,6 +1165,15 @@ func (ps *pkgScan) structTagFields(typeName string, visited map[string]bool, dep
 	}
 
 	for _, field := range st.Fields.List {
+		// encoding/json never marshals an unexported field, tagged or not --
+		// a lowercase Go field name (e.g. batch's deliberately-unexported
+		// ComputeEnvironment.region, kept off the wire by construction) must
+		// never be treated as a written key, or as something worth recursing
+		// into for further nested keys either.
+		if len(field.Names) > 0 && !field.Names[0].IsExported() {
+			continue
+		}
+
 		key, skip := jsonTagKey(field)
 		if skip {
 			continue
@@ -1249,8 +1302,14 @@ func (ps *pkgScan) resolveKey(e ast.Expr) (string, bool) {
 // ---------- checking ----------
 
 type opResult struct {
-	Op           string
-	Handler      string
+	Op      string
+	Handler string
+	// DispatchKey is set only when Op was recovered from the handler's own
+	// name rather than matched directly against the dispatch table's key
+	// (KNOWN BLIND SPOT #7) -- the raw REST-path/method key the service
+	// actually dispatches on, kept for the report so a fixed op is visibly
+	// traceable back to it.
+	DispatchKey  string
 	Written      []string
 	NotInTree    []string
 	CaseMismatch []string
@@ -1271,6 +1330,109 @@ type checkResult struct {
 	TotalWritten       int
 	TotalDynSkipped    int
 	NoWrittenKeys      bool
+}
+
+// pascalOpRe matches a dispatch key that already looks like a real SDK
+// operation name -- used only to make the ERROR message for a genuinely
+// unresolved op distinguish "this looked like an op name and still wasn't
+// found" from "this was never an op name to begin with" (KNOWN BLIND SPOT
+// #7). It plays no part in whether recovery is attempted.
+var pascalOpRe = regexp.MustCompile(`^[A-Z][A-Za-z0-9]*$`)
+
+// recoverOpName strips this repo's "handle"/"json" handler-name prefix (see
+// handleNameRe) to recover the real PascalCase SDK operation name a
+// REST-path-keyed dispatch table's handler encodes even though its dispatch
+// KEY does not (KNOWN BLIND SPOT #7, e.g. mgn's real
+// map[string]routeEntry{"DELETE tags": {op: "UntagResource",
+// fn: h.handleUntagResource}} -- the map key is a method+path string, not
+// "UntagResource"). It never guesses: the caller only trusts the result if
+// it independently exists in the SDK's own op index, so a "handle<Anything>"
+// that isn't a real op name recovers to nothing usable.
+func recoverOpName(handler string) string {
+	switch {
+	case strings.HasPrefix(handler, "handle") && len(handler) > len("handle"):
+		return handler[len("handle"):]
+	case strings.HasPrefix(handler, "json") && len(handler) > len("json"):
+		return handler[len("json"):]
+	default:
+		return ""
+	}
+}
+
+// resolvedOp pairs a raw dispatch-table key (as recorded in ps.opToHandler)
+// with the real SDK operation name it resolves to and the handler bound to
+// it. RealOp equals DispatchKey unless Recovered is true.
+type resolvedOp struct {
+	DispatchKey string
+	RealOp      string
+	Handler     string
+	Recovered   bool
+}
+
+// resolveOpNames matches every checkable dispatch binding against the SDK's
+// own op index, falling back to recoverOpName for a binding whose raw key
+// isn't itself a real op name (KNOWN BLIND SPOT #7). It refuses to guess:
+// if two different dispatch keys (recovered or not) resolve to the same
+// real op name under DIFFERENT handlers, neither is silently preferred --
+// both are pulled into res.AmbiguousOps/AmbiguousHandlers instead, the same
+// refuse-to-guess contract KNOWN BLIND SPOT #6 established for a literal op
+// string bound twice.
+func resolveOpNames(ops []string, ps *pkgScan, idx *sdkIndex, res *checkResult) []resolvedOp {
+	candidates := map[string][]resolvedOp{}
+	var order []string
+
+	addCandidate := func(realOp string, ro resolvedOp) {
+		if _, seen := candidates[realOp]; !seen {
+			order = append(order, realOp)
+		}
+		candidates[realOp] = append(candidates[realOp], ro)
+	}
+
+	for _, op := range ops {
+		handler := ps.opToHandler[op]
+
+		if _, ok := idx.ops[op]; ok {
+			addCandidate(op, resolvedOp{DispatchKey: op, RealOp: op, Handler: handler})
+
+			continue
+		}
+
+		if cand := recoverOpName(handler); cand != "" {
+			if _, ok := idx.ops[cand]; ok {
+				addCandidate(cand, resolvedOp{DispatchKey: op, RealOp: cand, Handler: handler, Recovered: true})
+
+				continue
+			}
+		}
+
+		res.UnresolvedOps = append(res.UnresolvedOps, op)
+	}
+
+	var resolved []resolvedOp
+	for _, realOp := range order {
+		cands := candidates[realOp]
+		handlers := map[string]bool{}
+		for _, c := range cands {
+			handlers[c.Handler] = true
+		}
+		if len(handlers) > 1 {
+			names := make([]string, 0, len(handlers))
+			for h := range handlers {
+				names = append(names, h)
+			}
+			sort.Strings(names)
+			res.AmbiguousOps = append(res.AmbiguousOps, realOp)
+			res.AmbiguousHandlers[realOp] = names
+
+			continue
+		}
+		resolved = append(resolved, cands[0])
+	}
+
+	sort.Strings(res.UnresolvedOps)
+	sort.Slice(resolved, func(i, j int) bool { return resolved[i].RealOp < resolved[j].RealOp })
+
+	return resolved
 }
 
 // resolveCheckableOps returns the ops eligible for a normal SDK comparison,
@@ -1347,28 +1509,28 @@ func runCheck(sdkPath, prefix, svcDir, onlyOp string) (*checkResult, error) {
 	ops := resolveCheckableOps(ps, onlyOp, res)
 	collectAmbiguousOps(ps, onlyOp, res)
 
-	for _, op := range ops {
-		info, ok := idx.ops[op]
-		if !ok {
-			res.UnresolvedOps = append(res.UnresolvedOps, op)
+	resolved := resolveOpNames(ops, ps, idx, res)
+	sort.Strings(res.AmbiguousOps)
 
-			continue
-		}
+	for _, ro := range resolved {
+		info := idx.ops[ro.RealOp]
 
-		handler := ps.opToHandler[op]
-		written, dynSkipped, walked := ps.writtenKeys(handler)
+		written, dynSkipped, walked := ps.writtenKeys(ro.Handler)
 		// KEYCHECK_DEBUG_WALK=<Op> prints the exact same-package call chain
 		// writtenKeys followed for that op -- use it to hand-verify a
 		// MISMATCH against blind spot #2 (an unrelated function reachable
 		// deep in the call graph, not the op's real response builder).
-		if os.Getenv("KEYCHECK_DEBUG_WALK") == op {
+		if os.Getenv("KEYCHECK_DEBUG_WALK") == ro.RealOp {
 			fmt.Fprintln(os.Stderr, "WALKED:", walked)
 		}
 		allowed := reachable(idx, info, map[string]bool{}, 0)
 		res.TotalWritten += len(written)
 		res.TotalDynSkipped += dynSkipped
 
-		or := buildOpResult(op, handler, idx.emptyOps[op], written, allowed, dynSkipped, len(walked))
+		or := buildOpResult(ro.RealOp, ro.Handler, idx.emptyOps[ro.RealOp], written, allowed, dynSkipped, len(walked))
+		if ro.Recovered {
+			or.DispatchKey = ro.DispatchKey
+		}
 		res.OpsChecked = append(res.OpsChecked, or)
 	}
 
@@ -1414,6 +1576,17 @@ const (
 	exitClean      = 0
 	exitUnresolved = 1
 	exitMismatch   = 2
+	// exitPartial is returned when at least one op WAS resolved and checked
+	// (real MISMATCH data, or a real clean result, exists in res.OpsChecked)
+	// but at least one other op in the same service remains unresolved or
+	// ambiguous. This exists so "unresolved" can never again be misread as
+	// "unchecked": exitUnresolved means NOTHING in the service was verified;
+	// exitPartial means most of it was, and the report says exactly how
+	// much. Found necessary when the 42-op "unresolved" tier collapsed 13
+	// substantially-checked services (cognitoidp alone: 102 ops checked, 304
+	// mismatched keys) into the same bucket as services with zero dispatch
+	// resolved at all.
+	exitPartial = 3
 )
 
 func main() {
@@ -1501,21 +1674,8 @@ func report(res *checkResult, svcDir, prefix string) int {
 		return exitUnresolved
 	}
 
-	for _, op := range res.UnresolvedOps {
-		fmt.Fprintf(os.Stderr,
-			"ERROR: op %s has no deserializeOpDocument%sOutput function and no confirmed-empty\n"+
-				"wrapper -- allowed keys unknown, NOT verified.\n",
-			op, op)
-	}
-
-	for _, op := range res.AmbiguousOps {
-		fmt.Fprintf(os.Stderr,
-			"ERROR: op %s is bound to %d conflicting handlers (%s) -- a case clause or dispatch\n"+
-				"table entry rebinds an op already bound to a different handler, so ps.opToHandler\n"+
-				"cannot tell which one the real dispatcher uses; refusing to guess and compare the\n"+
-				"wrong handler's keys against the SDK. See KNOWN BLIND SPOT #6. NOT verified.\n",
-			op, len(res.AmbiguousHandlers[op]), strings.Join(res.AmbiguousHandlers[op], ", "))
-	}
+	printUnresolvedOpErrors(res.UnresolvedOps)
+	printAmbiguousOpErrors(res)
 
 	if res.NoWrittenKeys {
 		fmt.Fprintf(os.Stdout,
@@ -1525,19 +1685,99 @@ func report(res *checkResult, svcDir, prefix string) int {
 			svcDir)
 	}
 
+	printRecoveredOps(res.OpsChecked)
+
 	mismatches := printOpResults(res.OpsChecked)
+	checked := len(res.OpsChecked)
+	unresolvedOrAmbiguous := len(res.UnresolvedOps) + len(res.AmbiguousOps)
 
 	fmt.Fprintf(os.Stdout, "\nTotal ops checked: %d, unresolved sdk ops: %d, ambiguous handler bindings: %d, "+
 		"total mismatched keys: %d, total written keys: %d, total dynamic-key sites skipped: %d\n",
-		len(res.OpsChecked), len(res.UnresolvedOps), len(res.AmbiguousOps), mismatches,
+		checked, len(res.UnresolvedOps), len(res.AmbiguousOps), mismatches,
 		res.TotalWritten, res.TotalDynSkipped)
 
+	return printVerdict(checked, mismatches, unresolvedOrAmbiguous)
+}
+
+// printUnresolvedOpErrors reports each genuinely-unresolved op, distinguishing
+// (KNOWN BLIND SPOT #7) a REST-path/method dispatch key that recovery
+// couldn't turn into a real SDK op from an op-shaped name the SDK simply
+// doesn't have.
+func printUnresolvedOpErrors(unresolvedOps []string) {
+	for _, op := range unresolvedOps {
+		if !pascalOpRe.MatchString(op) {
+			fmt.Fprintf(os.Stderr,
+				"ERROR: op %q looks like a REST-path/method dispatch key, not an SDK operation name --\n"+
+					"its handler's own name was checked for a recoverable op name (KNOWN BLIND SPOT #7) and\n"+
+					"either doesn't follow the handle/json<Op> convention or the recovered name isn't a\n"+
+					"real SDK op either. Allowed keys unknown, NOT verified.\n",
+				op)
+
+			continue
+		}
+		fmt.Fprintf(os.Stderr,
+			"ERROR: op %s has no deserializeOpDocument%sOutput function and no confirmed-empty\n"+
+				"wrapper -- allowed keys unknown, NOT verified.\n",
+			op, op)
+	}
+}
+
+func printAmbiguousOpErrors(res *checkResult) {
+	for _, op := range res.AmbiguousOps {
+		fmt.Fprintf(os.Stderr,
+			"ERROR: op %s is bound to %d conflicting handlers (%s) -- a case clause or dispatch\n"+
+				"table entry rebinds an op already bound to a different handler, so ps.opToHandler\n"+
+				"cannot tell which one the real dispatcher uses; refusing to guess and compare the\n"+
+				"wrong handler's keys against the SDK. See KNOWN BLIND SPOT #6. NOT verified.\n",
+			op, len(res.AmbiguousHandlers[op]), strings.Join(res.AmbiguousHandlers[op], ", "))
+	}
+}
+
+// printRecoveredOps surfaces (KNOWN BLIND SPOT #7) which checked ops only
+// resolved because their real SDK name was recovered from their handler's
+// name rather than matched against the dispatch table's own key -- so a
+// fixed op stays traceable back to the raw key it came from.
+func printRecoveredOps(opsChecked []opResult) {
+	var recovered []string
+	for _, or := range opsChecked {
+		if or.DispatchKey != "" {
+			recovered = append(recovered, fmt.Sprintf("%s (dispatch key %q)", or.Op, or.DispatchKey))
+		}
+	}
+	if len(recovered) > 0 {
+		fmt.Fprintf(os.Stdout,
+			"RECOVERED (KNOWN BLIND SPOT #7, REST-path-keyed dispatch resolved via handler name): %s\n",
+			strings.Join(recovered, ", "))
+	}
+}
+
+// printVerdict prints the single line meant to be read at a glance -- an
+// unresolved service (checked == 0) can never again be misread as "clean" or
+// conflated with a substantially-checked one that merely has a residual
+// unresolved/ambiguous op (exitPartial) -- and returns the exit code.
+func printVerdict(checked, mismatches, unresolvedOrAmbiguous int) int {
 	switch {
-	case len(res.UnresolvedOps) > 0 || len(res.AmbiguousOps) > 0:
+	case checked == 0 && unresolvedOrAmbiguous > 0:
+		fmt.Fprintln(os.Stdout, "VERDICT: UNRESOLVED -- zero ops verified. Do not read this as clean.")
+
 		return exitUnresolved
+	case unresolvedOrAmbiguous > 0:
+		fmt.Fprintf(os.Stdout,
+			"VERDICT: PARTIAL -- %d op(s) verified (%d mismatched key(s) found) but %d op(s) remain\n"+
+				"unresolved or ambiguous and were NOT checked. This is a substantially-checked service,\n"+
+				"not an unchecked one -- do not conflate it with a service reporting zero ops checked.\n",
+			checked, mismatches, unresolvedOrAmbiguous)
+
+		return exitPartial
 	case mismatches > 0:
+		fmt.Fprintf(os.Stdout, "VERDICT: MISMATCH -- all %d dispatched op(s) resolved and checked; real key "+
+			"mismatches found.\n", checked)
+
 		return exitMismatch
 	default:
+		fmt.Fprintf(os.Stdout, "VERDICT: CLEAN -- all %d dispatched op(s) resolved and checked; zero "+
+			"mismatches.\n", checked)
+
 		return exitClean
 	}
 }
