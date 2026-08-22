@@ -30,9 +30,10 @@ var dirModuleOverride = map[string]string{
 	"stepfunctions":  "sfn",
 }
 
-// sdkModsFor runs grep with this same pattern as -P and -o, so the process
-// output is already just the match with no surrounding quote to anchor on.
-var sdkImportRe = regexp.MustCompile(`github\.com/aws/aws-sdk-go-v2/service/([a-z0-9]+)`)
+// sdkModsFor runs grep -o with this same pattern, so each output line is
+// exactly one match. Anchored per-line: unanchored, this would also match a
+// lookalike host such as evil.com/github.com/aws/aws-sdk-go-v2/service/s3.
+var sdkImportRe = regexp.MustCompile(`(?m)^github\.com/aws/aws-sdk-go-v2/service/([a-z0-9]+)$`)
 
 var errNoModule = errors.New("no pinned aws-sdk-go-v2 module found for service")
 
