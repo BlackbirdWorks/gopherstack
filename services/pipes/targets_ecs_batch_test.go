@@ -730,10 +730,10 @@ func TestBatch_ContainerOverrides(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		environment  map[string]any
 		name         string
 		instanceType string
 		command      []any
+		environment  []any
 	}{
 		{
 			name:    "command_override",
@@ -744,14 +744,17 @@ func TestBatch_ContainerOverrides(t *testing.T) {
 			instanceType: "c5.xlarge",
 		},
 		{
-			name:        "env_override",
-			environment: map[string]any{"KEY": "VALUE", "ENV": "prod"},
+			name: "env_override",
+			environment: []any{
+				map[string]any{"Name": "KEY", "Value": "VALUE"},
+				map[string]any{"Name": "ENV", "Value": "prod"},
+			},
 		},
 		{
 			name:         "full_override",
 			command:      []any{"bash", "-c", "echo hi"},
 			instanceType: "m5.large",
-			environment:  map[string]any{"LOG_LEVEL": "DEBUG"},
+			environment:  []any{map[string]any{"Name": "LOG_LEVEL", "Value": "DEBUG"}},
 		},
 	}
 
@@ -797,6 +800,12 @@ func TestBatch_ContainerOverrides(t *testing.T) {
 				cmd, cmdOK := got["Command"].([]any)
 				require.True(t, cmdOK)
 				assert.Len(t, cmd, len(tt.command))
+			}
+			if tt.environment != nil {
+				env, envOK := got["Environment"].([]any)
+				require.True(t, envOK, "Environment should be an array of {Name,Value} objects")
+				assert.Len(t, env, len(tt.environment))
+				assert.Equal(t, tt.environment[0], env[0])
 			}
 		})
 	}
@@ -917,7 +926,7 @@ func TestBatch_FullParams(t *testing.T) {
 						ContainerOverrides: &pipes.BatchContainerOverrides{
 							Command:      []string{"bash", "-c", "echo hi"},
 							InstanceType: "m5.large",
-							Environment:  map[string]string{"ENV": "test"},
+							Environment:  []pipes.BatchEnvironmentVariable{{Name: "ENV", Value: "test"}},
 						},
 					},
 				},
@@ -1041,7 +1050,7 @@ func TestClone_BatchDependsOnIsolation(t *testing.T) {
 						},
 						ContainerOverrides: &pipes.BatchContainerOverrides{
 							Command:     []string{"echo", "hi"},
-							Environment: map[string]string{"K": "V"},
+							Environment: []pipes.BatchEnvironmentVariable{{Name: "K", Value: "V"}},
 						},
 					},
 				},
@@ -1053,7 +1062,7 @@ func TestClone_BatchDependsOnIsolation(t *testing.T) {
 
 			p1.TargetParameters.BatchJobParameters.DependsOn[0].JobID = "mutated"
 			p1.TargetParameters.BatchJobParameters.ContainerOverrides.Command[0] = "mutated"
-			p1.TargetParameters.BatchJobParameters.ContainerOverrides.Environment["K"] = "mutated"
+			p1.TargetParameters.BatchJobParameters.ContainerOverrides.Environment[0].Value = "mutated"
 
 			p2, err := b.GetPipe(context.Background(), tt.name)
 			require.NoError(t, err)
@@ -1062,7 +1071,7 @@ func TestClone_BatchDependsOnIsolation(t *testing.T) {
 			assert.Equal(t, "echo",
 				p2.TargetParameters.BatchJobParameters.ContainerOverrides.Command[0])
 			assert.Equal(t, "V",
-				p2.TargetParameters.BatchJobParameters.ContainerOverrides.Environment["K"])
+				p2.TargetParameters.BatchJobParameters.ContainerOverrides.Environment[0].Value)
 		})
 	}
 }

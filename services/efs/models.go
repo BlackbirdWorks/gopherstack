@@ -113,14 +113,26 @@ type AccessPoint struct {
 // as a JSON number under the restjson1 protocol), stored here as an int64 unix
 // timestamp so a zero value naturally omits via omitempty -- mirroring the
 // ReplicationConfiguration.CreationTime convention below.
+//
+// This struct is reused for both directions: unmarshaling the request body
+// (shaped like the real SDK's request-side types.DestinationToCreate, which has
+// FileSystemId/Region/AvailabilityZoneName/KmsKeyId/RoleArn) and internal
+// storage. FileSystemArn/AvailabilityZoneName/KmsKeyID are request-only /
+// internal-bookkeeping fields -- the real response-side types.Destination has
+// none of the three (deserializers.go's
+// awsRestjson1_deserializeDocumentDestination declares no case for any of
+// them). The response wire is built explicitly by destinationToResponse in
+// handler_replication.go rather than by marshaling this struct directly, so
+// json tags here only need to be correct for request unmarshaling.
 type ReplicationDestination struct {
 	FileSystemID            string `json:"FileSystemId,omitempty"`
 	FileSystemArn           string `json:"FileSystemArn,omitempty"`
 	Region                  string `json:"Region,omitempty"`
 	AvailabilityZoneName    string `json:"AvailabilityZoneName,omitempty"`
-	KmsKeyID                string `json:"KmsKeyID,omitempty"`
+	KmsKeyID                string `json:"KmsKeyId,omitempty"`
 	OwnerID                 string `json:"OwnerId,omitempty"`
 	Status                  string `json:"Status,omitempty"`
+	RoleArn                 string `json:"RoleArn,omitempty"`
 	LastReplicatedTimestamp int64  `json:"LastReplicatedTimestamp,omitempty"`
 }
 

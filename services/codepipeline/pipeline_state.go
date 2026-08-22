@@ -116,19 +116,11 @@ func (b *InMemoryBackend) GetPipelineState(ctx context.Context, pipelineName str
 		inKey := regionKey(region, stageTransitionKey{
 			PipelineName: pipelineName, StageName: stage.Name, TransitionType: transitionTypeInbound,
 		}.String())
-		outKey := regionKey(region, stageTransitionKey{
-			PipelineName: pipelineName, StageName: stage.Name, TransitionType: transitionTypeOutbound,
-		}.String())
 
-		var inState, outState *StageTransitionState
+		var inState *StageTransitionState
 		if ts, found := b.stageTransitions.Get(inKey); found {
 			tsCopy := *ts
 			inState = &tsCopy
-		}
-
-		if ts, found := b.stageTransitions.Get(outKey); found {
-			tsCopy := *ts
-			outState = &tsCopy
 		}
 
 		actionExecs := b.actionExecutionsStoreRO(region)[pipelineName]
@@ -140,10 +132,9 @@ func (b *InMemoryBackend) GetPipelineState(ctx context.Context, pipelineName str
 		}
 
 		states[i] = StageState{
-			StageName:               stage.Name,
-			InboundTransitionState:  inState,
-			OutboundTransitionState: outState,
-			ActionStates:            actionStates,
+			StageName:              stage.Name,
+			InboundTransitionState: inState,
+			ActionStates:           actionStates,
 		}
 	}
 

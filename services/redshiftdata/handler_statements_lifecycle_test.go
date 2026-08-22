@@ -211,9 +211,16 @@ func TestListStatements_MaxResultsTooLarge(t *testing.T) {
 	assert.Equal(t, "ValidationException", resp["__type"])
 }
 
-// TestWithEvent_StoredAndReturned verifies that WithEvent is stored
-// and reflected back in DescribeStatement.
-func TestWithEvent_StoredAndReturned(t *testing.T) {
+// TestWithEvent_AcceptedButNotEchoed verifies that WithEvent is accepted on
+// the ExecuteStatement request without error, but never appears on
+// DescribeStatement's response. WithEvent has no response counterpart
+// anywhere in the SDK -- confirmed against
+// aws-sdk-go-v2/service/redshiftdata@v1.43.4: it's a request-only field on
+// ExecuteStatementInput/BatchExecuteStatementInput
+// (api_op_ExecuteStatement.go, api_op_BatchExecuteStatement.go), and none of
+// ExecuteStatementOutput/BatchExecuteStatementOutput/DescribeStatementOutput/
+// StatementData declare it.
+func TestWithEvent_AcceptedButNotEchoed(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -227,6 +234,7 @@ func TestWithEvent_StoredAndReturned(t *testing.T) {
 
 	var createResp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	assert.NotContains(t, createResp, "WithEvent")
 
 	id := createResp["Id"].(string)
 
@@ -236,7 +244,7 @@ func TestWithEvent_StoredAndReturned(t *testing.T) {
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &resp))
 
-	assert.Equal(t, true, resp["WithEvent"], "WithEvent should be reflected in DescribeStatement")
+	assert.NotContains(t, resp, "WithEvent")
 }
 
 // TestListStatements_StatusFilter verifies that ListStatements

@@ -18,12 +18,29 @@ func (b *InMemoryBackend) mustDescribeEndpoints(ctx context.Context) []*Endpoint
 	return list
 }
 
+// EndpointConnectionSettings carries the top-level (non-engine-specific)
+// connection settings CreateEndpoint/ModifyEndpoint accept beyond the
+// original identifier/engine/server/database/username/password/port set --
+// see api_op_CreateEndpoint.go / api_op_ModifyEndpoint.go,
+// databasemigrationservice@v1.66.4. KmsKeyID is create-only (real
+// ModifyEndpointInput has no KmsKeyId member -- encryption key can't change
+// post-creation) and is ignored by ModifyEndpoint.
+type EndpointConnectionSettings struct {
+	CertificateArn            string
+	ExtraConnectionAttributes string
+	KmsKeyID                  string
+	ServiceAccessRoleArn      string
+	SslMode                   string
+	ExternalTableDefinition   string
+}
+
 // CreateEndpoint creates a new DMS endpoint.
 func (b *InMemoryBackend) CreateEndpoint(
 	ctx context.Context,
 	identifier, endpointType, engineName, serverName, databaseName, username, password string,
 	port int32,
 	kv map[string]string,
+	settings EndpointConnectionSettings,
 ) (*Endpoint, error) {
 	b.mu.Lock("CreateEndpoint")
 	defer b.mu.Unlock()
@@ -41,21 +58,31 @@ func (b *InMemoryBackend) CreateEndpoint(
 		t.Merge(kv)
 	}
 
+	if settings.SslMode == "" {
+		settings.SslMode = "none"
+	}
+
 	ep := &Endpoint{
-		EndpointIdentifier: identifier,
-		EndpointArn:        endpointARN,
-		EndpointType:       endpointType,
-		EngineName:         engineName,
-		ServerName:         serverName,
-		DatabaseName:       databaseName,
-		Username:           username,
-		Password:           password,
-		Port:               port,
-		Status:             statusActive,
-		AccountID:          b.accountID,
-		Region:             region,
-		CreationTime:       time.Now().UTC(),
-		Tags:               t,
+		EndpointIdentifier:        identifier,
+		EndpointArn:               endpointARN,
+		EndpointType:              endpointType,
+		EngineName:                engineName,
+		ServerName:                serverName,
+		DatabaseName:              databaseName,
+		Username:                  username,
+		Password:                  password,
+		Port:                      port,
+		Status:                    statusActive,
+		AccountID:                 b.accountID,
+		Region:                    region,
+		CreationTime:              time.Now().UTC(),
+		Tags:                      t,
+		CertificateArn:            settings.CertificateArn,
+		ExtraConnectionAttributes: settings.ExtraConnectionAttributes,
+		KmsKeyID:                  settings.KmsKeyID,
+		ServiceAccessRoleArn:      settings.ServiceAccessRoleArn,
+		SslMode:                   settings.SslMode,
+		ExternalTableDefinition:   settings.ExternalTableDefinition,
 	}
 	b.endpoints.Put(ep)
 	b.appendEvent(
@@ -225,6 +252,7 @@ func (b *InMemoryBackend) ModifyEndpoint(
 	ctx context.Context,
 	arnOrID, endpointType, engineName, serverName, databaseName, username, password string,
 	port int32,
+	settings EndpointConnectionSettings,
 ) (*Endpoint, error) {
 	b.mu.Lock("ModifyEndpoint")
 	defer b.mu.Unlock()
@@ -260,6 +288,26 @@ func (b *InMemoryBackend) ModifyEndpoint(
 
 	if port != 0 {
 		ep.Port = port
+	}
+
+	if settings.CertificateArn != "" {
+		ep.CertificateArn = settings.CertificateArn
+	}
+
+	if settings.ExtraConnectionAttributes != "" {
+		ep.ExtraConnectionAttributes = settings.ExtraConnectionAttributes
+	}
+
+	if settings.ServiceAccessRoleArn != "" {
+		ep.ServiceAccessRoleArn = settings.ServiceAccessRoleArn
+	}
+
+	if settings.SslMode != "" {
+		ep.SslMode = settings.SslMode
+	}
+
+	if settings.ExternalTableDefinition != "" {
+		ep.ExternalTableDefinition = settings.ExternalTableDefinition
 	}
 
 	cp := *ep

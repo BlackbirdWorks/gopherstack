@@ -6,8 +6,8 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: iotdataplane
 sdk_module: aws-sdk-go-v2/service/iotdataplane@v1.35.4   # bumped from v1.32.20; +3 new ops (device connection/messaging introspection)
-last_audit_commit: 058bf0373   # HEAD when this manifest was written (parity-4 branch, pre-commit of this pass)
-last_audit_date: 2026-07-25
+last_audit_commit: 67b92e0b9   # HEAD at time of this pass (wrapper-key/nested-shape sweep, zero new bugs)
+last_audit_date: 2026-08-20
 overall: A            # restored from A-: ListSubscriptions now reports real per-client subscriptions and SendDirectMessage now truly addresses one client, both read/written through a new MQTTPublisher.ClientSubscriptions/SendToClient boundary implemented in services/iot/broker.go off mochi-mqtt's real cl.State.Subscriptions/cl.WritePacket -- see gaps for the one remaining honest divergence (fallback broadcast when the broker has no live session for a gopherstack-admin-tracked clientId)
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
@@ -41,6 +41,60 @@ leaks: {status: clean, note: "no goroutines/timers introduced; tombstone rows ar
 Freeform: AWS-behavior specifics worth remembering (exact algorithms, wire quirks,
 error-message text, protocol = query-XML / REST-XML / REST-JSON / json-1.0), and any
 "looks-wrong-but-correct" traps so the next auditor doesn't re-flag them.
+
+- **2026-08-20 wrapper-key/nested-shape sweep, zero new bugs.** Re-verified all
+  11 real ops against `aws-sdk-go-v2/service/iotdataplane@v1.35.4` (unchanged
+  version -- no SDK bump since the prior pass): per-op HTTP method/path via
+  `SplitURI` call sites in `serializers.go`, every Input/Output struct field
+  (including optional members) via each op's own `api_op_<Op>.go`, and every
+  op's own `awsRestjson1_deserializeOpError<Op>` case list. Confirmed the cnhp
+  condition directly: `GetThingShadow`/`UpdateThingShadow`/`DeleteThingShadow`
+  are the only ops whose `HandleDeserialize` calls
+  `deserializeOpDocument<Op>Output(output, response.Body, response.ContentLength)`
+  -- i.e. it reads the raw body straight into `Payload []byte`, never
+  JSON-decodes a `shape`; `Publish`/`DeleteConnection` discard the body
+  entirely (empty Output structs); the remaining 6 ops (`GetConnection`,
+  `GetRetainedMessage`, `ListNamedShadowsForThing`, `ListRetainedMessages`,
+  `ListSubscriptions`, `SendDirectMessage`) JSON-decode a `shape` and call
+  `OpDocument<Op>Output(&output, shape)` for real -- this service has both
+  shapes present simultaneously, one per op, exactly as the payload-passthrough
+  risk note predicted. Found zero wire-shape bugs: every field name, JSON
+  type, nesting level, query/header binding, and enum value (`PayloadFormatIndicator`'s
+  `UNSPECIFIED_BYTES`/`UTF8_DATA`, checked both ways) already matched the SDK.
+  `SendDirectMessageOutput`'s `message`/`traceId` fields (easy to miss --
+  most other ops here return either an empty body or no members at all) were
+  already wired correctly. `ListNamedShadowsForThing`'s unusual URI
+  (`/api/things/shadow/ListNamedShadowsForThing/{thingName}`, not the
+  `{thingName}/shadow?name=` pattern the other shadow ops use) was already
+  matched exactly (`listNamedShadowsPrefix` in `handler.go`).
+  Added `wire_sdk_roundtrip_test.go` (this service had no
+  `sdk_roundtrip_helper_test.go`-style file before this pass): drives the
+  real `aws-sdk-go-v2/service/iotdataplane` client through `pkgs/service`'s
+  router for the shadow lifecycle trio, `ListNamedShadowsForThing`, `Publish`
+  + retained-message read-back, and the full connections family
+  (`GetConnection`/`ListSubscriptions`/`SendDirectMessage`/`DeleteConnection`),
+  asserting real `smithy.APIError` codes on the not-found paths rather than
+  string-matching. Fixed two stale/misleading comments found in passing (not
+  wire bugs, just wrong prose): `handleListRetainedMessages`'s doc comment
+  claimed "AWS RetainedMessageSummary does NOT include qos" directly
+  contradicting the function's own (correct) behavior and a second, correct
+  comment 26 lines below it; `ErrRequestTooLarge`'s doc comment claimed
+  `RequestEntityTooLargeException` is "modeled only for UpdateThingShadow",
+  but `SendDirectMessage`'s own `deserializeOpErrorSendDirectMessage` case
+  list also models it (already correctly handled in code and in this file's
+  own `SendDirectMessage` ops-note above -- only the sentinel's doc comment
+  was out of date).
+  **Provenance check**: `git show -s --format=%ad 058bf0373` = 2026-07-25
+  15:47, matching `last_audit_date: 2026-07-25` exactly (zero-day gap) --
+  clean by the sha-date-vs-audit-date check. Separately (informational, not
+  part of that check): `d39bf33e4` (2026-08-11, "Chore/parity upgrade
+  #2414") substantively touched this file's `ops`/`gaps` content and bumped
+  `sdk_module` to v1.35.4 without bumping `last_audit_commit`/`last_audit_date`
+  -- the manifest's prose was current as of Aug 11 even though its stamp
+  still read Jul 25. No drift-causing commits landed between Aug 11 and this
+  pass (`7abc9be9a`/`69bbb940a` only reordered an import and added
+  `handler_sdk_route_table_test.go` within `services/iotdataplane/`), so this
+  pass re-verified from the SDK directly rather than trusting the stale stamp.
 
 - **Protocol**: restjson1. Verified directly against the compiled
   `aws-sdk-go-v2/service/iotdataplane@v1.32.20` serializers/deserializers (most

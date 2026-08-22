@@ -28,7 +28,7 @@ func (h *Handler) handleCreateExperimentTemplate(
 	}
 
 	return c.JSON(http.StatusCreated, experimentTemplateResponseDTO{
-		ExperimentTemplate: toTemplateDTO(tpl),
+		ExperimentTemplate: toTemplateDTO(tpl, h.targetAccountConfigurationsCount(tpl.ID)),
 	})
 }
 
@@ -39,7 +39,7 @@ func (h *Handler) handleGetExperimentTemplate(c *echo.Context, id string) error 
 	}
 
 	return c.JSON(http.StatusOK, experimentTemplateResponseDTO{
-		ExperimentTemplate: toTemplateDTO(tpl),
+		ExperimentTemplate: toTemplateDTO(tpl, h.targetAccountConfigurationsCount(tpl.ID)),
 	})
 }
 
@@ -55,8 +55,22 @@ func (h *Handler) handleUpdateExperimentTemplate(c *echo.Context, id string, bod
 	}
 
 	return c.JSON(http.StatusOK, experimentTemplateResponseDTO{
-		ExperimentTemplate: toTemplateDTO(tpl),
+		ExperimentTemplate: toTemplateDTO(tpl, h.targetAccountConfigurationsCount(tpl.ID)),
 	})
+}
+
+// targetAccountConfigurationsCount returns the number of target account
+// configurations attached to a template, matching the real AWS FIS
+// ExperimentTemplate.targetAccountConfigurationsCount wire field. A lookup error
+// (e.g. the template was deleted between calls) is treated as zero rather than
+// failing the whole response, since this field is informational.
+func (h *Handler) targetAccountConfigurationsCount(templateID string) int {
+	cfgs, err := h.Backend.ListTargetAccountConfigurations(templateID)
+	if err != nil {
+		return 0
+	}
+
+	return len(cfgs)
 }
 
 func (h *Handler) handleDeleteExperimentTemplate(c *echo.Context, id string) error {
@@ -117,7 +131,7 @@ func toTemplateSummaryDTO(tpl *ExperimentTemplate) experimentTemplateSummaryDTO 
 	}
 }
 
-func toTemplateDTO(tpl *ExperimentTemplate) experimentTemplateDTO {
+func toTemplateDTO(tpl *ExperimentTemplate, tacCount int) experimentTemplateDTO {
 	targets := make(map[string]experimentTemplateTargetDTO, len(tpl.Targets))
 	for name, t := range tpl.Targets {
 		filters := make([]experimentTemplateTargetFilterDTO, len(t.Filters))
@@ -146,16 +160,17 @@ func toTemplateDTO(tpl *ExperimentTemplate) experimentTemplateDTO {
 	}
 
 	dto := experimentTemplateDTO{
-		ID:             tpl.ID,
-		Arn:            tpl.Arn,
-		Description:    tpl.Description,
-		RoleArn:        tpl.RoleArn,
-		Tags:           tpl.Tags,
-		Targets:        targets,
-		Actions:        actions,
-		StopConditions: stopConditions,
-		CreationTime:   toUnix(tpl.CreationTime),
-		LastUpdateTime: toUnix(tpl.LastUpdateTime),
+		ID:                               tpl.ID,
+		Arn:                              tpl.Arn,
+		Description:                      tpl.Description,
+		RoleArn:                          tpl.RoleArn,
+		Tags:                             tpl.Tags,
+		Targets:                          targets,
+		Actions:                          actions,
+		StopConditions:                   stopConditions,
+		CreationTime:                     toUnix(tpl.CreationTime),
+		LastUpdateTime:                   toUnix(tpl.LastUpdateTime),
+		TargetAccountConfigurationsCount: tacCount,
 	}
 
 	if tpl.LogConfiguration != nil {

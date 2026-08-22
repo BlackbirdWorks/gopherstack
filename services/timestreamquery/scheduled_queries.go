@@ -30,6 +30,7 @@ func (b *InMemoryBackend) CreateScheduledQuery(
 	name, queryString, scheduleExpression, executionRoleArn,
 	notificationTopicArn, errorReportS3BucketName, targetDatabase, targetTable, clientToken, kmsKeyID string,
 	tags map[string]string,
+	targetDetail *ScheduledQueryTargetDetail,
 ) (*ScheduledQuery, error) {
 	if err := validateScheduleExpression(scheduleExpression); err != nil {
 		return nil, err
@@ -67,6 +68,7 @@ func (b *InMemoryBackend) CreateScheduledQuery(
 		ErrorReportS3BucketName: errorReportS3BucketName,
 		TargetDatabase:          targetDatabase,
 		TargetTable:             targetTable,
+		TargetDetail:            targetDetail,
 		KmsKeyID:                kmsKeyID,
 		State:                   scheduledQueryStateEnabled,
 		CreationTime:            time.Now(),

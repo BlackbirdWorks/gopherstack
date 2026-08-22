@@ -105,13 +105,25 @@ type vaultLockPolicyRequest struct {
 	Policy string `json:"Policy"`
 }
 
-// vaultNotificationConfig holds the SNS configuration for a vault.
+// vaultNotificationConfig holds the SNS configuration for a vault. GetVaultNotifications
+// serves this FLAT at the response root: awsRestjson1_deserializeOpDocumentGetVaultNotificationsOutput
+// (which case-matches a "vaultNotificationConfig" wrapper key) exists in
+// aws-sdk-go-v2/service/glacier@v1.35.4's deserializers.go but is DEAD CODE -- the real
+// op's own HandleDeserialize decodes the body directly via
+// awsRestjson1_deserializeDocumentVaultNotificationConfig(&output.VaultNotificationConfig,
+// shape), never through that wrapper helper. Confirmed by reading HandleDeserialize
+// itself, not the unreachable helper -- see gopherstack-sdk-shape's dead-code trap.
 type vaultNotificationConfig struct {
 	SNSTopic string   `json:"SNSTopic"`
 	Events   []string `json:"Events"`
 }
 
-// vaultAccessPolicy wraps the vault access policy document.
+// vaultAccessPolicy wraps the vault access policy document. GetVaultAccessPolicy
+// serves this FLAT at the response root for the same dead-code reason as
+// vaultNotificationConfig above: awsRestjson1_deserializeOpGetVaultAccessPolicy's live
+// HandleDeserialize calls awsRestjson1_deserializeDocumentVaultAccessPolicy(&output.Policy,
+// shape) directly; the "policy"-wrapping awsRestjson1_deserializeOpDocumentGetVaultAccessPolicyOutput
+// helper is never called.
 type vaultAccessPolicy struct {
 	Policy string `json:"Policy"`
 }
@@ -241,9 +253,12 @@ type selectParametersDTO struct {
 
 // inputSerializationDTO mirrors the real SDK's InputSerialization (Select-job source
 // format). Only Csv is a real member on the wire -- Glacier Select, like S3 Select,
-// only ever supports CSV-encoded archives.
+// only ever supports CSV-encoded archives. The wire key is lowercase "csv" (confirmed
+// via aws-sdk-go-v2/service/glacier@v1.35.4's awsRestjson1_serializeDocumentInputSerialization
+// / awsRestjson1_deserializeDocumentInputSerialization, both `object.Key("csv")` /
+// `case "csv":`) -- an anomaly among glacier's otherwise-PascalCase field names.
 type inputSerializationDTO struct {
-	Csv *csvInputDTO `json:"Csv,omitempty"`
+	Csv *csvInputDTO `json:"csv,omitempty"`
 }
 
 // csvInputDTO mirrors the real SDK's CSVInput.
@@ -256,9 +271,10 @@ type csvInputDTO struct {
 	RecordDelimiter      string `json:"RecordDelimiter,omitempty"`
 }
 
-// outputSerializationDTO mirrors the real SDK's OutputSerialization.
+// outputSerializationDTO mirrors the real SDK's OutputSerialization. Same lowercase
+// "csv" wire key anomaly as inputSerializationDTO -- see that type's comment.
 type outputSerializationDTO struct {
-	Csv *csvOutputDTO `json:"Csv,omitempty"`
+	Csv *csvOutputDTO `json:"csv,omitempty"`
 }
 
 // csvOutputDTO mirrors the real SDK's CSVOutput.

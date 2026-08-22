@@ -13,12 +13,6 @@ type scheduleTargetDeadLetterConfig struct {
 	Arn string `json:"Arn,omitempty"`
 }
 
-// scheduleTargetInputTransformer mirrors InputTransformer for handler input/output.
-type scheduleTargetInputTransformer struct {
-	InputPathsMap map[string]string `json:"InputPathsMap,omitempty"`
-	InputTemplate string            `json:"InputTemplate,omitempty"`
-}
-
 // scheduleTargetEventBridgeParameters mirrors EventBridgeParameters for handler input/output.
 type scheduleTargetEventBridgeParameters struct {
 	DetailType string `json:"DetailType,omitempty"`
@@ -53,37 +47,43 @@ type scheduleTargetEcsAwsvpcConfiguration struct {
 	Subnets        []string `json:"Subnets,omitempty"`
 }
 
-// scheduleTargetEcsNetworkConfiguration mirrors EcsNetworkConfiguration for handler input/output.
+// scheduleTargetEcsNetworkConfiguration mirrors EcsNetworkConfiguration for handler
+// input/output. The wrapped field uses a lower-camel key -- unlike every other member
+// name in this file -- because that's what the real SDK's
+// awsRestjson1_(de)serializeDocumentNetworkConfiguration actually emits/expects.
 type scheduleTargetEcsNetworkConfiguration struct {
-	AwsvpcConfiguration *scheduleTargetEcsAwsvpcConfiguration `json:"AwsvpcConfiguration,omitempty"`
+	AwsvpcConfiguration *scheduleTargetEcsAwsvpcConfiguration `json:"awsvpcConfiguration,omitempty"`
 }
 
 // scheduleTargetEcsCapacityProviderStrategyItem mirrors EcsCapacityProviderStrategyItem.
+// Real SDK's serializer/deserializer for this shape use lower-camel keys
+// ("capacityProvider"/"base"/"weight"), unlike the rest of EcsParameters.
 type scheduleTargetEcsCapacityProviderStrategyItem struct {
-	CapacityProvider string `json:"CapacityProvider"`
-	Base             int    `json:"Base,omitempty"`
-	Weight           int    `json:"Weight,omitempty"`
+	CapacityProvider string `json:"capacityProvider"`
+	Base             int    `json:"base,omitempty"`
+	Weight           int    `json:"weight,omitempty"`
 }
 
-// scheduleTargetEcsPlacementConstraint mirrors EcsPlacementConstraint for handler input/output.
+// scheduleTargetEcsPlacementConstraint mirrors EcsPlacementConstraint for handler
+// input/output. Real SDK uses lower-camel keys ("expression"/"type") for this shape.
 type scheduleTargetEcsPlacementConstraint struct {
-	Expression string `json:"Expression,omitempty"`
-	Type       string `json:"Type,omitempty"`
+	Expression string `json:"expression,omitempty"`
+	Type       string `json:"type,omitempty"`
 }
 
-// scheduleTargetEcsPlacementStrategy mirrors EcsPlacementStrategy for handler input/output.
+// scheduleTargetEcsPlacementStrategy mirrors EcsPlacementStrategy for handler
+// input/output. Real SDK uses lower-camel keys ("field"/"type") for this shape.
 type scheduleTargetEcsPlacementStrategy struct {
-	Field string `json:"Field,omitempty"`
-	Type  string `json:"Type,omitempty"`
-}
-
-// scheduleTargetEcsTag mirrors EcsTag for handler input/output.
-type scheduleTargetEcsTag struct {
-	Key   string `json:"Key"`
-	Value string `json:"Value"`
+	Field string `json:"field,omitempty"`
+	Type  string `json:"type,omitempty"`
 }
 
 // scheduleTargetEcsParameters mirrors EcsParameters for handler input/output.
+//
+// Tags is []map[string]string, not a list of {Key,Value} objects -- real SDK's
+// EcsParameters.Tags is a list of free-form single-entry maps (e.g.
+// [{"env":"prod"}]), serialized by awsRestjson1_(de)serializeDocumentTags /
+// ...TagMap, which round-trip an arbitrary map[string]string per element.
 type scheduleTargetEcsParameters struct {
 	NetworkConfiguration     *scheduleTargetEcsNetworkConfiguration          `json:"NetworkConfiguration,omitempty"`
 	PropagateTags            string                                          `json:"PropagateTags,omitempty"`
@@ -94,7 +94,7 @@ type scheduleTargetEcsParameters struct {
 	ReferenceID              string                                          `json:"ReferenceId,omitempty"`
 	PlacementConstraints     []scheduleTargetEcsPlacementConstraint          `json:"PlacementConstraints,omitempty"`
 	PlacementStrategy        []scheduleTargetEcsPlacementStrategy            `json:"PlacementStrategy,omitempty"`
-	Tags                     []scheduleTargetEcsTag                          `json:"Tags,omitempty"`
+	Tags                     []map[string]string                             `json:"Tags,omitempty"`
 	CapacityProviderStrategy []scheduleTargetEcsCapacityProviderStrategyItem `json:"CapacityProviderStrategy,omitempty"`
 	TaskCount                int                                             `json:"TaskCount,omitempty"`
 	EnableECSManagedTags     bool                                            `json:"EnableECSManagedTags,omitempty"`
@@ -105,7 +105,6 @@ type scheduleTargetEcsParameters struct {
 type scheduleTarget struct {
 	RetryPolicy                 *scheduleTargetRetryPolicy                 `json:"RetryPolicy,omitempty"`
 	DeadLetterConfig            *scheduleTargetDeadLetterConfig            `json:"DeadLetterConfig,omitempty"`
-	InputTransformer            *scheduleTargetInputTransformer            `json:"InputTransformer,omitempty"`
 	EventBridgeParameters       *scheduleTargetEventBridgeParameters       `json:"EventBridgeParameters,omitempty"`
 	KinesisParameters           *scheduleTargetKinesisParameters           `json:"KinesisParameters,omitempty"`
 	SqsParameters               *scheduleTargetSqsParameters               `json:"SqsParameters,omitempty"`
@@ -224,15 +223,6 @@ func deadLetterConfigFromInput(in *scheduleTargetDeadLetterConfig) *DeadLetterCo
 	return &DeadLetterConfig{Arn: in.Arn}
 }
 
-// inputTransformerFromInput converts a handler input transformer to the backend type.
-func inputTransformerFromInput(in *scheduleTargetInputTransformer) *InputTransformer {
-	if in == nil {
-		return nil
-	}
-
-	return &InputTransformer{InputPathsMap: in.InputPathsMap, InputTemplate: in.InputTemplate}
-}
-
 // eventBridgeParamsFromInput converts handler EventBridge parameters to the backend type.
 func eventBridgeParamsFromInput(in *scheduleTargetEventBridgeParameters) *EventBridgeParameters {
 	if in == nil {
@@ -337,20 +327,6 @@ func ecsPlacementStrategyFromInput(in []scheduleTargetEcsPlacementStrategy) []Ec
 	return out
 }
 
-// ecsTagsFromInput converts handler ECS tags to the backend type.
-func ecsTagsFromInput(in []scheduleTargetEcsTag) []EcsTag {
-	if len(in) == 0 {
-		return nil
-	}
-
-	out := make([]EcsTag, len(in))
-	for i, t := range in {
-		out[i] = EcsTag(t)
-	}
-
-	return out
-}
-
 // ecsParamsFromInput converts handler ECS parameters to the backend type.
 func ecsParamsFromInput(in *scheduleTargetEcsParameters) *EcsParameters {
 	if in == nil {
@@ -371,7 +347,7 @@ func ecsParamsFromInput(in *scheduleTargetEcsParameters) *EcsParameters {
 		CapacityProviderStrategy: ecsCapacityStrategyFromInput(in.CapacityProviderStrategy),
 		PlacementConstraints:     ecsPlacementConstraintsFromInput(in.PlacementConstraints),
 		PlacementStrategy:        ecsPlacementStrategyFromInput(in.PlacementStrategy),
-		Tags:                     ecsTagsFromInput(in.Tags),
+		Tags:                     in.Tags,
 	}
 }
 
@@ -383,7 +359,6 @@ func targetFromInput(in scheduleTarget) Target {
 		Input:                       in.Input,
 		RetryPolicy:                 retryPolicyFromInput(in.RetryPolicy),
 		DeadLetterConfig:            deadLetterConfigFromInput(in.DeadLetterConfig),
-		InputTransformer:            inputTransformerFromInput(in.InputTransformer),
 		EventBridgeParameters:       eventBridgeParamsFromInput(in.EventBridgeParameters),
 		KinesisParameters:           kinesisParamsFromInput(in.KinesisParameters),
 		SqsParameters:               sqsParamsFromInput(in.SqsParameters),
@@ -411,15 +386,6 @@ func deadLetterConfigToOutput(d *DeadLetterConfig) *scheduleTargetDeadLetterConf
 	}
 
 	return &scheduleTargetDeadLetterConfig{Arn: d.Arn}
-}
-
-// inputTransformerToOutput converts a backend input transformer to the handler output type.
-func inputTransformerToOutput(t *InputTransformer) *scheduleTargetInputTransformer {
-	if t == nil {
-		return nil
-	}
-
-	return &scheduleTargetInputTransformer{InputPathsMap: t.InputPathsMap, InputTemplate: t.InputTemplate}
 }
 
 // eventBridgeParamsToOutput converts backend EventBridge parameters to the handler output type.
@@ -524,20 +490,6 @@ func ecsPlacementStrategyToOutput(in []EcsPlacementStrategy) []scheduleTargetEcs
 	return out
 }
 
-// ecsTagsToOutput converts backend ECS tags to the handler output type.
-func ecsTagsToOutput(in []EcsTag) []scheduleTargetEcsTag {
-	if len(in) == 0 {
-		return nil
-	}
-
-	out := make([]scheduleTargetEcsTag, len(in))
-	for i, t := range in {
-		out[i] = scheduleTargetEcsTag(t)
-	}
-
-	return out
-}
-
 // ecsParamsToOutput converts backend ECS parameters to the handler output type.
 func ecsParamsToOutput(e *EcsParameters) *scheduleTargetEcsParameters {
 	if e == nil {
@@ -558,7 +510,7 @@ func ecsParamsToOutput(e *EcsParameters) *scheduleTargetEcsParameters {
 		CapacityProviderStrategy: ecsCapacityStrategyToOutput(e.CapacityProviderStrategy),
 		PlacementConstraints:     ecsPlacementConstraintsToOutput(e.PlacementConstraints),
 		PlacementStrategy:        ecsPlacementStrategyToOutput(e.PlacementStrategy),
-		Tags:                     ecsTagsToOutput(e.Tags),
+		Tags:                     e.Tags,
 	}
 }
 
@@ -570,7 +522,6 @@ func targetToOutput(t Target) scheduleTargetOutput {
 		Input:                       t.Input,
 		RetryPolicy:                 retryPolicyToOutput(t.RetryPolicy),
 		DeadLetterConfig:            deadLetterConfigToOutput(t.DeadLetterConfig),
-		InputTransformer:            inputTransformerToOutput(t.InputTransformer),
 		EventBridgeParameters:       eventBridgeParamsToOutput(t.EventBridgeParameters),
 		KinesisParameters:           kinesisParamsToOutput(t.KinesisParameters),
 		SqsParameters:               sqsParamsToOutput(t.SqsParameters),
@@ -582,7 +533,6 @@ func targetToOutput(t Target) scheduleTargetOutput {
 type scheduleTargetOutput struct {
 	RetryPolicy                 *scheduleTargetRetryPolicy                 `json:"RetryPolicy,omitempty"`
 	DeadLetterConfig            *scheduleTargetDeadLetterConfig            `json:"DeadLetterConfig,omitempty"`
-	InputTransformer            *scheduleTargetInputTransformer            `json:"InputTransformer,omitempty"`
 	EventBridgeParameters       *scheduleTargetEventBridgeParameters       `json:"EventBridgeParameters,omitempty"`
 	KinesisParameters           *scheduleTargetKinesisParameters           `json:"KinesisParameters,omitempty"`
 	SqsParameters               *scheduleTargetSqsParameters               `json:"SqsParameters,omitempty"`

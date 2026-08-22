@@ -6,8 +6,8 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: cognitoidentity
 sdk_module: aws-sdk-go-v2/service/cognitoidentity@v1.36.4
-last_audit_commit: 2d47b51d4
-last_audit_date: 2026-07-29
+last_audit_commit: 81a1aabf0
+last_audit_date: 2026-08-20
 overall: A                # error-taxonomy field-diff vs deserializers.go found 3 real gaps, all fixed
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
@@ -168,3 +168,79 @@ exception types (`ResourceNotFoundException`/`ResourceConflictException`/
   categories were deliberately *not* implemented with fabricated trigger conditions, per the
   no-stub/no-invented-business-rules principle -- an exception type with no real,
   state-driven trigger condition is worse than an honestly-documented gap.
+
+## 2026-08-20 pass — wrapper-key / nested-shape sweep (clean)
+
+Campaign-wide sweep for response members emitted under the wrong wrapper key, wrong
+nesting level, wrong JSON type, or wrong enum value (the bug class found ~52 times across
+22 other services this campaign, dominant pattern: a Go struct shared between a
+request-side and response-side sibling leaking request-only fields). Verified every
+op's own `awsAwsjson11_deserializeOpDocument<Op>Output`/`deserializeDocument<Type>` case
+list in the pinned `aws-sdk-go-v2/service/cognitoidentity@v1.36.4` `deserializers.go`
+against gopherstack's emitted JSON tags, field-by-field, and the enum value sets in
+`types/enums.go`. Zero new bugs found.
+
+- `GetCredentialsForIdentity`: `Credentials` deserializer (`deserializers.go:3341`) case
+  list is exactly `AccessKeyId`, `Expiration` (epoch-seconds `json.Number`), `SecretKey`,
+  `SessionToken`. gopherstack's `credentialsOutput` (`handler_credentials.go:16-20`) emits
+  `AccessKeyId`/`SecretKey`/`SessionToken`/`Expiration` with `SecretKey` correctly sourced
+  from the internal `SecretAccessKey` Go field via a `json:"SecretKey"` tag -- the
+  STS-`SecretAccessKey`-vs-Cognito-`SecretKey` sibling trap this campaign keeps finding
+  elsewhere does NOT reproduce here; already correct.
+- `IdentityPool` (full) vs `IdentityPoolShortDescription`: distinct wire structs.
+  `DescribeIdentityPoolOutput`'s own deserializer (`deserializers.go`, verified via
+  `awsAwsjson11_deserializeOpDocumentDescribeIdentityPoolOutput`) case list --
+  `AllowClassicFlow`, `AllowUnauthenticatedIdentities`, `CognitoIdentityProviders`,
+  `DeveloperProviderName`, `IdentityPoolId`, `IdentityPoolName`, `IdentityPoolTags`,
+  `OpenIdConnectProviderARNs`, `SamlProviderARNs`, `SupportedLoginProviders` -- matches
+  gopherstack's `identityPoolOutput` (`handler_identity_pools.go`) field-for-field, same
+  struct shared correctly across Create/Describe/Update (all three ops have an identical
+  Output shape in the real SDK too, confirmed by reading each). `ListIdentityPools`' own
+  `awsAwsjson11_deserializeDocumentIdentityPoolShortDescription` case list is only
+  `IdentityPoolId`/`IdentityPoolName`; gopherstack's separate `identityPoolShortDescription`
+  struct carries only those two fields -- no leakage of the full-pool's extra fields into
+  the summary side (pattern (a), the dominant bug class this campaign, does not reproduce).
+- `RoleMappings` nested tree, verified level by level against
+  `awsAwsjson11_deserializeDocumentRoleMapping`/`RulesConfigurationType`/`MappingRule`:
+  `RoleMappings` (map) -> `RoleMapping{Type, AmbiguousRoleResolution, RulesConfiguration}`
+  -> `RulesConfigurationType{Rules}` -> `MappingRule{Claim, MatchType, RoleARN, Value}`.
+  gopherstack's `roleMappingInput`/`roleMappingOutput` and
+  `rulesConfigurationInput`/`Output` (`handler_identity_pool_roles.go`) match every key
+  name and nesting level exactly. Enum values (`RoleMappingType`: `Token`/`Rules`;
+  `AmbiguousRoleResolutionType`: `AuthenticatedRole`/`Deny`; `MappingRuleMatchType`:
+  `Equals`/`Contains`/`StartsWith`/`NotEqual`, all from `types/enums.go`) are never
+  fabricated by the backend -- `SetIdentityPoolRoles`/`GetIdentityPoolRoles` echo whatever
+  value the caller supplied verbatim (`identity_pool_roles.go`'s `cloneRoleMappings`), so
+  there is no server-side opportunity to invent an out-of-enum constant (the swf `Cause`
+  bug class does not apply to a pure pass-through field).
+- `IdentityDescription` (`ListIdentities`/`DescribeIdentity`): real case list
+  `CreationDate`/`IdentityId`/`LastModifiedDate`/`Logins`, timestamps as epoch-seconds.
+  gopherstack's `identityDescriptionOutput`/`describeIdentityOutput` match, both routed
+  through `pkgs/awstime.Epoch`.
+- Also diffed: `GetId`, `DeleteIdentities`/`UnprocessedIdentityId` (real `ErrorCode` enum
+  is only `AccessDenied`/`InternalServerError` -- gopherstack's backend never actually
+  populates the unprocessed list, so no fabricated value is possible there either),
+  `GetOpenIdToken`, `GetOpenIdTokenForDeveloperIdentity`, `LookupDeveloperIdentity`,
+  `MergeDeveloperIdentities`, `GetPrincipalTagAttributeMap`/`SetPrincipalTagAttributeMap`,
+  `ListTagsForResource`/`TagResource`/`UntagResource`. All field-for-field clean.
+- Confirmed protocol independently: `awsAwsjson11_*` prefix in `serializers.go`,
+  `X-Amz-Target: AWSCognitoIdentityService.<Op>` header
+  (`serializers.go:59` etc.), matching this file's existing protocol note. Confirmed the
+  restjson single-structure-member false-positive trap does not apply (JSON-RPC always
+  routes through `deserializeOpDocument<Op>Output`, verified present AND called -- 2
+  occurrences -- for every op with a non-empty output; the 4 ops with a `0` count
+  (`SetIdentityPoolRoles`, `UnlinkDeveloperIdentity`, `UnlinkIdentity`,
+  `DeleteIdentityPool`) are legitimately void-output ops, not a missed wiring).
+- `last_audit_commit` provenance check: prior value `2d47b51d4` is EC2's
+  `RestoreImageFromRecycleBin` fix, dated `Wed Jul 29 22:13:36 2026`, matching the prior
+  `last_audit_date: 2026-07-29` exactly -- no copy-paste drift, and NOT the `40f05928`
+  sha seen clustered on other services this campaign. Updated to `81a1aabf0` (HEAD at the
+  time of this pass) / `2026-08-20`.
+- No existing test asserted a wrong key/nesting/type/value; none needed correction.
+  `handler_credentials_test.go:192` already asserts the raw wire key `SecretKey` (not
+  `SecretAccessKey`), and `handler_identity_pool_roles_test.go` already asserts real enum
+  values (`"Token"`, `"AuthenticatedRole"`) end-to-end through the router.
+- No fixes made this pass -> no new round-trip test added (nothing to prove via
+  hand-revert). Gates: `go build`/`go vet`/`go fix -diff`/`gofmt -l` clean,
+  `go test -race ./services/cognitoidentity/...` passes, `golangci-lint run
+  ./services/cognitoidentity/...` reports 0 issues.

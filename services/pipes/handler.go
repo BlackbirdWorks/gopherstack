@@ -526,13 +526,14 @@ func (h *Handler) handleDescribePipe(ctx context.Context, path string) ([]byte, 
 	return json.Marshal(toPipeResponse(p))
 }
 
+// pipeSummary matches types.Pipe (the summary shape ListPipesOutput.Pipes uses),
+// which has no Description field -- that only exists on the full DescribePipeOutput.
 type pipeSummary struct {
 	Arn              string  `json:"Arn"`
 	Name             string  `json:"Name"`
 	Source           string  `json:"Source"`
 	Target           string  `json:"Target"`
 	Enrichment       string  `json:"Enrichment,omitempty"`
-	Description      string  `json:"Description,omitempty"`
 	CurrentState     string  `json:"CurrentState"`
 	DesiredState     string  `json:"DesiredState"`
 	StateReason      string  `json:"StateReason,omitempty"`
@@ -578,7 +579,6 @@ func (h *Handler) handleListPipes(ctx context.Context, query url.Values) ([]byte
 			Source:           p.Source,
 			Target:           p.Target,
 			Enrichment:       p.Enrichment,
-			Description:      p.Description,
 			CurrentState:     p.CurrentState,
 			DesiredState:     p.DesiredState,
 			StateReason:      p.StateReason,

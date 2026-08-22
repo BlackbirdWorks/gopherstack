@@ -18,9 +18,10 @@ type customDomainOutput struct {
 }
 
 type associateCustomDomainOutput struct {
-	DNSTarget    string             `json:"DNSTarget"`
-	ServiceArn   string             `json:"ServiceArn"`
-	CustomDomain customDomainOutput `json:"CustomDomain"`
+	DNSTarget     string             `json:"DNSTarget"`
+	ServiceArn    string             `json:"ServiceArn"`
+	CustomDomain  customDomainOutput `json:"CustomDomain"`
+	VpcDNSTargets []any              `json:"VpcDNSTargets"`
 }
 
 func toCustomDomainOutput(cd *CustomDomain) customDomainOutput {
@@ -59,9 +60,10 @@ func (h *Handler) handleAssociateCustomDomain(
 	}
 
 	return &associateCustomDomainOutput{
-		CustomDomain: toCustomDomainOutput(cd),
-		DNSTarget:    svc.ServiceURL,
-		ServiceArn:   in.ServiceArn,
+		CustomDomain:  toCustomDomainOutput(cd),
+		DNSTarget:     svc.ServiceURL,
+		ServiceArn:    in.ServiceArn,
+		VpcDNSTargets: []any{},
 	}, nil
 }
 
@@ -71,9 +73,10 @@ type disassociateCustomDomainInput struct {
 }
 
 type disassociateCustomDomainOutput struct {
-	DNSTarget    string             `json:"DNSTarget"`
-	ServiceArn   string             `json:"ServiceArn"`
-	CustomDomain customDomainOutput `json:"CustomDomain"`
+	DNSTarget     string             `json:"DNSTarget"`
+	ServiceArn    string             `json:"ServiceArn"`
+	CustomDomain  customDomainOutput `json:"CustomDomain"`
+	VpcDNSTargets []any              `json:"VpcDNSTargets"`
 }
 
 func (h *Handler) handleDisassociateCustomDomain(
@@ -99,9 +102,10 @@ func (h *Handler) handleDisassociateCustomDomain(
 	}
 
 	return &disassociateCustomDomainOutput{
-		CustomDomain: toCustomDomainOutput(cd),
-		DNSTarget:    svc.ServiceURL,
-		ServiceArn:   in.ServiceArn,
+		CustomDomain:  toCustomDomainOutput(cd),
+		DNSTarget:     svc.ServiceURL,
+		ServiceArn:    in.ServiceArn,
+		VpcDNSTargets: []any{},
 	}, nil
 }
 

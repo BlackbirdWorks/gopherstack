@@ -1,8 +1,8 @@
 ---
 service: sts
 sdk_module: aws-sdk-go-v2/service/sts@v1.45.4   # version audited against (pinned in go.mod)
-last_audit_commit: 2d47b51d4                    # HEAD before this pass's changes
-last_audit_date: 2026-07-29
+last_audit_commit: bfc0729e6                    # HEAD before this pass's changes
+last_audit_date: 2026-08-20
 overall: A                # OutboundWebIdentityFederationDisabledException genuinely wired
                            # this pass (see GetWebIdentityToken below); the one remaining gap
                            # (JWTPayloadSizeExceededException) is a proven impossibility --
@@ -356,3 +356,136 @@ per-operator, so stripping the suffix before the per-operator switch cannot
 change any operator's present-key comparison semantics. `Null` is AWS's one
 documented exception (no `IfExists` variant — presence-testing is already
 its job) and is special-cased to run before that check entirely.
+
+### Re-audit 2026-08-20: wrapper-key / nested-shape wire sweep — zero live bugs found
+
+Campaign-wide sweep for response-envelope-name, nesting, and per-member shape
+bugs (the class that made up ~62 real bugs across 31 other services this
+session). Protocol reconfirmed from the pinned SDK, not assumed: `sts` is
+`awsAwsquery_*` (query/XML), confirmed at
+`aws-sdk-go-v2/service/sts@v1.45.4/deserializers.go:26` and `api_client.go:12`
+(`aws/protocol/query` import). Per the campaign brief's own caveat, XML
+element-name matching is case-insensitive (`strings.EqualFold`, verified at
+every `case strings.EqualFold(...)` site in `deserializers.go`) for both
+member decoding **and** error-code routing (`deserializeOpError<Op>`), so
+casing near-misses are structurally impossible to matter here and were not
+hunted.
+
+**Method**: for each of the 11 ops, diffed gopherstack's `models.go`
+Input/Output/Result structs field-for-field against the pinned SDK's
+`api_op_*.go` `*Output` structs and `types/types.go` (`Credentials`,
+`AssumedRoleUser`, `FederatedUser`, `PolicyDescriptorType`), then verified
+every `<Op>Result` envelope element name against the live
+`decoder.GetElement("<Op>Result")` call in each op's `HandleDeserialize` in
+`deserializers.go` (all 11 confirmed exact-match, see table below), then
+cross-checked the full per-op typed-error switch list in each
+`deserializeOpError<Op>` function against `handler.go`'s `mapErrorToCode`.
+
+**Result: zero new wire-shape bugs.** Every Input/Output field, every
+`<Op>Result` envelope name, every list/struct nesting path
+(`PolicyArns.member.N.arn`, `ProvidedContexts.member.N.ProviderArn`/
+`.ContextAssertion`, `Tags.member.N.Key`/`.Value`, `TransitiveTagKeys.member.N`,
+`Audience.member.N`, and — notably — `AssumeRootInput.TaskPolicyArn`, which is
+**not** a flat string on the wire but a nested `PolicyDescriptorType` object
+serialized as `TaskPolicyArn.arn=...`, confirmed via
+`serializers.go:1058-1063` + `serializers.go:796-806`) already matches the
+pinned SDK exactly. `handler_assume_root.go` already reads
+`TaskPolicyArn.arn` first (with a documented flat-key fallback for
+non-SDK callers) — this looked like a live candidate for the brief's pattern
+(b) "wrong nesting level" bug class and turned out to be a prior pass's
+correct fix, verified clean, not a new bug.
+
+**Credentials**: real member names re-confirmed at
+`aws-sdk-go-v2/service/sts@v1.45.4/types/types.go:34-56` —
+`AccessKeyId`/`Expiration`/`SecretAccessKey`/`SessionToken`, all four
+`This member is required`. Note this is **`SecretAccessKey`**, not
+`SecretKey` (the cognitoidentity trap named in this campaign's brief does not
+apply here — gopherstack's `Credentials.SecretAccessKey`
+(`models.go:154`) already uses the correct name). Expiration is parsed via
+`smithytime.ParseDateTime` (`deserializers.go:1950`), the smithy `date-time`
+(RFC3339) format; gopherstack emits `expiration.Format(time.RFC3339)`
+everywhere a `Credentials` value is built (`assume_role.go`, `assume_root.go`,
+`delegated_access.go`, `federation.go`, `saml.go`, `session_tokens.go`,
+`web_identity.go`) — format matches.
+
+**Three assume-role variants**: confirmed gopherstack uses three **separate**
+Go response structs (`AssumeRoleResult`, `AssumeRoleWithSAMLResult`,
+`AssumeRoleWithWebIdentityResult`), not one shared struct — so the pattern-(a)
+leak risk the brief calls out (a SAML-only or web-identity-only member
+leaking into plain `AssumeRole`) is structurally prevented. Field-by-field
+diff against each op's own `*Output` struct
+(`api_op_AssumeRole.go:369`, `api_op_AssumeRoleWithSAML.go:269`,
+`api_op_AssumeRoleWithWebIdentity.go:299`) confirms no cross-op leak in
+either direction: `AssumeRoleResult` has exactly
+{AssumedRoleUser,Credentials,PackedPolicySize,SourceIdentity}; SAML adds
+{Audience,Issuer,NameQualifier,Subject,SubjectType}; WebIdentity adds
+{Audience,Provider,SubjectFromWebIdentityToken} instead — matching each op's
+real `Output` exactly, no overlap fabricated.
+
+**Envelope / `ResponseMetadata`**: every op's `<Op>Result` child-element name
+matches the live `decoder.GetElement(...)` call byte-for-byte:
+AssumeRole/AssumeRoleWithSAML/AssumeRoleWithWebIdentity/AssumeRoot/
+DecodeAuthorizationMessage/GetAccessKeyInfo/GetCallerIdentity/
+GetDelegatedAccessToken/GetFederationToken/GetSessionToken/
+GetWebIdentityToken — all 11 confirmed against `deserializers.go` lines
+74/195/322/452/567/679/788/897/1015/1133/1245 respectively. `ResponseMetadata`
++ `RequestId` is present and correctly nested after `<Op>Result>` in every
+`models.go` response struct (field order verified load-bearing per this
+file's own prior "Wire-format / protocol" note above; re-confirmed
+`gofmt`/`golangci-lint` don't reorder it — see gates below). Note: the real
+`aws-sdk-go-v2` client actually reads the request ID from the
+`RequestIDRetriever` deserialize-middleware (HTTP-header-driven on the
+success path — no `ResponseMetadata` field exists on any success `*Output`
+Go struct in the pinned SDK) rather than from the XML body's
+`<ResponseMetadata><RequestId>` on success; gopherstack does not set an
+`X-Amzn-Requestid` HTTP header on STS success responses (confirmed by grep —
+no such `Header().Set` call anywhere in `services/sts/`, unlike e.g.
+`services/glacier`/`services/emrserverless`). This does not affect any
+response body field a client reads, and setting response headers is
+infrastructure shared across the whole router, not an sts-local wire-shape
+concern, so it is disclosed here but intentionally not touched by this
+service-scoped pass.
+
+**One disclosed, NOT fixed, finding** (error-taxonomy, not
+wrapper-key/nesting, so kept minimal per the brief's error-shape callout):
+`errors.go`'s `ErrIDPRejectedClaim` sentinel (doc comment: "returned when the
+identity provider rejects the claim") is coalesced in
+`handler.go:305`'s `mapNamedExceptionToCode` into the same case as
+`ErrAccessDenied`, both emitting wire `Code: "AccessDenied"`. The real STS
+`IDPRejectedClaimException.ErrorCode()` is `"IDPRejectedClaim"`
+(`types/errors.go:116-119`), HTTP 403 (confirmed against the live AWS API
+reference for `AssumeRoleWithWebIdentity`/`AssumeRoleWithSAML` — both list
+`IDPRejectedClaim`, HTTP Status Code 403, as a **typed** error distinct from
+the untyped `AccessDenied` bucket in each op's
+`deserializeOpError<Op>` switch, `deserializers.go`: AssumeRoleWithSAML
+func at line 221, `IDPRejectedClaim` case at line 249; AssumeRoleWithWebIdentity
+func at line 348, `IDPRejectedClaim` case at line 379). If
+`ErrIDPRejectedClaim` were ever wired to a live code path, an SDK client
+would currently get a generic `smithy.GenericAPIError` instead of the typed
+`*types.IDPRejectedClaimException`. **Not fixed this pass**: grep confirms
+`ErrIDPRejectedClaim` is declared but never constructed/returned anywhere in
+`services/sts/*.go` today — it is dead code, so there is no live wire
+response to hand-revert-and-reprove a fix against, and this package's tests
+are all external (`package sts_test`; `export_test.go` is off-limits per this
+session's constraints), so `mapErrorToCode` cannot be unit-tested directly
+without a real caller. Flagged here with citations so a future pass wiring
+up IDP-rejection detection uses the right code from the start.
+
+**Genuinely unimplementable / structural, not re-litigated this pass** (already
+correctly disclosed above, re-confirmed still accurate):
+`JWTPayloadSizeExceededException` (no published threshold),
+`RegionDisabledException` (no per-region STS activation concept in this
+emulator — same class of structural gap, not previously called out by name in
+this file; `IDPCommunicationError` similarly has no live path since this
+emulator never makes an outbound call to a real external IdP to fail).
+
+**Provenance correction**: this file's header previously read
+`last_audit_commit: 2d47b51d4` / `last_audit_date: 2026-07-29`, but
+`git log --oneline 2d47b51d4..HEAD -- services/sts/` shows four further
+commits touching this service (`69bbb940a` 2026-08-15, `d39bf33e4`
+2026-08-11, `e22eb6be1` 2026-07-30, `7abc9be9a` 2026-08-16) — the last of
+which (`7abc9be9a`) is what actually authored this file's current `AssumeRole`
+MFA note and the `strictConditions`/`UserLookup` code in `assume_role.go`/
+`store.go`/`interfaces.go`/`provider.go`. The header was never updated to
+match, so it understated the true last-touched date by three weeks. Corrected
+above to `bfc0729e6` / 2026-08-20 (this session's starting HEAD).

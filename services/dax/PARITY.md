@@ -6,11 +6,12 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: dax
 sdk_module: aws-sdk-go-v2/service/dax@v1.32.4   # awsjson1.1 protocol, target prefix AmazonDAXV3.
-last_audit_commit: 70eea523b6f0   # unchanged: this pass's changes are not yet committed by this agent
-last_audit_date: 2026-08-10
+last_audit_commit: b8ef75b1e   # refreshed 2026-08-20 -- current HEAD at write time (this pass's own dax changes not yet committed by this agent)
+last_audit_date: 2026-08-20
 overall: A            # 2026-07-24: follow-up pass: closed all 3 previously-known gaps, killed both banned nolints
                       # 2026-07-31: pkgs/sdkcheck reverse check found ResetParameterGroup wrongly advertised/documented as a real SDK op (it isn't -- see its ops-block note); corrected, route left wired as internal test scaffolding. Grade held at A: unreachable by real traffic either way, since DAX dispatches purely by X-Amz-Target and no real client can send this target.
                       # 2026-08-10: control-plane sweep (gopherstack-mmqd). Fixed state-mutated-before-validation in UpdateCluster and UpdateParameterGroup, a wrong error fault code on 6 required-field checks, a fabricated Tags field on the Cluster wire response, 3 unvalidated @required fields (TagResource.Tags, UntagResource.TagKeys, UpdateParameterGroup.ParameterNameValues), and a missing per-subnet SupportedNetworkTypes field. See Notes.
+                      # 2026-08-20: wrapper-key / nested-shape sweep. Fixed one fabricated SourceType enum value ("NODE") emitted for node-level Events; the real types.SourceType enum has exactly CLUSTER/PARAMETER_GROUP/SUBNET_GROUP. All other wrapper keys, nesting levels, and per-member shapes across all 20 ops verified clean against the pinned SDK. See Notes.
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
@@ -48,7 +49,7 @@ ops:
   DescribeSubnetGroups: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateSubnetGroup: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteSubnetGroup: {wire: ok, errors: ok, state: ok, persist: ok}
-  DescribeEvents: {wire: ok, errors: ok, state: ok, persist: ok}
+  DescribeEvents: {wire: ok, errors: ok, state: ok, persist: ok, note: "node-level events (RebootNode) now report SourceType CLUSTER, not the fabricated NODE value -- fixed 2026-08-20, see Notes"}
 # Families audited as a group (when per-op is impractical):
 families:
   cluster-lifecycle: {status: ok, note: "CreateCluster/DescribeClusters/UpdateCluster/DeleteCluster/IncreaseReplicationFactor/DecreaseReplicationFactor/RebootNode all mutate the real store.Table[Cluster], persist via backendSnapshot, and now emit the correct wire shape (Status key, epoch timestamps) -- see gaps for the 5 bugs found and fixed this pass."
@@ -310,3 +311,111 @@ SDK's generated `validators.go`/`deserializers.go`.
 - **DeleteParameterGroup/DeleteSubnetGroup**: both refuse deletion outright while referenced by a
   cluster (`ErrParameterGroupInUse`/`ErrSubnetGroupInUse`), so there is no path to a deleted
   resource still reporting a live status.
+
+## 2026-08-20 wrapper-key / nested-shape sweep
+
+Full wrapper-key/nesting-level/member-shape/enum-value sweep of all 20 advertised ops against
+`aws-sdk-go-v2/service/dax@v1.32.4` (module cache path:
+`$GOMODCACHE/github.com/aws/aws-sdk-go-v2/service/dax@v1.32.4`). Protocol reconfirmed as
+`awsjson1.1` (`Content-Type: application/x-amz-json-1.1`, `X-Amz-Target: AmazonDAXV3.<Op>`,
+`api_client.go`; every op's live decode path is `awsAwsjson11_deserializeOpDocument<Op>Output`,
+confirmed present with both a definition and a call site for each op -- the restjson
+flat-body false-positive trap this campaign is watching for does not apply to DAX's awsjson1.1
+protocol).
+
+**Required-member grep** (`grep -rn "This member is required" types/*.go api_op_*.go`): every hit
+is on an *Input* (request) shape -- `CreateClusterInput{ClusterName, IamRoleArn, NodeType,
+ReplicationFactor}`, `CreateParameterGroupInput.ParameterGroupName`,
+`CreateSubnetGroupInput{SubnetGroupName, SubnetIds}`,
+`De/IncreaseReplicationFactorInput{ClusterName, New/ReplicationFactor}`,
+`DeleteClusterInput.ClusterName`, `DeleteParameterGroupInput.ParameterGroupName`,
+`DeleteSubnetGroupInput.SubnetGroupName`, `DescribeParametersInput.ParameterGroupName`,
+`ListTagsInput.ResourceName`, `RebootNodeInput{ClusterName, NodeId}`,
+`Tag/UntagResourceInput{ResourceName, Tags/TagKeys}`, `UpdateClusterInput.ClusterName`,
+`UpdateParameterGroupInput{ParameterGroupName, ParameterNameValues}`,
+`UpdateSubnetGroupInput.SubnetGroupName`, and `types.SSESpecification.Enabled`. Every one of
+these is validated in `services/dax/{clusters,parameter_groups,subnet_groups,tags}.go` (grepped
+`is required` error sites and confirmed each maps 1:1 to an SDK `@required` field; none missing,
+none extra). No required member on any *Output* shape exists at all in this SDK version -- so
+there is no "populated" half of this check to fail.
+
+**`ParameterGroup` vs `ParameterGroupStatus` vs `Cluster.ParameterGroup`**: all three distinct and
+each matches its own deserializer. `types.ParameterGroup{Description, ParameterGroupName}`
+(`types/types.go:224`) is the `CreateParameterGroup`/`UpdateParameterGroup` output shape, wire key
+`"ParameterGroup"`, deserialized by `awsAwsjson11_deserializeDocumentParameterGroup`
+(`deserializers.go:5017`) -- gopherstack's `parameterGroupResponse{ParameterGroupName,
+Description}` (`handler_parameter_groups.go`) matches exactly, no extra/missing fields.
+`types.ParameterGroupStatus{NodeIdsToReboot, ParameterApplyStatus, ParameterGroupName}`
+(`types/types.go:240`) is the nested status object living at `Cluster.ParameterGroup`
+(`types/types.go:69`), deserialized by `awsAwsjson11_deserializeDocumentParameterGroupStatus`
+(`deserializers.go:5220`) under the `"ParameterGroup"` key inside the `Cluster` document
+(`deserializers.go:3628`, case `"ParameterGroup"`) -- gopherstack's `paramGroupStatus{
+ParameterGroupName, ParameterApplyStatus, NodeIDsToReboot}` (`handler_clusters.go`), nested inside
+`clusterResponse.ParameterGroup *paramGroupStatus`, matches exactly. No cross-contamination
+between the two Go types on either side.
+
+**`Parameter` shared by `DescribeParameters`/`DescribeDefaultParameters`**: both real ops decode
+their `"Parameters"` array with the identical `awsAwsjson11_deserializeDocumentParameterList` ->
+`awsAwsjson11_deserializeDocumentParameter` (`deserializers.go:4900`), and both gopherstack
+handlers (`handleDescribeParameters`/`handleDescribeDefaultParameters`,
+`handler_parameter_groups.go`) route through the same `toParameterResponse`/`parameterResponse`
+-- single shared shape both sides, no divergence.
+
+**Bug found and fixed:**
+
+1. **Fabricated `SourceType` enum value `"NODE"` on node-level `Event`s.** The real
+   `types.SourceType` enum (`types/enums.go`) has exactly three values --
+   `CLUSTER`/`PARAMETER_GROUP`/`SUBNET_GROUP` -- there is no `NODE` value, confirmed by grepping
+   every `case` in `awsAwsjson11_deserializeDocumentEvent` (`deserializers.go:4026`) and
+   `(types.SourceType).Values()`. `services/dax/models.go` defined an extra
+   `EventSourceTypeNode = "NODE"` constant, used by `RebootNode`'s two `emitEventLocked` calls
+   (`clusters.go:791,809`, both `SourceName` = the cluster name already, not the node ID) and one
+   async-recovery call in `persistence.go:263`. A real client's `DescribeEvents` would decode this
+   as `types.SourceType("NODE")`, silently diverging from every value the real service can ever
+   emit -- caught by this sweep's "check every emitted enum against `types/enums.go`" rule. This
+   claim was checked and wrongly cleared in the 2026-08-10 pass's "Allowlist vs. SDK enum" section
+   (it verified the *values gopherstack advertises as constants* against the enum but missed that
+   an extra, unused-by-that-check constant existed and was actually being emitted on the wire).
+   Fixed by deleting `EventSourceTypeNode` and switching all three call sites to
+   `EventSourceTypeCluster` (`models.go`, `clusters.go`, `persistence.go`) -- consistent with how
+   every other cluster-scoped lifecycle event in this backend is already reported, and with the
+   real API having no node-granularity `SourceType` to report through.
+   `TestDescribeEvents_NodeRebootSourceType_SDKRoundTrip`
+   (`services/dax/wire_sdk_roundtrip_test.go`) drives `CreateCluster` -> `RebootNode` ->
+   `DescribeEvents` through the real `aws-sdk-go-v2/service/dax` client over
+   `pkgs/service`'s router and asserts `daxtypes.SourceTypeCluster` on the reboot-initiated event.
+   Hand-revert (`git stash` of the three fixed files) reproduced the exact predicted symptom
+   (`expected: "CLUSTER", actual: "NODE"`); restoring the fix made the test pass again with an
+   unchanged diff stat, confirming the revert round-tripped byte-identically.
+
+**Families checked and confirmed clean this pass** (wrapper key, nesting, member set, and enum
+values all verified against the live deserializer/serializer function bodies, not just
+`types.go` struct shape): `Cluster` (including `ClusterDiscoveryEndpoint`/`Endpoint`,
+`Nodes`/`Node`, `NotificationConfiguration`, `ParameterGroup`/`ParameterGroupStatus`,
+`SecurityGroups`/`SecurityGroupMembership`, `SSEDescription`), `SubnetGroup`/`Subnet` (including
+the per-subnet vs. group-level `SupportedNetworkTypes` distinction), `Tag`/`TagList`, `Event`, all
+request shapes for all 20 ops (every `object.Key(...)` call in each op's
+`awsAwsjson11_serializeOpDocument<Op>Input` diffed 1:1 against gopherstack's request struct
+fields), and all output wrapper keys (`Cluster`, `Clusters`, `ParameterGroup`, `ParameterGroups`,
+`SubnetGroup`, `SubnetGroups`, `Parameters`, `Tags`, `Events`, `DeletionMessage`, `NextToken`).
+
+**Gap disclosed, not fixed:** `types.Parameter.NodeTypeSpecificValues`
+([]types.NodeTypeSpecificValue, `types/types.go:203`, decoded by
+`awsAwsjson11_deserializeDocumentNodeTypeSpecificValueList` inside
+`awsAwsjson11_deserializeDocumentParameter`) is entirely unmodeled -- no field on gopherstack's
+`Parameter` struct or `parameterResponse` wire struct, never populated. In practice this is inert:
+gopherstack's only two parameters (`query-ttl-millis`, `record-ttl-millis`) are both
+`ParameterType: DEFAULT`, and real DAX has no node-type-specific values for either, so the real
+service also returns this field empty/absent for both -- adding an always-nil field would be
+byte-identical on the wire (an omitted key and a present-but-empty list deserialize to the same
+observable client-side state). Left unmodeled rather than adding dead code; would only become a
+real gap if a future parameter needed node-type-specific values, which nothing in this backend's
+design currently produces.
+
+**Provenance check**: `last_audit_commit` `70eea523b6f0` (2026-08-10 pass) -> `git show -s
+--format=%ad 70eea523b6f0` = `2026-08-10 19:49:57 -0500`, matching `last_audit_date: 2026-08-10`
+exactly (same-day commit-vs-date pair, no gap) -- consistent, no false-stamp finding. That
+commit's own diff is unrelated to `services/dax/` (a `servicediscovery` fix), which is expected
+and not itself a red flag per this campaign's provenance rule (the schema defines the field as
+HEAD-at-write-time, not "last commit that touched this service"). Stamp refreshed above to
+current HEAD (`b8ef75b1e`) and today's date (2026-08-20) so the pair stays self-consistent.

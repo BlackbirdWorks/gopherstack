@@ -46,6 +46,8 @@ type inputConfig struct {
 	KinesisStreamsInput          *kinesisStreamsInputConfig  `json:"KinesisStreamsInput,omitempty"`
 	KinesisFirehoseInput         *kinesisFirehoseInputConfig `json:"KinesisFirehoseInput,omitempty"`
 	InputProcessingConfiguration *inputProcessingConfigInput `json:"InputProcessingConfiguration,omitempty"`
+	InputSchema                  *SourceSchemaDesc           `json:"InputSchema,omitempty"`
+	InputParallelism             *InputParallelismDesc       `json:"InputParallelism,omitempty"`
 	NamePrefix                   string                      `json:"NamePrefix,omitempty"`
 }
 
@@ -118,6 +120,7 @@ type s3ReferenceDataSourceConfig struct {
 
 type refDataSourceConfig struct {
 	S3ReferenceDataSource *s3ReferenceDataSourceConfig `json:"S3ReferenceDataSource,omitempty"`
+	ReferenceSchema       *SourceSchemaDesc            `json:"ReferenceSchema,omitempty"`
 	TableName             string                       `json:"TableName,omitempty"`
 }
 
@@ -575,6 +578,10 @@ func buildInputDescription(in *inputConfig) InputDescription {
 		}
 	}
 
+	desc.InputSchema = in.InputSchema
+	desc.InputParallelism = in.InputParallelism
+	desc.InAppStreamNames = inAppStreamNames(in.NamePrefix, in.InputParallelism)
+
 	return desc
 }
 
@@ -618,7 +625,8 @@ func buildOutputDescription(out *outputConfig) OutputDescription {
 // identical shapes.
 func buildRefDataSourceDescription(in *refDataSourceConfig) ReferenceDataSourceDescription {
 	ref := ReferenceDataSourceDescription{
-		TableName: in.TableName,
+		TableName:       in.TableName,
+		ReferenceSchema: in.ReferenceSchema,
 	}
 
 	if in.S3ReferenceDataSource != nil {

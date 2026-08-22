@@ -54,11 +54,14 @@ type policyTemplateInput struct {
 	PolicyTemplateID string `json:"policyTemplateId"`
 }
 
+// policyTemplateView mirrors the real SDK's PolicyTemplateItem
+// (ListPolicyTemplates): unlike GetPolicyTemplateOutput, it has no statement
+// field -- the real type carries only createdDate/lastUpdatedDate/
+// policyStoreId/policyTemplateId/description/name.
 type policyTemplateView struct {
 	PolicyStoreID    string `json:"policyStoreId"`
 	PolicyTemplateID string `json:"policyTemplateId"`
 	Description      string `json:"description"`
-	Statement        string `json:"statement"`
 	CreatedDate      string `json:"createdDate"`
 	LastUpdatedDate  string `json:"lastUpdatedDate"`
 }
@@ -141,7 +144,6 @@ func (h *Handler) handleListPolicyTemplates(
 			PolicyStoreID:    pt.PolicyStoreID,
 			PolicyTemplateID: pt.PolicyTemplateID,
 			Description:      pt.Description,
-			Statement:        pt.Statement,
 			CreatedDate:      pt.CreatedDate.UTC().Format(timeFormat),
 			LastUpdatedDate:  pt.LastUpdated.UTC().Format(timeFormat),
 		})

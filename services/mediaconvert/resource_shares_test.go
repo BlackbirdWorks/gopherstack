@@ -88,8 +88,14 @@ func TestCreateResourceShare_SetsShareStatus(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "SHARED", got.ShareStatus)
 	require.NotNil(t, got.LastShareDetails)
-	assert.NotEmpty(t, got.LastShareDetails.ShareToken)
-	assert.Greater(t, got.LastShareDetails.SharedAt, float64(0))
+
+	var details struct {
+		ShareToken string  `json:"shareToken"`
+		SharedAt   float64 `json:"sharedAt"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(*got.LastShareDetails), &details))
+	assert.NotEmpty(t, details.ShareToken)
+	assert.Greater(t, details.SharedAt, float64(0))
 }
 
 // TestCreateResourceShare_ViaHTTP sets share on job.

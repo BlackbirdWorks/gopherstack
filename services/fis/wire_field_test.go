@@ -1,6 +1,8 @@
 package fis_test
 
 import (
+	"encoding/json"
+	"net/http"
 	"net/http/httptest"
 	"testing"
 
@@ -19,7 +21,7 @@ import (
 
 const fisTestRegion = "us-east-1"
 
-func newTestFISClient(t *testing.T, h *fis.Handler) *fissdk.Client {
+func newTestFISClient(t *testing.T, h *fis.Handler) (*fissdk.Client, string) {
 	t.Helper()
 
 	e := echo.New()
@@ -39,21 +41,23 @@ func newTestFISClient(t *testing.T, h *fis.Handler) *fissdk.Client {
 	)
 	require.NoError(t, err)
 
-	return fissdk.NewFromConfig(cfg, func(o *fissdk.Options) {
+	client := fissdk.NewFromConfig(cfg, func(o *fissdk.Options) {
 		o.BaseEndpoint = aws.String(srv.URL)
 	})
+
+	return client, srv.URL
 }
 
 func TestFISListOps_NarrowSummaryParity(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		test func(t *testing.T, client *fissdk.Client)
+		test func(t *testing.T, client *fissdk.Client, baseURL string)
 		name string
 	}{
 		{
 			name: "list_experiment_templates_narrow_shape",
-			test: func(t *testing.T, client *fissdk.Client) {
+			test: func(t *testing.T, client *fissdk.Client, _ string) {
 				t.Helper()
 				ctx := t.Context()
 
@@ -97,7 +101,7 @@ func TestFISListOps_NarrowSummaryParity(t *testing.T) {
 		},
 		{
 			name: "list_experiments_narrow_shape",
-			test: func(t *testing.T, client *fissdk.Client) {
+			test: func(t *testing.T, client *fissdk.Client, _ string) {
 				t.Helper()
 				ctx := t.Context()
 
@@ -146,6 +150,60 @@ func TestFISListOps_NarrowSummaryParity(t *testing.T) {
 				assert.Equal(t, "chaos", found.Tags["team"])
 			},
 		},
+		{
+			// types.ActionSummary (ListActions) has no "parameters" field -- only
+			// the full types.Action (GetAction) does. A real SDK client's
+			// ActionSummary struct has no field to catch a stray "parameters" key,
+			// so the fabricated-field regression can only be proven by inspecting
+			// the raw wire body alongside the typed client check.
+			name: "list_actions_narrow_shape",
+			test: func(t *testing.T, client *fissdk.Client, baseURL string) {
+				t.Helper()
+				ctx := t.Context()
+
+				listOut, err := client.ListActions(ctx, &fissdk.ListActionsInput{})
+				require.NoError(t, err)
+				require.NotEmpty(t, listOut.Actions)
+
+				var found *fistypes.ActionSummary
+				for i := range listOut.Actions {
+					if aws.ToString(listOut.Actions[i].Id) == "aws:ec2:reboot-instances" {
+						found = &listOut.Actions[i]
+
+						break
+					}
+				}
+				require.NotNil(t, found)
+				assert.NotEmpty(t, aws.ToString(found.Description))
+				assert.Contains(t, found.Targets, "Instances")
+
+				assertNoRawKey(t, baseURL+"/actions", "actions", "parameters")
+			},
+		},
+		{
+			name: "list_target_resource_types_narrow_shape",
+			test: func(t *testing.T, client *fissdk.Client, baseURL string) {
+				t.Helper()
+				ctx := t.Context()
+
+				listOut, err := client.ListTargetResourceTypes(ctx, &fissdk.ListTargetResourceTypesInput{})
+				require.NoError(t, err)
+				require.NotEmpty(t, listOut.TargetResourceTypes)
+
+				var found *fistypes.TargetResourceTypeSummary
+				for i := range listOut.TargetResourceTypes {
+					if aws.ToString(listOut.TargetResourceTypes[i].ResourceType) == "aws:ec2:instance" {
+						found = &listOut.TargetResourceTypes[i]
+
+						break
+					}
+				}
+				require.NotNil(t, found)
+				assert.NotEmpty(t, aws.ToString(found.Description))
+
+				assertNoRawKey(t, baseURL+"/targetResourceTypes", "targetResourceTypes", "parameters")
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -153,8 +211,32 @@ func TestFISListOps_NarrowSummaryParity(t *testing.T) {
 			t.Parallel()
 
 			backend := fis.NewInMemoryBackend(fisTestRegion, "000000000000")
-			client := newTestFISClient(t, fis.NewHandler(backend))
-			tt.test(t, client)
+			client, baseURL := newTestFISClient(t, fis.NewHandler(backend))
+			tt.test(t, client, baseURL)
 		})
+	}
+}
+
+// assertNoRawKey fetches url, decodes the JSON array under listKey, and fails if
+// any element contains itemKey. Used where the real SDK response type has no
+// field to catch a fabricated key, so a typed client round-trip can't see it.
+func assertNoRawKey(t *testing.T, url, listKey, itemKey string) {
+	t.Helper()
+
+	resp, err := http.Get(url)
+	require.NoError(t, err)
+
+	t.Cleanup(func() { _ = resp.Body.Close() })
+
+	var body map[string]json.RawMessage
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
+
+	var items []map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(body[listKey], &items))
+	require.NotEmpty(t, items)
+
+	for _, item := range items {
+		_, present := item[itemKey]
+		assert.False(t, present, "unexpected %q key in %s item", itemKey, listKey)
 	}
 }

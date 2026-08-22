@@ -6,9 +6,33 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: comprehend
 sdk_module: aws-sdk-go-v2/service/comprehend@v1.43.4
-last_audit_commit: 2d47b51d4
-last_audit_date: 2026-08-13
-overall: A            # 2026-08-13: closed gopherstack-wl0s (required-presence validation):
+last_audit_commit: 6fbeab7a7
+last_audit_date: 2026-08-20
+overall: A            # 2026-08-20: wrapper-key/nested-shape sweep. Two real bugs fixed:
+                      # (1) detectTargetedSentiment built each types.TargetedSentimentEntity
+                      # with Text/Score/BeginOffset/EndOffset/Type hung directly off the
+                      # entity root (via matchResult()) -- those five fields don't exist on
+                      # TargetedSentimentEntity at all (it has only DescriptiveMentionIndex+
+                      # Mentions per types/types.go:2799); they belong one level down, on
+                      # each types.TargetedSentimentMention inside Mentions. Also missing:
+                      # DescriptiveMentionIndex was never populated. Harmless to a real client
+                      # (awsAwsjson11_deserializeDocumentTargetedSentimentEntity's default
+                      # case silently drops unrecognized keys, deserializers.go:20064) but a
+                      # genuine wire-shape divergence affecting both DetectTargetedSentiment
+                      # and BatchDetectTargetedSentiment (same detector, reused via batch()).
+                      # (2) classifierMetadata()/recognizerMetadata() emitted fabricated
+                      # MicroPrecision/MicroRecall/Precision/Recall only, types/types.go
+                      # ~line 2100s) or on the top-level types.EntityRecognizerEvaluationMetrics
+                      # service already modeled correctly. An existing test
+                      # (TestDocumentClassifierMetadataPresentWhenTrained) asserted the
+                      # fabricated fields were present -- corrected, not just the source.
+                      # See services/comprehend/wire_sdk_roundtrip_test.go for round-trip
+                      # proof of both fixes and PARITY.md Notes below for detail. Provenance
+                      # note: the prior stamp (last_audit_commit 2d47b51d4, dated 2026-07-29)
+                      # predated last_audit_date (2026-08-13) by ~2 weeks -- the actual
+                      # 2026-08-13 content landed in 69bbb940a (2026-08-15); refreshed to
+                      # current HEAD so the pair is self-consistent again.
+                      # 2026-08-13: closed gopherstack-wl0s (required-presence validation):
                       # CreateFlywheel's DataAccessRoleArn/DataLakeS3Uri and CreateEndpoint's
                       # DesiredInferenceUnits were stored and echoed via the generic-CRUD
                       # CreateResource passthrough but never required present. DataAccessRoleArn
@@ -28,7 +52,7 @@ ops:
   DetectSyntax: {wire: ok, errors: ok, state: ok, persist: n/a, note: "LanguageCode validated against the narrower 6-value SyntaxLanguageCode enum (types.LanguageCode's 12 values do NOT all apply here); Text enforces 5KB limit"}
   DetectDominantLanguage: {wire: ok, errors: ok, state: ok, persist: n/a, note: "correctly has no LanguageCode field; Text enforces 100KB limit"}
   DetectToxicContent: {wire: ok, errors: ok, state: ok, persist: n/a, note: "ResultList/Labels/Toxicity field names verified against types.ToxicLabels; LanguageCode required+English-only per real doc comment despite the general enum type; TextSegments now enforces 1KB-per-segment/10KB-total"}
-  DetectTargetedSentiment: {wire: ok, errors: ok, state: ok, persist: n/a, note: "LanguageCode required+English-only per real doc comment; Text enforces 5KB limit"}
+  DetectTargetedSentiment: {wire: ok, errors: ok, state: ok, persist: n/a, note: "LanguageCode required+English-only per real doc comment; Text enforces 5KB limit. FIXED 2026-08-20: TargetedSentimentEntity previously carried Text/Score/BeginOffset/EndOffset/Type at the wrong nesting level (entity root instead of nested inside Mentions[]) and never populated DescriptiveMentionIndex -- see header note. Also fixes BatchDetectTargetedSentiment, which reuses the same detector."}
   ClassifyDocument: {wire: ok, errors: ok, state: ok, persist: n/a, note: "correctly has no LanguageCode field; Text enforces 100KB limit"}
   ContainsPiiEntities: {wire: ok, errors: ok, state: ok, persist: n/a, note: "LanguageCode required+validated; Text enforces 100KB limit"}
   BatchDetect-family (Sentiment/Entities/KeyPhrases/Syntax/DominantLanguage/TargetedSentiment -- 6 families excluding PiiEntities): {wire: ok, errors: ok, state: ok, persist: n/a, note: "FIXED: TextList>25 items now rejected whole-request with BatchSizeLimitExceededException (was silently accepted); per-item >5KB now becomes a BatchItemError entry (ErrorCode/ErrorMessage/Index) in ErrorList instead of being ignored, matching every Batch*Output doc comment's 'if there are no errors in the batch, the ErrorList is empty' partial-failure semantics; shared LanguageCode validated once per request against the correct per-op allowed set (BatchDetectSyntax: 6-lang, BatchDetectTargetedSentiment: English-only, others: 12-lang). 2026-07-31 CORRECTION: this row's \"BatchDetect*\" wildcard previously implied all Detect* ops have a Batch form -- PiiEntities does not (no BatchDetectPiiEntities on the real SDK client at all); a prior pass had fabricated it, now removed (see header note)."}
@@ -36,7 +60,7 @@ ops:
   DescribeDetectionJob-family: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED wire-shape bug: per-family *Properties field sets now field-diffed individually (see jobSpec/jobMap) -- e.g. DocumentClassificationJobProperties carries FlywheelArn+VolumeKmsKeyId+VpcConfig but NO LanguageCode, PiiEntitiesDetectionJobProperties carries Mode+RedactionConfig but NO VolumeKmsKeyId/VpcConfig, TopicsDetectionJobProperties carries NumberOfTopics but NO LanguageCode; previously every family emitted the SAME field set regardless of its real shape. FIXED error-code bug: job-not-found now returns JobNotFoundException, not ResourceNotFoundException (confirmed against every awsAwsjson11_deserializeOpErrorDescribe*Job case in the SDK's deserializers.go). FIXED field-name bug: failure description field is 'Message' on every real *Properties shape, not 'FailureReason' (no such field exists on any of them -- a failed job's description was previously always lost on the wire). NEW: Filter (JobName/JobStatus/SubmitTimeBefore/SubmitTimeAfter) now supported on List*Jobs, previously ignored entirely."}
   ListDetectionJobs-family: {wire: ok, errors: ok, state: ok, persist: ok, note: "see Describe*DetectionJob for the per-family field-set fix and new Filter support"}
   StopDetectionJob-family (7 of 9 families -- NOT DocumentClassificationJob or TopicsDetectionJob): {wire: ok, errors: ok, state: ok, persist: ok, note: "correctly rejects stop on terminal states with InvalidRequestException; not-found now JobNotFoundException (see Describe*DetectionJob). 2026-07-31 CORRECTION: this row's wildcard previously implied all 9 job families have a Stop op -- 2 do not (StopDocumentClassificationJob/StopTopicsDetectionJob do not exist on the real SDK client); a prior pass's generic job-family builder had fabricated them uniformly, now excluded via jobSpec.noStop (see header note)."}
-  CreateDocumentClassifier/CreateEntityRecognizer: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED: deleted the fabricated CreateDocumentClassifierVersion/CreateEntityRecognizerVersion op family -- no such operations exist in the real SDK (confirmed: no matching api_op_*.go files); a new version is created by calling these SAME ops again with the same name and a new VersionName, which they already supported generically. NEW: TooManyTagsException/KmsKeyValidationException (ModelKmsKeyId) enforced; DocumentClassifierProperties/EntityRecognizerProperties now populate TrainingStartTime/TrainingEndTime/ClassifierMetadata/RecognizerMetadata (deterministic synthetic values, only once status=TRAINED, matching real semantics) -- closes last pass's documented gap"}
+  CreateDocumentClassifier/CreateEntityRecognizer: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED: deleted the fabricated CreateDocumentClassifierVersion/CreateEntityRecognizerVersion op family -- no such operations exist in the real SDK (confirmed: no matching api_op_*.go files); a new version is created by calling these SAME ops again with the same name and a new VersionName, which they already supported generically. NEW: TooManyTagsException/KmsKeyValidationException (ModelKmsKeyId) enforced; DocumentClassifierProperties/EntityRecognizerProperties now populate TrainingStartTime/TrainingEndTime/ClassifierMetadata/RecognizerMetadata (deterministic synthetic values, only once status=TRAINED, matching real semantics) -- closes last pass's documented gap. 2026-08-20: a sweep proposed removing F1Score/MicroF1Score from ClassifierMetadata and F1Score from RecognizerMetadata's top-level EvaluationMetrics as fabricated. That was WRONG and was reverted before commit -- types.ClassifierEvaluationMetrics really does carry Accuracy/F1Score/HammingLoss/MicroF1Score/MicroPrecision/MicroRecall/Precision/Recall, and types.EntityRecognizerEvaluationMetrics really does carry F1Score/Precision/Recall, identical to the per-entity-type types.EntityTypesEvaluationMetrics. The existing shared helper and the existing test were correct as they stood."}
   DescribeDocumentClassifier/DescribeEntityRecognizer: {wire: ok, errors: ok, state: ok, persist: ok, note: "SubmitTime/EndTime field names correct; see CreateDocumentClassifier/CreateEntityRecognizer for the removed fabricated Version ops and new metadata fields"}
   ListDocumentClassifiers/ListEntityRecognizers: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW: Filter (Name/Status/SubmitTimeBefore/SubmitTimeAfter) now supported, previously ignored entirely"}
   DeleteDocumentClassifier/DeleteEntityRecognizer: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -286,3 +310,89 @@ error-message text, protocol = query-XML / REST-XML / REST-JSON / json-1.0), and
   `DesiredInferenceUnits`; `DataAccessRoleArn` is required too
   (`validateOpCreateFlywheelInput`) and was missed by that audit — fixed
   alongside the other two.
+
+- **2026-08-20 wrapper-key/nested-shape sweep.** Enumerated all 85 ops from
+  `sdkshape.sh comprehend` and cross-checked against
+  `ls api_op_*.go` (85, matches). Confirmed protocol is JSON-RPC 1.1
+  (`awsAwsjson11_*` prefix in `serializers.go`/`deserializers.go`) — the
+  restjson OpDocument false-positive trap does not apply here, since
+  `deserializeOpDocument<Op>Output` is always both defined and called for
+  awsjson1.x. Two real bugs found and fixed:
+
+  - **`TargetedSentimentEntity` wrong nesting level + missing optional
+    member.** `detectTargetedSentiment` (handler_detection.go) built each
+    entity by starting from `matchResult(text, cleaned, "PERSON")`, which
+    sets `Text`/`Score`/`BeginOffset`/`EndOffset`/`Type` directly on the
+    entity object, then bolted a `"Mentions"` key onto that same object.
+    Real `types.TargetedSentimentEntity`
+    (`aws-sdk-go-v2/service/comprehend@v1.43.4/types/types.go:2799`) has
+    only two fields: `DescriptiveMentionIndex` and `Mentions`. The five
+    fields `matchResult` added belong one level down, on each
+    `types.TargetedSentimentMention` inside `Mentions`
+    (`types/types.go:2821`, which correctly has
+    `Text`/`Type`/`Score`/`BeginOffset`/`EndOffset`/`MentionSentiment`).
+    Confirmed via `awsAwsjson11_deserializeDocumentTargetedSentimentEntity`
+    (`deserializers.go:20032`): its `switch` only recognizes
+    `"DescriptiveMentionIndex"`/`"Mentions"`, with every other key silently
+    dropped by the `default` case — so this was harmless to a real client
+    (extra keys ignored) but a genuine wire-shape divergence, and the
+    optional `DescriptiveMentionIndex` member was never populated at all.
+    Fixed in `handler_detection.go`: the per-word loop now builds one
+    `mention` object (reusing `matchResult` for its correct fields) and
+    wraps it as `{"DescriptiveMentionIndex": [0], "Mentions": [mention]}`.
+    This also fixes `BatchDetectTargetedSentiment`, which reuses the same
+    detector through the `batch()` wrapper — confirmed
+    `types.BatchDetectTargetedSentimentItemResult.Entities` is
+    `[]TargetedSentimentEntity` (`types/types.go:139`), so the fix applies
+    identically there. Proven via
+    `TestDetectTargetedSentiment_EntityShapeSDKRoundTrip`
+    (`wire_sdk_roundtrip_test.go`), a real `aws-sdk-go-v2` client round
+    trip asserting `Entities[0].DescriptiveMentionIndex`/`.Mentions[0]`
+    fields — hand-reverted to confirm the exact predicted failure
+    (`DescriptiveMentionIndex` empty), then restored.
+
+  - **RETRACTED: the proposed `F1Score`/`MicroF1Score` removal was wrong.**
+    This sweep reported `classifierMetadata()` and `recognizerMetadata()`
+    (handler_resources.go) as emitting fabricated `F1Score`/`MicroF1Score`
+    keys, and removed them. **The orchestrator verified against the pinned
+    SDK before committing and reverted the change.** `types.ClassifierEvaluationMetrics`
+    carries `Accuracy`, `F1Score`, `HammingLoss`, `MicroF1Score`,
+    `MicroPrecision`, `MicroRecall`, `Precision` and `Recall` — eight members,
+    including both of the ones called fabricated. `types.EntityRecognizerEvaluationMetrics`
+    carries `F1Score`, `Precision`, `Recall` — identical to the per-entity-type
+    `types.EntityTypesEvaluationMetrics`, so the single shared helper was
+    correct and the proposed split was unnecessary. The pre-existing test
+    asserting `F1Score`/`MicroF1Score` present was RIGHT; the sweep had
+    "corrected" it into asserting their absence, which would have locked in
+    the regression. Nothing shipped. Recorded here because a fabricated-member
+    finding is only as good as the type list it was checked against, and this
+    one was checked against an incomplete one.
+
+  Everything else swept this pass came back **clean**: all 9 async job
+  `*Properties` field sets (`asyncJobSpecs()`/`jobMap()`) were re-verified
+  field-by-field against every real `*JobProperties` struct in
+  `types/types.go` and match exactly, including the non-uniform
+  VolumeKmsKeyId/VpcConfig/LanguageCode/FlywheelArn splits documented
+  above. All 6 `BatchDetect*` families' `ResultList`/`ErrorList` wrapper
+  (`types.BatchItemError`: `ErrorCode`/`ErrorMessage`/`Index`) and each
+  family's own `Batch*ItemResult` type were re-verified against
+  `api_op_BatchDetect*.go` and match. `ClassifyDocument`
+  (`Classes`/`Labels` -> `types.DocumentClass`/`types.DocumentLabel`:
+  `Name`/`Page`/`Score`) and `ContainsPiiEntities`
+  (`Labels` -> `types.EntityLabel`: `Name`/`Score`) match. Nested shapes
+  `Entity`/`KeyPhrase`/`SyntaxToken`/`PartOfSpeechTag`/`PiiEntity`/
+  `ToxicLabels`/`SentimentScore`/`DominantLanguage` all match their real
+  types field-for-field. **Not independently re-verified this pass**
+  (out of scope / already-documented gap, not silently skipped):
+  `InputDataConfig`/`OutputDataConfig`/`DocumentClassifierInputDataConfig`/
+  `EntityRecognizerInputDataConfig` and `VpcConfig`/`RedactionConfig`/
+  `DataSecurityConfig` sub-shapes remain opaque generic passthrough (see
+  the pre-existing `gaps:` entry above) — by construction these can't have
+  a pattern-(a)/(b)/(c) divergence since whatever a client sends is echoed
+  back byte-for-byte unmodified, only smithy-required-field/enum
+  enforcement on those nested shapes is the known, already-disclosed gap.
+  `Block`/`Geometry`/`BoundingBox`/`Point`/`RelationshipsListItem` (OCR
+  bounding-box fields on `Entity`, populated only when a real request
+  includes image `Bytes`) were not exercised: this emulator only
+  implements plain-text detection input, so those fields are correctly
+  always absent, not a gap.

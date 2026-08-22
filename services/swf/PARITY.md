@@ -1,9 +1,9 @@
 ---
 service: swf
-sdk_module: aws-sdk-go-v2/service/swf@v1.37.4   # verified this pass; go.mod pin, was stale at v1.33.14
+sdk_module: aws-sdk-go-v2/service/swf@v1.37.4   # confirmed unchanged this pass
 last_audit_commit: pending (agent instructed not to commit; see git log for this pass's commit)
-last_audit_date: 2026-08-10
-overall: A            # genuine fixes found this pass (see Notes)
+last_audit_date: 2026-08-20
+overall: A            # wrapper-key/nested-shape sweep this pass found and fixed 2 real bugs; see Notes
 ops:
   RegisterDomain: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeDomain: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -28,7 +28,7 @@ ops:
   GetWorkflowExecutionHistory: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "gopherstack-jsi8, 2026-08-07: same Execution.RunId-discarded bug as DescribeWorkflowExecution above, same fix -- see Notes. Also sweeps expired executions first, same as DescribeWorkflowExecution (gopherstack-7gse)"}
   ListOpenWorkflowExecutions: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "executionInfo.parent was missing, same fix as DescribeWorkflowExecution. Also sweeps expired executions first (gopherstack-7gse) so a timed-out execution moves from the open list to the closed list on the next call instead of staying open forever -- see Notes: timeout enforcement"}
   ListClosedWorkflowExecutions: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "executionInfo.parent was missing, same fix as DescribeWorkflowExecution. Also sweeps expired executions first (gopherstack-7gse), same effect as ListOpenWorkflowExecutions above"}
-  RequestCancelWorkflowExecution: {wire: ok, errors: ok, state: ok, persist: ok, note: "now also sweeps expired executions first (gopherstack-7gse), defense-in-depth consistency with the other execution-touching ops -- see Notes: timeout enforcement"}
+  RequestCancelWorkflowExecution: {wire: fixed, errors: ok, state: ok, persist: ok, note: "2026-08-20 wire-parity sweep: WorkflowExecutionCancelRequestedEventAttributes.Cause was stamped OPERATOR_INITIATED for a direct call, a value the real WorkflowExecutionCancelRequestedCause enum does not define at all (its only value is CHILD_POLICY_APPLIED) -- see Notes. Also sweeps expired executions first (gopherstack-7gse), defense-in-depth consistency with the other execution-touching ops -- see Notes: timeout enforcement"}
   SignalWorkflowExecution: {wire: ok, errors: ok, state: ok, persist: ok, note: "now also sweeps expired executions first (gopherstack-7gse), same as RequestCancelWorkflowExecution"}
   CountOpenWorkflowExecutions: {wire: ok, errors: ok, state: fixed, persist: n/a, note: "now sweeps expired executions first (gopherstack-7gse) so a timed-out execution is no longer counted as open -- see Notes: timeout enforcement"}
   CountClosedWorkflowExecutions: {wire: ok, errors: ok, state: fixed, persist: n/a, note: "now sweeps expired executions first (gopherstack-7gse), same as CountOpenWorkflowExecutions above"}
@@ -45,7 +45,7 @@ ops:
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok}
 families:
-  timeout_enforcement: {status: partial, note: "gopherstack-7gse, 2026-08-10: EXECUTION_START_TO_CLOSE is now enforced -- see Notes for the full mechanism and citations. TaskStartToCloseTimeout (decision tasks) and every activity-task timeout kind (ScheduleToStart/ScheduleToClose/StartToClose/Heartbeat) remain accepted-and-ignored, same as before this pass -- see gaps. Do not read 'partial' as 'mostly enforced': exactly one timeout kind, out of five SWF defines, is enforced."}
+  timeout_enforcement: {status: partial, note: "gopherstack-7gse, 2026-08-10: EXECUTION_START_TO_CLOSE is now enforced -- see Notes for the full mechanism and citations. TaskStartToCloseTimeout (decision tasks) and every activity-task timeout kind (ScheduleToStart/ScheduleToClose/StartToClose/Heartbeat) remain accepted-and-ignored, same as before this pass -- see gaps. Do not read 'partial' as 'mostly enforced': exactly one timeout kind, out of five SWF defines, is enforced. UPDATE (2026-08-20 wire-parity sweep): ChildWorkflowExecutionTimedOutEventAttributes.TimeoutType (required) was entirely missing from the parent-notification event a child's own timeout produces -- propagateChildClosureLocked's shared base attrs (workflowExecution/workflowType/initiatedEventId/startedEventId) never included it, and timeout_sweep.go's caller was passing nil extra. Fixed by passing timeoutType through as the Completed/Failed/Canceled cases already do with their own payload -- see Notes."}
   decision_processing: {status: ok, note: "all 12 SWF decision types now perform real state mutation and carry decisionTaskCompletedEventId + full wire attrs -- see Notes. Dispatch table decomposed into decisionHandlers() (decision_tasks.go) + decision_orchestration.go, removing the historical cyclop/funlen nolint on processDecisionLocked."}
   multi_run_history: {status: ok, note: "FIXED (gopherstack-jsi8, 2026-08-07): executions/history were keyed by domain+workflowId alone, so a second/later run of the same workflowId silently overwrote the first run's row and history -- confirmed against the real aws-sdk-go-v2/service/swf@v1.37.4 types.WorkflowExecution, where RunId is a required member alongside WorkflowId (not an optional disambiguator), and DescribeWorkflowExecutionInput/GetWorkflowExecutionHistoryInput's Execution field requires both. Re-keyed executions (store.Table) and history (map) to domain+workflowId+runId (workflowExecutionKeyFn/executionKey, store.go/store_setup.go); added an executionsByWorkflow store.Index grouping every run (open or closed) under domain+workflowId so the currently-open run (real AWS guarantees at most one) can still be found without a full-domain scan. New resolveExecutionLocked/openExecutionLocked helpers centralize 'find a run, optionally pinned to a runId' -- a non-empty runId is an exact lookup (works for ANY run, open or long-closed); an empty runId first tries the open run, then falls back to the most-recently-started run for that workflowId (a deliberate leniency beyond real AWS, which would error UnknownResource with no open run -- kept so callers that don't track runId, including this backend's own internal cross-execution decision handlers, keep working exactly as before for the still-common single-run-per-workflowId case). DescribeWorkflowExecution/GetWorkflowExecutionHistory both gained a runID parameter (the wire's Execution.RunId was already being parsed but silently discarded -- see their ops rows above); Terminate/RequestCancel/SignalWorkflowExecution's pre-existing runID parameters now actually disambiguate instead of being checked against a single shared row. Every appendHistoryEventLocked/enqueueDecisionTaskLocked call site across activity_tasks.go/decision_tasks.go/decision_orchestration.go/signals.go/workflow_executions.go now threads the specific run's runID through (~25 call sites) rather than resolving 'the' execution for a workflowId. propagateChildClosureLocked now does a direct domain+parentWorkflowId+parentRunId lookup instead of an ambiguous domain+workflowId one, so a parent that has since continued-as-new (a newer run under the same workflowId) no longer incorrectly receives a child-closure event meant for the run that actually started that child. Also fixed the closely-related 'LRU-eviction ghost queue rows' gopherstack-jsi8 finding: registerExecutionOrderLocked's eviction (at the pre-existing maxWorkflowExecutions=10_000 cap) previously deleted only the execution row and history, leaving any still-pending decisionQueues/activityQueues entry or activeDecisionTasks/activeActivityTasks record for that run behind as a ghost referencing data that no longer existed; new evictExecutionLocked purges all four. New tests: TestMultiRunHistory (multirun_test.go, 6 cases covering explicit-old-run/explicit-new-run/empty-run-id resolution, history isolation between runs, the already-open-run rejection, and the falls-back-to-most-recent behavior) and TestLRUEvictionPurgesPendingDecisionTasks (creates 10_000 executions, confirms the evicted run's pending decision task is gone from its task list and the evicted execution is truly not found -- verified this test fails without the evictExecutionLocked fix). One existing test (TestRespondDecisionTaskCompleted_ContinueAsNew) asserted the old run's WorkflowExecutionContinuedAsNew event appeared in the NEW run's history, which was only true because both runs shared one history blob under the old keying -- corrected to check each run's own history/DescribeWorkflowExecution independently, which is the actual point of this fix. Interface changes: Backend.DescribeWorkflowExecution and Backend.GetWorkflowExecutionHistory each gained a runID parameter; no external callers found via full-repo grep (cloudformation/dashboard/cli.go reference services/swf but not these methods directly)."}
 gaps:
@@ -55,6 +55,9 @@ gaps:
   - "StartTimer/CancelTimer decisions (TimerStarted/TimerCanceled events, WorkflowExecution.OpenTimerIDs) remain purely decision-driven with no autonomous TimerFired -- see leaks below. This predates gopherstack-7gse and is a different mechanism from ExecutionStartToCloseTimeout (a StartTimer decision's StartToFireTimeout is decider-chosen and per-timer, not the execution-wide deadline set at StartWorkflowExecution/RegisterWorkflowType), so this pass's sweep does not touch it. Left as a separate, pre-existing, still-undocumented-until-now gap."
   - "Complete/Fail/Cancel workflow-closing decisions do NOT cascade child policy onto their own open children, and this is correct, not a gap: real AWS's child policy is only ever invoked when a workflow execution is terminated (explicitly, via TerminateWorkflowExecution) or times out -- never on a normal Complete/Fail/Cancel close, where child executions are simply independent and keep running. Parent-closure IS still propagated to already-open children as history events in all four cases (ChildWorkflowExecutionCompleted/Failed/Canceled/Terminated, see Notes), so deciders learn of parent closure either way."
   - "ScheduleLambdaFunction decision type (Lambda activity tasks) is not implemented -- consistent with the pre-existing openLambdaFunctions deferral below; SWF Lambda task support as a whole is out of scope for this service."
+  - "2026-08-20 wire-parity sweep, disclosed but NOT fixed (structural, not a wire-key/nesting/type/value bug -- requires new state, out of this pass's scope): DecisionTaskScheduled and DecisionTaskStarted history events are never recorded at all -- no code path anywhere in decision_tasks.go/store.go appends either. Consequence: DecisionTaskCompletedEventAttributes.ScheduledEventId/StartedEventId (both required, api_op deserializers.go/types.go) are always emitted as 0 rather than a real referenced event ID, and PollForDecisionTaskOutput.StartedEventId (also required) is likewise always 0 -- DecisionTask.StartedEventID (models.go) is declared but never assigned anywhere in the package. A real decider tracing a decision back through ScheduledEventId/StartedEventId gets event ID 0, which never exists (SWF event IDs start at 1). Fixing this needs enqueueDecisionTaskLocked to append a DecisionTaskScheduled event at enqueue time and PollForDecisionTask to append DecisionTaskStarted at poll time, then thread both event IDs through DecisionTask and decisionCtx -- a materially larger change than this pass's wrapper-key/nesting scope. (bd: TODO -- file follow-up)"
+  - "2026-08-20 wire-parity sweep, disclosed but NOT fixed: TimerCanceledEventAttributes.StartedEventId (required, types/types.go -- 'the ID of the TimerStarted event that was recorded when this timer was started') is never emitted by handleCancelTimerDecision (decision_tasks.go) -- only decisionTaskCompletedEventId and timerId are. WorkflowExecution.OpenTimerIDs (models.go) tracks only the open timerId strings, not each one's originating TimerStarted event ID, so this needs a new map[timerID]->startedEventID on WorkflowExecution, not just a key/nesting fix. Left as a gap rather than fixed mid-sweep given the state-shape change required."
+  - "2026-08-20 wire-parity sweep, disclosed but NOT fixed: ActivityTypeInfo.DeprecationDate and WorkflowTypeInfo.DeprecationDate (both optional, types/types.go -- 'If DEPRECATED, the date and time Deprecate* was called') are never emitted -- the internal ActivityType/WorkflowType structs (models.go) have no field to hold this timestamp at all, so DescribeActivityType/DescribeWorkflowType/ListActivityTypes/ListWorkflowTypes never has one to surface even for a type actually in DEPRECATED status. Requires adding and persisting a new field on both internal structs; left as a gap rather than a mid-sweep feature addition. (DomainInfo has no such field in the real SDK, so DeprecateDomain/DescribeDomain/ListDomains are unaffected.)"
 deferred:
   - "DescribeWorkflowExecution's openCounts.openLambdaFunctions (always 0) and the ScheduleLambdaFunction decision type -- SWF Lambda task support is out of scope for a JSON-wire-shape/state-mutation audit."
 leaks: {status: clean, note: "no goroutines/timers spawned by this service, including the new cross-execution decision handlers in decision_orchestration.go and the gopherstack-7gse timeout sweep (timeout_sweep.go). Every SWF timer/timeout mechanism here is either purely decision-driven state with no autonomous firing (OpenTimerIDs on WorkflowExecution, mutated only by StartTimer/CancelTimer decisions -- see gaps) or, for EXECUTION_START_TO_CLOSE only, lazily swept: sweepTimedOutExecutionsLocked takes now as a parameter (never calls time.Now() itself) and is invoked with the real clock at the top of every backend op that reads or mutates execution state (Describe/GetHistory/List/Count/Poll/Respond/Terminate/RequestCancel/Signal/Start -- see the ops table), so a timed-out execution becomes visible on the next such call rather than at a real background tick. This keeps the pre-existing no-goroutine design intact and makes the sweep trivially unit-testable (pass an arbitrary now, no sleeping/synctest needed). All state lives in InMemoryBackend maps/store.Tables guarded by lockmetrics.RWMutex; every lock path uses defer-release. Several previously-RLock-only ops (DescribeWorkflowExecution, GetWorkflowExecutionHistory, ListOpen/ClosedWorkflowExecutions, CountOpen/ClosedWorkflowExecutions, RecordActivityTaskHeartbeat) were upgraded to Lock so the sweep -- which mutates state -- can run under them; this is a coarse-lock design (see pkgs-catalog.md), so the change is a straightforward RLock->Lock swap, not a new locking scheme."}
@@ -68,6 +71,122 @@ SimpleWorkflowService.<Op>`) -- confirmed against the real
 `Content-Type: application/x-amz-json-1.0`). This is easy to mis-key as
 awsjson1.1 (the more common AWS JSON protocol) since SWF's dispatch shape
 looks identical otherwise.
+
+### Wrapper-key / nested-shape wire-parity sweep (2026-08-20)
+
+Full campaign-style sweep of all 39 ops against `aws-sdk-go-v2/service/swf@v1.37.4`
+(confirmed unchanged, still pinned in go.mod). Protocol re-confirmed
+awsjson1.0 from `X-Amz-Target: SimpleWorkflowService.<Op>` in serializers.go
+and `deserializeOpDocument<Op>Output` helpers present and called in
+deserializers.go for every op checked -- the restjson flat-body false-positive
+trap this campaign warns about does not apply to a JSON-RPC service.
+
+`eventAttrKey` (models.go) derives each `HistoryEvent` attributes wrapper key
+programmatically (`strings.ToLower(eventType[:1]) + eventType[1:] +
+"EventAttributes"`) rather than hand-writing 44 string literals. Checked this
+convention against every case in
+`awsAwsjson10_deserializeDocumentHistoryEvent`'s switch (deserializers.go:6589-6924,
+all 44 `*EventAttributes` cases): every one follows exactly this
+lowerCamel-plus-suffix pattern with zero exceptions, and every EventType string
+literal gopherstack emits (grepped across activity_tasks.go/decision_tasks.go/
+decision_orchestration.go/workflow_executions.go/signals.go/timeout_sweep.go)
+matches a real `types.EventType` enum value (types/enums.go:229-286) exactly.
+This means the wrapper-KEY layer of the HistoryEvent surface is structurally
+immune to the dominant "wrong key" bug class the rest of this campaign kept
+finding -- the two real bugs found this pass were both in per-event attribute
+CONTENT (a missing required field, and a fabricated enum value), not in key
+selection. See the ops/families/gaps entries above for the two fixes and three
+disclosed-not-fixed gaps; full detail:
+
+1. **RequestCancelWorkflowExecution stamped an enum value that does not
+   exist** (workflow_executions.go). `types.WorkflowExecutionCancelRequestedCause`
+   (types/enums.go:649-654) defines exactly one value, `CHILD_POLICY_APPLIED`
+   -- there is no `OPERATOR_INITIATED` case for this specific cause enum
+   (unlike `WorkflowExecutionTerminatedCause`, types/enums.go:667-673, which
+   does define one). A direct, operator-initiated
+   `RequestCancelWorkflowExecution` call was stamping
+   `WorkflowExecutionCancelRequestedEventAttributes.cause = "OPERATOR_INITIATED"`
+   regardless -- a pre-existing bug a prior pass's own code comment had already
+   found and explicitly left unfixed ("that mismatch predates this change...
+   is left alone here"). Since `Cause` is a bare string type, not smithy-enum
+   validated on decode, this didn't fail the call -- a real typed client just
+   silently got a cause value that cannot occur on real AWS. Real AWS leaves
+   `Cause` unset entirely for a direct call (it's optional, and the enum's only
+   value is reserved for the automatic child-policy cascade already handled
+   correctly by `cascadeCancelRequestLocked`, which was and remains correct).
+   Fixed by removing the fabricated cause key from the direct-call attrs.
+   `TestRequestCancelWorkflowExecution_CancelRequestedCause_SDKRoundTrip`
+   (wire_sdk_roundtrip_test.go) drives this through the real SDK client and
+   asserts `Cause` decodes empty; hand-reverting reproduced the exact
+   predicted symptom (`Cause == "OPERATOR_INITIATED"`).
+
+2. **ChildWorkflowExecutionTimedOut was missing its one required field**
+   (timeout_sweep.go). `types.ChildWorkflowExecutionTimedOutEventAttributes`
+   (types/types.go, ~line 608) requires `TimeoutType` alongside
+   `InitiatedEventId`/`StartedEventId`/`WorkflowExecution`/`WorkflowType` --
+   the same real enum this backend's own `WorkflowExecutionTimedOut` handling
+   already gets right (`types.WorkflowExecutionTimeoutType`'s only value,
+   `START_TO_CLOSE`). `propagateChildClosureLocked`'s shared base attrs
+   (decision_orchestration.go) correctly carry
+   initiatedEventId/startedEventId/workflowExecution/workflowType for every
+   Child* closure event, but `timeoutType` isn't one of those shared fields --
+   it must come through the `extra` parameter, the same way Completed passes
+   `result`, Failed passes `reason`/`details`, and Canceled passes `details`.
+   `timeout_sweep.go`'s call site was passing `nil` for `extra`, so a real
+   typed client reading a timed-out child's notification on its parent's
+   history got a zero-value `""` `TimeoutType` on an otherwise-required field.
+   Fixed by passing `map[string]any{attrTimeoutType: timeoutTypeStartToClose}`
+   as `extra`, mirroring how `handleCompleteWorkflowExecutionDecision`/
+   `handleFailWorkflowExecutionDecision`/`handleCancelWorkflowExecutionDecision`
+   already do it for their own events.
+   `TestChildWorkflowExecutionTimedOut_TimeoutType_SDKRoundTrip`
+   (wire_sdk_roundtrip_test.go) starts a child workflow type registered with
+   `DefaultExecutionStartToCloseTimeout: "0"` (so its deadline equals its
+   StartTimestamp -- already expired the instant it starts, no sleep or
+   fabricated clock needed) and drives the whole thing through the real SDK
+   client, asserting the parent's `GetWorkflowExecutionHistory` response
+   decodes `ChildWorkflowExecutionTimedOutEventAttributes.TimeoutType ==
+   types.WorkflowExecutionTimeoutTypeStartToClose`; hand-reverting reproduced
+   the exact predicted symptom (`TimeoutType == ""`).
+
+Both fixes were proven by hand-revert (reintroduce the bug, run the test,
+confirm the exact predicted failure message, restore, confirm
+`go test -race ./services/swf/...` passes byte-identical to the fixed state).
+Both round-trip tests use a real typed SDK-client field assertion (not a
+raw-body/leaked-key check), since both `Cause` and `TimeoutType` are fields a
+real `aws-sdk-go-v2` client actually surfaces.
+
+**Layer-2 shape verification performed but found CLEAN** (no fabricated/
+misnested/miscased/wrong-enum members beyond the two bugs above), checked
+member-by-member against the real struct in types/types.go for every event
+type gopherstack emits: `ActivityTaskStarted/Completed/Failed/Canceled/
+CancelRequested/Scheduled`, `WorkflowExecutionStarted/Completed/Failed/
+Canceled/Terminated/CancelRequested/Signaled/ContinuedAsNew`,
+`StartTimerFailed/TimerStarted/CancelTimerFailed/TimerCanceled` (except the
+disclosed StartedEventId gap), `MarkerRecorded`,
+`ContinueAsNewWorkflowExecutionFailed`, `StartChildWorkflowExecutionInitiated/
+Failed`, `ChildWorkflowExecutionStarted/Completed/Failed/Canceled/Terminated`
+(TimedOut was the bug above), `SignalExternalWorkflowExecutionInitiated/
+Failed`, `RequestCancelExternalWorkflowExecutionInitiated/Failed`,
+`ExternalWorkflowExecutionSignaled/CancelRequested`. Every *FailedCause enum
+value gopherstack emits (`WORKFLOW_TYPE_DEPRECATED`/`WORKFLOW_TYPE_DOES_NOT_EXIST`/
+`WORKFLOW_ALREADY_RUNNING`/`UNKNOWN_EXTERNAL_WORKFLOW_EXECUTION`/
+`OPERATION_NOT_PERMITTED`/`TIMER_ID_ALREADY_IN_USE`/`TIMER_ID_UNKNOWN`) checked
+against its own dedicated enum in types/enums.go and matches -- only
+`WorkflowExecutionCancelRequestedCause`'s `OPERATOR_INITIATED` (bug #1 above)
+was wrong.
+
+The four summary/full pairs (`WorkflowExecutionInfo`+`WorkflowExecutionConfiguration`+
+`WorkflowExecutionOpenCounts` vs `DescribeWorkflowExecutionOutput`,
+`ActivityTypeInfo`+`ActivityTypeConfiguration` vs `DescribeActivityTypeOutput`,
+`WorkflowTypeInfo`+`WorkflowTypeConfiguration` vs `DescribeWorkflowTypeOutput`,
+`DomainInfo`+`DomainConfiguration` vs `DescribeDomainOutput`) were all
+re-verified root-flat (no fabricated wrapper key) against each op's own
+Output struct in `api_op_<Op>.go` -- clean, matching the existing PARITY.md
+grade. `PollForActivityTaskOutput`/`PollForDecisionTaskOutput`/
+`CountOpenWorkflowExecutionsOutput`/`CountPendingActivityTasksOutput`/
+`CountPendingDecisionTasksOutput` also re-verified root-flat and clean (all
+`{count, truncated}` root members present).
 
 ### Timeout enforcement (2026-08-10, gopherstack-7gse)
 

@@ -1,13 +1,13 @@
 ---
 service: serverlessrepo
 sdk_module: aws-sdk-go-v2/service/serverlessapplicationrepository@v1.33.4
-last_audit_commit: e98f13133
-last_audit_date: 2026-07-24
+last_audit_commit: af89d3e6f
+last_audit_date: 2026-08-20
 overall: A            # zero known gaps; every op field-diffed against real serializers/deserializers/model this pass
 ops:
-  CreateApplication: {wire: ok, errors: ok, state: ok, persist: ok, note: "201 Created via errHTTP201 sentinel; optionally creates the first version in the same call when semanticVersion + one of sourceCodeUrl/sourceCodeArchiveUrl/templateUrl are given, matching real API behavior. FIXED this pass: licenseBody/readmeBody/templateBody were silently dropped (unmarshaled into no struct field) -- see Notes"}
-  GetApplication: {wire: ok, errors: ok, state: ok, persist: ok, note: "embeds current/queried Version; explicit ?semanticVersion=X 404s if missing, implicit default silently omits Version if app has none"}
-  UpdateApplication: {wire: ok, errors: ok, state: ok, persist: ok, note: "PATCH; labels replaced only when the JSON key is present (nil vs [] distinguished). FIXED this pass: readmeBody was silently dropped -- see Notes"}
+  CreateApplication: {wire: ok, errors: ok, state: ok, persist: ok, note: "201 Created via errHTTP201 sentinel; optionally creates the first version in the same call when semanticVersion + one of sourceCodeUrl/sourceCodeArchiveUrl/templateUrl are given, matching real API behavior. FIXED 2026-08-20: top-level sourceCodeUrl leaked onto the response root -- see Notes"}
+  GetApplication: {wire: ok, errors: ok, state: ok, persist: ok, note: "embeds current/queried Version; explicit ?semanticVersion=X 404s if missing, implicit default silently omits Version if app has none. FIXED 2026-08-20: top-level sourceCodeUrl leaked onto the response root -- see Notes"}
+  UpdateApplication: {wire: ok, errors: ok, state: ok, persist: ok, note: "PATCH; labels replaced only when the JSON key is present (nil vs [] distinguished). FIXED this pass: readmeBody was silently dropped -- see Notes. FIXED 2026-08-20: top-level sourceCodeUrl leaked onto the response root -- see Notes"}
   DeleteApplication: {wire: ok, errors: ok, state: ok, persist: ok, note: "204 No Content; cascades to versions/templates/changesets/policy/dependencies"}
   ListApplications: {wire: ok, errors: ok, state: ok, persist: ok, note: "nextToken = exclusive cursor on last-seen application Name, matching Table's Name-ascending key order"}
   CreateApplicationVersion: {wire: ok, errors: ok, state: ok, persist: ok, note: "PUT /applications/{id}/versions/{semanticVersion}, 201 Created; synthesizes templateUrl when only sourceCodeUrl/sourceCodeArchiveUrl given. FIXED this pass: templateBody was silently dropped -- see Notes"}
@@ -35,6 +35,112 @@ timestamp fields (`creationTime`, `expirationTime`) are modeled as plain `string
 `timestamp` shape -- there is no epoch-vs-ISO8601 wire trap here the way there is in
 JSON-1.0/1.1 services; gopherstack's `isoTimestamp` (RFC3339 UTC) is a reasonable, real-AWS-
 compatible string format and does not need `pkgs/awstime.Epoch`.
+
+### This pass (2026-08-20)
+
+Wrapper-key / nested-shape wire-parity sweep: all 13 real ops (`GetSupportedOperations`
+vs. the 13 `api_op_*.go` files under `serverlessapplicationrepository@v1.33.4` -- both
+enumerations agree) field-diffed member-by-member against their own live
+`awsRestjson1_deserializeOpDocument<Op>Output`/`awsRestjson1_deserializeDocument<Type>`
+switch statements in `deserializers.go`, not against sibling ops or gopherstack's own
+JSON tags. Protocol confirmed restjson1 (no `X-Amz-Target`, `SplitURI`-based routing).
+The `awsRestjson1_deserializeOpDocument<Op>Output` cnhp trap does not apply here: every
+op with a body has that helper both defined AND called from its `HandleDeserialize`
+(verified via `grep -c` returning 2 for all 11 non-void ops); `DeleteApplication`/
+`UnshareApplication` are genuinely void (204, no body).
+
+One real bug found and fixed:
+
+1. **`applicationResponse` (shared by `CreateApplication`/`GetApplication`/
+   `UpdateApplication`) carried a fabricated top-level `sourceCodeUrl` field.** The real
+   `CreateApplicationOutput`/`GetApplicationOutput`/`UpdateApplicationOutput` shapes
+   (`api_op_CreateApplication.go`, `api_op_GetApplication.go`,
+   `api_op_UpdateApplication.go`) have no `SourceCodeUrl` member at the response root at
+   all -- confirmed both by the struct field list and by each op's own
+   `deserializeOpDocument*Output` case statement, none of which has a `case
+   "sourceCodeUrl"` at the top level. `sourceCodeUrl` exists only nested under the
+   optional `Version` sub-object (`types.Version.SourceCodeUrl`, case `"sourceCodeUrl"`
+   inside `awsRestjson1_deserializeDocumentVersion`). `CreateApplicationInput` *does*
+   carry a request-only `SourceCodeUrl` (used to seed the app's first version) -- this is
+   the brief's "a REQUEST-ONLY field appearing in a RESPONSE" bug class: gopherstack's
+   `toApplicationResponse` (`handler_applications.go`) was copying
+   `Application.SourceCodeURL` onto `applicationResponse.SourceCodeURL` at the response
+   root in addition to (correctly) embedding it under `resp.Version.SourceCodeURL`. Real
+   `aws-sdk-go-v2` clients silently ignore unknown JSON keys, so this was not
+   client-breaking for the Go SDK, but is a real wire-shape inaccuracy for any strict
+   consumer (schema validators, other-language SDKs). Fixed by removing the
+   `SourceCodeURL` field from `applicationResponse` and its assignment in
+   `toApplicationResponse` (`handler_applications.go`). No existing test asserted the
+   wrong top-level key (grepped `resp["sourceCodeUrl"]`/`response["sourceCodeUrl"]`
+   across all `_test.go` -- zero hits), so nothing needed correcting; new regression
+   coverage: `TestCreateApplication_NoTopLevelSourceCodeURL_SDKRoundTrip`
+   (`wire_sdk_roundtrip_test.go`), which drives the real `aws-sdk-go-v2` client through
+   `pkgs/service`'s router and additionally inspects the raw wire body (the SDK client
+   itself can't detect an extraneous ignored key). Hand-revert (`cp` a pre-fix copy back
+   over `handler_applications.go`, no git) reproduced the symptom: the round-trip test's
+   `require.False(t, hasTopLevelSourceCodeURL, ...)` failed with the field present in the
+   raw JSON body; restoring the fix made it pass again.
+
+All other families confirmed clean this pass, each verified against its own
+deserializer/type independently (not against a sibling):
+
+- `Application` (`toApplicationResponse`) vs. `ApplicationSummary`
+  (`applicationSummary`/`toApplicationResponse`'s list counterpart): the full type's 13
+  wire fields (`applicationId`, `author`, `creationTime`, `description`, `homePageUrl`,
+  `isVerifiedAuthor`, `labels`, `licenseUrl`, `name`, `readmeUrl`, `spdxLicenseId`,
+  `verifiedAuthorUrl`, `version`) match `GetApplicationOutput`/`CreateApplicationOutput`/
+  `UpdateApplicationOutput` exactly (after the fix above); the summary's narrower 8 fields
+  (`applicationId`, `author`, `creationTime`, `description`, `homePageUrl`, `labels`,
+  `name`, `spdxLicenseId`) match `types.ApplicationSummary`/
+  `awsRestjson1_deserializeDocumentApplicationSummary` exactly -- correctly omits
+  `isVerifiedAuthor`/`licenseUrl`/`readmeUrl`/`verifiedAuthorUrl`/`version`, none of which
+  the real summary type carries.
+- `Version`/`ParameterDefinition`/`ApplicationPolicyStatement`/`ParameterValue`: `Version`
+  (`versionResponse`, 9 fields) matches `types.Version` exactly, including the
+  request-only-vs-response-nested distinction confirmed above -- `CreateApplicationVersion`
+  is the one op where `Version`'s fields are genuinely flat at the response root
+  (`CreateApplicationVersionOutput` itself has no `version` wrapper key), which
+  `toVersionResponse` already modeled correctly. `ParameterDefinition` (`models.go`, 13
+  fields) matches `types.ParameterDefinition` exactly (all 6 optional numeric/pattern
+  fields present, not just the 7 already-carried ones). `ApplicationPolicyStatement` (4
+  fields: `actions`, `principalOrgIDs`, `principals`, `statementId`) matches
+  `types.ApplicationPolicyStatement` exactly, including the case-sensitive
+  `principalOrgIDs` spelling (capital ID, confirmed against both serializer and
+  deserializer).
+- `CreateCloudFormationChangeSet`/`CreateCloudFormationTemplate`/
+  `GetCloudFormationTemplate`: response shapes (4 fields; 7 fields; 7 fields
+  respectively) match `CreateCloudFormationChangeSetOutput`/
+  `CreateCloudFormationTemplateOutput`/`GetCloudFormationTemplateOutput` exactly.
+  `Status` enum usage (`ACTIVE`/`EXPIRED`, dynamically computed) is a strict subset of
+  the real 3-value `types.Status` enum (`PREPARING`/`ACTIVE`/`EXPIRED`) -- gopherstack
+  never emits `PREPARING` since template creation is synchronous, which is narrower-but-
+  valid, not wrong.
+- The three list ops' three item types verified separately, each against its own
+  deserializer: `ListApplications` → `ApplicationSummary` (8 fields, see above);
+  `ListApplicationVersions` → `VersionSummary` (4 fields: `applicationId`,
+  `creationTime`, `semanticVersion`, `sourceCodeUrl` -- correctly excludes
+  `resourcesSupported`, already caught and documented by the prior pass);
+  `ListApplicationDependencies` → `ApplicationDependencySummary` (2 fields:
+  `applicationId`, `semanticVersion`). All three gopherstack response-builders
+  (`handleListApplications`, `handleListApplicationVersions`,
+  `handleListApplicationDependencies`) use a distinct shape per op; none cross-copies
+  another list op's fields.
+- `Capability` enum checked both directions: gopherstack's 4-value switch
+  (`cloud_formation.go`) exactly matches `types.Capability.Values()`
+  (`CAPABILITY_IAM`/`CAPABILITY_NAMED_IAM`/`CAPABILITY_AUTO_EXPAND`/
+  `CAPABILITY_RESOURCE_POLICY`) -- no missing value, no invented extra constant.
+- Routing (Layer 1): all 13 ops' HTTP method + path template
+  (`handler_sdk_route_table_test.go`'s `sdkRouteCases`, itself re-verified this pass
+  against every `request.Method`/`httpbinding.SplitURI(...)` pair in `serializers.go`)
+  match exactly, no collisions beyond the two already-disambiguated-by-method pairs
+  (`GetApplication`/`UpdateApplication`/`DeleteApplication` on
+  `/applications/{id}`; `GetApplicationPolicy`/`PutApplicationPolicy` on
+  `/applications/{id}/policy`).
+
+Provenance check: `last_audit_commit: e98f13133` → `git show -s --format=%ad e98f13133`
+= `Fri Jul 24 12:09:14 2026 -0500`, matching `last_audit_date: 2026-07-24` exactly (same
+day, no gap) -- the prior stamp was trustworthy, no false-audit correction needed.
+Refreshed to current HEAD (`af89d3e6f`, 2026-08-20) above.
 
 ### This pass (2026-07-24)
 

@@ -141,3 +141,27 @@ leaks: {status: clean, note: "no goroutines/janitors in this service; all state 
   lockstep -- it now derives the expected `arn:{partition}:shield::` prefix from `b.region`
   instead of hardcoding `arn:aws:shield::`. Regression test:
   `TestInMemoryBackend_TagResourceByShieldARNGovCloudPartition` (tags_test.go).
+- **2026-08-19 wrapper-key/nested-shape re-audit (independent, this session):** protocol
+  re-confirmed as awsjson1.1 from `serializers.go` (`X-Amz-Target:
+  AWSShield_20160616.<Op>`) and `HandleDeserialize` bodies decode via
+  `deserializeOpDocument<Op>Output` for every op (36/36) -- no dead-helper trap here
+  (unlike restjson's optional-flattening case, awsjson1.1 output structs always decode
+  through their own OpDocument helper). Verified field-by-field against the pinned
+  `shield@v1.37.4` `types/types.go` + `deserializers.go` case lists, all the way down:
+  `Subscription`/`SubscriptionLimits`/`ProtectionLimits`/`ProtectionGroupLimits`/
+  `ProtectionGroupPatternTypeLimits`/`ProtectionGroupArbitraryPatternLimits`/`Limit`
+  (subscription.go/handler_subscription.go), `AttackDetail`/`AttackSummary`/
+  `SummarizedCounter`/`Mitigation`/`AttackVectorDescription`/`AttackStatisticsDataItem`/
+  `AttackVolume`/`AttackVolumeStatistics`/`TimeRange` (attacks.go/handler_attacks.go),
+  `Protection`/`ProtectionGroup`/`ApplicationLayerAutomaticResponseConfiguration`/
+  `ResponseAction`/`BlockAction`/`CountAction` (handler_protections.go/
+  handler_protection_groups.go/handler_application_layer_automatic_response.go),
+  `EmergencyContact` (handler_emergency_contacts.go), `DescribeDRTAccessOutput`
+  (handler_drt.go). Confirmed the `TagResource`/`ListTagsForResource`/`UntagResource`
+  family correctly uses the ALL-CAPS `ResourceARN` wire key (`api_op_TagResource.go`,
+  `serializeOpDocumentTagResourceInput`) where every other op in this service uses
+  `ResourceArn` -- gopherstack already has this right (handler_tags.go:12,35,60). Zero
+  new bugs found; every existing PARITY.md "ok" verdict in the areas re-checked above
+  reproduced from the live deserializer, not taken on trust. Gates: `go build`, `go vet`,
+  `go fix -diff` (empty), `gofmt -l` (empty), `go test -race` (ok, 1.1s),
+  `golangci-lint run` (0 issues) all clean, no code changes made this session.

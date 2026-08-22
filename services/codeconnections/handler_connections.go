@@ -44,6 +44,12 @@ type getConnectionInput struct {
 	ConnectionArn string `json:"ConnectionArn"`
 }
 
+// connectionItem is the wire shape of the real Connection type
+// (aws-sdk-go-v2/service/codeconnections@v1.13.4 types.Connection), used by
+// both GetConnection (nested under "Connection") and ListConnections (as
+// array items). Connection has no Tags member at all (confirmed against
+// awsAwsjson10_deserializeDocumentConnection's case switch) -- Tags is only
+// ever returned by CreateConnectionOutput.
 type connectionItem struct {
 	ConnectionName   string `json:"ConnectionName"`
 	ConnectionArn    string `json:"ConnectionArn"`
@@ -51,7 +57,6 @@ type connectionItem struct {
 	OwnerAccountID   string `json:"OwnerAccountId"`
 	ProviderType     string `json:"ProviderType"`
 	ConnectionStatus string `json:"ConnectionStatus"`
-	Tags             []tag  `json:"Tags,omitempty"`
 }
 
 type getConnectionOutput struct {
@@ -141,6 +146,5 @@ func connToItem(conn *Connection) connectionItem {
 		ConnectionStatus: conn.Status,
 		OwnerAccountID:   conn.OwnerAccountID,
 		HostArn:          conn.HostArn,
-		Tags:             tagsToSortedArray(conn.Tags),
 	}
 }

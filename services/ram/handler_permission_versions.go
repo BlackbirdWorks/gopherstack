@@ -14,8 +14,13 @@ type createPermissionVersionRequest struct {
 	PolicyTemplate string `json:"policyTemplate"`
 }
 
+// createPermissionVersionResponse.Permission is a ResourceSharePermissionDetail, not a
+// Summary: CreatePermissionVersionOutput.Permission is typed *types.ResourceSharePermissionDetail
+// (api_op_CreatePermissionVersion.go:100), and its deserializer routes "permission" through
+// awsRestjson1_deserializeDocumentResourceSharePermissionDetail (deserializers.go:916+),
+// which carries the policy-document "permission" text field the Summary type lacks.
 type createPermissionVersionResponse struct {
-	Permission permissionSummaryObject `json:"permission"`
+	Permission permissionDetailObject `json:"permission"`
 }
 
 func (h *Handler) handleCreatePermissionVersion(_ context.Context, body []byte) ([]byte, error) {
@@ -37,7 +42,11 @@ func (h *Handler) handleCreatePermissionVersion(_ context.Context, body []byte) 
 		return nil, err
 	}
 
-	return json.Marshal(createPermissionVersionResponse{Permission: toPermissionSummaryObject(p)})
+	pv := p.Versions[p.LatestVersion]
+
+	return json.Marshal(
+		createPermissionVersionResponse{Permission: toPermissionDetailObject(p, pv)},
+	)
 }
 
 type deletePermissionVersionResponse struct {
@@ -87,9 +96,25 @@ type listPermissionVersionsRequest struct {
 	NextToken     string `json:"nextToken"`
 }
 
+// listPermissionVersionsResponse.Permissions is a ResourceSharePermissionSummary list, not
+// Detail: ListPermissionVersionsOutput.Permissions is typed []types.ResourceSharePermissionSummary
+// (api_op_ListPermissionVersions.go:75), and its deserializer routes each element through
+// awsRestjson1_deserializeDocumentResourceSharePermissionSummary (via
+// deserializeDocumentResourceSharePermissionList, deserializers.go:3821+), which has no
+// "permission" policy-document field -- unlike GetPermission/CreatePermissionVersion.
 type listPermissionVersionsResponse struct {
-	NextToken   string                   `json:"nextToken,omitempty"`
-	Permissions []permissionDetailObject `json:"permissions"`
+	NextToken   string                    `json:"nextToken,omitempty"`
+	Permissions []permissionSummaryObject `json:"permissions"`
+}
+
+// toPermissionVersionSummaryObject builds a permission summary for one specific version,
+// as returned by ListPermissionVersions.
+func toPermissionVersionSummaryObject(p *Permission, pv *PermissionVersion) permissionSummaryObject {
+	obj := toPermissionSummaryObject(p)
+	obj.Version = strconv.Itoa(int(pv.Version))
+	obj.DefaultVersion = pv.Version == p.DefaultVersion
+
+	return obj
 }
 
 func (h *Handler) handleListPermissionVersions(_ context.Context, body []byte) ([]byte, error) {
@@ -112,10 +137,10 @@ func (h *Handler) handleListPermissionVersions(_ context.Context, body []byte) (
 		return nil, pErr
 	}
 
-	objs := make([]permissionDetailObject, 0, len(versions))
+	objs := make([]permissionSummaryObject, 0, len(versions))
 
 	for _, pv := range versions {
-		objs = append(objs, toPermissionDetailObject(p, pv))
+		objs = append(objs, toPermissionVersionSummaryObject(p, pv))
 	}
 
 	paged, nextToken, pErr2 := ramPaginate(objs, req.NextToken, req.MaxResults)

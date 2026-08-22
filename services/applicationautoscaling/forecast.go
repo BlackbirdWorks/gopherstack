@@ -58,19 +58,27 @@ func (b *InMemoryBackend) GetPredictiveScalingForecast(
 	// data a caller could mistake for a genuine forecast. Instead this
 	// honestly returns no data points, which also matches real AWS's own
 	// behavior for a predictive scaling policy that has not yet accumulated
-	// enough history to produce a forecast (CapacityForecast/LoadForecast are
-	// legitimately empty in that case). See PARITY.md gaps.
+	// enough history to produce a forecast. See PARITY.md gaps.
 	capacity := &CapacityForecastData{
 		Timestamps: []time.Time{},
 		Values:     []float64{},
 	}
 
-	load := []LoadForecastData{
-		{
-			Timestamps:          []time.Time{},
-			Values:              []float64{},
-			MetricSpecification: fmt.Sprintf("%s/%s/%s", serviceNamespace, resourceID, scalableDimension),
-		},
+	// LoadForecast[].MetricSpecification is a real AWS object
+	// (types.PredictiveScalingMetricSpecification), not a string -- echo back
+	// the caller's own MetricSpecifications[0] from PutScalingPolicy rather
+	// than fabricating one. p.PredictiveScalingConfig is the raw decoded
+	// request body (map[string]any), so its entries are real caller-supplied
+	// data, not invented content.
+	load := []LoadForecastData{}
+	if specs, ok := p.PredictiveScalingConfig["MetricSpecifications"].([]any); ok && len(specs) > 0 {
+		if spec, specOK := specs[0].(map[string]any); specOK {
+			load = append(load, LoadForecastData{
+				Timestamps:          []time.Time{},
+				Values:              []float64{},
+				MetricSpecification: spec,
+			})
+		}
 	}
 
 	return capacity, load, time.Now().UTC(), nil

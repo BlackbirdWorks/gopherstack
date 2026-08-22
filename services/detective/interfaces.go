@@ -200,6 +200,7 @@ type RelatedFindingGroupDetail struct {
 // TTPsObservedDetail describes an observed tactic/technique/procedure.
 type TTPsObservedDetail struct {
 	Tactic          string
+	Technique       string
 	Procedure       string
 	APIName         string
 	IPAddress       string

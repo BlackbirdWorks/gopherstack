@@ -6,10 +6,11 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: ram
 sdk_module: aws-sdk-go-v2/service/ram@v1.39.4   # version audited against
-last_audit_commit: e259b2f8                     # HEAD when this manifest was written
-last_audit_date: 2026-07-31
+last_audit_commit: cfc26365a                    # HEAD when this manifest was written
+last_audit_date: 2026-08-19
 overall: A            # 2026-07-23: genuine fixes found (state-corruption bugs + wire-shape bugs)
                       # 2026-07-31: pkgs/sdkcheck reverse check found ListTagsForResource wrongly advertised/documented as a real SDK op (it isn't -- see its ops-block note); corrected, route left wired as internal test scaffolding. Grade held at A: unreachable by real traffic either way (RAM dispatches by request path, and no real client sends this path), and real tag-reading via GetResourceShares.Tags was already correct.
+                      # 2026-08-19: wrapper-key/nested-shape sweep of all 34 SDK ops found and fixed 3 genuine bugs (CreatePermissionVersion/ListPermissionVersions had their Summary/Detail response shapes swapped; ListPermissionAssociations used the wrong key ("permissionArn" vs real "arn") and wrong type (number vs real string) for its AssociatedPermission items, the latter causing an actual SDK deserialization failure, not just a silent drop). All 3 fixed and proven by hand-revert + SDK-client round trip. Remaining 31 ops confirmed clean against their own deserializers. Grade held at A.
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
@@ -42,13 +43,13 @@ ops:
   GetResourceShareInvitations: {wire: ok, errors: ok, state: ok, persist: ok}
   ListPendingInvitationResources: {wire: ok, errors: ok, state: ok, persist: ok}
   CreatePermission: {wire: ok, errors: ok, state: ok, persist: ok}
-  CreatePermissionVersion: {wire: ok, errors: ok, state: ok, persist: ok}
+  CreatePermissionVersion: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (2026-08-19) - CreatePermissionVersionOutput.Permission is *types.ResourceSharePermissionDetail (api_op_CreatePermissionVersion.go:100), whose deserializer (deserializers.go:916) carries the policy-document 'permission' field via awsRestjson1_deserializeDocumentResourceSharePermissionDetail. gopherstack was building the response from the narrower Summary shape instead (toPermissionSummaryObject), which has no 'permission' case at all -- so a real client's output.Permission.Permission always decoded nil after CreatePermissionVersion. Switched to toPermissionDetailObject(p, pv). Proven via SDK-client round trip Test_SDKRoundTrip_CreatePermissionVersion_ReturnsPolicyDocument + hand-revert (confirmed the field decodes nil on revert, non-nil and correct on fix)."}
   DeletePermission: {wire: ok, errors: ok, state: ok, persist: ok}
   DeletePermissionVersion: {wire: ok, errors: ok, state: ok, persist: ok}
   GetPermission: {wire: ok, errors: ok, state: ok, persist: ok}
   ListPermissions: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListPermissionVersions: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListPermissionAssociations: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListPermissionVersions: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (2026-08-19) - inverse of the CreatePermissionVersion bug above: ListPermissionVersionsOutput.Permissions is []types.ResourceSharePermissionSummary (api_op_ListPermissionVersions.go:75; deserializers.go:3821), which has no 'permission' policy-document field. gopherstack was building each item from the Detail shape (toPermissionDetailObject), leaking the full policy-document text under 'permission' for every version -- a field the real API never sends here. Switched to a new toPermissionVersionSummaryObject(p, pv) helper building the Summary shape with the version pinned. Proven via raw-body absence test Test_ListPermissionVersions_OmitsPolicyDocumentField (the typed SDK client can't observe a leaked field the real type doesn't declare, so a raw-body assertion is the correct instrument here) + hand-revert (confirmed the leak reappears verbatim on revert)."}
+  ListPermissionAssociations: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (2026-08-19) - ListPermissionAssociationsOutput.Permissions is []types.AssociatedPermission (api_op_ListPermissionAssociations.go:99; types/types.go:11-), whose wire key for the permission ARN is 'arn', not 'permissionArn', and whose PermissionVersion is a JSON string, not a number (deserializers.go's awsRestjson1_deserializeDocumentAssociatedPermission type-asserts permissionVersion to string). gopherstack emitted permissionArn (wrong key, so a real client's Arn always decoded nil) and a numeric permissionVersion (wrong type -- this is worse than a silent drop: it makes the real SDK client's ListPermissionAssociations call fail outright with 'deserialization failed ... expected String to be of type string, got json.Number instead'). Fixed both in permissionAssociationObject. Proven via SDK-client round trip Test_SDKRoundTrip_ListPermissionAssociations_ArnAndVersionShape + hand-revert (confirmed the exact decode error reproduces verbatim on revert)."}
   SetDefaultPermissionVersion: {wire: ok, errors: ok, state: ok, persist: ok}
   PromotePermissionCreatedFromPolicy: {wire: ok, errors: ok, state: ok, persist: ok}
   PromoteResourceShareCreatedFromPolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "mock-simplified: real AWS asynchronously flips featureSet CREATED_FROM_POLICY -> PROMOTING_TO_STANDARD -> STANDARD; this backend has no featureSet state machine (CreateResourceShare always sets STANDARD) so the op is effectively a no-op validator. Acceptable since nothing here ever creates a CREATED_FROM_POLICY share (see deferred below)"}
@@ -65,11 +66,13 @@ ops:
   EnableSharingWithAwsOrganization: {wire: ok, errors: ok, state: n/a, persist: n/a, note: "no organization/delegated-admin model exists in this backend; op is a pure ReturnValue:true ack, matches how the AWS docs describe the call (idempotent enablement, no other side effects observable via the RAM API)"}
 families:
   routing: {status: ok, note: "RouteMatcher / ExtractOperation path-prefix tables manually cross-checked against every op in GetSupportedOperations(); all prefix-collision cases (e.g. /listresourcesharepermissions vs /listresources, /createpermissionversion vs /createpermission, /associateresourcesharepermission vs /associateresourceshare) are already ordered longer-prefix-first correctly. No route-matcher bug found in this service."}
+  wrapper_key_sweep_2026_08_19: {status: ok, note: "All 34 SDK ops swept (api_op_*.go count) against their own deserializers.go top-level-key switch AND their nested types' field-by-field switch (not generalized from siblings). 3 genuine bugs found and fixed (CreatePermissionVersion, ListPermissionVersions, ListPermissionAssociations -- see per-op notes above). 31 ops confirmed clean: ResourceShare/ResourceShareAssociation/ResourceShareInvitation/Principal/Resource/Tag/ServiceNameAndResourceType/AssociatedSource/ReplacePermissionAssociationsWork/ResourceSharePermissionSummary/ResourceSharePermissionDetail all verified field-for-field against their own deserializeDocument* function in deserializers.go@ram v1.39.4. No fabricated members found beyond the two Summary/Detail swaps. Layer-3 hunt (never-emitted members) was out of scope; resourceShareConfiguration/resourceGroupArn/receiverArn/resourceShareAssociations(on invitation) noted as genuine unfixed gaps below, not treated as bugs."}
   persistence: {status: ok, note: "Handler.Snapshot/Restore delegate to InMemoryBackend.Snapshot/Restore; versioned backendSnapshot (ramSnapshotVersion) with store.Registry-backed tables for resourceShares/permissions/invitations/replaceWorks plus raw sharePermissions/associations fields. The new replaceWorks table (ReplacePermissionAssociations work items) is registered like the other three 'clean' tables (identity-carrying ID field) and round-trips through the existing registry.SnapshotAll/RestoreAll machinery with no bespoke persistence.go changes needed. Confirmed via existing persistence_test.go coverage (unchanged, still green) -- did not add a dedicated persistence round-trip test for replaceWorks specifically since it's exercised through the same generic registry path as every other store.Table."}
 gaps: []
 deferred:
   - PromoteResourceShareCreatedFromPolicy's featureSet state machine (CREATED_FROM_POLICY -> PROMOTING_TO_STANDARD -> STANDARD) is not modeled; every share created here is already STANDARD so this hasn't caused observed drift, but if CREATED_FROM_POLICY share creation is ever added, this needs revisiting.
   - "CLOSED 2026-08-13: permissionSummaryObject/permissionDetailObject emitted a resourceRegionScope field that does not exist on the real ResourceSharePermissionSummary/ResourceSharePermissionDetail SDK types. Evidence: aws-sdk-go-v2/service/ram@v1.39.4, types/types.go:492-(Summary)/403-(Detail), checked 2026-08-13 -- exhaustive field lists are Arn/CreationTime/DefaultVersion/FeatureSet/IsResourceTypeDefault/LastUpdatedTime/Name/PermissionType/ResourceType/Status/Tags/Version (Summary, plus Permission on Detail), no ResourceRegionScope on either. That field exists only on types.Resource and types.ServiceNameAndResourceType (see handler_resources.go's legitimate use, TestResourceRegionScope_InListResources). Deleted the field from both wire structs; the internal Permission.ResourceRegionScope domain field (models.go) is untouched -- it backs real filtering logic, just was never a real member of these two wire shapes. Raw-body regression test: TestPermissionResponses_NoResourceRegionScopeField."
+  - "DISCLOSED not fixed (2026-08-19 sweep, out of scope per sweep charter -- Layer 3 never-emitted members are only fixed if incidental): ResourceShare never emits resourceShareConfiguration (deserializers.go:8642+, types.ResourceShareConfiguration); Resource never emits resourceGroupArn (deserializers.go's awsRestjson1_deserializeDocumentResource); ResourceShareInvitation never emits receiverArn or resourceShareAssociations (deserializers.go's awsRestjson1_deserializeDocumentResourceShareInvitation). None of these surfaced incidentally while fixing the 3 genuine bugs this session, so left alone per the sweep's Layer-3-out-of-scope rule."
 leaks: {status: clean, note: "no goroutines/janitors in this backend; all state is plain maps/slices (plus the new replaceWorks store.Table) behind the single lockmetrics.RWMutex, snapshotted/restored atomically under that lock. DisassociateResourceSharePermission now prunes an empty sharePermissions[shareARN] map entry when its last permission is removed, closing a minor unbounded-empty-map-entry accumulation path. DisassociateResourceShare/AssociateResourceShare no longer produce duplicate association rows for repeated disassociate/re-associate cycles on the same entity (see AssociateResourceShare note) -- previously this was bounded (hard-delete kept the slice from growing) but the status-aware reactivation is now also memory-neutral, reusing the existing row instead of allocating a new one."}
 ---
 
@@ -219,3 +222,85 @@ addressing the 1 deferred item recorded in the 2026-07-13 audit:
   through this backend's own ops today, but if that ever becomes possible,
   revisit whether the rule should also cross-check other permissions
   before blocking).
+
+## 2026-08-19 wrapper-key / nested-shape sweep
+
+Enumerated all 34 `api_op_*.go` files in `aws-sdk-go-v2/service/ram@v1.39.4`
+and cross-checked each one's own `deserializers.go` top-level-key switch and
+its nested types' field-by-field switch against gopherstack's emitted JSON --
+never generalizing one op's shape onto a same-looking sibling. Confirmed the
+protocol from `api_client.go`'s `resolveHTTPSignerV4` plus the
+`awsRestjson1_*` deserializer prefix (restjson1) -- this means casing
+differences are real bugs here (unlike Query/XML services).
+
+**3 genuine bugs found and fixed** (see per-op notes in the `ops:` block
+above for full SDK `file:line` citations):
+
+1. `CreatePermissionVersion` (`handler_permission_versions.go`) was building
+   its response from `permissionSummaryObject` (`toPermissionSummaryObject`)
+   when the real `CreatePermissionVersionOutput.Permission` is a
+   `*types.ResourceSharePermissionDetail` -- the narrower Summary shape has
+   no `permission` (policy-document) field at all, so a real client's
+   `output.Permission.Permission` always decoded `nil`. Switched to
+   `toPermissionDetailObject(p, pv)`.
+
+2. `ListPermissionVersions` (same file) had the *inverse* bug: it built each
+   item from `permissionDetailObject`, leaking the full policy-document text
+   under a `permission` key the real `ListPermissionVersionsOutput.Permissions`
+   (`[]types.ResourceSharePermissionSummary`) never sends for this op. Added
+   `toPermissionVersionSummaryObject(p, pv)` and switched to it.
+
+3. `ListPermissionAssociations` (`handler_share_permissions.go`) emitted its
+   items with a fabricated `permissionArn` key (real key is `arn`, per
+   `types.AssociatedPermission`) and a numeric `permissionVersion` (real
+   type is a JSON string). The type mismatch is worse than a silent drop:
+   the real SDK client's deserializer type-asserts `permissionVersion` to
+   string and returns a hard decode error otherwise, so a real client's
+   `ListPermissionAssociations` call would fail outright, not just come back
+   with a missing field. Fixed both the key and the type.
+
+**Every fix proven by hand-revert**: reverted the file to its pre-fix
+content, re-ran the new test to confirm the exact predicted symptom
+reproduced verbatim (nil-decoded field / leaked policy text in the raw body
+/ the literal `"expected String to be of type string, got json.Number
+instead"` SDK decode error), then restored the fix and diffed byte-identical
+against the pre-revert version.
+
+**New tests** (all in `services/ram/`, table-free since each targets one
+specific wire-shape claim -- consistent with this file's existing
+`Test_SDKRoundTrip_*` naming from sibling services like acm):
+
+- `permission_version_shape_test.go`:
+  `Test_SDKRoundTrip_CreatePermissionVersion_ReturnsPolicyDocument` (real
+  `ramsdk.Client` round trip -- the real type has the field, so this is the
+  correct instrument) and `Test_ListPermissionVersions_OmitsPolicyDocumentField`
+  (raw-body absence assertion -- the real type has no such field for a typed
+  client to observe either way, so absence can only be proven by inspecting
+  the raw JSON).
+- `permission_association_shape_test.go`:
+  `Test_SDKRoundTrip_ListPermissionAssociations_ArnAndVersionShape` (real
+  `ramsdk.Client` round trip; also incidentally proves the type-mismatch no
+  longer causes a decode error).
+
+**31 remaining ops confirmed clean** at both the wrapper-key and nested-shape
+layers: `AcceptResourceShareInvitation`, `AssociateResourceShare`,
+`AssociateResourceSharePermission`, `CreatePermission`, `CreateResourceShare`,
+`DeletePermission`, `DeletePermissionVersion`, `DeleteResourceShare`,
+`DisassociateResourceShare`, `DisassociateResourceSharePermission`,
+`EnableSharingWithAwsOrganization`, `GetPermission`, `GetResourcePolicies`,
+`GetResourceShareAssociations`, `GetResourceShareInvitations`,
+`GetResourceShares`, `ListPendingInvitationResources`, `ListPermissions`,
+`ListPrincipals`, `ListReplacePermissionAssociationsWork`,
+`ListResourceSharePermissions`, `ListResourceTypes`, `ListResources`,
+`ListSourceAssociations`, `PromotePermissionCreatedFromPolicy`,
+`PromoteResourceShareCreatedFromPolicy`, `RejectResourceShareInvitation`,
+`ReplacePermissionAssociations`, `SetDefaultPermissionVersion`,
+`TagResource`/`UntagResource` (void outputs, correctly empty),
+`UpdateResourceShare`.
+
+No existing test asserted a wrong key for any of the 3 fixed ops (the
+existing `TestListPermissionVersions_Pagination`/
+`TestListPermissionAssociations_Pagination` tests only checked `version`
+string values and slice length via `[]any`/anonymous structs, never the
+leaked/missing `permission` field or the `arn`/`permissionArn` key) -- so
+nothing needed correcting, only new coverage added.

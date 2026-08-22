@@ -15,7 +15,7 @@ func (h *Handler) handleDescribeBackupPolicy(c *echo.Context, fileSystemID strin
 
 	return c.JSON(http.StatusOK, map[string]any{
 		"BackupPolicy": map[string]any{
-			"Status": status,
+			keyStatus: status,
 		},
 	})
 }
@@ -38,7 +38,7 @@ func (h *Handler) handlePutBackupPolicy(c *echo.Context, fileSystemID string, bo
 
 	return c.JSON(http.StatusOK, map[string]any{
 		"BackupPolicy": map[string]any{
-			"Status": in.BackupPolicy.Status,
+			keyStatus: in.BackupPolicy.Status,
 		},
 	})
 }

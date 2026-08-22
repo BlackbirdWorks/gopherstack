@@ -2,8 +2,8 @@
 service: apprunner
 sdk_module: aws-sdk-go-v2/service/apprunner@v1.42.4
 last_audit_commit: pending (agent instructed not to run git; set at commit time)
-last_audit_date: 2026-07-23
-overall: A            # full field-diff sweep: closed every gaps/deferred item from the 2026-07-13 audit
+last_audit_date: 2026-08-19
+overall: A            # wrapper-key/nested-shape sweep 2026-08-19: found and fixed one fabricated-field bug
 ops:
   CreateService: {wire: ok, errors: ok, state: ok, persist: ok, note: "immediate RUNNING (no OPERATION_IN_PROGRESS poll-forever trap); full field set now threaded: InstanceConfiguration (Cpu/Memory/InstanceRoleArn), SourceConfiguration (ImageRepository incl. ImageConfiguration, CodeRepository incl. SourceCodeVersion/CodeConfiguration, AuthenticationConfiguration, AutoDeploymentsEnabled with real default), AutoScalingConfigurationArn (resolved-or-default, HasAssociatedService bookkeeping), NetworkConfiguration (Egress/IngressConfiguration, IpAddressType, real defaults), HealthCheckConfiguration (real defaults), EncryptionConfiguration, ObservabilityConfiguration. Service response now includes the previously-missing required AutoScalingConfigurationSummary and NetworkConfiguration fields"}
   DescribeService: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -26,7 +26,7 @@ ops:
   CreateObservabilityConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeObservabilityConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteObservabilityConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListObservabilityConfigurations: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListObservabilityConfigurations: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed 2026-08-19 -- summary entries were emitting fabricated Status/Latest/CreatedAt keys that have no case in the real types.ObservabilityConfigurationSummary document deserializer (deserializers.go:6215-6270); a real client would silently drop them. Now emits only ObservabilityConfigurationArn/Name/Revision, matching the narrower summary type exactly (types/types.go:613-628)"}
   CreateVpcConnector: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeVpcConnector: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteVpcConnector: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -36,8 +36,8 @@ ops:
   DeleteVpcIngressConnection: {wire: ok, errors: ok, state: ok, persist: ok}
   ListVpcIngressConnections: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateVpcIngressConnection: {wire: ok, errors: ok, state: ok, persist: ok}
-  AssociateCustomDomain: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed to use InvalidRequestException (not ResourceNotFoundException) for unknown ServiceArn, matching this op's documented error set"}
-  DisassociateCustomDomain: {wire: ok, errors: ok, state: ok, persist: ok}
+  AssociateCustomDomain: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed to use InvalidRequestException (not ResourceNotFoundException) for unknown ServiceArn, matching this op's documented error set. 2026-08-19: also added the previously-missing VpcDNSTargets key (deserializers.go:7705-7763), emitted as an always-empty list since this backend doesn't model VPC-based custom domain DNS -- matches DescribeCustomDomains's existing convention for the same field"}
+  DisassociateCustomDomain: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-08-19: added the previously-missing VpcDNSTargets key (deserializers.go:8462-8520), same empty-list convention as AssociateCustomDomain/DescribeCustomDomains"}
   DescribeCustomDomains: {wire: ok, errors: ok, state: ok, persist: ok}
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -46,6 +46,7 @@ families:
   error_taxonomy: {status: ok, note: "was systemically broken across all 35 ops -- see Notes; fixed 2026-07-13"}
 gaps:
   - "CreateVpcIngressConnection doesn't validate that ServiceArn refers to an existing service, allowing a dangling reference. Left as-is because CreateVpcIngressConnection's documented error set has no ResourceNotFoundException -- adding validation would need a new InvalidRequestException-mapped check, not a NotFound one, to stay wire-correct; low traffic op, deferred. Re-verified 2026-07-23: still the correct call, not a bug."
+  - "2026-08-19 (Layer 3, disclosed not fixed -- member-never-emitted hunting is out of scope this sweep, only fixed incidentally-surfaced VpcDNSTargets above): ListServices's ServiceSummary items omit UpdatedAt, present on the real types.ServiceSummary (deserializers.go:6856-6963); Service/VpcConnector/VpcIngressConnection all omit DeletedAt, present on their real full types (deserializers.go:6572, 7261, 7500) -- storedVpcConnector/storedVpcIngressConnection/storedAutoScalingConfiguration already track DeletedAt internally but their wire structs never surface it; AutoScalingConfiguration additionally omits Latest (deserializers.go:4591), which isn't tracked in the domain type at all; CustomDomain omits CertificateValidationRecords (deserializers.go:4899, 5381), a genuine backend gap since no cert validation flow is modeled."
 deferred: []
 leaks: {status: clean, note: "no goroutines/janitors in this backend; existing leak_test.go covers handler/backend lifecycle. 2026-07-23: found and fixed one real leak -- DeleteService left its b.customDomains[serviceArn] entry behind forever (unreachable once the service is gone, since DescribeCustomDomains 404s on a deleted ServiceArn); now cascade-deleted, covered by TestDeleteService_CascadesCustomDomains. New AutoScalingConfiguration HasAssociatedService bookkeeping (CreateService/UpdateService/DeleteService) stays entirely inside the existing b.mu critical sections, no new lock paths or goroutines introduced."}
 ---
@@ -196,3 +197,66 @@ HTTP status codes were already correct throughout (400 for all four client-fault
     always-present `DefaultConfiguration` seed. `go build`/`go vet`/`go test -race`/
     `gofmt -l`/`golangci-lint` all green; zero `cyclop`/`gocyclo`/`gocognit`/`funlen` nolints
     before or after.
+
+- 2026-08-19: Wrapper-key/nested-shape wire-parity sweep (all 37 ops enumerated from the
+  pinned SDK's `api_op_*.go` files and `GetSupportedOperations()`, both agree). Protocol
+  reconfirmed as JSON-RPC 1.0 (`awsAwsjson10_*` in `deserializers.go`, exact-match protocol
+  -- not tolerant of casing). Read every op's own `awsAwsjson10_deserializeOpDocument<Op>Output`
+  and, for every nested/summary type actually emitted, its own `deserializeDocument<Type>`
+  case list.
+  - **Bug found and fixed**: `ListObservabilityConfigurations`'s summary entries emitted
+    three fabricated keys -- `Status`, `Latest`, `CreatedAt` -- that have no case at all in
+    the real `types.ObservabilityConfigurationSummary` document deserializer
+    (`deserializers.go:6215-6270`; the real struct at `types/types.go:613-628` only has
+    `ObservabilityConfigurationArn`/`Name`/`Revision`). A real SDK client would silently drop
+    them (this is the same fabricated-summary-field bug class the sibling `fis` sweep found
+    this session). Fixed in `handler_observability_configurations.go` by narrowing
+    `observabilityConfigurationSummaryOutput` to the 3 real fields. New test
+    `TestListObservabilityConfigurations_SummaryHasNoFabricatedFields`
+    (`observability_configuration_summary_wire_test.go`) does a raw-body assertion (the real
+    SDK type can't observe a leaked key, so this is the only instrument that can), plus
+    `TestListObservabilityConfigurations_RealClientSeesSummaryFields` proves the 3 real
+    fields still round-trip through the real client. Hand-revert reproduced the exact leaked
+    keys in the raw JSON body; restored fix verified byte-identical to the pre-revert file.
+  - **Incidental Layer-3 fix** (one only, per this sweep's scope -- member-never-emitted
+    hunting is otherwise out of scope): `AssociateCustomDomain`/`DisassociateCustomDomain`
+    were missing the `VpcDNSTargets` key present in the real deserializer
+    (`deserializers.go:7705-7763`, `8462-8520`) and already emitted (as an always-empty list)
+    by the sibling `DescribeCustomDomains` op in the same file. Added the same
+    `VpcDNSTargets: []any{}` convention to both. New test
+    `TestAssociateDisassociateCustomDomain_VpcDNSTargetsPresent`
+    (`custom_domain_vpc_dns_targets_test.go`) proves via the real SDK client that
+    `out.VpcDNSTargets` is now non-nil (the real
+    `awsAwsjson10_deserializeDocumentVpcDNSTargetList` only runs when the JSON key is
+    present, so omitting the key leaves the real client's field `nil` instead of an empty
+    slice -- confirmed by hand-revert reproducing exactly that `nil` before restoring).
+  - **Families verified clean** (correct wrapper key + correct nesting, summary types
+    checked against their own narrower case list, no fabricated fields): CreateService/
+    UpdateService/DeleteService/DescribeService/PauseService/ResumeService/StartDeployment
+    (`Service`, `serviceOutput` in `handler_services.go`, all nested sub-shapes --
+    SourceConfiguration/CodeRepository/ImageRepository/NetworkConfiguration/
+    HealthCheckConfiguration/EncryptionConfiguration/ServiceObservabilityConfiguration --
+    field-for-field against their own deserializer case lists); ListServices
+    (`ServiceSummary`, correctly narrow vs. full `Service`, aside from the disclosed
+    `UpdatedAt` gap below); the `AutoScalingConfigurationSummary` embedded in every `Service`
+    response (correctly narrow -- 7 fields, no `MaxConcurrency`/`MaxSize`/`MinSize`, matching
+    the real embedded-summary shape, not the full `AutoScalingConfiguration`);
+    Create/Describe/Delete/UpdateDefaultAutoScalingConfiguration (full type, 10/12 real
+    fields -- see gaps for the 2 omitted); ListAutoScalingConfigurations (`Summary`, matches
+    the real 7-field narrow type exactly); Create/Delete/ListConnections (`Connection`/
+    `ConnectionSummary` -- identical field sets on the real types too, so no over-emission
+    risk there); ListOperations (`OperationSummary`, all 7 real fields present, including
+    `UpdatedAt` which a prior sweep already fixed); Create/Describe/Delete/
+    ListVpcConnectors (`VpcConnector`, no separate summary type in the real SDK, confirmed);
+    Create/Describe/Delete/List/UpdateVpcIngressConnection (`VpcIngressConnection` full type,
+    and `VpcIngressConnectionSummary` -- correctly narrow at just 2 fields,
+    `VpcIngressConnectionArn`/`ServiceArn`, matching the real type exactly);
+    ListServicesForAutoScalingConfiguration (plain `ServiceArnList`); Tag/Untag/
+    ListTagsForResource (`Tag`: `Key`/`Value`, `TagResourceOutput`/`UntagResourceOutput`
+    correctly empty). `DescribeCustomDomains` itself already emitted `VpcDNSTargets`
+    correctly (the two sibling ops fixed above didn't).
+  - Gates: `go build`, `go vet`, `go fix -diff`, `gofmt -l`, `go test -race`,
+    `golangci-lint run` all clean on `./services/apprunner/...` after the fixes (see report
+    for verbatim output). Zero `cyclop`/`gocyclo`/`gocognit`/`funlen` nolints introduced.
+    No existing test asserted a wrong key for either bug, so none needed correcting -- only
+    new tests were added.

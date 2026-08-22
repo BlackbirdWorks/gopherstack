@@ -201,8 +201,7 @@ func TestAirflowVersion_SupportedVersions(t *testing.T) {
 	t.Parallel()
 
 	supported := []string{
-		"2.10.3", "2.9.2", "2.8.1", "2.7.2",
-		"2.6.3", "2.5.1", "2.4.3", "2.2.2", "1.10.12",
+		"2.7.2", "2.8.1", "2.9.2", "2.10.1", "2.10.3", "2.11.0", "3.0.6",
 	}
 
 	for _, v := range supported {
@@ -226,6 +225,8 @@ func TestAirflowVersion_UnsupportedVersions(t *testing.T) {
 		"2.3.0",
 		"2.1.0",
 		"1.9.0",
+		"1.10.12",
+		"2.6.3",
 		"bogus",
 		"latest",
 	}
@@ -296,19 +297,23 @@ func TestAirflowVersion_Update_EmptyVersionAllowed(t *testing.T) {
 	require.NoError(t, err)
 }
 
+// Airflow 1.10.12 is no longer a supported AirflowVersion at all under the
+// pinned SDK (validAirflowVersions), so both of these now fail at the
+// version check before validateSchedulers's dead v1-scheduler branch is ever
+// reached -- not because of the Schedulers value.
 func TestAirflowVersion_V1_SchedulerConstraint(t *testing.T) {
 	t.Parallel()
 
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
 	req := newCreateReq()
 	req.AirflowVersion = "1.10.12"
-	req.Schedulers = 2 // v1 only supports 1 scheduler
+	req.Schedulers = 2
 
 	_, err := b.CreateEnvironment(context.Background(), "v1-schedulers-env", req)
 	require.Error(t, err)
 }
 
-func TestAirflowVersion_V1_SingleSchedulerOK(t *testing.T) {
+func TestAirflowVersion_V1_SingleSchedulerRejected(t *testing.T) {
 	t.Parallel()
 
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
@@ -317,7 +322,7 @@ func TestAirflowVersion_V1_SingleSchedulerOK(t *testing.T) {
 	req.Schedulers = 1
 
 	_, err := b.CreateEnvironment(context.Background(), "v1-scheduler-ok", req)
-	require.NoError(t, err)
+	require.Error(t, err)
 }
 
 func TestMaxWorkers_UpperBound_Create(t *testing.T) {
@@ -982,6 +987,10 @@ func TestDefaults_SchedulersV2OnCreate(t *testing.T) {
 	assert.Equal(t, int32(2), env.Schedulers, "default Schedulers for v2 should be 2")
 }
 
+// Airflow 1.10.12 is no longer a supported AirflowVersion (see
+// TestAirflowVersion_V1_SchedulerConstraint), so CreateEnvironment now
+// rejects it before the v1-default-scheduler branch in resolveCreateDefaults
+// is ever reached; that branch is dead for any currently-valid version.
 func TestDefaults_SchedulersV1OnCreate(t *testing.T) {
 	t.Parallel()
 
@@ -989,12 +998,7 @@ func TestDefaults_SchedulersV1OnCreate(t *testing.T) {
 	req := newCreateReq()
 	req.AirflowVersion = "1.10.12"
 	_, err := b.CreateEnvironment(context.Background(), "sched-v1-defaults-env", req)
-	require.NoError(t, err)
-
-	env, err := b.GetEnvironment(context.Background(), "sched-v1-defaults-env")
-	require.NoError(t, err)
-
-	assert.Equal(t, int32(1), env.Schedulers, "default Schedulers for v1 should be 1")
+	require.Error(t, err)
 }
 
 // ─────────────────────────────────────────────────────────────

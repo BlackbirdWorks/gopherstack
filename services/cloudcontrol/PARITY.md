@@ -6,9 +6,9 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: cloudcontrol
 sdk_module: aws-sdk-go-v2/service/cloudcontrol@v1.32.4
-last_audit_commit: 0689b86e
-last_audit_date: 2026-07-26
-overall: A            # follow-up pass (gopherstack-c9yf): ResourceModel filter + ClientTokenConflict fixed for real
+last_audit_commit: 569c029d
+last_audit_date: 2026-08-20
+overall: A            # wrapper-key/nested-shape sweep (2026-08-20): zero bugs found, real-SDK round-trip test added
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
@@ -34,6 +34,89 @@ leaks: {status: clean, note: "no goroutines/timers/janitors; InMemoryBackend is 
 ---
 
 ## Notes
+
+**Wrapper-key/nested-shape sweep (2026-08-20)**: all 8 ops (CreateResource,
+DeleteResource, GetResource, GetResourceRequestStatus, ListResourceRequests,
+ListResources, UpdateResource, CancelResourceRequest) re-verified field-by-field
+against `aws-sdk-go-v2/service/cloudcontrol@v1.32.4`'s live
+`deserializers.go` (`awsAwsjson10_deserializeOpDocument<Op>Output`, confirmed
+by grep-count==2 -- defined AND called -- and by reading the function bodies,
+not just the names). **Zero bugs found.** Confirmed correct, with citations:
+
+- Protocol is `awsjson1.0` (JSON-RPC-style, whole body is the shape, no
+  restjson body-flattening trap applies here -- `deserializers.go:84` prefix
+  `awsAwsjson10_`).
+- All three list/get wrapper keys distinct and correct: `GetResourceOutput`
+  is `{ResourceDescription, TypeName}` (`deserializers.go:3257`),
+  `ListResourcesOutput` is `{NextToken, ResourceDescriptions, TypeName}`
+  (`deserializers.go:3388`), `ListResourceRequestsOutput` is `{NextToken,
+  ResourceRequestStatusSummaries}` (`deserializers.go:3343`).
+- All five `ProgressEvent`-wrapping ops (`Create`/`Delete`/`UpdateResource`,
+  `CancelResourceRequest`, and the `ProgressEvent` half of
+  `GetResourceRequestStatus`) each independently confirmed to wrap the
+  single key `ProgressEvent` (`deserializers.go:3149,3185,3221,3302,3442`);
+  `GetResourceRequestStatusOutput` additionally carries `HooksProgressEvent`
+  (`deserializers.go:3302`), a flat JSON array of `HookProgressEvent`
+  (`deserializers.go` `awsAwsjson10_deserializeDocumentHooksProgressEvent`),
+  each of whose 8 members (`FailureMode`, `HookEventTime`, `HookStatus`,
+  `HookStatusMessage`, `HookTypeArn`, `HookTypeName`, `HookTypeVersionId`,
+  `InvocationPoint`) gopherstack's `hookProgressEvent` (handler.go) models
+  exactly, field-for-field.
+- `ResourceDescription.Properties` (`types/types.go`, confirmed a `*string`)
+  and `ProgressEvent.ResourceModel` / `UpdateResourceInput.PatchDocument` /
+  `CreateResourceInput.DesiredState` are all JSON **strings** on the wire,
+  never decoded objects -- matches gopherstack throughout
+  (`resourceDescription.Properties string`, `ProgressEvent.ResourceModel
+  string` in models.go/handler.go).
+- `ProgressEvent`'s full 12-member field list
+  (`ErrorCode, EventTime, HooksRequestToken, Identifier, Operation,
+  OperationStatus, RequestToken, ResourceModel, RetryAfter, StatusMessage,
+  TypeName` plus the implicit `noSmithyDocumentSerde`) verified against
+  `types/types.go` and its deserializer (`deserializers.go`
+  `awsAwsjson10_deserializeDocumentProgressEvent`) -- all 11 real data
+  members present on gopherstack's `ProgressEvent` (models.go), correct
+  types (`EventTime`/`RetryAfter` epoch-seconds JSON numbers via
+  `unixEpochTime`, everything else a string).
+- Enums checked both directions. `HandlerErrorCode` (16 values, `types/
+  enums.go`) -- all 16 representable as plain strings on gopherstack's
+  `ProgressEvent.ErrorCode string` field (never populated today since no op
+  leaves a request FAILED, but the field itself can carry any of them).
+  `Operation` (`CREATE`/`DELETE`/`UPDATE`) and `OperationStatus` (`PENDING`/
+  `IN_PROGRESS`/`SUCCESS`/`FAILED`/`CANCEL_IN_PROGRESS`/`CANCEL_COMPLETE`)
+  both closed 3- and 6-value Smithy enums, matching
+  `validOperations`/`validOperationStatuses` (resource_requests.go) exactly
+  in both directions. **At this pinned SDK version, `HookStatus`,
+  `HookInvocationPoint`, and `HookFailureMode` are NOT distinct Go enum
+  types** -- `types.HookProgressEvent`'s `FailureMode`, `HookStatus`, and
+  `InvocationPoint` fields are all plain `*string` (`types/types.go`); the
+  task brief's framing of these as enums to check "both directions" does not
+  match the pinned SDK, so there is no enum type to validate values against
+  on the Go side. Noted as a brief/SDK mismatch, not a bug.
+- Round-trip proof: added `wire_sdk_roundtrip_test.go`
+  (`TestCloudControl_SDKRoundTrip`,
+  `TestCloudControl_CancelResourceRequest_SDKRoundTrip`), which drive all 8
+  ops through the real `aws-sdk-go-v2/service/cloudcontrol` client against
+  this package's `Handler` via `pkgs/service`'s router (same pattern as
+  `services/dax/wire_sdk_roundtrip_test.go`) -- both pass, proving every
+  wrapper key and JSON-string field against the SDK's own generated
+  deserializer, not gopherstack's own struct tags agreeing with themselves.
+- Existing `handler_sdk_route_table_test.go` (`X-Amz-Target` routing) and all
+  other existing tests read and re-verified; none assert a wrong
+  key/nesting/type/value. Nothing corrected.
+
+**Provenance note**: `last_audit_commit` had been stuck at `0689b86e`
+(2026-07-13) across three successive audit passes that each *did* update
+`last_audit_date` (2026-07-13 -> 2026-07-24 -> 2026-07-26) but never
+advanced the commit pointer to the commit that actually landed that pass's
+work -- a genuine internal self-contradiction (the file's own "re-audit
+protocol" comment says to diff from `last_audit_commit`, which would have
+replayed all three later passes' own changes as unreviewed drift). This
+matches the flagged pattern (gap of days-to-weeks, cited sha predating the
+claimed date) and is one of the 53 manifests a prior survey flagged for
+exactly this. The underlying audit *content* was accurate on inspection
+(confirmed field-by-field above) -- only the provenance stamp was stale.
+Both `last_audit_commit` and `last_audit_date` refreshed to this pass's HEAD
+(`569c029d`, 2026-08-20) above.
 
 Protocol: awsjson1.0 (`application/x-amz-json-1.0`, `X-Amz-Target: CloudApiService.<Op>`).
 Confirmed against the real SDK client package (target prefix, content-type, error envelope

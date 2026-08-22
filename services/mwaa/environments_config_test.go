@@ -22,8 +22,8 @@ func TestLoggingConfig_ValidLogLevels_Create(t *testing.T) {
 
 			b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
 			req := newCreateReq()
-			req.LoggingConfiguration = &mwaa.LoggingConfiguration{
-				SchedulerLogs: &mwaa.ModuleLoggingConfiguration{LogLevel: level},
+			req.LoggingConfiguration = &mwaa.LoggingConfigurationInput{
+				SchedulerLogs: &mwaa.ModuleLoggingConfigurationInput{LogLevel: level},
 			}
 			_, err := b.CreateEnvironment(context.Background(), "log-level-env", req)
 			require.NoError(t, err)
@@ -52,8 +52,8 @@ func TestLoggingConfig_InvalidLogLevel_Create(t *testing.T) {
 
 			b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
 			req := newCreateReq()
-			req.LoggingConfiguration = &mwaa.LoggingConfiguration{
-				SchedulerLogs: &mwaa.ModuleLoggingConfiguration{LogLevel: tt.logLevel},
+			req.LoggingConfiguration = &mwaa.LoggingConfigurationInput{
+				SchedulerLogs: &mwaa.ModuleLoggingConfigurationInput{LogLevel: tt.logLevel},
 			}
 			_, err := b.CreateEnvironment(context.Background(), "inv-log-env", req)
 			require.Error(t, err)
@@ -65,12 +65,12 @@ func TestLoggingConfig_AllFiveModules_Create(t *testing.T) {
 	t.Parallel()
 
 	trueVal := true
-	lc := &mwaa.LoggingConfiguration{
-		DagProcessingLogs: &mwaa.ModuleLoggingConfiguration{LogLevel: "INFO", Enabled: &trueVal},
-		SchedulerLogs:     &mwaa.ModuleLoggingConfiguration{LogLevel: "WARNING", Enabled: &trueVal},
-		TaskLogs:          &mwaa.ModuleLoggingConfiguration{LogLevel: "ERROR", Enabled: &trueVal},
-		WebserverLogs:     &mwaa.ModuleLoggingConfiguration{LogLevel: "DEBUG", Enabled: &trueVal},
-		WorkerLogs:        &mwaa.ModuleLoggingConfiguration{LogLevel: "CRITICAL", Enabled: &trueVal},
+	lc := &mwaa.LoggingConfigurationInput{
+		DagProcessingLogs: &mwaa.ModuleLoggingConfigurationInput{LogLevel: "INFO", Enabled: &trueVal},
+		SchedulerLogs:     &mwaa.ModuleLoggingConfigurationInput{LogLevel: "WARNING", Enabled: &trueVal},
+		TaskLogs:          &mwaa.ModuleLoggingConfigurationInput{LogLevel: "ERROR", Enabled: &trueVal},
+		WebserverLogs:     &mwaa.ModuleLoggingConfigurationInput{LogLevel: "DEBUG", Enabled: &trueVal},
+		WorkerLogs:        &mwaa.ModuleLoggingConfigurationInput{LogLevel: "CRITICAL", Enabled: &trueVal},
 	}
 
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
@@ -97,8 +97,8 @@ func TestLoggingConfig_InvalidLevel_OnDagProcessingLogs(t *testing.T) {
 
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
 	req := newCreateReq()
-	req.LoggingConfiguration = &mwaa.LoggingConfiguration{
-		DagProcessingLogs: &mwaa.ModuleLoggingConfiguration{LogLevel: "TRACE"},
+	req.LoggingConfiguration = &mwaa.LoggingConfigurationInput{
+		DagProcessingLogs: &mwaa.ModuleLoggingConfigurationInput{LogLevel: "TRACE"},
 	}
 	_, err := b.CreateEnvironment(context.Background(), "dag-log-inv", req)
 	require.Error(t, err)
@@ -110,8 +110,8 @@ func TestLoggingConfig_InvalidLevel_OnTaskLogs(t *testing.T) {
 
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
 	req := newCreateReq()
-	req.LoggingConfiguration = &mwaa.LoggingConfiguration{
-		TaskLogs: &mwaa.ModuleLoggingConfiguration{LogLevel: "NOTSET"},
+	req.LoggingConfiguration = &mwaa.LoggingConfigurationInput{
+		TaskLogs: &mwaa.ModuleLoggingConfigurationInput{LogLevel: "NOTSET"},
 	}
 	_, err := b.CreateEnvironment(context.Background(), "task-log-inv", req)
 	require.Error(t, err)
@@ -123,8 +123,8 @@ func TestLoggingConfig_InvalidLevel_OnWebserverLogs(t *testing.T) {
 
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
 	req := newCreateReq()
-	req.LoggingConfiguration = &mwaa.LoggingConfiguration{
-		WebserverLogs: &mwaa.ModuleLoggingConfiguration{LogLevel: "ACCESS"},
+	req.LoggingConfiguration = &mwaa.LoggingConfigurationInput{
+		WebserverLogs: &mwaa.ModuleLoggingConfigurationInput{LogLevel: "ACCESS"},
 	}
 	_, err := b.CreateEnvironment(context.Background(), "web-log-inv", req)
 	require.Error(t, err)
@@ -136,8 +136,8 @@ func TestLoggingConfig_InvalidLevel_OnWorkerLogs(t *testing.T) {
 
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
 	req := newCreateReq()
-	req.LoggingConfiguration = &mwaa.LoggingConfiguration{
-		WorkerLogs: &mwaa.ModuleLoggingConfiguration{LogLevel: "SILLY"},
+	req.LoggingConfiguration = &mwaa.LoggingConfigurationInput{
+		WorkerLogs: &mwaa.ModuleLoggingConfigurationInput{LogLevel: "SILLY"},
 	}
 	_, err := b.CreateEnvironment(context.Background(), "worker-log-inv", req)
 	require.Error(t, err)
@@ -160,8 +160,8 @@ func TestLoggingConfig_EmptyLogLevel_AllowedOnCreate(t *testing.T) {
 
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
 	req := newCreateReq()
-	req.LoggingConfiguration = &mwaa.LoggingConfiguration{
-		SchedulerLogs: &mwaa.ModuleLoggingConfiguration{LogLevel: ""},
+	req.LoggingConfiguration = &mwaa.LoggingConfigurationInput{
+		SchedulerLogs: &mwaa.ModuleLoggingConfigurationInput{LogLevel: ""},
 	}
 
 	_, err := b.CreateEnvironment(context.Background(), "empty-level-env", req)
@@ -195,8 +195,8 @@ func TestLoggingConfig_ValidLevel_OnUpdate(t *testing.T) {
 			_, _ = b.GetEnvironment(context.Background(), "log-upd-env") // promote CREATING → AVAILABLE
 
 			_, err = b.UpdateEnvironment(context.Background(), "log-upd-env", &mwaa.ExportedUpdateEnvironmentRequest{
-				LoggingConfiguration: &mwaa.LoggingConfiguration{
-					SchedulerLogs: &mwaa.ModuleLoggingConfiguration{LogLevel: tt.logLevel},
+				LoggingConfiguration: &mwaa.LoggingConfigurationInput{
+					SchedulerLogs: &mwaa.ModuleLoggingConfigurationInput{LogLevel: tt.logLevel},
 				},
 			})
 
@@ -215,8 +215,8 @@ func TestLoggingConfig_Persisted_AfterCreate(t *testing.T) {
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
 	trueVal := true
 	req := newCreateReq()
-	req.LoggingConfiguration = &mwaa.LoggingConfiguration{
-		SchedulerLogs: &mwaa.ModuleLoggingConfiguration{
+	req.LoggingConfiguration = &mwaa.LoggingConfigurationInput{
+		SchedulerLogs: &mwaa.ModuleLoggingConfigurationInput{
 			LogLevel: "ERROR",
 			Enabled:  &trueVal,
 		},
@@ -245,8 +245,8 @@ func TestLoggingConfig_Persisted_AfterUpdate(t *testing.T) {
 	_, _ = b.GetEnvironment(context.Background(), "log-upd-persist") // promote CREATING → AVAILABLE
 
 	_, err = b.UpdateEnvironment(context.Background(), "log-upd-persist", &mwaa.ExportedUpdateEnvironmentRequest{
-		LoggingConfiguration: &mwaa.LoggingConfiguration{
-			WorkerLogs: &mwaa.ModuleLoggingConfiguration{LogLevel: "DEBUG"},
+		LoggingConfiguration: &mwaa.LoggingConfigurationInput{
+			WorkerLogs: &mwaa.ModuleLoggingConfigurationInput{LogLevel: "DEBUG"},
 		},
 	})
 	require.NoError(t, err)
@@ -285,8 +285,8 @@ func TestLoggingConfig_Enabled_RoundTrip(t *testing.T) {
 
 			b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
 			req := newCreateReq()
-			req.LoggingConfiguration = &mwaa.LoggingConfiguration{
-				SchedulerLogs: &mwaa.ModuleLoggingConfiguration{
+			req.LoggingConfiguration = &mwaa.LoggingConfigurationInput{
+				SchedulerLogs: &mwaa.ModuleLoggingConfigurationInput{
 					LogLevel: "INFO",
 					Enabled:  tt.enabled,
 				},

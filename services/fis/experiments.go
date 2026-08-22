@@ -168,6 +168,7 @@ func buildExperimentActions(tplActions map[string]ExperimentTemplateAction) map[
 			Description: a.Description,
 			Parameters:  copyStringMap(a.Parameters),
 			Targets:     copyStringMap(a.Targets),
+			StartAfter:  append([]string(nil), a.StartAfter...),
 			Status:      ExperimentActionStatus{Status: actionStatusPending},
 		}
 	}

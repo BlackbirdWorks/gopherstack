@@ -137,6 +137,13 @@ func parallelDataToMap(pd *ParallelData) map[string]any {
 		}
 	}
 
+	if pd.EncryptionKey != nil {
+		m["EncryptionKey"] = map[string]any{
+			"Id":   pd.EncryptionKey.ID,
+			"Type": pd.EncryptionKey.Type,
+		}
+	}
+
 	if pd.LatestUpdateAttemptStatus != "" {
 		m["LatestUpdateAttemptStatus"] = pd.LatestUpdateAttemptStatus
 		m["LatestUpdateAttemptAt"] = awstime.Epoch(pd.LatestUpdateAttemptAt)

@@ -21,12 +21,57 @@ type reportConfigInput struct {
 	ReportS3Configuration *dataSourceS3ConfigInput `json:"ReportS3Configuration,omitempty"`
 }
 
+type dataModelS3ConfigInput struct {
+	BucketName string `json:"BucketName,omitempty"`
+	ObjectKey  string `json:"ObjectKey,omitempty"`
+}
+
+type dimensionMappingInput struct {
+	SourceColumn      string `json:"SourceColumn,omitempty"`
+	DestinationColumn string `json:"DestinationColumn,omitempty"`
+}
+
+type multiMeasureAttributeMappingInput struct {
+	SourceColumn                    string `json:"SourceColumn,omitempty"`
+	TargetMultiMeasureAttributeName string `json:"TargetMultiMeasureAttributeName,omitempty"`
+	MeasureValueType                string `json:"MeasureValueType,omitempty"`
+}
+
+type multiMeasureMappingsInput struct {
+	TargetMultiMeasureName        string                              `json:"TargetMultiMeasureName,omitempty"`
+	MultiMeasureAttributeMappings []multiMeasureAttributeMappingInput `json:"MultiMeasureAttributeMappings,omitempty"`
+}
+
+type mixedMeasureMappingInput struct {
+	MeasureName                   string                              `json:"MeasureName,omitempty"`
+	SourceColumn                  string                              `json:"SourceColumn,omitempty"`
+	TargetMeasureName             string                              `json:"TargetMeasureName,omitempty"`
+	MeasureValueType              string                              `json:"MeasureValueType,omitempty"`
+	MultiMeasureAttributeMappings []multiMeasureAttributeMappingInput `json:"MultiMeasureAttributeMappings,omitempty"`
+}
+
+type dataModelInput struct {
+	MultiMeasureMappings *multiMeasureMappingsInput `json:"MultiMeasureMappings,omitempty"`
+	MeasureNameColumn    string                     `json:"MeasureNameColumn,omitempty"`
+	TimeColumn           string                     `json:"TimeColumn,omitempty"`
+	TimeUnit             string                     `json:"TimeUnit,omitempty"`
+	DimensionMappings    []dimensionMappingInput    `json:"DimensionMappings,omitempty"`
+	MixedMeasureMappings []mixedMeasureMappingInput `json:"MixedMeasureMappings,omitempty"`
+}
+
+type dataModelConfigInput struct {
+	DataModel                *dataModelInput         `json:"DataModel,omitempty"`
+	DataModelS3Configuration *dataModelS3ConfigInput `json:"DataModelS3Configuration,omitempty"`
+}
+
 type createBatchLoadTaskInput struct {
 	DataSourceConfiguration *dataSourceConfigInput `json:"DataSourceConfiguration,omitempty"`
 	ReportConfiguration     *reportConfigInput     `json:"ReportConfiguration,omitempty"`
+	DataModelConfiguration  *dataModelConfigInput  `json:"DataModelConfiguration,omitempty"`
 	TargetDatabaseName      string                 `json:"TargetDatabaseName"`
 	TargetTableName         string                 `json:"TargetTableName"`
 	ClientToken             string                 `json:"ClientToken"`
+	RecordVersion           int64                  `json:"RecordVersion,omitempty"`
 }
 
 type createBatchLoadTaskOutput struct {
@@ -41,6 +86,7 @@ type batchLoadTaskDescriptionView struct {
 	ResumableUntil          *float64               `json:"ResumableUntil,omitempty"`
 	DataSourceConfiguration *dataSourceConfigInput `json:"DataSourceConfiguration,omitempty"`
 	ReportConfiguration     *reportConfigInput     `json:"ReportConfiguration,omitempty"`
+	DataModelConfiguration  *dataModelConfigInput  `json:"DataModelConfiguration,omitempty"`
 	ProgressReport          *progressReportView    `json:"ProgressReport,omitempty"`
 	TaskID                  string                 `json:"TaskId"`
 	TargetDatabaseName      string                 `json:"TargetDatabaseName"`
@@ -84,6 +130,158 @@ type progressReportView struct {
 	RecordIngestionFailures int64 `json:"RecordIngestionFailures,omitempty"`
 	RecordsIngested         int64 `json:"RecordsIngested,omitempty"`
 	RecordsProcessed        int64 `json:"RecordsProcessed,omitempty"`
+}
+
+func toMultiMeasureAttributeMappingViews(
+	in []MultiMeasureAttributeMapping,
+) []multiMeasureAttributeMappingInput {
+	if len(in) == 0 {
+		return nil
+	}
+
+	out := make([]multiMeasureAttributeMappingInput, 0, len(in))
+	for _, m := range in {
+		out = append(out, multiMeasureAttributeMappingInput(m))
+	}
+
+	return out
+}
+
+//nolint:dupl // mirrors dataModelFromInput's reverse (wire->backend) direction field-for-field
+func toDataModelView(dm *DataModel) *dataModelInput {
+	if dm == nil {
+		return nil
+	}
+
+	v := &dataModelInput{
+		MeasureNameColumn: dm.MeasureNameColumn,
+		TimeColumn:        dm.TimeColumn,
+		TimeUnit:          dm.TimeUnit,
+	}
+
+	if len(dm.DimensionMappings) > 0 {
+		v.DimensionMappings = make([]dimensionMappingInput, 0, len(dm.DimensionMappings))
+		for _, m := range dm.DimensionMappings {
+			v.DimensionMappings = append(v.DimensionMappings, dimensionMappingInput(m))
+		}
+	}
+
+	if len(dm.MixedMeasureMappings) > 0 {
+		v.MixedMeasureMappings = make([]mixedMeasureMappingInput, 0, len(dm.MixedMeasureMappings))
+
+		for _, m := range dm.MixedMeasureMappings {
+			v.MixedMeasureMappings = append(v.MixedMeasureMappings, mixedMeasureMappingInput{
+				MeasureName:                   m.MeasureName,
+				SourceColumn:                  m.SourceColumn,
+				TargetMeasureName:             m.TargetMeasureName,
+				MeasureValueType:              m.MeasureValueType,
+				MultiMeasureAttributeMappings: toMultiMeasureAttributeMappingViews(m.MultiMeasureAttributeMappings),
+			})
+		}
+	}
+
+	if dm.MultiMeasureMappings != nil {
+		v.MultiMeasureMappings = &multiMeasureMappingsInput{
+			TargetMultiMeasureName: dm.MultiMeasureMappings.TargetMultiMeasureName,
+			MultiMeasureAttributeMappings: toMultiMeasureAttributeMappingViews(
+				dm.MultiMeasureMappings.MultiMeasureAttributeMappings,
+			),
+		}
+	}
+
+	return v
+}
+
+func toDataModelConfigView(cfg *DataModelConfiguration) *dataModelConfigInput {
+	if cfg == nil {
+		return nil
+	}
+
+	v := &dataModelConfigInput{DataModel: toDataModelView(cfg.DataModel)}
+
+	if cfg.DataModelS3Configuration != nil {
+		v.DataModelS3Configuration = &dataModelS3ConfigInput{
+			BucketName: cfg.DataModelS3Configuration.BucketName,
+			ObjectKey:  cfg.DataModelS3Configuration.ObjectKey,
+		}
+	}
+
+	return v
+}
+
+func multiMeasureAttributeMappingsFromInput(in []multiMeasureAttributeMappingInput) []MultiMeasureAttributeMapping {
+	if len(in) == 0 {
+		return nil
+	}
+
+	out := make([]MultiMeasureAttributeMapping, 0, len(in))
+	for _, m := range in {
+		out = append(out, MultiMeasureAttributeMapping(m))
+	}
+
+	return out
+}
+
+//nolint:dupl // mirrors toDataModelView's reverse (backend->wire) direction field-for-field
+func dataModelFromInput(in *dataModelInput) *DataModel {
+	if in == nil {
+		return nil
+	}
+
+	dm := &DataModel{
+		MeasureNameColumn: in.MeasureNameColumn,
+		TimeColumn:        in.TimeColumn,
+		TimeUnit:          in.TimeUnit,
+	}
+
+	if len(in.DimensionMappings) > 0 {
+		dm.DimensionMappings = make([]DimensionMapping, 0, len(in.DimensionMappings))
+		for _, m := range in.DimensionMappings {
+			dm.DimensionMappings = append(dm.DimensionMappings, DimensionMapping(m))
+		}
+	}
+
+	if len(in.MixedMeasureMappings) > 0 {
+		dm.MixedMeasureMappings = make([]MixedMeasureMapping, 0, len(in.MixedMeasureMappings))
+
+		for _, m := range in.MixedMeasureMappings {
+			dm.MixedMeasureMappings = append(dm.MixedMeasureMappings, MixedMeasureMapping{
+				MeasureName:                   m.MeasureName,
+				SourceColumn:                  m.SourceColumn,
+				TargetMeasureName:             m.TargetMeasureName,
+				MeasureValueType:              m.MeasureValueType,
+				MultiMeasureAttributeMappings: multiMeasureAttributeMappingsFromInput(m.MultiMeasureAttributeMappings),
+			})
+		}
+	}
+
+	if in.MultiMeasureMappings != nil {
+		dm.MultiMeasureMappings = &MultiMeasureMappings{
+			TargetMultiMeasureName: in.MultiMeasureMappings.TargetMultiMeasureName,
+			MultiMeasureAttributeMappings: multiMeasureAttributeMappingsFromInput(
+				in.MultiMeasureMappings.MultiMeasureAttributeMappings,
+			),
+		}
+	}
+
+	return dm
+}
+
+func dataModelConfigFromInput(in *dataModelConfigInput) *DataModelConfiguration {
+	if in == nil {
+		return nil
+	}
+
+	cfg := &DataModelConfiguration{DataModel: dataModelFromInput(in.DataModel)}
+
+	if in.DataModelS3Configuration != nil {
+		cfg.DataModelS3Configuration = &DataModelS3Configuration{
+			BucketName: in.DataModelS3Configuration.BucketName,
+			ObjectKey:  in.DataModelS3Configuration.ObjectKey,
+		}
+	}
+
+	return cfg
 }
 
 func toBatchLoadTaskDescriptionView(task *BatchLoadTask) batchLoadTaskDescriptionView {
@@ -143,6 +341,8 @@ func toBatchLoadTaskDescriptionView(task *BatchLoadTask) batchLoadTaskDescriptio
 
 		v.ReportConfiguration = rpt
 	}
+
+	v.DataModelConfiguration = toDataModelConfigView(task.DataModelConfiguration)
 
 	return v
 }
@@ -207,7 +407,11 @@ func (h *Handler) handleCreateBatchLoadTask(
 		}
 	}
 
-	task, err := h.Backend.CreateBatchLoadTask(in.TargetDatabaseName, in.TargetTableName, dataSourceCfg, reportCfg)
+	dataModelCfg := dataModelConfigFromInput(in.DataModelConfiguration)
+
+	task, err := h.Backend.CreateBatchLoadTask(
+		in.TargetDatabaseName, in.TargetTableName, dataSourceCfg, reportCfg, dataModelCfg, in.RecordVersion,
+	)
 	if err != nil {
 		return nil, err
 	}

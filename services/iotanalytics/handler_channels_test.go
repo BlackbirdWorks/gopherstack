@@ -485,8 +485,7 @@ func TestHandler_DescribeChannel_IncludeStatistics(t *testing.T) {
 
 			var resp map[string]any
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-			ch, _ := resp["channel"].(map[string]any)
-			_, hasStats := ch["statistics"]
+			_, hasStats := resp["statistics"]
 			assert.Equal(t, tt.wantStatistics, hasStats)
 		})
 	}

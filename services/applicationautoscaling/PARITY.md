@@ -1,7 +1,7 @@
 service: applicationautoscaling
 sdk_module: aws-sdk-go-v2/service/applicationautoscaling@v1.45.4
-last_audit_commit: 2d47b51d4
-last_audit_date: 2026-07-29
+last_audit_commit: bf7f0944b
+last_audit_date: 2026-08-20
 overall: A            # real, wire-breaking bugs found and fixed
 ops:
   RegisterScalableTarget: {wire: ok, errors: fixed, state: ok, persist: ok, note: "upsert confirmed; MinCapacity/MaxCapacity/RoleARN/Tags/SuspendedState all persisted and mutated on update. FIXED: over-tag-limit now reports LimitExceededException (RegisterScalableTarget's modeled error set has no TooManyTagsException, confirmed against the vendored SDK's deserializeOpErrorRegisterScalableTarget), not ValidationException."}
@@ -17,7 +17,7 @@ ops:
   ListTagsForResource: {wire: ok, errors: fixed, state: ok, persist: ok, note: "FIXED: not-found now reports ResourceNotFoundException (with ResourceName), not ObjectNotFoundException -- ListTagsForResource/TagResource/UntagResource are modeled with ResourceNotFoundException only, confirmed against each op's deserializeOpError* switch in the vendored SDK."}
   TagResource: {wire: ok, errors: fixed, state: ok, persist: ok, note: "FIXED: not-found -> ResourceNotFoundException (see ListTagsForResource). FIXED: over-tag-limit now reports TooManyTagsException (with ResourceName), not ValidationException -- TagResource is the one op actually modeled with TooManyTagsException."}
   UntagResource: {wire: ok, errors: fixed, state: ok, persist: ok, note: "FIXED: not-found -> ResourceNotFoundException (see ListTagsForResource)."}
-  GetPredictiveScalingForecast: {wire: ok, errors: fixed, state: fixed, persist: n/a, note: "FIXED (prior pass): epoch-seconds wire format end to end; unknown-policy error switched from ObjectNotFoundException to ValidationException -- GetPredictiveScalingForecast's modeled error set is {InternalServiceException, ValidationException} only (confirmed against awsAwsjson11_deserializeOpErrorGetPredictiveScalingForecast in the vendored SDK); a real aws-sdk-go-v2 client's typed-error matching on ObjectNotFoundException would never have fired here. DOWNGRADED this pass: forecast data was previously a flat synthetic 10.0-per-hour simulation -- a fabricated curve a caller could mistake for a real ML-produced forecast. gopherstack has no real metric history to forecast from, so CapacityForecast/LoadForecast now honestly return zero data points for every request instead (which also matches real AWS's own behavior for a predictive scaling policy that hasn't yet accumulated enough history). See gaps."}
+  GetPredictiveScalingForecast: {wire: fixed, errors: fixed, state: fixed, persist: n/a, note: "FIXED (prior pass): epoch-seconds wire format end to end; unknown-policy error switched from ObjectNotFoundException to ValidationException -- GetPredictiveScalingForecast's modeled error set is {InternalServiceException, ValidationException} only (confirmed against awsAwsjson11_deserializeOpErrorGetPredictiveScalingForecast in the vendored SDK); a real aws-sdk-go-v2 client's typed-error matching on ObjectNotFoundException would never have fired here. DOWNGRADED (prior pass): forecast data was previously a flat synthetic 10.0-per-hour simulation -- a fabricated curve a caller could mistake for a real ML-produced forecast. gopherstack has no real metric history to forecast from, so CapacityForecast/LoadForecast now honestly return zero data points for every request instead (which also matches real AWS's own behavior for a predictive scaling policy that hasn't yet accumulated enough history). See gaps. FIXED this pass (2026-08-20, wrapper-key/nested-shape sweep): LoadForecast[].MetricSpecification is types.PredictiveScalingMetricSpecification -- an OBJECT (types/types.go, 'This member is required') -- but gopherstack was emitting a synthesized STRING (`fmt.Sprintf(\"%s/%s/%s\", ...)`) for it on every call. A real aws-sdk-go-v2 client's JSON unmarshal of that field into the typed struct fails outright ('unexpected JSON type ...'), breaking the ENTIRE GetPredictiveScalingForecast call for every caller, not a cosmetic mismatch -- classic shape (c), wrong JSON type. Proven with a new real-SDK round-trip test (TestGetPredictiveScalingForecast_SDKRoundTrip in wire_sdk_roundtrip_test.go) that failed with exactly that deserialization error before the fix and passes after. Fixed in forecast.go/models.go/handler_forecast.go: LoadForecastData.MetricSpecification (and the wire loadForecastOutput.MetricSpecification) changed from string to map[string]any, and GetPredictiveScalingForecast now echoes back the caller's own PredictiveScalingPolicyConfiguration.MetricSpecifications[0] (real, caller-supplied data from PutScalingPolicy's raw passthrough map) instead of fabricating a placeholder string -- LoadForecast is an empty slice (no entries) when the policy has no configured metric spec, rather than one entry with an invalid-type field. Corrected TestHandler_GetPredictiveScalingForecast_HonestlyEmpty, which had asserted the fabricated string as if it were the correct wire value."}
 families:
   tagging: {status: ok, note: "TagResource/ListTagsForResource/UntagResource operate on scalable-target ARNs only, matching real AWS (Application Auto Scaling only supports tagging scalable targets)"}
   error_types: {status: fixed, note: "Every modeled AWS exception (ConcurrentUpdateException/FailedResourceAccessException/InternalServiceException/InvalidNextTokenException/LimitExceededException/ObjectNotFoundException/ResourceNotFoundException/TooManyTagsException/ValidationException) now has a distinct sentinel in errors.go and a correct HTTP status in handler.go's handleError, matching each type's ErrorFault() classification in the vendored SDK's types/errors.go: FaultServer (ConcurrentUpdateException, InternalServiceException) -> HTTP 500; FaultClient (everything else) -> HTTP 400. Previously ObjectNotFoundException incorrectly returned 404, ValidationException(ErrAlreadyExists) incorrectly returned 409, and TooManyTagsException/LimitExceededException/InvalidNextTokenException/ResourceNotFoundException/ConcurrentUpdateException/FailedResourceAccessException did not exist as distinct types at all (their scenarios either fell through to a generic ValidationException/404 or were simply unreachable). ConcurrentUpdateException/FailedResourceAccessException specifically remain without a backend-state trigger but are reachable via chaos fault injection -- see deferred."}
@@ -26,6 +26,7 @@ gaps:
   - DescribeScalingActivities accepts IncludeNotScaledActivities (now threaded into the backend filter, and the response shape now has NotScaledReasons/Details fields) but it remains observably vacuous: gopherstack's mock backend never generates "not scaled" activities (no real metric evaluation loop exists to decide not-to-scale), so there is nothing to surface regardless of the flag's value. Verified vacuous, not a fabricated stub -- generating fake not-scaled events would be worse than reporting none. Re-confirmed this pass (gopherstack-cdxe): implementing this honestly would require a real metric-evaluation loop against real CloudWatch data, out of scope.
   - GetPredictiveScalingForecast returns zero data points for CapacityForecast/LoadForecast rather than any real forecasting simulation (DOWNGRADED this pass from a fabricated flat 10.0-per-hour curve -- see the op table entry). Producing a genuine forecast would require an actual ML/statistical model over real historical CloudWatch metric data gopherstack does not have; honest-empty is the correct terminal state here, not a stopgap.
   - PolicyType/ScalableDimension/ServiceNamespace enum values are accepted permissively (no allowlist validation) rather than validated against the real AWS enum lists. Consistent with this codebase's general emulator philosophy of not over-validating; not treated as a bug. Re-confirmed this pass (gopherstack-cdxe) against that stated philosophy -- no change made.
+  - DISCLOSED, NOT FIXED (2026-08-20 sweep): DescribeScalableTargets' scalableTargetSummary wire struct (handler_scalable_targets.go) emits `Tags` and `LastModifiedTime` fields that do not exist on the real SDK's `types.ScalableTarget` (confirmed by reading the full struct in the pinned v1.45.4 types.go -- it has exactly CreationTime/MaxCapacity/MinCapacity/ResourceId/RoleARN/ScalableDimension/ServiceNamespace/PredictedCapacity/ScalableTargetARN/SuspendedState, no Tags, no LastModifiedTime). Same pattern on DescribeScheduledActions' scheduledActionSummary: it emits `LastModifiedTime`, which `types.ScheduledAction` also does not have. Both are real backend state (not fabricated values), and a real aws-sdk-go-v2 client's JSON unmarshal into the typed SDK struct silently ignores unrecognized keys -- so unlike the GetPredictiveScalingForecast bug this pass fixed, these do not break a real client and are not one of the five wire-breaking bug shapes (missing member, wrong nesting, wrong type, case mismatch, wrong value/invented enum). Left as-is rather than manufacturing a fix for a non-breaking, additive deviation; flagged here for visibility if a future pass wants strict shape purism.
 deferred:
   - Full CloudWatch cross-service integration for scaling-policy alarms: real AWS creates genuine backing CloudWatch alarms (visible via cloudwatch:DescribeAlarms) and can fail PutScalingPolicy with FailedResourceAccessException if the scalable target's RoleARN lacks CloudWatch permissions. gopherstack's cloudwatch service does have a real backend (services/cloudwatch, with a working PutMetricAlarm), and other services (e.g. cloudformation) do wire a cross-service reference to it -- but that wiring is set up at CLI backend-provider init time in cli.go (see cloudformation/provider.go's `bp.GetCloudWatchHandler()` pattern), and cli.go was out of bounds for this pass. A prior pass instead synthesized stable-looking Alarm name+ARN entries on the Application Auto Scaling side pointing at a CloudWatch alarm that doesn't exist; that fabrication was removed this pass (gopherstack-cdxe) in favor of an honestly-empty Alarms field (see PutScalingPolicy). Real cross-service alarm creation remains a legitimate follow-up once cli.go wiring is in scope, but is not a wire bug in the meantime.
   - ConcurrentUpdateException/FailedResourceAccessException: sentinels (ErrConcurrentUpdate/ErrFailedResourceAccess) and correct HTTP statuses exist in errors.go/handler.go, but no backend method returns either -- gopherstack's backend serializes every operation behind one coarse lockmetrics.RWMutex (no update-race window) and has no cross-service CloudWatch permission check (see the deferred alarm-integration item above), so neither has a non-fabricated backend-state trigger. ALREADY COVERED BY CHAOS (verified this pass, gopherstack-cdxe): `pkgs/chaos.Middleware` (wired globally via `registry.Use(chaos.Middleware(faultStore))` in cli.go) sits in front of every service's handler and matches purely on the request's SigV4 service name ("application-autoscaling") + X-Amz-Target operation + region -- it never inspects backend state, so a fault rule such as `{"service":"application-autoscaling","error":{"code":"ConcurrentUpdateException","statusCode":500}}` deterministically returns that exact error to a real aws-sdk-go-v2 client on any operation, with zero code changes needed in this service. This is the same generic mechanism proven end-to-end against a real containerized client in test/integration/chaos_test.go. Wiring a fabricated in-backend trigger for either exception would be redundant with, and strictly worse than, this existing mechanism.
@@ -161,3 +162,71 @@ leaks: {status: clean, note: "no goroutines/janitors in this service; all state 
 - `ErrAlreadyExists` remains declared and wired into handleError (HTTP 400, fixed from 409)
   but no backend method returns it -- every Put*/Register* op is upsert-only by design,
   matching real AWS semantics (there is no create-only path that could conflict).
+
+## 2026-08-20 wrapper-key/nested-shape sweep
+
+- **`ResourceLabel` cross-service twin check (`gopherstack-41di`)**: the sibling `autoscaling`
+  service's `PutScalingPolicy` was reported to drop `ResourceLabel` from
+  `PredefinedMetricSpecification` in its target-tracking config. That bug does NOT exist here.
+  Confirmed by reading the pinned SDK's `types.PredefinedMetricSpecification`
+  (`types/types.go`: `PredefinedMetricType MetricType` required, `ResourceLabel *string`
+  optional) and gopherstack's own wire path: `applicationautoscaling` stores
+  `TargetTrackingScalingPolicyConfiguration`/`StepScalingPolicyConfiguration`/
+  `PredictiveScalingPolicyConfiguration` as opaque `map[string]any` passthroughs end to end
+  (`putScalingPolicyInput` in handler_scaling_policies.go decodes the raw JSON body directly
+  via `encoding/json.Unmarshal` into a `map[string]any` field -- `pkgs/service/jsondisp.go`'s
+  `HandleJSON`/`WrapOp` do no field allowlisting), and `DescribeScalingPolicies` echoes the
+  same map back verbatim (`scalingPolicySummary.TargetTrackingScalingPolicyConfiguration =
+  p.TargetTrackingConfig`). There is no named Go field for `ResourceLabel` (or any other
+  nested member) to omit it from -- every key the caller sends, at any nesting depth, survives
+  the round trip untouched. This is architecturally different from `autoscaling`'s bug (a
+  typed struct that named some fields and not others); the twin does not apply.
+
+- **The two policy-config types are fully independent, verified against their own
+  deserializers**: `TargetTrackingScalingPolicyConfiguration` and
+  `StepScalingPolicyConfiguration` are separate top-level keys in `PutScalingPolicyInput`
+  (`api_op_PutScalingPolicy.go`) and separate `map[string]any` fields in gopherstack's
+  `ScalingPolicy`/`putScalingPolicyInput`/`scalingPolicySummary` (never merged or aliased), so
+  they cannot cross-contaminate. `PredictiveScalingPolicyConfiguration` is a third, equally
+  independent key/field. Confirmed against `PutScalingPolicyInput`'s three separate optional
+  members and `ScalingPolicy`'s (types.go) three separate optional members.
+
+- **Real bug found and fixed**: `GetPredictiveScalingForecast`'s `LoadForecast[].
+  MetricSpecification` was a fabricated STRING (`fmt.Sprintf("%s/%s/%s", serviceNamespace,
+  resourceID, scalableDimension)`) where the real wire shape
+  (`types.LoadForecast.MetricSpecification`, `types/types.go`) is a required OBJECT
+  (`*types.PredictiveScalingMetricSpecification`). A real aws-sdk-go-v2 client's JSON
+  unmarshal into that struct field fails outright on a string value
+  (`unexpected JSON type ecs/service/...`), breaking the ENTIRE
+  `GetPredictiveScalingForecast` call -- proven with a new SDK round-trip test
+  (`wire_sdk_roundtrip_test.go`) that reproduced this exact deserialization error against the
+  pre-fix code and passes after. See the op table entry for the full fix description. This is
+  shape (c) from the sweep's bug taxonomy (wrong JSON type, fails the entire call).
+
+- **Four Describe ops' four item types, verified separately against the pinned SDK**:
+  `ScalableTarget` (10 real fields), `ScalingActivity` (12 real fields), `ScheduledAction`
+  (11 real fields), and `ScalingPolicy` (config-map passthrough, not field-enumerated) were
+  each diffed member-by-member against their own struct in `types/types.go` -- no missing
+  members found on any of the four. Two extra (non-fabricated, non-breaking) fields were
+  found and disclosed rather than fixed; see gaps.
+
+- **Enums checked both directions**: `PolicyType` (gopherstack's `isValidPolicyType` allows
+  exactly the SDK's 3 values: StepScaling/TargetTrackingScaling/PredictiveScaling -- no
+  invented 4th value). `ScalingActivityStatusCode` (gopherstack only ever emits
+  `"Successful"`, one of the SDK's 6 real values -- no invented value). `ServiceNamespace`
+  (the per-namespace scalable-target quota switch in `scalable_targets.go` matches exactly 3
+  of the SDK's 15 real values -- dynamodb/ecs/cassandra -- with every other real value falling
+  through to the documented default case; no invented namespace string). `AdjustmentType`,
+  `MetricAggregationType`, `MetricStatistic`, `MetricType`, `ScalableDimension` are accepted
+  permissively (passthrough, no gopherstack-side enum encoding to check) -- pre-existing,
+  documented gap, not new.
+
+- **Protocol reconfirmed**: awsjson1.1 (`AnyScaleFrontendService.<Op>` X-Amz-Target), all 14
+  ops have `awsAwsjson11_deserializeOpDocument<Op>Output` both defined and called (count=2 in
+  deserializers.go) -- the cnhp restjson dead-code trap does not apply to this JSON-RPC
+  service.
+
+- **Provenance verdict**: the prior stamp (`last_audit_commit: 2d47b51d4`,
+  `last_audit_date: 2026-07-29`) checks out -- `git show -s --format=%ad 2d47b51d4` returns
+  `Wed Jul 29 22:13:36 2026 -0500`, the same day as the recorded audit date. No gap, no false
+  provenance. Refreshed this pass to the current HEAD (`bf7f0944b`) and today (2026-08-20).

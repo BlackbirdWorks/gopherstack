@@ -29,7 +29,7 @@ func TestInMemoryBackend_RestoreVersionMismatch(t *testing.T) {
 
 	_, err := b.CreateScheduledQuery(
 		t.Context(), "seed-sq", "SELECT 1", "rate(1 hour)", "arn:aws:iam::123456789012:role/x",
-		"", "", "", "", "", "", nil,
+		"", "", "", "", "", "", nil, nil,
 	)
 	require.NoError(t, err)
 
@@ -63,7 +63,7 @@ func TestInMemoryBackend_SnapshotRestore_EmptyState(t *testing.T) {
 
 	_, err := fresh.CreateScheduledQuery(
 		t.Context(), "post-restore", "SELECT 1", "rate(1 hour)", "arn:aws:iam::123456789012:role/x",
-		"", "", "", "", "", "", nil,
+		"", "", "", "", "", "", nil, nil,
 	)
 	require.NoError(t, err)
 }
@@ -90,12 +90,16 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 		ctxEast, "shared-sq", "SELECT 1", "rate(1 hour)", "arn:aws:iam::123456789012:role/east",
 		"sns-topic", "err-bucket", "db1", "tbl1", "", "arn:aws:kms:us-east-1:123456789012:key/east-key",
 		map[string]string{"env": "east"},
+		&ScheduledQueryTargetDetail{
+			TimeColumn:        "time",
+			DimensionMappings: []DimensionMapping{{Name: "region", DimensionValueType: "VARCHAR"}},
+		},
 	)
 	require.NoError(t, err)
 
 	westSQ, err := original.CreateScheduledQuery(
 		ctxWest, "shared-sq", "SELECT 2", "rate(2 hours)", "arn:aws:iam::123456789012:role/west",
-		"", "", "", "", "", "", nil,
+		"", "", "", "", "", "", nil, nil,
 	)
 	require.NoError(t, err)
 
@@ -126,6 +130,10 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	assert.Equal(t, "east", eastDesc.Tags["env"])
 	assert.Equal(t, "arn:aws:kms:us-east-1:123456789012:key/east-key", eastDesc.KmsKeyID,
 		"KmsKeyId must survive a Snapshot/Restore round trip")
+	require.NotNil(t, eastDesc.TargetDetail, "TargetDetail must survive a Snapshot/Restore round trip")
+	assert.Equal(t, "time", eastDesc.TargetDetail.TimeColumn)
+	require.Len(t, eastDesc.TargetDetail.DimensionMappings, 1)
+	assert.Equal(t, "region", eastDesc.TargetDetail.DimensionMappings[0].Name)
 
 	westDesc, err := fresh.DescribeScheduledQuery(t.Context(), westSQ.Arn)
 	require.NoError(t, err)
@@ -245,7 +253,7 @@ func TestPersistence_HandlerSnapshotDelegates(t *testing.T) {
 
 	_, err := backend.CreateScheduledQuery(
 		t.Context(), "persist-test", "SELECT 1", "rate(1 hour)", "arn:aws:iam::123:role/r",
-		"arn:aws:sns:us-east-1:123:topic", "my-errors-bucket", "", "", "", "", map[string]string{"k": "v"},
+		"arn:aws:sns:us-east-1:123:topic", "my-errors-bucket", "", "", "", "", map[string]string{"k": "v"}, nil,
 	)
 	require.NoError(t, err)
 
@@ -278,7 +286,7 @@ func TestPersistence_HandlerRestoreDelegates(t *testing.T) {
 
 	_, err := backend.CreateScheduledQuery(
 		t.Context(), "handler-snap-test", "SELECT 1", "rate(1 hour)", "arn:aws:iam::123:role/r",
-		"arn:aws:sns:us-east-1:123:topic", "my-errors-bucket", "", "", "", "", nil,
+		"arn:aws:sns:us-east-1:123:topic", "my-errors-bucket", "", "", "", "", nil, nil,
 	)
 	require.NoError(t, err)
 

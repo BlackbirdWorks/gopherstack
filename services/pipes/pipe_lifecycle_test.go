@@ -1082,35 +1082,24 @@ func TestLogConfiguration(t *testing.T) {
 			t.Parallel()
 
 			h := auditNewHandler(t)
-			var destinations []map[string]any
+			logConfig := map[string]any{"Level": tt.logLevel}
 
 			if tt.cloudwatchLogGroupArn != "" {
-				destinations = append(destinations, map[string]any{
-					"CloudwatchLogsLogDestination": map[string]any{
-						"LogGroupArn": tt.cloudwatchLogGroupArn,
-					},
-				})
+				logConfig["CloudwatchLogsLogDestination"] = map[string]any{
+					"LogGroupArn": tt.cloudwatchLogGroupArn,
+				}
 			}
 			if tt.firehoseStreamArn != "" {
-				destinations = append(destinations, map[string]any{
-					"FirehoseLogDestination": map[string]any{
-						"DeliveryStreamArn": tt.firehoseStreamArn,
-					},
-				})
+				logConfig["FirehoseLogDestination"] = map[string]any{
+					"DeliveryStreamArn": tt.firehoseStreamArn,
+				}
 			}
 			if tt.s3BucketName != "" {
 				dest := map[string]any{"BucketName": tt.s3BucketName}
 				if tt.s3Prefix != "" {
 					dest["Prefix"] = tt.s3Prefix
 				}
-				destinations = append(destinations, map[string]any{
-					"S3LogDestination": dest,
-				})
-			}
-
-			logConfig := map[string]any{
-				"Level":        tt.logLevel,
-				"Destinations": destinations,
+				logConfig["S3LogDestination"] = dest
 			}
 			if len(tt.includeExecutionData) > 0 {
 				logConfig["IncludeExecutionData"] = tt.includeExecutionData
@@ -1128,43 +1117,22 @@ func TestLogConfiguration(t *testing.T) {
 			require.NotNil(t, lc, "LogConfiguration missing")
 			assert.Equal(t, tt.logLevel, lc["Level"])
 
-			dests, _ := lc["Destinations"].([]any)
-			assert.Len(t, dests, len(destinations))
-
 			if tt.cloudwatchLogGroupArn != "" {
-				found := false
-				for _, d := range dests {
-					dm := d.(map[string]any)
-					if cwl, ok := dm["CloudwatchLogsLogDestination"].(map[string]any); ok {
-						assert.Equal(t, tt.cloudwatchLogGroupArn, cwl["LogGroupArn"])
-						found = true
-					}
-				}
-				assert.True(t, found, "CloudWatch log destination not found")
+				cwl, ok := lc["CloudwatchLogsLogDestination"].(map[string]any)
+				require.True(t, ok, "CloudWatch log destination not found")
+				assert.Equal(t, tt.cloudwatchLogGroupArn, cwl["LogGroupArn"])
 			}
 
 			if tt.firehoseStreamArn != "" {
-				found := false
-				for _, d := range dests {
-					dm := d.(map[string]any)
-					if fh, ok := dm["FirehoseLogDestination"].(map[string]any); ok {
-						assert.Equal(t, tt.firehoseStreamArn, fh["DeliveryStreamArn"])
-						found = true
-					}
-				}
-				assert.True(t, found, "Firehose log destination not found")
+				fh, ok := lc["FirehoseLogDestination"].(map[string]any)
+				require.True(t, ok, "Firehose log destination not found")
+				assert.Equal(t, tt.firehoseStreamArn, fh["DeliveryStreamArn"])
 			}
 
 			if tt.s3BucketName != "" {
-				found := false
-				for _, d := range dests {
-					dm := d.(map[string]any)
-					if s3, ok := dm["S3LogDestination"].(map[string]any); ok {
-						assert.Equal(t, tt.s3BucketName, s3["BucketName"])
-						found = true
-					}
-				}
-				assert.True(t, found, "S3 log destination not found")
+				s3, ok := lc["S3LogDestination"].(map[string]any)
+				require.True(t, ok, "S3 log destination not found")
+				assert.Equal(t, tt.s3BucketName, s3["BucketName"])
 			}
 		})
 	}

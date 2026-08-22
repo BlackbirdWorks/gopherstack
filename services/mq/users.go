@@ -285,7 +285,7 @@ func (b *InMemoryBackend) ListUsers(brokerID string) ([]UserSummary, error) {
 
 	list := make([]UserSummary, 0, len(br.Users))
 	for _, u := range br.Users {
-		summary := UserSummary{Username: u.Username, Console: u.Console}
+		summary := UserSummary{Username: u.Username}
 		if u.Pending != nil {
 			summary.PendingChange = u.Pending.PendingChange
 		}

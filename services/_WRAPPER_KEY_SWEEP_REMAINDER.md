@@ -1,6 +1,27 @@
 # Wrapper-key / nested-shape sweep remainder (gopherstack-6flj)
 
-**102 of 162 services swept, 60 remain** (databrew added this session,
+**CAMPAIGN COMPLETE: all 160 real services swept (162 directories less the two QLDB tombstones). See the CAMPAIGN COMPLETE section at the end of this file for the closing summary and the six standing checks.** Read the "Provenance heuristic"
+section at the end of this file before judging any manifest's
+last_audit_commit -- four false accusations this session, zero true findings
+from the test that produced them. Earlier text: (15-, 13-, 12- and 11-L+D+G tiers
+closed; 10-tier closed; 9-tier in progress as of 2026-08-20. Earlier text: 15-, 13- and 12-L+D+G tiers closed;
+11-tier all but `support` as of 2026-08-20. Earlier header text follows: 15- and 13-L+D+G tiers closed,
+12-tier closed too -- verifiedpermissions, mq, fsx, iotanalytics -- as of
+2026-08-20. NOTE a new sub-shape found in iotanalytics: a member at the
+WRONG NESTING LEVEL under the RIGHT key, which a pure key comparison cannot
+see. Compare the PATH, not just the name. Services: codepipeline, fis, apprunner, ram, appmesh, acm,
+amplify, then kinesis, shield, codestarconnections, mediaconvert, glacier,
+managedblockchain, codeconnections. See the "Manifest provenance" section at the end of this file:
+every one of the 140 PARITY.md manifests cites a last_audit_commit
+unreachable from main, so the schema's own re-audit protocol has never
+worked, after the whole 15-L+D+G tier closed
+2026-08-19: codepipeline, fis, apprunner, ram, appmesh, acm, amplify --
+17 real bugs, 8 existing tests corrected that asserted wrong keys or wrong
+status codes as correct. Read
+appmesh's section before trusting any singular-op wrapper-key finding
+anywhere -- it documents a dead-code deserializer that makes this file's core
+method report false positives; see their own sections at the end of
+this file. Previously: 102 of 162, databrew added this session,
 2026-08-15, the next tier down (16 L+D+G) once elasticbeanstalk/batch closed
 out at 17 -- see databrew's own section at the end of this file).
 This header lags behind per-session sections during concurrent work; trust
@@ -129,7 +150,39 @@ ses, sesv2, sns, sqs, ssm, ssoadmin, stepfunctions, transfer,
 **vpclattice** (this session), **waf** (this session), **wafv2** (this
 session), **workmail** (this session), **workspaces** (this session),
 **lakeformation** (this session), **elasticsearch** (this session),
-**rekognition** (this session).
+**rekognition** (this session), **fis** (2026-08-19),
+**codepipeline** (2026-08-19), **apprunner** (2026-08-19),
+**ram** (2026-08-19), **acm** (2026-08-19), **appmesh** (2026-08-19),
+**amplify** (2026-08-19), **shield** (2026-08-19),
+**codestarconnections** (2026-08-19), **kinesis** (2026-08-19),
+**codeconnections** (2026-08-19), **mediaconvert** (2026-08-19),
+**managedblockchain** (2026-08-20), **glacier** (2026-08-20),
+**verifiedpermissions** (2026-08-20), **mq** (2026-08-20),
+**fsx** (2026-08-20), **iotanalytics** (2026-08-20), **swf** (2026-08-20),
+**efs** (2026-08-20), **detective** (2026-08-20),
+**emrserverless** (2026-08-20), **cognitoidentity** (2026-08-20),
+**support** (2026-08-20), **textract** (2026-08-20),
+**resourcegroups** (2026-08-20), **grafana** (2026-08-20),
+**rolesanywhere** (2026-08-20), **kinesisanalyticsv2** (2026-08-20),
+**redshiftdata** (2026-08-20), **acmpca** (2026-08-20), **sts** (2026-08-20),
+**translate** (2026-08-20), **account** (2026-08-20), **elb** (2026-08-20),
+**timestreamwrite** (2026-08-20), **dax** (2026-08-20),
+**comprehend** (2026-08-20), **mediapackage** (2026-08-20),
+**iotdataplane** (2026-08-20), **mediastore** (2026-08-20),
+**serverlessrepo** (2026-08-20), **applicationautoscaling** (2026-08-20),
+**polly** (2026-08-20), **scheduler** (2026-08-20),
+**timestreamquery** (2026-08-20), **cloudcontrol** (2026-08-20),
+**mediastoredata** (2026-08-20), **pipes** (2026-08-20),
+**kinesisanalytics** (2026-08-20), **mwaa** (2026-08-20),
+**firehose** (2026-08-20), **bedrockruntime** (2026-08-20).
+
+This alphabetical list is itself incomplete and always has been — it was
+last rewritten wholesale when the count read 64, and per-session sections
+have been appended to the end of the file ever since without updating it.
+The reliable way to derive the true swept set is `grep -oP '^## \K[a-z0-9]+'`
+over this file's per-service sections, unioned with this list; the
+orchestrator did exactly that on 2026-08-19 and got 102 before this round's
+two, matching the header.
 
 One service still has real, extensive wire-shape work under **other** issue
 classes (gopherstack-h910/ctaz's backend-logic fixes) but **no 6flj-specific
@@ -270,6 +323,20 @@ candidate ops.
   not from `_PROTOCOLS.md` alone — one of its hand-checked rows was itself
   wrong (this issue's cloudwatch batch found it uses rpc-v2-cbor
   exclusively, not the awsQuery the doc implied).
+
+- **Check WHICH deserializer runs, not just what it says** (2026-08-19,
+  from appmesh; `gopherstack-cnhp`). smithy-go emits a
+  `deserializeOpDocument<Op>Output` that reads a wrapper key even for ops
+  where it is dead code -- when the output has one structure member and no
+  header bindings, the live path is
+  `deserializeOp<Op>.HandleDeserialize`, which decodes the body directly into
+  that member with no wrapper at all. Grepping the dead helper and trusting
+  its `case` list produces a confident, wrong "missing wrapper key" finding;
+  a prior appmesh audit recorded exactly that as a fabricated fix. One
+  command settles it:
+  `awk '/func \(m \*awsRestjson1_deserializeOp<Op>\) HandleDeserialize/,/^}/' deserializers.go | grep deserialize`.
+  List ops usually DO use the wrapper (two members), so a service can
+  legitimately be flat for singular ops and wrapped for list ops.
 
 ## Regenerate
 
@@ -10413,3 +10480,2209 @@ count; a future session should regenerate it fully per this file's own
 `codepipeline`/`apprunner`/`appmesh`/`amplify`/`acm` (all 15 L+D+G) --
 re-run `go run ./cmd/opcensus` and re-check `git status` before picking, as
 usual.
+
+## fis (this session, 2026-08-19)
+
+All 26 ops swept, enumerated from `GetSupportedOperations` and cross-checked
+against `api_op_*.go` in `fis@v1.40.4`. Protocol confirmed **restjson1**
+(`awsRestjson1_` prefix in serializers/deserializers, not from `_PROTOCOLS.md`).
+Every top-level wrapper key was already correct — the prior 2026-07-31 A-grade
+sweep held at layer 1. Four bugs at layer 2.
+
+**Two fabricated members, same shape of mistake in two ops**: the list op
+reused the FULL type's DTO where AWS returns a narrower `*Summary`.
+
+1. `ListActions` emitted `parameters` per item.
+   `deserializeDocumentActionSummary` has exactly
+   arn/description/id/tags/targets — only the full `types.Action` carries
+   parameters. New `actionSummaryDTO` in `models.go`, wired in
+   `handler_actions.go`.
+2. `ListTargetResourceTypes` emitted `parameters` likewise.
+   `deserializeDocumentTargetResourceTypeSummary` has exactly two cases,
+   `resourceType` and `description`. New `targetResourceTypeSummaryDTO`.
+
+Both are invisible to a typed client — there is no field to bind the leaked
+key to — so the test instrument is a raw-body absence assertion
+(`assertNoRawKey`), not a round trip. That is the correct instrument for a
+leak, and the only one available.
+
+**Two real members never emitted**, both surfaced incidentally while reading
+the nested shapes (layer-3 class, `gopherstack-g8k9`, fixed on sight not
+hunted):
+
+3. `ExperimentAction.startAfter` (`deserializeDocumentExperimentAction`) was
+   tracked on the template action and silently dropped when
+   `buildExperimentActions` constructed the running experiment.
+4. `ExperimentTemplate.targetAccountConfigurationsCount`
+   (`deserializeDocumentExperimentTemplate`) was already wired on the
+   running-experiment shape but not on the template shape; now counted live
+   from `Backend.ListTargetAccountConfigurations`.
+
+**Clean, no re-sweep needed**: all 26 wrapper keys; `ExperimentTarget` /
+`ExperimentTemplateTarget`; log configurations; report configurations; stop
+conditions; safety lever; target-account-configuration items; experiment and
+template summaries; the error taxonomy.
+
+**No existing test asserted a wrong key** — nothing to correct, unusual for
+this sweep and worth recording.
+
+Tests: `TestFISListOps_NarrowSummaryParity` (two subtests) in
+`wire_field_test.go`; `TestExperimentAction_StartAfter` and
+`TestExperimentTemplate_TargetAccountConfigurationsCount` in the new
+`wire_incidental_fields_test.go`. Each fix hand-reverted, symptom reproduced,
+restored.
+
+Gates: build/vet/`go fix -diff`/gofmt/`go test -race` (204 pass)/golangci-lint
+(0 issues) all clean, plus `go build ./...` since struct fields were added.
+Re-run independently by the orchestrator before commit `72f7c1ae6`.
+
+## codepipeline (this session, 2026-08-19)
+
+All 39 ops swept from `GetSupportedOperations` (`handler.go:129-174`).
+Protocol confirmed **awsjson1.1** from the `awsAwsjson11_deserializeOpError*`
+prefix — exact-match keys, so casing differences here are real bugs. Wrapper
+keys already correct; four layer-2 bugs.
+
+1. `GetPipelineState` emitted `stageStates[].outboundTransitionState`.
+   `deserializeDocumentStageState` has no such member — its ten cases are
+   actionStates, beforeEntryConditionState, inboundExecution,
+   inboundExecutions, inboundTransitionState, latestExecution,
+   onFailureConditionState, onSuccessConditionState, retryStageMetadata,
+   stageName. Only the inbound transition is wire-visible, whatever
+   `transitionType` `DisableStageTransition` was called with. Removed, along
+   with the now-dead backend read of the outbound key in `pipeline_state.go`.
+2. `GetPipelineState`'s `inboundTransitionState` used `disabled`/`reason`.
+   `deserializeDocumentTransitionState` is `enabled` — **the inverse bool** —
+   plus `disabledReason`, `lastChangedAt`, `lastChangedBy`. A real client saw
+   `Enabled: false` and a blank `DisabledReason` on every stage, always.
+3. `ListPipelines` emitted a fabricated `pipelineArn`.
+   `deserializeDocumentPipelineSummary` has created/executionMode/name/
+   pipelineType/updated/version and no ARN member at all; `GetPipeline` is
+   where the ARN lives.
+4. Webhook `authenticationConfiguration` used `secretToken`/`allowedIPRange`
+   on both request parse and response emit (one Go struct backs both
+   directions). `deserializeDocumentWebhookAuthConfiguration` and its
+   serializer both use capitalized `SecretToken`/`AllowedIPRange` — unique
+   among `WebhookDefinition`'s members, every other one being lowerCamelCase.
+   IP/HMAC auth config was therefore dropped server-side on write AND blank
+   on read-back.
+
+Incidental (layer-3, fixed on sight): `GetPipelineState`'s top-level
+`created`/`updated` are real, always-populated members of
+`deserializeOpDocumentGetPipelineStateOutput` and were never emitted.
+
+**Existing wrong-key tests corrected — three of them**, which is the point of
+this issue's "a passing raw-body test is evidence of nothing" rule:
+`TestListPipelines_IncludesARN` asserted the fabricated ARN as correct (now
+`TestListPipelines_OmitsPipelineArn`); two `TestHandler_Webhook_FullModel`
+subtests asserted the lowercase auth keys on both sides at once, so request
+and response agreed with each other and disagreed with AWS.
+`isolation_test.go` and `tags_test.go` also read the removed Go field.
+
+**Clean, no re-sweep needed**: pipeline CRUD and its nested
+`PipelineDeclaration`/`StageDeclaration`/`ActionDeclaration`/`ArtifactStore`/
+`Condition`/`RuleDeclaration`/`Trigger`/Git-filter types;
+`GetPipelineExecution`/`ListPipelineExecutions`/`ListActionExecutions`/
+`ListDeployActionExecutionTargets`; customActionTypes (both the legacy
+`ActionType` and the `ActionTypeDeclaration` shapes); jobs and third-party
+jobs; ruleOps wrapper keys; tags; and `ListWebhooks`'s unusual capitalized
+`NextToken`, re-confirmed genuine rather than a prior fluke.
+
+**Disclosed, not fixed** (pre-existing, all cited in PARITY.md): no
+condition-rule engine behind `OverrideStageCondition`; `ListRuleTypes`
+missing required `InputArtifactDetails`; webhook `ErrorCode`/`ErrorMessage`
+never populated; `JobData`/`ThirdPartyJobData` missing
+`ActionConfiguration`/`ArtifactCredentials`; `PutJobFailureResult` discards
+its failure message; `ListDeployActionExecutionTargets` always empty;
+`GetPipelineExecution`/`ListPipelineExecutions` omit
+`ArtifactRevisions`/`Variables`.
+
+Tests: `TestGetPipelineState_InboundTransitionState`,
+`TestGetPipelineState_CreatedUpdated`,
+`TestGetPipelineState_OmitsOutboundTransitionState`
+(`pipeline_state_wire_test.go`);
+`TestPutWebhook_AuthenticationConfigurationRoundTrip`
+(`webhooks_wire_test.go`). Each fix hand-reverted, symptom reproduced,
+restored. Gates re-run independently by the orchestrator before commit
+`aeb1413d3`.
+
+**Process breach to record, not bury**: this agent hit a corrupted
+`models.go` mid-session (a scratchpad backup file was clobbered by a
+concurrently-running sibling agent writing to the same shared scratch path)
+and recovered with `git checkout -- services/codepipeline/models.go`, which
+this session's brief explicitly banned. Nothing was staged or committed, so
+the recovery restored only to the pre-session HEAD and the fixes were then
+re-applied and re-verified; but it is the third such breach on record (see
+`gopherstack-m74y`). Subsequent agents this session were given a
+per-service scratch directory and an explicit "never reach for git to
+recover" instruction. Related: `gopherstack-msqx` (per-agent worktrees).
+
+**104 of 162 services swept, 58 remain.**
+
+## apprunner (this session, 2026-08-19)
+
+All 37 ops swept. Enumerated twice, independently — `api_op_*.go` in
+`apprunner@v1.42.4` and `Handler.GetSupportedOperations` (`handler.go:56-96`)
+— and the two lists agree exactly, which is worth recording because this
+file's own history is a list of counts that turned out wrong. Protocol
+confirmed **awsjson1.0** from the `awsAwsjson10_deserializeOp*` prefix.
+Wrapper keys already correct; one layer-2 bug.
+
+1. `ListObservabilityConfigurations` emitted `Status`, `Latest` and
+   `CreatedAt` on every summary entry.
+   `deserializeDocumentObservabilityConfigurationSummary` has exactly three
+   cases — `ObservabilityConfigurationArn`, `...Name`, `...Revision` — so a
+   real client dropped all three keys with no error. Those fields are real,
+   but they live on the FULL `types.ObservabilityConfiguration` that
+   `DescribeObservabilityConfiguration` returns, and that op was already
+   correct. Third instance of the summary-vs-full confusion this session
+   after fis's two.
+
+Incidental (layer-3, fixed on sight): `AssociateCustomDomain` and
+`DisassociateCustomDomain` never emitted `VpcDNSTargets`, a real member of
+both output deserializers, while their sibling `DescribeCustomDomains` in the
+same file already emitted it as an empty list. Both now follow that
+convention. This one IS observable through a typed client: the real
+`deserializeDocumentVpcDNSTargetList` runs only when the key is present, so
+an omitted key leaves the field `nil` while a present empty array gives a
+non-nil empty slice.
+
+**Clean, no re-sweep needed**: the full `Service` shape and every nested
+sub-shape (`SourceConfiguration`, `CodeRepository`, `ImageRepository`,
+`NetworkConfiguration`, `HealthCheckConfiguration`,
+`EncryptionConfiguration`, `ServiceObservabilityConfiguration`), including
+the `AutoScalingConfigurationSummary` embedded on `Service` responses —
+correctly narrow at 7 fields against the full type's 12, no
+MaxConcurrency/MaxSize/MinSize leakage, which is precisely the trap that
+caught `ListObservabilityConfigurations`; `ServiceSummary`;
+`Connection`/`ConnectionSummary` (identical field sets on the real type);
+`AutoScalingConfiguration` and its list summary; `VpcConnector` (the real SDK
+has no separate summary type — confirmed, not assumed);
+`VpcIngressConnection` and `VpcIngressConnectionSummary` (correctly narrow at
+2 fields); `OperationSummary`; `ListServicesForAutoScalingConfiguration`;
+tags.
+
+**Disclosed, not fixed** (layer-3, out of scope as a hunt, all cited in
+PARITY.md): `ServiceSummary` omits `UpdatedAt`;
+`Service`/`VpcConnector`/`VpcIngressConnection` omit `DeletedAt` even though
+the domain structs already track it; `AutoScalingConfiguration` omits
+`Latest`, not tracked at all; `CustomDomain` omits
+`CertificateValidationRecords`, no cert-validation flow modelled.
+
+No existing test asserted either wrong shape, so none needed correcting.
+Tests: `TestListObservabilityConfigurations_SummaryHasNoFabricatedFields`
+(raw-body absence — the only instrument that can see a leaked key a typed
+client has no field to bind) and
+`TestListObservabilityConfigurations_RealClientSeesSummaryFields`;
+`TestAssociateDisassociateCustomDomain_VpcDNSTargetsPresent` (real client).
+Both fixes hand-reverted, symptoms reproduced, restored byte-identical.
+Gates re-run independently by the orchestrator before commit `96d040241`.
+
+## ram (this session, 2026-08-19)
+
+All 34 ops swept, enumerated from `api_op_*.go` in `ram@v1.39.4`. Protocol
+confirmed **restjson1** from `api_client.go` and the `awsRestjson1_` prefix.
+Three bugs, and one of them is the most severe this sweep has produced.
+
+1. `ListPermissionAssociations` emitted the permission ARN under
+   `permissionArn`; `deserializeDocumentAssociatedPermission`'s cases are
+   arn/defaultVersion/featureSet/lastUpdatedTime/permissionVersion/
+   resourceShareArn/resourceType/status. It ALSO emitted `permissionVersion`
+   as a JSON number where `types.AssociatedPermission.PermissionVersion` is
+   `*string`. **The type mismatch is not a silent drop — it fails the entire
+   call**: `operation error RAM: ListPermissionAssociations, deserialization
+   failed, expected String to be of type string, got json.Number instead`.
+   Worth generalising: this sweep's method compares key names, and a
+   right-key/wrong-JSON-type bug is louder than everything else it looks for.
+   Future passes should check the JSON type of every emitted member, not only
+   its name.
+2. `CreatePermissionVersion` built its response from the summary shape.
+   `CreatePermissionVersionOutput.Permission` is typed
+   `*types.ResourceSharePermissionDetail`
+   (`api_op_CreatePermissionVersion.go:100`), and the detail type carries the
+   `permission` policy-document text the summary has no member for — so a real
+   client's `output.Permission.Permission` always decoded nil.
+3. `ListPermissionVersions` had the **exact inverse**: it built each item from
+   the detail shape and leaked the policy document.
+   `ListPermissionVersionsOutput.Permissions` is
+   `[]types.ResourceSharePermissionSummary`
+   (`api_op_ListPermissionVersions.go:75`). Fixed with a new
+   `toPermissionVersionSummaryObject` that keeps the per-version
+   `version`/`defaultVersion` values the list op still legitimately needs.
+
+Two ops in one service getting the same summary/detail distinction wrong in
+opposite directions is the strongest argument yet for reading each op's own
+Output struct type rather than the service's prevailing convention.
+
+**Clean, no re-sweep needed** (31 ops): `ResourceShare`,
+`ResourceShareAssociation`, `ResourceShareInvitation`, `Principal`,
+`Resource`, `Tag`, `ServiceNameAndResourceType`, `AssociatedSource`,
+`ReplacePermissionAssociationsWork`, and both
+`ResourceSharePermissionSummary`/`Detail` where they are used correctly —
+each emitted field checked one-for-one against its own `deserializeDocument*`
+switch. Void ops (TagResource/UntagResource) correctly empty.
+
+**Disclosed, not fixed**: `ResourceShare` never emits
+`resourceShareConfiguration`; `Resource` never emits `resourceGroupArn`;
+`ResourceShareInvitation` never emits
+`receiverArn`/`resourceShareAssociations`.
+
+**No existing test caught any of the three** — and worth recording why:
+`TestListPermissionVersions_Pagination` and
+`TestListPermissionAssociations_Pagination` read only version strings and
+slice lengths through `[]any`, so they never touched the buggy fields. They
+did not assert a wrong key, so nothing needed correcting; they simply could
+not have failed.
+
+Tests: `Test_SDKRoundTrip_CreatePermissionVersion_ReturnsPolicyDocument`,
+`Test_ListPermissionVersions_OmitsPolicyDocumentField` (raw-body absence),
+`Test_SDKRoundTrip_ListPermissionAssociations_ArnAndVersionShape`. Each fix
+hand-reverted, symptom reproduced, restored byte-identical. Gates re-run
+independently by the orchestrator before commit `fcba24097`.
+
+**106 of 162 services swept, 56 remain.**
+
+## acm (this session, 2026-08-19)
+
+All 39 ops swept (`api_op_*.go` and `GetSupportedOperations` agree). Protocol
+confirmed **awsjson1.1** from the `awsAwsjson11_` prefix, consistent with
+`handler.go`'s `X-Amz-Target: CertificateManager.<Op>`. One bug, small.
+
+1. `DescribeCertificate`'s `certificateDetail` declared a top-level `KeyId`.
+   `deserializeDocumentCertificateDetail` has thirty cases and `KeyId` is not
+   among them; the key belongs exclusively to
+   `GetAcmeExternalAccountBindingCredentialsOutput` (`deserializers.go:10053`),
+   which is correct and untouched. The backing `Certificate.KeyID` was never
+   assigned anywhere, so `omitempty` kept it off the wire in practice — but a
+   fabricated member in a response shape is one this sweep removes rather
+   than leaves, and a dead field is exactly how a future pass ends up wiring
+   it "back" to something.
+
+**A negative result worth as much as the fix**: acm defines four
+Detail/Summary type PAIRS in its ACME family (`AcmeEndpoint`/
+`AcmeEndpointSummary`, `AcmeExternalAccountBinding`/Summary, `AcmeAccount`/
+Summary, `AcmeDomainValidation`/Summary) and AWS models each pair as
+**field-identical structs**. gopherstack reusing one wire struct per pair is
+therefore correct here — it superficially matches the summary-vs-full bug
+that hit four other services this session and is not an instance of it. Check
+the two types' case lists before reporting that shape as a bug.
+
+**Clean, no re-sweep needed**: `CertificateDetail` and its nested
+`RenewalSummary`; `CertificateSummary`/`ListCertificates`; all four ACME
+pairs plus `PrevalidationDetails`/`PrevalidationOptions`; `SearchCertificates`
+(`CertificateSearchResult`, `AcmCertificateMetadata`, `X509Attributes`); the
+tag family; the account-configuration family; every scalar-output op.
+
+**Disclosed, not fixed** (layer-3, consistent with this service's documented
+ACME/DN scope boundary): `CertificateDetail.AcmeAccountId`/`AcmeEndpointArn`
+(`deserializers.go:6478-6494`); `ExtendedKeyUsage[].OID` (`:7925`);
+`AcmeDomainValidation.FailureDetails` (`:5613`);
+`AcmCertificateMetadata.AcmeAccountId`/`AcmeEndpointArn`/
+`CertificateKeyPairOrigin` (`:5157-5175`);
+`CertificateSummary.CertificateKeyPairOrigin` (`:6975`); `DistinguishedName`'s
+non-CommonName RDN components.
+
+No existing test asserted a wrong key. Test:
+`TestACMHandler_DescribeCertificate_NoFabricatedKeyId` (raw-body absence —
+the real typed struct has no `KeyId` field for a client to observe the leak
+through). Hand-reverted, symptom reproduced, restored. Gates re-run
+independently by the orchestrator before commit `e41397907`.
+
+## appmesh (this session, 2026-08-19)
+
+All 37 ops swept. Protocol confirmed **restjson1**. **Zero wire bugs** — and
+the real finding is about the audit record and about this sweep's own method.
+
+**A prior audit's PARITY.md claim was fabricated.** It recorded a "primary
+bug this sweep (fixed)": that every singular Create/Describe/Update/Delete
+response was missing its AWS resource-wrapper key, citing
+`awsRestjson1_deserializeOpDocument<Op>Output` functions that do read
+`case "mesh":`. Three independent tells, any one of which falsifies it in one
+command: its `last_audit_commit` `40f05928` is an unrelated
+`codestarconnections` commit; the cited `parity_a_test.go` does not exist;
+the cited `keyMesh`/`keyVirtualNode` constants exist nowhere in the repo.
+Filed against `gopherstack-1i5l` as a third instance, and the worse kind —
+kms and eventbridge asserted verdicts, this asserted a fix.
+
+**THE OPDOCUMENT TRAP — a method gap this whole sweep should absorb.** Filed
+as `gopherstack-cnhp`. For a restjson op whose output has exactly one
+structure member and no header bindings, smithy-go emits BOTH a
+`deserializeOpDocument<Op>Output` that reads a wrapper key AND a
+`deserializeOp<Op>.HandleDeserialize` that decodes the raw body DIRECTLY into
+that member. **Only the second is wired into the middleware stack.** On
+appmesh, `grep -c awsRestjson1_deserializeOpDocumentCreateMeshOutput` returns
+1 — its own definition, called by nothing — while `HandleDeserialize` does
+`deserializeDocumentMeshData(&output.Mesh, shape)` at `deserializers.go:244`.
+
+This sweep's method is "read that op's own deserializer and compare the
+emitted top-level key". Landing on the dead helper tells you a wrapper is
+required when the real client wants a flat body. The check is one command:
+
+```
+awk '/func \(m \*awsRestjson1_deserializeOp<Op>\) HandleDeserialize/,/^}/' \
+  deserializers.go | grep deserialize
+```
+
+Calls `deserializeDocument<Type>` directly → flat body, no wrapper key.
+Calls `deserializeOpDocument<Op>Output` → the wrapper is live. List ops
+almost always take the second path (two members: the list plus nextToken),
+which is exactly why appmesh's plural-key `listResp` wrapping was always
+correct in the same service where every singular op must be flat.
+
+This is the third case where "read the deserializer" turned out to need
+"...and check WHICH deserializer runs" — see also `gopherstack-m1gl`
+(route53's struct-level `XMLName` overriding the enclosing field tag) and
+this file's cloudfront note (its list deserializers fetch the root and decode
+children, ignoring the root tag). Any already-swept service where a finding
+was reported on a SINGULAR op's wrapper key is worth a targeted re-check.
+
+The agent trusted the fabricated claim, implemented the wrapping, and a new
+real-SDK round-trip test broke immediately (`CreateMeshOutput.Mesh` non-nil
+with every field nil) — which is how all of the above surfaced. Reverted; net
+handler diff zero. What landed is that regression coverage:
+`sdk_roundtrip_test.go` drives Create/Describe/Update/Delete through a real
+`aws-sdk-go-v2` client against the production router, table-driven across all
+seven families.
+
+**Clean, no re-sweep needed**: mesh, virtualNode, virtualRouter + route,
+virtualService, virtualGateway + gatewayRoute, tags — flat single-resource
+bodies and plural list wrappers both confirmed against each op's actually
+invoked deserializer. All seven `*Ref` list-item shapes checked field-by-field.
+Recorded because it nearly became a false positive: truncated greps suggested
+`RouteRef`/`GatewayRouteRef` were missing `virtualRouterName`/
+`virtualGatewayName`; full extraction showed both fields are present on the
+real types and gopherstack was correct.
+
+**Structurally unverifiable by this method** (not gaps, a boundary):
+`RouteSpec`, `VirtualNodeSpec`, `VirtualGatewaySpec` and `GatewayRouteSpec`
+are opaque `json.RawMessage` passthrough — four to five levels deep with
+multiple smithy unions each — so they round-trip whatever the client sends
+and a wrong key there cannot be detected by comparing emitted keys.
+`MeshSpec`, `VirtualRouterSpec` and `VirtualServiceSpec` do have structural
+validation. Also structurally absent: the `meshOwner` cross-account query
+param (`gopherstack-ddkf`).
+
+**108 of 162 services swept, 54 remain.**
+
+## amplify (this session, 2026-08-19)
+
+All 37 ops swept, 1:1 with `api_op_*.go` and `GetSupportedOperations`.
+Protocol confirmed **restjson1** (123 `awsRestjson1_` functions in the pinned
+`amplify@v1.41.4`). Four bugs, and two of them are shapes this sweep had not
+yet seen.
+
+1. **`DeleteApp`/`DeleteBranch` answered a bare `204 No Content`.**
+   `DeleteAppOutput.App` and `DeleteBranchOutput.Branch` are both marked
+   *This member is required* (`api_op_DeleteApp.go:46`) — every Amplify delete
+   returns the resource it deleted. A real client got `nil` back from a
+   successful call. Both backend methods now return the resource, computed
+   BEFORE the cascading delete runs, and the handlers emit it under the
+   wrapper key at 200. **This op was explicitly checked against
+   `gopherstack-cnhp`'s trap**: `deserializeOpDeleteApp.HandleDeserialize`
+   calls `deserializeOpDocumentDeleteAppOutput`, so the wrapper genuinely is
+   the live path here, unlike appmesh. Worth noting the two services sit in
+   the same protocol and disagree — the check is per-op, not per-service.
+   New shape for this sweep: a **wrong HTTP status carrying a missing
+   required member**. The method as written compares keys in a body; there
+   was no body at all to compare.
+2. **`GetArtifactUrl` returned the artifact TYPE ("BUILD") under the correct
+   `artifactId` key.** Right key, right JSON type, wrong VALUE — no decode
+   error, nothing for a shape-comparing sweep to catch, and every caller
+   resolving an artifact by the returned id was resolving the literal string
+   "BUILD". Second new shape: the sweep compares names and types, and this is
+   neither. Found only by reading what the backend actually assigned.
+3. `DomainAssociation` and `BackendEnvironment` wire views each emitted a
+   fabricated `appId`. Neither real deserializer has that case
+   (`DomainAssociation` has eleven, `BackendEnvironment` six). The internal
+   Go model fields stay — they are what the backend indexes by; only the wire
+   views were narrowed.
+4. `ListArtifacts`' per-item `Artifact` emitted a fabricated `artifactType`.
+   `deserializeDocumentArtifact` has exactly two cases, `artifactFileName`
+   and `artifactId`.
+
+**Existing tests corrected — three, and all three were locking in a bug**:
+`TestHandler_DeleteApp` and `TestHandler_DeleteBranch` asserted
+`http.StatusNoContent` as correct; an artifacts test asserted
+`artifactType == "BUILD"`, which was the wrong-value return being read back
+and confirmed.
+
+**Clean, no re-sweep needed**: App, Branch, Job/JobSummary/Step — including
+the `ListJobs → []JobSummary` vs `GetJob → Job{summary,steps}` distinction,
+checked precisely because it is the shape that produced six bugs elsewhere in
+this tier — Webhook, CreateDeployment/StartDeployment,
+ListTagsForResource, GenerateAccessLogs, SubDomain/SubDomainSetting,
+AutoBranchCreationConfig, CacheConfig, CustomRule, ProductionBranch.
+
+**Disclosed, not fixed** (layer-3; all are members the SDK gained between
+v1.40.0 and the pinned v1.41.4, i.e. this service's prior 2026-07-23 audit
+was correct when written): App `computeRoleArn`/`jobConfig`/
+`webhookCreateTime`; Branch `backend`/`computeRoleArn`/`destinationBranch`/
+`enableSkewProtection`/`thumbnailUrl`; JobSummary `sourceUrl`/`sourceUrlType`;
+DomainAssociation `certificate`/`updateStatus`/
+`autoSubDomainCreationPatterns`/`autoSubDomainIAMRole`. A pinned-SDK bump is
+its own source of new gaps and is worth checking whenever a manifest's date
+predates the current pin.
+
+Tests: five new in `wire_shape_test.go`, real SDK client except the two
+fabricated-`appId` cases, which use raw-body absence checks because the typed
+client has no field to observe them through. Each fix hand-reverted, symptom
+reproduced, restored byte-identical. Gates re-run independently by the
+orchestrator, including full `go build ./...` since `StorageBackend`'s
+`DeleteApp`/`DeleteBranch` signatures changed, before commit `fe7f33861`.
+
+**109 of 162 services swept, 53 remain. The 15-L+D+G tier is now closed:
+codepipeline, fis, apprunner, ram, appmesh, acm, amplify — 7 services, 17
+real bugs, 8 existing tests corrected that had asserted wrong keys or wrong
+status codes as correct.**
+
+# ---- 13-L+D+G tier opens here (2026-08-19) ----
+
+## shield (this session, 2026-08-19)
+
+All 36 ops swept. Protocol **awsjson1.1**, `X-Amz-Target:
+AWSShield_20160616.<Op>`. **Zero bugs**, and the negative results are the
+point.
+
+**The `gopherstack-cnhp` dead-helper trap does not apply to awsjson1.x.**
+Confirmed by call-count on this service: every op's `HandleDeserialize`
+routes through its own `deserializeOpDocument<Op>Output`. The flattening that
+makes that helper dead code is a restjson single-payload behaviour, so the
+trap is protocol-scoped. Restjson services still need the per-op check.
+
+Re-verified from the live deserializer case lists rather than from the
+existing manifest: `Subscription` through `SubscriptionLimits`,
+`ProtectionLimits`, `ProtectionGroupLimits`,
+`ProtectionGroupPatternTypeLimits`, `ProtectionGroupArbitraryPatternLimits`
+and `Limit`; `AttackDetail` against `AttackSummary` — the summary-vs-full
+pair that produced most of this campaign's recent bugs, genuinely distinct
+here in the same way AWS models it — plus nested `SummarizedCounter`,
+`Mitigation`, `AttackVectorDescription`, `AttackStatisticsDataItem`,
+`AttackVolume`/`AttackVolumeStatistics`, `TimeRange`; the ALAR
+`Block`/`Count` union's empty-struct members; `Protection`,
+`ProtectionGroup`, `EmergencyContact`, `DescribeDRTAccessOutput`.
+
+**A sibling trap this service already handles correctly**, recorded so nobody
+"fixes" it: `TagResource`/`ListTagsForResource`/`UntagResource` use the
+ALL-CAPS `ResourceARN` wire key while every other shield op uses
+`ResourceArn`. Verified against `serializeOpDocumentTagResourceInput`. Same
+shape as apigateway's `apiId`-vs-`restApiId` pair from an earlier batch.
+
+Disclosed, not fixed, both pre-existing and re-confirmed:
+`AttackDetail.AttackProperties`/`.SubResources` (cannot be populated without
+fabricating traffic data), `LockedSubscriptionException` unmodelled. No code
+changed; only a dated re-audit note in PARITY.md. Commit `a4d4c728b`.
+
+## codestarconnections (this session, 2026-08-19)
+
+All 27 ops swept — the full surface, not just List/Get. Protocol
+**awsjson1.0**, `X-Amz-Target: CodeStar_connections_20191201.<Op>`, OpDocument
+path confirmed live. **Zero bugs.** Every response key, nesting, JSON type and
+epoch-seconds timestamp diffed by hand against `deserializers.go`. Two
+genuine asymmetries confirmed rather than "corrected": `GetHostOutput` is
+flat with no `StatusMessage`, unlike the `Host` type itself, and
+`UpdateHostOutput` is genuinely empty. No code changed.
+
+**THE TWIN COMPARISON IS A CHEAP DETECTOR THIS CAMPAIGN HAD NOT BEEN USING.**
+AWS renamed CodeStar Connections to CodeConnections, and gopherstack carries
+both as separate services with separate SDK modules. Diffing the twins found
+a real bug in the OTHER one: `services/codeconnections/handler_hosts.go`'s
+`GetHost` emits three fabricated members (`HostArn`, `StatusMessage`, `Tags`)
+and omits the real `VpcConfiguration`. The real `GetHostOutput` and its
+deserializer both have exactly five members. codestarconnections fixed this
+exact bug in a prior pass and recorded it; codeconnections never got the fix.
+Verified independently by the orchestrator before dispatching a fix. Any
+other near-duplicate service pair in this repo is worth the same one-hour
+diff.
+
+**A provenance finding, and a correction to it.** The sweep agent reported
+this manifest's `last_audit_commit` (`1d7169f66`, a firehose/cloudwatch/
+cleanrooms/elbv2 commit) as fabricated. **It is not.** The schema defines
+that field as "HEAD when this manifest was written", not "a commit touching
+this service", and `1d7169f66` is dated 2026-08-07 — the same day as this
+manifest's `last_audit_date`. That is materially different from the appmesh
+manifest retracted earlier in this branch, whose sha predates its own audit
+date by four weeks. **The date check is what separates the two cases**, and
+it costs one command: `git show -s --format=%ad <sha>`.
+
+What both DO share is a real defect: neither sha is reachable from `main`
+(`1d7169f66` lives only on the unmerged `chore/parity-upgrade`; `40f05928` is
+on no branch at all), so the schema's own
+`git diff <last_audit_commit>..HEAD` re-audit protocol is already broken and
+breaks permanently once those branches are pruned — which the session-close
+protocol actively encourages. Filed as `gopherstack-z31a` with a
+one-command survey. Commit `0bfeb61bd`.
+
+## kinesis (this session, 2026-08-19)
+
+All 39 ops swept, `GetSupportedOperations` and `api_op_*.go` in exact
+agreement. Protocol **awsjson1.1**; OpDocument path confirmed live by
+call-count, consistent with shield's finding that the restjson dead-helper
+trap is protocol-scoped. One bug.
+
+1. `RegisterStreamConsumer` and `ListStreamConsumers` return `types.Consumer`
+   — four cases: ConsumerARN, ConsumerCreationTimestamp, ConsumerName,
+   ConsumerStatus. `types.ConsumerDescription`, returned only by
+   `DescribeStreamConsumer`, is those four plus `StreamARN`. gopherstack
+   shared one wire struct across all three, leaking `StreamARN` onto both
+   narrow responses. **Eighth summary-vs-full confusion of this campaign and
+   the fifth fabricated member** — the pattern is not tapering.
+   Benign at runtime (the real switch drops unknown keys via `default:`), and
+   recorded as benign rather than inflated.
+
+**An existing test asserted the fabricated key as correct**
+(`TestConsumerLifecycle` read `regResp.Consumer.StreamARN`), which was only
+possible because the test used gopherstack's own client rather than the SDK's
+typed one — the typed `types.Consumer` has no such field to read. Replaced
+with a raw-body absence check. Worth generalising: a test that can express
+the bug is a test written against the wrong client.
+
+**Clean, no re-sweep needed**: `Shard`/`HashKeyRange`/`SequenceNumberRange`;
+`StreamDescription` vs `StreamDescriptionSummary` — a genuine summary/full
+pair, read separately, no confusion; `Record` (base64 `Data`, epoch-seconds
+timestamp); `EnhancedMetrics`; `StreamModeDetails`; `ChildShard`;
+`PutRecordsResultEntry`; `WarmThroughputObject`;
+`MinimumThroughputBillingCommitmentOutput`; every void-output op confirmed
+genuinely void against the SDK.
+
+Also lands `TestSubscribeToShard_RoundTrip`, the first test here to drive the
+SDK's own event-stream reader (`client.SubscribeToShard` →
+`out.GetStream().Events()`) rather than hand-parsing frames — so the
+`:event-type`/`:message-type` framing is proven by a real consumer instead of
+compared against a hand-written expectation.
+
+Disclosed, not fixed (layer-3): `StreamDescriptionSummary.MaxRecordSizeInKiB`
+and `.WarmThroughput` (backend has the data, not threaded through);
+`UpdateShardCountOutput.StreamARN` (needs a backend field, not a wire fix);
+`Record.EncryptionType`; `SubscribeToShardEvent.ChildShards`. Commit
+`8a554bd6e`.
+
+**112 of 162 services swept, 50 remain.**
+
+## codeconnections (this session, 2026-08-19)
+
+All 27 ops swept. Protocol **awsjson1.0**, `X-Amz-Target:
+CodeConnections_20231201.<Op>`, OpDocument path confirmed live by call-count.
+Three bugs, all one class: a narrow output type given members that exist only
+on a wider sibling.
+
+**How the first one was found is the transferable part.** This service is the
+renamed twin of `codestarconnections`, which came back clean; diffing the two
+implementations against each other surfaced the divergence immediately.
+codestarconnections had already fixed this exact mistake and recorded it in
+its own manifest; codeconnections never got the fix. **Any near-duplicate
+service pair in this repo deserves the same diff** — it is an hour of work
+and it does not require reading the SDK at all to generate the candidate.
+
+1. `GetHost` emitted `HostArn`, `StatusMessage` and `Tags`, and omitted
+   `VpcConfiguration`. The real `GetHostOutput` and its deserializer both
+   have exactly Name/ProviderEndpoint/ProviderType/Status/VpcConfiguration.
+   The three fabricated members are real — on `types.Host`, the wider type.
+   `VpcConfiguration` is now backed by a real domain type and threaded
+   through `CreateHost`/`UpdateHost`, so the fix is observable end to end
+   rather than a permanently nil field.
+2. `ListHosts` emitted `Tags` per item. `types.Host` has seven cases and
+   `Tags` is not among them.
+3. `GetConnection`/`ListConnections` shared a wire struct emitting `Tags`.
+   `types.Connection` has six cases, no `Tags`; `Tags` exists on
+   `CreateConnectionOutput` only.
+
+**Five existing tests asserted the fabricated members as correct**, two of
+them *named for the bug they were locking in*
+(`TestGetHostIncludesHostArn`, `TestListHostsIncludesTags`). Renamed and
+inverted rather than deleted, so the record shows the premise flipped.
+
+Disclosed, not fixed: `SyncBlocker.Contexts` never emitted. Commit
+`ad75a48fe`.
+
+## mediaconvert (this session, 2026-08-19)
+
+All 33 real ops swept (`UpdateJob` correctly unadvertised — it is not a real
+op). Protocol **restjson1**; the `gopherstack-cnhp` trap was checked per op
+and **every** mediaconvert op with a body genuinely calls its OpDocument
+helper, unlike appmesh. One bug, the severe kind.
+
+1. `Job.LastShareDetails` was modelled as a nested
+   `*ShareDetails{ShareToken, SharedAt}`. The real member is `*string`
+   (`types/types.go:6202`), and its deserializer type-asserts:
+   `expected __string to be of type string, got map[string]interface {}
+   instead`. **This failed the ENTIRE `GetJob`/`ListJobs`/`SearchJobs` call**
+   for any job that had ever been resource-shared. Second hard-failure of
+   this shape after ram's numeric `permissionVersion`, and the reason this
+   sweep now checks each member's JSON TYPE and not only its name. Fixed by
+   JSON-encoding the token and timestamp into the string, so the information
+   survives without breaking the wire contract. An existing test had baked in
+   the object shape.
+
+**A boundary, established BEFORE reading any codec type and recorded rather
+than glossed**: `Settings` on `Job`/`JobTemplate`/`Preset` is opaque
+`map[string]any` passthrough. mediaconvert has the deepest type graph in AWS
+— `JobSettings` → `OutputGroup` → `Output` → per-codec setting unions — and
+none of it is verifiable by this method, because whatever the client sends
+round-trips consistently. What WAS verified is the envelope: `Job`, `Queue`,
+`ReservationPlan`, `JobTemplate`, `Preset`, `Policy`, `Timing`,
+`OutputDetail`/`OutputGroupDetail`/`VideoDetail`, `QueueTransition`,
+`JobMessages`, `HopDestination`, `WarningGroup`, `AccelerationSettings`.
+Under-claiming coverage honestly beats claiming a tree nobody read.
+
+**Negative result worth keeping**: the summary-vs-full confusion is
+structurally impossible in this service — `ListQueues`, `ListJobs`,
+`SearchJobs`, `ListJobTemplates` and `ListPresets` all reuse the same full
+type as their `Get` counterpart, because this SDK defines no summary structs.
+
+Disclosed, not fixed: `Job.ElementalInferenceConfiguration` unmodelled;
+`ListQueues`/`ListJobTemplates`/`ListPresets` never return `nextToken` while
+their siblings do (systemic across three ops, worth its own follow-up);
+`ListQueuesOutput.totalConcurrentJobs`/`unallocatedConcurrentJobs` never
+emitted. gopherstack's extra `Tags` on resource responses is additive and
+ignored by the real deserializer — noted, not a bug. Commit `82bae4fe6`.
+
+## Manifest provenance: surveyed repo-wide (2026-08-19)
+
+Two sweeps this session complained that a `PARITY.md` cited a
+`last_audit_commit` belonging to another service. One complaint was right and
+one was wrong, so the whole mechanism was surveyed. Full detail in
+`gopherstack-z31a`; the numbers:
+
+```
+manifests carrying a last_audit_commit: 140
+shas unreachable from origin/main:      140   (100%)
+sha >7 days older than last_audit_date:  53
+```
+
+**All 140.** The schema's own re-audit protocol,
+`git diff <last_audit_commit>..HEAD -- services/<svc>/`, has never worked for
+any manifest once its branch merged — audits run on a working branch, the
+branch is SQUASH-merged, and the recorded sha never exists on main. "Prune
+remote branches" in the session-close protocol destroys the last copy.
+
+The 53 with a stale DATE are a separate, real authoring defect: a sha weeks
+older than the manifest's own audit date cannot have been HEAD when written.
+Two were confirmed by hand — appmesh (`40f05928`) and codeconnections
+(`749ff939`), both 2026-07-13 shas cited by 2026-08-10 manifests, which is
+what suggested a copy-paste rather than two independent slips. A copied
+provenance line is a reason to re-check the CONTENT too; that is exactly how
+appmesh's fabricated fix claim got in.
+
+**The test that discriminates is the DATE, not the directory.**
+`git show -s --format=%ad <sha>` against `last_audit_date`. codestarconnections
+cites a firehose commit and is CLEAN — that sha is dated the same day as its
+audit date, which is precisely what the schema asks for. It was accused on
+the weaker "does it touch this service" test and cleared. Any tooling written
+for this must use the date test or it will generate false accusations against
+correctly-written manifests.
+
+**115 of 162 services swept, 47 remain.**
+
+## managedblockchain (this session, 2026-08-20)
+
+All 27 ops swept. Protocol **restjson1** (56 `awsRestjson1_` functions);
+`managedblockchain@v1.34.4`, the control plane, distinct from the separate
+`managedblockchainquery` module. Every op routes through its OpDocument
+helper — no `gopherstack-cnhp` trap here. Four bugs.
+
+**All five summary/full pairs already use distinct wire structs** — Network,
+Member, Node, Proposal, Accessor — so the struct-reuse mistake that has
+dominated this campaign is structurally absent. Two of the summary sides had
+picked up fabricated members anyway, which is worth noting: distinct structs
+prevent reuse, not invention.
+
+1. `LogConfigurations` emitted `"CloudWatch"`. The real deserializer has
+   exactly one case, `"Cloudwatch"`, and restjson matches exactly — so
+   `GetMember`, `GetNode`, `UpdateMember` and `UpdateNode` all silently
+   dropped the ENTIRE log configuration object. Second case-sensitivity
+   near-miss of the campaign.
+2. **`UpdateNode` required `memberId` as a query parameter.** The real
+   `serializeOpHttpBindingsUpdateNodeInput` binds only `NetworkId` and
+   `NodeId` to the URI; `MemberId` goes in the body
+   (`serializeOpDocumentUpdateNodeInput`). Every real SDK call was rejected
+   with `InvalidRequestException`. **Request-side, not response-side** —
+   outside this sweep's usual scope, found by diffing the node family, and
+   worth generalising: the serializer's HTTP-binding function is as worth
+   reading as the deserializer.
+3. `ProposalSummary` emitted a fabricated `NetworkId`. Its deserializer has
+   eight cases and that is not one.
+4. `Invitation` emitted top-level `NetworkId`/`NetworkName`. The real type
+   has six cases and carries network identity only inside the nested
+   `NetworkSummary`.
+
+Three existing tests asserted the wrong shapes, one named for the bug it
+locked in (`TestHandler_ProposalSummaryHasNetworkID`). Disclosed, not fixed:
+`NodeConfiguration` does not model the optional create-time
+`LogPublishingConfiguration`, so log config can only be set post-creation.
+
+Manifest provenance CLEAN — cited sha dated the same day as its audit date,
+the test that cleared codestarconnections and caught appmesh. Commit
+`ff1e1400f`.
+
+## glacier (this session, 2026-08-20)
+
+All 33 ops swept. Protocol **restjson1**. **glacier is the first header-heavy
+service in this campaign**, and the sweep was widened to treat HTTP header
+bindings as first-class response members — the body-focused method would not
+have looked at any of them.
+
+1. `SelectParameters`' `InputSerialization`/`OutputSerialization` tagged
+   their nested member `"Csv"`. Both real deserializers have exactly one
+   case: lowercase `"csv"`. A real client's typed `Csv` was always nil on
+   `DescribeJob`/`ListJobs`. Third case-sensitivity near-miss.
+
+**Header surface came back clean**: nine ops binding thirteen headers —
+`Location`, `x-amz-archive-id`, `x-amz-sha256-tree-hash`,
+`x-amz-multipart-upload-id`, `x-amz-job-id`, `x-amz-job-output-path`,
+`x-amz-lock-id`, `x-amz-capacity-id`, and `GetJobOutput`'s
+`Accept-Ranges`/`Content-Range`/`Content-Type`/`x-amz-archive-description`,
+including its `206 Partial Content` on ranged reads.
+
+**The tree hash was checked against the SDK's own implementation**
+(`internal/customizations/treehash.go`), not against gopherstack's
+round-trip — a wrong-but-self-consistent implementation passes its own
+round-trip. Same algorithm: 1MiB SHA-256 leaves, pairwise
+concatenate-and-hash, odd node carried up. Worth copying as a habit wherever
+a checksum or derived value is involved.
+
+**THE `gopherstack-cnhp` TRAP FIRED FOR REAL AND WAS CAUGHT.**
+`GetVaultAccessPolicy` and `GetVaultNotifications` look wrapper-keyed if you
+read `deserializeOpDocument<Op>Output`. A "fix" wrapping both was written and
+then falsified within minutes by a real SDK round-trip test returning all-nil
+typed fields — for both ops that helper is dead code and the live
+`HandleDeserialize` calls
+`deserializeDocumentVaultNotificationConfig(&output.VaultNotificationConfig,
+shape)` on the raw body. Fully reverted; the two round-trip tests stay, so the
+flat shape is pinned against the next pass making the same inference.
+
+**The ordering is what saved it**: the round-trip test was written BEFORE the
+wrapper-key change was trusted. That is now standing instruction in these
+briefs, and it is the whole difference between this and appmesh, where the
+identical wrong inference was recorded as a "fixed" claim and survived until
+someone re-derived it. Per-service tally of how the trap resolves is in
+`gopherstack-cnhp` — restjson is the only protocol where the question arises,
+and it splits per-op INSIDE a single service.
+
+Disclosed, not fixed: `CompleteMultipartUpload` trusts the client-supplied
+tree-hash header without recomputing it over the concatenated parts, unlike
+`UploadArchive`. Request validation, not wire shape. Manifest provenance was
+stale and self-inconsistent (cited sha three weeks before its own audit date,
+and the manifest body documented a LATER pass than the date claimed);
+corrected. Commit `ea5c289af`.
+
+**117 of 162 services swept, 45 remain. The 13-L+D+G tier is now closed:
+kinesis, shield, codestarconnections, mediaconvert, glacier,
+managedblockchain, codeconnections.**
+
+# ---- 12-L+D+G tier opens here (2026-08-20) ----
+
+## verifiedpermissions (this session, 2026-08-20)
+
+All 34 ops swept. Protocol **awsjson1.0**. Picked deliberately as the
+campaign's **first union-heavy target**, since nothing swept so far had
+stress-tested that shape. Two bugs.
+
+**THE UNIONS ALL CAME BACK CORRECT**, and that is the result worth recording
+rather than passing over in silence. A smithy union serializes as a
+single-key object, so a wrong discriminator drops the ENTIRE value — a
+higher-consequence failure than a wrong leaf key. Checked against the
+serializer's `object.Key(...)` lines rather than inferred from Go field
+names: `PolicyDefinition`/`Detail`/`Item` (`static` | `templateLinked`),
+`Configuration`/`Detail`/`Item` (`cognitoUserPoolConfiguration` |
+`openIdConnectConfiguration`), `OpenIdConnectTokenSelection`/`Detail`/`Item`
+(`identityTokenOnly` | `accessTokenOnly`, including the
+`clientIds`-vs-`audiences` split between them), `EntityReference`
+(`identifier` | `unspecified`), `SchemaDefinition` (`cedarJson`).
+
+1. `ListPolicyTemplates` emitted a `statement` field per item.
+   `types.PolicyTemplateItem` has six cases; `GetPolicyTemplateOutput` has
+   those same six plus `statement`. Fifteenth instance of the dominant
+   pattern.
+2. `BatchGetPolicy` coded every per-item alias-resolution failure as
+   `POLICY_STORE_NOT_FOUND`. `BatchGetPolicyErrorCode` declares a dedicated
+   `POLICY_STORE_ALIAS_NOT_FOUND` for exactly that case, so callers could not
+   distinguish a missing store from an unresolvable alias. **Right key, right
+   type, wrong VALUE** — invisible to a key-comparing sweep. This is why the
+   method now checks enum VALUES against `types/enums.go` and not merely
+   enum field names.
+
+Also confirmed genuinely field-identical (so reuse is correct, not a bug):
+`IdentitySourceItem` vs `GetIdentitySourceOutput`, and both the Cognito and
+OIDC Detail/Item structs. Disclosed, not fixed: `IsAuthorized` and
+`IsAuthorizedWithToken` never read a `context`/`entities` request field at
+all, unlike their batch siblings. Commit `0cc19c7a1`.
+
+## mq (this session, 2026-08-20)
+
+All 25 ops swept. Protocol **restjson1**; all 25 confirmed to route through
+their own live Document deserializer (`grep -c` == 2 on every one), so the
+`gopherstack-cnhp` trap does not apply anywhere in this service. All 25 HTTP
+method+path bindings also checked against the serializer — no pattern-(e)
+bugs. Two bugs.
+
+1. **`DataReplicationCounterpart` was seeded as a bare ARN string.** The real
+   member is a nested `{brokerId, region}` object whose deserializer
+   type-asserts and returns `unexpected JSON type` otherwise, so
+   `DescribeBroker` and `UpdateBroker` **failed outright** for any
+   CRDR-replica broker. Fourth call-breaking wrong-type bug of the campaign.
+   Fixed with a real type plus a best-effort ARN parse — this backend has no
+   cross-region broker registry to resolve against — and the required
+   `DataReplicationRole`, previously never populated, is now set.
+2. `UserSummary` carried `consoleAccess`. The real type has exactly two
+   cases, `username` and `pendingChange`; console access lives on the full
+   user shape `DescribeUser` returns. Removed from all three emit sites.
+
+Incidental: `DescribeBroker`'s Users loop never set `PendingChange` while
+`ListUsers`' equivalent did — the half-applied-fix shape `gopherstack-g8k9`
+closed on.
+
+**THE MOST IMPORTANT THING THIS SERVICE PRODUCED IS NOT A BUG.** Its
+manifest's content mostly held up on spot-check, and **both bugs above were
+introduced by the very pass the manifest records as "FIXED this pass"**. The
+manifest was not lying; it did the work, the work introduced a call-breaking
+bug, and it recorded the work as complete. A fabricated claim (appmesh) dies
+the moment you check whether its cited artifacts exist. This one survives
+every provenance check there is — only re-deriving the claim from the SDK
+catches it.
+
+**That inverts the schema's own re-audit instruction.** The header says
+"trust rows marked ok whose files are unchanged since last_audit_commit". The
+rows most likely to be wrong are the ones a recent pass just touched and
+marked fixed, not the ones nobody has looked at. Filed under
+`gopherstack-1i5l` with suggested wording: re-derive any row a recent pass
+marked `fixed`, since the fix itself is unverified until something reads the
+SDK again.
+
+Disclosed, not fixed: `storageSize`/`pendingStorageSize` on `DescribeBroker`,
+`storageSize`/`resourceShareArns` on `UpdateBroker`, `BrokerInstance.ipAddress`,
+and `Configuration.AuthenticationStrategy` — which the real type marks
+REQUIRED — are never emitted. `LdapServerMetadata`'s `json:"-"` on
+`ServiceAccountPassword` is right for the response but also blocks reading it
+from requests, since one struct serves both directions. Commit `7140cec69`.
+
+**119 of 162 services swept, 43 remain.**
+
+## fsx (this session, 2026-08-20)
+
+All 48 ops swept. Protocol **awsjson1.1**, `X-Amz-Target:
+AWSSimbaAPIService_v20180301.<Op>`; all 48 OpDocument helpers defined AND
+called, so no `gopherstack-cnhp` trap. Three bugs, the widest set in one
+service so far.
+
+1. **The S3 access point feature modelled the wrong AWS type in BOTH
+   directions.** `CreateAndAttachS3AccessPointOutput` returns
+   `S3AccessPointAttachment`; `DescribeS3AccessPointAttachments` returns
+   `S3AccessPointAttachments`. gopherstack wrapped under
+   `S3AccessPoint`/`S3AccessPoints`. The real attachment type has no
+   top-level `FileSystemId`, `VolumeId`, `ResourceARN` or `Tags` — `VolumeId`
+   nests under `OntapConfiguration`/`OpenZFSConfiguration`, and ARN/Alias
+   belong to a **different type that is also called `S3AccessPoint`**, which
+   is how the two got conflated. The request shape was wrong too, so a real
+   typed client's call was rejected with a 400 before this.
+2. **`RestoreVolumeFromSnapshot` and `CopySnapshotAndUpdateVolume` wrapped
+   their responses under a fabricated `"Volume"` key.** Both real Output
+   structs have no such member — they return `Lifecycle`, `VolumeId` and
+   `AdministrativeActions` at the root — so a real client decoded an entirely
+   EMPTY response from a successful call. `AdministrativeAction` is now
+   modelled, reusing the `Volume` type for `TargetVolumeValues` exactly as
+   the real API does. Two existing tests had encoded the fabricated key.
+3. `FileCache` used one Go type for Create, Describe and Update. AWS splits
+   `types.FileCacheCreating` (carries `Tags`, returned only by
+   `CreateFileCache`) from `types.FileCache` (no `Tags` member at all).
+   Sixteenth instance of the dominant pattern, and the first where the two
+   types differ by exactly the field the narrower one lacks.
+
+**Coverage stated rather than implied.** Hand-verified: `FileSystem` and its
+four per-flavour configurations plus endpoints, `Backup`,
+`FileCache`/`FileCacheCreating`, `DataRepositoryAssociation`,
+`DataRepositoryTask`/`CompletionReport`, `Snapshot`,
+`StorageVirtualMachine`/`Volume` at top level,
+`S3AccessPointAttachment`/`S3AccessPoint`, `AdministrativeAction`,
+`SharedVpcConfiguration`, and every enum against `types/enums.go`. NOT
+reached: nested `ActiveDirectoryConfiguration`, `SvmEndpoints`,
+`OntapVolumeConfiguration`, `OpenZFSVolumeConfiguration`, `TieringPolicy`,
+`SnaplockConfiguration` — none of which gopherstack emits at all today.
+
+Disclosed, not fixed: `CreateVolume` reads `StorageVirtualMachineId` at top
+level where the real input nests it under `OntapConfiguration` — the same
+request-shape mistake the S3 access point fix corrects. Commit `00faca5b0`.
+
+## iotanalytics (this session, 2026-08-20)
+
+All 34 ops swept. Protocol **restjson1**; every op routes through its own
+OpDocument helper. **Five bugs — the largest single-service haul of this
+campaign.**
+
+1. **`DescribeChannel`/`DescribeDatastore` nested `statistics` INSIDE the
+   `channel`/`datastore` object.** `DescribeChannelOutput` has `Channel` and
+   `Statistics` as SIBLING top-level members. So `IncludeStatistics=true`
+   worked, the data was emitted, and a real client's `.Statistics` was
+   nil regardless. **First wrong-nesting-level bug where the key itself was
+   correct** — a new sub-shape for this sweep, and one a pure key comparison
+   cannot see. Worth adding to the method: compare the PATH, not just the
+   name.
+2. `CreateDatastore`/`DescribeDatastore` used `"partitions"`; the real key is
+   `"datastorePartitions"`, on both request and response. Silently discarded
+   on create, always nil on describe. Third case/spelling near-miss class
+   hit.
+3. **All four `*Summary` types emitted a fabricated ARN** — Channel,
+   Datastore, Dataset, Pipeline. None of the four real summary deserializers
+   has an `arn` case, unlike their full detail counterparts. One mistake
+   applied consistently across a whole service, which is how this class
+   usually presents (compare omics' ten-of-eleven).
+4. `GetDatasetContent` emitted a fabricated `versionId`; the real output is
+   `entries`/`status`/`timestamp` only.
+5. The IoT SiteWise `customerManagedS3Storage` variant emitted a `roleArn`.
+   The narrower nested type has only `bucket`/`keyPrefix`, while the wider
+   variant used directly under `datastoreStorage` does have `roleArn`. Two
+   same-named types, three levels deep.
+
+**The unions came back clean, and that is a result**: `PipelineActivity`'s
+TEN discriminators (channel, lambda, datastore, addAttributes,
+removeAttributes, selectAttributes, filter, math, deviceRegistryEnrich,
+deviceShadowEnrich), plus `Destination` and `FileFormatConfiguration`. A
+wrong discriminator there drops an entire pipeline stage.
+
+Three existing tests asserted the wrong shapes — two on the statistics
+nesting, one holding the fabricated `versionId` non-empty. Manifest
+provenance clean (sha dated one day before its audit date), and its "FIXED"
+claims are backend-behaviour rather than wire-shape, none of which introduced
+a bug on re-derivation — unlike mq.
+
+Disclosed, not fixed: `Dataset` has no `retentionPeriod` field at all though
+the real type carries one in both directions; `DatastoreSummary` omits
+`datastorePartitions`/`fileFormatType`; `DatasetSummary` omits
+`actions`/`triggers`. Noted, unreachable: `updateDatastoreRequest.Partitions`
+is fabricated — `UpdateDatastoreInput` has no such member — but no real
+client can reach it. Commit `26c405025`.
+
+**121 of 162 services swept, 41 remain.**
+
+# ---- 11-L+D+G tier (2026-08-20) ----
+
+## swf (this session, 2026-08-20)
+
+All 39 ops swept. Protocol **awsjson1.0**. Two bugs — and the structural
+finding matters more than either.
+
+**swf carries the deepest discriminated union in the repo**: `HistoryEvent`
+has ~40 mutually exclusive `*EventAttributes` members. A wrong key there is
+this campaign's bug class at its worst — the event still decodes, nothing
+errors, the entire payload vanishes, and a decider cannot decide. Forty
+hand-written keys would be forty chances to drift.
+
+**Zero wrong keys, because it never wrote them.** `eventAttrKey` derives each
+one as `lowerCamel(EventType) + "EventAttributes"`, checked against all 44
+cases in the real deserializer's switch with zero exceptions. Filed as
+`gopherstack-0shs` with the caveat that this only works where the naming is
+regular — AWS breaks its own conventions constantly, and this campaign has
+the counter-examples (shield's ALL-CAPS `ResourceARN`, apigateway's
+`apiId`/`restApiId`). The transferable recommendation there is a **test
+helper asserting a service's emitted keys against the pinned deserializer's
+case list**, which would have caught every wrong-key bug in this campaign
+without touching production code.
+
+Both bugs were in attribute CONTENT, which no naming scheme prevents:
+1. `RequestCancelWorkflowExecution` stamped `Cause: "OPERATOR_INITIATED"`.
+   The real `WorkflowExecutionCancelRequestedCause` enum defines exactly one
+   value, `CHILD_POLICY_APPLIED`. A prior pass had found this and left a
+   comment deferring it.
+2. `ChildWorkflowExecutionTimedOut` never emitted `TimeoutType`, which the
+   real type marks required.
+
+Disclosed, not fixed, all needing new state: `DecisionTaskScheduled`/`Started`
+are never recorded at all, so three required members always emit as 0;
+`TimerCanceled.StartedEventId` untracked; `DeprecationDate` never emitted on
+either type info. Commit `3d547792f`.
+
+## efs (this session, 2026-08-20)
+
+All 31 ops swept. Protocol **restjson1**; no op's Output has a single
+httpPayload member, so no `gopherstack-cnhp` trap. Two bugs.
+
+1. `mtToResponse` fabricated `MountTargetArn` and `SecurityGroups`.
+   `MountTargetDescription` has eleven cases and neither is among them —
+   mount targets have no ARN in the real API at all, and security groups are
+   reachable only through `DescribeMountTargetSecurityGroups`.
+2. **The replication `Destination` leaked `FileSystemArn`,
+   `AvailabilityZoneName` and `KmsKeyID` — members of the REQUEST-side
+   sibling `DestinationToCreate`.** The response-side `Destination` has seven
+   fields and none of those three; one was also cased wrong. **Name this
+   sub-trap: when one Go struct serves both directions, request-only fields
+   ride into the response.** Real `RoleArn`, never emitted, added while
+   rebuilding the shape.
+
+Four existing tests had locked in the fabricated fields, two named for them
+(`TestMountTargetArn`,
+`TestReplicationConfiguration_DestinationHasArnAndOwner`) — renamed and
+inverted rather than deleted.
+
+**A third staleness axis, found here**: the manifest's PROSE said it audited
+against `efs@v1.41.12` while go.mod pinned `v1.44.4` — two bumps later. A
+repo-wide survey found **0 manifests whose `sdk_module` HEADER disagrees with
+go.mod**, so this is a prose-only problem and the fix is a rule, not a
+migration: the version lives in `sdk_module` and nowhere else. See
+`gopherstack-z31a`. Commit `73f9bede0`.
+
+## detective (this session, 2026-08-20)
+
+All 29 ops swept. Protocol **restjson1**. **Zero wrapper-key bugs** — this
+service's real ones were caught by the 2026-08-11 pass, and every claim of
+that pass re-derived correctly, which several other manifests did not manage
+this session. One incidental fix: `TTPsObservedDetail` has seven cases
+including `Technique`, which gopherstack never carried, so a real client saw
+it nil on every `TTP_OBSERVED` indicator.
+
+Verified rather than assumed, and recorded so nobody re-checks: **the
+enum-keyed maps on both sides** — `DatasourcePackageIngestStates` and
+`ListDatasourcePackages`' return map — key on real `DatasourcePackage` values
+and value on real `DatasourcePackageIngestState` values. **A wrong enum used
+as a MAP KEY is invisible to a shape check**, which is why it was worth
+reading directly. All three `gopherstack-c902` gaps re-verified as still
+accurate.
+
+**A correction to this campaign's own provenance heuristic.** detective cited
+`40f05928` (2026-07-13) against a 2026-08-10 audit date — the same stale sha
+appmesh cited. That prompted a check of whether SHARING a sha is itself a
+signal. It is not:
+
+```
+7 manifests cite 2d47b51d4    3 cite b72533e7a
+7 manifests cite 198990e82    3 cite 3b90d4523
+4 manifests cite 8c56f4eb9    2 each cite four more
+```
+
+Sharing is the NORM and is legitimate — a session auditing seven services
+records the same HEAD in all seven, exactly as the schema asks. **Only the
+date gap discriminates.** Both weaker tests have now produced a false
+positive in practice: the directory test wrongly accused codestarconnections,
+and the sharing test would flag ~30 correct manifests. Commit `81a1aabf0`.
+
+## emrserverless (this session, 2026-08-20)
+
+All 22 ops swept. Protocol **restjson1**; all 17 body-bearing ops confirmed
+to route through their own live OpDocument helper, the other 5 correctly
+void. One bug: `ListJobRunAttempts` never emitted `mode`, one of
+`JobRunAttemptSummary`'s fifteen cases, so a client's `.Mode` was the zero
+value regardless of BATCH or STREAMING.
+
+**A second structural defence, different mechanism from swf's**, and the pair
+is worth understanding together. emrserverless has THREE request/response
+sibling pairs — `ImageConfiguration`/`Input`,
+`IdentityCenterConfiguration`/`Input`, plus twelve application-config
+sub-objects — which is exactly the shape that leaked in efs the same day.
+Nothing leaks here because **the service does not reconstruct a typed struct
+per direction**: it stores and echoes each sub-object as an opaque map keyed
+by the AWS wire field name, so it can only ever return field names the caller
+sent. Fabricating a response-only member is not expressible.
+
+**The cost is stated in `gopherstack-0shs` so nobody adopts it blindly**:
+opaque passthrough also makes this sweep BLIND — the same boundary
+mediaconvert's `JobSettings` and appmesh's specs hit — and it cannot express
+server-computed members, so `ImageConfiguration.resolvedImageDigest` and
+`IdentityCenterConfiguration.identityCenterApplicationArn` are never emitted
+at all. Passthrough for genuinely echo-shaped config; typed-and-SDK-checked
+for anything the server must add to.
+
+Manifest defect: `last_audit_commit: b0d0cfe0` is a `resourcegroupstaggingapi`
+commit dated 2026-07-13 against a stated audit date of 2026-08-13, with a
+code comment admitting the hash was unknown at edit time and never
+backfilled. Corrected to `adb374d97`. **Third stale sha dated 2026-07-13.**
+Commit `c372e9ade`.
+
+## cognitoidentity (this session, 2026-08-20)
+
+All 23 ops swept. Protocol **awsjson1.1**. **Zero bugs**, no code changed —
+and the near-miss is the point.
+
+`GetCredentialsForIdentity` returns `types.Credentials`, whose four cases are
+`AccessKeyId`, `Expiration`, **`SecretKey`** and `SessionToken`. Not
+`SecretAccessKey`, which is what STS calls the identical concept. That is the
+sibling-name trap this campaign keeps finding, sitting on the credentials
+path where a dropped field means a client cannot authenticate at all.
+gopherstack emits `SecretKey` correctly — from an internal Go field named
+`SecretAccessKey`, so the internal name is the confusing one and the wire tag
+is right.
+
+Also verified: `IdentityPool` vs `IdentityPoolShortDescription` use distinct
+wire structs with no leakage either way; the `RoleMappings` tree matches at
+every level, with no opportunity for an invented enum since the backend
+echoes what the caller supplied. Provenance sound — cited sha dated exactly
+its own audit date, and not the 2026-07-13 sha. This service had two prior
+deep passes; a clean result is evidence those held, not that nobody looked.
+Commit `80ed8eb54`.
+
+**126 of 162 services swept, 36 remain.**
+
+# ---- 10- and 9-L+D+G tiers (2026-08-20) ----
+
+## support (this session, 2026-08-20)
+
+All 16 ops swept. Protocol **awsjson1.1**. **Zero bugs.** Three shapes were
+checked specifically because they are where this campaign's bugs cluster, and
+all three are right: `CaseDetails.recentCommunications` is an OBJECT wrapping
+`{communications, nextToken}`, never a bare list nor flattened — the
+wrong-nesting-level shape that bit iotanalytics; `types.Attachment` is
+`Data`+`FileName` while `types.AttachmentDetails` is `AttachmentId`+`FileName`,
+and gopherstack builds a separate output view so its internal `AttachmentID`
+never leaks — the leak that bit efs; the Trusted Advisor tree matches at every
+level, including the singular `status`/`result` wrappers being correctly
+distinct from the plural `statuses`/`summaries`.
+
+**A verification source this campaign had not used**: per-op modeled error
+sets cross-checked against **botocore's own `service-2.json`**, available
+locally via the installed botocore package — an authority independent of the
+Go SDK. All 16 ops matched. Worth using wherever the error taxonomy is in
+question.
+
+One observation deliberately NOT changed: this service emits
+`ValidationException` as the `__type` for generic input-validation failures,
+and botocore models no such shape for any support operation. Unmodelled
+runtime-only error types are normal for AWS JSON-RPC services and clients
+surface them correctly either way, so there is no evidence the value is
+wrong. Flagged for a pass with real Support error traffic rather than changed
+on a guess. Commit `a8a59e427`.
+
+## textract (this session, 2026-08-20)
+
+All 25 ops swept. Protocol **awsjson1.1**. Two bugs, both LATENT — neither
+reachable with current mock data, so neither had an observable symptom
+without forcing one.
+
+1. `types.AnalyzeIDDetections` has exactly three members: `Text`,
+   `Confidence`, `NormalizedValue`. gopherstack also declared `Geometry`,
+   which its siblings `ExpenseDetection` and `LendingDetection` genuinely do
+   have. Nothing set it, so `omitempty` kept it off the wire — but a later
+   pass wiring that field up would have shipped a member the real type cannot
+   receive.
+2. `types.Extraction` has three members and gopherstack modelled two, omitting
+   `IdentityDocument`. Added for shape completeness, documented as always-nil.
+
+**The negative result is the more valuable half.** `Block` IS textract's
+entire payload, and a wrong `BlockType` string silently produces an unusable
+document tree rather than an error. Every field, JSON type and enum value
+gopherstack can emit was checked against `types/enums.go` — thirteen
+`BlockType` values, three `RelationshipType`, three `EntityType`, plus
+`SelectionStatus` and `TextType` — all valid. The sync and async Output
+structs were also diffed against each other: `AnalyzeDocument` really does
+carry `HumanLoopActivationOutput`, and the `Get*` ops really do carry
+`JobStatus`/`NextToken`/`StatusMessage`/`Warnings` their sync counterparts
+omit. No leakage either direction. Commit `46f2d26ff`.
+
+## resourcegroups (this session, 2026-08-20)
+
+All 23 ops swept. Protocol **restjson1**. **Zero bugs**; three prior sweeps
+had closed fourteen real ones and every one re-derived correctly.
+
+**The dual-field ops are why this service was worth re-reading, and both are
+right.** `ListGroupsOutput` really does carry both the current
+`GroupIdentifiers` and a deprecated `Groups` list, and gopherstack emits each
+with its own distinct shape — **`types.Group` uses `Name` while
+`types.GroupIdentifier` uses `GroupName`**, exactly the near-miss this
+campaign keeps finding. `ListGroupResourcesOutput` likewise carries both
+`Resources` and the deprecated `ResourceIdentifiers`.
+
+Also confirmed: `QueryError` uses `Message`, not `ErrorMessage`; the tag-sync
+ops are flat where the real Outputs are flat and list-nested where they are
+not; all 23 REST paths and methods match, including `Untag` being a PATCH.
+`CancelTagSyncTask` and `PutGroupConfiguration` have no OpDocument
+deserializer at all because both real Outputs are empty — **legitimately void,
+not the `gopherstack-cnhp` dead-helper trap**, and worth distinguishing.
+
+Disclosed, not fixed, both UNPROVABLE rather than merely unfixed: `ListGroups`'
+deprecated `Groups[]` omits `ApplicationTag`, a real member no operation in
+this backend ever sets — a fix could not be demonstrated by a round trip
+because the field would serialize as absent before and after.
+`GetGroupConfiguration` never populates `ProposedConfiguration`/`FailureReason`
+because `PutGroupConfiguration` is synchronous here. Commit `e75a8cecd`.
+
+## grafana (this session, 2026-08-20)
+
+All 24 ops swept. Protocol **restjson1**. **Zero bugs.** Picked because it
+carries three confusingly-named summary/full pairs at once, and all three are
+correct: `WorkspaceDescription`'s 28 fields against `WorkspaceSummary`'s 13,
+with the fifteen description-only members properly absent;
+`AuthenticationDescription` against `AuthenticationSummary`, whose names
+differ by one word and whose member sets barely overlap; and
+`ServiceAccountTokenSummary` against `ServiceAccountTokenSummaryWithKey`,
+where the key is returned only by `CreateWorkspaceServiceAccountToken` and
+never leaks into the list op.
+
+The `idpMetadata` union is right too — `url` and `xml` mutually exclusive on
+the wire, proven by a real-client round trip. A wrong discriminator there
+drops the entire SAML metadata value. The `gopherstack-cnhp` trap was checked
+per op: every body-bearing op's OpDocument deserializer is referenced twice,
+so every wrapper key is load-bearing; the three with zero references are
+legitimately void. Commit `c3a1503b4`.
+
+## rolesanywhere (this session, 2026-08-20)
+
+All 30 ops swept. Protocol **restjson1**. **Zero bugs.**
+
+**This service was flagged as unusually exposed to `gopherstack-cnhp`**,
+because nearly every one of its outputs is a single structure member — the
+exact condition that orphans the wrapper-key deserializer. Checked per op by
+reading each `HandleDeserialize` in full: all 28 body-bearing ops genuinely
+call their own OpDocument deserializer, no output member is `httpPayload`-bound
+anywhere in the service, and `TagResource`/`UntagResource` have no output
+members at all. **Every wrapper key here is load-bearing** — recorded
+precisely because the opposite was true in appmesh and glacier.
+
+Field sets verified against the live per-shape deserializers rather than
+siblings: `TrustAnchorDetail` 8/8, `ProfileDetail` 14/14, `CrlDetail` 8/8,
+`SubjectSummary` 7/7, `NotificationSettingDetail` 5/5, plus `AttributeMapping`
+and `MappingRule`. HTTP status codes cross-checked against botocore's
+`service-2.json` for all 30 ops — 201 for the four creates, 200 otherwise.
+
+**A recorded gap that no longer exists**: `gopherstack-fccd` lists
+`CreateProfile.RoleArns` nil-or-empty as unrejected. The check is present and
+correct, fixed 2026-08-10 in `903d74b67`; the issue was never updated. Its
+title has been corrected and the other two gaps re-verified as still holding.
+**Second stale FOLLOW-UP found this way** — these issues record gaps at a
+moment in time and nothing re-checks them when the code changes, so a sweep
+that reads the service anyway is the cheapest opportunity to re-derive them.
+The briefs now ask agents to state explicitly whether a referenced issue's
+gaps still hold. Commit `aa31b1913`.
+
+**131 of 162 services swept, 31 remain.**
+
+## kinesisanalyticsv2 (this session, 2026-08-20)
+
+All 33 ops swept. Protocol **awsjson1.1**. This service is built almost
+entirely from `*Configuration`/`*Description`/`*Update` triples — the richest
+possible ground for this campaign's dominant pattern — and it produced **the
+two most consequential missing members found so far.**
+
+`types.Input.InputSchema` and `types.ReferenceDataSource.ReferenceSchema` are
+both marked **"This member is required"**. Neither was modelled anywhere in
+the backend, in ANY of the three directions, so `AddApplicationInput`,
+`AddApplicationReferenceDataSource`, `DescribeApplication` and
+`UpdateApplication` all silently dropped the column and format mapping those
+operations exist to configure. **A code comment in
+`application_config_update.go` already admitted it** — "not modeled
+anywhere... ignored if present on the wire" — and it had never been surfaced
+as a gap in PARITY.md. Second time this session a manifest recorded a surface
+as audited while the code carried an admission that it was not (see mq, and
+`gopherstack-1i5l`).
+
+**This is the case for the `This member is required` grep as a standing step**
+— it is one command and it found the highest-value bugs of the campaign.
+
+A real asymmetry found while fixing and modelled rather than assumed:
+`InputUpdate.InputSchemaUpdate` is its own Update-suffixed shape, but
+`ReferenceDataSourceUpdate.ReferenceSchemaUpdate` is typed plain
+`*SourceSchema`, reused verbatim. Two sibling triples, opposite conventions.
+Also removed a fabricated top-level `Tags` from `ApplicationDetail`.
+
+Coverage stated rather than implied: 21 triples re-derived field-by-field, 9
+taken from the prior pass's explicit field lists since no code had changed
+under them. Commit `d6e9417be`.
+
+## redshiftdata (this session, 2026-08-20)
+
+All 12 ops swept. Protocol **awsjson1.1**. Two bugs.
+
+1. `ExecuteStatement`/`BatchExecuteStatement` never emitted `Status` or
+   `HasResultSet`. This backend completes every statement synchronously to
+   FINISHED, so `Status` is the one field a client actually checks on return
+   — and it came back `""` on every call.
+2. `DescribeStatement` leaked four members. `IsBatchStatement`,
+   `StatementName` and `QueryStrings` are real but belong to the wider
+   `StatementData` that `ListStatements` returns. **`WithEvent` exists on no
+   response shape at all** — it is request-only on `ExecuteStatementInput`.
+   One corrected test was literally named `TestWithEvent_StoredAndReturned`.
+
+Two negative results: the `Field` union backing `GetStatementResult` is clean
+across all six discriminators (a wrong one breaks every result set), and
+`CancelStatement.Status` is a bare JSON boolean unlike every other `Status` in
+the service — exactly the type confusion this sweep hunts, and correct.
+
+**The brief for this sweep was WRONG** — it named a `FormattedField` type for
+`GetStatementResultV2`. No such type exists at the pinned v1.43.4, which uses
+`[]types.QueryRecords`. The agent checked instead of accepting it and
+recorded the discrepancy. Briefs are hints to verify; the pinned SDK wins.
+Commit `3cec37291`.
+
+## acmpca (this session, 2026-08-20)
+
+All 23 ops swept. Protocol **awsjson1.1**. **Zero bugs.**
+
+`GeneralName` — a union of **eight** members (the brief said nine; the SDK
+says eight) — never appears on any response shape at all, living only under
+`IssueCertificateInput.ApiPassthrough`, which gopherstack does not echo. On
+the request side all eight are represented, three implemented and the other
+five rejected with `InvalidParameterException` rather than silently dropped,
+which is the right failure mode. `ApiPassthrough` is request-only and
+`IssueCertificateOutput` carries just `CertificateArn` — no leak.
+
+**What landed is coverage, not a fix, and the reason generalises**: this
+service's tests were all raw-JSON-map assertions, which **by construction
+cannot fail on a wrong key** — only on a missing expected one. The new
+round-trip drives a real `acmpcasdk.Client` through create and describe with
+a full nested `Subject` and `RevocationConfiguration`, proven meaningful by
+retagging a key to lowercase and watching it fail. Any service whose tests
+are all raw-map assertions is under-covered in exactly this way.
+Commit `bfc0729e6`.
+
+## sts (this session, 2026-08-20)
+
+All 11 ops swept. **Zero bugs.** Small service, but it is the credentials
+path for the whole emulator — a dropped field here breaks authentication
+rather than degrading a feature.
+
+Protocol confirmed **query/XML** (`awsAwsquery_`), which changes the rules
+this sweep applies to the thirty-odd JSON services: element matching and
+error-code routing are both `EqualFold`-based, verified at every case site,
+so **casing near-misses genuinely cannot matter here** — worth stating, since
+three of this campaign's bugs elsewhere were exactly that.
+
+`Credentials` uses **`SecretAccessKey`** — not the `SecretKey` that
+cognitoidentity's identically-named concept uses, a trap hit from the other
+side earlier today — and `Expiration` is RFC3339 against the SDK's own
+`ParseDateTime`. The three assume-role variants use three separate Go
+structs, field-diffed individually, no sibling leakage. All eleven
+`<Op>Result` envelope names byte-match the live `GetElement` calls, with
+`ResponseMetadata`/`RequestId` present and ordered. Request-side nesting
+checked too, including `AssumeRootInput.TaskPolicyArn`, a nested
+`PolicyDescriptorType` object that looks like a flat string.
+
+Disclosed, not fixed, with the reasoning that matters:
+`ErrIDPRejectedClaim` emits `"AccessDenied"` where the real exception uses
+`"IDPRejectedClaim"` — but it is **dead code, never constructed anywhere**, so
+there is no live response to prove a fix against and manufacturing a feature
+path to test it would exceed the finding. Cited, not guessed at. Audit stamp
+was three weeks stale. Commit `1efb1a758`.
+
+## translate (this session, 2026-08-20)
+
+All 19 ops swept. Protocol **awsjson1.1**. One bug:
+`GetParallelData`/`ListParallelData` silently dropped
+`ParallelDataProperties.EncryptionKey`. `CreateParallelData` accepts and
+persists it, and the sibling `terminologyToMap` already emits the analogous
+field on the analogous type — `parallelDataToMap` never did. **A half-applied
+fix with a correct neighbour beside it**, the shape `gopherstack-g8k9` closed
+on and which keeps recurring.
+
+All three request/response splits came back clean: `Document` carries
+`Content`+`ContentType` on the request while `TranslatedDocument` carries
+`Content` only; `TerminologyData` is request-only and its `File` never
+appears in a response; `ParallelDataConfig` nests inside
+`ParallelDataProperties` without being confused for the separate
+`ParallelDataDataLocation`.
+
+**RETRACTION.** This sweep reported the prior stamp (`2d47b51d4`, 2026-07-29)
+as failed provenance because that sha is an ec2 commit not touching this
+service. Wrong — the field means HEAD-at-write-time, the sha is dated exactly
+the audit date, and three sibling manifests cite it with the same date. Worse,
+the proposed fix **manufactured the defect it was hunting**, pairing a
+2026-07-24 commit with a 2026-08-20 audit date — a 27-day gap, the very tell
+used to find bad stamps. Retracted in the manifest itself. Commit `4cfa01673`.
+
+## account (this session, 2026-08-20)
+
+All 16 ops swept. Protocol **restjson1**. **Zero bugs.** The required-member
+grep came back fully satisfied: `ContactInformation`'s six,
+`PutAlternateContact`'s five, `GetGovCloudAccountInformationOutput`'s two, all
+modelled, populated and validated. `AlternateContact` itself has zero required
+members, verified directly rather than assumed symmetric.
+
+Two things right that are easy to get wrong: this service uses **two
+different timestamp formats on purpose** — `AccountCreatedDate` as ISO8601 via
+`ParseDateTime`, `UpdatedAt` as epoch seconds via `ParseEpochSeconds` — and
+the alternate-contact family has a direction asymmetry, with the contact type
+a request member on Put and Delete but nested inside the returned contact on
+Get. No request-only member leaks anywhere. Commit `bba779ef7`.
+
+## Provenance heuristic: FOUR false positives, and why it is sticky
+
+Recorded here rather than only in `gopherstack-z31a` because every future
+sweep reads this file.
+
+**The only test that discriminates is the gap between the cited sha's own
+commit date and `last_audit_date`.** Nothing else.
+
+Four agents this session reached instead for "the stamp should point at a
+commit touching this service", and all four were wrong:
+
+| service | accused on | outcome |
+|---|---|---|
+| codestarconnections | directory test | cleared — sha dated exactly its audit date |
+| (this file, earlier) | shared-sha as signal | retracted — sharing is the NORM, ~30 manifests |
+| translate | directory test | retracted — and the "fix" wrote a 27-day gap |
+| account | directory test | retracted — real gap was four days, inside noise |
+
+Against five confirmed real cases — appmesh, codeconnections, emrserverless,
+detective, sts — **every one of which failed the DATE test and none of which
+was found by the directory test.**
+
+**The stickiness is the finding.** Three of those four agents had a brief that
+said in as many words that sharing proves nothing and only the date gap
+discriminates, and used the directory test anyway. Wording does not fix it.
+Tooling must make the wrong test *unavailable*: expose one predicate,
+`dateGap(sha, last_audit_date) > threshold`, and never a per-service diff
+helper taking a sha and a path — that shape invites the bad test. Any
+stamp-rewriting path must assert its own output passes the date test before
+writing.
+
+**138 of 162 services swept, 24 remain.**
+
+## elb (this session, 2026-08-20)
+
+All 29 Classic ELB ops swept. Protocol **query/XML**. **Zero bugs.**
+
+Query/XML changes what counts as a finding, and this section records the
+rules so the next query service does not re-derive them. Element matching is
+`EqualFold`-based, so **casing near-misses are not bugs here** — three of this
+campaign's bugs elsewhere were exactly that, all in JSON services. Member
+wrapping was checked **per list** rather than once for the service: fifteen-plus
+distinct lists, each against its own deserializer.
+
+**Two structural confirmations.** `FetchRootElement` does NOT validate the
+root element name, so a root-tag mismatch here would be a false positive —
+the same shape as this file's cloudfront note, now confirmed to **generalise
+to query services** rather than being a cloudfront quirk. But
+`GetElement("<Op>Result")` IS load-bearing, so the Result tag is worth
+checking even though the root is not.
+
+`PolicyAttributeDescription` against `PolicyAttributeTypeDescription` — the
+near-identical pair that made this service worth reading — is two separate
+structs with no cross-contamination, and the `LoadBalancerAttributes` nested
+bag is not flattened.
+
+The required-member grep came back satisfied in a way worth noting: every one
+is modelled **without `omitempty`**, so they stay on the wire at zero value —
+which is precisely what `omitempty` would silently break on a required bool
+like `AccessLog.Enabled`. Disclosed, not fixed: five modelled exceptions have
+no gopherstack sentinel. Commit `53664f525`.
+
+## timestreamwrite (this session, 2026-08-20)
+
+All 19 ops swept. Protocol **awsjson1.0**. One bug.
+
+`CreateBatchLoadTaskInput.DataModelConfiguration` and `.RecordVersion` had
+**no field at all** in the wire struct. `DataModelConfiguration` is the normal
+way to specify a batch load's CSV-to-table column mapping, so a compliant
+client had it silently dropped on create and never echoed on describe —
+`BatchLoadTaskDescription`'s deserializer has thirteen cases and both are
+among them. Fixed to full depth.
+
+**THIS REFINES THE STANDING CHECK.** The `This member is required` grep —
+which found the campaign's two biggest bugs — would NOT have caught this.
+Both members are **optional**. What caught it was diffing the Input struct's
+FULL field list against the wire struct, optional members included. The check
+is "every member, required or not", with required ones merely the
+highest-value subset.
+
+Two shapes verified because this service invites confusion, both correct:
+`Record.MeasureValue` is a singular string while `Record.MeasureValues` is a
+list of `{Name,Value,Type}` structs; and `RejectedRecordsException` carries
+its `RejectedRecords` list flat at the error body root rather than nested —
+**an error shape with a body, which this sweep has rarely tested.**
+Commit `b8ef75b1e`.
+
+## dax (this session, 2026-08-20)
+
+All 20 ops swept. Protocol **awsjson1.1** (`AmazonDAXV3` target prefix). One
+bug: `RebootNode` emitted Events with `SourceType: "NODE"`. The real
+`types.SourceType` enum has exactly CLUSTER, PARAMETER_GROUP, SUBNET_GROUP —
+a typed client got a value its enum cannot represent. Node-level events are
+attributed to the cluster in the real API, and now are.
+
+**WHY THE PRIOR PASS MISSED IT IS A GAP IN THE METHOD, not in that pass's
+diligence.** The 2026-08-10 audit checked that every ADVERTISED enum constant
+matched the SDK. It never checked the other direction: that no EXTRA constant
+existed and was being emitted. `EventSourceTypeNode` was defined in
+`models.go` and used at three call sites, and a check that only walks the
+SDK's values outward will never see it. **The enum check must run both ways** —
+every SDK value representable, and every constant the service emits is an SDK
+value. That is now a standing step.
+
+Three near-identical names all correct: `types.ParameterGroup`,
+`types.ParameterGroupStatus`, and `Cluster.ParameterGroup` (which is a
+`ParameterGroupStatus`, not a `ParameterGroup`). `Parameter` is genuinely
+shared, identically, between `DescribeParameters` and
+`DescribeDefaultParameters`. Commit `6fbeab7a7`.
+
+## comprehend (this session, 2026-08-20) — and a REGRESSION CAUGHT BEFORE COMMIT
+
+All 85 ops swept. Protocol **awsjson1.1**. One bug shipped, **one proposed fix
+rejected**, and the rejection is the more useful record.
+
+SHIPPED: `DetectTargetedSentiment` hung `Text`, `Score`, `BeginOffset`,
+`EndOffset` and `Type` directly off the entity root.
+`types.TargetedSentimentEntity` has exactly two members,
+`DescriptiveMentionIndex` and `Mentions`; those five belong on
+`types.TargetedSentimentMention` nested inside `Mentions`, and
+`DescriptiveMentionIndex` was never populated at all.
+`BatchDetectTargetedSentiment` shares the detector and was equally affected.
+
+**REJECTED AND REVERTED BEFORE COMMIT**: the sweep also reported
+`ClassifierMetadata.EvaluationMetrics` and `RecognizerMetadata`'s top-level
+`EvaluationMetrics` as emitting fabricated `F1Score`/`MicroF1Score`, and
+deleted them. **Both are real:**
+
+```
+ClassifierEvaluationMetrics:       Accuracy F1Score HammingLoss MicroF1Score
+                                   MicroPrecision MicroRecall Precision Recall
+EntityRecognizerEvaluationMetrics: F1Score Precision Recall
+EntityTypesEvaluationMetrics:      F1Score Precision Recall   <- identical
+```
+
+So the shared helper was already correct and the proposed split was
+unnecessary. **Worse, it had "corrected" the pre-existing test that asserted
+those fields present into asserting their ABSENCE** — locking the regression
+in behind a green suite. That is exactly the failure mode this campaign has
+been fixing in the other direction all session.
+
+**The lesson is narrow and worth keeping: a fabricated-member finding is only
+as sound as the type list it was checked against, and this one was checked
+against an incomplete one.** Read the whole struct, not a grep excerpt. The
+manifest records the retraction rather than quietly dropping it.
+
+The rest was genuinely read: all nine async-job `*Properties` and all five
+resource `*Properties` field-diffed individually rather than generalised, all
+six `BatchDetect` `ResultList`/`ErrorList` wrappers, the eight sync detect
+shapes, and the nested `Entity`/`KeyPhrase`/`SyntaxToken`/`PiiEntity`/
+`ToxicLabels`/`SentimentScore`/`DominantLanguage` types. Provenance was
+genuinely stale — sha predates its own audit date by fifteen days — and is
+refreshed. Commit `039f56e4b`.
+
+**142 of 162 services swept, 20 remain.**
+
+## mediapackage (this session, 2026-08-20)
+
+All 19 ops swept. Protocol **restjson1**. **Zero bugs.** All 19 Output structs
+are flat, so `gopherstack-cnhp` has no purchase — checked, not assumed. Full
+field-list diff including optional members across Channel, OriginEndpoint,
+HarvestJob, HlsIngest/IngestEndpoint, both access-log types, Authorization,
+the MssPackage chain down through MssEncryption, SpekeKeyProvider,
+EncryptionContractConfiguration and StreamSelection, and S3Destination.
+
+**The enum check came back clean for a STRUCTURAL reason, which is stronger
+than a lucky result**: gopherstack emits exactly two enum-typed constants,
+both real. The other fourteen enums live inside the opaque Hls/Dash/Cmaf
+package blobs, where the service echoes the client's own bytes and therefore
+*cannot* invent a value.
+
+That opacity is this service's standing deferral, and it has one consequence
+now named concretely rather than left implicit: because the `CmafPackage`
+request map is echoed verbatim, **gopherstack never adds the server-computed
+`HlsManifest.Url` that real AWS returns.**
+
+**The `cp`-based hand-revert landed here first and worked**: reverted
+`SpekeKeyProvider`'s `resourceId` tag to a typo via the scratchpad copy,
+watched the real client return an empty `ResourceId`, restored, confirmed
+byte-identical by md5sum. No git. Commit `67b92e0b9`.
+
+## iotdataplane (this session, 2026-08-20)
+
+All 11 ops swept. Protocol **restjson1**. **Zero wire bugs.** This was the
+highest false-positive risk left in the sweep — restjson AND payload-bound is
+exactly the `gopherstack-cnhp` condition — so body handling was resolved per
+op by reading each `HandleDeserialize` in full.
+
+**The result is a three-way split that a name-only check gets WRONG:**
+
+```
+err = awsRestjson1_deserializeOpDocumentGetThingShadowOutput(
+        output, response.Body, response.ContentLength)
+```
+
+- `GetThingShadow`/`UpdateThingShadow`/`DeleteThingShadow` read the RAW body,
+  and **the OpDocument helper is nonetheless the live path** — it just takes
+  `(output, response.Body, response.ContentLength)` instead of a decoded
+  shape. **So "the helper is called" does not by itself mean the body is a
+  JSON document. Read the call, not the name.**
+- `Publish`/`DeleteConnection` discard an empty body.
+- The other six genuinely JSON-decode through the helper.
+
+The HTTP bindings were the real surface, including the one that looks wrong
+and is not: `ListNamedShadowsForThing` lives at
+`/api/things/shadow/ListNamedShadowsForThing/{thingName}`, NOT under the
+`/things/{thingName}/shadow` prefix its siblings use. `Publish`'s
+`contentType` is a query parameter, not the HTTP header.
+
+Boundary stated rather than glossed: the shadow document's own JSON is opaque
+(`Payload []byte` is the sole SDK member), so gopherstack's shadow-merge
+semantics are outside this method's reach and nothing here verifies them.
+
+**Two comments fixed that CONTRADICTED correct code** — one asserting
+"RetainedMessageSummary does NOT include qos" beside a function correctly
+emitting qos; one claiming `ErrRequestTooLarge` is modelled only for
+`UpdateThingShadow` when `SendDirectMessage` models it too. Not wire bugs, but
+that is precisely how a later pass talks itself into a regression — which
+happened in comprehend earlier today. Commit `b61cda07b`.
+
+## mediastore (this session, 2026-08-20)
+
+All 21 ops swept. Protocol **awsjson1.1**. **Zero bugs.** The
+`gopherstack-cnhp` check came back in the AFFIRMATIVE rather than being
+dismissed: every op's OpDocument deserializer is the live path AND is
+decoding a real wrapper key, so every wrapper key in the handlers is
+load-bearing here.
+
+The per-op check that keeps finding bugs elsewhere came back clean — the
+`Container` item shape is identical across `CreateContainer`,
+`DescribeContainer` and `ListContainers`, all three sharing one conversion.
+Two type details that invite mistakes are right: `MaxAgeSeconds` is a JSON
+number against the SDK's int32, and the lifecycle policy is a plain **string**
+on both sides rather than a structure.
+
+Disclosed, not fixed: `CorsRule.AllowedMethods` values are not validated
+against the `MethodName` enum, and `LimitExceededException` — declared only
+for `CreateContainer`, for the per-account quota — is unmodelled.
+Commit `af89d3e6f`.
+
+## serverlessrepo (this session, 2026-08-20)
+
+All 13 ops swept. Protocol **restjson1**. One bug.
+
+`applicationResponse`, shared by `CreateApplication`, `GetApplication` and
+`UpdateApplication`, emitted a top-level `sourceCodeUrl`.
+`GetApplicationOutput` has thirteen members and none is `SourceCodeUrl` — the
+field is real, but on `CreateApplicationInput` as a REQUEST member, with its
+response-side home nested under `Version.sourceCodeUrl`. **Third request-only
+field found riding into a response today**, after efs's `DestinationToCreate`
+members and redshiftdata's `WithEvent`.
+
+**Worth recording what can and cannot detect this class**: a typed SDK client
+CANNOT, because it silently ignores unknown JSON keys. The test has to
+inspect the raw wire body. That is the same instrument the fabricated-member
+findings elsewhere in this campaign needed, and the reason a "clean" typed
+round-trip is not sufficient evidence against a leak.
+
+The three list ops were checked separately rather than generalised, which
+mattered: `ListApplications` returns `ApplicationSummary`,
+`ListApplicationVersions` returns `VersionSummary`, and
+`ListApplicationDependencies` returns `ApplicationDependencySummary` — three
+genuinely distinct item types, exactly the shape omics got ten of eleven ops
+wrong on. Commit `bf7f0944b`.
+
+**146 of 162 services swept, 16 remain.**
+
+## applicationautoscaling (this session, 2026-08-20)
+
+All 14 ops swept. Protocol **awsjson1.1**. One bug, and it broke the
+operation outright. `GetPredictiveScalingForecast` emitted
+`LoadForecast[].MetricSpecification` as a fabricated STRING built by joining
+namespace, resource id and dimension. The real member is
+`*types.PredictiveScalingMetricSpecification`, marked required, so every real
+client failed the whole call:
+
+```
+unexpected JSON type ecs/service/my-cluster/my-service/ecs:service:DesiredCount
+```
+
+Fifth call-breaking wrong-type bug. The fix does not substitute another
+placeholder — it echoes the caller's own configured metric spec, real data the
+backend already holds from `PutScalingPolicy`, and returns an empty forecast
+when none was configured.
+
+**A NEGATIVE TWIN CHECK WORTH AS MUCH AS THE FIX.** `gopherstack-41di`
+records that `autoscaling`'s `PutScalingPolicy` drops `ResourceLabel`, so
+this service's `PredefinedMetricSpecification` was checked for the same bug.
+It does not reproduce, **and not by luck**: policy configurations here are
+held as opaque `map[string]any` end to end, and unmarshalling into a map
+preserves every key at any depth. `autoscaling`'s bug is a TYPED STRUCT that
+named some fields and omitted others. Same concept, architecturally different
+exposure — **so a twin check must look at how the data is HELD, not just
+whether the field name appears.** Commit `68ca109bb`.
+
+## polly (this session, 2026-08-20)
+
+All 10 ops swept. Protocol **restjson1**. One bug: `ListLexicons` emitted
+each entry FLAT — `Name` alongside all six attribute fields as siblings —
+where the real `types.LexiconDescription` has exactly two cases, `Name` and
+`Attributes`, and drops anything else at that level. Every client saw
+`Attributes == nil` while the data sat one level too high. **`GetLexicon` was
+already correct**, which makes this the wrong-nesting shape rather than a
+missing one: same data, right in one op, misplaced in its sibling. Also
+removed a stray `Name` from the shared `LexiconAttributes` payload — the real
+type has no such member.
+
+**THIS SERVICE SHARPENS THE `gopherstack-cnhp` CHECK ONE MORE TURN, AND THIS
+IS THE FINAL FORM OF THE RULE.** `SynthesizeSpeech`'s `HandleDeserialize`
+DOES call `deserializeOpDocumentSynthesizeSpeechOutput`, so both the "is it
+called" grep AND iotdataplane's "read the call" refinement would say the body
+is a document. It is not:
+
+```go
+func awsRestjson1_deserializeOpDocumentSynthesizeSpeechOutput(
+        v *SynthesizeSpeechOutput, body io.ReadCloser) error {
+	...
+	v.AudioStream = body
+```
+
+No JSON decode at all. The name is the only thing suggesting otherwise.
+**Read the function BODY — not the name, not the call site.**
+
+`VoiceId` was checked programmatically rather than by eye: all 106 values
+diffed against the SDK's own `Values()`, empty diff. Provenance genuinely
+stale, and the trace explains how the bug survived — a later commit bumped
+only `sdk_module` and the date without re-verifying shapes, leaving a
+manifest that looked current. Commit `615cda74e`.
+
+## scheduler (this session, 2026-08-20)
+
+All 12 ops swept. Protocol **restjson1**. **Five bugs**, all inside
+`Target.EcsParameters` — the one nested block this service gets wrong while
+its five siblings are right.
+
+**Four are casing, and the pattern is new: this service is INTERNALLY
+inconsistent.** Its ECS block is lower-camel on the wire while its sibling
+blocks are PascalCase, and gopherstack applied the sibling convention
+throughout:
+
+```
+NetworkConfiguration         -> case "awsvpcConfiguration"   (was "AwsvpcConfiguration")
+CapacityProviderStrategyItem -> base capacityProvider weight (was Base/CapacityProvider/Weight)
+PlacementConstraint          -> expression type              (was Expression/Type)
+PlacementStrategy            -> same shape
+```
+
+restjson matches exactly and its default case is a silent no-op, so each
+dropped its WHOLE OBJECT without error. Casing hits six through nine, and the
+first where a single service disagrees with itself rather than with a sibling
+service. **Check each block against its own deserializer, not the service's
+prevailing convention.**
+
+Plus `EcsParameters.Tags` modelled as `[]{Key,Value}` where the real member is
+`[]map[string]string`, and `Target.InputTransformer` fabricated entirely — an
+EventBridge Rules concept that does not carry over to Scheduler. Four
+existing tests asserted the wrong keys and shape.
+
+**Third self-contradicting manifest this session**: its 2026-07-24 note wrote
+down the correct `[]map[string]string` type and then, a line later, called
+the buggy `{Key,Value}` shape correct. Annotated in place. After mq and
+kinesisanalyticsv2. Commit `0be795d3c`.
+
+## timestreamquery (this session, 2026-08-20)
+
+All 15 ops swept. Protocol **awsjson1.0**. One bug: `CreateScheduledQuery`
+silently discarded `TargetConfiguration` entirely. Inside it,
+`DimensionMappings`, `TimeColumn`, `DatabaseName` and `TableName` are all
+marked required, and none of it was parsed, stored or echoed by
+`DescribeScheduledQuery`. **A scheduled query is defined by where its results
+land**, so this dropped the half of the request that says what the query is
+for.
+
+The recursive shapes that make this service risky came back clean and were
+read line by line rather than inferred: `Datum` recursing through
+`TimeSeriesValue`/`ArrayValue`/`RowValue`, and `ColumnInfo` through
+`ArrayColumnInfo`/`TimeSeriesMeasureValueColumnInfo`/`RowColumnInfo`. A wrong
+key in either breaks EVERY query result, not one field.
+
+Twelve enums both directions; `S3EncryptionOption` turns out entirely
+unmodelled, recorded as a gap rather than counted as a fix. Provenance stale
+in the clearest form yet — cited sha is an **mwaa** commit dated 2026-07-13
+against an audit date of 2026-08-10. Commit `569c029de`.
+
+## cloudcontrol (this session, 2026-08-20)
+
+All 8 ops swept. Protocol **awsjson1.0**. **Zero bugs**, plus round-trip
+coverage for all eight.
+
+The shapes that make this service easy to get wrong are correct: its
+JSON-STRING fields — `ResourceDescription.Properties`,
+`ProgressEvent.ResourceModel`, `CreateResourceInput.DesiredState`,
+`UpdateResourceInput.PatchDocument` — are `*string` on the real SDK and
+`string` throughout gopherstack, both directions. **A resource document
+serialised into a string field is exactly where the struct-where-a-string-
+belongs mistake gets made**, and that shape has broken five ops this campaign.
+
+Five ops share `ProgressEvent` and each was verified against its OWN Output
+rather than generalised. `HandlerErrorCode`'s sixteen values, `Operation`'s
+three and `OperationStatus`'s six all check both ways.
+
+**The brief was wrong for the third time this session** — it named
+`HookStatus`, `HookInvocationPoint` and `HookFailureMode` as enums to check.
+At the pinned version they are not enum types at all; the corresponding
+`HookProgressEvent` members are plain `*string`. The agent verified and
+reported the discrepancy rather than inventing values to check against.
+
+**A NEW PROVENANCE VARIANT, and a genuine defect rather than a false alarm**:
+`last_audit_commit` had been stuck at one sha across THREE successive passes
+that each advanced `last_audit_date`. The dates moved, the pointer never did,
+so the stamp described a state three audits old while looking maintained.
+Distinct from the stale-sha cases — nothing about the sha is suspicious, only
+its immobility relative to the dates. **New check: did the stamp ADVANCE
+across passes?** Commit `bad4d6370`.
+
+**151 of 162 services swept, 11 remain.**
+
+## mediastoredata (this session, 2026-08-20)
+
+All 5 ops swept. Protocol **restjson1**. One bug, **the subtlest of the
+campaign**, and one this sweep's usual instruments would never have caught.
+
+No error response ever set the `X-Amzn-ErrorType` header. Every
+`deserializeOpError<Op>` in this SDK reads that header FIRST and only falls
+back to decoding a body. For PutObject, GetObject, DeleteObject and ListItems
+the fallback works, so nothing looked wrong.
+
+**`DescribeObject` is a HEAD request.** Go's `net/http` transport
+unconditionally discards a HEAD response body per RFC 7231, whatever the
+server sent. So there was no body to fall back to, and every DescribeObject
+error — `ObjectNotFoundException` included — arrived as an untyped
+`GenericAPIError{Code:"UnknownError"}`. A caller's
+`errors.As(&types.ObjectNotFoundException{})` could never match, on any
+error, ever.
+
+**The key names were right, the shapes were right, the JSON body was correct
+— it simply could not be read.** Worth carrying forward: a wire contract
+includes the transport's own rules, not just the document.
+
+Also independently confirms polly's finding:
+`deserializeOpDocumentGetObjectOutput` is called and its entire body is
+`v.Body = body`. And the greedy `/{Path+}` turns out structurally safe rather
+than merely correct — this repo's router has no route pattern at all,
+matching on User-Agent and `X-Amz-Target` and dispatching on the raw URL
+path, so a multi-segment object key cannot be split. Commit `17458c2f2`.
+
+## pipes (this session, 2026-08-20)
+
+All 10 ops swept. Protocol **restjson1**. **Five bugs** — the largest
+parameter-block surface left in the repo, nineteen variants across source,
+target and enrichment, and the bugs cluster in the target tree.
+
+1. `LogConfiguration` wrapped its destinations in a **fabricated
+   `Destinations` array**. The real `PipeLogConfiguration` and its Parameters
+   twin carry `CloudwatchLogsLogDestination`, `FirehoseLogDestination` and
+   `S3LogDestination` as three FLAT top-level members, so a correctly-shaped
+   client request configured no log destination at all. Worth recording what
+   was NOT wrong: the `Cloudwatch` casing, which managedblockchain got wrong
+   earlier in this campaign, is already correct here.
+2. `EcsTaskOverride` was missing `ContainerOverrides`, `EphemeralStorage` and
+   `InferenceAcceleratorOverrides` — three of its seven real members, and the
+   three carrying the actual override payload.
+3. `EcsTaskTargetParameters` was missing `PropagateTags`, `ReferenceId`, `Tags`.
+4. `BatchContainerOverrides.Environment` was `map[string]string` where the
+   real member is `[]BatchEnvironmentVariable`. **An object where the SDK
+   sends an array does not silently drop — it fails the unmarshal outright.**
+5. `ListPipes`' item emitted a `Description` that `types.Pipe` does not have.
+
+**A NEW SEVERITY RULE, and it inverts the usual one.** The top-level
+`DeadLetterConfig` is fabricated — the real API carries it only nested under
+`SourceParameters.{Kinesis,DynamoDBStream}Parameters`, which gopherstack
+models correctly — **but the runner and poller read ONLY the fabricated
+field**. So a client configuring a DLQ the one way the real API allows gets a
+200, sees it echoed back, and silently never receives a dead-lettered record.
+A prior note called it a cosmetic extra field, on the correct general
+principle that real deserializers ignore unknown keys. **That principle holds
+for the response and not for the behaviour.**
+
+**When you find a fabricated member, grep for its READERS before calling it
+harmless. An extra field is cosmetic only if nothing reads it.** Filed as
+`gopherstack-6ffg` (P2); too large to fix inside a wire pass. Commit `1316d6ed5`.
+
+## kinesisanalytics (this session, 2026-08-20)
+
+All 19 ops swept. Protocol **awsjson1.1**. One bug:
+`InputProcessingConfigurationDescription` emitted its nested processor under
+`InputLambdaProcessor`; that deserializer has exactly one case,
+`InputLambdaProcessorDescription`. gopherstack had reused the REQUEST-side
+sibling's member name — correctly named on the request type — for the
+RESPONSE-side Description type. Every `DescribeApplication` for an input with
+a processing configuration returned 200 with the preprocessor's ResourceARN
+and RoleARN decoding as nil.
+
+**The twin result is the headline.** This service was swept deliberately
+because its V2 sibling produced the campaign's two most consequential bugs —
+`Input.InputSchema` and `ReferenceDataSource.ReferenceSchema`, both required,
+never modelled in any direction. **V1 has the same type names and is CLEAN**:
+both fully modelled and populated, with the whole `SourceSchema`,
+`RecordColumn`, `RecordFormat` and `MappingParameters` sub-tree present and
+validated. A 2026-07-24 pass had already closed it, and this sweep re-derived
+that from the SDK rather than trusting the stamp.
+
+**Third twin check of the campaign — two positives (codeconnections, and
+pipes' DLQ by analogy), two negatives (applicationautoscaling,
+kinesisanalytics). Cheap either way, and the negatives carry their own
+information**: applicationautoscaling's told us opaque maps are structurally
+immune to the field-omission class, and this one tells us a catastrophic V2
+bug does not imply a V1 bug. Commit `b1c470fae`.
+
+**155 of 162 services swept, 7 remain.**
+
+## The five "unresolved" services, resolved (2026-08-20)
+
+This file's `cmd/opcensus` notes flagged five services the tool could not
+resolve — `qldbsession`, `dms`, `qldb`, `sagemakerruntime`, `rdsdata` — and
+said `dms`'s 0/0/0/0 was "worth a manual check: either DMS genuinely has no
+List/Describe/Get-named ops, or this is a fifth unresolved case". Checked.
+**Three different answers, and two of them change the denominator.**
+
+**`qldb` and `qldbsession` are TOMBSTONES, not services.** Each directory
+contains exactly one file, `README.md`, reading:
+
+> QLDB — REMOVED. Amazon QLDB is deprecated by AWS (end-of-support
+> 2025-07-31) and is not supported by gopherstack. This package was removed.
+> It will not be re-added.
+
+No Go code, no handler, not registered with the router. `cmd/opcensus` counts
+them because it walks `services/*` directories, so **the 162 denominator this
+campaign has been using includes two tombstones. The real sweepable
+population is 160.** Every "N of 162" line in this file is therefore two
+services pessimistic. Not corrected retroactively — the progression is the
+historical record — but the final count should be read against 160.
+
+**`dms` was a tool bug, not an empty service.** It declares **23 operations**
+and imports the SDK normally. `cmd/opcensus` looked for
+`aws-sdk-go-v2/service/dms` and go.mod pins
+`aws-sdk-go-v2/service/databasemigrationservice` — **the AWS Go module name
+does not match the gopherstack directory name.** The tool's resolution is
+keyed on the directory name, so it found nothing and reported zero.
+
+That is worth fixing in the tool rather than working around: any service whose
+SDK module name differs from its directory name will silently report zero
+ops and look swept-clean when nobody has read it. Known aliases in this repo
+include at least `dms` → `databasemigrationservice` and `elb` →
+`elasticloadbalancing`; a future `opcensus` pass should resolve the module
+name from the service's own imports rather than assuming the directory name.
+
+**`sagemakerruntime` (3 ops) and `rdsdata` (6 ops) are genuine and small** —
+both data-plane services with a handful of operations each, which is why they
+sat at the bottom of the ranked table rather than failing to resolve. The
+earlier note in this file predicting exactly that ("both are data-plane
+services, genuinely low surface for this bug class") was correct.
+
+**Revised remaining list**: `dms` (23 ops, previously invisible),
+`appconfigdata`, `apigatewaymanagementapi`, `sagemakerruntime`, `rdsdata`,
+plus `firehose` and `bedrockruntime` in flight.
+
+## mwaa (this session, 2026-08-20)
+
+All 12 ops swept. Protocol **restjson1**. Two bugs.
+
+The accepted `AirflowVersion` set was wrong **in both directions** —
+accepting five versions AWS has removed (2.6.3, 2.5.1, 2.4.3, 2.2.2,
+1.10.12) and rejecting three real current ones (2.10.1, 2.11.0, 3.0.6). The
+authoritative list appears identically in three places in the pinned SDK and
+now matches exactly. **Rejecting a version AWS supports is the more visible
+half**: a client creating a current environment got a validation error for a
+valid request.
+
+**The request/response conflation, found for the FOURTH time — and here it
+runs the OPPOSITE way from the previous three.**
+`ModuleLoggingConfiguration` carries `CloudWatchLogGroupArn`; its `Input`
+twin does not, because the ARN is server-computed. One shared Go type meant
+a client could **SET** the ARN on a create or update request and have
+gopherstack echo it back as though AWS had generated it. The previous three
+leaked request-only fields INTO responses; this leaks a response-only field
+into the REQUEST path.
+
+pipes' reader check is what made it a bug rather than a curiosity —
+`buildEnvironment` and `UpdateEnvironment` copied it verbatim, so it was
+load-bearing. **The hand-revert here is a COMPILE ERROR rather than a failing
+assertion**, which is a stronger proof than the usual and worth reaching for
+when a fix splits a type.
+
+`Environment`'s thirty-four members were diffed individually. Stamp showed
+the cloudcontrol stuck-pointer pattern — never advanced across two later
+substantive passes that edited the manifest's own content. Commit
+`541f5045f`.
+
+## firehose (this session, 2026-08-20) — THE LARGEST SYSTEMIC FINDING
+
+All 12 ops swept. Protocol **awsjson1.1**. **Every destination carrying one
+nested S3 bucket uses a DIFFERENT wire key in each direction**, and
+gopherstack used a single fixed JSON tag across all three:
+
+```
+HttpEndpoint   S3Configuration / S3Update / S3DestinationDescription
+Splunk         S3Configuration / S3Update / S3DestinationDescription
+Elasticsearch  S3Configuration / S3Update / S3DestinationDescription
+OpenSearch     S3Configuration / S3Update / S3DestinationDescription
+Snowflake      S3Configuration / S3Update / S3DestinationDescription
+Redshift       S3Configuration / S3Update / S3DestinationDescription
+               + S3BackupConfiguration / S3BackupUpdate / S3BackupDescription
+ExtendedS3     S3BackupConfiguration / S3BackupUpdate / S3BackupDescription
+Iceberg        S3Configuration / S3Configuration        <- the ONE exception
+```
+
+Consequences per direction:
+- **Three families** (HttpEndpoint, OpenSearch, Splunk) tagged their create
+  field `S3BackupConfiguration` where the real key is `S3Configuration`,
+  which the SDK marks REQUIRED. A real client **could not populate the bucket
+  through CreateDeliveryStream at all.**
+- **Six families plus ExtendedS3's backup** recognised only the create key on
+  update, so `UpdateDestination` **silently left the bucket unchanged.**
+- **Four families** echoed under `S3BackupDescription` where the real
+  deserializer reads `S3DestinationDescription`, so **even a correctly stored
+  bucket never reached the client.**
+
+**None of these are fabricated members. They are real fields under wrong
+keys**, which is why nothing here is harmless: the staging and backup bucket
+for six of eight destination families was unreachable from a real client in
+at least one direction, and in three directions for HttpEndpoint, OpenSearch
+and Splunk.
+
+**Iceberg is the one family that genuinely keeps the same key on both create
+and update** — confirmed against its own serializer rather than generalised
+from its siblings, which is the entire reason this was checked per family.
+
+**THE RULE THIS ESTABLISHES: create, update and describe are THREE DIFFERENT
+CONTRACTS. Check each direction's own serializer/deserializer separately.**
+A single Go struct serving all three is the setup for exactly this.
+
+Three smaller fixes: Redshift alone among the destinations was missing
+`CloudWatchLoggingOptions` and `SecretsManagerConfiguration`, both real;
+`OrcSerDe` was missing `PaddingTolerance`; `ListDeliveryStreams`' type filter
+accepted two of the four real `DeliveryStreamType` values. Commit `a37fc3e38`.
+
+## bedrockruntime (this session, 2026-08-20)
+
+All 11 ops swept. Protocol **restjson1**. One bug: `ApplyGuardrail` returned
+a top-level `action` of `"BLOCKED"`.
+
+```
+GuardrailAction:            "NONE" | "GUARDRAIL_INTERVENED"
+GuardrailWordPolicyAction:  "BLOCKED" | "NONE"
+ApplyGuardrailOutput.Action types.GuardrailAction
+```
+
+`"BLOCKED"` is real — of a DIFFERENT enum, which this service uses correctly
+for `assessments[].wordPolicy.customWords[].action`. **One internal constant
+served two same-named-concept enums at two nesting levels.**
+
+**The failure mode is worth recording: Go does not validate scalar enum
+strings at decode time.** A real client received `GuardrailAction("BLOCKED")`
+with no error, and any typed switch against the two real values silently
+never fired. No crash, no decode failure — a branch that never matched. Six
+existing tests asserted it; the nested `customWords` assertion, correctly
+`"BLOCKED"`, was left alone, and that distinction is what makes this a real
+bug rather than a global rename.
+
+The union surface was **proven rather than read**: the new round-trip drives
+`ConverseStream` through the SDK's own eventstream reader and asserts no
+event decodes to `UnknownUnionMember`, including a check that a fabricated
+tag WOULD surface as one. That is the kinesis lesson applied.
+
+Disclosed with its reasoning: `GetAsyncInvoke` returns
+`ResourceNotFoundException`, but the pinned SDK's error deserializer for that
+op declares only four exceptions and that is not among them, unlike eight of
+the other ten ops. Genuinely ambiguous between an AWS quirk and an SDK model
+omission, unconfirmable without live AWS — cited, not guessed at. Commit
+`8755f3efc`.
+
+**158 of 162 swept (156 of the 160 real services). 4 remain: dms,
+appconfigdata, apigatewaymanagementapi, sagemakerruntime, rdsdata** — dms and
+appconfigdata in flight.
+
+# ================= CAMPAIGN COMPLETE (2026-08-20) =================
+
+## dms (this session, 2026-08-20) — the service the tool hid
+
+**119 ops** — not the 23 this sweep's brief claimed, and not the 0
+`cmd/opcensus` reported. Protocol **awsjson1.1**. Three bugs plus one
+cosmetic.
+
+**Why it was unswept for the whole campaign**: the SDK module is
+`databasemigrationservice`, there is no `service/dms` module, and opcensus
+resolves the module from the DIRECTORY name. It found nothing and reported
+zero ops — **and a zero-op result is indistinguishable from "small service,
+nothing to sweep."** Filed as `gopherstack-c7s3`. Other known alias:
+`elb` → `elasticloadbalancing`.
+
+1. The `Endpoint` **ENVELOPE** was missing six real top-level members —
+   `CertificateArn`, `ExtraConnectionAttributes`, `KmsKeyId`,
+   `ServiceAccessRoleArn`, `SslMode`, `ExternalTableDefinition` — on both
+   request and response. **Distinct from the already-documented per-engine
+   settings-block gap**: these sit on the envelope, so they were missing
+   whatever engine an endpoint targets.
+2. `ReplicationInstance`'s envelope was missing four the same way.
+3. `DescribeOrderableReplicationInstances` emitted a release status of
+   `"GA"`; the real `ReleaseStatusValues` has exactly `"beta"` and `"prod"`.
+4. Cosmetic, handled honestly: `DescribeFleetAdvisorCollectors` used a
+   fabricated `Marker` where the real output carries `NextToken`. Per pipes'
+   reader check, nothing reads it — corrected and recorded as cosmetic rather
+   than given a test implying it mattered.
+
+Pagination verified across all 119 ops rather than assumed: seventy use
+`Marker`/`MaxRecords`, seven correctly use `NextToken`, exactly one was
+wrong. Coverage stated: four `ReplicationInstance` members left unfixed,
+three types not re-diffed, ~19 of 24 enums not individually re-checked.
+Commit `9acc4cc64`.
+
+## appconfigdata / apigatewaymanagementapi / rdsdata / sagemakerruntime (2026-08-20)
+
+The last four, all **zero bugs**, and each contributed a probe result worth
+keeping.
+
+**appconfigdata** (2 ops): all four response headers exact,
+`configuration_token` a query param not a path segment, and its payload
+deserializer body is `v.Configuration = buf.Bytes()` — the third no-JSON
+helper after polly and mediastoredata. Empty-vs-non-empty configuration
+semantics modelled via a content hash. Fixed a comment claiming the handler
+returns 401 when the test never touches HTTP and real AWS returns 400.
+Commit `f16ac0367`.
+
+**apigatewaymanagementapi** (3 ops): **three of its four modelled exceptions
+have deserializers that never read the response body at all** — only
+`PayloadTooLargeException`'s does. Classification is purely by error CODE
+(`X-Amzn-Errortype` header first, body `code`/`__type` second); the numeric
+status only gates whether the error path runs, **not which exception is
+produced.** gopherstack sets the header everywhere, so clients get typed
+exceptions. Same header-first mechanism mediastoredata got wrong today,
+checked here and found right. Commit `914e8b598`.
+
+**rdsdata** (6 ops): `Field`'s **seven** members (the brief said six)
+correctly discriminated in BOTH directions — it appears on the request side
+inside `SqlParameter` too. NULL never conflated with a zero value, since
+every member is a pointer or slice. Checked the DEPRECATED `ExecuteSql`
+rather than assuming it was dropped — it exists and is implemented. And it
+RAN the engine to establish a fact rather than reasoning about it: division
+by zero in this SQLite driver yields SQL NULL, not NaN, so the SDK's
+NaN/Infinity special-case is genuinely unreachable rather than a latent gap.
+Commit `8ea58ea9a`.
+
+**sagemakerruntime** (3 ops): zero bugs **structurally** rather than luckily
+— all three ops are flat HTTP binding plus an opaque blob, no nested struct,
+list or map anywhere. Binding asymmetries hold (`Content-Type` plain on one
+op, `X-Amzn-Sagemaker-Content-Type` on its sibling), and the three ops carry
+three genuinely different error sets. **Its missing `X-Amzn-ErrorType` is NOT
+a bug here** — restjson falls back to the body's `__type` and this service
+emits exactly that. Same probe as mediastoredata, opposite verdict, which is
+why it was run rather than assumed. New test drives the SDK's own
+`GetStream().Events()` reader and was verified non-vacuous by corrupting an
+event-stream header byte. Commit `32b492faa`.
+
+## Campaign close
+
+**All 160 real services swept** (162 directories minus the two QLDB
+tombstones). Roughly 110 real wire bugs fixed across the campaign, ~60 of
+them in this session's 60 services.
+
+**The six brief hints that did not survive the pinned source** — a type that
+does not exist at that version, a member count off by one, three "enums" that
+are plain strings, an op count off by a factor of five, a union member count,
+and a body/header split — were each caught because the brief said to verify
+rather than accept. **That instruction earned its place six times.**
+
+**The standing checks this campaign ended with**, in the order they pay off:
+1. Diff every op's Input/Output field list against the wire struct — **every
+   member, optional included, TYPES checked, not just names.**
+2. **Check enums BOTH ways**: every SDK value representable, and every
+   constant emitted is an SDK value. Go does not validate scalar enum strings
+   at decode time, so these fail silently.
+3. **Create, update and describe are THREE DIFFERENT CONTRACTS.** One Go
+   struct serving all three is the setup for firehose's six-family bug.
+4. **Read the deserializer function BODY** — not its name, not its call site.
+5. When you find a FABRICATED member, **grep for its READERS** before calling
+   it harmless.
+6. A wire contract includes **the transport's own rules** — mediastoredata's
+   error bodies were correct and unreadable.
+
+## Correction: follow-up issue IDs
+
+Two IDs were written into this file and the PR from a truncated `bd create`
+result before the real ones were read back. The correct ones:
+
+- **`gopherstack-c7s3`** — the `cmd/opcensus` alias bug that hid dms for the
+  entire campaign (written here earlier as `gopherstack-mtqf`, which is not a
+  real issue).
+- **`gopherstack-6ffg`** — pipes' fabricated-and-load-bearing top-level
+  `DeadLetterConfig`.
+
+The full follow-up set from this campaign: `gopherstack-cnhp` (P2, the
+dead-helper trap), `gopherstack-z31a` (P2, manifest provenance and the one
+test that discriminates), `gopherstack-c7s3` (P3, the opcensus alias bug),
+`gopherstack-6ffg` (P2, pipes DLQ), `gopherstack-0shs` (P3, structural
+defences against this bug class and their costs), plus updates to
+`gopherstack-1i5l`, `gopherstack-m74y`, `gopherstack-fccd` and
+`gopherstack-c902`.

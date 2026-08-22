@@ -558,10 +558,10 @@ func (b *InMemoryBackend) applyChildPolicyLocked(domain string, parent *Workflow
 // the child a fresh decision task so its decider learns of the request.
 // Caller must hold the write lock.
 //
-// NOTE: RequestCancelWorkflowExecution (a direct, operator-initiated call)
-// separately stamps this same event with cause "OPERATOR_INITIATED", which
-// is not a value the real enum defines; that mismatch predates this change,
-// is unrelated to child-policy threading, and is left alone here.
+// RequestCancelWorkflowExecution (a direct, operator-initiated call) leaves
+// Cause unset on this same event (fixed 2026-08-20, gopherstack wire-parity
+// sweep): "OPERATOR_INITIATED" is not a value WorkflowExecutionCancelRequestedCause
+// defines at all.
 func (b *InMemoryBackend) cascadeCancelRequestLocked(domain string, exec *WorkflowExecution) {
 	exec.CancelRequested = true
 
@@ -706,11 +706,14 @@ func (b *InMemoryBackend) RequestCancelWorkflowExecution(domain, workflowID, run
 
 	exec.CancelRequested = true
 
+	// Real SWF's WorkflowExecutionCancelRequestedCause enum defines exactly one
+	// value, CHILD_POLICY_APPLIED (types/enums.go), reserved for the automatic
+	// child-policy cascade in cascadeCancelRequestLocked above -- a direct,
+	// operator-initiated call like this one leaves Cause unset entirely, not
+	// "OPERATOR_INITIATED" (not a value this enum defines at all).
 	attrKey := eventAttrKey("WorkflowExecutionCancelRequested")
 	attrs := map[string]any{
-		attrKey: map[string]any{
-			attrCause: causeOperatorInitiated,
-		},
+		attrKey: map[string]any{},
 	}
 	b.appendHistoryEventLocked(domain, workflowID, exec.RunID, "WorkflowExecutionCancelRequested", attrs)
 

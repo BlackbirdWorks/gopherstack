@@ -78,6 +78,7 @@ func TestCodeConnectionsHostRegionIsolation(t *testing.T) {
 		"GitHubEnterpriseServer",
 		"https://ghe-east.example.com",
 		nil,
+		nil,
 	)
 	require.NoError(t, err)
 	assert.Contains(t, eastHost.HostArn, "us-east-1")
@@ -87,6 +88,7 @@ func TestCodeConnectionsHostRegionIsolation(t *testing.T) {
 		"shared-host",
 		"GitHubEnterpriseServer",
 		"https://ghe-west.example.com",
+		nil,
 		nil,
 	)
 	require.NoError(t, err)

@@ -11,6 +11,8 @@ import (
 	"github.com/mxschmitt/playwright-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/dms"
 )
 
 // TestDMSDashboard verifies the DMS dashboard UI renders replication instances.
@@ -19,6 +21,7 @@ func TestDMSDashboard(t *testing.T) {
 
 	_, err := stack.DMSHandler.Backend.CreateReplicationInstance(
 		context.Background(), "e2e-rep-inst", "dms.t3.medium", "", "", 50, false, true, false, nil,
+		dms.ReplicationInstanceSettings{},
 	)
 	require.NoError(t, err)
 

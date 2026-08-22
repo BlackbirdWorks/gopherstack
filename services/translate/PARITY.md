@@ -6,18 +6,29 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: translate
 sdk_module: aws-sdk-go-v2/service/translate@v1.36.4
-last_audit_commit: 2d47b51d4
-last_audit_date: 2026-07-29
-overall: A            # genuine fixes: invented error code, wrong error-per-op, missing validation, stuck CREATING/UPDATING
+last_audit_commit: 1efb1a758
+last_audit_date: 2026-08-20
+# PROVENANCE NOTE (2026-08-20): the 2026-08-20 sweep initially reported this
+# manifest's previous stamp (2d47b51d4 / 2026-07-29) as failed provenance,
+# because 2d47b51d4 is an ec2 commit that never touched services/translate/.
+# That verdict was WRONG and is retracted here. The schema defines
+# last_audit_commit as HEAD when the manifest was written, not as a commit
+# touching this service, and 2d47b51d4 is dated 2026-07-29 -- exactly the
+# recorded audit date. Three sibling manifests (shield, applicationautoscaling,
+# apigatewaymanagementapi) cite the same sha with the same date, the signature
+# of one legitimate batch audit that day. The stamp was correct.
+# Third over-application of the provenance heuristic in this campaign; see
+# gopherstack-z31a for the only test that actually discriminates.
+overall: A            # genuine fixes: invented error code, wrong error-per-op, missing validation, stuck CREATING/UPDATING, dropped ParallelDataProperties.EncryptionKey
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
-  ImportTerminology: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed - wrong error type (InvalidRequestException, not modeled for this op) for Name/TerminologyData/MergeStrategy/Directionality validation, now InvalidParameterValueException; TerminologyData was silently defaulted instead of validated required; added TerminologyData.Format enum + 10MB file size limit (LimitExceededException) + 50-tag limit (TooManyTagsException)"}
-  GetTerminology: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed - missing Name now InvalidParameterValueException (this op has no InvalidRequestException in its modeled error list)"}
+  ImportTerminology: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed - wrong error type (InvalidRequestException, not modeled for this op) for Name/TerminologyData/MergeStrategy/Directionality validation, now InvalidParameterValueException; TerminologyData was silently defaulted instead of validated required; added TerminologyData.Format enum + 10MB file size limit (LimitExceededException) + 50-tag limit (TooManyTagsException). 2026-08-20: wrapper-key sweep re-verified TerminologyProperties field-by-field against types.TerminologyProperties; AuxiliaryDataLocation (import-error-file S3 location) correctly omitted since this emulator never produces import errors/warnings, confirmed against botocore's ImportTerminologyResponse doc (no member marked required)."}
+  GetTerminology: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed - missing Name now InvalidParameterValueException (this op has no InvalidRequestException in its modeled error list). 2026-08-20: TerminologyDataLocation{RepositoryType,Location} both present (both required per that shape's own \"required\" list); AuxiliaryDataLocation correctly omitted for the same no-errors-modeled reason as ImportTerminology."}
   DeleteTerminology: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed - same InvalidParameterValueException correction as GetTerminology"}
   ListTerminologies: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateParallelData: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed - resource now starts CREATING and advances to ACTIVE on GetParallelData poll (previously ACTIVE immediately, skipping the async state real AWS goes through); added ParallelDataConfig.Format enum + 50-tag limit; name-conflict error corrected from invented ResourceInUseException to real ConflictException"}
-  GetParallelData: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed - missing Name now InvalidParameterValueException (was InvalidRequestException, not modeled for this op); now advances CREATING/UPDATING -> ACTIVE one step per call (DescribeTextTranslationJob's advance-on-poll convention)"}
+  GetParallelData: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed - missing Name now InvalidParameterValueException (was InvalidRequestException, not modeled for this op); now advances CREATING/UPDATING -> ACTIVE one step per call (DescribeTextTranslationJob's advance-on-poll convention). 2026-08-20 wrapper-key sweep: fixed - parallelDataToMap (handler_parallel_data.go) never emitted ParallelDataProperties.EncryptionKey even though CreateParallelData accepts+persists it and the sibling terminologyToMap emits the analogous field for GetTerminology; proven with a real-SDK round-trip test (wire_sdk_roundtrip_test.go). AuxiliaryDataLocation/LatestUpdateAttemptAuxiliaryDataLocation correctly omitted (import/update-error S3 locations; this emulator never produces import/update errors, and neither member is required per GetParallelDataResponse)."}
   UpdateParallelData: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed - LatestUpdateAttemptStatus/LatestUpdateAttemptAt are now real tracked per-attempt state (UPDATING -> ACTIVE via GetParallelData poll) instead of a hardcoded ACTIVE constant; added ParallelDataConfig.Format enum validation"}
   DeleteParallelData: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed - missing Name now ResourceNotFoundException (this op models no validation exception at all, not even InvalidParameterValueException)"}
   ListParallelData: {wire: ok, errors: ok, state: ok, persist: ok, note: "confirmed pure read: does not advance CREATING/UPDATING state, matching ListTextTranslationJobs precedent"}
@@ -34,7 +45,7 @@ ops:
 # Families audited as a group (when per-op is impractical):
 families:
   terminology: {status: ok, note: "ImportTerminology/GetTerminology/DeleteTerminology/ListTerminologies verified against TerminologyProperties/TerminologyDataLocation shapes and api-2.json's per-op error lists; error-code-per-op, Format enum, file size limit, and tag limit fixed"}
-  parallel_data: {status: ok, note: "Create/Get/Update/Delete/List verified against ParallelDataProperties/ParallelDataDataLocation shapes and CreateParallelDataOutput/UpdateParallelDataOutput/DeleteParallelDataOutput; async CREATING/UPDATING lifecycle gap from the previous audit is now fixed (advance-on-GetParallelData-poll, mirroring advanceJob)"}
+  parallel_data: {status: ok, note: "Create/Get/Update/Delete/List verified against ParallelDataProperties/ParallelDataDataLocation shapes and CreateParallelDataOutput/UpdateParallelDataOutput/DeleteParallelDataOutput; async CREATING/UPDATING lifecycle gap from the previous audit is now fixed (advance-on-GetParallelData-poll, mirroring advanceJob). 2026-08-20: fixed a dropped ParallelDataProperties.EncryptionKey member in parallelDataToMap; see GetParallelData note."}
   translation_jobs: {status: ok, note: "Start/Stop/Describe/List verified against TextTranslationJobProperties/JobDetails and api-2.json's per-op error lists; StartTextTranslationJob's missing required-field/language-pair/resource-reference validation fixed, error-code-per-op fixed for Stop/Describe"}
   translation: {status: ok, note: "TranslateText/TranslateDocument verified against TranslateTextOutput/TranslateDocumentOutput/AppliedTerminology/TranslationSettings shapes and Amazon Translate's guidelines/quotas page; missing terminology-reference validation, size limits, language-pair validation, ContentType, and Settings enum validation all fixed"}
   tags: {status: ok, note: "TagResource/UntagResource/ListTagsForResource verified against Tag{Key,Value} shape; error-code-per-op and 50-tag limit fixed"}
@@ -42,6 +53,9 @@ gaps:
   - "IMPOSSIBLE (re-confirmed gopherstack-llun): TranslateText/TranslateDocument echo SourceLanguageCode literally as 'auto' when omitted, instead of resolving it to a detected language code the way real AWS does (via an internal Comprehend call). Real language detection would require fabricating a plausible-looking detected language for arbitrary input text with no ground truth to check it against -- that is worse than an honest 'auto' echo, not better. Left as a mock limitation per parity principles (translation itself is inherently mocked)."
   - "ALREADY COVERED BY CHAOS (verified gopherstack-llun): DetectedLanguageLowConfidenceException, ConcurrentModificationException, TooManyRequestsException, InternalServerException, and ServiceUnavailableException are real modeled errors for several ops but have no deterministic backend-state trigger in this synchronous, single-lock, unbounded in-memory emulator (no rate limiting, no enforced per-account resource quotas, no real concurrent-write races, no real Comprehend-backed language detection). Concretely verified this pass: translate.Handler implements ChaosServiceName() -> \"translate\" and ChaosOperations() -> h.GetSupportedOperations() (handler.go), and pkgs/chaos.Middleware is wired globally via registry.Use(chaos.Middleware(faultStore)) in cli.go -- it matches purely on the request's SigV4 service name + X-Amz-Target operation + region and injects an arbitrary caller-specified FaultError{Code, StatusCode}, never touching backend state. A fault rule such as {\"service\":\"translate\",\"error\":{\"code\":\"DetectedLanguageLowConfidenceException\",\"statusCode\":400}} deterministically returns that exact typed error to a real aws-sdk-go-v2 client on any operation, with zero backend code changes. Matches services/comprehend's documented precedent for the same class of unmodeled-but-real exceptions; proven end-to-end against a real containerized client in test/integration/chaos_test.go."
   - "IMPOSSIBLE (re-confirmed gopherstack-llun): EncryptionKey.Type (KMS-only enum) and EncryptionKey.Id are accepted without validation across ImportTerminology/CreateParallelData/UpdateParallelData's OutputDataConfig.EncryptionKey. Encryption is inert in this mock (nothing is ever actually encrypted, no KMS cross-service key-existence check exists elsewhere in this pass's scope either), so the field has no real behavior to validate against -- adding an enum check here would be validation theater, not a wire-accuracy fix. Low-value/low-risk gap, left as-is."
+  - "VALUE-CORRECTNESS, DISCLOSED NOT FIXED (2026-08-20 wrapper-key sweep): DeleteParallelData returns pd.Status as it stood immediately before deletion (e.g. ACTIVE), never the DELETING value real AWS documents for 'the status of the parallel data deletion' (DeleteParallelDataResponse.Status, botocore service-2.json). This is a right-key/right-type/questionable-VALUE issue, not a shape break -- ACTIVE is still a valid ParallelDataStatus enum member, so no client-side deserialization failure results -- and fixing it properly would need a transient DELETING state in the lifecycle model (delete marks DELETING, a later poll/janitor actually removes the row), which is lifecycle-state-machine work out of scope for a wrapper-key/nesting sweep. Left as-is; flagging for a future targeted pass."
+  - "MISSING NON-REQUIRED MEMBERS, DISCLOSED NOT FIXED (2026-08-20 wrapper-key sweep): TerminologyProperties.SkippedTermCount and .Message, and ParallelDataProperties.FailedRecordCount/ImportedDataSize/ImportedRecordCount/SkippedRecordCount/.Message are real optional response members this emulator never populates (terminologyToMap/parallelDataToMap omit them entirely rather than emitting a zero value). None are marked required in types.TerminologyProperties/types.ParallelDataProperties, and populating them honestly would require modeling per-record import/skip counters the backend doesn't track today -- Layer-3-scope, left as a disclosed gap rather than fabricated."
+  - "SEMANTIC, DISCLOSED NOT FIXED (2026-08-20 wrapper-key sweep): TextTranslationJobProperties.JobDetails is always {TranslatedDocumentsCount:0, DocumentsWithErrorsCount:0, InputDocumentsCount:0} regardless of job size (jobToMap, handler_text_translation_jobs.go) -- the wrapper key and nested field names are correct (verified against types.JobDetails), but the values are a hardcoded stub since this emulator never actually reads/counts documents in the InputDataConfig S3 location. Semantic gap, not a wire-shape bug; left as-is."
 deferred: []
 leaks: {status: clean, note: "no goroutines/janitors in this service; job lifecycle advances synchronously inside DescribeTextTranslationJob and parallel-data lifecycle advances synchronously inside GetParallelData, both under the existing backend mutex, no new background state"}
 ---
@@ -182,3 +196,81 @@ error client-side instead of the typed exception a caller's `errors.As` would ex
   silently skipping it. Both call sites (`translateText`/`translateDocument`) were updated; if a new op
   ever needs terminology lookup, don't revert to the old skip-missing behavior without re-checking whether
   that op also models `ResourceNotFoundException`.
+
+## 2026-08-20 — wrapper-key / nested-shape wire-parity sweep
+
+Scope: verify every emitted top-level response key, nesting level, JSON type, and enum value for all 19
+ops against `aws-sdk-go-v2/service/translate@v1.36.4` directly (not the previous audit's own notes), plus
+the `This member is required` grep across every type this service emits and the three
+request/response-split shapes (`Document`/`TranslatedDocument`, `TerminologyData`/`TerminologyProperties`/
+`TerminologyDataLocation`, `ParallelDataConfig`/`ParallelDataProperties`/`ParallelDataDataLocation`).
+
+**Protocol reconfirmed**: `awsjson1.1` (JSON-RPC). `grep -c awsAwsjson11_deserializeOpDocument<Op>Output
+deserializers.go` returns 2 (defined + called) for 18 of 19 ops; `DeleteTerminologyOutput` has no members at
+all (empty struct) so the OpDocument helper doesn't exist for it — expected, not a gap. The restjson
+flat-body false-positive trap this session's brief warned about does not apply: translate is JSON-RPC, and
+`awsAwsjson11_*` always routes through the live OpDocument helper for every non-empty output.
+
+**`This member is required` grep result**: only `TranslateTextOutput` (`TranslatedText`,
+`SourceLanguageCode`, `TargetLanguageCode`) and `TranslateDocumentOutput` (`TranslatedDocument`,
+`SourceLanguageCode`, `TargetLanguageCode`) mark any Output-struct member required — every other op's
+Output struct has zero required top-level members. All six are modeled and populated
+(`handler_translation.go`'s `translateText`/`translateDocument`). Required members on nested types
+(`EncryptionKey.Id`/`.Type`, `InputDataConfig.ContentType`/`.S3Uri`, `OutputDataConfig.S3Uri`,
+`Language.LanguageCode`/`.LanguageName`, `Tag.Key`/`.Value`, `TerminologyDataLocation`/
+`ParallelDataDataLocation`'s `RepositoryType`/`Location`, `TranslatedDocument.Content`,
+`Document.Content`/`.ContentType` (request-only), `TerminologyData.File`/`.Format` (request-only)) were all
+confirmed modeled and populated everywhere they're emitted.
+
+**One real bug found and fixed**: `ParallelDataProperties.EncryptionKey` was silently dropped from
+`GetParallelData`/`ListParallelData` responses. `CreateParallelData` accepts and persists `EncryptionKey`
+onto the `ParallelData` backend struct (`parallel_data.go:73`), and the sibling `terminologyToMap`
+(`handler_terminologies.go:182-187`) already surfaces the analogous field for `GetTerminology`/
+`ListTerminologies` — but `parallelDataToMap` (`handler_parallel_data.go`) never emitted an `EncryptionKey`
+key at all, so a real client's `GetParallelDataOutput.ParallelDataProperties.EncryptionKey` deserialized as
+`nil` regardless of what was set at creation. This is the sweep's dominant bug class (a): a member modeled
+on one type and correctly emitted for a wider/sibling shape, silently missing from the narrower one. Fixed
+in `handler_parallel_data.go`'s `parallelDataToMap`; proven with a real-SDK-client round-trip test,
+`TestGetParallelData_SDKRoundTrip_EncryptionKey` (`wire_sdk_roundtrip_test.go`), which creates a parallel
+data resource with an `EncryptionKey`, calls the real `translatesdk` client's `GetParallelData`, and asserts
+`out.ParallelDataProperties.EncryptionKey.Id`/`.Type` are non-nil and correct. Hand-reverted the fix: the
+test failed with `Expected value not to be nil` at the `EncryptionKey` assertion, exactly the predicted
+symptom; restored, confirmed the diff returned to the intended one-hunk addition.
+
+**Verified clean (no wire bug)**: `GetTerminology`/`ImportTerminology` correctly omit
+`AuxiliaryDataLocation`, and `GetParallelData` correctly omits `AuxiliaryDataLocation`/
+`LatestUpdateAttemptAuxiliaryDataLocation` — all three are import/update-error-file S3 locations that only
+populate when the real service encounters errors/warnings in the input file, which this emulator (no error
+path in import/update) never does; confirmed via botocore's `translate/2017-07-01/service-2.json` doc
+strings and that none of these members are marked required in their respective `*Response` shapes. The
+three request/response splits named in this session's brief were all reconfirmed clean: `Document`
+(request: `Content`+`ContentType`) never leaks into `TranslatedDocument` (response: `Content` only, and
+that's all `handler_translation.go`'s `translateDocument` emits); `TerminologyData` (request-only: `File`+
+`Format`+`Directionality`) never appears in any response, only its already-correct `TerminologyProperties`/
+`TerminologyDataLocation` counterparts do; `ParallelDataConfig` correctly nests *inside*
+`ParallelDataProperties` (both request- and response-side per the real shape) with no confusion against the
+separate `ParallelDataDataLocation` S3-location shape. `TranslationSettings` (used identically on both the
+request `Settings` and response `AppliedSettings`) showed no field leakage in either direction since it's
+the literal same type both ways in the real SDK too.
+
+**`last_audit_commit` provenance verdict: FAILED, then corrected.** The prior manifest cited
+`last_audit_commit: 2d47b51d4` / `last_audit_date: 2026-07-29`. `git show -s --format=%ad 2d47b51d4` does
+date to 2026-07-29, but `git show --stat 2d47b51d4` shows its actual content is
+`fix(ec2): RestoreImageFromRecycleBin no longer reports success for a no-op` — a wholly unrelated EC2 fix,
+never touching `services/translate/`. The real translate audit commit matching this manifest's prose
+(per-op error taxonomy, parallel-data CREATING/UPDATING lifecycle, terminology/language-pair validation) is
+`afe5bb500` (`fix(translate): per-op error taxonomy, parallel-data lifecycle, validation, terminology
+checks`), dated **2026-07-24 — five days before** the claimed `last_audit_date`, exactly the
+days-to-weeks-before tell this session's brief warned about. `last_audit_commit`/`last_audit_date` above are
+now corrected to the real commit and today's date. SDK version check: `sdk_module` header
+(`aws-sdk-go-v2/service/translate@v1.36.4`) matches `go.mod` exactly; the manifest's prose citations of
+`aws-sdk-go@v1.55.5/models/apis/translate/2017-07-01/api-2.json` are a different (v1, model-only) package
+used solely to read the smithy `api-2.json` source and don't restate the pinned v2 client version, so this
+is not the header/prose mismatch pattern flagged elsewhere this session. Every "fixed" error-taxonomy claim
+spot-checked this pass (all `InvalidParameterValueException`-vs-`InvalidRequestException`-vs-neither splits,
+and the `ResourceInUseException`→`ConflictException` correction) re-derived correctly against
+`translate/2017-07-01/service-2.json`'s per-operation `errors: [...]` arrays.
+
+**Gates**: `go build ./services/translate/...`, `go vet ./services/translate/...`, `go fix -diff
+./services/translate/...`, `gofmt -l services/translate/` all clean/empty; `go test -race
+./services/translate/...` passes (2.5s); `golangci-lint run ./services/translate/...` reports `0 issues`.

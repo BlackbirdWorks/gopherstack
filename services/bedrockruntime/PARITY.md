@@ -5,10 +5,17 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: bedrockruntime
-sdk_module: aws-sdk-go-v2/service/bedrockruntime@v1.57.1   # bumped from v1.56.0 pin; auth.go/errors.go re-verified this pass
-last_audit_commit: 8c56f4eb9                                # HEAD when the 2026-08-07 pass (gopherstack-ayfw) was written
-last_audit_date: 2026-08-07
-overall: A            # 2026-08-07 (gopherstack-ayfw): fixed ChaosServiceName ("bedrockruntime" -> "bedrock", matching
+sdk_module: aws-sdk-go-v2/service/bedrockruntime@v1.57.1   # unchanged this pass; re-verified against go.mod pin
+last_audit_commit: a37fc3e38                                # HEAD when the 2026-08-20 wrapper-key sweep was written
+last_audit_date: 2026-08-20
+overall: A            # 2026-08-20: fixed ApplyGuardrailOutput's top-level Action -- gopherstack sent the fabricated
+                      # enum value "BLOCKED" where the real types.GuardrailAction enum only has "NONE"/
+                      # "GUARDRAIL_INTERVENED" (types/enums.go:161-166 in the pinned SDK); see ApplyGuardrail op note.
+                      # Also added two real-SDK-client round-trip tests (wire_sdk_roundtrip_test.go) proving the
+                      # event-stream chunk-payload and ConverseStream union-discriminator fixes from the 2026-08-07
+                      # pass still hold against the actual aws-sdk-go-v2 client/eventstream reader, not hand-parsed
+                      # bytes. Grade held at A (one real bug found and fixed, rest of the surface re-verified clean).
+                      # 2026-08-07 (gopherstack-ayfw): fixed ChaosServiceName ("bedrockruntime" -> "bedrock", matching
                       # real SigV4 signing name) -- see chaos-fault-injection family below. Closes the gap the
                       # 2026-07-25 pass below left open; grade held at A.
                       # 2026-07-25: genuine fixes found this pass
@@ -21,7 +28,7 @@ ops:
   Converse: {wire: ok, errors: ok, state: ok, persist: n/a, note: "field-diffed against ConverseInput/ConverseOutput -- messages/system/inferenceConfig/toolConfig/guardrailConfig accepted (not fabricated-away), output.message/stopReason/usage{input,output,totalTokens}/metrics{latencyMs} all match required members"}
   ConverseStream: {wire: ok, errors: ok, state: ok, persist: n/a, note: "fixed this pass: contentBlockStart event no longer sends a fabricated 'start':{'text':''} field -- types.ContentBlockStart's union has only image/toolResult/toolUse variants (verified against deserializeDocumentContentBlockStart in the real SDK), no 'text' member exists, so a plain-text content block must omit 'start' entirely rather than emit a non-existent union tag. Event names (messageStart/contentBlockStart/contentBlockDelta/contentBlockStop/messageStop/metadata) and their field shapes (contentBlockIndex/delta.text/stopReason/usage/metrics.latencyMs) verified against awsRestjson1_deserializeEventStreamConverseStreamOutput -- all correct, unchanged"}
   CountTokens: {wire: ok, errors: ok, state: ok, persist: n/a, note: "unchanged this pass -- previously fixed request body wire shape ({input:{invokeModel:{body}}} / {input:{converse:{...}}}) re-verified still correct"}
-  ApplyGuardrail: {wire: ok, errors: ok, state: ok, persist: n/a, note: "fixed this pass: assessments was ALWAYS an empty array, including when action=BLOCKED -- a disguised no-op (PARITY.md previously and incorrectly claimed 'assessments... reflect the real input content', which was false: only outputs did). Now a BLOCKED action reports a types.GuardrailWordPolicyAssessment-shaped wordPolicy.customWords entry naming the matched keyword, matching the real GuardrailAssessment union's required member shapes"}
+  ApplyGuardrail: {wire: ok, errors: ok, state: ok, persist: n/a, note: "fixed 2026-08-07 pass: assessments was ALWAYS an empty array, including when action=BLOCKED -- a disguised no-op (PARITY.md previously and incorrectly claimed 'assessments... reflect the real input content', which was false: only outputs did). Now a BLOCKED action reports a types.GuardrailWordPolicyAssessment-shaped wordPolicy.customWords entry naming the matched keyword, matching the real GuardrailAssessment union's required member shapes. FIXED 2026-08-20 (real bug, this pass): the top-level response field 'action' was the literal string \"BLOCKED\", which is not a member of ApplyGuardrailOutput.Action's real type, types.GuardrailAction (verified: aws-sdk-go-v2/service/bedrockruntime@v1.57.1/types/enums.go:161-166 -- exactly two values, GuardrailActionNone=\"NONE\" and GuardrailActionGuardrailIntervened=\"GUARDRAIL_INTERVENED\"). \"BLOCKED\" is a real value but belongs to a DIFFERENT enum at a DIFFERENT nesting level -- types.GuardrailWordPolicyAction (enums.go:835-840), used correctly by assessments[].wordPolicy.customWords[].action. The same literal constant was being reused for both the outer op-level decision and the inner per-word-policy-hit decision; Go does not reject an out-of-enum string at JSON-decode time (GuardrailAction is a plain string type), so this produced no client error -- any real caller branching on resp.Action (e.g. `if action == types.GuardrailActionGuardrailIntervened`) would silently treat every BLOCKED call as unblocked. Fixed via a new topLevelGuardrailAction() mapping function (handler_guardrails.go) so the outer 'action' key and the inner wordPolicy action stay independently correct. Proven both ways: TestApplyGuardrail_ActionEnum_SDKRoundTrip (wire_sdk_roundtrip_test.go) asserts out.Action == types.GuardrailActionGuardrailIntervened via the real SDK client; hand-revert (cp method) reproduced the exact real-world symptom -- types.GuardrailAction(\"BLOCKED\"), an unmatched enum value the client received with no error. Pre-existing unit tests in handler_guardrails_test.go asserted the wrong wire value (\"BLOCKED\" at the top level) and were corrected to \"GUARDRAIL_INTERVENED\" alongside the fix; the nested wordPolicy.customWords[].action assertion (still \"BLOCKED\") was left unchanged since it was already correct."}
   StartAsyncInvoke: {wire: ok, errors: ok, state: ok, persist: ok}
   GetAsyncInvoke: {wire: ok, errors: ok, state: ok, persist: ok}
   ListAsyncInvokes: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -40,11 +47,54 @@ gaps:
   - "StartAsyncInvoke does not validate the real, client-side-required 'modelInput' body member is present -- deliberately not added: the real aws-sdk-go-v2 client enforces this required struct field before ever constructing the HTTP request (addOpStartAsyncInvokeValidationMiddleware), so no real SDK-driven caller can produce a request that omits it; adding server-side validation for it would only add risk (touches ~8 existing test bodies) for a scenario no real client can trigger"
   - "InvokeGuardrailChecks' contentFilter (VIOLENCE/HATE/SEXUAL/MISCONDUCT/INSULTS) and promptAttack (JAILBREAK/PROMPT_INJECTION/PROMPT_LEAKAGE) checks always return an empty results list for a requested group instead of one severityScore entry per requested category: gopherstack has no real ML content/prompt-injection classifier, and a per-category score would be pure fabrication. Documented, not hidden -- see the op note above."
   - "InvokeGuardrailChecks' sensitiveInformation check only genuinely detects EMAIL/PHONE/IP_ADDRESS/URL/AWS_ACCESS_KEY/MAC_ADDRESS/US_SOCIAL_SECURITY_NUMBER/CREDIT_DEBIT_CARD_NUMBER (literal, deterministic formats). Every other GuardrailChecksSensitiveInformationEntityType (NAME, ADDRESS, AGE, PASSWORD, DRIVER_ID, LICENSE_PLATE, AWS_SECRET_KEY, and the various bank/tax/passport/health-ID entity types) requires free-text NER or a jurisdiction-specific checksum this backend does not implement, so those types are honestly never matched rather than fabricated."
+  - "DISCLOSED, NOT FIXED (2026-08-20): GetAsyncInvoke's not-found path (handler_async_invoke.go's handleGetAsyncInvoke -> handleError) returns wire code 'ResourceNotFoundException' (HTTP 404) for an unknown invocationArn. Verified against the pinned SDK: awsRestjson1_deserializeOpErrorGetAsyncInvoke's (deserializers.go:796-859) declared error set is exactly {AccessDeniedException, InternalServerException, ThrottlingException, ValidationException} -- no ResourceNotFoundException case, unlike 8 of this service's other 11 ops (ApplyGuardrail, Converse, ConverseStream, CountTokens, InvokeModel, InvokeModelWithBidirectionalStream, InvokeModelWithResponseStream, StartAsyncInvoke all declare it; ListAsyncInvokes also lacks it). A real aws-sdk-go-v2 client hitting this exact response therefore cannot produce a typed *types.ResourceNotFoundException via errors.As -- it falls through to the generic default case (smithy.GenericAPIError, which still carries the correct Code/Message strings, so plain ErrorCode()-string matching still works; only the typed-exception idiom breaks). NOT changed this pass: it is genuinely unclear whether this reflects real AWS's documented behavior (GetAsyncInvoke's smithy model may simply omit a not-found error AWS's live API does throw, an SDK-codegen/model gap outside gopherstack's control) or whether real AWS truly never signals not-found this way for this specific operation (in which case ValidationException, the only remotely-fitting code left in the declared set, would be the correct replacement). Existing tests (TestHandler_GetAsyncInvoke's '404 for unknown ARN' case, TestAsyncInvoke_GetNotFound) assume the current 404/ResourceNotFoundException shape and were left as-is. Flagging with exact file:line citations for the next auditor rather than guessing at a behavioral change with no way to confirm it against live AWS."
 deferred: []
 leaks: {status: clean, note: "unchanged this pass; janitor (RunJanitor/StartWorker/Shutdown) uses context-bounded worker.Group with proper cancel+done-channel wiring; no goroutine leaks found. No new goroutines/locks introduced by this pass's fixes (all pure request/response shape changes)."}
 ---
 
 ## Notes
+
+- **2026-08-20 wrapper-key/nested-shape sweep**: added `wire_sdk_roundtrip_test.go`, driving
+  InvokeModelWithResponseStream, ConverseStream, and ApplyGuardrail through the real
+  `aws-sdk-go-v2/service/bedrockruntime` client (`newTestBedrockRuntimeSDKClient`, same
+  `pkgs/service` router pattern as `services/dax/wire_sdk_roundtrip_test.go`) instead of hand-parsing
+  wire bytes or calling `h.Handler()(c)` directly. This is what actually caught the
+  ApplyGuardrail `Action` enum bug (unit tests asserted gopherstack's own -- wrong -- output, so
+  they couldn't catch a value the real client would reject as unrecognized). Also re-proved, via
+  the real SDK's own `GetStream()`/`Events()` eventstream reader (not `eventstream_test.go`'s
+  hand-rolled frame parser), that the 2026-08-07 pass's event-stream-chunk-payload and
+  ConverseStream union-discriminator fixes still hold: `TestInvokeModelWithResponseStream_SDKRoundTrip`
+  asserts `types.PayloadPart.Bytes` decodes non-nil; `TestConverseStream_SDKRoundTrip` asserts no
+  event ever decodes to `types.UnknownUnionMember`, including a dedicated check that
+  `ContentBlockStartEvent.Start` is nil (not an `UnknownUnionMember` for a fabricated "text" tag).
+  All three new tests were proven to actually catch their target bug via hand-revert (`cp` to
+  scratchpad, mutate, confirm red, restore, confirm green) before being trusted.
+
+- **ContentBlock union (Converse/ConverseStream) coverage this pass**: gopherstack's mock only ever
+  *emits* the `text` variant of `types.ContentBlock`/`types.ContentBlockDelta`
+  (`ContentBlockMemberText`/`ContentBlockDeltaMemberText` -- confirmed via the SDK round-trip test's
+  type assertion), which is a real, correctly-discriminated union member -- not a wrong or invented
+  tag. On *ingest*, gopherstack's `converseContent{Text string}` struct silently ignores any other
+  member key (image/document/video/toolUse/toolResult/guardContent/cachePoint/reasoningContent/
+  citationsContent) via plain `encoding/json` unknown-field tolerance -- this is the same
+  "mock inference doesn't interpret block types it can't act on" limitation already documented for
+  Converse's opaque `toolConfig`/`guardrailConfig` handling, not a new gap. **Not reached this
+  pass**: `SystemContentBlock`, `ToolConfiguration`/`Tool`/`ToolSpec`/`ToolInputSchema`,
+  `GuardrailConverseContentBlock` unions -- all three are accepted as unparsed `json.RawMessage`
+  and never reinterpreted by gopherstack's mock, so there is no discriminator logic in this codebase
+  to verify for them (out of scope as "nothing to check", not skipped).
+
+- **Enums checked both directions this pass**: `ConversationRole` (user/assistant/system -- gopherstack
+  only emits `assistant`, matches `ConversationRoleAssistant`), `StopReason` (gopherstack only emits
+  `end_turn`, matches `StopReasonEndTurn` exactly, verified against enums.go:976), `AsyncInvokeStatus`
+  (all 3 real values -- InProgress/Completed/Failed -- match exactly, both directions), `GuardrailAction`
+  (**bug found and fixed** -- see ApplyGuardrail op note), `GuardrailWordPolicyAction` (BLOCKED/NONE,
+  correctly used for the nested wordPolicy field). Not independently re-verified this pass (unchanged
+  surface, not exercised by any wire-shape change): `Trace`, `GuardrailContentFilterType`,
+  `DocumentFormat`, `ImageFormat`, `VideoFormat`, `ToolResultStatus`, `PerformanceConfigLatency`,
+  `CachePointType` -- none of these are read back out of a hardcoded gopherstack constant (grepped,
+  zero hits outside enums.go itself), so there is no wrong-value risk for them to find; they are
+  either opaquely passed through (headers) or unused by the current mock surface.
 
 - **Protocol**: restjson1. Request/response bodies for InvokeModel/InvokeModelWithResponseStream/
   InvokeModelWithBidirectionalStream are raw `application/json` blob passthrough (the Body field is

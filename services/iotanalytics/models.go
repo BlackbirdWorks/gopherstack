@@ -29,9 +29,17 @@ type CustomerManagedS3DatastoreStorage struct {
 	RoleArn   string `json:"roleArn"`
 }
 
+// IotSiteWiseCustomerManagedS3Storage is customer-managed S3 for the IoT SiteWise
+// multi-layer storage variant. Unlike [CustomerManagedS3DatastoreStorage], the real AWS
+// type (types.IotSiteWiseCustomerManagedDatastoreS3Storage) has no roleArn member.
+type IotSiteWiseCustomerManagedS3Storage struct {
+	Bucket    string `json:"bucket"`
+	KeyPrefix string `json:"keyPrefix,omitempty"`
+}
+
 // IotSiteWiseMultiLayerStorage is IoT SiteWise multi-layer storage for datastores.
 type IotSiteWiseMultiLayerStorage struct {
-	CustomerManagedS3Storage *CustomerManagedS3DatastoreStorage `json:"customerManagedS3Storage,omitempty"`
+	CustomerManagedS3Storage *IotSiteWiseCustomerManagedS3Storage `json:"customerManagedS3Storage,omitempty"`
 }
 
 // DatastoreStorage is the storage configuration for a datastore.
@@ -439,11 +447,13 @@ type createChannelResponse struct {
 	ChannelARN      string           `json:"channelArn"`
 }
 
-// channelSummary is a summary of a channel for list operations.
+// channelSummary is a summary of a channel for list operations. AWS's
+// ChannelSummary shape has no channelArn member (deserializers.go
+// awsRestjson1_deserializeDocumentChannelSummary) -- unlike the full Channel
+// detail, the summary omits it.
 type channelSummary struct {
 	ChannelStorage         *ChannelStorage `json:"channelStorage,omitempty"`
 	ChannelName            string          `json:"channelName"`
-	ChannelARN             string          `json:"channelArn,omitempty"`
 	Status                 string          `json:"status"`
 	CreationTime           float64         `json:"creationTime"`
 	LastUpdateTime         float64         `json:"lastUpdateTime,omitempty"`
@@ -456,9 +466,12 @@ type listChannelsResponse struct {
 	ChannelSummaries []channelSummary `json:"channelSummaries"`
 }
 
-// describeChannelResponse is the response body for DescribeChannel.
+// describeChannelResponse is the response body for DescribeChannel. AWS returns
+// statistics as a sibling of channel, not nested inside it (api_op_DescribeChannel.go:
+// DescribeChannelOutput has separate Channel and Statistics members).
 type describeChannelResponse struct {
-	Channel channelDetail `json:"channel"`
+	Statistics *channelStatistics `json:"statistics,omitempty"`
+	Channel    channelDetail      `json:"channel"`
 }
 
 // channelStatisticsSize is the estimated storage size of a channel.
@@ -474,16 +487,15 @@ type channelStatistics struct {
 
 // channelDetail is a detailed view of a channel.
 type channelDetail struct {
-	Storage                *ChannelStorage    `json:"storage,omitempty"`
-	RetentionPeriod        *RetentionPeriod   `json:"retentionPeriod,omitempty"`
-	Statistics             *channelStatistics `json:"statistics,omitempty"`
-	Name                   string             `json:"name"`
-	ARN                    string             `json:"arn"`
-	Status                 string             `json:"status"`
-	Tags                   []tagDTO           `json:"tags,omitempty"`
-	CreationTime           float64            `json:"creationTime"`
-	LastUpdateTime         float64            `json:"lastUpdateTime,omitempty"`
-	LastMessageArrivalTime float64            `json:"lastMessageArrivalTime,omitempty"`
+	Storage                *ChannelStorage  `json:"storage,omitempty"`
+	RetentionPeriod        *RetentionPeriod `json:"retentionPeriod,omitempty"`
+	Name                   string           `json:"name"`
+	ARN                    string           `json:"arn"`
+	Status                 string           `json:"status"`
+	Tags                   []tagDTO         `json:"tags,omitempty"`
+	CreationTime           float64          `json:"creationTime"`
+	LastUpdateTime         float64          `json:"lastUpdateTime,omitempty"`
+	LastMessageArrivalTime float64          `json:"lastMessageArrivalTime,omitempty"`
 }
 
 // updateChannelRequest is the request body for UpdateChannel.
@@ -492,12 +504,14 @@ type updateChannelRequest struct {
 	RetentionPeriod *RetentionPeriod `json:"retentionPeriod,omitempty"`
 }
 
-// createDatastoreRequest is the request body for CreateDatastore.
+// createDatastoreRequest is the request body for CreateDatastore. AWS's wire key
+// for the partitions member is "datastorePartitions" (serializers.go
+// awsRestjson1_serializeOpDocumentCreateDatastoreInput), not "partitions".
 type createDatastoreRequest struct {
 	DatastoreStorage        *DatastoreStorage        `json:"datastoreStorage,omitempty"`
 	RetentionPeriod         *RetentionPeriod         `json:"retentionPeriod,omitempty"`
 	FileFormatConfiguration *FileFormatConfiguration `json:"fileFormatConfiguration,omitempty"`
-	Partitions              *DatastorePartitions     `json:"partitions,omitempty"`
+	Partitions              *DatastorePartitions     `json:"datastorePartitions,omitempty"`
 	DatastoreName           string                   `json:"datastoreName"`
 	Tags                    []tagDTO                 `json:"tags,omitempty"`
 }
@@ -509,11 +523,13 @@ type createDatastoreResponse struct {
 	DatastoreARN    string           `json:"datastoreArn"`
 }
 
-// datastoreSummary is a summary of a datastore for list operations.
+// datastoreSummary is a summary of a datastore for list operations. AWS's
+// DatastoreSummary shape has no datastoreArn member (deserializers.go
+// awsRestjson1_deserializeDocumentDatastoreSummary) -- unlike the full Datastore
+// detail, the summary omits it.
 type datastoreSummary struct {
 	DatastoreStorage       *DatastoreStorage `json:"datastoreStorage,omitempty"`
 	DatastoreName          string            `json:"datastoreName"`
-	DatastoreARN           string            `json:"datastoreArn,omitempty"`
 	Status                 string            `json:"status"`
 	CreationTime           float64           `json:"creationTime"`
 	LastUpdateTime         float64           `json:"lastUpdateTime,omitempty"`
@@ -526,9 +542,12 @@ type listDatastoresResponse struct {
 	DatastoreSummaries []datastoreSummary `json:"datastoreSummaries"`
 }
 
-// describeDatastoreResponse is the response body for DescribeDatastore.
+// describeDatastoreResponse is the response body for DescribeDatastore. AWS returns
+// statistics as a sibling of datastore, not nested inside it (api_op_DescribeDatastore.go:
+// DescribeDatastoreOutput has separate Datastore and Statistics members).
 type describeDatastoreResponse struct {
-	Datastore datastoreDetail `json:"datastore"`
+	Statistics *datastoreStatistics `json:"statistics,omitempty"`
+	Datastore  datastoreDetail      `json:"datastore"`
 }
 
 // datastoreStatisticsSize is the estimated storage size of a datastore.
@@ -542,13 +561,14 @@ type datastoreStatistics struct {
 	Size *datastoreStatisticsSize `json:"size,omitempty"`
 }
 
-// datastoreDetail is a detailed view of a datastore.
+// datastoreDetail is a detailed view of a datastore. AWS's wire key for the
+// partitions member is "datastorePartitions" (deserializers.go
+// awsRestjson1_deserializeDocumentDatastore), not "partitions".
 type datastoreDetail struct {
 	Storage                 *DatastoreStorage        `json:"storage,omitempty"`
 	RetentionPeriod         *RetentionPeriod         `json:"retentionPeriod,omitempty"`
 	FileFormatConfiguration *FileFormatConfiguration `json:"fileFormatConfiguration,omitempty"`
-	Partitions              *DatastorePartitions     `json:"partitions,omitempty"`
-	Statistics              *datastoreStatistics     `json:"statistics,omitempty"`
+	Partitions              *DatastorePartitions     `json:"datastorePartitions,omitempty"`
 	Name                    string                   `json:"name"`
 	ARN                     string                   `json:"arn"`
 	Status                  string                   `json:"status"`
@@ -582,10 +602,12 @@ type createDatasetResponse struct {
 	DatasetARN  string `json:"datasetArn"`
 }
 
-// datasetSummary is a summary of a dataset for list operations.
+// datasetSummary is a summary of a dataset for list operations. AWS's DatasetSummary
+// shape has no datasetArn member (deserializers.go
+// awsRestjson1_deserializeDocumentDatasetSummary) -- unlike the full Dataset detail,
+// the summary omits it.
 type datasetSummary struct {
 	DatasetName    string  `json:"datasetName"`
-	DatasetARN     string  `json:"datasetArn,omitempty"`
 	Status         string  `json:"status"`
 	CreationTime   float64 `json:"creationTime"`
 	LastUpdateTime float64 `json:"lastUpdateTime,omitempty"`
@@ -648,10 +670,12 @@ type pipelineReprocessingSummary struct {
 	EndTime      float64 `json:"endTime,omitempty"`
 }
 
-// pipelineSummary is a summary of a pipeline for list operations.
+// pipelineSummary is a summary of a pipeline for list operations. AWS's
+// PipelineSummary shape has no pipelineArn member (deserializers.go
+// awsRestjson1_deserializeDocumentPipelineSummary) -- unlike the full Pipeline
+// detail, the summary omits it.
 type pipelineSummary struct {
 	PipelineName          string                        `json:"pipelineName"`
-	PipelineARN           string                        `json:"pipelineArn,omitempty"`
 	ReprocessingSummaries []pipelineReprocessingSummary `json:"reprocessingSummaries,omitempty"`
 	CreationTime          float64                       `json:"creationTime"`
 	LastUpdateTime        float64                       `json:"lastUpdateTime,omitempty"`
@@ -799,10 +823,12 @@ type datasetContentEntry struct {
 	DataURI   string `json:"dataURI,omitempty"`
 }
 
-// getDatasetContentResponse is the response for GetDatasetContent.
+// getDatasetContentResponse is the response for GetDatasetContent. AWS's
+// GetDatasetContentOutput has no versionId member (deserializers.go
+// awsRestjson1_deserializeOpDocumentGetDatasetContentOutput: entries, status,
+// timestamp only).
 type getDatasetContentResponse struct {
 	Status    *datasetContentStatusDTO `json:"status"`
-	VersionID string                   `json:"versionId,omitempty"`
 	Entries   []datasetContentEntry    `json:"entries"`
 	Timestamp float64                  `json:"timestamp,omitempty"`
 }

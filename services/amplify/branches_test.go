@@ -324,7 +324,7 @@ func TestInMemoryBackend_DeleteBranch(t *testing.T) {
 
 			b := newTestBackend()
 			appID, branchName := tt.setup(b)
-			err := b.DeleteBranch(appID, branchName)
+			deleted, err := b.DeleteBranch(appID, branchName)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -337,6 +337,8 @@ func TestInMemoryBackend_DeleteBranch(t *testing.T) {
 			}
 
 			require.NoError(t, err)
+			require.NotNil(t, deleted)
+			assert.Equal(t, branchName, deleted.BranchName)
 
 			_, getErr := b.GetBranch(appID, branchName)
 			require.Error(t, getErr)

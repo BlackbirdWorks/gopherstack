@@ -9,80 +9,114 @@ import (
 )
 
 type storedS3AccessPoint struct {
-	CreationTime time.Time         `json:"creationTime"`
-	Tags         map[string]string `json:"tags"`
-	Name         string            `json:"name"`
-	FileSystemID string            `json:"fileSystemId"`
-	VolumeID     string            `json:"volumeId,omitempty"`
-	Lifecycle    string            `json:"lifecycle"`
-	ResourceARN  string            `json:"resourceArn"`
+	CreationTime time.Time `json:"creationTime"`
+	Name         string    `json:"name"`
+	Type         string    `json:"type"`
+	VolumeID     string    `json:"volumeId"`
+	Lifecycle    string    `json:"lifecycle"`
+	ResourceARN  string    `json:"resourceArn"`
+	Alias        string    `json:"alias"`
 }
 
-func (a *storedS3AccessPoint) toPublic() *S3AccessPoint {
-	return &S3AccessPoint{
+func (a *storedS3AccessPoint) toPublic() *S3AccessPointAttachment {
+	att := &S3AccessPointAttachment{
 		CreationTime: epochTime(a.CreationTime),
 		Name:         a.Name,
-		FileSystemID: a.FileSystemID,
-		VolumeID:     a.VolumeID,
 		Lifecycle:    a.Lifecycle,
-		ResourceARN:  a.ResourceARN,
-		Tags:         tagsMapToSlice(a.Tags),
+		Type:         a.Type,
+		S3AccessPoint: &S3AccessPoint{
+			Alias:       a.Alias,
+			ResourceARN: a.ResourceARN,
+		},
 	}
+
+	switch a.Type {
+	case s3APTypeOntap:
+		att.OntapConfiguration = &S3AccessPointOntapConfiguration{VolumeID: a.VolumeID}
+	case s3APTypeOpenZFS:
+		att.OpenZFSConfiguration = &S3AccessPointOpenZFSConfiguration{VolumeID: a.VolumeID}
+	}
+
+	return att
+}
+
+type createAndAttachS3AccessPointVolumeConfigInput struct {
+	VolumeID string `json:"VolumeId"`
 }
 
 type createAndAttachS3AccessPointInput struct {
-	Name         string `json:"Name"`
-	FileSystemID string `json:"FileSystemId"`
-	VolumeID     string `json:"VolumeId,omitempty"`
-	Tags         []Tag  `json:"Tags,omitempty"`
+	OntapConfiguration   *createAndAttachS3AccessPointVolumeConfigInput `json:"OntapConfiguration,omitempty"`
+	OpenZFSConfiguration *createAndAttachS3AccessPointVolumeConfigInput `json:"OpenZFSConfiguration,omitempty"`
+	Name                 string                                         `json:"Name"`
+	Type                 string                                         `json:"Type"`
 }
 
-// CreateAndAttachS3AccessPoint creates and attaches an S3 access point.
+// CreateAndAttachS3AccessPoint creates and attaches an S3 access point to an
+// ONTAP or OpenZFS volume. Real AWS input has no top-level FileSystemId or
+// Tags -- the attached volume is nested under whichever of
+// OntapConfiguration/OpenZFSConfiguration matches Type
+// (api_op_CreateAndAttachS3AccessPoint.go:52).
 func (b *InMemoryBackend) CreateAndAttachS3AccessPoint(
 	input *createAndAttachS3AccessPointInput,
-) (*S3AccessPoint, error) {
-	if input.Name == "" || input.FileSystemID == "" {
+) (*S3AccessPointAttachment, error) {
+	if input.Name == "" || input.Type == "" {
 		return nil, ErrValidation
 	}
 
-	if err := validateTags(input.Tags); err != nil {
-		return nil, err
+	var volumeID string
+
+	switch input.Type {
+	case s3APTypeOntap:
+		if input.OntapConfiguration == nil || input.OntapConfiguration.VolumeID == "" {
+			return nil, fmt.Errorf("%w: OntapConfiguration.VolumeId is required", ErrValidation)
+		}
+
+		volumeID = input.OntapConfiguration.VolumeID
+	case s3APTypeOpenZFS:
+		if input.OpenZFSConfiguration == nil || input.OpenZFSConfiguration.VolumeID == "" {
+			return nil, fmt.Errorf("%w: OpenZFSConfiguration.VolumeId is required", ErrValidation)
+		}
+
+		volumeID = input.OpenZFSConfiguration.VolumeID
+	default:
+		return nil, fmt.Errorf("%w: Type must be ONTAP or OPENZFS", ErrValidation)
 	}
 
 	b.mu.Lock("CreateAndAttachS3AccessPoint")
 	defer b.mu.Unlock()
 
-	if !b.fileSystems.Has(input.FileSystemID) {
-		return nil, ErrFileSystemNotFound
+	if !b.volumes.Has(volumeID) {
+		return nil, ErrVolumeNotFound
 	}
 
-	arn := b.s3AccessPointARN(input.Name)
+	arnStr := b.s3AccessPointARN(input.Name)
 	now := time.Now().UTC()
-	tags := tagsSliceToMap(input.Tags)
 
 	ap := &storedS3AccessPoint{
 		CreationTime: now,
-		Tags:         tags,
 		Name:         input.Name,
-		FileSystemID: input.FileSystemID,
-		VolumeID:     input.VolumeID,
+		Type:         input.Type,
+		VolumeID:     volumeID,
 		Lifecycle:    lifecycleAvailable,
-		ResourceARN:  arn,
+		ResourceARN:  arnStr,
+		Alias:        generateS3AccessPointAlias(input.Name, b.region),
 	}
 
 	b.s3AccessPoints.Put(ap)
-	b.tags[arn] = tags
+	b.tags[arnStr] = map[string]string{}
 
 	return ap.toPublic(), nil
 }
 
-// DetachAndDeleteS3AccessPoint removes an S3 access point.
-func (b *InMemoryBackend) DetachAndDeleteS3AccessPoint(name, fileSystemID string) error {
+// DetachAndDeleteS3AccessPoint removes an S3 access point. Real AWS's
+// DetachAndDeleteS3AccessPointInput has no FileSystemId member at all
+// (api_op_DetachAndDeleteS3AccessPoint.go:36) -- Name alone identifies it.
+func (b *InMemoryBackend) DetachAndDeleteS3AccessPoint(name string) error {
 	b.mu.Lock("DetachAndDeleteS3AccessPoint")
 	defer b.mu.Unlock()
 
 	ap, ok := b.s3AccessPoints.Get(name)
-	if !ok || ap.FileSystemID != fileSystemID {
+	if !ok {
 		return ErrS3AccessPointNotFound
 	}
 
@@ -92,12 +126,12 @@ func (b *InMemoryBackend) DetachAndDeleteS3AccessPoint(name, fileSystemID string
 	return nil
 }
 
-// DescribeS3AccessPointAttachments returns S3 access points.
+// DescribeS3AccessPointAttachments returns S3 access point attachments.
 func (b *InMemoryBackend) DescribeS3AccessPointAttachments( //nolint:dupl // existing issue.
 	names []string,
 	maxResults int32,
 	nextToken string,
-) ([]*S3AccessPoint, string, error) {
+) ([]*S3AccessPointAttachment, string, error) {
 	b.mu.RLock("DescribeS3AccessPointAttachments")
 	defer b.mu.RUnlock()
 
@@ -126,7 +160,7 @@ func (b *InMemoryBackend) DescribeS3AccessPointAttachments( //nolint:dupl // exi
 		return all[i].Name
 	})
 
-	result := make([]*S3AccessPoint, end-start)
+	result := make([]*S3AccessPointAttachment, end-start)
 	for i, ap := range all[start:end] {
 		result[i] = ap.toPublic()
 	}
@@ -136,4 +170,12 @@ func (b *InMemoryBackend) DescribeS3AccessPointAttachments( //nolint:dupl // exi
 
 func (b *InMemoryBackend) s3AccessPointARN(name string) string {
 	return arn.Build("fsx", b.region, b.accountID, fmt.Sprintf("s3-access-point/%s", name))
+}
+
+// generateS3AccessPointAlias returns a synthetic alias in the style AWS
+// assigns to S3 access points (a globally-unique DNS-style hostname); the
+// real hash algorithm AWS uses is undocumented, so this is a plausible
+// stand-in, not a byte-exact reproduction.
+func generateS3AccessPointAlias(name, region string) string {
+	return fmt.Sprintf("%s-%s.s3-accesspoint.%s.amazonaws.com", name, newFSXHexUUID(s3AccessPointAliasHexLen), region)
 }

@@ -206,9 +206,9 @@ func TestListArtifacts_ProducedByJobCompletion(t *testing.T) {
 				assert.Equal(t, "BUILD", artifacts[0].ArtifactType)
 				assert.NotEmpty(t, artifacts[0].ArtifactFileName)
 
-				artifactType, artURL, getErr := b.GetArtifactURL(artifacts[0].ArtifactID)
+				gotID, artURL, getErr := b.GetArtifactURL(artifacts[0].ArtifactID)
 				require.NoError(t, getErr)
-				assert.Equal(t, "BUILD", artifactType)
+				assert.Equal(t, artifacts[0].ArtifactID, gotID)
 				assert.NotEmpty(t, artURL)
 			}
 		})
@@ -261,7 +261,8 @@ func TestListArtifacts_CascadeDeletedWithJob(t *testing.T) {
 				_, err = b.DeleteJob(app.AppID, branch.BranchName, job.JobID)
 				require.NoError(t, err)
 			case "app":
-				require.NoError(t, b.DeleteApp(app.AppID))
+				_, err = b.DeleteApp(app.AppID)
+				require.NoError(t, err)
 			}
 
 			_, _, err = b.GetArtifactURL(artifactID)

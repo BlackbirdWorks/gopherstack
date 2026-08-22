@@ -83,7 +83,7 @@ func seedFullState(t *testing.T, b *codeconnections.InMemoryBackend) seededState
 	require.NoError(t, err)
 
 	eastHost, err := b.CreateHost(
-		ctxEast, "shared-host", "GitHubEnterpriseServer", "https://east.example.com", map[string]string{"k": "v"},
+		ctxEast, "shared-host", "GitHubEnterpriseServer", "https://east.example.com", nil, map[string]string{"k": "v"},
 	)
 	require.NoError(t, err)
 
@@ -163,7 +163,9 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 
 	// CreateHost has no ResourceAlreadyExistsException in its real error
 	// list either (see TestCreateHostNameNotUnique).
-	_, err = restored.CreateHost(ctxEast, "shared-host", "GitHubEnterpriseServer", "https://other.example.com", nil)
+	_, err = restored.CreateHost(
+		ctxEast, "shared-host", "GitHubEnterpriseServer", "https://other.example.com", nil, nil,
+	)
 	require.NoError(t, err, "duplicate host names are accepted, including after restore")
 
 	// repositoryLinks: ctx-region-scoped lookup (not ARN-derived).
@@ -293,6 +295,7 @@ func TestSnapshotRestoreHostNameNotUnique(t *testing.T) {
 				"snap-host",
 				"GitHubEnterpriseServer",
 				"https://new.example.com",
+				nil,
 				nil,
 			)
 			require.NoError(t, err, "duplicate host name must succeed after restore")

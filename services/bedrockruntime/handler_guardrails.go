@@ -34,6 +34,13 @@ const (
 
 	guardrailActionBlocked = "BLOCKED"
 	guardrailActionNone    = "NONE"
+
+	// guardrailTopLevelActionIntervened is the top-level ApplyGuardrailOutput.Action
+	// value (types.GuardrailAction: only "NONE"/"GUARDRAIL_INTERVENED" -- no "BLOCKED"
+	// member exists). Distinct from guardrailActionBlocked, which is the correct value
+	// for the nested wordPolicy.customWords[].action field (types.GuardrailWordPolicyAction,
+	// which does define "BLOCKED").
+	guardrailTopLevelActionIntervened = "GUARDRAIL_INTERVENED"
 )
 
 // evaluateGuardrailAction returns guardrailActionBlocked and the matched
@@ -60,6 +67,20 @@ func evaluateGuardrailAction(content []guardrailContentItem) (string, string) {
 	}
 
 	return guardrailActionNone, ""
+}
+
+// topLevelGuardrailAction maps the internal blocked/none decision to the
+// real ApplyGuardrailOutput.Action wire value (types.GuardrailAction has
+// exactly two members: "NONE" and "GUARDRAIL_INTERVENED" -- verified against
+// aws-sdk-go-v2/service/bedrockruntime@v1.57.1/types/enums.go; "BLOCKED" is
+// not a member of this enum, only of the unrelated, nested
+// types.GuardrailWordPolicyAction used for wordPolicy.customWords[].action).
+func topLevelGuardrailAction(action string) string {
+	if action == guardrailActionBlocked {
+		return guardrailTopLevelActionIntervened
+	}
+
+	return guardrailActionNone
 }
 
 // buildGuardrailAssessments reflects the guardrail's decision back in the
@@ -116,7 +137,7 @@ func (h *Handler) handleApplyGuardrail(
 	action, matchedKeyword := evaluateGuardrailAction(req.Content)
 
 	resp := map[string]any{
-		"action":      action,
+		"action":      topLevelGuardrailAction(action),
 		"assessments": buildGuardrailAssessments(action, matchedKeyword),
 		"outputs":     buildGuardrailOutputs(req),
 		keyUsage: map[string]any{

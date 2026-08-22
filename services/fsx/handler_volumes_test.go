@@ -189,6 +189,12 @@ func TestFSx_RestoreVolumeFromSnapshot(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec2.Code)
 		var out map[string]any
 		require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out))
-		assert.Equal(t, volID, out["Volume"].(map[string]any)["VolumeId"])
+		assert.Equal(t, volID, out["VolumeId"])
+		assert.NotEmpty(t, out["Lifecycle"])
+		actions := out["AdministrativeActions"].([]any)
+		require.Len(t, actions, 1)
+		action := actions[0].(map[string]any)
+		assert.Equal(t, "VOLUME_RESTORE", action["AdministrativeActionType"])
+		assert.Equal(t, volID, action["TargetVolumeValues"].(map[string]any)["VolumeId"])
 	})
 }

@@ -5,6 +5,7 @@ import (
 	"maps"
 	"net"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -20,6 +21,10 @@ const (
 	engineVersion5176  = "5.17.6"
 	engineVersion5167  = "5.16.7"
 	engineVersion51516 = "5.15.16"
+
+	// minARNSegments is the minimum "arn:partition:service:region:account:resource"
+	// colon-separated segment count for parseDataReplicationCounterpart.
+	minARNSegments = 6
 )
 
 // validateCreateBrokerInput validates the three most commonly invalid fields in
@@ -260,9 +265,30 @@ func applyCreateBrokerOptions(br *Broker, opts *CreateBrokerOptions) {
 
 	if opts.DataReplicationPrimaryBrokerArn != "" {
 		br.DataReplicationMetadata = &DataReplicationMetadata{
-			DataReplicationCounterpart: opts.DataReplicationPrimaryBrokerArn,
+			DataReplicationRole:        DataReplicationRoleReplica,
+			DataReplicationCounterpart: parseDataReplicationCounterpart(opts.DataReplicationPrimaryBrokerArn),
 		}
 	}
+}
+
+// parseDataReplicationCounterpart extracts a best-effort
+// DataReplicationCounterpart (brokerId/region) from a primary broker ARN.
+// This backend does not track cross-region broker pairs, so brokerId is the
+// ARN's own resource identifier rather than a looked-up peer -- see
+// DataReplicationMetadata's doc for why the wire shape must be a nested
+// object (not the bare ARN string previously used here).
+func parseDataReplicationCounterpart(brokerArn string) *DataReplicationCounterpart {
+	parts := strings.SplitN(brokerArn, ":", minARNSegments)
+	if len(parts) < minARNSegments {
+		return nil
+	}
+
+	region := parts[3]
+
+	segs := strings.Split(parts[5], ":")
+	brokerID := segs[len(segs)-1]
+
+	return &DataReplicationCounterpart{BrokerID: brokerID, Region: region}
 }
 
 // optsStorageType safely extracts the requested storage type from opts.

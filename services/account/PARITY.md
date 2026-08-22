@@ -11,8 +11,8 @@ sdk_module: aws-sdk-go-v2/service/account@v1.35.4   # (now a real go.mod/go.sum
   # which was entirely missing before this pass -- this service had zero
   # SDK-completeness coverage and no test/integration/account_test.go, unlike
   # every other service in the repo.)
-last_audit_commit: fca4a71a1
-last_audit_date: 2026-08-10
+last_audit_commit: 4cfa01673
+last_audit_date: 2026-08-20
 overall: A            # sdk_completeness_test.go added and green (16/16 real ops
                        # covered), GetPrimaryEmailUpdateStatus/GetGovCloudAccountInformation
                        # implemented for real, and a genuine cross-service routing bug
@@ -260,3 +260,59 @@ SDK's `types/enums.go` values exactly, and every response struct's fields
 `AcceptPrimaryEmailUpdateOutput`, `GetPrimaryEmailUpdateStatusOutput`,
 `GetPrimaryEmailOutput`) were re-checked field-by-field against the pinned SDK's
 `api_op_*.go` files with none missing.
+
+**2026-08-20 pass (wrapper-key/nested-shape wire-parity sweep)**: independent re-derivation
+of every wire shape from `account@v1.35.4`'s own `deserializers.go`, not from this file's
+prior claims. Enumerated all 16 real ops (`ls api_op_*.go`), confirmed the protocol is
+restJson1 from `deserializers.go`'s `awsRestjson1_*` prefix, and confirmed per-op that
+`awsRestjson1_deserializeOpDocument<Op>Output` is defined-and-called (not defined-but-dead)
+for every op with a body — none of Account's ops hit the flat-body false-positive trap that
+applies to some other restjson services (verified by reading `GetContactInformation`'s
+`HandleDeserialize` directly, not just the call-count grep). Re-walked every
+`deserializeOpDocument<Op>Output` and `deserializeDocument<Type>` function
+(`GetContactInformation`, `PutContactInformation`'s input, `GetAlternateContact`,
+`ListRegions`/`RegionOptList`/`Region`, `GetAccountInformation`, `GetPrimaryEmailUpdateStatus`,
+`GetGovCloudAccountInformation`, `GetPrimaryEmail`, `GetRegionOptStatus`,
+`AcceptPrimaryEmailUpdate`, `StartPrimaryEmailUpdate`) field-by-field against `handler.go`'s
+emitted/decoded keys: every wrapper key, nesting level, JSON type, and enum value matches
+exactly. Ran the required-member grep across every `api_op_*.go`: the six required
+`ContactInformation` fields (`AddressLine1`, `City`, `CountryCode`, `FullName`, `PhoneNumber`,
+`PostalCode`) are modeled and validated in `handler.go`'s
+`requiredContactInformationFields`/`handlePutContactInformation`; `PutAlternateContact`'s five
+required fields (`AlternateContactType`, `EmailAddress`, `Name`, `PhoneNumber`, `Title`) are
+modeled and validated; `GetGovCloudAccountInformationOutput`'s two required fields
+(`AccountState`, `GovCloudAccountId`) are both populated on the success path (the only path
+this backend can ever take is the documented not-linked `ResourceNotFoundException`, which is
+itself confirmed against the modeled error set, not an unvalidated required-field gap);
+`AlternateContact` (unlike `ContactInformation`) has **zero** required members in the pinned
+SDK (re-confirmed by reading `types/types.go` directly, not assumed from the brief). No
+request-only member (`AccountId`, `StandardAccountId`) leaks into any response body —
+`GetAccountInformationOutput`'s own `AccountId` field is a genuine response member, not a
+leaked request echo. **Zero new wire bugs found** — every op, wrapper key, nesting, type, and
+enum value already matches the pinned SDK exactly; this service was already at A grade from
+the 2026-08-06/07/10 passes and the 2026-08-17 lockmetrics-migration commit
+(`fb80d66cd`, `git show --stat`) touched only lock-call sites (`b.mu.Lock()` →
+`b.mu.Lock("OpName")`) in `account_info.go`/`contacts.go`/`regions.go`/`store.go`/
+`persistence.go` with zero wire-shape changes, confirmed by reading its full diff.
+
+**Provenance, refreshed — and the prior stamp was NOT proven bad.** This pass initially
+reported `last_audit_commit: fca4a71a1` as failed provenance because
+`git show --stat fca4a71a1 -- services/account/` touches nothing in this directory. **That
+reasoning is invalid and is retracted here.** The schema defines this field as HEAD when the
+manifest was written, not as a commit touching the service; the "does it touch this
+directory" test has now produced three false accusations in this campaign and zero true ones
+(see `gopherstack-z31a`). The only test that discriminates is the gap between the sha's own
+commit date and `last_audit_date`, and here that gap is four days — `fca4a71a1` is dated
+2026-08-06 against a stated 2026-08-10 — which is well inside the noise for an audit run on a
+branch cut a few days earlier. The content landing in `d39bf33e4` on 2026-08-11 is the
+ordinary squash-merge lag for work done on 08-10, not evidence against the stamp.
+The stamp is nevertheless refreshed to `4cfa01673` / `2026-08-20`, as every service swept in
+this session has done, because a stamp naming this sweep's own HEAD is more useful than an
+older one that was merely not disproven.
+
+Gates: `go build`/`go vet`/`gofmt -l`/`go fix -diff` all clean; `go test -race
+./services/account/...` passes; `golangci-lint run ./services/account/...` reports 0 issues;
+no banned `nolint:cyclop|gocyclo|gocognit|funlen` present. `test/integration/account_test.go`
+already drives every op through a real `aws-sdk-go-v2/service/account` client against the
+running server (not just this package's own handler-level tests) — the strongest wire-parity
+proof available, and it already existed from the 2026-08-07 pass.

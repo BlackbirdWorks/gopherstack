@@ -39,6 +39,7 @@ const (
 	keyType          = "type"
 	keyExecutionRole = "executionRole"
 	keyAttempt       = "attempt"
+	keyMode          = "mode"
 )
 
 const (
@@ -567,7 +568,7 @@ func jobRunToMap(jr *JobRun) map[string]any {
 		keyName:          jr.Name,
 		keyState:         jr.State,
 		keyStateDetails:  jr.StateDetails,
-		"mode":           jr.Mode,
+		keyMode:          jr.Mode,
 		// The response wire field is "executionRole" (types.JobRun.ExecutionRole /
 		// types.JobRunSummary.ExecutionRole), NOT "executionRoleArn" -- that name
 		// is only used on the StartJobRunInput *request* body. Confirmed against
@@ -616,7 +617,7 @@ func jobRunSummaryToMap(jr *JobRun) map[string]any {
 		keyName:          jr.Name,
 		keyState:         jr.State,
 		keyStateDetails:  jr.StateDetails,
-		"mode":           jr.Mode,
+		keyMode:          jr.Mode,
 		keyExecutionRole: jr.ExecutionRoleArn,
 		keyCreatedBy:     jr.CreatedBy,
 		keyCreatedAt:     epochSeconds(jr.CreatedAt),
@@ -977,6 +978,7 @@ func jobRunAttemptToMap(a *JobRunAttemptSummary) map[string]any {
 		"stateDetails":   a.StateDetails,
 		keyName:          a.Name,
 		keyType:          a.Type,
+		keyMode:          a.Mode,
 		keyAttempt:       a.Attempt,
 	}
 }

@@ -170,11 +170,12 @@ func (h *Handler) listBranches(ctx context.Context, c *echo.Context, appID strin
 
 // deleteBranch handles DELETE /apps/{appId}/branches/{branchName}.
 func (h *Handler) deleteBranch(ctx context.Context, c *echo.Context, appID, branchName string) error {
-	if err := h.Backend.DeleteBranch(appID, branchName); err != nil {
+	branch, err := h.Backend.DeleteBranch(appID, branchName)
+	if err != nil {
 		return h.handleBackendError(ctx, c, "DeleteBranch", err)
 	}
 
-	return c.NoContent(http.StatusNoContent)
+	return c.JSON(http.StatusOK, map[string]any{keyBranch: toBranchView(branch)})
 }
 
 // updateBranch handles POST /apps/{appId}/branches/{branchName}.

@@ -19,21 +19,65 @@ func seedFullBackend(t *testing.T, b *dms.InMemoryBackend) map[string]string {
 	ctx := t.Context()
 	ids := make(map[string]string)
 
-	ri, err := b.CreateReplicationInstance(ctx, "ri-1", "dms.t3.micro", "", "", 0, false, false, false,
-		map[string]string{"env": "test"})
+	ri, err := b.CreateReplicationInstance(
+		ctx,
+		"ri-1",
+		"dms.t3.micro",
+		"",
+		"",
+		0,
+		false,
+		false,
+		false,
+		map[string]string{"env": "test"},
+		dms.ReplicationInstanceSettings{},
+	)
 	require.NoError(t, err)
 	ids["replicationInstanceArn"] = ri.ReplicationInstanceArn
 
-	src, err := b.CreateEndpoint(ctx, "ep-src", "source", "mysql", "", "", "", "", 0, nil)
+	src, err := b.CreateEndpoint(
+		ctx,
+		"ep-src",
+		"source",
+		"mysql",
+		"",
+		"",
+		"",
+		"",
+		0,
+		nil,
+		dms.EndpointConnectionSettings{},
+	)
 	require.NoError(t, err)
 	ids["sourceEndpointArn"] = src.EndpointArn
 
-	tgt, err := b.CreateEndpoint(ctx, "ep-tgt", "target", "mysql", "", "", "", "", 0, nil)
+	tgt, err := b.CreateEndpoint(
+		ctx,
+		"ep-tgt",
+		"target",
+		"mysql",
+		"",
+		"",
+		"",
+		"",
+		0,
+		nil,
+		dms.EndpointConnectionSettings{},
+	)
 	require.NoError(t, err)
 	ids["targetEndpointArn"] = tgt.EndpointArn
 
-	rt, err := b.CreateReplicationTask(ctx, "task-1", src.EndpointArn, tgt.EndpointArn, ri.ReplicationInstanceArn,
-		"full-load", "", "", nil)
+	rt, err := b.CreateReplicationTask(
+		ctx,
+		"task-1",
+		src.EndpointArn,
+		tgt.EndpointArn,
+		ri.ReplicationInstanceArn,
+		"full-load",
+		"",
+		"",
+		nil,
+	)
 	require.NoError(t, err)
 	ids["replicationTaskArn"] = rt.ReplicationTaskArn
 
@@ -45,7 +89,16 @@ func seedFullBackend(t *testing.T, b *dms.InMemoryBackend) map[string]string {
 	require.NoError(t, err)
 	ids["dataProviderArn"] = dp.DataProviderArn
 
-	_, err = b.CreateEventSubscription(ctx, "es-1", "arn:aws:sns:us-east-1:123456789012:topic", "", nil, nil, true, nil)
+	_, err = b.CreateEventSubscription(
+		ctx,
+		"es-1",
+		"arn:aws:sns:us-east-1:123456789012:topic",
+		"",
+		nil,
+		nil,
+		true,
+		nil,
+	)
 	require.NoError(t, err)
 
 	col, err := b.CreateFleetAdvisorCollector(ctx, "col-1", "", "", "")
@@ -93,7 +146,14 @@ func seedFullBackend(t *testing.T, b *dms.InMemoryBackend) map[string]string {
 	require.NoError(t, err)
 	ids["metadataModelRequestID"] = reqID
 
-	require.NoError(t, b.AddTagsToResource(ctx, ri.ReplicationInstanceArn, map[string]string{"owner": "phase-3.3"}))
+	require.NoError(
+		t,
+		b.AddTagsToResource(
+			ctx,
+			ri.ReplicationInstanceArn,
+			map[string]string{"owner": "phase-3.3"},
+		),
+	)
 
 	return ids
 }
@@ -251,19 +311,41 @@ func TestInMemoryBackend_Restore_IncompatibleVersion(t *testing.T) {
 
 	original := dms.NewInMemoryBackend("123456789012", "us-east-1")
 	_, err := original.CreateReplicationInstance(
-		t.Context(), "ri-1", "dms.t3.micro", "", "", 0, false, false, false, nil,
+		t.Context(),
+		"ri-1",
+		"dms.t3.micro",
+		"",
+		"",
+		0,
+		false,
+		false,
+		false,
+		nil,
+		dms.ReplicationInstanceSettings{},
 	)
 	require.NoError(t, err)
 
 	// A pre-Phase-3.3 snapshot (or any payload with no "version" field)
 	// decodes with Version == 0, which never matches dmsSnapshotVersion.
-	legacyPayload := []byte(`{"replicationInstances":{},"accountID":"123456789012","region":"us-east-1"}`)
+	legacyPayload := []byte(
+		`{"replicationInstances":{},"accountID":"123456789012","region":"us-east-1"}`,
+	)
 
 	fresh := dms.NewInMemoryBackend("123456789012", "us-east-1")
 	// Seed fresh with a resource first so we can prove the incompatible
 	// restore actually resets it rather than leaving it untouched.
 	_, err = fresh.CreateReplicationInstance(
-		t.Context(), "stale", "dms.t3.micro", "", "", 0, false, false, false, nil,
+		t.Context(),
+		"stale",
+		"dms.t3.micro",
+		"",
+		"",
+		0,
+		false,
+		false,
+		false,
+		nil,
+		dms.ReplicationInstanceSettings{},
 	)
 	require.NoError(t, err)
 
@@ -291,7 +373,17 @@ func TestHandler_SnapshotRestoreDelegate(t *testing.T) {
 
 	h := dms.NewHandler(dms.NewInMemoryBackend("123456789012", "us-east-1"))
 	_, err := h.Backend.CreateReplicationInstance(
-		t.Context(), "ri-1", "dms.t3.micro", "", "", 0, false, false, false, nil,
+		t.Context(),
+		"ri-1",
+		"dms.t3.micro",
+		"",
+		"",
+		0,
+		false,
+		false,
+		false,
+		nil,
+		dms.ReplicationInstanceSettings{},
 	)
 	require.NoError(t, err)
 

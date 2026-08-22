@@ -6,8 +6,8 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: grafana
 sdk_module: aws-sdk-go-v2/service/grafana@v1.38.4
-last_audit_commit: 3b90d4523   # HEAD at this audit pass; diff from here forward
-last_audit_date: 2026-08-06
+last_audit_commit: e75a8cecd   # HEAD at this audit pass; diff from here forward
+last_audit_date: 2026-08-20
 # Grade A: this pass added the integration suite that is the only accepted parity proof
 # (.claude/memories/parity-principles.md rule 3 -- test/integration/grafana_test.go, driving
 # every operation through a real aws-sdk-go-v2 client against a live container) and closed
@@ -218,6 +218,75 @@ client against an `httptest.Server` wired through the same `pkgs/service` regist
 in production), which is what actually caught the `AssociateLicense`/`DisassociateLicense`
 `ConflictException` wire bugs described above; ad-hoc JSON assertions against `h.Handler()(c)`
 directly would not have.
+
+## Wrapper-key / nested-shape sweep (2026-08-20) — zero bugs found
+
+Targeted re-audit for the specific bug class of a response member emitted under the
+wrong wrapper key, wrong nesting level, wrong JSON type, or right-key-wrong-value
+(including invented enum constants) — the class that has produced ~56 real bugs across
+27 other services swept this session. Re-derived every finding from the pinned
+`aws-sdk-go-v2/service/grafana@v1.38.4` source rather than trusting this file's prior
+claims.
+
+**False-positive-trap check (grafana is restjson1)**: confirmed the "dead flat-decode
+path" trap from `gopherstack-cnhp` does **NOT** apply here — every one of the 24 ops'
+`awsRestjson1_deserializeOpDocument<Op>Output` functions is referenced exactly twice in
+`deserializers.go` (defined once, called once from that op's own `HandleDeserialize`),
+i.e. genuinely live, except `TagResource`/`UntagResource`/`UpdateWorkspaceConfiguration`
+(0 refs — correct, these three have no body member besides `ResultMetadata`). So every
+wrapper key in `services/grafana/handler_*.go`'s `map[string]any{...}` envelopes is
+load-bearing and was checked against its op's own live deserializer, not assumed.
+
+**The three summary/full pairs** (all confirmed distinct wire structs matching their own
+deserializer, field-for-field):
+- `WorkspaceDescription` (28 fields, `deserializers.go` `awsRestjson1_deserializeDocumentWorkspaceDescription`) vs `WorkspaceSummary` (13 fields, `...WorkspaceSummary`) — `services/grafana/wire.go`'s `workspaceDescriptionWire`/`workspaceSummaryWire` match both sets exactly; the 15 Description-only fields (`accountAccessType`, `dataSources`, `degradedWorkspaceReason`, `freeTrialConsumed`, `freeTrialExpiration`, `ipAddressType`, `kmsKeyId`, `licenseExpiration`, `networkAccessControl`, `organizationalUnits`, `organizationRoleName`, `permissionType`, `stackSetName`, `vpcConfiguration`, `workspaceRoleArn`) are absent from `workspaceSummaryWire`, correctly.
+- `AuthenticationDescription` (`awsSso`+`providers`+`saml`) vs `AuthenticationSummary` (`providers`+`samlConfigurationStatus`) — `authenticationDescriptionWire`/`authenticationSummaryWire` match exactly; no cross-contamination (Description never carries `samlConfigurationStatus`, Summary never carries `saml`/`awsSso`).
+- `ServiceAccountTokenSummary` (`id`/`name`/`createdAt`/`expiresAt`/`lastUsedAt`, no key) vs `ServiceAccountTokenSummaryWithKey` (`id`/`key`/`name` only) — `serviceAccountTokenSummaryWire`/`serviceAccountTokenSummaryWithKeyWire` match exactly; `handler_service_account_tokens.go`'s `handleListWorkspaceServiceAccountTokens` never leaks `key`, and `handleCreateWorkspaceServiceAccountToken` is the only path that emits it.
+
+**The `idpMetadata` union**: `types.IdpMetadata` (`SamlConfiguration.idpMetadata`) has exactly two discriminator keys, `url`/`xml` (`deserializers.go`'s `awsRestjson1_deserializeDocumentIdpMetadata`, `case "url"`/`case "xml"`). `services/grafana/wire.go`'s `idpMetadataWire{URL string 'json:"url,omitempty"'; XML string 'json:"xml,omitempty"'}` matches both keys, and `wire_convert.go`'s `toSamlConfigWire`/`fromSamlConfigWire` round-trip them; `authentication.go`'s `validateUpdateWorkspaceAuthenticationRequest` rejects both-set and neither-set, so the wire layer only ever serializes exactly one key — proven by `authentication_test.go`'s `TestUpdateWorkspaceAuthentication_SamlConfigured` (asserts the `*types.IdpMetadataMemberUrl` union member round-trips through a real SDK client) and `TestUpdateWorkspaceAuthentication_BothIdpMetadataMembers_Rejected`.
+
+**HTTP method/path/header/query binding** (Layer 1): every op's `opPath`/`request.Method`
+in `serializers.go`'s `awsRestjson1_serializeOp<Op>.HandleSerialize` was diffed against
+`services/grafana/handler.go`'s `routeRequest`/`routeWorkspaces*` tree — all 24 match,
+including the two documented traps (`AssociateLicense`'s `Grafana-Token` HTTP header,
+not body — `serializers.go:` `encoder.SetHeader("Grafana-Token")` in
+`awsRestjson1_serializeOpHttpBindingsAssociateLicenseInput`; `ListVersions`'s
+`workspace-id` hyphenated query param — `encoder.SetQuery("workspace-id")` in
+`awsRestjson1_serializeOpHttpBindingsListVersionsInput`).
+
+**Enum values** (Layer 2e): every string constant in `models.go` (`StatusActive` ...
+`StatusDegraded`, `AuthProviderAWSSSO`/`AuthProviderSAML`, `SamlStatusConfigured`/
+`SamlStatusNotConfigured`, `LicenseEnterprise`/`LicenseEnterpriseFreeTrial`,
+`PermissionTypeCustomerManaged`/`PermissionTypeServiceManaged`,
+`AccountAccessTypeCurrentAccount`/`AccountAccessTypeOrganization`, `RoleAdmin`/
+`RoleEditor`/`RoleViewer`, `UserTypeSSOUser`/`UserTypeSSOGroup`, `UpdateActionAdd`/
+`UpdateActionRevoke`) diffed byte-for-byte against the SDK's `types/enums.go` `Values()`
+lists — no invented constants, no case mismatches.
+
+**Provenance check on this file's own prior claims**: `last_audit_commit` before this
+pass was `3b90d4523`, dated `2026-08-06` (`git show -s --format=%ad`) — the **same day**
+as the recorded `last_audit_date` (`2026-08-06`), not the days-to-weeks-earlier pattern
+that flags a stale/copied manifest elsewhere. The commit that actually wrote that
+frontmatter (`d39bf33e4`, 2026-08-11) branched from `3b90d4523` and merged 5 days later —
+ordinary PR lag, not drift. One commit touched `services/grafana/` after that
+(`69bbb940a`, 2026-08-15) but only added `handler_sdk_route_table_test.go` and one
+`README.md` line — no behavior change, so no re-audit was owed and none was skipped.
+`sdk_module`'s header (`v1.38.4`) is the only version string in this file (grepped) — no
+stale prose disagreement. Both "FIXED" claims (AssociateLicense/DisassociateLicense not
+recognizing `ConflictException`) re-derive cleanly against
+`awsRestjson1_deserializeOpErrorAssociateLicense`/`...DisassociateLicense`'s switch
+statements — both omit `ConflictException`, exactly as claimed. The existing
+"`ConflictException` is NOT recognized by" list (11 ops) and the `ServiceQuotaExceededException`
+claim were re-verified against every named op's own error switch — all 11 correct; the
+"`ServiceQuotaExceededException` is recognized only by the five `Create*` operations"
+phrasing is a wording slip in the existing prose (there are only 4 `Create*` operations
+in this API — `CreateWorkspace`/`CreateWorkspaceApiKey`/`CreateWorkspaceServiceAccount`/
+`CreateWorkspaceServiceAccountToken`, all 4 confirmed correct) — not a wire-accuracy bug,
+left as-is rather than "fixed" since Layer 3 prose polish is out of this sweep's scope.
+
+**Result: zero wrapper-key/nesting/type/value bugs found.** Every op's response envelope
+key, every nested type's field set, and every enum value already matched the pinned SDK
+exactly before this pass began.
 
 **Integration** (`test/integration/grafana_test.go`, the parity proof per
 `.claude/memories/parity-principles.md` rule 3 — a real `aws-sdk-go-v2` client against the

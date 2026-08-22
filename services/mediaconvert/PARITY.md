@@ -1,9 +1,10 @@
 ---
 service: mediaconvert
 sdk_module: aws-sdk-go-v2/service/mediaconvert@v1.97.1
-last_audit_commit: 911ff167
-last_audit_date: 2026-07-31
-overall: A            # 2026-07-24: genuine wire-breaking bugs found and fixed this pass
+last_audit_commit: b451ad0d
+last_audit_date: 2026-08-19
+overall: A            # 2026-08-19: LastShareDetails type-confusion bug (object vs *string) found and fixed this pass -- see Notes
+                      # 2026-07-24: genuine wire-breaking bugs found and fixed this pass
                       # 2026-07-31: pkgs/sdkcheck reverse check re-flagged UpdateJob, which the 2026-07-24 pass had already correctly identified as not-a-real-op (see Notes) but left ADVERTISED in GetSupportedOperations()/ChaosOperations() -- i.e. the finding was documented but not actually corrected. Now removed from the advertised list; route stays wired as internal test scaffolding, unreachable by real clients either way. See its Notes entry and handler.go's opUpdateJob comment.
 ops:
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "was reading arn from URL path (always empty since real client sends POST /tags with arn in JSON body); fixed to read arn from body"}
@@ -39,11 +40,11 @@ ops:
   ListVersions: {wire: ok, errors: ok, state: ok, persist: n/a}
   Probe: {wire: ok, errors: ok, state: ok, persist: n/a}
   SearchJobs: {wire: ok, errors: ok, state: ok, persist: ok, note: "extra non-AWS totalCount not present -- SearchJobsOutput matches wire shape exactly"}
-  CreateResourceShare: {wire: partial, errors: ok, state: ok, persist: ok, note: "real input also requires supportCaseId; not validated/stored (harmless, output is void)"}
+  CreateResourceShare: {wire: partial, errors: ok, state: ok, persist: ok, note: "real input also requires supportCaseId; not validated/stored (harmless, output is void). 2026-08-19: this op's side effect (Job.LastShareDetails) was a critical type-confusion bug -- see gaps->fixed below"}
 families:
   queue: {status: ok, note: "CreateQueue/GetQueue/ListQueues/UpdateQueue/DeleteQueue verified op-by-op against restjson1 serializers; reservationPlanSettings wire-name bug fixed on both create and update"}
   jobTemplate: {status: ok, note: "verified op-by-op; this pass closed the AccelerationSettings/HopDestinations/StatusUpdateInterval gap on both Create and Update (CreateJobTemplateFull/UpdateJobTemplateFull) -- family is now full field parity, no open gaps"}
-  job: {status: ok, note: "CreateJob/GetJob/ListJobs/CancelJob verified; jobEngineVersion wire-name bug fixed; this pass also fixed CreateJob silently overriding statusUpdateInterval/simulateReservedQueue with hardcoded defaults instead of applying the caller's request values; UpdateJob is a gopherstack-only extension, unadvertised as of 2026-07-31 (see notes)"}
+  job: {status: ok, note: "CreateJob/GetJob/ListJobs/CancelJob verified; jobEngineVersion wire-name bug fixed; this pass also fixed CreateJob silently overriding statusUpdateInterval/simulateReservedQueue with hardcoded defaults instead of applying the caller's request values; UpdateJob is a gopherstack-only extension, unadvertised as of 2026-07-31 (see notes). 2026-08-19: Job.LastShareDetails type-confusion bug fixed (see gaps->fixed and Notes)"}
   preset: {status: ok, note: "verified op-by-op, full field parity"}
   tags: {status: ok, note: "TagResource/UntagResource/ListTagsForResource: two critical wire bugs fixed (see gaps->fixed above); this is the class of bug parity-principles.md warns about (ARN routing) but the actual defect here was ARN-in-body vs ARN-in-URL and DELETE-vs-PUT method, not slash-escaping"}
   jobsQuery: {status: ok, note: "StartJobsQuery/GetJobsQueryResults: id/status wire-name bugs fixed"}
@@ -51,9 +52,14 @@ families:
 gaps:
   - Queue.ServiceOverrides is typed map[string]any in gopherstack vs a real []types.ServiceOverride list on the wire; currently dormant (CreateQueueInput has no serviceOverrides input member in the real API, so the field can never be populated by a real client) but the type would emit the wrong JSON shape (object instead of array) if ever populated internally. Re-verified this pass against aws-sdk-go-v2/service/mediaconvert@v1.97.1 (pin corrected from the stale v1.87.3 recorded here by gopherstack-u8my): still no serviceOverrides member on CreateQueueInput or UpdateQueueInput, so this remains genuinely unreachable/harmless -- left as-is rather than reshaping a field no real client can ever populate.
   - "FIXED by gopherstack-gt9o: CreateQueueInput/UpdateQueueInput's MaximumConcurrentFeeds *int32 member (Elemental Inference feed concurrency, added since v1.87.3) now read, stored, and echoed. See Notes."
+  - "FIXED 2026-08-19: Job.LastShareDetails was typed *ShareDetails{ShareToken,SharedAt} (a nested object) in gopherstack; the real wire type is *string (types.Job.LastShareDetails, aws-sdk-go-v2/service/mediaconvert@v1.97.1 types/types.go:6202; deserializers.go:19625 expects value.(string)). A real SDK client's GetJob/ListJobs/SearchJobs deserializer fails the ENTIRE call with a DeserializationError ('expected __string to be of type string, got map[string]interface {} instead') for any job that has ever been resource-shared -- not a silently-dropped field, a hard failure. Fixed by changing the field to *string (JSON-encoded share token/timestamp as the string's content, since the real field's content format is AWS-internal/undocumented) in models.go, and rebuilding it in resource_shares.go's CreateResourceShare. See Notes."
+  - "Not fixed, disclosed: real Job has an ElementalInferenceConfiguration member (types.go:6157, {Features []ElementalInferenceFeature, Feeds []ElementalInferenceFeed}) that gopherstack's Job struct has no field for at all -- found incidentally while checking Job's deserializer case list for wrong keys, not by hunting missing members (Layer 3 is out of scope as a hunt per this sweep's brief). Not an input to CreateJobInput (absent from serializers.go entirely), so it is AWS-backend-computed metadata derived from analyzing the job's Settings tree -- which gopherstack treats as an opaque map[string]any passthrough (see deferred, below). Populating it correctly would require either fabricating values (bans the no-stub rule) or parsing the opaque settings tree for Elemental Inference feature/feed usage, which is out of scope here."
+  - "Not fixed, disclosed: ListQueues/ListJobTemplates/ListPresets all truncate to maxResults via limitSlice with no nextToken ever returned (handler_queues.go/handler_job_templates.go/handler_presets.go), unlike ListJobs/SearchJobs/ListVersions/DescribeEndpoints which use pkgs/page.New or wire a real nextToken. A real client with more queues/templates/presets than one maxResults page can never retrieve the remainder. A missing-member gap (Layer 3), out of scope as a hunt per this sweep's brief, but worth a follow-up since it's systemic across three list ops."
+  - "Not fixed, disclosed: real ListQueuesOutput also carries totalConcurrentJobs/unallocatedConcurrentJobs (deserializers.go, ListQueues doc-output case list) that gopherstack's ListQueues response never emits. Layer 3, out of scope as a hunt."
+  - "Noted, not a bug: Job/Queue/JobTemplate/Preset all carry a gopherstack-only Tags map[string]string field, serialized under \"tags\" in Get/List/Create responses. The real wire types (types.Job/types.Queue/types.JobTemplate/types.Preset) have no Tags member at all -- tags are request-only (CreateJobInput/CreateQueueInput/etc. accept them, confirmed via serializers.go's \"tags\" Key() calls) and otherwise surfaced only via ListTagsForResource. This is additive-and-unknown to the real deserializer's default case (same class as the pre-existing ListJobs.totalCount note below), so it is harmless, not a wire-shape bug -- left as-is."
 deferred:
-  - JobSettings/JobTemplateSettings/PresetSettings deep-structure field-level validation (gopherstack stores these as opaque map[string]any and round-trips them verbatim, which is the established pattern for this service; no validation of e.g. OutputGroups internals was audited)
-leaks: {status: clean, note: "janitor.go uses pkgs/worker.Group.Ticker bound to ctx cancellation; no goroutine/map leaks found. lockmetrics.RWMutex used as the single coarse backend lock; safemap not used (not applicable, all backend collections are cross-map transactional and correctly share the coarse lock). Re-verified this pass: no new goroutines/tickers/maps introduced by the CreateJob/CreateJobTemplate/UpdateJobTemplate/DescribeEndpoints fixes; all new code paths run synchronously under the existing b.mu lock or (DescribeEndpoints) hold no lock at all since it reads no mutable backend state."}
+  - JobSettings/JobTemplateSettings/PresetSettings deep-structure field-level validation (gopherstack stores these as opaque map[string]any and round-trips them verbatim, which is the established pattern for this service; no validation of e.g. OutputGroups internals was audited). 2026-08-19: re-confirmed this is the correct characterization -- it is a structural boundary, not a gap: gopherstack echoes back whatever JSON the client sent for these three fields, so a wrong key inside the settings tree round-trips consistently and this backend cannot detect wire-shape defects there by construction. Established before reading any codec-level type, per this pass's brief. ElementalInferenceConfiguration (see gaps, above) is downstream of this same boundary.
+leaks: {status: clean, note: "janitor.go uses pkgs/worker.Group.Ticker bound to ctx cancellation; no goroutine/map leaks found. lockmetrics.RWMutex used as the single coarse backend lock; safemap not used (not applicable, all backend collections are cross-map transactional and correctly share the coarse lock). Re-verified this pass: no new goroutines/tickers/maps introduced by the CreateJob/CreateJobTemplate/UpdateJobTemplate/DescribeEndpoints fixes; all new code paths run synchronously under the existing b.mu lock or (DescribeEndpoints) hold no lock at all since it reads no mutable backend state. 2026-08-19: CreateResourceShare's LastShareDetails fix (json.Marshal call) runs synchronously under the existing b.mu lock exactly like the rest of CreateResourceShare -- no new goroutines/tickers/maps."}
 ---
 
 ## Notes
@@ -224,3 +230,143 @@ leaks: {status: clean, note: "janitor.go uses pkgs/worker.Group.Ticker bound to 
   a field, gopherstack silently drops it" in a hand-modeled service is the
   `pkgs/sdkcheck`-style diff sweep that found this gap in the first place
   (gopherstack-u8my), not a code-level mechanism change.
+
+## 2026-08-19 pass -- wrapper-key/nested-shape sweep, LastShareDetails type-confusion bug fixed
+
+- **Enumerated all 33 real ops** (`ls api_op_*.go` against the pinned
+  `aws-sdk-go-v2/service/mediaconvert@v1.97.1`) and confirmed they match
+  `Handler.GetSupportedOperations()` exactly, including `UpdateJob`'s
+  correct absence.
+- **Confirmed protocol**: restjson1, from `deserializers.go`'s
+  `awsRestjson1_*` function prefix and `api_client.go`'s `ServiceID`. Ran
+  the false-positive-trap check from this sweep's brief on every op: unlike
+  appmesh's singular ops (dead `deserializeOpDocument<Op>Output`, flat
+  body), EVERY mediaconvert op with a response body genuinely calls its
+  `deserializeOpDocument<Op>Output` helper -- the wrapper key (`job`,
+  `queue`, `jobTemplate`, `preset`, `policy`, `endpoints`, `resourceTags`,
+  `probeResults`, `id`, ...) is live for all of them, confirmed by reading
+  `GetJob`'s deserializer body directly (it decodes into `map[string]interface{}`
+  then calls `awsRestjson1_deserializeOpDocumentGetJobOutput`, which switches
+  on `case "job":`). gopherstack's envelope wrapper keys in `handler_jobs.go`,
+  `handler_queues.go`, `handler_job_templates.go`, `handler_presets.go`,
+  `handler_policy.go`, `handler_endpoints.go`, `handler_tags.go` were checked
+  against this and all matched.
+- **Found and fixed: `Job.LastShareDetails` type confusion (object vs
+  `*string`)**. gopherstack's `models.go` had
+  `LastShareDetails *ShareDetails{ShareToken, SharedAt}` -- a nested JSON
+  object. The real wire member (`types.Job.LastShareDetails`,
+  `aws-sdk-go-v2/service/mediaconvert@v1.97.1` `types/types.go:6202`) is a
+  plain `*string`; `deserializers.go:19625` (inside
+  `awsRestjson1_deserializeDocumentJob`) does
+  `jtv, ok := value.(string); ... sv.LastShareDetails = ptr.String(jtv)` and
+  returns a hard error if the JSON value isn't a string. This is the
+  *right-key-wrong-type* bug class the campaign has been finding elsewhere,
+  and it is the severe direction: it doesn't drop a field, it fails the
+  **entire** `GetJob`/`ListJobs`/`SearchJobs` deserialization for any job
+  that has ever been resource-shared, with `err != nil` on the real SDK
+  client (`operation error MediaConvert: GetJob, ... deserialization failed,
+  ... expected __string to be of type string, got map[string]interface {}
+  instead`) -- proved directly against the real SDK client, see below.
+  - Fix: `models.go`'s `Job.LastShareDetails` is now `*string`;
+    `resource_shares.go`'s `CreateResourceShare` now JSON-encodes
+    `{shareToken, sharedAt}` into that string (the real field's exact
+    content format is AWS-internal/undocumented, so a JSON blob preserves
+    the same information without claiming a specific real format).
+  - New test: `Test_SDKRoundTrip_LastShareDetails`
+    (`services/mediaconvert/wire_shape_test.go`), which stands up the real
+    `aws-sdk-go-v2/service/mediaconvert` client against this package's
+    `Handler` through `pkgs/service`'s registry/router (same pattern as
+    `services/acm/wire_field_additions_test.go`) and calls
+    `CreateJob` → `CreateResourceShare` → `GetJob`, asserting the typed
+    client's `GetJob` call succeeds and `Job.LastShareDetails` round-trips
+    as a non-empty string.
+  - **Hand-revert proof**: reverted `Job.LastShareDetails` to
+    `*ShareDetails` and `CreateResourceShare` to the old struct-literal
+    assignment; `Test_SDKRoundTrip_LastShareDetails` failed with exactly
+    the predicted symptom (`GetJob after CreateResourceShare must decode
+    cleanly through the real SDK client: Received unexpected error:
+    operation error MediaConvert: GetJob, https response error
+    StatusCode: 200, ... deserialization failed, failed to decode response
+    body with invalid JSON, expected __string to be of type string, got
+    map[string]interface {} instead`). Also independently reproduced the
+    same failure via a standalone `httptest.Server` serving a canned body
+    to the real SDK client (buggy body → `ERROR: ... expected __string ...
+    got map[string]interface {} instead`; fixed body → `OK`). Restored the
+    fix; `models.go`/`resource_shares.go`/`resource_shares_test.go` are
+    byte-identical (`diff`) to their pre-revert state; `gofmt -l` empty;
+    `go build`/`go test -race` pass.
+  - Also fixed the existing unit test `resource_shares_test.go`'s
+    `TestCreateResourceShare_SetsShareStatus`, which had asserted the wrong
+    (object) shape (`got.LastShareDetails.ShareToken`/`.SharedAt`) -- now
+    asserts against the JSON-string content instead.
+- **Verified clean (no bugs found)**: `Queue`/`ReservationPlan` (both
+  field-for-field against `deserializeDocumentQueue`/
+  `deserializeDocumentReservationPlan`), `JobTemplate`, `Preset`, `Policy`,
+  `Timing`, `OutputDetail`/`OutputGroupDetail`/`VideoDetail`,
+  `QueueTransition`, `JobMessages`, `HopDestination`, `WarningGroup`,
+  `AccelerationSettings`, `StartJobsQuery`/`GetJobsQueryResults` (id/status
+  keys, already-fixed from the 2026-07-24 pass, re-confirmed),
+  `DescribeEndpoints`, `Probe`, `PutPolicy`/`GetPolicy`/`DeletePolicy`,
+  `AssociateCertificate`/`DisassociateCertificate` (correctly void),
+  `ListTagsForResource` (`resourceTags` wrapper, correct).
+- **Summary-vs-full type-confusion pattern (7 hits elsewhere this
+  campaign) structurally does not apply here**: confirmed
+  `ListQueuesOutput.Queues []types.Queue`, `ListJobsOutput.Jobs []types.Job`,
+  `SearchJobsOutput.Jobs []types.Job`,
+  `ListJobTemplatesOutput.JobTemplates []types.JobTemplate`,
+  `ListPresetsOutput.Presets []types.Preset` all reuse the exact same full
+  type as their `Get*` counterpart -- MediaConvert has no separate
+  "summary" struct for any of these resources, unlike fis/apprunner/ram/
+  amplify/kinesis/codeconnections.
+- **Settings-tree boundary re-confirmed before reading any codec type**:
+  `Job.Settings`/`JobTemplate.Settings`/`Preset.Settings` are
+  `map[string]any` opaque passthrough in `models.go`. This backend cannot
+  detect a wrong key/shape/type/value bug anywhere inside `JobSettings`/
+  `OutputGroups`/`VideoDescription`/etc. by construction -- it echoes
+  back whatever JSON the client sent. Per this sweep's brief, established
+  as a structural boundary before spending any effort on codec-specific
+  members, and the codec-level tree (`Job.Settings`'s contents) was
+  correctly NOT hand-verified this pass.
+- **Found incidentally, not fixed, disclosed**: real `types.Job` has an
+  `ElementalInferenceConfiguration *ElementalInferenceConfiguration`
+  member (`types/types.go:6157`, `{Features, Feeds}`) that gopherstack's
+  `Job` struct has no field for at all. Found while reading
+  `deserializeDocumentJob`'s case list for wrong-key bugs, not by hunting
+  missing members (out of scope as a hunt per this sweep's brief).
+  `ElementalInferenceConfiguration` is absent from `CreateJobInput`'s
+  serializer entirely, so it's AWS-backend-computed output metadata derived
+  from Elemental Inference feature/feed usage inside the job's `Settings` --
+  i.e. downstream of the opaque-passthrough boundary above. Populating it
+  meaningfully would require either fabricating values (bans this repo's
+  no-stub rule) or parsing the opaque settings tree, both out of scope
+  here; left as a disclosed gap.
+- **Found incidentally, not fixed, disclosed**: `ListQueues`/
+  `ListJobTemplates`/`ListPresets` (`handler_queues.go:92-105`,
+  `handler_job_templates.go:101-129`, `handler_presets.go:80-105`) all
+  truncate their result to `maxResults` via `limitSlice` and never return
+  `nextToken`, unlike `ListJobs`/`SearchJobs`/`ListVersions`/
+  `DescribeEndpoints`, which use `pkgs/page.New` or otherwise wire a real
+  continuation token. A real client with more queues/templates/presets
+  than fit in one page can never retrieve the remainder. A missing-member
+  gap (Layer 3), out of scope as a hunt per this sweep's brief, but
+  flagged because it's systemic across three list ops -- worth a
+  follow-up issue. Real `ListQueuesOutput` also has
+  `totalConcurrentJobs`/`unallocatedConcurrentJobs` members gopherstack
+  never emits; same category, noted alongside.
+- **`last_audit_commit` sanity check**: the prior value, `911ff167`, is
+  `git show -s --format=%ad 911ff167` → `2026-07-13`, an 18-day gap from
+  the `last_audit_date: 2026-07-31` it was recorded against, and its
+  commit message (`parity(pipes): fix tag limit, ...`) is for a different
+  service entirely (pipes). Per this sweep's brief, an unrelated-service
+  commit is schema-legal on its own, but the date gap combined with a
+  commit message about a wholly different, unrelated fix is the kind of
+  mismatch worth flagging (this is how a fabricated appmesh manifest was
+  caught this campaign, `gopherstack-1i5l`/`gopherstack-z31a`) -- no
+  evidence here of fabrication (the actual audit prose in this file is
+  detailed, specific, and independently verified correct against the SDK
+  during this pass), most likely just a stale/copy-paste commit reference
+  left over from an earlier templating pass. Updated to current HEAD
+  (`b451ad0d`, 2026-08-19) as part of this pass.
+- Gates: `go build`, `go vet`, `go fix -diff` (empty), `gofmt -l` (empty),
+  `go test -race` (pass), `golangci-lint run` (0 issues) -- all green
+  after the fix.

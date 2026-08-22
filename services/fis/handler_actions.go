@@ -41,10 +41,10 @@ func (h *Handler) handleListActions(c *echo.Context) error {
 	}
 
 	page := actions[start:end]
-	dtos := make([]actionDTO, len(page))
+	dtos := make([]actionSummaryDTO, len(page))
 
 	for i := range page {
-		dtos[i] = toActionDTO(&page[i])
+		dtos[i] = toActionSummaryDTO(&page[i])
 	}
 
 	return c.JSON(http.StatusOK, listActionsResponseDTO{Actions: dtos, NextToken: nextTok})
@@ -81,10 +81,13 @@ func (h *Handler) handleListTargetResourceTypes(c *echo.Context) error {
 	}
 
 	page := types[start:end]
-	dtos := make([]targetResourceTypeDTO, len(page))
+	dtos := make([]targetResourceTypeSummaryDTO, len(page))
 
 	for i := range page {
-		dtos[i] = toTargetResourceTypeDTO(&page[i])
+		dtos[i] = targetResourceTypeSummaryDTO{
+			ResourceType: page[i].ResourceType,
+			Description:  page[i].Description,
+		}
 	}
 
 	return c.JSON(
@@ -103,19 +106,33 @@ func toActionDTO(a *ActionSummary) actionDTO {
 		params[k] = actionParamDTO(v)
 	}
 
-	targets := make(map[string]actionTargetDTO, len(a.Targets))
-	for k, v := range a.Targets {
-		targets[k] = actionTargetDTO(v)
-	}
-
 	return actionDTO{
 		ID:          a.ID,
 		Arn:         a.Arn,
 		Description: a.Description,
 		Parameters:  params,
-		Targets:     targets,
+		Targets:     toActionTargetDTOs(a.Targets),
 		Tags:        a.Tags,
 	}
+}
+
+func toActionSummaryDTO(a *ActionSummary) actionSummaryDTO {
+	return actionSummaryDTO{
+		ID:          a.ID,
+		Arn:         a.Arn,
+		Description: a.Description,
+		Targets:     toActionTargetDTOs(a.Targets),
+		Tags:        a.Tags,
+	}
+}
+
+func toActionTargetDTOs(targets map[string]ActionTarget) map[string]actionTargetDTO {
+	dtos := make(map[string]actionTargetDTO, len(targets))
+	for k, v := range targets {
+		dtos[k] = actionTargetDTO(v)
+	}
+
+	return dtos
 }
 
 func toTargetResourceTypeDTO(rt *TargetResourceTypeSummary) targetResourceTypeDTO {

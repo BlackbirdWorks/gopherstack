@@ -759,18 +759,27 @@ func TestConsumerLifecycle(t *testing.T) {
 			})
 			require.Equal(t, http.StatusOK, rec.Code)
 
+			// types.Consumer (deserializers.go:6279-6349) has no StreamARN member --
+			// only types.ConsumerDescription (returned by DescribeStreamConsumer)
+			// does. A raw map catches a StreamARN key resurfacing on this response.
+			var regRespRaw map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &regRespRaw))
+			consumerRaw, ok := regRespRaw["Consumer"].(map[string]any)
+			require.True(t, ok)
+			_, hasStreamARN := consumerRaw["StreamARN"]
+			assert.False(t, hasStreamARN,
+				"RegisterStreamConsumer's Consumer must not carry StreamARN (types.Consumer has no such member)")
+
 			var regResp struct {
 				Consumer struct {
 					ConsumerName   string `json:"ConsumerName"`
 					ConsumerARN    string `json:"ConsumerARN"`
 					ConsumerStatus string `json:"ConsumerStatus"`
-					StreamARN      string `json:"StreamARN"`
 				} `json:"Consumer"`
 			}
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &regResp))
 			assert.Equal(t, tt.consumerName, regResp.Consumer.ConsumerName)
 			assert.Equal(t, tt.expectedStatus, regResp.Consumer.ConsumerStatus)
-			assert.Equal(t, streamARN, regResp.Consumer.StreamARN)
 			assert.NotEmpty(t, regResp.Consumer.ConsumerARN)
 			assert.Contains(t, regResp.Consumer.ConsumerARN, tt.consumerName)
 

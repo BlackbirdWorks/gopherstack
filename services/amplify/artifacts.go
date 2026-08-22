@@ -34,7 +34,7 @@ func (b *InMemoryBackend) GetArtifactURL(artifactID string) (string, string, err
 
 	url := "https://s3.amazonaws.com/amplify-artifacts/" + artifactID + "/" + artifact.ArtifactFileName
 
-	return artifact.ArtifactType, url, nil
+	return artifact.ArtifactID, url, nil
 }
 
 // ListArtifacts lists the build artifacts produced by a job. Artifacts are

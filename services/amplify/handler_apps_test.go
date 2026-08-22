@@ -225,7 +225,7 @@ func TestHandler_DeleteApp(t *testing.T) {
 
 				return app.AppID
 			},
-			wantStatus: http.StatusNoContent,
+			wantStatus: http.StatusOK,
 		},
 		{
 			name: "returns_404_for_missing_app",
@@ -245,6 +245,14 @@ func TestHandler_DeleteApp(t *testing.T) {
 			rec := doRequest(t, h, http.MethodDelete, "/apps/"+appID, nil)
 
 			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantStatus == http.StatusOK {
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				app, ok := resp["app"].(map[string]any)
+				require.True(t, ok, "expected an \"app\" key wrapping the deleted App, got body %s", rec.Body.String())
+				assert.Equal(t, appID, app["appId"])
+			}
 		})
 	}
 }

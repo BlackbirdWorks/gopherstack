@@ -1,13 +1,13 @@
 ---
 service: scheduler
 sdk_module: aws-sdk-go-v2/service/scheduler@v1.20.4   # version audited against
-last_audit_commit: 174b1f53                            # HEAD when this audit pass started
-last_audit_date: 2026-08-11
+last_audit_commit: 615cda74e                           # HEAD when this audit pass started
+last_audit_date: 2026-08-20
 overall: A            # genuine wire-breaking and next-invocation-computation bugs found and fixed (see Notes)
 ops:
-  CreateSchedule:      {wire: ok, errors: ok, state: fixed, persist: ok, note: "ClientToken now idempotent (see Notes); ScheduleExpressionTimezone now validated as a real IANA name; ScheduleExpression now semantically validated (rate/cron/at), not just structurally; cron field values (ranges/names/wildcards) now validated per-field, see 2026-08-11 gopherstack-cz9e Notes"}
-  GetSchedule:         {wire: fixed, errors: ok, state: ok, persist: ok, note: "invented non-canonical Tags field deleted"}
-  UpdateSchedule:      {wire: ok, errors: ok, state: fixed, persist: ok, note: "ScheduleExpressionTimezone now validated as a real IANA name (prior pass's State-omission fix re-verified still correct, see Notes); ScheduleExpression now semantically validated; cron field values now validated per-field, see 2026-08-11 gopherstack-cz9e Notes"}
+  CreateSchedule:      {wire: fixed, errors: ok, state: fixed, persist: ok, note: "Target.EcsParameters wire bugs fixed (see 2026-08-20 Notes); ClientToken now idempotent (see Notes); ScheduleExpressionTimezone now validated as a real IANA name; ScheduleExpression now semantically validated (rate/cron/at), not just structurally; cron field values (ranges/names/wildcards) now validated per-field, see 2026-08-11 gopherstack-cz9e Notes"}
+  GetSchedule:         {wire: fixed, errors: ok, state: ok, persist: ok, note: "Target.EcsParameters wire bugs fixed (see 2026-08-20 Notes); invented non-canonical Tags field deleted"}
+  UpdateSchedule:      {wire: fixed, errors: ok, state: fixed, persist: ok, note: "Target.EcsParameters wire bugs fixed (see 2026-08-20 Notes); ScheduleExpressionTimezone now validated as a real IANA name (prior pass's State-omission fix re-verified still correct, see Notes); ScheduleExpression now semantically validated; cron field values now validated per-field, see 2026-08-11 gopherstack-cz9e Notes"}
   DeleteSchedule:      {wire: ok, errors: ok, state: ok, persist: ok}
   ListSchedules:       {wire: fixed, errors: ok, state: ok, persist: ok, note: "invented Target.RoleArn field deleted (real TargetSummary has only Arn)"}
   CreateScheduleGroup: {wire: ok, errors: ok, state: fixed, persist: ok, note: "ClientToken now idempotent (see Notes)"}
@@ -26,6 +26,149 @@ gaps:
 deferred: []
 leaks: {status: clean, note: "leak_main_test.go (testleak.VerifyTestMain) passes under -race. The runner's poll goroutine remains the only background goroutine (ctx-parented via Handler.StartWorker/Shutdown, unchanged this pass). New state added this pass (Runner.locCache, Handler.idempotency) is plain in-memory data with no goroutines/tickers of its own; both are swept/bounded (locCache via the existing per-poll sweep alongside cronCache; idempotency via TTL-based lazy eviction) and cleared on Handler.Reset."}
 ---
+
+## Notes (2026-08-20 pass, wrapper-key/nested-shape sweep)
+
+Full wire sweep of all 12 ops against the pinned SDK
+(`aws-sdk-go-v2/service/scheduler@v1.20.4`, restjson1, confirmed via
+`serializers.go`'s `awsRestjson1_serializeOp*` prefix on every op -- no
+`X-Amz-Target`-only or CBOR protocol involved). No cnhp trap: every op's Output
+struct has no `httpPayload`-tagged single member, so `deserializeOpDocument*Output`
+is live/body-flat for every op (confirmed: `DeleteSchedule`/`DeleteScheduleGroup`/
+`TagResource`/`UntagResource` have 0 occurrences of the helper because their
+Outputs carry no body fields at all, not because the helper is dead).
+
+**Bugs found and fixed, all inside `Target.EcsParameters` (bug class (a)/(c)/(d)
+per this campaign's taxonomy) -- the deepest-nested, least-tested corner of the
+six mutually-exclusive Target parameter blocks:**
+
+- **(d) Case-sensitive key near-miss: `NetworkConfiguration.AwsvpcConfiguration`
+  wrapper key was `"AwsvpcConfiguration"` (PascalCase); real SDK wraps it under
+  a lower-camel `"awsvpcConfiguration"` key
+  (`serializers.go:awsRestjson1_serializeDocumentNetworkConfiguration`,
+  `object.Key("awsvpcConfiguration")`; confirmed same-case on the deserialize
+  side, `deserializers.go:awsRestjson1_deserializeDocumentNetworkConfiguration`,
+  `case "awsvpcConfiguration":`). Real SDK's generated deserializer switches on
+  the exact-case key with a silent `default:` no-op, so this doesn't error --
+  it drops the whole `AwsvpcConfiguration` (Subnets/SecurityGroups/AssignPublicIp)
+  block to nil on every real client parsing a gopherstack response. Fixed:
+  `scheduleTargetEcsNetworkConfiguration.AwsvpcConfiguration` json tag
+  (handler_schedules.go).
+- **(d) Case-sensitive key near-misses:
+  `CapacityProviderStrategyItem`'s three fields were `"CapacityProvider"`/
+  `"Base"`/`"Weight"` (PascalCase); real SDK uses `"capacityProvider"`/`"base"`/
+  `"weight"` (`serializers.go:awsRestjson1_serializeDocumentCapacityProviderStrategyItem`;
+  `deserializers.go:awsRestjson1_deserializeDocumentCapacityProviderStrategyItem`,
+  `case "base"`/`"capacityProvider"`/`"weight":`). Fixed:
+  `scheduleTargetEcsCapacityProviderStrategyItem` json tags (handler_schedules.go).
+- **(d) Case-sensitive key near-misses: `PlacementConstraint`'s `Expression`/
+  `Type` and `PlacementStrategy`'s `Field`/`Type` were PascalCase; real SDK uses
+  lower-camel `"expression"`/`"type"`/`"field"`/`"type"` for both shapes
+  (`serializers.go:awsRestjson1_serializeDocumentPlacementConstraint`,
+  `awsRestjson1_serializeDocumentPlacementStrategy`;
+  `deserializers.go:awsRestjson1_deserializeDocumentPlacementConstraint`,
+  `awsRestjson1_deserializeDocumentPlacementStrategy`). Fixed:
+  `scheduleTargetEcsPlacementConstraint`/`scheduleTargetEcsPlacementStrategy`
+  json tags (handler_schedules.go). Note: `AwsVpcConfiguration`'s own three
+  fields (`AssignPublicIp`/`SecurityGroups`/`Subnets`) and every other
+  `EcsParameters` top-level key (`NetworkConfiguration`, `PlacementConstraints`,
+  `PlacementStrategy`, `Tags`, `CapacityProviderStrategy`, `TaskDefinitionArn`,
+  `LaunchType`, `PlatformVersion`, `Group`, `ReferenceId`, `TaskCount`,
+  `EnableECSManagedTags`, `EnableExecuteCommand`) ARE PascalCase and were
+  already correct -- the lower-camel casing is a narrow exception confined to
+  these three nested shapes plus the `awsvpcConfiguration` wrapper key, not a
+  service-wide pattern.
+- **(c) Wrong JSON type: `EcsParameters.Tags` was `[]{Key,Value}` (a list of
+  keyed objects, e.g. `[{"Key":"env","Value":"prod"}]`); real SDK's field is
+  `[]map[string]string` -- a list of free-form single-entry maps, e.g.
+  `[{"env":"prod"}]`, serialized by iterating the Go map's own keys as JSON
+  object keys with no `Key`/`Value` wrapper at all
+  (`types/types.go:138`, `EcsParameters.Tags []map[string]string`;
+  `serializers.go:awsRestjson1_serializeDocumentTags` +
+  `awsRestjson1_serializeDocumentTagMap`, `deserializers.go`'s mirror pair).
+  This is the shape a **prior audit pass (2026-07-24 Notes, "Looks wrong but is
+  correct" section) explicitly misdiagnosed**: it correctly wrote down the real
+  type as `[]map[string]string` but concluded the existing `{Key,Value}` list
+  "remains correct" -- a self-contradiction that locked the bug in as
+  documented-intentional. Fixed: `EcsParameters.Tags` is now `[]map[string]string`
+  end to end (models.go's backend `Target.EcsParameters.Tags`,
+  handler_schedules.go's `scheduleTargetEcsParameters.Tags`); the now-unneeded
+  `EcsTag`/`scheduleTargetEcsTag` conversion types and
+  `ecsTagsFromInput`/`ecsTagsToOutput` helpers deleted.
+- **(a) Fabricated member: `Target.InputTransformer`.** Not a real Scheduler
+  `Target` field at all -- `aws-sdk-go-v2/service/scheduler/types/types.go`'s
+  `Target` struct (line 377) has exactly `Arn`, `RoleArn`, `DeadLetterConfig`,
+  `EcsParameters`, `EventBridgeParameters`, `Input`, `KinesisParameters`,
+  `RetryPolicy`, `SageMakerPipelineParameters`, `SqsParameters` -- confirmed
+  against both `awsRestjson1_serializeDocumentTarget` and
+  `awsRestjson1_deserializeDocumentTarget`'s exhaustive key switches, neither of
+  which has an `InputTransformer` case. `InputTransformer` is an EventBridge
+  *Rules* target concept, not a Scheduler one -- classic bug class (a),
+  generalized in from a different (wider) sibling service. Deleted:
+  `InputTransformer` type and `Target.InputTransformer` field (models.go),
+  `scheduleTargetInputTransformer` type and both `Target.InputTransformer`
+  wire-mirror fields plus `inputTransformerFromInput`/`inputTransformerToOutput`
+  (handler_schedules.go).
+
+**Proof**: `services/scheduler/wire_sdk_ecs_target_test.go` (new) drives
+CreateSchedule/GetSchedule through the real `aws-sdk-go-v2/service/scheduler`
+client (not gopherstack's own JSON tags) and asserts every fixed field survives
+the round trip. Hand-reverted `handler_schedules.go`/`models.go` to their
+pre-fix content (`cp` from a scratch backup, per this campaign's revert
+protocol) and reran: `TestCreateSchedule_EcsParametersSDKRoundTrip` failed with
+`awsvpcConfiguration must survive the round trip` (nil), confirming the real
+SDK client silently drops the field pre-fix; restored the fix (`cp` back,
+`md5sum`-verified identical) and it passes again.
+
+**Existing tests corrected** (wrong-case/wrong-shape literals that happened to
+still pass under Go's case-insensitive `encoding/json`, which can't itself
+distinguish these bugs -- the SDK round-trip test above is what actually proves
+it): `TestCreateSchedule_EcsParametersNetworkConfigurationRoundtrip`,
+`TestCreateSchedule_EcsParametersCapacityProviderStrategyRoundtrip`,
+`TestCreateSchedule_EcsParametersPlacementConstraintsRoundtrip`,
+`TestCreateSchedule_EcsParametersTaskTagsRoundtrip` (all schedules_target_test.go)
+updated to the real lower-camel keys / map-shaped Tags.
+`TestCreateSchedule_InputTransformerRoundTrip` renamed to
+`TestCreateSchedule_InputTransformerNotEchoed` and inverted to assert the field
+is dropped, not round-tripped.
+
+**Families re-verified clean, no changes**: `Schedule` vs `ScheduleSummary`
+(`GetScheduleOutput` full field list -- `ActionAfterCompletion`, `Arn`,
+`CreationDate`, `Description`, `EndDate`, `FlexibleTimeWindow`, `GroupName`,
+`KmsKeyArn`, `LastModificationDate`, `Name`, `ScheduleExpression`,
+`ScheduleExpressionTimezone`, `StartDate`, `State`, `Target` -- vs
+`ScheduleSummary`'s narrower `Arn`, `CreationDate`, `GroupName`,
+`LastModificationDate`, `Name`, `State`, `Target *TargetSummary`, matching
+`getScheduleOutput`/`scheduleSummary` exactly, including `TargetSummary`'s
+`Arn`-only field list matching `scheduleSummaryTarget`); `ScheduleGroup` vs
+`ScheduleGroupSummary` (both narrower than `GetScheduleGroupOutput`'s own field
+list, matching `getScheduleGroupOutput`/`scheduleGroupSummary` exactly, no
+`Tags` field on either side per the 2026-07-24 fix, re-confirmed);
+`FlexibleTimeWindow` (`Mode`/`MaximumWindowInMinutes`); all REST HTTP
+method+path bindings (`/schedules/{Name}`, `/schedule-groups/{Name}`,
+`/tags/{ResourceArn}`, list endpoints) against every op's
+`serializeOpHttpBindings*Input`, including the `ScheduleGroup` (not
+`GroupName`) query param name on `ListSchedules` and the lowercase
+`groupName`/`clientToken` query params on `GetSchedule`/`DeleteSchedule`/
+`DeleteScheduleGroup`, all already correct in handler.go; `RetryPolicy`,
+`DeadLetterConfig`, `EventBridgeParameters`, `KinesisParameters`,
+`SqsParameters`, `SageMakerPipelineParameters`/`SageMakerPipelineParameter`
+(all PascalCase, all correct); top-level resource `Tag`/`resourceTag`
+(`{Key,Value}`, correctly distinct from the `EcsParameters.Tags` map-list
+shape); `ListSchedules`/`ListScheduleGroups`/`ListTagsForResource` wrapper keys
+(`Schedules`/`ScheduleGroups`/`Tags`); enums both directions -- every SDK value
+(`ActionAfterCompletion`: NONE/DELETE; `AssignPublicIp`: ENABLED/DISABLED;
+`FlexibleTimeWindowMode`: OFF/FLEXIBLE; `LaunchType`: EC2/FARGATE/EXTERNAL;
+`PlacementConstraintType`: distinctInstance/memberOf;
+`PlacementStrategyType`: random/spread/binpack; `PropagateTags`:
+TASK_DEFINITION; `ScheduleGroupState`: ACTIVE/DELETING; `ScheduleState`:
+ENABLED/DISABLED) representable, and no constant gopherstack emits falls
+outside these sets.
+
+**Provenance verdict**: the pre-existing stamp (`last_audit_commit: 174b1f53`,
+`last_audit_date: 2026-08-11`) was stale -- `git show -s --format=%ad 174b1f53`
+returns `2026-07-12`, a ~30-day gap with the commit predating the claimed audit
+date. Refreshed to current HEAD (`615cda74e`) and today's date (2026-08-20).
 
 ## Notes (2026-08-11 pass, gopherstack-cz9e)
 
@@ -361,11 +504,14 @@ leaks: {status: clean, note: "leak_main_test.go (testleak.VerifyTestMain) passes
   correct emulation), `ActionAfterCompletion` enum-validated (`NONE`/`DELETE`
   only).
 - **"Looks wrong but is correct" traps for the next auditor**:
-  - `EcsParameters.Tags []scheduleTargetEcsTag` (`{Key,Value}` list) is unrelated to
-    the resource-tag/invented-field findings above and remains correct -- it's a
-    genuine, real `Target.EcsParameters.Tags []map[string]string` field (per-ECS-
-    task tags at launch time), covered by
-    `TestParity_EcsParametersTaskTagsRoundtrip`.
+  - ~~`EcsParameters.Tags []scheduleTargetEcsTag` (`{Key,Value}` list) is unrelated
+    to the resource-tag/invented-field findings above and remains correct -- it's
+    a genuine, real `Target.EcsParameters.Tags []map[string]string` field
+    (per-ECS-task tags at launch time)~~ -- **CORRECTED 2026-08-20**: this note
+    contradicted itself (wrote down the real type as `[]map[string]string` then
+    called the existing `{Key,Value}` list "correct" anyway) and was wrong. The
+    real wire shape genuinely is `[]map[string]string`, not `{Key,Value}` objects;
+    see the 2026-08-20 Notes above for the fix and SDK citations.
   - The `X-Amz-Target`/`AWSScheduler.<Op>` JSON-1.1 dispatch path in handler.go is
     dead code for real AWS SDK traffic (restjson1 has no such header) but is kept
     intentionally for internal test convenience (`doSchedulerRequest` in

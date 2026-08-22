@@ -78,7 +78,11 @@ func (h *Handler) ChaosRegions() []string { return []string{h.Backend.Region()} 
 // which cannot set User-Agent itself -- see service.MatchesUserAgentMarker).
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
-		return service.MatchesUserAgentMarker(c.Request().Header, userAgentMarker, jsUserAgentMarker)
+		return service.MatchesUserAgentMarker(
+			c.Request().Header,
+			userAgentMarker,
+			jsUserAgentMarker,
+		)
 	}
 }
 
@@ -143,9 +147,21 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			return h.handleDescribeObject(c)
 		}
 
-		log.WarnContext(r.Context(), "mediastoredata: unmatched request", "method", r.Method, "path", r.URL.Path)
+		log.WarnContext(
+			r.Context(),
+			"mediastoredata: unmatched request",
+			"method",
+			r.Method,
+			"path",
+			r.URL.Path,
+		)
 
-		return c.JSON(http.StatusMethodNotAllowed, errorResponse("MethodNotAllowedException", "method not allowed"))
+		return writeErrorJSON(
+			c,
+			http.StatusMethodNotAllowed,
+			"MethodNotAllowedException",
+			"method not allowed",
+		)
 	}
 }
 
@@ -158,9 +174,11 @@ func (h *Handler) handlePutObject(c *echo.Context) error {
 	if err != nil {
 		log.ErrorContext(r.Context(), "mediastoredata: failed to read body", "error", err)
 
-		return c.JSON(
+		return writeErrorJSON(
+			c,
 			http.StatusInternalServerError,
-			errorResponse("InternalServerError", "failed to read request body"),
+			"InternalServerError",
+			"failed to read request body",
 		)
 	}
 
@@ -179,9 +197,8 @@ func (h *Handler) handlePutObject(c *echo.Context) error {
 	if declared := r.Header.Get("X-Amz-Content-Sha256"); declared != "" &&
 		declared != "UNSIGNED-PAYLOAD" && declared != "STREAMING-AWS4-HMAC-SHA256-PAYLOAD" {
 		if actual := contentSHA256(body); actual != declared {
-			return c.JSON(http.StatusBadRequest,
-				errorResponse("XAmzContentSHA256Mismatch",
-					fmt.Sprintf("content SHA256 mismatch: got %s, expected %s", actual, declared)))
+			return writeErrorJSON(c, http.StatusBadRequest, "XAmzContentSHA256Mismatch",
+				fmt.Sprintf("content SHA256 mismatch: got %s, expected %s", actual, declared))
 		}
 	}
 
@@ -192,7 +209,15 @@ func (h *Handler) handlePutObject(c *echo.Context) error {
 	uploadAvailability := r.Header.Get("X-Amz-Upload-Availability")
 
 	obj, putErr := h.Backend.PutObject(
-		h.requestContext(c), path, body, contentType, cacheControl, storageClass, uploadAvailability,
+		h.requestContext(
+			c,
+		),
+		path,
+		body,
+		contentType,
+		cacheControl,
+		storageClass,
+		uploadAvailability,
 	)
 	if putErr != nil {
 		return h.writeError(c, putErr)
@@ -265,8 +290,8 @@ func (h *Handler) handleRangeGet(c *echo.Context, obj *Object, rangeHdr string) 
 		// "InvalidRangeException" __type here would not deserialize into the
 		// typed SDK error a real client checks for via errors.As, even
 		// though the HTTP status code (416) was already correct.
-		return c.JSON(http.StatusRequestedRangeNotSatisfiable,
-			errorResponse("RequestedRangeNotSatisfiableException", "requested range not satisfiable"))
+		return writeErrorJSON(c, http.StatusRequestedRangeNotSatisfiable,
+			"RequestedRangeNotSatisfiableException", "requested range not satisfiable")
 	}
 
 	chunk := obj.Body[start : end+1]
@@ -326,10 +351,12 @@ func (h *Handler) handleListItems(c *echo.Context) error {
 		// AWS MediaStore Data bounds ListItems MaxResults to 1-1000.
 		n, err := strconv.Atoi(raw)
 		if err != nil || n < 1 || n > maxListItemsResults {
-			return c.JSON(http.StatusBadRequest, errorResponse(
+			return writeErrorJSON(
+				c,
+				http.StatusBadRequest,
 				"ValidationException",
 				"MaxResults must be between 1 and 1000",
-			))
+			)
 		}
 
 		in.MaxResults = n
@@ -526,17 +553,34 @@ func parseByteRange(header string, size int64) (int64, int64, bool) {
 func (h *Handler) writeError(c *echo.Context, err error) error {
 	switch {
 	case errors.Is(err, ErrNotFound):
-		return c.JSON(http.StatusNotFound, errorResponse("ObjectNotFoundException", err.Error()))
+		return writeErrorJSON(c, http.StatusNotFound, "ObjectNotFoundException", err.Error())
 	case errors.Is(err, ErrInvalidPath),
 		errors.Is(err, ErrInvalidStorageClass),
 		errors.Is(err, ErrInvalidUploadAvailability):
-		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", err.Error()))
+		return writeErrorJSON(c, http.StatusBadRequest, "ValidationException", err.Error())
 	}
 
-	return c.JSON(http.StatusInternalServerError, errorResponse("InternalServerError", err.Error()))
+	return writeErrorJSON(c, http.StatusInternalServerError, "InternalServerError", err.Error())
 }
 
 // errorResponse returns a JSON-serialisable error payload.
 func errorResponse(code, msg string) map[string]string {
 	return map[string]string{"__type": code, "message": msg}
+}
+
+// writeErrorJSON writes an error response with both the JSON __type body
+// field AND the X-Amzn-ErrorType header real mediastoredata sets on every
+// error response (deserializeOpError<Op> in aws-sdk-go-v2/service/
+// mediastoredata/deserializers.go checks this header BEFORE ever attempting
+// to decode a body). Setting only the body is insufficient: DescribeObject
+// is a HEAD request, and net/http's client transport always discards a HEAD
+// response's body per RFC 7231 §4.3.2 regardless of what the server sent, so
+// without this header a real SDK caller can NEVER recover a typed error
+// (ObjectNotFoundException, InternalServerError, ...) from a failed
+// DescribeObject -- every such error silently degrades to an untyped
+// "UnknownError" smithy.GenericAPIError.
+func writeErrorJSON(c *echo.Context, status int, code, msg string) error {
+	c.Response().Header().Set("X-Amzn-Errortype", code)
+
+	return c.JSON(status, errorResponse(code, msg))
 }

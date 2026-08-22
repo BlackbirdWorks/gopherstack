@@ -36,8 +36,6 @@ func toInvitationObject(inv *Invitation) invitationObject {
 	obj := invitationObject{
 		InvitationID:   inv.InvitationID,
 		Arn:            inv.Arn,
-		NetworkID:      inv.NetworkID,
-		NetworkName:    inv.NetworkName,
 		Status:         inv.Status,
 		CreationDate:   inv.CreationDate,
 		ExpirationDate: inv.ExpirationDate,

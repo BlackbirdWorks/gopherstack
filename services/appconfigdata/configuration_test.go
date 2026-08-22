@@ -197,8 +197,9 @@ func TestHandler_ProfileDeletedMidSession(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec2.Code)
 }
 
-// TestHandler_TokenExpired verifies that the handler returns 401 when a session token has
-// passed its absolute expiry time.
+// TestHandler_TokenExpired verifies that a swept (absolute-expiry) session token is gone
+// from the backend, surfacing as ErrSessionNotFound (AWS itself returns 400, not 401, for
+// an expired token -- see errors.go).
 func TestHandler_TokenExpired(t *testing.T) {
 	t.Parallel()
 

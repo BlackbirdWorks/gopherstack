@@ -81,6 +81,7 @@ type OrcSerDe struct {
 	RowIndexStride                      int      `json:"RowIndexStride,omitempty"`
 	BloomFilterFalsePositiveProbability float64  `json:"BloomFilterFalsePositiveProbability,omitempty"`
 	DictionaryKeyThreshold              float64  `json:"DictionaryKeyThreshold,omitempty"`
+	PaddingTolerance                    float64  `json:"PaddingTolerance,omitempty"`
 	EnablePadding                       bool     `json:"EnablePadding"`
 }
 

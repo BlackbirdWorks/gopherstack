@@ -155,13 +155,15 @@ func TestHandler_GetPredictiveScalingForecast_HonestlyEmpty(t *testing.T) {
 
 			lf, ok := resp["LoadForecast"].([]any)
 			require.True(t, ok, "expected LoadForecast in response")
-			require.Len(t, lf, 1, "one LoadForecastData entry per policy, with empty data points")
-
-			lfEntry, ok := lf[0].(map[string]any)
-			require.True(t, ok)
-			assert.Empty(t, lfEntry["Timestamps"], "LoadForecast.Timestamps must not be fabricated")
-			assert.Empty(t, lfEntry["Values"], "LoadForecast.Values must not be fabricated")
-			assert.Equal(t, "ecs/service/default/my-svc/ecs:service:DesiredCount", lfEntry["MetricSpecification"])
+			// No PredictiveScalingPolicyConfiguration.MetricSpecifications was
+			// supplied on PutScalingPolicy, so there is nothing real to echo
+			// back -- LoadForecast must be empty, not populated with a
+			// fabricated entry. Real AWS's LoadForecast[].MetricSpecification
+			// is an object (types.PredictiveScalingMetricSpecification); a
+			// synthesized string there previously broke every real
+			// aws-sdk-go-v2 client's JSON unmarshal of this response
+			// (see TestGetPredictiveScalingForecast_SDKRoundTrip).
+			assert.Empty(t, lf, "LoadForecast must not contain a fabricated entry when no metric spec was configured")
 
 			// UpdateTime is an AWS JSON-protocol epoch-seconds timestamp (a JSON number).
 			updateTime, ok := resp["UpdateTime"].(float64)

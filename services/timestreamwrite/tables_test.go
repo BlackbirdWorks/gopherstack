@@ -399,9 +399,9 @@ func TestInMemoryBackend_AddTableInternal(t *testing.T) {
 func TestInMemoryBackend_CreateTable_DefaultRetentionProperties(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct { //nolint:govet // fieldalignment: readability over micro-optimization
-		name      string
+	tests := []struct {
 		inp       *timestreamwrite.CreateTableInput
+		name      string
 		wantHours int64
 		wantDays  int64
 	}{

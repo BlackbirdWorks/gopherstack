@@ -108,47 +108,45 @@ type AccelerationSettings struct {
 	Mode string `json:"mode,omitempty"`
 }
 
-// ShareDetails holds resource share token details.
-type ShareDetails struct {
-	ShareToken string  `json:"shareToken,omitempty"`
-	SharedAt   float64 `json:"sharedAt,omitempty"`
-}
-
 // Job represents a MediaConvert transcoding job.
 type Job struct {
-	AccelerationSettings      *AccelerationSettings `json:"accelerationSettings,omitempty"`
-	Messages                  *JobMessages          `json:"messages,omitempty"`
-	LastShareDetails          *ShareDetails         `json:"lastShareDetails,omitempty"`
-	Timing                    *JobTiming            `json:"timing,omitempty"`
-	Settings                  map[string]any        `json:"settings,omitempty"`
-	Tags                      map[string]string     `json:"tags,omitempty"`
-	UserMetadata              map[string]string     `json:"userMetadata,omitempty"`
-	Arn                       string                `json:"arn"`
-	ID                        string                `json:"id"`
-	Queue                     string                `json:"queue,omitempty"`
-	QueueArn                  string                `json:"queueArn,omitempty"`
-	Role                      string                `json:"role"`
-	Status                    string                `json:"status"`
-	CurrentPhase              string                `json:"currentPhase,omitempty"`
-	JobTemplate               string                `json:"jobTemplate,omitempty"`
-	ErrorMessage              string                `json:"errorMessage,omitempty"`
-	BillingTagsSource         string                `json:"billingTagsSource,omitempty"`
-	AccelerationStatus        string                `json:"accelerationStatus,omitempty"`
-	StatusUpdateInterval      string                `json:"statusUpdateInterval,omitempty"`
-	SimulateReservedQueue     string                `json:"simulateReservedQueue,omitempty"`
-	ClientRequestToken        string                `json:"clientRequestToken,omitempty"`
-	JobEngineVersionRequested string                `json:"jobEngineVersionRequested,omitempty"`
-	JobEngineVersionUsed      string                `json:"jobEngineVersionUsed,omitempty"`
-	ShareStatus               string                `json:"shareStatus,omitempty"`
-	OutputGroupDetails        []OutputGroupDetail   `json:"outputGroupDetails,omitempty"`
-	QueueTransitions          []QueueTransition     `json:"queueTransitions,omitempty"`
-	HopDestinations           []HopDestination      `json:"hopDestinations,omitempty"`
-	Warnings                  []WarningGroup        `json:"warnings,omitempty"`
-	CreatedAt                 float64               `json:"createdAt"`
-	ErrorCode                 int                   `json:"errorCode,omitempty"`
-	JobPercentComplete        int                   `json:"jobPercentComplete"`
-	Priority                  int                   `json:"priority"`
-	RetryCount                int                   `json:"retryCount"`
+	AccelerationSettings *AccelerationSettings `json:"accelerationSettings,omitempty"`
+	Messages             *JobMessages          `json:"messages,omitempty"`
+	// LastShareDetails is a *string* on the real wire (aws-sdk-go-v2/service/
+	// mediaconvert@v1.97.1 types/types.go:6202, deserializers.go:19625 expects
+	// value.(string)) -- NOT a nested object. A structured object here fails
+	// the entire GetJob/ListJobs deserialization for a real SDK client.
+	LastShareDetails          *string             `json:"lastShareDetails,omitempty"`
+	Timing                    *JobTiming          `json:"timing,omitempty"`
+	Settings                  map[string]any      `json:"settings,omitempty"`
+	Tags                      map[string]string   `json:"tags,omitempty"`
+	UserMetadata              map[string]string   `json:"userMetadata,omitempty"`
+	Arn                       string              `json:"arn"`
+	ID                        string              `json:"id"`
+	Queue                     string              `json:"queue,omitempty"`
+	QueueArn                  string              `json:"queueArn,omitempty"`
+	Role                      string              `json:"role"`
+	Status                    string              `json:"status"`
+	CurrentPhase              string              `json:"currentPhase,omitempty"`
+	JobTemplate               string              `json:"jobTemplate,omitempty"`
+	ErrorMessage              string              `json:"errorMessage,omitempty"`
+	BillingTagsSource         string              `json:"billingTagsSource,omitempty"`
+	AccelerationStatus        string              `json:"accelerationStatus,omitempty"`
+	StatusUpdateInterval      string              `json:"statusUpdateInterval,omitempty"`
+	SimulateReservedQueue     string              `json:"simulateReservedQueue,omitempty"`
+	ClientRequestToken        string              `json:"clientRequestToken,omitempty"`
+	JobEngineVersionRequested string              `json:"jobEngineVersionRequested,omitempty"`
+	JobEngineVersionUsed      string              `json:"jobEngineVersionUsed,omitempty"`
+	ShareStatus               string              `json:"shareStatus,omitempty"`
+	OutputGroupDetails        []OutputGroupDetail `json:"outputGroupDetails,omitempty"`
+	QueueTransitions          []QueueTransition   `json:"queueTransitions,omitempty"`
+	HopDestinations           []HopDestination    `json:"hopDestinations,omitempty"`
+	Warnings                  []WarningGroup      `json:"warnings,omitempty"`
+	CreatedAt                 float64             `json:"createdAt"`
+	ErrorCode                 int                 `json:"errorCode,omitempty"`
+	JobPercentComplete        int                 `json:"jobPercentComplete"`
+	Priority                  int                 `json:"priority"`
+	RetryCount                int                 `json:"retryCount"`
 }
 
 // Preset represents a MediaConvert output preset.

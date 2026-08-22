@@ -164,7 +164,7 @@ func buildEnvironment(
 		CreatedAt:                    epochSecondsNow(),
 		KmsKey:                       req.KmsKey,
 		AirflowConfigurationOptions:  airflowConfig,
-		LoggingConfiguration:         req.LoggingConfiguration,
+		LoggingConfiguration:         convertLoggingConfiguration(req.LoggingConfiguration),
 		PluginsS3Path:                req.PluginsS3Path,
 		PluginsS3ObjectVersion:       req.PluginsS3ObjectVersion,
 		RequirementsS3Path:           req.RequirementsS3Path,
@@ -181,6 +181,37 @@ func buildEnvironment(
 		),
 		DatabaseVpcEndpointService:  fmt.Sprintf("com.amazonaws.%s.airflow.db.%s", region, uniqueID),
 		WebserverVpcEndpointService: fmt.Sprintf("com.amazonaws.%s.airflow.api.%s", region, uniqueID),
+	}
+}
+
+// convertLoggingConfiguration maps a request-shaped LoggingConfigurationInput onto
+// the response-shaped LoggingConfiguration. CloudWatchLogGroupArn is never set here:
+// it is response-only (real AWS computes it server-side once a module is enabled),
+// and gopherstack does not synthesize one.
+func convertLoggingConfiguration(in *LoggingConfigurationInput) *LoggingConfiguration {
+	if in == nil {
+		return nil
+	}
+
+	return &LoggingConfiguration{
+		DagProcessingLogs: convertModuleLoggingConfiguration(in.DagProcessingLogs),
+		SchedulerLogs:     convertModuleLoggingConfiguration(in.SchedulerLogs),
+		TaskLogs:          convertModuleLoggingConfiguration(in.TaskLogs),
+		WebserverLogs:     convertModuleLoggingConfiguration(in.WebserverLogs),
+		WorkerLogs:        convertModuleLoggingConfiguration(in.WorkerLogs),
+	}
+}
+
+// convertModuleLoggingConfiguration maps a single module's request shape onto its
+// response shape.
+func convertModuleLoggingConfiguration(in *ModuleLoggingConfigurationInput) *ModuleLoggingConfiguration {
+	if in == nil {
+		return nil
+	}
+
+	return &ModuleLoggingConfiguration{
+		Enabled:  in.Enabled,
+		LogLevel: in.LogLevel,
 	}
 }
 
@@ -296,7 +327,7 @@ func (b *InMemoryBackend) UpdateEnvironment(
 	}
 
 	if req.LoggingConfiguration != nil {
-		env.LoggingConfiguration = req.LoggingConfiguration
+		env.LoggingConfiguration = convertLoggingConfiguration(req.LoggingConfiguration)
 	}
 
 	env.LastUpdate = &LastUpdate{

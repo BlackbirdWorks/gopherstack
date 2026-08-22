@@ -19,6 +19,10 @@ type createReplicationInstanceInput struct {
 	MultiAZ                       *bool      `json:"MultiAZ"`
 	AutoMinorVersionUpgrade       *bool      `json:"AutoMinorVersionUpgrade"`
 	PubliclyAccessible            *bool      `json:"PubliclyAccessible"`
+	KmsKeyID                      *string    `json:"KmsKeyId"`
+	DNSNameServers                *string    `json:"DnsNameServers"`
+	NetworkType                   *string    `json:"NetworkType"`
+	PreferredMaintenanceWindow    *string    `json:"PreferredMaintenanceWindow"`
 	Tags                          []tagEntry `json:"Tags"`
 }
 
@@ -51,6 +55,12 @@ func (h *Handler) handleCreateReplicationInstance(
 		ptrconv.Bool(in.AutoMinorVersionUpgrade),
 		ptrconv.Bool(in.PubliclyAccessible),
 		kv,
+		ReplicationInstanceSettings{
+			KmsKeyID:                   ptrconv.String(in.KmsKeyID),
+			DNSNameServers:             ptrconv.String(in.DNSNameServers),
+			NetworkType:                ptrconv.String(in.NetworkType),
+			PreferredMaintenanceWindow: ptrconv.String(in.PreferredMaintenanceWindow),
+		},
 	)
 	if err != nil {
 		return nil, err
@@ -142,22 +152,24 @@ func (h *Handler) handleDeleteReplicationInstance(
 
 type replicationInstanceJSON struct {
 	ReplicationSubnetGroup                replicationSubnetGroupJSON `json:"ReplicationSubnetGroup"`
-	ReplicationInstanceIdentifier         string                     `json:"ReplicationInstanceIdentifier"`
-	ReplicationInstanceArn                string                     `json:"ReplicationInstanceArn"`
+	DNSNameServers                        string                     `json:"DnsNameServers,omitempty"`
+	KmsKeyID                              string                     `json:"KmsKeyId,omitempty"`
 	ReplicationInstanceClass              string                     `json:"ReplicationInstanceClass"`
 	EngineVersion                         string                     `json:"EngineVersion"`
 	AvailabilityZone                      string                     `json:"AvailabilityZone"`
 	ReplicationInstanceStatus             string                     `json:"ReplicationInstanceStatus"`
-	ReplicationInstancePrivateIPAddresses []string                   `json:"ReplicationInstancePrivateIpAddresses"`
-	ReplicationInstancePublicIPAddresses  []string                   `json:"ReplicationInstancePublicIpAddresses"`
+	PreferredMaintenanceWindow            string                     `json:"PreferredMaintenanceWindow,omitempty"`
+	NetworkType                           string                     `json:"NetworkType,omitempty"`
+	ReplicationInstanceArn                string                     `json:"ReplicationInstanceArn"`
+	ReplicationInstanceIdentifier         string                     `json:"ReplicationInstanceIdentifier"`
 	VpcSecurityGroups                     []any                      `json:"VpcSecurityGroups"`
-	// InstanceCreateTime is wire-encoded as epoch seconds (awsjson1.1
-	// unixTimestamp format) -- see pkgs/awstime.Epoch.
-	InstanceCreateTime      float64 `json:"InstanceCreateTime,omitempty"`
-	AllocatedStorage        int32   `json:"AllocatedStorage"`
-	MultiAZ                 bool    `json:"MultiAZ"`
-	AutoMinorVersionUpgrade bool    `json:"AutoMinorVersionUpgrade"`
-	PubliclyAccessible      bool    `json:"PubliclyAccessible"`
+	ReplicationInstancePublicIPAddresses  []string                   `json:"ReplicationInstancePublicIpAddresses"`
+	ReplicationInstancePrivateIPAddresses []string                   `json:"ReplicationInstancePrivateIpAddresses"`
+	InstanceCreateTime                    float64                    `json:"InstanceCreateTime,omitempty"`
+	AllocatedStorage                      int32                      `json:"AllocatedStorage"`
+	MultiAZ                               bool                       `json:"MultiAZ"`
+	AutoMinorVersionUpgrade               bool                       `json:"AutoMinorVersionUpgrade"`
+	PubliclyAccessible                    bool                       `json:"PubliclyAccessible"`
 }
 
 func riToJSON(ri *ReplicationInstance) replicationInstanceJSON {
@@ -183,6 +195,10 @@ func riToJSON(ri *ReplicationInstance) replicationInstanceJSON {
 		ReplicationInstancePublicIPAddresses:  publicIPs,
 		VpcSecurityGroups:                     []any{},
 		InstanceCreateTime:                    awstime.Epoch(ri.CreationTime),
+		KmsKeyID:                              ri.KmsKeyID,
+		DNSNameServers:                        ri.DNSNameServers,
+		NetworkType:                           ri.NetworkType,
+		PreferredMaintenanceWindow:            ri.PreferredMaintenanceWindow,
 		AllocatedStorage:                      ri.AllocatedStorage,
 		MultiAZ:                               ri.MultiAZ,
 		AutoMinorVersionUpgrade:               ri.AutoMinorVersionUpgrade,
@@ -306,7 +322,10 @@ func (h *Handler) handleDescribeOrderableReplicationInstances(
 			DefaultAllocatedStorage:  spec.defaultStorage,
 			MinAllocatedStorage:      spec.minStorage,
 			MaxAllocatedStorage:      spec.maxStorage,
-			ReleaseStatus:            "GA",
+			// types.ReleaseStatusValues only has "beta"/"prod"
+			// (databasemigrationservice@v1.66.4, types/enums.go:628-634);
+			// "GA" is not a real value of this enum.
+			ReleaseStatus: "prod",
 		})
 	}
 
@@ -340,12 +359,14 @@ func (h *Handler) handleDescribeReplicationInstanceTaskLogs(
 }
 
 type modifyReplicationInstanceInput struct {
-	ReplicationInstanceArn   *string `json:"ReplicationInstanceArn"`
-	ReplicationInstanceClass *string `json:"ReplicationInstanceClass"`
-	EngineVersion            *string `json:"EngineVersion"`
-	MultiAZ                  *bool   `json:"MultiAZ"`
-	AutoMinorVersionUpgrade  *bool   `json:"AutoMinorVersionUpgrade"`
-	AllocatedStorage         *int32  `json:"AllocatedStorage"`
+	ReplicationInstanceArn     *string `json:"ReplicationInstanceArn"`
+	ReplicationInstanceClass   *string `json:"ReplicationInstanceClass"`
+	EngineVersion              *string `json:"EngineVersion"`
+	MultiAZ                    *bool   `json:"MultiAZ"`
+	AutoMinorVersionUpgrade    *bool   `json:"AutoMinorVersionUpgrade"`
+	AllocatedStorage           *int32  `json:"AllocatedStorage"`
+	NetworkType                *string `json:"NetworkType"`
+	PreferredMaintenanceWindow *string `json:"PreferredMaintenanceWindow"`
 }
 
 type modifyReplicationInstanceOutput struct {
@@ -363,6 +384,10 @@ func (h *Handler) handleModifyReplicationInstance(
 		in.MultiAZ,
 		in.AutoMinorVersionUpgrade,
 		in.AllocatedStorage,
+		ReplicationInstanceSettings{
+			NetworkType:                ptrconv.String(in.NetworkType),
+			PreferredMaintenanceWindow: ptrconv.String(in.PreferredMaintenanceWindow),
+		},
 	)
 	if err != nil {
 		return nil, err

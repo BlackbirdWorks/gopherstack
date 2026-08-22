@@ -83,7 +83,6 @@ type certificateDetail struct {
 	RenewalEligibility      string                `json:"RenewalEligibility,omitempty"`
 	FailureReason           string                `json:"FailureReason,omitempty"`
 	CertificateAuthorityArn string                `json:"CertificateAuthorityArn,omitempty"`
-	KeyID                   string                `json:"KeyId,omitempty"`
 	ManagedBy               string                `json:"ManagedBy,omitempty"`
 	Options                 *certificateOptions   `json:"Options,omitempty"`
 	SubjectAlternativeNames []string              `json:"SubjectAlternativeNames,omitempty"`
@@ -436,7 +435,6 @@ func (h *Handler) jsonDescribeCertificate(ctx context.Context, body []byte) (any
 		RevocationReason:        cert.RevocationReason,
 		FailureReason:           cert.FailureReason,
 		CertificateAuthorityArn: cert.CertificateAuthorityArn,
-		KeyID:                   cert.KeyID,
 		ManagedBy:               cert.ManagedBy,
 		CreatedAt:               cert.CreatedAt.Unix(),
 		NotBefore:               cert.NotBefore.Unix(),

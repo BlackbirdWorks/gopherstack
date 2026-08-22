@@ -179,7 +179,6 @@ func toProposalSummaryObject(p *Proposal) proposalSummaryObject {
 	return proposalSummaryObject{
 		ProposalID:           p.ProposalID,
 		Arn:                  p.Arn,
-		NetworkID:            p.NetworkID,
 		ProposedByMemberID:   p.ProposedByMemberID,
 		ProposedByMemberName: p.ProposedByMemberName,
 		Description:          p.Description,
