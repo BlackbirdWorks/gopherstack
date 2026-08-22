@@ -43,9 +43,9 @@ func (h *Handler) handleGetTemporaryDataLocationCredentials(_ context.Context, c
 	if err := json.Unmarshal(body, &in); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
 	}
-	if len(in.DataLocations) == 0 {
-		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "DataLocations is required")
-	}
+	// GetTemporaryDataLocationCredentialsInput (lakeformation@v1.50.4
+	// api_op_GetTemporaryDataLocationCredentials.go) marks no member
+	// required, including DataLocations -- gopherstack-4ly2.
 	creds := h.Backend.GetTemporaryCredentials(in.DurationSeconds)
 
 	return c.JSON(http.StatusOK, getTemporaryDataLocationCredentialsOutput{

@@ -98,16 +98,26 @@ func (b *InMemoryBackend) DescribeTable(dbName, tblName string) (*Table, error) 
 	return &cp, nil
 }
 
-// ListTables returns all tables in a database sorted by name.
+// ListTables returns all tables in a database sorted by name, or every table
+// across every database when dbName is empty. ListTablesInput marks no
+// member required, DatabaseName included (api_op_ListTables.go,
+// timestreamwrite@v1.38.4) -- gopherstack-4ly2.
 func (b *InMemoryBackend) ListTables(dbName string) ([]Table, error) {
 	b.mu.RLock("ListTables")
 	defer b.mu.RUnlock()
 
-	if !b.databases.Has(dbName) {
-		return nil, fmt.Errorf("%w: database %s not found", ErrDatabaseNotFound, dbName)
+	var group []*Table
+
+	if dbName == "" {
+		group = b.tables.All()
+	} else {
+		if !b.databases.Has(dbName) {
+			return nil, fmt.Errorf("%w: database %s not found", ErrDatabaseNotFound, dbName)
+		}
+
+		group = b.tablesByDatabase.Get(dbName)
 	}
 
-	group := b.tablesByDatabase.Get(dbName)
 	out := make([]Table, 0, len(group))
 
 	for _, tbl := range group {

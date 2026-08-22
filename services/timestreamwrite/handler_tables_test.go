@@ -125,13 +125,35 @@ func TestHandler_ListTables(t *testing.T) {
 	assert.Len(t, tbls, 2)
 }
 
-func TestHandler_ListTables_MissingDBName(t *testing.T) {
+// TestHandler_ListTables_DatabaseNameOptional verifies a request with no
+// DatabaseName lists tables across every database. ListTablesInput marks no
+// member required, DatabaseName included (api_op_ListTables.go,
+// timestreamwrite@v1.38.4). A prior version of this test
+// (TestHandler_ListTables_MissingDBName) asserted a 400 here, which was
+// itself wrong: gopherstack-4ly2.
+func TestHandler_ListTables_DatabaseNameOptional(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
 
-	rec := doRequest(t, h, "ListTables", map[string]string{})
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	for _, db := range []string{"db-a", "db-b"} {
+		rec := doRequest(t, h, "CreateDatabase", map[string]string{"DatabaseName": db})
+		require.Equal(t, http.StatusOK, rec.Code)
+	}
+
+	rec := doRequest(t, h, "CreateTable", map[string]string{"DatabaseName": "db-a", "TableName": "t1"})
+	require.Equal(t, http.StatusOK, rec.Code)
+	rec = doRequest(t, h, "CreateTable", map[string]string{"DatabaseName": "db-b", "TableName": "t2"})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doRequest(t, h, "ListTables", map[string]string{})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	tbls, ok := resp["Tables"].([]any)
+	require.True(t, ok)
+	assert.Len(t, tbls, 2)
 }
 
 func TestHandler_DeleteTable(t *testing.T) {

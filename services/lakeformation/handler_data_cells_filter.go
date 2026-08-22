@@ -51,16 +51,17 @@ func (h *Handler) handleListDataCellsFilter(_ context.Context, c *echo.Context, 
 		}
 	}
 
-	if in.Table == nil {
-		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "Table is required")
+	// ListDataCellsFilterInput (lakeformation@v1.50.4
+	// api_op_ListDataCellsFilter.go) marks no member required, including
+	// Table -- ListDataCellsFilter itself documents tableCatalogID/
+	// databaseName/tableName as optional filters (see
+	// (*InMemoryBackend).ListDataCellsFilter) -- gopherstack-4ly2.
+	var tableCatalogID, databaseName, tableName string
+	if in.Table != nil {
+		tableCatalogID = in.Table.CatalogID
+		databaseName = in.Table.DatabaseName
+		tableName = in.Table.Name
 	}
-	if in.Table.DatabaseName == "" {
-		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "Table.DatabaseName is required")
-	}
-
-	tableCatalogID := in.Table.CatalogID
-	databaseName := in.Table.DatabaseName
-	tableName := in.Table.Name
 
 	filters, nextToken := h.Backend.ListDataCellsFilter(
 		tableCatalogID,

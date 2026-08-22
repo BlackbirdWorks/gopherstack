@@ -182,9 +182,12 @@ func TestListDataCellsFilter_Empty(t *testing.T) {
 	b := lakeformation.NewInMemoryBackend()
 	h := lakeformation.NewHandler(b)
 
-	// Table is required per AWS behaviour (issue #15)
+	// ListDataCellsFilterInput marks no member required, Table included
+	// (api_op_ListDataCellsFilter.go, lakeformation@v1.50.4) -- omitting it
+	// lists every accessible filter, unscoped. A prior version of this test
+	// asserted a 400 here, which was itself wrong: gopherstack-4ly2.
 	rec := postJSON(t, h, "/ListDataCellsFilter", map[string]any{})
-	require.Equal(t, http.StatusBadRequest, rec.Code)
+	require.Equal(t, http.StatusOK, rec.Code)
 }
 
 func TestListDataCellsFilter_WithTable(t *testing.T) {
@@ -528,7 +531,13 @@ func TestDataCellsFilter_ColumnWildcard(t *testing.T) {
 
 // --- #15: ListDataCellsFilter requires Table ---
 
-func TestListDataCellsFilter_RequiresTable(t *testing.T) {
+// TestListDataCellsFilter_TableOptional verifies Table and its DatabaseName
+// member are both optional (ListDataCellsFilterInput marks no member
+// required, api_op_ListDataCellsFilter.go, lakeformation@v1.50.4) -- each
+// narrows the listing only when supplied. A prior version of this test
+// (TestListDataCellsFilter_RequiresTable) asserted 400 for the first two
+// cases, which was itself wrong: gopherstack-4ly2.
+func TestListDataCellsFilter_TableOptional(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -537,16 +546,16 @@ func TestListDataCellsFilter_RequiresTable(t *testing.T) {
 		wantStatus int
 	}{
 		{
-			name:       "no Table field returns 400",
+			name:       "no Table field lists unscoped",
 			body:       map[string]any{},
-			wantStatus: http.StatusBadRequest,
+			wantStatus: http.StatusOK,
 		},
 		{
-			name: "Table with missing DatabaseName returns 400",
+			name: "Table with missing DatabaseName still lists, scoped by Name only",
 			body: map[string]any{
 				"Table": map[string]any{"Name": "mytable"},
 			},
-			wantStatus: http.StatusBadRequest,
+			wantStatus: http.StatusOK,
 		},
 		{
 			name: "valid Table returns 200",

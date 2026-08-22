@@ -266,10 +266,9 @@ func (h *Handler) handleListTables(
 	_ context.Context,
 	in *listTablesInput,
 ) (*listTablesOutput, error) {
-	if in.DatabaseName == "" {
-		return nil, fmt.Errorf("%w: DatabaseName is required", errInvalidRequest)
-	}
-
+	// ListTablesInput marks no member required, DatabaseName included
+	// (api_op_ListTables.go, timestreamwrite@v1.38.4): omitting it lists
+	// every table across every database -- gopherstack-4ly2.
 	tbls, err := h.Backend.ListTables(in.DatabaseName)
 	if err != nil {
 		return nil, err

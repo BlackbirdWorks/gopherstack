@@ -45,6 +45,43 @@ func TestGetTemporaryDataLocationCredentials_RealSDKClient_RoundTrip(t *testing.
 	assert.Equal(t, []string{"s3://my-bucket/path"}, out.AccessibleDataLocations)
 }
 
+// TestGetTemporaryDataLocationCredentials_RealSDKClient_DataLocationsOptional
+// proves a request omitting DataLocations entirely succeeds.
+// GetTemporaryDataLocationCredentialsInput marks no member required
+// (api_op_GetTemporaryDataLocationCredentials.go, lakeformation@v1.50.4) --
+// the handler previously rejected this with a 400 (gopherstack-4ly2).
+func TestGetTemporaryDataLocationCredentials_RealSDKClient_DataLocationsOptional(t *testing.T) {
+	t.Parallel()
+
+	h := lakeformation.NewHandler(lakeformation.NewInMemoryBackend())
+	client := newTestLakeFormationClient(t, h)
+
+	out, err := client.GetTemporaryDataLocationCredentials(
+		t.Context(),
+		&lakeformationsdk.GetTemporaryDataLocationCredentialsInput{},
+	)
+	require.NoError(t, err)
+	require.NotNil(t, out.Credentials)
+}
+
+// TestListDataCellsFilter_RealSDKClient_TableOptional proves a request
+// omitting Table entirely succeeds. ListDataCellsFilterInput marks no
+// member required (api_op_ListDataCellsFilter.go, lakeformation@v1.50.4) --
+// the handler previously rejected this with a 400 (gopherstack-4ly2).
+func TestListDataCellsFilter_RealSDKClient_TableOptional(t *testing.T) {
+	t.Parallel()
+
+	h := lakeformation.NewHandler(lakeformation.NewInMemoryBackend())
+	client := newTestLakeFormationClient(t, h)
+
+	out, err := client.ListDataCellsFilter(
+		t.Context(),
+		&lakeformationsdk.ListDataCellsFilterInput{},
+	)
+	require.NoError(t, err)
+	assert.Empty(t, out.DataCellsFilters)
+}
+
 // TestGetTemporaryGlueTableCredentials_RealSDKClient_VendedS3Path proves
 // S3Path (a real request member that was previously parsed nowhere) reaches
 // the backend and comes back as VendedS3Path (a real response member that
