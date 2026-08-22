@@ -116,6 +116,9 @@ func (h *Handler) handleGetAdapterVersion(
 const listAdapterVersionsDefaultPageSize = 1000
 
 // listAdapterVersionsInput is the input for ListAdapterVersions.
+// AdapterId is an optional filter, not a required identifier: real AWS's
+// ListAdapterVersionsInput marks no member required, and omitting AdapterId
+// lists versions across every adapter (see [Handler.handleListAdapterVersions]).
 // AfterCreationTime / BeforeCreationTime are epoch-seconds (JSON numbers),
 // matching the awsjson1.1 unixTimestamp wire format -- see pkgs/awstime's
 // package doc.
@@ -149,10 +152,6 @@ func (h *Handler) handleListAdapterVersions(
 	ctx context.Context,
 	in *listAdapterVersionsInput,
 ) (*listAdapterVersionsResponse, error) {
-	if in.AdapterID == "" {
-		return nil, fmt.Errorf("%w: AdapterId is required", errInvalidRequest)
-	}
-
 	versions, err := h.Backend.ListAdapterVersions(ctx, in.AdapterID)
 	if err != nil {
 		return nil, err
