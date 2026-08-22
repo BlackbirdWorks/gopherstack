@@ -559,3 +559,35 @@ Sweep status: 118/118 ops now covered by at least one structural pass (two
 prior) plus this pass's doc-prose pass on every op with an either/or or
 alternate-identifier doc pattern. Service remains grade A; four more real
 gaps disclosed (see `gaps`), none rising to a grade change.
+
+## gopherstack-o7gx follow-up (2026-08-22): default error path emitted an unmodeled InternalServerError
+
+`handler.go`'s `handleError` default branch wrote `errType =
+"InternalServerError"` for any unclassified 500. `cloudwatchlogs@v1.81.1`
+does model an `InternalServerException` (`types/errors.go:97-116`,
+`ErrorFault: FaultServer`), but it's wired into only 9 of 118 operation
+error switches in `deserializers.go`. `ServiceUnavailableException`
+(`types/errors.go:399-419`, also `FaultServer`) is wired into 101 of 118 --
+including `CreateLogGroup`'s own `awsAwsjson11_deserializeOpErrorCreateLogGroup`
+-- making it the real dominant 5xx fault for this service, not
+`InternalServerException` (an easy mistake: both are legitimately-modeled
+5xx faults for *some* cloudwatchlogs operations, but only one is the
+service-wide default). Plain `"InternalServerError"` matches neither and
+appears in no cloudwatchlogs SDK file at all.
+
+Fixed to `errType = "ServiceUnavailableException"`. Proven with a real
+`aws-sdk-go-v2/service/cloudwatchlogs` client's `CreateLogGroup`, whose
+outgoing JSON body is corrupted to invalid syntax via a Finalize middleware
+(`corruptJSONBody` -- a spec-compliant client can never organically send
+malformed JSON, so this stands in for wire-level corruption; same technique
+already used by `services/ce`, `services/dynamodb`, `services/apigateway`).
+cloudwatchlogs's `handleError` has no `json.SyntaxError`/
+`json.UnmarshalTypeError` case of its own, so the corrupted body's
+unmarshal failure falls straight to default.
+`TestCreateLogGroup_MalformedBodySurfacesServiceUnavailableException`
+(`handler_error_type_test.go`, new) asserts `apiErr.ErrorCode() ==
+"ServiceUnavailableException"` and
+`errors.As(err, &types.ServiceUnavailableException{})` with `ErrorFault()
+== smithy.FaultServer`; confirmed it fails pre-fix with the old
+`"InternalServerError"` code (hand-reverted, byte-identical restore
+after).

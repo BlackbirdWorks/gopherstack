@@ -13,17 +13,20 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 )
 
-// TestHandler_OversizedBodySurfacesInternalServiceError drives a real xray
+// TestHandler_OversizedBodySurfacesInternalFailure drives a real xray
 // client's CreateGroup with a FilterExpression large enough to push the
 // request body past httputils.MaxRequestBodyBytes (a real client can
 // legitimately send this; aws-sdk-go-v2 imposes no client-side cap). Before
 // this fix, Handler()'s ReadBody-failure branch wrote a bare
 // "internal server error" text/plain body -- the restjson1 error decoder
 // (aws-sdk-go-v2@v1.43.4 aws/protocol/restjson.GetErrorInfo) cannot parse
-// plain text, so the client saw smithy.GenericAPIError{Code:"UnknownError"}
-// instead of the typed InternalServiceError handleError's default branch
-// already produces for every unmatched backend error (gopherstack-o7gx).
-func TestHandler_OversizedBodySurfacesInternalServiceError(t *testing.T) {
+// plain text, so the client saw smithy.GenericAPIError{Code:"UnknownError"}.
+// handleError's default branch now produces "InternalFailure" for every
+// unmatched backend error: xray@v1.39.4 types/errors.go models no 5xx
+// exception at all, so "InternalServiceError" (another service's modeled
+// type, e.g. transfer@v1.75.4 types/errors.go:82) was never this service's
+// code; InternalFailure is the generic AWS-wide fallback (gopherstack-o7gx).
+func TestHandler_OversizedBodySurfacesInternalFailure(t *testing.T) {
 	t.Parallel()
 
 	client := newTestXRayClient(t)
@@ -38,6 +41,6 @@ func TestHandler_OversizedBodySurfacesInternalServiceError(t *testing.T) {
 
 	var apiErr smithy.APIError
 	require.ErrorAs(t, err, &apiErr, "SDK must surface a typed API error, not an opaque one")
-	assert.Equal(t, "InternalServiceError", apiErr.ErrorCode())
+	assert.Equal(t, "InternalFailure", apiErr.ErrorCode())
 	assert.NotEqual(t, "UnknownError", apiErr.ErrorCode())
 }

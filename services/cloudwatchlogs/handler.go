@@ -441,7 +441,7 @@ func (h *Handler) handleError(ctx context.Context, c *echo.Context, action strin
 		errType = "UnknownOperationException"
 		statusCode = http.StatusBadRequest
 	default:
-		errType = "InternalServerError"
+		errType = "ServiceUnavailableException"
 		statusCode = http.StatusInternalServerError
 	}
 

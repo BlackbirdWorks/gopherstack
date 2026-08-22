@@ -383,3 +383,21 @@ Proven with a real `aws-sdk-go-v2/service/s3tables` client's
 (`handler_oversized_body_test.go`) asserts `apiErr.ErrorCode() ==
 "InternalError"`; confirmed it fails pre-fix with `*json.SyntaxError`
 (hand-reverted, byte-identical restore after).
+
+## gopherstack-o7gx follow-up (2026-08-22): default error path fixed to InternalServerErrorException
+
+The NOTE above flagged `handleError`'s default `errType = "InternalError"` as
+a possible mismatch. Confirmed: `s3tables@v1.18.4` `types/errors.go:116-139`
+models `InternalServerErrorException` (`ErrorFault: FaultServer`) as the
+service's 5xx fault, and it is wired into all 49 of 49 operation error
+switches in `deserializers.go` (`awsRestjson1_deserializeOpError*`, e.g.
+`CreateTableBucket`'s at line ~125) -- universal, not just a majority.
+`"InternalError"` appears nowhere in either file, so a real client's
+`errors.As(&types.InternalServerErrorException{})` never matched.
+
+Fixed `handler.go`'s `handleError` default to `errType =
+"InternalServerErrorException"`. `TestHandler_OversizedBodySurfacesInternalError`
+(`handler_oversized_body_test.go`) now additionally asserts
+`errors.As(err, &types.InternalServerErrorException{})` and
+`ErrorFault() == smithy.FaultServer`; confirmed it fails pre-fix with the
+old `"InternalError"` code (hand-reverted, byte-identical restore after).

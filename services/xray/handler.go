@@ -516,7 +516,7 @@ func (h *Handler) handleError(c *echo.Context, _ string, err error) error {
 		})
 	default:
 		return c.JSON(http.StatusInternalServerError, map[string]string{
-			keyTypeField:    "InternalServiceError",
+			keyTypeField:    "InternalFailure",
 			keyMessageField: err.Error(),
 		})
 	}

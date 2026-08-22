@@ -410,7 +410,8 @@ func (h *Handler) dispatchReadConfigOps(c *echo.Context, route mqRoute) (bool, e
 func (h *Handler) dispatchMutating(c *echo.Context, route mqRoute, readBody func() ([]byte, bool)) error {
 	body, ok := readBody()
 	if !ok {
-		return c.JSON(http.StatusInternalServerError, errorResponse("InternalError", "internal server error"))
+		return c.JSON(http.StatusInternalServerError,
+			errorResponse("InternalServerErrorException", "internal server error"))
 	}
 
 	switch route.operation {
@@ -459,7 +460,7 @@ func (h *Handler) writeError(c *echo.Context, err error) error {
 	case errors.Is(err, ErrValidation):
 		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", err.Error()))
 	default:
-		return c.JSON(http.StatusInternalServerError, errorResponse("InternalError", err.Error()))
+		return c.JSON(http.StatusInternalServerError, errorResponse("InternalServerErrorException", err.Error()))
 	}
 }
 

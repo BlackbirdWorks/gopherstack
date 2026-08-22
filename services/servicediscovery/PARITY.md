@@ -286,3 +286,31 @@ Proven with a real `aws-sdk-go-v2/service/servicediscovery` client's
 (`handler_oversized_body_test.go`) asserts `apiErr.ErrorCode() ==
 "InternalServiceError"`; confirmed it fails pre-fix with
 `*json.SyntaxError` (hand-reverted, byte-identical restore after).
+
+## gopherstack-o7gx follow-up (2026-08-22): default error path fixed to InternalFailure
+
+The NOTE above flagged `"InternalServiceError"` as not matching
+`servicediscovery@v1.43.4`'s `types/errors.go`. Confirmed:
+`servicediscovery@v1.43.4` models zero 5xx/internal-fault exceptions at all
+(its 15 modeled types are all 4xx client faults -- `CustomHealthNotFound`,
+`DuplicateRequest`, `InstanceNotFound`, `InvalidInput`,
+`NamespaceAlreadyExists`, `NamespaceNotFound`, `OperationNotFound`,
+`RequestLimitExceeded`, `ResourceInUse`, `ResourceLimitExceeded`,
+`ResourceNotFoundException`, `ServiceAlreadyExists`,
+`ServiceAttributesLimitExceededException`, `ServiceNotFound`,
+`TooManyTagsException` -- confirmed via `types/errors.go` in full). So no
+replacement code maps to a modeled type here either way; per the
+mediapackage/sagemaker precedent (prefer a generic AWS-wide code over
+reusing another service's specific modeled exception name, and never invent
+one), fixed `handler.go`'s `handleError` default to `errType =
+"InternalFailure"` -- the same generic fallback already used by 7+ other
+gopherstack services with no modeled internal fault (`backup`, `memorydb`,
+`identitystore`, `accessanalyzer`, `elbv2`, `ssoadmin`, `rds`).
+`"InternalServiceError"` was not a fabricated code (it's the real modeled
+type for `secretsmanager`/`transfer`), just not this service's.
+
+`TestHandler_OversizedBodySurfacesInternalFailure`
+(renamed from `...InternalServiceError`) now asserts `apiErr.ErrorCode() ==
+"InternalFailure"`; confirmed it fails pre-fix with the old
+`"InternalServiceError"` code (hand-reverted, byte-identical restore
+after).

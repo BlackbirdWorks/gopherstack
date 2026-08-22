@@ -295,7 +295,7 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 		})
 	default:
 		return c.JSON(http.StatusInternalServerError, map[string]string{
-			keyTypeField:    "InternalServerError",
+			keyTypeField:    "InternalServerException",
 			keyMessageField: err.Error(),
 		})
 	}

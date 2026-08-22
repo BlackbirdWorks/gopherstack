@@ -14,7 +14,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/servicediscovery"
 )
 
-// TestHandler_OversizedBodySurfacesInternalServiceError drives a real
+// TestHandler_OversizedBodySurfacesInternalFailure drives a real
 // servicediscovery client's CreateService with a Description large enough
 // to push the request body past httputils.MaxRequestBodyBytes (a real
 // client can legitimately send this; aws-sdk-go-v2 imposes no client-side
@@ -22,10 +22,13 @@ import (
 // "internal server error" text/plain body -- the awsjson1.1 error decoder
 // (aws-sdk-go-v2@v1.43.4 aws/protocol/restjson.GetErrorInfo, which
 // awsAwsjson11_deserializeOpError calls) cannot parse plain text, so the
-// client saw smithy.GenericAPIError{Code:"UnknownError"} instead of the
-// typed InternalServiceError handleError's default branch already produces
-// for every unmatched backend error (gopherstack-o7gx).
-func TestHandler_OversizedBodySurfacesInternalServiceError(t *testing.T) {
+// client saw smithy.GenericAPIError{Code:"UnknownError"}. handleError's
+// default branch now produces "InternalFailure" for every unmatched backend
+// error: servicediscovery@v1.43.4 types/errors.go models no 5xx exception at
+// all, so "InternalServiceError" (another service's modeled type, e.g.
+// secretsmanager@v1.44.4 types/errors.go:85) was never this service's code;
+// InternalFailure is the generic AWS-wide fallback (gopherstack-o7gx).
+func TestHandler_OversizedBodySurfacesInternalFailure(t *testing.T) {
 	t.Parallel()
 
 	backend := servicediscovery.NewInMemoryBackend("000000000000", "us-east-1")
@@ -41,6 +44,6 @@ func TestHandler_OversizedBodySurfacesInternalServiceError(t *testing.T) {
 
 	var apiErr smithy.APIError
 	require.ErrorAs(t, err, &apiErr, "SDK must surface a typed API error, not an opaque one")
-	assert.Equal(t, "InternalServiceError", apiErr.ErrorCode())
+	assert.Equal(t, "InternalFailure", apiErr.ErrorCode())
 	assert.NotEqual(t, "UnknownError", apiErr.ErrorCode())
 }

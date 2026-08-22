@@ -692,3 +692,32 @@ bug was reachable by any documented "preferred/alternate calling pattern" the wa
 Targets/kinesis StreamARN were in the same issue's other finds -- both are plain silent-failure
 bugs (a swallowed error code, a stub ignoring real state) that only a typed client's decode step
 could surface.
+
+## gopherstack-o7gx follow-up (2026-08-22): default error path emitted InternalError instead of the modeled fault
+
+`handler.go`'s `handleBackendError` (default branch) and `writeXML`
+(marshal-error branch) both wrote code `"InternalError"` for any
+unclassified/unexpected 500. `s3control@v1.73.4` `types/errors.go:114-136`
+models `InternalServiceException` (`ErrorFault: FaultServer`) as the
+service's 5xx fault. It is wired into only 8 of s3control's 97 operation
+error switches in `deserializers.go` -- no single code is dominant for this
+service; the other ~89 operations model no 5xx exception of their own at
+all, so any code chosen for the default branch falls through to the same
+`smithy.GenericAPIError` for them regardless. `InternalServiceException` is
+still the correct fix: it is s3control's own real modeled fault (not
+borrowed from another service, unlike the servicediscovery/xray follow-ups
+in this same pass), and using it strictly improves the 8 operations that do
+model it while regressing none.
+
+Fixed both sites to `"InternalServiceException"`. Both of
+`handleBackendError`'s and `writeXML`'s default branches are reachable only
+when a backend error isn't classified as NotFound/InvalidParameter/
+AlreadyExists (or, for `writeXML`, only on an `xml.Marshal` failure); no
+currently-wired dispatch path leaves an error unclassified this way, so
+there is no legitimately-constructed real SDK client request that reaches
+either branch today. `TestHandleBackendError_DefaultBranchEmitsInternalServiceException`
+(`handler_internal_error_test.go`, new, white-box `package s3control`)
+drives `handleBackendError` directly with a synthetic unmatched error and
+asserts the XML response's `<Error><Code>` is `InternalServiceException`;
+confirmed it fails pre-fix with the old `"InternalError"` code
+(hand-reverted, byte-identical restore after).

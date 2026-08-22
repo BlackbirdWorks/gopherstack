@@ -364,7 +364,7 @@ func handleBackendError(c *echo.Context, err error) error {
 	case errors.Is(err, awserr.ErrAlreadyExists):
 		return writeXMLErrorCode(c, http.StatusConflict, code, code)
 	default:
-		return writeXMLErrorCode(c, http.StatusInternalServerError, "InternalError", code)
+		return writeXMLErrorCode(c, http.StatusInternalServerError, "InternalServiceException", code)
 	}
 }
 
@@ -399,7 +399,7 @@ func decodeXML(c *echo.Context, v any) error {
 func writeXML(c *echo.Context, v any) error {
 	data, err := xml.Marshal(v)
 	if err != nil {
-		return writeXMLErrorCode(c, http.StatusInternalServerError, "InternalError", "marshal error")
+		return writeXMLErrorCode(c, http.StatusInternalServerError, "InternalServiceException", "marshal error")
 	}
 
 	return c.Blob(http.StatusOK, "application/xml", append([]byte(xml.Header), data...))

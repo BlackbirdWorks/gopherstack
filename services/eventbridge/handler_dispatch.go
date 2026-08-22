@@ -475,7 +475,7 @@ func (h *Handler) handleError(
 		errType = "UnknownOperationException"
 		statusCode = http.StatusBadRequest
 	default:
-		errType = "InternalServerError"
+		errType = "InternalException"
 		statusCode = http.StatusInternalServerError
 	}
 

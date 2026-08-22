@@ -114,3 +114,26 @@ so the next auditor doesn't re-flag them.
   supplied at creation (wrong — AWS's `CreateDatabaseRequest` accepts `KmsKeyId` directly,
   so a fresh database's `CreationTime` and `LastUpdatedTime` should be equal regardless).
   Fixed by threading `kmsKeyID` into `InMemoryBackend.CreateDatabase` directly.
+
+## gopherstack-o7gx follow-up (2026-08-22): default error path emitted InternalServerError instead of the modeled fault
+
+`handler.go`'s `handleError` default branch wrote `keyTypeField:
+"InternalServerError"` for any unclassified 500. `timestreamwrite@v1.38.4`
+`types/errors.go:66-89` models `InternalServerException` (`ErrorFault:
+FaultServer`) as the service's dominant 5xx fault, wired into 16 of its 19
+operation error switches in `deserializers.go` (84%). `"InternalServerError"`
+appears nowhere in `types/errors.go`, so a real client's
+`errors.As(&types.InternalServerException{})` never matched.
+
+Fixed to `keyTypeField: "InternalServerException"`. The default branch is
+reachable only when a backend error isn't NotFound/Conflict/
+RejectedRecords, or classified via `ValidationException`'s `errInvalidRequest`/
+`errUnknownAction`/`json.SyntaxError`/`json.UnmarshalTypeError` checks; no
+currently-wired dispatch path leaves an error unclassified this way, so
+there is no legitimately-constructed real SDK client request that reaches
+this branch today. `TestHandleError_DefaultBranchEmitsInternalServerException`
+(`handler_internal_error_test.go`, new, white-box `package timestreamwrite`)
+drives `handleError` directly with a synthetic unmatched error and asserts
+the JSON response's `__type` is `InternalServerException`; confirmed it
+fails pre-fix with the old `"InternalServerError"` code (hand-reverted,
+byte-identical restore after).

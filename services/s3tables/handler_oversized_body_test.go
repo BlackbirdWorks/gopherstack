@@ -6,6 +6,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	s3tablessdk "github.com/aws/aws-sdk-go-v2/service/s3tables"
+	"github.com/aws/aws-sdk-go-v2/service/s3tables/types"
 	smithy "github.com/aws/smithy-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -22,8 +23,9 @@ import (
 // text/plain body -- the restjson1 error decoder (aws-sdk-go-v2@v1.43.4
 // aws/protocol/restjson.GetErrorInfo) cannot parse plain text, so the client
 // saw smithy.GenericAPIError{Code:"UnknownError"} instead of the typed
-// InternalError handleError's default branch already produces for every
-// unmatched backend error (gopherstack-o7gx).
+// InternalServerErrorException handleError's default branch produces for
+// every unmatched backend error (s3tables@v1.18.4 types/errors.go:133 is
+// the only modeled 5xx fault for this service; gopherstack-o7gx).
 func TestHandler_OversizedBodySurfacesInternalError(t *testing.T) {
 	t.Parallel()
 
@@ -39,6 +41,10 @@ func TestHandler_OversizedBodySurfacesInternalError(t *testing.T) {
 
 	var apiErr smithy.APIError
 	require.ErrorAs(t, err, &apiErr, "SDK must surface a typed API error, not an opaque one")
-	assert.Equal(t, "InternalError", apiErr.ErrorCode())
+	assert.Equal(t, "InternalServerErrorException", apiErr.ErrorCode())
 	assert.NotEqual(t, "UnknownError", apiErr.ErrorCode())
+
+	var ise *types.InternalServerErrorException
+	require.ErrorAs(t, err, &ise, "client must map this to the modeled InternalServerErrorException type")
+	assert.Equal(t, smithy.FaultServer, ise.ErrorFault())
 }

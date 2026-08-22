@@ -566,3 +566,27 @@ confirming the symptom; restored and `md5sum`-verified byte-identical.
 
 **Gates:** `go build`, `go vet` (default/e2e/integration), `gofmt -l` (clean), `go test -race`
 (pass), `golangci-lint run` (0 issues).
+
+## gopherstack-o7gx follow-up (2026-08-22): default error path emitted InternalServerError instead of the modeled fault
+
+`handler.go`'s `classifyError` default branch returned code
+`"InternalServerError"` for any unclassified 500. `ecr@v1.60.4`
+`types/errors.go:912-935` models `ServerException` (`ErrorFault:
+FaultServer`, doc comment: "These errors are usually caused by a
+server-side issue") as the service's 5xx fault, wired into all 58 of 58
+operation error switches in `deserializers.go` -- universal.
+`"InternalServerError"` appears nowhere in `types/errors.go`, so a real
+client's `errors.As(&types.ServerException{})` never matched.
+
+Fixed to `"ServerException"`. The default branch is reachable only when a
+backend error isn't one of the many enumerated sentinel/not-found groups,
+`errUnknownAction`, or a JSON syntax/type error (mapped here to
+`InvalidParameterException`); no currently-wired dispatch path leaves an
+error unclassified this way, so there is no legitimately-constructed real
+SDK client request that reaches this branch today.
+`TestClassifyError_DefaultBranchEmitsServerException`
+(`handler_internal_error_test.go`, new, white-box `package ecr`) drives
+`classifyError` directly with a synthetic unmatched error and asserts it
+returns `(http.StatusInternalServerError, "ServerException")`; confirmed it
+fails pre-fix with the old `"InternalServerError"` code (hand-reverted,
+byte-identical restore after).

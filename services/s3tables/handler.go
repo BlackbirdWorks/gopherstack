@@ -501,7 +501,7 @@ func (h *Handler) routeTableConfigOps(sub, method string) (string, dispatchFunc)
 
 func (h *Handler) handleError(c *echo.Context, err error) error {
 	status := http.StatusInternalServerError
-	errType := "InternalError"
+	errType := "InternalServerErrorException"
 	msg := err.Error()
 
 	switch {

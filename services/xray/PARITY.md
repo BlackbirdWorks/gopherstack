@@ -197,3 +197,27 @@ whose `FilterExpression` field alone exceeds
 (`handler_oversized_body_test.go`) asserts `apiErr.ErrorCode() ==
 "InternalServiceError"`; confirmed it fails pre-fix with
 `*json.SyntaxError` (hand-reverted, byte-identical restore after).
+
+## gopherstack-o7gx follow-up (2026-08-22): default error path fixed to InternalFailure
+
+The NOTE above flagged `"InternalServiceError"` as unmatched in
+`xray@v1.39.4`'s `types/errors.go`. Confirmed: `xray@v1.39.4` models zero
+5xx/internal-fault exceptions at all (its 10 modeled types --
+`InvalidPolicyRevisionIdException`, `InvalidRequestException`,
+`LockoutPreventionException`, `MalformedPolicyDocumentException`,
+`PolicyCountLimitExceededException`, `PolicySizeLimitExceededException`,
+`ResourceNotFoundException`, `RuleLimitExceededException`,
+`ThrottledException`, `TooManyTagsException` -- are all 4xx client faults).
+No replacement code maps to a modeled type here either way, so per the
+mediapackage/sagemaker precedent (prefer a generic AWS-wide code over
+reusing another service's specific modeled exception name), fixed
+`handler.go`'s `handleError` default to `errType = "InternalFailure"` --
+the same generic fallback already used by 7+ other gopherstack services
+with no modeled internal fault. `"InternalServiceError"` was a real AWS
+code, just not xray's (it's `secretsmanager`/`transfer`'s modeled type).
+
+`TestHandler_OversizedBodySurfacesInternalFailure` (renamed from
+`...InternalServiceError`) now asserts `apiErr.ErrorCode() ==
+"InternalFailure"`; confirmed it fails pre-fix with the old
+`"InternalServiceError"` code (hand-reverted, byte-identical restore
+after).
