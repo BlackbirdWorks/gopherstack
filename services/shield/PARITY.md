@@ -71,6 +71,36 @@ leaks: {status: clean, note: "no goroutines/janitors in this service; all state 
 
 ## Notes
 
+- 2026-08-22, gopherstack-r80d batch 30 (required-output-member audit):
+  shield (6 required output fields / 36 ops, 5 ops-with-required per a fresh
+  `cmd/requiredoutputfields` run, cross-checked against an independent
+  brace-depth awk walk of `shield@v1.37.4`'s `api_op_*.go` files -- both
+  agreed exactly at 6). Read all 5 flagged ops end to end against their
+  handlers: `DescribeAttackStatistics` (`DataItems`, `TimeRange`),
+  `DescribeProtectionGroup` (`ProtectionGroup`), `GetSubscriptionState`
+  (`SubscriptionState`), `ListProtectionGroups` (`ProtectionGroups`),
+  `ListResourcesInProtectionGroup` (`ResourceArns`). All 5 handlers build
+  their response as a `map[string]any`/`json.Marshal` literal
+  (`handler_attacks.go`, `handler_protection_groups.go`,
+  `handler_subscription.go`), so the protocol question this campaign asks
+  per service comes back the same way as ssoadmin/mediatailor this batch:
+  the tag-rule doesn't apply, every required key is written unconditionally.
+  Followed two wrapped types below the flat scan: `TimeRange`
+  (types.go:644-653) has zero required members of its own (confirmed against
+  the SDK type directly); `AttackStatisticsDataItem` (types.go:106-119) has a
+  required `AttackCount` one level below `DataItems` -- gopherstack's own
+  `AttackStatisticsItem` (models.go:169-172) tags it `json:"AttackCount"`
+  with no `omitempty`, and `DescribeAttackStatistics` (attacks.go:214-266)
+  already guarantees a non-empty `DataItems` slice (seeding one
+  `{AttackCount: 0}` item when no attacks exist in the trailing year), so the
+  same "required-but-inapplicable means present-and-empty, not absent"
+  convention this campaign established elsewhere is already correctly
+  applied here. Also followed `ProtectionGroup`'s own 4 required members
+  (types.go:374-424, `Aggregation`/`Members`/`Pattern`/`ProtectionGroupId`) --
+  already documented above in this same Notes section's
+  `types.ProtectionGroup` struct citation -- `protectionGroupToMap`
+  (handler_protection_groups.go:220-236) writes all 4 unconditionally.
+  Result: 0 bugs. No code changes.
 - Protocol: awsjson1.1, single POST endpoint, `X-Amz-Target: AWSShield_20160616.<Op>`.
   Route matcher checked against the real SDK's `awsAwsjson11_serializeOp*` files -- target
   prefix is exactly `AWSShield_20160616.` (verified via `serializers.go`

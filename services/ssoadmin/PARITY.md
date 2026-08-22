@@ -99,6 +99,51 @@ deferred: []
 leaks: {status: clean, note: "no new goroutines/janitors introduced this sweep; all fixes are pure request-parsing/response-shape/backend-field changes inside the existing coarse-lock methods. identityStoreArn() helper reads b.instances while b.mu is already held by the caller (CreateApplication/AddApplicationInternal) -- safe because store.Table.Get has no internal locking (backend-level coarse lock only, confirmed in pkgs/store/table.go), consistent with every other Table access pattern in this backend."}
 ---
 
+## Notes (2026-08-22, gopherstack-r80d batch 30 -- required-output-member audit)
+
+ssoadmin (6 required output fields / 79 ops, 6 ops-with-required per a fresh
+`cmd/requiredoutputfields` run, cross-checked against an independent
+brace-depth awk walk of `ssoadmin@v1.43.1`'s `api_op_*.go` files -- both
+agreed exactly at 6). Read all 6 flagged ops end to end against their
+handlers: `DescribeApplicationProvider` (`ApplicationProviderArn`),
+`GetApplicationAccessScope` (`Scope`),
+`GetApplicationAssignmentConfiguration` (`AssignmentRequired`),
+`GetApplicationGrant` (`Grant`), `ListApplicationAccessScopes` (`Scopes`),
+`ListApplicationGrants` (`Grants`).
+
+**Protocol question asked and answered no:** every one of these 6 handlers
+builds its response as a `map[string]any` literal
+(`handler_application_access_scopes.go`, `handler_application_grants.go`,
+`handler_applications.go`, `handler_application_assignments.go`), not a
+tagged struct marshaled by `encoding/json`/`encoding/xml` -- so the
+`omitempty`-on-a-required-field tag-rule this campaign is built on does not
+apply here at all: a map-literal key is written unconditionally regardless
+of its value's zero-ness, so there is no tag to go stale. Every required
+key is present in every success-path literal (confirmed by reading each
+handler directly, not grepped).
+
+**Followed one wrapped type below the flat scan:** `ListApplicationAccessScopesOutput.Scopes`
+is `[]types.ScopeDetails` (ssoadmin@v1.43.1 types/types.go:821-832), whose
+own `Scope` member is separately required -- invisible to the flat op-level
+scan since the array field itself isn't required-flagged at the item
+level. gopherstack's own `ScopeDetails` (models.go:341) is a genuine tagged
+struct (`Scope string \`json:"Scope"\`` with no `omitempty`), correctly
+never omitting the key even for a zero-value scope. `GrantItem`'s `Grant`
+union member (types.go:412-455) is passed through as opaque
+`json.RawMessage` (never reconstructed), which is architecturally correct
+for a union type gopherstack cannot decode -- `PutApplicationGrant`
+defensively substitutes literal `"null"` for an empty body rather than
+storing a truly missing value, and any real client-side omission of the
+required `Grant` field on `PutApplicationGrant` would already be rejected
+by the real SDK's own input validator before reaching this backend (same
+disqualifying rule as batch 29's `PutScalingPolicy` gap), so this null-body
+edge case is unreachable via any real client and not a bug.
+
+**Result: 0 bugs.** All 6 ops confirmed already correct; no code changes.
+This service was already A-graded with multiple prior wire-shape sweeps
+(see `overall:` above); this pass adds nothing to that history except
+closing out this specific bug class by name.
+
 ## Notes (2026-08-07 pass, gopherstack-dbwi)
 
 ### ProvisioningStatus filter: provisioned-vs-edited-since-provisioned drift tracking

@@ -180,18 +180,32 @@ from the ranked table) as future batches clear more of it.
 | firehose | 8 | 12 (5 ops-with-required) | yes (3: `S3DestinationDescription.BufferingHints`/`.EncryptionConfiguration` never defaulted when a client omits either optional input field (the common case); `.BucketARN`/`.RoleARN` tagged `omitempty` despite the real client-side validator only null-checking them (a real client can send an explicit empty string); the real SDK's `S3BackupConfiguration`/`S3BackupDescription` fields are literally typed as the full `S3DestinationConfiguration`/`S3DestinationDescription` (types.go:1496,1575,2568,2621), but gopherstack's own narrower `S3BackupDescription` struct had no `EncryptionConfiguration` field at all -- unconditionally dropped on every backup-enabled destination, not merely when omitted -- see the batch-28 note below and services/firehose/PARITY.md) | gopherstack-r80d batch 28 |
 | autoscaling | 7 | 66 (5 ops-with-required) | yes (2: `Activity.Cause` (required, structurally absent -- no backing field at all, 8 construction sites) via `DescribeScalingActivities`; `LoadForecast.MetricSpecification` (required, structurally absent) via `GetPredictiveScalingForecast`, now wired from the referenced policy's own stored `PredictiveScalingConfiguration.MetricSpecifications` -- see the batch-29 note below and services/autoscaling/PARITY.md) | gopherstack-r80d batch 29 |
 | sqs | 7 | 23 (4 ops-with-required) | 0 (clean; `SendMessageBatch`/`DeleteMessageBatch`/`ChangeMessageVisibilityBatch`'s shared `jsonBatchSuccess`/`jsonBatchFailure` types and `ListDeadLetterSourceQueues.QueueUrls` all confirmed always-emitted non-nil/non-omitted on the real awsjson1.0 protocol path the pinned SDK client uses; one dead `omitempty` pair reviewed and ruled out (`jsonBatchSuccess.MessageID`/`.MD5OfMessageBody`, required only for `SendMessageBatch`, populated on every write path via `uuid.New()`/MD5-of-anything -- never reachably empty) -- see the batch-29 note below) | gopherstack-r80d batch 29 |
+| ssoadmin | 6 | 79 (6 ops-with-required) | 0 (clean; all 6 ops build responses as `map[string]any` literals, not tagged structs, so the omitempty tag-rule doesn't apply at all -- every required key written unconditionally; one wrapped type followed (`ScopeDetails.Scope`, required, one level below `ListApplicationAccessScopes`, already a genuine tagged struct with no omitempty) -- see the batch-30 note below and services/ssoadmin/PARITY.md) | gopherstack-r80d batch 30 |
+| mediatailor | 6 | 48 (4 ops-with-required) | 0 (clean; same map-literal shape as ssoadmin -- tag-rule doesn't apply; two wrapped types followed (`LogConfigurationForChannel`: zero required members; `types.Function`, reused verbatim by `ListFunctions`: both required members already threaded through) -- see the batch-30 note below and services/mediatailor/PARITY.md) | gopherstack-r80d batch 30 |
+| shield | 6 | 36 (5 ops-with-required) | 0 (clean; same map-literal shape again; two wrapped types followed (`TimeRange`: zero required members; `AttackStatisticsDataItem.AttackCount`, required, one level below `DescribeAttackStatistics.DataItems`, already tagged with no omitempty and the array itself guaranteed non-empty; `ProtectionGroup`'s 4 required members all written unconditionally by `protectionGroupToMap`) -- see the batch-30 note below and services/shield/PARITY.md) | gopherstack-r80d batch 30 |
 
-58 services settled, 2603 required output fields read end to end (the running
+61 services settled, 2621 required output fields read end to end (the running
 total counts each settled service's flat per-op `cmd/requiredoutputfields`
 number, as established by every prior batch -- glue's own real audited
 surface was substantially larger once its ~56 gopherstack-modeled domain
-structs were cross-checked, see the batch-15 note below). Batch 29
+structs were cross-checked, see the batch-15 note below). Batch 30
+(ssoadmin + mediatailor + shield, tied at 6 each, taken by op count out of a
+six-way tie -- see below) added 0 counted bugs; all three came back clean,
+each because its handlers build responses as `map[string]any` literals
+rather than tagged structs, so the omitempty-tag-rule this campaign is built
+on doesn't apply -- see the batch-30 note below for detail. The prior
+batch-29 note's "five-way tie at 6" was a miscount: a fresh
+`cmd/requiredoutputfields` run lists exactly **six** names at 6 fields each
+(`kinesisanalyticsv2`, `mediastore`, `mediatailor`, `shield`, `ssoadmin`,
+`translate`) -- six items, not five, reconciled this batch. Of those,
+`kinesisanalyticsv2`/`mediastore` remain open (each has a same-named-directory
+sibling module, `kinesisanalytics`/`mediastoredata`, already settled
+separately -- not to be confused when a future batch picks them up), as does
+`translate` (fewest total ops of the six, 19, so lowest priority by the
+"most ops" tiebreak this batch used). Batch 29
 (autoscaling + sqs, tied at 7 each) added 2 more counted bugs, both in
 autoscaling (`Activity.Cause`, `LoadForecast.MetricSpecification`; sqs came
-back clean) -- see the batch-29 note below for detail. A fresh
-`cmd/requiredoutputfields` run after settling both shows a 5-way tie at 6
-fields each (`kinesisanalyticsv2`, `mediastore`, `mediatailor`, `shield`,
-`ssoadmin`, `translate`) as the next candidates after sagemaker. Batch 27
+back clean) -- see the batch-29 note below for detail. Batch 27
 (cognitoidentity + kafka, tied at 9 each) added 2 more counted bugs, both in
 kafka's Configuration/ConfigurationRevision List-op item shapes
 (cognitoidentity came back clean) -- see the batch-27 note below for detail.
@@ -2555,3 +2569,111 @@ Did not attempt a third service this batch. Full detail, SDK file:line
 citations, and hand-revert proof are in
 `services/autoscaling/PARITY.md`'s 2026-08-21 entries; sqs has no new
 PARITY.md entry since no code changed.
+
+### ssoadmin + mediatailor + shield (batch 30): 0 bugs, all clean -- and why
+
+**Instrument validated two independent ways** before picking candidates: the
+existing `cmd/requiredoutputfields` (char-level brace-depth walk) and a
+from-scratch independent awk brace-depth walk over each pinned SDK's
+`api_op_*.go` files. Both agreed exactly: `ssoadmin` 6/6, `mediatailor` 6/6,
+`shield` 6/6. A raw `grep -c "This member is required."` per module's
+`api_op_*.go` files ran far higher for all three (157/83/37) as expected --
+it counts Input-struct occurrences too, per this file's own standing note.
+
+**The five-versus-six discrepancy, resolved:** batch 29's closing note said
+"a five-way tie at 6 fields each" while naming six services
+(`kinesisanalyticsv2`, `mediastore`, `mediatailor`, `shield`, `ssoadmin`,
+`translate`). A fresh `cmd/requiredoutputfields` run lists exactly six
+entries at count 6, confirmed independently by the awk walk above -- **it is
+a six-way tie; the prior batch's "five" was a plain miscount**, not evidence
+of a seventh or excluded entry.
+
+**Three taken by op count, not field count, per this batch's brief:**
+ranked by total ops (the ledger's own stated tiebreak, since fields-per-service
+is a weak proxy for where bugs hide): `ssoadmin` 79, `mediatailor` 48,
+`shield` 36, `kinesisanalyticsv2` 33, `mediastore` 21, `translate` 19. Took
+the top three. Left `kinesisanalyticsv2`/`mediastore` open for a future
+batch to resolve their sibling-module ambiguity (`kinesisanalytics`,
+`mediastoredata`, both already separately settled) explicitly before
+auditing; left `translate` open as the lowest-op remainder.
+
+**Module resolution, confirmed via go.mod, not inferred from directory
+names:** none of the three taken this batch appear in `cmd/requiredoutputfields`'s
+`dirModuleOverride` table, and none have a same-directory/different-module
+ambiguity the way `kinesisanalyticsv2`/`mediastore` do -- `services/ssoadmin`
+-> `aws-sdk-go-v2/service/ssoadmin@v1.43.1`, `services/mediatailor` ->
+`aws-sdk-go-v2/service/mediatailor@v1.63.4`, `services/shield` ->
+`aws-sdk-go-v2/service/shield@v1.37.4`, all directory-name-equals-module-name,
+confirmed by grepping go.mod directly for each.
+
+**The protocol question, asked and answered the same way for all three:**
+all three are JSON-protocol services (`ssoadmin`: awsjson1.1 confirmed by
+existing PARITY.md note; `mediatailor`/`shield`: restjson1/awsjson1.1
+respectively per their existing PARITY.md protocol notes), but **the
+omitempty tag-rule this campaign is built on does not apply to any of the 15
+flagged ops across all three services** -- every single one builds its
+response as a `map[string]any` literal (`c.JSON`/`json.Marshal` directly on
+a map, not a tagged struct passed to `encoding/json`), so there is no struct
+tag to go stale in the first place. A map-literal key, once written, is
+present regardless of its value's zero-ness; the bug class this campaign
+hunts (a tag silently dropping a reachable-zero required field) cannot occur
+syntactically here. This is the inverse of autoscaling's batch-29 answer
+("XML tag rules apply, confirmed") and codecommit's batch-9 answer ("no
+nested required fields exist") -- a third distinct answer to the same
+question, and worth recording as its own class: **map-literal response
+construction structurally forecloses this entire bug class**, though it
+does NOT foreclose the sibling bug class (a required key never written at
+all on some code path) -- which is why every op was still read end to end
+rather than waved through on the strength of the shape alone.
+
+**Wrapped types followed below the flat scan, all clean:**
+- ssoadmin: `ListApplicationAccessScopesOutput.Scopes` is `[]types.ScopeDetails`
+  (ssoadmin@v1.43.1 types/types.go:821-832), whose own `Scope` member is
+  separately required. gopherstack's `ScopeDetails` (models.go:341) IS a
+  genuine tagged struct one level in (`Scope string \`json:"Scope"\`, no
+  omitempty) -- correctly never omits the key. `GrantItem`'s `Grant` union
+  (types.go:412-455) is passed through as opaque `json.RawMessage`,
+  architecturally correct for an undecoded union; `PutApplicationGrant`
+  substitutes literal `"null"` for an empty body rather than a missing key,
+  and any real client-side omission of the required `Grant` input would
+  already be rejected by the real SDK's own validator before reaching this
+  backend (same disqualifying ground as batch 29's `PutScalingPolicy` gap).
+- mediatailor: `DescribeChannelOutput.LogConfiguration`
+  (`*types.LogConfigurationForChannel`, types.go:943-949) declares zero
+  required members of its own. `types.Function` (types.go:630-656, the
+  `GetFunctionOutput`/`PutFunctionOutput` shape) is reused verbatim by
+  `ListFunctionsOutput.Items` -- `handleListFunctions` already threads both
+  `FunctionId`/`FunctionType` through `toFunctionOutput` for every list item,
+  so the nested-domain-struct undercount class this campaign has repeatedly
+  found elsewhere does not reproduce here.
+- shield: `TimeRange` (types.go:644-653) declares zero required members
+  (`FromInclusive`/`ToExclusive` are both optional). `AttackStatisticsDataItem`
+  (types.go:106-119) has a required `AttackCount` one level below
+  `DescribeAttackStatisticsOutput.DataItems` -- gopherstack's own
+  `AttackStatisticsItem` (models.go:169-172) tags it with no `omitempty`, and
+  `DescribeAttackStatistics` (attacks.go:214-266) already guarantees a
+  non-empty `DataItems` slice (seeding one `{AttackCount: 0}` item when no
+  attacks exist), correctly applying this campaign's own
+  "required-but-inapplicable means present-and-empty, not absent"
+  convention. `ProtectionGroup`'s 4 required members (types.go:374-424,
+  `Aggregation`/`Members`/`Pattern`/`ProtectionGroupId`) are all written
+  unconditionally by `protectionGroupToMap` (handler_protection_groups.go:220-236).
+
+**Result: 0 bugs across all three, 18 required fields (6+6+6) / 15
+ops-with-required (6+4+5) read end to end, no code changes.** All three
+services were already A-graded with extensive prior wire-shape audit
+history; this batch closes out this specific bug class by name for each,
+same as batch 22/23/24's clean results. Gates (build/vet/gofmt/race-test/
+lint) green for all three -- no source touched, so no lint/build delta to
+report beyond confirming the pre-existing green state; repo-wide `go build
+./...`, `go vet ./...`, `go vet -tags e2e ./...`, `go vet -tags integration
+./...` all clean (only `services/sagemaker/*` and `services/apigateway/*`
+dirty throughout, from concurrent agents, confirmed untouched by this
+batch). `services/_REQUIRED_OUTPUT_CANDIDATES.md` updated: all three moved
+into "Already examined" (settled-services count now 61, 2621 required
+output fields read end to end); `kinesisanalyticsv2`/`mediastore`/
+`translate` (the six-way tie's remainder) are now the largest remaining
+candidates after sagemaker. Full detail and SDK file:line citations are in
+each service's own `PARITY.md` 2026-08-22 Notes entry; none needed a
+`last_audit_commit` bump since no code changed, matching the standing
+convention established by prior clean batches (22/23/24).

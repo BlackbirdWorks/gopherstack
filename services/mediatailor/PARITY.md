@@ -95,6 +95,37 @@ leaks: {status: clean, note: "no goroutines, timers, or janitors in this service
 
 ## Notes
 
+### 2026-08-22, gopherstack-r80d batch 30 -- required-output-member audit
+
+mediatailor (6 required output fields / 48 ops, 4 ops-with-required per a
+fresh `cmd/requiredoutputfields` run, cross-checked against an independent
+brace-depth awk walk of `mediatailor@v1.63.4`'s `api_op_*.go` files -- both
+agreed exactly at 6). Read all 4 flagged ops end to end against their
+handlers: `ConfigureLogsForPlaybackConfiguration` (`PercentEnabled`),
+`DescribeChannel` (`LogConfiguration`), `GetFunction`/`PutFunction`
+(`FunctionId`, `FunctionType`).
+
+**Protocol question asked and answered no:** all 4 handlers
+(`handler_logs.go`, `handler_channels.go`, `handler_functions.go`) build
+their response as a `map[string]any` literal via `c.JSON(...)`, not a
+tagged struct -- so the `omitempty`-tag-rule doesn't apply; every required
+key is written unconditionally on every success path, confirmed by direct
+read, not grepped.
+
+**Followed two wrapped types below the flat scan:**
+`DescribeChannelOutput.LogConfiguration` (`*types.LogConfigurationForChannel`,
+types/types.go:943-949) has zero required members of its own (`LogTypes` is
+optional) -- confirmed via the SDK type directly, not assumed from the
+wrapper shape. `GetFunctionOutput`'s underlying domain type is reused
+verbatim by `ListFunctionsOutput.Items` (`types.Function`, types.go:630-656,
+same `FunctionId`/`FunctionType` required pair) -- `handleListFunctions`
+already threads both through `toFunctionOutput` for every list item, so the
+nested-domain-struct undercount class this campaign has repeatedly found
+elsewhere does not reproduce here.
+
+**Result: 0 bugs.** All 4 ops (plus the 2 wrapped types) confirmed already
+correct; no code changes.
+
 **2026-08-13 (gopherstack-jqh2 pass 3):** re-extracted all 48 ops' real
 method+path directly from `mediatailor@v1.63.4` serializers.go and drove
 them through `ExtractOperation` via the new
