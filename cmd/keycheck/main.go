@@ -217,6 +217,68 @@
 // changes them; only 1 of its 96 SDK ops (a REST-path-keyed classic-domain
 // op) was actually fixed by this change.
 //
+// ENUM/TYPE-STRING DISPATCH TABLE MISREAD AS OP DISPATCH, found sweeping the
+// 12-service PARTIAL tier for gopherstack-85e3, FIXED: a per-item
+// classification switch or map keyed by an enum string that happens to look
+// like an op name (apigateway's IntegrationType, glacier's job-type Action,
+// lightsail's ResourceType, swf's DecisionType) got recorded as a real
+// op-to-handler binding, then reported as a false "no deserializeOpDocument"
+// ERROR once it failed SDK resolution -- 90%+ of the noise across those 12
+// services. filterEnumGroups groups every candidate op by the single switch
+// statement or map/slice literal that bound it (ps.opGroup) and reclassifies
+// the WHOLE group as FILTERED, not unresolved, only when it has 2+ candidates
+// and EVERY one failed resolution: a real dispatch table drawn from the same
+// SDK/prefix almost always resolves at least one member, so batting 0-for-N
+// is the corroborating signal, not a name pattern. A lone failing candidate
+// (N=1) has no sibling to corroborate it and is never filtered -- that stays
+// ordinary KNOWN BLIND SPOT #7 territory. Filtered ops are still printed in
+// full (FILTERED: ...), never silently dropped.
+//
+// LAMBDA-TRIGGER-ENVELOPE POLLUTION, a further refinement of blind spot #2
+// found sweeping cognitoidp for gopherstack-ck9f, FIXED: cognitoidp's auth
+// ops (SignUp, InitiateAuth, RespondToAuthChallenge, ...) each reach a shared
+// Lambda-trigger-invocation helper whose own envelope map (version,
+// triggerSource, userName, callerContext, request, response, ...) and each
+// caller's own request/response maps got attributed wholesale to the op
+// being checked -- ~85% of cognitoidp's 304 pre-triage mismatches, plus a
+// coincidental CASE-MISMATCH on lowercase envelope keys (userName,
+// challengeName, session) that collide with the op's own correctly-cased
+// struct fields written by an unrelated code path. isBoundaryCall recognizes
+// two structural shapes, neither a name pattern: (a) a call that crosses an
+// injected-dependency boundary -- a method invoked on a struct field whose
+// declared type is a package-local interface (cognitoidp's
+// b.lambdaInvoker.LambdaTriggerInvoker), marked transitively up the call
+// graph (computeCrossesBoundary); (b) a call to a same-package function whose
+// signature converts a map into a slice of some OTHER named type
+// (computeMapConversionFuncs, cognitoidp's
+// sortedAttributeList(map[string]string) []attributeType -- map KEYS become
+// list-item Name VALUES, never JSON keys). A composite literal or variable
+// passed to either is excluded from writtenKeys UNLESS it is independently
+// part of what the enclosing function itself returns (returnedRoots), so a
+// value that legitimately crosses the boundary AND is handed back as real
+// output is never suppressed. computeBoundaryProducerFuncs extends the same
+// idea one hop further for a helper (cognitoidp's userAttrsWithSub) that
+// exists solely to build a map every one of its callers feeds into a
+// conversion func: its OWN return-bound writes are excluded too, at their
+// construction site.
+//
+// DETERMINISTIC-VS-GENUINE AMBIGUITY, a refinement of blind spot #6 found
+// sweeping cognitoidp for gopherstack-ck9f, FIXED: cognitoidp keeps both a
+// legacy handler and a hardened "Full"/"Accurate" variant for many ops, bound
+// in separate OpsA/OpsB/OpsC family maps that dispatchTable() merges via
+// SEQUENTIAL maps.Copy calls -- Go's maps.Copy overwrites on collision, so
+// whichever family is copied LAST deterministically wins, unlike sqs's real
+// ambiguity (two tables queried independently, never merged). Before this fix
+// all 27 such ops were pulled into AmbiguousOps/ERROR and masked from
+// checking entirely. resolveDeterministicOverrides finds, for a conflicting
+// op, whether every candidate handler's own enclosing function
+// (handlerSourceFunc) appears in the SAME maps.Copy chain to the SAME
+// destination (findCopyChains) -- and only then resolves to the
+// textually-last one, printing a DETERMINISTIC OVERRIDE line naming both
+// sides so the choice stays independently verifiable against the assembler's
+// own call order. An op whose conflicting handlers are never merged into a
+// shared destination (sqs's shape) is left exactly as ambiguous as before.
+//
 // Usage:
 //
 //	go run ./cmd/keycheck -sdk <path to deserializers.go> -prefix awsAwsjson11_ -svc <service dir> [-op OpName]
@@ -550,19 +612,55 @@ type pkgScan struct {
 	mapAnyVars    map[string]bool
 	opToHandler   map[string]string
 	ambiguousOps  map[string]map[string]bool
+
+	// opGroup records, for each accepted (non-conflicting) op binding, an
+	// identifier for the single switch statement or map/slice literal that
+	// bound it -- see filterEnumGroups.
+	opGroup map[string]string
+
+	// interfaceTypes/interfaceFields/mapConversionFuncs/crossesBoundary and
+	// handlerSourceFunc/copyChains back the two writtenKeys narrowings (see
+	// isBoundaryCall, computeFuncBoundaryInfo) and the deterministic-override
+	// resolution (see resolveDeterministicOverrides).
+	interfaceTypes     map[string]bool
+	interfaceFields    map[string]bool
+	mapConversionFuncs map[string]bool
+	crossesBoundary    map[string]bool
+	handlerSourceFunc  map[string]string
+	copyChains         map[string][]string
+	boundaryInfoCache  map[string]funcBoundaryInfo
+
+	// boundaryProducers holds every same-package, map-returning function
+	// whose result is used, at EVERY call site in the package, only as a
+	// boundary-call argument (isBoundaryCall) -- cognitoidp's
+	// userAttrsWithSub(u) map[string]string, called solely to feed
+	// sortedAttributeList. A producer's own return-bound map writes are then
+	// excluded at their construction site, not just where they're consumed.
+	boundaryProducers map[string]bool
+
+	deterministicOverrideNotes []string
 }
 
 func scanPackage(dir string) (*pkgScan, error) {
 	fset := token.NewFileSet()
 	ps := &pkgScan{
-		fset:          fset,
-		funcDecls:     map[string]*ast.FuncDecl{},
-		constVals:     map[string]string{},
-		funcTypeNames: map[string]bool{},
-		structTypes:   map[string]*ast.StructType{},
-		mapAnyVars:    map[string]bool{},
-		opToHandler:   map[string]string{},
-		ambiguousOps:  map[string]map[string]bool{},
+		fset:               fset,
+		funcDecls:          map[string]*ast.FuncDecl{},
+		constVals:          map[string]string{},
+		funcTypeNames:      map[string]bool{},
+		structTypes:        map[string]*ast.StructType{},
+		mapAnyVars:         map[string]bool{},
+		opToHandler:        map[string]string{},
+		ambiguousOps:       map[string]map[string]bool{},
+		opGroup:            map[string]string{},
+		interfaceTypes:     map[string]bool{},
+		interfaceFields:    map[string]bool{},
+		mapConversionFuncs: map[string]bool{},
+		crossesBoundary:    map[string]bool{},
+		handlerSourceFunc:  map[string]string{},
+		copyChains:         map[string][]string{},
+		boundaryInfoCache:  map[string]funcBoundaryInfo{},
+		boundaryProducers:  map[string]bool{},
 	}
 
 	entries, err := os.ReadDir(dir)
@@ -588,9 +686,17 @@ func scanPackage(dir string) (*pkgScan, error) {
 	for _, f := range files {
 		ps.findMapAnyVars(f)
 	}
+	ps.computeInterfaceFields()
+	ps.computeMapConversionFuncs()
+	ps.computeCrossesBoundary()
+	ps.boundaryProducers = ps.computeBoundaryProducerFuncs()
 	for _, f := range files {
 		ps.findOpDispatch(f)
 	}
+	for _, f := range files {
+		ps.findCopyChains(f)
+	}
+	ps.deterministicOverrideNotes = ps.resolveDeterministicOverrides()
 
 	return ps, nil
 }
@@ -604,6 +710,465 @@ func (ps *pkgScan) indexFile(f *ast.File) {
 			ps.indexConsts(d)
 			ps.indexFuncTypes(d)
 			ps.indexStructTypes(d)
+			ps.indexInterfaceTypes(d)
+		}
+	}
+}
+
+// indexInterfaceTypes records every package-level `type X interface{...}`
+// declaration, so computeInterfaceFields can recognize a struct field whose
+// declared type crosses an injected-dependency boundary (e.g. cognitoidp's
+// InMemoryBackend.lambdaInvoker LambdaTriggerInvoker) rather than being part
+// of the op's own wire response.
+func (ps *pkgScan) indexInterfaceTypes(d *ast.GenDecl) {
+	if d.Tok != token.TYPE {
+		return
+	}
+	for _, spec := range d.Specs {
+		ts, ok := spec.(*ast.TypeSpec)
+		if !ok {
+			continue
+		}
+		if _, isIface := ts.Type.(*ast.InterfaceType); isIface {
+			ps.interfaceTypes[ts.Name.Name] = true
+		}
+	}
+}
+
+// computeInterfaceFields records every struct field name (across every
+// package-level struct) whose declared type is a package-level interface.
+// Field names are tracked package-wide rather than per-struct: a call site
+// only has the field's SELECTOR name available syntactically (b.lambdaInvoker),
+// not its receiver's resolved type, so isBoundaryCall matches on name alone --
+// narrow because it requires BOTH a field of that exact name to exist AND its
+// declared type to resolve to a locally-declared interface.
+func (ps *pkgScan) computeInterfaceFields() {
+	for _, st := range ps.structTypes {
+		for _, field := range st.Fields.List {
+			id, ok := field.Type.(*ast.Ident)
+			if !ok || !ps.interfaceTypes[id.Name] {
+				continue
+			}
+			for _, name := range field.Names {
+				ps.interfaceFields[name.Name] = true
+			}
+		}
+	}
+}
+
+// computeMapConversionFuncs records every function taking a map[string]<T>
+// parameter and returning a slice of some OTHER (non-map) named type --
+// cognitoidp's sortedAttributeList(map[string]string) []attributeType shape,
+// which turns map KEYS into attribute-Name VALUES rather than JSON keys. This
+// is a direct signature match, not transitive: the map argument is excluded
+// at the exact call site, regardless of which function contains it.
+func (ps *pkgScan) computeMapConversionFuncs() {
+	for name, fd := range ps.funcDecls {
+		if fd.Type.Params == nil || fd.Type.Results == nil {
+			continue
+		}
+		hasMapParam := false
+		for _, p := range fd.Type.Params.List {
+			if _, ok := p.Type.(*ast.MapType); ok {
+				hasMapParam = true
+
+				break
+			}
+		}
+		if !hasMapParam {
+			continue
+		}
+		for _, r := range fd.Type.Results.List {
+			at, ok := r.Type.(*ast.ArrayType)
+			if !ok || at.Len != nil {
+				continue
+			}
+			if _, isMap := at.Elt.(*ast.MapType); isMap {
+				continue
+			}
+			ps.mapConversionFuncs[name] = true
+		}
+	}
+}
+
+// computeCrossesBoundary marks every function that, directly or transitively
+// through a same-package call, invokes a method on an interface-typed struct
+// field (computeInterfaceFields) -- cognitoidp's
+// b.lambdaInvoker.InvokeTrigger(...), the real Lambda-trigger invocation
+// point. A fixed-point pass over the package's own call graph propagates the
+// mark up through every caller, so a top-level op handler that merely calls
+// into the trigger machinery a few hops deep is still recognized.
+func (ps *pkgScan) computeCrossesBoundary() {
+	changed := true
+	for changed {
+		changed = false
+		for name, fd := range ps.funcDecls {
+			if ps.crossesBoundary[name] || fd.Body == nil {
+				continue
+			}
+			if ps.bodyCrossesBoundary(fd.Body) {
+				ps.crossesBoundary[name] = true
+				changed = true
+			}
+		}
+	}
+}
+
+func (ps *pkgScan) bodyCrossesBoundary(body *ast.BlockStmt) bool {
+	found := false
+	ast.Inspect(body, func(n ast.Node) bool {
+		if found {
+			return false
+		}
+		call, ok := n.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		sel, ok := call.Fun.(*ast.SelectorExpr)
+		if !ok {
+			return true
+		}
+		if recv, isSel := sel.X.(*ast.SelectorExpr); isSel && ps.interfaceFields[recv.Sel.Name] {
+			found = true
+
+			return false
+		}
+		if ps.crossesBoundary[sel.Sel.Name] {
+			found = true
+
+			return false
+		}
+
+		return true
+	})
+
+	return found
+}
+
+// isBoundaryCall reports whether call is either a direct interface-field
+// method invocation or a call to a same-package function already known to
+// cross that boundary (computeCrossesBoundary) or to convert a map's keys
+// into non-key data (computeMapConversionFuncs).
+func (ps *pkgScan) isBoundaryCall(call *ast.CallExpr) bool {
+	switch fn := call.Fun.(type) {
+	case *ast.SelectorExpr:
+		if recv, ok := fn.X.(*ast.SelectorExpr); ok && ps.interfaceFields[recv.Sel.Name] {
+			return true
+		}
+
+		return ps.crossesBoundary[fn.Sel.Name] || ps.mapConversionFuncs[fn.Sel.Name]
+	case *ast.Ident:
+		return ps.crossesBoundary[fn.Name] || ps.mapConversionFuncs[fn.Name]
+	default:
+		return false
+	}
+}
+
+// funcBoundaryInfo is the per-function result of computeFuncBoundaryInfo,
+// cached by function name since writtenKeys' BFS can revisit the same
+// function from multiple ops.
+type funcBoundaryInfo struct {
+	excludedVars map[string]bool
+	excludedLits map[*ast.CompositeLit]bool
+}
+
+func (ps *pkgScan) funcBoundaryInfo(fd *ast.FuncDecl) funcBoundaryInfo {
+	if info, ok := ps.boundaryInfoCache[fd.Name.Name]; ok {
+		return info
+	}
+	info := ps.computeFuncBoundaryInfo(fd)
+	ps.boundaryInfoCache[fd.Name.Name] = info
+
+	return info
+}
+
+// computeFuncBoundaryInfo finds every argument of a boundary call (isBoundaryCall)
+// within fd -- a locally-declared *ast.CompositeLit passed inline, or a local
+// variable passed by name -- and excludes it from writtenKeys UNLESS that same
+// value is independently part of what fd itself returns (collectReturnRoots):
+// a value that only ever flows INTO a Lambda-trigger invocation or an
+// attribute map->list conversion is input to that machinery, not the op's own
+// wire response, but a value fd also hands back untouched must never be
+// excluded just because it was ALSO sent somewhere else along the way.
+func (ps *pkgScan) computeFuncBoundaryInfo(fd *ast.FuncDecl) funcBoundaryInfo {
+	info := funcBoundaryInfo{excludedVars: map[string]bool{}, excludedLits: map[*ast.CompositeLit]bool{}}
+	if fd.Body == nil {
+		return info
+	}
+
+	returned := returnedRoots(fd)
+	ps.markBoundaryCallArgs(fd, returned, info)
+	ps.markBoundaryProducerReturns(fd, returned, info)
+	markExcludedVarLiterals(fd, info)
+
+	return info
+}
+
+// markBoundaryCallArgs marks every argument of a boundary call (isBoundaryCall)
+// within fd -- a locally-declared *ast.CompositeLit passed inline, or a local
+// variable passed by name -- for exclusion, UNLESS that same value is
+// independently part of what fd itself returns (returned): a value that only
+// ever flows INTO a Lambda-trigger invocation or an attribute map->list
+// conversion is input to that machinery, not the op's own wire response, but
+// a value fd also hands back untouched must never be excluded just because it
+// was ALSO sent somewhere else along the way.
+func (ps *pkgScan) markBoundaryCallArgs(fd *ast.FuncDecl, returned map[string]bool, info funcBoundaryInfo) {
+	ast.Inspect(fd.Body, func(n ast.Node) bool {
+		call, ok := n.(*ast.CallExpr)
+		if !ok || !ps.isBoundaryCall(call) {
+			return true
+		}
+		for _, arg := range call.Args {
+			switch a := arg.(type) {
+			case *ast.CompositeLit:
+				info.excludedLits[a] = true
+			case *ast.Ident:
+				if !returned[a.Name] {
+					info.excludedVars[a.Name] = true
+				}
+			}
+		}
+
+		return true
+	})
+}
+
+// markBoundaryProducerReturns handles a boundary-producer function
+// (computeBoundaryProducerFuncs), which exists solely to build the map its
+// OWN callers feed into a boundary call -- its return-bound variable(s) are
+// excluded here too, at the point they are actually written (e.g.
+// cognitoidp's userAttrsWithSub's attrs["sub"] = ...), not just where a
+// caller later consumes them.
+func (ps *pkgScan) markBoundaryProducerReturns(fd *ast.FuncDecl, returned map[string]bool, info funcBoundaryInfo) {
+	if !ps.boundaryProducers[fd.Name.Name] {
+		return
+	}
+	for root := range returned {
+		info.excludedVars[root] = true
+	}
+}
+
+// markExcludedVarLiterals extends an excluded variable's exclusion back to
+// the composite literal that defines it (`event := map[string]any{...}`), so
+// the envelope's own keys are excluded at their construction site too, not
+// just at the call site that consumes the variable.
+func markExcludedVarLiterals(fd *ast.FuncDecl, info funcBoundaryInfo) {
+	ast.Inspect(fd.Body, func(n ast.Node) bool {
+		as, ok := n.(*ast.AssignStmt)
+		if !ok || len(as.Lhs) != len(as.Rhs) {
+			return true
+		}
+		for i, lhs := range as.Lhs {
+			id, isIdent := lhs.(*ast.Ident)
+			if !isIdent || !info.excludedVars[id.Name] {
+				continue
+			}
+			if cl, isLit := as.Rhs[i].(*ast.CompositeLit); isLit {
+				info.excludedLits[cl] = true
+			}
+		}
+
+		return true
+	})
+}
+
+// computeBoundaryProducerFuncs finds every same-package function returning a
+// map type whose result is used, at EVERY call site in the package, only as
+// a boundary-call argument (directly inline, or via a variable that never
+// escapes to a return) -- cognitoidp's userAttrsWithSub(u) map[string]string,
+// called solely to feed sortedAttributeList(attrs). Computed once, before any
+// op is checked, using each caller's own freshly-computed (not cached)
+// boundary info, so this determination can never be contaminated by a
+// producer flag it is itself in the middle of deciding.
+func (ps *pkgScan) computeBoundaryProducerFuncs() map[string]bool {
+	callerOf, callSites := ps.findCallSites()
+
+	producers := map[string]bool{}
+	for name, fd := range ps.funcDecls {
+		if !returnsMapType(fd) || len(callSites[name]) == 0 {
+			continue
+		}
+		if ps.allCallsAreBoundaryOnly(callSites[name], callerOf) {
+			producers[name] = true
+		}
+	}
+
+	return producers
+}
+
+// findCallSites indexes every CallExpr in the package by its callee name and
+// its enclosing FuncDecl, so computeBoundaryProducerFuncs can inspect every
+// call site of a candidate producer function.
+func (ps *pkgScan) findCallSites() (map[*ast.CallExpr]*ast.FuncDecl, map[string][]*ast.CallExpr) {
+	callerOf := map[*ast.CallExpr]*ast.FuncDecl{}
+	callSites := map[string][]*ast.CallExpr{}
+	for _, fd := range ps.funcDecls {
+		if fd.Body == nil {
+			continue
+		}
+		ast.Inspect(fd.Body, func(n ast.Node) bool {
+			call, ok := n.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			name := calleeName(call.Fun)
+			if name == "" {
+				return true
+			}
+			callSites[name] = append(callSites[name], call)
+			callerOf[call] = fd
+
+			return true
+		})
+	}
+
+	return callerOf, callSites
+}
+
+func (ps *pkgScan) allCallsAreBoundaryOnly(calls []*ast.CallExpr, callerOf map[*ast.CallExpr]*ast.FuncDecl) bool {
+	for _, call := range calls {
+		if !ps.isCallResultBoundaryOnly(call, callerOf[call]) {
+			return false
+		}
+	}
+
+	return true
+}
+
+// isCallResultBoundaryOnly reports whether target's result, within callerFd,
+// is used only as a direct boundary-call argument or assigned to a local
+// variable that callerFd's own boundary info already proves never escapes to
+// a return.
+func (ps *pkgScan) isCallResultBoundaryOnly(target *ast.CallExpr, callerFd *ast.FuncDecl) bool {
+	if ps.isInlineBoundaryArg(target, callerFd) {
+		return true
+	}
+
+	assignedVar := assignedVarName(target, callerFd)
+	if assignedVar == "" {
+		return false
+	}
+
+	info := ps.computeFuncBoundaryInfo(callerFd)
+
+	return info.excludedVars[assignedVar]
+}
+
+// isInlineBoundaryArg reports whether target appears directly as an argument
+// of a boundary call within callerFd.
+func (ps *pkgScan) isInlineBoundaryArg(target *ast.CallExpr, callerFd *ast.FuncDecl) bool {
+	found := false
+	ast.Inspect(callerFd.Body, func(n ast.Node) bool {
+		call, ok := n.(*ast.CallExpr)
+		if !ok || !ps.isBoundaryCall(call) {
+			return true
+		}
+		for _, arg := range call.Args {
+			if arg == target {
+				found = true
+			}
+		}
+
+		return true
+	})
+
+	return found
+}
+
+// assignedVarName returns the name of the local variable target's result is
+// assigned to within callerFd, or "" if it is never assigned to a bare
+// identifier.
+func assignedVarName(target *ast.CallExpr, callerFd *ast.FuncDecl) string {
+	name := ""
+	ast.Inspect(callerFd.Body, func(n ast.Node) bool {
+		as, ok := n.(*ast.AssignStmt)
+		if !ok {
+			return true
+		}
+		for i, rhs := range as.Rhs {
+			if rhs != target || i >= len(as.Lhs) {
+				continue
+			}
+			if id, isIdent := as.Lhs[i].(*ast.Ident); isIdent {
+				name = id.Name
+			}
+		}
+
+		return true
+	})
+
+	return name
+}
+
+// returnsMapType reports whether fd declares at least one map-typed return
+// value.
+func returnsMapType(fd *ast.FuncDecl) bool {
+	if fd.Type.Results == nil {
+		return false
+	}
+	for _, r := range fd.Type.Results.List {
+		if _, ok := r.Type.(*ast.MapType); ok {
+			return true
+		}
+	}
+
+	return false
+}
+
+// rootIdent returns the base identifier of a (possibly wrapped) expression --
+// x for x, x.Field, x[i], &x, (x) -- so a value handed back via a struct
+// field or index assignment can still be traced to the variable that holds
+// it.
+func rootIdent(e ast.Expr) string {
+	switch v := e.(type) {
+	case *ast.Ident:
+		return v.Name
+	case *ast.SelectorExpr:
+		return rootIdent(v.X)
+	case *ast.IndexExpr:
+		return rootIdent(v.X)
+	case *ast.StarExpr:
+		return rootIdent(v.X)
+	case *ast.UnaryExpr:
+		return rootIdent(v.X)
+	case *ast.ParenExpr:
+		return rootIdent(v.X)
+	default:
+		return ""
+	}
+}
+
+// returnedRoots collects every root identifier reachable from fd's own return
+// statements, descending into a returned call's own arguments too (e.g.
+// `return c.JSON(200, resp)`) so a value handed to a real response-writing
+// call is not mistaken for one that only ever flows into a boundary call.
+func returnedRoots(fd *ast.FuncDecl) map[string]bool {
+	roots := map[string]bool{}
+	if fd.Body == nil {
+		return roots
+	}
+	ast.Inspect(fd.Body, func(n ast.Node) bool {
+		ret, ok := n.(*ast.ReturnStmt)
+		if !ok {
+			return true
+		}
+		for _, res := range ret.Results {
+			collectReturnRoots(res, roots)
+		}
+
+		return true
+	})
+
+	return roots
+}
+
+func collectReturnRoots(e ast.Expr, roots map[string]bool) {
+	if r := rootIdent(e); r != "" {
+		roots[r] = true
+	}
+	if call, ok := e.(*ast.CallExpr); ok {
+		for _, arg := range call.Args {
+			collectReturnRoots(arg, roots)
 		}
 	}
 }
@@ -734,21 +1299,67 @@ func (ps *pkgScan) recordMapAnyAssign(v *ast.AssignStmt) {
 // (apigateway's internal JSON-Patch-op appliers, unrelated to op dispatch).
 var handleNameRe = regexp.MustCompile(`^(handle|json)[A-Z]`)
 
+// findOpDispatch walks each top-level declaration individually (rather than
+// the whole file in one ast.Inspect) so every dispatch binding it finds can
+// be tagged with its ENCLOSING function name (empty for a package-level var)
+// -- handlerSourceFunc, used by resolveDeterministicOverrides to tell a real
+// maps.Copy-merged op family from an unrelated table that happens to share a
+// key.
 func (ps *pkgScan) findOpDispatch(f *ast.File) {
-	ast.Inspect(f, func(n ast.Node) bool {
+	for _, decl := range f.Decls {
+		switch d := decl.(type) {
+		case *ast.FuncDecl:
+			if d.Body != nil {
+				ps.findOpDispatchIn(d.Body, d.Name.Name)
+			}
+		case *ast.GenDecl:
+			if d.Tok != token.VAR {
+				continue
+			}
+			for _, spec := range d.Specs {
+				vs, ok := spec.(*ast.ValueSpec)
+				if !ok {
+					continue
+				}
+				for _, val := range vs.Values {
+					ps.findOpDispatchIn(val, "")
+				}
+			}
+		}
+	}
+}
+
+func (ps *pkgScan) findOpDispatchIn(n ast.Node, enclosingFunc string) {
+	ast.Inspect(n, func(n ast.Node) bool {
 		switch v := n.(type) {
-		case *ast.CaseClause:
-			ps.recordCaseDispatch(v)
+		case *ast.SwitchStmt:
+			ps.recordSwitchDispatch(v, enclosingFunc)
 		case *ast.CompositeLit:
-			ps.recordMapDispatch(v)
-			ps.recordSliceBindingDispatch(v)
+			ps.recordMapDispatch(v, enclosingFunc)
+			ps.recordSliceBindingDispatch(v, enclosingFunc)
 		}
 
 		return true
 	})
 }
 
-func (ps *pkgScan) recordCaseDispatch(cc *ast.CaseClause) {
+// recordSwitchDispatch groups every case clause of ONE switch statement under
+// a single group ID (see filterEnumGroups) -- glacier's `switch j.Action` and
+// apigateway's `switch integration.Type` each bind several candidate "ops"
+// from one switch, all of which turn out to be an enum/type-string table, not
+// op dispatch.
+func (ps *pkgScan) recordSwitchDispatch(sw *ast.SwitchStmt, enclosingFunc string) {
+	groupID := "switch@" + ps.fset.Position(sw.Pos()).String()
+	for _, stmt := range sw.Body.List {
+		cc, ok := stmt.(*ast.CaseClause)
+		if !ok {
+			continue
+		}
+		ps.recordCaseDispatch(cc, groupID, enclosingFunc)
+	}
+}
+
+func (ps *pkgScan) recordCaseDispatch(cc *ast.CaseClause, groupID, enclosingFunc string) {
 	var opNames []string
 	for _, expr := range cc.List {
 		if op, dyn := ps.resolveKey(expr); !dyn && op != "" {
@@ -763,8 +1374,9 @@ func (ps *pkgScan) recordCaseDispatch(cc *ast.CaseClause) {
 	if handler == "" {
 		return
 	}
+	ps.handlerSourceFunc[handler] = enclosingFunc
 	for _, op := range opNames {
-		ps.bindOp(op, handler)
+		ps.bindOp(op, handler, groupID)
 	}
 }
 
@@ -774,14 +1386,17 @@ func (ps *pkgScan) recordCaseDispatch(cc *ast.CaseClause) {
 // the same op string), neither silently overwrites the other by
 // file-processing order. Both names are recorded in ambiguousOps so runCheck
 // can refuse to guess and report the conflict instead of comparing the
-// wrong handler's keys against the SDK.
-func (ps *pkgScan) bindOp(op, handler string) {
+// wrong handler's keys against the SDK -- unless resolveDeterministicOverrides
+// later proves the conflict is a known, visible, deterministic one instead of
+// true ambiguity.
+func (ps *pkgScan) bindOp(op, handler, groupID string) {
 	if handler == "" {
 		return
 	}
 	existing, bound := ps.opToHandler[op]
 	if !bound {
 		ps.opToHandler[op] = handler
+		ps.opGroup[op] = groupID
 
 		return
 	}
@@ -834,8 +1449,9 @@ func (ps *pkgScan) findHandlerCall(stmts []ast.Stmt) string {
 // ssm's jsonOp(h.Backend.X)-wrapped and closure-wrapped backend calls. The
 // func-type gate keeps the loosened match from firing on some unrelated
 // map[string]<non-func> literal that happens to reference a local function.
-func (ps *pkgScan) recordMapDispatch(cl *ast.CompositeLit) {
+func (ps *pkgScan) recordMapDispatch(cl *ast.CompositeLit, enclosingFunc string) {
 	loose := ps.mapValueIsFuncType(cl.Type)
+	groupID := "map@" + ps.fset.Position(cl.Pos()).String()
 	for _, elt := range cl.Elts {
 		kv, ok := elt.(*ast.KeyValueExpr)
 		if !ok {
@@ -852,7 +1468,8 @@ func (ps *pkgScan) recordMapDispatch(cl *ast.CompositeLit) {
 		if name == "" {
 			continue
 		}
-		ps.bindOp(key, name)
+		ps.handlerSourceFunc[name] = enclosingFunc
+		ps.bindOp(key, name, groupID)
 	}
 }
 
@@ -953,7 +1570,7 @@ func (ps *pkgScan) findLocalCallInReturns(body *ast.BlockStmt) string {
 // findHandlerSelector (glue's binding funcs already use the
 // service.WrapOp(h.handleX) shape 36 other services use), so this convention
 // needs only the new slice-shape recognition, not a matching loosening.
-func (ps *pkgScan) recordSliceBindingDispatch(cl *ast.CompositeLit) {
+func (ps *pkgScan) recordSliceBindingDispatch(cl *ast.CompositeLit, enclosingFunc string) {
 	at, isArray := cl.Type.(*ast.ArrayType)
 	if !isArray || at.Len != nil {
 		return
@@ -961,6 +1578,7 @@ func (ps *pkgScan) recordSliceBindingDispatch(cl *ast.CompositeLit) {
 	if _, isStruct := at.Elt.(*ast.StructType); !isStruct {
 		return
 	}
+	groupID := "slice@" + ps.fset.Position(cl.Pos()).String()
 	for _, elt := range cl.Elts {
 		ecl, isLit := elt.(*ast.CompositeLit)
 		if !isLit {
@@ -974,7 +1592,8 @@ func (ps *pkgScan) recordSliceBindingDispatch(cl *ast.CompositeLit) {
 		if handler == "" {
 			continue
 		}
-		ps.bindOp(name, handler)
+		ps.handlerSourceFunc[handler] = enclosingFunc
+		ps.bindOp(name, handler, groupID)
 	}
 }
 
@@ -1065,14 +1684,22 @@ func (ps *pkgScan) walkFuncBody(
 	fd *ast.FuncDecl, keys map[string]bool, visited map[string]bool, queue []string,
 ) (int, []string) {
 	dynamicSkipped := 0
+	boundary := ps.funcBoundaryInfo(fd)
 
 	ast.Inspect(fd.Body, func(n ast.Node) bool {
 		switch v := n.(type) {
 		case *ast.CompositeLit:
+			if boundary.excludedLits[v] {
+				// Don't descend: a nested map value inside an excluded
+				// envelope literal (e.g. the trigger event's own
+				// "callerContext": map[string]any{...}) is part of the SAME
+				// excluded envelope, not independent wire-output data.
+				return false
+			}
 			dynamicSkipped += ps.collectLitKeys(v, keys)
 			ps.collectStructTagKeys(v, keys)
 		case *ast.AssignStmt:
-			dynamicSkipped += ps.collectIndexAssignKeys(v, keys)
+			dynamicSkipped += ps.collectIndexAssignKeys(v, keys, boundary.excludedVars)
 		case *ast.CallExpr:
 			name := calleeName(v.Fun)
 			if name == "" {
@@ -1239,7 +1866,7 @@ func localStructName(t ast.Expr) string {
 	}
 }
 
-func (ps *pkgScan) collectIndexAssignKeys(v *ast.AssignStmt, keys map[string]bool) int {
+func (ps *pkgScan) collectIndexAssignKeys(v *ast.AssignStmt, keys map[string]bool, excludedVars map[string]bool) int {
 	dynamicSkipped := 0
 	for _, lhs := range v.Lhs {
 		idx, ok := lhs.(*ast.IndexExpr)
@@ -1247,7 +1874,7 @@ func (ps *pkgScan) collectIndexAssignKeys(v *ast.AssignStmt, keys map[string]boo
 			continue
 		}
 		id, ok := idx.X.(*ast.Ident)
-		if !ok || !ps.mapAnyVars[id.Name] {
+		if !ok || !ps.mapAnyVars[id.Name] || excludedVars[id.Name] {
 			continue
 		}
 		k, dyn := ps.resolveKey(idx.Index)
@@ -1299,6 +1926,128 @@ func (ps *pkgScan) resolveKey(e ast.Expr) (string, bool) {
 	return "", true
 }
 
+// findCopyChains records every maps.Copy(dst, fn()) call it finds, grouped by
+// "<enclosing func>|<dst variable>", in the exact textual order those calls
+// appear -- the same order Go's maps.Copy applies them at runtime, so
+// whichever family's map is copied LAST is the one that actually wins a
+// same-key collision. This is cognitoidp's real dispatchTable() shape: ~30
+// sequential maps.Copy calls merging OpsA/OpsB/OpsC family tables into one
+// destination.
+func (ps *pkgScan) findCopyChains(f *ast.File) {
+	for _, decl := range f.Decls {
+		fd, ok := decl.(*ast.FuncDecl)
+		if !ok || fd.Body == nil {
+			continue
+		}
+		ast.Inspect(fd.Body, func(n ast.Node) bool {
+			if call, isCall := n.(*ast.CallExpr); isCall {
+				ps.recordCopyChainCall(fd.Name.Name, call)
+			}
+
+			return true
+		})
+	}
+}
+
+func (ps *pkgScan) recordCopyChainCall(assembler string, call *ast.CallExpr) {
+	sel, ok := call.Fun.(*ast.SelectorExpr)
+	if !ok || sel.Sel.Name != "Copy" || len(call.Args) != 2 {
+		return
+	}
+	pkgID, ok := sel.X.(*ast.Ident)
+	if !ok || pkgID.Name != "maps" {
+		return
+	}
+	srcCall, ok := call.Args[1].(*ast.CallExpr)
+	if !ok {
+		return
+	}
+	callee := calleeName(srcCall.Fun)
+	if callee == "" {
+		return
+	}
+	key := assembler + "|" + exprString(ps.fset, call.Args[0])
+	ps.copyChains[key] = append(ps.copyChains[key], callee)
+}
+
+// resolveDeterministicOverrides resolves an op bound to multiple handlers
+// when every conflicting handler's own enclosing function is merged into the
+// SAME destination table by the SAME assembler function via maps.Copy
+// (findCopyChains) -- cognitoidp's real shape: dispatchTable()'s sequential
+// maps.Copy calls merge OpsA/OpsB/OpsC family tables, and Go's maps.Copy
+// overwrites on collision, so whichever family is copied LAST deterministically
+// wins. That is knowable by reading the assembler's own call order, not a
+// guess -- unlike sqs's real ambiguity (KNOWN BLIND SPOT #6), where the two
+// conflicting tables are never merged into a shared destination at all, so no
+// chain will ever contain both sides and the op stays reported ambiguous.
+func (ps *pkgScan) resolveDeterministicOverrides() []string {
+	var notes []string
+	for op, handlers := range ps.ambiguousOps {
+		winner, losers, chainKey, ok := ps.deterministicWinner(handlers)
+		if !ok {
+			continue
+		}
+		ps.opToHandler[op] = winner
+		delete(ps.ambiguousOps, op)
+		notes = append(notes, fmt.Sprintf(
+			"%s -> %s (preferred over %s: both merged into %s, %s copied last)",
+			op, winner, strings.Join(losers, ", "), chainKey, winner))
+	}
+	sort.Strings(notes)
+
+	return notes
+}
+
+func (ps *pkgScan) deterministicWinner(
+	handlers map[string]bool,
+) (string, []string, string, bool) {
+	names := make([]string, 0, len(handlers))
+	for h := range handlers {
+		names = append(names, h)
+	}
+	sort.Strings(names)
+
+	chainKeys := make([]string, 0, len(ps.copyChains))
+	for key := range ps.copyChains {
+		chainKeys = append(chainKeys, key)
+	}
+	sort.Strings(chainKeys)
+
+	for _, key := range chainKeys {
+		order := ps.copyChains[key]
+		pos := map[string]int{}
+		for i, fn := range order {
+			pos[fn] = i
+		}
+
+		best, bestPos, matched := "", -1, 0
+		for _, h := range names {
+			p, inChain := pos[ps.handlerSourceFunc[h]]
+			if !inChain {
+				continue
+			}
+			matched++
+			if p > bestPos {
+				best, bestPos = h, p
+			}
+		}
+		if matched != len(names) {
+			continue
+		}
+
+		var losers []string
+		for _, h := range names {
+			if h != best {
+				losers = append(losers, h)
+			}
+		}
+
+		return best, losers, key, true
+	}
+
+	return "", nil, "", false
+}
+
 // ---------- checking ----------
 
 type opResult struct {
@@ -1324,6 +2073,21 @@ type checkResult struct {
 	AmbiguousOps       []string
 	AmbiguousHandlers  map[string][]string
 	InternalOpsSkipped []string
+
+	// FilteredOps holds ops moved out of UnresolvedOps by filterEnumGroups: an
+	// entire switch/map dispatch source where EVERY candidate op failed SDK
+	// resolution -- an enum/type-string table misread as op dispatch, not a
+	// genuinely missing real op. Still fully visible in the report, just not
+	// counted toward "unresolved".
+	FilteredOps []string
+
+	// DeterministicOverrides names every op resolveDeterministicOverrides
+	// pulled out of true ambiguity because both conflicting handlers' source
+	// functions are merged into the same maps.Copy destination, in a fixed
+	// textual order -- visible so a reader can verify the chosen winner
+	// against the assembler's own call order.
+	DeterministicOverrides []string
+
 	SDKOpsResolved     int
 	SDKTypesResolved   int
 	HandlerOpsResolved int
@@ -1367,6 +2131,89 @@ type resolvedOp struct {
 	RealOp      string
 	Handler     string
 	Recovered   bool
+}
+
+// filterEnumGroups moves an unresolved op from res.UnresolvedOps into
+// res.FilteredOps when EVERY op sharing its dispatch source (the same switch
+// statement, or the same map/slice literal -- ps.opGroup) also failed to
+// resolve, and that source bound at least 2 candidate op names. A source
+// batting 0-for-N against the real SDK op index is far more likely to be a
+// per-item enum/type-string table misread as op dispatch (apigateway's
+// IntegrationType switch, glacier's job-type switch, lightsail's
+// taggableResolvers, swf's decisionHandlers) than N genuinely missing real
+// ops -- a real dispatch table drawn from the same protocol/prefix almost
+// always resolves at least one member. Requiring N>=2 keeps a single
+// genuinely-missing op (KNOWN BLIND SPOT #7 territory) from ever being
+// silently reclassified: it has no sibling in its own source to corroborate
+// it, so it stays a normal, visible UnresolvedOps ERROR.
+// minCorroboratingGroupSize is the smallest dispatch-source group
+// filterEnumGroups will ever reclassify as an enum table: a lone unresolved
+// candidate has no sibling in its own source to corroborate the guess, so it
+// always stays ordinary KNOWN BLIND SPOT #7 territory.
+const minCorroboratingGroupSize = 2
+
+func filterEnumGroups(ops []string, ps *pkgScan, res *checkResult) {
+	unresolved := map[string]bool{}
+	for _, op := range res.UnresolvedOps {
+		unresolved[op] = true
+	}
+
+	groupOps, groupOrder := groupOpsBySource(ops, ps)
+
+	filtered := map[string]bool{}
+	for _, gid := range groupOrder {
+		members := groupOps[gid]
+		if len(members) < minCorroboratingGroupSize || !allUnresolved(members, unresolved) {
+			continue
+		}
+		for _, op := range members {
+			filtered[op] = true
+			res.FilteredOps = append(res.FilteredOps, op)
+		}
+	}
+
+	if len(filtered) == 0 {
+		return
+	}
+
+	var kept []string
+	for _, op := range res.UnresolvedOps {
+		if !filtered[op] {
+			kept = append(kept, op)
+		}
+	}
+	res.UnresolvedOps = kept
+	sort.Strings(res.FilteredOps)
+}
+
+// groupOpsBySource buckets ops by the single switch statement or map/slice
+// literal that bound each one (ps.opGroup), preserving the order each group
+// was first seen.
+func groupOpsBySource(ops []string, ps *pkgScan) (map[string][]string, []string) {
+	groupOps := map[string][]string{}
+	var groupOrder []string
+	for _, op := range ops {
+		gid, ok := ps.opGroup[op]
+		if !ok {
+			continue
+		}
+		if _, seen := groupOps[gid]; !seen {
+			groupOrder = append(groupOrder, gid)
+		}
+		groupOps[gid] = append(groupOps[gid], op)
+	}
+
+	return groupOps, groupOrder
+}
+
+func allUnresolved(members []string, unresolved map[string]bool) bool {
+	for _, op := range members {
+		if !unresolved[op] {
+			return false
+		}
+	}
+
+	return true
 }
 
 // resolveOpNames matches every checkable dispatch binding against the SDK's
@@ -1428,6 +2275,8 @@ func resolveOpNames(ops []string, ps *pkgScan, idx *sdkIndex, res *checkResult) 
 		}
 		resolved = append(resolved, cands[0])
 	}
+
+	filterEnumGroups(ops, ps, res)
 
 	sort.Strings(res.UnresolvedOps)
 	sort.Slice(resolved, func(i, j int) bool { return resolved[i].RealOp < resolved[j].RealOp })
@@ -1500,10 +2349,11 @@ func runCheck(sdkPath, prefix, svcDir, onlyOp string) (*checkResult, error) {
 	}
 
 	res := &checkResult{
-		SDKOpsResolved:     len(idx.ops),
-		SDKTypesResolved:   len(idx.types),
-		HandlerOpsResolved: len(ps.opToHandler),
-		AmbiguousHandlers:  map[string][]string{},
+		SDKOpsResolved:         len(idx.ops),
+		SDKTypesResolved:       len(idx.types),
+		HandlerOpsResolved:     len(ps.opToHandler),
+		AmbiguousHandlers:      map[string][]string{},
+		DeterministicOverrides: ps.deterministicOverrideNotes,
 	}
 
 	ops := resolveCheckableOps(ps, onlyOp, res)
@@ -1676,6 +2526,8 @@ func report(res *checkResult, svcDir, prefix string) int {
 
 	printUnresolvedOpErrors(res.UnresolvedOps)
 	printAmbiguousOpErrors(res)
+	printFilteredOps(res.FilteredOps)
+	printDeterministicOverrides(res.DeterministicOverrides)
 
 	if res.NoWrittenKeys {
 		fmt.Fprintf(os.Stdout,
@@ -1730,6 +2582,30 @@ func printAmbiguousOpErrors(res *checkResult) {
 				"cannot tell which one the real dispatcher uses; refusing to guess and compare the\n"+
 				"wrong handler's keys against the SDK. See KNOWN BLIND SPOT #6. NOT verified.\n",
 			op, len(res.AmbiguousHandlers[op]), strings.Join(res.AmbiguousHandlers[op], ", "))
+	}
+}
+
+// printFilteredOps surfaces every op filterEnumGroups pulled out of
+// UnresolvedOps -- an entire switch/map dispatch source that batted 0-for-N
+// against the real SDK op index (an enum/type-string table misread as op
+// dispatch), never silently dropped.
+func printFilteredOps(filteredOps []string) {
+	if len(filteredOps) == 0 {
+		return
+	}
+	fmt.Fprintf(os.Stdout,
+		"FILTERED (enum/type-string table, not real op dispatch -- every candidate from the same\n"+
+			"switch/map source failed SDK resolution): %s\n",
+		strings.Join(filteredOps, ", "))
+}
+
+// printDeterministicOverrides surfaces every op resolveDeterministicOverrides
+// resolved out of true ambiguity, naming the winning handler and the losing
+// one(s) so a reader can independently verify the choice against the
+// assembler function's own maps.Copy order.
+func printDeterministicOverrides(notes []string) {
+	for _, note := range notes {
+		fmt.Fprintf(os.Stdout, "DETERMINISTIC OVERRIDE: %s\n", note)
 	}
 }
 

@@ -1003,6 +1003,10 @@ func TestRunCheck_AmbiguousHandlerBinding(t *testing.T) {
 				"mismatches happened")
 	}
 	assert.Empty(t, res.UnresolvedOps, "ambiguity is its own category, not an unresolved-sdk-op")
+	assert.Empty(t, res.DeterministicOverrides,
+		"sqs's real shape: two tables never merged via maps.Copy into a shared destination -- "+
+			"resolveDeterministicOverrides must find no chain containing both sides and leave this "+
+			"genuinely ambiguous, not guess a winner")
 	assert.Equal(t, exitUnresolved, report(res, svcDir, "awsRestjson1_"),
 		"an ambiguous binding must fail loud like every other 'not actually checked' state")
 }
@@ -1267,4 +1271,562 @@ func helper(x int) int { return x + 1 }
 
 		assert.Equal(t, exitUnresolved, report(res, svcDir, "awsRestjson1_"))
 	})
+}
+
+// svcEnumSwitchFixture reproduces glacier's real false-positive shape
+// (handler_jobs.go's `switch j.Action { case jobTypeInventoryRetrieval: ...
+// case jobTypeSelect: ... }`, gopherstack-85e3): a nested switch on a
+// struct field, inside an already-dispatched op's own handler, whose case
+// values are handler-shaped-call-bound strings that are not real SDK
+// operations at all. GetSchedule is the only real op in sdkGoodFixture;
+// ModeA/ModeB never appear there.
+const svcEnumSwitchFixture = `package svc
+
+type cfg struct{ Mode string }
+
+type Handler struct{}
+
+func (h *Handler) Dispatch(op string, body []byte) []byte {
+	switch op {
+	case "GetSchedule":
+		return h.handleGetSchedule(body)
+	}
+	return nil
+}
+
+func (h *Handler) handleGetSchedule(body []byte) []byte {
+	c := cfg{}
+	switch c.Mode {
+	case "ModeA":
+		return h.handleModeA(body)
+	case "ModeB":
+		return h.handleModeB(body)
+	}
+
+	resp := map[string]any{
+		"Target": map[string]any{
+			"EcsParameters": map[string]any{
+				"NetworkConfiguration": map[string]any{
+					"awsvpcConfiguration": map[string]any{},
+				},
+			},
+		},
+	}
+	_ = resp
+	return nil
+}
+
+func (h *Handler) handleModeA(body []byte) []byte { return nil }
+func (h *Handler) handleModeB(body []byte) []byte { return nil }
+`
+
+// TestFilterEnumGroups_WholeGroupUnresolvedIsFiltered pins gopherstack-85e3's
+// enum/type-string-table class: a switch batting 0-for-2 against the real
+// SDK op index (ModeA/ModeB) is moved out of UnresolvedOps into FilteredOps,
+// visibly, while GetSchedule -- dispatched from a DIFFERENT switch -- is
+// still checked normally.
+func TestFilterEnumGroups_WholeGroupUnresolvedIsFiltered(t *testing.T) {
+	t.Parallel()
+
+	sdkDir := t.TempDir()
+	writeFile(t, sdkDir, "deserializers.go", sdkGoodFixture)
+	svcDir := t.TempDir()
+	writeFile(t, svcDir, "handler.go", svcEnumSwitchFixture)
+
+	res, err := runCheck(filepath.Join(sdkDir, "deserializers.go"), "awsRestjson1_", svcDir, "")
+	require.NoError(t, err)
+
+	assert.ElementsMatch(t, []string{"ModeA", "ModeB"}, res.FilteredOps,
+		"a switch whose every candidate op fails SDK resolution must be filtered as an enum table")
+	assert.Empty(t, res.UnresolvedOps,
+		"a fully-filtered group must not also linger in UnresolvedOps")
+
+	require.Len(t, res.OpsChecked, 1)
+	assert.Equal(t, "GetSchedule", res.OpsChecked[0].Op)
+	assert.Empty(t, res.OpsChecked[0].NotInTree)
+}
+
+// sdkTwoOpsFixture extends sdkGoodFixture with a second real op, ModeA, so
+// filterEnumGroups' "must not over-suppress" tests can exercise a group
+// where SOME candidates genuinely resolve.
+const sdkTwoOpsFixture = `package fakesdk
+
+type GetScheduleOutput struct{}
+type ModeAOutput struct{}
+
+func awsRestjson1_deserializeOpDocumentGetScheduleOutput(v **GetScheduleOutput, value interface{}) error {
+	return nil
+}
+
+func awsRestjson1_deserializeOpDocumentModeAOutput(v **ModeAOutput, value interface{}) error {
+	shape, ok := value.(map[string]interface{})
+	if !ok {
+		return nil
+	}
+	sv := *v
+	for key := range shape {
+		switch key {
+		case "Result":
+		}
+	}
+	*v = sv
+	return nil
+}
+`
+
+func TestFilterEnumGroups_DoesNotOverSuppress(t *testing.T) {
+	t.Parallel()
+
+	t.Run("a group with even one resolved candidate is left untouched", func(t *testing.T) {
+		t.Parallel()
+
+		sdkDir := t.TempDir()
+		writeFile(t, sdkDir, "deserializers.go", sdkTwoOpsFixture)
+		svcDir := t.TempDir()
+		writeFile(t, svcDir, "handler.go", `package svc
+
+type cfg struct{ Mode string }
+
+type Handler struct{}
+
+func (h *Handler) Dispatch(op string, body []byte) []byte {
+	switch op {
+	case "GetSchedule":
+		return h.handleGetSchedule(body)
+	}
+	return nil
+}
+
+func (h *Handler) handleGetSchedule(body []byte) []byte {
+	c := cfg{}
+	switch c.Mode {
+	case "ModeA":
+		return h.handleModeA(body)
+	case "ModeB":
+		return h.handleModeB(body)
+	}
+	return nil
+}
+
+func (h *Handler) handleModeA(body []byte) []byte { return nil }
+func (h *Handler) handleModeB(body []byte) []byte { return nil }
+`)
+
+		res, err := runCheck(filepath.Join(sdkDir, "deserializers.go"), "awsRestjson1_", svcDir, "")
+		require.NoError(t, err)
+
+		assert.Empty(t, res.FilteredOps,
+			"ModeA genuinely resolves, so its sibling ModeB must stay a normal unresolved op, not get "+
+				"swept away as if the whole switch were fake")
+		assert.Contains(t, res.UnresolvedOps, "ModeB")
+
+		var found bool
+		for _, or := range res.OpsChecked {
+			if or.Op == "ModeA" {
+				found = true
+			}
+		}
+		assert.True(t, found, "ModeA must still be checked normally")
+	})
+
+	t.Run("a singleton unresolved candidate has no sibling to corroborate it, so it is never filtered",
+		func(t *testing.T) {
+			t.Parallel()
+
+			sdkDir := t.TempDir()
+			writeFile(t, sdkDir, "deserializers.go", sdkGoodFixture)
+			svcDir := t.TempDir()
+			writeFile(t, svcDir, "handler.go", `package svc
+
+type cfg struct{ Mode string }
+
+type Handler struct{}
+
+func (h *Handler) Dispatch(op string, body []byte) []byte {
+	switch op {
+	case "GetSchedule":
+		return h.handleGetSchedule(body)
+	}
+	return nil
+}
+
+func (h *Handler) handleGetSchedule(body []byte) []byte {
+	c := cfg{}
+	switch c.Mode {
+	case "ModeA":
+		return h.handleModeA(body)
+	}
+	return nil
+}
+
+func (h *Handler) handleModeA(body []byte) []byte { return nil }
+`)
+
+			res, err := runCheck(filepath.Join(sdkDir, "deserializers.go"), "awsRestjson1_", svcDir, "")
+			require.NoError(t, err)
+
+			assert.Empty(t, res.FilteredOps,
+				"a lone unresolved op is exactly KNOWN BLIND SPOT #7 territory -- it must stay visible, "+
+					"never silently reclassified for lack of any sibling to corroborate the guess")
+			assert.Contains(t, res.UnresolvedOps, "ModeA")
+		})
+}
+
+// svcMapsCopyOverrideFixture reproduces cognitoidp's real dispatchTable()
+// shape (gopherstack-ck9f refinement #2): two op-family maps (opsA/opsB),
+// each returned from its own zero-arg method, merged into one destination
+// table via SEQUENTIAL maps.Copy calls. Go's maps.Copy overwrites on
+// collision, so opsB's entry (copied last) is the one the real dispatcher
+// actually uses -- opsA's is a legacy handler superseded, not a competing
+// top-level binding nobody can resolve.
+const svcMapsCopyOverrideFixture = `package svc
+
+import "maps"
+
+type opFunc func([]byte) []byte
+
+type Handler struct{}
+
+func (h *Handler) opsA() map[string]opFunc {
+	return map[string]opFunc{"GetSchedule": h.handleGetScheduleLegacy}
+}
+
+func (h *Handler) opsB() map[string]opFunc {
+	return map[string]opFunc{"GetSchedule": h.handleGetScheduleAccurate}
+}
+
+func (h *Handler) dispatchTable() map[string]opFunc {
+	table := make(map[string]opFunc)
+	maps.Copy(table, h.opsA())
+	maps.Copy(table, h.opsB())
+	return table
+}
+
+func (h *Handler) handleGetScheduleLegacy(body []byte) []byte {
+	resp := map[string]any{
+		"Target": map[string]any{
+			"EcsParameters": map[string]any{
+				"NetworkConfiguration": map[string]any{
+					"AwsvpcConfiguration": map[string]any{},
+				},
+			},
+		},
+	}
+	_ = resp
+	return nil
+}
+
+func (h *Handler) handleGetScheduleAccurate(body []byte) []byte {
+	resp := map[string]any{
+		"Target": map[string]any{
+			"EcsParameters": map[string]any{
+				"NetworkConfiguration": map[string]any{
+					"awsvpcConfiguration": map[string]any{},
+				},
+			},
+		},
+	}
+	_ = resp
+	return nil
+}
+`
+
+func TestResolveDeterministicOverrides_MapsCopyOrderWins(t *testing.T) {
+	t.Parallel()
+
+	sdkDir := t.TempDir()
+	writeFile(t, sdkDir, "deserializers.go", sdkGoodFixture)
+	svcDir := t.TempDir()
+	writeFile(t, svcDir, "handler.go", svcMapsCopyOverrideFixture)
+
+	res, err := runCheck(filepath.Join(sdkDir, "deserializers.go"), "awsRestjson1_", svcDir, "")
+	require.NoError(t, err)
+
+	require.NotContains(t, res.AmbiguousOps, "GetSchedule",
+		"both family maps are merged into the SAME table by the SAME assembler, in a fixed textual "+
+			"order -- that is knowable, not a guess, so it must not be reported ambiguous")
+	require.Len(t, res.DeterministicOverrides, 1)
+	assert.Contains(t, res.DeterministicOverrides[0], "GetSchedule -> handleGetScheduleAccurate")
+
+	require.Len(t, res.OpsChecked, 1)
+	or := res.OpsChecked[0]
+	assert.Equal(t, "handleGetScheduleAccurate", or.Handler,
+		"opsB is copied LAST in dispatchTable(), so its handler is the one the real dispatcher uses")
+	assert.Empty(t, or.NotInTree,
+		"the winning (opsB) handler writes the correct casing -- picking the loser would report a "+
+			"fabricated mismatch, exactly gopherstack-kiwf's sqs shape")
+}
+
+// svcInterfaceBoundaryFixture reproduces cognitoidp's real Lambda-trigger
+// shape (gopherstack-ck9f refinement #1): a struct field typed as a
+// package-local interface, invoked from a helper that builds its own
+// envelope map and hands it across that boundary. The envelope's keys
+// (triggerSource/userName) must never be attributed to GetSchedule's own
+// response, which is built entirely separately.
+const svcInterfaceBoundaryFixture = `package svc
+
+type Invoker interface {
+	Invoke(event map[string]any) (map[string]any, error)
+}
+
+type Handler struct {
+	invoker Invoker
+}
+
+func (h *Handler) invokeTrigger(clientID string) (map[string]any, error) {
+	event := map[string]any{
+		"triggerSource": "X",
+		"userName":      clientID,
+	}
+	result, err := h.invoker.Invoke(event)
+	if err != nil {
+		return nil, err
+	}
+	resp, _ := result["response"].(map[string]any)
+	return resp, nil
+}
+
+func (h *Handler) Dispatch(op string, body []byte) []byte {
+	switch op {
+	case "GetSchedule":
+		return h.handleGetSchedule(body)
+	}
+	return nil
+}
+
+func (h *Handler) handleGetSchedule(body []byte) []byte {
+	_, _ = h.invokeTrigger("someone")
+
+	resp := map[string]any{
+		"Target": map[string]any{
+			"EcsParameters": map[string]any{
+				"NetworkConfiguration": map[string]any{
+					"awsvpcConfiguration": map[string]any{},
+				},
+			},
+		},
+	}
+	_ = resp
+	return nil
+}
+`
+
+func TestBoundaryExclusion_InterfaceCrossingEnvelopeNotAttributed(t *testing.T) {
+	t.Parallel()
+
+	sdkDir := t.TempDir()
+	writeFile(t, sdkDir, "deserializers.go", sdkGoodFixture)
+	svcDir := t.TempDir()
+	writeFile(t, svcDir, "handler.go", svcInterfaceBoundaryFixture)
+
+	res, err := runCheck(filepath.Join(sdkDir, "deserializers.go"), "awsRestjson1_", svcDir, "")
+	require.NoError(t, err)
+	require.Len(t, res.OpsChecked, 1)
+
+	or := res.OpsChecked[0]
+	assert.NotContains(t, or.Written, "triggerSource",
+		"a map that only ever flows into an interface-boundary call must not be attributed to the "+
+			"op's own response")
+	assert.NotContains(t, or.Written, "userName")
+	assert.Empty(t, or.NotInTree)
+}
+
+// TestBoundaryExclusion_ValueAlsoReturnedIsNotSuppressed is the "does not
+// over-suppress" half of the interface-boundary narrowing: a map that flows
+// into the boundary call AND is independently handed back by the SAME
+// function must still count -- excluding it just because it ALSO crossed
+// the boundary would risk hiding a real dropped key exactly like the ones
+// this tool exists to catch.
+func TestBoundaryExclusion_ValueAlsoReturnedIsNotSuppressed(t *testing.T) {
+	t.Parallel()
+
+	sdkDir := t.TempDir()
+	writeFile(t, sdkDir, "deserializers.go", sdkGoodFixture)
+	svcDir := t.TempDir()
+	writeFile(t, svcDir, "handler.go", `package svc
+
+type Invoker interface {
+	Invoke(event map[string]any) (map[string]any, error)
+}
+
+type Handler struct {
+	invoker Invoker
+}
+
+func (h *Handler) invokeAndEcho() map[string]any {
+	event := map[string]any{"triggerSource": "X"}
+	_, _ = h.invoker.Invoke(event)
+	return event
+}
+
+func (h *Handler) Dispatch(op string, body []byte) []byte {
+	switch op {
+	case "GetSchedule":
+		return h.handleGetSchedule(body)
+	}
+	return nil
+}
+
+func (h *Handler) handleGetSchedule(body []byte) []byte {
+	echoed := h.invokeAndEcho()
+	resp := map[string]any{
+		"Target": map[string]any{
+			"EcsParameters": map[string]any{
+				"NetworkConfiguration": echoed,
+			},
+		},
+	}
+	_ = resp
+	return nil
+}
+`)
+
+	res, err := runCheck(filepath.Join(sdkDir, "deserializers.go"), "awsRestjson1_", svcDir, "")
+	require.NoError(t, err)
+	require.Len(t, res.OpsChecked, 1)
+
+	assert.Contains(t, res.OpsChecked[0].Written, "triggerSource",
+		"event is ALSO returned directly by invokeAndEcho, so it must still be treated as reachable "+
+			"wire-output data, not excluded just because it also crossed the boundary")
+}
+
+// svcMapConversionProducerFixture reproduces cognitoidp's real
+// attrs["sub"]/sortedAttributeList shape (gopherstack-ck9f refinement #1's
+// second, narrower instance): userAttrsBuilder exists solely to build a
+// map[string]string that every one of its callers immediately feeds to
+// toNameValueList (whose signature -- map param, slice-of-named-type result
+// -- marks it a conversion, not a direct marshal). The map's keys become
+// list-item field VALUES, never JSON keys, so "sub" must not be attributed
+// to GetSchedule's response.
+const svcMapConversionProducerFixture = `package svc
+
+type nameValue struct {
+	Name  string
+	Value string
+}
+
+func toNameValueList(m map[string]string) []nameValue {
+	out := make([]nameValue, 0, len(m))
+	for k, v := range m {
+		out = append(out, nameValue{Name: k, Value: v})
+	}
+	return out
+}
+
+func userAttrsBuilder(sub string) map[string]string {
+	attrs := map[string]string{}
+	attrs["sub"] = sub
+	return attrs
+}
+
+type Handler struct{}
+
+func (h *Handler) Dispatch(op string, body []byte) []byte {
+	switch op {
+	case "GetSchedule":
+		return h.handleGetSchedule(body)
+	}
+	return nil
+}
+
+func (h *Handler) handleGetSchedule(body []byte) []byte {
+	_ = toNameValueList(userAttrsBuilder("abc"))
+
+	resp := map[string]any{
+		"Target": map[string]any{
+			"EcsParameters": map[string]any{
+				"NetworkConfiguration": map[string]any{
+					"awsvpcConfiguration": map[string]any{},
+				},
+			},
+		},
+	}
+	_ = resp
+	return nil
+}
+`
+
+func TestBoundaryExclusion_MapConversionProducerNotAttributed(t *testing.T) {
+	t.Parallel()
+
+	sdkDir := t.TempDir()
+	writeFile(t, sdkDir, "deserializers.go", sdkGoodFixture)
+	svcDir := t.TempDir()
+	writeFile(t, svcDir, "handler.go", svcMapConversionProducerFixture)
+
+	res, err := runCheck(filepath.Join(sdkDir, "deserializers.go"), "awsRestjson1_", svcDir, "")
+	require.NoError(t, err)
+	require.Len(t, res.OpsChecked, 1)
+
+	or := res.OpsChecked[0]
+	assert.NotContains(t, or.Written, "sub",
+		"userAttrsBuilder's only caller feeds its result straight into a map->slice conversion func -- "+
+			"\"sub\" becomes a Name VALUE, never a JSON key, and must not be attributed to GetSchedule")
+	assert.Empty(t, or.NotInTree)
+}
+
+// TestBoundaryExclusion_MapConversionDoesNotOverSuppress proves the producer
+// narrowing requires EVERY call site to feed the conversion func -- a
+// second caller that returns the SAME map as its own real output must keep
+// that map's keys visible.
+func TestBoundaryExclusion_MapConversionDoesNotOverSuppress(t *testing.T) {
+	t.Parallel()
+
+	sdkDir := t.TempDir()
+	writeFile(t, sdkDir, "deserializers.go", sdkGoodFixture)
+	svcDir := t.TempDir()
+	writeFile(t, svcDir, "handler.go", `package svc
+
+type nameValue struct {
+	Name  string
+	Value string
+}
+
+func toNameValueList(m map[string]string) []nameValue {
+	out := make([]nameValue, 0, len(m))
+	for k, v := range m {
+		out = append(out, nameValue{Name: k, Value: v})
+	}
+	return out
+}
+
+func userAttrsBuilder(sub string) map[string]string {
+	attrs := map[string]string{}
+	attrs["sub"] = sub
+	return attrs
+}
+
+type Handler struct{}
+
+func (h *Handler) Dispatch(op string, body []byte) []byte {
+	switch op {
+	case "GetSchedule":
+		return h.handleGetSchedule(body)
+	}
+	return nil
+}
+
+func (h *Handler) handleGetSchedule(body []byte) []byte {
+	_ = toNameValueList(userAttrsBuilder("abc"))
+	direct := userAttrsBuilder("direct-use")
+
+	resp := map[string]any{
+		"Target": map[string]any{
+			"EcsParameters": map[string]any{
+				"NetworkConfiguration": direct,
+			},
+		},
+	}
+	_ = resp
+	return nil
+}
+`)
+
+	res, err := runCheck(filepath.Join(sdkDir, "deserializers.go"), "awsRestjson1_", svcDir, "")
+	require.NoError(t, err)
+	require.Len(t, res.OpsChecked, 1)
+
+	assert.Contains(t, res.OpsChecked[0].Written, "sub",
+		"userAttrsBuilder has a SECOND call site that uses its result directly as real output, so it "+
+			"is not a pure conversion producer and its keys must stay visible")
 }
