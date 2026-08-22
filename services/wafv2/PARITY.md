@@ -72,7 +72,7 @@ ops:
   DisassociateWebACL: {wire: ok, errors: ok, state: ok, persist: ok, note: "idempotent no-op on missing association, matches AWS"}
   GetWebACLForResource: {wire: ok, errors: ok, state: ok, persist: ok}
   ListResourcesForWebACL: {wire: ok, errors: ok, state: ok, persist: ok}
-  CheckCapacity: {wire: ok, errors: ok, state: ok, persist: n/a, note: "fixed: real per-statement-type WCU cost model in capacity.go, replacing the flat 1-WCU/rule stub (see Notes)"}
+  CheckCapacity: {wire: fixed, errors: ok, state: ok, persist: n/a, note: "real per-statement-type WCU cost model in capacity.go, replacing the flat 1-WCU/rule stub (see Notes); 2026-08-22 gopherstack-zquj: response key was \"ConsumedCapacity\", real wire key is \"Capacity\" -- see Notes"}
   CreateAPIKey: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteAPIKey: {wire: ok, errors: ok, state: ok, persist: ok}
   ListAPIKeys: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -123,6 +123,36 @@ leaks: {status: clean, note: "no goroutines/janitors in this service; all state 
 ---
 
 ## Notes
+
+- **2026-08-22 (gopherstack-zquj, keycheck sweep)**: `CheckCapacity` wrote the
+  wire-response key `"ConsumedCapacity"`. The real
+  `CheckCapacityOutput` has exactly one member, `Capacity`
+  (`aws-sdk-go-v2/service/wafv2@v1.77.3` `deserializers.go`
+  `awsAwsjson11_deserializeOpDocumentCheckCapacityOutput`, case `"Capacity"`;
+  `api_op_CheckCapacity.go:67` `CheckCapacityOutput.Capacity int64`). A real
+  SDK client's exact-case switch drops `"ConsumedCapacity"` into its
+  `default` no-op branch, so `CheckCapacityOutput.Capacity` was always zero
+  on every real client call regardless of the rules supplied -- the
+  gopherstack-6flj/zquj wrong-key class. `handler_rule_groups.go`'s prior
+  `overall: A` grade was earned by a `capacity_test.go` raw-body test
+  asserting `result["ConsumedCapacity"]` -- the same wrong key the author
+  typed, so it could not catch this. Fixed by renaming the written key to
+  `"Capacity"`; the three existing raw-body assertions
+  (`handler_rule_groups_test.go`, `capacity_test.go`) updated to match. Proof:
+  `TestCheckCapacity_WireKeyCase` (`wire_field_fixes_test.go`) drives the real
+  `aws-sdk-go-v2/service/wafv2` client end-to-end and asserts
+  `CheckCapacityOutput.Capacity` decodes non-zero; confirmed failing
+  (`expected: 3, actual: 0`) against the pre-fix key via hand-revert
+  (`git show HEAD:services/wafv2/handler_rule_groups.go`, restored,
+  md5sum-verified byte-identical after re-fixing). The keycheck sweep also
+  flagged four more wafv2 keys this pass did NOT fix -- `GetWebACLForResource`
+  writing `"LockToken"`, `GetDecryptedAPIKey` writing `"Scope"`,
+  `ListAPIKeys` items writing `"Scope"`, and `DescribeManagedRuleGroup`
+  writing `"Description"` -- all confirmed absent from their respective real
+  deserializer case lists, but all four are *extra/invented* fields a real
+  client's typed struct has no slot to receive (harmless noise, not a
+  dropped-required-value bug), not the same severity as `CheckCapacity`.
+  Left as a disclosed follow-up rather than fixed in this pass.
 
 - Protocol is awsjson1.1: single POST endpoint, `X-Amz-Target: AWSWAF_20190729.<Op>`. Route
   matcher (`RouteMatcher`) does a header-prefix match; confirmed the dispatch table's 55 keys

@@ -31,7 +31,7 @@ func (h *Handler) handleCheckCapacity(ctx context.Context, body []byte) ([]byte,
 	}
 
 	return json.Marshal(map[string]any{
-		"ConsumedCapacity": capacity,
+		"Capacity": capacity,
 	})
 }
 

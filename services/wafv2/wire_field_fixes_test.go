@@ -161,3 +161,43 @@ func TestGetRuleGroup_RealSDKClient_ARNOptional(t *testing.T) {
 	assert.Equal(t, "arn-lookup-rg", aws.ToString(got.RuleGroup.Name))
 	assert.Equal(t, aws.ToString(created.Summary.Id), aws.ToString(got.RuleGroup.Id))
 }
+
+// TestCheckCapacity_WireKeyCase proves gopherstack-zquj's keycheck sweep
+// finding: wafv2@v1.77.3's CheckCapacityOutput has exactly one member,
+// "Capacity" (deserializers.go's
+// awsAwsjson11_deserializeOpDocumentCheckCapacityOutput, api_op_CheckCapacity.go's
+// CheckCapacityOutput.Capacity int64). gopherstack wrote "ConsumedCapacity"
+// instead -- a key that appears nowhere in the real deserializer's case
+// list. A real SDK client's response deserializer does an exact-case
+// switch, so CheckCapacityOutput.Capacity was always zero on every real
+// client call regardless of the actual value, independent of the rules
+// supplied.
+func TestCheckCapacity_WireKeyCase(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestWAFV2Client(t, h)
+
+	vc := &types.VisibilityConfig{
+		CloudWatchMetricsEnabled: true,
+		MetricName:               aws.String("metric"),
+		SampledRequestsEnabled:   true,
+	}
+	rule := func(name string) types.Rule {
+		return types.Rule{
+			Name:             aws.String(name),
+			Priority:         0,
+			Statement:        &types.Statement{GeoMatchStatement: &types.GeoMatchStatement{}},
+			VisibilityConfig: vc,
+		}
+	}
+
+	got, err := client.CheckCapacity(t.Context(), &wafv2sdk.CheckCapacityInput{
+		Scope: types.ScopeRegional,
+		Rules: []types.Rule{rule("r1"), rule("r2"), rule("r3")},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, int64(3), got.Capacity,
+		"Capacity was silently dropped by the real SDK client's exact-case response "+
+			"deserializer before the wire key was fixed from \"ConsumedCapacity\" to \"Capacity\"")
+}
