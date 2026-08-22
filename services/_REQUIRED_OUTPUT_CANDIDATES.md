@@ -168,12 +168,20 @@ from the ranked table) as future batches clear more of it.
 | awsconfig | 15 | 102 (12 ops-with-required) | 0 (clean; domain-struct cross-reference found `ConnectorSummary`/`ConfigurationRecorderSummary` add 8 required members the flat op count misses, both fully emitted; two dead `omitempty` tags on `Connector`/`ConnectorSummary` reviewed and ruled out as structurally unreachable -- see the batch-23 note below) | gopherstack-r80d batch 23 |
 | codeconnections | 15 | 27 (14 ops-with-required) | 0 (clean; "one wrapper key" shape, `GetResourceSyncStatus`/`GetRepositorySyncStatus` already fixed by a prior pass; one dead `omitempty` tag (`RepositorySyncDefinition.Parent`) reviewed and ruled out -- see the batch-23 note below) | gopherstack-r80d batch 23 |
 | codestarconnections | 15 | 27 (14 ops-with-required) | 0 (clean; identical wire shape to codeconnections but a separate implementation -- `GetResourceSyncStatus`'s `InitialRevision`/`TargetRevision` gap already disclosed as a `structural_gap` by a very recent prior pass (gopherstack-7mmd); same dead `omitempty` tag reviewed and ruled out -- see the batch-23 note below) | gopherstack-r80d batch 23 |
+| ses | 13 | 71 (13 ops-with-required) | yes (2 findings / 4 member-level fixes: `GetIdentityMailFromDomainAttributes.MailFromDomain`, `GetIdentityNotificationAttributes.BounceTopic`/`ComplaintTopic`/`DeliveryTopic` -- see the batch-24 note below and services/ses/PARITY.md) | gopherstack-r80d batch 24 |
+| athena | 12 | 70 (8 ops-with-required) | 0 (clean; this exact bug class was already fixed by a dated prior pass -- `GetSessionEndpoint`/`CreatePresignedNotebookUrl`/`GetResourceDashboard` PARITY.md entries explicitly describe the 3-required-field shapes now emitted; one dead `omitempty` tag on `CapacityReservation.CreationTime` reviewed and ruled out (single unconditional construction site) -- see the batch-24 note below) | gopherstack-r80d batch 24 |
+| comprehend | 12 | 85 (6 ops-with-required) | 0 (clean; all 6 `BatchDetect*` ops' required `ErrorList`/`ResultList` already always emitted as non-nil `make(...)` slices; every nested `*ItemResult`/`BatchItemError` type confirmed to declare zero required members via the AST walk, so the flat op-level count is already the complete surface -- see the batch-24 note below) | gopherstack-r80d batch 24 |
 
-46 services settled, 2504 required output fields read end to end (the running
+49 services settled, 2541 required output fields read end to end (the running
 total counts each settled service's flat per-op `cmd/requiredoutputfields`
 number, as established by every prior batch -- glue's own real audited
 surface was substantially larger once its ~56 gopherstack-modeled domain
-structs were cross-checked, see the batch-15 note below). Batch 23
+structs were cross-checked, see the batch-15 note below). Batch 24
+(ses + athena + comprehend, tied at 12-13 each) added 2 more counted findings
+(4 member-level fixes, both in ses; athena and comprehend both came back
+clean) on top of the running total -- see the batch-24 note below for
+detail. `rekognition` and `timestreamquery` (tied at 11 fields each) are now
+the largest remaining candidates after sagemaker. Batch 23
 (awsconfig + codeconnections + codestarconnections, tied at 15 each) added 0
 counted bugs -- all three came back clean; see the batch-23 note below for
 detail. `ses` (13 fields, 71 ops, 13 ops-with-required) is now the largest
@@ -1776,3 +1784,138 @@ Notes on the top of this table for the next batch:
   why its 120/122 density was structural (single httpPayload-style body
   member per op), not many per-op scalar checks. Don't re-derive; one bug
   found (`DeleteUserEndpoints`).
+
+### ses + athena + comprehend (batch 24): 2 findings / 4 member-level fixes, both in ses
+
+Instrument re-validated three ways before picking a candidate: existing
+`cmd/requiredoutputfields`'s char-level brace matcher, a fresh from-scratch
+`go/parser`/`go/ast` walk (written standalone, not reusing any campaign
+tooling), and a raw `grep -c "This member is required." api_op_*.go` total
+per module. All three agreed exactly: `ses` 13/13 fields (13 ops-with-
+required, grep-c 111 total across input+output); `athena` 12/12 (8
+ops-with-required); `comprehend` 12/12 (6 ops-with-required). `git status`
+showed only `services/sagemaker/*` dirty from the concurrent agent's
+conversion throughout, confirmed untouched.
+
+Resolved `ses`'s module deliberately: directory and module both `ses`
+(no `dirModuleOverride` entry needed), pinned at `v1.37.4` -- confirmed
+distinct from `sesv2` (`v1.66.4`, already settled batch 21, a separate
+REST-JSON service with its own go.mod line). `athena`/`comprehend` also
+need no override (directory == module name).
+
+**ses (13 fields / 71 ops, 13 ops-with-required, 2 findings / 4 fixes):**
+query-XML protocol, not JSON -- the required-member contract is identical
+(same Smithy "This member is required." annotations), but the emulator's
+own `omitempty` is an `encoding/xml` struct tag here, and its interaction
+with the real SDK's query-protocol deserializer needed checking directly
+rather than assumed from the JSON-protocol precedent. An AST walk of all 31
+domain structs in `ses@v1.37.4/types/types.go` with at least one required
+member found the real depth: `GetIdentityDkimAttributes`/
+`GetIdentityMailFromDomainAttributes`/`GetIdentityNotificationAttributes`/
+`GetIdentityVerificationAttributes` each wrap a `map[string]<Attrs>` whose
+value type carries its own required members one level below the flat
+op-level scan (`IdentityDkimAttributes`: 2, `IdentityMailFromDomainAttributes`:
+3, `IdentityNotificationAttributes`: 4, `IdentityVerificationAttributes`: 1).
+
+Read the real query-protocol deserializer for each (`awsAwsquery_deserializeDocumentIdentity*`,
+`deserializers.go`) before flagging anything, because query/XML introduces a
+distinction the JSON-protocol passes didn't need to make explicitly: whether
+the underlying real-SDK field is a **pointer** or a **non-pointer** Go type
+matters for whether an omitted XML element is even detectable by a real
+client. For a non-pointer field (`BehaviorOnMXFailure BehaviorOnMXFailure`,
+`MailFromDomainStatus CustomMailFromStatus`, `DkimEnabled bool`,
+`DkimVerificationStatus VerificationStatus`, `VerificationStatus
+VerificationStatus`), the deserializer's `case` never fires when the element
+is absent, but the field keeps its Go zero value regardless -- the exact
+same value a present-but-empty element (`decoder.Value()` returns `[]byte{},
+nil` for a self-closing tag, confirmed in `smithy-go@v1.22.2/encoding/xml/xml_decoder.go`'s
+`NodeDecoder.Value`) would also produce. Omitted vs present-empty are
+indistinguishable to any real client for these, so a dead `omitempty` tag on
+one of them is cleanup, not a fix -- no test can tell the difference. For a
+**pointer** field (`MailFromDomain *string`, `BounceTopic`/`ComplaintTopic`/
+`DeliveryTopic *string`), the two cases genuinely differ: omitted decodes to
+`nil`, present-empty decodes to a non-nil pointer to `""`. This is the
+provable half of a required-pointer member tagged `omitempty` in a state a
+real client actually reaches (any identity that never called
+`SetIdentityMailFromDomain`/`SetIdentityNotificationTopic` -- the default,
+common state right after `VerifyEmailIdentity`/`VerifyDomainIdentity`).
+
+2 findings / 4 member-level fixes, both this exact provable-pointer shape:
+`GetIdentityMailFromDomainAttributes`'s `xmlMailFromDomainAttributes.
+MailFromDomain` (1 fix) and `GetIdentityNotificationAttributes`'s
+`xmlNotificationAttributes.BounceTopic`/`ComplaintTopic`/`DeliveryTopic` (3
+fixes) were all tagged `xml:"...,omitempty"` despite the real SDK type being
+`*string`/required. `BehaviorOnMXFailure`'s dead `omitempty` was also
+removed alongside `MailFromDomain` as harmless cleanup (same struct, same
+edit, not a distinct proven bug -- see reasoning above). Incidentally found
+and fixed, outside this cut's precise required-member scope since the
+members aren't Smithy-required: `xmlNotificationAttributes.HeadersInBounce/
+HeadersInComplaint/HeadersInDelivery` carried XML tags (`HeadersInBounce`
+etc.) that never matched the real deserializer's key names
+(`HeadersInBounceNotificationsEnabled` etc.) at all -- these three were
+silently dropped by every real client unconditionally, not just in an
+edge-case state; fixed alongside since it's the same struct already being
+touched. All 4 counted fixes proven via real `aws-sdk-go-v2/service/ses`
+client round trips (`services/ses/wire_output_required_r80d_test.go`),
+hand-reverted/confirmed-failing/restored, md5sum-verified byte-identical.
+Every other required member across all 13 ops (`ConfigurationSet.Name`,
+`ReceiptRule.Name`, `EventDestination.Name`/`MatchingEventTypes`,
+`MessageId` on every `Send*` op, `DkimTokens`, `VerificationToken`,
+`PolicyNames`/`Identities` lists) read end to end and confirmed always
+emitted unconditionally (no `omitempty` left on anything genuinely
+provable).
+
+**athena (12 fields / 70 ops, 8 ops-with-required, 0 bugs):** already swept
+for this exact bug class by a dated, well-documented prior pass -- `services/
+athena/PARITY.md`'s existing `GetSessionEndpoint`/`CreatePresignedNotebookUrl`/
+`GetResourceDashboard` entries explicitly describe finding and fixing the
+identical "response shape missing required members" class this cut targets
+(e.g. `GetSessionEndpoint` used to return `{SessionEndpoint: url}` against a
+real required 3-member shape `{EndpointUrl, AuthToken,
+AuthTokenExpirationTime}`). Re-read all 8 ops-with-required end to end
+rather than trusting the prior pass's dates: confirmed still correct, no
+regression. One nested-domain-struct check found real depth the flat count
+misses -- `GetCapacityReservation`/`ListCapacityReservations` wrap
+`types.CapacityReservation`, which itself carries 5 required members
+(`AllocatedDpus`/`CreationTime`/`Name`/`Status`/`TargetDpus`) invisible to
+the per-op scan. All 5 confirmed correctly emitted except `CreationTime`
+(`float64`, tagged `omitempty`) -- reviewed and ruled out as structurally
+unreachable: `CreateCapacityReservation` is the sole construction site
+(confirmed via a repo-wide grep for `CapacityReservation{`) and
+unconditionally sets it to `time.Now().UnixMilli()`-derived epoch seconds,
+which is never exactly zero at any real point in time. Same dead-tag class
+batch 23 first applied to awsconfig's `Connector`/`ConnectorSummary`.
+`GetCapacityAssignmentConfiguration`'s wrapped `CapacityAssignmentConfiguration`
+and `ListExecutors`'s nested `ExecutorsSummary`/`Executor.ExecutorId`
+confirmed clean (the former has zero required members on the real SDK type
+at all; the latter's `ExecutorId` is always non-empty, no `omitempty`). No
+code changes.
+
+**comprehend (12 fields / 85 ops, 6 ops-with-required, 0 bugs):** the 6
+`BatchDetect*` ops (`Sentiment`/`Entities`/`KeyPhrases`/`Syntax`/
+`DominantLanguage`/`TargetedSentiment`) each require `ErrorList`/
+`ResultList` -- both already documented `wire: ok` by a prior pass
+(`services/comprehend/PARITY.md`'s `BatchDetect-family` row) specifically
+for the "if there are no errors in the batch, ErrorList is empty" partial-
+failure semantics this cut cares about. Confirmed both are built via
+non-nil `make(...)` slices in the shared `batch()` wrapper
+(`handler_detection.go`) and returned unconditionally in the response map,
+never gated on length. Checked every nested `*ItemResult` type
+(`BatchDetectSentimentItemResult`, `...DominantLanguageItemResult`,
+`...KeyPhrasesItemResult`, `...EntitiesItemResult`, `...SyntaxItemResult`,
+`...TargetedSentimentItemResult`) and `BatchItemError` against
+`comprehend@v1.43.4/types/types.go` directly via the AST walk -- all 6
+declare **zero** required members in the real Smithy model, so the flat
+op-level count (12 fields/6 ops) is already the complete surface with no
+nested-domain-struct undercount, unlike ses/athena this batch. No code
+changes.
+
+All three services' gates green (build/vet/gofmt/race-test/lint, 0 banned
+nolints, 0 new nolints); repo-wide `go build ./...`, `go vet ./...`, `go vet
+-tags e2e ./...`, `go vet -tags integration ./...` all clean (only sagemaker
+dirty, untouched). No exported signatures changed.
+`services/_REQUIRED_OUTPUT_CANDIDATES.md` updated: all three moved into
+"Already examined" (settled-services count now 49, 2541 required output
+fields read end to end); `rekognition` and `timestreamquery` (tied at 11
+each) are now the largest remaining candidates after sagemaker. Did not
+attempt a fourth service this batch.
