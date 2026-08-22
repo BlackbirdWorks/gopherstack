@@ -486,14 +486,33 @@ func TestHandler_GetAccessPointPolicyStatus(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		setup      func(b *s3control.InMemoryBackend)
 		name       string
 		wantBody   string
 		wantStatus int
 	}{
 		{
-			name:       "always_returns_not_public",
+			name: "no_policy_attached_is_not_public",
+			setup: func(b *s3control.InMemoryBackend) {
+				b.AddAccessPointInternal("acct1", "ap1", "bucket1")
+			},
 			wantStatus: http.StatusOK,
-			wantBody:   "PolicyStatus",
+			wantBody:   "<PolicyStatus><IsPublic>false</IsPublic></PolicyStatus>",
+		},
+		{
+			name: "policy_attached_is_public",
+			setup: func(b *s3control.InMemoryBackend) {
+				b.AddAccessPointInternal("acct1", "ap1", "bucket1")
+				require.NoError(t, b.PutAccessPointPolicy("acct1", "ap1", `{"p":1}`))
+			},
+			wantStatus: http.StatusOK,
+			wantBody:   "<PolicyStatus><IsPublic>true</IsPublic></PolicyStatus>",
+		},
+		{
+			name:       "nonexistent_access_point_not_found",
+			setup:      func(*s3control.InMemoryBackend) {},
+			wantStatus: http.StatusNotFound,
+			wantBody:   "NoSuchAccessPoint",
 		},
 	}
 
@@ -502,6 +521,8 @@ func TestHandler_GetAccessPointPolicyStatus(t *testing.T) {
 			t.Parallel()
 
 			h := newTestS3ControlHandler(t)
+			tt.setup(h.Backend)
+
 			rec := doS3Request(t, h, http.MethodGet, "/v20180820/accesspoint/ap1/policyStatus", "")
 			assert.Equal(t, tt.wantStatus, rec.Code)
 			assert.Contains(t, rec.Body.String(), tt.wantBody)

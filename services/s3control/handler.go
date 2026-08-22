@@ -368,15 +368,19 @@ func handleBackendError(c *echo.Context, err error) error {
 	}
 }
 
-// writeXMLErrorCode writes an AWS REST-XML <Error><Code>/<Message> envelope
-// with the given HTTP status. This is the wire shape aws-sdk-go-v2's s3control
-// client deserializer expects for ALL error responses (restxml protocol,
-// s3shared.GetErrorResponseComponents with IsWrappedWithErrorTag: true) -- a
-// plain-text body fails XML parsing and surfaces to real SDK callers as a
-// generic smithy.DeserializationError instead of a typed, code-matchable AWS
-// API error.
+// writeXMLErrorCode writes the <ErrorResponse><Error><Code>/<Message>...
+// envelope with the given HTTP status. aws-sdk-go-v2/service/s3control's
+// deserializers all call s3shared.GetErrorResponseComponents with
+// IsWrappedWithErrorTag: true (deserializers.go, every awsRestxml_deserializeOpError*
+// function), which decodes "Error>Code"/"Error>Message" -- i.e. Code/Message
+// nested one level under a wrapping root, the same shape ProtocolQueryXML
+// already produces (confirmed against s3shared's own wrappedXMLErrorResponse
+// test fixture in xml_utils_test.go). ProtocolRestXML's bare top-level
+// <Error> (used here previously) has no element matching that "Error>Code"
+// path, so every s3control error response decoded as a real client's generic
+// smithy.GenericAPIError{Code: "UnknownError"} instead of the real code.
 func writeXMLErrorCode(c *echo.Context, status int, code, message string) error {
-	return awserr.Write(c, awserr.ProtocolRestXML, awserr.APIError{
+	return awserr.Write(c, awserr.ProtocolQueryXML, awserr.APIError{
 		Code:       code,
 		Message:    message,
 		HTTPStatus: status,

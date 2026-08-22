@@ -452,7 +452,16 @@ type getAccessPointPolicyStatusResponseXML struct {
 }
 
 func (h *Handler) handleGetAccessPointPolicyStatus(c *echo.Context) error {
-	return writeXML(c, getAccessPointPolicyStatusResponseXML{IsPublic: false})
+	accountID := accountIDFromRequest(c)
+	path := c.Request().URL.Path
+	name := strings.TrimSuffix(strings.TrimPrefix(path, pathAccessPointPrefix), "/policyStatus")
+
+	isPublic, err := h.Backend.GetAccessPointPolicyStatus(accountID, name)
+	if err != nil {
+		return handleBackendError(c, err)
+	}
+
+	return writeXML(c, getAccessPointPolicyStatusResponseXML{IsPublic: isPublic})
 }
 
 // ---- Access Point Scope ----

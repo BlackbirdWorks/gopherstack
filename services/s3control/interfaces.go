@@ -23,6 +23,7 @@ type StorageBackend interface {
 	PutAccessPointPolicy(accountID, name, policy string) error
 	GetAccessPointPolicy(accountID, name string) (string, error)
 	DeleteAccessPointPolicy(accountID, name string) error
+	GetAccessPointPolicyStatus(accountID, name string) (bool, error)
 	CreateAccessPointForObjectLambda(accountID, name string) *ObjectLambdaAccessPoint
 	CreateBucket(accountID, bucketName string) *OutpostsBucket
 	CreateJob(accountID, roleArn string, priority int32) (*BatchJob, error)
