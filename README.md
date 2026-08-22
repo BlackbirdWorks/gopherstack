@@ -467,7 +467,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 |---|---|---|---|
 | [App Runner](services/apprunner/README.md) | A | 37 | 1 gap |
 | [Auto Scaling](services/autoscaling/README.md) | A | 66 | 2 gaps |
-| [Batch](services/batch/README.md) | A | 45 | 5 gaps |
+| [Batch](services/batch/README.md) | A | 45 | 7 gaps |
 | [EC2](services/ec2/README.md) | A | — | 20 families; 2 gaps; 1 structural gap; 8 deferred |
 | [Elastic Beanstalk](services/elasticbeanstalk/README.md) | A | 46 | 11 gaps; 3 deferred |
 | [Lambda](services/lambda/README.md) | A | — | 9 families |
