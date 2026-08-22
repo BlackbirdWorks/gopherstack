@@ -893,7 +893,7 @@ type querySchemaVersionMetadataInput struct {
 
 // querySchemaVersionMetadataOutput holds the result for QuerySchemaVersionMetadata.
 type querySchemaVersionMetadataOutput struct {
-	MetadataInfo    map[string]any `json:"MetadataInfo"`
+	MetadataInfo    map[string]any `json:"MetadataInfoMap"`
 	SchemaVersionID string         `json:"SchemaVersionId"`
 }
 
