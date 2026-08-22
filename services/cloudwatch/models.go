@@ -316,18 +316,35 @@ type MetricStreamFilter struct {
 	MetricNames []string `json:"MetricNames,omitempty"`
 }
 
+// MetricStreamStatisticsMetric names one metric whose additional statistics
+// are streamed (aws-sdk-go-v2 cloudwatch@v1.66.3 types.MetricStreamStatisticsMetric,
+// types/types.go:3312 -- MetricName/Namespace both required).
+type MetricStreamStatisticsMetric struct {
+	MetricName string `json:"MetricName"`
+	Namespace  string `json:"Namespace"`
+}
+
+// MetricStreamStatisticsConfiguration is types.MetricStreamStatisticsConfiguration
+// (aws-sdk-go-v2 cloudwatch@v1.66.3 types/types.go:3270 -- AdditionalStatistics/
+// IncludeMetrics both required).
+type MetricStreamStatisticsConfiguration struct {
+	AdditionalStatistics []string                       `json:"AdditionalStatistics"`
+	IncludeMetrics       []MetricStreamStatisticsMetric `json:"IncludeMetrics"`
+}
+
 // MetricStream represents a CloudWatch metric stream.
 type MetricStream struct {
-	CreationDate   time.Time            `json:"CreationDate"`
-	LastUpdateDate time.Time            `json:"LastUpdateDate"`
-	Name           string               `json:"Name"`
-	FirehoseArn    string               `json:"FirehoseArn"`
-	RoleArn        string               `json:"RoleArn"`
-	OutputFormat   string               `json:"OutputFormat"`
-	State          string               `json:"State"`
-	Arn            string               `json:"Arn"`
-	IncludeFilters []MetricStreamFilter `json:"IncludeFilters,omitempty"`
-	ExcludeFilters []MetricStreamFilter `json:"ExcludeFilters,omitempty"`
+	CreationDate             time.Time                             `json:"CreationDate"`
+	LastUpdateDate           time.Time                             `json:"LastUpdateDate"`
+	Name                     string                                `json:"Name"`
+	FirehoseArn              string                                `json:"FirehoseArn"`
+	RoleArn                  string                                `json:"RoleArn"`
+	OutputFormat             string                                `json:"OutputFormat"`
+	State                    string                                `json:"State"`
+	Arn                      string                                `json:"Arn"`
+	IncludeFilters           []MetricStreamFilter                  `json:"IncludeFilters,omitempty"`
+	ExcludeFilters           []MetricStreamFilter                  `json:"ExcludeFilters,omitempty"`
+	StatisticsConfigurations []MetricStreamStatisticsConfiguration `json:"StatisticsConfigurations,omitempty"`
 }
 
 // AlarmMuteRuleSchedule is cloudwatch types.Schedule: the cron/at expression
@@ -350,7 +367,7 @@ type AlarmMuteRule struct {
 	Arn                  string                `json:"Arn"`
 	Description          string                `json:"Description,omitempty"`
 	Schedule             AlarmMuteRuleSchedule `json:"Schedule"`
-	AlarmNames           []string              `json:"AlarmNames,omitempty"`
+	AlarmNames           []string              `json:"AlarmNames"`
 }
 
 // InsightRuleContributor represents a single top-N contributor computed for

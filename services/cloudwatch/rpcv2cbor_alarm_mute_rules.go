@@ -132,7 +132,12 @@ func buildAlarmMuteRuleCBOR(rule *AlarmMuteRule) cbor.Map {
 	if rule.Description != "" {
 		out["Description"] = cbor.String(rule.Description)
 	}
-	if len(rule.AlarmNames) > 0 {
+	// AlarmNames nil means MuteTargets was never set at Put time; AlarmNames
+	// non-nil-but-empty means a real client legally sent MuteTargets with an
+	// empty AlarmNames array (validateMuteTargets only null-checks it,
+	// cloudwatch@v1.66.3 validators.go:1418) -- MuteTargets itself must still
+	// be emitted in that case, not omitted.
+	if rule.AlarmNames != nil {
 		out["MuteTargets"] = cbor.Map{"AlarmNames": cborStringList(rule.AlarmNames)}
 	}
 	if !rule.ExpireDate.IsZero() {

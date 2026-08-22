@@ -189,6 +189,7 @@ from the ranked table) as future batches clear more of it.
 | mgn | 5 | 95 (5 ops-with-required) | 0 (clean; the batch's primary hypothesis test -- 95 ops, only 5 required fields, all already unconditionally populated (`launchConfigurationTemplateWire`/`replicationConfigurationTemplateWire`'s IDs carry no `omitempty` and are set at Create; `listManagedAccountsResponse.Items` is a non-nil `make(...)`). Below the flat scan: an AST walk of all 19 required-bearing domain structs in types.go found every response-reachable one (`Job`/`ParticipatingServer` via Terminate/StartTest/StartCutover/DescribeJobs; `TargetNetwork`/`TargetS3Configuration`/`SourceConfiguration` via Get/Create/UpdateNetworkMigrationDefinition, none required at their own op level and so invisible to the per-op ranking; `StorageConfiguration`/`ConnectorSsmCommandConfig`) already correctly wired, with the request-only types (`StartNetworkMigrationMappingUpdateConstruct`/`Segment`, `S3BucketSource`, both `EnrichmentS3Configuration` variants, `ChangeServerLifeCycleStateSourceServerLifecycle`) confirmed out of scope by reading their containing Input/Output split -- see the batch-32 note below and services/mgn/PARITY.md) | gopherstack-r80d batch 32 |
 | redshiftdata | 5 | 12 (5 ops-with-required) | 0 (clean; a control for the batch's hypothesis -- all 5 ops build `map[string]any` literals, the same structural immunity as ssoadmin/mediatailor/shield/translate; nested `SessionData`/`StatementData`/`SubStatementData` required members (one level below the flat scan) all backed by backend-generated non-empty IDs; `SqlParameter.{Name,Value}`'s lowercase wire tags confirmed correct (not a casing bug) against the real awsjson1.1 deserializer's own key switch -- see the batch-32 note below and services/redshiftdata/PARITY.md) | gopherstack-r80d batch 32 |
 | scheduler | 5 | 12 (5 ops-with-required) | yes (2: `EcsParameters.NetworkConfiguration.AwsvpcConfiguration` and every `CapacityProviderStrategyItem` member -- including required `CapacityProvider`, `*string`, provable -- were wrong-cased wire keys (gopherstack emitted the capitalized Go field name; the real wire is lowercase-first, e.g. `awsvpcConfiguration`/`capacityProvider`), invisible to any real client's exact-case response-deserializer switch regardless of value; separately, required `AwsVpcConfiguration.Subnets` was tagged `omitempty` despite the real client-side validator only null-checking it, reachably empty via a real client -- see the batch-32 note below and services/scheduler/PARITY.md) | gopherstack-r80d batch 32 |
+| cloudwatch | 4 | 50 (3 ops-with-required) | yes (2 counted + 1 disclosed-not-provable: `GetAlarmMuteRule.MuteTargets` dropped entirely whenever a real client legally sent an empty-but-non-nil `AlarmNames` array (validator only null-checks it), now gated on nil rather than `len>0`; `GetMetricStream.StatisticsConfigurations` was structurally absent from gopherstack's model (never parsed on Put, never stored, never emitted); `GetInsightRuleReport`'s per-contributor `Datapoints` was never emitted at all but is NOT provable via a real client -- the rpc-v2-cbor deserializer collapses a present-but-zero-length list to nil identically to an absent key, confirmed for both this field and `MuteTargets.AlarmNames` itself -- see the batch-33 note below and services/cloudwatch/PARITY.md) | gopherstack-r80d batch 33 |
 
 67 services settled, 2654 required output fields read end to end (the running
 total counts each settled service's flat per-op `cmd/requiredoutputfields`
@@ -2976,3 +2977,104 @@ running out at the tail end of the tier list. The next batch should take
 thin; if `cloudwatch` and its remaining same-tier peers also come back
 clean or near-clean, closing the campaign rather than continuing down to
 the 1-field services is the better use of a future session.
+
+## Batch 33 (2026-08-21): cloudwatch settled; the wrapped-type-shape mechanism test; recommendation to close
+
+**Recommendation: close the campaign.** See the full reasoning at the end of
+this section. `cloudwatch` was taken per batch 32's note (largest remaining
+candidate after sagemaker, off-limits). Module resolved deliberately:
+`services/cloudwatch` has no `dirModuleOverride` entry (direct match,
+`cloudwatch@v1.66.3`); confirmed distinct from `services/cloudwatchlogs`
+(separate module/version, off-limits this batch for a concurrent agent) and
+from `eventbridge` (there is no `cloudwatchevents` service directory in this
+repo). Protocol re-confirmed against this exact pin, not assumed:
+`api_client.go:214` hardcodes `options.Protocol = rpcv2.NewCBOR(...)` --
+this SDK client speaks rpc-v2-cbor only, contradicting a naive assumption
+that CloudWatch is query/XML (true only for gopherstack's own hand-
+maintained legacy compatibility shim, never exercised by the pinned real
+client).
+
+`cloudwatch` (4 fields / 50 ops / 3 ops-with-required): 2 bugs found and
+fixed, both proven via real `aws-sdk-go-v2/service/cloudwatch` client round
+trips, hand-reverted/confirmed-failing/restored, md5sum-verified byte-
+identical -- `GetAlarmMuteRule.MuteTargets` (dropped whenever a real client
+legally sent an empty `AlarmNames` array) and `GetMetricStream.
+StatisticsConfigurations` (structurally absent from the model entirely).
+A third finding (`GetInsightRuleReport`'s per-contributor `Datapoints`) was
+fixed for correctness but is **not** provable via a real client and is not
+counted -- see services/cloudwatch/PARITY.md's 2026-08-21 entry for the
+full writeup, including a new instrument-level finding worth carrying
+forward: cloudwatch's rpc-v2-cbor deserializer collapses a present-but-
+zero-length list to `nil` identically to an absent key, so this campaign's
+"present-and-empty vs absent" distinction is *unobservable* for list-typed
+members on this one service's protocol, unlike every JSON/XML-tagged
+service audited so far. Settled 67 -> 68.
+
+### The wrapped-type-shape mechanism test
+
+Per the brief, rather than taking the next field-count-ranked service,
+selected 2 candidates for the *actual* mechanism batch 32 named (an op with
+zero top-level required fields wrapping a domain type that itself declares
+several). Selection method: a small scratch script (not committed -- one-off,
+layered on `cmd/requiredoutputfields`'s own parsing logic) that, for every
+resolved service, finds ops whose `<Op>Output` has zero top-level required
+fields and at least one *non-slice* field whose own type -- or, one hop
+further inside that type's own fields -- declares >=2 required members.
+Restricting to non-slice fields deliberately excludes the ordinary "List op
+returns `[]DomainStruct`" shape, which this campaign's per-op domain-struct
+reads have already covered since batch 1; the point was to isolate
+`GetScheduleOutput`-style singular-object wraps specifically. Validated
+against the known scheduler ground truth (`GetSchedule` -> `Target`,
+`required-in-type=2`) before trusting it for ranking.
+
+Restricted to services with genuinely **zero** required output fields at
+`cmd/requiredoutputfields`'s flat level (so invisible to every ranking this
+campaign has used to date) and not on this batch's off-limits list. Top two
+by hit count: `fsx` (22 hits -- `Backup`/`DataRepositoryTask` direct wraps,
+plus many generic `->Tag` hits since most taggable FSx resources wrap the
+common two-required-member `Tag` shape) and `codebuild` (22 hits, all
+substantive: `Project`/`Build`/`BuildBatch`/`Webhook`/`Sandbox` wrapping
+`ProjectEnvironment`(3 required)/`ProjectSourceVersion`(2)/
+`ScopeConfiguration`(2), no generic-Tag noise).
+
+**Neither was hand-audited this batch** -- selecting them and confirming the
+selection method itself was cheap (a few minutes of scripting reusing
+already-validated parsing logic), but a full end-to-end hand-read of either
+service (the standard this campaign holds every other row in this table to)
+was not attempted, in order to keep this batch's actual audited-and-proven
+work concentrated on `cloudwatch` per the brief's primary instruction. This
+is a deliberate, disclosed gap, not a finding: **do not count fsx/codebuild
+as settled** in the table above, and do not infer from their high hit count
+alone that bugs are likely there -- op count and field count have both
+already been shown (batches 26-32) not to predict bug density reliably, and
+this new metric hasn't been calibrated against a single real audit yet.
+
+### Recommendation: close the campaign
+
+Nine services audited across batches 30-33 (kinesisanalyticsv2, mediastore,
+mediatailor, shield, ssoadmin, translate, mgn, redshiftdata, scheduler,
+cloudwatch) yielded bugs in exactly one -- scheduler (2) -- plus cloudwatch's
+2 counted + 1 disclosed-not-provable this batch. That is a yield of roughly
+2-3 real, provable bugs across 10 services and hundreds of ops, down from
+double-digit yields per batch in the 20s-fields tier (batches 24-29) and a
+clean sweep at the field-6 tier (batch 30-31, six services, zero bugs). The
+campaign's own two ranking hypotheses have now both failed in sequence
+(required-field count stopped predicting after batch 29; op count failed at
+batch 32, where 95-op `mgn` was clean and 12-op `scheduler` carried both
+bugs) and this batch's attempt at a *third* hypothesis -- ops with zero
+required fields wrapping richly-required domain types -- was not actually
+tested against a real audit (fsx/codebuild were only *selected*, not
+audited), so it cannot yet be said to predict anything either. Continuing
+by any of the three metrics tried so far means auditing the long remaining
+tail (1-3-field services, of which there are dozens) on pure hope, the same
+gamble that already failed twice.
+
+**If a future session wants to test the wrapped-type-shape hypothesis
+properly** before fully closing, `fsx` and `codebuild` (selected above, not
+yet audited) are the one clean next step available -- but given the string
+of near-zero yields since batch 29, and that six full services already came
+back clean at the field-6 tier with stated structural causes (not absence of
+looking), closing this campaign now and filing any residual curiosity as a
+narrowly-scoped follow-up issue (audit fsx/codebuild specifically for the
+wrapped-type shape, nothing more) is the better use of a future session than
+continuing the broad sweep down to the 1-field tier.

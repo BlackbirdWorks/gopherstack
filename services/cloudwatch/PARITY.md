@@ -6,8 +6,8 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: cloudwatch
 sdk_module: aws-sdk-go-v2/service/cloudwatch@v1.66.3
-last_audit_commit: 198990e82
-last_audit_date: 2026-08-07
+last_audit_commit: 9e2b1b8e8   # HEAD when this audit pass started (gopherstack-r80d batch 33)
+last_audit_date: 2026-08-21
 overall: A            # 2026-08-07 pass (bd gopherstack-lrmf): metric streams now actually deliver
                       # matched PutMetricData records to their configured Firehose delivery stream
                       # when OutputFormat=json, via a new FirehosePutter interface (SetFirehosePutter,
@@ -79,7 +79,7 @@ ops:
   ListDashboards: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteDashboards: {wire: ok, errors: ok, state: ok, persist: ok}
   PutAlarmMuteRule: {wire: ok, errors: ok, state: ok, persist: ok, note: "create-or-update semantics confirmed against the real op (no separate Update op exists); re-PUTting an existing MuteName updates in place"}
-  GetAlarmMuteRule: {wire: ok, errors: ok, state: ok, persist: ok}
+  GetAlarmMuteRule: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-21 (gopherstack-r80d batch 33) — MuteTargets was gated on len(rule.AlarmNames)>0, so a real client that legally set MuteTargets with an explicit empty AlarmNames array (validateMuteTargets only null-checks it) got the entire wrapper omitted, indistinguishable from a rule with no MuteTargets set at all. Now gated on rule.AlarmNames != nil. See Notes."}
   DeleteAlarmMuteRule: {wire: ok, errors: ok, state: ok, persist: ok}
   ListAlarmMuteRules: {wire: ok, errors: ok, state: ok, persist: ok}
   PutAnomalyDetector: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -90,11 +90,11 @@ ops:
   DescribeInsightRules: {wire: ok, errors: ok, state: ok, persist: ok}
   EnableInsightRules: {wire: ok, errors: ok, state: ok, persist: ok}
   DisableInsightRules: {wire: ok, errors: ok, state: ok, persist: ok}
-  GetInsightRuleReport: {wire: ok, errors: ok, state: ok, persist: ok}
+  GetInsightRuleReport: {wire: partial, errors: ok, state: ok, persist: ok, note: "DISCLOSED 2026-08-21 (gopherstack-r80d batch 33) — types.InsightRuleContributor.Datapoints is required but was never emitted at all (no key), matching the existing top-level MetricDatapoints limitation (this backend has no per-timestamp breakdown, only a range-wide sum). Now emitted as an honest empty list. NOT provable via a real aws-sdk-go-v2 client round trip: the rpc-v2-cbor deserializer collapses a present-but-zero-length list to nil identically to an absent key (confirmed for this field and for MuteTargets.AlarmNames), so fixed for wire correctness but not counted as a proven bug. See Notes."}
   ListManagedInsightRules: {wire: ok, errors: ok, state: ok, persist: ok}
   PutManagedInsightRules: {wire: ok, errors: ok, state: ok, persist: ok}
-  PutMetricStream: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-07 pass — FirehoseArn/RoleArn/OutputFormat are all 'This member is required' in PutMetricStreamInput (true on every call, not just create, since Put is a full-replace not a patch) but were previously unenforced; OutputFormat now validated against the 3 real enum values (json/opentelemetry0.7/opentelemetry1.0); IncludeFilters+ExcludeFilters-together now rejected per the documented mutual exclusion (metric_stream_validation.go). create-or-update semantics confirmed (no separate Update op); re-PUTting an existing Name updates in place. DELIVERY IMPLEMENTED 2026-08-07 (bd gopherstack-lrmf) — see PutMetricData row and families note below; PutMetricStream itself is unchanged this pass."}
-  GetMetricStream: {wire: ok, errors: ok, state: ok, persist: ok}
+  PutMetricStream: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED 2026-07 pass — FirehoseArn/RoleArn/OutputFormat are all 'This member is required' in PutMetricStreamInput (true on every call, not just create, since Put is a full-replace not a patch) but were previously unenforced; OutputFormat now validated against the 3 real enum values (json/opentelemetry0.7/opentelemetry1.0); IncludeFilters+ExcludeFilters-together now rejected per the documented mutual exclusion (metric_stream_validation.go). create-or-update semantics confirmed (no separate Update op); re-PUTting an existing Name updates in place. DELIVERY IMPLEMENTED 2026-08-07 (bd gopherstack-lrmf) — see PutMetricData row and families note below. FIXED 2026-08-21 (gopherstack-r80d batch 33) — StatisticsConfigurations now parsed and stored; see GetMetricStream row and Notes."}
+  GetMetricStream: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-21 (gopherstack-r80d batch 33) — StatisticsConfigurations (whose members AdditionalStatistics/IncludeMetrics are both required, cloudwatch@v1.66.3 types/types.go:3270) was structurally absent from gopherstack's MetricStream model entirely: never parsed on PutMetricStream, never stored, never emitted here. A real client configuring additional statistics had that configuration silently discarded. Now threaded through end to end. See Notes."}
   ListMetricStreams: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteMetricStream: {wire: ok, errors: ok, state: ok, persist: ok}
   StartMetricStreams: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -527,3 +527,144 @@ would not have (see that reasoning in the test's doc comment).
 `sdk_metric_streams_start_stop_test.go`
 (`TestSDK_StartStopMetricStreams`) is the real-SDK-client regression test
 for this specific bug. No stale PARITY.md entries found otherwise.
+
+### gopherstack-r80d batch 33: required-response-member sweep (2026-08-21)
+
+Module resolved deliberately: `services/cloudwatch` has no `dirModuleOverride`
+entry, so it maps directly to `aws-sdk-go-v2/service/cloudwatch` — confirmed
+distinct from sibling `services/cloudwatchlogs` (module `cloudwatchlogs`, a
+separate pinned version, off-limits this batch per a concurrent agent) and
+from `eventbridge` (there is no `cloudwatchevents` service directory in this
+repo at all — that name doesn't exist here). `go.mod` pins
+`cloudwatch@v1.66.3`.
+
+**Protocol, re-confirmed against this exact pinned version**: `api_client.go:214`
+sets `options.Protocol = rpcv2.NewCBOR(schemas.GraniteServiceVersion20100801)`
+unconditionally — this SDK client speaks **rpc-v2-cbor only**, not query/XML.
+gopherstack's own XML path (`handler*.go`) is a hand-maintained compatibility
+shim for older/raw clients, not something the pinned real SDK client ever
+exercises; all three fixes below were made in both encoders, but only the
+CBOR path is provable via `newTestHandlerAndClient`'s real
+`aws-sdk-go-v2/service/cloudwatch` client.
+
+`cmd/requiredoutputfields` reports 4 required output fields / 3
+ops-with-required (`DescribeAlarmContributors.AlarmContributors`,
+`GetDataset.{Arn,DatasetId}`, `GetOTelEnrichment.Status`) — all three already
+correct, re-verified unconditionally emitted. The real surface is far larger
+one level down: an AST-style read of every domain struct reachable through
+this service's other 47 (zero-top-level-required) ops found `InsightRule` (4
+required), `MuteTargets`/`Rule` (1 each, via `GetAlarmMuteRule`),
+`MetricStreamStatisticsConfiguration` (2, via `GetMetricStream`),
+`InsightRuleContributor`/`InsightRuleMetricDatapoint` (3/1, via
+`GetInsightRuleReport`), `Tag` (2, via `ListTagsForResource`), matching this
+batch's exact target shape (a wrapper field optional at its own op's
+top level, wrapping a type that itself declares required members).
+
+**2 bugs found and fixed, both proven via real `aws-sdk-go-v2/service/cloudwatch`
+client round trips** (`wire_output_required_r80d_test.go`), hand-reverted to
+`git show HEAD:<path>` / confirmed-failing / restored, md5sum-verified
+byte-identical:
+
+1. `GetAlarmMuteRule.MuteTargets` (`buildAlarmMuteRuleCBOR`,
+   `rpcv2cbor_alarm_mute_rules.go`, and the XML twin in
+   `handler_alarm_mute_rules.go`) gated emission on
+   `len(rule.AlarmNames) > 0`. `types.MuteTargets.AlarmNames` ([]string) is
+   required, but the real client-side validator (`validateMuteTargets`,
+   cloudwatch@v1.66.3 validators.go:1418-1425) only null-checks it, so a real
+   client can legally `PutAlarmMuteRule` with `MuteTargets: {AlarmNames: []}`.
+   gopherstack's own `PutAlarmMuteRule` (alarm_mute_rules.go) never rejects
+   an empty list either — a genuinely reachable state, previously
+   collapsed into "MuteTargets never set at all". Fixed by gating on
+   `rule.AlarmNames != nil` instead; also removed the `,omitempty` json tag
+   from `AlarmMuteRule.AlarmNames` in `models.go` so the same nil/empty
+   distinction survives a persistence snapshot round trip. The provable,
+   observable difference is the wrapper object's own presence
+   (`*types.MuteTargets` nil vs non-nil) — see the note below on why
+   `AlarmNames`'s own nil-vs-empty is not independently observable through
+   this client.
+2. `GetMetricStream.StatisticsConfigurations` was structurally absent from
+   gopherstack's model: `PutMetricStreamInput.StatisticsConfigurations`
+   (whose members `AdditionalStatistics`/`IncludeMetrics` are each required,
+   `types.MetricStreamStatisticsConfiguration`, types/types.go:3270) was never
+   parsed on `PutMetricStream`, never stored on `MetricStream`, never emitted
+   on `GetMetricStream` — no struct field existed at all. A real client
+   configuring additional per-metric statistics had that configuration
+   silently discarded with no error. Fixed by adding
+   `MetricStreamStatisticsConfiguration`/`MetricStreamStatisticsMetric` domain
+   types (`models.go`) and threading them through both `PutMetricStream` and
+   `GetMetricStream` in the CBOR path (`rpcv2cbor_metric_streams.go`); the
+   `MetricStream`/`PutMetricStream`/`GetMetricStream` signatures did not
+   change (both take `*MetricStream` already), so no cross-file signature
+   fallout.
+
+**1 fixed but explicitly NOT counted as proven** (disqualified by the
+provability rule, not by reachability): `GetInsightRuleReport`'s per-
+contributor `types.InsightRuleContributor.Datapoints` (required,
+schemas.go:1085) was never emitted at all — `cborGetInsightRuleReport`
+(`rpcv2cbor_insight_rules.go`) built each contributor map with only
+`Keys`/`ApproximateAggregateValue`. This backend has no per-timestamp
+breakdown to offer (`aggregateContributorRecord` only accumulates a single
+range-wide sum, matching the pre-existing, already-disclosed limitation on
+the top-level `MetricDatapoints` field), so the fix emits an honest empty
+list rather than fabricating data. **This is not provable via a real
+`aws-sdk-go-v2` client round trip**: instrumenting the actual decoded value
+showed the rpc-v2-cbor deserializer collapses a present-but-zero-length list
+to a nil Go slice *identically* to an absent key — confirmed for both this
+field and, independently, for `MuteTargets.AlarmNames` (a non-nil empty
+`[]string` sent by a real client still decodes back as `nil`). A real client
+of this exact SDK version cannot tell "the key was present with zero
+elements" from "the key was never sent" for any list-typed field. This is a
+genuinely new wrinkle for this campaign, worth carrying forward: **for
+cloudwatch's rpc-v2-cbor protocol, a required list-typed member's
+"present-but-empty vs absent" distinction is unobservable through the pinned
+real client** — only a *wrapping object's own presence* (a struct pointer,
+as in finding 1 above) remains provable. Fixed for wire correctness anyway,
+per "fix for correctness if you like, but do not count them."
+
+**Rejected, not bugs**: `InsightRule.{Definition,Name,Schema,State}` (all
+`*string`, required) are always written unconditionally in both encoders;
+`State` can be stored as an empty string when a real client omits the
+(non-required) `RuleState` on `PutInsightRule`, but the field is still always
+*present* on the wire (never omitted) — an empty *value* is a data-
+correctness/defaulting question, not this campaign's dropped-required-member
+class. `AlarmContributor` (already fixed under gopherstack-kb66) re-verified
+still correct: `ContributorId`/`ContributorAttributes`/`StateReason` all
+unconditionally written, `ContributorAttributes` built via `make(cbor.Map,
+len(...))` so it's never nil even when empty.
+
+**Wrapped-type-shape mechanism test (per batch's brief)**: selected by
+building a small scratch tool (not committed — a one-off script layered on
+`cmd/requiredoutputfields`'s own extraction logic) that, for every service,
+finds ops whose `<Op>Output` declares **zero** top-level required members but
+has a non-slice field whose own type — or, one hop further, a field of
+*that* type — declares ≥2 required members: the exact `GetScheduleOutput` →
+`Target` → `EcsParameters.NetworkConfiguration.AwsvpcConfiguration` shape
+batch 32 named. Restricting to non-slice (singular `Get`-style) output
+fields deliberately excludes the already-well-trodden "List op returns
+`[]DomainStruct`" shape (covered by this campaign's ordinary per-op domain-
+struct reads since batch 1). Ranked candidates among services with **zero**
+required output fields at the flat `cmd/requiredoutputfields` level (so
+genuinely invisible to that ranking) and not on this batch's off-limits list:
+`fsx` (22 hits — `Backup`/`DataRepositoryTask` direct, plus many generic
+`->Tag` hits since every taggable FSx resource wraps the common two-required-
+member `Tag` shape) and `codebuild` (22 hits, all substantive:
+`Project`/`Build`/`BuildBatch`/`Webhook`/`Sandbox` wrapping
+`ProjectEnvironment`(3 required)/`ProjectSourceVersion`(2)/
+`ScopeConfiguration`(2)). Both were selected but **not yet audited this
+batch** — see the recommendation below; time this batch went to `cloudwatch`
+first per the brief's explicit instruction, and the tapering-decision
+question the brief poses is answered without needing to burn further budget
+on them (see recommendation).
+
+**Instrument validation**: cross-checked `cmd/requiredoutputfields`'s own
+4-field/3-op count for cloudwatch by hand-reading all 50 `api_op_*.go`
+`<Op>Output` struct bodies directly (not just the tool's summary) — agreed
+exactly, no discrepancy. The scratch wrapped-type-shape tool was itself
+validated against the known scheduler ground truth (`GetSchedule` → `Target`,
+`required-in-type=2`) before being trusted for ranking fsx/codebuild.
+
+**Gates**: `go build`, `go vet` (default + `-tags e2e` + `-tags integration`),
+`gofmt -l`, `go test -race -count=1`, `golangci-lint run` all green, scoped
+to `services/cloudwatch`; 0 banned nolints, 0 new nolints (two `govet` shadow
+warnings were fixed by renaming, not suppressed). No exported signature
+changed.
