@@ -6,7 +6,7 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: s3tables
 sdk_module: aws-sdk-go-v2/service/s3tables@v1.18.4   # version audited against
-last_audit_commit: pending (uncommitted this pass -- see git log at merge time)
+last_audit_commit:                                # unknown: pass ran without git access at write time, never backfilled -- gopherstack-33in
 last_audit_date: 2026-08-21
 overall: A            # gopherstack-r80d batch 9: checked specifically for the reachable-empty-required-output
                       # class (batch 8's cleanrooms lesson); one real bug found and fixed (GetTableBucketEncryption

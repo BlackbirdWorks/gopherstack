@@ -6,7 +6,7 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: codeconnections
 sdk_module: aws-sdk-go-v2/service/codeconnections@v1.13.4   # version audited against; go.mod pin as of this pass (was stale at v1.10.22)
-last_audit_commit: 749ff939+wt                    # HEAD when this manifest was PREVIOUSLY written; this pass's changes are uncommitted working-tree changes on top (git commands unavailable to this pass)
+last_audit_commit: 749ff939                       # HEAD when this manifest was PREVIOUSLY written; this pass's changes are uncommitted working-tree changes on top (git commands unavailable to this pass)
 last_audit_date: 2026-08-10
 overall: A            # true-parity pass: closed every gaps/deferred item from the prior audit, plus new wire/error-shape bugs found while field-diffing this pass
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.

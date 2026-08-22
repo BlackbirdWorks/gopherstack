@@ -380,3 +380,48 @@ New/updated tests: `reports_test.go` (`TestCodeBuild_ReportExtras`,
 `delete_fleet_missing_is_idempotent`), `pagination_test.go`/`persistence_test.go` (updated to
 create real report groups instead of hand-constructing ARNs that were never registered, which
 the new `ListReportsForReportGroup` existence check would otherwise correctly reject).
+
+**2026-08-22 (gopherstack-r80d, batch 34 -- required-OUTPUT-member sweep, wrapped-type-shape
+candidate, 0 bugs):** every codebuild op's `<Op>Output` declares zero required members at its
+own top level (confirmed via `cmd/requiredoutputfields`), invisible to every ranking this
+campaign used through batch 33. Selected as one of the two candidates named by batch 33's
+"ops with zero required fields wrapping richly-required domain types" mechanism test (`services/
+_REQUIRED_OUTPUT_CANDIDATES.md`'s batch-33 section) and given the full hand audit that batch
+left undone.
+
+Walked every non-slice field of every `<Op>Output` one hop into its own type
+(`aws-sdk-go-v2/service/codebuild@v1.72.4/types/types.go`); the only wrapped types declaring
+>=2 required members of their own are `ProjectEnvironment` (`ComputeType`, `Image`, `Type` --
+`Project`/`Build`/`BuildBatch`/`Sandbox` each nest it via a field named `Environment`) and
+`ScopeConfiguration` (`Name`, `Scope` -- nested one hop inside `Webhook`). Of those, only
+`Image` (`*string`) and `Name` (`*string`) are provable per this campaign's pointer-vs-enum
+rule; `ComputeType`/`Type`/`Scope` are non-pointer enums and not provable regardless of
+gopherstack's behavior.
+
+All confirmed correctly emitted, no bugs:
+- `Environment` on `Build`/`BuildBatch`/`Sandbox` (`*ProjectEnvironment`, `omitempty`) is always
+  populated in practice: `StartBuild` (`builds.go`) copies it from the project via
+  `applyBuildOverrides`/`env`, never leaves it nil. `ProjectEnvironment.Image` has no
+  `omitempty` tag in gopherstack's own wire struct (`models.go`), so even a hypothetically
+  empty value would still serialize the key.
+- `ScopeConfiguration` on `Webhook` is not itself Smithy-required (only present for GitHub/
+  GitHub Enterprise org-scoped webhooks, matching real AWS's documented restriction) and is
+  threaded straight through from `CreateWebhookInput.ScopeConfiguration` to the response with
+  no fabrication or dropping (`handler_webhooks.go`/`webhooks.go`); `Name`/`Scope` in
+  gopherstack's `ScopeConfiguration` struct carry no `omitempty`, so whatever a real client's
+  own required-field validator already guaranteed on the way in survives to the response
+  unmodified.
+- One hop further: `ProjectSourceVersion` (`SourceIdentifier`, `SourceVersion`, both
+  `*string` and provable, nested in `Project`/`Build`'s `SecondarySourceVersions` slice) is
+  passed through verbatim from the request with no `omitempty` on either field in gopherstack's
+  struct -- clean, same reasoning as `ScopeConfiguration`.
+- Also checked one hop further into `Fleet`/`ReportGroup`/`CommandExecution`/`Sandbox`'s other
+  nested types (`ComputeConfiguration`, `ProxyConfiguration`, `ScalingConfigurationOutput`,
+  `FleetStatus`, `LogsLocation`, `SandboxSession`, `LogsConfig`, `VpcConfig`, `ProjectSource`):
+  all declare zero required members of their own except `ProjectSource.Type` (`SourceType`, a
+  non-pointer enum) -- not provable, not pursued further.
+
+**Wrapped-type-shape hypothesis verdict for codebuild: did not hold.** Every candidate this
+mechanism surfaced was either already correctly wired or not provable under this campaign's own
+rules. See `services/_REQUIRED_OUTPUT_CANDIDATES.md`'s batch-34 section for the cross-service
+verdict (the paired candidate, fsx, did find a bug this way).

@@ -117,3 +117,66 @@ independently of the file system they reference).
   the source of truth for DNS aliases is `DescribeFileSystemAliases`
   (`AssociateFileSystemAliases`/`DisassociateFileSystemAliases` in file_systems.go). See the doc
   comment on `WindowsConfiguration` in interfaces.go before "fixing" this.
+
+**2026-08-22 (gopherstack-r80d, batch 34 -- required-OUTPUT-member sweep, wrapped-type-shape
+candidate):** every fsx op's `<Op>Output` declares zero required members at its own top level
+(confirmed via `cmd/requiredoutputfields`), so this service was invisible to every ranking this
+campaign used through batch 33. Selected as one of the two candidates named by batch 33's
+"ops with zero required fields wrapping richly-required domain types" mechanism test (`services/
+_REQUIRED_OUTPUT_CANDIDATES.md`'s batch-33 section) and given the full hand audit that batch left
+undone.
+
+Every non-slice field of every `<Op>Output` was walked one hop into its own type
+(`aws-sdk-go-v2/service/fsx@v1.68.4/types/types.go`); only two wrapped types declare >=2
+required members of their own: `Backup` (`BackupId`, `CreationTime`, `FileSystem`, `Lifecycle`,
+`Type` -- types.go, `type Backup struct`) and `DataRepositoryTask` (`CreationTime`, `Lifecycle`,
+`TaskId`, `Type` -- types.go, `type DataRepositoryTask struct`), reached via
+`CreateBackup`/`DescribeBackups`/`CopyBackup` and `CreateDataRepositoryTask`/
+`DescribeDataRepositoryTasks` respectively.
+
+**1 bug found and fixed:** `Backup.FileSystem` (`*types.FileSystem`, required, a pointer and
+therefore provable) was dropped whenever the backup's source file system had since been
+deleted. `Backup.FileSystem`'s own doc comment states this metadata "is persisted even if the
+file system is deleted" -- and `DeleteFileSystem` intentionally does not cascade-delete backups
+(already covered by `TestFSx_DeleteFileSystem_DoesNotCascadeToBackups`), so this is a genuinely
+reachable, unexceptional state, not an edge case. `backups.go`'s `toBackup` derived `FileSystem`
+from a live lookup in the `fileSystems` table at read time (`CreateBackup`/`DescribeBackups`/
+`CopyBackup` all did this); once the file system was deleted, the lookup missed, and the
+`omitempty`-tagged `FileSystem` wire key vanished entirely, decoding to `nil` on any real client
+even though real FSx keeps serving it.
+
+Fixed by snapshotting the source file system's metadata onto `storedBackup` at
+`CreateBackup`/`CopyBackup` time (a new `FileSystem *storedFileSystem` field, deep-copied via a
+new `cloneStoredFileSystem` helper so the snapshot never aliases the live, mutable
+`fileSystems` table entry -- `store.Table.Get` returns the live pointer and `UpdateFileSystem`
+mutates it in place) instead of re-deriving it from live state on every read; `toBackup` now
+prefers the stored snapshot and falls back to a live lookup only for pre-existing
+snapshot-restored backups that predate this fix. `CopyBackup` propagates the *source backup's*
+own snapshot (not a fresh live lookup), matching that a copied backup's metadata should reflect
+the source backup's own recorded state.
+
+This is a purely additive field on `storedBackup` (part of `backendSnapshot`'s `backups` table);
+`fsxSnapshotVersion` was correctly **not** bumped -- `pkgs/persistence`'s
+`TestSnapshotVersionGuard` enforces this, and the checked-in golden
+(`pkgs/persistence/testdata/snapshot_inventory.json`) was regenerated with `-update` to add the
+new field.
+
+Proven via a real `aws-sdk-go-v2/service/fsx` client round trip
+(`wire_output_required_r80d_test.go`): create a file system, create a backup, delete the file
+system, then `DescribeBackups`/`CopyBackup` and assert `Backup.FileSystem` is still non-nil with
+the original `FileSystemId`. Hand-reverted (`backups.go` restored to `git show HEAD:services/
+fsx/backups.go`), confirmed the test fails with "Backup.FileSystem is required and must survive
+deletion..." on the pre-fix code, restored, `md5sum` byte-identical.
+
+**Reviewed and ruled clean, not a bug:** `DataRepositoryTask`'s four required members
+(`CreationTime`, `Lifecycle`, `TaskId`, `Type`) are all set unconditionally in `toPublic()` for
+every task, with no live-lookup dependency of the `Backup.FileSystem` kind. `TaskId`/
+`CreationTime` are the only provable (pointer) members among the four and both are always
+populated; `Lifecycle`/`Type` are non-pointer enums in the real SDK type, so per this campaign's
+standing rule they are not provable regardless and were not further pursued.
+
+**Wrapped-type-shape hypothesis verdict for fsx: held.** The bug above sat two levels below
+`DescribeBackupsOutput` (Output -> `Backup` -> `FileSystem`), invisible to every ranking this
+campaign has used (required-field count, op count) since `Backup` and `FileSystem` are not
+op-level fields at all. See `services/_REQUIRED_OUTPUT_CANDIDATES.md`'s batch-34 section for the
+cross-service verdict (fsx found a bug this way; the paired candidate, codebuild, did not).

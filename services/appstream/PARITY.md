@@ -6,7 +6,7 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: appstream
 sdk_module: aws-sdk-go-v2/service/appstream@v1.64.5
-last_audit_commit: HEAD
+last_audit_commit:                                # unknown: pass ran without git access at write time, never backfilled -- gopherstack-33in
 last_audit_date: 2026-07-26
 overall: A            # CI-blocking regression fixed this pass: the eb437919a dep bump to SDK
                        # v1.64.0 switched AppStream's wire protocol from awsjson1.1 to

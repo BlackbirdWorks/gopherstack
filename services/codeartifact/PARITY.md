@@ -6,7 +6,7 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: codeartifact
 sdk_module: aws-sdk-go-v2/service/codeartifact@v1.41.4   # version audited against
-last_audit_commit: HEAD  # this pass (2026-08-15, gopherstack-6flj) fixed a total-outage array-vs-map bug on 4 package-version ops, a DeletePackage sibling-trap, 2 ignored filters, 2 required-field gaps, and 2 backend-tracked-but-unemitted fields; commit hash not yet known at edit time
+last_audit_commit:                                # unknown: pass (2026-08-15, gopherstack-6flj) ran without git access at write time, never backfilled -- gopherstack-33in; this pass fixed a total-outage array-vs-map bug on 4 package-version ops, a DeletePackage sibling-trap, 2 ignored filters, 2 required-field gaps, and 2 backend-tracked-but-unemitted fields
 last_audit_date: 2026-08-15
 overall: A            # this pass: package-group "weak match" (casefold + dash/dot/underscore-run
                       # normalization, per AWS's documented dependency-confusion-protection

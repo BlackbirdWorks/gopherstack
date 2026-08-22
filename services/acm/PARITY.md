@@ -6,7 +6,7 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: acm
 sdk_module: aws-sdk-go-v2/service/acm@v1.43.4   # version audited against
-last_audit_commit: HEAD                           # see git log for this pass's commit
+last_audit_commit:                                # unknown: pass ran without git access at write time, never backfilled -- gopherstack-33in
 last_audit_date: 2026-08-10
 overall: A            # A = genuine fix found (wire-shape bug); B = already-accurate, proven op-by-op
 # 2026-07-25 pass: implemented 23 ops added between v1.37.21 and v1.43.0 (the

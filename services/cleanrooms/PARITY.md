@@ -1,7 +1,7 @@
 ---
 service: cleanrooms
 sdk_module: aws-sdk-go-v2/service/cleanrooms@v1.49.4   # bumped from v1.48.0 this pass (go.mod already pinned v1.49.4; PARITY.md was stale)
-last_audit_commit: pending (uncommitted this pass -- see git log at merge time)
+last_audit_commit:                                # unknown: pass ran without git access at write time, never backfilled -- gopherstack-33in
 last_audit_date: 2026-08-21
 overall: A            # systemic invented-field cleanup + several real state-machine/wire-shape bugs fixed (prior pass); IntermediateTable family implemented for real at the same quality bar (2026-07-25 pass)
                       # 2026-08-07 pass (bd gopherstack-kiqa): CollaborationChangeRequest.Changes is now a

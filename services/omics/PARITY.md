@@ -6,7 +6,7 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: omics
 sdk_module: aws-sdk-go-v2/service/omics@v1.49.5
-last_audit_commit: pending (uncommitted this pass -- see git log at merge time)
+last_audit_commit:                                # unknown: pass ran without git access at write time, never backfilled -- gopherstack-33in
 last_audit_date: 2026-08-07
 overall: A            # 2026-08-07 (gopherstack-hnhk): RunBatch's real body shape is now modeled.
                        # StartRunBatch takes real BatchRunSettings (inlineSettings, field-diffed

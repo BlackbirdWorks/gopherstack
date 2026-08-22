@@ -1,7 +1,7 @@
 ---
 service: ecs
 sdk_module: aws-sdk-go-v2/service/ecs@v1.90.0
-last_audit_commit: HEAD                           # see git log for this pass's commit
+last_audit_commit:                                # unknown: pass ran without git access at write time, never backfilled -- gopherstack-33in
 last_audit_date: 2026-07-31
 overall: A            # A = genuine fix found (wire-shape bug); B = already-accurate, proven op-by-op
 ops:

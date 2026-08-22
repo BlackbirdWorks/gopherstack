@@ -1,6 +1,6 @@
 service: s3control
 sdk_module: aws-sdk-go-v2/service/s3control@v1.73.4
-last_audit_commit: HEAD
+last_audit_commit:                                # unknown: pass ran without git access at write time, never backfilled -- gopherstack-33in
 last_audit_date: 2026-08-07
 overall: A            # 2026-08-07 (gopherstack-tir4 follow-up): independently re-verified this
                        # file's two "closed" claims by reading code directly rather than trusting

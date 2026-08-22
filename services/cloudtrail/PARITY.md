@@ -6,7 +6,7 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: cloudtrail
 sdk_module: aws-sdk-go-v2/service/cloudtrail@v1.58.4   # version audited against
-last_audit_commit: UNKNOWN_SEE_GIT_LOG   # this pass ran without git access; set on next commit
+last_audit_commit:                                # unknown: pass ran without git access at write time, never backfilled -- gopherstack-33in
 last_audit_date: 2026-08-15   # gopherstack-6flj wrapper-key sweep of all 24 List/Describe/Get ops
 overall: A            # A = ~1k genuine fixes found; B = already-accurate, proven op-by-op
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.

@@ -6,9 +6,9 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: elasticbeanstalk
 sdk_module: aws-sdk-go-v2/service/elasticbeanstalk@v1.37.4   # version audited against
-last_audit_commit: PENDING   # this pass's method (deserializer/serializer key-switch extraction,
-  # gopherstack-6flj wrapper-key sweep) is narrower/deeper than the prior Go-struct-level audit
-  # below; orchestrator sets the real commit hash on commit, per the mediatailor/codedeploy
+last_audit_commit:                                # unknown: pass ran without git access at write time, never backfilled -- gopherstack-33in;
+  # method (deserializer/serializer key-switch extraction, gopherstack-6flj wrapper-key sweep)
+  # is narrower/deeper than the prior Go-struct-level audit below, per the mediatailor/codedeploy
   # sessions' precedent for the same situation
 last_audit_date: 2026-07-23
 overall: A            # A = genuine fixes found; B = already-accurate, proven op-by-op
