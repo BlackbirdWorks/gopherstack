@@ -5,9 +5,9 @@ last_audit_commit: f8a54fdb                       # HEAD when this manifest was 
 last_audit_date: 2026-08-19
 overall: A            # genuine wire/error-code fixes found and applied
 ops:
-  CreateExperimentTemplate: {wire: ok (fixed), errors: ok, state: ok, persist: ok, note: 'experimentReportConfiguration now accepted + persisted; this sweep added targetAccountConfigurationsCount to the response envelope (see Notes)'}
-  GetExperimentTemplate: {wire: ok (fixed), errors: ok, state: ok, persist: ok, note: 'experimentReportConfiguration now returned; this sweep added targetAccountConfigurationsCount (see Notes)'}
-  UpdateExperimentTemplate: {wire: ok (fixed), errors: ok, state: ok, persist: ok, note: 'experimentReportConfiguration now accepted (wholesale replace) + persisted; this sweep added targetAccountConfigurationsCount to the response (see Notes)'}
+  CreateExperimentTemplate: {wire: ok, errors: ok, state: ok, persist: ok, note: 'experimentReportConfiguration now accepted + persisted; this sweep added targetAccountConfigurationsCount to the response envelope (see Notes)'}
+  GetExperimentTemplate: {wire: ok, errors: ok, state: ok, persist: ok, note: 'experimentReportConfiguration now returned; this sweep added targetAccountConfigurationsCount (see Notes)'}
+  UpdateExperimentTemplate: {wire: ok, errors: ok, state: ok, persist: ok, note: 'experimentReportConfiguration now accepted (wholesale replace) + persisted; this sweep added targetAccountConfigurationsCount to the response (see Notes)'}
   DeleteExperimentTemplate: {wire: ok, errors: ok, state: ok, persist: ok, note: cascades target-account-configs + idempotency-token entries}
   ListExperimentTemplates: {wire: ok, errors: ok, state: ok, persist: ok}
   StartExperiment: {wire: fixed, errors: ok, state: fixed, persist: ok, note: 'experimentOptions.actionsMode (run-all/skip-all) now accepted; template/lever/quota check-and-insert race fixed; see Notes'}
@@ -21,17 +21,17 @@ ops:
   ListTargetResourceTypes: {wire: ok, errors: ok, state: ok, persist: n/a}
   GetSafetyLever: {wire: fixed, errors: ok, state: ok, persist: ok, note: 'removed gopherstack-invented "tags" field from the wire response — types.SafetyLever has no tags field in the real SDK; see Notes'}
   UpdateSafetyLeverState: {wire: fixed, errors: ok, state: ok, persist: ok, note: 'same "tags" field removal as GetSafetyLever'}
-  StartExperiment: {wire: ok (fixed), errors: ok, state: ok (fixed), persist: ok, note: 'experimentOptions.actionsMode (run-all/skip-all) now accepted; template/lever/quota check-and-insert race fixed; this sweep added ExperimentAction.startAfter (see Notes)'}
-  GetExperiment: {wire: ok (fixed), errors: ok, state: ok (fixed), persist: ok, note: 'experimentReport/experimentReportConfiguration now returned; ExperimentTarget now carries filters/resourceTags/selectionMode; ExperimentAction now carries description; this sweep added ExperimentAction.startAfter (see Notes)'}
+  StartExperiment: {wire: ok, errors: ok, state: ok, persist: ok, note: 'experimentOptions.actionsMode (run-all/skip-all) now accepted; template/lever/quota check-and-insert race fixed; this sweep added ExperimentAction.startAfter (see Notes)'}
+  GetExperiment: {wire: ok, errors: ok, state: ok, persist: ok, note: 'experimentReport/experimentReportConfiguration now returned; ExperimentTarget now carries filters/resourceTags/selectionMode; ExperimentAction now carries description; this sweep added ExperimentAction.startAfter (see Notes)'}
   StopExperiment: {wire: ok, errors: ok, state: ok, persist: ok, note: 'was wrongly 409 ConflictException on not-running; StopExperiment has no ConflictException case in the SDK — fixed to 400 ValidationException (prior sweep); this sweep confirmed no regression'}
   ListExperiments: {wire: ok, errors: ok, state: ok, persist: ok, note: experimentTemplateId/status query filters applied before pagination}
-  ListExperimentResolvedTargets: {wire: ok (fixed), errors: ok, state: ok (fixed), persist: n/a, note: 'resolvedTargetDTO emitted invented resolvedArns/targetResourcesCount fields that do not exist on types.ResolvedTarget, and never paginated despite declaring nextToken; both fixed prior sweep; this sweep confirmed no regression'}
-  GetAction: {wire: ok, errors: ok, state: ok, persist: n/a (built-in + provider-derived catalog)}
-  ListActions: {wire: ok (fixed), errors: ok, state: ok, persist: n/a, note: 'reused the full actionDTO (with a "parameters" field) for the list response; the real types.ActionSummary has no parameters field, only types.Action (GetAction) does -- fixed this sweep with a dedicated actionSummaryDTO; see Notes'}
+  ListExperimentResolvedTargets: {wire: ok, errors: ok, state: ok, persist: n/a, note: 'resolvedTargetDTO emitted invented resolvedArns/targetResourcesCount fields that do not exist on types.ResolvedTarget, and never paginated despite declaring nextToken; both fixed prior sweep; this sweep confirmed no regression'}
+  GetAction: {wire: ok, errors: ok, state: ok, persist: n/a}
+  ListActions: {wire: ok, errors: ok, state: ok, persist: n/a, note: 'reused the full actionDTO (with a "parameters" field) for the list response; the real types.ActionSummary has no parameters field, only types.Action (GetAction) does -- fixed this sweep with a dedicated actionSummaryDTO; see Notes'}
   GetTargetResourceType: {wire: ok, errors: ok, state: ok, persist: n/a}
-  ListTargetResourceTypes: {wire: ok (fixed), errors: ok, state: ok, persist: n/a, note: 'same fabricated-field bug as ListActions: reused targetResourceTypeDTO (with parameters) instead of the real types.TargetResourceTypeSummary shape (resourceType + description only) -- fixed this sweep with a dedicated targetResourceTypeSummaryDTO; see Notes'}
-  GetSafetyLever: {wire: ok (fixed), errors: ok, state: ok, persist: ok, note: 'removed gopherstack-invented "tags" field from the wire response — types.SafetyLever has no tags field in the real SDK; see Notes'}
-  UpdateSafetyLeverState: {wire: ok (fixed), errors: ok, state: ok, persist: ok, note: 'same "tags" field removal as GetSafetyLever'}
+  ListTargetResourceTypes: {wire: ok, errors: ok, state: ok, persist: n/a, note: 'same fabricated-field bug as ListActions: reused targetResourceTypeDTO (with parameters) instead of the real types.TargetResourceTypeSummary shape (resourceType + description only) -- fixed this sweep with a dedicated targetResourceTypeSummaryDTO; see Notes'}
+  GetSafetyLever: {wire: ok, errors: ok, state: ok, persist: ok, note: 'removed gopherstack-invented "tags" field from the wire response — types.SafetyLever has no tags field in the real SDK; see Notes'}
+  UpdateSafetyLeverState: {wire: ok, errors: ok, state: ok, persist: ok, note: 'same "tags" field removal as GetSafetyLever'}
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok, note: 50-tag quota + aws:-prefix rejection enforced; safety-lever tag storage retained internally (see Notes)}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: n/a}

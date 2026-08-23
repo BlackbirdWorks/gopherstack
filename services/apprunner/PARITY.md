@@ -4,7 +4,6 @@ sdk_module: aws-sdk-go-v2/service/apprunner@v1.42.4
 last_audit_commit:                                # unknown: pass ran without git access at write time, never backfilled -- gopherstack-33in
 last_audit_date: 2026-08-21
 overall: A            # full field-diff sweep: closed every gaps/deferred item from the 2026-07-13 audit
-last_audit_commit: pending (agent instructed not to run git; set at commit time)
 last_audit_date: 2026-08-19
 overall: A            # wrapper-key/nested-shape sweep 2026-08-19: found and fixed one fabricated-field bug
 ops:
