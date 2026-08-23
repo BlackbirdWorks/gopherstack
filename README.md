@@ -522,7 +522,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [API Gateway v2](services/apigatewayv2/README.md) | A | 77 | 2 gaps; 3 deferred |
 | [App Mesh](services/appmesh/README.md) | A | 38 | 2 gaps |
 | [Cloud Map](services/servicediscovery/README.md) | A | 30 | 3 gaps; 1 deferred |
-| [CloudFront](services/cloudfront/README.md) | A | 59 | 3 deferred |
+| [CloudFront](services/cloudfront/README.md) | A | 60 | 3 deferred |
 | [CloudWatch Network Monitor](services/networkmonitor/README.md) | A | 12 | 1 deferred |
 | [ELB (Classic)](services/elb/README.md) | A | 29 | 2 gaps; 1 deferred |
 | [ELBv2](services/elbv2/README.md) | A | 51 | 3 gaps; 6 deferred |
