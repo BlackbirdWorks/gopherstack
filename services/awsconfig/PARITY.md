@@ -34,7 +34,7 @@ ops:
   PutDeliveryChannel: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: empty/blank name now InvalidDeliveryChannelNameException (was generic ValidationException) -- see gopherstack-eboy"}
   DescribeDeliveryChannels: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteDeliveryChannel: {wire: ok, errors: ok, state: ok, persist: ok}
-  DescribeDeliveryChannelStatus: {wire: ok, errors: ok, state: ok, persist: ok}
+  DescribeDeliveryChannelStatus: {wire: fixed, errors: ok, state: ok, persist: ok, note: "fixed 2026-08-22 (gopherstack-v4a4): DeliveryChannelStatus/DeliveryChannelStatusInfo were tagged PascalCase (Name/ConfigHistoryDeliveryInfo/ConfigStreamDeliveryInfo/LastStatus/LastAttemptTime); the real deserializer is lowerCamelCase for this shape (like DeliveryChannel itself), so a real client's whole response decoded as the zero value. See Notes."}
   DeliverConfigSnapshot: {wire: ok, errors: ok, state: ok, persist: n/a, note: "fixed (gopherstack-e0f1): was a no-op stub; now validates the named channel exists (NoSuchDeliveryChannelException), a recorder is configured (NoAvailableConfigurationRecorderException) and running (NoRunningConfigurationRecorderException), and returns a generated ConfigSnapshotId"}
 
   # --- ConfigRule + compliance family ---
@@ -69,7 +69,7 @@ ops:
 
   # --- AggregationAuthorization / ConfigurationAggregator family ---
   PutAggregationAuthorization: {wire: ok, errors: ok, state: ok, persist: ok}
-  DescribeAggregationAuthorizations: {wire: ok, errors: ok, state: ok, persist: ok}
+  DescribeAggregationAuthorizations: {wire: fixed, errors: ok, state: ok, persist: ok, note: "fixed 2026-08-22 (gopherstack-v4a4): AggregationAuthorization.AuthorizedAccountId/AuthorizedAwsRegion were tagged lowercase; the real deserializer is PascalCase for both (its AggregationAuthorizationArn/CreationTime siblings were already correct), so a real client's AuthorizedAccountId/AuthorizedAwsRegion decoded empty. See Notes."}
   DeleteAggregationAuthorization: {wire: ok, errors: ok, state: ok, persist: ok}
   PutConfigurationAggregator: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeConfigurationAggregators: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -100,13 +100,13 @@ ops:
 
   # --- OrganizationConfigRule / OrganizationConformancePack family ---
   PutOrganizationConfigRule: {wire: ok, errors: ok, state: ok, persist: ok}
-  DescribeOrganizationConfigRules: {wire: ok, errors: ok, state: ok, persist: ok}
+  DescribeOrganizationConfigRules: {wire: fixed, errors: ok, state: ok, persist: ok, note: "fixed 2026-08-22 (gopherstack-v4a4): OrganizationConfigRule.OrganizationConfigRuleName was tagged lowercase; the real deserializer is PascalCase, so a real client's OrganizationConfigRuleName decoded empty on every rule. See Notes."}
   DeleteOrganizationConfigRule: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeOrganizationConfigRuleStatuses: {wire: ok, errors: ok, state: ok, persist: ok}
   GetOrganizationConfigRuleDetailedStatus: {wire: ok, errors: ok, state: ok, persist: n/a, note: "fixed (gopherstack-e0f1): was an empty-list stub; now returns a single CREATE_SUCCESSFUL MemberAccountStatus for the local account (the only member this single-account emulator can model), NoSuchOrganizationConfigRuleException validation, optional AccountId filter"}
   GetOrganizationCustomRulePolicy: {wire: ok, errors: ok, state: ok, persist: n/a}
   PutOrganizationConformancePack: {wire: ok, errors: ok, state: ok, persist: ok}
-  DescribeOrganizationConformancePacks: {wire: ok, errors: ok, state: ok, persist: ok}
+  DescribeOrganizationConformancePacks: {wire: fixed, errors: ok, state: ok, persist: ok, note: "fixed 2026-08-22 (gopherstack-v4a4): OrganizationConformancePack.OrganizationConformancePackName was tagged lowercase; the real deserializer is PascalCase, so a real client's OrganizationConformancePackName decoded empty on every pack. See Notes."}
   DeleteOrganizationConformancePack: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeOrganizationConformancePackStatuses: {wire: ok, errors: ok, state: ok, persist: ok}
   GetOrganizationConformancePackDetailedStatus: {wire: ok, errors: ok, state: ok, persist: n/a, note: "fixed (gopherstack-e0f1): was an empty-list stub; mirrors GetOrganizationConfigRuleDetailedStatus's single-local-account model, NoSuchOrganizationConformancePackException validation"}
@@ -338,3 +338,70 @@ leaks: {status: clean, note: "no goroutines/janitors in this service; single coa
   never actually reachable via any real client path -- reviewed, not fixed,
   same "dead tag" class amplify batch 14 first named for `Branch.Stage`.
   services/_REQUIRED_OUTPUT_CANDIDATES.md updated.
+
+- 2026-08-22 (gopherstack-v4a4, response-struct-TAG sweep -- the same silent-drop
+  class as wrong map keys, but on `json:"..."` struct tags instead): the extended
+  `cmd/keycheck` struct-tag scan flagged nine fields across four ops, all
+  confirmed real against `aws-sdk-go-v2/service/configservice@v1.68.4`'s
+  `deserializers.go` and fixed in `models.go`:
+  - `AggregationAuthorization.AuthorizedAccountID`/`.AuthorizedAwsRegion` were
+    tagged `authorizedAccountId`/`authorizedAwsRegion` (lowercase); the real
+    `awsAwsjson11_deserializeDocumentAggregationAuthorization`
+    (deserializers.go:14466) switches on `"AuthorizedAccountId"`/
+    `"AuthorizedAwsRegion"` (PascalCase) -- the struct's own
+    `AggregationAuthorizationArn`/`CreationTime` siblings were already PascalCase,
+    so this was a mixed-casing typo on two fields, not a whole-struct
+    convention.
+  - `OrganizationConfigRule.OrganizationConfigRuleName` was tagged
+    `organizationConfigRuleName`; the real
+    `awsAwsjson11_deserializeDocumentOrganizationConfigRule`
+    (deserializers.go:21357) switches on `"OrganizationConfigRuleName"`.
+  - `OrganizationConformancePack.OrganizationConformancePackName` was tagged
+    `organizationConformancePackName`; the real
+    `awsAwsjson11_deserializeDocumentOrganizationConformancePack`
+    (deserializers.go:21699) switches on `"OrganizationConformancePackName"`.
+  - `DeliveryChannelStatus.{ConfigHistoryDeliveryInfo,ConfigStreamDeliveryInfo,Name}`
+    and `DeliveryChannelStatusInfo.{LastStatus,LastAttemptTime}` were all tagged
+    PascalCase; the real
+    `awsAwsjson11_deserializeDocumentDeliveryChannelStatus`
+    (deserializers.go:18209) switches on `"configHistoryDeliveryInfo"`/
+    `"configStreamDeliveryInfo"`/`"name"` (lowerCamelCase, consistent with this
+    service's pre-existing `DeliveryChannel`/`ConfigurationRecorder` note above).
+    Every one of these fields is part of the *entire* payload of its op (each
+    op's wrapper has no other real member), so a real client's response
+    decoded as the complete zero value on each of these four ops, not just a
+    missing field.
+  All four proven with real-`aws-sdk-go-v2` client round-trips in
+  `wire_field_fixes_test.go` (`TestDescribeAggregationAuthorizations_RealClient`,
+  `TestDescribeOrganizationConfigRules_RealClient`,
+  `TestDescribeOrganizationConformancePacks_RealClient`,
+  `TestDescribeDeliveryChannelStatus_RealClient`); each confirmed to fail against
+  the pre-fix tag (empty/nil decoded fields) and hand-reverted/restored
+  byte-identical. Not fixed, and structurally out of scope for a tag-only fix,
+  filed as `gopherstack-ru0y`: the real `DeliveryChannelStatus` also declares
+  `ConfigSnapshotDeliveryInfo` (a third delivery target gopherstack has no
+  concept of) and its `ConfigHistoryDeliveryInfo`/`ConfigSnapshotDeliveryInfo`
+  are really `ConfigExportDeliveryInfo` (lastAttemptTime/lastErrorCode/
+  lastErrorMessage/lastStatus/lastSuccessfulTime/nextDeliveryTime) while
+  `ConfigStreamDeliveryInfo` is a distinct, differently-shaped real type
+  (lastErrorCode/lastErrorMessage/lastStatus/lastStatusChangeTime) --
+  gopherstack shares one flat `DeliveryChannelStatusInfo` for both, missing
+  every field but `LastStatus`. Also not fixed, filed as `gopherstack-xit0`:
+  the real `OrganizationConfigRule` declares a required
+  `OrganizationConfigRuleArn` gopherstack's type has no field for at all.
+
+  Also swept for CASE-MISMATCH-shaped findings and confirmed artifact, not filed:
+  `iot` (18 flagged fields, e.g. `CreatePolicy`'s `PolicyARN`/`PolicyName`/...)
+  traces entirely to the same OUTPUT-SUFFIX NAME COLLISION class `cmd/keycheck`
+  already documents for kinesis -- `services/iot/types.go`'s untagged
+  `CreatePolicyOutput` (a same-named internal domain struct returned by
+  `InMemoryBackend.CreatePolicy`, never marshaled) collides with the heuristic
+  that any `*Output`-suffixed composite literal is the wire response; the actual
+  handler re-keys through `keyPolicyArn = "policyArn"` etc, already correct.
+  `dynamodb`'s 2 (`ExportTableToPointInTime`'s `itemCount`/`tableArn`) trace to
+  `import_export_s3.go`'s S3 *manifest file* (an internal export-bookkeeping
+  object, never the HTTP response) pulled into the same-package call-graph walk.
+  `macie2`'s 1 (`GetBucketStatistics`'s `UNKNOWN`) is an enum *value*
+  (`"unknown"` vs `"UNKNOWN"`), not a JSON key, misclassified by the scanner.
+  `medialive` (225) and `quicksight` (4) were already-documented
+  SHARED-ERROR-HELPER POLLUTION. No code changes for any of these five.
