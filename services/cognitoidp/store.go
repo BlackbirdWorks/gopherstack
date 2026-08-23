@@ -3,13 +3,18 @@ package cognitoidp
 import (
 	"time"
 
+	"golang.org/x/crypto/bcrypt"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 const (
-	// bcryptCost is the bcrypt cost used for password hashing.
-	bcryptCost = 10
+	// bcryptCost is deliberately low (not DefaultCost): this is a mock backend
+	// with no real secrets to protect, and DefaultCost under -race measured
+	// ~1.3s per hash (vs ~95ms unraced), which was the dominant cost across
+	// the package's -race test time (gopherstack CI flake investigation).
+	bcryptCost = bcrypt.MinCost
 
 	// poolIDSuffixLen is the length of the random suffix in pool IDs.
 	poolIDSuffixLen = 8

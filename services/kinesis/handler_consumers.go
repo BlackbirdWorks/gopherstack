@@ -345,11 +345,20 @@ func (h *Handler) handleSubscribeToShardHTTP(c *echo.Context) error {
 	}
 
 	deadline := time.Now().Add(subscribeToShardStreamDuration)
-	ticker := time.NewTicker(subscribeToShardPollInterval)
-	defer ticker.Stop()
-
 	curSP := sp
 	idlePolls := 0
+
+	// Check immediately: a consumer commonly subscribes (e.g. TRIM_HORIZON)
+	// after data was already written, and delivering it here avoids making
+	// that first event wait on the poll interval's next tick.
+	if stop, next := h.advanceShardCursor(ctx, req, curSP, c.Response(), flusher, canFlush, &idlePolls); stop {
+		return nil
+	} else if next != nil {
+		curSP = *next
+	}
+
+	ticker := time.NewTicker(subscribeToShardPollInterval)
+	defer ticker.Stop()
 
 	for {
 		select {
