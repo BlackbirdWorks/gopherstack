@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 77 (77 ok) |
 | Known gaps | 2 |
-| Deferred items | 3 |
+| Deferred items | 4 |
 | Resource leaks | clean |
 
 ### Known gaps
@@ -19,7 +19,8 @@
 
 ### Deferred
 
-- Portal / PortalProduct / ProductPage / ProductRestEndpointPage field-level wire audit (family confirmed fully implemented this pass, but not re-verified field-by-field against botocore)
+- 2026-08-23 (manifest harvest): UpdatePortal's real UpdatePortalInput (aws-sdk-go-v2/service/apigatewayv2@v1.37.4's api_op_UpdatePortal.go) has optional Authorization/EndpointConfiguration/PortalContent members letting a caller replace a portal's auth config, domain/cert config, or displayed content post-creation -- gopherstack's UpdatePortalInput (models.go) has no fields for any of the three, so a real client sending them gets no error but no effect either. All three are already-modeled types (used by CreatePortal) and Create's existing validateCreatePortal{Authorization,EndpointConfiguration,Content} helpers look reusable for a nil-check-and-replace Update path; not implemented this pass to keep the fix scoped to the three accept-and-drop bugs found and closed alongside this note (IncludedPortalProductArns/RumAppMonitorName/LastPublished(Description), see the family's ops-table note) -- newly disclosed, not previously known.
+- PortalProduct / ProductPage / ProductRestEndpointPage field-level wire audit still not re-verified field-by-field against botocore (only Portal itself got a field-level audit this pass -- see the family's ops-table note)
 - ImportApi/ReimportApi basepath=split; failOnWarnings real effect (see gaps, bd gopherstack-jni0)
 - Quick-create DeleteRoute/DeleteStage/DeleteIntegration rejection (see gaps, bd gopherstack-2tx)
 

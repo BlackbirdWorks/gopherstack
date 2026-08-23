@@ -499,7 +499,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 |---|---|---|---|
 | [DAX](services/dax/README.md) | A | 21 | 1 deferred |
 | [DocumentDB](services/docdb/README.md) | A | 55 | 8 gaps; 1 deferred |
-| [DynamoDB](services/dynamodb/README.md) | A | — | 9 families; 6 gaps; 2 deferred |
+| [DynamoDB](services/dynamodb/README.md) | A | — | 11 families; 6 gaps; 2 deferred |
 | [DynamoDB Streams](services/dynamodbstreams/README.md) | A | 4 | clean |
 | [ElastiCache](services/elasticache/README.md) | A | 75 | 1 gap; 2 deferred |
 | [MemoryDB](services/memorydb/README.md) | A | 45 | 6 gaps; 3 deferred |
@@ -519,7 +519,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 |---|---|---|---|
 | [API Gateway](services/apigateway/README.md) | A | 123 | 10 gaps; 2 deferred |
 | [API Gateway Management API](services/apigatewaymanagementapi/README.md) | A | 3 | 1 gap; 2 deferred |
-| [API Gateway v2](services/apigatewayv2/README.md) | A | 77 | 2 gaps; 3 deferred |
+| [API Gateway v2](services/apigatewayv2/README.md) | A | 77 | 2 gaps; 4 deferred |
 | [App Mesh](services/appmesh/README.md) | A | 38 | 2 gaps |
 | [Cloud Map](services/servicediscovery/README.md) | A | 30 | 3 gaps; 1 deferred |
 | [CloudFront](services/cloudfront/README.md) | A | 60 | 3 deferred |
