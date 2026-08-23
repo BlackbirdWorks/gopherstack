@@ -249,12 +249,12 @@ func (b *InMemoryBackend) UpdateRecoveryPointLifecycle(
 	defer b.mu.Unlock()
 
 	if !b.vaults.Has(vaultName) {
-		return fmt.Errorf("%w: %s", errVaultNotFoundB1, vaultName)
+		return fmt.Errorf("%w: vault %s not found", ErrNotFound, vaultName)
 	}
 
 	rp, ok := b.recoveryPoints.Get(recoveryPointKey(vaultName, recoveryPointArn))
 	if !ok {
-		return fmt.Errorf("%w: %s", errRecoveryPointNotFound, recoveryPointArn)
+		return fmt.Errorf("%w: recovery point %s not found", ErrNotFound, recoveryPointArn)
 	}
 
 	lc := &Lifecycle{
