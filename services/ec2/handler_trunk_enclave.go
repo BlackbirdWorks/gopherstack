@@ -83,6 +83,7 @@ type describeTrunkInterfaceAssociationsResponse struct {
 	XMLName                 xml.Name `xml:"DescribeTrunkInterfaceAssociationsResponse"`
 	Xmlns                   string   `xml:"xmlns,attr"`
 	RequestID               string   `xml:"requestId"`
+	NextToken               string   `xml:"nextToken,omitempty"`
 	InterfaceAssociationSet struct {
 		Items []interfaceAssociationItem `xml:"item"`
 	} `xml:"interfaceAssociationSet"`
@@ -157,7 +158,15 @@ func (h *Handler) handleDescribeTrunkInterfaceAssociations(vals url.Values, reqI
 	ids := parseMemberList(vals, "AssociationId")
 	assocs := h.Backend.DescribeTrunkInterfaceAssociations(ids)
 
-	resp := &describeTrunkInterfaceAssociationsResponse{Xmlns: ec2XMLNS, RequestID: reqID}
+	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageMaxDefault)
+	if err != nil {
+		return nil, err
+	}
+
+	var nextToken string
+	assocs, nextToken = pageSlice(assocs, offset, maxResults)
+
+	resp := &describeTrunkInterfaceAssociationsResponse{Xmlns: ec2XMLNS, RequestID: reqID, NextToken: nextToken}
 	for _, a := range assocs {
 		resp.InterfaceAssociationSet.Items = append(resp.InterfaceAssociationSet.Items, toInterfaceAssociationItem(a))
 	}

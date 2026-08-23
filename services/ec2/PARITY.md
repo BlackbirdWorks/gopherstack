@@ -1629,3 +1629,118 @@ already dirty before this pass touched anything), `go vet ./services/ec2/...`
 line-wrap and two `fieldalignment` reorderings on the newly-added `TagSet`
 fields by hand, not via `-fix`), `go test ./pkgs/persistence/...` (`ok`). No
 banned `//nolint`s.
+
+**2026-08-23 pass (gopherstack-6cuc, plus trunk_enclave/capacity_reservations
+audit)**: fixed the accept-and-drop bug named in gopherstack-6cuc --
+`CreateTransitGatewayVpcAttachment`'s backend method already took a
+`subnetIDs []string` parameter and discarded it (`_ []string`), so
+`SubnetIds` sent on create never reached stored state and was only settable
+later via `ModifyTransitGatewayVpcAttachment`. Now stores a defensive copy
+into `TransitGatewayVpcAttachment.SubnetIDs` on create. Interface signature
+already named the parameter correctly (`interfaces.go`) -- only the
+`InMemoryBackend` implementation's `_` needed fixing, no call sites changed.
+
+Then audited two never-fully-swept files end to end against the installed
+`aws-sdk-go-v2/service/ec2@v1.319.1` deserializers:
+
+- `handler_trunk_enclave.go` (Trunk Interface association + Enclave
+  Certificate IAM Role association families, 6 ops, all registered by this
+  file's own `registerTrunkEnclaveOps` -- none dispatch via `buildCoreOps`).
+  All XML element names, nested-type field names, and the `Return`-vs-no-
+  `Return` shape of each op checked line-for-line against the deserializer
+  and matched, with one exception: `DescribeTrunkInterfaceAssociations`
+  declares `MaxResults`/`NextToken`/`Filters` on its real input and
+  `NextToken` on its output, but the handler ignored all of them, always
+  returning every association in one page with no `NextToken` -- the
+  "List op ignoring real pagination" shape. Fixed using the existing
+  `parseEC2Pagination`/`pageSlice` helpers (same pattern as
+  `handler_elastic_ips.go`), `ec2PageMinDefault`/`ec2PageMaxDefault` bounds
+  (op has no documented MaxResults range).
+- `handler_capacity_reservations.go` (8 of `registerCapacityFamilyOps`'s 30
+  Capacity Reservation ops live here: `CreateCapacityReservation`,
+  `CancelCapacityReservation`, `ModifyCapacityReservation`,
+  `GetGroupsForCapacityReservation`,
+  `CreateInterruptibleCapacityReservationAllocation`,
+  `UpdateInterruptibleCapacityReservationAllocation`,
+  `GetCapacityReservationUsage`, `DescribeCapacityReservationTopology` --
+  the other 22 Fleet/Capacity-Block/Capacity-Manager/billing-transfer ops
+  registered by the same function live in other files, not audited this
+  pass). Two more Capacity-Reservation-family ops,
+  `AcceptCapacityReservationBillingOwnership` and
+  `DescribeCapacityReservations`, are registered by a third file
+  (`handler_buildops_advanced.go`'s `registerAcceptAndAdvancedOps`) -- a
+  second *file*, not a second *dispatch path*: `buildCoreOps` (the map
+  literal in `handler.go`) has no Capacity Reservation entries at all: every
+  op in this family dispatches via its own `register*Ops` function, called
+  once each from `opRegistrars()`, with no override collision. All 8
+  in-file ops field-diffed clean except the same pagination shape as above:
+  `DescribeCapacityReservationTopology` declares
+  `MaxResults`/`NextToken`/`Filters` and a `nextToken` output field, ignored
+  entirely. Fixed the same way.
+
+Modelling gaps found but NOT fixed (no observable behavior change possible,
+so no provable round-trip test could be written): `GetGroupsForCapacityReservation`
+also declares `MaxResults`/`NextToken`, but this backend's
+`GetGroupsForCapacityReservation` always returns an empty slice (comment:
+"no group associations tracked") -- paginating zero items is a no-op, so a
+pagination fix here is inert until Capacity Reservation Groups are modeled
+at all; left unfixed rather than ship an unprovable change.
+`GetCapacityReservationUsage`'s real output also has `InterruptionInfo`
+(details about the source reservation for an interruptible allocation) and
+its own `MaxResults`/`NextToken` over `InstanceUsageSet` -- this backend
+aggregates usage into at most one row per account, so multi-page usage
+output can't occur either; `InterruptionInfo` itself is unmapped (a real
+field-count gap, not wrong data) and would need new backing state to
+populate honestly.
+
+False positive ruled out: `instanceConnectEndpointItem` is declared in
+`handler_capacity_reservations.go` (misplaced -- it's Instance Connect
+Endpoint's response type, unrelated to Capacity Reservations) but is used
+correctly from `handler_instances.go`; dead code / bad file placement, not a
+bug.
+
+No snapshot bump: `TransitGatewayVpcAttachment.SubnetIDs` already existed on
+the persisted struct (only `Modify` wrote it before); no new persisted
+fields added by the pagination fixes (`NextToken` is response-only,
+generated per request, never stored). `go test ./pkgs/persistence/...`: `ok`.
+
+Proof:
+- `wire_field_fixes_ec26cuc_test.go` --
+  `TestCreateTransitGatewayVpcAttachment_SubnetIds_RealClient`: real
+  `CreateTransitGatewayVpcAttachment` with `SubnetIds` then
+  `DescribeTransitGatewayVpcAttachments`, asserting subnets come back on
+  both. Pre-fix (hand-reverted `networking1.go` via `cp` to scratchpad,
+  `md5sum`-verified identical restore after): fails both assertions with
+  "SubnetIds empty on create response - accepted but never applied" and
+  "... dropped from stored state" (listB `[]string{}` vs listA the two
+  seeded IDs).
+- `pagination_ec26cuc_trunk_test.go` --
+  `TestDescribeTrunkInterfaceAssociations_Pagination`: creates 3 trunk
+  associations, drives the real generated
+  `NewDescribeTrunkInterfaceAssociationsPaginator` with `Limit: 1`, asserts
+  >=3 disjoint pages. Pre-fix (hand-reverted `handler_trunk_enclave.go`,
+  `md5sum`-verified restore): "expected MaxResults=1 to split 3
+  associations across pages" -- \"1\" is not >= \"3\" (single page, no
+  `NextToken`).
+- `pagination_ec26cuc_captopo_test.go` --
+  `TestDescribeCapacityReservationTopology_Pagination`: creates 3 capacity
+  reservations, drives `DescribeCapacityReservationTopology` manually across
+  3 pages with `MaxResults: 1` (no generated paginator for this op), asserts
+  disjoint IDs and an empty final `NextToken`. Pre-fix (hand-reverted
+  `handler_capacity_reservations.go`, `md5sum`-verified restore): page one
+  returns all 3 entries -- "MaxResults=1 ignored - all entries returned on
+  page one" ("should have 1 item(s), but has 3").
+
+Gates: `go build ./...` (clean), `go test -race ./services/ec2/...`
+(`ok`, full suite including the 3 new tests), `golangci-lint run
+./services/ec2/...` (`0 issues` -- fixed two `golines` line-wraps and
+dropped one unused `//nolint:gosec` by hand), `go test
+./pkgs/persistence/...` (`ok`). No banned `//nolint`s.
+
+Not reached this pass (named, per the task's own list of unaudited files):
+`handler_subnets.go`, `handler_ec2core.go`, the remainder of
+`handler_networking1.go` beyond the TGW VPC Attachment ops (DHCP Options,
+Flow Logs, Launch Template Versions), and the other 22
+`registerCapacityFamilyOps` ops living outside
+`handler_capacity_reservations.go` (Fleet/Capacity-Block/Capacity-Manager/
+billing-transfer). Work left uncommitted for the orchestrator.
