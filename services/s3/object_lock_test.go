@@ -46,6 +46,7 @@ func TestObjectLock_PutObjectRetentionPreventsOverwrite(t *testing.T) {
 				t.Context(), "bkt", "key", nil,
 				"COMPLIANCE",
 				retainUntil,
+				false,
 			)
 			require.NoError(t, err)
 
@@ -197,7 +198,7 @@ func TestObjectLock_Retention_BlocksOverwrite(t *testing.T) {
 
 	// Set COMPLIANCE retention far in the future.
 	err := backend.PutObjectRetention(t.Context(), "retain-bucket", "obj", nil,
-		"COMPLIANCE", mustParseRetentionTime(t, "2099-01-01T00:00:00Z"))
+		"COMPLIANCE", mustParseRetentionTime(t, "2099-01-01T00:00:00Z"), false)
 	require.NoError(t, err)
 
 	// PutObject (overwrite) should be blocked.

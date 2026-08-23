@@ -127,6 +127,7 @@ type StorageBackend interface {
 		versionID *string,
 		mode string,
 		retainUntil time.Time,
+		bypassGovernance bool,
 	) error
 	GetObjectRetention(
 		ctx context.Context,

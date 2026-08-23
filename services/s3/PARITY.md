@@ -671,3 +671,116 @@ required a field-reorder on the new test's table struct to clear
 `fieldalignment`, no `//nolint` added), `go test ./pkgs/persistence/...`
 (no persisted struct changed — `RetentionMode`/`RetainUntil` were already
 persisted fields — run anyway per this campaign's standing rule) all clean.
+
+## 2026-08-23: PutObjectRetention enforced nothing (COMPLIANCE could be shortened/removed)
+
+Follow-up to the entry immediately above, which flagged but deliberately
+deferred this: `PutObjectRetention` (`object_lock.go`) unconditionally
+overwrote `StoredObjectVersion.RetentionMode`/`RetainUntil` with whatever the
+caller sent, with no comparison against the object's existing retention
+state. `checkObjectLockForDelete`/`checkObjectLockForOverwrite`
+(`objects_delete.go`) correctly *read* `RetentionMode` to block deletes and
+overwrites, but nothing ever protected that state from being weakened in the
+first place — the strongest guarantee Object Lock exists to provide.
+
+Verified rules (docs.aws.amazon.com/AmazonS3/latest/userguide/
+object-lock-overview.html "Retention modes" and
+object-lock-managing.html "Bypassing governance mode" — these confirm the
+task brief's assumptions, no correction needed):
+
+- **COMPLIANCE**: retain-until date may only be **extended**; the mode can
+  **never** be changed once set, for any principal — no bypass exists ("When
+  an object is locked in compliance mode, its retention mode can't be
+  changed, and its retention period can't be shortened").
+- **GOVERNANCE**: retain-until date may be shortened or removed, or the mode
+  upgraded to COMPLIANCE, only with `x-amz-bypass-governance-retention: true`
+  (plus `s3:BypassGovernanceRetention` on real AWS — gopherstack has no IAM
+  evaluator, so the header alone is the gate, matching the existing
+  `checkObjectLockForDelete` precedent).
+- Real S3's own error text for a rejected shorten (confirmed via AWS
+  documentation search, since s3@v1.106.5's
+  `awsRestxml_deserializeOpErrorPutObjectRetention` has no op-specific
+  error cases — it's a generic `smithy.GenericAPIError{Code, Message}` off
+  whatever the server sent): `AccessDenied` / HTTP 403, message "proposed
+  retain-until date shortens an existing retention period and governance
+  bypass check failed". Used verbatim for the shorten/remove case; the
+  mode-downgrade message ("The retention mode may not be changed once an
+  object is locked in COMPLIANCE mode.") is this agent's own phrasing of the
+  documented rule, not an independently confirmed literal AWS string — the
+  behavior (AccessDenied/403) is confirmed, the exact wording is not.
+- One point **not** fully confirmed either way: whether upgrading
+  GOVERNANCE→COMPLIANCE itself additionally requires the bypass header even
+  when the date isn't shortened. AWS's docs are ambiguous (one passage says
+  extending only needs `s3:PutObjectRetention`; another says altering
+  GOVERNANCE lock settings "unless [caller has] special permissions" is
+  broader). Implemented as **not** requiring bypass for a pure mode upgrade
+  with a non-shortened date, matching the "use governance mode to test
+  before creating a compliance-mode retention period" workflow AWS's own
+  docs describe. Flagging this as the one place a stricter interpretation is
+  plausible.
+- `PutObjectLockConfiguration` has **no** equivalent restriction tied to
+  existing objects (confirmed via API_PutObjectLockConfiguration.html): it
+  only sets the bucket's *default* retention applied to *future* objects,
+  never touches objects that already have retention. gopherstack's existing
+  `ErrObjectLockNotEnabled` gate (bucket must have Object Lock enabled) was
+  already correct and untouched.
+
+Fixed: `PutObjectRetention` (`object_lock.go`) now calls a new
+`validateRetentionChange(oldMode, oldUntil, newMode, newUntil,
+bypassGovernance) error` before applying the new state, implementing the
+ratchet above. Two new sentinel errors, `ErrRetentionPeriodShortened` and
+`ErrRetentionModeDowngrade` (`errors.go`), both map to `AccessDenied`/403
+via the existing `errorTable()` mechanism. `PutObjectRetention`'s interface
+and backend signature (`interfaces.go`, `object_lock.go`) gained a trailing
+`bypassGovernance bool` parameter — `putObjectRetention`
+(`object_ops_retention.go`) now passes
+`aws.ToBool(bypassGovernanceRetentionHeader(r))`, reusing the header parser
+`DeleteObject`/`DeleteObjects` already added. `make build-check` confirmed
+no call sites outside `services/s3/`; the four in-package test call sites
+(`object_lock_test.go` x2, `janitor_lifecycle_test.go` x2) were updated to
+pass `false` — none of them mutate a pre-existing retention, so the new
+parameter is inert there.
+
+**Family check**: `PutObjectLegalHold` was already correct as-is — real S3
+lets any caller with `s3:PutObjectLegalHold` freely set/clear a legal hold
+regardless of Object Lock mode (independent of retention), and gopherstack's
+existing unconditional `ver.LegalHold = status == "ON"` already matches
+that; no bug there. `GetObjectRetention`/`GetObjectLegalHold` are read-only,
+unaffected.
+
+Proof: `TestPutObjectRetention_Ratchet`
+(`object_retention_ratchet_test.go`), table-driven across 8 real-SDK-client
+subtests (compliance extend/shorten/shorten-with-bypass-still-denied/
+downgrade-to-governance, governance extend/shorten-denied/
+shorten-with-bypass/upgrade-to-compliance), each asserting either success or
+`AccessDenied`/403 via `smithy.APIError`/`*smithyhttp.ResponseError`.
+Hand-reverted by replacing the `validateRetentionChange` call in
+`object_lock.go` with a no-op (`_ = bypassGovernance`) to reproduce the
+named bug exactly: the 4 rejection subtests failed with "An error is
+expected but got nil" (`compliance_shorten_denied`,
+`compliance_shorten_denied_even_with_bypass`,
+`compliance_downgrade_to_governance_denied`,
+`governance_shorten_denied_without_bypass`); the 3 already-passing
+"allowed" subtests stayed green, confirming the test isolates exactly the
+enforcement gap. Restored via `cp` from a scratchpad copy and confirmed
+`md5sum`-identical to the fixed version before restoring.
+
+**Not enforced, for lack of state**: none — the object version already
+tracks everything the ratchet needs (`RetentionMode`, `RetainUntil`). The
+one real gap this pass did *not* touch: gopherstack's XML decode step in
+`putObjectRetention` (`object_ops_retention.go`) rejects any request whose
+`RetainUntilDate` fails to parse, including an empty/omitted one — so real
+S3's documented "remove retention by sending `PutObjectRetention` with
+empty parameters" path 400s here before ever reaching the new ratchet
+check. That's a pre-existing, orthogonal request-parsing gap (not an
+old-vs-new comparison issue), out of this task's scope; the practical
+exploit this task targets — shortening via an earlier date, which does not
+require an empty body — is fully covered.
+
+Gates: `go build ./...`, `go vet ./services/s3/...`, `go test -race -count=1
+./services/s3/...` (all pass, including the new suite), `golangci-lint run
+./services/s3/...` (0 issues after `goimports -w errors.go` re-aligned the
+var block and swapping a raw `errors.As`+`require.True` for
+`require.ErrorAs` per testifylint), `go test ./pkgs/persistence/...` (no
+persisted struct changed — pass anyway per standing rule), `make
+build-check` (0 external call sites), banned-nolint grep (0 hits, unchanged).

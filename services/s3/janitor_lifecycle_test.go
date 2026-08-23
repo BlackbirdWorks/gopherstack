@@ -73,7 +73,7 @@ func TestLifecycle_SkipsLockedObjects(t *testing.T) {
 
 	// Put retention on locked.txt.
 	err := b.PutObjectRetention(t.Context(), "locked-bucket", "locked.txt", nil,
-		string(sdk_s3types.ObjectLockRetentionModeCompliance), time.Now().Add(24*time.Hour))
+		string(sdk_s3types.ObjectLockRetentionModeCompliance), time.Now().Add(24*time.Hour), false)
 	require.NoError(t, err)
 
 	lc := `<LifecycleConfiguration>
@@ -208,7 +208,7 @@ func TestNoncurrentVersionEviction_SkipsLockedVersions(t *testing.T) {
 		require.NotEmpty(t, ncVersionID, "must have a noncurrent version")
 
 		err = b.PutObjectRetention(t.Context(), "nc-lock-bucket", "obj.txt", &ncVersionID,
-			string(sdk_s3types.ObjectLockRetentionModeCompliance), time.Now().Add(24*time.Hour))
+			string(sdk_s3types.ObjectLockRetentionModeCompliance), time.Now().Add(24*time.Hour), false)
 		require.NoError(t, err)
 
 		// Run a noncurrent lifecycle rule.

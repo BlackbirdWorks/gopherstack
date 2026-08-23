@@ -36,11 +36,20 @@ var (
 	ErrNoObjectLockConfig = errors.New("ObjectLockConfigurationNotFoundError")
 	// ErrObjectLockNotEnabled is InvalidBucketState: PutObjectLockConfiguration
 	// on a bucket not created with x-amz-bucket-object-lock-enabled: true.
-	ErrObjectLockNotEnabled       = errors.New("InvalidBucketState")
-	ErrNoWebsiteConfig            = errors.New("NoSuchWebsiteConfiguration")
-	ErrNoEncryptionConfig         = errors.New("ServerSideEncryptionConfigurationNotFoundError")
-	ErrObjectLocked               = errors.New(errAccessDenied)
-	ErrInvalidObjectState         = errors.New("InvalidObjectState")
+	ErrObjectLockNotEnabled = errors.New("InvalidBucketState")
+	ErrNoWebsiteConfig      = errors.New("NoSuchWebsiteConfiguration")
+	ErrNoEncryptionConfig   = errors.New("ServerSideEncryptionConfigurationNotFoundError")
+	ErrObjectLocked         = errors.New(errAccessDenied)
+	ErrInvalidObjectState   = errors.New("InvalidObjectState")
+	// ErrRetentionPeriodShortened is returned by PutObjectRetention when the
+	// proposed retain-until date is earlier than the object's current one and
+	// the change isn't an authorized GOVERNANCE bypass. Real S3 never allows
+	// this for COMPLIANCE mode, for any principal.
+	ErrRetentionPeriodShortened = errors.New("RetentionPeriodShortened")
+	// ErrRetentionModeDowngrade is returned by PutObjectRetention when a
+	// COMPLIANCE-mode object's retention mode is changed to anything else.
+	// Real S3 never allows this, with or without a bypass header.
+	ErrRetentionModeDowngrade     = errors.New("RetentionModeDowngrade")
 	ErrNoSuchObjectLockConfig     = awserr.New("NoSuchObjectLockConfiguration", awserr.ErrNotFound)
 	ErrNoPublicAccessBlock        = errors.New("NoSuchPublicAccessBlockConfiguration")
 	ErrNoOwnershipControls        = errors.New("OwnershipControlsNotFoundError")
@@ -234,6 +243,17 @@ func coreErrorTableObject() []s3ErrorEntry {
 			"InvalidObjectState",
 			"The operation is not valid for the object's storage class or lock state.",
 			http.StatusConflict,
+		}},
+		{ErrRetentionPeriodShortened, s3ErrorInfo{
+			errAccessDenied,
+			"proposed retain-until date shortens an existing retention period" +
+				" and governance bypass check failed",
+			http.StatusForbidden,
+		}},
+		{ErrRetentionModeDowngrade, s3ErrorInfo{
+			errAccessDenied,
+			"The retention mode may not be changed once an object is locked in COMPLIANCE mode.",
+			http.StatusForbidden,
 		}},
 		{ErrBadChecksum, s3ErrorInfo{
 			"BadDigest",
