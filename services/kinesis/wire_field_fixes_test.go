@@ -303,3 +303,79 @@ func TestDescribeStreamSummary_MaxRecordSizeAndWarmThroughput(t *testing.T) {
 	assert.Equal(t, int32(5), aws.ToInt32(after.StreamDescriptionSummary.WarmThroughput.CurrentMiBps))
 	assert.Equal(t, int32(5), aws.ToInt32(after.StreamDescriptionSummary.WarmThroughput.TargetMiBps))
 }
+
+// TestCreateStream_MaxRecordSizeAndWarmThroughput drives CreateStreamInput's
+// own MaxRecordSizeInKiB and WarmThroughputMiBps members (kinesis@v1.46.4
+// api_op_CreateStream.go:101-121) -- distinct from the same-named fields on
+// UpdateMaxRecordSizeInput/UpdateStreamWarmThroughputInput. Before this fix,
+// CreateStream's decode struct had no members for either, so a caller
+// specifying them at creation time got a stream silently pinned to the 1 MiB
+// default record size and zero warm throughput.
+func TestCreateStream_MaxRecordSizeAndWarmThroughput(t *testing.T) {
+	t.Parallel()
+
+	backend := kinesis.NewInMemoryBackend()
+	client := newTestKinesisClient(t, kinesis.NewHandler(backend))
+
+	streamName := "create-stream-fields"
+
+	_, err := client.CreateStream(t.Context(), &kinesissdk.CreateStreamInput{
+		StreamName:          aws.String(streamName),
+		ShardCount:          aws.Int32(1),
+		MaxRecordSizeInKiB:  aws.Int32(2048),
+		WarmThroughputMiBps: aws.Int32(5),
+	})
+	require.NoError(t, err)
+
+	summary, err := client.DescribeStreamSummary(t.Context(), &kinesissdk.DescribeStreamSummaryInput{
+		StreamName: aws.String(streamName),
+	})
+	require.NoError(t, err)
+
+	assert.Equal(t, int32(2048), aws.ToInt32(summary.StreamDescriptionSummary.MaxRecordSizeInKiB),
+		"MaxRecordSizeInKiB given at CreateStream time must be applied")
+	require.NotNil(t, summary.StreamDescriptionSummary.WarmThroughput)
+	assert.Equal(t, int32(5), aws.ToInt32(summary.StreamDescriptionSummary.WarmThroughput.CurrentMiBps),
+		"WarmThroughputMiBps given at CreateStream time must be applied")
+}
+
+// TestUpdateStreamMode_WarmThroughputMiBps drives UpdateStreamModeInput's
+// WarmThroughputMiBps member (kinesis@v1.46.4 api_op_UpdateStreamMode.go,
+// "valid when the stream mode is being updated to on-demand"). Before this
+// fix, handleUpdateStreamMode's decode struct had no member for it at all,
+// so it was silently dropped even on an ON_DEMAND transition.
+func TestUpdateStreamMode_WarmThroughputMiBps(t *testing.T) {
+	t.Parallel()
+
+	backend := kinesis.NewInMemoryBackend()
+	client := newTestKinesisClient(t, kinesis.NewHandler(backend))
+
+	streamName := "update-stream-mode-warm"
+
+	_, err := client.CreateStream(t.Context(), &kinesissdk.CreateStreamInput{
+		StreamName: aws.String(streamName),
+		ShardCount: aws.Int32(1),
+	})
+	require.NoError(t, err)
+
+	desc, err := client.DescribeStream(t.Context(), &kinesissdk.DescribeStreamInput{StreamName: aws.String(streamName)})
+	require.NoError(t, err)
+
+	_, err = client.UpdateStreamMode(t.Context(), &kinesissdk.UpdateStreamModeInput{
+		StreamARN: desc.StreamDescription.StreamARN,
+		StreamModeDetails: &types.StreamModeDetails{
+			StreamMode: types.StreamModeOnDemand,
+		},
+		WarmThroughputMiBps: aws.Int32(7),
+	})
+	require.NoError(t, err)
+
+	summary, err := client.DescribeStreamSummary(t.Context(), &kinesissdk.DescribeStreamSummaryInput{
+		StreamName: aws.String(streamName),
+	})
+	require.NoError(t, err)
+
+	require.NotNil(t, summary.StreamDescriptionSummary.WarmThroughput)
+	assert.Equal(t, int32(7), aws.ToInt32(summary.StreamDescriptionSummary.WarmThroughput.CurrentMiBps),
+		"WarmThroughputMiBps given at UpdateStreamMode time must be applied")
+}

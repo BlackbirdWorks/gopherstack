@@ -7,7 +7,7 @@ overall: A            # this pass (gopherstack-nbg8): the 2026-07-23 audit's "wi
 ops:
   IncreaseStreamRetentionPeriod: {wire: fixed, errors: ok, state: ok, persist: ok, note: "reverted 2b2086c9: that commit made equal-to-current RetentionPeriodHours return InvalidArgumentException (a strict reading of the aws-sdk-go-v2 doc comment 'Must be more than the current retention period'), which broke TestTerraform_Kinesis in CI -- terraform's aws_kinesis_stream resource issues IncreaseStreamRetentionPeriod even when the requested value already equals the stream's current retention (confirmed live: CreateStream -> 24h default -> Increase(48) OK -> a second Increase(48) against the already-48h stream 400'd with InvalidArgumentException before this fix). Real AWS tolerates the equal case rather than erroring on every no-drift re-apply, so restored equal-value == no-op success. Strictly-lower and out-of-[24,8760] values are still rejected. gopherstack-enpq (2026-08-22): Input had no StreamARN member at all (api_op_IncreaseStreamRetentionPeriod.go:43-58 (StreamARN:52) -- 'you must use either the StreamARN or the StreamName parameter, or both'); an ARN-only caller silently resolved to an empty stream name and 400'd. Fixed via resolveStreamNameAndRegion."}
   DecreaseStreamRetentionPeriod: {wire: fixed, errors: ok, state: ok, persist: ok, note: "reverted 2b2086c9, mirrored: equal-to-current RetentionPeriodHours is a no-op success again (not InvalidArgumentException), matching real AWS/terraform tolerance. Strictly-greater and below-24h-min values are still rejected. gopherstack-enpq (2026-08-22): same missing-StreamARN bug as IncreaseStreamRetentionPeriod (api_op_DecreaseStreamRetentionPeriod.go:39-54 (StreamARN:48)), fixed the same way."}
-  CreateStream: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: ON_DEMAND now defaults to 4 shards (was 1); inline Tags now validated pre-mutation and persisted via TagResource instead of a lost handler-local map"}
+  CreateStream: {wire: fixed, errors: ok, state: ok, persist: ok, note: "fixed: ON_DEMAND now defaults to 4 shards (was 1); inline Tags now validated pre-mutation and persisted via TagResource instead of a lost handler-local map. 2026-08-23 (request-side accept-and-drop sweep): CreateStreamInput's own MaxRecordSizeInKiB/WarmThroughputMiBps members (api_op_CreateStream.go:101-121 -- distinct from the same-named UpdateMaxRecordSize/UpdateStreamWarmThroughput fields) had no Go field at all; the backend already tracks both (Stream.MaxRecordSizeBytes/WarmThroughputMiBps, read back by DescribeStreamSummary), so a caller specifying either at creation time silently got the 1 MiB default / zero throughput instead. Fixed via resolveCreateStreamMaxRecordSize plus the same range checks UpdateMaxRecordSize/UpdateStreamWarmThroughput already apply."}
   DeleteStream: {wire: fixed, errors: fixed, state: fixed, persist: ok, note: "fixed (gopherstack-enpq, cmd/structfielddiff): EnforceConsumerDeletion (real DeleteStreamInput member) was not accepted at all, so this backend deleted a stream unconditionally regardless of registered enhanced fan-out consumers -- more permissive than AWS, whose own doc comment says 'If this parameter is unset (null) or if you set it to false, and the stream has registered consumers, the call to DeleteStream fails with a ResourceInUseException.' Now checked against stream.Consumers before any mutation; new ErrStreamHasConsumers sentinel (ResourceInUseException) wired through resourceErrorDetails. Consumers themselves need no separate deletion step -- they are already keyed off the parent Stream struct (stream.Consumers), not a standalone global table, so they vanish with the stream regardless of EnforceConsumerDeletion's value once the delete is allowed to proceed."}
   DescribeStream: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: Shards list now paginates (Limit/ExclusiveStartShardId/HasMoreShards); previously returned every shard in one page with HasMoreShards hardcoded false"}
   DescribeStreamSummary: {wire: fixed, errors: ok, state: ok, persist: ok, note: "gopherstack-enpq (2026-08-22): MaxRecordSizeInKiB and WarmThroughput (both real, optional StreamDescriptionSummary members, types/types.go) had no Go field at all -- the backend already tracks the underlying Stream.MaxRecordSizeBytes/WarmThroughputMiBps (set by UpdateMaxRecordSize/UpdateStreamWarmThroughput) but never surfaced either back on describe, so a client had no way to read back settings it had itself just applied. Fixed by adding both to DescribeStreamOutput and the wire response (WarmThroughput.Current/Target both mirror the synchronous-apply model UpdateStreamWarmThroughput already documents)."}
@@ -52,7 +52,7 @@ ops:
   ListTagsForStream: {wire: fixed, errors: ok, state: ok, persist: ok, note: "fixed: now reads Backend.ListTagsForResource. gopherstack-enpq (2026-08-22): same missing-StreamARN bug (api_op_ListTagsForStream.go:35-53 (StreamARN:47)), fixed the same way."}
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: now enforces the 50-tag cap consistently with AddTagsToStream (previously uncapped)"}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok}
-  UpdateStreamMode: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: PROVISIONED -> ON_DEMAND now auto-reshards up to defaultOnDemandShardCount (4, matching CreateStream's ON_DEMAND default) when the stream is currently below that floor, closing the old open shards (CLOSED, retained for lineage) and opening new ones spanning the full hash range -- reuses the same reshardTo helper UpdateShardCount uses. This approximates AWS's documented 'scale to double the max/peak-30-day throughput, whichever is higher' behavior, which requires a throughput-history model this emulator doesn't have; see gaps for the remaining approximation gap. ON_DEMAND -> PROVISIONED never reshards (keeps current shard count as the new baseline), matching AWS."}
+  UpdateStreamMode: {wire: fixed, errors: ok, state: ok, persist: ok, note: "fixed: PROVISIONED -> ON_DEMAND now auto-reshards up to defaultOnDemandShardCount (4, matching CreateStream's ON_DEMAND default) when the stream is currently below that floor, closing the old open shards (CLOSED, retained for lineage) and opening new ones spanning the full hash range -- reuses the same reshardTo helper UpdateShardCount uses. This approximates AWS's documented 'scale to double the max/peak-30-day throughput, whichever is higher' behavior, which requires a throughput-history model this emulator doesn't have; see gaps for the remaining approximation gap. ON_DEMAND -> PROVISIONED never reshards (keeps current shard count as the new baseline), matching AWS. 2026-08-23 (request-side accept-and-drop sweep): WarmThroughputMiBps (real, optional UpdateStreamModeInput member, 'only valid when the stream mode is being updated to on-demand') had no Go field at all in the decode struct -- dropped even on an ON_DEMAND transition, though the backend already tracks Stream.WarmThroughputMiBps and reads it back on DescribeStreamSummary. Fixed: applied (with the same range check UpdateStreamWarmThroughput uses) only when the transition target is ON_DEMAND, matching the documented constraint; ignored on a PROVISIONED transition rather than erroring."}
 families:
   hash_key_routing: {status: ok, note: "MD5-based partition-key routing and explicit-hash-key routing verified against big.Int range math; shardForHashKey fallback-to-first-open-shard behavior documented"}
   sequence_numbers: {status: ok, note: "per-shard monotonic NextSeq counter, 49-prefixed AWS-shaped sequence string, persisted via Shard.NextSeq"}
@@ -77,6 +77,47 @@ leaks: {status: clean, note: "stream.mu (lockmetrics) and stream.Tags always Clo
 ---
 
 ## Notes
+
+### 2026-08-23 request-side accept-and-drop sweep (this pass)
+
+kinesis's request side had not been swept in this campaign before now: its only prior lead
+(`StreamId` missing from ~25 ops) was already correctly closed as not-a-bug -- every op that carries
+it marks it `// Not Implemented. Reserved for future use.` on the real SDK Input, so an absent Go
+field there is inert, not a defect. This pass instead compared every one of the 39 real `<Op>Input`
+struct's members (`api_op_*.go`, kinesis@v1.46.4) against each op's actual decode struct, looking
+for a member the real Input declares that the decode struct silently drops.
+
+Kinesis is pure `awsjson1.1` (JSON-RPC) end to end -- confirmed no op has a
+`serializeOpHttpBindings<Op>Input` function in `serializers.go` -- so every member lives in the body;
+there is no query- or URI-bound member anywhere in this service to trip on (rule 3 from the sweep
+charter is a non-issue here, unlike dynamodb's mixed query+body binding).
+
+**Signal size**: 39 ops read end to end; 34 wired handlers plus `SubscribeToShard`'s separate
+event-stream path checked against their decode structs. **2 real accept-and-drop bugs found and
+fixed** (both optional-member-dropped / silent-no-op class, both backed by state the backend already
+tracks and reads back elsewhere -- see `CreateStream`/`UpdateStreamMode` ops entries above for detail
+and SDK line references). **0 false positives hand-checked away** -- every other candidate absence
+(`GetRecordsInput.StreamName`, `PutRecordInput.SequenceNumberForOrdering`, every `StreamId`) had
+already been individually confirmed as not-a-bug by a prior pass (see those ops' own entries and the
+"Rejected candidates" note above); this pass re-confirmed rather than re-litigating them and found no
+new false positive.
+
+Both fixes proven via a real `aws-sdk-go-v2/service/kinesis` client round trip
+(`TestCreateStream_MaxRecordSizeAndWarmThroughput`, `TestUpdateStreamMode_WarmThroughputMiBps`,
+`wire_field_fixes_test.go`): each confirmed failing against the unfixed code first (CreateStream
+reported the 1024 KiB default / a nil `WarmThroughput` instead of the requested values;
+UpdateStreamMode reported `0` instead of the requested `WarmThroughputMiBps`), then passing after the
+fix. Hand-reverted (`streams.go`, `stream_modes.go`, `handler_streams.go`, `handler_stream_modes.go`,
+`models.go` restored from `git show HEAD:...`) -- both tests failed against the reverted tree with the
+same errors, then restored byte-identical (`md5sum` match). `streams.go`'s `CreateStream` was
+decomposed into `resolveCreateStreamModeAndShardCount`/`resolveCreateStreamMaxRecordSize` helpers to
+stay under `cyclop`'s complexity ceiling after the added validation branches -- no `//nolint` used.
+`golangci-lint run ./services/kinesis/...` 0 issues; `go test -race ./services/kinesis/...` and this
+service's `persistence_test.go` both green; `go build ./cmd/pgoload/... ./test/integration/...`
+confirmed no out-of-package literal broke (both structs' new fields are purely additive, all call
+sites use named-field literals). Neither `CreateStreamInput` nor `UpdateStreamModeInput` participates
+in `Stream`'s persisted JSON shape directly -- both are transient wire/domain input types, not the
+persisted struct itself -- so no `kinesisSnapshotVersion` bump was needed or made.
 
 ### 2026-08-19 wrapper-key / nested-shape sweep (this pass)
 
