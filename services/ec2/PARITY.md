@@ -675,3 +675,96 @@ its real wire shape on inspection. Largest still-unswept never-named families fr
 `handler_security_groups.go` (9), `handler_elastic_ips.go` (8), `handler_tgw_multicast.go`
 (7), `handler_instance_attrs.go` (7) -- next pass should re-derive each file's count
 against its own `register*Ops` before picking one, per the method demonstrated here.
+
+**2026-08-23 pass -- bare `Return: true` stub census (whole-repo redirect)**: a
+whole-repo grep for `Return:\s+true` in `services/*/handler*.go` turned up **118 real
+code sites, every one in `services/ec2`** (a 119th grep hit was a comment in
+`handler_reserved_instances.go` documenting an already-fixed op, not a live site; every
+other service greps clean). Mapped each site to its real `<Op>Output` struct in
+`aws-sdk-go-v2/service/ec2@v1.319.1` (case-insensitive filename match, since several ops
+differ only in AWS's inconsistent `Ip`/`IP`, `Dns`/`DNS`, `Acl`/`ACL` casing between
+Go SDK and this repo's op names) and classified each by the redirect's three-way test:
+
+- **47 correct** (`Return` is the real output's only member) -- left alone.
+- **7 "Return + missing siblings"**: `AuthorizeSecurityGroupEgress`/
+  `AuthorizeSecurityGroupIngress` (missing `SecurityGroupRules`), `DeleteSecurityGroup`
+  (missing `GroupId`), `DeleteKeyPair` (missing `KeyPairId` -- **fixed this pass**),
+  `DeregisterImage` (missing `DeleteSnapshotResults`), `DisassociateTrunkInterface`
+  (missing `ClientToken`), `RevokeSecurityGroupIngress` (missing
+  `RevokedSecurityGroupRules`/`UnknownIpPermissions`).
+- **21 "no `Return` field, real members silently dropped"** -- the damaging class: e.g.
+  `AssignPrivateIPAddresses` (real output is
+  `AssignedIpv4Prefixes`/`AssignedPrivateIpAddresses`/`NetworkInterfaceId`, none rendered),
+  `DisassociateClientVpnTargetNetwork` (real output is `associationId`/`status`, **fixed
+  this pass**), `RestoreSnapshotTier`/`RestoreSnapshotFromRecycleBin` (already named
+  as unfixed gaps in the 08-23 volumes/snapshots entry above -- this sweep re-derived them
+  independently from the SDK side, corroborating that entry), plus 17 more listed in this
+  session's report.
+- **1 wire-tag mismatch, the sharpest bug found**: `ReleaseIpamPoolAllocation`
+  (`handler_advanced_networking.go`/`handler_ipam.go`) rendered `<return>true</return>`,
+  but the real `ReleaseIpamPoolAllocationOutput`'s only member is `Success`, decoded off
+  `<success>` (`deserializers.go`,
+  `awsEc2query_deserializeOpDocumentReleaseIpamPoolAllocationOutput` has no `case` for
+  `"return"` at all -- the real client's deserializer silently skips the emulator's tag
+  via its `default:` branch, so `Success` stayed permanently nil regardless of the actual
+  release outcome). **Fixed this pass.**
+- **42 "no `Return`, but the real output has no other members either"** -- e.g.
+  `DeleteVpc`, `RebootInstances`, `ModifyImageAttribute`: technically wrong (the emulator
+  renders a field the real op doesn't have) but harmless in practice, since an unknown XML
+  tag is silently skipped by the real deserializer's own `default:` case and there is
+  nothing real for a client to miss. Left alone -- fixing these is pure noise removal, not
+  a client-visible bug, and 42 near-identical one-line diffs aren't a good use of a
+  "depth over breadth" pass.
+
+Fixed 3, the highest-confidence and most damaging of the non-cosmetic findings:
+
+1. **`ReleaseIpamPoolAllocation`** (`handler_advanced_networking.go`,
+   `handler_ipam.go:381`) -- wire tag mismatch above. Changed the response struct's
+   `Return bool `xml:"return"`` field to `Success bool `xml:"success"``, matching
+   `api_op_ReleaseIpamPoolAllocation.go:67`.
+2. **`DeleteKeyPair`** (`handler_key_pairs.go:110-131`) -- added `KeyPairId` (wire tag
+   `keyPairId`, `api_op_DeleteKeyPair.go:47`, confirmed against
+   `awsEc2query_deserializeOpDocumentDeleteKeyPairOutput`), looked up via the existing
+   `Backend.DescribeKeyPairs` before the delete removes it from the backend.
+3. **`DisassociateClientVpnTargetNetwork`** (`handler_client_vpn.go:290-310`) -- replaced
+   the generic `stubResponse{Return: true}` with a new
+   `disassociateClientVpnTargetNetworkResponse{AssociationID, Status}`, matching
+   `api_op_DisassociateClientVpnTargetNetwork.go:61-64` and its deserializer
+   (`associationId`/`status` wire tags); modeled on the sibling
+   `associateClientVpnTargetNetworkResponse` already in the same file, using the real
+   `AssociationStatusCode` enum value `"disassociating"`
+   (`types/enums.go:698`).
+
+Proof for all 3: `services/ec2/wire_field_fixes_ec2sweep13_test.go`, three
+`*_RealClient` tests built against the real `ec2sdk.Client`. Hand-reverted each fix in
+turn (`cp` from a saved copy of the pre-fix file, ran only that fix's test, restored,
+`md5sum` identical before/after every file):
+- `TestReleaseIpamPoolAllocation_WireField_RealClient`: pre-fix failure --
+  `Expected value not to be nil` on `out.Success` ("pre-fix the real deserializer has no
+  case for `<return>`, so this stayed nil").
+- `TestDeleteKeyPair_SurfacesKeyPairID_RealClient`: pre-fix failure -- `Expected value
+  not to be nil` on `out.KeyPairId`.
+- `TestDisassociateClientVpnTargetNetwork_SurfacesAssociation_RealClient`: pre-fix
+  failure -- `Expected value not to be nil` on `out.AssociationId`.
+
+No persisted struct changed (all three fixes are response-only XML shapes plus one
+backend lookup call already exported); no `ec2SnapshotVersion` bump needed, and none of
+`KeyPair`/`ClientVpnEndpoint`/`IpamPoolAllocation` persisted fields changed.
+
+Gates: `go build ./...` (no exported signature changed, so `make build-check` wasn't
+required, but ran anyway -- clean), `go vet ./services/ec2/...` and `gofmt -l` on every
+touched file (clean), `go test -race ./services/ec2/...` (`ok`, full suite including the
+3 new tests), `golangci-lint run ./services/ec2/...` (0 issues). No banned `//nolint`s.
+
+Not reached, named: the 6 remaining Category-B sites and 20 remaining Category-C-real
+sites listed in this session's report (file:line for each), and all 42 Category-C-empty
+sites (cosmetic-only, listed by file above) -- deliberately not attempted this pass per
+"depth over breadth." Largest remaining concentration: `handler_security_groups.go` (5
+of its 9 `Return: true` sites are Category B/C-real: `AuthorizeSecurityGroupEgress`,
+`AuthorizeSecurityGroupIngress`, `DeleteSecurityGroup`, `RevokeSecurityGroupIngress`,
+`DisassociateSecurityGroupVpc`), then `handler_images.go` (`DeregisterImage`,
+`EnableFastLaunch`, `DisableFastLaunch`), `handler_elastic_ips.go`
+(`AssociateAddress`, `DisableAddressTransfer`, `ResetAddressAttribute`,
+`RestoreAddressToClassic`), `handler_snapshots.go` (`RestoreSnapshotFromRecycleBin`,
+`RestoreSnapshotTier` -- already named above), and `handler_instances.go`
+(`EnableSerialConsoleAccess`/`DisableSerialConsoleAccess`).

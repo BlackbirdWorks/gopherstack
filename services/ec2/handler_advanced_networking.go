@@ -755,10 +755,13 @@ type getIpamPoolAllocationsResponse struct {
 	} `xml:"ipamPoolAllocationSet"`
 }
 
+// releaseIpamPoolAllocationResponse mirrors the real
+// ReleaseIpamPoolAllocationOutput: the wire field is "success", not "return"
+// (deserializers.go, awsEc2query_deserializeOpDocumentReleaseIpamPoolAllocationOutput).
 type releaseIpamPoolAllocationResponse struct {
 	XMLName   xml.Name `xml:"ReleaseIpamPoolAllocationResponse"`
 	RequestID string   `xml:"requestId"`
-	Return    bool     `xml:"return"`
+	Success   bool     `xml:"success"`
 }
 
 type ipamResourceDiscoveryItem struct {

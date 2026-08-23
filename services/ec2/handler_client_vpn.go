@@ -287,6 +287,16 @@ func (h *Handler) handleAssociateClientVpnTargetNetwork(vals url.Values, reqID s
 	}, nil
 }
 
+// disassociateClientVpnTargetNetworkResponse mirrors the real
+// DisassociateClientVpnTargetNetworkOutput shape: associationId and status,
+// not a bare Return bool.
+type disassociateClientVpnTargetNetworkResponse struct {
+	XMLName       xml.Name                    `xml:"DisassociateClientVpnTargetNetworkResponse"`
+	RequestID     string                      `xml:"requestId"`
+	AssociationID string                      `xml:"associationId"`
+	Status        clientVpnEndpointStatusItem `xml:"status"`
+}
+
 func (h *Handler) handleDisassociateClientVpnTargetNetwork(vals url.Values, reqID string) (any, error) {
 	endpointID := vals.Get("ClientVpnEndpointId")
 	assocID := vals.Get("AssociationId")
@@ -294,10 +304,10 @@ func (h *Handler) handleDisassociateClientVpnTargetNetwork(vals url.Values, reqI
 		return nil, err
 	}
 
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DisassociateClientVpnTargetNetworkResponse"},
-		RequestID: reqID,
-		Return:    true,
+	return &disassociateClientVpnTargetNetworkResponse{
+		RequestID:     reqID,
+		AssociationID: assocID,
+		Status:        clientVpnEndpointStatusItem{Code: "disassociating"},
 	}, nil
 }
 
