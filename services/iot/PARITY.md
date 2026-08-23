@@ -929,3 +929,164 @@ SDK's own `serializers.go` HTTP bindings while here: `CreateCommand`
 (`DELETE /command-executions/{executionId}`) all already matched their real
 routes correctly -- `GetCommandExecution` was the only unreachable op left in
 the family.
+
+## 2026-08-23 (pass #6, continued): audit/device-defender family + singleton ops
+
+**Re-derived the never-audited count instead of trusting the prior pass's prose.**
+Diffed every op name in `op_names.go` (276 total) against every op name appearing
+anywhere in this file -- including the structured `ops:`/`families:` blocks, not
+just prose -- distinguishing "named in an actually-audited context" from "merely
+listed in the prior pass's own not-reached enumeration" (a name-only grep can't
+tell those apart, since the prior pass's own two 52/50-item lists name every op
+it did NOT audit). Excluding lines that only enumerate not-yet-reached ops, 174
+of 276 ops resolve to genuinely-audited context (the `ops:` block, `families:`
+prose, the Commands over-wide-response section, and the 2026-08-23 pass's own
+found-and-fixed/audited-correct lists) and **102 do not -- the 102 figure holds
+exactly**, matching the prior pass's own two lists (52 void-output + 50
+has-body) name-for-name.
+
+**Audited 19 of the 102** (13 from the audit/device-defender family, plus 6
+singletons): `DescribeAuditMitigationActionsTask`, `ListAuditMitigationActionsExecutions`,
+`ListAuditSuppressions`, `ListAuditTasks`, `ListRelatedResourcesForAuditFinding`,
+`DescribeAccountAuditConfiguration`, `DescribeAuditSuppression`, `DescribeAuditTask`,
+`CreateScheduledAudit`, `DescribeScheduledAudit`, `ListScheduledAudits`,
+`StartOnDemandAuditTask`, `UpdateScheduledAudit`, `CreateBillingGroup`,
+`UpdateBillingGroup`, `CancelJob`, `GetRegistrationCode`, `GetPackageConfiguration`,
+`ListSbomValidationResults`. Found and fixed 5 real bugs across 4 ops (a ~26% hit
+rate), field-diffed against the pinned SDK's deserializer/type definitions, not
+against gopherstack's own output:
+
+- `UpdateAccountAuditConfiguration`/`DescribeAccountAuditConfiguration`
+  (`audit.go`): real `types.AuditCheckConfiguration` (v1.77.4) has both
+  `enabled` and `configuration` (`map[string]string`); this backend's
+  `AuditCheckConfig` only ever modeled `enabled`, so a real client's
+  `UpdateAccountAuditConfiguration` call setting per-check configuration
+  values had them silently dropped, and `DescribeAccountAuditConfiguration`
+  could never surface them. Fixed: added `Configuration` to `AuditCheckConfig`
+  (purely additive; both request-parsing and response marshaling already bind
+  the same struct, so no handler change was needed beyond the type). See
+  `TestUpdateAccountAuditConfiguration_ConfigurationFieldSurvives`.
+- `DescribeScheduledAudit` (`audit.go`): `ScheduledAudit.Tags` (internal
+  write-only scratch state -- the canonical tag store is the separately
+  persisted `resourceTags` map, confirmed by grep: `sa.Tags` is written once
+  at Create and never read back) was tagged `json:"tags,omitempty"`, leaking
+  onto the wire even though real `DescribeScheduledAuditOutput` has no
+  `tags` member -- the same leaked-field class already fixed for
+  Job/JobTemplate/SecurityProfile. Fixed via `json:"-"`.
+- `ListScheduledAudits` (`handler_audit.go`): `ScheduledAuditMetadata`
+  (v1.77.4) has `dayOfMonth`/`dayOfWeek`; the backend already tracks both per
+  scheduled audit (set on `CreateScheduledAudit`, mutable via
+  `UpdateScheduledAudit`) but the list summary only ever emitted
+  `scheduledAuditName`/`scheduledAuditArn`/`frequency`. Fixed to include both.
+  See `TestScheduledAudit_ListFieldsAndDescribeWireShape` (covers both fixes
+  above, table-driven over MONTHLY/WEEKLY).
+- `DescribeAuditMitigationActionsTask` (`handler_devicedefender.go`): real
+  `DescribeAuditMitigationActionsTaskOutput.actionsDefinition`
+  (`[]types.MitigationAction`, v1.77.4) was never surfaced at all -- a real
+  client's deserializer never found the key and it stayed permanently empty.
+  This is the same field its sibling `DescribeDetectMitigationActionsTask`
+  already resolves via the existing `MitigationActionRefs` helper (fixed in
+  an earlier pass), just never given the same treatment on the audit side.
+  Fixed via a new `auditMitigationTaskActionsDefinition` helper that
+  collects the unique action names across `AuditCheckToActionsMapping`'s
+  per-check lists and resolves them the same way. See
+  `TestDeviceDefender_AuditMitigationTaskLifecycle`'s new `actionsDefinition`
+  assertions.
+- `CancelJob` (`jobs.go`/`handler_jobs.go`): two bugs. (1) real
+  `CancelJobOutput` has a `description` member this handler never returned
+  (the backend already tracks `Job.Description`). (2) `CancelJob`
+  unconditionally set `Status` to `CANCELED` regardless of the job's current
+  state, silently "re-canceling" an already-`COMPLETED`/`CANCELED`/`FAILED`/
+  `DELETION_IN_PROGRESS` job instead of returning
+  `InvalidStateTransitionException` -- the same terminal-state guard
+  `CancelJobExecution`/`CancelAuditTask` already enforce elsewhere in this
+  service. Both fixed. See `TestCancelJob_DescriptionAndTerminalStateGuard`.
+
+**Sibling check**: yes -- the `DescribeAuditMitigationActionsTask` bug is a
+direct case of "a correct sibling beside a broken op" (shape #7): its
+detect-mitigation sibling already had the `actionsDefinition` fix from an
+earlier pass, but the audit-mitigation side was never given the same
+treatment despite sharing the identical `MitigationActionRefs` resolution
+mechanism. The other three fixes (`AuditCheckConfig.Configuration`,
+`ScheduledAudit.Tags`, `ListScheduledAudits` fields) have no direct sibling
+within their own small families -- checked and none found.
+
+**Audited and found already correct** (field-diffed, no gap):
+`ListAuditMitigationActionsExecutions`, `ListAuditSuppressions`, `ListAuditTasks`,
+`DescribeAuditSuppression`, `CreateScheduledAudit`, `StartOnDemandAuditTask`,
+`CreateBillingGroup`, `UpdateBillingGroup`, `GetRegistrationCode`,
+`GetPackageConfiguration`, `ListSbomValidationResults`.
+
+**Modelling gaps found, not fixed** (per `parity-principles.md`'s no-synthesis
+rule -- reported, not guessed at):
+- Audit *task execution* is not simulated at all: `StartOnDemandAuditTask`
+  ignores its `TargetCheckNames` input entirely (bound to `_`), audit tasks
+  never transition past `IN_PROGRESS` (only `CancelAuditTask` moves them, to
+  `CANCELED`), and `DescribeAuditTaskOutput`'s real `auditDetails`
+  (`map[string]types.AuditCheckDetails`, per-check pass/fail detail) and
+  `taskStatistics` (`*types.TaskStatistics`, aggregate check counts) have no
+  backing state to compute from -- there is no simulated check-execution
+  result to roll up. This is the same class of gap as the already-documented
+  `DescribeDomainConfiguration` TLS subsystem: an entire unmodeled subsystem,
+  not a wire-shape omission fixable at the handler layer.
+- `AuditFinding.RelatedResources` (`[]map[string]any`) has no production
+  write path anywhere in this service -- grepped every `.go` file outside
+  `_test.go`; the only assignment is the field's own clone helper. It is
+  reachable only via test-only seeding, so `ListRelatedResourcesForAuditFinding`
+  and `DescribeAuditFinding`'s `relatedResources` field can never be
+  populated in any real-client-driven scenario. Converting the freeform
+  `map[string]any` to a typed `RelatedResource{additionalInfo,
+  resourceIdentifier, resourceType}` (mirroring the fix already applied to
+  `AuditFinding.NonCompliantResource` in an earlier pass) would not close
+  this gap, since nothing populates the field either way -- reported, not
+  fixed.
+
+**False positives ruled out**: `EventConfigEntry.Enabled` uses the wire key
+`"Enabled"` (capitalized) -- looked like a casing bug at first glance, but
+confirmed correct against `awsRestjson1_deserializeDocumentConfiguration`
+(v1.77.4): real `types.Configuration.Enabled` genuinely serializes under
+`"Enabled"`, not `"enabled"`. `GetPackageConfiguration` initially looked like
+it was missing the real `versionUpdateByJobsConfig` wrapper key (the handler
+returns the whole `*PackageConfiguration` struct with no visible wrapper in
+the handler code) -- but `PackageConfiguration`'s own field is tagged
+`json:"versionUpdateByJobsConfig,omitempty"`, so the wrapper is already
+present; not a bug.
+
+**Snapshot version**: bumped `iotSnapshotVersion` 2 -> 3. Reason: the
+`ScheduledAudit.Tags` retag from `json:"tags,omitempty"` to `json:"-"` is a
+persisted-struct json-tag change (`ScheduledAudit` round-trips via the
+generic `store.Table[ScheduledAudit]` registry, which marshals the struct
+directly per its own json tags -- `pkgs/store/table.go`'s `Snapshot`/`Restore`
+use `json.Marshal`/`Unmarshal` on the same type). `pkgs/persistence`'s
+`TestSnapshotVersionGuard` confirmed this needed a bump (failed without one:
+"at least one existing field's name, type, or json tag changed or was
+removed -- this is NOT the additive case"); bumped, then regenerated
+`pkgs/persistence/testdata/snapshot_inventory.json` via `-update` and
+re-ran the guard clean. Functionally the removed field was dead weight (its
+real state lives in the separately-persisted `resourceTags` map and is never
+read back from `ScheduledAudit.Tags`), but the guard is right that the
+on-disk shape changed and can't tell the difference from a dangerous change
+without the bump.
+
+**Ops not reached this pass** (of the 102; the remaining 83): the rest of the
+audit/device-defender family already covered by prior passes' `ops:`/
+`families:` entries is done, but `CreateDynamicThingGroup`/
+`UpdateDynamicThingGroup`, all of `handler_routing.go`'s grab-bag
+(`DescribeEncryptionConfiguration`, `DescribeEventConfigurations`,
+`DescribeManagedJobTemplate`, `DescribeThingRegistrationTask`,
+`GetBehaviorModelTrainingSummaries`, `GetThingConnectivityData`,
+`ListDomainConfigurations`, `ListManagedJobTemplates`, `ListMetricValues`,
+`ListOutgoingCertificates`, `ListThingGroupsForThing`, `ListThingPrincipals`,
+`ListThingPrincipalsV2`, `ListThingRegistrationTaskReports`,
+`ListThingRegistrationTasks`, `RegisterThing`, `StartThingRegistrationTask`,
+`TestAuthorization`, `TestInvokeAuthorizer`), `handler_policies.go`'s
+(`GetEffectivePolicies`, `ListPolicyPrincipals`, `ListPrincipalPolicies`,
+`ListPrincipalThings`, `ListPrincipalThingsV2`, `ListTargetsForPolicy`),
+`handler_logging.go` (`GetLoggingOptions`, `GetV2LoggingOptions`,
+`ListV2LoggingLevels`), `handler_indexing.go` (`GetIndexingConfiguration`),
+and the 52 void-output ops listed in the 2026-08-23 (pass #6) entry above
+remain unaudited by any pass. These are the next pass's ground.
+
+Gates run: `go build ./...`, `go vet ./services/iot/...`, `gofmt -l`,
+`go test -race ./services/iot/... ./pkgs/persistence/...`,
+`golangci-lint run ./services/iot/...` -- all clean.

@@ -23,7 +23,15 @@ import (
 // OTAUpdateInfo.otaUpdateFiles wire key. Same Go field, different on-disk
 // key -- an older snapshot would decode Files as its zero value (nil),
 // silently dropping every OTA update's file list.
-const iotSnapshotVersion = 2
+//
+// Bumped 2 -> 3: the scheduledAudits table's ScheduledAudit.Tags field was
+// retagged json:"tags,omitempty" -> json:"-" (real DescribeScheduledAuditOutput
+// has no "tags" member; harmless to drop functionally, since the canonical
+// tag store is the separately-persisted resourceTags map and Tags on
+// ScheduledAudit is write-only scratch state, but the field removal is a
+// real on-disk shape change the guard cannot tell apart from a dangerous
+// one without this bump).
+const iotSnapshotVersion = 3
 
 type backendSnapshot struct {
 	Tables                          map[string]json.RawMessage                    `json:"tables"`

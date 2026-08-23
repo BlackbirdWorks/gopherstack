@@ -85,8 +85,15 @@ func (b *InMemoryBackend) CancelAuditTask(input *CancelAuditTaskInput) error {
 }
 
 // AuditCheckConfig holds config for a single audit check.
+//
+// Configuration mirrors types.AuditCheckConfiguration's "configuration" map
+// member (v1.77.4) -- previously entirely unmodeled, so a real client's
+// UpdateAccountAuditConfiguration call setting per-check configuration
+// values had them silently dropped, and DescribeAccountAuditConfiguration
+// could never surface them.
 type AuditCheckConfig struct {
-	Enabled bool `json:"enabled"`
+	Configuration map[string]string `json:"configuration,omitempty"`
+	Enabled       bool              `json:"enabled"`
 }
 
 // AccountAuditConfiguration holds the account-level audit configuration.
@@ -655,8 +662,13 @@ func (b *InMemoryBackend) UpdateEventConfigurations(cfgs map[string]*EventConfig
 }
 
 // ScheduledAudit represents an IoT scheduled audit.
+//
+// Tags is internal-only storage for ListTagsForResource -- real
+// DescribeScheduledAuditOutput has no "tags" member (confirmed against
+// v1.77.4's awsRestjson1_deserializeOpDocumentDescribeScheduledAuditOutput),
+// same leaked-field class already fixed for Job/JobTemplate/SecurityProfile.
 type ScheduledAudit struct {
-	Tags               map[string]string `json:"tags,omitempty"`
+	Tags               map[string]string `json:"-"`
 	ScheduledAuditName string            `json:"scheduledAuditName"`
 	ScheduledAuditARN  string            `json:"scheduledAuditArn"`
 	Frequency          string            `json:"frequency"`

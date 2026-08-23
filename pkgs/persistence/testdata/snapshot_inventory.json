@@ -13328,6 +13328,7 @@
       "ActiveViolation.ViolationStartTime float64 `json:\"violationStartTime,omitempty\"`",
       "AggregationType.Name string `json:\"name\"`",
       "AggregationType.Values []string `json:\"values,omitempty\"`",
+      "AuditCheckConfig.Configuration map[string]string `json:\"configuration,omitempty\"`",
       "AuditCheckConfig.Enabled bool `json:\"enabled\"`",
       "AuditFinding.CheckName string `json:\"checkName\"`",
       "AuditFinding.FindingID string `json:\"findingId\"`",
@@ -13712,7 +13713,7 @@
       "ScheduledAudit.Frequency string `json:\"frequency\"`",
       "ScheduledAudit.ScheduledAuditARN string `json:\"scheduledAuditArn\"`",
       "ScheduledAudit.ScheduledAuditName string `json:\"scheduledAuditName\"`",
-      "ScheduledAudit.Tags map[string]string `json:\"tags,omitempty\"`",
+      "ScheduledAudit.Tags map[string]string `json:\"-\"`",
       "ScheduledAudit.TargetCheckNames []string `json:\"targetCheckNames,omitempty\"`",
       "SchedulingConfig.EndBehavior string `json:\"endBehavior,omitempty\"`",
       "SchedulingConfig.EndTime string `json:\"endTime,omitempty\"`",
@@ -13908,7 +13909,7 @@
       "topicRuleDestSnap.HTTPURLProperties *HTTPURLDestinationProperties `json:\"httpUrlProperties,omitempty\"`",
       "topicRuleDestSnap.Status string `json:\"status\"`"
     ],
-    "version": 2
+    "version": 3
   },
   "iotanalytics": {
     "fields": [

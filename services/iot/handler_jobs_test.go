@@ -769,3 +769,29 @@ func TestJobTemplate(t *testing.T) {
 	// Verify deletion
 	iotExpectError(t, h, "/job-templates/my-template")
 }
+
+// TestCancelJob_DescriptionAndTerminalStateGuard covers two previously-unmodeled
+// gaps: real CancelJobOutput (v1.77.4) has a "description" member this
+// handler never returned, and CancelJob unconditionally set Status to
+// CANCELED for any job regardless of its current state, silently
+// "re-canceling" an already-terminal job instead of returning
+// InvalidStateTransitionException -- the same terminal-state guard
+// CancelJobExecution/CancelAuditTask already enforce.
+func TestCancelJob_DescriptionAndTerminalStateGuard(t *testing.T) {
+	t.Parallel()
+	h := newIoTHandler(t)
+
+	iotOK(t, h, http.MethodPut, "/jobs/cancel-desc-job", map[string]any{
+		"targets":     []any{"arn:aws:iot:us-east-1:000000000000:thing/my-thing"},
+		"document":    `{"action":"update"}`,
+		"description": "a job worth describing",
+	})
+
+	out := iotOK(t, h, http.MethodPut, "/jobs/cancel-desc-job/cancel", map[string]any{"comment": "no longer needed"})
+	assert.Equal(t, "cancel-desc-job", out["jobId"])
+	assert.Equal(t, "a job worth describing", out["description"])
+
+	rec := iotRequest(t, h, http.MethodPut, "/jobs/cancel-desc-job/cancel", nil)
+	assert.Equal(t, http.StatusConflict, rec.Code,
+		"canceling an already-CANCELED job must return InvalidStateTransitionException, got: %s", rec.Body.String())
+}

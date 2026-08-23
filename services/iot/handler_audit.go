@@ -372,6 +372,8 @@ func (h *Handler) handleListScheduledAudits(c *echo.Context) error {
 			"scheduledAuditName": sa.ScheduledAuditName,
 			keyScheduledAuditARN: sa.ScheduledAuditARN,
 			"frequency":          sa.Frequency,
+			"dayOfMonth":         sa.DayOfMonth,
+			"dayOfWeek":          sa.DayOfWeek,
 		}
 	}
 

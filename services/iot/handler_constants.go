@@ -28,6 +28,7 @@ const (
 	keyPolicyVersionID         = "policyVersionId"
 	keyInvalidPath             = "invalid path"
 	keyCommandArn              = "commandArn"
+	keyTarget                  = "target"
 
 	// URL path prefix constants.
 	pathPolicies         = "/policies"

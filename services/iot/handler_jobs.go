@@ -279,8 +279,9 @@ func (h *Handler) handleCancelJob(c *echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		keyJobID:  job.JobID,
-		keyJobARN: job.JobARN,
+		keyJobID:       job.JobID,
+		keyJobARN:      job.JobARN,
+		keyDescription: job.Description,
 	})
 }
 
