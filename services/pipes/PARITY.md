@@ -1,8 +1,8 @@
 ---
 service: pipes
 sdk_module: aws-sdk-go-v2/service/pipes@v1.26.4
-last_audit_commit: ef59a15b0
-last_audit_date: 2026-08-21
+last_audit_commit: 7f68d2d24
+last_audit_date: 2026-08-23
 overall: A            # both execution gaps closed for real (runner.go source pollers + cli.go target/DLQ wiring); the only remaining gap is a proven genuine impossibility (no in-repo Kafka/AMQP broker)
 ops:
   CreatePipe: {wire: ok, errors: ok, state: ok, persist: ok, note: "added max-50-tags validation to match TagResource's existing limit; RoleArn is now enforced as a required field (ValidationException when absent/empty), matching validateOpCreatePipeInput -- closes the gap previously left open in the 2026-07-13 pass. ~40 call sites across the test suite (Go CreatePipeInput{} literals and raw-HTTP JSON bodies) updated to supply RoleArn now that it's enforced. 2026-08-21: KinesisStreamSourceParameters.StartingPositionTimestamp (a Kinesis-source-only filter) decoded straight into *time.Time, which encoding/json cannot unmarshal from the epoch-seconds JSON number restjson1 actually sends -- rejecting the entire request body for any real client setting it (gopherstack-5mr2). Fixed via wire_time.go's MarshalJSON/UnmarshalJSON pair, not a field-type change, since the same struct also serves DescribePipe's response and the persistence snapshot round trip. FIXED 2026-08-21 (gopherstack-us9u kind-mismatch sweep) -- BatchContainerOverrides.Environment was map[string]string; the real types.BatchContainerOverrides.Environment is []BatchEnvironmentVariable ({Name, Value} objects), and serializers.go/deserializers.go reuse the identical type for both CreatePipe's request and DescribePipe's response, so a real client setting a Batch environment variable override failed CreatePipe's request decode outright (json: cannot unmarshal array into ... of type map[string]string). Fixed by changing the field's Go type directly to []BatchEnvironmentVariable (no domain/wire split needed, since both directions share one struct). Proven via a real aws-sdk-go-v2/service/pipes client round trip (wire_batch_environment_test.go), hand-reverted/confirmed-failing/restored, md5sum-verified byte-identical."}
@@ -495,6 +495,9 @@ field either removed or kept only as an internal fallback) touches
 double-digit number of existing DLQ tests, which is more rework than this
 sweep's time budget covers safely; flagging for a follow-up pass rather than
 risking a rushed, under-tested change to a currently-passing feature area.
+**FIXED 2026-08-22 (gopherstack-6ffg, commit `c1b8de09a`) -- see the dated
+entry below.** This paragraph is left as the original record of the gap;
+do not read it as still-open.
 
 **Pre-existing cosmetic-extra-field notes (from the 2026-07-13/07-24 audits)
 reconfirmed still true at v1.26.4, not touched this pass:**
@@ -543,3 +546,75 @@ cyclop/gocyclo/gocognit/funlen added, no `export_test.go` changes.
 `services/pipes/handler.go`, `services/pipes/pipe_lifecycle_test.go`,
 `services/pipes/targets_ecs_batch_test.go`, `services/pipes/handler_test.go`,
 `services/pipes/PARITY.md`. No file outside `services/pipes/` touched.
+
+## 2026-08-23: DeadLetterConfig gap re-audit -- already fixed, PARITY.md was stale
+
+bd filed a second, independently-worded bug (`gopherstack-a2y2`) describing
+the exact `DeadLetterConfig` fabrication documented above and requesting a
+fix. Re-verification against the pinned SDK (`aws-sdk-go-v2/service/
+pipes@v1.26.4/types/types.go`) found the fix already shipped two days
+earlier: commit `c1b8de09a` ("fix(pipes): read the dead-letter queue from the
+source parameters, where the real API puts it", 2026-08-22) closed
+`gopherstack-6ffg` -- a differently-numbered issue for the same defect. The
+duplicate filing traces to this file: the "Gap found and disclosed, not
+fixed" paragraph above was never updated after the fix landed, so it read as
+an open gap to whatever produced `gopherstack-a2y2`. Corrected in place
+rather than deleted (see the amendment appended to that paragraph).
+
+**Confirmed still correct today, independently:**
+- Real SDK: `CreatePipeInput`/`UpdatePipeInput`/`DescribePipeOutput` carry
+  zero `DeadLetterConfig` occurrences (`grep -n DeadLetterConfig
+  api_op_{Create,Update,Describe}Pipe.go` in the pinned module -- empty).
+  `DeadLetterConfig` exists on exactly four real types:
+  `PipeSourceKinesisStreamParameters`, `PipeSourceDynamoDBStreamParameters`,
+  `UpdatePipeSourceKinesisStreamParameters`, and
+  `UpdatePipeSourceDynamoDBStreamParameters` (`types.go:886,926,1816,1851`).
+  No other source type (SQS, MSK, self-managed Kafka, RabbitMQ, ActiveMQ) has
+  it, on either the create or update side -- matches `c1b8de09a`'s own claim.
+- Gopherstack: `models.go`'s top-level `Pipe.DeadLetterConfig` /
+  `CreatePipeInput.DeadLetterConfig` / `UpdatePipeInput.DeadLetterConfig`
+  fields are gone (only the `DeadLetterConfig` type itself and its clone
+  helper remain, still used by the two correct nested fields in
+  `sources.go`). `runner.go`'s `pipeDeadLetterARN` and both its call sites
+  (`handlePipeFailure`, `sources_poll.go`'s `sendToDLQIfConfigured`) read
+  exclusively from `SourceParameters.KinesisStreamParameters.DeadLetterConfig`
+  / `.DynamoDBStreamParameters.DeadLetterConfig`.
+
+**No snapshot-version bump was needed for this fix** (unlike the
+`gopherstack-hjdd` `BatchContainerOverrides` retype above), and this was
+verified rather than assumed: `pkgs/persistence/snapshot.go`'s
+`UnmarshalSnapshot` calls plain `json.Unmarshal` with no
+`DisallowUnknownFields`, so a pre-fix snapshot's stray top-level
+`"deadLetterConfig"` key is silently ignored on restore rather than causing a
+decode error -- this is a field *removal*, not the incompatible type change
+(`map`->`slice`) the version guard exists to catch. `pipesSnapshotVersion`
+stays at 2. `go test ./pkgs/persistence/...` passes unmodified (no `-update`
+run).
+
+**Proof re-run today, both hand-reverted against `c1b8de09a^`'s
+`models.go`/`runner.go`/`sources_poll.go`/`pipe_lifecycle.go` (via `cp`, not
+`git checkout`) and restored:**
+- `TestRunner_EnrichmentFailure_RoutesToDLQ/enrichment_unwired_with_dlq`
+  (`runner_dlq_test.go`) failed on the reverted code:
+  `expected: []string{"arn:aws:sqs:...:dlq"} / actual: []string(nil)` --
+  the SQS-path DLQ never receives the failed batch.
+- `TestPipesRunner_StreamSourcePolling/kinesis_target_failure_dlq`
+  (`sources_test.go`) failed on the reverted code: `"[]" should have 1
+  item(s), but has 0` -- the stream-poller DLQ path has the same symptom.
+  Both are exactly the "failed delivery never reaches the DLQ" symptom the
+  bug describes. Restored via `cp`; `md5sum` of all four files matched their
+  pre-revert values exactly. `go build ./services/pipes/...` and
+  `go test ./services/pipes/... -race -count=1` both clean after restore.
+
+**Gates this pass:** `go build ./...` clean. `go test ./services/pipes/...
+-race -count=1` -- PASS. `go test ./pkgs/persistence/...` -- PASS (no
+`-update`). `go vet -tags integration ./...` clean. `go vet -tags e2e ./...`
+fails, but on `test/e2e/timestreamquery_test.go` (a `CreateScheduledQuery`
+call-site arity mismatch) -- unrelated to `pipes`, not touched by this pass,
+pre-existing on `HEAD` before this session started.
+
+**Left undone:** nothing in `services/pipes/`. `gopherstack-a2y2` should be
+closed as a duplicate of the already-closed `gopherstack-6ffg`; that bd
+bookkeeping was left to the orchestrator per this pass's scope (git/bd
+mutations reserved for the orchestrator). The unrelated `test/e2e` vet
+failure is also left for whichever session owns that file.
