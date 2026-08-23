@@ -23,13 +23,14 @@ type ingressVpcConfigurationOutput struct {
 }
 
 type vpcIngressConnectionOutput struct {
+	DeletedAt                *int64                        `json:"DeletedAt,omitempty"`
+	IngressVpcConfiguration  ingressVpcConfigurationOutput `json:"IngressVpcConfiguration"`
 	VpcIngressConnectionArn  string                        `json:"VpcIngressConnectionArn"`
 	VpcIngressConnectionName string                        `json:"VpcIngressConnectionName"`
 	ServiceArn               string                        `json:"ServiceArn"`
 	AccountID                string                        `json:"AccountId"`
 	DomainName               string                        `json:"DomainName"`
 	Status                   string                        `json:"Status"`
-	IngressVpcConfiguration  ingressVpcConfigurationOutput `json:"IngressVpcConfiguration"`
 	CreatedAt                int64                         `json:"CreatedAt"`
 }
 
@@ -38,7 +39,7 @@ type createVpcIngressConnectionOutput struct {
 }
 
 func toVpcIngressConnectionOutput(v *VpcIngressConnection) vpcIngressConnectionOutput {
-	return vpcIngressConnectionOutput{
+	out := vpcIngressConnectionOutput{
 		VpcIngressConnectionArn:  v.VpcIngressConnectionArn,
 		VpcIngressConnectionName: v.VpcIngressConnectionName,
 		ServiceArn:               v.ServiceArn,
@@ -51,6 +52,13 @@ func toVpcIngressConnectionOutput(v *VpcIngressConnection) vpcIngressConnectionO
 		},
 		CreatedAt: v.CreatedAt.Unix(),
 	}
+
+	if !v.DeletedAt.IsZero() {
+		deletedAt := v.DeletedAt.Unix()
+		out.DeletedAt = &deletedAt
+	}
+
+	return out
 }
 
 func (h *Handler) handleCreateVpcIngressConnection(

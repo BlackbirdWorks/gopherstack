@@ -465,8 +465,10 @@ func (b *InMemoryBackend) DeleteService(serviceArn string) (*Service, error) {
 		return nil, fmt.Errorf("service %s not found: %w", serviceArn, ErrNotFound)
 	}
 
+	now := time.Now().UTC()
 	svc.Status = statusDeleted
-	svc.UpdatedAt = time.Now().UTC()
+	svc.UpdatedAt = now
+	svc.DeletedAt = now
 	b.addOperation(svc, opTypeDelete)
 
 	cp := svc.toService()

@@ -75,6 +75,7 @@ type storedService struct {
 	Source                      SourceConfig         `json:"source"`
 	UpdatedAt                   time.Time            `json:"updatedAt"`
 	CreatedAt                   time.Time            `json:"createdAt"`
+	DeletedAt                   time.Time            `json:"deletedAt"`
 	Tags                        map[string]string    `json:"tags"`
 	Network                     NetworkConfig        `json:"network"`
 	Instance                    InstanceConfig       `json:"instance"`
@@ -106,6 +107,7 @@ func (s *storedService) toService() Service {
 		Observability:               s.Observability,
 		CreatedAt:                   s.CreatedAt,
 		UpdatedAt:                   s.UpdatedAt,
+		DeletedAt:                   s.DeletedAt,
 	}
 }
 
@@ -117,6 +119,7 @@ func (s *storedService) toSummary() ServiceSummary {
 		ServiceURL:  s.ServiceURL,
 		Status:      s.Status,
 		CreatedAt:   s.CreatedAt,
+		UpdatedAt:   s.UpdatedAt,
 	}
 }
 
@@ -158,6 +161,7 @@ type storedAutoScalingConfiguration struct {
 	MinSize                          int32     `json:"minSize"`
 	IsDefault                        bool      `json:"isDefault"`
 	HasAssociatedService             bool      `json:"hasAssociatedService"`
+	Latest                           bool      `json:"latest"`
 }
 
 func (a *storedAutoScalingConfiguration) toASG() AutoScalingConfiguration {
@@ -173,6 +177,7 @@ func (a *storedAutoScalingConfiguration) toASG() AutoScalingConfiguration {
 		HasAssociatedService:             a.HasAssociatedService,
 		CreatedAt:                        a.CreatedAt,
 		DeletedAt:                        a.DeletedAt,
+		Latest:                           a.Latest,
 	}
 }
 

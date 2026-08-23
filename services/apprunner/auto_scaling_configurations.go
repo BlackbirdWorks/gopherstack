@@ -23,6 +23,10 @@ func (b *InMemoryBackend) CreateAutoScalingConfiguration(
 	asgArn := b.asgARN(name, revision, id)
 	now := time.Now().UTC()
 
+	if len(revisions) > 0 {
+		revisions[len(revisions)-1].Latest = false
+	}
+
 	if maxConcurrency == 0 {
 		maxConcurrency = defaultMaxConcurrency
 	}
@@ -45,6 +49,7 @@ func (b *InMemoryBackend) CreateAutoScalingConfiguration(
 		MinSize:                          minSize,
 		IsDefault:                        false,
 		HasAssociatedService:             false,
+		Latest:                           true,
 		CreatedAt:                        now,
 	}
 
@@ -77,6 +82,8 @@ func (b *InMemoryBackend) DescribeAutoScalingConfiguration(asgArn string) (*Auto
 }
 
 // DeleteAutoScalingConfiguration deletes an ASG config.
+//
+//nolint:dupl // mirrors DeleteObservabilityConfiguration's revision-list bookkeeping by design.
 func (b *InMemoryBackend) DeleteAutoScalingConfiguration(asgArn string) (*AutoScalingConfiguration, error) {
 	b.mu.Lock("DeleteAutoScalingConfiguration")
 	defer b.mu.Unlock()
@@ -104,6 +111,7 @@ func (b *InMemoryBackend) DeleteAutoScalingConfiguration(asgArn string) (*AutoSc
 	if len(remaining) == 0 {
 		delete(b.asgByName, cfg.AutoScalingConfigurationName)
 	} else {
+		remaining[len(remaining)-1].Latest = true
 		b.asgByName[cfg.AutoScalingConfigurationName] = remaining
 	}
 
@@ -111,7 +119,7 @@ func (b *InMemoryBackend) DeleteAutoScalingConfiguration(asgArn string) (*AutoSc
 }
 
 // ListAutoScalingConfigurations returns ASG configs with optional name filter.
-func (b *InMemoryBackend) ListAutoScalingConfigurations( //nolint:dupl // existing issue.
+func (b *InMemoryBackend) ListAutoScalingConfigurations(
 	nameFilter string,
 	latestOnly bool,
 	maxResults int32,

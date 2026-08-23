@@ -7,8 +7,9 @@
 service: iotwireless
 sdk_module: aws-sdk-go-v2/service/iotwireless@v1.59.4   # version audited against; bumped from v1.54.7 by gopherstack-jvqt (LoRaWAN/Sidewalk typing) -- no op surface changes between the two, only this manifest's citations needed updating
 last_audit_commit: d1235ad5                              # HEAD when this full-audit pass was written; families updated piecemeal since (c2733f39a, gopherstack-jvqt) without a full re-audit
-last_audit_date: 2026-08-13
-overall: A                # all 4 prior gaps + 9 deferred families field-diffed and fixed this pass
+last_audit_date: 2026-08-23
+overall: A                # all 4 prior gaps + 9 deferred families field-diffed and fixed this pass;
+                           # 2026-08-23: corrected one stale gap claim, see gaps below
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
@@ -51,7 +52,7 @@ families:
   locking (InMemoryBackend): {status: ok, note: "was gap; InMemoryBackend.mu is now *lockmetrics.RWMutex (was a raw sync.RWMutex), matching the project's coarse-instrumented-lock convention. All ~110 Lock()/RLock() call sites across every <family>.go file were labeled with their enclosing method name as the metrics operation label"}
 deferred: []                # none — every family from the prior pass was field-diffed this pass; see families above
 gaps:                     # known divergences NOT fixed — link bd issue ids
-  - "ListWirelessDevices does not implement the DestinationName/DeviceProfileId/ServiceProfileId/FuotaTaskId/MulticastGroupId/WirelessDeviceType query-parameter filters that ListWirelessDevicesInput accepts — every call returns the full account/region device set (a completeness gap, not a wrong-data bug: each call's returned data is still accurate, just unfiltered). Note this is a real, reachable AWS filter capability (not the same class of gap as StartBulkAssociate's unfilterable QueryString, which has no structured representation at all) — worth a dedicated pass since ListFuotaTaskDeviceIDs/ListMulticastGroupDeviceIDs now exist and could back the FuotaTaskId/MulticastGroupId filters directly."
+  - "STALE, CORRECTED 2026-08-23 (found already fixed in code, not reflected in this file -- same pattern as gopherstack-jqh2 below): this entry claimed ListWirelessDevices doesn't implement the DestinationName/DeviceProfileId/ServiceProfileId/FuotaTaskId/MulticastGroupId/WirelessDeviceType query-parameter filters. All six are fully implemented: handler_wireless_devices.go's listWirelessDevices reads all six query params into a ListWirelessDevicesFilter (wireless_devices.go), whose matches() method checks every one of them (DeviceProfileId across both LoRaWAN and Sidewalk via hasDeviceProfileID; FuotaTaskId/MulticastGroupId via the b.fuotaTaskDevices/b.multicastGroupDevices membership maps this note itself predicted could back them). Covered end-to-end, including AND-combination semantics, by TestHandler_ListWirelessDevices_Filters (handler_wireless_devices_filter_test.go, 12 subtests, all passing) -- verified again this pass via a real HTTP round-trip. git blame dates the filter code to commit d39bf33e4 (2026-08-11), two days before this file's last_audit_date at the time (2026-08-13); the audit that produced this claim either predates that commit's landing in its working tree or simply never re-checked after. No code change needed -- this file was wrong, not the backend."
   # gopherstack-jqh2: the AssociateWirelessDeviceWithFuotaTask/AssociateMulticastGroupWithFuotaTask
   # singular-vs-plural routing gap formerly listed here was found already fixed in code
   # (routing.go's pathSubWirelessDevice/pathSubMulticastGroup, landed d39bf33e4) but never
