@@ -371,6 +371,15 @@ func TestBatchModifyClusterSnapshots_Success(t *testing.T) {
 
 // ---- AuthorizeSnapshotAccess duplicate account ----
 
+// TestAuthorizeSnapshotAccess_DuplicateAccount: this op's own declared error
+// switch (redshift@v1.65.4 deserializers.go,
+// awsAwsquery_deserializeOpErrorAuthorizeSnapshotAccess) lists
+// AuthorizationAlreadyExists -- the same fault AuthorizeEndpointAccess's own
+// sibling test (TestAuthorizeEndpointAccess_DuplicateReturnsError) already
+// asserts for the identical re-grant condition -- so re-authorizing an
+// account that already has restore access must error, not silently add a
+// second entry. Previously asserted the opposite ("AWS allows multiple
+// accounts"), a claim never checked against the SDK error switch.
 func TestAuthorizeSnapshotAccess_DuplicateAccount(t *testing.T) {
 	t.Parallel()
 
@@ -389,9 +398,9 @@ func TestAuthorizeSnapshotAccess_DuplicateAccount(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec1.Code)
 	assert.Contains(t, rec1.Body.String(), "111111111111")
 
-	// Second authorize adds another entry (AWS allows multiple accounts)
 	rec2 := postRedshiftForm(t, h, body)
-	assert.Equal(t, http.StatusOK, rec2.Code)
+	assert.Equal(t, http.StatusBadRequest, rec2.Code)
+	assert.Contains(t, rec2.Body.String(), "AuthorizationAlreadyExists")
 }
 
 // ---- AuthorizeSnapshotAccess: snapshot not found ----

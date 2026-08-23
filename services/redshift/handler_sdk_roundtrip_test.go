@@ -279,6 +279,18 @@ func TestSDKRoundTrip_MutatingOpFixes(t *testing.T) {
 			testRevokeSnapshotAccessAuthorizationNotFoundErrorCode,
 			"revoke snapshot access authorization not found error code",
 		},
+		{
+			testRevokeClusterSecurityGroupIngressAuthorizationNotFoundErrorCode,
+			"revoke cluster security group ingress authorization not found error code",
+		},
+		{
+			testAuthorizeSnapshotAccessAlreadyExistsErrorCode,
+			"authorize snapshot access already exists error code",
+		},
+		{
+			testAuthorizeClusterSecurityGroupIngressAlreadyExistsErrorCode,
+			"authorize cluster security group ingress already exists error code",
+		},
 	}
 
 	for _, tc := range cases {
@@ -575,6 +587,106 @@ func testRevokeSnapshotAccessAuthorizationNotFoundErrorCode(
 	_, err = client.RevokeSnapshotAccess(ctx, &redshiftsdk.RevokeSnapshotAccessInput{
 		SnapshotIdentifier:       aws.String("rt-revoke-snap"),
 		AccountWithRestoreAccess: aws.String("999999999999"),
+	})
+	require.Error(t, err)
+
+	var apiErr smithy.APIError
+	require.ErrorAs(t, err, &apiErr)
+	assert.Equal(t, "AuthorizationNotFound", apiErr.ErrorCode())
+}
+
+// testAuthorizeSnapshotAccessAlreadyExistsErrorCode: this op's own declared
+// error switch (redshift@v1.65.4 deserializers.go,
+// awsAwsquery_deserializeOpErrorAuthorizeSnapshotAccess) lists
+// AuthorizationAlreadyExists, the same fault AuthorizeEndpointAccess's sibling
+// grant-list op already enforces for an identical re-grant -- so authorizing
+// an account that already has restore access must error, not silently add a
+// second entry.
+func testAuthorizeSnapshotAccessAlreadyExistsErrorCode(
+	t *testing.T, backend *redshift.InMemoryBackend, client *redshiftsdk.Client,
+) {
+	t.Helper()
+	ctx := t.Context()
+
+	backend.AddSnapshotInternal(&redshift.Snapshot{
+		SnapshotIdentifier: "rt-authz-dup-snap",
+		ClusterIdentifier:  "rt-authz-dup-cluster",
+		Status:             "available",
+	})
+
+	_, err := client.AuthorizeSnapshotAccess(ctx, &redshiftsdk.AuthorizeSnapshotAccessInput{
+		SnapshotIdentifier:       aws.String("rt-authz-dup-snap"),
+		AccountWithRestoreAccess: aws.String("999999999999"),
+	})
+	require.NoError(t, err)
+
+	_, err = client.AuthorizeSnapshotAccess(ctx, &redshiftsdk.AuthorizeSnapshotAccessInput{
+		SnapshotIdentifier:       aws.String("rt-authz-dup-snap"),
+		AccountWithRestoreAccess: aws.String("999999999999"),
+	})
+	require.Error(t, err)
+
+	var apiErr smithy.APIError
+	require.ErrorAs(t, err, &apiErr)
+	assert.Equal(t, "AuthorizationAlreadyExists", apiErr.ErrorCode())
+}
+
+// testAuthorizeClusterSecurityGroupIngressAlreadyExistsErrorCode: this op's
+// own declared error switch (redshift@v1.65.4 deserializers.go,
+// awsAwsquery_deserializeOpErrorAuthorizeClusterSecurityGroupIngress) lists
+// AuthorizationAlreadyExists -- same fault family and reasoning as
+// AuthorizeSnapshotAccess above.
+func testAuthorizeClusterSecurityGroupIngressAlreadyExistsErrorCode(
+	t *testing.T, backend *redshift.InMemoryBackend, client *redshiftsdk.Client,
+) {
+	t.Helper()
+	ctx := t.Context()
+
+	backend.AddSecurityGroupInternal(&redshift.ClusterSecurityGroup{
+		ClusterSecurityGroupName: "rt-authz-dup-sg",
+	})
+
+	_, err := client.AuthorizeClusterSecurityGroupIngress(
+		ctx, &redshiftsdk.AuthorizeClusterSecurityGroupIngressInput{
+			ClusterSecurityGroupName: aws.String("rt-authz-dup-sg"),
+			CIDRIP:                   aws.String("10.0.0.0/8"),
+		})
+	require.NoError(t, err)
+
+	_, err = client.AuthorizeClusterSecurityGroupIngress(
+		ctx, &redshiftsdk.AuthorizeClusterSecurityGroupIngressInput{
+			ClusterSecurityGroupName: aws.String("rt-authz-dup-sg"),
+			CIDRIP:                   aws.String("10.0.0.0/8"),
+		})
+	require.Error(t, err)
+
+	var apiErr smithy.APIError
+	require.ErrorAs(t, err, &apiErr)
+	assert.Equal(t, "AuthorizationAlreadyExists", apiErr.ErrorCode())
+}
+
+// testRevokeClusterSecurityGroupIngressAuthorizationNotFoundErrorCode: this op's
+// own declared error switch (redshift@v1.65.4 deserializers.go,
+// awsAwsquery_deserializeOpErrorRevokeClusterSecurityGroupIngress) lists
+// AuthorizationNotFound/ClusterSecurityGroupNotFound/InvalidClusterSecurityGroupState
+// -- same fault family RevokeSnapshotAccess declares for the identical
+// nothing-to-revoke condition -- so revoking a CIDR that was never authorized
+// must surface AuthorizationNotFound, not silently succeed with the group
+// unchanged.
+func testRevokeClusterSecurityGroupIngressAuthorizationNotFoundErrorCode(
+	t *testing.T, backend *redshift.InMemoryBackend, client *redshiftsdk.Client,
+) {
+	t.Helper()
+	ctx := t.Context()
+
+	backend.AddSecurityGroupInternal(&redshift.ClusterSecurityGroup{
+		ClusterSecurityGroupName: "rt-revoke-sg",
+		IPRanges:                 []redshift.IPRange{{CIDRIP: "10.0.0.0/8", Status: "authorized"}},
+	})
+
+	_, err := client.RevokeClusterSecurityGroupIngress(ctx, &redshiftsdk.RevokeClusterSecurityGroupIngressInput{
+		ClusterSecurityGroupName: aws.String("rt-revoke-sg"),
+		CIDRIP:                   aws.String("192.168.0.0/16"),
 	})
 	require.Error(t, err)
 

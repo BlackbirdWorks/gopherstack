@@ -75,6 +75,23 @@ var (
 	// own declared error switch in deserializers.go -- that op has no
 	// InvalidParameterValue-shaped fault at all).
 	ErrSnapshotAccessNotFound = errors.New("AuthorizationNotFound")
+	// ErrSecurityGroupIngressNotFound is returned by RevokeClusterSecurityGroupIngress
+	// when the given CIDRIP/EC2SecurityGroupName matched no existing rule
+	// (ErrorCode() "AuthorizationNotFound", verified against
+	// AuthorizationNotFoundFault in types/errors.go and this op's own declared
+	// error switch, awsAwsquery_deserializeOpErrorRevokeClusterSecurityGroupIngress
+	// in deserializers.go -- same fault family as ErrSnapshotAccessNotFound above,
+	// a distinct sentinel per errCodeSentinels' same-text-different-call-site
+	// convention).
+	ErrSecurityGroupIngressNotFound = errors.New("AuthorizationNotFound")
+	// ErrAuthorizationAlreadyExists is returned by AuthorizeClusterSecurityGroupIngress
+	// and AuthorizeSnapshotAccess when the given CIDRIP/EC2SecurityGroupName or
+	// AccountWithRestoreAccess is already authorized (ErrorCode()
+	// "AuthorizationAlreadyExists", verified against AuthorizationAlreadyExistsFault
+	// in types/errors.go and both ops' own declared error switches,
+	// awsAwsquery_deserializeOpErrorAuthorizeClusterSecurityGroupIngress /
+	// awsAwsquery_deserializeOpErrorAuthorizeSnapshotAccess in deserializers.go).
+	ErrAuthorizationAlreadyExists = errors.New("AuthorizationAlreadyExists")
 	// ErrNamespaceRegistrationInvalidClusterState is returned by RegisterNamespace/
 	// DeregisterNamespace when the target cluster exists but isn't in a
 	// registerable state (ErrorCode() "InvalidClusterState", verified against

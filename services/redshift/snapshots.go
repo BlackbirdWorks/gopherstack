@@ -24,6 +24,15 @@ func (b *InMemoryBackend) AuthorizeSnapshotAccess(snapshotID, accountWithRestore
 		return nil, fmt.Errorf("%w: snapshot %s not found", ErrSnapshotNotFound, snapshotID)
 	}
 
+	for _, a := range snap.AccountsWithRestoreAccess {
+		if a.AccountID == accountWithRestoreAccess {
+			return nil, fmt.Errorf(
+				"%w: account %s already has restore access to snapshot %s",
+				ErrAuthorizationAlreadyExists, accountWithRestoreAccess, snapshotID,
+			)
+		}
+	}
+
 	snap.AccountsWithRestoreAccess = append(snap.AccountsWithRestoreAccess, AccountWithRestoreAccess{
 		AccountID: accountWithRestoreAccess,
 	})

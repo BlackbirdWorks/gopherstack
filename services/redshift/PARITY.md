@@ -52,8 +52,8 @@ families:
   Tags: {status: ok, note: "CreateTags/DeleteTags/DescribeTags verified. See Cluster row for the inline-Tags wire gap fixed this pass."}
   ClusterParameterGroup: {status: ok, note: "no changes needed"}
   ClusterSubnetGroup: {status: ok, note: "FIXED 2026-08-08 (bd gopherstack-emho): CreateClusterSubnetGroup previously accepted a fabricated 'VpcId' request param not present in the real CreateClusterSubnetGroupInput (confirmed against awsAwsquery_serializeOpDocumentCreateClusterSubnetGroupInput in aws-sdk-go-v2/service/redshift@v1.65.4/serializers.go -- real fields are only ClusterSubnetGroupName/Description/SubnetIds/Tags). Handler no longer reads it. The response's VpcId field IS real on ClusterSubnetGroup (types.ClusterSubnetGroup.VpcId), normally derived by AWS from the subnets' own VPC, but this backend has no EC2 cross-reference to derive it from (Provider.Init does not wire an EC2 backend into Redshift, and Subnet only tracks SubnetIdentifier/SubnetStatus, no VPC linkage) -- left honestly empty rather than fabricated, matching the EndpointAccess precedent below. AddSubnetGroupInternal (test-seeding only, not wire-reachable) can still set it directly."}
-  ClusterSecurityGroup: {status: partial, note: "RevokeClusterSecurityGroupIngress does not return AuthorizationNotFound when nothing matched the given CIDRIP/EC2SecurityGroupName -- silently succeeds instead. Found and documented, NOT fixed, 2026-08-23 continued pass -- see dated entry above for detail and the RevokeSnapshotAccess sibling fix it's modeled on."}
-  Snapshot/ClusterSnapshot: {status: ok, note: "FIXED 2026-08-23 (continued pass): ModifyClusterSnapshot/BatchModifyClusterSnapshots omitted-vs-explicit-(-1) retention clobber, RevokeSnapshotAccess wrong error code (InvalidParameterValue -> AuthorizationNotFound) -- see dated entry above. FIXED 2026-08-14 (gopherstack-7185, mutating-response sweep, broken in both directions): BatchDeleteClusterSnapshots' Identifiers is a list of DeleteClusterSnapshotMessage structs, not a flat string list -- the real serialized wire key is Identifiers.DeleteClusterSnapshotMessage.N.SnapshotIdentifier (confirmed against aws-sdk-go-v2/service/redshift@v1.65.4/serializers.go: awsAwsquery_serializeDocumentDeleteClusterSnapshotMessageList wraps the array in DeleteClusterSnapshotMessage, and the nested object serializer emits SnapshotIdentifier as a child field, not a value at the array index itself). The handler instead read 'Identifiers.DeleteClusterSnapshotMessage.N' directly and, failing that, fell back to 'Identifiers.SnapshotIdentifier.N' -- neither is a key any real SDK client ever sends, so a real BatchDeleteClusterSnapshots call always deleted nothing while still returning 200 OK with an empty Resources list. Three pre-existing tests all posted the second (also wrong) fallback shape, so tests and handler agreed on the fabricated request format -- same entrenching pattern as ssm's AddedLabels and ec2's ModifyVpcEndpointServicePermissions. Fixed to read the real nested key; BatchModifyClusterSnapshots' SnapshotIdentifierList (a genuine flat string list, serializeDocumentSnapshotIdentifierList wraps it in 'String') was re-verified and is correct as-is, so this is NOT a copy-paste bug across both batch ops, just the one whose real Input shape is structs."}
+  ClusterSecurityGroup: {status: ok, note: "FIXED 2026-08-23 (third pass, closing the prior continued pass's follow-up): RevokeClusterSecurityGroupIngress now returns AuthorizationNotFound when nothing matched the given CIDRIP/EC2SecurityGroupName, closing the follow-up left open by the prior continued pass -- see dated entry above. SECOND FIND (same pass, sibling check per this campaign's own rule): AuthorizeClusterSecurityGroupIngress had the inverse gap -- re-authorizing a CIDR/EC2 group already on the security group silently appended a duplicate entry instead of returning AuthorizationAlreadyExists (declared in this op's own error switch, and already enforced by the sibling AuthorizeEndpointAccess family's own duplicate-rejection test). Fixed both; see dated entry above."}
+  Snapshot/ClusterSnapshot: {status: ok, note: "FIXED 2026-08-23 (third pass): AuthorizeSnapshotAccess had the same missing-duplicate-check gap as AuthorizeClusterSecurityGroupIngress (re-authorizing an already-authorized account silently added a second AccountsWithRestoreAccess entry instead of returning AuthorizationAlreadyExists, declared in this op's own error switch) -- see dated entry above. A pre-existing test asserted the buggy behavior outright (\"AWS allows multiple accounts\"); corrected to assert the real error instead. FIXED 2026-08-23 (continued pass): ModifyClusterSnapshot/BatchModifyClusterSnapshots omitted-vs-explicit-(-1) retention clobber, RevokeSnapshotAccess wrong error code (InvalidParameterValue -> AuthorizationNotFound) -- see dated entry above. FIXED 2026-08-14 (gopherstack-7185, mutating-response sweep, broken in both directions): BatchDeleteClusterSnapshots' Identifiers is a list of DeleteClusterSnapshotMessage structs, not a flat string list -- the real serialized wire key is Identifiers.DeleteClusterSnapshotMessage.N.SnapshotIdentifier (confirmed against aws-sdk-go-v2/service/redshift@v1.65.4/serializers.go: awsAwsquery_serializeDocumentDeleteClusterSnapshotMessageList wraps the array in DeleteClusterSnapshotMessage, and the nested object serializer emits SnapshotIdentifier as a child field, not a value at the array index itself). The handler instead read 'Identifiers.DeleteClusterSnapshotMessage.N' directly and, failing that, fell back to 'Identifiers.SnapshotIdentifier.N' -- neither is a key any real SDK client ever sends, so a real BatchDeleteClusterSnapshots call always deleted nothing while still returning 200 OK with an empty Resources list. Three pre-existing tests all posted the second (also wrong) fallback shape, so tests and handler agreed on the fabricated request format -- same entrenching pattern as ssm's AddedLabels and ec2's ModifyVpcEndpointServicePermissions. Fixed to read the real nested key; BatchModifyClusterSnapshots' SnapshotIdentifierList (a genuine flat string list, serializeDocumentSnapshotIdentifierList wraps it in 'String') was re-verified and is correct as-is, so this is NOT a copy-paste bug across both batch ops, just the one whose real Input shape is structs."}
   ClusterCredentials: {status: ok}
   Resize: {status: ok, note: "FIXED THIS PASS, see ResizeCluster op row"}
   DataShare: {status: ok, note: "Associate/Authorize/Deauthorize/Reject/Disassociate/DescribeDataShares* field-diffed against types.DataShare. FIXED: DataShareType was completely absent from the model/wire (real Cluster... err DataShare.DataShareType, defaults to INTERNAL, the only enum value); now serialized. All mutation ops confirmed to mutate the store.Table-returned pointer in place (not stubs)."}
@@ -88,6 +88,95 @@ leaks: {status: clean, note: "reviewed reconciler.go: StartReconciler/StopReconc
 ---
 
 ## Notes
+
+### 2026-08-23 pass (third): closed the RevokeClusterSecurityGroupIngress follow-up, re-derived coverage, found the Authorize-side sibling bug (no bd id assigned this session)
+
+Started with the one named follow-up the prior continued pass left open:
+**`RevokeClusterSecurityGroupIngress`** (`security_groups.go`) filtered
+`IPRanges`/`EC2SecurityGroups` without tracking whether anything actually
+matched, so revoking a rule that was never authorized returned 200 OK with
+the group unchanged instead of `AuthorizationNotFound` (confirmed in this
+op's own declared error switch,
+`awsAwsquery_deserializeOpErrorRevokeClusterSecurityGroupIngress`,
+`deserializers.go:16495` -- `AuthorizationNotFound`/
+`ClusterSecurityGroupNotFound`/`InvalidClusterSecurityGroupState`, no
+`InvalidParameterValue`-shaped fault). Fixed the same way as the
+`RevokeSnapshotAccess` fix it was modeled on: added a new sentinel
+(`ErrSecurityGroupIngressNotFound`, `AuthorizationNotFound`, distinct from
+`ErrSnapshotAccessNotFound` per this file's existing same-text-different-
+sentinel convention) and return it when neither the CIDR nor EC2-group filter
+actually removed anything. Extracted the filtering into two small helpers
+(`revokeCIDRIngress`/`revokeEC2GroupIngress`) to keep the backend method under
+`gocognit`'s complexity ceiling (this project bans `//nolint:gocognit`).
+Test: `testRevokeClusterSecurityGroupIngressAuthorizationNotFoundErrorCode`
+(SDK round trip) plus a new `cidr_never_authorized` handler-level case.
+
+**Re-derivation of remaining coverage** (per this campaign's own protocol,
+diffing dispatched op-name strings against the manifest rather than trusting
+prose): ran `go run ./cmd/opcensus -json` for redshift's full 193-op
+`allOps` list and grepped each literal name against this file. The naive
+diff flagged ~80 "missing" names (`AuthorizeDataShare`,
+`CreateClusterParameterGroup`, `DescribeHsmClientCertificates`,
+`GetWorkgroup`, etc.) -- **every one hand-checked and confirmed a false
+positive**, the exact trap this campaign's protocol warns about: this file
+documents coverage at the family level with wildcard prose (`Describe*`,
+`Create/Get/List/Update/Delete<Resource>`, `GetReservedNodeExchange*`) rather
+than spelling out every literal op name, so a bare grep can't see it. Spot
+checks confirmed the pattern holds: `ModifySnapshotSchedule` and
+`ModifyClusterSnapshotSchedule` are two distinct real ops (confirmed both
+declared in `interfaces.go`/`handler.go`, both with their own backend
+methods) that a naive name diff could have mistaken for one op wrongly named
+-- they aren't. **Conclusion: 0 ops remain genuinely unaudited.** All 193
+dispatched op names trace to an existing `ops:`/`families:` entry, either
+literally or via one of the wildcard prose patterns above.
+
+**Second find, from this campaign's own "check every op sharing the family"
+rule applied to the op just fixed**: `RevokeClusterSecurityGroupIngress`'s
+sibling, **`AuthorizeClusterSecurityGroupIngress`**, had the mirror-image
+bug -- re-authorizing a CIDR or EC2 security group already present on the
+group silently appended a second, duplicate entry instead of returning
+`AuthorizationAlreadyExists` (declared in this op's own error switch,
+`awsAwsquery_deserializeOpErrorAuthorizeClusterSecurityGroupIngress`,
+confirmed real by its own type doc comment in `types/errors.go`: "The
+specified CIDR block or EC2 security group is already authorized for the
+specified cluster security group"). Checking the analogous grant-list op,
+**`AuthorizeSnapshotAccess`** (`snapshots.go`), found the identical gap --
+also declares `AuthorizationAlreadyExists`, also silently duplicated the
+`AccountsWithRestoreAccess` entry on a second call. Confirmed this class of
+bug is real and not an invented rule by checking the one already-correct
+sibling in this service: `AuthorizeEndpointAccess`
+(`handler_endpoint_authorization.go`) already rejects a duplicate grant with
+`EndpointAuthorizationAlreadyExists`, proven by its own pre-existing test
+(`TestAuthorizeEndpointAccess_DuplicateReturnsError`) -- the exact same
+grant-list-dedup pattern, already established elsewhere in this codebase, was
+simply missing from these two ops. Fixed both (`security_groups.go`,
+`snapshots.go`) with a new shared sentinel `ErrAuthorizationAlreadyExists`.
+One pre-existing test, `TestAuthorizeSnapshotAccess_DuplicateAccount`,
+asserted the *buggy* behavior outright (comment: "AWS allows multiple
+accounts") -- that claim was never checked against the SDK error switch or
+the sibling `AuthorizeEndpointAccess` convention; corrected to assert the
+real `AuthorizationAlreadyExists` error. New tests:
+`testAuthorizeSnapshotAccessAlreadyExistsErrorCode`,
+`testAuthorizeClusterSecurityGroupIngressAlreadyExistsErrorCode` (both SDK
+round trip), plus a `duplicate_cidr` handler-level case for
+`AuthorizeClusterSecurityGroupIngress`.
+
+All three fixes this pass proven with a real-SDK-client round trip
+(`handler_sdk_roundtrip_test.go`), each hand-reverted (including after the
+`gocognit` decomposition, so the proof matches the shipped shape) and
+confirmed to fail against the unfixed code before restoring
+(`md5sum`-identical restore each time). No persisted struct's JSON tag or
+field type/name changed -- no new fields on `ClusterSecurityGroup`/`Snapshot`,
+only new validation logic and error sentinels -- so **no
+`redshiftSnapshotVersion` bump**. `go test ./pkgs/persistence/...` passes
+clean (no other in-progress session's files were dirty this time, confirmed
+via `git status` up front -- `services/ec2/` was checked and untouched, as
+instructed).
+
+**Not reached this pass**: nothing -- see the re-derivation above, which
+concludes 0 ops remain unaudited. `golangci-lint run
+./services/redshift/...` clean (0 issues) after the `gocognit` decomposition;
+`go test -race ./services/redshift/...` clean.
 
 ### 2026-08-23 pass (continued): re-derived the "not reached" queue and audited it (no bd id assigned this session)
 

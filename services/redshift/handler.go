@@ -837,6 +837,8 @@ var errCodeSentinels = []error{
 	ErrNamespaceRegistrationInvalidClusterState,
 	ErrInvalidNamespace,
 	ErrSnapshotAccessNotFound,
+	ErrSecurityGroupIngressNotFound,
+	ErrAuthorizationAlreadyExists,
 }
 
 func resolveErrCode(opErr error) (string, int) {
