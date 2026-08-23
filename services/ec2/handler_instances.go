@@ -49,6 +49,7 @@ type instanceCreditSpecItem struct {
 type describeInstanceCreditSpecsResponse struct {
 	XMLName                        xml.Name `xml:"DescribeInstanceCreditSpecificationsResponse"`
 	RequestID                      string   `xml:"requestId"`
+	NextToken                      string   `xml:"nextToken,omitempty"`
 	InstanceCreditSpecificationSet struct {
 		Items []instanceCreditSpecItem `xml:"item"`
 	} `xml:"instanceCreditSpecificationSet"`
@@ -88,6 +89,7 @@ type instanceTopologyItem struct {
 type describeInstanceTopologyResponse struct {
 	XMLName     xml.Name `xml:"DescribeInstanceTopologyResponse"`
 	RequestID   string   `xml:"requestId"`
+	NextToken   string   `xml:"nextToken,omitempty"`
 	InstanceSet struct {
 		Items []instanceTopologyItem `xml:"item"`
 	} `xml:"instanceSet"`
@@ -198,7 +200,15 @@ func (h *Handler) handleDescribeInstanceCreditSpecifications(
 	ids := parseMemberList(vals, "InstanceId")
 	specs := h.Backend.DescribeInstanceCreditSpecifications(ids)
 
-	resp := &describeInstanceCreditSpecsResponse{RequestID: reqID}
+	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageMaxDefault)
+	if err != nil {
+		return nil, err
+	}
+
+	var nextToken string
+	specs, nextToken = pageSlice(specs, offset, maxResults)
+
+	resp := &describeInstanceCreditSpecsResponse{RequestID: reqID, NextToken: nextToken}
 	for _, s := range specs {
 		resp.InstanceCreditSpecificationSet.Items = append(
 			resp.InstanceCreditSpecificationSet.Items,
@@ -257,7 +267,17 @@ func (h *Handler) handleDescribeInstanceTopology(vals url.Values, reqID string) 
 	ids := parseMemberList(vals, "InstanceId")
 	items := h.Backend.DescribeInstanceTopology(ids)
 
-	resp := &describeInstanceTopologyResponse{RequestID: reqID}
+	maxResults, offset, err := parseEC2Pagination(
+		vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageDefaultInstanceTopology,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	var nextToken string
+	items, nextToken = pageSlice(items, offset, maxResults)
+
+	resp := &describeInstanceTopologyResponse{RequestID: reqID, NextToken: nextToken}
 	for _, item := range items {
 		ti := instanceTopologyItem{
 			InstanceID:       item.InstanceID,
@@ -395,6 +415,7 @@ type createInstanceConnectEndpointResponse struct {
 type describeInstanceConnectEndpointsResponse struct {
 	XMLName                    xml.Name `xml:"DescribeInstanceConnectEndpointsResponse"`
 	RequestID                  string   `xml:"requestId"`
+	NextToken                  string   `xml:"nextToken,omitempty"`
 	InstanceConnectEndpointSet struct {
 		Items []instanceConnectEndpointItem `xml:"item"`
 	} `xml:"instanceConnectEndpointSet"`
@@ -422,6 +443,7 @@ type createInstanceEventWindowResponse struct {
 type describeInstanceEventWindowsResponse struct {
 	XMLName                xml.Name `xml:"DescribeInstanceEventWindowsResponse"`
 	RequestID              string   `xml:"requestId"`
+	NextToken              string   `xml:"nextToken,omitempty"`
 	InstanceEventWindowSet struct {
 		Items []instanceEventWindowItem `xml:"item"`
 	} `xml:"instanceEventWindowSet"`
@@ -513,7 +535,15 @@ func (h *Handler) handleDescribeInstanceConnectEndpoints(
 	ids := parseMemberList(vals, "InstanceConnectEndpointId")
 	eps := h.Backend.DescribeInstanceConnectEndpoints(ids)
 
-	resp := &describeInstanceConnectEndpointsResponse{RequestID: reqID}
+	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageMaxDefault)
+	if err != nil {
+		return nil, err
+	}
+
+	var nextToken string
+	eps, nextToken = pageSlice(eps, offset, maxResults)
+
+	resp := &describeInstanceConnectEndpointsResponse{RequestID: reqID, NextToken: nextToken}
 	for _, ep := range eps {
 		resp.InstanceConnectEndpointSet.Items = append(
 			resp.InstanceConnectEndpointSet.Items,
@@ -596,7 +626,17 @@ func (h *Handler) handleDescribeInstanceEventWindows(vals url.Values, reqID stri
 	ids := parseMemberList(vals, "InstanceEventWindowId")
 	ews := h.Backend.DescribeInstanceEventWindows(ids)
 
-	resp := &describeInstanceEventWindowsResponse{RequestID: reqID}
+	maxResults, offset, err := parseEC2Pagination(
+		vals, ec2PageMinEventWindows, ec2PageMaxEventWindows, ec2PageMaxEventWindows,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	var nextToken string
+	ews, nextToken = pageSlice(ews, offset, maxResults)
+
+	resp := &describeInstanceEventWindowsResponse{RequestID: reqID, NextToken: nextToken}
 	for _, ew := range ews {
 		resp.InstanceEventWindowSet.Items = append(
 			resp.InstanceEventWindowSet.Items,
@@ -771,6 +811,7 @@ func (h *Handler) handleSendDiagnosticInterrupt(vals url.Values, reqID string) (
 type describeElasticGpusResponse struct {
 	XMLName       xml.Name `xml:"DescribeElasticGpusResponse"`
 	RequestID     string   `xml:"requestId"`
+	NextToken     string   `xml:"nextToken,omitempty"`
 	ElasticGpuSet struct {
 		Items []elasticGpuItem `xml:"item"`
 	} `xml:"elasticGpuSet"`
@@ -781,7 +822,15 @@ func (h *Handler) handleDescribeElasticGpus(vals url.Values, reqID string) (any,
 
 	gpus := h.Backend.DescribeElasticGpus(ids)
 
-	resp := &describeElasticGpusResponse{RequestID: reqID}
+	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinElasticGpus, ec2PageMaxDefault, ec2PageMaxDefault)
+	if err != nil {
+		return nil, err
+	}
+
+	var nextToken string
+	gpus, nextToken = pageSlice(gpus, offset, maxResults)
+
+	resp := &describeElasticGpusResponse{RequestID: reqID, NextToken: nextToken}
 	for _, g := range gpus {
 		resp.ElasticGpuSet.Items = append(resp.ElasticGpuSet.Items, elasticGpuItem{
 			ElasticGpuID:   g.ElasticGpuID,

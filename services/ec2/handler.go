@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -826,6 +828,68 @@ func parseMemberList(vals url.Values, prefix string) []string {
 		}
 		result = append(result, v)
 	}
+}
+
+// Per-operation MaxResults bounds for the ec2sweep11 pagination fixes below.
+// Bounds/defaults come from the pinned SDK's doc comments
+// (aws-sdk-go-v2/service/ec2@v1.319.1); ops whose docs give no explicit range
+// fall back to DescribeImages' bounds (api_op_DescribeImages.go: 1..1000).
+const (
+	ec2PageMinDefault = 1
+	ec2PageMaxDefault = 1000
+
+	ec2PageDefaultInstanceTopology = 20 // api_op_DescribeInstanceTopology.go: "Default: 20"
+	ec2PageMinEventWindows         = 20 // api_op_DescribeInstanceEventWindows.go: "between 20 and 500"
+	ec2PageMaxEventWindows         = 500
+	ec2PageMinElasticGpus          = 5 // api_op_DescribeElasticGpus.go: "between 5 and 1000"
+)
+
+// parseEC2Pagination validates MaxResults against [minResults, maxResults]
+// (defaultResults when the caller omits it) and decodes NextToken into a byte
+// offset, generalizing handleDescribeImages' parseImagesPagination with
+// per-operation bounds.
+func parseEC2Pagination(vals url.Values, minResults, maxResults, defaultResults int) (int, int, error) {
+	limit := defaultResults
+	if v := vals.Get("MaxResults"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < minResults || n > maxResults {
+			return 0, 0, fmt.Errorf(
+				"%w: MaxResults must be between %d and %d",
+				ErrInvalidParameter, minResults, maxResults,
+			)
+		}
+
+		limit = n
+	}
+
+	offset := 0
+	if tok := vals.Get("NextToken"); tok != "" {
+		n := page.DecodeHMACToken(tok, ec2PaginationSalt)
+		if n == 0 {
+			return 0, 0, fmt.Errorf("%w: the pagination token is not valid", ErrInvalidPaginationToken)
+		}
+
+		offset = n
+	}
+
+	return limit, offset, nil
+}
+
+// pageSlice truncates items[offset:] to at most limit entries, returning the
+// page and the HMAC NextToken for the remainder (empty when exhausted).
+func pageSlice[T any](items []T, offset, limit int) ([]T, string) {
+	if offset > len(items) {
+		offset = len(items)
+	}
+	items = items[offset:]
+
+	var next string
+	if len(items) > limit {
+		next = page.EncodeHMACToken(offset+limit, ec2PaginationSalt)
+		items = items[:limit]
+	}
+
+	return items, next
 }
 
 // maxTagsPerRequest is the maximum number of tags accepted in a single EC2 request.

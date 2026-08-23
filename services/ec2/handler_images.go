@@ -36,6 +36,7 @@ type disableImageBlockPublicAccessResponse struct {
 type describeInstanceImageMetadataResponse struct {
 	XMLName                  xml.Name `xml:"DescribeInstanceImageMetadataResponse"`
 	RequestID                string   `xml:"requestId"`
+	NextToken                string   `xml:"nextToken,omitempty"`
 	InstanceImageMetadataSet struct {
 		Items []instanceImageMetadataItem `xml:"item"`
 	} `xml:"instanceImageMetadataSet"`
@@ -214,7 +215,15 @@ func (h *Handler) handleDescribeInstanceImageMetadata(vals url.Values, reqID str
 	ids := parseMemberList(vals, "InstanceId")
 	items := h.Backend.DescribeInstanceImageMetadata(ids)
 
-	resp := &describeInstanceImageMetadataResponse{RequestID: reqID}
+	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageMaxDefault)
+	if err != nil {
+		return nil, err
+	}
+
+	var nextToken string
+	items, nextToken = pageSlice(items, offset, maxResults)
+
+	resp := &describeInstanceImageMetadataResponse{RequestID: reqID, NextToken: nextToken}
 	for _, item := range items {
 		resp.InstanceImageMetadataSet.Items = append(
 			resp.InstanceImageMetadataSet.Items,
@@ -235,6 +244,7 @@ type importImageResponse struct {
 type describeImportImageTasksResponse struct {
 	XMLName            xml.Name `xml:"DescribeImportImageTasksResponse"`
 	RequestID          string   `xml:"requestId"`
+	NextToken          string   `xml:"nextToken,omitempty"`
 	ImportImageTaskSet struct {
 		Items []importImageTaskItem `xml:"item"`
 	} `xml:"importImageTaskSet"`
@@ -284,6 +294,7 @@ func toExportImageTaskItem(t *ExportImageTaskRec) exportImageTaskItem {
 type describeExportImageTasksResponse struct {
 	XMLName            xml.Name `xml:"DescribeExportImageTasksResponse"`
 	RequestID          string   `xml:"requestId"`
+	NextToken          string   `xml:"nextToken,omitempty"`
 	ExportImageTaskSet struct {
 		Items []exportImageTaskItem `xml:"item"`
 	} `xml:"exportImageTaskSet"`
@@ -297,6 +308,7 @@ type recycleBinImageItem struct {
 type listImagesInRecycleBinResponse struct {
 	XMLName   xml.Name `xml:"ListImagesInRecycleBinResponse"`
 	RequestID string   `xml:"requestId"`
+	NextToken string   `xml:"nextToken,omitempty"`
 	ImageSet  struct {
 		Items []recycleBinImageItem `xml:"item"`
 	} `xml:"imageSet"`
@@ -309,6 +321,7 @@ type recycleBinSnapshotItem struct {
 type describeFastLaunchImagesResponse struct {
 	XMLName            xml.Name `xml:"DescribeFastLaunchImagesResponse"`
 	RequestID          string   `xml:"requestId"`
+	NextToken          string   `xml:"nextToken,omitempty"`
 	FastLaunchImageSet struct {
 		Items []fastLaunchImageItem `xml:"item"`
 	} `xml:"fastLaunchImageSet"`
@@ -363,7 +376,15 @@ func (h *Handler) handleDescribeImportImageTasks(vals url.Values, reqID string) 
 	ids := parseMemberList(vals, "ImportTaskId")
 	tasks := h.Backend.DescribeImportImageTasks(ids)
 
-	resp := &describeImportImageTasksResponse{RequestID: reqID}
+	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageMaxDefault)
+	if err != nil {
+		return nil, err
+	}
+
+	var nextToken string
+	tasks, nextToken = pageSlice(tasks, offset, maxResults)
+
+	resp := &describeImportImageTasksResponse{RequestID: reqID, NextToken: nextToken}
 	for _, t := range tasks {
 		resp.ImportImageTaskSet.Items = append(resp.ImportImageTaskSet.Items, importImageTaskItem{
 			ImportTaskID: t.ImportTaskID,
@@ -408,7 +429,15 @@ func (h *Handler) handleDescribeExportImageTasks(vals url.Values, reqID string) 
 	ids := parseMemberList(vals, "ExportImageTaskId")
 	tasks := h.Backend.DescribeExportImageTasks(ids)
 
-	resp := &describeExportImageTasksResponse{RequestID: reqID}
+	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageMaxDefault)
+	if err != nil {
+		return nil, err
+	}
+
+	var nextToken string
+	tasks, nextToken = pageSlice(tasks, offset, maxResults)
+
+	resp := &describeExportImageTasksResponse{RequestID: reqID, NextToken: nextToken}
 	for _, t := range tasks {
 		resp.ExportImageTaskSet.Items = append(resp.ExportImageTaskSet.Items, toExportImageTaskItem(t))
 	}
@@ -420,7 +449,15 @@ func (h *Handler) handleListImagesInRecycleBin(vals url.Values, reqID string) (a
 	ids := parseMemberList(vals, "ImageId")
 	images := h.Backend.ListImagesInRecycleBin(ids)
 
-	resp := &listImagesInRecycleBinResponse{RequestID: reqID}
+	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageMaxDefault)
+	if err != nil {
+		return nil, err
+	}
+
+	var nextToken string
+	images, nextToken = pageSlice(images, offset, maxResults)
+
+	resp := &listImagesInRecycleBinResponse{RequestID: reqID, NextToken: nextToken}
 	for _, img := range images {
 		resp.ImageSet.Items = append(resp.ImageSet.Items, recycleBinImageItem{
 			ImageID: img.ImageID,
@@ -474,7 +511,15 @@ func (h *Handler) handleDescribeFastLaunchImages(vals url.Values, reqID string) 
 	ids := parseMemberList(vals, "ImageId")
 	items := h.Backend.DescribeFastLaunchImages(ids)
 
-	resp := &describeFastLaunchImagesResponse{RequestID: reqID}
+	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageMaxDefault)
+	if err != nil {
+		return nil, err
+	}
+
+	var nextToken string
+	items, nextToken = pageSlice(items, offset, maxResults)
+
+	resp := &describeFastLaunchImagesResponse{RequestID: reqID, NextToken: nextToken}
 	for _, item := range items {
 		resp.FastLaunchImageSet.Items = append(
 			resp.FastLaunchImageSet.Items,
@@ -553,6 +598,7 @@ type imageReferenceItem struct {
 type describeImageReferencesResponse struct {
 	XMLName           xml.Name `xml:"DescribeImageReferencesResponse"`
 	RequestID         string   `xml:"requestId"`
+	NextToken         string   `xml:"nextToken,omitempty"`
 	ImageReferenceSet struct {
 		Items []imageReferenceItem `xml:"item"`
 	} `xml:"imageReferenceSet"`
@@ -563,7 +609,15 @@ func (h *Handler) handleDescribeImageReferences(vals url.Values, reqID string) (
 
 	refs := h.Backend.DescribeImageReferences(imageIDs)
 
-	resp := &describeImageReferencesResponse{RequestID: reqID}
+	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageMaxDefault)
+	if err != nil {
+		return nil, err
+	}
+
+	var nextToken string
+	refs, nextToken = pageSlice(refs, offset, maxResults)
+
+	resp := &describeImageReferencesResponse{RequestID: reqID, NextToken: nextToken}
 	for _, r := range refs {
 		resp.ImageReferenceSet.Items = append(resp.ImageReferenceSet.Items, imageReferenceItem{
 			ImageID:      r.ImageID,

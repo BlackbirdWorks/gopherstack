@@ -416,3 +416,67 @@ describe, etc.) matched their real wire shapes on inspection. Next pass should p
 `handler_client_vpn.go` (9), `handler_security_groups.go` (9), `handler_elastic_ips.go` (8),
 `handler_tgw_multicast.go` (7), `handler_instance_attrs.go` (7), or return to close the
 pagination gap named above across both files audited this pass.
+
+**2026-08-23 pass -- closed the ec2sweep11 `MaxResults`/`NextToken` gap named above**:
+verified each of the eleven named ops against the installed
+`aws-sdk-go-v2/service/ec2@v1.319.1` directly (not trusting the prior pass's list) --
+all eleven really do declare `MaxResults *int32`/`NextToken *string` on both Input and
+Output, and all eleven handlers really did ignore both, always returning every item in
+one page with no `nextToken` on the response. All eleven are the same severity: the
+**unbounded-single-page** form, not the medialive infinite-loop form -- none applied any
+default cap, so a real SDK paginator got everything in one call and stopped (never
+restarted at item 0). No cap being applied at all is what makes this milder than a
+default-cap-plus-ignored-token bug would be.
+
+Fixed via two new shared helpers in `handler.go` (`parseEC2Pagination` -- generalizes
+`handleDescribeImages`' existing `parseImagesPagination` with per-op min/max/default
+bounds instead of hardcoded constants; `pageSlice[T any]` -- factors out the
+offset/limit/`page.EncodeHMACToken` truncation block `DescribeImages`/`DescribeSnapshots`/
+`DescribeNetworkAcls` each already duplicated inline) rather than writing 11 near-copies
+of `parseImagesPagination`, per the one-coarse-pattern-per-repo rule; reuses
+`pkgs/page`'s existing `DecodeHMACToken`/`EncodeHMACToken`, no new pagination mechanism.
+Bounds/defaults per op, sourced from the pinned SDK's doc comments where given, falling
+back to `DescribeImages`' own (1..1000, default 1000) where the doc gives no explicit
+range: `DescribeInstanceEventWindows` 20..500 ("between 20 and 500"); `DescribeElasticGpus`
+5..1000 ("between 5 and 1000"); `DescribeInstanceTopology` default 20 ("Default: 20"),
+bounds fall back to 1..1000; the other eight fall back to 1..1000/1000 entirely
+(their docs give no explicit range or default). Every response struct gained a
+`NextToken string \`xml:"nextToken,omitempty"\`` field.
+
+Proof: `pagination_ec2sweep11_test.go`, one real-SDK-client-paginator test per op
+(`ec2sdk.NewDescribeXPaginator`, `StopOnDuplicateToken` left at its real default of
+`false`), five seeded items at `MaxResults=2` (three seeded pages), asserting the IDs
+returned across pages are disjoint and total 5 -- the shape that fails pre-fix, since
+pre-fix the first (only) page already contains all 5 IDs. Hand-reverted all three
+touched handler files to the pre-fix `git show HEAD:...` content via `cp` and confirmed:
+9 of the 11 tests failed with `"1" is not greater than or equal to "2"` (pagination
+collapsed to one page); `DescribeInstanceEventWindows` needed re-seeding at 45 items
+(its 20-item MaxResults floor makes 5 items fit on one page even correctly paginated --
+a single-page test proves nothing, exactly the pitfall this ticket warned about) and
+then failed the same way once seeded past the floor. `DescribeElasticGpus` and
+`ListImagesInRecycleBin` have no data path that can ever populate more than zero items
+in this backend (see below), so their tests instead assert a forged `NextToken` is now
+rejected -- both failed pre-fix with "an error is expected but got nil" (the token was
+silently ignored, not validated). Restored all three files via `cp` from the saved
+fixed copies; `md5sum` identical before/after the revert-and-restore cycle.
+
+Two of the eleven could not get the full two-page proof, for reasons pre-dating and
+outside this pass's scope: **`DescribeElasticGpus`** has no generated SDK Paginator at
+all (Elastic Graphics was retired in 2023 -- see the type's existing doc comment) even
+though its Input still carries `MaxResults`/`NextToken`, and this backend's
+`DescribeElasticGpus` always returns an empty list (no API here ever attaches one) --
+the fix and its `MaxResults` bounds validation are real and now correct, but nothing
+can ever populate a second page. **`ListImagesInRecycleBin`** genuinely has no
+SDK-reachable producer in this backend: `DeregisterImage` deletes AMIs outright rather
+than moving them to the recycle bin, so `recycleBinImages` is never written by any real
+operation -- a pre-existing structural gap (same shape as the AMI-recycle-bin absence
+already), not something this pagination fix should also invent. Both are still fixed
+correctly; only the strongest proof shape is unavailable for them.
+
+Backend interface unchanged; no `Backend` method gained/lost a parameter. No persisted
+struct's json tag changed -- only new XML-only response fields -- so no
+`ec2SnapshotVersion` bump. Gates: `go build ./...` (repo-wide sanity check; no exported
+signature actually changed), `go vet ./services/ec2/...`, `gofmt -l services/ec2/*.go`
+(clean), `go test -race ./services/ec2/...` (`ok`, full suite including the 11 new
+tests), `golangci-lint run ./services/ec2/...` (0 issues, after fixing 1 `godot` and 9
+`prealloc` findings the new test file introduced); no banned `//nolint`s.
