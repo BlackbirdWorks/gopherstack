@@ -25778,6 +25778,8 @@
       "Row.Data []Datum `json:\"Data\"`",
       "ScheduledQuery.Arn string `json:\"arn\"`",
       "ScheduledQuery.CreationTime time.Time `json:\"creation_time\"`",
+      "ScheduledQuery.ErrorReportEncryptionOption string `json:\"error_report_encryption_option,omitempty\"`",
+      "ScheduledQuery.ErrorReportObjectKeyPrefix string `json:\"error_report_object_key_prefix,omitempty\"`",
       "ScheduledQuery.ErrorReportS3BucketName string `json:\"error_report_s3_bucket_name\"`",
       "ScheduledQuery.ExecutionRoleArn string `json:\"execution_role_arn\"`",
       "ScheduledQuery.KmsKeyID string `json:\"kms_key_id,omitempty\"`",
