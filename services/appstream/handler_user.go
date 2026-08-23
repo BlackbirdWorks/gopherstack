@@ -446,13 +446,53 @@ func (h *Handler) opDescribeThemeForStack(_ context.Context, body []byte) (any, 
 	return map[string]any{"Theme": themeToResponse(th)}, nil
 }
 
+// updateThemeForStackInput mirrors appstream@v1.64.5
+// UpdateThemeForStackInput (api_op_UpdateThemeForStack.go:29-64): only
+// StackName is required, every other member is an optional partial update.
+type updateThemeForStackInput struct {
+	ThemeStyling               string                `json:"ThemeStyling"`
+	State                      string                `json:"State"`
+	StackName                  string                `json:"StackName"`
+	TitleText                  *string               `json:"TitleText"`
+	FaviconS3Location          *s3LocationJSON       `json:"FaviconS3Location"`
+	OrganizationLogoS3Location *s3LocationJSON       `json:"OrganizationLogoS3Location"`
+	FooterLinks                []themeFooterLinkJSON `json:"FooterLinks"`
+	AttributesToDelete         []string              `json:"AttributesToDelete"`
+}
+
 func (h *Handler) opUpdateThemeForStack(_ context.Context, body []byte) (any, error) {
-	var req themeStackInput
+	var req updateThemeForStackInput
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 	}
 
-	th, err := h.Backend.UpdateThemeForStack(req.StackName)
+	opts := ThemeUpdateOptions{
+		TitleText:          req.TitleText,
+		ThemeStyling:       req.ThemeStyling,
+		State:              req.State,
+		AttributesToDelete: req.AttributesToDelete,
+	}
+
+	if req.FaviconS3Location != nil {
+		loc := req.FaviconS3Location.toModel()
+		opts.FaviconS3Location = &loc
+	}
+
+	if req.OrganizationLogoS3Location != nil {
+		loc := req.OrganizationLogoS3Location.toModel()
+		opts.OrganizationLogoS3Location = &loc
+	}
+
+	if req.FooterLinks != nil {
+		links := make([]ThemeFooterLink, 0, len(req.FooterLinks))
+		for _, l := range req.FooterLinks {
+			links = append(links, ThemeFooterLink(l))
+		}
+
+		opts.FooterLinks = links
+	}
+
+	th, err := h.Backend.UpdateThemeForStack(req.StackName, opts)
 	if err != nil {
 		return nil, err
 	}

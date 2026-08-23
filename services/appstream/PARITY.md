@@ -7,8 +7,13 @@
 service: appstream
 sdk_module: aws-sdk-go-v2/service/appstream@v1.64.5
 last_audit_commit:                                # unknown: pass ran without git access at write time, never backfilled -- gopherstack-33in
-last_audit_date: 2026-07-26
-overall: A            # CI-blocking regression fixed this pass: the eb437919a dep bump to SDK
+last_audit_date: 2026-08-23
+overall: A            # 2026-08-23: closed the one remaining named-and-flagged gap this file
+                       # carried (UpdateThemeForStack request-side accept-and-drop -- see
+                       # UpdateThemeForStack/Theme ops rows and the dated Notes section at the
+                       # bottom). No other new bugs found this pass; the rest of this file's
+                       # prior findings were re-read, not re-scanned wholesale.
+                       # CI-blocking regression fixed this pass: the eb437919a dep bump to SDK
                        # v1.64.0 switched AppStream's wire protocol from awsjson1.1 to
                        # Smithy rpc-v2-cbor; the handler only spoke the old protocol, so every
                        # real SDK request 403'd (fell through to the S3 catch-all route). See
@@ -64,6 +69,7 @@ ops:
   ListExportImageTasks: {wire: fixed, errors: ok, state: ok, persist: ok, note: "real ListExportImageTasksInput has no ImageNames filter at all (that was invented) -- it takes generic Filters (opaque Name/Values, semantics undocumented, not evaluated by this emulator) plus MaxResults/NextToken pagination (default page size 50), which the prior version also lacked entirely. Rewritten using pkgs/page for real cursor pagination"}
   DescribeAppLicenseUsage: {wire: fixed, errors: ok, state: ok, persist: ok, note: "response field is AppLicenseUsages (plural) -- was emitting singular AppLicenseUsage, which a real SDK client would never populate its slice from"}
   CreateThemeForStack: {wire: fixed, errors: fixed, state: fixed, persist: ok, note: "gopherstack-afi1: 4 of 5 required members (FaviconS3Location, OrganizationLogoS3Location, ThemeStyling, TitleText -- api_op_CreateThemeForStack.go:29-59) were accepted nowhere; only StackName was read, so every theme had no branding at all. Now validated present (missing-required-member -> SerializationException, same rationale/precedent as CreateApplication above: this op's own deserializer switch declares only ConcurrentModificationException/InvalidAccountStatusException/LimitExceededException/OperationNotPermittedException/ResourceAlreadyExistsException/ResourceNotFoundException, no validation-style exception) and echoed on the response: real Theme (types/types.go:1752-1781) carries derived ThemeFaviconURL/ThemeOrganizationLogoURL (not the raw S3Location) -- gopherstack derives a pseudo-URL via themeURL() (https://s3.amazonaws.com/{bucket}/{key}, matching this repo's existing services/amplify/services/serverlessrepo S3-pseudo-URL convention) rather than fabricating a signed URL. FooterLinks (optional) is also now modeled end-to-end (ThemeFooterLink)."}
+  UpdateThemeForStack: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "FIXED 2026-08-23 (request-side accept-and-drop sweep) -- opUpdateThemeForStack decoded only StackName; every other real UpdateThemeForStackInput member (api_op_UpdateThemeForStack.go:29-64: AttributesToDelete/FaviconS3Location/FooterLinks/OrganizationLogoS3Location/State/ThemeStyling/TitleText, all optional -- only StackName is required) was parsed nowhere and silently discarded, so a real client updating a theme's branding always got back the theme unchanged with a 200 OK. Now threaded end-to-end via a new ThemeUpdateOptions (interfaces.go) and InMemoryBackend.applyThemeUpdate (themes.go): a nil FaviconS3Location/OrganizationLogoS3Location/TitleText/FooterLinks means unset (leave unchanged, matching this op's own 'omitted fields are unchanged' semantics -- distinguishable in Go's encoding/json exactly as the real SDK's own pointer/slice-nil-vs-set fields distinguish it, confirmed against serializeCBOR_UpdateThemeForStackInput's per-field `if v.X != nil`/`len(v.X) > 0` guards); AttributesToDelete=[FOOTER_LINKS] (the only real ThemeAttribute enum value) is applied last so a delete always wins over a same-request FooterLinks set, matching this repo's established rekognition UpdateStreamProcessor apply-then-delete convention. No enum validation added for ThemeStyling/State on Update (unlike Create): this op's own deserializer error switch (ConcurrentModificationException/InvalidAccountStatusException/InvalidParameterCombinationException/LimitExceededException/OperationNotPermittedException/ResourceNotFoundException, deserializers.go) has no ValidationException/SerializationException case for a real client to receive, so no error contract could be confirmed -- fabricating one would repeat the mistake ACM's ValidationMethod=HTTP gap explicitly avoided; values are stored/echoed verbatim instead. See TestSDKRoundTrip_UpdateThemeForStack_FieldsApply (wire_shape_test.go), a real aws-sdk-go-v2 client round trip."}
 families:
   AppBlock: {status: ok, note: "CRUD verified; Describe now ARN-resolved (see ops above)"}
   AppBlockBuilder: {status: ok, note: "CRUD + Start/Stop verified; StreamingURL now carries real Expires/Validity (see ops above)"}
@@ -74,7 +80,7 @@ families:
   ImageBuilder: {status: fixed, note: "CRUD + Start/Stop verified; Stop now idempotent (see ops above). FIXED: StartImageBuilder response invented a StreamingURL field (see StartImageBuilder op above); StreamingURL creation now carries real Expires/Validity"}
   ImagePermissions: {status: ok, note: "Update/Delete/DescribeImagePermissions verified against real SharedImagePermissions shape"}
   Session: {status: fixed, note: "DescribeSessions/DrainSessionInstance/ExpireSession/CreateStreamingURL verified against real Session shape and DescribeSessionsInput/CreateStreamingURLInput fields. FIXED: CreateStreamingURL now honors Validity and returns Expires (see ops above)"}
-  Theme: {status: fixed, note: "CRUD verified against real Theme shape. FIXED (gopherstack-afi1): CreateThemeForStack dropped 4 of its 5 required members (FaviconS3Location, OrganizationLogoS3Location, ThemeStyling, TitleText) -- see CreateThemeForStack above. UpdateThemeForStack has the identical gap (none of its optional update fields -- FaviconS3Location/OrganizationLogoS3Location/ThemeStyling/TitleText/FooterLinks -- are read from the request), left unfixed: no member of UpdateThemeForStackInput is required, so this is an incompleteness rather than a dropped-required-field bug; flagged for a future pass."}
+  Theme: {status: fixed, note: "CRUD verified against real Theme shape. FIXED (gopherstack-afi1): CreateThemeForStack dropped 4 of its 5 required members (FaviconS3Location, OrganizationLogoS3Location, ThemeStyling, TitleText) -- see CreateThemeForStack above. FIXED 2026-08-23: UpdateThemeForStack had the identical gap and is now fixed too -- see UpdateThemeForStack below."}
   User: {status: ok, note: "CRUD + Enable/Disable verified; ARN partition bug fixed (see CreateUser above)"}
   UserStackAssociation: {status: ok, note: "BatchAssociate/BatchDisassociate/Describe verified; correctly Name-keyed per real UserStackAssociation shape"}
   UsageReportSubscription: {status: ok, note: "single scalar record, verified against real shape"}
@@ -96,6 +102,54 @@ resolved_this_pass:
     its wire field name (AppLicenseUsages, not AppLicenseUsage) was also fixed.
 leaks: {status: clean, note: "no goroutines/janitors in this service; all state lives in store.Table/plain maps behind the single lockmetrics.RWMutex, reset via Handler.Reset -> Backend.Reset -> registry.ResetAll + resetRawMaps. ExportImageTask rewrite kept the same TaskID-keyed store.Table registration (no new leak surface); ListExportImageTasks pagination reads a Snapshot-style copy of all tasks under RLock and sorts/pages it outside any lock extension, so no lock is held across the sort"}
 ---
+
+## This pass (2026-08-23): UpdateThemeForStack dropped every one of its update fields
+
+The prior pass's `Theme` family note flagged this explicitly and left it
+unfixed: `opUpdateThemeForStack` (`handler_user.go`) decoded a bare
+`themeStackInput{StackName}` and `InMemoryBackend.UpdateThemeForStack`
+(`themes.go`) took only a `stackName` parameter -- every other real
+`UpdateThemeForStackInput` member (`AttributesToDelete`/`FaviconS3Location`/
+`FooterLinks`/`OrganizationLogoS3Location`/`State`/`ThemeStyling`/
+`TitleText`, confirmed against
+`aws-sdk-go-v2/service/appstream@v1.64.5/api_op_UpdateThemeForStack.go:29-64`)
+was parsed nowhere and silently discarded. A real client calling
+`UpdateThemeForStack` to change a stack's branding got a `200 OK` echoing the
+theme completely unchanged -- the request-side accept-and-drop bug class,
+confirmed by a real `aws-sdk-go-v2` client round trip
+(`TestSDKRoundTrip_UpdateThemeForStack_FieldsApply`, `wire_shape_test.go`)
+that fails against the unfixed handler and passes against the fix.
+
+Fixed by adding `ThemeUpdateOptions` (`interfaces.go`) and threading it
+through a new `applyThemeUpdate` helper (`themes.go`) that the handler
+populates from the decoded request. Every optional field follows
+`UpdateThemeForStackInput`'s own "omitted fields are unchanged" convention,
+matched at the Go level exactly the way the real SDK's own request struct
+distinguishes "not set" from "set" (pointer-nil / slice-nil vs a present
+value, confirmed against `serializeCBOR_UpdateThemeForStackInput`'s per-field
+guards in `serializers.go`) -- not a fabricated convention. `AttributesToDelete
+= [FOOTER_LINKS]` (the only real `ThemeAttribute` value) clears the footer
+links after every other field is applied, so a delete always wins over a
+same-request set.
+
+Deliberately NOT added: enum validation for `ThemeStyling`/`State` on
+Update (unlike `CreateThemeForStack`, which does validate `ThemeStyling`).
+`UpdateThemeForStack`'s own error-deserializer switch
+(`ConcurrentModificationException`/`InvalidAccountStatusException`/
+`InvalidParameterCombinationException`/`LimitExceededException`/
+`OperationNotPermittedException`/`ResourceNotFoundException`) has no
+`ValidationException`/`SerializationException` case a real client could ever
+receive for a bad enum value on this op -- inventing a rejection here would
+be exactly the unconfirmed-error-contract mistake ACM's PARITY.md documents
+avoiding for `ValidationMethod=HTTP`. Both fields are stored and echoed
+verbatim instead.
+
+Proof: hand-reverted `themes.go`/`handler_user.go`/`interfaces.go` to
+`git show HEAD`, confirmed `TestSDKRoundTrip_UpdateThemeForStack_FieldsApply`
+fails with the exact predicted symptom (every updated field reads back as its
+pre-update value), restored the fix, `md5sum` byte-identical to before the
+revert. `go build`/`go vet`/`go test ./services/appstream/...`/
+`golangci-lint run ./services/appstream/...` all clean.
 
 ## This pass (2026-08-13): CreateThemeForStack dropped 4 of 5 required members (gopherstack-afi1)
 

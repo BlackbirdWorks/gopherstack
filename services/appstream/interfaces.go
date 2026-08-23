@@ -150,7 +150,7 @@ type StorageBackend interface {
 	) (*Theme, error)
 	DeleteThemeForStack(stackName string) error
 	DescribeThemeForStack(stackName string) (*Theme, error)
-	UpdateThemeForStack(stackName string) (*Theme, error)
+	UpdateThemeForStack(stackName string, opts ThemeUpdateOptions) (*Theme, error)
 
 	// Users
 	CreateUser(userName, email, firstName, lastName, authType string) (*User, error)
@@ -395,6 +395,24 @@ type Theme struct {
 	FaviconS3Location          S3Location
 	OrganizationLogoS3Location S3Location
 	ThemeFooterLinks           []ThemeFooterLink
+}
+
+// ThemeUpdateOptions carries UpdateThemeForStackInput's optional members
+// (api_op_UpdateThemeForStack.go:29-64) -- only StackName is required on the
+// real wire; every field here means "leave unchanged" when unset. A nil
+// FaviconS3Location/OrganizationLogoS3Location/TitleText means the caller did
+// not supply it; a nil FooterLinks means unset, a non-nil (possibly empty)
+// FooterLinks replaces the list wholesale. AttributesToDelete is applied
+// after every set field so a delete always wins over a same-request set
+// (matches this repo's rekognition UpdateStreamProcessor convention).
+type ThemeUpdateOptions struct {
+	FaviconS3Location          *S3Location
+	OrganizationLogoS3Location *S3Location
+	TitleText                  *string
+	FooterLinks                []ThemeFooterLink
+	ThemeStyling               string
+	State                      string
+	AttributesToDelete         []string
 }
 
 // User is an AppStream UserPool user.

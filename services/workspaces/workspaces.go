@@ -161,14 +161,14 @@ func (b *InMemoryBackend) CreateWorkspace(
 
 	const maxDefaultSubnetHost = 250
 	ipAddr := fmt.Sprintf("172.16.0.%d", (b.counter%maxDefaultSubnetHost)+1)
-	wsName := spec.UserName
-	if wsName == "" {
-		wsName = workspaceID
-	}
 
 	w := &storedWorkspace{
-		WorkspaceID:                 workspaceID,
-		WorkspaceName:               wsName,
+		WorkspaceID: workspaceID,
+		// WorkspaceName is only ever "not applicable" (real AWS: absent) for a
+		// user-assigned WorkSpace and real, caller-supplied data for a
+		// user-decoupled one (types.WorkspaceRequest.WorkspaceName's doc
+		// comment) -- never derived from UserName/WorkspaceID.
+		WorkspaceName:               spec.WorkspaceName,
 		DirectoryID:                 spec.DirectoryID,
 		UserName:                    spec.UserName,
 		IPAddress:                   ipAddr,

@@ -175,3 +175,59 @@ func TestDescribeConnectionAliases_NoFabricatedTopLevelConnectionIdentifier(t *t
 		"ConnectionIdentifier is not a member of the real top-level ConnectionAlias type",
 	)
 }
+
+// TestCreateWorkspaces_RealSDKClient_WorkspaceNameThreadedThrough drives a
+// real aws-sdk-go-v2 client to prove types.WorkspaceRequest.WorkspaceName
+// (aws-sdk-go-v2/service/workspaces@v1.73.1/types/types.go:1874-1879 --
+// "required if UserName is [UNDEFINED] for user-decoupled WorkSpaces") is
+// actually stored and echoed by CreateWorkspaces/DescribeWorkspaces, and
+// that a normal user-assigned WorkSpace's WorkspaceName stays genuinely
+// unset ("not applicable if UserName is specified") rather than fabricated
+// from UserName.
+func TestCreateWorkspaces_RealSDKClient_WorkspaceNameThreadedThrough(t *testing.T) {
+	t.Parallel()
+
+	client := newTestHandlerAndClient(t)
+
+	_, err := client.RegisterWorkspaceDirectory(t.Context(), &wssdk.RegisterWorkspaceDirectoryInput{
+		DirectoryId:            aws.String("d-name11111"),
+		WorkspaceDirectoryName: aws.String("dir"),
+	})
+	require.NoError(t, err)
+
+	createOut, err := client.CreateWorkspaces(t.Context(), &wssdk.CreateWorkspacesInput{
+		Workspaces: []types.WorkspaceRequest{
+			{
+				BundleId:      aws.String("wsb-00000000"),
+				DirectoryId:   aws.String("d-name11111"),
+				UserName:      aws.String("[UNDEFINED]"),
+				WorkspaceName: aws.String("decoupled-real-sdk"),
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.Len(t, createOut.PendingRequests, 1)
+	assert.Equal(t, "decoupled-real-sdk", aws.ToString(createOut.PendingRequests[0].WorkspaceName),
+		"CreateWorkspacesOutput.PendingRequests must echo the caller-supplied WorkspaceName")
+
+	wsID := aws.ToString(createOut.PendingRequests[0].WorkspaceId)
+
+	descOut, err := client.DescribeWorkspaces(t.Context(), &wssdk.DescribeWorkspacesInput{
+		WorkspaceIds: []string{wsID},
+	})
+	require.NoError(t, err)
+	require.Len(t, descOut.Workspaces, 1)
+	assert.Equal(t, "decoupled-real-sdk", aws.ToString(descOut.Workspaces[0].WorkspaceName),
+		"DescribeWorkspacesOutput must echo the caller-supplied WorkspaceName, not silently drop it")
+
+	// A normal user-assigned WorkSpace must NOT fabricate a WorkspaceName.
+	normalID := createSDKWorkspace(t, client)
+
+	normalOut, err := client.DescribeWorkspaces(t.Context(), &wssdk.DescribeWorkspacesInput{
+		WorkspaceIds: []string{normalID},
+	})
+	require.NoError(t, err)
+	require.Len(t, normalOut.Workspaces, 1)
+	assert.Nil(t, normalOut.Workspaces[0].WorkspaceName,
+		"WorkspaceName is not applicable for a user-assigned WorkSpace and must not be fabricated from UserName")
+}

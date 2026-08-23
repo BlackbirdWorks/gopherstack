@@ -294,3 +294,80 @@ func TestSDKRoundTrip_AssociateAppBlockBuilderAppBlock_AssociationWireKey(t *tes
 		"AssociateAppBlockBuilderAppBlockOutput.AppBlockBuilderAppBlockAssociation must decode non-nil")
 	assert.Equal(t, "assoc-builder", aws.ToString(out.AppBlockBuilderAppBlockAssociation.AppBlockBuilderName))
 }
+
+// TestSDKRoundTrip_UpdateThemeForStack_FieldsApply proves UpdateThemeForStack
+// actually applies its request fields instead of silently discarding every
+// one of them (the handler previously decoded only StackName -- see
+// themes.go/handler_user.go). Real UpdateThemeForStackInput
+// (api_op_UpdateThemeForStack.go:29-64) carries ThemeStyling/TitleText/
+// FaviconS3Location/OrganizationLogoS3Location/FooterLinks/State/
+// AttributesToDelete, all optional except StackName ("Specify the fields you
+// want to update. Omitted fields are unchanged" is this op's own doc
+// convention, confirmed structurally by every field but StackName being
+// absent from validators.go's required-field checks).
+func TestSDKRoundTrip_UpdateThemeForStack_FieldsApply(t *testing.T) {
+	t.Parallel()
+
+	h := appstream.NewHandler(appstream.NewInMemoryBackend("123456789012", "us-east-1"))
+	client := newTestAppStreamClient(t, h)
+
+	_, err := client.CreateStack(t.Context(), &appstreamsdk.CreateStackInput{Name: aws.String("theme-upd-stack")})
+	require.NoError(t, err)
+
+	_, err = client.CreateThemeForStack(t.Context(), &appstreamsdk.CreateThemeForStackInput{
+		StackName: aws.String("theme-upd-stack"),
+		FaviconS3Location: &types.S3Location{
+			S3Bucket: aws.String("theme-assets"),
+			S3Key:    aws.String("favicon.ico"),
+		},
+		OrganizationLogoS3Location: &types.S3Location{
+			S3Bucket: aws.String("theme-assets"),
+			S3Key:    aws.String("logo.png"),
+		},
+		ThemeStyling: types.ThemeStylingBlue,
+		TitleText:    aws.String("Original Title"),
+		FooterLinks: []types.ThemeFooterLink{
+			{DisplayName: aws.String("Support"), FooterLinkURL: aws.String("https://support.example.com")},
+		},
+	})
+	require.NoError(t, err)
+
+	out, err := client.UpdateThemeForStack(t.Context(), &appstreamsdk.UpdateThemeForStackInput{
+		StackName: aws.String("theme-upd-stack"),
+		FaviconS3Location: &types.S3Location{
+			S3Bucket: aws.String("theme-assets"),
+			S3Key:    aws.String("new-favicon.ico"),
+		},
+		ThemeStyling: types.ThemeStylingRed,
+		TitleText:    aws.String("Updated Title"),
+		State:        types.ThemeStateDisabled,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, out.Theme, "UpdateThemeForStackOutput.Theme must decode non-nil")
+	assert.Equal(t, "https://s3.amazonaws.com/theme-assets/new-favicon.ico", aws.ToString(out.Theme.ThemeFaviconURL),
+		"FaviconS3Location must actually be applied by UpdateThemeForStack, not silently dropped")
+	assert.Equal(t, types.ThemeStylingRed, out.Theme.ThemeStyling,
+		"ThemeStyling must actually be applied by UpdateThemeForStack, not silently dropped")
+	assert.Equal(t, "Updated Title", aws.ToString(out.Theme.ThemeTitleText),
+		"TitleText must actually be applied by UpdateThemeForStack, not silently dropped")
+	assert.Equal(t, types.ThemeStateDisabled, out.Theme.State,
+		"State must actually be applied by UpdateThemeForStack, not silently dropped")
+	// OrganizationLogoS3Location was omitted from the update request -- must stay unchanged.
+	assert.Equal(t, "https://s3.amazonaws.com/theme-assets/logo.png",
+		aws.ToString(out.Theme.ThemeOrganizationLogoURL),
+		"an omitted field must be left unchanged, not cleared")
+	// FooterLinks was omitted from the update request -- must stay unchanged.
+	require.Len(t, out.Theme.ThemeFooterLinks, 1)
+	assert.Equal(t, "Support", aws.ToString(out.Theme.ThemeFooterLinks[0].DisplayName))
+
+	// AttributesToDelete=[FOOTER_LINKS] clears the footer links.
+	out2, err := client.UpdateThemeForStack(t.Context(), &appstreamsdk.UpdateThemeForStackInput{
+		StackName:          aws.String("theme-upd-stack"),
+		AttributesToDelete: []types.ThemeAttribute{types.ThemeAttributeFooterLinks},
+	})
+	require.NoError(t, err)
+	assert.Empty(t, out2.Theme.ThemeFooterLinks,
+		"AttributesToDelete=[FOOTER_LINKS] must clear ThemeFooterLinks")
+	// Confirms the fix isn't just clearing everything: TitleText from the prior update survives.
+	assert.Equal(t, "Updated Title", aws.ToString(out2.Theme.ThemeTitleText))
+}

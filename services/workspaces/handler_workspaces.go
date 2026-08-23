@@ -48,6 +48,7 @@ type createWorkspacesInput struct {
 type createWorkspaceSpec struct {
 	WorkspaceProperties         *createWorkspaceProps `json:"WorkspaceProperties,omitempty"`
 	UserName                    string                `json:"UserName"`
+	WorkspaceName               string                `json:"WorkspaceName,omitempty"`
 	DirectoryID                 string                `json:"DirectoryId"`
 	BundleID                    string                `json:"BundleId"`
 	SubnetID                    string                `json:"SubnetId"`
@@ -78,6 +79,7 @@ type workspaceRequestResp struct {
 	BundleID                    string                   `json:"BundleId,omitempty"`
 	DirectoryID                 string                   `json:"DirectoryId,omitempty"`
 	UserName                    string                   `json:"UserName,omitempty"`
+	WorkspaceName               string                   `json:"WorkspaceName,omitempty"`
 	VolumeEncryptionKey         string                   `json:"VolumeEncryptionKey,omitempty"`
 	Tags                        []tagItem                `json:"Tags,omitempty"`
 	UserVolumeEncryptionEnabled bool                     `json:"UserVolumeEncryptionEnabled,omitempty"`
@@ -110,6 +112,7 @@ func specToWorkspaceRequestResp(spec createWorkspaceSpec) *workspaceRequestResp 
 		BundleID:                    spec.BundleID,
 		DirectoryID:                 spec.DirectoryID,
 		UserName:                    spec.UserName,
+		WorkspaceName:               spec.WorkspaceName,
 		VolumeEncryptionKey:         spec.VolumeEncryptionKey,
 		UserVolumeEncryptionEnabled: spec.UserVolumeEncryptionEnabled,
 		RootVolumeEncryptionEnabled: spec.RootVolumeEncryptionEnabled,
@@ -134,6 +137,7 @@ func classifyCreateError(err error) (string, string) {
 type pendingWorkspace struct {
 	WorkspaceProperties         *workspacePropertiesResp `json:"WorkspaceProperties,omitempty"`
 	WorkspaceID                 string                   `json:"WorkspaceId"`
+	WorkspaceName               string                   `json:"WorkspaceName,omitempty"`
 	DirectoryID                 string                   `json:"DirectoryId"`
 	UserName                    string                   `json:"UserName"`
 	BundleID                    string                   `json:"BundleId"`
@@ -199,6 +203,7 @@ func specToCreationSpec(spec createWorkspaceSpec) *WorkspaceCreationSpec {
 
 	return &WorkspaceCreationSpec{
 		UserName:                    spec.UserName,
+		WorkspaceName:               spec.WorkspaceName,
 		DirectoryID:                 spec.DirectoryID,
 		BundleID:                    spec.BundleID,
 		SubnetID:                    spec.SubnetID,
@@ -213,6 +218,7 @@ func specToCreationSpec(spec createWorkspaceSpec) *WorkspaceCreationSpec {
 func wsToPending(ws *Workspace) pendingWorkspace {
 	pw := pendingWorkspace{
 		WorkspaceID:                 ws.WorkspaceID,
+		WorkspaceName:               ws.WorkspaceName,
 		DirectoryID:                 ws.DirectoryID,
 		UserName:                    ws.UserName,
 		BundleID:                    ws.BundleID,

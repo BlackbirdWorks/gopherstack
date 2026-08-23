@@ -6,10 +6,16 @@ import (
 )
 
 // WorkspaceCreationSpec holds all fields for creating a workspace.
+// WorkspaceName mirrors WorkspaceRequest.WorkspaceName
+// (aws-sdk-go-v2/service/workspaces@v1.73.1/types/types.go:1874-1879):
+// "not applicable if UserName is specified for user-assigned WorkSpaces",
+// so an empty value here means the field genuinely stays unset, not a
+// fallback to derive from UserName.
 type WorkspaceCreationSpec struct {
 	Properties                  *WorkspaceProperties
 	Tags                        map[string]string
 	UserName                    string
+	WorkspaceName               string
 	DirectoryID                 string
 	BundleID                    string
 	SubnetID                    string
