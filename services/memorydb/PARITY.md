@@ -1,8 +1,8 @@
 ---
 service: memorydb
 sdk_module: aws-sdk-go-v2/service/memorydb@v1.36.4
-last_audit_commit:                                # unknown: gopherstack-6flj wrapper-key/nested-shape sweep pass ran without git access at write time, never backfilled -- gopherstack-33in
-last_audit_date: 2026-08-15
+last_audit_commit: dbf9633c9                      # this pass (2026-08-23, request-side sweep) fixed UpdateCluster; commit hash not yet known at edit time
+last_audit_date: 2026-08-23
 overall: A            # 2026-08-15 (gopherstack-6flj): wrapper-key/nested-shape sweep of all 18 L+D+G ops
                        # (scripted key extraction against deserializers.go/serializers.go for all 18
                        # ops + every reachable nested type). Top-level wrapper keys were mostly clean,
@@ -54,7 +54,7 @@ ops:
   CreateCluster: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: clusterObject dropped 3 fabricated fields (Tags, MultiRegionParameterGroupName, NumberOfReplicasPerShard -- none exist on real types.Cluster, confirmed via awsAwsjson11_deserializeDocumentCluster's 29-key case list); added the real MultiRegionClusterName request field (was parsed nowhere) with FK validation against an existing multi-Region cluster; Status now supports the opt-in creating->available lifecycle overlay (see families.lifecycle)."}
   DescribeClusters: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: now uses the paginateItems helper (handler.go) like every other list op, replacing the hand-rolled cursor loop; Status overlay applied per lifecycle.go. 2026-08-15 (gopherstack-6flj): fixed clusterObject.IpDiscovery, wire-tagged \"IPDiscovery\" (wrong case) -- confirmed via deserializers.go's exact case \"IpDiscovery\": switch match (awsjson1.1 is case-sensitive), so a real client's IpDiscovery was always empty. Shared clusterObject, so this also affected Create/Update/Delete/BatchUpdateCluster/FailoverShard responses."}
   DeleteCluster: {wire: ok, errors: ok, state: ok, persist: ok}
-  UpdateCluster: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed (gopherstack-yusn): ACLName was assigned to the cluster with no existence check -- unlike CreateCluster, which validates it -- so an UpdateCluster naming a nonexistent ACL silently gave the cluster a dangling ACLName instead of failing with ACLNotFoundFault. Now validated the same way CreateCluster does."}
+  UpdateCluster: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "fixed (gopherstack-yusn): ACLName was assigned to the cluster with no existence check -- unlike CreateCluster, which validates it -- so an UpdateCluster naming a nonexistent ACL silently gave the cluster a dangling ACLName instead of failing with ACLNotFoundFault. Now validated the same way CreateCluster does. Fixed 2026-08-23 (request-side sweep): decode struct had no Engine/ParameterGroupName/SecurityGroupIds members at all (all three real UpdateClusterInput fields) -- every real client update to any of them silently no-opped. Added, with the same ParameterGroupName existence check CreateCluster already does. See Notes."}
   BatchUpdateCluster: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed (gopherstack-yusn): ServiceUpdateNameToApply was parsed into the request but never passed to the backend at all -- any name, including one matching no known service update, always succeeded for every found cluster (real AWS fault for an unknown name: ServiceUpdateNotFoundFault, confirmed in botocore's BatchUpdateCluster.errors). Now validated against b.serviceUpdates and, on success, recorded per-cluster on the new Cluster.AppliedServiceUpdates map (additive, persisted)."}
   FailoverShard: {wire: ok, errors: ok, state: ok, persist: ok, note: "no-op failover simulation (event only); acceptable for a mock, matches other services' failover stubs"}
   ListAllowedNodeTypeUpdates: {wire: ok, errors: ok, state: ok, persist: n/a, note: "re-verified: ListAllowedNodeTypeUpdatesOutput is exactly ScaleUpNodeTypes/ScaleDownNodeTypes, matches"}
@@ -221,3 +221,48 @@ than `pkgs/lockmetrics.RWMutex` is a pre-existing convention deviation, not a le
 correctness bug (every lock path is still properly `defer`-released) -- flagged under `leaks`
 for a future pass rather than churned here, since retrofitting the metrics wrapper across ~30
 call sites is unrelated to wire-shape parity and carries its own regression risk.
+
+## 2026-08-23: UpdateCluster silently dropped Engine, ParameterGroupName, SecurityGroupIds
+
+Request-side sweep (accept-and-drop class -- the response side got a deep
+sweep on 2026-08-15, gopherstack-6flj; the request side had never been
+checked). `updateClusterRequest` (`models_clusters.go`) had no `Engine`,
+`ParameterGroupName`, or `SecurityGroupIds` members at all, though all
+three are real `UpdateClusterInput` fields (api_op_UpdateCluster.go:44,
+87, 93) and `createClusterRequest` already accepts and applies all three on
+Create. Every real client that used `UpdateCluster` to change a cluster's
+engine, swap its parameter group, or update its security groups got a
+silent no-op with a 200 response.
+
+Fixed: added all three fields to `updateClusterRequest`; wired
+`Engine`/`ParameterGroupName` into `applyClusterStringUpdates` and
+`SecurityGroupIds` into `applyClusterUpdates` (`clusters.go`); added the
+same `ParameterGroupName` existence check `CreateCluster` already performs
+(`ErrParameterGroupNotFound` if the named group doesn't exist).
+
+Proof: `TestUpdateCluster_EngineParameterGroupSecurityGroups_RoundTrip`
+(`wire_update_cluster_test.go`) drives the real
+`aws-sdk-go-v2/service/memorydb` client through CreateParameterGroup ->
+CreateCluster -> UpdateCluster(Engine, ParameterGroupName,
+SecurityGroupIds) -> DescribeClusters, asserting all three landed.
+Confirmed it fails pre-fix (Engine stayed "redis", ParameterGroupName
+stayed empty, SecurityGroups stayed empty) -- hand-reverted via `cp`,
+md5sum-identical restore after.
+
+**Not a bug, checked and ruled out**: the same sweep also flagged
+`updateClusterRequest.IPDiscovery`'s json tag ("IPDiscovery") as
+mismatching the real wire key "IpDiscovery" -- the same casing bug
+2026-08-15 fixed on the *response* side. Verified directly
+(`encoding/json` test snippet) that Go's `json.Unmarshal`, unlike
+aws-sdk-go-v2's generated case-sensitive deserializer, falls back to a
+case-insensitive field match when no exact tag match exists -- so a real
+client's `"IpDiscovery"` key was already landing in the `"IPDiscovery"`-tagged
+field correctly, and `createClusterRequest` carried the identical
+"wrong-looking" tag with no behavioral effect either. This asymmetry
+(request-side decode is Go's lenient stdlib; response-side encode is read
+by AWS's case-sensitive generated client code) means a decode-struct
+casing mismatch is not, by itself, evidence of a request-side bug -- only a
+genuinely different key name (as in the UpdateServiceAttributes fix this
+same pass, servicediscovery/PARITY.md) is. Retagged both `IPDiscovery`
+fields to the correct casing anyway for self-documentation/consistency
+with `clusterObject`, but this is not counted as a functional fix.

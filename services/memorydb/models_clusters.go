@@ -71,7 +71,7 @@ type createClusterRequest struct {
 	EngineVersion           string     `json:"EngineVersion,omitempty"`
 	Engine                  string     `json:"Engine,omitempty"`
 	NetworkType             string     `json:"NetworkType,omitempty"`
-	IPDiscovery             string     `json:"IPDiscovery,omitempty"`
+	IPDiscovery             string     `json:"IpDiscovery,omitempty"`
 	SnapshotName            string     `json:"SnapshotName,omitempty"`
 	NodeType                string     `json:"NodeType"`
 	ClusterName             string     `json:"ClusterName"`
@@ -109,7 +109,10 @@ type updateClusterRequest struct {
 	Description             string                       `json:"Description,omitempty"`
 	ClusterName             string                       `json:"ClusterName"`
 	NetworkType             string                       `json:"NetworkType,omitempty"`
-	IPDiscovery             string                       `json:"IPDiscovery,omitempty"`
+	IPDiscovery             string                       `json:"IpDiscovery,omitempty"`
+	Engine                  string                       `json:"Engine,omitempty"`
+	ParameterGroupName      string                       `json:"ParameterGroupName,omitempty"`
+	SecurityGroupIDs        []string                     `json:"SecurityGroupIds,omitempty"`
 	Tags                    []tagEntry                   `json:"Tags,omitempty"`
 }
 

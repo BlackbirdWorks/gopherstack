@@ -417,7 +417,10 @@ func (h *Handler) handleGetServiceAttributes(_ context.Context, body []byte) ([]
 
 	return json.Marshal(map[string]any{
 		"ServiceAttributes": map[string]any{
-			keyArn:        arn,
+			// ServiceAttributes.ServiceArn (deserializers.go:6001), not keyArn's
+			// "Arn" -- unlike Service/Namespace, this shape's own field is named
+			// ServiceArn.
+			"ServiceArn":  arn,
 			keyAttributes: attrs,
 		},
 	})
@@ -425,7 +428,7 @@ func (h *Handler) handleGetServiceAttributes(_ context.Context, body []byte) ([]
 
 type updateServiceAttributesRequest struct {
 	Attributes map[string]string `json:"Attributes"`
-	ServiceARN string            `json:"ServiceArn"`
+	ServiceID  string            `json:"ServiceId"`
 }
 
 func (h *Handler) handleUpdateServiceAttributes(_ context.Context, body []byte) error {
@@ -434,15 +437,15 @@ func (h *Handler) handleUpdateServiceAttributes(_ context.Context, body []byte) 
 		return fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	if req.ServiceARN == "" {
-		return fmt.Errorf("%w: ServiceArn is required", errInvalidRequest)
+	if req.ServiceID == "" {
+		return fmt.Errorf("%w: ServiceId is required", errInvalidRequest)
 	}
 
 	if err := validateServiceAttributeShape(req.Attributes); err != nil {
 		return err
 	}
 
-	return h.Backend.UpdateServiceAttributes(req.ServiceARN, req.Attributes)
+	return h.Backend.UpdateServiceAttributes(req.ServiceID, req.Attributes)
 }
 
 type deleteServiceAttributesRequest struct {
