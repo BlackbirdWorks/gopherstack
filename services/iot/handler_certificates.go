@@ -249,7 +249,7 @@ func certificateDescriptionFields(cert *Certificate) map[string]any {
 		keyLastModifiedDate: awstime.Epoch(cert.LastModifiedAt),
 		"certificatePem":    cert.PEM,
 		"ownedBy":           cert.OwnedBy,
-		"certificateMode":   cert.CertificateMode,
+		keyCertificateMode:  cert.CertificateMode,
 		"customerVersion":   cert.CustomerVersion,
 	}
 
@@ -300,11 +300,11 @@ func (h *Handler) handleListCertificates(c *echo.Context) error {
 		// CertificateDescription): certificateArn, certificateId,
 		// certificateMode, creationDate, status -- no lastModifiedDate.
 		out = append(out, map[string]any{
-			keyCertificateID:  cert.CertificateID,
-			keyCertificateArn: cert.ARN,
-			keyStatus:         cert.Status,
-			keyCreationDate:   awstime.Epoch(cert.CreatedAt),
-			"certificateMode": cert.CertificateMode,
+			keyCertificateID:   cert.CertificateID,
+			keyCertificateArn:  cert.ARN,
+			keyStatus:          cert.Status,
+			keyCreationDate:    awstime.Epoch(cert.CreatedAt),
+			keyCertificateMode: cert.CertificateMode,
 		})
 	}
 
@@ -414,8 +414,15 @@ func (h *Handler) handleUpdateCertificateProvider(c *echo.Context) error {
 	}); err != nil {
 		return h.handleError(c, err)
 	}
+	cp, err := h.Backend.DescribeCertificateProvider(name)
+	if err != nil {
+		return h.handleError(c, err)
+	}
 
-	return c.NoContent(http.StatusOK)
+	return c.JSON(http.StatusOK, map[string]any{
+		keyCertificateProviderName: cp.CertificateProviderName,
+		keyCertificateProviderArn:  cp.ARN,
+	})
 }
 
 func (h *Handler) handleDeleteCertificateProvider(c *echo.Context) error {
@@ -492,16 +499,18 @@ func resolveCACertLegacyOps(path, method string) string {
 
 func (h *Handler) handleRegisterCACertificate(c *echo.Context) error {
 	var req struct {
-		CACertificate           string `json:"caCertificate"`
-		VerificationCertificate string `json:"verificationCertificate,omitempty"`
-		Status                  string `json:"registrationConfig,omitempty"`
+		CACertificate           string             `json:"caCertificate"`
+		VerificationCertificate string             `json:"verificationCertificate,omitempty"`
+		RegistrationConfig      RegistrationConfig `json:"registrationConfig"`
 		// []types.Tag on the wire, not a map (serializers.go:18065, aws-sdk-go-v2/service/iot@v1.77.4).
 		Tags []tags.KV `json:"tags,omitempty"`
 	}
 	if err := readBody(c, &req); err != nil {
 		return err
 	}
-	ca, err := h.Backend.RegisterCACertificate(req.CACertificate, "ACTIVE", tags.MapFromKV(req.Tags))
+	ca, err := h.Backend.RegisterCACertificate(
+		req.CACertificate, "ACTIVE", tags.MapFromKV(req.Tags), req.RegistrationConfig,
+	)
 	if err != nil {
 		return respondErr(c, err)
 	}
@@ -530,7 +539,10 @@ func (h *Handler) handleDescribeCACertificate(c *echo.Context) error {
 		return respondErr(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"certificateDescription": ca})
+	return c.JSON(http.StatusOK, map[string]any{
+		"certificateDescription": ca,
+		"registrationConfig":     ca.RegistrationConfig,
+	})
 }
 
 func (h *Handler) handleListCACertificates(c *echo.Context) error {
@@ -541,6 +553,7 @@ func (h *Handler) handleListCACertificates(c *echo.Context) error {
 			keyCertificateID:  ca.CertificateID,
 			keyCertificateArn: ca.CertificateARN,
 			keyStatus:         ca.Status,
+			keyCreationDate:   ca.CreationDate,
 		}
 	}
 
@@ -588,9 +601,11 @@ func (h *Handler) handleListCertificatesByCA(c *echo.Context) error {
 	summaries := make([]map[string]any, len(certs))
 	for i, cert := range certs {
 		summaries[i] = map[string]any{
-			keyCertificateID:  cert.CertificateID,
-			keyCertificateArn: cert.ARN,
-			keyStatus:         cert.Status,
+			keyCertificateID:   cert.CertificateID,
+			keyCertificateArn:  cert.ARN,
+			keyStatus:          cert.Status,
+			keyCreationDate:    awstime.Epoch(cert.CreatedAt),
+			keyCertificateMode: cert.CertificateMode,
 		}
 	}
 
@@ -644,13 +659,15 @@ func (h *Handler) handleCreateProvisioningClaim(c *echo.Context) error {
 	// /provisioning-templates/{templateName}/provisioning-claim
 	trimmed := strings.TrimPrefix(c.Request().URL.Path, "/provisioning-templates/")
 	templateName := strings.TrimSuffix(trimmed, "/provisioning-claim")
-	certPEM, publicKey, privateKey, err := h.Backend.CreateProvisioningClaim(templateName)
+	cert, expiration, publicKey, privateKey, err := h.Backend.CreateProvisioningClaim(templateName)
 	if err != nil {
 		return respondErr(c, err)
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		keyCertificatePem: certPEM,
+		keyCertificateID:  cert.CertificateID,
+		keyCertificatePem: cert.PEM,
+		"expiration":      awstime.Epoch(expiration),
 		"keyPair": map[string]string{
 			"PublicKey":  publicKey,
 			"PrivateKey": privateKey,

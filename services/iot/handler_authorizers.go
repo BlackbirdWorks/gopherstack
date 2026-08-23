@@ -18,7 +18,12 @@ func (h *Handler) handleSetDefaultAuthorizer(c *echo.Context) error {
 		return respondErr(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"authorizerName": req.AuthorizerName})
+	resp := map[string]any{"authorizerName": req.AuthorizerName}
+	if a, err := h.Backend.DescribeAuthorizer(req.AuthorizerName); err == nil {
+		resp[keyAuthorizerARN] = a.AuthorizerARN
+	}
+
+	return c.JSON(http.StatusOK, resp)
 }
 
 func (h *Handler) handleClearDefaultAuthorizer(c *echo.Context) error {
@@ -34,8 +39,12 @@ func (h *Handler) handleDescribeDefaultAuthorizer(c *echo.Context) error {
 	if err != nil {
 		return respondErr(c, err)
 	}
+	a, err := h.Backend.DescribeAuthorizer(name)
+	if err != nil {
+		return respondErr(c, err)
+	}
 
-	return c.JSON(http.StatusOK, map[string]any{"authorizerDescription": map[string]any{"authorizerName": name}})
+	return c.JSON(http.StatusOK, map[string]any{"authorizerDescription": a})
 }
 
 func resolveAuthorizerOps(path, method string) string {

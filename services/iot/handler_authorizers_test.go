@@ -18,15 +18,31 @@ func TestDefaultAuthorizer(t *testing.T) {
 	// Describe (none set)
 	iotExpectError(t, h, "/default-authorizer")
 
+	// Authorizer must exist before it can be set as default.
+	iotOK(t, h, http.MethodPost, "/authorizer/my-auth", map[string]any{
+		"authorizerFunctionArn": "arn:aws:lambda:us-east-1:000000000000:function:MyAuthFn",
+		"status":                "ACTIVE",
+	})
+
 	// Set
-	iotOK(t, h, http.MethodPost, "/default-authorizer", map[string]any{
+	setOut := iotOK(t, h, http.MethodPost, "/default-authorizer", map[string]any{
 		"authorizerName": "my-auth",
 	})
+	if setOut["authorizerArn"] == "" || setOut["authorizerArn"] == nil {
+		t.Errorf("expected authorizerArn on SetDefaultAuthorizer, got %v", setOut)
+	}
 
 	// Describe
 	out := iotOK(t, h, http.MethodGet, "/default-authorizer", nil)
-	if out["authorizerDescription"] == nil {
-		t.Error("expected authorizerDescription")
+	desc, _ := out["authorizerDescription"].(map[string]any)
+	if desc == nil {
+		t.Fatalf("expected authorizerDescription, got %v", out)
+	}
+	if desc["authorizerName"] != "my-auth" {
+		t.Errorf("authorizerName mismatch: %v", desc)
+	}
+	if desc["authorizerArn"] == "" || desc["authorizerArn"] == nil {
+		t.Errorf("expected authorizerArn on DescribeDefaultAuthorizer, got %v", desc)
 	}
 
 	// Clear

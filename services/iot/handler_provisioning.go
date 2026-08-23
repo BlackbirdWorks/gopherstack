@@ -252,8 +252,9 @@ func (h *Handler) handleCreateProvisioningTemplate(c *echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"templateArn":   pt.TemplateARN,
-		keyTemplateName: pt.TemplateName,
+		keyTemplateArn:     pt.TemplateARN,
+		keyTemplateName:    pt.TemplateName,
+		"defaultVersionId": pt.DefaultVersionID,
 	})
 }
 
@@ -272,10 +273,11 @@ func (h *Handler) handleListProvisioningTemplates(c *echo.Context) error {
 	summaries := make([]map[string]any, len(templates))
 	for i, pt := range templates {
 		summaries[i] = map[string]any{
-			"templateArn":       pt.TemplateARN,
+			keyTemplateArn:      pt.TemplateARN,
 			keyTemplateName:     pt.TemplateName,
 			keyDescription:      pt.Description,
 			"enabled":           pt.Enabled,
+			"type":              pt.TemplateType,
 			keyCreationDate:     pt.CreationDate,
 			keyLastModifiedDate: pt.LastModifiedDate,
 		}
@@ -318,18 +320,25 @@ func (h *Handler) handleCreateProvisioningTemplateVersion(c *echo.Context) error
 	name := strings.TrimSuffix(trimmed, "/versions")
 	var req struct {
 		TemplateBody string `json:"templateBody"`
+		SetAsDefault bool   `json:"setAsDefault,omitempty"`
 	}
 	if err := readBody(c, &req); err != nil {
 		return err
 	}
-	v, err := h.Backend.CreateProvisioningTemplateVersion(name, req.TemplateBody)
+	v, err := h.Backend.CreateProvisioningTemplateVersion(name, req.TemplateBody, req.SetAsDefault)
+	if err != nil {
+		return respondErr(c, err)
+	}
+	pt, err := h.Backend.DescribeProvisioningTemplate(name)
 	if err != nil {
 		return respondErr(c, err)
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		keyTemplateName: name,
-		"versionId":     v.VersionID,
+		keyTemplateName:    name,
+		keyTemplateArn:     pt.TemplateARN,
+		"versionId":        v.VersionID,
+		"isDefaultVersion": v.IsDefaultVersion,
 	})
 }
 

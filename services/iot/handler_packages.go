@@ -196,7 +196,7 @@ func (h *Handler) handleDeletePackage(c *echo.Context) error {
 // DefaultVersionName, LastModifiedDate, PackageName.
 func packageSummaryFields(p *IoTPackage) map[string]any {
 	return map[string]any{
-		"creationDate":       p.CreationDate,
+		keyCreationDate:      p.CreationDate,
 		"defaultVersionName": p.DefaultVersionName,
 		"lastModifiedDate":   p.LastModifiedDate,
 		"packageName":        p.PackageName,
@@ -230,13 +230,21 @@ func packageAndVersion(path string) (string, string) {
 func (h *Handler) handleCreatePackageVersion(c *echo.Context) error {
 	pkgName, versionName := packageAndVersion(c.Request().URL.Path)
 	var req struct {
-		Tags        map[string]string `json:"tags"`
-		Description string            `json:"description"`
+		Tags        map[string]string       `json:"tags"`
+		Attributes  map[string]string       `json:"attributes"`
+		Artifact    *PackageVersionArtifact `json:"artifact"`
+		Description string                  `json:"description"`
+		Recipe      string                  `json:"recipe"`
 	}
 	if err := readBody(c, &req); err != nil {
 		return err
 	}
-	v, err := h.Backend.CreateIoTPackageVersion(pkgName, versionName, req.Description, req.Tags)
+	v, err := h.Backend.CreateIoTPackageVersion(pkgName, versionName, req.Description, req.Tags,
+		CreateIoTPackageVersionOptions{
+			Attributes: req.Attributes,
+			Artifact:   req.Artifact,
+			Recipe:     req.Recipe,
+		})
 	if err != nil {
 		return respondErr(c, err)
 	}
@@ -284,7 +292,7 @@ func (h *Handler) handleDeletePackageVersion(c *echo.Context) error {
 // CreationDate, LastModifiedDate, PackageName, Status, VersionName.
 func packageVersionSummaryFields(v *IoTPackageVersion) map[string]any {
 	return map[string]any{
-		"creationDate":     v.CreationDate,
+		keyCreationDate:    v.CreationDate,
 		"lastModifiedDate": v.LastModifiedDate,
 		"packageName":      v.PackageName,
 		keyStatus:          v.Status,

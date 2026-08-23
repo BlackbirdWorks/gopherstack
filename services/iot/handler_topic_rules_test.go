@@ -610,6 +610,47 @@ func TestTopicRulePayloadWrapper(t *testing.T) {
 	}
 }
 
+// TestTopicRuleDestinationHTTPURLProperties checks that
+// Create/Get/ListTopicRuleDestination all surface the HTTP URL sub-object
+// the backend already tracks (types.TopicRuleDestination.HttpUrlProperties /
+// types.TopicRuleDestinationSummary.HttpUrlSummary, iot@v1.77.4) instead of
+// dropping it.
+func TestTopicRuleDestinationHTTPURLProperties(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newRefHandler()
+
+	createOut := iotOK(t, h, http.MethodPost, "/destinations", map[string]any{
+		"destinationConfiguration": map[string]any{
+			"httpUrlConfiguration": map[string]any{
+				"confirmationUrl": "https://example.com/confirm",
+			},
+		},
+	})
+	createDest, _ := createOut["topicRuleDestination"].(map[string]any)
+	require.NotNil(t, createDest)
+	createProps, _ := createDest["httpUrlProperties"].(map[string]any)
+	require.NotNil(t, createProps, "expected httpUrlProperties on CreateTopicRuleDestination, got %v", createDest)
+	assert.Equal(t, "https://example.com/confirm", createProps["confirmationUrl"])
+
+	arnVal, _ := createDest["arn"].(string)
+	require.NotEmpty(t, arnVal)
+
+	getOut := iotOK(t, h, http.MethodGet, "/destinations/"+arnVal, nil)
+	getDest, _ := getOut["topicRuleDestination"].(map[string]any)
+	getProps, _ := getDest["httpUrlProperties"].(map[string]any)
+	require.NotNil(t, getProps, "expected httpUrlProperties on GetTopicRuleDestination, got %v", getDest)
+	assert.Equal(t, "https://example.com/confirm", getProps["confirmationUrl"])
+
+	listOut := iotOK(t, h, http.MethodGet, "/destinations", nil)
+	summaries, _ := listOut["destinationSummaries"].([]any)
+	require.Len(t, summaries, 1)
+	summary, _ := summaries[0].(map[string]any)
+	summaryProps, _ := summary["httpUrlSummary"].(map[string]any)
+	require.NotNil(t, summaryProps, "expected httpUrlSummary on ListTopicRuleDestinations, got %v", summary)
+	assert.Equal(t, "https://example.com/confirm", summaryProps["confirmationUrl"])
+}
+
 func TestConfirmTopicRuleDestination(t *testing.T) {
 	t.Parallel()
 

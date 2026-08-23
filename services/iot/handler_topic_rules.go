@@ -304,6 +304,31 @@ func (h *Handler) handleReplaceTopicRule(c *echo.Context) error {
 	return c.NoContent(http.StatusOK)
 }
 
+// topicRuleDestinationFields builds the TopicRuleDestination wire shape
+// (aws-sdk-go-v2/service/iot@v1.77.4 types.TopicRuleDestination), used by
+// Create/GetTopicRuleDestination.
+func topicRuleDestinationFields(d *TopicRuleDestination) map[string]any {
+	out := map[string]any{keyArn: d.ARN, keyStatus: d.Status}
+	if d.HTTPURLProperties != nil {
+		out["httpUrlProperties"] = d.HTTPURLProperties
+	}
+
+	return out
+}
+
+// topicRuleDestinationSummaryFields builds the TopicRuleDestinationSummary
+// wire shape used by ListTopicRuleDestinations -- same status/ARN fields as
+// TopicRuleDestination, but the HTTP URL sub-object is "httpUrlSummary" (types.
+// HttpUrlDestinationSummary), not "httpUrlProperties".
+func topicRuleDestinationSummaryFields(d *TopicRuleDestination) map[string]any {
+	out := map[string]any{keyArn: d.ARN, keyStatus: d.Status}
+	if d.HTTPURLProperties != nil {
+		out["httpUrlSummary"] = d.HTTPURLProperties
+	}
+
+	return out
+}
+
 func (h *Handler) handleCreateTopicRuleDestination(c *echo.Context) error {
 	var body struct {
 		DestinationConfiguration *TopicRuleDestinationConfiguration `json:"destinationConfiguration"`
@@ -320,7 +345,7 @@ func (h *Handler) handleCreateTopicRuleDestination(c *echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"topicRuleDestination": map[string]any{keyArn: dest.ARN, keyStatus: dest.Status},
+		"topicRuleDestination": topicRuleDestinationFields(dest),
 	})
 }
 
@@ -343,7 +368,7 @@ func (h *Handler) handleGetTopicRuleDestination(c *echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"topicRuleDestination": map[string]any{keyArn: dest.ARN, keyStatus: dest.Status},
+		"topicRuleDestination": topicRuleDestinationFields(dest),
 	})
 }
 
@@ -351,7 +376,7 @@ func (h *Handler) handleListTopicRuleDestinations(c *echo.Context) error {
 	dests := h.Backend.ListTopicRuleDestinations()
 	out := make([]map[string]any, 0, len(dests))
 	for _, d := range dests {
-		out = append(out, map[string]any{keyArn: d.ARN, keyStatus: d.Status})
+		out = append(out, topicRuleDestinationSummaryFields(d))
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{"destinationSummaries": out})

@@ -138,14 +138,34 @@ func (b *InMemoryBackend) ListIoTPackages() []*IoTPackage {
 //
 //nolint:revive // IoTPackageVersion is intentional to avoid conflict with the builtin package keyword
 type IoTPackageVersion struct {
-	Tags              map[string]string `json:"tags,omitempty"`
-	PackageVersionARN string            `json:"packageVersionArn"`
-	PackageName       string            `json:"packageName"`
-	VersionName       string            `json:"versionName"`
-	Description       string            `json:"description,omitempty"`
-	Status            string            `json:"status"`
-	CreationDate      float64           `json:"creationDate,omitempty"`
-	LastModifiedDate  float64           `json:"lastModifiedDate,omitempty"`
+	Sbom                 *SbomDocument           `json:"sbom,omitempty"`
+	Artifact             *PackageVersionArtifact `json:"artifact,omitempty"`
+	Attributes           map[string]string       `json:"attributes,omitempty"`
+	Tags                 map[string]string       `json:"tags,omitempty"`
+	PackageVersionARN    string                  `json:"packageVersionArn"`
+	PackageName          string                  `json:"packageName"`
+	VersionName          string                  `json:"versionName"`
+	Description          string                  `json:"description,omitempty"`
+	Recipe               string                  `json:"recipe,omitempty"`
+	Status               string                  `json:"status"`
+	SbomValidationStatus string                  `json:"sbomValidationStatus,omitempty"`
+	CreationDate         float64                 `json:"creationDate,omitempty"`
+	LastModifiedDate     float64                 `json:"lastModifiedDate,omitempty"`
+}
+
+// PackageVersionArtifact holds the S3 location of a package version's build
+// artifact (types.PackageVersionArtifact, aws-sdk-go-v2/service/iot@v1.77.4).
+type PackageVersionArtifact struct {
+	S3Location *S3Location `json:"s3Location,omitempty"`
+}
+
+// CreateIoTPackageVersionOptions holds CreatePackageVersion's optional
+// attributes/recipe/artifact fields (CreatePackageVersionInput,
+// iot@v1.77.4), previously silently dropped by the handler.
+type CreateIoTPackageVersionOptions struct {
+	Attributes map[string]string
+	Artifact   *PackageVersionArtifact
+	Recipe     string
 }
 
 func cloneIoTPackageVersion(v *IoTPackageVersion) *IoTPackageVersion {
@@ -164,6 +184,7 @@ func (b *InMemoryBackend) packageVersionARN(packageName, versionName string) str
 func (b *InMemoryBackend) CreateIoTPackageVersion(
 	packageName, versionName, description string,
 	tags map[string]string,
+	opts CreateIoTPackageVersionOptions,
 ) (*IoTPackageVersion, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -180,6 +201,9 @@ func (b *InMemoryBackend) CreateIoTPackageVersion(
 		PackageName:       packageName,
 		VersionName:       versionName,
 		Description:       description,
+		Recipe:            opts.Recipe,
+		Artifact:          opts.Artifact,
+		Attributes:        opts.Attributes,
 		Status:            "DRAFT",
 		Tags:              make(map[string]string),
 		CreationDate:      now,
@@ -204,7 +228,14 @@ func (b *InMemoryBackend) GetIoTPackageVersion(packageName, versionName string) 
 		return nil, fmt.Errorf("package version %q/%q not found: %w", packageName, versionName, ErrResourceNotFound)
 	}
 
-	return cloneIoTPackageVersion(v), nil
+	cp := cloneIoTPackageVersion(v)
+	key := packageVersionKey(packageName, versionName)
+	cp.Sbom = b.packageVersionSboms[key]
+	if results := b.sbomValidationResults[key]; len(results) > 0 {
+		cp.SbomValidationStatus = results[len(results)-1].ValidationResult
+	}
+
+	return cp, nil
 }
 
 func (b *InMemoryBackend) UpdateIoTPackageVersion(packageName, versionName, description, status string) error {
