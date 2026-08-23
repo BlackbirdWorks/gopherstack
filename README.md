@@ -16,7 +16,7 @@
 </p>
 
 <p align="center">
-  <a href="#services"><img src=".badges/operations.svg" alt="AWS operations"></a>
+  <a href="#services"><img src=".badges/operations.svg" alt="PARITY entries"></a>
   <a href="#services"><img src=".badges/services.svg" alt="AWS services"></a>
   <a href="#services"><img src=".badges/parity.svg" alt="parity"></a>
   <a href="go.mod"><img src=".badges/go.svg" alt="go"></a>

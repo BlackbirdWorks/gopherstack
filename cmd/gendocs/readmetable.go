@@ -58,8 +58,10 @@ func removedSummaryEntry(slug string) summaryEntry {
 	}
 }
 
-// operationsCell renders the Operations column: the op count when the
-// service audits per-op, or an em dash when it only has a families: block.
+// operationsCell renders the PARITY Entries column: the ops: block entry
+// count when the service audits per-op, or an em dash when it only has a
+// families: block. This is entries, not real operations -- one entry can
+// name more than one operation (gopherstack-mgna).
 func operationsCell(doc *ParityDoc) string {
 	if len(doc.Ops) > 0 {
 		return strconv.Itoa(len(doc.Ops))
@@ -118,8 +120,10 @@ func buildServiceTable(entries []summaryEntry) string {
 		"operations, known gaps, deferred items and resource-leak status — generated from that " +
 		"service's `PARITY.md` audit.\n\n")
 	b.WriteString("**Parity** is the overall grade recorded by that service's most recent " +
-		"audit. **Operations** is the number of API operations audited; a dash means the " +
-		"service is tracked by feature family instead. Run `make docs` to refresh this table.\n\n")
+		"audit. **PARITY Entries** is the number of `ops:` entries audited in that service's " +
+		"PARITY.md -- a hand-grouped audit unit, not a raw operation count (one entry can name " +
+		"more than one real operation); a dash means the service is tracked by feature family " +
+		"instead. Run `make docs` to refresh this table.\n\n")
 
 	for _, cat := range categoryOrder() {
 		rows := byCategory[cat]
@@ -140,7 +144,7 @@ func writeCategoryTable(b *strings.Builder, category string, rows []summaryEntry
 	})
 
 	b.WriteString("### " + category + "\n\n")
-	b.WriteString("| Service | Parity | Operations | Notes |\n")
+	b.WriteString("| Service | Parity | PARITY Entries | Notes |\n")
 	b.WriteString("|---|---|---|---|\n")
 	for _, e := range rows {
 		fmt.Fprintf(b, "| [%s](%s) | %s | %s | %s |\n", e.DisplayName, e.ReadmeLink, e.Grade, e.OpsCell, e.NotesCell)

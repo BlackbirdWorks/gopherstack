@@ -39,6 +39,10 @@ const (
 // version, not a toolchain: line or a require block entry).
 var goDirectiveRe = regexp.MustCompile(`^go\s+(\d+\.\d+(?:\.\d+)?)\s*$`)
 
+// operationsBadgeFile is the operations badge's filename under .badges/,
+// named so badges_test.go can reference it without tripping goconst.
+const operationsBadgeFile = "operations.svg"
+
 // badgeSpec is one badge to render: its filename under .badges/, left-hand
 // label, right-hand value, and the value section's fill colour.
 type badgeSpec struct {
@@ -49,8 +53,8 @@ type badgeSpec struct {
 }
 
 // generateBadges computes the five self-hosted badge SVGs from data gendocs
-// has already parsed — total operations audited and the grade distribution
-// across docs, plus totalServices (the count of services/ directories,
+// has already parsed — total PARITY.md ops: entries and the grade
+// distribution across docs, plus totalServices (the count of services/ directories,
 // including the two removed services that have no PARITY.md) — and writes
 // them to .badges/. Idempotent: identical input produces byte-identical SVG
 // output, so a second `make docs` run leaves no diff.
@@ -60,13 +64,7 @@ func generateBadges(totalServices int, docs []*ParityDoc) error {
 		return err
 	}
 
-	specs := []badgeSpec{
-		{"operations.svg", "AWS operations", strconv.Itoa(totalOperations(docs)), colorInfo},
-		{"services.svg", "AWS services", strconv.Itoa(totalServices), colorInfo},
-		{"parity.svg", "parity", gradeDistribution(docs), colorGood},
-		{"go.svg", "go", goVersion, colorInfo},
-		{"license.svg", "license", "MIT", colorLicense},
-	}
+	specs := badgeSpecs(totalServices, docs, goVersion)
 
 	if mkErr := os.MkdirAll(badgesDir, badgeMode); mkErr != nil {
 		return fmt.Errorf("mkdir %s: %w", badgesDir, mkErr)
@@ -82,10 +80,28 @@ func generateBadges(totalServices int, docs []*ParityDoc) error {
 	return nil
 }
 
-// totalOperations sums len(doc.Ops) across every parsed PARITY.md — the same
-// per-service op count the root README table's Operations column already
-// shows, just totalled across the whole corpus.
-func totalOperations(docs []*ParityDoc) int {
+// badgeSpecs builds the five badge specs from data gendocs has already
+// parsed. Split out from generateBadges so the specs (in particular the
+// operations badge's label and value) are unit-testable without touching
+// the filesystem.
+func badgeSpecs(totalServices int, docs []*ParityDoc, goVersion string) []badgeSpec {
+	return []badgeSpec{
+		{operationsBadgeFile, "PARITY entries", strconv.Itoa(totalOpEntries(docs)), colorInfo},
+		{"services.svg", "AWS services", strconv.Itoa(totalServices), colorInfo},
+		{"parity.svg", "parity", gradeDistribution(docs), colorGood},
+		{"go.svg", "go", goVersion, colorInfo},
+		{"license.svg", "license", "MIT", colorLicense},
+	}
+}
+
+// totalOpEntries sums len(doc.Ops) across every parsed PARITY.md -- the
+// count of ops: block ENTRIES (hand-grouped audit units; one entry can name
+// more than one real operation, e.g. "AddPermission/RemovePermission"), not
+// a count of real dispatched operations. A service tracked purely by
+// families: block contributes 0 here even though it has real operations
+// (gopherstack-mgna). For the real per-service operation count, read each
+// service's own GetSupportedOperations (cmd/opcensus computes this).
+func totalOpEntries(docs []*ParityDoc) int {
 	total := 0
 	for _, doc := range docs {
 		total += len(doc.Ops)
