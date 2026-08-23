@@ -148,3 +148,75 @@ func TestQuickSight_Analyses(t *testing.T) {
 		})
 	}
 }
+
+// TestQuickSight_AnalysisSummaryOmitsThemeArn locks the fix for the same
+// leak class as FolderPath/TemplateVersions/ThemeVersions/OAuthClientApp:
+// ListAnalyses and SearchAnalyses reused DescribeAnalysis's map-builder, so a
+// set ThemeArn leaked onto types.AnalysisSummary, which has no ThemeArn
+// member (confirmed against quicksight@v1.123.1/types/types.go). Checked on
+// the raw response body -- the real SDK client has no field to receive a
+// leaked key into, so a decoded-struct assertion can't see this bug.
+func TestQuickSight_AnalysisSummaryOmitsThemeArn(t *testing.T) {
+	t.Parallel()
+
+	const themeArn = "arn:aws:quicksight:us-east-1:000000000000:theme/leaktest"
+
+	tests := []struct {
+		name    string
+		method  string
+		path    string
+		body    any
+		wantKey string
+	}{
+		{
+			name:    "list",
+			method:  http.MethodGet,
+			path:    accountPath("/analyses"),
+			wantKey: "AnalysisSummaryList",
+		},
+		{
+			name:    "search",
+			method:  http.MethodPost,
+			path:    accountPath("/search/analyses"),
+			body:    map[string]any{"Filters": []any{}},
+			wantKey: "AnalysisSummaryList",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestHandler(t)
+			doRequest(t, h, http.MethodPost, accountPath("/analyses/leaktest"), map[string]any{
+				"Name": "LeakTest", "ThemeArn": themeArn,
+			})
+
+			rec := doRequest(t, h, tc.method, tc.path, tc.body)
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			body := parseBody(t, rec)
+			items, ok := body[tc.wantKey].([]any)
+			require.True(t, ok)
+			require.Len(t, items, 1)
+
+			item, ok := items[0].(map[string]any)
+			require.True(t, ok)
+
+			const msg = "AnalysisSummary has no ThemeArn member -- " +
+				"DescribeAnalysis's ThemeArn must not leak into list/search items"
+			assert.NotContains(t, item, "ThemeArn", msg)
+			assert.Equal(t, "leaktest", item["AnalysisId"], "legitimate AnalysisSummary members must still be present")
+		})
+	}
+
+	// DescribeAnalysis, the operation ThemeArn actually belongs to, must still return it.
+	h := newTestHandler(t)
+	doRequest(t, h, http.MethodPost, accountPath("/analyses/leaktest"), map[string]any{
+		"Name": "LeakTest", "ThemeArn": themeArn,
+	})
+	rec := doRequest(t, h, http.MethodGet, accountPath("/analyses/leaktest"), nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+	a, ok := parseBody(t, rec)["Analysis"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, themeArn, a["ThemeArn"])
+}

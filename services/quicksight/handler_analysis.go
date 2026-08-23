@@ -159,7 +159,7 @@ func (h *Handler) handleListAnalyses(c *echo.Context) error {
 
 	items := make([]map[string]any, 0, len(analyses))
 	for _, a := range analyses {
-		items = append(items, analysisToMap(a))
+		items = append(items, analysisSummaryToMap(a))
 	}
 
 	resp := map[string]any{
@@ -194,7 +194,20 @@ func (h *Handler) handleRestoreAnalysis(c *echo.Context) error {
 }
 
 func analysisToMap(a *Analysis) map[string]any {
-	m := map[string]any{
+	m := analysisSummaryToMap(a)
+	if a.ThemeArn != "" {
+		m[keyThemeArn] = a.ThemeArn
+	}
+
+	return m
+}
+
+// analysisSummaryToMap builds the types.AnalysisSummary shape ListAnalyses/
+// SearchAnalyses return. Confirmed against types.go: AnalysisSummary has no
+// ThemeArn, DataSetArns, Errors, Sheets, or TopicArns members -- those are
+// Analysis-only, populated by DescribeAnalysis.
+func analysisSummaryToMap(a *Analysis) map[string]any {
+	return map[string]any{
 		keyAnalysisID:      a.AnalysisID,
 		keyArn:             a.Arn,
 		keyCreatedTime:     a.CreatedTime.Unix(),
@@ -202,11 +215,6 @@ func analysisToMap(a *Analysis) map[string]any {
 		keyName:            a.Name,
 		keyStatus:          a.Status,
 	}
-	if a.ThemeArn != "" {
-		m[keyThemeArn] = a.ThemeArn
-	}
-
-	return m
 }
 
 func (h *Handler) handleDescribeAnalysisDefinition(c *echo.Context) error {
@@ -300,7 +308,7 @@ func (h *Handler) handleSearchAnalyses(c *echo.Context) error {
 
 	items := make([]map[string]any, 0, len(analyses))
 	for _, a := range analyses {
-		items = append(items, analysisToMap(a))
+		items = append(items, analysisSummaryToMap(a))
 	}
 
 	resp := map[string]any{

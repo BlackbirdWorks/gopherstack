@@ -789,3 +789,63 @@ above), and `AccountLevel`'s remaining un-independently-diffed sub-resources:
 carry no data fields beyond `RequestId`/`Status` per their SDK output structs,
 so spot-checked clean by inspection but not independently exercised with a
 test this pass).
+
+## 2026-08-23: cross-service sweep for the class-A leak, two more instances
+
+The `2026-08-23: continuation pass` above fixed 4 class-A instances
+(`Folder`/`TemplateVersion`/`ThemeVersion`/`OAuthClientApplication`) but did
+not audit every shared map-builder in the service; a follow-up sweep of every
+function called from both a `Describe`/`Get` handler and a `List`/`Search`
+handler in this package, cross-checked field-by-field against each
+`*Summary` type's own definition in `quicksight@v1.123.1/types/types.go`,
+found two more:
+
+- `ListAnalyses`/`SearchAnalyses`: `analysisToMap` set `ThemeArn` whenever the
+  analysis had one, and was reused for both `Describe` and `List`/`Search`.
+  `types.AnalysisSummary` has no `ThemeArn` (only `AnalysisId`/`Arn`/
+  `CreatedTime`/`LastUpdatedTime`/`Name`/`Status`); `ThemeArn` is
+  `Analysis`-only (types.go, `type Analysis struct`), populated by
+  `DescribeAnalysis`. Added `analysisSummaryToMap`, scoped to the 6 real
+  `AnalysisSummary` fields; `analysisToMap` now wraps it and adds `ThemeArn`
+  on top for `DescribeAnalysis`. See `TestQuickSight_AnalysisSummaryOmitsThemeArn`
+  (handler_analysis_test.go), which also asserts `DescribeAnalysis` still
+  returns `ThemeArn`.
+- `ListDataSources`/`SearchDataSources`: `dataSourceToMap` always set
+  `Status`, reused for both `Describe` and `List`/`Search`. `types.
+  DataSourceSummary` has no `Status` (only `Arn`/`CreatedTime`/
+  `DataSourceId`/`LastUpdatedTime`/`Name`/`Type`); `Status` is
+  `DataSource`-only. Added `dataSourceSummaryToMap`; `dataSourceToMap` now
+  wraps it and adds `Status` on top for `DescribeDataSource`. See
+  `TestQuickSight_DataSourceSummaryOmitsStatus` (handler_datasource_test.go),
+  which also asserts `DescribeDataSource` still returns `Status`.
+
+Both fixes proven with a raw-body assertion (`doRequest`/`parseBody`, the
+convention this package's own tests already use): the real SDK client can't
+see either leak, since `AnalysisSummary`/`DataSourceSummary` have no field to
+decode a leaked key into. Both hand-reverted, confirmed the new test fails
+pre-fix, restored via `cp`, `md5sum`-verified byte-identical.
+
+Every other function in this package shared between a `Describe`/`Get`
+handler and a `List`/`Search` handler was checked the same way and found
+correct: `vpcConnectionToMap` (types.VPCConnection/VPCConnectionSummary field
+sets are identical -- no leak), `dashboardToMap` (already scoped to exactly
+`DashboardSummary`'s fields, no `LinkEntities`/`Version` leak),
+`customPermissionsToMap`/`templateAliasToMap`/`themeAliasToMap`/
+`groupToMap`/`userToMap`/`dataSetRefreshScheduleToMap` (no separate SDK
+`*Summary` type exists for any of these, so sharing one shape for `Describe`
+and `List` is correct), and `topicRefreshScheduleToMap`/`topicToMap`/
+`importJobToMap`/`flowSummaryToMap` (the reverse case: only a `*Summary`
+type exists in the SDK, so `Describe` itself returns the summary shape --
+no full type to leak from).
+
+This sweep also ran across every other gopherstack service with the same
+shared-builder shape (~90 candidate functions across ~45 services, filtered
+from 361 raw List/Search+Describe/Get co-callers down to functions building
+a map/struct wire shape). No further confirmed class-A instances were found
+outside quicksight; see the session report for the full signal derivation
+and per-service results. One related-but-different anomaly was found in
+`services/iotanalytics` (a `pipelineReprocessingSummary` carrying
+`StartTime`/`EndTime` fields absent from `types.ReprocessingSummary` in
+*both* `DescribePipeline` and `ListPipelines`, not just the List side) --
+flagged there, not fixed here, since it is a different bug shape than the
+one this pass targets.

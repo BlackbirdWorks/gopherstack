@@ -188,3 +188,73 @@ func TestQuickSight_DataSources(t *testing.T) {
 		})
 	}
 }
+
+// TestQuickSight_DataSourceSummaryOmitsStatus locks the same leak class as
+// FolderPath/TemplateVersions/ThemeVersions/OAuthClientApp/AnalysisSummary:
+// ListDataSources and SearchDataSources reused DescribeDataSource's
+// map-builder, so Status leaked onto types.DataSourceSummary, which has no
+// Status member (confirmed against quicksight@v1.123.1/types/types.go).
+// Checked on the raw response body -- the real SDK client has no field to
+// receive a leaked key into, so a decoded-struct assertion can't see this.
+func TestQuickSight_DataSourceSummaryOmitsStatus(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		method  string
+		path    string
+		body    any
+		wantKey string
+	}{
+		{
+			name:    "list",
+			method:  http.MethodGet,
+			path:    accountPath("/data-sources"),
+			wantKey: "DataSources",
+		},
+		{
+			name:    "search",
+			method:  http.MethodPost,
+			path:    accountPath("/search/data-sources"),
+			body:    map[string]any{"Filters": []any{}},
+			wantKey: "DataSources",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestHandler(t)
+			doRequest(t, h, http.MethodPost, accountPath("/data-sources"), map[string]any{
+				"DataSourceId": "leaktest", "Name": "LeakTest", "Type": "ATHENA",
+			})
+
+			rec := doRequest(t, h, tc.method, tc.path, tc.body)
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			body := parseBody(t, rec)
+			items, ok := body[tc.wantKey].([]any)
+			require.True(t, ok)
+			require.Len(t, items, 1)
+
+			item, ok := items[0].(map[string]any)
+			require.True(t, ok)
+
+			const msg = "DataSourceSummary has no Status member -- " +
+				"DescribeDataSource's Status must not leak into list/search items"
+			assert.NotContains(t, item, "Status", msg)
+			assert.Equal(t, "leaktest", item["DataSourceId"], "legitimate DataSourceSummary members must decode")
+		})
+	}
+
+	// DescribeDataSource, the operation Status actually belongs to, must still return it.
+	h := newTestHandler(t)
+	doRequest(t, h, http.MethodPost, accountPath("/data-sources"), map[string]any{
+		"DataSourceId": "leaktest", "Name": "LeakTest", "Type": "ATHENA",
+	})
+	rec := doRequest(t, h, http.MethodGet, accountPath("/data-sources/leaktest"), nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+	ds, ok := parseBody(t, rec)["DataSource"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "CREATION_SUCCESSFUL", ds["Status"])
+}

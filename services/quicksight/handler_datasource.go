@@ -142,7 +142,7 @@ func (h *Handler) handleListDataSources(c *echo.Context) error {
 
 	items := make([]map[string]any, 0, len(sources))
 	for _, ds := range sources {
-		items = append(items, dataSourceToMap(ds))
+		items = append(items, dataSourceSummaryToMap(ds))
 	}
 
 	resp := map[string]any{
@@ -158,13 +158,23 @@ func (h *Handler) handleListDataSources(c *echo.Context) error {
 }
 
 func dataSourceToMap(ds *DataSource) map[string]any {
+	m := dataSourceSummaryToMap(ds)
+	m[keyStatus] = ds.Status
+
+	return m
+}
+
+// dataSourceSummaryToMap builds the types.DataSourceSummary shape
+// ListDataSources/SearchDataSources return. Confirmed against types.go:
+// DataSourceSummary has no Status member -- that's DataSource-only,
+// populated by DescribeDataSource.
+func dataSourceSummaryToMap(ds *DataSource) map[string]any {
 	return map[string]any{
 		keyArn:             ds.Arn,
 		keyCreatedTime:     ds.CreatedTime.Unix(),
 		keyDataSourceID:    ds.DataSourceID,
 		keyLastUpdatedTime: ds.LastUpdatedTime.Unix(),
 		keyName:            ds.Name,
-		keyStatus:          ds.Status,
 		"Type":             ds.Type,
 	}
 }
@@ -234,7 +244,7 @@ func (h *Handler) handleSearchDataSources(c *echo.Context) error {
 
 	items := make([]map[string]any, 0, len(dataSources))
 	for _, ds := range dataSources {
-		items = append(items, dataSourceToMap(ds))
+		items = append(items, dataSourceSummaryToMap(ds))
 	}
 
 	resp := map[string]any{
