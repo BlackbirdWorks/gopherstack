@@ -2,6 +2,7 @@ package securityhub
 
 import (
 	"fmt"
+	"maps"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -9,6 +10,18 @@ import (
 
 func (b *InMemoryBackend) configPolicyARN(id string) string {
 	return arn.Build("securityhub", b.region, b.accountID, fmt.Sprintf("configuration-policy/%s", id))
+}
+
+// clone deep-copies p's map fields. Tags is created aliased to b.tags[Arn]
+// (same map object, see CreateConfigurationPolicy), and TagResource/
+// UntagResource mutate that map in place under lock -- a shallow "c := *p"
+// leaves the returned copy's Tags field pointing at that live, mutable map.
+func (p *ConfigurationPolicy) clone() *ConfigurationPolicy {
+	c := *p
+	c.ConfigurationPolicy = maps.Clone(p.ConfigurationPolicy)
+	c.Tags = maps.Clone(p.Tags)
+
+	return &c
 }
 
 func (b *InMemoryBackend) CreateConfigurationPolicy(
@@ -39,7 +52,7 @@ func (b *InMemoryBackend) CreateConfigurationPolicy(
 		b.tags[cp.Arn] = tags
 	}
 
-	return cp, nil
+	return cp.clone(), nil
 }
 
 func (b *InMemoryBackend) GetConfigurationPolicy(identifier string) (*ConfigurationPolicy, error) {
@@ -51,18 +64,14 @@ func (b *InMemoryBackend) GetConfigurationPolicy(identifier string) (*Configurat
 		// also try by ARN
 		for _, p := range b.configPolicies.All() {
 			if p.Arn == identifier || p.Name == identifier {
-				c := *p
-
-				return &c, nil
+				return p.clone(), nil
 			}
 		}
 
 		return nil, ErrNotFound
 	}
 
-	c := *cp
-
-	return &c, nil
+	return cp.clone(), nil
 }
 
 func (b *InMemoryBackend) UpdateConfigurationPolicy(
@@ -105,9 +114,8 @@ func (b *InMemoryBackend) UpdateConfigurationPolicy(
 	}
 
 	target.UpdatedAt = now
-	c := *target
 
-	return &c, nil
+	return target.clone(), nil
 }
 
 func (b *InMemoryBackend) DeleteConfigurationPolicy(identifier string) error {
@@ -137,8 +145,7 @@ func (b *InMemoryBackend) ListConfigurationPolicies(nextToken string, maxResults
 	all := make([]*ConfigurationPolicy, 0, len(snap))
 
 	for _, p := range snap {
-		cp := *p
-		all = append(all, &cp)
+		all = append(all, p.clone())
 	}
 
 	return paginateSlice(all, nextToken, maxResults, maxDefaultResults)

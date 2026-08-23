@@ -160,9 +160,23 @@ func (b *InMemoryBackend) DescribeSecurityHubV2() (*HubV2, error) {
 		return nil, ErrHubNotEnabled
 	}
 
-	cp := *b.hubV2
+	return b.hubV2.clone(), nil
+}
 
-	return &cp, nil
+// clone deep-copies h, including Features: a shallow "cp := *h" only copies
+// the map header, leaving cp.Features aliased to the live map that
+// Enable/DisableSecurityHubFeatureV2 write into under lock -- see
+// TestSecurityHubV2FeatureDescribeRace.
+func (h *HubV2) clone() *HubV2 {
+	cp := *h
+	cp.Features = make(map[string]*HubV2Feature, len(h.Features))
+
+	for name, f := range h.Features {
+		fc := *f
+		cp.Features[name] = &fc
+	}
+
+	return &cp
 }
 
 const (

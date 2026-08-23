@@ -2,10 +2,36 @@ package securityhub
 
 import (
 	"fmt"
+	"maps"
+	"slices"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
+
+// clone deep-copies s's map fields and its unexported pollCount, which
+// GetEnabledStandards mutates in place on the live, stored object under
+// lock -- a shallow copy (or handing back the stored pointer itself, as
+// BatchEnableStandards/BatchDisableStandards used to) leaves a caller's copy
+// aliased to a struct GetEnabledStandards or BatchDisableStandards can mutate
+// after the copy escapes the lock.
+func (s *StandardsSubscription) clone() *StandardsSubscription {
+	cp := *s
+	cp.StandardsInput = maps.Clone(s.StandardsInput)
+	cp.StatusReason = maps.Clone(s.StatusReason)
+
+	return &cp
+}
+
+// clone deep-copies c's slice field; see StandardsSubscription.clone for why
+// this matters -- UpdateStandardsControl mutates a live, stored override in
+// place under lock.
+func (c *StandardsControl) clone() *StandardsControl {
+	cp := *c
+	cp.RelatedRequirements = slices.Clone(c.RelatedRequirements)
+
+	return &cp
+}
 
 // knownStandards defines the built-in standards available in SecurityHub.
 var knownStandards = []Standard{ //nolint:gochecknoglobals // read-only lookup data
@@ -92,7 +118,7 @@ func (b *InMemoryBackend) BatchEnableStandards(requests []map[string]any) ([]*St
 		}
 
 		b.standardsSubscriptions.Put(sub)
-		subscriptions = append(subscriptions, sub)
+		subscriptions = append(subscriptions, sub.clone())
 	}
 
 	if subscriptions == nil {
@@ -128,7 +154,7 @@ func (b *InMemoryBackend) BatchDisableStandards(
 		}
 
 		sub.StandardsStatus = "DELETING"
-		subscriptions = append(subscriptions, sub)
+		subscriptions = append(subscriptions, sub.clone())
 		b.standardsSubscriptions.Delete(arn)
 	}
 
@@ -169,7 +195,12 @@ func (b *InMemoryBackend) GetEnabledStandards(
 		}
 	}
 
-	return paginateSlice(results, nextToken, maxResults, maxStandardsResults)
+	out := make([]*StandardsSubscription, len(results))
+	for i, sub := range results {
+		out[i] = sub.clone()
+	}
+
+	return paginateSlice(out, nextToken, maxResults, maxStandardsResults)
 }
 
 func (b *InMemoryBackend) DescribeStandards(nextToken string, maxResults int) ([]*Standard, string) {
@@ -221,7 +252,7 @@ func (b *InMemoryBackend) DescribeStandardsControls(
 	// Apply overrides
 	for i, c := range controls {
 		if override, ok := b.controlOverrides.Get(c.StandardsControlArn); ok {
-			controls[i] = override
+			controls[i] = override.clone()
 		}
 	}
 

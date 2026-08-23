@@ -47,7 +47,8 @@ func (b *InMemoryBackend) CreateMembers(accounts []map[string]any) ([]*Member, [
 			UpdatedAt:       now,
 		}
 		b.members.Put(m)
-		created = append(created, m)
+		mc := *m
+		created = append(created, &mc)
 	}
 
 	return created, unprocessed

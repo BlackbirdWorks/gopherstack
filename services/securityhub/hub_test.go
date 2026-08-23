@@ -3,6 +3,7 @@ package securityhub_test
 import (
 	"encoding/json"
 	"net/http"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -438,4 +439,55 @@ func TestHandler_HubV2_EnableWithTags(t *testing.T) {
 			assert.Equal(t, tc.wantCode, rec.Code)
 		})
 	}
+}
+
+// TestSecurityHubV2FeatureDescribeRace exercises DescribeSecurityHubV2
+// concurrently with EnableSecurityHubFeatureV2/DisableSecurityHubFeatureV2.
+// DescribeSecurityHubV2 used to shallow-copy *HubV2 (cp := *b.hubV2), which
+// only copies the Features map header -- the returned copy's Features map is
+// the same map as the live b.hubV2.Features that Enable/DisableFeature write
+// into under lock. Ranging over the returned map after RUnlock races with
+// those writes.
+func TestSecurityHubV2FeatureDescribeRace(t *testing.T) {
+	t.Parallel()
+
+	b := securityhub.NewInMemoryBackend("000000000000", "us-east-1")
+	require.NoError(t, b.EnableSecurityHubV2(nil))
+
+	const iterations = 2000
+
+	var wg sync.WaitGroup
+	wg.Add(3)
+
+	go func() {
+		defer wg.Done()
+
+		for range iterations {
+			hub, err := b.DescribeSecurityHubV2()
+			if err != nil {
+				continue
+			}
+
+			for range hub.Features { //nolint:revive // exercising the map read deliberately.
+			}
+		}
+	}()
+
+	go func() {
+		defer wg.Done()
+
+		for range iterations {
+			_ = b.EnableSecurityHubFeatureV2("NETWORK_SCANNING")
+		}
+	}()
+
+	go func() {
+		defer wg.Done()
+
+		for range iterations {
+			_ = b.DisableSecurityHubFeatureV2("NETWORK_SCANNING")
+		}
+	}()
+
+	wg.Wait()
 }

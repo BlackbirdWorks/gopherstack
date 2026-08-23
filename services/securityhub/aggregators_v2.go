@@ -28,8 +28,9 @@ func (b *InMemoryBackend) CreateAggregatorV2(regionLinkingMode string, regions [
 		UpdatedAt:         now,
 	}
 	b.aggregatorsV2.Put(agg)
+	cp := *agg
 
-	return agg, nil
+	return &cp, nil
 }
 
 func (b *InMemoryBackend) GetAggregatorV2(arn string) (*AggregatorV2, error) {

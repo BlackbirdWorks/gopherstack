@@ -563,3 +563,106 @@ can be chosen without guessing. Re-spot-checked `DisableSecurityHubV2`
 comment's claim -- and left as documented rather than "resolved by
 elimination", since the real "not enabled" AWS status for this call is not
 independently verified here.
+
+## Race-safety sweep (2026-08-22): shallow struct copies and live-pointer returns escaping the lock
+
+CI's `unit-tests (3)` job flagged `-race` failures in
+`TestExtractOperation_SDKRouteTable` on describesecurityhubv2 and the
+enable/disable-feature subtests. Root cause: `DescribeSecurityHubV2`
+(hub.go) did `cp := *b.hubV2` under `RLock` and returned `&cp` --
+`HubV2.Features` is `map[string]*HubV2Feature`, so the copy's `Features`
+field is the *same map* as the live `b.hubV2.Features`.
+`handleDescribeSecurityHubV2` (handler_hub.go) ranges over that map *after*
+`RUnlock` has already run, racing against `EnableSecurityHubFeatureV2`/
+`DisableSecurityHubFeatureV2`'s `b.hubV2.Features[name] = &HubV2Feature{...}`
+writes under `Lock`. `Hub` (v1) has no reference fields, so `DescribeHub`'s
+identical-looking `cp := *b.hub` is genuinely safe and was left alone.
+
+Reproduced directly (not just via the flaky parallel-subtest ordering CI
+hit): `TestSecurityHubV2FeatureDescribeRace` (hub_test.go) drives
+`DescribeSecurityHubV2` + `Enable/DisableSecurityHubFeatureV2` concurrently
+against one backend. Confirmed failing pre-fix (`runtime.mapassign_faststr`
+write vs. `runtime.mapIterStart`/`mapIterNext` read), hand-reverted `hub.go`
+to the shallow-copy version, re-confirmed the same failure, restored,
+`md5sum`-confirmed byte-identical. Fixed with `HubV2.clone()`, which
+deep-copies `Features` (new map, new `*HubV2Feature` per entry).
+
+Audited the rest of `services/securityhub/` for the same two shapes:
+
+1. **A struct with a map/slice field is shallow-copied (`cp := *x`) while
+   that field is mutated *in place* (indexed assignment) elsewhere under
+   lock**, or is aliased with a map that's mutated in place elsewhere
+   (`Tags` fields are assigned the exact same map object passed to
+   `b.tags[ARN] = tags` at creation time, and `TagResource`/`UntagResource`
+   mutate `b.tags[ARN]` in place via `maps.Copy`/`delete`).
+2. **A live, stored `*T` (or one of its map/slice fields) is returned
+   directly with no copy at all**, and that same object is later mutated in
+   place (by an `Update*`, or by the same `Get`-style op itself, e.g.
+   `GetEnabledStandards`'s poll-to-READY advance) under a subsequent lock
+   acquisition.
+
+Fixed (added a `.clone()` deep-copy method per type, used at every point the
+value crosses the lock boundary -- Create/Get/List/Batch/Update returns):
+
+- `ConfigurationPolicy` (configuration_policies.go): `Tags` aliases
+  `b.tags[Arn]`; `ConfigurationPolicy` map cloned too for consistency.
+  `CreateConfigurationPolicy` also returned the live stored pointer.
+- `CspmConnector` (connectors.go): `Tags` aliases `b.tags[ConnectorArn]`
+  (`Provider` cloned too). `CreateConnector` returned the live pointer.
+- `ConnectorV2` (connectors_v2.go): same `Tags`/`Provider` shape.
+  `CreateConnectorV2` returned the live pointer; so did `UpdateConnectorV2`
+  and `RegisterConnectorV2` before their `cp := *target` was replaced with
+  `.clone()`.
+- `AutomationRule`/`AutomationRuleV2` (automation_rules.go):
+  `BatchGetAutomationRules` returned live `*AutomationRule` pointers with no
+  copy at all -- `BatchUpdateAutomationRules` mutates `RuleName`/
+  `RuleStatus`/`Criteria`/`Actions`/etc. on that same object in place.
+  `CreateAutomationRuleV2` likewise returned the live pointer, later
+  mutated by `UpdateAutomationRuleV2`.
+- `StandardsSubscription` (standards.go): `BatchEnableStandards` and
+  `BatchDisableStandards` returned the live, stored pointer;
+  `GetEnabledStandards` returns the exact objects it just mutated in place
+  (`pollCount`, `StandardsStatus`) with no copy, and those same objects can
+  be mutated again later by `BatchDisableStandards`.
+- `StandardsControl` (standards.go): `DescribeStandardsControls`'s override
+  branch (`controls[i] = override`) assigned the live `*StandardsControl`
+  stored in `b.controlOverrides` directly; `UpdateStandardsControl` mutates
+  an existing override's fields in place.
+- `AggregatorV2`/`FindingAggregator`: `Regions []string` is only ever
+  wholesale-reassigned (never indexed into), so the existing shallow copies
+  on Get/List/Update were already safe -- but `CreateAggregatorV2`/
+  `CreateFindingAggregator` returned the live pointer, later mutated by
+  their respective `Update*`. Fixed by copying at the Create return only.
+- `Member` (members.go): `CreateMembers` appended the live pointer;
+  `InviteMembers`/`DisassociateMembers` mutate `MemberStatus`/`InvitedAt` on
+  that same object in place. `GetMembers`/`ListMembers` already copied
+  correctly.
+
+Confirmed safe, left unchanged, with reason:
+
+- `Hub` (hub.go), `Invitation`/`AdminAccount` (invitations.go), `OrgConfig`
+  (organizations.go), `ConfigurationPolicyAssociation`
+  (configuration_policies.go), `RecommendedPolicyV2`/`TicketV2`: all-scalar
+  structs, or (RecommendedPolicyV2/TicketV2) have no `Update*` that ever
+  mutates an existing instance after creation.
+- `knownStandards`/`knownSecurityControls`/`knownProducts`: package-level
+  read-only lookup tables, never mutated after `init`; every `cp :=
+  knownX[i]` copy is safe regardless of field shape.
+- `BatchGetSecurityControls`'s `Parameters` field (controls.go): hands out
+  `b.controlParams[id]`'s map directly with no copy, but the only writer
+  (`UpdateSecurityControl`) always replaces the whole map entry
+  (`b.controlParams[id] = parameters`), never indexes into an existing one --
+  a previously-handed-out map is never touched again.
+- `BatchGetStandardsControlAssociations`'s override branch (standards.go):
+  hands out the live `*StandardsControlAssociation` from
+  `b.controlAssocOverrides` directly, but the only writer
+  (`BatchUpdateStandardsControlAssociations`) always `Put`s a brand-new
+  struct rather than mutating an existing one in place.
+- `Snapshot` (store.go): marshals every live field (including `b.tags`,
+  `b.hubV2`, `b.controlParams`, ...) while still holding `RLock` for the
+  entire call -- unlike the handler-side bugs above, the read never escapes
+  the lock.
+
+Proof: `go test -race -count=20 ./services/securityhub/...` clean after all
+fixes; `TestSecurityHubV2FeatureDescribeRace` is the new permanent
+regression test for the flagged bug specifically.

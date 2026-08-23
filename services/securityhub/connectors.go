@@ -39,6 +39,19 @@ func extractCspmProviderTag(m map[string]any) (string, map[string]any) {
 	return "", nil
 }
 
+// clone deep-copies c's map fields. Tags is created aliased to
+// b.tags[ConnectorArn] (same map object, see CreateConnector), and
+// TagResource/UntagResource mutate that map in place under lock -- a
+// shallow "cp := *c" leaves the returned copy's Tags field pointing at that
+// live, mutable map.
+func (c *CspmConnector) clone() *CspmConnector {
+	cp := *c
+	cp.Provider = maps.Clone(c.Provider)
+	cp.Tags = maps.Clone(c.Tags)
+
+	return &cp
+}
+
 func (b *InMemoryBackend) resolveCspmConnector(identifier string) (*CspmConnector, bool) {
 	if c, ok := b.cspmConnectors.Get(identifier); ok {
 		return c, true
@@ -106,7 +119,7 @@ func (b *InMemoryBackend) CreateConnector(
 		b.tags[connArn] = tags
 	}
 
-	return c, nil
+	return c.clone(), nil
 }
 
 // GetConnector retrieves a connector by ID or ARN.
@@ -119,9 +132,7 @@ func (b *InMemoryBackend) GetConnector(connectorID string) (*CspmConnector, erro
 		return nil, ErrNotFound
 	}
 
-	cp := *c
-
-	return &cp, nil
+	return c.clone(), nil
 }
 
 // ListConnectors lists connectors, optionally filtered by connectivity
@@ -150,8 +161,7 @@ func (b *InMemoryBackend) ListConnectors(
 			continue
 		}
 
-		cp := *c
-		all = append(all, &cp)
+		all = append(all, c.clone())
 	}
 
 	return paginateSlice(all, nextToken, maxResults, maxDefaultResults)
@@ -190,9 +200,8 @@ func (b *InMemoryBackend) UpdateConnector(
 	}
 
 	c.LastUpdatedAt = time.Now().UTC().Format(time.RFC3339)
-	cp := *c
 
-	return &cp, nil
+	return c.clone(), nil
 }
 
 // mergeCspmProvider merges an update's provider detail fields (e.g.
