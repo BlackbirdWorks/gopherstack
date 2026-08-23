@@ -9,6 +9,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	redshiftsdk "github.com/aws/aws-sdk-go-v2/service/redshift"
 	"github.com/aws/aws-sdk-go-v2/service/redshift/types"
+	smithy "github.com/aws/smithy-go"
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -268,6 +269,16 @@ func TestSDKRoundTrip_MutatingOpFixes(t *testing.T) {
 		{testBatchDeleteClusterSnapshotsRealWireShape, "batch delete cluster snapshots real wire shape"},
 		{testModifyClusterDBRevisionClusterWrapper, "modify cluster db revision cluster wrapper"},
 		{testListRecommendationsRecommendationType, "list recommendations recommendation type"},
+		{testDescribeLoggingStatusReflectsRealState, "describe logging status reflects real state"},
+		{testModifyClusterSnapshotOmittedRetentionPreserved, "modify cluster snapshot omitted retention preserved"},
+		{
+			testBatchModifyClusterSnapshotsOmittedRetentionPreserved,
+			"batch modify cluster snapshots omitted retention preserved",
+		},
+		{
+			testRevokeSnapshotAccessAuthorizationNotFoundErrorCode,
+			"revoke snapshot access authorization not found error code",
+		},
 	}
 
 	for _, tc := range cases {
@@ -432,4 +443,142 @@ func testListRecommendationsRecommendationType(
 	require.NoError(t, err)
 	require.NotEmpty(t, out.Recommendations)
 	assert.Equal(t, "Security", aws.ToString(out.Recommendations[0].RecommendationType))
+}
+
+// testDescribeLoggingStatusReflectsRealState: DescribeLoggingStatus never
+// read ClusterIdentifier and never consulted the backend's loggingStatuses
+// map (which EnableLogging/DisableLogging already populate) -- it always
+// returned a hardcoded LoggingEnabled=false, so a real client could never
+// observe logging state it had itself just enabled.
+func testDescribeLoggingStatusReflectsRealState(
+	t *testing.T, backend *redshift.InMemoryBackend, client *redshiftsdk.Client,
+) {
+	t.Helper()
+	ctx := t.Context()
+
+	_, err := backend.CreateCluster("rt-logstatus-cluster", "dc2.large", "dev", "admin")
+	require.NoError(t, err)
+
+	_, err = client.EnableLogging(ctx, &redshiftsdk.EnableLoggingInput{
+		ClusterIdentifier: aws.String("rt-logstatus-cluster"),
+		BucketName:        aws.String("rt-log-bucket"),
+	})
+	require.NoError(t, err)
+
+	out, err := client.DescribeLoggingStatus(ctx, &redshiftsdk.DescribeLoggingStatusInput{
+		ClusterIdentifier: aws.String("rt-logstatus-cluster"),
+	})
+	require.NoError(t, err)
+	assert.True(t, aws.ToBool(out.LoggingEnabled))
+	assert.Equal(t, "rt-log-bucket", aws.ToString(out.BucketName))
+
+	_, err = client.DisableLogging(ctx, &redshiftsdk.DisableLoggingInput{
+		ClusterIdentifier: aws.String("rt-logstatus-cluster"),
+	})
+	require.NoError(t, err)
+
+	out, err = client.DescribeLoggingStatus(ctx, &redshiftsdk.DescribeLoggingStatusInput{
+		ClusterIdentifier: aws.String("rt-logstatus-cluster"),
+	})
+	require.NoError(t, err)
+	assert.False(t, aws.ToBool(out.LoggingEnabled))
+}
+
+// testModifyClusterSnapshotOmittedRetentionPreserved: ManualSnapshotRetentionPeriod
+// is optional on ModifyClusterSnapshotInput (*int32, no "required" doc comment,
+// confirmed against aws-sdk-go-v2/service/redshift@v1.65.4/api_op_ModifyClusterSnapshot.go).
+// The handler used an int sentinel of -1 for "omitted", indistinguishable from
+// a real, explicit ManualSnapshotRetentionPeriod=-1 ("retain indefinitely"), so
+// a Force-only call silently reset every snapshot's real retention period.
+func testModifyClusterSnapshotOmittedRetentionPreserved(
+	t *testing.T, backend *redshift.InMemoryBackend, client *redshiftsdk.Client,
+) {
+	t.Helper()
+	ctx := t.Context()
+
+	_, err := backend.CreateCluster("rt-modsnap-cluster", "dc2.large", "dev", "admin")
+	require.NoError(t, err)
+	backend.AddSnapshotInternal(&redshift.Snapshot{
+		SnapshotIdentifier:            "rt-modsnap-1",
+		ClusterIdentifier:             "rt-modsnap-cluster",
+		Status:                        "available",
+		ManualSnapshotRetentionPeriod: 30,
+	})
+
+	out, err := client.ModifyClusterSnapshot(ctx, &redshiftsdk.ModifyClusterSnapshotInput{
+		SnapshotIdentifier: aws.String("rt-modsnap-1"),
+		Force:              aws.Bool(true),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, out.Snapshot)
+	assert.EqualValues(t, 30, aws.ToInt32(out.Snapshot.ManualSnapshotRetentionPeriod))
+}
+
+// testBatchModifyClusterSnapshotsOmittedRetentionPreserved: same optional-field
+// bug as ModifyClusterSnapshot, present in the sibling batch op sharing the
+// exact same request field (BatchModifyClusterSnapshotsInput.ManualSnapshotRetentionPeriod,
+// also *int32, also undocumented as required).
+func testBatchModifyClusterSnapshotsOmittedRetentionPreserved(
+	t *testing.T, backend *redshift.InMemoryBackend, client *redshiftsdk.Client,
+) {
+	t.Helper()
+	ctx := t.Context()
+
+	_, err := backend.CreateCluster("rt-batchmodsnap-cluster", "dc2.large", "dev", "admin")
+	require.NoError(t, err)
+	backend.AddSnapshotInternal(&redshift.Snapshot{
+		SnapshotIdentifier:            "rt-batchmodsnap-1",
+		ClusterIdentifier:             "rt-batchmodsnap-cluster",
+		Status:                        "available",
+		ManualSnapshotRetentionPeriod: 45,
+	})
+
+	out, err := client.BatchModifyClusterSnapshots(ctx, &redshiftsdk.BatchModifyClusterSnapshotsInput{
+		SnapshotIdentifierList: []string{"rt-batchmodsnap-1"},
+		Force:                  aws.Bool(true),
+	})
+	require.NoError(t, err)
+	assert.Empty(t, out.Errors)
+	assert.Contains(t, out.Resources, "rt-batchmodsnap-1")
+
+	describeOut, err := client.DescribeClusterSnapshots(ctx, &redshiftsdk.DescribeClusterSnapshotsInput{
+		SnapshotIdentifier: aws.String("rt-batchmodsnap-1"),
+	})
+	require.NoError(t, err)
+	require.Len(t, describeOut.Snapshots, 1)
+	assert.EqualValues(t, 45, aws.ToInt32(describeOut.Snapshots[0].ManualSnapshotRetentionPeriod))
+}
+
+// testRevokeSnapshotAccessAuthorizationNotFoundErrorCode: RevokeSnapshotAccess's
+// own declared error switch (redshift@v1.65.4 deserializers.go,
+// awsAwsquery_deserializeOpErrorRevokeSnapshotAccess) lists
+// AccessToSnapshotDenied/AuthorizationNotFound/ClusterSnapshotNotFound/
+// UnsupportedOperation -- no InvalidParameterValue-shaped fault at all -- so
+// revoking access for an account that was never granted it must surface
+// AuthorizationNotFound, not the handler's previous generic
+// InvalidParameterValue, which a real client's errors.As(*types.AuthorizationNotFoundFault)
+// would never match.
+func testRevokeSnapshotAccessAuthorizationNotFoundErrorCode(
+	t *testing.T, backend *redshift.InMemoryBackend, client *redshiftsdk.Client,
+) {
+	t.Helper()
+	ctx := t.Context()
+
+	_, err := backend.CreateCluster("rt-revoke-cluster", "dc2.large", "dev", "admin")
+	require.NoError(t, err)
+	backend.AddSnapshotInternal(&redshift.Snapshot{
+		SnapshotIdentifier: "rt-revoke-snap",
+		ClusterIdentifier:  "rt-revoke-cluster",
+		Status:             "available",
+	})
+
+	_, err = client.RevokeSnapshotAccess(ctx, &redshiftsdk.RevokeSnapshotAccessInput{
+		SnapshotIdentifier:       aws.String("rt-revoke-snap"),
+		AccountWithRestoreAccess: aws.String("999999999999"),
+	})
+	require.Error(t, err)
+
+	var apiErr smithy.APIError
+	require.ErrorAs(t, err, &apiErr)
+	assert.Equal(t, "AuthorizationNotFound", apiErr.ErrorCode())
 }

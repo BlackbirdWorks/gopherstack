@@ -68,6 +68,13 @@ var (
 	// prefix), matching Qev2IdcApplication being a distinct resource.
 	ErrQev2IdcApplicationNotFound      = errors.New("Qev2IdcApplicationNotExists")
 	ErrQev2IdcApplicationAlreadyExists = errors.New("Qev2IdcApplicationAlreadyExists")
+	// ErrSnapshotAccessNotFound is returned by RevokeSnapshotAccess when the
+	// target account does not currently have restore access to revoke
+	// (ErrorCode() "AuthorizationNotFound", verified against
+	// AuthorizationNotFoundFault in types/errors.go and RevokeSnapshotAccess's
+	// own declared error switch in deserializers.go -- that op has no
+	// InvalidParameterValue-shaped fault at all).
+	ErrSnapshotAccessNotFound = errors.New("AuthorizationNotFound")
 	// ErrNamespaceRegistrationInvalidClusterState is returned by RegisterNamespace/
 	// DeregisterNamespace when the target cluster exists but isn't in a
 	// registerable state (ErrorCode() "InvalidClusterState", verified against

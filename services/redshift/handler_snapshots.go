@@ -321,14 +321,17 @@ type batchModifyClusterSnapshotsResponse struct {
 
 func (h *Handler) handleBatchModifyClusterSnapshots(vals url.Values) (any, error) {
 	identifiers := parseStringList(vals, "SnapshotIdentifierList.String.")
-	retentionPeriodStr := vals.Get("ManualSnapshotRetentionPeriod")
 	force := vals.Get("Force") == paramValueTrue
 
-	retentionPeriod := -1
-	if retentionPeriodStr != "" {
-		if _, err := fmt.Sscanf(retentionPeriodStr, "%d", &retentionPeriod); err != nil {
+	var retentionPeriod *int
+
+	if v := vals.Get("ManualSnapshotRetentionPeriod"); v != "" {
+		var n int
+		if _, err := fmt.Sscanf(v, "%d", &n); err != nil {
 			return nil, fmt.Errorf("%w: ManualSnapshotRetentionPeriod must be an integer", ErrInvalidParameter)
 		}
+
+		retentionPeriod = &n
 	}
 
 	batchErrors, modified := h.Backend.BatchModifyClusterSnapshots(identifiers, retentionPeriod, force)
@@ -381,18 +384,17 @@ type modifyClusterSnapshotResponse struct {
 
 func (h *Handler) handleModifyClusterSnapshot(vals url.Values) (any, error) {
 	snapshotID := vals.Get("SnapshotIdentifier")
-	retentionPeriodStr := vals.Get("ManualSnapshotRetentionPeriod")
 	force := vals.Get("Force") == paramValueTrue
 
-	retentionPeriod := -1
+	var retentionPeriod *int
 
-	if retentionPeriodStr != "" {
-		n, err := strconv.Atoi(retentionPeriodStr)
+	if v := vals.Get("ManualSnapshotRetentionPeriod"); v != "" {
+		n, err := strconv.Atoi(v)
 		if err != nil {
 			return nil, ErrInvalidParameter
 		}
 
-		retentionPeriod = n
+		retentionPeriod = &n
 	}
 
 	snap, err := h.Backend.ModifyClusterSnapshot(snapshotID, retentionPeriod, force)

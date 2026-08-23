@@ -71,7 +71,7 @@ type StorageBackend interface {
 	RestoreFromClusterSnapshot(clusterID, snapshotID string) (*Cluster, error)
 	AuthorizeSnapshotAccess(snapshotID, accountWithRestoreAccess string) (*Snapshot, error)
 	BatchDeleteClusterSnapshots(identifiers []string) ([]SnapshotBatchError, []string)
-	BatchModifyClusterSnapshots(identifiers []string, retentionPeriod int, force bool) ([]SnapshotBatchError, []string)
+	BatchModifyClusterSnapshots(identifiers []string, retentionPeriod *int, force bool) ([]SnapshotBatchError, []string)
 
 	// Subnet group operations
 	CreateClusterSubnetGroup(name, description, vpcID string, subnetIDs []string) (*ClusterSubnetGroup, error)
@@ -111,7 +111,7 @@ type StorageBackend interface {
 	DescribeResize(clusterID string) (*ResizeProgress, error)
 
 	// Snapshot management
-	ModifyClusterSnapshot(snapshotID string, retentionPeriod int, force bool) (*Snapshot, error)
+	ModifyClusterSnapshot(snapshotID string, retentionPeriod *int, force bool) (*Snapshot, error)
 	RevokeSnapshotAccess(snapshotID, accountWithRestoreAccess string) (*Snapshot, error)
 
 	// Credentials
@@ -120,6 +120,7 @@ type StorageBackend interface {
 	// Logging operations
 	EnableLogging(clusterID, bucketName, s3KeyPrefix string) (*LoggingStatus, error)
 	DisableLogging(clusterID string) (*LoggingStatus, error)
+	GetLoggingStatus(clusterID string) (*LoggingStatus, error)
 
 	// Event operations
 	DescribeEvents(sourceIdentifier, sourceType string) ([]Event, error)

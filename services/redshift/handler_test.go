@@ -359,8 +359,11 @@ func TestHandler_WriteXMLResponse(t *testing.T) {
 		wantCode     int
 	}{
 		{
-			name:         "describe_logging_status",
-			body:         "Action=DescribeLoggingStatus&Version=2012-12-01",
+			name: "describe_logging_status",
+			setup: func(h *redshift.Handler) {
+				postRedshiftFormSetup(h, "Action=CreateCluster&Version=2012-12-01&ClusterIdentifier=wxr-log-cluster")
+			},
+			body:         "Action=DescribeLoggingStatus&Version=2012-12-01&ClusterIdentifier=wxr-log-cluster",
 			wantCode:     http.StatusOK,
 			wantContains: "DescribeLoggingStatusResponse",
 		},
