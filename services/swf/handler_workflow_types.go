@@ -55,10 +55,11 @@ type workflowTypeRef struct {
 }
 
 type workflowTypeInfoOutput struct {
-	WorkflowType *workflowTypeRef `json:"workflowType"`
-	Status       string           `json:"status"`
-	Description  string           `json:"description,omitempty"`
-	CreationDate float64          `json:"creationDate,omitempty"`
+	WorkflowType    *workflowTypeRef `json:"workflowType"`
+	Status          string           `json:"status"`
+	Description     string           `json:"description,omitempty"`
+	CreationDate    float64          `json:"creationDate,omitempty"`
+	DeprecationDate float64          `json:"deprecationDate,omitempty"`
 }
 
 type listWorkflowTypesOutput struct {
@@ -85,10 +86,11 @@ func (h *Handler) handleListWorkflowTypes(
 	infos := make([]workflowTypeInfoOutput, len(wts))
 	for i, wt := range wts {
 		infos[i] = workflowTypeInfoOutput{
-			WorkflowType: &workflowTypeRef{Name: wt.Name, Version: wt.Version},
-			Status:       wt.Status,
-			Description:  wt.Description,
-			CreationDate: wt.CreationDate,
+			WorkflowType:    &workflowTypeRef{Name: wt.Name, Version: wt.Version},
+			Status:          wt.Status,
+			Description:     wt.Description,
+			CreationDate:    wt.CreationDate,
+			DeprecationDate: wt.DeprecationDate,
 		}
 	}
 	sort.Slice(infos, func(i, j int) bool {
@@ -146,10 +148,11 @@ func (h *Handler) handleDescribeWorkflowType(
 
 	return &describeWorkflowTypeOutput{
 		TypeInfo: workflowTypeInfoOutput{
-			WorkflowType: &workflowTypeRef{Name: wt.Name, Version: wt.Version},
-			Status:       wt.Status,
-			Description:  wt.Description,
-			CreationDate: wt.CreationDate,
+			WorkflowType:    &workflowTypeRef{Name: wt.Name, Version: wt.Version},
+			Status:          wt.Status,
+			Description:     wt.Description,
+			CreationDate:    wt.CreationDate,
+			DeprecationDate: wt.DeprecationDate,
 		},
 		Configuration: cfg,
 	}, nil

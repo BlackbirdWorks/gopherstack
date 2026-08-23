@@ -424,7 +424,10 @@ func (h *Handler) handlePublishPortal(c *echo.Context, portalID string) error {
 		return writeErr(c, http.StatusBadRequest, msgInvalidBody)
 	}
 
-	p, err := h.Backend.UpdatePortal(portalID, UpdatePortalInput{Status: "PUBLISHED"})
+	p, err := h.Backend.UpdatePortal(portalID, UpdatePortalInput{
+		Status:             "PUBLISHED",
+		PublishDescription: input.Description,
+	})
 	if err != nil {
 		if errors.Is(err, ErrPortalNotFound) {
 			return writeErr(c, http.StatusNotFound, msgNotFound)

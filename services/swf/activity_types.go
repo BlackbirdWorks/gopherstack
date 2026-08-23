@@ -108,6 +108,7 @@ func (b *InMemoryBackend) DeprecateActivityType(domain, name, version string) er
 		return fmt.Errorf("%w: activity type %s/%s", ErrTypeDeprecated, name, version)
 	}
 	at.Status = statusDeprecated
+	at.DeprecationDate = float64(time.Now().UnixMilli()) / milliDivisor
 
 	return nil
 }
@@ -126,6 +127,7 @@ func (b *InMemoryBackend) UndeprecateActivityType(domain, name, version string) 
 		return fmt.Errorf("%w: activity type %s/%s", ErrTypeAlreadyExists, name, version)
 	}
 	at.Status = statusRegistered
+	at.DeprecationDate = 0
 
 	return nil
 }

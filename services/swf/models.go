@@ -204,24 +204,26 @@ type Domain struct {
 
 // ActivityType represents an SWF activity type.
 type ActivityType struct {
-	Defaults     ActivityTypeDefaults `json:"defaults"`
-	Description  string               `json:"description"`
-	Domain       string               `json:"domain"`
-	Name         string               `json:"name"`
-	Version      string               `json:"version"`
-	Status       string               `json:"status"`
-	CreationDate float64              `json:"creationDate"`
+	Defaults        ActivityTypeDefaults `json:"defaults"`
+	Description     string               `json:"description"`
+	Domain          string               `json:"domain"`
+	Name            string               `json:"name"`
+	Version         string               `json:"version"`
+	Status          string               `json:"status"`
+	CreationDate    float64              `json:"creationDate"`
+	DeprecationDate float64              `json:"deprecationDate,omitempty"`
 }
 
 // WorkflowType represents an SWF workflow type.
 type WorkflowType struct {
-	Defaults     WorkflowTypeDefaults `json:"defaults"`
-	Description  string               `json:"description"`
-	Domain       string               `json:"domain"`
-	Name         string               `json:"name"`
-	Version      string               `json:"version"`
-	Status       string               `json:"status"`
-	CreationDate float64              `json:"creationDate"`
+	Defaults        WorkflowTypeDefaults `json:"defaults"`
+	Description     string               `json:"description"`
+	Domain          string               `json:"domain"`
+	Name            string               `json:"name"`
+	Version         string               `json:"version"`
+	Status          string               `json:"status"`
+	CreationDate    float64              `json:"creationDate"`
+	DeprecationDate float64              `json:"deprecationDate,omitempty"`
 }
 
 // WorkflowExecution represents an SWF workflow execution.

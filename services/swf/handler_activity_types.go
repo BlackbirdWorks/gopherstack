@@ -51,10 +51,11 @@ type activityTypeRef struct {
 }
 
 type activityTypeInfoOutput struct {
-	ActivityType *activityTypeRef `json:"activityType"`
-	Status       string           `json:"status"`
-	Description  string           `json:"description,omitempty"`
-	CreationDate float64          `json:"creationDate,omitempty"`
+	ActivityType    *activityTypeRef `json:"activityType"`
+	Status          string           `json:"status"`
+	Description     string           `json:"description,omitempty"`
+	CreationDate    float64          `json:"creationDate,omitempty"`
+	DeprecationDate float64          `json:"deprecationDate,omitempty"`
 }
 
 type listActivityTypesOutput struct {
@@ -81,10 +82,11 @@ func (h *Handler) handleListActivityTypes(
 	infos := make([]activityTypeInfoOutput, len(ats))
 	for i, at := range ats {
 		infos[i] = activityTypeInfoOutput{
-			ActivityType: &activityTypeRef{Name: at.Name, Version: at.Version},
-			Status:       at.Status,
-			Description:  at.Description,
-			CreationDate: at.CreationDate,
+			ActivityType:    &activityTypeRef{Name: at.Name, Version: at.Version},
+			Status:          at.Status,
+			Description:     at.Description,
+			CreationDate:    at.CreationDate,
+			DeprecationDate: at.DeprecationDate,
 		}
 	}
 	sort.Slice(infos, func(i, j int) bool {
@@ -138,10 +140,11 @@ func (h *Handler) handleDescribeActivityType(
 
 	return &describeActivityTypeOutput{
 		TypeInfo: activityTypeInfoOutput{
-			ActivityType: &activityTypeRef{Name: at.Name, Version: at.Version},
-			Status:       at.Status,
-			Description:  at.Description,
-			CreationDate: at.CreationDate,
+			ActivityType:    &activityTypeRef{Name: at.Name, Version: at.Version},
+			Status:          at.Status,
+			Description:     at.Description,
+			CreationDate:    at.CreationDate,
+			DeprecationDate: at.DeprecationDate,
 		},
 		Configuration: cfg,
 	}, nil

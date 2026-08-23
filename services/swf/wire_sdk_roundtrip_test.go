@@ -226,3 +226,99 @@ func TestChildWorkflowExecutionTimedOut_TimeoutType_SDKRoundTrip(t *testing.T) {
 		"TimeoutType is a required member of ChildWorkflowExecutionTimedOutEventAttributes",
 	)
 }
+
+// TestDeprecationDate_SDKRoundTrip proves ActivityTypeInfo/WorkflowTypeInfo's
+// DeprecationDate is nil while REGISTERED and populated with a real epoch
+// timestamp once DeprecateActivityType/DeprecateWorkflowType is called.
+// Confirmed against aws-sdk-go-v2/service/swf@v1.37.4's types.go
+// ("If DEPRECATED, the date and time Deprecate* was called") and
+// deserializers.go's "deprecationDate" epoch-seconds case for both types --
+// before this fix, ActivityType/WorkflowType had no field to hold this at
+// all, so a real client always saw nil regardless of deprecation status.
+func TestDeprecationDate_SDKRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	t.Run("activity_type", func(t *testing.T) {
+		t.Parallel()
+
+		backend := swf.NewInMemoryBackend()
+		client := newTestSWFSDKClient(t, swf.NewHandler(backend))
+		ctx := t.Context()
+
+		_, err := client.RegisterDomain(ctx, &swfsdk.RegisterDomainInput{
+			Name:                                   aws.String("deprecation-date-dom"),
+			WorkflowExecutionRetentionPeriodInDays: aws.String("1"),
+		})
+		require.NoError(t, err)
+
+		_, err = client.RegisterActivityType(ctx, &swfsdk.RegisterActivityTypeInput{
+			Domain:  aws.String("deprecation-date-dom"),
+			Name:    aws.String("depActivity"),
+			Version: aws.String("1.0"),
+		})
+		require.NoError(t, err)
+
+		before, err := client.DescribeActivityType(ctx, &swfsdk.DescribeActivityTypeInput{
+			Domain:       aws.String("deprecation-date-dom"),
+			ActivityType: &swftypes.ActivityType{Name: aws.String("depActivity"), Version: aws.String("1.0")},
+		})
+		require.NoError(t, err)
+		assert.Nil(t, before.TypeInfo.DeprecationDate, "must be unset while REGISTERED")
+
+		_, err = client.DeprecateActivityType(ctx, &swfsdk.DeprecateActivityTypeInput{
+			Domain:       aws.String("deprecation-date-dom"),
+			ActivityType: &swftypes.ActivityType{Name: aws.String("depActivity"), Version: aws.String("1.0")},
+		})
+		require.NoError(t, err)
+
+		after, err := client.DescribeActivityType(ctx, &swfsdk.DescribeActivityTypeInput{
+			Domain:       aws.String("deprecation-date-dom"),
+			ActivityType: &swftypes.ActivityType{Name: aws.String("depActivity"), Version: aws.String("1.0")},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, after.TypeInfo.DeprecationDate, "must be set once DEPRECATED")
+		assert.False(t, after.TypeInfo.DeprecationDate.IsZero())
+	})
+
+	t.Run("workflow_type", func(t *testing.T) {
+		t.Parallel()
+
+		backend := swf.NewInMemoryBackend()
+		client := newTestSWFSDKClient(t, swf.NewHandler(backend))
+		ctx := t.Context()
+
+		_, err := client.RegisterDomain(ctx, &swfsdk.RegisterDomainInput{
+			Name:                                   aws.String("deprecation-date-wf-dom"),
+			WorkflowExecutionRetentionPeriodInDays: aws.String("1"),
+		})
+		require.NoError(t, err)
+
+		_, err = client.RegisterWorkflowType(ctx, &swfsdk.RegisterWorkflowTypeInput{
+			Domain:  aws.String("deprecation-date-wf-dom"),
+			Name:    aws.String("depWorkflow"),
+			Version: aws.String("1.0"),
+		})
+		require.NoError(t, err)
+
+		before, err := client.DescribeWorkflowType(ctx, &swfsdk.DescribeWorkflowTypeInput{
+			Domain:       aws.String("deprecation-date-wf-dom"),
+			WorkflowType: &swftypes.WorkflowType{Name: aws.String("depWorkflow"), Version: aws.String("1.0")},
+		})
+		require.NoError(t, err)
+		assert.Nil(t, before.TypeInfo.DeprecationDate, "must be unset while REGISTERED")
+
+		_, err = client.DeprecateWorkflowType(ctx, &swfsdk.DeprecateWorkflowTypeInput{
+			Domain:       aws.String("deprecation-date-wf-dom"),
+			WorkflowType: &swftypes.WorkflowType{Name: aws.String("depWorkflow"), Version: aws.String("1.0")},
+		})
+		require.NoError(t, err)
+
+		after, err := client.DescribeWorkflowType(ctx, &swfsdk.DescribeWorkflowTypeInput{
+			Domain:       aws.String("deprecation-date-wf-dom"),
+			WorkflowType: &swftypes.WorkflowType{Name: aws.String("depWorkflow"), Version: aws.String("1.0")},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, after.TypeInfo.DeprecationDate, "must be set once DEPRECATED")
+		assert.False(t, after.TypeInfo.DeprecationDate.IsZero())
+	})
+}

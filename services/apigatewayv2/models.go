@@ -434,9 +434,12 @@ type UpdateRouteResponseInput struct {
 // against api_op_UpdatePortal.go) and must never be JSON-decoded from a
 // request body.
 type UpdatePortalInput struct {
-	Tags    map[string]string `json:"tags,omitempty"`
-	LogoURI string            `json:"logoUri,omitempty"`
-	Status  string            `json:"-"`
+	Tags                      map[string]string `json:"tags,omitempty"`
+	LogoURI                   string            `json:"logoUri,omitempty"`
+	RumAppMonitorName         string            `json:"rumAppMonitorName,omitempty"`
+	Status                    string            `json:"-"`
+	PublishDescription        string            `json:"-"`
+	IncludedPortalProductArns []string          `json:"includedPortalProductArns,omitempty"`
 }
 
 // UpdatePortalProductInput is the input for UpdatePortalProduct (PATCH).
@@ -679,24 +682,30 @@ type PortalContent struct {
 // (types.PublishStatus: PUBLISHED/PUBLISH_IN_PROGRESS/PUBLISH_FAILED/
 // DISABLE_IN_PROGRESS/DISABLE_FAILED/DISABLED -- no "ACTIVE" value exists).
 type Portal struct {
-	Authorization         *Authorization                 `json:"authorization,omitempty"`
-	EndpointConfiguration *EndpointConfigurationResponse `json:"endpointConfiguration,omitempty"`
-	PortalContent         *PortalContent                 `json:"portalContent,omitempty"`
-	LastModified          *isoTime                       `json:"lastModified,omitempty"`
-	Tags                  map[string]string              `json:"tags,omitempty"`
-	PortalID              string                         `json:"portalId"`
-	PortalArn             string                         `json:"portalArn,omitempty"`
-	LogoURI               string                         `json:"logoUri,omitempty"`
-	PublishStatus         string                         `json:"publishStatus,omitempty"`
+	Authorization             *Authorization                 `json:"authorization,omitempty"`
+	EndpointConfiguration     *EndpointConfigurationResponse `json:"endpointConfiguration,omitempty"`
+	PortalContent             *PortalContent                 `json:"portalContent,omitempty"`
+	LastModified              *isoTime                       `json:"lastModified,omitempty"`
+	LastPublished             *isoTime                       `json:"lastPublished,omitempty"`
+	Tags                      map[string]string              `json:"tags,omitempty"`
+	LogoURI                   string                         `json:"logoUri,omitempty"`
+	PortalID                  string                         `json:"portalId"`
+	PortalArn                 string                         `json:"portalArn,omitempty"`
+	PublishStatus             string                         `json:"publishStatus,omitempty"`
+	RumAppMonitorName         string                         `json:"rumAppMonitorName,omitempty"`
+	LastPublishedDescription  string                         `json:"lastPublishedDescription,omitempty"`
+	IncludedPortalProductArns []string                       `json:"includedPortalProductArns,omitempty"`
 }
 
 // CreatePortalInput is the input for CreatePortal.
 type CreatePortalInput struct {
-	Authorization         *Authorization                `json:"authorization"`
-	EndpointConfiguration *EndpointConfigurationRequest `json:"endpointConfiguration"`
-	PortalContent         *PortalContent                `json:"portalContent"`
-	Tags                  map[string]string             `json:"tags,omitempty"`
-	LogoURI               string                        `json:"logoUri,omitempty"`
+	Authorization             *Authorization                `json:"authorization"`
+	EndpointConfiguration     *EndpointConfigurationRequest `json:"endpointConfiguration"`
+	PortalContent             *PortalContent                `json:"portalContent"`
+	Tags                      map[string]string             `json:"tags,omitempty"`
+	LogoURI                   string                        `json:"logoUri,omitempty"`
+	RumAppMonitorName         string                        `json:"rumAppMonitorName,omitempty"`
+	IncludedPortalProductArns []string                      `json:"includedPortalProductArns,omitempty"`
 }
 
 // PortalProduct represents a portal product. LastModified is a real,
