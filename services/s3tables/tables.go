@@ -261,6 +261,7 @@ func (b *InMemoryBackend) CreateTable(
 		Name:              name,
 		Namespace:         cloneStringSlice(namespace),
 		TableBucketARN:    tableBucketARN,
+		TableBucketID:     tb.BucketID,
 		Format:            format,
 		VersionToken:      uuid.NewString(),
 		WarehouseLocation: "s3://" + tb.Name + "/" + nsStr + "/" + name,

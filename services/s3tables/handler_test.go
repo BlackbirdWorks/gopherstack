@@ -87,6 +87,26 @@ func createBucketHelper(t *testing.T, h *s3tables.Handler, name string) string {
 	return arnVal
 }
 
+// getTableBucketIDHelper fetches the real, system-assigned tableBucketId AWS
+// generates at CreateTableBucket time (see models.go's TableBucket.BucketID,
+// gopherstack-wla0), for tests that need to assert a Namespace/Table
+// response's tableBucketId matches its owning bucket's.
+func getTableBucketIDHelper(t *testing.T, h *s3tables.Handler, bucketARN string) string {
+	t.Helper()
+
+	encodedARN := url.PathEscape(bucketARN)
+	rec := doS3TablesRequest(t, h, http.MethodGet, "/buckets/"+encodedARN, nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	result := parseResponse(t, rec)
+
+	id, ok := result["tableBucketId"].(string)
+	require.True(t, ok, "expected tableBucketId in GetTableBucket response")
+	require.NotEmpty(t, id)
+
+	return id
+}
+
 func createNamespaceHelper(t *testing.T, h *s3tables.Handler, bucketARN string, namespace []string) {
 	t.Helper()
 

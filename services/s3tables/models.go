@@ -12,6 +12,13 @@ type TableBucket struct {
 	OwnerAccountID           string         `json:"ownerAccountID"`
 	Policy                   string         `json:"policy"`
 	StorageClass             string         `json:"storageClass"`
+	// BucketID is the system-assigned unique identifier AWS returns as
+	// "tableBucketId" on GetTableBucket/ListTableBuckets and, transitively,
+	// on every Namespace/Table nested under this bucket (see
+	// Namespace.TableBucketID/Table.TableBucketID) -- distinct from ARN,
+	// confirmed via GetTableBucketOutput.TableBucketId in
+	// aws-sdk-go-v2/service/s3tables (gopherstack-wla0).
+	BucketID string `json:"bucketID"`
 	// MetricsConfigurationID is the unique identifier AWS assigns to a table
 	// bucket's metrics configuration once PutTableBucketMetricsConfiguration
 	// has been called. It is cleared by DeleteTableBucketMetricsConfiguration.
@@ -27,7 +34,12 @@ type Namespace struct {
 	CreatedBy      string    `json:"createdBy"`
 	Policy         string    `json:"policy"`
 	NamespaceID    string    `json:"namespaceID"`
-	Namespace      []string  `json:"namespace"`
+	// TableBucketID is the owning bucket's system-assigned ID (TableBucket.BucketID
+	// at CreateNamespace time), the real GetNamespaceOutput/NamespaceSummary
+	// "tableBucketId" member -- GetNamespaceOutput has no tableBucketARN
+	// member at all (gopherstack-wla0).
+	TableBucketID string   `json:"tableBucketID"`
+	Namespace     []string `json:"namespace"`
 }
 
 // ReplicationDestination is a single replication destination, mirroring
@@ -99,18 +111,22 @@ type Table struct {
 	// default (SSE-S3/AES256) -- see GetTableEncryption. There is no
 	// separate PutTableEncryption SDK operation; this can only be set at
 	// creation.
-	Encryption        map[string]any `json:"encryption"`
-	TableBucketARN    string         `json:"tableBucketARN"`
-	Format            string         `json:"format"`
-	VersionToken      string         `json:"versionToken"`
-	MetadataLocation  string         `json:"metadataLocation"`
-	WarehouseLocation string         `json:"warehouseLocation"`
-	ARN               string         `json:"arn"`
-	OwnerAccountID    string         `json:"ownerAccountID"`
-	Policy            string         `json:"policy"`
-	Name              string         `json:"name"`
-	StorageClass      string         `json:"storageClass"`
-	Namespace         []string       `json:"namespace"`
+	Encryption     map[string]any `json:"encryption"`
+	TableBucketARN string         `json:"tableBucketARN"`
+	// TableBucketID is the owning bucket's system-assigned ID (TableBucket.BucketID
+	// at CreateTable time), the real GetTableOutput/TableSummary "tableBucketId"
+	// member -- neither shape has a tableBucketARN member (gopherstack-wla0).
+	TableBucketID     string   `json:"tableBucketID"`
+	Format            string   `json:"format"`
+	VersionToken      string   `json:"versionToken"`
+	MetadataLocation  string   `json:"metadataLocation"`
+	WarehouseLocation string   `json:"warehouseLocation"`
+	ARN               string   `json:"arn"`
+	OwnerAccountID    string   `json:"ownerAccountID"`
+	Policy            string   `json:"policy"`
+	Name              string   `json:"name"`
+	StorageClass      string   `json:"storageClass"`
+	Namespace         []string `json:"namespace"`
 }
 
 // CreateTableBucketOptions holds the optional settings a caller may supply

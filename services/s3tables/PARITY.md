@@ -6,18 +6,30 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: s3tables
 sdk_module: aws-sdk-go-v2/service/s3tables@v1.18.4   # version audited against
-last_audit_commit:                                # unknown: pass ran without git access at write time, never backfilled -- gopherstack-33in
-last_audit_date: 2026-08-21
-overall: A            # gopherstack-r80d batch 9 checked the reachable-empty-required-output class (batch 8's
-                      # cleanrooms lesson) and found no real bug there; its GetTableBucketEncryption "fix" was
-                      # itself wrong (real AWS 404s when unconfigured) and was reverted 2026-08-22 -- see Notes.
-                      # Replication family had a real (not just deferred) wire-shape bug from a prior pass; now fixed.
+last_audit_commit: f825229dc                      # HEAD when this manifest was written (gopherstack-wla0 pass)
+last_audit_date: 2026-08-23
+overall: A            # gopherstack-wla0 (2026-08-23) FIXED: GetTable/ListTables/GetNamespace/ListNamespaces
+                      # wrote the fabricated wire key "tableBucketARN" instead of the real "tableBucketId" (a
+                      # different, system-assigned value neither shape's real deserializer even has a
+                      # tableBucketARN case for); GetTableBucket/ListTableBuckets never populated the same real
+                      # tableBucketId field at all; GetTableBucketStorageClass returned a flat
+                      # {tableBucketARN,storageClass} instead of the real {storageClassConfiguration:{storageClass}}
+                      # nested shape, also with a fabricated tableBucketARN; UpdateTableMetadataLocation had the
+                      # same harmless-extra fabricated tableBucketARN with no real counterpart at all. Fixed by
+                      # adding a real, system-assigned TableBucket.BucketID (synthesized via uuid.NewString() at
+                      # CreateTableBucket, same pattern as this service's existing NamespaceID/
+                      # MetricsConfigurationID), threaded through Namespace.TableBucketID/Table.TableBucketID at
+                      # creation time -- see Notes. gopherstack-r80d batch 9 checked the reachable-empty-required-output
+                      # class (batch 8's cleanrooms lesson) and found no real bug there; its GetTableBucketEncryption
+                      # "fix" was itself wrong (real AWS 404s when unconfigured) and was reverted 2026-08-22 -- see
+                      # Notes. Replication family had a real (not just deferred) wire-shape bug from a prior pass;
+                      # now fixed.
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
   CreateTableBucket: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: now applies encryptionConfiguration/storageClassConfiguration/tags from request body instead of discarding them"}
-  GetTableBucket: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListTableBuckets: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: continuationToken/maxBuckets/prefix/type were silently ignored; now paginates via pkgs/page and filters"}
+  GetTableBucket: {wire: ok, errors: ok, state: ok, persist: ok, note: "gopherstack-wla0 FIXED: now includes the real, system-assigned tableBucketId (TableBucket.BucketID, synthesized at CreateTableBucket) -- previously omitted entirely (not fabricated, just absent, since no ID existed to source it from)."}
+  ListTableBuckets: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: continuationToken/maxBuckets/prefix/type were silently ignored; now paginates via pkgs/page and filters. gopherstack-wla0 FIXED: TableBucketSummary entries now include the real tableBucketId, same fix as GetTableBucket."}
   DeleteTableBucket: {wire: ok, errors: ok, state: ok, persist: ok, note: "cascade to namespaces/tables/tags/replication/expiry verified correct"}
   PutTableBucketPolicy: {wire: ok, errors: ok, state: ok, persist: ok}
   GetTableBucketPolicy: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -31,20 +43,20 @@ ops:
   GetTableBucketMetricsConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteTableBucketMetricsConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
   PutTableBucketStorageClass: {wire: ok, errors: ok, state: ok, persist: ok}
-  GetTableBucketStorageClass: {wire: ok, errors: ok, state: ok, persist: ok}
+  GetTableBucketStorageClass: {wire: ok, errors: ok, state: ok, persist: ok, note: "gopherstack-wla0 FIXED (real wire-shape bug, not just the tableBucketId gap): response was a flat {tableBucketARN,storageClass}; the real GetTableBucketStorageClassOutput has a single required member, storageClassConfiguration (nested {storageClass}), and no tableBucketARN/tableBucketId field at all -- confirmed via awsRestjson1_deserializeOpDocumentGetTableBucketStorageClassOutput. A real client's StorageClassConfiguration decoded nil on every call. Now nests correctly and drops the fabricated key."}
   PutTableBucketReplication: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: request/response were a fabricated {tableBucketARN, replicationConfiguration:{destinations}} shape with an invented destinationBucketARN field and no status/versionToken in the Put response (204 instead of required 200 body); now {configuration:{role,rules:[{destinations:[{destinationTableBucketARN}]}]}} with versionToken optimistic concurrency"}
   GetTableBucketReplication: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: see PutTableBucketReplication note -- Get had the same fabricated top-level shape"}
   DeleteTableBucketReplication: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: now accepts+enforces the optional versionToken query param"}
-  CreateNamespace: {wire: ok, errors: ok, state: ok, persist: ok}
-  GetNamespace: {wire: ok, errors: ok, state: ok, persist: ok}
+  CreateNamespace: {wire: ok, errors: ok, state: ok, persist: ok, note: "CreateNamespaceOutput really does require tableBucketARN (confirmed) -- unaffected by the gopherstack-wla0 fix below, which only touches ops whose real shape has no tableBucketARN member."}
+  GetNamespace: {wire: ok, errors: ok, state: ok, persist: ok, note: "gopherstack-wla0 FIXED: GetNamespaceOutput has no tableBucketARN member at all (confirmed via awsRestjson1_deserializeOpDocumentGetNamespaceOutput) -- gopherstack was emitting a fabricated tableBucketARN key and omitting the real, system-assigned tableBucketId. Now emits the real key, backed by a new Namespace.TableBucketID set at CreateNamespace time."}
   DeleteNamespace: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListNamespaces: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: continuationToken/maxNamespaces/prefix were silently ignored; now paginates + filters"}
+  ListNamespaces: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: continuationToken/maxNamespaces/prefix were silently ignored; now paginates + filters. gopherstack-wla0 FIXED: NamespaceSummary entries had the same fabricated-tableBucketARN/missing-tableBucketId bug as GetNamespace, same fix."}
   CreateTable: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: now applies encryptionConfiguration/storageClassConfiguration/tags from request body instead of discarding them"}
-  GetTable: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: real GetTableInput accepts tableArn alone OR tableBucketARN+namespace+name; only the triple was honored before, so ARN-only callers always got 400"}
+  GetTable: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: real GetTableInput accepts tableArn alone OR tableBucketARN+namespace+name; only the triple was honored before, so ARN-only callers always got 400. gopherstack-wla0 FIXED: response wrote the wire key \"tableBucketARN\", but GetTableOutput's real deserializer (awsRestjson1_deserializeOpDocumentGetTableOutput) has no such member -- only \"tableBucketId\", the table's owning bucket's system-assigned ID. Every real client's GetTableOutput.TableBucketId decoded nil on every call before this fix. Now backed by a new Table.TableBucketID set at CreateTable time from the resolved TableBucket's own BucketID."}
   DeleteTable: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListTables: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: continuationToken/maxTables/prefix were silently ignored; now paginates + filters"}
+  ListTables: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: continuationToken/maxTables/prefix were silently ignored; now paginates + filters. gopherstack-wla0 FIXED: TableSummary had the identical fabricated-tableBucketARN/missing-tableBucketId bug as GetTable, same fix."}
   RenameTable: {wire: ok, errors: ok, state: ok, persist: ok}
-  UpdateTableMetadataLocation: {wire: ok, errors: ok, state: ok, persist: ok}
+  UpdateTableMetadataLocation: {wire: ok, errors: ok, state: ok, persist: ok, note: "gopherstack-wla0: dropped a fabricated tableBucketARN key from the response -- UpdateTableMetadataLocationOutput genuinely has no bucket-identifying member at all (no tableBucketARN, no tableBucketId), unlike GetTable/ListTables above; this was the harmless-extra case, not a wrong-key bug, so nothing was added back."}
   GetTableMetadataLocation: {wire: ok, errors: ok, state: ok, persist: ok}
   PutTableMaintenanceConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
   GetTableMaintenanceConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -467,3 +479,114 @@ Fixed `handler.go`'s `handleError` default to `errType =
 `errors.As(err, &types.InternalServerErrorException{})` and
 `ErrorFault() == smithy.FaultServer`; confirmed it fails pre-fix with the
 old `"InternalError"` code (hand-reverted, byte-identical restore after).
+
+## gopherstack-wla0 (2026-08-23): GetTable/ListTables/GetNamespace/ListNamespaces wrote the wrong wire key entirely; GetTableBucket/ListTableBuckets never populated the real one
+
+**Verified real, not stale.** The bd issue's own claim (GetTable/ListTables
+write `"tableBucketARN"`; the real deserializer only has `"tableBucketId"`)
+was re-confirmed directly against `s3tables@v1.18.4`'s `deserializers.go`:
+`awsRestjson1_deserializeOpDocumentGetTableOutput`'s case list is
+`createdAt, createdBy, format, managedByService, managedTableInformation,
+metadataLocation, modifiedAt, modifiedBy, name, namespace, namespaceId,
+ownerAccountId, tableARN, tableBucketId, type, versionToken,
+warehouseLocation` -- no `tableBucketARN`. Same for
+`awsRestjson1_deserializeDocumentTableSummary` (`ListTables` items).
+`services/s3tables/handler_tables.go` (pre-fix, lines ~194/~254) wrote
+`keyTableBucketARN: table.TableBucketARN` in both. Every real client's
+`GetTableOutput.TableBucketId`/`TableSummary.TableBucketId` decoded `nil`
+on every call.
+
+**The bd issue undersold the scope.** It said `GetNamespace`/
+`GetTableBucketStorageClass`/`ListNamespaces`/`UpdateTableMetadataLocation`
+also write `tableBucketARN` but "their real response shapes have no
+tableBucketId (or any bucket-identifying field) at all -- harmless extras,
+not this bug." Re-checked each independently against
+`deserializers.go`/`api_op_*.go`:
+
+- `GetTableBucketStorageClassOutput` and `UpdateTableMetadataLocationOutput`
+  genuinely have no `tableBucketARN`/`tableBucketId` member at all -- the
+  bd issue was right about those two, they got the harmless-extra
+  treatment (key dropped, nothing added back). `GetTableBucketStorageClass`
+  additionally had its own, separate wire-shape bug (see below).
+- `GetNamespaceOutput` and `NamespaceSummary` (`ListNamespaces` items) --
+  **contrary to the bd issue** -- DO have a real `tableBucketId` member
+  (confirmed via `awsRestjson1_deserializeOpDocumentGetNamespaceOutput`'s
+  case list: `createdAt, createdBy, namespace, namespaceId,
+  ownerAccountId, tableBucketId`). These two were in scope for the same
+  wrong-key bug as `GetTable`/`ListTables`, not the harmless-extra
+  category the bd issue put them in.
+
+**Also found while touching `GetTableBucketStorageClass`**: its response
+was a flat `{tableBucketARN, storageClass}`, but the real
+`GetTableBucketStorageClassOutput` has a single required member,
+`storageClassConfiguration` (nested `{storageClass}}` --
+`StorageClassConfiguration` is a real 1-member struct, confirmed via
+`awsRestjson1_deserializeDocumentStorageClassConfiguration`). A real
+client's `StorageClassConfiguration` decoded `nil` on every call --
+`PutTableBucketStorageClass`'s request-side parsing already correctly
+handled the nested shape (`storageClassFromConfig(req.StorageClassConfiguration)`),
+only the Get response was flat. Fixed both the nesting and the fabricated
+key in the same change.
+
+**Fix.** Added `TableBucket.BucketID string` (`models.go`), synthesized via
+`uuid.NewString()` at `CreateTableBucket` time (`table_buckets.go`) --
+the same established pattern this package already uses for
+`Namespace.NamespaceID`/`TableBucket.MetricsConfigurationID`. Threaded into
+`Namespace.TableBucketID`/`Table.TableBucketID` at `CreateNamespace`/
+`CreateTable` time (both already look up the owning `TableBucket` for
+other reasons, so no new lookup was needed). This is the same remediation
+pattern `gopherstack-jcto` (directoryservice, a sibling case from the same
+`gopherstack-zquj` sweep) describes as the correct way to close this bug
+class: synthesize the real identifier once, at the resource's creation
+time, and return it consistently thereafter -- not a placeholder value
+invented at read time to make a test pass, which both issues correctly
+warn against. `GetTableBucket`/`ListTableBuckets` now also emit
+`tableBucketId` (previously omitted, not fabricated, since no ID existed
+to source it from before this pass).
+
+**Proof**: `TestSDKRoundTrip_TableBucketIDFix`
+(`handler_sdk_roundtrip_test.go`) drives a real
+`aws-sdk-go-v2/service/s3tables` client through `CreateTableBucket` ->
+`GetTableBucket`/`ListTableBuckets` -> `CreateNamespace` ->
+`GetNamespace`/`ListNamespaces` -> `CreateTable` -> `GetTable`/`ListTables`,
+asserting every response's `TableBucketId` equals the bucket's own,
+non-empty ID. Hand-reverted `GetTable`'s response back to
+`keyTableBucketARN: table.TableBucketARN`: the test failed with
+`expected: "80bf3a24-...", actual: ""` -- exactly the predicted symptom.
+Restored, `md5sum`-confirmed byte-identical, re-ran green.
+
+**Existing tests that asserted the old (bug-matching) shape** were
+corrected, not deleted: `TestHandler_GetNamespaceIncludesTableBucketArn` /
+`TestHandler_ListNamespacesIncludesTableBucketArn`
+(`handler_namespaces_test.go`) renamed to `...IncludesTableBucketId`, now
+assert the real key's value and the fabricated key's absence;
+`TestHandler_GetTableResponseUsesLowercaseArns` /
+`TestHandler_ListTablesResponseUsesLowercaseArns`
+(`handler_tables_test.go`) similarly updated (their ARN-casing assertions
+were unaffected and left as-is); `TestHandler_GetTableBucketStorageClass`
+(`handler_table_bucket_config_test.go`) and
+`TestHandler_CreateTableBucket_AppliesEncryptionStorageClassAndTags`
+(`handler_table_buckets_test.go`) updated to read the nested
+`storageClassConfiguration.storageClass` instead of a flat `storageClass`.
+
+**Persisted struct changed, no snapshot version bump**: `TableBucket`,
+`Namespace`, and `Table` (`models.go`) each gained one new plain string
+field (`BucketID`/`TableBucketID`/`TableBucketID`), additive-only --
+`s3tablesSnapshotVersion` stays `2`, per this repo's standing rule that an
+additive field never needs a version bump (`pkgs/persistence`'s
+`TestSnapshotVersionGuard`, gopherstack-s8bk). **`pkgs/persistence/testdata/snapshot_inventory.json`
+needs a `-update` refresh** to pick up the three new field names --
+confirmed by running `TestSnapshotVersionGuard` locally, which fails with
+"s3tables: backendSnapshot fields changed without a version bump; golden
+is out of date, run with -update to refresh it (this is bookkeeping, not a
+version-bump case...)" -- exactly the expected/required failure mode this
+guard is designed to produce for an additive change. Not refreshed by this
+pass per the session's constraint on shared goldens; the orchestrator
+should run `go test ./pkgs/persistence/... -run TestSnapshotVersionGuard -update`
+once.
+
+**Gates**: `go build ./...`, `go vet ./services/s3tables/...`,
+`gofmt -l services/s3tables/*.go` (clean), `go test -race -count=1
+./services/s3tables/...` (green), `golangci-lint run ./services/s3tables/...`
+(0 issues) all pass. No banned `nolint:cyclop/gocyclo/gocognit/funlen`
+added.

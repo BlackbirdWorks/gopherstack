@@ -70,6 +70,7 @@ func (h *Handler) handleGetTableBucket(ctx context.Context, r *http.Request, _ [
 		keyOwnerAccountID: tb.OwnerAccountID,
 		keyCreatedAt:      tb.CreatedAt.UTC().Format("2006-01-02T15:04:05.999Z"),
 		keyType:           bucketTypeCustomer,
+		keyTableBucketID:  tb.BucketID,
 	})
 }
 
@@ -113,6 +114,7 @@ func (h *Handler) handleListTableBuckets(ctx context.Context, r *http.Request, _
 			keyOwnerAccountID: tb.OwnerAccountID,
 			keyCreatedAt:      tb.CreatedAt.UTC().Format("2006-01-02T15:04:05.999Z"),
 			keyType:           bucketTypeCustomer,
+			keyTableBucketID:  tb.BucketID,
 		})
 	}
 
@@ -323,9 +325,15 @@ func (h *Handler) handleGetTableBucketStorageClass(ctx context.Context, r *http.
 	log := logger.Load(ctx)
 	log.InfoContext(ctx, "s3tables: got table bucket storage class", keyArn, bucketARN)
 
+	// GetTableBucketStorageClassOutput has a single required member,
+	// storageClassConfiguration (nested {storageClass}) -- no top-level
+	// tableBucketARN/tableBucketId field at all (confirmed via
+	// awsRestjson1_deserializeOpDocumentGetTableBucketStorageClassOutput in
+	// aws-sdk-go-v2/service/s3tables's deserializers.go, gopherstack-wla0).
 	return json.Marshal(map[string]any{
-		keyTableBucketARN: bucketARN,
-		"storageClass":    sc,
+		"storageClassConfiguration": map[string]any{
+			"storageClass": sc,
+		},
 	})
 }
 

@@ -187,11 +187,14 @@ func (h *Handler) handleGetTable(ctx context.Context, r *http.Request, _ []byte)
 	log := logger.Load(ctx)
 	log.InfoContext(ctx, "s3tables: got table", keyName, table.Name, keyArn, table.ARN)
 
+	// GetTableOutput has no tableBucketARN member -- its bucket-identifying
+	// field is the system-assigned tableBucketId (confirmed via
+	// awsRestjson1_deserializeOpDocumentGetTableOutput, gopherstack-wla0).
 	return json.Marshal(map[string]any{
 		keyName:             table.Name,
 		keyNamespace:        table.Namespace,
 		keyTableARN:         table.ARN,
-		keyTableBucketARN:   table.TableBucketARN,
+		keyTableBucketID:    table.TableBucketID,
 		"format":            table.Format,
 		keyType:             bucketTypeCustomer,
 		keyVersionToken:     table.VersionToken,
@@ -246,15 +249,17 @@ func (h *Handler) handleListTables(ctx context.Context, r *http.Request, _ []byt
 
 	summaries := make([]map[string]any, 0, len(pg.Data))
 
+	// TableSummary has no tableBucketARN member either -- same fix as
+	// GetTable above (gopherstack-wla0).
 	for _, t := range pg.Data {
 		summaries = append(summaries, map[string]any{
-			keyName:           t.Name,
-			keyNamespace:      t.Namespace,
-			keyTableARN:       t.ARN,
-			keyTableBucketARN: t.TableBucketARN,
-			keyType:           bucketTypeCustomer,
-			keyCreatedAt:      t.CreatedAt.UTC().Format("2006-01-02T15:04:05.999Z"),
-			"modifiedAt":      t.ModifiedAt.UTC().Format("2006-01-02T15:04:05.999Z"),
+			keyName:          t.Name,
+			keyNamespace:     t.Namespace,
+			keyTableARN:      t.ARN,
+			keyTableBucketID: t.TableBucketID,
+			keyType:          bucketTypeCustomer,
+			keyCreatedAt:     t.CreatedAt.UTC().Format("2006-01-02T15:04:05.999Z"),
+			"modifiedAt":     t.ModifiedAt.UTC().Format("2006-01-02T15:04:05.999Z"),
 		})
 	}
 
@@ -357,10 +362,15 @@ func (h *Handler) handleUpdateTableMetadataLocation(ctx context.Context, r *http
 	log := logger.Load(ctx)
 	log.InfoContext(ctx, "s3tables: updated table metadata location", keyName, name)
 
+	// UpdateTableMetadataLocationOutput has no tableBucketARN/tableBucketId
+	// member at all (confirmed via
+	// awsRestjson1_deserializeOpDocumentUpdateTableMetadataLocationOutput) --
+	// the previous tableBucketARN key here was a harmless-but-invented extra,
+	// not a wrong-key bug like GetTable/ListTables above; simply dropped
+	// (gopherstack-wla0).
 	return json.Marshal(map[string]any{
 		keyName:             table.Name,
 		keyTableARN:         table.ARN,
-		keyTableBucketARN:   table.TableBucketARN,
 		keyNamespace:        table.Namespace,
 		keyVersionToken:     table.VersionToken,
 		keyMetadataLocation: table.MetadataLocation,

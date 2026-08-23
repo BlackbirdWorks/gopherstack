@@ -532,7 +532,15 @@ func TestHandler_GetTableBucketStorageClass(t *testing.T) {
 
 			if tt.wantCode == http.StatusOK {
 				result := parseResponse(t, rec)
-				assert.Equal(t, tt.wantClass, result["storageClass"])
+				// GetTableBucketStorageClassOutput's real shape is
+				// {storageClassConfiguration: {storageClass}}, not a flat
+				// top-level storageClass (gopherstack-wla0; confirmed via
+				// awsRestjson1_deserializeOpDocumentGetTableBucketStorageClassOutput).
+				scCfg, ok := result["storageClassConfiguration"].(map[string]any)
+				require.True(t, ok, "expected storageClassConfiguration to be an object")
+				assert.Equal(t, tt.wantClass, scCfg["storageClass"])
+				assert.NotContains(t, result, "tableBucketARN",
+					"GetTableBucketStorageClassOutput has no tableBucketARN member on the real API")
 			}
 		})
 	}

@@ -62,9 +62,13 @@ func (h *Handler) handleGetNamespace(ctx context.Context, r *http.Request, _ []b
 	log := logger.Load(ctx)
 	log.InfoContext(ctx, "s3tables: got namespace", keyNamespace, nsName, "bucket", bucketARN)
 
+	// GetNamespaceOutput has no tableBucketARN member at all -- its
+	// bucket-identifying field is the system-assigned tableBucketId
+	// (confirmed via awsRestjson1_deserializeOpDocumentGetNamespaceOutput,
+	// gopherstack-wla0).
 	return json.Marshal(map[string]any{
 		keyNamespace:      ns.Namespace,
-		keyTableBucketARN: ns.TableBucketARN,
+		keyTableBucketID:  ns.TableBucketID,
 		keyCreatedAt:      ns.CreatedAt.UTC().Format("2006-01-02T15:04:05.999Z"),
 		keyCreatedBy:      ns.CreatedBy,
 		keyOwnerAccountID: ns.OwnerAccountID,
@@ -111,10 +115,12 @@ func (h *Handler) handleListNamespaces(ctx context.Context, r *http.Request, _ [
 
 	summaries := make([]map[string]any, 0, len(pg.Data))
 
+	// NamespaceSummary has no tableBucketARN member either -- same fix as
+	// GetNamespace above (gopherstack-wla0).
 	for _, ns := range pg.Data {
 		summaries = append(summaries, map[string]any{
 			keyNamespace:      ns.Namespace,
-			keyTableBucketARN: ns.TableBucketARN,
+			keyTableBucketID:  ns.TableBucketID,
 			keyCreatedAt:      ns.CreatedAt.UTC().Format("2006-01-02T15:04:05.999Z"),
 			keyCreatedBy:      ns.CreatedBy,
 			keyOwnerAccountID: ns.OwnerAccountID,
