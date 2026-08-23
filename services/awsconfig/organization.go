@@ -4,18 +4,42 @@ import "fmt"
 
 const orgRuleStatusCreateSuccessful = "CREATE_SUCCESSFUL"
 
-// PutOrganizationConfigRule creates or updates an organization config rule.
-func (b *InMemoryBackend) PutOrganizationConfigRule(name string) error {
+// PutOrganizationConfigRule creates or updates an organization config rule,
+// returning its ARN. The ARN is generated once on create and preserved on
+// update, mirroring putConfigRuleLocked's config-rule ARN convention
+// (config_rules.go) with the "organization-config-rule" resource type.
+func (b *InMemoryBackend) PutOrganizationConfigRule(name string) (string, error) {
 	if name == "" {
-		return fmt.Errorf("%w: OrganizationConfigRuleName is required", ErrValidation)
+		return "", fmt.Errorf("%w: OrganizationConfigRuleName is required", ErrValidation)
 	}
 
 	b.mu.Lock("PutOrganizationConfigRule")
 	defer b.mu.Unlock()
 
-	b.orgConfigRules.Put(&OrganizationConfigRule{OrganizationConfigRuleName: name})
+	arnStr := b.organizationConfigRuleArnLocked(name)
 
-	return nil
+	b.orgConfigRules.Put(&OrganizationConfigRule{
+		OrganizationConfigRuleName: name,
+		OrganizationConfigRuleArn:  arnStr,
+	})
+
+	return arnStr, nil
+}
+
+// organizationConfigRuleArnLocked returns name's ARN, generating and
+// counting a new one only if this is the first time name has been put.
+// Callers must already hold the write lock.
+func (b *InMemoryBackend) organizationConfigRuleArnLocked(name string) string {
+	if existing, ok := b.orgConfigRules.Get(name); ok {
+		return existing.OrganizationConfigRuleArn
+	}
+
+	b.orgRuleCounter++
+
+	return fmt.Sprintf(
+		"arn:aws:config:%s:%s:organization-config-rule/organization-config-rule-%08d",
+		b.region, b.accountID, b.orgRuleCounter,
+	)
 }
 
 // DeleteOrganizationConfigRule deletes an organization config rule by name.

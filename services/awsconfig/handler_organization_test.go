@@ -23,7 +23,8 @@ func TestAWSConfigHandler_DeleteOrganizationConfigRule(t *testing.T) {
 			name: "success",
 			setup: func(t *testing.T, h *awsconfig.Handler) {
 				t.Helper()
-				require.NoError(t, h.Backend.PutOrganizationConfigRule("org-rule"))
+				_, err := h.Backend.PutOrganizationConfigRule("org-rule")
+				require.NoError(t, err)
 			},
 			body:     map[string]any{"OrganizationConfigRuleName": "org-rule"},
 			wantCode: http.StatusOK,
@@ -94,7 +95,8 @@ func TestAWSConfigHandler_GetOrganizationConfigRuleDetailedStatus(t *testing.T) 
 	t.Parallel()
 
 	h := newTestAWSConfigHandler(t)
-	require.NoError(t, h.Backend.PutOrganizationConfigRule("org-rule"))
+	_, err := h.Backend.PutOrganizationConfigRule("org-rule")
+	require.NoError(t, err)
 
 	rec := doAWSConfigRequest(t, h, "GetOrganizationConfigRuleDetailedStatus", map[string]any{
 		"OrganizationConfigRuleName": "org-rule",

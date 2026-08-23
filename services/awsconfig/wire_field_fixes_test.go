@@ -245,6 +245,44 @@ func TestDescribeOrganizationConfigRules_RealClient(t *testing.T) {
 	assert.Equal(t, "org-rule1", aws.ToString(out.OrganizationConfigRules[0].OrganizationConfigRuleName))
 }
 
+// TestDescribeOrganizationConfigRules_Arn_RealClient drives
+// PutOrganizationConfigRule/DescribeOrganizationConfigRules through a real
+// SDK client and asserts OrganizationConfigRuleArn is populated. Real
+// OrganizationConfigRule.OrganizationConfigRuleArn is declared "This member
+// is required" (aws-sdk-go-v2/service/configservice@v1.68.4 types/types.go:
+// 2081-2091); gopherstack previously had no Arn field on the type at all, so
+// a real client's OrganizationConfigRuleArn was always empty. Refs:
+// gopherstack-xit0.
+func TestDescribeOrganizationConfigRules_Arn_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := awsconfig.NewHandler(awsconfig.NewInMemoryBackend())
+	client := newTestAWSConfigSDKClient(t, h)
+
+	putOut, err := client.PutOrganizationConfigRule(t.Context(), &configservicesdk.PutOrganizationConfigRuleInput{
+		OrganizationConfigRuleName: aws.String("org-rule-arn"),
+	})
+	require.NoError(t, err)
+	assert.NotEmpty(t, aws.ToString(putOut.OrganizationConfigRuleArn))
+
+	out, err := client.DescribeOrganizationConfigRules(
+		t.Context(), &configservicesdk.DescribeOrganizationConfigRulesInput{},
+	)
+	require.NoError(t, err)
+	require.Len(t, out.OrganizationConfigRules, 1)
+	gotArn := aws.ToString(out.OrganizationConfigRules[0].OrganizationConfigRuleArn)
+	assert.NotEmpty(t, gotArn)
+	assert.Equal(t, putOut.OrganizationConfigRuleArn, out.OrganizationConfigRules[0].OrganizationConfigRuleArn)
+
+	// A second Put on the same name must preserve the same ARN, matching
+	// putConfigRuleLocked's create-once-preserve-on-update convention.
+	putOut2, err := client.PutOrganizationConfigRule(t.Context(), &configservicesdk.PutOrganizationConfigRuleInput{
+		OrganizationConfigRuleName: aws.String("org-rule-arn"),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, aws.ToString(putOut.OrganizationConfigRuleArn), aws.ToString(putOut2.OrganizationConfigRuleArn))
+}
+
 // TestDescribeOrganizationConformancePacks_RealClient drives
 // DescribeOrganizationConformancePacks through a real SDK client. Real
 // OrganizationConformancePack.OrganizationConformancePackName is PascalCase

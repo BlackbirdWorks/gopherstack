@@ -34,7 +34,7 @@ ops:
   PutDeliveryChannel: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: empty/blank name now InvalidDeliveryChannelNameException (was generic ValidationException) -- see gopherstack-eboy"}
   DescribeDeliveryChannels: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteDeliveryChannel: {wire: ok, errors: ok, state: ok, persist: ok}
-  DescribeDeliveryChannelStatus: {wire: fixed, errors: ok, state: ok, persist: ok, note: "fixed 2026-08-22 (gopherstack-v4a4): DeliveryChannelStatus/DeliveryChannelStatusInfo were tagged PascalCase (Name/ConfigHistoryDeliveryInfo/ConfigStreamDeliveryInfo/LastStatus/LastAttemptTime); the real deserializer is lowerCamelCase for this shape (like DeliveryChannel itself), so a real client's whole response decoded as the zero value. See Notes."}
+  DescribeDeliveryChannelStatus: {wire: fixed, errors: ok, state: ok, persist: ok, note: "fixed 2026-08-22 (gopherstack-v4a4): DeliveryChannelStatus/DeliveryChannelStatusInfo were tagged PascalCase (Name/ConfigHistoryDeliveryInfo/ConfigStreamDeliveryInfo/LastStatus/LastAttemptTime); the real deserializer is lowerCamelCase for this shape (like DeliveryChannel itself), so a real client's whole response decoded as the zero value. Structurally underspecified vs the real 3-shape/3-field-set DeliveryChannelStatus -- re-audited 2026-08-23, confirmed a genuine modelling gap (no backend state to source the missing fields from), left unfixed. See Notes, gopherstack-ru0y."}
   DeliverConfigSnapshot: {wire: ok, errors: ok, state: ok, persist: n/a, note: "fixed (gopherstack-e0f1): was a no-op stub; now validates the named channel exists (NoSuchDeliveryChannelException), a recorder is configured (NoAvailableConfigurationRecorderException) and running (NoRunningConfigurationRecorderException), and returns a generated ConfigSnapshotId"}
 
   # --- ConfigRule + compliance family ---
@@ -99,8 +99,8 @@ ops:
   DescribeRemediationExecutionStatus: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed (gopherstack-e0f1): was an empty-list stub; now returns recorded executions for the rule, optionally filtered by resource key, NoSuchRemediationConfigurationException validation"}
 
   # --- OrganizationConfigRule / OrganizationConformancePack family ---
-  PutOrganizationConfigRule: {wire: ok, errors: ok, state: ok, persist: ok}
-  DescribeOrganizationConfigRules: {wire: fixed, errors: ok, state: ok, persist: ok, note: "fixed 2026-08-22 (gopherstack-v4a4): OrganizationConfigRule.OrganizationConfigRuleName was tagged lowercase; the real deserializer is PascalCase, so a real client's OrganizationConfigRuleName decoded empty on every rule. See Notes."}
+  PutOrganizationConfigRule: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "fixed 2026-08-23 (gopherstack-xit0): now generates and returns OrganizationConfigRuleArn (real PutOrganizationConfigRuleOutput.OrganizationConfigRuleArn was always empty before). ARN format mirrors putConfigRuleLocked's config-rule convention (config_rules.go): arn:aws:config:<region>:<account>:organization-config-rule/organization-config-rule-<counter>, generated once on create and preserved on update via a new orgRuleCounter."}
+  DescribeOrganizationConfigRules: {wire: fixed, errors: ok, state: ok, persist: ok, note: "fixed 2026-08-22 (gopherstack-v4a4): OrganizationConfigRule.OrganizationConfigRuleName was tagged lowercase; the real deserializer is PascalCase, so a real client's OrganizationConfigRuleName decoded empty on every rule. Fixed 2026-08-23 (gopherstack-xit0): OrganizationConfigRule gained the required OrganizationConfigRuleArn field (see PutOrganizationConfigRule note) -- real OrganizationConfigRule (aws-sdk-go-v2/service/configservice@v1.68.4 types/types.go:2081-2091) declares it 'This member is required'; gopherstack's type previously had no Arn field at all, so a real client's OrganizationConfigRuleArn was always empty. Real-SDK-client proof: TestDescribeOrganizationConfigRules_Arn_RealClient (wire_field_fixes_test.go), confirmed to fail against the pre-fix type and hand-reverted/restored byte-identical."}
   DeleteOrganizationConfigRule: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeOrganizationConfigRuleStatuses: {wire: ok, errors: ok, state: ok, persist: ok}
   GetOrganizationConfigRuleDetailedStatus: {wire: ok, errors: ok, state: ok, persist: n/a, note: "fixed (gopherstack-e0f1): was an empty-list stub; now returns a single CREATE_SUCCESSFUL MemberAccountStatus for the local account (the only member this single-account emulator can model), NoSuchOrganizationConfigRuleException validation, optional AccountId filter"}
@@ -399,9 +399,28 @@ leaks: {status: clean, note: "no goroutines/janitors in this service; single coa
   `ConfigStreamDeliveryInfo` is a distinct, differently-shaped real type
   (lastErrorCode/lastErrorMessage/lastStatus/lastStatusChangeTime) --
   gopherstack shares one flat `DeliveryChannelStatusInfo` for both, missing
-  every field but `LastStatus`. Also not fixed, filed as `gopherstack-xit0`:
-  the real `OrganizationConfigRule` declares a required
-  `OrganizationConfigRuleArn` gopherstack's type has no field for at all.
+  every field but `LastStatus`.
+
+  2026-08-23 re-audit of `gopherstack-ru0y` (DeliveryChannelStatus): confirmed
+  still a genuine modelling gap, not fixed. `DescribeDeliveryChannelStatus`
+  (delivery_channels.go) hardcodes `LastStatus: recorderStatusSuccess` for
+  both slots on every call and tracks no other delivery state at all --
+  `DeliverConfigSnapshot` (same file) generates a snapshot id but persists no
+  per-channel last-attempt/success/error/next-delivery timestamp anywhere the
+  Describe path could read back, and there is no notion of a distinct
+  snapshot-vs-history delivery event. Splitting `DeliveryChannelStatusInfo`
+  into the two real shapes (`ConfigExportDeliveryInfo`/
+  `ConfigStreamDeliveryInfo`) plus adding `ConfigSnapshotDeliveryInfo` would
+  only be able to populate `LastStatus` (still hardcoded) and leave every
+  other real member -- `LastAttemptTime`/`LastErrorCode`/`LastErrorMessage`/
+  `LastSuccessfulTime`/`NextDeliveryTime`/`LastStatusChangeTime` -- fabricated
+  rather than sourced from tracked state. Per this pass's policy (report a gap
+  the backend has no state for, don't synthesize fields nobody's tracking),
+  left unfixed. Still `gopherstack-ru0y`.
+
+  `gopherstack-xit0` (`OrganizationConfigRule.OrganizationConfigRuleArn`
+  required-but-absent) fixed 2026-08-23: see the `PutOrganizationConfigRule`/
+  `DescribeOrganizationConfigRules` entries above.
 
   Also swept for CASE-MISMATCH-shaped findings and confirmed artifact, not filed:
   `iot` (18 flagged fields, e.g. `CreatePolicy`'s `PolicyARN`/`PolicyName`/...)

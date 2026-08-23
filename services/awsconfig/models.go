@@ -126,6 +126,7 @@ type ConformancePack struct {
 // OrganizationConfigRule represents an AWS Config organization config rule.
 type OrganizationConfigRule struct {
 	OrganizationConfigRuleName string `json:"OrganizationConfigRuleName"`
+	OrganizationConfigRuleArn  string `json:"OrganizationConfigRuleArn"`
 }
 
 // OrganizationConformancePack represents an AWS Config organization conformance pack.

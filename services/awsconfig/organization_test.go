@@ -22,7 +22,8 @@ func TestAWSConfigBackend_DeleteOrganizationConfigRule(t *testing.T) {
 			name: "success",
 			setup: func(t *testing.T, b *awsconfig.InMemoryBackend) {
 				t.Helper()
-				require.NoError(t, b.PutOrganizationConfigRule("org-rule"))
+				_, err := b.PutOrganizationConfigRule("org-rule")
+				require.NoError(t, err)
 			},
 			delName: "org-rule",
 		},
@@ -101,7 +102,7 @@ func TestDescribeOrganizationConfigRuleStatuses(t *testing.T) {
 	t.Parallel()
 
 	b := awsconfig.NewInMemoryBackend()
-	_ = b.PutOrganizationConfigRule("org-rule1")
+	_, _ = b.PutOrganizationConfigRule("org-rule1")
 
 	statuses := b.DescribeOrganizationConfigRuleStatuses(nil)
 	if len(statuses) != 1 || statuses[0].OrganizationConfigRuleName != "org-rule1" {
@@ -145,7 +146,8 @@ func TestAWSConfigBackend_GetOrganizationConfigRuleDetailedStatus(t *testing.T) 
 		t.Parallel()
 
 		b := awsconfig.NewInMemoryBackend()
-		require.NoError(t, b.PutOrganizationConfigRule("org-rule"))
+		_, err := b.PutOrganizationConfigRule("org-rule")
+		require.NoError(t, err)
 
 		statuses, err := b.GetOrganizationConfigRuleDetailedStatus("org-rule", "")
 		require.NoError(t, err)
@@ -158,7 +160,8 @@ func TestAWSConfigBackend_GetOrganizationConfigRuleDetailedStatus(t *testing.T) 
 		t.Parallel()
 
 		b := awsconfig.NewInMemoryBackend()
-		require.NoError(t, b.PutOrganizationConfigRule("org-rule"))
+		_, err := b.PutOrganizationConfigRule("org-rule")
+		require.NoError(t, err)
 
 		statuses, err := b.GetOrganizationConfigRuleDetailedStatus("org-rule", "999999999999")
 		require.NoError(t, err)
