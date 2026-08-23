@@ -3,15 +3,11 @@ service: timestreamquery
 sdk_module: aws-sdk-go-v2/service/timestreamquery@v1.39.4
 last_audit_commit: a98a164d                    # NOT updated this pass -- git commands are off-limits (gopherstack-r80d batch 25)
 last_audit_date: 2026-08-21
-overall: A            # this pass: DescribeScheduledQuery's ScheduledQuery.TargetConfiguration.
-                       # TimestreamConfiguration was missing 2 of its 4 required members
-                       # (TimeColumn/DimensionMappings) -- CreateScheduledQuery's request
-                       # parsing never read them at all. Fixed. Previous pass: CreateScheduledQuery.KmsKeyId was accepted nowhere and returned
-                       # nowhere (a silent-drop, not just "no encryption layer") -- now stored and
-                       # echoed on DescribeScheduledQuery. Fixed LastRunSummary.RunStatus/
-last_audit_commit: 0be795d3
-last_audit_date: 2026-08-20
-overall: A            # this pass (2026-08-20): CreateScheduledQueryInput.TargetConfiguration.
+overall: A            # this pass (gopherstack-r80d batch 25): DescribeScheduledQuery's
+                       # ScheduledQuery.TargetConfiguration.TimestreamConfiguration was missing 2 of
+                       # its 4 required members (TimeColumn/DimensionMappings) -- CreateScheduledQuery's
+                       # request parsing never read them at all. Fixed -- see ops notes below.
+                       # Previous pass (2026-08-20): CreateScheduledQueryInput.TargetConfiguration.
                        # TimestreamConfiguration silently dropped DimensionMappings and TimeColumn
                        # (both REQUIRED subfields whenever TargetConfiguration is set, per
                        # api_op_CreateScheduledQuery.go's TimestreamConfiguration struct) plus the

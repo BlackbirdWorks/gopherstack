@@ -2,11 +2,9 @@
 service: swf
 sdk_module: aws-sdk-go-v2/service/swf@v1.37.4   # verified this pass; go.mod pin, was stale at v1.33.14
 last_audit_commit: fd65c414d
-last_audit_date: 2026-08-10
-overall: A            # genuine fixes found this pass (see Notes)
-sdk_module: aws-sdk-go-v2/service/swf@v1.37.4   # confirmed unchanged this pass
 last_audit_date: 2026-08-20
-overall: A            # wrapper-key/nested-shape sweep this pass found and fixed 2 real bugs; see Notes
+overall: A            # genuine fixes found this pass, plus a wrapper-key/nested-shape sweep
+                       # (2026-08-20) that found and fixed 2 more real bugs; see Notes
 ops:
   RegisterDomain: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeDomain: {wire: ok, errors: ok, state: ok, persist: ok}

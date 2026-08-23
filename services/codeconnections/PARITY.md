@@ -7,10 +7,10 @@
 service: codeconnections
 sdk_module: aws-sdk-go-v2/service/codeconnections@v1.13.4   # version audited against; go.mod pin as of this pass (was stale at v1.10.22)
 last_audit_commit: 749ff939                       # HEAD when this manifest was PREVIOUSLY written; this pass's changes are uncommitted working-tree changes on top (git commands unavailable to this pass)
-last_audit_date: 2026-08-10
-overall: A            # true-parity pass: closed every gaps/deferred item from the prior audit, plus new wire/error-shape bugs found while field-diffing this pass
 last_audit_date: 2026-08-19
-overall: A            # this pass found and fixed 3 wrapper-key/nested-shape wire bugs (GetHost x4 fields, ListHosts Tags, GetConnection+ListConnections Tags) that the prior A grade had missed entirely -- see ops notes below and the 2026-08-19 section in Notes. Grade restored to A only because all three are now fixed and proven by hand-revert; the prior A was not honest at the time it was written.
+overall: A            # true-parity pass: closed every gaps/deferred item from the prior audit, plus new
+                       # wire/error-shape bugs found while field-diffing. 2026-08-19 pass found and fixed
+                       # 3 additional wrapper-key/nested-shape wire bugs (GetHost x4 fields, ListHosts Tags, GetConnection+ListConnections Tags) that the prior A grade had missed entirely -- see ops notes below and the 2026-08-19 section in Notes. Grade restored to A only because all three are now fixed and proven by hand-revert; the prior A was not honest at the time it was written.
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:

@@ -451,6 +451,80 @@ overall: A
 	}
 }
 
+// TestParseParityFile_DuplicateTopLevelKey guards the union-merge defect
+// class from gopherstack-z31a: two branches' PARITY.md frontmatter merged
+// into one file, each carrying its own copy of a scalar key. Both prior
+// occurrences in this test use valid-shaped values (real shas, a real
+// grade), so checkLastAuditCommitToken/checkStatusToken never fire -- only a
+// dedicated duplicate-key check catches this.
+func TestParseParityFile_DuplicateTopLevelKey(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		content string
+		wantErr bool
+	}{
+		{
+			name: "duplicate last_audit_commit, both valid shas",
+			content: `---
+service: example
+last_audit_commit: 40f05928
+last_audit_date: 2026-08-10
+overall: A
+last_audit_commit: e4139790
+last_audit_date: 2026-08-19
+overall: A
+---
+`,
+			wantErr: true,
+		},
+		{
+			name: "duplicate overall, both valid grades",
+			content: `---
+service: example
+last_audit_commit: 40f05928
+overall: A
+overall: B
+---
+`,
+			wantErr: true,
+		},
+		{
+			name: "no duplicate",
+			content: `---
+service: example
+last_audit_commit: 40f05928
+overall: A
+---
+`,
+			wantErr: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			dir := t.TempDir()
+			path := filepath.Join(dir, "PARITY.md")
+			require.NoError(t, os.WriteFile(path, []byte(tc.content), 0o600))
+
+			doc, err := ParseParityFile(path)
+			require.NoError(t, err)
+
+			runErr := checkParseWarnings([]*ParityDoc{doc})
+			if tc.wantErr {
+				assert.NotEmpty(t, doc.Warnings)
+				require.Error(t, runErr)
+			} else {
+				assert.Empty(t, doc.Warnings)
+				require.NoError(t, runErr)
+			}
+		})
+	}
+}
+
 func TestParseParityFile_BlockStyleOpCounted(t *testing.T) {
 	t.Parallel()
 

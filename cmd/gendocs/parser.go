@@ -130,6 +130,30 @@ func checkStatusToken(doc *ParityDoc, path string, offset, lineIdx int, entryNam
 	))
 }
 
+// checkDuplicateKey appends a Warnings entry the second time a reserved
+// top-level key is seen at column 0. A union merge of two branches' PARITY.md
+// frontmatter reproduces this shape even when both copies hold individually
+// valid values (e.g. two real shas), which checkLastAuditCommitToken/
+// checkStatusToken never catch since neither value is malformed on its own
+// -- only the second, silently-winning occurrence is the defect
+// (gopherstack-z31a). seen is mutated in place, keyed by the field name and
+// valued by the 1-based line of its first occurrence.
+func checkDuplicateKey(doc *ParityDoc, path string, offset, lineIdx int, key string, seen map[string]int) {
+	line := offset + lineIdx + 1
+
+	first, ok := seen[key]
+	if !ok {
+		seen[key] = line
+
+		return
+	}
+
+	doc.Warnings = append(doc.Warnings, fmt.Sprintf(
+		"%s:%d: duplicate top-level key %q (first seen at line %d)",
+		path, line, key, first,
+	))
+}
+
 // checkOpStatusTokens runs checkStatusToken over every status field of op.
 func checkOpStatusTokens(doc *ParityDoc, path string, offset, lineIdx int, op OpStatus) {
 	checkStatusToken(doc, path, offset, lineIdx, op.Name, "wire", op.Wire)
@@ -229,6 +253,7 @@ func extractFrontmatter(lines []string) ([]string, int) {
 // used only to attribute Warnings to a real file:line.
 func parseFrontmatter(lines []string, doc *ParityDoc, path string, offset int) {
 	i := 0
+	seenKeyLine := map[string]int{}
 	for i < len(lines) {
 		m := topLevelKeyRe.FindStringSubmatch(lines[i])
 		if m == nil {
@@ -238,6 +263,10 @@ func parseFrontmatter(lines []string, doc *ParityDoc, path string, offset int) {
 		}
 
 		key, rest := m[1], m[2]
+		if isReservedKey(key) {
+			checkDuplicateKey(doc, path, offset, i, key, seenKeyLine)
+		}
+
 		if parseScalarField(doc, key, rest) {
 			if key == keyLastAuditCommit {
 				checkLastAuditCommitToken(doc, path, offset, i, doc.LastAuditCommit)

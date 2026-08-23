@@ -8,8 +8,6 @@ service: redshiftdata
 sdk_module: aws-sdk-go-v2/service/redshiftdata@v1.43.4   # version audited against
 last_audit_commit: ee8d5788f                              # HEAD when this audit began (working tree, uncommitted)
 last_audit_date: 2026-08-21
-last_audit_commit: aa31b1913                              # HEAD when this audit began (working tree, uncommitted)
-last_audit_date: 2026-08-20
 overall: A            # genuine wire-shape/field gaps found and fixed this pass
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.

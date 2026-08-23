@@ -6,24 +6,22 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: appmesh
 sdk_module: aws-sdk-go-v2/service/appmesh@v1.38.4
-last_audit_commit: 40f05928
-last_audit_date: 2026-08-10
-# 2026-08-21 gopherstack-r80d batch 13 (required-output cut): last_audit_commit
-# left unchanged per this campaign's convention (the orchestrator, not this
-# pass, creates the commit; see gopherstack-z31a). 0 bugs found -- read every
-# required output member (36 fields/38 ops, plus every ResourceMetadata/
-# *Ref/*Data domain struct in types.go) end to end against the handlers and
-# real deserializers; came back clean. See the dated note at the bottom of
-# this file for detail, including one apparent false positive (a stale
-# "OpDocument" deserializer helper) ruled out via a real SDK client round
-# trip rather than trusted from static reading.
-overall: A            # genuine fixes found: the primary response-wrapping bug affected every
-                       # Create/Describe/Update/Delete op in the service (28 handler call sites).
 last_audit_commit: e4139790
-last_audit_date: 2026-08-19
-overall: A            # zero wire bugs this pass; every single-resource CRUD op's flat
+last_audit_date: 2026-08-21
+overall: A            # zero wire bugs this pass (2026-08-19); every single-resource CRUD op's flat
                        # (unwrapped) body reconfirmed correct against the SDK's actually
                        # invoked per-op deserializer, not the dead OpDocument helper.
+                       # Reconfirmed again 2026-08-21 (gopherstack-r80d batch 13, required-output cut;
+                       # last_audit_commit left unchanged per this campaign's convention -- the
+                       # orchestrator, not this pass, creates the commit; see gopherstack-z31a): read
+                       # every required output member (36 fields/38 ops, plus every ResourceMetadata/
+                       # *Ref/*Data domain struct in types.go) end to end against the handlers and real
+                       # deserializers; came back clean. See the dated note at the bottom of this file
+                       # for detail, including one apparent false positive (a stale "OpDocument"
+                       # deserializer helper) ruled out via a real SDK client round trip rather than
+                       # trusted from static reading. Original fix (genuine, prior to 2026-08-19): the
+                       # primary response-wrapping bug affected every Create/Describe/Update/Delete op
+                       # in the service (28 handler call sites).
 ops:
   CreateMesh: {wire: ok, errors: ok, state: ok, persist: ok, note: "flat body (meshName/metadata/spec/status at root) reconfirmed correct: deserializers.go:244 decodes shape directly into MeshData, no wrapper key; spec structurally validated (egressFilter.type, serviceDiscovery.ipPreference enums)"}
   DescribeMesh: {wire: ok, errors: ok, state: ok, persist: ok, note: "flat body reconfirmed correct (deserializers.go:2639)"}
