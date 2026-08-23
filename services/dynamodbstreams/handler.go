@@ -21,6 +21,9 @@ import (
 
 const (
 	targetPrefix = "DynamoDBStreams_20120810."
+
+	keyErrType = "__type"
+	keyMessage = "message"
 )
 
 var errUnknownOperation = errors.New("UnknownOperationException")
@@ -136,7 +139,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		if err != nil {
 			log.ErrorContext(ctx, "failed to read request body", "error", err)
 
-			return c.String(http.StatusInternalServerError, "internal server error")
+			return writeDynamoDBStreamsDispatchError(c, "internal server error")
 		}
 
 		log.DebugContext(ctx, "DynamoDB Streams request", "operation", operation)
@@ -150,7 +153,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		if err != nil {
 			log.ErrorContext(ctx, "failed to marshal JSON response", "error", err)
 
-			return c.String(http.StatusInternalServerError, "internal server error")
+			return writeDynamoDBStreamsDispatchError(c, "internal server error")
 		}
 
 		checksum := crc32.ChecksumIEEE(payload)
@@ -215,6 +218,23 @@ func dispatchGetRecords(
 	return ddbbackend.ToWireGetRecordsOutput(out)
 }
 
+// writeDynamoDBStreamsDispatchError writes a typed awsjson1.0 error for a
+// failure in Handler() itself (body-read or response-marshal failure) --
+// framework-level errors that never reach the service's own handleError. A
+// bare text/plain body here cannot be parsed by the real SDK's
+// __type/message JSON error decoder, so the client would see
+// smithy.GenericAPIError{Code:"UnknownError"} instead of InternalServerError
+// (gopherstack-o7gx).
+func writeDynamoDBStreamsDispatchError(c *echo.Context, message string) error {
+	body, _ := json.Marshal(map[string]string{
+		keyErrType: "com.amazonaws.dynamodbstreams.v20120810#InternalServerError",
+		keyMessage: message,
+	})
+	c.Response().Header().Set("Content-Type", "application/x-amz-json-1.0")
+
+	return c.JSONBlob(http.StatusInternalServerError, body)
+}
+
 func (h *Handler) handleError(_ context.Context, c *echo.Context, operation string, reqErr error) error {
 	if strings.HasPrefix(reqErr.Error(), "UnknownOperationException:") {
 		body := []byte(
@@ -246,8 +266,8 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, operation stri
 		)
 
 		body, _ := json.Marshal(map[string]string{
-			"__type":  errType,
-			"message": backendErr.Message,
+			keyErrType: errType,
+			keyMessage: backendErr.Message,
 		})
 		c.Response().Header().Set("Content-Type", "application/x-amz-json-1.0")
 
@@ -257,8 +277,8 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, operation stri
 	// Generic fallback for errors without structured type information.
 	msg := reqErr.Error()
 	body, _ := json.Marshal(map[string]string{
-		"__type":  "com.amazonaws.dynamodbstreams.v20120810#" + operation + "Exception",
-		"message": msg,
+		keyErrType: "com.amazonaws.dynamodbstreams.v20120810#" + operation + "Exception",
+		keyMessage: msg,
 	})
 	c.Response().Header().Set("Content-Type", "application/x-amz-json-1.0")
 

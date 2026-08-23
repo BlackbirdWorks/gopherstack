@@ -2,6 +2,7 @@ package medialive
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/labstack/echo/v5"
 )
@@ -213,10 +214,26 @@ func (h *Handler) handleStartInputDeviceMaintenanceWindow(c *echo.Context, devic
 	return c.JSON(http.StatusOK, map[string]any{})
 }
 
+// handleDescribeInputDeviceThumbnail returns the thumbnail image for an input
+// device. DescribeInputDeviceThumbnailOutput's ContentType/ContentLength/
+// ETag/LastModified are all HTTP response headers -- bound via
+// awsRestjson1_deserializeOpHttpBindingsDescribeInputDeviceThumbnailOutput
+// (medialive@v1.101.4 deserializers.go), never JSON body fields -- and Body
+// is the raw binary payload, not a JSON field either
+// (awsRestjson1_deserializeOpDocumentDescribeInputDeviceThumbnailOutput sets
+// it directly from the response body). Same convention as iotdataplane's
+// GetThingShadow (c.Blob with real headers). No real thumbnail image is
+// captured by this backend, so the body is empty; the wire *shape* -- real
+// headers, raw payload -- is what's under test here, not image content.
 func (h *Handler) handleDescribeInputDeviceThumbnail(c *echo.Context, deviceID string) error {
-	if _, err := h.Backend.DescribeInputDeviceThumbnail(deviceID); err != nil {
+	d, err := h.Backend.DescribeInputDeviceThumbnail(deviceID)
+	if err != nil {
 		return respondErr(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"ContentType": "image/jpeg", "ContentLength": 0})
+	resp := c.Response()
+	resp.Header().Set("ETag", `"`+d.ID+`"`)
+	resp.Header().Set("Last-Modified", time.Now().UTC().Format(http.TimeFormat))
+
+	return c.Blob(http.StatusOK, "image/jpeg", []byte{})
 }

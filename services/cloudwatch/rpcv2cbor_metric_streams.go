@@ -49,6 +49,77 @@ func buildMetricStreamFiltersCBOR(filters []MetricStreamFilter) cbor.List {
 	return out
 }
 
+// cborMetricStreamStatisticsConfigurations extracts
+// []MetricStreamStatisticsConfiguration from the "StatisticsConfigurations"
+// key of a CBOR map (aws-sdk-go-v2 cloudwatch@v1.66.3 types/types.go:3270).
+func cborMetricStreamStatisticsConfigurations(input cbor.Map, key string) []MetricStreamStatisticsConfiguration {
+	listVal, ok := input[key]
+	if !ok {
+		return nil
+	}
+
+	list, isList := listVal.(cbor.List)
+	if !isList {
+		return nil
+	}
+
+	configs := make([]MetricStreamStatisticsConfiguration, 0, len(list))
+
+	for _, item := range list {
+		cm, isMap := item.(cbor.Map)
+		if !isMap {
+			continue
+		}
+
+		var metrics []MetricStreamStatisticsMetric
+
+		if metricsVal, hasMetrics := cm["IncludeMetrics"].(cbor.List); hasMetrics {
+			metrics = make([]MetricStreamStatisticsMetric, 0, len(metricsVal))
+			for _, mv := range metricsVal {
+				mm, mmIsMap := mv.(cbor.Map)
+				if !mmIsMap {
+					continue
+				}
+
+				metrics = append(metrics, MetricStreamStatisticsMetric{
+					MetricName: cborStr(mm, "MetricName"),
+					Namespace:  cborStr(mm, keyNamespace),
+				})
+			}
+		}
+
+		configs = append(configs, MetricStreamStatisticsConfiguration{
+			AdditionalStatistics: cborStrList(cm, "AdditionalStatistics"),
+			IncludeMetrics:       metrics,
+		})
+	}
+
+	return configs
+}
+
+// buildMetricStreamStatisticsConfigurationsCBOR converts
+// []MetricStreamStatisticsConfiguration to its wire shape.
+func buildMetricStreamStatisticsConfigurationsCBOR(configs []MetricStreamStatisticsConfiguration) cbor.List {
+	out := make(cbor.List, 0, len(configs))
+
+	for _, cfg := range configs {
+		metrics := make(cbor.List, 0, len(cfg.IncludeMetrics))
+		for _, m := range cfg.IncludeMetrics {
+			metrics = append(metrics, cbor.Map{
+				"MetricName": cbor.String(m.MetricName),
+				keyNamespace: cbor.String(m.Namespace),
+			})
+		}
+
+		out = append(out, cbor.Map{
+			"AdditionalStatistics": cborStringList(cfg.AdditionalStatistics),
+			"IncludeMetrics":       metrics,
+		})
+	}
+
+	return out
+}
+
 func (h *Handler) cborPutMetricStream(input cbor.Map, c *echo.Context) error {
 	name := cborStr(input, keyName)
 	if name == "" {
@@ -56,13 +127,14 @@ func (h *Handler) cborPutMetricStream(input cbor.Map, c *echo.Context) error {
 	}
 
 	if err := h.Backend.PutMetricStream(&MetricStream{
-		Name:           name,
-		FirehoseArn:    cborStr(input, "FirehoseArn"),
-		RoleArn:        cborStr(input, "RoleArn"),
-		OutputFormat:   cborStr(input, "OutputFormat"),
-		State:          cborStr(input, keyState),
-		IncludeFilters: cborMetricStreamFilters(input, "IncludeFilters"),
-		ExcludeFilters: cborMetricStreamFilters(input, "ExcludeFilters"),
+		Name:                     name,
+		FirehoseArn:              cborStr(input, "FirehoseArn"),
+		RoleArn:                  cborStr(input, "RoleArn"),
+		OutputFormat:             cborStr(input, "OutputFormat"),
+		State:                    cborStr(input, keyState),
+		IncludeFilters:           cborMetricStreamFilters(input, "IncludeFilters"),
+		ExcludeFilters:           cborMetricStreamFilters(input, "ExcludeFilters"),
+		StatisticsConfigurations: cborMetricStreamStatisticsConfigurations(input, "StatisticsConfigurations"),
 	}); err != nil {
 		if errors.Is(err, ErrValidation) {
 			return h.cborError(c, http.StatusBadRequest, "InvalidParameterValue", err.Error())
@@ -149,6 +221,9 @@ func (h *Handler) cborGetMetricStream(input cbor.Map, c *echo.Context) error {
 	if len(stream.ExcludeFilters) > 0 {
 		out["ExcludeFilters"] = buildMetricStreamFiltersCBOR(stream.ExcludeFilters)
 	}
+	if len(stream.StatisticsConfigurations) > 0 {
+		out["StatisticsConfigurations"] = buildMetricStreamStatisticsConfigurationsCBOR(stream.StatisticsConfigurations)
+	}
 
 	return writeCBOR(c, out)
 }
@@ -161,6 +236,22 @@ func (h *Handler) cborDeleteMetricStream(input cbor.Map, c *echo.Context) error 
 
 	if err := h.Backend.DeleteMetricStream(name); err != nil {
 		return h.cborError(c, http.StatusBadRequest, "ResourceNotFoundException", err.Error())
+	}
+
+	return writeCBOR(c, cbor.Map{})
+}
+
+func (h *Handler) cborStartMetricStreams(input cbor.Map, c *echo.Context) error {
+	if err := h.Backend.StartMetricStreams(cborStrList(input, "Names")); err != nil {
+		return h.cborError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
+	}
+
+	return writeCBOR(c, cbor.Map{})
+}
+
+func (h *Handler) cborStopMetricStreams(input cbor.Map, c *echo.Context) error {
+	if err := h.Backend.StopMetricStreams(cborStrList(input, "Names")); err != nil {
+		return h.cborError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
 
 	return writeCBOR(c, cbor.Map{})

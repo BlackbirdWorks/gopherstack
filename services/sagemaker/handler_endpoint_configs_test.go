@@ -7,6 +7,9 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	sagemakersdk "github.com/aws/aws-sdk-go-v2/service/sagemaker"
+	smtypes "github.com/aws/aws-sdk-go-v2/service/sagemaker/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -401,6 +404,90 @@ func TestCreateEndpointConfig_RequiresProductionVariants(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestHandler_CreateEndpointConfig_ExplainerAndMetricsConfig_RealClient
+// proves CreateEndpointConfigInput.ExplainerConfig/MetricsConfig (both real,
+// optional fields on api_op_CreateEndpointConfig.go previously entirely
+// absent from decode) survive the real aws-sdk-go-v2 client's own
+// serializer, round-tripping through DescribeEndpointConfig.
+func TestHandler_CreateEndpointConfig_ExplainerAndMetricsConfig_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestSageMakerClient(t, h)
+
+	_, err := client.CreateEndpointConfig(t.Context(), &sagemakersdk.CreateEndpointConfigInput{
+		EndpointConfigName: aws.String("explainer-config"),
+		ProductionVariants: []smtypes.ProductionVariant{
+			{VariantName: aws.String("v1"), ModelName: aws.String("m1")},
+		},
+		ExplainerConfig: &smtypes.ExplainerConfig{
+			ClarifyExplainerConfig: &smtypes.ClarifyExplainerConfig{
+				ShapConfig: &smtypes.ClarifyShapConfig{
+					ShapBaselineConfig: &smtypes.ClarifyShapBaselineConfig{
+						ShapBaseline: aws.String("0,0,0"),
+					},
+				},
+			},
+		},
+		MetricsConfig: &smtypes.MetricsConfig{
+			EnableDetailedObservability: aws.Bool(true),
+		},
+	})
+	require.NoError(t, err)
+
+	out, err := client.DescribeEndpointConfig(t.Context(), &sagemakersdk.DescribeEndpointConfigInput{
+		EndpointConfigName: aws.String("explainer-config"),
+	})
+	require.NoError(t, err)
+
+	require.NotNil(t, out.ExplainerConfig, "DescribeEndpointConfig must return ExplainerConfig")
+	require.NotNil(t, out.ExplainerConfig.ClarifyExplainerConfig)
+	require.NotNil(t, out.ExplainerConfig.ClarifyExplainerConfig.ShapConfig)
+	assert.Equal(t, "0,0,0",
+		aws.ToString(out.ExplainerConfig.ClarifyExplainerConfig.ShapConfig.ShapBaselineConfig.ShapBaseline))
+
+	require.NotNil(t, out.MetricsConfig, "DescribeEndpointConfig must return MetricsConfig")
+	assert.True(t, aws.ToBool(out.MetricsConfig.EnableDetailedObservability))
+}
+
+// TestHandler_ListEndpointConfigs_FilterSort verifies
+// ListEndpointConfigsInput's NameContains/SortBy/SortOrder
+// (api_op_ListEndpointConfigs.go, previously entirely dropped except
+// NextToken) are honored.
+func TestHandler_ListEndpointConfigs_FilterSort(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	for _, name := range []string{"alpha-config", "beta-config", "other"} {
+		doSageMakerRequest(t, h, "CreateEndpointConfig", map[string]any{
+			"EndpointConfigName": name,
+			"ProductionVariants": []map[string]any{
+				{"VariantName": "v1", "ModelName": "m1"},
+			},
+		})
+	}
+
+	rec := doSageMakerRequest(t, h, "ListEndpointConfigs", map[string]any{
+		"NameContains": "-config",
+		"SortBy":       "Name",
+		"SortOrder":    "Ascending",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+	list, ok := resp["EndpointConfigs"].([]any)
+	require.True(t, ok)
+	require.Len(t, list, 2)
+
+	first, _ := list[0].(map[string]any)
+	second, _ := list[1].(map[string]any)
+	assert.Equal(t, "alpha-config", first["EndpointConfigName"])
+	assert.Equal(t, "beta-config", second["EndpointConfigName"])
 }
 
 func TestDeleteEndpointConfig_NotFound(t *testing.T) {

@@ -103,11 +103,81 @@ func (b *InMemoryBackend) CreateActivation(
 	}, nil
 }
 
+// validateResourceDataSyncSource enforces ResourceDataSyncSource's own
+// required members (SourceType/SourceRegions) whenever the pointer is
+// non-nil, matching the real SDK's validateResourceDataSyncSource
+// (validators.go:4854) exactly.
+func validateResourceDataSyncSource(src *ResourceDataSyncSource) error {
+	if src == nil {
+		return nil
+	}
+	if src.SourceType == "" {
+		return fmt.Errorf("%w: SyncSource.SourceType is required", ErrValidationException)
+	}
+	if len(src.SourceRegions) == 0 {
+		return fmt.Errorf("%w: SyncSource.SourceRegions is required", ErrValidationException)
+	}
+
+	return nil
+}
+
+// validateResourceDataSyncS3Destination enforces ResourceDataSyncS3Destination's
+// own required members whenever the pointer is non-nil, matching the real
+// SDK's validateResourceDataSyncS3Destination (validators.go:4833) exactly.
+func validateResourceDataSyncS3Destination(dst *ResourceDataSyncS3Destination) error {
+	if dst == nil {
+		return nil
+	}
+	if dst.BucketName == "" {
+		return fmt.Errorf("%w: S3Destination.BucketName is required", ErrValidationException)
+	}
+	if dst.Region == "" {
+		return fmt.Errorf("%w: S3Destination.Region is required", ErrValidationException)
+	}
+	if dst.SyncFormat == "" {
+		return fmt.Errorf("%w: S3Destination.SyncFormat is required", ErrValidationException)
+	}
+
+	return nil
+}
+
 // CreateResourceDataSync stores a new resource data sync configuration.
+// S3Destination and SyncSource are optional on the wire (neither carries
+// "This member is required." in types.go), but api_op_CreateResourceDataSync.go's
+// own doc comment states S3Destination "is required if the SyncType value is
+// SyncToDestination" (the default when SyncType is omitted) and SyncSource
+// "is required if the SyncType value is SyncFromSource" -- enforced here
+// since it is the only signal that distinguishes a sync that will ever have
+// a source/destination from one that silently never will.
 func (b *InMemoryBackend) CreateResourceDataSync(
 	ctx context.Context,
 	input *CreateResourceDataSyncInput,
 ) (*CreateResourceDataSyncOutput, error) {
+	if err := validateResourceDataSyncS3Destination(input.S3Destination); err != nil {
+		return nil, err
+	}
+	if err := validateResourceDataSyncSource(input.SyncSource); err != nil {
+		return nil, err
+	}
+
+	syncType := input.SyncType
+	if syncType == "" {
+		syncType = "SyncToDestination"
+	}
+	switch syncType {
+	case "SyncToDestination":
+		if input.S3Destination == nil {
+			return nil, fmt.Errorf(
+				"%w: S3Destination is required when SyncType is SyncToDestination",
+				ErrValidationException,
+			)
+		}
+	case "SyncFromSource":
+		if input.SyncSource == nil {
+			return nil, fmt.Errorf("%w: SyncSource is required when SyncType is SyncFromSource", ErrValidationException)
+		}
+	}
+
 	region := getRegion(ctx)
 	b.mu.Lock("CreateResourceDataSync")
 	defer b.mu.Unlock()
@@ -126,6 +196,8 @@ func (b *InMemoryBackend) CreateResourceDataSync(
 	syncs.Put(&ResourceDataSync{
 		SyncName:        syncName,
 		SyncType:        input.SyncType,
+		S3Destination:   input.S3Destination,
+		SyncSource:      input.SyncSource,
 		LastStatus:      "InProgress",
 		SyncCreatedTime: now,
 		LastSyncTime:    now,
@@ -220,12 +292,8 @@ func (b *InMemoryBackend) UpdateResourceDataSync(
 		return nil, fmt.Errorf("%w: SyncSource is required", ErrValidationException)
 	}
 
-	if input.SyncSource.SourceType == "" {
-		return nil, fmt.Errorf("%w: SyncSource.SourceType is required", ErrValidationException)
-	}
-
-	if len(input.SyncSource.SourceRegions) == 0 {
-		return nil, fmt.Errorf("%w: SyncSource.SourceRegions is required", ErrValidationException)
+	if err := validateResourceDataSyncSource(input.SyncSource); err != nil {
+		return nil, err
 	}
 
 	region := getRegion(ctx)

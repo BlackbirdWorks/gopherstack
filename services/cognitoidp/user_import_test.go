@@ -4,9 +4,12 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/cognitoidp"
 )
 
 func TestUserImportJob_CRUD(t *testing.T) {
@@ -93,6 +96,68 @@ func TestUserImportJob_CRUD(t *testing.T) {
 		"JobId":      jobID,
 	})
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+// TestUserImportJob_SelfCompletesToSucceeded is a regression test for
+// gopherstack-muzq: StartUserImportJob correctly stamps InProgress, but until
+// now nothing ever advanced a job left alone by the client -- StopUserImportJob
+// reaches Stopped, but that path exists only if the client explicitly calls
+// Stop. A real import job finishes on its own once its CSV is processed;
+// TestUserImportJob_CRUD only ever asserted "InProgress" right after Start
+// and moved on to Stop, so it could never have caught a machine that never
+// advances on its own. This confirms the janitor's AdvanceUserImportJobStatuses
+// reaches the terminal Succeeded status without any client calling Stop.
+func TestUserImportJob_SelfCompletesToSucceeded(t *testing.T) {
+	t.Parallel()
+
+	backend := newTestBackend()
+	h := cognitoidp.NewHandler(backend, "us-east-1")
+	poolID, _ := setupHandlerPoolAndClient(t, h, "import-job-self-complete-pool")
+
+	rec := doCognitoRequest(t, h, "CreateUserImportJob", map[string]any{
+		"UserPoolId": poolID,
+		"JobName":    "self-completing-import",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var createResp struct {
+		UserImportJob struct {
+			JobID string `json:"JobId,omitempty"`
+		} `json:"UserImportJob"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	jobID := createResp.UserImportJob.JobID
+	require.NotEmpty(t, jobID)
+
+	rec = doCognitoRequest(t, h, "StartUserImportJob", map[string]any{
+		"UserPoolId": poolID,
+		"JobId":      jobID,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	janitor := cognitoidp.NewJanitor(backend, time.Minute)
+
+	require.Eventually(t, func() bool {
+		janitor.SweepOnce(t.Context())
+
+		descRec := doCognitoRequest(t, h, "DescribeUserImportJob", map[string]any{
+			"UserPoolId": poolID,
+			"JobId":      jobID,
+		})
+		if descRec.Code != http.StatusOK {
+			return false
+		}
+
+		var desc struct {
+			UserImportJob struct {
+				Status string `json:"Status,omitempty"`
+			} `json:"UserImportJob"`
+		}
+		require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &desc))
+
+		return desc.UserImportJob.Status == "Succeeded"
+	}, 2*time.Second, 10*time.Millisecond,
+		"InProgress import job must self-complete to Succeeded without a client calling Stop")
 }
 
 type userImportJobWire struct {

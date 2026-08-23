@@ -527,7 +527,10 @@ func TestAccuracy_ARP_TestCaseRoundTrip(t *testing.T) {
 
 	var getTestOut map[string]any
 	require.NoError(t, json.Unmarshal(getTestRec.Body.Bytes(), &getTestOut))
-	assert.Equal(t, tcID, getTestOut["testCaseId"])
+	assert.Equal(t, policyARN, getTestOut["policyArn"])
+	testCase, ok := getTestOut["testCase"].(map[string]any)
+	require.True(t, ok, "response must wrap the test case under the required testCase key")
+	assert.Equal(t, tcID, testCase["testCaseId"])
 }
 
 func TestAccuracy_ARP_AnnotationsGetAfterUpdate(t *testing.T) {
@@ -858,10 +861,12 @@ func TestAccuracy_ARPTestCase_UpdateAppliesContent(t *testing.T) {
 
 	var getOut map[string]any
 	mustUnmarshal(t, getRec, &getOut)
-	assert.Equal(t, "the model said the sky is blue", getOut["guardContent"])
-	assert.Equal(t, "what color is the sky?", getOut["queryContent"])
-	assert.Equal(t, "VALID", getOut["expectedAggregatedFindingsResult"])
-	assert.InEpsilon(t, confidence, getOut["confidenceThreshold"], 0)
+	testCase, ok := getOut["testCase"].(map[string]any)
+	require.True(t, ok, "response must wrap the test case under the required testCase key")
+	assert.Equal(t, "the model said the sky is blue", testCase["guardContent"])
+	assert.Equal(t, "what color is the sky?", testCase["queryContent"])
+	assert.Equal(t, "VALID", testCase["expectedAggregatedFindingsResult"])
+	assert.InEpsilon(t, confidence, testCase["confidenceThreshold"], 0)
 }
 
 // TestAccuracy_ARPTestCase_UpdateRequiresGuardContent locks in that

@@ -91,14 +91,22 @@ func TestProvisioningTemplate(t *testing.T) {
 	t.Parallel()
 	h := newIoTHandlerBatch1(t)
 
-	// CreateProvisioningTemplate
+	// CreateProvisioningTemplate, including preProvisioningHook -- a real
+	// CreateProvisioningTemplateInput field (iot@v1.77.4) previously unmodeled.
 	out := iotOK(t, h, http.MethodPost, "/provisioning-templates", map[string]any{
 		"templateName": "my-template",
 		"templateBody": `{"Parameters":{}}`,
 		"enabled":      true,
+		"type":         "FLEET_PROVISIONING",
+		"preProvisioningHook": map[string]any{
+			"targetArn": "arn:aws:lambda:us-east-1:000000000000:function:PreProvHook",
+		},
 	})
 	if out["templateName"] != "my-template" {
 		t.Errorf("templateName mismatch: %v", out)
+	}
+	if out["defaultVersionId"] == nil {
+		t.Errorf("expected defaultVersionId on CreateProvisioningTemplate, got %v", out)
 	}
 
 	// DescribeProvisioningTemplate
@@ -106,12 +114,20 @@ func TestProvisioningTemplate(t *testing.T) {
 	if out2["templateName"] != "my-template" {
 		t.Errorf("describe mismatch: %v", out2)
 	}
+	hook, _ := out2["preProvisioningHook"].(map[string]any)
+	if hook["targetArn"] != "arn:aws:lambda:us-east-1:000000000000:function:PreProvHook" {
+		t.Errorf("expected preProvisioningHook.targetArn on DescribeProvisioningTemplate, got %v", out2)
+	}
 
 	// ListProvisioningTemplates
 	out3 := iotOK(t, h, http.MethodGet, "/provisioning-templates", nil)
 	templates, _ := out3["templates"].([]any)
 	if len(templates) != 1 {
 		t.Errorf("expected 1 template, got %d", len(templates))
+	}
+	tmplEntry, _ := templates[0].(map[string]any)
+	if tmplEntry["type"] != "FLEET_PROVISIONING" {
+		t.Errorf("expected type on ListProvisioningTemplates entry, got %v", tmplEntry)
 	}
 
 	// CreateProvisioningTemplateVersion
@@ -122,10 +138,17 @@ func TestProvisioningTemplate(t *testing.T) {
 		"/provisioning-templates/my-template/versions",
 		map[string]any{
 			"templateBody": `{"Parameters":{"v2":{}}}`,
+			"setAsDefault": true,
 		},
 	)
 	if out4["templateName"] != "my-template" {
 		t.Errorf("version templateName mismatch: %v", out4)
+	}
+	if out4["templateArn"] == "" || out4["templateArn"] == nil {
+		t.Errorf("expected templateArn on CreateProvisioningTemplateVersion, got %v", out4)
+	}
+	if out4["isDefaultVersion"] != true {
+		t.Errorf("expected isDefaultVersion true (setAsDefault was sent), got %v", out4)
 	}
 
 	// ListProvisioningTemplateVersions
@@ -163,7 +186,7 @@ func TestDescribeProvisioningTemplateVersion(t *testing.T) {
 		})
 		require.NoError(t, err)
 
-		v, err := b.CreateProvisioningTemplateVersion("tmpl1", `{"Version":"2020-01-01","v":2}`)
+		v, err := b.CreateProvisioningTemplateVersion("tmpl1", `{"Version":"2020-01-01","v":2}`, false)
 		require.NoError(t, err)
 
 		rec := doRefRequest(t, h, http.MethodGet,

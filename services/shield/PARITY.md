@@ -71,6 +71,36 @@ leaks: {status: clean, note: "no goroutines/janitors in this service; all state 
 
 ## Notes
 
+- 2026-08-22, gopherstack-r80d batch 30 (required-output-member audit):
+  shield (6 required output fields / 36 ops, 5 ops-with-required per a fresh
+  `cmd/requiredoutputfields` run, cross-checked against an independent
+  brace-depth awk walk of `shield@v1.37.4`'s `api_op_*.go` files -- both
+  agreed exactly at 6). Read all 5 flagged ops end to end against their
+  handlers: `DescribeAttackStatistics` (`DataItems`, `TimeRange`),
+  `DescribeProtectionGroup` (`ProtectionGroup`), `GetSubscriptionState`
+  (`SubscriptionState`), `ListProtectionGroups` (`ProtectionGroups`),
+  `ListResourcesInProtectionGroup` (`ResourceArns`). All 5 handlers build
+  their response as a `map[string]any`/`json.Marshal` literal
+  (`handler_attacks.go`, `handler_protection_groups.go`,
+  `handler_subscription.go`), so the protocol question this campaign asks
+  per service comes back the same way as ssoadmin/mediatailor this batch:
+  the tag-rule doesn't apply, every required key is written unconditionally.
+  Followed two wrapped types below the flat scan: `TimeRange`
+  (types.go:644-653) has zero required members of its own (confirmed against
+  the SDK type directly); `AttackStatisticsDataItem` (types.go:106-119) has a
+  required `AttackCount` one level below `DataItems` -- gopherstack's own
+  `AttackStatisticsItem` (models.go:169-172) tags it `json:"AttackCount"`
+  with no `omitempty`, and `DescribeAttackStatistics` (attacks.go:214-266)
+  already guarantees a non-empty `DataItems` slice (seeding one
+  `{AttackCount: 0}` item when no attacks exist in the trailing year), so the
+  same "required-but-inapplicable means present-and-empty, not absent"
+  convention this campaign established elsewhere is already correctly
+  applied here. Also followed `ProtectionGroup`'s own 4 required members
+  (types.go:374-424, `Aggregation`/`Members`/`Pattern`/`ProtectionGroupId`) --
+  already documented above in this same Notes section's
+  `types.ProtectionGroup` struct citation -- `protectionGroupToMap`
+  (handler_protection_groups.go:220-236) writes all 4 unconditionally.
+  Result: 0 bugs. No code changes.
 - Protocol: awsjson1.1, single POST endpoint, `X-Amz-Target: AWSShield_20160616.<Op>`.
   Route matcher checked against the real SDK's `awsAwsjson11_serializeOp*` files -- target
   prefix is exactly `AWSShield_20160616.` (verified via `serializers.go`
@@ -141,6 +171,129 @@ leaks: {status: clean, note: "no goroutines/janitors in this service; all state 
   lockstep -- it now derives the expected `arn:{partition}:shield::` prefix from `b.region`
   instead of hardcoding `arn:aws:shield::`. Regression test:
   `TestInMemoryBackend_TagResourceByShieldARNGovCloudPartition` (tags_test.go).
+
+## gopherstack-y1zn (2026-08-21): unknown-key sweep, 3 confirmed bugs
+
+- `DescribeProtection`/`ListProtections`: {wire: fixed} -- protectionToMap
+  emitted "CreationTime"; types.Protection has no such member
+  (ApplicationLayerAutomaticResponseConfiguration/HealthCheckIds/Id/Name/
+  ProtectionArn/ResourceArn only).
+- `DescribeProtectionGroup`/`ListProtectionGroups`: {wire: fixed} --
+  protectionGroupToMap emitted "CreationTime"; types.ProtectionGroup has no
+  such member.
+- `DescribeSubscription`: {wire: fixed} -- ProtectionLimits carried a
+  fabricated "MaxProtections" key; types.ProtectionLimits declares only
+  ProtectedResourceTypeLimits.
+
+All 3 proven via real `aws-sdk-go-v2/service/shield` client round trips or
+raw-body assertion (handler_protections_test.go strengthened in place,
+wire_field_fixes_y1zn_test.go new), hand-reverted/confirmed-failing/
+restored/`md5sum`-verified byte-identical.
+
+## gopherstack-zquj (2026-08-22): type-checked hand-written-key sweep, clean
+
+zquj's premise: shield's map-literal responses (41 `map[string](any|
+interface{}|string)` literal openings across the non-test package, per
+`grep -rEo 'map\[string\](any|interface\{\}|string)\{'`) are immune to
+`omitempty`/struct-tag bugs but have no compiler, struct-tag scanner, or
+raw-body test checking their hand-typed key strings against anything real
+-- exactly the shape y1zn (above) had already found 3 bugs in a day
+earlier. Built a type-checked scanner (`keycheck`, not committed into this
+repo this pass -- see the note below) rather than grepping, per zquj's
+explicit instruction: it parses `shield@v1.37.4`'s `deserializers.go` AST to build
+each op's real wire-key tree from the `awsAwsjson11_deserializeOpDocument*`
+/ `awsAwsjson11_deserializeDocument*` case-switch lists (the deserializer
+is the authority, not the Go field name), then parses the service's own
+handler `.go` files for every string-keyed map literal and `X["key"]=`
+assignment reachable from each op's dispatch handler, and diffs.
+
+**Instrument validated against gopherstack-r80d batch 32's scheduler
+casing bug (commit `8469dcdd9`) before trusting it**: fed the scanner's
+SDK-side parser `scheduler@v1.20.4`'s deserializers.go and confirmed it
+extracts `NetworkConfiguration`'s real case key as lowercase-first
+`"awsvpcConfiguration"` (deserializers.go:2723-2748) and
+`CapacityProviderStrategyItem`'s as `"capacityProvider"`/`"base"`/
+`"weight"` (deserializers.go:2254-2287) -- not the pre-fix capitalized Go
+field names -- so a hand-written `"AwsvpcConfiguration"`/
+`"CapacityProvider"` would correctly diff as not-in-tree. Handler-side
+const-key resolution, nested-map traversal, and `X["key"]=` tracking were
+separately validated against a synthetic fixture with a known-planted
+typo'd key, which the scanner caught with zero false positives on its
+correctly-keyed siblings (including a const-resolved key and a
+nested-through-two-levels `IndexExpr` assignment).
+
+**Two scanner false-positive classes found and fixed before trusting a
+clean result**: (1) `map[string]struct{}`/`map[string]bool` string-keyed
+literals are validation sets (`validAggregations`/`validPatterns` in
+protection_groups.go), not wire output -- excluded by value type; (2) the
+shared error-envelope keys `__type`/`message` are written by every op's
+error path via a common helper, which a call-graph BFS that can't
+distinguish success from error paths would otherwise attribute to every
+op's *success* shape -- excluded as protocol-reserved.
+
+**Result: 36 real ops resolved (37 dispatched minus the internal
+`__SimulateAttack` test-only op, which has no real SDK output type), 89
+tracked written keys, 0 keys outside the op's real reachable wire shape.**
+Spot-verified two of the largest-surface ops by hand against the raw
+deserializer rather than trusting the tool alone: `DescribeSubscription`'s
+8 written keys match `Subscription`'s case list exactly
+(deserializers.go:7048-7159, called from
+`awsAwsjson11_deserializeOpDocumentDescribeSubscriptionOutput` at
+deserializers.go:8291); the y1zn fixes above already removed this
+service's only known instances of this bug class, so a clean result here
+is corroboration, not a surprise.
+
+**Known blind spots, disclosed rather than hidden**: the scanner checks
+"does this key exist anywhere in the op's reachable shape," not "at the
+right nesting level" -- a key misplaced one level off from a same-named
+sibling field elsewhere in the same op's tree would not be caught (no such
+case found here on manual spot-check, see above). Two `X["key"]=` sites
+were skipped as dynamic (a `map[string]any`-named local in one function
+colliding, by name only, with an unrelated `map[string]struct{}` in
+`sliceToSet`, handler.go:414-425 -- harmless here since the skipped value
+was never a candidate wire key, but a real limitation of name-based rather
+than scope-based variable tracking).
+
+Did not commit the scanner into `cmd/` this pass -- a second agent was
+editing this working tree concurrently under `services/`, and a new
+whole-repo build unit is exactly the kind of change that shouldn't land
+mid-session next to someone else's in-flight edits. Its source is
+preserved (not in this repo) for promotion; see gopherstack-zquj's
+followup issue for reusing it the way `cmd/opcensus` is reused, rather
+than re-deriving the SDK-deserializer-AST approach per sweep.
+
+## gopherstack-o7gx (2026-08-22): ReadBody-failure path wrote untyped errors
+
+`Handler()`'s `httputils.ReadBody` failure branch wrote a bare
+`c.String(http.StatusInternalServerError, "internal server error")`.
+shield is awsjson1.1 (confirmed from `shield@v1.37.4` deserializers.go's
+`awsAwsjson11_deserializeOpError*` prefix); plain text doesn't decode
+through `restjson.GetErrorInfo`, so a real client got `*json.SyntaxError`,
+not even `UnknownError`.
+
+Fixed by routing the ReadBody error through this handler's own
+`handleError(c, err)`: `classifyShieldError` checks for
+`json.SyntaxError`/`json.UnmarshalTypeError` first (neither matches a
+`*http.MaxBytesError`/read error) then `shieldErrorRules()` sentinels, so
+it falls through to the pre-existing default (`"InternalErrorException"`,
+500) -- modeled at `shield@v1.37.4` `types/errors.go:80`.
+
+CONFIRMED (documented "left untyped"/deliberate-gap decisions distinct
+from error-typing, already on file for this service, not touched by this
+fix): `LockedSubscriptionException` is deliberately not modeled
+(gopherstack-kp7b, this file's Notes) since gopherstack subscriptions have
+no historical passage of time; `OptimisticLockException` is deliberately
+not modeled since the coarse per-backend lock makes every mutation atomic
+(same note, also chaos-injectable). Neither is an error-dispatch gap like
+the ReadBody-failure path this fix addresses.
+
+Proven with a real `aws-sdk-go-v2/service/shield` client's
+`CreateProtection`, whose `Name` field alone exceeds
+`httputils.MaxRequestBodyBytes` (16 MiB).
+`TestHandler_OversizedBodySurfacesInternalErrorException`
+(`handler_oversized_body_test.go`) asserts `apiErr.ErrorCode() ==
+"InternalErrorException"`; confirmed it fails pre-fix with
+`*json.SyntaxError` (hand-reverted, byte-identical restore after).
 - **2026-08-19 wrapper-key/nested-shape re-audit (independent, this session):** protocol
   re-confirmed as awsjson1.1 from `serializers.go` (`X-Amz-Target:
   AWSShield_20160616.<Op>`) and `HandleDeserialize` bodies decode via

@@ -117,6 +117,7 @@ func (b *InMemoryBackend) UpdateMonitoringAlert(
 func (b *InMemoryBackend) ListMonitoringAlerts(
 	ctx context.Context,
 	scheduleName, nextToken string,
+	maxResults int32,
 ) ([]*MonitoringAlert, string, error) {
 	region := getRegion(ctx, b.region)
 
@@ -138,7 +139,7 @@ func (b *InMemoryBackend) ListMonitoringAlerts(
 		}
 	}
 
-	items, next := sagemakerListKeyPagedMap(alerts, nextToken, cloneMonitoringAlert)
+	items, next := sagemakerListKeyPagedMap(alerts, nextToken, cloneMonitoringAlert, maxResults)
 
 	return items, next, nil
 }

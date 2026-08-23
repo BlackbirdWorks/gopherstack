@@ -147,7 +147,20 @@ func TestAccuracy_CustomModelDeployment_StatusIsActive(t *testing.T) {
 	var getOut map[string]any
 	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut))
 	assert.Equal(t, "my-deployment", getOut["modelDeploymentName"])
+	// Creating is right immediately after create, but this test's own name
+	// promises "StatusIsActive" -- an assertion that only checks the first
+	// moment cannot catch a machine that never advances. Confirm it actually
+	// reaches Active via the janitor's advancer, not just its initial stamp.
 	assert.Equal(t, "Creating", getOut["status"])
+
+	b.AdvanceCustomModelDeploymentStatuses()
+
+	getRec2 := doRequest(t, h, http.MethodGet, "/model-customization/custom-model-deployments/"+depARN, nil)
+	require.Equal(t, http.StatusOK, getRec2.Code)
+
+	var getOut2 map[string]any
+	require.NoError(t, json.Unmarshal(getRec2.Body.Bytes(), &getOut2))
+	assert.Equal(t, "Active", getOut2["status"])
 }
 
 func TestAccuracy_CustomModelDeployment_ListAfterMultipleCreates(t *testing.T) {

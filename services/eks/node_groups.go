@@ -341,8 +341,9 @@ func (b *InMemoryBackend) UpdateNodegroupVersion(
 		CreatedAt:   time.Now().UTC(),
 	}
 	b.storeUpdateLocked(u)
+	b.scheduleUpdateTransition(clusterName, u.ID)
 
-	return u, nil
+	return u.clone(), nil
 }
 
 // AddNodegroupInternal inserts a pre-built node group into the backend.

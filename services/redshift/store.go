@@ -89,7 +89,12 @@ type InMemoryBackend struct {
 	clusterLakehouseConfig *store.Table[ClusterLakehouseConfig]
 	// clusterTransitions holds in-flight lifecycle state, intentionally never
 	// persisted (see Restore) and keyed externally by cluster ID.
-	clusterTransitions      map[string]*clusterTransition
+	clusterTransitions map[string]*clusterTransition
+	// tableRestoreReadyAt holds the pending IN_PROGRESS -> SUCCEEDED deadline
+	// for a classic (non-Serverless) table restore, keyed by
+	// TableRestoreRequestID; intentionally never persisted, same rationale as
+	// clusterTransitions.
+	tableRestoreReadyAt     map[string]time.Time
 	mu                      *lockmetrics.RWMutex
 	reconcileStop           chan struct{}
 	region                  string
@@ -118,6 +123,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		loggingStatuses:     make(map[string]*LoggingStatus),
 		snapshotCopyConfigs: make(map[string]*SnapshotCopyConfig),
 		clusterTransitions:  make(map[string]*clusterTransition),
+		tableRestoreReadyAt: make(map[string]time.Time),
 		accountID:           accountID,
 		region:              region,
 		mu:                  lockmetrics.New("redshift"),
@@ -143,6 +149,7 @@ func (b *InMemoryBackend) Reset() {
 	b.loggingStatuses = make(map[string]*LoggingStatus)
 	b.snapshotCopyConfigs = make(map[string]*SnapshotCopyConfig)
 	b.clusterTransitions = make(map[string]*clusterTransition)
+	b.tableRestoreReadyAt = make(map[string]time.Time)
 	b.resetServerlessIndexes()
 }
 

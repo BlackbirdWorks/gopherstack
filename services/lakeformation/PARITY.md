@@ -6,7 +6,7 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: lakeformation
 sdk_module: aws-sdk-go-v2/service/lakeformation@v1.50.4
-last_audit_commit: HEAD
+last_audit_commit:                                # unknown: pass ran without git access at write time, never backfilled -- gopherstack-33in
 last_audit_date: 2026-08-15
 overall: A            # gopherstack-6flj wrapper-key sweep: GetTemporaryDataLocationCredentials wire-breaking sibling-copy bug fixed, plus 4 adjacent bugs
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
@@ -30,11 +30,11 @@ ops:
   AddLFTagsToResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: now rejects non-Database/Table/TableWithColumns Resource kinds (was a permissive superset of what AWS accepts, see gopherstack-kbnu); resourceToKey also fixed to key TableWithColumns distinctly (previously had no case for it at all -- every TableWithColumns resource collided under the same empty-string key)"}
   RemoveLFTagsFromResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "same resource-kind restriction fix as AddLFTagsToResource"}
   GetResourceLFTags: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: same resource-kind restriction as AddLFTagsToResource/RemoveLFTagsFromResource; also fixed getResourceLFTagsOutput.LFTagsOnColumns, which was typed []LFTagPair -- the real GetResourceLFTagsOutput.LFTagsOnColumns is []types.ColumnLFTag (Name+LFTags) -- and was never populated by any code path (disguised stub)"}
-  CreateDataCellsFilter: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: ColumnWildcard (ExcludedColumnNames) now accepted/persisted; ColumnNames+ColumnWildcard together rejected as InvalidInputException (real API: must specify exactly one); VersionId now assigned"}
-  GetDataCellsFilter: {wire: ok, errors: ok, state: ok, persist: ok}
-  UpdateDataCellsFilter: {wire: ok, errors: ok, state: ok, persist: ok, note: "same ColumnWildcard/VersionId fix as CreateDataCellsFilter"}
-  DeleteDataCellsFilter: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListDataCellsFilter: {wire: ok, errors: ok, state: ok, persist: ok}
+  CreateDataCellsFilter: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: ColumnWildcard (ExcludedColumnNames) now accepted/persisted; ColumnNames+ColumnWildcard together rejected as InvalidInputException (real API: must specify exactly one); VersionId now assigned. gopherstack-i8lo (2026-08-22): re-verified all four of DataCellsFilter's required members (DatabaseName/Name/TableCatalogId/TableName, types.go:154-173) against the backend -- already fully validated (CreateDataCellsFilter, data_cells_filter.go:47-61); no fix needed. UpdateDataCellsFilter shares the same validation, same file."}
+  GetDataCellsFilter: {wire: ok, errors: fixed, state: ok, persist: ok, note: "UNDER-VALIDATION FIXED (gopherstack-i8lo, 2026-08-22): GetDataCellsFilterInput marks all four of TableCatalogId/DatabaseName/TableName/Name required (api_op_GetDataCellsFilter.go:29-48, lakeformation@v1.50.4) -- only Name was enforced. Three checks added, data_cells_filter.go."}
+  UpdateDataCellsFilter: {wire: ok, errors: ok, state: ok, persist: ok, note: "same ColumnWildcard/VersionId fix as CreateDataCellsFilter; gopherstack-i8lo (2026-08-22): all four required members already validated, same as Create -- no fix needed"}
+  DeleteDataCellsFilter: {wire: ok, errors: fixed, state: ok, persist: ok, note: "OVER-VALIDATION FIXED (gopherstack-i8lo, 2026-08-22): DeleteDataCellsFilterInput marks NO member required (api_op_DeleteDataCellsFilter.go:27-42, lakeformation@v1.50.4) -- gopherstack demanded Name. Check removed; a request without Name now falls through to the existing not-found path instead of a spurious 400."}
+  ListDataCellsFilter: {wire: ok, errors: fixed, state: ok, persist: ok, note: "gopherstack-4ly2 (2026-08-21): handler wrongly rejected any request without Table (and Table without DatabaseName) with a 400. ListDataCellsFilterInput marks no member required (api_op_ListDataCellsFilter.go, lakeformation@v1.50.4) -- ListDataCellsFilter's own backend already documented tableCatalogID/databaseName/tableName as optional filters, so the handler's checks were redundant with, and contradicted, the backend's own design. Now Table (and its sub-fields) narrow the listing only when supplied. Two existing tests asserted the wrong 400 (TestListDataCellsFilter_Empty citing a nonexistent 'issue #15', TestListDataCellsFilter_RequiresTable) and were corrected."}
   CreateLFTagExpression: {wire: ok, errors: ok, state: ok, persist: ok, note: "impl moved lf_tag_policy.go -> lf_tag_expression.go (file name was misleading: it implements LFTagExpression, not the distinct LFTagPolicyResource permission-resource kind added this pass)"}
   GetLFTagExpression: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateLFTagExpression: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -56,7 +56,7 @@ ops:
   DeleteObjectsOnCancel: {wire: ok, errors: ok, state: ok, persist: n/a}
   GetTableObjects: {wire: ok, errors: ok, state: ok, persist: n/a, note: "not persisted (matches pre-existing scope; tableObjects map was never in backendSnapshot)"}
   UpdateTableObjects: {wire: ok, errors: ok, state: ok, persist: n/a}
-  GetTemporaryDataLocationCredentials: {wire: ok, errors: ok, state: ok, persist: n/a, note: "WIRE-BREAKING BUG FIXED (gopherstack-6flj): request struct was copied from the GetTemporaryGlue*Credentials sibling shape (ResourceArn/Permissions/SupportedPermissionTypes) -- the real Input has none of those, only DataLocations ([]string)/CredentialsScope. No real client's request was ever readable; every call failed gopherstack's own required-field check. Response also gained the real, previously-missing AccessibleDataLocations/CredentialsScope members."}
+  GetTemporaryDataLocationCredentials: {wire: ok, errors: fixed, state: ok, persist: n/a, note: "WIRE-BREAKING BUG FIXED (gopherstack-6flj): request struct was copied from the GetTemporaryGlue*Credentials sibling shape (ResourceArn/Permissions/SupportedPermissionTypes) -- the real Input has none of those, only DataLocations ([]string)/CredentialsScope. No real client's request was ever readable; every call failed gopherstack's own required-field check. Response also gained the real, previously-missing AccessibleDataLocations/CredentialsScope members. gopherstack-4ly2 (2026-08-21): the fixed handler still over-validated -- it demanded DataLocations be non-empty, but GetTemporaryDataLocationCredentialsInput marks no member required, DataLocations included, and the backend never uses it as a lookup key (only echoes it back as AccessibleDataLocations). Now optional; TestGetTemporaryDataLocationCredentials_MissingDataLocations (which asserted the wrong 400) was corrected."}
   GetTemporaryGluePartitionCredentials: {wire: ok, errors: ok, state: ok, persist: n/a, note: "checked against its GetTemporaryGlueTableCredentials/GetTemporaryDataLocationCredentials siblings this pass (gopherstack-6flj) -- already correct, no fix needed"}
   GetTemporaryGlueTableCredentials: {wire: ok, errors: ok, state: ok, persist: n/a, note: "fixed (gopherstack-6flj): real request member S3Path was parsed nowhere; real response member VendedS3Path was entirely missing. Now threaded through together. QuerySessionContext (also real on this op) remains unmodeled -- disclosed in gaps:, a broader query-family feature out of scope for this pass"}
   AssumeDecoratedRoleWithSAML: {wire: ok, errors: ok, state: ok, persist: n/a}
@@ -89,6 +89,68 @@ leaks: {status: clean, note: "no new goroutines/janitors added this pass; all ne
 ---
 
 ## Notes
+
+**2026-08-22 (gopherstack-i8lo):** verified the DataCellsFilter op family's
+required-member handling in both directions, following up on a report that
+had misfiled `CreateDataCellsFilter` as a glue op (it is Lake Formation's;
+does not exist in glue at all) and had undercounted its required members
+by one (three named, not the real four).
+
+`CreateDataCellsFilterInput` marks one top-level member required --
+`TableData *types.DataCellsFilter` (`api_op_CreateDataCellsFilter.go:29-37`,
+`lakeformation@v1.50.4`, confirmed identical on `v1.47.3`) -- and
+`types.DataCellsFilter` itself marks **four** required, one level down:
+`DatabaseName`, `Name`, `TableCatalogId`, `TableName` (`types/types.go:153-173`).
+Both `CreateDataCellsFilter` and `UpdateDataCellsFilter`
+(`data_cells_filter.go:42-84`, `168-198`) already validated all four before
+this pass -- confirmed by the pre-existing table-driven
+`TestCreateDataCellsFilter_RequiredFields`/`TestUpdateDataCellsFilter_RequiresAllFields`.
+No fix needed on either op; the original report's claim of three
+unvalidated members on `CreateDataCellsFilter` was wrong.
+
+Reading the rest of the family (this service already had two
+over-validations fixed this session, `GetTemporaryDataLocationCredentials`
+and `ListDataCellsFilter` -- gopherstack-4ly2) turned up two real, opposite
+bugs the issue never named:
+
+- **`GetDataCellsFilter` -- under-validated.** `GetDataCellsFilterInput`
+  marks all four of `TableCatalogId`, `DatabaseName`, `TableName`, `Name`
+  required (`api_op_GetDataCellsFilter.go:29-48`; confirmed against the
+  official AWS API reference, which lists all four `Required: Yes`). The
+  backend (`GetDataCellsFilter`, `data_cells_filter.go:149-153` pre-fix)
+  validated only `Name`. Fixed by adding the three missing checks, same
+  file. Proof: `TestGetDataCellsFilter_RequiredFields` (table-driven, raw
+  JSON -- a real SDK client cannot produce this malformed a request at
+  all, since its own generated `validateDataCellsFilter`
+  (`validators.go:1259-1279`) rejects the same four client-side before
+  dialing out; `TestGetDataCellsFilter_RealSDKClient_RequiredFieldsRejectedClientSide`
+  demonstrates that client-side rejection directly, and is why this gap
+  was unreachable by any typed caller). Hand-reverted to confirm both new
+  tests fail against the pre-fix code, then restored byte-identical
+  (md5sum-verified).
+- **`DeleteDataCellsFilter` -- over-validated.** `DeleteDataCellsFilterInput`
+  marks **none** of its four members required (`api_op_DeleteDataCellsFilter.go:27-42`;
+  confirmed against the official AWS API reference, all four
+  `Required: No`) -- the mirror of the Get bug above, same op family. The
+  backend demanded `Name` be non-empty. Removed; a request omitting Name
+  now falls through to the pre-existing not-found path instead of a
+  synthetic 400, since nothing in the store is keyed by an empty name.
+  Proof: `TestDeleteDataCellsFilter_RealSDKClient_AllFieldsOptional` sends
+  a real, all-fields-omitted `DeleteDataCellsFilterInput` through an
+  unmodified `aws-sdk-go-v2` client -- a successful dial-out is itself
+  proof the client's own validator does not consider any of these fields
+  required, since it would otherwise refuse to send the request at all.
+  The existing `TestDeleteDataCellsFilter_MissingName` fixture had ratified
+  the defect (asserted 400 for empty Name); corrected to assert 404.
+
+Checks considered and **not** added: none. Both directions of this op
+family are now confirmed against the pinned SDK's required markers and the
+official AWS API reference; no additional ambiguous/conditional members
+were found on Create/Update/Get/Delete/List.
+
+`ListDataCellsFilter` was previously fixed for the same over-validation
+class (gopherstack-4ly2, see its ops-table note above) and needed no
+further change this pass.
 
 **2026-08-15 (gopherstack-6flj wrapper-key sweep):** re-verified all 26
 List/Describe/Get ops against the real deserializer/serializer independently
@@ -313,3 +375,30 @@ Freeform: AWS-behavior specifics worth remembering.
   `DeleteObjectsOnCancel` distinguish `TransactionCommittedException` from
   `TransactionCanceledException` per-op (not interchangeable); see `errTransactionCommitted`
   in `errors.go`/`handler.go`.
+
+## gopherstack-wlo1 (2026-08-22): Handler()'s method-not-allowed branch was untyped
+
+`Handler()`'s own `if c.Request().Method != http.MethodPost { return
+c.String(http.StatusMethodNotAllowed, "Method not allowed") }` guard
+(handler.go) wrote a bare text/plain 405. LakeFormation is restjson1
+(`lakeformation@v1.50.4` `awsRestjson1_` prefix; error decode via
+`restjson.GetErrorInfo`), so a real client saw
+`smithy.GenericAPIError{Code:"UnknownError"}`.
+
+Reachability: `RouteMatcher` (handler.go) matches purely on URL path
+(`isLakeFormationPath`) and the SigV4 credential scope's service component
+-- it never inspects the HTTP method -- so a request with any other method
+still routes to `Handler()`.
+
+Fixed: uses the existing `writeError(c, http.StatusMethodNotAllowed,
+"InvalidInputException", "Method not allowed")` -- `InvalidInputException`
+is the same code this file's own `handleError` already uses for
+`ErrValidation`, so no new exception vocabulary was introduced.
+
+Proof: `TestHandler_WrongMethodSurfacesInvalidInputException`
+(`handler_dispatch_malformed_test.go`) drives a real LakeFormation client's
+`GetDataLakeSettings` through a Finalize-stage middleware that rewrites the
+request's HTTP method to PUT post-signing. Hand-reverted `handler.go` to
+`git show HEAD`, confirmed the test fails with `*json.SyntaxError: "invalid
+character 'M' looking for beginning of value"`, restored the fix,
+`md5sum`-confirmed byte-identical.

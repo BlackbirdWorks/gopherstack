@@ -2,6 +2,7 @@ package fsx
 
 import (
 	"fmt"
+	"maps"
 	"sort"
 	"time"
 
@@ -10,9 +11,16 @@ import (
 
 // storedBackup is the persisted form of a Backup.
 // time.Time is first: non-pointer prefix (wall, ext) reduces GC pointer bytes.
+//
+// FileSystem is a snapshot of the source file system's metadata taken at
+// backup-creation time, not a live lookup: real AWS's Backup.FileSystem doc
+// states this metadata "is persisted even if the file system is deleted"
+// (aws-sdk-go-v2/service/fsx@v1.68.4/types/types.go), and it is a required
+// response member (gopherstack-r80d).
 type storedBackup struct {
 	CreationTime time.Time         `json:"creationTime"`
 	Tags         map[string]string `json:"tags"`
+	FileSystem   *storedFileSystem `json:"fileSystem,omitempty"`
 	FileSystemID string            `json:"fileSystemId"`
 	BackupID     string            `json:"backupId"`
 	BackupType   string            `json:"backupType"`
@@ -20,7 +28,27 @@ type storedBackup struct {
 	ResourceARN  string            `json:"resourceArn"`
 }
 
-func (b *storedBackup) toBackup(fs *storedFileSystem) *Backup {
+// cloneStoredFileSystem deep-copies fs so a snapshot embedded in a
+// storedBackup never aliases the live fileSystems table entry -- store.Table
+// returns the live pointer, and UpdateFileSystem mutates it in place.
+func cloneStoredFileSystem(fs *storedFileSystem) *storedFileSystem {
+	if fs == nil {
+		return nil
+	}
+
+	clone := *fs
+	if fs.Tags != nil {
+		clone.Tags = make(map[string]string, len(fs.Tags))
+		maps.Copy(clone.Tags, fs.Tags)
+	}
+
+	clone.SubnetIDs = append([]string(nil), fs.SubnetIDs...)
+	clone.NetworkInterfaceIDs = append([]string(nil), fs.NetworkInterfaceIDs...)
+
+	return &clone
+}
+
+func (b *storedBackup) toBackup(fallbackFS *storedFileSystem) *Backup {
 	bk := &Backup{
 		BackupID:     b.BackupID,
 		BackupType:   b.BackupType,
@@ -29,8 +57,12 @@ func (b *storedBackup) toBackup(fs *storedFileSystem) *Backup {
 		ResourceARN:  b.ResourceARN,
 		Tags:         tagsMapToSlice(b.Tags),
 	}
-	if fs != nil {
-		bk.FileSystem = fs.toFileSystem()
+
+	switch {
+	case b.FileSystem != nil:
+		bk.FileSystem = b.FileSystem.toFileSystem()
+	case fallbackFS != nil:
+		bk.FileSystem = fallbackFS.toFileSystem()
 	}
 
 	return bk
@@ -70,6 +102,7 @@ func (b *InMemoryBackend) CreateBackup(input *createBackupInput) (*Backup, error
 		ResourceARN:  arn,
 		Tags:         tags,
 		FileSystemID: input.FileSystemID,
+		FileSystem:   cloneStoredFileSystem(fs),
 	}
 
 	b.backups.Put(bk)
@@ -182,6 +215,21 @@ func (b *InMemoryBackend) CopyBackup(input *copyBackupInput) (*Backup, error) {
 
 	tags := tagsSliceToMap(input.Tags)
 
+	// Prefer the source backup's own frozen snapshot over a fresh live lookup:
+	// src's source file system may itself have been deleted since src was
+	// created, and src.FileSystem is the correct metadata to propagate either
+	// way (CopyBackup does not re-derive metadata from current live state).
+	var fs *storedFileSystem
+
+	switch {
+	case src.FileSystem != nil:
+		fs = cloneStoredFileSystem(src.FileSystem)
+	case src.FileSystemID != "":
+		if live, found := b.fileSystems.Get(src.FileSystemID); found {
+			fs = cloneStoredFileSystem(live)
+		}
+	}
+
 	bk := &storedBackup{
 		BackupID:     id,
 		BackupType:   src.BackupType,
@@ -190,15 +238,11 @@ func (b *InMemoryBackend) CopyBackup(input *copyBackupInput) (*Backup, error) {
 		ResourceARN:  arn,
 		Tags:         tags,
 		FileSystemID: src.FileSystemID,
+		FileSystem:   fs,
 	}
 
 	b.backups.Put(bk)
 	b.tags[arn] = tags
-
-	var fs *storedFileSystem
-	if src.FileSystemID != "" {
-		fs, _ = b.fileSystems.Get(src.FileSystemID)
-	}
 
 	return bk.toBackup(fs), nil
 }

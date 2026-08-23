@@ -396,7 +396,7 @@ func TestQuickSight_KeyRegistration_RoundTrip(t *testing.T) {
 			wantCode: http.StatusOK,
 			check: func(t *testing.T, body map[string]any) {
 				t.Helper()
-				assert.Empty(t, body["RegisteredCustomerManagedKeys"])
+				assert.Empty(t, body["KeyRegistration"])
 			},
 		},
 		{
@@ -413,7 +413,7 @@ func TestQuickSight_KeyRegistration_RoundTrip(t *testing.T) {
 			wantCode: http.StatusOK,
 			check: func(t *testing.T, body map[string]any) {
 				t.Helper()
-				keys, ok := body["RegisteredCustomerManagedKeys"].([]any)
+				keys, ok := body["KeyRegistration"].([]any)
 				require.True(t, ok)
 				require.Len(t, keys, 1)
 				k, ok := keys[0].(map[string]any)
@@ -461,9 +461,7 @@ func TestQuickSight_DefaultQBusinessApplication_RoundTrip(t *testing.T) {
 			wantCode: http.StatusOK,
 			check: func(t *testing.T, body map[string]any) {
 				t.Helper()
-				a, ok := body["DefaultQBusinessApplication"].(map[string]any)
-				require.True(t, ok)
-				assert.Empty(t, a["ApplicationId"])
+				assert.Empty(t, body["ApplicationId"])
 			},
 		},
 		{
@@ -478,9 +476,7 @@ func TestQuickSight_DefaultQBusinessApplication_RoundTrip(t *testing.T) {
 			wantCode: http.StatusOK,
 			check: func(t *testing.T, body map[string]any) {
 				t.Helper()
-				a, ok := body["DefaultQBusinessApplication"].(map[string]any)
-				require.True(t, ok)
-				assert.Equal(t, "qbiz-123", a["ApplicationId"])
+				assert.Equal(t, "qbiz-123", body["ApplicationId"])
 			},
 		},
 		{
@@ -502,9 +498,7 @@ func TestQuickSight_DefaultQBusinessApplication_RoundTrip(t *testing.T) {
 			wantCode: http.StatusOK,
 			check: func(t *testing.T, body map[string]any) {
 				t.Helper()
-				a, ok := body["DefaultQBusinessApplication"].(map[string]any)
-				require.True(t, ok)
-				assert.Empty(t, a["ApplicationId"])
+				assert.Empty(t, body["ApplicationId"])
 			},
 		},
 	}
@@ -656,7 +650,7 @@ func TestQuickSight_AccountSettings(t *testing.T) { //nolint:paralleltest // exi
 			method:     http.MethodGet,
 			path:       accountPath("/key-registration"),
 			wantStatus: http.StatusOK,
-			wantKey:    "RegisteredCustomerManagedKeys",
+			wantKey:    "KeyRegistration",
 		},
 		{
 			name:       "update key registration",
@@ -712,7 +706,7 @@ func TestQuickSight_AccountSettings(t *testing.T) { //nolint:paralleltest // exi
 			method:     http.MethodGet,
 			path:       accountPath("/default-qbusiness-application"),
 			wantStatus: http.StatusOK,
-			wantKey:    "DefaultQBusinessApplication",
+			wantKey:    "ApplicationId",
 		},
 		{
 			name:       "update default qbusiness",

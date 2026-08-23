@@ -1,7 +1,7 @@
 ---
 service: ecr
 sdk_module: aws-sdk-go-v2/service/ecr@v1.60.4
-last_audit_commit: fba3c784+uncommitted  # this pass's changes are uncommitted working-tree edits; see Notes
+last_audit_commit: fba3c784              # this pass's changes are uncommitted working-tree edits; see Notes
 last_audit_date: 2026-08-15
 overall: A  # round 4 (gopherstack-6flj wrapper-key sweep) found and fixed 6 more real wire-shape bugs the round-3 "wire: ok" claims had missed -- see "Genuine fixes made this pass, round 4" below. Round 3 closed every remaining gap it found: item for real (not by weakening tests) -- see "Genuine fixes made this pass, round 3" below. All 6 previously-deferred error/behavior gaps now enforced with passing tests, plus the previously out-of-scope ListPullTimeUpdateExclusions pagination gap.
 ops:
@@ -47,7 +47,7 @@ ops:
   PutImageScanningConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (round 4) -- registryId declared on the wire struct but never populated; same pattern as GetRegistryScanningConfiguration above. Now set from Backend.AccountID()."}
   PutImageTagMutability: {wire: ok, errors: ok, state: ok, persist: ok, note: "exclusion filters (WILDCARD + literal) enforced correctly"}
   StartImageScan: {wire: ok, errors: ok, state: ok, persist: ok}
-  DescribeImageScanFindings: {wire: ok, errors: ok, state: ok, persist: ok, note: "BASIC vs ENHANCED finding shapes genuinely differ; paginated via index-based nextToken; ScanNotFoundException for never-scanned images. FIXED (round 2) — ImageScanFindingsResult.completedAt was a bare time.Time under the WRONG key entirely: real ecr.types.ImageScanFindings has no 'completedAt' field at all; the real key is 'imageScanCompletedAt' (epoch seconds, per awsAwsjson11_deserializeDocumentImageScanFindings), plus a second field 'vulnerabilitySourceUpdatedAt' that gopherstack didn't emit at all. A real SDK client parsing gopherstack's old response would silently get a nil/zero ImageScanCompletedAt (unknown JSON keys are ignored, so no hard failure, but the field was simply never populated client-side). Fixed: renamed to ImageScanCompletedAt/VulnerabilitySourceUpdatedAt (float64, epoch seconds); VulnerabilitySourceUpdatedAt is only populated for ENHANCED scans (BASIC omits it, matching AWS's Inspector-only semantics for that field). FIXED (round 4) — the nested \"imageScanFindings\" object reused ImageScanFindingsResult wholesale, so it ALSO leaked imageId/repositoryName/registryId/status/description (the output's own top-level fields) into the nested object; the real nested ImageScanFindings type has only 5 fields, none of those. Harmless to a real client (unknown keys ignored) but a wire-shape imprecision; fixed via a purpose-built imageScanFindingsView."}
+  DescribeImageScanFindings: {wire: ok, errors: ok, state: ok, persist: ok, note: "BASIC vs ENHANCED finding shapes genuinely differ; paginated via index-based nextToken; ScanNotFoundException for never-scanned images. FIXED (round 2) — ImageScanFindingsResult.completedAt was a bare time.Time under the WRONG key entirely: real ecr.types.ImageScanFindings has no 'completedAt' field at all; the real key is 'imageScanCompletedAt' (epoch seconds, per awsAwsjson11_deserializeDocumentImageScanFindings), plus a second field 'vulnerabilitySourceUpdatedAt' that gopherstack didn't emit at all. A real SDK client parsing gopherstack's old response would silently get a nil/zero ImageScanCompletedAt (unknown JSON keys are ignored, so no hard failure, but the field was simply never populated client-side). Fixed: renamed to ImageScanCompletedAt/VulnerabilitySourceUpdatedAt (float64, epoch seconds); VulnerabilitySourceUpdatedAt is only populated for ENHANCED scans (BASIC omits it, matching AWS's Inspector-only semantics for that field). FIXED (round 4) — the nested \"imageScanFindings\" object reused ImageScanFindingsResult wholesale, so it ALSO leaked imageId/repositoryName/registryId/status/description (the output's own top-level fields) into the nested object; the real nested ImageScanFindings type has only 5 fields, none of those. Harmless to a real client (unknown keys ignored) but a wire-shape imprecision; fixed via a purpose-built imageScanFindingsView. FIXED 2026-08-21 (gopherstack-us9u kind-mismatch sweep) -- ImageScanFinding.Attributes was a bare map[string]string; the real ImageScanFinding.Attributes deserializes via awsAwsjson11_deserializeDocumentAttributeList, a list of {key, value} objects (types.Attribute), so any real SDK client's decode failed outright once a BASIC scan finding carried attributes (always true -- buildBasicFindings seeds package_name/package_version on every finding). Not a dropped field or wrong value: DescribeImageScanFindings was unusable for BASIC scans. Fixed by adding an Attribute{Key, Value string} type and changing ImageScanFinding.Attributes to []Attribute; proven via a real aws-sdk-go-v2/service/ecr client round trip (wire_scan_finding_attributes_test.go), hand-reverted/confirmed-failing (unexpected JSON type map[package_name:... package_version:...])/restored, md5sum-verified byte-identical."}
   PutReplicationConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeImageReplicationStatus: {wire: ok, errors: ok, state: ok, persist: ok}
   GetSigningConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (round 4) -- registryId omitted entirely; real GetSigningConfigurationOutput has it (unlike PutSigningConfigurationOutput, which genuinely lacks it -- three siblings, two shapes, confirmed against each op's own deserializer). Now set from Backend.AccountID()."}
@@ -542,3 +542,51 @@ in `image_scanning_test.go`.
 Everything else in this file (all other L+D+G ops, the router, the protocol,
 error mapping, credential sweep) was independently re-verified this round and
 found already correct — see the session report for the full per-op list.
+
+## 2026-08-21 (gopherstack-hjdd): snapshot-version guard, unbumped retype
+
+`ecrSnapshotVersion` bumped 1 -> 2. `d83f4b5d3` retyped `ImageScanFinding.Attributes`
+(nested inside the registered `imageScanFindings` table) from `map[string]string` to
+`[]Attribute`, matching the real deserializer, without bumping the snapshot version. A
+pre-fix (v1) snapshot's `"attributes"` object no longer unmarshals into the new array field
+at all -- `RestoreAll` now errors outright rather than silently losing data, but the whole
+backend then fails to restore, which the version guard exists to convert into a clean,
+recoverable "discard and start empty" instead.
+
+Found via `pkgs/persistence`'s snapshot-version guard, extended this session
+(gopherstack-hjdd) to recursively expand fields of every type reached through a
+`store.Register`/`store.New` table registration.
+
+**Proof:** `TestStorePersistence_V1ScanFindingsAttributesDiscarded` (persistence_test.go)
+builds a v1-shaped `imageScanFindings` snapshot with a map-shaped `attributes` object and
+asserts `Restore` succeeds (discarding cleanly) rather than erroring. Hand-reverted to
+version 1: the same test then fails with `Restore` returning
+`json: cannot unmarshal object into Go struct field ...Attributes of type []ecr.Attribute`,
+confirming the symptom; restored and `md5sum`-verified byte-identical.
+
+**Gates:** `go build`, `go vet` (default/e2e/integration), `gofmt -l` (clean), `go test -race`
+(pass), `golangci-lint run` (0 issues).
+
+## gopherstack-o7gx follow-up (2026-08-22): default error path emitted InternalServerError instead of the modeled fault
+
+`handler.go`'s `classifyError` default branch returned code
+`"InternalServerError"` for any unclassified 500. `ecr@v1.60.4`
+`types/errors.go:912-935` models `ServerException` (`ErrorFault:
+FaultServer`, doc comment: "These errors are usually caused by a
+server-side issue") as the service's 5xx fault, wired into all 58 of 58
+operation error switches in `deserializers.go` -- universal.
+`"InternalServerError"` appears nowhere in `types/errors.go`, so a real
+client's `errors.As(&types.ServerException{})` never matched.
+
+Fixed to `"ServerException"`. The default branch is reachable only when a
+backend error isn't one of the many enumerated sentinel/not-found groups,
+`errUnknownAction`, or a JSON syntax/type error (mapped here to
+`InvalidParameterException`); no currently-wired dispatch path leaves an
+error unclassified this way, so there is no legitimately-constructed real
+SDK client request that reaches this branch today.
+`TestClassifyError_DefaultBranchEmitsServerException`
+(`handler_internal_error_test.go`, new, white-box `package ecr`) drives
+`classifyError` directly with a synthetic unmatched error and asserts it
+returns `(http.StatusInternalServerError, "ServerException")`; confirmed it
+fails pre-fix with the old `"InternalServerError"` code (hand-reverted,
+byte-identical restore after).

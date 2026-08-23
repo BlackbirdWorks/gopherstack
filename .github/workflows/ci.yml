@@ -75,6 +75,25 @@ jobs:
         with:
           version: v${{ steps.golangci-lint-version.outputs.version }}
 
+  # Fails fast on tag-gated compile breaks (e2e, integration) before the slow
+  # e2e/integration/terraform jobs run any tests -- see gopherstack-0bpp.
+  build-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          token: ${{ env.GH_CI_TOKEN }}
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          check-latest: true
+          cache: true
+
+      - name: Verify build with all tag combinations
+        run: make build-check
+
   modernize:
     runs-on: ubuntu-latest
     steps:
@@ -160,6 +179,7 @@ jobs:
         with:
           languages: ${{ matrix.language }}
           build-mode: 'autobuild'
+          config-file: ./.github/codeql/codeql-config.yml
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@5595ccaf912efad79be6eef63a5619ff05969be3 # v4
@@ -247,6 +267,7 @@ jobs:
 
   build:
     runs-on: ubuntu-latest
+    needs: [build-check]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -258,12 +279,6 @@ jobs:
           go-version-file: go.mod
           check-latest: true
           cache: true
-
-      - name: Verify build with all tag combinations
-        run: |
-          go build ./...
-          go build -tags e2e ./...
-          go build -tags integration ./...
 
       - name: Build static binary
         run: |
@@ -443,6 +458,7 @@ jobs:
 
   e2e-tests:
     runs-on: ubuntu-latest
+    needs: [build-check]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

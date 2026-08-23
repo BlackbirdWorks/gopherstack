@@ -43,6 +43,23 @@ func validateOIDCJWTConfig(cfg *OidcJwtConfiguration) error {
 	return nil
 }
 
+// validateOIDCJWTUpdateConfig validates an OIDC JWT trusted token issuer
+// update configuration when provided. Unlike validateOIDCJWTConfig, IssuerUrl
+// is never checked: types.OidcJwtUpdateConfiguration has no such member, and
+// every field it does have is optional for a partial update.
+func validateOIDCJWTUpdateConfig(cfg *OidcJwtUpdateConfiguration) error {
+	if cfg == nil {
+		return nil
+	}
+	if cfg.JwksRetrievalOption != nil && *cfg.JwksRetrievalOption != "" &&
+		*cfg.JwksRetrievalOption != jwksRetrievalOpenIDDiscovery {
+		return fmt.Errorf("%w: OidcJwtConfiguration.JwksRetrievalOption must be OPEN_ID_DISCOVERY",
+			awserr.ErrInvalidParameter)
+	}
+
+	return nil
+}
+
 // copyTrustedTokenIssuer returns a deep copy of a TrustedTokenIssuer. Must be called with mu held.
 func copyTrustedTokenIssuer(tti *TrustedTokenIssuer) *TrustedTokenIssuer {
 	cp := *tti
@@ -169,12 +186,19 @@ func (b *InMemoryBackend) ListTrustedTokenIssuers(instanceArn string) []*Trusted
 	return result
 }
 
-// UpdateTrustedTokenIssuer updates mutable trusted token issuer fields.
+// UpdateTrustedTokenIssuer updates mutable trusted token issuer fields. cfg
+// is types.TrustedTokenIssuerUpdateConfiguration's OIDC_JWT shape -- it has
+// no IssuerUrl member at all (immutable post-creation) and its remaining
+// three fields are independently-optional, so each is merged into the
+// stored OidcJwtConfiguration only when actually provided, rather than
+// replacing the stored configuration wholesale (gopherstack-c8ge: a real
+// client's Update payload can never even carry IssuerUrl, so wholesale
+// replacement previously wiped it on every config update).
 func (b *InMemoryBackend) UpdateTrustedTokenIssuer(
 	trustedTokenIssuerArn,
 	name,
 	issuerType string,
-	cfg *TrustedTokenIssuerConfiguration,
+	cfg *TrustedTokenIssuerUpdateConfiguration,
 ) (*TrustedTokenIssuer, error) {
 	b.mu.Lock("UpdateTrustedTokenIssuer")
 	defer b.mu.Unlock()
@@ -185,7 +209,7 @@ func (b *InMemoryBackend) UpdateTrustedTokenIssuer(
 		}
 	}
 	if cfg != nil {
-		if err := validateOIDCJWTConfig(cfg.OidcJwtConfiguration); err != nil {
+		if err := validateOIDCJWTUpdateConfig(cfg.OidcJwtConfiguration); err != nil {
 			return nil, err
 		}
 	}
@@ -200,9 +224,32 @@ func (b *InMemoryBackend) UpdateTrustedTokenIssuer(
 	if issuerType != "" {
 		issuer.TrustedTokenIssuerType = issuerType
 	}
-	if cfg != nil {
-		issuer.TrustedTokenIssuerConfiguration = cfg
+	if cfg != nil && cfg.OidcJwtConfiguration != nil {
+		if issuer.TrustedTokenIssuerConfiguration == nil {
+			issuer.TrustedTokenIssuerConfiguration = &TrustedTokenIssuerConfiguration{}
+		}
+		if issuer.TrustedTokenIssuerConfiguration.OidcJwtConfiguration == nil {
+			issuer.TrustedTokenIssuerConfiguration.OidcJwtConfiguration = &OidcJwtConfiguration{}
+		}
+		mergeOIDCJWTUpdateConfig(
+			issuer.TrustedTokenIssuerConfiguration.OidcJwtConfiguration,
+			cfg.OidcJwtConfiguration,
+		)
 	}
 
 	return copyTrustedTokenIssuer(issuer), nil
+}
+
+// mergeOIDCJWTUpdateConfig applies only the members upd actually carries onto
+// existing, leaving IssuerURL and any unmentioned field untouched.
+func mergeOIDCJWTUpdateConfig(existing *OidcJwtConfiguration, upd *OidcJwtUpdateConfiguration) {
+	if upd.ClaimAttributePath != nil {
+		existing.ClaimAttributePath = *upd.ClaimAttributePath
+	}
+	if upd.IdentityStoreAttributePath != nil {
+		existing.IdentityStoreAttributePath = *upd.IdentityStoreAttributePath
+	}
+	if upd.JwksRetrievalOption != nil {
+		existing.JwksRetrievalOption = *upd.JwksRetrievalOption
+	}
 }

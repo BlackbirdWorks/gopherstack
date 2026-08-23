@@ -1,6 +1,9 @@
 package iot
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 // StorageBackend defines the interface for the IoT control-plane backend.
 type StorageBackend interface {
@@ -133,7 +136,10 @@ type StorageBackend interface {
 	ListProvisioningTemplates() []*ProvisioningTemplate
 	UpdateProvisioningTemplate(name, description string, enabled *bool, provRoleARN string) error
 	DeleteProvisioningTemplate(name string) error
-	CreateProvisioningTemplateVersion(name, body string) (*ProvisioningTemplateVersion, error)
+	CreateProvisioningTemplateVersion(
+		name, body string,
+		setAsDefault bool,
+	) (*ProvisioningTemplateVersion, error)
 	ListProvisioningTemplateVersions(name string) ([]*ProvisioningTemplateVersion, error)
 	DeleteProvisioningTemplateVersion(name string, versionID int32) error
 
@@ -174,7 +180,11 @@ type StorageBackend interface {
 	SecurityProfileARN(name string) string
 
 	// Batch 2: CACertificate operations.
-	RegisterCACertificate(pem, status string, tags map[string]string) (*CACertificate, error)
+	RegisterCACertificate(
+		pem, status string,
+		tags map[string]string,
+		regConfig RegistrationConfig,
+	) (*CACertificate, error)
 	DescribeCACertificate(id string) (*CACertificate, error)
 	ListCACertificates() []*CACertificate
 	UpdateCACertificate(id, status string) error
@@ -262,6 +272,7 @@ type StorageBackend interface {
 	CreateIoTPackageVersion(
 		packageName, versionName, description string,
 		tags map[string]string,
+		opts CreateIoTPackageVersionOptions,
 	) (*IoTPackageVersion, error)
 	GetIoTPackageVersion(packageName, versionName string) (*IoTPackageVersion, error)
 	UpdateIoTPackageVersion(packageName, versionName, description, status string) error
@@ -308,7 +319,7 @@ type StorageBackend interface {
 	SetLoggingOptions(roleARN, logLevel string) error
 
 	// Batch 3: Provisioning claim.
-	CreateProvisioningClaim(templateName string) (string, string, string, error)
+	CreateProvisioningClaim(templateName string) (*Certificate, time.Time, string, string, error)
 
 	// Batch 3: Keys and certs.
 	CreateKeysAndCertificate(setAsActive bool) (*Certificate, string, string, error)

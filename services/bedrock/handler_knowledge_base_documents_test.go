@@ -32,7 +32,7 @@ func TestKBDocumentsCRUD(t *testing.T) {
 
 	var ib map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ib))
-	assert.Len(t, ib["documents"], 2)
+	assert.Len(t, ib["documentDetails"], 2)
 
 	// List documents: real ListKnowledgeBaseDocuments is POST to the same
 	// base path (not GET).
@@ -82,7 +82,7 @@ func TestKBDocumentsRealWireRouting(t *testing.T) {
 	var ingestResp map[string]any
 
 	require.NoError(t, json.Unmarshal(putRec.Body.Bytes(), &ingestResp))
-	require.Contains(t, ingestResp, "documents", "PUT response should carry Ingest's response shape")
+	require.Contains(t, ingestResp, "documentDetails", "PUT response should carry Ingest's response shape")
 
 	// A real ListKnowledgeBaseDocuments call is POST to the same base
 	// .../documents path and must return the previously-ingested document --
@@ -142,7 +142,7 @@ func TestAccuracy_KBDocuments_IngestWithBDAParsingStrategy(t *testing.T) {
 
 	var ingestBody map[string]any
 	require.NoError(t, json.Unmarshal(ingestRec.Body.Bytes(), &ingestBody))
-	docs := ingestBody["documents"].([]any)
+	docs := ingestBody["documentDetails"].([]any)
 	assert.Len(t, docs, 3)
 
 	// Verify documents are active

@@ -12,7 +12,7 @@ type listKafkaVersionsOutput struct {
 }
 
 type compatibleKafkaVersionsOutput struct {
-	CompatibleKafkaVersions []*MSKVersion `json:"compatibleKafkaVersions"`
+	CompatibleKafkaVersions []*CompatibleKafkaVersion `json:"compatibleKafkaVersions"`
 }
 
 type listNodesOutput struct {

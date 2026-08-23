@@ -313,11 +313,20 @@ type ImageSigningStatusResult struct {
 
 // ImageScanFinding is an image scan finding.
 type ImageScanFinding struct {
-	Attributes  map[string]string `json:"attributes,omitempty"`
-	Description string            `json:"description,omitempty"`
-	Name        string            `json:"name,omitempty"`
-	Severity    string            `json:"severity,omitempty"`
-	URI         string            `json:"uri,omitempty"`
+	Description string      `json:"description,omitempty"`
+	Name        string      `json:"name,omitempty"`
+	Severity    string      `json:"severity,omitempty"`
+	URI         string      `json:"uri,omitempty"`
+	Attributes  []Attribute `json:"attributes,omitempty"`
+}
+
+// Attribute is a real ECR wire type (types.go): a list of these, not a bare
+// map, is what ImageScanFinding.Attributes deserializes into
+// (awsAwsjson11_deserializeDocumentAttributeList) -- a raw map fails every
+// real SDK client's DescribeImageScanFindings decode outright.
+type Attribute struct {
+	Key   string `json:"key"`
+	Value string `json:"value,omitempty"`
 }
 
 // ImageScanFindingsResult stores scan findings for an image.

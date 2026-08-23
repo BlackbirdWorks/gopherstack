@@ -31,7 +31,13 @@ import (
 // leave the resource-policy revision counter silently at zero instead of
 // reflecting reality, so it must be discarded like any other
 // shape-incompatible snapshot rather than partially decoded.
-const bedrockagentSnapshotVersion = 2
+//
+// Bumped 2 -> 3 (gopherstack-hjdd) for 732c2bafa: AgentCollaborator.UpdatedAt
+// (a registered table's value type) was retagged from the wrong key
+// "updatedAt" to the real deserializer's "lastUpdatedAt". A Version-2
+// snapshot's "updatedAt" data is unrecognized by the new tag and would
+// silently decode as the zero time instead of the real value.
+const bedrockagentSnapshotVersion = 3
 
 // backendSnapshot is the top-level on-disk shape for the BedrockAgent
 // backend.

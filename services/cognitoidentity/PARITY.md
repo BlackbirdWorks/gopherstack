@@ -103,6 +103,73 @@ leaks: {status: clean, note: "no goroutines/janitors in this service; single loc
   backend.go) via `store.Table`/`store.Index`, with per-request region resolved from
   `X-Amz-Region`/SigV4 via `regionContextKey`. Verified consistent across all ops.
 
+## 2026-08-22 — gopherstack-jodk: SetIdentityPoolRoles rejected a legal empty Roles map
+
+Found via PR #2433's `terraform-tests (2)` CI shard, which reproduces against
+the real terraform AWS provider: `tofu destroy` on an
+`aws_cognito_identity_pool_roles_attachment` sends `SetIdentityPoolRoles`
+with a non-nil, zero-length `Roles` map to clear the association, and
+gopherstack rejected it with `InvalidParameterException: Roles must contain
+at least one of authenticated or unauthenticated`
+(`handler_identity_pool_roles.go:43`), so the destroy could never complete.
+Verified against the pinned SDK's own client-side validator
+(`cognitoidentity@v1.36.4/validators.go:929`,
+`validateOpSetIdentityPoolRolesInput`): it checks only `v.Roles == nil`,
+never its length, so a real client is free to send an empty-but-non-nil map.
+Fixed by replacing the `len(in.Roles) == 0` rejection with `in.Roles == nil`.
+The pre-existing partial-merge semantics in `identity_pool_roles.go`
+(omitted keys preserved, tested by `TestInMemoryBackend_SetIdentityPoolRoles_MergePreservesExistingRole`)
+were left untouched — out of this bug's scope.
+
+Not a regression: `handler_identity_pool_roles.go` has no commits since this
+branch's merge-base with `origin/main`. Proven with a real aws-sdk-go-v2
+client test (`sdk_set_identity_pool_roles_empty_test.go`) that reproduces
+the exact reported error verbatim against unfixed code and passes against
+the fix. This is gopherstack-4ly2's over-validation class, caught on a
+destroy path that a static validator-reading sweep does not reach.
+
+## 2026-08-21 pass — required-output-member sweep (gopherstack-r80d batch 27)
+
+Module confirmed as `aws-sdk-go-v2/service/cognitoidentity@v1.36.4` directly
+(no `dirModuleOverride` entry; the sibling `cognitoidp` directory resolves to
+the distinct `cognitoidentityprovider` module, not this one — checked
+against `go.mod` and the module cache before starting, since batch 24 nearly
+audited an already-settled near-name sibling for a different service).
+
+`cmd/requiredoutputfields` flags 9 required output fields across 3 ops
+(`CreateIdentityPool`/`DescribeIdentityPool`/`UpdateIdentityPool`, all
+sharing `identityPoolOutput`): `AllowUnauthenticatedIdentities` (`bool`,
+non-pointer, not provable), `IdentityPoolId`/`IdentityPoolName` (`*string`,
+both provable). Independently reproduced via a fresh `go/parser` AST walk
+(scratch tool, not committed) with zero disagreement against the CLI tool's
+own output.
+
+**Result: 0 bugs — clean.** All three required fields on
+`identityPoolOutput` (`handler_identity_pools.go`) carry no `omitempty` tag,
+so the wire key is emitted unconditionally regardless of value; the omission
+this bug class targets cannot occur here regardless of reachability.
+
+Looked one level deeper per the campaign's "look deeper" requirement: an AST
+walk over `types/types.go` found exactly 3 domain structs anywhere in this
+module carrying `This member is required.` members outside the 3 flagged
+ops — `RoleMapping.Type` (enum, not provable), `RulesConfigurationType.Rules`
+(`[]MappingRule`, provable), `MappingRule`'s own 4 members (all provable or
+enum) — all reachable only through `GetIdentityPoolRoles`/
+`SetIdentityPoolRoles` (0 required fields at the op level, hence invisible
+to the flat scan). Read `handler_identity_pool_roles.go` end to end:
+`roleMappingOutput.Type` and `rulesConfigurationOutput.Rules` both carry no
+`omitempty` either, so the same "always emitted" conclusion holds one level
+down too. Every other op's `*Output` struct (`GetCredentialsForIdentity`,
+`GetId`, `DescribeIdentity`, `ListIdentities`, `GetOpenIdToken`,
+`GetOpenIdTokenForDeveloperIdentity`, `LookupDeveloperIdentity`,
+`MergeDeveloperIdentities`, `DeleteIdentities`, `ListTagsForResource`) was
+confirmed to carry zero required members and reference no domain struct that
+does (`Credentials`, `IdentityDescription`, `UnprocessedIdentityId` — all
+declare zero required members in `types.go`).
+
+`last_audit_commit` left unchanged (agents in this sweep cannot run git);
+this pass found no bug to justify advancing it regardless.
+
 ## 2026-07-24 pass — error-taxonomy field-diff
 
 Prior passes field-diffed wire *shapes* thoroughly but never field-diffed the *error

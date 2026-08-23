@@ -139,7 +139,13 @@ func TestGetTemporaryDataLocationCredentials_Success(t *testing.T) {
 	assert.Equal(t, []any{"s3://my-bucket/path"}, out["AccessibleDataLocations"])
 }
 
-func TestGetTemporaryDataLocationCredentials_MissingDataLocations(t *testing.T) {
+// TestGetTemporaryDataLocationCredentials_DataLocationsOptional verifies a
+// request with no DataLocations succeeds. GetTemporaryDataLocationCredentialsInput
+// marks no member required (api_op_GetTemporaryDataLocationCredentials.go,
+// lakeformation@v1.50.4). A prior version of this test
+// (TestGetTemporaryDataLocationCredentials_MissingDataLocations) asserted a
+// 400 here, which was itself wrong: gopherstack-4ly2.
+func TestGetTemporaryDataLocationCredentials_DataLocationsOptional(t *testing.T) {
 	t.Parallel()
 
 	b := lakeformation.NewInMemoryBackend()
@@ -148,7 +154,11 @@ func TestGetTemporaryDataLocationCredentials_MissingDataLocations(t *testing.T) 
 	rec := postJSON(t, h, "/GetTemporaryDataLocationCredentials", map[string]any{
 		"DataLocations": []string{},
 	})
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out map[string]any
+	require.NoError(t, jsonDecode(rec.Body, &out))
+	require.NotNil(t, out["Credentials"])
 }
 
 func TestGetTemporaryGlueTableCredentials_MissingTableArn(t *testing.T) {

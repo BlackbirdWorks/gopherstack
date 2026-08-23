@@ -183,7 +183,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 		return c.JSON(
 			http.StatusBadRequest,
-			map[string]string{keyError: "unknown operation: " + op},
+			awsErrBody{errTypeInvalidRequest, "unknown operation: " + op},
 		)
 	}
 }
@@ -259,7 +259,7 @@ func (h *Handler) handleCreateThing(c *echo.Context) error {
 
 	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil &&
 		!errors.Is(err, io.EOF) {
-		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
+		return c.JSON(http.StatusBadRequest, awsErrBody{errTypeInvalidRequest, err.Error()})
 	}
 
 	out, err := h.Backend.CreateThing(&CreateThingInput{
@@ -335,7 +335,7 @@ func (h *Handler) handleAcceptCertificateTransfer(c *echo.Context) error {
 
 	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil &&
 		!errors.Is(err, io.EOF) {
-		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
+		return c.JSON(http.StatusBadRequest, awsErrBody{errTypeInvalidRequest, err.Error()})
 	}
 
 	if err := h.Backend.AcceptCertificateTransfer(&AcceptCertificateTransferInput{
@@ -440,7 +440,7 @@ func (h *Handler) handleUpdateThing(c *echo.Context) error {
 
 	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil &&
 		!errors.Is(err, io.EOF) {
-		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
+		return c.JSON(http.StatusBadRequest, awsErrBody{errTypeInvalidRequest, err.Error()})
 	}
 
 	body.ThingName = thingName

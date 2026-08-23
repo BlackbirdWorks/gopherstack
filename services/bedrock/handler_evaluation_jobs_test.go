@@ -192,37 +192,86 @@ func TestBatch1_EvaluationJob_ModelConfig_RoundTrip(t *testing.T) {
 
 	b := bedrock.NewInMemoryBackend("000000000000", "us-east-1")
 	opts := &bedrock.CreateEvaluationJobInput{
-		EvaluatorConfig: &bedrock.EvaluationModelConfig{
-			ModelIdentifier: "anthropic.claude-3-sonnet-20240229-v1:0",
-		},
-		InferenceConfig: &bedrock.EvaluationInferenceConfig{
-			Models: []bedrock.EvaluationInferenceModelConfig{
-				{ModelIdentifier: "amazon.titan-text-express-v1"},
+		EvaluationConfig: &bedrock.EvaluationConfig{
+			Automated: &bedrock.AutomatedEvaluationConfig{
+				EvaluatorModelConfig: &bedrock.EvaluatorModelConfig{
+					BedrockEvaluatorModels: []bedrock.EvaluatorModel{
+						{ModelIdentifier: "anthropic.claude-3-sonnet-20240229-v1:0"},
+					},
+				},
+				DatasetMetricConfigs: []bedrock.EvaluationDatasetMetricConfig{
+					{
+						TaskType:    "Summarization",
+						Dataset:     &bedrock.EvaluationDataset{Name: "squad-v2"},
+						MetricNames: []string{"Builtin.Rouge"},
+					},
+				},
 			},
 		},
-		EvalConfig: []bedrock.EvaluationTaskConfig{
-			{
-				TaskType: "Summarization",
-				Dataset:  &bedrock.EvaluationDataset{Name: "squad-v2"},
-				MetricNames: []bedrock.EvaluationMetricConfig{
-					{MetricName: "Builtin.Rouge"},
-				},
+		InferenceConfig: &bedrock.EvaluationInferenceConfig{
+			Models: []bedrock.EvaluationModelConfig{
+				{BedrockModel: &bedrock.EvaluationBedrockModel{ModelIdentifier: "amazon.titan-text-express-v1"}},
 			},
 		},
 	}
 
 	job, err := b.CreateEvaluationJob("model-eval-job", nil, opts)
 	require.NoError(t, err)
-	require.NotNil(t, job.EvaluatorConfig)
-	assert.Equal(t, "anthropic.claude-3-sonnet-20240229-v1:0", job.EvaluatorConfig.ModelIdentifier)
+	require.NotNil(t, job.EvaluationConfig)
+	require.NotNil(t, job.EvaluationConfig.Automated)
+	require.NotNil(t, job.EvaluationConfig.Automated.EvaluatorModelConfig)
+	require.Len(t, job.EvaluationConfig.Automated.EvaluatorModelConfig.BedrockEvaluatorModels, 1)
+	assert.Equal(t,
+		"anthropic.claude-3-sonnet-20240229-v1:0",
+		job.EvaluationConfig.Automated.EvaluatorModelConfig.BedrockEvaluatorModels[0].ModelIdentifier,
+	)
+	assert.Equal(t, "Automated", job.EvaluationConfig.JobType())
+
 	require.NotNil(t, job.InferenceConfig)
 	require.Len(t, job.InferenceConfig.Models, 1)
-	assert.Equal(t, "amazon.titan-text-express-v1", job.InferenceConfig.Models[0].ModelIdentifier)
-	require.Len(t, job.EvaluationConfig, 1)
-	assert.Equal(t, "Summarization", job.EvaluationConfig[0].TaskType)
-	assert.Equal(t, "squad-v2", job.EvaluationConfig[0].Dataset.Name)
-	assert.Len(t, job.EvaluationConfig[0].MetricNames, 1)
-	assert.Equal(t, "Builtin.Rouge", job.EvaluationConfig[0].MetricNames[0].MetricName)
+	require.NotNil(t, job.InferenceConfig.Models[0].BedrockModel)
+	assert.Equal(t, "amazon.titan-text-express-v1", job.InferenceConfig.Models[0].BedrockModel.ModelIdentifier)
+
+	require.Len(t, job.EvaluationConfig.Automated.DatasetMetricConfigs, 1)
+	assert.Equal(t, "Summarization", job.EvaluationConfig.Automated.DatasetMetricConfigs[0].TaskType)
+	assert.Equal(t, "squad-v2", job.EvaluationConfig.Automated.DatasetMetricConfigs[0].Dataset.Name)
+	assert.Equal(t, []string{"Builtin.Rouge"}, job.EvaluationConfig.Automated.DatasetMetricConfigs[0].MetricNames)
+}
+
+func TestBatch1_EvaluationJob_HumanConfig_RoundTrip(t *testing.T) {
+	t.Parallel()
+
+	b := bedrock.NewInMemoryBackend("000000000000", "us-east-1")
+	opts := &bedrock.CreateEvaluationJobInput{
+		EvaluationConfig: &bedrock.EvaluationConfig{
+			Human: &bedrock.HumanEvaluationConfig{
+				DatasetMetricConfigs: []bedrock.EvaluationDatasetMetricConfig{
+					{TaskType: "Generation", Dataset: &bedrock.EvaluationDataset{Name: "squad-v2"}},
+				},
+				HumanWorkflowConfig: &bedrock.HumanWorkflowConfig{
+					FlowDefinitionArn: "arn:aws:sagemaker:us-east-1:000000000000:flow-definition/eval",
+				},
+			},
+		},
+		InferenceConfig: &bedrock.EvaluationInferenceConfig{
+			Models: []bedrock.EvaluationModelConfig{
+				{BedrockModel: &bedrock.EvaluationBedrockModel{ModelIdentifier: "amazon.titan-text-express-v1"}},
+				{BedrockModel: &bedrock.EvaluationBedrockModel{ModelIdentifier: "anthropic.claude-v2"}},
+			},
+		},
+	}
+
+	job, err := b.CreateEvaluationJob("human-eval-job", nil, opts)
+	require.NoError(t, err)
+	require.NotNil(t, job.EvaluationConfig)
+	require.NotNil(t, job.EvaluationConfig.Human)
+	assert.Equal(t, "Human", job.EvaluationConfig.JobType())
+	require.NotNil(t, job.EvaluationConfig.Human.HumanWorkflowConfig)
+	assert.Equal(t,
+		"arn:aws:sagemaker:us-east-1:000000000000:flow-definition/eval",
+		job.EvaluationConfig.Human.HumanWorkflowConfig.FlowDefinitionArn,
+	)
+	require.Len(t, job.InferenceConfig.Models, 2)
 }
 
 func TestBatch1_EvaluationJob_RAGConfig_RoundTrip(t *testing.T) {
@@ -230,12 +279,18 @@ func TestBatch1_EvaluationJob_RAGConfig_RoundTrip(t *testing.T) {
 
 	b := bedrock.NewInMemoryBackend("000000000000", "us-east-1")
 	opts := &bedrock.CreateEvaluationJobInput{
-		EvaluatorConfig: &bedrock.EvaluationModelConfig{
-			ModelIdentifier: "anthropic.claude-v2",
+		EvaluationConfig: &bedrock.EvaluationConfig{
+			Automated: &bedrock.AutomatedEvaluationConfig{
+				EvaluatorModelConfig: &bedrock.EvaluatorModelConfig{
+					BedrockEvaluatorModels: []bedrock.EvaluatorModel{
+						{ModelIdentifier: "anthropic.claude-v2"},
+					},
+				},
+			},
 		},
 		InferenceConfig: &bedrock.EvaluationInferenceConfig{
-			RAG: &bedrock.EvaluationRAGConfig{
-				KnowledgeBaseID: "kb-0001",
+			RagConfigs: []bedrock.RAGConfig{
+				{KnowledgeBaseConfig: json.RawMessage(`{"retrieveConfig":{"knowledgeBaseId":"kb-0001"}}`)},
 			},
 		},
 	}
@@ -243,8 +298,11 @@ func TestBatch1_EvaluationJob_RAGConfig_RoundTrip(t *testing.T) {
 	job, err := b.CreateEvaluationJob("rag-eval-job", nil, opts)
 	require.NoError(t, err)
 	require.NotNil(t, job.InferenceConfig)
-	require.NotNil(t, job.InferenceConfig.RAG)
-	assert.Equal(t, "kb-0001", job.InferenceConfig.RAG.KnowledgeBaseID)
+	require.Len(t, job.InferenceConfig.RagConfigs, 1)
+	assert.JSONEq(t,
+		`{"retrieveConfig":{"knowledgeBaseId":"kb-0001"}}`,
+		string(job.InferenceConfig.RagConfigs[0].KnowledgeBaseConfig),
+	)
 }
 
 func TestBatch1_EvaluationJob_ModelConfig_ViaHTTP(t *testing.T) {
@@ -253,12 +311,18 @@ func TestBatch1_EvaluationJob_ModelConfig_ViaHTTP(t *testing.T) {
 	h := newTestHandler(t)
 	rec := doRequest(t, h, http.MethodPost, "/evaluation-jobs", map[string]any{
 		"jobName": "http-model-eval",
-		"evaluatorConfig": map[string]any{
-			"modelIdentifier": "anthropic.claude-3-sonnet-20240229-v1:0",
+		"evaluationConfig": map[string]any{
+			"automated": map[string]any{
+				"evaluatorModelConfig": map[string]any{
+					"bedrockEvaluatorModels": []map[string]any{
+						{"modelIdentifier": "anthropic.claude-3-sonnet-20240229-v1:0"},
+					},
+				},
+			},
 		},
 		"inferenceConfig": map[string]any{
 			"models": []map[string]any{
-				{"modelIdentifier": "amazon.titan-text-express-v1"},
+				{"bedrockModel": map[string]any{"modelIdentifier": "amazon.titan-text-express-v1"}},
 			},
 		},
 	})
@@ -276,14 +340,23 @@ func TestBatch1_EvaluationJob_ModelConfig_ViaHTTP(t *testing.T) {
 	mustUnmarshal(t, recGet, &getOut)
 	assert.Equal(t, jobARN, getOut["jobArn"])
 	assert.Equal(t, "InProgress", getOut["status"])
+	assert.Equal(t, "Automated", getOut["jobType"])
 
-	evaluatorConfig := getOut["evaluatorConfig"].(map[string]any)
-	assert.Equal(t, "anthropic.claude-3-sonnet-20240229-v1:0", evaluatorConfig["modelIdentifier"])
+	evaluationConfig := getOut["evaluationConfig"].(map[string]any)
+	automated := evaluationConfig["automated"].(map[string]any)
+	evaluatorModelConfig := automated["evaluatorModelConfig"].(map[string]any)
+	bedrockEvaluatorModels := evaluatorModelConfig["bedrockEvaluatorModels"].([]any)
+	require.Len(t, bedrockEvaluatorModels, 1)
+	assert.Equal(t,
+		"anthropic.claude-3-sonnet-20240229-v1:0",
+		bedrockEvaluatorModels[0].(map[string]any)["modelIdentifier"],
+	)
 
 	inferenceConfig := getOut["inferenceConfig"].(map[string]any)
 	models := inferenceConfig["models"].([]any)
 	require.Len(t, models, 1)
-	assert.Equal(t, "amazon.titan-text-express-v1", models[0].(map[string]any)["modelIdentifier"])
+	bedrockModel := models[0].(map[string]any)["bedrockModel"].(map[string]any)
+	assert.Equal(t, "amazon.titan-text-express-v1", bedrockModel["modelIdentifier"])
 }
 
 func TestBatch1_EvaluationJob_RAGConfig_ViaHTTP(t *testing.T) {
@@ -292,12 +365,20 @@ func TestBatch1_EvaluationJob_RAGConfig_ViaHTTP(t *testing.T) {
 	h := newTestHandler(t)
 	rec := doRequest(t, h, http.MethodPost, "/evaluation-jobs", map[string]any{
 		"jobName": "http-rag-eval",
-		"evaluatorConfig": map[string]any{
-			"modelIdentifier": "anthropic.claude-v2",
+		"evaluationConfig": map[string]any{
+			"automated": map[string]any{
+				"evaluatorModelConfig": map[string]any{
+					"bedrockEvaluatorModels": []map[string]any{
+						{"modelIdentifier": "anthropic.claude-v2"},
+					},
+				},
+			},
 		},
 		"inferenceConfig": map[string]any{
-			"ragConfig": map[string]any{
-				"knowledgeBaseId": "kb-test-001",
+			"ragConfigs": []map[string]any{
+				{"knowledgeBaseConfig": map[string]any{
+					"retrieveConfig": map[string]any{"knowledgeBaseId": "kb-test-001"},
+				}},
 			},
 		},
 		"jobDescription": "RAG evaluation test",
@@ -316,8 +397,11 @@ func TestBatch1_EvaluationJob_RAGConfig_ViaHTTP(t *testing.T) {
 	assert.Equal(t, "RAG evaluation test", getOut["jobDescription"])
 
 	inferenceConfig := getOut["inferenceConfig"].(map[string]any)
-	ragConfig := inferenceConfig["ragConfig"].(map[string]any)
-	assert.Equal(t, "kb-test-001", ragConfig["knowledgeBaseId"])
+	ragConfigs := inferenceConfig["ragConfigs"].([]any)
+	require.Len(t, ragConfigs, 1)
+	knowledgeBaseConfig := ragConfigs[0].(map[string]any)["knowledgeBaseConfig"].(map[string]any)
+	retrieveConfig := knowledgeBaseConfig["retrieveConfig"].(map[string]any)
+	assert.Equal(t, "kb-test-001", retrieveConfig["knowledgeBaseId"])
 }
 
 func TestBatch1_EvaluationJob_WithEvalConfig_ViaHTTP(t *testing.T) {
@@ -326,27 +410,25 @@ func TestBatch1_EvaluationJob_WithEvalConfig_ViaHTTP(t *testing.T) {
 	h := newTestHandler(t)
 	rec := doRequest(t, h, http.MethodPost, "/evaluation-jobs", map[string]any{
 		"jobName": "http-full-eval",
-		"evaluatorConfig": map[string]any{
-			"modelIdentifier": "anthropic.claude-v2",
+		"evaluationConfig": map[string]any{
+			"automated": map[string]any{
+				"datasetMetricConfigs": []map[string]any{
+					{
+						"taskType": "QuestionAndAnswer",
+						"dataset": map[string]any{
+							"name": "my-qa-dataset",
+							"datasetLocation": map[string]any{
+								"s3Uri": "s3://my-bucket/qa-data",
+							},
+						},
+						"metricNames": []string{"Builtin.Accuracy", "Builtin.Robustness"},
+					},
+				},
+			},
 		},
 		"inferenceConfig": map[string]any{
 			"models": []map[string]any{
-				{"modelIdentifier": "meta.llama3-8b-instruct-v1:0"},
-			},
-		},
-		"evaluationConfig": []map[string]any{
-			{
-				"taskType": "QuestionAndAnswer",
-				"dataset": map[string]any{
-					"name": "my-qa-dataset",
-					"datasetLocation": map[string]any{
-						"s3Uri": "s3://my-bucket/qa-data",
-					},
-				},
-				"metricNames": []map[string]any{
-					{"metricName": "Builtin.Accuracy"},
-					{"metricName": "Builtin.Robustness"},
-				},
+				{"bedrockModel": map[string]any{"modelIdentifier": "meta.llama3-8b-instruct-v1:0"}},
 			},
 		},
 	})
@@ -362,9 +444,11 @@ func TestBatch1_EvaluationJob_WithEvalConfig_ViaHTTP(t *testing.T) {
 	var getOut map[string]any
 	mustUnmarshal(t, recGet, &getOut)
 
-	evalConfigs := getOut["evaluationConfig"].([]any)
-	require.Len(t, evalConfigs, 1)
-	ec := evalConfigs[0].(map[string]any)
+	evaluationConfig := getOut["evaluationConfig"].(map[string]any)
+	automated := evaluationConfig["automated"].(map[string]any)
+	datasetMetricConfigs := automated["datasetMetricConfigs"].([]any)
+	require.Len(t, datasetMetricConfigs, 1)
+	ec := datasetMetricConfigs[0].(map[string]any)
 	assert.Equal(t, "QuestionAndAnswer", ec["taskType"])
 	dataset := ec["dataset"].(map[string]any)
 	assert.Equal(t, "my-qa-dataset", dataset["name"])
@@ -479,7 +563,7 @@ func TestAccuracy_EvaluationJob_GetNotFound(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
 
-func TestAccuracy_EvaluationJob_EvaluatorConfigPreserved(t *testing.T) {
+func TestAccuracy_EvaluationJob_EvaluatorModelConfigPreserved(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -498,8 +582,14 @@ func TestAccuracy_EvaluationJob_EvaluatorConfigPreserved(t *testing.T) {
 			rec := doRequest(t, h, http.MethodPost, "/evaluation-jobs", map[string]any{
 				"jobName": tt.name,
 				"roleArn": "arn:aws:iam::000000000000:role/eval-role",
-				"evaluatorConfig": map[string]any{
-					"modelIdentifier": tt.evaluatorModel,
+				"evaluationConfig": map[string]any{
+					"automated": map[string]any{
+						"evaluatorModelConfig": map[string]any{
+							"bedrockEvaluatorModels": []map[string]any{
+								{"modelIdentifier": tt.evaluatorModel},
+							},
+						},
+					},
 				},
 			})
 			require.Equal(t, http.StatusCreated, rec.Code)
@@ -514,8 +604,12 @@ func TestAccuracy_EvaluationJob_EvaluatorConfigPreserved(t *testing.T) {
 			var getOut map[string]any
 			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut))
 
-			evaluatorCfg := getOut["evaluatorConfig"].(map[string]any)
-			assert.Equal(t, tt.evaluatorModel, evaluatorCfg["modelIdentifier"])
+			automated := getOut["evaluationConfig"].(map[string]any)["automated"].(map[string]any)
+			evaluatorModelConfig := automated["evaluatorModelConfig"].(map[string]any)
+			bedrockEvaluatorModels := evaluatorModelConfig["bedrockEvaluatorModels"].([]any)
+			require.Len(t, bedrockEvaluatorModels, 1)
+			assert.Equal(t, tt.evaluatorModel, bedrockEvaluatorModels[0].(map[string]any)["modelIdentifier"])
+			assert.Equal(t, "Automated", getOut["jobType"])
 		})
 	}
 }
@@ -529,8 +623,8 @@ func TestAccuracy_EvaluationJob_InferenceModelsPreserved(t *testing.T) {
 		"roleArn": "arn:aws:iam::000000000000:role/eval-role",
 		"inferenceConfig": map[string]any{
 			"models": []map[string]any{
-				{"modelIdentifier": "amazon.titan-text-express-v1"},
-				{"modelIdentifier": "anthropic.claude-v2"},
+				{"bedrockModel": map[string]any{"modelIdentifier": "amazon.titan-text-express-v1"}},
+				{"bedrockModel": map[string]any{"modelIdentifier": "anthropic.claude-v2"}},
 			},
 		},
 	})
@@ -559,8 +653,10 @@ func TestAccuracy_EvaluationJob_RAGConfigPreserved(t *testing.T) {
 		"jobName": "rag-eval-job",
 		"roleArn": "arn:aws:iam::000000000000:role/eval-role",
 		"inferenceConfig": map[string]any{
-			"ragConfig": map[string]any{
-				"knowledgeBaseId": "kb-abc123",
+			"ragConfigs": []map[string]any{
+				{"knowledgeBaseConfig": map[string]any{
+					"retrieveConfig": map[string]any{"knowledgeBaseId": "kb-abc123"},
+				}},
 			},
 		},
 	})
@@ -577,8 +673,11 @@ func TestAccuracy_EvaluationJob_RAGConfigPreserved(t *testing.T) {
 	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut))
 
 	inferCfg := getOut["inferenceConfig"].(map[string]any)
-	ragCfg := inferCfg["ragConfig"].(map[string]any)
-	assert.Equal(t, "kb-abc123", ragCfg["knowledgeBaseId"])
+	ragConfigs := inferCfg["ragConfigs"].([]any)
+	require.Len(t, ragConfigs, 1)
+	knowledgeBaseConfig := ragConfigs[0].(map[string]any)["knowledgeBaseConfig"].(map[string]any)
+	retrieveConfig := knowledgeBaseConfig["retrieveConfig"].(map[string]any)
+	assert.Equal(t, "kb-abc123", retrieveConfig["knowledgeBaseId"])
 }
 
 func TestAccuracy_EvaluationJob_EvalTaskConfigPreserved(t *testing.T) {
@@ -588,18 +687,19 @@ func TestAccuracy_EvaluationJob_EvalTaskConfigPreserved(t *testing.T) {
 	rec := doRequest(t, h, http.MethodPost, "/evaluation-jobs", map[string]any{
 		"jobName": "eval-config-job",
 		"roleArn": "arn:aws:iam::000000000000:role/eval-role",
-		"evaluationConfig": []map[string]any{
-			{
-				"taskType": "GENERAL",
-				"dataset": map[string]any{
-					"name": "test-dataset",
-					"datasetLocation": map[string]any{
-						"s3Uri": "s3://my-bucket/eval-data/",
+		"evaluationConfig": map[string]any{
+			"automated": map[string]any{
+				"datasetMetricConfigs": []map[string]any{
+					{
+						"taskType": "Generation",
+						"dataset": map[string]any{
+							"name": "test-dataset",
+							"datasetLocation": map[string]any{
+								"s3Uri": "s3://my-bucket/eval-data/",
+							},
+						},
+						"metricNames": []string{"Builtin.Accuracy", "Builtin.Robustness"},
 					},
-				},
-				"metricNames": []map[string]any{
-					{"metricName": "Builtin.Accuracy"},
-					{"metricName": "Builtin.Robustness"},
 				},
 			},
 		},
@@ -616,10 +716,11 @@ func TestAccuracy_EvaluationJob_EvalTaskConfigPreserved(t *testing.T) {
 	var getOut map[string]any
 	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut))
 
-	evalCfg := getOut["evaluationConfig"].([]any)
-	require.Len(t, evalCfg, 1)
-	task := evalCfg[0].(map[string]any)
-	assert.Equal(t, "GENERAL", task["taskType"])
+	automated := getOut["evaluationConfig"].(map[string]any)["automated"].(map[string]any)
+	datasetMetricConfigs := automated["datasetMetricConfigs"].([]any)
+	require.Len(t, datasetMetricConfigs, 1)
+	task := datasetMetricConfigs[0].(map[string]any)
+	assert.Equal(t, "Generation", task["taskType"])
 	metrics := task["metricNames"].([]any)
 	assert.Len(t, metrics, 2)
 }

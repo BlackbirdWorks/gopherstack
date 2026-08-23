@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"slices"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -25,26 +25,28 @@ var (
 )
 
 type NotebookInstance struct {
-	CreationTime               time.Time         `json:"CreationTime"`
-	LastModifiedTime           time.Time         `json:"LastModifiedTime"`
-	Tags                       map[string]string `json:"Tags,omitempty"`
-	RootAccess                 string            `json:"RootAccess,omitempty"`
-	KmsKeyID                   string            `json:"KmsKeyId,omitempty"`
-	URL                        string            `json:"Url,omitempty"`
-	NotebookInstanceName       string            `json:"NotebookInstanceName"`
-	NotebookInstanceArn        string            `json:"NotebookInstanceArn"`
-	NotebookInstanceStatus     string            `json:"NotebookInstanceStatus"`
-	InstanceType               string            `json:"InstanceType,omitempty"`
-	RoleArn                    string            `json:"RoleArn,omitempty"`
-	SubnetID                   string            `json:"SubnetId,omitempty"`
-	PlatformIdentifier         string            `json:"PlatformIdentifier,omitempty"`
-	LifecycleConfigName        string            `json:"NotebookInstanceLifecycleConfigName,omitempty"`
-	DirectInternetAccess       string            `json:"DirectInternetAccess,omitempty"`
-	DefaultCodeRepository      string            `json:"DefaultCodeRepository,omitempty"`
-	SecurityGroupIDs           []string          `json:"SecurityGroupIds,omitempty"`
-	AcceleratorTypes           []string          `json:"AcceleratorTypes,omitempty"`
-	AdditionalCodeRepositories []string          `json:"AdditionalCodeRepositories,omitempty"`
-	VolumeSizeInGB             int32             `json:"VolumeSizeInGB,omitempty"`
+	CreationTime                          time.Time         `json:"CreationTime"`
+	LastModifiedTime                      time.Time         `json:"LastModifiedTime"`
+	Tags                                  map[string]string `json:"Tags,omitempty"`
+	RootAccess                            string            `json:"RootAccess,omitempty"`
+	KmsKeyID                              string            `json:"KmsKeyId,omitempty"`
+	URL                                   string            `json:"Url,omitempty"`
+	NotebookInstanceName                  string            `json:"NotebookInstanceName"`
+	NotebookInstanceArn                   string            `json:"NotebookInstanceArn"`
+	NotebookInstanceStatus                string            `json:"NotebookInstanceStatus"`
+	InstanceType                          string            `json:"InstanceType,omitempty"`
+	RoleArn                               string            `json:"RoleArn,omitempty"`
+	SubnetID                              string            `json:"SubnetId,omitempty"`
+	PlatformIdentifier                    string            `json:"PlatformIdentifier,omitempty"`
+	LifecycleConfigName                   string            `json:"NotebookInstanceLifecycleConfigName,omitempty"`
+	DirectInternetAccess                  string            `json:"DirectInternetAccess,omitempty"`
+	DefaultCodeRepository                 string            `json:"DefaultCodeRepository,omitempty"`
+	IPAddressType                         string            `json:"IpAddressType,omitempty"`
+	MinimumInstanceMetadataServiceVersion string            `json:"MinimumInstanceMetadataServiceVersion,omitempty"`
+	SecurityGroupIDs                      []string          `json:"SecurityGroupIds,omitempty"`
+	AcceleratorTypes                      []string          `json:"AcceleratorTypes,omitempty"`
+	AdditionalCodeRepositories            []string          `json:"AdditionalCodeRepositories,omitempty"`
+	VolumeSizeInGB                        int32             `json:"VolumeSizeInGB,omitempty"`
 }
 
 // cloneNotebook returns a deep copy of nb.
@@ -100,6 +102,7 @@ func (b *InMemoryBackend) CreateNotebookInstance(
 	nb := &NotebookInstance{
 		NotebookInstanceName:   name,
 		NotebookInstanceArn:    nbARN,
+		URL:                    notebookInstanceURL(nbARN),
 		NotebookInstanceStatus: notebookStatusPending,
 		InstanceType:           instanceType,
 		RoleArn:                roleArn,
@@ -128,20 +131,33 @@ func (b *InMemoryBackend) DescribeNotebookInstance(ctx context.Context, name str
 	return cloneNotebook(nb), nil
 }
 
-// ListNotebookInstancesFilter narrows ListNotebookInstances results.
-// Empty fields are treated as wildcards.
-type ListNotebookInstancesFilter struct {
-	StatusEquals string
-	NameContains string
+// ListNotebookInstancesParams bundles ListNotebookInstances' filter/sort/
+// pagination criteria (api_op_ListNotebookInstances.go:31-90,
+// sagemaker@v1.263.2). Empty/nil fields are treated as wildcards.
+type ListNotebookInstancesParams struct {
+	CreationTimeAfter                           *time.Time
+	CreationTimeBefore                          *time.Time
+	LastModifiedTimeAfter                       *time.Time
+	LastModifiedTimeBefore                      *time.Time
+	StatusEquals                                string
+	NameContains                                string
+	AdditionalCodeRepositoryEquals              string
+	DefaultCodeRepositoryContains               string
+	NotebookInstanceLifecycleConfigNameContains string
+	NextToken                                   string
+	SortBy                                      string
+	SortOrder                                   string
+	MaxResults                                  int32
 }
 
-// ListNotebookInstances returns notebook instances sorted by name with optional pagination
-// and AWS-style filters: StatusEquals (exact, case-insensitive) and NameContains
-// (substring, case-insensitive).
+// ListNotebookInstances returns notebook instances matching params, sorted by
+// params.SortBy (default Name, per api_op_ListNotebookInstances.go:80) /
+// params.SortOrder (no default documented, Ascending kept as the disclosed
+// fallback per this campaign's ListHubs/ListPipelines precedent), capped at
+// params.MaxResults.
 func (b *InMemoryBackend) ListNotebookInstances(
 	ctx context.Context,
-	nextToken string,
-	filter ListNotebookInstancesFilter,
+	params ListNotebookInstancesParams,
 ) ([]*NotebookInstance, string) {
 	b.mu.RLock("ListNotebookInstances")
 	defer b.mu.RUnlock()
@@ -151,48 +167,103 @@ func (b *InMemoryBackend) ListNotebookInstances(
 	store := b.notebooksStoreRO(region)
 	list := make([]*NotebookInstance, 0, store.Len())
 	for _, nb := range store.All() {
-		if !matchesNotebookFilter(nb, filter) {
+		if !matchesNotebookParams(nb, params) {
 			continue
 		}
 
 		list = append(list, cloneNotebook(nb))
 	}
 
+	desc := strings.EqualFold(params.SortOrder, sortOrderDescending)
 	sort.Slice(list, func(i, j int) bool {
-		return list[i].NotebookInstanceName < list[j].NotebookInstanceName
+		less := notebookInstanceSortLess(list[i], list[j], params.SortBy)
+		if desc {
+			return !less
+		}
+
+		return less
 	})
 
-	startIdx := parseNextToken(nextToken)
-	if startIdx >= len(list) {
-		return []*NotebookInstance{}, ""
-	}
-
-	end := startIdx + sagemakerDefaultPageSize
-	var outToken string
-	if end < len(list) {
-		outToken = strconv.Itoa(end)
-	} else {
-		end = len(list)
-	}
-
-	return list[startIdx:end], outToken
+	return paginateSlice(list, params.NextToken, params.MaxResults)
 }
 
-// matchesNotebookFilter reports whether nb satisfies the provided filter.
-func matchesNotebookFilter(nb *NotebookInstance, f ListNotebookInstancesFilter) bool {
-	if f.StatusEquals != "" && !strings.EqualFold(nb.NotebookInstanceStatus, f.StatusEquals) {
+// matchesNotebookParams reports whether nb satisfies every filter in params.
+func matchesNotebookParams(nb *NotebookInstance, p ListNotebookInstancesParams) bool {
+	return matchesNotebookStringFilters(nb, p) && matchesNotebookTimeWindows(nb, p)
+}
+
+// matchesNotebookStringFilters checks every string-valued filter in params.
+func matchesNotebookStringFilters(nb *NotebookInstance, p ListNotebookInstancesParams) bool {
+	if p.StatusEquals != "" && !strings.EqualFold(nb.NotebookInstanceStatus, p.StatusEquals) {
 		return false
 	}
 
-	if f.NameContains != "" &&
-		!strings.Contains(
-			strings.ToLower(nb.NotebookInstanceName),
-			strings.ToLower(f.NameContains),
-		) {
+	if p.NameContains != "" &&
+		!strings.Contains(strings.ToLower(nb.NotebookInstanceName), strings.ToLower(p.NameContains)) {
+		return false
+	}
+
+	if p.AdditionalCodeRepositoryEquals != "" &&
+		!slices.Contains(nb.AdditionalCodeRepositories, p.AdditionalCodeRepositoryEquals) {
+		return false
+	}
+
+	if p.DefaultCodeRepositoryContains != "" &&
+		!strings.Contains(nb.DefaultCodeRepository, p.DefaultCodeRepositoryContains) {
+		return false
+	}
+
+	if p.NotebookInstanceLifecycleConfigNameContains != "" &&
+		!strings.Contains(nb.LifecycleConfigName, p.NotebookInstanceLifecycleConfigNameContains) {
 		return false
 	}
 
 	return true
+}
+
+// matchesNotebookTimeWindows checks the creation/last-modified time-window
+// filters in params.
+func matchesNotebookTimeWindows(nb *NotebookInstance, p ListNotebookInstancesParams) bool {
+	if p.CreationTimeAfter != nil && !nb.CreationTime.After(*p.CreationTimeAfter) {
+		return false
+	}
+
+	if p.CreationTimeBefore != nil && !nb.CreationTime.Before(*p.CreationTimeBefore) {
+		return false
+	}
+
+	if p.LastModifiedTimeAfter != nil && !nb.LastModifiedTime.After(*p.LastModifiedTimeAfter) {
+		return false
+	}
+
+	if p.LastModifiedTimeBefore != nil && !nb.LastModifiedTime.Before(*p.LastModifiedTimeBefore) {
+		return false
+	}
+
+	return true
+}
+
+// notebookInstanceSortLess orders two notebook instances by sortBy — one of
+// NotebookInstanceSortKey's real values (Name, CreationTime, Status;
+// types/enums.go:6492-6498) — falling through to the name tiebreak for a
+// stable order.
+func notebookInstanceSortLess(a, b *NotebookInstance, sortBy string) bool {
+	switch sortBy {
+	case "CreationTime":
+		if !a.CreationTime.Equal(b.CreationTime) {
+			return a.CreationTime.Before(b.CreationTime)
+		}
+	case keyStatus:
+		if a.NotebookInstanceStatus != b.NotebookInstanceStatus {
+			return a.NotebookInstanceStatus < b.NotebookInstanceStatus
+		}
+	default:
+		if a.NotebookInstanceName != b.NotebookInstanceName {
+			return a.NotebookInstanceName < b.NotebookInstanceName
+		}
+	}
+
+	return a.NotebookInstanceName < b.NotebookInstanceName
 }
 
 // DeleteNotebookInstance removes a notebook instance from the backend.
@@ -271,6 +342,14 @@ func (b *InMemoryBackend) UpdateNotebookInstance(ctx context.Context, name, inst
 	return nil
 }
 
+// notebookInstanceURL builds the stable (non-presigned) Jupyter URL reported
+// by DescribeNotebookInstance/NotebookInstanceSummary's Url field, and shared
+// by CreatePresignedNotebookInstanceURL as the base it would otherwise
+// presign.
+func notebookInstanceURL(nbARN string) string {
+	return "https://" + nbARN + ".notebook.sagemaker.aws/lab"
+}
+
 // CreatePresignedNotebookInstanceURL returns a presigned URL for a notebook instance.
 func (b *InMemoryBackend) CreatePresignedNotebookInstanceURL(ctx context.Context, name string) (string, error) {
 	b.mu.RLock("CreatePresignedNotebookInstanceURL")
@@ -283,9 +362,7 @@ func (b *InMemoryBackend) CreatePresignedNotebookInstanceURL(ctx context.Context
 		return "", fmt.Errorf("%w: notebook instance %q not found", ErrNotebookNotFound, name)
 	}
 
-	url := "https://" + nb.NotebookInstanceArn + ".notebook.sagemaker.aws/lab"
-
-	return url, nil
+	return notebookInstanceURL(nb.NotebookInstanceArn), nil
 }
 
 // ---------------------------------------------------------------------------
@@ -437,18 +514,107 @@ func (b *InMemoryBackend) DeleteNotebookInstanceLifecycleConfig(ctx context.Cont
 	return nil
 }
 
-// ListNotebookInstanceLifecycleConfigs returns lifecycle configs sorted by name.
+// ListNotebookInstanceLifecycleConfigsParams bundles
+// ListNotebookInstanceLifecycleConfigs' filter/sort/pagination criteria
+// (api_op_ListNotebookInstanceLifecycleConfigs.go:32-69, sagemaker@v1.263.2).
+type ListNotebookInstanceLifecycleConfigsParams struct {
+	CreationTimeAfter      *time.Time
+	CreationTimeBefore     *time.Time
+	LastModifiedTimeAfter  *time.Time
+	LastModifiedTimeBefore *time.Time
+	NameContains           string
+	NextToken              string
+	SortBy                 string
+	SortOrder              string
+	MaxResults             int32
+}
+
+// ListNotebookInstanceLifecycleConfigs returns lifecycle configs matching
+// params, sorted by params.SortBy (default CreationTime, per
+// api_op_ListNotebookInstanceLifecycleConfigs.go:62) / params.SortOrder (no
+// default documented, Ascending kept as the disclosed fallback), capped at
+// params.MaxResults.
 func (b *InMemoryBackend) ListNotebookInstanceLifecycleConfigs(
 	ctx context.Context,
-	nextToken string,
+	params ListNotebookInstanceLifecycleConfigsParams,
 ) ([]*NotebookInstanceLifecycleConfig, string) {
 	b.mu.RLock("ListNotebookInstanceLifecycleConfigs")
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
 
-	return sagemakerListPaged(b.notebookLifecycleConfigsStoreRO(region), nextToken, cloneNotebookLifecycleConfig,
-		func(a, b *NotebookInstanceLifecycleConfig) bool { return a.Name < b.Name })
+	store := b.notebookLifecycleConfigsStoreRO(region)
+	list := make([]*NotebookInstanceLifecycleConfig, 0, store.Len())
+	for _, lc := range store.All() {
+		if !matchesLifecycleConfigParams(lc, params) {
+			continue
+		}
+
+		list = append(list, cloneNotebookLifecycleConfig(lc))
+	}
+
+	desc := strings.EqualFold(params.SortOrder, sortOrderDescending)
+	sort.Slice(list, func(i, j int) bool {
+		less := lifecycleConfigSortLess(list[i], list[j], params.SortBy)
+		if desc {
+			return !less
+		}
+
+		return less
+	})
+
+	return paginateSlice(list, params.NextToken, params.MaxResults)
+}
+
+// matchesLifecycleConfigParams reports whether lc satisfies every filter in params.
+func matchesLifecycleConfigParams(
+	lc *NotebookInstanceLifecycleConfig,
+	p ListNotebookInstanceLifecycleConfigsParams,
+) bool {
+	if p.NameContains != "" && !strings.Contains(lc.Name, p.NameContains) {
+		return false
+	}
+
+	if p.CreationTimeAfter != nil && !lc.CreationTime.After(*p.CreationTimeAfter) {
+		return false
+	}
+
+	if p.CreationTimeBefore != nil && !lc.CreationTime.Before(*p.CreationTimeBefore) {
+		return false
+	}
+
+	if p.LastModifiedTimeAfter != nil && !lc.LastModifiedTime.After(*p.LastModifiedTimeAfter) {
+		return false
+	}
+
+	if p.LastModifiedTimeBefore != nil && !lc.LastModifiedTime.Before(*p.LastModifiedTimeBefore) {
+		return false
+	}
+
+	return true
+}
+
+// lifecycleConfigSortLess orders two lifecycle configs by sortBy — one of
+// NotebookInstanceLifecycleConfigSortKey's real values (Name, CreationTime,
+// LastModifiedTime; types/enums.go:6450-6456) — falling through to the name
+// tiebreak for a stable order.
+func lifecycleConfigSortLess(a, b *NotebookInstanceLifecycleConfig, sortBy string) bool {
+	switch sortBy {
+	case keyGenericName:
+		if a.Name != b.Name {
+			return a.Name < b.Name
+		}
+	case keyLastModifiedTime:
+		if !a.LastModifiedTime.Equal(b.LastModifiedTime) {
+			return a.LastModifiedTime.Before(b.LastModifiedTime)
+		}
+	default:
+		if !a.CreationTime.Equal(b.CreationTime) {
+			return a.CreationTime.Before(b.CreationTime)
+		}
+	}
+
+	return a.Name < b.Name
 }
 
 // ---------------------------------------------------------------------------
@@ -576,6 +742,17 @@ func (b *InMemoryBackend) UpdateNotebookInstanceFull(
 		)
 	}
 
+	applyNotebookUpdateOptions(nb, opts)
+	nb.LastModifiedTime = time.Now()
+
+	return nil
+}
+
+// applyNotebookUpdateOptions mutates nb in place per opts, following
+// UpdateNotebookInstanceInput's own semantics: a Disassociate* flag clears
+// its field, otherwise a non-empty/non-nil value replaces it and a
+// zero-value one leaves the existing field unchanged.
+func applyNotebookUpdateOptions(nb *NotebookInstance, opts NotebookUpdateOptions) {
 	if opts.InstanceType != "" {
 		nb.InstanceType = opts.InstanceType
 	}
@@ -603,10 +780,18 @@ func (b *InMemoryBackend) UpdateNotebookInstanceFull(
 	if opts.DisassociateAdditionalCodeRepositories {
 		nb.AdditionalCodeRepositories = nil
 	}
-
-	nb.LastModifiedTime = time.Now()
-
-	return nil
+	if opts.PlatformIdentifier != "" {
+		nb.PlatformIdentifier = opts.PlatformIdentifier
+	}
+	if opts.RootAccess != "" {
+		nb.RootAccess = opts.RootAccess
+	}
+	if opts.IPAddressType != "" {
+		nb.IPAddressType = opts.IPAddressType
+	}
+	if opts.MinimumInstanceMetadataServiceVersion != "" {
+		nb.MinimumInstanceMetadataServiceVersion = opts.MinimumInstanceMetadataServiceVersion
+	}
 }
 
 // NotebookUpdateOptions holds mutable fields for UpdateNotebookInstance.
@@ -615,6 +800,10 @@ type NotebookUpdateOptions struct {
 	RoleArn                                string
 	LifecycleConfigName                    string
 	DefaultCodeRepository                  string
+	PlatformIdentifier                     string
+	RootAccess                             string
+	IPAddressType                          string
+	MinimumInstanceMetadataServiceVersion  string
 	AdditionalCodeRepositories             []string
 	VolumeSizeInGB                         int32
 	DisassociateLifecycleConfig            bool
@@ -628,21 +817,23 @@ type NotebookUpdateOptions struct {
 
 // NotebookInstanceOptions holds all CreateNotebookInstance request fields.
 type NotebookInstanceOptions struct {
-	Tags                       map[string]string `json:"Tags,omitempty"`
-	SubnetID                   string            `json:"SubnetId,omitempty"`
-	LifecycleConfigName        string            `json:"LifecycleConfigName,omitempty"`
-	Name                       string            `json:"NotebookInstanceName"`
-	InstanceType               string            `json:"InstanceType"`
-	RoleArn                    string            `json:"RoleArn"`
-	RootAccess                 string            `json:"RootAccess,omitempty"`
-	KmsKeyID                   string            `json:"KmsKeyId,omitempty"`
-	DirectInternetAccess       string            `json:"DirectInternetAccess,omitempty"`
-	DefaultCodeRepository      string            `json:"DefaultCodeRepository,omitempty"`
-	PlatformIdentifier         string            `json:"PlatformIdentifier,omitempty"`
-	AcceleratorTypes           []string          `json:"AcceleratorTypes,omitempty"`
-	AdditionalCodeRepositories []string          `json:"AdditionalCodeRepositories,omitempty"`
-	SecurityGroupIDs           []string          `json:"SecurityGroupIds,omitempty"`
-	VolumeSizeInGB             int32             `json:"VolumeSizeInGB,omitempty"`
+	Tags                                  map[string]string `json:"Tags,omitempty"`
+	SubnetID                              string            `json:"SubnetId,omitempty"`
+	LifecycleConfigName                   string            `json:"LifecycleConfigName,omitempty"`
+	Name                                  string            `json:"NotebookInstanceName"`
+	InstanceType                          string            `json:"InstanceType"`
+	RoleArn                               string            `json:"RoleArn"`
+	RootAccess                            string            `json:"RootAccess,omitempty"`
+	KmsKeyID                              string            `json:"KmsKeyId,omitempty"`
+	DirectInternetAccess                  string            `json:"DirectInternetAccess,omitempty"`
+	DefaultCodeRepository                 string            `json:"DefaultCodeRepository,omitempty"`
+	PlatformIdentifier                    string            `json:"PlatformIdentifier,omitempty"`
+	IPAddressType                         string            `json:"IpAddressType,omitempty"`
+	MinimumInstanceMetadataServiceVersion string            `json:"MinimumInstanceMetadataServiceVersion,omitempty"`
+	AcceleratorTypes                      []string          `json:"AcceleratorTypes,omitempty"`
+	AdditionalCodeRepositories            []string          `json:"AdditionalCodeRepositories,omitempty"`
+	SecurityGroupIDs                      []string          `json:"SecurityGroupIds,omitempty"`
+	VolumeSizeInGB                        int32             `json:"VolumeSizeInGB,omitempty"`
 }
 
 // CreateNotebookInstanceFull persists all NotebookInstanceOptions fields.
@@ -676,25 +867,28 @@ func (b *InMemoryBackend) CreateNotebookInstanceFull(
 	nbARN := arn.Build("sagemaker", region, b.accountID, "notebook-instance/"+opts.Name)
 	now := time.Now()
 	nb := &NotebookInstance{
-		NotebookInstanceName:       opts.Name,
-		NotebookInstanceArn:        nbARN,
-		NotebookInstanceStatus:     "Pending",
-		InstanceType:               opts.InstanceType,
-		RoleArn:                    opts.RoleArn,
-		SubnetID:                   opts.SubnetID,
-		SecurityGroupIDs:           append([]string(nil), opts.SecurityGroupIDs...),
-		KmsKeyID:                   opts.KmsKeyID,
-		LifecycleConfigName:        opts.LifecycleConfigName,
-		DirectInternetAccess:       opts.DirectInternetAccess,
-		RootAccess:                 opts.RootAccess,
-		AcceleratorTypes:           append([]string(nil), opts.AcceleratorTypes...),
-		AdditionalCodeRepositories: append([]string(nil), opts.AdditionalCodeRepositories...),
-		DefaultCodeRepository:      opts.DefaultCodeRepository,
-		VolumeSizeInGB:             opts.VolumeSizeInGB,
-		PlatformIdentifier:         opts.PlatformIdentifier,
-		CreationTime:               now,
-		LastModifiedTime:           now,
-		Tags:                       mergeTags(nil, opts.Tags),
+		NotebookInstanceName:                  opts.Name,
+		NotebookInstanceArn:                   nbARN,
+		URL:                                   notebookInstanceURL(nbARN),
+		NotebookInstanceStatus:                "Pending",
+		InstanceType:                          opts.InstanceType,
+		RoleArn:                               opts.RoleArn,
+		SubnetID:                              opts.SubnetID,
+		SecurityGroupIDs:                      append([]string(nil), opts.SecurityGroupIDs...),
+		KmsKeyID:                              opts.KmsKeyID,
+		LifecycleConfigName:                   opts.LifecycleConfigName,
+		DirectInternetAccess:                  opts.DirectInternetAccess,
+		RootAccess:                            opts.RootAccess,
+		AcceleratorTypes:                      append([]string(nil), opts.AcceleratorTypes...),
+		AdditionalCodeRepositories:            append([]string(nil), opts.AdditionalCodeRepositories...),
+		DefaultCodeRepository:                 opts.DefaultCodeRepository,
+		VolumeSizeInGB:                        opts.VolumeSizeInGB,
+		PlatformIdentifier:                    opts.PlatformIdentifier,
+		IPAddressType:                         opts.IPAddressType,
+		MinimumInstanceMetadataServiceVersion: opts.MinimumInstanceMetadataServiceVersion,
+		CreationTime:                          now,
+		LastModifiedTime:                      now,
+		Tags:                                  mergeTags(nil, opts.Tags),
 	}
 	b.notebooksStore(region).Put(nb)
 	b.notebookARNIndexStore(region)[nbARN] = opts.Name

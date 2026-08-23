@@ -200,7 +200,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		if err != nil {
 			log.ErrorContext(ctx, "redshiftdata: failed to read request body", "error", err)
 
-			return c.String(http.StatusInternalServerError, "internal server error")
+			return writeInternalServerError(c)
 		}
 
 		op := h.ExtractOperation(c)
@@ -247,6 +247,25 @@ func (h *Handler) dispatch(ctx context.Context, op string, body []byte) ([]byte,
 	default:
 		return nil, fmt.Errorf("%w: %s", errUnknownAction, op)
 	}
+}
+
+// writeInternalServerError renders a ReadBody-failure (body too large, read
+// error) as one of redshiftdata's own awsjson1.1 error envelopes. The
+// deserializer's awsAwsjson11_deserializeOpError path JSON-decodes the body
+// for __type/message, so the bare text/plain this used to send deserialized
+// client-side as smithy.GenericAPIError{Code:"UnknownError"}
+// (gopherstack-o7gx). InternalServerException matches this handler's own
+// default fallback (modeled at redshiftdata@v1.43.4 types/errors.go).
+func writeInternalServerError(c *echo.Context) error {
+	payload, err := json.Marshal(map[string]string{
+		keyTypeField:    "InternalServerException",
+		keyMessageField: "internal server error",
+	})
+	if err != nil {
+		return err
+	}
+
+	return c.JSONBlob(http.StatusInternalServerError, payload)
 }
 
 func (h *Handler) handleError(c *echo.Context, err error) error {

@@ -533,6 +533,6 @@ func (h *Handler) classifyError(err error) (int, string) {
 		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
 		return http.StatusBadRequest, "InvalidParameterException"
 	default:
-		return http.StatusInternalServerError, "InternalServerError"
+		return http.StatusInternalServerError, "ServerException"
 	}
 }

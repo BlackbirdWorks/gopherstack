@@ -4,7 +4,11 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
+	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	sagemakersdk "github.com/aws/aws-sdk-go-v2/service/sagemaker"
+	smtypes "github.com/aws/aws-sdk-go-v2/service/sagemaker/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -63,6 +67,118 @@ func TestHandler_TrainingJobLifecycle(t *testing.T) {
 		"TrainingJobName": "my-training-job",
 	})
 	assert.Equal(t, http.StatusOK, recDelete.Code)
+}
+
+// TestHandler_UpdateTrainingJob_KeepAlivePeriod_RealClient asserts
+// UpdateTrainingJobInput.ResourceConfig.KeepAlivePeriodInSeconds --
+// previously the handler didn't even call a backend Update method, so every
+// field of every UpdateTrainingJob request was silently discarded -- now
+// applies and round-trips through DescribeTrainingJob.
+func TestHandler_UpdateTrainingJob_KeepAlivePeriod_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestSageMakerClient(t, h)
+
+	_, err := client.CreateTrainingJob(t.Context(), &sagemakersdk.CreateTrainingJobInput{
+		TrainingJobName:        aws.String("tj-keepalive"),
+		RoleArn:                aws.String("arn:aws:iam::000000000000:role/service-role"),
+		AlgorithmSpecification: &smtypes.AlgorithmSpecification{TrainingInputMode: smtypes.TrainingInputModeFile},
+		OutputDataConfig:       &smtypes.OutputDataConfig{S3OutputPath: aws.String("s3://bucket/output")},
+		ResourceConfig: &smtypes.ResourceConfig{
+			InstanceType:   smtypes.TrainingInstanceTypeMlM5Large,
+			InstanceCount:  aws.Int32(1),
+			VolumeSizeInGB: aws.Int32(20),
+		},
+		StoppingCondition: &smtypes.StoppingCondition{MaxRuntimeInSeconds: aws.Int32(3600)},
+	})
+	require.NoError(t, err)
+
+	_, err = client.UpdateTrainingJob(t.Context(), &sagemakersdk.UpdateTrainingJobInput{
+		TrainingJobName: aws.String("tj-keepalive"),
+		ResourceConfig:  &smtypes.ResourceConfigForUpdate{KeepAlivePeriodInSeconds: aws.Int32(600)},
+	})
+	require.NoError(t, err)
+
+	out, err := client.DescribeTrainingJob(t.Context(), &sagemakersdk.DescribeTrainingJobInput{
+		TrainingJobName: aws.String("tj-keepalive"),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, out.ResourceConfig)
+	assert.Equal(t, int32(600), aws.ToInt32(out.ResourceConfig.KeepAlivePeriodInSeconds))
+}
+
+// TestHandler_ListTrainingJobs_FilterSortPage_RealClient asserts
+// ListTrainingJobsInput's LastModifiedTimeAfter/Before and SortBy/SortOrder --
+// previously the list was unconditionally sorted ascending by name
+// regardless of what was requested, contradicting the op's own documented
+// default of CreationTime/Ascending.
+func TestHandler_ListTrainingJobs_FilterSortPage_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestSageMakerClient(t, h)
+
+	names := []string{"beta-job", "alpha-job"}
+	for _, n := range names {
+		_, err := client.CreateTrainingJob(t.Context(), &sagemakersdk.CreateTrainingJobInput{
+			TrainingJobName: aws.String(n),
+			RoleArn:         aws.String("arn:aws:iam::000000000000:role/service-role"),
+			AlgorithmSpecification: &smtypes.AlgorithmSpecification{
+				TrainingInputMode: smtypes.TrainingInputModeFile,
+			},
+			OutputDataConfig: &smtypes.OutputDataConfig{S3OutputPath: aws.String("s3://bucket/output")},
+			ResourceConfig: &smtypes.ResourceConfig{
+				InstanceType:   smtypes.TrainingInstanceTypeMlM5Large,
+				InstanceCount:  aws.Int32(1),
+				VolumeSizeInGB: aws.Int32(20),
+			},
+			StoppingCondition: &smtypes.StoppingCondition{MaxRuntimeInSeconds: aws.Int32(3600)},
+		})
+		require.NoError(t, err)
+	}
+
+	t.Run("ascending sort by name", func(t *testing.T) {
+		t.Parallel()
+
+		out, err := client.ListTrainingJobs(t.Context(), &sagemakersdk.ListTrainingJobsInput{
+			SortBy: smtypes.SortByName, SortOrder: smtypes.SortOrderAscending,
+		})
+		require.NoError(t, err)
+		require.Len(t, out.TrainingJobSummaries, 2)
+		assert.Equal(t, "alpha-job", aws.ToString(out.TrainingJobSummaries[0].TrainingJobName))
+		assert.Equal(t, "beta-job", aws.ToString(out.TrainingJobSummaries[1].TrainingJobName))
+	})
+
+	t.Run("last modified time after future excludes", func(t *testing.T) {
+		t.Parallel()
+
+		out, err := client.ListTrainingJobs(t.Context(), &sagemakersdk.ListTrainingJobsInput{
+			LastModifiedTimeAfter: aws.Time(time.Now().Add(time.Hour)),
+		})
+		require.NoError(t, err)
+		assert.Empty(t, out.TrainingJobSummaries)
+	})
+
+	t.Run("last modified time after past includes", func(t *testing.T) {
+		t.Parallel()
+
+		out, err := client.ListTrainingJobs(t.Context(), &sagemakersdk.ListTrainingJobsInput{
+			LastModifiedTimeAfter: aws.Time(time.Now().Add(-time.Hour)),
+		})
+		require.NoError(t, err)
+		assert.Len(t, out.TrainingJobSummaries, 2)
+	})
+
+	t.Run("training plan arn equals never matches", func(t *testing.T) {
+		t.Parallel()
+
+		out, err := client.ListTrainingJobs(t.Context(), &sagemakersdk.ListTrainingJobsInput{
+			TrainingPlanArnEquals: aws.String("arn:aws:sagemaker:us-east-1:000000000000:training-plan/none"),
+		})
+		require.NoError(t, err)
+		assert.Empty(t, out.TrainingJobSummaries)
+	})
 }
 
 // ---------------------------------------------------------------------------

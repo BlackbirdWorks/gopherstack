@@ -18,7 +18,16 @@ import (
 // mismatch, so they are discarded the same way. This mirrors the
 // services/eventbridge, services/ssm, services/sqs (commit 0f09d77c), and
 // services/ec2 (commit 12e611a4) conversions.
-const pipesSnapshotVersion = 1
+//
+// Bumped 1 -> 2 (gopherstack-hjdd) for d83f4b5d3:
+// BatchContainerOverrides.Environment (nested inside a registered "pipes/"
+// table's value type, via Pipe.TargetParameters.BatchJobParameters) changed
+// from map[string]string to []BatchEnvironmentVariable, matching the real
+// deserializer. A Version-1 snapshot's "Environment" object no longer
+// unmarshals into the new array field at all -- an outright decode error
+// that takes down the whole restore, not silent loss -- so it must be
+// discarded like any other shape-incompatible snapshot.
+const pipesSnapshotVersion = 2
 
 // backendSnapshot is the top-level on-disk shape for the Pipes backend.
 //

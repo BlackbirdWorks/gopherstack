@@ -375,3 +375,121 @@ func TestUpdateAnomaly_SuppressionSemantics(t *testing.T) {
 	assert.False(t, suppressed)
 	assert.Zero(t, suppressedDate)
 }
+
+// TestUpdateAnomaly_PatternID drives UpdateAnomaly with PatternId (instead of
+// AnomalyId) through the real SDK client. UpdateAnomalyInput's own doc
+// comment (api_op_UpdateAnomaly.go:12-19) says "Use this operation to
+// suppress anomaly detection for a specified anomaly or pattern... If you
+// suppress a pattern, CloudWatch Logs won't report any anomalies related to
+// that pattern" -- gopherstack previously had no PatternId field at all, so
+// a real caller following that pattern-suppression path always fell through
+// to "anomalyId is required", even though AnomalyId is optional whenever
+// PatternId is supplied instead. Suppressing a pattern must suppress every
+// stored anomaly sharing that pattern, not just one.
+func TestUpdateAnomaly_PatternID(t *testing.T) {
+	t.Parallel()
+
+	backend := cloudwatchlogs.NewInMemoryBackend()
+	client := newTestCloudWatchLogsClient(t, cloudwatchlogs.NewHandler(backend))
+
+	_, err := client.CreateLogGroup(t.Context(), &cwlsdk.CreateLogGroupInput{
+		LogGroupName: aws.String("pattern-source-group"),
+	})
+	require.NoError(t, err)
+
+	groupARN := "arn:aws:logs:us-east-1:000000000000:log-group:pattern-source-group"
+
+	detOut, err := client.CreateLogAnomalyDetector(t.Context(), &cwlsdk.CreateLogAnomalyDetectorInput{
+		LogGroupArnList: []string{groupARN},
+	})
+	require.NoError(t, err)
+
+	backend.AddAnomalyInternal(cloudwatchlogs.Anomaly{
+		AnomalyDetectorArn: *detOut.AnomalyDetectorArn,
+		AnomalyID:          "anomaly-a",
+		PatternID:          "pattern-1",
+		State:              cloudwatchlogs.AnomalyStateActive,
+		Active:             true,
+	})
+	backend.AddAnomalyInternal(cloudwatchlogs.Anomaly{
+		AnomalyDetectorArn: *detOut.AnomalyDetectorArn,
+		AnomalyID:          "anomaly-b",
+		PatternID:          "pattern-1",
+		State:              cloudwatchlogs.AnomalyStateActive,
+		Active:             true,
+	})
+	backend.AddAnomalyInternal(cloudwatchlogs.Anomaly{
+		AnomalyDetectorArn: *detOut.AnomalyDetectorArn,
+		AnomalyID:          "anomaly-other",
+		PatternID:          "pattern-2",
+		State:              cloudwatchlogs.AnomalyStateActive,
+		Active:             true,
+	})
+
+	_, err = client.UpdateAnomaly(t.Context(), &cwlsdk.UpdateAnomalyInput{
+		AnomalyDetectorArn: detOut.AnomalyDetectorArn,
+		PatternId:          aws.String("pattern-1"),
+		SuppressionType:    cwltypes.SuppressionTypeInfinite,
+	})
+	require.NoError(t, err)
+
+	out, err := client.ListAnomalies(t.Context(), &cwlsdk.ListAnomaliesInput{
+		AnomalyDetectorArn: detOut.AnomalyDetectorArn,
+	})
+	require.NoError(t, err)
+	require.Len(t, out.Anomalies, 3)
+
+	byID := make(map[string]cwltypes.Anomaly, len(out.Anomalies))
+	for _, a := range out.Anomalies {
+		byID[aws.ToString(a.AnomalyId)] = a
+	}
+
+	assert.Equal(t, cwltypes.StateSuppressed, byID["anomaly-a"].State)
+	assert.Equal(t, cwltypes.StateSuppressed, byID["anomaly-b"].State)
+	assert.Equal(t, cwltypes.StateActive, byID["anomaly-other"].State)
+}
+
+// TestUpdateAnomaly_AnomalyIDAndPatternIDMutualExclusion asserts
+// UpdateAnomalyInput's "You must specify either anomalyId or patternId, but
+// you can't specify both parameters in the same operation" --
+// validateOpUpdateAnomalyInput only requires AnomalyDetectorArn, so both
+// branches reach the wire unmodified via the real client.
+func TestUpdateAnomaly_AnomalyIDAndPatternIDMutualExclusion(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		anomalyID *string
+		patternID *string
+		name      string
+	}{
+		{name: "both set", anomalyID: aws.String("anomaly-1"), patternID: aws.String("pattern-1")},
+		{name: "neither set"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			backend := cloudwatchlogs.NewInMemoryBackend()
+			client := newTestCloudWatchLogsClient(t, cloudwatchlogs.NewHandler(backend))
+
+			detOut, err := client.CreateLogAnomalyDetector(t.Context(), &cwlsdk.CreateLogAnomalyDetectorInput{
+				LogGroupArnList: []string{
+					"arn:aws:logs:us-east-1:000000000000:log-group:mutual-exclusion-group",
+				},
+			})
+			require.NoError(t, err)
+
+			_, err = client.UpdateAnomaly(t.Context(), &cwlsdk.UpdateAnomalyInput{
+				AnomalyDetectorArn: detOut.AnomalyDetectorArn,
+				AnomalyId:          tt.anomalyID,
+				PatternId:          tt.patternID,
+				SuppressionType:    cwltypes.SuppressionTypeInfinite,
+			})
+			require.Error(t, err)
+
+			var ipe *cwltypes.InvalidParameterException
+			require.ErrorAs(t, err, &ipe, "expected InvalidParameterException, got %v", err)
+		})
+	}
+}

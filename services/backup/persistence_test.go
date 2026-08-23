@@ -139,7 +139,7 @@ func TestPersistenceRoundTrip(t *testing.T) {
 	_, err = original.CreateReportPlan("persist-rp", "test report", nil, nil)
 	require.NoError(t, err)
 
-	_, err = original.CreateRestoreTestingPlan("persist-rtp", "cron(0 12 * * ? *)", 0)
+	_, err = original.CreateRestoreTestingPlan("persist-rtp", "cron(0 12 * * ? *)", 0, nil)
 	require.NoError(t, err)
 
 	_, err = original.CreateRestoreTestingSelection(
@@ -211,7 +211,7 @@ func TestPersistenceRoundTrip(t *testing.T) {
 	require.ErrorIs(t, err, backup.ErrAlreadyExists)
 
 	// Verify restore testing plans and selections.
-	_, err = restored.CreateRestoreTestingPlan("persist-rtp", "", 0)
+	_, err = restored.CreateRestoreTestingPlan("persist-rtp", "", 0, nil)
 	require.ErrorIs(t, err, backup.ErrAlreadyExists)
 
 	_, err = restored.CreateRestoreTestingSelection(

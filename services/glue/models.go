@@ -133,8 +133,8 @@ type CrawlerTarget struct {
 // aws-sdk-go-v2/service/glue/types.DynamoDBTarget.
 type DynamoDBTarget struct {
 	Path     string  `json:"Path,omitempty"`
-	ScanAll  bool    `json:"ScanAll,omitempty"`
-	ScanRate float64 `json:"ScanRate,omitempty"`
+	ScanAll  bool    `json:"scanAll,omitempty"`
+	ScanRate float64 `json:"scanRate,omitempty"`
 }
 
 // DeltaTarget is a Delta Lake table crawl target, mirroring
@@ -414,7 +414,7 @@ type Blueprint struct {
 // CustomEntityType represents a Glue custom entity type.
 type CustomEntityType struct {
 	Name         string   `json:"Name"`
-	RegexString  string   `json:"RegexString,omitempty"`
+	RegexString  string   `json:"RegexString"`
 	ContextWords []string `json:"ContextWords,omitempty"`
 }
 
@@ -844,8 +844,8 @@ type Statement struct {
 
 // TableOptimizerConfiguration holds the config for a table optimizer.
 type TableOptimizerConfiguration struct {
-	RoleARN string `json:"RoleArn,omitempty"`
-	Enabled bool   `json:"Enabled"`
+	RoleARN string `json:"roleArn,omitempty"`
+	Enabled bool   `json:"enabled"`
 }
 
 // TableOptimizerRun holds a single run record for a table optimizer. The Glue
@@ -859,14 +859,29 @@ type TableOptimizerRun struct {
 	EndedAt   float64 `json:"endTimestamp,omitempty"`
 }
 
-// TableOptimizer represents a single table optimizer resource.
+// TableOptimizer is the real nested TableOptimizer document
+// (deserializeDocumentTableOptimizer, glue@v1.152.0): LastRun, Type and
+// Configuration only, all lowerCamelCase. The document has no
+// CatalogId/DatabaseName/TableName members of its own -- those live one
+// level up, on GetTableOptimizerOutput (PascalCase) or BatchTableOptimizer
+// (lowerCamelCase) instead. See gopherstack-5mvf.
 type TableOptimizer struct {
-	LastRun       *TableOptimizerRun          `json:"LastRun,omitempty"`
-	CatalogID     string                      `json:"CatalogId,omitempty"`
-	DatabaseName  string                      `json:"DatabaseName"`
-	TableName     string                      `json:"TableName"`
-	Type          string                      `json:"Type"`
-	Configuration TableOptimizerConfiguration `json:"Configuration,omitzero"`
+	LastRun       *TableOptimizerRun          `json:"lastRun,omitempty"`
+	Type          string                      `json:"type"`
+	Configuration TableOptimizerConfiguration `json:"configuration,omitzero"`
+}
+
+// BatchTableOptimizer is one result entry from BatchGetTableOptimizer.
+// Unlike GetTableOptimizerOutput, which nests TableOptimizer directly under
+// the op output, BatchTableOptimizer wraps it one level deeper under a
+// "tableOptimizer" key, and CatalogId/DatabaseName/TableName here are
+// lowerCamelCase rather than GetTableOptimizerOutput's PascalCase
+// (deserializeDocumentBatchTableOptimizer, glue@v1.152.0).
+type BatchTableOptimizer struct {
+	TableOptimizer *TableOptimizer `json:"tableOptimizer"`
+	CatalogID      string          `json:"catalogId,omitempty"`
+	DatabaseName   string          `json:"databaseName,omitempty"`
+	TableName      string          `json:"tableName,omitempty"`
 }
 
 // BatchGetTableOptimizerEntry is one request entry for BatchGetTableOptimizer.
@@ -878,12 +893,14 @@ type BatchGetTableOptimizerEntry struct {
 }
 
 // BatchGetTableOptimizerError is one error entry from BatchGetTableOptimizer.
+// Its own keys are lowerCamelCase (deserializeDocumentBatchGetTableOptimizerError,
+// glue@v1.152.0); only the nested ErrorDetail document keeps PascalCase.
 type BatchGetTableOptimizerError struct {
-	CatalogID    string      `json:"CatalogId,omitempty"`
-	DatabaseName string      `json:"DatabaseName,omitempty"`
-	TableName    string      `json:"TableName,omitempty"`
-	Type         string      `json:"Type,omitempty"`
-	Error        ErrorDetail `json:"Error"`
+	CatalogID    string      `json:"catalogId,omitempty"`
+	DatabaseName string      `json:"databaseName,omitempty"`
+	TableName    string      `json:"tableName,omitempty"`
+	Type         string      `json:"type,omitempty"`
+	Error        ErrorDetail `json:"error"`
 }
 
 // ColumnStatisticsData holds statistics for a column.
@@ -902,8 +919,8 @@ type ColumnStatisticsData struct {
 type ColumnStatistics struct {
 	StatisticsData ColumnStatisticsData `json:"StatisticsData"`
 	ColumnName     string               `json:"ColumnName"`
-	ColumnType     string               `json:"ColumnType,omitempty"`
-	AnalyzedTime   float64              `json:"AnalyzedTime,omitempty"`
+	ColumnType     string               `json:"ColumnType"`
+	AnalyzedTime   float64              `json:"AnalyzedTime"`
 }
 
 type resourcePolicyEntry struct {
@@ -990,7 +1007,7 @@ type MLTransformOptions struct {
 type CatalogEntry struct {
 	Parameters  map[string]string `json:"Parameters,omitzero"`
 	CatalogID   string            `json:"CatalogId"`
-	Name        string            `json:"Name,omitempty"`
+	Name        string            `json:"Name"`
 	Description string            `json:"Description,omitempty"`
 	CreateTime  float64           `json:"CreateTime,omitempty"`
 }
@@ -1003,7 +1020,7 @@ type DataCatalogEncryptionSettings struct {
 
 // EncryptionAtRest holds at-rest encryption config.
 type EncryptionAtRest struct {
-	CatalogEncryptionMode        string `json:"CatalogEncryptionMode,omitempty"`
+	CatalogEncryptionMode        string `json:"CatalogEncryptionMode"`
 	SseAwsKmsKeyID               string `json:"SseAwsKmsKeyId,omitempty"`
 	CatalogEncryptionServiceRole string `json:"CatalogEncryptionServiceRole,omitempty"`
 }
@@ -1233,22 +1250,22 @@ type WorkflowRunStatistics struct {
 // GrokClassifier is a Grok-based classifier.
 type GrokClassifier struct {
 	Name           string `json:"Name"`
-	Classification string `json:"Classification,omitempty"`
-	GrokPattern    string `json:"GrokPattern,omitempty"`
+	Classification string `json:"Classification"`
+	GrokPattern    string `json:"GrokPattern"`
 	CustomPatterns string `json:"CustomPatterns,omitempty"`
 }
 
 // XMLClassifier is an XML-based classifier.
 type XMLClassifier struct {
 	Name           string `json:"Name"`
-	Classification string `json:"Classification,omitempty"`
+	Classification string `json:"Classification"`
 	RowTag         string `json:"RowTag,omitempty"`
 }
 
 // JSONClassifier is a JSON-based classifier.
 type JSONClassifier struct {
 	Name     string `json:"Name"`
-	JSONPath string `json:"JsonPath,omitempty"`
+	JSONPath string `json:"JsonPath"`
 }
 
 // CsvClassifier is a CSV-based classifier.

@@ -392,12 +392,19 @@ func TestGCMChannel_PerTypeFields(t *testing.T) {
 			}
 
 			if tc.wantAPIKey {
-				assert.NotEmpty(t, resp["ApiKey"])
+				// GCMChannelResponse's real member is "Credential", not "ApiKey"
+				// (the request field name) -- raw ApiKey must never be echoed.
+				assert.NotEmpty(t, resp["Credential"])
+				assert.NotContains(t, resp, "ApiKey")
 				assert.Equal(t, true, resp["HasCredential"])
 			}
 
 			if tc.wantServiceJ {
-				assert.NotEmpty(t, resp["ServiceJson"])
+				// GCMChannelResponse has no ServiceJson member, only the
+				// boolean HasFcmServiceCredentials -- the raw JSON must never
+				// be echoed back.
+				assert.NotContains(t, resp, "ServiceJson")
+				assert.Equal(t, true, resp["HasFcmServiceCredentials"])
 			}
 		})
 	}
@@ -422,9 +429,12 @@ func TestAPNSChannel_PerTypeFields(t *testing.T) {
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(putRec.Body.Bytes(), &resp))
 
-	assert.Equal(t, "com.example.app", resp["BundleId"])
-	assert.Equal(t, "CERT_CONTENTS", resp["Certificate"])
-	assert.Equal(t, "TEAM123", resp["TeamId"])
+	// APNSChannelResponse has no BundleId/Certificate/TeamId members -- only
+	// HasCredential/HasTokenKey booleans -- so raw request secrets must never
+	// be echoed back on the wire.
+	assert.NotContains(t, resp, "BundleId")
+	assert.NotContains(t, resp, "Certificate")
+	assert.NotContains(t, resp, "TeamId")
 	assert.Equal(t, true, resp["HasCredential"])
 }
 
@@ -491,8 +501,11 @@ func TestBaiduChannel_PerTypeFields(t *testing.T) {
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(putRec.Body.Bytes(), &resp))
 
-	assert.Equal(t, "baidu_api_key_abc", resp["ApiKey"])
-	assert.Equal(t, "baidu_secret_abc", resp["SecretKey"])
+	// BaiduChannelResponse's credential member is "Credential" (the API key,
+	// required), not "ApiKey"; SecretKey has no response member at all.
+	assert.Equal(t, "baidu_api_key_abc", resp["Credential"])
+	assert.NotContains(t, resp, "ApiKey")
+	assert.NotContains(t, resp, "SecretKey")
 	assert.Equal(t, true, resp["HasCredential"])
 }
 
@@ -514,8 +527,10 @@ func TestADMChannel_PerTypeFields(t *testing.T) {
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(putRec.Body.Bytes(), &resp))
 
-	assert.Equal(t, "adm_client_id", resp["ClientId"])
-	assert.Equal(t, "adm_client_secret", resp["ClientSecret"])
+	// ADMChannelResponse has no ClientId/ClientSecret members -- only
+	// HasCredential -- so neither must be echoed back on the wire.
+	assert.NotContains(t, resp, "ClientId")
+	assert.NotContains(t, resp, "ClientSecret")
 	assert.Equal(t, true, resp["HasCredential"])
 }
 

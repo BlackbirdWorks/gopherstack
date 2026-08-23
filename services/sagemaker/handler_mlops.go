@@ -326,9 +326,13 @@ func (h *Handler) dispatchAppImageInferenceExperimentOps(
 
 		return r, true, err
 	case "StopInferenceExperiment":
-		return nil, true, h.handleStopInferenceExperiment(ctx, body)
+		r, err := h.handleStopInferenceExperiment(ctx, body)
+
+		return r, true, err
 	case "DeleteInferenceExperiment":
-		return nil, true, h.handleDeleteInferenceExperiment(ctx, body)
+		r, err := h.handleDeleteInferenceExperiment(ctx, body)
+
+		return r, true, err
 	case "StartInferenceExperiment":
 		r, err := h.handleStartInferenceExperiment(ctx, body)
 
@@ -355,11 +359,17 @@ func (h *Handler) dispatchMlflowTrackingServerOps(
 
 		return r, true, err
 	case "DeleteMlflowTrackingServer":
-		return nil, true, h.handleDeleteMlflowTrackingServer(ctx, body)
+		r, err := h.handleDeleteMlflowTrackingServer(ctx, body)
+
+		return r, true, err
 	case "StartMlflowTrackingServer":
-		return nil, true, h.handleStartMlflowTrackingServer(ctx, body)
+		r, err := h.handleStartMlflowTrackingServer(ctx, body)
+
+		return r, true, err
 	case "StopMlflowTrackingServer":
-		return nil, true, h.handleStopMlflowTrackingServer(ctx, body)
+		r, err := h.handleStopMlflowTrackingServer(ctx, body)
+
+		return r, true, err
 	case "CreatePresignedMlflowTrackingServerUrl":
 		r, err := h.handleCreatePresignedMlflowTrackingServerURL(ctx, body)
 
@@ -382,7 +392,9 @@ func (h *Handler) dispatchMlflowAppOps(
 
 		return r, true, err
 	case "DeleteMlflowApp":
-		return nil, true, h.handleDeleteMlflowApp(ctx, body)
+		r, err := h.handleDeleteMlflowApp(ctx, body)
+
+		return r, true, err
 	case "UpdateMlflowApp":
 		r, err := h.handleUpdateMlflowApp(ctx, body)
 

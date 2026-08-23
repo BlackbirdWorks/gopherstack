@@ -65,6 +65,27 @@ leaks: {status: fixed, note: "Found a real data race: ListSecrets/ListSecretVers
 
 ## Notes
 
+- **2026-08-22 (gopherstack-urw6) — rotation scheduler audited for the
+  "getter hands out a live pointer / shallow copy read outside the lock while
+  deferred work writes it" race class (the class fixed in services/securityhub,
+  services/eks, services/s3, services/amplify): `rotationSchedulerLoop` ->
+  `runScheduledRotations` mutates secret/version state (`finishRotationLocked`,
+  `abortRotationLocked`, `rotateStagingLabels`) exclusively through
+  `b.mu.Lock()`, and every reader (`GetSecretValue`, `DescribeSecret`,
+  `ListSecretVersionIDs`, `BatchGetSecretValue`, etc.) holds `b.mu` (R or W)
+  for its entire field-touching duration via `defer`. `secretGet` does return
+  the live stored `*Secret`, but no call site lets that pointer (or a field
+  off it) escape past the lock the way the fixed instances did. Every write to
+  a shared slice field (`StagingLabels`) reassigns a freshly allocated slice
+  (`rotateStagingLabels`, `resolveStagingLabels`, `removeLabel`) rather than
+  mutating the existing backing array in place, so even the few call sites
+  that alias a slice into an output DTO without a defensive copy
+  (`GetSecretValue`'s `VersionStages: version.StagingLabels`,
+  `secretVersionEntry`'s `VersionStages: ver.StagingLabels`) are safe: no
+  writer ever touches the old backing array again once it's replaced. No bug
+  found; no code changed here. (services/ecs *did* have a live instance of
+  this class in `getServicesForReconciler`'s `Deployments` slice — see
+  services/ecs/PARITY.md's 2026-08-22 entry.)
 - **Protocol**: `application/x-amz-json-1.1` (awsJson1_1), matches `secretsmanager.<Operation>`
   `X-Amz-Target` routing already in place in `handler.go`.
 - **Wire field names verified directly against `aws-sdk-go-v2/service/secretsmanager@v1.42.5`

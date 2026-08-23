@@ -11,6 +11,22 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
+// attachmentsInformation projects CreateDocument/UpdateDocument's Attachments
+// source list down to the Name-only shape real AWS returns in
+// DocumentDescription.AttachmentsInformation (types.AttachmentInformation).
+func attachmentsInformation(sources []AttachmentsSource) []AttachmentInformation {
+	if len(sources) == 0 {
+		return nil
+	}
+
+	out := make([]AttachmentInformation, 0, len(sources))
+	for _, s := range sources {
+		out = append(out, AttachmentInformation{Name: s.Name})
+	}
+
+	return out
+}
+
 func (b *InMemoryBackend) documentsStore(region string) *store.Table[Document] {
 	return getOrCreateTable(b, b.documents, "documents", region, documentKeyFn)
 }
@@ -19,6 +35,17 @@ func (b *InMemoryBackend) documentVersionsStore(region string) map[string][]Docu
 }
 func (b *InMemoryBackend) documentPermissionsStore(region string) map[string][]string {
 	return b.documentPermissions[region]
+}
+
+// documentSharedVersionsStore returns the per-document, per-account
+// SharedDocumentVersion pins for region (document name -> account ID ->
+// pinned version), a companion to documentPermissionsStore's plain account-ID
+// list. Kept as a separate additive map rather than reshaping
+// documentPermissions itself, so restoring an older snapshot (which has no
+// such pins) stays a safe, purely additive zero-value default instead of
+// requiring an incompatible ssmSnapshotVersion bump (gopherstack-5i6p).
+func (b *InMemoryBackend) documentSharedVersionsStore(region string) map[string]map[string]string {
+	return b.documentSharedVersions[region]
 }
 
 // registerDefaultDocuments pre-registers the built-in AWS documents.
@@ -112,21 +139,27 @@ func (b *InMemoryBackend) CreateDocument(
 	}
 
 	now := UnixTimeFloat(time.Now())
+	hash, sha1Hex := documentHashes(input.Content)
 	doc := Document{
-		Name:            input.Name,
-		Content:         input.Content,
-		DocumentType:    docType,
-		DocumentFormat:  format,
-		Status:          statusActive,
-		TargetType:      input.TargetType,
-		Description:     input.Description,
-		PlatformTypes:   input.PlatformTypes,
-		SchemaVersion:   "2.2",
-		CreatedDate:     now,
-		DocumentVersion: "1",
-		LatestVersion:   "1",
-		DefaultVersion:  "1",
-		Requires:        input.Requires,
+		Name:                   input.Name,
+		DisplayName:            input.DisplayName,
+		Content:                input.Content,
+		DocumentType:           docType,
+		DocumentFormat:         format,
+		Status:                 statusActive,
+		TargetType:             input.TargetType,
+		Description:            input.Description,
+		PlatformTypes:          input.PlatformTypes,
+		SchemaVersion:          "2.2",
+		CreatedDate:            now,
+		DocumentVersion:        "1",
+		LatestVersion:          "1",
+		DefaultVersion:         "1",
+		Requires:               input.Requires,
+		Hash:                   hash,
+		HashType:               documentHashTypeSha256,
+		Sha1:                   sha1Hex,
+		AttachmentsInformation: attachmentsInformation(input.Attachments),
 	}
 
 	documentsTable.Put(&doc)
@@ -137,6 +170,7 @@ func (b *InMemoryBackend) CreateDocument(
 	versionStore[input.Name] = []DocumentVersion{
 		{
 			Name:             input.Name,
+			DisplayName:      input.DisplayName,
 			DocumentVersion:  "1",
 			CreatedDate:      now,
 			IsDefaultVersion: true,
@@ -169,22 +203,26 @@ func (b *InMemoryBackend) CreateDocument(
 // includes Content in these metadata responses.
 func (d Document) asDocumentDescription(docTags []Tag) DocumentDescription {
 	return DocumentDescription{
-		TargetType:        d.TargetType,
-		LatestVersion:     d.LatestVersion,
-		DocumentType:      d.DocumentType,
-		DocumentFormat:    d.DocumentFormat,
-		Status:            d.Status,
-		StatusInformation: d.StatusInformation,
-		DefaultVersion:    d.DefaultVersion,
-		Name:              d.Name,
-		SchemaVersion:     d.SchemaVersion,
-		Description:       d.Description,
-		DocumentVersion:   d.DocumentVersion,
-		PlatformTypes:     d.PlatformTypes,
-		Attachments:       d.Attachments,
-		Requires:          d.Requires,
-		Tags:              docTags,
-		CreatedDate:       d.CreatedDate,
+		TargetType:             d.TargetType,
+		LatestVersion:          d.LatestVersion,
+		DocumentType:           d.DocumentType,
+		DocumentFormat:         d.DocumentFormat,
+		Status:                 d.Status,
+		StatusInformation:      d.StatusInformation,
+		DefaultVersion:         d.DefaultVersion,
+		Name:                   d.Name,
+		DisplayName:            d.DisplayName,
+		SchemaVersion:          d.SchemaVersion,
+		Description:            d.Description,
+		DocumentVersion:        d.DocumentVersion,
+		Hash:                   d.Hash,
+		HashType:               d.HashType,
+		Sha1:                   d.Sha1,
+		PlatformTypes:          d.PlatformTypes,
+		AttachmentsInformation: d.AttachmentsInformation,
+		Requires:               d.Requires,
+		Tags:                   docTags,
+		CreatedDate:            d.CreatedDate,
 	}
 }
 
@@ -273,6 +311,7 @@ func (b *InMemoryBackend) GetDocument(
 		return &GetDocumentOutput{
 			Name:              doc.Name,
 			Content:           v.Content,
+			DisplayName:       doc.DisplayName,
 			DocumentType:      doc.DocumentType,
 			DocumentFormat:    v.DocumentFormat,
 			DocumentVersion:   v.DocumentVersion,
@@ -339,6 +378,9 @@ func (b *InMemoryBackend) DescribeDocument(
 				description.DocumentVersion = v.DocumentVersion
 				description.DocumentFormat = v.DocumentFormat
 				description.Status = v.Status
+				description.DisplayName = v.DisplayName
+				description.Hash, description.Sha1 = documentHashes(v.Content)
+				description.HashType = documentHashTypeSha256
 				found = true
 
 				break
@@ -377,6 +419,7 @@ func (b *InMemoryBackend) ListDocuments(
 
 		all = append(all, DocumentIdentifier{
 			Name:            doc.Name,
+			DisplayName:     doc.DisplayName,
 			DocumentType:    doc.DocumentType,
 			DocumentFormat:  doc.DocumentFormat,
 			DocumentVersion: doc.DocumentVersion,
@@ -454,15 +497,33 @@ func (b *InMemoryBackend) UpdateDocument(
 	}
 
 	now := UnixTimeFloat(time.Now())
+	hash, sha1Hex := documentHashes(input.Content)
 	doc.Content = input.Content
 	doc.DocumentVersion = newVer
 	doc.LatestVersion = newVer
 	doc.DocumentFormat = format
+	doc.Hash = hash
+	doc.HashType = documentHashTypeSha256
+	doc.Sha1 = sha1Hex
+
+	if input.DisplayName != "" {
+		doc.DisplayName = input.DisplayName
+	}
+
+	if input.TargetType != "" {
+		doc.TargetType = input.TargetType
+	}
+
+	if input.Attachments != nil {
+		doc.AttachmentsInformation = attachmentsInformation(input.Attachments)
+	}
+
 	docsTable.Put(&doc)
 
 	versionStore := b.documentVersionsStore(region)
 	versionStore[input.Name] = append(versionStore[input.Name], DocumentVersion{
 		Name:             input.Name,
+		DisplayName:      doc.DisplayName,
 		DocumentVersion:  newVer,
 		CreatedDate:      now,
 		IsDefaultVersion: false,
@@ -482,7 +543,67 @@ func (b *InMemoryBackend) UpdateDocument(
 	}, nil
 }
 
-// DeleteDocument removes a document and all its versions and permissions.
+// deleteDocumentVersionScoped removes a single version from doc, leaving the
+// document and its other versions intact. Called only when versions has more
+// than one entry -- the caller falls back to a full delete when the targeted
+// version is the last one remaining, matching "if not provided, all versions
+// of the document are deleted" (api_op_DeleteDocument.go:34-49) applied to
+// the degenerate one-version case.
+func (b *InMemoryBackend) deleteDocumentVersionScoped(
+	region string, doc Document, versions []DocumentVersion, idx int,
+) *DeleteDocumentOutput {
+	removed := versions[idx]
+	versions = slices.Delete(versions, idx, idx+1)
+
+	if removed.DocumentVersion == doc.LatestVersion {
+		newLatest := versions[len(versions)-1]
+		doc.LatestVersion = newLatest.DocumentVersion
+		doc.DocumentVersion = newLatest.DocumentVersion
+		doc.Content = newLatest.Content
+		doc.DocumentFormat = newLatest.DocumentFormat
+		doc.Status = newLatest.Status
+		doc.Hash, doc.Sha1 = documentHashes(newLatest.Content)
+
+		if newLatest.DisplayName != "" {
+			doc.DisplayName = newLatest.DisplayName
+		}
+	}
+
+	if removed.DocumentVersion == doc.DefaultVersion {
+		newDefault := versions[len(versions)-1].DocumentVersion
+		doc.DefaultVersion = newDefault
+
+		for i := range versions {
+			versions[i].IsDefaultVersion = versions[i].DocumentVersion == newDefault
+		}
+	}
+
+	b.documentsStore(region).Put(&doc)
+	b.documentVersionsStore(region)[doc.Name] = versions
+
+	return &DeleteDocumentOutput{}
+}
+
+// resolveDeleteDocumentVersionIdx finds the index in versions matching
+// input's DocumentVersion/VersionName selector, or -1 if unresolvable.
+// VersionName never resolves: no Go field on DocumentVersion tracks it (see
+// models_documents.go), a disclosed gap -- routing it through
+// resolveDocumentVersionSelector would risk colliding with the numeric
+// DocumentVersion namespace instead of honestly reporting "not found".
+func resolveDeleteDocumentVersionIdx(doc Document, versions []DocumentVersion, input *DeleteDocumentInput) int {
+	if input.DocumentVersion == "" {
+		return -1
+	}
+
+	target := resolveDocumentVersionSelector(doc, input.DocumentVersion)
+
+	return slices.IndexFunc(versions, func(v DocumentVersion) bool { return v.DocumentVersion == target })
+}
+
+// DeleteDocument removes a document, or one version of it when
+// DocumentVersion/VersionName is given (see DeleteDocumentInput's doc
+// comment). Real AWS also rejects deleting a still-shared document with
+// InvalidDocumentOperation (ErrDocumentStillShared) -- deserializers.go:2225-2226.
 func (b *InMemoryBackend) DeleteDocument(
 	ctx context.Context,
 	input *DeleteDocumentInput,
@@ -491,24 +612,50 @@ func (b *InMemoryBackend) DeleteDocument(
 	b.mu.Lock("DeleteDocument")
 	defer b.mu.Unlock()
 
-	if !b.documentsStore(region).Has(input.Name) {
+	docPtr, exists := b.documentsStore(region).Get(input.Name)
+	if !exists {
 		return nil, ErrDocumentNotFound
+	}
+
+	doc := *docPtr
+
+	if input.DocumentVersion != "" || input.VersionName != "" {
+		versions := b.documentVersionsStore(region)[input.Name]
+
+		idx := resolveDeleteDocumentVersionIdx(doc, versions, input)
+		if idx == -1 {
+			return nil, ErrDocumentNotFound
+		}
+
+		if len(versions) > 1 {
+			return b.deleteDocumentVersionScoped(region, doc, versions, idx), nil
+		}
+		// Exactly one version remains: deleting it deletes the document,
+		// falling through to the full delete below.
+	}
+
+	if len(b.documentPermissionsStore(region)[input.Name]) > 0 {
+		return nil, ErrDocumentStillShared
 	}
 
 	b.documentsStore(region).Delete(input.Name)
 	delete(b.documentVersionsStore(region), input.Name)
 	delete(b.documentPermissionsStore(region), input.Name)
+	delete(b.documentSharedVersionsStore(region), input.Name)
 
 	// b.documents itself is not pruned here — see the comment on
 	// cleanupEmptyParamRegion above for why a Table-backed region entry must
 	// never be removed from its outer map once registered.
 	cleanupEmptyInnerMap(b.documentVersions, region)
 	cleanupEmptyInnerMap(b.documentPermissions, region)
+	cleanupEmptyInnerMap(b.documentSharedVersions, region)
 
 	return &DeleteDocumentOutput{}, nil
 }
 
-// DescribeDocumentPermission returns the sharing permissions for a document.
+// DescribeDocumentPermission returns the sharing permissions for a document,
+// paginated by MaxResults/NextToken (previously unimplemented: every call
+// returned the full unpaginated list regardless of MaxResults).
 func (b *InMemoryBackend) DescribeDocumentPermission(
 	ctx context.Context,
 	input *DescribeDocumentPermissionInput,
@@ -522,17 +669,53 @@ func (b *InMemoryBackend) DescribeDocumentPermission(
 	}
 
 	accountIDs := b.documentPermissionsStore(region)[input.Name]
-	if accountIDs == nil {
-		accountIDs = []string{}
+	sharedVersions := b.documentSharedVersionsStore(region)[input.Name]
+
+	startIdx := parseNextToken(input.NextToken)
+
+	maxResults := int64(defaultListDocMaxResults)
+	if input.MaxResults != nil && *input.MaxResults > 0 {
+		maxResults = *input.MaxResults
+	}
+
+	if startIdx >= len(accountIDs) {
+		return &DescribeDocumentPermissionOutput{
+			AccountIDs:             []string{},
+			AccountSharingInfoList: []AccountSharingInfo{},
+		}, nil
+	}
+
+	end := startIdx + int(maxResults)
+
+	var nextToken string
+
+	if end < len(accountIDs) {
+		nextToken = strconv.Itoa(end)
+	} else {
+		end = len(accountIDs)
+	}
+
+	page := accountIDs[startIdx:end]
+	infoList := make([]AccountSharingInfo, 0, len(page))
+
+	for _, id := range page {
+		infoList = append(infoList, AccountSharingInfo{
+			AccountID:             id,
+			SharedDocumentVersion: sharedVersions[id],
+		})
 	}
 
 	return &DescribeDocumentPermissionOutput{
-		AccountIDs:             accountIDs,
-		AccountSharingInfoList: []any{},
+		AccountIDs:             page,
+		AccountSharingInfoList: infoList,
+		NextToken:              nextToken,
 	}, nil
 }
 
 // ModifyDocumentPermission updates the sharing permissions for a document.
+// SharedDocumentVersion is pinned per account in documentSharedVersionsStore;
+// an omitted SharedDocumentVersion shares the document's current
+// DefaultVersion instead, matching api_op_ModifyDocumentPermission.go:51-53.
 func (b *InMemoryBackend) ModifyDocumentPermission(
 	ctx context.Context,
 	input *ModifyDocumentPermissionInput,
@@ -541,7 +724,8 @@ func (b *InMemoryBackend) ModifyDocumentPermission(
 	b.mu.Lock("ModifyDocumentPermission")
 	defer b.mu.Unlock()
 
-	if !b.documentsStore(region).Has(input.Name) {
+	docPtr, exists := b.documentsStore(region).Get(input.Name)
+	if !exists {
 		return nil, ErrDocumentNotFound
 	}
 
@@ -551,14 +735,30 @@ func (b *InMemoryBackend) ModifyDocumentPermission(
 	permStore := b.documentPermissionsStore(region)
 	current := permStore[input.Name]
 
+	if b.documentSharedVersions[region] == nil {
+		b.documentSharedVersions[region] = make(map[string]map[string]string)
+	}
+	sharedVersions := b.documentSharedVersionsStore(region)
+	if sharedVersions[input.Name] == nil {
+		sharedVersions[input.Name] = make(map[string]string)
+	}
+
+	pinned := input.SharedDocumentVersion
+	if pinned == "" {
+		pinned = docPtr.DefaultVersion
+	}
+
 	for _, id := range input.AccountIDsToAdd {
 		if !slices.Contains(current, id) {
 			current = append(current, id)
 		}
+
+		sharedVersions[input.Name][id] = pinned
 	}
 
 	for _, id := range input.AccountIDsToRemove {
 		current = slices.DeleteFunc(current, func(v string) bool { return v == id })
+		delete(sharedVersions[input.Name], id)
 	}
 
 	permStore[input.Name] = current
@@ -606,6 +806,7 @@ func (b *InMemoryBackend) ListDocumentVersions(
 	for _, v := range versions[startIdx:end] {
 		page = append(page, DocumentVersionInfo{
 			Name:             v.Name,
+			DisplayName:      v.DisplayName,
 			DocumentVersion:  v.DocumentVersion,
 			DocumentFormat:   v.DocumentFormat,
 			Status:           v.Status,
@@ -627,8 +828,12 @@ func (b *InMemoryBackend) UpdateDocumentDefaultVersion(
 	ctx context.Context,
 	input *UpdateDocumentDefaultVersionInput,
 ) (*UpdateDocumentDefaultVersionOutput, error) {
-	if input.Name == "" || input.DocumentVersion == "" {
-		return &UpdateDocumentDefaultVersionOutput{}, nil
+	if input.Name == "" {
+		return nil, fmt.Errorf("%w: Name is required", ErrValidationException)
+	}
+
+	if input.DocumentVersion == "" {
+		return nil, fmt.Errorf("%w: DocumentVersion is required", ErrValidationException)
 	}
 
 	region := getRegion(ctx)
@@ -687,8 +892,8 @@ func (b *InMemoryBackend) UpdateDocumentMetadata(
 	ctx context.Context,
 	input *UpdateDocumentMetadataInput,
 ) (*UpdateDocumentMetadataOutput, error) {
-	if input.Name == "" {
-		return &UpdateDocumentMetadataOutput{}, nil
+	if err := validateUpdateDocumentMetadataInput(input); err != nil {
+		return nil, err
 	}
 
 	region := getRegion(ctx)
@@ -702,6 +907,29 @@ func (b *InMemoryBackend) UpdateDocumentMetadata(
 	return &UpdateDocumentMetadataOutput{}, nil
 }
 
+// validateUpdateDocumentMetadataInput enforces UpdateDocumentMetadata's
+// required fields: Name and DocumentReviews (with its own required Action)
+// are both required on the real op, but were previously entirely
+// unvalidated -- an empty body silently succeeded instead of rejecting with
+// ValidationException.
+func validateUpdateDocumentMetadataInput(input *UpdateDocumentMetadataInput) error {
+	if input.Name == "" {
+		return fmt.Errorf("%w: Name is required", ErrValidationException)
+	}
+
+	if input.DocumentReviews == nil {
+		return fmt.Errorf("%w: DocumentReviews is required", ErrValidationException)
+	}
+
+	// Real DocumentReviewAction enum values (aws-sdk-go-v2/service/ssm@v1.73.4 types/enums.go:780-798).
+	validActions := []string{"SendForReview", "UpdateReview", "Approve", "Reject"}
+	if !slices.Contains(validActions, input.DocumentReviews.Action) {
+		return fmt.Errorf("%w: DocumentReviews.Action must be one of %v", ErrValidationException, validActions)
+	}
+
+	return nil
+}
+
 // ListDocumentMetadataHistory returns an empty approval history.
 // The in-memory backend does not track document review history; this returns
 // a well-formed empty response consistent with the stateless stub approach.
@@ -710,11 +938,12 @@ func (b *InMemoryBackend) ListDocumentMetadataHistory(
 	input *ListDocumentMetadataHistoryInput,
 ) (*ListDocumentMetadataHistoryOutput, error) {
 	if input.Name == "" {
-		return &ListDocumentMetadataHistoryOutput{
-			Metadata: &DocumentMetadataResponseInfo{
-				ReviewerResponse: []DocumentReviewerResponseSource{},
-			},
-		}, nil
+		return nil, fmt.Errorf("%w: Name is required", ErrValidationException)
+	}
+
+	// DocumentMetadataEnum has exactly one real value (types/enums.go:727-745).
+	if input.Metadata != "DocumentReviews" {
+		return nil, fmt.Errorf(`%w: Metadata must be "DocumentReviews"`, ErrValidationException)
 	}
 
 	region := getRegion(ctx)

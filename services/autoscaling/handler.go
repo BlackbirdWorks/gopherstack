@@ -26,6 +26,7 @@ const (
 	errValidationError           = "ValidationError"
 	resourceTypeAutoScalingGroup = "auto-scaling-group"
 	formValueTrue                = "true"
+	unknownOp                    = "Unknown"
 )
 
 // Handler is the Echo HTTP handler for Autoscaling operations.
@@ -257,7 +258,13 @@ func (h *Handler) RouteMatcher() service.Matcher {
 
 		body, err := httputils.ReadBody(r)
 		if err != nil {
-			return false
+			// Body unreadable (e.g. oversized): fall back to the User-Agent
+			// marker every aws-sdk-go-v2 autoscaling client sets
+			// (api_client.go's AddSDKAgentKeyValue -- "api/autoscaling").
+			// That still identifies this as ours, so claim it and let
+			// Handler() produce the typed error instead of masking the
+			// read failure as a 404.
+			return service.MatchesUserAgentMarker(r.Header, "api/autoscaling")
 		}
 
 		vals, err := url.ParseQuery(string(body))
@@ -274,14 +281,19 @@ func (h *Handler) MatchPriority() int { return service.PriorityFormStandard }
 
 // ExtractOperation extracts the Autoscaling action from the request.
 func (h *Handler) ExtractOperation(c *echo.Context) string {
-	r := c.Request()
-	if err := r.ParseForm(); err != nil {
-		return "Unknown"
+	body, err := httputils.ReadBody(c.Request())
+	if err != nil {
+		return unknownOp
 	}
 
-	action := r.Form.Get("Action")
+	vals, err := url.ParseQuery(string(body))
+	if err != nil {
+		return unknownOp
+	}
+
+	action := vals.Get("Action")
 	if action == "" {
-		return "Unknown"
+		return unknownOp
 	}
 
 	return action
@@ -289,23 +301,33 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 
 // ExtractResource extracts the Auto Scaling group name from the request.
 func (h *Handler) ExtractResource(c *echo.Context) string {
-	r := c.Request()
-	if err := r.ParseForm(); err != nil {
+	body, err := httputils.ReadBody(c.Request())
+	if err != nil {
 		return ""
 	}
 
-	return r.Form.Get("AutoScalingGroupName")
+	vals, err := url.ParseQuery(string(body))
+	if err != nil {
+		return ""
+	}
+
+	return vals.Get("AutoScalingGroupName")
 }
 
 // Handler returns the Echo handler function for Autoscaling operations.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
 		r := c.Request()
-		if err := r.ParseForm(); err != nil {
+		body, err := httputils.ReadBody(r)
+		if err != nil {
 			return h.writeError(c, http.StatusInternalServerError, "InternalFailure", "failed to read request body")
 		}
 
-		vals := r.Form
+		vals, err := url.ParseQuery(string(body))
+		if err != nil {
+			return h.writeError(c, http.StatusInternalServerError, "InternalFailure", "failed to parse request body")
+		}
+
 		action := vals.Get("Action")
 		if action == "" {
 			return h.writeError(c, http.StatusBadRequest, "MissingAction", "missing Action parameter")
@@ -501,6 +523,7 @@ func toXMLScalingActivity(a *ScalingActivity) xmlScalingActivity {
 		ActivityID:           a.ActivityID,
 		AutoScalingGroupName: a.AutoScalingGroupName,
 		Description:          a.Description,
+		Cause:                a.Cause,
 		StatusCode:           a.StatusCode,
 		StatusMessage:        a.StatusMessage,
 		Progress:             a.Progress,
@@ -548,11 +571,15 @@ type xmlScalingActivity struct {
 	ActivityID           string `xml:"ActivityId"`
 	AutoScalingGroupName string `xml:"AutoScalingGroupName"`
 	Description          string `xml:"Description,omitempty"`
-	StatusCode           string `xml:"StatusCode"`
-	StatusMessage        string `xml:"StatusMessage,omitempty"`
-	StartTime            string `xml:"StartTime"`
-	EndTime              string `xml:"EndTime,omitempty"`
-	Progress             int32  `xml:"Progress"`
+	// Cause is required (types.go:298, Activity) and, unlike Description, has no
+	// omitempty -- every construction site below sets it to a real, non-empty
+	// narrative of why the activity happened.
+	Cause         string `xml:"Cause"`
+	StatusCode    string `xml:"StatusCode"`
+	StatusMessage string `xml:"StatusMessage,omitempty"`
+	StartTime     string `xml:"StartTime"`
+	EndTime       string `xml:"EndTime,omitempty"`
+	Progress      int32  `xml:"Progress"`
 }
 
 type xmlScalingActivityList struct {

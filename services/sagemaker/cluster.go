@@ -53,6 +53,7 @@ func newClusterNode(c *Cluster, ig ClusterInstanceGroup) *ClusterNode {
 		InstanceType:      ig.InstanceType,
 		InstanceGroupName: ig.InstanceGroupName,
 		NodeStatus:        statusRunning,
+		CreationTime:      time.Now(),
 	}
 }
 
@@ -150,6 +151,31 @@ func (b *InMemoryBackend) CreateCluster(
 	return cloneCluster(c), nil
 }
 
+// AddClusterNodeInternal directly inserts a node into an existing cluster,
+// bypassing BatchAddClusterNodes' instance-group semantics, for seeding tests.
+func (b *InMemoryBackend) AddClusterNodeInternal(
+	ctx context.Context,
+	clusterName string,
+	node ClusterNode,
+) *ClusterNode {
+	b.mu.Lock("AddClusterNodeInternal")
+	defer b.mu.Unlock()
+
+	c, err := b.ensureClusterLocked(ctx, clusterName)
+	if err != nil {
+		return nil
+	}
+
+	if node.NodeStatus == "" {
+		node.NodeStatus = statusRunning
+	}
+
+	nodeCopy := node
+	c.Nodes[node.NodeID] = &nodeCopy
+
+	return &nodeCopy
+}
+
 // DescribeCluster returns a cluster by name or ARN.
 func (b *InMemoryBackend) DescribeCluster(ctx context.Context, nameOrArn string) (*Cluster, error) {
 	b.mu.RLock("DescribeCluster")
@@ -165,27 +191,87 @@ func (b *InMemoryBackend) DescribeCluster(ctx context.Context, nameOrArn string)
 	return cloneCluster(c), nil
 }
 
-// ListClusters returns all clusters, optionally filtered by a NameContains substring.
-func (b *InMemoryBackend) ListClusters(
-	ctx context.Context,
-	nextToken, nameContains string,
-) ([]*Cluster, string) {
+// ListClustersParams bundles ListClusters' filter/sort/pagination criteria
+// (api_op_ListClusters.go:30-71, sagemaker@v1.263.2). TrainingPlanArn is
+// decoded by the handler for wire-shape fidelity but is a disclosed no-op
+// here: CreateClusterInput has no TrainingPlanArn field at all (nor does
+// Cluster/ClusterInstanceGroupSpecification), so no cluster ever has a
+// training-plan association to filter by.
+type ListClustersParams struct {
+	CreationTimeAfter  *time.Time
+	CreationTimeBefore *time.Time
+	NameContains       string
+	NextToken          string
+	SortBy             string
+	SortOrder          string
+	MaxResults         int32
+}
+
+// ListClusters returns clusters matching params, sorted by params.SortBy
+// (default CreationTime) / params.SortOrder (default Ascending, per
+// api_op_ListClusters.go's documented defaults), capped at params.MaxResults.
+func (b *InMemoryBackend) ListClusters(ctx context.Context, params ListClustersParams) ([]*Cluster, string) {
 	b.mu.RLock("ListClusters")
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
-	all := b.clustersStoreRO(region)
+	tbl := b.clustersStoreRO(region)
 
-	filtered := make(map[string]*Cluster, all.Len())
+	list := make([]*Cluster, 0, tbl.Len())
 
-	for _, c := range all.All() {
-		if nameContains == "" || strings.Contains(c.ClusterName, nameContains) {
-			filtered[c.ClusterName] = c
+	for _, c := range tbl.All() {
+		if !matchesClusterListParams(c, params) {
+			continue
+		}
+
+		list = append(list, cloneCluster(c))
+	}
+
+	asc := !strings.EqualFold(params.SortOrder, sortOrderDescending)
+	sort.Slice(list, func(i, j int) bool {
+		less := clusterSortLess(list[i], list[j], params.SortBy)
+		if asc {
+			return less
+		}
+
+		return !less
+	})
+
+	return paginateSlice(list, params.NextToken, params.MaxResults)
+}
+
+// matchesClusterListParams reports whether c satisfies every filter in params.
+func matchesClusterListParams(c *Cluster, p ListClustersParams) bool {
+	if p.NameContains != "" && !strings.Contains(c.ClusterName, p.NameContains) {
+		return false
+	}
+
+	if p.CreationTimeAfter != nil && !c.CreationTime.After(*p.CreationTimeAfter) {
+		return false
+	}
+
+	if p.CreationTimeBefore != nil && !c.CreationTime.Before(*p.CreationTimeBefore) {
+		return false
+	}
+
+	return true
+}
+
+// clusterSortLess orders two clusters by sortBy -- one of ClusterSortBy's
+// real values (CREATION_TIME/NAME, types/enums.go:2775-2776).
+func clusterSortLess(a, b *Cluster, sortBy string) bool {
+	switch sortBy {
+	case sortByName:
+		if a.ClusterName != b.ClusterName {
+			return a.ClusterName < b.ClusterName
+		}
+	default:
+		if !a.CreationTime.Equal(b.CreationTime) {
+			return a.CreationTime.Before(b.CreationTime)
 		}
 	}
 
-	return sagemakerListPagedMap(filtered, nextToken, cloneCluster,
-		func(a, b *Cluster) bool { return a.ClusterName < b.ClusterName })
+	return a.ClusterName < b.ClusterName
 }
 
 // DeleteCluster removes a cluster by name or ARN, returning its ARN.
@@ -435,10 +521,30 @@ func (b *InMemoryBackend) DescribeClusterNode(
 	return &cp, nil
 }
 
-// ListClusterNodes returns a paginated list of nodes belonging to a cluster.
+// ListClusterNodesParams bundles ListClusterNodes' filter/sort/pagination
+// criteria (api_op_ListClusterNodes.go:30-70). IncludeNodeLogicalIds is
+// decoded by the handler for wire-shape fidelity but is a disclosed no-op
+// here: every node in this backend gets its NodeId assigned synchronously at
+// creation (see newClusterNode) -- there is no still-provisioning,
+// logical-id-only node state for the flag to include or exclude.
+type ListClusterNodesParams struct {
+	CreationTimeAfter         *time.Time
+	CreationTimeBefore        *time.Time
+	InstanceGroupNameContains string
+	NextToken                 string
+	SortBy                    string
+	SortOrder                 string
+	MaxResults                int32
+}
+
+// ListClusterNodes returns nodes belonging to a cluster matching params,
+// sorted by params.SortBy (default CreationTime) / params.SortOrder (default
+// Ascending, per api_op_ListClusterNodes.go's documented defaults), capped
+// at params.MaxResults.
 func (b *InMemoryBackend) ListClusterNodes(
 	ctx context.Context,
-	clusterNameOrArn, nextToken string,
+	clusterNameOrArn string,
+	params ListClusterNodesParams,
 ) ([]*ClusterNode, string, error) {
 	b.mu.RLock("ListClusterNodes")
 	defer b.mu.RUnlock()
@@ -450,13 +556,67 @@ func (b *InMemoryBackend) ListClusterNodes(
 		return nil, "", err
 	}
 
-	nodes, next := sagemakerListKeyPagedMap(c.Nodes, nextToken, func(n *ClusterNode) *ClusterNode {
-		cp := *n
+	list := make([]*ClusterNode, 0, len(c.Nodes))
 
-		return &cp
+	for _, n := range c.Nodes {
+		if !matchesClusterNodeListParams(n, params) {
+			continue
+		}
+
+		cp := *n
+		list = append(list, &cp)
+	}
+
+	asc := !strings.EqualFold(params.SortOrder, sortOrderDescending)
+	sort.Slice(list, func(i, j int) bool {
+		less := clusterNodeSortLess(list[i], list[j], params.SortBy)
+		if asc {
+			return less
+		}
+
+		return !less
 	})
 
+	nodes, next := paginateSlice(list, params.NextToken, params.MaxResults)
+
 	return nodes, next, nil
+}
+
+// matchesClusterNodeListParams reports whether n satisfies every filter in params.
+func matchesClusterNodeListParams(n *ClusterNode, p ListClusterNodesParams) bool {
+	if p.InstanceGroupNameContains != "" && !strings.Contains(n.InstanceGroupName, p.InstanceGroupNameContains) {
+		return false
+	}
+
+	if p.CreationTimeAfter != nil && !n.CreationTime.After(*p.CreationTimeAfter) {
+		return false
+	}
+
+	if p.CreationTimeBefore != nil && !n.CreationTime.Before(*p.CreationTimeBefore) {
+		return false
+	}
+
+	return true
+}
+
+// clusterNodeSortLess orders two nodes by sortBy -- one of ClusterSortBy's
+// real values (CREATION_TIME/NAME, types/enums.go:2775-2776), reused
+// unchanged from ListClusters even though a node has no Name of its own; NAME
+// is interpreted as its InstanceGroupName, the closest analogous field a node
+// carries.
+func clusterNodeSortLess(a, b *ClusterNode, sortBy string) bool {
+	switch sortBy {
+	case sortByName:
+		if a.InstanceGroupName != b.InstanceGroupName {
+			return a.InstanceGroupName < b.InstanceGroupName
+		}
+	default:
+		if !a.CreationTime.Equal(b.CreationTime) {
+			return a.CreationTime.Before(b.CreationTime)
+		}
+	}
+
+	return a.NodeID < b.NodeID
 }
 
 // DescribeClusterEvent looks up a single cluster event by ID. This emulator
@@ -595,22 +755,41 @@ func (b *InMemoryBackend) AddClusterInternal(ctx context.Context, clusterName st
 	return cloneCluster(c)
 }
 
-// AttachClusterNodeVolume attaches a volume to a cluster node.
+// AttachedVolume describes the result of attaching an EBS volume to a
+// cluster node.
+type AttachedVolume struct {
+	AttachTime time.Time
+	ClusterArn string
+	NodeID     string
+	VolumeID   string
+	DeviceName string
+	Status     string
+}
+
+// AttachClusterNodeVolume attaches a volume to a cluster node. The volume is
+// tracked by the VolumeId supplied here, since this emulator does not mint a
+// separate immutable VolumeId at attach time — DetachClusterNodeVolume
+// matches on the same value.
 func (b *InMemoryBackend) AttachClusterNodeVolume(
 	ctx context.Context,
-	clusterName, nodeID string,
-	volume ClusterNodeVolume,
-) (string, string, error) {
+	clusterArn, nodeID, volumeID string,
+) (*AttachedVolume, error) {
 	b.mu.Lock("AttachClusterNodeVolume")
 	defer b.mu.Unlock()
 
-	c, err := b.ensureClusterLocked(ctx, clusterName)
-	if err != nil {
-		return "", "", err
+	if nodeID == "" {
+		return nil, fmt.Errorf("%w: NodeId is required", ErrValidation)
 	}
 
-	if nodeID == "" {
-		return "", "", fmt.Errorf("%w: NodeId is required", ErrValidation)
+	if volumeID == "" {
+		return nil, fmt.Errorf("%w: VolumeId is required", ErrValidation)
+	}
+
+	region := getRegion(ctx, b.region)
+
+	c, err := b.resolveClusterLocked(region, clusterArn)
+	if err != nil {
+		return nil, err
 	}
 
 	node, ok := c.Nodes[nodeID]
@@ -622,49 +801,95 @@ func (b *InMemoryBackend) AttachClusterNodeVolume(
 		c.Nodes[nodeID] = node
 	}
 
-	node.Volumes = append(node.Volumes, volume)
+	node.Volumes = append(node.Volumes, ClusterNodeVolume{VolumeName: volumeID})
 
-	return c.ClusterArn, nodeID, nil
+	return &AttachedVolume{
+		ClusterArn: c.ClusterArn,
+		NodeID:     nodeID,
+		VolumeID:   volumeID,
+		DeviceName: "/dev/xvdf",
+		Status:     "attached",
+		AttachTime: time.Now(),
+	}, nil
 }
 
-// BatchAddClusterNodes adds multiple nodes to a cluster.
-// Returns clusterArn and a slice of nodeIDs that failed to add.
+// AddClusterNodeSpec is the backend-facing shape of one BatchAddClusterNodes
+// NodesToAdd entry (types.AddClusterNodeSpecification, types/types.go:79-99,
+// sagemaker@v1.263.2). AvailabilityZones/InstanceTypes are decoded by the
+// handler for wire-shape fidelity but are a disclosed no-op here: this
+// backend places every added node using its instance group's InstanceType,
+// the same convention CreateCluster's node provisioning already uses
+// (newClusterNode).
+type AddClusterNodeSpec struct {
+	InstanceGroupName      string
+	IncrementTargetCountBy int32
+}
+
+// BatchAddClusterNodesFailure describes one NodesToAdd spec that could not be
+// applied, mirroring types.BatchAddClusterNodesError's InstanceGroupName/
+// ErrorCode/FailedCount (types/types.go:3168-3184).
+type BatchAddClusterNodesFailure struct {
+	InstanceGroupName string
+	ErrorCode         string
+	FailedCount       int32
+}
+
+// instanceGroupIndexLocked returns the index of the named instance group in
+// c.InstanceGroups, or -1 if it does not exist (must be called with b.mu held).
+func instanceGroupIndexLocked(c *Cluster, instanceGroupName string) int {
+	for i, ig := range c.InstanceGroups {
+		if ig.InstanceGroupName == instanceGroupName {
+			return i
+		}
+	}
+
+	return -1
+}
+
+// BatchAddClusterNodes increments the target count for one or more instance
+// groups, provisioning IncrementTargetCountBy new running nodes per spec.
+// Returns clusterArn, the nodes added, and the specs that failed because
+// their InstanceGroupName does not exist on the cluster.
 func (b *InMemoryBackend) BatchAddClusterNodes(
 	ctx context.Context,
 	clusterName string,
-	nodeConfigs []ClusterNode,
-) (string, []string, error) {
+	specs []AddClusterNodeSpec,
+) (string, []ClusterNode, []BatchAddClusterNodesFailure, error) {
 	b.mu.Lock("BatchAddClusterNodes")
 	defer b.mu.Unlock()
 
 	c, err := b.ensureClusterLocked(ctx, clusterName)
 	if err != nil {
-		return "", nil, err
+		return "", nil, nil, err
 	}
 
-	var failures []string
+	var successful []ClusterNode
 
-	for i := range nodeConfigs {
-		node := &nodeConfigs[i]
-		if node.NodeID == "" {
-			node.NodeID = fmt.Sprintf("node-%d", len(c.Nodes)+1)
-		}
+	var failed []BatchAddClusterNodesFailure
 
-		if node.NodeStatus == "" {
-			node.NodeStatus = statusRunning
-		}
-
-		if _, exists := c.Nodes[node.NodeID]; exists {
-			failures = append(failures, node.NodeID)
+	for _, spec := range specs {
+		idx := instanceGroupIndexLocked(c, spec.InstanceGroupName)
+		if idx < 0 {
+			failed = append(failed, BatchAddClusterNodesFailure{
+				InstanceGroupName: spec.InstanceGroupName,
+				ErrorCode:         "InstanceGroupNotFound",
+				FailedCount:       spec.IncrementTargetCountBy,
+			})
 
 			continue
 		}
 
-		nodeCopy := *node
-		c.Nodes[node.NodeID] = &nodeCopy
+		ig := c.InstanceGroups[idx]
+		c.InstanceGroups[idx].InstanceCount += spec.IncrementTargetCountBy
+
+		for range spec.IncrementTargetCountBy {
+			node := newClusterNode(c, ig)
+			c.Nodes[node.NodeID] = node
+			successful = append(successful, *node)
+		}
 	}
 
-	return c.ClusterArn, failures, nil
+	return c.ClusterArn, successful, failed, nil
 }
 
 // BatchDeleteClusterNodes removes multiple nodes from a cluster.
@@ -728,41 +953,38 @@ func (b *InMemoryBackend) BatchRebootClusterNodes(
 	return c.ClusterArn, failures, successful, nil
 }
 
-// BatchReplaceClusterNodes replaces multiple nodes in a cluster.
-// Returns clusterArn and a slice of nodeIDs that failed to replace.
+// BatchReplaceClusterNodes replaces multiple nodes in a cluster, identified
+// by node ID (types.BatchReplaceClusterNodesInput.NodeIds is a flat []string
+// with no per-node InstanceType, api_op_BatchReplaceClusterNodes.go:60-92,
+// sagemaker@v1.263.2). Returns clusterArn, the nodeIDs that failed to
+// replace, and the nodeIDs that were replaced successfully.
 func (b *InMemoryBackend) BatchReplaceClusterNodes(
 	ctx context.Context,
 	clusterName string,
-	nodes []ClusterNode,
-) (string, []string, error) {
+	nodeIDs []string,
+) (string, []string, []string, error) {
 	b.mu.Lock("BatchReplaceClusterNodes")
 	defer b.mu.Unlock()
 
 	c, err := b.ensureClusterLocked(ctx, clusterName)
 	if err != nil {
-		return "", nil, err
+		return "", nil, nil, err
 	}
 
-	var failures []string
+	var failed, successful []string
 
-	for i := range nodes {
-		node := &nodes[i]
-		if node.NodeID == "" {
-			failures = append(failures, "")
+	for _, nodeID := range nodeIDs {
+		node, ok := c.Nodes[nodeID]
+		if !ok {
+			failed = append(failed, nodeID)
 
 			continue
 		}
 
-		if _, ok := c.Nodes[node.NodeID]; !ok {
-			failures = append(failures, node.NodeID)
-
-			continue
-		}
-
-		nodeCopy := *node
-		nodeCopy.NodeStatus = statusRunning
-		c.Nodes[node.NodeID] = &nodeCopy
+		node.NodeStatus = statusRunning
+		node.CreationTime = time.Now()
+		successful = append(successful, nodeID)
 	}
 
-	return c.ClusterArn, failures, nil
+	return c.ClusterArn, failed, successful, nil
 }

@@ -128,7 +128,7 @@ func (h *Handler) handleGetEffectivePermissionsForPath(_ context.Context, c *ech
 	entries, nextToken := h.Backend.GetEffectivePermissionsForPath(in.ResourceArn, in.MaxResults, in.NextToken)
 
 	return c.JSON(http.StatusOK, getEffectivePermissionsForPathOutput{
-		PrincipalResourcePermissions: toPermissionEntryWireList(entries),
-		NextToken:                    nextToken,
+		Permissions: toPermissionEntryWireList(entries),
+		NextToken:   nextToken,
 	})
 }

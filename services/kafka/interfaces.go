@@ -146,7 +146,7 @@ type StorageBackend interface {
 	// Node / version ops
 	ListNodes(ctx context.Context, clusterArn string) ([]*BrokerNode, error)
 	ListKafkaVersions(ctx context.Context) []*MSKVersion
-	GetCompatibleKafkaVersions(ctx context.Context, clusterArn string) ([]*MSKVersion, error)
+	GetCompatibleKafkaVersions(ctx context.Context, clusterArn string) ([]*CompatibleKafkaVersion, error)
 
 	// Channel operations
 	CreateChannel(

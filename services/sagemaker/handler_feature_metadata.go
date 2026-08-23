@@ -42,11 +42,15 @@ func (h *Handler) dispatchFeatureMetadataOps(
 	return nil, false, nil
 }
 
+// describeFeatureMetadataInput mirrors DescribeFeatureMetadataInput
+// (api_op_DescribeFeatureMetadata.go:32-40): both members are required.
+type describeFeatureMetadataInput struct {
+	FeatureGroupName string `json:"FeatureGroupName"`
+	FeatureName      string `json:"FeatureName"`
+}
+
 func (h *Handler) handleDescribeFeatureMetadata(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		FeatureGroupName string `json:"FeatureGroupName"`
-		FeatureName      string `json:"FeatureName"`
-	}
+	var req describeFeatureMetadataInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -77,13 +81,18 @@ func (h *Handler) handleDescribeFeatureMetadata(ctx context.Context, body []byte
 		return nil, err
 	}
 
+	lastModified := fg.CreationTime
+	if !meta.LastModifiedTime.IsZero() {
+		lastModified = meta.LastModifiedTime
+	}
+
 	resp := map[string]any{
 		keyFeatureGroupArn:  fg.FeatureGroupArn,
 		keyFeatureGroupName: fg.FeatureGroupName,
 		"FeatureName":       meta.FeatureName,
 		"FeatureType":       meta.FeatureType,
 		keyCreationTime:     epochSeconds(fg.CreationTime),
-		keyLastModifiedTime: epochSeconds(fg.CreationTime),
+		keyLastModifiedTime: epochSeconds(lastModified),
 	}
 	if meta.Description != "" {
 		resp["Description"] = meta.Description
@@ -95,16 +104,24 @@ func (h *Handler) handleDescribeFeatureMetadata(ctx context.Context, body []byte
 	return json.Marshal(resp)
 }
 
+// updateFeatureMetadataInput mirrors UpdateFeatureMetadataInput
+// (api_op_UpdateFeatureMetadata.go:32-52): FeatureGroupName/FeatureName are
+// required; Description/ParameterAdditions/ParameterRemovals are all
+// optional. ParameterRemovals was previously absent from decode entirely --
+// a real client removing a parameter had the removal silently dropped.
+type updateFeatureMetadataInput struct {
+	FeatureGroupName   string `json:"FeatureGroupName"`
+	FeatureName        string `json:"FeatureName"`
+	Description        string `json:"Description,omitempty"`
+	ParameterAdditions []struct {
+		Key   string `json:"Key"`
+		Value string `json:"Value"`
+	} `json:"ParameterAdditions,omitempty"`
+	ParameterRemovals []string `json:"ParameterRemovals,omitempty"`
+}
+
 func (h *Handler) handleUpdateFeatureMetadata(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		FeatureGroupName   string `json:"FeatureGroupName"`
-		FeatureName        string `json:"FeatureName"`
-		Description        string `json:"Description,omitempty"`
-		ParameterAdditions []struct {
-			Key   string `json:"Key"`
-			Value string `json:"Value"`
-		} `json:"ParameterAdditions,omitempty"`
-	}
+	var req updateFeatureMetadataInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -139,7 +156,7 @@ func (h *Handler) handleUpdateFeatureMetadata(ctx context.Context, body []byte) 
 	}
 
 	if updateErr := h.Backend.UpdateFeatureMetadata(
-		ctx, req.FeatureGroupName, req.FeatureName, req.Description, params,
+		ctx, req.FeatureGroupName, req.FeatureName, req.Description, params, req.ParameterRemovals,
 	); updateErr != nil {
 		return nil, updateErr
 	}

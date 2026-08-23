@@ -104,7 +104,7 @@ func putRecordErrorCode(err error) string {
 		return errTypeValidation
 	}
 
-	return "InternalFailure"
+	return errTypeInternalFailure
 }
 
 // PutRecords writes multiple records to a stream.

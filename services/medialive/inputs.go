@@ -75,16 +75,24 @@ func (b *InMemoryBackend) UpdateInput(inputID, name, roleArn string) (*Input, er
 	return inp.toInput(), nil
 }
 
-// DeleteInput deletes an input.
+// DeleteInput marks an input DELETED rather than removing it outright.
+// terraform-provider-aws's waitInputDeleted (internal/service/medialive/
+// input.go) polls DescribeInput waiting for State to reach InputStateDeleted;
+// its refresh function treats a NotFoundException as "not yet observed", not
+// as success -- Target is InputStateDeleted, never the empty state NotFound
+// maps to. Deleting the record outright made DescribeInput 404 immediately,
+// which the waiter cannot distinguish from "still deleting", so it burned its
+// NotFoundChecks budget and failed with "couldn't find resource".
 func (b *InMemoryBackend) DeleteInput(inputID string) error {
 	b.mu.Lock("DeleteInput")
 	defer b.mu.Unlock()
 
-	if !b.inputs.Has(inputID) {
+	inp, ok := b.inputs.Get(inputID)
+	if !ok {
 		return fmt.Errorf("%w: input %s not found", ErrNotFound, inputID)
 	}
 
-	b.inputs.Delete(inputID)
+	inp.State = stateDeleted
 
 	return nil
 }

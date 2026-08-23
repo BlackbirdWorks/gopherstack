@@ -48,19 +48,24 @@ func (h *Handler) dispatchAIRecommendationJobOps(
 	return nil, false, nil
 }
 
+// createAIRecommendationJobInput mirrors CreateAIRecommendationJobInput
+// (api_op_CreateAIRecommendationJob.go:30-90).
+type createAIRecommendationJobInput struct {
+	ModelSource                json.RawMessage `json:"ModelSource"`
+	OutputConfig               json.RawMessage `json:"OutputConfig"`
+	PerformanceTarget          json.RawMessage `json:"PerformanceTarget"`
+	ComputeSpec                json.RawMessage `json:"ComputeSpec"`
+	InferenceSpecification     json.RawMessage `json:"InferenceSpecification"`
+	AdapterSource              json.RawMessage `json:"AdapterSource"`
+	OptimizeModel              *bool           `json:"OptimizeModel"`
+	AIRecommendationJobName    string          `json:"AIRecommendationJobName"`
+	AIWorkloadConfigIdentifier string          `json:"AIWorkloadConfigIdentifier"`
+	RoleArn                    string          `json:"RoleArn"`
+	Tags                       []tagObject     `json:"Tags"`
+}
+
 func (h *Handler) handleCreateAIRecommendationJob(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		ModelSource                json.RawMessage `json:"ModelSource"`
-		OutputConfig               json.RawMessage `json:"OutputConfig"`
-		PerformanceTarget          json.RawMessage `json:"PerformanceTarget"`
-		ComputeSpec                json.RawMessage `json:"ComputeSpec"`
-		InferenceSpecification     json.RawMessage `json:"InferenceSpecification"`
-		OptimizeModel              *bool           `json:"OptimizeModel"`
-		AIRecommendationJobName    string          `json:"AIRecommendationJobName"`
-		AIWorkloadConfigIdentifier string          `json:"AIWorkloadConfigIdentifier"`
-		RoleArn                    string          `json:"RoleArn"`
-		Tags                       []tagObject     `json:"Tags"`
-	}
+	var req createAIRecommendationJobInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -75,6 +80,7 @@ func (h *Handler) handleCreateAIRecommendationJob(ctx context.Context, body []by
 		PerformanceTarget:          req.PerformanceTarget,
 		ComputeSpec:                req.ComputeSpec,
 		InferenceSpecification:     req.InferenceSpecification,
+		AdapterSource:              req.AdapterSource,
 		OptimizeModel:              req.OptimizeModel,
 		Tags:                       fromTagObjects(req.Tags),
 	})
@@ -85,10 +91,14 @@ func (h *Handler) handleCreateAIRecommendationJob(ctx context.Context, body []by
 	return json.Marshal(map[string]string{keyAIRecommendationJobArn: j.AIRecommendationJobArn})
 }
 
+// describeAIRecommendationJobInput mirrors DescribeAIRecommendationJobInput
+// (api_op_DescribeAIRecommendationJob.go:29-34).
+type describeAIRecommendationJobInput struct {
+	AIRecommendationJobName string `json:"AIRecommendationJobName"`
+}
+
 func (h *Handler) handleDescribeAIRecommendationJob(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		AIRecommendationJobName string `json:"AIRecommendationJobName"`
-	}
+	var req describeAIRecommendationJobInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -106,10 +116,14 @@ func (h *Handler) handleDescribeAIRecommendationJob(ctx context.Context, body []
 	return json.Marshal(j)
 }
 
+// deleteAIRecommendationJobInput mirrors DeleteAIRecommendationJobInput
+// (api_op_DeleteAIRecommendationJob.go:27-32).
+type deleteAIRecommendationJobInput struct {
+	AIRecommendationJobName string `json:"AIRecommendationJobName"`
+}
+
 func (h *Handler) handleDeleteAIRecommendationJob(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		AIRecommendationJobName string `json:"AIRecommendationJobName"`
-	}
+	var req deleteAIRecommendationJobInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -127,10 +141,14 @@ func (h *Handler) handleDeleteAIRecommendationJob(ctx context.Context, body []by
 	return json.Marshal(map[string]string{keyAIRecommendationJobArn: jobARN})
 }
 
+// stopAIRecommendationJobInput mirrors StopAIRecommendationJobInput
+// (api_op_StopAIRecommendationJob.go:27-32).
+type stopAIRecommendationJobInput struct {
+	AIRecommendationJobName string `json:"AIRecommendationJobName"`
+}
+
 func (h *Handler) handleStopAIRecommendationJob(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		AIRecommendationJobName string `json:"AIRecommendationJobName"`
-	}
+	var req stopAIRecommendationJobInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -148,17 +166,21 @@ func (h *Handler) handleStopAIRecommendationJob(ctx context.Context, body []byte
 	return json.Marshal(map[string]string{keyAIRecommendationJobArn: jobARN})
 }
 
+// listAIRecommendationJobsInput mirrors ListAIRecommendationJobsInput
+// (api_op_ListAIRecommendationJobs.go:31-59).
+type listAIRecommendationJobsInput struct {
+	CreationTimeAfter  *float64 `json:"CreationTimeAfter"`
+	CreationTimeBefore *float64 `json:"CreationTimeBefore"`
+	NameContains       string   `json:"NameContains"`
+	StatusEquals       string   `json:"StatusEquals"`
+	NextToken          string   `json:"NextToken"`
+	SortBy             string   `json:"SortBy"`
+	SortOrder          string   `json:"SortOrder"`
+	MaxResults         int32    `json:"MaxResults"`
+}
+
 func (h *Handler) handleListAIRecommendationJobs(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		CreationTimeAfter  *float64 `json:"CreationTimeAfter"`
-		CreationTimeBefore *float64 `json:"CreationTimeBefore"`
-		NameContains       string   `json:"NameContains"`
-		StatusEquals       string   `json:"StatusEquals"`
-		NextToken          string   `json:"NextToken"`
-		SortBy             string   `json:"SortBy"`
-		SortOrder          string   `json:"SortOrder"`
-		MaxResults         int32    `json:"MaxResults"`
-	}
+	var req listAIRecommendationJobsInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)

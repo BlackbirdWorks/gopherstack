@@ -2,17 +2,26 @@ package kinesis
 
 import (
 	"context"
+	"maps"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
-// ListTagsForResource returns the tags associated with a stream identified by its ARN.
-// Tags are those stored on the stream's internal Tags store (set via TagResource).
+// ListTagsForResource returns the tags associated with a Kinesis resource
+// identified by its ARN -- a stream (tags stored on the stream's internal
+// Tags store, set via TagResource) or, per the real op's doc comment ("the
+// specified Kinesis resource"), an enhanced fan-out consumer (tags stored on
+// Consumer.Tags, set via RegisterStreamConsumer's Tags parameter or
+// TagResource against the consumer's own ARN).
 func (b *InMemoryBackend) ListTagsForResource(
 	ctx context.Context,
 	input *ListTagsForResourceInput,
 ) (*ListTagsForResourceOutput, error) {
 	region := regionFromARNOrCtx(ctx, input.ResourceARN, b.region)
+
+	if sName, cName := consumerInfoFromARN(input.ResourceARN); cName != "" {
+		return b.listConsumerTags(region, sName, cName)
+	}
 
 	b.mu.RLock("ListTagsForResource")
 
@@ -32,6 +41,33 @@ func (b *InMemoryBackend) ListTagsForResource(
 	if stream.Tags != nil {
 		result = stream.Tags.Clone()
 	}
+
+	return &ListTagsForResourceOutput{Tags: result}, nil
+}
+
+// listConsumerTags is ListTagsForResource's consumer-ARN path.
+func (b *InMemoryBackend) listConsumerTags(
+	region, streamName, consumerName string,
+) (*ListTagsForResourceOutput, error) {
+	b.mu.RLock("ListTagsForResource")
+
+	stream, ok := b.streams.Get(streamKey(region, streamName))
+	if !ok {
+		b.mu.RUnlock()
+
+		return nil, ErrConsumerNotFound
+	}
+	stream.mu.RLock("ListTagsForResource.stream")
+	b.mu.RUnlock()
+	defer stream.mu.RUnlock()
+
+	consumer, ok := stream.Consumers[consumerName]
+	if !ok {
+		return nil, ErrConsumerNotFound
+	}
+
+	result := make(map[string]string, len(consumer.Tags))
+	maps.Copy(result, consumer.Tags)
 
 	return &ListTagsForResourceOutput{Tags: result}, nil
 }
@@ -71,10 +107,15 @@ func (b *InMemoryBackend) TaggedStreams() []TaggedEntry {
 	return out
 }
 
-// TagResource adds or updates tags on a stream identified by its ARN.
-// This is the ARN-based counterpart to AddTagsToStream.
+// TagResource adds or updates tags on a Kinesis resource identified by its
+// ARN -- a stream (the ARN-based counterpart to AddTagsToStream) or an
+// enhanced fan-out consumer.
 func (b *InMemoryBackend) TagResource(ctx context.Context, input *TagResourceInput) error {
 	region := regionFromARNOrCtx(ctx, input.ResourceARN, b.region)
+
+	if sName, cName := consumerInfoFromARN(input.ResourceARN); cName != "" {
+		return b.tagConsumer(region, sName, cName, input.Tags)
+	}
 
 	b.mu.RLock("TagResource")
 
@@ -99,10 +140,42 @@ func (b *InMemoryBackend) TagResource(ctx context.Context, input *TagResourceInp
 	return nil
 }
 
-// UntagResource removes tags from a stream identified by its ARN.
-// This is the ARN-based counterpart to RemoveTagsFromStream.
+// tagConsumer is TagResource's consumer-ARN path.
+func (b *InMemoryBackend) tagConsumer(region, streamName, consumerName string, newTags map[string]string) error {
+	b.mu.RLock("TagResource")
+
+	stream, ok := b.streams.Get(streamKey(region, streamName))
+	if !ok {
+		b.mu.RUnlock()
+
+		return ErrConsumerNotFound
+	}
+	stream.mu.Lock("TagResource.stream")
+	b.mu.RUnlock()
+	defer stream.mu.Unlock()
+
+	consumer, ok := stream.Consumers[consumerName]
+	if !ok {
+		return ErrConsumerNotFound
+	}
+
+	if consumer.Tags == nil {
+		consumer.Tags = make(map[string]string, len(newTags))
+	}
+	maps.Copy(consumer.Tags, newTags)
+
+	return nil
+}
+
+// UntagResource removes tags from a Kinesis resource identified by its ARN --
+// a stream (the ARN-based counterpart to RemoveTagsFromStream) or an
+// enhanced fan-out consumer.
 func (b *InMemoryBackend) UntagResource(ctx context.Context, input *UntagResourceInput) error {
 	region := regionFromARNOrCtx(ctx, input.ResourceARN, b.region)
+
+	if sName, cName := consumerInfoFromARN(input.ResourceARN); cName != "" {
+		return b.untagConsumer(region, sName, cName, input.TagKeys)
+	}
 
 	b.mu.RLock("UntagResource")
 
@@ -120,6 +193,32 @@ func (b *InMemoryBackend) UntagResource(ctx context.Context, input *UntagResourc
 
 	if stream.Tags != nil {
 		stream.Tags.DeleteKeys(input.TagKeys)
+	}
+
+	return nil
+}
+
+// untagConsumer is UntagResource's consumer-ARN path.
+func (b *InMemoryBackend) untagConsumer(region, streamName, consumerName string, keys []string) error {
+	b.mu.RLock("UntagResource")
+
+	stream, ok := b.streams.Get(streamKey(region, streamName))
+	if !ok {
+		b.mu.RUnlock()
+
+		return ErrConsumerNotFound
+	}
+	stream.mu.Lock("UntagResource.stream")
+	b.mu.RUnlock()
+	defer stream.mu.Unlock()
+
+	consumer, ok := stream.Consumers[consumerName]
+	if !ok {
+		return ErrConsumerNotFound
+	}
+
+	for _, k := range keys {
+		delete(consumer.Tags, k)
 	}
 
 	return nil

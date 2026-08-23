@@ -13,10 +13,7 @@ func (h *Handler) handleCreateTargetGroup(c *echo.Context, body map[string]any) 
 	tgType, _ := body[keyType].(string)
 
 	if name == "" || tgType == "" {
-		return c.JSON(
-			http.StatusBadRequest,
-			map[string]any{keyMessage: "name and type are required"},
-		)
+		return validationError(c, "name and type are required")
 	}
 
 	ctx := c.Request().Context()

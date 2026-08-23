@@ -65,13 +65,11 @@ func (h *Handler) handleTestRepositoryTriggers(body []byte) (any, error) {
 		return nil, err
 	}
 
-	succeeded := make([]map[string]any, 0, len(names))
-	for _, n := range names {
-		succeeded = append(succeeded, map[string]any{"triggerName": n})
-	}
-
+	// TestRepositoryTriggersOutput.SuccessfulExecutions (codecommit@v1.36.4
+	// api_op_TestRepositoryTriggers.go) is []string, not an array of
+	// {"triggerName": ...} objects.
 	return map[string]any{
-		"successfulExecutions": succeeded,
+		"successfulExecutions": names,
 		"failedExecutions":     []any{},
 	}, nil
 }

@@ -73,7 +73,7 @@ func (b *InMemoryBackend) appendEvent(region, sourceID, sourceType, msg string, 
 		SourceType:       sourceType,
 		Message:          msg,
 		EventCategories:  cats,
-		Date:             time.Now().UTC().Format(time.RFC3339),
+		Date:             time.Now().UTC(),
 	})
 }
 

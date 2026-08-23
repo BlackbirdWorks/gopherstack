@@ -213,6 +213,8 @@ func (h *Handler) ChaosRegions() []string { return []string{config.DefaultRegion
 // ebAPIVersion is the API version string used by Elastic Beanstalk requests.
 const ebAPIVersion = "Version=2010-12-01"
 
+const unknownOp = "Unknown"
+
 // RouteMatcher returns a function that matches Elastic Beanstalk requests.
 // Elastic Beanstalk uses the same Version=2010-12-01 as SES, so we disambiguate
 // by matching on the Action field against the list of supported EB operations.
@@ -237,7 +239,13 @@ func (h *Handler) RouteMatcher() service.Matcher {
 
 		body, err := httputils.ReadBody(r)
 		if err != nil {
-			return false
+			// Body unreadable (e.g. oversized): fall back to the User-Agent
+			// marker every aws-sdk-go-v2 elasticbeanstalk client sets
+			// (api_client.go's AddSDKAgentKeyValue -- "api/elasticbeanstalk").
+			// That still identifies this as ours, so claim it and let
+			// Handler() produce the typed error instead of masking the
+			// read failure as a 404.
+			return service.MatchesUserAgentMarker(r.Header, "api/elasticbeanstalk")
 		}
 
 		if !strings.Contains(string(body), ebAPIVersion) {
@@ -264,14 +272,19 @@ func (h *Handler) MatchPriority() int { return service.PriorityFormStandard }
 
 // ExtractOperation extracts the Elastic Beanstalk action from the request.
 func (h *Handler) ExtractOperation(c *echo.Context) string {
-	r := c.Request()
-	if err := r.ParseForm(); err != nil {
-		return "Unknown"
+	body, err := httputils.ReadBody(c.Request())
+	if err != nil {
+		return unknownOp
 	}
 
-	action := r.Form.Get("Action")
+	vals, err := url.ParseQuery(string(body))
+	if err != nil {
+		return unknownOp
+	}
+
+	action := vals.Get("Action")
 	if action == "" {
-		return "Unknown"
+		return unknownOp
 	}
 
 	return action
@@ -279,23 +292,29 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 
 // ExtractResource extracts a resource identifier from the request.
 func (h *Handler) ExtractResource(c *echo.Context) string {
-	r := c.Request()
-	if err := r.ParseForm(); err != nil {
+	body, err := httputils.ReadBody(c.Request())
+	if err != nil {
 		return ""
 	}
 
-	if name := r.Form.Get("ApplicationName"); name != "" {
+	vals, err := url.ParseQuery(string(body))
+	if err != nil {
+		return ""
+	}
+
+	if name := vals.Get("ApplicationName"); name != "" {
 		return name
 	}
 
-	return r.Form.Get("EnvironmentName")
+	return vals.Get("EnvironmentName")
 }
 
 // Handler returns the Echo handler function for Elastic Beanstalk requests.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
 		r := c.Request()
-		if err := r.ParseForm(); err != nil {
+		body, err := httputils.ReadBody(r)
+		if err != nil {
 			return h.writeError(
 				c,
 				http.StatusInternalServerError,
@@ -304,7 +323,15 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			)
 		}
 
-		vals := r.Form
+		vals, err := url.ParseQuery(string(body))
+		if err != nil {
+			return h.writeError(
+				c,
+				http.StatusInternalServerError,
+				"InternalFailure",
+				"failed to parse request body",
+			)
+		}
 		action := vals.Get("Action")
 		if action == "" {
 			return h.writeError(

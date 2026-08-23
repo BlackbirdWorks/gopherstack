@@ -200,9 +200,10 @@ func (h *Handler) handleDeleteDashboards(form url.Values, c *echo.Context) error
 	}
 
 	type response struct {
-		XMLName   xml.Name `xml:"DeleteDashboardsResponse"`
-		Xmlns     string   `xml:"xmlns,attr"`
-		RequestID string   `xml:"ResponseMetadata>RequestId"`
+		XMLName   xml.Name       `xml:"DeleteDashboardsResponse"`
+		Result    xmlEmptyResult `xml:"DeleteDashboardsResult"`
+		Xmlns     string         `xml:"xmlns,attr"`
+		RequestID string         `xml:"ResponseMetadata>RequestId"`
 	}
 
 	return writeXML(c, response{Xmlns: cloudwatchNS, RequestID: uuid.New().String()})

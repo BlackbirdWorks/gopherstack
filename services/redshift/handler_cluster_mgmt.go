@@ -274,7 +274,7 @@ func (h *Handler) handleDescribeClusterDBRevisions(vals url.Values) (any, error)
 type modifyClusterDBRevisionResponse struct {
 	XMLName xml.Name   `xml:"ModifyClusterDbRevisionResponse"`
 	Xmlns   string     `xml:"xmlns,attr"`
-	Result  xmlCluster `xml:"ModifyClusterDbRevisionResult"`
+	Cluster xmlCluster `xml:"ModifyClusterDbRevisionResult>Cluster"`
 }
 
 func (h *Handler) handleModifyClusterDBRevision(vals url.Values) (any, error) {
@@ -289,8 +289,8 @@ func (h *Handler) handleModifyClusterDBRevision(vals url.Values) (any, error) {
 	}
 
 	return &modifyClusterDBRevisionResponse{
-		Xmlns:  redshiftXMLNS,
-		Result: h.toXMLCluster(&clusters[0]),
+		Xmlns:   redshiftXMLNS,
+		Cluster: h.toXMLCluster(&clusters[0]),
 	}, nil
 }
 

@@ -29,7 +29,8 @@ func TestAddon_ConfigurationValues_RoundTrip(t *testing.T) {
 	rec2 := doREST(t, h, http.MethodGet, "/clusters/c1/addons/vpc-cni", nil)
 	addon := parseResp(t, rec2)["addon"].(map[string]any)
 	assert.JSONEq(t, `{"env":{"ENABLE_PREFIX_DELEGATION":"true"}}`, addon["configurationValues"].(string))
-	assert.Equal(t, "OVERWRITE", addon["resolveConflicts"])
+	assert.NotContains(t, addon, "resolveConflicts",
+		"types.Addon has no resolveConflicts member; it is request-only")
 }
 
 func TestAddon_ResolveConflicts_InvalidValue_Rejected(t *testing.T) {
@@ -84,7 +85,8 @@ func TestAddon_UpdateAddon_Configuration_And_ResolveConflicts(t *testing.T) {
 	rec2 := doREST(t, h, http.MethodGet, "/clusters/c1/addons/coredns", nil)
 	addon := parseResp(t, rec2)["addon"].(map[string]any)
 	assert.Equal(t, `{"replicaCount":3}`, addon["configurationValues"])
-	assert.Equal(t, "PRESERVE", addon["resolveConflicts"])
+	assert.NotContains(t, addon, "resolveConflicts",
+		"types.Addon has no resolveConflicts member; it is request-only")
 }
 
 func TestAddon_UpdateAddon_InvalidResolveConflicts_Rejected(t *testing.T) {

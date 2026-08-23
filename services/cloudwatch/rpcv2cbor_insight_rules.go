@@ -204,6 +204,19 @@ func (h *Handler) cborGetInsightRuleReport(input cbor.Map, c *echo.Context) erro
 		contribList = append(contribList, cbor.Map{
 			"Keys":                      keys,
 			"ApproximateAggregateValue": cbor.Float64(contrib.Sum),
+			// Datapoints is required (types.InsightRuleContributor,
+			// cloudwatch@v1.66.3 schemas/schemas.go:1085) but this backend has
+			// no per-timestamp breakdown to offer (aggregateContributorRecord
+			// only accumulates a single range-wide sum) -- emitted honestly
+			// empty rather than fabricated, matching the top-level
+			// MetricDatapoints field's same documented limitation. NOT
+			// provable via a real aws-sdk-go-v2 client round trip: smithy-go's
+			// rpc-v2-cbor deserializer collapses a present-but-zero-length
+			// list to a nil Go slice identically to an absent key (confirmed
+			// for both this field and MuteTargets.AlarmNames), so this key's
+			// presence is unobservable from the client side. Fixed for wire
+			// correctness anyway; not counted as a proven bug.
+			"Datapoints": cbor.List{},
 		})
 		aggregateValue += contrib.Sum
 	}

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -14,17 +15,16 @@ const clusterTransitionDelay = 100 * time.Millisecond
 
 // ClusterOptionalConfig groups optional cluster configuration for CreateCluster.
 type ClusterOptionalConfig struct {
-	AccessConfig     *AccessConfig
-	ComputeConfig    *ComputeConfig
-	StorageConfig    *StorageConfig
-	NetworkingConfig *NetworkingConfig
+	AccessConfig  *AccessConfig
+	ComputeConfig *ComputeConfig
+	StorageConfig *StorageConfig
 }
 
 // resolveClusterOptionalConfig deep-copies the (at most one) supplied
 // ClusterOptionalConfig into independent, nil-safe fields for CreateCluster.
 func resolveClusterOptionalConfig(
 	opts ...ClusterOptionalConfig,
-) (*AccessConfig, *ComputeConfig, *StorageConfig, *NetworkingConfig) {
+) (*AccessConfig, *ComputeConfig, *StorageConfig) {
 	var opt ClusterOptionalConfig
 	if len(opts) > 0 {
 		opt = opts[0]
@@ -49,13 +49,25 @@ func resolveClusterOptionalConfig(
 		storageCfg = &cp
 	}
 
-	var networkingCfg *NetworkingConfig
-	if opt.NetworkingConfig != nil {
-		cp := *opt.NetworkingConfig
-		networkingCfg = &cp
+	return accessCfg, computeCfg, storageCfg
+}
+
+// cloneKubernetesNetworkConfig deep-copies a KubernetesNetworkConfig,
+// including its nested ElasticLoadBalancing pointer, so the stored Cluster
+// never aliases the caller's config.
+func cloneKubernetesNetworkConfig(cfg *KubernetesNetworkConfig) *KubernetesNetworkConfig {
+	if cfg == nil {
+		return nil
 	}
 
-	return accessCfg, computeCfg, storageCfg, networkingCfg
+	cp := *cfg
+
+	if cfg.ElasticLoadBalancing != nil {
+		elbCp := *cfg.ElasticLoadBalancing
+		cp.ElasticLoadBalancing = &elbCp
+	}
+
+	return &cp
 }
 
 // newClusterLocked builds a new Cluster value for CreateCluster. Must be
@@ -78,13 +90,9 @@ func (b *InMemoryBackend) newClusterLocked(
 		vpcCopy = cloneVpcConfig(vpcConfig, name)
 	}
 
-	var netCopy *KubernetesNetworkConfig
-	if networkConfig != nil {
-		cp := *networkConfig
-		netCopy = &cp
-	}
+	netCopy := cloneKubernetesNetworkConfig(networkConfig)
 
-	accessCfg, computeCfg, storageCfg, networkingCfg := resolveClusterOptionalConfig(opts...)
+	accessCfg, computeCfg, storageCfg := resolveClusterOptionalConfig(opts...)
 
 	return &Cluster{
 		Name:                    name,
@@ -104,9 +112,38 @@ func (b *InMemoryBackend) newClusterLocked(
 		AccessConfig:            accessCfg,
 		ComputeConfig:           computeCfg,
 		StorageConfig:           storageCfg,
-		NetworkingConfig:        networkingCfg,
 		CertificateAuthority:    stableID(name + "/ca"),
 	}
+}
+
+// clone deep-copies c's VpcConfig and AccessConfig pointers. A shallow
+// "cp := *c" is not enough: UpdateClusterConfig/UpdateClusterVpcEndpoint
+// mutate the live, stored VpcConfig/AccessConfig in place through their
+// existing pointers rather than replacing them, so any copy that still
+// aliases those pointers stays exposed to that mutation after it crosses the
+// lock boundary -- see TestDescribeClusterVpcConfigRace.
+//
+// KubernetesNetworkConfig, ComputeConfig, StorageConfig, and ConnectorConfig
+// are safe to alias: each is only ever replaced wholesale, never mutated
+// through an existing pointer. Tags is a *tags.Tags, which is self-
+// synchronized (pkgs/tags is safemap-backed) and safe to alias.
+func (c *Cluster) clone() *Cluster {
+	cp := *c
+
+	if c.VpcConfig != nil {
+		vc := *c.VpcConfig
+		vc.SubnetIDs = cloneStrings(c.VpcConfig.SubnetIDs)
+		vc.SecurityGroupIDs = cloneStrings(c.VpcConfig.SecurityGroupIDs)
+		vc.PublicAccessCIDRs = cloneStrings(c.VpcConfig.PublicAccessCIDRs)
+		cp.VpcConfig = &vc
+	}
+
+	if c.AccessConfig != nil {
+		ac := *c.AccessConfig
+		cp.AccessConfig = &ac
+	}
+
+	return &cp
 }
 
 // scheduleClusterActivation schedules the async CREATING -> ACTIVE transition
@@ -148,9 +185,7 @@ func (b *InMemoryBackend) CreateCluster(
 
 	b.scheduleClusterActivation(name)
 
-	cp := *c
-
-	return &cp, nil
+	return c.clone(), nil
 }
 
 func cloneVpcConfig(src *VpcConfig, clusterName string) *VpcConfig {
@@ -177,9 +212,8 @@ func (b *InMemoryBackend) DescribeCluster(name string) (*Cluster, error) {
 	if !ok {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, name)
 	}
-	cp := *c
 
-	return &cp, nil
+	return c.clone(), nil
 }
 
 // ListClusters returns all cluster names sorted alphabetically.
@@ -246,7 +280,7 @@ func (b *InMemoryBackend) DeleteCluster(name string) (*Cluster, error) {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, name)
 	}
 
-	cp := *c
+	cp := c.clone()
 	cp.Status = statusDeleting
 
 	// Collect nodegroups for cleanup before removal.
@@ -293,7 +327,7 @@ func (b *InMemoryBackend) DeleteCluster(name string) (*Cluster, error) {
 		}
 	}
 
-	return &cp, nil
+	return cp, nil
 }
 
 // RegisterCluster registers an external cluster.
@@ -338,14 +372,27 @@ func (b *InMemoryBackend) RegisterCluster(
 	b.accessPolicies[name] = make(map[string][]*AccessPolicyAssociation)
 	b.encryptionConfigs[name] = nil
 
-	cp := *c
-
-	return &cp, nil
+	return c.clone(), nil
 }
 
 // DeregisterCluster removes a registered external cluster.
 func (b *InMemoryBackend) DeregisterCluster(name string) (*Cluster, error) {
 	return b.DeleteCluster(name)
+}
+
+// supportDate parses a static "YYYY-MM-DD" date into the epoch-seconds
+// number awsjson1.1/restjson1 expects on the wire -- confirmed against
+// aws-sdk-go-v2/service/eks@v1.90.4's deserializers.go (case
+// "endOfStandardSupportDate"/"endOfExtendedSupportDate": json.Number via
+// smithytime.ParseEpochSeconds). Emitting the literal date string instead
+// failed DescribeClusterVersions outright for every real client.
+func supportDate(date string) float64 {
+	t, err := time.Parse(time.DateOnly, date)
+	if err != nil {
+		panic("eks: invalid static support date " + date)
+	}
+
+	return awstime.Epoch(t)
 }
 
 // DescribeClusterVersions returns supported cluster versions.
@@ -354,26 +401,26 @@ func (b *InMemoryBackend) DescribeClusterVersions() []map[string]any {
 		{
 			keyClusterVersion:           defaultK8sVersion,
 			keyDefaultVersion:           true,
-			keyEndOfStandardSupportDate: "2027-04-01",
-			keyEndOfExtendedSupportDate: "2028-04-01",
+			keyEndOfStandardSupportDate: supportDate("2027-04-01"),
+			keyEndOfExtendedSupportDate: supportDate("2028-04-01"),
 		},
 		{
 			keyClusterVersion:           "1.31",
 			keyDefaultVersion:           false,
-			keyEndOfStandardSupportDate: "2026-11-01",
-			keyEndOfExtendedSupportDate: "2027-11-01",
+			keyEndOfStandardSupportDate: supportDate("2026-11-01"),
+			keyEndOfExtendedSupportDate: supportDate("2027-11-01"),
 		},
 		{
 			keyClusterVersion:           "1.30",
 			keyDefaultVersion:           false,
-			keyEndOfStandardSupportDate: "2026-07-01",
-			keyEndOfExtendedSupportDate: "2027-07-01",
+			keyEndOfStandardSupportDate: supportDate("2026-07-01"),
+			keyEndOfExtendedSupportDate: supportDate("2027-07-01"),
 		},
 		{
 			keyClusterVersion:           "1.29",
 			keyDefaultVersion:           false,
-			keyEndOfStandardSupportDate: "2026-03-01",
-			keyEndOfExtendedSupportDate: "2027-03-01",
+			keyEndOfStandardSupportDate: supportDate("2026-03-01"),
+			keyEndOfExtendedSupportDate: supportDate("2027-03-01"),
 		},
 	}
 }
@@ -404,8 +451,7 @@ func (b *InMemoryBackend) ListAllClusters() []*Cluster {
 	list := make([]*Cluster, 0, len(items))
 
 	for _, c := range items {
-		cp := *c
-		list = append(list, &cp)
+		list = append(list, c.clone())
 	}
 
 	return list

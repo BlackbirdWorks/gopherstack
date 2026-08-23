@@ -56,7 +56,7 @@ func TestHandler_CheckCapacity(t *testing.T) {
 			if tt.wantStatus == http.StatusOK {
 				var result map[string]any
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &result))
-				consumed, ok := result["ConsumedCapacity"].(float64)
+				consumed, ok := result["Capacity"].(float64)
 				require.True(t, ok)
 				assert.GreaterOrEqual(t, int(consumed), tt.wantMinCap)
 			}
@@ -757,7 +757,7 @@ func TestCheckCapacity_EdgeCases(t *testing.T) {
 				var result map[string]any
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &result))
 
-				consumed, ok := result["ConsumedCapacity"].(float64)
+				consumed, ok := result["Capacity"].(float64)
 				require.True(t, ok)
 				assert.Equal(t, tt.wantExact, int(consumed))
 			}
@@ -779,7 +779,7 @@ func TestCheckCapacity_NilRules(t *testing.T) {
 
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	capacity, _ := resp["ConsumedCapacity"].(float64)
+	capacity, _ := resp["Capacity"].(float64)
 	assert.InDelta(t, float64(0), capacity, 0, "nil rules capacity should be 0")
 
 	// Empty rules → capacity 0.
@@ -790,7 +790,7 @@ func TestCheckCapacity_NilRules(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	capacity, _ = resp["ConsumedCapacity"].(float64)
+	capacity, _ = resp["Capacity"].(float64)
 	assert.InDelta(t, float64(0), capacity, 0, "empty rules capacity should be 0")
 }
 

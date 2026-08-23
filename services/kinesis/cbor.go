@@ -26,7 +26,10 @@ func (h *Handler) handleCBORRequest(
 	if err != nil {
 		log.ErrorContext(ctx, "failed to read CBOR request body", "error", err)
 
-		return c.String(http.StatusInternalServerError, "internal server error")
+		return c.JSON(http.StatusInternalServerError, service.JSONErrorResponse{
+			Type:    errTypeInternalFailure,
+			Message: "internal server error",
+		})
 	}
 
 	jsonBody, err := service.CBORToJSON(raw)
@@ -50,7 +53,10 @@ func (h *Handler) handleCBORRequest(
 	if err != nil {
 		log.ErrorContext(ctx, "failed to encode CBOR response", "error", err)
 
-		return c.String(http.StatusInternalServerError, "internal server error")
+		return c.JSON(http.StatusInternalServerError, service.JSONErrorResponse{
+			Type:    errTypeInternalFailure,
+			Message: "internal server error",
+		})
 	}
 
 	return c.Blob(http.StatusOK, service.ContentTypeCBOR, cborPayload)

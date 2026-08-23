@@ -8,29 +8,29 @@ overall: A            # route-matcher pass (prior audit) + gaps/deferred closeou
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
-  CreateCluster: {wire: ok, errors: ok, state: ok, persist: ok}
-  DescribeCluster: {wire: ok, errors: ok, state: ok, persist: ok}
+  CreateCluster: {wire: fixed, errors: ok, state: ok, persist: ok, note: "gopherstack-tp8x (2026-08-21): fixed the y1zn-deferred kubernetesNetworkConfig/networkingConfig split. Merged ElasticLoadBalancing *ElasticLoadBalancingConfig into the KubernetesNetworkConfig model/JSON struct as a sibling of IPFamily/ServiceIPv4CIDR/ServiceIPv6CIDR (matching types.KubernetesNetworkConfigRequest/Response, eks@v1.90.4 types/types.go:1597,1645); deleted the separate NetworkingConfig type and Cluster.NetworkingConfig field entirely, across clusters.go (ClusterOptionalConfig, resolveClusterOptionalConfig -- now returns 3 values not 4, new cloneKubernetesNetworkConfig helper for the nested-pointer deep copy), models.go, and handler_clusters.go (kubernetesNetworkConfigJSON gained ElasticLoadBalancing, networkingConfigJSON type deleted, createClusterBody.NetworkingConfig field deleted, buildClusterOptConfig's NetworkingConfig-building block deleted, appendClusterOptionalInfra's separate networkingConfig emission deleted, clusterNetConfigJSON now emits elasticLoadBalancing as part of the same object). A real client's ElasticLoadBalancing setting inside kubernetesNetworkConfig now round-trips both directions. Locked by TestCreateDescribeCluster_ElasticLoadBalancing_RealClient (real SDK client, both CreateCluster and DescribeCluster) and TestNetworkingConfig_RoundTrip (rewritten -- the old version sent/asserted the wrong top-level 'networkingConfig' key, ratifying the bug). gopherstack-tp8x (2026-08-21, follow-up): the Cluster shape change above went in without bumping eksSnapshotVersion, so a pre-fix snapshot's Cluster.NetworkingConfig.ElasticLoadBalancing would have silently vanished on restore into the new shape instead of the mismatch being caught. Bumped eksSnapshotVersion 1->2 (persistence.go) to force discard of any snapshot from before this shape changed."}
+  DescribeCluster: {wire: fixed, errors: ok, state: ok, persist: ok, note: "see CreateCluster's gopherstack-tp8x note -- same clusterNetConfigJSON fix, shared by both ops."}
   ListClusters: {wire: fixed, errors: ok, state: ok, persist: ok, note: "now supports maxResults/nextToken pagination via pkgs/page (was returning the full list in one page)"}
   DeleteCluster: {wire: ok, errors: ok, state: ok, persist: ok}
-  UpdateClusterConfig: {wire: fixed, errors: ok, state: ok, persist: ok, note: "was routed as bare-path PUT /clusters/{name}; real path is POST /clusters/{name}/update-config"}
-  UpdateClusterVersion: {wire: fixed, errors: ok, state: ok, persist: ok, note: "was routed at fictional POST /clusters/{name}/update-version; real path is POST /clusters/{name}/updates (shared with ListUpdates GET)"}
+  UpdateClusterConfig: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "was routed as bare-path PUT /clusters/{name}; real path is POST /clusters/{name}/update-config. gopherstack-muzq (2026-08-21): the returned Update record was stamped InProgress and never advanced -- DescribeUpdate polled InProgress forever; now scheduled to Successful via scheduleUpdateTransition"}
+  UpdateClusterVersion: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "was routed at fictional POST /clusters/{name}/update-version; real path is POST /clusters/{name}/updates (shared with ListUpdates GET). gopherstack-muzq (2026-08-21): same InProgress-forever bug and fix as UpdateClusterConfig"}
   RegisterCluster: {wire: fixed, errors: ok, state: ok, persist: ok, note: "was routed at /clusters/{placeholder}/register; real path is global POST /cluster-registrations (name comes from body, always did)"}
   DeregisterCluster: {wire: fixed, errors: ok, state: ok, persist: ok, note: "was routed as POST /clusters/{name}/deregister; real path is DELETE /cluster-registrations/{name}"}
-  DescribeClusterVersions: {wire: ok, errors: ok, state: ok, persist: n/a}
-  AssociateEncryptionConfig: {wire: ok, errors: ok, state: ok, persist: ok}
+  DescribeClusterVersions: {wire: fixed, errors: ok, state: ok, persist: n/a, note: "gopherstack-g479 (2026-08-21): endOfStandardSupportDate/endOfExtendedSupportDate were static YYYY-MM-DD strings in a hand-built map[string]any table; real deserializers.go parses json.Number via ParseEpochSeconds. Confirmed against aws-sdk-go-v2/service/eks@v1.90.4's deserializers.go; failed with 'expected Timestamp to be a JSON Number, got string instead' pre-fix. Found via a new go/types-based map-literal kind scanner (map[string]any{} literals had zero automated coverage before this pass)."}
+  AssociateEncryptionConfig: {wire: fixed, errors: ok, state: ok, persist: ok, note: "gopherstack-g479 (2026-08-21): the returned Update.params was a hand-built {\"encryptionConfig\": ...} object; real Update.Params is an array of {type, value} pairs (deserializers.go's deserializeDocumentUpdate, case \"params\") with UpdateParamTypeEncryptionConfig = \"EncryptionConfig\". Failed with 'unexpected JSON type map[...]' pre-fix."}
   CreateNodegroup: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeNodegroup: {wire: ok, errors: ok, state: ok, persist: ok}
   ListNodegroups: {wire: fixed, errors: ok, state: ok, persist: ok, note: "now supports maxResults/nextToken pagination"}
   DeleteNodegroup: {wire: ok, errors: ok, state: ok, persist: ok}
-  UpdateNodegroupConfig: {wire: fixed, errors: ok, state: ok, persist: ok, note: "was reachable on a bare POST to the nodegroup path with no suffix check, so real SDK traffic to .../update-config fell through with a corrupted nodegroupName (the literal suffix baked in); now requires the real /update-config suffix"}
-  UpdateNodegroupVersion: {wire: ok, errors: ok, state: ok, persist: ok}
-  CreateAddon: {wire: ok, errors: ok, state: ok, persist: ok}
-  DescribeAddon: {wire: ok, errors: ok, state: ok, persist: ok}
+  UpdateNodegroupConfig: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "was reachable on a bare POST to the nodegroup path with no suffix check, so real SDK traffic to .../update-config fell through with a corrupted nodegroupName (the literal suffix baked in); now requires the real /update-config suffix. gopherstack-muzq (2026-08-21): the Update record built in the handler was stamped InProgress and never advanced; now scheduled to Successful"}
+  UpdateNodegroupVersion: {wire: ok, errors: ok, state: fixed, persist: ok, note: "gopherstack-muzq (2026-08-21): the returned Update record was stamped InProgress and never advanced -- DescribeUpdate polled InProgress forever; now scheduled to Successful via scheduleUpdateTransition"}
+  CreateAddon: {wire: fixed, errors: ok, state: ok, persist: ok, note: "2026-08-21 (gopherstack-y1zn): addonToJSON (shared by Create/Describe/Delete) emitted \"marketplaceVersion\" and \"resolveConflicts\"; types.Addon has neither (real Marketplace field is the nested \"marketplaceInformation\" object, not tracked by this backend; resolveConflicts is CreateAddon/UpdateAddon request-only, never echoed). Both removed. Proven via TestAddon_NoMarketplaceVersionOrResolveConflicts_RealClient, hand-reverted/confirmed-failing/restored/md5sum-verified."}
+  DescribeAddon: {wire: fixed, errors: ok, state: ok, persist: ok, note: "see CreateAddon's gopherstack-y1zn note -- same addonToJSON fix."}
   ListAddons: {wire: fixed, errors: ok, state: ok, persist: ok, note: "now supports maxResults/nextToken pagination"}
-  DeleteAddon: {wire: ok, errors: ok, state: ok, persist: ok}
+  DeleteAddon: {wire: fixed, errors: ok, state: ok, persist: ok, note: "see CreateAddon's gopherstack-y1zn note -- same addonToJSON fix."}
   UpdateAddon: {wire: fixed, errors: ok, state: ok, persist: ok, note: "was PUT to bare addon path; real op is POST .../addons/{addonName}/update"}
   DescribeAddonVersions: {wire: fixed, errors: ok, state: n/a, persist: n/a, note: "path was /addon-versions; real path is /addons/supported-versions — was completely unreachable by the real SDK client"}
-  DescribeAddonConfiguration: {wire: fixed, errors: ok, state: n/a, persist: n/a, note: "path was /addon-configuration; real path is /addons/configuration-schemas — was completely unreachable"}
+  DescribeAddonConfiguration: {wire: fixed, errors: ok, state: n/a, persist: n/a, note: "path was /addon-configuration; real path is /addons/configuration-schemas — was completely unreachable. gopherstack-g479 (2026-08-21): configurationSchema was ALSO a nested JSON object where the real member (deserializers.go, case \"configurationSchema\": value.(string)) is the schema as a raw JSON string; failed with 'expected String to be of type string, got map[string]interface {} instead' pre-fix. Found via a new go/types-based map-literal kind scanner."}
   CreateAccessEntry: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeAccessEntry: {wire: fixed, errors: ok, state: ok, persist: ok, note: "added ModifiedAt (real aws-sdk-go-v2/service/eks/types.AccessEntry.ModifiedAt was entirely unmodeled); set on create and every update"}
   ListAccessEntries: {wire: fixed, errors: ok, state: ok, persist: ok, note: "now supports maxResults/nextToken pagination"}
@@ -49,7 +49,7 @@ ops:
   ListPodIdentityAssociations: {wire: fixed, errors: ok, state: ok, persist: ok, note: "was emitting the FULL PodIdentityAssociation shape (roleArn/createdAt/tags included); real ListPodIdentityAssociations returns the PodIdentityAssociationSummary shape which deliberately omits those fields -- verified against types.PodIdentityAssociationSummary. Also now supports maxResults/nextToken pagination"}
   DeletePodIdentityAssociation: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdatePodIdentityAssociation: {wire: fixed, errors: ok, state: ok, persist: ok, note: "was routed as PUT; real method is POST to the same leaf path. Now also accepts Policy/DisableSessionTags and sets ModifiedAt"}
-  AssociateIdentityProviderConfig: {wire: fixed, errors: ok, state: ok, persist: ok, note: "now captures groupsPrefix/usernamePrefix/requiredClaims (previously dropped) and generates a real ARN (previously unset)"}
+  AssociateIdentityProviderConfig: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "now captures groupsPrefix/usernamePrefix/requiredClaims (previously dropped) and generates a real ARN (previously unset). gopherstack-muzq (2026-08-21): Status was stamped CREATING and nothing ever advanced it -- no ticker, no later call, while sibling cluster/addon/nodegroup resources transition correctly; now scheduled to ACTIVE mirroring scheduleClusterActivation. gopherstack-i8lo (2026-08-22): oidc.identityProviderConfigName (OidcIdentityProviderConfigRequest, eks@v1.90.4 types/types.go:2120, required) was decoded but never validated -- a missing name silently defaulted to clientId instead of being rejected; ClientId/IssuerUrl (types.go:2115,2132) were already validated. Now rejects a missing identityProviderConfigName with InvalidParameterException."}
   DescribeIdentityProviderConfig: {wire: fixed, errors: ok, state: ok, persist: n/a, note: "response was a flat {clusterName,name,type,status,oidc,createdAt} object; real shape (aws-sdk-go-v2/service/eks/types.IdentityProviderConfigResponse) nests the full OidcIdentityProviderConfig under an 'oidc' key with identityProviderConfigName/identityProviderConfigArn/clientId/issuerUrl/usernameClaim/usernamePrefix/groupsClaim/groupsPrefix/requiredClaims/tags/status fields, none of which matched gopherstack's flat shape. Route-match looseness (any 3rd path segment) is unchanged, still intentional"}
   ListIdentityProviderConfigs: {wire: fixed, errors: ok, state: ok, persist: ok, note: "now supports maxResults/nextToken pagination (envelope shape {name,type} pairs was already correct)"}
   DisassociateIdentityProviderConfig: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -245,3 +245,87 @@ key.
   don't expect a literal `null` in the map like the real SDK's Go struct
   (`*string` marshals to `null`); gopherstack's map-based JSON just omits the
   key, which decodes identically on the client side (`NextToken` stays nil).
+
+## gopherstack-muzq (2026-08-21): resources stuck in a transitional status forever
+
+Continues gopherstack-oc9v/gopherstack-muzq's cross-service sweep for resources
+stamped with a transitional status at construction that nothing in the backend
+ever advances -- a client polling for readiness never exits its loop, even
+though the emulator answers 200 with a well-formed body every time.
+
+**Two confirmed instances in this service, both fixed:**
+
+- `AssociateIdentityProviderConfig` stamped `IdentityProviderConfig.Status` as
+  `CREATING` and nothing else in the backend ever wrote to that field --
+  `clusters.go`/`addons.go`/`node_groups.go`'s sibling `CREATING`→`ACTIVE`
+  transitions (via `b.work.After` + a `*TransitionDelay` constant) are the
+  correct pattern in this exact service; `identity_providers.go` alone never
+  had one. Fixed by adding `identityProviderTransitionDelay` and scheduling the
+  transition the same way, right after `Put`. The existing
+  `TestIDPConfigCreatesAsCreating` asserted `CREATING` immediately after
+  associate -- true, but it never checked the status ever changed -- and was
+  strengthened with a `require.Eventually` block confirming `ACTIVE`.
+- `UpdateClusterConfig`/`UpdateClusterVersion`/`UpdateNodegroupVersion`, plus
+  the node-group-config handler's inline `Update` construction, all stamped
+  the returned `Update.Status` as `InProgress` and nothing ever advanced it --
+  the only other writer of an `Update`'s `Status` is `CancelUpdate`, which only
+  handles `VersionRollback`-type updates and only transitions to `Cancelled`.
+  A real client's `DescribeUpdate` waiter (the standard EKS "did my update
+  finish" poll) never saw a terminal status. Fixed via a new
+  `scheduleUpdateTransition` helper (mirroring `scheduleClusterActivation`)
+  called from all four sites, advancing `InProgress`→`Successful`.
+  `TestDescribeUpdate_Status_Successful` is a striking case of this bug class:
+  the test is *named* after the terminal state but its body asserted
+  `InProgress` and stopped there. Also strengthened:
+  `TestUpdateClusterConfig_Status_InProgress`,
+  `TestUpdateNodegroupVersion_Status_InProgress`; added
+  `TestNodegroup_UpdateConfig_UpdateRecordReachesSuccessful` for the handler
+  path, which had no status test at all.
+
+Both fixes reuse `b.work` (`*worker.Group`, already present on
+`InMemoryBackend` and used by every sibling `*TransitionDelay` mechanism in
+this service) -- no new async infrastructure was introduced.
+
+Cleared (real advancing path found, not a bug): `CreateCluster`/`CreateAddon`/
+`CreateFargateProfile`/`CreateNodegroup` all correctly schedule their own
+`CREATING`→`ACTIVE` transitions already. `UpdateClusterVpcEndpoint` sets
+`Successful` synchronously at creation (no async work exists for a pure
+config-flag flip) -- correct as-is, not a bug.
+
+Verified by hand-revert: each fix's file was reverted to its pre-fix `git
+show HEAD:<path>` content, the corresponding test failed with the predicted
+symptom (`Condition never satisfied` -- the status stayed transitional), then
+was restored and confirmed `md5sum`-identical to the fixed version.
+
+### 2026-08-22 (gopherstack-i8lo): missing required-member validation
+
+`AssociateIdentityProviderConfig`'s `oidc.identityProviderConfigName` is
+marked `// This member is required.` on `OidcIdentityProviderConfigRequest`
+(`aws-sdk-go-v2/service/eks@v1.90.4` `types/types.go:2120`, alongside
+`ClientId:2115` and `IssuerUrl:2132`, also both required). The handler
+(`handler_identity_providers.go`) already rejected a missing `clientId`/
+`issuerUrl`, but a missing `identityProviderConfigName` silently defaulted to
+`clientId` instead of being rejected -- so a request omitting a required
+member was accepted and produced a config keyed under a name the caller never
+supplied, something real AWS's `validateOpAssociateIdentityProviderConfigInput`
+(`validators.go`) would reject before the request ever reaches the service.
+
+Fixed by adding the same `== ""` rejection used for the other two required
+fields, and removing the `clientId`-fallback default.
+
+The existing `TestEKS_AssociateIdentityProviderConfig/associate_idp_config_success`
+fixture (`identity_providers_test.go`) supplied only `issuerUrl`/`clientId`
+and omitted `identityProviderConfigName` while asserting `200 OK` -- exactly
+the fixture-ratifies-the-defect pattern this campaign keeps finding. Fixed to
+include the name, and a new `associate_idp_config_missing_config_name`
+subtest (expecting `400`) was added alongside it; `cluster_not_found` and
+`duplicate` subtests, which also omitted the name, were updated to supply
+one so they still test what their names say. `TestParseAssocPaths`
+(`handler_test.go`) sent `"configName"` (a field the handler never decodes --
+the real key is `identityProviderConfigName`), which also silently relied on
+the same fallback; corrected to the real field name.
+
+Confirmed via hand-revert: reverting `handler_identity_providers.go` to
+`git show HEAD:services/eks/handler_identity_providers.go` made the new
+`missing_config_name` subtest fail (`expected: 400, actual: 200`); restored
+and `md5sum`-verified identical to the fix.

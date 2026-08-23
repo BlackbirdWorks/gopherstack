@@ -126,10 +126,18 @@ type adminCreateUserFullOutput struct {
 	User *adminUserJSON `json:"User,omitempty"`
 }
 
+// adminUserJSON is the wire shape for a UserType member (AdminCreateUser's
+// User field, ListUsersInGroup's Users list) -- distinct from the
+// standalone GetUser/AdminGetUser response types, which legitimately key
+// their attribute list "UserAttributes". UserType's own member is
+// "Attributes" (cognitoidentityprovider@v1.67.4 deserializers.go, case
+// "Attributes" in awsAwsjson11_deserializeDocumentUserType), so tagging it
+// "UserAttributes" here silently dropped every user's attributes for any
+// real client.
 type adminUserJSON struct {
 	Username             string          `json:"Username,omitempty"`
 	UserStatus           string          `json:"UserStatus,omitempty"`
-	UserAttributes       []attributeType `json:"UserAttributes,omitempty"`
+	UserAttributes       []attributeType `json:"Attributes,omitempty"`
 	MFAOptions           []mfaOptionType `json:"MFAOptions,omitempty"`
 	UserCreateDate       float64         `json:"UserCreateDate,omitempty"`
 	UserLastModifiedDate float64         `json:"UserLastModifiedDate,omitempty"`

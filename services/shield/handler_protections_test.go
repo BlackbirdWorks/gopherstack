@@ -520,8 +520,12 @@ func TestHandler_ListProtectionsInclusionFilterByName(t *testing.T) {
 
 // --- Gap 9: ListProtectionGroups InclusionFilters ---
 
-// TestAudit_Gap13_ProtectionTimestampIsFloat verifies protection timestamps are floats.
-func TestHandler_ProtectionTimestampIsFloat(t *testing.T) {
+// TestHandler_Protection_NoCreationTimeKey covers gopherstack-y1zn.
+// protectionToMap emitted "CreationTime"; types.Protection (shield@v1.37.4
+// types/types.go) has no such member -- only
+// ApplicationLayerAutomaticResponseConfiguration/HealthCheckIds/Id/Name/
+// ProtectionArn/ResourceArn.
+func TestHandler_Protection_NoCreationTimeKey(t *testing.T) {
 	t.Parallel()
 
 	b := shield.NewInMemoryBackend("000000000000", "us-east-1")
@@ -535,14 +539,9 @@ func TestHandler_ProtectionTimestampIsFloat(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	// Raw JSON must decode CreationTime as a float64, not string.
-	var raw map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw))
-
-	prot := raw["Protection"].(map[string]any)
-	ct, ok := prot["CreationTime"].(float64)
-	assert.True(t, ok, "CreationTime should be float64")
-	assert.Greater(t, ct, float64(1e9), "CreationTime should be a real epoch second, not sub-1970")
+	body := rec.Body.String()
+	assert.NotContains(t, body, `"CreationTime"`,
+		"types.Protection has no CreationTime member")
 }
 
 // TestAudit_Gap14_CreateProtectionValidResourceTypes verifies valid resource type ARNs.

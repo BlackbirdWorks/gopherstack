@@ -36,15 +36,22 @@ func (h *Handler) dispatchModelCardExportOps(
 	return nil, false, nil
 }
 
+// createModelCardExportJobInput mirrors CreateModelCardExportJobInput
+// (api_op_CreateModelCardExportJob.go): ModelCardExportJobName/ModelCardName/
+// OutputConfig are required, ModelCardVersion optional. ModelCardName and
+// OutputConfig.S3OutputPath are validated required in the backend
+// (CreateModelCardExportJob, modelcard_export.go), not duplicated here.
+type createModelCardExportJobInput struct {
+	ModelCardExportJobName string `json:"ModelCardExportJobName"`
+	ModelCardName          string `json:"ModelCardName"`
+	OutputConfig           struct {
+		S3OutputPath string `json:"S3OutputPath"`
+	} `json:"OutputConfig"`
+	ModelCardVersion int `json:"ModelCardVersion"`
+}
+
 func (h *Handler) handleCreateModelCardExportJob(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		ModelCardExportJobName string `json:"ModelCardExportJobName"`
-		ModelCardName          string `json:"ModelCardName"`
-		OutputConfig           struct {
-			S3OutputPath string `json:"S3OutputPath"`
-		} `json:"OutputConfig"`
-		ModelCardVersion int `json:"ModelCardVersion"`
-	}
+	var req createModelCardExportJobInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -64,10 +71,15 @@ func (h *Handler) handleCreateModelCardExportJob(ctx context.Context, body []byt
 	return json.Marshal(map[string]any{keyModelCardExportJobArn: job.ModelCardExportJobArn})
 }
 
+// describeModelCardExportJobInput mirrors DescribeModelCardExportJobInput
+// (api_op_DescribeModelCardExportJob.go): ModelCardExportJobArn is its sole,
+// required member.
+type describeModelCardExportJobInput struct {
+	ModelCardExportJobArn string `json:"ModelCardExportJobArn"`
+}
+
 func (h *Handler) handleDescribeModelCardExportJob(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		ModelCardExportJobArn string `json:"ModelCardExportJobArn"`
-	}
+	var req describeModelCardExportJobInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -90,7 +102,7 @@ func (h *Handler) handleDescribeModelCardExportJob(ctx context.Context, body []b
 		keyModelCardNameField:    job.ModelCardName,
 		keyModelCardVersion:      job.ModelCardVersion,
 		keyStatus:                job.Status,
-		"OutputConfig":           map[string]any{"S3OutputPath": job.S3OutputPath},
+		keyOutputConfig:          map[string]any{"S3OutputPath": job.S3OutputPath},
 		"ExportArtifacts":        map[string]any{"S3ExportArtifacts": job.S3ExportArtifacts},
 	})
 }

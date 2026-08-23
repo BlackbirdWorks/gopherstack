@@ -218,7 +218,7 @@ func (h *Handler) handleUpdateSecurityProfile(c *echo.Context) error {
 	if raw := c.QueryParam("expectedVersion"); raw != "" {
 		n, err := strconv.ParseInt(raw, 10, 64)
 		if err != nil {
-			return c.JSON(http.StatusBadRequest, map[string]string{keyError: "invalid expectedVersion"})
+			return c.JSON(http.StatusBadRequest, awsErrBody{errTypeInvalidRequest, "invalid expectedVersion"})
 		}
 		expectedVersion = &n
 	}

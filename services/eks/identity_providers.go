@@ -9,6 +9,11 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
+// identityProviderTransitionDelay is the async delay before a CREATING identity
+// provider config reaches ACTIVE, matching the 100ms scale used by
+// clusterTransitionDelay/addonTransitionDelay/nodegroupTransitionDelay.
+const identityProviderTransitionDelay = 100 * time.Millisecond
+
 // AssociateIdentityProviderConfig associates an identity provider configuration with a cluster.
 func (b *InMemoryBackend) AssociateIdentityProviderConfig(
 	clusterName, configType, name string,
@@ -50,6 +55,22 @@ func (b *InMemoryBackend) AssociateIdentityProviderConfig(
 		Tags:           t,
 	}
 	b.identityProviderConfigs.Put(cfg)
+
+	// Schedule async transition CREATING -> ACTIVE, mirroring
+	// scheduleClusterActivation/CreateAddon/CreateNodegroup. Previously nothing
+	// in this backend ever advanced Status past CREATING -- no ticker, no
+	// later call -- while sibling cluster/addon/nodegroup resources in this
+	// same service transition correctly.
+	b.work.After("IdentityProviderTransition", identityProviderTransitionDelay, func() {
+		b.mu.Lock("AssociateIdentityProviderConfig-async")
+		defer b.mu.Unlock()
+
+		if c, found := b.identityProviderConfigs.Get(identityProviderConfigKey(clusterName, name)); found &&
+			c.Status == statusCreating {
+			c.Status = statusActive
+		}
+	})
+
 	cp := *cfg
 
 	return &cp, nil

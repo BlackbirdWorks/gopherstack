@@ -523,6 +523,13 @@ linters:
       # SDK client end to end.
       - path: 'cli_iotanalytics_lambda_iot_wiring_test.go'
         linters: [ staticcheck ]
+      # Same reasoning as iotanalytics above -- opsworks is also AWS-deprecated,
+      # so its first typed-client round-trip tests (gopherstack-n3zi) carry the
+      # same blanket SA1019 noise on every SDK type/method/field touched.
+      - path: 'opsworks/sdk_roundtrip_test.go'
+        linters: [ staticcheck ]
+      - path: 'opsworks/sdk_roundtrip_helper_test.go'
+        linters: [ staticcheck ]
       - path: 'pkgs/service/cloudtrail_capture_test.go'
         linters: [ testpackage ]
       - path: 'pkgs/service/registry_test.go'

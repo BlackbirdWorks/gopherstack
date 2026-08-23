@@ -313,10 +313,19 @@ type listIdentityPoliciesResponse struct {
 	Result    listIdentityPoliciesResult `xml:"ListIdentityPoliciesResult"`
 }
 
+// MailFromDomain is required on types.IdentityMailFromDomainAttributes and,
+// unlike BehaviorOnMXFailure/MailFromDomainStatus, decodes as a *string on
+// the real SDK type (ses@v1.37.4 types/types.go:557-577) -- an omitted
+// element decodes to a nil pointer there, not the empty string a present
+// element with no chardata would give, so dropping the tag for an
+// unconfigured identity is a real, client-visible difference. The other two
+// fields are non-pointer enums/strings where omitted vs present-empty
+// decode identically, so their omitempty removal below is cleanup, not a
+// distinct fix.
 type xmlMailFromDomainAttributes struct {
-	MailFromDomain       string `xml:"MailFromDomain,omitempty"`
+	MailFromDomain       string `xml:"MailFromDomain"`
 	MailFromDomainStatus string `xml:"MailFromDomainStatus"`
-	BehaviorOnMXFailure  string `xml:"BehaviorOnMXFailure,omitempty"`
+	BehaviorOnMXFailure  string `xml:"BehaviorOnMXFailure"`
 }
 
 type xmlMailFromEntry struct {
@@ -339,14 +348,25 @@ type getIdentityMailFromDomainAttributesResponse struct {
 	Result    getIdentityMailFromDomainAttributesResult `xml:"GetIdentityMailFromDomainAttributesResult"`
 }
 
+// BounceTopic/ComplaintTopic/DeliveryTopic are all required *string members
+// on the real types.IdentityNotificationAttributes (ses@v1.37.4
+// types/types.go): an identity with no SNS topic configured for a given
+// notification type -- the common state before SetIdentityNotificationTopic
+// is ever called -- has an empty Go string here, and omitempty was dropping
+// the element entirely, decoding to a nil pointer on a real client instead
+// of a pointer to "". HeadersIn*'s XML tags were also wrong against the
+// real deserializer's key names (HeadersInBounceNotificationsEnabled etc.,
+// deserializers.go's IdentityNotificationAttributes case-switch) -- fixed
+// alongside since it's the same struct, but these fields aren't
+// Smithy-required so it's not part of this required-output-member cut.
 type xmlNotificationAttributes struct {
-	BounceTopic        string `xml:"BounceTopic,omitempty"`
-	ComplaintTopic     string `xml:"ComplaintTopic,omitempty"`
-	DeliveryTopic      string `xml:"DeliveryTopic,omitempty"`
+	BounceTopic        string `xml:"BounceTopic"`
+	ComplaintTopic     string `xml:"ComplaintTopic"`
+	DeliveryTopic      string `xml:"DeliveryTopic"`
 	ForwardingEnabled  bool   `xml:"ForwardingEnabled"`
-	HeadersInBounce    bool   `xml:"HeadersInBounce"`
-	HeadersInComplaint bool   `xml:"HeadersInComplaint"`
-	HeadersInDelivery  bool   `xml:"HeadersInDelivery"`
+	HeadersInBounce    bool   `xml:"HeadersInBounceNotificationsEnabled"`
+	HeadersInComplaint bool   `xml:"HeadersInComplaintNotificationsEnabled"`
+	HeadersInDelivery  bool   `xml:"HeadersInDeliveryNotificationsEnabled"`
 }
 
 type xmlNotifEntry struct {

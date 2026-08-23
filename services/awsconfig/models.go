@@ -58,8 +58,8 @@ type DeliveryChannel struct {
 // AggregationAuthorization represents an AWS Config aggregation authorization.
 type AggregationAuthorization struct {
 	AggregationAuthorizationArn string `json:"AggregationAuthorizationArn,omitempty"`
-	AuthorizedAccountID         string `json:"authorizedAccountId"`
-	AuthorizedAwsRegion         string `json:"authorizedAwsRegion"`
+	AuthorizedAccountID         string `json:"AuthorizedAccountId"`
+	AuthorizedAwsRegion         string `json:"AuthorizedAwsRegion"`
 	CreationTime                string `json:"CreationTime,omitempty"`
 }
 
@@ -125,12 +125,12 @@ type ConformancePack struct {
 
 // OrganizationConfigRule represents an AWS Config organization config rule.
 type OrganizationConfigRule struct {
-	OrganizationConfigRuleName string `json:"organizationConfigRuleName"`
+	OrganizationConfigRuleName string `json:"OrganizationConfigRuleName"`
 }
 
 // OrganizationConformancePack represents an AWS Config organization conformance pack.
 type OrganizationConformancePack struct {
-	OrganizationConformancePackName string `json:"organizationConformancePackName"`
+	OrganizationConformancePackName string `json:"OrganizationConformancePackName"`
 }
 
 // StoredQuery represents an AWS Config stored query.
@@ -346,15 +346,15 @@ type DetailedEvaluationResult struct {
 
 // DeliveryChannelStatusInfo holds status info for a delivery channel.
 type DeliveryChannelStatusInfo struct {
-	LastStatus      string  `json:"LastStatus"`
-	LastAttemptTime float64 `json:"LastAttemptTime"`
+	LastStatus      string  `json:"lastStatus"`
+	LastAttemptTime float64 `json:"lastAttemptTime"`
 }
 
 // DeliveryChannelStatus holds the status of a delivery channel.
 type DeliveryChannelStatus struct {
-	ConfigHistoryDeliveryInfo *DeliveryChannelStatusInfo `json:"ConfigHistoryDeliveryInfo,omitempty"`
-	ConfigStreamDeliveryInfo  *DeliveryChannelStatusInfo `json:"ConfigStreamDeliveryInfo,omitempty"`
-	Name                      string                     `json:"Name"`
+	ConfigHistoryDeliveryInfo *DeliveryChannelStatusInfo `json:"configHistoryDeliveryInfo,omitempty"`
+	ConfigStreamDeliveryInfo  *DeliveryChannelStatusInfo `json:"configStreamDeliveryInfo,omitempty"`
+	Name                      string                     `json:"name"`
 }
 
 // ConformancePackStatus holds status of a conformance pack.

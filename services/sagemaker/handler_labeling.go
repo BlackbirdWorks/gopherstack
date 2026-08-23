@@ -101,6 +101,10 @@ func (h *Handler) handleCreateLabelingJob(ctx context.Context, body []byte) ([]b
 		return nil, fmt.Errorf("%w: LabelingJobName is required", errInvalidRequest)
 	}
 
+	if req.LabelAttributeName == "" {
+		return nil, fmt.Errorf("%w: LabelAttributeName is required", errInvalidRequest)
+	}
+
 	if req.InputConfig == nil {
 		return nil, fmt.Errorf("%w: InputConfig is required", errInvalidRequest)
 	}
@@ -153,7 +157,7 @@ func labelingJobResponseMap(j *LabelingJob) map[string]any {
 		keyRoleArn:          j.RoleArn,
 		"LabelCounters":     j.LabelCounters,
 		"InputConfig":       j.InputConfig,
-		"OutputConfig":      j.OutputConfig,
+		keyOutputConfig:     j.OutputConfig,
 		"HumanTaskConfig":   j.HumanTaskConfig,
 	}
 
@@ -188,10 +192,14 @@ func labelingJobResponseMap(j *LabelingJob) map[string]any {
 	return resp
 }
 
+// describeLabelingJobInput mirrors DescribeLabelingJobInput
+// (api_op_DescribeLabelingJob.go:29-37).
+type describeLabelingJobInput struct {
+	LabelingJobName string `json:"LabelingJobName"`
+}
+
 func (h *Handler) handleDescribeLabelingJob(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		LabelingJobName string `json:"LabelingJobName"`
-	}
+	var req describeLabelingJobInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -213,10 +221,13 @@ func (h *Handler) handleDescribeLabelingJob(ctx context.Context, body []byte) ([
 // StopLabelingJob
 // ---------------------------------------------------------------------------
 
+// stopLabelingJobInput mirrors StopLabelingJobInput (api_op_StopLabelingJob.go:29-37).
+type stopLabelingJobInput struct {
+	LabelingJobName string `json:"LabelingJobName"`
+}
+
 func (h *Handler) handleStopLabelingJob(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		LabelingJobName string `json:"LabelingJobName"`
-	}
+	var req stopLabelingJobInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -238,34 +249,51 @@ func (h *Handler) handleStopLabelingJob(ctx context.Context, body []byte) ([]byt
 // ---------------------------------------------------------------------------
 
 type labelingJobSummary struct {
-	LabelingJobName                  string        `json:"LabelingJobName"`
-	LabelingJobArn                   string        `json:"LabelingJobArn"`
-	LabelingJobStatus                string        `json:"LabelingJobStatus"`
-	WorkteamArn                      string        `json:"WorkteamArn"`
-	AnnotationConsolidationLambdaArn string        `json:"AnnotationConsolidationLambdaArn,omitempty"`
-	FailureReason                    string        `json:"FailureReason,omitempty"`
-	PreHumanTaskLambdaArn            string        `json:"PreHumanTaskLambdaArn,omitempty"`
-	CreationTime                     float64       `json:"CreationTime"`
-	LastModifiedTime                 float64       `json:"LastModifiedTime"`
-	LabelCounters                    LabelCounters `json:"LabelCounters"`
+	InputConfig                      *LabelingJobInputConfig `json:"InputConfig,omitempty"`
+	LabelingJobOutput                *LabelingJobOutput      `json:"LabelingJobOutput,omitempty"`
+	LabelingJobName                  string                  `json:"LabelingJobName"`
+	LabelingJobArn                   string                  `json:"LabelingJobArn"`
+	LabelingJobStatus                string                  `json:"LabelingJobStatus"`
+	WorkteamArn                      string                  `json:"WorkteamArn"`
+	AnnotationConsolidationLambdaArn string                  `json:"AnnotationConsolidationLambdaArn,omitempty"`
+	FailureReason                    string                  `json:"FailureReason,omitempty"`
+	PreHumanTaskLambdaArn            string                  `json:"PreHumanTaskLambdaArn,omitempty"`
+	CreationTime                     float64                 `json:"CreationTime"`
+	LastModifiedTime                 float64                 `json:"LastModifiedTime"`
+	LabelCounters                    LabelCounters           `json:"LabelCounters"`
+}
+
+// listLabelingJobsInput mirrors ListLabelingJobsInput (api_op_ListLabelingJobs.go:30-71).
+type listLabelingJobsInput struct {
+	CreationTimeAfter      *float64 `json:"CreationTimeAfter,omitempty"`
+	CreationTimeBefore     *float64 `json:"CreationTimeBefore,omitempty"`
+	LastModifiedTimeAfter  *float64 `json:"LastModifiedTimeAfter,omitempty"`
+	LastModifiedTimeBefore *float64 `json:"LastModifiedTimeBefore,omitempty"`
+	NextToken              string   `json:"NextToken"`
+	NameContains           string   `json:"NameContains"`
+	StatusEquals           string   `json:"StatusEquals"`
+	SortBy                 string   `json:"SortBy"`
+	SortOrder              string   `json:"SortOrder"`
+	MaxResults             int32    `json:"MaxResults"`
 }
 
 func (h *Handler) handleListLabelingJobs(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		NextToken    string `json:"NextToken"`
-		NameContains string `json:"NameContains"`
-		StatusEquals string `json:"StatusEquals"`
-		MaxResults   int32  `json:"MaxResults"`
-	}
+	var req listLabelingJobsInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
 	jobs, next := h.Backend.ListLabelingJobs(ctx, req.NextToken, ListLabelingJobsFilter{
-		NameContains: req.NameContains,
-		StatusEquals: req.StatusEquals,
-		MaxResults:   req.MaxResults,
+		NameContains:           req.NameContains,
+		StatusEquals:           req.StatusEquals,
+		SortBy:                 req.SortBy,
+		SortOrder:              req.SortOrder,
+		MaxResults:             req.MaxResults,
+		CreationTimeAfter:      timeFromEpochSecondsPtr(req.CreationTimeAfter),
+		CreationTimeBefore:     timeFromEpochSecondsPtr(req.CreationTimeBefore),
+		LastModifiedTimeAfter:  timeFromEpochSecondsPtr(req.LastModifiedTimeAfter),
+		LastModifiedTimeBefore: timeFromEpochSecondsPtr(req.LastModifiedTimeBefore),
 	})
 
 	summaries := make([]labelingJobSummary, 0, len(jobs))
@@ -281,6 +309,8 @@ func (h *Handler) handleListLabelingJobs(ctx context.Context, body []byte) ([]by
 			AnnotationConsolidationLambdaArn: j.HumanTaskConfig.AnnotationConsolidationLambdaArn,
 			FailureReason:                    j.FailureReason,
 			PreHumanTaskLambdaArn:            j.HumanTaskConfig.PreHumanTaskLambdaArn,
+			InputConfig:                      &j.InputConfig,
+			LabelingJobOutput:                j.LabelingJobOutput,
 		})
 	}
 
@@ -305,12 +335,23 @@ type labelingJobForWorkteamSummary struct {
 	NumberOfHumanWorkersPerDataObject int32                    `json:"NumberOfHumanWorkersPerDataObject,omitempty"`
 }
 
+// listLabelingJobsForWorkteamInput mirrors ListLabelingJobsForWorkteamInput
+// (api_op_ListLabelingJobsForWorkteam.go:30-64). SortBy is decoded for
+// wire-shape fidelity but is a disclosed no-op — see
+// ListLabelingJobsForWorkteamFilter's doc comment in labeling.go.
+type listLabelingJobsForWorkteamInput struct {
+	WorkteamArn              string   `json:"WorkteamArn"`
+	CreationTimeAfter        *float64 `json:"CreationTimeAfter,omitempty"`
+	CreationTimeBefore       *float64 `json:"CreationTimeBefore,omitempty"`
+	JobReferenceCodeContains string   `json:"JobReferenceCodeContains"`
+	NextToken                string   `json:"NextToken"`
+	SortBy                   string   `json:"SortBy"`
+	SortOrder                string   `json:"SortOrder"`
+	MaxResults               int32    `json:"MaxResults"`
+}
+
 func (h *Handler) handleListLabelingJobsForWorkteam(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		WorkteamArn string `json:"WorkteamArn"`
-		NextToken   string `json:"NextToken"`
-		MaxResults  int32  `json:"MaxResults"`
-	}
+	var req listLabelingJobsForWorkteamInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -320,7 +361,18 @@ func (h *Handler) handleListLabelingJobsForWorkteam(ctx context.Context, body []
 		return nil, fmt.Errorf("%w: WorkteamArn is required", errInvalidRequest)
 	}
 
-	jobs, next := h.Backend.ListLabelingJobsForWorkteam(ctx, req.WorkteamArn, req.NextToken, req.MaxResults)
+	jobs, next := h.Backend.ListLabelingJobsForWorkteam(
+		ctx,
+		req.WorkteamArn,
+		req.NextToken,
+		ListLabelingJobsForWorkteamFilter{
+			JobReferenceCodeContains: req.JobReferenceCodeContains,
+			SortOrder:                req.SortOrder,
+			MaxResults:               req.MaxResults,
+			CreationTimeAfter:        timeFromEpochSecondsPtr(req.CreationTimeAfter),
+			CreationTimeBefore:       timeFromEpochSecondsPtr(req.CreationTimeBefore),
+		},
+	)
 
 	summaries := make([]labelingJobForWorkteamSummary, 0, len(jobs))
 	for _, j := range jobs {
@@ -356,11 +408,19 @@ func (h *Handler) handleListLabelingJobsForWorkteam(ctx context.Context, body []
 // always reports the requested workteam as not found.
 // ---------------------------------------------------------------------------
 
+// listSubscribedWorkteamsInput mirrors ListSubscribedWorkteamsInput
+// (api_op_ListSubscribedWorkteams.go:31-46). MaxResults/NameContains are
+// decoded for wire-shape fidelity but disclosed no-ops: this backend models
+// no Marketplace-vendor subscriptions at all, so the list is always empty
+// regardless of filter.
+type listSubscribedWorkteamsInput struct {
+	NextToken    string `json:"NextToken"`
+	NameContains string `json:"NameContains"`
+	MaxResults   int32  `json:"MaxResults"`
+}
+
 func (h *Handler) handleListSubscribedWorkteams(_ context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		NextToken    string `json:"NextToken"`
-		NameContains string `json:"NameContains"`
-	}
+	var req listSubscribedWorkteamsInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -369,10 +429,14 @@ func (h *Handler) handleListSubscribedWorkteams(_ context.Context, body []byte) 
 	return json.Marshal(map[string]any{"SubscribedWorkteams": []any{}})
 }
 
+// describeSubscribedWorkteamInput mirrors DescribeSubscribedWorkteamInput
+// (api_op_DescribeSubscribedWorkteam.go:29-37).
+type describeSubscribedWorkteamInput struct {
+	WorkteamArn string `json:"WorkteamArn"`
+}
+
 func (h *Handler) handleDescribeSubscribedWorkteam(_ context.Context, body []byte) error {
-	var req struct {
-		WorkteamArn string `json:"WorkteamArn"`
-	}
+	var req describeSubscribedWorkteamInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidRequest, err)

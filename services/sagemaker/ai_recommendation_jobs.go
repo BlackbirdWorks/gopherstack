@@ -58,6 +58,7 @@ type AIRecommendationJob struct {
 	PerformanceTarget          json.RawMessage   `json:"PerformanceTarget,omitempty"`
 	ComputeSpec                json.RawMessage   `json:"ComputeSpec,omitempty"`
 	InferenceSpecification     json.RawMessage   `json:"InferenceSpecification,omitempty"`
+	AdapterSource              json.RawMessage   `json:"AdapterSource,omitempty"`
 }
 
 // MarshalJSON emits CreationTime/StartTime/EndTime as AWS awsjson1.1
@@ -109,6 +110,7 @@ func cloneAIRecommendationJob(j *AIRecommendationJob) *AIRecommendationJob {
 	cp.PerformanceTarget = append(json.RawMessage(nil), j.PerformanceTarget...)
 	cp.ComputeSpec = append(json.RawMessage(nil), j.ComputeSpec...)
 	cp.InferenceSpecification = append(json.RawMessage(nil), j.InferenceSpecification...)
+	cp.AdapterSource = append(json.RawMessage(nil), j.AdapterSource...)
 
 	if j.StartTime != nil {
 		t := *j.StartTime
@@ -165,6 +167,7 @@ type CreateAIRecommendationJobOptions struct {
 	PerformanceTarget          json.RawMessage
 	ComputeSpec                json.RawMessage
 	InferenceSpecification     json.RawMessage
+	AdapterSource              json.RawMessage
 }
 
 // CreateAIRecommendationJob creates an AI recommendation job and schedules
@@ -209,6 +212,7 @@ func (b *InMemoryBackend) CreateAIRecommendationJob(
 		PerformanceTarget:          opts.PerformanceTarget,
 		ComputeSpec:                opts.ComputeSpec,
 		InferenceSpecification:     opts.InferenceSpecification,
+		AdapterSource:              opts.AdapterSource,
 		OptimizeModel:              opts.OptimizeModel,
 		Tags:                       mergeTags(nil, opts.Tags),
 		CreationTime:               now,
@@ -374,19 +378,24 @@ func aiRecommendationJobMatchesFilter(j *AIRecommendationJob, params ListAIRecom
 	return true
 }
 
+// sortAIRecommendationJobs orders list by sortBy/sortOrder. The op's own
+// doc (api_op_ListAIRecommendationJobs.go:51,55) states real defaults of
+// CreationTime/Descending -- the reverse of what an empty sortBy/sortOrder
+// would naively fall through to (Name/Ascending), so both defaults are
+// made explicit rather than left to a switch's zero-value default case.
 func sortAIRecommendationJobs(list []*AIRecommendationJob, sortBy, sortOrder string) {
-	desc := sortOrder == sortOrderDescending
+	desc := sortOrder != sortOrderAscending
 
 	sort.Slice(list, func(i, j int) bool {
 		var less bool
 
 		switch sortBy {
+		case keyGenericName:
+			less = list[i].AIRecommendationJobName < list[j].AIRecommendationJobName
 		case keyStatus:
 			less = list[i].AIRecommendationJobStatus < list[j].AIRecommendationJobStatus
-		case keyCreationTime:
-			less = list[i].CreationTime.Before(list[j].CreationTime)
 		default:
-			less = list[i].AIRecommendationJobName < list[j].AIRecommendationJobName
+			less = list[i].CreationTime.Before(list[j].CreationTime)
 		}
 
 		if desc {

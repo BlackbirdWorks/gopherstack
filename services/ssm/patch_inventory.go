@@ -78,24 +78,22 @@ func defaultPatchCatalog() []Patch {
 		{
 			Name: "KB5034441", Product: "WindowsServer2022",
 			Classification: patchClassificationSecurityUpdates, Severity: "Critical",
-			State: patchComplianceStateMissing,
 		},
 		{
 			Name: "KB5034129", Product: "WindowsServer2019",
 			Classification: patchClassificationSecurityUpdates, Severity: "Important",
-			State: patchComplianceStateMissing,
 		},
 		{
 			Name: "ALAS2-2024-2451", Product: patchProductAmazonLinux2,
-			Classification: "Security", Severity: "Critical", State: patchComplianceStateMissing,
+			Classification: "Security", Severity: "Critical",
 		},
 		{
 			Name: "ALAS2-2024-2460", Product: patchProductAmazonLinux2,
-			Classification: "Bugfix", Severity: "Medium", State: patchComplianceStateMissing,
+			Classification: "Bugfix", Severity: "Medium",
 		},
 		{
 			Name: "USN-6567-1", Product: "Ubuntu2204",
-			Classification: "Security", Severity: "High", State: patchComplianceStateMissing,
+			Classification: "Security", Severity: "High",
 		},
 	}
 }
@@ -215,7 +213,15 @@ func patchComplianceFromEffective(
 			continue
 		}
 
-		approved := ep.PatchStatus != nil && ep.PatchStatus.DeploymentStatus == "EXPLICIT_APPROVED"
+		// Rejected patches aren't part of an instance's compliance surface --
+		// they were intentionally excluded, not missed. Matches this
+		// function's behavior before effectivePatchesForBaseline started
+		// emitting EXPLICIT_REJECTED entries.
+		if ep.PatchStatus != nil && ep.PatchStatus.DeploymentStatus == patchDeploymentStatusExplicitRejected {
+			continue
+		}
+
+		approved := ep.PatchStatus != nil && ep.PatchStatus.DeploymentStatus == patchDeploymentStatusExplicitApproved
 
 		complianceState := patchComplianceStateMissing
 

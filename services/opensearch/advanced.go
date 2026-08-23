@@ -137,7 +137,15 @@ const (
 	maxNodesStr40 = "40"
 	maxNodesStr80 = "80"
 	maxNodesStr10 = "10"
-	minNodesStr1  = "1"
+
+	// minInstanceCountValue is MinimumInstanceCount's value. Unlike
+	// AdditionalLimit.LimitValues (a real []string), InstanceCountLimits'
+	// MinimumInstanceCount/MaximumInstanceCount deserialize as a JSON
+	// number (json.Number, aws-sdk-go-v2/service/opensearch@v1.75.4's
+	// deserializers.go case "MinimumInstanceCount") -- gopherstack's
+	// MaximumInstanceCount values are already int constants, but this one
+	// was a string, which would fail DescribeInstanceTypeLimits' decode.
+	minInstanceCountValue = 1
 )
 
 // upgradeHistoryKey returns the map key for a domain's upgrade history list.
@@ -299,7 +307,7 @@ func (b *InMemoryBackend) DescribeInstanceTypeLimits(
 			InstanceType: instanceType,
 			InstanceLimits: map[string]any{
 				instanceCountLimitsKey: map[string]any{
-					minInstanceCountKey: minNodesStr1,
+					minInstanceCountKey: minInstanceCountValue,
 					maxInstanceCountKey: maxDataNodesR6gLarge,
 				},
 			},
@@ -317,7 +325,7 @@ func instanceTypeLimitsTable(instanceType string) *InstanceTypeLimits {
 			InstanceType: instanceTypeR6gLarge,
 			InstanceLimits: map[string]any{
 				instanceCountLimitsKey: map[string]any{
-					minInstanceCountKey: minNodesStr1,
+					minInstanceCountKey: minInstanceCountValue,
 					maxInstanceCountKey: maxDataNodesR6gLarge,
 				},
 			},
@@ -337,7 +345,7 @@ func instanceTypeLimitsTable(instanceType string) *InstanceTypeLimits {
 			InstanceType: instanceTypeR6gXLarge,
 			InstanceLimits: map[string]any{
 				instanceCountLimitsKey: map[string]any{
-					minInstanceCountKey: minNodesStr1,
+					minInstanceCountKey: minInstanceCountValue,
 					maxInstanceCountKey: maxDataNodesR6gXLarge,
 				},
 			},
@@ -353,7 +361,7 @@ func instanceTypeLimitsTable(instanceType string) *InstanceTypeLimits {
 			InstanceType: instanceTypeM6gLarge,
 			InstanceLimits: map[string]any{
 				instanceCountLimitsKey: map[string]any{
-					minInstanceCountKey: minNodesStr1,
+					minInstanceCountKey: minInstanceCountValue,
 					maxInstanceCountKey: maxDataNodesM6gLarge,
 				},
 			},
@@ -363,7 +371,7 @@ func instanceTypeLimitsTable(instanceType string) *InstanceTypeLimits {
 			InstanceType: instanceTypeT3Small,
 			InstanceLimits: map[string]any{
 				instanceCountLimitsKey: map[string]any{
-					minInstanceCountKey: minNodesStr1,
+					minInstanceCountKey: minInstanceCountValue,
 					maxInstanceCountKey: maxDataNodesT3Small,
 				},
 			},
@@ -382,7 +390,7 @@ func instanceTypeLimitsTable(instanceType string) *InstanceTypeLimits {
 			InstanceType: instanceTypeOR1Medium,
 			InstanceLimits: map[string]any{
 				instanceCountLimitsKey: map[string]any{
-					minInstanceCountKey: minNodesStr1,
+					minInstanceCountKey: minInstanceCountValue,
 					maxInstanceCountKey: maxDataNodesOR1Medium,
 				},
 			},

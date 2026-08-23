@@ -92,6 +92,7 @@ type listAnomaliesOutput struct {
 type updateAnomalyInput struct {
 	AnomalyDetectorArn string `json:"anomalyDetectorArn"`
 	AnomalyID          string `json:"anomalyId"`
+	PatternID          string `json:"patternId"`
 	SuppressionType    string `json:"suppressionType"`
 }
 
@@ -216,7 +217,9 @@ func (h *Handler) handleUpdateAnomaly(ctx context.Context, b []byte) (any, error
 	if err := json.Unmarshal(b, &input); err != nil {
 		return nil, err
 	}
-	if err := h.Backend.UpdateAnomaly(input.AnomalyID, input.AnomalyDetectorArn, input.SuppressionType); err != nil {
+	if err := h.Backend.UpdateAnomaly(
+		input.AnomalyID, input.AnomalyDetectorArn, input.SuppressionType, input.PatternID,
+	); err != nil {
 		return nil, err
 	}
 

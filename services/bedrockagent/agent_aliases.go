@@ -135,6 +135,8 @@ func (b *InMemoryBackend) DeleteAgentAlias(_ context.Context, agentID, aliasID s
 }
 
 // ListAgentAliases returns paginated alias summaries for an agent.
+//
+//nolint:dupl // structurally mirrors ListDataSources but filters a distinct table/type
 func (b *InMemoryBackend) ListAgentAliases(
 	_ context.Context, agentID string, maxResults int, nextToken string,
 ) ([]*AgentAliasSummary, string, error) {
@@ -154,6 +156,8 @@ func (b *InMemoryBackend) ListAgentAliases(
 			AgentAliasName:   al.AgentAliasName,
 			AgentAliasStatus: al.AgentAliasStatus,
 			Description:      al.Description,
+			CreatedAt:        al.CreatedAt,
+			UpdatedAt:        al.UpdatedAt,
 		})
 	}
 

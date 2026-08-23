@@ -21,7 +21,14 @@ import (
 // never actually round-tripped any data), so they also fail this check and
 // are discarded rather than misread, which is the safe behaviour across any
 // snapshot-format change.
-const omicsSnapshotVersion = 1
+//
+// Bumped 1 -> 2 (gopherstack-hjdd): c41d36cb6 retagged AnnotationStore.Arn and
+// AnnotationStoreVersion.Arn to storeArn/versionArn, and 95edfe255 retagged
+// AnnotationStoreVersion.StoreName from storeName to name -- both registered
+// table value types, neither bump applied at the time. A pre-fix snapshot's
+// "arn"/"storeName" data is unrecognized by the new tags and would silently
+// decode as empty strings on restore.
+const omicsSnapshotVersion = 2
 
 // backendSnapshot is the top-level on-disk shape for the HealthOmics backend.
 //

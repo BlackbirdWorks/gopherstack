@@ -154,7 +154,12 @@ func TestInMemoryBackend_FullStateSnapshotRestore(t *testing.T) {
 	b.AddInstancePropertyInternal(ssm.InstanceProperty{InstanceID: "ip-full"})
 	b.AddTerminatedSessionInternal("sess-full", 1000)
 
-	_, err = b.CreateResourceDataSync(ctx, &ssm.CreateResourceDataSyncInput{SyncName: "sync-full"})
+	_, err = b.CreateResourceDataSync(ctx, &ssm.CreateResourceDataSyncInput{
+		SyncName: "sync-full",
+		S3Destination: &ssm.ResourceDataSyncS3Destination{
+			BucketName: "b", Region: "us-east-1", SyncFormat: "JsonSerDe",
+		},
+	})
 	require.NoError(t, err)
 
 	startAutoOut, err := b.StartAutomationExecution(ctx, &ssm.StartAutomationExecutionInput{

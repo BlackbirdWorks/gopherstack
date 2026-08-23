@@ -106,7 +106,7 @@ func modelImportJobToOutput(j *ModelImportJob) map[string]any {
 		keyJobName:          j.JobName,
 		"importedModelArn":  j.ImportedModelArn,
 		"importedModelName": j.ImportedModelName,
-		"roleArn":           j.RoleArn,
+		keyRoleArn:          j.RoleArn,
 		keyStatus:           j.Status,
 		keyCreationTime:     j.CreationTime.Format(time.RFC3339),
 		keyLastModifiedTime: j.LastModifiedTime.Format(time.RFC3339),

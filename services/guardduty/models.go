@@ -190,6 +190,18 @@ type DestinationProperties struct {
 // distinct GetMalwareScanOutput shape (see handleGetMalwareScan) -- the two
 // real API shapes only share scanId/detectorId/scanStatus/scanType by name,
 // so this struct is a superset covering both.
+//
+// No TriggerDetails field: real types.Scan.TriggerDetails (guardduty@v1.85.4
+// types/types.go:4969) is *types.TriggerDetails{Description,
+// GuardDutyFindingId, TriggerType}, and TriggerType only has two known
+// values, BACKUP and GUARDDUTY (types/enums.go:1798) -- neither applies here,
+// since the only way this backend ever creates a MalwareScan is the
+// customer-invoked StartMalwareScan API (ScanType ON_DEMAND, gopherstack-tp8x
+// item 6), not an automatic GuardDuty-finding or AWS-Backup trigger. A prior
+// version of this field fabricated one under a made-up "scanTriggerDetails"
+// wrapper key that isn't part of the real shape at all; correctly omitted
+// now rather than invented, same as fileCount/scanResultDetails/
+// attachedVolumes/failureReason below.
 type MalwareScan struct {
 	ScanID                string         `json:"scanId"`
 	DetectorID            string         `json:"detectorId"`
@@ -203,7 +215,6 @@ type MalwareScan struct {
 	ScanStatus            string         `json:"scanStatus"`
 	ScanType              string         `json:"scanType"`
 	ScanStatusReason      string         `json:"scanStatusReason,omitempty"`
-	TriggerDetails        map[string]any `json:"triggerDetails"`
 	ResourceDetails       map[string]any `json:"resourceDetails"`
 	Findings              []any          `json:"findings"`
 	ScannedResourcesCount int32          `json:"scannedResourcesCount"`

@@ -471,9 +471,9 @@ func TestParseAssocPaths(t *testing.T) {
 	// AssociateIdentityProviderConfig
 	rec = doREST(t, h, http.MethodPost, "/clusters/c1/identity-provider-configs/associate", map[string]any{
 		"oidc": map[string]any{
-			"issuerUrl":  "https://example.com",
-			"clientId":   "my-client",
-			"configName": "my-idp",
+			"issuerUrl":                  "https://example.com",
+			"clientId":                   "my-client",
+			"identityProviderConfigName": "my-idp",
 		},
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)

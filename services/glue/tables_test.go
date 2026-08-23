@@ -137,7 +137,7 @@ func TestExtendedStateSnapshotRestore(t *testing.T) {
 				stats, err = b.GetColumnStatisticsForPartition("db", "table", []string{"today"}, []string{"id"})
 				require.NoError(t, err)
 				require.Len(t, stats, 1)
-				policy, _, err := b.GetResourcePolicy("")
+				policy, _, _, _, err := b.GetResourcePolicy("")
 				require.NoError(t, err)
 				assert.Equal(t, "policy", policy)
 			},

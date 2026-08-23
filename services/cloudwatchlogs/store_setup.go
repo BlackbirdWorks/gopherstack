@@ -83,14 +83,16 @@ func metricFilterGroupIndexKeyFn(f *MetricFilter) string {
 	return streamGroupKey(f.region, f.LogGroupName)
 }
 
-func accountPolicyKeyFn(p *AccountPolicy) string             { return p.PolicyName + ":" + p.PolicyType }
-func exportTaskKeyFn(t *ExportTask) string                   { return t.TaskID }
-func importTaskKeyFn(t *ImportTask) string                   { return t.ImportID }
-func deliveryKeyFn(d *Delivery) string                       { return d.ID }
-func logAnomalyDetectorKeyFn(d *LogAnomalyDetector) string   { return d.AnomalyDetectorArn }
-func scheduledQueryKeyFn(q *ScheduledQuery) string           { return q.ScheduledQueryArn }
-func queryDefinitionKeyFn(q *QueryDefinition) string         { return q.QueryDefinitionID }
-func resourcePolicyKeyFn(p *ResourcePolicy) string           { return p.PolicyName }
+func accountPolicyKeyFn(p *AccountPolicy) string           { return p.PolicyName + ":" + p.PolicyType }
+func exportTaskKeyFn(t *ExportTask) string                 { return t.TaskID }
+func importTaskKeyFn(t *ImportTask) string                 { return t.ImportID }
+func deliveryKeyFn(d *Delivery) string                     { return d.ID }
+func logAnomalyDetectorKeyFn(d *LogAnomalyDetector) string { return d.AnomalyDetectorArn }
+func scheduledQueryKeyFn(q *ScheduledQuery) string         { return q.ScheduledQueryArn }
+func queryDefinitionKeyFn(q *QueryDefinition) string       { return q.QueryDefinitionID }
+func resourcePolicyKeyFn(p *ResourcePolicy) string {
+	return resourcePolicyStoreKey(p.PolicyName, p.ResourceArn)
+}
 func deliveryDestinationKeyFn(d *DeliveryDestination) string { return d.Name }
 func deliverySourceKeyFn(s *DeliverySource) string           { return s.Name }
 func cwlDestinationKeyFn(d *CWLDestination) string           { return d.DestinationName }
@@ -140,8 +142,11 @@ type kmsKeyEntry struct {
 func kmsKeyEntryKeyFn(e *kmsKeyEntry) string { return e.Key }
 
 type s3TableIntegrationEntry struct {
-	ID             string `json:"id"`
-	IntegrationArn string `json:"integrationArn"`
+	ID               string `json:"id"`
+	IntegrationArn   string `json:"integrationArn"`
+	DataSourceName   string `json:"dataSourceName"`
+	DataSourceType   string `json:"dataSourceType"`
+	CreatedTimeStamp int64  `json:"createdTimeStamp"`
 }
 
 func s3TableIntegrationEntryKeyFn(e *s3TableIntegrationEntry) string { return e.ID }
@@ -149,6 +154,7 @@ func s3TableIntegrationEntryKeyFn(e *s3TableIntegrationEntry) string { return e.
 type dataProtectionPolicyEntry struct {
 	LogGroupIdentifier string `json:"logGroupIdentifier"`
 	PolicyDocument     string `json:"policyDocument"`
+	LastUpdatedTime    int64  `json:"lastUpdatedTime"`
 }
 
 func dataProtectionPolicyEntryKeyFn(e *dataProtectionPolicyEntry) string {

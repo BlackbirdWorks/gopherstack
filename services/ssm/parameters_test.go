@@ -9,6 +9,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	ssmsdk "github.com/aws/aws-sdk-go-v2/service/ssm"
+	ssmtypes "github.com/aws/aws-sdk-go-v2/service/ssm/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -383,6 +386,68 @@ func Test_PutParameter_PoliciesRequireAdvancedTier(t *testing.T) {
 			assert.Equal(t, tc.wantTier, out.Tier)
 		})
 	}
+}
+
+// TestDescribeParameters_PoliciesWireShape proves ParameterMetadata.Policies
+// is real, structured types.ParameterInlinePolicy objects (types/types.go:
+// 4840-4857), not the raw PutParameterInput.Policies request string echoed
+// verbatim -- a real aws-sdk-go-v2 client's json.Unmarshal into
+// []types.ParameterInlinePolicy would fail entirely against a JSON string
+// where it expects an array of objects.
+func TestDescribeParameters_PoliciesWireShape(t *testing.T) {
+	t.Parallel()
+
+	client := newTestSSMClient(t, ssm.NewHandler(ssm.NewInMemoryBackend()))
+
+	policy := `[{"Type":"Expiration","Version":"1.0","Attributes":{"Timestamp":"2099-01-01T00:00:00.000Z"}}]`
+
+	_, err := client.PutParameter(t.Context(), &ssmsdk.PutParameterInput{
+		Name:     aws.String("/policy/wire"),
+		Type:     ssmtypes.ParameterTypeString,
+		Value:    aws.String("v"),
+		Tier:     ssmtypes.ParameterTierAdvanced,
+		Policies: aws.String(policy),
+	})
+	require.NoError(t, err)
+
+	out, err := client.DescribeParameters(t.Context(), &ssmsdk.DescribeParametersInput{})
+	require.NoError(t, err)
+	require.Len(t, out.Parameters, 1)
+	require.Len(t, out.Parameters[0].Policies, 1)
+	assert.Equal(t, "Expiration", *out.Parameters[0].Policies[0].PolicyType)
+	assert.Equal(t, "Finished", *out.Parameters[0].Policies[0].PolicyStatus)
+	assert.Contains(t, *out.Parameters[0].Policies[0].PolicyText, "Expiration")
+}
+
+// TestGetParameterHistory_PoliciesWireShape proves ParameterHistory.Policies
+// (api_op_GetParameterHistory.go/types.ParameterHistory) is real, structured
+// types.ParameterInlinePolicy objects, not the raw PutParameterInput.Policies
+// request string -- GetParameterHistory's real wire member had NO Go struct
+// member at all before this fix, so every historical entry silently dropped
+// the policies attached to it.
+func TestGetParameterHistory_PoliciesWireShape(t *testing.T) {
+	t.Parallel()
+
+	client := newTestSSMClient(t, ssm.NewHandler(ssm.NewInMemoryBackend()))
+
+	policy := `[{"Type":"Expiration","Version":"1.0","Attributes":{"Timestamp":"2099-01-01T00:00:00.000Z"}}]`
+
+	_, err := client.PutParameter(t.Context(), &ssmsdk.PutParameterInput{
+		Name:     aws.String("/policy/history"),
+		Type:     ssmtypes.ParameterTypeString,
+		Value:    aws.String("v"),
+		Tier:     ssmtypes.ParameterTierAdvanced,
+		Policies: aws.String(policy),
+	})
+	require.NoError(t, err)
+
+	out, err := client.GetParameterHistory(t.Context(), &ssmsdk.GetParameterHistoryInput{
+		Name: aws.String("/policy/history"),
+	})
+	require.NoError(t, err)
+	require.Len(t, out.Parameters, 1)
+	require.Len(t, out.Parameters[0].Policies, 1)
+	assert.Equal(t, "Expiration", *out.Parameters[0].Policies[0].PolicyType)
 }
 
 // TestDeleteParameter_RegionCleanup verifies that deleting the last parameter

@@ -68,14 +68,14 @@ func renderHeaderLine(doc *ParityDoc) string {
 	return strings.Join(parts, " · ")
 }
 
-// writeCoverageRows appends the Coverage table body rows. The Operations and
-// Feature families rows are each omitted when the source PARITY.md has no
-// corresponding block, since some services audit purely by op and others
-// purely by family.
+// writeCoverageRows appends the Coverage table body rows. The PARITY
+// entries and Feature families rows are each omitted when the source
+// PARITY.md has no corresponding block, since some services audit purely
+// by op and others purely by family.
 func writeCoverageRows(b *strings.Builder, doc *ParityDoc) {
 	if len(doc.Ops) > 0 {
 		t := doc.opsTally()
-		fmt.Fprintf(b, "| Operations audited | %d (%s) |\n", t.total(), t.String())
+		fmt.Fprintf(b, "| PARITY entries audited | %d (%s) |\n", t.total(), t.String())
 	}
 
 	if len(doc.Families) > 0 {

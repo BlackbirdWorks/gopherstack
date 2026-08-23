@@ -69,6 +69,7 @@ func (h *Handler) handleCreateAnalysis(c *echo.Context) error {
 		accountID,
 		analysisID,
 		name,
+		strField(body, keyThemeArn),
 		mapField(body, keyDefinition),
 		permissionsField(body, keyPermissions),
 		tagsFromBody(body),
@@ -113,7 +114,9 @@ func (h *Handler) handleUpdateAnalysis(c *echo.Context) error {
 		return writeError(c, http.StatusBadRequest, errInvalidParam, errInvalidBody)
 	}
 
-	a, err := h.Backend.UpdateAnalysis(accountID, analysisID, strField(body, "Name"), mapField(body, keyDefinition))
+	a, err := h.Backend.UpdateAnalysis(
+		accountID, analysisID, strField(body, "Name"), strField(body, keyThemeArn), mapField(body, keyDefinition),
+	)
 	if err != nil {
 		return httpErr(c, err)
 	}
@@ -191,7 +194,7 @@ func (h *Handler) handleRestoreAnalysis(c *echo.Context) error {
 }
 
 func analysisToMap(a *Analysis) map[string]any {
-	return map[string]any{
+	m := map[string]any{
 		keyAnalysisID:      a.AnalysisID,
 		keyArn:             a.Arn,
 		keyCreatedTime:     a.CreatedTime.Unix(),
@@ -199,6 +202,11 @@ func analysisToMap(a *Analysis) map[string]any {
 		keyName:            a.Name,
 		keyStatus:          a.Status,
 	}
+	if a.ThemeArn != "" {
+		m[keyThemeArn] = a.ThemeArn
+	}
+
+	return m
 }
 
 func (h *Handler) handleDescribeAnalysisDefinition(c *echo.Context) error {
@@ -211,14 +219,19 @@ func (h *Handler) handleDescribeAnalysisDefinition(c *echo.Context) error {
 		return httpErr(c, err)
 	}
 
-	return writeJSON(c, http.StatusOK, map[string]any{
+	resp := map[string]any{
 		keyName:           a.Name,
 		keyAnalysisID:     a.AnalysisID,
 		keyResourceStatus: a.Status,
 		keyDefinition:     a.Definition,
 		keyRequestID:      reqIDPlaceholder,
 		keyStatus:         http.StatusOK,
-	})
+	}
+	if a.ThemeArn != "" {
+		resp[keyThemeArn] = a.ThemeArn
+	}
+
+	return writeJSON(c, http.StatusOK, resp)
 }
 
 func (h *Handler) handleDescribeAnalysisPermissions(c *echo.Context) error {

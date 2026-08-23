@@ -94,6 +94,8 @@ type StorageBackend interface {
 	AssociateSourceToS3TableIntegration(
 		integrationArn, dataSourceName, dataSourceType string,
 	) (string, error)
+	// DisassociateSourceFromS3TableIntegration removes a source association by identifier.
+	DisassociateSourceFromS3TableIntegration(identifier string) error
 	// CancelExportTask cancels a pending or running export task.
 	CancelExportTask(taskID string) error
 	// CancelImportTask cancels a running import task.
@@ -191,6 +193,7 @@ type StorageBackend interface {
 	PutQueryDefinition(
 		name, queryString, queryDefinitionID string,
 		logGroupNames []string,
+		parameters []QueryParameter,
 	) (string, error)
 	// DescribeQueryDefinitions lists query definitions optionally filtered by name prefix.
 	DescribeQueryDefinitions(
@@ -221,8 +224,9 @@ type StorageBackend interface {
 		nextToken string,
 		maxResults int,
 	) ([]ScheduledQueryRunSummary, string, error)
-	// UpdateAnomaly updates anomaly suppression settings. No actual anomaly data is stored.
-	UpdateAnomaly(anomalyID, anomalyDetectorArn string, suppressionType string) error
+	// UpdateAnomaly updates anomaly suppression settings, by anomalyID or,
+	// when anomalyID is empty, every anomaly sharing patternID.
+	UpdateAnomaly(anomalyID, anomalyDetectorArn, suppressionType, patternID string) error
 	// ListLogGroups is the newer paginated list operation, equivalent to DescribeLogGroups.
 	ListLogGroups(
 		ctx context.Context,

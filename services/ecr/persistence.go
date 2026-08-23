@@ -23,7 +23,14 @@ import (
 // snapshot written before this conversion is unconditionally incompatible --
 // it decodes as Version 0 via Go's json zero value, which never equals
 // ecrSnapshotVersion.
-const ecrSnapshotVersion = 1
+//
+// Bumped 1 -> 2 (gopherstack-hjdd) for d83f4b5d3: ImageScanFinding.Attributes
+// (nested inside the registered ImageScanFindingsResult table) changed from
+// map[string]string to []Attribute, matching the real deserializer. A
+// Version-1 snapshot's "attributes" object no longer unmarshals into the new
+// array field at all -- an outright decode error, not silent loss -- so it
+// must be discarded like any other shape-incompatible snapshot.
+const ecrSnapshotVersion = 2
 
 // backendSnapshot is the top-level on-disk shape for the ECR backend.
 //

@@ -84,6 +84,30 @@ type trainingDataConfigInput struct {
 	S3Uri                string                     `json:"s3Uri,omitempty"`
 }
 
+// validatorInput mirrors bedrock@v1.66.4 types.Validator (serializers.go:13263).
+type validatorInput struct {
+	S3Uri string `json:"s3Uri"`
+}
+
+// validationDataConfigInput mirrors bedrock@v1.66.4 types.ValidationDataConfig
+// (serializers.go:13249).
+type validationDataConfigInput struct {
+	Validators []validatorInput `json:"validators,omitempty"`
+}
+
+func (v *validationDataConfigInput) s3Uris() []string {
+	if v == nil {
+		return nil
+	}
+
+	uris := make([]string, 0, len(v.Validators))
+	for _, validator := range v.Validators {
+		uris = append(uris, validator.S3Uri)
+	}
+
+	return uris
+}
+
 func (t *trainingDataConfigInput) toModel() TrainingDataConfig {
 	if t == nil {
 		return TrainingDataConfig{}
@@ -114,6 +138,10 @@ type createModelCustomizationJobInput struct {
 	// required) can be distinguished for the "trainingDataConfig is
 	// required" check below.
 	TrainingDataConfig *trainingDataConfigInput `json:"trainingDataConfig"`
+	// ValidationDataConfig is optional on input but GetModelCustomizationJobOutput's
+	// own ValidationDataConfig is required regardless (bedrock@v1.66.4
+	// api_op_GetModelCustomizationJob.go:85) -- see modelCustomizationJobOutput.
+	ValidationDataConfig *validationDataConfigInput `json:"validationDataConfig,omitempty"`
 	// JobTags, not Tags: real CreateModelCustomizationJobInput carries the
 	// job's own tags as JobTags (wire key "jobTags"), separate from
 	// CustomModelTags (wire key "customModelTags") on the resulting output
@@ -150,7 +178,7 @@ func (h *Handler) handleCreateModelCustomizationJob(c *echo.Context, body []byte
 
 	job, opErr := h.Backend.CreateModelCustomizationJob(
 		in.JobName, in.CustomModelName, in.BaseModelIdentifier, in.CustomizationType, in.RoleArn,
-		outputDataConfig, in.TrainingDataConfig.toModel(), in.Tags,
+		outputDataConfig, in.TrainingDataConfig.toModel(), in.ValidationDataConfig.s3Uris(), in.Tags,
 	)
 	if opErr != nil {
 		return h.writeError(c, opErr)
@@ -169,6 +197,28 @@ func (h *Handler) handleCreateModelCustomizationJob(c *echo.Context, body []byte
 // detecting* shape doesn't leak into what's always a fully-populated output.
 type outputDataConfigOutput struct {
 	S3Uri string `json:"s3Uri"`
+}
+
+type validatorOutput struct {
+	S3Uri string `json:"s3Uri"`
+}
+
+// validationDataConfigOutput is required on GetModelCustomizationJobOutput
+// (bedrock@v1.66.4 api_op_GetModelCustomizationJob.go:85) even when no
+// validators were supplied on Create -- emitted present-and-empty, never
+// omitted, matching this service's existing convention for required objects
+// with nothing real to report.
+type validationDataConfigOutput struct {
+	Validators []validatorOutput `json:"validators"`
+}
+
+func validationDataConfigToOutput(uris []string) validationDataConfigOutput {
+	validators := make([]validatorOutput, 0, len(uris))
+	for _, uri := range uris {
+		validators = append(validators, validatorOutput{S3Uri: uri})
+	}
+
+	return validationDataConfigOutput{Validators: validators}
 }
 
 type trainingDataConfigOutput struct {
@@ -198,36 +248,38 @@ func trainingDataConfigToOutput(t TrainingDataConfig) trainingDataConfigOutput {
 }
 
 type modelCustomizationJobOutput struct {
-	CreationTime       string                   `json:"creationTime"`
-	LastModifiedTime   string                   `json:"lastModifiedTime"`
-	JobArn             string                   `json:"jobArn"`
-	JobName            string                   `json:"jobName"`
-	BaseModelArn       string                   `json:"baseModelArn"`
-	OutputModelArn     string                   `json:"outputModelArn"`
-	OutputModelName    string                   `json:"outputModelName"`
-	Status             string                   `json:"status"`
-	CustomizationType  string                   `json:"customizationType,omitempty"`
-	RoleArn            string                   `json:"roleArn"`
-	OutputDataConfig   outputDataConfigOutput   `json:"outputDataConfig"`
-	TrainingDataConfig trainingDataConfigOutput `json:"trainingDataConfig"`
-	Tags               []Tag                    `json:"tags,omitempty"`
+	CreationTime         string                     `json:"creationTime"`
+	LastModifiedTime     string                     `json:"lastModifiedTime"`
+	JobArn               string                     `json:"jobArn"`
+	JobName              string                     `json:"jobName"`
+	BaseModelArn         string                     `json:"baseModelArn"`
+	OutputModelArn       string                     `json:"outputModelArn"`
+	OutputModelName      string                     `json:"outputModelName"`
+	Status               string                     `json:"status"`
+	CustomizationType    string                     `json:"customizationType,omitempty"`
+	RoleArn              string                     `json:"roleArn"`
+	OutputDataConfig     outputDataConfigOutput     `json:"outputDataConfig"`
+	TrainingDataConfig   trainingDataConfigOutput   `json:"trainingDataConfig"`
+	ValidationDataConfig validationDataConfigOutput `json:"validationDataConfig"`
+	Tags                 []Tag                      `json:"tags,omitempty"`
 }
 
 func customizationJobToOutput(j *ModelCustomizationJob) modelCustomizationJobOutput {
 	return modelCustomizationJobOutput{
-		JobArn:             j.JobArn,
-		JobName:            j.JobName,
-		BaseModelArn:       j.BaseModelArn,
-		OutputModelArn:     j.OutputModelArn,
-		OutputModelName:    j.CustomModelName,
-		Status:             j.Status,
-		CustomizationType:  j.CustomizationType,
-		RoleArn:            j.RoleArn,
-		OutputDataConfig:   outputDataConfigOutput{S3Uri: j.OutputDataConfig.S3Uri},
-		TrainingDataConfig: trainingDataConfigToOutput(j.TrainingDataConfig),
-		CreationTime:       j.CreationTime.Format(time.RFC3339),
-		LastModifiedTime:   j.LastModifiedTime.Format(time.RFC3339),
-		Tags:               j.Tags,
+		JobArn:               j.JobArn,
+		JobName:              j.JobName,
+		BaseModelArn:         j.BaseModelArn,
+		OutputModelArn:       j.OutputModelArn,
+		OutputModelName:      j.CustomModelName,
+		Status:               j.Status,
+		CustomizationType:    j.CustomizationType,
+		RoleArn:              j.RoleArn,
+		OutputDataConfig:     outputDataConfigOutput{S3Uri: j.OutputDataConfig.S3Uri},
+		TrainingDataConfig:   trainingDataConfigToOutput(j.TrainingDataConfig),
+		ValidationDataConfig: validationDataConfigToOutput(j.ValidatorS3Uris),
+		CreationTime:         j.CreationTime.Format(time.RFC3339),
+		LastModifiedTime:     j.LastModifiedTime.Format(time.RFC3339),
+		Tags:                 j.Tags,
 	}
 }
 

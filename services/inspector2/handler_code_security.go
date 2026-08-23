@@ -133,12 +133,21 @@ func (h *Handler) handleGetCodeSecurityIntegration(c *echo.Context) error {
 // pkgs/awstime) rather than the domain struct's internal createdAt/updatedAt
 // field names -- marshaling the struct directly would both use the wrong
 // keys and emit RFC3339 strings, either of which leaves the real fields
-// unpopulated on the client.
+// unpopulated on the client. type/statusReason are both required on
+// GetCodeSecurityIntegrationOutput and CodeSecurityIntegrationSummary
+// (ListCodeSecurityIntegrations' item shape) alike, confirmed via
+// api_op_GetCodeSecurityIntegration.go and types.go -- type was already
+// tracked on the domain struct and simply never surfaced; statusReason has
+// no backing data source (no OAuth/connection-health flow exists to derive
+// a real reason from), so it is emitted honestly empty rather than
+// fabricated.
 func codeSecurityIntegrationToWire(integ *CodeSecurityIntegration) map[string]any {
 	return map[string]any{
 		keyIntegrationArn: integ.IntegrationArn,
 		keyName:           integ.Name,
 		keyStatus:         integ.Status,
+		keyType:           integ.Type,
+		"statusReason":    "",
 		"createdOn":       awstime.Epoch(integ.CreatedAt),
 		"lastUpdateOn":    awstime.Epoch(integ.UpdatedAt),
 	}

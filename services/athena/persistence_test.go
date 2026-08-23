@@ -177,6 +177,37 @@ func Test_InMemoryBackend_Restore_IncompatibleVersion(t *testing.T) {
 	}
 }
 
+// Test_InMemoryBackend_Restore_V1CalculationProgressDiscarded proves
+// gopherstack-hjdd's fix: a v1 snapshot holding CalculationStatistics.Progress
+// in the pre-d83f4b5d3 numeric shape must be discarded cleanly now that
+// athenaSnapshotVersion is 2, rather than erroring Restore outright when the
+// registered "calculations" table's string-typed field can't decode a JSON
+// number.
+func Test_InMemoryBackend_Restore_V1CalculationProgressDiscarded(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	b := athena.NewInMemoryBackend("", "")
+
+	v1Snapshot := []byte(`{
+		"version": 1,
+		"tables": {
+			"calculations": [{
+				"CalculationExecutionId": "calc-1",
+				"SessionId": "session-1",
+				"Statistics": {"Progress": 100}
+			}]
+		}
+	}`)
+
+	require.NoError(t, b.Restore(ctx, v1Snapshot),
+		"a v1 snapshot must be discarded via the version guard, not error out of RestoreAll")
+
+	_, err := b.GetCalculationExecution("calc-1")
+	require.ErrorIs(t, err, athena.ErrResourceNotFound,
+		"incompatible-version snapshot must reset to empty, not partially decode")
+}
+
 // Test_InMemoryBackend_Restore_InvalidJSON verifies malformed JSON is
 // reported as an error rather than silently discarded or partially applied.
 func Test_InMemoryBackend_Restore_InvalidJSON(t *testing.T) {

@@ -206,7 +206,7 @@ func seedProvisioningAndRoles(t *testing.T, b *iot.InMemoryBackend) {
 	})
 	require.NoError(t, err)
 
-	_, err = b.CreateProvisioningTemplateVersion("gap-prov-template", `{}`)
+	_, err = b.CreateProvisioningTemplateVersion("gap-prov-template", `{}`, false)
 	require.NoError(t, err)
 
 	_, err = b.CreateAuthorizer(&iot.CreateAuthorizerInput{
@@ -317,7 +317,7 @@ func seedAuditAndSecurity(t *testing.T, b *iot.InMemoryBackend) {
 func seedCertsStreamsMetrics(t *testing.T, b *iot.InMemoryBackend) string {
 	t.Helper()
 
-	caCert, err := b.RegisterCACertificate("fake-ca-pem", "ACTIVE", nil)
+	caCert, err := b.RegisterCACertificate("fake-ca-pem", "ACTIVE", nil, iot.RegistrationConfig{})
 	require.NoError(t, err)
 
 	_, err = b.CreateStream(&iot.CreateStreamInput{
@@ -360,7 +360,7 @@ func seedPackagesAndCommands(t *testing.T, b *iot.InMemoryBackend) {
 	_, err = b.CreateIoTPackage("gap-package", "gap package", nil)
 	require.NoError(t, err)
 
-	_, err = b.CreateIoTPackageVersion("gap-package", "1.0", "gap version", nil)
+	_, err = b.CreateIoTPackageVersion("gap-package", "1.0", "gap version", nil, iot.CreateIoTPackageVersionOptions{})
 	require.NoError(t, err)
 
 	err = b.UpdatePackageConfiguration(map[string]any{"gap": "config"})

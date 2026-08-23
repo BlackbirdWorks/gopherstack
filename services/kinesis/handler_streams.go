@@ -47,6 +47,7 @@ type jsonEnhancedMonitoringEntry struct {
 
 type jsonStreamDescriptionSummary struct {
 	StreamModeDetails       *jsonStreamModeDetails        `json:"StreamModeDetails,omitempty"`
+	WarmThroughput          *jsonWarmThroughputObject     `json:"WarmThroughput,omitempty"`
 	StreamName              string                        `json:"StreamName"`
 	StreamARN               string                        `json:"StreamARN"`
 	StreamStatus            string                        `json:"StreamStatus"`
@@ -58,6 +59,9 @@ type jsonStreamDescriptionSummary struct {
 	OpenShardCount          int                           `json:"OpenShardCount"`
 	// ConsumerCount is the number of registered enhanced fan-out consumers.
 	ConsumerCount int `json:"ConsumerCount"`
+	// MaxRecordSizeInKiB mirrors Stream.MaxRecordSizeBytes (UpdateMaxRecordSize's
+	// wire unit is KiB, not bytes -- see UpdateMaxRecordSizeInput).
+	MaxRecordSizeInKiB int `json:"MaxRecordSizeInKiB"`
 }
 
 type jsonStreamDescription struct {
@@ -293,6 +297,11 @@ func (h *Handler) handleDescribeStreamSummary(
 		consumerCount = len(consumerList.Consumers)
 	}
 
+	maxRecordSizeBytes := out.MaxRecordSizeBytes
+	if maxRecordSizeBytes <= 0 {
+		maxRecordSizeBytes = defaultMaxRecordSizeBytes
+	}
+
 	return jsonDescribeStreamSummaryResp{
 		StreamDescriptionSummary: jsonStreamDescriptionSummary{
 			StreamName:              out.StreamName,
@@ -306,6 +315,13 @@ func (h *Handler) handleDescribeStreamSummary(
 			EnhancedMonitoring:      enhancedMonitoringEntries(out.EnhancedMonitoring),
 			StreamCreationTimestamp: float64(out.StreamCreationTimestamp.Unix()),
 			StreamModeDetails:       &jsonStreamModeDetails{StreamMode: out.StreamMode},
+			MaxRecordSizeInKiB:      maxRecordSizeBytes / bytesPerKiB,
+			// Applied synchronously (no UPDATING transient-state model), so
+			// Current and Target always match -- see UpdateStreamWarmThroughput.
+			WarmThroughput: &jsonWarmThroughputObject{
+				CurrentMiBps: out.WarmThroughputMiBps,
+				TargetMiBps:  out.WarmThroughputMiBps,
+			},
 		},
 	}, nil
 }

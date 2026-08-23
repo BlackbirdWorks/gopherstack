@@ -47,7 +47,15 @@ import (
 // none for Athena before this file) or one from an incompatible build
 // decodes with Version == 0, which is guaranteed to mismatch and is
 // discarded the same way any other incompatible snapshot is.
-const athenaSnapshotVersion = 1
+//
+// Bumped 1 -> 2 (gopherstack-hjdd) for d83f4b5d3: CalculationExecution's
+// nested CalculationStatistics.Progress (the registered "calculations" table's
+// value type) changed from int64 to string, matching the real deserializer's
+// type switch. A Version-1 snapshot's numeric "Progress" no longer unmarshals
+// into the new string field at all -- an outright decode error that takes
+// down the whole restore, not silent loss -- so it must be discarded like any
+// other shape-incompatible snapshot.
+const athenaSnapshotVersion = 2
 
 // databaseSnapshot is the DTO wrapping a Database with the Catalog identity
 // its `json:"-"` tag deliberately excludes from a direct JSON round trip

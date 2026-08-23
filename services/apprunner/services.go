@@ -125,6 +125,15 @@ func validateSourceConfig(s SourceConfig, required bool) error {
 		return fmt.Errorf("%w: CodeRepository.RepositoryUrl is required", ErrInvalidParameter)
 	}
 
+	// CodeRepository.SourceCodeVersion is required (types.go, apprunner@v1.42.4:
+	// both Type and Value on SourceCodeVersion are themselves "This member is
+	// required."). Unvalidated, an omitted SourceCodeVersion silently dropped
+	// the required output field entirely on Describe/CreateService instead of
+	// rejecting the request the way real AWS does.
+	if hasCode && s.CodeRepository.SourceCodeVersionType == "" {
+		return fmt.Errorf("%w: CodeRepository.SourceCodeVersion is required", ErrInvalidParameter)
+	}
+
 	return nil
 }
 

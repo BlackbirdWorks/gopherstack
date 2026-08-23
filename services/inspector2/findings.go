@@ -401,7 +401,7 @@ func (b *InMemoryBackend) ListFindingAggregations(aggregationType string, _ map[
 		}, nil
 	}
 
-	var critical, high, medium, low, total int64
+	var critical, high, medium, total int64
 	for sev, n := range counts {
 		total += n
 
@@ -412,8 +412,6 @@ func (b *InMemoryBackend) ListFindingAggregations(aggregationType string, _ map[
 			high += n
 		case severityMedium:
 			medium += n
-		case severityLow:
-			low += n
 		}
 	}
 
@@ -423,12 +421,17 @@ func (b *InMemoryBackend) ListFindingAggregations(aggregationType string, _ map[
 			{
 				"accountAggregation": map[string]any{
 					keyAccountID: b.accountID,
+					// types.SeverityCounts (inspector2@v1.54.1
+					// deserializers.go's
+					// awsRestjson1_deserializeDocumentSeverityCounts) has no
+					// "low" member -- all/critical/high/medium only. LOW
+					// findings still count toward "all" (the unconditional
+					// total above), just not broken out separately.
 					"severityCounts": map[string]any{
 						"all":      total,
 						"critical": critical,
 						"high":     high,
 						"medium":   medium,
-						"low":      low,
 					},
 				},
 			},

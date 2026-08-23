@@ -21,6 +21,7 @@ const (
 	docdbVersion = "2014-10-31"
 	docdbXMLNS   = "http://rds.amazonaws.com/doc/2014-10-31/"
 	stringTrue   = "true"
+	unknownOp    = "Unknown"
 )
 
 // Handler is the Echo HTTP handler for DocDB operations.
@@ -136,7 +137,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 		}
 		body, err := httputils.ReadBody(r)
 		if err != nil {
-			return false
+			return true
 		}
 		vals, err := url.ParseQuery(string(body))
 		if err != nil {
@@ -152,13 +153,17 @@ func (h *Handler) MatchPriority() int { return service.PriorityFormDocDB }
 
 // ExtractOperation extracts the DocDB action from the request.
 func (h *Handler) ExtractOperation(c *echo.Context) string {
-	r := c.Request()
-	if err := r.ParseForm(); err != nil {
-		return "Unknown"
+	body, err := httputils.ReadBody(c.Request())
+	if err != nil {
+		return unknownOp
 	}
-	action := r.Form.Get("Action")
+	vals, err := url.ParseQuery(string(body))
+	if err != nil {
+		return unknownOp
+	}
+	action := vals.Get("Action")
 	if action == "" {
-		return "Unknown"
+		return unknownOp
 	}
 
 	return action
@@ -166,22 +171,30 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 
 // ExtractResource returns the DB cluster identifier from the request.
 func (h *Handler) ExtractResource(c *echo.Context) string {
-	r := c.Request()
-	if err := r.ParseForm(); err != nil {
+	body, err := httputils.ReadBody(c.Request())
+	if err != nil {
+		return ""
+	}
+	vals, err := url.ParseQuery(string(body))
+	if err != nil {
 		return ""
 	}
 
-	return r.Form.Get("DBClusterIdentifier")
+	return vals.Get("DBClusterIdentifier")
 }
 
 // Handler returns the Echo handler function.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
 		r := c.Request()
-		if err := r.ParseForm(); err != nil {
+		body, err := httputils.ReadBody(r)
+		if err != nil {
 			return h.writeError(c, http.StatusInternalServerError, "InternalFailure", "failed to read request body")
 		}
-		vals := r.Form
+		vals, err := url.ParseQuery(string(body))
+		if err != nil {
+			return h.writeError(c, http.StatusInternalServerError, "InternalFailure", "failed to parse request body")
+		}
 		action := vals.Get("Action")
 		if action == "" {
 			return h.writeError(c, http.StatusBadRequest, "MissingAction", "missing Action parameter")

@@ -23,17 +23,18 @@ func toConfiguredAudienceModelAssociationSummary(
 ) *ConfiguredAudienceModelAssociationSummary {
 	return &ConfiguredAudienceModelAssociationSummary{
 		ConfiguredAudienceModelAssociationIdentifier: a.ConfiguredAudienceModelAssociationIdentifier,
-		Arn:                     a.Arn,
-		CollaborationArn:        a.CollaborationArn,
-		CollaborationIdentifier: a.CollaborationIdentifier,
-		MembershipArn:           a.MembershipArn,
-		MembershipIdentifier:    a.MembershipIdentifier,
-		Name:                    a.Name,
-		CreateTime:              a.CreateTime,
-		UpdateTime:              a.UpdateTime,
-		ID:                      a.ID,
-		MembershipID:            a.MembershipID,
-		CollaborationID:         a.CollaborationID,
+		Arn:                        a.Arn,
+		CollaborationArn:           a.CollaborationArn,
+		CollaborationIdentifier:    a.CollaborationIdentifier,
+		ConfiguredAudienceModelArn: a.ConfiguredAudienceModelArn,
+		MembershipArn:              a.MembershipArn,
+		MembershipIdentifier:       a.MembershipIdentifier,
+		Name:                       a.Name,
+		CreateTime:                 a.CreateTime,
+		UpdateTime:                 a.UpdateTime,
+		ID:                         a.ID,
+		MembershipID:               a.MembershipID,
+		CollaborationID:            a.CollaborationID,
 	}
 }
 

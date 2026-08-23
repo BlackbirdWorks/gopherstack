@@ -652,3 +652,56 @@ func TestListWorkGroups_Pagination_StaleTokenResumesStably(t *testing.T) {
 	assert.Equal(t, []string{"wg3", "wg4"}, names,
 		"must resume after the deleted boundary, not restart from offset 0")
 }
+
+// TestHandler_UpdateWorkGroup_PreservesUnmentionedConfiguration guards
+// against gopherstack-1vv2: UpdateWorkGroupInput.ConfigurationUpdates is
+// types.WorkGroupConfigurationUpdates, a partial-update shape -- a real
+// client only ever sends the fields it's changing. Wholesale-replacing the
+// stored Configuration with that payload used to silently erase every field
+// the request didn't mention (here, ResultConfiguration and EngineVersion
+// set at Create) on any single-field Update.
+func TestHandler_UpdateWorkGroup_PreservesUnmentionedConfiguration(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	createBody := `{
+		"Name": "preserve-cfg-wg",
+		"Configuration": {
+			"ResultConfiguration": {"OutputLocation": "s3://my-bucket/results/"},
+			"EngineVersion": {"SelectedEngineVersion": "Athena engine version 3"},
+			"EnforceWorkGroupConfiguration": false
+		}
+	}`
+	rec := doRequest(t, h, "CreateWorkGroup", createBody)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	// A real client's Update payload only ever carries the field it's
+	// changing -- here, just EnforceWorkGroupConfiguration.
+	updateBody := `{
+		"WorkGroup": "preserve-cfg-wg",
+		"ConfigurationUpdates": {"EnforceWorkGroupConfiguration": true}
+	}`
+	rec = doRequest(t, h, "UpdateWorkGroup", updateBody)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	rec = doRequest(t, h, "GetWorkGroup", `{"WorkGroup":"preserve-cfg-wg"}`)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	wg, ok := resp["WorkGroup"].(map[string]any)
+	require.True(t, ok)
+	cfg, ok := wg["Configuration"].(map[string]any)
+	require.True(t, ok)
+
+	assert.Equal(t, true, cfg["EnforceWorkGroupConfiguration"], "the update's own field must apply")
+
+	resultConfig, ok := cfg["ResultConfiguration"].(map[string]any)
+	require.True(t, ok, "ResultConfiguration must survive an Update that never mentioned it")
+	assert.Equal(t, "s3://my-bucket/results/", resultConfig["OutputLocation"])
+
+	engineVersion, ok := cfg["EngineVersion"].(map[string]any)
+	require.True(t, ok, "EngineVersion must survive an Update that never mentioned it")
+	assert.Equal(t, "Athena engine version 3", engineVersion["SelectedEngineVersion"])
+}

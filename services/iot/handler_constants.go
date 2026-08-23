@@ -1,7 +1,6 @@
 package iot
 
 const (
-	keyError      = "error"
 	keyThingName  = "thingName"
 	keyThingArn   = "thingArn"
 	keyPolicyName = "policyName"
@@ -14,6 +13,7 @@ const (
 	keyThingGroupArn           = "thingGroupArn"
 	keyCertificateID           = "certificateId"
 	keyCertificateArn          = "certificateArn"
+	keyCertificateMode         = "certificateMode"
 	keyCertificateProviderName = "certificateProviderName"
 	keyCertificateProviderArn  = "certificateProviderArn"
 	keyIsDefaultVersion        = "isDefaultVersion"
@@ -45,6 +45,7 @@ const (
 const (
 	keyStreamID           = "streamId"
 	keyStreamARN          = "streamArn"
+	keyStreamVersion      = "streamVersion"
 	keyMetricName         = "metricName"
 	keyMetricARN          = "metricArn"
 	pathTags              = "/tags"

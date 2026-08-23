@@ -3,6 +3,7 @@ package kinesis
 import (
 	"context"
 	"fmt"
+	"maps"
 	"regexp"
 	"sort"
 	"strings"
@@ -80,8 +81,21 @@ func (b *InMemoryBackend) RegisterStreamConsumer(
 		return nil, ErrLimitExceeded
 	}
 
+	if err := validateTagKVs(input.Tags); err != nil {
+		return nil, err
+	}
+	if len(input.Tags) > maxTagsPerStream {
+		return nil, ErrTagLimitExceeded
+	}
+
 	now := time.Now()
 	consumerARN := buildConsumerARN(input.StreamARN, input.ConsumerName, now)
+
+	var consumerTags map[string]string
+	if len(input.Tags) > 0 {
+		consumerTags = make(map[string]string, len(input.Tags))
+		maps.Copy(consumerTags, input.Tags)
+	}
 
 	consumer := &Consumer{
 		ConsumerName:              input.ConsumerName,
@@ -89,6 +103,7 @@ func (b *InMemoryBackend) RegisterStreamConsumer(
 		ConsumerStatus:            consumerStatusActive,
 		ConsumerCreationTimestamp: now,
 		StreamARN:                 input.StreamARN,
+		Tags:                      consumerTags,
 	}
 	stream.Consumers[input.ConsumerName] = consumer
 

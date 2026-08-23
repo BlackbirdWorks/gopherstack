@@ -141,7 +141,7 @@ func cisCheckCatalog() []CisCheckResult {
 func (b *InMemoryBackend) cisTargetAccounts(targets map[string]any) []string {
 	var accounts []string
 
-	if raw, ok := targets["accountIds"].([]any); ok {
+	if raw, ok := targets[keyAccountIDs].([]any); ok {
 		for _, v := range raw {
 			if id, isStr := v.(string); isStr && id != "" {
 				accounts = append(accounts, id)
@@ -355,13 +355,17 @@ func (b *InMemoryBackend) GetCisScanReport(scanArn string) (map[string]any, erro
 // GetCisScanResultDetails returns the per-check results for a CIS scan. Results
 // reflect the scan generated for the configuration; an unknown scan ARN yields
 // an empty result set rather than an error (AWS behavior for absent scans).
+// The response wraps the list under "scanResultDetails" (inspector2@v1.54.1
+// deserializers.go's
+// awsRestjson1_deserializeOpDocumentGetCisScanResultDetailsOutput), not
+// "checkResults".
 func (b *InMemoryBackend) GetCisScanResultDetails(scanArn string) (map[string]any, error) {
 	b.mu.RLock("GetCisScanResultDetails")
 	defer b.mu.RUnlock()
 
 	scan := b.findCisScan(scanArn)
 	if scan == nil {
-		return map[string]any{"checkResults": []any{}}, nil
+		return map[string]any{"scanResultDetails": []any{}}, nil
 	}
 
 	checkResults := make([]map[string]any, 0, len(scan.Results))
@@ -383,7 +387,7 @@ func (b *InMemoryBackend) GetCisScanResultDetails(scanArn string) (map[string]an
 		checkResults = append(checkResults, entry)
 	}
 
-	return map[string]any{"checkResults": checkResults}, nil
+	return map[string]any{"scanResultDetails": checkResults}, nil
 }
 
 // ListCisScans returns all completed CIS scans, sorted by scan ARN for stable
@@ -407,10 +411,15 @@ func (b *InMemoryBackend) ListCisScans() ([]map[string]any, error) {
 			// field (the account/org that scheduled the scan) this backend
 			// does not track, so it is not emitted rather than filled with
 			// a fabricated value.
-			"scanDate":        awstime.Epoch(s.ScheduledAt),
-			"failedChecks":    s.FailedChecks,
-			"totalChecks":     s.TotalChecks,
-			"targetAccountId": s.TargetAccountID,
+			"scanDate":     awstime.Epoch(s.ScheduledAt),
+			"failedChecks": s.FailedChecks,
+			"totalChecks":  s.TotalChecks,
+			// types.CisTargets (inspector2@v1.54.1 deserializers.go's
+			// awsRestjson1_deserializeDocumentCisTargets) wraps account IDs
+			// under targets.accountIds; there is no flat targetAccountId
+			// member. TargetResourceTags is omitted: this backend tracks no
+			// such state.
+			"targets": map[string]any{keyAccountIDs: []string{s.TargetAccountID}},
 		})
 	}
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -66,15 +67,51 @@ func parseJobDefRequest(body []byte, jobInputKey string) (jobDefRequest, error) 
 		}
 	}
 
-	if req.JobDefinitionName == "" {
-		return jobDefRequest{}, fmt.Errorf("%w: JobDefinitionName is required", errInvalidRequest)
+	jobInput, err := validateJobDefRequest(req, jobInputKey)
+	if err != nil {
+		return jobDefRequest{}, err
 	}
 
-	if jobInput, ok := req.Config[jobInputKey]; ok {
-		req.EndpointName = extractEndpointName(jobInput)
-	}
+	req.EndpointName = extractEndpointName(jobInput)
 
 	return req, nil
+}
+
+// validateJobDefRequest checks the six members every Create*JobDefinition
+// input requires (e.g. api_op_CreateDataQualityJobDefinition.go:24-64):
+// JobDefinitionName/RoleArn/JobResources plus the type-specific
+// AppSpecification/JobInput/JobOutputConfig, whose wire names share the
+// type's name prefix derived from jobInputKey (e.g. "DataQualityJobInput" ->
+// "DataQuality"). Returns the decoded JobInput block on success.
+func validateJobDefRequest(req jobDefRequest, jobInputKey string) (json.RawMessage, error) {
+	if req.JobDefinitionName == "" {
+		return nil, fmt.Errorf("%w: JobDefinitionName is required", errInvalidRequest)
+	}
+
+	if req.RoleArn == "" {
+		return nil, fmt.Errorf("%w: RoleArn is required", errInvalidRequest)
+	}
+
+	if _, hasResources := req.Config["JobResources"]; !hasResources {
+		return nil, fmt.Errorf("%w: JobResources is required", errInvalidRequest)
+	}
+
+	typePrefix := strings.TrimSuffix(jobInputKey, "JobInput")
+
+	jobInput, hasJobInput := req.Config[jobInputKey]
+	if !hasJobInput {
+		return nil, fmt.Errorf("%w: %s is required", errInvalidRequest, jobInputKey)
+	}
+
+	if _, hasAppSpec := req.Config[typePrefix+"AppSpecification"]; !hasAppSpec {
+		return nil, fmt.Errorf("%w: %sAppSpecification is required", errInvalidRequest, typePrefix)
+	}
+
+	if _, hasOutputConfig := req.Config[typePrefix+"JobOutputConfig"]; !hasOutputConfig {
+		return nil, fmt.Errorf("%w: %sJobOutputConfig is required", errInvalidRequest, typePrefix)
+	}
+
+	return jobInput, nil
 }
 
 // extractEndpointName pulls EndpointInput.EndpointName out of a job input
@@ -94,12 +131,18 @@ func extractEndpointName(jobInput json.RawMessage) string {
 	return in.EndpointInput.EndpointName
 }
 
+// jobDefinitionNameInput mirrors the {"JobDefinitionName": "..."} body
+// shared by Describe*JobDefinition and Delete*JobDefinition
+// (e.g. api_op_DescribeDataQualityJobDefinition.go:24-33): JobDefinitionName
+// is each op's sole, required member.
+type jobDefinitionNameInput struct {
+	JobDefinitionName string `json:"JobDefinitionName"`
+}
+
 // parseJobDefinitionName decodes the {"JobDefinitionName": "..."} body shared
 // by Describe*JobDefinition and Delete*JobDefinition.
 func parseJobDefinitionName(body []byte) (string, error) {
-	var req struct {
-		JobDefinitionName string `json:"JobDefinitionName"`
-	}
+	var req jobDefinitionNameInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return "", fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -141,17 +184,22 @@ type jobDefListRequest struct {
 	Filter    JobDefinitionFilter
 }
 
+// jobDefinitionListInput mirrors List*JobDefinitionsInput, shared by all four
+// job definition types (e.g. api_op_ListDataQualityJobDefinitions.go:24-56):
+// all members optional.
+type jobDefinitionListInput struct {
+	CreationTimeAfter  *float64 `json:"CreationTimeAfter,omitempty"`
+	CreationTimeBefore *float64 `json:"CreationTimeBefore,omitempty"`
+	EndpointName       string   `json:"EndpointName,omitempty"`
+	NameContains       string   `json:"NameContains,omitempty"`
+	NextToken          string   `json:"NextToken,omitempty"`
+	SortBy             string   `json:"SortBy,omitempty"`
+	SortOrder          string   `json:"SortOrder,omitempty"`
+	MaxResults         int32    `json:"MaxResults,omitempty"`
+}
+
 func parseJobDefinitionListRequest(body []byte) (jobDefListRequest, error) {
-	var req struct {
-		CreationTimeAfter  *float64 `json:"CreationTimeAfter,omitempty"`
-		CreationTimeBefore *float64 `json:"CreationTimeBefore,omitempty"`
-		EndpointName       string   `json:"EndpointName,omitempty"`
-		NameContains       string   `json:"NameContains,omitempty"`
-		NextToken          string   `json:"NextToken,omitempty"`
-		SortBy             string   `json:"SortBy,omitempty"`
-		SortOrder          string   `json:"SortOrder,omitempty"`
-		MaxResults         int32    `json:"MaxResults,omitempty"`
-	}
+	var req jobDefinitionListInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return jobDefListRequest{}, fmt.Errorf("%w: %w", errInvalidRequest, err)

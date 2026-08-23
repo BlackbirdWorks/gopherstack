@@ -7,6 +7,18 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
+// clone deep-copies da's SubDomains slice. A shallow "cp := *da" is not
+// enough: the janitor's advanceDomains mutates domain.SubDomains[i].Verified
+// in place through the live pointer rather than replacing the slice, so any
+// copy that still aliases the backing array stays exposed to that mutation
+// after it crosses the lock boundary -- see TestDomainAssociationSubDomainsRace.
+func (da *DomainAssociation) clone() *DomainAssociation {
+	cp := *da
+	cp.SubDomains = append([]SubDomain(nil), da.SubDomains...)
+
+	return &cp
+}
+
 // CreateDomainAssociation creates a custom domain association for an app.
 func (b *InMemoryBackend) CreateDomainAssociation(
 	appID, domainName string,
@@ -59,9 +71,7 @@ func (b *InMemoryBackend) CreateDomainAssociation(
 
 	b.domains.Put(da)
 
-	cp := *da
-
-	return &cp, nil
+	return da.clone(), nil
 }
 
 // UpdateDomainAssociation updates a domain association.
@@ -91,9 +101,7 @@ func (b *InMemoryBackend) UpdateDomainAssociation(
 	da.SubDomains = subs
 	da.EnableAutoSubDomain = enableAutoSubDomain
 
-	cp := *da
-
-	return &cp, nil
+	return da.clone(), nil
 }
 
 // DeleteDomainAssociation deletes a domain association.
@@ -108,10 +116,10 @@ func (b *InMemoryBackend) DeleteDomainAssociation(
 		return nil, err
 	}
 
-	cp := *da
+	cp := da.clone()
 	b.domains.Delete(domainKey(appID, domainName))
 
-	return &cp, nil
+	return cp, nil
 }
 
 // GetDomainAssociation returns a domain association.
@@ -126,9 +134,7 @@ func (b *InMemoryBackend) GetDomainAssociation(
 		return nil, err
 	}
 
-	cp := *da
-
-	return &cp, nil
+	return da.clone(), nil
 }
 
 // ListDomainAssociations lists domain associations for an app.
@@ -146,8 +152,7 @@ func (b *InMemoryBackend) ListDomainAssociations(
 	var all []*DomainAssociation
 
 	for _, da := range b.domainsByApp.Get(appID) {
-		cp := *da
-		all = append(all, &cp)
+		all = append(all, da.clone())
 	}
 
 	sort.Slice(all, func(i, j int) bool { return all[i].DomainName < all[j].DomainName })

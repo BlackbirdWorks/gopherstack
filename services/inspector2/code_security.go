@@ -23,6 +23,9 @@ import (
 const (
 	codeSecurityNameMinLen = 1
 	codeSecurityNameMaxLen = 60
+
+	codeScanStatusInProgress = "IN_PROGRESS"
+	codeScanStatusSuccessful = "SUCCESSFUL"
 )
 
 // onceCodeSecurityNamePattern lazily compiles the real, documented
@@ -391,7 +394,7 @@ func (b *InMemoryBackend) StartCodeSecurityScan(resourceID string) (map[string]a
 	scan := map[string]any{
 		"scanId":     scanID,
 		"resourceId": resourceID,
-		keyStatus:    "IN_PROGRESS",
+		keyStatus:    codeScanStatusInProgress,
 	}
 	b.codeSecurityScans[scanID] = scan
 
@@ -399,17 +402,28 @@ func (b *InMemoryBackend) StartCodeSecurityScan(resourceID string) (map[string]a
 	// (awsRestjson1_deserializeOpDocumentStartCodeSecurityScanOutput in the
 	// pinned inspector2 SDK's deserializers.go) -- omitting status left a
 	// real client's Status field always empty.
-	return map[string]any{"scanId": scanID, keyStatus: "IN_PROGRESS"}, nil
+	return map[string]any{"scanId": scanID, keyStatus: codeScanStatusInProgress}, nil
 }
 
-// GetCodeSecurityScan returns status of a code security scan.
+// GetCodeSecurityScan returns status of a code security scan, advancing
+// IN_PROGRESS->SUCCESSFUL on first poll. StartCodeSecurityScan stamped
+// keyStatus IN_PROGRESS and nothing else in this backend ever wrote to it
+// again -- a client polling GetCodeSecurityScan for readiness never saw a
+// terminal status. Inspector2 ships no generated waiter for this op, but
+// that only means a caller must hand-roll its own poll loop; it does not
+// make an unadvancing status correct. Mirrors the reap-on-read pattern
+// services/omics uses for its own Get*-advances-Creating resources.
 func (b *InMemoryBackend) GetCodeSecurityScan(scanID string) (map[string]any, error) {
-	b.mu.RLock("GetCodeSecurityScan")
-	defer b.mu.RUnlock()
+	b.mu.Lock("GetCodeSecurityScan")
+	defer b.mu.Unlock()
 
 	scan, ok := b.codeSecurityScans[scanID]
 	if !ok {
 		return nil, fmt.Errorf("%w: scanId %q not found", ErrReportNotFound, scanID)
+	}
+
+	if scan[keyStatus] == codeScanStatusInProgress {
+		scan[keyStatus] = codeScanStatusSuccessful
 	}
 
 	return scan, nil

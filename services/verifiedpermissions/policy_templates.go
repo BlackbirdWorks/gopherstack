@@ -32,7 +32,7 @@ func policyTemplateKey(policyStoreID, policyTemplateID string) string {
 // store. A non-empty clientToken makes the call idempotent for eight hours,
 // same semantics as CreatePolicyStore's ClientToken.
 func (b *InMemoryBackend) CreatePolicyTemplate(
-	policyStoreID, description, statement, clientToken string,
+	policyStoreID, description, statement, name, clientToken string,
 ) (*PolicyTemplate, error) {
 	b.mu.Lock("CreatePolicyTemplate")
 	defer b.mu.Unlock()
@@ -41,7 +41,7 @@ func (b *InMemoryBackend) CreatePolicyTemplate(
 		return nil, fmt.Errorf("%w: policy store %s not found", ErrPolicyStoreNotFound, policyStoreID)
 	}
 
-	fingerprint := policyStoreID + "\x00" + description + "\x00" + statement
+	fingerprint := policyStoreID + "\x00" + description + "\x00" + statement + "\x00" + name
 
 	existingID, err := b.checkClientToken("CreatePolicyTemplate", clientToken, fingerprint)
 	if err != nil {
@@ -61,6 +61,7 @@ func (b *InMemoryBackend) CreatePolicyTemplate(
 		PolicyStoreID:    policyStoreID,
 		Description:      description,
 		Statement:        statement,
+		Name:             name,
 		CreatedDate:      now,
 		LastUpdated:      now,
 	}
@@ -110,9 +111,9 @@ func (b *InMemoryBackend) ListPolicyTemplates(
 	return page, tok, nil
 }
 
-// UpdatePolicyTemplate updates the description and statement of a policy template.
+// UpdatePolicyTemplate updates the description, statement, and name of a policy template.
 func (b *InMemoryBackend) UpdatePolicyTemplate(
-	policyStoreID, policyTemplateID, description, statement string,
+	policyStoreID, policyTemplateID, description, statement, name string,
 ) (*PolicyTemplate, error) {
 	b.mu.Lock("UpdatePolicyTemplate")
 	defer b.mu.Unlock()
@@ -132,6 +133,10 @@ func (b *InMemoryBackend) UpdatePolicyTemplate(
 
 	if statement != "" {
 		pt.Statement = statement
+	}
+
+	if name != "" {
+		pt.Name = name
 	}
 
 	pt.LastUpdated = time.Now()

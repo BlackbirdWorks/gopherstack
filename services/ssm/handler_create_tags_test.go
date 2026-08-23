@@ -265,4 +265,51 @@ func TestCreateOpsWithTags_RoundTrip(t *testing.T) {
 		assert.Equal(t, "env", aws.ToString(found.Tags[0].Key))
 		assert.Equal(t, "test", aws.ToString(found.Tags[0].Value))
 	})
+
+	// PutParameterInput.Tags (api_op_PutParameter.go:196-204) had no Go struct
+	// member at all -- a real client's tags supplied on create were silently
+	// dropped, only reachable afterward via a second AddTagsToResource call.
+	t.Run("parameter", func(t *testing.T) {
+		t.Parallel()
+
+		backend := ssm.NewInMemoryBackend()
+		client := newTestSSMClient(t, ssm.NewHandler(backend))
+
+		_, err := client.PutParameter(t.Context(), &ssmsdk.PutParameterInput{
+			Name:  aws.String("/tagged/param"),
+			Type:  ssmtypes.ParameterTypeString,
+			Value: aws.String("v"),
+			Tags:  []ssmtypes.Tag{{Key: aws.String("env"), Value: aws.String("test")}},
+		})
+		require.NoError(t, err)
+
+		got, err := client.ListTagsForResource(t.Context(), &ssmsdk.ListTagsForResourceInput{
+			ResourceType: ssmtypes.ResourceTypeForTaggingParameter,
+			ResourceId:   aws.String("/tagged/param"),
+		})
+		require.NoError(t, err)
+		require.Len(t, got.TagList, 1)
+		assert.Equal(t, "env", aws.ToString(got.TagList[0].Key))
+		assert.Equal(t, "test", aws.ToString(got.TagList[0].Value))
+
+		// AWS's own doc comment: an Overwrite of an EXISTING parameter does not
+		// apply Tags -- "To add tags to an existing Systems Manager parameter,
+		// use the AddTagsToResource operation."
+		_, err = client.PutParameter(t.Context(), &ssmsdk.PutParameterInput{
+			Name:      aws.String("/tagged/param"),
+			Type:      ssmtypes.ParameterTypeString,
+			Value:     aws.String("v2"),
+			Overwrite: aws.Bool(true),
+			Tags:      []ssmtypes.Tag{{Key: aws.String("second"), Value: aws.String("ignored")}},
+		})
+		require.NoError(t, err)
+
+		got, err = client.ListTagsForResource(t.Context(), &ssmsdk.ListTagsForResourceInput{
+			ResourceType: ssmtypes.ResourceTypeForTaggingParameter,
+			ResourceId:   aws.String("/tagged/param"),
+		})
+		require.NoError(t, err)
+		require.Len(t, got.TagList, 1, "overwrite must not apply new Tags")
+		assert.Equal(t, "env", aws.ToString(got.TagList[0].Key))
+	})
 }

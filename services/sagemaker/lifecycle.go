@@ -12,15 +12,17 @@ import (
 // ---------------------------------------------------------------------------
 
 const (
-	notebookPendingToInServiceDelay = 250 * time.Millisecond
-	notebookStoppingToStoppedDelay  = 150 * time.Millisecond
-	notebookUpdatingToInService     = 200 * time.Millisecond
-	trainingInProgressToCompleted   = 300 * time.Millisecond
-	trainingStoppingToStopped       = 150 * time.Millisecond
-	endpointCreatingToInService     = 300 * time.Millisecond
-	endpointUpdatingToInService     = 250 * time.Millisecond
-	processingJobCompletionDelay    = 300 * time.Millisecond
-	processingJobStopDelay          = 150 * time.Millisecond
+	notebookPendingToInServiceDelay       = 250 * time.Millisecond
+	notebookStoppingToStoppedDelay        = 150 * time.Millisecond
+	notebookUpdatingToInService           = 200 * time.Millisecond
+	trainingInProgressToCompleted         = 300 * time.Millisecond
+	trainingStoppingToStopped             = 150 * time.Millisecond
+	endpointCreatingToInService           = 300 * time.Millisecond
+	endpointUpdatingToInService           = 250 * time.Millisecond
+	inferenceComponentCreatingToInService = 300 * time.Millisecond
+	inferenceComponentUpdatingToInService = 250 * time.Millisecond
+	processingJobCompletionDelay          = 300 * time.Millisecond
+	processingJobStopDelay                = 150 * time.Millisecond
 	// aiJobInProgressToCompleted/aiJobStoppingToStopped drive the InProgress
 	// -> Completed and Stopping -> Stopped transitions shared by the
 	// AIBenchmarkJob, AIRecommendationJob, and generic Job families (added
@@ -30,6 +32,32 @@ const (
 	// TrainingJob's FSM.
 	aiJobInProgressToCompleted = 300 * time.Millisecond
 	aiJobStoppingToStopped     = 150 * time.Millisecond
+	// edgePackagingJobStartingToCompleted/edgePackagingJobStoppingToStopped
+	// drive EdgePackagingJob's STARTING -> COMPLETED and STOPPING -> STOPPED
+	// transitions. Kept as their own constants rather than reusing the
+	// aiJob* pair above, matching this file's own established precedent for
+	// independently-retimeable families.
+	edgePackagingJobStartingToCompleted = 300 * time.Millisecond
+	edgePackagingJobStoppingToStopped   = 150 * time.Millisecond
+	// inferenceRecommendationsJobInProgressToCompleted/-StoppingToStopped
+	// drive InferenceRecommendationsJob's own IN_PROGRESS -> COMPLETED and
+	// STOPPING -> STOPPED transitions, kept independent of the aiJob*/
+	// edgePackagingJob* constants above for the same retiming reason.
+	inferenceRecommendationsJobInProgressToCompleted = 300 * time.Millisecond
+	inferenceRecommendationsJobStoppingToStopped     = 150 * time.Millisecond
+	// hpTuningJobStoppingToStopped drives HyperParameterTuningJob's own
+	// Stopping -> Stopped transition. Nothing previously advanced a
+	// Stopping job -- no ticker, no later call -- so
+	// DescribeHyperParameterTuningJob showed Stopping for the entire
+	// remaining lifetime of every stopped job.
+	hpTuningJobStoppingToStopped = 150 * time.Millisecond
+	// compilationJobInProgressToCompleted/compilationJobStoppingToStopped
+	// drive CompilationJob's own INPROGRESS -> COMPLETED and
+	// STOPPING -> STOPPED transitions. Previously nothing ever advanced
+	// INPROGRESS at all, and Stop set STOPPED directly with no STOPPING
+	// step, contradicting api_op_StopCompilationJob.go's own doc.
+	compilationJobInProgressToCompleted = 300 * time.Millisecond
+	compilationJobStoppingToStopped     = 150 * time.Millisecond
 )
 
 // ---------------------------------------------------------------------------

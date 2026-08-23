@@ -35,56 +35,12 @@ type PlacementStrategy struct {
 	Type  string `json:"Type,omitempty"`
 }
 
-// EcsEnvironmentVariable is a name/value pair overriding an ECS container's environment.
-type EcsEnvironmentVariable struct {
-	Name  string `json:"Name,omitempty"`
-	Value string `json:"Value,omitempty"`
-}
-
-// EcsEnvironmentFile references an S3 object containing environment variables for an ECS container.
-type EcsEnvironmentFile struct {
-	Type  string `json:"Type,omitempty"`
-	Value string `json:"Value,omitempty"`
-}
-
-// EcsResourceRequirement is a resource type/value pair for an ECS container override.
-type EcsResourceRequirement struct {
-	Type  string `json:"Type,omitempty"`
-	Value string `json:"Value,omitempty"`
-}
-
-// EcsContainerOverride holds per-container override values for an ECS task execution.
-type EcsContainerOverride struct {
-	CPU                  *int                     `json:"Cpu,omitempty"`
-	Memory               *int                     `json:"Memory,omitempty"`
-	MemoryReservation    *int                     `json:"MemoryReservation,omitempty"`
-	Name                 string                   `json:"Name,omitempty"`
-	Command              []string                 `json:"Command,omitempty"`
-	Environment          []EcsEnvironmentVariable `json:"Environment,omitempty"`
-	EnvironmentFiles     []EcsEnvironmentFile     `json:"EnvironmentFiles,omitempty"`
-	ResourceRequirements []EcsResourceRequirement `json:"ResourceRequirements,omitempty"`
-}
-
-// EcsEphemeralStorage overrides the ephemeral storage size for an ECS task.
-type EcsEphemeralStorage struct {
-	SizeInGiB int `json:"SizeInGiB,omitempty"`
-}
-
-// EcsInferenceAcceleratorOverride overrides an Elastic Inference accelerator for an ECS task.
-type EcsInferenceAcceleratorOverride struct {
-	DeviceName string `json:"DeviceName,omitempty"`
-	DeviceType string `json:"DeviceType,omitempty"`
-}
-
 // EcsTaskOverride holds override values for an ECS task execution.
 type EcsTaskOverride struct {
-	EphemeralStorage              *EcsEphemeralStorage              `json:"EphemeralStorage,omitempty"`
-	TaskRoleArn                   string                            `json:"TaskRoleArn,omitempty"`
-	ExecutionRoleArn              string                            `json:"ExecutionRoleArn,omitempty"`
-	CPU                           string                            `json:"Cpu,omitempty"`
-	Memory                        string                            `json:"Memory,omitempty"`
-	ContainerOverrides            []EcsContainerOverride            `json:"ContainerOverrides,omitempty"`
-	InferenceAcceleratorOverrides []EcsInferenceAcceleratorOverride `json:"InferenceAcceleratorOverrides,omitempty"`
+	TaskRoleArn      string `json:"TaskRoleArn,omitempty"`
+	ExecutionRoleArn string `json:"ExecutionRoleArn,omitempty"`
+	CPU              string `json:"Cpu,omitempty"`
+	Memory           string `json:"Memory,omitempty"`
 }
 
 // BatchJobDependency represents a dependency between Batch jobs.
@@ -93,24 +49,23 @@ type BatchJobDependency struct {
 	Type  string `json:"Type,omitempty"`
 }
 
-// BatchEnvironmentVariable is a name/value pair overriding a Batch container's environment.
+// BatchEnvironmentVariable is a single name/value pair in
+// BatchContainerOverrides.Environment. The real Batch shape (types.go) is a
+// list of these, not a bare map -- both serializers.go (request) and
+// deserializers.go (response) reuse the same BatchContainerOverrides type,
+// so a map here breaks CreatePipe's request decode for any real client
+// setting environment variables, and would equally break DescribePipe's
+// response decode once fixed on the input side alone.
 type BatchEnvironmentVariable struct {
 	Name  string `json:"Name,omitempty"`
 	Value string `json:"Value,omitempty"`
 }
 
-// BatchResourceRequirement is a resource type/value pair for a Batch container override.
-type BatchResourceRequirement struct {
-	Type  string `json:"Type,omitempty"`
-	Value string `json:"Value,omitempty"`
-}
-
 // BatchContainerOverrides holds container override values for a Batch job.
 type BatchContainerOverrides struct {
-	Environment          []BatchEnvironmentVariable `json:"Environment,omitempty"`
-	InstanceType         string                     `json:"InstanceType,omitempty"`
-	Command              []string                   `json:"Command,omitempty"`
-	ResourceRequirements []BatchResourceRequirement `json:"ResourceRequirements,omitempty"`
+	Environment  []BatchEnvironmentVariable `json:"Environment,omitempty"`
+	InstanceType string                     `json:"InstanceType,omitempty"`
+	Command      []string                   `json:"Command,omitempty"`
 }
 
 // LambdaFunctionParameters holds Lambda-specific target configuration.
@@ -191,12 +146,6 @@ type BatchJobTargetParameters struct {
 	DependsOn          []BatchJobDependency     `json:"DependsOn,omitempty"`
 }
 
-// EcsTag is a key/value tag applied to an ECS RunTask call.
-type EcsTag struct {
-	Key   string `json:"Key,omitempty"`
-	Value string `json:"Value,omitempty"`
-}
-
 // ECSTaskTargetParameters holds ECS task target configuration.
 type ECSTaskTargetParameters struct {
 	NetworkConfiguration     *NetworkConfiguration          `json:"NetworkConfiguration,omitempty"`
@@ -205,12 +154,9 @@ type ECSTaskTargetParameters struct {
 	LaunchType               string                         `json:"LaunchType,omitempty"`
 	Group                    string                         `json:"Group,omitempty"`
 	PlatformVersion          string                         `json:"PlatformVersion,omitempty"`
-	PropagateTags            string                         `json:"PropagateTags,omitempty"`
-	ReferenceID              string                         `json:"ReferenceId,omitempty"`
 	CapacityProviderStrategy []CapacityProviderStrategyItem `json:"CapacityProviderStrategy,omitempty"`
 	PlacementConstraints     []PlacementConstraint          `json:"PlacementConstraints,omitempty"`
 	PlacementStrategy        []PlacementStrategy            `json:"PlacementStrategy,omitempty"`
-	Tags                     []EcsTag                       `json:"Tags,omitempty"`
 	TaskCount                int                            `json:"TaskCount,omitempty"`
 	EnableECSManagedTags     bool                           `json:"EnableECSManagedTags,omitempty"`
 	EnableExecuteCommand     bool                           `json:"EnableExecuteCommand,omitempty"`
@@ -304,9 +250,6 @@ func cloneBatchJobParameters(src *BatchJobTargetParameters) *BatchJobTargetParam
 		co := *v.ContainerOverrides
 		co.Command = append([]string(nil), v.ContainerOverrides.Command...)
 		co.Environment = append([]BatchEnvironmentVariable(nil), v.ContainerOverrides.Environment...)
-		co.ResourceRequirements = append(
-			[]BatchResourceRequirement(nil), v.ContainerOverrides.ResourceRequirements...,
-		)
 		v.ContainerOverrides = &co
 	}
 	v.DependsOn = append([]BatchJobDependency(nil), src.DependsOn...)
@@ -324,14 +267,6 @@ func cloneECSTaskParameters(src *ECSTaskTargetParameters) *ECSTaskTargetParamete
 	}
 	if v.Overrides != nil {
 		ov := *v.Overrides
-		if ov.EphemeralStorage != nil {
-			es := *ov.EphemeralStorage
-			ov.EphemeralStorage = &es
-		}
-		ov.ContainerOverrides = append([]EcsContainerOverride(nil), v.Overrides.ContainerOverrides...)
-		ov.InferenceAcceleratorOverrides = append(
-			[]EcsInferenceAcceleratorOverride(nil), v.Overrides.InferenceAcceleratorOverrides...,
-		)
 		v.Overrides = &ov
 	}
 	v.CapacityProviderStrategy = append(
@@ -339,7 +274,6 @@ func cloneECSTaskParameters(src *ECSTaskTargetParameters) *ECSTaskTargetParamete
 	)
 	v.PlacementConstraints = append([]PlacementConstraint(nil), src.PlacementConstraints...)
 	v.PlacementStrategy = append([]PlacementStrategy(nil), src.PlacementStrategy...)
-	v.Tags = append([]EcsTag(nil), src.Tags...)
 
 	return &v
 }

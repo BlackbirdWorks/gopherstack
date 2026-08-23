@@ -131,7 +131,11 @@ func TestHandler_StartAsyncInvoke_WithTags(t *testing.T) {
 
 	var getOut map[string]any
 	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut))
-	assert.Contains(t, getOut, "tags")
+	assert.NotContains(
+		t, getOut, "tags",
+		"neither GetAsyncInvokeOutput nor AsyncInvokeSummary has a tags member; "+
+			"real AWS gives no way to read an async invoke's tags back",
+	)
 }
 
 func TestHandler_StartAsyncInvoke_InvalidJSON(t *testing.T) {
@@ -350,7 +354,11 @@ func TestHandler_GetAsyncInvoke_FullFields(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
 	assert.Contains(t, out, "clientRequestToken")
 	assert.Equal(t, "my-idempotency-token", out["clientRequestToken"])
-	assert.Contains(t, out, "tags")
+	assert.NotContains(
+		t, out, "tags",
+		"neither GetAsyncInvokeOutput nor AsyncInvokeSummary has a tags member; "+
+			"real AWS gives no way to read an async invoke's tags back",
+	)
 }
 
 func TestAsyncInvoke_GetResponseShape(t *testing.T) {

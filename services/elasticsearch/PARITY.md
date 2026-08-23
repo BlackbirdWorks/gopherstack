@@ -513,3 +513,19 @@ straight delegation to `InMemoryBackend`. Domain `tags.Tags` are explicitly
   in a backend with no async config-change or auto-tune state machine, not
   disguised stubs (confirmed by reading the corresponding backend.go methods
   before flagging, per parity-principles.md rule 4).
+
+## gopherstack-y1zn (2026-08-21): unknown-key sweep, 1 confirmed bug
+
+`DescribeElasticsearchDomainConfig`/`UpdateElasticsearchDomainConfig`: {wire:
+fixed} -- buildDomainConfigOutput emitted a flat "ColdStorageEnabled" boolean;
+types.ColdStorageOptions (elasticsearchservice@v1.45.4 deserializers.go) wraps
+Enabled in a nested object under "ColdStorageOptions" -- there is no flat
+member. Proven via
+`TestDescribeElasticsearchDomainConfig_ColdStorageOptions_RealClient`
+(wire_field_fixes_test.go), hand-reverted/confirmed-failing/restored/
+`md5sum`-verified byte-identical.
+
+`DescribeElasticsearchInstanceTypeLimits`'s `LimitsByRole.data` key: rejected,
+not a bug -- LimitsByRole is `map[string]types.Limits` keyed by role name
+("data" is a real role value), not a struct field; correctly absent from the
+SDK's per-key case-switch table by construction.

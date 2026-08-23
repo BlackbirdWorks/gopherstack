@@ -35,11 +35,21 @@ func TestStream(t *testing.T) {
 	if len(streams) != 1 {
 		t.Errorf("expected 1 stream, got %d", len(streams))
 	}
+	first, _ := streams[0].(map[string]any)
+	if first["description"] != "test stream" {
+		t.Errorf("expected description on ListStreams entry, got %v", first)
+	}
+	if first["streamVersion"] == nil {
+		t.Errorf("expected streamVersion on ListStreams entry, got %v", first)
+	}
 
 	// Update
-	iotOK(t, h, http.MethodPut, "/streams/my-stream", map[string]any{
+	updateOut := iotOK(t, h, http.MethodPut, "/streams/my-stream", map[string]any{
 		"description": "updated",
 	})
+	if updateOut["description"] != "updated" {
+		t.Errorf("expected description on UpdateStream response, got %v", updateOut)
+	}
 
 	// Delete
 	iotOK(t, h, http.MethodDelete, "/streams/my-stream", nil)

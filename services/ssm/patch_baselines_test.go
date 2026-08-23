@@ -161,6 +161,15 @@ func TestGetDefaultPatchBaseline_StableRealID(t *testing.T) {
 		"a registered default must be returned over the synthetic one")
 }
 
+// TestDescribeEffectivePatches_FromApprovedAndCatalog previously asserted
+// exactly 2 EffectivePatches (the baseline's own ApprovedPatches) with no
+// catalogue entries at all -- that passed only because this test's fresh
+// ssm.NewInMemoryBackend() never called DescribeAvailablePatches first, and
+// effectivePatchesForBaseline used to read b.availablePatches[region]
+// directly instead of the lazy-seeding availablePatchesFor helper
+// DescribeAvailablePatches itself uses. A real client's DescribeEffective
+// PatchesForPatchBaseline reflects the built-in catalogue regardless of call
+// order; this test ratified that order-dependent gap and is corrected here.
 func TestDescribeEffectivePatches_FromApprovedAndCatalog(t *testing.T) {
 	t.Parallel()
 
@@ -171,6 +180,7 @@ func TestDescribeEffectivePatches_FromApprovedAndCatalog(t *testing.T) {
 		Name:                           "eff-baseline",
 		OperatingSystem:                "AMAZON_LINUX_2",
 		ApprovedPatches:                []string{"CVE-2024-0001", "CVE-2024-0002"},
+		RejectedPatches:                []string{"ALAS2-2024-2460"},
 		ApprovedPatchesComplianceLevel: "CRITICAL",
 	})
 	require.NoError(t, err)
@@ -180,15 +190,35 @@ func TestDescribeEffectivePatches_FromApprovedAndCatalog(t *testing.T) {
 		&ssm.DescribeEffectivePatchesForPatchBaselineInput{BaselineID: create.BaselineID},
 	)
 	require.NoError(t, err)
-	require.Len(t, out.EffectivePatches, 2,
-		"effective patches must be derived from the baseline's approved patches")
 
+	byName := make(map[string]ssm.EffectivePatch, len(out.EffectivePatches))
 	for _, ep := range out.EffectivePatches {
 		require.NotNil(t, ep.Patch)
 		require.NotNil(t, ep.PatchStatus)
+		byName[ep.Patch.Name] = ep
+	}
+
+	for _, name := range []string{"CVE-2024-0001", "CVE-2024-0002"} {
+		ep, ok := byName[name]
+		require.True(t, ok, "approved patch %s must be present", name)
 		assert.Equal(t, "EXPLICIT_APPROVED", ep.PatchStatus.DeploymentStatus)
 		assert.Equal(t, "CRITICAL", ep.PatchStatus.ComplianceLevel)
+		assert.Greater(t, ep.PatchStatus.ApprovalDate, float64(0),
+			"ApprovalDate must be a populated epoch-seconds value for an explicitly approved patch")
 	}
+
+	rejected, ok := byName["ALAS2-2024-2460"]
+	require.True(t, ok, "explicitly rejected patch must still appear in the effective set")
+	assert.Equal(t, "EXPLICIT_REJECTED", rejected.PatchStatus.DeploymentStatus)
+
+	// The built-in catalogue's other patches show up pending a decision,
+	// regardless of whether DescribeAvailablePatches ran first.
+	pending, ok := byName["ALAS2-2024-2451"]
+	require.True(t, ok, "un-decided catalogue patches must be included")
+	assert.Equal(t, "PENDING_APPROVAL", pending.PatchStatus.DeploymentStatus)
+
+	require.Len(t, out.EffectivePatches, 7,
+		"2 approved + 1 rejected + 4 remaining built-in catalogue patches")
 
 	// Unknown baseline still errors distinctly.
 	_, err = b.DescribeEffectivePatchesForPatchBaseline(
@@ -296,6 +326,89 @@ func TestStubOps_RegisterPatchBaselineForPatchGroup(t *testing.T) {
 	body, _ := json.Marshal(map[string]any{"BaselineId": pb.BaselineID, "PatchGroup": "test-group"})
 	rec := doRequest(t, h, "RegisterPatchBaselineForPatchGroup", string(body))
 	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
+// TestPatchBaselineOps_RequireRequiredFields covers gopherstack-enpq's
+// stub-list findings for this family: DeletePatchBaseline, GetPatchBaseline,
+// UpdatePatchBaseline and RegisterPatchBaselineForPatchGroup previously
+// returned DoesNotExistException for a missing required BaselineId/PatchGroup
+// (the wrong error class -- a required-field violation, not a not-found);
+// DescribeEffectivePatchesForPatchBaseline, DescribePatchGroupState,
+// DescribePatchProperties, GetDeployablePatchSnapshotForInstance,
+// GetPatchBaselineForPatchGroup and RegisterDefaultPatchBaseline previously
+// fabricated a synthetic success for an empty body. All required fields
+// confirmed against aws-sdk-go-v2/service/ssm@v1.73.4's validators.go.
+func TestPatchBaselineOps_RequireRequiredFields(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		op   string
+		body string
+	}{
+		{name: "delete_missing_baseline_id", op: "DeletePatchBaseline", body: `{}`},
+		{name: "get_missing_baseline_id", op: "GetPatchBaseline", body: `{}`},
+		{name: "update_missing_baseline_id", op: "UpdatePatchBaseline", body: `{}`},
+		{
+			name: "register_for_group_missing_both",
+			op:   "RegisterPatchBaselineForPatchGroup",
+			body: `{}`,
+		},
+		{
+			name: "register_for_group_missing_patch_group",
+			op:   "RegisterPatchBaselineForPatchGroup",
+			body: `{"BaselineId":"pb-1234"}`,
+		},
+		{
+			name: "deregister_for_group_missing_both",
+			op:   "DeregisterPatchBaselineForPatchGroup",
+			body: `{}`,
+		},
+		{
+			name: "deregister_for_group_missing_patch_group",
+			op:   "DeregisterPatchBaselineForPatchGroup",
+			body: `{"BaselineId":"pb-1234"}`,
+		},
+		{
+			name: "describe_effective_patches_missing_baseline_id",
+			op:   "DescribeEffectivePatchesForPatchBaseline",
+			body: `{}`,
+		},
+		{name: "describe_group_state_missing_patch_group", op: "DescribePatchGroupState", body: `{}`},
+		{name: "describe_properties_missing_both", op: "DescribePatchProperties", body: `{}`},
+		{
+			name: "describe_properties_missing_property",
+			op:   "DescribePatchProperties",
+			body: `{"OperatingSystem":"WINDOWS"}`,
+		},
+		{
+			name: "get_deployable_snapshot_missing_both",
+			op:   "GetDeployablePatchSnapshotForInstance",
+			body: `{}`,
+		},
+		{
+			name: "get_deployable_snapshot_missing_snapshot_id",
+			op:   "GetDeployablePatchSnapshotForInstance",
+			body: `{"InstanceId":"i-1234"}`,
+		},
+		{
+			name: "get_baseline_for_group_missing_patch_group",
+			op:   "GetPatchBaselineForPatchGroup",
+			body: `{}`,
+		},
+		{name: "register_default_missing_baseline_id", op: "RegisterDefaultPatchBaseline", body: `{}`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, _ := newTestHandler(t)
+			rec := doRequest(t, h, tt.op, tt.body)
+			require.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
+			assert.Contains(t, rec.Body.String(), "ValidationException")
+		})
+	}
 }
 
 func TestCreatePatchBaseline_Success(t *testing.T) {
@@ -680,10 +793,16 @@ func TestBackendOps_DescribePatchGroupState(t *testing.T) {
 
 	b := newBackend(t)
 
-	out, err := b.DescribePatchGroupState(context.TODO(), &ssm.DescribePatchGroupStateInput{})
+	out, err := b.DescribePatchGroupState(
+		context.TODO(),
+		&ssm.DescribePatchGroupStateInput{PatchGroup: "grp1"},
+	)
 	require.NoError(t, err)
 	assert.NotNil(t, out)
 	assert.Equal(t, int32(0), out.Instances)
+
+	_, err = b.DescribePatchGroupState(context.TODO(), &ssm.DescribePatchGroupStateInput{})
+	require.ErrorIs(t, err, ssm.ErrValidationException, "PatchGroup is required")
 }
 
 func TestBackendOps_DescribePatchProperties(t *testing.T) {
@@ -691,9 +810,15 @@ func TestBackendOps_DescribePatchProperties(t *testing.T) {
 
 	b := newBackend(t)
 
-	out, err := b.DescribePatchProperties(context.TODO(), &ssm.DescribePatchPropertiesInput{})
+	out, err := b.DescribePatchProperties(context.TODO(), &ssm.DescribePatchPropertiesInput{
+		OperatingSystem: "WINDOWS",
+		Property:        "CLASSIFICATION",
+	})
 	require.NoError(t, err)
 	assert.NotNil(t, out.Properties)
+
+	_, err = b.DescribePatchProperties(context.TODO(), &ssm.DescribePatchPropertiesInput{})
+	require.ErrorIs(t, err, ssm.ErrValidationException, "OperatingSystem and Property are required")
 }
 
 func TestBackendOps_DescribeEffectivePatchesForPatchBaseline(t *testing.T) {

@@ -10,7 +10,7 @@ type StorageBackend interface {
 	) error
 	GetWorkGroup(name string) (*WorkGroup, error)
 	ListWorkGroups(nextToken string, maxResults int) ([]*WorkGroupSummary, string, error)
-	UpdateWorkGroup(name, description, state string, cfg *WorkGroupConfiguration) error
+	UpdateWorkGroup(name, description, state string, cfg *WorkGroupConfigurationUpdates) error
 	DeleteWorkGroup(name string) error
 
 	// Named Queries

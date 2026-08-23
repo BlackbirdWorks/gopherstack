@@ -31,6 +31,7 @@ type StandardsSubscription struct {
 	StandardsSubscriptionArn string            `json:"StandardsSubscriptionArn"`
 	StandardsArn             string            `json:"StandardsArn"`
 	StandardsStatus          string            `json:"StandardsStatus"`
+	pollCount                int               // tracks PENDING→READY progression; not serialized
 }
 
 // Standard represents an available standard.
@@ -244,11 +245,19 @@ type TicketV2 struct {
 	CreatedAt          string `json:"CreatedAt"`
 }
 
-// RecommendedPolicyV2 represents a recommended IAM policy.
+// RecommendedPolicyV2 represents the state of an unused-permissions policy
+// recommendation for a Security Hub OCSF finding. GetRecommendedPolicyV2
+// only supports findings for unused permissions (real API doc), so this
+// backend always produces a single UnusedPermissions recommendation step
+// (types.RecommendationStepMemberUnusedPermissions /
+// UnusedPermissionsRecommendationStep, securityhub@v1.75.4 types/types.go).
 type RecommendedPolicyV2 struct {
-	MetadataUid    string `json:"MetadataUid"` //nolint:revive,staticcheck // existing issue.
-	Policy         string `json:"Policy"`
-	GenerationTime string `json:"GenerationTime"`
+	MetadataUid       string `json:"MetadataUid"` //nolint:revive,staticcheck // existing issue.
+	Status            string `json:"Status"`
+	ResourceArn       string `json:"ResourceArn,omitempty"`
+	RecommendedAction string `json:"RecommendedAction"`
+	RecommendedPolicy string `json:"RecommendedPolicy"`
+	PolicyUpdatedAt   string `json:"PolicyUpdatedAt"`
 }
 
 // Member represents a Security Hub member account.

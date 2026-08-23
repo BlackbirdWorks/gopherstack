@@ -136,10 +136,16 @@ func TestHandler_PackageMap(t *testing.T) {
 	)
 	require.Equal(t, http.StatusOK, rec.Code)
 
+	// types.PackageDescription has no repository member (aws-sdk-go-v2/
+	// service/codeartifact@v1.41.4's deserializers.go and types/types.go
+	// declare only format/name/namespace/originConfiguration); "format" and
+	// "name" are the ones actually on the real shape.
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	pkg, _ := resp["package"].(map[string]any)
-	assert.Equal(t, "pkgmap-repo", pkg["repository"])
+	assert.Equal(t, "npm", pkg["format"])
+	assert.Equal(t, "mypkg", pkg["name"])
+	assert.NotContains(t, pkg, "repository")
 }
 
 func TestHandler_MultiFormatPackages(t *testing.T) {

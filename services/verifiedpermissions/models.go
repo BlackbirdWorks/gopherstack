@@ -88,6 +88,7 @@ type PolicyTemplate struct {
 	PolicyTemplateID string    `json:"policyTemplateID"`
 	Description      string    `json:"description"`
 	Statement        string    `json:"statement"`
+	Name             string    `json:"name,omitempty"`
 }
 
 // CognitoGroupConfig holds Cognito group-to-Cedar-entity mapping configuration.

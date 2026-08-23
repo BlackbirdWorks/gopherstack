@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
-	"strconv"
+	"strings"
 	"time"
 )
 
@@ -14,19 +14,15 @@ import (
 
 // PipelineExecutionStep represents a step within a pipeline execution.
 type PipelineExecutionStep struct {
-	StartTime     time.Time `json:"StartTime"`
-	EndTime       time.Time `json:"EndTime"`
-	StepName      string    `json:"StepName"`
-	StepType      string    `json:"StepType"`
-	StepStatus    string    `json:"StepStatus"`
-	FailureReason string    `json:"FailureReason,omitempty"`
-	// ExecutionArn is the owning pipeline execution's ARN, carried internally so
-	// the store.Table's keyFn can derive pipelineExecutionStepsKey(ExecutionArn,
-	// StepName) and Restore can rebuild it after a JSON round-trip. Exported
-	// (with a json tag) solely so it survives persistence — handler.go never
-	// marshals PipelineExecutionStep directly to API callers, so this has no
-	// effect on the AWS wire shape.
-	ExecutionArn string `json:"executionArn"`
+	StartTime        time.Time           `json:"StartTime"`
+	EndTime          time.Time           `json:"EndTime"`
+	StepName         string              `json:"StepName"`
+	StepType         string              `json:"StepType"`
+	StepStatus       string              `json:"StepStatus"`
+	FailureReason    string              `json:"FailureReason,omitempty"`
+	CallbackToken    string              `json:"CallbackToken,omitempty"`
+	ExecutionArn     string              `json:"executionArn"`
+	OutputParameters []PipelineParameter `json:"OutputParameters,omitempty"`
 }
 
 const (
@@ -42,6 +38,17 @@ const (
 	stepTypeCallback        = "Callback"
 	stepStatusSucceeded     = "Succeeded"
 	stepStatusFailed        = "Failed"
+	// pipelineCallbackStepName is the fixed step name used to record a
+	// callback step. The real SendPipelineExecutionStepSuccess/Failure API
+	// (api_op_SendPipelineExecutionStepSuccess.go:29-43, api_op_
+	// SendPipelineExecutionStepFailure.go:29-42) carries only CallbackToken,
+	// never a step name or execution ARN — AWS resolves the step from the
+	// opaque token it generated when the callback step started. This backend
+	// has no pipeline-definition step graph to generate or track distinct
+	// per-step tokens, so by disclosed convention it treats the caller-
+	// supplied CallbackToken as the target execution's ARN and records at
+	// most one trackable callback step per execution under this fixed name.
+	pipelineCallbackStepName = "callback-step"
 )
 
 // pipelineExecutionStepsKey builds the map key for step records.
@@ -49,8 +56,17 @@ func pipelineExecutionStepsKey(execArn, stepName string) string {
 	return execArn + "|" + stepName
 }
 
-// RetryPipelineExecution creates a new execution from a failed pipeline execution.
-func (b *InMemoryBackend) RetryPipelineExecution(ctx context.Context, execArn string) (*PipelineExecution, error) {
+// RetryPipelineExecution creates a new execution from a failed pipeline
+// execution. parallelismConfig, if non-nil, overrides the parent pipeline's
+// parallelism configuration for the new execution only; if nil, the parent
+// pipeline's current configuration applies unchanged (api_op_
+// RetryPipelineExecution.go:34-38, sagemaker@v1.263.2 — "if specified,
+// overrides the parallelism configuration of the parent pipeline").
+func (b *InMemoryBackend) RetryPipelineExecution(
+	ctx context.Context,
+	execArn string,
+	parallelismConfig *ParallelismConfiguration,
+) (*PipelineExecution, error) {
 	b.mu.Lock("RetryPipelineExecution")
 	defer b.mu.Unlock()
 
@@ -65,15 +81,23 @@ func (b *InMemoryBackend) RetryPipelineExecution(ctx context.Context, execArn st
 		)
 	}
 
+	effectiveParallelism := parallelismConfig
+	if effectiveParallelism == nil {
+		if p, found := b.findPipelineByARNLocked(region, pe.PipelineArn); found {
+			effectiveParallelism = p.ParallelismConfiguration
+		}
+	}
+
 	newID := generateID()
 	newArn := pe.PipelineArn + "/execution/" + newID
 	now := time.Now()
 
 	newExec := &PipelineExecution{
-		PipelineArn:             pe.PipelineArn,
-		PipelineExecutionArn:    newArn,
-		PipelineExecutionStatus: pipelineStatusExecuting,
-		StartTime:               now,
+		PipelineArn:              pe.PipelineArn,
+		PipelineExecutionArn:     newArn,
+		PipelineExecutionStatus:  pipelineStatusExecuting,
+		ParallelismConfiguration: effectiveParallelism,
+		StartTime:                now,
 	}
 	b.pipelineExecutionsStore(region).Put(newExec)
 
@@ -122,49 +146,59 @@ func (b *InMemoryBackend) StopPipelineExecution(ctx context.Context, execArn str
 	return cp, nil
 }
 
-// SendPipelineExecutionStepSuccess records a step success for a callback step.
-func (b *InMemoryBackend) SendPipelineExecutionStepSuccess(ctx context.Context, execArn, stepName string) error {
+// SendPipelineExecutionStepSuccess records a step success for a callback
+// step. callbackToken is treated as the owning execution's ARN — see
+// pipelineCallbackStepName's doc comment for why.
+func (b *InMemoryBackend) SendPipelineExecutionStepSuccess(
+	ctx context.Context,
+	callbackToken string,
+	outputParameters []PipelineParameter,
+) error {
 	b.mu.Lock("SendPipelineExecutionStepSuccess")
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
 
-	if _, ok := b.pipelineExecutionsStore(region).Get(execArn); !ok {
+	if _, ok := b.pipelineExecutionsStore(region).Get(callbackToken); !ok {
 		return fmt.Errorf(
 			"%w: pipeline execution %q not found",
 			ErrPipelineExecutionNotFound,
-			execArn,
+			callbackToken,
 		)
 	}
 
 	now := time.Now()
 
 	b.pipelineExecStepsStore(region).Put(&PipelineExecutionStep{
-		StartTime:    now,
-		EndTime:      now,
-		StepName:     stepName,
-		StepType:     stepTypeCallback,
-		StepStatus:   stepStatusSucceeded,
-		ExecutionArn: execArn,
+		StartTime:        now,
+		EndTime:          now,
+		StepName:         pipelineCallbackStepName,
+		StepType:         stepTypeCallback,
+		StepStatus:       stepStatusSucceeded,
+		CallbackToken:    callbackToken,
+		OutputParameters: outputParameters,
+		ExecutionArn:     callbackToken,
 	})
 
 	return nil
 }
 
-// SendPipelineExecutionStepFailure records a step failure for a callback step.
+// SendPipelineExecutionStepFailure records a step failure for a callback
+// step. callbackToken is treated as the owning execution's ARN — see
+// pipelineCallbackStepName's doc comment for why.
 func (b *InMemoryBackend) SendPipelineExecutionStepFailure(
-	ctx context.Context, execArn, stepName, failureReason string,
+	ctx context.Context, callbackToken, failureReason string,
 ) error {
 	b.mu.Lock("SendPipelineExecutionStepFailure")
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
 
-	if _, ok := b.pipelineExecutionsStore(region).Get(execArn); !ok {
+	if _, ok := b.pipelineExecutionsStore(region).Get(callbackToken); !ok {
 		return fmt.Errorf(
 			"%w: pipeline execution %q not found",
 			ErrPipelineExecutionNotFound,
-			execArn,
+			callbackToken,
 		)
 	}
 
@@ -173,19 +207,31 @@ func (b *InMemoryBackend) SendPipelineExecutionStepFailure(
 	b.pipelineExecStepsStore(region).Put(&PipelineExecutionStep{
 		StartTime:     now,
 		EndTime:       now,
-		StepName:      stepName,
+		StepName:      pipelineCallbackStepName,
 		StepType:      stepTypeCallback,
 		StepStatus:    stepStatusFailed,
 		FailureReason: failureReason,
-		ExecutionArn:  execArn,
+		CallbackToken: callbackToken,
+		ExecutionArn:  callbackToken,
 	})
 
 	return nil
 }
 
+// ListPipelineExecutionStepsParams bundles ListPipelineExecutionSteps'
+// pagination/sort input (api_op_ListPipelineExecutionSteps.go:29-43,
+// sagemaker@v1.263.2 — the op has no SortBy, only SortOrder, so results
+// always sort by StartTime, the real API's stated default sort field).
+type ListPipelineExecutionStepsParams struct {
+	ExecutionArn string
+	NextToken    string
+	SortOrder    string
+	MaxResults   int32
+}
+
 // ListPipelineExecutionSteps lists the steps for a pipeline execution.
 func (b *InMemoryBackend) ListPipelineExecutionSteps(
-	ctx context.Context, execArn, nextToken string,
+	ctx context.Context, params ListPipelineExecutionStepsParams,
 ) ([]*PipelineExecutionStep, string) {
 	b.mu.RLock("ListPipelineExecutionSteps")
 	defer b.mu.RUnlock()
@@ -195,33 +241,21 @@ func (b *InMemoryBackend) ListPipelineExecutionSteps(
 	list := make([]*PipelineExecutionStep, 0, b.pipelineExecStepsStoreRO(region).Len())
 
 	for _, step := range b.pipelineExecStepsStoreRO(region).All() {
-		if step.ExecutionArn == execArn {
+		if step.ExecutionArn == params.ExecutionArn {
 			cp := *step
 			list = append(list, &cp)
 		}
 	}
 
-	sort.Slice(list, func(i, j int) bool { return list[i].StepName < list[j].StepName })
-
-	startIdx := 0
-	if nextToken != "" {
-		if n, err := strconv.Atoi(nextToken); err == nil {
-			startIdx = n
+	desc := strings.EqualFold(params.SortOrder, sortOrderDescending)
+	sort.Slice(list, func(i, j int) bool {
+		less := list[i].StartTime.Before(list[j].StartTime)
+		if desc {
+			return !less
 		}
-	}
 
-	if startIdx >= len(list) {
-		return []*PipelineExecutionStep{}, ""
-	}
+		return less
+	})
 
-	end := startIdx + sagemakerDefaultPageSize
-	var outToken string
-
-	if end < len(list) {
-		outToken = strconv.Itoa(end)
-	} else {
-		end = len(list)
-	}
-
-	return list[startIdx:end], outToken
+	return paginateSlice(list, params.NextToken, params.MaxResults)
 }

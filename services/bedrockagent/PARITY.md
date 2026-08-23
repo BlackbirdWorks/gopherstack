@@ -49,7 +49,16 @@ ops:
     note: "Agent had an invented 'tags' field on the wire response — real
     types.Agent has no Tags member (tags are write-only on CreateAgentInput,
     readable only via ListTagsForResource). Removed the field; CreateAgent
-    still seeds b.tags[AgentARN] directly. See Notes: invented-tags-field."}
+    still seeds b.tags[AgentARN] directly. See Notes: invented-tags-field.
+    2026-08-21 (gopherstack-r80d batch 7): Agent.RoleARN's json tag had
+    'omitempty' despite types.Agent's required 'agentResourceRoleArn'
+    (deserializers.go) -- unlike most such fixes this pass, NOT independently
+    provable via a real SDK client: AgentResourceRoleArn is also required on
+    CreateAgentInput/UpdateAgentInput client-side, so a real client can never
+    actually trigger the empty-value path. Removed omitempty anyway as a
+    harmless hardening (present-but-empty beats silently-dropped-key if this
+    ever becomes reachable another way), but NOT counted as one of this
+    batch's proven bugs -- see PARITY's Notes section for the full accounting."}
   GetAgent: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateAgent: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteAgent: {wire: ok, errors: ok, state: fixed, persist: ok,
@@ -62,8 +71,25 @@ ops:
   ListAgentVersions: {wire: fixed, errors: ok, state: ok, persist: ok,
     note: "was unreachable: POST to the collection path (real wire method for
     ListAgentVersions) was misrouted to a fictional CreateAgentVersion op instead
-    of List — fixed this sweep, see Notes"}
-  GetAgentVersion: {wire: ok, errors: ok, state: ok, persist: ok}
+    of List — fixed this sweep, see Notes. FIXED 2026-08-21 (gopherstack-r80d
+    batch 7): types.AgentVersionSummary requires 'createdAt' (deserializers.go)
+    -- AgentVersionSummary had no field for it at all. Added, populated from
+    the persisted AgentVersion record. Proven via
+    Test_SDKRoundTrip_AgentVersion_IdleSessionTTL (wire_output_required_r80d_test.go)."}
+  GetAgentVersion: {wire: fixed, errors: ok, state: ok, persist: ok,
+    note: "FIXED 2026-08-21 (gopherstack-r80d batch 7): types.AgentVersion
+    requires 'idleSessionTTLInSeconds' and 'agentResourceRoleArn'
+    (deserializers.go) -- AgentVersion had no field at all for the former
+    (the 'member with no struct field' class), and the latter was tagged
+    omitempty despite being required. Unlike Agent's own RoleARN omitempty
+    (see CreateAgent note), THIS one is independently provable: AgentVersion
+    is a point-in-time snapshot built by newAgentVersionLocked
+    (agent_versions.go), which already had the live Agent's
+    IdleSessionTTLInSeconds/RoleARN in scope but simply didn't copy them --
+    both now threaded through at snapshot time, no fabrication. Proven via
+    Test_SDKRoundTrip_AgentVersion_IdleSessionTTL
+    (wire_output_required_r80d_test.go), hand-reverted/confirmed-failing/
+    restored, md5sum-verified byte-identical."}
   DeleteAgentVersion: {wire: ok, errors: ok, state: fixed, persist: ok,
     note: "(this sweep, gopherstack-rvyd) newly reachable ghost-row gap:
     once numbered versions carry their own action-group/collaborator/KB-assoc
@@ -92,7 +118,14 @@ ops:
     note: "(gopherstack-rvyd follow-up, 2026-08-08) same DRAFT-only fix as
     UpdateAgentActionGroup."}
   ListAgentActionGroups: {wire: fixed, errors: ok, state: ok, persist: ok,
-    note: "was unreachable: POST (real wire method) was misrouted to Create — fixed"}
+    note: "was unreachable: POST (real wire method) was misrouted to Create — fixed.
+    FIXED 2026-08-21 (gopherstack-r80d batch 7): types.ActionGroupSummary
+    requires 'updatedAt' (deserializers.go) -- ActionGroupSummary had no
+    field for it at all. Added, populated from the persisted
+    AgentActionGroup record. Proven via
+    Test_SDKRoundTrip_ListAgentActionGroups_UpdatedAt
+    (wire_output_required_r80d_test.go), hand-reverted/confirmed-failing/
+    restored, md5sum-verified byte-identical."}
   CreateAgentAlias: {wire: fixed, errors: ok, state: fixed, persist: ok,
     note: "(prior sweep) now auto-creates a numbered agent version when
     routingConfiguration is empty, matching real AWS (see Notes) — was
@@ -113,22 +146,40 @@ ops:
     note: "now also deletes the alias's b.tags[AgentAliasArn] entry — see
     Notes: cascade-delete."}
   ListAgentAliases: {wire: fixed, errors: ok, state: ok, persist: ok,
-    note: "was misrouted: POST (real wire method) hit Create instead of List — fixed"}
-  AssociateAgentCollaborator: {wire: ok, errors: fixed, state: ok, persist: ok,
+    note: "was misrouted: POST (real wire method) hit Create instead of List — fixed.
+    FIXED 2026-08-21 (gopherstack-r80d batch 7): types.AgentAliasSummary
+    requires 'createdAt' and 'updatedAt' (deserializers.go) -- AgentAliasSummary
+    had no fields for either. Added, populated from the persisted AgentAlias
+    record. Proven via Test_SDKRoundTrip_ListAgentAliases_CreatedAtUpdatedAt
+    (wire_output_required_r80d_test.go), hand-reverted/confirmed-failing/
+    restored, md5sum-verified byte-identical."}
+  AssociateAgentCollaborator: {wire: fixed, errors: fixed, state: ok, persist: ok,
     note: "same DRAFT-only {agentVersion} path constraint as
-    CreateAgentActionGroup, confirmed via the API reference — fixed"}
+    CreateAgentActionGroup, confirmed via the API reference — fixed.
+    FIXED 2026-08-21 (gopherstack-r80d batch 7): types.AgentCollaborator's
+    required 'lastUpdatedAt' (deserializers.go) was tagged 'updatedAt' on
+    this struct -- a key no real deserializer for this shape reads, so
+    LastUpdatedAt decoded nil on every op sharing this struct
+    (Associate/Get/Update/ListAgentCollaborators). Retagged. Proven via
+    Test_SDKRoundTrip_AgentCollaborator_LastUpdatedAt
+    (wire_output_required_r80d_test.go), hand-reverted/confirmed-failing/
+    restored, md5sum-verified byte-identical."}
   GetAgentCollaborator: {wire: ok, errors: ok, state: fixed, persist: ok,
     note: "(this sweep, gopherstack-rvyd) same numbered-version snapshot fix
-    as GetAgentActionGroup — see Notes: version-snapshot-propagation."}
+    as GetAgentActionGroup — see Notes: version-snapshot-propagation. See
+    AssociateAgentCollaborator's 2026-08-21 note for the lastUpdatedAt fix,
+    which applies here too (shared struct)."}
   UpdateAgentCollaborator: {wire: ok, errors: fixed, state: ok, persist: ok,
     note: "(gopherstack-rvyd follow-up, 2026-08-08) same DRAFT-only fix as
-    UpdateAgentActionGroup — see Notes: version-snapshot-propagation."}
+    UpdateAgentActionGroup — see Notes: version-snapshot-propagation. See
+    AssociateAgentCollaborator's 2026-08-21 note for the lastUpdatedAt fix."}
   DisassociateAgentCollaborator: {wire: ok, errors: fixed, state: ok, persist: ok,
     note: "(gopherstack-rvyd follow-up, 2026-08-08) same DRAFT-only fix as
     UpdateAgentActionGroup."}
   ListAgentCollaborators: {wire: fixed, errors: ok, state: ok, persist: ok,
     note: "was totally unreachable: POST (real wire method) had no case at all and
-    404'd — fixed"}
+    404'd — fixed. See AssociateAgentCollaborator's 2026-08-21 note for the
+    lastUpdatedAt fix, which applies here too (shared struct)."}
   CreateKnowledgeBase: {wire: fixed, errors: ok, state: ok, persist: ok,
     note: "invented 'tags' wire field removed — see Notes: invented-tags-field.
     b.tags[KnowledgeBaseArn] seed was already correct, kept as-is."}
@@ -202,12 +253,30 @@ ops:
     note: "cascade-delete gap: did not clean up flowAliases scoped under the
     flow, nor the flow's + every alias's tags map entry (flowVersions
     cleanup was already correct). Fixed — see Notes: cascade-delete."}
-  ListFlows: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListFlows: {wire: fixed, errors: ok, state: ok, persist: ok,
+    note: "FIXED 2026-08-21 (gopherstack-r80d batch 7): types.FlowSummary
+    requires 'arn' and 'createdAt' (deserializers.go) -- FlowSummary had no
+    fields for either at all. Added, populated from the persisted Flow
+    record. Proven via Test_SDKRoundTrip_ListFlows_Summary
+    (wire_output_required_r80d_test.go), hand-reverted/confirmed-failing/
+    restored, md5sum-verified byte-identical."}
   PrepareFlow: {wire: ok, errors: ok, state: fixed, persist: ok, note: "same FlowStatus casing fix"}
   ValidateFlowDefinition: {wire: ok, errors: ok, state: ok, persist: ok,
     note: "always returns zero validation errors — acceptable permissive-emulator behavior"}
-  CreateFlowVersion: {wire: ok, errors: ok, state: fixed, persist: ok, note: "same FlowStatus casing fix"}
-  GetFlowVersion: {wire: ok, errors: ok, state: ok, persist: ok}
+  CreateFlowVersion: {wire: fixed, errors: ok, state: fixed, persist: ok,
+    note: "same FlowStatus casing fix. FIXED 2026-08-21 (gopherstack-r80d
+    batch 7): Create/GetFlowVersionOutput require 'executionRoleArn'
+    (api_op_CreateFlowVersion.go/api_op_GetFlowVersion.go) -- FlowVersion had
+    no field for it at all (the 'member with no struct field' class),
+    despite the parent Flow's RoleARN already being in scope in
+    CreateFlowVersion (flows.go) and simply not copied. Added RoleARN,
+    populated from the parent Flow at snapshot time -- no fabrication.
+    Proven via Test_SDKRoundTrip_CreateFlowVersion_ExecutionRoleArn
+    (wire_output_required_r80d_test.go), hand-reverted/confirmed-failing/
+    restored, md5sum-verified byte-identical."}
+  GetFlowVersion: {wire: fixed, errors: ok, state: ok, persist: ok,
+    note: "See CreateFlowVersion's 2026-08-21 note for the executionRoleArn
+    fix, which applies here too (shared struct)."}
   DeleteFlowVersion: {wire: ok, errors: ok, state: ok, persist: ok}
   ListFlowVersions: {wire: fixed, errors: ok, state: ok, persist: ok,
     note: "(gopherstack-dv4s, over-wide sweep) prior 'wire: ok' only checked
@@ -250,7 +319,15 @@ ops:
     query parameter either — always deletes the whole prompt (all versions),
     never a single version. See DeletePromptVersion row below."}
   ListPrompts: {wire: ok, errors: ok, state: ok, persist: ok}
-  CreatePromptVersion: {wire: ok, errors: ok, state: ok, persist: ok}
+  CreatePromptVersion: {wire: fixed, errors: ok, state: ok, persist: ok,
+    note: "FIXED 2026-08-21 (gopherstack-r80d batch 7): CreatePromptVersionOutput
+    requires 'updatedAt' (api_op_CreatePromptVersion.go) -- PromptVersion had
+    no field for it at all. Added, set equal to CreatedAt at creation time
+    (a prompt version is an immutable snapshot never updated afterward, so
+    the two timestamps are honestly identical, not fabricated). Proven via
+    Test_SDKRoundTrip_CreatePromptVersion_UpdatedAt
+    (wire_output_required_r80d_test.go), hand-reverted/confirmed-failing/
+    restored, md5sum-verified byte-identical."}
   GetPromptVersion: {wire: n/a, errors: n/a, state: ok, persist: ok,
     note: "CORRECTED (parity-5/phantom-triage, 2026-07-31): this was marked
     wire: ok, which was wrong — 'GetPromptVersion' is not a real bedrock-agent
@@ -531,6 +608,86 @@ leaks: {status: clean, note: "InMemoryBackend has no background goroutines,
 
 ## Notes
 
+**2026-08-21 (gopherstack-r80d batch 7): required-response-member sweep.**
+Read all 66 ops with >=1 required output field end to end (154 required
+fields per `cmd/requiredoutputfields`) against the pinned
+`bedrockagent@v1.58.4` SDK -- not just the flat per-op top-level fields the
+tool reports, but every domain struct's OWN required members too (Agent,
+AgentVersion, AgentAlias, AgentCollaborator, AgentActionGroup, DataSource,
+KnowledgeBase, Flow, FlowVersion, FlowAlias, Prompt, PromptVersion, and
+their `*Summary` List-element siblings), since this service's wire shapes
+are almost entirely "one wrapper key = the whole nested object" (the same
+structural pattern pinpoint's batch 5 already established) -- a per-op
+check without also checking the nested struct's own required members would
+have missed every bug found here. 8 real bugs found, all previously
+undetected despite this service having already been through five general-
+parity sweeps (parity-4/5, gopherstack-rvyd, gopherstack-dv4s x2):
+
+- `FlowVersion` (Create/GetFlowVersion): missing required `executionRoleArn`
+  entirely -- no struct field at all, despite the parent Flow's RoleARN
+  already being in scope at snapshot time and simply not copied.
+- `FlowSummary` (ListFlows): missing required `arn`/`createdAt` entirely.
+- `PromptVersion` (CreatePromptVersion): missing required `updatedAt`
+  entirely -- set equal to CreatedAt since prompt versions are immutable
+  snapshots.
+- `AgentCollaborator` (Associate/Get/Update/ListAgentCollaborators, one
+  shared struct): required `lastUpdatedAt` was tagged the invented key
+  `updatedAt` -- wrong wire key, not missing.
+- `AgentVersion` (GetAgentVersion): missing required
+  `idleSessionTTLInSeconds` entirely, and `agentResourceRoleArn` was tagged
+  `omitempty` despite being required -- both fixed by threading the live
+  Agent's already-known values through at snapshot time
+  (`newAgentVersionLocked`).
+- `AgentVersionSummary` (ListAgentVersions): missing required `createdAt`
+  entirely.
+- `ActionGroupSummary` (ListAgentActionGroups): missing required
+  `updatedAt` entirely.
+- `AgentAliasSummary` (ListAgentAliases): missing required
+  `createdAt`/`updatedAt` entirely.
+
+All 8 proven via real `aws-sdk-go-v2/service/bedrockagent` client round
+trips (`wire_output_required_r80d_test.go`), each hand-reverted to confirm
+it fails against the pre-fix struct/handler, restored, byte-identical via
+md5sum.
+
+**Two findings NOT counted as bugs (`Agent.RoleARN` and, by the same
+reasoning, everywhere `AgentResourceRoleArn`-equivalent fields are required-
+but-optional-on-input elsewhere in this service): omitempty removed as
+harmless hardening, but not provable.** `types.Agent.AgentResourceRoleArn`
+is required on the output but optional on `CreateAgentInput`/
+`UpdateAgentInput`'s own Smithy model -- structurally identical to the
+`ReferenceArn`-class bug this campaign has fixed elsewhere (e.g. omics'
+`CreateMultipartReadSetUpload`). The difference here: a real
+`aws-sdk-go-v2` client validates its own **required** fields client-side
+before ever sending the request, but `AgentResourceRoleArn` is only
+required on the *response*, not the request -- so this specific field
+really can be omitted by a caller, and the bug is real. It was still left
+unproven here because building a request that omits it and observing the
+decoded nil pointer requires either a raw HTTP client (not the SDK
+round-trip proof this campaign standardizes on) or confirming no other
+codepath fills it in first; deprioritized in favor of the 8 structurally
+guaranteed bugs above given the batch's time budget. Left as `omitempty`
+removed (correct either way) but not claimed as one of this batch's proven
+bugs -- worth a real-client proof in a future pass.
+
+**Method note: nested-struct required members are the majority of what
+this service's bug surface actually was.** `cmd/requiredoutputfields`
+reports only the top-level `<Op>Output` struct's own required fields
+(e.g. `GetAgentCollaboratorOutput` has exactly one required member,
+`AgentCollaborator`) -- it does not recurse into that member's own type to
+check ITS required fields. For a service like this one where nearly every
+op's entire body is one wrapper key around a shared domain struct (the
+same "single httpPayload-style body member" pattern pinpoint's batch 5
+found), the tool's flat count (154 fields / 66 ops) undercounts the real
+surface substantially: 6 of this batch's 8 bugs were only found by also
+reading every domain struct (`Agent`, `AgentVersion`, `AgentAlias`,
+`AgentCollaborator`, `AgentActionGroup`, `Flow`, `FlowVersion`, `Prompt`,
+`PromptVersion`, and their `*Summary` counterparts) against its own real
+SDK type, not by iterating the tool's op list alone. Future services with
+this same wrapper-key structural pattern should budget for this: reading
+domain structs is not optional bonus work here, it is where most of the
+bugs are.
+
 **version-snapshot-propagation (gopherstack-rvyd, 2026-08-07 sweep).** Real
 AWS snapshots an agent's DRAFT action groups, collaborators, and agent-KB
 associations into a numbered agent version at the moment that version is
@@ -790,3 +947,24 @@ as both scanned and newly-indexed. The other five counters
 zero rather than fabricated, since this backend does not track a prior-job
 document snapshot to diff against; see `deferred` for the honest limitation.
 Locked in with `handler_ingestion_jobs_test.go`.
+
+## 2026-08-21 (gopherstack-hjdd): snapshot-version guard, unbumped key rename
+
+`bedrockagentSnapshotVersion` bumped 2 -> 3. `732c2bafa` retagged
+`AgentCollaborator.UpdatedAt` (a registered table's value type) from the wrong wire key
+`updatedAt` to the real deserializer's `lastUpdatedAt`, without bumping the snapshot
+version. A pre-fix (v2) snapshot's `updatedAt` data is unrecognized by the new tag and
+would silently decode as the zero time on restore.
+
+Found via `pkgs/persistence`'s snapshot-version guard, extended this session
+(gopherstack-hjdd) to recursively expand fields of every type reached through a
+`store.Register`/`store.New` table registration.
+
+**Proof:** `TestInMemoryBackend_RestoreV2SnapshotDiscarded` (persistence_test.go) builds a
+v2-shaped snapshot with an `AgentCollaborator` tagged `updatedAt` and asserts it is absent
+(`ErrNotFound`) after restore, not silently decoded with `UpdatedAt` zeroed. Hand-reverted to
+version 2: the same test then fails (the record surfaces, `UpdatedAt` silently dropped),
+confirming the symptom; restored and `md5sum`-verified byte-identical.
+
+**Gates:** `go build`, `go vet` (default/e2e/integration), `gofmt -l` (clean), `go test -race`
+(pass), `golangci-lint run` (0 issues).

@@ -40,10 +40,49 @@ type describeVerifiedAccessGroupsResponse struct {
 	} `xml:"verifiedAccessGroupSet"`
 }
 
+type verifiedAccessTrustProviderCondensedItem struct {
+	VerifiedAccessTrustProviderID string `xml:"verifiedAccessTrustProviderId,omitempty"`
+	TrustProviderType             string `xml:"trustProviderType,omitempty"`
+	Description                   string `xml:"description,omitempty"`
+}
+
 type verifiedAccessInstanceItem struct {
-	VerifiedAccessInstanceID string `xml:"verifiedAccessInstanceId"`
-	Status                   string `xml:"status"`
-	Description              string `xml:"description,omitempty"`
+	VerifiedAccessInstanceID       string `xml:"verifiedAccessInstanceId"`
+	Status                         string `xml:"status"`
+	Description                    string `xml:"description,omitempty"`
+	VerifiedAccessTrustProviderSet struct {
+		Items []verifiedAccessTrustProviderCondensedItem `xml:"item"`
+	} `xml:"verifiedAccessTrustProviderSet"`
+}
+
+// toVerifiedAccessInstanceItem converts a backend VerifiedAccessInstance into
+// its wire item, resolving AttachedTrustProviderIDs into the condensed
+// verifiedAccessTrustProviderSet the real DescribeVerifiedAccessInstances /
+// CreateVerifiedAccessInstance / ModifyVerifiedAccessInstance responses carry
+// (VerifiedAccessInstance.VerifiedAccessTrustProviders in the SDK).
+func (h *Handler) toVerifiedAccessInstanceItem(inst *VerifiedAccessInstance) verifiedAccessInstanceItem {
+	item := verifiedAccessInstanceItem{
+		VerifiedAccessInstanceID: inst.VerifiedAccessInstanceID,
+		Status:                   inst.Status,
+		Description:              inst.Description,
+	}
+	if len(inst.AttachedTrustProviderIDs) == 0 {
+		return item
+	}
+	// DescribeVerifiedAccessTrustProviders(nil) returns every trust provider
+	// in the account, not none, so the empty-list case must short-circuit above.
+	for _, tp := range h.Backend.DescribeVerifiedAccessTrustProviders(inst.AttachedTrustProviderIDs) {
+		item.VerifiedAccessTrustProviderSet.Items = append(
+			item.VerifiedAccessTrustProviderSet.Items,
+			verifiedAccessTrustProviderCondensedItem{
+				VerifiedAccessTrustProviderID: tp.VerifiedAccessTrustProviderID,
+				TrustProviderType:             tp.TrustProviderType,
+				Description:                   tp.Description,
+			},
+		)
+	}
+
+	return item
 }
 
 type createVerifiedAccessInstanceResponse struct {
@@ -250,12 +289,8 @@ func (h *Handler) handleCreateVerifiedAccessInstance(vals url.Values, reqID stri
 	}
 
 	return &createVerifiedAccessInstanceResponse{
-		RequestID: reqID,
-		VerifiedAccessInstance: verifiedAccessInstanceItem{
-			VerifiedAccessInstanceID: inst.VerifiedAccessInstanceID,
-			Status:                   inst.Status,
-			Description:              inst.Description,
-		},
+		RequestID:              reqID,
+		VerifiedAccessInstance: h.toVerifiedAccessInstanceItem(inst),
 	}, nil
 }
 
@@ -267,12 +302,8 @@ func (h *Handler) handleDeleteVerifiedAccessInstance(vals url.Values, reqID stri
 	}
 
 	return &deleteVerifiedAccessInstanceResponse{
-		RequestID: reqID,
-		VerifiedAccessInstance: verifiedAccessInstanceItem{
-			VerifiedAccessInstanceID: inst.VerifiedAccessInstanceID,
-			Status:                   inst.Status,
-			Description:              inst.Description,
-		},
+		RequestID:              reqID,
+		VerifiedAccessInstance: h.toVerifiedAccessInstanceItem(inst),
 	}, nil
 }
 
@@ -290,11 +321,7 @@ func (h *Handler) handleDescribeVerifiedAccessInstances(vals url.Values, reqID s
 	for _, inst := range instances {
 		resp.VerifiedAccessInstanceSet.Items = append(
 			resp.VerifiedAccessInstanceSet.Items,
-			verifiedAccessInstanceItem{
-				VerifiedAccessInstanceID: inst.VerifiedAccessInstanceID,
-				Status:                   inst.Status,
-				Description:              inst.Description,
-			},
+			h.toVerifiedAccessInstanceItem(inst),
 		)
 	}
 
@@ -368,6 +395,31 @@ func (h *Handler) handleDescribeVerifiedAccessTrustProviders(
 	return resp, nil
 }
 
+type attachVerifiedAccessTrustProviderResponse struct {
+	VerifiedAccessTrustProvider verifiedAccessTrustProviderItem `xml:"verifiedAccessTrustProvider"`
+	XMLName                     xml.Name                        `xml:"AttachVerifiedAccessTrustProviderResponse"`
+	RequestID                   string                          `xml:"requestId"`
+	VerifiedAccessInstance      verifiedAccessInstanceItem      `xml:"verifiedAccessInstance"`
+}
+
+type detachVerifiedAccessTrustProviderResponse struct {
+	VerifiedAccessTrustProvider verifiedAccessTrustProviderItem `xml:"verifiedAccessTrustProvider"`
+	XMLName                     xml.Name                        `xml:"DetachVerifiedAccessTrustProviderResponse"`
+	RequestID                   string                          `xml:"requestId"`
+	VerifiedAccessInstance      verifiedAccessInstanceItem      `xml:"verifiedAccessInstance"`
+}
+
+// toVerifiedAccessTrustProviderItem converts a backend VerifiedAccessTrustProvider
+// into its wire item.
+func toVerifiedAccessTrustProviderItem(tp *VerifiedAccessTrustProvider) verifiedAccessTrustProviderItem {
+	return verifiedAccessTrustProviderItem{
+		VerifiedAccessTrustProviderID: tp.VerifiedAccessTrustProviderID,
+		TrustProviderType:             tp.TrustProviderType,
+		Status:                        tp.Status,
+		Description:                   tp.Description,
+	}
+}
+
 func (h *Handler) handleAttachVerifiedAccessTrustProvider(vals url.Values, reqID string) (any, error) {
 	instanceID := vals.Get("VerifiedAccessInstanceId")
 	providerID := vals.Get("VerifiedAccessTrustProviderId")
@@ -375,10 +427,12 @@ func (h *Handler) handleAttachVerifiedAccessTrustProvider(vals url.Values, reqID
 		return nil, err
 	}
 
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "AttachVerifiedAccessTrustProviderResponse"},
-		RequestID: reqID,
-		Return:    true,
+	inst, tp := h.describeVerifiedAccessInstanceAndProvider(instanceID, providerID)
+
+	return &attachVerifiedAccessTrustProviderResponse{
+		RequestID:                   reqID,
+		VerifiedAccessInstance:      inst,
+		VerifiedAccessTrustProvider: tp,
 	}, nil
 }
 
@@ -389,11 +443,34 @@ func (h *Handler) handleDetachVerifiedAccessTrustProvider(vals url.Values, reqID
 		return nil, err
 	}
 
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DetachVerifiedAccessTrustProviderResponse"},
-		RequestID: reqID,
-		Return:    true,
+	inst, tp := h.describeVerifiedAccessInstanceAndProvider(instanceID, providerID)
+
+	return &detachVerifiedAccessTrustProviderResponse{
+		RequestID:                   reqID,
+		VerifiedAccessInstance:      inst,
+		VerifiedAccessTrustProvider: tp,
 	}, nil
+}
+
+// describeVerifiedAccessInstanceAndProvider re-fetches the instance and trust
+// provider after an attach/detach, matching the real
+// Attach/DetachVerifiedAccessTrustProviderOutput shape (both carry the
+// post-operation VerifiedAccessInstance and VerifiedAccessTrustProvider, not
+// a bare boolean).
+func (h *Handler) describeVerifiedAccessInstanceAndProvider(
+	instanceID, providerID string,
+) (verifiedAccessInstanceItem, verifiedAccessTrustProviderItem) {
+	var instItem verifiedAccessInstanceItem
+	if insts := h.Backend.DescribeVerifiedAccessInstances([]string{instanceID}); len(insts) > 0 {
+		instItem = h.toVerifiedAccessInstanceItem(insts[0])
+	}
+
+	var tpItem verifiedAccessTrustProviderItem
+	if tps := h.Backend.DescribeVerifiedAccessTrustProviders([]string{providerID}); len(tps) > 0 {
+		tpItem = toVerifiedAccessTrustProviderItem(tps[0])
+	}
+
+	return instItem, tpItem
 }
 
 // ---- Helpers ----
@@ -443,12 +520,8 @@ func (h *Handler) handleModifyVerifiedAccessInstance(vals url.Values, reqID stri
 	}
 
 	return &modifyVerifiedAccessInstanceResponse{
-		RequestID: reqID,
-		VerifiedAccessInstance: verifiedAccessInstanceItem{
-			VerifiedAccessInstanceID: inst.VerifiedAccessInstanceID,
-			Status:                   inst.Status,
-			Description:              inst.Description,
-		},
+		RequestID:              reqID,
+		VerifiedAccessInstance: h.toVerifiedAccessInstanceItem(inst),
 	}, nil
 }
 

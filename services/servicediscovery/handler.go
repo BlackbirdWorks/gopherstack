@@ -196,7 +196,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		if err != nil {
 			log.ErrorContext(ctx, "servicediscovery: failed to read request body", "error", err)
 
-			return c.String(http.StatusInternalServerError, "internal server error")
+			return h.handleError(c, err)
 		}
 
 		op := h.ExtractOperation(c)
@@ -422,7 +422,7 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 	}
 
 	return c.JSON(http.StatusInternalServerError, map[string]string{
-		keyTypeField:    "InternalServiceError",
+		keyTypeField:    "InternalFailure",
 		keyMessageField: err.Error(),
 	})
 }

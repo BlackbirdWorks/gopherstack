@@ -7,6 +7,7 @@
 
 | Metric | Value |
 | --- | --- |
+| Feature families | 26 (25 ok, 1 partial) |
 | Known gaps | 4 |
 | Deferred items | 0 |
 | Resource leaks | clean |

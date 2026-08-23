@@ -43,7 +43,7 @@ func TestMaintenanceWindowExecutions(t *testing.T) {
 		t,
 		h,
 		"DescribeMaintenanceWindowExecutionTaskInvocations",
-		`{"WindowExecutionId":"`+execID+`"}`,
+		`{"WindowExecutionId":"`+execID+`","TaskId":"task-x"}`,
 	)
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -147,10 +147,13 @@ func TestCancelMaintenanceWindowExecution(t *testing.T) {
 			wantExecID: "wex-0123456789abcdef0",
 		},
 		{
+			// WindowExecutionId is required on the real op
+			// (api_op_CancelMaintenanceWindowExecution.go) -- an empty body
+			// previously echoed an empty ID back with 200 instead of
+			// rejecting with ValidationException.
 			name:       "empty_execution_id",
 			body:       `{"WindowExecutionId":""}`,
-			wantStatus: http.StatusOK,
-			wantExecID: "",
+			wantStatus: http.StatusBadRequest,
 		},
 	}
 
@@ -162,6 +165,10 @@ func TestCancelMaintenanceWindowExecution(t *testing.T) {
 			rec := doRequest(t, h, "CancelMaintenanceWindowExecution", tt.body)
 
 			require.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantStatus != http.StatusOK {
+				return
+			}
 
 			var resp map[string]any
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
@@ -179,10 +186,6 @@ func TestDescribeMaintenanceWindowExecutions(t *testing.T) {
 		wantCount int
 		createWin bool
 	}{
-		{
-			name:      "empty_window_id_returns_empty",
-			wantCount: 0,
-		},
 		{
 			name:      "unknown_window_returns_empty",
 			windowID:  "mw-does-not-exist",
@@ -305,6 +308,7 @@ func TestDescribeMaintenanceWindowExecutionTaskInvocations(t *testing.T) {
 		{
 			name:      "unknown_exec_id_returns_empty",
 			execID:    "not-mwexec-format",
+			taskID:    "task-x",
 			wantCount: 0,
 		},
 		{
@@ -314,9 +318,9 @@ func TestDescribeMaintenanceWindowExecutionTaskInvocations(t *testing.T) {
 			wantCount: 1,
 		},
 		{
-			name:      "valid_exec_id_no_task_returns_invocation",
+			name:      "valid_exec_id_with_task_returns_invocation",
 			execID:    "mwexec-mw-abc",
-			taskID:    "",
+			taskID:    "task-exec-002",
 			wantCount: 1,
 		},
 	}
@@ -342,6 +346,72 @@ func TestDescribeMaintenanceWindowExecutionTaskInvocations(t *testing.T) {
 				assert.NotEmpty(t, inv.InvocationID)
 				assert.Equal(t, "Success", inv.Status)
 			}
+		})
+	}
+}
+
+// TestMaintenanceWindowOps_RequireRequiredFields locks in that every
+// maintenance-window Get/Describe op with a required field on the real SDK
+// rejects an empty (or partially empty) body -- DescribeMaintenanceWindowExecutions
+// (api_op_DescribeMaintenanceWindowExecutions.go, WindowId),
+// DescribeMaintenanceWindowExecutionTasks (WindowExecutionId),
+// DescribeMaintenanceWindowExecutionTaskInvocations (WindowExecutionId+TaskId),
+// DescribeMaintenanceWindowTargets/-Tasks (WindowId),
+// DescribeMaintenanceWindowsForTarget (ResourceType+Targets),
+// GetMaintenanceWindowExecution (WindowExecutionId),
+// GetMaintenanceWindowExecutionTask (WindowExecutionId+TaskExecutionId),
+// GetMaintenanceWindowExecutionTaskInvocation
+// (WindowExecutionId+TaskExecutionId+InvocationId), and GetMaintenanceWindowTask
+// (WindowId+WindowTaskId). Every one of these previously fabricated a
+// synthetic "Succeeded" record instead of rejecting the request.
+func TestMaintenanceWindowOps_RequireRequiredFields(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		op   string
+		body string
+	}{
+		{name: "describe_executions", op: "DescribeMaintenanceWindowExecutions", body: `{}`},
+		{name: "describe_execution_tasks", op: "DescribeMaintenanceWindowExecutionTasks", body: `{}`},
+		{
+			name: "describe_execution_task_invocations_missing_task_id",
+			op:   "DescribeMaintenanceWindowExecutionTaskInvocations",
+			body: `{"WindowExecutionId":"mwexec-x"}`,
+		},
+		{name: "describe_targets", op: "DescribeMaintenanceWindowTargets", body: `{}`},
+		{name: "describe_tasks", op: "DescribeMaintenanceWindowTasks", body: `{}`},
+		{name: "describe_windows_for_target", op: "DescribeMaintenanceWindowsForTarget", body: `{}`},
+		{
+			name: "describe_windows_for_target_missing_targets",
+			op:   "DescribeMaintenanceWindowsForTarget",
+			body: `{"ResourceType":"INSTANCE"}`,
+		},
+		{name: "get_execution", op: "GetMaintenanceWindowExecution", body: `{}`},
+		{name: "get_execution_task", op: "GetMaintenanceWindowExecutionTask", body: `{}`},
+		{
+			name: "get_execution_task_missing_task_exec_id",
+			op:   "GetMaintenanceWindowExecutionTask",
+			body: `{"WindowExecutionId":"mwexec-x"}`,
+		},
+		{name: "get_execution_task_invocation", op: "GetMaintenanceWindowExecutionTaskInvocation", body: `{}`},
+		{
+			name: "get_execution_task_invocation_missing_invocation_id",
+			op:   "GetMaintenanceWindowExecutionTaskInvocation",
+			body: `{"WindowExecutionId":"mwexec-x","TaskExecutionId":"taskexec-y"}`,
+		},
+		{name: "get_task", op: "GetMaintenanceWindowTask", body: `{}`},
+		{name: "get_task_missing_task_id", op: "GetMaintenanceWindowTask", body: `{"WindowId":"mw-x"}`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, _ := newTestHandler(t)
+			rec := doRequest(t, h, tt.op, tt.body)
+			assert.Equal(t, http.StatusBadRequest, rec.Code, "op=%s body=%s", tt.op, rec.Body.String())
+			assert.Contains(t, rec.Body.String(), "ValidationException")
 		})
 	}
 }

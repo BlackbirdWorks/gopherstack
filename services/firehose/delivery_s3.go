@@ -140,7 +140,7 @@ func (b *InMemoryBackend) writeRecordsToBucket(
 
 	compression := strings.ToUpper(compressionFormat)
 	if compression == "" {
-		compression = "UNCOMPRESSED"
+		compression = compressionFormatUncompressed
 	}
 
 	var finalBody []byte

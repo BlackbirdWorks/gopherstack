@@ -177,6 +177,40 @@ func TestRestoreAccessVaultCreate(t *testing.T) {
 	})
 }
 
+func TestRestoreAccessVaultCreate_ReachesAvailable(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend(t)
+	src := mustVault(t, b, "src-vault-active")
+
+	rav, err := b.CreateRestoreAccessBackupVault(src.BackupVaultArn, "rav-active", "", nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// The immediate CREATING status is right (matches AWS's own
+	// CreateRestoreAccessBackupVault response), but an assertion that only
+	// checks that moment cannot catch a machine that never advances --
+	// confirm the janitor eventually reports AVAILABLE too.
+	if rav.VaultState != "CREATING" {
+		t.Fatalf("VaultState: want CREATING got %s", rav.VaultState)
+	}
+
+	janitor := backup.NewJanitor(b, 0, 0)
+	janitor.SweepOnce(t.Context())
+
+	vaults, err := b.ListRestoreAccessBackupVaults("src-vault-active")
+	if err != nil {
+		t.Fatalf("ListRestoreAccessBackupVaults: %v", err)
+	}
+	if len(vaults) != 1 {
+		t.Fatalf("want 1 restore access vault, got %d", len(vaults))
+	}
+	if vaults[0].VaultState != "AVAILABLE" {
+		t.Errorf("VaultState after sweep: want AVAILABLE got %s", vaults[0].VaultState)
+	}
+}
+
 func TestRestoreAccessVaultList(t *testing.T) {
 	t.Parallel()
 

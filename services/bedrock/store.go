@@ -2,6 +2,7 @@ package bedrock
 
 import (
 	"strconv"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
@@ -80,7 +81,13 @@ type InMemoryBackend struct {
 	// means the next Get lazily mints a fresh opaque token, unlike
 	// GuardrailVersionCounters where losing state risks a real key collision.
 	arpAnnotationSetHash map[string]string // policyARN+":"+buildWorkflowID → hash
-	useCaseFormData      []byte            // raw FormData for PutUseCaseForModelAccess
+	// arpAnnotationsUpdatedAt backs GetAutomatedReasoningPolicyAnnotationsOutput's
+	// required updatedAt (bedrock@v1.66.4
+	// api_op_GetAutomatedReasoningPolicyAnnotations.go:80), lazily minted
+	// alongside arpAnnotationSetHash on first Get and bumped by Update -- same
+	// not-persisted rationale as arpAnnotationSetHash above.
+	arpAnnotationsUpdatedAt map[string]time.Time // policyARN+":"+buildWorkflowID → updatedAt
+	useCaseFormData         []byte               // raw FormData for PutUseCaseForModelAccess
 	// parity-4 additions. resourcePolicies is shared by both the core
 	// bedrock and bedrock-agent flavors -- see resource_policy.go.
 	advancedPromptOptimizationJobs *store.Table[AdvancedPromptOptimizationJob] // jobArn → job
@@ -177,6 +184,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		marketplaceEndpointsByName: make(map[string]string),
 		arpAnnotations:             make(map[string][]any),
 		arpAnnotationSetHash:       make(map[string]string),
+		arpAnnotationsUpdatedAt:    make(map[string]time.Time),
 		promptRoutersByName:        make(map[string]string),
 		agentsByName:               make(map[string]string),
 		kbByName:                   make(map[string]string),
@@ -292,6 +300,7 @@ func (b *InMemoryBackend) resetAuxState() {
 	b.agentMemory = make(map[string][]any)
 	b.arpAnnotations = make(map[string][]any)
 	b.arpAnnotationSetHash = make(map[string]string)
+	b.arpAnnotationsUpdatedAt = make(map[string]time.Time)
 	b.useCaseFormData = nil
 	b.accountDataRetention = nil
 }

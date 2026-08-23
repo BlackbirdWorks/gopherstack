@@ -80,3 +80,37 @@ func Test_SDKRoundTrip_CreateOutboundCrossClusterSearchConnection_DomainInfo(t *
 	require.NotNil(t, delOut.CrossClusterSearchConnection)
 	assert.Equal(t, "rt-source-domain", aws.ToString(delOut.CrossClusterSearchConnection.SourceDomainInfo.DomainName))
 }
+
+// TestDescribeElasticsearchDomainConfig_ColdStorageOptions_RealClient covers
+// gopherstack-y1zn. buildDomainConfigOutput emitted a flat
+// "ColdStorageEnabled" boolean; types.ColdStorageOptions
+// (elasticsearchservice@v1.45.4 deserializers.go) wraps Enabled in a nested
+// object under "ColdStorageOptions" -- there is no flat member. A typed
+// client's ClusterConfig.ColdStorageOptions stays nil against the flat key.
+func TestDescribeElasticsearchDomainConfig_ColdStorageOptions_RealClient(t *testing.T) {
+	t.Parallel()
+
+	b := elasticsearch.NewInMemoryBackend("123456789012", "us-east-1")
+	h := elasticsearch.NewHandler(b)
+	client := newTestElasticsearchClient(t, h)
+	ctx := t.Context()
+
+	b.AddDomainInternal(ctx, elasticsearch.Domain{
+		Name:                 "y1zn-cs-domain",
+		ARN:                  "arn:aws:es:us-east-1:123456789012:domain/y1zn-cs-domain",
+		ElasticsearchVersion: "7.10",
+		Status:               "Active",
+		ClusterConfig:        elasticsearch.ClusterConfig{ColdStorageEnabled: true},
+	})
+
+	out, err := client.DescribeElasticsearchDomainConfig(ctx, &elasticsearchsdk.DescribeElasticsearchDomainConfigInput{
+		DomainName: aws.String("y1zn-cs-domain"),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, out.DomainConfig)
+	require.NotNil(t, out.DomainConfig.ElasticsearchClusterConfig)
+	require.NotNil(t, out.DomainConfig.ElasticsearchClusterConfig.Options)
+	require.NotNil(t, out.DomainConfig.ElasticsearchClusterConfig.Options.ColdStorageOptions,
+		"ColdStorageOptions must decode -- it is a nested object, not a flat ColdStorageEnabled key")
+	assert.True(t, aws.ToBool(out.DomainConfig.ElasticsearchClusterConfig.Options.ColdStorageOptions.Enabled))
+}

@@ -2,8 +2,11 @@ package sagemaker
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"maps"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -17,16 +20,26 @@ var (
 	ErrEndpointAlreadyExists = awserr.New("ResourceInUse", awserr.ErrConflict)
 )
 
+// Endpoint represents a SageMaker endpoint. AsyncInferenceConfig/
+// DataCaptureConfig/ShadowProductionVariants are copied from the active
+// EndpointConfig at Create/Update time and surfaced on Describe
+// (api_op_DescribeEndpoint.go:39-97) — types.ExplainerConfig/MetricsConfig
+// have no counterpart on this service's EndpointConfig type and are
+// disclosed no-ops; PendingDeploymentSummary is not simulated at all.
 type Endpoint struct {
-	CreationTime       time.Time                  `json:"CreationTime"`
-	LastModifiedTime   time.Time                  `json:"LastModifiedTime"`
-	Tags               map[string]string          `json:"Tags,omitempty"`
-	EndpointName       string                     `json:"EndpointName"`
-	EndpointArn        string                     `json:"EndpointArn"`
-	EndpointConfigName string                     `json:"EndpointConfigName"`
-	EndpointStatus     string                     `json:"EndpointStatus"`
-	FailureReason      string                     `json:"FailureReason,omitempty"`
-	ProductionVariants []ProductionVariantSummary `json:"ProductionVariants,omitempty"`
+	LastModifiedTime         time.Time                  `json:"LastModifiedTime"`
+	CreationTime             time.Time                  `json:"CreationTime"`
+	Tags                     map[string]string          `json:"Tags,omitempty"`
+	AsyncInferenceConfig     *AsyncInferenceConfig      `json:"AsyncInferenceConfig,omitempty"`
+	DataCaptureConfig        *DataCaptureConfig         `json:"DataCaptureConfig,omitempty"`
+	EndpointArn              string                     `json:"EndpointArn"`
+	EndpointName             string                     `json:"EndpointName"`
+	EndpointConfigName       string                     `json:"EndpointConfigName"`
+	EndpointStatus           string                     `json:"EndpointStatus"`
+	FailureReason            string                     `json:"FailureReason,omitempty"`
+	ProductionVariants       []ProductionVariantSummary `json:"ProductionVariants,omitempty"`
+	ShadowProductionVariants []ProductionVariantSummary `json:"ShadowProductionVariants,omitempty"`
+	DeploymentConfig         json.RawMessage            `json:"DeploymentConfig,omitempty"`
 }
 
 // ProductionVariantStatus describes the current deployment stage of a
@@ -79,6 +92,20 @@ func cloneEndpoint(ep *Endpoint) *Endpoint {
 	for i, pv := range ep.ProductionVariants {
 		cp.ProductionVariants[i] = cloneProductionVariantSummary(pv)
 	}
+	cp.ShadowProductionVariants = make([]ProductionVariantSummary, len(ep.ShadowProductionVariants))
+	for i, pv := range ep.ShadowProductionVariants {
+		cp.ShadowProductionVariants[i] = cloneProductionVariantSummary(pv)
+	}
+
+	if ep.DataCaptureConfig != nil {
+		dcc := *ep.DataCaptureConfig
+		cp.DataCaptureConfig = &dcc
+	}
+
+	if ep.AsyncInferenceConfig != nil {
+		aic := *ep.AsyncInferenceConfig
+		cp.AsyncInferenceConfig = &aic
+	}
 
 	return &cp
 }
@@ -118,41 +145,54 @@ func cloneProductionVariantSummary(pv ProductionVariantSummary) ProductionVarian
 // NewInMemoryBackendExtended (called from NewInMemoryBackend after init).
 // We keep it simple: InMemoryBackend itself is extended with four new fields.
 
+// CreateEndpointOptions holds input fields for CreateEndpoint
+// (api_op_CreateEndpoint.go:1-49).
+type CreateEndpointOptions struct {
+	Tags               map[string]string
+	Name               string
+	EndpointConfigName string
+	DeploymentConfig   json.RawMessage
+}
+
 // CreateEndpoint creates a new SageMaker endpoint.
 func (b *InMemoryBackend) CreateEndpoint(
 	ctx context.Context,
-	name, endpointConfigName string,
-	tags map[string]string,
+	opts CreateEndpointOptions,
 ) (*Endpoint, error) {
 	b.mu.Lock("CreateEndpoint")
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
+	name := opts.Name
 
 	if _, ok := b.endpointsStore(region).Get(name); ok {
 		return nil, fmt.Errorf("%w: endpoint %s already exists", ErrEndpointAlreadyExists, name)
 	}
 
-	ec, ok := b.endpointConfigsStore(region).Get(endpointConfigName)
+	ec, ok := b.endpointConfigsStore(region).Get(opts.EndpointConfigName)
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: could not find endpoint configuration %q",
 			ErrEndpointConfigNotFound,
-			endpointConfigName,
+			opts.EndpointConfigName,
 		)
 	}
 
 	epARN := arn.Build("sagemaker", region, b.accountID, "endpoint/"+name)
 	now := time.Now()
 	ep := &Endpoint{
-		EndpointName:       name,
-		EndpointArn:        epARN,
-		EndpointConfigName: endpointConfigName,
-		EndpointStatus:     "Creating",
-		CreationTime:       now,
-		LastModifiedTime:   now,
-		Tags:               mergeTags(nil, tags),
-		ProductionVariants: newVariantSummaries(ec.ProductionVariants),
+		EndpointName:             name,
+		EndpointArn:              epARN,
+		EndpointConfigName:       opts.EndpointConfigName,
+		EndpointStatus:           "Creating",
+		CreationTime:             now,
+		LastModifiedTime:         now,
+		Tags:                     mergeTags(nil, opts.Tags),
+		ProductionVariants:       newVariantSummaries(ec.ProductionVariants),
+		ShadowProductionVariants: newVariantSummaries(ec.ShadowProductionVariants),
+		DataCaptureConfig:        ec.DataCaptureConfig,
+		AsyncInferenceConfig:     ec.AsyncInferenceConfig,
+		DeploymentConfig:         opts.DeploymentConfig,
 	}
 	b.endpointsStore(region).Put(ep)
 	b.endpointARNIndexStore(region)[epARN] = name
@@ -175,15 +215,92 @@ func (b *InMemoryBackend) DescribeEndpoint(ctx context.Context, name string) (*E
 	return cloneEndpoint(ep), nil
 }
 
-// ListEndpoints returns endpoints sorted by name with optional pagination.
-func (b *InMemoryBackend) ListEndpoints(ctx context.Context, nextToken string) ([]*Endpoint, string) {
+// ListEndpointsFilter narrows the results of ListEndpoints
+// (api_op_ListEndpoints.go:30-64). SortBy defaults to CreationTime, SortOrder
+// to Descending — both documented defaults for this op.
+type ListEndpointsFilter struct {
+	CreationTimeAfter      *time.Time
+	CreationTimeBefore     *time.Time
+	LastModifiedTimeAfter  *time.Time
+	LastModifiedTimeBefore *time.Time
+	NameContains           string
+	StatusEquals           string
+	SortBy                 string
+	SortOrder              string
+	NextToken              string
+	MaxResults             int32
+}
+
+// endpointMatchesFilter reports whether ep satisfies every set field of filter.
+func endpointMatchesFilter(ep *Endpoint, filter ListEndpointsFilter) bool {
+	if filter.StatusEquals != "" && ep.EndpointStatus != filter.StatusEquals {
+		return false
+	}
+
+	if filter.NameContains != "" &&
+		!strings.Contains(strings.ToLower(ep.EndpointName), strings.ToLower(filter.NameContains)) {
+		return false
+	}
+
+	if filter.CreationTimeAfter != nil && !ep.CreationTime.After(*filter.CreationTimeAfter) {
+		return false
+	}
+
+	if filter.CreationTimeBefore != nil && !ep.CreationTime.Before(*filter.CreationTimeBefore) {
+		return false
+	}
+
+	if filter.LastModifiedTimeAfter != nil && !ep.LastModifiedTime.After(*filter.LastModifiedTimeAfter) {
+		return false
+	}
+
+	if filter.LastModifiedTimeBefore != nil && !ep.LastModifiedTime.Before(*filter.LastModifiedTimeBefore) {
+		return false
+	}
+
+	return true
+}
+
+// lessEndpoint orders a before b by sortBy (Name/Status/default CreationTime).
+func lessEndpoint(a, b *Endpoint, sortBy string) bool {
+	switch sortBy {
+	case keyGenericName:
+		return a.EndpointName < b.EndpointName
+	case keyStatus:
+		return a.EndpointStatus < b.EndpointStatus
+	default:
+		return a.CreationTime.Before(b.CreationTime)
+	}
+}
+
+// ListEndpoints returns endpoints matching filter, sorted by filter.SortBy
+// (default CreationTime) / filter.SortOrder (default Descending).
+func (b *InMemoryBackend) ListEndpoints(ctx context.Context, filter ListEndpointsFilter) ([]*Endpoint, string) {
 	b.mu.RLock("ListEndpoints")
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
+	store := b.endpointsStoreRO(region)
 
-	return sagemakerListPaged(b.endpointsStoreRO(region), nextToken, cloneEndpoint,
-		func(a, b *Endpoint) bool { return a.EndpointName < b.EndpointName })
+	list := make([]*Endpoint, 0, store.Len())
+
+	for _, ep := range store.All() {
+		if endpointMatchesFilter(ep, filter) {
+			list = append(list, cloneEndpoint(ep))
+		}
+	}
+
+	desc := !strings.EqualFold(filter.SortOrder, "Ascending")
+	sort.Slice(list, func(i, k int) bool {
+		less := lessEndpoint(list[i], list[k], filter.SortBy)
+		if desc {
+			return !less
+		}
+
+		return less
+	})
+
+	return paginateSlice(list, filter.NextToken, filter.MaxResults)
 }
 
 // DeleteEndpoint deletes an endpoint by name.
@@ -206,8 +323,67 @@ func (b *InMemoryBackend) DeleteEndpoint(ctx context.Context, name string) error
 	return nil
 }
 
+// UpdateEndpointOptions holds input fields for UpdateEndpoint
+// (api_op_UpdateEndpoint.go:1-56). ExcludeRetainedVariantProperties is
+// restricted to the two VariantPropertyType values this backend tracks per
+// variant (DesiredInstanceCount/DesiredWeight, types/enums.go:10837-10844) —
+// DataCaptureConfig is endpoint-wide here, not per-variant, so that
+// VariantPropertyType value has no effect to exclude.
+type UpdateEndpointOptions struct {
+	DeploymentConfig                 json.RawMessage
+	EndpointConfigName               string
+	ExcludeRetainedVariantProperties []string
+	RetainAllVariantProperties       bool
+	RetainDeploymentConfig           bool
+}
+
+// carryOverVariantProperties applies UpdateEndpoint's retention semantics to
+// newVariants (freshly built from the new EndpointConfig): Current* always
+// carries over from the same-named old variant, since traffic keeps flowing
+// on the old counts until the update finishes rolling out regardless of
+// RetainAllVariantProperties (which governs Desired* — the new
+// EndpointConfig's targets — instead).
+func carryOverVariantProperties(
+	newVariants, oldVariants []ProductionVariantSummary,
+	opts UpdateEndpointOptions,
+) []ProductionVariantSummary {
+	excluded := make(map[string]bool, len(opts.ExcludeRetainedVariantProperties))
+	for _, p := range opts.ExcludeRetainedVariantProperties {
+		excluded[p] = true
+	}
+
+	for i := range newVariants {
+		for _, old := range oldVariants {
+			if old.VariantName != newVariants[i].VariantName {
+				continue
+			}
+
+			newVariants[i].CurrentWeight = old.CurrentWeight
+			newVariants[i].CurrentInstanceCount = old.CurrentInstanceCount
+
+			if opts.RetainAllVariantProperties {
+				if !excluded["DesiredWeight"] {
+					newVariants[i].DesiredWeight = old.DesiredWeight
+				}
+
+				if !excluded["DesiredInstanceCount"] {
+					newVariants[i].DesiredInstanceCount = old.DesiredInstanceCount
+				}
+			}
+
+			break
+		}
+	}
+
+	return newVariants
+}
+
 // UpdateEndpoint updates the endpoint config for an existing endpoint.
-func (b *InMemoryBackend) UpdateEndpoint(ctx context.Context, name, endpointConfigName string) (*Endpoint, error) {
+func (b *InMemoryBackend) UpdateEndpoint(
+	ctx context.Context,
+	name string,
+	opts UpdateEndpointOptions,
+) (*Endpoint, error) {
 	b.mu.Lock("UpdateEndpoint")
 	defer b.mu.Unlock()
 
@@ -218,34 +394,28 @@ func (b *InMemoryBackend) UpdateEndpoint(ctx context.Context, name, endpointConf
 		return nil, fmt.Errorf("%w: endpoint %q not found", ErrEndpointNotFound, name)
 	}
 
-	ec, ok := b.endpointConfigsStore(region).Get(endpointConfigName)
+	ec, ok := b.endpointConfigsStore(region).Get(opts.EndpointConfigName)
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: could not find endpoint configuration %q",
 			ErrEndpointConfigNotFound,
-			endpointConfigName,
+			opts.EndpointConfigName,
 		)
 	}
 
-	newVariants := newVariantSummaries(ec.ProductionVariants)
-	// Carry over Current* values from any same-named variant that was already
-	// deployed, since traffic keeps flowing on the old counts until the
-	// update finishes rolling out.
-	for i := range newVariants {
-		for _, old := range ep.ProductionVariants {
-			if old.VariantName == newVariants[i].VariantName {
-				newVariants[i].CurrentWeight = old.CurrentWeight
-				newVariants[i].CurrentInstanceCount = old.CurrentInstanceCount
+	newVariants := carryOverVariantProperties(newVariantSummaries(ec.ProductionVariants), ep.ProductionVariants, opts)
 
-				break
-			}
-		}
-	}
-
-	ep.EndpointConfigName = endpointConfigName
-	ep.EndpointStatus = "Updating"
+	ep.EndpointConfigName = opts.EndpointConfigName
+	ep.EndpointStatus = statusUpdating
 	ep.LastModifiedTime = time.Now()
 	ep.ProductionVariants = newVariants
+	ep.ShadowProductionVariants = newVariantSummaries(ec.ShadowProductionVariants)
+	ep.DataCaptureConfig = ec.DataCaptureConfig
+	ep.AsyncInferenceConfig = ec.AsyncInferenceConfig
+
+	if !opts.RetainDeploymentConfig {
+		ep.DeploymentConfig = opts.DeploymentConfig
+	}
 
 	return cloneEndpoint(ep), nil
 }
@@ -282,35 +452,35 @@ func (b *InMemoryBackend) scheduleEndpointTransition(
 }
 
 // CreateEndpointFSM creates an endpoint and schedules Creating → InService.
-func (b *InMemoryBackend) CreateEndpointFSM(
-	ctx context.Context,
-	name, endpointConfigName string,
-	tags map[string]string,
-) (*Endpoint, error) {
+func (b *InMemoryBackend) CreateEndpointFSM(ctx context.Context, opts CreateEndpointOptions) (*Endpoint, error) {
 	region := getRegion(ctx, b.region)
 
 	b.mu.RLock("CreateEndpointFSM.ctx")
 	lifecycleCtx := b.lifecycleCtx
 	b.mu.RUnlock()
 
-	ep, err := b.CreateEndpoint(ctx, name, endpointConfigName, tags)
+	ep, err := b.CreateEndpoint(ctx, opts)
 	if err != nil {
 		return nil, err
 	}
-	b.scheduleEndpointTransition(lifecycleCtx, region, name, statusInService, endpointCreatingToInService)
+	b.scheduleEndpointTransition(lifecycleCtx, region, opts.Name, statusInService, endpointCreatingToInService)
 
 	return ep, nil
 }
 
 // UpdateEndpointFSM updates config and drives InService → Updating → InService.
-func (b *InMemoryBackend) UpdateEndpointFSM(ctx context.Context, name, endpointConfigName string) (*Endpoint, error) {
+func (b *InMemoryBackend) UpdateEndpointFSM(
+	ctx context.Context,
+	name string,
+	opts UpdateEndpointOptions,
+) (*Endpoint, error) {
 	region := getRegion(ctx, b.region)
 
 	b.mu.RLock("UpdateEndpointFSM.ctx")
 	lifecycleCtx := b.lifecycleCtx
 	b.mu.RUnlock()
 
-	ep, err := b.UpdateEndpoint(ctx, name, endpointConfigName)
+	ep, err := b.UpdateEndpoint(ctx, name, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -363,7 +533,7 @@ func (b *InMemoryBackend) UpdateEndpointWeightsAndCapacitiesFull(
 		}
 	}
 
-	ep.EndpointStatus = "Updating"
+	ep.EndpointStatus = statusUpdating
 	ep.LastModifiedTime = time.Now()
 
 	cp := cloneEndpoint(ep)

@@ -94,6 +94,7 @@ func (b *InMemoryBackend) CreateAssociation(
 		OutputLocation:                copyAssocOutputLocation(input.OutputLocation),
 		ScheduleExpression:            input.ScheduleExpression,
 		SyncCompliance:                input.SyncCompliance,
+		AssociationVersion:            "1",
 	}
 
 	b.associationsStore(region).Put(&assoc)
@@ -166,6 +167,7 @@ func (b *InMemoryBackend) CreateAssociationBatch(
 			OutputLocation:                copyAssocOutputLocation(entry.OutputLocation),
 			ScheduleExpression:            entry.ScheduleExpression,
 			SyncCompliance:                entry.SyncCompliance,
+			AssociationVersion:            "1",
 		}
 
 		assocs.Put(&assoc)
@@ -181,6 +183,14 @@ func (b *InMemoryBackend) UpdateAssociationStatus(
 	ctx context.Context,
 	input *UpdateAssociationStatusInput,
 ) (*UpdateAssociationStatusOutputFull, error) {
+	if input.AssociationStatus.Name == "" || input.AssociationStatus.Message == "" ||
+		input.AssociationStatus.Date == 0 {
+		return nil, fmt.Errorf(
+			"%w: AssociationStatus.Name, AssociationStatus.Message and AssociationStatus.Date are required",
+			ErrValidationException,
+		)
+	}
+
 	region := getRegion(ctx)
 	b.mu.Lock("UpdateAssociationStatus")
 	defer b.mu.Unlock()
@@ -194,6 +204,12 @@ func (b *InMemoryBackend) UpdateAssociationStatus(
 			}
 
 			assoc.Overview.Status = input.AssociationStatus.Name
+			assoc.Status = &AssociationStatusInfo{
+				Date:           input.AssociationStatus.Date,
+				Message:        input.AssociationStatus.Message,
+				Name:           input.AssociationStatus.Name,
+				AdditionalInfo: input.AssociationStatus.AdditionalInfo,
+			}
 			associations.Put(&assoc)
 
 			return &UpdateAssociationStatusOutputFull{AssociationDescription: assoc}, nil
@@ -213,6 +229,10 @@ func (b *InMemoryBackend) StartAssociationsOnce(
 	ctx context.Context,
 	input *StartAssociationsOnceInput,
 ) (*StartAssociationsOnceOutput, error) {
+	if len(input.AssociationIDs) == 0 {
+		return nil, fmt.Errorf("%w: AssociationIds is required", ErrValidationException)
+	}
+
 	region := getRegion(ctx)
 	b.mu.Lock("StartAssociationsOnce")
 	defer b.mu.Unlock()
@@ -238,6 +258,10 @@ func (b *InMemoryBackend) ListAssociationVersions(
 	ctx context.Context,
 	input *ListAssociationVersionsInput,
 ) (*ListAssociationVersionsOutputFull, error) {
+	if input.AssociationID == "" {
+		return nil, fmt.Errorf("%w: AssociationId is required", ErrValidationException)
+	}
+
 	region := getRegion(ctx)
 	b.mu.RLock("ListAssociationVersions")
 	defer b.mu.RUnlock()
@@ -369,6 +393,10 @@ func (b *InMemoryBackend) DescribeAssociationExecutions(
 	ctx context.Context,
 	input *DescribeAssociationExecutionsInput,
 ) (*DescribeAssociationExecutionsOutputFull, error) {
+	if input.AssociationID == "" {
+		return nil, fmt.Errorf("%w: AssociationId is required", ErrValidationException)
+	}
+
 	region := getRegion(ctx)
 	b.mu.Lock("DescribeAssociationExecutions")
 	defer b.mu.Unlock()
@@ -401,15 +429,13 @@ func (b *InMemoryBackend) DescribeAssociationExecutionTargets(
 	ctx context.Context,
 	input *DescribeAssociationExecutionTargetsInput,
 ) (*DescribeAssociationExecutionTargetsOutputFull, error) {
+	if input.AssociationID == "" {
+		return nil, fmt.Errorf("%w: AssociationId is required", ErrValidationException)
+	}
+
 	region := getRegion(ctx)
 	b.mu.Lock("DescribeAssociationExecutionTargets")
 	defer b.mu.Unlock()
-
-	if input.AssociationID == "" {
-		return &DescribeAssociationExecutionTargetsOutputFull{
-			AssociationExecutionTargets: []AssociationExecutionTarget{},
-		}, nil
-	}
 
 	assocPtr, exists := b.associationsStore(region).Get(input.AssociationID)
 	if !exists {

@@ -10,12 +10,16 @@ import (
 // CodeRepository handlers
 // ---------------------------------------------------------------------------
 
+// createCodeRepositoryInput mirrors CreateCodeRepositoryInput
+// (api_op_CreateCodeRepository.go:34-53).
+type createCodeRepositoryInput struct {
+	GitConfig          map[string]string `json:"GitConfig"`
+	CodeRepositoryName string            `json:"CodeRepositoryName"`
+	Tags               []tagObject       `json:"Tags"`
+}
+
 func (h *Handler) handleCreateCodeRepository(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		GitConfig          map[string]string `json:"GitConfig"`
-		CodeRepositoryName string            `json:"CodeRepositoryName"`
-		Tags               []tagObject       `json:"Tags"`
-	}
+	var req createCodeRepositoryInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -33,10 +37,14 @@ func (h *Handler) handleCreateCodeRepository(ctx context.Context, body []byte) (
 	return json.Marshal(map[string]any{keyCodeRepositoryArn: result.CodeRepositoryArn})
 }
 
+// describeCodeRepositoryInput mirrors DescribeCodeRepositoryInput
+// (api_op_DescribeCodeRepository.go:27-32).
+type describeCodeRepositoryInput struct {
+	CodeRepositoryName string `json:"CodeRepositoryName"`
+}
+
 func (h *Handler) handleDescribeCodeRepository(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		CodeRepositoryName string `json:"CodeRepositoryName"`
-	}
+	var req describeCodeRepositoryInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -54,11 +62,19 @@ func (h *Handler) handleDescribeCodeRepository(ctx context.Context, body []byte)
 	return json.Marshal(result)
 }
 
+// updateCodeRepositoryInput mirrors UpdateCodeRepositoryInput
+// (api_op_UpdateCodeRepository.go:27-38). GitConfig's only real field is
+// SecretArn (types.GitConfigForUpdate, types.go:9239-9248) -- unlike
+// Create's GitConfig, Update cannot touch RepositoryUrl/Branch at all.
+type updateCodeRepositoryInput struct {
+	CodeRepositoryName string `json:"CodeRepositoryName"`
+	GitConfig          struct {
+		SecretArn string `json:"SecretArn"`
+	} `json:"GitConfig"`
+}
+
 func (h *Handler) handleUpdateCodeRepository(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		GitConfig          map[string]string `json:"GitConfig"`
-		CodeRepositoryName string            `json:"CodeRepositoryName"`
-	}
+	var req updateCodeRepositoryInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -68,7 +84,7 @@ func (h *Handler) handleUpdateCodeRepository(ctx context.Context, body []byte) (
 		return nil, fmt.Errorf("%w: CodeRepositoryName is required", errInvalidRequest)
 	}
 
-	result, err := h.Backend.UpdateCodeRepository(ctx, req.CodeRepositoryName, req.GitConfig)
+	result, err := h.Backend.UpdateCodeRepository(ctx, req.CodeRepositoryName, req.GitConfig.SecretArn)
 	if err != nil {
 		return nil, err
 	}
@@ -76,10 +92,14 @@ func (h *Handler) handleUpdateCodeRepository(ctx context.Context, body []byte) (
 	return json.Marshal(map[string]any{keyCodeRepositoryArn: result.CodeRepositoryArn})
 }
 
+// deleteCodeRepositoryInput mirrors DeleteCodeRepositoryInput
+// (api_op_DeleteCodeRepository.go:27-32).
+type deleteCodeRepositoryInput struct {
+	CodeRepositoryName string `json:"CodeRepositoryName"`
+}
+
 func (h *Handler) handleDeleteCodeRepository(ctx context.Context, body []byte) error {
-	var req struct {
-		CodeRepositoryName string `json:"CodeRepositoryName"`
-	}
+	var req deleteCodeRepositoryInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -92,16 +112,37 @@ func (h *Handler) handleDeleteCodeRepository(ctx context.Context, body []byte) e
 	return h.Backend.DeleteCodeRepository(ctx, req.CodeRepositoryName)
 }
 
+// listCodeRepositoriesInput mirrors ListCodeRepositoriesInput
+// (api_op_ListCodeRepositories.go:29-64).
+type listCodeRepositoriesInput struct {
+	CreationTimeAfter      *float64 `json:"CreationTimeAfter"`
+	CreationTimeBefore     *float64 `json:"CreationTimeBefore"`
+	LastModifiedTimeAfter  *float64 `json:"LastModifiedTimeAfter"`
+	LastModifiedTimeBefore *float64 `json:"LastModifiedTimeBefore"`
+	NameContains           string   `json:"NameContains"`
+	NextToken              string   `json:"NextToken"`
+	SortBy                 string   `json:"SortBy"`
+	SortOrder              string   `json:"SortOrder"`
+	MaxResults             int32    `json:"MaxResults"`
+}
+
 func (h *Handler) handleListCodeRepositories(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		NextToken string `json:"NextToken"`
-	}
+	var req listCodeRepositoriesInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	items, next := h.Backend.ListCodeRepositories(ctx, req.NextToken)
+	items, next := h.Backend.ListCodeRepositories(ctx, req.NextToken, ListCodeRepositoriesFilter{
+		CreationTimeAfter:      epochPtr(req.CreationTimeAfter),
+		CreationTimeBefore:     epochPtr(req.CreationTimeBefore),
+		LastModifiedTimeAfter:  epochPtr(req.LastModifiedTimeAfter),
+		LastModifiedTimeBefore: epochPtr(req.LastModifiedTimeBefore),
+		NameContains:           req.NameContains,
+		SortBy:                 req.SortBy,
+		SortOrder:              req.SortOrder,
+		MaxResults:             req.MaxResults,
+	})
 
 	summaries := make([]map[string]any, 0, len(items))
 	for _, r := range items {

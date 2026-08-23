@@ -93,8 +93,7 @@ func newPersistenceFixture(t *testing.T) (*bedrock.InMemoryBackend, fixtureIDs) 
 
 	// Misc raw state not tied to a single resource above.
 	b.PutModelInvocationLoggingConfiguration(&bedrock.ModelInvocationLoggingConfiguration{
-		S3BucketName:   "test-bucket",
-		LoggingEnabled: true,
+		S3Config: &bedrock.S3LoggingConfig{BucketName: "test-bucket"},
 	})
 	b.PutUseCaseForModelAccess([]byte("test use case form data"))
 	_, err := b.UpdateAutomatedReasoningPolicyAnnotations(
@@ -226,6 +225,7 @@ func seedJobResources(
 		"arn:aws:iam::000000000000:role/cust-role",
 		bedrock.OutputDataConfig{S3Uri: "s3://my-bucket/output/"},
 		bedrock.TrainingDataConfig{S3Uri: "s3://my-bucket/training/"},
+		nil,
 		tags,
 	)
 	require.NoError(t, err)
@@ -684,8 +684,8 @@ func assertMiscRawState(t *testing.T, fresh *bedrock.InMemoryBackend, ids fixtur
 	t.Helper()
 
 	cfg := fresh.GetModelInvocationLoggingConfiguration()
-	assert.Equal(t, "test-bucket", cfg.S3BucketName)
-	assert.True(t, cfg.LoggingEnabled)
+	require.NotNil(t, cfg.S3Config)
+	assert.Equal(t, "test-bucket", cfg.S3Config.BucketName)
 
 	uc := fresh.GetUseCaseForModelAccess()
 	assert.Equal(t, []byte("test use case form data"), uc)
@@ -737,6 +737,48 @@ func TestInMemoryBackend_RestoreVersionMismatch(t *testing.T) {
 	g, err := b.CreateGuardrail("post-reset-guardrail", "d", "in", "out", nil)
 	require.NoError(t, err)
 	assert.Equal(t, "bedrock-guardrail-0000001", g.GuardrailID)
+}
+
+// TestInMemoryBackend_RestoreV1FlowIDDiscarded proves gopherstack-hjdd's fix:
+// a v1 snapshot holding Flow.FlowID/FlowArn under the pre-f16063cd2 keys
+// "flowId"/"flowArn" must be discarded cleanly now that
+// bedrockSnapshotVersion is 2, rather than silently decoding FlowID as empty
+// (which would collide every restored flow onto the same "" key, since
+// flowsKeyFn keys the table on FlowID).
+func TestInMemoryBackend_RestoreV1FlowIDDiscarded(t *testing.T) {
+	t.Parallel()
+
+	b := bedrock.NewInMemoryBackend(testAccountID, testRegion)
+
+	v1Snapshot := `{
+		"version": 1,
+		"accountID": "` + testAccountID + `",
+		"region": "` + testRegion + `",
+		"tables": {
+			"flows": [{
+				"flowId": "flow-1",
+				"flowArn": "arn:aws:bedrock:us-east-1:000000000000:flow/flow-1",
+				"name": "old-flow",
+				"status": "Prepared"
+			}]
+		}
+	}`
+
+	require.NoError(t, b.Restore(t.Context(), []byte(v1Snapshot)),
+		"a v1 snapshot must be discarded via the version guard, not partially decoded")
+
+	_, err := b.GetFlow("flow-1")
+	require.ErrorIs(t, err, bedrock.ErrNotFound,
+		"incompatible-version snapshot must reset to empty, not silently decode FlowID as empty")
+
+	// ListFlows does not depend on flowsKeyFn's (potentially corrupted) key,
+	// so this is the assertion that actually distinguishes a clean discard
+	// from the silent-corruption bug: under the bug, GetFlow("flow-1") also
+	// fails (the flow is misfiled under key "", not "flow-1"), but the flow
+	// still exists and would show up here with FlowID/FlowArn silently
+	// zeroed while Name (whose key was never renamed) restores correctly.
+	flows, _ := b.ListFlows(10, "")
+	assert.Empty(t, flows, "incompatible-version snapshot must reset to empty, not restore a flow with a corrupted id")
 }
 
 // TestInMemoryBackend_RestoreInvalidData verifies malformed JSON surfaces as

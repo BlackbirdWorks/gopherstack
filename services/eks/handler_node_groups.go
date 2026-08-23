@@ -438,6 +438,7 @@ func (h *Handler) handleUpdateNodegroupConfig(
 		CreatedAt:   now,
 	}
 	h.Backend.StoreUpdate(u)
+	h.Backend.scheduleUpdateTransition(clusterName, u.ID)
 
 	return c.JSON(http.StatusOK, map[string]any{
 		keyUpdate: map[string]any{

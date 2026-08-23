@@ -15,18 +15,40 @@ func TestPackageVersionCRUD(t *testing.T) {
 	t.Parallel()
 	h, _ := newHandlerForBatch3Test(t)
 
-	// Create version
+	// Create version, including attributes/recipe/artifact -- real fields
+	// CreatePackageVersionInput accepts (iot@v1.77.4) that the handler used
+	// to silently drop.
 	out := iotOK(t, h, http.MethodPut, "/packages/my-pkg/versions/1.0.0", map[string]any{
 		"description": "version 1",
+		"attributes":  map[string]any{"env": "prod"},
+		"recipe":      `{"format":"1.0"}`,
+		"artifact": map[string]any{
+			"s3Location": map[string]any{"bucket": "b", "key": "k"},
+		},
 	})
 	if out["versionName"] != "1.0.0" {
 		t.Errorf("expected versionName=1.0.0, got %v", out)
+	}
+	attrs, _ := out["attributes"].(map[string]any)
+	if attrs["env"] != "prod" {
+		t.Errorf("expected attributes.env=prod on CreatePackageVersion, got %v", out)
+	}
+	if out["recipe"] != `{"format":"1.0"}` {
+		t.Errorf("expected recipe on CreatePackageVersion, got %v", out)
+	}
+	artifact, _ := out["artifact"].(map[string]any)
+	if artifact == nil {
+		t.Errorf("expected artifact on CreatePackageVersion, got %v", out)
 	}
 
 	// Get version
 	out2 := iotOK(t, h, http.MethodGet, "/packages/my-pkg/versions/1.0.0", nil)
 	if out2["versionName"] != "1.0.0" {
 		t.Errorf("get mismatch: %v", out2)
+	}
+	attrs2, _ := out2["attributes"].(map[string]any)
+	if attrs2["env"] != "prod" {
+		t.Errorf("expected attributes.env=prod on GetPackageVersion, got %v", out2)
 	}
 
 	// Update version
@@ -67,6 +89,35 @@ func TestPackageConfiguration(t *testing.T) {
 	if cfg == nil {
 		t.Errorf("expected versionUpdateByJobsConfig, got %v", out2)
 	}
+}
+
+// TestUpdatePackageConfiguration_FieldsSurviveIndependentUpdates guards
+// gopherstack-c8ge: types.VersionUpdateByJobsConfig has two
+// independently-optional pointer scalars, Enabled and RoleArn. Updating
+// RoleArn alone in a later call must not wipe Enabled set by an earlier,
+// unrelated call.
+func TestUpdatePackageConfiguration_FieldsSurviveIndependentUpdates(t *testing.T) {
+	t.Parallel()
+	h, _ := newHandlerForBatch3Test(t)
+
+	// Update A: set enabled.
+	iotOK(t, h, http.MethodPatch, "/package-configuration", map[string]any{
+		"versionUpdateByJobsConfig": map[string]any{"enabled": true},
+	})
+
+	// Update B: set roleArn only, omitting enabled.
+	iotOK(t, h, http.MethodPatch, "/package-configuration", map[string]any{
+		"versionUpdateByJobsConfig": map[string]any{
+			"roleArn": "arn:aws:iam::000000000000:role/PackageJobsRole",
+		},
+	})
+
+	out := iotOK(t, h, http.MethodGet, "/package-configuration", nil)
+	cfg, ok := out["versionUpdateByJobsConfig"].(map[string]any)
+	require.True(t, ok, "expected versionUpdateByJobsConfig, got %v", out)
+
+	assert.Equal(t, "arn:aws:iam::000000000000:role/PackageJobsRole", cfg["roleArn"], "B's own field must apply")
+	assert.Equal(t, true, cfg["enabled"], "A's enabled must survive an Update that never mentioned it")
 }
 
 // TestListPackages_SummaryScoping proves handleListPackages stops leaking
@@ -183,7 +234,7 @@ func TestSbomDisassociateAndValidationResults(t *testing.T) {
 
 		h, b := newRefHandler()
 
-		_, err := b.CreateIoTPackageVersion("pkg1", "1.0", "", nil)
+		_, err := b.CreateIoTPackageVersion("pkg1", "1.0", "", nil, iot.CreateIoTPackageVersionOptions{})
 		require.NoError(t, err)
 
 		_, err = b.AssociateSbomWithPackageVersion(&iot.AssociateSbomWithPackageVersionInput{
@@ -199,6 +250,13 @@ func TestSbomDisassociateAndValidationResults(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 		assert.Contains(t, rec.Body.String(), "SUCCEEDED")
 
+		// GetPackageVersion must surface the sbom/sbomValidationStatus the
+		// backend already tracks, not just the version's own fields.
+		getRec := doRefRequest(t, h, http.MethodGet, "/packages/pkg1/versions/1.0", nil, nil)
+		require.Equal(t, http.StatusOK, getRec.Code)
+		assert.Contains(t, getRec.Body.String(), `"sbomValidationStatus":"SUCCEEDED"`)
+		assert.Contains(t, getRec.Body.String(), "sbom.json")
+
 		rec = doRefRequest(t, h, http.MethodDelete, "/packages/pkg1/versions/1.0/sbom", nil, nil)
 		require.Equal(t, http.StatusOK, rec.Code)
 
@@ -212,7 +270,7 @@ func TestSbomDisassociateAndValidationResults(t *testing.T) {
 
 		h, b := newRefHandler()
 
-		_, err := b.CreateIoTPackageVersion("pkg2", "1.0", "", nil)
+		_, err := b.CreateIoTPackageVersion("pkg2", "1.0", "", nil, iot.CreateIoTPackageVersionOptions{})
 		require.NoError(t, err)
 
 		_, err = b.AssociateSbomWithPackageVersion(&iot.AssociateSbomWithPackageVersionInput{

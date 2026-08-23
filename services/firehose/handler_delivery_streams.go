@@ -7,6 +7,20 @@ import (
 	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
+// compressionFormatUncompressed is the real SDK's documented default CompressionFormat
+// ("If no value is specified, the default is UNCOMPRESSED.").
+const compressionFormatUncompressed = "UNCOMPRESSED"
+
+// defaultS3BufferingSizeMBs and defaultS3BufferingIntervalSeconds are the real SDK's
+// documented BufferingHints defaults (types.go: "The default value is 5"/"300").
+const (
+	defaultS3BufferingSizeMBs         = 5
+	defaultS3BufferingIntervalSeconds = 300
+)
+
+// s3DestinationInput holds the S3 destination configuration from the API request.
+// It maps both S3DestinationConfiguration and ExtendedS3DestinationConfiguration fields.
+
 const maxListLimit = 10000
 
 // s3DestinationInput holds the S3 destination configuration from the API request.
@@ -87,7 +101,7 @@ type mskSourceConfigurationInput struct {
 	AuthenticationConfiguration *MSKAuthenticationConfiguration `json:"AuthenticationConfiguration"`
 	MSKClusterARN               string                          `json:"MSKClusterARN"`
 	TopicName                   string                          `json:"TopicName"`
-	ReadFromTimestamp           string                          `json:"ReadFromTimestamp"`
+	ReadFromTimestamp           float64                         `json:"ReadFromTimestamp,omitempty"`
 }
 
 // redshiftDestinationInput holds the Redshift destination configuration.
@@ -261,18 +275,37 @@ func buildS3DestinationDescription(raw *s3DestinationInput) *S3DestinationDescri
 		return nil
 	}
 
+	// BufferingHints, EncryptionConfiguration and CompressionFormat are
+	// optional on the request (validateS3DestinationConfiguration only
+	// null-checks RoleARN/BucketARN) but REQUIRED on the response, so a client
+	// that omits them must still get them back. gopherstack-r80d batch 28.
+	bufferingHints := raw.BufferingHints
+	if bufferingHints == nil {
+		bufferingHints = defaultS3BufferingHints()
+	}
+
+	encryption := raw.EncryptionConfiguration
+	if encryption == nil {
+		encryption = defaultS3EncryptionConfiguration()
+	}
+
+	compression := raw.CompressionFormat
+	if compression == "" {
+		compression = compressionFormatUncompressed
+	}
+
 	dest := &S3DestinationDescription{
 		BucketARN:                        raw.BucketARN,
 		RoleARN:                          raw.RoleARN,
 		Prefix:                           raw.Prefix,
 		ErrorOutputPrefix:                raw.ErrorOutputPrefix,
-		CompressionFormat:                raw.CompressionFormat,
+		CompressionFormat:                compression,
 		FileExtension:                    raw.FileExtension,
 		CustomTimeZone:                   raw.CustomTimeZone,
-		BufferingHints:                   raw.BufferingHints,
+		BufferingHints:                   bufferingHints,
 		ProcessingConfiguration:          raw.ProcessingConfiguration,
 		S3BackupMode:                     raw.S3BackupMode,
-		EncryptionConfiguration:          raw.EncryptionConfiguration,
+		EncryptionConfiguration:          encryption,
 		CloudWatchLoggingOptions:         raw.CloudWatchLoggingOptions,
 		DynamicPartitioningConfiguration: raw.DynamicPartitioningConfiguration,
 		DataFormatConversion:             raw.DataFormatConversionConfiguration,
@@ -532,9 +565,47 @@ func buildSnowflakeDestination(sf *snowflakeDestinationInput) *SnowflakeDestinat
 }
 
 // buildS3BackupDescription converts an s3BackupInput to the backend type.
+// defaultS3BufferingHints mirrors the real SDK's documented default (types.go's
+// BufferingHints doc comment: "The default value is 300"/"The default value is 5"),
+// applied whenever a real client omits BufferingHints from an S3-family destination
+// config -- AWS still requires the response's BufferingHints, so a real client that
+// never sets it must still get it back.
+func defaultS3BufferingHints() *BufferingHints {
+	return &BufferingHints{SizeInMBs: defaultS3BufferingSizeMBs, IntervalInSeconds: defaultS3BufferingIntervalSeconds}
+}
+
+// defaultS3EncryptionConfiguration mirrors the real SDK's documented default
+// (types.go's EncryptionConfiguration doc comment: "If no value is specified, the
+// default is no encryption"), applied whenever a real client omits
+// EncryptionConfiguration -- required on the response regardless.
+func defaultS3EncryptionConfiguration() *S3EncryptionConfiguration {
+	return &S3EncryptionConfiguration{NoEncryptionConfig: "NoEncryption"}
+}
+
 func buildS3BackupDescription(b *s3BackupInput) *S3BackupDescription {
 	if b == nil {
 		return nil
+	}
+
+	// S3BackupDescription is typed as a full S3DestinationDescription on the
+	// wire (firehose types.go:1575, 2621), so it carries that type's required
+	// members -- BufferingHints, EncryptionConfiguration and CompressionFormat
+	// -- even though all three are optional on the INPUT. Defaulted here so a
+	// caller who omits them still gets a decodable response. See
+	// gopherstack-r80d batch 28.
+	bufferingHints := b.BufferingHints
+	if bufferingHints == nil {
+		bufferingHints = defaultS3BufferingHints()
+	}
+
+	encryption := b.EncryptionConfiguration
+	if encryption == nil {
+		encryption = defaultS3EncryptionConfiguration()
+	}
+
+	compression := b.CompressionFormat
+	if compression == "" {
+		compression = compressionFormatUncompressed
 	}
 
 	return &S3BackupDescription{
@@ -542,9 +613,9 @@ func buildS3BackupDescription(b *s3BackupInput) *S3BackupDescription {
 		RoleARN:                  b.RoleARN,
 		Prefix:                   b.Prefix,
 		ErrorOutputPrefix:        b.ErrorOutputPrefix,
-		CompressionFormat:        b.CompressionFormat,
-		BufferingHints:           b.BufferingHints,
-		EncryptionConfiguration:  b.EncryptionConfiguration,
+		CompressionFormat:        compression,
+		BufferingHints:           bufferingHints,
+		EncryptionConfiguration:  encryption,
 		CloudWatchLoggingOptions: b.CloudWatchLoggingOptions,
 	}
 }

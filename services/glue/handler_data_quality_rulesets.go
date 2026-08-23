@@ -295,10 +295,16 @@ type getDataQualityRuleRecommendationRunInput struct {
 	RunID string `json:"RunId"`
 }
 
-// getDataQualityRuleRecommendationRunOutput holds the result for GetDataQualityRuleRecommendationRun.
+// getDataQualityRuleRecommendationRunOutput holds the result for
+// GetDataQualityRuleRecommendationRun. StartedOn is a real
+// GetDataQualityRuleRecommendationRunOutput member
+// (api_op_GetDataQualityRuleRecommendationRun.go) backed by real state
+// already tracked on DQRuleRecommendationRun (models.go) -- previously
+// dropped entirely by this narrower response struct.
 type getDataQualityRuleRecommendationRunOutput struct {
-	RunID  string `json:"RunId"`
-	Status string `json:"Status"`
+	RunID     string  `json:"RunId"`
+	Status    string  `json:"Status"`
+	StartedOn float64 `json:"StartedOn,omitempty"`
 }
 
 func (h *Handler) handleGetDataQualityRuleRecommendationRun(
@@ -315,8 +321,9 @@ func (h *Handler) handleGetDataQualityRuleRecommendationRun(
 	}
 
 	return &getDataQualityRuleRecommendationRunOutput{
-		RunID:  run.RecommendationRunID,
-		Status: run.Status,
+		RunID:     run.RecommendationRunID,
+		Status:    run.Status,
+		StartedOn: run.StartedOn,
 	}, nil
 }
 

@@ -20,15 +20,13 @@ func TestPutEvents_AppLifeCycleEvent(t *testing.T) {
 		{
 			name: "lifecycle_open_event",
 			body: map[string]any{
-				"EventsRequest": map[string]any{
-					"BatchItem": map[string]any{
-						"ep-001": map[string]any{
-							"Endpoint": map[string]any{"ChannelType": "APNS"},
-							"Events": map[string]any{
-								"ev-1": map[string]any{
-									"EventType": "_session.start",
-									"Timestamp": "2026-05-01T00:00:00Z",
-								},
+				"BatchItem": map[string]any{
+					"ep-001": map[string]any{
+						"Endpoint": map[string]any{"ChannelType": "APNS"},
+						"Events": map[string]any{
+							"ev-1": map[string]any{
+								"EventType": "_session.start",
+								"Timestamp": "2026-05-01T00:00:00Z",
 							},
 						},
 					},
@@ -39,15 +37,13 @@ func TestPutEvents_AppLifeCycleEvent(t *testing.T) {
 		{
 			name: "lifecycle_stop_event",
 			body: map[string]any{
-				"EventsRequest": map[string]any{
-					"BatchItem": map[string]any{
-						"ep-002": map[string]any{
-							"Endpoint": map[string]any{"ChannelType": "GCM"},
-							"Events": map[string]any{
-								"ev-2": map[string]any{
-									"EventType": "_session.stop",
-									"Timestamp": "2026-05-01T01:00:00Z",
-								},
+				"BatchItem": map[string]any{
+					"ep-002": map[string]any{
+						"Endpoint": map[string]any{"ChannelType": "GCM"},
+						"Events": map[string]any{
+							"ev-2": map[string]any{
+								"EventType": "_session.stop",
+								"Timestamp": "2026-05-01T01:00:00Z",
 							},
 						},
 					},
@@ -58,15 +54,13 @@ func TestPutEvents_AppLifeCycleEvent(t *testing.T) {
 		{
 			name: "lifecycle_pause_event",
 			body: map[string]any{
-				"EventsRequest": map[string]any{
-					"BatchItem": map[string]any{
-						"ep-003": map[string]any{
-							"Endpoint": map[string]any{"ChannelType": "EMAIL"},
-							"Events": map[string]any{
-								"ev-3": map[string]any{
-									"EventType": "_session.pause",
-									"Timestamp": "2026-05-01T02:00:00Z",
-								},
+				"BatchItem": map[string]any{
+					"ep-003": map[string]any{
+						"Endpoint": map[string]any{"ChannelType": "EMAIL"},
+						"Events": map[string]any{
+							"ev-3": map[string]any{
+								"EventType": "_session.pause",
+								"Timestamp": "2026-05-01T02:00:00Z",
 							},
 						},
 					},
@@ -77,15 +71,13 @@ func TestPutEvents_AppLifeCycleEvent(t *testing.T) {
 		{
 			name: "lifecycle_resume_event",
 			body: map[string]any{
-				"EventsRequest": map[string]any{
-					"BatchItem": map[string]any{
-						"ep-004": map[string]any{
-							"Endpoint": map[string]any{"ChannelType": "SMS"},
-							"Events": map[string]any{
-								"ev-4": map[string]any{
-									"EventType": "_session.resume",
-									"Timestamp": "2026-05-01T03:00:00Z",
-								},
+				"BatchItem": map[string]any{
+					"ep-004": map[string]any{
+						"Endpoint": map[string]any{"ChannelType": "SMS"},
+						"Events": map[string]any{
+							"ev-4": map[string]any{
+								"EventType": "_session.resume",
+								"Timestamp": "2026-05-01T03:00:00Z",
 							},
 						},
 					},
@@ -96,15 +88,13 @@ func TestPutEvents_AppLifeCycleEvent(t *testing.T) {
 		{
 			name: "custom_app_lifecycle_event",
 			body: map[string]any{
-				"EventsRequest": map[string]any{
-					"BatchItem": map[string]any{
-						"ep-005": map[string]any{
-							"Endpoint": map[string]any{"ChannelType": "PUSH"},
-							"Events": map[string]any{
-								"ev-5": map[string]any{
-									"EventType": "app.purchase",
-									"Timestamp": "2026-05-01T04:00:00Z",
-								},
+				"BatchItem": map[string]any{
+					"ep-005": map[string]any{
+						"Endpoint": map[string]any{"ChannelType": "PUSH"},
+						"Events": map[string]any{
+							"ev-5": map[string]any{
+								"EventType": "app.purchase",
+								"Timestamp": "2026-05-01T04:00:00Z",
 							},
 						},
 					},
@@ -140,19 +130,17 @@ func TestPutEvents_ReturnsEventResults(t *testing.T) {
 
 	rec := doPinpointRequest(t, h, http.MethodPost, "/v1/apps/"+appID+"/events",
 		map[string]any{
-			"EventsRequest": map[string]any{
-				"BatchItem": map[string]any{
-					"ep-001": map[string]any{
-						"Endpoint": map[string]any{"ChannelType": "EMAIL"},
-						"Events": map[string]any{
-							"ev-1": map[string]any{
-								"EventType": "_session.start",
-								"Timestamp": "2026-01-01T00:00:00Z",
-							},
-							"ev-2": map[string]any{
-								"EventType": "custom.button.click",
-								"Timestamp": "2026-01-01T00:00:01Z",
-							},
+			"BatchItem": map[string]any{
+				"ep-001": map[string]any{
+					"Endpoint": map[string]any{"ChannelType": "EMAIL"},
+					"Events": map[string]any{
+						"ev-1": map[string]any{
+							"EventType": "_session.start",
+							"Timestamp": "2026-01-01T00:00:00Z",
+						},
+						"ev-2": map[string]any{
+							"EventType": "custom.button.click",
+							"Timestamp": "2026-01-01T00:00:01Z",
 						},
 					},
 				},
@@ -191,20 +179,18 @@ func TestPutEvents_MultipleEndpoints(t *testing.T) {
 
 	rec := doPinpointRequest(t, h, http.MethodPost, "/v1/apps/"+appID+"/events",
 		map[string]any{
-			"EventsRequest": map[string]any{
-				"BatchItem": map[string]any{
-					"ep-a": map[string]any{
-						"Endpoint": map[string]any{},
-						"Events": map[string]any{
-							"ev-a1": map[string]any{"EventType": "login"},
-						},
+			"BatchItem": map[string]any{
+				"ep-a": map[string]any{
+					"Endpoint": map[string]any{},
+					"Events": map[string]any{
+						"ev-a1": map[string]any{"EventType": "login"},
 					},
-					"ep-b": map[string]any{
-						"Endpoint": map[string]any{},
-						"Events": map[string]any{
-							"ev-b1": map[string]any{"EventType": "purchase"},
-							"ev-b2": map[string]any{"EventType": "view"},
-						},
+				},
+				"ep-b": map[string]any{
+					"Endpoint": map[string]any{},
+					"Events": map[string]any{
+						"ev-b1": map[string]any{"EventType": "purchase"},
+						"ev-b2": map[string]any{"EventType": "view"},
 					},
 				},
 			},
@@ -234,9 +220,7 @@ func TestPutEvents_EmptyBatch(t *testing.T) {
 
 	rec := doPinpointRequest(t, h, http.MethodPost, "/v1/apps/"+appID+"/events",
 		map[string]any{
-			"EventsRequest": map[string]any{
-				"BatchItem": map[string]any{},
-			},
+			"BatchItem": map[string]any{},
 		})
 
 	require.Equal(t, http.StatusAccepted, rec.Code)
@@ -255,9 +239,7 @@ func TestPutEvents_UnknownApp(t *testing.T) {
 
 	rec := doPinpointRequest(t, h, http.MethodPost, "/v1/apps/nonexistent/events",
 		map[string]any{
-			"EventsRequest": map[string]any{
-				"BatchItem": map[string]any{},
-			},
+			"BatchItem": map[string]any{},
 		})
 
 	assert.Equal(t, http.StatusInternalServerError, rec.Code)

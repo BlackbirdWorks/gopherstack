@@ -7,7 +7,7 @@
 
 | Metric | Value |
 | --- | --- |
-| Operations audited | 77 (77 ok) |
+| PARITY entries audited | 77 (77 ok) |
 | Known gaps | 2 |
 | Deferred items | 3 |
 | Resource leaks | clean |

@@ -1,4 +1,4 @@
-.PHONY: build build-check ui-install ui-lint ui-check ui-lint-fix ui-fmt ui-fmt-fix ui-test ui-build install-deps install-tofu lint lint-changed lint-fix test integration-test terraform-test e2e e2e-test total-coverage clean demo all dev-mcp-install dev-mcp-check pgo docs check-pins
+.PHONY: build build-check ui-install ui-lint ui-check ui-lint-fix ui-fmt ui-fmt-fix ui-test ui-build install-deps install-tofu lint lint-changed lint-fix test integration-test terraform-test e2e e2e-test total-coverage clean demo all dev-mcp-install dev-mcp-check pgo docs check-pins bd-audit
 
 BINARY_NAME=gopherstack
 VERSION_PKG=github.com/blackbirdworks/gopherstack/pkgs/version
@@ -15,12 +15,17 @@ build: ui-build
 		-ldflags "-w -s -X $(VERSION_PKG).Build=$(BUILD_VERSION)" \
 		-o bin/$(BINARY_NAME) .
 
-# Verify that all packages compile cleanly under default and tagged builds (e2e, integration)
-# to catch tag-gated signature/compile breaks fast before long test suites run (gopherstack-0bpp).
+# Verify that everything compiles under default and tagged builds (e2e, integration)
+# to catch tag-gated signature/compile breaks fast, before long test suites run
+# (gopherstack-0bpp). The e2e/integration steps use `go vet`, not `go build`: every
+# tagged file in this repo is a _test.go file, and `go build` never compiles
+# _test.go files regardless of tags -- it would silently pass over the exact
+# break class this target exists to catch. `go vet` type-checks test files too.
+# Tag list verified via: grep -rh '^//go:build' --include='*.go' . | sort -u
 build-check:
 	go build ./...
-	go build -tags e2e ./...
-	go build -tags integration ./...
+	go vet -tags e2e ./...
+	go vet -tags integration ./...
 
 ui-install:
 	PATH="/opt/homebrew/bin:$(PATH)" npm --prefix ui ci
@@ -131,7 +136,7 @@ install-tofu:
 		echo "OpenTofu $$TOFU_VER installed to bin/tofu"; \
 	fi
 
-lint: install-deps ui-lint ui-fmt ui-check
+lint: install-deps ui-lint ui-fmt ui-check build-check
 	golangci-lint run --timeout 20m ./...
 	go vet -vettool=$$(go tool -n mulint-vet) ./...
 	go tool govulncheck ./...
@@ -153,7 +158,7 @@ test:
 integration-test: build-linux
 	go tool gotestsum --format pkgname -- -race -shuffle on -timeout 10m ./test/integration/...
 
-terraform-test: install-tofu
+terraform-test: install-tofu build-linux
 	PATH="$$PWD/bin:$$PATH" go tool gotestsum --format pkgname -- -v -race -parallel 8 -timeout 45m ./test/terraform/...
 
 e2e: e2e-test
@@ -215,6 +220,15 @@ docs:
 # claim audited against it. See cmd/checkpins.
 check-pins:
 	go run ./cmd/checkpins
+
+# Report bd issues whose state disagrees with git history: a Closes/Fixes/
+# Resolves trailer on this branch's own commits (origin/main..HEAD) naming
+# an issue bd doesn't show closed, or naming an issue id that doesn't exist
+# in bd at all (a typo). Also prints a heuristic suspicion list of open
+# issues that plausibly shipped already without ever being named in a
+# trailer (see cmd/bdaudit). Reports only -- never closes anything in bd.
+bd-audit:
+	go run ./cmd/bdaudit
 
 demo: ui-build
 	docker compose down

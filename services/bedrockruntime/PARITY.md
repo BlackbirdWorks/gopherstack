@@ -30,8 +30,8 @@ ops:
   CountTokens: {wire: ok, errors: ok, state: ok, persist: n/a, note: "unchanged this pass -- previously fixed request body wire shape ({input:{invokeModel:{body}}} / {input:{converse:{...}}}) re-verified still correct"}
   ApplyGuardrail: {wire: ok, errors: ok, state: ok, persist: n/a, note: "fixed 2026-08-07 pass: assessments was ALWAYS an empty array, including when action=BLOCKED -- a disguised no-op (PARITY.md previously and incorrectly claimed 'assessments... reflect the real input content', which was false: only outputs did). Now a BLOCKED action reports a types.GuardrailWordPolicyAssessment-shaped wordPolicy.customWords entry naming the matched keyword, matching the real GuardrailAssessment union's required member shapes. FIXED 2026-08-20 (real bug, this pass): the top-level response field 'action' was the literal string \"BLOCKED\", which is not a member of ApplyGuardrailOutput.Action's real type, types.GuardrailAction (verified: aws-sdk-go-v2/service/bedrockruntime@v1.57.1/types/enums.go:161-166 -- exactly two values, GuardrailActionNone=\"NONE\" and GuardrailActionGuardrailIntervened=\"GUARDRAIL_INTERVENED\"). \"BLOCKED\" is a real value but belongs to a DIFFERENT enum at a DIFFERENT nesting level -- types.GuardrailWordPolicyAction (enums.go:835-840), used correctly by assessments[].wordPolicy.customWords[].action. The same literal constant was being reused for both the outer op-level decision and the inner per-word-policy-hit decision; Go does not reject an out-of-enum string at JSON-decode time (GuardrailAction is a plain string type), so this produced no client error -- any real caller branching on resp.Action (e.g. `if action == types.GuardrailActionGuardrailIntervened`) would silently treat every BLOCKED call as unblocked. Fixed via a new topLevelGuardrailAction() mapping function (handler_guardrails.go) so the outer 'action' key and the inner wordPolicy action stay independently correct. Proven both ways: TestApplyGuardrail_ActionEnum_SDKRoundTrip (wire_sdk_roundtrip_test.go) asserts out.Action == types.GuardrailActionGuardrailIntervened via the real SDK client; hand-revert (cp method) reproduced the exact real-world symptom -- types.GuardrailAction(\"BLOCKED\"), an unmatched enum value the client received with no error. Pre-existing unit tests in handler_guardrails_test.go asserted the wrong wire value (\"BLOCKED\" at the top level) and were corrected to \"GUARDRAIL_INTERVENED\" alongside the fix; the nested wordPolicy.customWords[].action assertion (still \"BLOCKED\") was left unchanged since it was already correct."}
   StartAsyncInvoke: {wire: ok, errors: ok, state: ok, persist: ok}
-  GetAsyncInvoke: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListAsyncInvokes: {wire: ok, errors: ok, state: ok, persist: ok}
+  GetAsyncInvoke: {wire: fixed, errors: ok, state: ok, persist: ok, note: "2026-08-21 (gopherstack-y1zn): buildAsyncInvokeResponse emitted a \"tags\" key whenever Tags was non-empty; neither GetAsyncInvokeOutput nor AsyncInvokeSummary (bedrockruntime@v1.57.1 types/api_op_GetAsyncInvoke.go) has a Tags member, and this service has no TagResource/ListTagsForResource op at all -- real AWS gives no way to read an async invoke's tags back, ever. Removed. Proven via raw-body assertion (TestGetAsyncInvoke_NoInventedTagsKey_RealClient), hand-reverted/confirmed-failing/restored/md5sum-verified."}
+  ListAsyncInvokes: {wire: fixed, errors: ok, state: ok, persist: ok, note: "2026-08-21 (gopherstack-y1zn): shares buildAsyncInvokeResponse with GetAsyncInvoke; same tags-key fix applies to each summary entry."}
   InvokeGuardrailChecks: {wire: partial, errors: ok, state: partial, persist: n/a, note: "NEW this pass (POST /guardrail-checks/invoke, confirmed from serializers.go's awsRestjson1_serializeOpInvokeGuardrailChecks path literal; field-diffed contentFilter/promptAttack/sensitiveInformation config+result shapes against types.go/deserializers.go). Does NOT reference a stored 'bedrock'-service guardrail resource -- Checks is supplied inline in the request, so there is no guardrailIdentifier and nothing in the separate bedrock control-plane backend to consult (confirmed unreachable/inapplicable here, not silently ignored). contentFilter/promptAttack: no real ML classifier exists, so each requested group is present (matches whether the caller asked for it) but its 'results' array is honestly EMPTY rather than carrying a fabricated severityScore per category -- this is a genuine wire-completeness gap (real AWS always returns one entry per requested category) traded deliberately against the alternative of inventing classifier output; wire: partial reflects this. sensitiveInformation: genuinely evaluated via literal, deterministic pattern/format detectors (see handler_guardrail_checks.go's piiDetectors) for EMAIL/PHONE/IP_ADDRESS/URL/AWS_ACCESS_KEY/MAC_ADDRESS/US_SOCIAL_SECURITY_NUMBER/CREDIT_DEBIT_CARD_NUMBER (the last Luhn-checksum validated); every other GuardrailChecksSensitiveInformationEntityType value requires free-text NER or a jurisdiction-specific checksum not implemented, and is honestly never matched -- not fabricated. confidenceScore is always exactly 1.0 for a detected entity (a deterministic pattern hit, not an invented probability). usage.*.textUnits is always 0, matching the same not-metered precedent ApplyGuardrail already established for its usage block."}
 families:
   model-path-routing: {status: ok, note: "unchanged this pass; extractModelID/ExtractResource ARN-embedded-slash fix from the prior audit re-verified still correct"}
@@ -230,3 +230,46 @@ leaks: {status: clean, note: "unchanged this pass; janitor (RunJanitor/StartWork
   it. gopherstack has no real latency-optimized inference tier, so it reflects the caller's request value
   instead of fabricating one; omitted entirely (not defaulted to "standard") when the caller didn't send
   it, to avoid inventing a value with no backing semantics.
+
+## 2026-08-21: gopherstack-r80d batch 21 -- required-output-member cut, 0 bugs
+
+Second-largest remaining `gopherstack-r80d` candidate after sagemaker (20
+required output fields, 11 ops, 8 with >=1, per `cmd/requiredoutputfields`).
+Instrument cross-checked three ways (character-level brace matcher,
+`go/parser` AST walk, raw `grep -c`) across `types/types.go` + every
+`api_op_*.go` file -- all three agree at 161 total required fields / 90
+structs. Most of that 90-struct surface is the `Converse`/`ConverseStream`
+polymorphic `ContentBlock`/`*EventAttributes` union family (`ImageBlock`,
+`DocumentBlock`, `VideoBlock`, `AudioBlock`, `ToolUseBlock`,
+`ToolResultBlock`, `SearchResultBlock`, the `GuardrailChecks*`/`Guardrail*`
+assessment leaf types, and every `ConverseStream` event-detail type) --
+`handler_converse.go`'s `buildConverseResponse`/`handleConverseStream` only
+ever construct a single plain-text content block (`ContentBlockMemberText`),
+never any of the other union variants, a documented, disclosed scope limit
+(not a dropped-required-field bug, since those variants are never
+constructed at all).
+
+Read all 8 ops with required output fields end to end against their
+handlers (`handler_converse.go`, `handler_guardrails.go`,
+`handler_guardrail_checks.go`, `handler_invoke.go`,
+`handler_async_invoke.go`), verified against the real
+`awsRestjson1_deserializeOpDocument<Op>Output`/
+`awsRestjson1_deserializeDocument<Type>` functions directly (not just Go
+field names) for `Converse`'s `output`/`message`/`content` union chain and
+`GuardrailChecks*`'s result/usage wrapper keys. Every required member is
+present on every real-client-reachable path: `ConverseOutput.Metrics/
+Output/StopReason/Usage`, `ApplyGuardrailOutput.Action/Assessments/Outputs/
+Usage` (including the nested `GuardrailUsage`'s 6 required unit-count
+fields, `GuardrailWordPolicyAssessment.CustomWords/ManagedWordLists`, and
+`GuardrailCustomWord.Action/Match`), `GetAsyncInvokeOutput`/
+`AsyncInvokeSummary`'s `InvocationArn/ModelArn/OutputDataConfig/SubmitTime`
+(`Status` is genuinely NOT required on `AsyncInvokeSummary`, confirmed by
+reading the struct directly -- only on `GetAsyncInvokeOutput`),
+`InvokeGuardrailChecksOutput.Results/Usage` and each check family's own
+required `Results`/`TextUnits` sub-fields (contentFilter/promptAttack
+results lists are honestly empty per the pre-existing ML-classifier gap,
+already disclosed above -- not a new finding), `InvokeModelOutput.Body/
+ContentType`, `InvokeModelWithResponseStreamOutput.ContentType`,
+`CountTokensOutput.InputTokens`, `StartAsyncInvokeOutput.InvocationArn`. No
+code changes; see `services/_REQUIRED_OUTPUT_CANDIDATES.md`'s
+settled-services table.

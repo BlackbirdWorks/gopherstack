@@ -315,6 +315,7 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 		{ErrApprovalAlreadyCompleted, "ApprovalAlreadyCompletedException"},
 		{ErrStageNotRetryable, "StageNotRetryableException"},
 		{ErrUnableToRollbackStage, "UnableToRollbackStageException"},
+		{ErrActionExecutionNotFound, "ActionExecutionNotFoundException"},
 		{errUnknownAction, "InvalidActionException"},
 		{errInvalidRequest, "ValidationException"},
 	}

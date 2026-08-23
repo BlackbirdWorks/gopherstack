@@ -27,16 +27,19 @@ type listTagsForStreamOutput struct {
 type handleAddTagsToStreamInput struct {
 	Tags       *svcTags.Tags `json:"Tags"`
 	StreamName string        `json:"StreamName"`
+	StreamARN  string        `json:"StreamARN"`
 }
 
 type handleRemoveTagsFromStreamInput struct {
 	StreamName string   `json:"StreamName"`
+	StreamARN  string   `json:"StreamARN"`
 	TagKeys    []string `json:"TagKeys"`
 }
 
 type listTagsForStreamReq struct {
 	ExclusiveStartTagKey string `json:"ExclusiveStartTagKey"`
 	StreamName           string `json:"StreamName"`
+	StreamARN            string `json:"StreamARN"`
 	Limit                int    `json:"Limit"`
 }
 
@@ -78,7 +81,9 @@ func (h *Handler) handleAddTagsToStream(
 		return nil, ErrInvalidArgument
 	}
 
-	out, err := h.Backend.DescribeStream(ctx, &DescribeStreamInput{StreamName: req.StreamName})
+	streamName, ctx := resolveStreamNameAndRegion(ctx, req.StreamName, req.StreamARN, h.defaultRegion())
+
+	out, err := h.Backend.DescribeStream(ctx, &DescribeStreamInput{StreamName: streamName})
 	if err != nil {
 		return nil, err
 	}
@@ -123,7 +128,9 @@ func (h *Handler) handleRemoveTagsFromStream(
 		return nil, ErrInvalidArgument
 	}
 
-	out, err := h.Backend.DescribeStream(ctx, &DescribeStreamInput{StreamName: req.StreamName})
+	streamName, ctx := resolveStreamNameAndRegion(ctx, req.StreamName, req.StreamARN, h.defaultRegion())
+
+	out, err := h.Backend.DescribeStream(ctx, &DescribeStreamInput{StreamName: streamName})
 	if err != nil {
 		return nil, err
 	}
@@ -148,7 +155,9 @@ func (h *Handler) handleListTagsForStream(
 		return nil, ErrInvalidArgument
 	}
 
-	out, err := h.Backend.DescribeStream(ctx, &DescribeStreamInput{StreamName: req.StreamName})
+	streamName, ctx := resolveStreamNameAndRegion(ctx, req.StreamName, req.StreamARN, h.defaultRegion())
+
+	out, err := h.Backend.DescribeStream(ctx, &DescribeStreamInput{StreamName: streamName})
 	if err != nil {
 		return nil, err
 	}

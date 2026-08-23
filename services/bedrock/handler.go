@@ -80,6 +80,7 @@ const (
 	keyModelID                  = "modelId"
 	keyPromptRouterArn          = "promptRouterArn"
 	keyCustomModelDeploymentArn = "customModelDeploymentArn"
+	keyRoleArn                  = "roleArn"
 
 	// Stub operation paths.
 	modelCopyJobsPrefix       = "/model-copy-jobs"

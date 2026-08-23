@@ -145,12 +145,19 @@ type AsyncOutputConfig struct {
 }
 
 // EndpointConfig represents a SageMaker endpoint configuration.
+//
+// ExplainerConfig/MetricsConfig are carried as opaque json.RawMessage
+// passthrough rather than fully-typed structs, the same convention as
+// ModelPackage's deep union/config fields — every field a client actually
+// sends round-trips exactly.
 type EndpointConfig struct {
 	CreationTime             time.Time             `json:"CreationTime"`
 	Tags                     map[string]string     `json:"Tags,omitempty"`
 	VpcConfig                *VpcConfig            `json:"VpcConfig,omitempty"`
 	DataCaptureConfig        *DataCaptureConfig    `json:"DataCaptureConfig,omitempty"`
 	AsyncInferenceConfig     *AsyncInferenceConfig `json:"AsyncInferenceConfig,omitempty"`
+	ExplainerConfig          json.RawMessage       `json:"ExplainerConfig,omitempty"`
+	MetricsConfig            json.RawMessage       `json:"MetricsConfig,omitempty"`
 	EndpointConfigName       string                `json:"EndpointConfigName"`
 	EndpointConfigARN        string                `json:"EndpointConfigARN"`
 	ExecutionRoleArn         string                `json:"ExecutionRoleArn,omitempty"`
@@ -200,6 +207,8 @@ func cloneEndpointConfig(ec *EndpointConfig) *EndpointConfig {
 		aic := *ec.AsyncInferenceConfig
 		cp.AsyncInferenceConfig = &aic
 	}
+	cp.ExplainerConfig = append(json.RawMessage(nil), ec.ExplainerConfig...)
+	cp.MetricsConfig = append(json.RawMessage(nil), ec.MetricsConfig...)
 
 	return &cp
 }
@@ -231,16 +240,17 @@ type ActionSource struct {
 
 // Action represents a SageMaker ML lineage action.
 type Action struct {
-	CreationTime     time.Time         `json:"CreationTime"`
-	LastModifiedTime time.Time         `json:"LastModifiedTime"`
-	Tags             map[string]string `json:"Tags,omitempty"`
-	Properties       map[string]string `json:"Properties,omitempty"`
-	Source           ActionSource      `json:"Source"`
-	ActionName       string            `json:"ActionName"`
-	ActionArn        string            `json:"ActionArn"`
-	ActionType       string            `json:"ActionType"`
-	Description      string            `json:"Description,omitempty"`
-	Status           string            `json:"Status,omitempty"`
+	CreationTime       time.Time           `json:"CreationTime"`
+	LastModifiedTime   time.Time           `json:"LastModifiedTime"`
+	Tags               map[string]string   `json:"Tags,omitempty"`
+	Properties         map[string]string   `json:"Properties,omitempty"`
+	MetadataProperties *MetadataProperties `json:"MetadataProperties,omitempty"`
+	Source             ActionSource        `json:"Source"`
+	ActionName         string              `json:"ActionName"`
+	ActionArn          string              `json:"ActionArn"`
+	ActionType         string              `json:"ActionType"`
+	Description        string              `json:"Description,omitempty"`
+	Status             string              `json:"Status,omitempty"`
 }
 
 // cloneAction returns a deep copy of a.
@@ -248,6 +258,11 @@ func cloneAction(a *Action) *Action {
 	cp := *a
 	cp.Tags = maps.Clone(a.Tags)
 	cp.Properties = maps.Clone(a.Properties)
+
+	if a.MetadataProperties != nil {
+		mp := *a.MetadataProperties
+		cp.MetadataProperties = &mp
+	}
 
 	return &cp
 }
@@ -369,6 +384,7 @@ type ClusterNodeVolume struct {
 
 // ClusterNode represents a node in a SageMaker cluster.
 type ClusterNode struct {
+	CreationTime      time.Time           `json:"CreationTime"`
 	NodeID            string              `json:"NodeId"`
 	InstanceType      string              `json:"InstanceType,omitempty"`
 	NodeStatus        string              `json:"NodeStatus"`
@@ -465,45 +481,91 @@ type ModelPackageStatusDetails struct {
 }
 
 // ModelPackage represents a SageMaker model package.
+//
+// InferenceSpecification/SourceAlgorithmSpecification/ValidationSpecification/
+// DriftCheckBaselines/ModelMetrics/ModelCard/ModelLifeCycle/MetadataProperties/
+// SecurityConfig/AdditionalInferenceSpecifications are carried as opaque
+// json.RawMessage passthrough rather than fully-typed structs — same
+// convention as ai_workload_configs.go's WorkloadSpec/DatasetConfig — since
+// these are deeply-nested union/config shapes out of this pass's budget;
+// every field a client actually sends round-trips exactly.
 type ModelPackage struct {
-	CreationTime              time.Time                 `json:"CreationTime"`
-	Tags                      map[string]string         `json:"Tags,omitempty"`
-	ModelPackageName          string                    `json:"ModelPackageName"`
-	ModelPackageArn           string                    `json:"ModelPackageArn"`
-	ModelPackageGroupName     string                    `json:"ModelPackageGroupName,omitempty"`
-	ModelPackageStatus        string                    `json:"ModelPackageStatus"`
-	ModelApprovalStatus       string                    `json:"ModelApprovalStatus,omitempty"`
-	ModelPackageDescription   string                    `json:"ModelPackageDescription,omitempty"`
-	ModelPackageStatusDetails ModelPackageStatusDetails `json:"ModelPackageStatusDetails"`
+	CreationTime                      time.Time                 `json:"CreationTime"`
+	LastModifiedTime                  time.Time                 `json:"LastModifiedTime,omitzero"`
+	Tags                              map[string]string         `json:"Tags,omitempty"`
+	CustomerMetadataProperties        map[string]string         `json:"CustomerMetadataProperties,omitempty"`
+	InferenceSpecification            json.RawMessage           `json:"InferenceSpecification,omitempty"`
+	SourceAlgorithmSpecification      json.RawMessage           `json:"SourceAlgorithmSpecification,omitempty"`
+	ValidationSpecification           json.RawMessage           `json:"ValidationSpecification,omitempty"`
+	DriftCheckBaselines               json.RawMessage           `json:"DriftCheckBaselines,omitempty"`
+	ModelMetrics                      json.RawMessage           `json:"ModelMetrics,omitempty"`
+	ModelCard                         json.RawMessage           `json:"ModelCard,omitempty"`
+	ModelLifeCycle                    json.RawMessage           `json:"ModelLifeCycle,omitempty"`
+	MetadataProperties                json.RawMessage           `json:"MetadataProperties,omitempty"`
+	SecurityConfig                    json.RawMessage           `json:"SecurityConfig,omitempty"`
+	AdditionalInferenceSpecifications json.RawMessage           `json:"AdditionalInferenceSpecifications,omitempty"`
+	ModelPackageName                  string                    `json:"ModelPackageName"`
+	ModelPackageArn                   string                    `json:"ModelPackageArn"`
+	ModelPackageGroupName             string                    `json:"ModelPackageGroupName,omitempty"`
+	ModelPackageStatus                string                    `json:"ModelPackageStatus"`
+	ModelApprovalStatus               string                    `json:"ModelApprovalStatus,omitempty"`
+	ApprovalDescription               string                    `json:"ApprovalDescription,omitempty"`
+	ModelPackageDescription           string                    `json:"ModelPackageDescription,omitempty"`
+	Domain                            string                    `json:"Domain,omitempty"`
+	ManagedStorageType                string                    `json:"ManagedStorageType,omitempty"`
+	ModelPackageRegistrationType      string                    `json:"ModelPackageRegistrationType,omitempty"`
+	SamplePayloadURL                  string                    `json:"SamplePayloadUrl,omitempty"`
+	SkipModelValidation               string                    `json:"SkipModelValidation,omitempty"`
+	SourceURI                         string                    `json:"SourceUri,omitempty"`
+	Task                              string                    `json:"Task,omitempty"`
+	ModelPackageStatusDetails         ModelPackageStatusDetails `json:"ModelPackageStatusDetails"`
+	CertifyForMarketplace             bool                      `json:"CertifyForMarketplace,omitempty"`
 }
 
 // cloneModelPackage returns a deep copy of mp.
 func cloneModelPackage(mp *ModelPackage) *ModelPackage {
 	cp := *mp
 	cp.Tags = maps.Clone(mp.Tags)
+	cp.CustomerMetadataProperties = maps.Clone(mp.CustomerMetadataProperties)
 	cp.ModelPackageStatusDetails.ValidationStatuses = append(
 		[]ModelPackageStatusItem{}, mp.ModelPackageStatusDetails.ValidationStatuses...,
 	)
 	cp.ModelPackageStatusDetails.ImageScanStatuses = append(
 		[]ModelPackageStatusItem{}, mp.ModelPackageStatusDetails.ImageScanStatuses...,
 	)
+	cp.InferenceSpecification = append(json.RawMessage(nil), mp.InferenceSpecification...)
+	cp.SourceAlgorithmSpecification = append(json.RawMessage(nil), mp.SourceAlgorithmSpecification...)
+	cp.ValidationSpecification = append(json.RawMessage(nil), mp.ValidationSpecification...)
+	cp.DriftCheckBaselines = append(json.RawMessage(nil), mp.DriftCheckBaselines...)
+	cp.ModelMetrics = append(json.RawMessage(nil), mp.ModelMetrics...)
+	cp.ModelCard = append(json.RawMessage(nil), mp.ModelCard...)
+	cp.ModelLifeCycle = append(json.RawMessage(nil), mp.ModelLifeCycle...)
+	cp.MetadataProperties = append(json.RawMessage(nil), mp.MetadataProperties...)
+	cp.SecurityConfig = append(json.RawMessage(nil), mp.SecurityConfig...)
+	cp.AdditionalInferenceSpecifications = append(json.RawMessage(nil), mp.AdditionalInferenceSpecifications...)
 
 	return &cp
 }
 
-// MarshalJSON emits CreationTime as an AWS awsjson1.1 epoch-seconds number
-// rather than Go's default RFC3339 string — this struct is marshaled
-// directly by handleDescribeModelPackage.
+// MarshalJSON emits CreationTime/LastModifiedTime as AWS awsjson1.1
+// epoch-seconds numbers rather than Go's default RFC3339 strings — this
+// struct is marshaled directly by handleDescribeModelPackage.
 func (mp *ModelPackage) MarshalJSON() ([]byte, error) {
 	type alias ModelPackage
 
-	return json.Marshal(struct {
+	aux := struct {
 		*alias
-		CreationTime float64 `json:"CreationTime"`
+		CreationTime     float64 `json:"CreationTime"`
+		LastModifiedTime float64 `json:"LastModifiedTime,omitempty"`
 	}{
 		alias:        (*alias)(mp),
 		CreationTime: epochSeconds(mp.CreationTime),
-	})
+	}
+	if !mp.LastModifiedTime.IsZero() {
+		aux.LastModifiedTime = epochSeconds(mp.LastModifiedTime)
+	}
+
+	return json.Marshal(aux)
 }
 
 // UnmarshalJSON is the inverse of [ModelPackage.MarshalJSON], read by
@@ -513,7 +575,8 @@ func (mp *ModelPackage) UnmarshalJSON(data []byte) error {
 
 	aux := struct {
 		*alias
-		CreationTime float64 `json:"CreationTime"`
+		CreationTime     float64 `json:"CreationTime"`
+		LastModifiedTime float64 `json:"LastModifiedTime"`
 	}{alias: (*alias)(mp)}
 
 	if err := json.Unmarshal(data, &aux); err != nil {
@@ -521,6 +584,9 @@ func (mp *ModelPackage) UnmarshalJSON(data []byte) error {
 	}
 
 	mp.CreationTime = timeFromEpochSeconds(aux.CreationTime)
+	if aux.LastModifiedTime != 0 {
+		mp.LastModifiedTime = timeFromEpochSeconds(aux.LastModifiedTime)
+	}
 
 	return nil
 }

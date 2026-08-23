@@ -95,8 +95,13 @@ func (b *InMemoryBackend) ListActionExecutions(
 }
 
 // ListDeployActionExecutionTargets returns the deploy targets for an action
-// execution. The emulator does not model deployment targets, so it returns an
-// empty (but valid) list for a known pipeline and ErrNotFound otherwise.
+// execution. Real ListDeployActionExecutionTargetsInput marks only
+// ActionExecutionId required (codepipeline@v1.49.4
+// api_op_ListDeployActionExecutionTargets.go); PipelineName is an optional
+// narrowing filter, so an ActionExecutionId alone must resolve by scanning
+// every pipeline in the region -- gopherstack-2wvq. The emulator does not
+// model deployment targets, so a resolved execution still returns an empty
+// (but valid) list.
 func (b *InMemoryBackend) ListDeployActionExecutionTargets(
 	ctx context.Context,
 	pipelineName, executionID string,
@@ -104,11 +109,36 @@ func (b *InMemoryBackend) ListDeployActionExecutionTargets(
 	b.mu.RLock("ListDeployActionExecutionTargets")
 	defer b.mu.RUnlock()
 
-	if !b.pipelines.Has(regionKey(getRegion(ctx, b.region), pipelineName)) {
-		return nil, ErrNotFound
+	region := getRegion(ctx, b.region)
+
+	if pipelineName != "" {
+		if !b.pipelines.Has(regionKey(region, pipelineName)) {
+			return nil, ErrNotFound
+		}
+
+		if !hasActionExecution(b.actionExecutionsStoreRO(region)[pipelineName], executionID) {
+			return nil, fmt.Errorf("%w: %q", ErrActionExecutionNotFound, executionID)
+		}
+
+		return []map[string]any{}, nil
 	}
 
-	_ = executionID
+	for _, execs := range b.actionExecutionsStoreRO(region) {
+		if hasActionExecution(execs, executionID) {
+			return []map[string]any{}, nil
+		}
+	}
 
-	return []map[string]any{}, nil
+	return nil, fmt.Errorf("%w: %q", ErrActionExecutionNotFound, executionID)
+}
+
+// hasActionExecution reports whether executionID matches any ActionExecutionID in execs.
+func hasActionExecution(execs []*ActionExecution, executionID string) bool {
+	for _, ae := range execs {
+		if ae.ActionExecutionID == executionID {
+			return true
+		}
+	}
+
+	return false
 }

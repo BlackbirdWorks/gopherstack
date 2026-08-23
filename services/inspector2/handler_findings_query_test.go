@@ -146,8 +146,7 @@ func TestListFindingsFilterBySeverity(t *testing.T) {
 
 			for _, f := range findings {
 				m := f.(map[string]any)
-				sev := m["severity"].(map[string]any)
-				assert.Equal(t, tc.filterSeverity, sev["label"])
+				assert.Equal(t, tc.filterSeverity, m["severity"])
 			}
 		})
 	}
@@ -238,8 +237,7 @@ func TestListFindingsCombinedFilter(t *testing.T) {
 
 			for _, f := range findings {
 				m := f.(map[string]any)
-				sev := m["severity"].(map[string]any)
-				assert.Equal(t, tc.severity, sev["label"])
+				assert.Equal(t, tc.severity, m["severity"])
 				assert.Equal(t, tc.status, m["status"])
 			}
 		})
@@ -333,8 +331,7 @@ func TestListFindingsPaginationWithFilter(t *testing.T) {
 
 	for _, f := range allCritical {
 		m := f.(map[string]any)
-		sev := m["severity"].(map[string]any)
-		assert.Equal(t, "CRITICAL", sev["label"])
+		assert.Equal(t, "CRITICAL", m["severity"])
 	}
 }
 

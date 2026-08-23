@@ -279,6 +279,12 @@ func TestBatchDisassociateCodeSecurityScanConfiguration_SuccessfulAssociations(t
 // scanId and status (inspector2@v1.54.1 deserializers.go
 // awsRestjson1_deserializeOpDocumentStartCodeSecurityScanOutput) -- omitting
 // status left a real client's Status field always empty.
+//
+// gopherstack-muzq (2026-08-21): IN_PROGRESS is the right status immediately
+// after Start, but an assertion that stops there cannot catch a machine that
+// never advances -- GetCodeSecurityScan previously never wrote Status again,
+// so a client polling for readiness never exited its loop. Confirm it
+// actually reaches a terminal status too.
 func TestStartCodeSecurityScan_Status(t *testing.T) {
 	t.Parallel()
 
@@ -293,6 +299,16 @@ func TestStartCodeSecurityScan_Status(t *testing.T) {
 	assert.Equal(
 		t, types.CodeScanStatusInProgress, out.Status,
 		"StartCodeSecurityScanOutput.Status must decode non-empty",
+	)
+
+	getOut, getErr := client.GetCodeSecurityScan(ctx, &inspector2sdk.GetCodeSecurityScanInput{
+		Resource: &types.CodeSecurityResourceMemberProjectId{Value: "roundtrip-scan-project"},
+		ScanId:   out.ScanId,
+	})
+	require.NoError(t, getErr)
+	assert.Equal(
+		t, types.CodeScanStatusSuccessful, getOut.Status,
+		"GetCodeSecurityScan must reap IN_PROGRESS to SUCCESSFUL on poll",
 	)
 }
 
@@ -316,4 +332,34 @@ func TestUpdateOrganizationConfiguration_AutoEnable(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, out.AutoEnable, "UpdateOrganizationConfigurationOutput.AutoEnable must decode non-nil")
 	assert.True(t, aws.ToBool(out.AutoEnable.Ec2))
+}
+
+// TestDescribeOrganizationConfiguration_AutoEnableObject proves
+// DescribeOrganizationConfiguration returns AutoEnable as the real
+// per-scan-type object, not a collapsed bool. Real
+// DescribeOrganizationConfigurationOutput.AutoEnable deserializes as an
+// object (inspector2@v1.54.1 deserializers.go,
+// awsRestjson1_deserializeOpDocumentDescribeOrganizationConfigurationOutput,
+// case "autoEnable": awsRestjson1_deserializeDocumentAutoEnable) --
+// gopherstack previously stored and echoed a single bool there, which
+// failed a real client's decode outright.
+func TestDescribeOrganizationConfiguration_AutoEnableObject(t *testing.T) {
+	t.Parallel()
+
+	client := newRoundTripTestClient(t)
+	ctx := t.Context()
+
+	_, err := client.UpdateOrganizationConfiguration(ctx, &inspector2sdk.UpdateOrganizationConfigurationInput{
+		AutoEnable: &types.AutoEnable{
+			Ec2: aws.Bool(true),
+			Ecr: aws.Bool(false),
+		},
+	})
+	require.NoError(t, err)
+
+	out, err := client.DescribeOrganizationConfiguration(ctx, &inspector2sdk.DescribeOrganizationConfigurationInput{})
+	require.NoError(t, err, "real SDK client must decode DescribeOrganizationConfiguration without error")
+	require.NotNil(t, out.AutoEnable, "DescribeOrganizationConfigurationOutput.AutoEnable must decode non-nil")
+	assert.True(t, aws.ToBool(out.AutoEnable.Ec2))
+	assert.False(t, aws.ToBool(out.AutoEnable.Ecr))
 }

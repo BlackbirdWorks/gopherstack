@@ -169,7 +169,12 @@ func buildDomainConfigOutput(d *Domain) *describeDomainConfigOutput {
 		keyDedicatedMasterEnabled: d.ClusterConfig.DedicatedMasterEnabled,
 		keyZoneAwarenessEnabled:   d.ClusterConfig.ZoneAwarenessEnabled,
 		keyWarmEnabled:            d.ClusterConfig.WarmEnabled,
-		keyColdStorageEnabled:     d.ClusterConfig.ColdStorageEnabled,
+		// types.ColdStorageOptions (elasticsearchservice@v1.45.4
+		// deserializers.go) wraps Enabled in a nested object under
+		// "ColdStorageOptions" -- there is no flat "ColdStorageEnabled" member.
+		"ColdStorageOptions": map[string]any{
+			keyEnabled: d.ClusterConfig.ColdStorageEnabled,
+		},
 	}
 
 	if d.ClusterConfig.DedicatedMasterEnabled {
@@ -209,11 +214,11 @@ func buildDomainConfigOutput(d *Domain) *describeDomainConfigOutput {
 		Status:  status,
 	}
 	out.DomainConfig.EncryptionAtRestOptions = elasticsearchConfigValue{
-		Options: map[string]any{"Enabled": d.EncryptionAtRestEnabled},
+		Options: map[string]any{keyEnabled: d.EncryptionAtRestEnabled},
 		Status:  status,
 	}
 	out.DomainConfig.NodeToNodeEncryptionOptions = elasticsearchConfigValue{
-		Options: map[string]any{"Enabled": d.NodeToNodeEncryptionEnabled},
+		Options: map[string]any{keyEnabled: d.NodeToNodeEncryptionEnabled},
 		Status:  status,
 	}
 	out.DomainConfig.DomainEndpointOptions = elasticsearchConfigValue{

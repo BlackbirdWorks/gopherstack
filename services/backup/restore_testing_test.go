@@ -15,7 +15,7 @@ func TestCreateRestoreTestingSelection_Validation(t *testing.T) {
 	t.Run("missing IamRoleArn is a validation error", func(t *testing.T) {
 		t.Parallel()
 		b := backup.NewInMemoryBackend("000000000000", "us-east-1")
-		_, err := b.CreateRestoreTestingPlan("plan-a", "", 0)
+		_, err := b.CreateRestoreTestingPlan("plan-a", "", 0, nil)
 		require.NoError(t, err)
 
 		_, err = b.CreateRestoreTestingSelection("plan-a", "sel-a", backup.RestoreTestingSelectionInput{
@@ -27,7 +27,7 @@ func TestCreateRestoreTestingSelection_Validation(t *testing.T) {
 	t.Run("missing ProtectedResourceType is a validation error", func(t *testing.T) {
 		t.Parallel()
 		b := backup.NewInMemoryBackend("000000000000", "us-east-1")
-		_, err := b.CreateRestoreTestingPlan("plan-b", "", 0)
+		_, err := b.CreateRestoreTestingPlan("plan-b", "", 0, nil)
 		require.NoError(t, err)
 
 		_, err = b.CreateRestoreTestingSelection("plan-b", "sel-b", backup.RestoreTestingSelectionInput{
@@ -39,7 +39,7 @@ func TestCreateRestoreTestingSelection_Validation(t *testing.T) {
 	t.Run("full shape round-trips through Get", func(t *testing.T) {
 		t.Parallel()
 		b := backup.NewInMemoryBackend("000000000000", "us-east-1")
-		_, err := b.CreateRestoreTestingPlan("plan-c", "", 0)
+		_, err := b.CreateRestoreTestingPlan("plan-c", "", 0, nil)
 		require.NoError(t, err)
 
 		sel, err := b.CreateRestoreTestingSelection("plan-c", "sel-c", backup.RestoreTestingSelectionInput{
@@ -69,7 +69,7 @@ func TestCreateRestoreTestingSelection_Validation(t *testing.T) {
 func TestUpdateRestoreTestingSelection_FullReplace(t *testing.T) {
 	t.Parallel()
 	b := backup.NewInMemoryBackend("000000000000", "us-east-1")
-	_, err := b.CreateRestoreTestingPlan("plan-u", "", 0)
+	_, err := b.CreateRestoreTestingPlan("plan-u", "", 0, nil)
 	require.NoError(t, err)
 	_, err = b.CreateRestoreTestingSelection("plan-u", "sel-u", backup.RestoreTestingSelectionInput{
 		ProtectedResourceType: "EC2",

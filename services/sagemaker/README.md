@@ -7,9 +7,9 @@
 
 | Metric | Value |
 | --- | --- |
-| Operations audited | 54 (54 ok) |
-| Feature families | 26 (10 ok, 16 partial) |
-| Known gaps | 15 |
+| PARITY entries audited | 69 (69 ok) |
+| Feature families | 32 (9 ok, 23 partial) |
+| Known gaps | 22 |
 | Deferred items | 5 |
 | Resource leaks | clean |
 
@@ -30,11 +30,18 @@
 - parity-6: DescribeAutoMLJobV2Output's BestCandidate/PartialFailureReasons/ResolvedAttributes/AutoMLJobArtifacts/EndTime/FailureReason/ModelDeployResult are not modeled — these are server-synthesized/derived fields that mirror V1 DescribeAutoMLJobOutput's pre-existing, disclosed depth limit (V1 has never modeled BestCandidate/ResolvedAttributes/etc. either); not a V2-specific regression, just not newly fixed by this pass. (no bd issue filed yet)
 - parity-7 (gopherstack-oc9v): Domain's DefaultUserSettings/DefaultSpaceSettings/DomainSettings, UserProfile's UserSettings, Space's OwnershipSettings/SpaceSettings/SpaceSharingSettings, and App's ResourceSpec are all carried as opaque json.RawMessage passthrough rather than fully-typed structs — UserSettings alone has ~20 app-specific sub-configs (JupyterServerAppSettings, KernelGatewayAppSettings, CanvasAppSettings, CodeEditorAppSettings, SpaceStorageSettings, ...), each individually as large as a small family already in this file. Every field a client sends round-trips exactly; no server-synthesized sub-field is fabricated. (no bd issue filed yet)
 - parity-7 (gopherstack-oc9v): DescribeApp/DescribeDomain still omit several real optional output-only fields this pass didn't add backend state for: App's EffectiveTrustedIdentityPropagationStatus/BuiltInLifecycleConfigArn/FailureReason/LastHealthCheckTimestamp/LastUserActivityTimestamp; Domain's FailureReason/HomeEfsFileSystemId/SecurityGroupIdForDomainBoundary/SingleSignOnApplicationArn/SingleSignOnManagedApplicationInstanceId/HomeEfsFileSystemKmsKeyId (deprecated, superseded by KmsKeyId which IS modeled). These are server-derived/lifecycle fields with no synchronous backend process to derive them from truthfully; left absent rather than fabricated. (no bd issue filed yet)
+- parity-24 (gopherstack-oc9v): ProcessingInput.DatasetDefinition (AthenaDatasetDefinition/RedshiftDatasetDefinition sub-fields beyond the pre-existing DataDistributionType/InputMode) and ProcessingOutput.FeatureStoreOutput remain unmodeled/accept-and-drop — both are deep, low-traffic optional unions; NetworkConfig/ExperimentConfig/StoppingCondition (the higher-severity findings this pass) were fixed instead. (no bd issue filed yet)
+- parity-24 (gopherstack-oc9v): TransformJob's DataCaptureConfig/DataProcessing/ExperimentConfig/ModelClientConfig (all real, optional CreateTransformJobInput fields) and LabelingJobArn/AutoMLJobArn (real, optional DescribeTransformJobOutput-only fields) remain accept-and-drop or unmodeled — this pass fixed the fabricated RoleArn field and the List filter/sort surface instead, both higher severity. (no bd issue filed yet)
+- parity-24 (gopherstack-oc9v): CreateAutoMLJobInput's AutoMLJobConfig (CandidateGenerationConfig/CompletionCriteria/Mode) remains accept-and-drop on the V1 path — DataSplitConfig/SecurityConfig are already modeled (reused from CreateAutoMLJobV2) but not wired to V1 Create, since V1's own AutoMLJobConfig field is itself still unmodeled. StopAutoMLJob also transitions directly InProgress->Stopped with no intermediate Stopping state, unlike the real AutoMLJobStatus enum (which declares Stopping) and unlike this backend's own TransformJob/ProcessingJob/EdgePackagingJob FSMs — pre-existing, not introduced this pass, left as a disclosed stuck-status-class finding for a future pass. (no bd issue filed yet)
+- parity-24 (gopherstack-oc9v): DescribeEdgePackagingJobOutput's ModelArtifact/ModelSignature/PresetDeploymentOutput/EdgePackagingJobStatusMessage remain unmodeled — server-derived fields from an async packaging pipeline this backend does not simulate; left absent rather than fabricated. (no bd issue filed yet)
+- parity-25 (gopherstack-oc9v): algorithm's TrainingSpecification/InferenceSpecification/ValidationSpecification (all now required-checked/present, see families: algorithm) remain opaque json.RawMessage passthrough rather than fully-typed structs — TrainingSpecification alone nests ChannelSpecification/MetricDefinition/HyperParameterSpecification, deep and low-traffic; every field a client sends round-trips exactly. (no bd issue filed yet)
+- parity-25 (gopherstack-oc9v): model_endpoint_config_crud's CreateEndpointConfigInput.ExplainerConfig (types.ExplainerConfig -> ClarifyExplainerConfig -> ClarifyShapConfig/...) is stored+echoed as opaque json.RawMessage rather than fully modeled, same passthrough convention as algorithm's specs above; every field a client sends round-trips exactly, proven via a real-SDK-client test. (no bd issue filed yet)
+- parity-25 (gopherstack-oc9v): presigned_session's CreatePresignedDomainUrlInput.ExpiresInSeconds/LandingUri/SessionExpirationDurationInSeconds are decoded but are disclosed no-ops — CreatePresignedDomainUrlOutput has no field to reflect them into, and this backend's synthetic authorized-URL token carries no verified real query-parameter format to encode them, the same stance already established for PartnerApps' identical fields. (no bd issue filed yet)
 
 ### Deferred
 
 - model_package_model_package_group (beyond ModelPackageStatusDetails fix; InferenceSpecification etc. not audited)
-- edge_deployment_device_fleet (EdgeDeploymentPlan/EdgePackagingJob portion; DeviceFleet/Device fixed)
+- edge_deployment_device_fleet (EdgeDeploymentPlan portion; DeviceFleet/Device fixed parity-earlier, EdgePackagingJob's Create/List wire surface fixed parity-24 — see families: edge_deployment_device_fleet)
 - training_plan (beyond timestamp fix)
 - monitoring_schedule_workteam_compilation_job (Workteam portion; MonitoringSchedule/CompilationJob timestamps fixed)
 - inference_recommendations_edge_packaging (EdgePackagingJob portion only; InferenceRecommendationsJob itself audited+fixed parity-5)

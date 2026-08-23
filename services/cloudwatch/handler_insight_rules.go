@@ -63,9 +63,10 @@ func (h *Handler) handlePutInsightRule(form url.Values, c *echo.Context) error {
 	}
 
 	type response struct {
-		XMLName   xml.Name `xml:"PutInsightRuleResponse"`
-		Xmlns     string   `xml:"xmlns,attr"`
-		RequestID string   `xml:"ResponseMetadata>RequestId"`
+		XMLName   xml.Name       `xml:"PutInsightRuleResponse"`
+		Result    xmlEmptyResult `xml:"PutInsightRuleResult"`
+		Xmlns     string         `xml:"xmlns,attr"`
+		RequestID string         `xml:"ResponseMetadata>RequestId"`
 	}
 
 	return writeXML(c, response{Xmlns: cloudwatchNS, RequestID: uuid.New().String()})

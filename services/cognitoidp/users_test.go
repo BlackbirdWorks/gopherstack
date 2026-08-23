@@ -360,11 +360,12 @@ func TestInMemoryBackend_AdminGetUserAuthFactors(t *testing.T) {
 					{DeliveryMedium: "SMS", AttributeName: "phone_number"},
 				}))
 
-				secret, err := b.AssociateSoftwareToken(tokens.AccessToken)
+				secret, _, err := b.AssociateSoftwareToken(tokens.AccessToken, "")
 				require.NoError(t, err)
 				code, err := cognitoidp.GenerateTOTPCode(secret, time.Now())
 				require.NoError(t, err)
-				require.NoError(t, b.VerifySoftwareToken(tokens.AccessToken, code))
+				_, err = b.VerifySoftwareToken(tokens.AccessToken, "", code)
+				require.NoError(t, err)
 
 				_, err = b.CompleteWebAuthnRegistration(tokens.AccessToken, "admin-factor-cred", "", nil)
 				require.NoError(t, err)

@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -61,6 +63,11 @@ func cloneEdgeDeploymentStage(s *EdgeDeploymentStage) *EdgeDeploymentStage {
 }
 
 // EdgeDeploymentPlan represents a SageMaker edge deployment plan.
+// EdgeDeploymentSuccess/Pending/Failed (both DescribeEdgeDeploymentPlanOutput
+// and EdgeDeploymentPlanSummary) are not modeled as stored counters: like
+// per-stage DeploymentStatus above, this emulator does not simulate
+// per-device deployment progress, so every real client sees zero for all
+// three regardless of stage state.
 type EdgeDeploymentPlan struct {
 	CreationTime           time.Time                   `json:"CreationTime"`
 	LastModifiedTime       time.Time                   `json:"LastModifiedTime"`
@@ -176,8 +183,16 @@ func (b *InMemoryBackend) CreateEdgeDeploymentPlan(
 	return cloneEdgeDeploymentPlan(p), nil
 }
 
-// DescribeEdgeDeploymentPlan returns an edge deployment plan by name.
-func (b *InMemoryBackend) DescribeEdgeDeploymentPlan(ctx context.Context, name string) (*EdgeDeploymentPlan, error) {
+// DescribeEdgeDeploymentPlan returns an edge deployment plan by name, with
+// Stages paginated per maxResults/nextToken
+// (api_op_DescribeEdgeDeploymentPlan.go:39-41: "If the edge deployment plan
+// has enough stages to require tokening, then this is the response from the
+// last list of stages returned").
+func (b *InMemoryBackend) DescribeEdgeDeploymentPlan(
+	ctx context.Context,
+	name, nextToken string,
+	maxResults int32,
+) (*EdgeDeploymentPlan, string, error) {
 	b.mu.RLock("DescribeEdgeDeploymentPlan")
 	defer b.mu.RUnlock()
 
@@ -185,10 +200,14 @@ func (b *InMemoryBackend) DescribeEdgeDeploymentPlan(ctx context.Context, name s
 
 	p, ok := b.edgeDeploymentPlansStoreRO(region).Get(name)
 	if !ok {
-		return nil, fmt.Errorf("%w: edge deployment plan %q", ErrEdgeDeploymentPlanNotFound, name)
+		return nil, "", fmt.Errorf("%w: edge deployment plan %q", ErrEdgeDeploymentPlanNotFound, name)
 	}
 
-	return cloneEdgeDeploymentPlan(p), nil
+	cp := cloneEdgeDeploymentPlan(p)
+	stages, next := paginateSlice(cp.Stages, nextToken, maxResults)
+	cp.Stages = stages
+
+	return cp, next, nil
 }
 
 // DeleteEdgeDeploymentPlan deletes an edge deployment plan by name.
@@ -208,22 +227,116 @@ func (b *InMemoryBackend) DeleteEdgeDeploymentPlan(ctx context.Context, name str
 	return nil
 }
 
-// ListEdgeDeploymentPlans returns all edge deployment plans with pagination.
+// ListEdgeDeploymentPlansParams bundles ListEdgeDeploymentPlans'
+// filter/sort/pagination criteria (api_op_ListEdgeDeploymentPlans.go:30-65,
+// sagemaker@v1.263.2).
+type ListEdgeDeploymentPlansParams struct {
+	CreationTimeAfter       *time.Time
+	CreationTimeBefore      *time.Time
+	LastModifiedTimeAfter   *time.Time
+	LastModifiedTimeBefore  *time.Time
+	DeviceFleetNameContains string
+	NameContains            string
+	NextToken               string
+	SortBy                  string
+	SortOrder               string
+	MaxResults              int32
+}
+
+// ListEdgeDeploymentPlans returns edge deployment plans matching params. The
+// real op's doc (api_op_ListEdgeDeploymentPlans.go:57-61) states no default
+// SortBy/SortOrder; CreationTime/Ascending are kept as the disclosed
+// fallback, this campaign's recurring ListHubs/ListPipelines precedent for an
+// undocumented default.
 func (b *InMemoryBackend) ListEdgeDeploymentPlans(
 	ctx context.Context,
-	nextToken string,
+	params ListEdgeDeploymentPlansParams,
 ) ([]*EdgeDeploymentPlan, string) {
 	b.mu.RLock("ListEdgeDeploymentPlans")
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
 
-	return sagemakerListKeyPaged(
-		b.edgeDeploymentPlansStoreRO(region),
-		nextToken,
-		cloneEdgeDeploymentPlan,
-		func(v *EdgeDeploymentPlan) string { return v.EdgeDeploymentPlanName },
-	)
+	tbl := b.edgeDeploymentPlansStoreRO(region)
+	list := make([]*EdgeDeploymentPlan, 0, tbl.Len())
+
+	for _, p := range tbl.All() {
+		if !matchesEdgeDeploymentPlanListParams(p, params) {
+			continue
+		}
+
+		list = append(list, cloneEdgeDeploymentPlan(p))
+	}
+
+	desc := strings.EqualFold(params.SortOrder, sortOrderDescending)
+	sort.Slice(list, func(i, j int) bool {
+		less := edgeDeploymentPlanSortLess(list[i], list[j], params.SortBy)
+		if desc {
+			return !less
+		}
+
+		return less
+	})
+
+	return paginateSlice(list, params.NextToken, params.MaxResults)
+}
+
+// matchesEdgeDeploymentPlanListParams reports whether p satisfies every filter in params.
+func matchesEdgeDeploymentPlanListParams(p *EdgeDeploymentPlan, params ListEdgeDeploymentPlansParams) bool {
+	if params.NameContains != "" && !strings.Contains(p.EdgeDeploymentPlanName, params.NameContains) {
+		return false
+	}
+
+	if params.DeviceFleetNameContains != "" && !strings.Contains(p.DeviceFleetName, params.DeviceFleetNameContains) {
+		return false
+	}
+
+	if params.CreationTimeAfter != nil && !p.CreationTime.After(*params.CreationTimeAfter) {
+		return false
+	}
+
+	if params.CreationTimeBefore != nil && !p.CreationTime.Before(*params.CreationTimeBefore) {
+		return false
+	}
+
+	if params.LastModifiedTimeAfter != nil && !p.LastModifiedTime.After(*params.LastModifiedTimeAfter) {
+		return false
+	}
+
+	if params.LastModifiedTimeBefore != nil && !p.LastModifiedTime.Before(*params.LastModifiedTimeBefore) {
+		return false
+	}
+
+	return true
+}
+
+// edgeDeploymentPlanSortLess orders two plans by sortBy — one of
+// ListEdgeDeploymentPlansSortBy's real values (NAME/DEVICE_FLEET_NAME/
+// CREATION_TIME/LAST_MODIFIED_TIME, types/enums.go:5312-5315). The op's own
+// doc comment (api_op_ListEdgeDeploymentPlans.go:57-58) lists these without
+// underscores ("DEVICEFLEETNAME", "CREATIONTIME", "LASTMODIFIEDTIME") — the
+// enum constants are the real wire values, the doc prose is wrong.
+func edgeDeploymentPlanSortLess(a, b *EdgeDeploymentPlan, sortBy string) bool {
+	switch sortBy {
+	case "DEVICE_FLEET_NAME":
+		if a.DeviceFleetName != b.DeviceFleetName {
+			return a.DeviceFleetName < b.DeviceFleetName
+		}
+	case sortByLastModifiedTime:
+		if !a.LastModifiedTime.Equal(b.LastModifiedTime) {
+			return a.LastModifiedTime.Before(b.LastModifiedTime)
+		}
+	case sortByName:
+		if a.EdgeDeploymentPlanName != b.EdgeDeploymentPlanName {
+			return a.EdgeDeploymentPlanName < b.EdgeDeploymentPlanName
+		}
+	default:
+		if !a.CreationTime.Equal(b.CreationTime) {
+			return a.CreationTime.Before(b.CreationTime)
+		}
+	}
+
+	return a.EdgeDeploymentPlanName < b.EdgeDeploymentPlanName
 }
 
 // CreateEdgeDeploymentStage appends new stages to an existing edge deployment plan.
@@ -340,9 +453,16 @@ func (b *InMemoryBackend) GetDeviceFleetReport(ctx context.Context, fleetName st
 
 // ListStageDevices returns the edge deployment plan, the devices in its
 // device fleet, and the named stage's current deployment status, paginated.
+// excludeOtherStage (ExcludeDevicesDeployedInOtherStage,
+// api_op_ListStageDevices.go:42-43) is accepted for wire shape but is a
+// real no-op: this backend tracks one DeploymentStatus per stage, not a
+// per-device per-stage assignment, so there is no "deployed in another
+// stage" fact to exclude on.
 func (b *InMemoryBackend) ListStageDevices(
 	ctx context.Context,
 	planName, stageName, nextToken string,
+	maxResults int32,
+	_ bool,
 ) (*EdgeDeploymentPlan, []*Device, string, string, error) {
 	b.mu.RLock("ListStageDevices")
 	defer b.mu.RUnlock()
@@ -361,7 +481,7 @@ func (b *InMemoryBackend) ListStageDevices(
 		)
 	}
 
-	devices, next := devicesInFleetPaged(b.devicesStoreRO(region), p.DeviceFleetName, nextToken)
+	devices, next := devicesInFleetPaged(b.devicesStoreRO(region), p.DeviceFleetName, nextToken, maxResults)
 
 	return cloneEdgeDeploymentPlan(p), devices, s.DeploymentStatus, next, nil
 }

@@ -65,9 +65,10 @@ func (h *Handler) handleAssociateDatasetKmsKey(form url.Values, c *echo.Context)
 	}
 
 	type response struct {
-		XMLName   xml.Name `xml:"AssociateDatasetKmsKeyResponse"`
-		Xmlns     string   `xml:"xmlns,attr"`
-		RequestID string   `xml:"ResponseMetadata>RequestId"`
+		XMLName   xml.Name       `xml:"AssociateDatasetKmsKeyResponse"`
+		Result    xmlEmptyResult `xml:"AssociateDatasetKmsKeyResult"`
+		Xmlns     string         `xml:"xmlns,attr"`
+		RequestID string         `xml:"ResponseMetadata>RequestId"`
 	}
 
 	return writeXML(c, response{Xmlns: cloudwatchNS, RequestID: uuid.New().String()})
@@ -81,9 +82,10 @@ func (h *Handler) handleDisassociateDatasetKmsKey(form url.Values, c *echo.Conte
 	}
 
 	type response struct {
-		XMLName   xml.Name `xml:"DisassociateDatasetKmsKeyResponse"`
-		Xmlns     string   `xml:"xmlns,attr"`
-		RequestID string   `xml:"ResponseMetadata>RequestId"`
+		XMLName   xml.Name       `xml:"DisassociateDatasetKmsKeyResponse"`
+		Result    xmlEmptyResult `xml:"DisassociateDatasetKmsKeyResult"`
+		Xmlns     string         `xml:"xmlns,attr"`
+		RequestID string         `xml:"ResponseMetadata>RequestId"`
 	}
 
 	return writeXML(c, response{Xmlns: cloudwatchNS, RequestID: uuid.New().String()})

@@ -14,6 +14,15 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
+// Real PatchDeploymentStatus enum values (aws-sdk-go-v2/service/ssm@v1.73.4's
+// types/enums.go) -- "AVAILABLE" is not one of them; it was a fabricated value
+// this emulator used to describe an un-decided catalogue patch.
+const (
+	patchDeploymentStatusExplicitApproved = "EXPLICIT_APPROVED"
+	patchDeploymentStatusExplicitRejected = "EXPLICIT_REJECTED"
+	patchDeploymentStatusPendingApproval  = "PENDING_APPROVAL"
+)
+
 func (b *InMemoryBackend) patchGroupToBaselineStore(region string) map[string]string {
 	return b.patchGroupToBaseline[region]
 }
@@ -84,6 +93,14 @@ func (b *InMemoryBackend) DeregisterPatchBaselineForPatchGroup(
 	ctx context.Context,
 	input *DeregisterPatchBaselineForPatchGroupInput,
 ) (*DeregisterPatchBaselineForPatchGroupOutput, error) {
+	if input.BaselineID == "" {
+		return nil, fmt.Errorf("%w: BaselineId is required", ErrValidationException)
+	}
+
+	if input.PatchGroup == "" {
+		return nil, fmt.Errorf("%w: PatchGroup is required", ErrValidationException)
+	}
+
 	region := getRegion(ctx)
 	b.mu.Lock("DeregisterPatchBaselineForPatchGroup")
 	defer b.mu.Unlock()
@@ -96,22 +113,84 @@ func (b *InMemoryBackend) DeregisterPatchBaselineForPatchGroup(
 	}, nil
 }
 
+// patchMatchesFilters returns true when p satisfies all provided key-value
+// filters. Supported keys are the ones backed by fields this emulator's Patch
+// actually models: PRODUCT, NAME, SEVERITY, CLASSIFICATION (real keys per
+// aws-sdk-go-v2/service/ssm@v1.73.4's api_op_DescribeAvailablePatches.go doc
+// comment; PATCH_ID/MSRC_SEVERITY/PRODUCT_FAMILY/PATCH_SET are real but have
+// no backing Go field, same disclosed-gap class as GetInventorySchema).
+func patchMatchesFilters(p Patch, filters []PatchFilter) bool {
+	for _, f := range filters {
+		var fieldValue string
+
+		switch f.Key {
+		case "PRODUCT":
+			fieldValue = p.Product
+		case "NAME":
+			fieldValue = p.Name
+		case "SEVERITY":
+			fieldValue = p.Severity
+		case "CLASSIFICATION":
+			fieldValue = p.Classification
+		default:
+			continue
+		}
+
+		if !slices.Contains(f.Values, fieldValue) {
+			return false
+		}
+	}
+
+	return true
+}
+
 // DescribeAvailablePatches returns patches from the available patches catalog,
 // lazily seeding it with the built-in catalogue (defaultPatchCatalog) on the
 // region's first access rather than leaving it permanently empty.
 func (b *InMemoryBackend) DescribeAvailablePatches(
 	ctx context.Context,
-	_ *DescribeAvailablePatchesInput,
+	input *DescribeAvailablePatchesInput,
 ) (*DescribeAvailablePatchesOutput, error) {
 	region := getRegion(ctx)
 	b.mu.Lock("DescribeAvailablePatches")
 	defer b.mu.Unlock()
 
-	patches := b.availablePatchesFor(region)
-	result := make([]Patch, len(patches))
-	copy(result, patches)
+	catalog := b.availablePatchesFor(region)
+	matched := make([]Patch, 0, len(catalog))
 
-	return &DescribeAvailablePatchesOutput{Patches: result}, nil
+	for _, p := range catalog {
+		if patchMatchesFilters(p, input.Filters) {
+			matched = append(matched, p)
+		}
+	}
+
+	startIdx := parseNextToken(input.NextToken)
+
+	const defaultAvailablePatchesMaxResults = 100
+
+	maxResults := int64(defaultAvailablePatchesMaxResults)
+	if input.MaxResults != nil && *input.MaxResults > 0 {
+		maxResults = *input.MaxResults
+	}
+
+	if startIdx >= len(matched) {
+		return &DescribeAvailablePatchesOutput{Patches: []Patch{}}, nil
+	}
+
+	end := startIdx + int(maxResults)
+
+	var nextToken string
+
+	if end < len(matched) {
+		nextToken = strconv.Itoa(end)
+	} else {
+		end = len(matched)
+	}
+
+	return &DescribeAvailablePatchesOutput{
+		Patches:   matched[startIdx:end],
+		NextToken: nextToken,
+	}, nil
 }
 
 // patchBaselineMatchesFilters returns true when bl satisfies all provided key-value filters.
@@ -200,6 +279,10 @@ func (b *InMemoryBackend) GetPatchBaseline(
 	ctx context.Context,
 	input *GetPatchBaselineInput,
 ) (*GetPatchBaselineOutput, error) {
+	if input.BaselineID == "" {
+		return nil, fmt.Errorf("%w: BaselineId is required", ErrValidationException)
+	}
+
 	region := getRegion(ctx)
 	b.mu.RLock("GetPatchBaseline")
 	defer b.mu.RUnlock()
@@ -240,6 +323,14 @@ func (b *InMemoryBackend) RegisterPatchBaselineForPatchGroup(
 	ctx context.Context,
 	input *RegisterPatchBaselineForPatchGroupInput,
 ) (*RegisterPatchBaselineForPatchGroupOutput, error) {
+	if input.BaselineID == "" {
+		return nil, fmt.Errorf("%w: BaselineId is required", ErrValidationException)
+	}
+
+	if input.PatchGroup == "" {
+		return nil, fmt.Errorf("%w: PatchGroup is required", ErrValidationException)
+	}
+
 	region := getRegion(ctx)
 	b.mu.Lock("RegisterPatchBaselineForPatchGroup")
 	defer b.mu.Unlock()
@@ -264,6 +355,10 @@ func (b *InMemoryBackend) UpdatePatchBaseline(
 	ctx context.Context,
 	input *UpdatePatchBaselineInput,
 ) (*UpdatePatchBaselineOutput, error) {
+	if input.BaselineID == "" {
+		return nil, fmt.Errorf("%w: BaselineId is required", ErrValidationException)
+	}
+
 	region := getRegion(ctx)
 	b.mu.Lock("UpdatePatchBaseline")
 	defer b.mu.Unlock()
@@ -370,13 +465,14 @@ func (b *InMemoryBackend) GetDefaultPatchBaseline(
 }
 
 // GetPatchBaselineForPatchGroup looks up the baseline for a given patch group.
-// Returns an empty result when PatchGroup is empty (stub compat).
+// PatchGroup is required (confirmed via validateOpGetPatchBaselineForPatchGroupInput
+// in aws-sdk-go-v2/service/ssm@v1.73.4's validators.go).
 func (b *InMemoryBackend) GetPatchBaselineForPatchGroup(
 	ctx context.Context,
 	input *GetPatchBaselineForPatchGroupInput,
 ) (*GetPatchBaselineForPatchBaselineOutput, error) {
 	if input.PatchGroup == "" {
-		return &GetPatchBaselineForPatchBaselineOutput{}, nil
+		return nil, fmt.Errorf("%w: PatchGroup is required", ErrValidationException)
 	}
 
 	region := getRegion(ctx)
@@ -399,14 +495,15 @@ func (b *InMemoryBackend) GetPatchBaselineForPatchGroup(
 	}, nil
 }
 
-// RegisterDefaultPatchBaseline sets the default patch baseline.
-// Returns success with an empty BaselineID when the input is empty (stub compat).
+// RegisterDefaultPatchBaseline sets the default patch baseline. BaselineId is
+// required (confirmed via validateOpRegisterDefaultPatchBaselineInput in
+// aws-sdk-go-v2/service/ssm@v1.73.4's validators.go).
 func (b *InMemoryBackend) RegisterDefaultPatchBaseline(
 	ctx context.Context,
 	input *RegisterDefaultPatchBaselineInput,
 ) (*RegisterDefaultPatchBaselineOutput, error) {
 	if input.BaselineID == "" {
-		return &RegisterDefaultPatchBaselineOutput{}, nil
+		return nil, fmt.Errorf("%w: BaselineId is required", ErrValidationException)
 	}
 
 	region := getRegion(ctx)
@@ -440,6 +537,10 @@ func (b *InMemoryBackend) DeletePatchBaseline(
 	ctx context.Context,
 	input *DeletePatchBaselineInput,
 ) (*DeletePatchBaselineOutput, error) {
+	if input.BaselineID == "" {
+		return nil, fmt.Errorf("%w: BaselineId is required", ErrValidationException)
+	}
+
 	region := getRegion(ctx)
 	b.mu.Lock("DeletePatchBaseline")
 	defer b.mu.Unlock()
@@ -459,6 +560,10 @@ func (b *InMemoryBackend) DescribePatchGroupState(
 	ctx context.Context,
 	input *DescribePatchGroupStateInput,
 ) (*DescribePatchGroupStateOutput, error) {
+	if input.PatchGroup == "" {
+		return nil, fmt.Errorf("%w: PatchGroup is required", ErrValidationException)
+	}
+
 	region := getRegion(ctx)
 	b.mu.RLock("DescribePatchGroupState")
 	defer b.mu.RUnlock()
@@ -483,6 +588,37 @@ func (b *InMemoryBackend) DescribePatchGroupState(
 	return out, nil
 }
 
+// patchGroupMappingMatchesFilters applies DescribePatchGroups' filter keys:
+// NAME_PREFIX (against the patch group name) and OPERATING_SYSTEM (against
+// the mapped baseline's OS) -- both confirmed against
+// aws-sdk-go-v2/service/ssm@v1.73.4's api_op_DescribePatchGroups.go doc
+// comment, matching the same two keys DescribePatchBaselines already
+// supports via patchBaselineMatchesFilters.
+func patchGroupMappingMatchesFilters(m PatchGroupPatchBaselineMapping, filters []PatchFilter) bool {
+	for _, f := range filters {
+		var fieldValue string
+
+		switch f.Key {
+		case "OPERATING_SYSTEM":
+			fieldValue = m.BaselineIdentity.OperatingSystem
+		case "NAME_PREFIX":
+			for _, v := range f.Values {
+				if len(m.PatchGroup) >= len(v) && m.PatchGroup[:len(v)] == v {
+					fieldValue = v
+				}
+			}
+		default:
+			continue
+		}
+
+		if !slices.Contains(f.Values, fieldValue) {
+			return false
+		}
+	}
+
+	return true
+}
+
 // DescribePatchGroups lists the patch group to baseline mappings.
 func (b *InMemoryBackend) DescribePatchGroups(
 	ctx context.Context,
@@ -504,10 +640,15 @@ func (b *InMemoryBackend) DescribePatchGroups(
 			identity.Description = bl.Description
 		}
 
-		mappings = append(mappings, PatchGroupPatchBaselineMapping{
+		mapping := PatchGroupPatchBaselineMapping{
 			PatchGroup:       group,
 			BaselineIdentity: identity,
-		})
+		}
+		if !patchGroupMappingMatchesFilters(mapping, input.Filters) {
+			continue
+		}
+
+		mappings = append(mappings, mapping)
 	}
 
 	startIdx := parseNextToken(input.NextToken)
@@ -549,11 +690,29 @@ func (b *InMemoryBackend) DescribePatchGroups(
 	}, nil
 }
 
-// DescribePatchProperties returns property data aggregated from patch baselines.
+// DescribePatchProperties returns property data aggregated from patch
+// baselines. OperatingSystem and Property are both required (confirmed via
+// validateOpDescribePatchPropertiesInput in
+// aws-sdk-go-v2/service/ssm@v1.73.4's validators.go). Real AWS instead
+// aggregates distinct values of the requested Property (PRODUCT/
+// PRODUCT_FAMILY/CLASSIFICATION/MSRC_SEVERITY/PRIORITY/SEVERITY) from its
+// patch catalogue for the given OS; this emulator does not consult either
+// input field and instead lists baseline name/OS pairs -- disclosed rather
+// than fixed, since the real per-Property map-key convention isn't verifiable
+// from the pinned SDK's untyped []map[string]string output (same class as
+// GetInventorySchema.Attributes).
 func (b *InMemoryBackend) DescribePatchProperties(
 	ctx context.Context,
 	input *DescribePatchPropertiesInput,
 ) (*DescribePatchPropertiesOutput, error) {
+	if input.OperatingSystem == "" {
+		return nil, fmt.Errorf("%w: OperatingSystem is required", ErrValidationException)
+	}
+
+	if input.Property == "" {
+		return nil, fmt.Errorf("%w: Property is required", ErrValidationException)
+	}
+
 	region := getRegion(ctx)
 	b.mu.RLock("DescribePatchProperties")
 	defer b.mu.RUnlock()
@@ -582,21 +741,23 @@ func (b *InMemoryBackend) DescribePatchProperties(
 
 // DescribeEffectivePatchesForPatchBaseline returns the effective patch set for
 // a baseline, derived from its approved/rejected patches plus the region's
-// available-patches catalogue (see effectivePatchesForBaseline).
-// Returns an empty list when BaselineID is empty (stub compat).
+// available-patches catalogue (see effectivePatchesForBaseline). BaselineId is
+// required (confirmed via validateOpDescribeEffectivePatchesForPatchBaselineInput
+// in aws-sdk-go-v2/service/ssm@v1.73.4's validators.go).
 func (b *InMemoryBackend) DescribeEffectivePatchesForPatchBaseline(
 	ctx context.Context,
 	input *DescribeEffectivePatchesForPatchBaselineInput,
 ) (*DescribeEffectivePatchesForPatchBaselineOutput, error) {
 	if input.BaselineID == "" {
-		return &DescribeEffectivePatchesForPatchBaselineOutput{
-			EffectivePatches: []EffectivePatch{},
-		}, nil
+		return nil, fmt.Errorf("%w: BaselineId is required", ErrValidationException)
 	}
 
 	region := getRegion(ctx)
-	b.mu.RLock("DescribeEffectivePatchesForPatchBaseline")
-	defer b.mu.RUnlock()
+	// Write lock, not read: effectivePatchesForBaseline calls availablePatchesFor,
+	// which lazily seeds b.availablePatches[region] on first access (see
+	// DescribeAvailablePatches, which uses the same write lock for the same reason).
+	b.mu.Lock("DescribeEffectivePatchesForPatchBaseline")
+	defer b.mu.Unlock()
 
 	baselinePtr, exists := b.patchBaselinesStore(region).Get(input.BaselineID)
 	if !exists {
@@ -626,9 +787,9 @@ func (b *InMemoryBackend) effectivePatchesForBaseline(
 		level = "UNSPECIFIED"
 	}
 
-	approvalDate := time.Unix(int64(baseline.CreatedDate), 0).UTC().Format(time.RFC3339)
+	approvalDate := baseline.CreatedDate
 
-	effective := make([]EffectivePatch, 0, len(baseline.ApprovedPatches))
+	effective := make([]EffectivePatch, 0, len(baseline.ApprovedPatches)+len(baseline.RejectedPatches))
 
 	approved := make(map[string]struct{}, len(baseline.ApprovedPatches))
 	for _, id := range baseline.ApprovedPatches {
@@ -637,21 +798,32 @@ func (b *InMemoryBackend) effectivePatchesForBaseline(
 		effective = append(effective, EffectivePatch{
 			Patch: &Patch{Name: p, Classification: patchClassificationSecurityUpdates},
 			PatchStatus: &PatchStatus{
-				DeploymentStatus: "EXPLICIT_APPROVED",
+				DeploymentStatus: patchDeploymentStatusExplicitApproved,
 				ComplianceLevel:  level,
 				ApprovalDate:     approvalDate,
 			},
 		})
 	}
 
-	// Include catalogue patches for the baseline's OS/product that are not
-	// explicitly rejected — these are AVAILABLE for approval.
 	rejected := make(map[string]struct{}, len(baseline.RejectedPatches))
 	for _, id := range baseline.RejectedPatches {
 		rejected[id] = struct{}{}
+		p := id
+		effective = append(effective, EffectivePatch{
+			Patch: &Patch{Name: p, Classification: patchClassificationSecurityUpdates},
+			PatchStatus: &PatchStatus{
+				DeploymentStatus: patchDeploymentStatusExplicitRejected,
+				ComplianceLevel:  level,
+			},
+		})
 	}
 
-	for _, p := range b.availablePatches[region] {
+	// Include catalogue patches that are not explicitly approved or rejected --
+	// these are still pending an approval-rule decision. availablePatchesFor
+	// (not a direct b.availablePatches[region] read) lazily seeds the
+	// catalogue, so this reflects the built-in catalogue regardless of whether
+	// DescribeAvailablePatches happened to run first in this region.
+	for _, p := range b.availablePatchesFor(region) {
 		if _, isApproved := approved[p.Name]; isApproved {
 			continue
 		}
@@ -664,7 +836,7 @@ func (b *InMemoryBackend) effectivePatchesForBaseline(
 		effective = append(effective, EffectivePatch{
 			Patch: &patch,
 			PatchStatus: &PatchStatus{
-				DeploymentStatus: "AVAILABLE",
+				DeploymentStatus: patchDeploymentStatusPendingApproval,
 				ComplianceLevel:  level,
 			},
 		})
@@ -720,14 +892,19 @@ func (b *InMemoryBackend) GetDeployablePatchSnapshotForInstance(
 	ctx context.Context,
 	input *GetDeployablePatchSnapshotForInstanceInput,
 ) (*GetDeployablePatchSnapshotForInstanceOutput, error) {
+	if input.InstanceID == "" {
+		return nil, fmt.Errorf("%w: InstanceId is required", ErrValidationException)
+	}
+
+	if input.SnapshotID == "" {
+		return nil, fmt.Errorf("%w: SnapshotId is required", ErrValidationException)
+	}
+
 	region := getRegion(ctx)
 	b.mu.RLock("GetDeployablePatchSnapshotForInstance")
 	defer b.mu.RUnlock()
 
 	snapshotID := input.SnapshotID
-	if snapshotID == "" {
-		snapshotID = uuid.NewString()
-	}
 
 	// Resolve the instance's effective baseline: prefer its recorded patch
 	// state, else the AWS default baseline for its OS (Windows fallback).

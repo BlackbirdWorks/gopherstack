@@ -376,7 +376,12 @@ func (h *Handler) RouteMatcher() service.Matcher {
 
 		body, err := httputils.ReadBody(r)
 		if err != nil {
-			return false
+			// Body unreadable (e.g. oversized): fall back to the User-Agent
+			// marker every aws-sdk-go-v2 iam client sets (api_client.go's
+			// AddSDKAgentKeyValue -- "api/iam"). That still identifies this
+			// as ours, so claim it and let Handler() produce the typed
+			// error instead of masking the read failure as a 404.
+			return service.MatchesUserAgentMarker(r.Header, "api/iam")
 		}
 
 		return strings.Contains(string(body), iamAPIVersion)
@@ -441,7 +446,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		}
 
 		if c.Request().Method != http.MethodPost {
-			return c.String(http.StatusMethodNotAllowed, "Method not allowed")
+			return h.writeError(c, http.StatusMethodNotAllowed, "InvalidParameterValue", "Method not allowed")
 		}
 
 		body, err := httputils.ReadBody(c.Request())

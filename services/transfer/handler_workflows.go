@@ -139,7 +139,9 @@ func workflowStepToMap(s WorkflowStep) map[string]any {
 			keyStepName:      s.CustomStepDetails.Name,
 			"Target":         s.CustomStepDetails.Target,
 			keySourceFileLoc: s.CustomStepDetails.SourceFileLocation,
-			"Timeout":        s.CustomStepDetails.Timeout,
+			// transfer@v1.75.4 deserializers.go's real member is
+			// TimeoutSeconds, not Timeout.
+			"TimeoutSeconds": s.CustomStepDetails.Timeout,
 		}
 	}
 

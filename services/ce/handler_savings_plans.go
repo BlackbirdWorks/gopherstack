@@ -176,10 +176,12 @@ func (h *Handler) handleGetSavingsPlansPurchaseRecommendation(
 	in *getSavingsPlansPurchaseRecommendationInput,
 ) (*getSavingsPlansPurchaseRecommendationOutput, error) {
 	if !matchesLinkedAccountFilter(in.Filter, awsmeta.Account(ctx)) {
+		// types.SavingsPlansPurchaseRecommendationMetadata has no
+		// "RecommendationTotalCount" member -- AdditionalMetadata/
+		// GenerationTimestamp/RecommendationId only.
 		return &getSavingsPlansPurchaseRecommendationOutput{
 			Metadata: map[string]string{
-				metadataRecommendationTotalCount: "0",
-				"GenerationTimestamp":            "2024-01-01T00:00:00Z",
+				"GenerationTimestamp": "2024-01-01T00:00:00Z",
 			},
 		}, nil
 	}
@@ -206,12 +208,15 @@ func (h *Handler) handleGetSavingsPlansPurchaseRecommendation(
 						"InstanceFamily": "m5",
 						"OfferingId":     "synthetic-sp-offer-1",
 					},
-					"AccountId":             awsmeta.Account(ctx),
-					"UpfrontCost":           handlerZeroAmount,
-					"EstimatedROI":          handlerROI,
-					handlerCurrencyCode:     metricUnitUSD,
-					"EstimatedSPCost":       spUtil.Utilization.TotalCommitment,
-					"EstimatedOnDemandCost": spUtil.Savings.OnDemandCostEquivalent,
+					"AccountId":    awsmeta.Account(ctx),
+					"UpfrontCost":  handlerZeroAmount,
+					"EstimatedROI": handlerROI,
+					// handlerCurrencyCode's own value ("USD") was used as the
+					// map key here by mistake; the real member is
+					// "CurrencyCode" (costexplorer@v1.67.4 deserializers.go).
+					mapKeyCurrencyCode:                           metricUnitUSD,
+					"EstimatedSPCost":                            spUtil.Utilization.TotalCommitment,
+					"EstimatedOnDemandCost":                      spUtil.Savings.OnDemandCostEquivalent,
 					"EstimatedOnDemandCostWithCurrentCommitment": spUtil.Savings.OnDemandCostEquivalent,
 					"EstimatedSavingsAmount":                     spUtil.Savings.NetSavings,
 					"EstimatedSavingsPercentage":                 handlerROI,
@@ -225,7 +230,7 @@ func (h *Handler) handleGetSavingsPlansPurchaseRecommendation(
 			},
 			RecommendationSummary: map[string]string{
 				"EstimatedROI":                               handlerROI,
-				handlerCurrencyCode:                          metricUnitUSD,
+				mapKeyCurrencyCode:                           metricUnitUSD,
 				"EstimatedTotalCost":                         spUtil.Utilization.TotalCommitment,
 				"CurrentOnDemandSpend":                       spUtil.Savings.OnDemandCostEquivalent,
 				"EstimatedSavingsAmount":                     spUtil.Savings.NetSavings,
@@ -237,10 +242,11 @@ func (h *Handler) handleGetSavingsPlansPurchaseRecommendation(
 				"EstimatedOnDemandCostWithCurrentCommitment": spUtil.Savings.OnDemandCostEquivalent,
 			},
 		},
+		// types.SavingsPlansPurchaseRecommendationMetadata has no
+		// "RecommendationTotalCount" member.
 		Metadata: map[string]string{
-			metadataRecommendationTotalCount: "1",
-			"GenerationTimestamp":            "2024-01-01T00:00:00Z",
-			"AdditionalMetadata":             "lookback=30days",
+			"GenerationTimestamp": "2024-01-01T00:00:00Z",
+			"AdditionalMetadata":  "lookback=30days",
 		},
 	}, nil
 }

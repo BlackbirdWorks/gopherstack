@@ -571,7 +571,7 @@ func (h *Handler) handleREST(c *echo.Context) error {
 	if c.Request().ContentLength != 0 {
 		if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil &&
 			err.Error() != "EOF" {
-			return c.JSON(http.StatusBadRequest, map[string]any{keyMessage: "invalid JSON body"})
+			return validationError(c, "invalid JSON body")
 		}
 	}
 
@@ -581,6 +581,8 @@ func (h *Handler) handleREST(c *echo.Context) error {
 
 	fn, ok := onceOpHandlers()[op]
 	if !ok {
+		c.Response().Header().Set(amznErrorTypeHeader, "ResourceNotFoundException")
+
 		return c.JSON(http.StatusNotFound, map[string]any{keyMessage: "unknown operation"})
 	}
 
@@ -592,6 +594,17 @@ func (h *Handler) handleREST(c *echo.Context) error {
 // reads this header before falling back to a body "code"/"__type" field; without it every
 // error here deserialized client-side as a generic UnknownError.
 const amznErrorTypeHeader = "X-Amzn-Errortype"
+
+// validationError writes a 400 with the ValidationException wire type
+// handleError uses for awserr.ErrInvalidParameter. Every inline
+// required-field check in this package returns straight to the client
+// without going through handleError, so each such call site must set the
+// header itself or the error decodes as UnknownError.
+func validationError(c *echo.Context, msg string) error {
+	c.Response().Header().Set(amznErrorTypeHeader, "ValidationException")
+
+	return c.JSON(http.StatusBadRequest, map[string]any{keyMessage: msg})
+}
 
 // handleError converts backend errors to HTTP responses. Wire types are
 // verified against this service's own deserializer error lists

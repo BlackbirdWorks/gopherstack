@@ -25,7 +25,16 @@ import (
 // discards (rather than attempts to partially decode) any mismatch -- see
 // Restore below. Mirrors the services/ssm and services/secretsmanager
 // conversions.
-const appsyncSnapshotVersion = 1
+//
+// Bumped 1 -> 2 (gopherstack-hjdd) for d83f4b5d3: Resolver (the registered
+// "resolvers" table's value type) gained a custom MarshalJSON/UnmarshalJSON
+// pair that renders PipelineConfig as the real deserializer's
+// {functions: [...]} object instead of the previous bare array. A Version-1
+// snapshot's array no longer unmarshals into the new object field at all --
+// an outright decode error that takes down the whole restore, not silent
+// loss -- so it must be discarded like any other shape-incompatible
+// snapshot.
+const appsyncSnapshotVersion = 2
 
 // backendSnapshot is the top-level on-disk shape for the AppSync backend.
 //

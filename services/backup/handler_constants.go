@@ -208,6 +208,7 @@ const (
 	keyVaultState                  = "VaultState"
 	keyReportJobID                 = "ReportJobId"
 	keyScanJobID                   = "ScanJobId"
+	keyIamRoleArn                  = "IamRoleArn"
 	keyTieringConfigurations       = "TieringConfigurations"
 
 	// Status value constants.
@@ -215,6 +216,7 @@ const (
 	statusCreated   = "CREATED"
 	statusCreating  = "CREATING"
 	statusActive    = "ACTIVE"
+	statusAvailable = "AVAILABLE"
 )
 
 // The supportedOps* helpers partition the full set of operations returned by

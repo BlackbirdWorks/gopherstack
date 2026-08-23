@@ -1,11 +1,12 @@
 ---
 service: apprunner
 sdk_module: aws-sdk-go-v2/service/apprunner@v1.42.4
-last_audit_commit: pending (agent instructed not to run git; set at commit time)
-last_audit_date: 2026-08-19
-overall: A            # wrapper-key/nested-shape sweep 2026-08-19: found and fixed one fabricated-field bug
+last_audit_commit:                                # unknown: pass ran without git access at write time, never backfilled -- gopherstack-33in
+last_audit_date: 2026-08-21
+overall: A            # full field-diff sweep: closed every gaps/deferred item from the 2026-07-13 audit,
+                       # plus the wrapper-key/nested-shape sweep (2026-08-19, one fabricated-field bug fixed)
 ops:
-  CreateService: {wire: ok, errors: ok, state: ok, persist: ok, note: "immediate RUNNING (no OPERATION_IN_PROGRESS poll-forever trap); full field set now threaded: InstanceConfiguration (Cpu/Memory/InstanceRoleArn), SourceConfiguration (ImageRepository incl. ImageConfiguration, CodeRepository incl. SourceCodeVersion/CodeConfiguration, AuthenticationConfiguration, AutoDeploymentsEnabled with real default), AutoScalingConfigurationArn (resolved-or-default, HasAssociatedService bookkeeping), NetworkConfiguration (Egress/IngressConfiguration, IpAddressType, real defaults), HealthCheckConfiguration (real defaults), EncryptionConfiguration, ObservabilityConfiguration. Service response now includes the previously-missing required AutoScalingConfigurationSummary and NetworkConfiguration fields"}
+  CreateService: {wire: fixed, errors: ok, state: ok, persist: ok, note: "immediate RUNNING (no OPERATION_IN_PROGRESS poll-forever trap); full field set now threaded: InstanceConfiguration (Cpu/Memory/InstanceRoleArn), SourceConfiguration (ImageRepository incl. ImageConfiguration, CodeRepository incl. SourceCodeVersion/CodeConfiguration, AuthenticationConfiguration, AutoDeploymentsEnabled with real default), AutoScalingConfigurationArn (resolved-or-default, HasAssociatedService bookkeeping), NetworkConfiguration (Egress/IngressConfiguration, IpAddressType, real defaults), HealthCheckConfiguration (real defaults), EncryptionConfiguration, ObservabilityConfiguration. Service response now includes the previously-missing required AutoScalingConfigurationSummary and NetworkConfiguration fields. FIXED 2026-08-21 (bd gopherstack-r80d, batch 10; fixed but NOT counted -- see Notes): validateSourceConfig checked CodeRepository.RepositoryUrl but never SourceCodeVersion (types.go:245-263, both required on CodeRepository) -- an omitted SourceCodeVersion was silently accepted and then dropped from codeRepositoryOutput entirely. Added the same required-field check already used for RepositoryUrl/ImageIdentifier. Not counted: the real aws-sdk-go-v2 client's own generated validateCodeRepository (validators.go:792-806) already rejects a nil SourceCodeVersion client-side, so no real Go SDK client can ever reach gopherstack in the buggy state -- proven instead via a raw request bypassing that client-side check, which is real for any other caller (raw HTTP, a non-Go SDK) but not provable via this campaign's real-SDK-client round-trip standard."}
   DescribeService: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateService: {wire: ok, errors: ok, state: ok, persist: ok, note: "rejects update unless status RUNNING, matches InvalidStateException; rejects switching between image/code source types (InvalidRequestException, matching the real op's documented restriction); all new CreateService fields are independently patchable (nil/empty = no change)"}
   DeleteService: {wire: ok, errors: ok, state: ok, persist: ok, note: "now cascade-cleans the service's customDomains map entry and recomputes the old AutoScalingConfiguration's HasAssociatedService (see leaks)"}
@@ -23,8 +24,8 @@ ops:
   CreateConnection: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteConnection: {wire: ok, errors: ok, state: ok, persist: ok}
   ListConnections: {wire: ok, errors: ok, state: ok, persist: ok}
-  CreateObservabilityConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
-  DescribeObservabilityConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
+  CreateObservabilityConfiguration: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-21 (bd gopherstack-r80d, batch 10; fixed but NOT counted toward the required-field tally -- TraceConfiguration itself is optional per types.go:601, only its nested Vendor is required-when-present): TracingVendor was captured from CreateObservabilityConfigurationInput and stored, but observabilityConfigurationOutput had no TraceConfiguration field at all, so it was silently dropped on every response. Added, present only when TracingVendor != \"\" (real AWS: absent means tracing isn't enabled -- not fabricating a vendor when none was configured)."}
+  DescribeObservabilityConfiguration: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-21 (bd gopherstack-r80d, batch 10): same TraceConfiguration gap and fix as CreateObservabilityConfiguration above."}
   DeleteObservabilityConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
   ListObservabilityConfigurations: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed 2026-08-19 -- summary entries were emitting fabricated Status/Latest/CreatedAt keys that have no case in the real types.ObservabilityConfigurationSummary document deserializer (deserializers.go:6215-6270); a real client would silently drop them. Now emits only ObservabilityConfigurationArn/Name/Revision, matching the narrower summary type exactly (types/types.go:613-628)"}
   CreateVpcConnector: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -36,6 +37,8 @@ ops:
   DeleteVpcIngressConnection: {wire: ok, errors: ok, state: ok, persist: ok}
   ListVpcIngressConnections: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateVpcIngressConnection: {wire: ok, errors: ok, state: ok, persist: ok}
+  AssociateCustomDomain: {wire: fixed, errors: ok, state: ok, persist: ok, note: "fixed to use InvalidRequestException (not ResourceNotFoundException) for unknown ServiceArn, matching this op's documented error set. FIXED 2026-08-21 (bd gopherstack-r80d, batch 10): required vpcDNSTargets (api_op_AssociateCustomDomain.go, required) had no struct field on associateCustomDomainOutput at all -- DescribeCustomDomains (identical required set) already emitted it correctly as []. Added, always []any{} (this backend doesn't model per-domain VPC ingress DNS targets, so empty is the honest value, not fabricated)."}
+  DisassociateCustomDomain: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-21 (bd gopherstack-r80d, batch 10): same vpcDNSTargets gap and fix as AssociateCustomDomain above."}
   AssociateCustomDomain: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed to use InvalidRequestException (not ResourceNotFoundException) for unknown ServiceArn, matching this op's documented error set. 2026-08-19: also added the previously-missing VpcDNSTargets key (deserializers.go:7705-7763), emitted as an always-empty list since this backend doesn't model VPC-based custom domain DNS -- matches DescribeCustomDomains's existing convention for the same field"}
   DisassociateCustomDomain: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-08-19: added the previously-missing VpcDNSTargets key (deserializers.go:8462-8520), same empty-list convention as AssociateCustomDomain/DescribeCustomDomains"}
   DescribeCustomDomains: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -198,6 +201,117 @@ HTTP status codes were already correct throughout (400 for all four client-fault
     `gofmt -l`/`golangci-lint` all green; zero `cyclop`/`gocyclo`/`gocognit`/`funlen` nolints
     before or after.
 
+## 2026-08-21 pass (bd gopherstack-r80d, batch 10): required OUTPUT members never populated
+
+Second service this batch, after stepfunctions. `cmd/requiredoutputfields`
+puts apprunner at 44 required output fields across 32 ops-with-required (37
+ops total).
+
+**Wire shape**: not "one wrapper key around a nested domain object"
+(pinpoint/bedrockagent/cleanrooms) or `map[string]any` literals (s3tables/
+codecommit) -- responses are tagged structs, and most ops' own top-level
+required members are flat scalars. But an AST-style walk of every
+`type X struct { ... }` block in `apprunner@v1.42.4/types/types.go` (not a
+grep window) found only `Service` and its nested source-config family
+(`CodeConfiguration`, `CodeConfigurationValues`, `CodeRepository`,
+`CustomDomain`, `EncryptionConfiguration`, `ImageRepository`,
+`ServiceObservabilityConfiguration`, `SourceCodeVersion`,
+`TraceConfiguration`) carry any required fields at all --
+`AutoScalingConfiguration`/`Connection`/`ObservabilityConfiguration`/
+`VpcConnector`/`VpcIngressConnection` and every one of their `*Summary` list
+siblings declare **zero** required fields. That made this pass narrower
+than stepfunctions': read all 32 ops' own required members plus every one
+of those 9 nested types against their handlers.
+
+### 1 bug found and fixed, proven via a real `aws-sdk-go-v2/service/apprunner`
+### client round-trip test (`wire_output_required_r80d_test.go`)
+
+- **`AssociateCustomDomain`/`DisassociateCustomDomain`'s `VpcDNSTargets`**
+  (both ops' `Output`, required). `DescribeCustomDomains` -- the sibling op
+  with the identical required set (`CustomDomain`, `DNSTarget`, `ServiceArn`,
+  `VpcDNSTargets`) -- already emitted `VpcDNSTargets: []any{}` correctly, but
+  `associateCustomDomainOutput`/`disassociateCustomDomainOutput` had no
+  `VpcDNSTargets` field at all, so the key was entirely absent on both ops.
+  Fixed by adding the field to both structs, always `[]any{}` (this backend
+  doesn't model per-domain VPC-ingress DNS targets, matching
+  `DescribeCustomDomains`'s existing honest-empty convention -- not
+  fabricated). Proven via `Test_SDKRoundTrip_CustomDomain_VpcDNSTargets`,
+  hand-reverted/confirmed-failing/restored, `md5sum`-verified byte-identical.
+
+### 2 fixed but NOT counted
+
+- **`CodeRepository.SourceCodeVersion`** (types.go:245-263, required
+  alongside `RepositoryUrl`). `validateSourceConfig` (services.go) checked
+  `RepositoryURL != ""` but never checked `SourceCodeVersionType`, so an
+  omitted `SourceCodeVersion` was silently accepted and then dropped from
+  `codeRepositoryOutput` (`toCodeRepositoryOutput` only sets it
+  `if cs.SourceCodeVersionType != ""`). Fixed by adding the same required
+  check already used for `RepositoryUrl`/`ImageIdentifier`. **Not counted**:
+  the real `aws-sdk-go-v2` client's own generated `validateCodeRepository`
+  (`validators.go:792-806`) already rejects a nil `SourceCodeVersion`
+  client-side before any request is sent -- no real Go SDK client can ever
+  reach gopherstack in the buggy state, so this campaign's real-SDK-client
+  round-trip proof standard cannot apply here even though the underlying gap
+  is real for any other caller (raw HTTP, a non-Go SDK, or a Go client with
+  validation disabled). Proven instead via a raw request through this
+  package's own `doRequest`/`newTestHandler` test helpers
+  (`Test_CodeRepository_SourceCodeVersion_Required`), which bypass the Go
+  SDK's client-side check the same way those other callers would; hand-
+  reverted/confirmed-failing/restored, `md5sum`-verified byte-identical.
+- **`ObservabilityConfiguration.TraceConfiguration`** (types.go:601,
+  optional -- "If not specified, tracing isn't enabled"; not a Smithy-
+  required member, so outside this cut's precise target class even though
+  it is a real, provable bug). `CreateObservabilityConfiguration` captured
+  `TracingVendor` from the request and stored it, but
+  `observabilityConfigurationOutput` had no `TraceConfiguration` field at
+  all -- a configured vendor was silently dropped on every
+  Create/DescribeObservabilityConfiguration response. Fixed by adding the
+  field, present only when `TracingVendor != ""` (matching the real "absent
+  means not enabled" semantics, not fabricating a vendor for an
+  unconfigured one). Proven via
+  `Test_SDKRoundTrip_ObservabilityConfiguration_TraceConfiguration`
+  (a genuine real-client round trip -- this one has no client-side
+  validation blocking it, unlike `SourceCodeVersion` above), hand-reverted/
+  confirmed-failing/restored, `md5sum`-verified byte-identical.
+
+### Reviewed, not a bug / out of scope
+
+- **`ImageRepository.ImageRepositoryType`** (required) is passed through
+  unvalidated on `CreateService` (only `ImageIdentifier` is checked), but
+  `imageRepositoryOutput.ImageRepositoryType` has no `omitempty` -- an
+  omitted value is emitted as a present-but-empty string, not a dropped
+  key. Different bug class from this cut's target (wrong/invalid content
+  on a present field, not an absent required field) -- disclosed, not
+  fixed.
+- **`AutoScalingConfiguration`/`Connection`/`ObservabilityConfiguration`/
+  `VpcConnector`/`VpcIngressConnection`** and all their `*Summary` siblings:
+  confirmed via the same AST-style walk that none declare any required
+  field in `types.go` -- there is nothing for this bug class to violate on
+  any of them.
+- **`Service`**'s own 10 required top-level fields
+  (`AutoScalingConfigurationSummary`, `CreatedAt`, `InstanceConfiguration`,
+  `NetworkConfiguration`, `ServiceArn`, `ServiceId`, `ServiceName`,
+  `SourceConfiguration`, `Status`, `UpdatedAt`) and `CodeConfiguration`/
+  `CodeConfigurationValues`'s required fields (`ConfigurationSource`/
+  `Runtime`) were all already correctly guarded -- each nested object is
+  only constructed (and thus its own required fields only ever set) when a
+  real, non-empty upstream value exists, matching this campaign's
+  "required-but-inapplicable means present-and-empty, not absent"
+  principle by construction. `EncryptionConfiguration.KmsKey` similarly
+  guarded (`if svc.EncryptionKmsKey != ""`).
+- **`StopExecutionOutput`-style `*float64`/list-field patterns** don't
+  apply here; all List ops already build their summary slices via
+  `make(..., 0, len(...))` or an explicit nil-guard before assignment,
+  confirmed for all 6 List ops that carry a required list field
+  (`ListAutoScalingConfigurations`, `ListConnections`,
+  `ListObservabilityConfigurations`, `ListServices`,
+  `ListServicesForAutoScalingConfiguration`, `ListVpcConnectors`,
+  `ListVpcIngressConnections`).
+
+Total for apprunner this pass: 44 required output fields plus all 9 nested
+required-bearing types read end to end across 32 ops with required output
+fields, 1 counted bug, 2 fixed-but-not-counted findings, 1 disclosed
+(wrong-content, not absent-field) finding.
 - 2026-08-19: Wrapper-key/nested-shape wire-parity sweep (all 37 ops enumerated from the
   pinned SDK's `api_op_*.go` files and `GetSupportedOperations()`, both agree). Protocol
   reconfirmed as JSON-RPC 1.0 (`awsAwsjson10_*` in `deserializers.go`, exact-match protocol

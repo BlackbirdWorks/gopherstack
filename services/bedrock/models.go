@@ -157,64 +157,176 @@ type FoundationModelSummary struct {
 	ResponseStreamingSupported bool                      `json:"responseStreamingSupported"`
 }
 
-// EvaluationModelConfig specifies the evaluator model for an evaluation job.
+// EvaluationPerformanceConfig mirrors types.PerformanceConfiguration
+// (bedrock@v1.66.4 types/types.go:5787-5794).
+type EvaluationPerformanceConfig struct {
+	Latency string `json:"latency,omitempty"`
+}
+
+// EvaluationBedrockModel mirrors types.EvaluationBedrockModel (bedrock@v1.66.4
+// types/types.go:2827-2842).
+type EvaluationBedrockModel struct {
+	PerformanceConfig *EvaluationPerformanceConfig `json:"performanceConfig,omitempty"`
+	ModelIdentifier   string                       `json:"modelIdentifier"`
+	InferenceParams   string                       `json:"inferenceParams,omitempty"`
+}
+
+// EvaluationPrecomputedInferenceSource mirrors
+// types.EvaluationPrecomputedInferenceSource (bedrock@v1.66.4
+// types/types.go:3064-3075).
+type EvaluationPrecomputedInferenceSource struct {
+	InferenceSourceIdentifier string `json:"inferenceSourceIdentifier,omitempty"`
+}
+
+// EvaluationModelConfig models bedrock's evaluationModelConfig union
+// (types.EvaluationModelConfig, bedrock@v1.66.4 types/types.go:3008-3034).
+// smithy-go serializes/deserializes it as a single-key object naming the
+// variant ("bedrockModel" or "precomputedInferenceSource",
+// serializers.go:10841-10863); encoding/json's field-presence dispatch on the
+// struct tags mirrors that mechanism directly.
 type EvaluationModelConfig struct {
+	BedrockModel               *EvaluationBedrockModel               `json:"bedrockModel,omitempty"`
+	PrecomputedInferenceSource *EvaluationPrecomputedInferenceSource `json:"precomputedInferenceSource,omitempty"`
+}
+
+// EvaluatorModel mirrors types.BedrockEvaluatorModel (bedrock@v1.66.4
+// types/types.go:2448-2460).
+type EvaluatorModel struct {
 	ModelIdentifier string `json:"modelIdentifier"`
 }
 
-// EvaluationDatasetLocation specifies where the evaluation dataset is stored.
+// EvaluatorModelConfig models bedrock's evaluatorModelConfig union
+// (types.EvaluatorModelConfig, bedrock@v1.66.4 types/types.go:3226-3235).
+// Only one variant exists today ("bedrockEvaluatorModels").
+type EvaluatorModelConfig struct {
+	BedrockEvaluatorModels []EvaluatorModel `json:"bedrockEvaluatorModels,omitempty"`
+}
+
+// EvaluationDatasetLocation models bedrock's evaluationDatasetLocation union
+// (types.EvaluationDatasetLocation, bedrock@v1.66.4 types/types.go:2892-2908);
+// s3Uri is its sole real variant today.
 type EvaluationDatasetLocation struct {
 	S3URI string `json:"s3Uri,omitempty"`
 }
 
-// EvaluationDataset references an evaluation dataset.
+// EvaluationDataset references an evaluation dataset (types.EvaluationDataset,
+// bedrock@v1.66.4 types/types.go:2873-2890).
 type EvaluationDataset struct {
 	Location *EvaluationDatasetLocation `json:"datasetLocation,omitempty"`
 	Name     string                     `json:"name,omitempty"`
 }
 
-// EvaluationMetricConfig configures a single metric for evaluation.
-type EvaluationMetricConfig struct {
-	MetricName string `json:"metricName"`
+// EvaluationDatasetMetricConfig mirrors types.EvaluationDatasetMetricConfig
+// (bedrock@v1.66.4 types/types.go:2910-2951). MetricNames is a flat []string
+// on the real wire, not a wrapped-object list.
+type EvaluationDatasetMetricConfig struct {
+	Dataset     *EvaluationDataset `json:"dataset,omitempty"`
+	TaskType    string             `json:"taskType,omitempty"`
+	MetricNames []string           `json:"metricNames,omitempty"`
 }
 
-// EvaluationTaskConfig configures a single evaluation task.
-type EvaluationTaskConfig struct {
-	TaskType    string                   `json:"taskType"`
-	Dataset     *EvaluationDataset       `json:"dataset,omitempty"`
-	MetricNames []EvaluationMetricConfig `json:"metricNames,omitempty"`
+// AutomatedEvaluationConfig mirrors types.AutomatedEvaluationConfig
+// (bedrock@v1.66.4 types/types.go:145-166). CustomMetricConfig is stored
+// verbatim: it wraps its own further union
+// (AutomatedEvaluationCustomMetricSource, types/types.go:196, plus a nested
+// CustomMetricEvaluatorModelConfig) that gopherstack's inert evaluation-job
+// store never interprets -- same rationale as
+// AutomatedReasoningPolicy.PolicyDefinition above.
+type AutomatedEvaluationConfig struct {
+	EvaluatorModelConfig *EvaluatorModelConfig           `json:"evaluatorModelConfig,omitempty"`
+	DatasetMetricConfigs []EvaluationDatasetMetricConfig `json:"datasetMetricConfigs,omitempty"`
+	CustomMetricConfig   json.RawMessage                 `json:"customMetricConfig,omitempty"`
 }
 
-// EvaluationInferenceModelConfig points to a model for generating responses.
-type EvaluationInferenceModelConfig struct {
-	ModelIdentifier string `json:"modelIdentifier"`
+// HumanEvaluationCustomMetric mirrors types.HumanEvaluationCustomMetric
+// (bedrock@v1.66.4 types/types.go:4786-4805).
+type HumanEvaluationCustomMetric struct {
+	Name         string `json:"name,omitempty"`
+	RatingMethod string `json:"ratingMethod,omitempty"`
+	Description  string `json:"description,omitempty"`
 }
 
-// EvaluationRAGConfig holds RAG-specific inference configuration.
-type EvaluationRAGConfig struct {
-	KnowledgeBaseID string `json:"knowledgeBaseId,omitempty"`
+// HumanWorkflowConfig mirrors types.HumanWorkflowConfig (bedrock@v1.66.4
+// types/types.go:4809-4820).
+type HumanWorkflowConfig struct {
+	FlowDefinitionArn string `json:"flowDefinitionArn,omitempty"`
+	Instructions      string `json:"instructions,omitempty"`
 }
 
-// EvaluationInferenceConfig holds inference-side configuration (model or RAG).
+// HumanEvaluationConfig mirrors types.HumanEvaluationConfig (bedrock@v1.66.4
+// types/types.go:4767-4782).
+type HumanEvaluationConfig struct {
+	HumanWorkflowConfig  *HumanWorkflowConfig            `json:"humanWorkflowConfig,omitempty"`
+	DatasetMetricConfigs []EvaluationDatasetMetricConfig `json:"datasetMetricConfigs,omitempty"`
+	CustomMetrics        []HumanEvaluationCustomMetric   `json:"customMetrics,omitempty"`
+}
+
+// EvaluationConfig models bedrock's evaluationConfig union
+// (types.EvaluationConfig, bedrock@v1.66.4 types/types.go:2844-2852).
+// smithy-go serializes/deserializes it as a single-key object naming the
+// variant ("automated" or "human", serializers.go:10697-10719,
+// deserializers.go:27131-27179); encoding/json's field-presence dispatch on
+// the struct tags mirrors that mechanism directly rather than flattening the
+// two variants into one shape.
+type EvaluationConfig struct {
+	Automated *AutomatedEvaluationConfig `json:"automated,omitempty"`
+	Human     *HumanEvaluationConfig     `json:"human,omitempty"`
+}
+
+// JobType reports the real AWS EvaluationJobType ("Automated" or "Human",
+// bedrock@v1.66.4 types/enums.go:548-551) implied by which EvaluationConfig
+// variant was set on Create -- the same signal GetEvaluationJobOutput.JobType
+// (api_op_GetEvaluationJob.go:72) is required to carry.
+func (c *EvaluationConfig) JobType() string {
+	switch {
+	case c == nil:
+		return ""
+	case c.Automated != nil:
+		return "Automated"
+	case c.Human != nil:
+		return "Human"
+	default:
+		return ""
+	}
+}
+
+// RAGConfig models bedrock's ragConfigs union member (types.RAGConfig,
+// bedrock@v1.66.4 types/types.go:5979-5996): a single-key object naming
+// "knowledgeBaseConfig" or "precomputedRagSourceConfig". Both variants are
+// themselves further unions bottoming out in a recursive ~12-variant
+// RetrievalFilter tree (types/types.go:6165-6344) that gopherstack's inert
+// evaluation-job store never interprets; stored verbatim as received rather
+// than partially modeled, same rationale as AutomatedEvaluationConfig.
+// CustomMetricConfig above.
+type RAGConfig struct {
+	KnowledgeBaseConfig        json.RawMessage `json:"knowledgeBaseConfig,omitempty"`
+	PrecomputedRagSourceConfig json.RawMessage `json:"precomputedRagSourceConfig,omitempty"`
+}
+
+// EvaluationInferenceConfig models bedrock's inferenceConfig union
+// (types.EvaluationInferenceConfig, bedrock@v1.66.4 types/types.go:2953-2966).
+// smithy-go serializes/deserializes it as a single-key object naming the
+// variant ("models" or "ragConfigs", serializers.go:10795-10817,
+// deserializers.go:27352-27391).
 type EvaluationInferenceConfig struct {
-	RAG    *EvaluationRAGConfig             `json:"ragConfig,omitempty"`
-	Models []EvaluationInferenceModelConfig `json:"models,omitempty"`
+	Models     []EvaluationModelConfig `json:"models,omitempty"`
+	RagConfigs []RAGConfig             `json:"ragConfigs,omitempty"`
 }
 
 // EvaluationJob represents a model evaluation job.
 type EvaluationJob struct {
 	CreationTime     time.Time                  `json:"creationTime"`
 	LastModifiedTime time.Time                  `json:"lastModifiedTime"`
-	JobArn           string                     `json:"jobArn"`
+	InferenceConfig  *EvaluationInferenceConfig `json:"inferenceConfig,omitempty"`
+	EvaluationConfig *EvaluationConfig          `json:"evaluationConfig,omitempty"`
+	ApplicationType  string                     `json:"applicationType,omitempty"`
 	JobName          string                     `json:"jobName"`
 	JobDescription   string                     `json:"jobDescription,omitempty"`
 	RoleArn          string                     `json:"roleArn,omitempty"`
 	Status           string                     `json:"status"`
-	ApplicationType  string                     `json:"applicationType,omitempty"`
+	JobArn           string                     `json:"jobArn"`
+	OutputDataConfig OutputDataConfig           `json:"outputDataConfig"`
 	Tags             []Tag                      `json:"tags,omitempty"`
-	EvaluatorConfig  *EvaluationModelConfig     `json:"evaluatorConfig,omitempty"`
-	InferenceConfig  *EvaluationInferenceConfig `json:"inferenceConfig,omitempty"`
-	EvaluationConfig []EvaluationTaskConfig     `json:"evaluationConfig,omitempty"`
 }
 
 // AutomatedReasoningPolicy represents an Automated Reasoning policy.
@@ -238,9 +350,11 @@ type AutomatedReasoningPolicy struct {
 
 // AutomatedReasoningPolicyBuildWorkflow represents a build workflow for a policy.
 type AutomatedReasoningPolicyBuildWorkflow struct {
-	BuildWorkflowID string `json:"buildWorkflowId"`
-	PolicyArn       string `json:"policyArn"`
-	Status          string `json:"status"`
+	CreatedAt       time.Time `json:"createdAt"`
+	UpdatedAt       time.Time `json:"updatedAt"`
+	BuildWorkflowID string    `json:"buildWorkflowId"`
+	PolicyArn       string    `json:"policyArn"`
+	Status          string    `json:"status"`
 	// BuildWorkflowType and SourceContent come from
 	// StartAutomatedReasoningPolicyBuildWorkflow's real path/body
 	// (bedrock@v1.66.4 serializers.go:8008: buildWorkflowType is a path
@@ -407,7 +521,12 @@ type ModelCustomizationJob struct {
 	RoleArn            string             `json:"roleArn"`
 	OutputDataConfig   OutputDataConfig   `json:"outputDataConfig"`
 	TrainingDataConfig TrainingDataConfig `json:"trainingDataConfig"`
-	Tags               []Tag              `json:"tags,omitempty"`
+	// ValidatorS3Uris holds Validator.S3Uri from the optional
+	// CreateModelCustomizationJobInput.ValidationDataConfig (bedrock@v1.66.4
+	// serializers.go:13249); GetModelCustomizationJobOutput.ValidationDataConfig
+	// is required regardless, so it's always emitted, empty or not.
+	ValidatorS3Uris []string `json:"validatorS3Uris,omitempty"`
+	Tags            []Tag    `json:"tags,omitempty"`
 }
 
 // InferenceProfile represents an inference profile resource. ModelSource is
@@ -452,22 +571,44 @@ type SageMakerEndpointConfig struct {
 	InitialInstanceCount int32  `json:"initialInstanceCount"`
 }
 
-// ModelInvocationLoggingConfiguration represents the logging configuration.
+// ModelInvocationLoggingConfiguration mirrors types.LoggingConfig in
+// aws-sdk-go-v2/service/bedrock@v1.66.4 (deserializers.go:awsRestjson1_deserializeDocumentLoggingConfig,
+// serializers.go:awsRestjson1_serializeDocumentLoggingConfig). All members are optional; the real
+// shape has no s3BucketName/loggingEnabled fields at all.
 type ModelInvocationLoggingConfiguration struct {
-	S3BucketName   string `json:"s3BucketName,omitempty"`
-	LoggingEnabled bool   `json:"loggingEnabled"`
+	CloudWatchConfig             *CloudWatchLoggingConfig `json:"cloudWatchConfig,omitempty"`
+	S3Config                     *S3LoggingConfig         `json:"s3Config,omitempty"`
+	AudioDataDeliveryEnabled     *bool                    `json:"audioDataDeliveryEnabled,omitempty"`
+	EmbeddingDataDeliveryEnabled *bool                    `json:"embeddingDataDeliveryEnabled,omitempty"`
+	ImageDataDeliveryEnabled     *bool                    `json:"imageDataDeliveryEnabled,omitempty"`
+	TextDataDeliveryEnabled      *bool                    `json:"textDataDeliveryEnabled,omitempty"`
+	VideoDataDeliveryEnabled     *bool                    `json:"videoDataDeliveryEnabled,omitempty"`
+}
+
+// CloudWatchLoggingConfig mirrors types.CloudWatchConfig. LogGroupName/RoleArn are required
+// when CloudWatchConfig is present at all.
+type CloudWatchLoggingConfig struct {
+	LargeDataDeliveryS3Config *S3LoggingConfig `json:"largeDataDeliveryS3Config,omitempty"`
+	LogGroupName              string           `json:"logGroupName"`
+	RoleArn                   string           `json:"roleArn"`
+}
+
+// S3LoggingConfig mirrors types.S3Config. BucketName is required when S3Config is present.
+type S3LoggingConfig struct {
+	BucketName string `json:"bucketName"`
+	KeyPrefix  string `json:"keyPrefix,omitempty"`
 }
 
 // CreateEvaluationJobInput holds all parameters for CreateEvaluationJob.
 type CreateEvaluationJobInput struct {
-	JobName         string
-	JobDescription  string
-	RoleArn         string
-	ApplicationType string
-	Tags            []Tag
-	EvaluatorConfig *EvaluationModelConfig
-	InferenceConfig *EvaluationInferenceConfig
-	EvalConfig      []EvaluationTaskConfig
+	InferenceConfig  *EvaluationInferenceConfig
+	EvaluationConfig *EvaluationConfig
+	JobName          string
+	JobDescription   string
+	RoleArn          string
+	ApplicationType  string
+	OutputDataConfig OutputDataConfig
+	Tags             []Tag
 }
 
 // BatchDeleteEvaluationJobError describes a single job deletion failure.

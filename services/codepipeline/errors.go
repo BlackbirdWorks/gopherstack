@@ -46,4 +46,7 @@ var (
 	// ErrUnableToRollbackStage is returned when RollbackStage's target
 	// execution never completed the given stage successfully.
 	ErrUnableToRollbackStage = awserr.New("UnableToRollbackStageException", awserr.ErrInvalidParameter)
+	// ErrActionExecutionNotFound is returned when ListDeployActionExecutionTargets'
+	// ActionExecutionId does not match any recorded action execution.
+	ErrActionExecutionNotFound = awserr.New("ActionExecutionNotFoundException", awserr.ErrNotFound)
 )

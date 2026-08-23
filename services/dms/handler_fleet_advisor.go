@@ -155,11 +155,15 @@ func (h *Handler) handleDescribeFleetAdvisorDatabases(
 	dbs := make([]map[string]any, 0, len(list))
 	for _, db := range list {
 		dbs = append(dbs, map[string]any{
-			"DatabaseId":            db.DatabaseID,
-			"DatabaseName":          db.DatabaseName,
-			"IpAddress":             db.IPAddress,
-			"EngineName":            db.EngineName,
-			"CollectorReferencedId": db.CollectorReferencedID,
+			"DatabaseId":   db.DatabaseID,
+			"DatabaseName": db.DatabaseName,
+			"IpAddress":    db.IPAddress,
+			"SoftwareDetails": map[string]any{
+				"Engine": db.EngineName,
+			},
+			"Collectors": []map[string]any{
+				{"CollectorReferencedId": db.CollectorReferencedID},
+			},
 		})
 	}
 

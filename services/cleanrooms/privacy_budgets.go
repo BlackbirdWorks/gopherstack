@@ -71,6 +71,9 @@ func (b *InMemoryBackend) CreatePrivacyBudgetTemplate(
 	if collab != nil {
 		collabArn = collab.Arn
 	}
+	if autoRefresh == "" {
+		autoRefresh = privacyBudgetAutoRefreshNone
+	}
 	tmpl := &PrivacyBudgetTemplate{
 		PrivacyBudgetTemplateIdentifier: id,
 		Arn:                             b.privacyBudgetTemplateARN(membershipID, id),

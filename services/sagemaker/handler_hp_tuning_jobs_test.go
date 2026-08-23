@@ -4,7 +4,11 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
+	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	sagemakersdk "github.com/aws/aws-sdk-go-v2/service/sagemaker"
+	smtypes "github.com/aws/aws-sdk-go-v2/service/sagemaker/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -240,4 +244,164 @@ func TestHandler_HyperParameterTuningJobLifecycle(t *testing.T) {
 		"HyperParameterTuningJobName": "my-hpt-job",
 	})
 	assert.Equal(t, http.StatusOK, recDelete.Code)
+}
+
+// TestHandler_StopHyperParameterTuningJob_ReachesStopped asserts
+// StopHyperParameterTuningJob transitions Stopping -> Stopped -- previously
+// nothing advanced a Stopping job (no ticker, no later call), so
+// DescribeHyperParameterTuningJob showed Stopping for the entire remaining
+// lifetime of every stopped job. Correct immediately after Stop, but an
+// assertion that only checks this moment cannot catch a machine that never
+// advances -- confirm it actually reaches Stopped.
+func TestHandler_StopHyperParameterTuningJob_ReachesStopped(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	doSageMakerRequest(t, h, "CreateHyperParameterTuningJob", map[string]any{
+		"HyperParameterTuningJobName": "hpt-stop-reaches",
+		"HyperParameterTuningJobConfig": map[string]any{
+			"Strategy":       "Bayesian",
+			"ResourceLimits": map[string]any{"MaxParallelTrainingJobs": 1},
+		},
+	})
+
+	rec := doSageMakerRequest(t, h, "StopHyperParameterTuningJob", map[string]any{
+		"HyperParameterTuningJobName": "hpt-stop-reaches",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doSageMakerRequest(t, h, "DescribeHyperParameterTuningJob", map[string]any{
+		"HyperParameterTuningJobName": "hpt-stop-reaches",
+	})
+	var descResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	assert.Equal(t, "Stopping", descResp["HyperParameterTuningJobStatus"])
+
+	require.Eventually(t, func() bool {
+		descRec := doSageMakerRequest(t, h, "DescribeHyperParameterTuningJob", map[string]any{
+			"HyperParameterTuningJobName": "hpt-stop-reaches",
+		})
+		var out map[string]any
+		require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &out))
+
+		return out["HyperParameterTuningJobStatus"] == "Stopped"
+	}, 2*time.Second, 10*time.Millisecond)
+}
+
+// TestHandler_CreateHyperParameterTuningJob_ExtrasRoundTrip_RealClient
+// asserts Autotune/WarmStartConfig/TrainingJobDefinition/
+// HyperParameterTuningJobConfig's ParameterRanges/TrainingJobEarlyStoppingType
+// -- previously all entirely absent from both the request decode and the
+// Describe response -- now round-trip through DescribeHyperParameterTuningJob.
+func TestHandler_CreateHyperParameterTuningJob_ExtrasRoundTrip_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestSageMakerClient(t, h)
+
+	_, err := client.CreateHyperParameterTuningJob(t.Context(), &sagemakersdk.CreateHyperParameterTuningJobInput{
+		HyperParameterTuningJobName: aws.String("hpt-extras"),
+		HyperParameterTuningJobConfig: &smtypes.HyperParameterTuningJobConfig{
+			Strategy:       smtypes.HyperParameterTuningJobStrategyTypeBayesian,
+			ResourceLimits: &smtypes.ResourceLimits{MaxParallelTrainingJobs: aws.Int32(2)},
+			ParameterRanges: &smtypes.ParameterRanges{
+				IntegerParameterRanges: []smtypes.IntegerParameterRange{
+					{Name: aws.String("epochs"), MinValue: aws.String("1"), MaxValue: aws.String("10")},
+				},
+			},
+			TrainingJobEarlyStoppingType: smtypes.TrainingJobEarlyStoppingTypeAuto,
+		},
+		Autotune: &smtypes.Autotune{Mode: smtypes.AutotuneModeEnabled},
+		TrainingJobDefinition: &smtypes.HyperParameterTrainingJobDefinition{
+			AlgorithmSpecification: &smtypes.HyperParameterAlgorithmSpecification{
+				TrainingInputMode: smtypes.TrainingInputModeFile,
+			},
+			RoleArn:          aws.String("arn:aws:iam::000000000000:role/TestRole"),
+			OutputDataConfig: &smtypes.OutputDataConfig{S3OutputPath: aws.String("s3://bucket/out")},
+			ResourceConfig: &smtypes.ResourceConfig{
+				InstanceType:   smtypes.TrainingInstanceTypeMlM5Large,
+				InstanceCount:  aws.Int32(1),
+				VolumeSizeInGB: aws.Int32(20),
+			},
+			StoppingCondition: &smtypes.StoppingCondition{MaxRuntimeInSeconds: aws.Int32(3600)},
+		},
+	})
+	require.NoError(t, err)
+
+	out, err := client.DescribeHyperParameterTuningJob(t.Context(), &sagemakersdk.DescribeHyperParameterTuningJobInput{
+		HyperParameterTuningJobName: aws.String("hpt-extras"),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, out.Autotune)
+	assert.Equal(t, smtypes.AutotuneModeEnabled, out.Autotune.Mode)
+	require.NotNil(t, out.TrainingJobDefinition)
+	assert.Equal(t, "arn:aws:iam::000000000000:role/TestRole", aws.ToString(out.TrainingJobDefinition.RoleArn))
+	require.NotNil(t, out.HyperParameterTuningJobConfig.ParameterRanges)
+	require.Len(t, out.HyperParameterTuningJobConfig.ParameterRanges.IntegerParameterRanges, 1)
+	assert.Equal(
+		t,
+		"epochs",
+		aws.ToString(out.HyperParameterTuningJobConfig.ParameterRanges.IntegerParameterRanges[0].Name),
+	)
+	assert.Equal(
+		t,
+		smtypes.TrainingJobEarlyStoppingTypeAuto,
+		out.HyperParameterTuningJobConfig.TrainingJobEarlyStoppingType,
+	)
+}
+
+// TestHandler_ListHyperParameterTuningJobs_FilterSortPage_RealClient asserts
+// ListHyperParameterTuningJobsInput's NameContains, SortBy/SortOrder, and
+// LastModifiedTimeAfter -- previously the handler decoded only NextToken.
+func TestHandler_ListHyperParameterTuningJobs_FilterSortPage_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestSageMakerClient(t, h)
+
+	names := []string{"beta-hpt", "alpha-hpt"}
+	for _, n := range names {
+		_, err := client.CreateHyperParameterTuningJob(t.Context(), &sagemakersdk.CreateHyperParameterTuningJobInput{
+			HyperParameterTuningJobName: aws.String(n),
+			HyperParameterTuningJobConfig: &smtypes.HyperParameterTuningJobConfig{
+				Strategy:       smtypes.HyperParameterTuningJobStrategyTypeRandom,
+				ResourceLimits: &smtypes.ResourceLimits{MaxParallelTrainingJobs: aws.Int32(1)},
+			},
+		})
+		require.NoError(t, err)
+	}
+
+	t.Run("ascending sort by name", func(t *testing.T) {
+		t.Parallel()
+
+		out, err := client.ListHyperParameterTuningJobs(t.Context(), &sagemakersdk.ListHyperParameterTuningJobsInput{
+			SortBy: smtypes.HyperParameterTuningJobSortByOptionsName, SortOrder: smtypes.SortOrderAscending,
+		})
+		require.NoError(t, err)
+		require.Len(t, out.HyperParameterTuningJobSummaries, 2)
+		assert.Equal(t, "alpha-hpt", aws.ToString(out.HyperParameterTuningJobSummaries[0].HyperParameterTuningJobName))
+		assert.Equal(t, "beta-hpt", aws.ToString(out.HyperParameterTuningJobSummaries[1].HyperParameterTuningJobName))
+	})
+
+	t.Run("name contains", func(t *testing.T) {
+		t.Parallel()
+
+		out, err := client.ListHyperParameterTuningJobs(t.Context(), &sagemakersdk.ListHyperParameterTuningJobsInput{
+			NameContains: aws.String("alpha"),
+		})
+		require.NoError(t, err)
+		require.Len(t, out.HyperParameterTuningJobSummaries, 1)
+		assert.Equal(t, "alpha-hpt", aws.ToString(out.HyperParameterTuningJobSummaries[0].HyperParameterTuningJobName))
+	})
+
+	t.Run("last modified time after future excludes", func(t *testing.T) {
+		t.Parallel()
+
+		out, err := client.ListHyperParameterTuningJobs(t.Context(), &sagemakersdk.ListHyperParameterTuningJobsInput{
+			LastModifiedTimeAfter: aws.Time(time.Now().Add(time.Hour)),
+		})
+		require.NoError(t, err)
+		assert.Empty(t, out.HyperParameterTuningJobSummaries)
+	})
 }

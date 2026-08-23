@@ -42,10 +42,10 @@ type backendSnapshot struct {
 	Config            Configuration                `json:"config"`
 	AccountID         string                       `json:"accountId"`
 	Region            string                       `json:"region"`
+	OrgConfig         OrgConfiguration             `json:"orgConfig"`
 	Ec2DeepConfig     Ec2DeepInspectionConfig      `json:"ec2DeepConfig"`
 	OrgEc2Config      OrgEc2DeepInspectionConfig   `json:"orgEc2Config"`
 	Version           int                          `json:"version"`
-	OrgConfig         OrgConfiguration             `json:"orgConfig"`
 }
 
 // Snapshot serializes the backend state. It implements

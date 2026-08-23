@@ -173,9 +173,9 @@ type TaskTokenCallbackInvoker interface {
 type HistoryRecorder interface {
 	RecordStateEntered(executionARN, stateName, stateType string, input any)
 	RecordStateExited(executionARN, stateName, stateType string, output any)
-	RecordTaskScheduled(executionARN, stateName, resource string)
-	RecordTaskSucceeded(executionARN, stateName string, output any)
-	RecordTaskFailed(executionARN, stateName, errCode, cause string)
+	RecordTaskScheduled(executionARN, stateName, resource string, parameters any)
+	RecordTaskSucceeded(executionARN, stateName, resource string, output any)
+	RecordTaskFailed(executionARN, stateName, resource, errCode, cause string)
 }
 
 // MapRunNotifier receives callbacks when Map state runs start and end.
@@ -803,7 +803,7 @@ func (e *Executor) executeTask(
 	}
 
 	if e.history != nil {
-		e.history.RecordTaskScheduled(executionARN, stateName, state.Resource)
+		e.history.RecordTaskScheduled(executionARN, stateName, state.Resource, input)
 	}
 
 	// retryAttempts tracks how many times each retrier entry has been used.
@@ -813,7 +813,7 @@ func (e *Executor) executeTask(
 	for {
 		result, taskErr := e.runTaskAttempt(ctx, state, input, waitForTaskToken, timeoutSeconds, heartbeatSeconds)
 		if taskErr == nil {
-			e.recordTaskSucceeded(executionARN, stateName, result)
+			e.recordTaskSucceeded(executionARN, stateName, state.Resource, result)
 
 			return state.Next, result, nil
 		}
@@ -840,7 +840,10 @@ func (e *Executor) executeTask(
 			return next, out, nil
 		}
 
-		e.recordTaskFailed(executionARN, stateName, stepFunctionsErrorCode(taskErr), stepFunctionsErrorCause(taskErr))
+		e.recordTaskFailed(
+			executionARN, stateName, state.Resource,
+			stepFunctionsErrorCode(taskErr), stepFunctionsErrorCause(taskErr),
+		)
 
 		return "", nil, &FailError{ErrCode: "TaskFailed", Cause: taskErr.Error()}
 	}
@@ -1096,7 +1099,7 @@ func (e *Executor) checkCatchers(
 
 			out, _ := applyResultPath(catcher.ResultPath, input, errorResult)
 
-			e.recordTaskFailed(executionARN, stateName, errCode, cause)
+			e.recordTaskFailed(executionARN, stateName, state.Resource, errCode, cause)
 
 			return catcher.Next, out, true
 		}
@@ -1106,16 +1109,16 @@ func (e *Executor) checkCatchers(
 }
 
 // recordTaskSucceeded records a task success event if a history recorder is configured.
-func (e *Executor) recordTaskSucceeded(executionARN, stateName string, result any) {
+func (e *Executor) recordTaskSucceeded(executionARN, stateName, resource string, result any) {
 	if e.history != nil {
-		e.history.RecordTaskSucceeded(executionARN, stateName, result)
+		e.history.RecordTaskSucceeded(executionARN, stateName, resource, result)
 	}
 }
 
 // recordTaskFailed records a task failure event if a history recorder is configured.
-func (e *Executor) recordTaskFailed(executionARN, stateName, errCode, cause string) {
+func (e *Executor) recordTaskFailed(executionARN, stateName, resource, errCode, cause string) {
 	if e.history != nil {
-		e.history.RecordTaskFailed(executionARN, stateName, errCode, cause)
+		e.history.RecordTaskFailed(executionARN, stateName, resource, errCode, cause)
 	}
 }
 

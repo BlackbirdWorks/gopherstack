@@ -11,27 +11,32 @@ ops:
   DeleteFileSystem:                  {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateFileSystem:                  {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateFileSystemProtection:        {wire: ok, errors: ok, state: ok, persist: ok}
-  CreateMountTarget:                 {wire: ok (fixed 2026-08-20), errors: ok, state: ok, persist: ok, note: "removed fabricated MountTargetArn/SecurityGroups from the response -- types.MountTargetDescription has neither field at all"}
-  DescribeMountTargets:              {wire: ok (fixed 2026-08-20), errors: ok, state: ok, persist: ok, note: "Ipv6Address emitted when set; pagination data-loss bug fixed 2026-07-23; fabricated MountTargetArn/SecurityGroups removed 2026-08-20, see notes"}
+  CreateMountTarget:                 {wire: fixed, errors: ok, state: ok, persist: ok, note: "IpAddressType/Ipv6Address (dual-stack) support added this pass -- was a real gap, not previously documented"}
+  DescribeMountTargets:              {wire: fixed, errors: ok, state: ok, persist: ok, note: "Ipv6Address now emitted when set; pagination data-loss bug fixed this pass, see notes"}
+  CreateMountTarget:                 {wire: ok, errors: ok, state: ok, persist: ok, note: "removed fabricated MountTargetArn/SecurityGroups from the response -- types.MountTargetDescription has neither field at all"}
+  DescribeMountTargets:              {wire: ok, errors: ok, state: ok, persist: ok, note: "Ipv6Address emitted when set; pagination data-loss bug fixed 2026-07-23; fabricated MountTargetArn/SecurityGroups removed 2026-08-20, see notes"}
   DeleteMountTarget:                 {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeMountTargetSecurityGroups: {wire: ok, errors: ok, state: ok, persist: ok}
-  ModifyMountTargetSecurityGroups:   {wire: ok, errors: ok (fixed), state: ok, persist: ok, note: "SecurityGroupLimitExceeded now 400 not 409"}
+  ModifyMountTargetSecurityGroups:   {wire: ok, errors: fixed, state: ok, persist: ok, note: "SecurityGroupLimitExceeded now 400 not 409"}
   CreateAccessPoint:                 {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeAccessPoints:              {wire: ok, errors: ok, state: ok, persist: ok, note: "pagination data-loss bug fixed this pass, see notes"}
   DeleteAccessPoint:                 {wire: ok, errors: ok, state: ok, persist: ok}
-  TagResource:                       {wire: ok (fixed), errors: ok, state: ok, persist: ok, note: "was unreachable via real SDK -- see route-matcher fix below"}
-  UntagResource:                     {wire: ok (fixed), errors: ok, state: ok, persist: ok, note: "was unreachable via real SDK -- see route-matcher fix below"}
-  ListTagsForResource:               {wire: ok (fixed), errors: ok, state: ok, persist: ok, note: "was unreachable via real SDK -- see route-matcher fix below"}
+  TagResource:                       {wire: fixed, errors: ok, state: ok, persist: ok, note: "was unreachable via real SDK -- see route-matcher fix below"}
+  UntagResource:                     {wire: fixed, errors: ok, state: ok, persist: ok, note: "was unreachable via real SDK -- see route-matcher fix below"}
+  ListTagsForResource:               {wire: fixed, errors: ok, state: ok, persist: ok, note: "was unreachable via real SDK -- see route-matcher fix below"}
   DescribeTags:                      {wire: ok, errors: ok, state: ok, persist: ok, note: "legacy GET-only op, distinct path from TagResource family; pagination (Marker/MaxItems) not applied server-side -- deferred, see gaps"}
   CreateTags:                        {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteTags:                        {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeLifecycleConfiguration:    {wire: ok, errors: ok, state: ok, persist: ok}
   PutLifecycleConfiguration:         {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (gopherstack-hnyl): isValidTransitionToIA/isValidTransitionToArchive were hand-copied lists each missing AFTER_1_DAY and each wrongly accepting values from other fields (TransitionToIA took a nonexistent \"NONE\"; TransitionToArchive took AFTER_1_ACCESS, which belongs to TransitionToPrimaryStorageClassRules, plus a typo'd AFTER_90_DAYS_1). Both now derive from types.TransitionToIARules.Values()/types.TransitionToArchiveRules.Values()."}
-  CreateReplicationConfiguration:    {wire: ok (fixed 2026-08-20), errors: ok, state: ok, persist: ok, note: "Destination.LastReplicatedTimestamp populated (epoch-seconds) at creation since 2026-07-23; 2026-08-20: removed fabricated FileSystemArn/AvailabilityZoneName/KmsKeyId from Destination response entries and added the real RoleArn field, see notes"}
+  CreateReplicationConfiguration:    {wire: fixed, errors: ok, state: ok, persist: ok, note: "Destination.LastReplicatedTimestamp now populated (epoch-seconds) at creation, simulating an instant initial sync -- was dormant/unset before this pass; 2026-08-21: Destination.Region (required output member, types/types.go:116-119) now defaulted to the source region for same-region replication (DestinationToCreate.Region is optional on input) -- see gopherstack-r80d batch 17 note below"}
   DeleteReplicationConfiguration:    {wire: ok, errors: ok, state: ok, persist: ok}
-  DescribeReplicationConfigurations: {wire: ok (fixed 2026-08-20), errors: ok, state: ok, persist: ok, note: "NextToken/MaxResults pagination implemented 2026-07-23; LastReplicatedTimestamp int64 epoch-seconds since 2026-07-23; 2026-08-20: same fabricated-field/RoleArn fix as CreateReplicationConfiguration, both share destinationToResponse"}
+  DescribeReplicationConfigurations: {wire: fixed, errors: ok, state: ok, persist: ok, note: "NextToken/MaxResults pagination implemented this pass (was previously always a single unpaginated page); LastReplicatedTimestamp now int64 epoch-seconds matching types.Destination.LastReplicatedTimestamp *time.Time wire shape, and populated"}
+  CreateReplicationConfiguration:    {wire: ok, errors: ok, state: ok, persist: ok, note: "Destination.LastReplicatedTimestamp populated (epoch-seconds) at creation since 2026-07-23; 2026-08-20: removed fabricated FileSystemArn/AvailabilityZoneName/KmsKeyId from Destination response entries and added the real RoleArn field, see notes"}
+  DeleteReplicationConfiguration:    {wire: ok, errors: ok, state: ok, persist: ok}
+  DescribeReplicationConfigurations: {wire: ok, errors: ok, state: ok, persist: ok, note: "NextToken/MaxResults pagination implemented 2026-07-23; LastReplicatedTimestamp int64 epoch-seconds since 2026-07-23; 2026-08-20: same fabricated-field/RoleArn fix as CreateReplicationConfiguration, both share destinationToResponse"}
   DescribeFileSystemPolicy:          {wire: ok, errors: ok, state: ok, persist: ok}
-  PutFileSystemPolicy:               {wire: ok, errors: ok (fixed), state: ok, persist: ok, note: "malformed/oversized policy now returns InvalidPolicyException (400), not ValidationException -- ValidationException isn't even in botocore's PutFileSystemPolicy error catalog (BadRequest, InternalServerError, FileSystemNotFound, InvalidPolicyException, IncorrectFileSystemLifeCycleState)"}
+  PutFileSystemPolicy:               {wire: ok, errors: fixed, state: ok, persist: ok, note: "malformed/oversized policy now returns InvalidPolicyException (400), not ValidationException -- ValidationException isn't even in botocore's PutFileSystemPolicy error catalog (BadRequest, InternalServerError, FileSystemNotFound, InvalidPolicyException, IncorrectFileSystemLifeCycleState)"}
   DeleteFileSystemPolicy:            {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeBackupPolicy:              {wire: ok, errors: ok, state: ok, persist: ok}
   PutBackupPolicy:                   {wire: ok, errors: ok, state: ok, persist: ok}
@@ -45,7 +50,7 @@ families:
   BackupPolicy:        {status: ok}
   LifecycleConfiguration: {status: ok}
   FileSystemPolicy:   {status: ok, note: "InvalidPolicyException vs ValidationException distinction fixed this pass -- previously deferred, now closed for real (both malformed-JSON and oversized-policy paths)"}
-  ReplicationConfiguration: {status: ok, note: "pagination implemented + Destination timestamp typing/population fixed this pass -- previously deferred, now closed for real"}
+  ReplicationConfiguration: {status: ok, note: "pagination implemented + Destination timestamp typing/population fixed this pass -- previously deferred, now closed for real; 2026-08-21 required-output Region fix, see below"}
   AccountPreferences: {status: ok}
 gaps:
   - FileSystemLimitExceeded / AccessPointLimitExceeded (account-level Service Quota errors, HTTP 403) are not simulated. Unlike SecurityGroupLimitExceeded (a fixed, non-adjustable per-mount-target structural limit of 5, which IS enforced), these are adjustable per-account Service Quotas with high documented defaults (hundreds to low thousands depending on resource/file-system type) that operators can raise via the Service Quotas console. There is no account-quota-configuration model anywhere in this backend to hang an enforceable, configurable threshold off of, and hardcoding an arbitrary number risks breaking legitimate high-volume test/load usage of the mock for no wire-shape or state-correctness benefit (no SDK client behavior differs based on whether this specific 403 is reachable). Deferred; see items_still_open in the audit receipt for the full reasoning.
@@ -374,3 +379,48 @@ enum's validation set (`LifeCycleState`, `PerformanceMode`, `ThroughputMode`,
   `items[idx+1:]`, it silently reintroduces bug #0 above -- there is no compiler or type-system
   guard against this, only the pagination-union tests. Don't change this without re-reading the
   bug-history comment directly above `paginate()` in `store.go`.
+
+### 2026-08-21: required-output Region dropped for same-region replication (gopherstack-r80d batch 17)
+
+`cmd/requiredoutputfields` flags `CreateReplicationConfiguration`/
+`DescribeReplicationConfigurations`'s nested `Destination` type (efs@v1.44.4
+`types/types.go:109-153`) as requiring `FileSystemId`, `Region`, and `Status`
+("This member is required.") -- invisible to the per-op scan since
+`ReplicationConfigurationDescription.Destinations` is itself only a `[]Destination`,
+not inlined.
+
+`FileSystemId` and `Status` were already unconditionally defaulted in
+`replication.go`'s `CreateReplicationConfiguration`. `Region` was not: the loop only
+read `dests[i].Region` into a local `destRegion` fallback for computing the synthetic
+destination `FileSystemArn`, never writing the fallback back onto the struct itself.
+`ReplicationDestination.Region` (models.go) is tagged `json:"Region,omitempty"`, so for
+any client that omits `Region` on a `DestinationToCreate` -- the documented path for
+same-region replication (`efs@v1.44.4 types/types.go:225-231`: "To create a file system
+that uses Regional storage, specify the ... Region ...", no "This member is required."
+on the input type at all) -- the required output key vanished from the wire entirely.
+
+Fixed by defaulting `dests[i].Region` to the source region up front, same as
+`Status`/`OwnerID`. Proven via a real `aws-sdk-go-v2/service/efs` client round trip
+(`wire_output_required_r80d_test.go`) that creates a replication configuration with no
+`Region` on the destination and asserts the real client's typed `Region` field is
+non-nil and correct; hand-reverted against `HEAD:services/efs/replication.go`
+(confirmed-failing), restored, md5sum byte-identical.
+
+Not a bug, disclosed for the next auditor: the real `Destination` struct has exactly 7
+response fields (`FileSystemId`, `Region`, `Status`, `LastReplicatedTimestamp`,
+`OwnerId`, `RoleArn`, `StatusMessage`) -- gopherstack's `ReplicationDestination` also
+carries `FileSystemArn` and `AvailabilityZoneName`, neither of which exists on the real
+wire type at all. These are harmless extraneous keys (ignored by a real restjson1
+client, which decodes only fields it declares) rather than a required-field
+violation, so left as-is rather than removed as part of this cut -- out of scope for a
+required-*missing*-field audit.
+
+Everything else in this service's required-output surface came back clean: `PosixUser`
+(`Uid`/`Gid`) and `CreationInfo` (`Permissions`/`OwnerUid`/`OwnerGid`) -- both nested,
+optional-parent domain structs reachable only through `AccessPoint.PosixUser`/
+`RootDirectory.CreationInfo` -- have no `omitempty` on any of their own required
+members in `models.go`, so they're never dropped once the optional parent is present.
+`FileSystemDescription`'s 9 required members and `MountTargetDescription`'s 4 are all
+built unconditionally into their response maps (`fsToResponse`/`mtToResponse`).
+`DescribeMountTargetSecurityGroups`'s `SecurityGroups` and `DescribeTags`'s `Tags` are
+both always non-nil, always-present keys. `BackupPolicy.Status` is always present.

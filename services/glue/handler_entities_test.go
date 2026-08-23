@@ -75,8 +75,9 @@ func TestHandler_DescribeEntity_UnknownEntity(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), "EntityNotFoundException")
 }
 
-// TestHandler_ListEntities verifies ListEntities requires a connection and returns
-// the catalog descriptors over HTTP.
+// TestHandler_ListEntities verifies ListEntities does not require a connection
+// (ConnectionName is optional — glue@v1.152.0 api_op_ListEntities.go:29-49 declares
+// no required members) and returns the catalog descriptors over HTTP.
 func TestHandler_ListEntities(t *testing.T) {
 	t.Parallel()
 
@@ -88,9 +89,10 @@ func TestHandler_ListEntities(t *testing.T) {
 		wantMin  int
 	}{
 		{
-			name:     "missing connection name is 400",
+			name:     "missing connection name lists native catalog, not a 400",
 			input:    map[string]any{},
-			wantCode: http.StatusBadRequest,
+			wantCode: http.StatusOK,
+			wantMin:  0,
 		},
 		{
 			name:     "unknown connection is 400",
@@ -296,18 +298,28 @@ func TestGetEntityRecords(t *testing.T) {
 		wantCode int
 	}{
 		{
-			name:     "missing ConnectionName returns 400",
-			input:    map[string]any{"EntityName": "Account"},
+			name:     "missing EntityName returns 400",
+			input:    map[string]any{"ConnectionName": "myconn", "Limit": 5},
 			wantCode: http.StatusBadRequest,
 		},
 		{
-			name:     "missing EntityName returns 400",
-			input:    map[string]any{"ConnectionName": "myconn"},
+			name:     "missing Limit returns 400",
+			input:    map[string]any{"ConnectionName": "myconn", "EntityName": "Account"},
 			wantCode: http.StatusBadRequest,
 		},
 		{
 			name:     "non-existent connection returns 400",
-			input:    map[string]any{"ConnectionName": "noconn", "EntityName": "Account"},
+			input:    map[string]any{"ConnectionName": "noconn", "EntityName": "Account", "Limit": 5},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			// ConnectionName is optional (glue@v1.152.0
+			// api_op_GetEntityRecords.go:35-48): this resolves via the
+			// native-catalog path, where "Account" is not a "database.table"
+			// name, so it is EntityNotFoundException, not the old
+			// ConnectionName-required 400.
+			name:     "missing ConnectionName resolves via native catalog, unqualified name not found",
+			input:    map[string]any{"EntityName": "Account", "Limit": 5},
 			wantCode: http.StatusBadRequest,
 		},
 	}
@@ -321,4 +333,254 @@ func TestGetEntityRecords(t *testing.T) {
 			assert.Equal(t, tc.wantCode, rec.Code)
 		})
 	}
+}
+
+// seedNativeCatalog creates database "salesdb" with table "orders" (five
+// StorageDescriptor columns spanning every EntityField FieldType this file maps,
+// plus one partition key) for native-catalog ListEntities/GetEntityRecords tests.
+func seedNativeCatalog(t *testing.T, h *glue.Handler) {
+	t.Helper()
+
+	rec := doGlueRequest(t, h, "CreateDatabase", map[string]any{
+		"DatabaseInput": map[string]any{"Name": "salesdb"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doGlueRequest(t, h, "CreateTable", map[string]any{
+		"DatabaseName": "salesdb",
+		"TableInput": map[string]any{
+			"Name": "orders",
+			"StorageDescriptor": map[string]any{
+				"Columns": []map[string]any{
+					{"Name": "id", "Type": "bigint"},
+					{"Name": "name", "Type": "string"},
+					{"Name": "amount", "Type": "decimal(10,2)"},
+					{"Name": "active", "Type": "boolean"},
+					{"Name": "created_at", "Type": "timestamp"},
+				},
+			},
+			"PartitionKeys": []map[string]any{
+				{"Name": "dt", "Type": "date"},
+			},
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+}
+
+// TestHandler_ListEntities_NativeCatalog verifies ListEntities' native Amazon S3
+// Glue Data Catalog path: omitting ConnectionName lists real databases/tables from
+// gopherstack's own catalog rather than erroring, ParentEntityName drills into a
+// database's tables, and a connection-scoped call still filters to the connector's
+// own canned catalog (the regression guard).
+func TestHandler_ListEntities_NativeCatalog(t *testing.T) {
+	t.Parallel()
+
+	t.Run("empty catalog is an empty list not an error", func(t *testing.T) {
+		t.Parallel()
+
+		h := newTestHandler(t)
+
+		rec := doGlueRequest(t, h, "ListEntities", map[string]any{})
+		require.Equal(t, http.StatusOK, rec.Code)
+
+		var out struct {
+			Entities []glue.EntityDescriptor `json:"Entities"`
+		}
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+		assert.Empty(t, out.Entities)
+	})
+
+	t.Run("top level lists databases", func(t *testing.T) {
+		t.Parallel()
+
+		h := newTestHandler(t)
+		seedNativeCatalog(t, h)
+
+		rec := doGlueRequest(t, h, "ListEntities", map[string]any{})
+		require.Equal(t, http.StatusOK, rec.Code)
+
+		var out struct {
+			Entities []glue.EntityDescriptor `json:"Entities"`
+		}
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+		require.Len(t, out.Entities, 1)
+		assert.Equal(t, "salesdb", out.Entities[0].EntityName)
+		assert.Equal(t, "DATABASES", out.Entities[0].Category)
+		assert.True(t, out.Entities[0].IsParentEntity)
+	})
+
+	t.Run("parent entity name lists a database's tables", func(t *testing.T) {
+		t.Parallel()
+
+		h := newTestHandler(t)
+		seedNativeCatalog(t, h)
+
+		rec := doGlueRequest(t, h, "ListEntities", map[string]any{"ParentEntityName": "salesdb"})
+		require.Equal(t, http.StatusOK, rec.Code)
+
+		var out struct {
+			Entities []glue.EntityDescriptor `json:"Entities"`
+		}
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+		require.Len(t, out.Entities, 1)
+		assert.Equal(t, "salesdb.orders", out.Entities[0].EntityName)
+		assert.Equal(t, "TABLES", out.Entities[0].Category)
+		assert.False(t, out.Entities[0].IsParentEntity)
+	})
+
+	t.Run("unknown parent entity name is EntityNotFoundException", func(t *testing.T) {
+		t.Parallel()
+
+		h := newTestHandler(t)
+
+		rec := doGlueRequest(t, h, "ListEntities", map[string]any{"ParentEntityName": "ghostdb"})
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+		assert.Contains(t, rec.Body.String(), "EntityNotFoundException")
+	})
+
+	t.Run("connection scoped call still filters to the connector catalog", func(t *testing.T) {
+		t.Parallel()
+
+		h := newTestHandler(t)
+		seedNativeCatalog(t, h)
+		createTestConnection(t, h)
+
+		rec := doGlueRequest(t, h, "ListEntities", map[string]any{"ConnectionName": "c"})
+		require.Equal(t, http.StatusOK, rec.Code)
+
+		var out struct {
+			Entities []glue.EntityDescriptor `json:"Entities"`
+		}
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+
+		names := make([]string, 0, len(out.Entities))
+		for _, e := range out.Entities {
+			names = append(names, e.EntityName)
+		}
+		assert.Contains(t, names, "Account")
+		assert.NotContains(t, names, "salesdb")
+		assert.NotContains(t, names, "salesdb.orders")
+	})
+}
+
+// TestHandler_GetEntityRecords_NativeCatalog verifies GetEntityRecords' native
+// Amazon S3 Glue Data Catalog path: a "database.table" EntityName with no
+// ConnectionName returns records shaped by the table's real columns, and that
+// Limit stays required and connection-scoped names stay out of native lookup.
+func TestHandler_GetEntityRecords_NativeCatalog(t *testing.T) {
+	t.Parallel()
+
+	t.Run("records conform to the table schema", func(t *testing.T) {
+		t.Parallel()
+
+		h := newTestHandler(t)
+		seedNativeCatalog(t, h)
+
+		rec := doGlueRequest(t, h, "GetEntityRecords", map[string]any{
+			"EntityName": "salesdb.orders",
+			"Limit":      3,
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+
+		var out struct {
+			Records []map[string]any `json:"Records"`
+		}
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+		require.Len(t, out.Records, 3)
+
+		for _, r := range out.Records {
+			assert.Contains(t, r, "id")
+			assert.Contains(t, r, "amount")
+			assert.Contains(t, r, "dt", "partition key columns must be queryable fields too")
+			_, ok := r["created_at"].(float64)
+			assert.True(t, ok, "created_at must be an epoch number")
+		}
+	})
+
+	t.Run("bare database name is not a queryable entity", func(t *testing.T) {
+		t.Parallel()
+
+		h := newTestHandler(t)
+		seedNativeCatalog(t, h)
+
+		rec := doGlueRequest(t, h, "GetEntityRecords", map[string]any{
+			"EntityName": "salesdb",
+			"Limit":      3,
+		})
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+		assert.Contains(t, rec.Body.String(), "EntityNotFoundException")
+	})
+
+	t.Run("unknown table is EntityNotFoundException", func(t *testing.T) {
+		t.Parallel()
+
+		h := newTestHandler(t)
+		seedNativeCatalog(t, h)
+
+		rec := doGlueRequest(t, h, "GetEntityRecords", map[string]any{
+			"EntityName": "salesdb.ghost",
+			"Limit":      3,
+		})
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+		assert.Contains(t, rec.Body.String(), "EntityNotFoundException")
+	})
+
+	t.Run("pagination across the native table's sample records", func(t *testing.T) {
+		t.Parallel()
+
+		h := newTestHandler(t)
+		seedNativeCatalog(t, h)
+
+		rec := doGlueRequest(t, h, "GetEntityRecords", map[string]any{
+			"EntityName": "salesdb.orders",
+			"Limit":      2,
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+
+		var page1 struct {
+			NextToken string           `json:"NextToken"`
+			Records   []map[string]any `json:"Records"`
+		}
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page1))
+		assert.Len(t, page1.Records, 2)
+		require.NotEmpty(t, page1.NextToken)
+
+		rec2 := doGlueRequest(t, h, "GetEntityRecords", map[string]any{
+			"EntityName": "salesdb.orders",
+			"Limit":      2,
+			"NextToken":  page1.NextToken,
+		})
+		require.Equal(t, http.StatusOK, rec2.Code)
+
+		var page2 struct {
+			Records []map[string]any `json:"Records"`
+		}
+		require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &page2))
+		require.NotEmpty(t, page2.Records)
+		assert.NotEqual(t, page1.Records[0]["id"], page2.Records[0]["id"])
+	})
+
+	t.Run("Limit is required even without a ConnectionName", func(t *testing.T) {
+		t.Parallel()
+
+		h := newTestHandler(t)
+		seedNativeCatalog(t, h)
+
+		rec := doGlueRequest(t, h, "GetEntityRecords", map[string]any{"EntityName": "salesdb.orders"})
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+	})
+
+	t.Run("connection scoped entity name does not leak into native lookup", func(t *testing.T) {
+		t.Parallel()
+
+		h := newTestHandler(t)
+		seedNativeCatalog(t, h)
+
+		rec := doGlueRequest(t, h, "GetEntityRecords", map[string]any{
+			"EntityName": "Account",
+			"Limit":      3,
+		})
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+		assert.Contains(t, rec.Body.String(), "EntityNotFoundException")
+	})
 }

@@ -252,29 +252,37 @@ func (h *Handler) handleUpdateConnector(
 
 type listFileTransferResultsInput struct {
 	ConnectorID string `json:"ConnectorId"`
-	TransferID  string `json:"TransferId,omitempty"`
+	TransferID  string `json:"TransferId"`
 	NextToken   string `json:"NextToken,omitempty"`
 	MaxResults  int    `json:"MaxResults,omitempty"`
 }
 
+// handleListFileTransferResults returns one FileTransferResults row per file
+// transferred in the ConnectorId/TransferId pair specified -- the real
+// ConnectorFileTransferResult member is the singular "FilePath" (types.go),
+// not a list of paths per transfer. Both ConnectorId and TransferId are
+// required members of the real ListFileTransferResultsInput.
 func (h *Handler) handleListFileTransferResults(
 	_ context.Context,
 	in *listFileTransferResultsInput,
 ) (*map[string]any, error) {
-	connID := ""
-	if in != nil {
-		connID = in.ConnectorID
+	if in == nil || in.ConnectorID == "" {
+		return nil, fmt.Errorf("%w: ConnectorId is required", errInvalidRequest)
 	}
 
-	records := h.Backend.ListFileFileTransferResults(connID)
-	results := make([]any, len(records))
+	if in.TransferID == "" {
+		return nil, fmt.Errorf("%w: TransferId is required", errInvalidRequest)
+	}
 
-	for i, r := range records {
-		results[i] = map[string]any{
-			keyTransferID:  r.TransferID,
-			keyConnectorID: r.ConnectorID,
-			keyStatus:      r.Status,
-			"FilePaths":    r.Files,
+	results := []any{}
+
+	if r := h.Backend.GetFileTransferResult(in.ConnectorID, in.TransferID); r != nil {
+		results = make([]any, len(r.Files))
+		for i, f := range r.Files {
+			results[i] = map[string]any{
+				"FilePath":   f,
+				"StatusCode": r.Status,
+			}
 		}
 	}
 

@@ -1187,10 +1187,14 @@ func TestHandleRESTAPI_Branches(t *testing.T) {
 		wantCode int
 	}{
 		{
-			name:     "unknown_rest_path_returns_404",
+			// gopherstack-wlo1: handleRESTAPI's dispatch-miss fallback now
+			// routes through handleError(errUnknownOperation), a typed
+			// UnknownOperationException at 400 -- not the bare "not found"
+			// text/plain 404 this test previously encoded.
+			name:     "unknown_rest_path_returns_400",
 			method:   http.MethodGet,
 			path:     "/restapis/abc/unknownsegment",
-			wantCode: http.StatusNotFound,
+			wantCode: http.StatusBadRequest,
 		},
 		{
 			name:     "dispatch_error_nonexistent_api",

@@ -27,8 +27,9 @@ func (b *InMemoryBackend) CreateFindingAggregator(
 		Regions:                  regions,
 	}
 	b.findingAggregators.Put(agg)
+	cp := *agg
 
-	return agg, nil
+	return &cp, nil
 }
 
 func (b *InMemoryBackend) GetFindingAggregator(arn string) (*FindingAggregator, error) {

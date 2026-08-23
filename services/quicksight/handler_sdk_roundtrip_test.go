@@ -190,3 +190,69 @@ func TestSDKRoundTrip_UpdateDataSetPhysicalTableMap(t *testing.T) {
 	assert.Equal(t, "SELECT * FROM orders", aws.ToString(member.Value.SqlQuery))
 	assert.NotContains(t, out.DataSet.PhysicalTableMap, "pt1", "the old table id must not survive the update")
 }
+
+// TestSDKRoundTrip_AnalysisThemeArn locks a fix found in a low-real-client-
+// coverage audit pass: CreateAnalysisInput.ThemeArn/UpdateAnalysisInput.ThemeArn
+// (both real, caller-supplied *string fields, api_op_CreateAnalysis.go/
+// api_op_UpdateAnalysis.go) were read nowhere -- handleCreateAnalysis/
+// handleUpdateAnalysis never extracted the field from the request body, and
+// Analysis (types.go) had no slot to store it in, so a real client's ThemeArn
+// was silently dropped and never observable on DescribeAnalysis or
+// DescribeAnalysisDefinition (both of which carry a real ThemeArn member,
+// confirmed against types.Analysis and api_op_DescribeAnalysisDefinition.go's
+// DescribeAnalysisDefinitionOutput). Zero fabrication: the value only ever
+// comes from what the caller supplied on Create/Update.
+func TestSDKRoundTrip_AnalysisThemeArn(t *testing.T) {
+	t.Parallel()
+
+	backend := quicksight.NewInMemoryBackend("000000000000", rtQSTestRegion)
+	h := quicksight.NewHandler(backend)
+	client := newTestQuickSightClient(t, h)
+	ctx := t.Context()
+
+	const themeArn = "arn:aws:quicksight:us-east-1:000000000000:theme/theme1"
+
+	_, err := client.CreateAnalysis(ctx, &quicksightsdk.CreateAnalysisInput{
+		AwsAccountId: aws.String("000000000000"),
+		AnalysisId:   aws.String("rt-an1"),
+		Name:         aws.String("RoundTrip Analysis"),
+		ThemeArn:     aws.String(themeArn),
+	})
+	require.NoError(t, err)
+
+	describeOut, err := client.DescribeAnalysis(ctx, &quicksightsdk.DescribeAnalysisInput{
+		AwsAccountId: aws.String("000000000000"),
+		AnalysisId:   aws.String("rt-an1"),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, describeOut.Analysis)
+	assert.Equal(t, themeArn, aws.ToString(describeOut.Analysis.ThemeArn),
+		"DescribeAnalysis must echo back the ThemeArn supplied on CreateAnalysis")
+
+	defOut, err := client.DescribeAnalysisDefinition(ctx, &quicksightsdk.DescribeAnalysisDefinitionInput{
+		AwsAccountId: aws.String("000000000000"),
+		AnalysisId:   aws.String("rt-an1"),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, themeArn, aws.ToString(defOut.ThemeArn),
+		"DescribeAnalysisDefinition's own top-level ThemeArn must also round-trip")
+
+	const updatedThemeArn = "arn:aws:quicksight:us-east-1:000000000000:theme/theme2"
+
+	_, err = client.UpdateAnalysis(ctx, &quicksightsdk.UpdateAnalysisInput{
+		AwsAccountId: aws.String("000000000000"),
+		AnalysisId:   aws.String("rt-an1"),
+		Name:         aws.String("RoundTrip Analysis"),
+		ThemeArn:     aws.String(updatedThemeArn),
+	})
+	require.NoError(t, err)
+
+	describeOut, err = client.DescribeAnalysis(ctx, &quicksightsdk.DescribeAnalysisInput{
+		AwsAccountId: aws.String("000000000000"),
+		AnalysisId:   aws.String("rt-an1"),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, describeOut.Analysis)
+	assert.Equal(t, updatedThemeArn, aws.ToString(describeOut.Analysis.ThemeArn),
+		"UpdateAnalysis must replace the stored ThemeArn")
+}

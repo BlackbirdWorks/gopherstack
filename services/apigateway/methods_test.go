@@ -469,6 +469,11 @@ func TestMethodActions_RESTPathCoverage(t *testing.T) {
 // that are unreachable via normal REST calls:
 //   - path ending at "methods" with no httpMethod segment → returns false
 //   - integration segment with an unsupported HTTP method → returns false
+//
+// Both land in handleRESTAPI's dispatch-miss fallback, which (gopherstack-wlo1)
+// now routes through handleError(errUnknownOperation) -- a typed
+// UnknownOperationException at 400 -- not the bare "not found" text/plain 404
+// these cases previously encoded.
 func TestParseAPIGWMethodPath_EdgeCases(t *testing.T) {
 	t.Parallel()
 
@@ -479,16 +484,16 @@ func TestParseAPIGWMethodPath_EdgeCases(t *testing.T) {
 		wantCode int
 	}{
 		{
-			name:     "methods_segment_without_httpMethod_returns_404",
+			name:     "methods_segment_without_httpMethod_returns_400",
 			method:   http.MethodGet,
 			path:     "/restapis/abc123/resources/resxyz/methods",
-			wantCode: http.StatusNotFound,
+			wantCode: http.StatusBadRequest,
 		},
 		{
-			name:     "integration_with_POST_method_returns_404",
+			name:     "integration_with_POST_method_returns_400",
 			method:   http.MethodPost,
 			path:     "/restapis/abc123/resources/resxyz/methods/GET/integration",
-			wantCode: http.StatusNotFound,
+			wantCode: http.StatusBadRequest,
 		},
 	}
 

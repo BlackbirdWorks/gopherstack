@@ -4,7 +4,12 @@ sdk_module: aws-sdk-go-v2/service/iot@v1.77.4
 sibling_sdk_modules: [aws-sdk-go-v2/service/iotdataplane@v1.35.0]  # device-shadow ops (Get/Update/DeleteThingShadow, ListNamedShadowsForThing); see device_shadows family
 last_audit_commit: 2a94081753c196de1bbad6b25b8f9b9a90dce321  # pass #4; pass #5 below is uncommitted at write time
 last_audit_date: 2026-08-13
-overall: A            # 2026-07-25 pass #4 (this pass): closed the ONE remaining partial
+overall: A            # 2026-08-21 (gopherstack-c8ge): fixed two singleton-configs-with-no-Create-op
+                       # merge bugs -- UpdateAccountAuditConfiguration and UpdatePackageConfiguration both
+                       # wholesale-replaced a stored map with whatever the request carried instead of
+                       # merging per key, so naming one check/field in a call silently reset every
+                       # other one a prior call had set. See the two op rows.
+                       # 2026-07-25 pass #4 (this pass): closed the ONE remaining partial
                        # family, security_profiles, the sole reason pass #3 stayed at A-.
                        # CreateSecurityProfile silently dropped Behaviors/AlertTargets/
                        # AdditionalMetricsToRetain/AdditionalMetricsToRetainV2/
@@ -188,6 +193,8 @@ ops:
   DeleteJobExecution: {wire: fixed, errors: fixed, state: fixed, persist: ok, note: "(2026-07-25 #2) same routing bug (real path also carries an executionNumber URI segment), fixed. Also silently ignored force; now rejects deleting a non-terminal (QUEUED/IN_PROGRESS) execution without force=true"}
   ListJobExecutionsForJob: {wire: fixed, errors: ok, state: ok, persist: ok, note: "(2026-07-25 #2) response was flat {jobId,thingName,status} per entry; real ListJobExecutionsForJobOutput.executionSummaries is []JobExecutionSummaryForJob{thingArn, jobExecutionSummary:{...}} (confirmed against awsRestjson1_deserializeDocumentJobExecutionSummaryForJob) -- a real client's deserializer would have found none of the keys it looks for and returned entirely empty summaries. Fixed."}
   ListJobExecutionsForThing: {wire: fixed, errors: ok, state: ok, persist: ok, note: "same bug and fix as ListJobExecutionsForJob, for the sibling JobExecutionSummaryForThing{jobId, jobExecutionSummary:{...}} shape"}
+  UpdateAccountAuditConfiguration: {wire: ok, errors: ok, state: fixed, persist: ok, note: "2026-08-21 (gopherstack-c8ge): singleton config with no Create op. AuditCheckConfigurations is map[checkName]*AuditCheckConfig (types.UpdateAccountAuditConfigurationInput); a real client only ever names the checks it's changing in one call, but the handler wholesale-replaced the stored map with whatever the request carried, so a later call enabling check B silently disabled every check enabled by an earlier call that never mentioned it. Fixed to merge per key. See TestUpdateAccountAuditConfiguration_ChecksSurviveIndependentUpdates."}
+  UpdatePackageConfiguration: {wire: ok, errors: ok, state: fixed, persist: ok, note: "2026-08-21 (gopherstack-c8ge): singleton config with no Create op. VersionUpdateByJobsConfig (types.VersionUpdateByJobsConfig) has two independently-optional pointer scalars, Enabled and RoleArn; the handler wholesale-replaced the stored map[string]any with whatever the request carried, so an Update naming only roleArn wiped a previously-set enabled. Fixed to merge per key. See TestUpdatePackageConfiguration_FieldsSurviveIndependentUpdates."}
   CancelAuditTask: {wire: ok, errors: fixed, state: fixed, persist: ok, note: "unconditionally set status to CANCELED for any task ID; now returns ResourceNotFoundException for an unknown task and InvalidRequestException if it isn't IN_PROGRESS (gopherstack-ep0r)"}
   CancelAuditMitigationActionsTask: {wire: ok, errors: fixed, state: fixed, persist: ok, note: "same class of bug as CancelAuditTask; fixed identically (gopherstack-ep0r)"}
   ListAuditFindings: {wire: fixed, errors: ok, state: ok, persist: ok, note: "(2026-07-25 #2) was routed on GET; real AWS's ListAuditFindings is POST /audit/findings with filters in a JSON body (confirmed against serializers.go http bindings) -- completely unreachable by a real SDK client. Also ignored every filter field entirely. Both fixed: now POST-routed and implements checkName/taskId/listSuppressedFindings/startTime/endTime filtering (resourceIdentifier filtering remains unimplemented -- see families: device_defender)"}
@@ -659,6 +666,158 @@ leaks: {status: found_and_fixed, note: "FOUND: Handler.StartWorker launched the 
   — it means the *content* that pass #4's tooling could see was verified, not
   that every request shape has been read as a named type against the pinned
   SDK.
+
+- **Scope of this pass (2026-08-23)**: this file's `overall: A` and near-universal
+  `families: ok` mask a real gap — **155 of iot's 276 ops (56%) were never named
+  anywhere in this file's prose**, derived by diffing every op name in `op_names.go`
+  against a grep of every op name mentioned anywhere in this file. Of those 155, 103
+  have a real response body (confirmed per-op against
+  `awsRestjson1_deserializeOpDocument<Op>Output` in
+  `aws-sdk-go-v2/service/iot@v1.77.4/deserializers.go`); this pass audited 53 of those
+  103. The other 52 have empty/void outputs and were only spot-checked. Found and fixed
+  18 real bugs spanning 22 ops, none previously flagged, all field-diffed against the
+  pinned SDK's deserializer case list (not against gopherstack's own output):
+  - `SetDefaultAuthorizer`/`DescribeDefaultAuthorizer` (`handler_authorizers.go`):
+    `SetDefaultAuthorizer` dropped the required `authorizerArn` entirely;
+    `DescribeDefaultAuthorizer` returned only `{authorizerDescription:{authorizerName}}`
+    instead of the full `AuthorizerDescription` shape — a real client got almost
+    nothing back. Both now look up the full `Authorizer` record.
+  - `CreateProvisioningClaim` (`certificates.go`): backend never created a real
+    certificate record at all — response was missing `certificateId`/`expiration`
+    entirely (`CreateProvisioningClaimOutput`, both present in the real deserializer).
+    Now creates a `PENDING_ACTIVATION` certificate and returns a real 5-minute
+    expiration, matching AWS's fleet-provisioning claim-cert TTL.
+  - `RegisterCACertificate` (`certificates.go`/`handler_certificates.go`): the request
+    struct bound the real `registrationConfig` object (a nested struct on the wire) to
+    a field typed `string` — any real client that supplies `registrationConfig` (the
+    normal way to enable JITP) got a hard `400`/decode failure, confirmed live
+    (`json: cannot unmarshal object into Go struct field .registrationConfig of type
+    string`). `DescribeCACertificateOutput`'s sibling top-level `registrationConfig` key
+    was also entirely absent from the response. Both fixed: real `RegistrationConfig`
+    type added, threaded through Register→Describe.
+  - `ListCACertificates`/`ListCertificatesByCA` (`handler_certificates.go`): list items
+    were missing `creationDate` (both) and `certificateMode` (`ListCertificatesByCA`
+    only) — fields the backend already tracked on every certificate but the handler
+    never surfaced, unlike the sibling `ListCertificates` op which already got this right.
+  - `CreateProvisioningTemplate`/`CreateProvisioningTemplateVersion`
+    (`handler_provisioning.go`): `CreateProvisioningTemplate` dropped `defaultVersionId`
+    (backend already sets it to `1`). `CreateProvisioningTemplateVersion` dropped
+    `templateArn`/`isDefaultVersion` from the response *and* silently ignored the real
+    `setAsDefault` input field entirely — sending it had no effect on which version was
+    default. Now honors `setAsDefault` (flips the prior default version off, updates the
+    parent template's `defaultVersionId`) and returns the full real shape.
+  - `CreateOTAUpdate`/`GetOTAUpdate`/`ListOTAUpdates` (`ota_updates.go`/
+    `handler_ota_updates.go`): `CreateOTAUpdateOutput`'s `awsIotJobArn`/`awsIotJobId`
+    were entirely unmodeled (now synthesized as `AFR_OTA-<otaUpdateId>`, matching AWS's
+    documented job-ID convention, with a real job ARN). Separately, the OTA update's
+    file list was serialized under the wrong key `files` instead of the real
+    `otaUpdateFiles` — confirmed against `awsRestjson1_deserializeDocumentOTAUpdateInfo`
+    — so a real client's `OtaUpdateFiles` field silently decoded empty even when files
+    were set. `ListOTAUpdates` entries were also missing `creationDate`.
+  - `ListStreams`/`UpdateStream` (`handler_streams.go`): list entries were missing
+    `description`/`streamVersion` (`StreamSummary`); `UpdateStream`'s response was
+    missing `description` (`UpdateStreamOutput`) — all three fields the backend already
+    tracked on every stream.
+  - `CreateTopicRuleDestination`/`GetTopicRuleDestination`/`ListTopicRuleDestinations`
+    (`handler_topic_rules.go`): all three only ever returned `{arn, status}`, dropping
+    `httpUrlProperties`/`httpUrlSummary` entirely even though the backend already builds
+    and stores it (`TopicRuleDestination.HTTPURLProperties`) — the confirmation URL for
+    an HTTP destination was never visible to a real client calling any of these three
+    ops. Note the wrapper key differs by op: `httpUrlProperties`
+    (`types.TopicRuleDestination`, Create/Get) vs. `httpUrlSummary`
+    (`types.TopicRuleDestinationSummary`, List) — same shape, different key, confirmed
+    against both deserializer functions.
+  - `GetPackageVersion`/`CreatePackageVersion` (`packages.go`/`handler_packages.go`):
+    `GetPackageVersion` never surfaced `sbom`/`sbomValidationStatus` even though
+    `AssociateSbomWithPackageVersion` already stores both in a side map keyed by
+    package/version — now merged in at read time. `CreatePackageVersion` also silently
+    dropped three real `CreatePackageVersionInput` fields it never even declared in its
+    request struct — `attributes`, `recipe`, `artifact` — now parsed, persisted, and
+    echoed back on both Create and Get.
+  - `UpdateCertificateProvider` (`handler_certificates.go`): returned a bare `204`-style
+    empty `200` body — the real `UpdateCertificateProviderOutput` has
+    `certificateProviderArn`/`certificateProviderName`, both non-optional in practice.
+    A real client got nothing back at all, not just a partial shape. Now looks up the
+    updated record and returns the full real body.
+  - `DescribeProvisioningTemplate`/`ListProvisioningTemplates`
+    (`provisioning.go`/`handler_provisioning.go`): `preProvisioningHook`
+    (`types.ProvisioningHook`) was entirely unmodeled — not in the backend struct, not
+    parseable from `CreateProvisioningTemplateInput`, so `DescribeProvisioningTemplate`
+    could never return it no matter what a real client sent on Create. Added the type,
+    threaded it through Create→Describe. Separately, `ListProvisioningTemplates`
+    entries dropped `type` (`ProvisioningTemplateSummary`) even though the backend
+    already tracks `TemplateType` on every template.
+
+  **Modelling gaps found, not fixed** (real SDK members with no backend concept at
+  all, so nothing to field-diff against — per `parity-principles.md`'s no-synthesis
+  rule these are reported, not guessed at):
+  - `DescribeDomainConfiguration` (`provisioning.go`): the backend's
+    `DomainConfiguration` struct models only `domainName`/`serviceType`/
+    `domainConfigurationStatus`/`domainType`/dates. The real
+    `types.DomainConfiguration` additionally has `applicationProtocol`,
+    `authenticationType`, `authorizerConfig`, `clientCertificateConfig`,
+    `lastStatusChangeDate`, `serverCertificateConfig`, `serverCertificates`, and
+    `tlsConfig` — an entire unmodeled subsystem (custom-domain TLS/mTLS/authorizer
+    configuration), not a wire-shape omission fixable at the handler layer.
+  - `CreatePackageVersion`'s `errorReason` (`PackageVersionSummary`/`PackageVersion`):
+    legitimately absent — gopherstack's package versions never transition to a
+    `FAILED` state asynchronously the way real AWS package-version processing can, so
+    there is no backing state to surface. Not a bug; would need a fabricated failure
+    mode to populate.
+
+  **Ops audited and found already correct** (field-diffed, no gap): `CreateAuthorizer`,
+  `DescribeAuthorizer`, `ListAuthorizers`, `UpdateAuthorizer`, `CreateCertificateFromCsr`,
+  `CreateCertificateProvider`, `CreateKeysAndCertificate`, `DescribeCACertificate`
+  (aside from the `registrationConfig` fix above), `ListCertificateProviders`,
+  `RegisterCertificate`, `RegisterCertificateWithoutCA`, `CreateCustomMetric`,
+  `CreateDimension`, `DescribeCustomMetric`, `DescribeDimension`, `ListCustomMetrics`,
+  `ListDimensions`, `CreateRoleAlias`, `DescribeRoleAlias`, `ListRoleAliases`,
+  `UpdateRoleAlias`, `CreateDomainConfiguration`, `UpdateDomainConfiguration`,
+  `DescribeProvisioningTemplateVersion`, `ListProvisioningTemplateVersions`,
+  `DescribeBillingGroup`, `ListBillingGroups`, `CreatePackage`, `GetPackage`,
+  `DescribeStream`, `CreateStream`.
+
+  **Ops named in the never-named-155 list but not reached this pass** — 52 void-output
+  ops (spot-checked only, not field-diffed): `AddThingToThingGroup`,
+  `CancelDetectMitigationActionsTask`, `ClearDefaultAuthorizer`,
+  `ConfirmTopicRuleDestination`, `CreateAuditSuppression`, `DeleteAccountAuditConfiguration`,
+  `DeleteAuditSuppression`, `DeleteAuthorizer`, `DeleteBillingGroup`, `DeleteCACertificate`,
+  `DeleteCertificate`, `DeleteCertificateProvider`, `DeleteCustomMetric`, `DeleteDimension`,
+  `DeleteDomainConfiguration`, `DeleteDynamicThingGroup`, `DeleteFleetMetric`,
+  `DeleteOTAUpdate`, `DeletePackage`, `DeletePackageVersion`, `DeletePolicyVersion`,
+  `DeleteProvisioningTemplate`, `DeleteProvisioningTemplateVersion`, `DeleteRegistrationCode`,
+  `DeleteRoleAlias`, `DeleteScheduledAudit`, `DeleteStream`, `DeleteThingType`,
+  `DeleteTopicRuleDestination`, `DeleteV2LoggingLevel`, `DetachPrincipalPolicy`,
+  `DetachThingPrincipal`, `DisassociateSbomFromPackageVersion`,
+  `PutVerificationStateOnViolation`, `RemoveThingFromThingGroup`, `SetDefaultPolicyVersion`,
+  `SetLoggingOptions`, `SetV2LoggingLevel`, `SetV2LoggingOptions`, `StopThingRegistrationTask`,
+  `UpdateAuditSuppression`, `UpdateCACertificate`, `UpdateCertificate`,
+  `UpdateEncryptionConfiguration`, `UpdateEventConfigurations`, `UpdateIndexingConfiguration`,
+  `UpdateJob`, `UpdatePackage`, `UpdatePackageVersion`, `UpdateProvisioningTemplate`,
+  `UpdateThingGroupsForThing`, `UpdateTopicRuleDestination`.
+
+  50 has-body ops from the never-named-155 list remain genuinely unaudited by any pass
+  (this one included): `CancelJob`, `CreateBillingGroup`, `CreateDynamicThingGroup`,
+  `UpdateBillingGroup`, `UpdateDynamicThingGroup`, the `audit`/`device_defender` families
+  (`DescribeAuditMitigationActionsTask`, `ListAuditMitigationActionsExecutions`,
+  `ListAuditSuppressions`, `ListAuditTasks`, `ListRelatedResourcesForAuditFinding`,
+  `DescribeAccountAuditConfiguration`, `DescribeAuditSuppression`, `DescribeAuditTask`,
+  `CreateScheduledAudit`, `DescribeScheduledAudit`, `ListScheduledAudits`,
+  `StartOnDemandAuditTask`, `UpdateScheduledAudit`), most of `handler_routing.go`'s
+  grab-bag (`DescribeEncryptionConfiguration`, `DescribeEventConfigurations`,
+  `DescribeManagedJobTemplate`, `DescribeThingRegistrationTask`,
+  `GetBehaviorModelTrainingSummaries`, `GetThingConnectivityData`, `ListDomainConfigurations`,
+  `ListManagedJobTemplates`, `ListMetricValues`, `ListOutgoingCertificates`,
+  `ListThingGroupsForThing`, `ListThingPrincipals`, `ListThingPrincipalsV2`,
+  `ListThingRegistrationTaskReports`, `ListThingRegistrationTasks`, `RegisterThing`,
+  `StartThingRegistrationTask`, `TestAuthorization`, `TestInvokeAuthorizer`),
+  `handler_policies.go`'s (`GetEffectivePolicies`, `ListPolicyPrincipals`,
+  `ListPrincipalPolicies`, `ListPrincipalThings`, `ListPrincipalThingsV2`,
+  `ListTargetsForPolicy`), `handler_logging.go` (`GetLoggingOptions`,
+  `GetV2LoggingOptions`, `ListV2LoggingLevels`), `handler_indexing.go`
+  (`GetIndexingConfiguration`), `GetRegistrationCode`, `GetPackageConfiguration`, and
+  `ListSbomValidationResults`. These are the next pass's fresh ground — none have ever
+  been named in this file.
 
 ## over-wide/wrong-name list responses (gopherstack-g3jk, gopherstack-k26u)
 

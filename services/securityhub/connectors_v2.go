@@ -2,6 +2,7 @@ package securityhub
 
 import (
 	"fmt"
+	"maps"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -9,6 +10,19 @@ import (
 
 func (b *InMemoryBackend) connectorV2ARN(id string) string {
 	return arn.Build("securityhub", b.region, b.accountID, fmt.Sprintf("connector-v2/%s", id))
+}
+
+// clone deep-copies c's map fields. Tags is created aliased to
+// b.tags[ConnectorArn] (same map object, see CreateConnectorV2), and
+// TagResource/UntagResource mutate that map in place under lock -- a
+// shallow "cp := *c" leaves the returned copy's Tags field pointing at that
+// live, mutable map.
+func (c *ConnectorV2) clone() *ConnectorV2 {
+	cp := *c
+	cp.Provider = maps.Clone(c.Provider)
+	cp.Tags = maps.Clone(c.Tags)
+
+	return &cp
 }
 
 func (b *InMemoryBackend) CreateConnectorV2(
@@ -41,7 +55,7 @@ func (b *InMemoryBackend) CreateConnectorV2(
 		b.tags[arn] = tags
 	}
 
-	return c, nil
+	return c.clone(), nil
 }
 
 func (b *InMemoryBackend) GetConnectorV2(connectorID string) (*ConnectorV2, error) {
@@ -52,18 +66,14 @@ func (b *InMemoryBackend) GetConnectorV2(connectorID string) (*ConnectorV2, erro
 	if !ok {
 		for _, conn := range b.connectorsV2.All() {
 			if conn.ConnectorArn == connectorID {
-				cp := *conn
-
-				return &cp, nil
+				return conn.clone(), nil
 			}
 		}
 
 		return nil, ErrNotFound
 	}
 
-	cp := *c
-
-	return &cp, nil
+	return c.clone(), nil
 }
 
 func (b *InMemoryBackend) ListConnectorsV2(nextToken string, maxResults int) ([]*ConnectorV2, string) {
@@ -74,8 +84,7 @@ func (b *InMemoryBackend) ListConnectorsV2(nextToken string, maxResults int) ([]
 	all := make([]*ConnectorV2, 0, len(snap))
 
 	for _, c := range snap {
-		cp := *c
-		all = append(all, &cp)
+		all = append(all, c.clone())
 	}
 
 	return paginateSlice(all, nextToken, maxResults, maxDefaultResults)
@@ -121,9 +130,8 @@ func (b *InMemoryBackend) UpdateConnectorV2(
 	}
 
 	target.UpdatedAt = now
-	cp := *target
 
-	return &cp, nil
+	return target.clone(), nil
 }
 
 func (b *InMemoryBackend) DeleteConnectorV2(connectorID string) error {
@@ -180,9 +188,8 @@ func (b *InMemoryBackend) RegisterConnectorV2(_, authState string) (*ConnectorV2
 
 	target.ConnectorStatus = "REGISTERED"
 	target.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
-	cp := *target
 
-	return &cp, nil
+	return target.clone(), nil
 }
 
 func (b *InMemoryBackend) CreateTicketV2(connectorID, findingMetadataUID, mode string) (*TicketV2, error) {

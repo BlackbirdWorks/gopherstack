@@ -21,7 +21,28 @@ import (
 // rather than store.Registry tables, so any snapshot taken before this
 // pkgs/store conversion is treated as "missing/incompatible" and discarded
 // cleanly rather than misinterpreted.
-const sagemakerSnapshotVersion = 1
+//
+// Version 2 (gopherstack-hjdd) covers three registered-table shape changes
+// that landed on this branch without a version bump:
+//   - ddcf7c3dc moved ProcessingJob's VpcConfig from a top-level field to
+//     NetworkConfig.VpcConfig; a v1 snapshot's top-level "VpcConfig" key is
+//     unrecognized by the new shape and would be silently dropped.
+//   - ddcf7c3dc removed TransformJob.RoleArn entirely (it echoed a request
+//     member CreateTransformJobInput never declares); a v1 snapshot's
+//     "RoleArn" key would likewise be silently dropped.
+//   - 22491c31e switched TrainingPlanExtension's ExtendedAt/StartDate/EndDate
+//     from Go's default RFC3339-string encoding to a custom epoch-seconds
+//     MarshalJSON/UnmarshalJSON pair; a v1 snapshot's RFC3339 strings fail
+//     UnmarshalJSON's float64 decode outright, erroring RestoreAll for the
+//     whole TrainingPlan table rather than just those three fields.
+//
+// Version 3 (parity audit) retagged Space.SpaceStatus from json:"SpaceStatus"
+// to json:"Status" — the real DescribeSpaceOutput/SpaceDetails wire key,
+// confirmed against deserializers.go — since Space.MarshalJSON/UnmarshalJSON
+// is read directly by both the wire response and the snapshot restore path.
+// A v2 snapshot's "SpaceStatus" key would be silently dropped, restoring
+// every persisted space with an empty status.
+const sagemakerSnapshotVersion = 3
 
 // persistedCluster is a serialisable DTO for Cluster. It exists — mirroring
 // the SQS pilot's queueSnapshot — because Cluster is a "dirty" struct for

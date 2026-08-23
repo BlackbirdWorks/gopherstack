@@ -68,8 +68,26 @@ func (h *Handler) handleListFindings(c *echo.Context) error {
 // (see pkgs/awstime) -- marshaling the struct directly via encoding/json
 // would emit RFC3339 strings and break every real SDK client's
 // ListFindings deserializer once a finding carries a populated timestamp
-// (e.g. after SeedFinding).
+// (e.g. after SeedFinding). Resources and Remediation are both required on
+// the real Finding shape (confirmed via types.go): Resources was only
+// emitted when non-empty, dropping the key entirely for any finding seeded
+// with none (SeedFinding/AddFinding enforce nothing here, so this state is
+// reachable); Remediation had no backing struct field at all. Real
+// Remediation's own Recommendation member is optional, so an honestly empty
+// object -- no text/URL gopherstack has any source for -- satisfies the
+// required key without fabricating remediation advice. "severity" is a bare
+// Severity string enum on the real wire (deserializers.go's
+// awsRestjson1_deserializeDocumentFinding: case "severity" expects a JSON
+// string, not an object) -- the prior {label,score} nested object caused a
+// hard deserialization error on any real SDK client's ListFindings call once
+// a finding existed, not merely a missing field. The numeric score belongs
+// on the separate, optional, top-level InspectorScore member instead.
 func findingToWire(f *Finding) map[string]any {
+	resources := make([]map[string]any, 0, len(f.Resources))
+	for _, r := range f.Resources {
+		resources = append(resources, map[string]any{keyType: r.Type, "id": r.ID})
+	}
+
 	entry := map[string]any{
 		"awsAccountId":    f.AccountID,
 		"description":     f.Description,
@@ -77,9 +95,15 @@ func findingToWire(f *Finding) map[string]any {
 		"firstObservedAt": awstime.Epoch(f.FirstObservedAt),
 		"lastObservedAt":  awstime.Epoch(f.LastObservedAt),
 		keyUpdatedAt:      awstime.Epoch(f.UpdatedAt),
-		"severity":        severityToWire(f.Severity),
+		"remediation":     map[string]any{},
+		"resources":       resources,
+		"severity":        f.Severity.Label,
 		keyStatus:         f.Status,
 		keyType:           f.Type,
+	}
+
+	if f.Severity.Score != 0 {
+		entry["inspectorScore"] = f.Severity.Score
 	}
 
 	if f.Title != "" {
@@ -88,27 +112,6 @@ func findingToWire(f *Finding) map[string]any {
 
 	if f.FixAvailable != "" {
 		entry["fixAvailable"] = f.FixAvailable
-	}
-
-	if len(f.Resources) > 0 {
-		resources := make([]map[string]any, 0, len(f.Resources))
-		for _, r := range f.Resources {
-			resources = append(resources, map[string]any{keyType: r.Type, "id": r.ID})
-		}
-
-		entry["resources"] = resources
-	}
-
-	return entry
-}
-
-// severityToWire renders a FindingSeverity, omitting a zero score to match
-// the domain struct's existing "score,omitempty" contract.
-func severityToWire(s FindingSeverity) map[string]any {
-	entry := map[string]any{"label": s.Label}
-
-	if s.Score != 0 {
-		entry["score"] = s.Score
 	}
 
 	return entry

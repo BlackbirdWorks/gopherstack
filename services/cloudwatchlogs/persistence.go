@@ -17,7 +17,39 @@ import (
 // older snapshot unsafe to decode as the current shape. Restore compares this
 // against the persisted value and discards (rather than attempts to partially
 // decode) any mismatch -- see Restore below.
-const cwlSnapshotVersion = 1
+//
+// Bumped 1 -> 2 (gopherstack-hjdd). Multiple registered tables' value types
+// changed shape across several commits with no bump applied at the time:
+//
+//   - ca3afb3ca: IndexPolicy.LastUpdated (time.Time) -> LastUpdateTime
+//     (int64), same wire key "lastUpdateTime". PutIndexPolicy genuinely sets
+//     this to time.Now(), so a pre-fix snapshot's RFC3339 string no longer
+//     unmarshals into the new int64 field at all -- an outright decode error
+//     that takes down the whole restore (indexPolicies is a plain
+//     store.Register table, not DTO-wrapped).
+//   - 9f62f7f5d: ScheduledQuery.Arn retagged "arn" -> ScheduledQueryArn
+//     "scheduledQueryArn". scheduledQueryKeyFn keys the table on exactly this
+//     field, so a pre-fix snapshot's ARN silently decodes empty and every
+//     restored scheduled query collides onto the same "" key -- the same
+//     collapse-to-one-record class as bedrock's Flow/Prompt bug.
+//   - 9f62f7f5d: ImportTask.Status retagged "status" -> "importStatus", and
+//     LogAnomalyDetector.DetectorStatus retagged "detectorStatus" ->
+//     AnomalyDetectorStatus "anomalyDetectorStatus". Neither field is part of
+//     either table's key, so these are narrower silent losses (the status
+//     field alone decodes empty) rather than a key collision.
+//
+// NOT bump candidates, examined and disqualified: 357edbc07's
+// Delivery.CreationTime "creationTime" -> "-" only affects an internal
+// bookkeeping field (DescribeDeliveries sort order) with no real-AWS wire
+// counterpart -- disclosed as fabricated in its own doc comment -- so losing
+// it on restore reorders a list, it does not destroy user data. 9f62f7f5d's
+// ImportTask.ImportRoleArn "importRoleArn" -> "-" is a distinct bug (the
+// field can no longer round-trip through ANY snapshot, old or new, since
+// json:"-" excludes it unconditionally) but is not a version-compatibility
+// issue a bump can fix -- filed separately, see PARITY.md. 567e2c4f8's
+// Anomaly field renames are moot for persistence: Anomaly lives on
+// b.ephemeralRegistry, never included in backendSnapshot at all.
+const cwlSnapshotVersion = 2
 
 // logGroupSnapshot, logStreamSnapshot, subscriptionFilterSnapshot, and
 // metricFilterSnapshot are the on-disk DTOs for the four region-qualified

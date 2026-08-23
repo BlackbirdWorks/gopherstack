@@ -57,10 +57,10 @@ func (h *Handler) sdkActions() map[string]actionFn {
 				return 0, nil, err
 			}
 
-			return http.StatusOK, map[string]any{
-				"contentType":        sdk.ContentType,
-				"contentDisposition": sdk.ContentDisposition,
-				"body":               sdk.Body,
+			return http.StatusOK, &rawBinaryResponse{
+				contentType:        sdk.ContentType,
+				contentDisposition: sdk.ContentDisposition,
+				body:               sdk.Body,
 			}, nil
 		},
 		opGetSdkType: func(b []byte) (int, any, error) {

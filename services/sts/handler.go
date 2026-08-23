@@ -120,7 +120,12 @@ func (h *Handler) RouteMatcher() service.Matcher {
 
 		body, err := httputils.ReadBody(c.Request())
 		if err != nil {
-			return false
+			// Body unreadable (e.g. oversized): fall back to the User-Agent
+			// marker every aws-sdk-go-v2 sts client sets (api_client.go's
+			// AddSDKAgentKeyValue -- "api/sts"). That still identifies this
+			// as ours, so claim it and let Handler() produce the typed
+			// error instead of masking the read failure as a 404.
+			return service.MatchesUserAgentMarker(c.Request().Header, "api/sts")
 		}
 
 		return strings.Contains(string(body), stsVersion)
@@ -173,7 +178,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		}
 
 		if c.Request().Method != http.MethodPost {
-			return c.String(http.StatusMethodNotAllowed, "Method not allowed")
+			return h.handleError(ctx, c, fmt.Errorf("%w: method not allowed", ErrValidation))
 		}
 
 		response, err := h.dispatch(ctx, c.Request())

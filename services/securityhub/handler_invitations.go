@@ -81,11 +81,13 @@ func (h *Handler) handleDeclineInvitations(c *echo.Context, body map[string]any)
 		}
 	}
 
-	declined, unprocessed := h.Backend.DeclineInvitations(accountIDs)
+	_, unprocessed := h.Backend.DeclineInvitations(accountIDs)
 
-	resp := map[string]any{
-		"ProcessedAccounts": declined,
-	}
+	// DeclineInvitationsOutput (securityhub@v1.75.4 deserializers.go's
+	// awsRestjson1_deserializeOpDocumentDeclineInvitationsOutput) has only
+	// UnprocessedAccounts -- no "ProcessedAccounts" member; success is implied
+	// by an account's absence from this list.
+	resp := map[string]any{}
 
 	if len(unprocessed) > 0 {
 		resp["UnprocessedAccounts"] = unprocessed
@@ -107,11 +109,13 @@ func (h *Handler) handleDeleteInvitations(c *echo.Context, body map[string]any) 
 		}
 	}
 
-	deleted, unprocessed := h.Backend.DeleteInvitations(accountIDs)
+	_, unprocessed := h.Backend.DeleteInvitations(accountIDs)
 
-	resp := map[string]any{
-		"ProcessedAccounts": deleted,
-	}
+	// DeleteInvitationsOutput (securityhub@v1.75.4 deserializers.go's
+	// awsRestjson1_deserializeOpDocumentDeleteInvitationsOutput) has only
+	// UnprocessedAccounts -- no "ProcessedAccounts" member; success is implied
+	// by an account's absence from this list.
+	resp := map[string]any{}
 
 	if len(unprocessed) > 0 {
 		resp["UnprocessedAccounts"] = unprocessed

@@ -29,7 +29,7 @@ type StorageBackend interface {
 	// Connector entity metadata/data operations.
 	DescribeEntity(connectionName, entityName string) ([]EntityField, error)
 	GetEntityRecords(connectionName, entityName string, limit int, nextToken string) ([]map[string]any, string, error)
-	ListEntities(connectionName string) ([]EntityDescriptor, error)
+	ListEntities(connectionName, parentEntityName string) ([]EntityDescriptor, error)
 
 	// Database operations.
 	CreateDatabase(input DatabaseInput, tags map[string]string) (*Database, error)
@@ -296,7 +296,7 @@ type StorageBackend interface {
 	DeleteTableOptimizer(dbName, tableName, optimizerType string) error
 	BatchGetTableOptimizer(
 		entries []BatchGetTableOptimizerEntry,
-	) ([]*TableOptimizer, []BatchGetTableOptimizerError)
+	) ([]*BatchTableOptimizer, []BatchGetTableOptimizerError)
 
 	// Column statistics operations.
 	UpdateColumnStatisticsForTable(dbName, tableName string, stats []*ColumnStatistics) error
@@ -323,7 +323,7 @@ type StorageBackend interface {
 
 	// Resource policy operations.
 	PutResourcePolicy(policy, resourceARN, existsCondition, hashCondition, enableHybrid string) (string, error)
-	GetResourcePolicy(resourceARN string) (string, string, error)
+	GetResourcePolicy(resourceARN string) (string, string, float64, float64, error)
 	DeleteResourcePolicy(resourceARN, policyHash string) error
 	ListResourcePolicies() []*resourcePolicyEntry
 

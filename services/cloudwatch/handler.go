@@ -83,6 +83,13 @@ const (
 
 const cloudwatchNS = "http://monitoring.amazonaws.com/doc/2010-08-01/"
 
+// xmlEmptyResult marshals to an empty <XxxResult></XxxResult> element. The AWS
+// query protocol wraps a wire response's data in a Result element whenever the
+// operation's output shape is declared (even with zero members) -- verified
+// against botocore's cloudwatch service-2.json resultWrapper/output keys, which
+// distinguish these from operations with no output shape at all (no wrapper).
+type xmlEmptyResult struct{}
+
 // errCodeInternalFailure is the AWS error code for an unclassified server-side failure.
 const errCodeInternalFailure = "InternalFailure"
 
@@ -251,7 +258,13 @@ func (h *Handler) RouteMatcher() service.Matcher {
 
 		body, err := httputils.ReadBody(r)
 		if err != nil {
-			return false
+			// Body unreadable (e.g. oversized): fall back to the User-Agent
+			// marker every aws-sdk-go-v2 cloudwatch client sets
+			// (api_client.go's AddSDKAgentKeyValue -- "api/cloudwatch").
+			// That still identifies this as ours, so claim it and let
+			// Handler() produce the typed error instead of masking the
+			// read failure as a 404.
+			return service.MatchesUserAgentMarker(r.Header, "api/cloudwatch")
 		}
 
 		vals, err := url.ParseQuery(string(body))
@@ -295,24 +308,6 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 		return target
 	}
 
-	if err := r.ParseForm(); err != nil {
-		body, readErr := httputils.ReadBody(r)
-		if readErr != nil {
-			return ""
-		}
-
-		vals, parseErr := url.ParseQuery(string(body))
-		if parseErr != nil {
-			return ""
-		}
-
-		return vals.Get("Action")
-	}
-
-	if action := r.Form.Get("Action"); action != "" {
-		return action
-	}
-
 	body, err := httputils.ReadBody(r)
 	if err != nil {
 		return ""
@@ -328,12 +323,17 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 
 // ExtractResource extracts the resource name (Namespace) from the form.
 func (h *Handler) ExtractResource(c *echo.Context) string {
-	r := c.Request()
-	if err := r.ParseForm(); err != nil {
+	body, err := httputils.ReadBody(c.Request())
+	if err != nil {
 		return ""
 	}
 
-	return r.Form.Get("Namespace")
+	vals, err := url.ParseQuery(string(body))
+	if err != nil {
+		return ""
+	}
+
+	return vals.Get("Namespace")
 }
 
 // Handler returns the Echo handler function for CloudWatch requests.
@@ -356,8 +356,13 @@ func (h *Handler) handleFormRequest(c *echo.Context, r *http.Request) error {
 		return err
 	}
 
-	// ParseForm is idempotent; RouteMatcher may have already called it.
-	if err := r.ParseForm(); err != nil {
+	body, err := httputils.ReadBody(r)
+	if err != nil {
+		return h.xmlError(c, http.StatusInternalServerError, "InternalFailure", "failed to read request body")
+	}
+
+	vals, err := url.ParseQuery(string(body))
+	if err != nil {
 		return h.xmlError(
 			c,
 			http.StatusBadRequest,
@@ -365,10 +370,10 @@ func (h *Handler) handleFormRequest(c *echo.Context, r *http.Request) error {
 			"cannot parse form body",
 		)
 	}
-	action := r.Form.Get("Action")
+	action := vals.Get("Action")
 	c.Response().Header().Set("Content-Type", "text/xml")
 
-	return h.dispatchFormAction(action, r.Form, c)
+	return h.dispatchFormAction(action, vals, c)
 }
 
 func (h *Handler) handleTargetRequest(c *echo.Context, r *http.Request) (bool, error) {
@@ -377,20 +382,23 @@ func (h *Handler) handleTargetRequest(c *echo.Context, r *http.Request) (bool, e
 		return false, nil
 	}
 
-	input := cbor.Map{}
 	body, err := httputils.ReadBody(r)
-	if err != nil || len(body) == 0 {
-		return true, h.dispatchCBOR(target, input, c)
+	if err != nil {
+		return true, h.cborError(c, http.StatusBadRequest, "SerializationException", "cannot read body")
+	}
+
+	if len(body) == 0 {
+		return true, h.dispatchCBOR(target, cbor.Map{}, c)
 	}
 
 	val, decErr := cbor.Decode(body)
 	if decErr != nil {
-		return true, h.dispatchCBOR(target, input, c)
+		return true, h.dispatchCBOR(target, cbor.Map{}, c)
 	}
 
 	m, ok := val.(cbor.Map)
 	if !ok {
-		return true, h.dispatchCBOR(target, input, c)
+		return true, h.dispatchCBOR(target, cbor.Map{}, c)
 	}
 
 	return true, h.dispatchCBOR(target, m, c)
@@ -602,9 +610,10 @@ func (h *Handler) handleTagResource(form url.Values, c *echo.Context) error {
 	h.setTags(arn, newTags)
 
 	type tagResourceResp struct {
-		XMLName   xml.Name `xml:"TagResourceResponse"`
-		Xmlns     string   `xml:"xmlns,attr"`
-		RequestID string   `xml:"ResponseMetadata>RequestId"`
+		XMLName   xml.Name       `xml:"TagResourceResponse"`
+		Result    xmlEmptyResult `xml:"TagResourceResult"`
+		Xmlns     string         `xml:"xmlns,attr"`
+		RequestID string         `xml:"ResponseMetadata>RequestId"`
 	}
 
 	return writeXML(c, tagResourceResp{Xmlns: cloudwatchNS, RequestID: uuid.New().String()})
@@ -616,9 +625,10 @@ func (h *Handler) handleUntagResource(form url.Values, c *echo.Context) error {
 	h.removeTags(arn, keys)
 
 	type untagResourceResp struct {
-		XMLName   xml.Name `xml:"UntagResourceResponse"`
-		Xmlns     string   `xml:"xmlns,attr"`
-		RequestID string   `xml:"ResponseMetadata>RequestId"`
+		XMLName   xml.Name       `xml:"UntagResourceResponse"`
+		Result    xmlEmptyResult `xml:"UntagResourceResult"`
+		Xmlns     string         `xml:"xmlns,attr"`
+		RequestID string         `xml:"ResponseMetadata>RequestId"`
 	}
 
 	return writeXML(c, untagResourceResp{Xmlns: cloudwatchNS, RequestID: uuid.New().String()})

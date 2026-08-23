@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
@@ -58,6 +60,15 @@ func cloneSchedulerConfig(c *SchedulerConfig) *SchedulerConfig {
 }
 
 // ClusterSchedulerConfig represents a SageMaker cluster scheduler configuration.
+//
+// FailureReason/StatusDetails (both on DescribeClusterSchedulerConfigOutput,
+// api_op_DescribeClusterSchedulerConfig.go:82-94) are not modeled: Status
+// never reaches a Failed state in this backend (no failure FSM), so there is
+// no real failure to report a reason or per-status detail for. CreatedBy/
+// LastModifiedBy (types.UserContext) are disclosed absent, the same
+// no-caller-identity-model gap already disclosed for every other
+// CreatedBy/LastModifiedBy field in this service (e.g. handler_mlflow.go,
+// model_packages.go).
 type ClusterSchedulerConfig struct {
 	CreationTime                  time.Time         `json:"CreationTime"`
 	LastModifiedTime              time.Time         `json:"LastModifiedTime"`
@@ -155,10 +166,16 @@ func (b *InMemoryBackend) CreateClusterSchedulerConfig(
 				ClusterArn:                    opts.ClusterArn,
 				Description:                   opts.Description,
 				SchedulerConfig:               cloneSchedulerConfig(opts.SchedulerConfig),
-				Status:                        statusCreating,
-				Tags:                          mergeTags(nil, opts.Tags),
-				CreationTime:                  now,
-				LastModifiedTime:              now,
+				// statusCreated, not statusCreating: this backend has no failure
+				// FSM to ever advance a "Creating" resource out of that state, so
+				// leaving it there (as this line previously did) meant every
+				// ClusterSchedulerConfig stayed "Creating" for its entire
+				// lifetime — Describe/List never showed the terminal state
+				// ComputeQuota's sibling Create (below) already lands on.
+				Status:           statusCreated,
+				Tags:             mergeTags(nil, opts.Tags),
+				CreationTime:     now,
+				LastModifiedTime: now,
 			}
 		},
 		cloneClusterSchedulerConfig,
@@ -187,9 +204,16 @@ func clusterSchedulerConfigByID(tbl *store.Table[ClusterSchedulerConfig], id str
 }
 
 // DescribeClusterSchedulerConfig returns a cluster scheduler config by id.
+// version, if non-nil, must equal the resource's current
+// ClusterSchedulerConfigVersion: this backend keeps only the live version
+// counter, not a historical snapshot per version
+// (api_op_DescribeClusterSchedulerConfig.go:38's optional
+// ClusterSchedulerConfigVersion), so a request for any other version returns
+// NotFound rather than fabricating a snapshot that was never stored.
 func (b *InMemoryBackend) DescribeClusterSchedulerConfig(
 	ctx context.Context,
 	id string,
+	version *int32,
 ) (*ClusterSchedulerConfig, error) {
 	b.mu.RLock("DescribeClusterSchedulerConfig")
 	defer b.mu.RUnlock()
@@ -201,25 +225,117 @@ func (b *InMemoryBackend) DescribeClusterSchedulerConfig(
 		return nil, fmt.Errorf("%w: cluster scheduler config %q", ErrClusterSchedulerConfigNotFound, id)
 	}
 
+	if version != nil && *version != c.ClusterSchedulerConfigVersion {
+		return nil, fmt.Errorf(
+			"%w: cluster scheduler config %q version %d", ErrClusterSchedulerConfigNotFound, id, *version,
+		)
+	}
+
 	return cloneClusterSchedulerConfig(c), nil
 }
 
-// ListClusterSchedulerConfigs returns all cluster scheduler configs with pagination.
+// ListClusterSchedulerConfigsParams bundles ListClusterSchedulerConfigs'
+// filter/sort/pagination criteria (api_op_ListClusterSchedulerConfigs.go:
+// 30-68, sagemaker@v1.263.2). Unlike ListImages/ListNotebookInstances, this
+// op has no LastModifiedTime filters at all — read from this op's own field
+// list, not assumed by analogy.
+type ListClusterSchedulerConfigsParams struct {
+	CreatedAfter  *time.Time
+	CreatedBefore *time.Time
+	ClusterArn    string
+	NameContains  string
+	NextToken     string
+	SortBy        string
+	SortOrder     string
+	Status        string
+	MaxResults    int32
+}
+
+// ListClusterSchedulerConfigs returns cluster scheduler configs matching
+// params, sorted by params.SortBy (default CreationTime, undocumented —
+// api_op_ListClusterSchedulerConfigs.go's SortBy doc names no default) /
+// params.SortOrder (default Descending, documented at :62), capped at
+// params.MaxResults.
 func (b *InMemoryBackend) ListClusterSchedulerConfigs(
 	ctx context.Context,
-	nextToken string,
+	params ListClusterSchedulerConfigsParams,
 ) ([]*ClusterSchedulerConfig, string) {
 	b.mu.RLock("ListClusterSchedulerConfigs")
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
 
-	return sagemakerListKeyPaged(
-		b.clusterSchedulerConfigsStoreRO(region),
-		nextToken,
-		cloneClusterSchedulerConfig,
-		func(v *ClusterSchedulerConfig) string { return v.ClusterSchedulerConfigName },
-	)
+	tbl := b.clusterSchedulerConfigsStoreRO(region)
+	list := make([]*ClusterSchedulerConfig, 0, tbl.Len())
+
+	for _, c := range tbl.Snapshot() {
+		if !matchesClusterSchedulerConfigListParams(c, params) {
+			continue
+		}
+
+		list = append(list, cloneClusterSchedulerConfig(c))
+	}
+
+	asc := strings.EqualFold(params.SortOrder, "Ascending")
+	sort.Slice(list, func(i, j int) bool {
+		less := clusterSchedulerConfigSortLess(list[i], list[j], params.SortBy)
+		if asc {
+			return less
+		}
+
+		return !less
+	})
+
+	return paginateSlice(list, params.NextToken, params.MaxResults)
+}
+
+// matchesClusterSchedulerConfigListParams reports whether c satisfies every
+// filter in params.
+func matchesClusterSchedulerConfigListParams(c *ClusterSchedulerConfig, p ListClusterSchedulerConfigsParams) bool {
+	if p.ClusterArn != "" && c.ClusterArn != p.ClusterArn {
+		return false
+	}
+
+	if p.NameContains != "" && !strings.Contains(c.ClusterSchedulerConfigName, p.NameContains) {
+		return false
+	}
+
+	if p.Status != "" && c.Status != p.Status {
+		return false
+	}
+
+	if p.CreatedAfter != nil && !c.CreationTime.After(*p.CreatedAfter) {
+		return false
+	}
+
+	if p.CreatedBefore != nil && !c.CreationTime.Before(*p.CreatedBefore) {
+		return false
+	}
+
+	return true
+}
+
+// clusterSchedulerConfigSortLess orders two cluster scheduler configs by
+// sortBy — one of SortClusterSchedulerConfigBy's real values (Name/
+// CreationTime/Status, types/enums.go:9123-9125), mixed-case like most other
+// List ops in this service (unlike the Image family's all-caps enums).
+func clusterSchedulerConfigSortLess(a, b *ClusterSchedulerConfig, sortBy string) bool {
+	switch sortBy {
+	case keyGenericName:
+		if a.ClusterSchedulerConfigName != b.ClusterSchedulerConfigName {
+			return a.ClusterSchedulerConfigName < b.ClusterSchedulerConfigName
+		}
+	case keyStatus:
+		if a.Status != b.Status {
+			return a.Status < b.Status
+		}
+	default:
+		if !a.CreationTime.Equal(b.CreationTime) {
+			return a.CreationTime.Before(b.CreationTime)
+		}
+	}
+
+	return a.ClusterSchedulerConfigName < b.ClusterSchedulerConfigName
 }
 
 // UpdateClusterSchedulerConfigOptions holds the optional, settable-on-update
@@ -434,6 +550,12 @@ func cloneComputeQuotaTarget(t *ComputeQuotaTarget) *ComputeQuotaTarget {
 }
 
 // ComputeQuota represents a SageMaker compute quota.
+//
+// FailureReason (DescribeComputeQuotaOutput, api_op_DescribeComputeQuota.go's
+// FailureReason field) is not modeled: Status never reaches a Failed state in
+// this backend (no failure FSM). CreatedBy/LastModifiedBy (types.UserContext)
+// are disclosed absent, the same no-caller-identity-model gap as
+// ClusterSchedulerConfig above.
 type ComputeQuota struct {
 	CreationTime        time.Time           `json:"CreationTime"`
 	LastModifiedTime    time.Time           `json:"LastModifiedTime"`
@@ -574,8 +696,15 @@ func computeQuotaByID(tbl *store.Table[ComputeQuota], id string) (*ComputeQuota,
 	return found, found != nil
 }
 
-// DescribeComputeQuota returns a compute quota by id.
-func (b *InMemoryBackend) DescribeComputeQuota(ctx context.Context, id string) (*ComputeQuota, error) {
+// DescribeComputeQuota returns a compute quota by id. version, if non-nil,
+// must equal the resource's current ComputeQuotaVersion — same rationale as
+// DescribeClusterSchedulerConfig's version parameter above: no historical
+// snapshot exists to honor any other value.
+func (b *InMemoryBackend) DescribeComputeQuota(
+	ctx context.Context,
+	id string,
+	version *int32,
+) (*ComputeQuota, error) {
 	b.mu.RLock("DescribeComputeQuota")
 	defer b.mu.RUnlock()
 
@@ -586,22 +715,116 @@ func (b *InMemoryBackend) DescribeComputeQuota(ctx context.Context, id string) (
 		return nil, fmt.Errorf("%w: compute quota %q", ErrComputeQuotaNotFound, id)
 	}
 
+	if version != nil && *version != q.ComputeQuotaVersion {
+		return nil, fmt.Errorf("%w: compute quota %q version %d", ErrComputeQuotaNotFound, id, *version)
+	}
+
 	return cloneComputeQuota(q), nil
 }
 
-// ListComputeQuotas returns all compute quotas with pagination.
-func (b *InMemoryBackend) ListComputeQuotas(ctx context.Context, nextToken string) ([]*ComputeQuota, string) {
+// ListComputeQuotasParams bundles ListComputeQuotas' filter/sort/pagination
+// criteria (api_op_ListComputeQuotas.go:30-68, sagemaker@v1.263.2). Like
+// ListClusterSchedulerConfigs, this op has no LastModifiedTime filters.
+type ListComputeQuotasParams struct {
+	CreatedAfter  *time.Time
+	CreatedBefore *time.Time
+	ClusterArn    string
+	NameContains  string
+	NextToken     string
+	SortBy        string
+	SortOrder     string
+	Status        string
+	MaxResults    int32
+}
+
+// ListComputeQuotas returns compute quotas matching params, sorted by
+// params.SortBy (default CreationTime, undocumented) / params.SortOrder
+// (default Descending, documented at api_op_ListComputeQuotas.go:62), capped
+// at params.MaxResults.
+func (b *InMemoryBackend) ListComputeQuotas(
+	ctx context.Context,
+	params ListComputeQuotasParams,
+) ([]*ComputeQuota, string) {
 	b.mu.RLock("ListComputeQuotas")
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
 
-	return sagemakerListKeyPaged(
-		b.computeQuotasStoreRO(region),
-		nextToken,
-		cloneComputeQuota,
-		func(v *ComputeQuota) string { return v.ComputeQuotaName },
-	)
+	tbl := b.computeQuotasStoreRO(region)
+	list := make([]*ComputeQuota, 0, tbl.Len())
+
+	for _, q := range tbl.Snapshot() {
+		if !matchesComputeQuotaListParams(q, params) {
+			continue
+		}
+
+		list = append(list, cloneComputeQuota(q))
+	}
+
+	asc := strings.EqualFold(params.SortOrder, "Ascending")
+	sort.Slice(list, func(i, j int) bool {
+		less := computeQuotaSortLess(list[i], list[j], params.SortBy)
+		if asc {
+			return less
+		}
+
+		return !less
+	})
+
+	return paginateSlice(list, params.NextToken, params.MaxResults)
+}
+
+// matchesComputeQuotaListParams reports whether q satisfies every filter in params.
+func matchesComputeQuotaListParams(q *ComputeQuota, p ListComputeQuotasParams) bool {
+	if p.ClusterArn != "" && q.ClusterArn != p.ClusterArn {
+		return false
+	}
+
+	if p.NameContains != "" && !strings.Contains(q.ComputeQuotaName, p.NameContains) {
+		return false
+	}
+
+	if p.Status != "" && q.Status != p.Status {
+		return false
+	}
+
+	if p.CreatedAfter != nil && !q.CreationTime.After(*p.CreatedAfter) {
+		return false
+	}
+
+	if p.CreatedBefore != nil && !q.CreationTime.Before(*p.CreatedBefore) {
+		return false
+	}
+
+	return true
+}
+
+// computeQuotaSortLess orders two compute quotas by sortBy — one of
+// SortQuotaBy's real values (Name/CreationTime/Status/ClusterArn,
+// types/enums.go:9301-9304). Unlike SortClusterSchedulerConfigBy just above,
+// this sibling enum has a fourth value, ClusterArn — read from each op's own
+// enum, not assumed shared.
+func computeQuotaSortLess(a, b *ComputeQuota, sortBy string) bool {
+	switch sortBy {
+	case keyGenericName:
+		if a.ComputeQuotaName != b.ComputeQuotaName {
+			return a.ComputeQuotaName < b.ComputeQuotaName
+		}
+	case keyStatus:
+		if a.Status != b.Status {
+			return a.Status < b.Status
+		}
+	case keyClusterArn:
+		if a.ClusterArn != b.ClusterArn {
+			return a.ClusterArn < b.ClusterArn
+		}
+	default:
+		if !a.CreationTime.Equal(b.CreationTime) {
+			return a.CreationTime.Before(b.CreationTime)
+		}
+	}
+
+	return a.ComputeQuotaName < b.ComputeQuotaName
 }
 
 // UpdateComputeQuotaOptions holds the optional, settable-on-update fields for

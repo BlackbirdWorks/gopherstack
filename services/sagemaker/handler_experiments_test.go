@@ -4,7 +4,11 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
+	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	sagemakersdk "github.com/aws/aws-sdk-go-v2/service/sagemaker"
+	smtypes "github.com/aws/aws-sdk-go-v2/service/sagemaker/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -161,4 +165,118 @@ func TestHandler_CreateExperiment_DisplayNameAndDescription(t *testing.T) {
 	summaries := listResp["ExperimentSummaries"].([]any)
 	require.Len(t, summaries, 1)
 	assert.Equal(t, "Friendly Name", summaries[0].(map[string]any)["DisplayName"])
+}
+
+// TestHandler_ListExperiments_DefaultSortOrder_RealClient asserts the op's
+// own doc default (api_op_ListExperiments.go:48,51: SortBy CreationTime,
+// SortOrder Descending) -- previously this decoded only NextToken and
+// dropped every sort/filter control, always returning Name/Ascending order.
+func TestHandler_ListExperiments_DefaultSortOrder_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestSageMakerClient(t, h)
+
+	for _, name := range []string{"first-exp", "second-exp"} {
+		_, err := client.CreateExperiment(t.Context(), &sagemakersdk.CreateExperimentInput{
+			ExperimentName: aws.String(name),
+		})
+		require.NoError(t, err)
+	}
+
+	out, err := client.ListExperiments(t.Context(), &sagemakersdk.ListExperimentsInput{})
+	require.NoError(t, err)
+	require.Len(t, out.ExperimentSummaries, 2)
+	assert.Equal(t, "second-exp", aws.ToString(out.ExperimentSummaries[0].ExperimentName))
+	assert.Equal(t, "first-exp", aws.ToString(out.ExperimentSummaries[1].ExperimentName))
+}
+
+// TestHandler_UpdateExperiment_ClearsDescription_RealClient asserts an
+// explicit empty Description clears it -- previously UpdateExperiment
+// decoded DisplayName/Description as plain (non-pointer) strings, so an
+// omitted key and an explicit "" were indistinguishable and the op's own
+// doc ("adds, updates, or removes the description") could never remove one.
+func TestHandler_UpdateExperiment_ClearsDescription_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestSageMakerClient(t, h)
+
+	_, err := client.CreateExperiment(t.Context(), &sagemakersdk.CreateExperimentInput{
+		ExperimentName: aws.String("exp-clear-desc"),
+		Description:    aws.String("will be cleared"),
+	})
+	require.NoError(t, err)
+
+	_, err = client.UpdateExperiment(t.Context(), &sagemakersdk.UpdateExperimentInput{
+		ExperimentName: aws.String("exp-clear-desc"),
+		Description:    aws.String(""),
+	})
+	require.NoError(t, err)
+
+	out, err := client.DescribeExperiment(t.Context(), &sagemakersdk.DescribeExperimentInput{
+		ExperimentName: aws.String("exp-clear-desc"),
+	})
+	require.NoError(t, err)
+	assert.Empty(t, aws.ToString(out.Description))
+}
+
+// TestHandler_UpdateExperiment_OmittedFieldsLeaveUnchanged_RealClient
+// asserts that omitting DisplayName/Description on Update leaves the
+// existing values untouched, the complement of the clear-semantics test
+// above.
+func TestHandler_UpdateExperiment_OmittedFieldsLeaveUnchanged_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestSageMakerClient(t, h)
+
+	_, err := client.CreateExperiment(t.Context(), &sagemakersdk.CreateExperimentInput{
+		ExperimentName: aws.String("exp-keep-desc"),
+		DisplayName:    aws.String("Original Display"),
+		Description:    aws.String("Original description"),
+	})
+	require.NoError(t, err)
+
+	_, err = client.UpdateExperiment(t.Context(), &sagemakersdk.UpdateExperimentInput{
+		ExperimentName: aws.String("exp-keep-desc"),
+	})
+	require.NoError(t, err)
+
+	out, err := client.DescribeExperiment(t.Context(), &sagemakersdk.DescribeExperimentInput{
+		ExperimentName: aws.String("exp-keep-desc"),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "Original Display", aws.ToString(out.DisplayName))
+	assert.Equal(t, "Original description", aws.ToString(out.Description))
+}
+
+// TestHandler_ListExperiments_CreatedAfterFilter_RealClient asserts
+// CreatedAfter -- previously absent from decode entirely, along with every
+// other filter/sort control ListExperimentsInput declares.
+func TestHandler_ListExperiments_CreatedAfterFilter_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestSageMakerClient(t, h)
+
+	_, err := client.CreateExperiment(t.Context(), &sagemakersdk.CreateExperimentInput{
+		ExperimentName: aws.String("exp-past"),
+	})
+	require.NoError(t, err)
+
+	out, err := client.ListExperiments(t.Context(), &sagemakersdk.ListExperimentsInput{
+		CreatedAfter: aws.Time(time.Now().Add(time.Hour)),
+	})
+	require.NoError(t, err)
+	assert.Empty(t, out.ExperimentSummaries)
+
+	out, err = client.ListExperiments(t.Context(), &sagemakersdk.ListExperimentsInput{
+		CreatedAfter: aws.Time(time.Now().Add(-time.Hour)),
+		SortBy:       smtypes.SortExperimentsByName,
+		SortOrder:    smtypes.SortOrderAscending,
+	})
+	require.NoError(t, err)
+	require.Len(t, out.ExperimentSummaries, 1)
+	assert.Equal(t, "exp-past", aws.ToString(out.ExperimentSummaries[0].ExperimentName))
 }

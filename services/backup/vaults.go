@@ -17,6 +17,27 @@ import (
 // vaultNameRe matches valid vault names: 2–50 alphanumeric, hyphen, or underscore chars.
 var vaultNameRe = regexp.MustCompile(`^[a-zA-Z0-9_\-]{2,50}$`)
 
+// airGappedVaultCreatingWindow is how long a logically air-gapped vault
+// (MinRetentionDays > 0) reports CREATING before AVAILABLE, matching real AWS
+// documented behavior ("the specified vault enters the creating state until
+// it has been created successfully"). Regular vaults (MinRetentionDays == 0)
+// create synchronously in this backend and are always AVAILABLE.
+const airGappedVaultCreatingWindow = 100 * time.Millisecond
+
+// vaultStateFor computes the observable VaultState for v, shared by
+// DescribeBackupVault and ListBackupVaults so the two read paths can never
+// diverge on the same resource -- previously ListBackupVaults unconditionally
+// reported CREATING for every air-gapped vault forever (no CreationTime
+// check at all) while DescribeBackupVault unconditionally reported AVAILABLE
+// even immediately after creation; neither could ever show the other's value.
+func vaultStateFor(v *Vault) string {
+	if v.MinRetentionDays > 0 && time.Since(v.CreationTime) < airGappedVaultCreatingWindow {
+		return statusCreating
+	}
+
+	return statusAvailable
+}
+
 // isValidVaultName reports whether name is an acceptable AWS Backup vault name:
 // 2–50 alphanumeric or hyphen characters.
 func isValidVaultName(name string) bool {

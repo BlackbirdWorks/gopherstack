@@ -59,7 +59,8 @@ func TestSubscribeToShard_RoundTrip(t *testing.T) {
 
 	select {
 	case ev := <-stream.Events():
-		require.NotNil(t, ev, "expected at least one event from the real SDK event reader")
+		require.NotNil(t, ev,
+			"expected at least one event from the real SDK event reader; stream.Err()=%v", stream.Err())
 		if e, ok := ev.(*kinesissdktypes.SubscribeToShardEventStreamMemberSubscribeToShardEvent); ok {
 			t.Logf("got SubscribeToShardEvent with %d records", len(e.Value.Records))
 		} else {

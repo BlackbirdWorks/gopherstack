@@ -213,14 +213,14 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 		action, name := parseDataBrewRESTPath(c.Request().Method, c.Request().URL.Path)
 		if action == opUnknown {
-			return c.String(http.StatusNotFound, "not found")
+			return h.handleError(c, errUnknownAction)
 		}
 
 		body, err := httputils.ReadBody(c.Request())
 		if err != nil {
 			log.ErrorContext(ctx, "databrew: failed to read request body", "error", err)
 
-			return c.String(http.StatusInternalServerError, "internal server error")
+			return h.handleError(c, err)
 		}
 
 		body, err = enrichDataBrewBody(c, action, name, body)

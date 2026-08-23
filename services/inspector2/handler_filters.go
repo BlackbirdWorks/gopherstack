@@ -171,7 +171,10 @@ func (h *Handler) handleListFilters(c *echo.Context) error {
 		}
 
 		if f.Criteria != nil {
-			entry["filterCriteria"] = f.Criteria
+			// Real Filter's member is "criteria", not "filterCriteria" --
+			// that name belongs to CreateFilterInput's request parameter
+			// (api_op_CreateFilter.go), a different Smithy member entirely.
+			entry["criteria"] = f.Criteria
 		}
 
 		if len(f.Tags) > 0 {

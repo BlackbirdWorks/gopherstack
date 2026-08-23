@@ -190,3 +190,124 @@ func TestGetAggregateConfigRuleComplianceSummary_GroupByKeyEcho_RealClient(t *te
 	require.NoError(t, err)
 	assert.Equal(t, "AWS_REGION", aws.ToString(out.GroupByKey))
 }
+
+// TestDescribeAggregationAuthorizations_RealClient drives
+// DescribeAggregationAuthorizations through a real SDK client. Real
+// AggregationAuthorization.AuthorizedAccountId/AuthorizedAwsRegion are
+// PascalCase (confirmed at
+// awsAwsjson11_deserializeDocumentAggregationAuthorization,
+// aws-sdk-go-v2/service/configservice@v1.68.4/deserializers.go:14466); the
+// pre-fix lowercase tags meant a real client's AuthorizedAccountId and
+// AuthorizedAwsRegion were always empty, gopherstack-v4a4.
+func TestDescribeAggregationAuthorizations_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := awsconfig.NewHandler(awsconfig.NewInMemoryBackend())
+	client := newTestAWSConfigSDKClient(t, h)
+
+	_, err := client.PutAggregationAuthorization(t.Context(), &configservicesdk.PutAggregationAuthorizationInput{
+		AuthorizedAccountId: aws.String("123456789012"),
+		AuthorizedAwsRegion: aws.String("us-east-1"),
+	})
+	require.NoError(t, err)
+
+	out, err := client.DescribeAggregationAuthorizations(
+		t.Context(), &configservicesdk.DescribeAggregationAuthorizationsInput{},
+	)
+	require.NoError(t, err)
+	require.Len(t, out.AggregationAuthorizations, 1)
+	assert.Equal(t, "123456789012", aws.ToString(out.AggregationAuthorizations[0].AuthorizedAccountId))
+	assert.Equal(t, "us-east-1", aws.ToString(out.AggregationAuthorizations[0].AuthorizedAwsRegion))
+}
+
+// TestDescribeOrganizationConfigRules_RealClient drives
+// DescribeOrganizationConfigRules through a real SDK client. Real
+// OrganizationConfigRule.OrganizationConfigRuleName is PascalCase (confirmed
+// at awsAwsjson11_deserializeDocumentOrganizationConfigRule,
+// deserializers.go:21357); the pre-fix lowercase tag meant a real client's
+// OrganizationConfigRuleName was always empty. Refs: gopherstack-v4a4.
+func TestDescribeOrganizationConfigRules_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := awsconfig.NewHandler(awsconfig.NewInMemoryBackend())
+	client := newTestAWSConfigSDKClient(t, h)
+
+	_, err := client.PutOrganizationConfigRule(t.Context(), &configservicesdk.PutOrganizationConfigRuleInput{
+		OrganizationConfigRuleName: aws.String("org-rule1"),
+	})
+	require.NoError(t, err)
+
+	out, err := client.DescribeOrganizationConfigRules(
+		t.Context(), &configservicesdk.DescribeOrganizationConfigRulesInput{},
+	)
+	require.NoError(t, err)
+	require.Len(t, out.OrganizationConfigRules, 1)
+	assert.Equal(t, "org-rule1", aws.ToString(out.OrganizationConfigRules[0].OrganizationConfigRuleName))
+}
+
+// TestDescribeOrganizationConformancePacks_RealClient drives
+// DescribeOrganizationConformancePacks through a real SDK client. Real
+// OrganizationConformancePack.OrganizationConformancePackName is PascalCase
+// (confirmed at
+// awsAwsjson11_deserializeDocumentOrganizationConformancePack,
+// deserializers.go:21699); the pre-fix lowercase tag meant a real client's
+// OrganizationConformancePackName was always empty. Refs: gopherstack-v4a4.
+func TestDescribeOrganizationConformancePacks_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := awsconfig.NewHandler(awsconfig.NewInMemoryBackend())
+	client := newTestAWSConfigSDKClient(t, h)
+
+	_, err := client.PutOrganizationConformancePack(
+		t.Context(),
+		&configservicesdk.PutOrganizationConformancePackInput{
+			OrganizationConformancePackName: aws.String("org-pack1"),
+		},
+	)
+	require.NoError(t, err)
+
+	out, err := client.DescribeOrganizationConformancePacks(
+		t.Context(), &configservicesdk.DescribeOrganizationConformancePacksInput{},
+	)
+	require.NoError(t, err)
+	require.Len(t, out.OrganizationConformancePacks, 1)
+	assert.Equal(
+		t, "org-pack1", aws.ToString(out.OrganizationConformancePacks[0].OrganizationConformancePackName),
+	)
+}
+
+// TestDescribeDeliveryChannelStatus_RealClient drives
+// DescribeDeliveryChannelStatus through a real SDK client. Real
+// DeliveryChannelStatus.Name/ConfigHistoryDeliveryInfo/
+// ConfigStreamDeliveryInfo, and the nested LastStatus/LastAttemptTime
+// members, are all lowerCamelCase (confirmed at
+// awsAwsjson11_deserializeDocumentDeliveryChannelStatus,
+// deserializers.go:18209); the pre-fix PascalCase tags meant a real
+// client's whole DeliveryChannelStatus decoded as the zero value. Refs:
+// gopherstack-v4a4.
+func TestDescribeDeliveryChannelStatus_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := awsconfig.NewHandler(awsconfig.NewInMemoryBackend())
+	client := newTestAWSConfigSDKClient(t, h)
+
+	_, err := client.PutDeliveryChannel(t.Context(), &configservicesdk.PutDeliveryChannelInput{
+		DeliveryChannel: &types.DeliveryChannel{
+			Name:         aws.String("default"),
+			S3BucketName: aws.String("my-bucket"),
+		},
+	})
+	require.NoError(t, err)
+
+	out, err := client.DescribeDeliveryChannelStatus(
+		t.Context(), &configservicesdk.DescribeDeliveryChannelStatusInput{},
+	)
+	require.NoError(t, err)
+	require.Len(t, out.DeliveryChannelsStatus, 1)
+	status := out.DeliveryChannelsStatus[0]
+	assert.Equal(t, "default", aws.ToString(status.Name))
+	require.NotNil(t, status.ConfigHistoryDeliveryInfo)
+	assert.Equal(t, "SUCCESS", string(status.ConfigHistoryDeliveryInfo.LastStatus))
+	require.NotNil(t, status.ConfigStreamDeliveryInfo)
+	assert.Equal(t, "SUCCESS", string(status.ConfigStreamDeliveryInfo.LastStatus))
+}

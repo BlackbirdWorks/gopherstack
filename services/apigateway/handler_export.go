@@ -2,6 +2,7 @@ package apigateway
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 )
 
@@ -27,7 +28,25 @@ func (h *Handler) exportActions() map[string]actionFn {
 				return 0, nil, err
 			}
 
-			return http.StatusOK, export, nil
+			encoded, err := json.Marshal(export)
+			if err != nil {
+				return 0, nil, err
+			}
+
+			// AWS's API docs (API_GetExport.html) document ContentDisposition
+			// as a real response header but do not specify its value's format
+			// (unlike GetSdk's ContentDisposition, which AWS also leaves
+			// unspecified but this emulator already synthesizes in sdk.go);
+			// this filename follows the same synthesized convention.
+			disposition := fmt.Sprintf(
+				`attachment; filename="%s-%s-%s.json"`, input.RestAPIID, input.StageName, input.ExportType,
+			)
+
+			return http.StatusOK, &rawBinaryResponse{
+				contentType:        contentTypeJSON,
+				contentDisposition: disposition,
+				body:               encoded,
+			}, nil
 		},
 	}
 }

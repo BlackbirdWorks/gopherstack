@@ -329,21 +329,34 @@ type Cluster struct {
 	pollCount            int                    // tracks CREATING→ACTIVE progression; not serialized
 }
 
-// Configuration represents an MSK configuration.
+// Configuration represents an MSK configuration. CreationTime/LatestRevision/
+// State/Description are all real required members of the SDK's
+// types.Configuration (kafka@v1.57.2 types/types.go) -- ListConfigurations
+// marshals this type directly as its list-item shape, so every field here
+// must match that contract, not just DescribeConfiguration/CreateConfiguration's
+// own (unrequired) op-level shapes.
 type Configuration struct {
-	Tags             map[string]string `json:"-"`
-	Arn              string            `json:"arn"`
-	Name             string            `json:"name"`
-	Description      string            `json:"description,omitempty"`
-	ServerProperties string            `json:"serverProperties"`
-	KafkaVersions    []string          `json:"kafkaVersions"`
+	Tags             map[string]string      `json:"-"`
+	LatestRevision   *ConfigurationRevision `json:"latestRevision"`
+	Arn              string                 `json:"arn"`
+	Name             string                 `json:"name"`
+	Description      string                 `json:"description"`
+	ServerProperties string                 `json:"serverProperties"`
+	CreationTime     string                 `json:"creationTime"`
+	State            string                 `json:"state"`
+	KafkaVersions    []string               `json:"kafkaVersions"`
 }
 
 // ConfigurationRevision represents a revision of an MSK configuration.
+// CreationTime is a real required member of types.ConfigurationRevision --
+// ListConfigurationRevisions marshals this type directly as its list-item
+// shape (deserializers.go's awsRestjson1_deserializeDocumentConfigurationRevision
+// switches on "creationTime").
 type ConfigurationRevision struct {
 	ConfigurationArn string `json:"configurationArn"`
-	Description      string `json:"description,omitempty"`
+	Description      string `json:"description"`
 	ServerProperties string `json:"serverProperties,omitempty"`
+	CreationTime     string `json:"creationTime"`
 	Revision         int64  `json:"revision"`
 }
 
@@ -382,6 +395,15 @@ type BrokerNode struct {
 type MSKVersion struct {
 	Version string `json:"version"`
 	Status  string `json:"status"`
+}
+
+// CompatibleKafkaVersion groups the version a cluster is upgrading FROM with
+// the versions it can upgrade TO, matching aws-sdk-go-v2 kafka's
+// types.CompatibleKafkaVersion (types/types.go:576; deserializers.go:15252
+// keys "sourceVersion"/"targetVersions").
+type CompatibleKafkaVersion struct {
+	SourceVersion  string   `json:"sourceVersion"`
+	TargetVersions []string `json:"targetVersions"`
 }
 
 // ScramSecretError represents an error that occurred while associating or disassociating a SCRAM secret.

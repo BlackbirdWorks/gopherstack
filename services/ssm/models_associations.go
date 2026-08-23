@@ -108,9 +108,32 @@ type UpdateAssociationStatusInput struct {
 	AssociationStatus AssociationStatusValue `json:"AssociationStatus"`
 }
 
+// AssociationStatusInfo is the Status member of Association/AssociationDescription
+// (real SDK types.AssociationStatus, api_op_UpdateAssociationStatus.go /
+// deserializers.go awsAwsjson11_deserializeDocumentAssociationDescription
+// case "Status"). Date/Message/Name are all required on the real type.
+type AssociationStatusInfo struct {
+	Message        string  `json:"Message"`
+	Name           string  `json:"Name"`
+	AdditionalInfo string  `json:"AdditionalInfo,omitempty"`
+	Date           float64 `json:"Date"`
+}
+
 // UpdateAssociationStatusOutput is the response payload.
 type UpdateAssociationStatusOutput struct {
 	AssociationDescription Association `json:"AssociationDescription"`
+}
+
+// AssociationStatusValue is the request-side status payload for
+// UpdateAssociationStatus (real SDK types.AssociationStatus,
+// serializers.go awsAwsjson11_serializeDocumentAssociationStatus). Date and
+// Message are both required on the real type -- there is no
+// "ExecutionSummary" member anywhere in that shape.
+type AssociationStatusValue struct {
+	Message        string  `json:"Message"`
+	Name           string  `json:"Name"`
+	AdditionalInfo string  `json:"AdditionalInfo,omitempty"`
+	Date           float64 `json:"Date"`
 }
 
 // AssociationTarget is a target for an association (key/values).
@@ -155,20 +178,22 @@ type Association struct {
 	OutputLocation                *InstanceAssociationOutputLocation `json:"OutputLocation,omitempty"`
 	Duration                      *int32                             `json:"Duration,omitempty"`
 	Parameters                    map[string][]string                `json:"Parameters,omitempty"`
-	AssociationDispatchAssumeRole string                             `json:"AssociationDispatchAssumeRole,omitempty"`
-	DocumentVersion               string                             `json:"DocumentVersion,omitempty"`
-	InstanceID                    string                             `json:"InstanceId,omitempty"`
+	Status                        *AssociationStatusInfo             `json:"Status,omitempty"`
+	AssociationID                 string                             `json:"AssociationId"`
+	Name                          string                             `json:"Name"`
 	SyncCompliance                string                             `json:"SyncCompliance,omitempty"`
 	ScheduleExpression            string                             `json:"ScheduleExpression,omitempty"`
 	AssociationName               string                             `json:"AssociationName,omitempty"`
-	AssociationID                 string                             `json:"AssociationId"`
+	DocumentVersion               string                             `json:"DocumentVersion,omitempty"`
 	AutomationTargetParameterName string                             `json:"AutomationTargetParameterName,omitempty"`
 	MaxErrors                     string                             `json:"MaxErrors,omitempty"`
 	ComplianceSeverity            string                             `json:"ComplianceSeverity,omitempty"`
-	Name                          string                             `json:"Name"`
+	InstanceID                    string                             `json:"InstanceId,omitempty"`
 	MaxConcurrency                string                             `json:"MaxConcurrency,omitempty"`
-	CalendarNames                 []string                           `json:"CalendarNames,omitempty"`
+	AssociationDispatchAssumeRole string                             `json:"AssociationDispatchAssumeRole,omitempty"`
+	AssociationVersion            string                             `json:"AssociationVersion,omitempty"`
 	Targets                       []AssociationTarget                `json:"Targets,omitempty"`
+	CalendarNames                 []string                           `json:"CalendarNames,omitempty"`
 	LastUpdateAssociationDate     float64                            `json:"LastUpdateAssociationDate"`
 	ApplyOnlyAtCronInterval       bool                               `json:"ApplyOnlyAtCronInterval,omitempty"`
 }
@@ -242,12 +267,6 @@ type CreateAssociationBatchInput struct {
 type CreateAssociationBatchOutput struct {
 	Failed     []FailedCreateAssociation `json:"Failed"`
 	Successful []Association             `json:"Successful"`
-}
-
-// AssociationStatusValue is the status payload in UpdateAssociationStatus.
-type AssociationStatusValue struct {
-	Name             string `json:"Name"`
-	ExecutionSummary string `json:"ExecutionSummary,omitempty"`
 }
 
 // ListAssociationsOutputFull extends the stub list output.

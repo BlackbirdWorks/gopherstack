@@ -16,6 +16,7 @@ const (
 
 func (h *Handler) handleGetPredictiveScalingForecast(vals url.Values) (any, error) {
 	groupName := vals.Get("AutoScalingGroupName")
+	policyName := vals.Get("PolicyName")
 
 	if err := h.Backend.GetPredictiveScalingForecast(groupName); err != nil {
 		return nil, err
@@ -49,15 +50,53 @@ func (h *Handler) handleGetPredictiveScalingForecast(vals url.Values) (any, erro
 		Values:     xmlStringValueList{Members: values},
 	}
 
+	forecasts := loadForecastsForPolicy(h.Backend, groupName, policyName, series)
+
 	return &getPredictiveScalingForecastResponse{
 		Xmlns: autoscalingXMLNS,
 		Result: getPredictiveScalingForecastResult{
-			LoadForecast:     xmlLoadForecastList{Members: []xmlLoadForecast{series}},
-			CapacityForecast: xmlCapacityForecast(series),
-			UpdateTime:       now.Format(time.RFC3339),
+			LoadForecast: xmlLoadForecastList{Members: forecasts},
+			CapacityForecast: xmlCapacityForecast{
+				Timestamps: series.Timestamps,
+				Values:     series.Values,
+			},
+			UpdateTime: now.Format(time.RFC3339),
 		},
 		ResponseMetadata: xmlResponseMetadata{RequestID: "autoscaling-get-predictive-scaling-forecast"},
 	}, nil
+}
+
+// loadForecastsForPolicy fills each LoadForecast entry's required
+// MetricSpecification (types.go:2670, LoadForecast) from the policy's own
+// already-parsed PredictiveScalingConfiguration.MetricSpecifications (see
+// bd gopherstack-2uti) -- real, stored data, not fabricated. AWS returns one
+// LoadForecast per configured metric specification; falls back to a single
+// unlabeled series only if the policy or its predictive-scaling config can't
+// be found (e.g. a stale/renamed PolicyName), matching this handler's
+// existing no-hard-validation behavior for AutoScalingGroupName.
+func loadForecastsForPolicy(
+	b StorageBackend, groupName, policyName string, series xmlLoadForecast,
+) []xmlLoadForecast {
+	policies, err := b.DescribePolicies(groupName, []string{policyName})
+	if err != nil || len(policies) == 0 || policies[0].PredictiveScalingConfiguration == nil {
+		return []xmlLoadForecast{series}
+	}
+
+	specs := policies[0].PredictiveScalingConfiguration.MetricSpecifications
+	if len(specs) == 0 {
+		return []xmlLoadForecast{series}
+	}
+
+	out := make([]xmlLoadForecast, 0, len(specs))
+
+	for i := range specs {
+		entry := series
+		spec := toXMLPredictiveScalingMetricSpecification(&specs[i])
+		entry.MetricSpecification = &spec
+		out = append(out, entry)
+	}
+
+	return out
 }
 
 type xmlCapacityForecast struct {
@@ -65,12 +104,15 @@ type xmlCapacityForecast struct {
 	Values     xmlStringValueList `xml:"Values"`
 }
 
-// xmlLoadForecast mirrors the Timestamps/Values pair shared by CapacityForecast and
-// each entry of LoadForecast. A full MetricSpecification projection is out of scope
-// (see PARITY.md); the Timestamps/Values series is real, derived data.
+// xmlLoadForecast mirrors the real types.LoadForecast (types.go:2649):
+// MetricSpecification, Timestamps and Values are all required.
+// MetricSpecification is filled by loadForecastsForPolicy from the policy's own
+// stored PredictiveScalingConfiguration; Timestamps/Values are the naive flat
+// projection documented in PARITY.md.
 type xmlLoadForecast struct {
-	Timestamps xmlStringValueList `xml:"Timestamps"`
-	Values     xmlStringValueList `xml:"Values"`
+	MetricSpecification *xmlPredictiveScalingMetricSpecification `xml:"MetricSpecification"`
+	Timestamps          xmlStringValueList                       `xml:"Timestamps"`
+	Values              xmlStringValueList                       `xml:"Values"`
 }
 
 type xmlLoadForecastList struct {

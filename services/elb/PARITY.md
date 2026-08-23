@@ -37,10 +37,10 @@ ops:
   CreateLBCookieStickinessPolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed missing Result wrapper"}
   CreateLoadBalancerPolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed missing Result wrapper; fixed PolicyTypeNotFound error code (was generic ValidationError); added missing PublicKeyPolicyType to allowlist; TooManyPolicies not enforced (gap, see below)"}
   DeleteLoadBalancerPolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed missing Result wrapper; parity-3: fixed policy-still-in-use error code (was ValidationError, real op's typed-error switch only has InvalidConfigurationRequest/LoadBalancerNotFound -- a ValidationError code would not deserialize into InvalidConfigurationRequestException, so errors.As would silently fail to match on a real client). Proven by Test_SDKRoundTrip_DeleteLoadBalancerPolicyInUse_IsTyped"}
-  DescribeAccountLimits: {wire: fixed, errors: ok, state: ok, persist: n/a-static, note: "FIXED this pass (gopherstack-uhsb): Marker/PageSize were parsed nowhere -- the (fixed, 3-row) limit catalog was always returned in full with no NextMarker, regardless of what a client asked for. Now paginates for real via the same opaque-offset Marker scheme (encodePageMarker/decodePageMarker) DescribeLoadBalancers already uses. Low real-world impact (the catalog only ever has 3 rows, per the official quota table -- see the gaps entry above), but the fix is cheap and the prior behavior was a genuine, if rarely-observable, divergence: a client requesting PageSize=1 got all 3 rows back with a 200 instead of 1 row plus a NextMarker."}
+  DescribeAccountLimits: {wire: fixed, errors: ok, state: ok, persist: n/a, note: "FIXED this pass (gopherstack-uhsb): Marker/PageSize were parsed nowhere -- the (fixed, 3-row) limit catalog was always returned in full with no NextMarker, regardless of what a client asked for. Now paginates for real via the same opaque-offset Marker scheme (encodePageMarker/decodePageMarker) DescribeLoadBalancers already uses. Low real-world impact (the catalog only ever has 3 rows, per the official quota table -- see the gaps entry above), but the fix is cheap and the prior behavior was a genuine, if rarely-observable, divergence: a client requesting PageSize=1 got all 3 rows back with a 200 instead of 1 row plus a NextMarker."}
   DescribeInstanceHealth: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeLoadBalancerPolicies: {wire: ok, errors: ok, state: ok, persist: ok, note: "no-LoadBalancerName sample-policy fallback verified correct vs AWS docs, not a bug"}
-  DescribeLoadBalancerPolicyTypes: {wire: ok, errors: ok, state: ok, persist: n/a-static, note: "fixed wrong PolicyTypeNotFound error code (was reusing PolicyNotFound, the policy-instance sentinel)"}
+  DescribeLoadBalancerPolicyTypes: {wire: ok, errors: ok, state: ok, persist: n/a, note: "fixed wrong PolicyTypeNotFound error code (was reusing PolicyNotFound, the policy-instance sentinel)"}
 # Families audited as a group (when per-op is impractical):
 families:
   snapshot_restore: {status: ok, note: "Handler-level Snapshot/Restore delegation (persistence.go) verified intact; backend.Snapshot/Restore round-trip all LB + policy state incl. tags; version-guarded (v4) against incompatible older snapshots"}
@@ -214,6 +214,20 @@ All four are covered by new/extended tests: `Test_SDKRoundTrip_LoadBalancerPolic
 case in `TestDuplicateListenerCreateListeners`, and
 `TestCreateLoadBalancerRejectsMalformedInlineCertARN`.
 
+**2026-08-22 (gopherstack-ifzn) -- RouteMatcher swallowed a body-read failure as a 404,
+masking Handler()'s already-typed InternalFailure**: same shape as autoscaling's entry
+(see that entry or gopherstack-3a8t for the full survey/rationale). `RouteMatcher` now
+falls back to `service.MatchesUserAgentMarker(r.Header, "api/elasticloadbalancing")`
+(verified against the pinned `elasticloadbalancing@v1.36.4/api_client.go:638`
+`AddSDKAgentKeyValue` call) only on the `ReadBody` failure branch. Migrated
+`ExtractOperation`/`ExtractResource`/`Handler()` off `r.ParseForm()` onto
+`httputils.ReadBody`+`url.ParseQuery`, per the docdb/neptune precedent (gopherstack-bahs).
+Proof: `TestHandler_OversizedBodySurfacesInternalFailure` in `handler_oversized_body_test.go`
+drives a real ELB (Classic) SDK client through `service.NewRegistry`/`service.NewServiceRouter`,
+confirmed failing pre-fix with `UnknownError`; passes now with `InternalFailure`.
+`TestHandler_NormalSizedBodyStillRoutes` is the regression guard. Gates: `go build`,
+`go vet`, `gofmt -l` (clean), `go test -race ./services/elb/...` (pass),
+`golangci-lint run ./services/elb/...` (0 issues).
 ## elb (this session, 2026-08-20)
 
 Wrapper-key / nested-shape wire-parity sweep, targeting AWS bug shapes (a)-(e) from the

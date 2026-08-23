@@ -265,7 +265,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		if err != nil {
 			log.ErrorContext(ctx, "pipes: failed to read request body", "error", err)
 
-			return c.String(http.StatusInternalServerError, "internal server error")
+			return h.handleError(c, err)
 		}
 
 		op := h.ExtractOperation(c)

@@ -70,7 +70,7 @@ func (h *Handler) handleGetBackupSelection(c *echo.Context, resource string) err
 
 	selDoc := map[string]any{
 		"SelectionName": sel.SelectionName,
-		"IamRoleArn":    sel.IAMRoleArn,
+		keyIamRoleArn:   sel.IAMRoleArn,
 	}
 	if len(sel.Resources) > 0 {
 		selDoc["Resources"] = sel.Resources

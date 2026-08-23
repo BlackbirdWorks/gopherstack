@@ -24,8 +24,14 @@ import (
 // "byServicePrincipal" secondary index, both introduced by the SDK-bump pass
 // that implemented PutConnector/GetConnector/ListConnectors/DeleteConnector
 // and PutThirdPartyServiceLinkedConfigurationRecorder -- see this package's
-// persistence audit below.
-const awsconfigSnapshotVersion = 3
+// persistence audit below. Version 4 is not a field addition: it corrects nine
+// wrong json tags on AggregationAuthorization, OrganizationConfigRule, and
+// OrganizationConformancePack (models.go, commit 351ee095d) so responses match
+// configservice@v1.68.4 on the wire. Those same tags are the on-disk key
+// names for these store.Table-backed types, so a v3 snapshot holds the old
+// keys and would decode into the corrected structs as empty strings --
+// silent data loss, not a compatible extension.
+const awsconfigSnapshotVersion = 4
 
 // backendSnapshot is the top-level on-disk shape for the AWS Config backend.
 //

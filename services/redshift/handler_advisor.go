@@ -306,7 +306,7 @@ type recommendationXML struct {
 	RecommendationID   string                 `xml:"Id"`
 	ClusterIdentifier  string                 `xml:"ClusterIdentifier"`
 	NamespaceArn       string                 `xml:"NamespaceArn,omitempty"`
-	Type               string                 `xml:"Type"`
+	Type               string                 `xml:"RecommendationType"`
 	Title              string                 `xml:"Title"`
 	Description        string                 `xml:"Description"`
 	Observation        string                 `xml:"Observation,omitempty"`

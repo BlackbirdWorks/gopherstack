@@ -1,6 +1,7 @@
 package eks
 
 import (
+	"encoding/json"
 	"fmt"
 	"slices"
 	"time"
@@ -301,14 +302,23 @@ func (b *InMemoryBackend) DescribeAddonVersions() []map[string]any {
 }
 
 // DescribeAddonConfiguration returns static addon configuration schema.
+//
+// configurationSchema is the JSON schema encoded AS A STRING -- confirmed
+// against aws-sdk-go-v2/service/eks@v1.90.4's deserializers.go
+// (awsRestjson1_deserializeOpDocumentDescribeAddonConfigurationOutput, case
+// "configurationSchema": value.(string)) -- not a nested JSON object. A real
+// client decoding this response would fail with "expected String to be of
+// type string, got map[string]interface {} instead".
 func (b *InMemoryBackend) DescribeAddonConfiguration(addonName, addonVersion string) map[string]any {
+	schema, _ := json.Marshal(map[string]any{
+		keyType:      "object",
+		"properties": map[string]any{},
+	})
+
 	return map[string]any{
-		keyAddonName:    addonName,
-		keyAddonVersion: addonVersion,
-		"configurationSchema": map[string]any{
-			keyType:      "object",
-			"properties": map[string]any{},
-		},
+		keyAddonName:          addonName,
+		keyAddonVersion:       addonVersion,
+		"configurationSchema": string(schema),
 	}
 }
 

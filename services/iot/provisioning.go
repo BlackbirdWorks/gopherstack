@@ -246,8 +246,16 @@ func (b *InMemoryBackend) DeleteDomainConfiguration(name string) error {
 	return nil
 }
 
+// ProvisioningHook identifies a pre-provisioning hook Lambda function
+// (types.ProvisioningHook, aws-sdk-go-v2/service/iot@v1.77.4).
+type ProvisioningHook struct {
+	TargetARN      string `json:"targetArn"`
+	PayloadVersion string `json:"payloadVersion,omitempty"`
+}
+
 // ProvisioningTemplate represents an IoT fleet provisioning template.
 type ProvisioningTemplate struct {
+	PreProvisioningHook *ProvisioningHook `json:"preProvisioningHook,omitempty"`
 	Tags                map[string]string `json:"tags,omitempty"`
 	TemplateName        string            `json:"templateName"`
 	TemplateARN         string            `json:"templateArn"`
@@ -281,11 +289,12 @@ func (b *InMemoryBackend) provTemplateARN(name string) string {
 
 // CreateProvisioningTemplateInput holds input for CreateProvisioningTemplate.
 type CreateProvisioningTemplateInput struct {
-	TemplateName        string `json:"templateName"`
-	Description         string `json:"description,omitempty"`
-	TemplateBody        string `json:"templateBody,omitempty"`
-	ProvisioningRoleARN string `json:"provisioningRoleArn,omitempty"`
-	Type                string `json:"type,omitempty"`
+	PreProvisioningHook *ProvisioningHook `json:"preProvisioningHook,omitempty"`
+	TemplateName        string            `json:"templateName"`
+	Description         string            `json:"description,omitempty"`
+	TemplateBody        string            `json:"templateBody,omitempty"`
+	ProvisioningRoleARN string            `json:"provisioningRoleArn,omitempty"`
+	Type                string            `json:"type,omitempty"`
 	// []types.Tag on the wire, not a map (serializers.go:4052, aws-sdk-go-v2/service/iot@v1.77.4).
 	Tags    []tags.KV `json:"tags,omitempty"`
 	Enabled bool      `json:"enabled"`
@@ -306,6 +315,7 @@ func (b *InMemoryBackend) CreateProvisioningTemplate(
 	}
 	now := float64(time.Now().Unix())
 	pt := &ProvisioningTemplate{
+		PreProvisioningHook: input.PreProvisioningHook,
 		TemplateName:        input.TemplateName,
 		TemplateARN:         b.provTemplateARN(input.TemplateName),
 		Description:         input.Description,
@@ -393,19 +403,28 @@ func (b *InMemoryBackend) DeleteProvisioningTemplate(name string) error {
 
 func (b *InMemoryBackend) CreateProvisioningTemplateVersion(
 	name, body string,
+	setAsDefault bool,
 ) (*ProvisioningTemplateVersion, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if !b.provTemplates.Has(name) {
+	pt, ok := b.provTemplates.Get(name)
+	if !ok {
 		return nil, fmt.Errorf("provisioning template %q not found: %w", name, ErrResourceNotFound)
 	}
 	versions := b.provTemplateVersions[name]
 	newID := int32(len(versions) + 1) //nolint:gosec // safe: version count is always small
 	v := &ProvisioningTemplateVersion{
-		VersionID:    newID,
-		TemplateBody: body,
-		CreationDate: float64(time.Now().Unix()),
+		VersionID:        newID,
+		TemplateBody:     body,
+		CreationDate:     float64(time.Now().Unix()),
+		IsDefaultVersion: setAsDefault,
+	}
+	if setAsDefault {
+		for _, existing := range versions {
+			existing.IsDefaultVersion = false
+		}
+		pt.DefaultVersionID = newID
 	}
 	b.provTemplateVersions[name] = append(versions, v)
 

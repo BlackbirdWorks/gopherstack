@@ -80,12 +80,12 @@ func TestTableOptimizer(t *testing.T) {
 		"Type":         "compaction",
 	})
 	to := out["TableOptimizer"].(map[string]any)
-	if to["Type"] != "compaction" {
-		t.Errorf("Type mismatch: %v", to["Type"])
+	if to["type"] != "compaction" {
+		t.Errorf("type mismatch: %v", to["type"])
 	}
-	config := to["Configuration"].(map[string]any)
-	if config["Enabled"] != true {
-		t.Errorf("Enabled mismatch: %v", config["Enabled"])
+	config := to["configuration"].(map[string]any)
+	if config["enabled"] != true {
+		t.Errorf("enabled mismatch: %v", config["enabled"])
 	}
 
 	// UpdateTableOptimizer

@@ -349,7 +349,11 @@ type physicalResourceEnvelope struct {
 }
 
 type listAppVersionResourcesResponse struct {
-	ResolutionID      string                 `json:"resolutionId,omitempty"`
+	// ResolutionID is required on the real ListAppVersionResourcesOutput
+	// (resiliencehub@v1.38.3 api_op_ListAppVersionResources.go:67-70) even
+	// when the app version has never been resolved -- emitted present but
+	// empty in that case, never omitted.
+	ResolutionID      string                 `json:"resolutionId"`
 	NextToken         string                 `json:"nextToken,omitempty"`
 	PhysicalResources []physicalResourceWire `json:"physicalResources"`
 }
@@ -362,7 +366,11 @@ type unsupportedResourceWire struct {
 }
 
 type listUnsupportedAppVersionResourcesResponse struct {
-	ResolutionID         string                    `json:"resolutionId,omitempty"`
+	// ResolutionID is required on the real ListUnsupportedAppVersionResourcesOutput
+	// (resiliencehub@v1.38.3 api_op_ListUnsupportedAppVersionResources.go)
+	// even when the app version has never been resolved -- emitted present
+	// but empty in that case, never omitted.
+	ResolutionID         string                    `json:"resolutionId"`
 	NextToken            string                    `json:"nextToken,omitempty"`
 	UnsupportedResources []unsupportedResourceWire `json:"unsupportedResources"`
 }

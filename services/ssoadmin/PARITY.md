@@ -4,6 +4,13 @@ sdk_module: aws-sdk-go-v2/service/ssoadmin@v1.43.1
 last_audit_commit: 1d7169f66
 last_audit_date: 2026-08-07
 overall: A            # multiple severe client-breaking wire-shape bugs found and fixed 2026-07-24 sweep.
+                      # 2026-08-21 (gopherstack-c8ge, Scope B): fixed UpdateTrustedTokenIssuer reusing
+                      # Create's OIDC config shape for Update, wholesale-replacing the stored config and
+                      # wiping the immutable IssuerUrl on every config change. See the op row.
+                      # 2026-08-21 (gopherstack-1vv2): fixed UpdateApplication wholesale-replacing
+                      # PortalOptions on every call (even ones never mentioning it), erasing
+                      # Visibility -- a field UpdateApplicationInput.PortalOptions can never carry.
+                      # See the UpdateApplication op row.
                       # gopherstack-dbwi pass: implemented the ProvisioningStatus filter on
                       # ListPermissionSetsProvisionedToAccount/ListAccountsForProvisionedPermissionSet
                       # (real provisioned-vs-edited-since-provisioned drift tracking) and
@@ -28,7 +35,7 @@ ops:
   ListAccountsForProvisionedPermissionSet: {wire: ok, errors: ok, state: fixed, persist: ok, note: "Same ProvisioningStatus filter fix as ListPermissionSetsProvisionedToAccount, same underlying drift-tracking mechanism."}
   CreateApplication: {wire: ok, errors: ok, state: ok, persist: ok, note: "SEVERE: response wrapped the full application under an invented 'Application' object; real CreateApplicationOutput is exactly {ApplicationArn, IdentityStoreArn, InstanceArn} flat, and IdentityStoreArn was never returned. Fixed; backend now derives ApplicationAccount/CreatedFrom/IdentityStoreArn."}
   DescribeApplication: {wire: ok, errors: ok, state: ok, persist: ok, note: "SEVERE: entire response was nested one level too deep under an invented 'Application' wrapper (plus a fabricated 'Tags' member) -- a real aws-sdk-go-v2 client parsing this would get every DescribeApplicationOutput field nil. Real shape is flat: ApplicationAccount/ApplicationArn/ApplicationProviderArn/CreatedDate/CreatedFrom/Description/IdentityStoreArn/InstanceArn/Name/PortalOptions/Status, no Tags. Fixed; tags now only reachable via ListTagsForResource like every other taggable resource."}
-  UpdateApplication: {wire: ok, errors: ok, state: ok, persist: ok, note: "response echoed a full invented 'Application' object; real UpdateApplicationOutput is void. Fixed to {}."}
+  UpdateApplication: {wire: ok, errors: ok, state: ok, persist: fixed, note: "response echoed a full invented 'Application' object; real UpdateApplicationOutput is void. Fixed to {}. 2026-08-21 (gopherstack-1vv2): persist was accept-and-corrupt — UpdateApplicationInput.PortalOptions is types.UpdateApplicationPortalOptions (SignInOptions only, no Visibility, unlike Create-side types.PortalOptions), and the handler wholesale-replaced app.PortalOptions with a freshly-decoded struct on EVERY UpdateApplication call, even ones that never mentioned PortalOptions at all — silently zeroing Visibility and SignInOptions every time. Fixed: PortalOptions is now a nil-able pointer at decode time and the backend merges only SignInOptions into the existing PortalOptions, leaving Visibility untouched. See TestUpdateApplication_PreservesVisibility."}
   ListApplications: {wire: ok, errors: ok, state: ok, persist: ok, note: "was missing ApplicationAccount/CreatedFrom/IdentityStoreArn (present on the real per-item Application type) and MaxResults/NextToken pagination; both fixed"}
   DescribeApplicationAssignment: {wire: ok, errors: ok, state: ok, persist: ok, note: "SEVERE: response nested under an invented 'ApplicationAssignment' wrapper; real DescribeApplicationAssignmentOutput is flat {ApplicationArn, PrincipalId, PrincipalType}. Fixed."}
   ListApplicationAssignments: {wire: ok, errors: ok, state: ok, persist: ok, note: "MaxResults/NextToken were ignored; now paginated"}
@@ -43,7 +50,7 @@ ops:
   GetApplicationGrant: {wire: ok, errors: ok, state: ok, persist: ok, note: "SEVERE: same double-wrap bug as GetApplicationAuthenticationMethod -- real GetApplicationGrantOutput is exactly {Grant: <union>}, no sibling GrantType (unlike GrantItem, the ListApplicationGrants item shape). Fixed."}
   CreateTrustedTokenIssuer: {wire: ok, errors: ok, state: ok, persist: ok, note: "confirmed already correct: flat {TrustedTokenIssuerArn}"}
   DescribeTrustedTokenIssuer: {wire: ok, errors: ok, state: ok, persist: ok, note: "SEVERE: response nested under an invented 'TrustedTokenIssuer' wrapper with fabricated InstanceArn and Tags members; real DescribeTrustedTokenIssuerOutput is flat {Name, TrustedTokenIssuerArn, TrustedTokenIssuerConfiguration, TrustedTokenIssuerType}, no InstanceArn, no Tags. Fixed; tags now only reachable via ListTagsForResource."}
-  UpdateTrustedTokenIssuer: {wire: ok, errors: ok, state: ok, persist: ok, note: "response echoed a full invented 'TrustedTokenIssuer' object (with a fabricated InstanceArn); real UpdateTrustedTokenIssuerOutput is void. Fixed to {}."}
+  UpdateTrustedTokenIssuer: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "response echoed a full invented 'TrustedTokenIssuer' object (with a fabricated InstanceArn); real UpdateTrustedTokenIssuerOutput is void. Fixed to {}. 2026-08-21 (gopherstack-c8ge, Scope B: confirmed live candidate of gopherstack-1vv2's class, drilled to member level): real UpdateTrustedTokenIssuerInput.TrustedTokenIssuerConfiguration is types.OidcJwtUpdateConfiguration -- it has NO IssuerUrl member at all (immutable post-creation) and its remaining 3 fields are independently optional -- but the handler reused Create's all-required, IssuerUrl-carrying shape and the backend wholesale-replaced the stored OidcJwtConfiguration, so any config Update wiped IssuerUrl and rejected single-field updates that omitted it (validateOIDCJWTConfig required IssuerUrl unconditionally). Modeled OidcJwtUpdateConfiguration/TrustedTokenIssuerUpdateConfiguration distinct from the Create-side types and merge field by field. See TestUpdateTrustedTokenIssuer_FieldsSurviveIndependentUpdates and the corrected TestUpdateTrustedTokenIssuerWithConfig."}
   ListTrustedTokenIssuers: {wire: ok, errors: ok, state: ok, persist: ok, note: "per-item shape (types.TrustedTokenIssuerMetadata) had an invented InstanceArn member that doesn't exist on the real type (Name/TrustedTokenIssuerArn/TrustedTokenIssuerType only); also MaxResults/NextToken were ignored. Both fixed."}
   DescribeInstance: {wire: ok, errors: ok, state: ok, persist: ok, note: "response included an invented 'Tags' member; real DescribeInstanceOutput has none. Fixed (prior pass); tags now only reachable via ListTagsForResource. FIXED (gopherstack-dbwi): EncryptionConfigurationDetails was entirely unpopulated; now returns the real, constant default (EncryptionStatus=ENABLED, KeyType=AWS_OWNED_KMS_KEY) since this SDK version has no Put/UpdateInstanceEncryptionConfiguration op at all -- every instance this backend can produce genuinely has this state, so it's a real default, not fabricated per-instance data. StatusReason (a separate top-level member, documented as useful for non-ACTIVE instance status) remains correctly omitted -- this backend's instances are always ACTIVE, so omitting it is wire-correct, not a gap. FIXED this pass (gopherstack-gt9o): PermissionSetsEnabled (*bool, api_op_DescribeInstance.go:77) is now echoed, sourced from Instance.PermissionSetsEnabled (a new *bool field, set only by UpdateInstance); omitted from the wire entirely (not a fabricated false) until the first UpdateInstance call that supplies it."}
   ListInstances: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass (gopherstack-gt9o): types.InstanceMetadata (types/types.go:495) gained PrimaryRegion/Regions since v1.38.0; ListInstances did not populate either. Regions (types/types.go:522, []RegionMetadata) is now populated from this instance's real AddRegion state via ListRegions -- genuine data, not invented -- and empty (field omitted) for an instance that never called AddRegion. PrimaryRegion (types/types.go:518, *string) is modeled shape-only and permanently left unset: this backend has no caller-settable source for it and RegionMetadata.IsPrimaryRegion is always false (see gaps), so there is no real value to derive it from; an invented region a client reads and acts on is worse than an absent field."}
@@ -91,6 +98,51 @@ gaps:
 deferred: []
 leaks: {status: clean, note: "no new goroutines/janitors introduced this sweep; all fixes are pure request-parsing/response-shape/backend-field changes inside the existing coarse-lock methods. identityStoreArn() helper reads b.instances while b.mu is already held by the caller (CreateApplication/AddApplicationInternal) -- safe because store.Table.Get has no internal locking (backend-level coarse lock only, confirmed in pkgs/store/table.go), consistent with every other Table access pattern in this backend."}
 ---
+
+## Notes (2026-08-22, gopherstack-r80d batch 30 -- required-output-member audit)
+
+ssoadmin (6 required output fields / 79 ops, 6 ops-with-required per a fresh
+`cmd/requiredoutputfields` run, cross-checked against an independent
+brace-depth awk walk of `ssoadmin@v1.43.1`'s `api_op_*.go` files -- both
+agreed exactly at 6). Read all 6 flagged ops end to end against their
+handlers: `DescribeApplicationProvider` (`ApplicationProviderArn`),
+`GetApplicationAccessScope` (`Scope`),
+`GetApplicationAssignmentConfiguration` (`AssignmentRequired`),
+`GetApplicationGrant` (`Grant`), `ListApplicationAccessScopes` (`Scopes`),
+`ListApplicationGrants` (`Grants`).
+
+**Protocol question asked and answered no:** every one of these 6 handlers
+builds its response as a `map[string]any` literal
+(`handler_application_access_scopes.go`, `handler_application_grants.go`,
+`handler_applications.go`, `handler_application_assignments.go`), not a
+tagged struct marshaled by `encoding/json`/`encoding/xml` -- so the
+`omitempty`-on-a-required-field tag-rule this campaign is built on does not
+apply here at all: a map-literal key is written unconditionally regardless
+of its value's zero-ness, so there is no tag to go stale. Every required
+key is present in every success-path literal (confirmed by reading each
+handler directly, not grepped).
+
+**Followed one wrapped type below the flat scan:** `ListApplicationAccessScopesOutput.Scopes`
+is `[]types.ScopeDetails` (ssoadmin@v1.43.1 types/types.go:821-832), whose
+own `Scope` member is separately required -- invisible to the flat op-level
+scan since the array field itself isn't required-flagged at the item
+level. gopherstack's own `ScopeDetails` (models.go:341) is a genuine tagged
+struct (`Scope string \`json:"Scope"\`` with no `omitempty`), correctly
+never omitting the key even for a zero-value scope. `GrantItem`'s `Grant`
+union member (types.go:412-455) is passed through as opaque
+`json.RawMessage` (never reconstructed), which is architecturally correct
+for a union type gopherstack cannot decode -- `PutApplicationGrant`
+defensively substitutes literal `"null"` for an empty body rather than
+storing a truly missing value, and any real client-side omission of the
+required `Grant` field on `PutApplicationGrant` would already be rejected
+by the real SDK's own input validator before reaching this backend (same
+disqualifying rule as batch 29's `PutScalingPolicy` gap), so this null-body
+edge case is unreachable via any real client and not a bug.
+
+**Result: 0 bugs.** All 6 ops confirmed already correct; no code changes.
+This service was already A-graded with multiple prior wire-shape sweeps
+(see `overall:` above); this pass adds nothing to that history except
+closing out this specific bug class by name.
 
 ## Notes (2026-08-07 pass, gopherstack-dbwi)
 
@@ -243,3 +295,67 @@ the shared helper.
 - Carried over unmodified from the prior sweep (still verified correct): the awsjson1.1
   `X-Amz-Target` routing, epoch-seconds timestamp handling, and the Region family's
   ADDING/ACTIVE/REMOVING lazy-transition + lazy-prune pattern.
+
+## gopherstack-zquj (2026-08-22): type-checked hand-written-key sweep, clean
+
+Direct followup to the required-output-member note above, which found
+ssoadmin's map-literal responses immune to `omitempty` bugs but flagged
+that immunity as exposure to a *different*, unchecked class: a hand-typed
+map key with a typo or wrong case is dropped on the wire by a real client
+and caught by nothing in this repo. 89 `map[string](any|interface{}|
+string)` literal openings in the non-test package (`grep -rEo
+'map\[string\](any|interface\{\}|string)\{'`), against ssoadmin@v1.43.1.
+
+Built a type-checked scanner (`keycheck`, same tool as shield's zquj note
+above; not committed into this repo this pass, see that note for why) that
+diffs every hand-written key against the real key set derived from
+`ssoadmin@v1.43.1`'s `deserializers.go` AST (`awsAwsjson11_
+deserializeOpDocument*`/`awsAwsjson11_deserializeDocument*` case-switch
+lists), not the Go struct field names. Instrument validated in two parts
+before trusting a clean result: the SDK-side case-list parser against the
+known-bad scheduler casing bug (gopherstack-r80d batch 32, commit
+`8469dcdd9` -- see shield's zquj note for detail); the handler-side
+map-literal/`X["key"]=` walker against a synthetic fixture with a planted
+typo'd key, caught with zero false positives on correctly-keyed siblings.
+
+**Two scanner false-positive classes found and excluded before trusting a
+clean result** (same as shield): `map[string]struct{}`/`map[string]bool`
+validation-set literals excluded by value type; the shared
+`__type`/`message` error-envelope keys (written by `writeError`,
+handler.go:702-706, reachable from nearly every op's error path) excluded
+as protocol-reserved -- confirmed by grep that `"message"`/`"__type"`
+never appear as a case key in any *success*-path `OpDocument*Output`
+deserializer in this SDK version, only in exception-type deserializers, so
+excluding them cannot mask a real success-path bug.
+
+**Result: 73 real ops resolved (79 dispatched minus 6 ops whose
+`*Output` struct is genuinely empty -- `DeleteApplicationAccessScope`/
+`DeleteApplicationAuthenticationMethod`/`DeleteApplicationGrant`/
+`PutApplicationAccessScope`/`PutApplicationAuthenticationMethod`/
+`PutApplicationGrant` -- confirmed by reading each `api_op_*.go`: the
+output struct holds only `ResultMetadata`/`noSmithyDocumentSerde`, so the
+SDK's codegen emits no `OpDocument*Output` deserializer at all, and the
+handlers correctly write `map[string]any{}`), 129 tracked written keys, 0
+keys outside the op's real reachable wire shape.**
+
+Spot-checked the highest-surface ops by hand rather than trusting the tool
+alone: `DescribeApplication`'s 11 written keys
+(handler_applications.go:128-140, already carrying a comment citing
+`awsAwsjson11_deserializeOpDocumentDescribeApplicationOutput`,
+deserializers.go:14289) match exactly; `CreateAccountAssignment` and its
+sibling status ops (written=1, allowed=10) turned out to wrap an
+already-audited tagged struct (`accountAssignmentStatusView`,
+handler.go:549-559) inside one `map[string]any` key -- the low written
+count is the scanner correctly not descending into a struct literal it
+doesn't need to check (that construction is covered by the required-field
+sweep above), not a missed site.
+
+**Known blind spot, disclosed**: the scanner checks "does this key exist
+anywhere in the op's reachable shape," not "at the right nesting level" --
+a same-named key misplaced one level off would not be caught. None found
+on manual spot-check of the largest-surface ops (above). Site count here
+(89) differs from the 622 cited when gopherstack-zquj was filed; per
+zquj's own warning that grep-derived scopes in this campaign have been
+wrong by as much as 11x, that gap is expected and is exactly why this
+sweep verified per-op against the real deserializer rather than trusting
+either number.

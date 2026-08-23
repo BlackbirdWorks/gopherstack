@@ -47,11 +47,13 @@ func TestUpdateBackupPlanUpdateDate(t *testing.T) {
 			var updateData map[string]any
 			require.NoError(t, json.Unmarshal(updateResp.Body.Bytes(), &updateData))
 
-			updateDate, exists := updateData["UpdateDate"]
-			require.True(t, exists, "UpdateDate must be present in UpdateBackupPlan response")
-			_, isFloat := updateDate.(float64)
+			assert.NotContains(t, updateData, "UpdateDate",
+				"UpdateBackupPlanOutput has no UpdateDate member")
+			creationDate, exists := updateData["CreationDate"]
+			require.True(t, exists, "CreationDate must be present in UpdateBackupPlan response")
+			_, isFloat := creationDate.(float64)
 			assert.True(t, isFloat,
-				"UpdateDate must be epoch seconds (float64), got %T: %v", updateDate, updateDate)
+				"CreationDate must be epoch seconds (float64), got %T: %v", creationDate, creationDate)
 		})
 	}
 }

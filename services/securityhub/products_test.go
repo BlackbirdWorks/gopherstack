@@ -240,6 +240,10 @@ func TestRecommendedPolicyV2(t *testing.T) {
 			name: "GenerateAndGetRecommendedPolicyV2",
 			steps: []step{
 				{
+					// GenerateRecommendedPolicyV2Output has no members at all
+					// (securityhub@v1.75.4 api_op_GenerateRecommendedPolicyV2.go)
+					// -- a real client gets back an empty 200, not an echo of
+					// MetadataUid/a policy document.
 					name:   "generate",
 					method: http.MethodPost,
 					path:   "/recommendedPolicyV2/metadata-uid-001",
@@ -247,20 +251,38 @@ func TestRecommendedPolicyV2(t *testing.T) {
 					check: func(t *testing.T, code int, resp map[string]any) {
 						t.Helper()
 						assert.Equal(t, http.StatusOK, code)
-						assert.Equal(t, "metadata-uid-001", resp["MetadataUid"])
-						assert.NotEmpty(t, resp["Policy"])
-						assert.NotEmpty(t, resp["GenerationTime"])
+						assert.Empty(t, resp)
 					},
 				},
 				{
+					// GetRecommendedPolicyV2Output is an async-retrieval-status
+					// shape (Status/RecommendationType/RecommendationSteps), not
+					// a returned policy document -- it has no MetadataUid or
+					// Policy member at all.
 					name:   "get",
 					method: http.MethodGet,
 					path:   "/recommendedPolicyV2/metadata-uid-001",
 					body:   nil,
 					check: func(t *testing.T, code int, resp map[string]any) {
 						t.Helper()
-						assert.Equal(t, http.StatusOK, code)
-						assert.Equal(t, "metadata-uid-001", resp["MetadataUid"])
+						require.Equal(t, http.StatusOK, code)
+						assert.NotContains(t, resp, "MetadataUid")
+						assert.NotContains(t, resp, "Policy")
+						assert.NotContains(t, resp, "GenerationTime")
+						assert.Equal(t, "SUCCEEDED", resp["Status"])
+						assert.Equal(t, "UNUSED_PERMISSION_RECOMMENDATION", resp["RecommendationType"])
+
+						steps, ok := resp["RecommendationSteps"].([]any)
+						require.True(t, ok, "RecommendationSteps must be a list")
+						require.Len(t, steps, 1)
+
+						step, ok := steps[0].(map[string]any)
+						require.True(t, ok)
+						unused, ok := step["UnusedPermissions"].(map[string]any)
+						require.True(t, ok, "recommendation step must be tagged UnusedPermissions")
+						assert.Equal(t, "CREATE_POLICY", unused["RecommendedAction"])
+						assert.NotEmpty(t, unused["RecommendedPolicy"])
+						assert.NotEmpty(t, unused["PolicyUpdatedAt"])
 					},
 				},
 				{

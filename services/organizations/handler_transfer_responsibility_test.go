@@ -193,12 +193,14 @@ func TestHandler_InviteOrganizationToTransferResponsibility_MissingRequiredField
 	t.Parallel()
 
 	validTarget := map[string]any{"Target": map[string]any{"Id": "999999999999", "Type": "ACCOUNT"}}
+	targetMissingType := map[string]any{"Target": map[string]any{"Id": "999999999999", "Type": ""}}
 	validSourceName := map[string]any{"SourceName": "billing-transfer"}
 	validStart := map[string]any{"StartTimestamp": float64(time.Now().Add(time.Hour).Unix())}
 	validType := map[string]any{"Type": "BILLING"}
 
 	tests := map[string]map[string]any{
 		"missing target":          merge(validSourceName, validStart, validType),
+		"missing target type":     merge(targetMissingType, validSourceName, validStart, validType),
 		"missing source name":     merge(validTarget, validStart, validType),
 		"missing start timestamp": merge(validTarget, validSourceName, validType),
 		"missing type":            merge(validTarget, validSourceName, validStart),

@@ -125,10 +125,14 @@ type PullRequestApprovalRule struct {
 	PRID                string `json:"-"`
 }
 
-// PullRequestEvent represents an event on a pull request.
+// PullRequestEvent represents an event on a pull request. EventDate is
+// time.Time, not string: the real PullRequestEvent.EventDate deserializes
+// from a json.Number via ParseEpochSeconds (deserializers.go), so wiring it
+// through as an RFC3339 string breaks every real SDK client's
+// DescribePullRequestEvents call outright (see toWirePullRequestEvent).
 type PullRequestEvent struct {
+	EventDate            time.Time
 	PullRequestEventType string `json:"pullRequestEventType"`
-	EventDate            string `json:"eventDate"`
 }
 
 // RuleEvaluation represents the evaluation of a pull request approval rule.

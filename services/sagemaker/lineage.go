@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -49,16 +50,27 @@ type ArtifactSource struct {
 	SourceTypes []ArtifactSourceType `json:"SourceTypes,omitempty"`
 }
 
+// MetadataProperties tracks commit/repo provenance for an Action or Artifact,
+// per CreateActionInput.MetadataProperties / CreateArtifactInput.MetadataProperties
+// (aws-sdk-go-v2/service/sagemaker types/types.go:13617, flat 4-string struct).
+type MetadataProperties struct {
+	CommitID    string `json:"CommitId,omitempty"`
+	GeneratedBy string `json:"GeneratedBy,omitempty"`
+	ProjectID   string `json:"ProjectId,omitempty"`
+	Repository  string `json:"Repository,omitempty"`
+}
+
 // Artifact represents a SageMaker ML lineage artifact.
 type Artifact struct {
-	CreationTime     time.Time         `json:"CreationTime"`
-	LastModifiedTime time.Time         `json:"LastModifiedTime"`
-	Tags             map[string]string `json:"Tags,omitempty"`
-	Properties       map[string]string `json:"Properties,omitempty"`
-	ArtifactName     string            `json:"ArtifactName,omitempty"`
-	ArtifactArn      string            `json:"ArtifactArn"`
-	ArtifactType     string            `json:"ArtifactType"`
-	Source           ArtifactSource    `json:"Source"`
+	CreationTime       time.Time           `json:"CreationTime"`
+	LastModifiedTime   time.Time           `json:"LastModifiedTime"`
+	Tags               map[string]string   `json:"Tags,omitempty"`
+	Properties         map[string]string   `json:"Properties,omitempty"`
+	MetadataProperties *MetadataProperties `json:"MetadataProperties,omitempty"`
+	ArtifactName       string              `json:"ArtifactName,omitempty"`
+	ArtifactArn        string              `json:"ArtifactArn"`
+	ArtifactType       string              `json:"ArtifactType"`
+	Source             ArtifactSource      `json:"Source"`
 }
 
 // cloneArtifact returns a deep copy of ar.
@@ -67,6 +79,11 @@ func cloneArtifact(ar *Artifact) *Artifact {
 	cp.Tags = maps.Clone(ar.Tags)
 	cp.Properties = maps.Clone(ar.Properties)
 	cp.Source.SourceTypes = append([]ArtifactSourceType(nil), ar.Source.SourceTypes...)
+
+	if ar.MetadataProperties != nil {
+		mp := *ar.MetadataProperties
+		cp.MetadataProperties = &mp
+	}
 
 	return &cp
 }
@@ -193,6 +210,7 @@ func (b *InMemoryBackend) CreateArtifact(
 	source ArtifactSource,
 	properties map[string]string,
 	tags map[string]string,
+	metadataProperties *MetadataProperties,
 ) (*Artifact, error) {
 	b.mu.Lock("CreateArtifact")
 	defer b.mu.Unlock()
@@ -220,14 +238,15 @@ func (b *InMemoryBackend) CreateArtifact(
 
 	now := time.Now()
 	ar := &Artifact{
-		ArtifactName:     name,
-		ArtifactArn:      artifactARN,
-		ArtifactType:     artifactType,
-		Source:           source,
-		Properties:       maps.Clone(properties),
-		Tags:             mergeTags(nil, tags),
-		CreationTime:     now,
-		LastModifiedTime: now,
+		ArtifactName:       name,
+		ArtifactArn:        artifactARN,
+		ArtifactType:       artifactType,
+		Source:             source,
+		Properties:         maps.Clone(properties),
+		Tags:               mergeTags(nil, tags),
+		MetadataProperties: metadataProperties,
+		CreationTime:       now,
+		LastModifiedTime:   now,
 	}
 	store.Put(ar)
 
@@ -286,52 +305,109 @@ func (b *InMemoryBackend) UpdateArtifact(
 	return cloneArtifact(ar), nil
 }
 
-// DeleteArtifact deletes an artifact by ARN.
-func (b *InMemoryBackend) DeleteArtifact(ctx context.Context, artifactArn string) (*Artifact, error) {
+// DeleteArtifact deletes an artifact identified either by ARN or, per the
+// real DeleteArtifactInput ("Either ArtifactArn or Source must be
+// specified" — docs.aws.amazon.com/sagemaker/latest/APIReference/API_DeleteArtifact.html,
+// since neither field is marked required on the Go SDK struct itself), by
+// Source.SourceUri. When multiple artifacts share a SourceUri (the real API
+// does not document a tie-break), the lowest ArtifactArn is deleted, matching
+// this emulator's other deterministic-by-ARN tie-break conventions.
+func (b *InMemoryBackend) DeleteArtifact(
+	ctx context.Context, artifactArn string, source *ArtifactSource,
+) (*Artifact, error) {
 	b.mu.Lock("DeleteArtifact")
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
 	store := b.artifactsStore(region)
 
-	ar, ok := store.Get(artifactArn)
-	if !ok {
+	resolvedArn := artifactArn
+	if resolvedArn == "" && source != nil && source.SourceURI != "" {
+		resolvedArn = b.artifactArnBySourceURI(store, source.SourceURI)
+	}
+
+	ar, ok := store.Get(resolvedArn)
+	if resolvedArn == "" || !ok {
 		return nil, fmt.Errorf("%w: artifact %q not found", ErrArtifactNotFound, artifactArn)
 	}
 
 	cp := cloneArtifact(ar)
-	store.Delete(artifactArn)
+	store.Delete(resolvedArn)
 
 	return cp, nil
 }
 
-// ListArtifacts returns artifacts, optionally filtered by type or source URI.
-func (b *InMemoryBackend) ListArtifacts(
-	ctx context.Context,
-	artifactType, sourceURI, nextToken string,
-) ([]*Artifact, string) {
+// artifactArnBySourceURI returns the lowest ArtifactArn among artifacts whose
+// Source.SourceUri matches sourceURI, or "" if none match.
+func (b *InMemoryBackend) artifactArnBySourceURI(store *store.Table[Artifact], sourceURI string) string {
+	best := ""
+
+	for _, ar := range store.All() {
+		if ar.Source.SourceURI == sourceURI && (best == "" || ar.ArtifactArn < best) {
+			best = ar.ArtifactArn
+		}
+	}
+
+	return best
+}
+
+// ListArtifactsParams bundles the filter/sort criteria for ListArtifacts.
+type ListArtifactsParams struct {
+	CreatedAfter  *time.Time
+	CreatedBefore *time.Time
+	ArtifactType  string
+	SourceURI     string
+	NextToken     string
+	SortBy        string
+	SortOrder     string
+	MaxResults    int32
+}
+
+// ListArtifacts returns artifacts, optionally filtered by type, source URI, and
+// creation-time window, sorted per params.SortBy/SortOrder (real default:
+// CreationTime, Descending).
+func (b *InMemoryBackend) ListArtifacts(ctx context.Context, params ListArtifactsParams) ([]*Artifact, string) {
 	b.mu.RLock("ListArtifacts")
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
 	store := b.artifactsStoreRO(region)
 
-	filtered := make(map[string]*Artifact, store.Len())
+	list := make([]*Artifact, 0, store.Len())
 
 	for _, ar := range store.All() {
-		if artifactType != "" && ar.ArtifactType != artifactType {
+		if params.ArtifactType != "" && ar.ArtifactType != params.ArtifactType {
 			continue
 		}
 
-		if sourceURI != "" && ar.Source.SourceURI != sourceURI {
+		if params.SourceURI != "" && ar.Source.SourceURI != params.SourceURI {
 			continue
 		}
 
-		filtered[ar.ArtifactArn] = ar
+		if params.CreatedAfter != nil && !ar.CreationTime.After(*params.CreatedAfter) {
+			continue
+		}
+
+		if params.CreatedBefore != nil && !ar.CreationTime.Before(*params.CreatedBefore) {
+			continue
+		}
+
+		list = append(list, cloneArtifact(ar))
 	}
 
-	return sagemakerListPagedMap(filtered, nextToken, cloneArtifact,
-		func(a, b *Artifact) bool { return a.ArtifactArn < b.ArtifactArn })
+	// SortArtifactsBy has a single enum value, CreationTime (types/enums.go:9056-9061)
+	// — unlike ListContexts/ListActions' Name|CreationTime, there is no other sort key.
+	desc := !strings.EqualFold(params.SortOrder, "Ascending")
+	sort.Slice(list, func(i, j int) bool {
+		less := list[i].CreationTime.Before(list[j].CreationTime)
+		if desc {
+			return !less
+		}
+
+		return less
+	})
+
+	return paginateSlice(list, params.NextToken, params.MaxResults)
 }
 
 // ---------------------------------------------------------------------------
@@ -459,33 +535,47 @@ func (b *InMemoryBackend) DeleteContext(ctx context.Context, name string) (*Cont
 	return cp, nil
 }
 
-// ListContexts returns contexts, optionally filtered by type or source URI.
-func (b *InMemoryBackend) ListContexts(
-	ctx context.Context,
-	contextType, sourceURI, nextToken string,
-) ([]*Context, string) {
+// ListContextsParams bundles the filter/sort criteria for ListContexts.
+type ListContextsParams struct {
+	CreatedAfter  *time.Time
+	CreatedBefore *time.Time
+	ContextType   string
+	SourceURI     string
+	NextToken     string
+	SortBy        string
+	SortOrder     string
+	MaxResults    int32
+}
+
+// ListContexts returns contexts, optionally filtered by type, source URI, and
+// creation-time window, sorted per params.SortBy/SortOrder (real default:
+// CreationTime, Descending).
+// filterSortPaginateByNameOrTime for a distinct type, which already dedupes the real logic
+//
+//nolint:dupl // structurally mirrors ListActions below; both are thin adapters onto
+func (b *InMemoryBackend) ListContexts(ctx context.Context, params ListContextsParams) ([]*Context, string) {
 	b.mu.RLock("ListContexts")
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
-	store := b.contextsStoreRO(region)
+	items := b.contextsStoreRO(region).All()
 
-	filtered := make(map[string]*Context, store.Len())
-
-	for _, c := range store.All() {
-		if contextType != "" && c.ContextType != contextType {
-			continue
-		}
-
-		if sourceURI != "" && c.Source.SourceURI != sourceURI {
-			continue
-		}
-
-		filtered[c.ContextName] = c
-	}
-
-	return sagemakerListPagedMap(filtered, nextToken, cloneContext,
-		func(a, b *Context) bool { return a.ContextName < b.ContextName })
+	return filterSortPaginateByNameOrTime(items, nameOrTimeSortParams{
+		CreatedAfter:  params.CreatedAfter,
+		CreatedBefore: params.CreatedBefore,
+		TypeFilter:    params.ContextType,
+		SourceURI:     params.SourceURI,
+		NextToken:     params.NextToken,
+		SortBy:        params.SortBy,
+		SortOrder:     params.SortOrder,
+		MaxResults:    params.MaxResults,
+	},
+		func(c *Context) string { return c.ContextType },
+		func(c *Context) string { return c.Source.SourceURI },
+		func(c *Context) string { return c.ContextName },
+		func(c *Context) time.Time { return c.CreationTime },
+		cloneContext,
+	)
 }
 
 // ---------------------------------------------------------------------------
@@ -568,33 +658,47 @@ func (b *InMemoryBackend) DeleteAction(ctx context.Context, name string) (*Actio
 	return cp, nil
 }
 
-// ListActions returns actions, optionally filtered by type or source URI.
-func (b *InMemoryBackend) ListActions(
-	ctx context.Context,
-	actionType, sourceURI, nextToken string,
-) ([]*Action, string) {
+// ListActionsParams bundles the filter/sort criteria for ListActions.
+type ListActionsParams struct {
+	CreatedAfter  *time.Time
+	CreatedBefore *time.Time
+	ActionType    string
+	SourceURI     string
+	NextToken     string
+	SortBy        string
+	SortOrder     string
+	MaxResults    int32
+}
+
+// ListActions returns actions, optionally filtered by type, source URI, and
+// creation-time window, sorted per params.SortBy/SortOrder (real default:
+// CreationTime, Descending).
+// filterSortPaginateByNameOrTime for a distinct type, which already dedupes the real logic
+//
+//nolint:dupl // structurally mirrors ListContexts above; both are thin adapters onto
+func (b *InMemoryBackend) ListActions(ctx context.Context, params ListActionsParams) ([]*Action, string) {
 	b.mu.RLock("ListActions")
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
-	store := b.actionsStoreRO(region)
+	items := b.actionsStoreRO(region).All()
 
-	filtered := make(map[string]*Action, store.Len())
-
-	for _, a := range store.All() {
-		if actionType != "" && a.ActionType != actionType {
-			continue
-		}
-
-		if sourceURI != "" && a.Source.SourceURI != sourceURI {
-			continue
-		}
-
-		filtered[a.ActionName] = a
-	}
-
-	return sagemakerListPagedMap(filtered, nextToken, cloneAction,
-		func(a, b *Action) bool { return a.ActionName < b.ActionName })
+	return filterSortPaginateByNameOrTime(items, nameOrTimeSortParams{
+		CreatedAfter:  params.CreatedAfter,
+		CreatedBefore: params.CreatedBefore,
+		TypeFilter:    params.ActionType,
+		SourceURI:     params.SourceURI,
+		NextToken:     params.NextToken,
+		SortBy:        params.SortBy,
+		SortOrder:     params.SortOrder,
+		MaxResults:    params.MaxResults,
+	},
+		func(a *Action) string { return a.ActionType },
+		func(a *Action) string { return a.Source.SourceURI },
+		func(a *Action) string { return a.ActionName },
+		func(a *Action) time.Time { return a.CreationTime },
+		cloneAction,
+	)
 }
 
 // ---------------------------------------------------------------------------
@@ -779,12 +883,44 @@ func (b *InMemoryBackend) DescribeLineageGroup(ctx context.Context, name string)
 	return lineageGroupARN, b.lifecycleEpoch(), nil
 }
 
-// ListLineageGroups returns the account's single auto-provisioned lineage group.
-func (b *InMemoryBackend) ListLineageGroups(ctx context.Context) (string, time.Time) {
+// ListLineageGroupsParams bundles the filter/sort/pagination criteria for
+// ListLineageGroups. SortBy/SortOrder are accepted but are a genuine no-op:
+// there is at most one lineage group per account/region (see the type
+// comment above), so no ordering of a 0-or-1-element list is observable.
+type ListLineageGroupsParams struct {
+	CreatedAfter  *time.Time
+	CreatedBefore *time.Time
+	NextToken     string
+	SortBy        string
+	SortOrder     string
+	MaxResults    int32
+}
+
+// LineageGroupInfo is a single lineage group's ARN and creation time.
+type LineageGroupInfo struct {
+	CreationTime    time.Time
+	LineageGroupArn string
+}
+
+// ListLineageGroups returns the account's single auto-provisioned lineage
+// group, filtered by params.CreatedAfter/CreatedBefore — a group outside the
+// requested window is correctly excluded, even though there is only ever one.
+func (b *InMemoryBackend) ListLineageGroups(
+	ctx context.Context, params ListLineageGroupsParams,
+) ([]LineageGroupInfo, string) {
 	region := getRegion(ctx, b.region)
 	lineageGroupARN := arn.Build("sagemaker", region, b.accountID, "lineage-group/"+defaultLineageGroupName)
+	createdAt := b.lifecycleEpoch()
 
-	return lineageGroupARN, b.lifecycleEpoch()
+	list := []LineageGroupInfo{}
+
+	inWindow := (params.CreatedAfter == nil || createdAt.After(*params.CreatedAfter)) &&
+		(params.CreatedBefore == nil || createdAt.Before(*params.CreatedBefore))
+	if inWindow {
+		list = append(list, LineageGroupInfo{LineageGroupArn: lineageGroupARN, CreationTime: createdAt})
+	}
+
+	return paginateSlice(list, params.NextToken, params.MaxResults)
 }
 
 // lifecycleEpoch returns a stable creation timestamp for backend-scoped singleton
@@ -813,6 +949,50 @@ func (b *InMemoryBackend) GetLineageGroupPolicy(ctx context.Context, nameOrArn s
 // QueryLineage — traverses the association graph from a set of start ARNs.
 // ---------------------------------------------------------------------------
 
+// lineageEntityDetail holds the metadata QueryLineage's Filters need about a
+// vertex that resolves to a tracked Action/Artifact/Context.
+type lineageEntityDetail struct {
+	CreationTime     time.Time
+	LastModifiedTime time.Time
+	Properties       map[string]string
+	Name             string
+	EntityType       string
+	LineageType      string
+}
+
+// lineageEntityDetailLookup resolves an ARN to its full lineage entity
+// detail. Returns ok=false when the ARN is not a known Action/Artifact/
+// Context (it may still be a valid association endpoint, e.g. a TrainingJob
+// or Model ARN, which this backend does not track timestamps/properties for).
+func (b *InMemoryBackend) lineageEntityDetailLookup(region, entityArn string) (lineageEntityDetail, bool) {
+	if actionName, found := b.actionARNIndexStoreRO(region)[entityArn]; found {
+		if a, exists := b.actionsStoreRO(region).Get(actionName); exists {
+			return lineageEntityDetail{
+				Name: a.ActionName, EntityType: a.ActionType, LineageType: "Action",
+				CreationTime: a.CreationTime, LastModifiedTime: a.LastModifiedTime, Properties: a.Properties,
+			}, true
+		}
+	}
+
+	if ar, found := b.artifactsStoreRO(region).Get(entityArn); found {
+		return lineageEntityDetail{
+			Name: ar.ArtifactName, EntityType: ar.ArtifactType, LineageType: "Artifact",
+			CreationTime: ar.CreationTime, LastModifiedTime: ar.LastModifiedTime, Properties: ar.Properties,
+		}, true
+	}
+
+	if contextName, found := b.contextARNIndexStoreRO(region)[entityArn]; found {
+		if c, exists := b.contextsStoreRO(region).Get(contextName); exists {
+			return lineageEntityDetail{
+				Name: c.ContextName, EntityType: c.ContextType, LineageType: "Context",
+				CreationTime: c.CreationTime, LastModifiedTime: c.LastModifiedTime, Properties: c.Properties,
+			}, true
+		}
+	}
+
+	return lineageEntityDetail{}, false
+}
+
 // lineageEntityLookup resolves an ARN to its lineage entity name, type and
 // LineageType. Returns ok=false when the ARN is not a known Action/Artifact/
 // Context (it may still be a valid association endpoint, e.g. a TrainingJob
@@ -820,23 +1000,12 @@ func (b *InMemoryBackend) GetLineageGroupPolicy(ctx context.Context, nameOrArn s
 func (b *InMemoryBackend) lineageEntityLookup(
 	region, entityArn string,
 ) (string, string, string, bool) {
-	if actionName, found := b.actionARNIndexStoreRO(region)[entityArn]; found {
-		if a, exists := b.actionsStoreRO(region).Get(actionName); exists {
-			return a.ActionName, a.ActionType, "Action", true
-		}
+	d, ok := b.lineageEntityDetailLookup(region, entityArn)
+	if !ok {
+		return "", "", "", false
 	}
 
-	if ar, found := b.artifactsStoreRO(region).Get(entityArn); found {
-		return ar.ArtifactName, ar.ArtifactType, "Artifact", true
-	}
-
-	if contextName, found := b.contextARNIndexStoreRO(region)[entityArn]; found {
-		if c, exists := b.contextsStoreRO(region).Get(contextName); exists {
-			return c.ContextName, c.ContextType, "Context", true
-		}
-	}
-
-	return "", "", "", false
+	return d.Name, d.EntityType, d.LineageType, true
 }
 
 // LineageEntityInfo resolves an ARN to its lineage entity name, type and
@@ -852,33 +1021,88 @@ func (b *InMemoryBackend) LineageEntityInfo(
 	return b.lineageEntityLookup(region, entityArn)
 }
 
-// QueryLineage traverses the association graph starting from startArns, following
-// edges in the given direction up to maxDepth hops, and returns the reached
-// vertices plus (if includeEdges) the edges traversed.
+// QueryLineageFilters narrows a QueryLineage traversal's result vertices, per
+// QueryFilters (aws-sdk-go-v2/service/sagemaker types/types.go:19078). Types
+// (matching non-lineage-tracked entities like TrainingJob/Model/Endpoint by
+// their AWS resource type) is deliberately not modeled here — see
+// QueryLineage's doc comment.
+type QueryLineageFilters struct {
+	CreatedAfter   *time.Time
+	CreatedBefore  *time.Time
+	ModifiedAfter  *time.Time
+	ModifiedBefore *time.Time
+	Properties     map[string]string
+	LineageTypes   []string
+}
+
+// QueryLineageParams bundles QueryLineage's traversal and filter/pagination criteria.
+type QueryLineageParams struct {
+	Filters      *QueryLineageFilters
+	Direction    string
+	NextToken    string
+	StartArns    []string
+	MaxDepth     int
+	MaxResults   int32
+	IncludeEdges bool
+}
+
+// QueryLineage traverses the association graph starting from StartArns, following
+// edges in the given direction up to MaxDepth hops. The reached vertices are
+// narrowed by Filters, then paginated by MaxResults/NextToken (real docs
+// describe both as bounding "the number of vertices", not edges — see
+// api_op_QueryLineage.go:34,38 — so Edges is the full, unpaginated edge set
+// between vertices that survive filtering).
+//
+// Filters.Types (entity-type match for non-lineage-tracked vertices such as
+// TrainingJob/Model/Endpoint ARNs) is accepted but NOT enforced: this
+// backend has no per-service entity-type resolver for arbitrary ARNs outside
+// Action/Artifact/Context, and building one is out of this pass's scope.
+// Filters.CreatedAfter/CreatedBefore/ModifiedAfter/ModifiedBefore/Properties
+// exclude any vertex that does not resolve to a tracked Action/Artifact/
+// Context (an external vertex's creation/modification time or properties
+// are unknown here, so it cannot honestly be said to match).
 func (b *InMemoryBackend) QueryLineage(
-	ctx context.Context,
-	startArns []string,
-	direction string,
-	maxDepth int,
-	includeEdges bool,
-) ([]Vertex, []Edge, error) {
+	ctx context.Context, params QueryLineageParams,
+) ([]Vertex, []Edge, string, error) {
 	b.mu.RLock("QueryLineage")
 	defer b.mu.RUnlock()
 
-	if len(startArns) == 0 {
-		return nil, nil, fmt.Errorf("%w: StartArns is required", ErrValidation)
+	if len(params.StartArns) == 0 {
+		return nil, nil, "", fmt.Errorf("%w: StartArns is required", ErrValidation)
 	}
 
+	maxDepth := params.MaxDepth
 	if maxDepth <= 0 {
 		maxDepth = 10
 	}
 
 	region := getRegion(ctx, b.region)
-
 	fwd, back := b.buildLineageAdjacency(region)
+	visited, allEdges := bfsLineageGraph(params.StartArns, params.Direction, maxDepth, fwd, back)
 
-	visited := map[string]bool{}
+	vertices, kept := b.filterLineageVertices(region, visited, params.Filters)
+	page, nextToken := paginateSlice(vertices, params.NextToken, params.MaxResults)
+
 	var edges []Edge
+	if params.IncludeEdges {
+		for _, e := range allEdges {
+			if kept[e.SourceArn] && kept[e.DestinationArn] {
+				edges = append(edges, e)
+			}
+		}
+	}
+
+	return page, edges, nextToken, nil
+}
+
+// bfsLineageGraph breadth-first-traverses the association graph from
+// startArns in direction, up to maxDepth hops, returning every visited ARN
+// and every edge encountered along the way (before any Filters are applied).
+func bfsLineageGraph(
+	startArns []string, direction string, maxDepth int, fwd, back map[string][]Edge,
+) (map[string]bool, []Edge) {
+	visited := map[string]bool{}
+	var allEdges []Edge
 
 	type queued struct {
 		arnStr string
@@ -902,9 +1126,8 @@ func (b *InMemoryBackend) QueryLineage(
 			continue
 		}
 
-		neighbors := lineageNeighbors(direction, cur.arnStr, fwd, back)
-		for _, e := range neighbors {
-			edges = append(edges, e)
+		for _, e := range lineageNeighbors(direction, cur.arnStr, fwd, back) {
+			allEdges = append(allEdges, e)
 
 			next := e.DestinationArn
 			if next == cur.arnStr {
@@ -918,8 +1141,15 @@ func (b *InMemoryBackend) QueryLineage(
 		}
 	}
 
-	vertices := make([]Vertex, 0, len(visited))
+	return visited, allEdges
+}
 
+// filterLineageVertices resolves each visited ARN's entity detail, keeps
+// those matching filters, and returns both the ordered (by ARN) Vertex list
+// and the set of ARNs kept (for pruning allEdges to survivors).
+func (b *InMemoryBackend) filterLineageVertices(
+	region string, visited map[string]bool, filters *QueryLineageFilters,
+) ([]Vertex, map[string]bool) {
 	arns := make([]string, 0, len(visited))
 	for a := range visited {
 		arns = append(arns, a)
@@ -927,16 +1157,87 @@ func (b *InMemoryBackend) QueryLineage(
 
 	sort.Strings(arns)
 
+	kept := map[string]bool{}
+	vertices := make([]Vertex, 0, len(arns))
+
 	for _, a := range arns {
-		_, entityType, lineageType, _ := b.lineageEntityLookup(region, a)
-		vertices = append(vertices, Vertex{Arn: a, Type: entityType, LineageType: lineageType})
+		detail, ok := b.lineageEntityDetailLookup(region, a)
+		if !queryLineageVertexMatches(detail, ok, filters) {
+			continue
+		}
+
+		kept[a] = true
+		vertices = append(vertices, Vertex{Arn: a, Type: detail.EntityType, LineageType: detail.LineageType})
 	}
 
-	if !includeEdges {
-		edges = nil
+	return vertices, kept
+}
+
+// queryLineageVertexMatches reports whether a vertex (detail/ok from
+// lineageEntityDetailLookup) satisfies filters. A nil filters matches
+// everything.
+func queryLineageVertexMatches(detail lineageEntityDetail, ok bool, filters *QueryLineageFilters) bool {
+	if filters == nil {
+		return true
 	}
 
-	return vertices, edges, nil
+	if filters.needsEntityDetail() && !ok {
+		return false
+	}
+
+	if len(filters.LineageTypes) > 0 && !slices.Contains(filters.LineageTypes, detail.LineageType) {
+		return false
+	}
+
+	if !filters.matchesTimeWindows(detail) {
+		return false
+	}
+
+	return len(filters.Properties) == 0 || propertiesMatchAny(detail.Properties, filters.Properties)
+}
+
+// needsEntityDetail reports whether any of f's filters require the vertex to
+// resolve to a tracked Action/Artifact/Context (as opposed to LineageTypes,
+// which every vertex — resolved or not — has an answer for).
+func (f *QueryLineageFilters) needsEntityDetail() bool {
+	return f.CreatedAfter != nil || f.CreatedBefore != nil ||
+		f.ModifiedAfter != nil || f.ModifiedBefore != nil || len(f.Properties) > 0
+}
+
+// matchesTimeWindows reports whether detail falls within every CreatedAfter/
+// CreatedBefore/ModifiedAfter/ModifiedBefore window f specifies.
+func (f *QueryLineageFilters) matchesTimeWindows(detail lineageEntityDetail) bool {
+	if f.CreatedAfter != nil && !detail.CreationTime.After(*f.CreatedAfter) {
+		return false
+	}
+
+	if f.CreatedBefore != nil && !detail.CreationTime.Before(*f.CreatedBefore) {
+		return false
+	}
+
+	if f.ModifiedAfter != nil && !detail.LastModifiedTime.After(*f.ModifiedAfter) {
+		return false
+	}
+
+	if f.ModifiedBefore != nil && !detail.LastModifiedTime.Before(*f.ModifiedBefore) {
+		return false
+	}
+
+	return true
+}
+
+// propertiesMatchAny reports whether entity contains at least one key/value
+// pair present in want — QueryFilters.Properties' real semantics ("If
+// multiple pairs are provided, an entity is included in the results if it
+// matches any of the provided pairs" — types/types.go:19098-19101).
+func propertiesMatchAny(entity, want map[string]string) bool {
+	for k, v := range want {
+		if ev, ok := entity[k]; ok && ev == v {
+			return true
+		}
+	}
+
+	return false
 }
 
 // buildLineageAdjacency builds forward (source->[]edge) and backward
@@ -1000,6 +1301,7 @@ func (b *InMemoryBackend) CreateAction(
 	source ActionSource,
 	properties map[string]string,
 	tags map[string]string,
+	metadataProperties *MetadataProperties,
 ) (*Action, error) {
 	b.mu.Lock("CreateAction")
 	defer b.mu.Unlock()
@@ -1019,16 +1321,17 @@ func (b *InMemoryBackend) CreateAction(
 	now := time.Now()
 
 	a := &Action{
-		ActionName:       name,
-		ActionArn:        actionARN,
-		ActionType:       actionType,
-		Description:      description,
-		Status:           status,
-		Source:           source,
-		Properties:       maps.Clone(properties),
-		Tags:             mergeTags(nil, tags),
-		CreationTime:     now,
-		LastModifiedTime: now,
+		ActionName:         name,
+		ActionArn:          actionARN,
+		ActionType:         actionType,
+		Description:        description,
+		Status:             status,
+		Source:             source,
+		Properties:         maps.Clone(properties),
+		Tags:               mergeTags(nil, tags),
+		MetadataProperties: metadataProperties,
+		CreationTime:       now,
+		LastModifiedTime:   now,
 	}
 	actionsStore.Put(a)
 	b.actionARNIndexStore(region)[actionARN] = name

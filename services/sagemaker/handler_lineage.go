@@ -105,6 +105,42 @@ type artifactSourceObject struct {
 	SourceTypes []artifactSourceTypeObject `json:"SourceTypes"`
 }
 
+// metadataPropertiesObject is the wire shape of MetadataProperties
+// (aws-sdk-go-v2/service/sagemaker types/types.go:13617), shared by
+// CreateAction/CreateArtifact.
+type metadataPropertiesObject struct {
+	CommitID    string `json:"CommitId,omitempty"`
+	GeneratedBy string `json:"GeneratedBy,omitempty"`
+	ProjectID   string `json:"ProjectId,omitempty"`
+	Repository  string `json:"Repository,omitempty"`
+}
+
+func fromMetadataProperties(mp *metadataPropertiesObject) *MetadataProperties {
+	if mp == nil || *mp == (metadataPropertiesObject{}) {
+		return nil
+	}
+
+	return &MetadataProperties{
+		CommitID:    mp.CommitID,
+		GeneratedBy: mp.GeneratedBy,
+		ProjectID:   mp.ProjectID,
+		Repository:  mp.Repository,
+	}
+}
+
+func toMetadataProperties(mp *MetadataProperties) *metadataPropertiesObject {
+	if mp == nil {
+		return nil
+	}
+
+	return &metadataPropertiesObject{
+		CommitID:    mp.CommitID,
+		GeneratedBy: mp.GeneratedBy,
+		ProjectID:   mp.ProjectID,
+		Repository:  mp.Repository,
+	}
+}
+
 func toArtifactSource(src ArtifactSource) artifactSourceObject {
 	types := make([]artifactSourceTypeObject, 0, len(src.SourceTypes))
 	for _, st := range src.SourceTypes {
@@ -123,14 +159,20 @@ func fromArtifactSource(src artifactSourceObject) ArtifactSource {
 	return ArtifactSource{SourceURI: src.SourceURI, SourceTypes: types}
 }
 
+// createArtifactInput is the CreateArtifact request shape (named, not inline,
+// so wire-field-audit tooling that only inspects named types can see it —
+// see gopherstack-oc9v).
+type createArtifactInput struct {
+	ArtifactName       string                    `json:"ArtifactName"`
+	ArtifactType       string                    `json:"ArtifactType"`
+	Source             artifactSourceObject      `json:"Source"`
+	MetadataProperties *metadataPropertiesObject `json:"MetadataProperties"`
+	Properties         map[string]string         `json:"Properties"`
+	Tags               []tagObject               `json:"Tags"`
+}
+
 func (h *Handler) handleCreateArtifact(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		ArtifactName string               `json:"ArtifactName"`
-		ArtifactType string               `json:"ArtifactType"`
-		Source       artifactSourceObject `json:"Source"`
-		Properties   map[string]string    `json:"Properties"`
-		Tags         []tagObject          `json:"Tags"`
-	}
+	var req createArtifactInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -151,6 +193,7 @@ func (h *Handler) handleCreateArtifact(ctx context.Context, body []byte) ([]byte
 		fromArtifactSource(req.Source),
 		req.Properties,
 		fromTagObjects(req.Tags),
+		fromMetadataProperties(req.MetadataProperties),
 	)
 	if err != nil {
 		return nil, err
@@ -161,10 +204,14 @@ func (h *Handler) handleCreateArtifact(ctx context.Context, body []byte) ([]byte
 	return json.Marshal(map[string]string{keyArtifactArn: ar.ArtifactArn})
 }
 
+// describeArtifactInput is the DescribeArtifact request shape (named, not
+// inline — see gopherstack-oc9v).
+type describeArtifactInput struct {
+	ArtifactArn string `json:"ArtifactArn"`
+}
+
 func (h *Handler) handleDescribeArtifact(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		ArtifactArn string `json:"ArtifactArn"`
-	}
+	var req describeArtifactInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -194,16 +241,24 @@ func (h *Handler) handleDescribeArtifact(ctx context.Context, body []byte) ([]by
 		resp["Properties"] = ar.Properties
 	}
 
+	if ar.MetadataProperties != nil {
+		resp["MetadataProperties"] = toMetadataProperties(ar.MetadataProperties)
+	}
+
 	return json.Marshal(resp)
 }
 
+// updateArtifactInput is the UpdateArtifact request shape (named, not
+// inline — see gopherstack-oc9v).
+type updateArtifactInput struct {
+	ArtifactArn        string            `json:"ArtifactArn"`
+	ArtifactName       string            `json:"ArtifactName"`
+	Properties         map[string]string `json:"Properties"`
+	PropertiesToRemove []string          `json:"PropertiesToRemove"`
+}
+
 func (h *Handler) handleUpdateArtifact(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		ArtifactArn        string            `json:"ArtifactArn"`
-		ArtifactName       string            `json:"ArtifactName"`
-		Properties         map[string]string `json:"Properties"`
-		PropertiesToRemove []string          `json:"PropertiesToRemove"`
-	}
+	var req updateArtifactInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -223,25 +278,34 @@ func (h *Handler) handleUpdateArtifact(ctx context.Context, body []byte) ([]byte
 	return json.Marshal(map[string]string{keyArtifactArn: ar.ArtifactArn})
 }
 
+// deleteArtifactInput is the DeleteArtifact request shape (named, not
+// inline — see gopherstack-oc9v). Source is the real alternative identity to
+// ArtifactArn (api_op_DeleteArtifact.go:28-37: "Either ArtifactArn or Source
+// must be specified"); previously absent from this wire struct entirely.
+type deleteArtifactInput struct {
+	ArtifactArn string               `json:"ArtifactArn"`
+	Source      artifactSourceObject `json:"Source"`
+}
+
 func (h *Handler) handleDeleteArtifact(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		ArtifactArn string `json:"ArtifactArn"`
-	}
+	var req deleteArtifactInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	if req.ArtifactArn == "" {
-		return nil, fmt.Errorf("%w: ArtifactArn is required", errInvalidRequest)
+	if req.ArtifactArn == "" && req.Source.SourceURI == "" {
+		return nil, fmt.Errorf("%w: either ArtifactArn or Source is required", errInvalidRequest)
 	}
 
-	ar, err := h.Backend.DeleteArtifact(ctx, req.ArtifactArn)
+	source := fromArtifactSource(req.Source)
+
+	ar, err := h.Backend.DeleteArtifact(ctx, req.ArtifactArn, &source)
 	if err != nil {
 		return nil, err
 	}
 
-	logger.Load(ctx).InfoContext(ctx, "sagemaker: deleted artifact", "arn", req.ArtifactArn)
+	logger.Load(ctx).InfoContext(ctx, "sagemaker: deleted artifact", "arn", ar.ArtifactArn)
 
 	return json.Marshal(map[string]string{keyArtifactArn: ar.ArtifactArn})
 }
@@ -271,18 +335,36 @@ func marshalSummaryPage[T, S any](key, nextToken string, items []*T, conv func(*
 	return json.Marshal(resp)
 }
 
+// listArtifactsInput is the ListArtifacts request shape (named, not inline —
+// see gopherstack-oc9v).
+type listArtifactsInput struct {
+	CreatedAfter  *float64 `json:"CreatedAfter"`
+	CreatedBefore *float64 `json:"CreatedBefore"`
+	ArtifactType  string   `json:"ArtifactType"`
+	SourceURI     string   `json:"SourceUri"`
+	NextToken     string   `json:"NextToken"`
+	SortBy        string   `json:"SortBy"`
+	SortOrder     string   `json:"SortOrder"`
+	MaxResults    int32    `json:"MaxResults"`
+}
+
 func (h *Handler) handleListArtifacts(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		ArtifactType string `json:"ArtifactType"`
-		SourceURI    string `json:"SourceUri"`
-		NextToken    string `json:"NextToken"`
-	}
+	var req listArtifactsInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	artifacts, nextToken := h.Backend.ListArtifacts(ctx, req.ArtifactType, req.SourceURI, req.NextToken)
+	artifacts, nextToken := h.Backend.ListArtifacts(ctx, ListArtifactsParams{
+		ArtifactType:  req.ArtifactType,
+		SourceURI:     req.SourceURI,
+		NextToken:     req.NextToken,
+		SortBy:        req.SortBy,
+		SortOrder:     req.SortOrder,
+		MaxResults:    req.MaxResults,
+		CreatedAfter:  timeFromEpochSecondsPtr(req.CreatedAfter),
+		CreatedBefore: timeFromEpochSecondsPtr(req.CreatedBefore),
+	})
 
 	return marshalSummaryPage("ArtifactSummaries", nextToken, artifacts, artifactToSummary)
 }
@@ -316,15 +398,19 @@ func fromContextSource(src contextSourceObject) ContextSource {
 	return ContextSource(src)
 }
 
+// createContextInput is the CreateContext request shape (named, not inline —
+// see gopherstack-oc9v).
+type createContextInput struct {
+	ContextName string              `json:"ContextName"`
+	ContextType string              `json:"ContextType"`
+	Description string              `json:"Description"`
+	Source      contextSourceObject `json:"Source"`
+	Properties  map[string]string   `json:"Properties"`
+	Tags        []tagObject         `json:"Tags"`
+}
+
 func (h *Handler) handleCreateContext(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		ContextName string              `json:"ContextName"`
-		ContextType string              `json:"ContextType"`
-		Description string              `json:"Description"`
-		Source      contextSourceObject `json:"Source"`
-		Properties  map[string]string   `json:"Properties"`
-		Tags        []tagObject         `json:"Tags"`
-	}
+	var req createContextInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -360,10 +446,14 @@ func (h *Handler) handleCreateContext(ctx context.Context, body []byte) ([]byte,
 	return json.Marshal(map[string]string{keyContextArn: c.ContextArn})
 }
 
+// describeContextInput is the DescribeContext request shape (named, not
+// inline — see gopherstack-oc9v).
+type describeContextInput struct {
+	ContextName string `json:"ContextName"`
+}
+
 func (h *Handler) handleDescribeContext(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		ContextName string `json:"ContextName"`
-	}
+	var req describeContextInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -397,13 +487,17 @@ func (h *Handler) handleDescribeContext(ctx context.Context, body []byte) ([]byt
 	return json.Marshal(resp)
 }
 
+// updateContextInput is the UpdateContext request shape (named, not
+// inline — see gopherstack-oc9v).
+type updateContextInput struct {
+	ContextName        string            `json:"ContextName"`
+	Description        string            `json:"Description"`
+	Properties         map[string]string `json:"Properties"`
+	PropertiesToRemove []string          `json:"PropertiesToRemove"`
+}
+
 func (h *Handler) handleUpdateContext(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		ContextName        string            `json:"ContextName"`
-		Description        string            `json:"Description"`
-		Properties         map[string]string `json:"Properties"`
-		PropertiesToRemove []string          `json:"PropertiesToRemove"`
-	}
+	var req updateContextInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -423,10 +517,14 @@ func (h *Handler) handleUpdateContext(ctx context.Context, body []byte) ([]byte,
 	return json.Marshal(map[string]string{keyContextArn: c.ContextArn})
 }
 
+// deleteContextInput is the DeleteContext request shape (named, not
+// inline — see gopherstack-oc9v).
+type deleteContextInput struct {
+	ContextName string `json:"ContextName"`
+}
+
 func (h *Handler) handleDeleteContext(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		ContextName string `json:"ContextName"`
-	}
+	var req deleteContextInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -455,18 +553,36 @@ type contextSummary struct {
 	LastModifiedTime float64             `json:"LastModifiedTime"`
 }
 
+// listContextsInput is the ListContexts request shape (named, not inline —
+// see gopherstack-oc9v).
+type listContextsInput struct {
+	CreatedAfter  *float64 `json:"CreatedAfter"`
+	CreatedBefore *float64 `json:"CreatedBefore"`
+	ContextType   string   `json:"ContextType"`
+	SourceURI     string   `json:"SourceUri"`
+	NextToken     string   `json:"NextToken"`
+	SortBy        string   `json:"SortBy"`
+	SortOrder     string   `json:"SortOrder"`
+	MaxResults    int32    `json:"MaxResults"`
+}
+
 func (h *Handler) handleListContexts(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		ContextType string `json:"ContextType"`
-		SourceURI   string `json:"SourceUri"`
-		NextToken   string `json:"NextToken"`
-	}
+	var req listContextsInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	contexts, nextToken := h.Backend.ListContexts(ctx, req.ContextType, req.SourceURI, req.NextToken)
+	contexts, nextToken := h.Backend.ListContexts(ctx, ListContextsParams{
+		ContextType:   req.ContextType,
+		SourceURI:     req.SourceURI,
+		NextToken:     req.NextToken,
+		SortBy:        req.SortBy,
+		SortOrder:     req.SortOrder,
+		MaxResults:    req.MaxResults,
+		CreatedAfter:  timeFromEpochSecondsPtr(req.CreatedAfter),
+		CreatedBefore: timeFromEpochSecondsPtr(req.CreatedBefore),
+	})
 
 	return marshalSummaryPage("ContextSummaries", nextToken, contexts, contextToSummary)
 }
@@ -486,10 +602,14 @@ func contextToSummary(c *Context) contextSummary {
 // Action handlers (Describe/Update/Delete/List; Create lives in handler.go)
 // ---------------------------------------------------------------------------
 
+// describeActionInput is the DescribeAction request shape (named, not
+// inline — see gopherstack-oc9v).
+type describeActionInput struct {
+	ActionName string `json:"ActionName"`
+}
+
 func (h *Handler) handleDescribeAction(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		ActionName string `json:"ActionName"`
-	}
+	var req describeActionInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -527,17 +647,25 @@ func (h *Handler) handleDescribeAction(ctx context.Context, body []byte) ([]byte
 		resp["Properties"] = a.Properties
 	}
 
+	if a.MetadataProperties != nil {
+		resp["MetadataProperties"] = toMetadataProperties(a.MetadataProperties)
+	}
+
 	return json.Marshal(resp)
 }
 
+// updateActionInput is the UpdateAction request shape (named, not
+// inline — see gopherstack-oc9v).
+type updateActionInput struct {
+	ActionName         string            `json:"ActionName"`
+	Description        string            `json:"Description"`
+	Status             string            `json:"Status"`
+	Properties         map[string]string `json:"Properties"`
+	PropertiesToRemove []string          `json:"PropertiesToRemove"`
+}
+
 func (h *Handler) handleUpdateAction(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		ActionName         string            `json:"ActionName"`
-		Description        string            `json:"Description"`
-		Status             string            `json:"Status"`
-		Properties         map[string]string `json:"Properties"`
-		PropertiesToRemove []string          `json:"PropertiesToRemove"`
-	}
+	var req updateActionInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -559,10 +687,14 @@ func (h *Handler) handleUpdateAction(ctx context.Context, body []byte) ([]byte, 
 	return json.Marshal(map[string]string{keyActionArn: a.ActionArn})
 }
 
+// deleteActionInput is the DeleteAction request shape (named, not
+// inline — see gopherstack-oc9v).
+type deleteActionInput struct {
+	ActionName string `json:"ActionName"`
+}
+
 func (h *Handler) handleDeleteAction(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		ActionName string `json:"ActionName"`
-	}
+	var req deleteActionInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -591,18 +723,36 @@ type actionSummary struct {
 	LastModifiedTime float64 `json:"LastModifiedTime"`
 }
 
+// listActionsInput is the ListActions request shape (named, not inline —
+// see gopherstack-oc9v).
+type listActionsInput struct {
+	CreatedAfter  *float64 `json:"CreatedAfter"`
+	CreatedBefore *float64 `json:"CreatedBefore"`
+	ActionType    string   `json:"ActionType"`
+	SourceURI     string   `json:"SourceUri"`
+	NextToken     string   `json:"NextToken"`
+	SortBy        string   `json:"SortBy"`
+	SortOrder     string   `json:"SortOrder"`
+	MaxResults    int32    `json:"MaxResults"`
+}
+
 func (h *Handler) handleListActions(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		ActionType string `json:"ActionType"`
-		SourceURI  string `json:"SourceUri"`
-		NextToken  string `json:"NextToken"`
-	}
+	var req listActionsInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	actions, nextToken := h.Backend.ListActions(ctx, req.ActionType, req.SourceURI, req.NextToken)
+	actions, nextToken := h.Backend.ListActions(ctx, ListActionsParams{
+		ActionType:    req.ActionType,
+		SourceURI:     req.SourceURI,
+		NextToken:     req.NextToken,
+		SortBy:        req.SortBy,
+		SortOrder:     req.SortOrder,
+		MaxResults:    req.MaxResults,
+		CreatedAfter:  timeFromEpochSecondsPtr(req.CreatedAfter),
+		CreatedBefore: timeFromEpochSecondsPtr(req.CreatedBefore),
+	})
 
 	return marshalSummaryPage("ActionSummaries", nextToken, actions, actionToSummary)
 }
@@ -622,11 +772,15 @@ func actionToSummary(a *Action) actionSummary {
 // Association handlers (Delete/List; AddAssociation lives in handler.go)
 // ---------------------------------------------------------------------------
 
+// deleteAssociationInput is the DeleteAssociation request shape (named, not
+// inline — see gopherstack-oc9v).
+type deleteAssociationInput struct {
+	SourceArn      string `json:"SourceArn"`
+	DestinationArn string `json:"DestinationArn"`
+}
+
 func (h *Handler) handleDeleteAssociation(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		SourceArn      string `json:"SourceArn"`
-		DestinationArn string `json:"DestinationArn"`
-	}
+	var req deleteAssociationInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -720,10 +874,14 @@ func (h *Handler) handleListAssociations(ctx context.Context, body []byte) ([]by
 // LineageGroup handlers
 // ---------------------------------------------------------------------------
 
+// describeLineageGroupInput is the DescribeLineageGroup request shape
+// (named, not inline — see gopherstack-oc9v).
+type describeLineageGroupInput struct {
+	LineageGroupName string `json:"LineageGroupName"`
+}
+
 func (h *Handler) handleDescribeLineageGroup(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		LineageGroupName string `json:"LineageGroupName"`
-	}
+	var req describeLineageGroupInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -746,33 +904,59 @@ func (h *Handler) handleDescribeLineageGroup(ctx context.Context, body []byte) (
 	})
 }
 
+// listLineageGroupsInput is the ListLineageGroups request shape (named, not
+// inline — see gopherstack-oc9v).
+type listLineageGroupsInput struct {
+	CreatedAfter  *float64 `json:"CreatedAfter"`
+	CreatedBefore *float64 `json:"CreatedBefore"`
+	NextToken     string   `json:"NextToken"`
+	SortBy        string   `json:"SortBy"`
+	SortOrder     string   `json:"SortOrder"`
+	MaxResults    int32    `json:"MaxResults"`
+}
+
 func (h *Handler) handleListLineageGroups(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		NextToken string `json:"NextToken"`
-	}
+	var req listLineageGroupsInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	lineageGroupARN, createdAt := h.Backend.ListLineageGroups(ctx)
+	groups, nextToken := h.Backend.ListLineageGroups(ctx, ListLineageGroupsParams{
+		NextToken:     req.NextToken,
+		SortBy:        req.SortBy,
+		SortOrder:     req.SortOrder,
+		MaxResults:    req.MaxResults,
+		CreatedAfter:  timeFromEpochSecondsPtr(req.CreatedAfter),
+		CreatedBefore: timeFromEpochSecondsPtr(req.CreatedBefore),
+	})
 
-	summaries := []map[string]any{
-		{
-			keyLineageGroupArn:  lineageGroupARN,
+	summaries := make([]map[string]any, 0, len(groups))
+	for _, g := range groups {
+		summaries = append(summaries, map[string]any{
+			keyLineageGroupArn:  g.LineageGroupArn,
 			"LineageGroupName":  defaultLineageGroupName,
-			keyCreationTime:     epochSeconds(createdAt),
-			keyLastModifiedTime: epochSeconds(createdAt),
-		},
+			keyCreationTime:     epochSeconds(g.CreationTime),
+			keyLastModifiedTime: epochSeconds(g.CreationTime),
+		})
 	}
 
-	return json.Marshal(map[string]any{"LineageGroupSummaries": summaries})
+	resp := map[string]any{"LineageGroupSummaries": summaries}
+	if nextToken != "" {
+		resp["NextToken"] = nextToken
+	}
+
+	return json.Marshal(resp)
+}
+
+// getLineageGroupPolicyInput is the GetLineageGroupPolicy request shape
+// (named, not inline — see gopherstack-oc9v).
+type getLineageGroupPolicyInput struct {
+	LineageGroupName string `json:"LineageGroupName"`
 }
 
 func (h *Handler) handleGetLineageGroupPolicy(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		LineageGroupName string `json:"LineageGroupName"`
-	}
+	var req getLineageGroupPolicyInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -794,13 +978,34 @@ func (h *Handler) handleGetLineageGroupPolicy(ctx context.Context, body []byte) 
 // QueryLineage handler
 // ---------------------------------------------------------------------------
 
+// queryFiltersObject is the wire shape of QueryFilters (aws-sdk-go-v2/service/sagemaker
+// types/types.go:19078). Types (entity-type filter for non-lineage-tracked
+// vertices such as TrainingJob/Model/Endpoint ARNs) is parsed but NOT
+// enforced — see handleQueryLineage's Filters.Types disclosure below.
+type queryFiltersObject struct {
+	CreatedAfter   *float64          `json:"CreatedAfter"`
+	CreatedBefore  *float64          `json:"CreatedBefore"`
+	ModifiedAfter  *float64          `json:"ModifiedAfter"`
+	ModifiedBefore *float64          `json:"ModifiedBefore"`
+	LineageTypes   []string          `json:"LineageTypes"`
+	Properties     map[string]string `json:"Properties"`
+	Types          []string          `json:"Types"`
+}
+
+// queryLineageInput is the QueryLineage request shape (named, not inline —
+// see gopherstack-oc9v).
+type queryLineageInput struct {
+	MaxDepth     *int32              `json:"MaxDepth"`
+	MaxResults   *int32              `json:"MaxResults"`
+	IncludeEdges *bool               `json:"IncludeEdges"`
+	Filters      *queryFiltersObject `json:"Filters"`
+	Direction    string              `json:"Direction"`
+	NextToken    string              `json:"NextToken"`
+	StartArns    []string            `json:"StartArns"`
+}
+
 func (h *Handler) handleQueryLineage(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		MaxDepth     *int32   `json:"MaxDepth"`
-		IncludeEdges *bool    `json:"IncludeEdges"`
-		Direction    string   `json:"Direction"`
-		StartArns    []string `json:"StartArns"`
-	}
+	var req queryLineageInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -820,7 +1025,20 @@ func (h *Handler) handleQueryLineage(ctx context.Context, body []byte) ([]byte, 
 		includeEdges = *req.IncludeEdges
 	}
 
-	vertices, edges, err := h.Backend.QueryLineage(ctx, req.StartArns, req.Direction, maxDepth, includeEdges)
+	var maxResults int32
+	if req.MaxResults != nil {
+		maxResults = *req.MaxResults
+	}
+
+	vertices, edges, nextToken, err := h.Backend.QueryLineage(ctx, QueryLineageParams{
+		StartArns:    req.StartArns,
+		Direction:    req.Direction,
+		MaxDepth:     maxDepth,
+		IncludeEdges: includeEdges,
+		Filters:      fromQueryFilters(req.Filters),
+		MaxResults:   maxResults,
+		NextToken:    req.NextToken,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -833,7 +1051,28 @@ func (h *Handler) handleQueryLineage(ctx context.Context, body []byte) ([]byte, 
 		edges = []Edge{}
 	}
 
-	return json.Marshal(map[string]any{"Vertices": vertices, "Edges": edges})
+	resp := map[string]any{"Vertices": vertices, "Edges": edges}
+	if nextToken != "" {
+		resp["NextToken"] = nextToken
+	}
+
+	return json.Marshal(resp)
+}
+
+// fromQueryFilters converts the wire Filters object to backend QueryLineageFilters.
+func fromQueryFilters(f *queryFiltersObject) *QueryLineageFilters {
+	if f == nil {
+		return nil
+	}
+
+	return &QueryLineageFilters{
+		CreatedAfter:   timeFromEpochSecondsPtr(f.CreatedAfter),
+		CreatedBefore:  timeFromEpochSecondsPtr(f.CreatedBefore),
+		ModifiedAfter:  timeFromEpochSecondsPtr(f.ModifiedAfter),
+		ModifiedBefore: timeFromEpochSecondsPtr(f.ModifiedBefore),
+		LineageTypes:   f.LineageTypes,
+		Properties:     f.Properties,
+	}
 }
 
 // addAssociationRequest is the request body for AddAssociation.
@@ -874,7 +1113,12 @@ func (h *Handler) handleAddAssociation(ctx context.Context, body []byte) ([]byte
 	log := logger.Load(ctx)
 	log.InfoContext(ctx, "sagemaker: added association", "arn", assoc.AssociationArn)
 
-	return json.Marshal(map[string]string{"AssociationArn": assoc.AssociationArn})
+	// AddAssociationOutput has no AssociationArn member at all -- it echoes
+	// back SourceArn and DestinationArn (api_op_AddAssociation.go).
+	return json.Marshal(map[string]string{
+		"SourceArn":      req.SourceArn,
+		"DestinationArn": req.DestinationArn,
+	})
 }
 
 // associateTrialComponentRequest is the request body for AssociateTrialComponent.
@@ -918,15 +1162,20 @@ type actionSourceRequest struct {
 	SourceType string `json:"SourceType,omitempty"`
 }
 
-// createActionRequest is the request body for CreateAction.
+// createActionRequest is the request body for CreateAction. MetadataProperties
+// was absent here too — the same gap parity-5 disclosed for CreateArtifact
+// (both CreateActionInput/CreateArtifactInput carry it,
+// aws-sdk-go-v2/service/sagemaker types/types.go:13617) — fixed alongside
+// CreateArtifact's since it's the same root cause.
 type createActionRequest struct {
-	Properties  map[string]string   `json:"Properties"`
-	Source      actionSourceRequest `json:"Source"`
-	ActionName  string              `json:"ActionName"`
-	ActionType  string              `json:"ActionType"`
-	Description string              `json:"Description,omitempty"`
-	Status      string              `json:"Status,omitempty"`
-	Tags        []tagObject         `json:"Tags"`
+	Properties         map[string]string         `json:"Properties"`
+	Source             actionSourceRequest       `json:"Source"`
+	MetadataProperties *metadataPropertiesObject `json:"MetadataProperties"`
+	ActionName         string                    `json:"ActionName"`
+	ActionType         string                    `json:"ActionType"`
+	Description        string                    `json:"Description,omitempty"`
+	Status             string                    `json:"Status,omitempty"`
+	Tags               []tagObject               `json:"Tags"`
 }
 
 func (h *Handler) handleCreateAction(ctx context.Context, body []byte) ([]byte, error) {
@@ -954,6 +1203,7 @@ func (h *Handler) handleCreateAction(ctx context.Context, body []byte) ([]byte, 
 		source,
 		req.Properties,
 		tags,
+		fromMetadataProperties(req.MetadataProperties),
 	)
 	if err != nil {
 		return nil, err

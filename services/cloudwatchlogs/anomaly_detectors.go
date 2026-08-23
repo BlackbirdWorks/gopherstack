@@ -319,7 +319,7 @@ func validSuppressionTypes() map[string]bool {
 	return map[string]bool{"LIMITED": true, "INFINITE": true}
 }
 
-// UpdateAnomaly updates the suppression state of a stored anomaly.
+// applyAnomalySuppression mutates a in place per UpdateAnomaly's semantics:
 // suppressionType == "" ends any current suppression (real AWS semantics,
 // see validSuppressionTypes); a non-empty value must be LIMITED or INFINITE
 // and suppresses the anomaly. A previous revision treated the empty string
@@ -328,15 +328,41 @@ func validSuppressionTypes() map[string]bool {
 // that has no wire representation at all), so a real client ending a
 // suppression by omitting suppressionType was incorrectly marked as newly
 // suppressed instead.
+func applyAnomalySuppression(a *Anomaly, suppressionType string) {
+	if suppressionType == "" {
+		a.State = AnomalyStateActive
+		suppressed := false
+		a.Suppressed = &suppressed
+		a.SuppressedDate = 0
+		a.SuppressedUntil = 0
+
+		return
+	}
+
+	a.State = AnomalyStateSuppressed
+	suppressed := true
+	a.Suppressed = &suppressed
+	a.SuppressedDate = time.Now().UnixMilli()
+}
+
+// UpdateAnomaly updates the suppression state of a stored anomaly or, when
+// patternID is given instead of anomalyID, every stored anomaly sharing that
+// pattern -- UpdateAnomalyInput's own doc comment: "Use this operation to
+// suppress anomaly detection for a specified anomaly or pattern... You must
+// specify either anomalyId or patternId, but you can't specify both
+// parameters in the same operation." (api_op_UpdateAnomaly.go:12-19).
 func (b *InMemoryBackend) UpdateAnomaly(
-	anomalyID, anomalyDetectorArn, suppressionType string,
+	anomalyID, anomalyDetectorArn, suppressionType, patternID string,
 ) error {
 	if anomalyDetectorArn == "" {
 		return fmt.Errorf("%w: anomalyDetectorArn is required", ErrValidation)
 	}
 
-	if anomalyID == "" {
-		return fmt.Errorf("%w: anomalyId is required", ErrValidation)
+	switch {
+	case anomalyID != "" && patternID != "":
+		return fmt.Errorf("%w: must specify either anomalyId or patternId, but not both", ErrValidation)
+	case anomalyID == "" && patternID == "":
+		return fmt.Errorf("%w: must specify either anomalyId or patternId", ErrValidation)
 	}
 
 	if suppressionType != "" && !validSuppressionTypes()[suppressionType] {
@@ -354,6 +380,29 @@ func (b *InMemoryBackend) UpdateAnomaly(
 		)
 	}
 
+	if patternID != "" {
+		var matched bool
+
+		for _, a := range b.anomalyByDetector.Get(anomalyDetectorArn) {
+			if a.PatternID == patternID {
+				applyAnomalySuppression(a, suppressionType)
+
+				matched = true
+			}
+		}
+
+		if !matched {
+			return fmt.Errorf(
+				"%w: pattern %s not found in detector %s",
+				ErrLogAnomalyDetectorNotFound,
+				patternID,
+				anomalyDetectorArn,
+			)
+		}
+
+		return nil
+	}
+
 	anomaly, ok := b.anomalies.Get(anomalyTableKey(anomalyDetectorArn, anomalyID))
 	if !ok {
 		return fmt.Errorf(
@@ -364,20 +413,7 @@ func (b *InMemoryBackend) UpdateAnomaly(
 		)
 	}
 
-	if suppressionType == "" {
-		anomaly.State = AnomalyStateActive
-		suppressed := false
-		anomaly.Suppressed = &suppressed
-		anomaly.SuppressedDate = 0
-		anomaly.SuppressedUntil = 0
-
-		return nil
-	}
-
-	anomaly.State = AnomalyStateSuppressed
-	suppressed := true
-	anomaly.Suppressed = &suppressed
-	anomaly.SuppressedDate = time.Now().UnixMilli()
+	applyAnomalySuppression(anomaly, suppressionType)
 
 	return nil
 }

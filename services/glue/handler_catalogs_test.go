@@ -38,9 +38,11 @@ func TestCatalog(t *testing.T) {
 	t.Parallel()
 	h := newGlueHandler(t)
 
-	// CreateCatalog
+	// CreateCatalog. The real CreateCatalogInput has no CatalogId member at
+	// all (api_op_CreateCatalog.go) -- a catalog is created and addressed
+	// purely by Name.
 	dispatchNewOp(t, h, "CreateCatalog", map[string]any{
-		"CatalogId": "my-catalog",
+		"Name": "my-catalog",
 		"CatalogInput": map[string]any{
 			"Description": "test catalog",
 		},
@@ -51,6 +53,9 @@ func TestCatalog(t *testing.T) {
 	catalog := out["Catalog"].(map[string]any)
 	if catalog["CatalogId"] != "my-catalog" {
 		t.Errorf("CatalogId mismatch: %v", catalog)
+	}
+	if catalog["Name"] != "my-catalog" {
+		t.Errorf("Name mismatch: %v", catalog)
 	}
 
 	// GetCatalogs

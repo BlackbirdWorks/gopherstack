@@ -25,9 +25,9 @@ ops:
   GetInsightResults: {wire: ok, errors: ok, state: ok, persist: ok, note: "ResultValues always empty (no real aggregation) -- acceptable mock behavior, not a stub since Insight itself is real"}
   UpdateInsight: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteInsight: {wire: ok, errors: ok, state: ok, persist: ok}
-  BatchEnableStandards: {wire: ok, errors: ok, state: ok, persist: ok}
-  BatchDisableStandards: {wire: ok, errors: ok, state: ok, persist: ok}
-  GetEnabledStandards: {wire: ok, errors: ok, state: ok, persist: ok}
+  BatchEnableStandards: {wire: ok, errors: ok, state: fixed, persist: ok, note: "gopherstack-muzq (2026-08-21): stamped StandardsStatus PENDING and nothing else in this backend ever advanced it -- EnableHub's own default-standards subscriptions are stamped the terminal READY directly at creation (no async work modeled for those either), which is exactly the sibling-resource contrast this bug class hides behind. Confirmed no async mechanism anywhere in the package (no ticker/goroutine/janitor/work.After/runDelayed/reconciler; grepped all non-test .go files). BatchDisableStandards's DELETING stamp is NOT this bug: it deletes the record synchronously and returns the transitional value on the removed copy, so a later GetEnabledStandards correctly omits it -- the ephemeral-response-literal shape, not a stall. Fixed via GetEnabledStandards, see below."}
+  BatchDisableStandards: {wire: ok, errors: ok, state: ok, persist: ok, note: "DELETING is an ephemeral response literal returned after a synchronous delete (record is removed from the table in the same call) -- a later GetEnabledStandards correctly no longer returns it. Not the gopherstack-muzq stall pattern; left as-is."}
+  GetEnabledStandards: {wire: ok, errors: ok, state: fixed, persist: ok, note: "gopherstack-muzq (2026-08-21): now advances any PENDING subscription to READY on first poll (new unexported StandardsSubscription.pollCount field), mirroring the reap-on-read pattern services/omics uses for Get*-advances-Creating resources -- no generated Get*Waiter ships for this op in this SDK version, but that only means a real caller must hand-roll its own poll loop, not that an unadvancing status is correct. TestBatchEnableStandardsPath (standards_test.go) previously asserted only the initial PENDING status and stopped; strengthened with a GetEnabledStandards follow-up asserting READY. New real-SDK-client proof: TestBatchEnableStandards_ReachesReady (wire_field_fixes_test.go). Hand-reverted standards.go+models.go to git show HEAD, confirmed both tests fail with StandardsStatus stuck at PENDING, restored, md5sum byte-identical."}
   DescribeStandards: {wire: ok, errors: ok, state: ok, persist: n/a, note: "static known-standards catalog, matches AWS ARNs/names"}
   DescribeStandardsControls: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateStandardsControl: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -120,8 +120,8 @@ ops:
   GetResourcesStatisticsV2: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED this pass (gopherstack-4ggy request side, gopherstack-jo2r sweep response side) -- request read a fabricated body[\"GroupByAttributes\"]; real required input member is GroupByRules ([]types.ResourceGroupByRule -- types.go:17851-17862). Response emitted \"ResourceStatistics\"; real required key is \"GroupByResults\" (types.go:15698-15707). Same GroupByField-echo/lookup-translation shape as GetFindingStatisticsV2, but no OCSF->internal field map exists for resources (GetResourcesV2 has never honored Filters either), so lookups use the client's field name verbatim against this backend's ASFF Resource keys."}
   GetResourcesTrendsV2: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED this pass (gopherstack-jo2r) -- handler emitted \"ResourcesTrends\" and dropped required Granularity/TrendsMetrics (securityhub@v1.75.4 api_op_GetResourcesTrendsV2.go:22-58). Also found by reading the full real input: GetResourcesTrendsV2Input has no GroupByAttribute member either, so that request-side read was removed. Now returns one ResourcesTrendsMetricsResult (Timestamp+TrendsValues.ResourcesCount.AllResources); Granularity uses the same time-span heuristic as GetFindingsTrendsV2."}
   DescribeProductsV2: {wire: fixed, errors: ok, state: ok, persist: n/a, note: "FIXED this pass (gopherstack-jo2r) -- handler emitted \"Products\"; the real required key is \"ProductsV2\" ([]types.ProductV2 -- api_op_DescribeProductsV2.go:36-51), so a real client decoded a nil slice regardless of catalog content. Also renamed the per-item fields ProductV2 actually has (ProductV2Name, IntegrationV2Types) and dropped ProductArn, which ProductV2 has no member for at all (types.go:17113-17141); MarketplaceProductId left absent, no backing field on the shared Product model."}
-  GenerateRecommendedPolicyV2: {wire: ok, errors: ok, state: ok, persist: ok}
-  GetRecommendedPolicyV2: {wire: ok, errors: ok, state: ok, persist: ok}
+  GenerateRecommendedPolicyV2: {wire: fixed, errors: ok, state: ok, persist: ok, note: "gopherstack-tp8x (2026-08-21): returned {MetadataUid,Policy,GenerationTime}, a fabricated shape. GenerateRecommendedPolicyV2Output (securityhub@v1.75.4 api_op_GenerateRecommendedPolicyV2.go) has NO members at all besides ResultMetadata -- it only starts async generation. Fixed to return {}. NOTE: the y1zn filing's claim that this op 'is not a real operation at all' and the POST route is 'unreachable by any real client' is wrong -- verified against awsRestjson1_serializeOpGenerateRecommendedPolicyV2 (serializers.go), which sends POST /recommendedPolicyV2/{MetadataUid}, exactly this handler's route. A prior 'confirmed' verdict is not evidence; re-verify against the serializer before trusting a rejection note. Locked by TestGenerateGetRecommendedPolicyV2_RealClient."}
+  GetRecommendedPolicyV2: {wire: fixed, errors: ok, state: ok, persist: ok, note: "gopherstack-tp8x (2026-08-21): returned {MetadataUid,Policy,GenerationTime}; real GetRecommendedPolicyV2Output is an async-retrieval-status shape (Status/RecommendationType/ResourceArn/RecommendationSteps/Error/NextToken, deserializers.go), not a returned policy document. RecommendationSteps is a union tagged \"UnusedPermissions\" (types.RecommendationStepMemberUnusedPermissions), each step carrying RecommendedAction/RecommendedPolicy/ExistingPolicy/ExistingPolicyId/PolicyUpdatedAt (types.UnusedPermissionsRecommendationStep). This backend generates synchronously so Status is always SUCCEEDED and Error/NextToken are never populated; ResourceArn is omitted (not tracked -- no Finding-to-metadataUid linkage exists in this backend, honest gap rather than a fabricated ARN). Locked by TestGenerateGetRecommendedPolicyV2_RealClient (real-client decode of the RecommendationStepMemberUnusedPermissions union member)."}
   # CSPM Connectors (parity-4, new in v1.75.0): third-party CLOUD PROVIDER
   # connectors (currently Azure only -- CspmProviderConfiguration is a
   # single-member union) that let Security Hub CSPM ingest findings/resource
@@ -472,3 +472,197 @@ service.
   require the hub to be enabled, and no existing test asserts either
   behavior, so flipping it risks breaking passing integrations without clear
   spec backing. Revisit if a concrete AWS error transcript surfaces.
+
+## gopherstack-y1zn (2026-08-21): unknown-key sweep, 3 fixed, 2 deferred
+
+Part of the gopherstack-us9u/g479 map-literal scanner's 526-key unknown-key
+bucket triage. Fixed items proven via real `aws-sdk-go-v2/service/securityhub`
+client round trips or raw-body assertion (`wire_field_fixes_y1zn_test.go`),
+hand-reverted, confirmed failing, restored, `md5sum`-verified byte-identical.
+
+- `ListAggregatorsV2`: {wire: fixed} -- wrapped the list under "Aggregators";
+  real member (deserializers.go's
+  awsRestjson1_deserializeOpDocumentListAggregatorsV2Output) is
+  "AggregatorsV2".
+- `DeclineInvitations`/`DeleteInvitations`: {wire: fixed} -- each emitted an
+  extra "ProcessedAccounts" key alongside the real "UnprocessedAccounts";
+  neither DeclineInvitationsOutput nor DeleteInvitationsOutput has a
+  ProcessedAccounts member -- success is implied by an account's absence from
+  UnprocessedAccounts, not a separate echo.
+- `GenerateRecommendedPolicyV2`/`GetRecommendedPolicyV2`: {wire: fixed, note:
+  "confirmed real bug, then deferred to gopherstack-tp8x, now fixed
+  (2026-08-21) -- see the ops entries above for the full fix. The deferral
+  note's claim that GenerateRecommendedPolicyV2 'is not a real operation at
+  all' was itself wrong (verified: it is real, POST
+  /recommendedPolicyV2/{MetadataUid}, matching this handler's existing
+  route exactly) -- a reminder that a prior pass's rejection reasoning needs
+  re-verification against the serializer, same as any other claim."}
+
+## gopherstack-wlo1 (2026-08-22): dispatch-miss error path was the one call site gopherstack-aitg left untyped
+
+gopherstack-aitg (2026-08-11, commit 695aa1c20) added a central error path
+(`typedErrorResponse`, handler.go) and audited every named call site against
+securityhub's real per-operation exception lists. `handleREST`'s own
+dispatch-miss fallback -- reached when `classifyPath` returns `opUnknown`,
+i.e. no `classify*Path` function recognises the request's method+path --
+was not one of the sites that pass touched, and unlike every genuinely
+ambiguous `ErrHubNotEnabled` site in this file (each carries a comment
+explaining why it's deliberately left unheadered), this one had no such
+note. It wrote `{"Message": "unknown operation"}` with no
+`X-Amzn-Errortype` header and no body `code`/`__type` field, so
+`restjson.GetErrorInfo` (aws-sdk-go-v2's
+`aws/protocol/restjson/decoder_util.go`) had nothing to read and the error
+deserialized client-side as `UnknownError` regardless of the underlying
+cause.
+
+Reachability: cross-checked every op constant this package wires into
+`opHandlerGroups()`'s dispatch tables (116 distinct `map[string]func()`
+entries) against every `api_op_*.go` file in the pinned
+`securityhub@v1.75.4` module (116 real operations) -- exact 1:1 match, zero
+missing. So this fallback is structurally unreachable for any
+legitimately-constructed SDK request; it can only be reached by rewriting
+the request after signing (proven below), the same white-box category as
+medialive/mediatailor's analogous fixes in ea67f34cf.
+
+Fixed: `handleREST` now calls `typedErrorResponse(c, http.StatusNotFound,
+"ResourceNotFoundException", "unknown operation")` -- the same helper (and
+the same code) `GetSecurityControlDefinition`'s unknown-control path
+already uses (handler_error_type_test.go's existing
+`TestGetSecurityControlDefinition_UnknownControlSurfacesResourceNotFoundException`),
+so no new exception vocabulary was introduced.
+
+Proof: `TestGetInsightResults_UnrecognisedRouteSurfacesResourceNotFoundException`
+(handler_error_type_test.go) drives a real `securityhubsdk.Client`'s
+`GetInsightResults` through a Finalize-stage middleware that rewrites the
+signed request's path from `/insights/results/{InsightArn+}` down to bare
+`/insights` -- still inside RouteMatcher's `/insights` prefix (so the
+request still reaches this package's Handler) but matching none of
+`classifyInsightsPath`'s method/path cases for a GET, landing in
+`handleREST`'s fallback. Hand-reverted `handler.go` to `git show HEAD` (the
+pre-fix state, still carrying the bare map literal), confirmed the test
+fails with `apiErr.ErrorCode() == "UnknownError"`, restored the fix,
+`md5sum`-confirmed byte-identical to the pre-revert file.
+
+Not a repeat of the `ErrHubNotEnabled` ambiguity: those sites are ambiguous
+*between two real, named exceptions* a specific operation models. This site
+doesn't know the operation at all (routing itself failed), so there is no
+per-operation vocabulary to disambiguate between -- a generic
+`ResourceNotFoundException` (already the modeled 404 shape used elsewhere
+in this file, e.g. `GetSecurityControlDefinition`) is the closest fit, not
+a guess among named alternatives.
+
+Confirmed still-deliberate and left untouched: every `ErrHubNotEnabled`
+bare-message site (handler_hub.go, handler_insights.go, handler_findings.go,
+handler_products.go, handler_action_targets.go) -- each carries its own
+comment citing the specific operation's real error list from
+`securityhub@v1.75.4 deserializers.go` and the reason no single exception
+can be chosen without guessing. Re-spot-checked `DisableSecurityHubV2`
+(deserializers.go:7744) directly: its real error list is
+`AccessDeniedException`/`InternalServerException`/`ThrottlingException`/
+`ValidationException` -- no `ResourceNotFoundException`, confirming the
+comment's claim -- and left as documented rather than "resolved by
+elimination", since the real "not enabled" AWS status for this call is not
+independently verified here.
+
+## Race-safety sweep (2026-08-22): shallow struct copies and live-pointer returns escaping the lock
+
+CI's `unit-tests (3)` job flagged `-race` failures in
+`TestExtractOperation_SDKRouteTable` on describesecurityhubv2 and the
+enable/disable-feature subtests. Root cause: `DescribeSecurityHubV2`
+(hub.go) did `cp := *b.hubV2` under `RLock` and returned `&cp` --
+`HubV2.Features` is `map[string]*HubV2Feature`, so the copy's `Features`
+field is the *same map* as the live `b.hubV2.Features`.
+`handleDescribeSecurityHubV2` (handler_hub.go) ranges over that map *after*
+`RUnlock` has already run, racing against `EnableSecurityHubFeatureV2`/
+`DisableSecurityHubFeatureV2`'s `b.hubV2.Features[name] = &HubV2Feature{...}`
+writes under `Lock`. `Hub` (v1) has no reference fields, so `DescribeHub`'s
+identical-looking `cp := *b.hub` is genuinely safe and was left alone.
+
+Reproduced directly (not just via the flaky parallel-subtest ordering CI
+hit): `TestSecurityHubV2FeatureDescribeRace` (hub_test.go) drives
+`DescribeSecurityHubV2` + `Enable/DisableSecurityHubFeatureV2` concurrently
+against one backend. Confirmed failing pre-fix (`runtime.mapassign_faststr`
+write vs. `runtime.mapIterStart`/`mapIterNext` read), hand-reverted `hub.go`
+to the shallow-copy version, re-confirmed the same failure, restored,
+`md5sum`-confirmed byte-identical. Fixed with `HubV2.clone()`, which
+deep-copies `Features` (new map, new `*HubV2Feature` per entry).
+
+Audited the rest of `services/securityhub/` for the same two shapes:
+
+1. **A struct with a map/slice field is shallow-copied (`cp := *x`) while
+   that field is mutated *in place* (indexed assignment) elsewhere under
+   lock**, or is aliased with a map that's mutated in place elsewhere
+   (`Tags` fields are assigned the exact same map object passed to
+   `b.tags[ARN] = tags` at creation time, and `TagResource`/`UntagResource`
+   mutate `b.tags[ARN]` in place via `maps.Copy`/`delete`).
+2. **A live, stored `*T` (or one of its map/slice fields) is returned
+   directly with no copy at all**, and that same object is later mutated in
+   place (by an `Update*`, or by the same `Get`-style op itself, e.g.
+   `GetEnabledStandards`'s poll-to-READY advance) under a subsequent lock
+   acquisition.
+
+Fixed (added a `.clone()` deep-copy method per type, used at every point the
+value crosses the lock boundary -- Create/Get/List/Batch/Update returns):
+
+- `ConfigurationPolicy` (configuration_policies.go): `Tags` aliases
+  `b.tags[Arn]`; `ConfigurationPolicy` map cloned too for consistency.
+  `CreateConfigurationPolicy` also returned the live stored pointer.
+- `CspmConnector` (connectors.go): `Tags` aliases `b.tags[ConnectorArn]`
+  (`Provider` cloned too). `CreateConnector` returned the live pointer.
+- `ConnectorV2` (connectors_v2.go): same `Tags`/`Provider` shape.
+  `CreateConnectorV2` returned the live pointer; so did `UpdateConnectorV2`
+  and `RegisterConnectorV2` before their `cp := *target` was replaced with
+  `.clone()`.
+- `AutomationRule`/`AutomationRuleV2` (automation_rules.go):
+  `BatchGetAutomationRules` returned live `*AutomationRule` pointers with no
+  copy at all -- `BatchUpdateAutomationRules` mutates `RuleName`/
+  `RuleStatus`/`Criteria`/`Actions`/etc. on that same object in place.
+  `CreateAutomationRuleV2` likewise returned the live pointer, later
+  mutated by `UpdateAutomationRuleV2`.
+- `StandardsSubscription` (standards.go): `BatchEnableStandards` and
+  `BatchDisableStandards` returned the live, stored pointer;
+  `GetEnabledStandards` returns the exact objects it just mutated in place
+  (`pollCount`, `StandardsStatus`) with no copy, and those same objects can
+  be mutated again later by `BatchDisableStandards`.
+- `StandardsControl` (standards.go): `DescribeStandardsControls`'s override
+  branch (`controls[i] = override`) assigned the live `*StandardsControl`
+  stored in `b.controlOverrides` directly; `UpdateStandardsControl` mutates
+  an existing override's fields in place.
+- `AggregatorV2`/`FindingAggregator`: `Regions []string` is only ever
+  wholesale-reassigned (never indexed into), so the existing shallow copies
+  on Get/List/Update were already safe -- but `CreateAggregatorV2`/
+  `CreateFindingAggregator` returned the live pointer, later mutated by
+  their respective `Update*`. Fixed by copying at the Create return only.
+- `Member` (members.go): `CreateMembers` appended the live pointer;
+  `InviteMembers`/`DisassociateMembers` mutate `MemberStatus`/`InvitedAt` on
+  that same object in place. `GetMembers`/`ListMembers` already copied
+  correctly.
+
+Confirmed safe, left unchanged, with reason:
+
+- `Hub` (hub.go), `Invitation`/`AdminAccount` (invitations.go), `OrgConfig`
+  (organizations.go), `ConfigurationPolicyAssociation`
+  (configuration_policies.go), `RecommendedPolicyV2`/`TicketV2`: all-scalar
+  structs, or (RecommendedPolicyV2/TicketV2) have no `Update*` that ever
+  mutates an existing instance after creation.
+- `knownStandards`/`knownSecurityControls`/`knownProducts`: package-level
+  read-only lookup tables, never mutated after `init`; every `cp :=
+  knownX[i]` copy is safe regardless of field shape.
+- `BatchGetSecurityControls`'s `Parameters` field (controls.go): hands out
+  `b.controlParams[id]`'s map directly with no copy, but the only writer
+  (`UpdateSecurityControl`) always replaces the whole map entry
+  (`b.controlParams[id] = parameters`), never indexes into an existing one --
+  a previously-handed-out map is never touched again.
+- `BatchGetStandardsControlAssociations`'s override branch (standards.go):
+  hands out the live `*StandardsControlAssociation` from
+  `b.controlAssocOverrides` directly, but the only writer
+  (`BatchUpdateStandardsControlAssociations`) always `Put`s a brand-new
+  struct rather than mutating an existing one in place.
+- `Snapshot` (store.go): marshals every live field (including `b.tags`,
+  `b.hubV2`, `b.controlParams`, ...) while still holding `RLock` for the
+  entire call -- unlike the handler-side bugs above, the read never escapes
+  the lock.
+
+Proof: `go test -race -count=20 ./services/securityhub/...` clean after all
+fixes; `TestSecurityHubV2FeatureDescribeRace` is the new permanent
+regression test for the flagged bug specifically.

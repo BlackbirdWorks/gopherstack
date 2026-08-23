@@ -15,6 +15,7 @@ type InMemoryBackend struct {
 	channelsByName   *store.Index[Channel]
 	dashboards       *store.Table[Dashboard]
 	queries          *store.Table[Query]
+	queriesByAlias   *store.Index[Query]
 	edsByName        *store.Index[EventDataStore]
 	eventDataStores  *store.Table[EventDataStore]
 	trails           *store.Table[Trail]

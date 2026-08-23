@@ -17,9 +17,9 @@ func (b *InMemoryBackend) PutEvents(appID string, req putEventsRequest) (*events
 		return nil, ErrAppNotFound
 	}
 
-	results := make(map[string]endpointItemResponse, len(req.EventsRequest.BatchItem))
+	results := make(map[string]endpointItemResponse, len(req.BatchItem))
 
-	for epID, epEvents := range req.EventsRequest.BatchItem {
+	for epID, epEvents := range req.BatchItem {
 		evResults := make(map[string]itemEventResponse, len(epEvents.Events))
 
 		for evID, ev := range epEvents.Events {

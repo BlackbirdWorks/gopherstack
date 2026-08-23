@@ -15,9 +15,18 @@ func TestOTAUpdateCRUD(t *testing.T) {
 		"targets":     []string{"arn:aws:iot:us-east-1:000000000000:thing/device1"},
 		"roleArn":     "arn:aws:iam::000000000000:role/IoTRole",
 		"description": "test OTA",
+		"otaUpdateFiles": []any{
+			map[string]any{"fileName": "fw.bin"},
+		},
 	})
 	if out["otaUpdateId"] != "my-ota" {
 		t.Errorf("expected otaUpdateId=my-ota, got %v", out)
+	}
+	if out["awsIotJobId"] == "" || out["awsIotJobId"] == nil {
+		t.Errorf("expected awsIotJobId, got %v", out)
+	}
+	if out["awsIotJobArn"] == "" || out["awsIotJobArn"] == nil {
+		t.Errorf("expected awsIotJobArn, got %v", out)
 	}
 
 	// Get
@@ -26,12 +35,23 @@ func TestOTAUpdateCRUD(t *testing.T) {
 	if info["otaUpdateId"] != "my-ota" {
 		t.Errorf("get mismatch: %v", info)
 	}
+	if info["awsIotJobId"] == nil {
+		t.Errorf("expected awsIotJobId on otaUpdateInfo, got %v", info)
+	}
+	files, _ := info["otaUpdateFiles"].([]any)
+	if len(files) != 1 {
+		t.Errorf("expected 1 otaUpdateFiles entry, got %v", info)
+	}
 
 	// List
 	out3 := iotOK(t, h, http.MethodGet, "/otaUpdates", nil)
 	updates, _ := out3["otaUpdates"].([]any)
 	if len(updates) != 1 {
 		t.Errorf("expected 1 OTA update, got %d", len(updates))
+	}
+	first, _ := updates[0].(map[string]any)
+	if first["creationDate"] == nil {
+		t.Errorf("expected creationDate on ListOTAUpdates entry, got %v", first)
 	}
 
 	// Delete

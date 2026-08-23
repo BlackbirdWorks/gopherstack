@@ -246,8 +246,11 @@ func TestListFindingAggregations_SeededCounts(t *testing.T) {
 	require.True(t, ok)
 	counts, ok := acct["severityCounts"].(map[string]any)
 	require.True(t, ok)
-	assert.Equal(t, int64(4), counts["all"])
+	assert.Equal(t, int64(4), counts["all"], "LOW still counts toward the total")
 	assert.Equal(t, int64(2), counts["critical"])
 	assert.Equal(t, int64(1), counts["high"])
-	assert.Equal(t, int64(1), counts["low"])
+	assert.NotContains(
+		t, counts, "low",
+		"types.SeverityCounts has no low member; LOW findings fold into all only",
+	)
 }

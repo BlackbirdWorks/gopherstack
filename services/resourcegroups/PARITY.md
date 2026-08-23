@@ -200,6 +200,39 @@ gopherstack's `rgRESTPathOps` exactly; no route-matcher bugs found this sweep.
 - `ListGroupsFilter`'s "configuration-type"/"resource-type" filter *values* match real
   behavior; only the filter *names* diverge (see gaps).
 
+## gopherstack-o7gx (2026-08-22): ReadBody-failure path wrote untyped errors (5 sites)
+
+resourcegroups is restjson1 (confirmed from `resourcegroups@v1.36.4`
+deserializers.go's `awsRestjson1_deserializeOpError*` prefix). Its
+JSON-RPC-shaped path already routes through `pkgs/service.HandleTarget`,
+fixed by c6554e9f8. But this service ALSO has its own REST-path dispatch
+that never touches that helper: `handleREST` (static `/groups`,
+`/get-group`, etc. paths) and three sites in `handler_tags.go`
+(`handleTagRequest`'s PUT, `extractUntagKeys`'s DELETE, and the PATCH
+compat-alias branch of `handleResourceTags`) -- all 5 wrote a bare
+`c.String(http.StatusInternalServerError, "internal server error")` on a
+`ReadBody` failure. Plain text doesn't decode through
+`aws/protocol/restjson.GetErrorInfo`, so a real client got
+`*json.SyntaxError`, not even `UnknownError`.
+
+Fixed all 5 identically: route the `ReadBody` error through this package's
+own `handleError(ctx, c, action, err)` instead of the bare `c.String`. None
+of the 5 errors match any of `handleError`'s typed `case`s (`errInvalidRequest`,
+`ErrUnknownOperation`, `json.SyntaxError`/`UnmarshalTypeError`,
+`ErrAlreadyExists`, `ErrValidation`, `ErrNotFound`, `ErrTagSyncTaskNotFound`),
+so all 5 fall through to the pre-existing default (`InternalServerErrorException`,
+500) -- modeled at `resourcegroups@v1.36.4` `types/errors.go:71`, and already
+sets the `X-Amzn-Errortype` header via `amznErrorTypeHeader`.
+
+Proven with a real `aws-sdk-go-v2/service/resourcegroups` client's
+`CreateGroup` (the static-REST-path `handleREST` site), whose `Description`
+field alone exceeds `httputils.MaxRequestBodyBytes` (16 MiB).
+`TestHandleREST_OversizedBodySurfacesInternalServerErrorException`
+(`handler_oversized_body_test.go`) asserts `apiErr.ErrorCode() ==
+"InternalServerErrorException"`; confirmed it fails pre-fix with
+`*json.SyntaxError` (hand-reverted, byte-identical restore after). The
+other 4 sites share the identical one-line fix and were not independently
+client-driven given the campaign's budget across 14 services.
 ### 2026-08-20 sweep (wrapper-key / nested-shape pass) -- clean, zero new wire bugs
 
 Full 23-op re-read against resourcegroups@v1.36.4's own per-op deserializer, focused on

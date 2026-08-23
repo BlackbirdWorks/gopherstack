@@ -397,3 +397,96 @@ func TestReplicator_UpdateReplicationInfo_NotFound(t *testing.T) {
 // ----------------------------------------
 // Tag CRUD
 // ----------------------------------------
+
+// TestUpdateReplicationInfo_PreservesStartingPositionAndTopicNameConfig
+// guards against gopherstack-1vv2: UpdateReplicationInfoInput.TopicReplication
+// is types.TopicReplicationUpdate, which declares no startingPosition or
+// topicNameConfiguration at all -- both are immutable after Create, so a
+// real client's Update payload can never carry either. Wholesale-replacing
+// the stored TopicReplication with that narrower payload used to silently
+// erase both on every Update call that touched topicReplication at all.
+func TestUpdateReplicationInfo_PreservesStartingPositionAndTopicNameConfig(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	sourceArn := "arn:aws:kafka:us-east-1:000000000000:cluster/preserve-source/abc"
+	targetArn := "arn:aws:kafka:us-east-1:000000000000:cluster/preserve-target/def"
+
+	rec := doKafkaRequest(t, h, http.MethodPost, "/replication/v1/replicators",
+		map[string]any{
+			"replicatorName":          "preserve-starting-position-repl",
+			"serviceExecutionRoleArn": "arn:aws:iam::000000000000:role/test-role",
+			"kafkaClusters": []map[string]any{
+				{"amazonMskCluster": map[string]any{"mskClusterArn": sourceArn}},
+				{"amazonMskCluster": map[string]any{"mskClusterArn": targetArn}},
+			},
+			"replicationInfoList": []map[string]any{
+				{
+					"sourceKafkaClusterArn": sourceArn,
+					"targetKafkaClusterArn": targetArn,
+					"topicReplication": map[string]any{
+						"topicsToReplicate":               []string{".*"},
+						"copyAccessControlListsForTopics": true,
+						"copyTopicConfigurations":         true,
+						"detectAndCopyNewTopics":          true,
+						"startingPosition":                map[string]any{"type": "TIMESTAMP"},
+						"topicNameConfiguration":          map[string]any{"type": "PREFIXED_WITH_SOURCE_CLUSTER_ALIAS"},
+					},
+					"consumerGroupReplication": map[string]any{
+						"consumerGroupsToReplicate": []string{".*"},
+					},
+				},
+			},
+		})
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	resp := decodeJSONResponse(t, rec)
+	replicatorArn, _ := resp["replicatorArn"].(string)
+	require.NotEmpty(t, replicatorArn)
+	encoded := url.PathEscape(replicatorArn)
+
+	descRec := doKafkaRequest(t, h, http.MethodGet, "/replication/v1/replicators/"+encoded, nil)
+	require.Equal(t, http.StatusOK, descRec.Code)
+	descResp := decodeJSONResponse(t, descRec)
+	currentVersion, _ := descResp["currentVersion"].(string)
+	require.NotEmpty(t, currentVersion)
+
+	// A real client's UpdateReplicationInfoInput.TopicReplication can never
+	// carry startingPosition/topicNameConfiguration -- only the fields
+	// below exist on the wire for this op.
+	updateRec := doKafkaRequest(t, h, http.MethodPut,
+		"/replication/v1/replicators/"+encoded+"/replication-info",
+		map[string]any{
+			"currentVersion":        currentVersion,
+			"sourceKafkaClusterArn": sourceArn,
+			"targetKafkaClusterArn": targetArn,
+			"topicReplication": map[string]any{
+				"topicsToReplicate":               []string{"orders.*"},
+				"copyAccessControlListsForTopics": false,
+				"copyTopicConfigurations":         false,
+				"detectAndCopyNewTopics":          false,
+			},
+		})
+	require.Equal(t, http.StatusOK, updateRec.Code, updateRec.Body.String())
+
+	descRec = doKafkaRequest(t, h, http.MethodGet, "/replication/v1/replicators/"+encoded, nil)
+	require.Equal(t, http.StatusOK, descRec.Code)
+	descResp = decodeJSONResponse(t, descRec)
+	flows := descResp["replicationInfoList"].([]any)
+	require.Len(t, flows, 1)
+	flow := flows[0].(map[string]any)
+	topicReplication := flow["topicReplication"].(map[string]any)
+
+	topicsToReplicate := topicReplication["topicsToReplicate"].([]any)
+	require.Len(t, topicsToReplicate, 1)
+	assert.Equal(t, "orders.*", topicsToReplicate[0], "the update's own field must apply")
+
+	startingPosition, ok := topicReplication["startingPosition"].(map[string]any)
+	require.True(t, ok, "startingPosition must survive an Update the real API can never send it on")
+	assert.Equal(t, "TIMESTAMP", startingPosition["type"])
+
+	topicNameConfiguration, ok := topicReplication["topicNameConfiguration"].(map[string]any)
+	require.True(t, ok, "topicNameConfiguration must survive an Update the real API can never send it on")
+	assert.Equal(t, "PREFIXED_WITH_SOURCE_CLUSTER_ALIAS", topicNameConfiguration["type"])
+}

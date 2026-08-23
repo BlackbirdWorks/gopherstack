@@ -50,16 +50,24 @@ func (h *Handler) handleGetModelInvocationLoggingConfiguration(c *echo.Context) 
 	return c.JSON(http.StatusOK, modelInvocationLoggingConfigOutput{LoggingConfig: cfg})
 }
 
+// putModelInvocationLoggingConfigurationInput mirrors PutModelInvocationLoggingConfigurationInput
+// (api_op_PutModelInvocationLoggingConfiguration.go): the real request body wraps the config
+// under a required top-level "loggingConfig" key, not the flat fields this handler used to
+// accept at the top level.
+type putModelInvocationLoggingConfigurationInput struct {
+	LoggingConfig *ModelInvocationLoggingConfiguration `json:"loggingConfig"`
+}
+
 func (h *Handler) handlePutModelInvocationLoggingConfiguration(c *echo.Context, body []byte) error {
-	in, err := parseBody[ModelInvocationLoggingConfiguration](body)
-	if err != nil {
+	in, err := parseBody[putModelInvocationLoggingConfigurationInput](body)
+	if err != nil || in.LoggingConfig == nil {
 		return c.JSON(
 			http.StatusBadRequest,
-			errorResponse("ValidationException", "invalid request body"),
+			errorResponse("ValidationException", "loggingConfig is required"),
 		)
 	}
 
-	h.Backend.PutModelInvocationLoggingConfiguration(in)
+	h.Backend.PutModelInvocationLoggingConfiguration(in.LoggingConfig)
 
 	return c.NoContent(http.StatusOK)
 }

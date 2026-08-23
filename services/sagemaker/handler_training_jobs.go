@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
@@ -98,10 +97,13 @@ func (h *Handler) handleCreateTrainingJobFull(ctx context.Context, body []byte) 
 	return json.Marshal(map[string]string{keyTrainingJobArn: tj.TrainingJobArn})
 }
 
+// describeTrainingJobInput mirrors DescribeTrainingJobInput (api_op_DescribeTrainingJob.go:29-36).
+type describeTrainingJobInput struct {
+	TrainingJobName string `json:"TrainingJobName"`
+}
+
 func (h *Handler) handleDescribeTrainingJobFull(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		TrainingJobName string `json:"TrainingJobName"`
-	}
+	var req describeTrainingJobInput
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
@@ -115,9 +117,9 @@ func (h *Handler) handleDescribeTrainingJobFull(ctx context.Context, body []byte
 	}
 
 	resp := map[string]any{
-		"TrainingJobName":        tj.TrainingJobName,
+		keyTrainingJobName:       tj.TrainingJobName,
 		keyTrainingJobArn:        tj.TrainingJobArn,
-		"TrainingJobStatus":      tj.TrainingJobStatus,
+		keyTrainingJobStatus:     tj.TrainingJobStatus,
 		"SecondaryStatus":        tj.SecondaryStatus,
 		keyRoleArn:               tj.RoleArn,
 		"AlgorithmSpecification": tj.AlgorithmSpecification,
@@ -179,7 +181,7 @@ func buildSecondaryStatusTransitions(transitions []SecondaryStatusTransition) []
 	result := make([]map[string]any, len(transitions))
 	for i, t := range transitions {
 		entry := map[string]any{
-			"Status":        t.Status,
+			keyStatus:       t.Status,
 			"StartTime":     epochSeconds(t.StartTime),
 			"StatusMessage": t.StatusMessage,
 		}
@@ -192,10 +194,13 @@ func buildSecondaryStatusTransitions(transitions []SecondaryStatusTransition) []
 	return result
 }
 
+// stopTrainingJobInput mirrors StopTrainingJobInput (api_op_StopTrainingJob.go:27-34).
+type stopTrainingJobInput struct {
+	TrainingJobName string `json:"TrainingJobName"`
+}
+
 func (h *Handler) handleStopTrainingJobFSM(ctx context.Context, body []byte) error {
-	var req struct {
-		TrainingJobName string `json:"TrainingJobName"`
-	}
+	var req stopTrainingJobInput
 	if err := json.Unmarshal(body, &req); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
@@ -213,37 +218,40 @@ func (h *Handler) handleStopTrainingJobFSM(ctx context.Context, body []byte) err
 	return nil
 }
 
+// listTrainingJobsInput mirrors ListTrainingJobsInput (api_op_ListTrainingJobs.go:33-84).
+type listTrainingJobsInput struct {
+	CreationTimeAfter      *float64 `json:"CreationTimeAfter,omitempty"`
+	CreationTimeBefore     *float64 `json:"CreationTimeBefore,omitempty"`
+	LastModifiedTimeAfter  *float64 `json:"LastModifiedTimeAfter,omitempty"`
+	LastModifiedTimeBefore *float64 `json:"LastModifiedTimeBefore,omitempty"`
+	NextToken              string   `json:"NextToken"`
+	NameContains           string   `json:"NameContains,omitempty"`
+	StatusEquals           string   `json:"StatusEquals,omitempty"`
+	SortBy                 string   `json:"SortBy,omitempty"`
+	SortOrder              string   `json:"SortOrder,omitempty"`
+	TrainingPlanArnEquals  string   `json:"TrainingPlanArnEquals,omitempty"`
+	WarmPoolStatusEquals   string   `json:"WarmPoolStatusEquals,omitempty"`
+	MaxResults             int32    `json:"MaxResults,omitempty"`
+}
+
 func (h *Handler) handleListTrainingJobsFiltered(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		CreationTimeAfterEpoch  *float64 `json:"CreationTimeAfter,omitempty"`
-		CreationTimeBeforeEpoch *float64 `json:"CreationTimeBefore,omitempty"`
-		NextToken               string   `json:"NextToken"`
-		NameContains            string   `json:"NameContains,omitempty"`
-		StatusEquals            string   `json:"StatusEquals,omitempty"`
-		MaxResults              int32    `json:"MaxResults,omitempty"`
-	}
+	var req listTrainingJobsInput
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	var creationTimeAfter, creationTimeBefore *time.Time
-
-	if req.CreationTimeAfterEpoch != nil {
-		t := time.Unix(int64(*req.CreationTimeAfterEpoch), 0)
-		creationTimeAfter = &t
-	}
-
-	if req.CreationTimeBeforeEpoch != nil {
-		t := time.Unix(int64(*req.CreationTimeBeforeEpoch), 0)
-		creationTimeBefore = &t
-	}
-
 	jobs, nextToken := h.Backend.ListTrainingJobsFiltered(ctx, req.NextToken, ListTrainingJobsFilter{
-		StatusEquals:       req.StatusEquals,
-		NameContains:       req.NameContains,
-		CreationTimeAfter:  creationTimeAfter,
-		CreationTimeBefore: creationTimeBefore,
-		MaxResults:         req.MaxResults,
+		StatusEquals:           req.StatusEquals,
+		NameContains:           req.NameContains,
+		SortBy:                 req.SortBy,
+		SortOrder:              req.SortOrder,
+		TrainingPlanArnEquals:  req.TrainingPlanArnEquals,
+		WarmPoolStatusEquals:   req.WarmPoolStatusEquals,
+		MaxResults:             req.MaxResults,
+		CreationTimeAfter:      timeFromEpochSecondsPtr(req.CreationTimeAfter),
+		CreationTimeBefore:     timeFromEpochSecondsPtr(req.CreationTimeBefore),
+		LastModifiedTimeAfter:  timeFromEpochSecondsPtr(req.LastModifiedTimeAfter),
+		LastModifiedTimeBefore: timeFromEpochSecondsPtr(req.LastModifiedTimeBefore),
 	})
 
 	summaries := make([]trainingJobSummary, 0, len(jobs))
@@ -277,10 +285,13 @@ type trainingJobSummary struct {
 	LastModifiedTime  float64 `json:"LastModifiedTime"`
 }
 
+// deleteTrainingJobInput mirrors DeleteTrainingJobInput (api_op_DeleteTrainingJob.go:34-42).
+type deleteTrainingJobInput struct {
+	TrainingJobName string `json:"TrainingJobName"`
+}
+
 func (h *Handler) handleDeleteTrainingJob(ctx context.Context, body []byte) error {
-	var req struct {
-		TrainingJobName string `json:"TrainingJobName"`
-	}
+	var req deleteTrainingJobInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -300,10 +311,31 @@ func (h *Handler) handleDeleteTrainingJob(ctx context.Context, body []byte) erro
 	return nil
 }
 
+// resourceConfigForUpdate mirrors types.ResourceConfigForUpdate
+// (types/types.go:19848-19856) — KeepAlivePeriodInSeconds is the sole member
+// and is itself required whenever ResourceConfig is present at all.
+type resourceConfigForUpdate struct {
+	KeepAlivePeriodInSeconds int32 `json:"KeepAlivePeriodInSeconds"`
+}
+
+// updateTrainingJobInput mirrors UpdateTrainingJobInput
+// (api_op_UpdateTrainingJob.go:29-56). ProfilerConfig/ProfilerRuleConfigurations/
+// RemoteDebugConfig are decoded here for wire-shape fidelity only — see
+// UpdateTrainingJobOptions' doc comment for why this backend cannot apply
+// them (no profiler/remote-debug concept exists on TrainingJob at all, so
+// there is nothing to mutate; this is a disclosed depth limit, not a
+// silently-ignored field, and no client-visible response ever claims these
+// were applied).
+type updateTrainingJobInput struct {
+	ResourceConfig             *resourceConfigForUpdate `json:"ResourceConfig"`
+	TrainingJobName            string                   `json:"TrainingJobName"`
+	ProfilerConfig             json.RawMessage          `json:"ProfilerConfig"`
+	ProfilerRuleConfigurations json.RawMessage          `json:"ProfilerRuleConfigurations"`
+	RemoteDebugConfig          json.RawMessage          `json:"RemoteDebugConfig"`
+}
+
 func (h *Handler) handleUpdateTrainingJob(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		TrainingJobName string `json:"TrainingJobName"`
-	}
+	var req updateTrainingJobInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -313,7 +345,12 @@ func (h *Handler) handleUpdateTrainingJob(ctx context.Context, body []byte) ([]b
 		return nil, fmt.Errorf("%w: TrainingJobName is required", errInvalidRequest)
 	}
 
-	tj, err := h.Backend.DescribeTrainingJob(ctx, req.TrainingJobName)
+	opts := UpdateTrainingJobOptions{}
+	if req.ResourceConfig != nil {
+		opts.KeepAlivePeriodInSeconds = &req.ResourceConfig.KeepAlivePeriodInSeconds
+	}
+
+	tj, err := h.Backend.UpdateTrainingJob(ctx, req.TrainingJobName, opts)
 	if err != nil {
 		return nil, err
 	}

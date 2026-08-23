@@ -11,7 +11,7 @@ import (
 func (h *Handler) handleCreateResourceGateway(c *echo.Context, body map[string]any) error {
 	name, _ := body[keyName].(string)
 	if name == "" {
-		return c.JSON(http.StatusBadRequest, map[string]any{keyMessage: keyNameRequired})
+		return validationError(c, keyNameRequired)
 	}
 
 	vpcID, _ := body[keyVpcIdentifier].(string)

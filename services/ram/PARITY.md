@@ -223,6 +223,41 @@ addressing the 1 deferred item recorded in the 2026-07-13 audit:
   revisit whether the rule should also cross-check other permissions
   before blocking).
 
+## gopherstack-o7gx (2026-08-22): ReadBody-failure path wrote untyped errors
+
+`Handler()`'s `httputils.ReadBody` failure branch (oversized/unreadable
+request body) wrote a bare `c.String(http.StatusInternalServerError,
+"internal server error")` -- plain text/plain, not JSON. ram is restjson1
+(confirmed from `ram@v1.39.4` deserializers.go's `awsRestjson1_deserializeOpError*`
+prefix, not from `services/_PROTOCOLS.md`), whose client-side error decoder
+(`aws-sdk-go-v2@v1.43.4` `aws/protocol/restjson.GetErrorInfo`) JSON-decodes
+the body for a `code`/`__type` field. A plain-text body doesn't decode at
+all, so a real client got `*json.SyntaxError` ("invalid character 'i'
+looking for beginning of value"), not even `smithy.GenericAPIError{Code:
+"UnknownError"}`.
+
+Fixed by writing a JSON `{"__type": "ServerInternalException", "message":
+"internal server error"}` body instead (new `writeInternalServerError`
+helper in `handler.go`). `ServerInternalException` is ram's own modeled
+internal-error exception (`ram@v1.39.4` `types/errors.go:605`).
+
+Proven with a real `aws-sdk-go-v2/service/ram` client sending a
+`CreateResourceShare` request whose `Name` field alone exceeds
+`httputils.MaxRequestBodyBytes` (16 MiB) -- a legitimate SDK call, no
+protocol corruption needed, since `ReadBody`'s cap is the reachable trigger.
+`TestHandler_OversizedBodySurfacesServerInternalException`
+(`handler_oversized_body_test.go`) asserts `apiErr.ErrorCode() ==
+"ServerInternalException"`; confirmed it fails against the pre-fix code
+with the exact `*json.SyntaxError` above (hand-reverted via `git show
+HEAD:services/ram/handler.go`, byte-identical restore after).
+
+NOT touched: `handleError`'s own `errInvalidRequest`/`errUnknownAction`/
+`json.SyntaxError`/`json.UnmarshalTypeError` catch-all (line ~760) and its
+`default:` internal-error fallback (line ~764) are themselves untyped
+(`map[string]string{keyMessageField: err.Error()}`, no `__type`) --
+a separate, pre-existing gap from a shared catch-all spanning many
+operations with different real exception vocabularies, not the
+ReadBody-failure path this fix addresses. Left alone.
 ## 2026-08-19 wrapper-key / nested-shape sweep
 
 Enumerated all 34 `api_op_*.go` files in `aws-sdk-go-v2/service/ram@v1.39.4`

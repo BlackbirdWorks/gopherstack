@@ -395,7 +395,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		if err != nil {
 			log.ErrorContext(ctx, "sagemaker: failed to read request body", "error", err)
 
-			return c.String(http.StatusInternalServerError, "internal server error")
+			return writeInternalServerError(c)
 		}
 
 		region := httputils.ExtractRegionFromRequest(c.Request(), h.Backend.Region())
@@ -882,6 +882,27 @@ func (h *Handler) dispatchHPTuningJobOps(
 	}
 
 	return nil, false, nil
+}
+
+// writeInternalServerError renders a ReadBody-failure (body too large, read
+// error) as a JSON error body. sagemaker@v1.263.2 types/errors.go models only
+// ConflictException/ResourceInUse/ResourceLimitExceeded/ResourceNotFound --
+// no generic internal-failure exception exists to reuse, so this sends the
+// standard unmodeled "InternalFailure" code: the deserializer's per-operation
+// switch won't match any of the four modeled names and falls through to
+// smithy.GenericAPIError with this code intact, rather than the bare
+// text/plain that previously made every ReadBody failure here undecodable
+// (restjson.GetErrorInfo JSON-decodes the body; gopherstack-o7gx).
+func writeInternalServerError(c *echo.Context) error {
+	payload, err := json.Marshal(map[string]string{
+		keyTypeField:    "InternalFailure",
+		keyMessageField: "internal server error",
+	})
+	if err != nil {
+		return err
+	}
+
+	return c.JSONBlob(http.StatusInternalServerError, payload)
 }
 
 func (h *Handler) handleError(c *echo.Context, err error) error {

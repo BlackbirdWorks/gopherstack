@@ -22,7 +22,7 @@ const (
 	keyTerminationProtectionEnabled    = "TerminationProtectionEnabled"
 	keyAuthenticationMethod            = "AuthenticationMethod"
 	keySignupResponse                  = "SignupResponse"
-	keyUserLoginName                   = "UserLoginName"
+	keyUserLoginName                   = "userLoginName"
 	keyIAMUser                         = "IAMUser"
 	keyAccountInfo                     = "AccountInfo"
 	keyAuthenticationType              = "AuthenticationType"
@@ -36,13 +36,11 @@ const (
 	keyVPCIDRestrictionRuleMap         = "VpcIdRestrictionRuleMap"
 	keyVPCEndpointIDRestrictionRuleMap = "VpcEndpointIdRestrictionRuleMap"
 	keyEnabled                         = "Enabled"
-	keyRegisteredCustomerManagedKeys   = "RegisteredCustomerManagedKeys"
 	keyKeyRegistration                 = "KeyRegistration"
 	keySuccessfulKeyRegistration       = "SuccessfulKeyRegistration"
 	keyFailedKeyRegistration           = "FailedKeyRegistration"
 	keyKeyArn                          = "KeyArn"
 	keyDefaultKey                      = "DefaultKey"
-	keyDefaultQBusinessApplication     = "DefaultQBusinessApplication"
 	keyApplicationID                   = "ApplicationId"
 	keyPersonalizationMode             = "PersonalizationMode"
 	keyQSearchStatus                   = "QSearchStatus"
@@ -454,6 +452,10 @@ func (h *Handler) handleUpdatePublicSharingSettings(c *echo.Context) error {
 
 // ---- Key Registration ----
 
+// DescribeKeyRegistrationOutput (quicksight@v1.123.1 deserializers.go's
+// awsRestjson1_deserializeOpDocumentDescribeKeyRegistrationOutput) wraps the
+// list under "KeyRegistration", not "RegisteredCustomerManagedKeys" (that's
+// the name of the array's own item type, types.RegisteredCustomerManagedKey).
 func (h *Handler) handleDescribeKeyRegistration(c *echo.Context) error {
 	accountID := seg(pathSegsFromCtx(c), segAccountID)
 
@@ -463,10 +465,10 @@ func (h *Handler) handleDescribeKeyRegistration(c *echo.Context) error {
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
-		keyRegisteredCustomerManagedKeys: registeredKeysToList(keys),
-		keyAwsAccountID:                  accountID,
-		keyRequestID:                     reqIDPlaceholder,
-		keyStatus:                        http.StatusOK,
+		keyKeyRegistration: registeredKeysToList(keys),
+		keyAwsAccountID:    accountID,
+		keyRequestID:       reqIDPlaceholder,
+		keyStatus:          http.StatusOK,
 	})
 }
 
@@ -520,6 +522,10 @@ func (h *Handler) handleUpdateKeyRegistration(c *echo.Context) error {
 
 // ---- Default Q Business Application ----
 
+// DescribeDefaultQBusinessApplicationOutput (quicksight@v1.123.1
+// deserializers.go's awsRestjson1_deserializeOpDocumentDescribeDefaultQBusinessApplicationOutput)
+// is flat -- ApplicationId/RequestId only, no "DefaultQBusinessApplication"
+// wrapper and no Namespace echo (Namespace is Input-side only).
 func (h *Handler) handleDescribeDefaultQBiz(c *echo.Context) error {
 	accountID := seg(pathSegsFromCtx(c), segAccountID)
 	namespace := queryParam(c, queryParamNamespace)
@@ -530,12 +536,9 @@ func (h *Handler) handleDescribeDefaultQBiz(c *echo.Context) error {
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
-		keyDefaultQBusinessApplication: map[string]any{
-			keyApplicationID:  a.ApplicationID,
-			keyNamespaceField: a.Namespace,
-		},
-		keyRequestID: reqIDPlaceholder,
-		keyStatus:    http.StatusOK,
+		keyApplicationID: a.ApplicationID,
+		keyRequestID:     reqIDPlaceholder,
+		keyStatus:        http.StatusOK,
 	})
 }
 

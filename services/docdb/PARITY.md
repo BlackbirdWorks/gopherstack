@@ -244,3 +244,61 @@ serializer field-set extraction against every `handler_*.go` wire struct) is
 narrower/deeper than the 2026-07-31 audit's op-by-op wire/errors/state/persist
 method, matching this issue's own established precedent for the same
 situation (mediatailor/memorydb/codedeploy passes).
+
+**2026-08-22 (gopherstack-bahs) -- RouteMatcher's read-failure branch was
+finally safe to flip, but only after a second real bug underneath it.**
+gopherstack-3a8t found docdb was one of only 2 of 17 body-reading
+RouteMatchers that already gate on a body-independent signal
+(`service.MatchesUserAgentMarker(r.Header, "api/docdb")`, verified against
+the pinned `docdb@v1.51.4/api_client.go:641` `AddSDKAgentKeyValue` call)
+before ever reading the body -- so, unlike the other 15 (which are
+form-urlencoded services indistinguishable from each other except by the
+body's own `Action`/`Version`), claiming on a `ReadBody` failure here could
+not misroute a sibling service's oversized request. That earlier pass tried
+exactly that (`return false` -> `return true`) and reverted it: docdb's
+`ExtractOperation`/`ExtractResource`/`Handler()` all called `r.ParseForm()`
+directly, and `net/http`'s own `ParseForm` (`net/http/request.go`) sets
+`r.PostForm` to a non-nil empty `url.Values` even when the underlying read
+fails (`if r.PostForm == nil { r.PostForm = make(url.Values) }` runs
+unconditionally after the failed `parsePostForm` call). The telemetry
+wrapper (`pkgs/telemetry/echo_wrapper.go`) calls the observer's
+`ExtractOperation` before `Handler()` runs, so that first `ParseForm` call
+correctly saw the read error -- but the *second* call, inside `Handler()`,
+found `r.PostForm` already non-nil and skipped re-parsing entirely,
+returning `nil` with an empty form. `Handler()` then saw `Action == ""` and
+answered `MissingAction` (400) instead of `InternalFailure` (500).
+
+Verified this diagnosis two ways before touching anything: read
+`net/http`'s `ParseForm`/`parsePostForm` source directly (confirmed the
+non-nil-empty-`PostForm`-on-error caching), and reproduced it concretely by
+applying only the matcher flip on top of the unmigrated `ParseForm` call
+sites -- `TestHandler_OversizedBodySurfacesInternalFailure` failed with
+`MissingAction`, matching the prior pass's report exactly.
+
+**The fix**: migrated all three call sites
+(`ExtractOperation`/`ExtractResource`/`Handler()`) from `r.ParseForm()` to
+`httputils.ReadBody` + `url.ParseQuery`, mirroring elasticache's own
+pattern from the 3a8t pass. `httputils.ReadBody` was already hardened (that
+same pass) to cache a read failure on `r.Body` the same way it already
+cached a success, so every one of these three calls -- however many run
+before `Handler()` -- now sees the identical real error instead of a
+silently-emptied form on the second-and-later calls. With that landmine
+gone, `RouteMatcher`'s `ReadBody`-failure branch was changed from `return
+false` to `return true`: safe unconditionally at that point in the function
+since the `MatchesUserAgentMarker` check immediately above it has already
+established ownership. `MatchPriority` untouched.
+
+Proof: `TestHandler_OversizedBodySurfacesInternalFailure` in
+`handler_oversized_body_test.go` drives a real docdb SDK client through
+`service.NewRegistry`/`service.NewServiceRouter`, confirmed failing
+pre-fix with `UnknownError` (matcher unchanged) and, at the
+matcher-only-flip intermediate step, with `MissingAction` (ParseForm
+caching bug); passes now with `InternalFailure`.
+`TestHandler_NormalSizedBodyStillRoutes` is the regression guard for a
+normal-sized request still routing and succeeding. Hand-reverted
+`services/docdb/handler.go` to the pre-fix `git show HEAD:...` version and
+back, confirmed byte-identical via `md5sum`. Gates run clean: `go build
+./...`, `go vet`, `gofmt -l` (empty), `go test -race ./services/docdb/...`,
+`golangci-lint run ./services/docdb/...` (0 issues after adding an
+`unknownOp` constant elasticache already uses, to keep `goconst` happy with
+the third `"Unknown"` literal the migration introduced).

@@ -826,6 +826,8 @@ func (h *Handler) handleGetARPBuildWorkflow(c *echo.Context, path string) error 
 		keyPolicyArn:        wf.PolicyArn,
 		keyStatus:           wf.Status,
 		"buildWorkflowType": wf.BuildWorkflowType,
+		keyCreatedAt:        isoTime{wf.CreatedAt},
+		keyUpdatedAt:        isoTime{wf.UpdatedAt},
 	})
 }
 
@@ -840,6 +842,8 @@ func (h *Handler) handleListARPBuildWorkflows(c *echo.Context, path string) erro
 			keyPolicyArn:        wf.PolicyArn,
 			keyStatus:           wf.Status,
 			"buildWorkflowType": wf.BuildWorkflowType,
+			keyCreatedAt:        isoTime{wf.CreatedAt},
+			keyUpdatedAt:        isoTime{wf.UpdatedAt},
 		})
 	}
 
@@ -875,13 +879,15 @@ func (h *Handler) handleGetARPBuildWorkflowResultAssets(c *echo.Context, path st
 	return c.JSON(http.StatusOK, result)
 }
 
-// arpTestCaseToMap exposes the test case's content fields alongside the two keys
-// real AWS returns for Get/Update; the flat (non build-scoped) shape is a known,
-// separately tracked gap (PARITY.md families.AutomatedReasoningPolicy).
+// arpTestCaseToMap builds the nested AutomatedReasoningPolicyTestCase shape
+// (bedrock@v1.66.4 types.go:2016-2051: createdAt/guardContent/testCaseId/
+// updatedAt required, the rest optional).
 func arpTestCaseToMap(tc *AutomatedReasoningPolicyTestCase) map[string]any {
 	return map[string]any{
 		keyTestCaseID:                      tc.TestCaseID,
 		keyPolicyArn:                       tc.PolicyArn,
+		keyCreatedAt:                       isoTime{tc.CreatedAt},
+		keyUpdatedAt:                       isoTime{tc.UpdatedAt},
 		"guardContent":                     tc.GuardContent,
 		"queryContent":                     tc.QueryContent,
 		"expectedAggregatedFindingsResult": tc.ExpectedAggregatedFindingsResult,
@@ -889,6 +895,11 @@ func arpTestCaseToMap(tc *AutomatedReasoningPolicyTestCase) map[string]any {
 	}
 }
 
+// handleGetARPTestCase wraps the test case under the required "testCase" key
+// (bedrock@v1.66.4 deserializers.go:7223-7233: GetAutomatedReasoningPolicyTestCaseOutput
+// is policyArn + testCase, not the test case's own fields inlined at the top
+// level) -- previously returned arpTestCaseToMap's flat shape directly, so a
+// real client's required TestCase decoded nil.
 func (h *Handler) handleGetARPTestCase(c *echo.Context, path string) error {
 	policyARN, testCaseID := extractARPTestCaseIDs(path)
 
@@ -897,7 +908,10 @@ func (h *Handler) handleGetARPTestCase(c *echo.Context, path string) error {
 		return h.writeError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, arpTestCaseToMap(tc))
+	return c.JSON(http.StatusOK, map[string]any{
+		keyPolicyArn: policyARN,
+		"testCase":   arpTestCaseToMap(tc),
+	})
 }
 
 func (h *Handler) handleListARPTestCases(c *echo.Context, path string) error {

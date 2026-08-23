@@ -55,14 +55,14 @@ func (h *Handler) routeEvaluationJob(
 }
 
 type createEvaluationJobInput struct {
-	JobName         string                     `json:"jobName"`
-	JobDescription  string                     `json:"jobDescription,omitempty"`
-	RoleArn         string                     `json:"roleArn,omitempty"`
-	ApplicationType string                     `json:"applicationType,omitempty"`
-	Tags            []Tag                      `json:"jobTags,omitempty"`
-	EvaluatorConfig *EvaluationModelConfig     `json:"evaluatorConfig,omitempty"`
-	InferenceConfig *EvaluationInferenceConfig `json:"inferenceConfig,omitempty"`
-	EvalConfig      []EvaluationTaskConfig     `json:"evaluationConfig,omitempty"`
+	EvaluationConfig *EvaluationConfig          `json:"evaluationConfig,omitempty"`
+	InferenceConfig  *EvaluationInferenceConfig `json:"inferenceConfig,omitempty"`
+	OutputDataConfig *outputDataConfigInput     `json:"outputDataConfig,omitempty"`
+	JobName          string                     `json:"jobName"`
+	JobDescription   string                     `json:"jobDescription,omitempty"`
+	RoleArn          string                     `json:"roleArn,omitempty"`
+	ApplicationType  string                     `json:"applicationType,omitempty"`
+	Tags             []Tag                      `json:"jobTags,omitempty"`
 }
 
 type createEvaluationJobOutput struct {
@@ -79,12 +79,14 @@ func (h *Handler) handleCreateEvaluationJob(c *echo.Context, body []byte) error 
 	}
 
 	opts := &CreateEvaluationJobInput{
-		JobDescription:  in.JobDescription,
-		RoleArn:         in.RoleArn,
-		ApplicationType: in.ApplicationType,
-		EvaluatorConfig: in.EvaluatorConfig,
-		InferenceConfig: in.InferenceConfig,
-		EvalConfig:      in.EvalConfig,
+		JobDescription:   in.JobDescription,
+		RoleArn:          in.RoleArn,
+		ApplicationType:  in.ApplicationType,
+		EvaluationConfig: in.EvaluationConfig,
+		InferenceConfig:  in.InferenceConfig,
+	}
+	if in.OutputDataConfig != nil {
+		opts.OutputDataConfig = OutputDataConfig{S3Uri: in.OutputDataConfig.S3Uri}
 	}
 
 	job, opErr := h.Backend.CreateEvaluationJob(in.JobName, in.Tags, opts)
@@ -130,12 +132,19 @@ func (h *Handler) handleGetEvaluationJob(c *echo.Context, jobARN string) error {
 		return h.writeError(c, err)
 	}
 
+	// roleArn/inferenceConfig/evaluationConfig/outputDataConfig are all
+	// required on GetEvaluationJobOutput (bedrock@v1.66.4
+	// api_op_GetEvaluationJob.go:51-90); outputDataConfig was previously not
+	// wired at all (no input parsing, no model field, no response key) --
+	// entirely absent regardless of what a real client sent on Create.
 	resp := map[string]any{
 		keyJobArn:           job.JobArn,
 		keyJobName:          job.JobName,
 		keyStatus:           job.Status,
 		keyCreationTime:     job.CreationTime.Format(time.RFC3339),
 		keyLastModifiedTime: job.LastModifiedTime.Format(time.RFC3339),
+		keyRoleArn:          job.RoleArn,
+		"outputDataConfig":  outputDataConfigOutput{S3Uri: job.OutputDataConfig.S3Uri},
 	}
 	if job.ApplicationType != "" {
 		resp["applicationType"] = job.ApplicationType
@@ -143,17 +152,17 @@ func (h *Handler) handleGetEvaluationJob(c *echo.Context, jobARN string) error {
 	if job.JobDescription != "" {
 		resp["jobDescription"] = job.JobDescription
 	}
-	if job.RoleArn != "" {
-		resp["roleArn"] = job.RoleArn
-	}
-	if job.EvaluatorConfig != nil {
-		resp["evaluatorConfig"] = job.EvaluatorConfig
-	}
 	if job.InferenceConfig != nil {
 		resp["inferenceConfig"] = job.InferenceConfig
 	}
-	if len(job.EvaluationConfig) > 0 {
+	if job.EvaluationConfig != nil {
 		resp["evaluationConfig"] = job.EvaluationConfig
+		// JobType (required, api_op_GetEvaluationJob.go:72) is derivable now
+		// that EvaluationConfig's union is modeled: real AWS reads it from
+		// which variant the caller supplied on Create (types/enums.go:548-551).
+		if jt := job.EvaluationConfig.JobType(); jt != "" {
+			resp["jobType"] = jt
+		}
 	}
 
 	return c.JSON(http.StatusOK, resp)

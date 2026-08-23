@@ -14,7 +14,7 @@ ops:
   UpdateQueue: {wire: ok, errors: ok, state: ok, persist: ok, note: "reservationPlanSettings field name fixed; concurrentJobs and reservationPlanSettings were entirely unsupported on update (silently dropped), now applied. gopherstack-gt9o: maximumConcurrentFeeds now applied too -- previously silently dropped, see Notes"}
   StartJobsQuery: {wire: ok, errors: ok, state: ok, persist: ok, note: "output field was queryId; real wire key is id"}
   GetJobsQueryResults: {wire: ok, errors: ok, state: ok, persist: ok, note: "added missing status field (JobsQueryStatus); always COMPLETE since this backend resolves queries synchronously"}
-  GetJob: {wire: ok, errors: ok, state: ok, persist: ok}
+  GetJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-21 (gopherstack-us9u kind-mismatch sweep) -- Job.LastShareDetails was emitted as a {shareToken, sharedAt} object; the real types.Job.LastShareDetails is a bare *string (types.go), so every real SDK client's GetJob call failed outright once a job had ever been shared via CreateResourceShare. Fixed via a MarshalJSON/UnmarshalJSON pair on Job projecting LastShareDetails to its ShareToken as a plain string at the wire boundary (SharedAt has no documented place in the real string form and is dropped rather than invented into it), keeping the richer ShareDetails struct for internal/domain use. Proven via a real aws-sdk-go-v2/service/mediaconvert client round trip (wire_last_share_details_test.go), hand-reverted/confirmed-failing (expected __string to be of type string, got map[string]interface {} instead)/restored, md5sum-verified byte-identical."}
   ListJobs: {wire: ok, errors: ok, state: ok, persist: ok, note: "extra non-AWS totalCount field in response; additive, harmless to real clients"}
   CancelJob: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateJobTemplate: {wire: ok, errors: ok, state: ok, persist: ok, note: "this pass: added accelerationSettings/hopDestinations/statusUpdateInterval, which the real CreateJobTemplateInput wire shape accepts but JobTemplate previously had no fields for (silently dropped) -- see CreateJobTemplateFull"}
@@ -231,6 +231,40 @@ leaks: {status: clean, note: "janitor.go uses pkgs/worker.Group.Ticker bound to 
   `pkgs/sdkcheck`-style diff sweep that found this gap in the first place
   (gopherstack-u8my), not a code-level mechanism change.
 
+## gopherstack-y1zn (2026-08-21): unknown-key sweep, 1 confirmed bug
+
+`Probe`: {wire: fixed} -- each result was double-wrapped as
+`{"probeResult": {"container": ..., "inputFile": ...}}`; ProbeOutput.ProbeResults
+(api_op_Probe.go) is `[]types.ProbeResult` directly -- each item IS the
+Container/Metadata/TrackMappings object, not wrapped under a "probeResult"
+key, and there is no "inputFile" echo member at all. Proven via
+`TestProbe_ResultContainsContainer` (probe_test.go, strengthened in place),
+hand-reverted/confirmed-failing/restored/`md5sum`-verified byte-identical.
+
+## 2026-08-21 (gopherstack-hjdd): snapshot-version guard, unbumped retype
+
+`mediaconvertSnapshotVersion` bumped 1 -> 2. `d83f4b5d3` gave `Job` (the registered
+`jobs` table's value type) a custom `MarshalJSON`/`UnmarshalJSON` pair that renders
+`LastShareDetails` as the real deserializer's bare string instead of the previous
+`{shareToken, sharedAt}` object, without bumping the snapshot version. A pre-fix (v1)
+snapshot's object no longer unmarshals into the new string field at all -- `RestoreAll`
+now errors outright rather than silently losing data, but the whole backend then fails
+to restore, which the version guard exists to convert into a clean, recoverable
+"discard and start empty" instead.
+
+Found via `pkgs/persistence`'s snapshot-version guard, extended this session
+(gopherstack-hjdd) to recursively expand fields of every type reached through a
+`store.Register`/`store.New` table registration.
+
+**Proof:** `TestInMemoryBackend_RestoreV1JobLastShareDetailsDiscarded` (persistence_test.go)
+builds a v1-shaped `jobs` snapshot with an object-shaped `lastShareDetails` and asserts
+`Restore` succeeds (discarding cleanly) rather than erroring. Hand-reverted to version 1:
+the same test then fails with `Restore` returning `json: cannot unmarshal object into Go
+struct field .lastShareDetails of type string`, confirming the symptom; restored and
+`md5sum`-verified byte-identical.
+
+**Gates:** `go build`, `go vet` (default/e2e/integration), `gofmt -l` (clean), `go test -race`
+(pass), `golangci-lint run` (0 issues).
 ## 2026-08-19 pass -- wrapper-key/nested-shape sweep, LastShareDetails type-confusion bug fixed
 
 - **Enumerated all 33 real ops** (`ls api_op_*.go` against the pinned

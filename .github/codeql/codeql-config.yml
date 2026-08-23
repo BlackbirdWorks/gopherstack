@@ -1,0 +1,30 @@
+name: "gopherstack CodeQL config"
+
+# go/weak-sensitive-data-hashing is excluded, and the exclusion is REPLACED by
+# a repo test rather than simply dropped -- see weak_hash_guard_test.go.
+#
+# Why the query and not the file: CodeQL's paths-ignore does not apply to
+# compiled languages under build-mode autobuild. Excluding
+# services/ssm/document_hashes.go was tried first and the alerts simply
+# reappeared against the new path, so there is no way to scope this exception
+# to one file from the config alone.
+#
+# Why the exception exists: DocumentDescription declares a deprecated Sha1
+# member beside Hash and HashType (aws-sdk-go-v2/service/ssm@v1.73.4
+# types/enums.go:708-724), so an emulator cannot populate it without computing
+# SHA1. The value is a content-integrity checksum echoed back on the wire --
+# never an authentication credential, never compared against a stored secret --
+# so the query's premise, that this is password hashing needing a
+# computationally expensive function, does not hold. Deleting the field would
+# reintroduce the missing-required-member bug class this repo has spent a
+# campaign removing.
+#
+# What replaces the coverage: TestNoUndeclaredWeakHashes fails if crypto/sha1
+# or crypto/md5 is imported by any file not on an explicit allowlist, so a new
+# weak-hash use still has to be justified in a diff. Switching the query off
+# without that would go blind to a real weak-hashing bug introduced later.
+#
+# See gopherstack-ziv9.
+query-filters:
+  - exclude:
+      id: go/weak-sensitive-data-hashing

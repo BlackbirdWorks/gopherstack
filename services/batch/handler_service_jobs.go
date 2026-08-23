@@ -83,7 +83,6 @@ type describeServiceJobOutput struct {
 	RetryStrategy           *ServiceJobRetryStrategy           `json:"retryStrategy,omitempty"`
 	TimeoutConfig           *ServiceJobTimeout                 `json:"timeoutConfig,omitempty"`
 	PreemptionConfiguration *ServiceJobPreemptionConfiguration `json:"preemptionConfiguration,omitempty"`
-	StartedAt               *int64                             `json:"startedAt,omitempty"`
 	StoppedAt               *int64                             `json:"stoppedAt,omitempty"`
 	ScheduledAt             *int64                             `json:"scheduledAt,omitempty"`
 	JobID                   string                             `json:"jobId"`
@@ -97,8 +96,11 @@ type describeServiceJobOutput struct {
 	ShareIdentifier         string                             `json:"shareIdentifier,omitempty"`
 	QuotaShareName          string                             `json:"quotaShareName,omitempty"`
 	CreatedAt               int64                              `json:"createdAt"`
-	SchedulingPriority      int32                              `json:"schedulingPriority,omitempty"`
-	IsTerminated            bool                               `json:"isTerminated"`
+	// StartedAt is required on DescribeServiceJobOutput even before the job
+	// reaches RUNNING -- 0 until then, never omitted (see int64OrZero).
+	StartedAt          int64 `json:"startedAt"`
+	SchedulingPriority int32 `json:"schedulingPriority,omitempty"`
+	IsTerminated       bool  `json:"isTerminated"`
 }
 
 func (h *Handler) handleDescribeServiceJob(
@@ -126,7 +128,7 @@ func (h *Handler) handleDescribeServiceJob(
 		ShareIdentifier:         sj.ShareIdentifier,
 		QuotaShareName:          sj.QuotaShareName,
 		CreatedAt:               sj.CreatedAt,
-		StartedAt:               sj.StartedAt,
+		StartedAt:               int64OrZero(sj.StartedAt),
 		StoppedAt:               sj.StoppedAt,
 		ScheduledAt:             sj.ScheduledAt,
 		SchedulingPriority:      sj.SchedulingPriority,

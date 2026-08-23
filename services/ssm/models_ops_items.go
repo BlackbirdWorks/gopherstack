@@ -42,14 +42,28 @@ type DescribeOpsItemsOutput struct {
 	OpsItemSummaries []OpsItemSummary `json:"OpsItemSummaries"`
 }
 
-// OpsItemSummary is a lightweight OpsItem listing entry.
+// OpsItemSummary is a lightweight OpsItem listing entry (real
+// types.OpsItemSummary, types.go:4600). CreatedBy/LastModifiedBy are real
+// members not modeled -- no caller-identity/SigV4-principal infra to derive
+// a real IAM ARN from, same disclosed-gap class as ServiceSetting.LastModifiedUser.
+// There is no Version or OpsItemArn member on the real type at all, unlike
+// the full OpsItem (OpsItemOutput.Version/.OpsItemArn).
 type OpsItemSummary struct {
-	OpsItemID   string  `json:"OpsItemId"`
-	Title       string  `json:"Title"`
-	Status      string  `json:"Status"`
-	Source      string  `json:"Source"`
-	CreatedTime float64 `json:"CreatedTime"`
-	Priority    int32   `json:"Priority,omitempty"`
+	OperationalData  map[string]OpsItemDataValue `json:"OperationalData,omitempty"`
+	PlannedEndTime   *float64                    `json:"PlannedEndTime,omitempty"`
+	PlannedStartTime *float64                    `json:"PlannedStartTime,omitempty"`
+	ActualEndTime    *float64                    `json:"ActualEndTime,omitempty"`
+	ActualStartTime  *float64                    `json:"ActualStartTime,omitempty"`
+	OpsItemID        string                      `json:"OpsItemId"`
+	Title            string                      `json:"Title"`
+	Status           string                      `json:"Status"`
+	Source           string                      `json:"Source"`
+	OpsItemType      string                      `json:"OpsItemType,omitempty"`
+	Category         string                      `json:"Category,omitempty"`
+	Severity         string                      `json:"Severity,omitempty"`
+	CreatedTime      float64                     `json:"CreatedTime"`
+	LastModifiedTime float64                     `json:"LastModifiedTime,omitempty"`
+	Priority         int32                       `json:"Priority,omitempty"`
 }
 
 // GetOpsItemInput is the request payload for GetOpsItem.
@@ -59,7 +73,64 @@ type GetOpsItemInput struct {
 
 // GetOpsItemOutput is the response payload for GetOpsItem.
 type GetOpsItemOutput struct {
-	OpsItem OpsItem `json:"OpsItem"`
+	OpsItem OpsItemOutput `json:"OpsItem"`
+}
+
+// OpsItemOutput projects OpsItem onto the wire shape the real
+// GetOpsItemOutput/DescribeOpsItems.OpsItemSummary declare (types.OpsItem,
+// types.OpsItemSummary) -- neither has an AccountId member at all (it exists
+// only on CreateOpsItemInput, a create-time-only attribution field this
+// backend tracks internally for DescribeOpsItems' AccountId filter key but
+// never returns on the wire). CreatedBy/LastModifiedBy are real members not
+// modeled -- no caller-identity/SigV4-principal infra to derive a real IAM
+// ARN from, same disclosed-gap class as ServiceSetting.LastModifiedUser.
+func opsItemToOutput(item OpsItem) OpsItemOutput {
+	return OpsItemOutput{
+		OperationalData:  item.OperationalData,
+		PlannedEndTime:   item.PlannedEndTime,
+		PlannedStartTime: item.PlannedStartTime,
+		ActualEndTime:    item.ActualEndTime,
+		ActualStartTime:  item.ActualStartTime,
+		Source:           item.Source,
+		OpsItemType:      item.OpsItemType,
+		Status:           item.Status,
+		Severity:         item.Severity,
+		Category:         item.Category,
+		OpsItemID:        item.OpsItemID,
+		OpsItemArn:       item.OpsItemArn,
+		Description:      item.Description,
+		Title:            item.Title,
+		Notifications:    item.Notifications,
+		RelatedOpsItems:  item.RelatedOpsItems,
+		LastModifiedTime: item.LastModifiedTime,
+		CreatedTime:      item.CreatedTime,
+		Priority:         item.Priority,
+		Version:          item.Version,
+	}
+}
+
+// OpsItemOutput is the wire-safe projection of OpsItem -- see opsItemToOutput.
+type OpsItemOutput struct {
+	OperationalData  map[string]OpsItemDataValue `json:"OperationalData,omitempty"`
+	PlannedEndTime   *float64                    `json:"PlannedEndTime,omitempty"`
+	PlannedStartTime *float64                    `json:"PlannedStartTime,omitempty"`
+	ActualEndTime    *float64                    `json:"ActualEndTime,omitempty"`
+	ActualStartTime  *float64                    `json:"ActualStartTime,omitempty"`
+	OpsItemID        string                      `json:"OpsItemId"`
+	Description      string                      `json:"Description,omitempty"`
+	Status           string                      `json:"Status"`
+	Severity         string                      `json:"Severity,omitempty"`
+	Category         string                      `json:"Category,omitempty"`
+	Source           string                      `json:"Source"`
+	OpsItemArn       string                      `json:"OpsItemArn,omitempty"`
+	OpsItemType      string                      `json:"OpsItemType,omitempty"`
+	Title            string                      `json:"Title"`
+	Version          string                      `json:"Version,omitempty"`
+	RelatedOpsItems  []RelatedOpsItemRef         `json:"RelatedOpsItems,omitempty"`
+	Notifications    []OpsItemNotification       `json:"Notifications,omitempty"`
+	LastModifiedTime float64                     `json:"LastModifiedTime"`
+	CreatedTime      float64                     `json:"CreatedTime"`
+	Priority         int32                       `json:"Priority,omitempty"`
 }
 
 // GetOpsMetadataInput is the request payload for GetOpsMetadata.
@@ -67,9 +138,17 @@ type GetOpsMetadataInput struct {
 	OpsMetadataArn string `json:"OpsMetadataArn"`
 }
 
-// GetOpsMetadataOutput is the response payload for GetOpsMetadata.
+// GetOpsMetadataOutput is the response payload for GetOpsMetadata (real
+// api_op_GetOpsMetadata.go). It is deliberately NOT the full OpsMetadata
+// shape -- the real op has no OpsMetadataArn/CreationDate/LastModifiedDate
+// members at all, only Metadata/NextToken/ResourceId; those other three are
+// members of the OpsMetadata type itself (used by ListOpsMetadata), a
+// different real response shape. NextToken/MaxResults pagination over
+// Metadata's keys is accepted-and-ignored -- disclosed, not implemented.
 type GetOpsMetadataOutput struct {
-	OpsMetadata
+	Metadata   map[string]MetadataValue `json:"Metadata,omitempty"`
+	NextToken  string                   `json:"NextToken,omitempty"`
+	ResourceID string                   `json:"ResourceId,omitempty"`
 }
 
 // GetOpsSummaryInput is the request payload. The real GetOpsSummaryInput
@@ -104,17 +183,21 @@ type ListOpsMetadataInput struct {
 // ListOpsMetadataOutput is the response payload.
 type ListOpsMetadataOutput struct{}
 
-// UpdateOpsItemInput is the request payload for UpdateOpsItem.
+// UpdateOpsItemInput is the request payload for UpdateOpsItem. There is no
+// AccountId member on the real op at all (api_op_UpdateOpsItem.go) -- that
+// member exists only on CreateOpsItemInput; a fabricated AccountId here
+// previously let a caller silently rewrite an OpsItem's AccountId through
+// UpdateOpsItem, an operation the real SDK cannot even express.
 type UpdateOpsItemInput struct {
 	OperationalData  map[string]OpsItemDataValue `json:"OperationalData,omitempty"`
 	Priority         *int32                      `json:"Priority,omitempty"`
 	OpsItemID        string                      `json:"OpsItemId"`
+	OpsItemArn       string                      `json:"OpsItemArn,omitempty"`
 	Title            string                      `json:"Title,omitempty"`
 	Description      string                      `json:"Description,omitempty"`
 	Status           string                      `json:"Status,omitempty"`
 	Severity         string                      `json:"Severity,omitempty"`
 	Category         string                      `json:"Category,omitempty"`
-	AccountID        string                      `json:"AccountId,omitempty"`
 	ActualStartTime  *float64                    `json:"ActualStartTime,omitempty"`
 	ActualEndTime    *float64                    `json:"ActualEndTime,omitempty"`
 	Notifications    []OpsItemNotification       `json:"Notifications,omitempty"`
@@ -164,18 +247,19 @@ type OpsItem struct {
 	PlannedStartTime *float64                    `json:"PlannedStartTime,omitempty"`
 	ActualEndTime    *float64                    `json:"ActualEndTime,omitempty"`
 	ActualStartTime  *float64                    `json:"ActualStartTime,omitempty"`
-	Source           string                      `json:"Source"`
-	OpsItemType      string                      `json:"OpsItemType,omitempty"`
+	OpsItemID        string                      `json:"OpsItemId"`
+	Description      string                      `json:"Description,omitempty"`
 	Status           string                      `json:"Status"`
 	Severity         string                      `json:"Severity,omitempty"`
 	Category         string                      `json:"Category,omitempty"`
-	OpsItemID        string                      `json:"OpsItemId"`
+	Source           string                      `json:"Source"`
 	OpsItemArn       string                      `json:"OpsItemArn,omitempty"`
-	Description      string                      `json:"Description,omitempty"`
+	OpsItemType      string                      `json:"OpsItemType,omitempty"`
 	AccountID        string                      `json:"AccountId,omitempty"`
 	Title            string                      `json:"Title"`
-	Notifications    []OpsItemNotification       `json:"Notifications,omitempty"`
+	Version          string                      `json:"Version,omitempty"`
 	RelatedOpsItems  []RelatedOpsItemRef         `json:"RelatedOpsItems,omitempty"`
+	Notifications    []OpsItemNotification       `json:"Notifications,omitempty"`
 	LastModifiedTime float64                     `json:"LastModifiedTime"`
 	CreatedTime      float64                     `json:"CreatedTime"`
 	Priority         int32                       `json:"Priority,omitempty"`

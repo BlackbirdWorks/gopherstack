@@ -487,11 +487,14 @@ type updateBaiduChannelRequest struct {
 	Enabled   bool   `json:"Enabled"`
 }
 
-// sendMessagesRequest is the request body for SendMessages.
+// sendMessagesRequest is the JSON wire format of SendMessagesInput's
+// MessageRequest member. gopherstack-lffs: pinpoint@v1.42.4
+// awsRestjson1_serializeOpSendMessages serializes input.MessageRequest's own
+// fields directly as the request body (serializers.go) -- there is no
+// top-level "MessageRequest" wrapper key on the wire, same flat shape as the
+// response side.
 type sendMessagesRequest struct {
-	MessageRequest struct {
-		Addresses map[string]addressConfig `json:"Addresses,omitempty"`
-	} `json:"MessageRequest"`
+	Addresses map[string]addressConfig `json:"Addresses,omitempty"`
 }
 
 // addressConfig is a per-address configuration in a SendMessages request.
@@ -499,11 +502,11 @@ type addressConfig struct {
 	ChannelType string `json:"ChannelType,omitempty"`
 }
 
-// putEventsRequest is the request body for PutEvents.
+// putEventsRequest is the JSON wire format of PutEventsInput's EventsRequest
+// member. Flat on the wire like sendMessagesRequest above -- confirmed
+// against awsRestjson1_serializeOpPutEvents, no "EventsRequest" wrapper key.
 type putEventsRequest struct {
-	EventsRequest struct {
-		BatchItem map[string]endpointEvents `json:"BatchItem,omitempty"`
-	} `json:"EventsRequest"`
+	BatchItem map[string]endpointEvents `json:"BatchItem,omitempty"`
 }
 
 // endpointEvents is a per-endpoint event batch in PutEvents.
@@ -523,12 +526,14 @@ type eventItem struct {
 	Timestamp string `json:"Timestamp,omitempty"`
 }
 
-// phoneNumberValidateRequest is the request body for PhoneNumberValidate.
+// phoneNumberValidateRequest is the JSON wire format of
+// PhoneNumberValidateInput's NumberValidateRequest member. Flat on the wire,
+// same as sendMessagesRequest above -- confirmed against
+// awsRestjson1_serializeOpPhoneNumberValidate, no "NumberValidateRequest"
+// wrapper key.
 type phoneNumberValidateRequest struct {
-	NumberValidateRequest struct {
-		PhoneNumber string `json:"PhoneNumber"`
-		IsoCountry  string `json:"IsoCountryCode,omitempty"`
-	} `json:"NumberValidateRequest"`
+	PhoneNumber string `json:"PhoneNumber"`
+	IsoCountry  string `json:"IsoCountryCode,omitempty"`
 }
 
 // ──────────────────────────────────────────────────
@@ -656,30 +661,22 @@ type messageResult struct {
 	StatusCode     int    `json:"StatusCode"`
 }
 
-// sendMessagesResponse is the JSON wire format of SendMessagesOutput: the
-// MessageResponse shape is nested under a "MessageResponse" key, never
-// returned bare.
-type sendMessagesResponse struct {
-	MessageResponse messageResponse `json:"MessageResponse"`
-}
-
 // usersMessageResponse is the JSON wire format of SendUsersMessageResponse.
+// SendMessages/SendUsersMessages/SendOTPMessage/PhoneNumberValidate are all
+// flat/payload ops (pinpoint@v1.42.4 deserializers.go's
+// awsRestjson1_deserializeOp{SendMessages,SendUsersMessages,SendOTPMessage,
+// PhoneNumberValidate} decode the whole body directly into
+// output.{MessageResponse,SendUsersMessageResponse,MessageResponse,
+// NumberValidateResponse} via awsRestjson1_deserializeDocument*; the
+// generated deserializeOpDocument*Output wrapper functions, whose case lists
+// switch on "MessageResponse"/"SendUsersMessageResponse"/
+// "NumberValidateResponse", are dead code never reached by HandleDeserialize)
+// -- there is no top-level wrapper key on the wire, these are the response
+// bodies themselves.
 type usersMessageResponse struct {
 	Result        map[string]map[string]messageResult `json:"Result"`
 	ApplicationID string                              `json:"ApplicationId"`
 	RequestID     string                              `json:"RequestId,omitempty"`
-}
-
-// sendUsersMessagesResponse is the JSON wire format of SendUsersMessagesOutput:
-// the SendUsersMessageResponse shape is nested under a
-// "SendUsersMessageResponse" key, never returned bare.
-type sendUsersMessagesResponse struct {
-	SendUsersMessageResponse usersMessageResponse `json:"SendUsersMessageResponse"`
-}
-
-// sendOTPMessageResponse is the response for SendOTPMessage.
-type sendOTPMessageResponse struct {
-	MessageResponse messageResponse `json:"MessageResponse"`
 }
 
 // verifyOTPMessageResponse is the response for VerifyOTPMessage.
@@ -687,12 +684,7 @@ type verifyOTPMessageResponse struct {
 	Valid bool `json:"Valid"`
 }
 
-// phoneNumberValidateResponse is the response for PhoneNumberValidate.
-type phoneNumberValidateResponse struct {
-	NumberValidateResponse numberValidateResponse `json:"NumberValidateResponse"`
-}
-
-// numberValidateResponse is the inner response for PhoneNumberValidate.
+// numberValidateResponse is the JSON wire format of PhoneNumberValidateOutput.
 type numberValidateResponse struct {
 	Carrier                           string `json:"Carrier,omitempty"`
 	City                              string `json:"City,omitempty"`
@@ -840,23 +832,30 @@ type storedPinpointEvent struct {
 	Timestamp string `json:"Timestamp"`
 }
 
-// verifyOTPMessageRequest is the request body for VerifyOTPMessage.
+// verifyOTPMessageRequest is the JSON wire format of VerifyOTPMessageInput's
+// VerifyOTPMessageRequestParameters member. Flat on the wire, same as
+// sendMessagesRequest above -- confirmed against
+// awsRestjson1_serializeOpVerifyOTPMessage, no
+// "VerifyOTPMessageRequestParameters" wrapper key. A prior version's wrapper
+// meant a real client's Otp value never reached the backend, so any
+// verification always fell back to the no-code "was an OTP ever sent?" path
+// regardless of what code the caller actually sent.
 type verifyOTPMessageRequest struct {
-	VerifyOTPMessageRequestParameters struct {
-		DestinationIdentity string `json:"DestinationIdentity,omitempty"`
-		Otp                 string `json:"Otp"`
-		ReferenceID         string `json:"ReferenceId,omitempty"`
-	} `json:"VerifyOTPMessageRequestParameters"`
+	DestinationIdentity string `json:"DestinationIdentity,omitempty"`
+	Otp                 string `json:"Otp"`
+	ReferenceID         string `json:"ReferenceId,omitempty"`
 }
 
-// sendUsersMessagesRequest is the request body for SendUsersMessages.
+// sendUsersMessagesRequest is the JSON wire format of
+// SendUsersMessagesInput's SendUsersMessageRequest member. Flat on the wire,
+// same as sendMessagesRequest above -- confirmed against
+// awsRestjson1_serializeOpSendUsersMessages, no "SendUsersMessageRequest"
+// wrapper key.
 type sendUsersMessagesRequest struct {
-	SendUsersMessageRequest struct {
-		Users                 map[string]endpointSendConfig `json:"Users,omitempty"`
-		MessageConfiguration  map[string]any                `json:"MessageConfiguration,omitempty"`
-		TemplateConfiguration map[string]any                `json:"TemplateConfiguration,omitempty"`
-		TraceID               string                        `json:"TraceId,omitempty"`
-	} `json:"SendUsersMessageRequest"`
+	Users                 map[string]endpointSendConfig `json:"Users,omitempty"`
+	MessageConfiguration  map[string]any                `json:"MessageConfiguration,omitempty"`
+	TemplateConfiguration map[string]any                `json:"TemplateConfiguration,omitempty"`
+	TraceID               string                        `json:"TraceId,omitempty"`
 }
 
 // endpointSendConfig is per-endpoint config in SendUsersMessages.

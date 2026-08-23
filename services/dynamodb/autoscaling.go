@@ -14,23 +14,38 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/dynamodb/models"
 )
 
-// autoScalingSettingsFromInput converts an UpdateTableReplicaAutoScalingInput
-// into the persisted shape so the next DescribeTableReplicaAutoScaling can
-// round-trip the values without simulating real scaling.
-func autoScalingSettingsFromInput(
+// mergeAutoScalingSettingsFromInput merges an UpdateTableReplicaAutoScalingInput
+// into existing (nil if this table has never been updated before), so the next
+// DescribeTableReplicaAutoScaling can round-trip the values without simulating
+// real scaling.
+//
+// GlobalSecondaryIndexUpdates and ProvisionedWriteCapacityAutoScalingUpdate are
+// independently optional on the real input (api_op_UpdateTableReplicaAutoScaling.go):
+// a caller may update only one index's auto scaling settings without
+// mentioning table-level write capacity, or vice versa. Building a fresh
+// autoScalingSettings from only this call's fields and assigning it wholesale
+// (the previous behavior) silently wiped whatever an earlier call had set for
+// the field this call omitted.
+func mergeAutoScalingSettingsFromInput(
+	existing *autoScalingSettings,
 	input *dynamodb.UpdateTableReplicaAutoScalingInput,
 ) *autoScalingSettings {
-	s := &autoScalingSettings{}
+	s := existing
+	if s == nil {
+		s = &autoScalingSettings{}
+	}
 
 	if input.ProvisionedWriteCapacityAutoScalingUpdate != nil {
 		s.Write = throughputFromUpdate(input.ProvisionedWriteCapacityAutoScalingUpdate)
 	}
 
 	if len(input.GlobalSecondaryIndexUpdates) > 0 {
-		s.GlobalSecondaryIndexes = make(
-			map[string]*autoScalingThroughput,
-			len(input.GlobalSecondaryIndexUpdates),
-		)
+		if s.GlobalSecondaryIndexes == nil {
+			s.GlobalSecondaryIndexes = make(
+				map[string]*autoScalingThroughput,
+				len(input.GlobalSecondaryIndexUpdates),
+			)
+		}
 		for _, g := range input.GlobalSecondaryIndexUpdates {
 			if g.IndexName == nil {
 				continue
@@ -77,7 +92,7 @@ func applyAutoScalingSettingsLocked(
 	table.mu.Lock("UpdateTableReplicaAutoScaling")
 	defer table.mu.Unlock()
 
-	table.AutoScaling = autoScalingSettingsFromInput(input)
+	table.AutoScaling = mergeAutoScalingSettingsFromInput(table.AutoScaling, input)
 	replicas := make([]models.ReplicaDescription, len(table.Replicas))
 	copy(replicas, table.Replicas)
 

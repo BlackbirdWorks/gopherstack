@@ -1,6 +1,9 @@
 package sagemaker
 
-import "context"
+import (
+	"context"
+	"encoding/json"
+)
 
 // StorageBackend defines the interface for SageMaker backend implementations.
 // All mutating methods must be safe for concurrent use.
@@ -13,7 +16,7 @@ type StorageBackend interface {
 		tags map[string]string,
 	) (*Model, error)
 	DescribeModel(ctx context.Context, name string) (*Model, error)
-	ListModels(ctx context.Context, nextToken string) ([]*Model, string)
+	ListModels(ctx context.Context, nextToken string, filter nameTimeFilter) ([]*Model, string)
 	DeleteModel(ctx context.Context, name string) error
 	SetModelExtras(
 		ctx context.Context,
@@ -30,7 +33,9 @@ type StorageBackend interface {
 		tags map[string]string,
 	) (*EndpointConfig, error)
 	DescribeEndpointConfig(ctx context.Context, name string) (*EndpointConfig, error)
-	ListEndpointConfigs(ctx context.Context, nextToken string) ([]*EndpointConfig, string)
+	ListEndpointConfigs(
+		ctx context.Context, nextToken string, filter nameTimeFilter,
+	) ([]*EndpointConfig, string)
 	DeleteEndpointConfig(ctx context.Context, name string) error
 	SetEndpointConfigExtras(
 		ctx context.Context,
@@ -42,6 +47,7 @@ type StorageBackend interface {
 		kmsKeyID string,
 		shadowProductionVariants []ProductionVariant,
 		enableNetworkIsolation bool,
+		explainerConfig, metricsConfig json.RawMessage,
 	) error
 
 	AddTags(ctx context.Context, resourceARN string, tags map[string]string) error
@@ -60,10 +66,13 @@ type StorageBackend interface {
 
 	AttachClusterNodeVolume(
 		ctx context.Context,
-		clusterName, nodeID string,
-		volume ClusterNodeVolume,
-	) (string, string, error)
-	BatchAddClusterNodes(ctx context.Context, clusterName string, nodeConfigs []ClusterNode) (string, []string, error)
+		clusterArn, nodeID, volumeID string,
+	) (*AttachedVolume, error)
+	BatchAddClusterNodes(
+		ctx context.Context,
+		clusterName string,
+		specs []AddClusterNodeSpec,
+	) (string, []ClusterNode, []BatchAddClusterNodesFailure, error)
 	BatchDeleteClusterNodes(
 		ctx context.Context,
 		clusterName string,
@@ -75,7 +84,11 @@ type StorageBackend interface {
 		clusterName string,
 		nodeIDs []string,
 	) (string, []string, []string, error)
-	BatchReplaceClusterNodes(ctx context.Context, clusterName string, nodes []ClusterNode) (string, []string, error)
+	BatchReplaceClusterNodes(
+		ctx context.Context,
+		clusterName string,
+		nodeIDs []string,
+	) (string, []string, []string, error)
 
 	CreateAction(
 		ctx context.Context,
@@ -83,14 +96,15 @@ type StorageBackend interface {
 		source ActionSource,
 		properties map[string]string,
 		tags map[string]string,
+		metadataProperties *MetadataProperties,
 	) (*Action, error)
 	CreateAlgorithm(ctx context.Context, opts CreateAlgorithmOptions) (*Algorithm, error)
 
-	CreateEndpoint(ctx context.Context, name, endpointConfigName string, tags map[string]string) (*Endpoint, error)
+	CreateEndpoint(ctx context.Context, opts CreateEndpointOptions) (*Endpoint, error)
 	DescribeEndpoint(ctx context.Context, name string) (*Endpoint, error)
-	ListEndpoints(ctx context.Context, nextToken string) ([]*Endpoint, string)
+	ListEndpoints(ctx context.Context, filter ListEndpointsFilter) ([]*Endpoint, string)
 	DeleteEndpoint(ctx context.Context, name string) error
-	UpdateEndpoint(ctx context.Context, name, endpointConfigName string) (*Endpoint, error)
+	UpdateEndpoint(ctx context.Context, name string, opts UpdateEndpointOptions) (*Endpoint, error)
 
 	CreateTrainingJob(
 		ctx context.Context,
@@ -111,8 +125,7 @@ type StorageBackend interface {
 	DescribeNotebookInstance(ctx context.Context, name string) (*NotebookInstance, error)
 	ListNotebookInstances(
 		ctx context.Context,
-		nextToken string,
-		filter ListNotebookInstancesFilter,
+		params ListNotebookInstancesParams,
 	) ([]*NotebookInstance, string)
 	DeleteNotebookInstance(ctx context.Context, name string) error
 	StartNotebookInstance(ctx context.Context, name string) error
@@ -121,13 +134,12 @@ type StorageBackend interface {
 	CreatePresignedNotebookInstanceURL(ctx context.Context, name string) (string, error)
 
 	CreateHyperParameterTuningJob(
-		ctx context.Context,
-		name, strategy string,
-		limits HPResourceLimits,
-		tags map[string]string,
+		ctx context.Context, opts CreateHyperParameterTuningJobOptions,
 	) (*HyperParameterTuningJob, error)
 	DescribeHyperParameterTuningJob(ctx context.Context, name string) (*HyperParameterTuningJob, error)
-	ListHyperParameterTuningJobs(ctx context.Context, nextToken string) ([]*HyperParameterTuningJob, string)
+	ListHyperParameterTuningJobs(
+		ctx context.Context, nextToken string, filter ListHyperParameterTuningJobsFilter,
+	) ([]*HyperParameterTuningJob, string)
 	StopHyperParameterTuningJob(ctx context.Context, name string) error
 	DeleteHyperParameterTuningJob(ctx context.Context, name string) error
 

@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	iotsdk "github.com/aws/aws-sdk-go-v2/service/iot"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -556,4 +558,30 @@ func TestDescribeThingGroup_NotFound_Error(t *testing.T) {
 	_, b := newR3Handler()
 	_, err := b.DescribeThingGroup("ghost-group")
 	require.ErrorIs(t, err, iot.ErrThingGroupNotFound)
+}
+
+// TestListThingGroups_RealSDKClient_GroupNameAndArnKeys proves ListThingGroups'
+// items key their name/ARN groupName/groupArn (types.GroupNameAndArn,
+// iot@v1.77.4 deserializers.go's awsRestjson1_deserializeDocumentGroupNameAndArn),
+// not thingGroupName/thingGroupArn -- the correct keys for the DIFFERENT
+// CreateThingGroupOutput/DescribeThingGroupOutput shape. Before this fix
+// every real client's ListThingGroups().ThingGroups[].GroupName/GroupArn
+// decoded empty.
+func TestListThingGroups_RealSDKClient_GroupNameAndArnKeys(t *testing.T) {
+	t.Parallel()
+
+	h := iot.NewHandler(iot.NewInMemoryBackend(), nil)
+	client := newTestIoTClient(t, h)
+	ctx := t.Context()
+
+	_, err := client.CreateThingGroup(ctx, &iotsdk.CreateThingGroupInput{
+		ThingGroupName: aws.String("group-real-client"),
+	})
+	require.NoError(t, err)
+
+	listOut, err := client.ListThingGroups(ctx, &iotsdk.ListThingGroupsInput{})
+	require.NoError(t, err)
+	require.Len(t, listOut.ThingGroups, 1)
+	assert.Equal(t, "group-real-client", aws.ToString(listOut.ThingGroups[0].GroupName))
+	assert.NotEmpty(t, aws.ToString(listOut.ThingGroups[0].GroupArn))
 }

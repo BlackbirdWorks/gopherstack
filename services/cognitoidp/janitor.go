@@ -47,6 +47,11 @@ func (j *Janitor) Run(ctx context.Context) {
 func (j *Janitor) SweepOnce(ctx context.Context) {
 	j.sweepExpiredRefreshTokens(ctx)
 	j.Backend.EvictExpiredMFASessions()
+
+	if n := j.Backend.AdvanceUserImportJobStatuses(userImportJobCompletionDelay); n > 0 {
+		telemetry.RecordWorkerItems("cognitoidp", "UserImportJobAdvancer", n)
+		logger.Load(ctx).InfoContext(ctx, "cognitoidp janitor: advanced user import job statuses", "count", n)
+	}
 }
 
 // sweepExpiredRefreshTokens removes refresh tokens whose ExpiresAt is in the past.

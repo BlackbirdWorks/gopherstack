@@ -360,6 +360,35 @@ families:
       is now a pure existence-check no-op, matching StartInputDevice/
       StopInputDevice's existing pattern (StartInputDeviceMaintenanceWindowOutput
       carries no fields on the real wire either).
+      gopherstack-tp8x (2026-08-21), FIXED: DescribeInputDeviceThumbnail was
+      a header-vs-body confusion, not a key-casing bug -- confirmed against
+      awsRestjson1_deserializeOpHttpBindingsDescribeInputDeviceThumbnailOutput,
+      which binds ContentType/ContentLength/ETag/LastModified to the
+      Content-Type/Content-Length/ETag/Last-Modified HTTP response headers,
+      and awsRestjson1_deserializeOpDocumentDescribeInputDeviceThumbnailOutput,
+      which sets Body directly from the raw response body (no JSON
+      unwrapping). The handler wrote a JSON object
+      {"ContentType":"image/jpeg","ContentLength":0} with none of those as
+      real headers, so a real client's typed ContentType/ContentLength
+      fields decoded as zero values regardless of what was "sent". Fixed to
+      set real ETag/Last-Modified headers and return the body via c.Blob
+      with a real Content-Type header -- same convention as
+      iotdataplane's GetThingShadow. No real thumbnail image is captured by
+      this backend (body is empty bytes); only the wire *shape* is fixed.
+      Locked by TestDescribeInputDeviceThumbnail_HeadersNotBody_RealClient.
+      NOTE: gopherstack-tp8x's filing cited apigateway's GetSdk as an
+      existing correct example of this same header/raw-body convention --
+      checked while fixing this, and that citation is wrong: apigateway's
+      GetSdk (handler_sdk.go) still JSON-marshals
+      {"contentType","contentDisposition","body"} through the same
+      dispatch()/c.JSONBlob() path as every other apigateway op, with no
+      header-setting or raw-body special case anywhere in the dispatch
+      chain (handler.go's dispatch/dispatchAndRespond). apigateway's GetSdk
+      has the same header-vs-body bug this entry just fixed for medialive;
+      it was NOT touched by this pass (out of gopherstack-tp8x's scope) and
+      is now a known, confirmed gap for apigateway -- see that service's
+      PARITY.md / file a follow-up before trusting the old "already
+      correct" note again.
   Cluster:
     status: ok
     note: >
@@ -842,3 +871,83 @@ is byte-identical, and `deserializers.go` has zero diffs touching any of the
 timestamp shapes named above between v1.97.2 and v1.101.4 -- op count is
 123/123 in both. All citations now correctly read v1.101.4, and `sdk_module`
 above is corrected to match.
+
+## 2026-08-22 gopherstack-wlo1: error envelope is wire shape too
+
+Two dispatch-failure sites in `handleREST` -- the "invalid JSON body" 400
+and the "unknown operation" 404 -- wrote a JSON body via `keyMessage` alone,
+without ever setting `amznErrorTypeHeader` (X-Amzn-Errortype). The genuine
+backend-error path (`respondErr`, which calls `errType(err)`) already set
+this header correctly, so this affected only these two malformed/dispatch
+paths, not every operation. aws-sdk-go-v2/service/medialive@v1.101.4's
+`awsRestjson1_deserializeOpError*` functions read X-Amzn-ErrorType first,
+falling back to a body `code`/`__type` field only if absent (confirmed via
+`deserializeOpErrorDescribeChannel`, which models `NotFoundException`, and
+`deserializeOpErrorCreateChannel`, which models `BadRequestException` --
+both in deserializers.go). With neither header nor body type set, both
+paths decoded client-side as `smithy.GenericAPIError{Code:"UnknownError"}`.
+
+Fixed by setting `amznErrorTypeHeader` to `"BadRequestException"` (matches
+`errType`'s `awserr.ErrInvalidParameter` mapping) before the malformed-body
+response, and to `"NotFoundException"` (matches `errType`'s
+`awserr.ErrNotFound` mapping, and the 404 status already in use) before the
+unknown-operation response.
+
+Proof: since no real SDK operation can construct a malformed body or an
+unrecognised route on its own, `handler_error_type_test.go` adds two tests
+that drive a genuine `medialivesdk.Client` through smithy middleware that
+corrupts the outgoing request after normal serialization/signing --
+`TestCreateChannel_MalformedBodySurfacesBadRequestException` (corrupts the
+body) and `TestCreateChannel_UnrecognisedRouteSurfacesNotFoundException`
+(rewrites the path to one `classifyPath` doesn't recognise, keeping the
+`/prod/` prefix `RouteMatcher` requires). Both confirmed failing against
+the unfixed `handler.go` (asserted "UnknownError" instead of the intended
+code) via hand-revert, then restored byte-identical (md5sum-verified).
+Same bug class as the sibling mediatailor (f41d5b42f) and vpclattice
+(gopherstack-wlo1, this session) services, and the s3control/iot instances
+that opened gopherstack-wlo1.
+
+## 2026-08-22: DeleteInput must stay describable as DELETED, not vanish
+
+CI's terraform-tests job failed destroying a real `aws_medialive_input`:
+`tofu destroy` reported `Error: waiting for delete AWS Elemental MediaLive
+Input (<id>): couldn't find resource (21 retries)`. `DeleteInput` removed
+the record outright, so `DescribeInput` 404'd immediately.
+
+Verified against terraform-provider-aws's own source
+(`internal/service/medialive/input.go`) rather than assumed: its
+`waitInputDeleted` polls `DescribeInput` via `statusInput` with
+`Pending: [InputStateDeleting]`, `Target: [InputStateDeleted]`. `statusInput`
+maps a `NotFoundException` to `(nil, "", nil)` -- an *indeterminate* result,
+not a success -- because `retry.StateChangeConf`'s empty-target convention
+(“not found means done”) does not apply here: the target is the literal
+string `"DELETED"`, never empty. An immediate 404 is therefore
+indistinguishable, from the waiter's perspective, from "still deleting", so
+it burns its `NotFoundChecks` budget (21 polls observed) and fails instead
+of succeeding. `resourceInputDelete` does treat a `NotFoundException`
+returned directly from the `DeleteInput` call itself as done (idempotent
+delete-of-already-gone), but that's a different code path from the
+post-delete wait.
+
+Real AWS models exactly this soft-delete window (`InputState` enum has
+`CREATING`/`DETACHED`/`ATTACHED`/`DELETING`/`DELETED` -- `types/enums.go`,
+aws-sdk-go-v2/service/medialive@v1.101.4): a deleted input stays describable
+with `State: DELETED` for some period rather than disappearing on the same
+call. Fixed by having `DeleteInput` mark the stored input `State =
+stateDeleted` in place instead of removing it from the table, mirroring the
+existing `stateDeleted` convention already used for Channel/Multiplex
+responses (`channels.go`, `multiplexes.go`) but, unlike those, actually
+leaving the record live for a subsequent `DescribeInput`. `ListInputs` and
+`InputCount` are unchanged and will continue to include a DELETED input;
+no test or real-client evidence required excluding it, and doing so
+speculatively would be an unverified guess. `BatchDeleteInput`
+(`batch.go`) still hard-deletes and was left alone -- out of scope, no
+failing test or provider evidence implicates it.
+
+Reproduced against the real HashiCorp AWS provider via `go test
+./test/terraform/ -run TestTerraform_MediaLive` (`tofu destroy` failing with
+the exact CI error) and against the real `aws-sdk-go-v2` client
+(`TestDeleteInput_RealClient_StaysDescribableAsDeleted`,
+`handler_inputs_test.go`) before the fix, both now passing after it.
+`TestInput_CRUD`'s delete assertions were updated to match (input count
+stays 1, Describe returns 200 with state DELETED, not 404).

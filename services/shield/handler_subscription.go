@@ -31,9 +31,10 @@ func (h *Handler) handleCreateSubscription(ctx context.Context) error {
 func subscriptionLimits() map[string]any {
 	const maxPerType = int64(subscriptionMaxProtectionsPerType)
 
+	// No "MaxProtections" key: types.ProtectionLimits (shield@v1.37.4
+	// types/types.go) has only ProtectedResourceTypeLimits.
 	return map[string]any{
 		"ProtectionLimits": map[string]any{
-			"MaxProtections": int64(subscriptionMaxProtections),
 			"ProtectedResourceTypeLimits": []map[string]any{
 				{keyType: ResourceTypeCloudFrontDistribution, keyMax: maxPerType},
 				{keyType: ResourceTypeRoute53HostedZone, keyMax: maxPerType},

@@ -16,10 +16,10 @@ type createWorkGroupInput struct {
 }
 
 type updateWorkGroupInput struct {
-	ConfigurationUpdates *WorkGroupConfiguration `json:"ConfigurationUpdates"`
-	WorkGroup            string                  `json:"WorkGroup"`
-	Description          string                  `json:"Description"`
-	State                string                  `json:"State"`
+	ConfigurationUpdates *WorkGroupConfigurationUpdates `json:"ConfigurationUpdates"`
+	WorkGroup            string                         `json:"WorkGroup"`
+	Description          string                         `json:"Description"`
+	State                string                         `json:"State"`
 }
 
 type deleteWorkGroupInput struct {

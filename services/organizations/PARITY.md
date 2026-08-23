@@ -65,7 +65,7 @@ ops:
   CancelHandshake: {wire: ok, errors: ok, state: ok, persist: ok}
   DeclineHandshake: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeHandshake: {wire: ok, errors: ok, state: ok, persist: ok}
-  InviteAccountToOrganization: {wire: ok, errors: ok, state: ok, persist: ok}
+  InviteAccountToOrganization: {wire: ok, errors: ok, state: ok, persist: ok, note: "gopherstack-i8lo (2026-08-22): Target.Type (HandshakeParty, organizations@v1.53.5 types/types.go:420, required alongside Id:415) was decoded but never validated -- only Target.Id was checked. Now rejects a missing Target.Type with InvalidInputException."}
   LeaveOrganization: {wire: ok, errors: ok, state: ok, persist: ok}
   ListHandshakesForAccount: {wire: ok, errors: ok, state: ok, persist: ok, note: "already paginated; empty-body-tolerant parsing pattern (len(body)>0 guard) reused for the new ListAWSServiceAccessForOrganization fix"}
   ListHandshakesForOrganization: {wire: ok, errors: ok, state: ok, persist: ok, note: "already paginated"}
@@ -76,7 +76,7 @@ ops:
   ListAccountsWithInvalidEffectivePolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "correctly always empty -- this backend performs no policy-schema validation so no account can ever have an invalid effective policy; NOT a stub, a correct void result (parity-principles rule 4)"}
   ListEffectivePolicyValidationErrors: {wire: ok, errors: ok, state: ok, persist: ok, note: "same as above -- correct void result, not a stub"}
   DescribeResponsibilityTransfer: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "gopherstack-0m6h: now returns the real types.ResponsibilityTransfer shape (ActiveHandshakeId/Arn/EndTimestamp/Id/Name/Source/StartTimestamp/Status/Target/Type) under the correct 'ResponsibilityTransfer' envelope key -- was 'HandshakeDetails' holding a Handshake-shaped body (handshakeObject/toHandshakeObject), decoding as all-zero beyond Id/Arn against a real SDK client. Also fixed on the input side: real Id is the transfer's own rt-... id (DescribeResponsibilityTransferInput.Id), not the underlying HandshakeId this backend previously required. Verified against awsAwsjson11_deserializeOpDocumentDescribeResponsibilityTransferOutput/awsAwsjson11_deserializeDocumentResponsibilityTransfer, deserializers.go, aws-sdk-go-v2/service/organizations@v1.53.5."}
-  InviteOrganizationToTransferResponsibility: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "gopherstack-4ggy: request dropped SourceName/StartTimestamp/Type (3 of 4 required members) entirely -- now validated and stored as HandshakeResource entries (RESPONSIBILITY_TRANSFER/TRANSFER_START_TIMESTAMP/TRANSFER_TYPE), matching how InviteAccountToOrganization/EnableAllFeatures embed their own extra fields. Also fixed a pre-existing bug found by reading the whole shape: the created Handshake's Action was hardcoded to APPROVE_ALL_FEATURES (copy-paste from EnableAllFeatures) instead of the real TRANSFER_RESPONSIBILITY (types/enums.go ActionType). Output.Handshake genuinely is types.Handshake -- this op's wire shape was already correct, unlike its 5 (now-fixed) siblings. gopherstack-0m6h additionally makes this op create the backing ResponsibilityTransfer domain record the other 5 ops now read/write."}
+  InviteOrganizationToTransferResponsibility: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "gopherstack-4ggy: request dropped SourceName/StartTimestamp/Type (3 of 4 required members) entirely -- now validated and stored as HandshakeResource entries (RESPONSIBILITY_TRANSFER/TRANSFER_START_TIMESTAMP/TRANSFER_TYPE), matching how InviteAccountToOrganization/EnableAllFeatures embed their own extra fields. Also fixed a pre-existing bug found by reading the whole shape: the created Handshake's Action was hardcoded to APPROVE_ALL_FEATURES (copy-paste from EnableAllFeatures) instead of the real TRANSFER_RESPONSIBILITY (types/enums.go ActionType). Output.Handshake genuinely is types.Handshake -- this op's wire shape was already correct, unlike its 5 (now-fixed) siblings. gopherstack-0m6h additionally makes this op create the backing ResponsibilityTransfer domain record the other 5 ops now read/write. gopherstack-i8lo (2026-08-22): Target.Type (HandshakeParty, organizations@v1.53.5 types/types.go:420, required) had the same gap as InviteAccountToOrganization -- only Target.Id was checked; now validated the same way."}
   ListInboundResponsibilityTransfers: {wire: fixed, errors: ok, state: ok, persist: ok, note: "gopherstack-0m6h: element shape fixed same as DescribeResponsibilityTransfer; request now requires Type (real ListInboundResponsibilityTransfersInput.Type is required) and accepts Id/MaxResults/NextToken, all previously unparsed (handler took no body at all). Still honestly always returns empty: InviteOrganizationToTransferResponsibility can only be called by the sending account (doc comment) and this single-account backend has no path to simulate a transfer received from elsewhere -- see PARITY notes."}
   ListOutboundResponsibilityTransfers: {wire: fixed, errors: ok, state: ok, persist: ok, note: "gopherstack-0m6h: element shape fixed same as above; request now requires/filters on Type and paginates via MaxResults/NextToken (previously unparsed). Backed by the same ResponsibilityTransfer records InviteOrganizationToTransferResponsibility now creates, kept in sync with the underlying Handshake's Accept/Cancel/Decline/expire transitions."}
   TerminateResponsibilityTransfer: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "gopherstack-0m6h: now takes/returns the real transfer Id (rt-...), not a HandshakeId -- different ID space, previously conflated. Real TerminateResponsibilityTransferInput.EndTimestamp (optional) is now honored, defaulting to now() when omitted. State machine added: only an ACCEPTED transfer can be terminated (InvalidResponsibilityTransferTransitionException) and a transfer already terminated is rejected (ResponsibilityTransferAlreadyInStatusException) -- both declared on this op's own deserializeOpErrorTerminateResponsibilityTransfer switch, deserializers.go. Previously this op silently canceled any OPEN handshake regardless of the real op's semantics."}
@@ -300,3 +300,38 @@ so the next auditor doesn't re-flag them.
     `TestHandler_DescribeResponsibilityTransfer`); confirmed by hand-reverting the envelope key
     and the field-population that the round-trip test fails against the pre-fix shape (nil
     `ResponsibilityTransfer` / all-zero fields beyond `Id`/`Arn`).
+
+### 2026-08-22 (gopherstack-i8lo): missing required-member validation
+
+`HandshakeParty.Type` is marked `// This member is required.`
+(`aws-sdk-go-v2/service/organizations@v1.53.5` `types/types.go:420`,
+alongside `Id:415`, also required) and is checked by the real client's own
+`validateHandshakeParty` (`validators.go:1189`) before a request is ever
+sent. `InviteAccountToOrganization` and
+`InviteOrganizationToTransferResponsibility` (`handler_handshakes.go`) both
+decoded `Target.Type` but validated only `Target.Id`, so a request built by
+hand (or by a client that skips local validation) with a Target missing
+`Type` was silently accepted. Fixed by adding the same `== ""` rejection
+already used for `Target.Id`, in both handlers.
+
+No existing fixture supplied a `Target` with `Id` set but `Type` omitted
+(all fixtures either provide both or omit the whole `Target`, which the
+existing `Target.Id` check already caught) -- so no fixture was ratifying
+this defect, but none tested it either. Added
+`invite_missing_target_type` to `TestHandler_HandshakeErrors`
+(`handler_handshakes_test.go`) and `"missing target type"` to
+`TestHandler_InviteOrganizationToTransferResponsibility_MissingRequiredFields`
+(`handler_transfer_responsibility_test.go`), both expecting `400`.
+
+Confirmed via hand-revert: reverting `handler_handshakes.go` to `git show
+HEAD:services/organizations/handler_handshakes.go` made both new subtests
+fail (`expected: 400, actual: 200`); restored and `md5sum`-verified
+identical to the fix.
+
+The sweep's third reported item, glue `CreateDataCellsFilter`, does not
+exist in this repo's `services/glue/` at all -- `CreateDataCellsFilter` is a
+**Lake Formation** operation
+(`aws-sdk-go-v2/service/lakeformation@v1.50.4/api_op_CreateDataCellsFilter.go`),
+not Glue (`aws-sdk-go-v2/service/glue@v1.152.0` has no such op). The sweep
+mislabeled the service; nothing to fix here, and `services/lakeformation/`
+is outside this fix's scope.

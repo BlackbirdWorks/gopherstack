@@ -175,7 +175,7 @@ type InMemoryBackend struct {
 	securityConfigs           *store.Table[SecurityConfiguration]
 	sessions                  *store.Table[Session]
 	sessionStatements         map[string][]*Statement // key: sessionID
-	tableOptimizers           *store.Table[TableOptimizer]
+	tableOptimizers           *store.Table[tableOptimizerRecord]
 	tableColumnStats          map[string]*ColumnStatistics    // key: "dbName|tableName|colName"
 	partitionColumnStats      map[string]*ColumnStatistics    // key: partKey+"|"+colName
 	resourcePolicies          map[string]*resourcePolicyEntry // key: resourceARN or "__global__"
@@ -202,9 +202,10 @@ type InMemoryBackend struct {
 	mu                        *lockmetrics.RWMutex
 
 	// lifecycle reconciler timers
-	jobRunReadyAt  map[string]map[string]time.Time // jobName → runID → readyAt for STARTING→RUNNING
-	jobRunDoneAt   map[string]map[string]time.Time // jobName → runID → doneAt for RUNNING→SUCCEEDED
-	crawlerReadyAt map[string]time.Time            // crawlerName → readyAt for RUNNING→READY
+	jobRunReadyAt      map[string]map[string]time.Time // jobName → runID → readyAt for STARTING→RUNNING
+	jobRunDoneAt       map[string]map[string]time.Time // jobName → runID → doneAt for RUNNING→SUCCEEDED
+	crawlerReadyAt     map[string]time.Time            // crawlerName → readyAt for RUNNING→READY
+	integrationReadyAt map[string]time.Time            // integrationName → readyAt for CREATING→ACTIVE
 
 	// connection-type registry (custom types registered via RegisterConnectionType).
 	customConnectionTypes *store.Table[ConnectionTypeInfo]
@@ -269,6 +270,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		jobRunReadyAt:             make(map[string]map[string]time.Time),
 		jobRunDoneAt:              make(map[string]map[string]time.Time),
 		crawlerReadyAt:            make(map[string]time.Time),
+		integrationReadyAt:        make(map[string]time.Time),
 	}
 
 	registerAllTables(b)
@@ -317,6 +319,7 @@ func (b *InMemoryBackend) resetLifecycleStateLocked() {
 	b.jobRunReadyAt = make(map[string]map[string]time.Time)
 	b.jobRunDoneAt = make(map[string]map[string]time.Time)
 	b.crawlerReadyAt = make(map[string]time.Time)
+	b.integrationReadyAt = make(map[string]time.Time)
 }
 
 // Region returns the backend region.

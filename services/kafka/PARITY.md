@@ -4,6 +4,18 @@ sdk_module: aws-sdk-go-v2/service/kafka@v1.57.2
 last_audit_commit: fcb3fbbb9f46c11d4cf4034410f5ec80e7f16f63
 last_audit_date: 2026-08-05
 overall: A            # topic/replicator field-name/shape gaps closed; two prior "ok" families had a real wire bug each, now fixed
+                       # 2026-08-21 (gopherstack-1vv2): fixed UpdateReplicationInfo wholesale-
+                       # replacing stored TopicReplication with the narrower Update payload,
+                       # destroying StartingPositionType/TopicNameConfigurationType (immutable
+                       # after Create, so a real client's Update can never resend them). See the
+                       # UpdateReplicationInfo op row.
+                       # 2026-08-21 (gopherstack-r80d batch 27): fixed ListConfigurations/
+                       # ListConfigurationRevisions dropping required Configuration.CreationTime/
+                       # LatestRevision and ConfigurationRevision.CreationTime (structurally
+                       # absent fields, not just omitempty). last_audit_commit intentionally left
+                       # unchanged -- this pass's own sha is unknown to the sweep agent, which
+                       # cannot run git; see the dated Notes entry below for the real prior sha
+                       # this work sits on top of.
 ops:
   UpdateBrokerCount: {wire: ok, errors: ok, state: ok, persist: ok, note: "route fixed: was under /api/v2/clusters (wrong, unreachable), now /v1/clusters/{arn}/nodes/count. CurrentVersion now advances on success (see cluster_current_version_advance)."}
   UpdateBrokerStorage: {wire: ok, errors: ok, state: ok, persist: ok, note: "route fixed: now /v1/clusters/{arn}/nodes/storage"}
@@ -17,9 +29,9 @@ ops:
   UpdateStorage: {wire: ok, errors: ok, state: ok, persist: ok, note: "route fixed: now /v1/clusters/{arn}/storage"}
   RejectClientVpcConnection: {wire: ok, errors: ok, state: ok, persist: ok, note: "route+wire fixed: PUT /v1/clusters/{arn}/client-vpc-connection (singular), vpcConnectionArn read from JSON body not path. Verified against SDK: no separate AcceptClientVpcConnection op exists in this SDK version -- Reject is the only client-VPC-connection mutation, so the family is complete, not partial."}
   ListVpcConnections: {wire: ok, errors: ok, state: ok, persist: ok, note: "route fixed: GET /v1/vpc-connections (plural root, distinct from singular Create/Describe/Delete root). Item shape (types.VpcConnection) field-diffed: targetClusterArn/vpcConnectionArn/authentication/creationTime/state/vpcId all present; creationTime added this pass (was missing)."}
-  GetCompatibleKafkaVersions: {wire: ok, errors: ok, state: ok, persist: n/a, note: "route fixed: top-level GET /v1/compatible-kafka-versions?clusterArn=..., was wrongly nested under /v1/clusters/{arn}/..."}
+  GetCompatibleKafkaVersions: {wire: fixed, errors: ok, state: ok, persist: n/a, note: "route fixed previously: top-level GET /v1/compatible-kafka-versions?clusterArn=..., was wrongly nested under /v1/clusters/{arn}/.... 2026-08-22 (gopherstack-35gu): even once reachable, the response body itself was the wrong shape entirely -- backend returned a flat []*MSKVersion{Version,Status}, but the real GetCompatibleKafkaVersionsOutput.CompatibleKafkaVersions is []types.CompatibleKafkaVersion{SourceVersion,TargetVersions[]} (types/types.go:576; deserializers.go:15252 keys sourceVersion/targetVersions), grouped by the version being upgraded FROM. Every real client decoded compatibleKafkaVersions as empty regardless of backend computation. Fixed: new CompatibleKafkaVersion model type, GetCompatibleKafkaVersions now returns a single-element []*CompatibleKafkaVersion{SourceVersion: cluster's current version, TargetVersions: the KRaft-or-ZooKeeper target list}. See TestGetCompatibleKafkaVersions_SDKRoundTrip."}
   DescribeTopicPartitions: {wire: ok, errors: ok, state: ok, persist: n/a, note: "route ok. Response body reworked to the real {nextToken, partitions:[{partition,leader,replicas,isr}]} shape (types.TopicPartitionInfo), field-diffed against deserializers.go. Backend synthesizes a round-robin leader/replica assignment over the cluster's broker IDs (1..NumberOfBrokerNodes) with the full replica set always reported in-sync (isr==replicas) -- this in-memory emulator has no real broker/ISR divergence to model; documented simplification, not a wire-shape gap."}
-  UpdateReplicationInfo: {wire: ok, errors: ok, state: ok, persist: ok, note: "route ok. Request/response now match the real UpdateReplicationInfoInput/Output: currentVersion/sourceKafkaClusterArn/targetKafkaClusterArn (required) + optional topicReplication/consumerGroupReplication updates applied to the matching ReplicationInfoConfig flow; response is replicatorArn/replicatorState only. Optimistic-lock currentVersion check added (mismatch -> BadRequestException); unknown (source,target) flow -> NotFoundException."}
+  UpdateReplicationInfo: {wire: ok, errors: ok, state: ok, persist: fixed, note: "route ok. Request/response now match the real UpdateReplicationInfoInput/Output: currentVersion/sourceKafkaClusterArn/targetKafkaClusterArn (required) + optional topicReplication/consumerGroupReplication updates applied to the matching ReplicationInfoConfig flow; response is replicatorArn/replicatorState only. Optimistic-lock currentVersion check added (mismatch -> BadRequestException); unknown (source,target) flow -> NotFoundException. 2026-08-21 (gopherstack-1vv2): persist was accept-and-corrupt — types.TopicReplicationUpdate (UpdateReplicationInfo) declares no startingPosition/topicNameConfiguration at all (both immutable after Create, unlike Create-side types.TopicReplication), but the shared topicReplicationDTO decoded both create and update requests into the same TopicReplicationConfig, and the backend wholesale-replaced the stored TopicReplication with it -- so a real client's Update payload (which can never carry either field) silently erased both on every call. Fixed: topicReplicationUpdateDTO now mirrors only the real Update fields, and UpdateReplicationInfo merges them in while explicitly preserving the flow's existing StartingPositionType/TopicNameConfigurationType. See TestUpdateReplicationInfo_PreservesStartingPositionAndTopicNameConfig. ConsumerGroupReplicationUpdate's one narrower field (ConsumerGroupOffsetSyncMode, missing vs Create-side ConsumerGroupReplication) is not modeled by this backend at either Create or Update, so no data is destroyed there -- separate accept-and-drop gap, not fixed this pass."}
   CreateCluster: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateClusterV2: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeCluster: {wire: ok, errors: ok, state: ok, persist: ok, note: "CREATING->ACTIVE lazy transition on first poll confirmed correct, not a stuck-CREATING bug. Echoes rebalancing (gopherstack-h910). 2026-08-15 (gopherstack-6flj): prior 'wire: ok' was wrong despite being marked field-diffed for other passes -- this session's fresh per-field diff against deserializers.go's awsRestjson1_deserializeDocumentClusterInfo found: fabricated top-level kafkaVersion/configurationInfo (neither is a real ClusterInfo member; KafkaVersion only exists nested under currentBrokerSoftwareInfo, ConfigurationInfo belongs to MutableClusterInfo/ClusterOperation, a different type) now removed; missing real, backend-tracked storageMode/creationTime now added; missing zookeeperConnectStringTls added (extends the existing zookeeperConnectStringFor synthesis, which was V1-only, to both ports). Cluster.CreationTime was also never actually SET anywhere (always empty) -- fixed at CreateCluster/CreateClusterV2/CreateServerlessCluster/AddClusterInternal."}
@@ -28,13 +40,13 @@ ops:
   ListClustersV2: {wire: ok, errors: ok, state: ok, persist: ok, note: "Shares clusterInfoV2/toClusterInfoV2 with DescribeClusterV2 -- inherits the 2026-08-15 gopherstack-6flj fixes above."}
   DeleteCluster: {wire: ok, errors: ok, state: ok, persist: ok}
   GetBootstrapBrokers: {wire: ok, errors: ok, state: ok, persist: n/a, note: "field-diffed this pass against deserializers.go's switch on awsRestjson1_deserializeOpDocumentGetBootstrapBrokersOutput -- found and fixed 4 wrong JSON field names (see notes below). Was marked wire:ok pre-existing without ever being field-diffed; the bug predates this pass."}
-  CreateConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
-  DescribeConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListConfigurations: {wire: ok, errors: ok, state: ok, persist: ok}
+  CreateConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "CreateConfigurationOutput itself marks no member required (Smithy leaves Arn/CreationTime/LatestRevision/Name/State all optional at this op's own level), so this op was never in the required-output-member bug's scope; unaffected by the 2026-08-21 fix below."}
+  DescribeConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "same as CreateConfiguration: DescribeConfigurationOutput's own fields carry zero required annotations in the real SDK, out of this bug class's scope."}
+  ListConfigurations: {wire: fixed, errors: ok, state: ok, persist: ok, note: "2026-08-21 (gopherstack-r80d batch 27): ListConfigurationsOutput.Configurations is []types.Configuration -- the real domain struct, marshaled directly by this handler -- and types.Configuration requires CreationTime (*time.Time) and LatestRevision (*types.ConfigurationRevision), neither of which existed as a field on gopherstack's Configuration model at all (not an omitempty tag, a structurally absent member -- the 'member with no struct field at all' class). Every ListConfigurations call therefore decoded both as nil on a real client despite the SDK's required-field contract, 100% of the time, not an edge case. Fixed: added both fields, populated at CreateConfiguration/UpdateConfiguration/AddConfigurationInternal and propagated through cloneConfiguration. types.Configuration.State (ConfigurationState, non-pointer enum) was also structurally absent -- fixed alongside (harmless either way) but NOT counted as a proven bug per the campaign's provability rule: a non-pointer enum's omitted-vs-zero-value states decode identically to a real client, so no test can distinguish them. Description (*string, required, was tagged omitempty and reachably empty since CreateConfigurationInput.Description is optional) also had its omitempty tag removed so the key is always present, matching the 'required-but-inapplicable means present-and-empty, not absent' convention. Proven via TestListConfigurations_RequiredFields (wire_output_required tests, configuration_field_fixes_test.go), hand-reverted/confirmed-failing/restored, md5sum-verified byte-identical."}
   DeleteConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
-  UpdateConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "route was already correct: PUT /v1/configurations/{arn}"}
-  DescribeConfigurationRevision: {wire: ok, errors: ok, state: ok, persist: n/a}
-  ListConfigurationRevisions: {wire: ok, errors: ok, state: ok, persist: n/a}
+  UpdateConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "route was already correct: PUT /v1/configurations/{arn}. UpdateConfigurationOutput itself marks no member required either (same as Create/Describe above) -- out of this bug class's scope directly, but now also keeps the backing Configuration.LatestRevision in sync so ListConfigurations reflects a post-update Description/ServerProperties (see ListConfigurations note)."}
+  DescribeConfigurationRevision: {wire: ok, errors: ok, state: ok, persist: n/a, note: "DescribeConfigurationRevisionOutput duplicates ConfigurationRevision's fields directly on its own (unrequired) Output struct rather than embedding types.ConfigurationRevision, so this op's own CreationTime is not required by the wire contract -- out of the counted bug's scope, though the backend now populates it anyway via the shared revisionOf helper (see ListConfigurationRevisions note), so the gap closed as a side effect without being separately proven."}
+  ListConfigurationRevisions: {wire: fixed, errors: ok, state: ok, persist: n/a, note: "2026-08-21 (gopherstack-r80d batch 27): Revisions is []types.ConfigurationRevision -- the real domain struct, marshaled directly -- and types.ConfigurationRevision requires CreationTime (*time.Time, provable), structurally absent from gopherstack's ConfigurationRevision model (same class as ListConfigurations above, same fix commit). Every call unconditionally omitted the key. Fixed by adding the field, threaded through a new revisionOf(c *Configuration) helper CreateConfiguration/UpdateConfiguration/DescribeConfigurationRevision/ListConfigurationRevisions/AddConfigurationInternal all now share, so the one revision this stub models (see the pre-existing 'single revision' doc comments) always carries the same CreationTime as its owning Configuration. Proven via TestListConfigurationRevisions_CreationTime, hand-reverted/confirmed-failing/restored, md5sum-verified byte-identical."}
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: n/a}
@@ -74,13 +86,13 @@ families:
   cluster_v1_v2_crud: {status: ok, note: "CreateCluster(V2)/DescribeCluster(V2)/ListClusters(V2)/DeleteCluster verified wire-accurate; CREATING->ACTIVE lazy-poll transition confirmed correct"}
   cluster_update_ops: {status: ok, note: "10 Update* ops were 100% unreachable pre-fix (routed under wrong /api/v2/clusters prefix while the real SDK sends them to /v1/clusters/{arn}/...); fixed. CurrentVersion optimistic-lock token now advances on every successful update (see cluster_current_version_advance) -- a second Update* call against the same cluster must fetch the version the first call left behind, matching real MSK; TestClusterOperationTracking_V1 and TestUpdateOpsRequireCurrentVersion cover both the advance and the stale-version rejection."}
   cluster_current_version_advance: {status: ok, note: "Cluster.CurrentVersion (and Replicator.CurrentVersion, same mechanism) now advances via nextVersionToken() on every successful mutating operation (newClusterOperationLocked for clusters; UpdateReplicationInfo for replicators), closing the gap where a second update against the same resource incorrectly succeeded while reusing a stale version."}
-  configuration_crud_and_revisions: {status: ok}
+  configuration_crud_and_revisions: {status: ok, note: "2026-08-21 (gopherstack-r80d batch 27): fixed required-output-member gaps in the List* ops' domain-struct item shapes (Configuration.CreationTime/LatestRevision, ConfigurationRevision.CreationTime) -- see ListConfigurations/ListConfigurationRevisions op notes."}
   tags: {status: ok}
   scram_secrets: {status: ok}
   vpc_connection: {status: ok, note: "ListClientVpcConnections had a real wire-envelope/shape bug (wrong JSON key + wrong item shape, returning an empty list to every real client) found and fixed this pass despite being marked ok previously -- see the ListClientVpcConnections op note. CreateVpcConnection/DescribeVpcConnection field-diffed and closed (clientSubnets/securityGroups/creationTime were missing). ListVpcConnections and RejectClientVpcConnection route fixes from the prior pass reconfirmed correct."}
   cluster_operations: {status: ok}
   cluster_policy: {status: ok}
-  nodes_versions_bootstrap: {status: ok, note: "GetCompatibleKafkaVersions was unreachable pre-fix (wrong nesting); fixed. GetBootstrapBrokers field-diffed this pass (previously only spot-checked, not adversarially verified) -- 4 wrong JSON field names found and fixed, see the op note. ListNodes/ListKafkaVersions verified."}
+  nodes_versions_bootstrap: {status: ok, note: "GetCompatibleKafkaVersions was unreachable pre-fix (wrong nesting); fixed. GetBootstrapBrokers field-diffed this pass (previously only spot-checked, not adversarially verified) -- 4 wrong JSON field names found and fixed, see the op note. ListNodes/ListKafkaVersions verified. 2026-08-22 (gopherstack-35gu): GetCompatibleKafkaVersions' response body shape itself was also wrong (flat []MSKVersion{Version,Status} instead of the real grouped CompatibleKafkaVersion{SourceVersion,TargetVersions[]}) -- see the op note."}
   replicator: {status: ok, note: "full ReplicationInfo/KafkaCluster topology now implemented end-to-end: CreateReplicator accepts and persists kafkaClusters/replicationInfoList; DescribeReplicator/ListReplicators resolve real KafkaClusterAlias/SourceKafkaClusterAlias/TargetKafkaClusterAlias from the live cluster table; UpdateReplicationInfo enforces the real currentVersion/source/target contract against a specific replication flow. See services/kafka/replicators_test.go TestCreateReplicator_TopologyAndAliasResolution and TestUpdateReplicationInfo_Backend."}
   topic: {status: ok, note: "CreateTopic/DescribeTopic/ListTopics/UpdateTopic field-name divergence closed (partitionCount/configs, topicArn/status, distinct TopicInfo list shape). DescribeTopicPartitions now returns the real {nextToken, partitions} shape with synthesized round-robin leader/replica placement. See services/kafka/topics_test.go and services/kafka/handler_topics_test.go."}
 gaps:
@@ -138,6 +150,126 @@ leaks: {status: clean, note: "no goroutines/timers introduced or found this pass
 ---
 
 ## Notes
+
+**2026-08-22 (gopherstack-35gu): GetCompatibleKafkaVersions returned the
+wrong item shape entirely.** Filed during the zquj keycheck sweep as
+structural (not a tag fix): the real
+`GetCompatibleKafkaVersionsOutput.CompatibleKafkaVersions` is
+`[]types.CompatibleKafkaVersion{SourceVersion *string, TargetVersions
+[]string}` (`types/types.go:576`), and the deserializer keys on
+`"sourceVersion"`/`"targetVersions"` (`deserializers.go:15252`,
+`awsRestjson1_deserializeDocumentCompatibleKafkaVersion`) -- grouped by the
+version being upgraded FROM, with the list of versions upgradeable TO.
+gopherstack's `Backend.GetCompatibleKafkaVersions` (`nodes.go`) instead
+returned a flat `[]*MSKVersion{Version, Status}`: neither the field names nor
+the shape (flat vs. grouped) matched, so every real client decoded
+`compatibleKafkaVersions` as an empty list regardless of what the backend
+computed.
+
+Fixed: added a new `CompatibleKafkaVersion{SourceVersion, TargetVersions}`
+model type (`models.go`), changed `Backend.GetCompatibleKafkaVersions`'s
+return type (interface signature change in `interfaces.go`) to
+`[]*CompatibleKafkaVersion`, and now returns a single-element slice grouping
+the cluster's current `KafkaVersion` as `SourceVersion` with the
+KRaft-or-ZooKeeper-appropriate target list as `TargetVersions`. This value is
+computed on the fly from `Cluster.KafkaVersion` at call time -- it is not
+part of the persisted `backendSnapshot` (confirmed absent from
+`persistence.go`), so no snapshot version bump applies.
+
+Proven end-to-end via a real `aws-sdk-go-v2` kafka client
+(`TestGetCompatibleKafkaVersions_SDKRoundTrip`,
+`services/kafka/handler_nodes_test.go`): CreateCluster with a known
+KafkaVersion, then GetCompatibleKafkaVersions, asserting
+`CompatibleKafkaVersions[0].SourceVersion`/`TargetVersions` decode non-nil
+and correct. Hand-reverted (`nodes.go`/`models.go`/`interfaces.go`/
+`handler_nodes.go` restored from `git show HEAD:...`) and confirmed the
+package fails to *compile* against the new test (the old `MSKVersion` type
+has neither field the test needs) -- the strongest possible confirmation
+that this is a structural gap, not a value bug; restored, md5sum
+byte-identical.
+
+Two existing backend-level tests
+(`TestGetCompatibleKafkaVersions_KRaftOnly`,
+`TestGetCompatibleKafkaVersions_ZooKeeperNoKRaft`) asserted the old flat
+`[]*MSKVersion` shape directly (`v.Version` per element); both corrected to
+the new grouped shape (`groups[0].SourceVersion`/`TargetVersions`).
+
+**2026-08-21 (gopherstack-r80d batch 27, required-output-member sweep):**
+Module confirmed as `aws-sdk-go-v2/service/kafka@v1.57.2` directly (no
+`dirModuleOverride` entry; only one `kafka` directory/module exists in this
+repo, no `kafkaconnect`/near-name sibling to confuse it with). `git status`
+clean for `services/kafka/` before starting.
+
+`cmd/requiredoutputfields` flags 9 required fields across 4 ops, all the
+Channel family: `CreateChannel`/`DeleteChannel`/`UpdateChannel` (`ChannelArn`,
+`*string`) and `DescribeChannel` (`ChannelArn`/`ChannelName`/`CreationTime`/
+`DestinationType`/`Status`/`TopicConfigurationList`). Independently
+reproduced via a fresh `go/parser` AST walk (scratch tool, not committed)
+with zero disagreement.
+
+**Channel family: 0 bugs, 1 candidate rejected.** `ChannelArn`/`ChannelName`/
+`DestinationType`/`Status`/`TopicConfigurationList` all carry no `omitempty`
+in `describeChannelOutput`/`channelOperationOutput` (`handler_channels.go`)
+-- always emitted regardless of value. `CreationTime` (`*time.Time` in the
+SDK, provable) IS tagged `omitempty` here and looked like a live candidate,
+but is **disqualified under the "populated on every write path" ground**:
+`CreateChannel` (`channels.go:77`) always sets it via
+`time.Now().UTC().Format(time.RFC3339)`, `cloneChannel` (`channels.go:372`)
+always preserves it, and `UpdateChannel` mutates through `cloneChannel` too
+-- there is no code path that ever persists a `Channel` with an empty
+`CreationTime`, so the `omitempty` tag is structurally dead, not a live gap.
+The one path that *does* construct a zero-`CreationTime` `Channel`
+(`DeleteChannel`'s return value, `channels.go:236`) is never rendered
+through `describeChannelOutput` -- `handleDeleteChannel` uses the separate
+`channelOperationOutput` shape, which has no `CreationTime` field at all.
+Looked one level deeper via `ListChannels`' `types.ChannelInfo` item shape
+(0 required fields at `ListChannelsOutput`'s own op level, but `ChannelInfo`
+itself requires the same 5 members as `DescribeChannelOutput`) -- same
+conclusion: `channelInfoOutput.CreationTime` is also `omitempty` but also
+always populated by the same `Channel`-store invariant.
+
+**Configuration family: 2 bugs found and fixed, both "member with no struct
+field at all" (not merely `omitempty`).** Unlike the Channel family, this
+family's op-level Output structs (`CreateConfigurationOutput`,
+`DescribeConfigurationOutput`, `DescribeConfigurationRevisionOutput`,
+`UpdateConfigurationOutput`) mark **zero** members required in the real SDK
+-- Smithy leaves them all optional at that op's own level, confirmed by
+reading each `api_op_*.go` directly, so those four ops are out of this bug
+class's scope entirely regardless of what gopherstack does. But
+`ListConfigurationsOutput.Configurations` is typed `[]types.Configuration`
+and `ListConfigurationRevisionsOutput.Revisions` is `[]types.ConfigurationRevision`
+-- the real domain structs, marshaled directly by gopherstack's handlers,
+not a per-op DTO -- and those domain structs *do* carry real required
+members (`types.Configuration`: `Arn`/`CreationTime`/`Description`/
+`KafkaVersions`/`LatestRevision`/`Name`/`State`; `types.ConfigurationRevision`:
+`CreationTime`/`Revision`), invisible to the flat per-op scan since the
+wrapping `Configurations`/`Revisions` fields themselves aren't required.
+gopherstack's `Configuration`/`ConfigurationRevision` models had no
+`CreationTime` or `LatestRevision` field **at all** (not an `omitempty`
+choice -- structurally absent, the same class as a prior pass's iam
+`JobCompletionDate` finding), so both `List*` ops omitted these unconditionally,
+on every call, not as an edge case. Fixed: added both fields to the models,
+populated at `CreateConfiguration`/`UpdateConfiguration`/
+`AddConfigurationInternal` and threaded through a new shared `revisionOf`
+helper so `DescribeConfigurationRevision`/`ListConfigurationRevisions` stay
+consistent with the owning `Configuration`'s own timestamp (this backend
+already documented a "single revision" simplification predating this fix;
+not expanded here). `State` (`ConfigurationState`, non-pointer enum) was
+also structurally absent and fixed alongside for correctness, but is **not**
+counted as a proven bug: a non-pointer enum's omitted-vs-zero-value states
+decode identically to a real client, so no test distinguishes them (same
+provability rule the campaign has applied throughout). `Description`
+(`*string`, required, reachably empty since `CreateConfigurationInput.Description`
+is optional) had its `omitempty` tag removed too, so the key is always
+present per the "required-but-inapplicable means present-and-empty"
+convention. Both counted fixes proven via real `aws-sdk-go-v2/service/kafka`
+client round trips (`configuration_field_fixes_test.go`:
+`TestListConfigurations_RequiredFields`, `TestListConfigurationRevisions_CreationTime`),
+hand-reverted against `git show HEAD:services/kafka/{models,configurations}.go`
+(confirmed both tests fail against the pre-fix code), restored, md5sum-verified
+byte-identical. No exported function signatures changed (only new fields on
+existing exported structs); `go build ./...`, `go vet -tags e2e ./...`, and
+`go vet -tags integration ./...` all clean repo-wide.
 
 **2026-08-15 (gopherstack-6flj wrapper-key sweep):** kafka was already
 heavily audited under other issue classes (h910, jqh2, dv4s, mk3t) with

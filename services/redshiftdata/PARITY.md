@@ -6,8 +6,8 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: redshiftdata
 sdk_module: aws-sdk-go-v2/service/redshiftdata@v1.43.4   # version audited against
-last_audit_commit: aa31b1913                              # HEAD when this audit began (working tree, uncommitted)
-last_audit_date: 2026-08-20
+last_audit_commit: ee8d5788f                              # HEAD when this audit began (working tree, uncommitted)
+last_audit_date: 2026-08-21
 overall: A            # genuine wire-shape/field gaps found and fixed this pass
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
@@ -124,7 +124,7 @@ ops:
     missing) and Database-required validation added (same reasoning as ListDatabases).
     Prior-pass fix retained: TableName is a plain string (was a nested object). ColumnList
     is static demo data ignoring req.Schema/req.Table (acceptable mock).}
-  ListSessions: {wire: ok, errors: ok, state: partial, persist: n/a (derived), note: >
+  ListSessions: {wire: ok, errors: ok, state: partial, persist: n/a, note: >
     NEW this pass (SDK added this op since v1.41.0; confirmed target
     "RedshiftData.ListSessions" against awsAwsjson11_serializeOpListSessions in
     aws-sdk-go-v2/service/redshiftdata@v1.43.0's serializers.go). This backend has no
@@ -184,6 +184,52 @@ leaks: {status: clean, note: "Janitor uses pkgs/worker.Group with TaskTimeout bo
 ---
 
 ## Notes
+
+### 2026-08-21 pass (gopherstack-r80d batch 32): required-output-member audit, clean
+
+Part of the mgn/redshiftdata/scheduler batch testing r80d's op-count-vs-
+field-count hypothesis (see `services/_REQUIRED_OUTPUT_CANDIDATES.md`);
+redshiftdata is one of the two 12-op control services (tied with
+`scheduler` at 5 required output fields). Module resolves directly
+(directory `redshiftdata` == SDK module `aws-sdk-go-v2/service/
+redshiftdata@v1.43.4`, no override). `cmd/requiredoutputfields` found 5
+required output fields across 5 ops (`DescribeStatement.Id`,
+`GetStatementResult(V2).Records`, `ListSessions.Sessions`,
+`ListStatements.Statements`); cross-checked via a standalone `go/ast`-style
+walk of the same `api_op_*.go` files -- agreed exactly.
+
+Every one of these 5 ops builds its response as a `map[string]any` literal
+passed straight to `json.Marshal` (`statementToDescribeResponse`,
+handler_statements.go:401; `handleGetStatementResult`'s inline literal,
+handler_statements.go:174-201; `handleListSessions`/`handleListStatements`,
+handler_sessions.go:13-58/handler_statements.go:263-312) -- the same
+structural immunity batch 30/31 found in ssoadmin/mediatailor/shield/
+translate: there is no struct tag for an `omitempty` mistake to hide behind.
+`Id`/`Sessions`/`Statements` are all assigned unconditionally (`Sessions`/
+`Statements` via `make([]map[string]any, 0, len(...))`, never nil).
+
+Followed the required members one level below the flat scan (this
+hypothesis's point): an AST walk of `redshiftdata@v1.43.4/types/types.go`
+found `SessionData` (`CreatedAt`/`SessionId`/`Status`, reachable via
+`ListSessions.Sessions`) and `StatementData`/`SubStatementData` (`Id`,
+reachable via `ListStatements.Statements` and `DescribeStatement.
+SubStatements`) each carry required members of their own. All are built via
+the same unconditional map-literal pattern (`sessionToListItem`,
+handler_sessions.go:75-100; the `SubStatements` loop, handler_statements.go:
+461-486) with backend-generated, never-empty IDs (`uuid.NewString()`,
+statements.go:110). `SqlParameter.{Name,Value}` (reachable via
+`DescribeStatement.QueryParameters`, itself optional) round-trips through
+gopherstack's own `SQLParameter{Name,Value}` with lowercase `name`/`value`
+JSON tags -- confirmed correct, not a casing bug, by reading the real
+`awsAwsjson11_deserializeDocumentSqlParameter`'s key switch directly (this
+protocol lowercases some nested-object member names while keeping top-level
+op fields PascalCase, e.g. `Id`/`Records`/`Sessions`/`Statements` stay
+capitalized -- verified per-field against the deserializer rather than
+assumed from one example).
+
+0 bugs found; no code changes. Companion services this batch: `mgn` (95
+ops, the batch's primary hypothesis test, also 0 bugs) and `scheduler` (2
+bugs; see `services/scheduler/PARITY.md`).
 
 Protocol: awsjson1.1 (single POST endpoint, `X-Amz-Target: RedshiftData.<Op>`). Verified
 the exact target prefix against `aws-sdk-go-v2/service/redshiftdata@v1.41.0`'s
@@ -477,3 +523,32 @@ echoed them back -- extended this pass to assert the round-trip).
   synchronously (no BUSY window) and SessionKeepAliveSeconds not being tracked anywhere
   (no TTL to compare against for CLOSED). See the `ListSessions` gaps entry before changing
   this.
+
+## gopherstack-o7gx (2026-08-22): ReadBody-failure path wrote untyped errors
+
+`Handler()`'s `httputils.ReadBody` failure branch wrote a bare
+`c.String(http.StatusInternalServerError, "internal server error")`.
+redshiftdata is awsjson1.1 (confirmed from `redshiftdata@v1.43.4`
+deserializers.go's `awsAwsjson11_deserializeOpError*` prefix, not from
+`services/_PROTOCOLS.md`), whose per-operation deserializer still calls
+`aws/protocol/restjson.GetErrorInfo` to JSON-decode `__type`/`message` from
+the body; plain text doesn't decode, so a real client got
+`*json.SyntaxError`, not even `UnknownError`.
+
+Fixed by writing `{"__type": "InternalServerException", "message":
+"internal server error"}` (new `writeInternalServerError` helper),
+matching this handler's own `handleError` `default:` fallback, which
+already uses the same code -- modeled at `redshiftdata@v1.43.4`
+`types/errors.go:183`.
+
+Proven with a real `aws-sdk-go-v2/service/redshiftdata` client's
+`ExecuteStatement`, whose `Sql` field alone exceeds
+`httputils.MaxRequestBodyBytes` (16 MiB). Note: `ExtractResource` also
+calls `httputils.ReadBody` earlier in the request lifecycle and swallows
+its own error to `""`, so by the time `Handler()` reads the body it hits
+"invalid Read on closed Body" rather than "request body too large" --
+still the same `ReadBody`-failure branch, same fix.
+`TestHandler_OversizedBodySurfacesInternalServerException`
+(`handler_oversized_body_test.go`) asserts `apiErr.ErrorCode() ==
+"InternalServerException"`; confirmed it fails pre-fix with
+`*json.SyntaxError` (hand-reverted, byte-identical restore after).

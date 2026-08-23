@@ -346,6 +346,14 @@ func TestPerInstanceMockKMSKey_SelfRoundTrip(t *testing.T) {
 		})
 	}
 }
+
+// TestPutParameter_KeyId_Stored proves KeyId is stored, and asserts it is
+// readable via DescribeParameters (types.ParameterMetadata) -- gopherstack-enpq:
+// GetParameter/GetParameters/GetParametersByPath's real wire type
+// (types.Parameter, types/types.go:4738-4782) has NO KeyId member at all;
+// only ParameterMetadata does. This test previously asserted KeyId on the
+// GetParameter response body, ratifying a fabricated field no real
+// aws-sdk-go-v2 client would ever see there.
 func TestPutParameter_KeyId_Stored(t *testing.T) {
 	t.Parallel()
 	h := newHandler()
@@ -363,10 +371,15 @@ func TestPutParameter_KeyId_Stored(t *testing.T) {
 		"Name":           "/app/secure",
 		"WithDecryption": true,
 	})
-
 	assert.Equal(t, http.StatusOK, code2)
 	param := out2["Parameter"].(map[string]any)
-	assert.Equal(t, "alias/my-key", param["KeyId"])
+	assert.NotContains(t, param, "KeyId", "types.Parameter has no KeyId member")
+
+	code3, out3 := postJSON(t, h, "DescribeParameters", map[string]any{})
+	assert.Equal(t, http.StatusOK, code3)
+	metas := out3["Parameters"].([]any)
+	require.Len(t, metas, 1)
+	assert.Equal(t, "alias/my-key", metas[0].(map[string]any)["KeyId"])
 }
 func TestGetParameter_DecryptError_Propagated(t *testing.T) {
 	t.Parallel()
@@ -600,7 +613,10 @@ func TestFull_ParameterStore_SecureString_EncryptDecrypt(t *testing.T) {
 	})
 	require.NotNil(t, err)
 
-	// Get without decrypt → encrypted value
+	// Get without decrypt → encrypted value. KeyId is NOT asserted here:
+	// types.Parameter (GetParameter's real wire shape) has no KeyId member,
+	// only types.ParameterMetadata (DescribeParameters) does -- see
+	// TestPutParameter_KeyId_Stored.
 	code, out := postJSON(t, h, "GetParameter", map[string]any{
 		"Name":           "/sec/p",
 		"WithDecryption": false,
@@ -608,7 +624,7 @@ func TestFull_ParameterStore_SecureString_EncryptDecrypt(t *testing.T) {
 	assert.Equal(t, http.StatusOK, code)
 	param := out["Parameter"].(map[string]any)
 	assert.NotEqual(t, "mysecret", param["Value"])
-	assert.Equal(t, "alias/test", param["KeyId"])
+	assert.NotContains(t, param, "KeyId", "types.Parameter has no KeyId member")
 
 	// Get with decrypt → plaintext
 	code, out = postJSON(t, h, "GetParameter", map[string]any{

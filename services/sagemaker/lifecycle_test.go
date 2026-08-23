@@ -54,7 +54,7 @@ func TestPipelineExecutionTransitionsFire(t *testing.T) {
 			name: "retry transitions to Succeeded",
 			act: func(t *testing.T, b *sagemaker.InMemoryBackend, execArn string) string {
 				t.Helper()
-				retried, err := b.RetryPipelineExecution(context.Background(), execArn)
+				retried, err := b.RetryPipelineExecution(context.Background(), execArn, nil)
 				require.NoError(t, err)
 
 				return retried.PipelineExecutionArn

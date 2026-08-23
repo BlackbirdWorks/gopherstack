@@ -203,3 +203,54 @@ func TestGetRightsizingRecommendation_Configuration_RealClient(t *testing.T) {
 	assert.False(t, out2.Configuration.BenefitsConsidered)
 	assert.Equal(t, cetypes.RecommendationTarget("CROSS_INSTANCE_FAMILY"), out2.Configuration.RecommendationTarget)
 }
+
+// TestGetReservationPurchaseRecommendation_NoFabricatedMetadataKeys_RealClient
+// covers gopherstack-y1zn. handleGetReservationPurchaseRecommendation emitted
+// a Metadata map with "RecommendationTotalCount" and "USD" (the latter was a
+// stray use of handlerCurrencyCode's own value as the map key, instead of
+// "CurrencyCode"); types.ReservationPurchaseRecommendationMetadata
+// (costexplorer@v1.67.4 types/types.go) has neither -- only
+// AdditionalMetadata/GenerationTimestamp/RecommendationId. A typed client
+// silently ignores unknown keys, so the proof is the raw body.
+func TestGetReservationPurchaseRecommendation_NoFabricatedMetadataKeys_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doRequest(t, h, "GetReservationPurchaseRecommendation", map[string]any{})
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	body := rec.Body.String()
+	assert.NotContains(t, body, `"RecommendationTotalCount"`,
+		"types.ReservationPurchaseRecommendationMetadata has no RecommendationTotalCount member")
+	assert.NotContains(t, body, `"USD":"USD"`,
+		"the stray map key must not be the currency value itself")
+	assert.NotContains(t, body, `"Metadata"`,
+		"no real Metadata field is trackable, so the key should be omitted entirely")
+}
+
+// TestGetSavingsPlansPurchaseRecommendation_CurrencyCodeKey_RealClient covers
+// gopherstack-y1zn. The recommendation detail and summary maps used
+// handlerCurrencyCode's own value ("USD") as the map key instead of
+// "CurrencyCode" (costexplorer@v1.67.4 deserializers.go); separately, the
+// top-level Metadata map included a fabricated "RecommendationTotalCount" key
+// (types.SavingsPlansPurchaseRecommendationMetadata has no such member).
+func TestGetSavingsPlansPurchaseRecommendation_CurrencyCodeKey_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doRequest(t, h, "GetSavingsPlansPurchaseRecommendation", map[string]any{
+		"SavingsPlansType":     "COMPUTE_SP",
+		"TermInYears":          "ONE_YEAR",
+		"PaymentOption":        "NO_UPFRONT",
+		"LookbackPeriodInDays": "THIRTY_DAYS",
+	})
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	body := rec.Body.String()
+	assert.NotContains(t, body, `"USD":"USD"`,
+		"the map key must be CurrencyCode, not the currency value itself")
+	assert.Contains(t, body, `"CurrencyCode":"USD"`,
+		"the real member is CurrencyCode")
+	assert.NotContains(t, body, `"RecommendationTotalCount"`,
+		"types.SavingsPlansPurchaseRecommendationMetadata has no RecommendationTotalCount member")
+}

@@ -319,7 +319,12 @@ func (h *Handler) RouteMatcher() service.Matcher {
 
 		body, err := httputils.ReadBody(r)
 		if err != nil {
-			return false
+			// Body unreadable (e.g. oversized): fall back to the User-Agent
+			// marker every aws-sdk-go-v2 ec2 client sets (api_client.go's
+			// AddSDKAgentKeyValue -- "api/ec2"). That still identifies this
+			// as ours, so claim it and let Handler() produce the typed
+			// error instead of masking the read failure as a 404.
+			return service.MatchesUserAgentMarker(r.Header, "api/ec2")
 		}
 
 		vals, err := url.ParseQuery(string(body))
@@ -338,12 +343,17 @@ func (h *Handler) MatchPriority() int {
 
 // ExtractOperation extracts the EC2 action from the request form.
 func (h *Handler) ExtractOperation(c *echo.Context) string {
-	r := c.Request()
-	if err := r.ParseForm(); err != nil {
+	body, err := httputils.ReadBody(c.Request())
+	if err != nil {
 		return unknownOp
 	}
 
-	action := r.Form.Get("Action")
+	vals, err := url.ParseQuery(string(body))
+	if err != nil {
+		return unknownOp
+	}
+
+	action := vals.Get("Action")
 	if action == "" {
 		return unknownOp
 	}
@@ -353,8 +363,13 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 
 // ExtractResource returns the primary resource identifier from the EC2 request.
 func (h *Handler) ExtractResource(c *echo.Context) string {
-	r := c.Request()
-	if err := r.ParseForm(); err != nil {
+	body, err := httputils.ReadBody(c.Request())
+	if err != nil {
+		return ""
+	}
+
+	vals, err := url.ParseQuery(string(body))
+	if err != nil {
 		return ""
 	}
 
@@ -365,7 +380,7 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 	}
 
 	for _, key := range resourceKeys {
-		if v := r.Form.Get(key); v != "" {
+		if v := vals.Get(key); v != "" {
 			return v
 		}
 	}
@@ -382,9 +397,21 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		reqID := newRequestID()
 
 		r := c.Request()
-		if err := r.ParseForm(); err != nil {
-			log.ErrorContext(ctx, "failed to parse EC2 request form", "error", err)
+		body, err := httputils.ReadBody(r)
+		if err != nil {
+			log.ErrorContext(ctx, "failed to read EC2 request body", "error", err)
 
+			return h.writeError(
+				c,
+				reqID,
+				http.StatusInternalServerError,
+				"InternalFailure",
+				"failed to read request body",
+			)
+		}
+
+		vals, err := url.ParseQuery(string(body))
+		if err != nil {
 			return h.writeError(
 				c,
 				reqID,
@@ -394,7 +421,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			)
 		}
 
-		action := r.Form.Get("Action")
+		action := vals.Get("Action")
 		if action == "" {
 			return h.writeError(
 				c,
@@ -407,7 +434,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 		log.DebugContext(ctx, "EC2 request", "action", action)
 
-		resp, opErr := h.dispatch(action, r.Form, reqID)
+		resp, opErr := h.dispatch(action, vals, reqID)
 		if opErr != nil {
 			return h.handleOpError(c, reqID, action, opErr)
 		}

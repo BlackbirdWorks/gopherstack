@@ -22,6 +22,7 @@ type jsonSplitShardReq struct {
 
 type jsonUpdateShardCountReq struct {
 	StreamName       string `json:"StreamName"`
+	StreamARN        string `json:"StreamARN"`
 	ScalingType      string `json:"ScalingType"`
 	TargetShardCount int    `json:"TargetShardCount"`
 }
@@ -86,8 +87,10 @@ func (h *Handler) handleUpdateShardCount(
 		return nil, ErrInvalidArgument
 	}
 
+	streamName, ctx := resolveStreamNameAndRegion(ctx, req.StreamName, req.StreamARN, h.defaultRegion())
+
 	out, err := h.Backend.UpdateShardCount(ctx, &UpdateShardCountInput{
-		StreamName:       req.StreamName,
+		StreamName:       streamName,
 		TargetShardCount: req.TargetShardCount,
 		ScalingType:      req.ScalingType,
 	})

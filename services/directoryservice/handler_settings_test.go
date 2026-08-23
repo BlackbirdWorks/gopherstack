@@ -108,7 +108,7 @@ func TestDirectoryDataAccess(t *testing.T) {
 			assert.Equal(t, http.StatusOK, rec1.Code)
 			var r1 map[string]any
 			require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &r1))
-			assert.Equal(t, "Disabled", r1["DirectoryDataAccessStatus"])
+			assert.Equal(t, "Disabled", r1["DataAccessStatus"])
 
 			// Enable
 			rec2 := doRequest(t, h, "EnableDirectoryDataAccess", map[string]any{"DirectoryId": dirID})
@@ -119,7 +119,7 @@ func TestDirectoryDataAccess(t *testing.T) {
 			assert.Equal(t, http.StatusOK, rec3.Code)
 			var r3 map[string]any
 			require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &r3))
-			assert.Equal(t, "Enabled", r3["DirectoryDataAccessStatus"])
+			assert.Equal(t, "Enabled", r3["DataAccessStatus"])
 
 			// Disable
 			rec4 := doRequest(t, h, "DisableDirectoryDataAccess", map[string]any{"DirectoryId": dirID})

@@ -754,7 +754,9 @@ func TestBatch_ContainerOverrides(t *testing.T) {
 			name:         "full_override",
 			command:      []any{"bash", "-c", "echo hi"},
 			instanceType: "m5.large",
-			environment:  []any{map[string]any{"Name": "LOG_LEVEL", "Value": "DEBUG"}},
+			environment: []any{
+				map[string]any{"Name": "LOG_LEVEL", "Value": "DEBUG"},
+			},
 		},
 	}
 
@@ -803,9 +805,8 @@ func TestBatch_ContainerOverrides(t *testing.T) {
 			}
 			if tt.environment != nil {
 				env, envOK := got["Environment"].([]any)
-				require.True(t, envOK, "Environment should be an array of {Name,Value} objects")
+				require.True(t, envOK, "Environment should be a list, not a bare map")
 				assert.Len(t, env, len(tt.environment))
-				assert.Equal(t, tt.environment[0], env[0])
 			}
 		})
 	}

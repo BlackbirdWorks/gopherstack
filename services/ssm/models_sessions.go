@@ -112,10 +112,44 @@ type Session struct {
 	EndDate            float64             `json:"EndDate,omitempty"`
 }
 
+// SessionOutput is the wire projection of Session for DescribeSessions.
+// types.Session (aws-sdk-go-v2/service/ssm@v1.73.4) has no Parameters,
+// StreamUrl or TokenValue members -- those are ephemeral values returned only
+// by StartSession/ResumeSession, never echoed back by DescribeSessions -- so
+// they are deliberately dropped here rather than marshalling Session itself.
+type SessionOutput struct {
+	SessionID          string `json:"SessionId"`
+	Target             string `json:"Target"`
+	Status             string `json:"Status"`
+	Owner              string `json:"Owner,omitempty"`
+	Reason             string `json:"Reason,omitempty"`
+	DocumentName       string `json:"DocumentName,omitempty"`
+	AccessType         string `json:"AccessType,omitempty"`
+	MaxSessionDuration string `json:"MaxSessionDuration,omitempty"`
+
+	StartDate float64 `json:"StartDate"`
+	EndDate   float64 `json:"EndDate,omitempty"`
+}
+
+func (s *Session) toOutput() SessionOutput {
+	return SessionOutput{
+		SessionID:          s.SessionID,
+		Target:             s.Target,
+		Status:             s.Status,
+		Owner:              s.Owner,
+		Reason:             s.Reason,
+		DocumentName:       s.DocumentName,
+		AccessType:         s.AccessType,
+		MaxSessionDuration: s.MaxSessionDuration,
+		StartDate:          s.StartDate,
+		EndDate:            s.EndDate,
+	}
+}
+
 // DescribeSessionsOutputFull extends the empty stub output.
 type DescribeSessionsOutputFull struct {
-	NextToken string    `json:"NextToken,omitempty"`
-	Sessions  []Session `json:"Sessions"`
+	NextToken string          `json:"NextToken,omitempty"`
+	Sessions  []SessionOutput `json:"Sessions"`
 }
 
 // GetConnectionStatusOutputFull has a status field.

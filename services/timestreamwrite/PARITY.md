@@ -20,7 +20,7 @@ ops:
   CreateTable: {wire: ok, errors: ok, state: ok, persist: ok, note: "retention default 6h/73d and min/max bounds (1-8766h, 1-73000d) verified against botocore model"}
   DescribeTable: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateTable: {wire: ok, errors: ok, state: ok, persist: ok, note: "whole-struct replace semantics for RetentionProperties/MagneticStoreWriteProperties/Schema matches AWS (no deep merge)"}
-  ListTables: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListTables: {wire: ok, errors: fixed, state: ok, persist: ok, note: "gopherstack-4ly2 (2026-08-21): handler unconditionally required DatabaseName, but ListTablesInput marks no member required (api_op_ListTables.go, timestreamwrite@v1.38.4). Omitting DatabaseName now lists every table across every database (backend iterates b.tables directly instead of the per-database index); a prior test (TestHandler_ListTables_MissingDBName) asserted the wrong 400 and was corrected."}
   DeleteTable: {wire: ok, errors: ok, state: ok, persist: ok}
   WriteRecords: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed — negative Version now rejected (ValidationException); RejectedRecords shape (Reason/ExistingVersion/RecordIndex) matches deserializers.go exactly"}
   DescribeEndpoints: {wire: partial, errors: ok, state: ok, persist: n/a, note: "returns a non-empty Endpoints list (satisfies SDK's hard requirement), but Address is hardcoded \"localhost\" instead of echoing the request Host like the sibling timestreamquery service does. Verified this is inert in practice: aws-sdk-go-v2's DiscoverEndpoint middleware skips the call entirely whenever EndpointSourceCustom is set (i.e. whenever a BaseEndpoint/AWS_ENDPOINT_URL is configured, which all gopherstack/LocalStack clients do), and even when not skipped it only overrides req.URL.Host if the returned host matches the partition's DNS suffix (*.amazonaws.com) — \"localhost\" never qualifies either way. Left unchanged; see gaps."}
@@ -177,3 +177,68 @@ so the next auditor doesn't re-flag them.
   supplied at creation (wrong — AWS's `CreateDatabaseRequest` accepts `KmsKeyId` directly,
   so a fresh database's `CreationTime` and `LastUpdatedTime` should be equal regardless).
   Fixed by threading `kmsKeyID` into `InMemoryBackend.CreateDatabase` directly.
+
+## gopherstack-o7gx follow-up (2026-08-22): default error path emitted InternalServerError instead of the modeled fault
+
+`handler.go`'s `handleError` default branch wrote `keyTypeField:
+"InternalServerError"` for any unclassified 500. `timestreamwrite@v1.38.4`
+`types/errors.go:66-89` models `InternalServerException` (`ErrorFault:
+FaultServer`) as the service's dominant 5xx fault, wired into 16 of its 19
+operation error switches in `deserializers.go` (84%). `"InternalServerError"`
+appears nowhere in `types/errors.go`, so a real client's
+`errors.As(&types.InternalServerException{})` never matched.
+
+Fixed to `keyTypeField: "InternalServerException"`. The default branch is
+reachable only when a backend error isn't NotFound/Conflict/
+RejectedRecords, or classified via `ValidationException`'s `errInvalidRequest`/
+`errUnknownAction`/`json.SyntaxError`/`json.UnmarshalTypeError` checks; no
+currently-wired dispatch path leaves an error unclassified this way, so
+there is no legitimately-constructed real SDK client request that reaches
+this branch today. `TestHandleError_DefaultBranchEmitsInternalServerException`
+(`handler_internal_error_test.go`, new, white-box `package timestreamwrite`)
+drives `handleError` directly with a synthetic unmatched error and asserts
+the JSON response's `__type` is `InternalServerException`; confirmed it
+fails pre-fix with the old `"InternalServerError"` code (hand-reverted,
+byte-identical restore after).
+
+## gopherstack-wlo1 (2026-08-22): handleCBOR's own dispatch errors were never typed
+
+`handleCBOR` (`handler.go`) is a separate hand-rolled path parallel to the
+main `service.HandleTarget`-based dispatch (already typed and correct). Its
+own method-not-allowed, missing/malformed-`X-Amz-Target`, ReadBody-failure,
+and CBOR-response-encode-failure branches all wrote a bare
+`c.String(http.Status..., "...")` -- text/plain. TimestreamWrite is
+JSON-RPC 1.0 (`timestreamwrite@v1.38.4` `awsAwsjson10_` prefix; its error
+decode goes through `restjson.GetErrorInfo`, `__type`/`message`), so a real
+client saw `smithy.GenericAPIError{Code:"UnknownError"}` for any of these
+four sites. Same class as `c6554e9f8`'s `pkgs/service.HandleTarget` finding,
+missed here because `handleCBOR` never calls that shared helper.
+
+Fixed: the method-not-allowed and missing-target branches now emit
+`c.JSON(status, map[string]string{keyTypeField: "UnknownOperationException",
+keyMessageField: "..."})` -- the same `__type`/`message` shape and constants
+(`keyTypeField`/`keyMessageField`) `handleCBOR`'s own already-correct
+"invalid CBOR body" branch uses three lines below, and the same
+`"UnknownOperationException"` code `pkgs/service.HandleTarget` uses for its
+analogous branches. The ReadBody-failure and CBOR-encode-failure branches
+now emit `{__type: "InternalFailure", message: "internal server error"}`.
+
+Proof: `aws-sdk-go-v2/service/timestreamwrite` never sends
+`application/x-amz-cbor-1.1` itself. `TestHandleCBOR_WrongMethodSurfacesUnknownOperationException`
+(`handler_cbor_dispatch_malformed_test.go`) drives a real client's
+`WriteRecords` through a Finalize-stage middleware that rewrites the request
+to CBOR content type and its HTTP method to GET post-signing (matched only
+on the `WriteRecords` target, so the client's preliminary `DescribeEndpoints`
+discovery call is left untouched). Hand-reverted `handler.go` to
+`git show HEAD`, confirmed the test fails with `*json.SyntaxError: "invalid
+character 'M' looking for beginning of value"`, restored the fix,
+`md5sum`-confirmed byte-identical.
+
+The ReadBody-failure and CBOR-encode-failure branches are fixed for
+consistency but not independently client-proven: `readBodyBytes`
+(handler.go) uses a local `io.LimitReader`/`io.ReadAll` that silently
+truncates at its 10 MiB cap rather than erroring the way
+`httputils.ReadBody`'s `http.MaxBytesReader` does, so an oversized body
+lands in the (already-correct) CBOR-decode-failure branch instead, not this
+one -- genuinely hard to trigger through a real client without a live I/O
+error mid-read.

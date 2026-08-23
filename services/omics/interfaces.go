@@ -211,7 +211,7 @@ type StorageBackend interface {
 	) (*AnnotationStoreVersion, error)
 
 	// VariantStore
-	CreateVariantStore(name string, reference map[string]any, tags map[string]string) (*VariantStore, error)
+	CreateVariantStore(name string, reference, sseConfig map[string]any, tags map[string]string) (*VariantStore, error)
 	DeleteVariantStore(name string) (*VariantStore, error)
 	GetVariantStore(name string) (*VariantStore, error)
 	ListVariantStores(

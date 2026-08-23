@@ -670,6 +670,7 @@ type ScalingActivity struct {
 	ActivityID           string    `json:"ActivityID"`
 	AutoScalingGroupName string    `json:"AutoScalingGroupName"`
 	Description          string    `json:"Description,omitempty"`
+	Cause                string    `json:"Cause"`
 	StatusCode           string    `json:"StatusCode"`
 	StatusMessage        string    `json:"StatusMessage,omitempty"`
 	Progress             int32     `json:"Progress"`

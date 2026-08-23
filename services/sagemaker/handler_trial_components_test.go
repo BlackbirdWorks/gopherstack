@@ -4,7 +4,11 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
+	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	sagemakersdk "github.com/aws/aws-sdk-go-v2/service/sagemaker"
+	smtypes "github.com/aws/aws-sdk-go-v2/service/sagemaker/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -196,4 +200,143 @@ func TestHandler_CreateTrialComponent_FullFields(t *testing.T) {
 	lr, ok := params["lr"].(map[string]any)
 	require.True(t, ok)
 	assert.InEpsilon(t, 0.01, lr["NumberValue"], 0)
+}
+
+// TestHandler_CreateTrialComponent_MetadataProperties_RealClient asserts
+// CreateTrialComponentInput.MetadataProperties -- previously entirely absent
+// -- is now stored and echoed back on Describe, and that
+// DescribeTrialComponentOutput.LineageGroupArn -- also previously absent -- is
+// now populated with the account's single auto-provisioned default lineage
+// group ARN (there is no CreateLineageGroup op; every trial component
+// belongs to it).
+func TestHandler_CreateTrialComponent_MetadataProperties_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestSageMakerClient(t, h)
+
+	_, err := client.CreateTrialComponent(t.Context(), &sagemakersdk.CreateTrialComponentInput{
+		TrialComponentName: aws.String("tc-metadata"),
+		MetadataProperties: &smtypes.MetadataProperties{
+			CommitId:    aws.String("abc123"),
+			GeneratedBy: aws.String("pipeline-x"),
+			ProjectId:   aws.String("proj-1"),
+			Repository:  aws.String("git@example.com/repo"),
+		},
+	})
+	require.NoError(t, err)
+
+	out, err := client.DescribeTrialComponent(t.Context(), &sagemakersdk.DescribeTrialComponentInput{
+		TrialComponentName: aws.String("tc-metadata"),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, out.MetadataProperties)
+	assert.Equal(t, "abc123", aws.ToString(out.MetadataProperties.CommitId))
+	assert.Equal(t, "pipeline-x", aws.ToString(out.MetadataProperties.GeneratedBy))
+	assert.Equal(t, "proj-1", aws.ToString(out.MetadataProperties.ProjectId))
+	assert.Equal(t, "git@example.com/repo", aws.ToString(out.MetadataProperties.Repository))
+	assert.Contains(t, aws.ToString(out.LineageGroupArn), "lineage-group/")
+}
+
+// TestHandler_ListTrialComponents_FilterSortPage_RealClient asserts
+// ListTrialComponentsInput's SortBy/SortOrder/MaxResults/CreatedAfter/
+// CreatedBefore -- previously all absent, only ExperimentName/TrialName/
+// NextToken were ever read -- now work.
+func TestHandler_ListTrialComponents_FilterSortPage_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestSageMakerClient(t, h)
+
+	names := []string{"alpha-tc", "beta-tc", "gamma-tc"}
+	for _, n := range names {
+		_, err := client.CreateTrialComponent(t.Context(), &sagemakersdk.CreateTrialComponentInput{
+			TrialComponentName: aws.String(n),
+		})
+		require.NoError(t, err)
+	}
+
+	t.Run("ascending sort by name", func(t *testing.T) {
+		t.Parallel()
+
+		out, err := client.ListTrialComponents(t.Context(), &sagemakersdk.ListTrialComponentsInput{
+			SortBy:    smtypes.SortTrialComponentsByName,
+			SortOrder: smtypes.SortOrderAscending,
+		})
+		require.NoError(t, err)
+		require.Len(t, out.TrialComponentSummaries, 3)
+		assert.Equal(t, "alpha-tc", aws.ToString(out.TrialComponentSummaries[0].TrialComponentName))
+		assert.Equal(t, "gamma-tc", aws.ToString(out.TrialComponentSummaries[2].TrialComponentName))
+	})
+
+	t.Run("max results caps the page and returns a token", func(t *testing.T) {
+		t.Parallel()
+
+		out, err := client.ListTrialComponents(t.Context(), &sagemakersdk.ListTrialComponentsInput{
+			MaxResults: aws.Int32(1),
+			SortBy:     smtypes.SortTrialComponentsByName,
+			SortOrder:  smtypes.SortOrderAscending,
+		})
+		require.NoError(t, err)
+		require.Len(t, out.TrialComponentSummaries, 1)
+		assert.Equal(t, "alpha-tc", aws.ToString(out.TrialComponentSummaries[0].TrialComponentName))
+		assert.NotEmpty(t, aws.ToString(out.NextToken))
+	})
+
+	t.Run("creation time filter does not error", func(t *testing.T) {
+		t.Parallel()
+
+		out, err := client.ListTrialComponents(t.Context(), &sagemakersdk.ListTrialComponentsInput{
+			CreatedAfter: aws.Time(time.Now().Add(-time.Hour)),
+		})
+		require.NoError(t, err)
+		assert.Len(t, out.TrialComponentSummaries, 3)
+	})
+}
+
+// TestHandler_UpdateTrialComponent_RemoveLists_RealClient asserts
+// UpdateTrialComponentInput's ParametersToRemove/InputArtifactsToRemove/
+// OutputArtifactsToRemove -- previously entirely absent, so a real client
+// could add entries but never remove one -- now delete the named keys.
+func TestHandler_UpdateTrialComponent_RemoveLists_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestSageMakerClient(t, h)
+
+	_, err := client.CreateTrialComponent(t.Context(), &sagemakersdk.CreateTrialComponentInput{
+		TrialComponentName: aws.String("tc-remove"),
+		Parameters: map[string]smtypes.TrialComponentParameterValue{
+			"lr":    &smtypes.TrialComponentParameterValueMemberNumberValue{Value: 0.01},
+			"epoch": &smtypes.TrialComponentParameterValueMemberNumberValue{Value: 10},
+		},
+		InputArtifacts: map[string]smtypes.TrialComponentArtifact{
+			"train": {Value: aws.String("s3://bucket/train")},
+			"test":  {Value: aws.String("s3://bucket/test")},
+		},
+		OutputArtifacts: map[string]smtypes.TrialComponentArtifact{
+			"model": {Value: aws.String("s3://bucket/model")},
+			"logs":  {Value: aws.String("s3://bucket/logs")},
+		},
+	})
+	require.NoError(t, err)
+
+	_, err = client.UpdateTrialComponent(t.Context(), &sagemakersdk.UpdateTrialComponentInput{
+		TrialComponentName:      aws.String("tc-remove"),
+		ParametersToRemove:      []string{"epoch"},
+		InputArtifactsToRemove:  []string{"test"},
+		OutputArtifactsToRemove: []string{"logs"},
+	})
+	require.NoError(t, err)
+
+	out, err := client.DescribeTrialComponent(t.Context(), &sagemakersdk.DescribeTrialComponentInput{
+		TrialComponentName: aws.String("tc-remove"),
+	})
+	require.NoError(t, err)
+	assert.Contains(t, out.Parameters, "lr")
+	assert.NotContains(t, out.Parameters, "epoch")
+	assert.Contains(t, out.InputArtifacts, "train")
+	assert.NotContains(t, out.InputArtifacts, "test")
+	assert.Contains(t, out.OutputArtifacts, "model")
+	assert.NotContains(t, out.OutputArtifacts, "logs")
 }

@@ -28,10 +28,13 @@ var (
 )
 
 // DeviceFleetOutputConfig holds the S3 output location for a device fleet's
-// sampled data, as configured on CreateDeviceFleet/UpdateDeviceFleet.
+// sampled data, as configured on CreateDeviceFleet/UpdateDeviceFleet
+// (types.EdgeOutputConfig, types/types.go:7856-7903).
 type DeviceFleetOutputConfig struct {
-	S3OutputLocation string `json:"S3OutputLocation"`
-	KmsKeyID         string `json:"KmsKeyId,omitempty"`
+	S3OutputLocation       string `json:"S3OutputLocation"`
+	KmsKeyID               string `json:"KmsKeyId,omitempty"`
+	PresetDeploymentConfig string `json:"PresetDeploymentConfig,omitempty"`
+	PresetDeploymentType   string `json:"PresetDeploymentType,omitempty"`
 }
 
 // DeviceFleet represents a SageMaker device fleet.
@@ -44,6 +47,12 @@ type DeviceFleet struct {
 	DeviceFleetArn   string                   `json:"DeviceFleetArn"`
 	Description      string                   `json:"Description,omitempty"`
 	RoleArn          string                   `json:"RoleArn,omitempty"`
+	// IotRoleAlias is synthesized as "SageMakerEdge-{DeviceFleetName}" when
+	// EnableIotRoleAlias is set on Create/UpdateDeviceFleet (api_op_
+	// CreateDeviceFleet.go:43-48) -- this backend has no real IoT Core to
+	// register the alias with, so the name is stored but never resolves to
+	// an actual IoT role alias.
+	IotRoleAlias string `json:"IotRoleAlias,omitempty"`
 }
 
 func cloneDeviceFleet(f *DeviceFleet) *DeviceFleet {
@@ -93,11 +102,12 @@ func (f *DeviceFleet) UnmarshalJSON(data []byte) error {
 
 // CreateDeviceFleetOptions holds input fields for CreateDeviceFleet.
 type CreateDeviceFleetOptions struct {
-	Tags            map[string]string
-	OutputConfig    *DeviceFleetOutputConfig
-	DeviceFleetName string
-	Description     string
-	RoleArn         string
+	Tags               map[string]string
+	OutputConfig       *DeviceFleetOutputConfig
+	DeviceFleetName    string
+	Description        string
+	RoleArn            string
+	EnableIotRoleAlias bool
 }
 
 // CreateDeviceFleet creates a SageMaker device fleet.
@@ -128,6 +138,9 @@ func (b *InMemoryBackend) CreateDeviceFleet(ctx context.Context, opts CreateDevi
 		CreationTime:     now,
 		LastModifiedTime: now,
 	}
+	if opts.EnableIotRoleAlias {
+		f.IotRoleAlias = iotRoleAliasName(opts.DeviceFleetName)
+	}
 	b.deviceFleetsStore(region).Put(f)
 
 	return cloneDeviceFleet(f), nil
@@ -148,26 +161,112 @@ func (b *InMemoryBackend) DescribeDeviceFleet(ctx context.Context, name string) 
 	return cloneDeviceFleet(f), nil
 }
 
-// ListDeviceFleets returns all device fleets with pagination.
-func (b *InMemoryBackend) ListDeviceFleets(ctx context.Context, nextToken string) ([]*DeviceFleet, string) {
+// ListDeviceFleetsParams bundles ListDeviceFleets' filter/sort/pagination
+// criteria (api_op_ListDeviceFleets.go:30-61, sagemaker@v1.263.2).
+type ListDeviceFleetsParams struct {
+	CreationTimeAfter      *time.Time
+	CreationTimeBefore     *time.Time
+	LastModifiedTimeAfter  *time.Time
+	LastModifiedTimeBefore *time.Time
+	NameContains           string
+	NextToken              string
+	SortBy                 string
+	SortOrder              string
+	MaxResults             int32
+}
+
+// ListDeviceFleets returns device fleets matching params, sorted by
+// params.SortBy (default CreationTime; no default is documented for this op,
+// per api_op_ListDeviceFleets.go, so CreationTime/Ascending is kept as the
+// disclosed fallback used elsewhere in this service for undocumented
+// defaults), capped at params.MaxResults.
+func (b *InMemoryBackend) ListDeviceFleets(
+	ctx context.Context,
+	params ListDeviceFleetsParams,
+) ([]*DeviceFleet, string) {
 	b.mu.RLock("ListDeviceFleets")
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
 
-	return sagemakerListKeyPaged(
-		b.deviceFleetsStoreRO(region),
-		nextToken,
-		cloneDeviceFleet,
-		func(v *DeviceFleet) string { return v.DeviceFleetName },
-	)
+	tbl := b.deviceFleetsStoreRO(region)
+	list := make([]*DeviceFleet, 0, tbl.Len())
+
+	for _, f := range tbl.All() {
+		if !matchesDeviceFleetListParams(f, params) {
+			continue
+		}
+
+		list = append(list, cloneDeviceFleet(f))
+	}
+
+	asc := !strings.EqualFold(params.SortOrder, "Descending")
+	sort.Slice(list, func(i, j int) bool {
+		less := deviceFleetSortLess(list[i], list[j], params.SortBy)
+		if asc {
+			return less
+		}
+
+		return !less
+	})
+
+	return paginateSlice(list, params.NextToken, params.MaxResults)
 }
 
-// UpdateDeviceFleet updates a device fleet's description or role ARN.
+// matchesDeviceFleetListParams reports whether f satisfies every filter in params.
+func matchesDeviceFleetListParams(f *DeviceFleet, p ListDeviceFleetsParams) bool {
+	if p.NameContains != "" && !strings.Contains(f.DeviceFleetName, p.NameContains) {
+		return false
+	}
+
+	if p.CreationTimeAfter != nil && !f.CreationTime.After(*p.CreationTimeAfter) {
+		return false
+	}
+
+	if p.CreationTimeBefore != nil && !f.CreationTime.Before(*p.CreationTimeBefore) {
+		return false
+	}
+
+	if p.LastModifiedTimeAfter != nil && !f.LastModifiedTime.After(*p.LastModifiedTimeAfter) {
+		return false
+	}
+
+	if p.LastModifiedTimeBefore != nil && !f.LastModifiedTime.Before(*p.LastModifiedTimeBefore) {
+		return false
+	}
+
+	return true
+}
+
+// deviceFleetSortLess orders two device fleets by sortBy -- one of
+// ListDeviceFleetsSortBy's real values (NAME/CREATION_TIME/LAST_MODIFIED_TIME,
+// types/enums.go:5291-5293).
+func deviceFleetSortLess(a, b *DeviceFleet, sortBy string) bool {
+	switch sortBy {
+	case sortByName:
+		if a.DeviceFleetName != b.DeviceFleetName {
+			return a.DeviceFleetName < b.DeviceFleetName
+		}
+	case sortByLastModifiedTime:
+		if !a.LastModifiedTime.Equal(b.LastModifiedTime) {
+			return a.LastModifiedTime.Before(b.LastModifiedTime)
+		}
+	default:
+		if !a.CreationTime.Equal(b.CreationTime) {
+			return a.CreationTime.Before(b.CreationTime)
+		}
+	}
+
+	return a.DeviceFleetName < b.DeviceFleetName
+}
+
+// UpdateDeviceFleet updates a device fleet's description, role ARN, output
+// config, or IoT role alias enablement.
 func (b *InMemoryBackend) UpdateDeviceFleet(
 	ctx context.Context,
 	name, description, roleArn string,
 	outputConfig *DeviceFleetOutputConfig,
+	enableIotRoleAlias *bool,
 ) error {
 	b.mu.Lock("UpdateDeviceFleet")
 	defer b.mu.Unlock()
@@ -191,9 +290,24 @@ func (b *InMemoryBackend) UpdateDeviceFleet(
 		f.OutputConfig = outputConfig
 	}
 
+	if enableIotRoleAlias != nil {
+		if *enableIotRoleAlias {
+			f.IotRoleAlias = iotRoleAliasName(name)
+		} else {
+			f.IotRoleAlias = ""
+		}
+	}
+
 	f.LastModifiedTime = time.Now()
 
 	return nil
+}
+
+// iotRoleAliasName is the documented alias-name pattern for
+// EnableIotRoleAlias (api_op_CreateDeviceFleet.go:43-48): "the name of the
+// role alias generated will match this pattern: SageMakerEdge-{DeviceFleetName}".
+func iotRoleAliasName(deviceFleetName string) string {
+	return "SageMakerEdge-" + deviceFleetName
 }
 
 // DeleteDeviceFleet deletes a device fleet by name.
@@ -289,16 +403,24 @@ func (d *Device) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// RegisterDeviceInput is a single device to register.
+// RegisterDeviceInput is a single device to register. Unlike
+// CreateDeviceFleetOptions, types.Device (the wire type for each entry in
+// RegisterDevicesInput.Devices, types/types.go:7222-7236) carries no Tags
+// field of its own -- tags are supplied once, at the top level of
+// RegisterDevicesInput, and apply to every device in the batch (see
+// RegisterDevices' tags parameter below).
 type RegisterDeviceInput struct {
-	Tags         map[string]string
 	DeviceName   string
 	Description  string
 	IotThingName string
 }
 
-// RegisterDevices registers devices to a device fleet.
-func (b *InMemoryBackend) RegisterDevices(ctx context.Context, fleetName string, devices []RegisterDeviceInput) error {
+// RegisterDevices registers devices to a device fleet, tagging every
+// registered device with tags (RegisterDevicesInput.Tags,
+// api_op_RegisterDevices.go:36-38).
+func (b *InMemoryBackend) RegisterDevices(
+	ctx context.Context, fleetName string, devices []RegisterDeviceInput, tags map[string]string,
+) error {
 	b.mu.Lock("RegisterDevices")
 	defer b.mu.Unlock()
 
@@ -322,7 +444,7 @@ func (b *InMemoryBackend) RegisterDevices(ctx context.Context, fleetName string,
 			DeviceArn:        deviceARN,
 			Description:      d.Description,
 			IotThingName:     d.IotThingName,
-			Tags:             mergeTags(nil, d.Tags),
+			Tags:             mergeTags(nil, tags),
 			RegistrationTime: now,
 			LastModifiedTime: now,
 		})
@@ -404,20 +526,34 @@ func (b *InMemoryBackend) DescribeDevice(ctx context.Context, fleetName, deviceN
 	return cloneDevice(d), nil
 }
 
-// ListDevices returns devices, optionally filtered by fleet name.
-func (b *InMemoryBackend) ListDevices(ctx context.Context, fleetFilter, nextToken string) ([]*Device, string) {
+// ListDevices returns devices, optionally filtered by fleet name and capped
+// at maxResults (falls back to sagemakerDefaultPageSize when 0). ListDevices'
+// LatestHeartbeatAfter/ModelName filters (api_op_ListDevices.go:36,42) are not
+// modeled: this backend has no device-agent heartbeat/model-registration
+// protocol (a separate service, SageMaker Edge Manager's device-agent API,
+// not implemented here at all -- distinct from ListStageDevices'
+// ExcludeDevicesDeployedInOtherStage no-op, which is a real member of this
+// service that this backend simply can't evaluate).
+func (b *InMemoryBackend) ListDevices(
+	ctx context.Context,
+	fleetFilter, nextToken string,
+	maxResults int32,
+) ([]*Device, string) {
 	b.mu.RLock("ListDevices")
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
 
-	return devicesInFleetPaged(b.devicesStoreRO(region), fleetFilter, nextToken)
+	return devicesInFleetPaged(b.devicesStoreRO(region), fleetFilter, nextToken, maxResults)
 }
 
 // devicesInFleetPaged filters tbl by fleetFilter (or all devices if empty),
-// sorts by "fleetName/deviceName", and paginates the result. Caller must hold
-// b.mu (read or write).
-func devicesInFleetPaged(tbl *store.Table[Device], fleetFilter, nextToken string) ([]*Device, string) {
+// sorts by "fleetName/deviceName", and paginates the result, capped at
+// maxResults (if positive) or sagemakerDefaultPageSize. Caller must hold b.mu
+// (read or write).
+func devicesInFleetPaged(
+	tbl *store.Table[Device], fleetFilter, nextToken string, maxResults int32,
+) ([]*Device, string) {
 	keys := make([]string, 0, tbl.Len())
 	for _, d := range tbl.All() {
 		if fleetFilter != "" && d.DeviceFleetName != fleetFilter {
@@ -440,7 +576,12 @@ func devicesInFleetPaged(tbl *store.Table[Device], fleetFilter, nextToken string
 		}
 	}
 
-	end := min(start+sagemakerDefaultPageSize, len(keys))
+	pageSize := sagemakerDefaultPageSize
+	if maxResults > 0 && int(maxResults) < pageSize {
+		pageSize = int(maxResults)
+	}
+
+	end := min(start+pageSize, len(keys))
 
 	out := make([]*Device, 0, end-start)
 	for _, composite := range keys[start:end] {

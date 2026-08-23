@@ -877,9 +877,18 @@ type JobFlow struct {
 }
 
 // JobFlowExecutionStatusDetail holds the legacy execution status.
+//
+// StateChangeReason is tagged LastStateChangeReason: the real
+// types.JobFlowExecutionStatusDetail has no StateChangeReason member at all
+// (deserializers.go's awsAwsjson11_deserializeDocumentJobFlowExecutionStatusDetail
+// case list has only LastStateChangeReason) -- every real client's
+// LastStateChangeReason decoded empty regardless of backend state. This is a
+// different type from Cluster's ClusterStateChangeReason (Code/Message) and
+// from Session's StateChangeReason (itself correctly named) -- do not
+// generalise the tag across types.
 type JobFlowExecutionStatusDetail struct {
 	State             string  `json:"State"`
-	StateChangeReason string  `json:"StateChangeReason,omitempty"`
+	StateChangeReason string  `json:"LastStateChangeReason,omitempty"`
 	CreationDateTime  float64 `json:"CreationDateTime"`
 	EndDateTime       float64 `json:"EndDateTime,omitempty"`
 }

@@ -167,6 +167,7 @@ func (b *InMemoryBackend) CreatePromptVersion(
 	vNum := b.promptVersionCtrs[promptID]
 	version := strconv.Itoa(vNum)
 
+	now := time.Now().UTC()
 	pv := &PromptVersion{
 		PromptID:    promptID,
 		PromptARN:   p.PromptARN,
@@ -174,7 +175,8 @@ func (b *InMemoryBackend) CreatePromptVersion(
 		Version:     version,
 		Variants:    p.Variants,
 		Description: description,
-		CreatedAt:   time.Now().UTC(),
+		CreatedAt:   now,
+		UpdatedAt:   now,
 	}
 
 	b.promptVersions.Put(pv)

@@ -42,6 +42,7 @@ type backendSnapshot struct {
 	Tags                       map[string]map[string]*tags.Tags                   `json:"tags"`
 	DocumentVersions           map[string]map[string][]DocumentVersion            `json:"document_versions"`
 	DocumentPermissions        map[string]map[string][]string                     `json:"document_permissions"`
+	DocumentSharedVersions     map[string]map[string]map[string]string            `json:"document_shared_versions"`
 	CommandInvocations         map[string]map[string][]CommandInvocation          `json:"command_invocations"`
 	PatchGroupToBaseline       map[string]map[string]string                       `json:"patch_group_to_baseline"`
 	OpsItemRelatedItems        map[string]map[string][]OpsItemRelatedItem         `json:"ops_item_related_items"`
@@ -88,6 +89,10 @@ func initSnapshotDefaults(snap *backendSnapshot) {
 func initSnapshotNewFields(snap *backendSnapshot) {
 	if snap.PatchGroupToBaseline == nil {
 		snap.PatchGroupToBaseline = make(map[string]map[string]string)
+	}
+
+	if snap.DocumentSharedVersions == nil {
+		snap.DocumentSharedVersions = make(map[string]map[string]map[string]string)
 	}
 
 	if snap.OpsItemRelatedItems == nil {
@@ -179,6 +184,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		Tags:                       b.tags,
 		DocumentVersions:           b.documentVersions,
 		DocumentPermissions:        b.documentPermissions,
+		DocumentSharedVersions:     b.documentSharedVersions,
 		CommandInvocations:         b.commandInvocations,
 		PatchGroupToBaseline:       b.patchGroupToBaseline,
 		OpsItemRelatedItems:        b.opsItemRelatedItems,
@@ -287,6 +293,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.tags = snap.Tags
 	b.documentVersions = snap.DocumentVersions
 	b.documentPermissions = snap.DocumentPermissions
+	b.documentSharedVersions = snap.DocumentSharedVersions
 	b.commandInvocations = snap.CommandInvocations
 	b.patchGroupToBaseline = snap.PatchGroupToBaseline
 	b.opsItemRelatedItems = snap.OpsItemRelatedItems

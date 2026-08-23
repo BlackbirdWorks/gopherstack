@@ -62,12 +62,15 @@ func (h *Handler) handleGetEntityRecords(
 	_ context.Context,
 	in *getEntityRecordsInput,
 ) (*getEntityRecordsOutput, error) {
-	if in.ConnectionName == "" {
-		return nil, fmt.Errorf("%w: ConnectionName is required", ErrValidation)
-	}
-
 	if in.EntityName == "" {
 		return nil, fmt.Errorf("%w: EntityName is required", ErrValidation)
+	}
+
+	// Limit is required (glue@v1.152.0 api_op_GetEntityRecords.go:44-48); the SDK's
+	// own client-side validator rejects a call missing it before it is ever sent.
+	// ConnectionName is not (line 55) — see the native-catalog path below.
+	if in.Limit <= 0 {
+		return nil, fmt.Errorf("%w: Limit is required", ErrValidation)
 	}
 
 	records, nextToken, err := h.Backend.GetEntityRecords(
@@ -99,11 +102,10 @@ func (h *Handler) handleListEntities(
 	_ context.Context,
 	in *listEntitiesInput,
 ) (*listEntitiesOutput, error) {
-	if in.ConnectionName == "" {
-		return nil, fmt.Errorf("%w: ConnectionName is required", ErrValidation)
-	}
-
-	entities, err := h.Backend.ListEntities(in.ConnectionName)
+	// ConnectionName is not required (glue@v1.152.0 api_op_ListEntities.go:29-49
+	// declares no required members at all): with none given, this lists the native
+	// Amazon S3 Glue Data Catalog instead of a connector's entities.
+	entities, err := h.Backend.ListEntities(in.ConnectionName, in.ParentEntityName)
 	if err != nil {
 		return nil, err
 	}

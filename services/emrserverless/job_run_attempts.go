@@ -19,27 +19,26 @@ func (b *InMemoryBackend) ListJobRunAttempts(
 		return nil, "", fmt.Errorf("%w: job run %s not found", ErrNotFound, jobRunID)
 	}
 
-	// The in-memory backend synthesises a single attempt (attempt 0) from the job
-	// run itself.  Fields that are not tracked by the backend (ReleaseLabel,
-	// StateDetails, CreatedBy) use sensible placeholders or empty values.
+	// The in-memory backend synthesises a single attempt (attempt 0) from the
+	// job run itself. ReleaseLabel and StateDetails are both required on
+	// JobRunAttemptSummary (types.JobRunAttemptSummary) and are already
+	// tracked on JobRun -- mirror them rather than reporting empty. Only
+	// CreatedBy has no independent source and uses the execution role ARN
+	// as a best-effort substitute, matching JobRun's own convention.
 	attempt := &JobRunAttemptSummary{
 		ApplicationID: jr.ApplicationID,
 		Arn:           jr.Arn,
 		CreatedAt:     jr.CreatedAt,
 		UpdatedAt:     jr.UpdatedAt,
 		JobCreatedAt:  jr.CreatedAt,
-		// CreatedBy is set to the execution role ARN as a best-effort substitute;
-		// the in-memory backend does not record the IAM principal that submitted the run.
 		CreatedBy:     jr.ExecutionRoleArn,
 		ExecutionRole: jr.ExecutionRoleArn,
 		ID:            jr.JobRunID,
-		// ReleaseLabel is not stored on JobRun in this backend.
-		ReleaseLabel: "",
-		State:        jr.State,
-		// StateDetails are not tracked in the in-memory backend.
-		StateDetails: "",
-		Name:         jr.Name,
-		Mode:         jr.Mode,
+		ReleaseLabel:  jr.ReleaseLabel,
+		State:         jr.State,
+		StateDetails:  jr.StateDetails,
+		Name:          jr.Name,
+		Mode:          jr.Mode,
 		// Attempt index starts at 0; the backend does not track retries.
 		Attempt: 0,
 	}

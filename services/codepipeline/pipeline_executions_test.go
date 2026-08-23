@@ -628,7 +628,33 @@ func TestListDeployActionExecutionTargets_KnownAndUnknown(t *testing.T) {
 	_, err = b.CreatePipeline(context.Background(), samplePipeline("dt-pipeline"), nil)
 	require.NoError(t, err)
 
-	items, err := b.ListDeployActionExecutionTargets(context.Background(), "dt-pipeline", "exec-1")
+	// A known pipeline with an ActionExecutionId that was never recorded
+	// still errors: real ListDeployActionExecutionTargets does not return an
+	// empty list for a made-up execution ID (gopherstack-2wvq).
+	_, err = b.ListDeployActionExecutionTargets(context.Background(), "dt-pipeline", "exec-1")
+	require.Error(t, err)
+
+	_, err = b.StartPipelineExecution(context.Background(), "dt-pipeline")
+	require.NoError(t, err)
+
+	execs, err := b.ListActionExecutions(context.Background(), "dt-pipeline", "")
+	require.NoError(t, err)
+	require.NotEmpty(t, execs)
+	actionExecutionID, ok := execs[0]["actionExecutionId"].(string)
+	require.True(t, ok)
+	require.NotEmpty(t, actionExecutionID)
+
+	items, err := b.ListDeployActionExecutionTargets(context.Background(), "dt-pipeline", actionExecutionID)
 	require.NoError(t, err)
 	assert.Empty(t, items)
+
+	// ActionExecutionId alone -- no PipelineName -- must also resolve:
+	// ListDeployActionExecutionTargetsInput marks only ActionExecutionId
+	// required (codepipeline@v1.49.4), PipelineName is an optional filter.
+	items, err = b.ListDeployActionExecutionTargets(context.Background(), "", actionExecutionID)
+	require.NoError(t, err)
+	assert.Empty(t, items)
+
+	_, err = b.ListDeployActionExecutionTargets(context.Background(), "", "no-such-execution")
+	require.Error(t, err)
 }

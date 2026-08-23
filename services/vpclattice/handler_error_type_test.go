@@ -67,3 +67,28 @@ func TestGetService_UnknownServiceSurfacesResourceNotFoundException(t *testing.T
 	require.ErrorAs(t, err, &apiErr, "SDK must surface a typed API error, not an opaque one")
 	assert.Equal(t, "ResourceNotFoundException", apiErr.ErrorCode())
 }
+
+// TestCreateService_EmptyNameSurfacesValidationException drives CreateService
+// with an explicit empty (not nil) Name -- validateOpCreateServiceInput
+// (vpclattice@v1.25.5 validators.go:1946-1958) only rejects a nil Name
+// client-side, so an empty string reaches the server and exercises
+// handleCreateService's own required-field check. Before this fix, that
+// check (and the other 11 direct validation call sites across this package)
+// wrote the body without ever setting X-Amzn-Errortype, so
+// restjson.GetErrorInfo had nothing to read and every one of them
+// deserialized client-side as UnknownError (gopherstack-wlo1).
+func TestCreateService_EmptyNameSurfacesValidationException(t *testing.T) {
+	t.Parallel()
+
+	backend := vpclattice.NewInMemoryBackend("000000000000", "us-east-1")
+	client := newTestVPCLatticeClient(t, vpclattice.NewHandler(backend))
+
+	_, err := client.CreateService(t.Context(), &vpclatticesdk.CreateServiceInput{
+		Name: aws.String(""),
+	})
+	require.Error(t, err)
+
+	var apiErr smithy.APIError
+	require.ErrorAs(t, err, &apiErr, "SDK must surface a typed API error, not an opaque one")
+	assert.Equal(t, "ValidationException", apiErr.ErrorCode())
+}

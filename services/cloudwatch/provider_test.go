@@ -31,11 +31,6 @@ func cwServer(t *testing.T) *httptest.Server {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		rec := httptest.NewRecorder()
 		c := e.NewContext(r, rec)
-		if err := r.ParseForm(); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-
-			return
-		}
 		if herr := h.Handler()(c); herr != nil {
 			http.Error(w, herr.Error(), http.StatusInternalServerError)
 

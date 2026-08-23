@@ -5,6 +5,9 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	cwlsdk "github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
+	cwlsdktypes "github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs/types"
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -213,17 +216,35 @@ func TestHandler_S3TableIntegrationSourceOperations(t *testing.T) {
 		wantCode      int
 	}{
 		{
-			name:          "ListSourcesForS3TableIntegration/ReturnsEmpty",
+			// Real ListSourcesForS3TableIntegrationInput.IntegrationArn is
+			// required (validateOpListSourcesForS3TableIntegrationInput) --
+			// a previous revision accepted an empty body and always
+			// returned an empty list regardless, which a real client could
+			// never actually trigger since its own client-side validator
+			// refuses to send the request without it.
+			name:          "ListSourcesForS3TableIntegration/ReturnsEmptyForUnknownArn",
 			action:        "ListSourcesForS3TableIntegration",
-			body:          map[string]any{},
+			body:          map[string]any{"integrationArn": "arn:aws:s3tables:us-east-1:123:integration/none"},
 			wantCode:      http.StatusOK,
 			wantListField: "sources",
 		},
 		{
-			name:     "DisassociateSourceFromS3TableIntegration/OK",
+			name:     "ListSourcesForS3TableIntegration/MissingArn",
+			action:   "ListSourcesForS3TableIntegration",
+			body:     map[string]any{},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "DisassociateSourceFromS3TableIntegration/EmptyIdentifier",
 			action:   "DisassociateSourceFromS3TableIntegration",
 			body:     map[string]any{},
-			wantCode: http.StatusOK,
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "DisassociateSourceFromS3TableIntegration/NotFound",
+			action:   "DisassociateSourceFromS3TableIntegration",
+			body:     map[string]any{"identifier": "ghost"},
+			wantCode: http.StatusNotFound,
 		},
 	}
 
@@ -246,6 +267,37 @@ func TestHandler_S3TableIntegrationSourceOperations(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestHandler_DisassociateSourceFromS3TableIntegration_RoundTrip(t *testing.T) {
+	t.Parallel()
+
+	h, e := newTestHandler(t)
+
+	assocRec := doLogsRequest(t, h, e, "AssociateSourceToS3TableIntegration",
+		`{"integrationArn":"arn:aws:logs::123456789012:integration:my-integration",`+
+			`"dataSource":{"name":"my-source","type":"S3"}}`)
+	require.Equal(t, http.StatusOK, assocRec.Code)
+
+	var assocResp map[string]any
+	require.NoError(t, json.Unmarshal(assocRec.Body.Bytes(), &assocResp))
+	identifier, ok := assocResp["identifier"].(string)
+	require.True(t, ok, "expected identifier in AssociateSourceToS3TableIntegration response")
+	require.NotEmpty(t, identifier)
+
+	disRec := doLogsRequest(t, h, e, "DisassociateSourceFromS3TableIntegration",
+		`{"identifier":"`+identifier+`"}`)
+	require.Equal(t, http.StatusOK, disRec.Code)
+
+	var disResp map[string]any
+	require.NoError(t, json.Unmarshal(disRec.Body.Bytes(), &disResp))
+	assert.Equal(t, identifier, disResp["identifier"])
+
+	// A second disassociate of the same identifier must now fail: the
+	// association was actually removed, not silently accepted.
+	repeatRec := doLogsRequest(t, h, e, "DisassociateSourceFromS3TableIntegration",
+		`{"identifier":"`+identifier+`"}`)
+	assert.Equal(t, http.StatusNotFound, repeatRec.Code)
 }
 
 func TestHandler_IntegrationResponseShape(t *testing.T) {
@@ -300,4 +352,56 @@ func TestHandler_IntegrationResponseShape(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestListSourcesForS3TableIntegration_RealRoundTrip drives
+// AssociateSourceToS3TableIntegration then ListSourcesForS3TableIntegration
+// through the real aws-sdk-go-v2 client. A previous revision's
+// handleListSourcesForS3TableIntegration ignored its request body entirely
+// and unconditionally returned an empty list, so an association that was
+// genuinely stored (b.s3TableIntegrations) could never actually be
+// observed through this op regardless of which integrationArn a real
+// caller listed.
+func TestListSourcesForS3TableIntegration_RealRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	backend := cloudwatchlogs.NewInMemoryBackend()
+	client := newTestCloudWatchLogsClient(t, cloudwatchlogs.NewHandler(backend))
+
+	integrationArn := "arn:aws:s3tables:us-east-1:000000000000:integration/my-int"
+
+	assocOut, err := client.AssociateSourceToS3TableIntegration(
+		t.Context(), &cwlsdk.AssociateSourceToS3TableIntegrationInput{
+			IntegrationArn: aws.String(integrationArn),
+			DataSource: &cwlsdktypes.DataSource{
+				Name: aws.String("source1"),
+				Type: aws.String("CloudWatchLogs"),
+			},
+		},
+	)
+	require.NoError(t, err)
+	require.NotNil(t, assocOut.Identifier)
+
+	out, err := client.ListSourcesForS3TableIntegration(
+		t.Context(), &cwlsdk.ListSourcesForS3TableIntegrationInput{
+			IntegrationArn: aws.String(integrationArn),
+		},
+	)
+	require.NoError(t, err)
+	require.Len(t, out.Sources, 1)
+	assert.Equal(t, *assocOut.Identifier, aws.ToString(out.Sources[0].Identifier))
+	require.NotNil(t, out.Sources[0].DataSource)
+	assert.Equal(t, "source1", aws.ToString(out.Sources[0].DataSource.Name))
+	assert.Equal(t, "CloudWatchLogs", aws.ToString(out.Sources[0].DataSource.Type))
+	assert.Equal(t, cwlsdktypes.S3TableIntegrationSourceStatusActive, out.Sources[0].Status)
+	assert.NotZero(t, aws.ToInt64(out.Sources[0].CreatedTimeStamp))
+
+	// A different integrationArn must not see this association.
+	otherOut, err := client.ListSourcesForS3TableIntegration(
+		t.Context(), &cwlsdk.ListSourcesForS3TableIntegrationInput{
+			IntegrationArn: aws.String("arn:aws:s3tables:us-east-1:000000000000:integration/other"),
+		},
+	)
+	require.NoError(t, err)
+	assert.Empty(t, otherOut.Sources)
 }

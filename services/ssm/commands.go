@@ -2,6 +2,7 @@ package ssm
 
 import (
 	"context"
+	"slices"
 	"sort"
 	"strconv"
 	"time"
@@ -40,6 +41,13 @@ func (b *InMemoryBackend) SendCommand(
 	now := UnixTimeFloat(time.Now())
 	cmdID := uuid.NewString()
 
+	// resolvedInstanceIDs drives the actual invocation set: InstanceIds plus
+	// whatever Targets resolves to (AWS: "Targets is required if you don't
+	// provide one or more managed node IDs in the call"). A Targets-only
+	// caller -- the pattern AWS documents as required for at-scale sends --
+	// must still get real invocations, not zero.
+	resolvedInstanceIDs := mergeUniqueInstanceIDs(input.InstanceIDs, commandTargetInstanceIDs(input.Targets))
+
 	timeoutSecs := input.TimeoutSeconds
 	if timeoutSecs == 0 {
 		timeoutSecs = 3600
@@ -50,6 +58,7 @@ func (b *InMemoryBackend) SendCommand(
 	cmd := Command{
 		CommandID:          cmdID,
 		DocumentName:       input.DocumentName,
+		DocumentVersion:    input.DocumentVersion,
 		Parameters:         input.Parameters,
 		Status:             commandStatusPending,
 		StatusDetails:      commandStatusPending,
@@ -62,6 +71,9 @@ func (b *InMemoryBackend) SendCommand(
 		OutputS3BucketName: input.OutputS3BucketName,
 		OutputS3KeyPrefix:  input.OutputS3KeyPrefix,
 		OutputS3Region:     input.OutputS3Region,
+		ServiceRole:        input.ServiceRoleArn,
+		MaxConcurrency:     input.MaxConcurrency,
+		MaxErrors:          input.MaxErrors,
 	}
 
 	b.commandsStore(region).Put(&cmd)
@@ -69,17 +81,18 @@ func (b *InMemoryBackend) SendCommand(
 	stdout, stderr, finalStatus := renderCommandOutput(input.DocumentName, input.Parameters)
 
 	if input.DocumentName == docRunPatchBaseline {
-		for _, instanceID := range input.InstanceIDs {
+		for _, instanceID := range resolvedInstanceIDs {
 			b.applyPatchBaselineOperation(region, instanceID, input.Parameters)
 		}
 	}
 
-	invocations := make([]CommandInvocation, 0, len(input.InstanceIDs))
-	for _, instanceID := range input.InstanceIDs {
+	invocations := make([]CommandInvocation, 0, len(resolvedInstanceIDs))
+	for _, instanceID := range resolvedInstanceIDs {
 		inv := CommandInvocation{
 			CommandID:         cmdID,
 			InstanceID:        instanceID,
 			DocumentName:      input.DocumentName,
+			DocumentVersion:   input.DocumentVersion,
 			Status:            commandStatusPending,
 			StatusDetails:     commandStatusPending,
 			RequestedDateTime: now,
@@ -113,8 +126,63 @@ func (b *InMemoryBackend) SendCommand(
 	// Return a snapshot of the current state.
 	finalCmdPtr, _ := b.commandsStore(region).Get(cmdID)
 	finalCmd := *finalCmdPtr
+	finalCmd.TargetCount, finalCmd.CompletedCount, finalCmd.ErrorCount = commandCounts(invocations)
 
 	return &SendCommandOutput{Command: finalCmd}, nil
+}
+
+// commandTargetInstanceIDs flattens a SendCommand Targets list into instance
+// IDs, treating every target's Values as literal node IDs regardless of Key
+// -- the same simplification buildAssocExecTargets (associations.go) already
+// makes for AssociationTarget, kept consistent here rather than adding
+// tag-based resolution this backend has no matching infra for.
+func commandTargetInstanceIDs(targets []CommandTarget) []string {
+	ids := make([]string, 0, len(targets))
+	for _, t := range targets {
+		ids = append(ids, t.Values...)
+	}
+
+	return ids
+}
+
+// mergeUniqueInstanceIDs unions a and b, preserving first-seen order and
+// dropping duplicates so a node named in both InstanceIds and Targets is
+// only invoked once.
+func mergeUniqueInstanceIDs(a, b []string) []string {
+	seen := make(map[string]struct{}, len(a)+len(b))
+	out := make([]string, 0, len(a)+len(b))
+
+	for _, id := range slices.Concat(a, b) {
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		out = append(out, id)
+	}
+
+	return out
+}
+
+// commandCounts computes real types.Command members TargetCount/
+// CompletedCount/ErrorCount (api_op_SendCommand.go/api_op_ListCommands.go)
+// from a command's invocations rather than storing them redundantly, so
+// they can never drift out of sync with the invocations they summarize.
+func commandCounts(invs []CommandInvocation) (int32, int32, int32) {
+	var completed, errorCount int32
+
+	for _, inv := range invs {
+		switch inv.Status {
+		case commandStatusSuccess:
+			completed++
+		case commandStatusFailed:
+			completed++
+			errorCount++
+		}
+	}
+
+	target := int32(len(invs)) // #nosec G115 -- bounded by one SendCommand's InstanceIds, never near int32 max
+
+	return target, completed, errorCount
 }
 
 // setCommandStatus mutates the command and all its invocations to the given
@@ -161,6 +229,7 @@ func (b *InMemoryBackend) completeCommand(region, cmdID string) {
 	invs := invStore[cmdID]
 
 	overall := commandStatusSuccess
+	completionTime := UnixTimeFloat(time.Now())
 
 	for i := range invs {
 		final := invs[i].finalStatus
@@ -172,6 +241,7 @@ func (b *InMemoryBackend) completeCommand(region, cmdID string) {
 		invs[i].StatusDetails = final
 		invs[i].StandardOutputContent = invs[i].pendingStdout
 		invs[i].StandardErrorContent = invs[i].pendingStderr
+		invs[i].executionEndUnix = completionTime
 
 		if final != commandStatusSuccess {
 			overall = final
@@ -219,12 +289,18 @@ func (b *InMemoryBackend) ListCommands(
 	b.materializeCommandsLocked(region, UnixTimeFloat(timeNow()))
 
 	cmdTable := b.commandsStore(region)
+	invStore := b.commandInvocationsStore(region)
 	all := make([]Command, 0, cmdTable.Len())
 	for _, cmdPtr := range cmdTable.All() {
 		if input.CommandID != "" && cmdPtr.CommandID != input.CommandID {
 			continue
 		}
-		all = append(all, *cmdPtr)
+		if input.InstanceID != "" && !slices.Contains(cmdPtr.InstanceIDs, input.InstanceID) {
+			continue
+		}
+		cmd := *cmdPtr
+		cmd.TargetCount, cmd.CompletedCount, cmd.ErrorCount = commandCounts(invStore[cmd.CommandID])
+		all = append(all, cmd)
 	}
 
 	sort.Slice(all, func(i, j int) bool { return all[i].CommandID < all[j].CommandID })
@@ -273,18 +349,26 @@ func (b *InMemoryBackend) GetCommandInvocation(
 
 	for _, inv := range b.commandInvocationsStore(region)[input.CommandID] {
 		if inv.InstanceID == input.InstanceID {
-			return &GetCommandInvocationOutput{
-				CommandID:             input.CommandID,
-				InstanceID:            input.InstanceID,
-				DocumentName:          inv.DocumentName,
-				Status:                inv.Status,
-				StatusDetails:         inv.StatusDetails,
-				StandardOutputContent: inv.StandardOutputContent,
-				StandardErrorContent:  inv.StandardErrorContent,
-				StandardOutputURL:     inv.StandardOutputURL,
-				StandardErrorURL:      inv.StandardErrorURL,
-				Comment:               inv.Comment,
-			}, nil
+			out := &GetCommandInvocationOutput{
+				CommandID:              input.CommandID,
+				InstanceID:             input.InstanceID,
+				DocumentName:           inv.DocumentName,
+				DocumentVersion:        inv.DocumentVersion,
+				PluginName:             input.PluginName,
+				Status:                 inv.Status,
+				StatusDetails:          inv.StatusDetails,
+				StandardOutputContent:  inv.StandardOutputContent,
+				StandardErrorContent:   inv.StandardErrorContent,
+				StandardOutputURL:      inv.StandardOutputURL,
+				StandardErrorURL:       inv.StandardErrorURL,
+				Comment:                inv.Comment,
+				ExecutionStartDateTime: formatCommandTime(inv.RequestedDateTime),
+			}
+			if inv.executionEndUnix != 0 {
+				out.ExecutionEndDateTime = formatCommandTime(inv.executionEndUnix)
+			}
+
+			return out, nil
 		}
 	}
 
@@ -365,17 +449,43 @@ func (b *InMemoryBackend) CancelCommand(
 		return nil, ErrCommandNotFound
 	}
 
-	cmd := *cmdPtr
-	cmd.Status = commandStatusCancelled
-	cmdTable.Put(&cmd)
-
+	// InstanceIds scopes cancellation to specific managed nodes -- if
+	// omitted, every node the command was requested on is canceled
+	// (api_op_CancelCommand.go: "If not provided, the command is canceled
+	// on every node on which it was requested").
 	invStore := b.commandInvocationsStore(region)
 	invs := invStore[input.CommandID]
+	allCancelled := true
+
 	for i := range invs {
+		if len(input.InstanceIDs) > 0 && !slices.Contains(input.InstanceIDs, invs[i].InstanceID) {
+			if invs[i].Status != commandStatusCancelled {
+				allCancelled = false
+			}
+
+			continue
+		}
+
 		invs[i].Status = commandStatusCancelled
 		invs[i].StatusDetails = commandStatusCancelled
 	}
+
 	invStore[input.CommandID] = invs
 
+	if allCancelled {
+		cmd := *cmdPtr
+		cmd.Status = commandStatusCancelled
+		cmdTable.Put(&cmd)
+	}
+
 	return &CancelCommandOutput{}, nil
+}
+
+// formatCommandTime renders a Unix-seconds float64 as the ISO 8601 string
+// GetCommandInvocationOutput's ExecutionStartDateTime/ExecutionEndDateTime
+// use (api_op_GetCommandInvocation.go:90-109) -- these two members are real
+// wire strings, not epoch numbers like every other timestamp in this
+// package.
+func formatCommandTime(unixSeconds float64) string {
+	return time.Unix(int64(unixSeconds), 0).UTC().Format(time.RFC3339)
 }

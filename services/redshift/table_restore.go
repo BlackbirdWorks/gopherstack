@@ -23,7 +23,7 @@ func (b *InMemoryBackend) CreateTableRestoreStatus(
 		TableRestoreRequestID: restoreID,
 		ClusterIdentifier:     clusterID,
 		SnapshotIdentifier:    snapshotID,
-		Status:                "IN_PROGRESS",
+		Status:                tableRestoreStatusInProgress,
 		SourceDatabaseName:    sourceDatabaseName,
 		SourceTableName:       sourceTableName,
 		TargetDatabaseName:    targetDatabaseName,
@@ -31,6 +31,7 @@ func (b *InMemoryBackend) CreateTableRestoreStatus(
 		RequestTime:           time.Now().UTC(),
 	}
 	b.tableRestores.Put(tr)
+	b.tableRestoreReadyAt[restoreID] = time.Now().UTC().Add(tableRestoreCompletionDelay)
 
 	cp := *tr
 
@@ -39,6 +40,8 @@ func (b *InMemoryBackend) CreateTableRestoreStatus(
 
 // DescribeTableRestoreStatus returns table restore status records for a cluster.
 func (b *InMemoryBackend) DescribeTableRestoreStatus(clusterID string) ([]TableRestoreStatus, error) {
+	b.advanceTableRestoreStates(time.Now())
+
 	b.mu.RLock("DescribeTableRestoreStatus")
 	defer b.mu.RUnlock()
 

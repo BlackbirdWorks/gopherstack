@@ -14,6 +14,9 @@ const (
 	// defaultReconcileInterval is how often the background reconciler wakes to
 	// advance due cluster-state transitions when no explicit interval is set.
 	defaultReconcileInterval = 250 * time.Millisecond
+
+	tableRestoreStatusInProgress = "IN_PROGRESS"
+	tableRestoreStatusSucceeded  = "SUCCEEDED"
 )
 
 // clusterTransition describes a scheduled state change for a single cluster.
@@ -107,6 +110,59 @@ func (b *InMemoryBackend) applyDueTransitionsLocked(now time.Time) {
 	}
 }
 
+// tableRestoreCompletionDelay is how long a classic (non-Serverless) table
+// restore reports IN_PROGRESS before SUCCEEDED, matching AWS's own documented
+// TableRestoreStatus values (PENDING, IN_PROGRESS, SUCCEEDED, FAILED,
+// CANCELED) -- this backend performs no real background data copy, so the
+// delay only exists to make the transition observable to a polling client,
+// the same rationale as clusterActivationDelay above.
+const tableRestoreCompletionDelay = 100 * time.Millisecond
+
+// advanceTableRestoreStates applies every classic table restore whose
+// completion deadline has passed, moving it IN_PROGRESS -> SUCCEEDED.
+// CreateTableRestoreStatus stamped Status IN_PROGRESS and nothing else in
+// this backend ever advanced it -- no ticker, no later call -- while its
+// sibling ServerlessTableRestoreStatus (serverless_table_restore.go) lands
+// directly on SUCCEEDED at creation since it does no real async work either.
+// It is safe for concurrent use and is called both lazily on reads (so a
+// polling DescribeTableRestoreStatus always observes the true state, even
+// when the background reconciler is not running) and periodically by the
+// reconciler loop, mirroring advanceClusterStates above.
+func (b *InMemoryBackend) advanceTableRestoreStates(now time.Time) {
+	b.mu.RLock("advanceTableRestoreStates.scan")
+
+	due := false
+
+	for _, readyAt := range b.tableRestoreReadyAt {
+		if !now.Before(readyAt) {
+			due = true
+
+			break
+		}
+	}
+
+	b.mu.RUnlock()
+
+	if !due {
+		return
+	}
+
+	b.mu.Lock("advanceTableRestoreStates.apply")
+	defer b.mu.Unlock()
+
+	for id, readyAt := range b.tableRestoreReadyAt {
+		if now.Before(readyAt) {
+			continue
+		}
+
+		delete(b.tableRestoreReadyAt, id)
+
+		if tr, ok := b.tableRestores.Get(id); ok && tr.Status == tableRestoreStatusInProgress {
+			tr.Status = tableRestoreStatusSucceeded
+		}
+	}
+}
+
 // StartReconciler starts the managed background reconciler that advances cluster
 // lifecycle transitions (creating→available, modifying→available, deleting→gone).
 // It replaces the previous per-cluster unmanaged goroutine with a single goroutine
@@ -152,6 +208,7 @@ func (b *InMemoryBackend) reconcileLoop(ctx context.Context, stop <-chan struct{
 			return
 		case <-ticker.C:
 			b.advanceClusterStates(time.Now())
+			b.advanceTableRestoreStates(time.Now())
 		}
 	}
 }

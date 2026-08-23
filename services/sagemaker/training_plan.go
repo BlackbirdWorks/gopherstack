@@ -82,20 +82,46 @@ type ReservedCapacity struct {
 	InUseInstanceCount     int32          `json:"InUseInstanceCount,omitempty"`
 }
 
+// ultraServerSummary projects rc.UltraServers into the single
+// UltraServerSummary DescribeReservedCapacityOutput declares
+// (api_op_DescribeReservedCapacity.go, types/types.go:24056-24076), or nil if
+// rc backs no UltraServer. This catalog only ever attaches one UltraServer
+// per UltraServer-type ReservedCapacity (see createReservedCapacity), so
+// UltraServerCount is always 1 and UnhealthyInstanceCount always 0 — this
+// backend never simulates an unhealthy UltraServer.
+func (rc *ReservedCapacity) ultraServerSummary() map[string]any {
+	if len(rc.UltraServers) == 0 {
+		return nil
+	}
+
+	u := rc.UltraServers[0]
+
+	return map[string]any{
+		"InstanceType":                u.InstanceType,
+		"UltraServerType":             u.UltraServerType,
+		"AvailableSpareInstanceCount": u.AvailableSpareInstanceCount,
+		"UltraServerCount":            len(rc.UltraServers),
+		"UnhealthyInstanceCount":      0,
+	}
+}
+
 // MarshalJSON emits StartTime/EndTime as AWS awsjson1.1 epoch-seconds
-// numbers rather than Go's default RFC3339 strings — this struct is
-// marshaled directly by handleDescribeReservedCapacity.
+// numbers rather than Go's default RFC3339 strings, and adds
+// UltraServerSummary — this struct is marshaled directly by
+// handleDescribeReservedCapacity.
 func (rc *ReservedCapacity) MarshalJSON() ([]byte, error) {
 	type alias ReservedCapacity
 
 	return json.Marshal(struct {
 		*alias
-		StartTime float64 `json:"StartTime"`
-		EndTime   float64 `json:"EndTime"`
+		UltraServerSummary map[string]any `json:"UltraServerSummary,omitempty"`
+		StartTime          float64        `json:"StartTime"`
+		EndTime            float64        `json:"EndTime"`
 	}{
-		alias:     (*alias)(rc),
-		StartTime: epochSeconds(rc.StartTime),
-		EndTime:   epochSeconds(rc.EndTime),
+		alias:              (*alias)(rc),
+		StartTime:          epochSeconds(rc.StartTime),
+		EndTime:            epochSeconds(rc.EndTime),
+		UltraServerSummary: rc.ultraServerSummary(),
 	})
 }
 
@@ -383,16 +409,91 @@ func offeringMatchesTargetResources(o *TrainingPlanOffering, targets []string) b
 	return false
 }
 
+// offeringMatchesInstanceCount reports whether o has a reserved-capacity
+// block able to satisfy wantCount instances (SearchTrainingPlanOfferingsInput
+// docs: "helping you find reserved capacity offerings that match your
+// requirements" — previously decoded by the handler but never applied here,
+// so a real client's InstanceCount was silently ignored).
+func offeringMatchesInstanceCount(o *TrainingPlanOffering, wantCount int32) bool {
+	if wantCount <= 0 {
+		return true
+	}
+
+	for _, rco := range o.ReservedCapacityOfferings {
+		if rco.InstanceCount >= wantCount {
+			return true
+		}
+	}
+
+	return false
+}
+
+// offeringMatchesUltraServerCount reports whether o can supply wantCount
+// UltraServers. This catalog only ever models one UltraServer per
+// UltraServer-type ReservedCapacityOffering (see the catalog above and
+// createReservedCapacity), so the only satisfiable non-zero request is 1.
+func offeringMatchesUltraServerCount(o *TrainingPlanOffering, wantCount int32) bool {
+	if wantCount <= 0 {
+		return true
+	}
+
+	for _, rco := range o.ReservedCapacityOfferings {
+		if rco.IsUltraServer && wantCount <= 1 {
+			return true
+		}
+	}
+
+	return false
+}
+
 // TrainingPlanExtensionOffering is a purchasable extension for an existing
 // training plan, returned by SearchTrainingPlanOfferings when TrainingPlanArn
 // is specified.
 type TrainingPlanExtensionOffering struct {
-	StartDate                       time.Time `json:"StartDate"`
-	EndDate                         time.Time `json:"EndDate"`
+	StartDate                       time.Time `json:"-"`
+	EndDate                         time.Time `json:"-"`
 	TrainingPlanExtensionOfferingID string    `json:"TrainingPlanExtensionOfferingId"`
 	CurrencyCode                    string    `json:"CurrencyCode,omitempty"`
 	AvailabilityZone                string    `json:"AvailabilityZone,omitempty"`
 	DurationHours                   int32     `json:"DurationHours"`
+}
+
+// MarshalJSON emits StartDate/EndDate as AWS awsjson1.1 epoch-seconds
+// numbers rather than Go's default RFC3339 strings --
+// SearchTrainingPlanOfferings marshals []*TrainingPlanExtensionOffering
+// directly (handler_training_plan.go).
+func (o TrainingPlanExtensionOffering) MarshalJSON() ([]byte, error) {
+	type alias TrainingPlanExtensionOffering
+
+	return json.Marshal(struct {
+		alias
+		StartDate float64 `json:"StartDate"`
+		EndDate   float64 `json:"EndDate"`
+	}{
+		alias:     alias(o),
+		StartDate: epochSeconds(o.StartDate),
+		EndDate:   epochSeconds(o.EndDate),
+	})
+}
+
+// UnmarshalJSON is the inverse of [TrainingPlanExtensionOffering.MarshalJSON].
+func (o *TrainingPlanExtensionOffering) UnmarshalJSON(data []byte) error {
+	type alias TrainingPlanExtensionOffering
+
+	aux := struct {
+		*alias
+		StartDate float64 `json:"StartDate"`
+		EndDate   float64 `json:"EndDate"`
+	}{alias: (*alias)(o)}
+
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+
+	o.StartDate = timeFromEpochSeconds(aux.StartDate)
+	o.EndDate = timeFromEpochSeconds(aux.EndDate)
+
+	return nil
 }
 
 // pendingTrainingPlanExtension is the internal state recorded when
@@ -447,6 +548,14 @@ func (b *InMemoryBackend) SearchTrainingPlanOfferings(
 		}
 
 		if params.DurationHours > 0 && o.DurationHours != params.DurationHours {
+			continue
+		}
+
+		if !offeringMatchesInstanceCount(o, params.InstanceCount) {
+			continue
+		}
+
+		if !offeringMatchesUltraServerCount(o, params.UltraServerCount) {
 			continue
 		}
 
@@ -596,11 +705,13 @@ func (b *InMemoryBackend) findTrainingPlanByARN(region, trainingPlanArn string) 
 
 // ListTrainingPlansParams bundles the filter/sort criteria for ListTrainingPlans.
 type ListTrainingPlansParams struct {
-	StatusEquals string
-	SortBy       string
-	SortOrder    string
-	NextToken    string
-	MaxResults   int32
+	StartTimeAfter  *time.Time
+	StartTimeBefore *time.Time
+	StatusEquals    string
+	SortBy          string
+	SortOrder       string
+	NextToken       string
+	MaxResults      int32
 }
 
 // ListTrainingPlans lists training plans, optionally filtered by status and sorted.
@@ -618,6 +729,15 @@ func (b *InMemoryBackend) ListTrainingPlans(
 
 	for _, t := range store.All() {
 		if params.StatusEquals != "" && t.Status != params.StatusEquals {
+			continue
+		}
+
+		start := trainingPlanStartTime(t)
+		if params.StartTimeAfter != nil && !start.After(*params.StartTimeAfter) {
+			continue
+		}
+
+		if params.StartTimeBefore != nil && !start.Before(*params.StartTimeBefore) {
 			continue
 		}
 

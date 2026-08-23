@@ -53,15 +53,21 @@ type AIWorkloadConfig struct {
 	DatasetConfig        json.RawMessage   `json:"DatasetConfig,omitempty"`
 }
 
-// MarshalJSON emits CreationTime as an AWS awsjson1.1 epoch-seconds number.
+// MarshalJSON emits CreationTime as an AWS awsjson1.1 epoch-seconds number
+// and Tags as the []{Key,Value} list DescribeAIWorkloadConfigOutput.Tags
+// ([]types.Tag) declares -- the embedded map[string]string field would
+// otherwise serialize as a JSON object, which a real client's []types.Tag
+// deserializer rejects outright.
 func (c *AIWorkloadConfig) MarshalJSON() ([]byte, error) {
 	type alias AIWorkloadConfig
 
 	return json.Marshal(struct {
 		*alias
-		CreationTime float64 `json:"CreationTime"`
+		Tags         []tagObject `json:"Tags,omitempty"`
+		CreationTime float64     `json:"CreationTime"`
 	}{
 		alias:        (*alias)(c),
+		Tags:         toTagObjects(c.Tags),
 		CreationTime: epochSeconds(c.CreationTime),
 	})
 }

@@ -629,7 +629,7 @@ func TestSchemaVersionMetadata_Lifecycle(t *testing.T) {
 			var out struct {
 				MetadataInfo map[string]struct {
 					MetadataValue string `json:"MetadataValue"`
-				} `json:"MetadataInfo"`
+				} `json:"MetadataInfoMap"`
 				SchemaVersionID string `json:"SchemaVersionId"`
 			}
 			require.NoError(t, json.Unmarshal(queryRec.Body.Bytes(), &out))
@@ -657,7 +657,7 @@ func TestSchemaVersionMetadata_EmptyQuery(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out struct {
-		MetadataInfo map[string]any `json:"MetadataInfo"`
+		MetadataInfo map[string]any `json:"MetadataInfoMap"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
 	assert.Empty(t, out.MetadataInfo)

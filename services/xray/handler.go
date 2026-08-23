@@ -350,7 +350,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		path := c.Request().URL.Path
 
 		if !xrayPaths[path] {
-			return c.String(http.StatusNotFound, "not found")
+			return h.handleError(c, path, fmt.Errorf("%w: %s", errUnknownPath, path))
 		}
 
 		// GET /EncryptionConfig → GetEncryptionConfig (no body). POST /EncryptionConfig
@@ -364,7 +364,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		if err != nil {
 			log.ErrorContext(ctx, "failed to read request body", "error", err)
 
-			return c.String(http.StatusInternalServerError, "internal server error")
+			return h.handleError(c, path, err)
 		}
 
 		op := h.ExtractOperation(c)
@@ -516,7 +516,7 @@ func (h *Handler) handleError(c *echo.Context, _ string, err error) error {
 		})
 	default:
 		return c.JSON(http.StatusInternalServerError, map[string]string{
-			keyTypeField:    "InternalServiceError",
+			keyTypeField:    "InternalFailure",
 			keyMessageField: err.Error(),
 		})
 	}

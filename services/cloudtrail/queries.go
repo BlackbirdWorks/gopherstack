@@ -7,8 +7,11 @@ import (
 	"time"
 )
 
-// StartQuery creates a new query against an event data store.
-func (b *InMemoryBackend) StartQuery(queryString, edsARN, deliveryS3URI string) (*Query, error) {
+// StartQuery creates a new query against an event data store. queryAlias is
+// optional (StartQuery accepts QueryStatement alone); when set it is stored
+// so a later DescribeQuery can resolve "the last query run for the alias" --
+// see DescribeQueryByAlias.
+func (b *InMemoryBackend) StartQuery(queryString, edsARN, deliveryS3URI, queryAlias string) (*Query, error) {
 	b.mu.Lock("StartQuery")
 	defer b.mu.Unlock()
 
@@ -24,6 +27,7 @@ func (b *InMemoryBackend) StartQuery(queryString, edsARN, deliveryS3URI string) 
 		QueryString:       queryString,
 		QueryStatus:       "QUEUED",
 		DeliveryS3URI:     deliveryS3URI,
+		QueryAlias:        queryAlias,
 		CreationTime:      time.Now().UTC(),
 	}
 	b.queries.Put(q)
@@ -70,6 +74,32 @@ func (b *InMemoryBackend) DescribeQuery(queryID string) (*Query, error) {
 	if !ok {
 		return nil, fmt.Errorf("%w: query %s not found", ErrQueryIDNotFound, queryID)
 	}
+	b.materializeQueryLocked(q)
+	cp := *q
+
+	return &cp, nil
+}
+
+// DescribeQueryByAlias returns details about the last query started under
+// alias, per DescribeQueryInput's documented alternative to QueryId:
+// "Specifying the QueryAlias parameter returns information about the last
+// query run for the alias." Materializes the query first if unread, same as
+// DescribeQuery. b.queriesByAlias groups queries in StartQuery call order, so
+// the last element of the group is the most recently started one.
+func (b *InMemoryBackend) DescribeQueryByAlias(alias string) (*Query, error) {
+	b.mu.Lock("DescribeQueryByAlias")
+	defer b.mu.Unlock()
+
+	if alias == "" {
+		return nil, fmt.Errorf("%w: QueryAlias is required", ErrValidation)
+	}
+
+	matches := b.queriesByAlias.Get(alias)
+	if len(matches) == 0 {
+		return nil, fmt.Errorf("%w: alias %s not found", ErrQueryIDNotFound, alias)
+	}
+
+	q := matches[len(matches)-1]
 	b.materializeQueryLocked(q)
 	cp := *q
 

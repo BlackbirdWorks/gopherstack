@@ -102,7 +102,6 @@ type describeJobsInput struct {
 // are modeled.
 type jobDetail struct {
 	StoppedAt                    *int64                        `json:"stoppedAt,omitempty"`
-	StartedAt                    *int64                        `json:"startedAt,omitempty"`
 	RetryStrategy                *RetryStrategy                `json:"retryStrategy,omitempty"`
 	Timeout                      *JobTimeout                   `json:"timeout,omitempty"`
 	ArrayProperties              *ArrayProperties              `json:"arrayProperties,omitempty"`
@@ -121,10 +120,13 @@ type jobDetail struct {
 	DependsOn                    []JobDependency               `json:"dependsOn,omitempty"`
 	PlatformCapabilities         []string                      `json:"platformCapabilities,omitempty"`
 	CreatedAt                    int64                         `json:"createdAt"`
-	SchedulingPriorityOverride   int32                         `json:"schedulingPriority,omitempty"`
-	PropagateTags                bool                          `json:"propagateTags,omitempty"`
-	IsCancelled                  bool                          `json:"isCancelled"`
-	IsTerminated                 bool                          `json:"isTerminated"`
+	// StartedAt is required on JobDetail even for a job that hasn't reached
+	// RUNNING yet -- 0 until then, never omitted (see int64OrZero).
+	StartedAt                  int64 `json:"startedAt"`
+	SchedulingPriorityOverride int32 `json:"schedulingPriority,omitempty"`
+	PropagateTags              bool  `json:"propagateTags,omitempty"`
+	IsCancelled                bool  `json:"isCancelled"`
+	IsTerminated               bool  `json:"isTerminated"`
 }
 
 type describeJobsOutput struct {
@@ -145,7 +147,7 @@ func (h *Handler) handleDescribeJobs(ctx context.Context, in *describeJobsInput)
 			Status:                       j.Status,
 			StatusReason:                 j.StatusReason,
 			CreatedAt:                    j.CreatedAt,
-			StartedAt:                    j.StartedAt,
+			StartedAt:                    int64OrZero(j.StartedAt),
 			StoppedAt:                    j.StoppedAt,
 			Tags:                         tagsOrEmpty(j.Tags),
 			RetryStrategy:                j.RetryStrategy,

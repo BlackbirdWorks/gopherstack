@@ -138,6 +138,8 @@ ops:
   DescribeCertificates: {wire: ok, errors: ok, state: ok, persist: ok, note: "same CertificatePem fix as ImportCertificate (2026-07-31). FIXED 2026-08-12 (gopherstack-o53q) -- real DescribeCertificatesInput carries Filters []types.Filter (certificate-arn/certificate-id), entirely absent from the request struct; a client's filter was silently dropped. Now narrows the returned list; proven with a multi-certificate test."}
   DeleteCertificate: {wire: ok, errors: ok, state: ok, persist: ok, note: "same CertificatePem fix as ImportCertificate (2026-07-31) -- certToJSON is shared by all three certificate ops"}
   DescribeAccountAttributes: {wire: ok, errors: ok, state: ok, persist: n/a, note: "quota usage computed live from real counts"}
+  DescribeEvents: {wire: fixed, errors: ok, state: ok, persist: n/a, note: "events recorded on Endpoint/ReplicationTask create/delete/start/stop, not persisted across restarts -- low value, matches many other services' event-log conventions. FIXED 2026-08-12 (gopherstack-o53q) -- real input also carries Filters []types.Filter; per the SDK doc 'the only valid filter is replication-instance-id', which is now applied against Event.SourceIdentifier and narrows the returned list. FIXED 2026-08-21 (gopherstack-g479) -- Event.Date was a hand-built map[string]any value assigning a formatted RFC3339 string; real Event.Date deserializes from a json.Number via ParseEpochSeconds (aws-sdk-go-v2/service/databasemigrationservice@v1.66.4's deserializers.go, awsAwsjson11_deserializeDocumentEvent). Failed with 'expected TStamp to be a JSON Number, got string instead' pre-fix; Event.Date is now time.Time internally, converted at the wire boundary. Found via a new go/types-based map-literal kind scanner (map[string]any{} literals had zero automated coverage before this pass)."}
+  DescribeOrderableReplicationInstances: {wire: ok, errors: ok, state: n/a, note: "static reference catalog, matches real AWS class list"}
   DescribeEvents: {wire: partial, errors: ok, state: ok, persist: n/a, note: "events recorded on Endpoint/ReplicationTask create/delete/start/stop, not persisted across restarts -- low value, matches many other services' event-log conventions. FIXED 2026-08-12 (gopherstack-o53q) -- real input also carries Filters []types.Filter; per the SDK doc 'the only valid filter is replication-instance-id', which is now applied against Event.SourceIdentifier and narrows the returned list."}
   DescribeOrderableReplicationInstances: {wire: ok, errors: ok, state: n/a, note: "static reference catalog, matches real AWS class list. FIXED 2026-08-20 -- ReleaseStatus was hardcoded to the fabricated value \"GA\"; the real types.ReleaseStatusValues enum only has \"beta\"/\"prod\" (types/enums.go:628-634). Now \"prod\" (these are stable, non-beta instance classes)."}
   DescribeEngineVersions: {wire: ok, errors: ok, state: n/a, note: "static reference catalog"}
@@ -506,6 +508,31 @@ leaks: {status: clean, note: "no goroutines, janitors, or timers in this service
   discarding the client's ARN and never validating anything). Don't
   conflate this with `ReloadTablesInput.ReplicationTaskArn`, which is the
   correct field name for the *non*-serverless `ReloadTables` op.
+
+- **2026-08-22 (gopherstack-zquj, keycheck sweep)**: `DescribeFleetAdvisorDatabases`
+  wrote each database's engine info under a flat `"EngineName"` key and its
+  discovering collector under a flat `"CollectorReferencedId"` key. The real
+  `DatabaseResponse` (`aws-sdk-go-v2/service/databasemigrationservice@v1.66.4`
+  `types/types.go:332`) has neither member: engine info is nested under
+  `SoftwareDetails.Engine` (`types.go:301`,
+  `awsAwsjson11_deserializeDocumentDatabaseInstanceSoftwareDetailsResponse`,
+  case `"Engine"`), and the collector ID is nested under
+  `Collectors[].CollectorReferencedId` (`types.go:178`,
+  `awsAwsjson11_deserializeDocumentCollectorShortInfoResponse`, case
+  `"CollectorReferencedId"`). An exact-case real client dropped both values
+  silently on every `DescribeFleetAdvisorDatabases` call, and
+  `TestFleetAdvisorDatabases` ratified the wrong flat key by asserting
+  `db0["EngineName"]` directly. Fixed by nesting both under their real
+  parent objects in `handleDescribeFleetAdvisorDatabases`
+  (`handler_fleet_advisor.go`); the ratifying test now asserts
+  `db0["SoftwareDetails"]["Engine"]`. Proof:
+  `TestDescribeFleetAdvisorDatabases_EngineDecodesNested`
+  (`wire_maplit_fixes_test.go`) drives the real
+  `aws-sdk-go-v2/service/databasemigrationservice` client end-to-end and
+  asserts both `SoftwareDetails.Engine` and `Collectors[0].CollectorReferencedId`
+  decode non-empty; confirmed failing against the pre-fix flat keys via
+  hand-revert (`git show HEAD:services/dms/handler_fleet_advisor.go`,
+  restored, md5sum-verified byte-identical after re-fixing).
 
 - **Premigration assessment runs complete synchronously in this emulation**:
   real AWS runs `StartReplicationTaskAssessmentRun` asynchronously against

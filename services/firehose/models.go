@@ -110,8 +110,8 @@ type S3DestinationDescription struct {
 	CloudWatchLoggingOptions         *CloudWatchLoggingOptions         `json:"CloudWatchLoggingOptions,omitempty"`
 	DynamicPartitioningConfiguration *DynamicPartitioningConfiguration `json:"DynamicPartitioningConfiguration,omitempty"`
 	DataFormatConversion             *DataFormatConversionConfig       `json:"DataFormatConversionConfiguration,omitempty"`
-	BucketARN                        string                            `json:"BucketARN,omitempty"`
-	RoleARN                          string                            `json:"RoleARN,omitempty"`
+	BucketARN                        string                            `json:"BucketARN"`
+	RoleARN                          string                            `json:"RoleARN"`
 	Prefix                           string                            `json:"Prefix,omitempty"`
 	ErrorOutputPrefix                string                            `json:"ErrorOutputPrefix,omitempty"`
 	CompressionFormat                string                            `json:"CompressionFormat,omitempty"`
@@ -121,13 +121,16 @@ type S3DestinationDescription struct {
 	S3BackupMode                     string                            `json:"S3BackupMode,omitempty"`
 }
 
-// S3BackupDescription holds the S3 backup destination configuration.
+// S3BackupDescription holds the S3 backup destination configuration. The real SDK
+// reuses S3DestinationDescription itself for this field (types.go:1575,2621), so its
+// required set -- BucketARN/BufferingHints/CompressionFormat/EncryptionConfiguration/
+// RoleARN -- applies here too.
 type S3BackupDescription struct {
 	BufferingHints           *BufferingHints            `json:"BufferingHints,omitempty"`
 	EncryptionConfiguration  *S3EncryptionConfiguration `json:"EncryptionConfiguration,omitempty"`
 	CloudWatchLoggingOptions *CloudWatchLoggingOptions  `json:"CloudWatchLoggingOptions,omitempty"`
-	BucketARN                string                     `json:"BucketARN,omitempty"`
-	RoleARN                  string                     `json:"RoleARN,omitempty"`
+	BucketARN                string                     `json:"BucketARN"`
+	RoleARN                  string                     `json:"RoleARN"`
 	Prefix                   string                     `json:"Prefix,omitempty"`
 	ErrorOutputPrefix        string                     `json:"ErrorOutputPrefix,omitempty"`
 	CompressionFormat        string                     `json:"CompressionFormat,omitempty"`
@@ -176,12 +179,18 @@ type KinesisStreamSourceDescription struct {
 	RoleARN                string `json:"RoleARN,omitempty"`
 }
 
-// MSKSourceDescription describes an MSK cluster source.
+// MSKSourceDescription describes an MSK cluster source. ReadFromTimestamp is
+// float64 (epoch seconds), not string: both serializers.go (request) and
+// deserializers.go (response) encode/decode it as a JSON number via
+// FormatEpochSeconds/ParseEpochSeconds, so a string here breaks CreateDeliveryStream's
+// request decode outright for any real client that sets it, and would
+// equally break DescribeDeliveryStream's response decode once only the
+// request side were fixed.
 type MSKSourceDescription struct {
 	AuthenticationConfiguration *MSKAuthenticationConfiguration `json:"AuthenticationConfiguration,omitempty"`
 	MSKClusterARN               string                          `json:"MSKClusterARN,omitempty"`
 	TopicName                   string                          `json:"TopicName,omitempty"`
-	ReadFromTimestamp           string                          `json:"ReadFromTimestamp,omitempty"`
+	ReadFromTimestamp           float64                         `json:"ReadFromTimestamp,omitempty"`
 }
 
 // MSKAuthenticationConfiguration holds MSK connectivity and role config.

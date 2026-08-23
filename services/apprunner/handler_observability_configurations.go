@@ -15,21 +15,32 @@ type createObservabilityConfigurationInput struct {
 	Tags                           []tagInput               `json:"Tags"`
 }
 
+type traceConfigurationOutput struct {
+	Vendor string `json:"Vendor"`
+}
+
 type observabilityConfigurationOutput struct {
-	ObservabilityConfigurationArn      string `json:"ObservabilityConfigurationArn"`
-	ObservabilityConfigurationName     string `json:"ObservabilityConfigurationName"`
-	Status                             string `json:"Status"`
-	ObservabilityConfigurationRevision int32  `json:"ObservabilityConfigurationRevision"`
-	Latest                             bool   `json:"Latest"`
-	CreatedAt                          int64  `json:"CreatedAt"`
+	TraceConfiguration                 *traceConfigurationOutput `json:"TraceConfiguration,omitempty"`
+	ObservabilityConfigurationArn      string                    `json:"ObservabilityConfigurationArn"`
+	ObservabilityConfigurationName     string                    `json:"ObservabilityConfigurationName"`
+	Status                             string                    `json:"Status"`
+	ObservabilityConfigurationRevision int32                     `json:"ObservabilityConfigurationRevision"`
+	Latest                             bool                      `json:"Latest"`
+	CreatedAt                          int64                     `json:"CreatedAt"`
 }
 
 type createObservabilityConfigurationOutput struct {
 	ObservabilityConfiguration observabilityConfigurationOutput `json:"ObservabilityConfiguration"`
 }
 
+// toObservabilityConfigurationOutput builds the wire shape for an
+// ObservabilityConfiguration. TraceConfiguration is only included when a
+// vendor was actually configured -- real AWS: "If not specified, tracing
+// isn't enabled" (types.go, ObservabilityConfiguration.TraceConfiguration
+// doc comment), so an unconfigured configuration correctly omits it rather
+// than fabricating a vendor.
 func toObservabilityConfigurationOutput(cfg *ObservabilityConfiguration) observabilityConfigurationOutput {
-	return observabilityConfigurationOutput{
+	out := observabilityConfigurationOutput{
 		ObservabilityConfigurationArn:      cfg.ObservabilityConfigurationArn,
 		ObservabilityConfigurationName:     cfg.ObservabilityConfigurationName,
 		ObservabilityConfigurationRevision: cfg.ObservabilityConfigurationRevision,
@@ -37,6 +48,12 @@ func toObservabilityConfigurationOutput(cfg *ObservabilityConfiguration) observa
 		Latest:                             cfg.Latest,
 		CreatedAt:                          cfg.CreatedAt.Unix(),
 	}
+
+	if cfg.TracingVendor != "" {
+		out.TraceConfiguration = &traceConfigurationOutput{Vendor: cfg.TracingVendor}
+	}
+
+	return out
 }
 
 func (h *Handler) handleCreateObservabilityConfiguration(

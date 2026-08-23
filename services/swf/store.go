@@ -302,15 +302,27 @@ func (b *InMemoryBackend) AddActivityTypeInternal(domain, name, version, status 
 }
 
 // enqueueDecisionTaskLocked adds a decision task for one specific run's task
-// list. Caller must hold the write lock.
+// list. Caller must hold the write lock. Records DecisionTaskScheduled
+// (DecisionTaskScheduledEventAttributes requires taskList) so PollForDecisionTask's
+// DecisionTaskStarted and RespondDecisionTaskCompleted's DecisionTaskCompleted --
+// both of which require a scheduledEventId back-reference -- have a real event to
+// point to, mirroring the ActivityTaskScheduled/Started/Completed chain in
+// activity_tasks.go.
 func (b *InMemoryBackend) enqueueDecisionTaskLocked(domain, workflowID, runID string) {
 	exec, ok := b.executions.Get(executionKey(domain, workflowID, runID))
 	if !ok || exec.TaskList == "" {
 		return
 	}
 	key := domain + ":" + exec.TaskList
+	scheduledEventID := b.appendHistoryEventLocked(
+		domain, workflowID, exec.RunID, "DecisionTaskScheduled", map[string]any{
+			eventAttrKey("DecisionTaskScheduled"): map[string]any{
+				attrTaskList: map[string]any{attrName: exec.TaskList},
+			},
+		})
 	b.decisionQueues[key] = append(b.decisionQueues[key], &DecisionTask{
-		WorkflowID: workflowID,
-		RunID:      exec.RunID,
+		WorkflowID:       workflowID,
+		RunID:            exec.RunID,
+		ScheduledEventID: scheduledEventID,
 	})
 }

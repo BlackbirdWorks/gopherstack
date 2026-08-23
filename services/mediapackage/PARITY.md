@@ -358,3 +358,50 @@ this pass closes it: `CreateHarvestJob` (`harvest_jobs.go`) now 422s
 (`ErrInvalidParameter`) when `StartTime`, `EndTime`, or any of the three
 `S3Destination` fields is empty, matching what a real client would have
 already validated client-side before the request ever reached the server.
+
+## 2026-08-22 gopherstack-wlo1: error envelope is wire shape too
+
+`mapError`'s NotFound branch was the only one of four that set `__type` in
+the response body (via `jsonErrorTyped`); AlreadyExists, InvalidParameter,
+and the default (internal-error) branches all called the untyped `jsonError`
+helper, which wrote only `Message`. mediapackage doesn't use the
+X-Amzn-Errortype header approach (no `amznErrorTypeHeader` const exists in
+this package) -- it relies entirely on the body `__type` field -- so these
+three branches produced a body restjson.GetErrorInfo could not classify:
+every conflict, validation failure, and internal error decoded client-side
+as `smithy.GenericAPIError{Code:"UnknownError"}`, not the three-quarters of
+this service's error surface it should have been. Separately, the two
+handleREST dispatch-failure sites ("invalid JSON body" 400, "unknown
+operation" 404) had the same gap. Confirmed against
+aws-sdk-go-v2/service/mediapackage@v1.42.4 deserializers.go's
+`awsRestjson1_deserializeOpErrorCreateChannel`, which models exactly
+`ForbiddenException`, `InternalServerErrorException`, `NotFoundException`,
+`ServiceUnavailableException`, `TooManyRequestsException`, and
+`UnprocessableEntityException` -- notably no 400-class exception at all, so
+the malformed-body path now reuses `UnprocessableEntityException` (the
+closest modeled "bad input" type; the deserializer classifies purely by
+`__type`/header, not by matching the HTTP status returned).
+
+Fixed: `mapError`'s three untyped branches now call `jsonErrorTyped` with
+`ErrConflict.Error()` ("UnprocessableEntityException"),
+`ErrInvalidParameter.Error()` (same), and a literal
+`"InternalServerErrorException"` for the default case; the untyped
+`jsonError` helper is removed (dead after the fix). The two dispatch sites
+now include `"__type": "UnprocessableEntityException"` and
+`"__type": "NotFoundException"` respectively, alongside the existing
+`Message` key.
+
+Proof (`handler_error_type_test.go`, new): `TestCreateChannel_DuplicateIDSurfacesUnprocessableEntityException`
+and `TestCreateChannel_EmptyIDSurfacesUnprocessableEntityException` drive
+the AlreadyExists and InvalidParameter branches through a real
+`mediapackagesdk.Client` with no middleware needed (the empty-Id case
+relies on `validateOpCreateChannelInput` only rejecting a nil Id, not an
+empty string). `TestCreateChannel_MalformedBodySurfacesUnprocessableEntityException`
+and `TestCreateChannel_UnrecognisedRouteSurfacesNotFoundException` use the
+same request-corrupting smithy middleware technique as the sibling
+medialive/mediatailor fixes to reach the two dispatch-failure sites. All
+four confirmed failing against the unfixed `handler.go` (asserted
+"UnknownError") via hand-revert, then restored byte-identical
+(md5sum-verified). Same bug class as gopherstack-wlo1's medialive,
+mediatailor, and vpclattice fixes, and the s3control/iot instances that
+opened the issue.

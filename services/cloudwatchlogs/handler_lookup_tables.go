@@ -10,6 +10,7 @@ type createLookupTableInput struct {
 	Tags            map[string]string `json:"tags,omitempty"`
 	LookupTableName string            `json:"lookupTableName"`
 	TableBody       string            `json:"tableBody"`
+	QueryID         string            `json:"queryId,omitempty"`
 	Description     string            `json:"description,omitempty"`
 	KmsKeyID        string            `json:"kmsKeyId,omitempty"`
 }
@@ -28,7 +29,7 @@ func (h *Handler) handleCreateLookupTable(
 		return map[string]any{}, nil
 	}
 
-	t, err := b.CreateLookupTable(in.LookupTableName, in.TableBody, in.Description, in.KmsKeyID)
+	t, err := b.CreateLookupTable(in.LookupTableName, in.TableBody, in.Description, in.KmsKeyID, in.QueryID)
 	if err != nil {
 		return nil, err
 	}
@@ -74,6 +75,7 @@ type updateLookupTableInput struct {
 	KmsKeyID       *string `json:"kmsKeyId,omitempty"`
 	LookupTableArn string  `json:"lookupTableArn"`
 	TableBody      string  `json:"tableBody"`
+	QueryID        string  `json:"queryId,omitempty"`
 }
 
 func (h *Handler) handleUpdateLookupTable(
@@ -90,7 +92,7 @@ func (h *Handler) handleUpdateLookupTable(
 		return map[string]any{}, nil
 	}
 
-	t, err := b.UpdateLookupTable(in.LookupTableArn, in.TableBody, in.Description, in.KmsKeyID)
+	t, err := b.UpdateLookupTable(in.LookupTableArn, in.TableBody, in.Description, in.KmsKeyID, in.QueryID)
 	if err != nil {
 		return nil, err
 	}

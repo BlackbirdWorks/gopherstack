@@ -36,6 +36,7 @@ const (
 
 	statusEnabled       = "ENABLED"
 	statusAvailable     = "AVAILABLE"
+	statusReady         = "READY"
 	companyAWS          = "AWS"
 	intTypeSendFindings = "SEND_FINDINGS_TO_SECURITY_HUB"
 

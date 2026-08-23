@@ -64,7 +64,11 @@ func TestFleetAdvisorDatabases(t *testing.T) {
 	require.True(t, ok)
 	dbID := db0["DatabaseId"].(string)
 	assert.NotEmpty(t, dbID)
-	assert.NotEmpty(t, db0["EngineName"])
+
+	softwareDetails, ok := db0["SoftwareDetails"].(map[string]any)
+	require.True(t, ok,
+		"engine info belongs under SoftwareDetails.Engine (DatabaseResponse has no top-level EngineName)")
+	assert.NotEmpty(t, softwareDetails["Engine"])
 
 	// DeleteFleetAdvisorDatabases removes the specified DB.
 	rec = doDMS(t, h, "DeleteFleetAdvisorDatabases", map[string]any{

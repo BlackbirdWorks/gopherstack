@@ -437,9 +437,13 @@ func (b *InMemoryBackend) IsLogGroupDeletionProtected(logGroupIdentifier string)
 	return ok && entry.Protected
 }
 
-// ListAggregateLogGroupSummaries returns aggregate summaries derived from the
-// real log groups and their stored events for the current region. Summaries are
-// sorted by log group name for deterministic output.
+// ListAggregateLogGroupSummaries returns aggregate summaries of the real log
+// groups in the current region, grouped by data-source characteristic per
+// the groupBy input. This backend has no per-log-group data-source
+// classification (dataSource.Name/Type/Format) to group by, so every call
+// that finds at least one log group returns a single bucket covering all of
+// them (GroupingIdentifiers honestly empty, LogGroupCount real); zero log
+// groups returns an empty summary list.
 func (b *InMemoryBackend) ListAggregateLogGroupSummaries(
 	ctx context.Context,
 ) []AggregateLogGroupSummary {
@@ -449,28 +453,16 @@ func (b *InMemoryBackend) ListAggregateLogGroupSummaries(
 	defer b.mu.RUnlock()
 
 	groups := b.groupsInRegion(region)
-
-	summaries := make([]AggregateLogGroupSummary, 0, len(groups))
-	for _, group := range groups {
-		var count int64
-		for _, stream := range b.streamsInGroup(region, group.LogGroupName) {
-			count += int64(len(stream.events))
-		}
-
-		summaries = append(summaries, AggregateLogGroupSummary{
-			LogGroupName:  group.LogGroupName,
-			LogGroupArn:   group.Arn,
-			LogGroupClass: group.LogGroupClass,
-			StoredBytes:   group.StoredBytes,
-			LogEventCount: count,
-		})
+	if len(groups) == 0 {
+		return []AggregateLogGroupSummary{}
 	}
 
-	sort.Slice(summaries, func(i, j int) bool {
-		return summaries[i].LogGroupName < summaries[j].LogGroupName
-	})
-
-	return summaries
+	return []AggregateLogGroupSummary{
+		{
+			GroupingIdentifiers: []GroupingIdentifier{},
+			LogGroupCount:       int32(len(groups)), // #nosec G115 -- count bounded by AWS API limit
+		},
+	}
 }
 
 // ValidateLiveTailLogGroups validates that every supplied log group identifier

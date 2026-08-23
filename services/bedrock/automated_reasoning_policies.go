@@ -111,6 +111,7 @@ func (b *InMemoryBackend) CancelAutomatedReasoningPolicyBuildWorkflow(
 	}
 
 	wf.Status = "Cancelled"
+	wf.UpdatedAt = time.Now().UTC()
 
 	return nil
 }
@@ -307,6 +308,7 @@ func (b *InMemoryBackend) StartAutomatedReasoningPolicyBuildWorkflow(
 
 	b.arpWorkflowCounter++
 	id := "bw-" + strconv.Itoa(b.arpWorkflowCounter)
+	now := time.Now().UTC()
 
 	wf := &AutomatedReasoningPolicyBuildWorkflow{
 		BuildWorkflowID:   id,
@@ -314,6 +316,8 @@ func (b *InMemoryBackend) StartAutomatedReasoningPolicyBuildWorkflow(
 		Status:            statusRunning,
 		BuildWorkflowType: buildWorkflowType,
 		SourceContent:     sourceContent,
+		CreatedAt:         now,
+		UpdatedAt:         now,
 	}
 	b.arpBuildWorkflows.Put(wf)
 	cp := *wf
@@ -482,8 +486,11 @@ func arpAnnotationsKey(policyARN, buildWorkflowID string) string {
 // (api_op_GetAutomatedReasoningPolicyAnnotations.go:54) and doubles as the
 // token UpdateAutomatedReasoningPolicyAnnotations's required
 // lastUpdatedAnnotationSetHash checks against, so it is minted here on first
-// read rather than left absent. Uses the write lock because that lazy mint
-// mutates arpAnnotationSetHash.
+// read rather than left absent. buildWorkflowId/name/policyArn/updatedAt are
+// also required (api_op_GetAutomatedReasoningPolicyAnnotations.go:62-80) and
+// were previously dropped entirely; updatedAt is lazily minted alongside the
+// hash for the same reason. Uses the write lock because that lazy mint
+// mutates arpAnnotationSetHash/arpAnnotationsUpdatedAt.
 func (b *InMemoryBackend) GetAutomatedReasoningPolicyAnnotations(
 	policyARN, buildWorkflowID string,
 ) (map[string]any, error) {
@@ -492,6 +499,11 @@ func (b *InMemoryBackend) GetAutomatedReasoningPolicyAnnotations(
 
 	if err := b.mustGetARPBuildWorkflow(policyARN, buildWorkflowID); err != nil {
 		return nil, err
+	}
+
+	policy, ok := b.automatedReasoningPolicies.Get(policyARN)
+	if !ok {
+		return nil, fmt.Errorf("%w: automated reasoning policy %s not found", ErrNotFound, policyARN)
 	}
 
 	key := arpAnnotationsKey(policyARN, buildWorkflowID)
@@ -507,7 +519,20 @@ func (b *InMemoryBackend) GetAutomatedReasoningPolicyAnnotations(
 		b.arpAnnotationSetHash[key] = hash
 	}
 
-	return map[string]any{"annotations": anns, "annotationSetHash": hash}, nil
+	updatedAt, ok := b.arpAnnotationsUpdatedAt[key]
+	if !ok {
+		updatedAt = time.Now().UTC()
+		b.arpAnnotationsUpdatedAt[key] = updatedAt
+	}
+
+	return map[string]any{
+		"annotations":       anns,
+		"annotationSetHash": hash,
+		keyBuildWorkflowID:  buildWorkflowID,
+		keyName:             policy.Name,
+		keyPolicyArn:        policyARN,
+		keyUpdatedAt:        isoTime{updatedAt},
+	}, nil
 }
 
 // UpdateAutomatedReasoningPolicyAnnotations stores the caller's real annotations
@@ -544,6 +569,7 @@ func (b *InMemoryBackend) UpdateAutomatedReasoningPolicyAnnotations(
 	hash := newARPOpaqueHash()
 	b.arpAnnotationSetHash[key] = hash
 	now := time.Now().UTC()
+	b.arpAnnotationsUpdatedAt[key] = now
 
 	return map[string]any{
 		"annotationSetHash": hash,
@@ -573,10 +599,19 @@ func (b *InMemoryBackend) GetAutomatedReasoningPolicyNextScenario(
 // (bedrock@v1.66.4 api_op_GetAutomatedReasoningPolicyBuildWorkflowResultAssets.go)
 // deliberately rather than fixing it: this backend never generates
 // result-asset content (build workflows here don't run a real
-// document-ingestion/policy-generation pipeline), so resultAssets is always
-// []. Threading AssetType through to filter an always-empty list can't be
-// observed by any test, real-client or otherwise (gopherstack-4sov). Revisit
-// only if/when this backend starts producing real result-asset content.
+// document-ingestion/policy-generation pipeline), so buildWorkflowAssets is
+// always omitted. Threading AssetType through to filter an always-absent
+// union can't be observed by any test, real-client or otherwise
+// (gopherstack-4sov). Revisit only if/when this backend starts producing
+// real result-asset content.
+//
+// buildWorkflowAssets (types.AutomatedReasoningPolicyBuildResultAssets,
+// deserializers.go's awsRestjson1_deserializeDocumentAutomatedReasoningPolicyBuildResultAssets)
+// is a union object keyed by asset kind (assetManifest/buildLog/...), not a
+// list -- emitting it as [] previously fed a real client's deserializer a
+// JSON array where it type-switches on a JSON object, an outright decode
+// failure. BuildWorkflowAssets is optional on the output, so the honest
+// empty state is to omit the key entirely, matching Go's nil zero value.
 func (b *InMemoryBackend) GetAutomatedReasoningPolicyBuildWorkflowResultAssets(
 	policyARN, workflowID string,
 ) (map[string]any, error) {
@@ -588,7 +623,13 @@ func (b *InMemoryBackend) GetAutomatedReasoningPolicyBuildWorkflowResultAssets(
 		return nil, fmt.Errorf("%w: build workflow %s not found", ErrNotFound, workflowID)
 	}
 
-	return map[string]any{keyBuildWorkflowID: workflowID, "resultAssets": []any{}}, nil
+	// PolicyArn is required on the real output
+	// (api_op_GetAutomatedReasoningPolicyBuildWorkflowResultAssets.go:70) and
+	// was previously dropped entirely.
+	return map[string]any{
+		keyBuildWorkflowID: workflowID,
+		keyPolicyArn:       policyARN,
+	}, nil
 }
 
 // splitVersionedARN splits a versioned ARN (policyARN + "/version/" + version,
@@ -657,8 +698,34 @@ func (b *InMemoryBackend) StartAutomatedReasoningPolicyTestWorkflow(
 	return map[string]any{keyPolicyArn: policyARN}, nil
 }
 
+// arpTestResultTestRunStatus is the only AutomatedReasoningPolicyTestRunStatus
+// value this backend produces: it fakes every test run as immediately
+// complete (bedrock@v1.66.4 types/enums.go:352), the same simplification
+// already made by GetAutomatedReasoningPolicyTestResult/
+// ListAutomatedReasoningPolicyTestResults before this fix.
+const arpTestResultTestRunStatus = "COMPLETED"
+
+// arpTestResultToMap builds the real AutomatedReasoningPolicyTestResult shape
+// (bedrock@v1.66.4 types.go:2055-2092: policyArn/testCase/testRunStatus/
+// updatedAt required; aggregatedTestFindingsResult/testFindings/
+// testRunResult omitted rather than fabricated -- this backend runs no real
+// validation). updatedAt reuses the test case's own UpdatedAt: real, already
+// tracked state, not a fresh fabricated timestamp.
+func arpTestResultToMap(tc *AutomatedReasoningPolicyTestCase, policyARN string) map[string]any {
+	return map[string]any{
+		keyPolicyArn:    policyARN,
+		"testCase":      arpTestCaseToMap(tc),
+		"testRunStatus": arpTestResultTestRunStatus,
+		keyUpdatedAt:    isoTime{tc.UpdatedAt},
+	}
+}
+
 // GetAutomatedReasoningPolicyTestResult returns the result for a test case execution
-// (bedrock@v1.66.4 serializers.go:4282 — build-workflow-scoped).
+// (bedrock@v1.66.4 serializers.go:4282 — build-workflow-scoped). The required
+// top-level member is "testResult" (deserializers.go:
+// awsRestjson1_deserializeOpDocumentGetAutomatedReasoningPolicyTestResultOutput) --
+// previously returned a flat, differently-keyed object with no "testResult"
+// wrapper at all, so a real client's required TestResult decoded nil.
 func (b *InMemoryBackend) GetAutomatedReasoningPolicyTestResult(
 	policyARN, buildWorkflowID, testCaseID string,
 ) (map[string]any, error) {
@@ -674,16 +741,14 @@ func (b *InMemoryBackend) GetAutomatedReasoningPolicyTestResult(
 		return nil, fmt.Errorf("%w: test case %s not found", ErrNotFound, testCaseID)
 	}
 
-	return map[string]any{
-		keyTestCaseID:      testCaseID,
-		keyPolicyArn:       policyARN,
-		keyBuildWorkflowID: buildWorkflowID,
-		keyStatus:          statusCompleted,
-	}, nil
+	return map[string]any{"testResult": arpTestResultToMap(tc, policyARN)}, nil
 }
 
 // ListAutomatedReasoningPolicyTestResults returns test results for a build workflow
-// (bedrock@v1.66.4 serializers.go:5937 — build-workflow-scoped).
+// (bedrock@v1.66.4 serializers.go:5937 — build-workflow-scoped). Each item is
+// the same real AutomatedReasoningPolicyTestResult shape as
+// GetAutomatedReasoningPolicyTestResult (types.go:2055-2092), not the flat
+// shape used before this fix.
 func (b *InMemoryBackend) ListAutomatedReasoningPolicyTestResults(
 	policyARN, buildWorkflowID string,
 ) ([]map[string]any, error) {
@@ -694,24 +759,29 @@ func (b *InMemoryBackend) ListAutomatedReasoningPolicyTestResults(
 		return nil, err
 	}
 
-	var results []map[string]any
+	type resultWithID struct {
+		wire       map[string]any
+		testCaseID string
+	}
+
+	var results []resultWithID
 	for _, tc := range b.arpTestCases.All() {
 		if tc.PolicyArn == policyARN {
-			results = append(results, map[string]any{
-				keyTestCaseID:      tc.TestCaseID,
-				keyPolicyArn:       policyARN,
-				keyBuildWorkflowID: buildWorkflowID,
-				keyStatus:          statusCompleted,
+			results = append(results, resultWithID{
+				testCaseID: tc.TestCaseID,
+				wire:       arpTestResultToMap(tc, policyARN),
 			})
 		}
 	}
 
 	sort.Slice(results, func(i, k int) bool {
-		a, _ := results[i][keyTestCaseID].(string)
-		b, _ := results[k][keyTestCaseID].(string)
-
-		return a < b
+		return results[i].testCaseID < results[k].testCaseID
 	})
 
-	return results, nil
+	wire := make([]map[string]any, 0, len(results))
+	for _, r := range results {
+		wire = append(wire, r.wire)
+	}
+
+	return wire, nil
 }

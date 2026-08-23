@@ -17,10 +17,7 @@ func (h *Handler) handleCreateListener(
 	protocol, _ := body[keyProtocol].(string)
 
 	if name == "" || protocol == "" {
-		return c.JSON(
-			http.StatusBadRequest,
-			map[string]any{keyMessage: "name and protocol are required"},
-		)
+		return validationError(c, "name and protocol are required")
 	}
 
 	port := bodyInt32(body, keyPort)

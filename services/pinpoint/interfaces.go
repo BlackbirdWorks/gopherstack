@@ -126,10 +126,10 @@ type StorageBackend interface {
 	// Messaging
 	SendMessages(appID string, req sendMessagesRequest) (*messageResponse, error)
 	SendUsersMessages(appID string, req sendUsersMessagesRequest) (*usersMessageResponse, error)
-	SendOTPMessage(appID string) (*sendOTPMessageResponse, error)
+	SendOTPMessage(appID string) (*messageResponse, error)
 	VerifyOTPMessage(appID, code string) (*verifyOTPMessageResponse, error)
 	PutEvents(appID string, req putEventsRequest) (*eventsResponse, error)
-	PhoneNumberValidate(phoneNumber string) (*phoneNumberValidateResponse, error)
+	PhoneNumberValidate(phoneNumber string) (*numberValidateResponse, error)
 	RemoveAttributes(appID, attributeType string, blacklist []string) (*attributesResource, error)
 	GetInAppMessages(appID, endpointID string) (*inAppMessagesResponse, error)
 

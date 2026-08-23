@@ -1,7 +1,7 @@
 ---
 service: resourcegroupstaggingapi
 sdk_module: aws-sdk-go-v2/service/resourcegroupstaggingapi@v1.35.4
-last_audit_commit: pending (uncommitted this pass -- see git log at merge time)
+last_audit_commit:                                # unknown: pass ran without git access at write time, never backfilled -- gopherstack-33in
 last_audit_date: 2026-08-07
 overall: A            # 2026-08-07 (gopherstack-3xfq): ListRequiredTags now derives real
                        # RequiredTag rows from an effective TAG_POLICY document's

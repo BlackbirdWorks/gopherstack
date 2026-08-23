@@ -13,25 +13,36 @@ overall: A            # 2026-08-19 wrapper-key/nested-shape sweep: DeleteApp/Del
                        # parity, Stage enum fix, commitTime, real build steps, real artifact
                        # producer + cascade delete, enum validation.
 ops:
-  CreateApp: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this sweep: full field parity -- see gaps history below"}
-  GetApp: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListApps: {wire: ok, errors: ok, state: ok, persist: ok}
-  UpdateApp: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this sweep: same field parity as CreateApp, plus correct partial-update (nil-means-unchanged) semantics"}
+  CreateApp: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this sweep: full field parity -- see gaps history below; fixed this sweep: full field parity -- see gaps history below. fixed 2026-08-21 (gopherstack-r80d batch 14): environmentVariables/description/repository are required response members that were tagged omitempty/omitzero and dropped whenever left unset -- a real client's typed field decoded nil instead of a present zero value; see Notes"}
+  GetApp: {wire: ok, errors: ok, state: ok, persist: ok, note: "same required-field presence fix as CreateApp (gopherstack-r80d batch 14)"}
+  ListApps: {wire: ok, errors: ok, state: ok, persist: ok, note: "same required-field presence fix as CreateApp (gopherstack-r80d batch 14)"}
+  UpdateApp: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this sweep: same field parity as CreateApp, plus correct partial-update (nil-means-unchanged) semantics; fixed this sweep: same field parity as CreateApp, plus correct partial-update (nil-means-unchanged) semantics. Same required-field presence fix as CreateApp (gopherstack-r80d batch 14)"}
   DeleteApp: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed 2026-08-19: response was a bare 204 No Content dropping DeleteAppOutput.App (a required member, api_op_DeleteApp.go:44) entirely -- a real client's out.App decoded nil; now returns {\"app\": <App>} of the app as it existed pre-delete. 2026-07-23: cascades jobs/artifacts/domains/webhooks/backendEnvironments, not just branches -- see leaks"}
-  CreateBranch: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this sweep: full field parity -- see gaps history below"}
-  GetBranch: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListBranches: {wire: ok, errors: ok, state: ok, persist: ok}
-  UpdateBranch: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this sweep: same field parity as CreateBranch, plus correct partial-update semantics"}
+  CreateBranch: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this sweep: full field parity -- see gaps history below; fixed this sweep: full field parity -- see gaps history below. fixed 2026-08-21 (gopherstack-r80d batch 14): activeJobId/customDomains/description/framework/environmentVariables are required response members that were tagged omitempty and dropped whenever left unset/reachably-empty; see Notes"}
+  GetBranch: {wire: ok, errors: ok, state: ok, persist: ok, note: "same required-field presence fix as CreateBranch (gopherstack-r80d batch 14)"}
+  ListBranches: {wire: ok, errors: ok, state: ok, persist: ok, note: "same required-field presence fix as CreateBranch (gopherstack-r80d batch 14)"}
+  UpdateBranch: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this sweep: same field parity as CreateBranch, plus correct partial-update semantics; fixed this sweep: same field parity as CreateBranch, plus correct partial-update semantics. Same required-field presence fix as CreateBranch (gopherstack-r80d batch 14)"}
   DeleteBranch: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed 2026-08-19: same bug as DeleteApp -- bare 204 dropped DeleteBranchOutput.Branch (required, api_op_DeleteBranch.go:44); now returns {\"branch\": <Branch>}. 2026-07-23: cascades jobs/artifacts -- see leaks"}
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok}
-  StartJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this sweep: commitTime now modeled and round-trips; jobId+RETRY validated (BadRequestException if jobId absent, matches real StartJobInput) and inherits the retried job's commit metadata when the caller omits its own; jobType validated against the real JobType enum"}
-  GetJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this sweep: steps now synthesizes one real BUILD step derived from the job's own status/timestamps (previously always []); commitTime now modeled -- see Notes for why one synthetic step, not a full per-stage model"}
-  ListJobs: {wire: ok, errors: ok, state: ok, persist: ok}
-  DeleteJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this sweep: now cascades the job's own artifacts"}
-  StopJob: {wire: ok, errors: ok, state: ok, persist: ok}
+  StartJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this sweep: commitTime now modeled and round-trips; jobId+RETRY validated (BadRequestException if jobId absent, matches real StartJobInput) and inherits the retried job's commit metadata when the caller omits its own; jobType validated against the real JobType enum. fixed 2026-08-21 (gopherstack-r80d batch 14): commitId/commitMessage are required response members that were tagged omitempty and dropped when unset; commitTime -- also required -- was deliberately omitted whenever zero per this sweep's own design, which this batch reverses (falls back to the job's own StartTime instead of dropping the key); see Notes"}
+  GetJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this sweep: steps now synthesizes one real BUILD step derived from the job's own status/timestamps (previously always []); commitTime now modeled -- see Notes for why one synthetic step, not a full per-stage model. Same commitId/commitMessage/commitTime presence fix as StartJob (gopherstack-r80d batch 14)"}
+  ListJobs: {wire: ok, errors: ok, state: ok, persist: ok, note: "same commitId/commitMessage/commitTime presence fix as StartJob (gopherstack-r80d batch 14)"}
+  DeleteJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this sweep: now cascades the job's own artifacts. Same commitId/commitMessage/commitTime presence fix as StartJob (gopherstack-r80d batch 14)"}
+  StopJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "same commitId/commitMessage/commitTime presence fix as StartJob (gopherstack-r80d batch 14)"}
   CreateDeployment: {wire: ok, errors: ok, state: ok, persist: ok}
+  StartDeployment: {wire: ok, errors: ok, state: ok, persist: ok, note: "same commitId/commitMessage/commitTime presence fix as StartJob (gopherstack-r80d batch 14)"}
+  CreateDomainAssociation: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed 2026-08-21 (gopherstack-r80d batch 14): statusReason is a required response member that was tagged omitempty and dropped -- gopherstack never tracks a real reason (disclosed, honestly empty, not fabricated); see Notes"}
+  UpdateDomainAssociation: {wire: ok, errors: ok, state: ok, persist: ok, note: "same statusReason presence fix as CreateDomainAssociation (gopherstack-r80d batch 14)"}
+  DeleteDomainAssociation: {wire: ok, errors: ok, state: ok, persist: ok, note: "same statusReason presence fix as CreateDomainAssociation (gopherstack-r80d batch 14)"}
+  GetDomainAssociation: {wire: ok, errors: ok, state: ok, persist: ok, note: "same statusReason presence fix as CreateDomainAssociation (gopherstack-r80d batch 14)"}
+  ListDomainAssociations: {wire: ok, errors: ok, state: ok, persist: ok, note: "same statusReason presence fix as CreateDomainAssociation (gopherstack-r80d batch 14)"}
+  CreateWebhook: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed 2026-08-21 (gopherstack-r80d batch 14): description is a required response member that was tagged omitempty and dropped whenever the caller left it unset (CreateWebhookInput.Description is optional); see Notes"}
+  UpdateWebhook: {wire: ok, errors: ok, state: ok, persist: ok, note: "same description presence fix as CreateWebhook (gopherstack-r80d batch 14)"}
+  DeleteWebhook: {wire: ok, errors: ok, state: ok, persist: ok, note: "same description presence fix as CreateWebhook (gopherstack-r80d batch 14)"}
+  GetWebhook: {wire: ok, errors: ok, state: ok, persist: ok, note: "same description presence fix as CreateWebhook (gopherstack-r80d batch 14)"}
+  ListWebhooks: {wire: ok, errors: ok, state: ok, persist: ok, note: "same description presence fix as CreateWebhook (gopherstack-r80d batch 14)"}
   StartDeployment: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateDomainAssociation: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateDomainAssociation: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -221,6 +232,93 @@ structs and `toXView` functions -- never generalized from a sibling op or siblin
    cascades its own artifacts. This is a genuine bug fix, not a gap-list item -- it was found while
    implementing the ListArtifacts producer above (a job/branch/app delete path that didn't clean up
    artifacts would otherwise immediately start leaking the new Artifact rows).
+
+### Fixed 2026-08-21 (gopherstack-r80d batch 14): required response members dropped when empty
+
+The 2026-07-23 sweep above field-diffed for *missing* fields (a required member with no struct
+field at all, or never wired). It did not audit whether every field that *does* exist is ever
+tagged `omitempty`/`omitzero` on a member the real SDK (`aws-sdk-go-v2/service/amplify@v1.41.4`)
+marks `This member is required.` -- amplify's wire shape is almost entirely "one wrapper key = the
+whole nested domain object" (`{"app": {...}}`, `{"branch": {...}}`, etc., the same class pinpoint/
+bedrockagent/cleanrooms/inspector2 hit), so the real required surface lives in `types.go`'s
+domain structs, not in the flat per-op `cmd/requiredoutputfields` count (35 fields / 37 ops, 33
+ops-with-required per that tool). Read every domain struct in the pinned SDK's
+`types/types.go` (App, Artifact, BackendEnvironment, Branch, DomainAssociation, Job, JobSummary,
+Step, SubDomain, SubDomainSetting, Webhook -- 20 struct declarations, 63 required members total)
+end to end against `handler_apps.go`/`handler_branches.go`/`handler_domains.go`/
+`handler_jobs.go`/`handler_webhooks.go`'s wire-view structs, not grepped.
+
+7 bugs found and fixed, each proven via a real `aws-sdk-go-v2/service/amplify` client round trip
+(`wire_output_required_r80d_test.go`), hand-reverted/confirmed-failing/restored,
+md5sum-verified byte-identical (`apps.go`/`branches.go` needed no changes and are confirmed
+unchanged):
+
+1. **`App.EnvironmentVariables`/`Description`/`Repository`** (`types/types.go:57,37,78`; wire keys
+   confirmed against `deserializers.go:6250` `awsRestjson1_deserializeDocumentApp`'s
+   `environmentVariables`/`description`/`repository` cases, all three deserializing into a
+   pointer/map field with no zero-value fallback). All three are required on `App` but optional on
+   `CreateAppInput` (`api_op_CreateApp.go:29`, only `Name` required) -- a real client creating an
+   app without supplying them got a nil map/nil `*string` instead of a present empty value.
+   `appView`'s tags dropped to plain (non-`omitempty`) in `handler_apps.go`; `toAppView` now
+   nil-guards `EnvironmentVariables` to a non-nil `map[string]string{}` (needed for an app
+   snapshotted before this map was tracked, per the "Verified correct as-is" persistence note
+   below). `DefaultDomain` carried the same dead `omitempty` tag but is computed unconditionally
+   non-empty at create time (`apps.go`'s `CreateApp`) and is never reachably empty through any real
+   client path, so removing its tag is a harmless cleanup, not a counted bug (no test can
+   distinguish the two states).
+2. **`Branch.ActiveJobId`/`CustomDomains`/`Description`/`Framework`/`EnvironmentVariables`**
+   (`types/types.go:270,290,295,330,325`; wire keys confirmed against
+   `deserializers.go:7082` `awsRestjson1_deserializeDocumentBranch`'s
+   `activeJobId`/`customDomains`/`description`/`framework`/`environmentVariables` cases). All
+   required on `Branch` but optional/absent on `CreateBranchInput` (`api_op_CreateBranch.go:29`,
+   only `AppId`/`BranchName` required) or, for `ActiveJobId`, computed by `branchView` and
+   genuinely `""` for any branch with no jobs yet -- a fully reachable, unexceptional state, not an
+   edge case. `CustomDomains` was never assigned anywhere in `branches.go` (always a nil slice).
+   `branchView`'s tags dropped in `handler_branches.go`; `toBranchView` now nil-guards
+   `EnvironmentVariables`/`CustomDomains` to non-nil empty values. `Stage` carried the same dead
+   `omitempty` tag and was also dropped, but `Stage` is a non-pointer enum on the real SDK
+   (`types.Stage`, not `*Stage`) -- a missing key and a present-but-empty key decode to the
+   identical Go zero value (`""`) for any real client, so this is fixed (tag removed, harmless
+   either way) but **not counted**: no real-client test can distinguish the two states. `TTL`/
+   `DisplayName`/`TotalNumberOfJobs` carry the same dead tag but are never reachably empty (TTL
+   defaults `"5"`, DisplayName defaults to the branch name which is itself required non-empty,
+   TotalNumberOfJobs's zero state serializes as the non-empty string `"0"`) -- left as-is, no
+   observable bug.
+3. **`DomainAssociation.StatusReason`** (`types/types.go:568`; wire key confirmed against
+   `deserializers.go`'s `awsRestjson1_deserializeDocumentDomainAssociation`'s `statusReason`
+   case). Required on `DomainAssociation`, but `domains.go` never sets it anywhere (no
+   certificate/DNS-propagation flow is modeled behind this emulator) -- always `""`, dropped
+   entirely by `domainAssociationView`'s `omitempty` tag. This is the disclosed-non-fabrication-stub
+   shape (an honest empty value beats a fabricated one): the fix removes the tag so the required
+   key is always present, still carrying no invented content. `SubDomain.DnsRecord` carries the
+   same dead tag but is computed unconditionally non-empty by `CreateDomainAssociation`/
+   `UpdateDomainAssociation`, so it's never reachably empty -- not a bug.
+4. **`Webhook.Description`** (`types/types.go:891`; wire key confirmed against
+   `deserializers.go`'s `awsRestjson1_deserializeDocumentWebhook`'s `description` case). Required
+   on `Webhook`, optional on `CreateWebhookInput` (`api_op_CreateWebhook.go:29`, only `AppId`/
+   `BranchName` required) -- a webhook created without one got the key dropped by `webhookView`'s
+   `omitempty` tag.
+5. **`JobSummary.CommitId`/`CommitMessage`** (`types/types.go:692,697`; wire keys confirmed
+   against `deserializers.go`'s `awsRestjson1_deserializeDocumentJobSummary`'s `commitId`/
+   `commitMessage` cases). Required on `JobSummary`, but `StartJob` accepts both as optional
+   strings with no default -- `jobSummaryView`'s `omitempty` tags dropped both whenever the
+   caller supplied neither (e.g. a manually deployed app, `jobType: MANUAL`/`RELEASE` with no Git
+   commit).
+6. **`JobSummary.CommitTime`** (`types/types.go:702`; required). This one wasn't a missing-tag
+   oversight -- the 2026-07-23 sweep's own item 5 *deliberately* omits `commitTime` whenever the
+   job has no real commit timestamp, and says so in `jobs.go`'s `StartJob` doc comment. Per this
+   campaign's established convention (a required-but-inapplicable member must be present-and-empty,
+   not absent -- reversed for stepfunctions' `DescribeMapRun.ExecutionCounts` in an earlier batch),
+   that decision is itself the bug: a real client's required `*time.Time` field came back `nil`.
+   Fixed by falling back to the job's own `StartTime` when `CommitTime` is zero, the same "still
+   needs *a* value" convention `toStepViews` already applies to a still-in-progress step's
+   `EndTime` (see item 6 of the 2026-07-23 sweep above) -- not a fabricated date, the job's own real
+   start time, on the same reasoning already established in this exact file.
+
+All 5 test cases are in `wire_output_required_r80d_test.go`; existing tests needed no correction
+(none asserted raw JSON with an expected-absent key for any of these members -- `go test
+./services/amplify/...` passed unchanged both before and after these fixes were applied, confirming
+no pre-existing test encoded the wrong shape).
 
 ### Design note: `opts ...AppOptions` / `opts ...BranchOptions`
 

@@ -9,6 +9,42 @@ sdk_module: aws-sdk-go-v2/service/inspector2@v1.54.1   # version audited against
 last_audit_commit: 9e3baacb5                            # HEAD when this manifest was written
 last_audit_date: 2026-07-29
 overall: A            # gopherstack-zj76 remainder pass: CIS/code-security name length+charset constraints now enforced (fetched live from AWS API Reference -- the Go SDK module has no length/pattern doc prose for these 4 fields), CoverageFilterCriteria's scanStatusCode/scanStatusReason/scanMode/lastScannedAt facets fixed from accepted-but-silently-ignored to genuinely narrowing (real bug, not just an omission), FindingDetail.Ttps added; authorizationUrl gap and the 7 remaining Cvss/Epss/Evidence-class nested struct types re-confirmed as genuine, deliberately-scoped-out gaps (not oversights) -- no prior family regressed
+# 2026-08-21 gopherstack-r80d batch 12 (required-output cut): last_audit_commit
+# left unchanged -- this pass's own commit sha is not known at edit time (the
+# orchestrator, not this pass, creates the commit), and the campaign's own
+# convention is to leave the existing value rather than write a guess or
+# "pending" (see gopherstack-z31a, which already tracks this manifest field's
+# unmerged-branch-sha problem repo-wide). 4 bugs found and fixed, all proven
+# via real aws-sdk-go-v2/service/inspector2 client round trips
+# (wire_output_required_r80d_test.go), hand-reverted/confirmed-failing/
+# restored, md5sum-verified byte-identical: (1) GetCodeSecurityIntegration and
+# ListCodeSecurityIntegrations (shared codeSecurityIntegrationToWire helper)
+# dropped required type/statusReason entirely -- type was already tracked on
+# the domain struct and simply never surfaced; statusReason has no backing
+# data source (no OAuth/health-check flow exists) so it is now emitted
+# honestly empty rather than fabricated (api_op_GetCodeSecurityIntegration.go,
+# types.go's CodeSecurityIntegrationSummary). (2) Finding.Remediation had no
+# struct field at all (types.go: required, Recommendation sub-member
+# optional) -- now emitted as an honest empty object. (3) Finding.Resources
+# (required) was only emitted when non-empty, dropping the key entirely for
+# any finding seeded with zero resources -- now always emitted, non-nil.
+# (4) Finding.Severity was serialized as a fabricated {label,score} nested
+# object; the real wire shape (deserializers.go's
+# awsRestjson1_deserializeDocumentFinding, case "severity") is a bare Severity
+# string enum -- this was not a missing-field bug but a wrong-shape one, and
+# the worst found this campaign: any real SDK client's ListFindings call
+# failed outright ("expected Severity to be of type string, got
+# map[string]interface {} instead") once any finding existed, not merely a
+# missing value. The numeric score now rides the separate, optional,
+# top-level inspectorScore member (Finding.InspectorScore *float64) instead.
+# This also means the prior audit's "ListFindings: {wire: ok}" verdict (see
+# ops: below) was never actually exercised against a real SDK client --
+# gopherstack-r80d's "a recorded verdict is not evidence" lesson applies here
+# too: every prior _test.go in this package asserted on raw JSON, and
+# sdk_response_keys_test.go's own doc comment already explained why that
+# can't catch a wrong-shape bug. Existing raw-JSON tests asserting the old
+# {label,score} shape were updated to match the real wire shape
+# (handler_findings_core_test.go, handler_findings_query_test.go).
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
@@ -19,7 +55,7 @@ ops:
   UpdateFilter: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteFilter: {wire: ok, errors: ok, state: ok, persist: ok}
   ListFilters: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListFindings: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListFindings: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed 2026-08-21 (gopherstack-r80d batch 12) — severity was a fabricated {label,score} nested object; real wire shape is a bare Severity string enum (deserializers.go's awsRestjson1_deserializeDocumentFinding), which made every real SDK client's call fail once a finding existed, not merely drop a field. Also fixed: required Remediation (no struct field) and Resources (dropped when empty) were both omitted."}
   GetConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -34,9 +70,10 @@ families:
   cis_scan_configuration: {status: ok, note: "fixed this pass — CreateCisScanConfiguration/UpdateCisScanConfiguration's scanName now enforces the real, documented length constraint (AWS API Reference: \"Minimum length of 1. Maximum length of 128.\"; no charset pattern is documented for this field, confirmed via both the API Reference page and the Go SDK module's doc comments carrying no length/pattern prose at all for scanName, unlike CreateFilterInput.name). Real AWS returns ValidationException for a violation; this backend previously accepted any non-empty string on create and any string at all (including one exceeding 128 chars) on update."}
   cis_session: {status: ok, note: "unchanged this pass"}
   cis_scan_results: {status: ok, note: "unchanged this pass"}
-  code_security_integration: {status: partial, note: "fixed this pass — CreateCodeSecurityIntegration's name now enforces the real, documented length+charset constraint (AWS API Reference: \"Minimum length of 1. Maximum length of 60.\" Pattern: `[a-zA-Z0-9-_$:.]*`; the Go SDK module's doc comments carry no such prose for this field at all, unlike CreateFilterInput.name, so the API Reference was fetched directly and quoted verbatim). Get/ListCodeSecurityIntegrations re-confirmed this pass NOT to expose 'details' on the wire in real AWS either (GetCodeSecurityIntegrationOutput has no details member), so the prior gap note was overstated: the real remaining gap is only CreateCodeSecurityIntegrationOutput's optional 'authorizationUrl' member (OAuth callback URL for GitHub/GitLab-type integrations), which this backend never returns and correctly omits (status IS returned — confirmed via handleCreateCodeSecurityIntegration). Left open: gopherstack has no OAuth flow to derive a real authorization URL from, and fabricating one would be worse than omitting it — re-verified this pass against the live AWS API Reference (API_CreateCodeSecurityIntegration.html), which confirms authorizationUrl is genuinely returned by real AWS post-OAuth-flow-initiation with no derivable-from-request-input source gopherstack could reproduce."}
+  code_security_integration: {status: partial, note: "fixed this pass — CreateCodeSecurityIntegration's name now enforces the real, documented length+charset constraint (AWS API Reference: \"Minimum length of 1. Maximum length of 60.\" Pattern: `[a-zA-Z0-9-_$:.]*`; the Go SDK module's doc comments carry no such prose for this field at all, unlike CreateFilterInput.name, so the API Reference was fetched directly and quoted verbatim). Get/ListCodeSecurityIntegrations re-confirmed this pass NOT to expose 'details' on the wire in real AWS either (GetCodeSecurityIntegrationOutput has no details member), so the prior gap note was overstated: the real remaining gap is only CreateCodeSecurityIntegrationOutput's optional 'authorizationUrl' member (OAuth callback URL for GitHub/GitLab-type integrations), which this backend never returns and correctly omits (status IS returned — confirmed via handleCreateCodeSecurityIntegration). Left open: gopherstack has no OAuth flow to derive a real authorization URL from, and fabricating one would be worse than omitting it — re-verified this pass against the live AWS API Reference (API_CreateCodeSecurityIntegration.html), which confirms authorizationUrl is genuinely returned by real AWS post-OAuth-flow-initiation with no derivable-from-request-input source gopherstack could reproduce. FIXED 2026-08-21 (gopherstack-r80d batch 12) — GetCodeSecurityIntegrationOutput and CodeSecurityIntegrationSummary (ListCodeSecurityIntegrations' item shape) both require type/statusReason (api_op_GetCodeSecurityIntegration.go, types.go); the flat per-op scan undercounted this because CodeSecurityIntegrationSummary's 7 required members are only reachable by reading the nested domain struct, not ListCodeSecurityIntegrationsOutput's own (non-required) Integrations field -- same nested-domain-struct undercount class this campaign already named for pinpoint/bedrockagent/cleanrooms. type was already tracked on the domain struct and simply never surfaced by the shared codeSecurityIntegrationToWire helper; statusReason has no backing data source at all (no OAuth/connection-health flow exists to derive a real reason from) so it is emitted as an honestly empty string rather than fabricated."}
   code_security_scan_configuration: {status: ok, note: "fixed this pass — Create/Get/UpdateCodeSecurityScanConfiguration now nest ruleSetCategories/periodicScanConfiguration/continuousIntegrationScanConfiguration under a required top-level 'configuration' object with level/scopeSettings/name/tags as siblings (confirmed via serializers.go's awsRestjson1_serializeDocumentCodeSecurityScanConfiguration and deserializers.go's Get output deserializer), replacing the prior flat request/response decoding that silently dropped every real client's configuration.* fields. level (required, ACCOUNT|ORGANIZATION) and configuration.ruleSetCategories (required, non-empty, SAST|IAC|SCA) are now validated with ValidationException, where the prior handler defaulted both silently. Deleted the fabricated 'status'/'integrationArn' members: neither exists on the real CodeSecurityScanConfiguration/GetCodeSecurityScanConfigurationOutput shape (field-diffed against api_op_GetCodeSecurityScanConfiguration.go — no such members). UpdateCodeSecurityScanConfiguration now only accepts the nested 'configuration' object (matching UpdateCodeSecurityScanConfigurationInput's real shape — no top-level scopeSettings on update, that member is create-time-only) and re-validates ruleSetCategories on every update, where the prior handler silently accepted a top-level scopeSettings update the real API has no field for. ListCodeSecurityScanConfigurations now emits the real, structurally distinct CodeSecurityScanConfigurationSummary shape (flat ownerAccountId/ruleSetCategories/continuousIntegrationScanSupportedEvents/frequencyExpression/periodicScanFrequency/scopeSettings, no nested 'configuration', no tags/createdAt/level) under the real 'configurations' wire key, confirmed via deserializers.go — the prior handler reused Get's full shape under the wrong 'scanConfigurations' key (that key belongs to the unrelated CIS/connector scan-configuration list endpoints), so a real ListCodeSecurityScanConfigurations client's Configurations field was never populated at all. This pass additionally fixed name's real length+charset constraint (AWS API Reference: \"Minimum length of 1. Maximum length of 60.\" Pattern: `[a-zA-Z0-9-_$:.]*`, identical to CreateCodeSecurityIntegration's name constraint) — previously any non-empty string was accepted."}
   code_security_scan_associations: {status: ok, note: "unchanged this pass"}
+  code_security_scan: {status: fixed, note: "gopherstack-muzq (2026-08-21): StartCodeSecurityScan stamped the stored scan's status IN_PROGRESS and nothing else in this backend ever wrote to it again -- GetCodeSecurityScan (code_security.go) just echoed the stored map verbatim, so a client polling for readiness never saw a terminal status. Confirmed no async mechanism anywhere in the package (no ticker/goroutine/janitor/work.After/runDelayed/reconciler; grepped all non-test .go files in services/inspector2) -- inspector2 ships no generated Get*Waiter for this op either, which only means a real caller must hand-roll its own poll loop, not that an unadvancing status is correct. This backend's other synchronous scan resource, CisScan (cis_scans.go), instead stamps its terminal COMPLETED status once at creation since its checks are computed synchronously with no separate poll step -- that pattern doesn't fit here because StartCodeSecurityScanOutput.Status is documented/wire-confirmed to legitimately be IN_PROGRESS on Start. Fixed by having GetCodeSecurityScan advance IN_PROGRESS->SUCCESSFUL on first poll instead, mirroring the reap-on-read pattern services/omics uses for its own Get*-advances-Creating resources. TestStartCodeSecurityScan_Status (sdk_response_keys_test.go) previously asserted only the initial IN_PROGRESS status and stopped; strengthened with a GetCodeSecurityScan follow-up asserting SUCCESSFUL. Hand-reverted code_security.go to git show HEAD, confirmed the strengthened assertion fails with Status stuck at IN_PROGRESS, restored, md5sum byte-identical."}
   findings_report: {status: ok, note: "fixed this pass — CreateFindingsReport now accepts and stores filterCriteria/reportFormat (previously discarded/unparsed); GetFindingsReportStatus now echoes destination/filterCriteria/errorMessage (real GetFindingsReportStatusOutput wire keys: destination/errorCode/errorMessage/filterCriteria/reportId/status — confirmed via deserializers.go there is NO createdAt member on the real output at all, correcting the prior audit's gap note)"}
   sbom_export: {status: ok, note: "fixed this pass — CreateSbomExport's request field was the gopherstack-invented 'sbomFormat' key; real CreateSbomExportInput field is 'reportFormat' (confirmed via serializers.go), so every real client's report format was silently dropped. Now reads reportFormat + resourceFilterCriteria, and GetSbomExport echoes format/s3Destination/filterCriteria/errorMessage (real GetSbomExportOutput wire keys, confirmed via deserializers.go; also no createdAt member in the real output)"}
   coverage: {status: ok, note: "fixed this pass (both new-op and accepted-but-ignored-filter fixes) — ListCoverage/ListCoverageStatistics were hardwired empty stubs in an earlier pass; added SeedCoverage (store.Table[CoverageEntry], real CoveredResource wire shape incl. epoch-encoded lastScannedAt) following the SeedFinding precedent. ListCoverage/ListCoverageStatistics now genuinely evaluate 8 real CoverageFilterCriteria facets against real stored CoverageEntry data — accountId/resourceId/resourceType/scanType (already wired) plus scanStatusCode/scanStatusReason/scanMode/lastScannedAt (fixed this pass: field-diffed against types.go, these were accepted in the request shape but silently never applied to narrow results — a real bug, since CoverageEntry.ScanStatus.{StatusCode,Reason}/ScanMode/LastScannedAt already existed as real, seeded data with nothing wiring the filter to it; lastScannedAt is a CoverageDateFilter, encoded as epoch-seconds numbers on the wire per serializers.go's awsRestjson1_serializeDocumentCoverageDateFilter, not RFC3339). ListCoverageStatistics's groupBy supports ACCOUNT_ID/RESOURCE_TYPE/SCAN_STATUS_CODE; ECR_REPOSITORY_NAME not modeled, would require the nested ResourceMetadata union. Not modeled (re-confirmed this pass, genuinely no backing data — not an ignored-filter bug like the four fixed above): CoverageFilterCriteria's remaining ~20 facets tied to CoveredResource.resourceMetadata (a nested per-resource-type union this backend never populates at all — ec2InstanceTags/ecrImageTags/lambdaFunctionTags/cloudContainerImageTags/ecrImageInUseCount/ecrImageLastInUseAt/imagePulledAt/cloud*/code*, confirmed via types.CoverageFilterCriteria's full field list)."}
@@ -270,3 +307,136 @@ entry count goes from 22 to 24. Per this campaign's instructions, `go run
 unrelated services' READMEs as a side effect) — the badges/README's counts
 are stale until the next full `gendocs` regeneration; this manifest is the
 source of truth in the interim.
+
+### 2026-08-21 gopherstack-r80d batch 12: required-output cut, 4 bugs
+
+Selected as the largest remaining candidate after sagemaker (off-limits,
+mid-conversion this session) per `services/_REQUIRED_OUTPUT_CANDIDATES.md`'s
+ranked table: 38 required output fields / 81 ops (29 with at least one),
+confirmed with a fresh `go run ./cmd/requiredoutputfields` run against
+`inspector2@v1.54.1`. Read all 29 ops with required output fields end to
+end against their handlers, plus every domain struct with `This member is
+required.` annotations in `types.go` (an AST-style walk, not a grep window)
+to catch the nested-domain-struct undercount class this campaign already
+named for pinpoint/bedrockagent/cleanrooms — `CodeSecurityIntegrationSummary`
+(7 required members) is exactly that shape here, reachable only through
+`ListCodeSecurityIntegrations`' non-required `Integrations` field.
+
+4 bugs found and fixed, all proven via real `aws-sdk-go-v2/service/
+inspector2` client round trips (`wire_output_required_r80d_test.go`),
+hand-reverted (both source files reverted to `HEAD` together, confirmed both
+new tests fail with the predicted symptom)/confirmed-failing/restored,
+md5sum-verified byte-identical:
+
+1. **`GetCodeSecurityIntegration`/`ListCodeSecurityIntegrations`** (shared
+   `codeSecurityIntegrationToWire` helper in `handler_code_security.go`)
+   dropped required `type`/`statusReason` (`api_op_GetCodeSecurityIntegration.go`,
+   `types.go`'s `CodeSecurityIntegrationSummary`). `type` was already tracked
+   on the `CodeSecurityIntegration` domain struct (`models.go`) and simply
+   never surfaced; `statusReason` has no backing data source at all (no
+   OAuth/connection-health flow exists to derive a real reason from), so it
+   is now emitted as an honestly empty string rather than fabricated.
+   Shape: member with no struct field at all (statusReason) plus a tracked-
+   but-unsurfaced field (type).
+2. **`Finding.Remediation`** (`handler_findings.go`'s `findingToWire`,
+   emitted via `ListFindings`) had no struct field at all
+   (`types.go`: required; its own `Recommendation` sub-member is optional).
+   Now emitted as an honest empty object — no remediation text/URL
+   gopherstack has any source for. Shape: missing struct field entirely.
+3. **`Finding.Resources`** (required, `types.go`) was only emitted when
+   non-empty (`if len(f.Resources) > 0`), dropping the key entirely for any
+   finding seeded with none — reachable, since neither `SeedFinding` nor
+   `AddFinding` enforce a non-empty resource list. Now always emitted,
+   non-nil. Shape: required-but-inapplicable means present-and-empty, not
+   absent.
+4. **`Finding.Severity`** was serialized as a fabricated `{label, score}`
+   nested object. The real wire shape
+   (`deserializers.go`'s `awsRestjson1_deserializeDocumentFinding`, case
+   `"severity"`) is a bare `Severity` string enum — this is not a missing-
+   field bug but a wrong-shape one, and the most severe found this campaign:
+   any real SDK client's `ListFindings` call failed outright
+   (`"expected Severity to be of type string, got map[string]interface {}
+   instead"`) once any finding existed, not merely a missing value. The
+   numeric score now rides the separate, optional, top-level
+   `inspectorScore` member (`Finding.InspectorScore *float64`) instead of a
+   nested `score` key that never existed on the real shape. This also means
+   the manifest's prior `ListFindings: {wire: ok}` verdict was never
+   actually exercised against a real SDK client: every existing
+   `ListFindings`-adjacent test in this package asserted on raw JSON
+   (`handler_findings_core_test.go`, `handler_findings_query_test.go`), and
+   `sdk_response_keys_test.go`'s own doc comment already explains why that
+   can't catch a wrong-shape bug — this campaign's "a recorded verdict is
+   not evidence" lesson, reapplied. The 5 existing raw-JSON assertions on
+   the old `{label,score}` shape were updated to match the corrected wire
+   shape rather than left contradicting the fix.
+
+All 29 ops with required output fields were read end to end; no other bugs
+found. Filters/CIS-scan-configuration/connector/coverage/vulnerability-search
+families were re-confirmed clean, including validator-based reachability
+checks (e.g. `CreateFilterInput`'s `FilterCriteria` sub-facets are all
+individually optional per `validateFilterCriteria`, matching the databrew-
+class "validator only checks the top-level pointer" shape — but every real
+client's request still decodes to a non-nil Go map even for an empty
+`{}` object, so `Filter.Criteria != nil` never actually goes false in
+practice). `AutoEnable`'s `Ec2`/`Ecr` are both real-client-guaranteed present
+(the SDK's own `validateOpUpdateOrganizationConfigurationInput` rejects a nil
+`AutoEnable`, and `Ec2`/`Ecr` are validated required within it), so
+`UpdateOrganizationConfiguration`'s echo-the-request-map approach is safe.
+
+Did not touch sagemaker (off-limits, mid-conversion under gopherstack-oc9v
+this session — `git status` showed uncommitted `services/sagemaker/`
+changes throughout).
+
+# 2026-08-21 gopherstack-g479 (ad hoc map[string]any blind spot)
+`DescribeOrganizationConfiguration`: {wire: fixed, errors: ok, state: fixed, persist: ok} --
+`OrgConfiguration.AutoEnable` was stored and echoed as a single collapsed
+`bool`; real `DescribeOrganizationConfigurationOutput.AutoEnable` is the
+per-scan-type object (`ec2`/`ecr`/`lambda`/`lambdaCode`/`codeRepository`),
+confirmed against `aws-sdk-go-v2/service/inspector2@v1.54.1`'s
+`deserializers.go`
+(`awsRestjson1_deserializeOpDocumentDescribeOrganizationConfigurationOutput`,
+case `"autoEnable"`) and `types/types.go`'s `AutoEnable` struct. A real
+client's `DescribeOrganizationConfiguration` failed outright with
+`"unexpected JSON type true"`. The prior audit (r80d, see above) confirmed
+`UpdateOrganizationConfiguration`'s echo-the-request-map approach was safe,
+but never exercised the Describe side against a real client, which is where
+this collapse actually lived. `OrgConfiguration.AutoEnable` is now
+`map[string]bool`; `UpdateOrganizationConfiguration` stores the real map
+instead of collapsing it, then reads its own write back rather than echoing
+the raw request. Found via a new map-literal/index-assign kind-mismatch
+scanner (go/types-based, not text-matched) built for gopherstack-g479 --
+this class (`map[string]any{}` literals with no struct-field path) had zero
+automated coverage before. Proven via a real `aws-sdk-go-v2/service/inspector2`
+client round trip (`TestDescribeOrganizationConfiguration_AutoEnableObject`,
+`sdk_response_keys_test.go`), hand-reverted/confirmed-failing with the SDK's
+own error text/restored/`md5sum`-verified byte-identical. Gates:
+`go build`, `go vet`, `gofmt -l` (clean), `go test -race` (pass),
+`golangci-lint run` (0 new issues; 2 pre-existing `fieldalignment` findings
+in `persistence.go`/`store.go`, files this pass did not touch, left alone).
+`last_audit_commit` left at its existing value per this file's own
+standing convention (r80d note above) -- not updated this pass.
+
+## gopherstack-y1zn (2026-08-21): unknown-key sweep, 4 confirmed bugs
+
+Part of the gopherstack-us9u/g479 map-literal scanner's 526-key unknown-key
+bucket triage. All 4 proven via real `aws-sdk-go-v2/service/inspector2`
+client round trips or raw-body assertion
+(`wire_field_fixes_y1zn_test.go`), hand-reverted, confirmed failing,
+restored, `md5sum`-verified byte-identical.
+
+- `GetCisScanResultDetails`: {wire: fixed} -- wrapped results under
+  "checkResults"; real member (deserializers.go's
+  awsRestjson1_deserializeOpDocumentGetCisScanResultDetailsOutput) is
+  "scanResultDetails".
+- `ListCisScans`: {wire: fixed} -- emitted a flat "targetAccountId" string;
+  types.CisScan has no such member -- account IDs live under
+  "targets.accountIds" (types.CisTargets). TargetResourceTags remains
+  honestly absent (this backend tracks no such state).
+- `ListFindingAggregations`: {wire: fixed} -- severityCounts included a "low"
+  key; types.SeverityCounts declares only all/critical/high/medium -- LOW
+  findings fold into "all" only, there is no separate low bucket in the real
+  API.
+- `GetEc2DeepInspectionConfiguration`: {wire: fixed} -- wrapped a fabricated
+  "ec2ScanModeState" object (scanMode/scanModeStatus, neither real) into the
+  response; GetEc2DeepInspectionConfigurationOutput declares only
+  errorMessage/orgPackagePaths/packagePaths/status.

@@ -16,6 +16,7 @@ import (
 )
 
 const (
+	keyTypeField        = "__type"
 	keyMessageField     = "message"
 	keyResourceARNField = "resourceArn"
 	keySecretARNField   = "secretArn"
@@ -165,7 +166,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		if err != nil {
 			log.ErrorContext(ctx, "rdsdata: failed to read request body", "error", err)
 
-			return c.String(http.StatusInternalServerError, "internal server error")
+			return writeInternalServerError(c)
 		}
 
 		op := h.ExtractOperation(c)
@@ -202,6 +203,25 @@ func (h *Handler) dispatch(ctx context.Context, op string, body []byte) ([]byte,
 	}
 }
 
+// writeInternalServerError renders a ReadBody-failure (body too large, read
+// error) as rdsdata's own restjson1 error envelope. aws-sdk-go-v2's
+// restjson.GetErrorInfo (aws/protocol/restjson/decoder_util.go) JSON-decodes
+// the body for __type/message, so the bare text/plain this used to send
+// deserialized client-side as smithy.GenericAPIError{Code:"UnknownError"}
+// (gopherstack-o7gx). InternalServerErrorException is rdsdata's own modeled
+// internal error (rdsdata@v1.35.4 types/errors.go).
+func writeInternalServerError(c *echo.Context) error {
+	payload, err := json.Marshal(map[string]string{
+		keyTypeField:    "InternalServerErrorException",
+		keyMessageField: "internal server error",
+	})
+	if err != nil {
+		return err
+	}
+
+	return c.JSONBlob(http.StatusInternalServerError, payload)
+}
+
 func (h *Handler) handleError(c *echo.Context, err error) error {
 	var syntaxErr *json.SyntaxError
 	var typeErr *json.UnmarshalTypeError
@@ -209,14 +229,14 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 	switch {
 	case errors.Is(err, ErrTransactionNotFound):
 		payload, _ := json.Marshal(map[string]string{
-			"__type":        "TransactionNotFoundException",
+			keyTypeField:    "TransactionNotFoundException",
 			keyMessageField: err.Error(),
 		})
 
 		return c.JSONBlob(http.StatusBadRequest, payload)
 	case errIsValidation(err):
 		payload, _ := json.Marshal(map[string]string{
-			"__type":        "BadRequestException",
+			keyTypeField:    "BadRequestException",
 			keyMessageField: err.Error(),
 		})
 

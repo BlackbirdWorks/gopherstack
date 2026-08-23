@@ -44,6 +44,10 @@ func (b *InMemoryBackend) CreateOpsItem(
 		return nil, fmt.Errorf("%w: Source is required", ErrValidationException)
 	}
 
+	if input.Description == "" {
+		return nil, fmt.Errorf("%w: Description is required", ErrValidationException)
+	}
+
 	region := getRegion(ctx)
 	b.mu.Lock("CreateOpsItem")
 	defer b.mu.Unlock()
@@ -73,6 +77,7 @@ func (b *InMemoryBackend) CreateOpsItem(
 		PlannedStartTime: input.PlannedStartTime,
 		PlannedEndTime:   input.PlannedEndTime,
 		RelatedOpsItems:  append([]RelatedOpsItemRef(nil), input.RelatedOpsItems...),
+		Version:          "1",
 	}
 
 	b.opsItemsStore(region).Put(&item)
@@ -106,6 +111,13 @@ func (b *InMemoryBackend) AssociateOpsItemRelatedItem(
 	ctx context.Context,
 	input *AssociateOpsItemRelatedItemInput,
 ) (*AssociateOpsItemRelatedItemOutput, error) {
+	if input.AssociationType == "" || input.ResourceType == "" || input.ResourceURI == "" {
+		return nil, fmt.Errorf(
+			"%w: AssociationType, ResourceType and ResourceUri are required",
+			ErrValidationException,
+		)
+	}
+
 	region := getRegion(ctx)
 	b.mu.Lock("AssociateOpsItemRelatedItem")
 	defer b.mu.Unlock()
@@ -307,12 +319,21 @@ func (b *InMemoryBackend) DescribeOpsItems(
 		}
 
 		all = append(all, OpsItemSummary{
-			OpsItemID:   item.OpsItemID,
-			Title:       item.Title,
-			Status:      item.Status,
-			Source:      item.Source,
-			CreatedTime: item.CreatedTime,
-			Priority:    item.Priority,
+			OperationalData:  item.OperationalData,
+			PlannedEndTime:   item.PlannedEndTime,
+			PlannedStartTime: item.PlannedStartTime,
+			ActualEndTime:    item.ActualEndTime,
+			ActualStartTime:  item.ActualStartTime,
+			OpsItemID:        item.OpsItemID,
+			Title:            item.Title,
+			Status:           item.Status,
+			Source:           item.Source,
+			OpsItemType:      item.OpsItemType,
+			Category:         item.Category,
+			Severity:         item.Severity,
+			CreatedTime:      item.CreatedTime,
+			LastModifiedTime: item.LastModifiedTime,
+			Priority:         item.Priority,
 		})
 	}
 
@@ -359,7 +380,7 @@ func (b *InMemoryBackend) GetOpsItem(
 		return nil, ErrOpsItemNotFound
 	}
 
-	return &GetOpsItemOutput{OpsItem: *item}, nil
+	return &GetOpsItemOutput{OpsItem: opsItemToOutput(*item)}, nil
 }
 
 // GetOpsMetadata retrieves OpsMetadata by ARN.
@@ -376,7 +397,18 @@ func (b *InMemoryBackend) GetOpsMetadata(
 		return nil, ErrOpsMetadataNotFound
 	}
 
-	return &GetOpsMetadataOutput{OpsMetadata: *meta}, nil
+	return &GetOpsMetadataOutput{Metadata: meta.Metadata, ResourceID: meta.ResourceID}, nil
+}
+
+// nextOpsItemVersion returns current+1, defaulting to 1 for an unparseable
+// or empty current version (e.g. an item persisted before Version existed).
+func nextOpsItemVersion(current string) int {
+	n, err := strconv.Atoi(current)
+	if err != nil {
+		return 1
+	}
+
+	return n + 1
 }
 
 // applyOpsItemCoreUpdates applies UpdateOpsItemInput's original (pre-Change-
@@ -416,13 +448,16 @@ func applyOpsItemCoreUpdates(item *OpsItem, input *UpdateOpsItemInput) {
 }
 
 // applyOpsItemChangeManagerUpdates applies the Change-Manager-oriented fields
-// added alongside CreateOpsItemInput (AccountId/ActualStartTime/
-// ActualEndTime/Notifications/PlannedStartTime/PlannedEndTime/
-// RelatedOpsItems) to item in place. Split out of UpdateOpsItem to keep its
+// on UpdateOpsItemInput (OpsItemArn/ActualStartTime/ActualEndTime/
+// Notifications/PlannedStartTime/PlannedEndTime/RelatedOpsItems) to item in
+// place. AccountId is deliberately NOT applied here -- unlike
+// CreateOpsItemInput, the real UpdateOpsItemInput has no AccountId member at
+// all (api_op_UpdateOpsItem.go); a caller cannot change an OpsItem's account
+// attribution after creation. Split out of UpdateOpsItem to keep its
 // cyclomatic complexity under the package limit.
 func applyOpsItemChangeManagerUpdates(item *OpsItem, input *UpdateOpsItemInput) {
-	if input.AccountID != "" {
-		item.AccountID = input.AccountID
+	if input.OpsItemArn != "" {
+		item.OpsItemArn = input.OpsItemArn
 	}
 
 	if input.ActualStartTime != nil {
@@ -471,6 +506,7 @@ func (b *InMemoryBackend) UpdateOpsItem(
 	applyOpsItemChangeManagerUpdates(&item, input)
 
 	item.LastModifiedTime = UnixTimeFloat(timeNow())
+	item.Version = strconv.Itoa(nextOpsItemVersion(item.Version))
 	items.Put(&item)
 
 	// Record an event for the update.
@@ -541,8 +577,8 @@ func (b *InMemoryBackend) DisassociateOpsItemRelatedItem(
 	ctx context.Context,
 	input *DisassociateOpsItemRelatedItemInput,
 ) (*DisassociateOpsItemRelatedItemOutput, error) {
-	if input.OpsItemID == "" {
-		return &DisassociateOpsItemRelatedItemOutput{}, nil
+	if input.OpsItemID == "" || input.AssociationID == "" {
+		return nil, fmt.Errorf("%w: OpsItemId and AssociationId are required", ErrValidationException)
 	}
 
 	region := getRegion(ctx)

@@ -145,12 +145,12 @@ func Test_VerifySoftwareToken_RealTOTP(t *testing.T) {
 			b, _, client := setupTestPoolAndClient(t)
 			tokens := signUpConfirmAndLogin(t, b, client.ClientID, "totp-"+sanitizeTestName(tc.name))
 
-			secret, err := b.AssociateSoftwareToken(tokens.AccessToken)
+			secret, _, err := b.AssociateSoftwareToken(tokens.AccessToken, "")
 			require.NoError(t, err)
 
 			code := tc.buildCode(t, secret)
 
-			err = b.VerifySoftwareToken(tokens.AccessToken, code)
+			_, err = b.VerifySoftwareToken(tokens.AccessToken, "", code)
 			if tc.wantErr == nil {
 				require.NoError(t, err)
 			} else {

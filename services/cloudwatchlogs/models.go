@@ -440,20 +440,46 @@ type MetricFilterMatchRecord struct {
 	EventNumber     int64             `json:"eventNumber"`
 }
 
-// QueryDefinition represents a saved CloudWatch Logs Insights query definition.
-type QueryDefinition struct {
-	QueryDefinitionID string   `json:"queryDefinitionId"`
-	Name              string   `json:"name"`
-	QueryString       string   `json:"queryString"`
-	LogGroupNames     []string `json:"logGroupNames,omitempty"`
-	LastModified      int64    `json:"lastModified"`
+// QueryParameter is a named placeholder substituted into a QueryDefinition's
+// query string at execution time (types.QueryParameter).
+type QueryParameter struct {
+	Name         string `json:"name"`
+	DefaultValue string `json:"defaultValue,omitempty"`
+	Description  string `json:"description,omitempty"`
 }
 
-// ResourcePolicy represents a CloudWatch Logs resource policy.
+// QueryDefinition represents a saved CloudWatch Logs Insights query
+// definition. Field-diffed against aws-sdk-go-v2 types.QueryDefinition
+// (gopherstack-enpq): Parameters (a real, accepted PutQueryDefinitionInput
+// member) had no Go field at all, so a real client's Parameters were
+// silently dropped on every PutQueryDefinition call and never echoed back
+// by DescribeQueryDefinitions. QueryLanguage is also modeled: this backend
+// has no query-language detection, so it always reports the default CWLI
+// (PutQueryDefinitionInput itself has no queryLanguage member to set it
+// from -- confirmed against api_op_PutQueryDefinition.go).
+type QueryDefinition struct {
+	QueryDefinitionID string           `json:"queryDefinitionId"`
+	Name              string           `json:"name"`
+	QueryString       string           `json:"queryString"`
+	QueryLanguage     string           `json:"queryLanguage,omitempty"`
+	LogGroupNames     []string         `json:"logGroupNames,omitempty"`
+	Parameters        []QueryParameter `json:"parameters,omitempty"`
+	LastModified      int64            `json:"lastModified"`
+}
+
+// ResourcePolicy represents a CloudWatch Logs resource policy. Field-diffed
+// against aws-sdk-go-v2 types.ResourcePolicy (gopherstack-enpq):
+// ResourceArn/PolicyScope/RevisionId/LastUpdatedTime were all missing, so a
+// real client's fields were always left unpopulated -- confirmed against
+// awsAwsjson11_deserializeDocumentResourcePolicy (deserializers.go), which
+// recognizes all four wire keys.
 type ResourcePolicy struct {
-	LastUpdated    time.Time `json:"-"`
-	PolicyName     string    `json:"policyName"`
-	PolicyDocument string    `json:"policyDocument"`
+	PolicyName      string `json:"policyName"`
+	PolicyDocument  string `json:"policyDocument"`
+	ResourceArn     string `json:"resourceArn,omitempty"`
+	PolicyScope     string `json:"policyScope,omitempty"`
+	RevisionID      string `json:"revisionId,omitempty"`
+	LastUpdatedTime int64  `json:"lastUpdatedTime,omitempty"`
 }
 
 // DeliveryDestination represents a CloudWatch Logs delivery destination.
@@ -504,11 +530,20 @@ type CWLDestination struct {
 	Arn             string    `json:"arn"`
 }
 
-// IndexPolicy represents a CloudWatch Logs field index policy.
+// IndexPolicy represents a CloudWatch Logs field index policy. Field-diffed
+// against aws-sdk-go-v2 types.IndexPolicy (gopherstack-enpq): Source had no
+// Go member at all, so a real client's Source field was always left
+// unpopulated even though it is always present on the wire. PolicyName is
+// correctly omitted here -- the real type's own doc comment says
+// "Responses about log group-level field index policies don't have this
+// field, because those policies don't have names", and PutIndexPolicy/
+// DescribeIndexPolicies (the only two ops that populate this backend's
+// index-policy store) are log-group-scoped, never account-scoped.
 type IndexPolicy struct {
-	LastUpdated        time.Time `json:"lastUpdateTime"`
-	LogGroupIdentifier string    `json:"logGroupIdentifier"`
-	PolicyDocument     string    `json:"policyDocument"`
+	LogGroupIdentifier string `json:"logGroupIdentifier"`
+	PolicyDocument     string `json:"policyDocument"`
+	Source             string `json:"source,omitempty"`
+	LastUpdateTime     int64  `json:"lastUpdateTime,omitempty"`
 }
 
 // Transformer represents a CloudWatch Logs log transformer.
@@ -539,13 +574,30 @@ type OpenSearchResourceConfig struct {
 	DashboardViewerPrincipals []string
 }
 
-// AggregateLogGroupSummary describes aggregated statistics for a single log group.
+// GroupingIdentifier is a key-value pair identifying a data-source
+// characteristic used to group an aggregate log group summary
+// (aws-sdk-go-v2 types.GroupingIdentifier; key format uses dot notation,
+// e.g. "dataSource.Name"/"dataSource.Type"/"dataSource.Format").
+type GroupingIdentifier struct {
+	Key   string `json:"key"`
+	Value string `json:"value"`
+}
+
+// AggregateLogGroupSummary describes one bucket of log groups grouped by a
+// data-source characteristic (aws-sdk-go-v2 types.AggregateLogGroupSummary,
+// confirmed against deserializers.go's
+// awsAwsjson11_deserializeDocumentAggregateLogGroupSummary: "groupingIdentifiers"
+// + "logGroupCount", not a per-log-group record). A previous revision
+// modeled this as per-log-group fields (LogGroupName/LogGroupArn/
+// LogGroupClass/StoredBytes/LogEventCount) that do not exist anywhere on the
+// real type, so a real client's GroupingIdentifiers/LogGroupCount were
+// always empty/nil regardless of what this backend returned. This backend
+// has no per-log-group data-source classification (dataSource.Name/Type/
+// Format) to group by, so GroupingIdentifiers is honestly left empty rather
+// than fabricated; LogGroupCount is real (see gaps in PARITY.md).
 type AggregateLogGroupSummary struct {
-	LogGroupName  string `json:"logGroupName"`
-	LogGroupArn   string `json:"logGroupArn"`
-	LogGroupClass string `json:"logGroupClass,omitempty"`
-	StoredBytes   int64  `json:"storedBytes"`
-	LogEventCount int64  `json:"logEventCount"`
+	GroupingIdentifiers []GroupingIdentifier `json:"groupingIdentifiers"`
+	LogGroupCount       int32                `json:"logGroupCount"`
 }
 
 // TestTransformerOutput is a single transformed log event result. It mirrors the
@@ -610,6 +662,24 @@ const (
 	StorageTierStandard           = "STANDARD"
 	StorageTierIntelligentTiering = "INTELLIGENT_TIERING"
 )
+
+// queryLanguageCWLI is the default query language: PutQueryDefinitionInput
+// has no queryLanguage member, so every query definition this backend
+// creates is the classic CloudWatch Logs Insights QL (types.QueryLanguageCwli).
+const queryLanguageCWLI = "CWLI"
+
+// PolicyScope constants match the real aws-sdk-go-v2 types.PolicyScope enum.
+const (
+	policyScopeAccount  = "ACCOUNT"
+	policyScopeResource = "RESOURCE"
+)
+
+// indexSourceLogGroup matches types.IndexSourceLogGroup: PutIndexPolicy/
+// DescribeIndexPolicies only ever manage log-group-scoped index policies in
+// this backend, so every IndexPolicy they return has this Source. An
+// account-wide FIELD_INDEX_POLICY (PutAccountPolicy) does not fall back
+// into DescribeIndexPolicies here -- disclosed, not fixed, see PARITY.md.
+const indexSourceLogGroup = "LOG_GROUP"
 
 // StorageTierPolicy represents the account-level CloudWatch Logs storage
 // tier policy. Field-diffed against aws-sdk-go-v2

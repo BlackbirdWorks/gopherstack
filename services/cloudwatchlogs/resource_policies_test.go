@@ -30,13 +30,16 @@ func TestResourcePolicy_CRUD(t *testing.T) {
 			name: "put_and_describe",
 			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
 				t.Helper()
-				p, err := b.PutResourcePolicy("my-policy", `{"Version":"2012-10-17"}`)
+				p, err := b.PutResourcePolicy("my-policy", `{"Version":"2012-10-17"}`, "", nil)
 				require.NoError(t, err)
 				assert.Equal(t, "my-policy", p.PolicyName)
+				assert.Equal(t, "ACCOUNT", p.PolicyScope)
+				assert.Equal(t, "1", p.RevisionID)
+				assert.NotZero(t, p.LastUpdatedTime)
 			},
 			verify: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
 				t.Helper()
-				policies := b.DescribeResourcePolicies()
+				policies := b.DescribeResourcePolicies("", "")
 				require.Len(t, policies, 1)
 				assert.Equal(t, "my-policy", policies[0].PolicyName)
 				assert.JSONEq(t, `{"Version":"2012-10-17"}`, policies[0].PolicyDocument)
@@ -46,14 +49,14 @@ func TestResourcePolicy_CRUD(t *testing.T) {
 			name: "put_multiple_sorted",
 			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
 				t.Helper()
-				_, err := b.PutResourcePolicy("z-policy", `{}`)
+				_, err := b.PutResourcePolicy("z-policy", `{}`, "", nil)
 				require.NoError(t, err)
-				_, err = b.PutResourcePolicy("a-policy", `{}`)
+				_, err = b.PutResourcePolicy("a-policy", `{}`, "", nil)
 				require.NoError(t, err)
 			},
 			verify: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
 				t.Helper()
-				policies := b.DescribeResourcePolicies()
+				policies := b.DescribeResourcePolicies("", "")
 				require.Len(t, policies, 2)
 				assert.Equal(t, "a-policy", policies[0].PolicyName)
 				assert.Equal(t, "z-policy", policies[1].PolicyName)
@@ -63,14 +66,15 @@ func TestResourcePolicy_CRUD(t *testing.T) {
 			name: "put_updates_existing",
 			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
 				t.Helper()
-				_, err := b.PutResourcePolicy("my-policy", `{"old":"doc"}`)
+				_, err := b.PutResourcePolicy("my-policy", `{"old":"doc"}`, "", nil)
 				require.NoError(t, err)
-				_, err = b.PutResourcePolicy("my-policy", `{"new":"doc"}`)
+				p, err := b.PutResourcePolicy("my-policy", `{"new":"doc"}`, "", nil)
 				require.NoError(t, err)
+				assert.Equal(t, "2", p.RevisionID)
 			},
 			verify: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
 				t.Helper()
-				policies := b.DescribeResourcePolicies()
+				policies := b.DescribeResourcePolicies("", "")
 				require.Len(t, policies, 1)
 				assert.JSONEq(t, `{"new":"doc"}`, policies[0].PolicyDocument)
 			},
@@ -79,21 +83,21 @@ func TestResourcePolicy_CRUD(t *testing.T) {
 			name: "delete_existing",
 			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
 				t.Helper()
-				_, err := b.PutResourcePolicy("del-policy", `{}`)
+				_, err := b.PutResourcePolicy("del-policy", `{}`, "", nil)
 				require.NoError(t, err)
-				err = b.DeleteResourcePolicy("del-policy")
+				err = b.DeleteResourcePolicy("del-policy", "", nil)
 				require.NoError(t, err)
 			},
 			verify: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
 				t.Helper()
-				assert.Empty(t, b.DescribeResourcePolicies())
+				assert.Empty(t, b.DescribeResourcePolicies("", ""))
 			},
 		},
 		{
 			name: "delete_not_found_errors",
 			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
 				t.Helper()
-				err := b.DeleteResourcePolicy("ghost")
+				err := b.DeleteResourcePolicy("ghost", "", nil)
 				require.ErrorIs(t, err, cloudwatchlogs.ErrResourcePolicyNotFound)
 			},
 		},
@@ -101,7 +105,42 @@ func TestResourcePolicy_CRUD(t *testing.T) {
 			name: "empty_name_errors",
 			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
 				t.Helper()
-				_, err := b.PutResourcePolicy("", `{}`)
+				_, err := b.PutResourcePolicy("", `{}`, "", nil)
+				require.ErrorIs(t, err, cloudwatchlogs.ErrValidation)
+			},
+		},
+		{
+			name: "resource_scoped_policy_keyed_by_arn",
+			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
+				t.Helper()
+				arn := "arn:aws:logs:us-east-1:000000000000:log-group:/my/group"
+				p, err := b.PutResourcePolicy("route53", `{}`, arn, nil)
+				require.NoError(t, err)
+				assert.Equal(t, "RESOURCE", p.PolicyScope)
+				assert.Equal(t, arn, p.ResourceArn)
+			},
+			verify: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
+				t.Helper()
+				arn := "arn:aws:logs:us-east-1:000000000000:log-group:/my/group"
+				accountScoped := b.DescribeResourcePolicies("", "")
+				assert.Empty(t, accountScoped)
+				resourceScoped := b.DescribeResourcePolicies("", arn)
+				require.Len(t, resourceScoped, 1)
+				assert.Equal(t, arn, resourceScoped[0].ResourceArn)
+			},
+		},
+		{
+			name: "expected_revision_mismatch_rejected",
+			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
+				t.Helper()
+				_, err := b.PutResourcePolicy("rev-policy", `{}`, "", nil)
+				require.NoError(t, err)
+				wrong := "999"
+				_, err = b.PutResourcePolicy("rev-policy", `{"v":2}`, "", &wrong)
+				require.ErrorIs(t, err, cloudwatchlogs.ErrValidation)
+
+				deleteWrong := "999"
+				err = b.DeleteResourcePolicy("rev-policy", "", &deleteWrong)
 				require.ErrorIs(t, err, cloudwatchlogs.ErrValidation)
 			},
 		},
@@ -136,7 +175,7 @@ func TestLookupTable_CRUD(t *testing.T) {
 			name: "create_and_get",
 			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
 				t.Helper()
-				table, err := b.CreateLookupTable("my_table", csvBody, "desc", "kms-1")
+				table, err := b.CreateLookupTable("my_table", csvBody, "desc", "kms-1", "")
 				require.NoError(t, err)
 				assert.Equal(t, "my_table", table.LookupTableName)
 				assert.Equal(t, []string{"id", "name"}, table.TableFields)
@@ -157,9 +196,9 @@ func TestLookupTable_CRUD(t *testing.T) {
 			name: "create_duplicate_name_errors",
 			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
 				t.Helper()
-				_, err := b.CreateLookupTable("dup_table", csvBody, "", "")
+				_, err := b.CreateLookupTable("dup_table", csvBody, "", "", "")
 				require.NoError(t, err)
-				_, err = b.CreateLookupTable("dup_table", csvBody, "", "")
+				_, err = b.CreateLookupTable("dup_table", csvBody, "", "", "")
 				require.ErrorIs(t, err, cloudwatchlogs.ErrLookupTableAlreadyExists)
 			},
 		},
@@ -167,7 +206,7 @@ func TestLookupTable_CRUD(t *testing.T) {
 			name: "create_invalid_name_errors",
 			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
 				t.Helper()
-				_, err := b.CreateLookupTable("bad name!", csvBody, "", "")
+				_, err := b.CreateLookupTable("bad name!", csvBody, "", "", "")
 				require.ErrorIs(t, err, cloudwatchlogs.ErrValidation)
 			},
 		},
@@ -175,7 +214,7 @@ func TestLookupTable_CRUD(t *testing.T) {
 			name: "create_empty_body_errors",
 			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
 				t.Helper()
-				_, err := b.CreateLookupTable("empty_body", "", "", "")
+				_, err := b.CreateLookupTable("empty_body", "", "", "", "")
 				require.ErrorIs(t, err, cloudwatchlogs.ErrValidation)
 			},
 		},
@@ -183,7 +222,7 @@ func TestLookupTable_CRUD(t *testing.T) {
 			name: "create_malformed_csv_errors",
 			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
 				t.Helper()
-				_, err := b.CreateLookupTable("malformed", `"unterminated`, "", "")
+				_, err := b.CreateLookupTable("malformed", `"unterminated`, "", "", "")
 				require.ErrorIs(t, err, cloudwatchlogs.ErrValidation)
 			},
 		},
@@ -191,12 +230,12 @@ func TestLookupTable_CRUD(t *testing.T) {
 			name: "update_replaces_body",
 			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
 				t.Helper()
-				table, err := b.CreateLookupTable("upd_table", csvBody, "old", "")
+				table, err := b.CreateLookupTable("upd_table", csvBody, "old", "", "")
 				require.NoError(t, err)
 
 				newBody := "id,name,extra\n1,foo,x\n"
 				newDesc := "new"
-				updated, err := b.UpdateLookupTable(table.LookupTableArn, newBody, &newDesc, nil)
+				updated, err := b.UpdateLookupTable(table.LookupTableArn, newBody, &newDesc, nil, "")
 				require.NoError(t, err)
 				assert.Equal(t, table.LookupTableArn, updated.LookupTableArn)
 			},
@@ -214,7 +253,7 @@ func TestLookupTable_CRUD(t *testing.T) {
 			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
 				t.Helper()
 				_, err := b.UpdateLookupTable(
-					"arn:aws:logs:us-east-1:000000000000:lookup-table:ghost", csvBody, nil, nil,
+					"arn:aws:logs:us-east-1:000000000000:lookup-table:ghost", csvBody, nil, nil, "",
 				)
 				require.ErrorIs(t, err, cloudwatchlogs.ErrLookupTableNotFound)
 			},
@@ -223,7 +262,7 @@ func TestLookupTable_CRUD(t *testing.T) {
 			name: "delete_removes",
 			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
 				t.Helper()
-				table, err := b.CreateLookupTable("del_table", csvBody, "", "")
+				table, err := b.CreateLookupTable("del_table", csvBody, "", "", "")
 				require.NoError(t, err)
 				require.NoError(t, b.DeleteLookupTable(table.LookupTableArn))
 				_, err = b.GetLookupTable(table.LookupTableArn)
@@ -247,9 +286,9 @@ func TestLookupTable_CRUD(t *testing.T) {
 			name: "describe_filters_by_prefix",
 			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
 				t.Helper()
-				_, err := b.CreateLookupTable("prod_users", csvBody, "", "")
+				_, err := b.CreateLookupTable("prod_users", csvBody, "", "", "")
 				require.NoError(t, err)
-				_, err = b.CreateLookupTable("dev_users", csvBody, "", "")
+				_, err = b.CreateLookupTable("dev_users", csvBody, "", "", "")
 				require.NoError(t, err)
 			},
 			verify: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {

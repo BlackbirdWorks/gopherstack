@@ -1,6 +1,6 @@
 service: s3control
 sdk_module: aws-sdk-go-v2/service/s3control@v1.73.4
-last_audit_commit: HEAD
+last_audit_commit:                                # unknown: pass ran without git access at write time, never backfilled -- gopherstack-33in
 last_audit_date: 2026-08-07
 overall: A            # 2026-08-07 (gopherstack-tir4 follow-up): independently re-verified this
                        # file's two "closed" claims by reading code directly rather than trusting
@@ -621,3 +621,103 @@ Every item below was individually diffed this pass against the installed
 This closes the entire `types_not_reached` remainder gopherstack-tir4 left open. Combined with
 every handler-file section above already being marked "-- all ops diffed", there is no longer a
 known-unverified area of this service's request/response wire shapes.
+
+## 2026-08-22 (gopherstack-n3zi): first typed-client round trip, 2 bugs found
+
+s3control was zero of 97 ops covered by any typed `aws-sdk-go-v2` client anywhere in
+`test/integration`, and only 7 of those (`CreateAccessGrant`/`CreateAccessGrantsInstance`/
+`CreateAccessGrantsLocation`/`CreateAccessPoint`/`CreateJob`/`CreateStorageLensGroup`/
+`ListTagsForResource` -- create+tag ops only, no read/update/destroy leg) were covered even by
+this package's own in-process typed tests. Added
+`test/integration/s3control_access_point_lifecycle_test.go`
+(`TestIntegration_S3Control_AccessPointLifecycle`), a real create -> read -> policy attach/detach
+-> destroy round trip: `CreateAccessPoint`, `GetAccessPoint`, `ListAccessPoints`,
+`PutAccessPointPolicy`, `GetAccessPointPolicy`, `GetAccessPointPolicyStatus`,
+`DeleteAccessPointPolicy`, `DeleteAccessPoint`. Every prior "wire: ok" claim in this file was
+verified by a raw-body/field-diff read, never by decoding through a real client -- exactly the
+blind spot gopherstack-n3zi's measurement (77% of ops repo-wide never driven by a typed client)
+predicted, and this pass found two bugs in that blind spot that no prior field diff caught.
+
+**BUG 1 (service-wide, all 97 ops): every s3control error response decoded as a real client's
+generic `smithy.GenericAPIError{Code: "UnknownError"}` instead of the real AWS error code.**
+`writeXMLErrorCode` (handler.go) wrote `pkgs/awserr`'s `ProtocolRestXML` envelope -- a bare
+top-level `<Error><Code>.../Message>...</Error>` document, the real shape for data-plane S3.
+But every one of aws-sdk-go-v2/service/s3control@v1.73.4's `awsRestxml_deserializeOpError*`
+functions (deserializers.go; grepped all 97, zero exceptions) calls
+`s3shared.GetErrorResponseComponents` with `IsWrappedWithErrorTag: true`, which decodes
+`Error>Code`/`Error>Message` -- i.e. expects `Code`/`Message` nested one level under a
+wrapping root, not at the document root. Confirmed against s3shared's own
+`wrappedXMLErrorResponse` fixture (xml_utils_test.go@v1.19.36): the real shape is
+`<ErrorResponse><Error><Type>Sender</Type><Code>...</Code><Message>...</Message></Error>
+<RequestId>...</RequestId></ErrorResponse>` -- exactly what `pkgs/awserr`'s existing
+`ProtocolQueryXML` already emits (queryErrorResponse, respond.go). `ProtocolRestXML` is used
+nowhere else in this repo (grepped), so no other service's errors were affected. Fixed by
+switching `writeXMLErrorCode`'s single call site from `awserr.ProtocolRestXML` to
+`awserr.ProtocolQueryXML`. Every `handleBackendError`-routed error in this service was silently
+losing its real code to any typed client before this fix -- not just the two ops the new test
+happens to assert on.
+
+**BUG 2: `GetAccessPointPolicyStatus` was a hardcoded stub** (`handler_access_points.go`,
+`return writeXML(c, getAccessPointPolicyStatusResponseXML{IsPublic: false})`) that never checked
+the access point existed and never looked at whether a policy was attached, unlike its two
+siblings covering the same op family (`GetAccessPointPolicyStatusForObjectLambda`,
+`GetMultiRegionAccessPointPolicyStatus`), both of which correctly 404 on a nonexistent resource
+and derive `IsPublic` from whether a policy string is set. This file's own PARITY table (see the
+compact per-op list above) marked `GetAccessPointPolicyStatus: {wire: ok, errors: ok, state: ok,
+persist: ok}` -- wrong on `errors` and `state`, both unverified by any client call. Fixed by
+adding `InMemoryBackend.GetAccessPointPolicyStatus(accountID, name) (bool, error)`
+(access_points.go), matching the existing `policy != ""` heuristic convention used by the two
+sibling ops, wired through `interfaces.go` and `handler_access_points.go`. `IsPublic` here is
+still the same coarse "a policy is attached" approximation those siblings use, not real IAM
+policy evaluation -- consistent with, not a regression from, existing precedent in this file.
+
+**Proof:** both bugs isolated and hand-reverted independently (each against the other's fix
+still in place), confirmed to reproduce the original failure
+(`TestIntegration_S3Control_AccessPointLifecycle` failing on the exact assertions the bug
+predicts: `"UnknownError"` instead of the real code for bug 1, `IsPublic` staying `false` after
+`PutAccessPointPolicy` for bug 2), then restored and `md5sum`-verified byte-identical. Also
+updated `TestHandler_GetAccessPointPolicyStatus` (handler_access_points_test.go), whose sole
+prior case asserted the old stub's wrong behavior (200/not-public on a nonexistent access point)
+-- rewritten table-driven to cover no-policy, policy-attached, and nonexistent-access-point.
+
+**Gates:** `go build ./...`, `go vet` (default/e2e/integration via `make build-check`), `gofmt
+-l` (clean), `go test -race` (services/s3control, pkgs/awserr, both green), `golangci-lint run`
+(0 issues, no nolint added), live `test/integration` run against a real running gopherstack
+binary (`GOPHERSTACK_ENDPOINT`) both with and without `-tags integration`: pass.
+
+**0.4-bugs-per-op prior:** held loosely -- 2 bugs surfaced from this one lifecycle test (8 ops
+newly exercised at the test/integration layer), but bug 1 is service-wide (all 97 ops), so by op
+count this sample is far above the prior, not a counter-example like the lightsail pass. Neither
+bug was reachable by any documented "preferred/alternate calling pattern" the way ssm
+Targets/kinesis StreamARN were in the same issue's other finds -- both are plain silent-failure
+bugs (a swallowed error code, a stub ignoring real state) that only a typed client's decode step
+could surface.
+
+## gopherstack-o7gx follow-up (2026-08-22): default error path emitted InternalError instead of the modeled fault
+
+`handler.go`'s `handleBackendError` (default branch) and `writeXML`
+(marshal-error branch) both wrote code `"InternalError"` for any
+unclassified/unexpected 500. `s3control@v1.73.4` `types/errors.go:114-136`
+models `InternalServiceException` (`ErrorFault: FaultServer`) as the
+service's 5xx fault. It is wired into only 8 of s3control's 97 operation
+error switches in `deserializers.go` -- no single code is dominant for this
+service; the other ~89 operations model no 5xx exception of their own at
+all, so any code chosen for the default branch falls through to the same
+`smithy.GenericAPIError` for them regardless. `InternalServiceException` is
+still the correct fix: it is s3control's own real modeled fault (not
+borrowed from another service, unlike the servicediscovery/xray follow-ups
+in this same pass), and using it strictly improves the 8 operations that do
+model it while regressing none.
+
+Fixed both sites to `"InternalServiceException"`. Both of
+`handleBackendError`'s and `writeXML`'s default branches are reachable only
+when a backend error isn't classified as NotFound/InvalidParameter/
+AlreadyExists (or, for `writeXML`, only on an `xml.Marshal` failure); no
+currently-wired dispatch path leaves an error unclassified this way, so
+there is no legitimately-constructed real SDK client request that reaches
+either branch today. `TestHandleBackendError_DefaultBranchEmitsInternalServiceException`
+(`handler_internal_error_test.go`, new, white-box `package s3control`)
+drives `handleBackendError` directly with a synthetic unmatched error and
+asserts the XML response's `<Error><Code>` is `InternalServiceException`;
+confirmed it fails pre-fix with the old `"InternalError"` code
+(hand-reverted, byte-identical restore after).

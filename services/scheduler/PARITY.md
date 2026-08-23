@@ -6,7 +6,7 @@ last_audit_date: 2026-08-20
 overall: A            # genuine wire-breaking and next-invocation-computation bugs found and fixed (see Notes)
 ops:
   CreateSchedule:      {wire: fixed, errors: ok, state: fixed, persist: ok, note: "Target.EcsParameters wire bugs fixed (see 2026-08-20 Notes); ClientToken now idempotent (see Notes); ScheduleExpressionTimezone now validated as a real IANA name; ScheduleExpression now semantically validated (rate/cron/at), not just structurally; cron field values (ranges/names/wildcards) now validated per-field, see 2026-08-11 gopherstack-cz9e Notes"}
-  GetSchedule:         {wire: fixed, errors: ok, state: ok, persist: ok, note: "Target.EcsParameters wire bugs fixed (see 2026-08-20 Notes); invented non-canonical Tags field deleted"}
+  GetSchedule:         {wire: fixed, errors: ok, state: ok, persist: ok, note: "Target.EcsParameters wire bugs fixed (see 2026-08-20 Notes); invented non-canonical Tags field deleted; invented non-canonical Tags field deleted; 2026-08-21 gopherstack-r80d batch 32: EcsParameters.NetworkConfiguration.AwsvpcConfiguration and CapacityProviderStrategyItem's members were wrong-cased wire keys, invisible to any real client; AwsVpcConfiguration.Subnets (required) was also tagged omitempty despite being reachably empty -- see Notes"}
   UpdateSchedule:      {wire: fixed, errors: ok, state: fixed, persist: ok, note: "Target.EcsParameters wire bugs fixed (see 2026-08-20 Notes); ScheduleExpressionTimezone now validated as a real IANA name (prior pass's State-omission fix re-verified still correct, see Notes); ScheduleExpression now semantically validated; cron field values now validated per-field, see 2026-08-11 gopherstack-cz9e Notes"}
   DeleteSchedule:      {wire: ok, errors: ok, state: ok, persist: ok}
   ListSchedules:       {wire: fixed, errors: ok, state: ok, persist: ok, note: "invented Target.RoleArn field deleted (real TargetSummary has only Arn)"}
@@ -27,6 +27,72 @@ deferred: []
 leaks: {status: clean, note: "leak_main_test.go (testleak.VerifyTestMain) passes under -race. The runner's poll goroutine remains the only background goroutine (ctx-parented via Handler.StartWorker/Shutdown, unchanged this pass). New state added this pass (Runner.locCache, Handler.idempotency) is plain in-memory data with no goroutines/tickers of its own; both are swept/bounded (locCache via the existing per-poll sweep alongside cronCache; idempotency via TTL-based lazy eviction) and cleared on Handler.Reset."}
 ---
 
+## Notes (2026-08-21 pass, gopherstack-r80d batch 32)
+
+Part of the mgn/redshiftdata/scheduler batch testing r80d's op-count-vs-
+field-count hypothesis (see `services/_REQUIRED_OUTPUT_CANDIDATES.md`).
+scheduler tied at 5 required output fields (12 ops); flat scan alone is
+clean (CreateSchedule/CreateScheduleGroup/UpdateSchedule's `ScheduleArn`/
+`ScheduleGroupArn`, ListScheduleGroups/ListSchedules's `ScheduleGroups`/
+`Schedules` are all always emitted). The bugs are both below the flat scan,
+in `GetScheduleOutput.Target` (itself not required, so invisible to the
+per-op ranking) wrapping `types.Target.EcsParameters.NetworkConfiguration.
+AwsvpcConfiguration` and `.CapacityProviderStrategy`.
+
+1. **Wrong wire key entirely, not a dropped value.**
+   scheduler@v1.20.4's `deserializers.go` (`awsRestjson1_deserializeDocumentNetworkConfiguration`)
+   switches on `"awsvpcConfiguration"` (lowercase first rune);
+   `awsRestjson1_deserializeDocumentCapacityProviderStrategyItem` switches on
+   `"capacityProvider"`/`"base"`/`"weight"` (same). gopherstack's
+   `scheduleTargetEcsNetworkConfiguration.AwsvpcConfiguration` and
+   `scheduleTargetEcsCapacityProviderStrategyItem`'s three members were tagged
+   with the capitalized Go-field-name spelling instead
+   (`"AwsvpcConfiguration"`/`"CapacityProvider"`/`"Base"`/`"Weight"`). A real
+   SDK client's response deserializer does an exact-case `switch`, so every
+   one of these wrong-cased keys fell into the `default: _, _ = key, value`
+   no-op branch on every decode -- the entire `AwsvpcConfiguration` object,
+   and `CapacityProviderStrategyItem`'s required `CapacityProvider` member
+   (`*string`, provable) along with it, were invisible to any real client on
+   `GetSchedule`, independent of value. (`PlacementConstraint.Expression`/
+   `.Type` and `PlacementStrategy.Field`/`.Type` carry the same lowercase-first
+   wire keys and had the same capitalized-tag mistake; fixed alongside since
+   it's the same mechanical error in the same ECS-target struct family, but
+   neither member is Smithy-required so this half is disclosed cleanup, not a
+   counted bug.) Fixed by re-tagging all four structs to the real
+   lowercase-first keys.
+2. **`AwsVpcConfiguration.Subnets` (required, `[]string`) tagged `omitempty`
+   despite being reachably empty.** The real client-side validator
+   (`validators.go`'s `validateAwsVpcConfiguration`) only null-checks it
+   (`if v.Subnets == nil`), never length-checks, and the request serializer
+   (`awsRestjson1_serializeDocumentAwsVpcConfiguration`, `if v.Subnets !=
+   nil`) will send a non-nil empty slice on the wire -- so a real client may
+   legally construct `Subnets: []string{}`. gopherstack validates
+   `EcsParameters.TaskDefinitionArn` and every other reachable-empty-string
+   candidate on this service's `Target` (all correctly disqualified: gopherstack's
+   own `validateTarget` rejects an empty `TaskDefinitionArn`/`PartitionKey`/
+   `DetailType`/`Source` before storage, stricter than AWS's null-only check),
+   but never validated `Subnets`'s length. Fixed by dropping `omitempty` and
+   normalizing a nil backend value to `[]string{}` in `ecsNetworkConfigToOutput`
+   (matching this campaign's "required-but-inapplicable means present-and-empty,
+   not absent" convention) rather than counting on the (also-fixed) wire-key
+   bug to mask it.
+
+Both proven via real `aws-sdk-go-v2/service/scheduler` client round trips
+(`services/scheduler/wire_output_required_r80d_test.go`, 2 test funcs),
+hand-reverted (`handler_schedules.go` restored via `git show
+HEAD:services/scheduler/handler_schedules.go`, confirmed both tests fail
+against the pre-fix file)/confirmed-failing/restored, md5sum-verified
+byte-identical. All of `scheduler`'s pre-existing tests (including 3 raw-JSON
+round-trip tests that already exercised these same nested types with
+non-empty values, e.g. `TestCreateSchedule_EcsParametersNetworkConfigurationRoundtrip`)
+continued to pass unchanged -- they drive the handler directly with
+gopherstack's own (previously wrong) capitalized keys rather than a real SDK
+client, which is why this class survived them.
+
+Companion services this batch (see `services/_REQUIRED_OUTPUT_CANDIDATES.md`
+for full detail): `mgn` (95 ops, the batch's primary hypothesis test) and
+`redshiftdata` (12 ops) both came back clean -- 0 bugs each, unlike
+scheduler's 2.
 ## Notes (2026-08-20 pass, wrapper-key/nested-shape sweep)
 
 Full wire sweep of all 12 ops against the pinned SDK
@@ -520,3 +586,67 @@ date. Refreshed to current HEAD (`615cda74e`) and today's date (2026-08-20).
     this pass; neither owns a goroutine or ticker of its own (both are read/written
     synchronously from the existing poll loop or HTTP handler goroutines), so
     neither needed wiring into `Handler.StartWorker`/`Shutdown`'s ctx-parenting.
+
+## gopherstack-o7gx (2026-08-22): handleREST's ReadBody-failure path wrote untyped errors
+
+`handleREST`'s `httputils.ReadBody` failure branch wrote a bare
+`c.String(http.StatusInternalServerError, "internal server error")`.
+scheduler is restjson1 (confirmed from `scheduler@v1.20.4` deserializers.go's
+`awsRestjson1_deserializeOpError*` prefix); plain text doesn't decode
+through `aws/protocol/restjson.GetErrorInfo`, so a real client got
+`*json.SyntaxError`, not even `UnknownError`. (This is a different, REST-shaped
+site from the one gopherstack-he80/58567cc03 already typed -- that earlier
+fix covered `handleError`'s own catch-all branches; this one is the
+framework-level `ReadBody` call in `handleREST` itself, upstream of
+`handleError` ever being reached.)
+
+Fixed by routing the ReadBody error through this handler's own
+`handleError(ctx, c, action, err)`: none of its typed `case`s
+(`ErrNotFound`, `ErrAlreadyExists`, `ErrValidation`, `errInvalidRequest`,
+`errUnknownAction`, syntax/type errors) match a `*http.MaxBytesError`/read
+error, so it falls through to the pre-existing default -- `{Type:
+"InternalServerException", Message: ...}` via `service.JSONErrorResponse`
+(shared with `pkgs/service`), modeled at `scheduler@v1.20.4`
+`types/errors.go:45`.
+
+Proven with a real `aws-sdk-go-v2/service/scheduler` client's
+`CreateSchedule`, whose `Description` field alone exceeds
+`httputils.MaxRequestBodyBytes` (16 MiB).
+`TestHandleREST_OversizedBodySurfacesInternalServerException`
+(`handler_oversized_body_test.go`) asserts `apiErr.ErrorCode() ==
+"InternalServerException"`; confirmed it fails pre-fix with
+`*json.SyntaxError` (hand-reverted, byte-identical restore after).
+
+## gopherstack-wlo1 (2026-08-22): handleREST's restOpUnknown branch was untyped
+
+`handleREST`'s own `if action == restOpUnknown { return c.String(http.StatusNotFound,
+"not found") }` guard (handler.go) wrote a bare text/plain 404 -- a
+different, earlier site than the `httputils.ReadBody` failure the
+`gopherstack-o7gx` entry above already fixed. scheduler is restjson1
+(`scheduler@v1.20.4` `awsRestjson1_` prefix; error decode via
+`restjson.GetErrorInfo`), so a real client saw
+`smithy.GenericAPIError{Code:"UnknownError"}`.
+
+Reachability: `RouteMatcher` (handler.go) accepts any request whose path has
+the coarse `/schedules` or `/schedule-groups` prefix (or a scheduler-owned
+`/tags/{arn}`), while `parseSchedulerRESTPath`/`parseScheduleRESTPath`
+classify by exact method+segment-count -- a prefix-matched path using a
+method none of those cases recognise (e.g. PATCH) falls through to
+`restOpUnknown`, the same prefix-vs-classifier gap securityhub's analogous
+fix (a98561767) established as provable, not the xray case above where the
+two checks are identical.
+
+Fixed: routes through the existing `handleError(ctx, c, action, ErrNotFound)`
+-- `ErrNotFound` (errors.go) already maps to `ResourceNotFoundException` at
+404 in `handleError`'s own switch, so no new exception vocabulary was
+introduced.
+
+Proof: `TestHandleREST_WrongMethodSurfacesResourceNotFoundException`
+(`handler_restopunknown_dispatch_malformed_test.go`) drives a real
+Scheduler client's `ListSchedules` through a Finalize-stage middleware that
+rewrites the request's HTTP method to PATCH post-signing (GET, the method
+`ListSchedules` really uses, is itself a valid case in
+`parseScheduleRESTPath`, so path corruption alone doesn't reach this
+branch). Hand-reverted `handler.go` to `git show HEAD`, confirmed the test
+fails with `*json.SyntaxError: "invalid character 'o' in literal null
+(expecting 'u')"`, restored the fix, `md5sum`-confirmed byte-identical.

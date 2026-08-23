@@ -20,7 +20,7 @@ ops:
   GetSubscriptionAttributes: {wire: ok, errors: ok, state: ok, persist: ok}
   SetSubscriptionAttributes: {wire: ok, errors: ok, state: ok, persist: ok, note: "FilterPolicy/FilterPolicyScope/RedrivePolicy(+DLQ existence check)/DeliveryPolicy/ReplayPolicy/RawMessageDelivery/SubscriptionRoleArn; fixed this pass: ReplayPolicy is now rejected (InvalidParameter) unless the subscription's topic is FIFO and its protocol is sqs/lambda/firehose (the real AWS application-to-application scope), was previously accepted unconditionally on any topic/protocol"}
   Publish: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this pass: Lambda/Firehose/SQS-emitter now share one signed envelope (buildPublishedEvent) instead of Lambda fabricating a random-UUID signature"}
-  PublishBatch: {wire: partial->ok, errors: ok, state: ok, persist: ok, note: "fixed this pass: per-entry MessageAttributes field prefix was missing '.MessageAttributes' segment (verified against serializers.go) — every batch entry's attributes were silently dropped, breaking FilterPolicy matching for PublishBatch"}
+  PublishBatch: {wire: fixed, errors: ok, state: ok, persist: ok, note: "fixed this pass: per-entry MessageAttributes field prefix was missing '.MessageAttributes' segment (verified against serializers.go) — every batch entry's attributes were silently dropped, breaking FilterPolicy matching for PublishBatch"}
   PublishToTargetArn (TargetArn publish): {wire: ok, errors: ok, state: ok, persist: n/a, note: "EndpointDisabled enforced"}
   PublishSMS (PhoneNumber publish): {wire: ok, errors: ok, state: ok, persist: n/a, note: "opt-out + sandbox-unverified enforced"}
   CreatePlatformApplication: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -384,3 +384,70 @@ mutable `certURLValue` field (set once via `SetSigningCertBaseURL` when the mock
 server's address becomes known, read on every signed delivery) — this is a
 single-field auxiliary lock, not a second backend-resource lock, so it does not
 violate the "one coarse lock per backend" rule.
+
+**2026-08-22 (gopherstack-ifzn) -- RouteMatcher swallowed a body-read failure as a 404**:
+same shape as autoscaling's entry (see that entry or gopherstack-3a8t for the full
+survey/rationale). `RouteMatcher` now falls back to
+`service.MatchesUserAgentMarker(c.Request().Header, "api/sns")` (verified against the
+pinned `sns@v1.42.4/api_client.go:638` `AddSDKAgentKeyValue` call) only on the `ReadBody`
+failure branch, leaving the existing `Version`-substring matching untouched.
+
+**Left alone deliberately**: `Handler()`'s own `c.Request().ParseForm()` call was NOT
+migrated. `ExtractOperation`/`ExtractResource` already use `httputils.ReadBody`, not
+`ParseForm`, so `Handler()`'s is the *only* `ParseForm()` call for a given request -- the
+docdb/neptune double-call landmine (a second call silently seeing a cached-empty,
+non-nil `r.PostForm`) does not apply here, verified via the oversized-body test below.
+However, every action handler in this package (`handleCreateTopic` and ~50 others) reads
+parameters via `c.Request().FormValue(...)`, which depends on `r.Form` already being
+populated by that one `ParseForm()` call; migrating it to `httputils.ReadBody` would mean
+threading parsed `url.Values` through every action handler, well beyond this bug's blast
+radius. The read failure IS surfaced (not silently emptied) -- just mapped to
+`InvalidParameter`/400 rather than a 500-class code, a pre-existing wrong-code gap, not a
+masked-empty-body bug. Not fixed; flagged here rather than silently left for the next
+pass to rediscover.
+
+Proof: `TestHandler_OversizedBodySurfacesTypedError` in `handler_oversized_body_test.go`
+drives a real SNS SDK client through `service.NewRegistry`/`service.NewServiceRouter`,
+confirmed failing pre-fix with `UnknownError`; passes now with a typed
+`InvalidParameter`/400 (not `InternalFailure`, see above). `TestHandler_NormalSizedBodyStillRoutes`
+is the regression guard. Gates: `go build`, `go vet`, `gofmt -l` (clean), `go test -race
+./services/sns/...` (pass), `golangci-lint run ./services/sns/...` (0 issues).
+
+**2026-08-22 (gopherstack-ioww) -- the `InvalidParameter`/400 wrong-code gap flagged above,
+fixed without migrating off `ParseForm`**: the `ParseForm` migration this entry's own note
+flagged as the risk was not needed. `Handler()` now calls `httputils.ReadBody(c.Request())`
+itself, immediately before `c.Request().ParseForm()`, and answers a `ReadBody` failure with
+`"InternalError"`/500 instead of letting it fall into `ParseForm`'s own error, which was
+always mapped to `"InvalidParameter"`/400 regardless of cause.
+
+This works because of how `pkgs/httputils.ReadBody` and `net/http`'s own `ParseForm` compose
+on the same `r.Body`: a first `ReadBody` failure (oversized body, over
+`httputils.MaxRequestBodyBytes`) replaces `r.Body` with a `bodyReadErrCloser` that returns
+the identical cached error on every subsequent read (see the type's doc comment in
+httputils.go) -- so `parsePostForm`'s own read (`net/http`'s `request.go`, `parsePostForm`,
+which applies its own independent 10 MiB cap via `io.LimitReader` since `r.Body` is not a
+`*maxBytesReader`) sees that same error immediately and `ParseForm` returns it verbatim. A
+successful first `ReadBody` instead replaces `r.Body` with a `bodyReadCloser` wrapping a
+seekable `*bytes.Reader`, which the added call rewinds (`Seek(0, io.SeekStart)`) on this
+second invocation, so `ParseForm`'s subsequent read still sees the full body and succeeds
+exactly as before. Net effect: the pre-check adds no second real read, changes nothing about
+the successful path, and turns only the read-failure case into a distinguishable branch --
+no `url.Values` needs threading through the ~50 `c.Request().FormValue(...)` call sites this
+entry flagged as out of scope for a full migration, and none were touched.
+
+`"InternalError"` (not `InternalFailure`) is confirmed as SNS's own modelled code for this:
+`sns@v1.42.4/types/errors.go:198-220`, `InternalErrorException.ErrorCode()` returns
+`"InternalError"` with `ErrorFault() == smithy.FaultServer`; wired into the error-code switch
+of effectively every operation's deserializer in `deserializers.go` (39
+`case strings.EqualFold("InternalError", errorCode)` sites across 34 op-level error
+deserializers) -- not a code invented for this fix, and already this package's existing
+fallback in `errorCode()`/`handleBackendError()` (handler_errors.go) for any unclassified
+error, so this now uses the same convention rather than a new one.
+
+Proof: `TestHandler_OversizedBodySurfacesTypedError` updated -- confirmed failing pre-fix
+(got `"InvalidParameter"`, `ErrorFault() == FaultClient`); passes now with `"InternalError"`
+and `FaultServer`. `TestHandler_NormalSizedBodyStillRoutes` (unchanged) is the regression
+guard, plus the full `-race` suite confirms none of the `FormValue` call sites regressed.
+Gates: `go build`, `go vet`, `gofmt -l` (clean), `go test -race ./services/sns/...` (pass,
+~21s), `golangci-lint run ./services/sns/...` (0 issues, 0 new nolints). No exported
+signature changed.

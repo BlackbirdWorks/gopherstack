@@ -133,6 +133,40 @@ func Test_InMemoryBackend_Restore_IncompatibleVersion(t *testing.T) {
 	}
 }
 
+// Test_InMemoryBackend_Restore_V1PipelineConfigDiscarded proves
+// gopherstack-hjdd's fix: a v1 snapshot holding Resolver.PipelineConfig in
+// the pre-d83f4b5d3 bare-array shape must be discarded cleanly now that
+// appsyncSnapshotVersion is 2, rather than erroring Restore outright when
+// the registered "resolvers" table's custom UnmarshalJSON can't decode a
+// JSON array into the new {functions: [...]} object field.
+func Test_InMemoryBackend_Restore_V1PipelineConfigDiscarded(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	b := newTestBackend()
+
+	v1Snapshot := []byte(`{
+		"version": 1,
+		"tables": {
+			"resolvers": [{
+				"apiId": "api-1",
+				"typeName": "Query",
+				"fieldName": "getThing",
+				"resolverArn": "arn:aws:appsync:us-east-1:000000000000:apis/api-1/types/Query/resolvers/getThing",
+				"kind": "PIPELINE",
+				"pipelineConfig": ["fn-1", "fn-2"]
+			}]
+		}
+	}`)
+
+	require.NoError(t, b.Restore(ctx, v1Snapshot),
+		"a v1 snapshot must be discarded via the version guard, not error out of RestoreAll")
+
+	_, err := b.GetResolver("api-1", "Query", "getThing")
+	require.ErrorIs(t, err, appsync.ErrNotFound,
+		"incompatible-version snapshot must reset to empty, not partially decode")
+}
+
 // Test_InMemoryBackend_Restore_InvalidJSON verifies malformed JSON is
 // reported as an error rather than silently discarded or partially applied.
 func Test_InMemoryBackend_Restore_InvalidJSON(t *testing.T) {

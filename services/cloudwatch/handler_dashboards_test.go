@@ -137,6 +137,12 @@ func TestCloudWatchHandler_Dashboards(t *testing.T) {
 			wantContains: []string{"ListDashboardsResponse"},
 		},
 		{
+			// "DeleteDashboardsResponse" alone can't fail: it's the substring
+			// gopherstack-jodk's bug (missing <DeleteDashboardsResult>) also
+			// produced. TestCloudWatchQueryProtocol_ResultWrapperPresent in
+			// query_result_wrapper_test.go asserts the real query/XML
+			// deserializer finds the Result element; this check additionally
+			// pins the wrapper's literal presence in the body.
 			name: "DeleteDashboards/success",
 			setup: func(t *testing.T, h *cloudwatch.Handler) {
 				t.Helper()
@@ -144,7 +150,7 @@ func TestCloudWatchHandler_Dashboards(t *testing.T) {
 			},
 			body:         "Action=DeleteDashboards&DashboardNames.member.1=to-delete",
 			wantCode:     http.StatusOK,
-			wantContains: []string{"DeleteDashboardsResponse"},
+			wantContains: []string{"DeleteDashboardsResponse", "<DeleteDashboardsResult"},
 		},
 	}
 

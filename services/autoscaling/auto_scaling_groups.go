@@ -186,11 +186,15 @@ func (b *InMemoryBackend) CreateAutoScalingGroup(input CreateAutoScalingGroupInp
 			ActivityID:           uuid.NewString(),
 			AutoScalingGroupName: input.AutoScalingGroupName,
 			Description:          "Launching a new EC2 instance",
-			StatusCode:           statusCodeSuccessful,
-			StatusMessage:        "",
-			Progress:             completedProgress,
-			StartTime:            time.Now(),
-			EndTime:              time.Now(),
+			Cause: fmt.Sprintf(
+				"At %s a user request created an AutoScalingGroup changing the desired capacity from 0 to %d.",
+				time.Now().UTC().Format(time.RFC3339), group.DesiredCapacity,
+			),
+			StatusCode:    statusCodeSuccessful,
+			StatusMessage: "",
+			Progress:      completedProgress,
+			StartTime:     time.Now(),
+			EndTime:       time.Now(),
 		},
 	)
 

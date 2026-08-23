@@ -34,6 +34,11 @@ func (b *InMemoryBackend) runJanitorTick(ctx context.Context) {
 		log.DebugContext(ctx, "bedrock janitor: advanced PMT statuses", "count", n)
 	}
 
+	if n := b.AdvanceCustomModelDeploymentStatuses(); n > 0 {
+		telemetry.RecordWorkerItems("bedrock", "CustomModelDeploymentAdvancer", n)
+		log.DebugContext(ctx, "bedrock janitor: advanced custom model deployment statuses", "count", n)
+	}
+
 	if n := b.AdvanceCustomizationJobStatuses(defaultJobCompletionDelay); n > 0 {
 		telemetry.RecordWorkerItems("bedrock", "CustomizationJobAdvancer", n)
 		log.DebugContext(ctx, "bedrock janitor: advanced customization job statuses", "count", n)

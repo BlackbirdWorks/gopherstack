@@ -23,7 +23,7 @@ ops:
   ListDataSources: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteDataSource: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateResolver: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-08-15: added real \"metricsConfig\" member (ENABLED/DISABLED), previously discarded entirely on both create and update. apiId field on the wire object is fabricated (not on the real Resolver type) but harmless, disclosed not fixed"}
-  GetResolver: {wire: ok, errors: ok, state: ok, persist: ok}
+  GetResolver: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-21 (gopherstack-us9u kind-mismatch sweep) -- Resolver.PipelineConfig was emitted as a bare array; the real types.PipelineConfig is an object wrapping a Functions list (deserializers.go: awsRestjson1_deserializeDocumentPipelineConfig requires a JSON object), so every real SDK client's Get/ListResolvers(ByFunction)/Create/UpdateResolver call failed outright for any PIPELINE-kind resolver. Fixed via a MarshalJSON/UnmarshalJSON pair on Resolver projecting PipelineConfig into {functions: [...]} at the wire boundary, keeping the Go field a plain []string for internal/test use. Proven via a real aws-sdk-go-v2/service/appsync client round trip (wire_pipeline_config_test.go), hand-reverted/confirmed-failing (deserialization error)/restored, md5sum-verified byte-identical."}
   UpdateResolver: {wire: ok, errors: ok, state: ok, persist: ok, note: "was unreachable (PUT/PATCH-only); fixed, PUT/PATCH kept as alias. 2026-08-15: metricsConfig now round-trips (see CreateResolver note)"}
   ListResolvers: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteResolver: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -298,3 +298,28 @@ ID string, including ones that were never started. Fixed:
   introspect. This is called out explicitly in `deferred` above rather than silently
   passed off as full parity; a real fix would require a cross-service RDS Data API
   integration, out of this task's `services/appsync/` edit boundary.
+
+### 2026-08-21 (gopherstack-hjdd): snapshot-version guard, unbumped retype
+
+`appsyncSnapshotVersion` bumped 1 -> 2. `d83f4b5d3` gave `Resolver` (the registered
+`resolvers` table's value type) the `MarshalJSON`/`UnmarshalJSON` pair described above
+(`GetResolver`'s note), rendering `PipelineConfig` as `{functions: [...]}` instead of a
+bare array, without bumping the snapshot version at the time. A pre-fix (v1) snapshot's
+array no longer unmarshals into the new object field at all -- `RestoreAll` now errors
+outright rather than silently losing data, but the whole backend then fails to restore,
+which the version guard exists to convert into a clean, recoverable "discard and start
+empty" instead.
+
+Found via `pkgs/persistence`'s snapshot-version guard, extended this session
+(gopherstack-hjdd) to recursively expand fields of every type reached through a
+`store.Register`/`store.New` table registration.
+
+**Proof:** `Test_InMemoryBackend_Restore_V1PipelineConfigDiscarded` (persistence_test.go)
+builds a v1-shaped `resolvers` snapshot with an array-shaped `pipelineConfig` and asserts
+`Restore` succeeds (discarding cleanly) rather than erroring. Hand-reverted to version 1:
+the same test then fails with `Restore` returning `json: cannot unmarshal array into Go
+struct field .pipelineConfig of type appsync.pipelineConfigWire`, confirming the symptom;
+restored and `md5sum`-verified byte-identical.
+
+**Gates:** `go build`, `go vet` (default/e2e/integration), `gofmt -l` (clean), `go test -race`
+(pass), `golangci-lint run` (0 issues).

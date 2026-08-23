@@ -7,10 +7,11 @@ import (
 
 // --- PutQueryDefinition ---.
 type putQueryDefinitionInput struct {
-	Name              string   `json:"name"`
-	QueryDefinitionID string   `json:"queryDefinitionId"`
-	QueryString       string   `json:"queryString"`
-	LogGroupNames     []string `json:"logGroupNames"`
+	Name              string           `json:"name"`
+	QueryDefinitionID string           `json:"queryDefinitionId"`
+	QueryString       string           `json:"queryString"`
+	LogGroupNames     []string         `json:"logGroupNames"`
+	Parameters        []QueryParameter `json:"parameters,omitempty"`
 }
 
 type putQueryDefinitionOutput struct {
@@ -46,7 +47,9 @@ func (h *Handler) handlePutQueryDefinition(
 	if err := json.Unmarshal(b, &input); err != nil {
 		return nil, err
 	}
-	id, err := h.Backend.PutQueryDefinition(input.Name, input.QueryString, input.QueryDefinitionID, input.LogGroupNames)
+	id, err := h.Backend.PutQueryDefinition(
+		input.Name, input.QueryString, input.QueryDefinitionID, input.LogGroupNames, input.Parameters,
+	)
 	if err != nil {
 		return nil, err
 	}

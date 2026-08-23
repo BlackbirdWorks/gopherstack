@@ -50,7 +50,7 @@ func (h *Handler) handleStartQuery(c *echo.Context, body []byte) error {
 
 	edsARN := extractQueryFromTarget(in.QueryStatement)
 
-	q, err := h.Backend.StartQuery(in.QueryStatement, edsARN, in.DeliveryS3URI)
+	q, err := h.Backend.StartQuery(in.QueryStatement, edsARN, in.DeliveryS3URI, in.QueryAlias)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -99,8 +99,16 @@ func (h *Handler) handleCancelQuery(c *echo.Context, body []byte) error {
 // describeQueryBody's EventDataStore field is deprecated on the real
 // DescribeQueryInput ("no longer required") but still accepted -- kept here
 // for backward wire compatibility, unlike StartQuery's invented field.
+//
+// Neither QueryId nor QueryAlias is required alone: "You must specify either
+// QueryId or QueryAlias. Specifying the QueryAlias parameter returns
+// information about the last query run for the alias." RefreshId (view a
+// dashboard query's results as of a specific refresh) is accepted on the real
+// input but not modeled: gopherstack's dashboard refreshes don't create
+// linked Query records to disambiguate by.
 type describeQueryBody struct {
 	QueryID        string `json:"QueryId"`
+	QueryAlias     string `json:"QueryAlias"`
 	EventDataStore string `json:"EventDataStore"`
 }
 
@@ -110,11 +118,22 @@ func (h *Handler) handleDescribeQuery(c *echo.Context, body []byte) error {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
 	}
 
-	if in.QueryID == "" {
-		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "QueryId is required"))
-	}
+	var (
+		q   *Query
+		err error
+	)
 
-	q, err := h.Backend.DescribeQuery(in.QueryID)
+	switch {
+	case in.QueryID != "":
+		q, err = h.Backend.DescribeQuery(in.QueryID)
+	case in.QueryAlias != "":
+		q, err = h.Backend.DescribeQueryByAlias(in.QueryAlias)
+	default:
+		return c.JSON(
+			http.StatusBadRequest,
+			errResp("InvalidParameterCombinationException", "QueryId or QueryAlias is required"),
+		)
+	}
 	if err != nil {
 		return h.handleError(c, err)
 	}

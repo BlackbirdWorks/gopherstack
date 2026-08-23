@@ -37,10 +37,10 @@ func (h *Handler) handleCreateStream(c *echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		keyStreamID:     s.StreamID,
-		keyStreamARN:    s.StreamARN,
-		"description":   s.Description,
-		"streamVersion": s.StreamVersion,
+		keyStreamID:      s.StreamID,
+		keyStreamARN:     s.StreamARN,
+		keyDescription:   s.Description,
+		keyStreamVersion: s.StreamVersion,
 	})
 }
 
@@ -59,8 +59,10 @@ func (h *Handler) handleListStreams(c *echo.Context) error {
 	summaries := make([]map[string]any, len(streams))
 	for i, s := range streams {
 		summaries[i] = map[string]any{
-			keyStreamID:  s.StreamID,
-			keyStreamARN: s.StreamARN,
+			keyStreamID:      s.StreamID,
+			keyStreamARN:     s.StreamARN,
+			keyDescription:   s.Description,
+			keyStreamVersion: s.StreamVersion,
 		}
 	}
 
@@ -83,9 +85,10 @@ func (h *Handler) handleUpdateStream(c *echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		keyStreamID:     s.StreamID,
-		keyStreamARN:    s.StreamARN,
-		"streamVersion": s.StreamVersion,
+		keyStreamID:      s.StreamID,
+		keyStreamARN:     s.StreamARN,
+		keyDescription:   s.Description,
+		keyStreamVersion: s.StreamVersion,
 	})
 }
 

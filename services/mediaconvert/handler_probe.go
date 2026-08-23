@@ -23,15 +23,15 @@ func (h *Handler) handleProbe(c *echo.Context, body []byte) error {
 		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", "invalid request body"))
 	}
 
+	// ProbeOutput.ProbeResults (mediaconvert@v1.97.1 api_op_Probe.go) is
+	// []types.ProbeResult directly -- each item is the Container/Metadata/
+	// TrackMappings object itself, not wrapped under a "probeResult" key, and
+	// there is no "inputFile" echo member.
 	results := make([]map[string]any, 0, len(in.InputFiles))
-	for _, f := range in.InputFiles {
-		result := map[string]any{
-			"probeResult": map[string]any{
-				"container": map[string]any{"format": "mp4"},
-				"inputFile": f,
-			},
-		}
-		results = append(results, result)
+	for range in.InputFiles {
+		results = append(results, map[string]any{
+			"container": map[string]any{"format": "mp4"},
+		})
 	}
 
 	return c.JSON(http.StatusOK, probeOutput{ProbeResults: results})

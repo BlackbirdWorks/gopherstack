@@ -10,12 +10,15 @@ type AttachmentsSource struct {
 	Values []string `json:"Values,omitempty"`
 }
 
-// DocumentAttachment describes a document attachment.
-type DocumentAttachment struct {
+// AttachmentInformation is the wire shape of one entry in
+// DocumentDescription.AttachmentsInformation (aws-sdk-go-v2/service/ssm@v1.73.4
+// types.AttachmentInformation) -- it carries only the attachment's Name.
+// Hash/Size/Url belong to a different type, AttachmentContent, returned by
+// GetDocument's AttachmentsContent -- not modeled here, since deriving a real
+// hash/size/URL would mean fabricating S3 object state this emulator has no
+// backing store for.
+type AttachmentInformation struct {
 	Name string `json:"Name,omitempty"`
-	URL  string `json:"Url,omitempty"`
-	Hash string `json:"Hash,omitempty"`
-	Size int64  `json:"Size,omitempty"`
 }
 
 // DocumentRequires describes a document dependency.
@@ -26,22 +29,26 @@ type DocumentRequires struct {
 
 // Document represents an SSM document.
 type Document struct {
-	TargetType        string               `json:"TargetType,omitempty"`
-	LatestVersion     string               `json:"LatestVersion"`
-	DocumentType      string               `json:"DocumentType"`
-	DocumentFormat    string               `json:"DocumentFormat"`
-	Status            string               `json:"Status"`
-	StatusInformation string               `json:"StatusInformation,omitempty"`
-	DefaultVersion    string               `json:"DefaultVersion"`
-	Name              string               `json:"Name"`
-	Content           string               `json:"Content"`
-	SchemaVersion     string               `json:"SchemaVersion"`
-	Description       string               `json:"Description,omitempty"`
-	DocumentVersion   string               `json:"DocumentVersion"`
-	PlatformTypes     []string             `json:"PlatformTypes,omitempty"`
-	Attachments       []DocumentAttachment `json:"Attachments,omitempty"`
-	Requires          []DocumentRequires   `json:"Requires,omitempty"`
-	CreatedDate       float64              `json:"CreatedDate"`
+	TargetType             string                  `json:"TargetType,omitempty"`
+	LatestVersion          string                  `json:"LatestVersion"`
+	DocumentType           string                  `json:"DocumentType"`
+	DocumentFormat         string                  `json:"DocumentFormat"`
+	Status                 string                  `json:"Status"`
+	StatusInformation      string                  `json:"StatusInformation,omitempty"`
+	DefaultVersion         string                  `json:"DefaultVersion"`
+	Name                   string                  `json:"Name"`
+	DisplayName            string                  `json:"DisplayName,omitempty"`
+	Content                string                  `json:"Content"`
+	SchemaVersion          string                  `json:"SchemaVersion"`
+	Description            string                  `json:"Description,omitempty"`
+	DocumentVersion        string                  `json:"DocumentVersion"`
+	Hash                   string                  `json:"Hash,omitempty"`
+	HashType               string                  `json:"HashType,omitempty"`
+	Sha1                   string                  `json:"Sha1,omitempty"`
+	PlatformTypes          []string                `json:"PlatformTypes,omitempty"`
+	AttachmentsInformation []AttachmentInformation `json:"AttachmentsInformation,omitempty"`
+	Requires               []DocumentRequires      `json:"Requires,omitempty"`
+	CreatedDate            float64                 `json:"CreatedDate"`
 }
 
 // DocumentDescription is the document metadata shape returned by
@@ -50,27 +57,32 @@ type Document struct {
 // deliberately omits Content — only GetDocument returns document content, to
 // avoid every metadata call re-transmitting potentially large document bodies.
 type DocumentDescription struct {
-	TargetType        string               `json:"TargetType,omitempty"`
-	LatestVersion     string               `json:"LatestVersion"`
-	DocumentType      string               `json:"DocumentType"`
-	DocumentFormat    string               `json:"DocumentFormat"`
-	Status            string               `json:"Status"`
-	StatusInformation string               `json:"StatusInformation,omitempty"`
-	DefaultVersion    string               `json:"DefaultVersion"`
-	Name              string               `json:"Name"`
-	SchemaVersion     string               `json:"SchemaVersion"`
-	Description       string               `json:"Description,omitempty"`
-	DocumentVersion   string               `json:"DocumentVersion"`
-	PlatformTypes     []string             `json:"PlatformTypes,omitempty"`
-	Attachments       []DocumentAttachment `json:"Attachments,omitempty"`
-	Requires          []DocumentRequires   `json:"Requires,omitempty"`
-	Tags              []Tag                `json:"Tags,omitempty"`
-	CreatedDate       float64              `json:"CreatedDate"`
+	TargetType             string                  `json:"TargetType,omitempty"`
+	LatestVersion          string                  `json:"LatestVersion"`
+	DocumentType           string                  `json:"DocumentType"`
+	DocumentFormat         string                  `json:"DocumentFormat"`
+	Status                 string                  `json:"Status"`
+	StatusInformation      string                  `json:"StatusInformation,omitempty"`
+	DefaultVersion         string                  `json:"DefaultVersion"`
+	Name                   string                  `json:"Name"`
+	DisplayName            string                  `json:"DisplayName,omitempty"`
+	SchemaVersion          string                  `json:"SchemaVersion"`
+	Description            string                  `json:"Description,omitempty"`
+	DocumentVersion        string                  `json:"DocumentVersion"`
+	Hash                   string                  `json:"Hash,omitempty"`
+	HashType               string                  `json:"HashType,omitempty"`
+	Sha1                   string                  `json:"Sha1,omitempty"`
+	PlatformTypes          []string                `json:"PlatformTypes,omitempty"`
+	AttachmentsInformation []AttachmentInformation `json:"AttachmentsInformation,omitempty"`
+	Requires               []DocumentRequires      `json:"Requires,omitempty"`
+	Tags                   []Tag                   `json:"Tags,omitempty"`
+	CreatedDate            float64                 `json:"CreatedDate"`
 }
 
 // DocumentVersion represents a specific version of an SSM document.
 type DocumentVersion struct {
 	Name             string  `json:"Name"`
+	DisplayName      string  `json:"DisplayName,omitempty"`
 	DocumentVersion  string  `json:"DocumentVersion"`
 	DocumentFormat   string  `json:"DocumentFormat"`
 	Status           string  `json:"Status"`
@@ -79,15 +91,10 @@ type DocumentVersion struct {
 	IsDefaultVersion bool    `json:"IsDefaultVersion"`
 }
 
-// DocumentPermissionInfo contains the sharing permissions of a document.
-type DocumentPermissionInfo struct {
-	AccountIDs             []string `json:"AccountIds"`
-	AccountSharingInfoList []any    `json:"AccountSharingInfoList"`
-}
-
 // DocumentIdentifier is a lightweight document listing entry.
 type DocumentIdentifier struct {
 	Name            string             `json:"Name"`
+	DisplayName     string             `json:"DisplayName,omitempty"`
 	DocumentType    string             `json:"DocumentType"`
 	DocumentFormat  string             `json:"DocumentFormat"`
 	DocumentVersion string             `json:"DocumentVersion"`
@@ -109,6 +116,7 @@ type DocumentFilter struct {
 type CreateDocumentInput struct {
 	Name           string              `json:"Name"`
 	Content        string              `json:"Content"`
+	DisplayName    string              `json:"DisplayName,omitempty"`
 	DocumentType   string              `json:"DocumentType,omitempty"`
 	DocumentFormat string              `json:"DocumentFormat,omitempty"`
 	TargetType     string              `json:"TargetType,omitempty"`
@@ -135,6 +143,7 @@ type GetDocumentInput struct {
 type GetDocumentOutput struct {
 	Name              string             `json:"Name"`
 	Content           string             `json:"Content"`
+	DisplayName       string             `json:"DisplayName,omitempty"`
 	DocumentType      string             `json:"DocumentType"`
 	DocumentFormat    string             `json:"DocumentFormat"`
 	DocumentVersion   string             `json:"DocumentVersion"`
@@ -171,10 +180,13 @@ type ListDocumentsOutput struct {
 
 // UpdateDocumentInput is the request payload for UpdateDocument.
 type UpdateDocumentInput struct {
-	Name            string `json:"Name"`
-	Content         string `json:"Content"`
-	DocumentFormat  string `json:"DocumentFormat,omitempty"`
-	DocumentVersion string `json:"DocumentVersion,omitempty"`
+	Name            string              `json:"Name"`
+	Content         string              `json:"Content"`
+	DisplayName     string              `json:"DisplayName,omitempty"`
+	DocumentFormat  string              `json:"DocumentFormat,omitempty"`
+	DocumentVersion string              `json:"DocumentVersion,omitempty"`
+	TargetType      string              `json:"TargetType,omitempty"`
+	Attachments     []AttachmentsSource `json:"Attachments,omitempty"`
 }
 
 // UpdateDocumentOutput is the response payload for UpdateDocument.
@@ -182,9 +194,17 @@ type UpdateDocumentOutput struct {
 	DocumentDescription DocumentDescription `json:"DocumentDescription"`
 }
 
-// DeleteDocumentInput is the request payload for DeleteDocument.
+// DeleteDocumentInput is the request payload for DeleteDocument. DocumentVersion/
+// VersionName scope the delete to a single version (aws-sdk-go-v2/service/
+// ssm@v1.73.4 api_op_DeleteDocument.go:34-49: "If not provided, all versions of
+// the document are deleted"); omitting both deletes every version. Force is
+// parsed but not consulted -- real AWS requires it only to delete a document of
+// type ApplicationConfigurationSchema, which this backend does not model.
 type DeleteDocumentInput struct {
-	Name string `json:"Name"`
+	Name            string `json:"Name"`
+	DocumentVersion string `json:"DocumentVersion,omitempty"`
+	VersionName     string `json:"VersionName,omitempty"`
+	Force           bool   `json:"Force,omitempty"`
 }
 
 // DeleteDocumentOutput is the response payload for DeleteDocument.
@@ -194,20 +214,35 @@ type DeleteDocumentOutput struct{}
 type DescribeDocumentPermissionInput struct {
 	Name           string `json:"Name"`
 	PermissionType string `json:"PermissionType"`
+	MaxResults     *int64 `json:"MaxResults,omitempty"`
+	NextToken      string `json:"NextToken,omitempty"`
+}
+
+// AccountSharingInfo is the wire shape of one DescribeDocumentPermissionOutput.
+// AccountSharingInfoList entry (aws-sdk-go-v2/service/ssm@v1.73.4
+// types.AccountSharingInfo: AccountId, SharedDocumentVersion).
+type AccountSharingInfo struct {
+	AccountID             string `json:"AccountId,omitempty"`
+	SharedDocumentVersion string `json:"SharedDocumentVersion,omitempty"`
 }
 
 // DescribeDocumentPermissionOutput is the response payload for DescribeDocumentPermission.
 type DescribeDocumentPermissionOutput struct {
-	AccountIDs             []string `json:"AccountIds"`
-	AccountSharingInfoList []any    `json:"AccountSharingInfoList"`
+	NextToken              string               `json:"NextToken,omitempty"`
+	AccountIDs             []string             `json:"AccountIds"`
+	AccountSharingInfoList []AccountSharingInfo `json:"AccountSharingInfoList"`
 }
 
 // ModifyDocumentPermissionInput is the request payload for ModifyDocumentPermission.
+// SharedDocumentVersion pins the version shared with the added accounts; if
+// omitted, real AWS shares the document's current DefaultVersion instead
+// (api_op_ModifyDocumentPermission.go:51-53).
 type ModifyDocumentPermissionInput struct {
-	Name               string   `json:"Name"`
-	PermissionType     string   `json:"PermissionType"`
-	AccountIDsToAdd    []string `json:"AccountIdsToAdd,omitempty"`
-	AccountIDsToRemove []string `json:"AccountIdsToRemove,omitempty"`
+	Name                  string   `json:"Name"`
+	PermissionType        string   `json:"PermissionType"`
+	SharedDocumentVersion string   `json:"SharedDocumentVersion,omitempty"`
+	AccountIDsToAdd       []string `json:"AccountIdsToAdd,omitempty"`
+	AccountIDsToRemove    []string `json:"AccountIdsToRemove,omitempty"`
 }
 
 // ModifyDocumentPermissionOutput is the response payload for ModifyDocumentPermission.
@@ -225,6 +260,7 @@ type ListDocumentVersionsInput struct {
 // Deliberately omits Content.
 type DocumentVersionInfo struct {
 	Name              string  `json:"Name"`
+	DisplayName       string  `json:"DisplayName,omitempty"`
 	DocumentVersion   string  `json:"DocumentVersion"`
 	DocumentFormat    string  `json:"DocumentFormat"`
 	Status            string  `json:"Status"`

@@ -346,6 +346,16 @@ func classifySSMResourcePolicyError(reqErr error) (string, int, bool) {
 	}
 }
 
+// classifySSMDocumentError handles the DeleteDocument-still-shared error,
+// split out for the same cyclop-budget reason as classifySSMResourceDataSyncError.
+func classifySSMDocumentError(reqErr error) (string, int, bool) {
+	if errors.Is(reqErr, ErrDocumentStillShared) {
+		return "InvalidDocumentOperation", http.StatusBadRequest, true
+	}
+
+	return "", 0, false
+}
+
 // classifySSMOpsError handles the OpsItem/OpsMetadata-specific errors, split
 // out for the same cyclop-budget reason as classifySSMResourceDataSyncError.
 func classifySSMOpsError(reqErr error) (string, int, bool) {
@@ -363,6 +373,24 @@ func classifySSMOpsError(reqErr error) (string, int, bool) {
 	}
 }
 
+// classifySSMMiscNotFoundError handles three unrelated not-found errors that
+// all map to errCodeDoesNotExist, split out for the same cyclop-budget
+// reason as classifySSMResourceDataSyncError.
+func classifySSMMiscNotFoundError(reqErr error) (string, int, bool) {
+	statusCode := http.StatusBadRequest
+
+	switch {
+	case errors.Is(reqErr, ErrMaintenanceWindowExecutionNotFound):
+		return errCodeDoesNotExist, statusCode, true
+	case errors.Is(reqErr, ErrMaintenanceWindowNotFound):
+		return errCodeDoesNotExist, statusCode, true
+	case errors.Is(reqErr, ErrPatchBaselineNotFound):
+		return errCodeDoesNotExist, statusCode, true
+	default:
+		return "", 0, false
+	}
+}
+
 func classifySSMErrorExtended(reqErr error) (string, int) {
 	statusCode := http.StatusBadRequest
 
@@ -374,7 +402,15 @@ func classifySSMErrorExtended(reqErr error) (string, int) {
 		return code, status
 	}
 
+	if code, status, ok := classifySSMDocumentError(reqErr); ok {
+		return code, status
+	}
+
 	if code, status, ok := classifySSMOpsError(reqErr); ok {
+		return code, status
+	}
+
+	if code, status, ok := classifySSMMiscNotFoundError(reqErr); ok {
 		return code, status
 	}
 
@@ -389,12 +425,8 @@ func classifySSMErrorExtended(reqErr error) (string, int) {
 		return "ActivationNotFound", statusCode
 	case errors.Is(reqErr, ErrAssociationNotFound):
 		return "AssociationDoesNotExist", statusCode
-	case errors.Is(reqErr, ErrMaintenanceWindowExecutionNotFound):
-		return errCodeDoesNotExist, statusCode
-	case errors.Is(reqErr, ErrMaintenanceWindowNotFound):
-		return errCodeDoesNotExist, statusCode
-	case errors.Is(reqErr, ErrPatchBaselineNotFound):
-		return errCodeDoesNotExist, statusCode
+	case errors.Is(reqErr, ErrAutomationExecutionNotFound):
+		return "AutomationExecutionNotFoundException", statusCode
 	case errors.Is(reqErr, ErrUnknownOperation):
 		return "UnknownOperationException", statusCode
 	default:

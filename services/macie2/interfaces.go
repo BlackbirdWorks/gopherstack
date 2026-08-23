@@ -85,7 +85,7 @@ type StorageBackend interface {
 	// Classification scope operations
 	GetClassificationScope(scopeID string) (*ClassificationScope, error)
 	ListClassificationScopes() ([]*ClassificationScopeSummary, error)
-	UpdateClassificationScope(scopeID string, s3 *ClassificationScopeS3) error
+	UpdateClassificationScope(scopeID string, s3 *ClassificationScopeS3Update) error
 
 	// Findings publication configuration
 	GetFindingsPublicationConfiguration() (*FindingsPublicationConfig, error)
@@ -113,7 +113,8 @@ type StorageBackend interface {
 	GetSensitivityInspectionTemplate(templateID string) (*SensitivityInspectionTemplate, error)
 	ListSensitivityInspectionTemplates() ([]*SensitivityInspectionTemplateSummary, error)
 	UpdateSensitivityInspectionTemplate(
-		templateID, name, description string,
+		templateID, name string,
+		description *string,
 		excludes, includes map[string]any,
 	) error
 

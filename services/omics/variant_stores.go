@@ -12,9 +12,15 @@ import (
 // ────────────────────────────────────────────────────────────────────────────
 
 // CreateVariantStore creates a new variant store.
+//
+// sseConfig is real CreateVariantStoreInput's optional "sseConfig"
+// (api_op_CreateVariantStore.go) -- previously not even read by the
+// handler, despite GetVariantStoreOutput/VariantStoreItem requiring it on
+// every response (types.go); the same passthrough-map convention
+// AnnotationStore already uses (gopherstack-r80d batch 7).
 func (b *InMemoryBackend) CreateVariantStore(
 	name string,
-	reference map[string]any,
+	reference, sseConfig map[string]any,
 	tags map[string]string,
 ) (*VariantStore, error) {
 	if name == "" {
@@ -33,6 +39,7 @@ func (b *InMemoryBackend) CreateVariantStore(
 		ID:           newID(),
 		Name:         name,
 		Reference:    reference,
+		SseConfig:    sseConfig,
 		Status:       statusCreating,
 		Tags:         copyTags(tags),
 		CreationTime: now,
@@ -130,6 +137,7 @@ func newVariantStoreSummary(vs *VariantStore) VariantStoreSummary {
 		CreationTime:   vs.CreationTime,
 		UpdateTime:     vs.UpdateTime,
 		Reference:      vs.Reference,
+		SseConfig:      vs.SseConfig,
 		StoreArn:       vs.StoreArn,
 		ID:             vs.ID,
 		Name:           vs.Name,

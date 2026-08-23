@@ -44,7 +44,7 @@ type scheduleTargetSageMakerPipelineParameters struct {
 type scheduleTargetEcsAwsvpcConfiguration struct {
 	AssignPublicIP string   `json:"AssignPublicIp,omitempty"`
 	SecurityGroups []string `json:"SecurityGroups,omitempty"`
-	Subnets        []string `json:"Subnets,omitempty"`
+	Subnets        []string `json:"Subnets"`
 }
 
 // scheduleTargetEcsNetworkConfiguration mirrors EcsNetworkConfiguration for handler

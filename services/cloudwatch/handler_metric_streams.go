@@ -59,17 +59,31 @@ func (h *Handler) putMetricStreamFromForm(form url.Values, c *echo.Context) erro
 }
 
 func (h *Handler) handlePutMetricStream(form url.Values, c *echo.Context) error {
+	name := form.Get("Name")
 	if err := h.putMetricStreamFromForm(form, c); err != nil {
 		return err
 	}
 
-	type response struct {
-		XMLName   xml.Name `xml:"PutMetricStreamResponse"`
-		Xmlns     string   `xml:"xmlns,attr"`
-		RequestID string   `xml:"ResponseMetadata>RequestId"`
+	stream, err := h.Backend.GetMetricStream(name)
+	if err != nil {
+		return h.xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
 
-	return writeXML(c, response{Xmlns: cloudwatchNS, RequestID: uuid.New().String()})
+	type putMetricStreamResult struct {
+		Arn string `xml:"Arn"`
+	}
+	type response struct {
+		XMLName   xml.Name              `xml:"PutMetricStreamResponse"`
+		Xmlns     string                `xml:"xmlns,attr"`
+		RequestID string                `xml:"ResponseMetadata>RequestId"`
+		Result    putMetricStreamResult `xml:"PutMetricStreamResult"`
+	}
+
+	return writeXML(c, response{
+		Xmlns:     cloudwatchNS,
+		RequestID: uuid.New().String(),
+		Result:    putMetricStreamResult{Arn: stream.Arn},
+	})
 }
 
 func (h *Handler) handleDeleteMetricStream(form url.Values, c *echo.Context) error {
@@ -87,9 +101,10 @@ func (h *Handler) handleDeleteMetricStream(form url.Values, c *echo.Context) err
 	h.deleteResourceTags(streamARN)
 
 	type response struct {
-		XMLName   xml.Name `xml:"DeleteMetricStreamResponse"`
-		Xmlns     string   `xml:"xmlns,attr"`
-		RequestID string   `xml:"ResponseMetadata>RequestId"`
+		XMLName   xml.Name       `xml:"DeleteMetricStreamResponse"`
+		Result    xmlEmptyResult `xml:"DeleteMetricStreamResult"`
+		Xmlns     string         `xml:"xmlns,attr"`
+		RequestID string         `xml:"ResponseMetadata>RequestId"`
 	}
 
 	return writeXML(c, response{Xmlns: cloudwatchNS, RequestID: uuid.New().String()})
@@ -212,9 +227,10 @@ func (h *Handler) handleStartMetricStreams(form url.Values, c *echo.Context) err
 	}
 
 	type response struct {
-		XMLName   xml.Name `xml:"StartMetricStreamsResponse"`
-		Xmlns     string   `xml:"xmlns,attr"`
-		RequestID string   `xml:"ResponseMetadata>RequestId"`
+		XMLName   xml.Name       `xml:"StartMetricStreamsResponse"`
+		Result    xmlEmptyResult `xml:"StartMetricStreamsResult"`
+		Xmlns     string         `xml:"xmlns,attr"`
+		RequestID string         `xml:"ResponseMetadata>RequestId"`
 	}
 
 	return writeXML(c, response{Xmlns: cloudwatchNS, RequestID: uuid.New().String()})
@@ -227,9 +243,10 @@ func (h *Handler) handleStopMetricStreams(form url.Values, c *echo.Context) erro
 	}
 
 	type response struct {
-		XMLName   xml.Name `xml:"StopMetricStreamsResponse"`
-		Xmlns     string   `xml:"xmlns,attr"`
-		RequestID string   `xml:"ResponseMetadata>RequestId"`
+		XMLName   xml.Name       `xml:"StopMetricStreamsResponse"`
+		Result    xmlEmptyResult `xml:"StopMetricStreamsResult"`
+		Xmlns     string         `xml:"xmlns,attr"`
+		RequestID string         `xml:"ResponseMetadata>RequestId"`
 	}
 
 	return writeXML(c, response{Xmlns: cloudwatchNS, RequestID: uuid.New().String()})

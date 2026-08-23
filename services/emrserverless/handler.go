@@ -580,12 +580,16 @@ func jobRunToMap(jr *JobRun) map[string]any {
 		keyUpdatedAt:              epochSeconds(jr.UpdatedAt),
 		keyTags:                   jr.Tags,
 		keyAttempt:                0,
-	}
-	if jr.ReleaseLabel != "" {
-		m[keyReleaseLabel] = jr.ReleaseLabel
-	}
-	if jr.JobDriver != nil {
-		m["jobDriver"] = jr.JobDriver
+		// ReleaseLabel and JobDriver (types.JobRun, both "This member is
+		// required.") must survive even when empty/nil: ReleaseLabel is copied
+		// from the application, whose CreateApplicationInput.ReleaseLabel
+		// validator only null-checks the pointer (not its content), and
+		// JobDriver is genuinely optional on StartJobRunInput
+		// (validateOpStartJobRunInput only validates its content when
+		// non-nil). Both were previously guarded by conditionals that dropped
+		// the required key entirely for a reachable real-client zero state.
+		keyReleaseLabel: jr.ReleaseLabel,
+		"jobDriver":     jr.JobDriver,
 	}
 	if jr.ConfigurationOverrides != nil {
 		m["configurationOverrides"] = jr.ConfigurationOverrides
@@ -623,9 +627,9 @@ func jobRunSummaryToMap(jr *JobRun) map[string]any {
 		keyCreatedAt:     epochSeconds(jr.CreatedAt),
 		keyUpdatedAt:     epochSeconds(jr.UpdatedAt),
 		keyAttempt:       0,
-	}
-	if jr.ReleaseLabel != "" {
-		m[keyReleaseLabel] = jr.ReleaseLabel
+		// ReleaseLabel is required by types.JobRunSummary; see the matching
+		// comment in jobRunToMap for why it must never be conditional.
+		keyReleaseLabel: jr.ReleaseLabel,
 	}
 
 	return m

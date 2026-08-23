@@ -53,7 +53,7 @@ func TestAggregatorV2(t *testing.T) {
 					check: func(t *testing.T, code int, resp map[string]any) string {
 						t.Helper()
 						assert.Equal(t, http.StatusOK, code)
-						aggs, _ := resp["Aggregators"].([]any)
+						aggs, _ := resp["AggregatorsV2"].([]any)
 						assert.Len(t, aggs, 1)
 						a, _ := aggs[0].(map[string]any)
 

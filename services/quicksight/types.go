@@ -229,6 +229,7 @@ type Analysis struct {
 	AnalysisID      string
 	Arn             string
 	Name            string
+	ThemeArn        string
 	Status          string
 	Definition      map[string]any
 	Permissions     []ResourcePermission

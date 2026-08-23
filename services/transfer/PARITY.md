@@ -28,6 +28,7 @@ families:
   SecurityPolicy: {status: ok, note: "FULLY REWRITTEN this pass against the current AWS docs (docs.aws.amazon.com/transfer/latest/userguide/security-policies.html and .../security-policies-connectors.html, fetched live 2026-07). FOUND AND DELETED gopherstack-invented catalog entries that never existed in real AWS: 'TransferSecurityPolicy-Connector-2023-05' and 'TransferSecurityPolicy-FIPS-Connector-2023-05' used the wrong naming pattern entirely -- real SFTP-connector security policies use the 'TransferSFTPConnectorSecurityPolicy-' prefix, not 'TransferSecurityPolicy-*Connector*'; 'TransferSecurityPolicy-PQ-SSH-2023-04'/'-PQ-SSH-FIPS-2023-04' used fabricated KEX algorithm names (e.g. a made-up 'ecdh-sha2-nistp256-kyber-512r3-sha256-d00@openquantumsafe.org' identifier) -- the real (now-deprecated) names were '-PQ-SSH-Experimental-2023-04'/'-PQ-SSH-FIPS-Experimental-2023-04' and are superseded by the real 2025 mlkem-hybrid-KEX policies, which are what the catalog now contains. Catalog now has 12 real SERVER policies (2018-11 through 2025-03, plus AS2Restricted-2025-07 and SshAuditCompliant-2025-02) and 3 real CONNECTOR policies (2023-07/2024-03/FIPS-2024-10), each with SshCiphers/SshKexs/SshMacs/TlsCiphers (or SshHostKeyAlgorithms for connectors) transcribed field-for-field from the real per-policy JSON documented by AWS. Also added ContentEncryptionCiphers/HashAlgorithms (AS2) to SERVER policy responses -- these exist in real AWS's actual wire JSON but are not yet modeled as typed fields on the pinned go SDK's DescribedSecurityPolicy struct (SDK modeling lag), so they're additive/harmless extra JSON, not a wire break."}
   StartOperations: {status: ok, note: "FULLY WIRE-DIFFED this pass (previously deferred, un-diffed) against api_op_Start{FileTransfer,DirectoryListing,RemoteDelete,RemoteMove}.go. FOUND AND FIXED real wire-shape bugs, not just stub-vs-real: StartDirectoryListingInput.RemoteDirectoryPath is singular+required (gopherstack had an invented plural 'RemoteDirectoryPaths' array, unvalidated); output key is 'ListingId' (gopherstack returned 'DirectoryListingId', which does not exist in real AWS) and was missing the required 'OutputFileName' field entirely (now synthesized as '<connectorId>-<listingId>.json' per AWS docs). StartRemoteDeleteInput.DeletePath is singular+required (gopherstack had an invented plural 'DeletePaths' array); output key is 'DeleteId' (gopherstack returned 'TransferId', which does not exist on StartRemoteDeleteOutput). StartRemoteMoveInput.SourcePath/TargetPath are singular+required (gopherstack had an invented plural 'SourcePaths' array); output key is 'MoveId' (gopherstack returned 'TransferId', which does not exist on StartRemoteMoveOutput). All four ops now validate their real required fields and return InvalidRequestException when missing. StartFileTransfer was already correct (TransferId matches real StartFileTransferOutput)."}
   Execution/SendWorkflowStepState: {status: ok, note: "unchanged since 2026-07-12 audit."}
+  ListFileTransferResults: {status: ok, note: "gopherstack-tp8x (2026-08-21), fixed: was one row per TRANSFER with a 'FilePaths' array of every file (this backend's r.Files); real types.ConnectorFileTransferResult's member is the singular 'FilePath' -- one row per file, not a list. Also: TransferId is a required ListFileTransferResultsInput member (api_op_ListFileTransferResults.go) and the handler was ignoring it entirely, listing every transfer for the connector instead of the one specified -- added GetFileTransferResult(connectorID, transferID) and required-field validation for both ConnectorId and TransferId. Locked by TestListFileTransferResults_OneRowPerFile_RealClient (3-file transfer, real SDK client), TestListFileTransferResults_SingleFile_RealClient, TestHandler_StartFileTransferPersistsRecord."}
   Persistence: {status: ok, note: "unchanged since 2026-07-12 audit; new WebApp/Certificate fields ride the existing store.Table[T] generic Snapshot/Restore, no manual persistence.go wiring needed (confirmed via TestPersistence_FullStateRoundTrip)."}
 gaps: []
 deferred: []
@@ -108,3 +109,26 @@ leaks: {status: clean, note: "Shutdown(ctx) stops the backend's worker (StartSer
   `docs.aws.amazon.com/transfer/latest/userguide/security-policies.html` (servers) or
   `.../security-policies-connectors.html` (connectors) -- the per-policy JSON blocks on those pages
   are the ground truth; don't guess at names or algorithm lists.
+
+## gopherstack-y1zn (2026-08-21): unknown-key sweep, 1 fixed, 1 deferred, 2 false positives
+
+Part of the gopherstack-us9u/g479 map-literal scanner's 526-key unknown-key
+bucket triage.
+
+- `CreateWorkflow`/`DescribeWorkflow`: {wire: fixed} -- workflowStepToMap
+  emitted "Timeout" for a CUSTOM step; real member
+  (types.CustomStepDetails) is "TimeoutSeconds". Proven via
+  `TestDescribeWorkflow_CustomStepTimeoutSecondsKey_RealClient`
+  (wire_field_fixes_test.go), hand-reverted/confirmed-failing/restored/
+  `md5sum`-verified byte-identical.
+- `ListFileTransferResults`: {wire: fixed, note: "confirmed real bug, then
+  deferred, now fixed by gopherstack-tp8x (2026-08-21) -- see the
+  ListFileTransferResults family entry above for the full fix and its
+  multi-file-cardinality proof."}
+- `DescribeSecurityPolicy`: rejected, not a bug. `ContentEncryptionCiphers`/
+  `HashAlgorithms` (AS2) look unknown to the pinned SDK's
+  `types.DescribedSecurityPolicy` struct, but a prior pass (see
+  `securityPolicyDef`'s doc comment, handler_security_policies.go) already
+  verified against current AWS documentation that real AWS sends these
+  fields on the wire -- the pinned SDK's Go struct just hasn't caught up yet.
+  Left as-is per that prior, already-documented decision.

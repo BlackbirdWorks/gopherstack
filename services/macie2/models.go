@@ -394,9 +394,33 @@ type ClassificationScope struct {
 	Name      string                 `json:"name"`
 }
 
-// ClassificationScopeS3 holds S3 exclusion criteria.
+// ClassificationScopeS3 holds S3 exclusion criteria (types.S3ClassificationScope,
+// GetClassificationScopeOutput.S3).
 type ClassificationScopeS3 struct {
-	Excludes map[string]any `json:"excludes,omitempty"`
+	Excludes *ClassificationScopeS3Exclusion `json:"excludes,omitempty"`
+}
+
+// ClassificationScopeS3Exclusion is the excluded-bucket list
+// (types.S3ClassificationScopeExclusion).
+type ClassificationScopeS3Exclusion struct {
+	BucketNames []string `json:"bucketNames"`
+}
+
+// ClassificationScopeS3Update is UpdateClassificationScopeInput's S3 shape
+// (types.S3ClassificationScopeUpdate) -- distinct from ClassificationScopeS3
+// because real AWS adds/removes/replaces bucket names via an explicit
+// Operation discriminator rather than accepting a full replacement list
+// (gopherstack-c8ge).
+type ClassificationScopeS3Update struct {
+	Excludes *ClassificationScopeS3ExclusionUpdate `json:"excludes,omitempty"`
+}
+
+// ClassificationScopeS3ExclusionUpdate mirrors
+// types.S3ClassificationScopeExclusionUpdate. Operation is one of
+// ADD/REMOVE/REPLACE (macie2@v1.54.4 types.ClassificationScopeUpdateOperation).
+type ClassificationScopeS3ExclusionUpdate struct {
+	Operation   string   `json:"operation"`
+	BucketNames []string `json:"bucketNames"`
 }
 
 // ClassificationScopeSummary is the list-view of a classification scope.

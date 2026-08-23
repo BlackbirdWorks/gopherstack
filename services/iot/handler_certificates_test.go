@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -17,9 +18,14 @@ func TestCACertificate(t *testing.T) {
 	t.Parallel()
 	h := newIoTHandler(t)
 
-	// Register
+	// Register, including registrationConfig -- a real client can send this
+	// as a JSON object (types.RegistrationConfig, iot@v1.77.4), not a string.
 	out := iotOK(t, h, http.MethodPost, "/cacertificate/register", map[string]any{
 		"caCertificate": "-----BEGIN CERTIFICATE-----\ntest\n-----END CERTIFICATE-----",
+		"registrationConfig": map[string]any{
+			"templateName": "my-template",
+			"roleArn":      "arn:aws:iam::000000000000:role/ProvisioningRole",
+		},
 	})
 	certID, _ := out["certificateId"].(string)
 	if certID == "" {
@@ -32,12 +38,20 @@ func TestCACertificate(t *testing.T) {
 	if desc["certificateId"] != certID {
 		t.Errorf("describe mismatch: %v", desc)
 	}
+	regConfig, _ := out2["registrationConfig"].(map[string]any)
+	if regConfig["templateName"] != "my-template" {
+		t.Errorf("expected registrationConfig.templateName, got %v", out2)
+	}
 
 	// List
 	out3 := iotOK(t, h, http.MethodGet, "/cacertificates", nil)
 	certs, _ := out3["certificates"].([]any)
 	if len(certs) != 1 {
 		t.Errorf("expected 1 CA cert, got %d", len(certs))
+	}
+	first, _ := certs[0].(map[string]any)
+	if first["creationDate"] == nil {
+		t.Errorf("expected creationDate on ListCACertificates entry, got %v", first)
 	}
 
 	// Update
@@ -49,6 +63,35 @@ func TestCACertificate(t *testing.T) {
 	iotOK(t, h, http.MethodDelete, "/cacertificates/"+certID, nil)
 
 	iotExpectError(t, h, "/cacertificates/"+certID)
+}
+
+// TestListCertificatesByCA checks the ListCertificatesByCA wire shape:
+// certificateArn, certificateId, certificateMode, creationDate, status
+// (types.Certificate, iot@v1.77.4).
+func TestListCertificatesByCA(t *testing.T) {
+	t.Parallel()
+
+	h, b := newRefHandler()
+	b.AddCertificateInternal(iot.Certificate{
+		CertificateID:   "cert-under-ca",
+		CACertificateID: "ca-1",
+		Status:          "ACTIVE",
+		CertificateMode: "DEFAULT",
+		CreatedAt:       time.Now(),
+	})
+
+	rec := doRefRequest(t, h, http.MethodGet, "/certificates-by-ca/ca-1", nil, nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	certs, _ := out["certificates"].([]any)
+	require.Len(t, certs, 1)
+
+	entry, _ := certs[0].(map[string]any)
+	assert.Equal(t, "cert-under-ca", entry["certificateId"])
+	assert.Equal(t, "DEFAULT", entry["certificateMode"])
+	assert.NotNil(t, entry["creationDate"])
 }
 
 // TestBatch3_CreateKeysAndCertificate tests CreateKeysAndCertificate.
@@ -101,6 +144,12 @@ func TestProvisioningClaim(t *testing.T) {
 	out := iotOK(t, h, http.MethodPost, "/provisioning-templates/my-template/provisioning-claim", nil)
 	if out["certificatePem"] == "" {
 		t.Errorf("expected certificatePem, got %v", out)
+	}
+	if out["certificateId"] == "" || out["certificateId"] == nil {
+		t.Errorf("expected certificateId, got %v", out)
+	}
+	if out["expiration"] == nil {
+		t.Errorf("expected expiration, got %v", out)
 	}
 	kp, _ := out["keyPair"].(map[string]any)
 	if kp == nil {
@@ -669,4 +718,49 @@ func TestListOutgoingCertificates(t *testing.T) {
 	rec = doRefRequest(t, h, http.MethodGet, "/certificates-out-going", nil, nil)
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), cert.CertificateID)
+}
+
+// TestCertificateProviderCRUD checks the CertificateProvider lifecycle,
+// including that UpdateCertificateProvider returns a real body
+// (certificateProviderArn/certificateProviderName, UpdateCertificateProviderOutput
+// iot@v1.77.4) instead of an empty 200.
+func TestCertificateProviderCRUD(t *testing.T) {
+	t.Parallel()
+
+	h := newIoTHandler(t)
+
+	out := iotOK(t, h, http.MethodPost, "/certificate-providers/my-provider", map[string]any{
+		"lambdaFunctionArn":           "arn:aws:lambda:us-east-1:000000000000:function:MyCertFn",
+		"accountDefaultForOperations": []string{"CreateCertificateFromCsr"},
+	})
+	if out["certificateProviderName"] != "my-provider" {
+		t.Errorf("expected certificateProviderName=my-provider, got %v", out)
+	}
+	if out["certificateProviderArn"] == "" || out["certificateProviderArn"] == nil {
+		t.Errorf("expected certificateProviderArn on Create, got %v", out)
+	}
+
+	desc := iotOK(t, h, http.MethodGet, "/certificate-providers/my-provider", nil)
+	if desc["certificateProviderName"] != "my-provider" {
+		t.Errorf("describe mismatch: %v", desc)
+	}
+
+	updateOut := iotOK(t, h, http.MethodPut, "/certificate-providers/my-provider", map[string]any{
+		"lambdaFunctionArn": "arn:aws:lambda:us-east-1:000000000000:function:UpdatedFn",
+	})
+	if updateOut["certificateProviderName"] != "my-provider" {
+		t.Errorf("expected certificateProviderName on UpdateCertificateProvider response, got %v", updateOut)
+	}
+	if updateOut["certificateProviderArn"] == "" || updateOut["certificateProviderArn"] == nil {
+		t.Errorf("expected certificateProviderArn on UpdateCertificateProvider response, got %v", updateOut)
+	}
+
+	list := iotOK(t, h, http.MethodGet, "/certificate-providers", nil)
+	providers, _ := list["certificateProviders"].([]any)
+	if len(providers) != 1 {
+		t.Errorf("expected 1 certificate provider, got %d", len(providers))
+	}
+
+	iotOK(t, h, http.MethodDelete, "/certificate-providers/my-provider", nil)
+	iotExpectError(t, h, "/certificate-providers/my-provider")
 }

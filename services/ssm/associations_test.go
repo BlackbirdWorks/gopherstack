@@ -73,7 +73,9 @@ func TestUpdateAssociationStatus_NotFound(t *testing.T) {
 				InstanceID: tt.instanceID,
 				Name:       tt.assocName,
 				AssociationStatus: ssm.AssociationStatusValue{
-					Name: "Success",
+					Name:    "Success",
+					Date:    1700000000,
+					Message: "association is compliant",
 				},
 			})
 			require.ErrorIs(t, err, ssm.ErrAssociationNotFound,
@@ -114,7 +116,10 @@ func TestUpdateAssociationStatus_RoundTrip(t *testing.T) {
 				InstanceID: "i-abc123",
 				Name:       "AWS-RunShellScript",
 				AssociationStatus: ssm.AssociationStatusValue{
-					Name: tt.statusName,
+					Name:           tt.statusName,
+					Date:           1700000000,
+					Message:        "status changed by agent",
+					AdditionalInfo: "agent-reported",
 				},
 			})
 			require.NoError(t, err)
@@ -122,6 +127,14 @@ func TestUpdateAssociationStatus_RoundTrip(t *testing.T) {
 			require.NotNil(t, out.AssociationDescription.Overview)
 			assert.Equal(t, tt.statusName, out.AssociationDescription.Overview.Status)
 			assert.Equal(t, assocOut.AssociationDescription.AssociationID, out.AssociationDescription.AssociationID)
+
+			require.NotNil(t, out.AssociationDescription.Status,
+				"AssociationDescription.Status has no Go member without this fix -- "+
+					"UpdateAssociationStatus silently dropped it")
+			assert.Equal(t, tt.statusName, out.AssociationDescription.Status.Name)
+			assert.InDelta(t, 1700000000, out.AssociationDescription.Status.Date, 0)
+			assert.Equal(t, "status changed by agent", out.AssociationDescription.Status.Message)
+			assert.Equal(t, "agent-reported", out.AssociationDescription.Status.AdditionalInfo)
 		})
 	}
 }
@@ -134,7 +147,8 @@ func TestUpdateAssociationStatus_Handler_NotFound(t *testing.T) {
 	}{
 		{
 			name: "no_matching_association_returns_400",
-			body: `{"InstanceId":"i-ghost","Name":"AWS-RunShellScript","AssociationStatus":{"Name":"Success"}}`,
+			body: `{"InstanceId":"i-ghost","Name":"AWS-RunShellScript",` +
+				`"AssociationStatus":{"Name":"Success","Date":1700000000,"Message":"m"}}`,
 		},
 	}
 
@@ -709,11 +723,6 @@ func TestDescribeAssociationExecutionTargets(t *testing.T) {
 		wantCount     int
 	}{
 		{
-			name:      "empty_assoc_id_returns_empty",
-			input:     ssm.DescribeAssociationExecutionTargetsInput{AssociationID: ""},
-			wantCount: 0,
-		},
-		{
 			name:      "unknown_assoc_returns_empty",
 			input:     ssm.DescribeAssociationExecutionTargetsInput{AssociationID: "assoc-does-not-exist"},
 			wantCount: 0,
@@ -771,4 +780,62 @@ func TestDescribeAssociationExecutionTargets(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestAssociationOps_RequireAssociationID locks in that
+// DescribeAssociationExecutionTargets, DescribeAssociationExecutions and
+// ListAssociationVersions all require AssociationId
+// (api_op_DescribeAssociationExecutionTargets.go,
+// api_op_DescribeAssociationExecutions.go, api_op_ListAssociationVersions.go
+// all mark it "This member is required."), and StartAssociationsOnce
+// requires a non-empty AssociationIds (api_op_StartAssociationsOnce.go).
+// Previously all four silently accepted an empty body and returned 200 --
+// DescribeAssociationExecutionTargets's own table test asserted this as
+// "empty_assoc_id_returns_empty" before this fix.
+func TestAssociationOps_RequireAssociationID(t *testing.T) {
+	t.Parallel()
+
+	t.Run("describe_association_execution_targets", func(t *testing.T) {
+		t.Parallel()
+
+		b := newBackend(t)
+		_, err := b.DescribeAssociationExecutionTargets(
+			context.Background(),
+			&ssm.DescribeAssociationExecutionTargetsInput{},
+		)
+		require.ErrorIs(t, err, ssm.ErrValidationException)
+	})
+
+	t.Run("describe_association_executions", func(t *testing.T) {
+		t.Parallel()
+
+		b := newBackend(t)
+		_, err := b.DescribeAssociationExecutions(
+			context.Background(),
+			&ssm.DescribeAssociationExecutionsInput{},
+		)
+		require.ErrorIs(t, err, ssm.ErrValidationException)
+	})
+
+	t.Run("list_association_versions", func(t *testing.T) {
+		t.Parallel()
+
+		b := newBackend(t)
+		_, err := b.ListAssociationVersions(
+			context.Background(),
+			&ssm.ListAssociationVersionsInput{},
+		)
+		require.ErrorIs(t, err, ssm.ErrValidationException)
+	})
+
+	t.Run("start_associations_once", func(t *testing.T) {
+		t.Parallel()
+
+		b := newBackend(t)
+		_, err := b.StartAssociationsOnce(
+			context.Background(),
+			&ssm.StartAssociationsOnceInput{},
+		)
+		require.ErrorIs(t, err, ssm.ErrValidationException)
+	})
 }

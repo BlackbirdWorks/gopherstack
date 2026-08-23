@@ -149,7 +149,13 @@ func (h *Handler) RouteMatcher() service.Matcher {
 		}
 		body, err := httputils.ReadBody(r)
 		if err != nil {
-			return false
+			// Body unreadable (e.g. oversized): fall back to the User-Agent
+			// marker every aws-sdk-go-v2 elasticache client sets
+			// (api_client.go's AddSDKAgentKeyValue -- "api/elasticache").
+			// That still identifies this as ours, so claim it and let
+			// Handler() produce the typed error instead of masking the
+			// read failure as a 404.
+			return service.MatchesUserAgentMarker(r.Header, "api/elasticache")
 		}
 		vals, err := url.ParseQuery(string(body))
 		if err != nil {
@@ -306,16 +312,16 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
 		body, err := httputils.ReadBody(c.Request())
 		if err != nil {
-			return c.String(http.StatusBadRequest, "cannot read body")
+			return xmlError(c, http.StatusInternalServerError, "InternalFailure", "cannot read body")
 		}
 		vals, err := url.ParseQuery(string(body))
 		if err != nil {
-			return c.String(http.StatusBadRequest, "cannot parse form")
+			return xmlError(c, http.StatusBadRequest, "InvalidParameterValue", "cannot parse form")
 		}
 		action := vals.Get("Action")
 		fn, ok := h.dispatchTable()[action]
 		if !ok {
-			return c.String(http.StatusBadRequest, "unknown action: "+action)
+			return xmlError(c, http.StatusBadRequest, "InvalidAction", "unknown action: "+action)
 		}
 
 		region := h.regionFromRequest(c)

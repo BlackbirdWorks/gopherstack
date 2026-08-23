@@ -46,6 +46,7 @@ func (b *InMemoryBackend) CreateConfiguredTableAssociation(
 		Name:                                 name,
 		Description:                          description,
 		RoleArn:                              roleArn,
+		AnalysisRuleTypes:                    []string{},
 		CreateTime:                           ts,
 		UpdateTime:                           ts,
 		Tags:                                 tags,

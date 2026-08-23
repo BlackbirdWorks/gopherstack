@@ -89,11 +89,11 @@ type StorageBackend interface {
 	) error
 	UpdateApplication(
 		applicationArn, name, description, status string,
-		portalOptions *PortalOptions,
+		signInOptions *SignInOptions,
 	) (*Application, error)
 	UpdateTrustedTokenIssuer(
 		trustedTokenIssuerArn, name, issuerType string,
-		cfg *TrustedTokenIssuerConfiguration,
+		cfg *TrustedTokenIssuerUpdateConfiguration,
 	) (*TrustedTokenIssuer, error)
 	CreateApplication(
 		instanceArn, applicationProviderArn, name, description string,

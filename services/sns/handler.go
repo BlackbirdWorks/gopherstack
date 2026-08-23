@@ -163,7 +163,12 @@ func (h *Handler) RouteMatcher() service.Matcher {
 
 		body, err := httputils.ReadBody(c.Request())
 		if err != nil {
-			return false
+			// Body unreadable (e.g. oversized): fall back to the User-Agent
+			// marker every aws-sdk-go-v2 sns client sets (api_client.go's
+			// AddSDKAgentKeyValue -- "api/sns"). That still identifies this
+			// as ours, so claim it and let Handler() produce the typed
+			// error instead of masking the read failure as a 404.
+			return service.MatchesUserAgentMarker(c.Request().Header, "api/sns")
 		}
 
 		return strings.Contains(string(body), snsVersion)
@@ -225,6 +230,14 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 		ctx := c.Request().Context()
 		log := logger.Load(ctx)
+
+		// Pre-check the body via the same cache ParseForm's own read will hit:
+		// on failure (oversized/unreadable), r.Body becomes a bodyReadErrCloser
+		// (see pkgs/httputils) that ParseForm's parsePostForm would otherwise
+		// surface as this exact error, misclassified as a client-input problem.
+		if _, err := httputils.ReadBody(c.Request()); err != nil {
+			return h.writeError(c, http.StatusInternalServerError, "InternalError", "failed to read request body")
+		}
 
 		if err := c.Request().ParseForm(); err != nil {
 			return h.writeError(c, http.StatusBadRequest, "InvalidParameter", err.Error())

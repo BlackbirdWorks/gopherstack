@@ -879,28 +879,8 @@ func toXMLCustomMetricQueries(
 // PredictiveScalingConfiguration wire shape (deserializers.go:16133).
 func toXMLPredictiveScalingConfiguration(cfg *PredictiveScalingConfiguration) *xmlPredictiveScalingConfiguration {
 	specs := make([]xmlPredictiveScalingMetricSpecification, 0, len(cfg.MetricSpecifications))
-	for _, s := range cfg.MetricSpecifications {
-		specs = append(specs, xmlPredictiveScalingMetricSpecification{
-			PredefinedMetricPairSpecification: toXMLPredefinedMetricRef(
-				s.PredefinedMetricPairSpecification,
-			),
-			PredefinedLoadMetricSpecification: toXMLPredefinedMetricRef(
-				s.PredefinedLoadMetricSpecification,
-			),
-			PredefinedScalingMetricSpecification: toXMLPredefinedMetricRef(
-				s.PredefinedScalingMetricSpecification,
-			),
-			CustomizedLoadMetricSpecification: toXMLCustomMetricQueries(
-				s.CustomizedLoadMetricSpecification,
-			),
-			CustomizedScalingMetricSpecification: toXMLCustomMetricQueries(
-				s.CustomizedScalingMetricSpecification,
-			),
-			CustomizedCapacityMetricSpecification: toXMLCustomMetricQueries(
-				s.CustomizedCapacityMetricSpecification,
-			),
-			TargetValue: s.TargetValue,
-		})
+	for i := range cfg.MetricSpecifications {
+		specs = append(specs, toXMLPredictiveScalingMetricSpecification(&cfg.MetricSpecifications[i]))
 	}
 
 	return &xmlPredictiveScalingConfiguration{
@@ -909,6 +889,36 @@ func toXMLPredictiveScalingConfiguration(cfg *PredictiveScalingConfiguration) *x
 		MaxCapacityBuffer:         cfg.MaxCapacityBuffer,
 		SchedulingBufferTime:      cfg.SchedulingBufferTime,
 		MetricSpecifications:      xmlPredictiveScalingMetricSpecificationList{Members: specs},
+	}
+}
+
+// toXMLPredictiveScalingMetricSpecification converts one stored metric spec to its
+// XML response shape. Shared by DescribePolicies/PutScalingPolicy (via
+// toXMLPredictiveScalingConfiguration) and GetPredictiveScalingForecast's
+// LoadForecast.MetricSpecification (required, types.go:2703).
+func toXMLPredictiveScalingMetricSpecification(
+	s *PredictiveScalingMetricSpecification,
+) xmlPredictiveScalingMetricSpecification {
+	return xmlPredictiveScalingMetricSpecification{
+		PredefinedMetricPairSpecification: toXMLPredefinedMetricRef(
+			s.PredefinedMetricPairSpecification,
+		),
+		PredefinedLoadMetricSpecification: toXMLPredefinedMetricRef(
+			s.PredefinedLoadMetricSpecification,
+		),
+		PredefinedScalingMetricSpecification: toXMLPredefinedMetricRef(
+			s.PredefinedScalingMetricSpecification,
+		),
+		CustomizedLoadMetricSpecification: toXMLCustomMetricQueries(
+			s.CustomizedLoadMetricSpecification,
+		),
+		CustomizedScalingMetricSpecification: toXMLCustomMetricQueries(
+			s.CustomizedScalingMetricSpecification,
+		),
+		CustomizedCapacityMetricSpecification: toXMLCustomMetricQueries(
+			s.CustomizedCapacityMetricSpecification,
+		),
+		TargetValue: s.TargetValue,
 	}
 }
 

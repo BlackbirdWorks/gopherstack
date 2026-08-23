@@ -416,6 +416,40 @@ func TestInMemoryBackend_RestoreInvalidData(t *testing.T) {
 	require.Error(t, err)
 }
 
+// TestInMemoryBackend_RestoreV2SnapshotDiscarded proves gopherstack-hjdd's
+// fix: a v2 snapshot holding AgentCollaborator.UpdatedAt under the wrong key
+// "updatedAt" (retagged to the real "lastUpdatedAt" by 732c2bafa) must be
+// discarded wholesale now that bedrockagentSnapshotVersion is 3, not silently
+// decoded with UpdatedAt zero-valued.
+func TestInMemoryBackend_RestoreV2SnapshotDiscarded(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	b := bedrockagent.NewTestBackend("us-east-1", "000000000000")
+
+	v2Snapshot := `{
+		"version": 2,
+		"accountID": "000000000000",
+		"defaultRegion": "us-east-1",
+		"tables": {
+			"agentCollaborators": [{
+				"agentId": "agent-1",
+				"agentVersion": "DRAFT",
+				"collaboratorId": "collab-1",
+				"collaboratorName": "old-collab",
+				"createdAt": "2024-01-01T00:00:00Z",
+				"updatedAt": "2024-06-01T00:00:00Z"
+			}]
+		}
+	}`
+
+	require.NoError(t, b.Restore(ctx, []byte(v2Snapshot)))
+
+	_, err := b.GetAgentCollaborator(ctx, "agent-1", "DRAFT", "collab-1")
+	require.ErrorIs(t, err, bedrockagent.ErrNotFound,
+		"a v2-shaped AgentCollaborator must never surface with UpdatedAt silently zero-valued")
+}
+
 // TestHandler_SnapshotRestoreDelegate verifies Handler.Snapshot/Restore
 // delegate to the backend. Before Phase 3.3, BedrockAgent had no such
 // delegation, and no persistence underneath it either -- dead wiring, fixed

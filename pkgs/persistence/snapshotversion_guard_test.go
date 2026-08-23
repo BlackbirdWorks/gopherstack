@@ -24,6 +24,9 @@ import (
 
 var errNoVersionStruct = errors.New("no struct with an int-typed Version field")
 
+var errVersionConstUnresolved = errors.New(
+	"package source declares a *SnapshotVersion const but the AST scan did not resolve it")
+
 // updateGolden is package-level because flag.Bool must register before
 // TestMain/go test parses os.Args; there is no per-test alternative.
 //
@@ -37,13 +40,29 @@ var updateGolden = flag.Bool("update", false, "regenerate pkgs/persistence/testd
 // the version instead sends Restore down the ResetAll path and discards every user's
 // persisted state on the exact upgrade that was only meant to extend it.
 //
-// The guard walks every services/*/persistence.go, extracts the <service>SnapshotVersion
-// constant and the sibling fields of its version-carrying struct, and compares them
-// against the checked-in golden at testdata/snapshot_inventory.json. If the version
-// changed and the new field set is a pure superset of the golden one (every old field
-// still present, unchanged; only additions) that is exactly the destructive pattern --
-// the test fails unconditionally, even under -update, so there is no way to silence it
-// by just refreshing the golden.
+// The guard walks every services/*/ package, extracts the <service>SnapshotVersion
+// constant from wherever in the package it is declared (gopherstack-hciy: quicksight and
+// securityhub keep theirs in store.go, not persistence.go -- a scan limited to
+// persistence.go silently skipped both, no golden entry, no failure, no coverage), and
+// then recursively expands the fields of every "*Snapshot"-suffixed struct in the *whole
+// service package* (not just persistence.go, and not just one level deep --
+// gopherstack-5i6p: apigateway's additive Tags field landed on the nested stageSnapshot,
+// invisible to a scan limited to the top-level struct). Recursion also follows every type
+// registered via store.Register(reg, name, store.New(keyFn)): most services persist the
+// domain model directly (e.g. eks's Cluster) rather than a dedicated *Snapshot DTO, and
+// [store.Registry.SnapshotAll] erases that model to json.RawMessage -- a field-type string
+// like "Tables map[string]json.RawMessage" never changes no matter what happens inside
+// Cluster, so without resolving store.New's type parameter back to Cluster and expanding
+// its fields too, a shape change there is invisible to this scan (gopherstack-hjdd: this is
+// exactly how the eks NetworkingConfig/KubernetesNetworkConfig merge got through undetected
+// even though the guard was already live). See scanServiceDir for the resolution details and
+// its known blind spots (cross-package types, unresolved keyFn expressions).
+//
+// The combined field set is compared against the checked-in golden at
+// testdata/snapshot_inventory.json. If the version changed and the new field set is a
+// pure superset of the golden one (every old field still present, unchanged; only
+// additions) that is exactly the destructive pattern -- the test fails unconditionally,
+// even under -update, so there is no way to silence it by just refreshing the golden.
 //
 // A genuine incompatible change (a field removed or retyped) is not a superset, so it
 // passes this check; run with -update to refresh the golden once you've confirmed the
@@ -85,6 +104,81 @@ func TestSnapshotVersionGuard(t *testing.T) {
 	}
 }
 
+// TestScanServiceSnapshotsCoversStoreGoConst is the regression test for gopherstack-hciy:
+// quicksight and securityhub declare their SnapshotVersion const in store.go rather than
+// persistence.go, so a scan limited to persistence.go silently omits them from live --
+// no golden entry, no failure, no coverage. Before the fix to findVersionConstInPackage /
+// scanServiceDir this fails: live["quicksight"] and live["securityhub"] are both absent.
+func TestScanServiceSnapshotsCoversStoreGoConst(t *testing.T) {
+	t.Parallel()
+
+	live, err := scanServiceSnapshots(servicesDir(t))
+	require.NoError(t, err)
+
+	tests := []struct {
+		name string
+	}{
+		{name: "quicksight"},
+		{name: "securityhub"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			info, ok := live[tt.name]
+			require.True(t, ok, "%s: SnapshotVersion const lives in store.go, not persistence.go -- "+
+				"scanServiceDir must search the whole package", tt.name)
+			assert.Positive(t, info.Version)
+			assert.NotEmpty(t, info.Fields)
+		})
+	}
+}
+
+// TestScanServiceSnapshotsFailsLoudOnUnresolvedConst covers the fail-loud half of
+// gopherstack-hciy: a const declaration shape the AST scan cannot resolve (here, two
+// names sharing one ValueSpec) must not be silently dropped from coverage the way
+// quicksight and securityhub were -- scanServiceSnapshots must error, not skip.
+func TestScanServiceSnapshotsFailsLoudOnUnresolvedConst(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		src     string
+		wantErr string
+	}{
+		{
+			name: "shared value spec not seen by ast scan but caught by text scan",
+			src: `package widget
+
+type backendSnapshot struct {
+	Version int
+	Name    string ` + "`json:\"name\"`" + `
+}
+
+const _, widgetSnapshotVersion = 0, 1
+`,
+			wantErr: "widget",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			root := t.TempDir()
+			svcDir := filepath.Join(root, "widget")
+			require.NoError(t, os.Mkdir(svcDir, 0o755))
+			require.NoError(t, os.WriteFile(filepath.Join(svcDir, "persistence.go"), []byte(tt.src), 0o644))
+
+			_, err := scanServiceSnapshots(root)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.wantErr)
+			assert.ErrorIs(t, err, errVersionConstUnresolved)
+		})
+	}
+}
+
 // diffSnapshots compares the live-scanned snapshot info against the checked-in
 // golden and returns one violation string per problem found. A version change
 // with an unchanged field list (want.Version != got.Version but the fields
@@ -123,11 +217,21 @@ func diffSnapshots(live, golden map[string]snapshotInfo) []string {
 						"decode as this shape before accepting -- run with -update once "+
 						"confirmed", name, got.Version, want.Version))
 			}
-		case !fieldsEqual(got.Fields, want.Fields):
+		case !fieldsEqual(got.Fields, want.Fields) && isFieldSupersetOnly(got.Fields, want.Fields):
 			violations = append(violations, fmt.Sprintf(
 				"%s: backendSnapshot fields changed without a version bump; golden is "+
 					"out of date, run with -update to refresh it (this is bookkeeping, "+
-					"not a version-bump case: additive fields never need a bump)", name))
+					"not a version-bump case: every old field is still present unchanged, "+
+					"so the diff is additive only and needs no bump)", name))
+		case !fieldsEqual(got.Fields, want.Fields):
+			violations = append(violations, fmt.Sprintf(
+				"%s: backendSnapshot fields changed without a version bump, and at least "+
+					"one existing field's name, type, or json tag changed or was removed "+
+					"-- this is NOT the additive case. A tag rename changes the on-disk key "+
+					"exactly like a field rename does: an older snapshot decodes that field "+
+					"as its zero value, silent data loss. Confirm whether a version bump is "+
+					"actually required before running -update; do not assume bookkeeping "+
+					"just because the version constant did not move", name))
 		}
 	}
 
@@ -153,6 +257,10 @@ func TestDiffSnapshots(t *testing.T) {
 	fieldsV1Retyped := []string{
 		"Account *Account `json:\"account,omitempty\"`",
 		"Tables map[string]string `json:\"tables\"`",
+	}
+	fieldsV1TagRenamed := []string{
+		"Account *Account `json:\"Account,omitempty\"`",
+		"Tables map[string]json.RawMessage `json:\"tables\"`",
 	}
 
 	tests := []struct {
@@ -183,6 +291,12 @@ func TestDiffSnapshots(t *testing.T) {
 			live:    map[string]snapshotInfo{"svc": {Fields: fieldsV1WithExtra, Version: 1}},
 			golden:  map[string]snapshotInfo{"svc": {Fields: fieldsV1, Version: 1}},
 			wantErr: "without a version bump",
+		},
+		{
+			name:    "tag renamed same field count without version bump",
+			live:    map[string]snapshotInfo{"svc": {Fields: fieldsV1TagRenamed, Version: 1}},
+			golden:  map[string]snapshotInfo{"svc": {Fields: fieldsV1, Version: 1}},
+			wantErr: "NOT the additive case",
 		},
 		{
 			name:    "purely additive field bumped version",
@@ -303,6 +417,29 @@ func isPureAddition(oldFields, newFields []string) bool {
 	return true
 }
 
+// isFieldSupersetOnly reports whether every descriptor in oldFields is still
+// present, unchanged, in newFields -- i.e. the diff consists only of
+// additions, never a rename/retype/removal of an existing field. Unlike
+// isPureAddition it does not require len(newFields) > len(oldFields), so it
+// also covers the same-field-count case isPureAddition never sees: a
+// same-name field whose json tag alone changed (a rename of the on-disk key,
+// not an addition) keeps the count unchanged, and isPureAddition is never
+// even called from the version-unchanged branch this backs.
+func isFieldSupersetOnly(oldFields, newFields []string) bool {
+	present := make(map[string]bool, len(newFields))
+	for _, f := range newFields {
+		present[f] = true
+	}
+
+	for _, f := range oldFields {
+		if !present[f] {
+			return false
+		}
+	}
+
+	return true
+}
+
 func addedFields(oldFields, newFields []string) []string {
 	old := make(map[string]bool, len(oldFields))
 	for _, f := range oldFields {
@@ -322,9 +459,15 @@ func addedFields(oldFields, newFields []string) []string {
 
 var versionConstRE = regexp.MustCompile(`(?i)snapshotversion$`)
 
-// scanServiceSnapshots parses every services/*/persistence.go and extracts, per
-// service, the version constant and the sibling fields of its version-carrying
-// struct (the struct with an `int`-typed field literally named Version).
+// scanServiceSnapshots parses every services/*/ package and extracts, per service, the
+// version constant and the recursively-expanded fields reachable from its persisted
+// state. It does not require a persistence.go file to exist -- see scanServiceDir --
+// so a service that keeps its const in store.go or anywhere else is still found.
+//
+// checkNoMissedVersionConsts is the belt-and-suspenders half of gopherstack-hciy: even
+// with the whole-package AST search below, a const declared in a form that scan does not
+// resolve (e.g. sharing a ValueSpec with another name) must not silently vanish the way
+// quicksight and securityhub did -- it must fail the test, not be skipped.
 func scanServiceSnapshots(servicesDir string) (map[string]snapshotInfo, error) {
 	entries, err := os.ReadDir(servicesDir)
 	if err != nil {
@@ -338,14 +481,11 @@ func scanServiceSnapshots(servicesDir string) (map[string]snapshotInfo, error) {
 			continue
 		}
 
-		path := filepath.Join(servicesDir, e.Name(), "persistence.go")
-		if _, statErr := os.Stat(path); statErr != nil {
-			continue
-		}
+		dir := filepath.Join(servicesDir, e.Name())
 
-		info, ok, scanErr := scanPersistenceFile(path)
+		info, ok, scanErr := scanServiceDir(dir)
 		if scanErr != nil {
-			return nil, fmt.Errorf("%s: %w", path, scanErr)
+			return nil, fmt.Errorf("%s: %w", dir, scanErr)
 		}
 
 		if ok {
@@ -353,18 +493,96 @@ func scanServiceSnapshots(servicesDir string) (map[string]snapshotInfo, error) {
 		}
 	}
 
+	if checkErr := checkNoMissedVersionConsts(servicesDir, result); checkErr != nil {
+		return nil, checkErr
+	}
+
 	return result, nil
 }
 
-func scanPersistenceFile(path string) (snapshotInfo, bool, error) {
-	fset := token.NewFileSet()
+// checkNoMissedVersionConsts textually confirms every services/*/ directory whose source
+// looks like it declares a *SnapshotVersion const ended up as a key in result. This is
+// independent of the AST-based scan in scanServiceDir/findVersionConstInPackage: it exists
+// so a future declaration shape that AST scan cannot resolve fails loudly instead of
+// silently dropping coverage, which is exactly how quicksight and securityhub went
+// unnoticed (their const was findable, just not by a scan limited to persistence.go).
+func checkNoMissedVersionConsts(servicesDir string, result map[string]snapshotInfo) error {
+	entries, err := os.ReadDir(servicesDir)
+	if err != nil {
+		return err
+	}
 
-	f, err := parser.ParseFile(fset, path, nil, 0)
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+
+		declares, checkErr := dirDeclaresVersionConstText(filepath.Join(servicesDir, e.Name()))
+		if checkErr != nil {
+			return checkErr
+		}
+
+		if _, ok := result[e.Name()]; declares && !ok {
+			return fmt.Errorf("%s: %w", e.Name(), errVersionConstUnresolved)
+		}
+	}
+
+	return nil
+}
+
+var versionConstDeclRE = regexp.MustCompile(`[A-Za-z_][A-Za-z0-9_]*SnapshotVersion\s*=\s*\d`)
+
+// dirDeclaresVersionConstText reports whether any non-test .go file directly inside dir
+// contains a `<name>SnapshotVersion = <int literal>`-shaped assignment, found by regexp
+// over the raw source rather than by parsing -- deliberately a different mechanism than
+// the AST scan it cross-checks.
+func dirDeclaresVersionConstText(dir string) (bool, error) {
+	files, err := os.ReadDir(dir)
+	if err != nil {
+		return false, err
+	}
+
+	for _, f := range files {
+		name := f.Name()
+		if f.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+
+		data, readErr := os.ReadFile(filepath.Join(dir, name))
+		if readErr != nil {
+			return false, readErr
+		}
+
+		if versionConstDeclRE.Match(data) {
+			return true, nil
+		}
+	}
+
+	return false, nil
+}
+
+// scanServiceDir parses every non-test .go file in a service package and produces its
+// snapshotInfo. The version constant is looked up across every file in the package, not
+// just persistence.go (gopherstack-hciy: quicksight and securityhub keep theirs in
+// store.go) -- see findVersionConstInPackage. Field expansion starts from every
+// "*Snapshot"-suffixed struct declared anywhere in the package, plus every type resolved
+// from a store.Register(reg, name, store.New(keyFn)) call anywhere in the package (this is
+// what recovers domain models like eks's Cluster that are persisted directly rather than
+// through a dedicated DTO), and recurses into any locally-declared named struct type a
+// field refers to.
+//
+// Known blind spots, left as such rather than papered over: a keyFn passed as anything
+// other than a bare identifier or an inline func literal (e.g. a method value) cannot be
+// resolved and its table's contents stay invisible, exactly as before this change; and a
+// field naming a type from another package cannot be expanded past its printed type
+// string, since only this package's declarations are parsed.
+func scanServiceDir(dir string) (snapshotInfo, bool, error) {
+	fset, files, err := parseServiceDir(dir)
 	if err != nil {
 		return snapshotInfo{}, false, err
 	}
 
-	version, hasVersion, err := findVersionConst(f)
+	version, hasVersion, err := findVersionConstInPackage(files)
 	if err != nil {
 		return snapshotInfo{}, false, err
 	}
@@ -373,15 +591,300 @@ func scanPersistenceFile(path string) (snapshotInfo, bool, error) {
 		return snapshotInfo{}, false, nil
 	}
 
-	fields, err := findVersionStructFields(fset, f)
-	if err != nil {
+	structDecls := collectStructDecls(files)
+	funcLookup := collectFuncLookup(files)
+
+	var snapshotRoots []string
+
+	for name := range structDecls {
+		if snapshotStructRE.MatchString(name) {
+			snapshotRoots = append(snapshotRoots, name)
+		}
+	}
+
+	registeredRoots, _ := collectRegisteredTypeRoots(files, funcLookup)
+
+	hasVersionStruct := false
+
+	for _, root := range snapshotRoots {
+		if hasIntVersionField(structDecls[root]) {
+			hasVersionStruct = true
+		}
+	}
+
+	if !hasVersionStruct {
 		return snapshotInfo{}, false, fmt.Errorf(
-			"found a *SnapshotVersion const but no matching int-typed Version struct field: %w", err)
+			"found a *SnapshotVersion const but no matching int-typed Version struct field: %w", errNoVersionStruct)
+	}
+
+	visited := make(map[string]bool)
+
+	var fields []string
+
+	sort.Strings(snapshotRoots)
+
+	for _, root := range snapshotRoots {
+		expandFields(fset, root, structDecls, visited, &fields)
+	}
+
+	for _, root := range registeredRoots {
+		expandFields(fset, root, structDecls, visited, &fields)
 	}
 
 	sort.Strings(fields)
 
 	return snapshotInfo{Version: version, Fields: fields}, true, nil
+}
+
+// parseServiceDir parses every non-test .go file directly inside dir (no recursion into
+// subpackages) into a shared *token.FileSet, keyed by base filename.
+func parseServiceDir(dir string) (*token.FileSet, map[string]*ast.File, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	fset := token.NewFileSet()
+	files := make(map[string]*ast.File)
+
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+
+		f, parseErr := parser.ParseFile(fset, filepath.Join(dir, name), nil, 0)
+		if parseErr != nil {
+			return nil, nil, parseErr
+		}
+
+		files[name] = f
+	}
+
+	return fset, files, nil
+}
+
+// collectStructDecls indexes every package-level struct type declaration across files by
+// its type name.
+func collectStructDecls(files map[string]*ast.File) map[string]*ast.StructType {
+	out := make(map[string]*ast.StructType)
+
+	for _, f := range files {
+		for _, decl := range f.Decls {
+			gd, ok := decl.(*ast.GenDecl)
+			if !ok || gd.Tok != token.TYPE {
+				continue
+			}
+
+			for _, spec := range gd.Specs {
+				ts, isTypeSpec := spec.(*ast.TypeSpec)
+				if !isTypeSpec {
+					continue
+				}
+
+				if st, isStructType := ts.Type.(*ast.StructType); isStructType {
+					out[ts.Name.Name] = st
+				}
+			}
+		}
+	}
+
+	return out
+}
+
+// collectFuncLookup indexes every package-level function signature by name: both plain
+// func declarations and var-bound function literals (`var fooKeyFn = func(v *Foo) string
+// {...}`), since keyFns are written both ways across services.
+func collectFuncLookup(files map[string]*ast.File) map[string]*ast.FuncType {
+	out := make(map[string]*ast.FuncType)
+
+	for _, f := range files {
+		for _, decl := range f.Decls {
+			switch d := decl.(type) {
+			case *ast.FuncDecl:
+				if d.Recv == nil {
+					out[d.Name.Name] = d.Type
+				}
+			case *ast.GenDecl:
+				if d.Tok != token.VAR {
+					continue
+				}
+
+				for _, spec := range d.Specs {
+					vs, isValueSpec := spec.(*ast.ValueSpec)
+					if !isValueSpec || len(vs.Names) != 1 || len(vs.Values) != 1 {
+						continue
+					}
+
+					if fl, isFuncLit := vs.Values[0].(*ast.FuncLit); isFuncLit {
+						out[vs.Names[0].Name] = fl.Type
+					}
+				}
+			}
+		}
+	}
+
+	return out
+}
+
+// collectRegisteredTypeRoots finds every store.New(keyFn) call in files and resolves
+// keyFn's single parameter type back to a type name -- the V in the Table[V] that call
+// constructs. unresolved counts calls whose keyFn expression or parameter type this AST-only
+// resolution could not follow (a method value, or a type from another package).
+func collectRegisteredTypeRoots(files map[string]*ast.File, funcLookup map[string]*ast.FuncType) ([]string, int) {
+	seen := make(map[string]bool)
+	unresolved := 0
+
+	for _, f := range files {
+		ast.Inspect(f, func(n ast.Node) bool {
+			call, isCall := n.(*ast.CallExpr)
+			if !isCall {
+				return true
+			}
+
+			sel, isSelector := call.Fun.(*ast.SelectorExpr)
+			if !isSelector {
+				return true
+			}
+
+			xIdent, isIdent := sel.X.(*ast.Ident)
+			if !isIdent || xIdent.Name != "store" || sel.Sel.Name != "New" || len(call.Args) != 1 {
+				return true
+			}
+
+			ft, ok := funcTypeOf(call.Args[0], funcLookup)
+			if !ok || ft.Params == nil || len(ft.Params.List) != 1 {
+				unresolved++
+
+				return true
+			}
+
+			name, ok := baseTypeName(ft.Params.List[0].Type)
+			if !ok {
+				unresolved++
+
+				return true
+			}
+
+			seen[name] = true
+
+			return true
+		})
+	}
+
+	roots := make([]string, 0, len(seen))
+	for name := range seen {
+		roots = append(roots, name)
+	}
+
+	sort.Strings(roots)
+
+	return roots, unresolved
+}
+
+func funcTypeOf(arg ast.Expr, funcLookup map[string]*ast.FuncType) (*ast.FuncType, bool) {
+	switch a := arg.(type) {
+	case *ast.Ident:
+		ft, ok := funcLookup[a.Name]
+
+		return ft, ok
+	case *ast.FuncLit:
+		return a.Type, true
+	default:
+		return nil, false
+	}
+}
+
+// baseTypeName strips pointer indirection and returns a same-package type's name; a
+// cross-package type (*ast.SelectorExpr, e.g. *pkg.Foo) is not resolvable this way and
+// returns false.
+func baseTypeName(expr ast.Expr) (string, bool) {
+	switch e := expr.(type) {
+	case *ast.Ident:
+		return e.Name, true
+	case *ast.StarExpr:
+		return baseTypeName(e.X)
+	default:
+		return "", false
+	}
+}
+
+// namedTypeRefs returns the same-package type names a field's type expression refers to,
+// unwrapping pointers, slices/arrays and maps. A name that turns out to be a builtin or a
+// non-struct type simply won't be found in structDecls by the caller and expansion stops
+// there; a cross-package selector is not returned at all.
+func namedTypeRefs(expr ast.Expr) []string {
+	switch e := expr.(type) {
+	case *ast.Ident:
+		return []string{e.Name}
+	case *ast.StarExpr:
+		return namedTypeRefs(e.X)
+	case *ast.ArrayType:
+		return namedTypeRefs(e.Elt)
+	case *ast.MapType:
+		return append(namedTypeRefs(e.Key), namedTypeRefs(e.Value)...)
+	default:
+		return nil
+	}
+}
+
+// expandFields appends root's own field descriptors (via structFieldDescriptors, which
+// already excludes the Version field) prefixed with root's type name, then recurses into
+// every same-package named type any of root's fields refer to. visited is shared across
+// the whole service scan so a type reachable from multiple roots is only expanded once.
+func expandFields(
+	fset *token.FileSet,
+	root string,
+	structDecls map[string]*ast.StructType,
+	visited map[string]bool,
+	out *[]string,
+) {
+	if visited[root] {
+		return
+	}
+
+	st, ok := structDecls[root]
+	if !ok {
+		return
+	}
+
+	visited[root] = true
+
+	for _, d := range structFieldDescriptors(fset, st) {
+		*out = append(*out, root+"."+d)
+	}
+
+	for _, field := range st.Fields.List {
+		for _, ref := range namedTypeRefs(field.Type) {
+			expandFields(fset, ref, structDecls, visited, out)
+		}
+	}
+}
+
+// findVersionConstInPackage searches every parsed file for the version constant, in
+// sorted filename order, and returns the first match. Repo convention keeps it in
+// persistence.go, but gopherstack-hciy showed that convention is not enforced, so this
+// no longer assumes a specific filename.
+func findVersionConstInPackage(files map[string]*ast.File) (int, bool, error) {
+	names := make([]string, 0, len(files))
+	for name := range files {
+		names = append(names, name)
+	}
+
+	sort.Strings(names)
+
+	for _, name := range names {
+		version, ok, err := findVersionConst(files[name])
+		if err != nil {
+			return 0, false, err
+		}
+
+		if ok {
+			return version, true, nil
+		}
+	}
+
+	return 0, false, nil
 }
 
 func findVersionConst(f *ast.File) (int, bool, error) {
@@ -418,33 +921,11 @@ func findVersionConst(f *ast.File) (int, bool, error) {
 	return 0, false, nil
 }
 
-// findVersionStructFields locates the struct type declared in f that has a field
-// literally named "Version" of type "int", and returns the descriptors ("Name Type
-// `tag`") of its other fields, sorted.
-func findVersionStructFields(fset *token.FileSet, f *ast.File) ([]string, error) {
-	for _, decl := range f.Decls {
-		gd, ok := decl.(*ast.GenDecl)
-		if !ok || gd.Tok != token.TYPE {
-			continue
-		}
-
-		for _, spec := range gd.Specs {
-			ts, isTypeSpec := spec.(*ast.TypeSpec)
-			if !isTypeSpec {
-				continue
-			}
-
-			st, isStructType := ts.Type.(*ast.StructType)
-			if !isStructType || !hasIntVersionField(st) {
-				continue
-			}
-
-			return structFieldDescriptors(fset, st), nil
-		}
-	}
-
-	return nil, errNoVersionStruct
-}
+// snapshotStructRE matches the codebase-wide convention (156 of 158
+// persistence.go files, gopherstack-5i6p) of naming every persisted DTO
+// "*Snapshot": backendSnapshot itself plus nested ones like stageSnapshot or
+// invalidationSnapshot that hold fields the top-level struct never sees directly.
+var snapshotStructRE = regexp.MustCompile(`(?i)snapshot$`)
 
 func hasIntVersionField(st *ast.StructType) bool {
 	for _, field := range st.Fields.List {

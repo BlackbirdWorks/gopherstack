@@ -196,29 +196,79 @@ func (b *InMemoryBackend) GetAdapterVersion(ctx context.Context, adapterID, vers
 	return cloneAdapterVersion(av), nil
 }
 
-// ListAdapterVersions returns all versions for a given adapter, sorted by version string.
+// ListAdapterVersions returns versions for adapterID, or -- when adapterID is
+// empty -- every version of every adapter in the region. Real AWS's
+// ListAdapterVersionsInput marks AdapterId optional (a plain filter, not the
+// sole identifier); omitting it lists across all adapters, which is the path
+// exercised here. Sorted by AdapterID then AdapterVersion: the real SDK
+// documents no ordering, so this is the deterministic choice that keeps
+// pkgs/page's offset tokens stable across the merged, freshly-rebuilt set.
 func (b *InMemoryBackend) ListAdapterVersions(ctx context.Context, adapterID string) ([]AdapterVersion, error) {
 	region := getRegion(ctx, b.region)
 
 	b.mu.RLock("ListAdapterVersions")
 	defer b.mu.RUnlock()
 
-	if !b.adapters.Has(regionKey(region, adapterID)) {
-		return nil, fmt.Errorf("%w: adapter %s not found", ErrAdapterNotFound, adapterID)
+	var out []AdapterVersion
+
+	if adapterID == "" {
+		out = b.allAdapterVersionsLocked(region)
+	} else {
+		if !b.adapters.Has(regionKey(region, adapterID)) {
+			return nil, fmt.Errorf("%w: adapter %s not found", ErrAdapterNotFound, adapterID)
+		}
+
+		out = cloneAdapterVersions(b.adapterVersionsByAdapter.Get(regionKey(region, adapterID)))
 	}
 
-	versions := b.adapterVersionsByAdapter.Get(regionKey(region, adapterID))
-	out := make([]AdapterVersion, 0, len(versions))
+	sortAdapterVersions(out)
 
+	return out, nil
+}
+
+// allAdapterVersionsLocked returns every adapter version across every
+// adapter in region, reusing adaptersByRegion and adapterVersionsByAdapter --
+// the same two secondary indexes ListAdapters and the single-adapter path
+// above already maintain. Caller must hold b.mu (read or write).
+func (b *InMemoryBackend) allAdapterVersionsLocked(region string) []AdapterVersion {
+	adapters := b.adaptersByRegion.Get(region)
+
+	groups := make([][]*AdapterVersion, len(adapters))
+	total := 0
+
+	for i, a := range adapters {
+		groups[i] = b.adapterVersionsByAdapter.Get(regionKey(region, a.AdapterID))
+		total += len(groups[i])
+	}
+
+	out := make([]AdapterVersion, 0, total)
+	for _, g := range groups {
+		out = append(out, cloneAdapterVersions(g)...)
+	}
+
+	return out
+}
+
+// cloneAdapterVersions deep-copies a slice of *AdapterVersion (as owned by a
+// store.Index group) into a slice of values safe to hold past the lock scope.
+func cloneAdapterVersions(versions []*AdapterVersion) []AdapterVersion {
+	out := make([]AdapterVersion, 0, len(versions))
 	for _, av := range versions {
 		out = append(out, *cloneAdapterVersion(av))
 	}
 
-	sort.Slice(out, func(i, j int) bool {
-		return out[i].AdapterVersion < out[j].AdapterVersion
-	})
+	return out
+}
 
-	return out, nil
+// sortAdapterVersions orders by AdapterID then AdapterVersion.
+func sortAdapterVersions(versions []AdapterVersion) {
+	sort.Slice(versions, func(i, j int) bool {
+		if versions[i].AdapterID != versions[j].AdapterID {
+			return versions[i].AdapterID < versions[j].AdapterID
+		}
+
+		return versions[i].AdapterVersion < versions[j].AdapterVersion
+	})
 }
 
 // DeleteAdapterVersion removes a specific adapter version.

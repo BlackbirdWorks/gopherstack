@@ -12,8 +12,14 @@ type createConfigurationSetInput struct {
 	Tags                 []tagEntry `json:"Tags"`
 }
 
+// trackingOptionsOutput mirrors types.TrackingOptions. CustomRedirectDomain
+// has no omitempty: it is required on the real wire shape
+// (aws-sdk-go-v2/service/sesv2/types/types.go's TrackingOptions), but is
+// only optional on PutConfigurationSetTrackingOptionsInput -- a real client
+// can set HttpsPolicy alone, leaving CustomRedirectDomain genuinely empty,
+// and the required key must still be present (empty string), not dropped.
 type trackingOptionsOutput struct {
-	CustomRedirectDomain string `json:"CustomRedirectDomain,omitempty"`
+	CustomRedirectDomain string `json:"CustomRedirectDomain"`
 	HTTPSPolicy          string `json:"HttpsPolicy,omitempty"`
 }
 

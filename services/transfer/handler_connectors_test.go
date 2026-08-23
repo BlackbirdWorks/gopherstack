@@ -351,7 +351,9 @@ func TestHandler_StartRemoteMove(t *testing.T) {
 	assert.NotEqual(t, http.StatusInternalServerError, rec.Code)
 }
 
-// Test 13: StartFileTransfer; ListFileTransferResults shows the record.
+// Test 13: StartFileTransfer; ListFileTransferResults shows the record, one
+// row per file (types.ConnectorFileTransferResult's FilePath is singular --
+// gopherstack-tp8x).
 func TestHandler_StartFileTransferPersistsRecord(t *testing.T) {
 	t.Parallel()
 
@@ -372,25 +374,22 @@ func TestHandler_StartFileTransferPersistsRecord(t *testing.T) {
 
 	listRec := doTransferRequest(t, h, "ListFileTransferResults", map[string]any{
 		"ConnectorId": c.ConnectorID,
+		"TransferId":  transferID,
 	})
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var listResp map[string]any
 	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
 	results := listResp["FileTransferResults"].([]any)
-	require.NotEmpty(t, results)
+	require.Len(t, results, 1)
 
-	found := false
-	for _, r := range results {
-		result := r.(map[string]any)
-		if result["TransferId"] == transferID {
-			found = true
-			assert.Equal(t, c.ConnectorID, result["ConnectorId"])
-
-			break
-		}
-	}
-	assert.True(t, found, "transfer record must appear in ListFileTransferResults")
+	result := results[0].(map[string]any)
+	assert.Equal(t, "/path/to/file.txt", result["FilePath"])
+	assert.Equal(t, "QUEUED", result["StatusCode"])
+	assert.NotContains(t, result, "TransferId",
+		"row must not carry the transfer-level fields the old per-transfer shape had")
+	assert.NotContains(t, result, "ConnectorId")
+	assert.NotContains(t, result, "FilePaths")
 }
 
 // Test 21: DescribeConnector includes LoggingRole.

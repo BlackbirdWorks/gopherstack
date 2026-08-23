@@ -62,6 +62,46 @@ func TestAccessLogSubscription_ServiceNetworkLogType(t *testing.T) {
 	)
 }
 
+// TestListAccessLogSubscriptions_LastUpdatedAt proves ListAccessLogSubscriptions
+// items carry the required LastUpdatedAt member. AccessLogSubscriptionSummary
+// already tracked it (and GetAccessLogSubscription already emitted it) but
+// alsSummaryToJSON never wrote the "lastUpdatedAt" key, so a real client's
+// typed field on every list item was always nil despite the real SDK marking
+// it "This member is required." on AccessLogSubscriptionSummary
+// (types/types.go).
+func TestListAccessLogSubscriptions_LastUpdatedAt(t *testing.T) {
+	t.Parallel()
+
+	backend := vpclattice.NewInMemoryBackend("000000000000", "us-east-1")
+	client := newTestVPCLatticeClient(t, vpclattice.NewHandler(backend))
+	ctx := t.Context()
+
+	svc, err := client.CreateService(
+		ctx,
+		&vpclatticesdk.CreateServiceInput{Name: aws.String("svc-als-lastupdated")},
+	)
+	require.NoError(t, err)
+
+	_, err = client.CreateAccessLogSubscription(
+		ctx,
+		&vpclatticesdk.CreateAccessLogSubscriptionInput{
+			ResourceIdentifier: svc.Id,
+			DestinationArn:     aws.String("arn:aws:s3:::my-bucket"),
+		},
+	)
+	require.NoError(t, err)
+
+	list, err := client.ListAccessLogSubscriptions(
+		ctx,
+		&vpclatticesdk.ListAccessLogSubscriptionsInput{
+			ResourceIdentifier: svc.Id,
+		},
+	)
+	require.NoError(t, err)
+	require.Len(t, list.Items, 1)
+	assert.NotNil(t, list.Items[0].LastUpdatedAt)
+}
+
 // TestRule_PathMatchWireKeyAndCaseSensitive drives CreateRule/GetRule
 // through the real SDK client with a path-match condition. Previously both
 // extractPathMatch (request) and ruleMatchToJSON (response) used "path"

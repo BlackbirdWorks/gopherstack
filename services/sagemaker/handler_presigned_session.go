@@ -48,11 +48,17 @@ func (h *Handler) dispatchPresignedSessionOps(
 	return nil, false, nil
 }
 
+// createPresignedDomainURLRequest is the request body for CreatePresignedDomainUrl.
+type createPresignedDomainURLRequest struct {
+	DomainID                           string `json:"DomainId"`
+	UserProfileName                    string `json:"UserProfileName"`
+	LandingURI                         string `json:"LandingUri,omitempty"`
+	ExpiresInSeconds                   int32  `json:"ExpiresInSeconds,omitempty"`
+	SessionExpirationDurationInSeconds int32  `json:"SessionExpirationDurationInSeconds,omitempty"`
+}
+
 func (h *Handler) handleCreatePresignedDomainURL(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		DomainID        string `json:"DomainId"`
-		UserProfileName string `json:"UserProfileName"`
-	}
+	var req createPresignedDomainURLRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -78,17 +84,27 @@ func (h *Handler) handleCreatePresignedDomainURL(ctx context.Context, body []byt
 // substitution variables (allowing arbitrary surrounding whitespace).
 var templateVarPattern = regexp.MustCompile(`\{\{\s*task\.input\.([A-Za-z0-9_]+)\s*\}\}`)
 
+// renderableTask mirrors types.RenderableTask (types/types.go:19548): a
+// RenderUiTemplate request's only task field, a JSON-object Input string.
+type renderableTask struct {
+	Input string `json:"Input"`
+}
+
+// uiTemplate mirrors types.UiTemplate: the worker UI template to render.
+type uiTemplate struct {
+	Content string `json:"Content"`
+}
+
+// renderUITemplateRequest is the request body for RenderUiTemplate.
+type renderUITemplateRequest struct {
+	UITemplate     *uiTemplate    `json:"UiTemplate,omitempty"`
+	Task           renderableTask `json:"Task"`
+	HumanTaskUIArn string         `json:"HumanTaskUiArn,omitempty"`
+	RoleArn        string         `json:"RoleArn"`
+}
+
 func (h *Handler) handleRenderUITemplate(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		UITemplate *struct {
-			Content string `json:"Content"`
-		} `json:"UiTemplate,omitempty"`
-		Task struct {
-			Input string `json:"Input"`
-		} `json:"Task"`
-		HumanTaskUIArn string `json:"HumanTaskUiArn,omitempty"`
-		RoleArn        string `json:"RoleArn"`
-	}
+	var req renderUITemplateRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -96,6 +112,10 @@ func (h *Handler) handleRenderUITemplate(ctx context.Context, body []byte) ([]by
 
 	if req.RoleArn == "" {
 		return nil, fmt.Errorf("%w: RoleArn is required", errInvalidRequest)
+	}
+
+	if req.Task.Input == "" {
+		return nil, fmt.Errorf("%w: Task.Input is required", errInvalidRequest)
 	}
 
 	content := ""
@@ -149,10 +169,13 @@ func renderUITemplateContent(content, taskInput string) string {
 	})
 }
 
+// startSessionRequest is the request body for StartSession.
+type startSessionRequest struct {
+	ResourceIdentifier string `json:"ResourceIdentifier"`
+}
+
 func (h *Handler) handleStartSession(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		ResourceIdentifier string `json:"ResourceIdentifier"`
-	}
+	var req startSessionRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)

@@ -145,15 +145,32 @@ func (b *InMemoryBackend) DescribeProductsV2(nextToken string, maxResults int) (
 	return b.DescribeProducts("", nextToken, maxResults)
 }
 
+// recommendationStatusSucceeded mirrors types.RecommendationStatusSucceeded
+// (securityhub@v1.75.4 types/enums.go); this backend generates synchronously
+// so a recommendation is always immediately SUCCEEDED, never IN_PROGRESS/FAILED.
+const recommendationStatusSucceeded = "SUCCEEDED"
+
+// recommendedActionCreatePolicy is one of the (undocumented-as-Go-enum,
+// plain-string) RecommendedAction values UnusedPermissionsRecommendationStep's
+// doc comments describe -- "create or detach a policy for an unused
+// permissions finding" -- used for the CREATE_POLICY case this backend
+// always synthesizes (no ExistingPolicyId is tracked, so there is nothing to
+// detach).
+const recommendedActionCreatePolicy = "CREATE_POLICY"
+
 func (b *InMemoryBackend) GenerateRecommendedPolicyV2(metadataUID string) (*RecommendedPolicyV2, error) {
 	b.mu.Lock("GenerateRecommendedPolicyV2")
 	defer b.mu.Unlock()
 
-	now := time.Now().UTC().Format(time.RFC3339)
+	recommendedPolicy := `{"Version":"2012-10-17","Statement":[` +
+		`{"Effect":"Allow","Action":"securityhub:*","Resource":"*"}]}`
+
 	rec := &RecommendedPolicyV2{
-		MetadataUid:    metadataUID,
-		Policy:         `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"securityhub:*","Resource":"*"}]}`,
-		GenerationTime: now,
+		MetadataUid:       metadataUID,
+		Status:            recommendationStatusSucceeded,
+		RecommendedAction: recommendedActionCreatePolicy,
+		RecommendedPolicy: recommendedPolicy,
+		PolicyUpdatedAt:   time.Now().UTC().Format(time.RFC3339),
 	}
 	b.recommendedPoliciesV2.Put(rec)
 

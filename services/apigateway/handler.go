@@ -380,24 +380,46 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
+// writeJSONProtocolDispatchError writes an ErrorResponse for a failure in
+// handleJSONProtocol itself (bad method, missing/malformed X-Amz-Target,
+// body-read failure) -- framework-level errors that never reach dispatch or
+// handleError. These previously went out as bare text/plain, which the
+// __type/message JSON error decoder shared by the JSON-RPC family
+// (aws-sdk-go-v2@v1.43.4 aws/protocol/restjson.GetErrorInfo) cannot read:
+// every such response reached a client as
+// smithy.GenericAPIError{Code:"UnknownError"} (gopherstack-wlo1).
+func writeJSONProtocolDispatchError(c *echo.Context, status int, errType, message string) error {
+	c.Response().Header().Set(headerContentType, "application/x-amz-json-1.1")
+
+	payload, err := json.Marshal(ErrorResponse{Type: errType, Message: message})
+	if err != nil {
+		return err
+	}
+
+	return c.JSONBlob(status, payload)
+}
+
 // handleJSONProtocol handles requests using the JSON protocol (X-Amz-Target header).
 func (h *Handler) handleJSONProtocol(c *echo.Context) error {
 	ctx := c.Request().Context()
 	log := logger.Load(ctx)
 
 	if c.Request().Method != http.MethodPost {
-		return c.String(http.StatusMethodNotAllowed, "Method not allowed")
+		return writeJSONProtocolDispatchError(c, http.StatusMethodNotAllowed,
+			"UnknownOperationException", "Method not allowed")
 	}
 
 	target := c.Request().Header.Get("X-Amz-Target")
 	if target == "" {
-		return c.String(http.StatusBadRequest, "Missing X-Amz-Target")
+		return writeJSONProtocolDispatchError(c, http.StatusBadRequest,
+			"UnknownOperationException", "Missing X-Amz-Target")
 	}
 
 	parts := strings.Split(target, ".")
 	const targetParts = 2
 	if len(parts) != targetParts {
-		return c.String(http.StatusBadRequest, "Invalid X-Amz-Target")
+		return writeJSONProtocolDispatchError(c, http.StatusBadRequest,
+			"UnknownOperationException", "Invalid X-Amz-Target")
 	}
 	action := parts[1]
 
@@ -405,14 +427,19 @@ func (h *Handler) handleJSONProtocol(c *echo.Context) error {
 	if err != nil {
 		log.ErrorContext(ctx, "failed to read request body", "error", err)
 
-		return c.String(http.StatusInternalServerError, "internal server error")
+		return writeJSONProtocolDispatchError(c, http.StatusInternalServerError,
+			"InternalFailure", "internal server error")
 	}
 
 	log.DebugContext(ctx, "APIGateway request", "action", action)
 
-	statusCode, response, reqErr := h.dispatch(ctx, action, body)
+	statusCode, response, raw, reqErr := h.dispatch(ctx, action, body)
 	if reqErr != nil {
 		return h.handleError(ctx, c, action, reqErr)
+	}
+
+	if raw != nil {
+		return writeRawBinaryResponse(c, statusCode, raw)
 	}
 
 	c.Response().Header().Set(headerContentType, "application/x-amz-json-1.1")
@@ -433,7 +460,7 @@ func (h *Handler) handleRESTAPI(c *echo.Context) error {
 
 	action, pathParams, ok := parseAPIGWRESTPath(c.Request().Method, c.Request().URL.Path, query)
 	if !ok {
-		return c.String(http.StatusNotFound, "not found")
+		return h.handleError(ctx, c, action, errUnknownOperation)
 	}
 
 	// ImportRestApi, PutRestApi, ImportApiKeys, and ImportDocumentationParts all
@@ -451,7 +478,8 @@ func (h *Handler) handleRESTAPI(c *echo.Context) error {
 	if err != nil {
 		logger.Load(ctx).ErrorContext(ctx, "failed to read request body", "error", err)
 
-		return c.String(http.StatusInternalServerError, "internal server error")
+		return writeJSONProtocolDispatchError(c, http.StatusInternalServerError,
+			"InternalFailure", "internal server error")
 	}
 
 	// OpenAPI import (ImportRestApi / PutRestApi) carries the raw spec document
@@ -505,9 +533,13 @@ func (h *Handler) handleRESTAPI(c *echo.Context) error {
 func (h *Handler) dispatchAndRespond(
 	ctx context.Context, c *echo.Context, action string, body []byte, contentType string,
 ) error {
-	statusCode, response, reqErr := h.dispatch(ctx, action, body)
+	statusCode, response, raw, reqErr := h.dispatch(ctx, action, body)
 	if reqErr != nil {
 		return h.handleError(ctx, c, action, reqErr)
+	}
+
+	if raw != nil {
+		return writeRawBinaryResponse(c, statusCode, raw)
 	}
 
 	c.Response().Header().Set(headerContentType, contentType)
@@ -516,6 +548,17 @@ func (h *Handler) dispatchAndRespond(
 	}
 
 	return c.JSONBlob(statusCode, response)
+}
+
+// writeRawBinaryResponse writes a *rawBinaryResponse with its real
+// Content-Type/Content-Disposition headers and raw body, bypassing the
+// JSON envelope dispatchAndRespond/handleJSONProtocol otherwise write.
+func writeRawBinaryResponse(c *echo.Context, statusCode int, raw *rawBinaryResponse) error {
+	if raw.contentDisposition != "" {
+		c.Response().Header().Set("Content-Disposition", raw.contentDisposition)
+	}
+
+	return c.Blob(statusCode, raw.contentType, raw.body)
 }
 
 // detectImportRESTAPI recognises ImportRestApi (POST /restapis?mode=import) and
@@ -589,6 +632,24 @@ func injectJSONFieldAPIGW(body []byte, key, value string) []byte {
 }
 
 type actionFn func([]byte) (int, any, error)
+
+// rawBinaryResponse marks an actionFn result that must reach the client
+// as-is: real Content-Type/Content-Disposition headers plus a raw payload,
+// never a JSON envelope. GetSdk and GetExport are the only apigateway
+// operations whose real Output structs bind ContentType/ContentDisposition
+// to HTTP headers and Body to the raw response payload (apigateway@v1.42.4
+// deserializers.go: awsRestjson1_deserializeOpHttpBindingsGetSdkOutput /
+// awsRestjson1_deserializeOpHttpBindingsGetExportOutput bind the headers;
+// awsRestjson1_deserializeOpDocumentGetSdkOutput /
+// awsRestjson1_deserializeOpDocumentGetExportOutput copy the response body
+// straight into Body with no JSON parsing). An actionFn returning
+// *rawBinaryResponse makes dispatch skip json.Marshal so dispatchAndRespond
+// can write it with c.Blob and the real headers instead.
+type rawBinaryResponse struct {
+	contentType        string
+	contentDisposition string
+	body               []byte
+}
 
 // handleStageProxyEcho routes /proxy/{apiId}/{stageName}/{path} requests to the Lambda proxy handler.
 func (h *Handler) handleStageProxyEcho(c *echo.Context) error {
@@ -702,24 +763,33 @@ func (h *Handler) buildDispatchTable() map[string]actionFn {
 	return table
 }
 
-// dispatch routes the action to the correct handler function.
-func (h *Handler) dispatch(_ context.Context, action string, body []byte) (int, []byte, error) {
-	fn, ok := h.dispatchTable()[action]
-	if !ok {
-		return 0, nil, fmt.Errorf("%w:%s", errUnknownOperation, action)
+// dispatch routes the action to the correct handler function. When the
+// handler returns a *rawBinaryResponse (see its doc comment), raw is
+// non-nil and encoded is unset -- the caller must write raw's body and
+// headers directly instead of JSON-encoding the response.
+func (h *Handler) dispatch(
+	_ context.Context, action string, body []byte,
+) (int, []byte, *rawBinaryResponse, error) {
+	fn, found := h.dispatchTable()[action]
+	if !found {
+		return 0, nil, nil, fmt.Errorf("%w:%s", errUnknownOperation, action)
 	}
 
 	statusCode, response, err := fn(body)
 	if err != nil {
-		return 0, nil, err
+		return 0, nil, nil, err
+	}
+
+	if raw, isRaw := response.(*rawBinaryResponse); isRaw {
+		return statusCode, nil, raw, nil
 	}
 
 	encoded, err := json.Marshal(response)
 	if err != nil {
-		return 0, nil, err
+		return 0, nil, nil, err
 	}
 
-	return statusCode, encoded, nil
+	return statusCode, encoded, nil, nil
 }
 
 // handleError writes a standardized JSON error response.

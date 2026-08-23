@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"slices"
 	"strconv"
 )
 
@@ -222,7 +223,7 @@ func copyImageScanFindingsResult(in *ImageScanFindingsResult) ImageScanFindingsR
 	cp.Findings = make([]ImageScanFinding, len(in.Findings))
 	for i, finding := range in.Findings {
 		cp.Findings[i] = finding
-		cp.Findings[i].Attributes = copyStringMap(finding.Attributes)
+		cp.Findings[i].Attributes = slices.Clone(finding.Attributes)
 	}
 
 	cp.EnhancedFindings = copyEnhancedFindings(in.EnhancedFindings)

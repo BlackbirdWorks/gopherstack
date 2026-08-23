@@ -1,7 +1,7 @@
 ---
 service: cognitoidp
 sdk_module: aws-sdk-go-v2/service/cognitoidentityprovider@v1.67.4
-last_audit_commit: pending (uncommitted this pass -- see git log at merge time)
+last_audit_commit:                                # unknown: pass ran without git access at write time, never backfilled -- gopherstack-33in
 last_audit_date: 2026-08-08
 overall: A                # 2026-08-08 (gopherstack-kxow): restored from B to A -- terms/, the
                        # sole reason for the prior B (its entire wire model was invented and
@@ -50,11 +50,11 @@ overall: A                # 2026-08-08 (gopherstack-kxow): restored from B to A 
 ops:
   InitiateAuth: {wire: ok, errors: ok, state: ok, persist: ok, note: "USER_PASSWORD_AUTH/ADMIN_USER_PASSWORD_AUTH/CUSTOM_AUTH/REFRESH_TOKEN_AUTH all real; PreventUserExistenceErrors masking (prior pass, gopherstack-2sp); PreTokenGeneration trigger fires on token issuance (prior pass, gopherstack-8fw); PreAuthentication/PostAuthentication/UserMigration triggers fire (prior pass); CUSTOM_AUTH a real Lambda-driven state machine (prior pass). THIS PASS (gopherstack-n7gh): USER_SRP_AUTH is now real SRP-6a (see srp.go) -- previously it required AuthParameters[PASSWORD] directly (a real SRP client never sends this, so every real-client USER_SRP_AUTH call had always failed with NotAuthorizedException). Routes to InitiateAuthSRP given AuthParameters[SRP_A]."}
   AdminInitiateAuth: {wire: ok, errors: ok, state: ok, persist: ok, note: "never masks UserNotFoundException, matching AWS (admin API); PreTokenGeneration trigger fires (prior pass); PreAuthentication/PostAuthentication/UserMigration/CUSTOM_AUTH real (prior pass). THIS PASS (gopherstack-n7gh): ADMIN_USER_SRP_AUTH is now real SRP-6a via AdminInitiateAuthSRP -- previously this flow name was not even in authenticate()'s accepted-flow switch (only \"USER_SRP_AUTH\" was), so a real client's AdminInitiateAuth SRP attempt got InvalidUserPoolConfigurationException outright, a second bug on top of the plaintext-password one."}
-  RespondToAuthChallenge: {wire: ok, errors: ok, state: ok, persist: ok, note: "SOFTWARE_TOKEN_MFA real RFC6238 TOTP; SMS_MFA/EMAIL_OTP require the generated one-time code; NEW_PASSWORD_REQUIRED real; PreTokenGeneration trigger fires on token issuance; CUSTOM_CHALLENGE handled for real (prior pass). THIS PASS (gopherstack-n7gh): PASSWORD_VERIFIER now verifies a real SRP-6a zero-knowledge password-claim signature (PASSWORD_CLAIM_SECRET_BLOCK/PASSWORD_CLAIM_SIGNATURE/TIMESTAMP against server-held (A,b,B,v) session state) instead of unconditionally issuing tokens for any session token that merely existed. Also fixed: success now runs the same FORCE_CHANGE_PASSWORD/MFA gate USER_PASSWORD_AUTH runs (postCredentialCheckLocked) -- previously RespondToSRPChallenge always issued tokens directly, bypassing NEW_PASSWORD_REQUIRED/MFA entirely for any SRP login."}
-  AdminRespondToAuthChallenge: {wire: ok, errors: ok, state: ok, persist: ok, note: "same fixes as RespondToAuthChallenge (shared backend method), including CUSTOM_CHALLENGE and PASSWORD_VERIFIER real SRP verification (this pass)"}
-  AssociateSoftwareToken: {wire: ok, errors: ok, state: ok, persist: ok}
-  VerifySoftwareToken: {wire: ok, errors: ok, state: ok, persist: ok, note: "now verifies a real RFC 6238 TOTP code against the associated secret (was: any 6 digits accepted) — gopherstack-2sp"}
-  SetUserMFAPreference: {wire: ok, errors: ok, state: ok, persist: ok}
+  RespondToAuthChallenge: {wire: ok, errors: ok, state: ok, persist: ok, note: "SOFTWARE_TOKEN_MFA real RFC6238 TOTP; SMS_MFA/EMAIL_OTP require the generated one-time code; NEW_PASSWORD_REQUIRED real; PreTokenGeneration trigger fires on token issuance; CUSTOM_CHALLENGE handled for real (prior pass). gopherstack-n7gh: PASSWORD_VERIFIER now verifies a real SRP-6a zero-knowledge password-claim signature (PASSWORD_CLAIM_SECRET_BLOCK/PASSWORD_CLAIM_SIGNATURE/TIMESTAMP against server-held (A,b,B,v) session state) instead of unconditionally issuing tokens for any session token that merely existed. Also fixed: success now runs the same FORCE_CHANGE_PASSWORD/MFA gate USER_PASSWORD_AUTH runs (postCredentialCheckLocked) -- previously RespondToSRPChallenge always issued tokens directly, bypassing NEW_PASSWORD_REQUIRED/MFA entirely for any SRP login. CLOSED 2026-08-22 (gopherstack-1b07): MFA_SETUP is now a real, reachable challenge. mfaChallengeType (mfa.go) previously defaulted every MFA-required user with no PreferredMfaSetting straight to SOFTWARE_TOKEN_MFA, including a user who had never called AssociateSoftwareToken -- a dead end, since RespondToMFAChallenge requires a TOTP secret that was never associated. It now returns MFA_SETUP (InitiateAuth doc: 'For users who are required to setup an MFA factor before they can sign in') unless the user already has a verified software token (user.TOTPVerified) or an explicit preference. RespondToAuthChallenge/AdminRespondToAuthChallenge handle ChallengeName=MFA_SETUP via new backend method RespondToMFASetupChallenge, which requires the session's user to have TOTPVerified (set by VerifySoftwareToken), records SOFTWARE_TOKEN_MFA as the user's MFA preference, and issues tokens -- completing InitiateAuth's documented 'use the session returned by VerifySoftwareToken as an input to RespondToAuthChallenge ... with challenge name MFA_SETUP to complete sign-in.' NOT modeled: the MFAS_CAN_SETUP challenge-parameter value InitiateAuth's doc says accompanies MFA_SETUP (ChallengeParameters is not populated for any of this backend's non-SRP challenges, a pre-existing gap this pass did not extend to fix) and any session single-use/rotation semantics across AssociateSoftwareToken -> VerifySoftwareToken -> RespondToAuthChallenge -- the SDK's doc prose never states whether each op consumes/rotates the session, so this backend echoes the same session token unchanged through all three calls (only the final RespondToAuthChallenge call actually deletes it) rather than inventing rotation behavior."}
+  AdminRespondToAuthChallenge: {wire: ok, errors: ok, state: ok, persist: ok, note: "same fixes as RespondToAuthChallenge (shared backend method), including CUSTOM_CHALLENGE and PASSWORD_VERIFIER real SRP verification (gopherstack-n7gh) and MFA_SETUP (gopherstack-1b07, this pass)"}
+  AssociateSoftwareToken: {wire: ok, errors: ok, state: ok, persist: ok, note: "CLOSED 2026-08-22 (gopherstack-1b07): now also accepts Session as documented alternate to AccessToken, resolving the user via the MFA_SETUP challenge session InitiateAuth/AdminInitiateAuth issues instead of always requiring findUserByAccessTokenLocked. See RespondToAuthChallenge note for the full flow."}
+  VerifySoftwareToken: {wire: ok, errors: ok, state: ok, persist: ok, note: "now verifies a real RFC 6238 TOTP code against the associated secret (was: any 6 digits accepted) — gopherstack-2sp. CLOSED 2026-08-22 (gopherstack-1b07): now also accepts Session as documented alternate to AccessToken (see AssociateSoftwareToken/RespondToAuthChallenge)."}
+  SetUserMFAPreference: {wire: ok, errors: ok, state: ok, persist: ok, note: "SetUserMFAPreferenceInput has NO Session field in the real SDK -- AccessToken is `This member is required` (api_op_SetUserMFAPreference.go). Earlier notes on this op family (gopherstack-1b07's own filing, and the PARITY entry it came from) incorrectly claimed a documented Session alternate here; corrected 2026-08-22. This op was never actually affected by the MFA_SETUP Session gap."}
   AdminSetUserMFAPreference: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateUserPool: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeUserPool: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -73,7 +73,7 @@ ops:
   ConfirmSignUp: {wire: ok, errors: ok, state: ok, persist: ok, note: "expiring codes, CodeMismatchException/ExpiredCodeException; PostConfirmation trigger fires fire-and-observe -- invocation errors surface but do not roll back confirmation, matching AWS; PreventUserExistenceErrors=ENABLED now masks an unknown username behind CodeMismatchException, the same error a real-but-wrong-code account produces (this pass, closes remainder of gopherstack-aib)"}
   AdminConfirmSignUp: {wire: ok, errors: ok, state: ok, persist: ok, note: "PostConfirmation trigger now fires (this pass), same source/semantics as ConfirmSignUp"}
   ResendConfirmationCode: {wire: ok, errors: ok, state: ok, persist: ok, note: "PreventUserExistenceErrors=ENABLED now masks unknown-user UserNotFoundException as a fabricated success (prior pass, closes gopherstack-aib); CustomMessage trigger now fires (this pass)"}
-  AdminCreateUser: {wire: ok, errors: ok, state: ok, persist: ok, note: "PreSignUp trigger now fires (source PreSignUp_AdminCreateUser); only autoVerifyEmail/autoVerifyPhone applied, autoConfirmUser has no target state for admin-created users (this pass)"}
+  AdminCreateUser: {wire: ok, errors: ok, state: ok, persist: ok, note: "PreSignUp trigger now fires (source PreSignUp_AdminCreateUser); only autoVerifyEmail/autoVerifyPhone applied, autoConfirmUser has no target state for admin-created users (this pass). FIXED 2026-08-22 (gopherstack-zquj): adminUserJSON's attribute list was tagged json:\"UserAttributes\", but AdminCreateUserOutput.User is a UserType whose own member is \"Attributes\" -- every real client's User.Attributes decoded nil. See Notes below."}
   AdminSetUserPassword: {wire: ok, errors: ok, state: ok, persist: ok}
   AdminGetUser: {wire: ok, errors: ok, state: ok, persist: ok}
   AdminDeleteUser: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -86,7 +86,7 @@ ops:
   GlobalSignOut: {wire: ok, errors: ok, state: ok, persist: ok, note: "same revocation mechanism as AdminUserGlobalSignOut"}
   RevokeToken: {wire: ok, errors: ok, state: ok, persist: ok}
   ListUsers: {wire: ok, errors: ok, state: ok, persist: ok, note: "pkgs/page-style pagination"}
-  ListUsersInGroup: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListUsersInGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-22 (gopherstack-zquj): same adminUserJSON \"UserAttributes\"-vs-\"Attributes\" bug as AdminCreateUser (this type backs both ops' item shape). See Notes below."}
   ForgotPassword: {wire: ok, errors: ok, state: ok, persist: ok, note: "PreventUserExistenceErrors=ENABLED masks unknown-user UserNotFoundException as a fabricated success (prior pass, closes gopherstack-aib); CustomMessage trigger now fires (prior pass, gopherstack-8fw). THIS PASS (gopherstack-n7gh follow-up): an unknown username now also tries the UserMigration_ForgotPassword Lambda trigger (user_migration.go's tryUserMigrationForgotPassword) before falling back to PreventUserExistenceErrors masking / UserNotFoundException, matching the documented 'user migration during forgot-password flow' trigger source. Per AWS docs, no password is sent in this event (request.password is omitted entirely, not sent empty) since the user has none yet."}
   ConfirmForgotPassword: {wire: ok, errors: ok, state: ok, persist: ok, note: "PreventUserExistenceErrors=ENABLED now masks an unknown username behind CodeMismatchException, same rationale as ConfirmSignUp (this pass, closes remainder of gopherstack-aib)"}
   ChangePassword: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -103,19 +103,20 @@ ops:
   GetUserPoolMfaConfig/SetUserPoolMfaConfig: {wire: ok, errors: ok, state: ok, persist: ok}
   jwks_well_known: {wire: ok, errors: ok, state: ok, persist: ok, note: "RS256, real RSA-2048 per pool, JWKS + GetSigningCertificate both derive from the same key"}
   AdminGetUserAuthFactors: {wire: ok, errors: ok, state: ok, persist: ok, note: "parity-4, new SDK op. Field-diffed AdminGetUserAuthFactorsOutput against the SDK: Username/ConfiguredUserAuthFactors/PreferredMfaSetting/UserMFASettingList all present. Factors are derived from real user state, not fabricated: PASSWORD from user.PasswordHash != \"\"; SMS_OTP from UserMFASettingList containing SMS_MFA or any legacy MFAOptions[].DeliveryMedium == SMS; SOFTWARE_TOKEN from user.TOTPVerified or SOFTWARE_TOKEN_MFA in UserMFASettingList; WEB_AUTHN from a non-empty webauthnCredentials entry for the user. Shares its PASSWORD/SMS_OTP/WEB_AUTHN derivation with the existing GetUserAuthFactors via a new commonAuthFactorSetLocked helper (users.go) -- GetUserAuthFactors' own behavior/output is unchanged, only the shared plumbing was extracted. Adds SOFTWARE_TOKEN, a factor GetUserAuthFactors does not currently derive (tracked as items_still_open for that op, not fixed this pass to avoid touching a previously-graded, tested op outside this pass's scope)."}
-  user_import_jobs: {status: ok, note: "op-by-op re-walk THIS PASS (gopherstack-n7gh follow-up): field-diffed userImportJobType against types.UserImportJobType and found CreateUserImportJobInput's required CloudWatchLogsRoleArn and optional PasswordHashingAlgorithm were accepted by no input field at all (silently dropped -- class a) -- fixed, now stored and echoed. Also added CreationDate/StartDate/CompletionDate (CreatedAt was already tracked internally but never echoed; StartedAt/CompletedAt added, set by StartUserImportJob/StopUserImportJob), PreSignedUrl (fabricated the same way domains.go fabricates CloudFrontDistribution/S3Bucket -- an AWS-internal value no caller can validate), and FailedUsers/ImportedUsers/SkippedUsers=0 (honest: this backend has no real CSV-processing pipeline, so zero imported/failed/skipped is literally true, not fabricated). DEFERRED, not fixed: ListUserImportJobsInput.MaxResults is a required real field this backend's listUserImportJobsInput doesn't even declare -- no pagination is implemented (matches the same gap in resource_servers, see below); ListUserImportJobs returns everything in one page regardless of MaxResults."}
+  user_import_jobs: {status: fixed, note: "FIXED 2026-08-21 (gopherstack-muzq): StartUserImportJob correctly stamps InProgress, and StopUserImportJob correctly reaches Stopped -- but the self-completion path (a real import job finishes on its own once its CSV is processed, per UserImportJobStatusType's InProgress->Succeeded/Failed transitions, cognitoidp@v1.67.4 types/enums.go) did not exist: nothing but an explicit client Stop ever wrote to Status again. TestUserImportJob_CRUD only ever asserted InProgress right after Start then moved straight to Stop, so a machine that never self-advances was indistinguishable from a correct one. Confirmed no other advancing path anywhere in the package. Reused the package's own existing Janitor (janitor.go, a worker.Group ticker that already sweeps expired refresh tokens/MFA sessions) rather than inventing new infrastructure: added AdvanceUserImportJobStatuses(minAge) (user_import.go), mirroring bedrock's AdvanceCustomizationJobStatuses(minAge) shape, wired into Janitor.SweepOnce. New test TestUserImportJob_SelfCompletesToSucceeded (user_import_test.go) drives the janitor directly and asserts DescribeUserImportJob eventually reports Succeeded with no Stop call. Hand-reverted user_import.go+janitor.go to git show HEAD, confirmed the new test fails (Condition never satisfied, status stuck InProgress), restored, md5sum byte-identical. op-by-op re-walk THIS PASS (gopherstack-n7gh follow-up): field-diffed userImportJobType against types.UserImportJobType and found CreateUserImportJobInput's required CloudWatchLogsRoleArn and optional PasswordHashingAlgorithm were accepted by no input field at all (silently dropped -- class a) -- fixed, now stored and echoed. Also added CreationDate/StartDate/CompletionDate (CreatedAt was already tracked internally but never echoed; StartedAt/CompletedAt added, set by StartUserImportJob/StopUserImportJob), PreSignedUrl (fabricated the same way domains.go fabricates CloudFrontDistribution/S3Bucket -- an AWS-internal value no caller can validate), and FailedUsers/ImportedUsers/SkippedUsers=0 (honest: this backend has no real CSV-processing pipeline, so zero imported/failed/skipped is literally true, not fabricated). DEFERRED, not fixed: ListUserImportJobsInput.MaxResults is a required real field this backend's listUserImportJobsInput doesn't even declare -- no pagination is implemented (matches the same gap in resource_servers, see below); ListUserImportJobs returns everything in one page regardless of MaxResults."}
   devices: {status: ok, note: "op-by-op re-walk THIS PASS: field-diffed deviceType against types.DeviceType and confirmed absence carefully -- the real DeviceType has exactly 5 fields (DeviceAttributes/DeviceCreateDate/DeviceKey/DeviceLastAuthenticatedDate/DeviceLastModifiedDate) and NO DeviceStatus field at all; device remembered status is write-only via AdminUpdateDeviceStatus/UpdateDeviceStatus's DeviceRememberedStatus and is never readable back through Get/List/AdminGet/AdminList in real Cognito. This backend's deviceType.DeviceStatus is therefore an EXTRA fabricated field not on the real wire -- flagged, NOT fixed: several existing tests (devices_test.go) assert on it, a real AWS SDK JSON client harmlessly ignores unknown response keys, and removing it would only lose test-observable state for a purely cosmetic gain. Documented as a trap below rather than silently left as-is. Evidence, checked 2026-08-13 against aws-sdk-go-v2/service/cognitoidentityprovider@v1.67.4 types/types.go:677-698: struct DeviceType has exactly DeviceAttributes/DeviceCreateDate/DeviceKey/DeviceLastAuthenticatedDate/DeviceLastModifiedDate, no DeviceStatus member; the awsAwsjson11_deserializeDocumentDeviceType default case (deserializers.go) discards unrecognized keys, confirming the extra field is additive-only, not a wire break. Re-derive by diffing that struct against whatever cognitoidentityprovider version go.mod pins next -- do not assume this verdict survives an SDK bump unchecked."}
-  webauthn: {status: ok, note: "op-by-op re-walk THIS PASS found and fixed two real bugs. (1) The response wire key was wrong: this backend emitted \"FriendlyName\", but the real WebAuthnCredentialDescription's JSON key (confirmed in deserializers.go) is \"FriendlyCredentialName\" -- meaning no real aws-sdk-go-v2 client could ever read this field back; a classic wrong-shape bug parity-principles.md warns about, caught only by reading the actual struct/deserializer, not the handler's own output. (2) AuthenticatorTransports, a REQUIRED field on WebAuthnCredentialDescription, was entirely absent; it is honestly derivable from the client-submitted Credential blob's response.transports (a real WebAuthn PublicKeyCredential.toJSON() field), which was already being accepted but never read (class a) -- now extracted and threaded through CompleteWebAuthnRegistration/ListWebAuthnCredentials."}
+  webauthn: {status: ok, note: "op-by-op re-walk THIS PASS found and fixed two real bugs. (1) The response wire key was wrong: this backend emitted \"FriendlyName\", but the real WebAuthnCredentialDescription's JSON key (confirmed in deserializers.go) is \"FriendlyCredentialName\" -- meaning no real aws-sdk-go-v2 client could ever read this field back; a classic wrong-shape bug parity-principles.md warns about, caught only by reading the actual struct/deserializer, not the handler's own output. (2) AuthenticatorTransports, a REQUIRED field on WebAuthnCredentialDescription, was entirely absent; it is honestly derivable from the client-submitted Credential blob's response.transports (a real WebAuthn PublicKeyCredential.toJSON() field), which was already being accepted but never read (class a) -- now extracted and threaded through CompleteWebAuthnRegistration/ListWebAuthnCredentials. UPDATE 2026-08-21 (gopherstack-r80d batch 19): required Credentials array was still tagged omitempty on ListWebAuthnCredentialsOutput, dropping the key for a user with zero registered credentials despite the handler already building a non-nil empty slice -- fixed, see Notes below."}
   managed_login_branding: {status: ok, note: "op-by-op re-walk THIS PASS found the largest gap in this sweep: Settings (the branding style JSON), Assets (the array of logo/background image files), and UseCognitoProvidedValues -- literally the entire payload of the 'managed login branding' feature -- were accepted by no input field at all on Create/Update and never echoed on any read (class a, not a minor omission). Fixed: stored as the raw client-supplied documents, un-transformed, the same pattern UserPool.LambdaConfig already uses for its own arbitrary-shaped config, since Settings is an AWS Document type (arbitrary JSON) this backend has no reason to model field-by-field. Also fixed CreationDate/LastModifiedDate (CreatedAt/LastModifiedAt were already tracked internally but never echoed -- class b, bounded)."}
-  risk_config: {status: ok, note: "op-by-op re-walk THIS PASS: the live path (SetRiskConfigurationFull/DescribeRiskConfigurationFull, wired via securityConfigOpsB overriding securityConfigOpsA -- same domainsOpsA/B shadowing pattern as domains.go) is a real, fully typed implementation already field-diffed clean against RiskConfigurationType/AccountTakeoverRiskConfigurationType/CompromisedCredentialsRiskConfigurationType/RiskExceptionConfigurationType in a prior pass. Confirmed the securityConfigOpsA SetRiskConfiguration/DescribeRiskConfiguration handlers that hardcode nil are DEAD code (shadowed, never dispatched), not a live bug -- verified by reading handler.go's maps.Copy ordering, not assumed. DEFERRED, not fixed: RiskConfigurationType.LastModifiedDate is not tracked internally at all (no LastModifiedAt field on the risk-config storage type), so it can't be added as cheaply as the CreatedAt-echo fixes elsewhere this pass."}
+  risk_config: {status: ok, note: "op-by-op re-walk THIS PASS: the live path (SetRiskConfigurationFull/DescribeRiskConfigurationFull, wired via securityConfigOpsB overriding securityConfigOpsA -- same domainsOpsA/B shadowing pattern as domains.go) is a real, fully typed implementation already field-diffed clean against RiskConfigurationType/AccountTakeoverRiskConfigurationType/CompromisedCredentialsRiskConfigurationType/RiskExceptionConfigurationType in a prior pass. Confirmed the securityConfigOpsA SetRiskConfiguration/DescribeRiskConfiguration handlers that hardcode nil are DEAD code (shadowed, never dispatched), not a live bug -- verified by reading handler.go's maps.Copy ordering, not assumed. DEFERRED, not fixed: RiskConfigurationType.LastModifiedDate is not tracked internally at all (no LastModifiedAt field on the risk-config storage type), so it can't be added as cheaply as the CreatedAt-echo fixes elsewhere this pass. UPDATE 2026-08-21 (gopherstack-r80d batch 19): NotifyConfigurationType.SourceArn (required whenever NotifyConfiguration is present) was tagged omitempty and dropped when a real client sent an explicit empty-string SourceArn (the real SDK's client-side validator only null-checks the pointer, not its content) -- fixed. AccountTakeoverActionType.Notify's omitempty (drops a real `false`) also fixed but not counted as a bug, since no real client round trip can distinguish an omitted key from an explicit false. AccountTakeoverRiskConfigurationType.Actions/CompromisedCredentialsRiskConfigurationType.Actions confirmed structurally unreachable-empty: the real SDK's own client-side validators reject a nil Actions before the request is ever sent. See Notes below."}
   domains: {status: ok, note: "CreateUserPoolDomain/DescribeUserPoolDomain/DeleteUserPoolDomain/UpdateUserPoolDomain — field-diffed DomainDescriptionType against the SDK: DescribeUserPoolDomain was missing CustomDomainConfig entirely (prior pass) — fixed then. THIS PASS (gopherstack-n7gh follow-up): AWSAccountId/ManagedLoginVersion/S3Bucket now populated. AWSAccountId echoes the backend's own accountID (same source ARN-building already uses, e.g. arn.Build calls in user_pools.go) rather than pkgs/awsmeta, since nothing in this service's dispatch path ever calls awsmeta.Set -- reading awsmeta.Account(ctx) here would have always silently resolved to its hardcoded default, not real per-backend state. ManagedLoginVersion is a real request field on CreateUserPoolDomain/UpdateUserPoolDomainInput AND a real response field (verified in both api_op_*.go files) that was accepted by neither our create nor update input struct at all (class a) -- fixed, defaults to 1 (hosted UI classic) when unset at creation, an explicit undocumented-default assumption (AWS doesn't state the default in godoc), left unchanged on update when omitted. S3Bucket is fabricated the same way CloudFrontDistribution already was (an AWS-internal bucket name, informational-only, not independently verifiable by any client). Routing/Version (also real DomainDescriptionType fields) remain unpopulated -- multi-region domain routing and app-version reporting this backend has no model for; tracked as items_still_open, not silently dropped."}
-  terms: {status: ok, note: "CLOSED 2026-08-08 (gopherstack-kxow): full redesign around the real wire model, field-diffed against api_op_CreateTerms.go/api_op_DeleteTerms.go/api_op_DescribeTerms.go/api_op_ListTerms.go/api_op_UpdateTerms.go and types.TermsType/TermsDescriptionType/TermsEnforcementType/TermsSourceType -- the complete op family the SDK defines; no GetTerms exists (confirmed by directory listing, not assumed). CreateTerms now requires ClientId/Enforcement/TermsName/TermsSource/UserPoolId and accepts Links (map[string]string); Enforcement/TermsSource are validated against their real single-value enums (NONE/LINK, 'reserved for future use' per the SDK godoc). Storage rescoped: terms is now a store.Table[Terms] keyed by a server-generated TermsID (uuid, matching AWS's opaque TermsId) with a byPool secondary index for ListTerms, replacing the old table keyed directly by UserPoolID (which could hold only one bare {UserPoolID,Text} record per pool, structurally incompatible with the real multi-document-per-client model). CreateTerms validates ClientId belongs to UserPoolId (ResourceNotFoundException) and rejects a duplicate ClientId+TermsName pair (TermsExistsException, a real error code on CreateTerms/UpdateTerms per deserializers.go). Describe/Update/Delete take TermsId+UserPoolId and 404 if TermsId doesn't belong to that pool. ListTerms now paginates for real (pkgs/page, MaxResults/NextToken) where the old op ignored both. List output uses TermsDescriptionType (TermsId/TermsName/Enforcement/CreationDate/LastModifiedDate only -- no ClientId/Links/TermsSource/UserPoolId, confirmed by reading the full struct, not assumed from TermsType). cognitoidpSnapshotVersion deliberately NOT bumped despite the Terms DTO shape/key change: Restore discards the ENTIRE snapshot on a version mismatch (persistence.go), so bumping would lose every pool/user/password-hash/MFA-setting on upgrade to protect one table that cannot hold real pre-redesign data anyway (CreateTerms was unreachable by any real SDK client before this fix). Restore instead handles terms separately via restoreTermsLocked: it decodes defensively and drops any row that doesn't carry a real TermsID (a v1 pre-redesign {UserPoolID,Text} row decodes with TermsID empty and is filtered out), while every other table restores normally. Covered by TestInMemoryBackend_RestoreDropsPreRedesignTerms (splices an old-shape terms payload into an otherwise-real snapshot and asserts pools/users survive while terms comes back empty). New tests in terms_test.go drive real required-field JSON through the handler (the exact thing the old bug hid behind) and were verified to fail against the pre-fix code in a worktree before the fix landed."}
+  terms: {status: ok, note: "CLOSED 2026-08-08 (gopherstack-kxow): full redesign around the real wire model, field-diffed against api_op_CreateTerms.go/api_op_DeleteTerms.go/api_op_DescribeTerms.go/api_op_ListTerms.go/api_op_UpdateTerms.go and types.TermsType/TermsDescriptionType/TermsEnforcementType/TermsSourceType -- the complete op family the SDK defines; no GetTerms exists (confirmed by directory listing, not assumed). CreateTerms now requires ClientId/Enforcement/TermsName/TermsSource/UserPoolId and accepts Links (map[string]string); Enforcement/TermsSource are validated against their real single-value enums (NONE/LINK, 'reserved for future use' per the SDK godoc). Storage rescoped: terms is now a store.Table[Terms] keyed by a server-generated TermsID (uuid, matching AWS's opaque TermsId) with a byPool secondary index for ListTerms, replacing the old table keyed directly by UserPoolID (which could hold only one bare {UserPoolID,Text} record per pool, structurally incompatible with the real multi-document-per-client model). CreateTerms validates ClientId belongs to UserPoolId (ResourceNotFoundException) and rejects a duplicate ClientId+TermsName pair (TermsExistsException, a real error code on CreateTerms/UpdateTerms per deserializers.go). Describe/Update/Delete take TermsId+UserPoolId and 404 if TermsId doesn't belong to that pool. ListTerms now paginates for real (pkgs/page, MaxResults/NextToken) where the old op ignored both. List output uses TermsDescriptionType (TermsId/TermsName/Enforcement/CreationDate/LastModifiedDate only -- no ClientId/Links/TermsSource/UserPoolId, confirmed by reading the full struct, not assumed from TermsType). cognitoidpSnapshotVersion deliberately NOT bumped despite the Terms DTO shape/key change: Restore discards the ENTIRE snapshot on a version mismatch (persistence.go), so bumping would lose every pool/user/password-hash/MFA-setting on upgrade to protect one table that cannot hold real pre-redesign data anyway (CreateTerms was unreachable by any real SDK client before this fix). Restore instead handles terms separately via restoreTermsLocked: it decodes defensively and drops any row that doesn't carry a real TermsID (a v1 pre-redesign {UserPoolID,Text} row decodes with TermsID empty and is filtered out), while every other table restores normally. Covered by TestInMemoryBackend_RestoreDropsPreRedesignTerms (splices an old-shape terms payload into an otherwise-real snapshot and asserts pools/users survive while terms comes back empty). New tests in terms_test.go drive real required-field JSON through the handler (the exact thing the old bug hid behind) and were verified to fail against the pre-fix code in a worktree before the fix landed. UPDATE 2026-08-21 (gopherstack-r80d batch 19): required TermsType.Links was still tagged omitempty and dropped whenever Links was omitted on Create (a real, reachable state) -- fixed, see Notes below."}
   log_delivery: {status: ok, note: "op-by-op re-walk THIS PASS found SetLogDeliveryConfiguration was a disguised stub (parity-principles.md rule 4): handleSetLogDeliveryConfiguration called Backend.SetLogDeliveryConfiguration(in.UserPoolID, nil) UNCONDITIONALLY -- the client's LogConfigurations payload (a required field) was never read at all, and the input struct didn't even declare it, so Set was a no-op regardless of what was sent, and Get always echoed back whatever Set never stored. Fixed: LogConfigurations is now accepted (stored/echoed as the raw client-supplied array, same un-transformed-map pattern as LambdaConfig/managed_login_branding's Settings, given the nested CloudWatchLogsConfigurationType/FirehoseConfigurationType/S3ConfigurationType/EventSourceName/LogLevel enum tree) and wrapped in the real LogDeliveryConfigurationType shape ({UserPoolId, LogConfigurations})."}
   identity_providers: {status: ok, note: "FULL field diff THIS PASS (not just spot-checked): identityProviderJSON/identityProviderSummaryJSON (the live 'Full'/accurate wire path, wired the same domainsOpsA/B-shadowing way as domains.go) match types.IdentityProviderType and types.ProviderDescription field-for-field -- AttributeMapping/CreationDate/IdpIdentifiers/LastModifiedDate/ProviderDetails/ProviderName/ProviderType/UserPoolId all present with correct field names and epoch-seconds timestamps. No gaps found; confirmed clean rather than assumed."}
-  resource_servers: {status: ok, note: "FULL field diff THIS PASS: resourceServerAccurateType matches types.ResourceServerType exactly (Identifier/Name/Scopes/UserPoolId, no timestamp fields on the real type either). No gaps found. DEFERRED, not fixed: ListResourceServersInput.MaxResults/PaginationToken are real optional request fields and ListResourceServersOutput.NextToken is a real response field, none of which this backend implements -- ListResourceServers always returns every resource server in one page, the same unimplemented-pagination gap found in user_import_jobs above."}
+  resource_servers: {status: ok, note: "FULL field diff THIS PASS: resourceServerAccurateType matches types.ResourceServerType exactly (Identifier/Name/Scopes/UserPoolId, no timestamp fields on the real type either). No gaps found. DEFERRED, not fixed: ListResourceServersInput.MaxResults/PaginationToken are real optional request fields and ListResourceServersOutput.NextToken is a real response field, none of which this backend implements -- ListResourceServers always returns every resource server in one page, the same unimplemented-pagination gap found in user_import_jobs above. UPDATE 2026-08-21 (gopherstack-r80d batch 19): ResourceServerScopeType.ScopeName/.ScopeDescription (both required *string per scope) were tagged omitempty and dropped when a real client sent an explicit empty-string value (the real SDK's client-side validator only null-checks the pointer, not its content) -- fixed. See Notes below."}
   user_pool_replicas: {status: ok, note: "parity-4, new family (multi-Region replication / MRR): CreateUserPoolReplica/ListUserPoolReplicas/UpdateUserPoolReplica/DeleteUserPoolReplica. UserPoolReplicaType field-diffed against the SDK (RegionName/Role/Status/UserPoolArn); the X-Amz-Target names and CreateUserPoolReplicaOutput/DeleteUserPoolReplicaOutput/UpdateUserPoolReplicaOutput/ListUserPoolReplicasOutput field names (all singular 'UserPoolReplica' except the List op's plural 'UserPoolReplicas') were confirmed against deserializers.go, not assumed from the (looser) dev-guide prose, which shows a JSON example using a 'Replica' key that does NOT match the real wire field -- a live trap for a future auditor who trusts the docs example over the SDK. CreateUserPoolReplica validates the pool exists (ResourceNotFoundException) and rejects a replica Region equal to the primary pool's own Region (InvalidParameterException) -- both real, documented AWS behaviors. It also enforces the real documented constraint 'You can have at most one secondary replica in an additional Region per user directory' by rejecting a second CreateUserPoolReplica call for the same pool regardless of region (InvalidParameterException) -- this is NOT an invented restriction, it is quoted verbatim from the Cognito multi-Region-replication developer guide. New replicas start Status=INACTIVE per that same guide ('New secondary user pools start in the INACTIVE state'); note the guide's own JSON example elsewhere shows an initial 'PENDING_CREATE' status that is not even a member of the SDK's ReplicaStatusType enum (CREATING/ACTIVE/INACTIVE/DELETING) -- INACTIVE was chosen as the only real, both-documented-and-enum-valid option; this is a explicit, documented assumption, not a fabrication, but flagged for the next auditor to re-verify against a live pool if ever possible. DeleteUserPoolReplica returns the replica with Status transitioned to DELETING (mirroring AWS's documented async deletion) before removing it. UserPoolTags on Create are stored under the replica's own ARN via the existing resourceTags/ListTagsForResource mechanism (real state, not dropped). Persisted via a new userPoolReplicas store.Table (composite poolID:region key, byPool index), round-tripped through Snapshot/Restore, covered by TestInMemoryBackend_SnapshotRestore's full_state_round_trip case."}
   provisioned_limits: {status: ok, note: "parity-4, new family: GetProvisionedLimit/UpdateProvisionedLimit. Confirmed ACCOUNT-LEVEL (not per-user-pool) by fetching the live Cognito quotas developer guide this pass: 'Provisioned limits are account-level resources. They apply to the aggregate rate of all requests from all user pools in one AWS Region in your AWS account' -- this backend models exactly one account+Region so GetProvisionedLimit/UpdateProvisionedLimit take no UserPoolId and do no pool-existence check, which is correct, not an oversight. LimitDefinitionType/LimitType field-diffed against the SDK (LimitClass/Attributes, FreeLimitValue/ProvisionedLimitValue/LimitDefinition). The 18 API_CATEGORY default (free) RPS values in provisioned_limits.go's category table (UserAuthentication=120, UserCreation=50, UserFederation=25, UserAccountRecovery=30, UserRead=120, UserUpdate=25, UserToken=120, UserResourceRead=50, UserResourceUpdate=25, UserList=30, UserPoolRead=15, UserPoolUpdate=15, UserPoolResourceRead=20, UserPoolResourceUpdate=15, UserPoolClientRead=15, UserPoolClientUpdate=15, ClientAuthentication=150, LimitManagement=1) and their Adjustable:Yes/No flags are the real, live-fetched values from 'Amazon Cognito user pools API operation categories and request rate quotas' -- not invented. UpdateProvisionedLimit rejects non-adjustable categories (InvalidParameterException, matching 'Only adjustable quota categories support provisioning') and rejects a negative RequestedLimitValue. One explicit, documented assumption: AWS's real two-tier model has a Service-Quotas-granted 'account-level max limit' above the provisioned limit, but that ceiling is account-specific (granted by AWS Support) with no universal published number -- this backend models an adjustable category's account-level max as 10x its documented default RPS (accountMaxMultiplier in provisioned_limits.go) and enforces it with ServiceQuotaExceededException, the real exception name AWS uses for this condition. Persisted via a new flat provisionedLimits map[string]int32 (Category -> current value), round-tripped through Snapshot/Restore."}
 gaps:
+  - "CLOSED 2026-08-22 (gopherstack-xasq): SchemaAttribute wrote StringAttributeMinLength/MaxLength (int64) and NumberAttributeMinValue/MaxValue (float64) as flat top-level fields; the real SchemaAttributeType nests these as string-valued sub-objects (StringAttributeConstraints{MinLength,MaxLength}/NumberAttributeConstraints{MinValue,MaxValue} -- confirmed via awsAwsjson11_deserializeDocumentSchemaAttributeType/...NumberAttributeConstraintsType/...StringAttributeConstraintsType, cognitoidentityprovider@v1.67.4 deserializers.go:25283/24065/25745, and the matching serializers.go:9250/8993/9437 on the request side). Fixed by replacing the four flat fields with two new nested, string-valued struct types (numberAttributeConstraintsJSON, stringAttributeConstraintsJSON). AddCustomAttributesInput.CustomAttributes is the one genuine request-side use of SchemaAttribute (serializers.go:9696-9713) -- confirmed broken pre-fix: constraints a caller set there were silently dropped, since the real client never sends the flat keys this backend read. CreateUserPool/DescribeUserPool responses (userPoolDataAccurate.SchemaAttributes) were the other affected surface. Two corrections to this bug's original scope: UpdateUserPool is NOT affected -- UpdateUserPoolOutput carries no UserPool/schema data at all in the real API (api_op_UpdateUserPool.go), and UpdateUserPoolInput has no Schema field either (schema is immutable after creation in real Cognito, confirmed by its absence from serializers.go's UpdateUserPoolInput serializer). ListUserPools is also not really affected by this specific defect -- UserPoolDescriptionType (its real response element) has no SchemaAttributes field at all (deserializers.go's case list for it: CreationDate/Id/LambdaConfig/LastModifiedDate/Name/ReplicaRegions/Status only), so gopherstack's userPoolData.SchemaAttributes there was already a harmless extra key ignored by any real client regardless of shape, not a min/max-dropping bug; left as-is since an unknown extra key costs nothing and no test depends on removing it. cognitoidpSnapshotVersion bumped 1 -> 2 (structural retype of a persisted field, not additive -- confirmed via pkgs/persistence's TestSnapshotVersionGuard, golden refreshed with -update). Proven via a real-SDK-client round trip (schema_attribute_constraints_test.go) confirmed to fail against the pre-fix flat shape (StringAttributeConstraints/NumberAttributeConstraints decoded nil) and pass after; a pre-existing test (TestInMemoryBackend_RestoreDropsPreRedesignTerms) hardcoded a literal snapshot version=1 and had to be updated to stop hardcoding it, since it happened to equal the then-current version rather than actually testing anything about that number."
   - "CLOSED 2026-08-08 (gopherstack-kxow): terms/ was built on an entirely invented wire model (createTermsInput={UserPoolId}, termsType={DefaultTermsAndConditions}) that no real aws-sdk-go-v2 client could ever reach -- CreateTerms's own client-side validation middleware rejects the request before it is even sent, since ClientId/Enforcement/TermsName/TermsSource are all required and none existed here. Full redesign: real input/output modeled for all 5 real ops (Create/Delete/Describe/List/Update -- there is no GetTerms), storage rescoped to a TermsID-keyed store.Table with a byPool index (was: one record per UserPoolID), TermsEnforcementType/TermsSourceType enums validated, TermsExistsException added, ListTerms pagination implemented for real. See families.terms above for full detail and SDK citations."
   - "CLOSED 2026-08-07 (gopherstack-n7gh, was gopherstack-p8i): USER_SRP_AUTH/ADMIN_USER_SRP_AUTH now implement real SRP-6a (services/cognitoidp/srp.go). The algorithm (3072-bit RFC 5054 N, g=2, k=H(PAD(N)|PAD(g)), x=H(PAD(salt)|H(poolName|username|\":\"|password)), server B=(k*v+g^b) mod N, server S=(A*v^u)^b mod N, HKDF-SHA256 with the \"Caldera Derived Key\" info string truncated to 16 bytes, HMAC-SHA256 password-claim signature over poolName|username|secretBlock|timestamp) was verified field-by-field against amazon-cognito-identity-js's AuthenticationHelper.js/CognitoUser.js/DateHelper.js -- the reference client implementation AWS itself publishes -- not reconstructed from memory. Locked in by an INDEPENDENTLY-written second implementation of the same client-side math in test code (srp_client_test.go, package cognitoidp_test, cannot see srp.go's unexported symbols) that performs a real handshake against the server and must derive the identical signature; see srp_test.go for the round-trip, FORCE_CHANGE_PASSWORD-after-SRP, tampered-signature-rejected, plaintext-InitiateAuth-rejected, and persistence-survival regression tests. Every password-setting call site (SignUp, SignUpWithValidation, ConfirmForgotPassword, ChangePassword, AdminSetUserPassword(Full), AdminCreateUser(WithPolicy/Full), RespondToNewPasswordRequired, UserMigration) now derives and stores a matching SRPSalt/SRPVerifier via the new hashAndSRP helper, and both fields survive Snapshot/Restore (persistence.go)."
   - "CLOSED 2026-08-08 (gopherstack-n7gh follow-up): UserMigration_ForgotPassword trigger source and domain AWSAccountId/ManagedLoginVersion/S3Bucket, the two items explicitly named but not reached in the SRP-6a pass -- see families.ForgotPassword and families.domains above for detail."
@@ -125,10 +126,538 @@ deferred:
   - "risk_config: RiskConfigurationType.LastModifiedDate is a real response field this backend doesn't track at all internally (no LastModifiedAt on the risk-config storage type, unlike domains/managed_login_branding where CreatedAt/LastModifiedAt already existed and just needed echoing) -- would need a new tracked field plus updates at every SetRiskConfiguration call site, not a one-line echo fix."
   - "Pagination is unimplemented on at least two List ops with real MaxResults/NextToken(or PaginationToken) contracts: ListUserImportJobs (MaxResults is REQUIRED on the real input, silently accepted by no field here) and ListResourceServers (MaxResults/PaginationToken optional, NextToken in output). Both always return every item in one page. ListUsers/ListWebAuthnCredentials/ListDevices already do this correctly (pkgs/page or hand-rolled token) -- the same pattern should be applied here in a future pass."
   - "domains: Routing and Version, two more real DomainDescriptionType fields (multi-region failover routing config; app version string), remain unpopulated -- this backend has no multi-region-domain-routing model and no meaningful 'app version' to report. Left absent rather than fabricated, per the same standard as terms/ above, just far smaller in scope."
+  - "MFA_SETUP's ChallengeParameters carries no MFAS_CAN_SETUP value (InitiateAuth doc: 'The MFA types activated for the user pool will be listed in the challenge parameters MFAS_CAN_SETUP value') -- this backend does not populate ChallengeParameters for any non-SRP challenge (SOFTWARE_TOKEN_MFA/SMS_MFA/EMAIL_OTP/NEW_PASSWORD_REQUIRED/MFA_SETUP all return an empty map), a pre-existing gap gopherstack-1b07 (2026-08-22) did not extend to fix. Also undetermined: the SDK's doc prose never states whether AssociateSoftwareToken/VerifySoftwareToken/RespondToAuthChallenge rotate or single-use the MFA_SETUP session between calls, so this backend echoes the same session token unchanged across all three (only RespondToAuthChallenge deletes it) rather than inventing rotation semantics."
 leaks: {status: clean, note: "janitor.go sweeps expired refresh tokens/mfa sessions/confirm codes/attr verification codes on a bounded interval (WithJanitor); ctx cancellation observed via StartWorker. This pass added custom_auth.go (CUSTOM_AUTH state machine) and user_migration.go (UserMigration trigger), both of which reuse the existing mfaSessions map/EvictExpiredMFASessions sweep for their session state -- no new maps, goroutines, or tickers introduced. All new backend methods (tryUserMigration, applyPostMigrationFinalStatus, startCustomAuth, customAuthRound, defineAuthChallenge, createAuthChallenge, verifyCustomAuthChallenge, preAuthenticationCheck, postAuthenticationNotify) are plain functions that assume the caller already holds b.mu (documented per-function), never call b.mu.Lock/RLock themselves -- verified no double-lock/deadlock paths and confirmed via `go test -race` (full suite, 233s, clean). De-stub hygiene: the ~15-op handler.go/handler_auth.go/handler_user_pools.go/handler_user_pool_clients.go/handler_users.go dead-code shadowing flagged as deferred in the prior sweep is now fully deleted (dead handlers + their now-orphaned model types removed across 4 files + models_auth.go/models_user_pools.go/models_user_pool_clients.go/models_users.go), closing that item; golangci-lint (0 issues) confirms nothing is newly unused."}
 ---
 
 ## Notes
+
+### What this pass fixed (2026-08-22, gopherstack-1b07)
+
+Closed the structural gap gopherstack-zquj filed as gopherstack-1b07 (see
+the now-updated `deferred`/`ops` entries above): `AssociateSoftwareToken`
+and `VerifySoftwareToken` document `Session` as an alternate to
+`AccessToken` for the real MFA_SETUP continuation flow -- confirmed by
+reading each op's actual input struct and doc prose in
+`cognitoidentityprovider@v1.67.4`:
+
+- `api_op_AssociateSoftwareToken.go`: `AccessToken *string` ("You can
+  provide either an access token or a session ID in the request") and
+  `Session *string` ("the session ID from a successful sign-in"), both
+  optional on the input; output carries `Session *string` too.
+- `api_op_VerifySoftwareToken.go`: same `AccessToken`/`Session` pair, doc
+  states plainly "The request takes an access token or a session string,
+  but not both." Output's `Session` doc: "This session ID satisfies an
+  MFA_SETUP challenge. Supply the session ID in your challenge response."
+- `api_op_InitiateAuth.go` (`ChallengeName` doc, `types.ChallengeNameType`
+  enum value `MFA_SETUP` in `types/enums.go:267`): "For users who are
+  required to setup an MFA factor before they can sign in ... To set up
+  time-based one-time password (TOTP) MFA, use the session returned in
+  this challenge from InitiateAuth or AdminInitiateAuth as an input to
+  AssociateSoftwareToken. Then, use the session returned by
+  VerifySoftwareToken as an input to RespondToAuthChallenge or
+  AdminRespondToAuthChallenge with challenge name MFA_SETUP to complete
+  sign-in." This is the full round trip the fix had to make reachable, not
+  just the two ops the issue named.
+
+**One correction to the filing this issue came from**: it (and the
+gopherstack-zquj note before it) also named `SetUserMFAPreference` as
+having this same documented `Session` alternate. It does not --
+`SetUserMFAPreferenceInput` in `api_op_SetUserMFAPreference.go` has
+`AccessToken *string` marked `This member is required` and no `Session`
+field at all. gopherstack's own `setUserMFAPreferenceAccurateInput`
+(models_mfa.go) already had no `Session` field either, so there was
+nothing broken there to fix -- confirmed by reading the full struct, not
+assumed from the pattern of the other two ops.
+
+**What was missing end to end, not just the two named ops**: before this
+fix, nothing in `InitiateAuth`/`AdminInitiateAuth` ever issued a session
+usable for this flow at all. `mfaChallengeType` (mfa.go) unconditionally
+defaulted any MFA-required user with no `PreferredMfaSetting` to
+`SOFTWARE_TOKEN_MFA` -- including a user who had never called
+`AssociateSoftwareToken`, for whom that challenge is an unconditional dead
+end (`RespondToMFAChallenge` requires a TOTP secret that was never
+associated). So even AccessToken-based `AssociateSoftwareToken` could not
+have rescued that user: the session that was issued named the wrong
+challenge, and no session at all was of type `MFA_SETUP`.
+
+Fixed by:
+
+1. `mfaChallengeType` now returns `MFA_SETUP` for a user with no
+   `PreferredMfaSetting` who has not verified a software token
+   (`user.TOTPVerified == false`), and only falls back to
+   `SOFTWARE_TOKEN_MFA` once a token has actually been verified -- this
+   preserves the existing regression test
+   (`TestHandler_RespondToAuthChallenge_SMSMFAFlow`, which enrolls TOTP via
+   AccessToken *before* turning MFA on, so `TOTPVerified` is already true
+   by the time `InitiateAuth` runs and the SOFTWARE_TOKEN_MFA challenge is
+   still correctly issued for that case).
+2. `resolveMFASetupSubjectLocked` (mfa.go): resolves the acting user from
+   either `accessToken` or `session`, matching VerifySoftwareToken's "either
+   ... or ... but not both" contract. The session path requires the
+   `mfaSessionEntry.ChallengeType` to be `MFA_SETUP` (not any other pending
+   challenge type) and not expired, exactly like the existing
+   `RespondToMFAChallenge`/`RespondToSRPChallenge`/
+   `RespondToNewPasswordRequired` session lookups it sits alongside.
+3. `AssociateSoftwareToken`/`VerifySoftwareToken` signatures both grew a
+   `session` parameter (and `VerifySoftwareToken` grew a `string` first
+   return, `AssociateSoftwareToken` a second `string` return) to thread the
+   resolved/echoed session through to the wire's already-correctly-tagged
+   `Session` output field. All in-package call sites (handler_mfa.go,
+   mfa_test.go, totp_test.go, persistence_test.go, users_test.go) updated;
+   confirmed via `go build ./...` (no callers outside `services/cognitoidp`
+   exist for either method).
+4. `RespondToMFASetupChallenge` (mfa.go), a new backend method, completes
+   the flow: it requires the session to be `MFA_SETUP` and its user to have
+   `TOTPVerified == true` (set by step 3's `VerifySoftwareToken`), records
+   `SOFTWARE_TOKEN_MFA` as the user's MFA preference via the existing
+   `applyMFAPreferenceLocked`, deletes the session, and issues tokens.
+   Wired into `RespondToAuthChallenge`/`AdminRespondToAuthChallenge` for
+   `ChallengeName == "MFA_SETUP"`.
+
+**Not modeled, disclosed rather than invented**: real Cognito's exact
+session single-use/rotation semantics across the
+`AssociateSoftwareToken -> VerifySoftwareToken -> RespondToAuthChallenge`
+round trip are not stated anywhere in the pinned SDK's doc prose (only that
+each op's output carries *a* session to use next). This backend echoes the
+same session token unchanged across all three calls -- only the final
+`RespondToAuthChallenge` call deletes it from `b.mfaSessions` -- rather
+than fabricating rotation behavior the SDK doesn't document. Also not
+modeled: the `MFAS_CAN_SETUP` value `InitiateAuth`'s doc says accompanies
+an `MFA_SETUP` challenge in `ChallengeParameters` -- this backend does not
+populate `ChallengeParameters` for any non-SRP challenge at all (a
+pre-existing gap predating this fix, not extended here). Both are recorded
+under `deferred` above.
+
+**Proof**: `mfa_setup_session_test.go` adds
+`TestMFASetupSession_CompletesSignInWithoutAccessToken`, which drives the
+full documented round trip through a real `aws-sdk-go-v2` client
+(`InitiateAuth` -> `AssociateSoftwareToken(Session)` ->
+`VerifySoftwareToken(Session)` -> `RespondToAuthChallenge(MFA_SETUP)`) with
+no `AccessToken` anywhere, and
+`TestAssociateAndVerifySoftwareToken_AccessTokenPath`, a same-shape
+regression guard proving the pre-existing `AccessToken` path is unchanged.
+Hand-reverted `mfa.go`/`handler_mfa.go`/`handler_auth.go` (plus the
+pre-existing test files' call sites, needed only so the package still
+compiled against the old 2-arg/1-return signatures) to `git show HEAD:...`
+and re-ran: `TestMFASetupSession_CompletesSignInWithoutAccessToken` failed
+at the very first real assertion --
+
+```
+mfa_setup_session_test.go:74:
+    Error: Not equal:
+      expected: "MFA_SETUP"
+      actual  : "SOFTWARE_TOKEN_MFA"
+```
+
+-- confirming the pre-fix backend never issues an `MFA_SETUP` challenge at
+all (the deeper of the two bugs this fix closes), while
+`TestAssociateAndVerifySoftwareToken_AccessTokenPath` still passed
+unfixed, confirming the AccessToken path was never broken. Restored all 7
+files from the saved fixed copies and confirmed `md5sum` byte-identical
+before continuing.
+
+Snapshot version: left at 2 (`cognitoidpSnapshotVersion`, persistence.go).
+This fix adds no new persisted field and changes no existing one --
+`mfaSessionEntry.ChallengeType` is an existing `string` field that simply
+takes on one more value (`"MFA_SETUP"`) it already had the type to hold,
+and `User.TOTPVerified`/`PreferredMfaSetting` (both pre-existing) are read,
+not restructured. Confirmed no `pkgs/persistence` golden regen was
+needed: `go test ./pkgs/persistence/...` passes unchanged.
+
+### What this pass fixed (2026-08-22, gopherstack-xasq)
+
+Fixed the structural gap gopherstack-zquj filed (see below): `SchemaAttribute`
+wrote `StringAttributeMinLength`/`StringAttributeMaxLength` (int64) and
+`NumberAttributeMinValue`/`NumberAttributeMaxValue` (float64) as flat
+top-level fields. The real `SchemaAttributeType` nests these one level
+deeper as string-valued sub-objects, confirmed against
+`cognitoidentityprovider@v1.67.4`:
+
+- `awsAwsjson11_deserializeDocumentSchemaAttributeType` (deserializers.go:25283)
+  switches on `"NumberAttributeConstraints"`/`"StringAttributeConstraints"`,
+  not flat keys.
+- `awsAwsjson11_deserializeDocumentNumberAttributeConstraintsType`
+  (deserializers.go:24065) and `...StringAttributeConstraintsType`
+  (deserializers.go:25745) both decode `MinValue`/`MaxValue` and
+  `MinLength`/`MaxLength` as `*string`, not a number -- a wire-type
+  mismatch, not just a wrong key: a real client would reject the old
+  flattened int64/float64 values outright, a harder failure than a missing
+  field.
+- The request-side serializers (serializers.go:9250, 8993, 9437) mirror the
+  same nested, string-valued shape, confirming both directions.
+
+Replaced the four flat fields with two new nested types
+(`numberAttributeConstraintsJSON`, `stringAttributeConstraintsJSON`), both
+string-valued, referenced via `*T` pointers so an attribute with no
+constraints omits the whole sub-object (matching the real serializer's
+`if v.NumberAttributeConstraints != nil` gate).
+
+**Request side was genuinely broken, not just the response.**
+`AddCustomAttributesInput.CustomAttributes` is the one place `SchemaAttribute`
+is decoded from a client request (serializers.go:9696 confirms the real
+client sends `CustomAttributes` as a list of the same nested
+`SchemaAttributeType`). Before this fix, any constraints a caller set via
+`AddCustomAttributes` were silently dropped: the real client never sends the
+flattened top-level keys this backend read, so `StringAttributeConstraints`/
+`NumberAttributeConstraints` always decoded as the Go zero value. Confirmed
+neither direction was a no-op stub returning success while doing nothing
+(the attribute itself, and every other field, bound correctly) -- only the
+constraints sub-object was affected.
+
+**Two corrections to the original bug report's scope**, both verified against
+the SDK rather than assumed:
+
+- `UpdateUserPool` is not actually affected. `UpdateUserPoolOutput` carries no
+  `UserPool`/schema data in the real API at all (api_op_UpdateUserPool.go),
+  and `UpdateUserPoolInput` has no `Schema` field either -- schema is
+  immutable after pool creation in real Cognito (confirmed by its absence
+  from serializers.go's `UpdateUserPoolInput` serializer, unlike
+  `CreateUserPoolInput` which does serialize `Schema`).
+- `ListUserPools` is not really affected by this defect either.
+  `UserPoolDescriptionType` (its real response element) has no
+  `SchemaAttributes` field at all -- deserializers.go's full case list for it
+  is `CreationDate`/`Id`/`LambdaConfig`/`LastModifiedDate`/`Name`/
+  `ReplicaRegions`/`Status`. gopherstack's `userPoolData.SchemaAttributes` on
+  `ListUserPools` was already a harmless extra key any real client ignores
+  regardless of shape, not a min/max-dropping bug. Left in place (an unknown
+  extra JSON key costs nothing and no test depends on removing it); worth a
+  follow-up cleanup issue, not fixed here.
+
+`CreateUserPool`'s request also never bound `Schema` at all in this
+backend -- `createUserPoolWithOptsInput` has no `Schema` field, so an initial
+schema on pool creation is silently dropped regardless of this fix. That is
+a missing-field gap, not a flattening defect (there is no `SchemaAttribute`
+value to be mis-shaped in the first place), so it is out of this bug's
+scope; custom attributes can only be added post-creation via
+`AddCustomAttributes` today.
+
+**Snapshot version bumped 1 -> 2.** `SchemaAttribute` is used unchanged as
+the persisted DTO for `UserPool.CustomAttributes`
+(`userPoolSnapshot.CustomAttributes`), so this is a structural retype of a
+persisted field (fields removed, not purely added) -- confirmed by
+`pkgs/persistence`'s `TestSnapshotVersionGuard`, which fails the bump
+otherwise. Golden refreshed via `-update`; the diff touched only
+`cognitoidp`'s entry (field list + version), confirmed via `git diff`
+before accepting it.
+
+**Proof**: `schema_attribute_constraints_test.go` drives `AddCustomAttributes`
+then `DescribeUserPool` through a real `aws-sdk-go-v2` client and asserts
+`StringAttributeConstraints`/`NumberAttributeConstraints` decode non-nil with
+the correct values. Hand-reverted `models_attributes.go` to the pre-fix
+flat shape (`cp` to scratchpad, restored via `git show HEAD:...`) and
+confirmed the test fails there (`StringAttributeConstraints decoded nil`),
+then restored the fix and confirmed the file was byte-for-byte identical to
+the pre-revert version (`md5sum`).
+
+**One pre-existing test needed updating, not because it defended the wrong
+shape, but as collateral from the version bump**:
+`TestInMemoryBackend_RestoreDropsPreRedesignTerms` hardcoded
+`raw["version"] = float64(1)` to simulate a legacy snapshot -- that literal
+happened to equal `cognitoidpSnapshotVersion` at the time the test was
+written, not because the test cared about the number "1" specifically. With
+the bump to 2, the hardcoded "1" made `Restore` treat the whole fixture as
+an incompatible version and discard everything (not just terms), failing the
+test. Fixed by no longer overwriting `raw["version"]` at all -- it already
+holds whatever version `b.Snapshot` just stamped, which is what the test
+actually needs. No test in the repo asserted on the old flattened keys
+(`StringAttributeMinLength` et al. never appeared in any test body), so no
+test was found ratifying the defect itself.
+
+Gates run: `go build ./...`, `go vet ./...`, `gofmt -l` (clean),
+`go test -race ./services/cognitoidp/...` (113s, clean),
+`go test ./pkgs/persistence/...` (clean), `golangci-lint run` on
+`services/cognitoidp/...` and `pkgs/persistence/...` (0 issues, including a
+`fieldalignment` finding on the reordered `SchemaAttribute` struct, fixed by
+hand rather than running `fieldalignment -fix`/`golangci-lint --fix`
+package-wide), `make build-check` (clean). No `//nolint` added.
+
+### What this pass fixed (2026-08-22, gopherstack-zquj: keycheck ambiguous-binding sweep)
+
+Re-ran `cmd/keycheck` (awsAwsjson11_, cognitoidentityprovider@v1.67.4 --
+confirmed via `dirModuleOverride["cognitoidp"] = "cognitoidentityprovider"`
+in `cmd/structfielddiff/main.go:23` and `go.mod:27`; NOT `cognitoidentity`,
+a separate, already-settled sibling module/directory) fresh rather than
+inheriting the prior session's "102 ops checked, 304 mismatched keys"
+figure. Reproduced 102/304 exactly pre-fix (103 ops resolvable), confirming
+it was current, not stale.
+
+**Real bug found and fixed** (real-SDK-client round trip, hand-reverted
+against `git show HEAD:services/cognitoidp/models_users.go`, confirmed
+failing, restored, md5sum byte-identical):
+`adminUserJSON.UserAttributes` (`models_users.go`) was tagged
+`json:"UserAttributes,omitempty"`. This type backs `AdminCreateUserOutput.
+User` and `ListUsersInGroupOutput.Users[]`, both of which are `UserType`
+(`cognitoidentityprovider@v1.67.4`) -- and `UserType`'s own attribute-list
+member is `Attributes`, not `UserAttributes`
+(`awsAwsjson11_deserializeDocumentUserType`, `deserializers.go` case
+`"Attributes"`; confirmed `UserType` has no `UserAttributes` member at all,
+`types/types.go:3152-3155`). `GetUserOutput`/`AdminGetUserOutput` legitimately
+use `UserAttributes` as their own distinct member name
+(`deserializers.go`, `deserializeOpDocumentGetUserOutput`/
+`deserializeOpDocumentAdminGetUserOutput`) -- this is not a blanket rename,
+only `adminUserJSON` was wrong. Every real client's `User.Attributes` (on
+AdminCreateUser) and every item's `.Attributes` (on ListUsersInGroup)
+decoded nil regardless of what attributes were supplied, for every pool.
+Both ops were previously graded `wire: ok` in this file -- missed because
+`ListUsersInGroup`'s winning handler could not be checked at all under the
+stale ambiguous-binding framing (below), and `AdminCreateUser`'s dropped key
+was buried among ~19 lambda-trigger-envelope false positives on the same op
+(also below). Fixed: tag changed to `json:"Attributes,omitempty"` (Go field
+name `UserAttributes` left alone -- a pure tag fix, no call-site changes).
+New tests `TestAdminCreateUser_UserAttributesKey_RealSDKClient`/
+`TestListUsersInGroup_AttributesKey_RealSDKClient`
+(`wire_field_fixes_test.go`) assert on the typed SDK client's
+`User.Attributes`/`Users[].Attributes`, not a raw body -- both fail against
+unfixed code (`Attributes` empty) and pass fixed. No snapshot version bump:
+`adminUserJSON` is wire-only, never persisted.
+
+**Error envelope**: cognitoidp's error path
+(`handleError`/`cognitoSentinelErrors`, `handler.go`) always writes the
+shared awsjson1.1 `{"__type": ..., "message": ...}` envelope via
+`service.JSONErrorResponse` -- confirmed this matches what
+`awsAwsjson11_deserializeError*` actually parses (unlike s3control's
+unwrapped-XML-for-every-op finding elsewhere this campaign); no envelope bug
+found.
+
+**Two structural findings, filed rather than fixed** (per this pass's
+"do not restructure" constraint):
+
+- **gopherstack-xasq**: `SchemaAttribute` (shared by CreateUserPool/
+  DescribeUserPool/UpdateUserPool/ListUserPools) flattens
+  `StringAttributeMinLength`/`MaxLength` and `NumberAttributeMinValue`/
+  `MaxValue` onto the top level as int64/float64, where the real
+  `SchemaAttributeType` nests them as string-valued
+  `StringAttributeConstraints{MinLength,MaxLength}`/
+  `NumberAttributeConstraints{MinValue,MaxValue}` sub-objects
+  (`deserializers.go` case `"StringAttributeConstraints"`/
+  `"NumberAttributeConstraints"` in
+  `awsAwsjson11_deserializeDocumentSchemaAttributeType`, each sub-type's own
+  `MinLength`/`MaxLength`/`MinValue`/`MaxValue` cases). Every real client's
+  schema attribute constraints decode unset. This is what keycheck reported
+  as 4 mismatched keys each on CreateUserPool/DescribeUserPool.
+- **gopherstack-1b07** (CLOSED 2026-08-22): `AssociateSoftwareToken`/
+  `VerifySoftwareToken`'s documented `Session` alternate identifier to
+  `AccessToken` (the real MFA_SETUP-challenge-continuation flow, used when
+  the caller has no access token yet) was wired on the wire side
+  (`associateSoftwareTokenAccurateOutput.Session`/
+  `verifySoftwareTokenAccurateOutput.Session` correctly tagged) but the
+  backend (`mfa.go`) only ever resolved a user via
+  `findUserByAccessTokenLocked` -- there was no session-based lookup at all,
+  so a real client using the documented Session-only flow could not complete
+  MFA setup. This was the "documented alternate identifier is the broken
+  one" pattern named in this pass's brief. Fixed by adding
+  `resolveMFASetupSubjectLocked` (mfa.go), a real MFA_SETUP challenge path in
+  `mfaChallengeType`, and `RespondToMFASetupChallenge` to complete sign-in --
+  see the RespondToAuthChallenge/AssociateSoftwareToken/VerifySoftwareToken
+  entries above for the full fix and what remains undetermined
+  (MFAS_CAN_SETUP, session rotation). **Correction to this finding's own
+  original scope**: `SetUserMFAPreference` does NOT have a documented
+  `Session` alternate at all -- `SetUserMFAPreferenceInput.AccessToken` is
+  `This member is required` in the real SDK, with no `Session` field
+  anywhere on that input (`api_op_SetUserMFAPreference.go`). Naming it
+  alongside AssociateSoftwareToken/VerifySoftwareToken was wrong in the
+  original filing (and in gopherstack-zquj's note before it); gopherstack's
+  own `setUserMFAPreferenceAccurateInput` already had no `Session` field
+  either, so there was nothing to fix there.
+
+**Two new `cmd/keycheck` blind-spot refinements found, documented in
+gopherstack-ck9f rather than in `cmd/keycheck/main.go` directly** (another
+agent had that file locked for restjson1 path-dispatch work this session):
+
+1. A refinement of blind spot #2: cognitoidp's auth ops that fire a Lambda
+   trigger (SignUp, ConfirmSignUp, AdminConfirmSignUp, AdminCreateUser,
+   InitiateAuth, AdminInitiateAuth, RespondToAuthChallenge,
+   AdminRespondToAuthChallenge, ForgotPassword, ResendConfirmationCode,
+   GetTokensFromRefreshToken) reach a shared Lambda-trigger-invocation
+   helper (`lambda_triggers.go`) whose event/response envelope keys
+   (`version`, `triggerSource`, `region`, `userPoolId`, `userName`,
+   `callerContext`, `request`, `response`, `clientMetadata`,
+   `userAttributes`, per-trigger fields like `challengeName`/`session`/
+   `autoConfirmUser`/`emailMessage`/etc.) get attributed to the op being
+   checked. This false-positive class accounts for roughly 250 of the
+   original 304 mismatched keys (~85%) -- confirmed by tracing every large
+   mismatch list on these ops back to `lambda_triggers.go`'s real,
+   documented Cognito Lambda trigger event shape, not the op's own
+   response. A related sub-case: several ops build an internal
+   `map[string]string` of user attributes (`attrs["sub"]`,
+   `attrs["custom:temporaryPassword"]`, `attrs["phone_number_verified"]`,
+   `attrs["device_name"]`) later converted via `sortedAttributeList` into a
+   `[]AttributeType{Name,Value}` list -- the map's keys become attribute
+   `Name` *values*, never JSON keys.
+2. A refinement of blind spot #6: cognitoidp keeps, for many op families, a
+   legacy `handle<Op>` (bound in an earlier "OpsA" map) alongside a hardened
+   `handle<Op>Accurate`/`handle<Op>Full` (bound in a later "OpsB"/"OpsC"
+   map), and `dispatchTable()` merges every Ops-map via sequential
+   `maps.Copy` calls -- the LAST-copied map always wins deterministically
+   (Go's `maps.Copy` overwrites on collision), unlike sqs's genuinely
+   ambiguous dual-protocol handlers. keycheck reported all 27 such ops as
+   `AmbiguousOps`/ERROR (masked entirely under the stale "42 unresolved"
+   framing). Hand-resolved all 27 via `dispatchTable()`'s literal call
+   order (`handler.go:337-379`) and fully checked the winning handler for
+   each: `mfaOpsB` (AssociateSoftwareToken, VerifySoftwareToken,
+   SetUserMFAPreference, AdminSetUserMFAPreference -- found the
+   gopherstack-1b07 gap above), `groupsOpsB` (CreateGroup, GetGroup,
+   ListGroups, UpdateGroup, ListUsersInGroup -- found the `adminUserJSON`
+   bug above, field-diffed `GroupType` otherwise clean),
+   `identityProvidersOpsC` (all 5 ops field-diffed clean against
+   `IdentityProviderType`/`ProviderDescription`), `resourceServersOpsB`
+   (all 5 field-diffed clean against `ResourceServerType`/
+   `ResourceServerScopeType`), `domainsOpsB` (clean against
+   `CreateUserPoolDomainOutput`/`UpdateUserPoolDomainOutput`, `Routing`
+   already a known deferred gap above), `securityConfigOpsB` (clean against
+   the full `RiskConfigurationType` tree via keycheck's own `-dump-type`,
+   `LastModifiedDate` already a known deferred gap above),
+   `brandingOpsB` (clean against `UICustomizationType`, `CSSVersion` a new,
+   minor missing-optional-field note -- not filed, same low-severity class
+   as the existing deferred items), `attributesOpsC` (clean against
+   `CodeDeliveryDetailsType`). `AdminSetUserMFASetting` (the one remaining
+   unresolved op, not ambiguous) is not a current
+   `cognitoidentityprovider@v1.67.4` operation at all -- no
+   `api_op_AdminSetUserMFASetting.go` exists in the pinned SDK, confirmed by
+   directory listing -- so it is legacy/unreachable-by-any-real-client
+   code, not a wire bug to fix.
+
+Post-fix re-run: 102 ops checked, 303 mismatched keys (the one real fix
+removed `AdminCreateUser`'s `UserAttributes` mismatch;
+`ListUsersInGroup`'s companion fix isn't counted in that figure since it
+was one of the 27 previously-ambiguous ops, never part of the original 304).
+The remaining 303 are, by the triage above, false positives: this is a
+substantially-checked, substantially-clean service whose real defect count
+this pass is 1 (plus the 2 filed structural gaps), not 304.
+
+All gates green for `services/cognitoidp` (`go build ./...`, `go vet`,
+`gofmt -l`, `go test -race ./services/cognitoidp/...`, `go test
+./pkgs/persistence/...`, `golangci-lint run`, `make build-check`); no
+`//nolint` added.
+
+### What this pass fixed (2026-08-21, gopherstack-r80d batch 19: required OUTPUT member cut)
+
+Instrument validated before use per the brief: two independent domain-struct
+walks of `types.go` (a character-level brace matcher and a `go/parser`
+AST pass) agreed exactly -- 93 structs, 29 carrying >=1 required member, 64
+required fields summed; a third check (raw `grep -c "This member is
+required."`) also returned 64. `cmd/requiredoutputfields`'s flat per-op scan
+reports 27 required fields across 25 ops-with-required (129 ops total) --
+the domain-struct total (64, and higher still counting every
+wrapper-key-hidden op) is larger for the same "one wrapper key hides the
+domain struct's own required members" reason established by
+pinpoint/bedrockagent/accessanalyzer: `CreateTerms`/`DescribeTerms`/
+`UpdateTerms` don't appear in the flat 25-op list at all (their `Terms`
+field isn't itself required) yet each nests `types.TermsType`, which alone
+carries 9 required members.
+
+4 bugs found and fixed, all proven via real `aws-sdk-go-v2/service/
+cognitoidentityprovider` client round trips
+(`wire_output_required_r80d_test.go`), hand-reverted/confirmed-failing/
+restored, md5sum-verified byte-identical:
+
+1. `termsType.Links` (types/types.go:2225 area, `TermsType.Links` required) --
+   `CreateTermsInput.Links` is optional, so a real client can create Terms
+   with none; `toTermsType` (handler_terms.go) passed the nil map straight
+   through and the wire tag was `omitempty`, dropping the key entirely for
+   `CreateTerms`/`DescribeTerms`/`UpdateTerms`. Fixed by defaulting to
+   `map[string]string{}` and removing `omitempty` -- required-but-empty
+   means present-and-empty, not absent, per this cut's established
+   convention.
+2. `listWebAuthnCredentialsOutput.Credentials` (`ListWebAuthnCredentialsOutput.
+   Credentials` required) -- the handler already built a non-nil empty
+   slice for a user with zero registered passkeys, but the wire tag's
+   `omitempty` still dropped the key (Go's `omitempty` triggers on `len==0`
+   regardless of nilness). Fixed by removing `omitempty`.
+3. `resourceServerScopeType.ScopeName`/`.ScopeDescription`
+   (`ResourceServerScopeType.ScopeName`/`.ScopeDescription`, both `*string`
+   and required) -- the real SDK's own client-side validator
+   (`validateResourceServerScopeType`, validators.go:3613) only null-checks
+   the pointer, not its content, so a real client can send an explicit
+   empty-string scope name/description; both were tagged `omitempty` and
+   vanished when empty. Fixed by removing `omitempty` on both.
+4. `notifyConfigJSON.SourceArn` (`NotifyConfigurationType.SourceArn`, `*string`,
+   required whenever `NotifyConfiguration` is present) -- same shape as #3:
+   `validateNotifyConfigurationType` (validators.go:3483) only null-checks
+   the pointer. Fixed by removing `omitempty`.
+
+Fixed but NOT counted (unprovable via any real SDK client round trip):
+`accountTakeoverActionTypeJSON.Notify` (`AccountTakeoverActionType.Notify`,
+required `bool`) was tagged `omitempty`, which drops the key exactly when
+`Notify == false` -- a real, reachable state (e.g. "don't notify" on a
+low-risk assessment). Fixed by removing `omitempty` to match AWS's real
+wire contract, but excluded from the tally: an omitted key and an explicit
+`false` both decode to `false` in a real client, so no test can observe the
+difference -- the amplify batch-14 `Branch.Stage` class, reapplied here.
+
+Disclosed, not fixed (missing-feature gaps, not dropped-required-field
+bugs -- the underlying feature is entirely unmodeled, not merely
+under-surfaced):
+
+- `EventFeedbackType.Provider` (required, `*string`) has no backing struct
+  field on `AuthEvent`/`authEventFeedbackType` at all. This looked at first
+  like the dominant "no struct field" bug class (matching bedrockagent's
+  `FlowVersion.ExecutionRoleArn`), but tracing the data path further shows
+  it can never be reached by a real client: `b.authEvents` (auth_events.go)
+  is only ever *read*, never written, by any op -- this emulator does not
+  hook sign-in flows to synthesize adaptive-auth risk events, so
+  `AdminUpdateAuthEventFeedback`/`UpdateAuthEventFeedback` can never find an
+  event to attach feedback to (`ErrAuthEventNotFound` for any real EventId),
+  and `AdminListUserAuthEvents` always returns an empty list to a real
+  client. Same missing-feature class as swf's undelivered `*EventAttributes`
+  types (batch 17) -- tracked as a general risk-event-synthesis gap, not
+  this cut's bug.
+- `UserPoolAddOnsType.AdvancedSecurityMode`, `UsernameConfigurationType.
+  CaseSensitive`, and `RefreshTokenRotationType.Feature` are all real,
+  required-when-present sub-objects of `UserPoolType`/`UserPoolClientType`
+  that this backend does not model at all (zero references to
+  `AdvancedSecurityMode`/`CaseSensitive`/`RefreshTokenRotation` anywhere in
+  the package outside this note) -- CreateUserPool/CreateUserPoolClient
+  never accept or store these settings, so the wrapper is never populated
+  in the first place. Same missing-feature class.
+- `UserPoolType.LambdaConfig`/`AccountRecoverySetting` (and therefore every
+  required member nested under `CustomEmailLambdaVersionConfigType`,
+  `CustomSMSLambdaVersionConfigType`, `PreTokenGenerationVersionConfigType`,
+  `InboundFederationLambdaType`, `RecoveryOptionType`) and
+  `ManagedLoginBranding.Assets` (`AssetType.Category`/`ColorMode`/
+  `Extension`) are stored and echoed as opaque `map[string]any`/
+  `[]map[string]any` -- genuinely inapplicable to this bug class, not
+  unaudited, since whatever a real client sends comes back byte-for-byte
+  (the accessanalyzer `AnalyzerConfiguration`/opaque-union precedent).
+
+Ruled out clean (read end to end, no bug): `GetProvisionedLimit`/
+`UpdateProvisionedLimit` (`LimitType`/`LimitDefinitionType`, already
+field-diffed in a prior pass and confirmed still correct -- non-pointer
+fields with no `omitempty` gaps); `GetUser`/`AdminGetUser`/`AdminGetUserAuthFactors`/
+`GetUserAuthFactors` (`UserAttributes`/`Username` always non-empty --
+`userAttrsWithSub` guarantees at least a `sub` attribute, `Username` is the
+caller's own); `IdentityProviderType`/`ResourceServerType`/
+`UICustomizationType`/`DeviceType` (each declares zero required members of
+its own per the AST walk, and the wrapper pointer is always non-nil on
+success); `DeviceType.DeviceAttributes[].Name` (element names always come
+from real map keys via the shared `sortedAttributeList` helper, never
+empty); `AccountTakeoverRiskConfigurationType.Actions`/
+`CompromisedCredentialsRiskConfigurationType.Actions` (both required
+whenever their parent is present, but the real SDK's own validators
+(validators.go:3144, :3253) reject a nil `Actions` client-side before the
+request is ever sent -- structurally unreachable, the apprunner
+`SourceCodeVersion` class); `customDomainConfigJSON.CertificateArn`
+(handler_domains.go already only builds the wrapper when
+`d.CertificateArn != ""`, so the two can never disagree); `ContextDataType`
+(input-only type, confirmed via SDK grep -- never appears in any Output
+struct, out of scope for this cut).
+
+Not reached this batch: a full field-by-field audit of `UserPoolType`/
+`UserPoolClientType`'s untyped (`map[string]any`) sub-config surface beyond
+confirming it's opaque pass-through; `AssetType`'s branding family beyond
+confirming it's opaque. Both would need new feature modeling, not a
+required-output-field fix, so they were scoped out rather than audited
+further.
+
+All gates green for `services/cognitoidp` (`go build`, `go vet`, `gofmt -l`,
+`go test -race`, `golangci-lint run`: 0 issues, 0 banned nolints, 0 new
+nolints). Repo-wide `go build ./...`, `go vet ./...`, `go vet -tags e2e
+./...`, `go vet -tags integration ./...` all clean. `services/sagemaker/`
+untouched (concurrent-agent exclusion, `git status` checked before and
+after -- its in-flight conversion still shows uncommitted changes at this
+commit). `services/_REQUIRED_OUTPUT_CANDIDATES.md` updated: cognitoidp moved
+from the ranked table into "Already examined".
 
 ### What this pass fixed (2026-08-13, gopherstack-h910)
 

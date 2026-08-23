@@ -12,7 +12,7 @@ type batchGetTableOptimizerInput struct {
 
 // batchGetTableOptimizerOutput holds the result for BatchGetTableOptimizer.
 type batchGetTableOptimizerOutput struct {
-	TableOptimizers []*TableOptimizer             `json:"TableOptimizers"`
+	TableOptimizers []*BatchTableOptimizer        `json:"TableOptimizers"`
 	Failures        []BatchGetTableOptimizerError `json:"Failures"`
 }
 
@@ -22,7 +22,7 @@ func (h *Handler) handleBatchGetTableOptimizer(
 ) (*batchGetTableOptimizerOutput, error) {
 	found, errs := h.Backend.BatchGetTableOptimizer(in.Entries)
 	if found == nil {
-		found = []*TableOptimizer{}
+		found = []*BatchTableOptimizer{}
 	}
 	if errs == nil {
 		errs = []BatchGetTableOptimizerError{}

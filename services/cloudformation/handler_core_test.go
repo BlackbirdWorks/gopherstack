@@ -175,7 +175,6 @@ func TestHandler_ExtractOperation(t *testing.T) {
 			e := echo.New()
 			req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(tt.body))
 			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-			require.NoError(t, req.ParseForm())
 
 			c := e.NewContext(req, httptest.NewRecorder())
 			assert.Equal(t, tt.wantOp, h.ExtractOperation(c))
@@ -206,7 +205,6 @@ func TestHandler_ExtractResource(t *testing.T) {
 			e := echo.New()
 			req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(tt.body))
 			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-			require.NoError(t, req.ParseForm())
 
 			c := e.NewContext(req, httptest.NewRecorder())
 			assert.Equal(t, tt.wantName, h.ExtractResource(c))

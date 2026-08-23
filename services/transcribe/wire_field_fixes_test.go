@@ -178,3 +178,37 @@ func TestMedicalScribeSettings_ClinicalNoteGenerationSettings_RealClient(t *test
 		out.MedicalScribeJob.Settings.ClinicalNoteGenerationSettings.NoteTemplate,
 	)
 }
+
+// TestStartCallAnalyticsJob_Summarization_GenerateAbstractiveSummary_RealClient
+// proves gopherstack-zquj: SummarizationSettings tagged its bool
+// json:"GenerateSummary", but the real Summarization deserializer switches
+// on "GenerateAbstractiveSummary" (types.go:1750-1763, transcribe SDK) --
+// every real client read Settings.Summarization.GenerateAbstractiveSummary
+// as false/nil regardless of what was requested.
+func TestStartCallAnalyticsJob_Summarization_GenerateAbstractiveSummary_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := transcribe.NewHandler(transcribe.NewInMemoryBackend())
+	client := newTranscribeSDKClient(t, h)
+	ctx := t.Context()
+
+	_, err := client.StartCallAnalyticsJob(ctx, &transcribesdk.StartCallAnalyticsJobInput{
+		CallAnalyticsJobName: aws.String("wire-summarization-job"),
+		Media:                &sdktypes.Media{MediaFileUri: aws.String("s3://bucket/call.wav")},
+		Settings: &sdktypes.CallAnalyticsJobSettings{
+			Summarization: &sdktypes.Summarization{
+				GenerateAbstractiveSummary: aws.Bool(true),
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	out, err := client.GetCallAnalyticsJob(ctx, &transcribesdk.GetCallAnalyticsJobInput{
+		CallAnalyticsJobName: aws.String("wire-summarization-job"),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, out.CallAnalyticsJob.Settings)
+	require.NotNil(t, out.CallAnalyticsJob.Settings.Summarization)
+	require.NotNil(t, out.CallAnalyticsJob.Settings.Summarization.GenerateAbstractiveSummary)
+	require.True(t, aws.ToBool(out.CallAnalyticsJob.Settings.Summarization.GenerateAbstractiveSummary))
+}

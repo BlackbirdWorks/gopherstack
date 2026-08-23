@@ -102,7 +102,7 @@ func (b *InMemoryBackend) ListResourcePolicies() []*resourcePolicyEntry {
 	return out
 }
 
-func (b *InMemoryBackend) GetResourcePolicy(resourceARN string) (string, string, error) {
+func (b *InMemoryBackend) GetResourcePolicy(resourceARN string) (string, string, float64, float64, error) {
 	b.mu.RLock("GetResourcePolicy")
 	defer b.mu.RUnlock()
 
@@ -112,10 +112,10 @@ func (b *InMemoryBackend) GetResourcePolicy(resourceARN string) (string, string,
 	}
 	e, ok := b.resourcePolicies[key]
 	if !ok {
-		return "", "", fmt.Errorf("resource policy not found: %w", ErrNotFound)
+		return "", "", 0, 0, fmt.Errorf("resource policy not found: %w", ErrNotFound)
 	}
 
-	return e.Policy, e.Hash, nil
+	return e.Policy, e.Hash, e.CreateTime, e.UpdateTime, nil
 }
 
 func (b *InMemoryBackend) DeleteResourcePolicy(resourceARN, policyHash string) error {

@@ -7,13 +7,17 @@ import (
 	"github.com/labstack/echo/v5"
 )
 
+// packageToMap builds the types.PackageDescription shape used by
+// DescribePackage -- confirmed against aws-sdk-go-v2/service/codeartifact@
+// v1.41.4's deserializers.go (awsRestjson1_deserializeDocumentPackageDescription)
+// and types/types.go, which together declare exactly format/name/namespace/
+// originConfiguration. domainName, domainOwner and repository are not
+// members of PackageDescription at all -- those three were leaking onto the
+// wire with no real field to correspond to.
 func packageToMap(pkg *Package) map[string]any {
 	m := map[string]any{
-		keyFormat:      pkg.Format,
-		keyName:        pkg.Name,
-		keyDomainName:  pkg.DomainName,
-		keyDomainOwner: pkg.DomainOwner,
-		keyRepository:  pkg.Repository,
+		keyFormat: pkg.Format,
+		keyName:   pkg.Name,
 	}
 	if pkg.Namespace != "" {
 		m["namespace"] = pkg.Namespace

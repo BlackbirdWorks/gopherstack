@@ -28,6 +28,7 @@ const (
 	sigV4Service = "mediapackage"
 
 	keyMessage = "Message"
+	keyType    = "__type"
 
 	opCreateChannel     = "CreateChannel"
 	opDescribeChannel   = "DescribeChannel"
@@ -161,7 +162,10 @@ func (h *Handler) handleREST(c *echo.Context) error {
 	var body map[string]any
 	if c.Request().ContentLength != 0 {
 		if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil && err.Error() != "EOF" {
-			return c.JSON(http.StatusBadRequest, map[string]any{keyMessage: "invalid JSON body"})
+			return c.JSON(http.StatusBadRequest, map[string]any{
+				keyMessage: "invalid JSON body",
+				keyType:    "UnprocessableEntityException",
+			})
 		}
 	}
 
@@ -197,7 +201,10 @@ func (h *Handler) handleREST(c *echo.Context) error {
 		return fn()
 	}
 
-	return c.JSON(http.StatusNotFound, map[string]any{keyMessage: "unknown operation"})
+	return c.JSON(http.StatusNotFound, map[string]any{
+		keyMessage: "unknown operation",
+		keyType:    "NotFoundException",
+	})
 }
 
 func classifyPath(method, path string) (string, string) {
@@ -346,26 +353,30 @@ func classifyTagPath(method, path string) (string, string) {
 	return opUnknown, resourceARN
 }
 
-func (h *Handler) jsonError(c *echo.Context, status int, err error) error {
-	return c.JSON(status, map[string]any{keyMessage: err.Error()})
-}
-
 func (h *Handler) jsonErrorTyped(c *echo.Context, status int, errType string, err error) error {
-	return c.JSON(status, map[string]any{keyMessage: err.Error(), "__type": errType})
+	return c.JSON(status, map[string]any{keyMessage: err.Error(), keyType: errType})
 }
 
+// mapError sets __type on every branch so a real SDK client can classify the
+// failure. Before this fix, only the NotFound branch did -- AlreadyExists,
+// InvalidParameter and the default (internal-error) branches wrote __type-less
+// bodies that decoded client-side as UnknownError regardless of the real
+// cause (gopherstack-wlo1). Wire types are the sentinels' own modeled names
+// (errors.go), verified against mediapackage@v1.42.4 deserializers.go's
+// awsRestjson1_deserializeOpErrorCreateChannel, which models exactly
+// ForbiddenException, InternalServerErrorException, NotFoundException,
+// ServiceUnavailableException, TooManyRequestsException and
+// UnprocessableEntityException for the 422/500 statuses used below.
 func (h *Handler) mapError(c *echo.Context, err error) error {
 	switch {
 	case errors.Is(err, awserr.ErrNotFound):
-		// Include __type so the AWS SDK can identify the NotFoundException
-		// and terraform destroy-wait converges correctly.
 		return h.jsonErrorTyped(c, http.StatusNotFound, ErrNotFound.Error(), err)
 	case errors.Is(err, awserr.ErrAlreadyExists):
-		return h.jsonError(c, http.StatusUnprocessableEntity, err)
+		return h.jsonErrorTyped(c, http.StatusUnprocessableEntity, ErrConflict.Error(), err)
 	case errors.Is(err, awserr.ErrInvalidParameter):
-		return h.jsonError(c, http.StatusUnprocessableEntity, err)
+		return h.jsonErrorTyped(c, http.StatusUnprocessableEntity, ErrInvalidParameter.Error(), err)
 	default:
-		return h.jsonError(c, http.StatusInternalServerError, err)
+		return h.jsonErrorTyped(c, http.StatusInternalServerError, "InternalServerErrorException", err)
 	}
 }
 

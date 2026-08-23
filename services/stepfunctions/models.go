@@ -135,13 +135,15 @@ type HistoryEventExecutionDataDetails struct {
 }
 
 // TaskScheduledEventDetails holds details for TaskScheduled history events.
+// Resource/ResourceType/Region/Parameters are all required on the real
+// TaskScheduledEventDetails (sfn@v1.45.4 types.go:1311-1339).
 type TaskScheduledEventDetails struct {
 	TimeoutInSeconds   *int64 `json:"timeoutInSeconds,omitempty"`
 	HeartbeatInSeconds *int64 `json:"heartbeatInSeconds,omitempty"`
-	Resource           string `json:"resource,omitempty"`
-	ResourceType       string `json:"resourceType,omitempty"`
-	Region             string `json:"region,omitempty"`
-	Parameters         string `json:"parameters,omitempty"`
+	Resource           string `json:"resource"`
+	ResourceType       string `json:"resourceType"`
+	Region             string `json:"region"`
+	Parameters         string `json:"parameters"`
 }
 
 // TaskStartedEventDetails holds details for TaskStarted history events.
@@ -159,19 +161,21 @@ type TaskSubmittedEventDetails struct {
 }
 
 // TaskSucceededEventDetails holds details for TaskSucceeded history events.
+// Resource/ResourceType are required (sfn@v1.45.4 types.go:1431-1450).
 type TaskSucceededEventDetails struct {
 	OutputDetails *HistoryEventExecutionDataDetails `json:"outputDetails,omitempty"`
-	Resource      string                            `json:"resource,omitempty"`
-	ResourceType  string                            `json:"resourceType,omitempty"`
+	Resource      string                            `json:"resource"`
+	ResourceType  string                            `json:"resourceType"`
 	Output        string                            `json:"output,omitempty"`
 }
 
 // TaskFailedEventDetails holds details for TaskFailed history events.
+// Resource/ResourceType are required (sfn@v1.45.4 types.go:1289-1307).
 type TaskFailedEventDetails struct {
 	Error        string `json:"error,omitempty"`
 	Cause        string `json:"cause,omitempty"`
-	Resource     string `json:"resource,omitempty"`
-	ResourceType string `json:"resourceType,omitempty"`
+	Resource     string `json:"resource"`
+	ResourceType string `json:"resourceType"`
 }
 
 // Activity represents an AWS Step Functions activity resource.
@@ -234,22 +238,43 @@ type AliasRoutingConfig struct {
 
 // MapRun represents an AWS Step Functions Map Run (a Map state parallel execution group).
 type MapRun struct {
-	StopDate                   *float64         `json:"stopDate,omitempty"`
-	RedriveDate                *float64         `json:"redriveDate,omitempty"`
-	MapRunArn                  string           `json:"mapRunArn"`
-	ExecutionArn               string           `json:"executionArn"`
-	StateMachineArn            string           `json:"stateMachineArn"`
-	Status                     string           `json:"status"`
-	ItemCounts                 MapRunItemCounts `json:"itemCounts"`
-	StartDate                  float64          `json:"startDate"`
-	ToleratedFailurePercentage float64          `json:"toleratedFailurePercentage,omitempty"`
-	MaxConcurrency             int              `json:"maxConcurrency,omitempty"`
-	ToleratedFailureCount      int              `json:"toleratedFailureCount,omitempty"`
-	RedriveCount               int              `json:"redriveCount,omitempty"`
+	StopDate        *float64         `json:"stopDate,omitempty"`
+	RedriveDate     *float64         `json:"redriveDate,omitempty"`
+	MapRunArn       string           `json:"mapRunArn"`
+	ExecutionArn    string           `json:"executionArn"`
+	StateMachineArn string           `json:"stateMachineArn"`
+	Status          string           `json:"status"`
+	ItemCounts      MapRunItemCounts `json:"itemCounts"`
+	// ExecutionCounts is required on DescribeMapRunOutput (sfn@v1.45.4
+	// api_op_DescribeMapRun.go:57) but this backend never spawns separate
+	// child workflow executions per Map item (DISTRIBUTED mode runs inline,
+	// same as INLINE) -- so it stays genuinely zero-valued rather than
+	// fabricating a mapping onto ItemCounts. See PARITY.md.
+	ExecutionCounts            MapRunExecutionCounts `json:"executionCounts"`
+	StartDate                  float64               `json:"startDate"`
+	ToleratedFailurePercentage float64               `json:"toleratedFailurePercentage,omitempty"`
+	MaxConcurrency             int                   `json:"maxConcurrency,omitempty"`
+	ToleratedFailureCount      int                   `json:"toleratedFailureCount,omitempty"`
+	RedriveCount               int                   `json:"redriveCount,omitempty"`
 }
 
 // MapRunItemCounts holds item-level counts for a Map Run.
 type MapRunItemCounts struct {
+	Total                 int `json:"total"`
+	Succeeded             int `json:"succeeded"`
+	Failed                int `json:"failed"`
+	Pending               int `json:"pending"`
+	Running               int `json:"running"`
+	Aborted               int `json:"aborted"`
+	TimedOut              int `json:"timedOut"`
+	ResultsWritten        int `json:"resultsWritten"`
+	FailuresNotRedrivable int `json:"failuresNotRedrivable,omitempty"`
+	PendingRedrive        int `json:"pendingRedrive,omitempty"`
+}
+
+// MapRunExecutionCounts holds child-workflow-execution counts for a Map Run
+// (sfn@v1.45.4 types.go:841-906). Shape mirrors MapRunItemCounts.
+type MapRunExecutionCounts struct {
 	Total                 int `json:"total"`
 	Succeeded             int `json:"succeeded"`
 	Failed                int `json:"failed"`

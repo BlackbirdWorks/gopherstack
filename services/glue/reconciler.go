@@ -66,6 +66,19 @@ func (b *InMemoryBackend) reconcileLocked(now time.Time) {
 		}
 	}
 
+	// Integration transitions: CREATING→ACTIVE. Real Glue Zero-ETL integrations
+	// activate on their own with no client call required, the same shape as a
+	// crawler's RUNNING→READY.
+	for name, readyAt := range b.integrationReadyAt {
+		if now.After(readyAt) {
+			if ig, ok := b.integrations.Get(name); ok && ig.Status == "CREATING" {
+				ig.Status = stateActive
+			}
+
+			delete(b.integrationReadyAt, name)
+		}
+	}
+
 	b.pruneOrphanJobRunTimersLocked()
 }
 
@@ -135,6 +148,12 @@ func (b *InMemoryBackend) pendingDueLocked(now time.Time) bool {
 	}
 
 	for _, readyAt := range b.crawlerReadyAt {
+		if now.After(readyAt) {
+			return true
+		}
+	}
+
+	for _, readyAt := range b.integrationReadyAt {
 		if now.After(readyAt) {
 			return true
 		}

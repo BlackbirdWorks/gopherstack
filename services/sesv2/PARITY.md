@@ -12,7 +12,7 @@ ops:
   ListEmailIdentities: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteEmailIdentity: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateConfigurationSet: {wire: ok, errors: ok, state: ok, persist: ok}
-  GetConfigurationSet: {wire: ok, errors: ok, state: ok, persist: ok}
+  GetConfigurationSet: {wire: fixed, errors: ok, state: ok, persist: ok, note: "TrackingOptions.CustomRedirectDomain (required on types.TrackingOptions) was tagged omitempty and dropped whenever a caller set HttpsPolicy alone via PutConfigurationSetTrackingOptions -- see 2026-08-21 entry (gopherstack-r80d batch 21)"}
   ListConfigurationSets: {wire: fixed, errors: ok, state: ok, persist: ok, note: "ConfigurationSets was []{Name} objects; real shape is []string. handler.go:listConfigurationSetsOutput"}
   DeleteConfigurationSet: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateConfigurationSetEventDestination: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -24,7 +24,7 @@ ops:
   PutConfigurationSetDeliveryOptions: {wire: ok, errors: ok, state: ok, persist: ok}
   PutConfigurationSetReputationOptions: {wire: ok, errors: ok, state: ok, persist: ok}
   PutConfigurationSetSuppressionOptions: {wire: ok, errors: ok, state: ok, persist: ok}
-  PutConfigurationSetTrackingOptions: {wire: ok, errors: ok, state: ok, persist: ok}
+  PutConfigurationSetTrackingOptions: {wire: fixed, errors: ok, state: ok, persist: ok, note: "CustomRedirectDomain is optional on this op's own input (api_op_PutConfigurationSetTrackingOptions.go), so a caller can set HttpsPolicy alone -- see GetConfigurationSet's 2026-08-21 entry"}
   PutConfigurationSetVdmOptions: {wire: ok, errors: ok, state: ok, persist: ok}
   SendEmail: {wire: ok, errors: ok, state: ok, persist: ok}
   SendBulkEmail: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "request body was parsed into map[string]any with ad-hoc type assertions; now typed (bulkEmailEntry/bulkEmailDestination/messageHeader/messageTag/replacementEmailContent/replacementTemplate in send_email.go, field-diffed against types.BulkEmailEntry et al), and the response uses bulkEmailEntryResultOutput (types.BulkEmailEntryResult) instead of a raw map. gopherstack-afi1: DefaultContent (required, api_op_SendBulkEmail.go:43) was decoded into sendBulkEmailInput but never read -- SendEmail was called with hardcoded empty subject/HTML/text, so every bulk email was recorded with no content regardless of what the caller sent. Now resolves DefaultContent.Template (inline TemplateContent, or a TemplateName lookup against b.emailTemplates -- NotFoundException if missing) and applies {{var}} substitution (parseTemplateVars/renderTemplateVars, shared with TestRenderEmailTemplate) using TemplateData merged with each entry's ReplacementEmailContent.ReplacementTemplate.ReplacementTemplateData as a per-recipient override. DefaultContent.Template.Attachments/Headers and per-entry ReplacementHeaders/ReplacementTags remain unstored/inert -- consistent with SendEmail's existing scope, which doesn't model attachments/headers/tags on Email either."}
@@ -124,6 +124,50 @@ families:
   route-matcher: {status: fixed, note: "Built a full (method,path)->op regression matrix from aws-sdk-go-v2/service/sesv2 v1.60.1 serializers.go (services/sesv2/route_matrix_test.go, 110+ real routes, every real SDK route now covered -- see route_matrix_test.go). Original pass fixed 12/30 unroutable-or-misrouted routes; this pass closed the remaining 18: RPC-style tenant/resource-tenant paths (8 routes), deliverability-dashboard sub-resources (5 routes: test-reports x2, statistics-report, campaigns, domains/.../campaigns), insights/recommendations (3: email-address-insights, insights/{MessageId}, vdm/recommendations), reputation-entity listing (1, plus deletion of a gopherstack-invented duplicate 'reputation-entities' top-level path), and the POST-based list-export-jobs/import-jobs/list variants (2). gopherstack-jqh2: independently re-extracted all 112 real ops' method+path from the pinned sesv2@v1.66.4 serializers.go (no manual reliance on this file's prior citation) and diffed against ExtractOperation directly -- 112/112 match, confirming route_matrix_test.go is current and this family's 'fixed' status holds against the pinned SDK version; no new test added since route_matrix_test.go already covers this exact ground (including the 2 ops -- PutAccountPricingAttributes, PutTenantSuppressionAttributes -- that appeared between v1.60.1 and v1.66.4) and duplicating it would just be two tables to keep in sync. No query-flag-discriminated ops, no duplicate op-resolution table, no wrong-date-prefix paths found in this pass either."}
 leaks: {status: clean, note: "no goroutines/janitors spawned; email retention capped at maxRetainedEmails (10000, FIFO-compacted) so SendEmail/SendCustomVerificationEmail can't leak memory on a long-running instance. DeleteTenant now cascades its resource-association index cleanup (both tenantResources and resourceTenants maps) so deleting a tenant with associated resources doesn't leave ghost rows."}
 ---
+
+## 2026-08-21: TrackingOptions.CustomRedirectDomain dropped when only HttpsPolicy is set (gopherstack-r80d batch 21)
+
+`GetConfigurationSet`'s `TrackingOptions` wrapper mirrors
+`aws-sdk-go-v2/service/sesv2/types/types.go`'s `TrackingOptions`, whose
+`CustomRedirectDomain` is `This member is required.` `handler_configuration_
+sets.go`'s `trackingOptionsOutput.CustomRedirectDomain` was tagged
+`,omitempty`. `PutConfigurationSetTrackingOptionsInput`
+(`api_op_PutConfigurationSetTrackingOptions.go`) only requires
+`ConfigurationSetName` -- `CustomRedirectDomain` and `HttpsPolicy` are both
+optional, independently settable -- so a real client can call
+`PutConfigurationSetTrackingOptions({ConfigurationSetName, HttpsPolicy:
+"REQUIRE"})` with no redirect domain at all.
+`handleGetConfigurationSet`'s guard (`cs.TrackingCustomRedirectDomain != ""
+|| cs.TrackingHTTPSPolicy != ""`) then built the wrapper because
+`HttpsPolicy` was set, but the `omitempty` tag dropped the required
+`CustomRedirectDomain` key entirely from the response body instead of
+emitting it as an empty string -- the "required-but-inapplicable means
+present-and-empty, not absent" shape this campaign has repeatedly named.
+Fixed by dropping the `omitempty` tag (the wrapper's `HttpsPolicy` stays
+`,omitempty`, correctly optional on the real type). Proven via a real
+`aws-sdk-go-v2/service/sesv2` client round trip
+(`wire_output_required_r80d_test.go`), hand-reverted/confirmed-failing/
+restored, md5sum-verified byte-identical.
+
+Selected as the largest remaining `gopherstack-r80d` candidate tied with
+`cloudfrontkeyvaluestore` (both 18 required output fields per
+`cmd/requiredoutputfields`); this service's real surface is much larger once
+domain structs are walked (232 required fields across 143 structs in
+`types/types.go` -- almost entirely `*Input` structs for this service's
+large identity/configuration-set/contact CRUD surface, not response types).
+Every other required output-relevant domain struct checked this pass came
+back clean: `SuppressedDestination`/`SuppressedDestinationSummary.
+LastUpdateTime` carries the same dead `omitempty` tag but is structurally
+unreachable (the sole construction site, `PutSuppressedDestination`,
+unconditionally stamps `time.Now()`); `DedicatedIp`/`DedicatedIpPool`/
+`EventDestination`/`MailFromAttributes`/`BulkEmailEntryResult` are all built
+either as non-nil map literals or with their required members always
+populated before construction; `DeliverabilityTestReport`/`IspPlacement`/
+`OverallVolume`/`DailyVolume`/`ContactList`/`VdmOptions`/`DashboardOptions`/
+`GuardianOptions`/`ArchivingOptions`/`BlacklistEntry` all genuinely declare
+zero required members on the pinned SDK, confirmed by reading `types.go`
+directly rather than assuming from the struct's presence in this file's
+domain model.
 
 ## This pass (2026-08-13): SendBulkEmail dropped DefaultContent (gopherstack-afi1)
 

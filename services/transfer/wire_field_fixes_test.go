@@ -2,6 +2,8 @@ package transfer_test
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -49,4 +51,44 @@ func TestListServers_LoggingRole_RealClient(t *testing.T) {
 	require.NotNil(t, found,
 		"ListServers: LoggingRole must round-trip; pre-fix it was always nil")
 	assert.Equal(t, "arn:aws:iam::123456789012:role/transfer-logging-role", aws.ToString(found))
+}
+
+// TestDescribeWorkflow_CustomStepTimeoutSecondsKey_RealClient covers
+// gopherstack-y1zn. workflowStepToMap emitted "Timeout" for a CUSTOM step's
+// timeout; types.CustomStepDetails (transfer@v1.75.4 deserializers.go's
+// real member) is "TimeoutSeconds". A typed client silently ignores the
+// unknown key, so the proof is the raw body.
+func TestDescribeWorkflow_CustomStepTimeoutSecondsKey_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	createRec := doTransferRequest(t, h, "CreateWorkflow", map[string]any{
+		"Steps": []map[string]any{
+			{
+				"Type": "CUSTOM",
+				"CustomStepDetails": map[string]any{
+					"Name":    "y1zn-custom-step",
+					"Target":  "arn:aws:lambda:us-east-1:123456789012:function:my-func",
+					"Timeout": 30,
+				},
+			},
+		},
+	})
+	require.Equal(t, http.StatusOK, createRec.Code, createRec.Body.String())
+
+	var createResp map[string]any
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	workflowID := createResp["WorkflowId"].(string)
+
+	rec := doTransferRequest(t, h, "DescribeWorkflow", map[string]any{
+		"WorkflowId": workflowID,
+	})
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	body := rec.Body.String()
+	assert.NotContains(t, body, `"Timeout":`,
+		"types.CustomStepDetails has no Timeout member")
+	assert.Contains(t, body, `"TimeoutSeconds"`,
+		"types.CustomStepDetails's real member is TimeoutSeconds")
 }

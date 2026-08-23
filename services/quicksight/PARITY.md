@@ -137,13 +137,14 @@ ops:
   UpdateDashboardPublishedVersion: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateDashboardLinks: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeDashboardDefinition: {wire: ok, errors: ok, state: ok, persist: ok, note: "ResourceStatus field reuses Dashboard.Status, fixed by the same CREATED->CREATION_SUCCESSFUL change"}
-  CreateAnalysis: {wire: ok, errors: ok, state: ok, persist: ok}
-  DescribeAnalysis: {wire: ok, errors: ok, state: ok, persist: ok}
-  UpdateAnalysis: {wire: ok, errors: ok, state: ok, persist: ok}
+  CreateAnalysis: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (2026-08-23, low-client-coverage audit pass): CreateAnalysisInput.ThemeArn (api_op_CreateAnalysis.go, real, caller-supplied *string, optional) was read nowhere -- handleCreateAnalysis never extracted it from the body and Analysis (types.go) had no field to hold it, so it was silently dropped. Class (a), zero fabrication (caller-supplied). Fixed: Analysis gained a ThemeArn field, threaded through CreateAnalysis/UpdateAnalysis and echoed on DescribeAnalysis/DescribeAnalysisDefinition (both of which carry a real ThemeArn per types.Analysis and DescribeAnalysisDefinitionOutput). See TestSDKRoundTrip_AnalysisThemeArn (handler_sdk_roundtrip_test.go), a real aws-sdk-go-v2 client round trip. DataSetArns/Sheets/TopicArns/Errors on types.Analysis remain honestly absent -- they require parsing the opaque Definition blob this backend never interprets (same precedent as Template's Sheets/DataSetConfigurations), not a caller-supplied scalar like ThemeArn."}
+  DescribeAnalysis: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (2026-08-23): now returns ThemeArn -- see CreateAnalysis note."}
+  UpdateAnalysis: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (2026-08-23): UpdateAnalysisInput.ThemeArn had the same dropped-on-the-wire bug as CreateAnalysisInput.ThemeArn -- see CreateAnalysis note, same fix."}
   DeleteAnalysis: {wire: ok, errors: ok, state: ok, persist: ok, note: "soft-delete (Status=DELETED) vs hard-delete on forceDeleteWithoutRecovery correctly mirrors RestoreAnalysis existing as a real op"}
   ListAnalyses: {wire: ok, errors: ok, state: ok, persist: ok}
   RestoreAnalysis: {wire: ok, errors: ok, state: ok, persist: ok}
   SearchAnalyses: {wire: ok, errors: ok, state: ok, persist: ok}
+  DescribeAnalysisDefinition: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (2026-08-23): top-level ThemeArn (DescribeAnalysisDefinitionOutput, distinct member from the nested Analysis.ThemeArn DescribeAnalysis returns) was missing for the same reason -- see CreateAnalysis note. Errors ([]types.AnalysisError) remains honestly absent: this backend has no analysis-definition validation pipeline that produces errors, so an always-empty list would be indistinguishable from a real unpopulated one -- not fabrication either way, left off rather than emitting a value with no real derivation."}
   DescribeAnalysisPermissions: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateAnalysisPermissions: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateNamespace: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -491,3 +492,133 @@ operation"). See `TestSDKRoundTrip_DataSetPhysicalTableMap` and
 which drive the real `aws-sdk-go-v2` client end to end -- create with a
 populated `PhysicalTableMap`/`LogicalTableMap`, then describe and assert the
 exact typed union variant and field values round-trip, not just a 2xx.
+
+## gopherstack-y1zn (2026-08-21): unknown-key sweep, 5 confirmed bugs
+
+Part of the gopherstack-us9u/g479 map-literal scanner's 526-key unknown-key
+bucket triage. All 5 proven via real `aws-sdk-go-v2/service/quicksight`
+client round trips or raw-body assertion, hand-reverted against `git show
+HEAD:<path>`, confirmed failing, restored, `md5sum`-verified byte-identical.
+
+- `CreateAccountSubscription`: {wire: fixed} -- `SignupResponse.UserLoginName`
+  was emitted PascalCase ("UserLoginName"); the real member
+  (deserializers.go's awsRestjson1_deserializeDocumentSignupResponse) is the
+  one lowercase-first member on that type, "userLoginName".
+- `DescribeKeyRegistration`: {wire: fixed} -- wrapped the list under
+  "RegisteredCustomerManagedKeys" (the name of the array's own item type,
+  types.RegisteredCustomerManagedKey); real member is "KeyRegistration".
+- `DescribeDefaultQBusinessApplication`: {wire: fixed} -- wrapped its result
+  under a fabricated "DefaultQBusinessApplication" key with a "Namespace"
+  echo; the real output (deserializers.go) is flat -- ApplicationId/RequestId
+  only, no wrapper, no Namespace (Namespace is Input-side only).
+- `BatchCreateTopicReviewedAnswer`/`BatchDeleteTopicReviewedAnswer`: {wire:
+  fixed} -- wrapped the succeeded list under "SucceededAnswer" (singular);
+  real member is "SucceededAnswers" (plural).
+- `ListTopicReviewedAnswers`: {wire: fixed} -- each item emitted a fabricated
+  "Mode" key; types.TopicReviewedAnswer has no such member
+  (AnswerId/Arn/DatasetArn/Mir/PrimaryVisual/Question/Template only; Arn/Mir
+  remain honestly absent gaps, not touched this pass).
+- `UpdateSelfUpgrade`/`ListSelfUpgrades` (selfUpgradeRequestDetailToMap):
+  {wire: fixed} -- "LastUpdateAttemptTime"/"LastUpdateFailureReason" were
+  PascalCase, matching every sibling member on the type; the real wire keys
+  (deserializers.go's awsRestjson1_deserializeDocumentSelfUpgradeRequestDetail)
+  are lowercase-first for these two specific members only, unlike every other
+  member on the same type.
+
+New test file: `wire_field_fixes_y1zn_test.go`.
+
+## 2026-08-23: low-client-coverage audit pass, coverage number confirmed but scope corrected
+
+`cmd/clientcoverage` measures quicksight at 25/277 real-SDK-client-driven ops
+(9.0%), the lowest of any large service -- that number is accurate, confirmed
+by running `cmd/opcensus`/`cmd/clientcoverage` directly. But it does NOT mean
+252 ops were "never checked": this file's own history (gopherstack-0qzf,
+taqn, i0n4, g3jk, hnyl, r80d/lx5h, 2qk4, y1zn, wl0s, parity-5, spanning back
+to 2026-08-08 and as recent as 2026-08-21) already documents a near-complete
+hand field-diff of nearly every op family against the pinned SDK's
+types.go/(de)serializers.go, with concrete SDK line citations. Spot-checked
+five of those citations directly against
+`aws-sdk-go-v2/service/quicksight@v1.123.1` this pass (ListIAMPolicyAssignmentsForUser's
+ActiveAssignments key, Space's camelCase spaceId, DescribeRoleCustomPermission's
+CustomPermissionsName, ListRoleMemberships' MembersList, Brand's published-version/
+assignment sub-op wire shapes) -- all five matched the real SDK source exactly, so
+the audit trail is genuine, not aspirational. The low client-coverage number
+reflects methodology (most of this file's findings came from hand-diffing
+against SDK source, not from live-client round-trip tests) rather than
+neglect. Same correction shape as bedrock's audit this session: "never
+counted by clientcoverage" is not "never checked."
+
+One genuine, previously-missed gap found and fixed this pass anyway, in a
+family whose PARITY.md coverage was narrative rather than per-op
+(`Analysis`, ops: section only listed 9 of the family's actual ops -- see the
+per-op notes above): `CreateAnalysisInput.ThemeArn`/`UpdateAnalysisInput.ThemeArn`
+(real, caller-supplied, optional `*string` fields) were accepted and silently
+dropped -- `Analysis` (types.go) had no field for them at all, so a real
+client's `ThemeArn` was never observable on `DescribeAnalysis` or
+`DescribeAnalysisDefinition` even though both real output shapes carry it
+(`types.Analysis.ThemeArn`, `DescribeAnalysisDefinitionOutput.ThemeArn`).
+Class (a), zero fabrication. Proven with a real `aws-sdk-go-v2` client round
+trip (`TestSDKRoundTrip_AnalysisThemeArn`), confirmed failing against the
+pre-fix code by hand-reverting `analysis.go`/`handler_analysis.go`/
+`models.go`/`types.go`/`interfaces.go` to `git show HEAD:<path>` (all three
+assertions failed with the expected-vs-empty diff), then restored via `cp`
+and `md5sum`-verified byte-identical to the fixed version.
+
+Note on persistence: `storedAnalysis` gained a new `ThemeArn` field
+(purely additive -- every existing field/tag unchanged). This does NOT
+warrant a `quicksightSnapshotVersion` bump -- bumping for a purely-additive
+change is exactly the destructive pattern `pkgs/persistence`'s
+`TestSnapshotVersionGuard` exists to catch (an older snapshot decodes a
+missing field to its zero value fine; bumping instead routes `Restore`
+through `ResetAll` and discards every user's persisted state). In practice
+the guard doesn't even reach quicksight: it scans `services/*/persistence.go`
+for a `<service>SnapshotVersion`-carrying struct, and quicksight's
+`persistence.go` only has `Handler.Snapshot`/`Restore` delegation methods --
+the version constant lives in `store.go` instead -- so quicksight has no
+entry in `pkgs/persistence/testdata/snapshot_inventory.json` at all and
+`TestSnapshotVersionGuard` silently doesn't cover this service either way.
+Confirmed by running it before and after this change: no violations, no
+golden diff, no `quicksight` key present in the golden JSON.
+
+Ops audited this pass beyond the 5 spot-checks above (all clean, no new
+findings besides Analysis/ThemeArn): `DescribeBrandPublishedVersion`,
+`UpdateBrandPublishedVersion`, `DescribeBrandAssignment`,
+`UpdateBrandAssignment`, `DescribeRoleCustomPermission`,
+`UpdateRoleCustomPermission`, `DeleteRoleCustomPermission`,
+`CreateRoleMembership`, `DeleteRoleMembership`, `ListRoleMemberships`,
+`UpdateUserCustomPermission`, `DeleteUserCustomPermission`.
+
+Not reached this pass (named per the campaign's depth-over-breadth rule,
+not implying a problem -- most already carry a dated, cited family-level
+audit above): the full `Brand` CRUD (`CreateBrand`/`DeleteBrand`/
+`DeleteBrandAssignment`/`ListBrands`), `CustomPermissions` CRUD proper
+(`CreateCustomPermissions`/`DeleteCustomPermissions`/`DescribeCustomPermissions`/
+`ListCustomPermissions`/`UpdateCustomPermissions`), the `AccountLevel` family's
+~10 sub-resources beyond `AccountSettings`/`AccountInfo` (already flagged as
+not independently re-diffed by the `taqn` pass), `Folder` membership/search
+ops (`CreateFolderMembership`/`DeleteFolderMembership`/`ListFolderMembers`/
+`ListFolders`/`ListFoldersForResource`/`SearchFolders`/`UpdateFolder`/
+`DescribeFolderPermissions`/`DescribeFolderResolvedPermissions`/
+`UpdateFolderPermissions`), `Template`/`Theme` alias and version sub-families
+(`CreateTemplateAlias`/`DescribeTemplateAlias`/`ListTemplateAliases`/
+`ListTemplateVersions`/`UpdateTemplateAlias`/`UpdateTemplatePermissions`/
+`DescribeTemplate`/`ListTemplates`/`DescribeTemplateDefinition`/
+`DescribeTemplatePermissions` and the equivalent `Theme` ops),
+`OAuthClientApplication`'s `DeleteOAuthClientApplication`/
+`DescribeOAuthClientApplication`/`ListOAuthClientApplications`/
+`UpdateOAuthClientApplication`, `ActionConnector`'s `CreateActionConnector`/
+`DeleteActionConnector`/`ListActionConnectors`/`SearchActionConnectors`,
+`VPCConnection`'s `CreateVPCConnection`/`DeleteVPCConnection`,
+`RefreshSchedule`'s Topic-refresh sub-ops (`CreateTopicRefreshSchedule`/
+`DeleteTopicRefreshSchedule`/`DescribeTopicRefresh`/
+`DescribeTopicRefreshSchedule`/`ListTopicRefreshSchedules`/
+`UpdateTopicRefreshSchedule`) and DataSet-refresh-properties ops
+(`DeleteDataSetRefreshProperties`/`DescribeDataSetRefreshProperties`/
+`ListRefreshSchedules`/`DeleteRefreshSchedule`/`PutDataSetRefreshProperties`),
+`Agent`/`KnowledgeBase`/`Space`/`Flow` permission ops
+(`DescribeAgentPermissions`/`UpdateAgentPermissions`/
+`DescribeKnowledgeBasePermissions`/`DescribeSpacePermissions`/
+`GetFlowPermissions`/`UpdateFlowPermissions`), and `Embed`'s
+`GenerateEmbedUrlForRegisteredUser`/`GenerateEmbedUrlForRegisteredUserWithIdentity`
+(already covered narratively by the `taqn` Embed re-diff, not independently
+re-verified this pass).

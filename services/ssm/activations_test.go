@@ -16,6 +16,12 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/ssm"
 )
 
+// testS3DestinationJSON is a valid ResourceDataSyncS3Destination JSON
+// fragment (BucketName/Region/SyncFormat all required, see
+// TestCreateResourceDataSync_RequiredFields) shared by the CreateResourceDataSync
+// test bodies below.
+const testS3DestinationJSON = `"S3Destination":{"BucketName":"b","Region":"us-east-1","SyncFormat":"JsonSerDe"}`
+
 func TestResourceDataSync_CRUD(t *testing.T) {
 	t.Parallel()
 
@@ -30,17 +36,26 @@ func TestResourceDataSync_CRUD(t *testing.T) {
 		t,
 		h,
 		"CreateResourceDataSync",
-		`{"SyncName":"my-sync","SyncType":"SyncToDestination"}`,
+		`{"SyncName":"my-sync","SyncType":"SyncToDestination",`+testS3DestinationJSON+`}`,
 	)
 	assert.Equal(t, http.StatusOK, rec.Code)
 
-	// List shows it
+	// List shows it, S3Destination round-tripped -- gopherstack-enpq:
+	// CreateResourceDataSyncInput had NO S3Destination/SyncSource Go
+	// members at all, so a real client's SyncToDestination config was
+	// silently dropped on every create.
 	rec = doRequest(t, h, "ListResourceDataSync", `{}`)
 	require.Equal(t, http.StatusOK, rec.Code)
 	assertBodyContains(t, rec, "my-sync")
+	assertBodyContains(t, rec, `"BucketName":"b"`)
 
 	// Create duplicate → returns error (sync already exists)
-	rec = doRequest(t, h, "CreateResourceDataSync", `{"SyncName":"my-sync"}`)
+	rec = doRequest(
+		t,
+		h,
+		"CreateResourceDataSync",
+		`{"SyncName":"my-sync",`+testS3DestinationJSON+`}`,
+	)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 	assertBodyContains(t, rec, "ResourceDataSyncAlreadyExistsException")
 
@@ -98,6 +113,44 @@ func TestResourceDataSync_CRUD(t *testing.T) {
 	rec = doRequest(t, h, "ListResourceDataSync", `{}`)
 	assertBodyContains(t, rec, "[]")
 }
+
+// TestCreateResourceDataSync_RequiredFields proves S3Destination/SyncSource
+// (api_op_CreateResourceDataSync.go: "required if the SyncType value is
+// SyncToDestination"/"SyncFromSource" respectively) are now enforced --
+// previously CreateResourceDataSyncInput had no Go struct member for either
+// at all, so a real client's config was silently dropped on every create.
+func TestCreateResourceDataSync_RequiredFields(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		body string
+	}{
+		{"empty_body_defaults_to_synctodestination", `{}`},
+		{"synctodestination_missing_s3destination", `{"SyncName":"s","SyncType":"SyncToDestination"}`},
+		{"syncfromsource_missing_syncsource", `{"SyncName":"s","SyncType":"SyncFromSource"}`},
+		{
+			"s3destination_missing_bucketname", `{"SyncName":"s",
+			"S3Destination":{"Region":"us-east-1","SyncFormat":"JsonSerDe"}}`,
+		},
+		{
+			"syncsource_missing_sourceregions", `{"SyncName":"s","SyncType":"SyncFromSource",
+			"SyncSource":{"SourceType":"SingleAccountMultiRegions"}}`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, _ := newTestHandler(t)
+			rec := doRequest(t, h, "CreateResourceDataSync", tt.body)
+			assert.Equal(t, http.StatusBadRequest, rec.Code)
+			assert.Contains(t, rec.Body.String(), "ValidationException")
+		})
+	}
+}
+
 func TestListNodes(t *testing.T) {
 	t.Parallel()
 
@@ -248,6 +301,9 @@ func TestDeleteResourceDataSync_RoundTrip(t *testing.T) {
 			_, err := b.CreateResourceDataSync(context.TODO(), &ssm.CreateResourceDataSyncInput{
 				SyncName: tt.syncName,
 				SyncType: tt.syncType,
+				S3Destination: &ssm.ResourceDataSyncS3Destination{
+					BucketName: "b", Region: "us-east-1", SyncFormat: "JsonSerDe",
+				},
 			})
 			require.NoError(t, err)
 
@@ -324,7 +380,12 @@ func TestStubOps_DeleteResourceDataSync(t *testing.T) {
 
 	h, b := newTestHandler(t)
 
-	_, err := b.CreateResourceDataSync(context.TODO(), &ssm.CreateResourceDataSyncInput{SyncName: "test-sync"})
+	_, err := b.CreateResourceDataSync(context.TODO(), &ssm.CreateResourceDataSyncInput{
+		SyncName: "test-sync",
+		S3Destination: &ssm.ResourceDataSyncS3Destination{
+			BucketName: "b", Region: "us-east-1", SyncFormat: "JsonSerDe",
+		},
+	})
 	require.NoError(t, err)
 
 	rec := doRequest(t, h, "DeleteResourceDataSync", `{"SyncName":"test-sync"}`)
@@ -548,6 +609,9 @@ func TestFull_ResourceDataSync_CreateListDelete(t *testing.T) {
 	code, _ := postJSON(t, h, "CreateResourceDataSync", map[string]any{
 		"SyncName": "my-sync",
 		"SyncType": "SyncToDestination",
+		"S3Destination": map[string]any{
+			"BucketName": "b", "Region": "us-east-1", "SyncFormat": "JsonSerDe",
+		},
 	})
 	assert.Equal(t, http.StatusOK, code)
 

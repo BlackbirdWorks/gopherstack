@@ -12,29 +12,53 @@ import (
 // TransformJob handlers (gap #12 partial)
 // ---------------------------------------------------------------------------
 
+type createTransformJobRequest struct {
+	Environment             map[string]string  `json:"Environment,omitempty"`
+	TransformInput          TransformInput     `json:"TransformInput"`
+	TransformOutput         TransformOutput    `json:"TransformOutput"`
+	TransformJobName        string             `json:"TransformJobName"`
+	ModelName               string             `json:"ModelName"`
+	BatchStrategy           string             `json:"BatchStrategy,omitempty"`
+	TransformResources      TransformResources `json:"TransformResources"`
+	Tags                    []tagObject        `json:"Tags,omitempty"`
+	MaxConcurrentTransforms int32              `json:"MaxConcurrentTransforms,omitempty"`
+	MaxPayloadInMB          int32              `json:"MaxPayloadInMB,omitempty"`
+}
+
 func (h *Handler) handleCreateTransformJob(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		Environment             map[string]string  `json:"Environment,omitempty"`
-		TransformInput          TransformInput     `json:"TransformInput"`
-		TransformOutput         TransformOutput    `json:"TransformOutput"`
-		TransformJobName        string             `json:"TransformJobName"`
-		ModelName               string             `json:"ModelName"`
-		RoleArn                 string             `json:"RoleArn,omitempty"`
-		BatchStrategy           string             `json:"BatchStrategy,omitempty"`
-		TransformResources      TransformResources `json:"TransformResources"`
-		Tags                    []tagObject        `json:"Tags,omitempty"`
-		MaxConcurrentTransforms int32              `json:"MaxConcurrentTransforms,omitempty"`
-		MaxPayloadInMB          int32              `json:"MaxPayloadInMB,omitempty"`
-	}
+	var req createTransformJobRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
+	if req.TransformJobName == "" {
+		return nil, fmt.Errorf("%w: TransformJobName is required", errInvalidRequest)
+	}
+
+	if req.ModelName == "" {
+		return nil, fmt.Errorf("%w: ModelName is required", errInvalidRequest)
+	}
+
+	if req.TransformInput.DataSource.S3DataSource.S3Uri == "" {
+		return nil, fmt.Errorf("%w: TransformInput.DataSource.S3DataSource.S3Uri is required", errInvalidRequest)
+	}
+
+	if req.TransformOutput.S3OutputPath == "" {
+		return nil, fmt.Errorf("%w: TransformOutput.S3OutputPath is required", errInvalidRequest)
+	}
+
+	if req.TransformResources.InstanceType == "" {
+		return nil, fmt.Errorf("%w: TransformResources.InstanceType is required", errInvalidRequest)
+	}
+
+	if req.TransformResources.InstanceCount == 0 {
+		return nil, fmt.Errorf("%w: TransformResources.InstanceCount is required", errInvalidRequest)
+	}
+
 	tj, err := h.Backend.CreateTransformJob(ctx, TransformJobOptions{
 		TransformJobName:        req.TransformJobName,
 		ModelName:               req.ModelName,
-		RoleArn:                 req.RoleArn,
 		BatchStrategy:           req.BatchStrategy,
 		MaxConcurrentTransforms: req.MaxConcurrentTransforms,
 		MaxPayloadInMB:          req.MaxPayloadInMB,
@@ -53,10 +77,12 @@ func (h *Handler) handleCreateTransformJob(ctx context.Context, body []byte) ([]
 	return json.Marshal(map[string]string{"TransformJobArn": tj.TransformJobArn})
 }
 
+type describeTransformJobRequest struct {
+	TransformJobName string `json:"TransformJobName"`
+}
+
 func (h *Handler) handleDescribeTransformJob(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		TransformJobName string `json:"TransformJobName"`
-	}
+	var req describeTransformJobRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -82,9 +108,6 @@ func (h *Handler) handleDescribeTransformJob(ctx context.Context, body []byte) (
 		keyCreationTime:      epochSeconds(tj.CreationTime),
 		keyLastModifiedTime:  epochSeconds(tj.LastModifiedTime),
 	}
-	if tj.RoleArn != "" {
-		resp[keyRoleArn] = tj.RoleArn
-	}
 	if tj.BatchStrategy != "" {
 		resp["BatchStrategy"] = tj.BatchStrategy
 	}
@@ -104,10 +127,12 @@ func (h *Handler) handleDescribeTransformJob(ctx context.Context, body []byte) (
 	return json.Marshal(resp)
 }
 
+type stopTransformJobRequest struct {
+	TransformJobName string `json:"TransformJobName"`
+}
+
 func (h *Handler) handleStopTransformJob(ctx context.Context, body []byte) error {
-	var req struct {
-		TransformJobName string `json:"TransformJobName"`
-	}
+	var req stopTransformJobRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -135,20 +160,36 @@ type transformJobSummary struct {
 	LastModifiedTime   float64 `json:"LastModifiedTime"`
 }
 
+type listTransformJobsRequest struct {
+	CreationTimeAfter      *float64 `json:"CreationTimeAfter,omitempty"`
+	CreationTimeBefore     *float64 `json:"CreationTimeBefore,omitempty"`
+	LastModifiedTimeAfter  *float64 `json:"LastModifiedTimeAfter,omitempty"`
+	LastModifiedTimeBefore *float64 `json:"LastModifiedTimeBefore,omitempty"`
+	NextToken              string   `json:"NextToken"`
+	StatusEquals           string   `json:"StatusEquals,omitempty"`
+	NameContains           string   `json:"NameContains,omitempty"`
+	SortBy                 string   `json:"SortBy,omitempty"`
+	SortOrder              string   `json:"SortOrder,omitempty"`
+	MaxResults             int32    `json:"MaxResults,omitempty"`
+}
+
 func (h *Handler) handleListTransformJobs(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		NextToken    string `json:"NextToken"`
-		StatusEquals string `json:"StatusEquals,omitempty"`
-		NameContains string `json:"NameContains,omitempty"`
-	}
+	var req listTransformJobsRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
 	filter := ListTransformJobsFilter{
-		StatusEquals: req.StatusEquals,
-		NameContains: req.NameContains,
+		CreationTimeAfter:      epochPtr(req.CreationTimeAfter),
+		CreationTimeBefore:     epochPtr(req.CreationTimeBefore),
+		LastModifiedTimeAfter:  epochPtr(req.LastModifiedTimeAfter),
+		LastModifiedTimeBefore: epochPtr(req.LastModifiedTimeBefore),
+		StatusEquals:           req.StatusEquals,
+		NameContains:           req.NameContains,
+		SortBy:                 req.SortBy,
+		SortOrder:              req.SortOrder,
+		MaxResults:             req.MaxResults,
 	}
 
 	jobs, nextToken := h.Backend.ListTransformJobs(ctx, req.NextToken, filter)

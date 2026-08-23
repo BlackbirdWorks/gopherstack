@@ -2,6 +2,7 @@ package sagemaker_test
 
 import (
 	"encoding/json"
+	"maps"
 	"net/http"
 	"testing"
 	"time"
@@ -16,8 +17,9 @@ import (
 
 func createLabelingJobRequestBody(name, workteamArn string) map[string]any {
 	return map[string]any{
-		"LabelingJobName": name,
-		"RoleArn":         "arn:aws:iam::000000000000:role/LabelingRole",
+		"LabelingJobName":    name,
+		"LabelAttributeName": "label",
+		"RoleArn":            "arn:aws:iam::000000000000:role/LabelingRole",
 		"InputConfig": map[string]any{
 			"DataSource": map[string]any{
 				"S3DataSource": map[string]any{"ManifestS3Uri": "s3://bucket/manifest.json"},
@@ -89,6 +91,18 @@ func TestHandler_CreateLabelingJob_MissingRequiredFields(t *testing.T) {
 	}{
 		{name: "missing name", body: map[string]any{}},
 		{name: "missing InputConfig", body: map[string]any{"LabelingJobName": "x", "RoleArn": "r"}},
+		{
+			name: "missing LabelAttributeName",
+			body: func() map[string]any {
+				b := createLabelingJobRequestBody(
+					"no-label-attr",
+					"arn:aws:sagemaker:us-east-1:000000000000:workteam/team-1",
+				)
+				delete(b, "LabelAttributeName")
+
+				return b
+			}(),
+		},
 	}
 
 	for _, tc := range tests {
@@ -266,6 +280,210 @@ func TestHandler_ListLabelingJobsForWorkteam_MissingArn(t *testing.T) {
 
 	rec := doSageMakerRequest(t, h, "ListLabelingJobsForWorkteam", map[string]any{})
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestHandler_ListLabelingJobs_ResponseIncludesInputConfigAndOutput(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	doSageMakerRequest(
+		t,
+		h,
+		"CreateLabelingJob",
+		createLabelingJobRequestBody("job-fields", "arn:aws:sagemaker:us-east-1:000000000000:workteam/team-1"),
+	)
+
+	rec := doSageMakerRequest(t, h, "ListLabelingJobs", map[string]any{})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	items, ok := resp["LabelingJobSummaryList"].([]any)
+	require.True(t, ok)
+	require.Len(t, items, 1)
+
+	item, ok := items[0].(map[string]any)
+	require.True(t, ok)
+	assert.NotNil(t, item["InputConfig"], "LabelingJobSummary.InputConfig is a real member of the wire type")
+
+	// LabelingJobOutput is only populated once the job completes.
+	assert.Eventually(t, func() bool {
+		pollRec := doSageMakerRequest(t, h, "ListLabelingJobs", map[string]any{})
+		var pollResp map[string]any
+		require.NoError(t, json.Unmarshal(pollRec.Body.Bytes(), &pollResp))
+		pollItems, _ := pollResp["LabelingJobSummaryList"].([]any)
+		require.Len(t, pollItems, 1)
+
+		return pollItems[0].(map[string]any)["LabelingJobOutput"] != nil
+	}, 2*time.Second, 20*time.Millisecond)
+}
+
+func TestHandler_ListLabelingJobs_TimeFilters(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	doSageMakerRequest(
+		t,
+		h,
+		"CreateLabelingJob",
+		createLabelingJobRequestBody("time-job", "arn:aws:sagemaker:us-east-1:000000000000:workteam/team-1"),
+	)
+
+	future := float64(time.Now().Add(time.Hour).Unix())
+	past := float64(time.Now().Add(-time.Hour).Unix())
+
+	tests := []struct {
+		body      map[string]any
+		name      string
+		wantCount int
+	}{
+		{name: "creation time after future excludes", body: map[string]any{"CreationTimeAfter": future}, wantCount: 0},
+		{name: "creation time after past includes", body: map[string]any{"CreationTimeAfter": past}, wantCount: 1},
+		{name: "creation time before past excludes", body: map[string]any{"CreationTimeBefore": past}, wantCount: 0},
+		{
+			name:      "creation time before future includes",
+			body:      map[string]any{"CreationTimeBefore": future},
+			wantCount: 1,
+		},
+		{
+			name:      "last modified after future excludes",
+			body:      map[string]any{"LastModifiedTimeAfter": future},
+			wantCount: 0,
+		},
+		{
+			name:      "last modified before past excludes",
+			body:      map[string]any{"LastModifiedTimeBefore": past},
+			wantCount: 0,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			rec := doSageMakerRequest(t, h, "ListLabelingJobs", tc.body)
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var resp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			items, _ := resp["LabelingJobSummaryList"].([]any)
+			assert.Len(t, items, tc.wantCount)
+		})
+	}
+}
+
+func TestHandler_ListLabelingJobs_SortBy(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	doSageMakerRequest(
+		t,
+		h,
+		"CreateLabelingJob",
+		createLabelingJobRequestBody("sort-b", "arn:aws:sagemaker:us-east-1:000000000000:workteam/team-1"),
+	)
+	doSageMakerRequest(
+		t,
+		h,
+		"CreateLabelingJob",
+		createLabelingJobRequestBody("sort-a", "arn:aws:sagemaker:us-east-1:000000000000:workteam/team-1"),
+	)
+
+	tests := []struct {
+		body      map[string]any
+		name      string
+		wantFirst string
+	}{
+		{
+			name:      "sort by name ascending",
+			body:      map[string]any{"SortBy": "Name", "SortOrder": "Ascending"},
+			wantFirst: "sort-a",
+		},
+		{
+			name:      "sort by name descending",
+			body:      map[string]any{"SortBy": "Name", "SortOrder": "Descending"},
+			wantFirst: "sort-b",
+		},
+		{name: "default sort is creation time ascending", body: map[string]any{}, wantFirst: "sort-b"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			rec := doSageMakerRequest(t, h, "ListLabelingJobs", tc.body)
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var resp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			items, ok := resp["LabelingJobSummaryList"].([]any)
+			require.True(t, ok)
+			require.Len(t, items, 2)
+			assert.Equal(t, tc.wantFirst, items[0].(map[string]any)["LabelingJobName"])
+		})
+	}
+}
+
+func TestHandler_ListLabelingJobsForWorkteam_Filters(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	doSageMakerRequest(
+		t,
+		h,
+		"CreateLabelingJob",
+		createLabelingJobRequestBody("wtf-job", "arn:aws:sagemaker:us-east-1:000000000000:workteam/team-filter"),
+	)
+
+	describeRec := doSageMakerRequest(t, h, "DescribeLabelingJob", map[string]any{"LabelingJobName": "wtf-job"})
+	require.Equal(t, http.StatusOK, describeRec.Code)
+
+	var describeResp map[string]any
+	require.NoError(t, json.Unmarshal(describeRec.Body.Bytes(), &describeResp))
+	jobReferenceCode, ok := describeResp["JobReferenceCode"].(string)
+	require.True(t, ok)
+	require.NotEmpty(t, jobReferenceCode)
+
+	future := float64(time.Now().Add(time.Hour).Unix())
+
+	tests := []struct {
+		extra     map[string]any
+		name      string
+		wantCount int
+	}{
+		{
+			name:      "matching job reference code contains",
+			extra:     map[string]any{"JobReferenceCodeContains": jobReferenceCode[:4]},
+			wantCount: 1,
+		},
+		{
+			name:      "non-matching job reference code contains",
+			extra:     map[string]any{"JobReferenceCodeContains": "does-not-exist"},
+			wantCount: 0,
+		},
+		{name: "creation time after future excludes", extra: map[string]any{"CreationTimeAfter": future}, wantCount: 0},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			body := map[string]any{"WorkteamArn": "arn:aws:sagemaker:us-east-1:000000000000:workteam/team-filter"}
+			maps.Copy(body, tc.extra)
+
+			rec := doSageMakerRequest(t, h, "ListLabelingJobsForWorkteam", body)
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var resp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			items, _ := resp["LabelingJobSummaryList"].([]any)
+			assert.Len(t, items, tc.wantCount)
+		})
+	}
 }
 
 // ---------------------------------------------------------------------------

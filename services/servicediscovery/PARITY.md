@@ -242,3 +242,75 @@ and cross-account/shared-namespace support were re-verified with fresh evidence 
   `api_op_CreateService.go`'s doc comment distinguishing DNS-discoverable namespaces (where
   case-only name variants would produce ambiguous DNS records) from HTTP-only namespaces
   (which have no DNS record to collide over).
+
+## gopherstack-o7gx (2026-08-22): ReadBody-failure path wrote untyped errors
+
+`Handler()`'s `httputils.ReadBody` failure branch wrote a bare
+`c.String(http.StatusInternalServerError, "internal server error")`.
+servicediscovery is awsjson1.1 (confirmed from `servicediscovery@v1.43.4`
+deserializers.go's `awsAwsjson11_deserializeOpError*` prefix); its
+per-operation deserializer still calls `restjson.GetErrorInfo` to
+JSON-decode `__type`/`message`, so plain text doesn't decode -- a real
+client got `*json.SyntaxError`, not even `UnknownError`.
+
+Fixed by routing the ReadBody error through this handler's own
+`handleError(c, err)`: it checks `sentinelErrorCodes()` and
+`isMalformedRequest(err)` (which only matches `errInvalidRequest`,
+`json.SyntaxError`, `json.UnmarshalTypeError`) -- a `*http.MaxBytesError`/
+read error matches neither, so it falls through to the pre-existing
+default (`__type: "InternalServiceError"`, 500).
+
+NOTE (pre-existing, NOT fixed by this pass): `"InternalServiceError"` does
+not appear in `servicediscovery@v1.43.4` `types/errors.go`'s modeled list
+(`CustomHealthNotFound`, `DuplicateRequest`, `InstanceNotFound`,
+`InvalidInput`, `NamespaceAlreadyExists`, `NamespaceNotFound`,
+`OperationNotFound`, `RequestLimitExceeded`, `ResourceInUse`,
+`ResourceLimitExceeded`, `ResourceNotFoundException`,
+`ServiceAlreadyExists`, `ServiceAttributesLimitExceededException`,
+`ServiceNotFound`, `TooManyTagsException`) -- it falls through to the
+client's generic `smithy.GenericAPIError` branch rather than a modeled
+struct, which still surfaces the correct `ErrorCode()` but is a possible
+pre-existing wire-code mismatch in the genuine per-operation default, out
+of this ticket's ReadBody-only scope.
+
+CONFIRMED (documented "left untyped" decision distinct from the above):
+this file's Notes elsewhere record a deliberate choice not to simplify a
+validation branch that looks redundant at a glance (line ~237) -- a
+different kind of gap (modeling ambiguity, not error-typing) that this fix
+does not touch.
+
+Proven with a real `aws-sdk-go-v2/service/servicediscovery` client's
+`CreateService`, whose `Description` field alone exceeds
+`httputils.MaxRequestBodyBytes` (16 MiB).
+`TestHandler_OversizedBodySurfacesInternalServiceError`
+(`handler_oversized_body_test.go`) asserts `apiErr.ErrorCode() ==
+"InternalServiceError"`; confirmed it fails pre-fix with
+`*json.SyntaxError` (hand-reverted, byte-identical restore after).
+
+## gopherstack-o7gx follow-up (2026-08-22): default error path fixed to InternalFailure
+
+The NOTE above flagged `"InternalServiceError"` as not matching
+`servicediscovery@v1.43.4`'s `types/errors.go`. Confirmed:
+`servicediscovery@v1.43.4` models zero 5xx/internal-fault exceptions at all
+(its 15 modeled types are all 4xx client faults -- `CustomHealthNotFound`,
+`DuplicateRequest`, `InstanceNotFound`, `InvalidInput`,
+`NamespaceAlreadyExists`, `NamespaceNotFound`, `OperationNotFound`,
+`RequestLimitExceeded`, `ResourceInUse`, `ResourceLimitExceeded`,
+`ResourceNotFoundException`, `ServiceAlreadyExists`,
+`ServiceAttributesLimitExceededException`, `ServiceNotFound`,
+`TooManyTagsException` -- confirmed via `types/errors.go` in full). So no
+replacement code maps to a modeled type here either way; per the
+mediapackage/sagemaker precedent (prefer a generic AWS-wide code over
+reusing another service's specific modeled exception name, and never invent
+one), fixed `handler.go`'s `handleError` default to `errType =
+"InternalFailure"` -- the same generic fallback already used by 7+ other
+gopherstack services with no modeled internal fault (`backup`, `memorydb`,
+`identitystore`, `accessanalyzer`, `elbv2`, `ssoadmin`, `rds`).
+`"InternalServiceError"` was not a fabricated code (it's the real modeled
+type for `secretsmanager`/`transfer`), just not this service's.
+
+`TestHandler_OversizedBodySurfacesInternalFailure`
+(renamed from `...InternalServiceError`) now asserts `apiErr.ErrorCode() ==
+"InternalFailure"`; confirmed it fails pre-fix with the old
+`"InternalServiceError"` code (hand-reverted, byte-identical restore
+after).

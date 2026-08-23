@@ -4,7 +4,11 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
+	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	sagemakersdk "github.com/aws/aws-sdk-go-v2/service/sagemaker"
+	smtypes "github.com/aws/aws-sdk-go-v2/service/sagemaker/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -223,6 +227,213 @@ func TestHandler_DescribeDevice_NotFound(t *testing.T) {
 		"DeviceName":      "nonexistent",
 	})
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+// TestHandler_CreateDeviceFleet_IotRoleAlias_RealClient asserts
+// EnableIotRoleAlias -- entirely absent before this pass, on both
+// CreateDeviceFleetInput and UpdateDeviceFleetInput -- synthesizes
+// DescribeDeviceFleetOutput.IotRoleAlias as "SageMakerEdge-{DeviceFleetName}"
+// (api_op_CreateDeviceFleet.go:43-48), and that UpdateDeviceFleet can toggle
+// it back off.
+func TestHandler_CreateDeviceFleet_IotRoleAlias_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestSageMakerClient(t, h)
+
+	_, err := client.CreateDeviceFleet(t.Context(), &sagemakersdk.CreateDeviceFleetInput{
+		DeviceFleetName:    aws.String("iot-fleet"),
+		OutputConfig:       &smtypes.EdgeOutputConfig{S3OutputLocation: aws.String("s3://bucket/out")},
+		EnableIotRoleAlias: aws.Bool(true),
+	})
+	require.NoError(t, err)
+
+	out, err := client.DescribeDeviceFleet(t.Context(), &sagemakersdk.DescribeDeviceFleetInput{
+		DeviceFleetName: aws.String("iot-fleet"),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "SageMakerEdge-iot-fleet", aws.ToString(out.IotRoleAlias))
+
+	_, err = client.UpdateDeviceFleet(t.Context(), &sagemakersdk.UpdateDeviceFleetInput{
+		DeviceFleetName:    aws.String("iot-fleet"),
+		OutputConfig:       &smtypes.EdgeOutputConfig{S3OutputLocation: aws.String("s3://bucket/out")},
+		EnableIotRoleAlias: aws.Bool(false),
+	})
+	require.NoError(t, err)
+
+	out, err = client.DescribeDeviceFleet(t.Context(), &sagemakersdk.DescribeDeviceFleetInput{
+		DeviceFleetName: aws.String("iot-fleet"),
+	})
+	require.NoError(t, err)
+	assert.Empty(t, aws.ToString(out.IotRoleAlias))
+}
+
+// TestHandler_CreateDeviceFleet_PresetDeploymentConfig_RealClient asserts
+// OutputConfig.PresetDeploymentConfig/PresetDeploymentType -- both absent
+// before this pass -- round-trip through Describe.
+func TestHandler_CreateDeviceFleet_PresetDeploymentConfig_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestSageMakerClient(t, h)
+
+	_, err := client.CreateDeviceFleet(t.Context(), &sagemakersdk.CreateDeviceFleetInput{
+		DeviceFleetName: aws.String("preset-fleet"),
+		OutputConfig: &smtypes.EdgeOutputConfig{
+			S3OutputLocation:       aws.String("s3://bucket/out"),
+			PresetDeploymentConfig: aws.String(`{"ComponentName":"my-component"}`),
+			PresetDeploymentType:   smtypes.EdgePresetDeploymentTypeGreengrassV2Component,
+		},
+	})
+	require.NoError(t, err)
+
+	out, err := client.DescribeDeviceFleet(t.Context(), &sagemakersdk.DescribeDeviceFleetInput{
+		DeviceFleetName: aws.String("preset-fleet"),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, out.OutputConfig)
+	assert.JSONEq(t, `{"ComponentName":"my-component"}`, aws.ToString(out.OutputConfig.PresetDeploymentConfig))
+	assert.Equal(t, smtypes.EdgePresetDeploymentTypeGreengrassV2Component, out.OutputConfig.PresetDeploymentType)
+}
+
+// TestHandler_ListDeviceFleets_FilterSortPage_RealClient asserts
+// ListDeviceFleetsInput's NameContains/SortBy/SortOrder/MaxResults/
+// CreationTimeAfter -- all absent or (for the two time filters) undecodable
+// before this pass -- now work. The real client sends CreationTimeAfter as
+// an awsjson1.1 epoch-second number, which a *time.Time-typed request field
+// cannot decode at all.
+func TestHandler_ListDeviceFleets_FilterSortPage_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestSageMakerClient(t, h)
+
+	names := []string{"alpha-fleet", "beta-fleet", "gamma-widget"}
+	for _, n := range names {
+		_, err := client.CreateDeviceFleet(t.Context(), &sagemakersdk.CreateDeviceFleetInput{
+			DeviceFleetName: aws.String(n),
+			OutputConfig:    &smtypes.EdgeOutputConfig{S3OutputLocation: aws.String("s3://bucket/out")},
+		})
+		require.NoError(t, err)
+	}
+
+	t.Run("name contains filters", func(t *testing.T) {
+		t.Parallel()
+
+		out, err := client.ListDeviceFleets(t.Context(), &sagemakersdk.ListDeviceFleetsInput{
+			NameContains: aws.String("fleet"),
+		})
+		require.NoError(t, err)
+		assert.Len(t, out.DeviceFleetSummaries, 2)
+	})
+
+	t.Run("ascending sort by name", func(t *testing.T) {
+		t.Parallel()
+
+		out, err := client.ListDeviceFleets(t.Context(), &sagemakersdk.ListDeviceFleetsInput{
+			SortBy:    smtypes.ListDeviceFleetsSortByName,
+			SortOrder: smtypes.SortOrderAscending,
+		})
+		require.NoError(t, err)
+		require.Len(t, out.DeviceFleetSummaries, 3)
+		assert.Equal(t, "alpha-fleet", aws.ToString(out.DeviceFleetSummaries[0].DeviceFleetName))
+		assert.Equal(t, "gamma-widget", aws.ToString(out.DeviceFleetSummaries[2].DeviceFleetName))
+	})
+
+	t.Run("max results caps the page and returns a token", func(t *testing.T) {
+		t.Parallel()
+
+		out, err := client.ListDeviceFleets(t.Context(), &sagemakersdk.ListDeviceFleetsInput{
+			MaxResults: aws.Int32(1),
+			SortBy:     smtypes.ListDeviceFleetsSortByName,
+			SortOrder:  smtypes.SortOrderAscending,
+		})
+		require.NoError(t, err)
+		require.Len(t, out.DeviceFleetSummaries, 1)
+		assert.Equal(t, "alpha-fleet", aws.ToString(out.DeviceFleetSummaries[0].DeviceFleetName))
+		assert.NotEmpty(t, aws.ToString(out.NextToken))
+	})
+
+	t.Run("creation time filter does not error", func(t *testing.T) {
+		t.Parallel()
+
+		out, err := client.ListDeviceFleets(t.Context(), &sagemakersdk.ListDeviceFleetsInput{
+			CreationTimeAfter: aws.Time(time.Now().Add(-time.Hour)),
+		})
+		require.NoError(t, err)
+		assert.Len(t, out.DeviceFleetSummaries, 3)
+	})
+}
+
+// TestHandler_RegisterDevices_Tags_RealClient asserts RegisterDevicesInput's
+// top-level Tags -- previously read from a per-device Tags key the real
+// client never sends (types.Device has no Tags field at all), so every
+// registration's tags were silently dropped -- now apply to every device in
+// the batch and are reachable through ListTagsForResource on the device ARN.
+func TestHandler_RegisterDevices_Tags_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestSageMakerClient(t, h)
+
+	_, err := client.CreateDeviceFleet(t.Context(), &sagemakersdk.CreateDeviceFleetInput{
+		DeviceFleetName: aws.String("tag-fleet"),
+		OutputConfig:    &smtypes.EdgeOutputConfig{S3OutputLocation: aws.String("s3://bucket/out")},
+	})
+	require.NoError(t, err)
+
+	_, err = client.RegisterDevices(t.Context(), &sagemakersdk.RegisterDevicesInput{
+		DeviceFleetName: aws.String("tag-fleet"),
+		Devices:         []smtypes.Device{{DeviceName: aws.String("tagged-device")}},
+		Tags:            []smtypes.Tag{{Key: aws.String("env"), Value: aws.String("prod")}},
+	})
+	require.NoError(t, err)
+
+	desc, err := client.DescribeDevice(t.Context(), &sagemakersdk.DescribeDeviceInput{
+		DeviceFleetName: aws.String("tag-fleet"),
+		DeviceName:      aws.String("tagged-device"),
+	})
+	require.NoError(t, err)
+
+	tagsOut, err := client.ListTags(t.Context(), &sagemakersdk.ListTagsInput{
+		ResourceArn: desc.DeviceArn,
+	})
+	require.NoError(t, err)
+	require.Len(t, tagsOut.Tags, 1)
+	assert.Equal(t, "env", aws.ToString(tagsOut.Tags[0].Key))
+	assert.Equal(t, "prod", aws.ToString(tagsOut.Tags[0].Value))
+}
+
+// TestHandler_ListDevices_MaxResults_RealClient asserts ListDevicesInput's
+// MaxResults -- absent before this pass -- caps the page of devices returned.
+func TestHandler_ListDevices_MaxResults_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestSageMakerClient(t, h)
+
+	_, err := client.CreateDeviceFleet(t.Context(), &sagemakersdk.CreateDeviceFleetInput{
+		DeviceFleetName: aws.String("page-fleet"),
+		OutputConfig:    &smtypes.EdgeOutputConfig{S3OutputLocation: aws.String("s3://bucket/out")},
+	})
+	require.NoError(t, err)
+
+	_, err = client.RegisterDevices(t.Context(), &sagemakersdk.RegisterDevicesInput{
+		DeviceFleetName: aws.String("page-fleet"),
+		Devices: []smtypes.Device{
+			{DeviceName: aws.String("dev-a")},
+			{DeviceName: aws.String("dev-b")},
+		},
+	})
+	require.NoError(t, err)
+
+	out, err := client.ListDevices(t.Context(), &sagemakersdk.ListDevicesInput{
+		DeviceFleetName: aws.String("page-fleet"),
+		MaxResults:      aws.Int32(1),
+	})
+	require.NoError(t, err)
+	require.Len(t, out.DeviceSummaries, 1)
+	assert.NotEmpty(t, aws.ToString(out.NextToken))
 }
 
 // ---------------------------------------------------------------------------

@@ -177,7 +177,17 @@ func (b *InMemoryBackend) UpdateReplicationInfo(
 	}
 
 	if topicReplication != nil {
-		r.ReplicationInfoList[idx].TopicReplication = *topicReplication
+		// UpdateReplicationInfoInput.TopicReplication is
+		// types.TopicReplicationUpdate, which declares no
+		// StartingPosition/TopicNameConfiguration at all -- both are
+		// immutable after Create, so a real client's Update payload can
+		// never carry either. Preserve both from the existing flow rather
+		// than wholesale-replacing TopicReplication with the caller's
+		// (necessarily zero-valued for these two) decoded value.
+		merged := *topicReplication
+		merged.StartingPositionType = r.ReplicationInfoList[idx].TopicReplication.StartingPositionType
+		merged.TopicNameConfigurationType = r.ReplicationInfoList[idx].TopicReplication.TopicNameConfigurationType
+		r.ReplicationInfoList[idx].TopicReplication = merged
 	}
 
 	if consumerGroupReplication != nil {

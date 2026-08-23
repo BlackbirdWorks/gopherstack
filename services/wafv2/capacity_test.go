@@ -12,7 +12,7 @@ import (
 )
 
 // checkCapacityFor issues a CheckCapacity request for a single rule wrapping
-// stmt and returns the ConsumedCapacity the handler reports.
+// stmt and returns the Capacity the handler reports.
 func checkCapacityFor(t *testing.T, h *wafv2.Handler, stmt map[string]any) int {
 	t.Helper()
 
@@ -31,7 +31,7 @@ func checkCapacityFor(t *testing.T, h *wafv2.Handler, stmt map[string]any) int {
 	var result map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &result))
 
-	consumed, ok := result["ConsumedCapacity"].(float64)
+	consumed, ok := result["Capacity"].(float64)
 	require.True(t, ok)
 
 	return int(consumed)
@@ -359,7 +359,7 @@ func TestCheckCapacity_MultipleRulesSum(t *testing.T) {
 
 	var result map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &result))
-	consumed, ok := result["ConsumedCapacity"].(float64)
+	consumed, ok := result["Capacity"].(float64)
 	require.True(t, ok)
 	assert.InDelta(t, float64(1+40), consumed, 0)
 }

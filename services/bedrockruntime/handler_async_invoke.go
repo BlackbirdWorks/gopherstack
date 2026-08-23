@@ -114,6 +114,10 @@ func (h *Handler) handleListAsyncInvokes(c *echo.Context) error {
 
 // buildAsyncInvokeResponse constructs the JSON response for a single async invocation.
 // Fields that are only valid in terminal states (Completed/Failed) are omitted otherwise.
+// Deliberately no "tags" key: neither GetAsyncInvokeOutput nor AsyncInvokeSummary
+// (bedrockruntime@v1.57.1 api_op_GetAsyncInvoke.go / types/types.go) has a Tags
+// member, and this service has no TagResource/ListTagsForResource op at all --
+// real AWS gives no way to read an async invoke's tags back, ever.
 func buildAsyncInvokeResponse(inv *AsyncInvoke) map[string]any {
 	resp := map[string]any{
 		keyInvocationArn: inv.InvocationArn,
@@ -141,10 +145,6 @@ func buildAsyncInvokeResponse(inv *AsyncInvoke) map[string]any {
 
 	if inv.Status == AsyncInvokeStatusFailed && inv.FailureMessage != nil {
 		resp["failureMessage"] = *inv.FailureMessage
-	}
-
-	if len(inv.Tags) > 0 {
-		resp["tags"] = inv.Tags
 	}
 
 	return resp

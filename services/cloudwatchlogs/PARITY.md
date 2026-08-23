@@ -23,9 +23,9 @@ overall: A            # 2026-08-13 (gopherstack-wl0s): GetLogFields never read d
                        # declares ValidationException instead, so a new ErrValidationException sentinel
                        # was added rather than reusing ErrValidation. See ops entries below.
 ops:
-  CreateLookupTable: {wire: ok, errors: ok, state: ok, persist: ok, note: "parity-4: field-diffed against aws-sdk-go-v2@v1.80.0 api_op_CreateLookupTable.go/types.LookupTable. CreateLookupTableInput.TableBody is a plain *string of CSV content (verified against serializers.go: tableBody is serialized as a bare JSON string, no S3 reference anywhere in this op's input or output) -- so this backend genuinely parses the CSV (encoding/csv) rather than modeling a reference to data it never reads: the header row becomes TableFields, subsequent rows are counted into RecordsCount, and len(tableBody) becomes SizeBytes. Name validated against the documented alphanumeric+underscore/256-char charset; body validated against the documented 10 MB limit and real CSV syntax (malformed CSV -> InvalidParameterException). ARN is constructed as arn:{partition}:logs:{region}:{account}:lookup-table:{name} via pkgs/arn -- no ARN pattern is embedded anywhere in the SDK module (no smithy model shipped, no doc-comment pattern), so this mirrors the existing log-group ARN convention (arn.Build + \"log-group:\"+name) rather than an AWS-confirmed pattern; flagged here for anyone who later finds an authoritative pattern to check against. Response is create-only (createdAt/lookupTableArn), matching CreateLookupTableOutput exactly (no echoed metadata). Tags are accepted and stored via the handler-level tag store (h.setTags, keyed by lookupTableArn) exactly like log group tags, since types.LookupTable/GetLookupTableOutput have no Tags field of their own -- tags are wire-visible only via the generic ListTagsForResource/TagResource/UntagResource ops, which already existed."}
+  CreateLookupTable: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "parity-4: field-diffed against aws-sdk-go-v2@v1.80.0 api_op_CreateLookupTable.go/types.LookupTable. CreateLookupTableInput.TableBody is a plain *string of CSV content (verified against serializers.go: tableBody is serialized as a bare JSON string, no S3 reference anywhere in this op's input or output) -- so this backend genuinely parses the CSV (encoding/csv) rather than modeling a reference to data it never reads: the header row becomes TableFields, subsequent rows are counted into RecordsCount, and len(tableBody) becomes SizeBytes. Name validated against the documented alphanumeric+underscore/256-char charset; body validated against the documented 10 MB limit and real CSV syntax (malformed CSV -> InvalidParameterException). ARN is constructed as arn:{partition}:logs:{region}:{account}:lookup-table:{name} via pkgs/arn -- no ARN pattern is embedded anywhere in the SDK module (no smithy model shipped, no doc-comment pattern), so this mirrors the existing log-group ARN convention (arn.Build + \"log-group:\"+name) rather than an AWS-confirmed pattern; flagged here for anyone who later finds an authoritative pattern to check against. Response is create-only (createdAt/lookupTableArn), matching CreateLookupTableOutput exactly (no echoed metadata). Tags are accepted and stored via the handler-level tag store (h.setTags, keyed by lookupTableArn) exactly like log group tags, since types.LookupTable/GetLookupTableOutput have no Tags field of their own -- tags are wire-visible only via the generic ListTagsForResource/TagResource/UntagResource ops, which already existed. FIXED (gopherstack-enpq, 2026-08-22): CreateLookupTableInput.QueryId (api_op_CreateLookupTable.go:55, \"You must specify either tableBody or queryId, but not both\") had no Go field at all -- the doc-prescribed query-results-populate-the-table path was structurally unreachable; a caller supplying only QueryId always fell through to \"tableBody is required\" even though validateOpCreateLookupTableInput does not require either field client-side, so the request reaches the wire unmodified. Fixed via resolveLookupTableBody/lookupTableBodyFromQuery: QueryId now fetches the completed query's [][]ResultField and renders real CSV content (header from the first result row's field order, one row per result), with both-set and neither-set both rejected as InvalidParameterException. Proven via TestCreateLookupTable_FromQueryID and TestCreateLookupTable_TableBodyAndQueryIDMutualExclusion (real aws-sdk-go-v2 client), hand-reverted and confirmed to fail against unfixed code."}
   GetLookupTable: {wire: ok, errors: ok, state: ok, persist: ok, note: "parity-4: full-content shape (description/kmsKeyId/lastUpdatedTime/lookupTableArn/lookupTableName/sizeBytes/tableBody) field-diffed against GetLookupTableOutput; unlike DescribeLookupTables this includes tableBody."}
-  UpdateLookupTable: {wire: ok, errors: ok, state: ok, persist: ok, note: "parity-4: full replacement of TableBody (re-parsed, TableFields/RecordsCount/SizeBytes recomputed) per the doc comment (\"This is a full replacement operation\"); Description/KmsKeyId are optional *string on the real input (nil = leave unchanged), modeled the same way here rather than collapsing to plain strings (which would make \"omitted\" and \"explicitly cleared\" indistinguishable over JSON)."}
+  UpdateLookupTable: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "parity-4: full replacement of TableBody (re-parsed, TableFields/RecordsCount/SizeBytes recomputed) per the doc comment (\"This is a full replacement operation\"); Description/KmsKeyId are optional *string on the real input (nil = leave unchanged), modeled the same way here rather than collapsing to plain strings (which would make \"omitted\" and \"explicitly cleared\" indistinguishable over JSON). FIXED (gopherstack-enpq, 2026-08-22): same missing-QueryId bug as CreateLookupTable (api_op_UpdateLookupTable.go:47, same doc-prescribed either/or), same resolveLookupTableBody fix."}
   DeleteLookupTable: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeLookupTables: {wire: ok, errors: ok, state: ok, persist: ok, note: "parity-4: field-diffed against types.LookupTable -- this list shape deliberately excludes tableBody (metadata only: description/kmsKeyId/lastUpdatedTime/lookupTableArn/lookupTableName/recordsCount/sizeBytes/tableFields), matching the real SDK type used by DescribeLookupTablesOutput.LookupTables (distinct from GetLookupTableOutput's full-content shape). lookupTableNamePrefix filter and maxResults(default 50/max 100 per the doc comment)/nextToken pagination implemented via the same base64-index-cursor helpers (encodeNextToken/parseNextToken) every other paginated op in this package already uses."}
   PutSyslogConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "parity-4: field-diffed against api_op_PutSyslogConfiguration.go/types.SyslogConfiguration. Real AWS PutSyslogConfigurationInput/DeleteSyslogConfigurationInput both require only LogGroupIdentifier (VpcEndpointId is optional on both, per the real validator -- validateOpPutSyslogConfigurationInput only requires LogGroupIdentifier), so this backend models at most one syslog configuration per log group, keyed by normalized log group identifier -- the same per-log-group-identifier keying this codebase already uses for IndexPolicy/Transformer (store_setup.go's indexPolicyKeyFn/transformerKeyFn). Improvement over those pre-existing sibling ops: this validates the log group actually exists (region-scoped groupGet lookup) and returns ResourceNotFoundException otherwise, rather than accepting an arbitrary string as those two do -- a deliberate, real behavior difference specifically called for this pass, not a pre-existing gap being silently carried forward. SourceType is always \"VPCE\" (the only real types.SyslogSourceType enum member). VpcEndpointId itself is accepted/stored/returned as an opaque string, not cross-validated against real EC2 VPC-endpoint state -- there is no VPC-endpoint modeling anywhere in this service (or a cross-service validation pattern anywhere in this codebase for ARN/ID references into another service's resources), matching how this service already treats KmsKeyId/RoleArn/DestinationArn (stored, not validated)."}
@@ -41,7 +41,7 @@ ops:
   CreateLogGroup: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteLogGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "cascades streams/events/subscription filters/metric filters."}
   DescribeLogGroups: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListAggregateLogGroupSummaries: {wire: fixed, errors: fixed, state: ok, persist: n/a, note: "two bugs fixed together (gopherstack-wl0s), both in handleListAggregateLogGroupSummaries: (1) the handler discarded its whole request body (`_ []byte` param), so groupBy -- required per validateOpListAggregateLogGroupSummariesInput -- was silently unused; now required-present and enum-validated against types.ListAggregateLogGroupSummariesGroupBy.Values() (DATA_SOURCE_NAME_TYPE_AND_FORMAT, DATA_SOURCE_NAME_AND_TYPE), rejecting with ValidationException (this op's own declared client-error code, confirmed against awsAwsjson11_deserializeOpErrorListAggregateLogGroupSummaries -- distinct from the InvalidParameterException most other ops in this service use). (2) MATERIALLY WORSE, found while reading the whole operation: the response was wrapped under \"logGroupSummaries\", a key the real ListAggregateLogGroupSummariesOutput shape does not have at all -- confirmed against awsAwsjson11_deserializeOpDocumentListAggregateLogGroupSummariesOutput, which only recognizes \"aggregateLogGroupSummaries\". A real SDK client's AggregateLogGroupSummaries field was always nil/empty regardless of what this backend returned, for every caller, unconditionally -- not a validation gap but a total wire-shape break. Fixed to emit \"aggregateLogGroupSummaries\"."}
+  ListAggregateLogGroupSummaries: {wire: fixed, errors: fixed, state: ok, persist: n/a, note: "two bugs fixed together (gopherstack-wl0s), both in handleListAggregateLogGroupSummaries: (1) the handler discarded its whole request body (`_ []byte` param), so groupBy -- required per validateOpListAggregateLogGroupSummariesInput -- was silently unused; now required-present and enum-validated against types.ListAggregateLogGroupSummariesGroupBy.Values() (DATA_SOURCE_NAME_TYPE_AND_FORMAT, DATA_SOURCE_NAME_AND_TYPE), rejecting with ValidationException (this op's own declared client-error code, confirmed against awsAwsjson11_deserializeOpErrorListAggregateLogGroupSummaries -- distinct from the InvalidParameterException most other ops in this service use). (2) MATERIALLY WORSE, found while reading the whole operation: the response was wrapped under \"logGroupSummaries\", a key the real ListAggregateLogGroupSummariesOutput shape does not have at all -- confirmed against awsAwsjson11_deserializeOpDocumentListAggregateLogGroupSummariesOutput, which only recognizes \"aggregateLogGroupSummaries\". A real SDK client's AggregateLogGroupSummaries field was always nil/empty regardless of what this backend returned, for every caller, unconditionally -- not a validation gap but a total wire-shape break. Fixed to emit \"aggregateLogGroupSummaries\". FIXED, THIRD BUG (gopherstack-enpq, 2026-08-22): even after the wrapper-key fix, the array ELEMENT shape itself was still completely fabricated -- the previous AggregateLogGroupSummary modeled per-log-group fields (logGroupName/logGroupArn/logGroupClass/storedBytes/logEventCount) that do not exist anywhere on the real types.AggregateLogGroupSummary at all (confirmed against awsAwsjson11_deserializeDocumentAggregateLogGroupSummary, which only recognizes \"groupingIdentifiers\"/\"logGroupCount\"). types.AggregateLogGroupSummary is a GROUPED BUCKET (one entry per distinct data-source characteristic under the requested groupBy), not a per-log-group record, so every prior response returned N entries (one per log group) each with GroupingIdentifiers/LogGroupCount permanently nil/empty for a real client -- a total, previously-undetected wire-shape break that survived two prior structfielddiff passes on this exact op. This backend has no per-log-group data-source classification (dataSource.Name/Type/Format) to group by, so the honest fix returns a single bucket covering all log groups in the region (GroupingIdentifiers empty -- not fabricated, LogGroupCount real), or an empty list when there are zero log groups. Proven via TestListAggregateLogGroupSummaries_RealShape (real aws-sdk-go-v2 client), hand-reverted and confirmed to fail against unfixed code (2 raw per-log-group entries, both with LogGroupCount nil). Grouping by data-source characteristic itself remains unimplemented -- disclosed, not fabricated; see gaps."}
   CreateLogStream: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteLogStream: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeLogStreams: {wire: ok, errors: ok, state: ok, persist: ok, note: "orderBy=LastEventTime + prefix and descending + orderBy=LogStreamName rejection rules match AWS."}
@@ -88,13 +88,23 @@ ops:
   UpdateLogAnomalyDetector: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this pass: Enabled is a *required* field on the real UpdateLogAnomalyDetectorInput (\"Use this parameter to pause or restart the anomaly detector\"), used to set/clear types.AnomalyDetectorStatusPaused -- this backend didn't accept or act on it at all, meaning a detector could never actually be paused/resumed through this API despite PAUSED being a real, reachable status value. Now enabled=false sets AnomalyDetectorStatus=PAUSED; enabled=true resumes a paused detector to ANALYZING (a no-op if not currently paused, e.g. still INITIALIZING)."}
   DeleteLogAnomalyDetector: {wire: ok, errors: ok, state: ok, persist: ok}
   ListAnomalies: {wire: fixed, errors: ok, state: ok, persist: ok, note: "fixed (gopherstack-enpq, cmd/structfielddiff): Anomaly had no Go field at all for Histogram/LogSamples/PatternId/PatternString/PatternTokens (all `required` on the real types.Anomaly) or the optional IsPatternLevelSuppression/PatternRegex/Priority/Suppressed/SuppressedUntil -- reverting the added fields fails to compile (anomaly_detectors.go references them), the same strength of confirmation as sns's XMLOriginationPhone fix. The pre-existing SuppressedState field used a made-up \"suppressedState\" wire key holding the raw suppressionType request value; the real member is \"state\" (types.Anomaly.State, values Active/Suppressed/Baseline), so a real client's State field always deserialized empty. This backend has no pattern-detection engine (anomalies are only ever seeded via the AddAnomalyInternal test seam, never generated from real log content), so Histogram/LogSamples/PatternString/PatternTokens content is only ever present if caller-seeded -- disclosed, not fabricated; see gaps."}
-  UpdateAnomaly: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "fixed (gopherstack-enpq): suppressionType==\"\" (the real un-suppress signal per this op's own doc comment: 'to end the suppression... omit the suppressionType and suppressionPeriod parameters') was previously treated as the SUPPRESS branch (inverted check against a gopherstack-invented \"NO_SUPPRESSION\" sentinel with no wire representation at all), so a real client ending a suppression was instead left suppressed with a freshly bumped SuppressedDate. Reverting just this branch (keeping the new Anomaly fields, so it still compiles) reproduces the bug as an assertion failure, not a compile error -- confirmed independently of the wire-shape fix above. suppressionType is now validated against the real 2-member enum (LIMITED/INFINITE; types.SuppressionType.Values()), rejecting the old \"NO_SUPPRESSION\" convention. Not implemented: AnomalyId/PatternId mutual exclusion, Baseline (mark as baseline behavior), and SuppressionPeriod (limited-duration expiry -> SuppressedUntil) -- three more real UpdateAnomalyInput members, disclosed not fixed; see gaps."}
+  UpdateAnomaly: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "fixed (gopherstack-enpq): suppressionType==\"\" (the real un-suppress signal per this op's own doc comment: 'to end the suppression... omit the suppressionType and suppressionPeriod parameters') was previously treated as the SUPPRESS branch (inverted check against a gopherstack-invented \"NO_SUPPRESSION\" sentinel with no wire representation at all), so a real client ending a suppression was instead left suppressed with a freshly bumped SuppressedDate. Reverting just this branch (keeping the new Anomaly fields, so it still compiles) reproduces the bug as an assertion failure, not a compile error -- confirmed independently of the wire-shape fix above. suppressionType is now validated against the real 2-member enum (LIMITED/INFINITE; types.SuppressionType.Values()), rejecting the old \"NO_SUPPRESSION\" convention. FIXED (gopherstack-enpq, 2026-08-22): PatternId (api_op_UpdateAnomaly.go:12-19, \"You must specify either anomalyId or patternId, but you can't specify both\") had no Go field at all, and anomalyId was unconditionally required -- the doc-prescribed pattern-suppression path (\"If you suppress a pattern, CloudWatch Logs won't report any anomalies related to that pattern\") was structurally unreachable, always rejected with \"anomalyId is required\" even though validateOpUpdateAnomalyInput only requires AnomalyDetectorArn client-side. Fixed: PatternId now suppresses/unsuppresses every stored anomaly sharing that pattern (via the existing anomalyByDetector index), with both-set and neither-set rejected as InvalidParameterException. Proven via TestUpdateAnomaly_PatternID and TestUpdateAnomaly_AnomalyIDAndPatternIDMutualExclusion (real aws-sdk-go-v2 client), hand-reverted and confirmed to fail against unfixed code. Not implemented: Baseline (mark as baseline behavior) and SuppressionPeriod (limited-duration expiry -> SuppressedUntil) -- two more real UpdateAnomalyInput members, disclosed not fixed; see gaps."}
   CreateScheduledQuery: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this pass: executionRoleArn and queryLanguage are both real required CreateScheduledQueryInput members (confirmed via api_op_CreateScheduledQuery.go); a previous revision accepted executionRoleArn from the wire but discarded it via a `_` parameter (never stored, never returned) and never modeled queryLanguage at all, so a required member's absence was silently accepted rather than rejected. Now both are validated required, plus description/destinationConfiguration/logGroupIdentifiers/timezone/endTimeOffset/startTimeOffset/scheduleStartTime/scheduleEndTime are accepted and stored (bundled behind a new ScheduledQueryCreateParams struct to avoid an unwieldy positional-parameter signature). Follow-up (gopherstack-09o8, sdk_module v1.81.1): DestinationConfiguration's LookupTableConfiguration alternative member (types.LookupTableConfiguration, types.go:1561) is now modeled too, alongside the pre-existing S3Configuration -- neither member is required by the real type (validateDestinationConfiguration has no top-level required check, validators.go:2451), so a config with neither set is accepted, matching AWS. LookupTableConfiguration's required members (tableName/roleArn) are accepted from the wire and stored verbatim; unlike S3Configuration this backend does not additionally validate their presence (matching the pre-existing lack of nested S3Configuration validation, not a new gap introduced here)."}
   GetScheduledQuery: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this pass (2 bugs): (1) ScheduledQuery.Arn previously serialized as \"arn\"; the real wire key (GetScheduledQueryOutput.ScheduledQueryArn) is \"scheduledQueryArn\" -- fixed in an earlier pass. (2) fixed this pass: the response was wrapped under a \"scheduledQuery\" key with no real wire representation at all -- GetScheduledQueryOutput's members (confirmed via deserializers.go's awsAwsjson11_deserializeOpDocumentGetScheduledQueryOutput) sit flat at the top level of the response. The ScheduledQuery model previously covered only 6 of GetScheduledQueryOutput's ~20 members; now covers the full set (description, destinationConfiguration, executionRoleArn, lastExecutionStatus/lastTriggeredTime/lastUpdatedTime, logGroupIdentifiers, queryLanguage, scheduleType, scheduleEndTime/scheduleStartTime, startTimeOffset/endTimeOffset, timezone). scheduleType is always CUSTOMER_MANAGED (not client-settable; AWS_MANAGED queries are pre-provisioned by AWS, not created through this API). Follow-up (gopherstack-09o8): destinationConfiguration now round-trips LookupTableConfiguration (tableName/roleArn/description/kmsKeyId/tags) as well as S3Configuration -- see CreateScheduledQuery note."}
   ListScheduledQueries: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this pass: real ListScheduledQueriesOutput.ScheduledQueries is []types.ScheduledQuerySummary, a distinct, narrower shape than GetScheduledQueryOutput (no queryString/executionRoleArn/queryLanguage/logGroupIdentifiers/description/endTimeOffset/startTimeOffset/scheduleStartTime/scheduleEndTime, confirmed via types.ScheduledQuerySummary) -- a previous revision reused the full Get shape here, over-sharing fields real AWS never returns from List. New scheduledQuerySummaryToWire renders the correct narrower shape. destinationConfiguration is passed through wholesale (types.ScheduledQuerySummary carries it too), so it also now covers LookupTableConfiguration (gopherstack-09o8)."}
   UpdateScheduledQuery: {wire: ok, errors: ok, state: ok, persist: ok, note: "still state-only, not the real API's full-replace UpdateScheduledQueryInput (executionRoleArn/queryLanguage/queryString/scheduleExpression all required, plus the same optional set as Create) -- see gaps below. lastUpdatedTime now bumped on every state change. Because this op never accepted destinationConfiguration at all, the LookupTableConfiguration addition (gopherstack-09o8) does not touch it; it is unaffected by, not fixed by, that change."}
   DeleteScheduledQuery: {wire: ok, errors: ok, state: ok, persist: ok}
   GetScheduledQueryHistory: {wire: ok, errors: ok, state: ok, persist: ok}
+  PutResourcePolicy: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "fixed (gopherstack-enpq, second pass): the prior pass's structfielddiff sweep classified this whole family (\"account policies / data protection/resource/index policies / transformers / integrations\") as spot-checked-flat and moved on without an op-by-op field diff -- that shortcut missed real gaps. types.ResourcePolicy.ResourceArn/PolicyScope/RevisionId/LastUpdatedTime (deserializers.go:awsAwsjson11_deserializeDocumentResourcePolicy) had no Go field at all; ResourceArn in particular is a whole real feature (\"one per LogGroup resourceARN\", PutResourcePolicy doc comment) that was silently unreachable -- a caller-supplied resourceArn was accepted by the wire body but the handler never read it. Now models the real account-vs-resource scope split (keyed by resourceArn when present, else policyName, matching AWS's own \"a maximum of 10 policies without resourceARN and one per LogGroup resourceARN\" limit), generates an incrementing RevisionId, and enforces ExpectedRevisionId concurrency per the input's own doc comment (\"Required when resourceArn is provided to prevent concurrent modifications\")."}
+  DescribeResourcePolicies: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "fixed (gopherstack-enpq, second pass): PolicyScope/ResourceArn input filters were both unmodeled -- every call returned every policy regardless of scope. DescribeResourcePoliciesInput's own doc comment says PolicyScope \"defaults to ACCOUNT\" when omitted, which this backend now honors; ResourceArn does an exact lookup against the resource-scoped policy on that ARN. Limit/NextToken pagination still not implemented -- disclosed, not fixed; see gaps."}
+  DeleteResourcePolicy: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "fixed (gopherstack-enpq, second pass): ResourceArn (real DeleteResourcePolicyInput member, needed to address a resource-scoped policy at all since those are no longer keyed by name alone) and ExpectedRevisionId (concurrency check, \"Required when deleting a resource-scoped policy\") were both accepted on the wire and silently ignored -- any caller could delete any policy by name with no conflict check. Both now wired through PutResourcePolicy's shared key/revision helpers."}
+  PutIndexPolicy: {wire: fixed, errors: ok, state: ok, persist: ok, note: "fixed (gopherstack-enpq, second pass): types.IndexPolicy.Source had no Go field at all, so a real client's Source field always deserialized empty even though it is always present on the wire. Now always LOG_GROUP (the only source this op can produce; PolicyName is correctly left unset here too, since the real type's own doc comment says log-group-level index policy responses don't carry a PolicyName -- only account-level ones, created via PutAccountPolicy's FIELD_INDEX_POLICY type, do). DescribeIndexPolicies does not fall back to an account-level FIELD_INDEX_POLICY when no log-group-level policy exists, despite this backend supporting that PolicyType on PutAccountPolicy -- disclosed, not fixed; see gaps."}
+  PutQueryDefinition: {wire: fixed, errors: ok, state: ok, persist: ok, note: "fixed (gopherstack-enpq, second pass): Parameters ([]types.QueryParameter, a real accepted PutQueryDefinitionInput member per api_op_PutQueryDefinition.go) was dropped entirely -- a real client's parameterized-query placeholders never round-tripped. QueryLanguage also added to the QueryDefinition model, always CWLI since PutQueryDefinitionInput itself has no queryLanguage member to set it from."}
+  DescribeQueryDefinitions: {wire: fixed, errors: ok, state: ok, persist: ok, note: "fixed (gopherstack-enpq, second pass): now echoes Parameters/QueryLanguage from the shared QueryDefinition model -- see PutQueryDefinition."}
+  DisassociateSourceFromS3TableIntegration: {wire: fixed, errors: fixed, state: fixed, persist: ok, note: "fixed (gopherstack-enpq, second pass): total stub before this fix -- handler took no request body param at all and unconditionally returned an empty success response, so the association this op is named for was never actually removed from b.s3TableIntegrations (a real, if quiet, permissiveness/data-integrity bug: repeated Disassociate calls, or one made in error, never had any effect to undo) and the required DisassociateSourceFromS3TableIntegrationOutput.Identifier member was never populated. Now reads Identifier, deletes the matching s3TableIntegrationEntry (new ErrS3TableIntegrationNotFound sentinel if it doesn't exist), and echoes Identifier back."}
+  AssociateSourceToS3TableIntegration: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "FIXED (gopherstack-enpq, 2026-08-22): DataSource.Name/Type (types.DataSource, real accepted AssociateSourceToS3TableIntegrationInput member) were parsed off the wire by the handler but then discarded entirely by the backend (`integrationArn, _, _ string` -- both args unread), so an association's data source was never actually stored anywhere; the sibling ListSourcesForS3TableIntegration bug (below) meant this went unnoticed since nothing ever read the association back either. s3TableIntegrationEntry now carries DataSourceName/DataSourceType/CreatedTimeStamp (purely additive persisted fields, no cwlSnapshotVersion bump -- guard-verified via pkgs/persistence's TestSnapshotVersionGuard -update)."}
+  ListSourcesForS3TableIntegration: {wire: fixed, errors: fixed, state: fixed, persist: n/a, note: "FIXED (gopherstack-enpq, 2026-08-22): total stub before this fix -- handler took no request body param at all (`_ []byte`) and unconditionally returned an empty \"sources\" list, so an association genuinely stored by AssociateSourceToS3TableIntegration could never actually be observed through this op regardless of which integrationArn a real caller listed (present but never populated on any read path). Also: IntegrationArn is required on the real input (validateOpListSourcesForS3TableIntegrationInput) but the pre-fix stub silently accepted an empty body -- an existing test (TestHandler_S3TableIntegrationSourceOperations/ListSourcesForS3TableIntegration/ReturnsEmpty) asserted 200+empty-list for exactly that request, ratifying a call shape a real client's own client-side validator refuses to send; corrected to assert 400 (renamed .../MissingArn) and a new .../ReturnsEmptyForUnknownArn case added. Now filters by integrationArn, paginates via maxResults/nextToken (real input members, 1-100 range per the doc comment), and renders the real types.S3TableIntegrationSource shape (createdTimeStamp/dataSource{name,type}/identifier/status) -- status is always ACTIVE (this backend has no health-check/failure modeling for these associations, matching the same always-ACTIVE pattern used elsewhere in this codebase for unmonitored resources). Proven via TestListSourcesForS3TableIntegration_RealRoundTrip (real aws-sdk-go-v2 client), hand-reverted and confirmed to fail against unfixed code (0 sources instead of 1). ParentSourceIdentifier/StatusReason left unmodeled -- disclosed, not fabricated; see gaps."}
+  GetDataProtectionPolicy: {wire: fixed, errors: ok, state: ok, persist: ok, note: "fixed (gopherstack-enpq, second pass): GetDataProtectionPolicyOutput.LastUpdatedTime had no Go field at all -- confirmed against the raw structfielddiff dump, which lists it as a real *int64 output member alongside LogGroupIdentifier/PolicyDocument. Now stamped by PutDataProtectionPolicy and returned by Get."}
 families:
   metric-filter-emission: {status: ok, note: "fixed (internal PutLogEvents dispatch, not an SDK op): emitMetricFilterMatches previously emitted matchCount copies of one static value regardless of MetricValue's per-event field reference (a disguised stub -- '$field' values were never actually read from the matched log event, just defaulted to 1.0/DefaultValue). Now extracts the referenced field ($name for space-delimited patterns, $.path for JSON patterns) per matched event via new compiledFilterPattern.extract; a matched-but-non-numeric-or-absent field now correctly emits no data point rather than fabricating one. Also fixed emitted Unit being hardcoded to \"\" instead of the configured MetricTransformation.Unit."}
   janitor-retention-sweep: {status: ok, note: "two-phase read-then-write lock, worker.NewGroup ticker is ctx-cancel safe, telemetry recorded. No leak."}
@@ -123,15 +133,22 @@ gaps:
   - "DISCLOSED, not fixed (gopherstack-enpq): Anomaly's Histogram/LogSamples/PatternString/PatternTokens are only ever populated when a caller seeds them via AddAnomalyInternal -- this backend has no pattern-detection engine to generate them from real log content, same class as sts's already-disclosed JWT-payload-size gap. The wire shape itself is now correct (see ListAnomalies fix above); only the analysis content is unimplementable without inventing it."
   - "DISCLOSED, not fixed (gopherstack-enpq): PutMetricFilter/DescribeMetricFilters and PutSubscriptionFilter/DescribeSubscriptionFilters do not accept, store, or echo ApplyOnTransformedLogs, EmitSystemFieldDimensions (EmitSystemFields on the subscription-filter side), or FieldSelectionCriteria -- the transformed-logs metric/subscription routing feature family, added to the real API since this file's last field-level pass on these four ops."
   - "DISCLOSED, not fixed (gopherstack-enpq): PutLogEvents does not accept Entity (Attributes/KeyAttributes, OTel entity correlation); PutLogEventsOutput.RejectedEntityInfo is never populated as a result."
-  - "DISCLOSED, not fixed (gopherstack-enpq): ResourcePolicy has no RevisionId/ExpectedRevisionId (optimistic-concurrency versioning) on Put/Delete/Describe at all."
+  - "RESOLVED (gopherstack-enpq, second pass): ResourcePolicy now carries ResourceArn/PolicyScope/RevisionId/LastUpdatedTime, and Put/DeleteResourcePolicy enforce ExpectedRevisionId concurrency -- see PutResourcePolicy/DescribeResourcePolicies/DeleteResourcePolicy op entries above. The prior pass's disclosure only named RevisionId/ExpectedRevisionId; ResourceArn/PolicyScope (a whole real feature, resource-scoped policies) were missed entirely because this family was spot-checked rather than field-diffed op-by-op -- see the dated note below."
   - "DISCLOSED, not fixed (gopherstack-enpq): DescribeLogGroups/ListLogGroups do not accept IncludeLinkedAccounts, LogGroupNamePattern (glob name search), DataSources, FieldIndexNames, or LogGroupTags filters; LogGroup.DataProtectionStatus/InheritedProperties are not modeled on output. The cross-account \"linked accounts\" half is structural -- there is no CloudWatch Logs cross-account-observability-link model anywhere in this backend to source it from."
   - "Benign, not a real behavioral gap (gopherstack-enpq): FilterLogEvents/GetLogEvents/GetLogObject/GetLogRecord do not accept Unmask. PutDataProtectionPolicy stores a policy document but this backend never actually redacts log content against it, so a real client's masked-vs-unmasked view is identical either way today; the real gap is that masking itself is unimplemented, not the flag."
   - "DISCLOSED, not fixed (gopherstack-enpq): GetQueryResultsInput.MaxItems is not accepted, so Insights query results are never truncated. DescribeQueries's QueryInfo.QueryDuration is not computed; UserIdentity needs a caller-identity model this backend does not have (same blocker as gopherstack-cu4g). GetScheduledQueryHistoryInput.ExecutionStatuses filter is not accepted; TriggerHistoryRecord/ScheduledQueryDestination's ErrorMessage/TriggeredTimestamp/ProcessedIdentifier members are not modeled."
   - "DISCLOSED, not fixed (gopherstack-enpq): import tasks -- CreateImportTaskInput.ImportFilter (EndEventTime/StartEventTime) is not accepted; Import/CancelImportTaskOutput's ImportStatistics(.BytesImported)/ErrorMessage are not modeled; DescribeImportTaskBatches remains validation-only (pre-existing, already documented in its own doc comment) rather than modeling real per-task import batches."
   - "DISCLOSED, not fixed (gopherstack-enpq): PutDeliverySourceInput.DeliverySourceConfiguration (per-log-type config key/value pairs) is not accepted, stored, or echoed; DeliverySource.Status/StatusReason are not modeled (StatusReason=RESOURCE_DELETED specifically needs cross-service resource-deletion tracking this backend does not have). PutDestinationPolicyInput.ForceUpdate is also unmodeled, but low-impact: on real AWS it only bypasses an idempotency check this backend never performs in the first place."
+  - "2026-08-21 (gopherstack-enpq, second pass): the prior pass's own gaps entry (above, dated 2026-08-14) said 39 of 118 ops had a real structfielddiff candidate and were hand-verified one by one -- but the op-level table only carries individual entries for 2 of those 39 (ListAnomalies, UpdateAnomaly); the remaining ~37, including this whole family (\"account policies / data protection/resource/index policies / transformers / integrations\"), were folded into a single spot-checked-flat family note rather than genuinely diffed op-by-op, per that note's own honest caveat. Re-running the raw structfielddiff dump against this family surfaced 5 more real bugs the spot-check missed: PutResourcePolicy/DescribeResourcePolicies/DeleteResourcePolicy (ResourceArn/PolicyScope/RevisionId/LastUpdatedTime all missing -- see RESOLVED gap above), PutIndexPolicy (Source missing), PutQueryDefinition/DescribeQueryDefinitions (Parameters/QueryLanguage missing), DisassociateSourceFromS3TableIntegration (total no-op stub, both a permissiveness bug and a missing required output member), and GetDataProtectionPolicy (LastUpdatedTime missing). All 5 fixed and round-trip-tested against the real aws-sdk-go-v2 client; see the individual op entries above. Lesson for future passes: a family-level \"spot-checked flat, not exhaustively re-audited\" note is not equivalent to running structfielddiff against that family -- it looks similar in the table but is a materially weaker check. (bd: gopherstack-enpq)"
+  - "DISCLOSED, not fixed (gopherstack-enpq, second pass): DescribeResourcePolicies does not implement Limit/NextToken pagination (both real input/output members) -- every call returns the full, unpaginated result set for the matched scope."
+  - "DISCLOSED, not fixed (gopherstack-enpq, second pass): DescribeIndexPolicies does not fall back to an account-level FIELD_INDEX_POLICY (PutAccountPolicy) when a log group has no policy of its own, despite this backend already supporting FIELD_INDEX_POLICY as a PutAccountPolicy type -- per DescribeIndexPolicies' own doc comment (\"If a specified log group doesn't have a log-group level index policy, but an account-wide index policy applies to it, that account-wide policy is returned\"). Would require DescribeIndexPolicies to additionally query the account-policies store and reason about applicability (scope ALL vs SELECTION_CRITERIA), not attempted this pass."
+  - "DISCLOSED, not fixed (gopherstack-enpq, second pass): DescribeConfigurationTemplates and DescribeFieldIndexes are unconditional empty-list stubs. DescribeConfigurationTemplates is meant to return AWS's own static catalog of supported delivery-destination/log-type template combinations (not per-account state), which this backend would have to fabricate wholesale rather than derive from anything it models -- the no-stub rule favors the honest empty list over invented catalog data. DescribeFieldIndexes needs a field-indexing engine this backend does not have (same family as the already-disclosed FieldIndexNames filter gap)."
+  - "2026-08-22 (gopherstack-enpq, third pass): the prior two passes' own gaps entries said this service was fully swept by cmd/structfielddiff across all 118 ops -- overstated in the same way the 2026-08-14 kinesis pass's ledger was: both compared field lists, but never asked whether an op could be called the way its own doc prose prescribes (kinesis's lesson: nine ops silently ignored the recommended StreamARN parameter). Applying that lens to cloudwatchlogs found 4 more real bugs the prior structural passes missed: CreateLookupTable/UpdateLookupTable had no QueryId field at all (doc: 'you must specify either tableBody or queryId, but not both' -- the query-results-populate-the-table path was structurally unreachable), UpdateAnomaly had no PatternId field and unconditionally required AnomalyId (doc: 'you must specify either anomalyId or patternId' -- the pattern-suppression path was structurally unreachable), AggregateLogGroupSummary modeled fabricated per-log-group fields that do not exist on the real type at all (a wire-shape break that survived the wrapper-key fix from an earlier pass because nobody re-checked the array ELEMENT shape, only the wrapper), and ListSourcesForS3TableIntegration was a total empty-list stub despite AssociateSourceToS3TableIntegration genuinely storing data underneath it (present but never read back). All 4 fixed and round-trip-tested against the real aws-sdk-go-v2 client, each hand-reverted and confirmed to fail against unfixed code; see the individual op entries above. Lesson reaffirmed: a structural field-diff sweep, however thorough, does not by itself catch (a) doc-prescribed alternate identification paths that are simply absent as fields, or (b) a correct-looking wrapper hiding a still-wrong element shape underneath. (bd: gopherstack-enpq)"
+  - "DISCLOSED, not fixed (gopherstack-enpq, third pass): ListIntegrations does not accept IntegrationNamePrefix/IntegrationStatus/IntegrationType (all real, optional ListIntegrationsInput filter members) -- the handler discards its whole request body. Low-impact: this op's own doc comment says 'Currently, only one integration can be created in an account,' so there is at most one row to filter in the first place."
+  - "DISCLOSED, not fixed (gopherstack-enpq, third pass): S3TableIntegrationSource's ParentSourceIdentifier and StatusReason (real, optional types.S3TableIntegrationSource members) are not modeled -- this backend does not model nested/derived associations or a health-check-driven failure reason, so every association is a top-level, unconditionally-ACTIVE entry."
 deferred:
   - Insights query language/stages/parser correctness (insights_expr.go, insights_parse.go, insights_parser.go, insights_stages.go, insights_stats.go) -- not re-verified op-by-op against CloudWatch Logs Insights query syntax this pass.
-  - Data Protection/Resource/Index Policies, Transformers, Integrations, Account Policies (top-level shapes spot-checked flat/no-nested-object-bugs this pass, but not exhaustively re-audited field-by-field op-by-op beyond AccountPolicy's AccountId/LastUpdatedTime fix) -- see the "account policies, data protection/resource/index policies, transformers, integrations" family note.
+  - Transformers, Integrations (PutIntegration/GetIntegration/ListIntegrations), Account Policies (top-level shapes spot-checked flat/no-nested-object-bugs, not exhaustively re-audited field-by-field op-by-op) -- see the "account policies, data protection/resource/index policies, transformers, integrations" family note. Resource Policies and Index Policies were subsequently field-diffed for real (gopherstack-enpq, second pass, 2026-08-21) and are no longer deferred -- see their op entries and the dated gaps note.
   - StartLiveTail streaming transport (intentionally out of scope; validation-only by design).
 leaks: {status: clean, note: "Only one goroutine spawn site (scheduleFilterDelivery for subscription filter delivery), bounded by a semaphore + backend WaitGroup + ctx cancellation; Close()/Drain() join in-flight work. Janitor ticker is ctx-cancel safe via pkgs/worker. No unbounded per-request goroutines found in the areas audited this pass."}
 ---
@@ -353,3 +370,224 @@ golangci-lint (0 findings).
   prior sweep, see the "PutLogEvents sequenceToken is a no-op today" note above) and its
   `handler.go` errType mapping was already removed in that same prior sweep, so the var itself
   was dead code left behind; removed it (de-stub hygiene: no orphaned symbols).
+
+## 2026-08-21 (gopherstack-hjdd): snapshot-version guard, three unbumped shape changes
+
+`cwlSnapshotVersion` bumped 1 -> 2. Three registered tables' value types changed shape with
+no bump applied, found via `pkgs/persistence`'s snapshot-version guard extended this session
+(gopherstack-hjdd) to recursively expand fields of every type reached through a
+`store.Register`/`store.New` table registration:
+
+- **`ca3afb3ca`**: `IndexPolicy.LastUpdated` (`time.Time`) retyped to `LastUpdateTime`
+  (`int64`), same wire key `"lastUpdateTime"`. `PutIndexPolicy` genuinely sets this to
+  `time.Now()`, so a pre-fix snapshot's RFC3339 string no longer unmarshals into the new
+  `int64` field at all -- an outright decode error (loud) that takes down the whole restore.
+- **`9f62f7f5d`**: `ScheduledQuery.Arn` retagged `"arn"` -> `ScheduledQueryArn` `"scheduledQueryArn"`.
+  `scheduledQueryKeyFn` keys the `scheduledQueries` table on exactly this field, so a pre-fix
+  snapshot's ARN silently decodes empty (silent, not loud) and every restored scheduled query
+  collides onto the same `""` key -- the same collapse-to-one-record class as bedrock's
+  `Flow`/`Prompt` bug (gopherstack-hjdd, same session).
+- **`9f62f7f5d`**: `ImportTask.Status` retagged `"status"` -> `"importStatus"`, and
+  `LogAnomalyDetector.DetectorStatus` retagged `"detectorStatus"` -> `AnomalyDetectorStatus`
+  `"anomalyDetectorStatus"`. Neither field is part of its table's key, so both are narrower
+  silent losses (the status field alone decodes empty) rather than a key collision.
+
+**Examined and disqualified as bump candidates:**
+
+- `357edbc07`'s `Delivery.CreationTime` `"creationTime"` -> `"-"` only affects an internal
+  bookkeeping field used solely to order `DescribeDeliveries` results -- its own doc comment
+  discloses it has no real-AWS wire counterpart at all ("an earlier revision fabricated one").
+  Losing it on restore reorders a list; it does not destroy any field a real AWS client would
+  observe on `Delivery` itself.
+- `9f62f7f5d`'s `ImportTask.ImportRoleArn` `"importRoleArn"` -> `"-"` is a real bug but a
+  different class: `json:"-"` excludes the field from **every** future snapshot unconditionally,
+  old or new, so bumping the version constant cannot fix it (a fresh snapshot taken after the
+  bump would still lose it). Filed separately rather than folded into this bump; needs its own
+  fix (giving `ImportTask` a persistence-only DTO, mirroring `logGroupSnapshot` et al., that
+  carries `ImportRoleArn` under an exported key distinct from the wire response's own shape).
+- `567e2c4f8`'s `Anomaly` field renames (`suppressedState` -> `state`, plus several
+  previously-absent required members) are moot for persistence: `Anomaly` is registered on
+  `b.ephemeralRegistry` (`b.anomalies`), never included in `backendSnapshot` -- confirmed by
+  `Snapshot`'s own doc comment, which lists `b.ephemeralRegistry` among the state deliberately
+  excluded from every snapshot.
+
+**Proof:** `TestInMemoryBackend_RestoreV1IndexPolicyLastUpdateTimeDiscarded` (persistence_test.go)
+builds a v1-shaped `indexPolicies` snapshot with an RFC3339-string `lastUpdateTime` and asserts
+`Restore` succeeds (discarding cleanly) rather than erroring; hand-reverted to version 1, the
+same test fails with `Restore` returning `json: cannot unmarshal string into Go struct field
+IndexPolicy.lastUpdateTime of type int64`, confirming the symptom.
+`TestInMemoryBackend_RestoreV1ScheduledQueryArnDiscarded` builds a v1-shaped `scheduledQueries`
+snapshot tagged `"arn"` and asserts `ListScheduledQueries` returns empty after restore;
+hand-reverted, the same snapshot instead restores one scheduled query with `ScheduledQueryArn`
+silently empty (while `Name`/`QueryString`/`State`, never renamed, restore correctly) --
+confirming the predicted key-collision symptom. Both hand-reverts restored and
+`md5sum`-verified byte-identical.
+
+**Gates:** `go build`, `go vet` (default/e2e/integration), `gofmt -l` (clean), `go test -race`
+(pass), `golangci-lint run` (0 issues).
+
+## 2026-08-22 (gopherstack-enpq, third pass): doc-prescribed-usage sweep, four real bugs the field-diff passes missed
+
+Continues gopherstack-enpq. `cmd/structfielddiff` had already been run against
+this service twice (2026-08-14, 2026-08-21), covering all 118 ops by
+comparing SDK field lists against this backend's structs. This pass applied
+a different lens instead, carried over from the same day's kinesis pass on
+this same bd issue: **read the SDK's doc prose for every op and ask whether
+it can actually be called the way AWS's own documentation prescribes**, not
+just whether the field lists match. kinesis's prior sweep had made the same
+mistake -- comparing fields but never checking nine ops' documented "use
+StreamARN" alternate path -- and this pass found the identical class of bug
+here, plus one the field-diff method structurally cannot see at all.
+
+**Module resolved:** `services/cloudwatchlogs` maps directly to
+`aws-sdk-go-v2/service/cloudwatchlogs` -- confirmed absent from
+`dirModuleOverride` in `cmd/structfielddiff`/`cmd/overwidecandidates`/
+`cmd/requiredoutputfields`, and cross-checked against `go.mod`
+(`v1.81.1`, matching this file's own `sdk_module` front matter) and the
+pinned copy under `$(go env GOMODCACHE)`. This is a **different module and
+directory** from the sibling `services/cloudwatch` (CloudWatch metrics/
+alarms); there is no `services/cloudwatchevents` directory in this repo at
+all.
+
+**Collision check:** `git status --short services/cloudwatchlogs/` was
+clean at the start of this session (a concurrent `cmd/keycheck` sweep was
+touching other services), and re-checked clean after every fix in this pass.
+
+**Four real bugs, all newly found this pass:**
+
+1. **`CreateLookupTable`/`UpdateLookupTable`** -- `QueryId` (`*string`,
+   `api_op_CreateLookupTable.go:55`/`api_op_UpdateLookupTable.go:47`: "You
+   must specify either tableBody or queryId, but not both") had no Go field
+   at all. `validateOpCreateLookupTableInput`/`validateOpUpdateLookupTableInput`
+   require neither field client-side, so a real caller populating a lookup
+   table from a completed query's results -- the doc-prescribed alternate to
+   raw CSV -- reaches the wire unmodified and always fell through to
+   "tableBody is required". Structurally absent, the same shape as kinesis's
+   missing `StreamARN`. Fixed via `resolveLookupTableBody`/
+   `lookupTableBodyFromQuery`: `QueryId` now renders real CSV from the
+   query's `[][]ResultField` (header from the first row's field order).
+2. **`UpdateAnomaly`** -- `PatternId` (`*string`, `api_op_UpdateAnomaly.go:12-19`:
+   "You must specify either anomalyId or patternId... If you suppress a
+   pattern, CloudWatch Logs won't report any anomalies related to that
+   pattern") had no Go field at all, and `AnomalyId` was unconditionally
+   required. `validateOpUpdateAnomalyInput` only requires
+   `AnomalyDetectorArn` client-side, so the pattern-suppression path was
+   structurally unreachable, always rejected with "anomalyId is required".
+   Fixed: `PatternId` now suppresses/unsuppresses every stored anomaly
+   sharing that pattern via the existing `anomalyByDetector` index.
+3. **`ListAggregateLogGroupSummaries`** -- a prior pass (2026-08-14,
+   gopherstack-wl0s) fixed this op's response *wrapper* key
+   (`"logGroupSummaries"` -> `"aggregateLogGroupSummaries"`), but never
+   re-checked the array *element* shape underneath: `AggregateLogGroupSummary`
+   modeled fabricated per-log-group fields (`logGroupName`/`logGroupArn`/
+   `logGroupClass`/`storedBytes`/`logEventCount`) that do not exist anywhere
+   on the real `types.AggregateLogGroupSummary` at all (confirmed against
+   `awsAwsjson11_deserializeDocumentAggregateLogGroupSummary`, which only
+   recognizes `groupingIdentifiers`/`logGroupCount`). The real type is a
+   **grouped bucket** (one entry per distinct data-source characteristic
+   under the requested `groupBy`), not a per-log-group record -- so every
+   response after the wrapper-key fix still returned N per-log-group entries
+   with `GroupingIdentifiers`/`LogGroupCount` permanently nil/empty for a
+   real client. This is the lesson worth naming: a correct-looking wrapper
+   fix can hide a still-wrong shape underneath, and no structural field-diff
+   catches it because the *wrapper's* declared fields (which this backend's
+   invented per-log-group fields resembled in spirit) were never diffed
+   against the *array element's* real type. This backend has no per-log-group
+   data-source classification to group by, so the honest fix returns a
+   single bucket covering all log groups (`GroupingIdentifiers` empty --
+   disclosed, not fabricated; `LogGroupCount` real), or an empty list for
+   zero log groups.
+4. **`ListSourcesForS3TableIntegration`** -- an unconditional empty-list stub
+   (`_ []byte` handler param) despite `AssociateSourceToS3TableIntegration`
+   genuinely storing associations in `b.s3TableIntegrations` -- present but
+   never populated on any read path, and structurally unreachable no matter
+   what a caller associated. `AssociateSourceToS3TableIntegration` itself had
+   a paired bug: `DataSourceName`/`DataSourceType` were parsed off the wire
+   by the handler but discarded by the backend (`integrationArn, _, _
+   string`), so even a fixed List op would have had nothing real to show.
+   Both fixed together: `s3TableIntegrationEntry` gained `DataSourceName`/
+   `DataSourceType`/`CreatedTimeStamp` (purely additive, `cwlSnapshotVersion`
+   unchanged -- verified via `pkgs/persistence`'s `TestSnapshotVersionGuard
+   -update`, which refuses to write the golden if a bump were actually
+   warranted), and `ListSourcesForS3TableIntegration` now filters by the
+   required `integrationArn`, paginates via `maxResults`/`nextToken`, and
+   renders the real `types.S3TableIntegrationSource` shape.
+
+**Test that ratified a defect, found and corrected:**
+`TestHandler_S3TableIntegrationSourceOperations`'s
+`ListSourcesForS3TableIntegration/ReturnsEmpty` case sent a request with no
+`integrationArn` at all and asserted `200 OK` + empty list -- a call shape a
+real client's own client-side validator (`IntegrationArn` is `required` on
+`ListSourcesForS3TableIntegrationInput`) refuses to ever send. Renamed to
+`.../ReturnsEmptyForUnknownArn` (now supplies a real, unmatched
+`integrationArn`) and a new `.../MissingArn` case added asserting `400`.
+
+**Rejected candidates (disqualifying rule in parens):** `ListIntegrations`'s
+missing `IntegrationNamePrefix`/`IntegrationStatus`/`IntegrationType` filters
+and `S3TableIntegrationSource`'s missing `ParentSourceIdentifier`/
+`StatusReason` were both confirmed real but **disclosed, not fixed** (low
+value / no backing model to derive them from honestly -- see `gaps`, not a
+provability disqualification).
+
+**Checked the other direction** (required-by-SDK-but-ignored, vs.
+demanded-but-not-required): no new finding this pass -- `AssociateKmsKey`/
+`DisassociateKmsKey`'s `ResourceIdentifier` alternate-target path (a similar
+either/or shape to the four bugs above) was already correctly modeled from
+an earlier pass, confirmed by direct inspection rather than assumed.
+
+**Proof, every fix:** a real `aws-sdk-go-v2` client round trip
+(`TestCreateLookupTable_FromQueryID`,
+`TestCreateLookupTable_TableBodyAndQueryIDMutualExclusion`,
+`TestUpdateAnomaly_PatternID`,
+`TestUpdateAnomaly_AnomalyIDAndPatternIDMutualExclusion`,
+`TestListAggregateLogGroupSummaries_RealShape`,
+`TestListSourcesForS3TableIntegration_RealRoundTrip`), each hand-reverted
+(`git show HEAD:<path>` restored into the scratch dir, symptom reproduced,
+then `cp` back and `md5sum`-verified byte-identical) and confirmed to fail
+against the unfixed code before restoring.
+
+**Gates:** `go build ./...`, `go vet ./services/cloudwatchlogs/...`,
+`gofmt -l` (clean), `go test ./services/cloudwatchlogs/... -race` (pass),
+`go test ./pkgs/... -race` (pass, after `TestSnapshotVersionGuard -update`),
+`go fix -diff` (no diff), `golangci-lint run ./services/cloudwatchlogs/...`
+(0 issues after fixing 9 real findings -- golines, gosec G115, 2x
+fieldalignment, 3x shadow, 2x testifylint `error-is-as` -- by refactoring,
+not `//nolint`), `make build-check` (clean; `StorageBackend.UpdateAnomaly`'s
+signature changed to add `patternID`).
+
+Sweep status: 118/118 ops now covered by at least one structural pass (two
+prior) plus this pass's doc-prose pass on every op with an either/or or
+alternate-identifier doc pattern. Service remains grade A; four more real
+gaps disclosed (see `gaps`), none rising to a grade change.
+
+## gopherstack-o7gx follow-up (2026-08-22): default error path emitted an unmodeled InternalServerError
+
+`handler.go`'s `handleError` default branch wrote `errType =
+"InternalServerError"` for any unclassified 500. `cloudwatchlogs@v1.81.1`
+does model an `InternalServerException` (`types/errors.go:97-116`,
+`ErrorFault: FaultServer`), but it's wired into only 9 of 118 operation
+error switches in `deserializers.go`. `ServiceUnavailableException`
+(`types/errors.go:399-419`, also `FaultServer`) is wired into 101 of 118 --
+including `CreateLogGroup`'s own `awsAwsjson11_deserializeOpErrorCreateLogGroup`
+-- making it the real dominant 5xx fault for this service, not
+`InternalServerException` (an easy mistake: both are legitimately-modeled
+5xx faults for *some* cloudwatchlogs operations, but only one is the
+service-wide default). Plain `"InternalServerError"` matches neither and
+appears in no cloudwatchlogs SDK file at all.
+
+Fixed to `errType = "ServiceUnavailableException"`. Proven with a real
+`aws-sdk-go-v2/service/cloudwatchlogs` client's `CreateLogGroup`, whose
+outgoing JSON body is corrupted to invalid syntax via a Finalize middleware
+(`corruptJSONBody` -- a spec-compliant client can never organically send
+malformed JSON, so this stands in for wire-level corruption; same technique
+already used by `services/ce`, `services/dynamodb`, `services/apigateway`).
+cloudwatchlogs's `handleError` has no `json.SyntaxError`/
+`json.UnmarshalTypeError` case of its own, so the corrupted body's
+unmarshal failure falls straight to default.
+`TestCreateLogGroup_MalformedBodySurfacesServiceUnavailableException`
+(`handler_error_type_test.go`, new) asserts `apiErr.ErrorCode() ==
+"ServiceUnavailableException"` and
+`errors.As(err, &types.ServiceUnavailableException{})` with `ErrorFault()
+== smithy.FaultServer`; confirmed it fails pre-fix with the old
+`"InternalServerError"` code (hand-reverted, byte-identical restore
+after).

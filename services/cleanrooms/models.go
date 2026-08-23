@@ -42,6 +42,12 @@ const (
 	// types.PopulateIntermediateTableAnalysisType.
 	analysisTypeQuery = "QUERY"
 
+	// privacyBudgetAutoRefreshNone is the PrivacyBudgetTemplateAutoRefresh
+	// value CreatePrivacyBudgetTemplate defaults to when the (optional-on-input,
+	// required-on-output) autoRefresh field is unspecified -- the only other
+	// valid enum value besides "CALENDAR_MONTH".
+	privacyBudgetAutoRefreshNone = "NONE"
+
 	// secondsPerDay converts IntermediateTable.RetentionInDays into an
 	// epoch-seconds expirationTime offset.
 	secondsPerDay = 86400
@@ -154,7 +160,7 @@ type Membership struct {
 	Arn                             string         `json:"arn"`
 	CollaborationID                 string         `json:"collaborationId"`
 	ID                              string         `json:"id"`
-	MemberAbilities                 []string       `json:"memberAbilities,omitempty"`
+	MemberAbilities                 []string       `json:"memberAbilities"`
 	UpdateTime                      float64        `json:"updateTime,omitempty"`
 	CreateTime                      float64        `json:"createTime,omitempty"`
 }
@@ -175,7 +181,7 @@ type MembershipSummary struct {
 	Status                          string         `json:"status"`
 	ID                              string         `json:"id"`
 	CollaborationID                 string         `json:"collaborationId"`
-	MemberAbilities                 []string       `json:"memberAbilities,omitempty"`
+	MemberAbilities                 []string       `json:"memberAbilities"`
 	CreateTime                      float64        `json:"createTime,omitempty"`
 	UpdateTime                      float64        `json:"updateTime,omitempty"`
 }
@@ -194,8 +200,8 @@ type ConfiguredTable struct {
 	Description               string            `json:"description,omitempty"`
 	AnalysisMethod            string            `json:"analysisMethod,omitempty"`
 	ID                        string            `json:"id"`
-	AllowedColumns            []string          `json:"allowedColumns,omitempty"`
-	AnalysisRuleTypes         []string          `json:"analysisRuleTypes,omitempty"`
+	AllowedColumns            []string          `json:"allowedColumns"`
+	AnalysisRuleTypes         []string          `json:"analysisRuleTypes"`
 	CreateTime                float64           `json:"createTime,omitempty"`
 	UpdateTime                float64           `json:"updateTime,omitempty"`
 }
@@ -206,7 +212,7 @@ type ConfiguredTableSummary struct {
 	Name                      string   `json:"name"`
 	AnalysisMethod            string   `json:"analysisMethod,omitempty"`
 	ID                        string   `json:"id"`
-	AnalysisRuleTypes         []string `json:"analysisRuleTypes,omitempty"`
+	AnalysisRuleTypes         []string `json:"analysisRuleTypes"`
 	CreateTime                float64  `json:"createTime,omitempty"`
 	UpdateTime                float64  `json:"updateTime,omitempty"`
 }
@@ -245,7 +251,7 @@ type ConfiguredTableAssociation struct {
 	MembershipID                         string            `json:"membershipId"`
 	Arn                                  string            `json:"arn"`
 	ID                                   string            `json:"id"`
-	AnalysisRuleTypes                    []string          `json:"analysisRuleTypes,omitempty"`
+	AnalysisRuleTypes                    []string          `json:"analysisRuleTypes"`
 	UpdateTime                           float64           `json:"updateTime,omitempty"`
 	CreateTime                           float64           `json:"createTime,omitempty"`
 }
@@ -468,6 +474,13 @@ type ProtectedJobSummary struct {
 // UpdatePrivacyBudgetTemplate (Summary is its List shape). Verified against
 // awsRestjson1_deserializeDocumentPrivacyBudgetTemplate(Summary): real keys
 // use "id"/"collaborationId"/"membershipId", never the "*Identifier" forms.
+//
+// AutoRefresh is required on this output shape but optional on
+// CreatePrivacyBudgetTemplateInput -- a real client can create a template
+// without specifying it (gopherstack-r80d). CreatePrivacyBudgetTemplate
+// defaults an unspecified value to "NONE", the only other valid enum value
+// besides "CALENDAR_MONTH" and the natural off-state for an opt-in refresh
+// schedule -- not fabricated data, since there is no third possibility.
 type PrivacyBudgetTemplate struct {
 	Parameters                      map[string]any    `json:"parameters,omitempty"`
 	Tags                            map[string]string `json:"-"`
@@ -478,7 +491,7 @@ type PrivacyBudgetTemplate struct {
 	PrivacyBudgetTemplateIdentifier string            `json:"-"`
 	MembershipIdentifier            string            `json:"-"`
 	PrivacyBudgetType               string            `json:"privacyBudgetType"`
-	AutoRefresh                     string            `json:"autoRefresh,omitempty"`
+	AutoRefresh                     string            `json:"autoRefresh"`
 	ID                              string            `json:"id"`
 	MembershipID                    string            `json:"membershipId"`
 	CollaborationID                 string            `json:"collaborationId"`
@@ -693,11 +706,20 @@ type ConfiguredAudienceModelAssociation struct {
 	ManageResourcePolicies                       bool              `json:"manageResourcePolicies"`
 }
 
+// ConfiguredAudienceModelAssociationSummary is the wire shape for
+// ListConfiguredAudienceModelAssociations. ConfiguredAudienceModelArn:
+// FIXED (bd gopherstack-r80d): required per
+// awsRestjson1_deserializeDocumentConfiguredAudienceModelAssociationSummary
+// but this struct never carried it, even though the full resource always
+// stores it -- flagged and left unfixed by gopherstack-dv4s's 2026-08-14
+// pass ("opposite bug direction from the over-wide leaks this pass
+// targeted... recorded rather than folded into this pass's leak fix").
 type ConfiguredAudienceModelAssociationSummary struct {
 	ConfiguredAudienceModelAssociationIdentifier string  `json:"-"`
 	Arn                                          string  `json:"arn"`
 	CollaborationArn                             string  `json:"collaborationArn"`
 	CollaborationIdentifier                      string  `json:"-"`
+	ConfiguredAudienceModelArn                   string  `json:"configuredAudienceModelArn"`
 	MembershipArn                                string  `json:"membershipArn"`
 	MembershipIdentifier                         string  `json:"-"`
 	Name                                         string  `json:"name"`

@@ -186,7 +186,10 @@ func (h *Handler) handleCBOR(c *echo.Context) error {
 	log := logger.Load(ctx)
 
 	if c.Request().Method != http.MethodPost {
-		return c.String(http.StatusMethodNotAllowed, "Method not allowed")
+		return c.JSON(http.StatusMethodNotAllowed, map[string]string{
+			keyTypeField:    "UnknownOperationException",
+			keyMessageField: "Method not allowed",
+		})
 	}
 
 	const targetParts = 2
@@ -194,7 +197,10 @@ func (h *Handler) handleCBOR(c *echo.Context) error {
 	target := c.Request().Header.Get("X-Amz-Target")
 	parts := strings.SplitN(target, ".", targetParts)
 	if len(parts) != targetParts || parts[1] == "" {
-		return c.String(http.StatusBadRequest, "Missing or invalid X-Amz-Target")
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			keyTypeField:    "UnknownOperationException",
+			keyMessageField: "Missing or invalid X-Amz-Target",
+		})
 	}
 	action := parts[1]
 
@@ -202,7 +208,10 @@ func (h *Handler) handleCBOR(c *echo.Context) error {
 	if err != nil {
 		log.ErrorContext(ctx, "failed to read CBOR body", "error", err)
 
-		return c.String(http.StatusInternalServerError, "internal server error")
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			keyTypeField:    "InternalFailure",
+			keyMessageField: "internal server error",
+		})
 	}
 
 	jsonBody, err := service.CBORToJSON(raw)
@@ -226,7 +235,10 @@ func (h *Handler) handleCBOR(c *echo.Context) error {
 	if err != nil {
 		log.ErrorContext(ctx, "failed to encode CBOR response", "error", err)
 
-		return c.String(http.StatusInternalServerError, "internal server error")
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			keyTypeField:    "InternalFailure",
+			keyMessageField: "internal server error",
+		})
 	}
 
 	return c.Blob(http.StatusOK, service.ContentTypeCBOR, cborPayload)
@@ -295,7 +307,7 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 		})
 	default:
 		return c.JSON(http.StatusInternalServerError, map[string]string{
-			keyTypeField:    "InternalServerError",
+			keyTypeField:    "InternalServerException",
 			keyMessageField: err.Error(),
 		})
 	}

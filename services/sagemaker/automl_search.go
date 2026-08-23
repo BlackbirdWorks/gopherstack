@@ -2,7 +2,6 @@ package sagemaker
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -99,12 +98,28 @@ func generateAutoMLCandidates(job *AutoMLJob) []*AutoMLCandidate {
 type ListCandidatesForAutoMLJobParams struct {
 	CandidateNameEquals string
 	StatusEquals        string
+	SortBy              string
+	SortOrder           string
 	NextToken           string
 	MaxResults          int32
 }
 
+func candidateObjectiveValue(c *AutoMLCandidate) float64 {
+	if c.FinalAutoMLJobObjectiveMetric == nil {
+		return 0
+	}
+
+	return c.FinalAutoMLJobObjectiveMetric.Value
+}
+
 // ListCandidatesForAutoMLJob returns the (deterministically derived)
 // candidates for a stored AutoML job.
+//
+// api_op_ListCandidatesForAutoMLJob.go:38,41: SortBy's own doc text reads
+// "The default is Descending" -- not a valid CandidateSortBy value at all
+// (CreationTime/Status/FinalObjectiveMetricValue), so that half of the doc
+// is corrupted copy-paste and not trusted; SortOrder's doc ("The default is
+// Ascending") is taken at face value since it is internally consistent.
 func (b *InMemoryBackend) ListCandidatesForAutoMLJob(
 	ctx context.Context,
 	jobName string,
@@ -135,6 +150,26 @@ func (b *InMemoryBackend) ListCandidatesForAutoMLJob(
 		filtered = append(filtered, c)
 	}
 
+	desc := params.SortOrder == sortOrderDescending
+	sort.SliceStable(filtered, func(i, k int) bool {
+		var less bool
+
+		switch params.SortBy {
+		case keyStatus:
+			less = filtered[i].CandidateStatus < filtered[k].CandidateStatus
+		case "FinalObjectiveMetricValue":
+			less = candidateObjectiveValue(filtered[i]) < candidateObjectiveValue(filtered[k])
+		default:
+			less = filtered[i].CreationTime.Before(filtered[k].CreationTime)
+		}
+
+		if desc {
+			return !less
+		}
+
+		return less
+	})
+
 	page, next := paginateSlice(filtered, params.NextToken, params.MaxResults)
 
 	return page, next, nil
@@ -157,20 +192,6 @@ type searchResourceItem struct {
 	raw  any
 	flat map[string]any
 	key  string
-}
-
-func toJSONFlatMap(v any) map[string]any {
-	raw, marshalErr := json.Marshal(v)
-	if marshalErr != nil {
-		return map[string]any{}
-	}
-
-	var m map[string]any
-	if unmarshalErr := json.Unmarshal(raw, &m); unmarshalErr != nil {
-		return map[string]any{}
-	}
-
-	return m
 }
 
 func matchesSearchFilter(flat map[string]any, f SearchFilter) bool {
@@ -220,23 +241,72 @@ func matchesSearchExpression(flat map[string]any, filters []SearchFilter, boolOp
 // ResourceType. Only resources with fully real, stateful backends are
 // supported; unsupported (but valid) resource types return an empty result
 // set, matching real AWS's "no matches" shape rather than an error.
+// trainingJobSearchView/pipelineSearchView build the same epoch-seconds JSON
+// shape handleDescribeTrainingJobFull/handleDescribePipeline already emit.
+// TrainingJob/Pipeline have no MarshalJSON of their own (unlike
+// CompilationJob), so a direct json.Marshal of the raw struct -- which
+// toJSONFlatMap did previously, and which searchableResources stored
+// directly as the response's "raw" value -- emits CreationTime/
+// LastModifiedTime/etc. as Go's default RFC3339 strings. The real awsjson1.1
+// protocol expects a JSON number for every Timestamp-shaped member, so a
+// real SDK client's Search call failed deserialization outright for either
+// of the only two resource types this backend fully supports.
+func trainingJobSearchView(tj *TrainingJob) map[string]any {
+	resp := map[string]any{
+		keyTrainingJobName:       tj.TrainingJobName,
+		keyTrainingJobArn:        tj.TrainingJobArn,
+		keyTrainingJobStatus:     tj.TrainingJobStatus,
+		"SecondaryStatus":        tj.SecondaryStatus,
+		keyRoleArn:               tj.RoleArn,
+		"AlgorithmSpecification": tj.AlgorithmSpecification,
+		"ResourceConfig":         tj.ResourceConfig,
+		"StoppingCondition":      tj.StoppingCondition,
+		keyCreationTime:          epochSeconds(tj.CreationTime),
+		keyLastModifiedTime:      epochSeconds(tj.LastModifiedTime),
+	}
+	addTrainingJobOptionalFields(resp, tj)
+
+	return resp
+}
+
+func pipelineSearchView(p *Pipeline) map[string]any {
+	resp := map[string]any{
+		"PipelineName":        p.PipelineName,
+		keyPipelineArn:        p.PipelineArn,
+		"PipelineStatus":      p.PipelineStatus,
+		keyPipelineDefinition: p.PipelineDefinition,
+		keyRoleArn:            p.RoleArn,
+		keyCreationTime:       epochSeconds(p.CreationTime),
+		keyLastModifiedTime:   epochSeconds(p.LastModifiedTime),
+	}
+	if p.PipelineDisplayName != "" {
+		resp["PipelineDisplayName"] = p.PipelineDisplayName
+	}
+	if p.PipelineDescription != "" {
+		resp["PipelineDescription"] = p.PipelineDescription
+	}
+	if p.ParallelismConfiguration != nil {
+		resp["ParallelismConfiguration"] = p.ParallelismConfiguration
+	}
+
+	return resp
+}
+
 func (b *InMemoryBackend) searchableResources(region, resource string) []searchResourceItem {
 	switch resource {
 	case resourceTrainingJob:
 		items := make([]searchResourceItem, 0, b.trainingJobsStoreRO(region).Len())
 		for _, tj := range b.trainingJobsStoreRO(region).All() {
-			items = append(items, searchResourceItem{
-				raw: tj, flat: toJSONFlatMap(tj), key: tj.TrainingJobName,
-			})
+			view := trainingJobSearchView(tj)
+			items = append(items, searchResourceItem{raw: view, flat: view, key: tj.TrainingJobName})
 		}
 
 		return items
 	case resourcePipeline:
 		items := make([]searchResourceItem, 0, b.pipelinesStoreRO(region).Len())
 		for _, p := range b.pipelinesStoreRO(region).All() {
-			items = append(items, searchResourceItem{
-				raw: p, flat: toJSONFlatMap(p), key: p.PipelineName,
-			})
+			view := pipelineSearchView(p)
+			items = append(items, searchResourceItem{raw: view, flat: view, key: p.PipelineName})
 		}
 
 		return items
@@ -259,23 +329,44 @@ var searchSupportedResourceTypes = map[string]bool{
 
 // SearchParams bundles the filter/sort/page criteria for Search.
 type SearchParams struct {
-	Resource        string
-	BooleanOperator string
-	NextToken       string
-	Filters         []SearchFilter
-	MaxResults      int32
+	Resource                 string
+	BooleanOperator          string
+	NextToken                string
+	SortBy                   string
+	SortOrder                string
+	CrossAccountFilterOption string
+	Filters                  []SearchFilter
+	MaxResults               int32
 }
+
+// crossAccountFilterOptionCrossAccount is the only CrossAccountFilterOption
+// value this single-tenant backend can honestly answer: it has no concept
+// of another account's resources, so a CrossAccount search always yields
+// zero matches, the same as real AWS would return with nothing shared.
+const crossAccountFilterOptionCrossAccount = "CrossAccount"
 
 // Search evaluates a SearchExpression's top-level Filters against stored
 // resources of the given type.
-func (b *InMemoryBackend) Search(ctx context.Context, params SearchParams) ([]map[string]any, string, error) {
+//
+// Previously SortBy/SortOrder were decoded by the handler and then dropped
+// before reaching this function -- a real request specifying either had no
+// effect at all. api_op_Search.go:56,60: SortBy's default is LastModifiedTime,
+// SortOrder's default is Descending.
+func (b *InMemoryBackend) Search(
+	ctx context.Context,
+	params SearchParams,
+) ([]map[string]any, int, string, error) {
 	region := getRegion(ctx, b.region)
 
 	b.mu.RLock("Search")
 	defer b.mu.RUnlock()
 
 	if !searchSupportedResourceTypes[params.Resource] {
-		return nil, "", fmt.Errorf("%w: unsupported search Resource %q", ErrValidation, params.Resource)
+		return nil, 0, "", fmt.Errorf("%w: unsupported search Resource %q", ErrValidation, params.Resource)
+	}
+
+	if params.CrossAccountFilterOption == crossAccountFilterOptionCrossAccount {
+		return []map[string]any{}, 0, "", nil
 	}
 
 	items := b.searchableResources(region, params.Resource)
@@ -289,14 +380,31 @@ func (b *InMemoryBackend) Search(ctx context.Context, params SearchParams) ([]ma
 
 	sort.Slice(filtered, func(i, j int) bool { return filtered[i].key < filtered[j].key })
 
-	page, next := paginateSlice(filtered, params.NextToken, params.MaxResults)
-
-	results := make([]map[string]any, len(page))
-	for i, it := range page {
-		results[i] = map[string]any{params.Resource: it.raw}
+	sortBy := params.SortBy
+	if sortBy == "" {
+		sortBy = keyLastModifiedTime
 	}
 
-	return results, next, nil
+	desc := params.SortOrder != sortOrderAscending
+	sort.SliceStable(filtered, func(i, j int) bool {
+		vi := fmt.Sprintf("%v", filtered[i].flat[sortBy])
+		vj := fmt.Sprintf("%v", filtered[j].flat[sortBy])
+
+		if desc {
+			return vi > vj
+		}
+
+		return vi < vj
+	})
+
+	page, next := paginateSlice(filtered, params.NextToken, params.MaxResults)
+
+	out := make([]map[string]any, len(page))
+	for i, it := range page {
+		out[i] = map[string]any{params.Resource: it.raw}
+	}
+
+	return out, len(filtered), next, nil
 }
 
 // ---------------------------------------------------------------------------
@@ -312,7 +420,7 @@ var searchablePropertiesByResource = map[string][]string{
 	resourcePipeline:    {keyPipelineNameProp, keyPipelineStatusProp, keyPipelineArn, keyCreationTime, keyRoleArn},
 	"Experiment":        {"ExperimentName", keyExperimentArn, keyCreationTime},
 	"ModelPackage":      {"ModelPackageName", keyModelApprovalStatus, keyModelPackageArn},
-	"ModelPackageGroup": {"ModelPackageGroupName", keyModelPackageGroupArn},
+	"ModelPackageGroup": {keyModelPackageGroupName, keyModelPackageGroupArn},
 	"Endpoint":          {keyEndpointNameField, "EndpointStatus", "EndpointArn"},
 	resourceModel:       {"ModelName", "ModelArn", keyCreationTime},
 	"FeatureGroup":      {keyFeatureGroupName, keyFeatureGroupStatus, keyFeatureGroupArn},
@@ -446,7 +554,21 @@ const (
 	scalingRecMinCapacity                 = 1
 	scalingRecMaxCapacity                 = 4
 	scalingRecCooldownSeconds             = 300
+	// scalingRecInvocationsPerInstance/scalingRecModelLatencyMillis are
+	// synthesized, not measured -- this backend never actually benchmarks
+	// an endpoint, the same disclosure already applied to CompilationJob's
+	// ModelArtifacts.S3ModelArtifacts.
+	scalingRecInvocationsPerInstance = 1000
+	scalingRecModelLatencyMillis     = 50
 )
+
+// ScalingPolicyObjective mirrors types.ScalingPolicyObjective
+// (api_op_GetScalingConfigurationRecommendation.go): purely an echo of
+// what the caller sent, not persisted or used in the recommendation math.
+type ScalingPolicyObjective struct {
+	MinInvocationsPerMinute *int32 `json:"MinInvocationsPerMinute,omitempty"`
+	MaxInvocationsPerMinute *int32 `json:"MaxInvocationsPerMinute,omitempty"`
+}
 
 // ScalingConfigurationRecommendation mirrors the relevant parts of
 // GetScalingConfigurationRecommendationOutput.
@@ -456,6 +578,8 @@ type ScalingConfigurationRecommendation struct {
 	ScaleInCooldown             int32
 	ScaleOutCooldown            int32
 	TargetCPUUtilizationPerCore int32
+	InvocationsPerInstance      int32
+	ModelLatency                int32
 }
 
 // GetScalingConfigurationRecommendation validates that the named inference
@@ -488,5 +612,7 @@ func (b *InMemoryBackend) GetScalingConfigurationRecommendation(
 		ScaleInCooldown:             scalingRecCooldownSeconds,
 		ScaleOutCooldown:            scalingRecCooldownSeconds,
 		TargetCPUUtilizationPerCore: target,
+		InvocationsPerInstance:      scalingRecInvocationsPerInstance,
+		ModelLatency:                scalingRecModelLatencyMillis,
 	}, nil
 }

@@ -439,7 +439,11 @@ func TestListTrustedTokenIssuers_NoInstanceArnMember(t *testing.T) {
 	}
 }
 
-// TestUpdateTrustedTokenIssuerWithConfig verifies that configuration can be updated.
+// TestUpdateTrustedTokenIssuerWithConfig verifies that configuration can be
+// updated. Real UpdateTrustedTokenIssuerInput.TrustedTokenIssuerConfiguration
+// (types.OidcJwtUpdateConfiguration) has no IssuerUrl member at all -- an
+// issuer's IssuerUrl is immutable after creation -- so IssuerUrl must survive
+// an Update untouched even when a request tries to send one.
 func TestUpdateTrustedTokenIssuerWithConfig(t *testing.T) {
 	t.Parallel()
 
@@ -462,7 +466,8 @@ func TestUpdateTrustedTokenIssuerWithConfig(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 	ttiArn := parseResponse(t, createRec)["TrustedTokenIssuerArn"].(string)
 
-	// Update with new OIDC config.
+	// Update with a new OIDC config. IssuerUrl isn't part of the real
+	// update contract, so even sending one here must have no effect.
 	updateRec := doRequest(t, h, "UpdateTrustedTokenIssuer", map[string]any{
 		"TrustedTokenIssuerArn": ttiArn,
 		"TrustedTokenIssuerConfiguration": map[string]any{
@@ -485,6 +490,70 @@ func TestUpdateTrustedTokenIssuerWithConfig(t *testing.T) {
 	resp := parseResponse(t, descRec)
 	cfg := resp["TrustedTokenIssuerConfiguration"].(map[string]any)
 	oidc := cfg["OidcJwtConfiguration"].(map[string]any)
-	assert.Equal(t, "https://new-issuer.example.com", oidc["IssuerUrl"])
+	assert.Equal(t, "https://old-issuer.example.com", oidc["IssuerUrl"], "IssuerUrl is immutable after creation")
 	assert.Equal(t, "email", oidc["ClaimAttributePath"])
+	assert.Equal(t, "Emails", oidc["IdentityStoreAttributePath"])
+}
+
+// TestUpdateTrustedTokenIssuer_FieldsSurviveIndependentUpdates guards
+// gopherstack-c8ge: types.OidcJwtUpdateConfiguration's three fields are all
+// independently optional. Updating JwksRetrievalOption alone in a later call
+// must not wipe ClaimAttributePath/IdentityStoreAttributePath set by an
+// earlier, unrelated call.
+func TestUpdateTrustedTokenIssuer_FieldsSurviveIndependentUpdates(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+	instanceArn := createInstance(t, h, "tti-c8ge-inst")
+
+	createRec := doRequest(t, h, "CreateTrustedTokenIssuer", map[string]any{
+		"InstanceArn":            instanceArn,
+		"Name":                   "tti-c8ge",
+		"TrustedTokenIssuerType": "OIDC_JWT",
+		"TrustedTokenIssuerConfiguration": map[string]any{
+			"OidcJwtConfiguration": map[string]any{
+				"IssuerUrl":                  "https://issuer.example.com",
+				"ClaimAttributePath":         "sub",
+				"IdentityStoreAttributePath": "UserName",
+				"JwksRetrievalOption":        "OPEN_ID_DISCOVERY",
+			},
+		},
+	})
+	require.Equal(t, http.StatusOK, createRec.Code)
+	ttiArn := parseResponse(t, createRec)["TrustedTokenIssuerArn"].(string)
+
+	// Update A: change ClaimAttributePath only.
+	updateRec := doRequest(t, h, "UpdateTrustedTokenIssuer", map[string]any{
+		"TrustedTokenIssuerArn": ttiArn,
+		"TrustedTokenIssuerConfiguration": map[string]any{
+			"OidcJwtConfiguration": map[string]any{
+				"ClaimAttributePath": "email",
+			},
+		},
+	})
+	require.Equal(t, http.StatusOK, updateRec.Code)
+
+	// Update B: change JwksRetrievalOption only, omitting the others.
+	updateRec = doRequest(t, h, "UpdateTrustedTokenIssuer", map[string]any{
+		"TrustedTokenIssuerArn": ttiArn,
+		"TrustedTokenIssuerConfiguration": map[string]any{
+			"OidcJwtConfiguration": map[string]any{
+				"JwksRetrievalOption": "OPEN_ID_DISCOVERY",
+			},
+		},
+	})
+	require.Equal(t, http.StatusOK, updateRec.Code)
+
+	descRec := doRequest(t, h, "DescribeTrustedTokenIssuer", map[string]any{
+		"TrustedTokenIssuerArn": ttiArn,
+	})
+	require.Equal(t, http.StatusOK, descRec.Code)
+
+	resp := parseResponse(t, descRec)
+	cfg := resp["TrustedTokenIssuerConfiguration"].(map[string]any)
+	oidc := cfg["OidcJwtConfiguration"].(map[string]any)
+	assert.Equal(t, "https://issuer.example.com", oidc["IssuerUrl"], "IssuerUrl is immutable")
+	assert.Equal(t, "email", oidc["ClaimAttributePath"], "A's own field must survive an Update that never mentioned it")
+	assert.Equal(t, "UserName", oidc["IdentityStoreAttributePath"], "must survive both updates that never mentioned it")
+	assert.Equal(t, "OPEN_ID_DISCOVERY", oidc["JwksRetrievalOption"], "B's own field must apply")
 }

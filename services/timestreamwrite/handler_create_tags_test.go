@@ -103,3 +103,37 @@ func TestCreateOpsWithTags_RoundTrip(t *testing.T) {
 		assert.Equal(t, wantTags, got.Tags)
 	})
 }
+
+// TestListTables_RealSDKClient_DatabaseNameOptional proves a real-SDK-client
+// request omitting DatabaseName entirely succeeds, listing tables across
+// every database. ListTablesInput marks no member required, DatabaseName
+// included (api_op_ListTables.go, timestreamwrite@v1.38.4) -- the handler
+// previously rejected this with a 400 (gopherstack-4ly2).
+func TestListTables_RealSDKClient_DatabaseNameOptional(t *testing.T) {
+	t.Parallel()
+
+	client := newTestHandlerAndClient(t)
+
+	for _, db := range []string{"rt-db-a", "rt-db-b"} {
+		_, err := client.CreateDatabase(t.Context(), &twsdk.CreateDatabaseInput{
+			DatabaseName: aws.String(db),
+		})
+		require.NoError(t, err)
+	}
+
+	_, err := client.CreateTable(t.Context(), &twsdk.CreateTableInput{
+		DatabaseName: aws.String("rt-db-a"),
+		TableName:    aws.String("t1"),
+	})
+	require.NoError(t, err)
+
+	_, err = client.CreateTable(t.Context(), &twsdk.CreateTableInput{
+		DatabaseName: aws.String("rt-db-b"),
+		TableName:    aws.String("t2"),
+	})
+	require.NoError(t, err)
+
+	out, err := client.ListTables(t.Context(), &twsdk.ListTablesInput{})
+	require.NoError(t, err)
+	assert.Len(t, out.Tables, 2)
+}

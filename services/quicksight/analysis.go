@@ -12,7 +12,7 @@ import (
 // ---- Analyses ----
 
 func (b *InMemoryBackend) CreateAnalysis(
-	accountID, analysisID, name string,
+	accountID, analysisID, name, themeArn string,
 	definition map[string]any,
 	permissions []ResourcePermission,
 	tags map[string]string,
@@ -36,6 +36,7 @@ func (b *InMemoryBackend) CreateAnalysis(
 		AnalysisID:      analysisID,
 		Arn:             arn.Build("quicksight", b.region, accountID, fmt.Sprintf("analysis/%s", analysisID)),
 		Name:            name,
+		ThemeArn:        themeArn,
 		Status:          statusCreationSuccessful,
 		Definition:      definition,
 		Permissions:     clonePermissions(permissions),
@@ -62,7 +63,7 @@ func (b *InMemoryBackend) DescribeAnalysis(accountID, analysisID string) (*Analy
 }
 
 func (b *InMemoryBackend) UpdateAnalysis(
-	accountID, analysisID, name string,
+	accountID, analysisID, name, themeArn string,
 	definition map[string]any,
 ) (*Analysis, error) {
 	b.mu.Lock("UpdateAnalysis")
@@ -76,6 +77,9 @@ func (b *InMemoryBackend) UpdateAnalysis(
 
 	if name != "" {
 		a.Name = name
+	}
+	if themeArn != "" {
+		a.ThemeArn = themeArn
 	}
 	if definition != nil {
 		a.Definition = definition

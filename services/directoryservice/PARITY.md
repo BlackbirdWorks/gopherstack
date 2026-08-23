@@ -496,3 +496,23 @@ added (grep-confirmed). No subagents used (Read/Grep/Bash/Edit only, per this se
 git-mutating commands run — orchestrator must commit/push. `git status` re-checked before every edit batch; a
 sibling session was live on `services/opsworks/` throughout (confirmed via its own file changes appearing and
 later disappearing in `git status`) — only `services/directoryservice/*` files were ever touched by this pass.
+
+## gopherstack-y1zn (2026-08-21): unknown-key sweep, 1 fixed, 2 already-documented false positives
+
+Part of the gopherstack-us9u/g479 map-literal scanner's 526-key unknown-key
+bucket triage.
+
+- `DescribeDirectoryDataAccess`: {wire: fixed} -- emitted
+  "DirectoryDataAccessStatus"; real member
+  (deserializers.go's
+  awsAwsjson11_deserializeOpDocumentDescribeDirectoryDataAccessOutput) is
+  "DataAccessStatus". Proven via
+  `TestDescribeDirectoryDataAccess_DataAccessStatusKey_RealClient`
+  (wire_field_fixes_test.go), hand-reverted/confirmed-failing/restored/
+  `md5sum`-verified byte-identical.
+- `DescribeLDAPSSettings` (LDAPSType/CertificateId/CertificateExpiryDateTime)
+  and `DescribeUpdateDirectory` (UpdateType): rejected, not bugs. Both are
+  already documented inline (handler_ldaps.go, handler_settings.go) as
+  deliberate, previously-reviewed disclosed extras -- confirmed harmless
+  since a real client ignores unknown keys, and in LDAPSType's case
+  explicitly verified against the real types.LDAPSSettingInfo shape already.

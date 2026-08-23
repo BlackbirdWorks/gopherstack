@@ -81,7 +81,7 @@ func (h *Handler) handleUpdateSensitivityInspectionTemplate(templateID string, b
 	var req struct {
 		Excludes    map[string]any `json:"excludes"`
 		Includes    map[string]any `json:"includes"`
-		Description string         `json:"description"`
+		Description *string        `json:"description"`
 		Name        string         `json:"name"`
 	}
 

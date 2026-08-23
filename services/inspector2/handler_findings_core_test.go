@@ -170,9 +170,7 @@ func TestListFindingsSingleRoundTrip(t *testing.T) {
 			assert.Equal(t, tc.findingType, f["type"])
 			assert.Equal(t, tc.status, f["status"])
 
-			sev, ok := f["severity"].(map[string]any)
-			require.True(t, ok, "severity should be a map")
-			assert.Equal(t, tc.severity, sev["label"])
+			assert.Equal(t, tc.severity, f["severity"])
 			assert.NotEmpty(t, f["title"])
 			assert.NotEmpty(t, f["description"])
 			assert.NotEmpty(t, f["firstObservedAt"])
@@ -256,10 +254,8 @@ func TestListFindingsFields(t *testing.T) {
 	assert.Equal(t, "Field test finding", f["title"])
 	assert.Equal(t, "Testing all fields are present", f["description"])
 
-	sev, ok := f["severity"].(map[string]any)
-	require.True(t, ok)
-	assert.Equal(t, "HIGH", sev["label"])
-	assert.Greater(t, sev["score"].(float64), 0.0)
+	assert.Equal(t, "HIGH", f["severity"])
+	assert.Greater(t, f["inspectorScore"].(float64), 0.0)
 
 	resources, ok := f["resources"].([]any)
 	require.True(t, ok)
@@ -271,6 +267,7 @@ func TestListFindingsFields(t *testing.T) {
 	assert.Contains(t, f, "firstObservedAt")
 	assert.Contains(t, f, "lastObservedAt")
 	assert.Contains(t, f, "updatedAt")
+	assert.Contains(t, f, "remediation")
 }
 
 // --- severity scores ---
@@ -300,9 +297,9 @@ func TestListFindingsSeverityScores(t *testing.T) {
 			findings := parityListFindings(t, h, map[string]any{})
 			require.Len(t, findings, 1)
 			f := findings[0].(map[string]any)
-			sev := f["severity"].(map[string]any)
+			assert.Equal(t, tc.severity, f["severity"])
 
-			score, _ := sev["score"].(float64)
+			score, _ := f["inspectorScore"].(float64)
 			assert.InDelta(t, tc.wantScore, score, 1e-9)
 		})
 	}

@@ -39,11 +39,20 @@ ops:
   GetJourneyRunExecutionMetrics: {wire: ok, errors: ok, state: ok, persist: ok}
   GetJourneyRunExecutionActivityMetrics: {wire: ok, errors: ok, state: ok, persist: ok}
   RemoveAttributes: {wire: ok, errors: ok, state: ok, persist: n/a}
-  SendMessages: {wire: ok, errors: ok, state: ok, persist: n/a}
-  SendUsersMessages: {wire: ok, errors: ok, state: ok, persist: n/a}
-  SendOTPMessage: {wire: ok, errors: ok, state: ok, persist: n/a}
-  UpdateApnsChannel: {wire: ok, errors: ok, state: ok, persist: ok}
-  GetApnsChannel: {wire: ok, errors: ok, state: ok, persist: ok}
+  SendMessages: {wire: ok, errors: ok, state: ok, persist: n/a, note: "gopherstack-lffs: request and response were both wrapped under a top-level MessageRequest/MessageResponse key that a real client never sends/reads (pinpoint@v1.42.4's awsRestjson1_serializeOpSendMessages/deserializeOpSendMessages both operate on the member's own fields flat, no wrapper) -- fixed both directions. Locked by TestSendMessages_RealClient"}
+  SendUsersMessages: {wire: ok, errors: ok, state: ok, persist: n/a, note: "gopherstack-lffs: same flat-not-wrapped bug as SendMessages, both directions (SendUsersMessageRequest/SendUsersMessageResponse) -- fixed. Locked by TestSendUsersMessages_RealClient"}
+  SendOTPMessage: {wire: ok, errors: ok, state: ok, persist: n/a, note: "gopherstack-lffs: response was wrapped under a MessageResponse key that a real client never reads -- fixed (request body was already unused/ignored by this op, no request-side bug). Locked by TestSendOTPMessage_RealClient"}
+  VerifyOTPMessage: {wire: ok, errors: ok, state: ok, persist: n/a, note: "gopherstack-lffs: request was wrapped under a VerifyOTPMessageRequestParameters key a real client never sends, so a real client's Otp value never reached the backend and verification always fell back to the no-code has-pending-OTP check regardless of the code sent -- fixed (response was already flat/correct). Locked by TestVerifyOTPMessage_WrongCode_RealClient"}
+  PhoneNumberValidate: {wire: ok, errors: ok, state: ok, persist: n/a, note: "gopherstack-lffs: request and response were both wrapped under a top-level NumberValidateRequest/NumberValidateResponse key that a real client never sends/reads -- fixed both directions. Locked by TestPhoneNumberValidate_RealClient"}
+  PutEvents: {wire: ok, errors: ok, state: ok, persist: n/a, note: "gopherstack-lffs: request was wrapped under an EventsRequest key a real client never sends, so BatchItem was always read as empty and every event silently vanished for a real client (response was already flat/correct) -- fixed. Locked by TestPutEvents_RealClient"}
+  UpdateApnsChannel: {wire: fixed, errors: ok, state: ok, persist: ok, note: "gopherstack-tp8x (2026-08-21): APNSChannelResponse has no BundleId/Certificate/TeamId/TokenKey/TokenKeyId member at all (only HasCredential/HasTokenKey/DefaultAuthenticationMethod) -- all five were being echoed raw on the wire via toChannelResponse's blind maps.Copy(resp, ch.ExtraData). Same bug and fix for ApnsSandbox/ApnsVoip/ApnsVoipSandbox (shared parseAPNSChannelExtra/filterChannelExtraForEcho code path). Fixed by filtering ExtraData per channel type before echo. Raw-body-asserted (TestGetApnsChannel_NoRawSecretInBody) since a typed real-client decode can't observe an extraneous unknown key that has no struct field to land in."}
+  GetApnsChannel: {wire: fixed, errors: ok, state: ok, persist: ok, note: "see UpdateApnsChannel's gopherstack-tp8x note -- same toChannelResponse fix. Locked by TestGetApnsChannel_NoCredentialLeak_RealClient (DefaultAuthenticationMethod/HasCredential round-trip) and TestGetApnsChannel_NoRawSecretInBody (raw secret absence)"}
+  GetGcmChannel: {wire: fixed, errors: ok, state: ok, persist: ok, note: "gopherstack-tp8x (2026-08-21): GCMChannelResponse's real credential member is \"Credential\", not the request's \"ApiKey\" -- was echoed under the wrong key so a real client's Credential field was always nil. GCM's ServiceJson also has no response member at all (only the boolean HasFcmServiceCredentials, now tracked on Channel and derived in channelCredentialFlags). Fixed. Locked by TestGetGcmChannel_CredentialField_RealClient, TestGetGcmChannel_ServiceJSON_HasFcmServiceCredentials_RealClient"}
+  UpdateGcmChannel: {wire: fixed, errors: ok, state: ok, persist: ok, note: "same fix as GetGcmChannel -- shared toChannelResponse"}
+  GetBaiduChannel: {wire: fixed, errors: ok, state: ok, persist: ok, note: "gopherstack-tp8x (2026-08-21): BaiduChannelResponse's real credential member is \"Credential\" (required), not the request's \"ApiKey\"; SecretKey has no response member at all and was being echoed raw alongside it. Fixed. Locked by TestGetBaiduChannel_CredentialField_RealClient"}
+  UpdateBaiduChannel: {wire: fixed, errors: ok, state: ok, persist: ok, note: "same fix as GetBaiduChannel"}
+  GetAdmChannel: {wire: fixed, errors: ok, state: ok, persist: ok, note: "gopherstack-tp8x (2026-08-21): ADMChannelResponse has no ClientId/ClientSecret member at all (only HasCredential) -- both were being echoed raw on the wire. Fixed; raw-body-asserted (TestGetAdmChannel_NoRawSecretInBody) since a typed real-client decode can't observe an extraneous unknown key that has no struct field to land in."}
+  UpdateAdmChannel: {wire: fixed, errors: ok, state: ok, persist: ok, note: "same fix as GetAdmChannel"}
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -55,7 +64,7 @@ families:
   Segment: {status: ok, note: "unchanged this pass except GetSegmentVersion fallback-to-current bug (see ops)"}
   Endpoint: {status: ok, note: "gopherstack-r80d batch 5 fixed DeleteUserEndpoints (bare 204 dropped the required EndpointsResponse — see ops); prior 'unchanged, still trusted' note was stale for this one op. Rest of the family unchanged, now participates in full persistence (see Persistence section)"}
   EventStream: {status: ok, note: "unchanged this pass; now participates in full persistence"}
-  Channels: {status: ok, note: "SMS channel PromotionalMessagesPerSecond/TransactionalMessagesPerSecond request-side hygiene fix + Email channel OrchestrationSendingRoleArn field addition this pass (see ops); all 10 channel types re-diffed against GCM/APNS/Email/SMS/ADM/Baidu/Voice *ChannelRequest types, no other gaps found. Now participates in full persistence"}
+  Channels: {status: ok, note: "SMS channel PromotionalMessagesPerSecond/TransactionalMessagesPerSecond request-side hygiene fix + Email channel OrchestrationSendingRoleArn field addition (prior pass); gopherstack-tp8x (2026-08-21) found and fixed a credential-echo bug this 'no other gaps found' note had missed: toChannelResponse blindly echoed the raw request-side ExtraData map for every channel type, so GCM/Baidu's ApiKey was echoed under the wrong key (should be 'Credential') and ADM/APNS's ClientId/ClientSecret/BundleId/Certificate/TeamId/TokenKey/TokenKeyId/GCM's ServiceJson were echoed raw despite having no response member at all -- see ops for the per-op notes. Now participates in full persistence"}
   Tags: {status: ok, note: "unchanged this pass"}
   Template (email): {status: ok, note: "field-diffed this pass: DefaultSubstitutions wire-type bug + missing TemplateType fixed (see ops). Was previously marked ok on an incomplete field-diff — this pass caught what the prior pass missed"}
   Template (inapp): {status: ok, note: "field-diffed this pass: added missing TemplateType + CustomConfig (see ops)"}
@@ -65,8 +74,8 @@ families:
   Journey: {status: ok, note: "unchanged this pass; last verified 2026-07-12"}
   Job (export/import): {status: ok, note: "unchanged this pass"}
   Recommender: {status: ok, note: "unchanged this pass"}
-  Messaging (SendMessages/SendUsersMessages/OTP/PutEvents): {status: ok, note: "unchanged this pass"}
-  Phone: {status: ok, note: "unchanged this pass"}
+  Messaging (SendMessages/SendUsersMessages/OTP/PutEvents): {status: ok, note: "gopherstack-lffs (2026-08-20): the '6flj sweep's own note that this family was 'unchanged this pass' meant it was never re-diffed against the flat/payload shape -- it wasn't. Found and fixed a request- and/or response-side top-level wrapper key on SendMessages, SendUsersMessages, SendOTPMessage, VerifyOTPMessage, and PutEvents (see ops). No further gaps found."}
+  Phone: {status: ok, note: "gopherstack-lffs (2026-08-20): same wrapper-key bug as Messaging, both directions on PhoneNumberValidate (see ops)."}
   Route matcher: {status: ok, note: "gopherstack-jqh2: added TestExtractOperation_SDKRouteTable (handler_paths_sdk_diff_test.go), a permanent per-op method+path diff of all 122 real ops extracted from pinpoint@v1.42.4 serializers.go against ExtractOperation, including the generic {TemplateName}/{TemplateType}/versions and /active-version paths (discriminated from the per-type Create/Get/Update/Delete paths, which use a literal type segment, not a placeholder). 122/122 pass; no route-matcher bugs found, no duplicate op-resolution table, no query-flag-discriminated ops, no wrong-date-prefix paths."}
   Persistence: {status: ok, note: "was the biggest structural gap: persistRegistry() excluded voiceTemplates/endpoints/eventStreams/channels (all store.Table-backed — mechanical fix, just needed registering) and appSettings/campaignVersions/segmentVersions/templateVersionHistory/campaignActivities/journeyRuns/appEvents/sentMessages/otpCodes (map-shaped state, added as direct JSON fields on backendSnapshot since every value type is already plain-JSON-friendly). Snapshot version bumped 1->2 so an old on-disk snapshot is cleanly discarded (not partially misdecoded) rather than silently accepted with a shape mismatch. Locked by the rewritten TestSnapshotRestore_FullStateRoundTrip, which now asserts these resource kinds SURVIVE a restart instead of asserting they don't"}
 gaps: []                 # no known divergences left open this pass
@@ -84,6 +93,43 @@ Protocol: **restjson1**, `/v1/...` paths, service alias `mobiletargeting` (check
 `"tags"` JSON key (confirmed against `deserializers.go`/`serializers.go` `object.Key("tags")`
 call sites) while every other field is PascalCase — this looks like a bug if you're skimming
 but is AWS-accurate; don't re-flag it.
+
+### gopherstack-lffs (2026-08-20): re-audit of the 6flj wrapper-key sweep, and 5 real wrapper-key bugs found outside its scope
+
+gopherstack-6flj's pinpoint pass (documented in `services/_WRAPPER_KEY_SWEEP_REMAINDER.md`)
+correctly identified that pinpoint is flat/payload service-wide (every op's generated
+`deserializeOpDocument<Op>Output` wrapper is dead code, confirmed by `cmd/bodyclass`: 120
+flat/payload, 2 void, 0 wrapped) and correctly avoided making any top-level-wrapper-key "fix" —
+its 5 reported bugs are all genuinely below the top level (nested `Definition`, missing
+required members). None of that pass's verdicts were void or need withdrawal.
+
+But that pass's own scope note ("Messaging ... unchanged this pass", "Phone ... unchanged this
+pass") meant the message/OTP/phone-validate family was never re-diffed against the flat shape at
+all — and it turned out to be the one place in the service where gopherstack really had fallen
+into the trap the sweep was designed to catch, on **both** the request and response sides:
+`SendMessages`, `SendUsersMessages`, `SendOTPMessage`'s responses, and `PhoneNumberValidate`'s
+request+response were wrapped under a top-level key (`MessageResponse`,
+`SendUsersMessageResponse`, `NumberValidateRequest`/`NumberValidateResponse`) that pinpoint's
+real `awsRestjson1_serializeOp*`/`deserializeOp*` functions never write or read (confirmed
+file+line in `pinpoint@v1.42.4/deserializers.go` and `serializers.go` for each). `VerifyOTPMessage`
+had the same bug on its request only (response was already flat) — a real client's `Otp` value
+never reached the backend, so verification silently fell back to the no-code
+"was an OTP ever sent?" path regardless of the code actually sent, and `PutEvents`'s request was
+wrapped under an `EventsRequest` key, so a real client's `BatchItem` was always read as empty and
+every event silently vanished. All 6 ops fixed in both directions where applicable; see the `ops:`
+entries above. Two pre-existing tests (`TestSendMessages_ResponseEnvelope`,
+`TestSendUsersMessages_*`/`TestPhoneNumberValidate_*` raw-body assertions) had actively encoded
+the wrapped shape as correct — these were "ratifying tests" for the bug, not for a fix; rewritten
+to assert the flat shape. 6 new real-SDK-client tests
+(`services/pinpoint/messages_wrapper_fix_test.go`) lock the fix; each was hand-reverted
+individually (file swap, not git) and confirmed to fail with the exact predicted symptom before
+being restored.
+
+No other void verdicts found: cross-checked every `member` name `cmd/bodyclass` reports against
+every JSON struct tag in `wire.go` service-wide (`grep` for `json:"<Member>"` per member) — the
+only wrapper-shaped response structs in the entire file were the 4 fixed above (now removed).
+Response handlers for the other 116 flat ops all write their `to*Response`/`*Response` struct
+directly (no wrapping map), confirmed by reading every `httputils.WriteJSON` call site.
 
 ### Highest-severity finding this pass: the template family had systematic wire-shape drift
 

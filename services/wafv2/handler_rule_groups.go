@@ -31,7 +31,7 @@ func (h *Handler) handleCheckCapacity(ctx context.Context, body []byte) ([]byte,
 	}
 
 	return json.Marshal(map[string]any{
-		"ConsumedCapacity": capacity,
+		"Capacity": capacity,
 	})
 }
 
@@ -136,11 +136,24 @@ func (h *Handler) handleGetRuleGroup(ctx context.Context, body []byte) ([]byte, 
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	if req.ID == "" {
-		return nil, fmt.Errorf("%w: Id is required", errInvalidRequest)
+	// GetRuleGroupInput marks no member required (wafv2@v1.77.3
+	// api_op_GetRuleGroup.go): ARN is an alternative to Name+Scope+Id, so
+	// only their absence together is invalid -- gopherstack-4ly2.
+	if req.ID == "" && req.ARN == "" {
+		return nil, fmt.Errorf("%w: Id or ARN is required", errInvalidRequest)
 	}
 
-	rg, err := h.Backend.GetRuleGroup(ctx, req.ID)
+	var (
+		rg  *RuleGroup
+		err error
+	)
+
+	if req.ID != "" {
+		rg, err = h.Backend.GetRuleGroup(ctx, req.ID)
+	} else {
+		rg, err = h.Backend.GetRuleGroupByARN(ctx, req.ARN)
+	}
+
 	if err != nil {
 		return nil, err
 	}
@@ -149,7 +162,7 @@ func (h *Handler) handleGetRuleGroup(ctx context.Context, body []byte) ([]byte, 
 		return nil, fmt.Errorf(
 			"%w: rule group %q has scope %s, not %s",
 			ErrRuleGroupNotFound,
-			req.ID,
+			rg.ID,
 			rg.Scope,
 			req.Scope,
 		)

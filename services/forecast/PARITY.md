@@ -61,7 +61,7 @@ ops:
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok}
-  GetAccuracyMetrics: {wire: ok, errors: ok, state: ok, persist: n/a, note: "deterministic synthetic metrics, not touched this pass"}
+  GetAccuracyMetrics: {wire: fixed, errors: ok, state: ok, persist: n/a, note: "deterministic synthetic metrics. gopherstack-g479 (2026-08-21): WeightedQuantileLoss.Quantile emitted the raw ForecastType label string (e.g. \"0.1\"), but real Quantile deserializes as a json.Number, or one of the Smithy-special \"NaN\"/\"Infinity\"/\"-Infinity\" strings -- any other string fails with 'unknown JSON number value' (deserializers.go, awsAwsjson11_deserializeDocumentWeightedQuantileLoss). Now parsed to float64, filtering out non-quantile ForecastTypes like \"mean\" (no WeightedQuantileLosses entry in the real API). TestWindowStart/TestWindowEnd emitted RFC3339 strings; real member deserializes epoch seconds the same way -- now awstime.Epoch. Found via a new go/types-based map-literal kind scanner."}
   DeleteResourceTree: {wire: ok, errors: ok, state: ok, persist: ok, note: "cascade delete bypasses the new Delete* status gate by design -- see note below"}
   StopResource: {wire: ok, errors: ok, state: ok, persist: ok}
   ResumeResource: {wire: ok, errors: ok, state: ok, persist: ok}

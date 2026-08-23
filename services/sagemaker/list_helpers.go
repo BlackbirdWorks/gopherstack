@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -18,6 +19,34 @@ import (
 // out to a constant so those call sites don't each repeat the same string
 // literal (goconst).
 const sortOrderDescending = "Descending"
+
+// sortOrderAscending is the "Ascending" SortOrder value shared by every
+// List* op family whose real default is Descending (so the code compares
+// against the non-default value explicitly) — pulled out so those call
+// sites don't each repeat the same string literal (goconst).
+const sortOrderAscending = "Ascending"
+
+// sortByLastModifiedTime is the "LAST_MODIFIED_TIME" SortBy value shared by
+// the Image/ImageVersion/EdgeDeploymentPlan sort-by enums (each its own
+// distinct type, but spelled identically) — pulled out so those call sites
+// don't each repeat the same string literal (goconst).
+const sortByLastModifiedTime = "LAST_MODIFIED_TIME"
+
+// sortByName is the "NAME" SortBy value shared by the
+// Cluster/DeviceFleet/EdgeDeploymentPlan sort-by enums (each its own
+// distinct type, but spelled identically) — pulled out so those call sites
+// don't each repeat the same string literal (goconst).
+const sortByName = "NAME"
+
+// sortByCreationTime and sortByStatus are two of AutoMLSortBy's three values
+// (types/enums.go:1417-1424, "Name"|"CreationTime"|"Status" — mixed case,
+// distinct from the ALL_CAPS sortByName above which belongs to a different
+// enum family); "Name" needs no constant since it is each caller's default
+// branch.
+const (
+	sortByCreationTime = "CreationTime"
+	sortByStatus       = "Status"
+)
 
 // tableGet returns the value stored under key in t, or nil if absent. It lets
 // a single-value store.Table lookup be substituted inline (including chained
@@ -41,24 +70,6 @@ func sagemakerListPaged[T any](
 	less func(a, b *T) bool,
 ) ([]*T, string) {
 	return sagemakerListPagedSlice(tbl.All(), nextToken, clone, less)
-}
-
-// sagemakerListPagedMap paginates a plain map[string]*T using index-based
-// tokens. It preserves the pre-conversion behavior for callers that build a
-// local, already-filtered map (e.g. a subset matching a query filter) rather
-// than listing a store.Table directly.
-func sagemakerListPagedMap[T any](
-	m map[string]*T,
-	nextToken string,
-	clone func(*T) *T,
-	less func(a, b *T) bool,
-) ([]*T, string) {
-	items := make([]*T, 0, len(m))
-	for _, item := range m {
-		items = append(items, item)
-	}
-
-	return sagemakerListPagedSlice(items, nextToken, clone, less)
 }
 
 // sagemakerListPagedSlice is the shared index-based-token pagination core
@@ -103,6 +114,7 @@ func sagemakerListKeyPagedMap[T any](
 	m map[string]*T,
 	nextToken string,
 	clone func(*T) *T,
+	maxResults int32,
 ) ([]*T, string) {
 	keys := collections.SortedKeys(m)
 
@@ -117,7 +129,12 @@ func sagemakerListKeyPagedMap[T any](
 		}
 	}
 
-	end := min(start+sagemakerDefaultPageSize, len(keys))
+	pageSize := sagemakerDefaultPageSize
+	if maxResults > 0 && int(maxResults) < pageSize {
+		pageSize = int(maxResults)
+	}
+
+	end := min(start+pageSize, len(keys))
 
 	out := make([]*T, 0, end-start)
 	for _, k := range keys[start:end] {
@@ -132,19 +149,20 @@ func sagemakerListKeyPagedMap[T any](
 	return out, next
 }
 
-// sagemakerListKeyPaged paginates a store.Table using name-key-based tokens.
-// keyFn must reproduce the exact same primary key the table was registered
-// with (i.e. its keyFn), so nextToken values remain meaningful key strings.
-// clone must return a deep copy of its argument.
-func sagemakerListKeyPaged[T any](
+// sagemakerListKeyPagedN paginates a store.Table using name-key-based tokens,
+// like sagemakerListKeyPagedMap but reading a store.Table directly instead of
+// a plain map, with a caller-supplied page size — maxResults <= 0 falls back
+// to sagemakerDefaultPageSize, matching every other List op's
+// undocumented-MaxResults behavior in this service. keyFn must reproduce the
+// exact same primary key the table was registered with, so nextToken values
+// remain meaningful key strings.
+func sagemakerListKeyPagedN[T any](
 	tbl *store.Table[T],
 	nextToken string,
+	maxResults int32,
 	clone func(*T) *T,
 	keyFn func(*T) string,
 ) ([]*T, string) {
-	// tbl.Snapshot() is already sorted ascending by the table's own primary
-	// key, i.e. by keyFn(item) — the same order collections.SortedKeys(map)
-	// produced over the raw map this table replaced.
 	items := tbl.Snapshot()
 
 	start := 0
@@ -158,7 +176,12 @@ func sagemakerListKeyPaged[T any](
 		}
 	}
 
-	end := min(start+sagemakerDefaultPageSize, len(items))
+	pageSize := int(maxResults)
+	if pageSize <= 0 {
+		pageSize = sagemakerDefaultPageSize
+	}
+
+	end := min(start+pageSize, len(items))
 
 	out := make([]*T, 0, end-start)
 	for _, item := range items[start:end] {
@@ -171,6 +194,98 @@ func sagemakerListKeyPaged[T any](
 	}
 
 	return out, next
+}
+
+// nameTimeFilter is the common NameContains/creation-time-window/SortBy/
+// SortOrder/MaxResults filter shape shared by ListModels, ListEndpointConfigs,
+// and ListAlgorithms — each supports only a name substring filter, a
+// creation-time window, sorting by "Name" or (default) "CreationTime", and
+// MaxResults-capped pagination.
+type nameTimeFilter struct {
+	CreationTimeAfter  *time.Time
+	CreationTimeBefore *time.Time
+	NameContains       string
+	SortBy             string
+	SortOrder          string
+	MaxResults         int32
+}
+
+// nameTimeListRequest is the request body shape shared by ListModels,
+// ListEndpointConfigs, and ListAlgorithms — each supports only a name
+// substring filter, a creation-time window, SortBy/SortOrder, NextToken, and
+// MaxResults.
+type nameTimeListRequest struct {
+	CreationTimeAfter  *float64 `json:"CreationTimeAfter,omitempty"`
+	CreationTimeBefore *float64 `json:"CreationTimeBefore,omitempty"`
+	NameContains       string   `json:"NameContains,omitempty"`
+	SortBy             string   `json:"SortBy,omitempty"`
+	SortOrder          string   `json:"SortOrder,omitempty"`
+	NextToken          string   `json:"NextToken,omitempty"`
+	MaxResults         int32    `json:"MaxResults,omitempty"`
+}
+
+// toFilter converts r to the nameTimeFilter shape filterSortPaginateByName
+// consumes, decoding its epoch-seconds timestamps via epochPtr.
+func (r nameTimeListRequest) toFilter() nameTimeFilter {
+	return nameTimeFilter{
+		CreationTimeAfter:  epochPtr(r.CreationTimeAfter),
+		CreationTimeBefore: epochPtr(r.CreationTimeBefore),
+		NameContains:       r.NameContains,
+		SortBy:             r.SortBy,
+		SortOrder:          r.SortOrder,
+		MaxResults:         r.MaxResults,
+	}
+}
+
+// filterSortPaginateByName filters all by filter.NameContains/creation-time
+// window, sorts by filter.SortBy (keyGenericName, else CreationTime) and
+// filter.SortOrder (falling back to defaultDescending when SortOrder is
+// unset), then paginates at filter.MaxResults.
+func filterSortPaginateByName[T any](
+	all []*T,
+	nextToken string,
+	filter nameTimeFilter,
+	defaultDescending bool,
+	nameOf func(*T) string,
+	creationTimeOf func(*T) time.Time,
+) ([]*T, string) {
+	list := make([]*T, 0, len(all))
+
+	for _, item := range all {
+		if filter.NameContains != "" && !strings.Contains(nameOf(item), filter.NameContains) {
+			continue
+		}
+
+		if !timeWindowOK(creationTimeOf(item), filter.CreationTimeAfter, filter.CreationTimeBefore) {
+			continue
+		}
+
+		list = append(list, item)
+	}
+
+	desc := defaultDescending
+	if filter.SortOrder != "" {
+		desc = filter.SortOrder != sortOrderAscending
+	}
+
+	sort.Slice(list, func(i, k int) bool {
+		var less bool
+
+		switch filter.SortBy {
+		case keyGenericName:
+			less = nameOf(list[i]) < nameOf(list[k])
+		default:
+			less = creationTimeOf(list[i]).Before(creationTimeOf(list[k]))
+		}
+
+		if desc {
+			return !less
+		}
+
+		return less
+	})
+
+	return paginateSlice(list, nextToken, filter.MaxResults)
 }
 
 // sagemakerCreate handles the common create-resource-by-name pattern:
@@ -205,6 +320,23 @@ func sagemakerCreate[T any](
 // sagemakerDupErr returns a formatted "already exists" error wrapping ErrValidation.
 func sagemakerDupErr(kind, name string) error {
 	return fmt.Errorf("%w: %s %q already exists", ErrValidation, kind, name)
+}
+
+// timeWindowOK reports whether t falls on or after `after` and on or before
+// `before` — either bound nil means unconstrained on that side. Shared by
+// every List op's CreationTime*/LastModifiedTime* window filter added in the
+// gopherstack-oc9v inline-struct campaign, collapsing what would otherwise
+// be a repeated pair of if-continue checks per time field.
+func timeWindowOK(t time.Time, after, before *time.Time) bool {
+	if after != nil && !t.After(*after) {
+		return false
+	}
+
+	if before != nil && !t.Before(*before) {
+		return false
+	}
+
+	return true
 }
 
 // compareTimes returns -1, 0 or 1 depending on whether a is before, equal to,
@@ -260,4 +392,115 @@ func parseNextToken(token string) int {
 	}
 
 	return idx
+}
+
+// nameWindowSortParams bundles the CreationTime-window filter and name-only
+// SortOrder shared by ListFlowDefinitions and ListHumanTaskUIs — both ops
+// declare no SortBy field at all (only SortOrder), so it is applied to each
+// backend's own pre-existing default order (ascending by name) rather than
+// an invented sort dimension neither op's own doc supports.
+type nameWindowSortParams struct {
+	CreationTimeAfter  *time.Time
+	CreationTimeBefore *time.Time
+	SortOrder          string
+	MaxResults         int32
+}
+
+// filterSortPaginateByNameWindow filters items by params.CreationTime window,
+// sorts by nameOf ascending (or descending if params.SortOrder is
+// "Descending"), then paginates.
+func filterSortPaginateByNameWindow[T any](
+	items []*T,
+	nextToken string,
+	params nameWindowSortParams,
+	creationTimeOf func(*T) time.Time,
+	nameOf func(*T) string,
+	clone func(*T) *T,
+) ([]*T, string) {
+	list := make([]*T, 0, len(items))
+
+	for _, item := range items {
+		if timeWindowOK(creationTimeOf(item), params.CreationTimeAfter, params.CreationTimeBefore) {
+			list = append(list, clone(item))
+		}
+	}
+
+	desc := params.SortOrder == sortOrderDescending
+	sort.SliceStable(list, func(i, k int) bool {
+		less := nameOf(list[i]) < nameOf(list[k])
+		if desc {
+			return !less
+		}
+
+		return less
+	})
+
+	return paginateSlice(list, nextToken, params.MaxResults)
+}
+
+// nameOrTimeSortParams bundles the type/source-URI/creation-window filter and
+// Name-or-CreationTime sort criteria shared by ListContexts and ListActions
+// (both real ops support exactly this shape: SortContextsBy/SortActionsBy
+// are each Name|CreationTime — types/enums.go:9037-9044,9141-9148).
+type nameOrTimeSortParams struct {
+	CreatedAfter  *time.Time
+	CreatedBefore *time.Time
+	TypeFilter    string
+	SourceURI     string
+	NextToken     string
+	SortBy        string
+	SortOrder     string
+	MaxResults    int32
+}
+
+// filterSortPaginateByNameOrTime filters items by params.TypeFilter/SourceURI/
+// creation-time window, sorts by Name (SortBy="Name") or CreationTime
+// (default), applying SortOrder (default Descending), then paginates.
+func filterSortPaginateByNameOrTime[T any](
+	items []*T,
+	params nameOrTimeSortParams,
+	typeOf, sourceURIOf, nameOf func(*T) string,
+	creationTimeOf func(*T) time.Time,
+	clone func(*T) *T,
+) ([]*T, string) {
+	list := make([]*T, 0, len(items))
+
+	for _, item := range items {
+		if params.TypeFilter != "" && typeOf(item) != params.TypeFilter {
+			continue
+		}
+
+		if params.SourceURI != "" && sourceURIOf(item) != params.SourceURI {
+			continue
+		}
+
+		ct := creationTimeOf(item)
+		if params.CreatedAfter != nil && !ct.After(*params.CreatedAfter) {
+			continue
+		}
+
+		if params.CreatedBefore != nil && !ct.Before(*params.CreatedBefore) {
+			continue
+		}
+
+		list = append(list, clone(item))
+	}
+
+	desc := !strings.EqualFold(params.SortOrder, "Ascending")
+	sort.Slice(list, func(i, j int) bool {
+		var less bool
+		if params.SortBy == keyGenericName {
+			less = nameOf(list[i]) < nameOf(list[j])
+		} else {
+			less = creationTimeOf(list[i]).Before(creationTimeOf(list[j]))
+		}
+
+		if desc {
+			return !less
+		}
+
+		return less
+	})
+
+	return paginateSlice(list, params.NextToken, params.MaxResults)
 }

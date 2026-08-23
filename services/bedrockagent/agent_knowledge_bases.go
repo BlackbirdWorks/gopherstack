@@ -143,8 +143,6 @@ func (b *InMemoryBackend) DisassociateAgentKnowledgeBase(
 }
 
 // ListAgentKnowledgeBases returns paginated agent–KB associations.
-//
-//nolint:dupl // structurally mirrors ListAgentActionGroups but filters a distinct table/type
 func (b *InMemoryBackend) ListAgentKnowledgeBases(
 	_ context.Context, agentID, agentVersion string, maxResults int, nextToken string,
 ) ([]*AgentKnowledgeBaseSummary, string, error) {

@@ -1,7 +1,7 @@
 ---
 service: ec2
 sdk_module: aws-sdk-go-v2/service/ec2@v1.319.1   # version audited against (go.mod pin; previously recorded as "see go.mod", never a parseable pin)
-last_audit_commit: pending (agent instructed not to commit; see git log for this pass's commit)
+last_audit_commit:                                # unknown: pass was instructed not to commit and had no git access at write time, never backfilled -- gopherstack-33in
 last_audit_date: 2026-08-07
 overall: A   # 2026-08-07 pass (gopherstack-8pce follow-up): re-verified the tag dual-storage
              # consolidation and TGW/NAT/VPC-endpoint field-diffs claimed by the passes below
@@ -230,3 +230,72 @@ leaks: {status: ok, note: FIXED the tag_cleanup class above (real, reachable lea
   - No new sentinels; reused `ErrSnapshotNotFound`, `ErrTGWAttachmentNotFound`, `ErrRouteNotFound`, `ErrInvalidPaginationToken`. `resourceTypeENI = "network-interface"` added as a new shared constant (3 pre-existing literal call sites + this pass's new ones consolidated onto it, avoiding a goconst violation). Fabrication check: every added field was verified against the installed aws-sdk-go-v2 types/serializers/deserializers before being added, and every field left absent (DataEncryptionKeyId, AMI-snapshot InvalidSnapshot.InUse, ENI security groups, ~12-op-family MaxResults truncation, SearchTransitGatewayRoutes required-Filters) is explicitly documented above with the reason it wasn't fabricated instead. 0 regressions: full `services/ec2` and `services/cloudformation` suites green under `-race`; `go build`/`go vet`/`go vet -tags e2e ./test/e2e/...`/`gofmt`/`golangci-lint run ./services/ec2/...` all clean; no banned nolints.
 - 2026-08-05 pass (SDK bump ec2 v1.317->v1.319.1, gopherstack-8pce follow-up): implemented the 13 operations this bump exposed (`TestSDKCompleteness` was failing). Full detail in the tgw_policy_table_entries/application_status_checks family notes above. Transit Gateway policy table entries (3 ops: Create/Modify/DeleteTransitGatewayPolicyTableEntry) build on the pre-existing TGW policy table model and also fixed a stale doc comment + a now-incorrect GetTransitGatewayPolicyTableEntries stub (it previously always returned empty, which was correct before this bump added a real Create op but became a disguised stub the moment entries could actually exist). Application Status Checks (10 ops) is a wholly new resource family: health-check definitions, associable with instances/tags, individually suppressible, whose real target — DescribeApplicationStatus's per-instance aggregated status — this backend can only partially, honestly implement (no real HTTP health-check execution), so it deliberately returns only the subset of the real ApplicationStatusEnum (not-applicable/insufficient-data/suppressed) derivable from genuinely tracked state, never fabricating ok/impaired/initializing. New sentinels: ErrApplicationStatusCheckNotFound, ErrInvalidParameterCombination, ErrTooManyApplicationStatusChecks. New ID prefix `asc-`. Interface additions only (`Backend` gained 10 new methods) — no existing method signatures changed, no existing test call sites touched. All wire shapes (query param names, XML response element names, list-flattening conventions) verified against the installed aws-sdk-go-v2/service/ec2@v1.319.1 serializers.go/deserializers.go/validators.go directly, not against this backend's own output, per parity-principles.md rule 2 — caught one real wire-shape trap this way (SuccessfulAssociationResponseObject's AssociationType vocabulary "INSTANCE_ID"/"EC2TAG" differs from ApplicationStatusCheckAssociationObject's "instance-id"/"tag"). New tests: application_status_checks_test.go (12 backend tests) + handler_application_status_checks_test.go (4 wire tests via postForm/dispatchHandler) + tgw_peripherals_test.go additions (TestTGWPeripherals_PolicyTableEntryLifecycle/_PolicyTableEntriesValidation/_DeletePolicyTableCascadesEntries/_PolicyTableEntrySnapshotRestore) + handler_tgw_peripherals_test.go addition (TestTGWPeripheralsHandler_PolicyTableEntryLifecycle); the pre-existing TestTGWPeripherals_PolicyTableEntriesAlwaysEmpty was renamed/rewritten to TestTGWPeripherals_PolicyTableEntriesValidation since "always empty" was no longer true. 0 regressions: full `services/ec2` suite green under `-race`; `go build`/`go vet`/`gofmt`/`golangci-lint run ./services/ec2/...` all clean (0 issues); no banned nolints. See gaps for what remains honestly unmodeled (HealthCheckPaths, AvailabilityZoneId, StatusSince/per-check detail, a few documented AWS request-size limits, and NextToken truncation on this family's three Describe ops).
 - 2026-08-07 pass (gopherstack-8pce follow-up): re-verified the tag dual-storage consolidation and TGW/NAT/VPC-endpoint field-diffs from the passes above by reading the code directly against the pinned SDK — still correct, no regression found. Found and fixed one more instance of the exact bug class this ticket targets: DescribeKeyPairs's `tag:` filter read tags from a synthetic `"keypair-"+Name` key that CreateTags never wrote to (tags are stored under the bare key pair Name), so the filter silently never matched. Closed the DescribeKeyPairs IncludePublicKey gap: added KeyPairId/KeyType/CreateTime/TagSet to DescribeKeyPairs and wired create-time TagSpecifications into CreateKeyPair/ImportKeyPair (field-diffed against aws-sdk-go-v2/service/ec2@v1.319.1's KeyPairInfo/CreateKeyPairOutput/ImportKeyPairOutput deserializers). `Backend.CreateKeyPair`/`Backend.ImportKeyPair` both gained a `tags map[string]string` param; the one external caller (`services/cloudformation/resources_ec2_network.go`'s `AWS::EC2::KeyPair`) updated to pass nil. Moved DescribeApplicationStatus's StatusSince/ApplicationStatusDetail gap to a new `structural_gaps:` section (requires real HTTP health-check execution over real network traffic this mock has none of — genuinely underivable, not merely unbuilt); everything else in that family's gaps entry stays in `gaps:` since it's buildable, just not attempted. New test: TestKeyPairWire (key_pairs_wire_test.go). 0 regressions: full `services/ec2` suite green under `-race`; `go build ./...`, `go vet`, `gofmt`, `golangci-lint run ./services/ec2/... ./services/cloudformation/...` all clean; no banned nolints.
+
+**2026-08-22 (gopherstack-ifzn) -- RouteMatcher swallowed a body-read failure as a 404,
+masking Handler()'s already-typed InternalFailure**: same shape as autoscaling's entry
+(see that entry or gopherstack-3a8t for the full survey/rationale). `RouteMatcher` now
+falls back to `service.MatchesUserAgentMarker(r.Header, "api/ec2")` (verified against the
+pinned `ec2@v1.319.1/api_client.go:645` `AddSDKAgentKeyValue` call) only on the `ReadBody`
+failure branch, leaving the existing `Version`/`Action` matching untouched. Migrated
+`ExtractOperation`/`ExtractResource`/`Handler()` off `r.ParseForm()` onto
+`httputils.ReadBody`+`url.ParseQuery`, per the docdb/neptune precedent (gopherstack-bahs).
+`dispatch()` already took `vals url.Values` as an explicit parameter (not an implicit
+`r.Form` read), so the migration was a straightforward substitution with no downstream
+call-site changes needed. Proof: `TestHandler_OversizedBodySurfacesInternalFailure` in
+`handler_oversized_body_test.go` drives a real EC2 SDK client through
+`service.NewRegistry`/`service.NewServiceRouter`, confirmed failing pre-fix with
+`UnknownError`; passes now with `InternalFailure`. `TestHandler_NormalSizedBodyStillRoutes`
+is the regression guard. Gates: `go build`, `go vet`, `gofmt -l` (clean), `go test -race
+./services/ec2/...` (pass, full ec2 suite including e2e-tagged tests unaffected),
+`golangci-lint run ./services/ec2/...` (0 issues).
+
+**2026-08-23 pass -- never-named-in-PARITY sweep, Verified Access family**: this service
+declares 785 operations; diffing every declared op name against every op name mentioned
+anywhere in this file (front matter and notes) found 696 never named by any prior audit,
+of which ~248 have a real (non-trivial) response body by a field-count heuristic on the
+handler body. Picked the 18-op Verified Access family (`handler_verified_access.go` /
+`verified_access.go` -- CreateVerifiedAccessEndpoint/Group/Instance/TrustProvider,
+matching Delete/Describe/Modify, plus Attach/DetachVerifiedAccessTrustProvider) as a
+coherent, never-named, all-real-body slice and audited it fully against the installed
+`aws-sdk-go-v2/service/ec2@v1.319.1` deserializers. Found 2 real bugs, both the same
+shape -- state the backend already tracks (`VerifiedAccessInstance.AttachedTrustProviderIDs`,
+populated by Attach/DetachVerifiedAccessTrustProvider) but never surfaced on the wire:
+(1) Create/Delete/Describe/ModifyVerifiedAccessInstance's `verifiedAccessInstanceItem`
+never emitted `verifiedAccessTrustProviderSet`, the real
+`VerifiedAccessInstance.VerifiedAccessTrustProviders` field (confirmed via
+`awsEc2query_deserializeDocumentVerifiedAccessInstance`, element `verifiedAccessTrustProviderSet`
+-> `awsEc2query_deserializeDocumentVerifiedAccessTrustProviderCondensedList`) -- a real
+client describing an instance after attaching a trust provider saw no trust providers at
+all. Fixed via a new `(h *Handler) toVerifiedAccessInstanceItem` helper that resolves
+`AttachedTrustProviderIDs` through `DescribeVerifiedAccessTrustProviders`, guarding the
+empty-list case explicitly (that method treats a nil/empty ID list as "describe all",
+so an unattached instance must short-circuit rather than call it, or every trust
+provider in the account would leak onto every bare instance). (2) Attach/
+DetachVerifiedAccessTrustProvider returned a bare `{Return: true}` stub; the real
+Attach/DetachVerifiedAccessTrustProviderOutput has no `Return` field at all -- only
+`VerifiedAccessInstance`/`VerifiedAccessTrustProvider` (confirmed via
+`awsEc2query_deserializeOpDocumentAttachVerifiedAccessTrustProviderOutput`), so a real
+client relying on the attach response to confirm the new state (rather than a follow-up
+Describe) got nothing. Fixed by re-describing both resources after the attach/detach and
+returning them. New tests: `TestVerifiedAccessInstanceTrustProvidersWire` and
+`TestAttachDetachVerifiedAccessTrustProviderWire` (`handler_verified_access_test.go`),
+both wire-level via `ExportDispatch`; hand-reverted `handler_verified_access.go` to the
+pre-fix version for each and confirmed the exact documented failure (`md5sum` identical
+after restoring). No persisted-struct field/type change, so no `ec2SnapshotVersion` bump.
+Modelling gaps found but NOT fixed (out of scope for this pass, reported not synthesized):
+Create/ModifyVerifiedAccessEndpoint never read `SecurityGroupIds`/`LoadBalancerOptions`/
+`NetworkInterfaceOptions`/`CidrOptions`/`RdsOptions`/`PolicyDocument`/`SseSpecification`/
+`DomainCertificateArn` (the real endpoint-type-specific config, entirely unmodeled --
+`vals.Get` never even reads these); `VerifiedAccessTrustProvider` collapses the real
+`DeviceTrustProviderType`/`UserTrustProviderType` split into one `TrustProviderType`
+string; `VerifiedAccessGroup`/`VerifiedAccessInstance`/`VerifiedAccessEndpoint` are all
+missing `CreationTime`/`LastUpdatedTime`/`Tags`/`PolicyDocument`/`PolicyEnabled`. Gates:
+`go build ./...`, `go vet ./services/ec2/...`, `gofmt -l` (clean), `go test -race
+./services/ec2/... ./pkgs/persistence/...` (pass), `golangci-lint run ./services/ec2/...`
+(0 issues after `--fix` corrected a `fieldalignment` finding on the two new Attach/Detach
+response structs). Not reached: the other ~246 never-named rich-body ops, concentrated in
+`handler_images.go` (17), `handler_instances.go` (15), `handler_volumes.go` (12),
+`handler_snapshots.go` (11), `handler_spot_fleet.go` (10), `handler_client_vpn.go` (9),
+`handler_security_groups.go` (9), `handler_elastic_ips.go` (8), `handler_tgw_multicast.go`
+(7), `handler_instance_attrs.go` (7) -- next pass should pick one of those families, per
+the same method.

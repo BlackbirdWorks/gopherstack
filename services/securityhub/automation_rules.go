@@ -2,6 +2,8 @@ package securityhub
 
 import (
 	"fmt"
+	"maps"
+	"slices"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -9,6 +11,27 @@ import (
 
 func (b *InMemoryBackend) automationRuleARN(seq int) string {
 	return arn.Build("securityhub", b.region, b.accountID, fmt.Sprintf("automation-rule/%d", seq))
+}
+
+// clone deep-copies r's map/slice fields. BatchUpdateAutomationRules mutates
+// a live *AutomationRule's fields in place under lock; BatchGetAutomationRules
+// used to hand that same pointer straight back to callers with no copy at
+// all, racing a caller reading it after RUnlock against a concurrent update.
+func (r *AutomationRule) clone() *AutomationRule {
+	cp := *r
+	cp.Criteria = maps.Clone(r.Criteria)
+	cp.Actions = slices.Clone(r.Actions)
+
+	return &cp
+}
+
+// clone deep-copies r's map/slice fields; see AutomationRule.clone.
+func (r *AutomationRuleV2) clone() *AutomationRuleV2 {
+	cp := *r
+	cp.Criteria = maps.Clone(r.Criteria)
+	cp.Actions = slices.Clone(r.Actions)
+
+	return &cp
 }
 
 func (b *InMemoryBackend) CreateAutomationRule(rule map[string]any) (string, string) {
@@ -132,7 +155,7 @@ func (b *InMemoryBackend) BatchGetAutomationRules(automationRulesArns []string) 
 			continue
 		}
 
-		rules = append(rules, rule)
+		rules = append(rules, rule.clone())
 	}
 
 	if rules == nil {
@@ -296,7 +319,7 @@ func (b *InMemoryBackend) CreateAutomationRuleV2(
 		b.tags[arn] = tags
 	}
 
-	return rule, nil
+	return rule.clone(), nil
 }
 
 func (b *InMemoryBackend) GetAutomationRuleV2(identifier string) (*AutomationRuleV2, error) {
@@ -307,18 +330,14 @@ func (b *InMemoryBackend) GetAutomationRuleV2(identifier string) (*AutomationRul
 	if !ok {
 		for _, r := range b.automationRulesV2.All() {
 			if r.RuleArn == identifier {
-				cp := *r
-
-				return &cp, nil
+				return r.clone(), nil
 			}
 		}
 
 		return nil, ErrNotFound
 	}
 
-	cp := *rule
-
-	return &cp, nil
+	return rule.clone(), nil
 }
 
 func (b *InMemoryBackend) ListAutomationRulesV2(nextToken string, maxResults int) ([]*AutomationRuleV2, string) {
@@ -329,8 +348,7 @@ func (b *InMemoryBackend) ListAutomationRulesV2(nextToken string, maxResults int
 	all := make([]*AutomationRuleV2, 0, len(snap))
 
 	for _, rule := range snap {
-		cp := *rule
-		all = append(all, &cp)
+		all = append(all, rule.clone())
 	}
 
 	return paginateSlice(all, nextToken, maxResults, maxDefaultResults)
@@ -399,9 +417,8 @@ func (b *InMemoryBackend) UpdateAutomationRuleV2(
 	}
 
 	target.UpdatedAt = now
-	cp := *target
 
-	return &cp, nil
+	return target.clone(), nil
 }
 
 func (b *InMemoryBackend) DeleteAutomationRuleV2(identifier string) error {

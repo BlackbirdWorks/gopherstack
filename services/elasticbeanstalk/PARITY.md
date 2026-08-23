@@ -6,9 +6,9 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: elasticbeanstalk
 sdk_module: aws-sdk-go-v2/service/elasticbeanstalk@v1.37.4   # version audited against
-last_audit_commit: PENDING   # this pass's method (deserializer/serializer key-switch extraction,
-  # gopherstack-6flj wrapper-key sweep) is narrower/deeper than the prior Go-struct-level audit
-  # below; orchestrator sets the real commit hash on commit, per the mediatailor/codedeploy
+last_audit_commit:                                # unknown: pass ran without git access at write time, never backfilled -- gopherstack-33in;
+  # method (deserializer/serializer key-switch extraction, gopherstack-6flj wrapper-key sweep)
+  # is narrower/deeper than the prior Go-struct-level audit below, per the mediatailor/codedeploy
   # sessions' precedent for the same situation
 last_audit_date: 2026-07-23
 overall: A            # A = genuine fixes found; B = already-accurate, proven op-by-op
@@ -176,3 +176,21 @@ error-message text, protocol = query-XML / REST-XML / REST-JSON / json-1.0), and
   environments), but `IncludeDeleted=true`/`IncludedDeletedBackTo` are not implemented --
   a client explicitly asking to see recently-terminated environments will get nothing.
   Not fixed this pass (low traffic); flagged here so it isn't rediscovered from scratch.
+
+**2026-08-22 (gopherstack-ifzn) -- RouteMatcher swallowed a body-read failure as a 404,
+masking Handler()'s already-typed InternalFailure**: same shape as autoscaling's entry
+(see that entry or gopherstack-3a8t for the full survey/rationale). `RouteMatcher` now
+falls back to `service.MatchesUserAgentMarker(r.Header, "api/elasticbeanstalk")` (verified
+against the pinned `elasticbeanstalk@v1.37.4/api_client.go:638` `AddSDKAgentKeyValue` call)
+only on the `ReadBody` failure branch, leaving the existing `ebAPIVersion`/`Version`/`Action`
+matching untouched. Migrated `ExtractOperation`/`ExtractResource`/`Handler()` off
+`r.ParseForm()` onto `httputils.ReadBody`+`url.ParseQuery`, per the docdb/neptune precedent
+(gopherstack-bahs) -- the pre-existing code was vulnerable to the same double-`ParseForm`-
+call landmine (a second call silently sees a cached-empty, non-nil `r.PostForm` instead of
+the real read error). Proof: `TestHandler_OversizedBodySurfacesInternalFailure` in
+`handler_oversized_body_test.go` drives a real elasticbeanstalk SDK client through
+`service.NewRegistry`/`service.NewServiceRouter`, confirmed failing pre-fix with
+`UnknownError`; passes now with `InternalFailure`. `TestHandler_NormalSizedBodyStillRoutes`
+is the regression guard. Gates: `go build`, `go vet`, `gofmt -l` (clean), `go test -race
+./services/elasticbeanstalk/...` (pass), `golangci-lint run ./services/elasticbeanstalk/...`
+(0 issues).

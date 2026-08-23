@@ -18,7 +18,7 @@ import (
 // an old snapshot decodes with Version == 0, which is guaranteed to mismatch
 // transcribeSnapshotVersion and is discarded the same way any other
 // incompatible snapshot is.
-const transcribeSnapshotVersion = 1
+const transcribeSnapshotVersion = 2
 
 // backendSnapshot is the top-level on-disk shape for the Transcribe backend.
 //

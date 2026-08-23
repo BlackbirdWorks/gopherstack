@@ -4,6 +4,10 @@ sdk_module: aws-sdk-go-v2/service/athena@v1.60.4
 last_audit_commit: c47d785b7
 last_audit_date: 2026-07-23
 overall: A            # genuine wire-shape fixes found in a previously well-built, well-tested service
+                       # 2026-08-21 (gopherstack-1vv2): fixed UpdateWorkGroup wholesale-replacing
+                       # Configuration with the narrower ConfigurationUpdates payload, destroying
+                       # fields (ResultConfiguration/EngineVersion/etc.) any single-field Update
+                       # didn't mention. See the WorkGroup op row.
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
@@ -17,7 +21,7 @@ ops:
   GetQueryResults: {wire: ok, errors: ok, state: ok, persist: ok, note: "ResultSet/Row/Datum/ColumnInfo shapes verified against awsAwsjson11 deserializers; header row only on first page, matching AWS."}
   ListQueryExecutions: {wire: ok, errors: ok, state: ok, persist: ok, note: "opaque-token pagination via pkgs' page-token codec"}
   BatchGetQueryExecution: {wire: ok, errors: ok, state: ok, persist: ok}
-  WorkGroup (Create/Get/List/Update/Delete): {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (2026-07-23) — WorkGroup carried an invented Tags field (real GetWorkGroupOutput.WorkGroup has none; tags are TagResource/ListTagsForResource-only) that also went stale the moment TagResource/UntagResource were called, since those never touched it. Field removed; CreateWorkGroup's Tags input now flows only into resourceTags. Also FIXED (previous pass) — ResultConfiguration.ACLConfiguration was tagged json:\"ACLConfiguration\"; real wire key is \"AclConfiguration\"."}
+  WorkGroup (Create/Get/List/Update/Delete): {wire: ok, errors: ok, state: ok, persist: fixed, note: "FIXED (2026-07-23) — WorkGroup carried an invented Tags field (real GetWorkGroupOutput.WorkGroup has none; tags are TagResource/ListTagsForResource-only) that also went stale the moment TagResource/UntagResource were called, since those never touched it. Field removed; CreateWorkGroup's Tags input now flows only into resourceTags. Also FIXED (previous pass) — ResultConfiguration.ACLConfiguration was tagged json:\"ACLConfiguration\"; real wire key is \"AclConfiguration\". 2026-08-21 (gopherstack-1vv2): persist was accept-and-corrupt — UpdateWorkGroupInput.ConfigurationUpdates is types.WorkGroupConfigurationUpdates, a partial-update shape a real client only ever sends the changed fields of, but the handler decoded it into the same WorkGroupConfiguration type as Create and the backend wholesale-replaced wg.Configuration with it -- so any single-field Update (e.g. just EnforceWorkGroupConfiguration) silently erased ResultConfiguration/EngineVersion/etc. set at Create. Fixed: new WorkGroupConfigurationUpdates type (pointer scalars, so omitted is distinguishable from explicit false/0/empty) with a MergeInto that only touches fields actually present. See TestHandler_UpdateWorkGroup_PreservesUnmentionedConfiguration. IdentityCenterConfiguration/ManagedQueryResultsConfiguration and ResultConfigurationUpdates' Remove* explicit-clear flags remain unmodeled -- separate gaps, not fixed this pass."}
   NamedQuery (Create/Get/List/BatchGet/Delete/Update): {wire: ok, errors: ok, state: ok, persist: ok}
   DataCatalog (Create/Get/List/Update/Delete): {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (2026-07-23) — CreateDataCatalogOutput/DeleteDataCatalogOutput now populate the optional DataCatalog object (SDK v1.57.2) with the created/just-deleted record. Also FIXED — DataCatalog carried the same invented Tags field as WorkGroup (see above); removed, CreateDataCatalog's Tags input now flows only into resourceTags."}
   PreparedStatement (Create/Get/List/BatchGet/Delete/Update): {wire: ok, errors: ok, state: ok, persist: ok}
@@ -26,7 +30,7 @@ ops:
   Notebook (Create/Delete/Export/Import/Update/UpdateMetadata/GetMetadata/ListMetadata): {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (2026-07-23) — CreateNotebookInput carried an invented Tags field; the real CreateNotebookInput has only Name/WorkGroup/ClientRequestToken (unlike WorkGroup/DataCatalog/CapacityReservation, notebooks cannot be tagged at creation in the real API). Removed; a client sending Tags anyway (as no real SDK client would) is now harmlessly ignored rather than silently accepted. A notebook remains taggable after creation via TagResource against its ARN."}
   CreatePresignedNotebookUrl: {wire: ok, errors: ok, state: ok, persist: n/a}
   Session (Start/Get/GetStatus/Terminate/List/ListNotebookSessions): {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (gopherstack-cgq3) — StartSession was missing the real optional MonitoringConfiguration field (types.MonitoringConfiguration: CloudWatchLoggingConfiguration/ManagedLoggingConfiguration/S3LoggingConfiguration, per GetSessionOutput.MonitoringConfiguration). Now accepted, stored on Session, and echoed by GetSession, matching the real API's own StartSession->GetSession round trip. StartSession's own request struct also still carries a SessionConfiguration field with no counterpart on the real StartSessionInput (only GetSessionOutput has SessionConfiguration, and it's workgroup-derived there, not client-supplied) — out of this fix's scope, left as-is and noted here for a future pass."}
-  Calculation (Start/Get/GetStatus/GetCode/Stop/List): {wire: ok, errors: ok, state: ok, persist: ok}
+  Calculation (Start/Get/GetStatus/GetCode/Stop/List): {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-21 (gopherstack-us9u kind-mismatch sweep) -- CalculationStatistics.Progress was int64, hardcoded to 100 on every calculation; the real types.CalculationStatistics.Progress is *string (deserializers.go case \"Progress\": expected DescriptionString to be of type string), so every real SDK client's GetCalculationExecutionStatus/GetCalculationExecution call failed outright since Progress is always populated. Fixed by changing the field to string (now \"COMPLETED\"). Proven via a real aws-sdk-go-v2/service/athena client round trip (wire_calculation_progress_test.go), hand-reverted/confirmed-failing (expected DescriptionString to be of type string, got json.Number instead)/restored, md5sum-verified byte-identical."}
   Database/TableMetadata (Get/List): {wire: ok, errors: ok, state: ok, persist: ok, note: "'dirty' tables round-trip through the DTO registry in persistence.go; verified by persistence_test.go (the store_setup_test.go filename this note previously cited does not exist in the tree — stale reference, the coverage itself is real and passing)"}
   Tags (Tag/Untag/ListTagsForResource): {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (2026-07-23) — TagResource/UntagResource/ListTagsForResource now validate ResourceARN resolves to a currently existing taggable resource (workgroup/datacatalog/capacity-reservation/notebook, parsed from the ARN's kind/id resource segment), returning InvalidRequestException (ErrNotFound) otherwise instead of silently no-oping or returning an empty tag list. ListTagsForResource now also honors MaxResults/NextToken pagination (previously ignored both, always returning every tag in one response)."}
   ListEngineVersions: {wire: ok, errors: ok, state: ok, persist: n/a, note: "FIXED (2026-07-23) — EngineVersionDescriptor carried a fabricated AuthEngineVersion field that does not exist on the real EngineVersion type (only SelectedEngineVersion/EffectiveEngineVersion); removed."}
@@ -198,3 +202,28 @@ entries to the already-persisted `resourceTags` map (no new top-level
 `backendSnapshot` field required) — round trip verified by
 `TestInMemoryBackend_TagResource_CapacityReservation` and
 `TestInMemoryBackend_DeleteCapacityReservation_CascadesTags`.
+
+## 2026-08-21 (gopherstack-hjdd): snapshot-version guard, unbumped retype
+
+`athenaSnapshotVersion` bumped 1 -> 2. `d83f4b5d3` retyped
+`CalculationExecution.Statistics.Progress` (nested inside the registered `calculations`
+table's value type) from `int64` to `string`, matching the real deserializer's type
+switch, without bumping the snapshot version. A pre-fix (v1) snapshot's numeric
+`"Progress"` no longer unmarshals into the new string field at all -- `RestoreAll` now
+errors outright rather than silently losing data, but the whole backend then fails to
+restore, which the version guard exists to convert into a clean, recoverable "discard and
+start empty" instead.
+
+Found via `pkgs/persistence`'s snapshot-version guard, extended this session
+(gopherstack-hjdd) to recursively expand fields of every type reached through a
+`store.Register`/`store.New` table registration.
+
+**Proof:** `Test_InMemoryBackend_Restore_V1CalculationProgressDiscarded` (persistence_test.go)
+builds a v1-shaped `calculations` snapshot with a numeric `Statistics.Progress` and asserts
+`Restore` succeeds (discarding cleanly) rather than erroring. Hand-reverted to version 1:
+the same test then fails with `Restore` returning `json: cannot unmarshal number into Go
+struct field CalculationStatistics.Statistics.Progress of type string`, confirming the
+symptom; restored and `md5sum`-verified byte-identical.
+
+**Gates:** `go build`, `go vet` (default/e2e/integration), `gofmt -l` (clean), `go test -race`
+(pass), `golangci-lint run` (0 issues).

@@ -127,17 +127,8 @@ func (h *Handler) handleUpdateOrganizationConfiguration(c *echo.Context) error {
 		}
 	}
 
-	autoEnable := false
-	for _, v := range req.AutoEnable {
-		if v {
-			autoEnable = true
-
-			break
-		}
-	}
-
 	if updateErr := h.Backend.UpdateOrganizationConfiguration(
-		OrgConfiguration{AutoEnable: autoEnable},
+		OrgConfiguration{AutoEnable: req.AutoEnable},
 	); updateErr != nil {
 		return h.mapError(c, updateErr)
 	}
@@ -146,8 +137,8 @@ func (h *Handler) handleUpdateOrganizationConfiguration(c *echo.Context) error {
 	// autoEnable settings
 	// (awsRestjson1_deserializeOpDocumentUpdateOrganizationConfigurationOutput
 	// in the pinned inspector2 SDK's deserializers.go), not an empty
-	// envelope. req.AutoEnable already carries the real per-scan-type wire
-	// keys (codeRepository/ec2/ecr/lambda/lambdaCode) as submitted, so echo
-	// it back rather than reconstructing from the backend's collapsed bool.
-	return c.JSON(http.StatusOK, map[string]any{"autoEnable": req.AutoEnable})
+	// envelope. The backend now stores the real per-scan-type map (rather
+	// than collapsing it to one bool), so this reads back what was just
+	// persisted instead of echoing the raw request.
+	return c.JSON(http.StatusOK, map[string]any{"autoEnable": h.Backend.DescribeOrganizationConfiguration().AutoEnable})
 }

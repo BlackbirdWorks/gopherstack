@@ -169,6 +169,21 @@ func (b *InMemoryBackend) DeleteAccessPointPolicy(accountID, name string) error 
 	return nil
 }
 
+// GetAccessPointPolicyStatus reports whether an access point has a policy
+// attached, mirroring the ObjectLambda/MRAP siblings' "policy set" heuristic
+// (GetAccessPointPolicyStatusForObjectLambda, GetMultiRegionAccessPointPolicyStatus).
+func (b *InMemoryBackend) GetAccessPointPolicyStatus(accountID, name string) (bool, error) {
+	b.mu.RLock("GetAccessPointPolicyStatus")
+	defer b.mu.RUnlock()
+
+	key := accountID + ":" + name
+	if !b.accessPoints.Has(key) {
+		return false, errAccessPointNotFound
+	}
+
+	return b.accessPointPolicies[key] != "", nil
+}
+
 // ---- Access Point Scope ----
 
 // GetAccessPointScope returns the scope for an access point.

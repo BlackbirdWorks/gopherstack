@@ -38,7 +38,25 @@ import (
 // version: bedrock had no persistence at all before this file (neither
 // Handler/AgentsHandler nor InMemoryBackend implemented Snapshot/Restore), so
 // there is no legacy snapshot shape to be compatible with.
-const bedrockSnapshotVersion = 1
+//
+// Bumped 1 -> 2 (gopherstack-hjdd) for f16063cd2: Flow.FlowID/FlowArn,
+// FlowAlias.FlowAliasID/FlowAliasArn, FlowVersion.FlowID, and
+// Prompt.PromptID/PromptArn (all registered tables' value types: flows,
+// flowAliases, flowVersions:<id>, prompts) were retagged from
+// flowId/flowArn/flowAliasId/flowAliasArn/promptId/promptArn to the real
+// deserializer's flat id/arn. A Version-1 snapshot's old keys no longer
+// match at all, so these identity fields silently decode empty -- and since
+// flowsKeyFn/promptsKeyFn key their table on exactly these fields, every
+// restored flow/prompt would collide on the same empty key, silently
+// discarding all but one. Must be discarded like any other
+// shape-incompatible snapshot.
+//
+// Bumped 2 -> 3: ModelInvocationLoggingConfiguration was retagged from the fabricated flat
+// s3BucketName/loggingEnabled fields (no such fields exist on the real types.LoggingConfig) to
+// the real cloudWatchConfig/s3Config/*DataDeliveryEnabled shape. A Version-2 snapshot's old keys
+// no longer match any field on the new type, so a stored logging config would silently decode
+// as fully empty instead of restoring its cloudWatchConfig/s3Config/delivery flags.
+const bedrockSnapshotVersion = 3
 
 // backendSnapshot is the top-level on-disk shape for the Bedrock backend.
 //
@@ -344,9 +362,10 @@ func resetRawState(b *InMemoryBackend) {
 	b.agentTags = make(map[string]map[string]string)
 	b.agentMemory = make(map[string][]any)
 	b.arpAnnotations = make(map[string][]any)
-	// arpAnnotationSetHash intentionally has no snapshot counterpart -- see
-	// its field doc comment in store.go.
+	// arpAnnotationSetHash/arpAnnotationsUpdatedAt intentionally have no
+	// snapshot counterpart -- see their field doc comments in store.go.
 	b.arpAnnotationSetHash = make(map[string]string)
+	b.arpAnnotationsUpdatedAt = make(map[string]time.Time)
 	b.promptRoutersByName = make(map[string]string)
 	b.useCaseFormData = nil
 	b.accountDataRetention = nil

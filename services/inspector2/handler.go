@@ -48,6 +48,7 @@ const (
 
 	keyAccounts           = "accounts"
 	keyAccountID          = "accountId"
+	keyAccountIDs         = "accountIds"
 	keyResourceStatus     = "resourceStatus"
 	keyResourceState      = "resourceState"
 	keyStatus             = "status"

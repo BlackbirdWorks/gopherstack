@@ -5,6 +5,9 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	medialivesdk "github.com/aws/aws-sdk-go-v2/service/medialive"
+	medialivetypes "github.com/aws/aws-sdk-go-v2/service/medialive/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -45,14 +48,20 @@ func TestInput_CRUD(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
 	assert.Len(t, listResp["inputs"], 1)
 
-	// Delete
+	// Delete: real terraform-provider-aws's waitInputDeleted polls
+	// DescribeInput for state InputStateDeleted (internal/service/medialive/
+	// input.go), so the record must stay describable with state DELETED
+	// rather than vanish -- an immediate 404 reads as "not yet observed",
+	// not "done", and the waiter exhausts its retries.
 	rec = doRequest(t, h, http.MethodDelete, "/prod/inputs/"+inputID, nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
-	assert.Equal(t, 0, medialive.InputCount(h.Backend.(*medialive.InMemoryBackend)))
+	assert.Equal(t, 1, medialive.InputCount(h.Backend.(*medialive.InMemoryBackend)))
 
-	// Describe deleted returns 404
 	rec = doRequest(t, h, http.MethodGet, "/prod/inputs/"+inputID, nil)
-	assert.Equal(t, http.StatusNotFound, rec.Code)
+	assert.Equal(t, http.StatusOK, rec.Code)
+	var deletedResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &deletedResp))
+	assert.Equal(t, "DELETED", deletedResp["state"])
 }
 
 func TestInput_MissingName(t *testing.T) {
@@ -94,4 +103,36 @@ func TestCreatePartnerInput(t *testing.T) {
 
 	rec = doRequest(t, h, http.MethodPost, "/prod/inputs/missing/partners", map[string]any{})
 	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+// TestDeleteInput_RealClient_StaysDescribableAsDeleted drives Create/Delete/
+// Describe through the real aws-sdk-go-v2 medialive client, mirroring
+// terraform-provider-aws's waitInputDeleted (internal/service/medialive/
+// input.go): it polls DescribeInput expecting InputStateDeleted, and a
+// NotFoundException does not satisfy that target -- it reads as "not found
+// yet", so the provider burns its retry budget and reports "couldn't find
+// resource" instead of succeeding. Before the fix, DeleteInput removed the
+// record outright and this DescribeInput call 404'd.
+func TestDeleteInput_RealClient_StaysDescribableAsDeleted(t *testing.T) {
+	t.Parallel()
+
+	backend := medialive.NewInMemoryBackend("000000000000", "us-east-1")
+	client := newTestMediaLiveClient(t, medialive.NewHandler(backend))
+	ctx := t.Context()
+
+	created, err := client.CreateInput(ctx, &medialivesdk.CreateInputInput{
+		Name: aws.String("delete-fix-input"),
+		Type: medialivetypes.InputTypeRtmpPush,
+		Destinations: []medialivetypes.InputDestinationRequest{
+			{StreamName: aws.String("live/stream")},
+		},
+	})
+	require.NoError(t, err)
+
+	_, err = client.DeleteInput(ctx, &medialivesdk.DeleteInputInput{InputId: created.Input.Id})
+	require.NoError(t, err)
+
+	desc, err := client.DescribeInput(ctx, &medialivesdk.DescribeInputInput{InputId: created.Input.Id})
+	require.NoError(t, err, "the waiter's Target state can only be observed if DescribeInput keeps succeeding")
+	assert.Equal(t, medialivetypes.InputStateDeleted, desc.State)
 }

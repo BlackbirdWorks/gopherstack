@@ -288,7 +288,12 @@ func (h *Handler) RouteMatcher() service.Matcher {
 		}
 		body, err := httputils.ReadBody(r)
 		if err != nil {
-			return false
+			// Body unreadable (e.g. oversized): fall back to the User-Agent
+			// marker every aws-sdk-go-v2 redshift client sets (api_client.go's
+			// AddSDKAgentKeyValue -- "api/redshift"). That still identifies
+			// this as ours, so claim it and let Handler() produce the typed
+			// error instead of masking the read failure as a 404.
+			return service.MatchesUserAgentMarker(r.Header, "api/redshift")
 		}
 		vals, err := url.ParseQuery(string(body))
 		if err != nil {
@@ -304,11 +309,15 @@ func (h *Handler) MatchPriority() int { return service.PriorityFormRedshift }
 
 // ExtractOperation extracts the Redshift action from the request.
 func (h *Handler) ExtractOperation(c *echo.Context) string {
-	r := c.Request()
-	if err := r.ParseForm(); err != nil {
+	body, err := httputils.ReadBody(c.Request())
+	if err != nil {
 		return opUnknown
 	}
-	action := r.Form.Get("Action")
+	vals, err := url.ParseQuery(string(body))
+	if err != nil {
+		return opUnknown
+	}
+	action := vals.Get("Action")
 	if action == "" {
 		return opUnknown
 	}
@@ -318,23 +327,31 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 
 // ExtractResource returns the cluster identifier from the request.
 func (h *Handler) ExtractResource(c *echo.Context) string {
-	r := c.Request()
-	if err := r.ParseForm(); err != nil {
+	body, err := httputils.ReadBody(c.Request())
+	if err != nil {
+		return ""
+	}
+	vals, err := url.ParseQuery(string(body))
+	if err != nil {
 		return ""
 	}
 
-	return r.Form.Get("ClusterIdentifier")
+	return vals.Get("ClusterIdentifier")
 }
 
 // Handler returns the Echo handler function.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
 		r := c.Request()
-		if err := r.ParseForm(); err != nil {
+		body, err := httputils.ReadBody(r)
+		if err != nil {
 			return h.writeError(c, http.StatusInternalServerError, "InternalFailure", "failed to read request body")
 		}
 
-		vals := r.Form
+		vals, err := url.ParseQuery(string(body))
+		if err != nil {
+			return h.writeError(c, http.StatusInternalServerError, "InternalFailure", "failed to parse request body")
+		}
 		action := vals.Get("Action")
 		if action == "" {
 			return h.writeError(c, http.StatusBadRequest, "MissingAction", "missing Action parameter")

@@ -535,3 +535,28 @@ matching statement/policy exists (matches AWS's idempotent-remove semantics). Al
   as an autofix across a package with anonymous-struct test tables using
   positional literals, run `go vet ./...` immediately after and expect to
   convert the affected literals to keyed form.
+
+## gopherstack-o7gx follow-up (2026-08-22): default error path emitted InternalServerError instead of the modeled fault
+
+`handler_dispatch.go`'s `handleError` default branch wrote `errType =
+"InternalServerError"` for any unclassified 500. `eventbridge@v1.48.4`
+`types/errors.go:90-109` models `InternalException` (`ErrorFault:
+FaultServer`) as the service's 5xx fault, wired into all 57 of 57
+operation error switches in `deserializers.go` -- universal.
+`"InternalServerError"` appears nowhere in `types/errors.go`, so a real
+client's `errors.As(&types.InternalException{})` never matched.
+
+Fixed to `errType = "InternalException"`. Proven with a real
+`aws-sdk-go-v2/service/eventbridge` client's `ListEventBuses` (no required
+input members), whose outgoing JSON body is corrupted to invalid syntax
+via a Finalize middleware (`corruptEventBridgeJSONBody` -- same technique
+already used by `services/ce`, `services/dynamodb`, `services/apigateway`,
+and this pass's `services/cloudwatchlogs` fix). eventbridge's `handleError`
+has no `json.SyntaxError`/`json.UnmarshalTypeError` case of its own, so the
+corrupted body's unmarshal failure falls straight to default.
+`TestListEventBuses_MalformedBodySurfacesInternalException`
+(`handler_error_type_test.go`, new) asserts `apiErr.ErrorCode() ==
+"InternalException"` and `errors.As(err, &types.InternalException{})` with
+`ErrorFault() == smithy.FaultServer`; confirmed it fails pre-fix with the
+old `"InternalServerError"` code (hand-reverted, byte-identical restore
+after).

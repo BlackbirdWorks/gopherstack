@@ -159,3 +159,94 @@ leaks: {status: clean, note: "Janitor.Run uses pkgs/worker.Group with Ticker + S
   `DesiredSamplingPercentage`/`ActualSamplingPercentage`): RE-VERIFIED this pass (WebSearch
   against CloudWatch Transaction Search docs) -- AWS's actual default indexing rate is
   1%, confirming this constant was already correct. No change needed.
+
+## gopherstack-o7gx (2026-08-22): ReadBody-failure path wrote untyped errors
+
+`Handler()`'s `httputils.ReadBody` failure branch wrote a bare
+`c.String(http.StatusInternalServerError, "internal server error")`.
+xray is restjson1 (confirmed from `xray@v1.39.4` deserializers.go's
+`awsRestjson1_deserializeOpError*` prefix); plain text doesn't decode
+through `restjson.GetErrorInfo`, so a real client got `*json.SyntaxError`,
+not even `UnknownError`.
+
+Fixed by routing the ReadBody error through this handler's own
+`handleError(c, path, err)` (the unused second parameter is the request
+path, threaded here since `op` isn't extracted yet at this point in
+`Handler()`): none of its typed `case`s (`awserr.ErrNotFound`,
+`awserr.ErrConflict`, `awserr.ErrInvalidParameter`, `errInvalidRequest`,
+`errUnknownPath`, syntax/type errors) match a `*http.MaxBytesError`/read
+error, so it falls through to the pre-existing default (`__type:
+"InternalServiceError"`, 500).
+
+NOTE (pre-existing, NOT fixed by this pass): `"InternalServiceError"` does
+not appear in `xray@v1.39.4` `types/errors.go`'s modeled list
+(`InvalidPolicyRevisionIdException`, `InvalidRequestException`,
+`LockoutPreventionException`, `MalformedPolicyDocumentException`,
+`PolicyCountLimitExceededException`, `PolicySizeLimitExceededException`,
+`ResourceNotFoundException`, `RuleLimitExceededException`,
+`ThrottledException`, `TooManyTagsException`) -- it falls through to the
+client's generic `smithy.GenericAPIError` branch rather than a modeled
+struct. Still surfaces the correct `ErrorCode()` (proof standard met), but
+a possible pre-existing wire-code mismatch in the genuine per-operation
+default, out of this ticket's ReadBody-only scope.
+
+Proven with a real `aws-sdk-go-v2/service/xray` client's `CreateGroup`,
+whose `FilterExpression` field alone exceeds
+`httputils.MaxRequestBodyBytes` (16 MiB).
+`TestHandler_OversizedBodySurfacesInternalServiceError`
+(`handler_oversized_body_test.go`) asserts `apiErr.ErrorCode() ==
+"InternalServiceError"`; confirmed it fails pre-fix with
+`*json.SyntaxError` (hand-reverted, byte-identical restore after).
+
+## gopherstack-o7gx follow-up (2026-08-22): default error path fixed to InternalFailure
+
+The NOTE above flagged `"InternalServiceError"` as unmatched in
+`xray@v1.39.4`'s `types/errors.go`. Confirmed: `xray@v1.39.4` models zero
+5xx/internal-fault exceptions at all (its 10 modeled types --
+`InvalidPolicyRevisionIdException`, `InvalidRequestException`,
+`LockoutPreventionException`, `MalformedPolicyDocumentException`,
+`PolicyCountLimitExceededException`, `PolicySizeLimitExceededException`,
+`ResourceNotFoundException`, `RuleLimitExceededException`,
+`ThrottledException`, `TooManyTagsException` -- are all 4xx client faults).
+No replacement code maps to a modeled type here either way, so per the
+mediapackage/sagemaker precedent (prefer a generic AWS-wide code over
+reusing another service's specific modeled exception name), fixed
+`handler.go`'s `handleError` default to `errType = "InternalFailure"` --
+the same generic fallback already used by 7+ other gopherstack services
+with no modeled internal fault. `"InternalServiceError"` was a real AWS
+code, just not xray's (it's `secretsmanager`/`transfer`'s modeled type).
+
+`TestHandler_OversizedBodySurfacesInternalFailure` (renamed from
+`...InternalServiceError`) now asserts `apiErr.ErrorCode() ==
+"InternalFailure"`; confirmed it fails pre-fix with the old
+`"InternalServiceError"` code (hand-reverted, byte-identical restore
+after).
+
+## gopherstack-wlo1 (2026-08-22): Handler()'s !xrayPaths[path] branch was untyped -- and structurally unreachable via routing
+
+`Handler()`'s own `if !xrayPaths[path] { return c.String(http.StatusNotFound,
+"not found") }` guard (handler.go) wrote a bare text/plain 404. xray is
+restjson1 (`xray@v1.39.4` `awsRestjson1_` prefix; error decode via
+`restjson.GetErrorInfo`), so a real client would have seen
+`smithy.GenericAPIError{Code:"UnknownError"}`.
+
+UNLIKE every other dispatch-miss instance this issue found (securityhub,
+scheduler, cleanrooms, databrew, apigateway), this one is provably
+unreachable via any request a real client can construct AND unreachable via
+gopherstack's own routing pipeline: `RouteMatcher` (handler.go) checks the
+*identical* `xrayPaths[path]` condition before `Handler()` is ever invoked,
+so no request that reaches `Handler()` through
+`service.NewServiceRouter`/`RouteMatcher` can ever fail this check -- there
+is no daylight between the coarse router check and the fine one, unlike the
+prefix-vs-classifier gap that made the other services' analogous branches
+provable. `TestHandler_UnknownPath` (handler_test.go) is the one place this
+branch is exercised, and it does so by calling `h.Handler()(c)` directly,
+bypassing `RouteMatcher`/`RouteHandler` entirely -- a white-box-only path,
+not a real-client one.
+
+Fixed defensively for consistency with the class, reusing the existing
+`errUnknownPath` sentinel and `handleError` (already routes it to
+`errInvalidRequestException` at 400, the same generic 400 `dispatch()`'s
+own `errUnknownPath` site already produces two lines below) -- not proven
+by a real SDK client, since none can reach it. `TestHandler_UnknownPath`
+updated to assert the new typed 400 body instead of the old bare 404.

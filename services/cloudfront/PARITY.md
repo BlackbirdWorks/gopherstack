@@ -2,7 +2,7 @@
 service: cloudfront
 sdk_module: aws-sdk-go-v2/service/cloudfront@v1.67.4
 sibling_sdk_modules: [aws-sdk-go-v2/service/cloudfrontkeyvaluestore@v1.15.4]  # KeyValueStore data-plane ops (GetKey/PutKey/DeleteKey/ListKeys/UpdateKeys/DescribeKeyValueStore) now live in services/cloudfrontkeyvaluestore (gopherstack-4ara, 2026-08-13) -- see that service's own PARITY.md
-last_audit_commit: PENDING (gopherstack-o31x route-table audit, worked in this session)
+last_audit_commit:                                # unknown: gopherstack-o31x route-table audit pass ran without git access at write time, never backfilled -- gopherstack-33in
 last_audit_date: 2026-08-14  # gopherstack-7185: response shapes of Create/Delete/Modify ops
                               # swept (the class prior passes only checked for List/Describe).
                               # 2 bugs found (DeleteVpcOrigin empty envelope, UpdateDomainAssociation

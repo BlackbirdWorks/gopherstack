@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -65,6 +67,7 @@ type Workforce struct {
 	WorkforceArn       string              `json:"WorkforceArn"`
 	Status             string              `json:"Status"`
 	SubDomain          string              `json:"SubDomain,omitempty"`
+	IPAddressType      string              `json:"IpAddressType,omitempty"`
 }
 
 func cloneWorkforce(w *Workforce) *Workforce {
@@ -106,6 +109,7 @@ type CreateWorkforceOptions struct {
 	WorkforceVpcConfig *WorkforceVpcConfig
 	Tags               map[string]string
 	Name               string
+	IPAddressType      string
 }
 
 // CreateWorkforce creates a workforce. AWS allows at most one workforce per
@@ -145,6 +149,7 @@ func (b *InMemoryBackend) CreateWorkforce(ctx context.Context, opts CreateWorkfo
 		SourceIPConfig:     opts.SourceIPConfig,
 		WorkforceVpcConfig: opts.WorkforceVpcConfig,
 		Tags:               mergeTags(nil, opts.Tags),
+		IPAddressType:      opts.IPAddressType,
 		CreateDate:         now,
 		LastUpdatedDate:    now,
 	}
@@ -183,6 +188,7 @@ type UpdateWorkforceOptions struct {
 	SourceIPConfig     *SourceIPConfig
 	WorkforceVpcConfig *WorkforceVpcConfig
 	Name               string
+	IPAddressType      string
 }
 
 // UpdateWorkforce updates a workforce's IdP, IP allow-list, or VPC configuration.
@@ -208,6 +214,10 @@ func (b *InMemoryBackend) UpdateWorkforce(ctx context.Context, opts UpdateWorkfo
 	if opts.WorkforceVpcConfig != nil {
 		opts.WorkforceVpcConfig.VpcEndpointID = "vpce-" + generateID()[:17]
 		w.WorkforceVpcConfig = opts.WorkforceVpcConfig
+	}
+
+	if opts.IPAddressType != "" {
+		w.IPAddressType = opts.IPAddressType
 	}
 
 	w.LastUpdatedDate = time.Now()
@@ -243,18 +253,66 @@ func (b *InMemoryBackend) DeleteWorkforce(ctx context.Context, name string) erro
 	return nil
 }
 
-// ListWorkforces returns all workforces sorted by name. AWS supports at most
-// one workforce per account per region, so this list contains at most one item.
-func (b *InMemoryBackend) ListWorkforces(ctx context.Context, nextToken string) ([]*Workforce, string) {
+// ListWorkforcesFilter narrows and orders the results of ListWorkforces
+// (api_op_ListWorkforces.go:31-48).
+type ListWorkforcesFilter struct {
+	NameContains string
+	SortBy       string
+	SortOrder    string
+	MaxResults   int32
+}
+
+func workforceMatchesFilter(w *Workforce, filter ListWorkforcesFilter) bool {
+	return filter.NameContains == "" ||
+		strings.Contains(strings.ToLower(w.WorkforceName), strings.ToLower(filter.NameContains))
+}
+
+// lessWorkforce orders a before b by sortBy (Name/default CreateDate, tie-broken by name).
+func lessWorkforce(a, b *Workforce, sortBy string) bool {
+	switch sortBy {
+	case keyGenericName:
+		return a.WorkforceName < b.WorkforceName
+	default:
+		if a.CreateDate.Equal(b.CreateDate) {
+			return a.WorkforceName < b.WorkforceName
+		}
+
+		return a.CreateDate.Before(b.CreateDate)
+	}
+}
+
+// ListWorkforces returns workforces matching filter, sorted by filter.SortBy
+// (default CreateDate) / filter.SortOrder (default Ascending). AWS supports
+// at most one private workforce per account per region, so this list
+// contains at most one item — but the filter/sort/pagination fields are
+// still wire-decoded and honored for shape fidelity.
+func (b *InMemoryBackend) ListWorkforces(
+	ctx context.Context,
+	nextToken string,
+	filter ListWorkforcesFilter,
+) ([]*Workforce, string) {
 	region := getRegion(ctx, b.region)
 
 	b.mu.RLock("ListWorkforces")
 	defer b.mu.RUnlock()
 
-	return sagemakerListKeyPaged(
-		b.workforcesStoreRO(region),
-		nextToken,
-		cloneWorkforce,
-		func(v *Workforce) string { return v.WorkforceName },
-	)
+	list := make([]*Workforce, 0, b.workforcesStoreRO(region).Len())
+
+	for _, w := range b.workforcesStoreRO(region).All() {
+		if workforceMatchesFilter(w, filter) {
+			list = append(list, cloneWorkforce(w))
+		}
+	}
+
+	desc := strings.EqualFold(filter.SortOrder, "Descending")
+	sort.Slice(list, func(i, k int) bool {
+		less := lessWorkforce(list[i], list[k], filter.SortBy)
+		if desc {
+			return !less
+		}
+
+		return less
+	})
+
+	return paginateSlice(list, nextToken, filter.MaxResults)
 }

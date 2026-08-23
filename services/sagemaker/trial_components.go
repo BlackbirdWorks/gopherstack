@@ -5,11 +5,17 @@ import (
 	"fmt"
 	"maps"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 )
+
+// sortTrialComponentsByName is SortTrialComponentsBy's "Name" value
+// (types/enums.go:9345-9346); the enum's only sibling is CreationTime, the
+// default applied when SortBy is unset.
+const sortTrialComponentsByName = "Name"
 
 var (
 	// ErrTrialComponentNotFound is returned when a trial component does not exist.
@@ -29,6 +35,7 @@ type TrialComponent struct {
 	Parameters         map[string]TrialComponentValue    `json:"Parameters,omitempty"`
 	InputArtifacts     map[string]TrialComponentArtifact `json:"InputArtifacts,omitempty"`
 	OutputArtifacts    map[string]TrialComponentArtifact `json:"OutputArtifacts,omitempty"`
+	MetadataProperties *MetadataProperties               `json:"MetadataProperties,omitempty"`
 	TrialComponentName string                            `json:"TrialComponentName"`
 	TrialComponentArn  string                            `json:"TrialComponentArn"`
 	DisplayName        string                            `json:"DisplayName,omitempty"`
@@ -77,6 +84,11 @@ func cloneTrialComponent(tc *TrialComponent) *TrialComponent {
 		cp.Status = &st
 	}
 
+	if tc.MetadataProperties != nil {
+		mp := *tc.MetadataProperties
+		cp.MetadataProperties = &mp
+	}
+
 	return &cp
 }
 
@@ -88,6 +100,7 @@ type CreateTrialComponentOptions struct {
 	Parameters         map[string]TrialComponentValue
 	InputArtifacts     map[string]TrialComponentArtifact
 	OutputArtifacts    map[string]TrialComponentArtifact
+	MetadataProperties *MetadataProperties
 	Tags               map[string]string
 	TrialComponentName string
 	DisplayName        string
@@ -126,6 +139,7 @@ func (b *InMemoryBackend) CreateTrialComponent(
 		Parameters:         maps.Clone(opts.Parameters),
 		InputArtifacts:     maps.Clone(opts.InputArtifacts),
 		OutputArtifacts:    maps.Clone(opts.OutputArtifacts),
+		MetadataProperties: opts.MetadataProperties,
 		CreationTime:       now,
 		LastModifiedTime:   now,
 		Tags:               mergeTags(nil, opts.Tags),
@@ -150,6 +164,18 @@ func (b *InMemoryBackend) DescribeTrialComponent(ctx context.Context, name strin
 	return cloneTrialComponent(tc), nil
 }
 
+// trialComponentLineageGroupArn returns the ARN of the account's single
+// auto-provisioned default lineage group (lineage.go's defaultLineageGroupName
+// — SageMaker has no CreateLineageGroup op, confirmed absent from the pinned
+// SDK). Every trial component belongs to it, which
+// DescribeTrialComponentOutput.LineageGroupArn requires
+// (api_op_DescribeTrialComponent.go); TrialComponentSummary does not carry it.
+func (b *InMemoryBackend) trialComponentLineageGroupArn(ctx context.Context) string {
+	region := getRegion(ctx, b.region)
+
+	return arn.Build("sagemaker", region, b.accountID, "lineage-group/"+defaultLineageGroupName)
+}
+
 // DeleteTrialComponent deletes a trial component.
 func (b *InMemoryBackend) DeleteTrialComponent(ctx context.Context, name string) (*TrialComponent, error) {
 	b.mu.Lock("DeleteTrialComponent")
@@ -171,16 +197,23 @@ func (b *InMemoryBackend) DeleteTrialComponent(ctx context.Context, name string)
 
 // UpdateTrialComponentOptions holds optional fields for UpdateTrialComponent.
 type UpdateTrialComponentOptions struct {
-	StartTime       *time.Time
-	EndTime         *time.Time
-	Status          *TrialComponentStatus
-	Parameters      map[string]TrialComponentValue    `json:"Parameters,omitempty"`
-	InputArtifacts  map[string]TrialComponentArtifact `json:"InputArtifacts,omitempty"`
-	OutputArtifacts map[string]TrialComponentArtifact `json:"OutputArtifacts,omitempty"`
-	DisplayName     string                            `json:"DisplayName,omitempty"`
+	StartTime               *time.Time
+	EndTime                 *time.Time
+	Status                  *TrialComponentStatus
+	Parameters              map[string]TrialComponentValue
+	InputArtifacts          map[string]TrialComponentArtifact
+	OutputArtifacts         map[string]TrialComponentArtifact
+	DisplayName             string
+	ParametersToRemove      []string
+	InputArtifactsToRemove  []string
+	OutputArtifactsToRemove []string
 }
 
-// UpdateTrialComponent mutates DisplayName, Parameters, and Artifacts on a trial component.
+// UpdateTrialComponent mutates DisplayName, Parameters, and Artifacts on a
+// trial component. Per api_op_UpdateTrialComponent.go, the *ToRemove lists are
+// applied after the corresponding additive map, matching
+// UpdateActionInput/UpdateArtifactInput's own additive-then-remove order
+// elsewhere in this file's sibling lineage handlers.
 func (b *InMemoryBackend) UpdateTrialComponent(
 	ctx context.Context,
 	name string,
@@ -229,6 +262,15 @@ func (b *InMemoryBackend) UpdateTrialComponent(
 		}
 		maps.Copy(tc.OutputArtifacts, opts.OutputArtifacts)
 	}
+	for _, k := range opts.ParametersToRemove {
+		delete(tc.Parameters, k)
+	}
+	for _, k := range opts.InputArtifactsToRemove {
+		delete(tc.InputArtifacts, k)
+	}
+	for _, k := range opts.OutputArtifactsToRemove {
+		delete(tc.OutputArtifacts, k)
+	}
 	tc.LastModifiedTime = time.Now()
 
 	return cloneTrialComponent(tc), nil
@@ -267,18 +309,39 @@ func (b *InMemoryBackend) DisassociateTrialComponent(
 	return trialArn, trialComponentArn, nil
 }
 
+// ListTrialComponentsParams bundles ListTrialComponents' filter/sort/
+// pagination criteria (api_op_ListTrialComponents.go:30-71). SourceArn is
+// decoded by the handler for wire-shape fidelity but is a disclosed no-op
+// here: CreateTrialComponentInput has no Source field at all (a trial
+// component's TrialComponentSource is only ever populated when SageMaker
+// auto-tracks a processing/training job, which this backend never does), so
+// no trial component ever has a source ARN to filter by.
+type ListTrialComponentsParams struct {
+	ExperimentName string
+	TrialName      string
+	CreatedAfter   *time.Time
+	CreatedBefore  *time.Time
+	SortBy         string
+	SortOrder      string
+	NextToken      string
+	MaxResults     int32
+}
+
 // ListTrialComponents returns trial components, optionally filtered by the
-// trial they're associated with or the experiment their trial belongs to.
+// trial they're associated with, the experiment their trial belongs to, and a
+// creation-time window, sorted by params.SortBy (default CreationTime) /
+// params.SortOrder (default Descending — both documented defaults, per
+// api_op_ListTrialComponents.go).
 func (b *InMemoryBackend) ListTrialComponents(
 	ctx context.Context,
-	experimentName, trialName, nextToken string,
+	params ListTrialComponentsParams,
 ) ([]*TrialComponent, string) {
 	b.mu.RLock("ListTrialComponents")
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
 
-	allowed := b.trialComponentNameFilterLocked(region, experimentName, trialName)
+	allowed := b.trialComponentNameFilterLocked(region, params.ExperimentName, params.TrialName)
 
 	list := make([]*TrialComponent, 0, b.trialComponentsStoreRO(region).Len())
 
@@ -288,13 +351,33 @@ func (b *InMemoryBackend) ListTrialComponents(
 				continue
 			}
 		}
+		if params.CreatedAfter != nil && !tc.CreationTime.After(*params.CreatedAfter) {
+			continue
+		}
+		if params.CreatedBefore != nil && !tc.CreationTime.Before(*params.CreatedBefore) {
+			continue
+		}
 
 		list = append(list, cloneTrialComponent(tc))
 	}
 
-	sort.Slice(list, func(i, j int) bool { return list[i].TrialComponentName < list[j].TrialComponentName })
+	desc := !strings.EqualFold(params.SortOrder, "Ascending")
+	sort.Slice(list, func(i, j int) bool {
+		var less bool
+		if params.SortBy == sortTrialComponentsByName {
+			less = list[i].TrialComponentName < list[j].TrialComponentName
+		} else {
+			less = list[i].CreationTime.Before(list[j].CreationTime)
+		}
 
-	return paginateSlice(list, nextToken, 0)
+		if desc {
+			return !less
+		}
+
+		return less
+	})
+
+	return paginateSlice(list, params.NextToken, params.MaxResults)
 }
 
 // trialComponentNameFilterLocked returns the set of trial component names

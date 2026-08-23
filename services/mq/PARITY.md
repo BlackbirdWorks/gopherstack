@@ -48,3 +48,24 @@ deferred:
   - "Full CRDR (cross-region data replication) simulation: Promote/DataReplicationMetadata population when dataReplicationMode=CRDR is not modeled beyond accepting/echoing the mode string and (as of this pass) seeding DataReplicationMetadata.DataReplicationCounterpart from CreateBroker's dataReplicationPrimaryBrokerArn. Considered explicitly this pass (gopherstack-7wz5) and ruled out of scope: a half-modelled cross-region replication state machine (pairing brokers, propagating data, promote semantics) would report a state no client could rely on, which is worse than the current honest non-implementation. User.ReplicationUser is now accepted/echoed (see CreateUser/UpdateUser/DescribeUser above) but its CRDR *effects* (actual replication) remain part of this same deferred surface. 2026-08-20 wrapper-key sweep fixed the WIRE SHAPE of what is emitted (DataReplicationCounterpart is now the real nested {brokerId, region} object, parsed best-effort from the given ARN since there is no real cross-region broker to look up) without expanding the deferred simulation itself -- see CreateBroker's note."
 
 leaks: {status: clean, note: "no goroutines, tickers, or background janitors in services/mq; purely synchronous in-memory backend guarded by a single lockmetrics.RWMutex. Verified this pass: DeleteBroker's lazy removal still drops the whole Broker value (Users map included) from the store.Table in one shot on the next Describe/List read -- no separate top-level user collection to leak. Reboot promotion (promoteBrokerReboot/promoteBrokerUsers) runs synchronously inside the already-held write lock taken by DescribeBroker/ListBrokers/RebootBroker; no new lock paths or goroutines introduced."}
+
+## gopherstack-o7gx follow-up (2026-08-22): default error path emitted InternalError instead of the modeled fault
+
+`handler.go`'s `dispatchMutating` (ReadBody-failure branch) and `writeError`
+(default branch) both wrote `errType = "InternalError"` for any
+unclassified 500. `mq@v1.39.4` `types/errors.go:98-121` models
+`InternalServerErrorException` (`ErrorFault: FaultServer`) as the service's
+5xx fault, wired into all 25 of 25 operation error switches in
+`deserializers.go` -- universal. `"InternalError"` appears nowhere in
+either file, so a real client's
+`errors.As(&types.InternalServerErrorException{})` never matched.
+
+Fixed both sites to `errType = "InternalServerErrorException"`.
+`TestHandler_OversizedBodySurfacesInternalServerErrorException`
+(`handler_oversized_body_test.go`, new) drives a real
+`aws-sdk-go-v2/service/mq` client's `CreateBroker` with an oversized
+`BrokerName` (exceeds `httputils.MaxRequestBodyBytes`), asserts
+`apiErr.ErrorCode() == "InternalServerErrorException"` and
+`errors.As(err, &types.InternalServerErrorException{})` with
+`ErrorFault() == smithy.FaultServer`; confirmed it fails pre-fix with the
+old `"InternalError"` code (hand-reverted, byte-identical restore after).

@@ -192,6 +192,7 @@ func TestSSMBounds_DescribeMaintenanceWindowsForTarget(t *testing.T) {
 
 			out, err := b.DescribeMaintenanceWindowsForTarget(ctx, &ssm.DescribeMaintenanceWindowsForTargetInput{
 				ResourceType: "INSTANCE",
+				Targets:      []ssm.WindowTarget{{Key: "InstanceIds", Values: []string{"i-test"}}},
 				MaxResults:   tc.maxResults,
 			})
 
@@ -434,7 +435,10 @@ func TestBackendOps_DescribeMaintenanceWindowsForTarget(t *testing.T) {
 
 	b := newBackend(t)
 
-	out, err := b.DescribeMaintenanceWindowsForTarget(context.TODO(), &ssm.DescribeMaintenanceWindowsForTargetInput{})
+	out, err := b.DescribeMaintenanceWindowsForTarget(context.TODO(), &ssm.DescribeMaintenanceWindowsForTargetInput{
+		ResourceType: "INSTANCE",
+		Targets:      []ssm.WindowTarget{{Key: "InstanceIds", Values: []string{"i-test"}}},
+	})
 	require.NoError(t, err)
 	assert.NotNil(t, out.WindowIdentities)
 }

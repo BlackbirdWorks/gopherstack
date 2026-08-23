@@ -229,3 +229,31 @@ Carried forward from the prior pass (2026-07-13), still verified correct:
   AWS generates opaque, unpredictable S3 keys for uploaded `*Body` content; gopherstack's
   determinism is an intentional emulation simplification (stable, greppable URLs in tests/
   snapshots) and is not meant to byte-for-byte match a real AWS-generated URL.
+
+## gopherstack-o7gx (2026-08-22): ReadBody-failure path wrote untyped errors
+
+`Handler()`'s `httputils.ReadBody` failure branch wrote a bare
+`c.String(http.StatusInternalServerError, "internal server error")`.
+serverlessrepo (SDK package name
+`serverlessapplicationrepository`) is restjson1 (confirmed from
+`serverlessapplicationrepository@v1.33.4` deserializers.go's
+`awsRestjson1_deserializeOpError*` prefix); plain text doesn't decode
+through `aws/protocol/restjson.GetErrorInfo`, so a real client got
+`*json.SyntaxError`, not even `UnknownError`.
+
+Fixed by routing the ReadBody error through this handler's own
+`handleError(c, err)`: none of its typed `case`s (`awserr.ErrNotFound`,
+`awserr.ErrConflict`, `awserr.ErrInvalidParameter`, `errInvalidRequest`,
+`errUnknownAction`, syntax/type errors) match a `*http.MaxBytesError`/read
+error, so it falls through to the pre-existing default -- already
+documented in this file's own comment as matching the real
+`InternalServerErrorException` `__type`
+(`serverlessapplicationrepository@v1.33.4` `types/errors.go:105`).
+
+Proven with a real `aws-sdk-go-v2/service/serverlessapplicationrepository`
+client's `CreateApplication`, whose `Description` field alone exceeds
+`httputils.MaxRequestBodyBytes` (16 MiB).
+`TestHandler_OversizedBodySurfacesInternalServerErrorException`
+(`handler_oversized_body_test.go`) asserts `apiErr.ErrorCode() ==
+"InternalServerErrorException"`; confirmed it fails pre-fix with
+`*json.SyntaxError` (hand-reverted, byte-identical restore after).

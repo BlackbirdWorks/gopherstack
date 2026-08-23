@@ -217,6 +217,37 @@ philosophy as the rest of the engine's lenient-fallback behavior, not an
 oversight; don't "fix" it into attempting identifier unquoting without
 checking whether that's actually needed by a real test first.
 
+## gopherstack-o7gx (2026-08-22): ReadBody-failure path wrote untyped errors
+
+`Handler()`'s `httputils.ReadBody` failure branch wrote a bare
+`c.String(http.StatusInternalServerError, "internal server error")` --
+plain text, not JSON. rdsdata is restjson1 (confirmed from `rdsdata@v1.35.4`
+deserializers.go's `awsRestjson1_deserializeOpError*` prefix), whose
+client-side error decoder (`aws-sdk-go-v2@v1.43.4`
+`aws/protocol/restjson.GetErrorInfo`) JSON-decodes the body for a
+`code`/`__type` field; plain text doesn't decode, so a real client got
+`*json.SyntaxError`, not even `UnknownError`.
+
+Fixed by writing `{"__type": "InternalServerErrorException", "message":
+"internal server error"}` instead (new `writeInternalServerError` helper).
+`InternalServerErrorException` is rdsdata's own modeled internal error
+(`rdsdata@v1.35.4` `types/errors.go:230`). Also promoted the file's
+previously-inline `"__type"` literal to a `keyTypeField` constant (3
+occurrences after this fix; `goconst` flagged it).
+
+Proven with a real `aws-sdk-go-v2/service/rdsdata` client's
+`ExecuteStatement`, whose `Sql` field alone exceeds
+`httputils.MaxRequestBodyBytes` (16 MiB) -- legitimate SDK input.
+`TestHandler_OversizedBodySurfacesInternalServerErrorException`
+(`handler_oversized_body_test.go`) asserts `apiErr.ErrorCode() ==
+"InternalServerErrorException"`; confirmed it fails pre-fix with
+`*json.SyntaxError` (hand-reverted, byte-identical restore after).
+
+NOT touched: `handleError`'s `errInvalidRequest`/`errUnknownAction`/
+syntax/type-error catch-all and its `default:` fallback are themselves
+untyped (`map[string]string{keyMessageField: err.Error()}`, no `__type`)
+-- a pre-existing, separate gap in the genuine per-operation error path,
+not the ReadBody-failure path this fix addresses. Left alone.
 ## rdsdata (this session, 2026-08-20)
 
 Wrapper-key / nested-shape wire-parity sweep, the last service of a

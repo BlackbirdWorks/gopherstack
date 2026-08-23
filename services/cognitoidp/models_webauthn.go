@@ -41,9 +41,12 @@ type webAuthnCredentialDescriptionType struct {
 	CreatedAt               float64  `json:"CreatedAt,omitempty"`
 }
 
+// Credentials is required and must be emitted as [] for a user with zero
+// registered passkeys, never omitted -- handleListWebAuthnCredentials always
+// builds a non-nil slice.
 type listWebAuthnCredentialsOutput struct {
 	NextToken   string                              `json:"NextToken,omitempty"`
-	Credentials []webAuthnCredentialDescriptionType `json:"Credentials,omitempty"`
+	Credentials []webAuthnCredentialDescriptionType `json:"Credentials"`
 }
 
 type startWebAuthnRegistrationInput struct {

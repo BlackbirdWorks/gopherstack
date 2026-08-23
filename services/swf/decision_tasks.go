@@ -40,11 +40,25 @@ func (b *InMemoryBackend) PollForDecisionTask(
 	b.decisionQueues[key] = queue[1:]
 	task.TaskToken = uuid.New().String()
 
+	// DecisionTaskStartedEventAttributes requires scheduledEventId -- mirrors
+	// PollForActivityTask's ActivityTaskStarted recording below in activity_tasks.go.
+	startedEventID := b.appendHistoryEventLocked(
+		domain, task.WorkflowID, task.RunID, "DecisionTaskStarted",
+		map[string]any{
+			eventAttrKey("DecisionTaskStarted"): map[string]any{
+				attrScheduledEvID: task.ScheduledEventID,
+			},
+		},
+	)
+	task.StartedEventID = startedEventID
+
 	b.activeDecisionTasks.Put(&activeDecisionTaskRecord{
-		Domain:     domain,
-		WorkflowID: task.WorkflowID,
-		RunID:      task.RunID,
-		TaskToken:  task.TaskToken,
+		Domain:           domain,
+		WorkflowID:       task.WorkflowID,
+		RunID:            task.RunID,
+		TaskToken:        task.TaskToken,
+		ScheduledEventID: task.ScheduledEventID,
+		StartedEventID:   startedEventID,
 	})
 
 	histEvents := b.history[executionKey(domain, task.WorkflowID, task.RunID)]
@@ -95,6 +109,8 @@ func (b *InMemoryBackend) RespondDecisionTaskCompleted(
 		rec.Domain, rec.WorkflowID, rec.RunID, "DecisionTaskCompleted", map[string]any{
 			eventAttrKey("DecisionTaskCompleted"): map[string]any{
 				"executionContext": executionContext,
+				attrScheduledEvID:  rec.ScheduledEventID,
+				attrStartedEvID:    rec.StartedEventID,
 			},
 		})
 
@@ -291,13 +307,20 @@ func (b *InMemoryBackend) handleStartTimerDecision(dc decisionCtx) {
 		return
 	}
 	dc.exec.OpenTimerIDs = append(dc.exec.OpenTimerIDs, attrs.TimerID)
-	b.appendHistoryEventLocked(dc.domain, dc.workflowID, dc.runID, "TimerStarted", map[string]any{
+	startedEventID := b.appendHistoryEventLocked(dc.domain, dc.workflowID, dc.runID, "TimerStarted", map[string]any{
 		eventAttrKey("TimerStarted"): map[string]any{
 			attrDTCEventID:       dc.decisionTaskCompletedEventID,
 			attrTimerID:          attrs.TimerID,
 			"startToFireTimeout": attrs.StartToFireTimeout,
 		},
 	})
+	// TimerCanceledEventAttributes requires startedEventId (the TimerStarted
+	// event being canceled) -- tracked here so handleCancelTimerDecision can
+	// look it up by TimerID.
+	if dc.exec.TimerStartedEventIDs == nil {
+		dc.exec.TimerStartedEventIDs = make(map[string]int64)
+	}
+	dc.exec.TimerStartedEventIDs[attrs.TimerID] = startedEventID
 }
 
 // handleCancelTimerDecision records a CancelTimer decision. If timerID isn't
@@ -322,10 +345,13 @@ func (b *InMemoryBackend) handleCancelTimerDecision(dc decisionCtx) {
 		return
 	}
 	dc.exec.OpenTimerIDs = slices.Delete(dc.exec.OpenTimerIDs, idx, idx+1)
+	startedEventID := dc.exec.TimerStartedEventIDs[attrs.TimerID]
+	delete(dc.exec.TimerStartedEventIDs, attrs.TimerID)
 	b.appendHistoryEventLocked(dc.domain, dc.workflowID, dc.runID, "TimerCanceled", map[string]any{
 		eventAttrKey("TimerCanceled"): map[string]any{
-			attrDTCEventID: dc.decisionTaskCompletedEventID,
-			attrTimerID:    attrs.TimerID,
+			attrDTCEventID:  dc.decisionTaskCompletedEventID,
+			attrTimerID:     attrs.TimerID,
+			attrStartedEvID: startedEventID,
 		},
 	})
 }

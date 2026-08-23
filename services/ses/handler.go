@@ -205,7 +205,12 @@ func (h *Handler) RouteMatcher() service.Matcher {
 
 		body, err := httputils.ReadBody(r)
 		if err != nil {
-			return false
+			// Body unreadable (e.g. oversized): fall back to the User-Agent
+			// marker every aws-sdk-go-v2 ses client sets (api_client.go's
+			// AddSDKAgentKeyValue -- "api/ses"). That still identifies this
+			// as ours, so claim it and let Handler() produce the typed
+			// error instead of masking the read failure as a 404.
+			return service.MatchesUserAgentMarker(r.Header, "api/ses")
 		}
 
 		vals, err := url.ParseQuery(string(body))
@@ -224,12 +229,17 @@ func (h *Handler) MatchPriority() int {
 
 // ExtractOperation extracts the SES action from the request body.
 func (h *Handler) ExtractOperation(c *echo.Context) string {
-	r := c.Request()
-	if err := r.ParseForm(); err != nil {
+	body, err := httputils.ReadBody(c.Request())
+	if err != nil {
 		return unknownAction
 	}
 
-	action := r.Form.Get("Action")
+	vals, err := url.ParseQuery(string(body))
+	if err != nil {
+		return unknownAction
+	}
+
+	action := vals.Get("Action")
 	if action == "" {
 		return unknownAction
 	}
@@ -239,13 +249,18 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 
 // ExtractResource returns the source email address or identity from the request.
 func (h *Handler) ExtractResource(c *echo.Context) string {
-	r := c.Request()
-	if err := r.ParseForm(); err != nil {
+	body, err := httputils.ReadBody(c.Request())
+	if err != nil {
+		return ""
+	}
+
+	vals, err := url.ParseQuery(string(body))
+	if err != nil {
 		return ""
 	}
 
 	for _, key := range []string{"Source", "EmailAddress", "Identity", "RuleSetName", "FilterName"} {
-		if v := r.Form.Get(key); v != "" {
+		if v := vals.Get(key); v != "" {
 			return v
 		}
 	}
@@ -262,8 +277,9 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		reqID := newRequestID()
 
 		r := c.Request()
-		if err := r.ParseForm(); err != nil {
-			log.ErrorContext(ctx, "failed to parse SES request form", "error", err)
+		body, err := httputils.ReadBody(r)
+		if err != nil {
+			log.ErrorContext(ctx, "failed to read SES request body", "error", err)
 
 			return h.writeError(
 				c,
@@ -274,7 +290,16 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			)
 		}
 
-		vals := r.Form
+		vals, err := url.ParseQuery(string(body))
+		if err != nil {
+			return h.writeError(
+				c,
+				reqID,
+				http.StatusInternalServerError,
+				"InternalFailure",
+				"failed to parse request body",
+			)
+		}
 
 		action := vals.Get("Action")
 		if action == "" {

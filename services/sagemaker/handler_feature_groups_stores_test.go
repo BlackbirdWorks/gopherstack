@@ -18,6 +18,10 @@ func TestHandler_CreateFeatureGroup_StoreConfigsRoundTrip(t *testing.T) {
 		"FeatureGroupName":            "fg-with-stores",
 		"RecordIdentifierFeatureName": "id",
 		"EventTimeFeatureName":        "ts",
+		"FeatureDefinitions": []any{
+			map[string]any{"FeatureName": "id", "FeatureType": "String"},
+			map[string]any{"FeatureName": "ts", "FeatureType": "Fractional"},
+		},
 		"OnlineStoreConfig": map[string]any{
 			"EnableOnlineStore": true,
 			"StorageType":       "InMemory",
@@ -79,6 +83,10 @@ func TestHandler_CreateFeatureGroup_NoStoreConfigsOmitsFields(t *testing.T) {
 		"FeatureGroupName":            "fg-no-stores",
 		"RecordIdentifierFeatureName": "id",
 		"EventTimeFeatureName":        "ts",
+		"FeatureDefinitions": []any{
+			map[string]any{"FeatureName": "id", "FeatureType": "String"},
+			map[string]any{"FeatureName": "ts", "FeatureType": "Fractional"},
+		},
 	})
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 

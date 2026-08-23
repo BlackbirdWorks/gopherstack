@@ -300,6 +300,9 @@ const errTypeResourceNotFound = "ResourceNotFoundException"
 // errTypeResourceInUse is the Kinesis error type string for resource-in-use conflicts.
 const errTypeResourceInUse = "ResourceInUseException"
 
+// errTypeInternalFailure is the Kinesis error type string for internal/framework failures.
+const errTypeInternalFailure = "InternalFailure"
+
 // kmsErrorDetails maps the KMS-specific sentinels StartStreamEncryption can
 // surface (see stream_encryption.go's resolveKMSKey) to their AWS error type,
 // message, and HTTP status. Split out of errorDetails to keep its cyclomatic

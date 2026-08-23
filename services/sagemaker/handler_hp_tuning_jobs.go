@@ -18,13 +18,32 @@ type hpResourceLimitsRequest struct {
 	MaxRuntimeInSeconds     int32 `json:"MaxRuntimeInSeconds,omitempty"`
 }
 
+// createHPTuningJobRequest mirrors CreateHyperParameterTuningJobInput
+// (api_op_CreateHyperParameterTuningJob.go:44-77).
+// HyperParameterTuningJobConfig is decoded as raw JSON (preserving the full
+// object verbatim — HyperParameterTuningJobObjective/ParameterRanges/
+// RandomSeed/StrategyConfig/TrainingJobEarlyStoppingType/
+// TuningJobCompletionCriteria all round-trip through it unmodeled); Strategy/
+// ResourceLimits are then decoded a second time from that same raw blob into
+// their own typed fields, because this file's internal filter/sort/summary
+// logic needs them. (A single JSON key cannot bind to two struct fields in
+// one Unmarshal pass — encoding/json drops both silently on that ambiguity —
+// hence the second decode.)
 type createHPTuningJobRequest struct {
-	Tags                          []tagObject `json:"Tags"`
-	HyperParameterTuningJobName   string      `json:"HyperParameterTuningJobName"`
-	HyperParameterTuningJobConfig struct {
-		Strategy       string                  `json:"Strategy"`
-		ResourceLimits hpResourceLimitsRequest `json:"ResourceLimits"`
-	} `json:"HyperParameterTuningJobConfig"`
+	HyperParameterTuningJobName   string          `json:"HyperParameterTuningJobName"`
+	HyperParameterTuningJobConfig json.RawMessage `json:"HyperParameterTuningJobConfig"`
+	Autotune                      json.RawMessage `json:"Autotune"`
+	WarmStartConfig               json.RawMessage `json:"WarmStartConfig"`
+	TrainingJobDefinition         json.RawMessage `json:"TrainingJobDefinition"`
+	TrainingJobDefinitions        json.RawMessage `json:"TrainingJobDefinitions"`
+	Tags                          []tagObject     `json:"Tags"`
+}
+
+// hpTuningJobConfigStrategyAndLimits mirrors the Strategy/ResourceLimits
+// subset of HyperParameterTuningJobConfig (types/types.go:11052-11069).
+type hpTuningJobConfigStrategyAndLimits struct {
+	Strategy       string                  `json:"Strategy"`
+	ResourceLimits hpResourceLimitsRequest `json:"ResourceLimits"`
 }
 
 func (h *Handler) handleCreateHyperParameterTuningJob(
@@ -40,20 +59,32 @@ func (h *Handler) handleCreateHyperParameterTuningJob(
 		return nil, fmt.Errorf("%w: HyperParameterTuningJobName is required", errInvalidRequest)
 	}
 
-	tags := fromTagObjects(req.Tags)
-	limits := HPResourceLimits{
-		MaxParallelTrainingJobs: req.HyperParameterTuningJobConfig.ResourceLimits.MaxParallelTrainingJobs,
-		MaxNumberOfTrainingJobs: req.HyperParameterTuningJobConfig.ResourceLimits.MaxNumberOfTrainingJobs,
-		MaxRuntimeInSeconds:     req.HyperParameterTuningJobConfig.ResourceLimits.MaxRuntimeInSeconds,
+	if len(req.HyperParameterTuningJobConfig) == 0 {
+		return nil, fmt.Errorf("%w: HyperParameterTuningJobConfig is required", errInvalidRequest)
 	}
 
-	j, err := h.Backend.CreateHyperParameterTuningJob(
-		ctx,
-		req.HyperParameterTuningJobName,
-		req.HyperParameterTuningJobConfig.Strategy,
-		limits,
-		tags,
-	)
+	var config hpTuningJobConfigStrategyAndLimits
+	if err := json.Unmarshal(req.HyperParameterTuningJobConfig, &config); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	limits := HPResourceLimits{
+		MaxParallelTrainingJobs: config.ResourceLimits.MaxParallelTrainingJobs,
+		MaxNumberOfTrainingJobs: config.ResourceLimits.MaxNumberOfTrainingJobs,
+		MaxRuntimeInSeconds:     config.ResourceLimits.MaxRuntimeInSeconds,
+	}
+
+	j, err := h.Backend.CreateHyperParameterTuningJob(ctx, CreateHyperParameterTuningJobOptions{
+		Name:                          req.HyperParameterTuningJobName,
+		Strategy:                      config.Strategy,
+		Limits:                        limits,
+		HyperParameterTuningJobConfig: req.HyperParameterTuningJobConfig,
+		Autotune:                      req.Autotune,
+		WarmStartConfig:               req.WarmStartConfig,
+		TrainingJobDefinition:         req.TrainingJobDefinition,
+		TrainingJobDefinitions:        req.TrainingJobDefinitions,
+		Tags:                          fromTagObjects(req.Tags),
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -73,13 +104,17 @@ func (h *Handler) handleCreateHyperParameterTuningJob(
 	)
 }
 
+// describeHPTuningJobInput mirrors DescribeHyperParameterTuningJobInput
+// (api_op_DescribeHyperParameterTuningJob.go:29-34).
+type describeHPTuningJobInput struct {
+	HyperParameterTuningJobName string `json:"HyperParameterTuningJobName"`
+}
+
 func (h *Handler) handleDescribeHyperParameterTuningJob(
 	ctx context.Context,
 	body []byte,
 ) ([]byte, error) {
-	var req struct {
-		HyperParameterTuningJobName string `json:"HyperParameterTuningJobName"`
-	}
+	var req describeHPTuningJobInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -94,19 +129,34 @@ func (h *Handler) handleDescribeHyperParameterTuningJob(
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{
+	resp := map[string]any{
 		"HyperParameterTuningJobName":   j.HyperParameterTuningJobName,
 		"HyperParameterTuningJobArn":    j.HyperParameterTuningJobArn,
 		"HyperParameterTuningJobStatus": j.HyperParameterTuningJobStatus,
-		"HyperParameterTuningJobConfig": map[string]any{
-			"Strategy":       j.Strategy,
-			"ResourceLimits": j.ResourceLimits,
-		},
-		"ObjectiveStatusCounters":   j.ObjectiveStatusCounters,
-		"TrainingJobStatusCounters": j.TrainingJobStatusCounters,
-		keyCreationTime:             epochSeconds(j.CreationTime),
-		keyLastModifiedTime:         epochSeconds(j.LastModifiedTime),
-	})
+		"HyperParameterTuningJobConfig": j.HyperParameterTuningJobConfig,
+		"ObjectiveStatusCounters":       j.ObjectiveStatusCounters,
+		"TrainingJobStatusCounters":     j.TrainingJobStatusCounters,
+		keyCreationTime:                 epochSeconds(j.CreationTime),
+		keyLastModifiedTime:             epochSeconds(j.LastModifiedTime),
+	}
+
+	if len(j.Autotune) > 0 {
+		resp["Autotune"] = j.Autotune
+	}
+
+	if len(j.WarmStartConfig) > 0 {
+		resp["WarmStartConfig"] = j.WarmStartConfig
+	}
+
+	if len(j.TrainingJobDefinition) > 0 {
+		resp["TrainingJobDefinition"] = j.TrainingJobDefinition
+	}
+
+	if len(j.TrainingJobDefinitions) > 0 {
+		resp["TrainingJobDefinitions"] = j.TrainingJobDefinitions
+	}
+
+	return json.Marshal(resp)
 }
 
 type hpTuningJobSummary struct {
@@ -121,16 +171,39 @@ type hpTuningJobSummary struct {
 	LastModifiedTime              float64                     `json:"LastModifiedTime"`
 }
 
+// listHPTuningJobsInput mirrors ListHyperParameterTuningJobsInput
+// (api_op_ListHyperParameterTuningJobs.go:30-64).
+type listHPTuningJobsInput struct {
+	CreationTimeAfter      *float64 `json:"CreationTimeAfter,omitempty"`
+	CreationTimeBefore     *float64 `json:"CreationTimeBefore,omitempty"`
+	LastModifiedTimeAfter  *float64 `json:"LastModifiedTimeAfter,omitempty"`
+	LastModifiedTimeBefore *float64 `json:"LastModifiedTimeBefore,omitempty"`
+	NextToken              string   `json:"NextToken"`
+	NameContains           string   `json:"NameContains"`
+	StatusEquals           string   `json:"StatusEquals"`
+	SortBy                 string   `json:"SortBy"`
+	SortOrder              string   `json:"SortOrder"`
+	MaxResults             int32    `json:"MaxResults"`
+}
+
 func (h *Handler) handleListHyperParameterTuningJobs(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		NextToken string `json:"NextToken"`
-	}
+	var req listHPTuningJobsInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	jobs, nextToken := h.Backend.ListHyperParameterTuningJobs(ctx, req.NextToken)
+	jobs, nextToken := h.Backend.ListHyperParameterTuningJobs(ctx, req.NextToken, ListHyperParameterTuningJobsFilter{
+		NameContains:           req.NameContains,
+		StatusEquals:           req.StatusEquals,
+		SortBy:                 req.SortBy,
+		SortOrder:              req.SortOrder,
+		MaxResults:             req.MaxResults,
+		CreationTimeAfter:      timeFromEpochSecondsPtr(req.CreationTimeAfter),
+		CreationTimeBefore:     timeFromEpochSecondsPtr(req.CreationTimeBefore),
+		LastModifiedTimeAfter:  timeFromEpochSecondsPtr(req.LastModifiedTimeAfter),
+		LastModifiedTimeBefore: timeFromEpochSecondsPtr(req.LastModifiedTimeBefore),
+	})
 	summaries := make([]hpTuningJobSummary, 0, len(jobs))
 
 	for _, j := range jobs {
@@ -155,10 +228,14 @@ func (h *Handler) handleListHyperParameterTuningJobs(ctx context.Context, body [
 	return json.Marshal(resp)
 }
 
+// stopHPTuningJobInput mirrors StopHyperParameterTuningJobInput
+// (api_op_StopHyperParameterTuningJob.go:27-32).
+type stopHPTuningJobInput struct {
+	HyperParameterTuningJobName string `json:"HyperParameterTuningJobName"`
+}
+
 func (h *Handler) handleStopHyperParameterTuningJob(ctx context.Context, body []byte) error {
-	var req struct {
-		HyperParameterTuningJobName string `json:"HyperParameterTuningJobName"`
-	}
+	var req stopHPTuningJobInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -183,10 +260,14 @@ func (h *Handler) handleStopHyperParameterTuningJob(ctx context.Context, body []
 	return nil
 }
 
+// deleteHPTuningJobInput mirrors DeleteHyperParameterTuningJobInput
+// (api_op_DeleteHyperParameterTuningJob.go:27-32).
+type deleteHPTuningJobInput struct {
+	HyperParameterTuningJobName string `json:"HyperParameterTuningJobName"`
+}
+
 func (h *Handler) handleDeleteHyperParameterTuningJob(ctx context.Context, body []byte) error {
-	var req struct {
-		HyperParameterTuningJobName string `json:"HyperParameterTuningJobName"`
-	}
+	var req deleteHPTuningJobInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -223,14 +304,23 @@ type hyperParameterTrainingJobSummary struct {
 	CreationTime         float64           `json:"CreationTime"`
 }
 
+// listTrainingJobsForHPTuningJobInput mirrors
+// ListTrainingJobsForHyperParameterTuningJobInput
+// (api_op_ListTrainingJobsForHyperParameterTuningJob.go:27-56).
+type listTrainingJobsForHPTuningJobInput struct {
+	HyperParameterTuningJobName string `json:"HyperParameterTuningJobName"`
+	NextToken                   string `json:"NextToken"`
+	StatusEquals                string `json:"StatusEquals"`
+	SortBy                      string `json:"SortBy"`
+	SortOrder                   string `json:"SortOrder"`
+	MaxResults                  int32  `json:"MaxResults"`
+}
+
 func (h *Handler) handleListTrainingJobsForHyperParameterTuningJob(
 	ctx context.Context,
 	body []byte,
 ) ([]byte, error) {
-	var req struct {
-		HyperParameterTuningJobName string `json:"HyperParameterTuningJobName"`
-		NextToken                   string `json:"NextToken"`
-	}
+	var req listTrainingJobsForHPTuningJobInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -244,6 +334,12 @@ func (h *Handler) handleListTrainingJobsForHyperParameterTuningJob(
 		ctx,
 		req.HyperParameterTuningJobName,
 		req.NextToken,
+		ListTrainingJobsForHyperParameterTuningJobFilter{
+			StatusEquals: req.StatusEquals,
+			SortBy:       req.SortBy,
+			SortOrder:    req.SortOrder,
+			MaxResults:   req.MaxResults,
+		},
 	)
 	if err != nil {
 		return nil, err

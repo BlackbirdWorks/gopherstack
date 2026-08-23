@@ -194,9 +194,18 @@ type MultipartReadSetUpload struct {
 	SourceFileType  string            `json:"sourceFileType"`
 	SampleID        string            `json:"sampleId"`
 	SubjectID       string            `json:"subjectId"`
-	GeneratedFrom   string            `json:"generatedFrom,omitempty"`
-	ReferenceARN    string            `json:"referenceArn,omitempty"`
-	Description     string            `json:"description,omitempty"`
+	// GeneratedFrom is real required MultipartReadSetUploadListItem's "generatedFrom"
+	// (List element, types.go) despite being optional on CreateMultipartReadSetUploadOutput
+	// -- present-but-empty (not omitted) is correct either way (gopherstack-r80d batch 7).
+	GeneratedFrom string `json:"generatedFrom"`
+	// ReferenceARN is real required CreateMultipartReadSetUploadOutput/
+	// MultipartReadSetUploadListItem "referenceArn" (api_op_CreateMultipartReadSetUpload.go:82-85,
+	// types.go) despite being an optional CreateMultipartReadSetUploadInput field --
+	// previously omitempty dropped the key entirely whenever a caller didn't supply
+	// one, which a real client decodes as a required-field-missing error
+	// (gopherstack-r80d batch 7).
+	ReferenceARN string `json:"referenceArn"`
+	Description  string `json:"description,omitempty"`
 }
 
 // ReadSetUploadPart represents a single part of a multipart read set upload.
@@ -377,6 +386,24 @@ type AnnotationStore struct {
 	pollCount      int   // tracks CREATING→ACTIVE progression; not serialized
 }
 
+// CreateAnnotationStoreResponse is the real CreateAnnotationStoreOutput shape
+// (omics@v1.49.5 api_op_CreateAnnotationStore.go:68-95) -- narrower than
+// AnnotationStore (no description/reference/sseConfig/storeArn/storeFormat/
+// storeOptions/tags/updateTime/numVersions/storeSizeBytes/statusMessage) and
+// with one member the domain struct never tracked at all: VersionName, real
+// required "versionName" (deserializers.go:1290, CreateAnnotationStore's own
+// deserializer -- distinct from GetAnnotationStoreOutput, which has no such
+// member). Echoes the caller-supplied CreateAnnotationStoreInput.VersionName
+// (also real, optional, api_op_CreateAnnotationStore.go:61-62) verbatim;
+// left empty rather than fabricated when the caller didn't supply one.
+type CreateAnnotationStoreResponse struct {
+	CreationTime time.Time `json:"creationTime"`
+	ID           string    `json:"id"`
+	Name         string    `json:"name"`
+	Status       string    `json:"status"`
+	VersionName  string    `json:"versionName"`
+}
+
 // AnnotationStoreSummary is the real ListAnnotationStoresOutput element
 // shape (types.AnnotationStoreItem, omics@v1.49.5 types.go:152-211) --
 // narrower than GetAnnotationStoreOutput: no numVersions, storeOptions or
@@ -402,13 +429,25 @@ type AnnotationStoreSummary struct {
 // VersionArn is real GetAnnotationStoreVersionOutput/AnnotationStoreVersionItem
 // wire key "versionArn" (omics@v1.49.5 deserializers.go:6564) -- this struct
 // previously tagged it "arn", a key no real deserializer for this shape reads.
+//
+// ID and StoreName's tag are both gopherstack-r80d (batch 7) fixes:
+// Get/Update/CreateAnnotationStoreVersionOutput each require a distinct "id"
+// (the version's own generated ID, api_op_GetAnnotationStoreVersion.go:15-17,
+// deserializers.go:6501) and "name" (the parent store's name,
+// api_op_GetAnnotationStoreVersion.go:19-21, deserializers.go:6510) that
+// this struct never tracked at all -- StoreName held the right value but the
+// wrong wire key ("storeName", a key no real deserializer for this shape
+// reads), and no field existed for "id" at all. Flagged but deliberately
+// left unfixed by two prior passes (lx5h/kb66, dv4s) as "the opposite class"
+// from what those passes targeted; this is exactly gopherstack-r80d's cut.
 type AnnotationStoreVersion struct {
 	CreationTime time.Time         `json:"creationTime"`
 	UpdateTime   time.Time         `json:"updateTime"`
 	Tags         map[string]string `json:"tags"`
 	VersionArn   string            `json:"versionArn"`
+	ID           string            `json:"id"`
 	StoreID      string            `json:"storeId"`
-	StoreName    string            `json:"storeName"`
+	StoreName    string            `json:"name"`
 	VersionName  string            `json:"versionName"`
 	Description  string            `json:"description"`
 	Status       string            `json:"status"`
@@ -426,16 +465,22 @@ type AnnotationStoreVersion struct {
 
 // AnnotationStoreVersionSummary is the real ListAnnotationStoreVersionsOutput
 // element shape (types.AnnotationStoreVersionItem, omics@v1.49.5
-// types.go): narrower than GetAnnotationStoreVersionOutput -- no tags. It
-// also has no storeName member (AnnotationStoreVersion.StoreName is not a
-// real field on Get OR List; tracked separately, not fixed here since this
-// pass is scoped to the Get-into-List over-share class, not phantom fields
-// present on both sides -- gopherstack-dv4s).
+// types.go): narrower than GetAnnotationStoreVersionOutput -- no tags.
+//
+// ID/StoreName ARE real AnnotationStoreVersionItem members too (required
+// "id"/"name", same as Get -- see AnnotationStoreVersion's doc comment);
+// gopherstack-dv4s's note that this type "has no storeName member" was about
+// AnnotationStoreVersion.StoreName's WRONG tag of the time ("storeName", not
+// a real key on any shape), not about the real "name" member being absent
+// from List -- List genuinely has it too, fixed here (gopherstack-r80d batch
+// 7) alongside the identical Get/Update/Create gap.
 type AnnotationStoreVersionSummary struct {
 	CreationTime     time.Time `json:"creationTime"`
 	UpdateTime       time.Time `json:"updateTime"`
 	VersionArn       string    `json:"versionArn"`
+	ID               string    `json:"id"`
 	StoreID          string    `json:"storeId"`
+	StoreName        string    `json:"name"`
 	VersionName      string    `json:"versionName"`
 	Description      string    `json:"description"`
 	Status           string    `json:"status"`
@@ -544,15 +589,23 @@ type AnnotationImportJobSummary struct {
 // "storeArn" (omics@v1.49.5 deserializers.go:11673) -- this struct previously
 // tagged it "arn", a key no real Get/ListVariantStores deserializer reads.
 type VariantStore struct {
-	CreationTime time.Time         `json:"creationTime"`
-	UpdateTime   time.Time         `json:"updateTime"`
-	Reference    map[string]any    `json:"reference,omitempty"`
-	Tags         map[string]string `json:"tags"`
-	StoreArn     string            `json:"storeArn"`
-	ID           string            `json:"id"`
-	Name         string            `json:"name"`
-	Description  string            `json:"description"`
-	Status       string            `json:"status"`
+	CreationTime time.Time      `json:"creationTime"`
+	UpdateTime   time.Time      `json:"updateTime"`
+	Reference    map[string]any `json:"reference,omitempty"`
+	// SseConfig is real GetVariantStoreOutput/VariantStoreItem's required
+	// "sseConfig" (types.go) -- previously not a field on this struct at
+	// all, the same "member with no struct field" class as
+	// AnnotationImportJob's pre-fix FormatOptions gap. CreateVariantStore
+	// now threads the real (optional) CreateVariantStoreInput.SseConfig
+	// through, mirroring AnnotationStore's existing convention
+	// (gopherstack-r80d batch 7).
+	SseConfig   map[string]any    `json:"sseConfig,omitempty"`
+	Tags        map[string]string `json:"tags"`
+	StoreArn    string            `json:"storeArn"`
+	ID          string            `json:"id"`
+	Name        string            `json:"name"`
+	Description string            `json:"description"`
+	Status      string            `json:"status"`
 	// StatusMessage is real GetVariantStoreOutput's required
 	// "statusMessage" -- previously absent from this struct entirely, the
 	// same gap fixed for import jobs in c41d36cb6 but missed here. Always
@@ -571,16 +624,16 @@ type VariantStore struct {
 // GetVariantStoreOutput: no tags. ListVariantStores previously marshaled
 // VariantStore directly, leaking it (gopherstack-dv4s).
 //
-// NOT fixed here: VariantStoreItem (like GetVariantStoreOutput) also
-// declares a required sseConfig member that VariantStore never tracks at
-// all -- CreateVariantStore has no request field for it. That is a
-// missing-member gap on both Get and List, the opposite bug class from the
-// one this pass targets, and fixing it needs real SSE-config plumbing this
-// backend doesn't have. Left absent rather than fabricated.
+// SseConfig IS a real required VariantStoreItem member too (types.go), same
+// as GetVariantStoreOutput -- fixed here alongside Get (gopherstack-r80d
+// batch 7); this type's own doc comment previously called it "the opposite
+// bug class from the one this pass targets", but it is exactly
+// gopherstack-r80d's "member with no struct field at all" class.
 type VariantStoreSummary struct {
 	CreationTime   time.Time      `json:"creationTime"`
 	UpdateTime     time.Time      `json:"updateTime"`
 	Reference      map[string]any `json:"reference,omitempty"`
+	SseConfig      map[string]any `json:"sseConfig,omitempty"`
 	StoreArn       string         `json:"storeArn"`
 	ID             string         `json:"id"`
 	Name           string         `json:"name"`
@@ -682,6 +735,7 @@ type Share struct {
 	PrincipalSubscriber string     `json:"principalSubscriber"`
 	Name                string     `json:"shareName"`
 	Status              string     `json:"status"`
+	pollCount           int        // tracks ACTIVATING→ACTIVE progression; not serialized
 }
 
 // RunCache represents an HealthOmics run cache.

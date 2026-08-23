@@ -2,6 +2,7 @@ package sagemaker
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -74,15 +75,25 @@ func (b *InMemoryBackend) DescribeEndpointConfig(ctx context.Context, name strin
 	return cloneEndpointConfig(ec), nil
 }
 
-// ListEndpointConfigs returns endpoint configurations sorted by name, with optional pagination.
-func (b *InMemoryBackend) ListEndpointConfigs(ctx context.Context, nextToken string) ([]*EndpointConfig, string) {
+// ListEndpointConfigs returns endpoint configurations matching filter, sorted
+// per filter.SortBy/SortOrder (default CreationTime/Descending,
+// api_op_ListEndpointConfigs.go), with pagination capped at filter.MaxResults.
+func (b *InMemoryBackend) ListEndpointConfigs(
+	ctx context.Context, nextToken string, filter nameTimeFilter,
+) ([]*EndpointConfig, string) {
 	b.mu.RLock("ListEndpointConfigs")
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
 
-	return sagemakerListPaged(b.endpointConfigsStoreRO(region), nextToken, cloneEndpointConfig,
-		func(a, b *EndpointConfig) bool { return a.EndpointConfigName < b.EndpointConfigName })
+	all := make([]*EndpointConfig, 0, b.endpointConfigsStoreRO(region).Len())
+	for _, ec := range b.endpointConfigsStoreRO(region).All() {
+		all = append(all, cloneEndpointConfig(ec))
+	}
+
+	return filterSortPaginateByName(all, nextToken, filter, true,
+		func(ec *EndpointConfig) string { return ec.EndpointConfigName },
+		func(ec *EndpointConfig) time.Time { return ec.CreationTime })
 }
 
 // DeleteEndpointConfig deletes an endpoint configuration by name.
@@ -121,6 +132,7 @@ func (b *InMemoryBackend) SetEndpointConfigExtras(
 	kmsKeyID string,
 	shadowProductionVariants []ProductionVariant,
 	enableNetworkIsolation bool,
+	explainerConfig, metricsConfig json.RawMessage,
 ) error {
 	b.mu.Lock("SetEndpointConfigExtras")
 	defer b.mu.Unlock()
@@ -156,6 +168,14 @@ func (b *InMemoryBackend) SetEndpointConfigExtras(
 	ec.ExecutionRoleArn = executionRoleArn
 	ec.KmsKeyID = kmsKeyID
 	ec.EnableNetworkIsolation = enableNetworkIsolation
+
+	if len(explainerConfig) > 0 {
+		ec.ExplainerConfig = append(json.RawMessage(nil), explainerConfig...)
+	}
+
+	if len(metricsConfig) > 0 {
+		ec.MetricsConfig = append(json.RawMessage(nil), metricsConfig...)
+	}
 
 	if len(shadowProductionVariants) > 0 {
 		stored := make([]ProductionVariant, len(shadowProductionVariants))

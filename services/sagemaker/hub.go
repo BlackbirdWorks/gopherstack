@@ -6,6 +6,8 @@ import (
 	"encoding/hex"
 	"fmt"
 	"maps"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -163,24 +165,87 @@ func (b *InMemoryBackend) DescribeHub(ctx context.Context, idOrArn string) (*Hub
 	return cloneHub(h), nil
 }
 
-// ListHubs returns hubs whose name contains nameContains, sorted by name.
-func (b *InMemoryBackend) ListHubs(ctx context.Context, nameContains, nextToken string) ([]*Hub, string) {
+// ListHubsParams bundles ListHubs' filter/sort/pagination criteria
+// (api_op_ListHubs.go).
+type ListHubsParams struct {
+	CreationTimeAfter      *time.Time
+	CreationTimeBefore     *time.Time
+	LastModifiedTimeAfter  *time.Time
+	LastModifiedTimeBefore *time.Time
+	NameContains           string
+	NextToken              string
+	SortBy                 string
+	SortOrder              string
+	MaxResults             int32
+}
+
+// ListHubs returns hubs matching params, sorted per params.SortBy (default
+// HubName, ties broken by HubName) / params.SortOrder (default Ascending —
+// neither default is documented by AWS for this op, so the pre-existing
+// unconditional HubName-ascending behavior is kept as the fallback), capped
+// at params.MaxResults.
+func (b *InMemoryBackend) ListHubs(ctx context.Context, params ListHubsParams) ([]*Hub, string) {
 	b.mu.RLock("ListHubs")
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
 	store := b.hubsStoreRO(region)
-
-	filtered := make(map[string]*Hub, store.Len())
+	list := make([]*Hub, 0, store.Len())
 
 	for _, v := range store.All() {
-		if nameContains == "" || strings.Contains(v.HubName, nameContains) {
-			filtered[v.HubName] = v
+		if params.NameContains != "" && !strings.Contains(v.HubName, params.NameContains) {
+			continue
+		}
+
+		if params.CreationTimeAfter != nil && !v.CreationTime.After(*params.CreationTimeAfter) {
+			continue
+		}
+
+		if params.CreationTimeBefore != nil && !v.CreationTime.Before(*params.CreationTimeBefore) {
+			continue
+		}
+
+		if params.LastModifiedTimeAfter != nil && !v.LastModifiedTime.After(*params.LastModifiedTimeAfter) {
+			continue
+		}
+
+		if params.LastModifiedTimeBefore != nil && !v.LastModifiedTime.Before(*params.LastModifiedTimeBefore) {
+			continue
+		}
+
+		list = append(list, cloneHub(v))
+	}
+
+	desc := strings.EqualFold(params.SortOrder, sortOrderDescending)
+	sort.Slice(list, func(i, j int) bool {
+		less := hubSortLess(list[i], list[j], params.SortBy)
+		if desc {
+			return !less
+		}
+
+		return less
+	})
+
+	return paginateSlice(list, params.NextToken, params.MaxResults)
+}
+
+// hubSortLess orders two hubs by sortBy — one of HubSortBy's real values
+// (HubName, CreationTime, HubStatus, AccountIdOwner; types/enums.go:3929-3944).
+// AccountIdOwner has no distinguishing order in this single-account-per-region
+// backend, so (like every other key) it falls through to the HubName tiebreak.
+func hubSortLess(a, b *Hub, sortBy string) bool {
+	switch sortBy {
+	case keyCreationTime:
+		if !a.CreationTime.Equal(b.CreationTime) {
+			return a.CreationTime.Before(b.CreationTime)
+		}
+	case "HubStatus":
+		if a.HubStatus != b.HubStatus {
+			return a.HubStatus < b.HubStatus
 		}
 	}
 
-	return sagemakerListPagedMap(filtered, nextToken, cloneHub,
-		func(a, bb *Hub) bool { return a.HubName < bb.HubName })
+	return a.HubName < b.HubName
 }
 
 // UpdateHub updates the mutable fields of a hub.
@@ -559,11 +624,51 @@ func (b *InMemoryBackend) UpdateHubContentReference(
 	return cloneHubContent(hc), nil
 }
 
-// ListHubContents returns the latest version of every distinct content name of
-// the given type within a hub, sorted by name.
+// ListHubContentsParams bundles ListHubContents' filter/sort/pagination
+// criteria (api_op_ListHubContents.go).
+type ListHubContentsParams struct {
+	CreationTimeAfter  *time.Time
+	CreationTimeBefore *time.Time
+	MaxSchemaVersion   string
+	NameContains       string
+	NextToken          string
+	SortBy             string
+	SortOrder          string
+	MaxResults         int32
+}
+
+// hubContentMatchesListParams reports whether hc satisfies
+// ListHubContentsParams' NameContains/MaxSchemaVersion/CreationTime-window
+// filters (the HubName/HubContentType match is applied by the caller).
+func hubContentMatchesListParams(hc *HubContent, params ListHubContentsParams) bool {
+	if params.NameContains != "" && !strings.Contains(hc.HubContentName, params.NameContains) {
+		return false
+	}
+
+	if params.MaxSchemaVersion != "" && compareDottedVersions(hc.DocumentSchemaVersion, params.MaxSchemaVersion) > 0 {
+		return false
+	}
+
+	if params.CreationTimeAfter != nil && !hc.CreationTime.After(*params.CreationTimeAfter) {
+		return false
+	}
+
+	if params.CreationTimeBefore != nil && !hc.CreationTime.Before(*params.CreationTimeBefore) {
+		return false
+	}
+
+	return true
+}
+
+// ListHubContents returns the latest surviving version of every distinct
+// content name of the given type within a hub, filtered by params, sorted
+// per params.SortBy (default HubContentName) / params.SortOrder (default
+// Ascending, matching the pre-existing unconditional behavior), capped at
+// params.MaxResults.
 func (b *InMemoryBackend) ListHubContents(
 	ctx context.Context,
-	hubName, contentType, nameContains, nextToken string,
+	hubName, contentType string,
+	params ListHubContentsParams,
 ) ([]*HubContent, string) {
 	b.mu.RLock("ListHubContents")
 	defer b.mu.RUnlock()
@@ -577,7 +682,7 @@ func (b *InMemoryBackend) ListHubContents(
 			continue
 		}
 
-		if nameContains != "" && !strings.Contains(hc.HubContentName, nameContains) {
+		if !hubContentMatchesListParams(hc, params) {
 			continue
 		}
 
@@ -586,33 +691,161 @@ func (b *InMemoryBackend) ListHubContents(
 		}
 	}
 
-	return sagemakerListPagedMap(latestByName, nextToken, cloneHubContent,
-		func(a, bb *HubContent) bool { return a.HubContentName < bb.HubContentName })
+	list := make([]*HubContent, 0, len(latestByName))
+	for _, hc := range latestByName {
+		list = append(list, cloneHubContent(hc))
+	}
+
+	desc := strings.EqualFold(params.SortOrder, sortOrderDescending)
+	sort.Slice(list, func(i, j int) bool {
+		less := hubContentSortLess(list[i], list[j], params.SortBy)
+		if desc {
+			return !less
+		}
+
+		return less
+	})
+
+	return paginateSlice(list, params.NextToken, params.MaxResults)
 }
 
-// ListHubContentVersions returns every version of a named content resource,
-// sorted by version string.
+// hubContentSortLess orders two hub content entries by sortBy — one of
+// HubContentSortBy's real values (HubContentName, CreationTime,
+// HubContentStatus; types/enums.go:3833-3847) — ties broken by HubContentName.
+func hubContentSortLess(a, b *HubContent, sortBy string) bool {
+	switch sortBy {
+	case keyCreationTime:
+		if !a.CreationTime.Equal(b.CreationTime) {
+			return a.CreationTime.Before(b.CreationTime)
+		}
+	case keyHubContentStatus:
+		if a.HubContentStatus != b.HubContentStatus {
+			return a.HubContentStatus < b.HubContentStatus
+		}
+	}
+
+	return a.HubContentName < b.HubContentName
+}
+
+// compareDottedVersions compares two "\d{1,4}.\d{1,4}.\d{1,4}"-shaped version
+// strings (the pattern shared by HubContentVersion, DocumentSchemaVersion,
+// MinVersion, and MaxSchemaVersion) component-by-component as integers,
+// returning -1, 0, or 1. A non-numeric or missing component compares as 0
+// (equal) so a malformed value degrades to a no-op filter rather than a panic
+// or a silently-wrong ordering.
+func compareDottedVersions(a, b string) int {
+	as := strings.Split(a, ".")
+	bs := strings.Split(b, ".")
+
+	for i := range max(len(as), len(bs)) {
+		var av, bv int
+
+		if i < len(as) {
+			av, _ = strconv.Atoi(as[i])
+		}
+
+		if i < len(bs) {
+			bv, _ = strconv.Atoi(bs[i])
+		}
+
+		if av != bv {
+			if av < bv {
+				return -1
+			}
+
+			return 1
+		}
+	}
+
+	return 0
+}
+
+// ListHubContentVersionsParams bundles ListHubContentVersions'
+// filter/sort/pagination criteria (api_op_ListHubContentVersions.go).
+type ListHubContentVersionsParams struct {
+	CreationTimeAfter  *time.Time
+	CreationTimeBefore *time.Time
+	MaxSchemaVersion   string
+	MinVersion         string
+	NextToken          string
+	SortBy             string
+	SortOrder          string
+	MaxResults         int32
+}
+
+// ListHubContentVersions returns every version of a named content resource
+// matching params, sorted per params.SortBy / params.SortOrder (default
+// ascending version order — HubContentSortBy's "HubContentName" key is a
+// no-op here since every entry shares the same name, so version order is
+// used as the tiebreak/default instead, matching the pre-existing behavior),
+// capped at params.MaxResults.
 func (b *InMemoryBackend) ListHubContentVersions(
 	ctx context.Context,
-	hubName, contentType, contentName, nextToken string,
+	hubName, contentType, contentName string,
+	params ListHubContentVersionsParams,
 ) ([]*HubContent, string) {
 	b.mu.RLock("ListHubContentVersions")
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
-
-	byVersion := make(map[string]*HubContent)
+	list := make([]*HubContent, 0)
 
 	for _, hc := range b.hubContentsStoreRO(region).All() {
 		if hc.HubName != hubName || hc.HubContentType != contentType || hc.HubContentName != contentName {
 			continue
 		}
 
-		byVersion[hc.HubContentVersion] = hc
+		if params.MaxSchemaVersion != "" &&
+			compareDottedVersions(hc.DocumentSchemaVersion, params.MaxSchemaVersion) > 0 {
+			continue
+		}
+
+		if params.MinVersion != "" && compareDottedVersions(hc.HubContentVersion, params.MinVersion) < 0 {
+			continue
+		}
+
+		if params.CreationTimeAfter != nil && !hc.CreationTime.After(*params.CreationTimeAfter) {
+			continue
+		}
+
+		if params.CreationTimeBefore != nil && !hc.CreationTime.Before(*params.CreationTimeBefore) {
+			continue
+		}
+
+		list = append(list, cloneHubContent(hc))
 	}
 
-	return sagemakerListPagedMap(byVersion, nextToken, cloneHubContent,
-		func(a, bb *HubContent) bool { return a.HubContentVersion < bb.HubContentVersion })
+	desc := strings.EqualFold(params.SortOrder, sortOrderDescending)
+	sort.Slice(list, func(i, j int) bool {
+		less := hubContentVersionSortLess(list[i], list[j], params.SortBy)
+		if desc {
+			return !less
+		}
+
+		return less
+	})
+
+	return paginateSlice(list, params.NextToken, params.MaxResults)
+}
+
+// hubContentVersionSortLess orders two versions of the same named hub
+// content by sortBy. "HubContentName" (the default zero value) and
+// "HubContentStatus" ties both fall back to version order rather than
+// HubContentName, since every item ListHubContentVersions returns shares one
+// name.
+func hubContentVersionSortLess(a, b *HubContent, sortBy string) bool {
+	switch sortBy {
+	case keyCreationTime:
+		if !a.CreationTime.Equal(b.CreationTime) {
+			return a.CreationTime.Before(b.CreationTime)
+		}
+	case keyHubContentStatus:
+		if a.HubContentStatus != b.HubContentStatus {
+			return a.HubContentStatus < b.HubContentStatus
+		}
+	}
+
+	return compareDottedVersions(a.HubContentVersion, b.HubContentVersion) < 0
 }
 
 // DeleteHubContent deletes a single version of a hub content resource.
@@ -785,12 +1018,36 @@ func generatePresignedURL(region, bucketKey string) string {
 	)
 }
 
+// PresignedURLAccessConfig mirrors *types.PresignedUrlAccessConfig
+// (types/types.go:17716-17729). Accepted and round-tripped into
+// CreateHubContentPresignedURLs, but not enforced: this backend has no
+// concept of "gated" hub content requiring EULA acceptance to reject
+// against, and no independently-resolved S3 URL to validate ExpectedS3URL's
+// consistency claim against — disclosed here rather than fabricating either
+// check.
+type PresignedURLAccessConfig struct {
+	ExpectedS3URL string
+	AcceptEula    bool
+}
+
+// CreateHubContentPresignedURLsParams bundles
+// CreateHubContentPresignedURLs' optional request fields
+// (api_op_CreateHubContentPresignedUrls.go).
+type CreateHubContentPresignedURLsParams struct {
+	NextToken    string
+	AccessConfig PresignedURLAccessConfig
+	MaxResults   int32
+}
+
 // CreateHubContentPresignedURLs returns presigned download URLs for the files
-// backing a hub content resource. If version is empty, the latest version is used.
+// backing a hub content resource. If version is empty, the latest version is
+// used. The result is paginated per params.MaxResults (real default: 100,
+// api_op_CreateHubContentPresignedUrls.go:34) / params.NextToken.
 func (b *InMemoryBackend) CreateHubContentPresignedURLs(
 	ctx context.Context,
 	hubName, contentType, contentName, version string,
-) ([]HubContentPresignedURL, error) {
+	params CreateHubContentPresignedURLsParams,
+) ([]HubContentPresignedURL, string, error) {
 	b.mu.RLock("CreateHubContentPresignedURLs")
 	defer b.mu.RUnlock()
 
@@ -798,7 +1055,7 @@ func (b *InMemoryBackend) CreateHubContentPresignedURLs(
 
 	h, ok := b.findHubLocked(region, hubName)
 	if !ok {
-		return nil, fmt.Errorf("%w: hub %q not found", ErrHubNotFound, hubName)
+		return nil, "", fmt.Errorf("%w: hub %q not found", ErrHubNotFound, hubName)
 	}
 
 	var hc *HubContent
@@ -811,7 +1068,7 @@ func (b *InMemoryBackend) CreateHubContentPresignedURLs(
 
 		found, exists := b.hubContentsStoreRO(region).Get(key)
 		if !exists {
-			return nil, fmt.Errorf(
+			return nil, "", fmt.Errorf(
 				"%w: hub content %q version %q not found in hub %q",
 				ErrHubContentNotFound, contentName, version, h.HubName,
 			)
@@ -821,7 +1078,7 @@ func (b *InMemoryBackend) CreateHubContentPresignedURLs(
 	} else {
 		found, exists := b.latestHubContentLocked(region, h.HubName, contentType, contentName)
 		if !exists {
-			return nil, fmt.Errorf(
+			return nil, "", fmt.Errorf(
 				"%w: hub content %q not found in hub %q", ErrHubContentNotFound, contentName, h.HubName,
 			)
 		}
@@ -829,25 +1086,28 @@ func (b *InMemoryBackend) CreateHubContentPresignedURLs(
 		hc = found
 	}
 
+	var urls []HubContentPresignedURL
+
 	if len(hc.HubContentDependencies) == 0 {
 		key := fmt.Sprintf("%s/%s/%s/model.tar.gz", hc.HubName, hc.HubContentName, hc.HubContentVersion)
-
-		return []HubContentPresignedURL{{
+		urls = []HubContentPresignedURL{{
 			URL:       generatePresignedURL(region, key),
 			LocalPath: hc.HubContentName + "/model.tar.gz",
-		}}, nil
-	}
+		}}
+	} else {
+		urls = make([]HubContentPresignedURL, 0, len(hc.HubContentDependencies))
+		for _, dep := range hc.HubContentDependencies {
+			localPath := dep.DependencyCopyPath
+			if localPath == "" {
+				localPath = dep.DependencyOriginPath
+			}
 
-	urls := make([]HubContentPresignedURL, 0, len(hc.HubContentDependencies))
-	for _, dep := range hc.HubContentDependencies {
-		localPath := dep.DependencyCopyPath
-		if localPath == "" {
-			localPath = dep.DependencyOriginPath
+			key := fmt.Sprintf("%s/%s/%s/%s", hc.HubName, hc.HubContentName, hc.HubContentVersion, localPath)
+			urls = append(urls, HubContentPresignedURL{URL: generatePresignedURL(region, key), LocalPath: localPath})
 		}
-
-		key := fmt.Sprintf("%s/%s/%s/%s", hc.HubName, hc.HubContentName, hc.HubContentVersion, localPath)
-		urls = append(urls, HubContentPresignedURL{URL: generatePresignedURL(region, key), LocalPath: localPath})
 	}
 
-	return urls, nil
+	page, nextToken := paginateSlice(urls, params.NextToken, params.MaxResults)
+
+	return page, nextToken, nil
 }

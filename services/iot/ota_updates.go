@@ -14,7 +14,9 @@ type OTAUpdate struct {
 	Description      string   `json:"description,omitempty"`
 	RoleARN          string   `json:"roleArn,omitempty"`
 	Status           string   `json:"otaUpdateStatus"`
-	Files            []any    `json:"files,omitempty"`
+	AWSIoTJobID      string   `json:"awsIotJobId,omitempty"`
+	AWSIoTJobARN     string   `json:"awsIotJobArn,omitempty"`
+	Files            []any    `json:"otaUpdateFiles,omitempty"`
 	Targets          []string `json:"targets,omitempty"`
 	CreationDate     float64  `json:"creationDate,omitempty"`
 	LastModifiedDate float64  `json:"lastModifiedDate,omitempty"`
@@ -45,6 +47,7 @@ func (b *InMemoryBackend) CreateOTAUpdate(
 		return nil, fmt.Errorf("OTA update %q already exists: %w", id, ErrAlreadyExists)
 	}
 	now := float64(time.Now().Unix())
+	jobID := "AFR_OTA-" + id
 	o := &OTAUpdate{
 		OTAUpdateID:      id,
 		OTAUpdateARN:     b.otaARN(id),
@@ -53,6 +56,8 @@ func (b *InMemoryBackend) CreateOTAUpdate(
 		Targets:          append([]string(nil), targets...),
 		Files:            append([]any(nil), files...),
 		Status:           "CREATE_COMPLETE",
+		AWSIoTJobID:      jobID,
+		AWSIoTJobARN:     b.jobARN(jobID),
 		CreationDate:     now,
 		LastModifiedDate: now,
 	}

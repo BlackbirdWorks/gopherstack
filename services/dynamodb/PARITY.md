@@ -14,7 +14,16 @@ families:
   janitor_ttl:  {status: ok, note: PROVEN batched-lock, ctx-cancel, quickselect eviction, ring-buffer compaction}
   datalayer:    {status: ok, note: RE-AUDITED — ce30166a converted db.Tables/Backups/GlobalTables/exports/imports/streamARNIndex from raw maps to pkgs/store.Table+Index (composite key tableKey(region,name), region derived by parsing TableArn via tableRegion()). Verified every insertion site (CreateTable, RestoreTable, CreateGlobalTable replicas, cloneTableSchema, applyOneReplicaTableEntry) builds TableArn with the same region string used as the store key *before* Put, so tableRegion(t) round-trips correctly; TableArn is never mutated post-insert. No stale map-key leaks (tablesByRegion Index auto-empties groups on last delete, unlike the old per-region submap). Persistence snapshot reshaped map->sorted slice + added a schema version gate (old snapshots discarded cleanly on upgrade, matching the sqs/ec2 precedent) — intentional, not a parity bug.}
   admin_lists:  {status: ok, note: gopherstack-6flj (2026-08-15) wrapper-key sweep of all 22 List+Describe+Get ops (ListBackups/ListContributorInsights/ListExports/ListGlobalTables/ListImports/ListTables/ListTagsOfResource, the 13 Describe* ops, GetItem, GetResourcePolicy) — every top-level wrapper key diffed field-by-field against its own api_op_*.go Output struct in the pinned aws-sdk-go-v2/service/dynamodb@v1.63.1 module cache; all correct, no wrong/silent-empty key found, no shared-converter cross-op mismatch (exportTableToPointInTimeOutput is legitimately shared by ExportTableToPointInTime/DescribeExport — both real Outputs are ExportDescription-only). One real gap found and fixed: DescribeContributorInsightsOutput.LastUpdateDateTime (deserializers.go:18441, epoch-seconds) was entirely unmodeled — the backend never tracked when contributor insights was last toggled. Fixed by adding Table.ContributorInsightsLastUpdate (set in setContributorInsightsLocked on every UpdateContributorInsights call) and emitting it only once non-zero (a never-toggled table reports it absent, matching AWS's own "populated once an action has occurred" behavior, not a fabricated zero time). See gaps for FailureException (same struct, correctly left unmodeled).}
+  autoscaling:  {status: fixed, note: "2026-08-21 (gopherstack-1vv2, InMemoryDB receiver-scope sweep): UpdateTableReplicaAutoScaling built a brand-new autoScalingSettings from only the current call's fields and assigned it wholesale over table.AutoScaling. GlobalSecondaryIndexUpdates and ProvisionedWriteCapacityAutoScalingUpdate are independently optional on the real input (api_op_UpdateTableReplicaAutoScaling.go) -- a call updating only one GSI's auto scaling settings silently wiped a previously-set table-level write-capacity autoscaling config, and vice versa. Fixed: autoScalingSettingsFromInput -> mergeAutoScalingSettingsFromInput, which merges into the existing table.AutoScaling (creating one only if nil) instead of replacing it. TestUpdateTableReplicaAutoScaling_WriteAndGSIUpdatesDontClobberEachOther (autoscaling_status_agreement_internal_test.go), hand-verified to fail against unfixed code. Other InMemoryDB Update* methods checked in the same sweep (UpdateContinuousBackups/UpdateContributorInsights/UpdateGlobalTable/UpdateGlobalTableSettings/UpdateItem/UpdateKinesisStreamingDestination/UpdateTable/UpdateTimeToLive) already merge field-by-field or are single-scalar toggles -- no further bugs of this shape found. See gaps: GlobalSecondaryIndexes autoscaling settings are stored but never echoed back on ReplicaAutoScalingDescription (a separate, pre-existing accept-and-drop gap, not touched by this fix)."}
 gaps:
+  - "2026-08-21 (gopherstack-1vv2): ReplicaAutoScalingDescription.GlobalSecondaryIndexes (types.go:2642) is
+    never populated by UpdateTableReplicaAutoScaling or DescribeTableReplicaAutoScaling --
+    replicaAutoScalingDescriptionsRLocked only ever echoes table-level Write settings per
+    replica. Per-GSI autoscaling settings ARE stored (autoScalingSettings.GlobalSecondaryIndexes,
+    now correctly merged rather than clobbered -- see autoscaling family) but a real client
+    reading them back via Update or Describe always sees an empty list regardless of what was
+    configured. Pre-existing, found while fixing the clobber bug above; not fixed here since it's
+    an accept-and-drop wire gap, a different bug class from this pass's scope."
   - "2026-08-15 (gopherstack-6flj, disclosed, not fixed): DescribeContributorInsightsOutput.FailureException
     (types.FailureException{ExceptionName, ExceptionDescription}, api_op_DescribeContributorInsights.go)
     remains unmodeled. This backend's UpdateContributorInsights/DescribeContributorInsights
@@ -237,3 +246,43 @@ leaks: {status: clean, note: TTL sweeper + stream trimming verified, ctx-cancel 
 - 2026-07-11 re-audit: aws-sdk-go-v2/service/dynamodb bumped f459c9fa's v1.59.2 -> HEAD's v1.60.0 (e51c0de9); diffed api_op_*.go/types.go between the two module versions — zero surface change (v1.60.0's only changelog entry is "Add request serialization snapshot tests"), so no new-op audit was needed this cycle.
 - 2026-07-11 re-audit: no real bugs found. All gates pass (build, vet, race tests, go fix -diff empty, golangci-lint 0 issues) with zero working-tree changes required.
 - 2026-07-24 follow-up sweep: verified against dynamodbstreams@v1.35.0 (go.mod) that ShardFilter is the only new DescribeStreamInput field this backend hadn't wired up (types.ShardFilter{ShardId, Type}, only CHILD_SHARDS defined in ShardFilterType.Values()). services/dynamodbstreams (the sibling client-facing service that reads this backend's stream buffer) required no changes — it passes ShardFilter straight through the SDK input struct, which already carried the field; the gap was entirely on the dynamodb-backend side. `go build ./...` and `go test -race ./services/dynamodbstreams/...` both verified clean after the change.
+
+## gopherstack-wlo1 (2026-08-22): CBOR request/response path had its own untyped dispatch errors, missed by c6554e9f8
+
+`c6554e9f8` typed `Handler()`'s own dispatch errors (`writeDynamoDBDispatchError`)
+but never touched `handleCBORRequest` (`cbor.go`), a separate hand-rolled path
+branched into *before* `Handler()`'s own `httputils.ReadBody` call
+(`if service.IsCBORRequest(c.Request()) { return h.handleCBORRequest(...) }`).
+All three of its own failure branches (ReadBody failure, response
+`json.Marshal` failure, `service.JSONToCBOR` encode failure) wrote a bare
+`c.String(http.StatusInternalServerError, "internal server error")`.
+
+DynamoDB is JSON-RPC 1.0 (`dynamodb@v1.63.1` `awsAwsjson10_` prefix), and its
+error deserializer (`deserializers.go:86-121`,
+`awsAwsjson10_deserializeOpErrorBatchExecuteStatement`) always JSON-decodes the
+response body via `json.NewDecoder` regardless of the *request's* content
+type -- there is no CBOR handling anywhere in the error path. So a real client
+saw `smithy.GenericAPIError{Code:"UnknownError"}` for every one of these three
+failures on the CBOR wire option, same shape as `c6554e9f8`'s finding on the
+main dispatch path.
+
+Fixed: all three sites now call the existing `writeDynamoDBDispatchError(c,
+http.StatusInternalServerError, "InternalFailure", "internal server error")`
+helper (handler.go), the same helper and code `c6554e9f8` already established
+for this class on the JSON path.
+
+Proof: `aws-sdk-go-v2/service/dynamodb` never sends
+`application/x-amz-cbor-1.1` itself (that wire option is used by other
+language SDKs), so `TestHandleCBORRequest_OversizedBodySurfacesInternalFailure`
+(`handler_cbor_dispatch_malformed_test.go`) drives a real client's `PutItem`
+through a Finalize-stage middleware that rewrites the Content-Type header to
+CBOR post-signing, with an item attribute large enough to exceed
+`httputils.MaxRequestBodyBytes`, forcing the ReadBody-failure branch.
+Hand-reverted `cbor.go` to `git show HEAD`, confirmed the test fails with
+`*json.SyntaxError: "invalid character 'i' looking for beginning of value"`,
+restored the fix, `md5sum`-confirmed byte-identical.
+
+The other two branches (response marshal/CBOR-encode failure) are fixed
+defensively for consistency with the same helper but not independently
+proven by a client -- `response` is backend-constructed and `json.Marshal`
+essentially cannot fail on it.

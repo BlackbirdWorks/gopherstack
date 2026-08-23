@@ -3,6 +3,7 @@ package eks_test
 import (
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -99,8 +100,9 @@ func TestEKS_AssociateIdentityProviderConfig(t *testing.T) {
 			},
 			body: map[string]any{
 				"oidc": map[string]any{
-					"issuerUrl": "https://oidc.example.com",
-					"clientId":  "my-client",
+					"issuerUrl":                  "https://oidc.example.com",
+					"clientId":                   "my-client",
+					"identityProviderConfigName": "my-oidc",
 				},
 				"tags": map[string]string{"env": "test"},
 			},
@@ -125,8 +127,23 @@ func TestEKS_AssociateIdentityProviderConfig(t *testing.T) {
 			wantStatus: http.StatusBadRequest,
 		},
 		{
-			name:       "associate_idp_config_cluster_not_found",
-			body:       map[string]any{"oidc": map[string]any{"issuerUrl": "https://x.com", "clientId": "c"}},
+			name: "associate_idp_config_missing_config_name",
+			setup: func(t *testing.T, h *eks.Handler) {
+				t.Helper()
+				doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "my-cluster"})
+			},
+			body: map[string]any{
+				"oidc": map[string]any{"issuerUrl": "https://oidc.example.com", "clientId": "my-client"},
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "associate_idp_config_cluster_not_found",
+			body: map[string]any{
+				"oidc": map[string]any{
+					"issuerUrl": "https://x.com", "clientId": "c", "identityProviderConfigName": "c",
+				},
+			},
 			wantStatus: http.StatusNotFound,
 		},
 		{
@@ -140,12 +157,18 @@ func TestEKS_AssociateIdentityProviderConfig(t *testing.T) {
 					http.MethodPost,
 					"/clusters/my-cluster/identity-provider-configs/associate",
 					map[string]any{
-						"oidc": map[string]any{"issuerUrl": "https://oidc.example.com", "clientId": "dup-client"},
+						"oidc": map[string]any{
+							"issuerUrl": "https://oidc.example.com", "clientId": "dup-client",
+							"identityProviderConfigName": "dup-client",
+						},
 					},
 				)
 			},
 			body: map[string]any{
-				"oidc": map[string]any{"issuerUrl": "https://oidc.example.com", "clientId": "dup-client"},
+				"oidc": map[string]any{
+					"issuerUrl": "https://oidc.example.com", "clientId": "dup-client",
+					"identityProviderConfigName": "dup-client",
+				},
 			},
 			wantStatus: http.StatusConflict,
 		},
@@ -246,6 +269,15 @@ func TestIDPConfigCreatesAsCreating(t *testing.T) {
 			)
 			require.NoError(t, err)
 			assert.Equal(t, "CREATING", cfg.Status, tc.name)
+
+			// The immediate CREATING status is right, but a machine that never
+			// advances would pass that assertion forever -- confirm it
+			// actually reaches ACTIVE too.
+			require.Eventually(t, func() bool {
+				got, descErr := b.DescribeIdentityProviderConfig("cl", "my-idp")
+
+				return descErr == nil && got.Status == "ACTIVE"
+			}, 2*time.Second, 10*time.Millisecond, tc.name)
 		})
 	}
 }

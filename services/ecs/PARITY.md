@@ -1,7 +1,7 @@
 ---
 service: ecs
 sdk_module: aws-sdk-go-v2/service/ecs@v1.90.0
-last_audit_commit: HEAD                           # see git log for this pass's commit
+last_audit_commit:                                # unknown: pass ran without git access at write time, never backfilled -- gopherstack-33in
 last_audit_date: 2026-07-31
 overall: A            # A = genuine fix found (wire-shape bug); B = already-accurate, proven op-by-op
 ops:
@@ -87,6 +87,36 @@ leaks: {status: clean, note: "Prior 'found' status was stale documentation -- th
 ---
 
 ## Notes
+
+### 2026-08-22 reconciler snapshot race fix (gopherstack-urw6)
+
+`getServicesForReconciler` (`services.go`) built each `serviceSnapshot` via a
+shallow `service: *svc` copy. `Service.Deployments` is a slice, and a shallow
+struct copy only copies the slice header — the copy's backing array was still
+the live stored `Service`'s. `recordServiceTaskFailureLocked` and
+`evaluateCircuitBreakerLocked` (`deployment.go`) write into that array in
+place (`svc.Deployments[idx].FailedTasks++`, `dep.RolloutState = ...`) under
+the write lock on a failed task launch, while the reconciler reads
+`Deployments[idx].RolloutState` from the unlocked snapshot via
+`reconcileService` → `primaryDeploymentFailed` — the lock is irrelevant once
+the slice has escaped, since the reader never takes it. Fixed with
+`cloneServiceForSnapshot`, which deep-copies `Deployments` into a fresh
+backing array. `DescribeServices`'s `enrichService` was already doing this
+correctly (rebuilds a fresh `[]Deployment`) — `getServicesForReconciler` was
+the one getter that took the shortcut. Every other `Service` field read from
+the reconciler's snapshot (`DeploymentConfiguration`, `DesiredCount`,
+`Status`, `ServiceName`, `TaskDefinition`) is either a scalar (copied by
+value, no aliasing) or a pointer field that this backend only ever replaces
+wholesale (`UpdateService`'s `svc.DeploymentConfiguration = input.…`), never
+mutates in place, so those did not need cloning. Reproduced with
+`TestReconciler_ConcurrentFailureAttribution_NoDataRace`
+(`reconciler_race_internal_test.go`), confirmed to fail under `-race` against
+the unfixed code (5/5 runs) and clean after the fix; `rotationSchedulerLoop`
+in `services/secretsmanager/rotation.go` was audited under the same bd issue
+and found clean — every mutation there goes through `b.mu.Lock()` and every
+reader holds the lock (R or W) for the full duration it touches secret/version
+fields, with slices always reassigned to a fresh backing array rather than
+mutated in place, so no live pointer/slice ever escapes the lock.
 
 ### 2026-08-13 wrong-shape fix (gopherstack-7ux2)
 

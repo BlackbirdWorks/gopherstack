@@ -65,7 +65,7 @@ func (h *Handler) handleDescribeBackupVault(c *echo.Context, name string) error 
 		keyBackupVaultArn:        v.BackupVaultArn,
 		keyCreationDate:          epochSeconds(v.CreationTime),
 		"NumberOfRecoveryPoints": v.NumberOfRecoveryPoints,
-		keyVaultState:            "AVAILABLE",
+		keyVaultState:            vaultStateFor(v),
 		keyVaultType:             vaultType,
 	}
 	setOptionalStr(resp, "EncryptionKeyArn", v.EncryptionKeyArn)
@@ -125,7 +125,7 @@ func (h *Handler) handleListBackupVaults(c *echo.Context) error {
 			keyBackupVaultArn:        v.BackupVaultArn,
 			keyCreationDate:          epochSeconds(v.CreationTime),
 			"NumberOfRecoveryPoints": v.NumberOfRecoveryPoints,
-			keyVaultState:            "AVAILABLE",
+			keyVaultState:            vaultStateFor(v),
 			keyVaultType:             vt,
 		}
 		if v.EncryptionKeyArn != "" {
@@ -134,7 +134,6 @@ func (h *Handler) handleListBackupVaults(c *echo.Context) error {
 		if v.MinRetentionDays > 0 {
 			item["MinRetentionDays"] = v.MinRetentionDays
 			item["MaxRetentionDays"] = v.MaxRetentionDays
-			item[keyVaultState] = statusCreating
 		}
 		items = append(items, item)
 	}

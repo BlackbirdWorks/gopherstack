@@ -147,7 +147,11 @@ func buildAlarmMuteRuleResultXML(rule *AlarmMuteRule) alarmMuteRuleResultXML {
 		MuteType:             rule.MuteType(),
 		LastUpdatedTimestamp: rule.LastUpdatedTimestamp.UTC().Format(time.RFC3339),
 	}
-	if len(rule.AlarmNames) > 0 {
+	// nil means MuteTargets was never set at Put time; non-nil-but-empty means
+	// a real client sent MuteTargets with an explicit empty AlarmNames array
+	// (validateMuteTargets only null-checks it, cloudwatch@v1.66.3
+	// validators.go:1418) -- MuteTargets must still be emitted in that case.
+	if rule.AlarmNames != nil {
 		result.MuteTargets = &alarmMuteRuleTargetsXML{AlarmNames: rule.AlarmNames}
 	}
 	if !rule.StartDate.IsZero() {

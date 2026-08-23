@@ -121,6 +121,13 @@ func TestHandler_RouteMatcher(t *testing.T) {
 	}
 }
 
+// gopherstack-wlo1: Handler()'s !xrayPaths[path] branch now routes through
+// handleError(errUnknownPath), a typed error JSON body at 400 -- not the
+// bare "not found" text/plain 404 this test previously encoded. (In
+// production this branch is unreachable via any request that actually
+// passes RouteMatcher, since RouteMatcher checks the identical
+// xrayPaths[path] condition first; this test drives Handler() directly,
+// bypassing routing, so it still exercises the branch.)
 func TestHandler_UnknownPath(t *testing.T) {
 	t.Parallel()
 
@@ -134,7 +141,7 @@ func TestHandler_UnknownPath(t *testing.T) {
 
 	err := h.Handler()(c)
 	require.NoError(t, err)
-	assert.Equal(t, http.StatusNotFound, rec.Code)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 func TestHandler_ChaosInterface(t *testing.T) {

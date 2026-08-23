@@ -6,7 +6,7 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: appstream
 sdk_module: aws-sdk-go-v2/service/appstream@v1.64.5
-last_audit_commit: HEAD
+last_audit_commit:                                # unknown: pass ran without git access at write time, never backfilled -- gopherstack-33in
 last_audit_date: 2026-07-26
 overall: A            # CI-blocking regression fixed this pass: the eb437919a dep bump to SDK
                        # v1.64.0 switched AppStream's wire protocol from awsjson1.1 to
@@ -351,3 +351,19 @@ encoders reading directly off a decoded `cbor.Map` (`cborStr`/`cborFloat`/`cborT
 The two approaches operate at different levels of abstraction with no shared shape to
 extract; forcing them together would contort cloudwatch's per-field helpers into something
 they aren't. Left as-is.
+
+## 2026-08-20 — gopherstack-jqh2 pass 4: SDK route table test added
+
+Re-extracted all 89 AppStream ops from `appstream@v1.64.5` serializers.go
+(`req.URL.Path = "/service/PhotonAdminProxyService/operation/<Op>"` in each
+`smithyRpcv2cbor_serializeOp<Op>.HandleSerialize`) and diffed against `h.ops`
+(built by `buildOps` from five per-family literal maps). 89/89, zero
+mismatches either direction — dispatch table is exactly complete, no shape-3
+drift across the five family helpers. Added
+`handler_sdk_route_table_test.go` (`TestExtractOperation_SDKRouteTable`),
+which builds a real rpc-v2-cbor request per op and asserts both
+`RouteMatcher` and `ExtractOperation` resolve it correctly; this is new
+coverage against the SDK's authoritative op list, complementary to the
+existing `TestAppStream_RPCv2CBOR/every_supported_operation_is_reachable_over_CBOR`
+in handler_test.go, which only checks internal self-consistency against
+`GetSupportedOperations()`. No stale PARITY.md entries found.

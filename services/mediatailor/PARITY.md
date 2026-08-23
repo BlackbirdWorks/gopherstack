@@ -95,6 +95,37 @@ leaks: {status: clean, note: "no goroutines, timers, or janitors in this service
 
 ## Notes
 
+### 2026-08-22, gopherstack-r80d batch 30 -- required-output-member audit
+
+mediatailor (6 required output fields / 48 ops, 4 ops-with-required per a
+fresh `cmd/requiredoutputfields` run, cross-checked against an independent
+brace-depth awk walk of `mediatailor@v1.63.4`'s `api_op_*.go` files -- both
+agreed exactly at 6). Read all 4 flagged ops end to end against their
+handlers: `ConfigureLogsForPlaybackConfiguration` (`PercentEnabled`),
+`DescribeChannel` (`LogConfiguration`), `GetFunction`/`PutFunction`
+(`FunctionId`, `FunctionType`).
+
+**Protocol question asked and answered no:** all 4 handlers
+(`handler_logs.go`, `handler_channels.go`, `handler_functions.go`) build
+their response as a `map[string]any` literal via `c.JSON(...)`, not a
+tagged struct -- so the `omitempty`-tag-rule doesn't apply; every required
+key is written unconditionally on every success path, confirmed by direct
+read, not grepped.
+
+**Followed two wrapped types below the flat scan:**
+`DescribeChannelOutput.LogConfiguration` (`*types.LogConfigurationForChannel`,
+types/types.go:943-949) has zero required members of its own (`LogTypes` is
+optional) -- confirmed via the SDK type directly, not assumed from the
+wrapper shape. `GetFunctionOutput`'s underlying domain type is reused
+verbatim by `ListFunctionsOutput.Items` (`types.Function`, types.go:630-656,
+same `FunctionId`/`FunctionType` required pair) -- `handleListFunctions`
+already threads both through `toFunctionOutput` for every list item, so the
+nested-domain-struct undercount class this campaign has repeatedly found
+elsewhere does not reproduce here.
+
+**Result: 0 bugs.** All 4 ops (plus the 2 wrapped types) confirmed already
+correct; no code changes.
+
 **2026-08-13 (gopherstack-jqh2 pass 3):** re-extracted all 48 ops' real
 method+path directly from `mediatailor@v1.63.4` serializers.go and drove
 them through `ExtractOperation` via the new
@@ -534,3 +565,41 @@ the two cascade-delete leak fixes noted above.
     `go test -race ./pkgs/...` — all green, 0 new `//nolint` for
     cyclop/gocyclo/gocognit/funlen. SDK pinned (`go.mod`), no
     dependency-boundary exception needed.
+
+## 2026-08-22 gopherstack-wlo1: error envelope is wire shape too
+
+Two dispatch-failure sites in `handleREST` -- the "invalid JSON body" 400
+and the "unknown operation" 404 -- wrote a JSON body via `keyMessage`
+alone, without ever setting `amznErrorTypeHeader` (X-Amzn-Errortype). The
+genuine backend-error path (`respondErr`/`errType`) already set this header
+correctly (per its own doc comment, itself a fix for this exact class in
+f41d5b42f), so this affected only these two malformed/dispatch paths.
+aws-sdk-go-v2/service/mediatailor@v1.63.4's
+`awsRestjson1_deserializeOpError*` functions read X-Amzn-ErrorType first,
+falling back to a body `code`/`__type` field only if absent -- confirmed
+against `deserializeOpErrorGetPlaybackConfiguration` (deserializers.go),
+whose `switch` has only a `default` branch producing
+`smithy.GenericAPIError{Code: errorCode}` from whatever code the header/body
+resolved to, so an absent header/body type is indistinguishable from a
+deliberately-generic error at deserialize time. With neither set, both
+paths decoded client-side as `Code:"UnknownError"`.
+
+Fixed by setting `amznErrorTypeHeader` to `"BadRequestException"` before the
+malformed-body response and to `"NotFoundException"` before the
+unknown-operation response, matching `errType`'s
+`awserr.ErrInvalidParameter`/`awserr.ErrNotFound` mappings respectively (and
+the 400/404 statuses already in use).
+
+Proof: `handler_error_type_test.go` (new) drives a genuine
+`mediatailorsdk.Client` through smithy middleware that corrupts the
+outgoing request after normal serialization/signing --
+`TestPutPlaybackConfiguration_MalformedBodySurfacesBadRequestException`
+(corrupts the body) and
+`TestPutPlaybackConfiguration_UnrecognisedRouteSurfacesNotFoundException`
+(rewrites the request to `PATCH /playbackConfiguration/{name}`, a
+combination `isMediaTailorPath` accepts but `classifyPath` doesn't
+recognise). Both confirmed failing against the unfixed `handler.go`
+(asserted "UnknownError") via hand-revert, then restored byte-identical
+(md5sum-verified). Same bug class as the sibling medialive service
+(gopherstack-wlo1, this session) and the s3control/iot instances that
+opened gopherstack-wlo1.

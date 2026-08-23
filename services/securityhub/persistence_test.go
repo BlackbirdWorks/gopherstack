@@ -298,7 +298,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 
 	gotRecPolicy, err := b2.GetRecommendedPolicyV2(recPolicy.MetadataUid)
 	require.NoError(t, err)
-	assert.NotEmpty(t, gotRecPolicy.Policy)
+	assert.NotEmpty(t, gotRecPolicy.RecommendedPolicy)
 
 	// Hub V2 opt-in features.
 	gotHubV2, err := b2.DescribeSecurityHubV2()

@@ -209,9 +209,9 @@ func (h *AgentsHandler) handleDeleteDataSource(c *echo.Context, kbID, dsID strin
 	return c.JSON(
 		http.StatusOK,
 		map[string]any{
-			"dataSourceId":     dsID,
-			"knowledgeBaseId":  kbID,
-			"dataSourceStatus": "DELETING",
+			"dataSourceId":    dsID,
+			"knowledgeBaseId": kbID,
+			keyStatus:         statusDeleting,
 		},
 	)
 }

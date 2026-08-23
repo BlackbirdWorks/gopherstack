@@ -244,7 +244,7 @@ type CallAnalyticsSettings struct {
 
 // SummarizationSettings controls generative call summarization.
 type SummarizationSettings struct {
-	GenerateSummary bool `json:"GenerateSummary"`
+	GenerateAbstractiveSummary bool `json:"GenerateAbstractiveSummary"`
 }
 
 // CallAnalyticsRule is a rule in a call analytics category.

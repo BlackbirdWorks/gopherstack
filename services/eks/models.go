@@ -90,16 +90,20 @@ type ElasticLoadBalancingConfig struct {
 	Enabled bool `json:"enabled"`
 }
 
-// NetworkingConfig holds the EKS Auto Mode networking configuration.
-type NetworkingConfig struct {
-	ElasticLoadBalancing *ElasticLoadBalancingConfig `json:"elasticLoadBalancing,omitempty"`
-}
-
-// KubernetesNetworkConfig captures cluster networking parameters.
+// KubernetesNetworkConfig captures cluster networking parameters. The real
+// SDK's KubernetesNetworkConfigRequest/KubernetesNetworkConfigResponse
+// (eks@v1.90.4 types/types.go:1597,1645) both declare ElasticLoadBalancing as
+// a sibling of IpFamily/ServiceIpv4Cidr/ServiceIpv6Cidr under ONE
+// "kubernetesNetworkConfig" wire key -- there is no separate top-level
+// "networkingConfig" object in real AWS. gopherstack-tp8x: a prior version of
+// this type split ElasticLoadBalancing into a second, separately-named
+// top-level Cluster.NetworkingConfig field/JSON key that a real client never
+// reads or sends.
 type KubernetesNetworkConfig struct {
-	IPFamily        string `json:"ipFamily,omitempty"`
-	ServiceIPv4CIDR string `json:"serviceIpv4Cidr,omitempty"`
-	ServiceIPv6CIDR string `json:"serviceIpv6Cidr,omitempty"`
+	ElasticLoadBalancing *ElasticLoadBalancingConfig `json:"elasticLoadBalancing,omitempty"`
+	IPFamily             string                      `json:"ipFamily,omitempty"`
+	ServiceIPv4CIDR      string                      `json:"serviceIpv4Cidr,omitempty"`
+	ServiceIPv6CIDR      string                      `json:"serviceIpv6Cidr,omitempty"`
 }
 
 // ClusterLogEntry represents one log-type group in the structured logging config.
@@ -129,7 +133,6 @@ type Cluster struct {
 	AccessConfig            *AccessConfig            `json:"accessConfig,omitempty"`
 	ComputeConfig           *ComputeConfig           `json:"computeConfig,omitempty"`
 	StorageConfig           *StorageConfig           `json:"storageConfig,omitempty"`
-	NetworkingConfig        *NetworkingConfig        `json:"networkingConfig,omitempty"`
 	ConnectorConfig         *ConnectorConfig         `json:"connectorConfig,omitempty"`
 	ARN                     string                   `json:"arn"`
 	Name                    string                   `json:"name"`

@@ -374,6 +374,10 @@ func (h *Handler) handleInviteAccountToOrganization(c *echo.Context, body []byte
 		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "Target.Id is required")
 	}
 
+	if req.Target.Type == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "Target.Type is required")
+	}
+
 	hs, err := h.Backend.InviteAccountToOrganization(req.Target, req.Notes)
 	if err != nil {
 		return h.handleBackendError(c, err)
@@ -390,6 +394,10 @@ func (h *Handler) handleInviteOrganizationToTransferResponsibility(c *echo.Conte
 
 	if req.Target.ID == "" {
 		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "Target.Id is required")
+	}
+
+	if req.Target.Type == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "Target.Type is required")
 	}
 
 	if req.SourceName == "" {

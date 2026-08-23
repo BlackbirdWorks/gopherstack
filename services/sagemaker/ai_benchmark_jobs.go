@@ -352,19 +352,24 @@ func aiBenchmarkJobMatchesFilter(j *AIBenchmarkJob, params ListAIBenchmarkJobsPa
 	return true
 }
 
+// sortAIBenchmarkJobs orders list by sortBy/sortOrder. The op's own doc
+// (api_op_ListAIBenchmarkJobs.go:44,49) states real defaults of
+// CreationTime/Descending — the reverse of what an empty sortBy/sortOrder
+// would naively fall through to (Name/Ascending), so both defaults are
+// made explicit rather than left to a switch's zero-value default case.
 func sortAIBenchmarkJobs(list []*AIBenchmarkJob, sortBy, sortOrder string) {
-	desc := sortOrder == sortOrderDescending
+	desc := sortOrder != sortOrderAscending
 
 	sort.Slice(list, func(i, j int) bool {
 		var less bool
 
 		switch sortBy {
+		case keyGenericName:
+			less = list[i].AIBenchmarkJobName < list[j].AIBenchmarkJobName
 		case keyStatus:
 			less = list[i].AIBenchmarkJobStatus < list[j].AIBenchmarkJobStatus
-		case keyCreationTime:
-			less = list[i].CreationTime.Before(list[j].CreationTime)
 		default:
-			less = list[i].AIBenchmarkJobName < list[j].AIBenchmarkJobName
+			less = list[i].CreationTime.Before(list[j].CreationTime)
 		}
 
 		if desc {

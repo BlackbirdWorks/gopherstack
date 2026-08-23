@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -570,24 +571,45 @@ func TestStorageConfig_RoundTrip(t *testing.T) {
 	}
 }
 
+// TestNetworkingConfig_RoundTrip covers gopherstack-tp8x: the real
+// KubernetesNetworkConfigRequest/Response (eks@v1.90.4 types/types.go:1597,
+// 1645) both declare ElasticLoadBalancing as a sibling of ipFamily/
+// serviceIpv4Cidr/serviceIpv6Cidr under ONE "kubernetesNetworkConfig" key --
+// there is no separate top-level "networkingConfig" object in real AWS. A
+// real client's ElasticLoadBalancing setting must be sent inside
+// kubernetesNetworkConfig and is returned the same way.
 func TestNetworkingConfig_RoundTrip(t *testing.T) {
 	t.Parallel()
 
 	h := newTestEKSHandler(t)
 	rec := doREST(t, h, http.MethodPost, "/clusters", map[string]any{
 		"name": "net-cluster",
-		"networkingConfig": map[string]any{
+		"kubernetesNetworkConfig": map[string]any{
+			"ipFamily":             "ipv4",
 			"elasticLoadBalancing": map[string]any{"enabled": true},
 		},
 	})
-	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	createCluster := parseResp(t, rec)["cluster"].(map[string]any)
+	assert.NotContains(t, createCluster, "networkingConfig",
+		"ElasticLoadBalancing must not be echoed under a separate top-level key")
+
+	createNC, ok := createCluster["kubernetesNetworkConfig"].(map[string]any)
+	require.True(t, ok, "kubernetesNetworkConfig must be present")
+	assert.Equal(t, "ipv4", createNC["ipFamily"], "siblings of elasticLoadBalancing must still round-trip")
+	createELB := createNC["elasticLoadBalancing"].(map[string]any)
+	assert.Equal(t, true, createELB["enabled"])
 
 	desc := doREST(t, h, http.MethodGet, "/clusters/net-cluster", nil)
 	cluster := parseResp(t, desc)["cluster"].(map[string]any)
 
-	nc, ok := cluster["networkingConfig"].(map[string]any)
-	require.True(t, ok, "networkingConfig must be present")
-	elb := nc["elasticLoadBalancing"].(map[string]any)
+	assert.NotContains(t, cluster, "networkingConfig")
+
+	nc, ok := cluster["kubernetesNetworkConfig"].(map[string]any)
+	require.True(t, ok, "kubernetesNetworkConfig must be present")
+	elb, ok := nc["elasticLoadBalancing"].(map[string]any)
+	require.True(t, ok, "elasticLoadBalancing must live inside kubernetesNetworkConfig")
 	assert.Equal(t, true, elb["enabled"])
 }
 
@@ -974,4 +996,68 @@ func TestEKSBackendListAllClusters(t *testing.T) {
 
 	all := backend.ListAllClusters()
 	assert.Len(t, all, 2)
+}
+
+// TestDescribeClusterVpcConfigRace exercises DescribeCluster concurrently
+// with UpdateClusterConfig. DescribeCluster shallow-copies *Cluster
+// (cp := *c), which only copies the VpcConfig/AccessConfig pointers -- the
+// returned copy aliases the exact same *VpcConfig/*AccessConfig that
+// UpdateClusterConfig mutates in place under lock (c.VpcConfig.SubnetIDs =
+// ..., c.AccessConfig.AuthenticationMode = ...). Reading through the
+// returned copy's pointer races those in-place writes.
+func TestDescribeClusterVpcConfigRace(t *testing.T) {
+	t.Parallel()
+
+	b := eks.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
+	_, err := b.CreateCluster(
+		"vpc-race-cl", "1.31", "arn:aws:iam::123456789012:role/role",
+		&eks.VpcConfig{SubnetIDs: []string{"subnet-a"}}, nil, nil,
+	)
+	require.NoError(t, err)
+
+	const iterations = 2000
+
+	var wg sync.WaitGroup
+	wg.Add(3)
+
+	go func() {
+		defer wg.Done()
+
+		for range iterations {
+			c, describeErr := b.DescribeCluster("vpc-race-cl")
+			if describeErr != nil {
+				continue
+			}
+
+			if c.VpcConfig != nil {
+				_ = c.VpcConfig.SubnetIDs
+			}
+
+			if c.AccessConfig != nil {
+				_ = c.AccessConfig.AuthenticationMode
+			}
+		}
+	}()
+
+	go func() {
+		defer wg.Done()
+
+		for i := range iterations {
+			_, _ = b.UpdateClusterConfig("vpc-race-cl", eks.ClusterConfigUpdate{
+				SubnetIDs: []string{fmt.Sprintf("subnet-%d", i)},
+			})
+		}
+	}()
+
+	go func() {
+		defer wg.Done()
+
+		for range iterations {
+			_, _ = b.UpdateClusterConfig("vpc-race-cl", eks.ClusterConfigUpdate{
+				AccessConfig: &eks.AccessConfig{AuthenticationMode: "API"},
+			})
+		}
+	}()
+
+	wg.Wait()
 }

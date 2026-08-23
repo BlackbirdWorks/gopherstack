@@ -60,6 +60,7 @@ type InMemoryBackend struct {
 	associations               map[string]*store.Table[Association]
 	documentVersions           map[string]map[string][]DocumentVersion
 	documentPermissions        map[string]map[string][]string
+	documentSharedVersions     map[string]map[string]map[string]string
 	commands                   map[string]*store.Table[Command]
 	commandInvocations         map[string]map[string][]CommandInvocation
 	history                    map[string]map[string][]ParameterHistory
@@ -107,6 +108,7 @@ func NewInMemoryBackend() *InMemoryBackend {
 		documents:                  make(map[string]*store.Table[Document]),
 		documentVersions:           make(map[string]map[string][]DocumentVersion),
 		documentPermissions:        make(map[string]map[string][]string),
+		documentSharedVersions:     make(map[string]map[string]map[string]string),
 		commands:                   make(map[string]*store.Table[Command]),
 		commandInvocations:         make(map[string]map[string][]CommandInvocation),
 		activations:                make(map[string]*store.Table[Activation]),
@@ -302,6 +304,7 @@ func (b *InMemoryBackend) Reset() {
 	b.documents = make(map[string]*store.Table[Document])
 	b.documentVersions = make(map[string]map[string][]DocumentVersion)
 	b.documentPermissions = make(map[string]map[string][]string)
+	b.documentSharedVersions = make(map[string]map[string]map[string]string)
 	b.commands = make(map[string]*store.Table[Command])
 	b.commandInvocations = make(map[string]map[string][]CommandInvocation)
 	b.activations = make(map[string]*store.Table[Activation])
@@ -398,17 +401,19 @@ func (b *InMemoryBackend) Region() string { return defaultRegion }
 const (
 	automationStatusPending    = "Pending"
 	automationStatusInProgress = "InProgress"
-	automationStatusStopped    = "Stopped"
-	automationStatusSuccess    = "Success"
-	automationStatusFailed     = "Failed"
-	calendarStateOpen          = "OPEN"
-	policyIDPrefix             = "pol-"
-	previewIDPrefix            = "ep-"
-	connectionStatusConnected  = "connected"
-	settingStatusCustomized    = "Customized"
-	settingStatusDefault       = "Default"
-	platformTypeLinux          = "Linux"
-	mwExecutionScheduleHours   = 24
+	// automationStatusCancelled is the real AutomationExecutionStatus enum
+	// value (types/enums.go); there is no "Stopped" value in the real API.
+	automationStatusCancelled = "Cancelled"
+	automationStatusSuccess   = "Success"
+	automationStatusFailed    = "Failed"
+	calendarStateOpen         = "OPEN"
+	policyIDPrefix            = "pol-"
+	previewIDPrefix           = "ep-"
+	connectionStatusConnected = "connected"
+	settingStatusCustomized   = "Customized"
+	settingStatusDefault      = "Default"
+	platformTypeLinux         = "Linux"
+	mwExecutionScheduleHours  = 24
 )
 
 // timeNow is a variable so tests can override it.

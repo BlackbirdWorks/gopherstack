@@ -148,18 +148,20 @@ func (b *InMemoryBackend) ListWorkGroups(
 }
 
 // UpdateWorkGroup updates an existing workgroup.
+//
+// UpdateWorkGroupInput.ConfigurationUpdates is
+// types.WorkGroupConfigurationUpdates, a partial-update shape -- a real
+// client only ever sends the fields it's changing. Merging via
+// WorkGroupConfigurationUpdates.MergeInto (rather than wholesale-replacing
+// wg.Configuration) is what preserves every field the request didn't
+// mention (gopherstack-1vv2: previously any single-field update silently
+// erased the rest of the workgroup's configuration).
 func (b *InMemoryBackend) UpdateWorkGroup(
 	name, description, state string,
-	cfg *WorkGroupConfiguration,
+	cfg *WorkGroupConfigurationUpdates,
 ) error {
 	if err := validateWorkGroupState(state); err != nil {
 		return err
-	}
-
-	if cfg != nil {
-		if err := validateWorkGroupConfiguration(*cfg); err != nil {
-			return err
-		}
 	}
 
 	b.mu.Lock("UpdateWorkGroup")
@@ -170,16 +172,23 @@ func (b *InMemoryBackend) UpdateWorkGroup(
 		return fmt.Errorf("%w: workgroup %q not found", ErrNotFound, name)
 	}
 
+	if cfg != nil {
+		merged := wg.Configuration
+		cfg.MergeInto(&merged)
+
+		if err := validateWorkGroupConfiguration(merged); err != nil {
+			return err
+		}
+
+		wg.Configuration = merged
+	}
+
 	if description != "" {
 		wg.Description = description
 	}
 
 	if state != "" {
 		wg.State = state
-	}
-
-	if cfg != nil {
-		wg.Configuration = *cfg
 	}
 
 	return nil

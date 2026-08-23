@@ -153,9 +153,10 @@ func PutEventsForTest(b *InMemoryBackend, appID string, n int) error {
 		events[strconv.Itoa(i)] = eventItem{EventType: "custom"}
 	}
 
-	var req putEventsRequest
-	req.EventsRequest.BatchItem = map[string]endpointEvents{
-		"endpoint-1": {Events: events},
+	req := putEventsRequest{
+		BatchItem: map[string]endpointEvents{
+			"endpoint-1": {Events: events},
+		},
 	}
 
 	_, err := b.PutEvents(appID, req)

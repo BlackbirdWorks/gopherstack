@@ -5,6 +5,9 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	iotsdk "github.com/aws/aws-sdk-go-v2/service/iot"
+	"github.com/aws/aws-sdk-go-v2/service/iot/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -360,6 +363,36 @@ func TestHandler_ListTopicRules_ResponseFormat(t *testing.T) {
 	assert.Len(t, rulesSlice, 2)
 }
 
+// TestListTopicRules_RealSDKClient_TopicPatternKey proves ListTopicRules'
+// items key their MQTT topic topicPattern (types.TopicRuleListItem,
+// iot@v1.77.4 deserializers.go's
+// awsRestjson1_deserializeDocumentTopicRuleListItem: createdAt/ruleArn/
+// ruleDisabled/ruleName/topicPattern -- no "sql" member at all), not "sql"
+// -- the correct key for GetTopicRule's DIFFERENT full TopicRule shape.
+// Before this fix every real client's TopicRuleListItem.TopicPattern
+// decoded empty.
+func TestListTopicRules_RealSDKClient_TopicPatternKey(t *testing.T) {
+	t.Parallel()
+
+	h := iot.NewHandler(iot.NewInMemoryBackend(), nil)
+	client := newTestIoTClient(t, h)
+	ctx := t.Context()
+
+	_, err := client.CreateTopicRule(ctx, &iotsdk.CreateTopicRuleInput{
+		RuleName: aws.String("pattern-rule"),
+		TopicRulePayload: &types.TopicRulePayload{
+			Sql:     aws.String("SELECT * FROM 'devices/+/telemetry'"),
+			Actions: []types.Action{},
+		},
+	})
+	require.NoError(t, err)
+
+	listOut, err := client.ListTopicRules(ctx, &iotsdk.ListTopicRulesInput{})
+	require.NoError(t, err)
+	require.Len(t, listOut.Rules, 1)
+	assert.Equal(t, "devices/+/telemetry", aws.ToString(listOut.Rules[0].TopicPattern))
+}
+
 func TestHandler_GetTopicRule_IncludesAWSSQLVersion(t *testing.T) {
 	t.Parallel()
 
@@ -575,6 +608,47 @@ func TestTopicRulePayloadWrapper(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestTopicRuleDestinationHTTPURLProperties checks that
+// Create/Get/ListTopicRuleDestination all surface the HTTP URL sub-object
+// the backend already tracks (types.TopicRuleDestination.HttpUrlProperties /
+// types.TopicRuleDestinationSummary.HttpUrlSummary, iot@v1.77.4) instead of
+// dropping it.
+func TestTopicRuleDestinationHTTPURLProperties(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newRefHandler()
+
+	createOut := iotOK(t, h, http.MethodPost, "/destinations", map[string]any{
+		"destinationConfiguration": map[string]any{
+			"httpUrlConfiguration": map[string]any{
+				"confirmationUrl": "https://example.com/confirm",
+			},
+		},
+	})
+	createDest, _ := createOut["topicRuleDestination"].(map[string]any)
+	require.NotNil(t, createDest)
+	createProps, _ := createDest["httpUrlProperties"].(map[string]any)
+	require.NotNil(t, createProps, "expected httpUrlProperties on CreateTopicRuleDestination, got %v", createDest)
+	assert.Equal(t, "https://example.com/confirm", createProps["confirmationUrl"])
+
+	arnVal, _ := createDest["arn"].(string)
+	require.NotEmpty(t, arnVal)
+
+	getOut := iotOK(t, h, http.MethodGet, "/destinations/"+arnVal, nil)
+	getDest, _ := getOut["topicRuleDestination"].(map[string]any)
+	getProps, _ := getDest["httpUrlProperties"].(map[string]any)
+	require.NotNil(t, getProps, "expected httpUrlProperties on GetTopicRuleDestination, got %v", getDest)
+	assert.Equal(t, "https://example.com/confirm", getProps["confirmationUrl"])
+
+	listOut := iotOK(t, h, http.MethodGet, "/destinations", nil)
+	summaries, _ := listOut["destinationSummaries"].([]any)
+	require.Len(t, summaries, 1)
+	summary, _ := summaries[0].(map[string]any)
+	summaryProps, _ := summary["httpUrlSummary"].(map[string]any)
+	require.NotNil(t, summaryProps, "expected httpUrlSummary on ListTopicRuleDestinations, got %v", summary)
+	assert.Equal(t, "https://example.com/confirm", summaryProps["confirmationUrl"])
 }
 
 func TestConfirmTopicRuleDestination(t *testing.T) {

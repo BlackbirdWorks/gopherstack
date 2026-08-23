@@ -406,7 +406,7 @@ func TestCloudWatchLogsBackend_UpdateAnomaly(t *testing.T) {
 				arn = tt.setup(t, b)
 			}
 
-			err := b.UpdateAnomaly(tt.anomalyID, arn, tt.suppressionType)
+			err := b.UpdateAnomaly(tt.anomalyID, arn, tt.suppressionType, "")
 
 			if tt.wantErr != nil {
 				require.ErrorIs(t, err, tt.wantErr)
@@ -429,7 +429,7 @@ func TestCloudWatchLogsBackend_UpdateAnomaly(t *testing.T) {
 				// suppressionType ends the suppression -- this is the bug
 				// this test's name refers to (a previous revision treated
 				// the empty string as "still suppressed").
-				require.NoError(t, b.UpdateAnomaly(tt.anomalyID, arn, ""))
+				require.NoError(t, b.UpdateAnomaly(tt.anomalyID, arn, "", ""))
 				cleared, _, clearErr := b.ListAnomalies(arn, 10, "")
 				require.NoError(t, clearErr)
 				require.Len(t, cleared, 1)

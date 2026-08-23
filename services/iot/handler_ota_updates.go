@@ -51,6 +51,8 @@ func (h *Handler) handleCreateOTAUpdate(c *echo.Context) error {
 		"otaUpdateId":     o.OTAUpdateID,
 		"otaUpdateArn":    o.OTAUpdateARN,
 		"otaUpdateStatus": o.Status,
+		"awsIotJobId":     o.AWSIoTJobID,
+		"awsIotJobArn":    o.AWSIoTJobARN,
 	})
 }
 
@@ -78,8 +80,9 @@ func (h *Handler) handleListOTAUpdates(c *echo.Context) error {
 	summaries := make([]map[string]any, len(items))
 	for i, o := range items {
 		summaries[i] = map[string]any{
-			"otaUpdateId":  o.OTAUpdateID,
-			"otaUpdateArn": o.OTAUpdateARN,
+			"otaUpdateId":   o.OTAUpdateID,
+			"otaUpdateArn":  o.OTAUpdateARN,
+			keyCreationDate: o.CreationDate,
 		}
 	}
 

@@ -7,7 +7,7 @@
 
 | Metric | Value |
 | --- | --- |
-| Operations audited | 34 (33 ok, 1 partial) |
+| PARITY entries audited | 34 (33 ok, 1 partial) |
 | Feature families | 7 (7 ok) |
 | Known gaps | 7 |
 | Deferred items | 1 |

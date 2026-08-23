@@ -141,32 +141,40 @@ func (h *Handler) stopJob(ctx context.Context, c *echo.Context, appID, branchNam
 type jobSummaryView struct {
 	JobID      string  `json:"jobId"`
 	JobARN     string  `json:"jobArn"`
-	CommitID   string  `json:"commitId,omitempty"`
-	CommitMsg  string  `json:"commitMessage,omitempty"`
+	CommitID   string  `json:"commitId"`
+	CommitMsg  string  `json:"commitMessage"`
 	Status     string  `json:"status"`
 	Type       string  `json:"jobType"`
 	StartTime  float64 `json:"startTime"`
 	EndTime    float64 `json:"endTime,omitempty"`
-	CommitTime float64 `json:"commitTime,omitempty"`
+	CommitTime float64 `json:"commitTime"`
 }
 
+// toJobSummaryView converts j to its wire shape. CommitTime is a required
+// response member; for a job with no real Git commit metadata (e.g. a
+// manually deployed app, or a RETRY that named no commit of its own) it
+// falls back to the job's own StartTime, the same "still needs *a* value"
+// convention toStepViews already applies to a still-running step's EndTime,
+// rather than dropping the required key.
 func toJobSummaryView(j *Job) jobSummaryView {
+	commitTime := j.CommitTime
+	if commitTime.IsZero() {
+		commitTime = j.StartTime
+	}
+
 	v := jobSummaryView{
-		StartTime: float64(j.StartTime.Unix()),
-		JobID:     j.JobID,
-		JobARN:    j.JobARN,
-		CommitID:  j.CommitID,
-		CommitMsg: j.CommitMsg,
-		Status:    string(j.Status),
-		Type:      string(j.Type),
+		StartTime:  float64(j.StartTime.Unix()),
+		JobID:      j.JobID,
+		JobARN:     j.JobARN,
+		CommitID:   j.CommitID,
+		CommitMsg:  j.CommitMsg,
+		Status:     string(j.Status),
+		Type:       string(j.Type),
+		CommitTime: float64(commitTime.Unix()),
 	}
 
 	if !j.EndTime.IsZero() {
 		v.EndTime = float64(j.EndTime.Unix())
-	}
-
-	if !j.CommitTime.IsZero() {
-		v.CommitTime = float64(j.CommitTime.Unix())
 	}
 
 	return v

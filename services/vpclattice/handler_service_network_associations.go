@@ -13,12 +13,7 @@ func (h *Handler) handleCreateSNSA(c *echo.Context, body map[string]any) error {
 	svcID, _ := body["serviceIdentifier"].(string)
 
 	if snID == "" || svcID == "" {
-		return c.JSON(
-			http.StatusBadRequest,
-			map[string]any{
-				keyMessage: "serviceNetworkIdentifier and serviceIdentifier are required",
-			},
-		)
+		return validationError(c, "serviceNetworkIdentifier and serviceIdentifier are required")
 	}
 
 	ctx := c.Request().Context()
@@ -87,10 +82,7 @@ func (h *Handler) handleCreateSNVA(c *echo.Context, body map[string]any) error {
 	vpcID, _ := body[keyVpcIdentifier].(string)
 
 	if snID == "" || vpcID == "" {
-		return c.JSON(
-			http.StatusBadRequest,
-			map[string]any{keyMessage: "serviceNetworkIdentifier and vpcIdentifier are required"},
-		)
+		return validationError(c, "serviceNetworkIdentifier and vpcIdentifier are required")
 	}
 
 	var sgs []string

@@ -136,13 +136,13 @@ type StorageBackend interface {
 
 	// Analyses
 	CreateAnalysis(
-		accountID, analysisID, name string,
+		accountID, analysisID, name, themeArn string,
 		definition map[string]any,
 		permissions []ResourcePermission,
 		tags map[string]string,
 	) (*Analysis, error)
 	DescribeAnalysis(accountID, analysisID string) (*Analysis, error)
-	UpdateAnalysis(accountID, analysisID, name string, definition map[string]any) (*Analysis, error)
+	UpdateAnalysis(accountID, analysisID, name, themeArn string, definition map[string]any) (*Analysis, error)
 	DeleteAnalysis(accountID, analysisID string, forceDeleteWithoutRecovery bool) error
 	ListAnalyses(accountID string, maxResults int32, nextToken string) ([]*Analysis, string, error)
 	RestoreAnalysis(accountID, analysisID string) (*Analysis, error)

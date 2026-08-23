@@ -226,16 +226,83 @@ func (h *Handler) handleDeleteIntegration(
 	return struct{}{}, nil
 }
 
+type disassociateSourceFromS3TableIntegrationInput struct {
+	Identifier string `json:"identifier"`
+}
+
+type disassociateSourceFromS3TableIntegrationOutput struct {
+	Identifier string `json:"identifier,omitempty"`
+}
+
 func (h *Handler) handleDisassociateSourceFromS3TableIntegration(
 	ctx context.Context, //nolint:revive // existing issue.
-	_ []byte,
+	body []byte,
 ) (any, error) {
-	return struct{}{}, nil
+	var in disassociateSourceFromS3TableIntegrationInput
+	if err := json.Unmarshal(body, &in); err != nil {
+		return nil, fmt.Errorf("%w: invalid JSON: %w", ErrValidation, err)
+	}
+
+	if err := h.Backend.DisassociateSourceFromS3TableIntegration(in.Identifier); err != nil {
+		return nil, err
+	}
+
+	return &disassociateSourceFromS3TableIntegrationOutput{Identifier: in.Identifier}, nil
+}
+
+type listSourcesForS3TableIntegrationInput struct {
+	IntegrationArn string `json:"integrationArn"`
+	NextToken      string `json:"nextToken"`
+	MaxResults     int    `json:"maxResults"`
+}
+
+// s3TableIntegrationSourceWireShape maps a stored association to
+// types.S3TableIntegrationSource's shape (createdTimeStamp/dataSource/
+// identifier/status; parentSourceIdentifier and statusReason are always
+// omitted -- this backend does not model nested associations or a failure
+// reason, and every association is unconditionally ACTIVE).
+func s3TableIntegrationSourceWireShape(e *s3TableIntegrationEntry) map[string]any {
+	return map[string]any{
+		"createdTimeStamp": e.CreatedTimeStamp,
+		"dataSource": map[string]any{
+			"name": e.DataSourceName,
+			"type": e.DataSourceType,
+		},
+		"identifier": e.ID,
+		"status":     "ACTIVE",
+	}
 }
 
 func (h *Handler) handleListSourcesForS3TableIntegration(
 	ctx context.Context, //nolint:revive // existing issue.
-	_ []byte,
+	body []byte,
 ) (any, error) {
-	return map[string]any{"sources": []any{}}, nil
+	var input listSourcesForS3TableIntegrationInput
+	if err := json.Unmarshal(body, &input); err != nil {
+		return nil, fmt.Errorf("%w: invalid JSON: %w", ErrValidation, err)
+	}
+
+	b := cwlBackend(h)
+	if b == nil {
+		return map[string]any{"sources": []any{}}, nil
+	}
+
+	sources, nextToken, err := b.ListSourcesForS3TableIntegration(
+		input.IntegrationArn, input.NextToken, input.MaxResults,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]map[string]any, 0, len(sources))
+	for i := range sources {
+		out = append(out, s3TableIntegrationSourceWireShape(&sources[i]))
+	}
+
+	resp := map[string]any{"sources": out}
+	if nextToken != "" {
+		resp["nextToken"] = nextToken
+	}
+
+	return resp, nil
 }

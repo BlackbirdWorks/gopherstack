@@ -6,9 +6,11 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: codeconnections
 sdk_module: aws-sdk-go-v2/service/codeconnections@v1.13.4   # version audited against; go.mod pin as of this pass (was stale at v1.10.22)
-last_audit_commit: b451ad0d6+wt                   # HEAD at the start of this pass; this pass's changes are uncommitted working-tree changes on top (git-mutating commands unavailable to this pass). NOTE: the PREVIOUS value, 749ff939, is dated 2026-07-13 while that manifest's own last_audit_date read 2026-08-10 -- four weeks apart, so it cannot have been HEAD when written. That is the real tell, and the check is `git show -s --format=%ad <sha>` against last_audit_date. It is NOT enough that a sha touches another service: this field means HEAD-at-write-time, and codestarconnections was wrongly accused this same session on that weaker test (gopherstack-z31a).
+last_audit_commit: 749ff939                       # HEAD when this manifest was PREVIOUSLY written; this pass's changes are uncommitted working-tree changes on top (git commands unavailable to this pass)
 last_audit_date: 2026-08-19
-overall: A            # this pass found and fixed 3 wrapper-key/nested-shape wire bugs (GetHost x4 fields, ListHosts Tags, GetConnection+ListConnections Tags) that the prior A grade had missed entirely -- see ops notes below and the 2026-08-19 section in Notes. Grade restored to A only because all three are now fixed and proven by hand-revert; the prior A was not honest at the time it was written.
+overall: A            # true-parity pass: closed every gaps/deferred item from the prior audit, plus new
+                       # wire/error-shape bugs found while field-diffing. 2026-08-19 pass found and fixed
+                       # 3 additional wrapper-key/nested-shape wire bugs (GetHost x4 fields, ListHosts Tags, GetConnection+ListConnections Tags) that the prior A grade had missed entirely -- see ops notes below and the 2026-08-19 section in Notes. Grade restored to A only because all three are now fixed and proven by hand-revert; the prior A was not honest at the time it was written.
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
@@ -169,6 +171,36 @@ leaks: {status: clean, note: "no goroutines/janitors in this service; all state 
   `validProviderTypes`/`validSyncTypes` pattern already used elsewhere in this
   service.
 
+- 2026-08-21 (gopherstack-r80d batch 23, required-OUTPUT-member cut): read all
+  14 ops-with-required (15 required fields total, tied with
+  codestarconnections/awsconfig as the largest remaining candidates after
+  sagemaker) end to end against `aws-sdk-go-v2/service/codeconnections@
+  v1.13.4`'s `api_op_*.go`, plus every nested domain struct one level deeper
+  (`RepositoryLinkInfo`, `SyncConfiguration`, `SyncBlockerSummary`/
+  `SyncBlocker`, `RepositorySyncDefinition`, `ResourceSyncAttempt`/
+  `RepositorySyncAttempt`, `Revision`, `ResourceSyncEvent`/
+  `RepositorySyncEvent`) against `types/types.go` directly -- this service's
+  `GetResourceSyncStatus`/`GetRepositorySyncStatus` are the "one wrapper key"
+  shape (`LatestSync` wraps a whole `ResourceSyncAttempt`/
+  `RepositorySyncAttempt`), so the flat op-level count undercounts
+  substantially; `handler_repository_sync.go`'s own doc comments record that a
+  prior pass already closed this exact gap
+  (`InitialRevision`/`Target`/`TargetRevision` "were previously missing
+  entirely from this response shape"), confirmed still correctly wired this
+  pass. 0 new bugs. One tagged-`omitempty`-on-a-required-member reviewed and
+  ruled out: `repositorySyncDefinitionItem.Parent` (wire member of
+  `RepositorySyncDefinition`, required) is tagged `omitempty`, but its only
+  value source is `SyncConfiguration.ResourceName`, which
+  `handleCreateSyncConfiguration`/`handleUpdateSyncConfiguration` both reject
+  as empty via `ErrValidation` before any `SyncConfiguration` (and therefore
+  any `RepositorySyncDefinition`) is ever stored -- the real SDK's own
+  client-side validator only rejects a nil `ResourceName` pointer, not an
+  empty string (`validateOpCreateSyncConfigurationInput`,
+  `aws-sdk-go-v2/service/codeconnections@v1.13.4/validators.go:722-748`), so
+  this backend is stricter than real AWS and the empty state is genuinely
+  unreachable through it -- same "stricter than real AWS, unreachable" class
+  `batch` (service) named for `QuotaShareCapacityLimit.CapacityUnit`.
+  services/_REQUIRED_OUTPUT_CANDIDATES.md updated.
 ## 2026-08-19 wrapper-key/nested-shape sweep
 
 The prior pass's `overall: A` was awarded while three separate "generalized

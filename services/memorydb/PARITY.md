@@ -1,7 +1,7 @@
 ---
 service: memorydb
 sdk_module: aws-sdk-go-v2/service/memorydb@v1.36.4
-last_audit_commit: PENDING   # gopherstack-6flj wrapper-key/nested-shape sweep -- orchestrator sets on commit
+last_audit_commit:                                # unknown: gopherstack-6flj wrapper-key/nested-shape sweep pass ran without git access at write time, never backfilled -- gopherstack-33in
 last_audit_date: 2026-08-15
 overall: A            # 2026-08-15 (gopherstack-6flj): wrapper-key/nested-shape sweep of all 18 L+D+G ops
                        # (scripted key extraction against deserializers.go/serializers.go for all 18

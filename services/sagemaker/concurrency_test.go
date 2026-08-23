@@ -52,7 +52,7 @@ func TestBackendConcurrentReadWriteNoRace(t *testing.T) {
 					_, _ = backend.CreateEndpointConfig(ctx, ecName, nil, nil)
 
 					epName := fmt.Sprintf("ep-%s-%d-%d", region, w, i)
-					_, _ = backend.CreateEndpoint(ctx, epName, ecName, nil)
+					_, _ = backend.CreateEndpoint(ctx, CreateEndpointOptions{Name: epName, EndpointConfigName: ecName})
 
 					tjName := fmt.Sprintf("tj-%s-%d-%d", region, w, i)
 					_, _ = backend.CreateTrainingJob(
@@ -63,9 +63,9 @@ func TestBackendConcurrentReadWriteNoRace(t *testing.T) {
 
 			wg.Go(func() {
 				for i := range opsPerWorker {
-					_, _ = backend.ListModels(ctx, "")
-					_, _ = backend.ListEndpoints(ctx, "")
-					_, _ = backend.ListEndpointConfigs(ctx, "")
+					_, _ = backend.ListModels(ctx, "", nameTimeFilter{})
+					_, _ = backend.ListEndpoints(ctx, ListEndpointsFilter{})
+					_, _ = backend.ListEndpointConfigs(ctx, "", nameTimeFilter{})
 					_, _ = backend.ListTrainingJobs(ctx, "")
 					_, _ = backend.DescribeModel(ctx, fmt.Sprintf("model-%s-%d-%d", region, w, i))
 				}
@@ -78,9 +78,9 @@ func TestBackendConcurrentReadWriteNoRace(t *testing.T) {
 	for range workersPerRegion {
 		wg.Go(func() {
 			for range opsPerWorker {
-				_, _ = backend.ListModels(readOnlyCtx, "")
-				_, _ = backend.ListEndpoints(readOnlyCtx, "")
-				_, _ = backend.ListEndpointConfigs(readOnlyCtx, "")
+				_, _ = backend.ListModels(readOnlyCtx, "", nameTimeFilter{})
+				_, _ = backend.ListEndpoints(readOnlyCtx, ListEndpointsFilter{})
+				_, _ = backend.ListEndpointConfigs(readOnlyCtx, "", nameTimeFilter{})
 				_, _ = backend.ListTrainingJobs(readOnlyCtx, "")
 				_, _ = backend.DescribeModel(readOnlyCtx, "does-not-exist")
 			}

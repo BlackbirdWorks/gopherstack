@@ -327,18 +327,21 @@ func (h *DynamoDBHandler) Handler() echo.HandlerFunc {
 		}
 
 		if c.Request().Method != http.MethodPost {
-			return c.String(http.StatusMethodNotAllowed, "Method not allowed")
+			return writeDynamoDBDispatchError(c, http.StatusMethodNotAllowed,
+				"UnknownOperationException", "Method not allowed")
 		}
 
 		target := c.Request().Header.Get("X-Amz-Target")
 		if target == "" {
-			return c.String(http.StatusBadRequest, "Missing X-Amz-Target")
+			return writeDynamoDBDispatchError(c, http.StatusBadRequest,
+				"UnknownOperationException", "Missing X-Amz-Target")
 		}
 
 		const targetParts = 2
 		parts := strings.Split(target, ".")
 		if len(parts) != targetParts {
-			return c.String(http.StatusBadRequest, "Invalid X-Amz-Target")
+			return writeDynamoDBDispatchError(c, http.StatusBadRequest,
+				"UnknownOperationException", "Invalid X-Amz-Target")
 		}
 		action := parts[1]
 
@@ -358,7 +361,8 @@ func (h *DynamoDBHandler) Handler() echo.HandlerFunc {
 		if err != nil {
 			log.ErrorContext(ctx, "failed to read request body", "error", err)
 
-			return c.String(http.StatusInternalServerError, "internal server error")
+			return writeDynamoDBDispatchError(c, http.StatusInternalServerError,
+				"InternalFailure", "internal server error")
 		}
 
 		log.DebugContext(ctx, "DynamoDB request", "action", action, "body", string(body))
@@ -372,7 +376,8 @@ func (h *DynamoDBHandler) Handler() echo.HandlerFunc {
 		if err != nil {
 			log.ErrorContext(ctx, "failed to marshal JSON response", "error", err)
 
-			return c.String(http.StatusInternalServerError, "internal server error")
+			return writeDynamoDBDispatchError(c, http.StatusInternalServerError,
+				"InternalFailure", "internal server error")
 		}
 
 		checksum := crc32.ChecksumIEEE(payload)
@@ -848,6 +853,27 @@ func validateTableNameFromBody(body []byte) error {
 	}
 
 	return validateTableName(req.TableName)
+}
+
+// writeDynamoDBDispatchError writes a JSON-RPC 1.0 error envelope for a
+// failure in Handler() itself (bad method, missing/malformed X-Amz-Target,
+// body-read or marshal failure) -- framework-level errors that never reach
+// dispatch/handleError. These previously went out as bare text/plain, which
+// smithy-go's JSON-RPC error decoder (aws-sdk-go-v2@v1.43.4
+// aws/protocol/restjson.GetErrorInfo, __type/message) cannot read: every
+// such response reached a client as smithy.GenericAPIError{Code:"UnknownError"}
+// (gopherstack-wlo1).
+func writeDynamoDBDispatchError(c *echo.Context, status int, errType, message string) error {
+	body, err := json.Marshal(service.JSONErrorResponse{Type: errType, Message: message})
+	if err != nil {
+		return err
+	}
+
+	checksum := crc32.ChecksumIEEE(body)
+	c.Response().Header().Set("X-Amz-Crc32", strconv.FormatUint(uint64(checksum), 10))
+	c.Response().Header().Set("Content-Type", "application/x-amz-json-1.0")
+
+	return c.JSONBlob(status, body)
 }
 
 func (h *DynamoDBHandler) handleError(

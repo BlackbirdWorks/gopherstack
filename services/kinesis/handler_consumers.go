@@ -17,8 +17,9 @@ import (
 )
 
 type jsonRegisterStreamConsumerReq struct {
-	StreamARN    string `json:"StreamARN"`
-	ConsumerName string `json:"ConsumerName"`
+	Tags         map[string]string `json:"Tags,omitempty"`
+	StreamARN    string            `json:"StreamARN"`
+	ConsumerName string            `json:"ConsumerName"`
 }
 
 // jsonConsumer mirrors types.Consumer (deserializers.go:6279-6349): it has no
@@ -129,6 +130,7 @@ func (h *Handler) handleRegisterStreamConsumer(
 	out, err := h.Backend.RegisterStreamConsumer(ctx, &RegisterStreamConsumerInput{
 		StreamARN:    req.StreamARN,
 		ConsumerName: req.ConsumerName,
+		Tags:         req.Tags,
 	})
 	if err != nil {
 		return nil, err
@@ -297,7 +299,7 @@ func (h *Handler) handleSubscribeToShardHTTP(c *echo.Context) error {
 	if err != nil {
 		log.ErrorContext(ctx, "SubscribeToShard: failed to read body", "error", err)
 
-		return c.String(http.StatusInternalServerError, "internal server error")
+		return h.handleError(ctx, c, "SubscribeToShard", err)
 	}
 
 	var req jsonSubscribeToShardReq
@@ -343,11 +345,20 @@ func (h *Handler) handleSubscribeToShardHTTP(c *echo.Context) error {
 	}
 
 	deadline := time.Now().Add(subscribeToShardStreamDuration)
-	ticker := time.NewTicker(subscribeToShardPollInterval)
-	defer ticker.Stop()
-
 	curSP := sp
 	idlePolls := 0
+
+	// Check immediately: a consumer commonly subscribes (e.g. TRIM_HORIZON)
+	// after data was already written, and delivering it here avoids making
+	// that first event wait on the poll interval's next tick.
+	if stop, next := h.advanceShardCursor(ctx, req, curSP, c.Response(), flusher, canFlush, &idlePolls); stop {
+		return nil
+	} else if next != nil {
+		curSP = *next
+	}
+
+	ticker := time.NewTicker(subscribeToShardPollInterval)
+	defer ticker.Stop()
 
 	for {
 		select {

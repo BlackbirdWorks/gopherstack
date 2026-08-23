@@ -98,6 +98,29 @@ func (b *InMemoryBackend) GetWebACL(ctx context.Context, id string) (*WebACL, er
 	return cloneWebACL(w), nil
 }
 
+// GetWebACLByARN returns a WebACL by ARN. Real GetWebACLInput
+// (wafv2@v1.77.3 api_op_GetWebACL.go) accepts ARN as an alternative to
+// Name+Scope+Id -- none of the four members is marked required, since
+// exactly one addressing mode is used per call -- gopherstack-4ly2.
+func (b *InMemoryBackend) GetWebACLByARN(ctx context.Context, webACLARN string) (*WebACL, error) {
+	b.mu.RLock("GetWebACLByARN")
+	defer b.mu.RUnlock()
+
+	region := getRegion(ctx, b.region)
+
+	id, ok := b.webACLIDByARNInRegion(webACLARN, region)
+	if !ok {
+		return nil, fmt.Errorf("%w: web ACL %q not found", ErrWebACLNotFound, webACLARN)
+	}
+
+	w, ok := b.lookupWebACLByID(region, id)
+	if !ok {
+		return nil, fmt.Errorf("%w: web ACL %q not found", ErrWebACLNotFound, webACLARN)
+	}
+
+	return cloneWebACL(w), nil
+}
+
 // UpdateWebACL updates a WebACL by ID.
 func (b *InMemoryBackend) UpdateWebACL(
 	ctx context.Context,

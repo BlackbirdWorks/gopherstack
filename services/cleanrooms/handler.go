@@ -357,14 +357,14 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 		op, _ := classifyPath(c.Request().Method, c.Request().URL.Path)
 		if op == opUnknown {
-			return c.String(http.StatusNotFound, "not found")
+			return h.handleError(c, ErrNotFound)
 		}
 
 		body, err := httputils.ReadBody(c.Request())
 		if err != nil {
 			log.ErrorContext(ctx, "cleanrooms: failed to read request body", "error", err)
 
-			return c.String(http.StatusInternalServerError, "internal server error")
+			return h.handleError(c, err)
 		}
 
 		// Inject path parameters into body for handlers.

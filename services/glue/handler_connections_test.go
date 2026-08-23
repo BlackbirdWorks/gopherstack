@@ -69,6 +69,7 @@ func TestGetEntityRecords_ValidConnection(t *testing.T) {
 	rec := doGlueRequest(t, h, "GetEntityRecords", map[string]any{
 		"ConnectionName": "sfconn",
 		"EntityName":     "Account",
+		"Limit":          10,
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -89,6 +90,7 @@ func TestGetEntityRecords_ValidConnection(t *testing.T) {
 	missRec := doGlueRequest(t, h, "GetEntityRecords", map[string]any{
 		"ConnectionName": "sfconn",
 		"EntityName":     "DoesNotExist",
+		"Limit":          10,
 	})
 	assert.Equal(t, http.StatusBadRequest, missRec.Code)
 	assert.Contains(t, missRec.Body.String(), "EntityNotFoundException")

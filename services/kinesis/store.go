@@ -68,6 +68,27 @@ func streamNameFromARN(streamARN string) string {
 	return strings.TrimPrefix(parts[arnResourceIdx], "stream/")
 }
 
+// resolveStreamNameAndRegion resolves the target stream name and per-request
+// region for an op accepting either StreamName or StreamARN. AWS documents,
+// on every op in this family (AddTagsToStream/RemoveTagsFromStream/
+// ListTagsForStream/IncreaseStreamRetentionPeriod/DecreaseStreamRetentionPeriod/
+// ListShards/EnableEnhancedMonitoring/DisableEnhancedMonitoring/
+// UpdateShardCount), "you must use either the StreamARN or the StreamName
+// parameter, or both... It is recommended that you use the StreamARN input
+// parameter" -- StreamARN is authoritative for both when supplied, mirroring
+// the ARN-resolution pattern already used at the backend layer by
+// MergeShards/SplitShard/StartStreamEncryption/UpdateStreamMode.
+func resolveStreamNameAndRegion(
+	ctx context.Context,
+	streamName, streamARN, defaultRegion string,
+) (string, context.Context) {
+	if streamName == "" && streamARN != "" {
+		streamName = streamNameFromARN(streamARN)
+	}
+
+	return streamName, contextWithRegion(ctx, regionFromARNOrCtx(ctx, streamARN, defaultRegion))
+}
+
 // kinesisThrottleFault holds the state of an active FIS throughput-exception fault on a stream.
 type kinesisThrottleFault struct {
 	expiry      time.Time

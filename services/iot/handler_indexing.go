@@ -108,7 +108,7 @@ func (h *Handler) handleUpdateIndexingConfiguration(c *echo.Context) error {
 	}
 
 	if err := decodeJSONBody(c, &body); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
+		return c.JSON(http.StatusBadRequest, awsErrBody{errTypeInvalidRequest, err.Error()})
 	}
 
 	if err := h.Backend.UpdateIndexingConfiguration(&UpdateIndexingConfigurationInput{
@@ -168,7 +168,7 @@ func (h *Handler) handleSearchIndex(c *echo.Context) error {
 	}
 
 	if err := decodeJSONBody(c, &body); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
+		return c.JSON(http.StatusBadRequest, awsErrBody{errTypeInvalidRequest, err.Error()})
 	}
 
 	out, err := h.Backend.SearchIndex(&SearchIndexInput{
@@ -214,7 +214,7 @@ type aggregationRequestBody struct {
 func (h *Handler) handleGetCardinality(c *echo.Context) error {
 	var body aggregationRequestBody
 	if err := decodeJSONBody(c, &body); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
+		return c.JSON(http.StatusBadRequest, awsErrBody{errTypeInvalidRequest, err.Error()})
 	}
 
 	cardinality, err := h.Backend.GetCardinality(&AggregationInput{
@@ -232,7 +232,7 @@ func (h *Handler) handleGetCardinality(c *echo.Context) error {
 func (h *Handler) handleGetStatistics(c *echo.Context) error {
 	var body aggregationRequestBody
 	if err := decodeJSONBody(c, &body); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
+		return c.JSON(http.StatusBadRequest, awsErrBody{errTypeInvalidRequest, err.Error()})
 	}
 
 	stats, err := h.Backend.GetStatistics(&AggregationInput{
@@ -261,7 +261,7 @@ func (h *Handler) handleGetStatistics(c *echo.Context) error {
 func (h *Handler) handleGetPercentiles(c *echo.Context) error {
 	var body aggregationRequestBody
 	if err := decodeJSONBody(c, &body); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
+		return c.JSON(http.StatusBadRequest, awsErrBody{errTypeInvalidRequest, err.Error()})
 	}
 
 	percentiles, err := h.Backend.GetPercentiles(&PercentilesInput{
@@ -287,7 +287,7 @@ func (h *Handler) handleGetPercentiles(c *echo.Context) error {
 func (h *Handler) handleGetBucketsAggregation(c *echo.Context) error {
 	var body aggregationRequestBody
 	if err := decodeJSONBody(c, &body); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
+		return c.JSON(http.StatusBadRequest, awsErrBody{errTypeInvalidRequest, err.Error()})
 	}
 
 	buckets, err := h.Backend.GetBucketsAggregation(&BucketsAggregationInput{

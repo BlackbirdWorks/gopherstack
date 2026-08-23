@@ -5,8 +5,7 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: rds
 sdk_module: aws-sdk-go-v2/service/rds@v1.124.1
-last_audit_commit: PENDING_COMMIT  # working tree not committed by this pass (git use was out of
-                                    # scope); set to the actual commit hash when this diff lands.
+last_audit_commit:                                # unknown: pass ran without git access at write time (git use was out of scope), never backfilled -- gopherstack-33in
 last_audit_date: 2026-07-25
 overall: A              # RESTORED A->A (gopherstack-vhw2 strict-phantom-check pass, 2026-08-05):
                        # both defects behind the 2026-07-31 A->A- downgrade (recorded verbatim
@@ -165,7 +164,7 @@ ops:
   ModifyDBRecommendation: {wire: ok, errors: ok, state: ok, persist: ok, note: "verified this pass — nests under <DBRecommendation>, matches"}
   CreateDBProxy/DeleteDBProxy/ModifyDBProxy: {wire: ok, errors: ok, state: ok, persist: ok, note: "spot-verified this pass — nests under <DBProxy>, matches (family already ok per prior audits)"}
   PurchaseReservedDBInstancesOffering: {wire: ok, errors: ok, state: ok, persist: ok, note: "spot-verified this pass — nests under <ReservedDBInstance>, matches"}
-  DescribeServerlessV2PlatformVersions: {wire: ok, errors: ok, state: partial, persist: n/a (static), note: >
+  DescribeServerlessV2PlatformVersions: {wire: ok, errors: ok, state: partial, persist: n/a, note: >
     NEW this pass (SDK bump to v1.123.0 added this op; TestSDKCompleteness flagged it).
     Confirmed request/response member names directly against
     aws-sdk-go-v2/service/rds@v1.123.0's api_op_DescribeServerlessV2PlatformVersions.go
@@ -655,3 +654,20 @@ leaks: {status: fixed, note: "FOUND and FIXED this pass: DeleteDBCluster (Delete
   backend that settles into a steady state. `events` is capped at `maxEvents` (ring-buffer
   trim). No `context.Background()`-rooted unbounded goroutines outside `fis.go` (chaos
   fault-injection, out of this pass's scope) were found in non-test `.go` files.
+
+**2026-08-22 (gopherstack-ifzn) -- RouteMatcher swallowed a body-read failure as a 404,
+masking Handler()'s already-typed error**: same shape as autoscaling's entry (see that
+entry or gopherstack-3a8t for the full survey/rationale). `RouteMatcher` now falls back to
+`service.MatchesUserAgentMarker(r.Header, "api/rds")` (verified against the pinned
+`rds@v1.124.1/api_client.go:641` `AddSDKAgentKeyValue` call) only on the `ReadBody` failure
+branch. Migrated `ExtractOperation`/`ExtractResource`/`Handler()`
+(`handler_dispatch.go`) off `r.ParseForm()` onto `httputils.ReadBody`+`url.ParseQuery`, per
+the docdb/neptune precedent (gopherstack-bahs). Also retyped `Handler()`'s read-failure
+branch from `ValidationException` (400, a caller-fault code) to `InternalFailure` (500,
+this service's own existing code for internal errors) -- a body-read failure is not the
+caller's fault. Proof: `TestHandler_OversizedBodySurfacesInternalFailure` in
+`handler_oversized_body_test.go` drives a real RDS SDK client through
+`service.NewRegistry`/`service.NewServiceRouter`, confirmed failing pre-fix with
+`UnknownError`; passes now with `InternalFailure`. `TestHandler_NormalSizedBodyStillRoutes`
+is the regression guard. Gates: `go build`, `go vet`, `gofmt -l` (clean), `go test -race
+./services/rds/...` (pass), `golangci-lint run ./services/rds/...` (0 issues).

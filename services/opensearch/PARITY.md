@@ -707,3 +707,68 @@ trio, etc.) were corrected to the real shapes, not preserved.
 `items_still_open` above). The index/document *data-plane* sub-routes this
 emulator invents under `/index/{name}/_doc`, `/_search`, `/_count` are not
 real SDK control-plane operations and were left as-is.
+
+# 2026-08-21 gopherstack-g479 (ad hoc map[string]any blind spot)
+3 of the "Un-re-verified ops outside the assigned scope/deferred list" above
+now fixed, found via a new go/types-based map-literal/index-assign kind
+scanner (map[string]any{} literals had zero automated coverage before this
+pass -- the prior passes' struct-field diffing couldn't see them):
+
+- **DescribeDomainHealth**: {wire: fixed, errors: ok, state: ok, persist: n/a} --
+  `TotalShards`/`DataNodeCount`/`WarmNodeCount`/`ActiveAvailabilityZoneCount`/
+  `TotalUnAssignedShards` are all `NumberOfShards`/`NumberOfNodes`/`NumberOfAZs`
+  shapes, which deserialize as JSON *strings* (confirmed against
+  `aws-sdk-go-v2/service/opensearch@v1.75.4`'s `deserializers.go`,
+  `awsRestjson1_deserializeOpDocumentDescribeDomainHealthOutput`) -- gopherstack
+  emitted raw numbers, failing with `"expected NumberOfNodes to be of type
+  string, got json.Number instead"`. Also dropped two invented keys that are
+  not members of this shape at all: `ActiveShards` and `UnAssignedShards`
+  (real member is `TotalUnAssignedShards`), and `DocumentCount`, which has no
+  real per-domain-health equivalent (`DomainDocumentCount` remains the
+  correct, separately-modeled aggregate).
+- **DescribeDomainChangeProgress** (`GetChangeProgress`): {wire: fixed, errors: ok, state: ok, persist: n/a} --
+  `ChangeProgressStatusDetails.StartTime`/`LastUpdatedTime` deserialize from a
+  `json.Number` via `ParseEpochSeconds`, not an RFC3339 string; failed with
+  `"expected UpdateTimestamp to be a JSON Number, got string instead"`.
+- **DescribeInstanceTypeLimits**: {wire: fixed, errors: ok, state: ok, persist: ok} --
+  the static instance-limits table's `MinimumInstanceCount` was the string
+  constant `"1"` (`MaximumInstanceCount` siblings were already correctly
+  numeric); real member is a `json.Number`. Failed with `"expected
+  MinimumInstanceCount to be json.Number, got string instead"`.
+
+All 3 proven via real `aws-sdk-go-v2/service/opensearch` client round trips
+(`wire_maplit_fixes_test.go`), hand-reverted/confirmed-failing with the SDK's
+own error text/restored/`md5sum`-verified byte-identical. Gates: `go build`,
+`go vet`, `gofmt -l` (clean), `go test -race` (pass), `golangci-lint run`
+(0 issues). `last_audit_commit` left unchanged -- this pass's own commit sha
+is not known at edit time.
+
+## gopherstack-y1zn (2026-08-21): unknown-key sweep, one confirmed bug
+
+`ListInstanceTypeDetails`: {wire: fixed, errors: ok, state: n/a, persist: n/a} --
+`AppLogEnabled` (singular "Log") was the wire key for every returned
+`InstanceTypeDetails` entry; the real member (types.InstanceTypeDetails,
+deserializers.go) is `AppLogsEnabled` (plural). A real client's
+`AppLogsEnabled` field decoded nil regardless of the emitted value. Proven via
+a real `aws-sdk-go-v2/service/opensearch` client round trip
+(`TestListInstanceTypeDetails_AppLogsEnabledKey_RealClient`,
+wire_maplit_fixes_test.go), hand-reverted/confirmed-failing/restored/
+`md5sum`-verified byte-identical.
+
+64 opensearch candidates from the gopherstack-us9u/g479 map-literal scanner's
+526-key unknown-key bucket were triaged this pass (see gopherstack-y1zn for
+the full campaign): 22 are the Elasticsearch-compatible data-plane surface
+(handler_indices.go, not the control-plane SDK); 33 resolve cleanly against
+the sibling `opensearchserverless` module once compared against the right
+module (the dir-hosts-two-modules false positive already named above), except
+3 (`networkPolicyDetail`/`networkPolicySummaries` in handler_serverless.go)
+which are genuine wire-key bugs on a REST-path dispatcher this repo's own
+gopherstack-92ft note already documents as unreachable by any real AOSS client
+(bedrockagent-style dead duplicate; the live JSON-RPC dispatcher,
+handler_serverless_jsonrpc.go, already emits the correct
+`securityPolicyDetail`/`securityPolicySummaries`) -- not touched, per that
+precedent. 3 were stale (already fixed by the prior gopherstack-g479 pass
+before this session started; the scan snapshot predates that commit). 1
+(`LimitsByRole.data`) is a `map[string]types.Limits` dynamic role-name key, not
+a struct field -- correctly absent from the SDK's per-key case-switch table by
+construction, not a bug.

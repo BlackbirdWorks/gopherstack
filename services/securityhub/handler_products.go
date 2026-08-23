@@ -173,19 +173,29 @@ func classifyRecommendedPolicyV2Path(method, path string) (string, string) {
 	return opUnknown, ""
 }
 
+// handleGenerateRecommendedPolicyV2 starts recommendation generation.
+// GenerateRecommendedPolicyV2Output (securityhub@v1.75.4
+// api_op_GenerateRecommendedPolicyV2.go) has NO members at all besides
+// ResultMetadata -- this op only kicks off async generation; the caller
+// polls GetRecommendedPolicyV2 for the result. gopherstack-tp8x: a prior
+// pass returned {MetadataUid,Policy,GenerationTime} here, a fabricated
+// shape belonging to neither this op's nor GetRecommendedPolicyV2's real
+// output.
 func (h *Handler) handleGenerateRecommendedPolicyV2(c *echo.Context, metadataUID string, _ map[string]any) error {
-	rec, err := h.Backend.GenerateRecommendedPolicyV2(metadataUID)
-	if err != nil {
+	if _, err := h.Backend.GenerateRecommendedPolicyV2(metadataUID); err != nil {
 		return typedErrorResponse(c, http.StatusInternalServerError, "InternalServerException", err.Error())
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{
-		"MetadataUid":    rec.MetadataUid,
-		"Policy":         rec.Policy,
-		"GenerationTime": rec.GenerationTime,
-	})
+	return c.JSON(http.StatusOK, map[string]any{})
 }
 
+// handleGetRecommendedPolicyV2 returns the async retrieval-status shape
+// GetRecommendedPolicyV2Output actually declares (Status/RecommendationType/
+// ResourceArn/RecommendationSteps/Error/NextToken), not a returned policy
+// document. gopherstack-tp8x: a prior pass returned
+// {MetadataUid,Policy,GenerationTime} here -- an entirely different response
+// family. This backend generates synchronously, so Status is always
+// SUCCEEDED and Error/NextToken are never populated.
 func (h *Handler) handleGetRecommendedPolicyV2(c *echo.Context, metadataUID string) error {
 	rec, err := h.Backend.GetRecommendedPolicyV2(metadataUID)
 	if err != nil {
@@ -201,11 +211,25 @@ func (h *Handler) handleGetRecommendedPolicyV2(c *echo.Context, metadataUID stri
 		return typedErrorResponse(c, http.StatusInternalServerError, "InternalServerException", err.Error())
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{
-		"MetadataUid":    rec.MetadataUid,
-		"Policy":         rec.Policy,
-		"GenerationTime": rec.GenerationTime,
-	})
+	resp := map[string]any{
+		"Status":             rec.Status,
+		"RecommendationType": "UNUSED_PERMISSION_RECOMMENDATION",
+		"RecommendationSteps": []map[string]any{
+			{
+				"UnusedPermissions": map[string]any{
+					"RecommendedAction": rec.RecommendedAction,
+					"RecommendedPolicy": rec.RecommendedPolicy,
+					"PolicyUpdatedAt":   rec.PolicyUpdatedAt,
+				},
+			},
+		},
+	}
+
+	if rec.ResourceArn != "" {
+		resp["ResourceArn"] = rec.ResourceArn
+	}
+
+	return c.JSON(http.StatusOK, resp)
 }
 
 // productsOpHandlers returns the Products (V1 + V2 + Recommended Policy)

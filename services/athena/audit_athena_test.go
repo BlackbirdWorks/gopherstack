@@ -15,11 +15,11 @@ import (
 func TestAuditAthena_ResultReuseConfiguration_StoredAndReturned(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct { //nolint:govet // field order is chosen for readability, not alignment
+	tests := []struct {
 		reuseCfg        string
 		name            string
-		wantEnabled     bool
 		wantMaxAge      float64
+		wantEnabled     bool
 		wantReuseInBody bool
 	}{
 		{
@@ -373,9 +373,9 @@ func TestAuditAthena_BatchGetQueryExecution_Shape(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 	realID := a1Unmarshal(t, rec)["QueryExecutionId"].(string)
 
-	tests := []struct { //nolint:govet // field order is chosen for readability, not alignment
-		ids             []string
+	tests := []struct {
 		name            string
+		ids             []string
 		wantFound       int
 		wantUnprocessed int
 	}{
