@@ -208,6 +208,7 @@ type storedAnalysis struct {
 	AnalysisID      string               `json:"analysisId"`
 	Arn             string               `json:"arn"`
 	Name            string               `json:"name"`
+	ThemeArn        string               `json:"themeArn,omitempty"`
 	Status          string               `json:"status"`
 	Permissions     []ResourcePermission `json:"permissions,omitempty"`
 }
@@ -219,6 +220,7 @@ func (a *storedAnalysis) toAnalysis() *Analysis {
 		AnalysisID:      a.AnalysisID,
 		Arn:             a.Arn,
 		Name:            a.Name,
+		ThemeArn:        a.ThemeArn,
 		Status:          a.Status,
 		Definition:      a.Definition,
 		Permissions:     clonePermissions(a.Permissions),

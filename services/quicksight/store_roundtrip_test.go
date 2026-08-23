@@ -62,7 +62,7 @@ func TestQuickSight_Phase3_3_StoreRoundTrip(t *testing.T) {
 	dash, err := b.CreateDashboard(testAccountID, "dash1", "Dashboard1", nil, nil, nil)
 	require.NoError(t, err)
 
-	_, err = b.CreateAnalysis(testAccountID, "an1", "Analysis1", nil, nil, nil)
+	_, err = b.CreateAnalysis(testAccountID, "an1", "Analysis1", "", nil, nil, nil)
 	require.NoError(t, err)
 
 	_, err = b.CreateFolder(testAccountID, "folder1", "Folder1", "", "", "", nil, nil)
