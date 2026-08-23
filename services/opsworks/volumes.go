@@ -53,7 +53,15 @@ func (b *InMemoryBackend) DeregisterVolume(volumeID string) error {
 // can only be registered with one stack at a time (see RegisterVolume), so
 // assigning it to an instance from a different stack would silently create
 // a cross-stack resource association AWS does not document as valid.
+//
+// VolumeId is "This member is required" on the real AssignVolumeInput
+// (confirmed against aws-sdk-go-v2/service/opsworks@v1.31.0's
+// api_op_AssignVolume.go / validateOpAssignVolumeInput); InstanceId is not.
 func (b *InMemoryBackend) AssignVolume(volumeID, instanceID string) error {
+	if volumeID == "" {
+		return ErrValidation
+	}
+
 	b.mu.Lock("AssignVolume")
 	defer b.mu.Unlock()
 

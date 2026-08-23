@@ -194,3 +194,18 @@ func TestRegisterVolumeValidation(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 	assert.Contains(t, rec.Body.String(), "ValidationException")
 }
+
+// TestAssignVolumeValidation verifies AssignVolume rejects a missing
+// VolumeId with ValidationException rather than falling through to the
+// volume-lookup's ResourceNotFoundException. VolumeId is "This member is
+// required" on the real AssignVolumeInput (confirmed against
+// aws-sdk-go-v2/service/opsworks@v1.31.0's api_op_AssignVolume.go /
+// validateOpAssignVolumeInput); InstanceId is not.
+func TestAssignVolumeValidation(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doTarget(t, h, "AssignVolume", map[string]any{"InstanceId": "some-instance"})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "ValidationException")
+}

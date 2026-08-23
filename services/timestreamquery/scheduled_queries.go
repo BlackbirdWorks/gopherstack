@@ -29,6 +29,7 @@ func (b *InMemoryBackend) CreateScheduledQuery(
 	ctx context.Context,
 	name, queryString, scheduleExpression, executionRoleArn,
 	notificationTopicArn, errorReportS3BucketName, targetDatabase, targetTable, clientToken, kmsKeyID string,
+	errorReportEncryptionOption, errorReportObjectKeyPrefix string,
 	tags map[string]string,
 	targetDetail *ScheduledQueryTargetDetail,
 ) (*ScheduledQuery, error) {
@@ -59,20 +60,22 @@ func (b *InMemoryBackend) CreateScheduledQuery(
 	}
 
 	sq := &ScheduledQuery{
-		Arn:                     arnStr,
-		Name:                    name,
-		QueryString:             queryString,
-		ScheduleExpression:      scheduleExpression,
-		ExecutionRoleArn:        executionRoleArn,
-		NotificationTopicArn:    notificationTopicArn,
-		ErrorReportS3BucketName: errorReportS3BucketName,
-		TargetDatabase:          targetDatabase,
-		TargetTable:             targetTable,
-		TargetDetail:            targetDetail,
-		KmsKeyID:                kmsKeyID,
-		State:                   scheduledQueryStateEnabled,
-		CreationTime:            time.Now(),
-		Tags:                    make(map[string]string),
+		Arn:                         arnStr,
+		Name:                        name,
+		QueryString:                 queryString,
+		ScheduleExpression:          scheduleExpression,
+		ExecutionRoleArn:            executionRoleArn,
+		NotificationTopicArn:        notificationTopicArn,
+		ErrorReportS3BucketName:     errorReportS3BucketName,
+		ErrorReportEncryptionOption: errorReportEncryptionOption,
+		ErrorReportObjectKeyPrefix:  errorReportObjectKeyPrefix,
+		TargetDatabase:              targetDatabase,
+		TargetTable:                 targetTable,
+		TargetDetail:                targetDetail,
+		KmsKeyID:                    kmsKeyID,
+		State:                       scheduledQueryStateEnabled,
+		CreationTime:                time.Now(),
+		Tags:                        make(map[string]string),
 	}
 
 	if tags != nil {

@@ -19,6 +19,13 @@ type ScheduledQuery struct {
 	Name                    string                      `json:"name"`
 	Arn                     string                      `json:"arn"`
 	KmsKeyID                string                      `json:"kms_key_id,omitempty"`
+	// ErrorReportEncryptionOption/ErrorReportObjectKeyPrefix mirror
+	// types.S3Configuration.EncryptionOption/ObjectKeyPrefix (both optional,
+	// api_op_CreateScheduledQuery.go) -- accepted and echoed back, but this
+	// emulator performs no actual at-rest encryption of error reports (same
+	// honest scoping as KmsKeyID, see PARITY.md gaps).
+	ErrorReportEncryptionOption string `json:"error_report_encryption_option,omitempty"`
+	ErrorReportObjectKeyPrefix  string `json:"error_report_object_key_prefix,omitempty"`
 }
 
 // ScheduledQueryTargetDetail holds the TargetConfiguration.TimestreamConfiguration

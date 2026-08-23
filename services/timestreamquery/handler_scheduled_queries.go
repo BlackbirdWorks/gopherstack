@@ -51,7 +51,9 @@ type timestreamConfigurationInput struct {
 type createScheduledQueryInput struct {
 	ErrorReportConfiguration struct {
 		S3Configuration *struct {
-			BucketName string `json:"BucketName"`
+			BucketName       string `json:"BucketName"`
+			EncryptionOption string `json:"EncryptionOption"`
+			ObjectKeyPrefix  string `json:"ObjectKeyPrefix"`
 		} `json:"S3Configuration"`
 	} `json:"ErrorReportConfiguration"`
 	NotificationConfiguration struct {
@@ -175,6 +177,8 @@ func (h *Handler) handleCreateScheduledQuery(ctx context.Context, body []byte) (
 
 	notificationTopicArn := req.NotificationConfiguration.SnsConfiguration.TopicArn
 	errorReportBucket := req.ErrorReportConfiguration.S3Configuration.BucketName
+	errorReportEncryptionOption := req.ErrorReportConfiguration.S3Configuration.EncryptionOption
+	errorReportObjectKeyPrefix := req.ErrorReportConfiguration.S3Configuration.ObjectKeyPrefix
 
 	targetDB, targetTable, targetDetail := parseTargetConfiguration(req.TargetConfiguration.TimestreamConfiguration)
 
@@ -191,6 +195,7 @@ func (h *Handler) handleCreateScheduledQuery(ctx context.Context, body []byte) (
 		req.ScheduledQueryExecutionRoleArn,
 		notificationTopicArn, errorReportBucket,
 		targetDB, targetTable, req.ClientToken, req.KmsKeyID,
+		errorReportEncryptionOption, errorReportObjectKeyPrefix,
 		tags,
 		targetDetail,
 	)
@@ -384,10 +389,17 @@ func scheduledQueryToView(sq *ScheduledQuery) map[string]any {
 	}
 
 	if sq.ErrorReportS3BucketName != "" {
+		s3Config := map[string]string{
+			"BucketName": sq.ErrorReportS3BucketName,
+		}
+		if sq.ErrorReportEncryptionOption != "" {
+			s3Config["EncryptionOption"] = sq.ErrorReportEncryptionOption
+		}
+		if sq.ErrorReportObjectKeyPrefix != "" {
+			s3Config["ObjectKeyPrefix"] = sq.ErrorReportObjectKeyPrefix
+		}
 		view["ErrorReportConfiguration"] = map[string]any{
-			"S3Configuration": map[string]string{
-				"BucketName": sq.ErrorReportS3BucketName,
-			},
+			"S3Configuration": s3Config,
 		}
 	}
 

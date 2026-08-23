@@ -210,7 +210,7 @@ func TestInMemoryBackend_CreateScheduledQuery_ClientTokenIdempotent(t *testing.T
 
 	first, err := backend.CreateScheduledQuery(
 		t.Context(), "idempotent-sq", "SELECT 1", "rate(1 hour)", "arn:aws:iam::123456789012:role/r",
-		"", "", "", "", "retry-token-1", "", nil, nil,
+		"", "", "", "", "retry-token-1", "", "", "", nil, nil,
 	)
 	require.NoError(t, err)
 
@@ -220,7 +220,7 @@ func TestInMemoryBackend_CreateScheduledQuery_ClientTokenIdempotent(t *testing.T
 	// erroring.
 	second, err := backend.CreateScheduledQuery(
 		t.Context(), "idempotent-sq", "SELECT 2", "rate(2 hours)", "arn:aws:iam::123456789012:role/other",
-		"", "", "", "", "retry-token-1", "", nil, nil,
+		"", "", "", "", "retry-token-1", "", "", "", nil, nil,
 	)
 	require.NoError(t, err)
 	assert.Equal(t, first.Arn, second.Arn)
@@ -230,7 +230,7 @@ func TestInMemoryBackend_CreateScheduledQuery_ClientTokenIdempotent(t *testing.T
 	// A different ClientToken for the same Name is a genuine conflict.
 	_, err = backend.CreateScheduledQuery(
 		t.Context(), "idempotent-sq", "SELECT 3", "rate(1 hour)", "arn:aws:iam::123456789012:role/r",
-		"", "", "", "", "different-token", "", nil, nil,
+		"", "", "", "", "different-token", "", "", "", nil, nil,
 	)
 	require.Error(t, err)
 
@@ -238,13 +238,13 @@ func TestInMemoryBackend_CreateScheduledQuery_ClientTokenIdempotent(t *testing.T
 	// normal "already exists" conflict path.
 	_, err = backend.CreateScheduledQuery(
 		t.Context(), "no-token-sq", "SELECT 1", "rate(1 hour)", "arn:aws:iam::123456789012:role/r",
-		"", "", "", "", "", "", nil, nil,
+		"", "", "", "", "", "", "", "", nil, nil,
 	)
 	require.NoError(t, err)
 
 	_, err = backend.CreateScheduledQuery(
 		t.Context(), "no-token-sq", "SELECT 1", "rate(1 hour)", "arn:aws:iam::123456789012:role/r",
-		"", "", "", "", "", "", nil, nil,
+		"", "", "", "", "", "", "", "", nil, nil,
 	)
 	require.Error(t, err)
 }
@@ -522,7 +522,7 @@ func TestValidateScheduleExpression(t *testing.T) {
 
 	for _, expr := range validExprs {
 		_, err := backend.CreateScheduledQuery(
-			t.Context(), "valid-"+expr[:4], "SELECT 1", expr, "arn", "", "", "", "", "", "", nil, nil,
+			t.Context(), "valid-"+expr[:4], "SELECT 1", expr, "arn", "", "", "", "", "", "", "", "", nil, nil,
 		)
 		require.NoError(t, err, "valid expr %q should be accepted", expr)
 		_ = backend.DeleteScheduledQuery(
@@ -533,7 +533,7 @@ func TestValidateScheduleExpression(t *testing.T) {
 
 	for _, expr := range invalidExprs {
 		_, err := backend.CreateScheduledQuery(
-			t.Context(), "inv", "SELECT 1", expr, "arn", "", "", "", "", "", "", nil, nil,
+			t.Context(), "inv", "SELECT 1", expr, "arn", "", "", "", "", "", "", "", "", nil, nil,
 		)
 		require.Error(t, err, "invalid expr %q should be rejected", expr)
 	}
