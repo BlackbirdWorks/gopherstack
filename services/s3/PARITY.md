@@ -614,3 +614,60 @@ the real SDK shape). Proven with `TestListBuckets_SDKRoundTrip_Pagination`
 client across two 10-item pages of 25 seeded buckets and asserts the pages
 are disjoint; fails against the unfixed handler (`should have 10 item(s),
 but has 25`), hand-reverted and confirmed.
+
+## 2026-08-23: X-Amz-Bypass-Governance-Retention never read (DeleteObject/DeleteObjects)
+
+Header sweep of the object-lock/retention family (s3@v1.106.5 serializers.go
+`awsRestxml_serializeOpHttpBindingsDeleteObjectInput`,
+`...DeleteObjectsInput`, `...PutObjectRetentionInput`), triggered by a grep
+for `BypassGovernance` across the package returning zero hits anywhere in
+`services/s3`. `checkObjectLockForDelete` (`objects_delete.go`) already
+tracked and enforced `StoredObjectVersion.RetentionMode` (GOVERNANCE vs
+COMPLIANCE, set by `PutObjectRetention`) but blocked deletion of *any*
+retained object unconditionally — real AWS lets a caller delete a
+GOVERNANCE-mode-retained object by sending
+`X-Amz-Bypass-Governance-Retention: true` (with `s3:BypassGovernanceRetention`
+permission, not separately modeled here); COMPLIANCE mode can never be
+bypassed by anyone. The header is a real, always-present member on
+`DeleteObjectInput`/`DeleteObjectsInput` (and `PutObjectRetentionInput`, not
+touched this pass) but was discarded end to end: never read off the request,
+never threaded into the backend, never checked against `RetentionMode`.
+
+Fixed: `deleteObject`/`deleteObjects` (`object_ops_delete.go`) now parse
+`X-Amz-Bypass-Governance-Retention` via a new `bypassGovernanceRetentionHeader`
+helper and set it on the constructed `DeleteObjectInput`/`DeleteObjectsInput`.
+`checkObjectLockForDelete` (`objects_delete.go`) gained a `bypassGovernance
+bool` parameter, threaded through `deleteObjectLocked`/`deleteSingleObject`:
+a GOVERNANCE-mode retention is now bypassable, a COMPLIANCE-mode retention
+and a legal hold are not — matching real AWS's documented rule that the
+bypass header only ever applies to GOVERNANCE-mode retention, never
+COMPLIANCE and never a legal hold.
+
+`TestDeleteObject_BypassGovernanceRetention` (`wire_field_fixes_test.go`)
+drives the real `aws-sdk-go-v2` S3 client through
+`CreateBucket(ObjectLockEnabledForBucket)` → `PutObject` →
+`PutObjectRetention` → `DeleteObject`, table-driven across
+governance-without-bypass (blocked), governance-with-bypass (allowed), and
+compliance-with-bypass (still blocked). Hand-reverted just the bypass branch
+in `checkObjectLockForDelete` back to an unconditional block: the
+governance-with-bypass subtest failed exactly as predicted (`InvalidObjectState`
+409 where AWS would allow the bypassed delete); restored and confirmed
+byte-identical via `md5sum`.
+
+**Not fixed this pass, flagged as a related but separate gap**:
+`PutObjectRetention` itself has zero enforcement — it unconditionally
+overwrites `RetentionMode`/`RetainUntil` regardless of the object's existing
+retention state, so a caller can shorten or remove even a COMPLIANCE-mode
+retention today (real AWS forbids this unconditionally, and forbids
+shortening/removing a GOVERNANCE retention without the same bypass header).
+Implementing this correctly needs old-vs-new retention comparison logic that
+doesn't exist yet anywhere in this file; deferred rather than rushed, per
+this campaign's standing "don't ship a rushed partial feature" rule.
+
+Gates: `go build ./...`, `go vet ./services/s3/...`, `go test -race -count=1
+./services/s3/...`, `go fix -diff ./services/s3/...` (no diff), `gofmt -l
+services/s3/` (no output), `golangci-lint run ./services/s3/...` (0 issues,
+required a field-reorder on the new test's table struct to clear
+`fieldalignment`, no `//nolint` added), `go test ./pkgs/persistence/...`
+(no persisted struct changed — `RetentionMode`/`RetainUntil` were already
+persisted fields — run anyway per this campaign's standing rule) all clean.

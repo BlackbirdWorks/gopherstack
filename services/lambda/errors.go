@@ -69,3 +69,8 @@ var ErrDurableExecutionNotFound = errors.New("ResourceNotFoundException")
 
 // ErrCallbackNotFound is returned when the specified durable execution callback ID does not exist.
 var ErrCallbackNotFound = errors.New("ResourceNotFoundException")
+
+// ErrVersionReferencedByAlias is returned when DeleteFunction's Qualifier
+// targets a published version that an alias still points to (real AWS:
+// "You can't delete a version that an alias references.").
+var ErrVersionReferencedByAlias = errors.New("ResourceConflictException")
