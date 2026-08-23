@@ -1744,3 +1744,177 @@ Flow Logs, Launch Template Versions), and the other 22
 `registerCapacityFamilyOps` ops living outside
 `handler_capacity_reservations.go` (Fleet/Capacity-Block/Capacity-Manager/
 billing-transfer). Work left uncommitted for the orchestrator.
+
+**2026-08-23 pass (gopherstack-6cuc follow-up: the "other 22" named above)**:
+finished the `registerCapacityFamilyOps` queue named by the previous entry.
+`registerCapacityFamilyOps` (`handler_capacity_family.go`) actually registers
+38 ops, not 30 -- the earlier count was stale. The full map:
+
+- `handler_capacity_reservation_fleet.go` (4 ops): `CreateCapacityReservationFleet`,
+  `DescribeCapacityReservationFleets`, `ModifyCapacityReservationFleet`,
+  `CancelCapacityReservationFleets`.
+- `handler_capacity_block.go` (7 ops): `DescribeCapacityBlockOfferings`,
+  `PurchaseCapacityBlock`, `DescribeCapacityBlockExtensionOfferings`,
+  `PurchaseCapacityBlockExtension`, `DescribeCapacityBlocks`,
+  `DescribeCapacityBlockStatus`, `DescribeCapacityBlockExtensionHistory`.
+- `handler_capacity_reservation_ops.go` (8 ops): `CreateCapacityReservationBySplitting`,
+  `MoveCapacityReservationInstances`, `AssociateCapacityReservationBillingOwner`,
+  `DisassociateCapacityReservationBillingOwner`, `RejectCapacityReservationBillingOwnership`,
+  `DescribeCapacityReservationBillingRequests`, `CreateCapacityReservationCancellationQuote`,
+  `DescribeCapacityReservationCancellationQuotes`.
+- `handler_capacity_manager.go` (11 ops): `EnableCapacityManager`,
+  `DisableCapacityManager`, `UpdateCapacityManagerOrganizationsAccess`,
+  `GetCapacityManagerAttributes`, `GetCapacityManagerMetricData`,
+  `GetCapacityManagerMetricDimensions`, `CreateCapacityManagerDataExport`,
+  `DescribeCapacityManagerDataExports`, `DeleteCapacityManagerDataExport`,
+  `GetCapacityManagerMonitoredTagKeys`, `UpdateCapacityManagerMonitoredTagKeys`.
+- `handler_capacity_reservations.go` (8 ops, audited in the prior pass):
+  `CreateCapacityReservation`, `CancelCapacityReservation`,
+  `ModifyCapacityReservation`, `GetGroupsForCapacityReservation`,
+  `CreateInterruptibleCapacityReservationAllocation`,
+  `UpdateInterruptibleCapacityReservationAllocation`, `GetCapacityReservationUsage`,
+  `DescribeCapacityReservationTopology`.
+
+Two more Capacity-Reservation ops, `AcceptCapacityReservationBillingOwnership`
+and `DescribeCapacityReservations`, are registered by
+`handler_buildops_advanced.go`'s `registerAcceptAndAdvancedOps` but
+implemented in `handler_accept_ops.go` -- a second *file* for the
+registration (confirmed: `buildCoreOps` in `handler.go` has zero Capacity
+Reservation entries; every op in this family dispatches from its own
+`register*Ops`, called once each from `opRegistrars()`, no `buildCoreOps`
+override collision). Audited both this pass.
+
+**32 ops audited this pass** (the 30 outside `handler_capacity_reservations.go`
+plus the 2 from `handler_accept_ops.go`), each field-diffed against the
+installed `aws-sdk-go-v2/service/ec2@v1.319.1` deserializers/serializers
+line-for-line, not just checked for field-count. **10 real bugs found and
+fixed**, all the same "List op ignoring real pagination" shape found earlier
+in this file's sibling pass (`handler_trunk_enclave.go`,
+`handler_capacity_reservations.go`): each op's real SDK input declares
+`MaxResults`/`NextToken` (9 of the 10 also have a generated
+`New<Op>Paginator`) but the handler ignored both, always returning every
+matching item in one page with no `NextToken`. Fixed identically to the prior
+pass, using the existing `parseEC2Pagination`/`pageSlice` helpers with
+`ec2PageMinDefault`/`ec2PageMaxDefault` bounds (none of the ten ops' SDK doc
+comments give a narrower range):
+
+- `DescribeCapacityReservationFleets` (`handler_capacity_reservation_fleet.go`)
+- `DescribeCapacityBlocks`, `DescribeCapacityBlockStatus`,
+  `DescribeCapacityBlockExtensionHistory` (`handler_capacity_block.go`)
+- `DescribeCapacityBlockOfferings` (`handler_capacity_block.go`) -- provable
+  because the backend generates 2 fresh offerings per call; `MaxResults=1`
+  now correctly splits that into two.
+- `DescribeCapacityReservationBillingRequests`,
+  `DescribeCapacityReservationCancellationQuotes`
+  (`handler_capacity_reservation_ops.go`) -- the latter has no generated SDK
+  paginator, driven manually.
+- `DescribeCapacityManagerDataExports`, `GetCapacityManagerMonitoredTagKeys`
+  (`handler_capacity_manager.go`)
+- `DescribeCapacityReservations` (`handler_accept_ops.go`) -- the response
+  struct had no `NextToken` field at all; added one.
+
+`describeCapacityReservationFleetsResponse`/`describeCapacityBlocksResponse`/
+etc. already had `NextToken` fields (dead weight until now);
+`describeCapacityReservationsResponse` did not and needed one added.
+
+All ten fixes are handler-layer only (mirroring `pageSlice`'s existing usage
+elsewhere in this package) -- no `Backend` interface signature changed, so
+`make build-check` was run as a precaution but had nothing to fix.
+
+**Recorded as inert, not fixed**: `DescribeCapacityBlockExtensionOfferings`
+also ignores real `MaxResults`/`NextToken`, but this backend's
+`DescribeCapacityBlockExtensionOfferings` always generates exactly one
+offering per call (`capacity_block.go`) -- paginating over one item can't be
+proven to fail a test, so left alone per the same rule applied to
+`GetGroupsForCapacityReservation` in the prior pass.
+
+**Modelling gaps found, NOT fixed** (no backing state to populate honestly,
+so no provable round-trip test could distinguish a fix from a no-op):
+- `DescribeCapacityReservationBillingRequests`'s real input has a *required*
+  `Role` enum (`odcr-owner` vs `unused-reservation-billing-owner`) that the
+  handler never reads and the backend has no notion of -- this backend
+  models a single account, so there's no second "consumer" account
+  perspective for the two roles to actually differ over. Accepted-and-dropped,
+  but not the "looks deliberate" `_ param` shape -- it is a real, provable
+  gap in principle, just not implementable without multi-account state this
+  backend doesn't have.
+- `GetCapacityManagerMetricData`/`GetCapacityManagerMetricDimensions`
+  (already correctly, and explicitly, documented in `capacity_manager.go` as
+  always-empty: this backend doesn't simulate the historical utilization
+  pipeline Capacity Manager aggregates from) -- confirmed still honest, not
+  re-touched. Their response XML types (`Items []struct{}`) are dead-weight
+  placeholders since the backend never returns anything to serialize into
+  them; flagged but not changed since there's no observable bug today.
+- `GetCapacityManagerAttributesOutput`'s real shape has
+  `EarliestDatapointTimestamp`/`LatestDatapointTimestamp` (histogram bounds
+  for ingested metric data) that our response struct omits entirely -- same
+  root cause as the metrics gap above (no ingestion pipeline modeled).
+- `capacityManagerMonitoredTagKeyItem.EarliestDatapointTimestamp` is declared
+  on the XML struct but the backend's `CapacityManagerMonitoredTagKey` type
+  has no such field to source it from -- same root cause.
+- `CapacityReservationFleet`'s real deserializer also has a
+  `capacityReservationFleetArn` field our `capacityReservationFleetItem`
+  omits -- a field-count gap (ARN not modeled), not a wrong-data bug.
+- `DescribeCapacityReservationCancellationQuotes` and
+  `DescribeCapacityManagerDataExports` both ignore real `Filters` (only
+  `MaxResults`/`NextToken` were fixed this pass) -- lower-priority, generic
+  filter support, scoped out to keep this pass to the named pagination bug
+  shape; `DescribeCapacityReservations`'s real `Filters` (state,
+  instance-type, tenancy, etc.) are likewise still ignored.
+
+**False positives ruled out**: `capacityManagerStatusResponse`'s
+`XMLName xml.Name \`xml:""\`` field is empty-tagged, not tagged -- verified
+directly (`encoding/xml.Marshal` on a struct with `xml:""` honors a
+runtime-set `Name.Local`; only a *non-empty* tag wins over it) that this is
+the safe pattern, not the "shared struct with a tagged XMLName silently
+ignores a runtime-set XMLName" trap this package is otherwise prone to.
+`ModifyCapacityReservationFleet`'s use of the shared `stubResponse{Return:
+true}` is correct, not the "Return: true where the real output has no
+Return field" bug -- `ModifyCapacityReservationFleetOutput`'s real
+deserializer has only a `return` element. `UnusedReservationBillingOwnerId`
+(the param name for `AssociateCapacityReservationBillingOwner`/
+`DisassociateCapacityReservationBillingOwner`) is real AWS naming, not a
+copied/wrong field. All `TagSpecification`/`TagSpecifications.N` usages in
+this pass's five files (`CreateCapacityReservationFleet`, `PurchaseCapacityBlock`,
+`CreateCapacityReservationBySplitting`, `CreateCapacityReservationCancellationQuote`,
+`CreateCapacityManagerDataExport`) were checked directly against their real
+serializers and are all singular-form (`TagSpecification`), matching this
+package's existing `parseTagSpecification` singular parser -- none of them
+are among the plural-form five.
+
+No snapshot bump: all ten fixes are handler-layer pagination; `NextToken` is
+response-only and never persisted, and no `Backend`/persisted struct changed.
+`go test ./pkgs/persistence/...`: `ok`.
+
+Proof: `pagination_capacityfamily_test.go`, ten new `t.Parallel()` real-SDK-
+client tests, one per fixed op (nine drive the real generated
+`New<Op>Paginator` with `Limit: 1` across >=2 pages and assert disjoint IDs
+via the existing `assertDisjointPages` helper; `DescribeCapacityReservationCancellationQuotes`
+has no generated paginator so is driven manually, matching the
+`DescribeCapacityReservationTopology` precedent). Hand-reverted all five
+touched handler files at once via `cp` to a scratchpad (`git show HEAD:<path>`
+for each, since none of this pass's fixes share a cross-file signature
+chain -- each op's fix is self-contained to its own handler function), ran
+the new test file against the reverted tree: all ten tests failed, each with
+the "MaxResults ignored, page one contains everything, no NextToken" shape,
+e.g. `TestDescribeCapacityBlockOfferings_Pagination`: `"... should have 1
+item(s), but has 2"`; `TestDescribeCapacityReservationCancellationQuotes_Pagination`:
+`"... should have 1 item(s), but has 3"`; the eight generated-paginator tests
+all failed on `assertDisjointPages`' `"1" is not greater than or equal to
+"2"` (only one page produced). Restored all five files from the scratchpad
+copies and `md5sum`-diffed identical against the post-fix state.
+
+Gates: `go build ./...` (clean, no exported signature changed),
+`go vet -tags e2e ./services/ec2/...` and `go vet -tags integration
+./services/ec2/...` (clean), `go vet ./services/ec2/...` (clean),
+`gofmt -l services/ec2/` (clean), `go test -race ./services/ec2/...` (`ok`,
+full suite including the 10 new tests), `golangci-lint run
+./services/ec2/...` (`0 issues` -- fixed one `govet` shadow, one `intrange`,
+and three `prealloc` findings by hand, not via `-fix`), `go test
+./pkgs/persistence/...` (`ok`), `make build-check` (clean). No banned
+`//nolint`s.
+
+**Ops not reached this pass**: none within the queue named by the prior
+entry -- all 30 `registerCapacityFamilyOps` ops outside
+`handler_capacity_reservations.go`, plus the 2 `handler_accept_ops.go` ops,
+were read and field-diffed. Work left **uncommitted** for the orchestrator.

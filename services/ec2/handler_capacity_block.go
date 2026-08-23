@@ -60,7 +60,15 @@ func (h *Handler) handleDescribeCapacityBlockOfferings(vals url.Values, reqID st
 		return nil, err
 	}
 
-	resp := &describeCapacityBlockOfferingsResponse{Xmlns: ec2XMLNS, RequestID: reqID}
+	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageMaxDefault)
+	if err != nil {
+		return nil, err
+	}
+
+	var nextToken string
+	offerings, nextToken = pageSlice(offerings, offset, maxResults)
+
+	resp := &describeCapacityBlockOfferingsResponse{Xmlns: ec2XMLNS, RequestID: reqID, NextToken: nextToken}
 	for _, o := range offerings {
 		resp.Offerings.Items = append(resp.Offerings.Items, toCapacityBlockOfferingItem(o))
 	}
@@ -252,7 +260,15 @@ func (h *Handler) handleDescribeCapacityBlocks(vals url.Values, reqID string) (a
 
 	blocks := h.Backend.DescribeCapacityBlocks(ids, filters)
 
-	resp := &describeCapacityBlocksResponse{Xmlns: ec2XMLNS, RequestID: reqID}
+	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageMaxDefault)
+	if err != nil {
+		return nil, err
+	}
+
+	var nextToken string
+	blocks, nextToken = pageSlice(blocks, offset, maxResults)
+
+	resp := &describeCapacityBlocksResponse{Xmlns: ec2XMLNS, RequestID: reqID, NextToken: nextToken}
 	for _, blk := range blocks {
 		resp.Blocks.Items = append(
 			resp.Blocks.Items, toCapacityBlockItem(blk, h.Backend.TagsForResource(blk.CapacityBlockID)),
@@ -314,7 +330,15 @@ func (h *Handler) handleDescribeCapacityBlockStatus(vals url.Values, reqID strin
 
 	statuses := h.Backend.DescribeCapacityBlockStatus(ids, filters)
 
-	resp := &describeCapacityBlockStatusResponse{Xmlns: ec2XMLNS, RequestID: reqID}
+	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageMaxDefault)
+	if err != nil {
+		return nil, err
+	}
+
+	var nextToken string
+	statuses, nextToken = pageSlice(statuses, offset, maxResults)
+
+	resp := &describeCapacityBlockStatusResponse{Xmlns: ec2XMLNS, RequestID: reqID, NextToken: nextToken}
 	for _, s := range statuses {
 		resp.Statuses.Items = append(resp.Statuses.Items, toCapacityBlockStatusItem(s))
 	}
@@ -338,7 +362,15 @@ func (h *Handler) handleDescribeCapacityBlockExtensionHistory(vals url.Values, r
 
 	exts := h.Backend.DescribeCapacityBlockExtensionHistory(ids, filters)
 
-	resp := &describeCapacityBlockExtensionHistoryResponse{Xmlns: ec2XMLNS, RequestID: reqID}
+	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageMaxDefault)
+	if err != nil {
+		return nil, err
+	}
+
+	var nextToken string
+	exts, nextToken = pageSlice(exts, offset, maxResults)
+
+	resp := &describeCapacityBlockExtensionHistoryResponse{Xmlns: ec2XMLNS, RequestID: reqID, NextToken: nextToken}
 	for _, e := range exts {
 		resp.Extensions.Items = append(resp.Extensions.Items, toCapacityBlockExtensionItem(e))
 	}

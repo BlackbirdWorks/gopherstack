@@ -181,7 +181,15 @@ func (h *Handler) handleDescribeCapacityReservationBillingRequests(
 
 	requests := h.Backend.DescribeCapacityReservationBillingRequests(ids, filters)
 
-	resp := &describeCapacityReservationBillingRequestsResponse{Xmlns: ec2XMLNS, RequestID: reqID}
+	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageMaxDefault)
+	if err != nil {
+		return nil, err
+	}
+
+	var nextToken string
+	requests, nextToken = pageSlice(requests, offset, maxResults)
+
+	resp := &describeCapacityReservationBillingRequestsResponse{Xmlns: ec2XMLNS, RequestID: reqID, NextToken: nextToken}
 	for _, r := range requests {
 		resp.Requests.Items = append(
 			resp.Requests.Items,
@@ -275,9 +283,18 @@ func (h *Handler) handleDescribeCapacityReservationCancellationQuotes(
 
 	quotes := h.Backend.DescribeCapacityReservationCancellationQuotes(ids)
 
+	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageMaxDefault)
+	if err != nil {
+		return nil, err
+	}
+
+	var nextToken string
+	quotes, nextToken = pageSlice(quotes, offset, maxResults)
+
 	resp := &describeCapacityReservationCancellationQuotesResponse{
 		Xmlns:     ec2XMLNS,
 		RequestID: reqID,
+		NextToken: nextToken,
 	}
 	for _, q := range quotes {
 		resp.Quotes.Items = append(
