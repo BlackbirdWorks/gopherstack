@@ -37,7 +37,7 @@ func (h *Handler) iamSigningCertificateDispatch() map[string]iamActionFn {
 			}, nil
 		},
 		"DeleteSigningCertificate": func(vals url.Values, reqID string) (any, error) {
-			if err := h.Backend.DeleteSigningCertificate(vals.Get("CertificateId")); err != nil {
+			if err := h.Backend.DeleteSigningCertificate(vals.Get("UserName"), vals.Get("CertificateId")); err != nil {
 				return nil, err
 			}
 
@@ -49,7 +49,7 @@ func (h *Handler) iamSigningCertificateDispatch() map[string]iamActionFn {
 		},
 		"UpdateSigningCertificate": func(vals url.Values, reqID string) (any, error) {
 			if err := h.Backend.UpdateSigningCertificate(
-				vals.Get("CertificateId"), vals.Get("Status"),
+				vals.Get("UserName"), vals.Get("CertificateId"), vals.Get("Status"),
 			); err != nil {
 				return nil, err
 			}

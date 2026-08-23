@@ -249,8 +249,8 @@ type StorageBackend interface {
 	// Signing Certificates
 	UploadSigningCertificate(userName, body string) (*SigningCertificate, error)
 	ListSigningCertificates(userName string) ([]SigningCertificate, error)
-	UpdateSigningCertificate(certificateID, status string) error
-	DeleteSigningCertificate(certificateID string) error
+	UpdateSigningCertificate(userName, certificateID, status string) error
+	DeleteSigningCertificate(userName, certificateID string) error
 
 	// Server Certificates
 	UploadServerCertificate(name, path, certBody, certChain string) (*ServerCertificate, error)

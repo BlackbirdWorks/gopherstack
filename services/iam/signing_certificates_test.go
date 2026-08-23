@@ -148,10 +148,12 @@ func TestUpdateSigningCertificate(t *testing.T) {
 		name          string
 		certificateID string
 		status        string
+		updateAs      string
 	}{
 		{name: "changes status", status: "Inactive"},
 		{name: "invalid status rejected", status: "Deleted", wantErr: iam.ErrInvalidAction},
 		{name: "not found", certificateID: "ASCANONEXISTENT", status: "Inactive", wantErr: iam.ErrAccessKeyNotFound},
+		{name: "wrong owner rejected", status: "Inactive", updateAs: "mallory", wantErr: iam.ErrAccessKeyNotFound},
 	}
 
 	for _, tt := range tests {
@@ -160,6 +162,7 @@ func TestUpdateSigningCertificate(t *testing.T) {
 
 			b := newBackend(t)
 			_, _ = b.CreateUser("cert-user", "/", "")
+			_, _ = b.CreateUser("mallory", "/", "")
 
 			certID := tt.certificateID
 			if certID == "" {
@@ -168,7 +171,12 @@ func TestUpdateSigningCertificate(t *testing.T) {
 				certID = cert.CertificateID
 			}
 
-			err := b.UpdateSigningCertificate(certID, tt.status)
+			updateAs := tt.updateAs
+			if updateAs == "" {
+				updateAs = "cert-user"
+			}
+
+			err := b.UpdateSigningCertificate(updateAs, certID, tt.status)
 			if tt.wantErr != nil {
 				require.Error(t, err)
 				assert.ErrorIs(t, err, tt.wantErr)
@@ -192,9 +200,11 @@ func TestDeleteSigningCertificate(t *testing.T) {
 		wantErr       error
 		name          string
 		certificateID string
+		deleteAs      string
 	}{
 		{name: "success"},
 		{name: "not found", certificateID: "ASCANONEXISTENT", wantErr: iam.ErrAccessKeyNotFound},
+		{name: "wrong owner rejected", deleteAs: "mallory", wantErr: iam.ErrAccessKeyNotFound},
 	}
 
 	for _, tt := range tests {
@@ -203,6 +213,7 @@ func TestDeleteSigningCertificate(t *testing.T) {
 
 			b := newBackend(t)
 			_, _ = b.CreateUser("delete-user", "/", "")
+			_, _ = b.CreateUser("mallory", "/", "")
 
 			certID := tt.certificateID
 			if certID == "" {
@@ -211,7 +222,12 @@ func TestDeleteSigningCertificate(t *testing.T) {
 				certID = cert.CertificateID
 			}
 
-			err := b.DeleteSigningCertificate(certID)
+			deleteAs := tt.deleteAs
+			if deleteAs == "" {
+				deleteAs = "delete-user"
+			}
+
+			err := b.DeleteSigningCertificate(deleteAs, certID)
 			if tt.wantErr != nil {
 				require.Error(t, err)
 				assert.ErrorIs(t, err, tt.wantErr)
@@ -285,13 +301,13 @@ func TestSigningCertificate_ToggleStatus(t *testing.T) {
 	cert, _ := b.UploadSigningCertificate("toggle-user", "body")
 
 	// Active → Inactive.
-	require.NoError(t, b.UpdateSigningCertificate(cert.CertificateID, "Inactive"))
+	require.NoError(t, b.UpdateSigningCertificate("toggle-user", cert.CertificateID, "Inactive"))
 
 	certs, _ := b.ListSigningCertificates("toggle-user")
 	assert.Equal(t, "Inactive", certs[0].Status)
 
 	// Inactive → Active.
-	require.NoError(t, b.UpdateSigningCertificate(cert.CertificateID, "Active"))
+	require.NoError(t, b.UpdateSigningCertificate("toggle-user", cert.CertificateID, "Active"))
 
 	certs, _ = b.ListSigningCertificates("toggle-user")
 	assert.Equal(t, "Active", certs[0].Status)

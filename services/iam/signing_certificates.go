@@ -72,13 +72,16 @@ func (b *InMemoryBackend) ListSigningCertificates(userName string) ([]SigningCer
 }
 
 // UpdateSigningCertificate changes the status of a signing certificate (Active/Inactive).
-func (b *InMemoryBackend) UpdateSigningCertificate(certificateID, status string) error {
+func (b *InMemoryBackend) UpdateSigningCertificate(userName, certificateID, status string) error {
 	b.mu.Lock("UpdateSigningCertificate")
 	defer b.mu.Unlock()
 
 	cert, exists := b.signingCertificates.Get(certificateID)
-	if !exists {
-		return fmt.Errorf("%w: signing certificate %q not found", ErrAccessKeyNotFound, certificateID)
+	if !exists || cert.UserName != userName {
+		return fmt.Errorf(
+			"%w: signing certificate %q not found for user %q",
+			ErrAccessKeyNotFound, certificateID, userName,
+		)
 	}
 
 	const inactive = "Inactive"
@@ -97,12 +100,16 @@ func (b *InMemoryBackend) UpdateSigningCertificate(certificateID, status string)
 }
 
 // DeleteSigningCertificate removes a signing certificate.
-func (b *InMemoryBackend) DeleteSigningCertificate(certificateID string) error {
+func (b *InMemoryBackend) DeleteSigningCertificate(userName, certificateID string) error {
 	b.mu.Lock("DeleteSigningCertificate")
 	defer b.mu.Unlock()
 
-	if _, exists := b.signingCertificates.Get(certificateID); !exists {
-		return fmt.Errorf("%w: signing certificate %q not found", ErrAccessKeyNotFound, certificateID)
+	cert, exists := b.signingCertificates.Get(certificateID)
+	if !exists || cert.UserName != userName {
+		return fmt.Errorf(
+			"%w: signing certificate %q not found for user %q",
+			ErrAccessKeyNotFound, certificateID, userName,
+		)
 	}
 
 	b.signingCertificates.Delete(certificateID)
