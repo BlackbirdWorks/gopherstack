@@ -15,6 +15,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/dynamoattr"
 	"github.com/blackbirdworks/gopherstack/services/dynamodb/models"
+	"github.com/blackbirdworks/gopherstack/test/internal/buildcheck"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -138,11 +139,16 @@ var ErrBinaryNotStatic = errors.New("not a statically-linked linux binary; run `
 const preBuiltLinuxBinary = "../../bin/gopherstack-linux"
 
 // dockerfileFor picks Dockerfile.test when a pre-built binary exists at
-// preBuiltLinuxBinary, verifying it is actually static first.
+// preBuiltLinuxBinary, verifying it is actually static and not stale first.
 func dockerfileFor() (string, error) {
-	if _, statErr := os.Stat(preBuiltLinuxBinary); statErr == nil {
+	if binInfo, statErr := os.Stat(preBuiltLinuxBinary); statErr == nil {
 		if err := requireStaticELF(preBuiltLinuxBinary); err != nil {
 			return "", fmt.Errorf("%s: %w", preBuiltLinuxBinary, err)
+		}
+
+		logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+		if err := buildcheck.CheckFreshness(logger, binInfo); err != nil {
+			return "", err
 		}
 
 		return "Dockerfile.test", nil

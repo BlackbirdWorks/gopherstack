@@ -15,6 +15,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/test/internal/buildcheck"
+
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
@@ -200,7 +202,7 @@ func TestMain(m *testing.M) {
 	}
 
 	if binInfo, err := os.Stat(binPath); err == nil {
-		if freshErr := checkBinaryFreshness(logger, binInfo); freshErr != nil {
+		if freshErr := buildcheck.CheckFreshness(logger, binInfo); freshErr != nil {
 			logger.Error(freshErr.Error())
 			os.Exit(1)
 		}
