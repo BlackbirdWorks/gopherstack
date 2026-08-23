@@ -783,8 +783,12 @@ func TestListThingPrincipals_Pagination(t *testing.T) {
 // TestListThingPrincipalsV2_ThingPrincipalTypeFilter guards
 // ListThingPrincipalsV2Input's real thingPrincipalType query filter
 // (iot@v1.77.4 serializers.go
-// awsRestjson1_serializeOpHttpBindingsListThingPrincipalsV2Input),
-// previously entirely ignored.
+// awsRestjson1_serializeOpHttpBindingsListThingPrincipalsV2Input).
+// AttachThingPrincipal now persists the real thingPrincipalType it's given
+// (previously dropped, so every attachment was always the default
+// NON_EXCLUSIVE_THING and this filter could only ever observe one value) --
+// attaches one of each type and confirms the filter distinguishes them by
+// their real recorded type, not a hardcoded default.
 func TestListThingPrincipalsV2_ThingPrincipalTypeFilter(t *testing.T) {
 	t.Parallel()
 
@@ -794,9 +798,12 @@ func TestListThingPrincipalsV2_ThingPrincipalTypeFilter(t *testing.T) {
 		ThingName: "v2-filter-thing",
 		Principal: "arn:aws:iot:us-east-1:000000000000:cert/v2p1",
 	}))
+	require.NoError(t, b.AttachThingPrincipal(&iot.AttachThingPrincipalInput{
+		ThingName:          "v2-filter-thing",
+		Principal:          "arn:aws:iot:us-east-1:000000000000:cert/v2p2",
+		ThingPrincipalType: "EXCLUSIVE_THING",
+	}))
 
-	// Every attached principal defaults to NON_EXCLUSIVE_THING; filtering for
-	// EXCLUSIVE_THING must exclude it.
 	rec := doRefRequest(t, h, http.MethodGet,
 		"/things/v2-filter-thing/principals-v2?thingPrincipalType=EXCLUSIVE_THING", nil, nil)
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -804,7 +811,10 @@ func TestListThingPrincipalsV2_ThingPrincipalTypeFilter(t *testing.T) {
 	var out map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
 	objs, _ := out["thingPrincipalObjects"].([]any)
-	assert.Empty(t, objs, "EXCLUSIVE_THING filter must exclude a NON_EXCLUSIVE_THING attachment")
+	require.Len(t, objs, 1, "EXCLUSIVE_THING filter must return only the EXCLUSIVE_THING attachment")
+	entry, _ := objs[0].(map[string]any)
+	assert.Equal(t, "arn:aws:iot:us-east-1:000000000000:cert/v2p2", entry["principal"])
+	assert.Equal(t, "EXCLUSIVE_THING", entry["thingPrincipalType"])
 
 	rec2 := doRefRequest(t, h, http.MethodGet,
 		"/things/v2-filter-thing/principals-v2?thingPrincipalType=NON_EXCLUSIVE_THING", nil, nil)
@@ -813,5 +823,8 @@ func TestListThingPrincipalsV2_ThingPrincipalTypeFilter(t *testing.T) {
 	var out2 map[string]any
 	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out2))
 	objs2, _ := out2["thingPrincipalObjects"].([]any)
-	assert.Len(t, objs2, 1)
+	require.Len(t, objs2, 1)
+	entry2, _ := objs2[0].(map[string]any)
+	assert.Equal(t, "arn:aws:iot:us-east-1:000000000000:cert/v2p1", entry2["principal"])
+	assert.Equal(t, "NON_EXCLUSIVE_THING", entry2["thingPrincipalType"])
 }

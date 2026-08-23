@@ -355,8 +355,9 @@ func (h *Handler) handleAttachThingPrincipal(c *echo.Context) error {
 	principal := c.Request().Header.Get(headerIoTPrincipal)
 
 	if err := h.Backend.AttachThingPrincipal(&AttachThingPrincipalInput{
-		ThingName: thingName,
-		Principal: principal,
+		ThingName:          thingName,
+		Principal:          principal,
+		ThingPrincipalType: c.QueryParam("thingPrincipalType"),
 	}); err != nil {
 		return h.handleError(c, err)
 	}

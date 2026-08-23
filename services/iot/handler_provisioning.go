@@ -302,15 +302,19 @@ func (h *Handler) handleListProvisioningTemplates(c *echo.Context) error {
 func (h *Handler) handleUpdateProvisioningTemplate(c *echo.Context) error {
 	name := strings.TrimPrefix(c.Request().URL.Path, "/provisioning-templates/")
 	var req struct {
-		Enabled             *bool  `json:"enabled"`
-		Description         string `json:"description"`
-		ProvisioningRoleARN string `json:"provisioningRoleArn"`
+		Enabled                   *bool             `json:"enabled"`
+		DefaultVersionID          *int32            `json:"defaultVersionId"`
+		PreProvisioningHook       *ProvisioningHook `json:"preProvisioningHook"`
+		Description               string            `json:"description"`
+		ProvisioningRoleARN       string            `json:"provisioningRoleArn"`
+		RemovePreProvisioningHook bool              `json:"removePreProvisioningHook"`
 	}
 	if err := readBody(c, &req); err != nil {
 		return err
 	}
 	if err := h.Backend.UpdateProvisioningTemplate(
 		name, req.Description, req.Enabled, req.ProvisioningRoleARN,
+		req.DefaultVersionID, req.PreProvisioningHook, req.RemovePreProvisioningHook,
 	); err != nil {
 		return respondErr(c, err)
 	}

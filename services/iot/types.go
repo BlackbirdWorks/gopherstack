@@ -697,6 +697,13 @@ type ThingPrincipalObject struct {
 	ThingPrincipalType string `json:"thingPrincipalType"`
 }
 
+// PrincipalThingObject represents a thing and its relation type to a
+// principal, as returned by ListPrincipalThingsV2.
+type PrincipalThingObject struct {
+	ThingName          string `json:"thingName"`
+	ThingPrincipalType string `json:"thingPrincipalType"`
+}
+
 // ManagedJobTemplateParameter describes one substitutable field in a managed
 // job template document.
 type ManagedJobTemplateParameter struct {

@@ -1306,3 +1306,117 @@ failure), `golangci-lint run ./services/iot/...` (0 issues), `make
 build-check` (exit 0, whole-repo, covers the `SetV2LoggingOptions`
 exported-signature change) -- all clean. Work left uncommitted per this
 pass's instructions.
+
+## 2026-08-23 (pass #8): the four `Update*`/`AttachThingPrincipal` bugs pass #7 found but ran out of time to fix
+
+Fixed all four, re-verified against `iot@v1.77.4` before touching code (all
+four confirmed real; none were false positives or query/URI-bound
+mislabeled as body):
+
+- **`AttachThingPrincipal`** (`handler.go`): real `thingPrincipalType` is a
+  **query parameter**
+  (`awsRestjson1_serializeOpHttpBindingsAttachThingPrincipalInput`,
+  `serializers.go`), not a body field -- confirmed via the serializer, not
+  guessed from the Input struct. The handler never read it at all, so
+  every attachment was silently forced to the default `NON_EXCLUSIVE_THING`
+  regardless of what a real client requested. This was also a genuine
+  storage gap, not just a handler oversight: `thingPrincipals` was
+  `map[string][]string` with nowhere to record a per-principal type at all,
+  so `ListThingPrincipalsV2` hardcoded `defaultThingPrincipalType` for
+  every entry and `ListPrincipalThingsV2` didn't even have its own backend
+  method (it delegated to V1 `ListPrincipalThings` and hardcoded the same
+  default). Fixed: added `thingPrincipalTypes map[string]map[string]string`
+  (thingName -> principal -> type) to `InMemoryBackend`, wired through
+  `AttachThingPrincipal`/`DetachThingPrincipal`/`ListThingPrincipalsV2`, and
+  gave `ListPrincipalThingsV2` its own real backend method (new
+  `PrincipalThingObject` type, new `Backend.ListPrincipalThingsV2` method)
+  instead of borrowing V1's. Persisted in `backendSnapshot` as a new
+  `thingPrincipalTypes` field (purely additive, no version bump -- see
+  below). See `TestAttachThingPrincipal_ThingPrincipalTypeSurvives_SDKRoundTrip`
+  (new, real generated SDK v2 client round-trip through both
+  `ListThingPrincipalsV2` and `ListPrincipalThingsV2`).
+  **Unblocked**: the two V2 list filter tests pass #7 landed
+  (`TestListThingPrincipalsV2_ThingPrincipalTypeFilter`,
+  `TestListPrincipalThingsV2_WireShapeAndFilter`) could previously only ever
+  observe the default type, so their EXCLUSIVE_THING-filter assertions were
+  unfalsifiable by construction. Both rewritten to attach a real
+  `EXCLUSIVE_THING` principal alongside a default one and assert the filter
+  separates them by actual recorded type, not a hardcoded constant.
+- **`UpdatePackage`** (`handler_packages.go`/`packages.go`): real
+  `unsetDefaultVersion` bool
+  (`awsRestjson1_serializeOpDocumentUpdatePackageInput`, `serializers.go`)
+  is a body field, confirmed dropped -- entirely unread by the handler, so
+  a default version could be set but never cleared. Fixed:
+  `UpdateIoTPackage` takes a new `unsetDefaultVersion bool` parameter;
+  `unsetDefaultVersion=true` clears `DefaultVersionName`, otherwise a
+  non-empty `defaultVersionName` still sets it (mutually exclusive per AWS
+  docs). See `TestUpdatePackage_UnsetDefaultVersionSurvives` (SDK
+  round-trip: set, confirm, unset, confirm cleared).
+- **`UpdatePackageVersion`** (`handler_packages.go`/`packages.go`): real
+  `action`/`artifact`/`attributes`/`recipe` (four body fields,
+  `awsRestjson1_serializeOpDocumentUpdatePackageVersionInput`) confirmed
+  dropped -- only `description`/`status` were ever applied. `action`
+  (`PUBLISH`/`DEPRECATE`) is a lifecycle-transition shorthand for `status`,
+  not a field of its own (`GetPackageVersionOutput` has no `action`
+  member) -- mapped `PUBLISH`->`PUBLISHED`, `DEPRECATE`->`DEPRECATED`,
+  applied only when `status` isn't explicitly given. New
+  `UpdateIoTPackageVersionOptions` struct (mirrors the existing
+  `CreateIoTPackageVersionOptions` pattern) bundles the four. See
+  `TestUpdatePackageVersion_AdvancedFieldsSurvive` (SDK round-trip
+  asserting all four survive through `GetPackageVersion`).
+- **`UpdateProvisioningTemplate`** (`handler_provisioning.go`/
+  `provisioning.go`): real `defaultVersionId`/`preProvisioningHook`/
+  `removePreProvisioningHook` (three body fields,
+  `awsRestjson1_serializeOpDocumentUpdateProvisioningTemplateInput`)
+  confirmed dropped. Mechanical, as pass #7 flagged: `ProvisioningTemplate`
+  already modeled `DefaultVersionID`/`PreProvisioningHook` (from
+  `CreateProvisioningTemplate`'s existing fields), just never wired on
+  Update. Fixed: `UpdateProvisioningTemplate` takes three new parameters;
+  `removePreProvisioningHook=true` clears the hook, else a non-nil
+  `preProvisioningHook` replaces it. See
+  `TestUpdateProvisioningTemplate_AdvancedFieldsSurvive` (SDK round-trip:
+  set `defaultVersionId`/hook, confirm via `DescribeProvisioningTemplate`,
+  then remove the hook and confirm it clears).
+
+**Hand-revert verified for every fix above**: each change was reverted via
+`cp` from a scratch backup to the exact pre-fix line, its guarding test run
+and confirmed to fail against the reverted code (failure output captured
+during the session, see report), then restored and `md5sum`-confirmed
+byte-identical to the fixed version before moving on.
+
+**Snapshot version**: NOT bumped (stays 3). The only persisted-struct
+change this pass, `backendSnapshot.ThingPrincipalTypes
+map[string]map[string]string`, is a brand-new field with no prior on-disk
+key to collide with -- purely additive. `pkgs/persistence`'s
+`TestSnapshotVersionGuard` confirmed this directly ("bookkeeping, not a
+version-bump case... diff is additive only and needs no bump") before the
+golden file was regenerated with `-update`.
+`pkgs/persistence/testdata/snapshot_inventory.json` diff is a single added
+line (`backendSnapshot.ThingPrincipalTypes ...`); `git status` was checked
+before and after -- `services/ec2/` was dirty (another in-flight session,
+per this pass's own instructions) both times and the regenerated golden
+diff contains no `ec2` entries, so nothing needed manual exclusion this
+time (contrast pass #7, which did need to hand-exclude a concurrent `ec2`
+line).
+
+**Not touched, still open**: the 52 void-output ops' request-decode
+structs beyond the 8 pass #7 spot-checked, and the three modelling gaps
+pass #7 investigated and left (`GetThingConnectivityData`,
+`TestInvokeAuthorizer`'s `httpContext`/`tlsContext`, `ListMetricValues`'
+`dimensionName`) -- re-confirmed genuine gaps (no backing state anywhere
+in this backend to synthesize from), not touched, per this pass's own
+scope.
+
+Gates run: `gofmt -l services/iot/` (clean), `go vet ./services/iot/...`
+(clean), `go build ./...` (clean), `go test -race -count=1
+./services/iot/...` (clean), `go test ./pkgs/persistence/...` (clean, iot
+and ec2 both -- no pre-existing ec2 failure was hit this pass),
+`golangci-lint run ./services/iot/...` (0 issues after one `--fix` pass for
+two `golines` line-length and one `fieldalignment` finding introduced by
+this pass's own edits, plus one `testifylint` JSONEq finding in a new
+test), `go build ./...` + `go vet -tags e2e ./...` + `go vet -tags
+integration ./...` (`make build-check`'s three steps, run individually;
+exit 0 -- covers this pass's exported-signature changes to
+`UpdateIoTPackage`, `UpdateIoTPackageVersion`, `UpdateProvisioningTemplate`,
+and the new `Backend.ListPrincipalThingsV2`). Work left uncommitted per
+this pass's instructions.

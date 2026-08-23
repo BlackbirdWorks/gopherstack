@@ -541,16 +541,16 @@ func (h *Handler) handleListPrincipalThings(c *echo.Context) error {
 func (h *Handler) handleListPrincipalThingsV2(c *echo.Context) error {
 	principal := c.Request().Header.Get(headerIoTPrincipal)
 	thingPrincipalType := c.QueryParam("thingPrincipalType")
-	things := h.Backend.ListPrincipalThings(principal)
+	things := h.Backend.ListPrincipalThingsV2(principal)
 
 	summaries := make([]map[string]any, 0, len(things))
 	for _, t := range things {
-		if thingPrincipalType != "" && thingPrincipalType != defaultThingPrincipalType {
+		if thingPrincipalType != "" && t.ThingPrincipalType != thingPrincipalType {
 			continue
 		}
 		summaries = append(summaries, map[string]any{
-			"thingName":          t,
-			"thingPrincipalType": defaultThingPrincipalType,
+			"thingName":          t.ThingName,
+			"thingPrincipalType": t.ThingPrincipalType,
 		})
 	}
 

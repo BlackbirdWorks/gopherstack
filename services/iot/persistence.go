@@ -45,6 +45,7 @@ type backendSnapshot struct {
 	PolicyTargets                   map[string][]string                           `json:"policyTargets"`
 	SecurityProfileTargets          map[string][]string                           `json:"securityProfileTargets"`
 	ThingPrincipals                 map[string][]string                           `json:"thingPrincipals"`
+	ThingPrincipalTypes             map[string]map[string]string                  `json:"thingPrincipalTypes"`
 	ThingGroupIndexingConfiguration *ThingGroupIndexingConfiguration              `json:"thingGroupIndexingConfiguration"`
 	AuditMitigationTasks            map[string]string                             `json:"auditMitigationTasks"`
 	AuditMitigationExecutions       map[string][]*AuditMitigationActionExecution  `json:"auditMitigationExecutions"`
@@ -134,6 +135,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		PolicyTargets:          copyStringSliceMap(b.policyTargets),
 		SecurityProfileTargets: copyStringSliceMap(b.securityProfileTargets),
 		ThingPrincipals:        copyStringSliceMap(b.thingPrincipals),
+		ThingPrincipalTypes:    copyNestedStringMap(b.thingPrincipalTypes),
 		AuditMitigationTasks:   copyStringMap(b.auditMitigationTasks),
 		AuditTasks:             copyStringMap(b.auditTasks),
 
@@ -230,6 +232,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.policyTargets = copyStringSliceMap(snap.PolicyTargets)
 	b.securityProfileTargets = copyStringSliceMap(snap.SecurityProfileTargets)
 	b.thingPrincipals = copyStringSliceMap(snap.ThingPrincipals)
+	b.thingPrincipalTypes = copyNestedStringMap(snap.ThingPrincipalTypes)
 	b.auditMitigationTasks = copyStringMap(snap.AuditMitigationTasks)
 	b.auditTasks = copyStringMap(snap.AuditTasks)
 
@@ -313,6 +316,10 @@ func ensureNonNilSnap(snap *backendSnapshot) {
 
 	if snap.ThingPrincipals == nil {
 		snap.ThingPrincipals = make(map[string][]string)
+	}
+
+	if snap.ThingPrincipalTypes == nil {
+		snap.ThingPrincipalTypes = make(map[string]map[string]string)
 	}
 
 	if snap.AuditMitigationTasks == nil {

@@ -134,7 +134,14 @@ type StorageBackend interface {
 	CreateProvisioningTemplate(input *CreateProvisioningTemplateInput) (*ProvisioningTemplate, error)
 	DescribeProvisioningTemplate(name string) (*ProvisioningTemplate, error)
 	ListProvisioningTemplates() []*ProvisioningTemplate
-	UpdateProvisioningTemplate(name, description string, enabled *bool, provRoleARN string) error
+	UpdateProvisioningTemplate(
+		name, description string,
+		enabled *bool,
+		provRoleARN string,
+		defaultVersionID *int32,
+		preProvisioningHook *ProvisioningHook,
+		removePreProvisioningHook bool,
+	) error
 	DeleteProvisioningTemplate(name string) error
 	CreateProvisioningTemplateVersion(
 		name, body string,
@@ -246,6 +253,7 @@ type StorageBackend interface {
 	ListPolicyPrincipals(policyName string) []string
 	ListTargetsForPolicy(policyName string) []string
 	ListPrincipalThings(principal string) []string
+	ListPrincipalThingsV2(principal string) []*PrincipalThingObject
 	GetEffectivePolicies(thingName, principal string) []*Policy
 	SetDefaultAuthorizer(authorizerName string) error
 	ClearDefaultAuthorizer() error
@@ -264,7 +272,7 @@ type StorageBackend interface {
 	// Batch 3: IoT Packages.
 	CreateIoTPackage(name, description string, tags map[string]string) (*IoTPackage, error)
 	GetIoTPackage(name string) (*IoTPackage, error)
-	UpdateIoTPackage(name, description, defaultVersionName string) error
+	UpdateIoTPackage(name, description, defaultVersionName string, unsetDefaultVersion bool) error
 	DeleteIoTPackage(name string) error
 	ListIoTPackages() []*IoTPackage
 
@@ -275,7 +283,9 @@ type StorageBackend interface {
 		opts CreateIoTPackageVersionOptions,
 	) (*IoTPackageVersion, error)
 	GetIoTPackageVersion(packageName, versionName string) (*IoTPackageVersion, error)
-	UpdateIoTPackageVersion(packageName, versionName, description, status string) error
+	UpdateIoTPackageVersion(
+		packageName, versionName, description, status string, opts UpdateIoTPackageVersionOptions,
+	) error
 	DeleteIoTPackageVersion(packageName, versionName string) error
 	ListIoTPackageVersions(packageName string) []*IoTPackageVersion
 

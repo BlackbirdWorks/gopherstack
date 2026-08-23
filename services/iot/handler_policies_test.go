@@ -6,6 +6,9 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	iotsdk "github.com/aws/aws-sdk-go-v2/service/iot"
+	iottypes "github.com/aws/aws-sdk-go-v2/service/iot/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -80,9 +83,11 @@ func TestGetEffectivePolicies_ThingNameIsQueryParam(t *testing.T) {
 // TestListPrincipalThingsV2_WireShapeAndFilter guards
 // ListPrincipalThingsV2Output's real principalThingObjects member -- each
 // entry is {thingName, thingPrincipalType} (types.PrincipalThingObject,
-// iot@v1.77.4), not a bare thingName -- and the real thingPrincipalType
-// query filter, both previously unimplemented (the handler delegated to the
-// V1 ListPrincipalThings and only ever emitted a bare thingName).
+// iot@v1.77.4), not a bare thingName -- backed by ListPrincipalThingsV2's
+// own backend method (previously delegated to V1 ListPrincipalThings and
+// hardcoded every entry's type to the default). Attaches with a non-default
+// EXCLUSIVE_THING type -- provable only now that AttachThingPrincipal
+// persists the type it's given, rather than always defaulting.
 func TestListPrincipalThingsV2_WireShapeAndFilter(t *testing.T) {
 	t.Parallel()
 	b := iot.NewInMemoryBackend()
@@ -90,8 +95,9 @@ func TestListPrincipalThingsV2_WireShapeAndFilter(t *testing.T) {
 
 	b.AddThingInternal(iot.Thing{ThingName: "v2-principal-thing"})
 	require.NoError(t, b.AttachThingPrincipal(&iot.AttachThingPrincipalInput{
-		ThingName: "v2-principal-thing",
-		Principal: "arn:aws:iot:us-east-1:000000000000:cert/pt1",
+		ThingName:          "v2-principal-thing",
+		Principal:          "arn:aws:iot:us-east-1:000000000000:cert/pt1",
+		ThingPrincipalType: "EXCLUSIVE_THING",
 	}))
 
 	rec := doRefRequest(t, h, http.MethodGet, "/principal-things-v2", nil,
@@ -105,7 +111,47 @@ func TestListPrincipalThingsV2_WireShapeAndFilter(t *testing.T) {
 	entry, ok := objs[0].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "v2-principal-thing", entry["thingName"])
-	assert.Equal(t, "NON_EXCLUSIVE_THING", entry["thingPrincipalType"])
+	assert.Equal(t, "EXCLUSIVE_THING", entry["thingPrincipalType"])
+}
+
+// TestAttachThingPrincipal_ThingPrincipalTypeSurvives_SDKRoundTrip guards
+// AttachThingPrincipalInput's real thingPrincipalType query parameter
+// (iot@v1.77.4 serializers.go
+// awsRestjson1_serializeOpHttpBindingsAttachThingPrincipalInput), previously
+// entirely dropped -- every attachment was silently forced to the default
+// NON_EXCLUSIVE_THING regardless of what a real client requested. Driven
+// through a real generated AWS SDK v2 client and read back via both
+// ListThingPrincipalsV2 and ListPrincipalThingsV2.
+func TestAttachThingPrincipal_ThingPrincipalTypeSurvives_SDKRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	client, b := newIoTSDKClient(t)
+	ctx := t.Context()
+
+	b.AddThingInternal(iot.Thing{ThingName: "sdk-attach-thing"})
+
+	_, err := client.AttachThingPrincipal(ctx, &iotsdk.AttachThingPrincipalInput{
+		ThingName:          aws.String("sdk-attach-thing"),
+		Principal:          aws.String("arn:aws:iot:us-east-1:000000000000:cert/sdk1"),
+		ThingPrincipalType: iottypes.ThingPrincipalTypeExclusiveThing,
+	})
+	require.NoError(t, err)
+
+	tp, err := client.ListThingPrincipalsV2(ctx, &iotsdk.ListThingPrincipalsV2Input{
+		ThingName: aws.String("sdk-attach-thing"),
+	})
+	require.NoError(t, err)
+	require.Len(t, tp.ThingPrincipalObjects, 1)
+	assert.Equal(t, "arn:aws:iot:us-east-1:000000000000:cert/sdk1", aws.ToString(tp.ThingPrincipalObjects[0].Principal))
+	assert.Equal(t, iottypes.ThingPrincipalTypeExclusiveThing, tp.ThingPrincipalObjects[0].ThingPrincipalType)
+
+	pt, err := client.ListPrincipalThingsV2(ctx, &iotsdk.ListPrincipalThingsV2Input{
+		Principal: aws.String("arn:aws:iot:us-east-1:000000000000:cert/sdk1"),
+	})
+	require.NoError(t, err)
+	require.Len(t, pt.PrincipalThingObjects, 1)
+	assert.Equal(t, "sdk-attach-thing", aws.ToString(pt.PrincipalThingObjects[0].ThingName))
+	assert.Equal(t, iottypes.ThingPrincipalTypeExclusiveThing, pt.PrincipalThingObjects[0].ThingPrincipalType)
 }
 
 // TestPolicyPrincipalListing_Pagination guards the real marker/pageSize

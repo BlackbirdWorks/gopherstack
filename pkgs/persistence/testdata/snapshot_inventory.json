@@ -13893,6 +13893,7 @@
       "backendSnapshot.ThingGroupIndexingConfiguration *ThingGroupIndexingConfiguration `json:\"thingGroupIndexingConfiguration\"`",
       "backendSnapshot.ThingGroupMembers map[string][]string `json:\"thingGroupMembers\"`",
       "backendSnapshot.ThingIndexingConfiguration *ThingIndexingConfiguration `json:\"thingIndexingConfiguration\"`",
+      "backendSnapshot.ThingPrincipalTypes map[string]map[string]string `json:\"thingPrincipalTypes\"`",
       "backendSnapshot.ThingPrincipals map[string][]string `json:\"thingPrincipals\"`",
       "backendSnapshot.ThingThingGroups map[string][]string `json:\"thingThingGroups\"`",
       "backendSnapshot.V2LoggingOptions *V2LoggingOptions `json:\"v2LoggingOptions\"`",

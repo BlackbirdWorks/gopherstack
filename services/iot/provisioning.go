@@ -366,6 +366,9 @@ func (b *InMemoryBackend) UpdateProvisioningTemplate(
 	name, description string,
 	enabled *bool,
 	provRoleARN string,
+	defaultVersionID *int32,
+	preProvisioningHook *ProvisioningHook,
+	removePreProvisioningHook bool,
 ) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -382,6 +385,14 @@ func (b *InMemoryBackend) UpdateProvisioningTemplate(
 	}
 	if provRoleARN != "" {
 		pt.ProvisioningRoleARN = provRoleARN
+	}
+	if defaultVersionID != nil {
+		pt.DefaultVersionID = *defaultVersionID
+	}
+	if removePreProvisioningHook {
+		pt.PreProvisioningHook = nil
+	} else if preProvisioningHook != nil {
+		pt.PreProvisioningHook = preProvisioningHook
 	}
 	pt.LastModifiedDate = float64(time.Now().Unix())
 

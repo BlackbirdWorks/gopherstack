@@ -90,7 +90,9 @@ func (b *InMemoryBackend) GetIoTPackage(name string) (*IoTPackage, error) {
 	return cloneIoTPackage(p), nil
 }
 
-func (b *InMemoryBackend) UpdateIoTPackage(name, description, defaultVersionName string) error {
+func (b *InMemoryBackend) UpdateIoTPackage(
+	name, description, defaultVersionName string, unsetDefaultVersion bool,
+) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -101,7 +103,9 @@ func (b *InMemoryBackend) UpdateIoTPackage(name, description, defaultVersionName
 	if description != "" {
 		p.Description = description
 	}
-	if defaultVersionName != "" {
+	if unsetDefaultVersion {
+		p.DefaultVersionName = ""
+	} else if defaultVersionName != "" {
 		p.DefaultVersionName = defaultVersionName
 	}
 	p.LastModifiedDate = float64(time.Now().Unix())
@@ -238,7 +242,35 @@ func (b *InMemoryBackend) GetIoTPackageVersion(packageName, versionName string) 
 	return cp, nil
 }
 
-func (b *InMemoryBackend) UpdateIoTPackageVersion(packageName, versionName, description, status string) error {
+// UpdateIoTPackageVersionOptions holds UpdatePackageVersion's optional
+// action/artifact/attributes/recipe fields (UpdatePackageVersionInput,
+// iot@v1.77.4), previously silently dropped by the handler.
+type UpdateIoTPackageVersionOptions struct {
+	Action     string
+	Artifact   *PackageVersionArtifact
+	Attributes map[string]string
+	Recipe     string
+}
+
+// packageVersionActionStatus maps the real UpdatePackageVersionInput.action
+// enum (types.PackageVersionAction, iot@v1.77.4) to the status transition it
+// drives -- action is a lifecycle-transition shorthand, not a stored field
+// of its own (GetPackageVersionOutput has no "action" member).
+func packageVersionActionStatus(action string) string {
+	switch action {
+	case "PUBLISH":
+		return "PUBLISHED"
+	case "DEPRECATE":
+		return "DEPRECATED"
+	default:
+		return ""
+	}
+}
+
+func (b *InMemoryBackend) UpdateIoTPackageVersion(
+	packageName, versionName, description, status string,
+	opts UpdateIoTPackageVersionOptions,
+) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -252,9 +284,25 @@ func (b *InMemoryBackend) UpdateIoTPackageVersion(packageName, versionName, desc
 	if description != "" {
 		v.Description = description
 	}
-	if status != "" {
-		v.Status = status
+	if opts.Artifact != nil {
+		v.Artifact = opts.Artifact
 	}
+	if opts.Attributes != nil {
+		v.Attributes = opts.Attributes
+	}
+	if opts.Recipe != "" {
+		v.Recipe = opts.Recipe
+	}
+
+	switch {
+	case status != "":
+		v.Status = status
+	case opts.Action != "":
+		if mapped := packageVersionActionStatus(opts.Action); mapped != "" {
+			v.Status = mapped
+		}
+	}
+
 	v.LastModifiedDate = float64(time.Now().Unix())
 
 	return nil
