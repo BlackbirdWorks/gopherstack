@@ -17,7 +17,13 @@ import (
 // there would make an older snapshot unsafe to decode; Restore compares
 // this against the persisted value and discards (rather than partially
 // decodes) any mismatch.
-const iotSnapshotVersion = 1
+//
+// Bumped 1 -> 2 (d23239d40): the otaUpdates table's OTAUpdate.Files field was
+// retagged json:"files" -> json:"otaUpdateFiles" to match the real
+// OTAUpdateInfo.otaUpdateFiles wire key. Same Go field, different on-disk
+// key -- an older snapshot would decode Files as its zero value (nil),
+// silently dropping every OTA update's file list.
+const iotSnapshotVersion = 2
 
 type backendSnapshot struct {
 	Tables                          map[string]json.RawMessage                    `json:"tables"`
