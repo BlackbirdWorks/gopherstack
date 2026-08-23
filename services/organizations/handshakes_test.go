@@ -99,6 +99,7 @@ func TestAcceptHandshake_InviteAddsAccount(t *testing.T) {
 			hs, err := b.InviteAccountToOrganization(
 				organizations.HandshakeParty{ID: tt.targetID, Type: "ACCOUNT"},
 				"",
+				nil,
 			)
 			require.NoError(t, err)
 			assert.Equal(t, "OPEN", hs.State)
@@ -330,6 +331,7 @@ func TestInviteHandshake_StateMachine(t *testing.T) {
 			hs, err := b.InviteAccountToOrganization(
 				organizations.HandshakeParty{ID: tt.targetID, Type: "ACCOUNT"},
 				"test invite notes",
+				nil,
 			)
 			require.NoError(t, err)
 			assert.Equal(t, "OPEN", hs.State)
@@ -399,6 +401,7 @@ func TestInviteHandshake_Resources(t *testing.T) {
 			hs, err := b.InviteAccountToOrganization(
 				organizations.HandshakeParty{ID: tt.targetID, Type: "ACCOUNT"},
 				tt.notes,
+				nil,
 			)
 			require.NoError(t, err)
 			assert.GreaterOrEqual(t, len(hs.Resources), tt.wantResMinCount)
@@ -453,6 +456,7 @@ func TestInviteHandshake_DuplicateAcceptFails(t *testing.T) {
 			hs, err := b.InviteAccountToOrganization(
 				organizations.HandshakeParty{ID: "777777777777", Type: "ACCOUNT"},
 				"",
+				nil,
 			)
 			require.NoError(t, err)
 
@@ -497,7 +501,7 @@ func TestHandshakeARN_LowercaseAction(t *testing.T) {
 				return b.InviteAccountToOrganization(organizations.HandshakeParty{
 					ID:   "123456789012",
 					Type: "ACCOUNT",
-				}, "")
+				}, "", nil)
 			},
 			wantFragment: "/invite/",
 		},
@@ -676,7 +680,7 @@ func TestInviteAccount_PartyValidation(t *testing.T) {
 
 			b, _ := newOrgBackend(t)
 
-			_, err := b.InviteAccountToOrganization(tt.target, "")
+			_, err := b.InviteAccountToOrganization(tt.target, "", nil)
 			if tt.wantErr {
 				require.Error(t, err)
 			} else {
@@ -699,10 +703,10 @@ func TestInviteAccount_DuplicateOpen_Rejected(t *testing.T) {
 
 	target := organizations.HandshakeParty{ID: "111111111111", Type: "ACCOUNT"}
 
-	_, err := b.InviteAccountToOrganization(target, "")
+	_, err := b.InviteAccountToOrganization(target, "", nil)
 	require.NoError(t, err)
 
-	_, err = b.InviteAccountToOrganization(target, "second attempt")
+	_, err = b.InviteAccountToOrganization(target, "second attempt", nil)
 	require.Error(t, err, "duplicate open invite must be rejected")
 }
 
@@ -715,13 +719,13 @@ func TestInviteAccount_AfterCancel_OK(t *testing.T) {
 
 	target := organizations.HandshakeParty{ID: "333333333333", Type: "ACCOUNT"}
 
-	h1, err := b.InviteAccountToOrganization(target, "")
+	h1, err := b.InviteAccountToOrganization(target, "", nil)
 	require.NoError(t, err)
 
 	_, err = b.CancelHandshake(h1.ID)
 	require.NoError(t, err)
 
-	_, err = b.InviteAccountToOrganization(target, "re-invite after cancel")
+	_, err = b.InviteAccountToOrganization(target, "re-invite after cancel", nil)
 	require.NoError(t, err, "invite after cancellation must succeed")
 }
 
@@ -732,10 +736,10 @@ func TestInviteAccount_DifferentTargets_OK(t *testing.T) {
 
 	b, _ := newOrgBackend(t)
 
-	_, err := b.InviteAccountToOrganization(organizations.HandshakeParty{ID: "444444444444", Type: "ACCOUNT"}, "")
+	_, err := b.InviteAccountToOrganization(organizations.HandshakeParty{ID: "444444444444", Type: "ACCOUNT"}, "", nil)
 	require.NoError(t, err)
 
-	_, err = b.InviteAccountToOrganization(organizations.HandshakeParty{ID: "555555555555", Type: "ACCOUNT"}, "")
+	_, err = b.InviteAccountToOrganization(organizations.HandshakeParty{ID: "555555555555", Type: "ACCOUNT"}, "", nil)
 	require.NoError(t, err, "inviting different accounts simultaneously must succeed")
 }
 

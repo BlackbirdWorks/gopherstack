@@ -272,6 +272,7 @@ type IncreaseReplicationFactorInput struct {
 type DecreaseReplicationFactorInput struct {
 	ClusterName          string
 	NodeIDsToRemove      []string
+	AvailabilityZones    []string
 	NewReplicationFactor int
 }
 

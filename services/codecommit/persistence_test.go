@@ -96,7 +96,9 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 		{Name: "trigger-1", DestinationARN: "arn:aws:sns:us-west-2:111122223333:topic", Events: []string{"all"}},
 	}))
 
-	commit2, _, err := original.PutFile(repo.RepositoryName, "main", "docs/guide.md", []byte("guide"))
+	commit2, _, err := original.PutFile(
+		repo.RepositoryName, "main", "docs/guide.md", []byte("guide"), codecommit.PutFileMetadata{},
+	)
 	require.NoError(t, err)
 	_ = commit2
 

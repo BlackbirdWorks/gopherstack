@@ -741,7 +741,7 @@ func TestRemoveAccount_InvitedCreatesLeaveHandshake(t *testing.T) {
 	h, err := b.InviteAccountToOrganization(organizations.HandshakeParty{
 		ID:   "999999999999",
 		Type: "ACCOUNT",
-	}, "")
+	}, "", nil)
 	require.NoError(t, err)
 
 	_, err = b.AcceptHandshake(h.ID)

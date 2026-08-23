@@ -469,3 +469,18 @@ findings from field-diffing the file/commit/merge-conflict/pagination surface ag
 Both proven via real `aws-sdk-go-v2/service/codecommit` client round trips
 (wire_field_fixes_y1zn_test.go), hand-reverted/confirmed-failing/restored/
 `md5sum`-verified byte-identical.
+
+## 2026-08-23 request-side accept-and-drop (gopherstack-n3zi)
+
+PutFile and DeleteFile dropped commitMessage, name and email; PutFile also
+dropped fileMode and parentCommitId. All body-bound, all real members of
+PutFileInput (api_op_PutFile.go:56-77). Commit.Message was hardcoded to
+"Add "+path / "Delete "+path, and Commit.AuthorName/AuthorEmail -- fields that
+exist and are populated correctly by CreateCommit (commits.go:122-127) -- were
+never set. Proven by real-SDK-client round trip failing pre-fix with
+expected "initial import", actual "Add hello.txt".
+
+NOT AUDITED, LIKELY THE SAME BUG: CreateUnreferencedMergeCommit,
+MergeBranchesBySquash, MergeBranchesByThreeWay, MergePullRequestBySquash and
+MergePullRequestByThreeWay all show the same missing authorName, commitMessage
+and email in the same scan. merges.go was never opened. Treat as unconfirmed.

@@ -11,10 +11,31 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
+// PutFileMetadata carries PutFile's optional commit-authoring fields
+// (commitMessage/name/email/fileMode/parentCommitId on AWS's PutFileInput).
+// Previously dropped entirely: the resulting commit always got a synthetic
+// "Add <path>" message and no author/committer identity, and concurrent
+// writers were never checked against parentCommitId.
+type PutFileMetadata struct {
+	FileMode       string
+	AuthorName     string
+	AuthorEmail    string
+	CommitMessage  string
+	ParentCommitID string
+}
+
 // PutFile stores a file and creates a commit. It returns the new commit and
 // the blob ID of the stored file content (AWS's PutFileOutput.BlobId is a
 // required field, so callers must round-trip this into GetBlob).
-func (b *InMemoryBackend) PutFile(repoName, branchName, filePath string, content []byte) (*Commit, string, error) {
+//
+// parentCommitId is optional here, matching CreateCommit's established
+// convention in this backend (see CreateCommit's doc comment): when
+// provided, it is checked against the branch tip; when omitted, no race
+// detection happens, same relaxation CreateCommit already makes versus AWS's
+// stricter "required for a non-empty branch" rule.
+func (b *InMemoryBackend) PutFile(
+	repoName, branchName, filePath string, content []byte, meta PutFileMetadata,
+) (*Commit, string, error) {
 	b.mu.Lock("PutFile")
 	defer b.mu.Unlock()
 
@@ -28,9 +49,28 @@ func (b *InMemoryBackend) PutFile(repoName, branchName, filePath string, content
 		)
 	}
 
+	var currentTip string
+	if branchName != "" {
+		if br, branchOK := b.branches.Get(branchKey(repoName, branchName)); branchOK {
+			currentTip = br.CommitID
+		}
+	}
+
+	if meta.ParentCommitID != "" && currentTip != "" && meta.ParentCommitID != currentTip {
+		return nil, "", fmt.Errorf(
+			"%w: parentCommitId %s does not match current branch tip %s",
+			ErrParentCommitIDOutdated, meta.ParentCommitID, currentTip,
+		)
+	}
+
 	commitID := uuid.NewString()
 	treeID := uuid.NewString()
 	now := time.Now().UTC()
+
+	fileMode := meta.FileMode
+	if fileMode == "" {
+		fileMode = fileModeDefault
+	}
 
 	blobID := uuid.NewString()
 	b.files.Put(&File{
@@ -43,17 +83,32 @@ func (b *InMemoryBackend) PutFile(repoName, branchName, filePath string, content
 		// clients expect a commit ID).
 		CommitSpecifier: commitID,
 		BlobID:          blobID,
-		FileMode:        fileModeDefault,
+		FileMode:        fileMode,
 		FileContent:     content,
 		RepoName:        repoName,
 	})
 	b.recordFileHistory(repoName, filePath, commitID, blobID)
 
+	message := meta.CommitMessage
+	if message == "" {
+		message = "Add " + filePath
+	}
+
+	var parents []string
+	if currentTip != "" {
+		parents = []string{currentTip}
+	}
+
 	commit := &Commit{
 		CommitID:       commitID,
 		TreeID:         treeID,
-		Message:        "Add " + filePath,
+		Message:        message,
+		AuthorName:     meta.AuthorName,
+		AuthorEmail:    meta.AuthorEmail,
+		CommitterName:  meta.AuthorName,
+		CommitterEmail: meta.AuthorEmail,
 		RepositoryName: repoName,
+		Parents:        parents,
 		CreatedAt:      now,
 	}
 	b.commits.Put(commit)
@@ -146,6 +201,18 @@ func (b *InMemoryBackend) GetFolderFiles(repoName, _ /* commitSpecifier */, fold
 	return files, nil
 }
 
+// DeleteFileMetadata carries DeleteFile's authoring fields (commitMessage/
+// name/email on AWS's DeleteFileInput, alongside the already-enforced
+// parentCommitId). Previously commitMessage/name/email were dropped
+// entirely: the resulting commit always got a synthetic "Delete <path>"
+// message and no author/committer identity.
+type DeleteFileMetadata struct {
+	ParentCommitID string
+	AuthorName     string
+	AuthorEmail    string
+	CommitMessage  string
+}
+
 // DeleteFile removes a file and creates a delete commit. It returns the new
 // commit and the blob ID of the removed file (AWS's DeleteFileOutput.BlobId
 // is a required field reporting the blob that was taken out of the tree).
@@ -161,7 +228,7 @@ func (b *InMemoryBackend) GetFolderFiles(repoName, _ /* commitSpecifier */, fold
 // non-empty value that does not match the current branch tip is rejected the
 // same way CreateCommit rejects a stale parentCommitId.
 func (b *InMemoryBackend) DeleteFile(
-	repoName, branchName, filePath, parentCommitID string,
+	repoName, branchName, filePath string, meta DeleteFileMetadata,
 ) (*Commit, string, error) {
 	b.mu.Lock("DeleteFile")
 	defer b.mu.Unlock()
@@ -183,16 +250,16 @@ func (b *InMemoryBackend) DeleteFile(
 		}
 	}
 
-	if parentCommitID == "" {
+	if meta.ParentCommitID == "" {
 		return nil, "", fmt.Errorf(
 			"%w: parentCommitId is required and must be the current tip of branch %s",
 			ErrParentCommitIDRequired, branchName,
 		)
 	}
-	if currentTip != "" && parentCommitID != currentTip {
+	if currentTip != "" && meta.ParentCommitID != currentTip {
 		return nil, "", fmt.Errorf(
 			"%w: parentCommitId %s does not match current branch tip %s",
-			ErrParentCommitIDOutdated, parentCommitID, currentTip,
+			ErrParentCommitIDOutdated, meta.ParentCommitID, currentTip,
 		)
 	}
 
@@ -201,11 +268,27 @@ func (b *InMemoryBackend) DeleteFile(
 	commitID := uuid.NewString()
 	treeID := uuid.NewString()
 	now := time.Now().UTC()
+
+	message := meta.CommitMessage
+	if message == "" {
+		message = "Delete " + filePath
+	}
+
+	var parents []string
+	if currentTip != "" {
+		parents = []string{currentTip}
+	}
+
 	commit := &Commit{
 		CommitID:       commitID,
 		TreeID:         treeID,
-		Message:        "Delete " + filePath,
+		Message:        message,
+		AuthorName:     meta.AuthorName,
+		AuthorEmail:    meta.AuthorEmail,
+		CommitterName:  meta.AuthorName,
+		CommitterEmail: meta.AuthorEmail,
 		RepositoryName: repoName,
+		Parents:        parents,
 		CreatedAt:      now,
 	}
 	b.commits.Put(commit)

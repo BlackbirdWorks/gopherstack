@@ -419,3 +419,11 @@ commit's own diff is unrelated to `services/dax/` (a `servicediscovery` fix), wh
 and not itself a red flag per this campaign's provenance rule (the schema defines the field as
 HEAD-at-write-time, not "last commit that touched this service"). Stamp refreshed above to
 current HEAD (`b8ef75b1e`) and today's date (2026-08-20) so the pair stays self-consistent.
+
+## 2026-08-23 request-side accept-and-drop (gopherstack-n3zi)
+
+DecreaseReplicationFactor dropped AvailabilityZones, a real body-bound member
+naming which AZs to remove nodes from. Node.AvailabilityZone is real, populated
+state, so this is accept-and-drop rather than a modelling gap. Proven by a
+real-SDK-client round trip: asked to remove the us-east-1b node, the unfixed
+code removed the trailing us-east-1c node instead.

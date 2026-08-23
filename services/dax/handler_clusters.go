@@ -56,6 +56,7 @@ type increaseReplicationFactorRequest struct {
 type decreaseReplicationFactorRequest struct {
 	ClusterName          string   `json:"ClusterName"`
 	NodeIDsToRemove      []string `json:"NodeIdsToRemove"`
+	AvailabilityZones    []string `json:"AvailabilityZones"`
 	NewReplicationFactor int      `json:"NewReplicationFactor"`
 }
 

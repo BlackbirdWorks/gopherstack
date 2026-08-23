@@ -335,3 +335,16 @@ exist in this repo's `services/glue/` at all -- `CreateDataCellsFilter` is a
 not Glue (`aws-sdk-go-v2/service/glue@v1.152.0` has no such op). The sweep
 mislabeled the service; nothing to fix here, and `services/lakeformation/`
 is outside this fix's scope.
+
+## 2026-08-23 request-side accept-and-drop (gopherstack-n3zi)
+
+InviteAccountToOrganization dropped Tags, a real body-bound member
+(api_op_InviteAccountToOrganization.go:60-66). Accounts ARE taggable here, so
+the account created by AcceptHandshake simply never received the invite-time
+tags. Proven by a real-SDK-client round trip failing pre-fix with
+"[]" should have 1 item(s), but has 0.
+
+Gaps confirmed and NOT fixed, no backing state:
+InviteOrganizationToTransferResponsibility's Tags and PutResourcePolicy's Tags
+-- neither handshakes nor resource-policy IDs are registered taggable types
+(resourceExistsLocked covers root, OU, account and policy only).

@@ -704,7 +704,8 @@ func (b *InMemoryBackend) DecreaseReplicationFactor(input DecreaseReplicationFac
 
 	var removedIDs []string
 
-	if len(input.NodeIDsToRemove) > 0 {
+	switch {
+	case len(input.NodeIDsToRemove) > 0:
 		kept, err := removeSpecificNodes(
 			cluster.Nodes, input.NodeIDsToRemove, input.ClusterName, input.NewReplicationFactor,
 		)
@@ -714,7 +715,13 @@ func (b *InMemoryBackend) DecreaseReplicationFactor(input DecreaseReplicationFac
 
 		removedIDs = input.NodeIDsToRemove
 		cluster.Nodes = kept
-	} else {
+	case len(input.AvailabilityZones) > 0:
+		kept, removed := removeNodesByAvailabilityZones(
+			cluster.Nodes, input.AvailabilityZones, input.NewReplicationFactor,
+		)
+		removedIDs = removed
+		cluster.Nodes = kept
+	default:
 		for _, n := range cluster.Nodes[input.NewReplicationFactor:] {
 			removedIDs = append(removedIDs, n.NodeID)
 		}
@@ -845,6 +852,49 @@ func (b *InMemoryBackend) clusterCopy(c *Cluster) *Cluster {
 	}
 
 	return &cp
+}
+
+// removeNodesByAvailabilityZones removes nodes down to newFactor, preferring
+// nodes whose AvailabilityZone is in azs (in cluster.Nodes order) and falling
+// back to trailing nodes if too few nodes sit in the requested AZs. Mirrors
+// AWS's DecreaseReplicationFactorInput.AvailabilityZones ("The Availability
+// Zone(s) from which to remove nodes"), an alternative to NodeIdsToRemove.
+func removeNodesByAvailabilityZones(nodes []Node, azs []string, newFactor int) ([]Node, []string) {
+	azSet := make(map[string]bool, len(azs))
+	for _, az := range azs {
+		azSet[az] = true
+	}
+
+	removeCount := len(nodes) - newFactor
+	removeSet := make(map[string]bool, removeCount)
+
+	var removedIDs []string
+	for _, n := range nodes {
+		if len(removedIDs) >= removeCount {
+			break
+		}
+		if azSet[n.AvailabilityZone] {
+			removeSet[n.NodeID] = true
+			removedIDs = append(removedIDs, n.NodeID)
+		}
+	}
+
+	for i := len(nodes) - 1; i >= 0 && len(removedIDs) < removeCount; i-- {
+		n := nodes[i]
+		if !removeSet[n.NodeID] {
+			removeSet[n.NodeID] = true
+			removedIDs = append(removedIDs, n.NodeID)
+		}
+	}
+
+	kept := make([]Node, 0, newFactor)
+	for _, n := range nodes {
+		if !removeSet[n.NodeID] {
+			kept = append(kept, n)
+		}
+	}
+
+	return kept, removedIDs
 }
 
 // removeSpecificNodes validates NodeIDsToRemove count and existence, then returns the kept nodes.
