@@ -56,6 +56,9 @@ func (b *InMemoryBackend) PutThirdPartyJobSuccessResult(ctx context.Context, job
 }
 
 // PutThirdPartyJobFailureResult acknowledges third-party job failure.
-func (b *InMemoryBackend) PutThirdPartyJobFailureResult(ctx context.Context, jobID, _, message string) error {
-	return b.PutJobFailureResult(ctx, jobID, message)
+func (b *InMemoryBackend) PutThirdPartyJobFailureResult(
+	ctx context.Context,
+	jobID, _, message, failureType string,
+) error {
+	return b.PutJobFailureResult(ctx, jobID, message, failureType)
 }

@@ -6022,6 +6022,8 @@
       "GitTagFilterCriteria.Excludes []string `json:\"excludes,omitempty\"`",
       "GitTagFilterCriteria.Includes []string `json:\"includes,omitempty\"`",
       "Job.ActionTypeID ActionTypeID `json:\"actionTypeId,omitzero\"`",
+      "Job.FailureMessage string `json:\"failureMessage,omitempty\"`",
+      "Job.FailureType string `json:\"failureType,omitempty\"`",
       "Job.ID string `json:\"id\"`",
       "Job.Nonce string `json:\"nonce\"`",
       "Job.PipelineName string `json:\"pipelineName,omitempty\"`",

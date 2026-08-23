@@ -99,7 +99,7 @@ func (b *InMemoryBackend) PutJobSuccessResult(ctx context.Context, jobID string)
 }
 
 // PutJobFailureResult acknowledges job failure.
-func (b *InMemoryBackend) PutJobFailureResult(ctx context.Context, jobID, message string) error {
+func (b *InMemoryBackend) PutJobFailureResult(ctx context.Context, jobID, message, failureType string) error {
 	b.mu.Lock("PutJobFailureResult")
 	defer b.mu.Unlock()
 
@@ -108,8 +108,9 @@ func (b *InMemoryBackend) PutJobFailureResult(ctx context.Context, jobID, messag
 		return ErrJobNotFound
 	}
 
-	_ = message
 	job.Status = "Failed"
+	job.FailureMessage = message
+	job.FailureType = failureType
 
 	return nil
 }
