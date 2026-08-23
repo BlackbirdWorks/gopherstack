@@ -3,6 +3,7 @@ package bedrockruntime
 import (
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -91,11 +92,47 @@ func (h *Handler) handleGetAsyncInvoke(c *echo.Context, path string) error {
 	return c.JSON(http.StatusOK, resp)
 }
 
+// defaultListAsyncInvokesMaxResults matches the real API's page size when maxResults is
+// omitted (bedrockruntime@v1.57.1 api_op_ListAsyncInvokes.go doc comment: "default 10").
+const defaultListAsyncInvokesMaxResults = 10
+
 // handleListAsyncInvokes handles GET /async-invoke.
-// Supports optional query parameter: statusEquals (InProgress|Completed|Failed).
+// Supports query parameters: statusEquals (InProgress|Completed|Failed), maxResults,
+// nextToken (both httpQuery-bound in ListAsyncInvokesInput -- serializers.go:1120-1126).
 func (h *Handler) handleListAsyncInvokes(c *echo.Context) error {
 	statusFilter := c.QueryParam("statusEquals")
 	invocations := h.Backend.ListAsyncInvokes(ListAsyncInvokesFilter{StatusEquals: statusFilter})
+
+	maxResults := defaultListAsyncInvokesMaxResults
+	if s := c.QueryParam("maxResults"); s != "" {
+		if n, err := strconv.Atoi(s); err == nil && n > 0 {
+			maxResults = n
+		}
+	}
+
+	nextToken := c.QueryParam("nextToken")
+	if nextToken != "" {
+		idx := -1
+		for i, inv := range invocations {
+			if inv.InvocationArn == nextToken {
+				idx = i
+
+				break
+			}
+		}
+
+		if idx >= 0 {
+			invocations = invocations[idx+1:]
+		} else {
+			invocations = nil
+		}
+	}
+
+	respToken := ""
+	if len(invocations) > maxResults {
+		respToken = invocations[maxResults-1].InvocationArn
+		invocations = invocations[:maxResults]
+	}
 
 	summaries := make([]map[string]any, 0, len(invocations))
 
@@ -105,6 +142,9 @@ func (h *Handler) handleListAsyncInvokes(c *echo.Context) error {
 
 	resp := map[string]any{
 		"asyncInvokeSummaries": summaries,
+	}
+	if respToken != "" {
+		resp["nextToken"] = respToken
 	}
 
 	c.Response().Header().Set("Content-Type", contentTypeJSON)
