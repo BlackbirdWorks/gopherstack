@@ -1,6 +1,10 @@
 package verifiedpermissions
 
-import "context"
+import (
+	"context"
+
+	cedar "github.com/cedar-policy/cedar-go"
+)
 
 // StorageBackend is the interface for Verified Permissions storage operations.
 type StorageBackend interface {
@@ -34,11 +38,23 @@ type StorageBackend interface {
 	TagResource(resourceARN string, tags map[string]string) error
 	UntagResource(resourceARN string, tagKeys []string) error
 	ListTagsForResource(resourceARN string) (map[string]string, error)
-	IsAuthorized(policyStoreID string, req AuthorizationRequest) (*AuthDecision, error)
-	IsAuthorizedWithToken(policyStoreID string, req AuthorizationRequest) (*AuthDecision, error)
+	IsAuthorized(policyStoreID string, req AuthorizationRequest, entities cedar.EntityMap) (*AuthDecision, error)
+	IsAuthorizedWithToken(
+		policyStoreID string,
+		req AuthorizationRequest,
+		entities cedar.EntityMap,
+	) (*AuthDecision, error)
 	BatchGetPolicy(items []BatchGetPolicyItem) BatchGetPolicyResult
-	BatchIsAuthorized(policyStoreID string, requests []AuthorizationRequest) ([]AuthDecision, error)
-	BatchIsAuthorizedWithToken(policyStoreID string, requests []AuthorizationRequest) ([]AuthDecision, error)
+	BatchIsAuthorized(
+		policyStoreID string,
+		requests []AuthorizationRequest,
+		entities cedar.EntityMap,
+	) ([]AuthDecision, error)
+	BatchIsAuthorizedWithToken(
+		policyStoreID string,
+		requests []AuthorizationRequest,
+		entities cedar.EntityMap,
+	) ([]AuthDecision, error)
 	CreateIdentitySource(
 		policyStoreID, principalEntityType string,
 		cfg IdentitySourceConfig,

@@ -56,8 +56,8 @@ func (b *InMemoryBackend) invalidatePolicySetCache(policyStoreID string) {
 }
 
 // evaluateCedar runs cedar authorization and returns the AuthDecision.
-func evaluateCedar(ps *cedar.PolicySet, req AuthorizationRequest) AuthDecision {
-	cedarReq := cedar.Request{}
+func evaluateCedar(ps *cedar.PolicySet, req AuthorizationRequest, entities cedar.EntityMap) AuthDecision {
+	cedarReq := cedar.Request{Context: req.Context}
 
 	if req.PrincipalEntityType != "" {
 		cedarReq.Principal = cedar.NewEntityUID(
@@ -77,7 +77,7 @@ func evaluateCedar(ps *cedar.PolicySet, req AuthorizationRequest) AuthDecision {
 		)
 	}
 
-	decision, diag := cedar.Authorize(ps, nil, cedarReq)
+	decision, diag := cedar.Authorize(ps, entities, cedarReq)
 
 	result := AuthDecision{
 		Request:             req,
@@ -115,6 +115,7 @@ const maxBatchRequests = 30
 func (b *InMemoryBackend) BatchIsAuthorized(
 	policyStoreID string,
 	requests []AuthorizationRequest,
+	entities cedar.EntityMap,
 ) ([]AuthDecision, error) {
 	if len(requests) > maxBatchRequests {
 		return nil, fmt.Errorf(
@@ -149,7 +150,7 @@ func (b *InMemoryBackend) BatchIsAuthorized(
 	decisions := make([]AuthDecision, 0, len(requests))
 
 	for _, req := range requests {
-		decisions = append(decisions, evaluateCedar(ps, req))
+		decisions = append(decisions, evaluateCedar(ps, req, entities))
 	}
 
 	return decisions, nil
@@ -159,6 +160,7 @@ func (b *InMemoryBackend) BatchIsAuthorized(
 func (b *InMemoryBackend) BatchIsAuthorizedWithToken(
 	policyStoreID string,
 	requests []AuthorizationRequest,
+	entities cedar.EntityMap,
 ) ([]AuthDecision, error) {
 	if len(requests) > maxBatchRequests {
 		return nil, fmt.Errorf(
@@ -193,14 +195,18 @@ func (b *InMemoryBackend) BatchIsAuthorizedWithToken(
 	decisions := make([]AuthDecision, 0, len(requests))
 
 	for _, req := range requests {
-		decisions = append(decisions, evaluateCedar(ps, req))
+		decisions = append(decisions, evaluateCedar(ps, req, entities))
 	}
 
 	return decisions, nil
 }
 
 // IsAuthorized evaluates a single authorization request against stored Cedar policies.
-func (b *InMemoryBackend) IsAuthorized(policyStoreID string, req AuthorizationRequest) (*AuthDecision, error) {
+func (b *InMemoryBackend) IsAuthorized(
+	policyStoreID string,
+	req AuthorizationRequest,
+	entities cedar.EntityMap,
+) (*AuthDecision, error) {
 	var ps *cedar.PolicySet
 
 	var lockErr error
@@ -222,7 +228,7 @@ func (b *InMemoryBackend) IsAuthorized(policyStoreID string, req AuthorizationRe
 		return nil, lockErr
 	}
 
-	result := evaluateCedar(ps, req)
+	result := evaluateCedar(ps, req, entities)
 
 	return &result, nil
 }
@@ -231,6 +237,7 @@ func (b *InMemoryBackend) IsAuthorized(policyStoreID string, req AuthorizationRe
 func (b *InMemoryBackend) IsAuthorizedWithToken(
 	policyStoreID string,
 	req AuthorizationRequest,
+	entities cedar.EntityMap,
 ) (*AuthDecision, error) {
 	var ps *cedar.PolicySet
 
@@ -253,7 +260,7 @@ func (b *InMemoryBackend) IsAuthorizedWithToken(
 		return nil, lockErr
 	}
 
-	result := evaluateCedar(ps, req)
+	result := evaluateCedar(ps, req, entities)
 
 	return &result, nil
 }

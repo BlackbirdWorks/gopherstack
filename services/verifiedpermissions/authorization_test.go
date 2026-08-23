@@ -49,7 +49,7 @@ func TestBackend_IsAuthorized(t *testing.T) {
 				ActionID:            "view",
 				ResourceEntityType:  "Document",
 				ResourceEntityID:    "doc1",
-			})
+			}, nil)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -101,7 +101,7 @@ func TestBackend_IsAuthorizedWithToken(t *testing.T) {
 			decision, err := b.IsAuthorizedWithToken(id, verifiedpermissions.AuthorizationRequest{
 				ActionType: "Action",
 				ActionID:   "view",
-			})
+			}, nil)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -161,7 +161,7 @@ func TestBackend_BatchIsAuthorizedOutputFields(t *testing.T) {
 				reqs[i] = verifiedpermissions.AuthorizationRequest{ActionType: "Action", ActionID: "view"}
 			}
 
-			decisions, err := b.BatchIsAuthorized(psID, reqs)
+			decisions, err := b.BatchIsAuthorized(psID, reqs, nil)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -189,7 +189,7 @@ func TestBackend_BatchIsAuthorizedWithToken_OutputFields(t *testing.T) {
 
 	decisions, err := b.BatchIsAuthorizedWithToken(ps.PolicyStoreID, []verifiedpermissions.AuthorizationRequest{
 		{ActionType: "Action", ActionID: "view"},
-	})
+	}, nil)
 	require.NoError(t, err)
 	require.Len(t, decisions, 1)
 
@@ -259,7 +259,7 @@ func TestBackend_IsAuthorized_TemplateLinkedPolicy(t *testing.T) {
 				ActionID:            "view",
 				ResourceEntityType:  "Document",
 				ResourceEntityID:    tt.reqResourceID,
-			})
+			}, nil)
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantDecision, decision.Decision)
 
@@ -302,7 +302,7 @@ func TestBackend_IsAuthorized_TemplateLinkedPolicy_UnboundOptionalSlot(t *testin
 		ActionID:            "view",
 		ResourceEntityType:  "Document",
 		ResourceEntityID:    "any-doc",
-	})
+	}, nil)
 	require.NoError(t, err)
 	assert.Equal(t, "ALLOW", decision.Decision)
 }
