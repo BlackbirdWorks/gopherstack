@@ -1256,3 +1256,4 @@ Gates run: `go build ./...`, `go vet ./services/glue/...`, `gofmt -l`
 `StopColumnStatisticsTaskRun`/`StopMaterializedViewRefreshTaskRun` all
 changed exported `StorageBackend` signatures), `golangci-lint run
 ./services/glue/...` (0 issues).
+
