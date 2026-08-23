@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 80 (80 ok) |
 | Feature families | 11 (9 ok, 1 partial, 1 gap) |
-| Known gaps | 11 |
+| Known gaps | 12 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
@@ -22,6 +22,7 @@
 - UpdateAutomatedReasoningPolicyTestCase: now reachable (PATCH fixed), but handleUpdateARPTestCase never reads/parses the request body — it's a disguised no-op that only echoes testCaseId/policyArn back. Needs real UpdateAutomatedReasoningPolicyTestCaseInput field support (expression/inputText/expectedAggregatedFindingsResult per the real SDK). (bd: file follow-up)
 - ListCustomModels and ListModelCustomizationJobs: sortBy is parsed but never changes the sort field (always CreationTime, real AWS's default) — no ValidationException on an unrecognized value either. Low risk. (bd: file follow-up)
 - ListInferenceProfiles: missing the real typeEquals (SYSTEM_DEFINED|APPLICATION) filter. ListMarketplaceModelEndpoints: missing the real modelSourceEquals filter. Both low-risk (nextToken pagination already correct). (bd: file follow-up)
+- ListFoundationModels (2026-08-23 audit): all 4 real query filters -- byCustomizationType, byInferenceType, byOutputModality, byProvider (api_op_ListFoundationModels.go:32-55, serializers.go:6497-6519, all query-string bound) -- are parsed nowhere; the handler reads only nextToken and always returns the full seeded catalog. Modeling gap, not a wire-shape bug: the seeded catalog is static test-fixture data (per the ListFoundationModels ops entry above), so the filters have real query params to honor but nothing behaviorally depends on them being applied today. Same low-risk missing-filter class as ListInferenceProfiles/ListMarketplaceModelEndpoints just above. (bd: file follow-up)
 - ListEvaluationJobs: applicationTypeEquals filter and sortBy/sortOrder not implemented (statusEquals/nameContains/creationTimeAfter/creationTimeBefore/nextToken now are, see ops entry). (bd: file follow-up)
 - RegisterMarketplaceModelEndpoint: real RegisterMarketplaceModelEndpointInput requires both endpointIdentifier and modelSourceIdentifier in the body; gopherstack's handler takes only the path-param ID and never reads/validates a request body. Not touched this pass — spotted while field-diffing the surrounding marketplace-endpoint family but out of this pass's named scope. (bd: file follow-up)
 - bedrock-agent DeleteResourcePolicy (parity-4): the real response's revisionId field is documented only as "the revision identifier after the resource policy was deleted" — ambiguous whether AWS mints a fresh post-delete marker or echoes the just-deleted policy's own revision. gopherstack returns the latter (the deleted policy's own RevisionID), a defensible reading but unverified against a real API response. Low risk: DeleteResourcePolicy's real Input has no further use for this value (only Put/subsequent-Delete's expectedRevisionId does, and a deleted resource has no policy left to update). (bd: file follow-up if a real captured response ever surfaces to confirm/refute)

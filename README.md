@@ -643,7 +643,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
-| [Bedrock](services/bedrock/README.md) | A | 80 | 11 gaps |
+| [Bedrock](services/bedrock/README.md) | A | 80 | 12 gaps |
 | [Bedrock Agent](services/bedrockagent/README.md) | A | 77 | 5 gaps; 2 deferred |
 | [Bedrock Runtime](services/bedrockruntime/README.md) | A | 11 | 7 gaps |
 | [Comprehend](services/comprehend/README.md) | A | 28 | 1 gap; 1 deferred |
