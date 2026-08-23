@@ -530,11 +530,25 @@ func (b *InMemoryBackend) getServicesForReconciler() []serviceSnapshot {
 		svc, _ := b.services.Get(scopedKey(ref.cluster, ref.name))
 		out = append(out, serviceSnapshot{
 			clusterName: ref.cluster,
-			service:     *svc,
+			service:     cloneServiceForSnapshot(svc),
 		})
 	}
 
 	return out
+}
+
+// cloneServiceForSnapshot copies svc for use outside the lock. `*svc` alone is
+// not enough: Deployments is written in place by element (see
+// recordServiceTaskFailureLocked's `svc.Deployments[idx].FailedTasks++` and
+// evaluateCircuitBreakerLocked's `dep.RolloutState = ...`), so a shallow copy's
+// Deployments slice would still alias the live backing array the reconciler
+// reads from unlocked -- exactly the class of race gopherstack-urw6 audits for.
+// Must be called with at least the read lock held.
+func cloneServiceForSnapshot(svc *Service) Service {
+	cp := *svc
+	cp.Deployments = append([]Deployment(nil), svc.Deployments...)
+
+	return cp
 }
 
 // serviceSnapshot is a point-in-time copy of a service for the reconciler.
