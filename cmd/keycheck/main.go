@@ -279,6 +279,35 @@
 // own call order. An op whose conflicting handlers are never merged into a
 // shared destination (sqs's shape) is left exactly as ambiguous as before.
 //
+// SHARED-ERROR-HELPER POLLUTION, a named instance of blind spot #2 shape
+// (b), found live re-sweeping medialive and quicksight for gopherstack-v4a4
+// (disclosed, not fixed -- same rationale as blind spot #1): both services
+// route nearly every handler's error branch through one package-level
+// helper (medialive's respondErr, quicksight's writeError) whose own
+// map[string]any{"Message": ...}/{"Code": ..., "Message": ..., "Status": ...}
+// literal gets attributed to every calling op's writtenKeys, producing a
+// near-op-total MISMATCH set (medialive: 122/123 ops) that is entirely the
+// error envelope, not the success response the SDK deserializer this tool
+// diffs against ever covers. The tell: the SAME 1-3 keys recur, verbatim,
+// across dozens of otherwise-unrelated ops. KEYCHECK_DEBUG_WALK confirms the
+// call chain terminates in the shared helper every time.
+//
+// OUTPUT-SUFFIX NAME COLLISION WITH AN INTERNAL BACKEND CONTRACT, found live
+// sweeping kinesis for gopherstack-v4a4 (disclosed, not fixed): blind spot
+// #5's "*Output"-suffix heuristic assumes that name means "this literal is
+// what gets marshaled to the wire" (this repo's overwhelming convention).
+// kinesis instead names its StorageBackend-interface return values
+// <Op>Output (models.go's DescribeStreamOutput, ListShardsOutput, ...) as a
+// domain-modeling convention unrelated to marshaling -- the actual wire
+// response is built separately, per op, from correctly-tagged jsonXxx
+// structs (handler_shards.go's jsonShardDescription, handler_consumers.go's
+// jsonConsumer/jsonConsumerDescription, both confirmed against the pinned
+// SDK's deserializers.go by their own doc comments) that this scan's naming
+// heuristic never looks at because they don't end in "Output". Every one of
+// kinesis's CASE-MISMATCH/MISMATCH rows this session traced back to this
+// gap, confirmed by hand against handler_shards.go/handler_consumers.go: the
+// real wire structs were already correctly tagged throughout.
+//
 // Usage:
 //
 //	go run ./cmd/keycheck -sdk <path to deserializers.go> -prefix awsAwsjson11_ -svc <service dir> [-op OpName]
