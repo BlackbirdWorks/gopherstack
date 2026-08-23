@@ -534,7 +534,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
-| [Amazon MQ](services/mq/README.md) | A | 25 | 5 gaps; 1 deferred |
+| [Amazon MQ](services/mq/README.md) | A | 25 | 3 gaps; 1 deferred |
 | [AppSync](services/appsync/README.md) | A | 74 | 4 gaps; 2 deferred |
 | [EventBridge](services/eventbridge/README.md) | A | 61 | 1 gap; 2 deferred |
 | [EventBridge Pipes](services/pipes/README.md) | A | 10 | 1 gap |
@@ -606,7 +606,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
 | [Account](services/account/README.md) | A | 16 | 5 gaps; 1 deferred |
-| [AppConfig](services/appconfig/README.md) | A | 56 | 7 gaps; 1 deferred |
+| [AppConfig](services/appconfig/README.md) | A | 56 | 6 gaps; 1 deferred |
 | [AppConfig Data](services/appconfigdata/README.md) | A | 2 | 2 gaps |
 | [Application Auto Scaling](services/applicationautoscaling/README.md) | A | 14 | 4 gaps; 2 deferred |
 | [Cloud Control API](services/cloudcontrol/README.md) | A | 8 | 3 gaps |
