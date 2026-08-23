@@ -2,7 +2,9 @@
 service: iotanalytics
 sdk_module: aws-sdk-go-v2/service/iotanalytics@v1.32.0
 last_audit_commit: 8d4556e79
-last_audit_date: 2026-08-20
+last_audit_date: 2026-08-23  # manifest-harvest pass: fixed Dataset.RetentionPeriod
+  # accept-and-drop gap (CreateDataset/DescribeDataset) -- see CreateDataset/
+  # DescribeDataset ops entries above.
 overall: A            # wrapper-key/nested-shape sweep: fixed DescribeChannel/DescribeDatastore statistics sibling-key nesting, CreateDatastore/DescribeDatastore datastorePartitions wire key, 4 fabricated summary ARNs, fabricated GetDatasetContent versionId, fabricated IotSiteWise roleArn -- zero remaining wrapper-key bugs found
 ops:
   CreateChannel: {wire: ok, errors: ok, state: ok, persist: ok, note: "now validates tags (key/value charset, aws: prefix, max 50) before create, matching TagResource"}
@@ -16,8 +18,8 @@ ops:
   UpdateDatastore: {wire: ok, errors: ok, state: ok, persist: ok, note: "updateDatastoreRequest still accepts a 'partitions' body field UpdateDatastoreInput has no real counterpart for (api_op_UpdateDatastore.go:32 UpdateDatastoreInput: DatastoreStorage/FileFormatConfiguration/RetentionPeriod only, no partitions member) -- disclosed, not fixed, see Notes"}
   DeleteDatastore: {wire: ok, errors: ok, state: ok, persist: ok}
   ListDatastores: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-20: datastoreSummary fabricated a datastoreArn member DatastoreSummary doesn't have (deserializers.go:7677 awsRestjson1_deserializeDocumentDatastoreSummary has no arn case) -- removed. Gap disclosed, not fixed: DatastoreSummary also carries real datastorePartitions/fileFormatType members this backend's summary never emits, see Notes"}
-  CreateDataset: {wire: ok, errors: ok, state: ok, persist: ok, note: "now validates tags before create (see CreateChannel). Gap disclosed, not fixed: CreateDatasetInput/CreateDatasetOutput/Dataset all carry a real retentionPeriod member (deserializers.go:6271 awsRestjson1_deserializeDocumentDataset) this backend's Dataset model has no field for at all, see Notes"}
-  DescribeDataset: {wire: ok, errors: ok, state: ok, persist: ok, note: "same Dataset.retentionPeriod gap as CreateDataset, see Notes"}
+  CreateDataset: {wire: fixed, errors: ok, state: ok, persist: ok, note: "now validates tags before create (see CreateChannel). FIXED 2026-08-23 (manifest-harvest pass): CreateDatasetInput/CreateDatasetOutput/Dataset's real retentionPeriod member (deserializers.go:6271 awsRestjson1_deserializeDocumentDataset, api_op_CreateDataset.go:75/117) was accepted on the wire (createDatasetRequest had no field for it) then silently dropped -- an accept-and-drop gap, same class as Datastore's already-correctly-modeled RetentionPeriod (this backend already had the RetentionPeriod type + validateRetentionPeriod/cloneRetentionPeriod helpers from Datastore; Dataset just never used them). Fixed: Dataset gained RetentionPeriod, CreateDataset validates and stores it, both CreateDatasetOutput and DescribeDatasetOutput echo it. DatasetSummary (ListDatasets) correctly has no retentionPeriod member on the real SDK type -- not part of this fix. Verified via TestDataset_RetentionPeriod_RoundTrips, driven through the real aws-sdk-go-v2 client, hand-reverted (datasets.go/handler_datasets.go/models.go/interfaces.go) to confirm it fails against unfixed code (nil RetentionPeriod on both responses), restored, md5sum identical. Additive-only struct field; pkgs/persistence snapshot-version guard confirmed no bump needed."}
+  DescribeDataset: {wire: fixed, errors: ok, state: ok, persist: ok, note: "same Dataset.retentionPeriod fix as CreateDataset -- see above."}
   UpdateDataset: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteDataset: {wire: ok, errors: ok, state: ok, persist: ok}
   ListDatasets: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-20: datasetSummary fabricated a datasetArn member DatasetSummary doesn't have (deserializers.go:7011 awsRestjson1_deserializeDocumentDatasetSummary has no arn case) -- removed. Gap disclosed, not fixed: DatasetSummary also carries real actions (as narrower DatasetActionSummary)/triggers members this backend's summary never emits"}

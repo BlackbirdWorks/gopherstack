@@ -32,25 +32,29 @@ const txnPendingTTL = 5 * time.Minute
 
 // StoredGlobalTable holds the metadata for a DynamoDB global table.
 type StoredGlobalTable struct {
-	CreationDateTime   time.Time                         `json:"CreationDateTime"`
-	WriteCapacityUnits *int64                            `json:"WriteCapacityUnits,omitempty"`
-	ReplicaSettings    map[string]*StoredReplicaSettings `json:"ReplicaSettings,omitempty"`
-	GlobalTableName    string                            `json:"GlobalTableName"`
-	GlobalTableArn     string                            `json:"GlobalTableArn"`
-	BillingMode        string                            `json:"BillingMode,omitempty"`
-	ReplicationGroup   []string                          `json:"ReplicationGroup"`
+	CreationDateTime            time.Time                         `json:"CreationDateTime"`
+	WriteCapacityUnits          *int64                            `json:"WriteCapacityUnits,omitempty"`
+	WriteCapacityAutoScaling    *autoScalingThroughput            `json:"WriteCapacityAutoScaling,omitempty"`
+	ReplicaSettings             map[string]*StoredReplicaSettings `json:"ReplicaSettings,omitempty"`
+	GSIWriteCapacityAutoScaling map[string]*autoScalingThroughput `json:"GSIWriteCapacityAutoScaling,omitempty"`
+	GlobalTableName             string                            `json:"GlobalTableName"`
+	GlobalTableArn              string                            `json:"GlobalTableArn"`
+	BillingMode                 string                            `json:"BillingMode,omitempty"`
+	ReplicationGroup            []string                          `json:"ReplicationGroup"`
 }
 
 // StoredReplicaGSISettings holds per-GSI settings within a replica.
 type StoredReplicaGSISettings struct {
-	ReadCapacityUnits *int64 `json:"ReadCapacityUnits,omitempty"`
+	ReadCapacityUnits       *int64                 `json:"ReadCapacityUnits,omitempty"`
+	ReadCapacityAutoScaling *autoScalingThroughput `json:"ReadCapacityAutoScaling,omitempty"`
 }
 
 // StoredReplicaSettings holds per-replica settings persisted by UpdateGlobalTableSettings.
 type StoredReplicaSettings struct {
-	ReadCapacityUnits *int64                               `json:"ReadCapacityUnits,omitempty"`
-	GSISettings       map[string]*StoredReplicaGSISettings `json:"GSISettings,omitempty"`
-	TableClass        string                               `json:"TableClass,omitempty"`
+	ReadCapacityUnits       *int64                               `json:"ReadCapacityUnits,omitempty"`
+	ReadCapacityAutoScaling *autoScalingThroughput               `json:"ReadCapacityAutoScaling,omitempty"`
+	GSISettings             map[string]*StoredReplicaGSISettings `json:"GSISettings,omitempty"`
+	TableClass              string                               `json:"TableClass,omitempty"`
 }
 
 // KinesisDestinationEntry stores a Kinesis streaming destination with its configuration.

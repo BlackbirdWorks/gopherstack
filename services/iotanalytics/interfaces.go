@@ -66,6 +66,7 @@ type StorageBackend interface {
 		contentDeliveryRules []ContentDeliveryRule,
 		versioningConfig *VersioningConfiguration,
 		lateDataRules []LateDataRule,
+		retentionPeriod *RetentionPeriod,
 	) (*Dataset, error)
 	DescribeDataset(name string) (*Dataset, error)
 	UpdateDataset(

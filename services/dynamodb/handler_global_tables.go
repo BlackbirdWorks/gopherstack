@@ -285,28 +285,49 @@ type tableClassSummaryWire struct {
 
 type gsiUpdateWire struct {
 	ProvisionedReadCapacityUnits *int64 `json:"ProvisionedReadCapacityUnits,omitempty"`
-	IndexName                    string `json:"IndexName"`
+	//nolint:lll // wire struct tag mirrors the long AWS field name
+	ReadCapacityAutoScalingUpdate *autoScalingSettingsUpdateWire `json:"ProvisionedReadCapacityAutoScalingSettingsUpdate,omitempty"`
+	IndexName                     string                         `json:"IndexName"`
 }
 
 type replicaSettingsUpdateInputWire struct {
-	ReplicaProvisionedReadCapacityUnits       *int64          `json:"ReplicaProvisionedReadCapacityUnits,omitempty"`
-	ReplicaTableClass                         string          `json:"ReplicaTableClass,omitempty"`
-	RegionName                                string          `json:"RegionName"`
-	ReplicaGlobalSecondaryIndexSettingsUpdate []gsiUpdateWire `json:"ReplicaGlobalSecondaryIndexSettingsUpdate,omitempty"`
+	ReplicaProvisionedReadCapacityUnits *int64 `json:"ReplicaProvisionedReadCapacityUnits,omitempty"`
+	//nolint:lll // wire struct tag mirrors the long AWS field name
+	ReadCapacityAutoScalingUpdate             *autoScalingSettingsUpdateWire `json:"ReplicaProvisionedReadCapacityAutoScalingSettingsUpdate,omitempty"`
+	ReplicaTableClass                         string                         `json:"ReplicaTableClass,omitempty"`
+	RegionName                                string                         `json:"RegionName"`
+	ReplicaGlobalSecondaryIndexSettingsUpdate []gsiUpdateWire                `json:"ReplicaGlobalSecondaryIndexSettingsUpdate,omitempty"` //nolint:lll // wire struct tag mirrors the long AWS field name
+}
+
+// globalTableGSISettingsUpdateWire is the wire format for
+// types.GlobalTableGlobalSecondaryIndexSettingsUpdate -- a global (not
+// per-replica) per-GSI write-capacity autoscaling setting.
+type globalTableGSISettingsUpdateWire struct {
+	//nolint:lll // wire struct tag mirrors the long AWS field name
+	WriteCapacityAutoScalingUpdate *autoScalingSettingsUpdateWire `json:"ProvisionedWriteCapacityAutoScalingSettingsUpdate,omitempty"`
+	IndexName                      string                         `json:"IndexName"`
 }
 
 type updateGlobalTableSettingsInput struct {
-	GlobalTableName          string                           `json:"GlobalTableName"`
-	GlobalTableBillingMode   string                           `json:"GlobalTableBillingMode,omitempty"`
-	ProvisionedWriteCapacity *int64                           `json:"GlobalTableProvisionedWriteCapacityUnits,omitempty"`
-	ReplicaSettingsUpdate    []replicaSettingsUpdateInputWire `json:"ReplicaSettingsUpdate,omitempty"`
+	GlobalTableName          string `json:"GlobalTableName"`
+	GlobalTableBillingMode   string `json:"GlobalTableBillingMode,omitempty"`
+	ProvisionedWriteCapacity *int64 `json:"GlobalTableProvisionedWriteCapacityUnits,omitempty"`
+	//nolint:lll // wire struct tag mirrors the long AWS field name
+	WriteCapacityAutoScalingUpdate *autoScalingSettingsUpdateWire `json:"GlobalTableProvisionedWriteCapacityAutoScalingSettingsUpdate,omitempty"`
+	//nolint:lll // wire struct tag mirrors the long AWS field name
+	GSISettingsUpdate     []globalTableGSISettingsUpdateWire `json:"GlobalTableGlobalSecondaryIndexSettingsUpdate,omitempty"`
+	ReplicaSettingsUpdate []replicaSettingsUpdateInputWire   `json:"ReplicaSettingsUpdate,omitempty"`
 }
 
 type replicaGSIDescWire struct {
 	ProvisionedReadCapacityUnits  *int64 `json:"ProvisionedReadCapacityUnits,omitempty"`
 	ProvisionedWriteCapacityUnits *int64 `json:"ProvisionedWriteCapacityUnits,omitempty"`
-	IndexName                     string `json:"IndexName"`
-	IndexStatus                   string `json:"IndexStatus,omitempty"`
+	//nolint:lll // wire struct tag mirrors the long AWS field name
+	ProvisionedReadCapacityAutoScalingSettings *autoScalingSettingsDescWire `json:"ProvisionedReadCapacityAutoScalingSettings,omitempty"`
+	//nolint:lll // wire struct tag mirrors the long AWS field name
+	ProvisionedWriteCapacityAutoScalingSettings *autoScalingSettingsDescWire `json:"ProvisionedWriteCapacityAutoScalingSettings,omitempty"`
+	IndexName                                   string                       `json:"IndexName"`
+	IndexStatus                                 string                       `json:"IndexStatus,omitempty"`
 }
 
 type replicaSettingsDescWire struct {
@@ -314,9 +335,13 @@ type replicaSettingsDescWire struct {
 	ReplicaTableClassSummary             *tableClassSummaryWire  `json:"ReplicaTableClassSummary,omitempty"`
 	ReplicaProvisionedReadCapacityUnits  *int64                  `json:"ReplicaProvisionedReadCapacityUnits,omitempty"`
 	ReplicaProvisionedWriteCapacityUnits *int64                  `json:"ReplicaProvisionedWriteCapacityUnits,omitempty"`
-	RegionName                           string                  `json:"RegionName"`
-	ReplicaStatus                        string                  `json:"ReplicaStatus,omitempty"`
-	ReplicaGlobalSecondaryIndexSettings  []replicaGSIDescWire    `json:"ReplicaGlobalSecondaryIndexSettings,omitempty"`
+	//nolint:lll // wire struct tag mirrors the long AWS field name
+	ReplicaProvisionedReadCapacityAutoScalingSettings *autoScalingSettingsDescWire `json:"ReplicaProvisionedReadCapacityAutoScalingSettings,omitempty"`
+	//nolint:lll // wire struct tag mirrors the long AWS field name
+	ReplicaProvisionedWriteCapacityAutoScalingSettings *autoScalingSettingsDescWire `json:"ReplicaProvisionedWriteCapacityAutoScalingSettings,omitempty"`
+	RegionName                                         string                       `json:"RegionName"`
+	ReplicaStatus                                      string                       `json:"ReplicaStatus,omitempty"`
+	ReplicaGlobalSecondaryIndexSettings                []replicaGSIDescWire         `json:"ReplicaGlobalSecondaryIndexSettings,omitempty"` //nolint:lll // wire struct tag mirrors the long AWS field name
 }
 
 // replicaSettingsDescWireFromSDK converts the SDK ReplicaSettingsDescription
@@ -352,6 +377,13 @@ func replicaSettingsDescWireFromSDK(rs types.ReplicaSettingsDescription) replica
 		w.ReplicaProvisionedWriteCapacityUnits = &wcu
 	}
 
+	w.ReplicaProvisionedReadCapacityAutoScalingSettings = autoScalingSettingsDescWireFromSDK(
+		rs.ReplicaProvisionedReadCapacityAutoScalingSettings,
+	)
+	w.ReplicaProvisionedWriteCapacityAutoScalingSettings = autoScalingSettingsDescWireFromSDK(
+		rs.ReplicaProvisionedWriteCapacityAutoScalingSettings,
+	)
+
 	for _, gsi := range rs.ReplicaGlobalSecondaryIndexSettings {
 		gw := replicaGSIDescWire{
 			IndexName:   ptrconv.String(gsi.IndexName),
@@ -365,6 +397,12 @@ func replicaSettingsDescWireFromSDK(rs types.ReplicaSettingsDescription) replica
 			wcu := *gsi.ProvisionedWriteCapacityUnits
 			gw.ProvisionedWriteCapacityUnits = &wcu
 		}
+		gw.ProvisionedReadCapacityAutoScalingSettings = autoScalingSettingsDescWireFromSDK(
+			gsi.ProvisionedReadCapacityAutoScalingSettings,
+		)
+		gw.ProvisionedWriteCapacityAutoScalingSettings = autoScalingSettingsDescWireFromSDK(
+			gsi.ProvisionedWriteCapacityAutoScalingSettings,
+		)
 		w.ReplicaGlobalSecondaryIndexSettings = append(w.ReplicaGlobalSecondaryIndexSettings, gw)
 	}
 
@@ -389,6 +427,25 @@ func (h *DynamoDBHandler) handleUpdateGlobalTableSettings(
 		GlobalTableName:                          &req.GlobalTableName,
 		GlobalTableBillingMode:                   types.BillingMode(req.GlobalTableBillingMode),
 		GlobalTableProvisionedWriteCapacityUnits: req.ProvisionedWriteCapacity,
+		GlobalTableProvisionedWriteCapacityAutoScalingSettingsUpdate: toSDKAutoScalingSettingsUpdate(
+			req.WriteCapacityAutoScalingUpdate,
+		),
+	}
+
+	if len(req.GSISettingsUpdate) > 0 {
+		sdkInput.GlobalTableGlobalSecondaryIndexSettingsUpdate = make(
+			[]types.GlobalTableGlobalSecondaryIndexSettingsUpdate,
+			len(req.GSISettingsUpdate),
+		)
+		for i, gu := range req.GSISettingsUpdate {
+			idxName := gu.IndexName
+			sdkInput.GlobalTableGlobalSecondaryIndexSettingsUpdate[i] = types.GlobalTableGlobalSecondaryIndexSettingsUpdate{
+				IndexName: &idxName,
+				ProvisionedWriteCapacityAutoScalingSettingsUpdate: toSDKAutoScalingSettingsUpdate(
+					gu.WriteCapacityAutoScalingUpdate,
+				),
+			}
+		}
 	}
 
 	if len(req.ReplicaSettingsUpdate) > 0 {
@@ -402,6 +459,9 @@ func (h *DynamoDBHandler) handleUpdateGlobalTableSettings(
 				RegionName:                          &region,
 				ReplicaTableClass:                   types.TableClass(ru.ReplicaTableClass),
 				ReplicaProvisionedReadCapacityUnits: ru.ReplicaProvisionedReadCapacityUnits,
+				ReplicaProvisionedReadCapacityAutoScalingSettingsUpdate: toSDKAutoScalingSettingsUpdate(
+					ru.ReadCapacityAutoScalingUpdate,
+				),
 			}
 			if len(ru.ReplicaGlobalSecondaryIndexSettingsUpdate) > 0 {
 				gsiUpdates := make(
@@ -413,6 +473,9 @@ func (h *DynamoDBHandler) handleUpdateGlobalTableSettings(
 					gsiUpdates[j] = types.ReplicaGlobalSecondaryIndexSettingsUpdate{
 						IndexName:                    &idxName,
 						ProvisionedReadCapacityUnits: gu.ProvisionedReadCapacityUnits,
+						ProvisionedReadCapacityAutoScalingSettingsUpdate: toSDKAutoScalingSettingsUpdate(
+							gu.ReadCapacityAutoScalingUpdate,
+						),
 					}
 				}
 				rUpdate.ReplicaGlobalSecondaryIndexSettingsUpdate = gsiUpdates

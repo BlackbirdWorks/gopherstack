@@ -83,6 +83,142 @@ func TestGlobalTableSettings_DescribeAgreesWithUpdate(t *testing.T) {
 	)
 }
 
+// TestGlobalTableSettings_AutoScaling verifies UpdateGlobalTableSettings's
+// autoscaling-settings-update fields (GlobalTableProvisionedWriteCapacity
+// AutoScalingSettingsUpdate, ReplicaProvisionedReadCapacityAutoScaling
+// SettingsUpdate, GlobalTableGlobalSecondaryIndexSettingsUpdate's and
+// ReplicaGlobalSecondaryIndexSettingsUpdate's per-GSI
+// ProvisionedReadCapacityAutoScalingSettingsUpdate/
+// ProvisionedWriteCapacityAutoScalingSettingsUpdate) are stored and echoed
+// back on both UpdateGlobalTableSettingsOutput and
+// DescribeGlobalTableSettingsOutput, instead of being accepted then
+// silently dropped (api_op_UpdateGlobalTableSettings.go).
+func TestGlobalTableSettings_AutoScaling(t *testing.T) {
+	t.Parallel()
+
+	backend := dynamodb.NewInMemoryDB()
+	t.Cleanup(backend.Close)
+	client := newTestDynamoDBClient(t, dynamodb.NewHandler(backend))
+
+	_, err := client.CreateTable(t.Context(), &sdk.CreateTableInput{
+		TableName: aws.String("gt-as-table"),
+		AttributeDefinitions: []types.AttributeDefinition{
+			{AttributeName: aws.String("pk"), AttributeType: types.ScalarAttributeTypeS},
+			{AttributeName: aws.String("sk"), AttributeType: types.ScalarAttributeTypeS},
+		},
+		KeySchema: []types.KeySchemaElement{
+			{AttributeName: aws.String("pk"), KeyType: types.KeyTypeHash},
+		},
+		GlobalSecondaryIndexes: []types.GlobalSecondaryIndex{
+			{
+				IndexName: aws.String("gsi-as-1"),
+				KeySchema: []types.KeySchemaElement{
+					{AttributeName: aws.String("sk"), KeyType: types.KeyTypeHash},
+				},
+				Projection: &types.Projection{ProjectionType: types.ProjectionTypeAll},
+				ProvisionedThroughput: &types.ProvisionedThroughput{
+					ReadCapacityUnits:  aws.Int64(5),
+					WriteCapacityUnits: aws.Int64(5),
+				},
+			},
+		},
+		BillingMode: types.BillingModeProvisioned,
+		ProvisionedThroughput: &types.ProvisionedThroughput{
+			ReadCapacityUnits:  aws.Int64(5),
+			WriteCapacityUnits: aws.Int64(5),
+		},
+	})
+	require.NoError(t, err)
+
+	_, err = client.CreateGlobalTable(t.Context(), &sdk.CreateGlobalTableInput{
+		GlobalTableName: aws.String("gt-as-table"),
+		ReplicationGroup: []types.Replica{
+			{RegionName: aws.String("us-east-1")},
+			{RegionName: aws.String("eu-west-1")},
+		},
+	})
+	require.NoError(t, err)
+
+	writeAutoScaling := types.AutoScalingSettingsUpdate{
+		MinimumUnits: aws.Int64(5),
+		MaximumUnits: aws.Int64(50),
+	}
+	readAutoScaling := types.AutoScalingSettingsUpdate{
+		MinimumUnits: aws.Int64(2),
+		MaximumUnits: aws.Int64(20),
+	}
+	gsiReadAutoScaling := types.AutoScalingSettingsUpdate{
+		MinimumUnits: aws.Int64(1),
+		MaximumUnits: aws.Int64(10),
+	}
+	gsiWriteAutoScaling := types.AutoScalingSettingsUpdate{
+		MinimumUnits: aws.Int64(3),
+		MaximumUnits: aws.Int64(30),
+	}
+
+	updateOut, err := client.UpdateGlobalTableSettings(t.Context(), &sdk.UpdateGlobalTableSettingsInput{
+		GlobalTableName: aws.String("gt-as-table"),
+		GlobalTableProvisionedWriteCapacityAutoScalingSettingsUpdate: &writeAutoScaling,
+		GlobalTableGlobalSecondaryIndexSettingsUpdate: []types.GlobalTableGlobalSecondaryIndexSettingsUpdate{
+			{
+				IndexName: aws.String("gsi-as-1"),
+				ProvisionedWriteCapacityAutoScalingSettingsUpdate: &gsiWriteAutoScaling,
+			},
+		},
+		ReplicaSettingsUpdate: []types.ReplicaSettingsUpdate{
+			{
+				RegionName: aws.String("us-east-1"),
+				ReplicaProvisionedReadCapacityAutoScalingSettingsUpdate: &readAutoScaling,
+				ReplicaGlobalSecondaryIndexSettingsUpdate: []types.ReplicaGlobalSecondaryIndexSettingsUpdate{
+					{
+						IndexName: aws.String("gsi-as-1"),
+						ProvisionedReadCapacityAutoScalingSettingsUpdate: &gsiReadAutoScaling,
+					},
+				},
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	upReplica := findReplicaSettings(t, updateOut.ReplicaSettings, "us-east-1")
+	assertAutoScalingSettings(t, upReplica.ReplicaProvisionedWriteCapacityAutoScalingSettings, writeAutoScaling)
+	assertAutoScalingSettings(t, upReplica.ReplicaProvisionedReadCapacityAutoScalingSettings, readAutoScaling)
+	require.NotEmpty(t, upReplica.ReplicaGlobalSecondaryIndexSettings)
+	upGSI := upReplica.ReplicaGlobalSecondaryIndexSettings[0]
+	assertAutoScalingSettings(t, upGSI.ProvisionedReadCapacityAutoScalingSettings, gsiReadAutoScaling)
+	assertAutoScalingSettings(t, upGSI.ProvisionedWriteCapacityAutoScalingSettings, gsiWriteAutoScaling)
+
+	// The global-table-level write autoscaling setting must apply uniformly
+	// to every replica, including one the update call didn't mention.
+	otherReplica := findReplicaSettings(t, updateOut.ReplicaSettings, "eu-west-1")
+	assertAutoScalingSettings(t, otherReplica.ReplicaProvisionedWriteCapacityAutoScalingSettings, writeAutoScaling)
+
+	descOut, err := client.DescribeGlobalTableSettings(t.Context(), &sdk.DescribeGlobalTableSettingsInput{
+		GlobalTableName: aws.String("gt-as-table"),
+	})
+	require.NoError(t, err)
+
+	descReplica := findReplicaSettings(t, descOut.ReplicaSettings, "us-east-1")
+	assertAutoScalingSettings(t, descReplica.ReplicaProvisionedWriteCapacityAutoScalingSettings, writeAutoScaling)
+	assertAutoScalingSettings(t, descReplica.ReplicaProvisionedReadCapacityAutoScalingSettings, readAutoScaling)
+	require.NotEmpty(t, descReplica.ReplicaGlobalSecondaryIndexSettings)
+	descGSI := descReplica.ReplicaGlobalSecondaryIndexSettings[0]
+	assertAutoScalingSettings(t, descGSI.ProvisionedReadCapacityAutoScalingSettings, gsiReadAutoScaling)
+	assertAutoScalingSettings(t, descGSI.ProvisionedWriteCapacityAutoScalingSettings, gsiWriteAutoScaling)
+}
+
+func assertAutoScalingSettings(
+	t *testing.T, got *types.AutoScalingSettingsDescription, want types.AutoScalingSettingsUpdate,
+) {
+	t.Helper()
+
+	require.NotNil(t, got)
+	require.NotNil(t, got.MinimumUnits)
+	require.NotNil(t, got.MaximumUnits)
+	assert.Equal(t, *want.MinimumUnits, *got.MinimumUnits)
+	assert.Equal(t, *want.MaximumUnits, *got.MaximumUnits)
+}
+
 func findReplicaSettings(
 	t *testing.T, settings []types.ReplicaSettingsDescription, region string,
 ) types.ReplicaSettingsDescription {

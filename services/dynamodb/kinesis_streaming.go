@@ -84,12 +84,16 @@ func (db *InMemoryDB) DisableKinesisStreamingDestination(
 	streamARN := *input.StreamArn
 	tableName := *input.TableName
 
-	found := removeKinesisDestinationLocked(table, streamARN)
+	precision, found := removeKinesisDestinationLocked(table, streamARN)
 	if !found {
 		return nil, &Error{
 			Type:    errResourceNotFoundExceptionType,
 			Message: fmt.Sprintf("Kinesis stream %s not found for table %s", streamARN, tableName),
 		}
+	}
+
+	if precision == "" {
+		precision = string(types.ApproximateCreationDateTimePrecisionMillisecond)
 	}
 
 	status := types.DestinationStatusDisabling
@@ -98,27 +102,35 @@ func (db *InMemoryDB) DisableKinesisStreamingDestination(
 		TableName:         &tableName,
 		StreamArn:         &streamARN,
 		DestinationStatus: status,
+		EnableKinesisStreamingConfiguration: &types.EnableKinesisStreamingConfiguration{
+			ApproximateCreationDateTimePrecision: types.ApproximateCreationDateTimePrecision(precision),
+		},
 	}, nil
 }
 
 // removeKinesisDestinationLocked removes the destination with the given
 // streamARN from table.KinesisDestinations under a defer-protected
-// table.mu.Lock, reporting whether an entry was found and removed.
-func removeKinesisDestinationLocked(table *Table, streamARN string) bool {
+// table.mu.Lock, reporting its stored precision and whether an entry was
+// found and removed. deserializers.go:18931 confirms
+// DisableKinesisStreamingDestinationOutput.EnableKinesisStreamingConfiguration
+// is a real modeled response member, not request-only despite its "being
+// enabled" doc comment.
+func removeKinesisDestinationLocked(table *Table, streamARN string) (string, bool) {
 	table.mu.Lock("DisableKinesisStreamingDestination")
 	defer table.mu.Unlock()
 
 	for i, dest := range table.KinesisDestinations {
 		if dest.StreamARN == streamARN {
+			precision := dest.Precision
 			table.KinesisDestinations = append(
 				table.KinesisDestinations[:i],
 				table.KinesisDestinations[i+1:]...)
 
-			return true
+			return precision, true
 		}
 	}
 
-	return false
+	return "", false
 }
 
 // --- EnableKinesisStreamingDestination ---

@@ -361,6 +361,7 @@ type Datastore struct {
 type Dataset struct {
 	Tags                    map[string]string        `json:"tags"`
 	VersioningConfiguration *VersioningConfiguration `json:"versioningConfiguration,omitempty"`
+	RetentionPeriod         *RetentionPeriod         `json:"retentionPeriod,omitempty"`
 	Name                    string                   `json:"name"`
 	ARN                     string                   `json:"arn"`
 	Status                  string                   `json:"status"`
@@ -592,14 +593,16 @@ type createDatasetRequest struct {
 	ContentDeliveryRules    []ContentDeliveryRule    `json:"contentDeliveryRules,omitempty"`
 	LateDataRules           []LateDataRule           `json:"lateDataRules,omitempty"`
 	VersioningConfiguration *VersioningConfiguration `json:"versioningConfiguration,omitempty"`
+	RetentionPeriod         *RetentionPeriod         `json:"retentionPeriod,omitempty"`
 	DatasetName             string                   `json:"datasetName"`
 	Tags                    []tagDTO                 `json:"tags,omitempty"`
 }
 
 // createDatasetResponse is the response body for CreateDataset.
 type createDatasetResponse struct {
-	DatasetName string `json:"datasetName"`
-	DatasetARN  string `json:"datasetArn"`
+	RetentionPeriod *RetentionPeriod `json:"retentionPeriod,omitempty"`
+	DatasetName     string           `json:"datasetName"`
+	DatasetARN      string           `json:"datasetArn"`
 }
 
 // datasetSummary is a summary of a dataset for list operations. AWS's DatasetSummary
@@ -627,6 +630,7 @@ type describeDatasetResponse struct {
 // datasetDetail is a detailed view of a dataset.
 type datasetDetail struct {
 	VersioningConfiguration *VersioningConfiguration `json:"versioningConfiguration,omitempty"`
+	RetentionPeriod         *RetentionPeriod         `json:"retentionPeriod,omitempty"`
 	Name                    string                   `json:"name"`
 	ARN                     string                   `json:"arn"`
 	Status                  string                   `json:"status"`

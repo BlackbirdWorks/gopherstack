@@ -84,14 +84,16 @@ func (h *Handler) handleCreateDataset(c *echo.Context, body []byte) error {
 		req.ContentDeliveryRules,
 		req.VersioningConfiguration,
 		req.LateDataRules,
+		req.RetentionPeriod,
 	)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
 
 	return c.JSON(http.StatusOK, createDatasetResponse{
-		DatasetName: ds.Name,
-		DatasetARN:  ds.ARN,
+		DatasetName:     ds.Name,
+		DatasetARN:      ds.ARN,
+		RetentionPeriod: ds.RetentionPeriod,
 	})
 }
 
@@ -144,6 +146,7 @@ func (h *Handler) handleDescribeDataset(c *echo.Context, name string) error {
 			ContentDeliveryRules:    ds.ContentDeliveryRules,
 			LateDataRules:           ds.LateDataRules,
 			VersioningConfiguration: ds.VersioningConfiguration,
+			RetentionPeriod:         ds.RetentionPeriod,
 			Tags:                    mapToTagsSorted(ds.Tags),
 			Name:                    ds.Name,
 			ARN:                     ds.ARN,
