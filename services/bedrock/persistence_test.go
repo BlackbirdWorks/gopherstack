@@ -93,8 +93,7 @@ func newPersistenceFixture(t *testing.T) (*bedrock.InMemoryBackend, fixtureIDs) 
 
 	// Misc raw state not tied to a single resource above.
 	b.PutModelInvocationLoggingConfiguration(&bedrock.ModelInvocationLoggingConfiguration{
-		S3BucketName:   "test-bucket",
-		LoggingEnabled: true,
+		S3Config: &bedrock.S3LoggingConfig{BucketName: "test-bucket"},
 	})
 	b.PutUseCaseForModelAccess([]byte("test use case form data"))
 	_, err := b.UpdateAutomatedReasoningPolicyAnnotations(
@@ -685,8 +684,8 @@ func assertMiscRawState(t *testing.T, fresh *bedrock.InMemoryBackend, ids fixtur
 	t.Helper()
 
 	cfg := fresh.GetModelInvocationLoggingConfiguration()
-	assert.Equal(t, "test-bucket", cfg.S3BucketName)
-	assert.True(t, cfg.LoggingEnabled)
+	require.NotNil(t, cfg.S3Config)
+	assert.Equal(t, "test-bucket", cfg.S3Config.BucketName)
 
 	uc := fresh.GetUseCaseForModelAccess()
 	assert.Equal(t, []byte("test use case form data"), uc)

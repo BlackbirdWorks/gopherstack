@@ -50,7 +50,13 @@ import (
 // restored flow/prompt would collide on the same empty key, silently
 // discarding all but one. Must be discarded like any other
 // shape-incompatible snapshot.
-const bedrockSnapshotVersion = 2
+//
+// Bumped 2 -> 3: ModelInvocationLoggingConfiguration was retagged from the fabricated flat
+// s3BucketName/loggingEnabled fields (no such fields exist on the real types.LoggingConfig) to
+// the real cloudWatchConfig/s3Config/*DataDeliveryEnabled shape. A Version-2 snapshot's old keys
+// no longer match any field on the new type, so a stored logging config would silently decode
+// as fully empty instead of restoring its cloudWatchConfig/s3Config/delivery flags.
+const bedrockSnapshotVersion = 3
 
 // backendSnapshot is the top-level on-disk shape for the Bedrock backend.
 //

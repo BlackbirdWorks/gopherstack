@@ -3217,6 +3217,9 @@
       "AutomatedReasoningPolicyVersion.Name string `json:\"name\"`",
       "AutomatedReasoningPolicyVersion.PolicyArn string `json:\"policyArn\"`",
       "AutomatedReasoningPolicyVersion.Tags []Tag `json:\"tags,omitempty\"`",
+      "CloudWatchLoggingConfig.LargeDataDeliveryS3Config *S3LoggingConfig `json:\"largeDataDeliveryS3Config,omitempty\"`",
+      "CloudWatchLoggingConfig.LogGroupName string `json:\"logGroupName\"`",
+      "CloudWatchLoggingConfig.RoleArn string `json:\"roleArn\"`",
       "CustomModel.BaseModelArn string `json:\"baseModelArn,omitempty\"`",
       "CustomModel.BaseModelName string `json:\"baseModelName,omitempty\"`",
       "CustomModel.CreationTime time.Time `json:\"creationTime\"`",
@@ -3450,8 +3453,13 @@
       "ModelInvocationJob.RoleArn string `json:\"roleArn,omitempty\"`",
       "ModelInvocationJob.Status string `json:\"status\"`",
       "ModelInvocationJob.Tags []Tag `json:\"tags,omitempty\"`",
-      "ModelInvocationLoggingConfiguration.LoggingEnabled bool `json:\"loggingEnabled\"`",
-      "ModelInvocationLoggingConfiguration.S3BucketName string `json:\"s3BucketName,omitempty\"`",
+      "ModelInvocationLoggingConfiguration.AudioDataDeliveryEnabled *bool `json:\"audioDataDeliveryEnabled,omitempty\"`",
+      "ModelInvocationLoggingConfiguration.CloudWatchConfig *CloudWatchLoggingConfig `json:\"cloudWatchConfig,omitempty\"`",
+      "ModelInvocationLoggingConfiguration.EmbeddingDataDeliveryEnabled *bool `json:\"embeddingDataDeliveryEnabled,omitempty\"`",
+      "ModelInvocationLoggingConfiguration.ImageDataDeliveryEnabled *bool `json:\"imageDataDeliveryEnabled,omitempty\"`",
+      "ModelInvocationLoggingConfiguration.S3Config *S3LoggingConfig `json:\"s3Config,omitempty\"`",
+      "ModelInvocationLoggingConfiguration.TextDataDeliveryEnabled *bool `json:\"textDataDeliveryEnabled,omitempty\"`",
+      "ModelInvocationLoggingConfiguration.VideoDataDeliveryEnabled *bool `json:\"videoDataDeliveryEnabled,omitempty\"`",
       "OutputDataConfig.S3Uri string `json:\"s3Uri\"`",
       "Prompt.CreatedAt time.Time `json:\"createdAt\"`",
       "Prompt.Description string `json:\"description,omitempty\"`",
@@ -3493,6 +3501,8 @@
       "ResourcePolicy.ResourceArn string",
       "ResourcePolicy.RevisionID string",
       "ResourcePolicy.UpdatedAt time.Time",
+      "S3LoggingConfig.BucketName string `json:\"bucketName\"`",
+      "S3LoggingConfig.KeyPrefix string `json:\"keyPrefix,omitempty\"`",
       "SageMakerEndpointConfig.ExecutionRole string `json:\"executionRole\"`",
       "SageMakerEndpointConfig.InitialInstanceCount int32 `json:\"initialInstanceCount\"`",
       "SageMakerEndpointConfig.InstanceType string `json:\"instanceType\"`",
@@ -3563,7 +3573,7 @@
       "backendSnapshot.Tables map[string]json.RawMessage `json:\"tables\"`",
       "backendSnapshot.UseCaseFormData []byte `json:\"useCaseFormData,omitempty\"`"
     ],
-    "version": 2
+    "version": 3
   },
   "bedrockagent": {
     "fields": [

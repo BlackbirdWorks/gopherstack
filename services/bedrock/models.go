@@ -571,10 +571,32 @@ type SageMakerEndpointConfig struct {
 	InitialInstanceCount int32  `json:"initialInstanceCount"`
 }
 
-// ModelInvocationLoggingConfiguration represents the logging configuration.
+// ModelInvocationLoggingConfiguration mirrors types.LoggingConfig in
+// aws-sdk-go-v2/service/bedrock@v1.66.4 (deserializers.go:awsRestjson1_deserializeDocumentLoggingConfig,
+// serializers.go:awsRestjson1_serializeDocumentLoggingConfig). All members are optional; the real
+// shape has no s3BucketName/loggingEnabled fields at all.
 type ModelInvocationLoggingConfiguration struct {
-	S3BucketName   string `json:"s3BucketName,omitempty"`
-	LoggingEnabled bool   `json:"loggingEnabled"`
+	CloudWatchConfig             *CloudWatchLoggingConfig `json:"cloudWatchConfig,omitempty"`
+	S3Config                     *S3LoggingConfig         `json:"s3Config,omitempty"`
+	AudioDataDeliveryEnabled     *bool                    `json:"audioDataDeliveryEnabled,omitempty"`
+	EmbeddingDataDeliveryEnabled *bool                    `json:"embeddingDataDeliveryEnabled,omitempty"`
+	ImageDataDeliveryEnabled     *bool                    `json:"imageDataDeliveryEnabled,omitempty"`
+	TextDataDeliveryEnabled      *bool                    `json:"textDataDeliveryEnabled,omitempty"`
+	VideoDataDeliveryEnabled     *bool                    `json:"videoDataDeliveryEnabled,omitempty"`
+}
+
+// CloudWatchLoggingConfig mirrors types.CloudWatchConfig. LogGroupName/RoleArn are required
+// when CloudWatchConfig is present at all.
+type CloudWatchLoggingConfig struct {
+	LargeDataDeliveryS3Config *S3LoggingConfig `json:"largeDataDeliveryS3Config,omitempty"`
+	LogGroupName              string           `json:"logGroupName"`
+	RoleArn                   string           `json:"roleArn"`
+}
+
+// S3LoggingConfig mirrors types.S3Config. BucketName is required when S3Config is present.
+type S3LoggingConfig struct {
+	BucketName string `json:"bucketName"`
+	KeyPrefix  string `json:"keyPrefix,omitempty"`
 }
 
 // CreateEvaluationJobInput holds all parameters for CreateEvaluationJob.

@@ -6,7 +6,7 @@ func (b *InMemoryBackend) GetModelInvocationLoggingConfiguration() *ModelInvocat
 	defer b.mu.RUnlock()
 
 	if b.loggingConfig == nil {
-		return &ModelInvocationLoggingConfiguration{}
+		return nil
 	}
 
 	cp := *b.loggingConfig
