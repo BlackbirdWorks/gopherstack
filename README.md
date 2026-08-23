@@ -631,7 +631,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Amplify](services/amplify/README.md) | A | 48 | 4 gaps |
 | [CodeArtifact](services/codeartifact/README.md) | A | 48 | 8 gaps; 3 deferred |
 | [CodeBuild](services/codebuild/README.md) | A | 59 | 1 deferred |
-| [CodeCommit](services/codecommit/README.md) | A | 79 | 3 gaps |
+| [CodeCommit](services/codecommit/README.md) | A | 79 | 5 gaps |
 | [CodeConnections](services/codeconnections/README.md) | A | 27 | clean |
 | [CodeDeploy](services/codedeploy/README.md) | A | 47 | 4 gaps; 2 deferred |
 | [CodePipeline](services/codepipeline/README.md) | A | 20 | 8 gaps; 3 deferred |
