@@ -842,6 +842,11 @@ const (
 	ec2PageMinEventWindows         = 20 // api_op_DescribeInstanceEventWindows.go: "between 20 and 500"
 	ec2PageMaxEventWindows         = 500
 	ec2PageMinElasticGpus          = 5 // api_op_DescribeElasticGpus.go: "between 5 and 1000"
+
+	ec2PageMinRecycleBin = 5 // api_op_ListVolumesInRecycleBin.go: "Valid range: 5 - 500"
+	ec2PageMaxRecycleBin = 500
+
+	ec2PageMaxVolumesModifications = 500 // api_op_DescribeVolumesModifications.go: "up to a limit of 500"
 )
 
 // parseEC2Pagination validates MaxResults against [minResults, maxResults]

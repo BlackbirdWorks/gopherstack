@@ -286,14 +286,6 @@ func (b *InMemoryBackend) DescribeLockedSnapshots(ids []string) []*SnapshotLock 
 	return out
 }
 
-// ---- CopyVolumes ----
-
-// CopyVolumesResult holds the result of copying a volume.
-type CopyVolumesResult struct {
-	SourceVolumeID string `json:"sourceVolumeID,omitempty"`
-	DestVolumeID   string `json:"destVolumeID,omitempty"`
-}
-
 // ListSnapshotsInRecycleBin returns soft-deleted snapshots.
 func (b *InMemoryBackend) ListSnapshotsInRecycleBin(snapshotIDs []string) []*Snapshot {
 	b.mu.RLock("ListSnapshotsInRecycleBin")

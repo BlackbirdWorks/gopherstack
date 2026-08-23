@@ -1278,7 +1278,7 @@ type Backend interface {
 	LockSnapshot(snapshotID, lockMode string, durationDays int) (*SnapshotLock, error)
 	UnlockSnapshot(snapshotID string) error
 	DescribeLockedSnapshots(ids []string) []*SnapshotLock
-	CopyVolumes(volumeIDs []string, destinationRegion string) ([]CopyVolumesResult, error)
+	CopyVolumes(sourceVolumeID string, size int, volumeType string, iops, throughput int) (*Volume, error)
 	DisassociateVpcCidrBlock(associationID string) error
 	DisassociateNatGatewayAddress(natGatewayID string, associationIDs []string) (*NatGateway, error)
 	AssociateNatGatewayAddress(natGatewayID string, allocationIDs []string) (*NatGateway, error)

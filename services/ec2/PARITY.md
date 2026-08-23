@@ -480,3 +480,198 @@ signature actually changed), `go vet ./services/ec2/...`, `gofmt -l services/ec2
 (clean), `go test -race ./services/ec2/...` (`ok`, full suite including the 11 new
 tests), `golangci-lint run ./services/ec2/...` (0 issues, after fixing 1 `godot` and 9
 `prealloc` findings the new test file introduced); no banned `//nolint`s.
+
+**2026-08-23 pass -- `handler_volumes.go`/`handler_snapshots.go` never-named sweep**:
+re-derived the count directly against `registerVolumesOps`/`registerSnapshotsOps` plus
+each file's own core ops dispatched from `buildCoreOps` (`CreateVolume`/`DescribeVolumes`/
+`DeleteVolume`/`AttachVolume`/`DetachVolume`/`DescribeVolumeAttribute`/
+`ModifyVolumeAttribute` for volumes; `DescribeSnapshotAttribute`/`ModifySnapshotAttribute`
+for snapshots), grepped against every op name mentioned anywhere in this file, and split
+"named-and-audited" from "named-only-as-a-not-reached-count" per the redirect's method.
+`handler_volumes.go`: 22 total ops, 3 previously audited (`CreateVolume`, `DescribeVolumes`,
+`ModifyEbsDefaultKmsKeyId` -- all from the 2026-08-05/08-12 `ebs_snapshot_lineage` passes)
+-- **19/22 (86%) never audited**. `handler_snapshots.go`: 24 total ops, 4 previously audited
+(`CopySnapshot`, `CreateSnapshots`, `CreateSnapshot`, `DescribeSnapshots`, same passes) --
+**20/24 (83%) never audited**. Combined: **39/46 (85%) never audited**, well above the
+prior pass's 12/11 "real-body" estimate (that number counted only a field-count heuristic
+subset of never-named ops, not the true never-audited total).
+
+Read every one of the 39 by hand against `aws-sdk-go-v2/service/ec2@v1.319.1`
+serializers/deserializers/api_op_*.go. Found and fixed **7 real bugs**, two of them the
+most severe class this sweep has found (a real client's request or response silently
+decoding to nothing, every time, not merely a missing field):
+
+1. **`CopyVolumes`** (`handler_volumes.go`) was wrong on both sides of the wire. Request:
+   read `VolumeId.N` (a list) and a fabricated `DestinationRegion` field; the real
+   `CopyVolumesInput` has a single required `SourceVolumeId` (serializers.go:69198,
+   confirmed against `api_op_CopyVolumes.go`) and no cross-region concept at all (the op
+   copies within the same AZ) -- a real client's request never populated `VolumeId.N`, so
+   `volumeIDs` was always empty and every real call failed with `InvalidParameterValue: at
+   least one VolumeId is required`, regardless of what was asked to be copied. Response: a
+   custom `{sourceVolumeId, destVolumeId}` item instead of the real `Volumes []types.Volume`
+   full-volume-item shape (`awsEc2query_deserializeDocumentVolumeList`, element `item` ->
+   `Volume`) -- even a hand-built request that reached the backend would have decoded to
+   zero volumes, since `sourceVolumeId`/`destVolumeId` aren't real `Volume` fields. Fixed:
+   `Backend.CopyVolumes` signature changed from `(volumeIDs []string, destinationRegion
+   string) ([]CopyVolumesResult, error)` to `(sourceVolumeID string, size int, volumeType
+   string, iops, throughput int) (*Volume, error)` (real `CopyVolumesInput`: `Size` inherits
+   the source's if zero per its doc comment, `VolumeType` defaults to `gp2` -- not the
+   source's type -- per its own doc comment, a real asymmetry preserved rather than
+   normalized away); handler now reads `SourceVolumeId`/`Size`/`VolumeType`/`Iops`/
+   `Throughput`, reuses the existing `parseVolumePerf` validation `CreateVolume` already
+   uses, and renders the result through the existing `toVolumeItem`/`volumeItemSet` (the
+   same types `DescribeVolumes` already renders correctly) instead of a bespoke item type.
+   `CopyVolumesResult` and the now-orphaned `copyVolumesVolumeItem` type deleted.
+2. **`EnableFastSnapshotRestores`/`DisableFastSnapshotRestores`** (`handler_snapshots.go`),
+   same two-sided shape as (1). Request: both read `SnapshotId.N`; the real wire key is
+   `SourceSnapshotId` (serializers.go:84014-84019 Enable, 83152-83157 Disable, both
+   `FlatKey("SourceSnapshotId")` off `...Input.SourceSnapshotIds`) -- a real client's
+   request never populated `SnapshotId.N`, so every real call silently enabled/disabled
+   fast restores for zero snapshots while still reporting success. Response: a bare
+   `stubResponse{Return: true}`; the real `Enable/DisableFastSnapshotRestoresOutput` have
+   no `Return` field at all, only `Successful`/`Unsuccessful` sets
+   (deserializers.go:210002-210012 Enable, 208034-208044 Disable) -- the real API's only
+   per-item confirmation signal, always empty pre-fix even once the request-side bug is
+   imagined fixed. Fixed both: request now reads `SourceSnapshotId`; response now reports
+   every requested (snapshotId, availabilityZone) pair as `Successful` in its real
+   *terminal* state (`enabled`/`disabled`) rather than the transient `enabling`/`disabling`
+   real AWS uses for an operation this mock completes synchronously -- reusing the existing
+   `fastSnapshotRestoreItem` type `DescribeFastSnapshotRestores` already renders correctly.
+   `Unsuccessful` is left empty/absent: this backend's `Enable/DisableFastSnapshotRestores`
+   never fails a specific pair once the top-level call succeeds, so there is nothing to
+   report there without fabricating errors.
+3. **`DescribeSnapshotTierStatus`** (`handler_snapshots.go`) read a `SnapshotId.N` list that
+   does not exist on the real `DescribeSnapshotTierStatusInput` at all -- it has only
+   `Filters` (confirmed via `api_op_DescribeSnapshotTierStatus.go`'s doc comment and
+   serializers.go:80972-80999, which serializes only `DryRun`/`Filter`/`MaxResults`/
+   `NextToken`), with a real `snapshot-id` filter key. A real client filtering by snapshot
+   ID -- the only way the real API supports it -- had that filter silently ignored,
+   returning every snapshot's tier status instead of the one asked for. Fixed: handler now
+   calls `Backend.DescribeSnapshotTierStatus(nil)` (all snapshots) and applies a new
+   `applySnapshotTierFilters` matching the real `snapshot-id`/`volume-id` filter keys
+   (`last-tiering-operation` is real but left unenforced -- this backend tracks only the
+   current tier, not the archive/restore operation history that filter's values describe,
+   so enforcing it would mean fabricating a match against state that doesn't exist).
+4. **`LockSnapshot`** (`handler_snapshots.go`) returned only `snapshotId`/`lockState`, even
+   though the backend's `SnapshotLock` already computes `LockDurationDays`/`LockCreatedOn`/
+   `LockExpiresOn` -- state the sibling `DescribeLockedSnapshots` already renders correctly
+   from the same struct. The real `LockSnapshotOutput` models `lockDuration`/`lockCreatedOn`/
+   `lockExpiresOn` (deserializers.go:216295-216340), so a client reading those fields
+   straight off the `LockSnapshot` response it just got back -- the natural way to confirm
+   what was just locked, rather than issuing a follow-up Describe -- got zero values despite
+   the state genuinely existing one struct field away. Fixed by rendering all three from the
+   same `lock` the handler already had. (`CoolOffPeriod`/`CoolOffPeriodExpiresOn`/
+   `LockDurationStartTime` are real fields this backend has no cool-off-period concept for
+   at all -- left absent, not fabricated.)
+5. **`UnlockSnapshot`** (`handler_snapshots.go`) returned a generic
+   `stubResponse{Return: true}`; the real `UnlockSnapshotOutput` has no `Return` field --
+   only `snapshotId` (deserializers.go:223213-223224) -- so a client confirming the unlock
+   via the response's own `SnapshotId`, the op's only real confirmation signal, got an empty
+   string. Fixed with a dedicated `unlockSnapshotResponse{SnapshotID}`.
+6. **Nine List/Describe ops across both files silently ignored real `MaxResults`/
+   `NextToken` pagination**, the exact gap the redirect asked these two files to check and
+   the prior pass's `ec2sweep11` fix (11 ops in `handler_images.go`/`handler_instances.go`)
+   did not touch: `DescribeVolumeStatus`, `DescribeVolumesModifications`,
+   `DescribeReplaceRootVolumeTasks`, `ListVolumesInRecycleBin` (volumes); `DescribeSnapshotTierStatus`
+   (also bug 3, above), `DescribeLockedSnapshots`, `ListSnapshotsInRecycleBin`,
+   `DescribeImportSnapshotTasks`, `DescribeFastSnapshotRestores` (snapshots). All nine
+   confirmed via the installed SDK to declare `MaxResults`/`NextToken` on both Input and
+   Output; none applied a cap or emitted a token pre-fix -- the same milder,
+   unbounded-single-page form as `ec2sweep11`, not the medialive-style infinite loop. Fixed
+   with the same `parseEC2Pagination`/`pageSlice` helpers `ec2sweep11` added, no second
+   mechanism invented. Bounds per op, from the pinned SDK's own doc comments where stated,
+   falling back to `DescribeImages`' 1..1000/1000 where not: `ListVolumesInRecycleBin`
+   5..500 ("Valid range: 5 - 500"); `DescribeVolumesModifications` 1..500 ("up to a limit of
+   500"); the other seven fall back to 1..1000/1000 entirely.
+7. Sibling check on bug (6)'s class (rule 8): every other Describe/List op in both files was
+   checked against the installed SDK for a `MaxResults`/`NextToken` pair on its Input/Output
+   -- none of the remaining ops in either file declare one, so no further pagination bug
+   exists here. Sibling check on bugs (1)/(2)'s "wrong wire key" class: grepped every other
+   `parseMemberList(vals, "SnapshotId")`/`"VolumeId"` call site in both files against the
+   installed SDK's serializers for the corresponding op; `DescribeLockedSnapshots` and
+   `ListSnapshotsInRecycleBin` really do use `SnapshotId.N` (serializers.go:79491-79496,
+   86745-86750) -- correct siblings, not touched. No other op in either file shares bug (4)
+   or (5)'s "state computed but not surfaced on this op's own response" shape by inspection.
+
+Proof for all 7: new real-SDK-client tests in `wire_field_fixes_ec2sweep12_test.go`
+(`TestCopyVolumes_RealClient`, `TestLockSnapshot_SurfacesLockFields_RealClient`,
+`TestUnlockSnapshot_SurfacesSnapshotID_RealClient`,
+`TestDescribeSnapshotTierStatus_Filters_RealClient`,
+`TestEnableDisableFastSnapshotRestores_SurfacesResults_RealClient`) plus two
+`dispatchHandler`-driven multi-page round-trip tests covering all nine pagination ops
+(`TestVolumesFamilyPagination_RealPageRoundTrip`, `TestSnapshotsFamilyPagination_RealPageRoundTrip`,
+seeded 7 items at `MaxResults=3` -- above every op's page-size floor, learning
+`ec2sweep11`'s lesson that an under-seeded fixture can't fail even pre-fix). The pagination
+round-trip helper asserts not just that every item is eventually seen, but that the first
+page holds `<= MaxResults` items and that more than one page was needed -- the first
+version of this test asserted only item-set completeness and **false-passed against
+unfixed code**, because an unpaginated handler returns everything in one page with no
+`nextToken`, which trivially satisfies "every item was seen." Caught by hand-reverting
+before trusting it, per the same lesson stated explicitly for next time. `TestPagination_
+ForgedTokenRejected` (`persistence_test.go`) extended with all nine ops' forged-token
+rejection cases. `ListVolumesInRecycleBin`/`ListSnapshotsInRecycleBin` get the
+forged-token proof only, not the real multi-page round-trip: same structural gap as
+`ec2sweep11`'s `ListImagesInRecycleBin` finding -- `DeleteVolume`/`DeleteSnapshot` delete
+outright rather than moving anything into `recycleBinVolumes`/`recycleBinSnapshots`, so
+there is no SDK-reachable producer for either table, and inventing one (e.g. an
+export_test.go seeding helper) was out of scope for this pass. Hand-revert: reverted
+`handler_volumes.go`, `handler_snapshots.go`, `volumes.go`, `snapshots.go`,
+`interfaces.go`, `handler.go`, `handler_filters.go`, and `handler_volumes_test.go` to
+`git show HEAD:...` content via `cp`, confirmed all 7 new tests fail with the documented
+symptom (and only those 7 -- every pre-existing `RealClient`/pagination test in the
+package still passed against the reverted files, confirming the revert didn't
+accidentally touch unrelated code), then restored all eight files from the saved copies;
+`md5sum` identical before/after for every file, twice (once before the lint cleanup pass,
+once after).
+
+No persisted struct's json tag, field name, or type changed -- `Volume`'s field set is
+unchanged (`CopyVolumes` now populates the same fields `CreateVolume` already does, just
+via a different call path); response-only XML structs and a deleted transient
+`CopyVolumesResult` return type aren't part of any `backendSnapshot`. No
+`ec2SnapshotVersion` bump; `go test ./pkgs/persistence/...` still green.
+
+Modelling gaps found but NOT fixed (documented, not synthesized): `RestoreSnapshotTier`
+never reads the real `PermanentRestore`/`TemporaryRestoreDays` input fields at all (only
+`SnapshotId`), and its response is a bare `stubResponse{Return: true}` where the real
+`RestoreSnapshotTierOutput` has `IsPermanentRestore`/`RestoreDuration`/`RestoreStartTime` --
+this backend tracks no temporary-vs-permanent-restore or restore-expiry concept
+whatsoever, so building the real response honestly means adding that state, not just
+wiring up existing fields; out of scope for this pass, named rather than worked around.
+`RestoreSnapshotFromRecycleBin` returns the same bare `stubResponse{Return: true}` where
+the real `RestoreSnapshotFromRecycleBinOutput` is a near-full snapshot detail object
+(`description`/`encrypted`/`outpostArn`/and more per deserializers.go:221896-221934) --
+the backend already has the restored `Snapshot` in hand at the point it discards it
+(`volumes.go`... `snapshots.go`'s `RestoreSnapshotFromRecycleBin`), so this is buildable
+without fabrication, just not attempted this pass. `DescribeVolumeAttribute` always wraps
+a boolean under whatever `Attribute` name the caller passed, never validating it against
+the real two-value enum (`autoEnableIO`/`productCodes`) or rendering the real
+`productCodes` list shape for that attribute -- a real client asking for `productCodes`
+gets an empty list via a decode-and-skip side effect rather than a real, deliberate
+empty-list render, which happens to be harmless today only because this backend never
+tracks product codes at all. `GetEbsEncryptionByDefaultOutput` also models `sseType`,
+entirely unrendered here -- this backend has no SSE-type concept, so left absent rather
+than fabricated. False positives ruled out by hand: `RestoreVolumeFromRecycleBin`'s bare
+`{Return: bool}` shape is actually correct (deserializers.go:222186-222199 confirms the
+real `RestoreVolumeFromRecycleBinOutput` has only `Return`) -- flagged initially by
+pattern-matching against the snapshots-side bug (bugs 1/2's shape), then confirmed correct
+per-op rather than assumed broken by association.
+
+Gates: `go build ./...` (repo-wide, `Backend.CopyVolumes`'s exported signature changed),
+`make build-check` (`go build ./...`, `go vet -tags e2e ./...`, `go vet -tags integration
+./...`, all clean), `go vet ./services/ec2/...`, `gofmt -l services/ec2/*.go` (clean),
+`go test -race ./services/ec2/... -count=1` (`ok`, full suite including all new tests),
+`go test ./pkgs/persistence/... -count=1` (`ok`), `golangci-lint run ./services/ec2/...`
+(0 issues, after `--fix` corrected 2 `goconst` findings by consolidating a third
+pre-existing `"volume-id"` literal onto the existing `filterKeyVolumeID` constant, plus
+1 `fieldalignment` and 1 `testifylint` finding on the new test file; 5 `lll` and 1
+`unparam` fixed by hand -- collapsing `paginationRoundTrip`'s always-3 `maxResults`
+parameter into a local constant, the correct fix rather than a suppression). No banned
+`//nolint`s.
+
+Not reached, named per the redirect's request: every other op in
+`handler_volumes.go`/`handler_snapshots.go` beyond the 39 audited and the 7 fixed matched
+its real wire shape on inspection. Largest still-unswept never-named families from the
+2026-08-23 tally above: `handler_spot_fleet.go` (10), `handler_client_vpn.go` (9),
+`handler_security_groups.go` (9), `handler_elastic_ips.go` (8), `handler_tgw_multicast.go`
+(7), `handler_instance_attrs.go` (7) -- next pass should re-derive each file's count
+against its own `register*Ops` before picking one, per the method demonstrated here.

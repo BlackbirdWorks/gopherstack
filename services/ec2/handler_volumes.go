@@ -30,12 +30,14 @@ type volumeStatusSet struct {
 type describeVolumeStatusResponse struct {
 	XMLName         xml.Name        `xml:"DescribeVolumeStatusResponse"`
 	RequestID       string          `xml:"requestId"`
+	NextToken       string          `xml:"nextToken,omitempty"`
 	VolumeStatusSet volumeStatusSet `xml:"volumeStatusSet"`
 }
 
 type describeVolumesModificationsResponse struct {
 	XMLName               xml.Name `xml:"DescribeVolumesModificationsResponse"`
 	RequestID             string   `xml:"requestId"`
+	NextToken             string   `xml:"nextToken,omitempty"`
 	VolumeModificationSet struct {
 		Items []volumeModificationItem `xml:"item"`
 	} `xml:"volumeModificationSet"`
@@ -87,6 +89,14 @@ func (h *Handler) handleDescribeVolumeStatus(vals url.Values, reqID string) (any
 	ids := parseMemberList(vals, "VolumeId")
 	items := h.Backend.DescribeVolumeStatus(ids)
 
+	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageMaxDefault)
+	if err != nil {
+		return nil, err
+	}
+
+	var nextToken string
+	items, nextToken = pageSlice(items, offset, maxResults)
+
 	out := make([]volumeStatusItem, 0, len(items))
 	for _, item := range items {
 		out = append(out, volumeStatusItem{
@@ -98,6 +108,7 @@ func (h *Handler) handleDescribeVolumeStatus(vals url.Values, reqID string) (any
 
 	return &describeVolumeStatusResponse{
 		RequestID:       reqID,
+		NextToken:       nextToken,
 		VolumeStatusSet: volumeStatusSet{Items: out},
 	}, nil
 }
@@ -105,6 +116,16 @@ func (h *Handler) handleDescribeVolumeStatus(vals url.Values, reqID string) (any
 func (h *Handler) handleDescribeVolumesModifications(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "VolumeId")
 	mods := h.Backend.DescribeVolumesModifications(ids)
+
+	maxResults, offset, err := parseEC2Pagination(
+		vals, ec2PageMinDefault, ec2PageMaxVolumesModifications, ec2PageMaxVolumesModifications,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	var nextToken string
+	mods, nextToken = pageSlice(mods, offset, maxResults)
 
 	items := make([]volumeModificationItem, 0, len(mods))
 	for _, mod := range mods {
@@ -120,7 +141,7 @@ func (h *Handler) handleDescribeVolumesModifications(vals url.Values, reqID stri
 		})
 	}
 
-	resp := &describeVolumesModificationsResponse{RequestID: reqID}
+	resp := &describeVolumesModificationsResponse{RequestID: reqID, NextToken: nextToken}
 	resp.VolumeModificationSet.Items = items
 
 	return resp, nil
@@ -176,11 +197,9 @@ type snapshotLockItem struct {
 }
 
 type copyVolumesResponse struct {
-	XMLName   xml.Name `xml:"CopyVolumesResponse"`
-	RequestID string   `xml:"requestId"`
-	VolumeSet struct {
-		Items []copyVolumesVolumeItem `xml:"item"`
-	} `xml:"volumeSet"`
+	XMLName   xml.Name      `xml:"CopyVolumesResponse"`
+	RequestID string        `xml:"requestId"`
+	VolumeSet volumeItemSet `xml:"volumeSet"`
 }
 
 type createReplaceRootVolumeTaskResponse struct {
@@ -192,6 +211,7 @@ type createReplaceRootVolumeTaskResponse struct {
 type describeReplaceRootVolumeTasksResponse struct {
 	XMLName                  xml.Name `xml:"DescribeReplaceRootVolumeTasksResponse"`
 	RequestID                string   `xml:"requestId"`
+	NextToken                string   `xml:"nextToken,omitempty"`
 	ReplaceRootVolumeTaskSet struct {
 		Items []replaceRootVolumeTaskItem `xml:"item"`
 	} `xml:"replaceRootVolumeTaskSet"`
@@ -261,20 +281,43 @@ func (h *Handler) handleEnableVolumeIO(vals url.Values, reqID string) (any, erro
 }
 
 func (h *Handler) handleCopyVolumes(vals url.Values, reqID string) (any, error) {
-	volumeIDs := parseMemberList(vals, "VolumeId")
-	destRegion := vals.Get("DestinationRegion")
+	sourceVolumeID := vals.Get("SourceVolumeId")
+	volType := vals.Get("VolumeType")
+	sizeStr := vals.Get("Size")
 
-	results, err := h.Backend.CopyVolumes(volumeIDs, destRegion)
+	size := 0
+	if sizeStr != "" {
+		_, _ = fmt.Sscan(sizeStr, &size)
+	}
+
+	iops, throughput, err := parseVolumePerf(vals.Get("Iops"), vals.Get("Throughput"), volType, size)
 	if err != nil {
 		return nil, err
 	}
 
-	resp := &copyVolumesResponse{RequestID: reqID}
-	for _, r := range results {
-		resp.VolumeSet.Items = append(resp.VolumeSet.Items, copyVolumesVolumeItem(r))
+	effectiveVolType := volType
+	if effectiveVolType == "" {
+		effectiveVolType = volTypeDefaultGP2
 	}
 
-	return resp, nil
+	vol, err := h.Backend.CopyVolumes(sourceVolumeID, size, effectiveVolType, iops, throughput)
+	if err != nil {
+		return nil, err
+	}
+
+	tags := parseTagSpecification(vals, "volume")
+	if len(tags) > 0 {
+		if err = h.Backend.CreateTags([]string{vol.ID}, tags); err != nil {
+			return nil, err
+		}
+	}
+
+	return &copyVolumesResponse{
+		RequestID: reqID,
+		VolumeSet: volumeItemSet{
+			Items: []volumeItem{toVolumeItem(vol, h.Backend.TagsForResource(vol.ID))},
+		},
+	}, nil
 }
 
 func (h *Handler) handleCreateReplaceRootVolumeTask(vals url.Values, reqID string) (any, error) {
@@ -304,7 +347,15 @@ func (h *Handler) handleDescribeReplaceRootVolumeTasks(vals url.Values, reqID st
 	ids := parseMemberList(vals, "ReplaceRootVolumeTaskId")
 	tasks := h.Backend.DescribeReplaceRootVolumeTasks(ids)
 
-	resp := &describeReplaceRootVolumeTasksResponse{RequestID: reqID}
+	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageMaxDefault)
+	if err != nil {
+		return nil, err
+	}
+
+	var nextToken string
+	tasks, nextToken = pageSlice(tasks, offset, maxResults)
+
+	resp := &describeReplaceRootVolumeTasksResponse{RequestID: reqID, NextToken: nextToken}
 	for _, task := range tasks {
 		item := replaceRootVolumeTaskItem{
 			ReplaceRootVolumeTaskID: task.ReplaceRootVolumeTaskID,
@@ -325,6 +376,7 @@ func (h *Handler) handleDescribeReplaceRootVolumeTasks(vals url.Values, reqID st
 type listVolumesInRecycleBinResponse struct {
 	XMLName   xml.Name `xml:"ListVolumesInRecycleBinResponse"`
 	RequestID string   `xml:"requestId"`
+	NextToken string   `xml:"nextToken,omitempty"`
 	VolumeSet struct {
 		Items []recycleBinVolumeItem `xml:"item"`
 	} `xml:"volumeSet"`
@@ -344,7 +396,17 @@ func (h *Handler) handleListVolumesInRecycleBin(vals url.Values, reqID string) (
 	ids := parseMemberList(vals, "VolumeId")
 	vols := h.Backend.ListVolumesInRecycleBin(ids)
 
-	resp := &listVolumesInRecycleBinResponse{RequestID: reqID}
+	maxResults, offset, err := parseEC2Pagination(
+		vals, ec2PageMinRecycleBin, ec2PageMaxRecycleBin, ec2PageMaxRecycleBin,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	var nextToken string
+	vols, nextToken = pageSlice(vols, offset, maxResults)
+
+	resp := &listVolumesInRecycleBinResponse{RequestID: reqID, NextToken: nextToken}
 	for _, v := range vols {
 		resp.VolumeSet.Items = append(
 			resp.VolumeSet.Items,
