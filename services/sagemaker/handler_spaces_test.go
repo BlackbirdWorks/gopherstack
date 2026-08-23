@@ -38,7 +38,7 @@ func TestHandler_DescribeSpace(t *testing.T) {
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	assert.Equal(t, "space-1", resp["SpaceName"])
-	assert.Equal(t, "InService", resp["SpaceStatus"])
+	assert.Equal(t, "InService", resp["Status"])
 }
 
 func TestHandler_DeleteSpace(t *testing.T) {

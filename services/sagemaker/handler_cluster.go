@@ -705,22 +705,19 @@ func (h *Handler) handleDetachClusterNodeVolume(ctx context.Context, body []byte
 		"NodeId":      dv.NodeID,
 		"VolumeId":    dv.VolumeID,
 		"DeviceName":  dv.DeviceName,
-		"Status":      dv.Status,
+		keyStatus:     dv.Status,
 		"AttachTime":  epochSeconds(dv.AttachTime),
 	})
 }
 
-// clusterNodeVolumeRequest is the volume config in the handler request.
-type clusterNodeVolumeRequest struct {
-	VolumeName string `json:"VolumeName"`
-	SizeInGB   int32  `json:"SizeInGB,omitempty"`
-}
-
-// attachClusterNodeVolumeRequest is the request body for AttachClusterNodeVolume.
+// attachClusterNodeVolumeRequest is the request body for
+// AttachClusterNodeVolume (api_op_AttachClusterNodeVolume.go:33-51,
+// sagemaker@v1.263.2): ClusterArn/NodeId/VolumeId are all required. There is
+// no ClusterName or nested VolumeConfig on the real input.
 type attachClusterNodeVolumeRequest struct {
-	ClusterName  string                   `json:"ClusterName"`
-	NodeID       string                   `json:"NodeId"`
-	VolumeConfig clusterNodeVolumeRequest `json:"VolumeConfig"`
+	ClusterArn string `json:"ClusterArn"`
+	NodeID     string `json:"NodeId"`
+	VolumeID   string `json:"VolumeId"`
 }
 
 func (h *Handler) handleAttachClusterNodeVolume(ctx context.Context, body []byte) ([]byte, error) {
@@ -729,37 +726,35 @@ func (h *Handler) handleAttachClusterNodeVolume(ctx context.Context, body []byte
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	if req.ClusterName == "" {
-		return nil, fmt.Errorf("%w: ClusterName is required", errInvalidRequest)
+	if req.ClusterArn == "" {
+		return nil, fmt.Errorf("%w: ClusterArn is required", errInvalidRequest)
 	}
 
 	if req.NodeID == "" {
 		return nil, fmt.Errorf("%w: NodeId is required", errInvalidRequest)
 	}
 
-	vol := ClusterNodeVolume{
-		VolumeName: req.VolumeConfig.VolumeName,
-		SizeInGB:   req.VolumeConfig.SizeInGB,
+	if req.VolumeID == "" {
+		return nil, fmt.Errorf("%w: VolumeId is required", errInvalidRequest)
 	}
 
-	clusterArn, nodeID, err := h.Backend.AttachClusterNodeVolume(ctx, req.ClusterName, req.NodeID, vol)
+	av, err := h.Backend.AttachClusterNodeVolume(ctx, req.ClusterArn, req.NodeID, req.VolumeID)
 	if err != nil {
 		return nil, err
 	}
 
-	log := logger.Load(ctx)
-	log.InfoContext(
-		ctx,
-		"sagemaker: attached cluster node volume",
-		"cluster",
-		clusterArn,
-		"node",
-		nodeID,
+	logger.Load(ctx).InfoContext(
+		ctx, "sagemaker: attached cluster node volume",
+		"cluster", av.ClusterArn, "node", av.NodeID, "volume", av.VolumeID,
 	)
 
-	return json.Marshal(map[string]string{
-		keyClusterArn: clusterArn,
-		"NodeId":      nodeID,
+	return json.Marshal(map[string]any{
+		keyClusterArn: av.ClusterArn,
+		"NodeId":      av.NodeID,
+		"VolumeId":    av.VolumeID,
+		"DeviceName":  av.DeviceName,
+		keyStatus:     av.Status,
+		"AttachTime":  epochSeconds(av.AttachTime),
 	})
 }
 

@@ -181,7 +181,7 @@ func buildSecondaryStatusTransitions(transitions []SecondaryStatusTransition) []
 	result := make([]map[string]any, len(transitions))
 	for i, t := range transitions {
 		entry := map[string]any{
-			"Status":        t.Status,
+			keyStatus:       t.Status,
 			"StartTime":     epochSeconds(t.StartTime),
 			"StatusMessage": t.StatusMessage,
 		}

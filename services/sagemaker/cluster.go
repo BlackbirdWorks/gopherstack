@@ -755,22 +755,41 @@ func (b *InMemoryBackend) AddClusterInternal(ctx context.Context, clusterName st
 	return cloneCluster(c)
 }
 
-// AttachClusterNodeVolume attaches a volume to a cluster node.
+// AttachedVolume describes the result of attaching an EBS volume to a
+// cluster node.
+type AttachedVolume struct {
+	AttachTime time.Time
+	ClusterArn string
+	NodeID     string
+	VolumeID   string
+	DeviceName string
+	Status     string
+}
+
+// AttachClusterNodeVolume attaches a volume to a cluster node. The volume is
+// tracked by the VolumeId supplied here, since this emulator does not mint a
+// separate immutable VolumeId at attach time — DetachClusterNodeVolume
+// matches on the same value.
 func (b *InMemoryBackend) AttachClusterNodeVolume(
 	ctx context.Context,
-	clusterName, nodeID string,
-	volume ClusterNodeVolume,
-) (string, string, error) {
+	clusterArn, nodeID, volumeID string,
+) (*AttachedVolume, error) {
 	b.mu.Lock("AttachClusterNodeVolume")
 	defer b.mu.Unlock()
 
-	c, err := b.ensureClusterLocked(ctx, clusterName)
-	if err != nil {
-		return "", "", err
+	if nodeID == "" {
+		return nil, fmt.Errorf("%w: NodeId is required", ErrValidation)
 	}
 
-	if nodeID == "" {
-		return "", "", fmt.Errorf("%w: NodeId is required", ErrValidation)
+	if volumeID == "" {
+		return nil, fmt.Errorf("%w: VolumeId is required", ErrValidation)
+	}
+
+	region := getRegion(ctx, b.region)
+
+	c, err := b.resolveClusterLocked(region, clusterArn)
+	if err != nil {
+		return nil, err
 	}
 
 	node, ok := c.Nodes[nodeID]
@@ -782,9 +801,16 @@ func (b *InMemoryBackend) AttachClusterNodeVolume(
 		c.Nodes[nodeID] = node
 	}
 
-	node.Volumes = append(node.Volumes, volume)
+	node.Volumes = append(node.Volumes, ClusterNodeVolume{VolumeName: volumeID})
 
-	return c.ClusterArn, nodeID, nil
+	return &AttachedVolume{
+		ClusterArn: c.ClusterArn,
+		NodeID:     nodeID,
+		VolumeID:   volumeID,
+		DeviceName: "/dev/xvdf",
+		Status:     "attached",
+		AttachTime: time.Now(),
+	}, nil
 }
 
 // AddClusterNodeSpec is the backend-facing shape of one BatchAddClusterNodes

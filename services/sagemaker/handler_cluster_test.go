@@ -155,11 +155,20 @@ func TestHandler_ClusterLifecycle(t *testing.T) {
 
 	// AttachClusterNodeVolume then DetachClusterNodeVolume round-trip.
 	rec = doSageMakerRequest(t, h, "AttachClusterNodeVolume", map[string]any{
-		"ClusterName":  "my-cluster",
-		"NodeId":       nodeID,
-		"VolumeConfig": map[string]any{"VolumeName": "vol-123", "SizeInGB": 100},
+		"ClusterArn": clusterArn,
+		"NodeId":     nodeID,
+		"VolumeId":   "vol-123",
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
+
+	var attachResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &attachResp))
+	assert.Equal(t, clusterArn, attachResp["ClusterArn"])
+	assert.Equal(t, nodeID, attachResp["NodeId"])
+	assert.Equal(t, "vol-123", attachResp["VolumeId"])
+	assert.Equal(t, "attached", attachResp["Status"])
+	assert.NotEmpty(t, attachResp["DeviceName"])
+	assert.NotEmpty(t, attachResp["AttachTime"])
 
 	rec = doSageMakerRequest(t, h, "DetachClusterNodeVolume", map[string]any{
 		"ClusterArn": clusterArn,
@@ -570,42 +579,69 @@ func TestHandler_AttachClusterNodeVolume(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		setup    func(*testing.T, *sagemaker.Handler)
-		body     map[string]any
+		setup    func(*testing.T, *sagemaker.Handler) string
+		body     func(clusterArn string) map[string]any
 		name     string
 		wantCode int
 		wantARN  bool
 	}{
 		{
 			name: "success",
-			setup: func(t *testing.T, h *sagemaker.Handler) {
+			setup: func(t *testing.T, h *sagemaker.Handler) string {
 				t.Helper()
-				h.Backend.AddClusterInternal(context.Background(), "my-cluster")
+
+				return h.Backend.AddClusterInternal(context.Background(), "my-cluster").ClusterArn
 			},
-			body: map[string]any{
-				"ClusterName":  "my-cluster",
-				"NodeId":       "node-1",
-				"VolumeConfig": map[string]any{"VolumeName": "vol-1", "SizeInGB": 100},
+			body: func(clusterArn string) map[string]any {
+				return map[string]any{
+					"ClusterArn": clusterArn,
+					"NodeId":     "node-1",
+					"VolumeId":   "vol-1",
+				}
 			},
 			wantCode: http.StatusOK,
 			wantARN:  true,
 		},
 		{
 			name: "cluster not found",
-			body: map[string]any{
-				"ClusterName": "nonexistent",
-				"NodeId":      "node-1",
+			body: func(string) map[string]any {
+				return map[string]any{
+					"ClusterArn": "arn:aws:sagemaker:us-east-1:000000000000:cluster/nonexistent",
+					"NodeId":     "node-1",
+					"VolumeId":   "vol-1",
+				}
 			},
 			wantCode: http.StatusBadRequest,
 		},
 		{
-			name:     "missing ClusterName",
-			body:     map[string]any{"NodeId": "node-1"},
+			name: "missing ClusterArn",
+			body: func(string) map[string]any {
+				return map[string]any{"NodeId": "node-1", "VolumeId": "vol-1"}
+			},
 			wantCode: http.StatusBadRequest,
 		},
 		{
-			name:     "missing NodeId",
-			body:     map[string]any{"ClusterName": "my-cluster"},
+			name: "missing NodeId",
+			setup: func(t *testing.T, h *sagemaker.Handler) string {
+				t.Helper()
+
+				return h.Backend.AddClusterInternal(context.Background(), "my-cluster").ClusterArn
+			},
+			body: func(clusterArn string) map[string]any {
+				return map[string]any{"ClusterArn": clusterArn, "VolumeId": "vol-1"}
+			},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "missing VolumeId",
+			setup: func(t *testing.T, h *sagemaker.Handler) string {
+				t.Helper()
+
+				return h.Backend.AddClusterInternal(context.Background(), "my-cluster").ClusterArn
+			},
+			body: func(clusterArn string) map[string]any {
+				return map[string]any{"ClusterArn": clusterArn, "NodeId": "node-1"}
+			},
 			wantCode: http.StatusBadRequest,
 		},
 		{
@@ -621,23 +657,26 @@ func TestHandler_AttachClusterNodeVolume(t *testing.T) {
 
 			h := newTestHandler(t)
 
+			var clusterArn string
 			if tt.setup != nil {
-				tt.setup(t, h)
+				clusterArn = tt.setup(t, h)
 			}
 
 			var body map[string]any
 			if tt.body != nil {
-				body = tt.body
+				body = tt.body(clusterArn)
 			}
 
 			rec := doSageMakerRequest(t, h, "AttachClusterNodeVolume", body)
 			assert.Equal(t, tt.wantCode, rec.Code)
 
 			if tt.wantARN {
-				var resp map[string]string
+				var resp map[string]any
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 				assert.Contains(t, resp["ClusterArn"], "arn:aws:sagemaker")
 				assert.Equal(t, "node-1", resp["NodeId"])
+				assert.Equal(t, "vol-1", resp["VolumeId"])
+				assert.Equal(t, "attached", resp["Status"])
 			}
 		})
 	}

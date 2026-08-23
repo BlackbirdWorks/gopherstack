@@ -66,9 +66,8 @@ type StorageBackend interface {
 
 	AttachClusterNodeVolume(
 		ctx context.Context,
-		clusterName, nodeID string,
-		volume ClusterNodeVolume,
-	) (string, string, error)
+		clusterArn, nodeID, volumeID string,
+	) (*AttachedVolume, error)
 	BatchAddClusterNodes(
 		ctx context.Context,
 		clusterName string,

@@ -5189,3 +5189,129 @@ exceeds `httputils.MaxRequestBodyBytes` (16 MiB).
 (`handler_oversized_body_test.go`) asserts `apiErr.ErrorCode() ==
 "InternalFailure"`; confirmed it fails pre-fix with `*json.SyntaxError`
 (hand-reverted, byte-identical restore after).
+
+## parity-27 (2026-08-23): never-named-in-PARITY sweep — AttachClusterNodeVolume wire shape, Space "Status" key
+
+Diffed all 403 ops `GetSupportedOperations()` declares against every op name mentioned
+anywhere in this file: 87 ops were never named by any prior audit pass, 56 of those have a
+real response body (not void). Read 71 of the 87 against `sagemaker@v1.263.2`'s pinned SDK
+source (types.go/api_op_*.go/deserializers.go); found and fixed two real bugs, both regressions
+introduced when the ops were first stubbed in, never touched by parity-4..26 or gopherstack-oc9v
+since neither op was named there.
+
+**Bug 1 — AttachClusterNodeVolume: wrong request AND response shape, hard-fails every real call.**
+`AttachClusterNodeVolumeInput` (`api_op_AttachClusterNodeVolume.go:33-51`) is `{ClusterArn,
+NodeId, VolumeId}` — all three required, no other members. gopherstack's handler decoded
+`{ClusterName, NodeId, VolumeConfig: {VolumeName, SizeInGB}}`, an entirely invented shape: a
+real SDK client's request carries `"ClusterArn"`, which the handler's `ClusterName` field never
+matches, so `req.ClusterName` decodes empty and the call 400s with `"ClusterName is required"`
+before ever reaching the backend — every real client call failed. The response was also short:
+`AttachClusterNodeVolumeOutput` requires `AttachTime`/`ClusterArn`/`DeviceName`/`NodeId`/
+`Status`/`VolumeId` (`api_op_AttachClusterNodeVolume.go:60-93`); gopherstack returned only
+`ClusterArn`/`NodeId`. The sibling `DetachClusterNodeVolume` (already correct, untouched here)
+proved the backend already has everything needed: it resolves the cluster by ARN via
+`resolveClusterLocked`, matches volumes by the client-supplied identifier stored as
+`ClusterNodeVolume.VolumeName` (`cluster.go`'s existing "this emulator does not mint a separate
+immutable VolumeId at attach time" convention), and synthesizes `DeviceName`/`Status`/
+`AttachTime`. Fixed `AttachClusterNodeVolume`'s request struct to `{ClusterArn, NodeId,
+VolumeId}`, its backend method to resolve by ARN via `resolveClusterLocked` (mirroring Detach)
+and return a new `AttachedVolume` struct with all six fields, and the handler response to
+surface all of them. `AttachClusterNodeVolume`'s `StorageBackend` interface signature changed
+accordingly (`services/sagemaker/interfaces.go`).
+
+Proven with a real `aws-sdk-go-v2/service/sagemaker` client
+(`TestHandler_AttachDetachClusterNodeVolume_RealClient`,
+`handler_cluster_space_realclient_test.go`): pre-fix, `client.AttachClusterNodeVolume` with a
+`ClusterArn`/`NodeId`/`VolumeId` request (the only shape the real SDK ever sends) fails with
+`operation error SageMaker: AttachClusterNodeVolume, ... 400, api error UnknownError: invalid
+request: ClusterName is required` — confirmed by hand-revert (`cp` of the pre-fix
+`cluster.go`/`handler_cluster.go`/`interfaces.go`, md5-identical restore after). Post-fix,
+Attach/Detach round-trip cleanly with all six response fields populated.
+
+**Bug 2 — DescribeSpace/ListSpaces: wire key `"SpaceStatus"`, real key is `"Status"`.**
+`DescribeSpaceOutput`'s status member deserializes on wire key `"Status"`
+(`deserializers.go:118584`, `awsAwsjson11_deserializeOpDocumentDescribeSpaceOutput`'s `case
+"Status":`), not `"SpaceStatus"` — confirmed `"SpaceStatus"` appears as a deserializer `case`
+key nowhere in the entire pinned SDK (`grep -c 'case "SpaceStatus"' deserializers.go` = 0).
+`ListSpaces`' `SpaceDetails` summary type uses the same real key, `"Status"`
+(`deserializers.go`'s `awsAwsjson11_deserializeDocumentSpaceDetails`). gopherstack's `Space`
+struct (`spaces.go`) tagged the field `json:"SpaceStatus"`, and `handleListSpaces`
+(`handler_spaces.go`) built its summary map with literal key `"SpaceStatus"` — both silently
+unrecognized by the real client's deserializer (falls into its generic `default:` case,
+discarded), so `DescribeSpaceOutput.Status`/`SpaceDetails.Status` always decoded as the empty
+string on the client side regardless of the space's actual status. Not a hard-fail: the request
+succeeds, the field is just silently missing. Fixed both to wire key `"Status"`.
+
+`Space.MarshalJSON`/`UnmarshalJSON` (`spaces.go`) is read by both the wire response *and* the
+snapshot restore path (its own doc comment says so), so this tag change also changes the
+persisted-snapshot format: a v2 snapshot's `"SpaceStatus"` key would silently fail to populate
+`Status` on restore. Bumped `sagemakerSnapshotVersion` 2 -> 3 (`persistence.go`) and regenerated
+`pkgs/persistence/testdata/snapshot_inventory.json` via `go test ./pkgs/persistence/... -run
+TestSnapshotVersionGuard -update` (2-line diff: the one field's tag, and the version number).
+`AttachClusterNodeVolume`'s fix did **not** need a bump: `ClusterNodeVolume`'s struct tags are
+unchanged, only what value gets stored in the existing `VolumeName` field changed.
+
+Proven with a real client (`TestHandler_DescribeSpace_Status_RealClient`,
+`handler_cluster_space_realclient_test.go`): pre-fix, `DescribeSpace`/`ListSpaces` on a freshly
+created (default-InService) space both decode `Status`/`Spaces[0].Status` as `""` instead of
+`"InService"` — confirmed by hand-revert (`cp` of pre-fix `spaces.go`/`handler_spaces.go`,
+md5-identical restore after).
+
+**Modelling gaps found while reading the 71, disclosed rather than fixed:** `DescribeExperiment`
+(`CreatedBy`/`LastModifiedBy`/`Source`), `DescribeSpace` (`FailureReason`/`HomeEfsFileSystemUid`/
+`Url`), `DescribeImage` (`FailureReason`), `DescribeModelPackageGroup` (`CreatedBy`) — all
+optional SDK members with no backing state anywhere in this backend's models (no `CreatedBy`/
+`UserContext` concept exists in this single-tenant emulator, matching the same disclosed
+reasoning already applied to lineage/search/inference-experiment elsewhere in this file); not
+synthesized per DO-NOT-INVENT-A-VALUE.
+
+**Ops read clean, no bug (of the 71 reached):** `AssociateTrialComponent`,
+`DetachClusterNodeVolume`, `CreateSpace`, `DeleteSpace`, `DescribeExperiment`,
+`DeleteExperiment`, `UpdateTrial`, `DescribeTrial`, `DeleteTrial`, `DeleteTrialComponent`,
+`DescribeWorkforce`, `DeleteWorkforce`, `DescribeWorkteam`, `DeleteWorkteam`,
+`DescribeUserProfile`, `DeleteUserProfile`, `DescribeImage`, `DeleteImage`,
+`DescribeModelPackageGroup`, `DeleteModelPackageGroup`, `DeleteModelPackageGroupPolicy`,
+`DeleteModelPackage`, `GetModelPackageGroupPolicy`, `PutModelPackageGroupPolicy`,
+`DescribeMonitoringSchedule` (already correctly surfaces the top-level `MonitoringType`
+member via a hand-written `MarshalJSON`), `DeleteMonitoringSchedule`, `StopMonitoringSchedule`,
+the DataQuality/ModelBias/ModelQuality/ModelExplainability JobDefinition family's
+Describe/Delete/List (12 ops, shared `buildJobDefinitionResponse`/`buildJobDefinitionListResponse`
+helpers, already SDK-cited), `GetDeviceFleetReport`, `DeleteDeviceFleet`, `DeregisterDevices`,
+`GetSearchSuggestions`, `ListModelMetadata`, `ListCandidatesForAutoMLJob`,
+`ListInferenceRecommendationsJobSteps` (legitimately empty — neither `Steps` nor `NextToken`
+is a required output member), `StartInferenceExperiment`, `UpdateInferenceExperiment`,
+`UpdateInferenceComponentRuntimeConfig`, `DeleteInferenceComponent`,
+`UpdateClusterSchedulerConfig`, `DeleteClusterSchedulerConfig`, `UpdateComputeQuota`,
+`DeleteComputeQuota`, `DeleteCluster`, `DeleteDomain`, `DeleteFlowDefinition`,
+`DeleteFeatureGroup`, `DeleteProcessingJob`, `DeleteProject`, `DeleteStudioLifecycleConfig`,
+`DeleteNotebookInstanceLifecycleConfig`, `DeleteEdgeDeploymentPlan`,
+`DeleteEdgeDeploymentStage`, `DeleteHumanTaskUi`, `CreateEdgeDeploymentPlan`,
+`CreateMlflowApp`, `EnableSagemakerServicecatalogPortfolio`,
+`DisableSagemakerServicecatalogPortfolio`, `GetSagemakerServicecatalogPortfolioStatus`,
+`ListResourceCatalogs`.
+
+**Not reached, named so a future pass doesn't have to re-derive the queue:**
+`CreateEdgeDeploymentStage`, `CreateNotebookInstanceLifecycleConfig`, `CreateUserProfile`,
+`DescribeNotebookInstanceLifecycleConfig`, `DescribeStudioLifecycleConfig`,
+`DescribeTrainingPlanExtensionHistory`, `DisassociateTrialComponent`,
+`StartEdgeDeploymentStage`, `StartMonitoringSchedule`, `StopEdgeDeploymentStage`,
+`StopProcessingJob`, `StopTransformJob`, `UpdateDevices`, `UpdateProject`, `UpdateSpace`,
+`UpdateUserProfile`.
+
+**Fixtures corrected:** `TestHandler_ClusterLifecycle`'s Attach/Detach round-trip and
+`TestHandler_AttachClusterNodeVolume`'s table (`handler_cluster_test.go`) changed from the
+invented `ClusterName`/`VolumeConfig` body to `ClusterArn`/`VolumeId`, with new assertions on
+the previously-missing `Status`/`DeviceName`/`AttachTime` response fields.
+`TestHandler_DescribeSpace` (`handler_spaces_test.go`) asserts `resp["Status"]`, not
+`resp["SpaceStatus"]`.
+
+**New tests:** `TestHandler_AttachDetachClusterNodeVolume_RealClient`,
+`TestHandler_DescribeSpace_Status_RealClient` (`handler_cluster_space_realclient_test.go`) —
+both real-`aws-sdk-go-v2` round-trips per the proof standard above.
+
+**Gates:** `go build ./...`, `go vet ./services/sagemaker/...`, `gofmt -l services/sagemaker/`,
+`go test -race ./services/sagemaker/... ./pkgs/persistence/...`, `golangci-lint run
+./services/sagemaker/...` (0 issues after retagging three pre-existing `"Status"` map-key
+literals — two touched by this pass, one pre-existing and unrelated in
+`handler_training_jobs.go` — to the existing `keyStatus` constant once this pass's additions
+crossed `goconst`'s duplicate threshold). No `//nolint` added.

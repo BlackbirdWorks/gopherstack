@@ -35,7 +35,14 @@ import (
 //     MarshalJSON/UnmarshalJSON pair; a v1 snapshot's RFC3339 strings fail
 //     UnmarshalJSON's float64 decode outright, erroring RestoreAll for the
 //     whole TrainingPlan table rather than just those three fields.
-const sagemakerSnapshotVersion = 2
+//
+// Version 3 (parity audit) retagged Space.SpaceStatus from json:"SpaceStatus"
+// to json:"Status" — the real DescribeSpaceOutput/SpaceDetails wire key,
+// confirmed against deserializers.go — since Space.MarshalJSON/UnmarshalJSON
+// is read directly by both the wire response and the snapshot restore path.
+// A v2 snapshot's "SpaceStatus" key would be silently dropped, restoring
+// every persisted space with an empty status.
+const sagemakerSnapshotVersion = 3
 
 // persistedCluster is a serialisable DTO for Cluster. It exists — mirroring
 // the SQS pilot's queueSnapshot — because Cluster is a "dirty" struct for

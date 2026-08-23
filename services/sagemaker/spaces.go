@@ -32,7 +32,7 @@ type Space struct {
 	SpaceName            string            `json:"SpaceName"`
 	SpaceArn             string            `json:"SpaceArn"`
 	DomainID             string            `json:"DomainId"`
-	SpaceStatus          string            `json:"SpaceStatus"`
+	SpaceStatus          string            `json:"Status"`
 	SpaceDisplayName     string            `json:"SpaceDisplayName,omitempty"`
 	OwnershipSettings    json.RawMessage   `json:"OwnershipSettings,omitempty"`
 	SpaceSettings        json.RawMessage   `json:"SpaceSettings,omitempty"`

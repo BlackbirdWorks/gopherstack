@@ -23840,7 +23840,7 @@
       "Space.SpaceName string `json:\"SpaceName\"`",
       "Space.SpaceSettings json.RawMessage `json:\"SpaceSettings,omitempty\"`",
       "Space.SpaceSharingSettings json.RawMessage `json:\"SpaceSharingSettings,omitempty\"`",
-      "Space.SpaceStatus string `json:\"SpaceStatus\"`",
+      "Space.SpaceStatus string `json:\"Status\"`",
       "Space.Tags map[string]string `json:\"Tags,omitempty\"`",
       "StoppingCondition.MaxPendingTimeInSeconds int32 `json:\"MaxPendingTimeInSeconds,omitempty\"`",
       "StoppingCondition.MaxRuntimeInSeconds int32 `json:\"MaxRuntimeInSeconds,omitempty\"`",
@@ -24041,7 +24041,7 @@
       "pendingTrainingPlanExtension.StartDate time.Time `json:\"StartDate\"`",
       "pendingTrainingPlanExtension.TrainingPlanArn string `json:\"TrainingPlanArn\"`"
     ],
-    "version": 2
+    "version": 3
   },
   "sagemakerruntime": {
     "fields": [
