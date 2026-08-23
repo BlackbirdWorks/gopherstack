@@ -4,8 +4,11 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 // certIDPrefix is the AWS prefix for signing certificate IDs.
@@ -48,15 +51,18 @@ func (b *InMemoryBackend) UploadSigningCertificate(userName, body string) (*Sign
 	return &cert, nil
 }
 
-// ListSigningCertificates returns all signing certificates for the given user.
-// If userName is empty, all certificates are returned (admin usage).
-func (b *InMemoryBackend) ListSigningCertificates(userName string) ([]SigningCertificate, error) {
+// ListSigningCertificates returns a paginated list of signing certificates
+// for the given user. If userName is empty, all certificates are returned
+// (admin usage).
+func (b *InMemoryBackend) ListSigningCertificates(
+	userName, marker string, maxItems int,
+) (page.Page[SigningCertificate], error) {
 	b.mu.RLock("ListSigningCertificates")
 	defer b.mu.RUnlock()
 
 	if userName != "" {
 		if _, exists := b.users.Get(userName); !exists {
-			return nil, fmt.Errorf("%w: user %q not found", ErrUserNotFound, userName)
+			return page.Page[SigningCertificate]{}, fmt.Errorf("%w: user %q not found", ErrUserNotFound, userName)
 		}
 	}
 
@@ -68,7 +74,9 @@ func (b *InMemoryBackend) ListSigningCertificates(userName string) ([]SigningCer
 		}
 	}
 
-	return result, nil
+	sort.Slice(result, func(i, j int) bool { return result[i].CertificateID < result[j].CertificateID })
+
+	return page.New(result, marker, maxItems, iamDefaultMaxItems), nil
 }
 
 // UpdateSigningCertificate changes the status of a signing certificate (Active/Inactive).

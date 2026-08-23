@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
@@ -479,13 +480,22 @@ func delegationRequestIDFromArn(entityArn string) (string, bool) {
 func (b *InMemoryBackend) CreateDelegationRequest(in CreateDelegationRequestInput) (*DelegationRequest, error) {
 	delegationID := uuid.New().String()
 
+	// types.StateType (enums.go) has no "PENDING" value; ASSIGNED/UNASSIGNED
+	// per whether OwnerAccountId was given, per that type's doc and
+	// GetDelegationRequest's own doc comment ("If a delegation request has
+	// no owner or owner account... can be called by any account").
+	initialStatus := "UNASSIGNED"
+	if in.OwnerAccountID != "" {
+		initialStatus = "ASSIGNED"
+	}
+
 	b.mu.Lock("CreateDelegationRequest")
 	defer b.mu.Unlock()
 
 	req := DelegationRequest{
 		DelegationID:         delegationID,
 		TargetAccountID:      in.OwnerAccountID,
-		Status:               "PENDING",
+		Status:               initialStatus,
 		CreateDate:           time.Now().UTC(),
 		Description:          in.Description,
 		NotificationChannel:  in.NotificationChannel,
@@ -513,6 +523,41 @@ func (b *InMemoryBackend) DelegationRequestExists(delegationID string) bool {
 	_, exists := b.delegationRequests.Get(delegationID)
 
 	return exists
+}
+
+// GetDelegationRequest retrieves a stored delegation request by ID.
+func (b *InMemoryBackend) GetDelegationRequest(delegationID string) (*DelegationRequest, error) {
+	b.mu.RLock("GetDelegationRequest")
+	defer b.mu.RUnlock()
+
+	req, exists := b.delegationRequests.Get(delegationID)
+	if !exists {
+		return nil, fmt.Errorf("%w: %s", ErrDelegationRequestNotFound, delegationID)
+	}
+
+	return req, nil
+}
+
+// ListDelegationRequests returns a paginated list of all stored delegation
+// requests. Real ListDelegationRequestsInput also carries an optional OwnerId
+// filter, but gopherstack has no caller-identity plumbing to ever populate a
+// request's owner identity (same disclosed gap as AssociateDelegationRequest
+// above), so no stored request would ever match a real OwnerId and the
+// filter is not applied here.
+func (b *InMemoryBackend) ListDelegationRequests(marker string, maxItems int) (page.Page[DelegationRequest], error) {
+	b.mu.RLock("ListDelegationRequests")
+	defer b.mu.RUnlock()
+
+	all := b.delegationRequests.All()
+	reqs := make([]DelegationRequest, 0, len(all))
+
+	for _, req := range all {
+		reqs = append(reqs, *req)
+	}
+
+	sort.Slice(reqs, func(i, j int) bool { return reqs[i].DelegationID < reqs[j].DelegationID })
+
+	return page.New(reqs, marker, maxItems, iamDefaultMaxItems), nil
 }
 
 // AcceptDelegationRequest accepts a delegation request, granting the

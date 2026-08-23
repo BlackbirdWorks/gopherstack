@@ -156,8 +156,8 @@ type DelegationPolicyParameter struct {
 }
 
 // DelegationRequest represents an IAM delegation request. GetHumanReadableSummary
-// and GetDelegationRequest are the only readers of this state (see PARITY.md);
-// gopherstack does not fabricate the LLM-generated summary itself.
+// never fabricates the LLM-generated summary itself (see PARITY.md); Get/ListDelegationRequests
+// surface the rest of this state as-is.
 type DelegationRequest struct {
 	CreateDate           time.Time                   `json:"CreateDate"`
 	DelegationID         string                      `json:"DelegationId,omitempty"`
@@ -237,10 +237,63 @@ type AssociateDelegationRequestResponse struct {
 	ResponseMetadata ResponseMetadata `xml:"ResponseMetadata"`
 }
 
-// listDelegationRequestsResult contains the (always-empty, mock) delegation request list.
+// delegationPolicyParameterXML is the XML representation of one
+// Permissions.Parameters entry (types.PolicyParameter).
+type delegationPolicyParameterXML struct {
+	Name   string   `xml:"Name"`
+	Type   string   `xml:"Type"`
+	Values []string `xml:"Values>member"`
+}
+
+// delegationPermissionXML is the XML representation of a delegation
+// request's Permissions member (types.DelegationPermission).
+type delegationPermissionXML struct {
+	PolicyTemplateArn string                         `xml:"PolicyTemplateArn,omitempty"`
+	Parameters        []delegationPolicyParameterXML `xml:"Parameters>member,omitempty"`
+}
+
+// delegationRequestXML is the XML representation of a delegation request
+// (types.DelegationRequest, deserializers.go
+// awsAwsquery_deserializeDocumentDelegationRequest). Fields gopherstack has
+// no state for (ApproverId, ExpirationTime, OwnerId, PermissionPolicy,
+// RejectionReason, RequestorId, RequestorName,
+// RolePermissionRestrictionArns, UpdatedTime) are honestly omitted rather
+// than fabricated.
+type delegationRequestXML struct {
+	Permissions         *delegationPermissionXML `xml:"Permissions,omitempty"`
+	DelegationRequestID string                   `xml:"DelegationRequestId"`
+	CreateDate          string                   `xml:"CreateDate"`
+	Description         string                   `xml:"Description,omitempty"`
+	Notes               string                   `xml:"Notes,omitempty"`
+	OwnerAccountID      string                   `xml:"OwnerAccountId,omitempty"`
+	RedirectURL         string                   `xml:"RedirectUrl,omitempty"`
+	RequestMessage      string                   `xml:"RequestMessage,omitempty"`
+	State               string                   `xml:"State"`
+	SessionDuration     int32                    `xml:"SessionDuration,omitempty"`
+	OnlySendByOwner     bool                     `xml:"OnlySendByOwner"`
+}
+
+// getDelegationRequestResult wraps a single delegation request.
+// PermissionCheckResult/PermissionCheckStatus (DelegationPermissionCheck's
+// async evaluation) require a policy evaluator gopherstack does not have
+// (see PARITY.md) and are left unset (both optional).
+type getDelegationRequestResult struct {
+	DelegationRequest delegationRequestXML `xml:"DelegationRequest"`
+}
+
+// getDelegationRequestResponse is the XML response for GetDelegationRequest.
+type getDelegationRequestResponse struct {
+	XMLName                    xml.Name                   `xml:"GetDelegationRequestResponse"`
+	Xmlns                      string                     `xml:"xmlns,attr"`
+	ResponseMetadata           ResponseMetadata           `xml:"ResponseMetadata"`
+	GetDelegationRequestResult getDelegationRequestResult `xml:"GetDelegationRequestResult"`
+}
+
+// listDelegationRequestsResult contains the list of delegation requests.
 type listDelegationRequestsResult struct {
-	DelegationRequests []string `xml:"DelegationRequests>member"`
-	IsTruncated        bool     `xml:"IsTruncated"`
+	Marker             string                 `xml:"Marker,omitempty"`
+	DelegationRequests []delegationRequestXML `xml:"DelegationRequests>member"`
+	IsTruncated        bool                   `xml:"IsTruncated"`
 }
 
 // listDelegationRequestsResponse is the XML response for ListDelegationRequests.
@@ -249,6 +302,39 @@ type listDelegationRequestsResponse struct {
 	Xmlns                        string                       `xml:"xmlns,attr"`
 	ResponseMetadata             ResponseMetadata             `xml:"ResponseMetadata"`
 	ListDelegationRequestsResult listDelegationRequestsResult `xml:"ListDelegationRequestsResult"`
+}
+
+// toDelegationRequestXML converts a stored DelegationRequest to its wire
+// shape. Permissions is populated only when a PolicyTemplateArn or at least
+// one Parameter was actually stored, matching CreateDelegationRequest's own
+// "Permissions must not be empty" requirement.
+func toDelegationRequestXML(req *DelegationRequest) delegationRequestXML {
+	out := delegationRequestXML{
+		DelegationRequestID: req.DelegationID,
+		CreateDate:          isoTime(req.CreateDate),
+		Description:         req.Description,
+		Notes:               req.Notes,
+		OnlySendByOwner:     req.OnlySendByOwner,
+		OwnerAccountID:      req.TargetAccountID,
+		RedirectURL:         req.RedirectURL,
+		RequestMessage:      req.RequestMessage,
+		SessionDuration:     req.SessionDuration,
+		State:               req.Status,
+	}
+
+	if req.PolicyTemplateArn != "" || len(req.PermissionParameters) > 0 {
+		params := make([]delegationPolicyParameterXML, 0, len(req.PermissionParameters))
+		for _, p := range req.PermissionParameters {
+			params = append(params, delegationPolicyParameterXML(p))
+		}
+
+		out.Permissions = &delegationPermissionXML{
+			PolicyTemplateArn: req.PolicyTemplateArn,
+			Parameters:        params,
+		}
+	}
+
+	return out
 }
 
 // ---- Organizations ----

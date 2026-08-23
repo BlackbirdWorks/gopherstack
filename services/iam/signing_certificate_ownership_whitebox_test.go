@@ -83,10 +83,10 @@ func TestUpdateDeleteSigningCertificate_OwnershipMismatch_NoSuchEntity(t *testin
 		require.ErrorAs(t, err, &apiErr)
 		assert.Equal(t, "NoSuchEntity", apiErr.ErrorCode())
 
-		certs, err := b.ListSigningCertificates("alice")
+		p, err := b.ListSigningCertificates("alice", "", 0)
 		require.NoError(t, err)
-		require.Len(t, certs, 1)
-		assert.Equal(t, "Active", certs[0].Status, "mallory must not be able to deactivate alice's certificate")
+		require.Len(t, p.Data, 1)
+		assert.Equal(t, "Active", p.Data[0].Status, "mallory must not be able to deactivate alice's certificate")
 	})
 
 	t.Run("deletesigningcertificate wrong owner is nosuchentity", func(t *testing.T) {
@@ -112,8 +112,49 @@ func TestUpdateDeleteSigningCertificate_OwnershipMismatch_NoSuchEntity(t *testin
 		require.ErrorAs(t, err, &apiErr)
 		assert.Equal(t, "NoSuchEntity", apiErr.ErrorCode())
 
-		certs, err := b.ListSigningCertificates("bob")
+		p, err := b.ListSigningCertificates("bob", "", 0)
 		require.NoError(t, err)
-		require.Len(t, certs, 1, "mallory must not be able to delete bob's certificate")
+		require.Len(t, p.Data, 1, "mallory must not be able to delete bob's certificate")
 	})
+}
+
+// TestListSigningCertificates_Pagination covers the pagination gap disclosed
+// in PARITY.md's items_still_open: ListSigningCertificatesInput serializes
+// Marker/MaxItems (api_op_ListSigningCertificates.go) and
+// ListSigningCertificatesOutput carries a Marker member alongside IsTruncated
+// (deserializers.go awsAwsquery_deserializeOpDocumentListSigningCertificatesOutput),
+// exactly like sibling ListSSHPublicKeys/ListAccessKeys, but the handler
+// dropped both request params and never echoed Marker in the response.
+func TestListSigningCertificates_Pagination(t *testing.T) {
+	t.Parallel()
+
+	b := NewInMemoryBackend()
+	h := NewHandler(b)
+	client := newSigningCertTestClient(t, h)
+
+	_, _ = b.CreateUser("dave", "/", "")
+	for range 3 {
+		_, err := b.UploadSigningCertificate("dave", "cert-body")
+		require.NoError(t, err)
+	}
+
+	page1, err := client.ListSigningCertificates(t.Context(), &iamsdk.ListSigningCertificatesInput{
+		UserName: aws.String("dave"),
+		MaxItems: aws.Int32(2),
+	})
+	require.NoError(t, err)
+	require.Len(t, page1.Certificates, 2)
+	assert.True(t, page1.IsTruncated)
+	require.NotNil(t, page1.Marker)
+	assert.NotEmpty(t, *page1.Marker)
+
+	page2, err := client.ListSigningCertificates(t.Context(), &iamsdk.ListSigningCertificatesInput{
+		UserName: aws.String("dave"),
+		MaxItems: aws.Int32(2),
+		Marker:   page1.Marker,
+	})
+	require.NoError(t, err)
+	require.Len(t, page2.Certificates, 1)
+	assert.False(t, page2.IsTruncated)
+	assert.Nil(t, page2.Marker)
 }

@@ -294,3 +294,72 @@ func TestRejectSendUpdateDelegationRequest_MutateRealState(t *testing.T) {
 		}
 	})
 }
+
+// TestGetDelegationRequest_SurfacesStoredState covers PARITY.md's
+// items_still_open: GetDelegationRequest previously kept no delegation
+// request state to return and always answered with an empty
+// GetDelegationRequestResponse, so out.DelegationRequest was nil for a real
+// SDK caller even for a DelegationRequestId that genuinely existed. It now
+// surfaces the real stored fields (types.DelegationRequest,
+// deserializers.go awsAwsquery_deserializeDocumentDelegationRequest).
+func TestGetDelegationRequest_SurfacesStoredState(t *testing.T) {
+	t.Parallel()
+
+	t.Run("known id returns the stored delegation request", func(t *testing.T) {
+		t.Parallel()
+
+		b := NewInMemoryBackend()
+		h := NewHandler(b)
+		client := newDelegationTestClient(t, h)
+		seeded := seedDelegationRequestForMutationTests(t, b)
+
+		out, err := client.GetDelegationRequest(t.Context(), &iamsdk.GetDelegationRequestInput{
+			DelegationRequestId: aws.String(seeded.DelegationID),
+		})
+		require.NoError(t, err)
+		require.NotNil(t, out.DelegationRequest)
+		assert.Equal(t, seeded.DelegationID, aws.ToString(out.DelegationRequest.DelegationRequestId))
+		assert.Equal(t, "test delegation", aws.ToString(out.DelegationRequest.Description))
+		assert.Equal(t, "111122223333", aws.ToString(out.DelegationRequest.OwnerAccountId))
+		assert.Equal(t, types.StateType("ASSIGNED"), out.DelegationRequest.State)
+		require.NotNil(t, out.DelegationRequest.Permissions)
+		gotArn := aws.ToString(out.DelegationRequest.Permissions.PolicyTemplateArn)
+		assert.Equal(t, "arn:aws:iam::aws:policy/ReadOnlyAccess", gotArn)
+	})
+
+	t.Run("unknown id is nosuchentity", func(t *testing.T) {
+		t.Parallel()
+
+		b := NewInMemoryBackend()
+		h := NewHandler(b)
+		client := newDelegationTestClient(t, h)
+
+		_, err := client.GetDelegationRequest(t.Context(), &iamsdk.GetDelegationRequestInput{
+			DelegationRequestId: aws.String("does-not-exist"),
+		})
+		require.Error(t, err)
+
+		var apiErr smithy.APIError
+
+		require.ErrorAs(t, err, &apiErr)
+		assert.Equal(t, "NoSuchEntity", apiErr.ErrorCode())
+	})
+}
+
+// TestListDelegationRequests_SurfacesStoredState covers the other half of
+// the same items_still_open entry: ListDelegationRequests previously always
+// returned an empty DelegationRequests list regardless of stored state.
+func TestListDelegationRequests_SurfacesStoredState(t *testing.T) {
+	t.Parallel()
+
+	b := NewInMemoryBackend()
+	h := NewHandler(b)
+	client := newDelegationTestClient(t, h)
+	seeded := seedDelegationRequestForMutationTests(t, b)
+
+	out, err := client.ListDelegationRequests(t.Context(), &iamsdk.ListDelegationRequestsInput{})
+	require.NoError(t, err)
+	require.Len(t, out.DelegationRequests, 1)
+	assert.Equal(t, seeded.DelegationID, aws.ToString(out.DelegationRequests[0].DelegationRequestId))
+	assert.False(t, out.IsTruncated)
+}

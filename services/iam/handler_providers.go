@@ -248,6 +248,11 @@ func (h *Handler) iamLoginProfileDispatchTable() map[string]iamActionFn {
 
 func (h *Handler) iamMiscDispatchTable() map[string]iamActionFn {
 	return map[string]iamActionFn{
+		// Shadowed by iamAccessAdvisorDispatch's real opGetServiceLastAccessed
+		// entry (handler_access_advisor.go): buildDispatchTable merges
+		// iamComprehensiveDispatchTable last (see its own doc comment). Kept
+		// verbatim as dead code -- unlike that entry, this one never reads JobId
+		// and always answers with an empty ServicesLastAccessed list.
 		"GetServiceLastAccessedDetails": func(_ url.Values, reqID string) (any, error) {
 			now := isoTime(time.Now().UTC())
 
@@ -281,7 +286,10 @@ func (h *Handler) iamMiscDispatchTable() map[string]iamActionFn {
 				{Key: "Roles", Value: summary.Roles},
 				{Key: "Policies", Value: summary.Policies},
 				{Key: "InstanceProfiles", Value: summary.InstanceProfiles},
-				{Key: "SAMLProviders", Value: summary.SAMLProviders},
+				// Real SummaryKeyType (enums.go) has no "SAMLProviders" key -- the
+				// combined SAML+OIDC identity provider count is reported under the
+				// single "Providers" key.
+				{Key: "Providers", Value: summary.SAMLProviders + summary.OIDCProviders},
 				{Key: "MFADevices", Value: summary.MFADevices},
 				{Key: "GlobalEndpointTokenVersion", Value: summary.GlobalEndpointTokenVersion},
 			}

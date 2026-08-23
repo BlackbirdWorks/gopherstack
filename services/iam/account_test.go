@@ -11,6 +11,31 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/iam"
 )
 
+// TestGetAccountSummary_ProvidersKey covers PARITY.md's items_still_open:
+// real GetAccountSummaryOutput's SummaryMap (types.SummaryKeyType, enums.go)
+// has no "SAMLProviders" key -- SAML and OIDC identity providers are both
+// reported under the single "Providers" key. gopherstack previously emitted
+// "SAMLProviders" (a fabricated key no real caller reads) and never surfaced
+// OIDCProviders at all.
+func TestGetAccountSummary_ProvidersKey(t *testing.T) {
+	t.Parallel()
+
+	h, b := newTestHandler(t)
+	client := newTestIAMClient(t, h)
+
+	_, err := b.CreateSAMLProvider("saml-provider", "<EntityDescriptor/>")
+	require.NoError(t, err)
+	_, err = b.CreateOpenIDConnectProvider("https://oidc.example.com", nil, []string{strings.Repeat("a", 40)})
+	require.NoError(t, err)
+
+	out, err := client.GetAccountSummary(t.Context(), nil)
+	require.NoError(t, err)
+
+	_, hasFabricatedKey := out.SummaryMap["SAMLProviders"]
+	assert.False(t, hasFabricatedKey, "SAMLProviders is not a real SummaryKeyType")
+	assert.Equal(t, int32(2), out.SummaryMap["Providers"], "Providers must count both SAML and OIDC providers")
+}
+
 func TestGetAccountSummary(t *testing.T) {
 	t.Parallel()
 

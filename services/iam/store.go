@@ -216,6 +216,8 @@ type StorageBackend interface {
 	AcceptDelegationRequest(delegationID string) error
 	AssociateDelegationRequest(delegationID string) error
 	DelegationRequestExists(delegationID string) bool
+	GetDelegationRequest(delegationID string) (*DelegationRequest, error)
+	ListDelegationRequests(marker string, maxItems int) (page.Page[DelegationRequest], error)
 	RejectDelegationRequest(delegationID, notes string) error
 	SendDelegationToken(delegationID string) error
 	UpdateDelegationRequest(delegationID, notes string) error
@@ -248,7 +250,7 @@ type StorageBackend interface {
 
 	// Signing Certificates
 	UploadSigningCertificate(userName, body string) (*SigningCertificate, error)
-	ListSigningCertificates(userName string) ([]SigningCertificate, error)
+	ListSigningCertificates(userName, marker string, maxItems int) (page.Page[SigningCertificate], error)
 	UpdateSigningCertificate(userName, certificateID, status string) error
 	DeleteSigningCertificate(userName, certificateID string) error
 
