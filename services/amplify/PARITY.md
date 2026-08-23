@@ -1,35 +1,6 @@
 ---
 service: amplify
 sdk_module: aws-sdk-go-v2/service/amplify@v1.41.4
-last_audit_commit: c807b481
-last_audit_date: 2026-07-23
-# 2026-08-21 gopherstack-r80d batch 14 (required-output cut): last_audit_commit
-# left unchanged per this campaign's convention (the orchestrator, not this
-# pass, creates the commit). 13 required-response-member bugs found and fixed
-# at member granularity, grouped into 5 findings by root cause/wire struct --
-# App.EnvironmentVariables/Description/Repository (3), Branch.ActiveJobId/
-# CustomDomains/Description/Framework/EnvironmentVariables (5),
-# DomainAssociation.StatusReason (1), Webhook.Description (1),
-# JobSummary.CommitId/CommitMessage/CommitTime (3) -- see the dated 2026-08-21
-# Notes entry below for the exact per-member breakdown and SDK file:line
-# citations. All proven via real aws-sdk-go-v2/service/amplify client round
-# trips (wire_output_required_r80d_test.go), hand-reverted/confirmed-failing/
-# restored, md5sum-verified byte-identical. 1 additional finding
-# (Branch.Stage) fixed but not counted -- see Notes for why no real-client
-# test can distinguish it.
-overall: A            # this sweep: full App/Branch field parity, Stage enum fix, commitTime,
-                       # real build steps, real artifact producer + cascade delete, enum validation
-ops:
-  CreateApp: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this sweep: full field parity -- see gaps history below. fixed 2026-08-21 (gopherstack-r80d batch 14): environmentVariables/description/repository are required response members that were tagged omitempty/omitzero and dropped whenever left unset -- a real client's typed field decoded nil instead of a present zero value; see Notes"}
-  GetApp: {wire: ok, errors: ok, state: ok, persist: ok, note: "same required-field presence fix as CreateApp (gopherstack-r80d batch 14)"}
-  ListApps: {wire: ok, errors: ok, state: ok, persist: ok, note: "same required-field presence fix as CreateApp (gopherstack-r80d batch 14)"}
-  UpdateApp: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this sweep: same field parity as CreateApp, plus correct partial-update (nil-means-unchanged) semantics. Same required-field presence fix as CreateApp (gopherstack-r80d batch 14)"}
-  DeleteApp: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this sweep: now cascades jobs/artifacts/domains/webhooks/backendEnvironments, not just branches -- see leaks"}
-  CreateBranch: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this sweep: full field parity -- see gaps history below. fixed 2026-08-21 (gopherstack-r80d batch 14): activeJobId/customDomains/description/framework/environmentVariables are required response members that were tagged omitempty and dropped whenever left unset/reachably-empty; see Notes"}
-  GetBranch: {wire: ok, errors: ok, state: ok, persist: ok, note: "same required-field presence fix as CreateBranch (gopherstack-r80d batch 14)"}
-  ListBranches: {wire: ok, errors: ok, state: ok, persist: ok, note: "same required-field presence fix as CreateBranch (gopherstack-r80d batch 14)"}
-  UpdateBranch: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this sweep: same field parity as CreateBranch, plus correct partial-update semantics. Same required-field presence fix as CreateBranch (gopherstack-r80d batch 14)"}
-  DeleteBranch: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this sweep: now cascades jobs/artifacts -- see leaks"}
 last_audit_commit: 08bd3ef27
 last_audit_date: 2026-08-19
 overall: A            # 2026-08-19 wrapper-key/nested-shape sweep: DeleteApp/DeleteBranch now
@@ -42,15 +13,15 @@ overall: A            # 2026-08-19 wrapper-key/nested-shape sweep: DeleteApp/Del
                        # parity, Stage enum fix, commitTime, real build steps, real artifact
                        # producer + cascade delete, enum validation.
 ops:
-  CreateApp: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this sweep: full field parity -- see gaps history below"}
-  GetApp: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListApps: {wire: ok, errors: ok, state: ok, persist: ok}
-  UpdateApp: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this sweep: same field parity as CreateApp, plus correct partial-update (nil-means-unchanged) semantics"}
+  CreateApp: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this sweep: full field parity -- see gaps history below; fixed this sweep: full field parity -- see gaps history below. fixed 2026-08-21 (gopherstack-r80d batch 14): environmentVariables/description/repository are required response members that were tagged omitempty/omitzero and dropped whenever left unset -- a real client's typed field decoded nil instead of a present zero value; see Notes"}
+  GetApp: {wire: ok, errors: ok, state: ok, persist: ok, note: "same required-field presence fix as CreateApp (gopherstack-r80d batch 14)"}
+  ListApps: {wire: ok, errors: ok, state: ok, persist: ok, note: "same required-field presence fix as CreateApp (gopherstack-r80d batch 14)"}
+  UpdateApp: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this sweep: same field parity as CreateApp, plus correct partial-update (nil-means-unchanged) semantics; fixed this sweep: same field parity as CreateApp, plus correct partial-update (nil-means-unchanged) semantics. Same required-field presence fix as CreateApp (gopherstack-r80d batch 14)"}
   DeleteApp: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed 2026-08-19: response was a bare 204 No Content dropping DeleteAppOutput.App (a required member, api_op_DeleteApp.go:44) entirely -- a real client's out.App decoded nil; now returns {\"app\": <App>} of the app as it existed pre-delete. 2026-07-23: cascades jobs/artifacts/domains/webhooks/backendEnvironments, not just branches -- see leaks"}
-  CreateBranch: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this sweep: full field parity -- see gaps history below"}
-  GetBranch: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListBranches: {wire: ok, errors: ok, state: ok, persist: ok}
-  UpdateBranch: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this sweep: same field parity as CreateBranch, plus correct partial-update semantics"}
+  CreateBranch: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this sweep: full field parity -- see gaps history below; fixed this sweep: full field parity -- see gaps history below. fixed 2026-08-21 (gopherstack-r80d batch 14): activeJobId/customDomains/description/framework/environmentVariables are required response members that were tagged omitempty and dropped whenever left unset/reachably-empty; see Notes"}
+  GetBranch: {wire: ok, errors: ok, state: ok, persist: ok, note: "same required-field presence fix as CreateBranch (gopherstack-r80d batch 14)"}
+  ListBranches: {wire: ok, errors: ok, state: ok, persist: ok, note: "same required-field presence fix as CreateBranch (gopherstack-r80d batch 14)"}
+  UpdateBranch: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this sweep: same field parity as CreateBranch, plus correct partial-update semantics; fixed this sweep: same field parity as CreateBranch, plus correct partial-update semantics. Same required-field presence fix as CreateBranch (gopherstack-r80d batch 14)"}
   DeleteBranch: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed 2026-08-19: same bug as DeleteApp -- bare 204 dropped DeleteBranchOutput.Branch (required, api_op_DeleteBranch.go:44); now returns {\"branch\": <Branch>}. 2026-07-23: cascades jobs/artifacts -- see leaks"}
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok}

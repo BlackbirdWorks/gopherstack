@@ -1,19 +1,12 @@
 ---
 service: scheduler
 sdk_module: aws-sdk-go-v2/service/scheduler@v1.20.4   # version audited against
-last_audit_commit: ee8d5788f                           # HEAD when this audit pass started
-last_audit_date: 2026-08-21
-overall: A            # genuine wire-breaking and next-invocation-computation bugs found and fixed (see Notes)
-ops:
-  CreateSchedule:      {wire: ok, errors: ok, state: fixed, persist: ok, note: "ClientToken now idempotent (see Notes); ScheduleExpressionTimezone now validated as a real IANA name; ScheduleExpression now semantically validated (rate/cron/at), not just structurally; cron field values (ranges/names/wildcards) now validated per-field, see 2026-08-11 gopherstack-cz9e Notes"}
-  GetSchedule:         {wire: fixed, errors: ok, state: ok, persist: ok, note: "invented non-canonical Tags field deleted; 2026-08-21 gopherstack-r80d batch 32: EcsParameters.NetworkConfiguration.AwsvpcConfiguration and CapacityProviderStrategyItem's members were wrong-cased wire keys, invisible to any real client; AwsVpcConfiguration.Subnets (required) was also tagged omitempty despite being reachably empty -- see Notes"}
-  UpdateSchedule:      {wire: ok, errors: ok, state: fixed, persist: ok, note: "ScheduleExpressionTimezone now validated as a real IANA name (prior pass's State-omission fix re-verified still correct, see Notes); ScheduleExpression now semantically validated; cron field values now validated per-field, see 2026-08-11 gopherstack-cz9e Notes"}
 last_audit_commit: 615cda74e                           # HEAD when this audit pass started
 last_audit_date: 2026-08-20
 overall: A            # genuine wire-breaking and next-invocation-computation bugs found and fixed (see Notes)
 ops:
   CreateSchedule:      {wire: fixed, errors: ok, state: fixed, persist: ok, note: "Target.EcsParameters wire bugs fixed (see 2026-08-20 Notes); ClientToken now idempotent (see Notes); ScheduleExpressionTimezone now validated as a real IANA name; ScheduleExpression now semantically validated (rate/cron/at), not just structurally; cron field values (ranges/names/wildcards) now validated per-field, see 2026-08-11 gopherstack-cz9e Notes"}
-  GetSchedule:         {wire: fixed, errors: ok, state: ok, persist: ok, note: "Target.EcsParameters wire bugs fixed (see 2026-08-20 Notes); invented non-canonical Tags field deleted"}
+  GetSchedule:         {wire: fixed, errors: ok, state: ok, persist: ok, note: "Target.EcsParameters wire bugs fixed (see 2026-08-20 Notes); invented non-canonical Tags field deleted; invented non-canonical Tags field deleted; 2026-08-21 gopherstack-r80d batch 32: EcsParameters.NetworkConfiguration.AwsvpcConfiguration and CapacityProviderStrategyItem's members were wrong-cased wire keys, invisible to any real client; AwsVpcConfiguration.Subnets (required) was also tagged omitempty despite being reachably empty -- see Notes"}
   UpdateSchedule:      {wire: fixed, errors: ok, state: fixed, persist: ok, note: "Target.EcsParameters wire bugs fixed (see 2026-08-20 Notes); ScheduleExpressionTimezone now validated as a real IANA name (prior pass's State-omission fix re-verified still correct, see Notes); ScheduleExpression now semantically validated; cron field values now validated per-field, see 2026-08-11 gopherstack-cz9e Notes"}
   DeleteSchedule:      {wire: ok, errors: ok, state: ok, persist: ok}
   ListSchedules:       {wire: fixed, errors: ok, state: ok, persist: ok, note: "invented Target.RoleArn field deleted (real TargetSummary has only Arn)"}
