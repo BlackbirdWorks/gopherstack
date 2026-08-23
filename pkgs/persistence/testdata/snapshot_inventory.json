@@ -2368,8 +2368,8 @@
       "AccountAggregationSource.AllAwsRegions bool `json:\"AllAwsRegions,omitempty\"`",
       "AccountAggregationSource.AwsRegions []string `json:\"AwsRegions,omitempty\"`",
       "AggregationAuthorization.AggregationAuthorizationArn string `json:\"AggregationAuthorizationArn,omitempty\"`",
-      "AggregationAuthorization.AuthorizedAccountID string `json:\"authorizedAccountId\"`",
-      "AggregationAuthorization.AuthorizedAwsRegion string `json:\"authorizedAwsRegion\"`",
+      "AggregationAuthorization.AuthorizedAccountID string `json:\"AuthorizedAccountId\"`",
+      "AggregationAuthorization.AuthorizedAwsRegion string `json:\"AuthorizedAwsRegion\"`",
       "AggregationAuthorization.CreationTime string `json:\"CreationTime,omitempty\"`",
       "AzureConnectorConfiguration.ClientIdentifier string `json:\"clientIdentifier\"`",
       "AzureConnectorConfiguration.TenantIdentifier string `json:\"tenantIdentifier\"`",
@@ -2423,8 +2423,8 @@
       "OrganizationAggregationSource.AllAwsRegions bool `json:\"AllAwsRegions,omitempty\"`",
       "OrganizationAggregationSource.AwsRegions []string `json:\"AwsRegions,omitempty\"`",
       "OrganizationAggregationSource.RoleArn string `json:\"RoleArn\"`",
-      "OrganizationConfigRule.OrganizationConfigRuleName string `json:\"organizationConfigRuleName\"`",
-      "OrganizationConformancePack.OrganizationConformancePackName string `json:\"organizationConformancePackName\"`",
+      "OrganizationConfigRule.OrganizationConfigRuleName string `json:\"OrganizationConfigRuleName\"`",
+      "OrganizationConformancePack.OrganizationConformancePackName string `json:\"OrganizationConformancePackName\"`",
       "RecordingGroup.AllSupported bool `json:\"allSupported,omitempty\"`",
       "RecordingGroup.IncludeGlobalResourceTypes bool `json:\"includeGlobalResourceTypes,omitempty\"`",
       "RecordingGroup.ResourceTypes []string `json:\"resourceTypes,omitempty\"`",
@@ -2478,7 +2478,7 @@
       "StoredQuery.QueryName string `json:\"QueryName\"`",
       "backendSnapshot.Tables map[string]json.RawMessage `json:\"tables\"`"
     ],
-    "version": 3
+    "version": 4
   },
   "backup": {
     "fields": [

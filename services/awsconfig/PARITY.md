@@ -228,6 +228,19 @@ leaks: {status: clean, note: "no goroutines/janitors in this service; single coa
   correctness bug, not just a dropped field. `PutResourceConfig` omitted the required
   `SchemaVersionId` entirely. Both fixed -- see their `ops` entries above.
 
+- 2026-08-22 pass (`gopherstack-v4a4` follow-up): commit `351ee095d` corrected nine wrong
+  `json:` tags on `AggregationAuthorization`, `OrganizationConfigRule`,
+  `OrganizationConformancePack`, `DeliveryChannelStatus`, and `DeliveryChannelStatusInfo`
+  (verified against `configservice@v1.68.4`), but three of those five types are also
+  `store.Table`-backed and persisted through `backendSnapshot` (`DeliveryChannelStatus`/
+  `DeliveryChannelStatusInfo` are computed on the fly in `DescribeDeliveryChannelStatus`,
+  not stored). The tag correction is a rename of the on-disk key, not an addition -- a v3
+  snapshot's `authorizedAccountId`/`organizationConfigRuleName`/
+  `organizationConformancePackName` keys no longer match the corrected struct tags and
+  would decode as empty strings. Bumped `awsconfigSnapshotVersion` 3 -> 4 so a v3 snapshot
+  is discarded (`registry.ResetAll`, confirmed as a clean whole-registry reset, not a
+  partial decode) instead of silently losing those fields.
+
 - 2026-08-13 follow-up pass (`gopherstack-ctaz`, found alongside the `GetAggregateResourceConfig`
   fix above): `BatchGetAggregateResourceConfig`'s backend method signature took
   `aggregatorName string` but discarded it with a blank identifier, so an unknown

@@ -138,11 +138,21 @@ func diffSnapshots(live, golden map[string]snapshotInfo) []string {
 						"decode as this shape before accepting -- run with -update once "+
 						"confirmed", name, got.Version, want.Version))
 			}
-		case !fieldsEqual(got.Fields, want.Fields):
+		case !fieldsEqual(got.Fields, want.Fields) && isFieldSupersetOnly(got.Fields, want.Fields):
 			violations = append(violations, fmt.Sprintf(
 				"%s: backendSnapshot fields changed without a version bump; golden is "+
 					"out of date, run with -update to refresh it (this is bookkeeping, "+
-					"not a version-bump case: additive fields never need a bump)", name))
+					"not a version-bump case: every old field is still present unchanged, "+
+					"so the diff is additive only and needs no bump)", name))
+		case !fieldsEqual(got.Fields, want.Fields):
+			violations = append(violations, fmt.Sprintf(
+				"%s: backendSnapshot fields changed without a version bump, and at least "+
+					"one existing field's name, type, or json tag changed or was removed "+
+					"-- this is NOT the additive case. A tag rename changes the on-disk key "+
+					"exactly like a field rename does: an older snapshot decodes that field "+
+					"as its zero value, silent data loss. Confirm whether a version bump is "+
+					"actually required before running -update; do not assume bookkeeping "+
+					"just because the version constant did not move", name))
 		}
 	}
 
@@ -168,6 +178,10 @@ func TestDiffSnapshots(t *testing.T) {
 	fieldsV1Retyped := []string{
 		"Account *Account `json:\"account,omitempty\"`",
 		"Tables map[string]string `json:\"tables\"`",
+	}
+	fieldsV1TagRenamed := []string{
+		"Account *Account `json:\"Account,omitempty\"`",
+		"Tables map[string]json.RawMessage `json:\"tables\"`",
 	}
 
 	tests := []struct {
@@ -198,6 +212,12 @@ func TestDiffSnapshots(t *testing.T) {
 			live:    map[string]snapshotInfo{"svc": {Fields: fieldsV1WithExtra, Version: 1}},
 			golden:  map[string]snapshotInfo{"svc": {Fields: fieldsV1, Version: 1}},
 			wantErr: "without a version bump",
+		},
+		{
+			name:    "tag renamed same field count without version bump",
+			live:    map[string]snapshotInfo{"svc": {Fields: fieldsV1TagRenamed, Version: 1}},
+			golden:  map[string]snapshotInfo{"svc": {Fields: fieldsV1, Version: 1}},
+			wantErr: "NOT the additive case",
 		},
 		{
 			name:    "purely additive field bumped version",
@@ -304,6 +324,29 @@ func isPureAddition(oldFields, newFields []string) bool {
 		return false
 	}
 
+	present := make(map[string]bool, len(newFields))
+	for _, f := range newFields {
+		present[f] = true
+	}
+
+	for _, f := range oldFields {
+		if !present[f] {
+			return false
+		}
+	}
+
+	return true
+}
+
+// isFieldSupersetOnly reports whether every descriptor in oldFields is still
+// present, unchanged, in newFields -- i.e. the diff consists only of
+// additions, never a rename/retype/removal of an existing field. Unlike
+// isPureAddition it does not require len(newFields) > len(oldFields), so it
+// also covers the same-field-count case isPureAddition never sees: a
+// same-name field whose json tag alone changed (a rename of the on-disk key,
+// not an addition) keeps the count unchanged, and isPureAddition is never
+// even called from the version-unchanged branch this backs.
+func isFieldSupersetOnly(oldFields, newFields []string) bool {
 	present := make(map[string]bool, len(newFields))
 	for _, f := range newFields {
 		present[f] = true
