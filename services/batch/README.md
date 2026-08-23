@@ -8,7 +8,7 @@
 | Metric | Value |
 | --- | --- |
 | PARITY entries audited | 45 (41 ok, 4 partial) |
-| Known gaps | 7 |
+| Known gaps | 6 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
@@ -20,7 +20,6 @@
 - gopherstack-6flj (this session): DescribeServiceJobOutput.attempts/capacityUsage/latestAttempt/preemptionSummary are unmodeled -- same root cause as DescribeJobs's disclosed attempts/nodeDetails gap above (no per-attempt execution simulation), plus preemptionSummary specifically requires this backend to actually preempt service jobs under quota-share contention, which it never does (bd: file follow-up)
 - 2026-08-21 (gopherstack-r80d batch 16, required-output cut): four volume/logging/multi-node sub-features are entirely unmodeled on both the input and output side, so their own required members (EFSVolumeConfiguration.FileSystemId, S3FilesVolumeConfiguration.FileSystemArn, EksPersistentVolumeClaim.ClaimName, FirelensConfiguration.Type, NodePropertyOverride.TargetNodes, all required per types/types.go) can never be populated -- gopherstack's Volume/EksVolume/ContainerProperties/ContainerDetail structs (models.go) have no fields for EFS/S3/PVC volumes or Firelens log routing at all, and SubmitJob never accepts a nodeOverrides parameter. Verified structurally absent, not sampled: grepped models.go's Volume/EksVolume/ContainerProperties/ContainerDetail field lists directly against the real types.go members. Not new bugs -- consistent with the already-disclosed multi-node/ECS/EKS-describe-side gap above; naming the specific sub-structs here so a future pass doesn't re-derive this (bd: file follow-up, low priority)
 - gopherstack-2wvq (2026-08-22): ListJobs requires jobQueue unconditionally when the real API accepts jobQueue OR arrayJobId OR multiNodeJobId as mutually-exclusive alternates (api_op_ListJobs.go). Not a safe deletion: this backend has no array-job or multi-node-job child-record model at all (SubmitJob stores ArrayProperties.Size without spawning children; NodeProperties has no per-node Job records), so serving arrayJobId/multiNodeJobId would mean returning an empty list for a genuine array/MNP submission -- a confidently-wrong 200. Declined as a genuine feature (child-job spawning, new indexes, ArrayPropertiesSummary/NodePropertiesSummary, a persisted-model version bump), not attempted (bd: file follow-up)
-- gopherstack-2wvq (2026-08-22): ListJobs does not default to RUNNING-only when jobStatus is unspecified, though the real API documents exactly that default in language nearly identical to ListServiceJobs's, which already implements it correctly (service_jobs.go:149) -- found checking the op's behavior in the other direction while investigating the item above. Not fixed here: TestHandler_ListJobs_NoQueue currently asserts the opposite (wrong) behavior, so correcting the default is an observable behavior change for its own reviewed pass, not folded into this decline (bd: file follow-up)
 
 ## More
 

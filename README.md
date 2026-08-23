@@ -467,7 +467,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 |---|---|---|---|
 | [App Runner](services/apprunner/README.md) | A | 39 | 2 gaps |
 | [Auto Scaling](services/autoscaling/README.md) | A | 66 | 2 gaps |
-| [Batch](services/batch/README.md) | A | 45 | 7 gaps |
+| [Batch](services/batch/README.md) | A | 45 | 6 gaps |
 | [EC2](services/ec2/README.md) | A | — | 20 families; 2 gaps; 1 structural gap; 8 deferred |
 | [Elastic Beanstalk](services/elasticbeanstalk/README.md) | A | 46 | 11 gaps; 3 deferred |
 | [Lambda](services/lambda/README.md) | A | — | 9 families |
@@ -477,7 +477,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
 | [ECR](services/ecr/README.md) | A | 58 | 1 gap; 2 deferred |
-| [ECS](services/ecs/README.md) | A | 65 | 6 gaps; 3 deferred |
+| [ECS](services/ecs/README.md) | A | 65 | 5 gaps; 3 deferred |
 | [EKS](services/eks/README.md) | A | 65 | 5 gaps; 1 deferred |
 
 ### Storage
