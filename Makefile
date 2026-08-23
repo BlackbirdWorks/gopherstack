@@ -158,7 +158,7 @@ test:
 integration-test: build-linux
 	go tool gotestsum --format pkgname -- -race -shuffle on -timeout 10m ./test/integration/...
 
-terraform-test: install-tofu
+terraform-test: install-tofu build-linux
 	PATH="$$PWD/bin:$$PATH" go tool gotestsum --format pkgname -- -v -race -parallel 8 -timeout 45m ./test/terraform/...
 
 e2e: e2e-test

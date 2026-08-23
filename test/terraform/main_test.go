@@ -199,7 +199,12 @@ func TestMain(m *testing.M) {
 		}
 	}
 
-	if _, err := os.Stat(binPath); err == nil {
+	if binInfo, err := os.Stat(binPath); err == nil {
+		if freshErr := checkBinaryFreshness(logger, binInfo); freshErr != nil {
+			logger.Error(freshErr.Error())
+			os.Exit(1)
+		}
+
 		dockerfile = "Dockerfile.test"
 		logger.Info("using pre-built binary via Dockerfile.test")
 	} else {
