@@ -93,7 +93,10 @@ func (b *InMemoryBackend) UpdateUsageProfile(name, description string) (*UsagePr
 		return nil, ErrUsageProfileNotFound
 	}
 
-	p.Description = description
+	if description != "" {
+		p.Description = description
+	}
+
 	p.LastModifiedOn = time.Now().UTC()
 
 	cp := *p

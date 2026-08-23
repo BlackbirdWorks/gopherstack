@@ -131,9 +131,13 @@ func (h *Handler) handleListUsageProfiles(
 	return &listUsageProfilesOutput{Profiles: result, NextToken: next}, nil
 }
 
-// updateUsageProfileInput holds input for UpdateUsageProfile.
+// updateUsageProfileInput holds input for UpdateUsageProfile. Configuration
+// (*types.ProfileConfiguration, required on the real op) has no backing
+// model on UsageProfile -- the same deferred gap already documented for
+// GetUsageProfile -- and is not accepted here.
 type updateUsageProfileInput struct {
-	Name string `json:"Name"`
+	Name        string `json:"Name"`
+	Description string `json:"Description,omitempty"`
 }
 
 // updateUsageProfileOutput holds the result for UpdateUsageProfile.
@@ -145,7 +149,7 @@ func (h *Handler) handleUpdateUsageProfile(
 	_ context.Context,
 	in *updateUsageProfileInput,
 ) (*updateUsageProfileOutput, error) {
-	if _, err := h.Backend.UpdateUsageProfile(in.Name, ""); err != nil {
+	if _, err := h.Backend.UpdateUsageProfile(in.Name, in.Description); err != nil {
 		return nil, err
 	}
 

@@ -116,7 +116,7 @@ func seedFullState(t *testing.T, b *glue.InMemoryBackend) {
 	}))
 	_, err = b.CreateUsageProfile("up1", "desc", nil)
 	require.NoError(t, err)
-	_, err = b.StartBlueprintRun("bp1")
+	_, err = b.StartBlueprintRun("bp1", "arn:aws:iam::000000000000:role/GlueRole", "")
 	require.NoError(t, err)
 	_, err = b.StartDataQualityRuleRecommendationRun("s3://bucket/path")
 	require.NoError(t, err)

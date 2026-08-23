@@ -96,9 +96,12 @@ type getBlueprintRunInput struct {
 	RunID         string `json:"RunId"`
 }
 
-// getBlueprintRunOutput holds the result for GetBlueprintRun.
+// getBlueprintRunOutput holds the result for GetBlueprintRun. The real
+// GetBlueprintRunOutput's member is BlueprintRun (api_op_GetBlueprintRun.go),
+// not Run -- a real client's decode silently drops the whole payload since
+// no known key matches.
 type getBlueprintRunOutput struct {
-	Run any `json:"Run"`
+	BlueprintRun any `json:"BlueprintRun"`
 }
 
 func (h *Handler) handleGetBlueprintRun(
@@ -114,30 +117,45 @@ func (h *Handler) handleGetBlueprintRun(
 		return nil, err
 	}
 
-	return &getBlueprintRunOutput{Run: run}, nil
+	return &getBlueprintRunOutput{BlueprintRun: run}, nil
 }
+
+// defaultGetBlueprintRunsLimit is used when GetBlueprintRunsInput.MaxResults is unset.
+const defaultGetBlueprintRunsLimit = 100
 
 // getBlueprintRunsInput holds input for GetBlueprintRuns.
 type getBlueprintRunsInput struct {
 	BlueprintName string `json:"BlueprintName"`
+	NextToken     string `json:"NextToken,omitempty"`
+	MaxResults    int32  `json:"MaxResults,omitempty"`
 }
 
-// getBlueprintRunsOutput holds the result for GetBlueprintRuns.
+// getBlueprintRunsOutput holds the result for GetBlueprintRuns. The real
+// member is BlueprintRuns (api_op_GetBlueprintRuns.go), not Runs.
 type getBlueprintRunsOutput struct {
-	Runs []any `json:"Runs"`
+	NextToken     string `json:"NextToken,omitempty"`
+	BlueprintRuns []any  `json:"BlueprintRuns"`
 }
 
 func (h *Handler) handleGetBlueprintRuns(
 	_ context.Context,
 	in *getBlueprintRunsInput,
 ) (*getBlueprintRunsOutput, error) {
-	runs := h.Backend.GetBlueprintRuns(in.BlueprintName)
+	all := h.Backend.GetBlueprintRuns(in.BlueprintName)
+
+	limit := int(in.MaxResults)
+	if limit <= 0 {
+		limit = defaultGetBlueprintRunsLimit
+	}
+
+	runs, next := paginateSlice(all, in.NextToken, limit)
+
 	result := make([]any, 0, len(runs))
 	for _, r := range runs {
 		result = append(result, r)
 	}
 
-	return &getBlueprintRunsOutput{Runs: result}, nil
+	return &getBlueprintRunsOutput{BlueprintRuns: result, NextToken: next}, nil
 }
 
 // defaultListBlueprintsLimit is used when ListBlueprintsInput.MaxResults is unset.
@@ -186,9 +204,13 @@ func (h *Handler) handleListBlueprints(
 	return &listBlueprintsOutput{Blueprints: page, NextToken: next}, nil
 }
 
-// startBlueprintRunInput holds input for StartBlueprintRun.
+// startBlueprintRunInput holds input for StartBlueprintRun. RoleArn is
+// required on the real op (api_op_StartBlueprintRun.go) but was previously
+// dropped entirely.
 type startBlueprintRunInput struct {
 	BlueprintName string `json:"BlueprintName"`
+	RoleArn       string `json:"RoleArn"`
+	Parameters    string `json:"Parameters,omitempty"`
 }
 
 // startBlueprintRunOutput holds the result for StartBlueprintRun.
@@ -200,7 +222,11 @@ func (h *Handler) handleStartBlueprintRun(
 	_ context.Context,
 	in *startBlueprintRunInput,
 ) (*startBlueprintRunOutput, error) {
-	run, err := h.Backend.StartBlueprintRun(in.BlueprintName)
+	if in.RoleArn == "" {
+		return nil, fmt.Errorf("%w: RoleArn is required", ErrValidation)
+	}
+
+	run, err := h.Backend.StartBlueprintRun(in.BlueprintName, in.RoleArn, in.Parameters)
 	if err != nil {
 		return nil, err
 	}

@@ -278,11 +278,12 @@ func (h *Handler) handleDeleteRegistry(
 		name = in.RegistryID.RegistryName
 	}
 
-	if err := h.Backend.DeleteRegistry(name); err != nil {
+	reg, err := h.Backend.DeleteRegistry(name)
+	if err != nil {
 		return nil, err
 	}
 
-	return &deleteRegistryOutput{RegistryName: name, Status: stateDeleting}, nil
+	return &deleteRegistryOutput{RegistryName: name, RegistryArn: reg.ARN, Status: stateDeleting}, nil
 }
 
 // schemaIDInput identifies a schema by registry + schema name or by ARN.
@@ -314,11 +315,12 @@ func (h *Handler) handleDeleteSchema(
 		schemaName = in.SchemaID.SchemaName
 	}
 
-	if err := h.Backend.DeleteSchema(registryName, schemaName); err != nil {
+	s, err := h.Backend.DeleteSchema(registryName, schemaName)
+	if err != nil {
 		return nil, err
 	}
 
-	return &deleteSchemaOutput{SchemaName: schemaName, Status: stateDeleting}, nil
+	return &deleteSchemaOutput{SchemaName: schemaName, SchemaArn: s.SchemaARN, Status: stateDeleting}, nil
 }
 
 // deleteSchemaVersionsInput holds input for DeleteSchemaVersions.
@@ -1054,11 +1056,12 @@ func (h *Handler) handleUpdateRegistry(
 		name = in.RegistryID.RegistryName
 	}
 
-	if err := h.Backend.UpdateRegistry(name, in.Description); err != nil {
+	reg, err := h.Backend.UpdateRegistry(name, in.Description)
+	if err != nil {
 		return nil, err
 	}
 
-	return &updateRegistryOutput{RegistryName: name}, nil
+	return &updateRegistryOutput{RegistryName: name, RegistryArn: reg.ARN}, nil
 }
 
 // updateSchemaInput holds input for UpdateSchema.
@@ -1085,9 +1088,10 @@ func (h *Handler) handleUpdateSchema(
 		schemaName = in.SchemaID.SchemaName
 	}
 
-	if err := h.Backend.UpdateSchema(registryName, schemaName, in.Compatibility, in.Description); err != nil {
+	s, err := h.Backend.UpdateSchema(registryName, schemaName, in.Compatibility, in.Description)
+	if err != nil {
 		return nil, err
 	}
 
-	return &updateSchemaOutput{SchemaName: schemaName, RegistryName: registryName}, nil
+	return &updateSchemaOutput{SchemaName: schemaName, RegistryName: registryName, SchemaArn: s.SchemaARN}, nil
 }

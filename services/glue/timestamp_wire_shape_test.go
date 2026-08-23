@@ -30,7 +30,10 @@ func TestStartedOn_IsEpochSecondsNumber(t *testing.T) {
 			"BlueprintLocation": "s3://bucket/ts-bp",
 		})
 
-		startRec := doGlueRequest(t, h, "StartBlueprintRun", map[string]any{"BlueprintName": "ts-bp"})
+		startRec := doGlueRequest(t, h, "StartBlueprintRun", map[string]any{
+			"BlueprintName": "ts-bp",
+			"RoleArn":       "arn:aws:iam::000000000000:role/GlueRole",
+		})
 		require.Equal(t, http.StatusOK, startRec.Code)
 
 		var startOut map[string]any
@@ -46,7 +49,7 @@ func TestStartedOn_IsEpochSecondsNumber(t *testing.T) {
 
 		var getOut map[string]any
 		require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut))
-		run, ok := getOut["Run"].(map[string]any)
+		run, ok := getOut["BlueprintRun"].(map[string]any)
 		require.True(t, ok)
 
 		startedOn, present := run["StartedOn"]

@@ -606,6 +606,8 @@ type BlueprintRun struct {
 	RunID         string  `json:"RunId"`
 	WorkflowName  string  `json:"WorkflowName"`
 	State         string  `json:"State"`
+	RoleARN       string  `json:"RoleArn,omitempty"`
+	Parameters    string  `json:"Parameters,omitempty"`
 	StartedOn     float64 `json:"StartedOn,omitempty"`
 }
 

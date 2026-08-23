@@ -1257,3 +1257,166 @@ Gates run: `go build ./...`, `go vet ./services/glue/...`, `gofmt -l`
 changed exported `StorageBackend` signatures), `golangci-lint run
 ./services/glue/...` (0 issues).
 
+
+## 2026-08-23 gopherstack-n3zi (third pass): the remaining 72 of the 96 never-mentioned ops
+
+Re-derived the queue independently rather than inheriting it, per the
+instructions that caught three other services' counts wrong the same day.
+Confirmed **299 dispatched op names** via `grep -c 'name: "' handler_routing.go`
+(unchanged from the prior pass's derivation, `sort -u` agrees, no duplicates).
+Extracted the **72-op "not reached" list** verbatim from the prior dated
+entry's closing paragraph, then checked it two ways: (1) every one of the 72
+names is a real dispatched op (`comm` against the 299 set — clean), and (2)
+none of the 72 collides with a key already present in the structured `ops:`
+block (clean) — ruling out the trap the prior pass's note warned about
+(counting an op named only to say "not reached" as if it were audited).
+**72 holds.**
+
+Audited all 72 against `aws-sdk-go-v2/service/glue@v1.152.0`, reading each
+op's real Input/Output struct and, where relevant, its deserializer case
+list. **6 of the 72 had real bugs**, all proven by a real
+`aws-sdk-go-v2/service/glue` client round trip
+(`pass3_queue_audit_test.go`), each hand-reverted (`git show HEAD:<file>`
+copied over every touched non-test file, confirmed to fail with the exact
+symptom below, then restored and `md5sum`-confirmed byte-identical), plus
+**3 siblings outside the 72** fixed alongside per the "check every op
+sharing that type" rule — **9 ops touched for 7 distinct root causes**:
+
+1. **DeleteRegistry** / **UpdateRegistry** — both declare a `RegistryArn`
+   field on their response struct (`api_op_DeleteRegistry.go`,
+   `api_op_UpdateRegistry.go`) that was never populated, even though this
+   backend already tracks `Registry.ARN` (used correctly by the sibling
+   `GetRegistry`/`ListRegistries` the whole time) — a real client got back
+   `RegistryArn: ""` on every Delete/Update call. Backend
+   `DeleteRegistry`/`UpdateRegistry` signatures changed from `error` to
+   `(*Registry, error)` so the handler can source the real ARN instead of
+   discarding the record before returning.
+
+2. **DeleteSchema**, plus sibling **UpdateSchema** (not itself in the 72 —
+   already graded `schema_registry: partial` elsewhere in this file, found
+   while checking DeleteSchema's family) — same bug, `SchemaArn` declared
+   (`api_op_DeleteSchema.go`, `api_op_UpdateSchema.go`) but never populated
+   despite `Schema.SchemaARN` already being tracked. Backend
+   `DeleteSchema`/`UpdateSchema` signatures changed from `error` to
+   `(*Schema, error)`.
+
+3. **UpdateUsageProfile** — **actively destructive**, the same class as the
+   prior pass's `UpdateGlueIdentityCenterConfiguration` `InstanceArn` clobber:
+   the handler called `Backend.UpdateUsageProfile(name, "")` unconditionally,
+   ignoring whatever `Description` the client actually sent, and the backend
+   applied that empty string unconditionally (`p.Description = description`,
+   no guard) — **every single real `UpdateUsageProfile` call wiped the
+   profile's Description to empty**, even when the client's own request
+   carried a real, non-empty value. `Configuration`
+   (`*types.ProfileConfiguration`, real, required) remains unmodeled — the
+   same deferred gap already named for `GetUsageProfile` — not attempted
+   here. Fixed: handler now reads and passes `in.Description`; backend only
+   overwrites when non-empty (matching this file's own existing convention
+   for optional-field updates, e.g. `UpdateSchema`'s `if description != ""`).
+
+4. **ListDataQualityStatisticAnnotations** — declared neither `MaxResults`
+   nor `NextToken` on the input or output, though both are real
+   (`api_op_ListDataQualityStatisticAnnotations.go`) — always returned every
+   annotation in one page regardless of `MaxResults`. Wired through the
+   existing `paginateSlice` helper, matching every other List op in this
+   file, with a new `defaultListDataQualityStatisticAnnotationsLimit`
+   const (100). `ListDataQualityStatistics` was checked too (same family)
+   but stays correctly empty — this backend never runs real data-quality
+   monitoring, so there is never more than zero items to paginate.
+
+5. **StartBlueprintRun** silently dropped `RoleArn`, a **required** real
+   input member (`api_op_StartBlueprintRun.go`) — every real call succeeded
+   with the role simply discarded. Worse: `BlueprintRun` (models.go) had no
+   field to store `RoleArn` or the optional `Parameters` at all, so even a
+   client that somehow got a run going could never read either back. Fixed:
+   `RoleArn` is now required (`InvalidInputException` if absent, matching
+   this file's `StartColumnStatisticsTaskRun`-style convention),
+   `BlueprintRun` gained `RoleARN`/`Parameters` (purely additive fields,
+   confirmed against the real `types.BlueprintRun`'s own `RoleArn`/
+   `Parameters` json keys via `deserializeDocumentBlueprintRun`'s case list).
+
+6. **GetBlueprintRun**, found while reading `StartBlueprintRun`'s whole
+   family per the "check every op sharing that type" rule (not itself in
+   the 72) — response wrapped the run under `Run`; the real member is
+   `BlueprintRun` (`api_op_GetBlueprintRun.go`, confirmed via
+   `awsAwsjson11_deserializeOpDocumentGetBlueprintRunOutput`'s case list,
+   which has no `"Run"` case at all) — a real client's decode silently left
+   the whole payload nil, no error. Fixed by renaming the wire key.
+
+7. **GetBlueprintRuns**, same family, same day (not itself in the 72) — two
+   bugs at once: the response field was `Runs`, the real member is
+   `BlueprintRuns` (`api_op_GetBlueprintRuns.go`) — same silent-nil-decode
+   class as bug 6 — and `MaxResults`/`NextToken`, both real and required-ish
+   pagination members on this op, were entirely unhandled, always returning
+   every run for a blueprint in one page. Fixed both: renamed the wire key
+   and wired `paginateSlice` with a new `defaultGetBlueprintRunsLimit`
+   const (100).
+
+**Snapshot bump: not needed.** The only persisted-struct change is
+`BlueprintRun` gaining `RoleARN`/`Parameters` (`omitempty`-tagged, purely
+additive — an old snapshot decodes fine with both defaulting to `""`).
+`go test ./pkgs/persistence/... -run TestSnapshotVersionGuard` confirmed
+this itself: it failed first on the unrefreshed golden with an explicit
+"this is bookkeeping, not a version-bump case: every old field is still
+present unchanged, so the diff is additive only and needs no bump" message,
+then passed clean after `-update`; the resulting diff is exactly
+`BlueprintRun.Parameters`/`BlueprintRun.RoleARN`, nothing else.
+`glueSnapshotVersion` stays at 3.
+
+**Sibling check on every bug**: yes, explicitly, for all 7 — the
+Registry/Schema ARN bug was chased across both Delete and Update for both
+resource kinds (4 ops, 2 already in the queue); the Blueprint-run wire-key
+bug was chased across Start/Get/GetRuns (3 ops, 1 already in the queue).
+`ListDataQualityStatistics` (sibling of the annotations-pagination fix) was
+checked and correctly left alone — no real gap, given it's always empty.
+
+**Pre-existing tests corrected, not just new ones added** (same pattern as
+prior passes' `TestCatalog`/`GetMLTransform` corrections): `TestBlueprintRun`,
+`TestBlueprint_Run_Lifecycle`, `TestStartBlueprintRun_NotFound`, and
+`timestamp_wire_shape_test.go`'s blueprint-timestamp case all called
+`StartBlueprintRun` without `RoleArn` (a real required field no real client
+could omit) and asserted the old `Run`/`Runs` wire keys — corrected to send
+`RoleArn` and assert `BlueprintRun`/`BlueprintRuns`.
+
+**Ruled out, not bugs**:
+- `DeleteDatabase` has no `CatalogId` field, unlike several sibling
+  Delete/Get ops that accept-but-ignore it (single flat namespace, an
+  already-established pattern in this backend). `CatalogId` is optional on
+  the real `DeleteDatabaseInput`, not required, so this is a minor
+  completeness/consistency gap, not a provable bug — noted, not fixed.
+- `GetSchemaVersionsDiff`'s `FirstSchemaVersionNumber`/
+  `SecondSchemaVersionNumber` accept only the `{"VersionNumber": N}` shape;
+  the real `types.SchemaVersionNumber` also has a `LatestVersion bool`
+  alternative (compare against the newest version without naming a number).
+  Not modeled — a real client using `LatestVersion` gets compared against
+  version 0. Named, not fixed.
+- The `registryIDInput`/`schemaIDInput` wrapper structs used by ~9
+  schema-registry ops (`DeleteRegistry`, `UpdateRegistry`, `DeleteSchema`,
+  `DeleteSchemaVersions`, `GetRegistry`, `GetSchema`, `ListSchemas`, etc.)
+  accept a `RegistryArn`/`SchemaArn` field on the wire but every call site
+  resolves identity from `RegistryName`/`SchemaName` alone, ignoring the ARN
+  entirely — the real docs state "One of RegistryArn or RegistryName has to
+  be provided" for `RegistryId`, and likewise for `SchemaId`. A real client
+  identifying purely by ARN would resolve against an empty name and 404.
+  This is real and provable but sized like a package (an ARN→name reverse
+  lookup threaded through ~15 call sites across the whole schema-registry
+  family), not a one-line fix — named as a follow-up, left unfixed this
+  pass, same size class as the already-deferred `GetUsageProfile.Configuration`
+  gap.
+
+No Summary-leak-class instances found in this pass's 72 (checked
+`GetClassifiers`/`GetDevEndpoints`/`ListTableOptimizerRuns`/`ListWorkflows`/
+`ListDataQualityStatisticAnnotations`/`ListUsageProfiles` against their real
+List/Get output types — all either marshal the real full type directly,
+matching the real API's own non-Summary shape, or use an existing dedicated
+summary type).
+
+**All 72 of the queue are now accounted for** — 66 confirmed clean against
+the pinned SDK, 6 fixed. No ops remain in this queue.
+
+Gates run: `go build ./...`, `go vet ./services/glue/...`, `gofmt -l`
+(clean), `go test -race ./services/glue/... ./pkgs/persistence/...` (pass),
+`make build-check` (clean — `DeleteRegistry`/`UpdateRegistry`/`DeleteSchema`/
+`UpdateSchema`/`StartBlueprintRun` all changed exported `StorageBackend`
+signatures), `golangci-lint run ./services/glue/...` (0 issues). Work left
+uncommitted per this pass's instructions.

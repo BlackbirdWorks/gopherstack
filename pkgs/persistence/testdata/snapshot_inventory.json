@@ -12015,6 +12015,8 @@
       "Blueprint.Status string `json:\"Status,omitempty\"`",
       "Blueprint.Tags map[string]string `json:\"-\"`",
       "BlueprintRun.BlueprintName string `json:\"BlueprintName\"`",
+      "BlueprintRun.Parameters string `json:\"Parameters,omitempty\"`",
+      "BlueprintRun.RoleARN string `json:\"RoleArn,omitempty\"`",
       "BlueprintRun.RunID string `json:\"RunId\"`",
       "BlueprintRun.StartedOn float64 `json:\"StartedOn,omitempty\"`",
       "BlueprintRun.State string `json:\"State\"`",

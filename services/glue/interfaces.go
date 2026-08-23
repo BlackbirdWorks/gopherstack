@@ -222,8 +222,8 @@ type StorageBackend interface {
 	CreateRegistry(name, description string, tags map[string]string) (*Registry, error)
 	DescribeRegistry(name string) (*Registry, error)
 	ListRegistries() []*Registry
-	UpdateRegistry(name, description string) error
-	DeleteRegistry(name string) error
+	UpdateRegistry(name, description string) (*Registry, error)
+	DeleteRegistry(name string) (*Registry, error)
 
 	// Schema operations.
 	CreateSchema(
@@ -232,8 +232,8 @@ type StorageBackend interface {
 	) (*Schema, *SchemaVersion, error)
 	DescribeSchema(registryName, schemaName string) (*Schema, error)
 	ListSchemas(registryName string) []*Schema
-	UpdateSchema(registryName, schemaName, compatibility, description string) error
-	DeleteSchema(registryName, schemaName string) error
+	UpdateSchema(registryName, schemaName, compatibility, description string) (*Schema, error)
+	DeleteSchema(registryName, schemaName string) (*Schema, error)
 
 	// Schema Version operations.
 	RegisterSchemaVersion(registryName, schemaName, schemaDefinition string) (*SchemaVersion, error)
@@ -378,7 +378,7 @@ type StorageBackend interface {
 	ListBlueprints() []string
 
 	// BlueprintRun operations.
-	StartBlueprintRun(blueprintName string) (*BlueprintRun, error)
+	StartBlueprintRun(blueprintName, roleARN, parameters string) (*BlueprintRun, error)
 	GetBlueprintRun(blueprintName, runID string) (*BlueprintRun, error)
 	GetBlueprintRuns(blueprintName string) []*BlueprintRun
 

@@ -169,7 +169,7 @@ func TestExtendedStateSnapshotRestore(t *testing.T) {
 				t.Helper()
 				_, err := b.CreateBlueprint("blueprint", "s3://bucket/blueprint", "", nil)
 				require.NoError(t, err)
-				_, err = b.StartBlueprintRun("blueprint")
+				_, err = b.StartBlueprintRun("blueprint", "arn:aws:iam::000000000000:role/GlueRole", "")
 				require.NoError(t, err)
 				_, err = b.CreateUsageProfile("usage", "", nil)
 				require.NoError(t, err)

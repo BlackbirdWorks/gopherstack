@@ -212,10 +212,16 @@ func (h *Handler) handleListDataQualityResults(
 	return &listDataQualityResultsOutput{Results: list, NextToken: next}, nil
 }
 
+// defaultListDataQualityStatisticAnnotationsLimit is used when
+// ListDataQualityStatisticAnnotationsInput.MaxResults is unset.
+const defaultListDataQualityStatisticAnnotationsLimit = 100
+
 // listDataQualityStatisticAnnotationsInput holds input for ListDataQualityStatisticAnnotations.
 type listDataQualityStatisticAnnotationsInput struct {
 	ProfileID   string `json:"ProfileId,omitempty"`
 	StatisticID string `json:"StatisticId,omitempty"`
+	NextToken   string `json:"NextToken,omitempty"`
+	MaxResults  int32  `json:"MaxResults,omitempty"`
 }
 
 // timestampedInclusionAnnotation is the annotation value with its last-modified time.
@@ -242,7 +248,15 @@ func (h *Handler) handleListDataQualityStatisticAnnotations(
 	_ context.Context,
 	in *listDataQualityStatisticAnnotationsInput,
 ) (*listDataQualityStatisticAnnotationsOutput, error) {
-	entries := h.Backend.ListDataQualityStatisticAnnotations(in.ProfileID, in.StatisticID)
+	all := h.Backend.ListDataQualityStatisticAnnotations(in.ProfileID, in.StatisticID)
+
+	limit := int(in.MaxResults)
+	if limit <= 0 {
+		limit = defaultListDataQualityStatisticAnnotationsLimit
+	}
+
+	entries, next := paginateSlice(all, in.NextToken, limit)
+
 	out := make([]statisticAnnotationOut, 0, len(entries))
 
 	for _, e := range entries {
@@ -257,7 +271,7 @@ func (h *Handler) handleListDataQualityStatisticAnnotations(
 		})
 	}
 
-	return &listDataQualityStatisticAnnotationsOutput{Annotations: out}, nil
+	return &listDataQualityStatisticAnnotationsOutput{Annotations: out, NextToken: next}, nil
 }
 
 // listDataQualityStatisticsInput holds input for ListDataQualityStatistics.

@@ -141,7 +141,7 @@ func (b *InMemoryBackend) ListBlueprints() []string {
 }
 
 // StartBlueprintRun creates a new blueprint run record.
-func (b *InMemoryBackend) StartBlueprintRun(blueprintName string) (*BlueprintRun, error) {
+func (b *InMemoryBackend) StartBlueprintRun(blueprintName, roleARN, parameters string) (*BlueprintRun, error) {
 	b.mu.Lock("StartBlueprintRun")
 	defer b.mu.Unlock()
 
@@ -155,6 +155,8 @@ func (b *InMemoryBackend) StartBlueprintRun(blueprintName string) (*BlueprintRun
 		RunID:         runID,
 		WorkflowName:  "workflow-" + runID,
 		State:         stateRunning,
+		RoleARN:       roleARN,
+		Parameters:    parameters,
 		StartedOn:     float64(time.Now().Unix()),
 	}
 	b.blueprintRuns.Put(run)
