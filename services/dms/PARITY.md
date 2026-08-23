@@ -112,12 +112,12 @@ ops:
   StartRecommendations: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass -- ignored DatabaseId entirely and never touched backend state (empty envelope was correct per SDK, but the required side effect -- a recommendation later visible via DescribeRecommendations -- never happened). Now validates DatabaseId is required and records a Recommendation via new backend.StartRecommendation."}
   BatchStartRecommendations: {wire: ok, errors: ok, state: ok, persist: ok, note: "seeds a recommendation per source endpoint; pre-existing, unchanged"}
   DescribeRecommendations: {wire: ok, errors: ok, state: ok, persist: n/a, note: "recommendations are runtime-only (not in backendSnapshot); acceptable since Fleet Advisor overall is a low-value, AWS-EOL'd (May 2026) feature surface"}
-  CreateDataMigration: {wire: ok, errors: ok, state: ok, persist: ok}
-  DescribeDataMigrations: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-12 (gopherstack-o53q) -- real DescribeDataMigrationsInput carries Filters []types.Filter, entirely absent from the request struct; a client's filter was silently dropped and the call returned success with the unfiltered list. Filters (data-migration-identifier) now merges with the existing DataMigrationIdentifier field and narrows the result."}
-  ModifyDataMigration: {wire: ok, errors: ok, state: ok, persist: ok}
-  DeleteDataMigration: {wire: ok, errors: ok, state: ok, persist: ok}
-  StartDataMigration: {wire: ok, errors: ok, state: ok, persist: ok}
-  StopDataMigration: {wire: ok, errors: ok, state: ok, persist: ok}
+  CreateDataMigration: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-23 (gopherstack-v4a4) -- dataMigrationJSON wrote NumberOfJobs/EnableCloudwatchLogs flat on DataMigration; the real DataMigration case list (deserializers.go:16304) has no such keys at all -- both nest under a DataMigrationSettings sub-object, and the boolean renames to CloudwatchLogsEnabled there (deserializers.go:16546). Every real client's DataMigration.DataMigrationSettings decoded nil on all 6 ops sharing dmToJSON."}
+  DescribeDataMigrations: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-12 (gopherstack-o53q) -- real DescribeDataMigrationsInput carries Filters []types.Filter, entirely absent from the request struct; a client's filter was silently dropped and the call returned success with the unfiltered list. Filters (data-migration-identifier) now merges with the existing DataMigrationIdentifier field and narrows the result. Also FIXED 2026-08-23, see CreateDataMigration -- same dmToJSON DataMigrationSettings bug."}
+  ModifyDataMigration: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-23, see CreateDataMigration -- same dmToJSON DataMigrationSettings bug."}
+  DeleteDataMigration: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-23, see CreateDataMigration -- same dmToJSON DataMigrationSettings bug."}
+  StartDataMigration: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-23, see CreateDataMigration -- same dmToJSON DataMigrationSettings bug."}
+  StopDataMigration: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-23, see CreateDataMigration -- same dmToJSON DataMigrationSettings bug."}
   CreateDataProvider: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeDataProviders: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-12 (gopherstack-o53q) -- same Filters-absent bug class as DescribeDataMigrations. Filters (data-provider-identifier) now merges with the existing DataProviderIdentifier field and narrows the result."}
   ModifyDataProvider: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-11 -- request field was named DataProviderArn; the real ModifyDataProviderMessage field is DataProviderIdentifier, so every real client's identifier was silently discarded"}
@@ -545,3 +545,33 @@ leaks: {status: clean, note: "no goroutines, janitors, or timers in this service
   (`IndividualAssessmentName` is a plain `*string`), so any reasonable
   catalog is wire-accurate; only the *shape* (a flat list of strings) is a
   real constraint.
+
+- **2026-08-23 (gopherstack-v4a4) response struct-tag sweep**: `keycheck`'s
+  struct-tag extension flagged `CreateDataMigration`/`DescribeDataMigrations`/
+  `ModifyDataMigration`/`DeleteDataMigration`/`StartDataMigration`/
+  `StopDataMigration` writing `NumberOfJobs`/`EnableCloudwatchLogs` outside
+  the real reachable shape. Confirmed against
+  `databasemigrationservice@v1.66.4/deserializers.go`: the real
+  `awsAwsjson11_deserializeDocumentDataMigration` case list (line 16304) has
+  no top-level `NumberOfJobs` or `EnableCloudwatchLogs` case at all -- both
+  live nested under `DataMigrationSettings`
+  (`awsAwsjson11_deserializeDocumentDataMigrationSettings`, line 16546),
+  which switches on `NumberOfJobs` (same name) and `CloudwatchLogsEnabled`
+  (renamed from the request-side `EnableCloudwatchLogs`). The request side
+  (`CreateDataMigrationInput`) genuinely is flat and named
+  `EnableCloudwatchLogs` (`serializers.go:10061`-`10087`) -- real AWS's own
+  API is asymmetric here, request flat, response nested-and-renamed -- so
+  only the response-side `dataMigrationJSON` struct
+  (`handler_data_migrations.go`) was wrong. Every real client's
+  `DataMigration.DataMigrationSettings` decoded nil on all six ops, which
+  share the one `dmToJSON` builder. Fixed by adding a
+  `dataMigrationSettingsJSON` nested struct and updating `dmToJSON`; the
+  domain `DataMigration` struct and its persistence snapshot were untouched
+  (only the wire translation layer changed, no golden refresh needed).
+  Proof: `TestCreateDataMigration_SettingsNestUnderDataMigrationSettings_RealClient`
+  (`wire_field_fixes_test.go`) drives the real
+  `aws-sdk-go-v2/service/databasemigrationservice` client end-to-end;
+  confirmed failing against the pre-fix flat keys via hand-revert
+  (`git show HEAD:services/dms/handler_data_migrations.go`, restored,
+  md5sum-verified byte-identical after re-fixing). No existing test
+  asserted the wrong response shape, so nothing needed correcting.
