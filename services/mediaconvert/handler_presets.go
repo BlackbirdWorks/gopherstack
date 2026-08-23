@@ -6,6 +6,8 @@ import (
 	"strings"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 func parsePresetRoute(method, suffix string) mcRoute {
@@ -47,7 +49,8 @@ type presetWrapper struct {
 }
 
 type presetsListOutput struct {
-	Presets []*Preset `json:"presets"`
+	NextToken string    `json:"nextToken,omitempty"`
+	Presets   []*Preset `json:"presets"`
 }
 
 func (h *Handler) handleCreatePreset(c *echo.Context, body []byte) error {
@@ -102,7 +105,9 @@ func (h *Handler) handleListPresets(c *echo.Context) error {
 		reverseSlice(presets)
 	}
 
-	return c.JSON(http.StatusOK, presetsListOutput{Presets: limitSlice(presets, parseMaxResults(q.Get("maxResults")))})
+	pg := page.New(presets, q.Get("nextToken"), parseMaxResults(q.Get("maxResults")), defaultListPageSize)
+
+	return c.JSON(http.StatusOK, presetsListOutput{Presets: pg.Data, NextToken: pg.Next})
 }
 
 func (h *Handler) handleDeletePreset(c *echo.Context, name string) error {

@@ -314,6 +314,8 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 		return c.JSON(http.StatusBadRequest, errorResponse("BadRequest", err.Error()))
 	case errors.Is(err, ErrMissingFileSystemConfiguration):
 		return c.JSON(http.StatusBadRequest, errorResponse("MissingFileSystemConfiguration", err.Error()))
+	case errors.Is(err, ErrMissingVolumeConfiguration):
+		return c.JSON(http.StatusBadRequest, errorResponse("MissingVolumeConfiguration", err.Error()))
 	case errors.Is(err, ErrIncompatibleParameter):
 		return c.JSON(http.StatusBadRequest, errorResponse("IncompatibleParameterError", err.Error()))
 	case errors.Is(err, ErrInvalidNetworkSettings):

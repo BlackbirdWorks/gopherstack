@@ -17,7 +17,10 @@ import (
 const (
 	opUnknown = "Unknown"
 
-	defaultJobsPageSize = 20
+	// defaultListPageSize matches every List* op's own doc comment ("...up
+	// to twenty, that will be returned at one time"): ListJobs, ListQueues,
+	// ListJobTemplates, ListPresets.
+	defaultListPageSize = 20
 )
 
 const (
@@ -411,14 +414,6 @@ func reverseSlice[T any](items []T) {
 }
 
 // limitSlice returns at most maxResults items; 0 means no limit.
-func limitSlice[T any](items []T, maxResults int) []T {
-	if maxResults > 0 && len(items) > maxResults {
-		return items[:maxResults]
-	}
-
-	return items
-}
-
 // parseMaxResults converts a query-parameter string to a non-negative int,
 // returning 0 (no limit) when the string is empty or unparseable.
 func parseMaxResults(s string) int {

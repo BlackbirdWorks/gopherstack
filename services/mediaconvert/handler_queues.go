@@ -6,6 +6,8 @@ import (
 	"strings"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 func parseQueueRoute(method, suffix string) mcRoute {
@@ -55,7 +57,8 @@ type queueWrapper struct {
 }
 
 type queuesListOutput struct {
-	Queues []*Queue `json:"queues"`
+	NextToken string   `json:"nextToken,omitempty"`
+	Queues    []*Queue `json:"queues"`
 }
 
 func (h *Handler) handleCreateQueue(c *echo.Context, body []byte) error {
@@ -101,7 +104,9 @@ func (h *Handler) handleListQueues(c *echo.Context) error {
 		reverseSlice(queues)
 	}
 
-	return c.JSON(http.StatusOK, queuesListOutput{Queues: limitSlice(queues, parseMaxResults(q.Get("maxResults")))})
+	pg := page.New(queues, q.Get("nextToken"), parseMaxResults(q.Get("maxResults")), defaultListPageSize)
+
+	return c.JSON(http.StatusOK, queuesListOutput{Queues: pg.Data, NextToken: pg.Next})
 }
 
 type updateQueueInput struct {

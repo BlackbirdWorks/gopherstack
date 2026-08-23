@@ -29,11 +29,7 @@ func TestVolumeOps_AdministrativeActionsWireShape(t *testing.T) {
 		h := newTestHandler(t)
 		client := newTestFSxClient(t, h)
 
-		volOut, err := client.CreateVolume(t.Context(), &fsxsdk.CreateVolumeInput{
-			VolumeType: types.VolumeTypeOntap,
-			Name:       aws.String("restore-vol"),
-		})
-		require.NoError(t, err)
+		volOut := createTestOntapVolume(t, client, "restore-vol")
 
 		snapOut, err := client.CreateSnapshot(t.Context(), &fsxsdk.CreateSnapshotInput{
 			Name:     aws.String("restore-snap"),
@@ -63,11 +59,7 @@ func TestVolumeOps_AdministrativeActionsWireShape(t *testing.T) {
 		h := newTestHandler(t)
 		client := newTestFSxClient(t, h)
 
-		volOut, err := client.CreateVolume(t.Context(), &fsxsdk.CreateVolumeInput{
-			VolumeType: types.VolumeTypeOntap,
-			Name:       aws.String("copy-vol"),
-		})
-		require.NoError(t, err)
+		volOut := createTestOntapVolume(t, client, "copy-vol")
 
 		snapOut, err := client.CreateSnapshot(t.Context(), &fsxsdk.CreateSnapshotInput{
 			Name:     aws.String("copy-snap"),

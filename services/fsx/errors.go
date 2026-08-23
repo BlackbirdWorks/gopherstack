@@ -24,6 +24,14 @@ var (
 	// configuration block (WindowsConfiguration/OntapConfiguration/
 	// OpenZFSConfiguration).
 	ErrMissingFileSystemConfiguration = awserr.New("MissingFileSystemConfiguration", awserr.ErrInvalidParameter)
+	// ErrMissingVolumeConfiguration is returned when CreateVolume is called
+	// without the required per-type configuration block (OntapConfiguration
+	// for VolumeType=ONTAP, OpenZFSConfiguration for VolumeType=OPENZFS) --
+	// real CreateVolumeInput has no top-level FileSystemId/
+	// StorageVirtualMachineId at all (fsx@v1.68.4 api_op_CreateVolume.go);
+	// types.MissingVolumeConfiguration ("A volume configuration is required
+	// for this operation.") is the real wire code for the absent case.
+	ErrMissingVolumeConfiguration = awserr.New("MissingVolumeConfiguration", awserr.ErrInvalidParameter)
 	// ErrTagInvalid is returned when a tag key or value fails validation.
 	ErrTagInvalid = awserr.New("BadRequest", awserr.ErrInvalidParameter)
 	// ErrTagLimitExceeded is returned when the 50-tag-per-resource limit is exceeded.

@@ -19,16 +19,16 @@ ops:
   CancelJob: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateJobTemplate: {wire: ok, errors: ok, state: ok, persist: ok, note: "this pass: added accelerationSettings/hopDestinations/statusUpdateInterval, which the real CreateJobTemplateInput wire shape accepts but JobTemplate previously had no fields for (silently dropped) -- see CreateJobTemplateFull"}
   GetJobTemplate: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListJobTemplates: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListJobTemplates: {wire: fixed, errors: ok, state: ok, persist: ok, note: "gopherstack batch8 (2026-08-23): now paginates via pkgs/page.New (real NextToken), previously truncated via limitSlice with no continuation token ever returned -- see Notes"}
   UpdateJobTemplate: {wire: ok, errors: ok, state: ok, persist: ok, note: "this pass: added accelerationSettings/hopDestinations/statusUpdateInterval support via UpdateJobTemplateFull -- previously silently dropped despite the real UpdateJobTemplateInput accepting them (was the last remaining gap for this family)"}
   DeleteJobTemplate: {wire: ok, errors: ok, state: ok, persist: ok}
   CreatePreset: {wire: ok, errors: ok, state: ok, persist: ok}
   GetPreset: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListPresets: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListPresets: {wire: fixed, errors: ok, state: ok, persist: ok, note: "gopherstack batch8 (2026-08-23): now paginates via pkgs/page.New (real NextToken), previously truncated via limitSlice with no continuation token ever returned -- see Notes"}
   UpdatePreset: {wire: ok, errors: ok, state: ok, persist: ok}
   DeletePreset: {wire: ok, errors: ok, state: ok, persist: ok}
   GetQueue: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListQueues: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListQueues: {wire: fixed, errors: ok, state: ok, persist: ok, note: "gopherstack batch8 (2026-08-23): now paginates via pkgs/page.New (real NextToken), previously truncated via limitSlice with no continuation token ever returned -- see Notes"}
   DeleteQueue: {wire: ok, errors: ok, state: ok, persist: ok}
   ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeEndpoints: {wire: ok, errors: ok, state: ok, persist: n/a, note: "this pass: real op is POST-only with maxResults/nextToken/mode in a JSON body -- gopherstack previously answered any HTTP method and ignored the body. Fixed: route now requires POST (GET/other methods 404 as unknown operation, matching real-client behavior against a real endpoint), and the body is parsed (mode/maxResults honored; nextToken accepted but there is never a next page since exactly one synthetic endpoint ever exists)"}
@@ -42,10 +42,10 @@ ops:
   SearchJobs: {wire: ok, errors: ok, state: ok, persist: ok, note: "extra non-AWS totalCount not present -- SearchJobsOutput matches wire shape exactly"}
   CreateResourceShare: {wire: partial, errors: ok, state: ok, persist: ok, note: "real input also requires supportCaseId; not validated/stored (harmless, output is void). 2026-08-19: this op's side effect (Job.LastShareDetails) was a critical type-confusion bug -- see gaps->fixed below"}
 families:
-  queue: {status: ok, note: "CreateQueue/GetQueue/ListQueues/UpdateQueue/DeleteQueue verified op-by-op against restjson1 serializers; reservationPlanSettings wire-name bug fixed on both create and update"}
-  jobTemplate: {status: ok, note: "verified op-by-op; this pass closed the AccelerationSettings/HopDestinations/StatusUpdateInterval gap on both Create and Update (CreateJobTemplateFull/UpdateJobTemplateFull) -- family is now full field parity, no open gaps"}
+  queue: {status: ok, note: "CreateQueue/GetQueue/ListQueues/UpdateQueue/DeleteQueue verified op-by-op against restjson1 serializers; reservationPlanSettings wire-name bug fixed on both create and update. FIXED 2026-08-23 (gopherstack batch8): ListQueues now paginates via pkgs/page.New (real NextToken) -- see Notes"}
+  jobTemplate: {status: ok, note: "verified op-by-op; this pass closed the AccelerationSettings/HopDestinations/StatusUpdateInterval gap on both Create and Update (CreateJobTemplateFull/UpdateJobTemplateFull) -- family is now full field parity, no open gaps. FIXED 2026-08-23 (gopherstack batch8): ListJobTemplates now paginates via pkgs/page.New (real NextToken) -- see Notes"}
   job: {status: ok, note: "CreateJob/GetJob/ListJobs/CancelJob verified; jobEngineVersion wire-name bug fixed; this pass also fixed CreateJob silently overriding statusUpdateInterval/simulateReservedQueue with hardcoded defaults instead of applying the caller's request values; UpdateJob is a gopherstack-only extension, unadvertised as of 2026-07-31 (see notes). 2026-08-19: Job.LastShareDetails type-confusion bug fixed (see gaps->fixed and Notes)"}
-  preset: {status: ok, note: "verified op-by-op, full field parity"}
+  preset: {status: ok, note: "verified op-by-op, full field parity. FIXED 2026-08-23 (gopherstack batch8): ListPresets now paginates via pkgs/page.New (real NextToken) -- see Notes"}
   tags: {status: ok, note: "TagResource/UntagResource/ListTagsForResource: two critical wire bugs fixed (see gaps->fixed above); this is the class of bug parity-principles.md warns about (ARN routing) but the actual defect here was ARN-in-body vs ARN-in-URL and DELETE-vs-PUT method, not slash-escaping"}
   jobsQuery: {status: ok, note: "StartJobsQuery/GetJobsQueryResults: id/status wire-name bugs fixed"}
   endpoints/policy/certificates/misc: {status: ok, note: "DescribeEndpoints/GetPolicy/PutPolicy/DeletePolicy/AssociateCertificate/DisassociateCertificate/ListVersions/Probe/SearchJobs/CreateResourceShare verified op-by-op; this pass closed the DescribeEndpoints method/body gap (now POST-only, body parsed)"}
@@ -54,7 +54,7 @@ gaps:
   - "FIXED by gopherstack-gt9o: CreateQueueInput/UpdateQueueInput's MaximumConcurrentFeeds *int32 member (Elemental Inference feed concurrency, added since v1.87.3) now read, stored, and echoed. See Notes."
   - "FIXED 2026-08-19: Job.LastShareDetails was typed *ShareDetails{ShareToken,SharedAt} (a nested object) in gopherstack; the real wire type is *string (types.Job.LastShareDetails, aws-sdk-go-v2/service/mediaconvert@v1.97.1 types/types.go:6202; deserializers.go:19625 expects value.(string)). A real SDK client's GetJob/ListJobs/SearchJobs deserializer fails the ENTIRE call with a DeserializationError ('expected __string to be of type string, got map[string]interface {} instead') for any job that has ever been resource-shared -- not a silently-dropped field, a hard failure. Fixed by changing the field to *string (JSON-encoded share token/timestamp as the string's content, since the real field's content format is AWS-internal/undocumented) in models.go, and rebuilding it in resource_shares.go's CreateResourceShare. See Notes."
   - "Not fixed, disclosed: real Job has an ElementalInferenceConfiguration member (types.go:6157, {Features []ElementalInferenceFeature, Feeds []ElementalInferenceFeed}) that gopherstack's Job struct has no field for at all -- found incidentally while checking Job's deserializer case list for wrong keys, not by hunting missing members (Layer 3 is out of scope as a hunt per this sweep's brief). Not an input to CreateJobInput (absent from serializers.go entirely), so it is AWS-backend-computed metadata derived from analyzing the job's Settings tree -- which gopherstack treats as an opaque map[string]any passthrough (see deferred, below). Populating it correctly would require either fabricating values (bans the no-stub rule) or parsing the opaque settings tree for Elemental Inference feature/feed usage, which is out of scope here."
-  - "Not fixed, disclosed: ListQueues/ListJobTemplates/ListPresets all truncate to maxResults via limitSlice with no nextToken ever returned (handler_queues.go/handler_job_templates.go/handler_presets.go), unlike ListJobs/SearchJobs/ListVersions/DescribeEndpoints which use pkgs/page.New or wire a real nextToken. A real client with more queues/templates/presets than one maxResults page can never retrieve the remainder. A missing-member gap (Layer 3), out of scope as a hunt per this sweep's brief, but worth a follow-up since it's systemic across three list ops."
+  - "FIXED 2026-08-23 (gopherstack batch8): ListQueues/ListJobTemplates/ListPresets used to truncate to maxResults via limitSlice with no nextToken ever returned, unlike ListJobs/SearchJobs, which already used pkgs/page.New -- see families note and Notes section for full detail. ListVersions/DescribeEndpoints remain their own separate (already-correct) pagination shapes, unaffected."
   - "Not fixed, disclosed: real ListQueuesOutput also carries totalConcurrentJobs/unallocatedConcurrentJobs (deserializers.go, ListQueues doc-output case list) that gopherstack's ListQueues response never emits. Layer 3, out of scope as a hunt."
   - "Noted, not a bug: Job/Queue/JobTemplate/Preset all carry a gopherstack-only Tags map[string]string field, serialized under \"tags\" in Get/List/Create responses. The real wire types (types.Job/types.Queue/types.JobTemplate/types.Preset) have no Tags member at all -- tags are request-only (CreateJobInput/CreateQueueInput/etc. accept them, confirmed via serializers.go's \"tags\" Key() calls) and otherwise surfaced only via ListTagsForResource. This is additive-and-unknown to the real deserializer's default case (same class as the pre-existing ListJobs.totalCount note below), so it is harmless, not a wire-shape bug -- left as-is."
 deferred:
@@ -404,3 +404,51 @@ struct field .lastShareDetails of type string`, confirming the symptom; restored
 - Gates: `go build`, `go vet`, `go fix -diff` (empty), `gofmt -l` (empty),
   `go test -race` (pass), `golangci-lint run` (0 issues) -- all green
   after the fix.
+
+## 2026-08-23 (gopherstack batch8) — ListQueues/ListJobTemplates/ListPresets pagination fixed
+
+**Bug**: `handleListQueues`/`handleListJobTemplates`/`handleListPresets`
+(`handler_queues.go`/`handler_job_templates.go`/`handler_presets.go`) all
+truncated their result to `maxResults` via the local `limitSlice` helper and
+never returned a `NextToken` -- unlike `ListJobs`/`SearchJobs`
+(`handler_jobs.go`/`handler_search.go`), which already used `pkgs/page.New`
+for real cursor-based pagination. All three real outputs carry a `NextToken`
+member (confirmed against `aws-sdk-go-v2/service/mediaconvert@v1.97.1`'s
+`api_op_ListQueues.go`/`api_op_ListJobTemplates.go`/`api_op_ListPresets.go`),
+each documenting `MaxResults` as "up to twenty ... at one time" -- the exact
+"pagination-ignored" bug class: a real client with more than one page's worth
+of queues/job templates/presets could create all of them successfully but
+could never retrieve the remainder past the first (unbounded) response.
+
+**Fix**: all three now call `page.New(items, nextToken, maxResults,
+defaultListPageSize)` (the same helper `ListJobs`/`SearchJobs` already used,
+`pkgs/page`), with `defaultListPageSize` (renamed from the job-specific
+`defaultJobsPageSize`, value unchanged at 20) shared across all four list ops
+since real AWS documents the same "up to twenty" default for all of them.
+`queuesListOutput`/`jobTemplatesListOutput`/`presetsListOutput` each gained a
+`NextToken string \`json:"nextToken,omitempty"\`` field, matching
+`jobsListOutput`'s existing shape. The now-dead `limitSlice` helper was
+removed (nothing else called it).
+
+**Proof**: `TestListOps_Pagination` (`wire_list_pagination_test.go`, 3
+subtests, one per op) drives the real `aws-sdk-go-v2/service/mediaconvert`
+client end to end: creates 25 resources, calls the List op with no
+`MaxResults`, asserts exactly 20 come back with a non-empty `NextToken`, then
+calls again with that token and asserts the remaining 5 with an empty
+`NextToken`. Hand-reverted `handler_queues.go`/`handler_job_templates.go`/
+`handler_presets.go`/`handler.go`/`handler_jobs.go`/`handler_search.go` (the
+last two needed reverting together since they share the renamed
+`defaultListPageSize` constant) to `git show HEAD:...` and confirmed all
+three subtests fail exactly as predicted: every List call returns all 25
+items in one response with `NextToken` never set. Restored; `md5sum`
+byte-identical to the pre-revert files for all six.
+
+Existing test suites (`handler_queues_test.go` et al.) create fewer than 20
+resources per test, so none needed updating -- they were never exercising
+the truncation-with-no-continuation-token bug in the first place.
+
+Gates: `go build ./...`, `go vet ./services/mediaconvert/...`, `gofmt -l`
+(clean), `go test -race -count=1 ./services/mediaconvert/...` (pass),
+`golangci-lint run ./services/mediaconvert/...` (0 issues). No persisted
+struct changed -- this is response-shape-only, no backend/model field
+touched, no snapshot version bump needed.

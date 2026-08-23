@@ -5,6 +5,9 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	fsxsdk "github.com/aws/aws-sdk-go-v2/service/fsx"
+	"github.com/aws/aws-sdk-go-v2/service/fsx/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -47,11 +50,20 @@ func TestFSx_Volume(t *testing.T) {
 
 			var body map[string]any
 			if !tc.wantErr {
-				fsID := createFS(t, h, "ONTAP")
+				fsID := createFS(t, h, tc.volType)
 				body = map[string]any{
-					"VolumeType":   tc.volType,
-					"FileSystemId": fsID,
-					"Name":         tc.volName,
+					"VolumeType": tc.volType,
+					"Name":       tc.volName,
+				}
+
+				switch tc.volType {
+				case "ONTAP":
+					svmID := createSVM(t, h, fsID, "svm1")
+					body["OntapConfiguration"] = map[string]any{"StorageVirtualMachineId": svmID}
+				case "OPENZFS":
+					body["OpenZFSConfiguration"] = map[string]any{
+						"ParentVolumeId": openZFSRootVolumeID(t, h, fsID),
+					}
 				}
 			} else {
 				body = map[string]any{"Name": "vol1"}
@@ -197,4 +209,139 @@ func TestFSx_RestoreVolumeFromSnapshot(t *testing.T) {
 		assert.Equal(t, "VOLUME_RESTORE", action["AdministrativeActionType"])
 		assert.Equal(t, volID, action["TargetVolumeValues"].(map[string]any)["VolumeId"])
 	})
+}
+
+// TestCreateVolume_RealRequestShape proves gopherstack's CreateVolume reads
+// the real CreateVolumeInput wire shape (fsx@v1.68.4 api_op_CreateVolume.go):
+// there is no top-level FileSystemId/StorageVirtualMachineId at all --
+// StorageVirtualMachineId lives nested under OntapConfiguration (required for
+// VolumeType=ONTAP) and OpenZFSConfiguration.ParentVolumeId is the equivalent
+// anchor for VolumeType=OPENZFS. Before this fix, gopherstack read top-level
+// FileSystemId/StorageVirtualMachineId fields a real client never populates,
+// so a real CreateVolume call silently produced a volume with no SVM/file
+// system association at all instead of failing or resolving it correctly.
+func TestCreateVolume_RealRequestShape(t *testing.T) {
+	t.Parallel()
+
+	t.Run(
+		"ONTAP volume resolves FileSystemId/StorageVirtualMachineId from OntapConfiguration",
+		func(t *testing.T) {
+			t.Parallel()
+			h := newTestHandler(t)
+			client := newTestFSxClient(t, h)
+
+			fsOut, err := client.CreateFileSystem(t.Context(), &fsxsdk.CreateFileSystemInput{
+				FileSystemType:  types.FileSystemTypeOntap,
+				SubnetIds:       []string{"subnet-0123abcd", "subnet-0456efab"},
+				StorageCapacity: aws.Int32(1024),
+				OntapConfiguration: &types.CreateFileSystemOntapConfiguration{
+					DeploymentType:     types.OntapDeploymentTypeMultiAz1,
+					PreferredSubnetId:  aws.String("subnet-0123abcd"),
+					ThroughputCapacity: aws.Int32(128),
+				},
+			})
+			require.NoError(t, err)
+
+			svmOut, err := client.CreateStorageVirtualMachine(
+				t.Context(),
+				&fsxsdk.CreateStorageVirtualMachineInput{
+					FileSystemId: fsOut.FileSystem.FileSystemId,
+					Name:         aws.String("svm1"),
+				},
+			)
+			require.NoError(t, err)
+
+			volOut, err := client.CreateVolume(t.Context(), &fsxsdk.CreateVolumeInput{
+				VolumeType: types.VolumeTypeOntap,
+				Name:       aws.String("vol1"),
+				OntapConfiguration: &types.CreateOntapVolumeConfiguration{
+					StorageVirtualMachineId: svmOut.StorageVirtualMachine.StorageVirtualMachineId,
+				},
+			})
+			require.NoError(t, err)
+			// FileSystemId resolving correctly proves the SVM reference was
+			// looked up for real (an unknown/dropped SVM would have failed
+			// lookup or left this empty). Real types.Volume has no top-level
+			// StorageVirtualMachineId member at all -- only nested under the
+			// not-yet-modeled response OntapConfiguration, a separate, disclosed
+			// Layer-3 gap (see PARITY.md) -- so it can't be asserted through the
+			// typed SDK client here.
+			assert.Equal(
+				t,
+				aws.ToString(fsOut.FileSystem.FileSystemId),
+				aws.ToString(volOut.Volume.FileSystemId),
+			)
+		},
+	)
+
+	t.Run(
+		"OPENZFS volume resolves FileSystemId from OpenZFSConfiguration.ParentVolumeId",
+		func(t *testing.T) {
+			t.Parallel()
+			h := newTestHandler(t)
+			client := newTestFSxClient(t, h)
+
+			fsOut, err := client.CreateFileSystem(t.Context(), &fsxsdk.CreateFileSystemInput{
+				FileSystemType:  types.FileSystemTypeOpenzfs,
+				SubnetIds:       []string{"subnet-0123abcd"},
+				StorageCapacity: aws.Int32(64),
+				OpenZFSConfiguration: &types.CreateFileSystemOpenZFSConfiguration{
+					DeploymentType:     types.OpenZFSDeploymentTypeSingleAz1,
+					ThroughputCapacity: aws.Int32(64),
+				},
+			})
+			require.NoError(t, err)
+			rootVolumeID := fsOut.FileSystem.OpenZFSConfiguration.RootVolumeId
+			require.NotEmpty(t, aws.ToString(rootVolumeID))
+
+			volOut, err := client.CreateVolume(t.Context(), &fsxsdk.CreateVolumeInput{
+				VolumeType: types.VolumeTypeOpenzfs,
+				Name:       aws.String("child-vol"),
+				OpenZFSConfiguration: &types.CreateOpenZFSVolumeConfiguration{
+					ParentVolumeId: rootVolumeID,
+				},
+			})
+			require.NoError(t, err)
+			assert.Equal(
+				t,
+				aws.ToString(fsOut.FileSystem.FileSystemId),
+				aws.ToString(volOut.Volume.FileSystemId),
+			)
+		},
+	)
+
+	t.Run(
+		"ONTAP volume with no OntapConfiguration returns MissingVolumeConfiguration",
+		func(t *testing.T) {
+			t.Parallel()
+			h := newTestHandler(t)
+			client := newTestFSxClient(t, h)
+
+			_, err := client.CreateVolume(t.Context(), &fsxsdk.CreateVolumeInput{
+				VolumeType: types.VolumeTypeOntap,
+				Name:       aws.String("vol1"),
+			})
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "MissingVolumeConfiguration")
+		},
+	)
+
+	t.Run(
+		"ONTAP volume with unknown StorageVirtualMachineId returns StorageVirtualMachineNotFound",
+		func(t *testing.T) {
+			t.Parallel()
+			h := newTestHandler(t)
+			client := newTestFSxClient(t, h)
+
+			_, err := client.CreateVolume(t.Context(), &fsxsdk.CreateVolumeInput{
+				VolumeType: types.VolumeTypeOntap,
+				Name:       aws.String("vol1"),
+				OntapConfiguration: &types.CreateOntapVolumeConfiguration{
+					StorageVirtualMachineId: aws.String("svm-does-not-exist"),
+				},
+			})
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "StorageVirtualMachineNotFound")
+		},
+	)
 }
