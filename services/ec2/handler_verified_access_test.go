@@ -229,6 +229,101 @@ func TestVerifiedAccess_EndpointCRUD(t *testing.T) {
 
 // extractBatch4XMLValue extracts the first text content of an XML element by tag name.
 
+// TestVerifiedAccessInstanceTrustProvidersWire proves that a trust provider
+// attached via AttachVerifiedAccessTrustProvider is surfaced in the instance
+// wire responses (verifiedAccessTrustProviderSet), matching the real
+// VerifiedAccessInstance.VerifiedAccessTrustProviders SDK field.
+func TestVerifiedAccessInstanceTrustProvidersWire(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+
+	inst, err := h.Backend.CreateVerifiedAccessInstance("wire test")
+	require.NoError(t, err)
+	tp, err := h.Backend.CreateVerifiedAccessTrustProvider("user", "idp")
+	require.NoError(t, err)
+	require.NoError(
+		t,
+		h.Backend.AttachVerifiedAccessTrustProvider(inst.VerifiedAccessInstanceID, tp.VerifiedAccessTrustProviderID),
+	)
+
+	resp, err := ec2.ExportDispatch(h, url.Values{
+		"Action":                     {"DescribeVerifiedAccessInstances"},
+		"VerifiedAccessInstanceId.1": {inst.VerifiedAccessInstanceID},
+	})
+	require.NoError(t, err)
+	assert.Contains(t, resp, "<verifiedAccessTrustProviderSet>")
+	assert.Contains(
+		t,
+		resp,
+		"<verifiedAccessTrustProviderId>"+tp.VerifiedAccessTrustProviderID+"</verifiedAccessTrustProviderId>",
+	)
+	assert.Contains(t, resp, "<trustProviderType>user</trustProviderType>")
+
+	// An instance with no attached trust providers must not leak every trust
+	// provider in the account (DescribeVerifiedAccessTrustProviders(nil) means "all").
+	bareInst, err := h.Backend.CreateVerifiedAccessInstance("no providers")
+	require.NoError(t, err)
+	bareResp, err := ec2.ExportDispatch(h, url.Values{
+		"Action":                     {"DescribeVerifiedAccessInstances"},
+		"VerifiedAccessInstanceId.1": {bareInst.VerifiedAccessInstanceID},
+	})
+	require.NoError(t, err)
+	assert.NotContains(t, bareResp, "<verifiedAccessTrustProviderId>")
+}
+
+// TestAttachDetachVerifiedAccessTrustProviderWire proves Attach/Detach return
+// the VerifiedAccessInstance and VerifiedAccessTrustProvider details, matching
+// AttachVerifiedAccessTrustProviderOutput / DetachVerifiedAccessTrustProviderOutput
+// in the SDK, instead of a bare boolean the real client never reads.
+func TestAttachDetachVerifiedAccessTrustProviderWire(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+
+	inst, err := h.Backend.CreateVerifiedAccessInstance("attach test")
+	require.NoError(t, err)
+	tp, err := h.Backend.CreateVerifiedAccessTrustProvider("device", "idp")
+	require.NoError(t, err)
+
+	attachResp, err := ec2.ExportDispatch(h, url.Values{
+		"Action":                        {"AttachVerifiedAccessTrustProvider"},
+		"VerifiedAccessInstanceId":      {inst.VerifiedAccessInstanceID},
+		"VerifiedAccessTrustProviderId": {tp.VerifiedAccessTrustProviderID},
+	})
+	require.NoError(t, err)
+	assert.Contains(t, attachResp, "<AttachVerifiedAccessTrustProviderResponse>")
+	assert.Contains(
+		t,
+		attachResp,
+		"<verifiedAccessInstanceId>"+inst.VerifiedAccessInstanceID+"</verifiedAccessInstanceId>",
+	)
+	assert.Contains(
+		t,
+		attachResp,
+		"<verifiedAccessTrustProviderId>"+tp.VerifiedAccessTrustProviderID+"</verifiedAccessTrustProviderId>",
+	)
+	assert.Contains(t, attachResp, "<trustProviderType>device</trustProviderType>")
+
+	detachResp, err := ec2.ExportDispatch(h, url.Values{
+		"Action":                        {"DetachVerifiedAccessTrustProvider"},
+		"VerifiedAccessInstanceId":      {inst.VerifiedAccessInstanceID},
+		"VerifiedAccessTrustProviderId": {tp.VerifiedAccessTrustProviderID},
+	})
+	require.NoError(t, err)
+	assert.Contains(t, detachResp, "<DetachVerifiedAccessTrustProviderResponse>")
+	assert.Contains(
+		t,
+		detachResp,
+		"<verifiedAccessInstanceId>"+inst.VerifiedAccessInstanceID+"</verifiedAccessInstanceId>",
+	)
+	assert.Contains(
+		t,
+		detachResp,
+		"<verifiedAccessTrustProviderId>"+tp.VerifiedAccessTrustProviderID+"</verifiedAccessTrustProviderId>",
+	)
+}
+
 func TestModifyVerifiedAccessGroupHTTP(t *testing.T) {
 	t.Parallel()
 

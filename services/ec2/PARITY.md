@@ -248,3 +248,54 @@ call-site changes needed. Proof: `TestHandler_OversizedBodySurfacesInternalFailu
 is the regression guard. Gates: `go build`, `go vet`, `gofmt -l` (clean), `go test -race
 ./services/ec2/...` (pass, full ec2 suite including e2e-tagged tests unaffected),
 `golangci-lint run ./services/ec2/...` (0 issues).
+
+**2026-08-23 pass -- never-named-in-PARITY sweep, Verified Access family**: this service
+declares 785 operations; diffing every declared op name against every op name mentioned
+anywhere in this file (front matter and notes) found 696 never named by any prior audit,
+of which ~248 have a real (non-trivial) response body by a field-count heuristic on the
+handler body. Picked the 18-op Verified Access family (`handler_verified_access.go` /
+`verified_access.go` -- CreateVerifiedAccessEndpoint/Group/Instance/TrustProvider,
+matching Delete/Describe/Modify, plus Attach/DetachVerifiedAccessTrustProvider) as a
+coherent, never-named, all-real-body slice and audited it fully against the installed
+`aws-sdk-go-v2/service/ec2@v1.319.1` deserializers. Found 2 real bugs, both the same
+shape -- state the backend already tracks (`VerifiedAccessInstance.AttachedTrustProviderIDs`,
+populated by Attach/DetachVerifiedAccessTrustProvider) but never surfaced on the wire:
+(1) Create/Delete/Describe/ModifyVerifiedAccessInstance's `verifiedAccessInstanceItem`
+never emitted `verifiedAccessTrustProviderSet`, the real
+`VerifiedAccessInstance.VerifiedAccessTrustProviders` field (confirmed via
+`awsEc2query_deserializeDocumentVerifiedAccessInstance`, element `verifiedAccessTrustProviderSet`
+-> `awsEc2query_deserializeDocumentVerifiedAccessTrustProviderCondensedList`) -- a real
+client describing an instance after attaching a trust provider saw no trust providers at
+all. Fixed via a new `(h *Handler) toVerifiedAccessInstanceItem` helper that resolves
+`AttachedTrustProviderIDs` through `DescribeVerifiedAccessTrustProviders`, guarding the
+empty-list case explicitly (that method treats a nil/empty ID list as "describe all",
+so an unattached instance must short-circuit rather than call it, or every trust
+provider in the account would leak onto every bare instance). (2) Attach/
+DetachVerifiedAccessTrustProvider returned a bare `{Return: true}` stub; the real
+Attach/DetachVerifiedAccessTrustProviderOutput has no `Return` field at all -- only
+`VerifiedAccessInstance`/`VerifiedAccessTrustProvider` (confirmed via
+`awsEc2query_deserializeOpDocumentAttachVerifiedAccessTrustProviderOutput`), so a real
+client relying on the attach response to confirm the new state (rather than a follow-up
+Describe) got nothing. Fixed by re-describing both resources after the attach/detach and
+returning them. New tests: `TestVerifiedAccessInstanceTrustProvidersWire` and
+`TestAttachDetachVerifiedAccessTrustProviderWire` (`handler_verified_access_test.go`),
+both wire-level via `ExportDispatch`; hand-reverted `handler_verified_access.go` to the
+pre-fix version for each and confirmed the exact documented failure (`md5sum` identical
+after restoring). No persisted-struct field/type change, so no `ec2SnapshotVersion` bump.
+Modelling gaps found but NOT fixed (out of scope for this pass, reported not synthesized):
+Create/ModifyVerifiedAccessEndpoint never read `SecurityGroupIds`/`LoadBalancerOptions`/
+`NetworkInterfaceOptions`/`CidrOptions`/`RdsOptions`/`PolicyDocument`/`SseSpecification`/
+`DomainCertificateArn` (the real endpoint-type-specific config, entirely unmodeled --
+`vals.Get` never even reads these); `VerifiedAccessTrustProvider` collapses the real
+`DeviceTrustProviderType`/`UserTrustProviderType` split into one `TrustProviderType`
+string; `VerifiedAccessGroup`/`VerifiedAccessInstance`/`VerifiedAccessEndpoint` are all
+missing `CreationTime`/`LastUpdatedTime`/`Tags`/`PolicyDocument`/`PolicyEnabled`. Gates:
+`go build ./...`, `go vet ./services/ec2/...`, `gofmt -l` (clean), `go test -race
+./services/ec2/... ./pkgs/persistence/...` (pass), `golangci-lint run ./services/ec2/...`
+(0 issues after `--fix` corrected a `fieldalignment` finding on the two new Attach/Detach
+response structs). Not reached: the other ~246 never-named rich-body ops, concentrated in
+`handler_images.go` (17), `handler_instances.go` (15), `handler_volumes.go` (12),
+`handler_snapshots.go` (11), `handler_spot_fleet.go` (10), `handler_client_vpn.go` (9),
+`handler_security_groups.go` (9), `handler_elastic_ips.go` (8), `handler_tgw_multicast.go`
+(7), `handler_instance_attrs.go` (7) -- next pass should pick one of those families, per
+the same method.
