@@ -16,6 +16,7 @@ import (
 func (b *InMemoryBackend) CreateHost(
 	ctx context.Context,
 	name, providerType, providerEndpoint string,
+	vpcConfig *VpcConfiguration,
 	tags map[string]string,
 ) (*Host, error) {
 	if name == "" {
@@ -54,6 +55,7 @@ func (b *InMemoryBackend) CreateHost(
 		ProviderType:     providerType,
 		ProviderEndpoint: providerEndpoint,
 		Status:           "AVAILABLE",
+		VpcConfiguration: vpcConfig,
 		Tags:             tagsCopy,
 		CreatedAt:        time.Now().UTC(),
 	}
@@ -161,8 +163,12 @@ func (b *InMemoryBackend) ListHosts(ctx context.Context) []*Host {
 	return result
 }
 
-// UpdateHost updates the provider endpoint for a host.
-func (b *InMemoryBackend) UpdateHost(ctx context.Context, hostArn, providerEndpoint string) error {
+// UpdateHost updates the provider endpoint and/or VPC configuration for a host.
+func (b *InMemoryBackend) UpdateHost(
+	ctx context.Context,
+	hostArn, providerEndpoint string,
+	vpcConfig *VpcConfiguration,
+) error {
 	region := getRegion(ctx, b.defaultRegion)
 
 	b.mu.Lock("UpdateHost")
@@ -173,11 +179,15 @@ func (b *InMemoryBackend) UpdateHost(ctx context.Context, hostArn, providerEndpo
 		return ErrNotFound
 	}
 
-	// ProviderEndpoint is not part of any index key (hosts is keyed by
-	// HostArn; byRegion derives from HostArn), so mutating the stored *Host
-	// in place is safe -- no Delete+Put needed.
+	// ProviderEndpoint/VpcConfiguration are not part of any index key (hosts
+	// is keyed by HostArn; byRegion derives from HostArn), so mutating the
+	// stored *Host in place is safe -- no Delete+Put needed.
 	if providerEndpoint != "" {
 		host.ProviderEndpoint = providerEndpoint
+	}
+
+	if vpcConfig != nil {
+		host.VpcConfiguration = vpcConfig
 	}
 
 	return nil

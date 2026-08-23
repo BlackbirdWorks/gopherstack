@@ -210,8 +210,14 @@ func TestGetConnectionOwnerAccountId(t *testing.T) {
 	}
 }
 
-// TestGetConnectionIncludesTags verifies Tags are included in GetConnection response.
-func TestGetConnectionIncludesTags(t *testing.T) {
+// TestGetConnectionExcludesTags verifies GetConnection's nested Connection
+// object never carries a Tags member: aws-sdk-go-v2/service/
+// codeconnections@v1.13.4's types.Connection has no Tags field at all
+// (confirmed against awsAwsjson10_deserializeDocumentConnection's case
+// switch) -- tags created via CreateConnection are only retrievable
+// afterward via ListTagsForResource. A previous version of this test
+// asserted Tags on the GetConnection response as correct.
+func TestGetConnectionExcludesTags(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -242,8 +248,12 @@ func TestGetConnectionIncludesTags(t *testing.T) {
 			resp := parseResp(t, getRec)
 			conn, ok := resp["Connection"].(map[string]any)
 			require.True(t, ok)
-			tags, ok := conn["Tags"].([]any)
-			require.True(t, ok)
+			_, hasTags := conn["Tags"]
+			assert.False(t, hasTags, "GetConnection's Connection object must not include a Tags member")
+
+			listTagsRec := doJSON(t, h, "ListTagsForResource", map[string]any{"ResourceArn": connArn})
+			require.Equal(t, http.StatusOK, listTagsRec.Code)
+			tags, _ := parseResp(t, listTagsRec)["Tags"].([]any)
 			assert.Len(t, tags, tt.wantTags)
 		})
 	}
@@ -672,4 +682,36 @@ func TestBackendCreateConnectionHostArn(t *testing.T) {
 			assert.Equal(t, tt.wantHostArn, got.HostArn)
 		})
 	}
+}
+
+// TestListConnectionsExcludesTags verifies ListConnections items never carry
+// a Tags member, for the same reason as TestGetConnectionExcludesTags: the
+// real types.Connection type used by both ops has no Tags field.
+func TestListConnectionsExcludesTags(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+
+	rec := doJSON(t, h, "CreateConnection", map[string]any{
+		"ConnectionName": "list-tagged-conn",
+		"ProviderType":   "GitHub",
+		"Tags": []map[string]string{
+			{"Key": "Env", "Value": "prod"},
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	listRec := doJSON(t, h, "ListConnections", nil)
+	require.Equal(t, http.StatusOK, listRec.Code)
+
+	resp := parseResp(t, listRec)
+	conns, ok := resp["Connections"].([]any)
+	require.True(t, ok)
+	require.Len(t, conns, 1)
+
+	connMap, isMap := conns[0].(map[string]any)
+	require.True(t, isMap)
+
+	_, hasTags := connMap["Tags"]
+	assert.False(t, hasTags, "ListConnections item must not include a Tags member")
 }

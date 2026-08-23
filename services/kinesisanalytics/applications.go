@@ -219,7 +219,7 @@ func convertInputProcessingConfig(cfg *inputProcessingConfigInput) (*InputProces
 	}
 
 	return &InputProcessingConfigurationDesc{
-		InputLambdaProcessor: &LambdaProcessorDesc{
+		InputLambdaProcessorDescription: &LambdaProcessorDesc{
 			ResourceARN: cfg.InputLambdaProcessor.ResourceARN,
 			RoleARN:     cfg.InputLambdaProcessor.RoleARN,
 		},
@@ -811,9 +811,9 @@ func copyInputDescs(src []InputDescription) []InputDescription {
 
 		if inp.InputProcessingConfigurationDescription != nil {
 			c := *inp.InputProcessingConfigurationDescription
-			if c.InputLambdaProcessor != nil {
-				lp := *c.InputLambdaProcessor
-				c.InputLambdaProcessor = &lp
+			if c.InputLambdaProcessorDescription != nil {
+				lp := *c.InputLambdaProcessorDescription
+				c.InputLambdaProcessorDescription = &lp
 			}
 
 			dup.InputProcessingConfigurationDescription = &c

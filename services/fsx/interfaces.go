@@ -53,7 +53,7 @@ type StorageBackend interface {
 	CreateDataRepositoryTask(input *createDataRepositoryTaskInput) (*DataRepositoryTask, error)
 	DescribeDataRepositoryTasks(ids []string, maxResults int32, nextToken string) ([]*DataRepositoryTask, string, error)
 
-	CreateFileCache(input *createFileCacheInput) (*FileCache, error)
+	CreateFileCache(input *createFileCacheInput) (*FileCacheCreating, error)
 	DeleteFileCache(fileCacheID string) error
 	DescribeFileCaches(ids []string, maxResults int32, nextToken string) ([]*FileCache, string, error)
 	UpdateFileCache(input *updateFileCacheInput) (*FileCache, error)
@@ -80,13 +80,13 @@ type StorageBackend interface {
 	RestoreVolumeFromSnapshot(input *restoreVolumeFromSnapshotInput) (*Volume, error)
 	UpdateVolume(input *updateVolumeInput) (*Volume, error)
 
-	CreateAndAttachS3AccessPoint(input *createAndAttachS3AccessPointInput) (*S3AccessPoint, error)
-	DetachAndDeleteS3AccessPoint(name, fileSystemID string) error
+	CreateAndAttachS3AccessPoint(input *createAndAttachS3AccessPointInput) (*S3AccessPointAttachment, error)
+	DetachAndDeleteS3AccessPoint(name string) error
 	DescribeS3AccessPointAttachments(
 		names []string,
 		maxResults int32,
 		nextToken string,
-	) ([]*S3AccessPoint, string, error)
+	) ([]*S3AccessPointAttachment, string, error)
 
 	DescribeSharedVpcConfiguration() (*SharedVpcConfiguration, error)
 	UpdateSharedVpcConfiguration(input *updateSharedVpcConfigurationInput) (*SharedVpcConfiguration, error)
@@ -275,7 +275,11 @@ type DataRepositoryTask struct {
 	Tags         []Tag             `json:"Tags,omitempty"`
 }
 
-// FileCache represents an Amazon FSx file cache.
+// FileCache represents an Amazon FSx file cache, in the shape used by
+// DescribeFileCaches/UpdateFileCache (types.FileCache, types/types.go:2264).
+// Unlike FileCacheCreating below, this type has no Tags member: the real
+// deserializer (deserializers.go:9818) has no case "Tags" at all, so a real
+// client would silently drop that key.
 // CreationTime is first so its non-pointer prefix reduces GC pointer bytes.
 // CreationTime uses epochTime: the real FSx deserializer requires a JSON
 // number of epoch seconds here, not an RFC3339 string.
@@ -286,8 +290,22 @@ type FileCache struct {
 	FileCacheTypeVersion string    `json:"FileCacheTypeVersion,omitempty"`
 	Lifecycle            string    `json:"Lifecycle"`
 	ResourceARN          string    `json:"ResourceARN"`
-	Tags                 []Tag     `json:"Tags,omitempty"`
 	SubnetIDs            []string  `json:"SubnetIds,omitempty"`
+	StorageCapacityGiB   int32     `json:"StorageCapacity,omitempty"`
+}
+
+// FileCacheCreating represents the CreateFileCache response shape
+// (types.FileCacheCreating, types/types.go:2349) which, unlike FileCache
+// above, DOES include Tags (deserializers.go:9984, case "Tags").
+type FileCacheCreating struct {
+	CreationTime         epochTime `json:"CreationTime"`
+	FileCacheID          string    `json:"FileCacheId"`
+	FileCacheType        string    `json:"FileCacheType"`
+	FileCacheTypeVersion string    `json:"FileCacheTypeVersion,omitempty"`
+	Lifecycle            string    `json:"Lifecycle"`
+	ResourceARN          string    `json:"ResourceARN"`
+	SubnetIDs            []string  `json:"SubnetIds,omitempty"`
+	Tags                 []Tag     `json:"Tags,omitempty"`
 	StorageCapacityGiB   int32     `json:"StorageCapacity,omitempty"`
 }
 
@@ -337,18 +355,59 @@ type Volume struct {
 	Tags                    []Tag     `json:"Tags,omitempty"`
 }
 
-// S3AccessPoint represents an S3 access point attached to an FSx resource.
+// AdministrativeAction represents an in-progress or completed FSx
+// administrative action (types.AdministrativeAction, deserializers.go:7516).
+// RestoreVolumeFromSnapshot and CopySnapshotAndUpdateVolume wrap their
+// response under "AdministrativeActions" (plus root-level Lifecycle/VolumeId)
+// -- not under a "Volume" key, which neither op's real Output struct has at
+// all (api_op_RestoreVolumeFromSnapshot.go, api_op_CopySnapshotAndUpdateVolume.go).
+type AdministrativeAction struct {
+	RequestTime              epochTime `json:"RequestTime"`
+	TargetVolumeValues       *Volume   `json:"TargetVolumeValues,omitempty"`
+	AdministrativeActionType string    `json:"AdministrativeActionType,omitempty"`
+	Status                   string    `json:"Status,omitempty"`
+}
+
+// S3AccessPointAttachment represents an FSx S3 access point attachment
+// (CreateAndAttachS3AccessPoint / DescribeS3AccessPointAttachments response
+// shape; types.S3AccessPointAttachment, types/types.go:3898). Real AWS has
+// no top-level FileSystemId, VolumeId, ResourceARN, or Tags member here: the
+// attached VolumeId lives under whichever of OntapConfiguration/
+// OpenZFSConfiguration matches Type, and the ARN/alias live under the nested
+// S3AccessPoint (deserializers.go:13829, case list confirmed against the op's
+// own live deserializer -- no case "Tags" exists on this type at all).
 // CreationTime is first so its non-pointer prefix reduces GC pointer bytes.
-// CreationTime uses epochTime: the real FSx deserializer requires a JSON
-// number of epoch seconds here, not an RFC3339 string.
+type S3AccessPointAttachment struct {
+	CreationTime         epochTime                          `json:"CreationTime"`
+	OntapConfiguration   *S3AccessPointOntapConfiguration   `json:"OntapConfiguration,omitempty"`
+	OpenZFSConfiguration *S3AccessPointOpenZFSConfiguration `json:"OpenZFSConfiguration,omitempty"`
+	S3AccessPoint        *S3AccessPoint                     `json:"S3AccessPoint,omitempty"`
+	Name                 string                             `json:"Name"`
+	Lifecycle            string                             `json:"Lifecycle"`
+	Type                 string                             `json:"Type"`
+}
+
+// S3AccessPointOntapConfiguration is the ONTAP-attached half of an
+// S3AccessPointAttachment (types.S3AccessPointOntapConfiguration,
+// types/types.go:3956): the only member this backend populates is VolumeId
+// (FileSystemIdentity is an input-only echo AWS doesn't return here).
+type S3AccessPointOntapConfiguration struct {
+	VolumeID string `json:"VolumeId,omitempty"`
+}
+
+// S3AccessPointOpenZFSConfiguration is the OpenZFS-attached half of an
+// S3AccessPointAttachment (types.S3AccessPointOpenZFSConfiguration,
+// types/types.go:3970).
+type S3AccessPointOpenZFSConfiguration struct {
+	VolumeID string `json:"VolumeId,omitempty"`
+}
+
+// S3AccessPoint mirrors types.S3AccessPoint (the nested details block, a
+// DIFFERENT Go/wire type from S3AccessPointAttachment above), which only has
+// Alias/ResourceARN/VpcConfiguration (deserializers.go:13775).
 type S3AccessPoint struct {
-	CreationTime epochTime `json:"CreationTime"`
-	Name         string    `json:"Name"`
-	FileSystemID string    `json:"FileSystemId"`
-	VolumeID     string    `json:"VolumeId,omitempty"`
-	Lifecycle    string    `json:"Lifecycle"`
-	ResourceARN  string    `json:"ResourceARN"`
-	Tags         []Tag     `json:"Tags,omitempty"`
+	Alias       string `json:"Alias,omitempty"`
+	ResourceARN string `json:"ResourceARN,omitempty"`
 }
 
 // SharedVpcConfiguration holds the shared VPC on-file-system-creation setting.

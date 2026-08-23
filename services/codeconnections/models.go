@@ -59,11 +59,23 @@ type Connection struct {
 	Status         string            `json:"status"`
 }
 
+// VpcConfiguration holds the VPC connectivity settings for a host (real
+// aws-sdk-go-v2/service/codeconnections@v1.13.4 types.VpcConfiguration --
+// SecurityGroupIds/SubnetIds/VpcId are required wire members, TlsCertificate
+// is optional).
+type VpcConfiguration struct {
+	VpcID            string   `json:"vpcId"`
+	TLSCertificate   string   `json:"tlsCertificate,omitempty"`
+	SubnetIDs        []string `json:"subnetIds"`
+	SecurityGroupIDs []string `json:"securityGroupIds"`
+}
+
 // Host represents an AWS CodeConnections host (infrastructure endpoint).
 //
 // Like Connection, HostArn already embeds its own region, so Host needs no
 // hidden region field either.
 type Host struct {
+	VpcConfiguration *VpcConfiguration `json:"vpcConfiguration,omitempty"`
 	Tags             map[string]string `json:"tags,omitempty"`
 	CreatedAt        time.Time         `json:"createdAt"`
 	Name             string            `json:"name"`

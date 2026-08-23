@@ -25,9 +25,9 @@ type capacityForecastOutput struct {
 }
 
 type loadForecastOutput struct {
-	MetricSpecification string    `json:"MetricSpecification"`
-	Timestamps          []float64 `json:"Timestamps"`
-	Values              []float64 `json:"Values"`
+	MetricSpecification map[string]any `json:"MetricSpecification,omitempty"`
+	Timestamps          []float64      `json:"Timestamps"`
+	Values              []float64      `json:"Values"`
 }
 
 type getPredictiveScalingForecastOutput struct {

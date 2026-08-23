@@ -587,7 +587,7 @@ func TestHandler_UpdateMemberLogPublishingConfig(t *testing.T) {
 				"LogPublishingConfiguration": map[string]any{
 					"Fabric": map[string]any{
 						"CaLogs": map[string]any{
-							"CloudWatch": map[string]any{
+							"Cloudwatch": map[string]any{
 								"Enabled": tt.logEnabled,
 							},
 						},
@@ -610,7 +610,7 @@ func TestHandler_UpdateMemberLogPublishingConfig(t *testing.T) {
 			logConfigMap := logConfig.(map[string]any)
 			fabric := logConfigMap["Fabric"].(map[string]any)
 			caLogs := fabric["CaLogs"].(map[string]any)
-			cw := caLogs["CloudWatch"].(map[string]any)
+			cw := caLogs["Cloudwatch"].(map[string]any)
 			assert.Equal(t, tt.logEnabled, cw["Enabled"])
 		})
 	}

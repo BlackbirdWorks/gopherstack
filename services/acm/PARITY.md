@@ -8,6 +8,8 @@ service: acm
 sdk_module: aws-sdk-go-v2/service/acm@v1.43.4   # version audited against
 last_audit_commit:                                # unknown: pass ran without git access at write time, never backfilled -- gopherstack-33in
 last_audit_date: 2026-08-10
+last_audit_commit: HEAD                           # see git log for this pass's commit
+last_audit_date: 2026-08-19
 overall: A            # A = genuine fix found (wire-shape bug); B = already-accurate, proven op-by-op
 # 2026-07-25 pass: implemented 23 ops added between v1.37.21 and v1.43.0 (the
 # ACME family: endpoints, external account bindings, accounts, domain
@@ -115,7 +117,7 @@ overall: A            # A = genuine fix found (wire-shape bug); B = already-accu
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
   RequestCertificate: {wire: ok, errors: partial, state: ok, persist: ok, note: "field-diffed this pass against RequestCertificateInput/CertificateOptions: added DomainValidationOptions input (validated + applied, InvalidDomainValidationOptionsException wired), Options.Export input (stored, echoed on Describe/List, see gaps for enforcement scope), SAN-count-exceeded now LimitExceededException (was ValidationException); RSA_1024 weak-key rejection now correctly wrapped as ValidationException instead of escaping to a 500 InternalFailure. 2026-07-30: ManagedBy input added (real CertificateManagedBy enum, single value CLOUDFRONT; verified against types.go/api_op_RequestCertificate.go), validated before certificate creation (so an unknown value never leaves an orphaned cert behind, same reasoning as DomainValidationOptions) and stored via a new SetManagedBy backend call, mirroring the existing SetExportPreference immutable-after-creation pattern. 2026-08-10: ValidationMethod=HTTP now starts the certificate PENDING_VALIDATION (was previously swallowed by buildInitialDVOList's default branch, immediately issuing the cert with a mislabeled DNS ResourceRecord) and populates a synthetic HttpRedirect (DomainValidationOption.HTTPRedirect/RedirectFrom/RedirectTo) instead -- see DescribeCertificate note and gaps for the still-unconfirmed accept/reject contract this does NOT claim to resolve. errors: partial because RequestCertificate's own deserializer (deserializers.go:3346-3400+, v1.43.4) recognizes InvalidArnException/InvalidDomainValidationOptionsException/InvalidParameterException/InvalidTagException/LimitExceededException/TagPolicyException/TooManyTagsException -- NOT ValidationException -- but validateRequestCertInput's DomainName-required/domain-shape checks, validateManagedBy, and the RSA_1024 weak-key check (crypto.go) all still return ValidationException (ErrInvalidParameter) here; see gaps, not fixed this pass because validateDomainName and the weak-key check are shared with RenewCertificate (whose real error set DOES include ValidationException, confirmed deserializers.go:3272) and CreateAcmeDomainValidation (a third, different error set), so a correct fix needs per-caller error codes, not a global rename."}
-  DescribeCertificate: {wire: ok, errors: ok, state: ok, persist: ok, note: "RenewalSummary now includes UpdatedAt (required/always-present on real wire, was missing entirely) and RenewalStatusReason; Options.Export added; InvalidArnException wired for malformed CertificateArn. 2026-07-30: ManagedBy echoed (see RequestCertificate note); jsonDescribeCertificate decomposed into buildDomainValidationOptionList/buildRenewalSummaryDetail helpers to stay under funlen after the addition. 2026-08-10: DomainValidationOptions[].HttpRedirect wired (types.DomainValidation.HttpRedirect, types.go:1053-1056, v1.43.4: 'exists only when ... the validation method is HTTP'); mutually exclusive with ResourceRecord per real wire semantics, see RequestCertificate note."}
+  DescribeCertificate: {wire: ok, errors: ok, state: ok, persist: ok, note: "RenewalSummary now includes UpdatedAt (required/always-present on real wire, was missing entirely) and RenewalStatusReason; Options.Export added; InvalidArnException wired for malformed CertificateArn. 2026-07-30: ManagedBy echoed (see RequestCertificate note); jsonDescribeCertificate decomposed into buildDomainValidationOptionList/buildRenewalSummaryDetail helpers to stay under funlen after the addition. 2026-08-10: DomainValidationOptions[].HttpRedirect wired (types.DomainValidation.HttpRedirect, types.go:1053-1056, v1.43.4: 'exists only when ... the validation method is HTTP'); mutually exclusive with ResourceRecord per real wire semantics, see RequestCertificate note. 2026-08-19 (wrapper-key/nested-shape sweep, bd gopherstack): FIXED a fabricated top-level Certificate.KeyId member -- the real CertificateDetail deserializer (deserializers.go:6456-6768, v1.43.4) has no KeyId case at all; that key belongs exclusively to GetAcmeExternalAccountBindingCredentialsOutput (deserializers.go:10053). The field was dead code (Certificate.KeyID in models.go was never set anywhere, so omitempty always dropped it from the wire in practice) but was removed as a fabricated shape member per this campaign's rule. See certificate_detail_no_fabricated_keyid_test.go."}
   ListCertificates: {wire: ok, errors: ok, state: ok, persist: ok, note: "CertificateSummary previously omitted CreatedAt entirely (always-present real field) -- fixed. Also added RevokedAt/InUse/KeyUsages/ExtendedKeyUsages/ExportOption/Exported/HasAdditionalSubjectAlternativeNames(always false, correct given our SAN cap), closing the prior gap row. 2026-07-30: ManagedBy added (was previously intentionally omitted, see prior gaps -- now real, see RequestCertificate note). FIXED THIS PASS (parity-5): Exported was gated to PRIVATE-type certificates only, mirroring a doc-comment restriction ('This value exists only when the certificate type is PRIVATE') that was real in aws-sdk-go-v2/service/acm@v1.37.21 but is GONE from the currently-installed v1.43.0's types.go -- AWS dropped it when exportable public certificates shipped in 2025. Now that AMAZON_ISSUED certificates can genuinely be exported too (see ExportCertificate), gating Exported to PRIVATE was stale; set unconditionally, matching SearchCertificates' AcmCertificateMetadata.Exported (handler_search_certificates.go), which was already correctly unconditional. 2026-08-10: ListCertificates' deserializer (deserializers.go:2698-2747, v1.43.4) recognizes exactly InvalidArgsException/ValidationException -- unlike every other op in this package -- and previously nothing validated CertificateStatuses/Includes.KeyTypes/Includes.KeyUsage/Includes.ExtendedKeyUsage/SortBy/SortOrder against their real enums, so an unrecognized value (typo or otherwise) silently matched zero certificates and returned 200 instead of 400 -- the more-permissive-than-AWS direction. validateListCertificatesParams (certificate_validation.go) now rejects any value outside the real CertificateStatus/KeyAlgorithm/KeyUsageName/ExtendedKeyUsageName/SortBy(CREATED_AT only)/SortOrder enums with InvalidArgsException (new ErrInvalidArgs sentinel)."}
   DeleteCertificate: {wire: ok, errors: ok, state: ok, persist: ok, note: "InvalidArnException wired for malformed CertificateArn"}
   ImportCertificate: {wire: ok, errors: ok, state: ok, persist: ok, note: "re-import (CertificateArn set) updates in place; matches AWS. InvalidArnException wired when CertificateArn is supplied and malformed"}
@@ -652,3 +654,110 @@ leaks: {status: clean, note: "isolation_test.go / leak_test.go already cover tim
   `TestACMHandler_ListCertificates_InvalidArgsException`'s four cases each failed
   asserting HTTP 400 (got 200); the persistence round-trip case failed to compile
   (`HTTPRedirect` field did not exist). All three now pass against the fix.
+
+## Notes (2026-08-19 pass — wrapper-key/nested-shape wire-parity sweep)
+
+- **Scope**: full re-audit of every response wrapper key and nested-member wire
+  shape for all 39 ops in the currently-installed `aws-sdk-go-v2/service/acm@v1.43.4`
+  (confirmed via `ls api_op_*.go`, matches `GetSupportedOperations`'s 39 entries
+  exactly, no fabricated/missing op). Protocol re-confirmed as JSON-RPC 1.1
+  (`awsAwsjson11_*` serializer/deserializer prefix, `api_client.go`/`deserializers.go`),
+  matching the header's existing "awsjson1.1" note. Every op's OWN
+  `awsAwsjson11_deserializeOpDocument<Op>Output`/`awsAwsjson11_deserializeDocument<Type>`
+  switch statement was read directly and compared field-by-field against
+  gopherstack's wire struct for that specific op -- no shape was assumed to transfer
+  from a same-looking sibling.
+
+- **One bug found and fixed**: see the DescribeCertificate ops-row note above
+  (fabricated `Certificate.KeyId`). Proven by hand-revert: reintroducing
+  `KeyID: "test-fabricated-keyid"` in `jsonDescribeCertificate`
+  (handler_certificates.go) made the new test fail with exactly the predicted
+  symptom (`certRaw["KeyId"]` present in the raw response body); removing it again
+  reproduced a byte-identical diff against the pre-revert file. Instrument used:
+  raw-body key-absence assertion, not a typed-SDK-client round trip -- `types.CertificateDetail`
+  has no `KeyId` field to observe either way, so a typed client can't see this class
+  of leak (same reasoning the task called out for a fabricated/leaked key).
+
+- **Families verified CLEAN this pass** (every emitted member's name, nesting, and
+  JSON type checked against the real deserializer's case list):
+  - `CertificateDetail`/`DescribeCertificate` (aside from the one KeyId fix) --
+    `ResourceRecord`, `HttpRedirect`, `KeyUsage`, `ExtendedKeyUsage`,
+    `CertificateOptions`, `DomainValidation`/`RenewalSummary` nested shapes all
+    field-diffed clean, including `RenewalSummary`'s wire-struct casing
+    (`RenewalStatus`/`RenewalStatusReason`/`DomainValidationOptions`/`UpdatedAt`,
+    epoch-seconds int64) -- correct in `handler_certificates.go`'s dedicated
+    `renewalSummaryDetail` wire struct (the internal `models.go` domain-model
+    `RenewalSummary` type has inconsistent-looking lowerCamelCase/PascalCase json
+    tags of its own, but that struct is never marshaled to the wire directly --
+    only `renewalSummaryDetail` is -- so it is not a wire bug; noting here in
+    case a future pass is tempted to "fix" `models.go`'s tags without checking
+    this).
+  - `CertificateSummary`/`ListCertificates` -- confirmed `KeyUsages`/`ExtendedKeyUsages`
+    are plain string arrays here (not the `[]{"Name":...}` object-wrapped shape
+    `CertificateDetail` uses), matching the pre-existing comment in
+    `handler_certificates.go` documenting this exact asymmetry.
+  - `AcmeEndpoint`/`AcmeEndpointSummary` (`ListAcmeEndpoints` vs `DescribeAcmeEndpoint`) --
+    field-identical on the real wire (verified by reading both struct definitions
+    in `types.go`), so gopherstack correctly reuses one wire struct
+    (`acmeEndpointWire`) for both ops; this is NOT the summary/detail-confusion bug
+    class despite the shared struct, because AWS itself defines no difference here.
+  - `AcmeExternalAccountBinding`/`AcmeExternalAccountBindingSummary`,
+    `AcmeAccount`/`AcmeAccountSummary`, `AcmeDomainValidation`/`AcmeDomainValidationSummary` --
+    same field-identical-Summary-and-Detail pattern, each independently confirmed
+    against `types.go`, each correctly sharing one gopherstack wire struct.
+  - `PrevalidationDetails`/`PrevalidationOptions` union (`DnsPrevalidation` ->
+    `DomainScope{ExactDomain,Subdomains,Wildcards}`/`HostedZoneId`/`ResourceRecord`)
+    -- exact match.
+  - `SearchCertificates`: `CertificateSearchResult` -> `CertificateMetadata` union
+    (`AcmCertificateMetadata`) and `X509Attributes` (`DistinguishedName`,
+    `GeneralName`, `ExtendedKeyUsageNames`/`KeyUsageNames` as plain strings here
+    too) -- exact match, including the `Results`/`NextToken` top-level wrapper keys.
+  - Tag family (`ListTagsForCertificate`/`ListTagsForResource`/`AddTagsToCertificate`/
+    `TagResource`/`UntagResource`) and account-config family
+    (`GetAccountConfiguration`/`PutAccountConfiguration`, `ExpiryEventsConfiguration`)
+    -- exact match.
+  - Scalar-output ops (`RequestCertificate`, `ImportCertificate`,
+    `ExportCertificate`, `GetCertificate`, `RenewCertificate`, `DeleteCertificate`,
+    `ResendValidationEmail`, `RevokeCertificate`, `UpdateCertificateOptions`) --
+    each op's own `OpDocument*Output` case list confirmed against gopherstack's
+    output struct; `ExportCertificate`/`GetCertificate`'s `Certificate`/
+    `CertificateChain`/`PrivateKey` confirmed to be `*string` (base64 PEM text) on
+    the real type, not a blob requiring extra encoding -- gopherstack's plain
+    `string` fields are correct as-is.
+
+- **Genuine gaps disclosed, not fixed** (Layer 3 -- legitimate real-wire members
+  gopherstack never emits at all; out of scope per this sweep's own instructions,
+  noted only because they surfaced incidentally while reading each deserializer's
+  full case list):
+  - `CertificateDetail.AcmeAccountId`/`AcmeEndpointArn` (deserializers.go:6478-6494)
+    -- consistent with the pre-existing, already-documented gap that no code path
+    ties an issued certificate back to the ACME account/endpoint that issued it
+    (gopherstack has no real ACME protocol front-end, see the long-standing
+    AcmeAccount gap above).
+  - `CertificateDetail.ExtendedKeyUsage[].OID` (deserializers.go:7925-7932) --
+    `extKeyUsageDetail` only emits `Name`; `OID` (an X.509 object identifier
+    string) is never populated or emitted.
+  - `AcmeDomainValidation.FailureDetails` (deserializers.go:5613-5617) --
+    consistent with the pre-existing gap that `AcmeDomainValidation.Status` never
+    leaves `VALIDATING`, so there is never a failure to report.
+  - `AcmCertificateMetadata.AcmeAccountId`/`AcmeEndpointArn`/`CertificateKeyPairOrigin`
+    (deserializers.go:5157-5175, SearchCertificates' nested metadata) -- same root
+    cause as the CertificateDetail gap above, already covered by an existing gaps
+    bullet for the metadata-filter side of this.
+  - `CertificateSummary.CertificateKeyPairOrigin` (deserializers.go:6975-6983) --
+    never emitted; no code path tracks key-pair origin as summary-visible data
+    separate from `CertificateKeyPairOrigin` more broadly.
+  - `X509Attributes.Issuer`/`Subject` as `DistinguishedName` objects only expose
+    `CommonName` in gopherstack (`Country`/`Organization`/`OrganizationalUnit`/etc.
+    RDN components, deserializers.go:7409-7427+, are real fields never populated)
+    -- already covered by the existing `X509AttributeFilter.Subject` gap bullet
+    above (no structured-DN data exists to emit beyond CommonName).
+  None of these are new findings requiring a fix under this sweep's Layer-3-out-of-
+  scope rule; listed for the next pass's reference.
+
+- **Existing tests**: no test in this package asserted a wrong wire key or an
+  empty-collection-as-success pattern; nothing required correcting.
+
+- **Gates**: `go build`, `go vet`, `go fix -diff` (empty), `gofmt -l` (empty),
+  `go test -race` (all pass), `golangci-lint run` (0 issues) all clean on
+  `services/acm/...` after the fix.

@@ -708,19 +708,17 @@ func TestHandler_ListPipesIncludesSourceTarget(t *testing.T) {
 	rec := doPipesRequest(t, h, http.MethodGet, "/v1/pipes", nil)
 	require.Equal(t, http.StatusOK, rec.Code)
 
+	// ListPipes returns the summary Pipe shape, which the real API does not give a
+	// Description field (unlike the full DescribePipeOutput) -- confirm it's absent.
 	var out struct {
-		Pipes []struct {
-			Name        string `json:"Name"`
-			Source      string `json:"Source"`
-			Target      string `json:"Target"`
-			Description string `json:"Description"`
-		} `json:"Pipes"`
+		Pipes []map[string]any `json:"Pipes"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
 	require.Len(t, out.Pipes, 1)
-	assert.Equal(t, "arn:aws:sqs:us-east-1:000000000000:my-queue", out.Pipes[0].Source)
-	assert.Equal(t, "arn:aws:lambda:us-east-1:000000000000:function:my-fn", out.Pipes[0].Target)
-	assert.Equal(t, "test pipe", out.Pipes[0].Description)
+	assert.Equal(t, "arn:aws:sqs:us-east-1:000000000000:my-queue", out.Pipes[0]["Source"])
+	assert.Equal(t, "arn:aws:lambda:us-east-1:000000000000:function:my-fn", out.Pipes[0]["Target"])
+	_, hasDescription := out.Pipes[0]["Description"]
+	assert.False(t, hasDescription, "ListPipes summary Pipe has no Description field in the real API")
 }
 
 // --- shared wire-format request helpers (used across this package's test files) ---

@@ -100,6 +100,10 @@ type ReplicationInstance struct {
 	PrivateIPAddress              string     `json:"privateIpAddress"`
 	AccountID                     string     `json:"accountId"`
 	Region                        string     `json:"region"`
+	KmsKeyID                      string     `json:"kmsKeyId,omitempty"`
+	DNSNameServers                string     `json:"dnsNameServers,omitempty"`
+	NetworkType                   string     `json:"networkType,omitempty"`
+	PreferredMaintenanceWindow    string     `json:"preferredMaintenanceWindow,omitempty"`
 	AllocatedStorage              int32      `json:"allocatedStorage"`
 	MultiAZ                       bool       `json:"multiAZ"`
 	AutoMinorVersionUpgrade       bool       `json:"autoMinorVersionUpgrade"`
@@ -119,20 +123,26 @@ type ReplicationInstance struct {
 // modeled and are rejected with ValidationException if sent -- see
 // engineSettingsFields in handler_endpoints.go and PARITY.md.
 type Endpoint struct {
-	CreationTime       time.Time  `json:"creationTime"`
-	Tags               *tags.Tags `json:"-"`
-	EndpointIdentifier string     `json:"endpointIdentifier"`
-	EndpointArn        string     `json:"endpointArn"`
-	EndpointType       string     `json:"endpointType"`
-	EngineName         string     `json:"engineName"`
-	ServerName         string     `json:"serverName,omitempty"`
-	DatabaseName       string     `json:"databaseName,omitempty"`
-	Username           string     `json:"username,omitempty"`
-	Password           string     `json:"password,omitempty"`
-	Status             string     `json:"status"`
-	AccountID          string     `json:"accountId"`
-	Region             string     `json:"region"`
-	Port               int32      `json:"port,omitempty"`
+	CreationTime              time.Time  `json:"creationTime"`
+	Tags                      *tags.Tags `json:"-"`
+	EndpointIdentifier        string     `json:"endpointIdentifier"`
+	EndpointArn               string     `json:"endpointArn"`
+	EndpointType              string     `json:"endpointType"`
+	EngineName                string     `json:"engineName"`
+	ServerName                string     `json:"serverName,omitempty"`
+	DatabaseName              string     `json:"databaseName,omitempty"`
+	Username                  string     `json:"username,omitempty"`
+	Password                  string     `json:"password,omitempty"`
+	Status                    string     `json:"status"`
+	AccountID                 string     `json:"accountId"`
+	Region                    string     `json:"region"`
+	CertificateArn            string     `json:"certificateArn,omitempty"`
+	ExtraConnectionAttributes string     `json:"extraConnectionAttributes,omitempty"`
+	KmsKeyID                  string     `json:"kmsKeyId,omitempty"`
+	ServiceAccessRoleArn      string     `json:"serviceAccessRoleArn,omitempty"`
+	SslMode                   string     `json:"sslMode,omitempty"`
+	ExternalTableDefinition   string     `json:"externalTableDefinition,omitempty"`
+	Port                      int32      `json:"port,omitempty"`
 }
 
 // ReplicationTask represents an AWS DMS replication task.

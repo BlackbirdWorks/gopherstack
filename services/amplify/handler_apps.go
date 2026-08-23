@@ -182,11 +182,12 @@ func (h *Handler) listApps(ctx context.Context, c *echo.Context) error {
 
 // deleteApp handles DELETE /apps/{appId}.
 func (h *Handler) deleteApp(ctx context.Context, c *echo.Context, appID string) error {
-	if err := h.Backend.DeleteApp(appID); err != nil {
+	app, err := h.Backend.DeleteApp(appID)
+	if err != nil {
 		return h.handleBackendError(ctx, c, "DeleteApp", err)
 	}
 
-	return c.NoContent(http.StatusNoContent)
+	return c.JSON(http.StatusOK, map[string]any{keyApp: toAppView(app)})
 }
 
 // updateApp handles POST /apps/{appId}.

@@ -192,17 +192,22 @@ func TestCreateMountTarget_SubnetIDRequired(t *testing.T) {
 	}
 }
 
-// TestMountTargetArn verifies that CreateMountTarget and DescribeMountTargets
-// responses include MountTargetArn, matching the AWS EFS MountTargetDescription shape.
-func TestMountTargetArn(t *testing.T) {
+// TestMountTargetArn_NotOnWire verifies that CreateMountTarget and
+// DescribeMountTargets responses never include a MountTargetArn member. Real
+// AWS's types.MountTargetDescription has no ARN field at all
+// (deserializers.go's awsRestjson1_deserializeDocumentMountTargetDescription
+// declares no "MountTargetArn" case) -- a prior version of this test asserted
+// the opposite and locked in a fabricated field that a real SDK client would
+// silently drop.
+func TestMountTargetArn_NotOnWire(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
 		name string
 		via  string // "create" or "describe"
 	}{
-		{name: "create_response_includes_arn", via: "create"},
-		{name: "describe_response_includes_arn", via: "describe"},
+		{name: "create_response_omits_arn", via: "create"},
+		{name: "describe_response_omits_arn", via: "describe"},
 	}
 
 	for _, tt := range tests {
@@ -218,20 +223,19 @@ func TestMountTargetArn(t *testing.T) {
 			})
 			require.Equal(t, http.StatusOK, rec.Code)
 
-			var mtARN string
+			var mt map[string]any
 			if tt.via == "create" {
-				resp := parseResp(t, rec)
-				mtARN, _ = resp["MountTargetArn"].(string)
+				mt = parseResp(t, rec)
 			} else {
 				rec2 := doREST(t, h, http.MethodGet, "/2015-02-01/mount-targets", nil)
 				require.Equal(t, http.StatusOK, rec2.Code)
 				mts := parseResp(t, rec2)["MountTargets"].([]any)
 				require.Len(t, mts, 1)
-				mtARN, _ = mts[0].(map[string]any)["MountTargetArn"].(string)
+				mt, _ = mts[0].(map[string]any)
 			}
 
-			assert.NotEmpty(t, mtARN)
-			assert.Contains(t, mtARN, "mount-target/fsmt-")
+			_, present := mt["MountTargetArn"]
+			assert.False(t, present, "MountTargetArn must not appear on a mount target response")
 		})
 	}
 }
@@ -317,7 +321,7 @@ func TestDescribeMountTargets_AccessPointIdFilter_HTTP(t *testing.T) {
 			if tt.wantCount > 0 {
 				mt := mts[0].(map[string]any)
 				assert.Equal(t, fsID, mt["FileSystemId"])
-				assert.NotEmpty(t, mt["MountTargetArn"])
+				assert.NotEmpty(t, mt["MountTargetId"])
 			}
 		})
 	}
@@ -474,7 +478,16 @@ func TestMountTargetSecurityGroups(t *testing.T) {
 
 			if tt.wantHTTPStatus == http.StatusOK && len(tt.securityGroups) > 0 {
 				resp := parseResp(t, rec)
-				sgs, ok := resp["SecurityGroups"].([]any)
+				_, present := resp["SecurityGroups"]
+				assert.False(t, present, "SecurityGroups must not appear on a CreateMountTarget response")
+
+				mtID, ok := resp["MountTargetId"].(string)
+				require.True(t, ok)
+
+				sgRec := doREST(t, h, http.MethodGet, "/2015-02-01/mount-targets/"+mtID+"/security-groups", nil)
+				require.Equal(t, http.StatusOK, sgRec.Code)
+
+				sgs, ok := parseResp(t, sgRec)["SecurityGroups"].([]any)
 				require.True(t, ok)
 				assert.Len(t, sgs, len(tt.securityGroups))
 			}

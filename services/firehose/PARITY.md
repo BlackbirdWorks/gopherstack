@@ -4,8 +4,8 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: firehose
 sdk_module: aws-sdk-go-v2/service/firehose@v1.46.4
-last_audit_commit: 198990e82
-last_audit_date: 2026-08-07
+last_audit_commit: 05693f4fa
+last_audit_date: 2026-08-20
 overall: A            # all 10 real SDK destination-configuration types now implemented; remaining gaps are documented data-movement-mechanics simplifications, not wire-shape bugs.
                       # 2026-08-07 pass (bd gopherstack-ohdc): found and fixed a genuine silent-breakage
                       # bug in Redshift delivery -- deliverToRedshift constructed a real
@@ -39,6 +39,16 @@ ops:
   TagDeliveryStream: {wire: ok, errors: ok, state: ok, persist: ok}
   UntagDeliveryStream: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateDestination: {wire: ok, errors: ok, state: ok, persist: ok, note: "extended this pass with IcebergDestinationUpdate/SnowflakeDestinationUpdate/ElasticsearchDestinationUpdate, sharing the existing exactly-one-destination / CurrentDeliveryStreamVersionId optimistic-concurrency enforcement. FIXED 2026-08-21 (gopherstack-r80d batch 28) -- shares buildS3DestinationDescription/buildS3BackupDescription with CreateDeliveryStream, so the same 3 required-output-member fixes documented on DescribeDeliveryStream's note apply here too (this op itself returns an empty body, matching the real SDK's UpdateDestinationOutput, which has no members at all)."}
+  CreateDeliveryStream: {wire: ok, errors: ok, state: ok, persist: ok, note: "response is DeliveryStreamARN only, matches SDK. Added Iceberg/Snowflake/legacy-Elasticsearch destination-configuration parsing this pass; added the at-most-one-destination validation that was previously missing (see Notes). FIXED 2026-08-20: HttpEndpoint/Amazonopensearchservice/Splunk's single S3 bucket used the wrong wire key ('S3BackupConfiguration' instead of 'S3Configuration') — see 2026-08-20 Notes."}
+  DeleteDeliveryStream: {wire: ok, errors: ok, state: ok, persist: ok, note: "cascade-cleans all destination pointers, Tags registry, pending-flush watch entry, and Kinesis poller on delete — verified no ghost state survives across the 5 new destination fields added this pass."}
+  DescribeDeliveryStream: {wire: ok, errors: ok, state: ok, persist: ok, note: "Destinations[] wrapper extended this pass with IcebergDestinationDescription/SnowflakeDestinationDescription/ElasticsearchDestinationDescription entries, exact-case wire keys verified against deserializers.go. Snowflake's write-only PrivateKey/KeyPassphrase are correctly never echoed back (matches real SDK, which has no such fields on the Description type). FIXED 2026-08-20: HttpEndpoint/Amazonopensearchservice/Splunk/Elasticsearch's single S3 bucket was returned under wire key 'S3BackupDescription' but the real deserializer reads 'S3DestinationDescription' for these 4 families — see 2026-08-20 Notes."}
+  ListDeliveryStreams: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-20: DeliveryStreamType filter now accepts all 4 real enum values (DirectPut, KinesisStreamAsSource, MSKAsSource, DatabaseAsSource) — previously rejected the latter 2 with ErrValidation even though they are valid SDK enum values."}
+  PutRecord: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass: Encrypted (optional bool) now populated from the stream's live SSE status via a new IsStreamEncrypted backend method (kept PutRecord's own signature unchanged — cli.go's snsFirehosePutterAdapter forwards PutRecordBatch's (int, error) return directly and could not be touched)."}
+  PutRecordBatch: {wire: ok, errors: ok, state: ok, persist: ok, note: "FailedPutCount always 0 — every record that reaches the backend has already passed validation, matching how this emulator models delivery (no partial-batch throttling). FIXED this pass: Encrypted now populated, same mechanism as PutRecord."}
+  ListTagsForDeliveryStream: {wire: ok, errors: ok, state: ok, persist: ok}
+  TagDeliveryStream: {wire: ok, errors: ok, state: ok, persist: ok}
+  UntagDeliveryStream: {wire: ok, errors: ok, state: ok, persist: ok}
+  UpdateDestination: {wire: ok, errors: ok, state: ok, persist: ok, note: "extended this pass with IcebergDestinationUpdate/SnowflakeDestinationUpdate/ElasticsearchDestinationUpdate, sharing the existing exactly-one-destination / CurrentDeliveryStreamVersionId optimistic-concurrency enforcement. FIXED 2026-08-20: the nested S3 bucket field on HttpEndpoint/Amazonopensearchservice/Splunk/Elasticsearch/Snowflake/Redshift/ExtendedS3 Update payloads used the Create-only wire key ('S3Configuration'/'S3BackupConfiguration') instead of the real Update key ('S3Update'/'S3BackupUpdate'), so a real client's Update-shaped bucket change was silently dropped — see 2026-08-20 Notes, the campaign's single biggest finding for this service."}
   StartDeliveryStreamEncryption: {wire: ok, errors: ok, state: ok, persist: ok}
   StopDeliveryStreamEncryption: {wire: ok, errors: ok, state: ok, persist: ok}
 
@@ -315,3 +325,151 @@ float64`, confirming the symptom; restored and `md5sum`-verified byte-identical.
 
 **Gates:** `go build`, `go vet` (default/e2e/integration), `gofmt -l` (clean), `go test -race`
 (pass), `golangci-lint run` (0 issues).
+### 2026-08-20 pass: systemic Create-vs-Update S3 wire-key mismatch across 6 destination families, response-side S3 key mismatch across 4, Redshift/OrcSerDe missing members, ListDeliveryStreams enum gap
+
+Wrapper-key/nested-shape sweep against `aws-sdk-go-v2/service/firehose@v1.46.4`
+(unchanged since the 2026-08-07 audit; only the sdk_module pin, not the local
+files, needed re-verification — confirmed no local drift via
+`git diff 198990e82..05693f4fa -- services/firehose/` touching only delivery
+mechanics files (`delivery_redshift.go`, `delivery_s3.go`, `store.go`, `flush.go`,
+`interfaces.go`), not any wire-shape file). Protocol confirmed JSON-RPC 1.1
+(`awsjson11`, `application/x-amz-json-1.1`, `X-Amz-Target:
+Firehose_20150804.<Op>` — `deserializers.go` prefix `awsAwsjson11_`).
+
+**Root cause, found by reading every destination family's real
+`serializers.go`/`deserializers.go` function body rather than trusting the
+prior pass's field lists**: for HttpEndpoint, Amazonopensearchservice,
+Splunk, Elasticsearch, and Snowflake, the destination's single S3 bucket is
+wire-keyed **differently on every one of Create / Update / Describe**:
+
+| family | Create key | Update key | Describe key |
+|---|---|---|---|
+| HttpEndpoint | `S3Configuration` | `S3Update` | `S3DestinationDescription` |
+| Amazonopensearchservice | `S3Configuration` | `S3Update` | `S3DestinationDescription` |
+| Splunk | `S3Configuration` | `S3Update` | `S3DestinationDescription` |
+| Elasticsearch | `S3Configuration` | `S3Update` | `S3DestinationDescription` |
+| Snowflake | `S3Configuration` | `S3Update` | `S3DestinationDescription` (already correct pre-pass) |
+| Redshift | `S3Configuration`/`S3BackupConfiguration` | `S3Update`/`S3BackupUpdate` | `S3DestinationDescription`/`S3BackupDescription` (already correct) |
+| ExtendedS3 (own backup) | `S3BackupConfiguration` | `S3BackupUpdate` | `S3BackupDescription` (already correct) |
+| Iceberg | `S3Configuration` (both ops) | (same) | `S3DestinationDescription` (already correct) |
+
+Confirmed by reading `awsAwsjson11_serializeDocumentHttpEndpointDestinationConfiguration`
+(serializers.go:2075), `...HttpEndpointDestinationUpdate`,
+`...AmazonopensearchserviceDestinationConfiguration`/`-Update`,
+`...SplunkDestinationConfiguration`/`-Update`,
+`...ElasticsearchDestinationConfiguration`/`-Update`,
+`...SnowflakeDestinationConfiguration`/`-Update`,
+`...RedshiftDestinationConfiguration`/`-Update` (2834/2915),
+`...ExtendedS3DestinationConfiguration`/`-Update`, plus the matching
+`awsAwsjson11_deserializeDocument<Family>DestinationDescription` functions
+(each has a literal `case "S3DestinationDescription":` for the 5 single-bucket
+families, not `"S3BackupDescription"`).
+
+Before this pass, `handler_delivery_streams.go`'s shared parsing structs
+(`httpEndpointDestinationInput`, `openSearchDestinationInput`,
+`splunkDestinationInput`, `elasticsearchDestinationInput`,
+`snowflakeDestinationInput`, `redshiftDestinationInput`, `s3DestinationInput`)
+each carried exactly **one** fixed JSON tag per S3 sub-field, reused verbatim
+for both the Create and Update top-level wire objects (a deliberate,
+otherwise-reasonable simplification — most sibling fields genuinely share a
+name across Create/Update). That assumption is false for every nested S3
+bucket field in this service:
+
+- **Create-side bug (3 families)**: `httpEndpointDestinationInput`,
+  `openSearchDestinationInput`, `splunkDestinationInput` tagged their S3
+  field `json:"S3BackupConfiguration"` — the real Create wire key is
+  `S3Configuration` (confirmed "This member is required" in
+  `types.HttpEndpointDestinationConfiguration.S3Configuration`'s doc comment).
+  A real client's `CreateDeliveryStream` for these 3 families could never
+  populate the backup/only S3 bucket at all.
+- **Update-side bug (6 families + ExtendedS3's own backup)**: every family's
+  nested S3 field(s) only recognized the Create-side key name, so a real
+  client's `UpdateDestination` (which the SDK serializes under `S3Update`/
+  `S3BackupUpdate`) left the bucket **silently unchanged**.
+- **Response-side bug (4 families)**: `HTTPEndpointDestinationDescription`,
+  `OpenSearchDestinationDescription`, `ElasticsearchDestinationDescription`,
+  `SplunkDestinationDescription` echoed the bucket under wire key
+  `S3BackupDescription`; the real deserializer's `case` list uses
+  `S3DestinationDescription` for these 4 (confirmed
+  `awsAwsjson11_deserializeDocumentHttpEndpointDestinationDescription` etc.)
+  — so even a correctly-stored bucket would never reach a real SDK client's
+  `DescribeDeliveryStreamOutput`.
+
+**Fix**: each affected input struct gained a second field for the Update-only
+key (`S3Update`/`S3BackupUpdate`), with build functions (`buildHTTPEndpointDestination`,
+`buildOpenSearchDestination`, `buildSplunkDestination`,
+`buildElasticsearchDestination`, `buildSnowflakeDestination`,
+`buildRedshiftDestination`, `buildS3DestinationDescription`) preferring
+whichever is non-nil (a real client sends exactly one). The 3 Create-key
+fields were renamed to the correct `S3Configuration` tag. The 4 response
+struct tags were changed from `S3BackupDescription` to
+`S3DestinationDescription`. Grepped every existing test asserting these keys
+(`handler_delivery_streams_test.go`, `destination_elasticsearch_test.go`) —
+one self-consistent-but-wrong test per bug (HTTP endpoint Create using
+`S3BackupConfiguration`, Elasticsearch Describe asserting
+`d["S3BackupDescription"]`) corrected to the real wire keys.
+
+**Severity note per the campaign's severity rule**: these are not fabricated
+fields — they are real fields under the wrong key, so nothing was
+"harmlessly" extra; the effect is the opposite of harmless: the backup/
+staging bucket for 6 of firehose's destination families was **unreachable
+from a real SDK client in at least one direction** (Create, Update, or
+Describe) before this fix, and for HttpEndpoint/OpenSearch/Splunk in **three**
+directions.
+
+**Secondary findings, same read-the-whole-struct method**:
+
+- `RedshiftDestinationConfiguration`/`-Description` (types.go) has real
+  `CloudWatchLoggingOptions`/`SecretsManagerConfiguration` fields gopherstack
+  had never modeled at all (present on every other destination family;
+  Redshift alone was missing them) — added to `redshiftDestinationInput`,
+  `RedshiftDestinationDescription`, and `buildRedshiftDestination`.
+- `types.OrcSerDe` has a real `PaddingTolerance *float64` field absent from
+  gopherstack's `OrcSerDe` (formats.go) — added.
+- `ListDeliveryStreams`'s `DeliveryStreamType` filter validator
+  (`isValidDeliveryStreamType`) only accepted 2 of the real enum's 4 values
+  (`DirectPut`, `KinesisStreamAsSource`) — `MSKAsSource`/`DatabaseAsSource`
+  (confirmed real values, `types/enums.go`) were rejected with
+  `ErrValidation` instead of returning a (possibly empty) filtered list.
+  Fixed by extending the switch to all 4.
+- Verified plain (deprecated, non-Extended) `S3DestinationConfiguration`
+  genuinely lacks `ProcessingConfiguration`/`DynamicPartitioningConfiguration`/
+  `DataFormatConversionConfiguration`/`FileExtension`/`CustomTimeZone`/
+  `S3BackupMode`/`S3BackupConfiguration` (all Extended-only) — gopherstack's
+  shared `s3DestinationInput` supersets both shapes, which is harmless since a
+  real client using the deprecated field never sends those keys anyway; not
+  reclassified as a bug.
+- `ProcessingConfiguration`/`Processor`/`ProcessorParameter` field sets,
+  `ProcessorType`/`ProcessorParameterName` enum value spellings, and the two
+  `DataFormatConversionConfiguration` SerDe unions (`HiveJsonSerDe`/
+  `OpenXJsonSerDe` deserializer, `ParquetSerDe`/`OrcSerDe` serializer, both
+  discriminated by which of the 2 struct pointers is non-nil, matching the
+  real SDK's own union modeling) verified field-by-field against
+  `types.go`/`enums.go` — all correct except the `OrcSerDe.PaddingTolerance`
+  gap above.
+- `VpcConfiguration`/`VpcConfigurationDescription`: confirmed **absent on
+  both the request and response side** for Elasticsearch/Amazonopensearchservice
+  (already a disclosed gap from 2026-07-23) — no request-only leak, since
+  gopherstack has no `VpcConfiguration`-shaped field anywhere in this service.
+- `ListDeliveryStreams`' `DeliveryStreamNames []string` + `HasMoreDeliveryStreams
+  bool` shape (a bare string list plus a bool, not objects, not a NextToken) —
+  confirmed correct against `api_op_ListDeliveryStreams.go`.
+- Iceberg's Update variant is the sole family whose S3 field keeps the
+  Create-style key `S3Configuration` on both ops (real SDK; confirmed
+  `awsAwsjson11_serializeDocumentIcebergDestinationUpdate`) — no change
+  needed there, called out explicitly to avoid a future pass "fixing" it by
+  false generalization from the other 6 families.
+
+**Every fix proven by hand-revert** (`cp` to scratchpad, restore original
+content, re-run the new SDK round-trip tests, confirm failure, restore fix,
+confirm pass) — see `services/firehose/wire_sdk_roundtrip_test.go`, a new
+file exercising the real `aws-sdk-go-v2/service/firehose` client end-to-end
+through `pkgs/service`'s router (not gopherstack's own JSON tags), covering
+all 7 affected families' Update-path S3 key, the Redshift
+CloudWatchLoggingOptions/SecretsManagerConfiguration round-trip, the OrcSerDe
+PaddingTolerance round-trip, and all 4 `DeliveryStreamType` filter values.
+
+Not reached this pass: `AmazonOpenSearchServerlessDestinationConfiguration`
+(11th destination family, out of scope, pre-existing disclosed gap), MSK/
+Database source real polling (structural gap, `cli.go` wiring forbidden),
+Redshift `RedshiftDataExecutor` `cli.go` wiring (pre-existing disclosed gap).

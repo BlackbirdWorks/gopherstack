@@ -1,9 +1,9 @@
 ---
 service: mediapackage
 sdk_module: aws-sdk-go-v2/service/mediapackage@v1.42.4
-last_audit_commit: f942b4d6b9d0353bd693cc733196bc7228ededd9
-last_audit_date: 2026-08-10
-overall: A            # genuine fixes found: invented ops deleted, missing required-field validation added
+last_audit_commit: 711100b0006aeb09a8422f1e6c09a400068f27ee
+last_audit_date: 2026-08-20
+overall: A            # wrapper-key/nested-shape sweep: zero bugs found, prior audit's claims re-verified against SDK source
 ops:
   CreateChannel: {wire: ok, errors: ok, state: ok, persist: ok, note: "added missing createdAt"}
   DescribeChannel: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -35,6 +35,106 @@ leaks: {status: clean, note: "no goroutines/timers introduced; all ops are synch
 ---
 
 ## Notes
+
+### 2026-08-20: wrapper-key / nested-shape wire-parity sweep (zero bugs found)
+
+Full re-verification of every op's wire shape against
+`aws-sdk-go-v2/service/mediapackage@v1.42.4` source (not against
+gopherstack's own handler output), per the campaign's five bug-class hunt
+(generalized/missing members, wrong nesting level, wrong JSON type,
+case-sensitive key near-misses, right-key-wrong-value/invented enums, and
+request-only fields leaking into responses).
+
+**Provenance correction**: the prior stamp cited `last_audit_commit
+f942b4d6b9d0353bd693cc733196bc7228ededd9` (`git show -s --format=%ad`:
+2026-07-24) against `last_audit_date: 2026-08-10` -- a 17-day gap with the
+sha predating the date, despite 12 intervening commits on `main` in that
+window (including two full-repo parity sweeps, #2402/#2404/#2406). The sha
+was stale/copied forward rather than reflecting HEAD at the actual 2026-08-10
+write time. Content-wise the 2026-08-10 entry's claims all independently
+re-verified true this pass (see below) -- this is a stamp-hygiene fix, not a
+retraction of that audit's findings. Refreshed to current HEAD
+(`711100b0006aeb09a8422f1e6c09a400068f27ee`) + today.
+
+**Full-field-list diff, every op, optional members included**: `Channel`
+(`types.go:29-56`), `OriginEndpoint` (`592-654`), `HarvestJob` (`262-297`),
+`HlsIngest`/`IngestEndpoint` (`324-331,536-551`), `EgressAccessLogs`/
+`IngressAccessLogs` (`228-235,553-560`), `Authorization` (`10-26`),
+`MssPackage`/`MssEncryption`/`SpekeKeyProvider`/
+`EncryptionContractConfiguration`/`StreamSelection` (`563-590,681-736`), and
+`S3Destination` (`656-677`) each diffed member-by-member against
+`interfaces.go`/`models.go`/the `*Output` structs in `handler_channels.go`,
+`handler_origin_endpoints.go`, `handler_harvest_jobs.go`. No member missing
+in either direction; no extra/fabricated member. `CmafPackage`/`DashPackage`/
+`HlsPackage`/`HlsManifest`/`HlsManifestCreateOrUpdateParameters` remain
+outside this diff -- see `deferred` (unchanged from the prior pass).
+
+**Every field's JSON key name** re-confirmed against both
+`awsRestjson1_serializeDocument*` (`serializers.go`) and
+`awsRestjson1_deserializeDocument*` (`deserializers.go`) for `Channel`,
+`OriginEndpoint`, `Authorization`, `MssPackage` chain, `HarvestJob`,
+`S3Destination`, and the `List*Output` wrapper keys (`channels`,
+`originEndpoints`, `harvestJobs`, `nextToken`, `tags`) -- all match
+gopherstack's `json:` tags exactly, case included. No case-sensitive
+near-miss found.
+
+**Enum check, both directions**: `originationAllow = "ALLOW"` and
+`harvestJobStatusInProgress = "IN_PROGRESS"` are the only two enum-typed
+string constants gopherstack emits for this service (`store.go`) -- both are
+real `types.Origination`/`types.Status` values (`enums.go:158-175,302-321`).
+No gopherstack-invented enum constant exists anywhere in the package.
+Direction 2 (every SDK enum value representable): moot for `Origination`/
+`Status` since both are passed through as bare strings without a fixed
+allowlist; all fifteen other enums (`AdMarkers`, `AdsOnDeliveryRestrictions`,
+`CmafEncryptionMethod`, `EncryptionMethod`, `ManifestLayout`,
+`PeriodTriggersElement`, `PlaylistType`, `PresetSpeke20Audio`,
+`PresetSpeke20Video`, `Profile`, `SegmentTemplateFormat`, `StreamOrder`,
+`UtcTiming`, `AdTriggersElement`) live entirely inside the opaque
+`CmafPackage`/`DashPackage`/`HlsPackage` passthrough blobs or as unvalidated
+bare strings (`StreamSelection.StreamOrder`) -- gopherstack never declares Go
+constants for them, so it structurally cannot invent a value the SDK
+doesn't have.
+
+**The four package types / four encryption types**: `HlsPackage`,
+`DashPackage`, `CmafPackage` remain opaque `map[string]any` (deferred, sized
+and justified in the 2026-08-10 entry below -- unchanged this pass); only
+`MssPackage`/`MssEncryption` are modeled, and were re-verified field-by-field
+against `serializers.go:2156-2222`/`deserializers.go:5547-5650` this pass
+with a new real-SDK round-trip test (see below). No cross-contamination
+found between the modeled `MssPackage` and the opaque blocks -- they are
+distinct fields on `OriginEndpoint`/`PackagingConfig`, never merged.
+
+**`HlsManifest` vs `HlsManifestCreateOrUpdateParameters`**: no leak possible
+-- gopherstack has no structured `HlsManifest` type at all (confirmed by
+`grep -rn HlsManifest services/mediapackage/*.go`: the only hit is a doc
+comment). Both real-SDK variants live entirely inside the opaque `CmafPackage`
+blob, which is stored and echoed verbatim per-request; a consequence
+(pre-existing, not new this pass) is that gopherstack's echoed `CmafPackage`
+never gains the server-computed `HlsManifest.Url` field the real API adds on
+top of what `HlsManifestCreateOrUpdateParameters` sends -- in scope of the
+same `deferred` opaque-passthrough limitation already on file, not a new gap.
+
+**New test**: `wire_sdk_roundtrip_test.go` --
+`TestCreateOriginEndpoint_AuthorizationMssPackage_SDKRoundTrip` drives
+`CreateOriginEndpoint`/`DescribeOriginEndpoint` through the real
+`aws-sdk-go-v2` client for every leaf field of `Authorization` and the full
+`MssPackage`->`MssEncryption`->`SpekeKeyProvider`->
+`EncryptionContractConfiguration`/`StreamSelection` chain. Verified the test
+actually catches a real bug (not a tautology): hand-reverted
+`SpekeKeyProvider.ResourceID`'s json tag from `resourceId` to `resourceld`
+in `interfaces.go` via `cp` (never git), reran the test -- failed exactly as
+predicted (`ResourceId` deserialized empty, since the real SDK's
+`awsRestjson1_deserializeDocumentSpekeKeyProvider` only recognizes
+`resourceId`), then restored `interfaces.go` from the `cp` copy and confirmed
+byte-identical via `md5sum` before and after.
+
+**No bugs found this pass.** Gates: `go build`, `go vet`, `go fix -diff`
+(empty), `gofmt -l` (empty), `go test -race` (pass), `golangci-lint run`
+(0 issues) all clean on `services/mediapackage/...`.
+
+---
+
+### 2026-08-10 audit (prior pass, content re-verified above)
 
 **Protocol**: REST-JSON (restjson1), matching the real SDK's `awsRestjson1_*`
 serializers/deserializers in `aws-sdk-go-v2/service/mediapackage@v1.42.4`.

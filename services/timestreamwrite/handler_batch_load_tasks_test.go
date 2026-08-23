@@ -282,7 +282,7 @@ func TestHandler_ResumeBatchLoadTask_Success(t *testing.T) {
 	_, err = b.CreateTable("db", "tbl", nil, nil)
 	require.NoError(t, err)
 
-	task, err := b.CreateBatchLoadTask("db", "tbl", nil, nil)
+	task, err := b.CreateBatchLoadTask("db", "tbl", nil, nil, nil, 0)
 	require.NoError(t, err)
 
 	err = b.SetBatchLoadTaskStatus(task.TaskID, "PROGRESS_STOPPED")
@@ -301,9 +301,9 @@ func TestHandler_ResumeBatchLoadTask_Success(t *testing.T) {
 func TestHandler_CreateBatchLoadTask_DataSourceConfigRequired(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct { //nolint:govet // fieldalignment: readability over micro-optimization
-		name       string
+	tests := []struct {
 		body       map[string]any
+		name       string
 		wantStatus int
 	}{
 		{
@@ -533,10 +533,10 @@ func TestHandler_ListBatchLoadTasks_StatusFilter(t *testing.T) {
 		TableStatus: "ACTIVE", CreationTime: now, LastUpdatedTime: now,
 	})
 
-	task1, err := b.CreateBatchLoadTask("lbt-db", "lbt-tbl", nil, nil)
+	task1, err := b.CreateBatchLoadTask("lbt-db", "lbt-tbl", nil, nil, nil, 0)
 	require.NoError(t, err)
 
-	task2, err := b.CreateBatchLoadTask("lbt-db", "lbt-tbl", nil, nil)
+	task2, err := b.CreateBatchLoadTask("lbt-db", "lbt-tbl", nil, nil, nil, 0)
 	require.NoError(t, err)
 
 	err = b.SetBatchLoadTaskStatus(task2.TaskID, timestreamwrite.BatchLoadStatusSucceeded)

@@ -1,9 +1,6 @@
 package mediaconvert
 
-import (
-	"encoding/json"
-	"time"
-)
+import "time"
 
 // ReservationPlan holds reservation plan details for a queue.
 type ReservationPlan struct {
@@ -111,98 +108,45 @@ type AccelerationSettings struct {
 	Mode string `json:"mode,omitempty"`
 }
 
-// ShareDetails holds resource share token details.
-type ShareDetails struct {
-	ShareToken string  `json:"shareToken,omitempty"`
-	SharedAt   float64 `json:"sharedAt,omitempty"`
-}
-
 // Job represents a MediaConvert transcoding job.
 type Job struct {
-	AccelerationSettings      *AccelerationSettings `json:"accelerationSettings,omitempty"`
-	Messages                  *JobMessages          `json:"messages,omitempty"`
-	LastShareDetails          *ShareDetails         `json:"-"`
-	Timing                    *JobTiming            `json:"timing,omitempty"`
-	Settings                  map[string]any        `json:"settings,omitempty"`
-	Tags                      map[string]string     `json:"tags,omitempty"`
-	UserMetadata              map[string]string     `json:"userMetadata,omitempty"`
-	Arn                       string                `json:"arn"`
-	ID                        string                `json:"id"`
-	Queue                     string                `json:"queue,omitempty"`
-	QueueArn                  string                `json:"queueArn,omitempty"`
-	Role                      string                `json:"role"`
-	Status                    string                `json:"status"`
-	CurrentPhase              string                `json:"currentPhase,omitempty"`
-	JobTemplate               string                `json:"jobTemplate,omitempty"`
-	ErrorMessage              string                `json:"errorMessage,omitempty"`
-	BillingTagsSource         string                `json:"billingTagsSource,omitempty"`
-	AccelerationStatus        string                `json:"accelerationStatus,omitempty"`
-	StatusUpdateInterval      string                `json:"statusUpdateInterval,omitempty"`
-	SimulateReservedQueue     string                `json:"simulateReservedQueue,omitempty"`
-	ClientRequestToken        string                `json:"clientRequestToken,omitempty"`
-	JobEngineVersionRequested string                `json:"jobEngineVersionRequested,omitempty"`
-	JobEngineVersionUsed      string                `json:"jobEngineVersionUsed,omitempty"`
-	ShareStatus               string                `json:"shareStatus,omitempty"`
-	OutputGroupDetails        []OutputGroupDetail   `json:"outputGroupDetails,omitempty"`
-	QueueTransitions          []QueueTransition     `json:"queueTransitions,omitempty"`
-	HopDestinations           []HopDestination      `json:"hopDestinations,omitempty"`
-	Warnings                  []WarningGroup        `json:"warnings,omitempty"`
-	CreatedAt                 float64               `json:"createdAt"`
-	ErrorCode                 int                   `json:"errorCode,omitempty"`
-	JobPercentComplete        int                   `json:"jobPercentComplete"`
-	Priority                  int                   `json:"priority"`
-	RetryCount                int                   `json:"retryCount"`
-}
-
-// jobLastShareDetailsWire projects Job.LastShareDetails onto the real wire
-// shape. The real types.Job.LastShareDetails is a bare *string (types.go) --
-// gopherstack previously emitted a {shareToken, sharedAt} object, which
-// fails every real client's decode ("expected __string to be of type
-// string, got map[string]interface {} instead") once a job has ever been
-// shared. The share token carries the identifying information; sharedAt has
-// no documented place in the real string form and is dropped rather than
-// invented into it.
-func jobLastShareDetailsWire(d *ShareDetails) *string {
-	if d == nil {
-		return nil
-	}
-
-	return &d.ShareToken
-}
-
-// MarshalJSON renders LastShareDetails as the plain string the real
-// aws-sdk-go-v2 mediaconvert client expects, keeping the richer
-// ShareDetails struct for internal/domain use (CreateResourceShare,
-// existing tests asserting on ShareToken/SharedAt directly).
-func (j Job) MarshalJSON() ([]byte, error) {
-	type alias Job
-
-	return json.Marshal(struct {
-		LastShareDetails *string `json:"lastShareDetails,omitempty"`
-		alias
-	}{alias: alias(j), LastShareDetails: jobLastShareDetailsWire(j.LastShareDetails)})
-}
-
-// UnmarshalJSON is the inverse of [Job.MarshalJSON], needed so a Job
-// round-trips through persistence.go's snapshot/restore path without
-// losing LastShareDetails.
-func (j *Job) UnmarshalJSON(data []byte) error {
-	type alias Job
-
-	aux := struct {
-		*alias
-		LastShareDetails *string `json:"lastShareDetails,omitempty"`
-	}{alias: (*alias)(j)}
-
-	if err := json.Unmarshal(data, &aux); err != nil {
-		return err
-	}
-
-	if aux.LastShareDetails != nil {
-		j.LastShareDetails = &ShareDetails{ShareToken: *aux.LastShareDetails}
-	}
-
-	return nil
+	AccelerationSettings *AccelerationSettings `json:"accelerationSettings,omitempty"`
+	Messages             *JobMessages          `json:"messages,omitempty"`
+	// LastShareDetails is a *string* on the real wire (aws-sdk-go-v2/service/
+	// mediaconvert@v1.97.1 types/types.go:6202, deserializers.go:19625 expects
+	// value.(string)) -- NOT a nested object. A structured object here fails
+	// the entire GetJob/ListJobs deserialization for a real SDK client.
+	LastShareDetails          *string             `json:"lastShareDetails,omitempty"`
+	Timing                    *JobTiming          `json:"timing,omitempty"`
+	Settings                  map[string]any      `json:"settings,omitempty"`
+	Tags                      map[string]string   `json:"tags,omitempty"`
+	UserMetadata              map[string]string   `json:"userMetadata,omitempty"`
+	Arn                       string              `json:"arn"`
+	ID                        string              `json:"id"`
+	Queue                     string              `json:"queue,omitempty"`
+	QueueArn                  string              `json:"queueArn,omitempty"`
+	Role                      string              `json:"role"`
+	Status                    string              `json:"status"`
+	CurrentPhase              string              `json:"currentPhase,omitempty"`
+	JobTemplate               string              `json:"jobTemplate,omitempty"`
+	ErrorMessage              string              `json:"errorMessage,omitempty"`
+	BillingTagsSource         string              `json:"billingTagsSource,omitempty"`
+	AccelerationStatus        string              `json:"accelerationStatus,omitempty"`
+	StatusUpdateInterval      string              `json:"statusUpdateInterval,omitempty"`
+	SimulateReservedQueue     string              `json:"simulateReservedQueue,omitempty"`
+	ClientRequestToken        string              `json:"clientRequestToken,omitempty"`
+	JobEngineVersionRequested string              `json:"jobEngineVersionRequested,omitempty"`
+	JobEngineVersionUsed      string              `json:"jobEngineVersionUsed,omitempty"`
+	ShareStatus               string              `json:"shareStatus,omitempty"`
+	OutputGroupDetails        []OutputGroupDetail `json:"outputGroupDetails,omitempty"`
+	QueueTransitions          []QueueTransition   `json:"queueTransitions,omitempty"`
+	HopDestinations           []HopDestination    `json:"hopDestinations,omitempty"`
+	Warnings                  []WarningGroup      `json:"warnings,omitempty"`
+	CreatedAt                 float64             `json:"createdAt"`
+	ErrorCode                 int                 `json:"errorCode,omitempty"`
+	JobPercentComplete        int                 `json:"jobPercentComplete"`
+	Priority                  int                 `json:"priority"`
+	RetryCount                int                 `json:"retryCount"`
 }
 
 // Preset represents a MediaConvert output preset.

@@ -1,9 +1,9 @@
 ---
 service: rolesanywhere
 sdk_module: aws-sdk-go-v2/service/rolesanywhere@v1.26.3
-last_audit_commit: cf439a0b1
-last_audit_date: 2026-08-10
-overall: A            # real fixes found and applied this pass
+last_audit_commit: e75a8cecd
+last_audit_date: 2026-08-20
+overall: A            # wrapper-key/nested-shape sweep this pass: zero bugs found, clean
 ops:
   CreateTrustAnchor: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: no longer rejects duplicate names with an invented ConflictException (the real service has ZERO ConflictException shape anywhere in its model -- confirmed via botocore's rolesanywhere service-2.json, which lists only AccessDeniedException/ResourceNotFoundException/TooManyTagsException/ValidationException across all 27 operations); also fixed: now applies the request's notificationSettings at creation (previously silently dropped); also fixed: now validates source.sourceType is non-empty (required per CreateTrustAnchorInput); tags no longer stored on the TrustAnchor struct -- routed into the same ARN-keyed tags store TagResource/ListTagsForResource use (see families.tags_field_removed)"}
   GetTrustAnchor: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: response no longer includes an invented \"tags\" key -- real TrustAnchorDetail has no tags field at all (field-by-field diff against aws-sdk-go-v2 types.TrustAnchorDetail); tags are ListTagsForResource-only"}
@@ -208,3 +208,104 @@ frontmatter above):
   `*bool` distinguishes "not provided" from "explicitly false", but neither is meaningfully
   observable by a client here since gopherstack has no separate CreateSession data plane
   where the distinction would matter).
+
+## 2026-08-20 wrapper-key / nested-shape sweep (zero bugs found)
+
+Dedicated pass hunting the bug class from the 27-service sweep session (wrong wrapper
+key, wrong nesting level, wrong JSON type, right-key-wrong-value/invented enum) across
+all 30 ops. Result: **clean, zero new bugs.**
+
+**Protocol/flat-vs-wrapped, confirmed per op.** rolesanywhere is restJson1
+(`awsRestjson1_*` prefix in `deserializers.go`, `aws-sdk-go-v2/service/rolesanywhere@v1.26.3`).
+For every one of the 28 ops with a body (`TagResource`/`UntagResource` have no output
+members, so no `deserializeOpDocument*Output` is generated for them at all -- correctly
+void), grepped each op's own `HandleDeserialize` and confirmed
+`awsRestjson1_deserializeOpDocument<Op>Output(&output, shape)` is genuinely **called**
+on the JSON-decoded body, not dead code shadowed by an `httpPayload`-bound raw-body
+assignment (the appmesh/glacier trap this session's brief warned about). rolesanywhere
+has no `httpPayload`-bound output member on any op, so every op is wrapped, never flat.
+Verified the wrapper key match for all 28 against gopherstack's `keyTrustAnchor`/
+`keyProfile`/`keyCrl`/`keySubject`/`keyTrustAnchors`/`keyProfiles`/`keyCrls`/
+`keySubjects`/`keyTags` constants (`handler.go`) and each handler's `map[string]any{key...}`
+response construction -- all correct, matching the SDK's own `case "..."` in each
+`awsRestjson1_deserializeOpDocument<Op>Output` switch.
+
+**Per-shape field audit against the live deserializer functions** (not sibling
+inference): `TrustAnchorDetail` (8/8 fields present, including the `source`/`sourceData`
+union -- see below), `ProfileDetail` (14/14 fields present), `CrlDetail` (8/8 fields
+present), `SubjectSummary` (7/7 fields present, used correctly for `ListSubjects`),
+`NotificationSettingDetail` (5/5 fields present, including `configuredBy`),
+`AttributeMapping`/`MappingRule` (complete). All enum VALUES gopherstack ever
+constructs itself (none are self-generated -- every enum-typed field on this service's
+wire is a client-echoed value, not a gopherstack-invented constant) checked against
+`types/enums.go`: `TrustAnchorType` (3 values), `CertificateField` (3 values),
+`NotificationChannel` (1 value, `ALL`), `NotificationEvent` (2 values) -- no fabricated
+constants found.
+
+**`sourceData` union** (`types.SourceData`, `deserializers.go`
+`awsRestjson1_deserializeDocumentSourceData`): the two discriminator keys are
+`acmPcaArn` and `x509CertificateData`, decoded via a single-iteration `for...break loop`
+that resolves to whichever member key is present in the JSON object (real AWS unions
+carry exactly one member). gopherstack's `TrustAnchorSource.SourceData` is a
+`map[string]string` tagged `json:"sourceData,omitempty"` that round-trips the client's
+own map verbatim (request-echo, not gopherstack-constructed) -- structurally
+JSON-compatible with the union wire shape in both directions as long as the caller
+supplies at most one key, which is the real API's own contract, not something
+gopherstack needs to enforce for wire-shape correctness.
+
+**`NotificationSetting` vs `NotificationSettingDetail` vs `NotificationSettingKey`**:
+gopherstack collapses the SDK's two output-adjacent shapes (`NotificationSetting`,
+the `PutNotificationSettingsInput` request member with no `configuredBy`, and
+`NotificationSettingDetail`, the response member that adds it) into one Go struct
+(`models.go` `NotificationSetting`, with `ConfiguredBy string json:"configuredBy,omitempty"`).
+This is wire-safe in both directions: on request decode the extra tag is simply never
+populated by a real client and is ignored; on response encode all 5 real
+`NotificationSettingDetail` fields (`channel`, `configuredBy`, `enabled`, `event`,
+`threshold`) are present. `NotificationSettingKey` (`event`+`channel`, used only by
+`ResetNotificationSettings`'s request) is its own separate struct, correctly not
+conflated with the other two. No bug.
+
+**`SubjectDetail` vs `SubjectSummary`**: gopherstack uses one function
+(`subjectToJSON`, `handler_subjects.go`) and one struct (`Subject`, `models.go`) for
+both `GetSubject` (real shape: `SubjectDetail`, 9 fields incl. `credentials`/
+`instanceProperties`) and `ListSubjects` (real shape: `SubjectSummary`, 7 fields,
+neither of those two). The 7 fields gopherstack emits are exactly `SubjectSummary`'s
+7 -- so `ListSubjects` is wire-complete. `GetSubject` is short two fields
+(`credentials`, `instanceProperties`), which is the **already-recorded, out-of-scope**
+gap (`gopherstack-fccd`: "SubjectDetail's Credentials/InstanceProperties fields are
+also unmodeled") -- not a new finding, and structural: neither field can ever be
+populated without the CreateSession mTLS data plane this emulator doesn't model, so
+adding empty-slice stubs for them would be worse, not better.
+
+**Existing tests**: grepped every `_test.go` assertion against a response wrapper key
+(`resp["trustAnchor"]`, `["profile"]`, `["crl"]`, `["subject"]`, etc.) -- all assert the
+real key. No wrong-key/wrong-nesting test found; none corrected this pass.
+
+**`gopherstack-fccd` gap re-check**: of its three recorded gaps, two still hold exactly
+as described (`GetSubject`/`ListSubjects` never populated -- no CreateSession data
+plane; no `AccessDeniedException` path -- no IAM policy-eval engine). The third,
+"CreateProfile.RoleArns nil/empty not rejected," **no longer holds** -- re-derived
+against `validateOpCreateProfileInput` in `aws-sdk-go-v2/service/rolesanywhere@v1.26.3/
+validators.go:779-780` (`RoleArns == nil` -> `ErrParamRequired`) and against current
+`profiles.go:41` (`if name == "" || roleArns == nil { return nil, ErrValidation }`):
+the check is present and correct, matching the frontmatter's `CreateProfile` note and
+the 2026-08-10 `gaps` entry that already recorded it "FIXED this pass." The bd issue's
+title still reads "not rejected" and was last updated 2026-08-13, after the fix landed
+(commit `903d74b67`, 2026-08-10) -- the issue text is stale, not the code.
+
+**Provenance / citation check**: `last_audit_commit` (prior value `cf439a0b1`, dated
+2026-08-10 via `git show -s --format=%ad`) matched `last_audit_date` (2026-08-10) --
+no backdating red flag. However, the manifest's own prose (former "Notes" section,
+paragraph 1) cited `aws-sdk-go-v2/service/rolesanywhere@v1.23.0` for the
+serializers.go/deserializers.go cross-check, while the `sdk_module` header says
+`v1.26.3` (the version actually pinned in `go.mod`) -- a real header/prose mismatch of
+the kind this sweep session was told to watch for. Diffed `deserializers.go`,
+`types/types.go`, and `types/enums.go` between the two cached SDK versions
+(`v1.23.0` and `v1.26.3`): byte-identical for all three files, so the mismatch is a
+citation slip with no correctness impact -- this pass re-verified everything directly
+against the correctly-pinned `v1.26.3` source regardless. No "FIXED" claim in the prior
+manifest failed re-derivation.
+
+**Gates**: `go build`, `go vet`, `go fix -diff` (empty), `gofmt -l` (empty),
+`go test -race` (pass), `golangci-lint run` (0 issues) -- all clean, no code changed
+this pass.

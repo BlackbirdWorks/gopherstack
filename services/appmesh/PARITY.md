@@ -19,42 +19,47 @@ last_audit_date: 2026-08-10
 # trip rather than trusted from static reading.
 overall: A            # genuine fixes found: the primary response-wrapping bug affected every
                        # Create/Describe/Update/Delete op in the service (28 handler call sites).
+last_audit_commit: e4139790
+last_audit_date: 2026-08-19
+overall: A            # zero wire bugs this pass; every single-resource CRUD op's flat
+                       # (unwrapped) body reconfirmed correct against the SDK's actually
+                       # invoked per-op deserializer, not the dead OpDocument helper.
 ops:
-  CreateMesh: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: response now wrapped under mesh key; spec now structurally validated (egressFilter.type, serviceDiscovery.ipPreference enums)"}
-  DescribeMesh: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: response now wrapped under mesh key"}
-  UpdateMesh: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: response now wrapped under mesh key; version increments; spec now structurally validated"}
-  DeleteMesh: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: response now wrapped under mesh key; in-use check blocks delete while children exist; status now DELETED not ACTIVE"}
-  ListMeshes: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: limit query param now honored (was hardcoded to 100)"}
-  CreateVirtualNode: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: response now wrapped under virtualNode key"}
-  DescribeVirtualNode: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: response now wrapped under virtualNode key"}
-  UpdateVirtualNode: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: response now wrapped under virtualNode key"}
-  DeleteVirtualNode: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: response now wrapped under virtualNode key; status now DELETED not ACTIVE"}
+  CreateMesh: {wire: ok, errors: ok, state: ok, persist: ok, note: "flat body (meshName/metadata/spec/status at root) reconfirmed correct: deserializers.go:244 decodes shape directly into MeshData, no wrapper key; spec structurally validated (egressFilter.type, serviceDiscovery.ipPreference enums)"}
+  DescribeMesh: {wire: ok, errors: ok, state: ok, persist: ok, note: "flat body reconfirmed correct (deserializers.go:2639)"}
+  UpdateMesh: {wire: ok, errors: ok, state: ok, persist: ok, note: "flat body reconfirmed correct (deserializers.go:5431); version increments; spec structurally validated"}
+  DeleteMesh: {wire: ok, errors: ok, state: ok, persist: ok, note: "flat body reconfirmed correct (deserializers.go:1452); in-use check blocks delete while children exist; status DELETED not ACTIVE"}
+  ListMeshes: {wire: ok, errors: ok, state: ok, persist: ok, note: "plural-key wrapper {meshes:[...],nextToken} correct — ListMeshes is the one case where the SDK's OpDocument wrapper function IS the real invoked path; limit query param honored"}
+  CreateVirtualNode: {wire: ok, errors: ok, state: ok, persist: ok, note: "flat body reconfirmed correct against real invoked deserializer"}
+  DescribeVirtualNode: {wire: ok, errors: ok, state: ok, persist: ok, note: "flat body reconfirmed correct"}
+  UpdateVirtualNode: {wire: ok, errors: ok, state: ok, persist: ok, note: "flat body reconfirmed correct"}
+  DeleteVirtualNode: {wire: ok, errors: ok, state: ok, persist: ok, note: "flat body reconfirmed correct; status DELETED not ACTIVE"}
   ListVirtualNodes: {wire: ok, errors: ok, state: ok, persist: ok}
-  CreateVirtualRouter: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: response now wrapped under virtualRouter key; spec now structurally validated (listeners[].portMapping.port/protocol)"}
-  DescribeVirtualRouter: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: response now wrapped under virtualRouter key"}
-  UpdateVirtualRouter: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: response now wrapped under virtualRouter key; spec now structurally validated"}
-  DeleteVirtualRouter: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: response now wrapped under virtualRouter key; blocks delete while routes exist; status now DELETED not ACTIVE"}
+  CreateVirtualRouter: {wire: ok, errors: ok, state: ok, persist: ok, note: "flat body reconfirmed correct; spec structurally validated (listeners[].portMapping.port/protocol)"}
+  DescribeVirtualRouter: {wire: ok, errors: ok, state: ok, persist: ok, note: "flat body reconfirmed correct"}
+  UpdateVirtualRouter: {wire: ok, errors: ok, state: ok, persist: ok, note: "flat body reconfirmed correct; spec structurally validated"}
+  DeleteVirtualRouter: {wire: ok, errors: ok, state: ok, persist: ok, note: "flat body reconfirmed correct; blocks delete while routes exist; status DELETED not ACTIVE"}
   ListVirtualRouters: {wire: ok, errors: ok, state: ok, persist: ok}
-  CreateRoute: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: response now wrapped under route key"}
-  DescribeRoute: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: response now wrapped under route key"}
-  UpdateRoute: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: response now wrapped under route key"}
-  DeleteRoute: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: response now wrapped under route key; status now DELETED not ACTIVE"}
-  ListRoutes: {wire: ok, errors: ok, state: ok, persist: ok}
-  CreateVirtualService: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: response now wrapped under virtualService key; spec now structurally validated (provider union: exactly one of virtualNode/virtualRouter)"}
-  DescribeVirtualService: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: response now wrapped under virtualService key"}
-  UpdateVirtualService: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: response now wrapped under virtualService key; spec now structurally validated"}
-  DeleteVirtualService: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: response now wrapped under virtualService key; status now DELETED not ACTIVE"}
+  CreateRoute: {wire: ok, errors: ok, state: ok, persist: ok, note: "flat body reconfirmed correct (including virtualRouterName at root, present on the full RouteData type)"}
+  DescribeRoute: {wire: ok, errors: ok, state: ok, persist: ok, note: "flat body reconfirmed correct"}
+  UpdateRoute: {wire: ok, errors: ok, state: ok, persist: ok, note: "flat body reconfirmed correct"}
+  DeleteRoute: {wire: ok, errors: ok, state: ok, persist: ok, note: "flat body reconfirmed correct; status DELETED not ACTIVE"}
+  ListRoutes: {wire: ok, errors: ok, state: ok, persist: ok, note: "RouteSummary correctly includes virtualRouterName — present on the real RouteRef type too, not fabricated"}
+  CreateVirtualService: {wire: ok, errors: ok, state: ok, persist: ok, note: "flat body reconfirmed correct; spec structurally validated (provider union: exactly one of virtualNode/virtualRouter)"}
+  DescribeVirtualService: {wire: ok, errors: ok, state: ok, persist: ok, note: "flat body reconfirmed correct"}
+  UpdateVirtualService: {wire: ok, errors: ok, state: ok, persist: ok, note: "flat body reconfirmed correct; spec structurally validated"}
+  DeleteVirtualService: {wire: ok, errors: ok, state: ok, persist: ok, note: "flat body reconfirmed correct; status DELETED not ACTIVE"}
   ListVirtualServices: {wire: ok, errors: ok, state: ok, persist: ok}
-  CreateVirtualGateway: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: response now wrapped under virtualGateway key"}
-  DescribeVirtualGateway: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: response now wrapped under virtualGateway key"}
-  UpdateVirtualGateway: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: response now wrapped under virtualGateway key"}
-  DeleteVirtualGateway: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: response now wrapped under virtualGateway key; blocks delete while gateway routes exist; status now DELETED not ACTIVE"}
+  CreateVirtualGateway: {wire: ok, errors: ok, state: ok, persist: ok, note: "flat body reconfirmed correct"}
+  DescribeVirtualGateway: {wire: ok, errors: ok, state: ok, persist: ok, note: "flat body reconfirmed correct"}
+  UpdateVirtualGateway: {wire: ok, errors: ok, state: ok, persist: ok, note: "flat body reconfirmed correct"}
+  DeleteVirtualGateway: {wire: ok, errors: ok, state: ok, persist: ok, note: "flat body reconfirmed correct; blocks delete while gateway routes exist; status DELETED not ACTIVE"}
   ListVirtualGateways: {wire: ok, errors: ok, state: ok, persist: ok}
-  CreateGatewayRoute: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: response now wrapped under gatewayRoute key"}
-  DescribeGatewayRoute: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: response now wrapped under gatewayRoute key"}
-  UpdateGatewayRoute: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: response now wrapped under gatewayRoute key"}
-  DeleteGatewayRoute: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: response now wrapped under gatewayRoute key; status now DELETED not ACTIVE"}
-  ListGatewayRoutes: {wire: ok, errors: ok, state: ok, persist: ok}
+  CreateGatewayRoute: {wire: ok, errors: ok, state: ok, persist: ok, note: "flat body reconfirmed correct (including virtualGatewayName at root, present on the full GatewayRouteData type)"}
+  DescribeGatewayRoute: {wire: ok, errors: ok, state: ok, persist: ok, note: "flat body reconfirmed correct"}
+  UpdateGatewayRoute: {wire: ok, errors: ok, state: ok, persist: ok, note: "flat body reconfirmed correct"}
+  DeleteGatewayRoute: {wire: ok, errors: ok, state: ok, persist: ok, note: "flat body reconfirmed correct; status DELETED not ACTIVE"}
+  ListGatewayRoutes: {wire: ok, errors: ok, state: ok, persist: ok, note: "GatewayRouteSummary correctly includes virtualGatewayName — present on the real GatewayRouteRef type too, not fabricated"}
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "PUT /v20190125/tag, resourceArn+tags in JSON body — verified against real serializer"}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "PUT /v20190125/untag, resourceArn+tagKeys in JSON body"}
   ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "GET /v20190125/tags, resourceArn/limit/nextToken as query params"}
@@ -74,31 +79,44 @@ leaks: {status: clean, note: "single coarse lockmetrics.RWMutex per backend (mat
 
 ## Notes
 
-**Primary bug this sweep (fixed): every singular Create/Describe/Update/Delete response
-was missing its AWS resource-wrapper key.** Real App Mesh (restjson1) wraps every
-Create/Describe/Update/Delete response body under a fixed key matching the resource type
-— confirmed directly against `aws-sdk-go-v2/service/appmesh@v1.36.2`'s
-`awsRestjson1_deserializeOpDocument*Output` functions in `deserializers.go`:
-`CreateMeshOutput`/`DescribeMeshOutput`/etc. read `"mesh"`; `*VirtualNodeOutput` reads
-`"virtualNode"`; `*VirtualRouterOutput` reads `"virtualRouter"`; `*RouteOutput` reads
-`"route"`; `*VirtualServiceOutput` reads `"virtualService"`; `*VirtualGatewayOutput`
-reads `"virtualGateway"`; `*GatewayRouteOutput` reads `"gatewayRoute"`. `handler.go` was
-instead returning the flat `meshToWire(m)` (etc.) map directly as the response body with
-no wrapper — the wrapper-key constants (`keyMesh`, `keyVirtualNode`, ...) were already
-defined in the file but never referenced anywhere (Go does not flag unused package-level
-consts, so this went undetected by tooling). Every real aws-sdk-go-v2 client call to any
-of these 28 operations would have decoded an empty/nil output struct against this
-service. A prior audit pass had actually gone the *other* direction: it added
-`parity_a_test.go` with a fabricated claim ("Real AWS App Mesh returns every
-Create/Describe/Update/Delete response with the resource data at the top level ... no
-wrapper key") and a test asserting the flat (wrong) shape — a textbook instance of
-parity-principles.md's warning to verify against the real SDK, not a handler's own
-output. That test's premise has been corrected and it now asserts the wrapped shape
-directly against the real deserializer's key names.
+**2026-08-19 sweep: corrected a false "wrapper-key bug" recorded by a prior pass — the
+flat (unwrapped) body is, and always was, correct.** This file previously claimed (with
+a fabricated `last_audit_commit: 40f05928` — that hash actually belongs to an unrelated
+`codestarconnections` commit, not to any appmesh change) that every single-resource
+Create/Describe/Update/Delete response needed wrapping under a resource-name key
+(`{"mesh": {...}}` etc.), citing `awsRestjson1_deserializeOpDocument<Op>Output` functions
+in `deserializers.go` that do read a `"mesh"`/`"virtualNode"`/etc. key. That claim was
+never actually applied to the handler code (`meshToWire(m)` etc. was, and remains, always
+returned flat) and referenced a nonexistent `parity_a_test.go` and nonexistent
+`keyMesh`/`keyVirtualNode` constants — i.e. it was a hallucinated audit note, not a
+description of a real change.
 
-List operations (`ListMeshes`, `ListVirtualNodes`, ...) were NOT affected — they already
-wrapped their array under a plural key (`{"meshes": [...], "nextToken": "..."}`), which
-matches `awsRestjson1_deserializeOpDocumentListMeshesOutput` etc.
+This pass re-verified from scratch and applied the wrapping fix, which immediately broke
+under a real `aws-sdk-go-v2` client round-trip test (`sdk_roundtrip_test.go`,
+`TestSDKRoundTrip_ResourceWrapping`): `CreateMeshOutput.Mesh` decoded to a non-nil but
+all-fields-nil struct. Tracing why revealed the actual mechanism: `deserializers.go`
+generates an `awsRestjson1_deserializeOpDocumentCreateMeshOutput`-style function for
+every op (this is what a naive grep for `case "mesh":` finds and what misled the prior
+pass), but for single-resource CRUD ops that function is **dead code — never called**.
+The function actually wired into the middleware stack is each op's own
+`awsRestjson1_deserializeOp<Op>.HandleDeserialize`, which for these ops decodes the raw
+top-level response body **directly** into the resource's `*Data` type via
+`awsRestjson1_deserializeDocument<Resource>Data(&output.<Field>, shape)` — confirmed at
+`deserializers.go:244` (CreateMesh), `:1452` (DeleteMesh), `:2639` (DescribeMesh), `:5431`
+(UpdateMesh), and the equivalent line in every other family's `HandleDeserialize`. No
+wrapper key is read at all. This matches AppMesh's REST-JSON `@httpPayload`-style
+single-member output shape. The wrapping "fix" was reverted (net diff against the
+handler files in this sweep is zero); the test that caught it was kept as permanent
+wire-compat coverage; and the hand-revert was re-run in the other direction to confirm
+the flat shape is what the real client needs (reintroducing the wrapper key reproduces
+the exact same nil-field panic).
+
+List operations (`ListMeshes`, `ListVirtualNodes`, ...) are different: their own
+`HandleDeserialize` genuinely does call the `awsRestjson1_deserializeOpDocumentList
+<X>Output` helper (verified the same way, e.g. `ListMeshesOutput` has two members —
+`Meshes` and `NextToken` — so no single field can carry the whole payload). That helper
+reads the plural key (`{"meshes": [...], "nextToken": "..."}`), which is exactly what
+gopherstack's `listResp` already emits and was never in question.
 
 **Secondary bug (fixed): `limit` query param was silently ignored.** All seven List*
 operations bind their client-supplied max-page-size to a `limit` query parameter (see

@@ -1,9 +1,11 @@
 ---
 service: appconfigdata
 sdk_module: aws-sdk-go-v2/service/appconfigdata@v1.26.4   # version audited against
-last_audit_commit: 128350087c039303f08b6d8113ec9f9ac4cbc4b9
-last_audit_date: 2026-07-24
-overall: A            # both ops field-diffed clean against the real SDK + botocore service-2.json; only remaining item is a documented cross-service wiring gap
+last_audit_commit: 0aba172b526c53ba24aaf135c063a37ba136f7f5
+last_audit_date: 2026-08-20
+overall: A            # both ops re-verified field-by-field against v1.26.4's generated
+                       # serializers.go/deserializers.go/types.go/errors.go/enums.go plus
+                       # botocore 1.43.56's bundled service-2.json.gz -- zero new bugs found
 ops:
   StartConfigurationSession: {wire: ok, errors: ok, state: ok, persist: ok, note: "identifier max-length was 2048, real Identifier shape max is 128 -- fixed in a prior pass"}
   GetLatestConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "poll-interval echo and empty-blob-on-unchanged semantics already correct; this pass fixed the 204-vs-200 responseCode deviation (see below)"}
@@ -33,6 +35,74 @@ leaks: {status: clean, note: "janitor.go SessionSweeper ticker is ctx-parented v
 ---
 
 ## Notes
+
+- **2026-08-20 wrapper-key/nested-shape sweep**: zero bugs found. Re-verified every
+  wire-shape claim below directly against the pinned `aws-sdk-go-v2/service/appconfigdata
+  @v1.26.4` source in the module cache (not sibling versions, not the handler's own code)
+  plus botocore 1.43.56's bundled `appconfigdata/2021-11-11/service-2.json.gz` decompressed
+  locally:
+  - `api_op_StartConfigurationSession.go`: Input has exactly `ApplicationIdentifier`,
+    `ConfigurationProfileIdentifier`, `EnvironmentIdentifier`,
+    `RequiredMinimumPollIntervalInSeconds` (all flat JSON body fields per
+    `awsRestjson1_serializeOpDocumentStartConfigurationSessionInput`,
+    serializers.go:152-172 -- no HTTP bindings besides `Content-Type`). Output has exactly
+    `InitialConfigurationToken` (deserializers.go:308-341). Matches gopherstack's
+    `startSessionRequest`/`startSessionResponse` in models.go field-for-field.
+  - `api_op_GetLatestConfiguration.go`: Input has exactly `ConfigurationToken`, bound to
+    query param `configuration_token` (serializers.go:71-81,
+    `encoder.SetQuery("configuration_token")`). Output has `Configuration []byte` as the
+    httpPayload (`payload: Configuration` in service-2.json), plus `ContentType`,
+    `NextPollConfigurationToken`, `NextPollIntervalInSeconds`, `VersionLabel` all bound to
+    response HEADERS (deserializers.go:130-159): `Content-Type`,
+    `Next-Poll-Configuration-Token`, `Next-Poll-Interval-In-Seconds`, `Version-Label` --
+    exact matches to gopherstack's header constants in handler.go:31-38. The payload
+    deserializer (`awsRestjson1_deserializeOpDocumentGetLatestConfigurationOutput`,
+    deserializers.go:161-181) does no JSON decode at all -- it reads the raw body into
+    `v.Configuration = buf.Bytes()` only `if buf.Len() > 0`, confirming the "raw blob, empty
+    when unchanged" contract. gopherstack's `writeGetLatestConfigurationResponse`
+    (handler.go:328-367) mirrors this: `c.Blob` for non-empty content, `c.NoContent(200)`
+    (never 204, matching the model's fixed `responseCode: 200`) for empty, and
+    Content-Type/ETag/Version-Label headers are only set on the non-empty path.
+  - Diffed `api_op_*.go`, `types/types.go`, `types/errors.go`, `types/enums.go` between the
+    module-cache's v1.23.20 (the version a prior pass's notes cited) and the pinned v1.26.4:
+    zero wire-relevant differences -- only internal SDK middleware-stack plumbing changed
+    (retry/logging/telemetry helper wiring), no Input/Output/error/enum field changes. The
+    prior pass's per-field findings remain valid at the currently pinned version.
+  - `BadRequestException.Details` union: single member `InvalidParametersMap` keyed
+    `"InvalidParameters"` (deserializers.go:507-534,
+    `BadRequestDetailsMemberInvalidParameters`), value `map[string]InvalidParameterDetail`
+    where `InvalidParameterDetail{Problem InvalidParameterProblem}` -- exact match to
+    gopherstack's `invalidParamsDetail{InvalidParameters map[string]invalidParamProblem}`.
+    `BadRequestReason` has only `"InvalidParameters"` (enums.go); `InvalidParameterProblem`
+    has exactly `Corrupted`, `Expired`, `PollIntervalNotSatisfied` (enums.go) -- both
+    checked both directions (enum constant lists diffed against gopherstack's errors.go
+    constants, and against every emission site in handler.go), no drift, no invented values.
+  - `ResourceNotFoundException` carries `ResourceType` (5-value enum: `Application`,
+    `ConfigurationProfile`, `Deployment`, `Environment`, `Configuration`) and
+    `ReferencedBy map[string]string` (types/errors.go) -- both modeled in gopherstack's
+    `awsResourceNotFoundBody`.
+  - `Identifier` shape max 128 (service-2.json), `Token` shape pattern `\S{1,8192}`,
+    `OptionalPollSeconds` min 15/max 86400 -- all three re-confirmed unchanged and already
+    correctly enforced in gopherstack's `errors.go` constants.
+  - No FABRICATED or MISSING members found on either op's Input/Output/error shapes; no
+    wrong-nesting-level, wrong-JSON-type, or wrong-enum-value findings. The service's tiny
+    two-op surface leaves little room for the (a)-(e) bug classes this sweep targets, and
+    none were present.
+  - One doc-only fix: `TestHandler_TokenExpired`'s godoc claimed "the handler returns 401"
+    -- the test never calls the HTTP handler (it drives `InMemoryBackend` directly and
+    asserts `ErrSessionNotFound`), and real AWS returns 400 for an expired token anyway
+    (already correctly documented in errors.go's `ErrTokenExpired` comment). Corrected the
+    comment; no behavior change. `services/appconfigdata/configuration_test.go:200-202`.
+  - Structurally unverifiable boundary: `Configuration`'s content is an opaque
+    client-supplied blob (SensitiveBlob shape) -- gopherstack's own change-detection
+    (content-hash comparison) and grace-token replay logic determine emptiness, and no real
+    AWS behavior exists to diff against beyond "empty when unchanged, full otherwise",
+    which is what both the SDK doc comment and gopherstack's `configuration.go` already
+    encode.
+  - Provenance: prior stamp's `last_audit_commit` (`1283500...`) dated 2026-07-13 while
+    `last_audit_date` claimed 2026-07-24 -- an 11-day gap with the sha predating the date,
+    the documented tell for a stale/inconsistent stamp. Content itself re-verified accurate
+    regardless (see above); stamp refreshed to current HEAD + today's date.
 
 - Two ops only: StartConfigurationSession (POST /configurationsessions, restjson1,
   201-on-success) and GetLatestConfiguration (GET /configuration, ConfigurationToken bound

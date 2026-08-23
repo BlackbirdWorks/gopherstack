@@ -10,12 +10,19 @@ last_audit_commit: e15f163e                # HEAD was e15f163e when this pass st
 last_audit_date: 2026-07-23
 overall: A                # zero gaps carried forward without re-verification; several new
                            # wire-shape bugs found independently and fixed this pass
+last_audit_commit: d5aaf8e79   # HEAD when this pass finished; see 2026-08-20 Notes entry for
+                                # the provenance finding this replaces (stamp had not advanced
+                                # across two substantive intervening passes)
+last_audit_date: 2026-08-20
+overall: A                # two real bugs found and fixed this pass (AirflowVersion valid-value
+                           # set, LoggingConfiguration request/response type conflation); rest
+                           # of the 12-op surface re-verified clean against mwaa@v1.43.4
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
-  CreateEnvironment: {wire: ok, errors: ok, state: ok, persist: ok, note: "NetworkConfiguration now enforced required with SubnetIds==2/SecurityGroupIds 1-5 (was previously optional/unbounded -- see Notes); EnvironmentClass now includes mw1.micro (was missing, rejecting a real value); WebserverAccessMode now includes PUBLIC_AND_PRIVATE (was missing); WorkerReplacementStrategy is no longer accepted/validated on Create (it was never a member of CreateEnvironmentInput -- see Notes); duplicate-name conflict remains ValidationException/400; mw1.micro now defaults MaxWebservers/MinWebservers to 1 (was incorrectly defaulting to 2 like every other class) and rejects explicit values other than 1 (was incorrectly accepting the full 1-5 range) -- see Notes"}
-  GetEnvironment: {wire: ok, errors: ok, state: ok, persist: ok, note: "Environment response no longer echoes a fabricated top-level WorkerReplacementStrategy field (real Environment has no such member -- only LastUpdate.WorkerReplacementStrategy is real)"}
-  UpdateEnvironment: {wire: ok, errors: ok, state: ok, persist: ok, note: "WorkerReplacementStrategy enum values corrected to FORCED/GRACEFUL (was FORCED/TERMINATION_WITH_DRAIN -- the latter is fabricated, the real second value GRACEFUL was previously rejected); WebserverAccessMode now includes PUBLIC_AND_PRIVATE; NetworkConfiguration wire-shape fix from the prior pass (UpdateNetworkConfigurationInput has no SubnetIds) re-verified unchanged; mw1.micro webserver-count restriction now enforced using the effective (request-or-persisted) EnvironmentClass; a rejected update (e.g. MinWorkers>MaxWorkers) no longer silently mutates the stored environment's other fields first -- see Notes"}
+  CreateEnvironment: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-08-20: AirflowVersion valid-value set corrected (see Notes); LoggingConfiguration request decode now uses a real request-shaped LoggingConfigurationInput/ModuleLoggingConfigurationInput (no CloudWatchLogGroupArn member), converted into the response's LoggingConfiguration on write -- see Notes. Prior pass's fixes re-verified unchanged: NetworkConfiguration enforced required with SubnetIds==2/SecurityGroupIds 1-5; EnvironmentClass includes mw1.micro; WebserverAccessMode includes PUBLIC_AND_PRIVATE; WorkerReplacementStrategy correctly absent from Create; duplicate-name conflict ValidationException/400; mw1.micro webserver defaults/bounds"}
+  GetEnvironment: {wire: ok, errors: ok, state: ok, persist: ok, note: "Environment field list re-diffed member-by-member against types.Environment (v1.43.4): all 34 fields match by name and shape, none missing, none fabricated. Environment response no longer echoes a fabricated top-level WorkerReplacementStrategy field (real Environment has no such member -- only LastUpdate.WorkerReplacementStrategy is real)"}
+  UpdateEnvironment: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-08-20: same AirflowVersion and LoggingConfiguration fixes as CreateEnvironment apply here (validateUpdateEnums and the update path share validAirflowVersions()/convertLoggingConfiguration()). Prior pass's fixes re-verified unchanged: WorkerReplacementStrategy enum values FORCED/GRACEFUL; WebserverAccessMode includes PUBLIC_AND_PRIVATE; NetworkConfiguration wire-shape (UpdateNetworkConfigurationInput has no SubnetIds); mw1.micro webserver-count restriction using the effective EnvironmentClass; a rejected update no longer silently mutates the stored environment's other fields first"}
   DeleteEnvironment: {wire: ok, errors: ok, state: ok, persist: ok}
   ListEnvironments: {wire: ok, errors: ok, state: ok, persist: ok, note: "re-verified MaxResults/NextToken are httpQuery-bound (not body) against serializers.go -- matches"}
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -220,3 +227,152 @@ convention as `services/directconnect/sdk_roundtrip_test.go`).
   MinWorkers/MaxWorkers from the request before any mutation and validating first;
   the mw1.micro webserver check added this pass follows the same pre-mutation-validation
   pattern.
+
+**2026-08-20: wrapper-key/nested-shape wire-parity sweep.** Twelve ops
+enumerated from `GetSupportedOperations()` and cross-checked against
+`ls $(go env GOMODCACHE)/github.com/aws/aws-sdk-go-v2/service/mwaa@v1.43.4/api_op_*.go`
+(9 files -- CreateCliToken, CreateEnvironment, CreateWebLoginToken,
+DeleteEnvironment, GetEnvironment, InvokeRestApi, ListEnvironments,
+ListTagsForResource, PublishMetrics, TagResource, UntagResource,
+UpdateEnvironment -- matches). Protocol confirmed restjson1 from
+`api_client.go`. Verified per-op, by reading the function BODY (not name/call
+site) of every `awsRestjson1_deserializeOp<Op>` in deserializers.go: all 12
+decode the response body flat at the top level via
+`awsRestjson1_deserializeOpDocument<Op>Output`, and every one of those
+`OpDocument` helpers is live (called directly, not dead code) and actually
+performs a JSON decode into named fields -- no cnhp-trap variant found here
+(no `(output, body, contentLength)` signature, no body-passthrough helper).
+
+Two real bugs found and fixed:
+
+1. **AirflowVersion valid-value set was wrong in both directions.**
+   `validAirflowVersions()` (validation.go) accepted five stale values
+   (`2.6.3`, `2.5.1`, `2.4.3`, `2.2.2`, `1.10.12`) that real AWS no longer
+   offers, while rejecting three real, currently-offered values (`2.10.1`,
+   `2.11.0`, `3.0.6`). Confirmed via the "Valid values: 2.7.2, 2.8.1, 2.9.2,
+   2.10.1, 2.10.3, 2.11.0, and 3.0.6" doc comment repeated identically on
+   `types.Environment.AirflowVersion` (types/types.go:41),
+   `CreateEnvironmentInput.AirflowVersion` (api_op_CreateEnvironment.go:88),
+   and `UpdateEnvironmentInput.AirflowVersion` (api_op_UpdateEnvironment.go:52).
+   This is bug class (e), Right key wrong VALUE. Fixed the constant list;
+   corrected `TestAirflowVersion_SupportedVersions`'s list (it had asserted
+   success for the same five stale values gopherstack wrongly accepted) and
+   added the five stale values plus one real one to
+   `TestAirflowVersion_UnsupportedVersions`. `TestAirflowVersion_V1_SingleSchedulerOK`
+   and `TestDefaults_SchedulersV1OnCreate` asserted `CreateEnvironment`
+   succeeds with `AirflowVersion: "1.10.12"` -- that premise breaks once 1.x
+   is correctly rejected, so both were corrected to expect rejection
+   (renamed the first to `..._SingleSchedulerRejected`). This makes
+   `validateSchedulers`'s `strings.HasPrefix(airflowVersion, "1.")` branch
+   and `defaultSchedulersV1` genuinely unreachable via any currently-valid
+   CreateEnvironment/UpdateEnvironment call -- left in place as harmless
+   vestigial code (same category as the pre-existing unmodeled MAINTENANCE
+   status) rather than removed, to keep this pass scoped to wire shape.
+   Hand-revert (`cp` method) reproduced the exact symptom:
+   `TestAirflowVersion_SupportedVersions` failed on 2.10.1/2.11.0/3.0.6 and
+   `TestAirflowVersion_UnsupportedVersions` failed on 1.10.12/2.6.3 with the
+   old list restored.
+
+2. **LoggingConfiguration was used for BOTH request decode and response
+   encode**, sharing one Go type (`ModuleLoggingConfiguration`, with a
+   `CloudWatchLogGroupArn` field) across `createEnvironmentRequest`/
+   `updateEnvironmentRequest` and the `Environment` response. Real AWS models
+   these as two distinct shapes: `LoggingConfiguration`/
+   `ModuleLoggingConfiguration` (response, HAS `CloudWatchLogGroupArn`,
+   types/types.go:407-422) vs `LoggingConfigurationInput`/
+   `ModuleLoggingConfigurationInput` (request, NO `CloudWatchLogGroupArn`,
+   types/types.go:290-330) -- `CloudWatchLogGroupArn` is server-computed once
+   a module's logs are enabled, never client-supplied. Grepped for readers
+   before calling this cosmetic: `buildEnvironment` and `UpdateEnvironment`
+   both did `env.LoggingConfiguration = req.LoggingConfiguration` verbatim,
+   so a request body setting `CloudWatchLogGroupArn` was decoded, persisted,
+   and echoed straight back in the response as if AWS-generated -- a
+   response-only field leaking through the request path (the mirror of the
+   request-only-field-in-a-response shape called out elsewhere this
+   campaign). No real conformant SDK client can trigger this (its generated
+   request marshaler has no such field to send), but gopherstack simulates
+   arbitrary HTTP clients, not just the official SDK, so the request wire
+   shape itself was inaccurate regardless of client conformance. Fixed by
+   adding real `LoggingConfigurationInput`/`ModuleLoggingConfigurationInput`
+   types (models.go) used only by the two request structs, and a
+   `convertLoggingConfiguration`/`convertModuleLoggingConfiguration` mapping
+   step (environments.go) that intentionally never sets
+   `CloudWatchLogGroupArn` -- it stays an honest, disclosed gap (gopherstack
+   never computes it) rather than a spoofable field. This is now a
+   compile-time-enforced separation: hand-reverting `buildEnvironment` to
+   assign `req.LoggingConfiguration` (the Input type) directly to
+   `Environment.LoggingConfiguration` (the response type) fails to build
+   (`cannot use req.LoggingConfiguration (variable of type
+   *LoggingConfigurationInput) as *LoggingConfiguration value in struct
+   literal`) -- a stronger proof than a runtime test. Also added
+   `TestHTTP_LoggingConfig_CloudWatchLogGroupArn_NotEchoedFromRequest`
+   (handler_environments_test.go), which POSTs a `CloudWatchLogGroupArn` in
+   the request body and asserts it comes back empty in the GetEnvironment
+   response, as a wire-level (not just Go-type-level) regression guard for
+   any future handler that bypasses the typed request struct. Updated ~30
+   struct-literal call sites in `environments_config_test.go` and
+   `store_test.go` from `mwaa.LoggingConfiguration{...}` /
+   `mwaa.ModuleLoggingConfiguration{...}` to the `...Input` variants (none of
+   them set `CloudWatchLogGroupArn`, so this was a pure rename, no assertion
+   changes); `handler_environments_test.go`/`handler_tags_test.go` construct
+   requests as raw `map[string]any` JSON bodies and needed no changes.
+
+Families re-verified CLEAN, no changes: `Environment` full 34-field diff
+against `types.Environment` (see GetEnvironment note above) -- no missing, no
+fabricated members. `ListEnvironments` returns bare `Environments []string` +
+`NextToken` (handler_environments.go's `handleListEnvironments` builds
+`map[string]any{"Environments": names}` from a `[]string`) -- confirmed
+against `ListEnvironmentsOutput.Environments []string`
+(api_op_ListEnvironments.go:45); gopherstack does not return objects there.
+`CreateEnvironmentOutput`/`UpdateEnvironmentOutput` each have exactly one
+member, `Arn *string` -- confirmed `writeEnvironmentResult` (handler.go:349)
+returns only `{"Arn": env.ARN}`, not a full Environment (this looked like a
+plausible wrapper-key bug going in; it is not). `CreateCliTokenOutput`
+(`CliToken`, `WebServerHostname`) and `CreateWebLoginTokenOutput`
+(`AirflowIdentity`, `IamIdentity`, `WebServerHostname`, `WebToken`) field
+names re-verified byte-for-byte against the deserializer's `case` keys;
+gopherstack's handler_cli_token.go/handler_web_login_token.go match, and the
+still-unpopulated `AirflowIdentity`/`IamIdentity` gap (documented above) was
+re-confirmed rather than re-derived. `InvokeRestApiOutput`
+(`RestApiResponse` as `document.Interface`, `RestApiStatusCode *int32`)
+matches gopherstack's `InvokeRestAPIResponse{RestAPIResponse any,
+RestAPIStatusCode int32}`. Error taxonomy (7 exception types) unchanged, all
+present in types/errors.go. `UntagResource`'s `tagKeys` query param name
+(lowercase) matches serializers.go:1039. Enums checked both directions
+against types/enums.go: `EndpointManagement` (CUSTOMER/SERVICE),
+`WebserverAccessMode` (PRIVATE_ONLY/PUBLIC_ONLY/PUBLIC_AND_PRIVATE),
+`WorkerReplacementStrategy` (FORCED/GRACEFUL), `LoggingLevel`
+(CRITICAL/ERROR/WARNING/INFO/DEBUG), `EnvironmentStatus` (12 values),
+`UpdateStatus` (SUCCESS/PENDING/FAILED) -- all match gopherstack's accepted
+sets exactly; only `AirflowVersion`'s valid-value set (not a generated Go
+enum, but an equally-authoritative documented discrete set) was wrong, see
+bug 1 above. `Unit` is internal-only (PublishMetrics's deprecated
+`MetricDatum.Unit`) and not independently re-verified this pass (26-value
+list, unchanged from prior audits, low risk).
+
+**Provenance finding.** The manifest's stamp
+(`last_audit_commit: e15f163e+uncommitted`, `last_audit_date: 2026-07-23`)
+had NOT advanced across two later, substantive passes that both touched this
+exact file's content: `366717981` (2026-08-10, "fix(mq,mwaa): validate tag
+targets that exist, and stop writing rejected updates" -- bumped
+`sdk_module` from v1.40.1 to v1.43.4, added the mw1.micro
+webserver-default/bounds fix, rewrote several `ops`/`gaps` notes) and
+`d39bf33e4` (2026-08-11, "Chore/parity upgrade (#2414)" -- touched
+`environments.go`, `store.go`, `tags.go`, `validation.go`,
+`environments_micro_webservers_test.go`,
+`environments_validation_test.go`). Both commits' diffs modify PARITY.md's
+`ops`/`sdk_module` lines directly while leaving `last_audit_commit`/
+`last_audit_date` completely untouched (confirmed via `git show <sha> --
+services/mwaa/PARITY.md`) -- this is not the "commit merely touches the
+directory" false-positive pattern the campaign warned about (four prior
+false accusations); it is the stamp's own tracked fields failing to move
+across edits to the very content they attest to. Separately,
+`e15f163e` itself (2026-07-13) predates `last_audit_date` (2026-07-23) by
+ten days, but that gap has an innocent explanation: `27f63288f`
+("fix(mwaa): delete invented op/field, fix enums, require network config"),
+the commit whose diff matches the 2026-07-23 manifest content verbatim, is
+timestamped 2026-07-23T19:16:10 -- exactly the recorded date, consistent
+with a branch opened at `e15f163e` and merged ten days later. Verdict: the
+originally-stamped date was accurate for the pass it described; the stamp
+simply stopped advancing afterward. This pass's fixes bring `sdk_module`,
+`last_audit_commit`, and `last_audit_date` back in sync with actual HEAD.

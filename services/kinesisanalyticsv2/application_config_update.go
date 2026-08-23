@@ -58,14 +58,12 @@ type FlinkApplicationConfigUpdate struct {
 }
 
 // InputUpdate describes updates to an existing application input, identified by InputID.
-// Only the fields gopherstack's InputDescription models are supported (see
-// models.go); InputSchemaUpdate/InputParallelismUpdate are not modeled
-// anywhere in this backend (no different than at Add-time) and are ignored
-// if present on the wire.
 type InputUpdate struct {
 	KinesisStreamsInputUpdate          *KinesisStreamsInputDesc
 	KinesisFirehoseInputUpdate         *KinesisFirehoseInputDesc
 	InputProcessingConfigurationUpdate *InputProcessingConfigurationDesc
+	InputSchemaUpdate                  *InputSchemaUpdateDesc
+	InputParallelismUpdate             *InputParallelismUpdateDesc
 	InputID                            string
 	NamePrefixUpdate                   string
 }
@@ -81,9 +79,14 @@ type OutputUpdate struct {
 }
 
 // ReferenceDataSourceUpdate describes updates to an existing reference data
-// source, identified by ReferenceID.
+// source, identified by ReferenceID. ReferenceSchemaUpdate reuses
+// SourceSchemaDesc unrenamed -- unlike InputUpdate.InputSchemaUpdate, real
+// AWS's ReferenceDataSourceUpdate.ReferenceSchemaUpdate is typed plain
+// "SourceSchema" (verified against botocore's "ReferenceDataSourceUpdate"
+// shape), not a dedicated Update-suffixed shape.
 type ReferenceDataSourceUpdate struct {
 	S3ReferenceDataSourceUpdate *S3ReferenceDataSourceDesc
+	ReferenceSchemaUpdate       *SourceSchemaDesc
 	ReferenceID                 string
 	TableNameUpdate             string
 }

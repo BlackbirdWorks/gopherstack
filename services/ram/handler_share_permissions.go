@@ -192,10 +192,15 @@ func (h *Handler) handleReplacePermissionAssociations(
 	})
 }
 
+// permissionAssociationObject matches types.AssociatedPermission
+// (aws-sdk-go-v2/service/ram@v1.39.4 types/types.go:11-): the permission ARN wire key is
+// "arn", not "permissionArn" -- and PermissionVersion is a *string on the wire
+// (deserializers.go's awsRestjson1_deserializeDocumentAssociatedPermission type-asserts it
+// to string and errors otherwise), not a number.
 type permissionAssociationObject struct {
+	Arn               string `json:"arn"`
 	ResourceShareArn  string `json:"resourceShareArn"`
-	PermissionArn     string `json:"permissionArn"`
-	PermissionVersion int32  `json:"permissionVersion"`
+	PermissionVersion string `json:"permissionVersion"`
 }
 
 type listPermissionAssociationsRequest struct {
@@ -221,9 +226,9 @@ func (h *Handler) handleListPermissionAssociations(_ context.Context, body []byt
 
 	for _, a := range assocs {
 		objs = append(objs, permissionAssociationObject{
+			Arn:               a.PermissionARN,
 			ResourceShareArn:  a.ShareARN,
-			PermissionArn:     a.PermissionARN,
-			PermissionVersion: a.Version,
+			PermissionVersion: strconv.Itoa(int(a.Version)),
 		})
 	}
 

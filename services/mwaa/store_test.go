@@ -86,8 +86,8 @@ func TestSnapshot_WithLoggingConfig(t *testing.T) {
 
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
 	req := newCreateReq()
-	req.LoggingConfiguration = &mwaa.LoggingConfiguration{
-		SchedulerLogs: &mwaa.ModuleLoggingConfiguration{LogLevel: "WARNING"},
+	req.LoggingConfiguration = &mwaa.LoggingConfigurationInput{
+		SchedulerLogs: &mwaa.ModuleLoggingConfigurationInput{LogLevel: "WARNING"},
 	}
 
 	_, err := b.CreateEnvironment(context.Background(), "snap-log-env", req)

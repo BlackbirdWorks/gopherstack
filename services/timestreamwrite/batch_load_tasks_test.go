@@ -72,7 +72,7 @@ func TestInMemoryBackend_ResumeBatchLoadTask_FromFailed(t *testing.T) {
 		TableStatus: "ACTIVE", CreationTime: now, LastUpdatedTime: now,
 	})
 
-	task, err := b.CreateBatchLoadTask("rbt-db", "rbt-tbl", nil, nil)
+	task, err := b.CreateBatchLoadTask("rbt-db", "rbt-tbl", nil, nil, nil, 0)
 	require.NoError(t, err)
 
 	err = b.SetBatchLoadTaskStatus(task.TaskID, timestreamwrite.BatchLoadStatusFailed)

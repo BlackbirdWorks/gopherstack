@@ -154,7 +154,11 @@ func TestHandler_CreateDatasetContent_ExplicitVersionID(t *testing.T) {
 
 // TestHandler_GetDatasetContent_MagicVersionStrings verifies GetDatasetContent honors the
 // AWS-documented "$LATEST" and "$LATEST_SUCCEEDED" versionId sentinels (uppercase, as sent
-// verbatim by the SDK), not just an omitted versionId.
+// verbatim by the SDK), not just an omitted versionId. GetDatasetContentOutput carries no
+// versionId member (deserializers.go
+// awsRestjson1_deserializeOpDocumentGetDatasetContentOutput), so correct resolution is
+// observed as a 200 with the expected SUCCEEDED status rather than an echoed version: an
+// unresolved magic string 404s via ErrDatasetContentNotFound (datasets.go GetDatasetContent).
 func TestHandler_GetDatasetContent_MagicVersionStrings(t *testing.T) {
 	t.Parallel()
 
@@ -176,11 +180,6 @@ func TestHandler_GetDatasetContent_MagicVersionStrings(t *testing.T) {
 			createRec := doRequest(t, h, http.MethodPost, "/datasets/magicver_ds/content", nil)
 			require.Equal(t, http.StatusOK, createRec.Code)
 
-			var createResp map[string]any
-			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
-			wantVersion, _ := createResp["versionId"].(string)
-			require.NotEmpty(t, wantVersion)
-
 			path := "/datasets/magicver_ds/content"
 			if tt.versionID != "" {
 				path += "?versionId=" + tt.versionID
@@ -191,7 +190,9 @@ func TestHandler_GetDatasetContent_MagicVersionStrings(t *testing.T) {
 
 			var resp map[string]any
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-			assert.Equal(t, wantVersion, resp["versionId"])
+
+			status, _ := resp["status"].(map[string]any)
+			assert.Equal(t, "SUCCEEDED", status["state"])
 		})
 	}
 }
@@ -549,7 +550,11 @@ func TestHandler_DescribeDataset_NewFields(t *testing.T) {
 	}
 }
 
-// TestHandler_GetDatasetContent_VersionAndEntries verifies GetDatasetContent returns versionId and entries.
+// TestHandler_GetDatasetContent_VersionAndEntries verifies GetDatasetContent returns
+// status, entries, and timestamp -- and NOT a versionId (AWS's GetDatasetContentOutput
+// has no such member: deserializers.go
+// awsRestjson1_deserializeOpDocumentGetDatasetContentOutput only recognizes entries,
+// status, timestamp; a real typed client silently drops any versionId key).
 func TestHandler_GetDatasetContent_VersionAndEntries(t *testing.T) {
 	t.Parallel()
 
@@ -562,7 +567,10 @@ func TestHandler_GetDatasetContent_VersionAndEntries(t *testing.T) {
 
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	assert.NotEmpty(t, resp["versionId"], "GetDatasetContent must return versionId")
+	_, hasVersionID := resp["versionId"]
+	assert.False(t, hasVersionID, "GetDatasetContent must not return versionId -- AWS has no such member")
+	_, hasStatus := resp["status"]
+	assert.True(t, hasStatus, "GetDatasetContent must return status")
 	_, hasEntries := resp["entries"]
 	assert.True(t, hasEntries, "GetDatasetContent must return entries array")
 }

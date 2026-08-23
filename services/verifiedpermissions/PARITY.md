@@ -1,8 +1,8 @@
 service: verifiedpermissions
 sdk_module: aws-sdk-go-v2/service/verifiedpermissions@v1.36.4
-last_audit_commit: 2eb5bdb71
-last_audit_date: 2026-08-10
-overall: A            # this pass: IsAuthorizedWithToken/BatchIsAuthorizedWithToken now compare the token's aud/client_id claim against the identity source's configured client IDs/audiences (real data comparison, not crypto -- closes an over-authorization gap); added the missing response "principal" field to both ops; fixed BatchIsAuthorizedWithToken's per-item "request" echo to drop the principal field it never has on the real SDK. sdk_module bumped v1.36.0 -> v1.36.4 (patch-only, no API changes -- diffed the two module-cache copies to confirm); no regressions in prior fixes
+last_audit_commit: 92bc04738
+last_audit_date: 2026-08-20
+overall: A            # this pass (wrapper-key/nested-shape sweep, gopherstack-c733): field-diffed every response struct against the pinned SDK's types.go, with special attention to this service's union families (PolicyDefinition/Detail/Item, Configuration/Detail/Item, OpenIdConnectTokenSelection/Detail/Item, EntityReference) since this campaign hadn't yet stress-tested a union-heavy service. Found and fixed two real bugs: ListPolicyTemplates leaking a fabricated "statement" field (pattern: member generalized from GetPolicyTemplateOutput's wider sibling shape), and BatchGetPolicy mis-coding an unresolvable-alias failure as POLICY_STORE_NOT_FOUND instead of the real SDK's dedicated POLICY_STORE_ALIAS_NOT_FOUND value (right key, wrong value). Every union discriminator key/casing, every summary/full pair, and both three-way families verified correct against deserializers.go/serializers.go -- no other wire bugs found. No regressions in prior fixes (all 159 tests still pass).
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
@@ -20,6 +20,10 @@ ops:
   GetPolicyTemplate: {wire: fixed, errors: ok, state: ok, persist: ok, note: "2026-08-22 (gopherstack-tpu3): GetPolicyTemplateOutput requires a \"name\" key (deserializers.go:9615, awsAwsjson10_deserializeOpDocumentGetPolicyTemplateOutput) that this handler never emitted -- PolicyTemplate had no Name field at all. Fixed; see TestPolicyTemplate_NameRoundTrip."}
   ListPolicyTemplates: {wire: fixed, errors: ok, state: ok, persist: ok, note: "2026-08-22 (gopherstack-tpu3): types.PolicyTemplateItem requires \"name\" too (deserializers.go:7584, awsAwsjson10_deserializeDocumentPolicyTemplateItem) -- same gap as GetPolicyTemplate, now fixed. Pre-existing, out-of-scope-for-this-fix note: policyTemplateView also emits a \"statement\" key PolicyTemplateItem does not have on the real SDK; harmless (unknown keys are ignored by the deserializer) but left as-is -- unrelated to Name."}
   UpdatePolicyTemplate: {wire: fixed, errors: ok, state: ok, persist: ok, note: "2026-08-22 (gopherstack-tpu3): UpdatePolicyTemplateInput.Name (api_op_UpdatePolicyTemplate.go:104) was never read -- fixed, same empty-string-means-unchanged convention this handler already used for Description/Statement. Not echoed on UpdatePolicyTemplateOutput (no Name member there either, same as Create); visible on the next GetPolicyTemplate/ListPolicyTemplates instead."}
+  CreatePolicyTemplate: {wire: ok, errors: ok, state: ok, persist: ok, note: "ClientToken idempotency now implemented"}
+  GetPolicyTemplate: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListPolicyTemplates: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (2026-08-20): PolicyTemplateItem was echoing the full Cedar statement text -- the real SDK's types.PolicyTemplateItem (types/types.go:2121) has no statement field at all (only createdDate/lastUpdatedDate/policyStoreId/policyTemplateId/description/name), unlike GetPolicyTemplateOutput's wider sibling shape which requires one. A typed client can't observe an over-emitted key, so proven with a raw-body absence assertion (TestListPolicyTemplates_ItemHasNoStatement)."}
+  UpdatePolicyTemplate: {wire: ok, errors: ok, state: ok, persist: ok}
   DeletePolicyTemplate: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (state bug, not wire): the real SDK documents that DeletePolicyTemplate \"also deletes any policies that were created from the specified policy template\" -- gopherstack previously deleted only the template row, leaving every TEMPLATE_LINKED policy referencing it as a dangling reference (visible via GetPolicy/ListPolicies, silently dropped from Cedar evaluation). Now cascade-deletes those policies (row + arnIndex + resourceTags) and invalidates the store's compiled policy-set cache."}
   PutSchema: {wire: ok, errors: ok, state: ok, persist: ok}
   GetSchema: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -27,7 +31,7 @@ ops:
   IsAuthorizedWithToken: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (this pass): the response was missing the real SDK's \"principal\" field (IsAuthorizedWithTokenOutput.Principal, EntityIdentifier, optional) -- now echoed when a principal is resolved, omitted otherwise. FIXED (this pass, security-relevant): principalFromToken now also validates the token's aud/client_id claim against the matched identity source's configured client IDs/audiences (cognito-validation.html / oidc-validation.html) -- a token with a mismatched audience no longer resolves a principal from that source (fails closed to no-principal/DENY), closing a real over-authorization gap where a token minted for a different app but the same trusted issuer could previously be ALLOWed. A source with no client IDs/audiences configured keeps accepting any token (real AWS: validation is opt-in). JWT signature verification remains out of scope (needs the issuer's real signing keys); a malformed/unparseable token still fails closed to no-principal/DENY rather than erroring, matching the response schema's principal field being optional (not required), which implies graceful degradation rather than a dedicated exception. principalFromToken still matches the token's \"iss\" claim against each identity source's issuer (OIDC OpenIDIssuer, or the issuer AWS derives from a Cognito user pool ARN), falling back to the first source when there's no iss claim or no match. Same TEMPLATE_LINKED evaluation fix as IsAuthorized applies here too."}
   BatchIsAuthorized: {wire: ok, errors: ok, state: ok, persist: ok, note: "same TEMPLATE_LINKED evaluation fix as IsAuthorized (shared buildCedarPolicySet)"}
   BatchIsAuthorizedWithToken: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (this pass): response was missing the real SDK's top-level \"principal\" field (BatchIsAuthorizedWithTokenOutput.Principal); also, each result's echoed \"request\" was wrongly including a \"principal\" field -- the real BatchIsAuthorizedWithTokenInputItem (unlike BatchIsAuthorizedInputItem) has no principal member, since the principal comes from the token and is echoed once at the top level instead. Same aud/client_id validation + issuer-matching + TEMPLATE_LINKED evaluation fixes as IsAuthorizedWithToken."}
-  BatchGetPolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "confirmed BatchGetPolicyOutputItem correctly has NO top-level effect/actions/principal/resource fields (unlike GetPolicy/ListPolicies) -- verified against the real SDK type, left as-is"}
+  BatchGetPolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "confirmed BatchGetPolicyOutputItem correctly has NO top-level effect/actions/principal/resource fields (unlike GetPolicy/ListPolicies) -- verified against the real SDK type, left as-is. FIXED (2026-08-20): an unresolvable-alias policyStoreId in a batch item was coded as errors[].code=POLICY_STORE_NOT_FOUND -- the real SDK's BatchGetPolicyErrorCode enum (types/enums.go:24-30) declares a dedicated POLICY_STORE_ALIAS_NOT_FOUND value for exactly this case, distinct from a bare-ID miss. Right key, wrong value; a bare (non-alias) policyStoreId miss inside the backend's own item loop already used POLICY_STORE_NOT_FOUND correctly and is unaffected. Proven with a real-client round-trip test (TestBatchGetPolicy_UnresolvableAlias_ErrorCode) since BatchGetPolicyErrorItem.Code is a typed enum field the SDK client surfaces directly."}
   CreateIdentitySource: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (this pass): CreateIdentitySourceOutput was echoing the full principalEntityType + configuration back -- the real output shape is minimal (identitySourceId/policyStoreId/timestamps only); those two fields don't exist on the real CreateIdentitySourceOutput type. ClientToken now wired to idempotency (was parsed but silently discarded before). Last pass: identityTokenOnly.clientIds + cognitoUserPoolConfiguration.issuer fixes carry forward."}
   GetIdentitySource: {wire: ok, errors: ok, state: ok, persist: ok, note: "unchanged this pass -- the fuller identitySourceOutput shape (with principalEntityType + configuration) IS correct here, matching the real GetIdentitySourceOutput"}
   ListIdentitySources: {wire: ok, errors: ok, state: ok, persist: ok, note: "unchanged this pass -- IdentitySourceItem's fuller shape also correctly includes principalEntityType + configuration"}
@@ -41,6 +45,7 @@ ops:
   ListPolicyStoreAliases: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW. Supports the optional filter.policyStoreId narrowing and maxResults/nextToken pagination (shared listByPolicyStore helper, same pattern as ListPolicyTemplates/ListIdentitySources)."}
   DeletePolicyStoreAlias: {wire: ok, errors: partial, state: ok, persist: ok, note: "NEW. Idempotent on a missing aliasName (200, per real SDK doc). deletionMode SoftDelete (default) transitions the alias to PendingDeletion instead of removing it; HardDelete removes it immediately. errors=partial: the real SDK also declares InvalidStateException for this op, but its documented message (\"The policy store can't be deleted because deletion protection is enabled...\") is byte-for-byte identical to DeletePolicyStore's InvalidStateException text and references a deletionProtection field aliases don't have -- strong evidence of copy-pasted/auto-generated doc boilerplate rather than a real alias-specific trigger. Left unimplemented rather than guessing a fabricated trigger condition; see gaps."}
 gaps:                     # known divergences NOT fixed
+  - "IsAuthorized/IsAuthorizedWithToken request input never reads a context or entities field at all (api_op_IsAuthorized.go: IsAuthorizedInput.Context types.ContextDefinition, .Entities types.EntitiesDefinition) -- unlike BatchIsAuthorized(WithToken), which does accept an entities field (with attrs passed through as raw JSON, unparsed into typed AttributeValue). This is a request-side completeness gap in Cedar attribute/context evaluation, not a response wrapper-key bug, so it's out of this pass's wire-shape scope per the campaign's Layer-3 rule (response members never emitted) -- flagged here since it surfaced incidentally while reading these ops' Input structs, not chased further."
   - "IsAuthorizedWithToken/BatchIsAuthorizedWithToken: JWT signature verification is not performed (needs the issuer's real signing keys -- genuinely out of scope for an in-memory mock). Tokens are trusted at face value once their claims parse; expiration is also not checked. aud/client_id-against-configured-client-IDs matching WAS implemented this pass (see ops notes above) since it's a plain data comparison against configuration this backend already stores, not cryptography."
   - "DeletePolicyStoreAlias: the real SDK declares an InvalidStateException, but its documented trigger text is (byte-for-byte) DeletePolicyStore's own \"deletion protection is enabled\" message, which does not apply to aliases (no deletionProtection field exists on PolicyStoreAlias). Treated as unreliable auto-generated API-reference boilerplate rather than implemented as a guessed condition; if AWS's real behavior differs (e.g. re-soft-deleting an already-PendingDeletion alias), this needs a follow-up once the actual trigger is confirmed."
   - "CreatePolicyStoreAlias's ServiceQuotaExceededException is declared as a possible error but no numeric per-account/region alias quota is documented anywhere in the API reference, so none is enforced -- consistent with how this service (and others in gopherstack) leaves undocumented-threshold quota exceptions unenforced rather than fabricating a number."
@@ -419,3 +424,101 @@ every wire claim in this file still holds against the pinned version.
 
 Also fixed that pass: `ListPolicies`' `filter.principal`/`filter.resource` used a flat
 `entityIdentifier` instead of the real SDK's `EntityReference` union.
+
+## This pass (2026-08-20): wrapper-key/nested-shape/union sweep (gopherstack-c733)
+
+This service was flagged as a good stress test for a wrapper-key/nested-shape campaign
+that had, across 15 prior services, found bugs in generalized-member reuse (a), wrong
+JSON type (b), case-sensitive key near-misses (c), and wrong HTTP binding (d), but not
+yet in a union-heavy service. verifiedpermissions has more smithy unions than any
+service swept so far in this campaign.
+
+**Unions verified, all correct:** `PolicyDefinition`/`PolicyDefinitionDetail`/
+`PolicyDefinitionItem` (`static`/`templateLinked` -- confirmed the three near-identical
+types each match their own real sibling: `StaticPolicyDefinitionItem` genuinely has no
+`statement` field, unlike `...Detail`); `Configuration`/`ConfigurationDetail`/
+`ConfigurationItem` (`cognitoUserPoolConfiguration`/`openIdConnectConfiguration`);
+`OpenIdConnectTokenSelection`/`...Detail`/`...Item` (`identityTokenOnly`/
+`accessTokenOnly`, including the `clientIds`-vs-`audiences` field-name split between the
+two variants); `EntityReference` (`identifier`/`unspecified`); `SchemaDefinition`
+(single-member `cedarJson`). All discriminator keys and casing confirmed byte-for-byte
+against `serializers.go`/`deserializers.go`'s `object.Key(...)`/`case "..."` lines, not
+inferred from field names.
+
+**Four summary/full pairs and two three-way families, verified:**
+- `PolicyStoreItem` vs `GetPolicyStoreOutput`: distinct, correctly leaner (item drops
+  validationSettings/deletionProtection/cedarVersion/tags) -- unchanged from prior pass.
+- `PolicyItem` vs `GetPolicyOutput`: correctly share top-level shape (both have
+  effect/actions/principal/resource), differ only in their nested `Definition` union
+  member types (Item vs Detail) -- unchanged from prior pass.
+- `IdentitySourceItem` vs `GetIdentitySourceOutput`: **identical** wire shape by design
+  (both carry `principalEntityType`+`configuration`), and gopherstack correctly shares
+  one Go type for both -- confirmed the real `CognitoUserPoolConfigurationDetail`/
+  `...Item` and `OpenIdConnectConfigurationDetail`/`...Item` are themselves
+  field-identical, so unification here can't hide a divergence.
+- `PolicyTemplateItem` vs `GetPolicyTemplateOutput`: **NOT identical** -- this is the bug
+  found this pass (see ops: ListPolicyTemplates above). The two shapes look like the
+  IdentitySource pair above but aren't: `PolicyTemplateItem` has no `statement`.
+- `PolicyDefinition{,Detail,Item}` three-way family: verified above, clean.
+- `Configuration{,Detail,Item}` three-way family: verified above, clean.
+
+**Bugs found and fixed (2):**
+1. `ListPolicyTemplates`' `policyTemplateView` (handler_policy_templates.go) echoed a
+   `statement` field for every item -- `types.PolicyTemplateItem`
+   (verifiedpermissions@v1.36.4: types/types.go:2121) has no such member. Pattern (a):
+   generalized from the wider `GetPolicyTemplateOutput`/`PolicyTemplateItem`'s own
+   `getPolicyTemplateOutput`/`policyTemplateIDsOutput` sibling types in the same file,
+   which legitimately do carry it. Fixed by dropping the field from `policyTemplateView`
+   and its one construction site. Proven with a raw-body assertion
+   (`TestListPolicyTemplates_ItemHasNoStatement`, policy_template_item_shape_test.go)
+   since a typed SDK client silently ignores an unknown JSON key and can't observe the
+   leak directly. Hand-revert reproduced the exact predicted symptom (item map contains
+   `"statement"`); restored fix confirmed byte-identical (md5) and green.
+2. `BatchGetPolicy`'s per-item alias-resolution-failure path (handler_policies.go) coded
+   `errors[].code` as `"POLICY_STORE_NOT_FOUND"` for every failure, including when the
+   failing `policyStoreId` was an unresolvable alias. The real SDK's
+   `BatchGetPolicyErrorCode` enum (types/enums.go:24-30) declares
+   `POLICY_STORE_ALIAS_NOT_FOUND` specifically for that case, distinct from
+   `POLICY_STORE_NOT_FOUND`. `resolvePolicyStoreID` only ever returns an error when the
+   input carried the `policy-store-alias/` prefix and resolution failed -- a bare
+   non-alias ID is passed through unchanged and only fails inside the backend's own item
+   loop (`policies.go`), which already used `POLICY_STORE_NOT_FOUND` correctly -- so this
+   was a clean, unambiguous right-key-wrong-value bug affecting only the alias path.
+   Fixed by changing the literal to `"POLICY_STORE_ALIAS_NOT_FOUND"`. Proven with a real
+   `aws-sdk-go-v2` client round-trip (`TestBatchGetPolicy_UnresolvableAlias_ErrorCode`,
+   batch_get_policy_alias_error_test.go) asserting
+   `types.BatchGetPolicyErrorCodePolicyStoreAliasNotFound` on `out.Errors[0].Code` --
+   `Code` is a typed enum field the client surfaces directly, no raw-body inspection
+   needed. Hand-revert reproduced the exact predicted mismatch; restored fix confirmed
+   byte-identical (md5) and green.
+
+**No other wire bugs found.** Every response struct in policies.go/policy_stores.go/
+policy_templates.go/identity_sources.go/policy_store_aliases.go/schema.go/
+authorization.go was field-diffed against its own real `api_op_*.go` Output struct or
+`types/types.go` type -- not against a sibling gopherstack type or a same-looking SDK
+type. `IsAuthorizedOutput`/`IsAuthorizedWithTokenOutput`/`BatchIsAuthorizedOutputItem`/
+`BatchIsAuthorizedWithTokenOutputItem`/`DeterminingPolicyItem`/`EvaluationErrorItem`/
+`BatchGetPolicyOutputItem`/`PolicyStoreAliasItem`/`CreatePolicyStoreAliasOutput`/
+`GetPolicyStoreAliasOutput`/`ListPolicyStoreAliasesOutput`/`PutSchemaOutput`/
+`GetSchemaOutput`/`TagResource`/`UntagResource`/`ListTagsForResource` all confirmed
+clean, no changes needed.
+
+**Genuine gap disclosed, not fixed** (out of this pass's wrapper-key scope): `IsAuthorized`/
+`IsAuthorizedWithToken`'s request Input never reads a `context`/`entities` field at all,
+unlike `BatchIsAuthorized(WithToken)` which does accept `entities` (attrs passed through
+as raw JSON, never parsed into a typed `AttributeValue` union). This is a request-side
+Cedar-evaluation completeness gap, not a response wrapper-key bug -- surfaced
+incidentally while reading these ops' Input structs, not chased further. See `gaps:`
+above.
+
+**`last_audit_commit` provenance:** the prior manifest cited `2eb5bdb71`, dated
+`2026-08-10` by `git show -s --format=%ad`, matching the manifest's own
+`last_audit_date: 2026-08-10` exactly -- not "weeks older," so no red flag by that
+criterion, even though the sha is unreachable from `main` (`git merge-base
+--is-ancestor` fails), consistent with this campaign's repo-wide finding
+(gopherstack-z31a) that essentially every manifest cites an unreachable sha from a
+worktree/squash-merge workflow. The CONTENT held up well under re-verification: of ~30
+response shapes and 8 union families checked against the pinned SDK, only the two bugs
+above were found, both narrow and both now fixed with proof. This pass's own
+`last_audit_commit` is `92bc04738` (HEAD at audit time, pre-commit), dated `2026-08-20`,
+matching this entry's `last_audit_date`.

@@ -26,6 +26,7 @@ func TestDescribeEvents_DateDecodesAsEpoch(t *testing.T) {
 
 	_, err := b.CreateEndpoint(
 		t.Context(), "my-endpoint", "source", "mysql", "host.example.com", "db", "user", "pw", 3306, nil,
+		dms.EndpointConnectionSettings{},
 	)
 	require.NoError(t, err)
 

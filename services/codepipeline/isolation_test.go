@@ -77,11 +77,11 @@ func TestCodePipelineRegionIsolation(t *testing.T) {
 	// 3. Listing returns exactly one pipeline per region.
 	eastList := backend.ListPipelines(ctxEast)
 	require.Len(t, eastList, 1)
-	assert.Contains(t, eastList[0].PipelineArn, "us-east-1")
+	assert.Equal(t, "shared-pipeline", eastList[0].Name)
 
 	westList := backend.ListPipelines(ctxWest)
 	require.Len(t, westList, 1)
-	assert.Contains(t, westList[0].PipelineArn, "us-west-2")
+	assert.Equal(t, "shared-pipeline", westList[0].Name)
 
 	// 4. Tags resolve only within the owning region. The east ARN must not be
 	//    tag-resolvable from the west region.

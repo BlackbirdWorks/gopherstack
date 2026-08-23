@@ -9,6 +9,18 @@ overall: A            # this pass: DescribeScheduledQuery's ScheduledQuery.Targe
                        # parsing never read them at all. Fixed. Previous pass: CreateScheduledQuery.KmsKeyId was accepted nowhere and returned
                        # nowhere (a silent-drop, not just "no encryption layer") -- now stored and
                        # echoed on DescribeScheduledQuery. Fixed LastRunSummary.RunStatus/
+last_audit_commit: 0be795d3
+last_audit_date: 2026-08-20
+overall: A            # this pass (2026-08-20): CreateScheduledQueryInput.TargetConfiguration.
+                       # TimestreamConfiguration silently dropped DimensionMappings and TimeColumn
+                       # (both REQUIRED subfields whenever TargetConfiguration is set, per
+                       # api_op_CreateScheduledQuery.go's TimestreamConfiguration struct) plus the
+                       # optional MeasureNameColumn/MixedMeasureMappings/MultiMeasureMappings --
+                       # accepted nowhere on create, echoed nowhere on describe. Now parsed, stored
+                       # (ScheduledQueryTargetDetail), and echoed on DescribeScheduledQuery.
+                       # Prior pass (2026-08-10): CreateScheduledQuery.KmsKeyId was accepted nowhere
+                       # and returned nowhere (a silent-drop, not just "no encryption layer") -- now
+                       # stored and echoed on DescribeScheduledQuery. Fixed LastRunSummary.RunStatus/
                        # ScheduledQueryListEntry.LastRunStatus always claiming AUTO_TRIGGER_SUCCESS
                        # even though this emulator has no scheduler -- every run is produced by an
                        # explicit (manual) ExecuteScheduledQuery call, so the claim contradicted the
@@ -16,9 +28,9 @@ overall: A            # this pass: DescribeScheduledQuery's ScheduledQuery.Targe
 ops:
   Query: {wire: fixed, errors: ok, state: ok, persist: ok, note: "deterministic mock rows/columns inferred from SQL projection (documented; no real Timestream Write data source exists to query against). ClientToken TTL fixed 8h->4h to match documented window. marshalColumnInfos (shared with PrepareQuery) previously hand-picked only Type.ScalarType out of ColumnInfo, silently dropping ArrayColumnInfo/RowColumnInfo/TimeSeriesMeasureValueColumnInfo whenever set; now passes the full ColumnType struct through so the nested union marshals correctly (types.Type)."}
   CancelQuery: {wire: ok, errors: ok, state: fixed, persist: ok, note: "was non-idempotent: 2nd CancelQuery on the same QueryId 404'd (ValidationException) instead of succeeding per documented idempotent-cancel contract. Now marks Cancelled in place instead of deleting."}
-  PrepareQuery: {wire: fixed, errors: ok, state: fixed, persist: n/a, note: "disguised no-op: ValidateOnly=true (the ONLY mode real Timestream documents as supported) returned an EMPTY Columns/Parameters list, discarding the inferred result for the one mode real clients use. Now returns the same inferred Columns/Parameters regardless of ValidateOnly. Shares the marshalColumnInfos nested-union fix noted under Query."}
+  PrepareQuery: {wire: ok, errors: ok, state: fixed, persist: n/a, note: "disguised no-op: ValidateOnly=true (the ONLY mode real Timestream documents as supported) returned an EMPTY Columns/Parameters list, discarding the inferred result for the one mode real clients use. Now returns the same inferred Columns/Parameters regardless of ValidateOnly. Shares the marshalColumnInfos nested-union fix noted under Query. 2026-08-20: verified PrepareQueryOutput.Columns is actually types.SelectColumn (api_op_PrepareQuery.go), a WIDER sibling of types.ColumnInfo carrying three extra optional fields (Aliased/DatabaseName/TableName) this package's marshalColumnInfos reuse omits -- see gaps (Parameters is types.ParameterMapping, wire-identical {Name,Type} to ColumnInfo, so no gap there)."}
   DescribeEndpoints: {wire: ok, errors: ok, state: ok, persist: n/a}
-  CreateScheduledQuery: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "ClientToken was parsed by the SDK request but never read by the handler/backend, so an SDK-auto-retried create (aws-sdk-go-v2 auto-generates ClientToken via idempotency-token-autofill middleware) hit ConflictException instead of replaying the original success. Now caches ClientToken->Arn for 8h and replays. Also: KmsKeyId (types.go:659) was accepted nowhere on the request and returned nowhere on ScheduledQueryDescription (types.go:659, same field name) -- a silent-drop, not just missing encryption. Now parsed, stored, and echoed back on DescribeScheduledQuery (still no actual at-rest encryption -- see gaps)."}
+  CreateScheduledQuery: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "ClientToken was parsed by the SDK request but never read by the handler/backend, so an SDK-auto-retried create (aws-sdk-go-v2 auto-generates ClientToken via idempotency-token-autofill middleware) hit ConflictException instead of replaying the original success. Now caches ClientToken->Arn for 8h and replays. Also: KmsKeyId (types.go:659) was accepted nowhere on the request and returned nowhere on ScheduledQueryDescription (types.go:659, same field name) -- a silent-drop, not just missing encryption. Now parsed, stored, and echoed back on DescribeScheduledQuery (still no actual at-rest encryption -- see gaps). 2026-08-20: TargetConfiguration.TimestreamConfiguration.DimensionMappings/TimeColumn (both required subfields of types.TimestreamConfiguration whenever TargetConfiguration is set, api_op_CreateScheduledQuery.go) plus MeasureNameColumn/MixedMeasureMappings/MultiMeasureMappings (optional) were accepted nowhere on create and echoed nowhere on describe -- confirmed with a failing real-SDK round-trip test before the fix. Now modeled end-to-end via ScheduledQueryTargetDetail, parsed in parseTargetConfiguration, and echoed in targetConfigurationView."}
   DeleteScheduledQuery: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeScheduledQuery: {wire: fixed, errors: ok, state: ok, persist: ok, note: "LastRunSummary.ExecutionStats used the misspelled wire field ExecutionTimeInMillisecs; real field is ExecutionTimeInMillis (no trailing ecs) per awsAwsjson10_deserializeDocumentExecutionStats. gopherstack-r80d batch 25: ScheduledQueryDescription.TargetConfiguration.TimestreamConfiguration (types/types.go, TimestreamConfiguration struct) requires DatabaseName/DimensionMappings/TableName/TimeColumn once TargetConfiguration itself is present (validators.go:651-666, validateTimestreamConfiguration) -- CreateScheduledQuery's request parsing only ever read DatabaseName/TableName from the request body, silently dropping TimeColumn/DimensionMappings (no backing struct field at all). A real client's CreateScheduledQuery request setting a full, client-side-valid TargetConfiguration (the SDK's own validator requires all 4 once TargetConfiguration is set at all) got back a DescribeScheduledQuery response missing 2 required members. Fixed: added TargetTimeColumn/TargetDimensionMappings to the ScheduledQuery domain model, threaded through CreateScheduledQuery's request parsing and the StorageBackend interface/InMemoryBackend signature, and echoed on DescribeScheduledQuery's TargetConfiguration.TimestreamConfiguration view."}
   ExecuteScheduledQuery: {wire: ok, errors: ok, state: fixed, persist: ok, note: "documented as running a scheduled query manually (api_op_ExecuteScheduledQuery.go: 'You can use this API to run a scheduled query manually'). This emulator has no scheduler goroutine, so ExecuteScheduledQuery is the ONLY code path that ever populates a run -- yet LastRunSummary.RunStatus and ScheduledQueryListEntry.LastRunStatus always claimed AUTO_TRIGGER_SUCCESS, asserting an automatic trigger that never happened. Fixed to MANUAL_TRIGGER_SUCCESS."}
@@ -33,6 +45,8 @@ gaps:
   - "CreateScheduledQueryInput.KmsKeyId is now stored and echoed on DescribeScheduledQuery (fixed this pass -- see CreateScheduledQuery note), but this emulator still has no at-rest encryption layer, so setting it has no observable effect on how results/error reports are protected. Honestly scoped: 'we do not encrypt', not 'we lose the setting'."
   - "ScheduledQueryDescription.RecentlyFailedRuns (up to 5 most recent failed runs) and ScheduledQueryRunSummary.QueryInsightsResponse are not modeled -- this emulator's ExecuteScheduledQuery always succeeds (see ExecuteScheduledQuery), so there is no failure path to populate RecentlyFailedRuns from, and no scheduled-query-run-level QueryInsights simulation exists. Both are optional response fields; omitting them is wire-safe (omitempty). Enum check: types.ScheduledQueryRunStatus has 4 documented values (enums.go:229-232) -- AUTO_TRIGGER_SUCCESS, AUTO_TRIGGER_FAILURE, MANUAL_TRIGGER_SUCCESS, MANUAL_TRIGGER_FAILURE. This package declares 3 as unexported consts (scheduled_queries.go) but is missing MANUAL_TRIGGER_FAILURE outright, and none of the *_FAILURE values are ever assigned (RunStatus is backend-generated output only, never client-supplied, so there is no exhaustiveness requirement over it) -- consistent with 'no failure path', not a separate drop. (bd: file follow-up if failure simulation is ever added)"
   - "gopherstack-r80d batch 25 reviewed, ruled OUT (not a bug): ScheduledQueryDescription.NotificationConfiguration/ScheduleConfiguration are required at the top level and, once present, their own SnsConfiguration.TopicArn/ScheduleExpression are required one level deeper -- scheduledQueryToView gates emitting each wrapper on the corresponding domain field being non-empty. The real SDK's own client-side validators (validators.go's validateNotificationConfiguration/validateScheduleConfiguration/validateSnsConfiguration/validateScheduleConfiguration) only reject a NIL pointer, not an empty string, so a real client COULD send TopicArn/ScheduleExpression as an explicit empty string and still pass client-side validation. But gopherstack's own handleCreateScheduledQuery independently rejects both as ValidationException if empty (\"NotificationConfiguration.SnsConfiguration.TopicArn is required\" / \"ScheduleConfiguration.ScheduleExpression is required\") -- stricter than the real SDK's client-side check, the same ruled-out class batch 23 established for codeconnections' RepositorySyncDefinition.Parent. Since gopherstack rejects the only path that would produce an empty value, the wrapper-omission gate is unreachable via any real client that gets past CreateScheduledQuery at all."
+  - "2026-08-20: PrepareQueryOutput.Columns is types.SelectColumn (api_op_PrepareQuery.go), not types.ColumnInfo -- a wider sibling adding Aliased/DatabaseName/TableName (all optional, no required markers) on top of Name/Type. This package's marshalColumnInfos (shared with Query's ColumnInfo response) only ever emits Name/Type, so PrepareQuery responses can never carry Aliased/DatabaseName/TableName. Wire-safe (all three are optional/omitempty), but this emulator's inferColumnsFromSQL has no real catalog to source DatabaseName/TableName from and no alias-detection logic, so filling them would require fabricating values rather than reflecting real inference -- left unmodeled rather than faked. types.ParameterMapping (PrepareQueryOutput.Parameters) is wire-identical to ColumnInfo ({Name,Type}), so no equivalent gap there."
+  - "2026-08-20: ErrorReportConfiguration.S3Configuration.EncryptionOption (types.S3EncryptionOption: SSE_S3|SSE_KMS) and ObjectKeyPrefix are both optional members of the real S3Configuration (api_op_CreateScheduledQuery.go) that this package's createScheduledQueryInput parser never reads -- only BucketName is parsed/stored/echoed. Wire-safe to omit (both optional), but a client setting either gets no confirmation it took. Not fixed this pass (scope: TargetConfiguration's required-subfield drop was the higher-severity finding); flag for a follow-up pass alongside KmsKeyId's existing 'accepted, not enforced' pattern."
 deferred:
   - "Query/CancelQuery against genuinely long-running or multi-page real query execution semantics -- this emulator's Query is synchronous and instantaneous (matches the mock-data-source design already documented in QueryWithOptions), so QueryExecutionException (a real error type for query engine failures) is never returned. Acceptable per the documented deterministic-mock design; revisit only if a real backing data source is added."
 leaks: {status: clean, note: "clientTokens/scheduledQueryTokens/pageStore are self-contained caches with their own mutex, reset on Reset()/version-mismatch Restore(); queries table is bounded by maxRetainedQueries (10000) with arbitrary eviction, cancelled or not. No goroutines/tickers in this package -- nothing to ctx-parent or drain on Shutdown."}
@@ -297,3 +311,200 @@ this op, kept the test minimal.
 (`handler_oversized_body_test.go`) asserts `apiErr.ErrorCode() ==
 "InternalServerException"`; confirmed it fails pre-fix with
 `*json.SyntaxError` (hand-reverted, byte-identical restore after).
+## timestreamquery (this session, 2026-08-20)
+
+Full wrapper-key/nested-shape wire-parity sweep against
+`aws-sdk-go-v2/service/timestreamquery@v1.39.4` (go.mod-pinned, unchanged this pass).
+Protocol confirmed JSON-RPC 1.0 (`awsAwsjson10_*` prefix, `X-Amz-Target:
+Timestream_20181101.<Op>`) directly from `api_client.go`/`serializers.go`, not from
+`_PROTOCOLS.md`. All 15 ops enumerated from both `GetSupportedOperations()` and
+`ls api_op_*.go` in the pinned SDK module cache; the two lists matched exactly (no
+missing/extra ops).
+
+`awsAwsjson10_deserializeOpDocument<Op>Output` helper-liveness check (`grep -c`, both
+defined-and-called, then the function body read, not just the call site):
+Query/CancelQuery/PrepareQuery/DescribeEndpoints/CreateScheduledQuery/
+DescribeScheduledQuery/ListScheduledQueries/DescribeAccountSettings/UpdateAccountSettings/
+TagResource/UntagResource/ListTagsForResource all count 2 (defined + called) and every
+body does a real `map[string]interface{}` switch-decode of its own JSON keys straight
+onto the output struct — no polly-`SynthesizeSpeech`-style disguised body. Void-output
+ops (`DeleteScheduledQuery`, `ExecuteScheduledQuery`, `UpdateScheduledQuery`) count 0,
+correctly: their `*Output` structs carry only `ResultMetadata`, so no document
+deserializer is generated at all — not a gap. No REST-bound ops here (pure JSON-RPC), so
+the httpPayload/cnhp REST trap does not apply to this service; confirmed rather than
+assumed.
+
+**Full-field-list diff, optional included, types checked** for every op's Input/Output
+against `api_op_*.go` in the pinned SDK: no FABRICATED members found this pass (the one
+prior fabrication, `AccountSettings.LastUpdatedTime`, was already deleted in the
+2026-07-24 pass and stayed deleted). One real gap found and fixed (see below); two real
+gaps found and disclosed, not fixed (SelectColumn's extra fields, S3Configuration's
+EncryptionOption/ObjectKeyPrefix).
+
+**`Datum`/`Row`/`TimeSeriesDataPoint`/`ColumnInfo`/`Type` recursion** — read
+`awsAwsjson10_deserializeDocument{Datum,Row,TimeSeriesDataPoint,ColumnInfo,Type}` in
+`deserializers.go` directly (not inferred from `types/types.go` alone) and diffed every
+JSON key against `models.go`'s `Datum`/`Row`/`TimeSeriesDataPoint`/`ColumnType`/
+`ColumnInfo`. Both directions verified:
+- `Datum` → `ArrayValue []Datum` (self-recursive), `RowValue *Row` → `Row.Data []Datum`
+  (back to `Datum`), `TimeSeriesValue []TimeSeriesDataPoint` → `{Time, Value *Datum}`
+  (back to `Datum`), `ScalarValue *string`, `NullValue *bool`. All five keys and their
+  JSON names match gopherstack's `Datum` exactly.
+- `Type` (the `ColumnInfo.Type` union) → `ArrayColumnInfo *ColumnInfo` (recursive),
+  `RowColumnInfo []ColumnInfo` (recursive, confirmed a **list** not a single struct —
+  the brief's hint matched the SDK here), `TimeSeriesMeasureValueColumnInfo *ColumnInfo`
+  (recursive), `ScalarType ScalarType`. Matches `models.go`'s `ColumnType` exactly,
+  including `RowColumnInfo []ColumnInfo`.
+- `marshalColumnInfos` (shared by `Query` and `PrepareQuery`) passes `ColumnType`
+  straight through rather than hand-picking fields, so the recursion survives
+  marshaling — verified this is still true (no regression since the 2026-07-24 fix that
+  established it).
+
+**Enums, both directions**, every enum named in the brief:
+- `DimensionValueType`: 1 value (`VARCHAR`, enums.go:24-28) — gopherstack passes it
+  through as an opaque string on the new `DimensionMapping.DimensionValueType` field
+  (this pass); no gopherstack-side constant set to diverge.
+- `MeasureValueType` (5: BIGINT/BOOLEAN/DOUBLE/VARCHAR/MULTI, enums.go:62-70) and
+  `ScalarMeasureValueType` (5: BIGINT/BOOLEAN/DOUBLE/VARCHAR/TIMESTAMP, enums.go:144-152)
+  — both passed through as opaque strings on the new `MixedMeasureMapping`/
+  `MultiMeasureAttributeMapping` fields; same treatment as `ScalarType` already gets.
+- `ScalarType`: 10 values (enums.go), passed through as opaque string via
+  `ColumnType.ScalarType` — unchanged, still correct.
+- `ScheduledQueryRunStatus`: 4 values (AUTO_TRIGGER_SUCCESS/AUTO_TRIGGER_FAILURE/
+  MANUAL_TRIGGER_SUCCESS/MANUAL_TRIGGER_FAILURE, enums.go:229-232). gopherstack emits
+  only MANUAL_TRIGGER_SUCCESS (the only reachable state, per the 2026-08-10 fix); the
+  missing MANUAL_TRIGGER_FAILURE remains a disclosed, unreachable-without-a-failure-path
+  gap (unchanged from last pass, re-verified not regressed).
+- `ScheduledQueryState`: 2 values (ENABLED/DISABLED, enums.go) — both used
+  (`scheduledQueryStateEnabled`/`scheduledQueryStateDisabled`), no drift.
+- `S3EncryptionOption`: 2 values (SSE_S3/SSE_KMS) — NOT modeled at all (the
+  `EncryptionOption` field itself is unparsed); see new gap this pass.
+- `QueryInsightsMode`/`ScheduledQueryInsightsMode`: both 2 values
+  (ENABLED_WITH_RATE_CONTROL/DISABLED) — `Query`'s `QueryInsights.Mode` compares against
+  the literal `"DISABLED"` string (`query_execution.go:105`); no gopherstack-side enum
+  constant to diverge from the SDK's two values.
+- `LastUpdateStatus`: 3 values (PENDING/FAILED/SUCCEEDED) — `LastUpdate.Status` is
+  always `SUCCEEDED` (synchronous apply, documented in `models.go`'s `LastUpdate`
+  godoc); PENDING/FAILED unreachable without an async apply path, same class as the
+  ScheduledQueryRunStatus gap, not separately re-disclosed.
+- `ComputeMode`: 2 values (ON_DEMAND/PROVISIONED) — both used, validated as required on
+  `UpdateAccountSettings`, no drift.
+- `QueryPricingModel`: 2 values (BYTES_SCANNED/COMPUTE_UNITS) — both used, no drift.
+
+**`ScheduledQuery` vs `ScheduledQueryDescription`** — re-verified distinct and each
+still matching its own deserializer/builder: `ListScheduledQueries` decodes
+`awsAwsjson10_deserializeDocumentScheduledQuery` (the slim 9-field summary type, built by
+`buildScheduledQueryListEntry`); `DescribeScheduledQuery` decodes
+`ScheduledQueryDescription` (built by `scheduledQueryToView`). No cross-contamination.
+
+### Bug found and fixed
+
+**`CreateScheduledQueryInput.TargetConfiguration.TimestreamConfiguration` silently
+dropped `DimensionMappings`/`TimeColumn` (both REQUIRED subfields of
+`types.TimestreamConfiguration` whenever `TargetConfiguration` is set —
+`api_op_CreateScheduledQuery.go`) plus the optional `MeasureNameColumn`/
+`MixedMeasureMappings`/`MultiMeasureMappings`** (`handler_scheduled_queries.go`,
+`scheduled_queries.go`, `interfaces.go`, `models.go`): the emulator's
+`createScheduledQueryInput` request parser only ever read `DatabaseName`/`TableName`
+out of `TimestreamConfiguration`; every other member — including the two the real SDK
+marks required whenever a client sets `TargetConfiguration` at all — was accepted
+nowhere on create and echoed nowhere on `DescribeScheduledQuery`. Since
+`TargetConfiguration` is how a scheduled query writes its results back to a Timestream
+table (the primary real-world use of this op), any client actually wiring up write-back
+would hit this drop. Bug class (a): members missing from a narrower type, matching this
+campaign's dominant pattern.
+
+Proved with a real-SDK round-trip test
+(`wire_scheduledquery_targetconfig_test.go`,
+`Test_SDKRoundTrip_ScheduledQuery_TargetConfigurationDetail`) written *before* the fix:
+`CreateScheduledQuery` with a full `TimestreamConfiguration` (including
+`DimensionMappings`/`TimeColumn`/`MeasureNameColumn`/`MixedMeasureMappings`) followed by
+`DescribeScheduledQuery`, asserting every field round-trips through the real
+`aws-sdk-go-v2` client. Against the unfixed code the test failed exactly as predicted
+(`TimeColumn`/`MeasureNameColumn` empty, `DimensionMappings` len 0).
+
+Fixed: new `ScheduledQueryTargetDetail`/`DimensionMapping`/`MixedMeasureMapping`/
+`MultiMeasureAttributeMapping`/`MultiMeasureMappings` types (`models.go`); the request
+parser now decodes the full nested `TimestreamConfiguration` shape via
+`parseTargetConfiguration` (`handler_scheduled_queries.go`); `CreateScheduledQuery`
+(`interfaces.go`, `scheduled_queries.go`) takes a new `targetDetail
+*ScheduledQueryTargetDetail` parameter and stores it on `ScheduledQuery.TargetDetail`;
+`scheduledQueryToView`'s new `targetConfigurationView` helper echoes it back on
+`DescribeScheduledQuery`. Persists across Snapshot/Restore for free via the existing
+`store.Table[ScheduledQuery]` JSON round trip (`TargetDetail` carries its own json tags)
+— extended `TestInMemoryBackend_SnapshotRestore_FullState` with a `TargetDetail`
+assertion to prove it, alongside the existing `KmsKeyId` round-trip assertion.
+
+**Hand-revert proof** (`cp` method, no git): backed up
+`models.go`/`interfaces.go`/`scheduled_queries.go`/`handler_scheduled_queries.go`/
+`isolation_test.go`/`persistence_test.go`/`scheduled_queries_test.go` to scratch before
+editing; after the fix, `cp`'d the pre-fix originals back over the working tree,
+rebuilt, and re-ran `Test_SDKRoundTrip_ScheduledQuery_TargetConfigurationDetail` — it
+failed with the identical `TimeColumn`/`MeasureNameColumn` empty-string /
+`DimensionMappings` len-0 symptom. Restored the fixed versions via `cp` from scratch and
+verified with `md5sum` that the restored files are byte-identical to the fixed state
+before re-running the full gate suite.
+
+Blast radius: `CreateScheduledQuery`'s backend signature gained one trailing parameter
+(`targetDetail *ScheduledQueryTargetDetail`), so all 13 existing positional call sites in
+`isolation_test.go`/`persistence_test.go`/`scheduled_queries_test.go` needed a trailing
+argument added (`nil` for the 11 sites not exercising target config; the actual struct
+for the two now covering it). No test assertions changed meaning — only the call
+signature grew.
+
+Decomposition note: `handleCreateScheduledQuery` and `scheduledQueryToView` both
+exceeded gocognit's threshold once the new parsing/echo logic was inlined; extracted
+`parseTargetConfiguration`/`convertMultiMeasureMappings`/
+`convertMultiMeasureAttributeMappings` and `targetConfigurationView` as named helpers
+(no `//nolint` used) — `golangci-lint run` is clean (0 issues) after the split.
+
+### Gaps disclosed, not fixed
+
+- `PrepareQueryOutput.Columns` is `types.SelectColumn`, not `types.ColumnInfo` — see
+  `gaps` above. Not fixed: the extra fields (`Aliased`/`DatabaseName`/`TableName`) have
+  no real backing data in this emulator's SQL-projection-based column inference, and
+  fabricating them would trade a wire-shape gap for a functional-behavior lie.
+- `ErrorReportConfiguration.S3Configuration.EncryptionOption`/`ObjectKeyPrefix` — see
+  `gaps` above. Not fixed this pass: scoped out in favor of the higher-severity
+  `TargetConfiguration` required-subfield drop; both are optional and independently
+  fixable in a follow-up pass using the same pattern as `KmsKeyId`.
+
+### Provenance
+
+`last_audit_commit: a98a164d` (stamped `last_audit_date: 2026-08-10`) resolves to commit
+`a98a164d4d98f7a6bcb7409b85a0ba2edecaca0f`, dated **2026-07-13** (`git show -s
+--format=%ad`) — an mwaa parity commit, and **not an ancestor of HEAD**
+(`git merge-base --is-ancestor` fails). A 28-day gap between the recorded commit's date
+and the stamped audit date, with the commit predating the date, is the documented tell
+for a stale/inaccurate provenance stamp (not a judgment based on the commit touching an
+unrelated directory, which this campaign has separately established is not itself
+evidence of anything). Reporting both dates as instructed; the actual audit content in
+this file (five dated narrative passes: 2026-07-13 baseline through 2026-08-10, now
+2026-08-20) is independently substantive and consistent with real work having happened,
+so the stamp itself — not the underlying audits — is what's suspect. Refreshed this pass
+to `last_audit_commit: 0be795d3` / `last_audit_date: 2026-08-20` (current HEAD at time of
+this audit).
+
+### Gates (verbatim)
+
+```
+$ go build ./services/timestreamquery/...
+(clean)
+$ go vet ./services/timestreamquery/...
+(clean)
+$ go fix -diff ./services/timestreamquery/...
+(empty)
+$ gofmt -l services/timestreamquery/
+(empty)
+$ go test -race -count=1 ./services/timestreamquery/...
+ok  	github.com/blackbirdworks/gopherstack/services/timestreamquery	1.142s
+$ golangci-lint run ./services/timestreamquery/...
+0 issues.
+$ awk 'length > 120 {print}' services/timestreamquery/*.go
+(empty)
+```
+
+`git status --short` at session end shows only files under `services/timestreamquery/`
+touched by this pass, plus unrelated concurrent changes under `services/scheduler/` and
+`.claude/` from other activity in this shared checkout that this session did not make
+and did not touch.

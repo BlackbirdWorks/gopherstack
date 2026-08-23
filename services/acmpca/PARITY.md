@@ -6,9 +6,9 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: acmpca
 sdk_module: aws-sdk-go-v2/service/acmpca@v1.50.0   # version audited against
-last_audit_commit: 1c4ee34e                          # HEAD when this manifest was written
-last_audit_date: 2026-07-23
-overall: A            # all 8 gaps + both deferred families closed (fully or partially, see notes); 2 new wire bugs found+fixed
+last_audit_commit: 3cec3729                          # HEAD when this manifest was written
+last_audit_date: 2026-08-20
+overall: A            # wrapper-key/nested-shape re-audit this pass: zero new wire bugs found (see Notes)
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
@@ -36,6 +36,8 @@ ops:
   UntagCertificateAuthority: {wire: ok, errors: ok, state: ok, persist: ok}
   ListTags: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED THIS PASS: MaxResults/NextToken now paginate for real (via pkgs/page, same pattern as every other list op in this service) instead of always returning the full tag set in one page. The invented 'ListTagsForCertificateAuthority' op alias was DELETED (see Notes) -- it does not exist anywhere in aws-sdk-go-v2; the real op is ListTags only."}
 gaps:                     # known divergences NOT fixed — link bd issue ids
+  - "NEW (found this pass): CertificateAuthority.FailureReason (types.FailureReason: REQUEST_TIMED_OUT/UNSUPPORTED_ALGORITHM/OTHER) and CertificateAuthorityStatus's FAILED/EXPIRED enum values are entirely unmodeled -- CreateCertificateAuthority is synchronous and always succeeds or returns an immediate validation error, so no CA ever reaches FAILED, and no expiry-driven ACTIVE->EXPIRED transition is simulated. FailureReason is correctly never emitted (matching the real API omitting it whenever Status != FAILED), so this is a state-machine depth gap, not a wire-shape bug -- disclosed, not fixed (would need a new terminal status + expiry sweep, out of scope for a wrapper-key/nesting sweep)."
+  - "NEW (found this pass): CertificateAuthorityConfiguration.CsrExtensions (nested CsrExtensions{KeyUsage, SubjectInformationAccess->AccessDescription{AccessMethod,GeneralName}}) is accepted by neither CreateCertificateAuthority's input decoding (caConfigInput has no CsrExtensions field) nor echoed by Describe/List -- silently dropped on the request side rather than rejected. Real AWS would echo a caller-supplied CsrExtensions back on every subsequent Describe/List; gopherstack never stores it, so a caller setting it gets no error but also never sees it round-trip. Disclosed, not fixed -- same class of gap as the already-documented ASN1Subject exotic RDN types, but this one lacks the explicit-rejection treatment those get in decodeASN1Subject/decodeExtensions (handler_certificates.go); a caller has no signal the field was ignored."
   - ApiPassthrough.Extensions.CertificatePolicies is rejected (InvalidParameterException) rather than implemented -- would require arbitrary OID/PolicyQualifier ASN.1 encoding beyond a simple pkix.Extension passthrough
   - ApiPassthrough.Subject's exotic RDN types (DistinguishedNameQualifier, GenerationQualifier, Initials, Pseudonym, Surname, Title, CustomAttributes) are rejected rather than implemented -- crypto/x509's pkix.Name has no direct fields for most of these
   - ApiPassthrough.Extensions.SubjectAlternativeNames' exotic GeneralName variants (OtherName, DirectoryName, EdiPartyName, UniformResourceIdentifier, RegisteredId) are rejected rather than implemented -- only DnsName/IpAddress/Rfc822Name (the three Terraform's aws_acmpca_certificate resource actually exposes) are modeled
@@ -51,6 +53,93 @@ leaks: {status: clean, note: "no goroutines/janitors in this service; all state 
 
 Protocol: awsjson1.1 (single POST, `X-Amz-Target: ACMPrivateCA.<Op>`; RouteMatcher prefix
 `"ACMPrivateCA."` confirmed against the SDK's `ServiceID`/operation names — correct).
+
+### 2026-08-20 re-audit: wrapper-key / nested-shape sweep (zero new wire bugs)
+
+Scope: this pass targeted the wrapper-key/nesting-level/JSON-type/enum-value bug class
+specifically (not a full re-audit of state/errors/persist, which the 2026-07-23 pass
+already covered in depth). All 23 ops in `GetSupportedOperations()` were enumerated and
+cross-checked 1:1 against `ls $(go env GOMODCACHE)/.../acmpca@v1.50.0/api_op_*.go` (23
+files, exact match, no drift since the last pass).
+
+**Protocol reconfirmed independently**: `grep -c '^func awsAwsjson11_deserializeOp'
+deserializers.go` → 35 (defined and called; JSON-RPC, not the restjson flat-body false-
+positive trap the brief warned about — that trap does not apply here, confirmed rather
+than assumed).
+
+**Every op's Input/Output struct** (`api_op_*.go`) was read directly and diffed field-by-
+field against gopherstack's wire structs in `handler_certificate_authorities.go`,
+`handler_certificates.go`, `handler_audit_reports.go`, `handler_ca_policy.go`,
+`handler_permissions.go`, `handler_tags.go`. Every wrapper key, nesting level, and JSON
+type matched exactly. Every emitted enum value (`CertificateAuthorityStatus`,
+`CertificateAuthorityType`, `KeyStorageSecurityStandard`, `CertificateAuthorityUsageMode`,
+`CrlType`, `S3ObjectAcl`, `ResourceOwner`, `RevocationReason`, `AuditReportStatus`,
+`AuditReportResponseFormat`, `ActionType`) was grepped in `models.go`/`permissions.go` and
+compared byte-for-byte against `types/enums.go` — all exact matches, no invented values,
+no case mismatches.
+
+**GeneralName** (the 8-member mutually-exclusive union: `DnsName`, `IpAddress`,
+`Rfc822Name`, `DirectoryName`, `EdiPartyName`, `OtherName`, `UniformResourceIdentifier`,
+`RegisteredId` — confirmed 8, not 9, against `types.go:594-628`) never appears on any
+response shape in the real SDK; it exists only inside
+`IssueCertificateInput.ApiPassthrough.Extensions.SubjectAlternativeNames`, which
+gopherstack never echoes back anywhere. So the "request-only field leaking into a
+response" bug class does not apply to `GeneralName` here — verified by grep, not assumed.
+On the request side (`generalNameWire`/`decodeGeneralName`, `handler_certificates.go`),
+all 8 variants are represented in the wire struct; the 3 Terraform actually uses
+(`DnsName`/`IpAddress`/`Rfc822Name`) are implemented, the other 5 are explicitly rejected
+with `InvalidParameterException` rather than silently dropped — correct treatment, no
+change needed.
+
+**Request-only-field-in-response check**: `ApiPassthrough` (the other main
+request/response-shared-shape risk named in the brief) is `IssueCertificateInput`-only —
+`IssueCertificateOutput` has just `CertificateArn`, confirmed by reading the real
+`api_op_IssueCertificate.go` struct directly — and gopherstack's `issueCertificateOutput`
+correctly has no `ApiPassthrough`-derived fields. Clean.
+
+**Two new (small, pre-existing) gaps found and disclosed, not fixed** — see `gaps` above:
+`FailureReason`/`CertificateAuthorityStatus`'s `FAILED`/`EXPIRED` values (state-machine
+depth, not a wire bug — the field is correctly never emitted since no CA ever reaches
+those states), and `CertificateAuthorityConfiguration.CsrExtensions` (silently dropped on
+input rather than explicitly rejected like the sibling exotic-field gaps get). Both are
+Layer 3 in nature (missing feature depth), surfaced incidentally while diffing
+`CertificateAuthority`'s and `CertificateAuthorityConfiguration`'s full field lists against
+`types/types.go:160-266`, not from a dedicated Layer-3 hunt.
+
+**Existing tests**: every wire-key assertion in `handler_certificate_authorities_test.go`,
+`handler_certificates_test.go`, `handler_tags_test.go`, `handler_permissions_test.go`,
+`handler_audit_reports_test.go`, `handler_ca_policy_test.go`, `handler_sdk_route_table_test.go`,
+and `api_passthrough_test.go` was spot-checked against the real SDK structs; none assert a
+wrong key/nesting/type/value. No test correction was needed this pass (contrast with
+redshiftdata's three wrong-key tests the same session).
+
+**Added**: `wire_sdk_roundtrip_test.go` —
+`TestDescribeCertificateAuthority_SDKRoundTrip`, this service's first *typed* real-SDK-
+client round-trip test (prior coverage was raw-JSON-map assertions via
+`handler_*_test.go`'s `doACMPCARequest`, which can't detect a case-sensitive key miss the
+way a typed client's deserializer can). It creates a CA with a full
+`CertificateAuthorityConfiguration.Subject` and `RevocationConfiguration`
+(`CrlConfiguration`+`OcspConfiguration`), describes it back through the real
+`acmpcasdk.Client`, and asserts every nested field survived. **Proven meaningful by hand-
+revert**: changed `certAuthorityOutput.RevocationConfiguration`'s JSON tag from
+`"RevocationConfiguration"` to `"revocationConfiguration"` (lowercase r) — the test failed
+exactly as predicted (`ca.RevocationConfiguration` came back `nil` through the real
+client, since `awsAwsjson11_deserializeOpDocumentDescribeCertificateAuthorityOutput`'s case
+switch is case-sensitive and only matches the capitalized key); reverted, confirmed
+`git diff` byte-identical and the test green again.
+
+**last_audit_commit provenance re-checked**: the prior manifest's `last_audit_commit:
+1c4ee34e` is dated `Sun Jul 19 14:07:07 2026` (`git show -s --format=%ad`), 4 days before
+`last_audit_date: 2026-07-23` — not the days-to-weeks-stale pattern the re-audit protocol
+warns about; `git diff 1c4ee34e..<pre-this-pass-HEAD> --stat -- services/acmpca/` showed
+~2,658 insertions across 28 files, matching the prior manifest's own extensive "FIXED THIS
+PASS" narrative line-for-line. Provenance is genuine, not a copy-paste sha. No prose/header
+SDK-version mismatch found (`sdk_module` header says `v1.50.0`; `go.mod` pins the identical
+`v1.50.0`; no other version number appears anywhere in this file's prose). Every prior
+"FIXED THIS PASS" claim in `ops:` was spot-verified still true by reading the current code
+(`RevocationConfiguration` round-trips, `KeyStorageSecurityStandard`/`UsageMode` echo
+correctly, `LastStateChangeAt` present, issued-cert ARN uses the decimal serial, etc.) — no
+regressions, no stale claims.
 
 ### Bugs fixed this pass (real, high-impact)
 
@@ -199,3 +288,9 @@ Protocol: awsjson1.1 (single POST, `X-Amz-Target: ACMPrivateCA.<Op>`; RouteMatch
 - `RevocationConfiguration`'s CNAME/S3-bucket-name format validation (RFC2396,
   S3 bucket naming rules) — currently any non-empty string is accepted.
 - True UTCTime/GeneralizedTime parsing for `Validity.Type == "END_DATE"`.
+- NEW (2026-08-20 pass): `CertificateAuthorityStatus`'s `FAILED`/`EXPIRED` values and
+  `CertificateAuthority.FailureReason` are entirely unmodeled (no CA ever fails creation
+  or expires).
+- NEW (2026-08-20 pass): `CertificateAuthorityConfiguration.CsrExtensions` is silently
+  dropped on `CreateCertificateAuthority` input rather than stored/echoed or explicitly
+  rejected like its `ASN1Subject`/`Extensions` siblings.

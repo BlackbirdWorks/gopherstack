@@ -123,6 +123,8 @@ func statementCreateResponse(stmt *Statement) map[string]any {
 		"DbUser":            stmt.DBUser,
 		"SecretArn":         stmt.SecretARN,
 		keyCreatedAt:        epochSeconds(stmt.CreatedAt),
+		keyStatusField:      stmt.Status,
+		keyHasResultSet:     stmt.HasResultSet,
 	}
 
 	if stmt.SessionID != "" {
@@ -398,20 +400,29 @@ func statementToListItem(stmt *Statement) map[string]any {
 }
 
 // statementToDescribeResponse converts a statement to a DescribeStatement response map.
+//
+// IsBatchStatement/StatementName/QueryStrings are real StatementData members
+// (the ListStatements item shape, see statementToListItem) but do NOT exist
+// on the real DescribeStatementOutput -- confirmed against
+// aws-sdk-go-v2/service/redshiftdata@v1.43.4's DescribeStatementOutput struct
+// and awsAwsjson11_deserializeOpDocumentDescribeStatementOutput's case list
+// (api_op_DescribeStatement.go, deserializers.go), neither of which has a
+// case for any of the three. WithEvent doesn't exist on ANY response shape in
+// the SDK at all -- it's request-only, on ExecuteStatementInput/
+// BatchExecuteStatementInput (api_op_ExecuteStatement.go,
+// api_op_BatchExecuteStatement.go).
 func statementToDescribeResponse(stmt *Statement) map[string]any {
 	resp := map[string]any{
-		"Id":               stmt.ID,
-		keyStatusField:     stmt.Status,
-		keyQueryString:     stmt.QueryString,
-		keyHasResultSet:    stmt.HasResultSet,
-		"IsBatchStatement": stmt.IsBatchStatement,
-		keyCreatedAt:       epochSeconds(stmt.CreatedAt),
-		keyUpdatedAt:       epochSeconds(stmt.UpdatedAt),
-		keyDuration:        durationNanos(stmt.DurationMs),
-		"ResultRows":       stmt.ResultRows,
-		"ResultSize":       stmt.ResultSize,
-		"WithEvent":        stmt.WithEvent,
-		keyResultFormat:    statementResultFormat(stmt),
+		"Id":            stmt.ID,
+		keyStatusField:  stmt.Status,
+		keyQueryString:  stmt.QueryString,
+		keyHasResultSet: stmt.HasResultSet,
+		keyCreatedAt:    epochSeconds(stmt.CreatedAt),
+		keyUpdatedAt:    epochSeconds(stmt.UpdatedAt),
+		keyDuration:     durationNanos(stmt.DurationMs),
+		"ResultRows":    stmt.ResultRows,
+		"ResultSize":    stmt.ResultSize,
+		keyResultFormat: statementResultFormat(stmt),
 		// RedshiftQueryId is a synthetic numeric query identifier. AWS
 		// includes this in DescribeStatement for provisioned clusters;
 		// we return 0 since we have no real cluster backing.
@@ -442,16 +453,8 @@ func statementToDescribeResponse(stmt *Statement) map[string]any {
 		resp["SessionId"] = stmt.SessionID
 	}
 
-	if stmt.StatementName != "" {
-		resp["StatementName"] = stmt.StatementName
-	}
-
 	if stmt.Error != "" {
 		resp["Error"] = stmt.Error
-	}
-
-	if len(stmt.QueryStrings) > 0 {
-		resp["QueryStrings"] = stmt.QueryStrings
 	}
 
 	if len(stmt.Parameters) > 0 {

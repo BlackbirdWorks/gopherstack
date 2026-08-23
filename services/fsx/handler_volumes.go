@@ -1,6 +1,9 @@
 package fsx
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 // --- CreateVolume ---
 
@@ -79,7 +82,9 @@ func (h *Handler) handleDescribeVolumes(_ context.Context, in *describeVolumesIn
 // --- RestoreVolumeFromSnapshot ---
 
 type restoreVolumeFromSnapshotOutput struct {
-	Volume *Volume `json:"Volume"`
+	Lifecycle             string                 `json:"Lifecycle"`
+	VolumeID              string                 `json:"VolumeId"`
+	AdministrativeActions []AdministrativeAction `json:"AdministrativeActions,omitempty"`
 }
 
 func (h *Handler) handleRestoreVolumeFromSnapshot(
@@ -91,7 +96,16 @@ func (h *Handler) handleRestoreVolumeFromSnapshot(
 		return nil, err
 	}
 
-	return &restoreVolumeFromSnapshotOutput{Volume: v}, nil
+	return &restoreVolumeFromSnapshotOutput{
+		Lifecycle: v.Lifecycle,
+		VolumeID:  v.VolumeID,
+		AdministrativeActions: []AdministrativeAction{{
+			AdministrativeActionType: administrativeActionTypeVolumeRestore,
+			Status:                   administrativeActionStatusCompleted,
+			RequestTime:              epochTime(time.Now().UTC()),
+			TargetVolumeValues:       v,
+		}},
+	}, nil
 }
 
 // --- UpdateVolume ---

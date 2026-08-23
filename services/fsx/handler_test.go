@@ -280,16 +280,19 @@ func Test_CreationTime_IsEpochSecondsNumber(t *testing.T) {
 			},
 		},
 		{
-			name:  "S3AccessPoint",
-			field: "S3AccessPoint",
+			name:  "S3AccessPointAttachment",
+			field: "S3AccessPointAttachment",
 			create: func(t *testing.T, h *fsx.Handler) map[string]any {
 				t.Helper()
-				fsID := createFS(t, h, "LUSTRE")
+				volID := createVolume(t, h, "", "ONTAP", "ap-vol")
 
 				return decodeField(t, doFSxRequest(t, h, "CreateAndAttachS3AccessPoint", map[string]any{
-					"Name":         "ap1",
-					"FileSystemId": fsID,
-				}), "S3AccessPoint")
+					"Name": "ap1",
+					"Type": "ONTAP",
+					"OntapConfiguration": map[string]any{
+						"VolumeId": volID,
+					},
+				}), "S3AccessPointAttachment")
 			},
 		},
 	}

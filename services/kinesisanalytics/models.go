@@ -45,8 +45,12 @@ type LambdaProcessorDesc struct {
 }
 
 // InputProcessingConfigurationDesc describes an input processing configuration.
+//
+// The wire key is "InputLambdaProcessorDescription", not "InputLambdaProcessor" -- distinct
+// from the request-side InputProcessingConfiguration.InputLambdaProcessor, verified against
+// aws-sdk-go-v2/service/kinesisanalytics/types.InputProcessingConfigurationDescription.
 type InputProcessingConfigurationDesc struct {
-	InputLambdaProcessor *LambdaProcessorDesc `json:"InputLambdaProcessor,omitempty"`
+	InputLambdaProcessorDescription *LambdaProcessorDesc `json:"InputLambdaProcessorDescription,omitempty"`
 }
 
 // KinesisStreamsInputDesc describes a Kinesis Streams input.

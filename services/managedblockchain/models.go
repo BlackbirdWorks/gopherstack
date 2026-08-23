@@ -394,9 +394,13 @@ type memberFabricLogRespObj struct {
 	CaLogs *logConfigRespObj `json:"CaLogs,omitempty"`
 }
 
-// logConfigRespObj is the response JSON for a log configuration.
+// logConfigRespObj is the response JSON for a log configuration. The wire key
+// is "Cloudwatch" (lowercase w), not "CloudWatch" -- confirmed against
+// aws-sdk-go-v2 managedblockchain@v1.34.4's
+// awsRestjson1_deserializeDocumentLogConfigurations, deserializers.go:4999,
+// whose case-sensitive switch only matches "Cloudwatch".
 type logConfigRespObj struct {
-	CloudWatch *cloudWatchLogRespObj `json:"CloudWatch,omitempty"`
+	Cloudwatch *cloudWatchLogRespObj `json:"Cloudwatch,omitempty"`
 }
 
 // cloudWatchLogRespObj is the response JSON for CloudWatch logging config.
@@ -723,12 +727,14 @@ type getProposalResponse struct {
 }
 
 // proposalSummaryObject is the JSON representation of a proposal summary.
+// Unlike proposalObject, real AWS's ProposalSummary has no NetworkId member at
+// all -- confirmed against aws-sdk-go-v2 managedblockchain@v1.34.4's
+// awsRestjson1_deserializeDocumentProposalSummary, deserializers.go:6573.
 type proposalSummaryObject struct {
 	CreationDate         *time.Time `json:"CreationDate,omitempty"`
 	ExpirationDate       *time.Time `json:"ExpirationDate,omitempty"`
 	Arn                  string     `json:"Arn"`
 	Description          string     `json:"Description,omitempty"`
-	NetworkID            string     `json:"NetworkId,omitempty"`
 	ProposalID           string     `json:"ProposalId"`
 	ProposedByMemberID   string     `json:"ProposedByMemberId"`
 	ProposedByMemberName string     `json:"ProposedByMemberName,omitempty"`
@@ -756,15 +762,17 @@ type listProposalVotesResponse struct {
 
 // -- Invitation request / response types --------------------------------------
 
-// invitationObject is the JSON representation of an invitation.
+// invitationObject is the JSON representation of an invitation. Real AWS's
+// Invitation has no top-level NetworkId/NetworkName members -- that
+// information is only ever carried in the nested NetworkSummary -- confirmed
+// against aws-sdk-go-v2 managedblockchain@v1.34.4's
+// awsRestjson1_deserializeDocumentInvitation, deserializers.go:4762.
 type invitationObject struct {
 	NetworkSummary *invitationNetworkSummaryObject `json:"NetworkSummary,omitempty"`
 	CreationDate   *time.Time                      `json:"CreationDate,omitempty"`
 	ExpirationDate *time.Time                      `json:"ExpirationDate,omitempty"`
 	Arn            string                          `json:"Arn"`
 	InvitationID   string                          `json:"InvitationId"`
-	NetworkID      string                          `json:"NetworkId,omitempty"`
-	NetworkName    string                          `json:"NetworkName,omitempty"`
 	Status         string                          `json:"Status"`
 }
 
@@ -801,9 +809,10 @@ type memberFabricLogReq struct {
 	CaLogs *logConfigReq `json:"CaLogs,omitempty"`
 }
 
-// logConfigReq holds log config for a single log stream.
+// logConfigReq holds log config for a single log stream. The wire key is
+// "Cloudwatch" (lowercase w) -- see logConfigRespObj's doc comment.
 type logConfigReq struct {
-	CloudWatch *cloudWatchLogReq `json:"CloudWatch,omitempty"`
+	Cloudwatch *cloudWatchLogReq `json:"Cloudwatch,omitempty"`
 }
 
 // cloudWatchLogReq holds CloudWatch log config.
@@ -812,8 +821,12 @@ type cloudWatchLogReq struct {
 }
 
 // updateNodeRequest is the request body for PATCH /networks/{networkId}/nodes/{nodeId}.
+// MemberId travels in the body here (unlike GetNode/ListNodes/DeleteNode,
+// where it is a "memberId" query parameter) -- see handleUpdateNode's doc
+// comment for the wire-shape citation.
 type updateNodeRequest struct {
 	LogPublishingConfiguration *nodeLogPublishingConfigReq `json:"LogPublishingConfiguration,omitempty"`
+	MemberID                   string                      `json:"MemberId"`
 }
 
 // nodeLogPublishingConfigReq holds optional log publishing settings for a node.

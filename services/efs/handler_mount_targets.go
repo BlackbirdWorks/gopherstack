@@ -86,10 +86,17 @@ func (h *Handler) handleDeleteMountTarget(c *echo.Context, mountTargetID string)
 	return c.NoContent(http.StatusNoContent)
 }
 
+// mtToResponse builds the wire shape of a mount target, matching the real
+// SDK's types.MountTargetDescription exactly (AvailabilityZoneId,
+// AvailabilityZoneName, FileSystemId, IpAddress, Ipv6Address, LifeCycleState,
+// MountTargetId, NetworkInterfaceId, OwnerId, SubnetId, VpcId --
+// deserializers.go's awsRestjson1_deserializeDocumentMountTargetDescription).
+// MountTargetArn and SecurityGroups must never appear here: real AWS mount
+// targets have no ARN at all, and security groups are exposed only via the
+// separate DescribeMountTargetSecurityGroups operation.
 func mtToResponse(mt *MountTarget) map[string]any {
 	resp := map[string]any{
 		"MountTargetId":        mt.MountTargetID,
-		"MountTargetArn":       mt.MountTargetArn,
 		keyFileSystemID:        mt.FileSystemID,
 		"SubnetId":             mt.SubnetID,
 		keyLifeCycleState:      mt.LifeCycleState,
@@ -99,9 +106,6 @@ func mtToResponse(mt *MountTarget) map[string]any {
 		"VpcId":                mt.VpcID,
 		"AvailabilityZoneName": mt.AvailabilityZoneName,
 		"AvailabilityZoneId":   mt.AvailabilityZoneID,
-	}
-	if len(mt.SecurityGroups) > 0 {
-		resp["SecurityGroups"] = mt.SecurityGroups
 	}
 	if mt.IPv6Address != "" {
 		resp["Ipv6Address"] = mt.IPv6Address

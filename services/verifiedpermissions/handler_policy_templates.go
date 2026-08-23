@@ -59,7 +59,6 @@ type policyTemplateView struct {
 	PolicyStoreID    string `json:"policyStoreId"`
 	PolicyTemplateID string `json:"policyTemplateId"`
 	Description      string `json:"description"`
-	Statement        string `json:"statement"`
 	Name             string `json:"name,omitempty"`
 	CreatedDate      string `json:"createdDate"`
 	LastUpdatedDate  string `json:"lastUpdatedDate"`
@@ -145,7 +144,6 @@ func (h *Handler) handleListPolicyTemplates(
 			PolicyStoreID:    pt.PolicyStoreID,
 			PolicyTemplateID: pt.PolicyTemplateID,
 			Description:      pt.Description,
-			Statement:        pt.Statement,
 			Name:             pt.Name,
 			CreatedDate:      pt.CreatedDate.UTC().Format(timeFormat),
 			LastUpdatedDate:  pt.LastUpdated.UTC().Format(timeFormat),

@@ -125,7 +125,6 @@ func (h *Handler) deleteBackendEnvironment(
 type backendEnvironmentView struct {
 	EnvironmentName       string  `json:"environmentName"`
 	BackendEnvironmentARN string  `json:"backendEnvironmentArn"`
-	AppID                 string  `json:"appId"`
 	StackName             string  `json:"stackName,omitempty"`
 	DeploymentArtifacts   string  `json:"deploymentArtifacts,omitempty"`
 	CreateTime            float64 `json:"createTime"`
@@ -138,7 +137,6 @@ func toBackendEnvironmentView(be *BackendEnvironment) backendEnvironmentView {
 		UpdateTime:            float64(be.UpdateTime.Unix()),
 		EnvironmentName:       be.EnvironmentName,
 		BackendEnvironmentARN: be.BackendEnvironmentARN,
-		AppID:                 be.AppID,
 		StackName:             be.StackName,
 		DeploymentArtifacts:   be.DeploymentArtifacts,
 	}

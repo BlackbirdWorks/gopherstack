@@ -6,8 +6,8 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: rdsdata
 sdk_module: aws-sdk-go-v2/service/rdsdata@v1.35.4   # version audited against
-last_audit_commit: 9419636f                          # HEAD when this pass started (working tree, uncommitted)
-last_audit_date: 2026-07-23
+last_audit_commit: 914e8b59                          # HEAD when this pass started (working tree, uncommitted)
+last_audit_date: 2026-08-20
 overall: A            # every op/family field-diffed against the real SDK source this pass
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
@@ -248,3 +248,126 @@ syntax/type-error catch-all and its `default:` fallback are themselves
 untyped (`map[string]string{keyMessageField: err.Error()}`, no `__type`)
 -- a pre-existing, separate gap in the genuine per-operation error path,
 not the ReadBody-failure path this fix addresses. Left alone.
+## rdsdata (this session, 2026-08-20)
+
+Wrapper-key / nested-shape wire-parity sweep, the last service of a
+160-service campaign. Independently re-derived every op's field list from
+the pinned SDK (`aws-sdk-go-v2/service/rdsdata@v1.35.4`) rather than trusting
+the prior audit's notes, per this campaign's method. **Result: zero bugs
+found.** The prior two passes (see Notes above, and `d39bf33e4` 2026-08-11)
+had already fixed every real gap this sweep would have caught (arrayValue,
+generatedFields, resultSetOptions, ExecuteSql's resultFrame); this pass is a
+from-scratch confirmation, not a rubber stamp.
+
+- **Ops (6, confirmed against `ls api_op_*.go` at the pin, not assumed):**
+  `BatchExecuteStatement`, `BeginTransaction`, `CommitTransaction`,
+  `ExecuteSql`, `ExecuteStatement`, `RollbackTransaction`. `ExecuteSql`
+  exists at v1.35.4 (marked Deprecated in its doc comment, not removed) and
+  is fully implemented in gopherstack (`sql.go`), including the
+  `resultFrame`/legacy `Value` union added 2026-08-11.
+- **Protocol:** REST-JSON 1 (`awsRestjson1_*` in serializers.go/
+  deserializers.go), matching `services/_PROTOCOLS.md`'s row for this
+  service. All 6 ops are `POST` to a fixed, argument-free path (verified via
+  `grep -n "SplitURI\|request.Method" serializers.go`): `/Execute` (L445),
+  `/BatchExecute` (L44), `/BeginTransaction` (L157), `/CommitTransaction`
+  (L253), `/ExecuteSql` (L344), `/RollbackTransaction` (L580) -- all match
+  `handler.go`'s `pathExecute`/etc. constants and `RouteMatcher`/
+  `ExtractOperation` exactly; no SigV4-path collisions found.
+  `awsRestjson1_deserializeOpDocumentExecuteStatementOutput` (deserializers.go:939)
+  read line-by-line: it's a real `map[string]interface{}` JSON walk with a
+  per-key `switch`, not a passthrough -- no cnhp trap on this service.
+- **`Field` union, 7 members (the brief said six -- off by one; the real
+  union is `arrayValue`, `blobValue`, `booleanValue`, `doubleValue`,
+  `isNull`, `longValue`, `stringValue`; confirmed via
+  `types.Field` interface in types/types.go and both
+  `awsRestjson1_serializeDocumentField` (serializers.go:748) and its
+  deserializer counterpart (deserializers.go:2383-2484), same 7 keys, same
+  spelling, both directions). `models.go`'s `Field` struct has all 7 as
+  `omitempty` pointer/slice members; JSON keys match case-for-case.
+  `engine.go`'s `fieldFromValue` (encode) and `fieldToValue` (decode, request
+  side) each populate/read exactly one member per call -- verified by
+  reading both function bodies, not just their signatures. NULL is
+  distinguished from a zero value because every member is a `*T` (or `[]byte`
+  for blob): a SQL NULL produces `Field{IsNull: &true}` (`v == nil` case in
+  `fieldFromValue`), while e.g. an empty string produces
+  `Field{StringValue: &""}` -- a non-nil pointer to the zero value, never
+  confused with the null branch. Verified live: `SELECT 1.0/0.0` (a case the
+  real serializer special-cases as `"NaN"`/`"Infinity"`/`"-Infinity"` string
+  literals, serializers.go:769-780) returns SQL `NULL` from
+  modernc.org/sqlite, not a float, so gopherstack's plain `*float64`
+  `DoubleValue` (no NaN/Inf special-casing) is unreachable by the engine, not
+  a latent bug -- confirmed by running the query against the actual driver,
+  not assumed.
+- **`ArrayValue` union, 5 members** (`arrayValues`, `booleanValues`,
+  `doubleValues`, `longValues`, `stringValues` -- types.go's
+  `ArrayValueMember*` set), matches `models.go`'s `ArrayValue` struct
+  field-for-field. Recursion (`arrayValues []ArrayValue`) verified both
+  directions: the SDK's `ArrayValueMemberArrayValues.Value []ArrayValue`
+  recurses on the same interface; gopherstack's `ArrayValues []ArrayValue`
+  recurses on the same concrete struct -- Go's `encoding/json` handles the
+  self-referential struct natively on both encode and decode. Functionally
+  unreachable in a *result* (same reasoning as the prior audit: the pure-Go
+  driver never produces an array-typed column) and rejected on the *request*
+  side by `validateNoArrayParameters` (handler.go:282, wired into both
+  `ExecuteStatement` and `BatchExecuteStatement`'s per-parameter-set loop) --
+  checked both call sites, not just one.
+- **`formattedRecords`**: real AWS wire type is a JSON **string**
+  (`FormattedRecords *string` in ExecuteStatementOutput, decoded via
+  `value.(string)` type-assert at deserializers.go:966-971, not a nested
+  object). gopherstack's `formatRecordsAsJSONString` (handler.go:391) builds
+  a Go `string` and assigns it into the response map, which `json.Marshal`
+  re-encodes as a JSON string literal -- correct type, verified against the
+  deserializer's own type assertion rather than inferred from the field
+  name.
+- **Enums, both directions, all 4:** `DecimalReturnType` (`STRING`,
+  `DOUBLE_OR_LONG`), `LongReturnType` (`STRING`, `LONG`), `RecordsFormatType`
+  (`NONE`, `JSON`), `TypeHint` (`DATE`, `DECIMAL`, `JSON`, `TIME`,
+  `TIMESTAMP`, `UUID`) -- all real typed enums in types/enums.go (not plain
+  strings), all 2/2/2/6 values reproduced exactly in `handler.go`'s
+  `decimalReturnType*`/`longReturnType*`/`formatRecordsAs*` constants and
+  `models.go`'s `SQLParameter.TypeHint` doc comment, validated on request
+  ingress (`validateResultSetOptions`, `validateFormatRecordsAs`) and emitted
+  unchanged on egress. `TypeHint` is accepted but not bind-semantic (existing
+  documented gap, unchanged this pass -- see gaps above).
+- **Request/response field-list diff, all 6 ops, every member incl.
+  optional, checked by type against the SDK Input/Output structs in their
+  own `api_op_*.go`:** `ExecuteStatementInput` (11 fields),
+  `ExecuteStatementOutput` (5 wire fields), `BatchExecuteStatementInput` (7),
+  `BatchExecuteStatementOutput` (1), `BeginTransactionInput`/`Output` (4/1),
+  `CommitTransactionInput`/`Output` (3/1), `RollbackTransactionInput`/
+  `Output` (3/1), `ExecuteSqlInput`/`Output` (5/1, no `TransactionId` member
+  on this legacy op -- confirmed absent, not omitted by oversight) -- all
+  match gopherstack's request/response structs 1:1, no missing, no
+  fabricated, no wrong-typed members found.
+- **Error wire shape:** confirmed both `TransactionNotFoundException` and
+  `BadRequestException` are members of every op's own
+  `awsRestjson1_deserializeOpError<Op>` switch (spot-checked
+  `ExecuteStatement`'s, deserializers.go:840-923) and are read via
+  `X-Amzn-ErrorType` header falling back to a JSON-body `code`/`__type`/
+  `message` triad (`restjson.GetErrorInfo`, aws-sdk-go-v2 internal
+  decoder_util.go) -- gopherstack's `handleError` (handler.go:203) emits
+  `__type` + `message` (lowercase, matching `GetErrorInfo`'s
+  case-insensitive `Message` field match) with HTTP 400 for both, which is
+  what the real SDK's error switch expects to parse successfully.
+- **No wrong-key tests found to correct.** `handler_sdk_route_table_test.go`
+  (added 2026-08-15, `69bbb940a`) independently re-derived the same 6
+  method+path pairs from the same source this pass did and matches.
+- **Provenance:** `last_audit_commit: 9419636f` / `last_audit_date:
+  2026-07-23` from the prior stamp predates two real follow-up passes that
+  changed this service's behavior without advancing the stamp:
+  `d39bf33e4` (2026-08-11, `sdk_module` bumped v1.32.19->v1.35.4,
+  `ExecuteSql` resultFrame implemented, +217 lines across models.go/sql.go/
+  engine_test.go) and `69bbb940a` (2026-08-15, new route-table test, no
+  behavior change). **The stamp did not advance across those passes** even
+  though real work landed -- both commits' content was independently
+  re-verified against the pinned SDK this pass rather than trusted, and both
+  turned out correct. Advanced this pass to `914e8b59` / 2026-08-20.
+- **Brief accuracy:** the brief's "`Field` is a union with six members" is
+  off by one -- the real union has 7 (see above). "Six ops" and the
+  `ExecuteSql`-still-exists question both checked out exactly as briefed.
+- **Gates:** `go build ./services/rdsdata/...` clean; `go vet` clean;
+  `go fix -diff` empty; `gofmt -l` empty; `go test -race ./services/rdsdata/...`
+  ok (1.16s); `golangci-lint run ./services/rdsdata/...` 0 issues; no banned
+  cyclop/gocyclo/gocognit/funlen nolints; `git status --short` shows nothing
+  under `services/rdsdata/` touched (this pass made no code changes, only
+  this PARITY.md stamp/notes update).

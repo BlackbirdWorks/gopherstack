@@ -8,13 +8,25 @@ service: redshiftdata
 sdk_module: aws-sdk-go-v2/service/redshiftdata@v1.43.4   # version audited against
 last_audit_commit: ee8d5788f                              # HEAD when this audit began (working tree, uncommitted)
 last_audit_date: 2026-08-21
+last_audit_commit: aa31b1913                              # HEAD when this audit began (working tree, uncommitted)
+last_audit_date: 2026-08-20
 overall: A            # genuine wire-shape/field gaps found and fixed this pass
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
   ExecuteStatement: {wire: ok, errors: ok, state: ok, persist: ok, note: >
     Sets Status=FINISHED synchronously (deterministic mock, acceptable per parity rules).
-    Fixed this pass: (1) ClientToken is now real idempotency, not just accepted-and-dropped
+    FIXED 2026-08-20 (wrapper-key sweep, gopherstack-cnhp campaign): statementCreateResponse
+    (shared by ExecuteStatement/BatchExecuteStatement) never emitted "Status" or
+    "HasResultSet" -- both are real ExecuteStatementOutput members (confirmed against
+    awsAwsjson11_deserializeOpDocumentExecuteStatementOutput's case list,
+    aws-sdk-go-v2/service/redshiftdata@v1.43.4/deserializers.go), and Status is the single
+    most behaviorally load-bearing field this op returns (this backend completes every
+    statement synchronously to FINISHED, so a real typed client checking output.Status
+    immediately after the call previously saw a zero-value "" instead). Regression test:
+    TestExecuteStatement_Status_SDKRoundTrip (wire_sdk_roundtrip_test.go), hand-reverted to
+    confirm it fails with Status=="" / HasResultSet==nil before the fix.
+    Prior-pass fixes retained: (1) ClientToken is now real idempotency, not just accepted-and-dropped
     -- a retried request with the same ClientToken (scoped by op+region) replays the
     original statement Id instead of creating a second statement (idempotency.go), matching
     the "ensure the idempotency of the request" doc comment and the SDK client's
@@ -31,17 +43,38 @@ ops:
     see gaps. DbGroups still not returned (optional field, gap).}
   BatchExecuteStatement: {wire: ok, errors: ok, state: ok, persist: ok, note: >
     QueryString=Sqls[0] matches AWS; sub-statements built with fixed HasResultSet=false
-    (AWS doesn't run real SQL so this is a simplification, see gaps). Fixed this pass:
-    ClientToken idempotency and Database-required relaxation, identical treatment and
-    identical SDK-source citations as ExecuteStatement above (BatchExecuteStatementInput's
-    Database/ClientToken doc comments and validator are the same shape). SessionId/
-    SessionKeepAliveSeconds: same treatment as ExecuteStatement, see above.}
+    (AWS doesn't run real SQL so this is a simplification, see gaps). FIXED 2026-08-20:
+    same statementCreateResponse Status/HasResultSet fix as ExecuteStatement above (shared
+    function) -- BatchExecuteStatementOutput's deserializer has the identical "Status"/
+    "HasResultSet" case list. Regression test: TestBatchExecuteStatement_Status_SDKRoundTrip.
+    Prior-pass fixes retained: ClientToken idempotency and Database-required relaxation,
+    identical treatment and identical SDK-source citations as ExecuteStatement above
+    (BatchExecuteStatementInput's Database/ClientToken doc comments and validator are the
+    same shape). SessionId/SessionKeepAliveSeconds: same treatment as ExecuteStatement.}
   DescribeStatement: {wire: ok, errors: ok, state: ok, persist: ok, note: >
-    Fixed this pass: QueryParameters was never emitted (dropped whatever Parameters the
-    creating ExecuteStatement/BatchExecuteStatement call stored) -- now conditionally
-    included when non-empty. SessionId now conditionally included (see ExecuteStatement
-    note). RedshiftPid still not returned (optional field, always absent instead of 0, gap).
-    Prior-pass fixes retained: Duration in nanoseconds, SubStatements RedshiftQueryId=0.}
+    FIXED 2026-08-20 (wrapper-key sweep): statementToDescribeResponse emitted FOUR
+    fabricated members with no case at all in the real DescribeStatementOutput
+    deserializer -- confirmed against aws-sdk-go-v2/service/redshiftdata@v1.43.4's
+    DescribeStatementOutput struct (api_op_DescribeStatement.go) and
+    awsAwsjson11_deserializeOpDocumentDescribeStatementOutput's case list
+    (deserializers.go): "IsBatchStatement", "StatementName", and "QueryStrings" are real
+    members of the WIDER StatementData shape (the ListStatements item type, see
+    statementToListItem) generalized onto the narrower DescribeStatementOutput where they
+    don't exist; "WithEvent" doesn't exist on ANY response shape in the SDK at all -- it is
+    request-only, on ExecuteStatementInput/BatchExecuteStatementInput. A real typed client
+    silently drops unknown keys (not a hard failure), so this was wire pollution, not a
+    (c)-class break. Deleted all four. Regression test:
+    TestDescribeStatement_NoFabricatedFields (wire_sdk_roundtrip_test.go), hand-reverted to
+    confirm each of the four reappears without the fix. Three pre-existing tests that
+    asserted the wrong (fabricated) shape were corrected: TestHandler_DescribeStatement_AllFields
+    (StatementName), TestHandler_BatchExecuteStatement_AllFields (IsBatchStatement/
+    QueryStrings, moved the assertion to a ListStatements call where those fields actually
+    belong), TestWithEvent_StoredAndReturned (renamed
+    TestWithEvent_AcceptedButNotEchoed, inverted to assert absence).
+    Prior-pass fixes retained: QueryParameters conditionally included when non-empty,
+    SessionId conditionally included, Duration in nanoseconds, SubStatements
+    RedshiftQueryId=0. RedshiftPid still not returned (optional field, always absent
+    instead of 0, gap).}
   GetStatementResult: {wire: ok, errors: ok, state: ok, persist: n/a, note: "unchanged this pass; ColumnMetadata key length / Records stringValue union previously field-diffed correct. Records/ColumnMetadata are deterministic mock data (acceptable, no real query engine)"}
   GetStatementResultV2: {wire: ok, errors: ok, state: ok, persist: n/a, note: "unchanged this pass; Records []{CSVRecords} union / columnSize->length previously field-diffed correct"}
   CancelStatement: {wire: ok, errors: ok, state: ok, persist: ok, note: >
@@ -204,6 +237,73 @@ Protocol: awsjson1.1 (single POST endpoint, `X-Amz-Target: RedshiftData.<Op>`). 
 the exact target prefix against `aws-sdk-go-v2/service/redshiftdata@v1.41.0`'s
 `serializers.go` (`httpBindingEncoder.SetHeader("X-Amz-Target").String("RedshiftData.<Op>")`)
 -- `redshiftDataTargetPrefix = "RedshiftData."` in handler.go matches exactly.
+
+### This pass (2026-08-20, wrapper-key / nested-shape sweep): audited every op's
+response for wrong wrapper keys, wrong nesting, wrong JSON types, and fabricated members,
+focused especially on the `Field`/`FormattedField` union family the campaign flagged as
+highest-risk.
+
+**`Field` union (`GetStatementResult`'s `Records [][]types.Field`): CLEAN.** Confirmed
+against `awsAwsjson11_deserializeDocumentField` (deserializers.go): six discriminator
+keys, `blobValue` (base64 string -> `[]byte`), `booleanValue` (JSON bool), `doubleValue`
+(JSON number, or "NaN"/"Infinity"/"-Infinity" strings), `isNull` (JSON bool),
+`longValue` (JSON number), `stringValue` (JSON string). gopherstack's demo row emits
+`{"stringValue": "mock_value"}` -- correct key, correct JSON type (a bare string). No
+`isNull` emission exists in this mock's static demo data (it never emits a NULL cell), so
+NULL-vs-zero-value discrimination isn't exercised, but that's a data-coverage gap, not a
+wire-shape bug -- the one row it does emit is field-diffed correct.
+
+**`FormattedField` does NOT exist anywhere in `aws-sdk-go-v2/service/redshiftdata@v1.43.4`**
+(confirmed: `grep -rn "FormattedField"` over the whole module cache directory returns zero
+matches). The campaign brief's description of `GetStatementResultV2` returning
+`Records [][]FormattedField` describes a *different, newer* SDK version than the one this
+repo has pinned. At v1.43.4, `GetStatementResultV2Output.Records` is `[]types.QueryRecords`
+-- a **different union family**, one member only (`CSVRecords`, a comma-joined string per
+row), confirmed against `awsAwsjson11_deserializeDocumentQueryRecords`. gopherstack already
+emits the correct shape here (`{"CSVRecords": "mock_value"}`, a prior-pass fix, unchanged
+this pass) -- there is no `FormattedField`-shaped bug to find against the pinned version.
+Re-audit this note if `go.mod` is ever bumped past v1.43.4: re-derive from
+`api_op_GetStatementResultV2.go`/`deserializers.go` at the new pinned version rather than
+trusting this description.
+
+**Protocol / false-positive trap check**: confirmed `awsjson1.1`
+(`awsAwsjson11_*` prefix, `X-Amz-Target: RedshiftData.<Op>`), and
+`grep -c 'awsAwsjson11_deserializeOpDocument<Op>Output'` returns exactly 2 (defined AND
+called) for all 12 ops -- the restjson flat-body trap does not apply, every op's response
+genuinely routes through its `OpDocument` helper.
+
+**`StatementData` vs `SubStatementData` vs `DescribeStatementOutput`**: three distinct
+real shapes, confirmed field-by-field against their own struct definitions in
+`types/types.go` / `api_op_DescribeStatement.go`. `statementToListItem` (StatementData) was
+already exhaustively correct (prior pass). `statementToDescribeResponse`
+(DescribeStatementOutput) had the fabricated-member bug fixed this pass (see the
+DescribeStatement row above) -- it was leaking three real StatementData-only members
+(IsBatchStatement/StatementName/QueryStrings) plus one member (WithEvent) that isn't a
+response field on *any* shape in the SDK. The `SubStatements` sub-mapping inside
+`statementToDescribeResponse` was independently verified clean against `SubStatementData`'s
+own field list (Id/CreatedAt/Duration/Error/HasResultSet/QueryString/RedshiftQueryId/
+ResultRows/ResultSize/Status/UpdatedAt) -- no extraneous fields there.
+
+**`ExecuteStatementOutput`/`BatchExecuteStatementOutput`** (shared `statementCreateResponse`)
+had the Status/HasResultSet omission bug fixed this pass (see ExecuteStatement/
+BatchExecuteStatement rows above).
+
+**Families re-verified CLEAN this pass, no changes**: `ListDatabases`/`ListSchemas`/
+`ListTables` (plain `[]string` list bodies, `Databases`/`Schemas` deserializer keys
+confirmed list-of-string not list-of-object; `TableMember`'s lowercase `name`/`schema`/
+`type` keys match `keyName`/`keySchema`/`keyType` exactly); `DescribeTable` (`ColumnList`/
+`TableName` keys, `ColumnMetadata` shape reused correctly); `SqlParameter` (lowercase
+`name`/`value` keys, matches `SQLParameter`'s json tags exactly); `CancelStatement`
+(`CancelStatementOutput.Status` is a **bare JSON boolean**, a different type from every
+other "Status" field in this service which are string enums -- gopherstack correctly emits
+`{"Status": true}`, not a string, avoiding the exact (c)-class trap the campaign brief
+warned about); enum values (`StatementStatusString`/`StatusString`/`SessionStatusString`/
+`ResultFormatString` -- every value gopherstack emits, `FINISHED`/`ABORTED`/`FAILED`/
+`AVAILABLE`/`JSON`/`CSV`/`ALL`, is a real SDK constant, no invented enum values found);
+`ListSessions`/`SessionData` (`sessionToListItem`'s emitted keys are an exact subset of the
+real `SessionData` struct, the omitted `CurrentStatementId`/`SessionAliveSeconds`/
+`SessionTtl` are already-documented gaps, not fabrications); error codes (unchanged,
+re-confirmed `ValidationException`/`ResourceNotFoundException` both `FaultClient` -> 400).
 
 ### This pass (2026-08-10, gopherstack-ilos): worked the recorded follow-up ticket.
 

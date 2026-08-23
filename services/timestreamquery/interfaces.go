@@ -15,7 +15,7 @@ type StorageBackend interface {
 		name, queryString, scheduleExpression, executionRoleArn,
 		notificationTopicArn, errorReportS3BucketName, targetDatabase, targetTable, clientToken, kmsKeyID string,
 		tags map[string]string,
-		targetTimeColumn string, targetDimensionMappings []DimensionMapping,
+		targetDetail *ScheduledQueryTargetDetail,
 	) (*ScheduledQuery, error)
 	DescribeScheduledQuery(ctx context.Context, arnStr string) (*ScheduledQuery, error)
 	DeleteScheduledQuery(ctx context.Context, arnStr string) error

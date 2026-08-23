@@ -260,7 +260,7 @@ func (b *InMemoryBackend) recoverNodeState(cName, nodeID string) {
 			for j := range cl.Nodes {
 				if cl.Nodes[j].NodeID == nodeID {
 					cl.Nodes[j].NodeStatus = StatusAvailable
-					b.emitEventLocked(cName, EventSourceTypeNode,
+					b.emitEventLocked(cName, EventSourceTypeCluster,
 						fmt.Sprintf("Node %s reboot complete.", nodeID))
 
 					break

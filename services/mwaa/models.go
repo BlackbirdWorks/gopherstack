@@ -65,6 +65,30 @@ type LoggingConfiguration struct {
 	WorkerLogs        *ModuleLoggingConfiguration `json:"WorkerLogs,omitempty"`
 }
 
+// LoggingConfigurationInput is the wire shape CreateEnvironment/UpdateEnvironment
+// requests use for LoggingConfiguration. Unlike the response's
+// LoggingConfiguration, AWS's LoggingConfigurationInput/ModuleLoggingConfigurationInput
+// has no CloudWatchLogGroupArn member -- that ARN is server-computed once a
+// module's logs are enabled, never client-supplied. A prior version of this
+// file reused the response type for request decode too, so a request body
+// setting CloudWatchLogGroupArn was accepted and echoed straight back as if
+// AWS-generated, even though no conformant SDK client (built from
+// LoggingConfigurationInput) can ever send that field.
+type LoggingConfigurationInput struct {
+	DagProcessingLogs *ModuleLoggingConfigurationInput `json:"DagProcessingLogs,omitempty"`
+	SchedulerLogs     *ModuleLoggingConfigurationInput `json:"SchedulerLogs,omitempty"`
+	TaskLogs          *ModuleLoggingConfigurationInput `json:"TaskLogs,omitempty"`
+	WebserverLogs     *ModuleLoggingConfigurationInput `json:"WebserverLogs,omitempty"`
+	WorkerLogs        *ModuleLoggingConfigurationInput `json:"WorkerLogs,omitempty"`
+}
+
+// ModuleLoggingConfigurationInput is a single Airflow module logging request;
+// no CloudWatchLogGroupArn (see LoggingConfigurationInput).
+type ModuleLoggingConfigurationInput struct {
+	Enabled  *bool  `json:"Enabled,omitempty"`
+	LogLevel string `json:"LogLevel,omitempty"`
+}
+
 // ModuleLoggingConfiguration is a single Airflow module logging configuration.
 type ModuleLoggingConfiguration struct {
 	Enabled               *bool  `json:"Enabled,omitempty"`
@@ -112,56 +136,56 @@ type UpdateNetworkConfig struct {
 // response shape; see updateEnvironmentRequest and LastUpdate for the real
 // (Update-only) member.
 type createEnvironmentRequest struct {
-	NetworkConfiguration         *NetworkConfig        `json:"NetworkConfiguration"`
-	Tags                         map[string]string     `json:"Tags"`
-	AirflowConfigurationOptions  map[string]string     `json:"AirflowConfigurationOptions"`
-	LoggingConfiguration         *LoggingConfiguration `json:"LoggingConfiguration"`
-	DagS3Path                    string                `json:"DagS3Path"`
-	ExecutionRoleArn             string                `json:"ExecutionRoleArn"`
-	SourceBucketArn              string                `json:"SourceBucketArn"`
-	AirflowVersion               string                `json:"AirflowVersion"`
-	EnvironmentClass             string                `json:"EnvironmentClass"`
-	WebserverAccessMode          string                `json:"WebserverAccessMode"`
-	KmsKey                       string                `json:"KmsKey"`
-	PluginsS3Path                string                `json:"PluginsS3Path"`
-	PluginsS3ObjectVersion       string                `json:"PluginsS3ObjectVersion"`
-	RequirementsS3Path           string                `json:"RequirementsS3Path"`
-	RequirementsS3ObjectVersion  string                `json:"RequirementsS3ObjectVersion"`
-	StartupScriptS3Path          string                `json:"StartupScriptS3Path"`
-	StartupScriptS3ObjectVersion string                `json:"StartupScriptS3ObjectVersion"`
-	EndpointManagement           string                `json:"EndpointManagement"`
-	WeeklyMaintenanceWindowStart string                `json:"WeeklyMaintenanceWindowStart"`
-	MaxWorkers                   int32                 `json:"MaxWorkers"`
-	MinWorkers                   int32                 `json:"MinWorkers"`
-	MaxWebservers                int32                 `json:"MaxWebservers"`
-	MinWebservers                int32                 `json:"MinWebservers"`
-	Schedulers                   int32                 `json:"Schedulers"`
+	NetworkConfiguration         *NetworkConfig             `json:"NetworkConfiguration"`
+	Tags                         map[string]string          `json:"Tags"`
+	AirflowConfigurationOptions  map[string]string          `json:"AirflowConfigurationOptions"`
+	LoggingConfiguration         *LoggingConfigurationInput `json:"LoggingConfiguration"`
+	DagS3Path                    string                     `json:"DagS3Path"`
+	ExecutionRoleArn             string                     `json:"ExecutionRoleArn"`
+	SourceBucketArn              string                     `json:"SourceBucketArn"`
+	AirflowVersion               string                     `json:"AirflowVersion"`
+	EnvironmentClass             string                     `json:"EnvironmentClass"`
+	WebserverAccessMode          string                     `json:"WebserverAccessMode"`
+	KmsKey                       string                     `json:"KmsKey"`
+	PluginsS3Path                string                     `json:"PluginsS3Path"`
+	PluginsS3ObjectVersion       string                     `json:"PluginsS3ObjectVersion"`
+	RequirementsS3Path           string                     `json:"RequirementsS3Path"`
+	RequirementsS3ObjectVersion  string                     `json:"RequirementsS3ObjectVersion"`
+	StartupScriptS3Path          string                     `json:"StartupScriptS3Path"`
+	StartupScriptS3ObjectVersion string                     `json:"StartupScriptS3ObjectVersion"`
+	EndpointManagement           string                     `json:"EndpointManagement"`
+	WeeklyMaintenanceWindowStart string                     `json:"WeeklyMaintenanceWindowStart"`
+	MaxWorkers                   int32                      `json:"MaxWorkers"`
+	MinWorkers                   int32                      `json:"MinWorkers"`
+	MaxWebservers                int32                      `json:"MaxWebservers"`
+	MinWebservers                int32                      `json:"MinWebservers"`
+	Schedulers                   int32                      `json:"Schedulers"`
 }
 
 // updateEnvironmentRequest is the request body for updating an MWAA environment.
 type updateEnvironmentRequest struct {
-	NetworkConfiguration         *UpdateNetworkConfig  `json:"NetworkConfiguration"`
-	AirflowConfigurationOptions  map[string]string     `json:"AirflowConfigurationOptions"`
-	LoggingConfiguration         *LoggingConfiguration `json:"LoggingConfiguration"`
-	DagS3Path                    string                `json:"DagS3Path"`
-	ExecutionRoleArn             string                `json:"ExecutionRoleArn"`
-	SourceBucketArn              string                `json:"SourceBucketArn"`
-	AirflowVersion               string                `json:"AirflowVersion"`
-	EnvironmentClass             string                `json:"EnvironmentClass"`
-	WebserverAccessMode          string                `json:"WebserverAccessMode"`
-	PluginsS3Path                string                `json:"PluginsS3Path"`
-	PluginsS3ObjectVersion       string                `json:"PluginsS3ObjectVersion"`
-	RequirementsS3Path           string                `json:"RequirementsS3Path"`
-	RequirementsS3ObjectVersion  string                `json:"RequirementsS3ObjectVersion"`
-	StartupScriptS3Path          string                `json:"StartupScriptS3Path"`
-	StartupScriptS3ObjectVersion string                `json:"StartupScriptS3ObjectVersion"`
-	WeeklyMaintenanceWindowStart string                `json:"WeeklyMaintenanceWindowStart"`
-	WorkerReplacementStrategy    string                `json:"WorkerReplacementStrategy"`
-	MaxWorkers                   int32                 `json:"MaxWorkers"`
-	MinWorkers                   int32                 `json:"MinWorkers"`
-	MaxWebservers                int32                 `json:"MaxWebservers"`
-	MinWebservers                int32                 `json:"MinWebservers"`
-	Schedulers                   int32                 `json:"Schedulers"`
+	NetworkConfiguration         *UpdateNetworkConfig       `json:"NetworkConfiguration"`
+	AirflowConfigurationOptions  map[string]string          `json:"AirflowConfigurationOptions"`
+	LoggingConfiguration         *LoggingConfigurationInput `json:"LoggingConfiguration"`
+	DagS3Path                    string                     `json:"DagS3Path"`
+	ExecutionRoleArn             string                     `json:"ExecutionRoleArn"`
+	SourceBucketArn              string                     `json:"SourceBucketArn"`
+	AirflowVersion               string                     `json:"AirflowVersion"`
+	EnvironmentClass             string                     `json:"EnvironmentClass"`
+	WebserverAccessMode          string                     `json:"WebserverAccessMode"`
+	PluginsS3Path                string                     `json:"PluginsS3Path"`
+	PluginsS3ObjectVersion       string                     `json:"PluginsS3ObjectVersion"`
+	RequirementsS3Path           string                     `json:"RequirementsS3Path"`
+	RequirementsS3ObjectVersion  string                     `json:"RequirementsS3ObjectVersion"`
+	StartupScriptS3Path          string                     `json:"StartupScriptS3Path"`
+	StartupScriptS3ObjectVersion string                     `json:"StartupScriptS3ObjectVersion"`
+	WeeklyMaintenanceWindowStart string                     `json:"WeeklyMaintenanceWindowStart"`
+	WorkerReplacementStrategy    string                     `json:"WorkerReplacementStrategy"`
+	MaxWorkers                   int32                      `json:"MaxWorkers"`
+	MinWorkers                   int32                      `json:"MinWorkers"`
+	MaxWebservers                int32                      `json:"MaxWebservers"`
+	MinWebservers                int32                      `json:"MinWebservers"`
+	Schedulers                   int32                      `json:"Schedulers"`
 }
 
 // invokeRestAPIRequest is the request body for InvokeRestAPI.

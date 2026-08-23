@@ -788,7 +788,7 @@ func (b *InMemoryBackend) RebootNode(clusterName, nodeID string) (*Cluster, erro
 		return nil, fmt.Errorf("%w: node %s not found in cluster %s", ErrNodeNotFound, nodeID, clusterName)
 	}
 
-	b.emitEventLocked(clusterName, EventSourceTypeNode,
+	b.emitEventLocked(clusterName, EventSourceTypeCluster,
 		fmt.Sprintf("Node %s reboot initiated.", nodeID))
 
 	go func() {
@@ -806,7 +806,7 @@ func (b *InMemoryBackend) RebootNode(clusterName, nodeID string) (*Cluster, erro
 				break
 			}
 		}
-		b.emitEventLocked(clusterName, EventSourceTypeNode,
+		b.emitEventLocked(clusterName, EventSourceTypeCluster,
 			fmt.Sprintf("Node %s reboot complete.", nodeID))
 	}()
 

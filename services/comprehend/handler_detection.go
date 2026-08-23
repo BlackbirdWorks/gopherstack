@@ -579,23 +579,22 @@ func (h *Handler) detectTargetedSentiment(input map[string]any) (map[string]any,
 	for word := range strings.FieldsSeq(text) {
 		cleaned := strings.Trim(word, ".,!?")
 		if cleaned != "" && unicode.IsUpper(rune(cleaned[0])) {
-			entity := matchResult(text, cleaned, "PERSON")
-			// Targeted sentiment specific fields
-			mentions := []map[string]any{
-				{
-					"Score": defaultScore, "Text": cleaned, "Type": "PERSON",
-					fieldBeginOffset: entity[fieldBeginOffset], fieldEndOffset: entity[fieldEndOffset],
-					"MentionSentiment": map[string]any{
-						"Sentiment": sentiment,
-						"SentimentScore": map[string]float64{
-							"Positive": lowSentimentScore, "Negative": lowSentimentScore,
-							"Neutral": neutralSentimentScore, "Mixed": lowSentimentScore,
-						},
-					},
+			mention := matchResult(text, cleaned, "PERSON")
+			mention["MentionSentiment"] = map[string]any{
+				"Sentiment": sentiment,
+				"SentimentScore": map[string]float64{
+					"Positive": lowSentimentScore, "Negative": lowSentimentScore,
+					"Neutral": neutralSentimentScore, "Mixed": lowSentimentScore,
 				},
 			}
-			entity["Mentions"] = mentions
-			entities = append(entities, entity)
+			// types.TargetedSentimentEntity carries only
+			// DescriptiveMentionIndex+Mentions -- Text/Score/BeginOffset/
+			// EndOffset/Type live one level down, on each
+			// types.TargetedSentimentMention in Mentions.
+			entities = append(entities, map[string]any{
+				"DescriptiveMentionIndex": []int{0},
+				"Mentions":                []map[string]any{mention},
+			})
 		}
 	}
 

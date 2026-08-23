@@ -125,7 +125,6 @@ type Certificate struct {
 	CertificateTransparencyLoggingPref string `json:"certTransparencyLoggingPref,omitempty"`
 	PrivateKey                         string `json:"privateKey,omitempty"`
 	CertificateAuthorityArn            string `json:"certificateAuthorityArn,omitempty"`
-	KeyID                              string `json:"keyId,omitempty"`
 	ExportPref                         string `json:"exportPref,omitempty"`
 	FailureReason                      string `json:"failureReason,omitempty"`
 	region                             string

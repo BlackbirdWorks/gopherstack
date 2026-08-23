@@ -30,12 +30,13 @@ const (
 	NetworkTypeDualStack = "dual_stack"
 )
 
-// EventSourceType values.
+// EventSourceType values. Real DAX (types.SourceType, aws-sdk-go-v2/service/dax/types/enums.go)
+// has exactly these three; there is no NODE value -- node-level events (e.g. RebootNode) are
+// reported under EventSourceTypeCluster with the owning cluster as SourceName.
 const (
 	EventSourceTypeCluster        = "CLUSTER"
 	EventSourceTypeParameterGroup = "PARAMETER_GROUP"
 	EventSourceTypeSubnetGroup    = "SUBNET_GROUP"
-	EventSourceTypeNode           = "NODE"
 )
 
 // Default values.

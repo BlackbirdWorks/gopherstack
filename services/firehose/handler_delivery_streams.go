@@ -7,8 +7,6 @@ import (
 	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
-const maxListLimit = 10000
-
 // compressionFormatUncompressed is the real SDK's documented default CompressionFormat
 // ("If no value is specified, the default is UNCOMPRESSED.").
 const compressionFormatUncompressed = "UNCOMPRESSED"
@@ -22,10 +20,21 @@ const (
 
 // s3DestinationInput holds the S3 destination configuration from the API request.
 // It maps both S3DestinationConfiguration and ExtendedS3DestinationConfiguration fields.
+
+const maxListLimit = 10000
+
+// s3DestinationInput holds the S3 destination configuration from the API request.
+// It maps both S3DestinationConfiguration and ExtendedS3DestinationConfiguration fields.
 type s3DestinationInput struct {
-	BufferingHints                    *BufferingHints                   `json:"BufferingHints"`
-	ProcessingConfiguration           *ProcessingConfiguration          `json:"ProcessingConfiguration"`
+	BufferingHints          *BufferingHints          `json:"BufferingHints"`
+	ProcessingConfiguration *ProcessingConfiguration `json:"ProcessingConfiguration"`
+	// S3BackupConfiguration is the wire key on ExtendedS3DestinationConfiguration
+	// (Create); S3BackupUpdate is the same field's wire key on
+	// ExtendedS3DestinationUpdate (Update) -- confirmed distinct via
+	// awsAwsjson11_serializeDocumentExtendedS3DestinationUpdate. A real client sends
+	// exactly one, never both.
 	S3BackupConfiguration             *s3BackupInput                    `json:"S3BackupConfiguration"`
+	S3BackupUpdate                    *s3BackupInput                    `json:"S3BackupUpdate"`
 	EncryptionConfiguration           *S3EncryptionConfiguration        `json:"EncryptionConfiguration"`
 	CloudWatchLoggingOptions          *CloudWatchLoggingOptions         `json:"CloudWatchLoggingOptions"`
 	DynamicPartitioningConfiguration  *DynamicPartitioningConfiguration `json:"DynamicPartitioningConfiguration"`
@@ -40,24 +49,33 @@ type s3DestinationInput struct {
 	S3BackupMode                      string                            `json:"S3BackupMode"`
 }
 
-// s3BackupInput holds the S3 backup destination configuration. The real SDK types
-// S3BackupConfiguration/S3BackupDescription as the exact same S3DestinationConfiguration/
-// S3DestinationDescription used for a primary S3 destination (types.go:1496,1575), so its
-// required set -- including EncryptionConfiguration -- applies here too.
+// s3BackupInput holds the S3 backup destination configuration. On the wire this is a
+// plain S3DestinationConfiguration/S3DestinationUpdate (aws-sdk-go-v2/service/firehose
+// types.go), which carries CloudWatchLoggingOptions/EncryptionConfiguration/
+// ErrorOutputPrefix in addition to the basics.
 type s3BackupInput struct {
-	BufferingHints          *BufferingHints            `json:"BufferingHints"`
-	EncryptionConfiguration *S3EncryptionConfiguration `json:"EncryptionConfiguration"`
-	BucketARN               string                     `json:"BucketARN"`
-	RoleARN                 string                     `json:"RoleARN"`
-	Prefix                  string                     `json:"Prefix"`
-	CompressionFormat       string                     `json:"CompressionFormat"`
+	BufferingHints           *BufferingHints            `json:"BufferingHints"`
+	EncryptionConfiguration  *S3EncryptionConfiguration `json:"EncryptionConfiguration"`
+	CloudWatchLoggingOptions *CloudWatchLoggingOptions  `json:"CloudWatchLoggingOptions"`
+	BucketARN                string                     `json:"BucketARN"`
+	RoleARN                  string                     `json:"RoleARN"`
+	Prefix                   string                     `json:"Prefix"`
+	ErrorOutputPrefix        string                     `json:"ErrorOutputPrefix"`
+	CompressionFormat        string                     `json:"CompressionFormat"`
 }
 
-// httpEndpointDestinationInput holds HTTP endpoint destination configuration.
+// httpEndpointDestinationInput holds HTTP endpoint destination configuration. Firehose
+// only ever writes S3 for this destination as its backup sink (there is no separate
+// primary S3 destination); the wire key for that single S3 bucket is "S3Configuration"
+// on HttpEndpointDestinationConfiguration (Create) and "S3Update" on
+// HttpEndpointDestinationUpdate (Update) -- confirmed via
+// awsAwsjson11_serializeDocumentHttpEndpointDestinationConfiguration/-Update. A real
+// client sends exactly one, never both.
 type httpEndpointDestinationInput struct {
 	EndpointConfiguration    *httpEndpointConfigurationInput   `json:"EndpointConfiguration"`
 	ProcessingConfiguration  *ProcessingConfiguration          `json:"ProcessingConfiguration"`
-	S3BackupConfiguration    *s3BackupInput                    `json:"S3BackupConfiguration"`
+	S3Configuration          *s3BackupInput                    `json:"S3Configuration"`
+	S3Update                 *s3BackupInput                    `json:"S3Update"`
 	RequestConfiguration     *HTTPEndpointRequestConfiguration `json:"RequestConfiguration"`
 	BufferingHints           *BufferingHints                   `json:"BufferingHints"`
 	RetryOptions             *RetryOptions                     `json:"RetryOptions"`
@@ -79,15 +97,11 @@ type kinesisStreamSrcInput struct {
 }
 
 // mskSourceConfigurationInput holds MSK cluster source config.
-// ReadFromTimestamp is float64 (epoch seconds): the real client serializes
-// it as a JSON number (serializers.go: ok.Double(smithytime.FormatEpochSeconds(...))),
-// so a string field here fails to decode the request body outright the
-// moment a real client sets it.
 type mskSourceConfigurationInput struct {
 	AuthenticationConfiguration *MSKAuthenticationConfiguration `json:"AuthenticationConfiguration"`
 	MSKClusterARN               string                          `json:"MSKClusterARN"`
 	TopicName                   string                          `json:"TopicName"`
-	ReadFromTimestamp           float64                         `json:"ReadFromTimestamp"`
+	ReadFromTimestamp           float64                         `json:"ReadFromTimestamp,omitempty"`
 }
 
 // redshiftDestinationInput holds the Redshift destination configuration.
@@ -100,27 +114,40 @@ type redshiftCopyCommandInput struct {
 	CopyOptions      string `json:"CopyOptions"`
 }
 
+// redshiftDestinationInput holds the Redshift destination configuration. S3Configuration/
+// S3BackupConfiguration are the Create wire keys (RedshiftDestinationConfiguration);
+// S3Update/S3BackupUpdate are the Update wire keys (RedshiftDestinationUpdate) for the
+// same two fields -- confirmed via awsAwsjson11_serializeDocumentRedshiftDestinationUpdate.
+// A real client sends exactly one of each pair, never both.
 type redshiftDestinationInput struct {
-	ProcessingConfiguration *ProcessingConfiguration `json:"ProcessingConfiguration"`
-	RetryOptions            *RetryOptions            `json:"RetryOptions"`
-	// S3Configuration is the required intermediate S3 staging location Redshift's COPY
-	// command reads from; distinct from S3BackupConfiguration (used only in backup mode).
-	S3Configuration       *s3DestinationInput       `json:"S3Configuration"`
-	S3BackupConfiguration *s3BackupInput            `json:"S3BackupConfiguration"`
-	CopyCommand           *redshiftCopyCommandInput `json:"CopyCommand"`
-	ClusterJDBCURL        string                    `json:"ClusterJDBCURL"`
-	RoleARN               string                    `json:"RoleARN"`
-	S3BackupMode          string                    `json:"S3BackupMode"`
-	Username              string                    `json:"Username"`
+	ProcessingConfiguration     *ProcessingConfiguration     `json:"ProcessingConfiguration"`
+	RetryOptions                *RetryOptions                `json:"RetryOptions"`
+	S3Configuration             *s3DestinationInput          `json:"S3Configuration"`
+	S3Update                    *s3DestinationInput          `json:"S3Update"`
+	S3BackupConfiguration       *s3BackupInput               `json:"S3BackupConfiguration"`
+	S3BackupUpdate              *s3BackupInput               `json:"S3BackupUpdate"`
+	CopyCommand                 *redshiftCopyCommandInput    `json:"CopyCommand"`
+	CloudWatchLoggingOptions    *CloudWatchLoggingOptions    `json:"CloudWatchLoggingOptions"`
+	SecretsManagerConfiguration *SecretsManagerConfiguration `json:"SecretsManagerConfiguration"`
+	ClusterJDBCURL              string                       `json:"ClusterJDBCURL"`
+	RoleARN                     string                       `json:"RoleARN"`
+	S3BackupMode                string                       `json:"S3BackupMode"`
+	Username                    string                       `json:"Username"`
 }
 
 // openSearchDestinationInput holds the OpenSearch destination configuration.
+// S3Configuration is the Create wire key (AmazonopensearchserviceDestinationConfiguration);
+// S3Update is the Update wire key (AmazonopensearchserviceDestinationUpdate) for the same
+// single S3 bucket -- confirmed via
+// awsAwsjson11_serializeDocumentAmazonopensearchserviceDestinationConfiguration/-Update.
+// A real client sends exactly one, never both.
 type openSearchDestinationInput struct {
 	ProcessingConfiguration  *ProcessingConfiguration  `json:"ProcessingConfiguration"`
 	BufferingHints           *BufferingHints           `json:"BufferingHints"`
 	RetryOptions             *RetryOptions             `json:"RetryOptions"`
 	CloudWatchLoggingOptions *CloudWatchLoggingOptions `json:"CloudWatchLoggingOptions"`
-	S3BackupConfiguration    *s3BackupInput            `json:"S3BackupConfiguration"`
+	S3Configuration          *s3BackupInput            `json:"S3Configuration"`
+	S3Update                 *s3BackupInput            `json:"S3Update"`
 	DomainARN                string                    `json:"DomainARN"`
 	ClusterEndpoint          string                    `json:"ClusterEndpoint"`
 	IndexName                string                    `json:"IndexName"`
@@ -131,12 +158,17 @@ type openSearchDestinationInput struct {
 }
 
 // elasticsearchDestinationInput holds the legacy Elasticsearch destination configuration.
+// S3Configuration is the Create wire key (ElasticsearchDestinationConfiguration);
+// S3Update is the Update wire key (ElasticsearchDestinationUpdate) for the same single S3
+// bucket -- confirmed via awsAwsjson11_serializeDocumentElasticsearchDestinationUpdate. A
+// real client sends exactly one, never both.
 type elasticsearchDestinationInput struct {
 	ProcessingConfiguration  *ProcessingConfiguration  `json:"ProcessingConfiguration"`
 	BufferingHints           *BufferingHints           `json:"BufferingHints"`
 	RetryOptions             *RetryOptions             `json:"RetryOptions"`
 	CloudWatchLoggingOptions *CloudWatchLoggingOptions `json:"CloudWatchLoggingOptions"`
 	S3Configuration          *s3DestinationInput       `json:"S3Configuration"`
+	S3Update                 *s3DestinationInput       `json:"S3Update"`
 	DomainARN                string                    `json:"DomainARN"`
 	ClusterEndpoint          string                    `json:"ClusterEndpoint"`
 	IndexName                string                    `json:"IndexName"`
@@ -147,11 +179,16 @@ type elasticsearchDestinationInput struct {
 }
 
 // splunkDestinationInput holds the Splunk HEC destination configuration.
+// S3Configuration is the Create wire key (SplunkDestinationConfiguration); S3Update is
+// the Update wire key (SplunkDestinationUpdate) for the same single S3 bucket --
+// confirmed via awsAwsjson11_serializeDocumentSplunkDestinationUpdate. A real client
+// sends exactly one, never both.
 type splunkDestinationInput struct {
 	ProcessingConfiguration           *ProcessingConfiguration  `json:"ProcessingConfiguration"`
 	RetryOptions                      *RetryOptions             `json:"RetryOptions"`
 	CloudWatchLoggingOptions          *CloudWatchLoggingOptions `json:"CloudWatchLoggingOptions"`
-	S3BackupConfiguration             *s3BackupInput            `json:"S3BackupConfiguration"`
+	S3Configuration                   *s3BackupInput            `json:"S3Configuration"`
+	S3Update                          *s3BackupInput            `json:"S3Update"`
 	HECEndpoint                       string                    `json:"HECEndpoint"`
 	HECEndpointType                   string                    `json:"HECEndpointType"`
 	HECToken                          string                    `json:"HECToken"`
@@ -183,12 +220,17 @@ type icebergDestinationInput struct {
 }
 
 // snowflakeDestinationInput holds the Snowflake destination configuration.
+// S3Configuration is the Create wire key (SnowflakeDestinationConfiguration); S3Update is
+// the Update wire key (SnowflakeDestinationUpdate) for the same single S3 bucket --
+// confirmed via awsAwsjson11_serializeDocumentSnowflakeDestinationUpdate. A real client
+// sends exactly one, never both.
 type snowflakeDestinationInput struct {
 	BufferingHints              *SnowflakeBufferingHints     `json:"BufferingHints"`
 	CloudWatchLoggingOptions    *CloudWatchLoggingOptions    `json:"CloudWatchLoggingOptions"`
 	ProcessingConfiguration     *ProcessingConfiguration     `json:"ProcessingConfiguration"`
 	RetryOptions                *SnowflakeRetryOptions       `json:"RetryOptions"`
 	S3Configuration             *s3DestinationInput          `json:"S3Configuration"`
+	S3Update                    *s3DestinationInput          `json:"S3Update"`
 	SecretsManagerConfiguration *SecretsManagerConfiguration `json:"SecretsManagerConfiguration"`
 	SnowflakeRoleConfiguration  *SnowflakeRoleConfiguration  `json:"SnowflakeRoleConfiguration"`
 	SnowflakeVpcConfiguration   *SnowflakeVpcConfiguration   `json:"SnowflakeVpcConfiguration"`
@@ -227,32 +269,29 @@ type createDeliveryStreamOutput struct {
 	DeliveryStreamARN string `json:"DeliveryStreamARN"`
 }
 
-// defaultS3BufferingHints mirrors the real SDK's documented default (types.go's
-// BufferingHints doc comment: "The default value is 300"/"The default value is 5"),
-// applied whenever a real client omits BufferingHints from an S3-family destination
-// config -- AWS still requires the response's BufferingHints, so a real client that
-// never sets it must still get it back.
-func defaultS3BufferingHints() *BufferingHints {
-	return &BufferingHints{SizeInMBs: defaultS3BufferingSizeMBs, IntervalInSeconds: defaultS3BufferingIntervalSeconds}
-}
-
-// defaultS3EncryptionConfiguration mirrors the real SDK's documented default
-// (types.go's EncryptionConfiguration doc comment: "If no value is specified, the
-// default is no encryption"), applied whenever a real client omits
-// EncryptionConfiguration -- required on the response regardless.
-func defaultS3EncryptionConfiguration() *S3EncryptionConfiguration {
-	return &S3EncryptionConfiguration{NoEncryptionConfig: "NoEncryption"}
-}
-
 // buildS3DestinationDescription converts an s3DestinationInput to the backend type.
-// BufferingHints and EncryptionConfiguration are optional on the real request
-// (validateS3DestinationConfiguration/validateExtendedS3DestinationConfiguration only
-// null-check RoleARN/BucketARN) but required on the response, so a client that omits
-// either still gets AWS's documented default back rather than the field dropping
-// entirely.
 func buildS3DestinationDescription(raw *s3DestinationInput) *S3DestinationDescription {
 	if raw == nil {
 		return nil
+	}
+
+	// BufferingHints, EncryptionConfiguration and CompressionFormat are
+	// optional on the request (validateS3DestinationConfiguration only
+	// null-checks RoleARN/BucketARN) but REQUIRED on the response, so a client
+	// that omits them must still get them back. gopherstack-r80d batch 28.
+	bufferingHints := raw.BufferingHints
+	if bufferingHints == nil {
+		bufferingHints = defaultS3BufferingHints()
+	}
+
+	encryption := raw.EncryptionConfiguration
+	if encryption == nil {
+		encryption = defaultS3EncryptionConfiguration()
+	}
+
+	compression := raw.CompressionFormat
+	if compression == "" {
+		compression = compressionFormatUncompressed
 	}
 
 	dest := &S3DestinationDescription{
@@ -260,41 +299,32 @@ func buildS3DestinationDescription(raw *s3DestinationInput) *S3DestinationDescri
 		RoleARN:                          raw.RoleARN,
 		Prefix:                           raw.Prefix,
 		ErrorOutputPrefix:                raw.ErrorOutputPrefix,
-		CompressionFormat:                raw.CompressionFormat,
+		CompressionFormat:                compression,
 		FileExtension:                    raw.FileExtension,
 		CustomTimeZone:                   raw.CustomTimeZone,
-		BufferingHints:                   raw.BufferingHints,
+		BufferingHints:                   bufferingHints,
 		ProcessingConfiguration:          raw.ProcessingConfiguration,
 		S3BackupMode:                     raw.S3BackupMode,
-		EncryptionConfiguration:          raw.EncryptionConfiguration,
+		EncryptionConfiguration:          encryption,
 		CloudWatchLoggingOptions:         raw.CloudWatchLoggingOptions,
 		DynamicPartitioningConfiguration: raw.DynamicPartitioningConfiguration,
 		DataFormatConversion:             raw.DataFormatConversionConfiguration,
 	}
 
-	if dest.BufferingHints == nil {
-		dest.BufferingHints = defaultS3BufferingHints()
+	backup := raw.S3BackupConfiguration
+	if backup == nil {
+		backup = raw.S3BackupUpdate
 	}
 
-	if dest.EncryptionConfiguration == nil {
-		dest.EncryptionConfiguration = defaultS3EncryptionConfiguration()
-	}
-
-	// CompressionFormat's real SDK type is a non-pointer enum, so omitted and
-	// present-empty decode identically to any real client -- defaulted here for
-	// correctness (matches the documented "default is UNCOMPRESSED"), not counted
-	// as a proven bug.
-	if dest.CompressionFormat == "" {
-		dest.CompressionFormat = compressionFormatUncompressed
-	}
-
-	dest.S3BackupDescription = buildS3BackupDescription(raw.S3BackupConfiguration)
+	dest.S3BackupDescription = buildS3BackupDescription(backup)
 
 	return dest
 }
 
 // buildHTTPEndpointDestination converts httpEndpointDestinationInput to the backend type.
-func buildHTTPEndpointDestination(ep *httpEndpointDestinationInput) *HTTPEndpointDestinationDescription {
+func buildHTTPEndpointDestination(
+	ep *httpEndpointDestinationInput,
+) *HTTPEndpointDestinationDescription {
 	if ep == nil {
 		return nil
 	}
@@ -316,8 +346,13 @@ func buildHTTPEndpointDestination(ep *httpEndpointDestinationInput) *HTTPEndpoin
 		}
 	}
 
-	if ep.S3BackupConfiguration != nil {
-		dest.S3BackupDescription = buildS3BackupDescription(ep.S3BackupConfiguration)
+	backup := ep.S3Configuration
+	if backup == nil {
+		backup = ep.S3Update
+	}
+
+	if backup != nil {
+		dest.S3BackupDescription = buildS3BackupDescription(backup)
 	}
 
 	return dest
@@ -329,14 +364,21 @@ func buildRedshiftDestination(rs *redshiftDestinationInput) *RedshiftDestination
 		return nil
 	}
 
+	s3Config := rs.S3Configuration
+	if s3Config == nil {
+		s3Config = rs.S3Update
+	}
+
 	dest := &RedshiftDestinationDescription{
-		ClusterJDBCURL:          rs.ClusterJDBCURL,
-		RoleARN:                 rs.RoleARN,
-		S3BackupMode:            rs.S3BackupMode,
-		ProcessingConfiguration: rs.ProcessingConfiguration,
-		RetryOptions:            rs.RetryOptions,
-		Username:                rs.Username,
-		S3Destination:           buildS3DestinationDescription(rs.S3Configuration),
+		ClusterJDBCURL:              rs.ClusterJDBCURL,
+		RoleARN:                     rs.RoleARN,
+		S3BackupMode:                rs.S3BackupMode,
+		ProcessingConfiguration:     rs.ProcessingConfiguration,
+		RetryOptions:                rs.RetryOptions,
+		Username:                    rs.Username,
+		CloudWatchLoggingOptions:    rs.CloudWatchLoggingOptions,
+		SecretsManagerConfiguration: rs.SecretsManagerConfiguration,
+		S3Destination:               buildS3DestinationDescription(s3Config),
 	}
 
 	if rs.CopyCommand != nil {
@@ -347,8 +389,13 @@ func buildRedshiftDestination(rs *redshiftDestinationInput) *RedshiftDestination
 		}
 	}
 
-	if rs.S3BackupConfiguration != nil {
-		dest.S3BackupDescription = buildS3BackupDescription(rs.S3BackupConfiguration)
+	backup := rs.S3BackupConfiguration
+	if backup == nil {
+		backup = rs.S3BackupUpdate
+	}
+
+	if backup != nil {
+		dest.S3BackupDescription = buildS3BackupDescription(backup)
 	}
 
 	return dest
@@ -374,8 +421,13 @@ func buildOpenSearchDestination(os *openSearchDestinationInput) *OpenSearchDesti
 		CloudWatchLoggingOptions: os.CloudWatchLoggingOptions,
 	}
 
-	if os.S3BackupConfiguration != nil {
-		dest.S3BackupDescription = buildS3BackupDescription(os.S3BackupConfiguration)
+	backup := os.S3Configuration
+	if backup == nil {
+		backup = os.S3Update
+	}
+
+	if backup != nil {
+		dest.S3BackupDescription = buildS3BackupDescription(backup)
 	}
 
 	return dest
@@ -384,7 +436,9 @@ func buildOpenSearchDestination(os *openSearchDestinationInput) *OpenSearchDesti
 // buildElasticsearchDestination converts elasticsearchDestinationInput to the backend type.
 // This is the legacy Elasticsearch destination shape, wire-distinct from the newer
 // AmazonopensearchserviceDestinationConfiguration family (see ElasticsearchDestinationDescription).
-func buildElasticsearchDestination(es *elasticsearchDestinationInput) *ElasticsearchDestinationDescription {
+func buildElasticsearchDestination(
+	es *elasticsearchDestinationInput,
+) *ElasticsearchDestinationDescription {
 	if es == nil {
 		return nil
 	}
@@ -405,18 +459,22 @@ func buildElasticsearchDestination(es *elasticsearchDestinationInput) *Elasticse
 
 	// AWS models S3Configuration as the required backup destination for legacy
 	// Elasticsearch (distinct from the optional-backup pattern used elsewhere).
-	// Routed through buildS3BackupDescription so it gets the same required-field
-	// defaults (BufferingHints/EncryptionConfiguration/CompressionFormat) as every
-	// other S3-family destination.
-	if es.S3Configuration != nil {
-		dest.S3BackupDescription = buildS3BackupDescription(&s3BackupInput{
-			BucketARN:               es.S3Configuration.BucketARN,
-			RoleARN:                 es.S3Configuration.RoleARN,
-			Prefix:                  es.S3Configuration.Prefix,
-			CompressionFormat:       es.S3Configuration.CompressionFormat,
-			BufferingHints:          es.S3Configuration.BufferingHints,
-			EncryptionConfiguration: es.S3Configuration.EncryptionConfiguration,
-		})
+	s3 := es.S3Configuration
+	if s3 == nil {
+		s3 = es.S3Update
+	}
+
+	if s3 != nil {
+		dest.S3BackupDescription = &S3BackupDescription{
+			BucketARN:                s3.BucketARN,
+			RoleARN:                  s3.RoleARN,
+			Prefix:                   s3.Prefix,
+			ErrorOutputPrefix:        s3.ErrorOutputPrefix,
+			CompressionFormat:        s3.CompressionFormat,
+			BufferingHints:           s3.BufferingHints,
+			EncryptionConfiguration:  s3.EncryptionConfiguration,
+			CloudWatchLoggingOptions: s3.CloudWatchLoggingOptions,
+		}
 	}
 
 	return dest
@@ -439,8 +497,13 @@ func buildSplunkDestination(sp *splunkDestinationInput) *SplunkDestinationDescri
 		CloudWatchLoggingOptions:          sp.CloudWatchLoggingOptions,
 	}
 
-	if sp.S3BackupConfiguration != nil {
-		dest.S3BackupDescription = buildS3BackupDescription(sp.S3BackupConfiguration)
+	backup := sp.S3Configuration
+	if backup == nil {
+		backup = sp.S3Update
+	}
+
+	if backup != nil {
+		dest.S3BackupDescription = buildS3BackupDescription(backup)
 	}
 
 	return dest
@@ -474,12 +537,17 @@ func buildSnowflakeDestination(sf *snowflakeDestinationInput) *SnowflakeDestinat
 		return nil
 	}
 
+	s3Config := sf.S3Configuration
+	if s3Config == nil {
+		s3Config = sf.S3Update
+	}
+
 	return &SnowflakeDestinationDescription{
 		BufferingHints:              sf.BufferingHints,
 		CloudWatchLoggingOptions:    sf.CloudWatchLoggingOptions,
 		ProcessingConfiguration:     sf.ProcessingConfiguration,
 		RetryOptions:                sf.RetryOptions,
-		S3Destination:               buildS3DestinationDescription(sf.S3Configuration),
+		S3Destination:               buildS3DestinationDescription(s3Config),
 		SecretsManagerConfiguration: sf.SecretsManagerConfiguration,
 		SnowflakeRoleConfiguration:  sf.SnowflakeRoleConfiguration,
 		SnowflakeVpcConfiguration:   sf.SnowflakeVpcConfiguration,
@@ -497,35 +565,59 @@ func buildSnowflakeDestination(sf *snowflakeDestinationInput) *SnowflakeDestinat
 }
 
 // buildS3BackupDescription converts an s3BackupInput to the backend type.
-// BufferingHints/EncryptionConfiguration/CompressionFormat get the same real-SDK
-// defaults as buildS3DestinationDescription -- the wire type is identical.
+// defaultS3BufferingHints mirrors the real SDK's documented default (types.go's
+// BufferingHints doc comment: "The default value is 300"/"The default value is 5"),
+// applied whenever a real client omits BufferingHints from an S3-family destination
+// config -- AWS still requires the response's BufferingHints, so a real client that
+// never sets it must still get it back.
+func defaultS3BufferingHints() *BufferingHints {
+	return &BufferingHints{SizeInMBs: defaultS3BufferingSizeMBs, IntervalInSeconds: defaultS3BufferingIntervalSeconds}
+}
+
+// defaultS3EncryptionConfiguration mirrors the real SDK's documented default
+// (types.go's EncryptionConfiguration doc comment: "If no value is specified, the
+// default is no encryption"), applied whenever a real client omits
+// EncryptionConfiguration -- required on the response regardless.
+func defaultS3EncryptionConfiguration() *S3EncryptionConfiguration {
+	return &S3EncryptionConfiguration{NoEncryptionConfig: "NoEncryption"}
+}
+
 func buildS3BackupDescription(b *s3BackupInput) *S3BackupDescription {
 	if b == nil {
 		return nil
 	}
 
-	dest := &S3BackupDescription{
-		BucketARN:               b.BucketARN,
-		RoleARN:                 b.RoleARN,
-		Prefix:                  b.Prefix,
-		CompressionFormat:       b.CompressionFormat,
-		BufferingHints:          b.BufferingHints,
-		EncryptionConfiguration: b.EncryptionConfiguration,
+	// S3BackupDescription is typed as a full S3DestinationDescription on the
+	// wire (firehose types.go:1575, 2621), so it carries that type's required
+	// members -- BufferingHints, EncryptionConfiguration and CompressionFormat
+	// -- even though all three are optional on the INPUT. Defaulted here so a
+	// caller who omits them still gets a decodable response. See
+	// gopherstack-r80d batch 28.
+	bufferingHints := b.BufferingHints
+	if bufferingHints == nil {
+		bufferingHints = defaultS3BufferingHints()
 	}
 
-	if dest.BufferingHints == nil {
-		dest.BufferingHints = defaultS3BufferingHints()
+	encryption := b.EncryptionConfiguration
+	if encryption == nil {
+		encryption = defaultS3EncryptionConfiguration()
 	}
 
-	if dest.EncryptionConfiguration == nil {
-		dest.EncryptionConfiguration = defaultS3EncryptionConfiguration()
+	compression := b.CompressionFormat
+	if compression == "" {
+		compression = compressionFormatUncompressed
 	}
 
-	if dest.CompressionFormat == "" {
-		dest.CompressionFormat = compressionFormatUncompressed
+	return &S3BackupDescription{
+		BucketARN:                b.BucketARN,
+		RoleARN:                  b.RoleARN,
+		Prefix:                   b.Prefix,
+		ErrorOutputPrefix:        b.ErrorOutputPrefix,
+		CompressionFormat:        compression,
+		BufferingHints:           bufferingHints,
+		EncryptionConfiguration:  encryption,
+		CloudWatchLoggingOptions: b.CloudWatchLoggingOptions,
 	}
-
-	return dest
 }
 
 // buildSourceDescription converts source config inputs to the backend type.
@@ -620,16 +712,22 @@ func (h *Handler) handleCreateDeliveryStream(
 	}
 
 	s, err := h.Backend.CreateDeliveryStream(ctx, CreateDeliveryStreamInput{
-		Name:                     in.DeliveryStreamName,
-		DeliveryStreamType:       in.DeliveryStreamType,
-		S3Destination:            buildS3DestinationDescription(rawS3),
-		HTTPEndpointDestination:  buildHTTPEndpointDestination(in.HTTPEndpointDestinationConfiguration),
-		RedshiftDestination:      buildRedshiftDestination(in.RedshiftDestinationConfiguration),
-		OpenSearchDestination:    buildOpenSearchDestination(in.AmazonOpenSearchServiceDestinationConfiguration),
-		ElasticsearchDestination: buildElasticsearchDestination(in.ElasticsearchDestinationConfiguration),
-		SplunkDestination:        buildSplunkDestination(in.SplunkDestinationConfiguration),
-		IcebergDestination:       buildIcebergDestination(in.IcebergDestinationConfiguration),
-		SnowflakeDestination:     buildSnowflakeDestination(in.SnowflakeDestinationConfiguration),
+		Name:               in.DeliveryStreamName,
+		DeliveryStreamType: in.DeliveryStreamType,
+		S3Destination:      buildS3DestinationDescription(rawS3),
+		HTTPEndpointDestination: buildHTTPEndpointDestination(
+			in.HTTPEndpointDestinationConfiguration,
+		),
+		RedshiftDestination: buildRedshiftDestination(in.RedshiftDestinationConfiguration),
+		OpenSearchDestination: buildOpenSearchDestination(
+			in.AmazonOpenSearchServiceDestinationConfiguration,
+		),
+		ElasticsearchDestination: buildElasticsearchDestination(
+			in.ElasticsearchDestinationConfiguration,
+		),
+		SplunkDestination:    buildSplunkDestination(in.SplunkDestinationConfiguration),
+		IcebergDestination:   buildIcebergDestination(in.IcebergDestinationConfiguration),
+		SnowflakeDestination: buildSnowflakeDestination(in.SnowflakeDestinationConfiguration),
 		Source: buildSourceDescription(
 			in.KinesisStreamSourceConfiguration, in.MSKSourceConfiguration,
 		),
@@ -839,9 +937,18 @@ type listDeliveryStreamsOutput struct {
 }
 
 // isValidDeliveryStreamType reports whether s is a DeliveryStreamType filter value AWS
-// accepts on ListDeliveryStreams.
+// accepts on ListDeliveryStreams. The real DeliveryStreamType enum
+// (aws-sdk-go-v2/service/firehose/types/enums.go@v1.46.4) has 4 values -- DirectPut,
+// KinesisStreamAsSource, MSKAsSource, DatabaseAsSource -- not just the first 2; a filter
+// on the latter 2 previously errored instead of returning a (possibly empty) list.
 func isValidDeliveryStreamType(s string) bool {
-	return s == deliveryStreamTypeDirectPut || s == deliveryStreamTypeKinesisSource
+	switch s {
+	case deliveryStreamTypeDirectPut, deliveryStreamTypeKinesisSource,
+		deliveryStreamTypeMSKSource, deliveryStreamTypeDatabaseSource:
+		return true
+	default:
+		return false
+	}
 }
 
 func (h *Handler) handleListDeliveryStreams(
@@ -849,7 +956,11 @@ func (h *Handler) handleListDeliveryStreams(
 	in *listDeliveryStreamsInput,
 ) (*listDeliveryStreamsOutput, error) {
 	if in.DeliveryStreamType != "" && !isValidDeliveryStreamType(in.DeliveryStreamType) {
-		return nil, fmt.Errorf("%w: invalid DeliveryStreamType %q", ErrValidation, in.DeliveryStreamType)
+		return nil, fmt.Errorf(
+			"%w: invalid DeliveryStreamType %q",
+			ErrValidation,
+			in.DeliveryStreamType,
+		)
 	}
 
 	names := h.Backend.ListDeliveryStreamsByType(ctx, in.DeliveryStreamType)

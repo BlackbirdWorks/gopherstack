@@ -118,7 +118,6 @@ func (h *Handler) handleListDatasets(c *echo.Context) error {
 
 		summaries = append(summaries, datasetSummary{
 			DatasetName:    ds.Name,
-			DatasetARN:     ds.ARN,
 			Status:         ds.Status,
 			CreationTime:   ds.CreationTime,
 			LastUpdateTime: ds.LastUpdate,
@@ -222,7 +221,6 @@ func (h *Handler) handleGetDatasetContent(c *echo.Context, datasetName string) e
 	return c.JSON(http.StatusOK, getDatasetContentResponse{
 		Status:    &datasetContentStatusDTO{State: content.Status},
 		Entries:   []datasetContentEntry{},
-		VersionID: content.VersionID,
 		Timestamp: content.CreationTime,
 	})
 }

@@ -31,9 +31,10 @@ var ErrVersionConflict = errors.New("ConflictException")
 // ErrValidation is returned for invalid input parameters.
 var ErrValidation = errors.New("InvalidRequestException")
 
-// ErrRequestTooLarge is returned when a shadow document exceeds the maximum
-// allowed size. Wire error code "RequestEntityTooLargeException" (real AWS
-// iotdataplane exception, modeled only for UpdateThingShadow).
+// ErrRequestTooLarge is returned when a shadow document or direct-message
+// payload exceeds its maximum allowed size. Wire error code
+// "RequestEntityTooLargeException" (real AWS iotdataplane exception, modeled
+// for UpdateThingShadow and SendDirectMessage; NOT modeled for Publish).
 var ErrRequestTooLarge = errors.New("RequestEntityTooLargeException")
 
 // ErrConnectionExists is returned when trying to register a clientID that is already connected.

@@ -1,6 +1,9 @@
 package fsx
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 // --- CreateSnapshot ---
 
@@ -88,7 +91,9 @@ func (h *Handler) handleUpdateSnapshot(
 // --- CopySnapshotAndUpdateVolume ---
 
 type copySnapshotAndUpdateVolumeOutput struct {
-	Volume *Volume `json:"Volume"`
+	Lifecycle             string                 `json:"Lifecycle"`
+	VolumeID              string                 `json:"VolumeId"`
+	AdministrativeActions []AdministrativeAction `json:"AdministrativeActions,omitempty"`
 }
 
 func (h *Handler) handleCopySnapshotAndUpdateVolume(
@@ -100,5 +105,14 @@ func (h *Handler) handleCopySnapshotAndUpdateVolume(
 		return nil, err
 	}
 
-	return &copySnapshotAndUpdateVolumeOutput{Volume: v}, nil
+	return &copySnapshotAndUpdateVolumeOutput{
+		Lifecycle: v.Lifecycle,
+		VolumeID:  v.VolumeID,
+		AdministrativeActions: []AdministrativeAction{{
+			AdministrativeActionType: administrativeActionTypeVolumeUpdateWithSnapshot,
+			Status:                   administrativeActionStatusCompleted,
+			RequestTime:              epochTime(time.Now().UTC()),
+			TargetVolumeValues:       v,
+		}},
+	}, nil
 }

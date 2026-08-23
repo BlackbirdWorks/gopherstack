@@ -1,8 +1,8 @@
 ---
 service: kinesisanalytics
 sdk_module: aws-sdk-go-v2/service/kinesisanalytics@v1.33.4
-last_audit_commit: 6e7056ac
-last_audit_date: 2026-07-24
+last_audit_commit: 17458c2f
+last_audit_date: 2026-08-20
 overall: A            # real fixes found: deleted three gopherstack-invented surfaces
                        # (ServiceExecutionRole/RuntimeEnvironment fields, five non-real
                        # ApplicationStatus constants, InputUpdate.InputStartingPositionConfiguration),
@@ -13,7 +13,7 @@ overall: A            # real fixes found: deleted three gopherstack-invented sur
 ops:
   CreateApplication: {wire: ok, errors: ok, state: ok, persist: ok, note: "ServiceExecutionRole request field DELETED (gopherstack-invented -- CreateApplicationInput has no such member in the real SDK, verified via grep across the whole module). Inputs[]/Outputs[] now route through the same hardened convertInputConfig/convertOutputConfig validation as AddApplicationInput/AddApplicationOutput (see families below)."}
   DeleteApplication: {wire: ok, errors: ok, state: ok, persist: ok}
-  DescribeApplication: {wire: ok, errors: ok, state: ok, persist: ok, note: "ServiceExecutionRole/RuntimeEnvironment response fields DELETED (gopherstack-invented, present nowhere in ApplicationDetail)."}
+  DescribeApplication: {wire: fixed, errors: ok, state: ok, persist: ok, note: "ServiceExecutionRole/RuntimeEnvironment response fields DELETED (gopherstack-invented, present nowhere in ApplicationDetail). 2026-08-20: InputProcessingConfigurationDescription.InputLambdaProcessor wire key FIXED to InputLambdaProcessorDescription -- see dated entry below."}
   ListApplications: {wire: ok, errors: ok, state: ok, persist: ok, note: "HasMoreApplications/ExclusiveStartApplicationName pagination correct, no NextToken -- matches real ListApplicationsInput/Output exactly."}
   StartApplication: {wire: ok, errors: ok, state: ok, persist: ok, note: "READY->STARTING->RUNNING transition via launchTransition goroutine, correct."}
   StopApplication: {wire: ok, errors: ok, state: ok, persist: ok, note: "RUNNING->STOPPING->READY transition, correct."}
@@ -188,3 +188,150 @@ correct.
 - **ListApplications**: `ApplicationSummaries`/`HasMoreApplications` pagination shape, and the
   absence of a `NextToken`, matches `types.ApplicationSummary` / `ListApplicationsOutput` -- no
   cursor-based pagination in the real v1 API.
+
+## kinesisanalytics (this session, 2026-08-20)
+
+Wrapper-key/nested-shape sweep. Protocol confirmed **awsjson1.1** (JSON-RPC): `X-Amz-Target:
+KinesisAnalytics_20150814.<Op>` (`serializers.go:60` for AddApplicationCloudWatchLoggingOption,
+same pattern for all 19 ops), single `POST /` endpoint, no URL routing -- no cnhp trap applies
+(that trap is restjson-specific; this service has none).
+
+**V1/V2 twin check (the reason this service was targeted): CLEAN.** Unlike kinesisanalyticsv2's
+`Input.InputSchema`/`ReferenceDataSource.ReferenceSchema` (both required, never modelled), V1's
+equivalents ARE fully modelled and populated end to end: `models.go:449` (`applicationInputConfig.
+InputSchema`), `models.go:526` (`referenceDataSourceConfig.ReferenceSchema`), backed by a complete
+`SourceSchema`/`RecordColumn`/`RecordFormat`/`MappingParameters`/`JSONMappingParameters`/
+`CSVMappingParameters` sub-tree (`models.go:122-157`) that matches
+`aws-sdk-go-v2/service/kinesisanalytics/types/types.go:955-1202` field-for-field, with required-ness
+enforced in `applications.go`'s `convertSourceSchema`/`validateRecordFormatType`/
+`validateRecordColumns`/`validateMappingParameters` (carried over from the prior sweep). A prior
+sweep (2026-07-24) had already closed the exact gap this campaign's V2 finding predicted might
+exist here -- this session independently re-verified it against
+`aws-sdk-go-v2/service/kinesisanalytics@v1.33.4` rather than trusting that stamp.
+
+**Full field-list diff, every op's Input/Output struct against `types.go`/`api_op_*.go`, optional
+included, types checked**: all 19 ops' request/response shapes match exactly --
+`CreateApplication`/`DeleteApplication`/`DescribeApplication`/`ListApplications`/
+`StartApplication`/`StopApplication`/`UpdateApplication`/`ListTagsForResource`/`TagResource`/
+`UntagResource`/`AddApplicationCloudWatchLoggingOption`/`AddApplicationInput`/
+`AddApplicationInputProcessingConfiguration`/`AddApplicationOutput`/
+`AddApplicationReferenceDataSource`/`DeleteApplicationCloudWatchLoggingOption`/
+`DeleteApplicationInputProcessingConfiguration`/`DeleteApplicationOutput`/
+`DeleteApplicationReferenceDataSource`/`DiscoverInputSchema` -- each field-by-field against
+`api_op_<Op>.go` (SDK v1.33.4). One real bug found (below), everything else already correct from
+the 2026-07-24 sweep.
+
+**Enums checked both directions**: `ApplicationStatus` (6/6 real values present, none invented --
+`store.go:33-38` vs `types/enums.go:5-13`); `RecordFormatType` restricted to exactly JSON/CSV
+(`applications.go:320-322` vs `types/enums.go:53-61`); `InputStartingPosition` (NOW/TRIM_HORIZON/
+LAST_STOPPED_POINT) is passed through as an opaque string with no gopherstack-side validation or
+invented values -- consistent with the SDK's own validators.go not requiring it client-side either
+(the field is optional on `InputStartingPositionConfiguration`).
+
+**`ApplicationDetail` vs `ApplicationSummary`**: distinct, correctly. `ApplicationSummary`
+(`models.go:180-184`, 3 fields: ARN/Name/Status) exactly matches
+`types.ApplicationSummary` (`types/types.go:84-102`, same 3 required fields, no
+`ApplicationVersionId`/timestamps/descriptions). `applicationDetail` (`models.go:214-227`, 12
+fields) exactly matches `types.ApplicationDetail` (`types/types.go:16-76`, same 12 fields). No
+summary/full confusion.
+
+**The nine Output/Description/Update variants** (KinesisStreams/KinesisFirehose/Lambda x
+Output/OutputDescription/OutputUpdate): each checked against its own SDK type in `types/types.go`
+(lines 622-834) -- all nine match field-for-field (ResourceARN+RoleARN required on the request
+form, both optional on the Description form, both `...Update`-suffixed on the Update form). Clean,
+unchanged from the prior sweep.
+
+### Real bug found and fixed
+
+1. **`InputProcessingConfigurationDescription.InputLambdaProcessor` -> wrong wire key, should be
+   `InputLambdaProcessorDescription`** (case a: member generalized from a sibling -- here the
+   request-side name `InputLambdaProcessor` was reused on the response-side Description type
+   instead of that type's own, differently-named member).
+   - **Wrong**: `models.go:47-50` (before fix) had
+     `InputProcessingConfigurationDesc{ InputLambdaProcessor *LambdaProcessorDesc
+     \`json:"InputLambdaProcessor,omitempty"\` }`.
+   - **Real**: `types.InputProcessingConfigurationDescription` has exactly one member,
+     `InputLambdaProcessorDescription *InputLambdaProcessorDescription`
+     (`aws-sdk-go-v2/service/kinesisanalytics/types/types.go:458-466`), and the deserializer reads
+     that exact key (`deserializers.go:3611-3636`,
+     `awsAwsjson11_deserializeDocumentInputProcessingConfigurationDescription`'s `case
+     "InputLambdaProcessorDescription":` at line 3633). The request-side sibling type,
+     `types.InputProcessingConfiguration.InputLambdaProcessor` (`types/types.go:441-452`), does
+     correctly use the shorter name -- the bug was applying that request-side name to the
+     response-side Description type instead of its own distinct member name.
+   - **Blast radius**: every `DescribeApplication` response for an input with a processing
+     configuration attached (set via `CreateApplication`, `AddApplicationInput`, or
+     `AddApplicationInputProcessingConfiguration`, and surfaced by `UpdateApplication`'s internal
+     state too) silently dropped the Lambda preprocessor's ResourceARN/RoleARN from the real
+     client's parsed response -- the real SDK's `InputLambdaProcessorDescription` field always
+     came back `nil` even though gopherstack's internal state held the correct values.
+   - **Files fixed**: `models.go` (field+tag rename, with a doc comment recording the distinction
+     from the request-side sibling), `applications.go` (`convertInputProcessingConfig`,
+     `copyInputDescs`), `application_update.go` (`applyOneInputUpdate`),
+     `application_inputs_test.go` (four call sites updated to the renamed field).
+   - **Test**: `wire_sdk_roundtrip_test.go`,
+     `TestDescribeApplication_InputLambdaProcessorDescription_SDKRoundTrip` -- drives
+     `CreateApplication` -> `AddApplicationInput` (with `InputProcessingConfiguration`) ->
+     `DescribeApplication` through the real `aws-sdk-go-v2` client over the actual
+     `pkgs/service` router, and asserts
+     `InputProcessingConfigurationDescription.InputLambdaProcessorDescription` is non-nil with the
+     correct ARNs.
+   - **Hand-revert symptom**: reverting the JSON tag back to `"InputLambdaProcessor"` (verified via
+     the mandated `cp`-based hand-revert, not git) reproduces the exact failure: the real SDK
+     client's `InputLambdaProcessorDescription` field decodes as `nil`, failing
+     `require.NotNil` in the round-trip test with no other symptom (still a `200 OK`, silent data
+     loss).
+
+### Families verified clean this session (already correct, re-confirmed against the pinned SDK)
+
+`CloudWatchLoggingOption`/`Description`/`Update`; `ApplicationUpdate`;
+`InputProcessingConfiguration`/`InputProcessingConfigurationUpdate` (request/update sides, as
+opposed to the Description side above) -> `InputLambdaProcessor`/`InputLambdaProcessorUpdate`;
+`InputStartingPositionConfiguration`; `InputParallelism`/`InputParallelismUpdate`;
+`DiscoverInputSchema`'s `InputSchema`/`ParsedInputRecords`/`ProcessedInputRecords`/
+`RawInputRecords` response shape (still backed by the real sampling/inference logic from the prior
+sweep -- `discover_schema.go`, 346 lines, unchanged).
+
+### Gaps disclosed, not fixed (out of scope for a wrapper-key/nested-shape sweep)
+
+- Per-op error coverage is incomplete relative to each op's own
+  `awsAwsjson11_deserializeOpError<Op>` switch: `UnsupportedOperationException` (present on most
+  mutating ops' error switches), `CodeValidationException` (`CreateApplication`/
+  `AddApplicationInput`/`UpdateApplication`), `InvalidApplicationConfigurationException`
+  (`StartApplication`), and `ResourceProvisionedThroughputExceededException`/
+  `ServiceUnavailableException` (`DiscoverInputSchema`) are real SDK-defined exceptions on these
+  ops that gopherstack's `errors.go` does not model or ever return. This is a structural
+  completeness gap (Layer 3), not a wrapper-key/nesting bug, and out of this sweep's scope.
+
+### Provenance verdict
+
+`last_audit_commit: 6e7056ac` (before this session's update) was committed **2026-07-24 01:48:59
+-0500** (`git show -s --format=%ad 6e7056ac`), matching `last_audit_date: 2026-07-24` exactly --
+no stale-stamp gap, no false accusation. This session advances the stamp to the current HEAD
+(`17458c2f`, committed 2026-08-20 16:54:05 -0500) and today's date, as required.
+
+### Gates (verbatim)
+
+```
+$ go build ./services/kinesisanalytics/...
+(no output, exit 0)
+$ go vet ./services/kinesisanalytics/...
+(no output, exit 0)
+$ go fix -diff ./services/kinesisanalytics/...
+(no output, exit 0)
+$ gofmt -l services/kinesisanalytics/
+(no output, exit 0)
+$ go test -race ./services/kinesisanalytics/...
+ok  	github.com/blackbirdworks/gopherstack/services/kinesisanalytics	1.204s
+$ golangci-lint run ./services/kinesisanalytics/...
+0 issues.
+$ git status --short
+ M services/kinesisanalytics/application_inputs_test.go
+ M services/kinesisanalytics/application_update.go
+ M services/kinesisanalytics/applications.go
+ M services/kinesisanalytics/models.go
+ M services/kinesisanalytics/PARITY.md
+?? services/kinesisanalytics/wire_sdk_roundtrip_test.go
+(services/pipes/* and .claude/ dirty entries belong to a concurrent, unrelated
+session -- confirmed not touched by this sweep)
+```

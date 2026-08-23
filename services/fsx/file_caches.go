@@ -30,6 +30,22 @@ func (c *storedFileCache) toPublic() *FileCache {
 		ResourceARN:          c.ResourceARN,
 		SubnetIDs:            c.SubnetIDs,
 		StorageCapacityGiB:   c.StorageCapacityGiB,
+	}
+}
+
+// toPublicCreating renders the CreateFileCache response shape, which -- unlike
+// DescribeFileCaches/UpdateFileCache's toPublic() above -- includes Tags (see
+// FileCacheCreating in interfaces.go).
+func (c *storedFileCache) toPublicCreating() *FileCacheCreating {
+	return &FileCacheCreating{
+		CreationTime:         epochTime(c.CreationTime),
+		FileCacheID:          c.FileCacheID,
+		FileCacheType:        c.FileCacheType,
+		FileCacheTypeVersion: c.FileCacheTypeVersion,
+		Lifecycle:            c.Lifecycle,
+		ResourceARN:          c.ResourceARN,
+		SubnetIDs:            c.SubnetIDs,
+		StorageCapacityGiB:   c.StorageCapacityGiB,
 		Tags:                 tagsMapToSlice(c.Tags),
 	}
 }
@@ -47,7 +63,7 @@ type createFileCacheInput struct {
 // CreateFileCacheInput members (verified against
 // validateOpCreateFileCacheInput, validators.go) that the pre-fix request
 // never read at all -- StorageCapacity was already wired.
-func (b *InMemoryBackend) CreateFileCache(input *createFileCacheInput) (*FileCache, error) {
+func (b *InMemoryBackend) CreateFileCache(input *createFileCacheInput) (*FileCacheCreating, error) {
 	if input.FileCacheType == "" {
 		return nil, ErrValidation
 	}
@@ -91,7 +107,7 @@ func (b *InMemoryBackend) CreateFileCache(input *createFileCacheInput) (*FileCac
 	b.fileCaches.Put(c)
 	b.tags[arn] = tags
 
-	return c.toPublic(), nil
+	return c.toPublicCreating(), nil
 }
 
 // DeleteFileCache removes a file cache.

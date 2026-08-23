@@ -1,9 +1,9 @@
 ---
 service: resourcegroups
 sdk_module: aws-sdk-go-v2/service/resourcegroups@v1.36.4
-last_audit_commit: 343e1204   # HEAD when this audit started (parity-4 sweep)
-last_audit_date: 2026-07-24
-overall: A            # genuine wire-shape and behavior fixes found and fixed
+last_audit_commit: a8a59e42   # HEAD when this audit started (wrapper-key sweep, 2026-08-20)
+last_audit_date: 2026-08-20
+overall: A            # clean pass this sweep -- no wire bugs found; see notes
 ops:
   CreateGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: Tags/ResourceQuery no longer nested inside Group; Owner tag renamed; now accepts Owner/DisplayName/Criticality at creation time via CreateGroupOption; Criticality range corrected to 1-10"}
   GetGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: Owner wire tag"}
@@ -45,8 +45,10 @@ Protocol: **rest-json1**. Every op except `Tag` (PUT), `Untag` (PATCH), and `Get
 `SearchResources` is `POST /resources/search`, `UpdateGroupQuery` is
 `POST /update-group-query` -- note: NOT PUT, despite the name). All of this was
 verified directly against `serializers.go`'s `opPath`/`request.Method` in
-aws-sdk-go-v2/service/resourcegroups@v1.33.22 and matches gopherstack's
-`rgRESTPathOps` exactly; no route-matcher bugs found this sweep.
+aws-sdk-go-v2/service/resourcegroups@v1.36.4 (re-verified 2026-08-20; the prior
+note here cited @v1.33.22, stale relative to this file's own `sdk_module`
+header even at the time -- see the 2026-08-20 sweep section below) and matches
+gopherstack's `rgRESTPathOps` exactly; no route-matcher bugs found this sweep.
 
 ### Real bugs fixed this sweep
 
@@ -231,3 +233,75 @@ field alone exceeds `httputils.MaxRequestBodyBytes` (16 MiB).
 `*json.SyntaxError` (hand-reverted, byte-identical restore after). The
 other 4 sites share the identical one-line fix and were not independently
 client-driven given the campaign's budget across 14 services.
+### 2026-08-20 sweep (wrapper-key / nested-shape pass) -- clean, zero new wire bugs
+
+Full 23-op re-read against resourcegroups@v1.36.4's own per-op deserializer, focused on
+the wrapper-key/nesting/type/enum-value bug class. Confirmed protocol restjson1 from
+both `serializers.go`'s `awsRestjson1_*` prefix (184 serializer, 398 deserializer hits)
+and `api_client.go`; cross-checked `services/_PROTOCOLS.md`'s resourcegroups row, which
+is correct. Checked all 23 ops' `awsRestjson1_deserializeOpDocument<Op>Output` call
+count: 21 are called (wrapped, live), and `CancelTagSyncTask`/`PutGroupConfiguration`
+have no such function at all (both real Outputs carry zero members beyond
+`ResultMetadata` -- legitimately void, not the flat-decode false-positive trap; no op in
+this service hits that trap).
+
+Re-verified, field-by-field against `types/types.go` and the per-op `api_op_*.go`
+Output structs: `Group`/`GroupIdentifier` (`ListGroups`' dual `Groups`/`GroupIdentifiers`
+fields, both still correctly populated and correctly shaped -- `Group` uses `Name`,
+`GroupIdentifier` uses `GroupName`, exactly matching the real types, which gopherstack's
+`listGroupsGroupOutput`/`listGroupIdentifierOutput` already get right), `ResourceQuery`/
+`GroupQuery` (wrapper under `"GroupQuery"`, matches `types.GroupQuery{GroupName,
+ResourceQuery}`), `GroupConfiguration`/`GroupConfigurationItem`/
+`GroupConfigurationParameter` (`Type`/`Parameters`/`Name`/`Values` all match),
+`ListGroupResourcesItem`/`QueryError` (`Message` not `ErrorMessage` on `QueryError` --
+confirmed via `deserializers.go`'s `awsRestjson1_deserializeDocumentQueryError`, and
+gopherstack's `queryErrorWire` already gets this right), `FailedResource`/
+`GroupingFailedItem`, `AccountSettings`, `TagSyncTaskItem` (flat `GetTagSyncTaskOutput`/
+`StartTagSyncTaskOutput`, both correctly un-wrapped in gopherstack), and every enum in
+`types/enums.go` (`QueryType`, `QueryErrorCode`, `GroupFilterName`, `ResourceFilterName`,
+`GroupConfigurationStatus`, `GroupingStatus`, `GroupingType`, `TagSyncTaskStatus`,
+`GroupLifecycleEventsDesiredStatus`/`Status`) against every literal string gopherstack
+emits for that field. No wrong key, no wrong nesting level, no wrong JSON type, no wrong
+or invented enum value found anywhere in this pass -- this service's prior sweeps
+(parity-3/4/5, 14 fixes total) already closed the bug class this pass was looking for.
+Also cross-checked all 23 ops' modeled error sets against botocore's
+`resource-groups/2017-11-27/service-2.json` (installed locally): identical to the Go
+SDK's per-op `awsRestjson1_deserializeOpError<Op>` switches, no discrepancy.
+
+One incidental, disclosed-not-fixed observation while comparing `ListGroups`' deprecated
+`Groups []types.Group` field against `types.Group`'s own member list
+(`aws-sdk-go-v2/service/resourcegroups@v1.36.4/types/types.go`, `type Group struct`):
+real `Group` carries an `ApplicationTag map[string]string` member that gopherstack's
+`listGroupsGroupOutput` (handler_groups.go) does not emit, even though the sibling
+`getGroupBody` (used by `CreateGroup`/`GetGroup`/`UpdateGroup`/`DeleteGroup`) already
+does. Left unfixed: `ApplicationTag` is never set by any operation in this backend
+(`grep -rn ApplicationTag services/resourcegroups/*.go` shows it only read/persisted,
+never written) -- it is real "application group" state this emulator's group lifecycle
+doesn't model at all, so there is no way to reach a non-nil value through any real
+handler call, which means a fix here couldn't be proven by an SDK round-trip test (the
+field would still always serialize as absent, before and after). Structurally identical
+to the already-documented `ListGroupResourcesItem.Status`/`Pending` async gaps -- noting
+it rather than forcing an unprovable "fix." (bd: gopherstack-rg-applicationtag-listgroups)
+
+Also noted, not a wire bug: `GroupConfiguration.ProposedConfiguration`/`FailureReason`
+(real members alongside `Configuration`/`Status`) are never populated by
+`GetGroupConfiguration`/`CreateGroup`'s inline `GroupConfiguration`, for the same
+already-documented reason as the `ListGroupResourcesItem.Status` gap above --
+`PutGroupConfiguration` is fully synchronous in this backend, so there is never an
+in-flight update to report as `ProposedConfiguration` with a `FailureReason`. Not
+independently fixable without inventing an async config-update path this backend
+doesn't otherwise have.
+
+**Provenance check on this file's prior `last_audit_commit`.** The value this file
+carried before this sweep, `343e1204`, is `git show -s --format=%ad 343e1204` ->
+`Mon Jul 13 02:23:26 2026 -0500`, eleven days before the `last_audit_date: 2026-07-24`
+this file claimed. Per this session's standing finding (four PARITY.md files caught with
+this same tell, three of them citing this exact `343e1204` sha), that gap means the
+audit-commit pointer was stale/copy-pasted rather than genuinely the HEAD the 2026-07-24
+sweep ran against -- it does not mean the 2026-07-24 sweep's *content* is wrong (its
+14 documented fixes were independently re-verified against the pinned SDK in this
+2026-08-20 pass and all still hold), only that its provenance metadata shouldn't be
+trusted at face value. Separately, this file's own prose (the route-matcher paragraph
+above) cited SDK version v1.33.22 while the YAML header already said v1.36.4 -- a real,
+if harmless, drift between the two; corrected in place this sweep. `last_audit_commit`
+above is now set to this sweep's actual starting HEAD (`a8a59e42`).

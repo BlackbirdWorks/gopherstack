@@ -40,7 +40,6 @@ func (h *Handler) handleGetRetainedMessage(c *echo.Context) error {
 
 // handleListRetainedMessages processes GET /retainedMessage requests.
 // Pagination: pageSize (primary) or maxResults (alias); default 25, max 100.
-// AWS RetainedMessageSummary does NOT include qos.
 func (h *Handler) handleListRetainedMessages(c *echo.Context) error {
 	if c.Request().Method != http.MethodGet {
 		return methodNotAllowedResponse(c)

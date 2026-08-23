@@ -1,13 +1,13 @@
 ---
 service: apigatewaymanagementapi
 sdk_module: aws-sdk-go-v2/service/apigatewaymanagementapi@v1.32.4
-last_audit_commit: 2d47b51d4
-last_audit_date: 2026-07-29
-overall: A            # re-verified field-diff against downloaded SDK source this pass; 1 additional bug fixed (admin Broadcast non-delivery)
+last_audit_commit: f16ac0367
+last_audit_date: 2026-08-20
+overall: A            # zero-bug wrapper-key/nested-shape sweep this pass; re-verified every op field-by-field against the pinned SDK source, added a real-SDK-client wire round-trip test (previously only raw-HTTP unit tests existed)
 ops:
-  PostToConnection: {wire: ok, errors: ok, state: ok, persist: ok, note: "re-verified this pass against aws-sdk-go-v2/service/apigatewaymanagementapi@v1.29.13 deserializers.go: PostToConnectionInput{ConnectionId,Data}/Output{} (empty) match; error set (ForbiddenException/GoneException/LimitExceededException/PayloadTooLargeException) and X-Amzn-ErrorType header + body __type/message resolution order match awsRestjson1_deserializeOpErrorPostToConnection. full downstream buffer returns LimitExceededException (429); PayloadTooLargeException (413) carries X-Amzn-Errortype header + __type body field"}
-  GetConnection: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-13: GetConnectionOutput{ConnectedAt,Identity,LastActiveAt} (no ConnectionId member) confirmed against aws-sdk-go-v2/service/apigatewaymanagementapi@v1.32.4 api_op_GetConnection.go -- gopherstack's extra connectionId field on the wire response was deleted (handler.go's getConnectionResponse); the caller already supplied it as the path parameter. connectedAt/lastActiveAt are __timestampIso8601 parsed via smithytime.ParseDateTime (RFC3339-family) in deserializers.go, matching Go's default time.Time JSON marshaling used here -- not epoch numbers. identity correctly nested per types.Identity{SourceIp,UserAgent}. connectedAt/lastActiveAt/identity are real backend-recorded state, not fabricated. Raw-body regression test: TestHandler_GetConnection_NoConnectionIDField."}
-  DeleteConnection: {wire: ok, errors: ok, state: ok, persist: ok, note: "re-verified this pass: DeleteConnectionInput{ConnectionId}/Output{} (empty) match; error set (ForbiddenException/GoneException/LimitExceededException) matches awsRestjson1_deserializeOpErrorDeleteConnection. forcibly disconnects (closes the connection's real downstream transport) instead of only removing the registry entry"}
+  PostToConnection: {wire: ok, errors: ok, state: ok, persist: ok, note: "re-verified 2026-08-20 against aws-sdk-go-v2/service/apigatewaymanagementapi@v1.32.4: Input{ConnectionId *string (api_op_PostToConnection.go:32), Data []byte (api_op_PostToConnection.go:37)}/Output{} (empty) match; ConnectionId is a URI path param (serializers.go:224 awsRestjson1_serializeOpHttpBindingsPostToConnectionInput), Data is the raw httpPayload body (serializers.go: input.Data streamed directly as the request body, Content-Type: application/octet-stream) -- not a JSON field. Method POST /@connections/{ConnectionId} (serializers.go:183,186). Error set ForbiddenException/GoneException/LimitExceededException/PayloadTooLargeException matches awsRestjson1_deserializeOpErrorPostToConnection (deserializers.go:347). full downstream buffer returns LimitExceededException (429); PayloadTooLargeException (413) carries X-Amzn-Errortype header + __type body field. New this pass: TestAPIGwMgmt_SDKRoundTrip_PayloadTooLarge, TestAPIGwMgmt_SDKRoundTrip_LimitExceeded, TestAPIGwMgmt_SDKRoundTrip (wire_sdk_roundtrip_test.go) drive this op through the real aws-sdk-go-v2 client over pkgs/service's router."}
+  GetConnection: {wire: ok, errors: ok, state: ok, persist: ok, note: "re-verified 2026-08-20 against the same pinned SDK: GetConnectionOutput{ConnectedAt *time.Time (api_op_GetConnection.go:40), Identity *types.Identity (api_op_GetConnection.go:42), LastActiveAt *time.Time (api_op_GetConnection.go:45)} -- no ConnectionId member (still correct, unchanged since the 2026-08-13 fix noted below). Method GET /@connections/{ConnectionId} (serializers.go:112,115). Document decode (deserializers.go:245 awsRestjson1_deserializeOpDocumentGetConnectionOutput) reads root-level JSON keys connectedAt/identity/lastActiveAt (flattened at the response root, no wrapper key -- Output has no httpPayload member). connectedAt/lastActiveAt are __timestampIso8601 parsed via smithytime.ParseDateTime, which tries RFC3339Nano/RFC3339 (smithy-go@v1.27.6 time/time.go:37-44) -- matches Go's default time.Time JSON marshaling used here, not epoch numbers. identity nests via awsRestjson1_deserializeDocumentIdentity (deserializers.go:523): sourceIp/userAgent, matching types.Identity{SourceIp,UserAgent}. connectedAt/lastActiveAt/identity are real backend-recorded state, not fabricated. New this pass: TestAPIGwMgmt_SDKRoundTrip asserts SourceIp/UserAgent/ConnectedAt/LastActiveAt through the real client's typed Identity struct, not just raw JSON bytes."}
+  DeleteConnection: {wire: ok, errors: ok, state: ok, persist: ok, note: "re-verified 2026-08-20: Input{ConnectionId *string (api_op_DeleteConnection.go:30)}/Output{} (empty) match. Method DELETE /@connections/{ConnectionId} (serializers.go:41,44). Error set ForbiddenException/GoneException/LimitExceededException matches awsRestjson1_deserializeOpErrorDeleteConnection (deserializers.go:63) -- PayloadTooLargeException is correctly absent (not applicable to a bodyless delete). forcibly disconnects (closes the connection's real downstream transport) instead of only removing the registry entry."}
 families:
   admin_diagnostics: {status: ok, note: "gopherstack-only /_gopherstack/apigwmgmt/* endpoints (list/broadcast/stats/prune/messages/timeline/ping) are not AWS API surface; audited only insofar as they share backend code paths with the 3 real ops. PruneIdle closes downstream on removal for consistency with DeleteConnection. fixed this pass: Broadcast now actually attempts delivery on each connection's real downstream channel (mirroring PostToConnection) instead of unconditionally reporting every active connection as having received the frame."}
 gaps:
@@ -17,6 +17,78 @@ deferred:
   - "PARTIALLY COVERED (re-confirmed gopherstack-u3ie): LimitExceededException's rate-limiting half (\"client sending more than the allowed number of requests per unit of time\") is not modeled -- only the \"WebSocket client-side buffer is full\" half is implemented (that half is directly reachable through the real downstream-channel wiring from apigatewayv2, and is exercised by both PostToConnection and admin Broadcast; see the fixed-bugs notes below). Building a real shared rate-limiter primitive (there is no `pkgs/ratelimit` or equivalent in this codebase -- checked pkgs-catalog.md) to emulate genuine request-per-second throttling is a cross-cutting feature spanning every service, not a fix local to this one, and remains out of scope for this pass. In the meantime a caller that specifically wants to exercise the rate-limiting __type value on demand can already do so via the same chaos fault-injection mechanism as ForbiddenException above."
 leaks: {status: clean, note: "DeleteConnection/PruneIdle now close the downstream chan on removal, so the apigatewayv2 writer goroutine (services/apigatewayv2/proxy.go handleWebSocketProxy) that ranges over it terminates and closes the real *websocket.Conn -- previously this goroutine leaked forever (blocked on an unclosed channel with no more writers) whenever a connection was torn down via DeleteConnection/PruneIdle rather than via the client disconnecting first. Verified no double-close risk: the coarse lockmetrics.RWMutex fully serializes PostToConnection/DeleteConnection/PruneIdle/Broadcast, so a connState is removed from the map in the same critical section the channel is closed in, and no other code path can retrieve the same connState afterward. Broadcast (this pass) only ever sends on downstream, never closes it, and uses the same non-blocking select-with-default pattern as PostToConnection, so it cannot block the coarse lock nor race with a concurrent close."}
 ---
+
+## apigatewaymanagementapi (this session, 2026-08-20)
+
+Wrapper-key / nested-shape wire-parity sweep. **Zero new bugs.** All three ops
+(PostToConnection, GetConnection, DeleteConnection) re-verified field-by-field
+against the pinned `aws-sdk-go-v2/service/apigatewaymanagementapi@v1.32.4`
+source (`api_op_*.go`, `serializers.go`, `deserializers.go`), plus
+`smithy-go@v1.27.6` for the timestamp parser. Every prior claim in this file
+(GetConnection's dropped `connectionId` field, the nested `identity` shape,
+ISO 8601 timestamp encoding, the 4-exception error set with per-op variance,
+`X-Amzn-Errortype` header handling) checked out unchanged against the live
+SDK source, not just against the existing PARITY.md text.
+
+New finding (not a bug, a documented SDK quirk worth recording): the pinned
+SDK's `awsRestjson1_deserializeErrorGoneException` /
+`...ErrorForbiddenException` / `...ErrorLimitExceededException`
+(`deserializers.go:415,410,420`) never decode the response body at all --
+literally `return &types.GoneException{}` with no field population -- so
+`Message` is always empty on those three client-side regardless of what
+gopherstack's `writeModeledError` body contains. Only
+`PayloadTooLargeException`'s deserializer (`deserializers.go:425`) actually
+decodes a body. This means classification is purely by error **code**
+(`X-Amzn-Errortype` header, checked first, or body `code`/`__type` as
+fallback via `restjson.GetErrorInfo`) -- the numeric HTTP status never gates
+which typed exception the client constructs, only whether the error path
+triggers at all (`status < 200 || status >= 300`). gopherstack's status
+codes (410/429/413) are still correct for AWS-fidelity/realism even though
+the Go client doesn't branch on them. The extra `connectionId` key
+`writeModeledError` adds to every error body is harmless: `GetErrorInfo`
+decodes into a struct with only `Code`/`Type`/`Message` fields, so unknown
+keys are silently ignored by `encoding/json`.
+
+Added `wire_sdk_roundtrip_test.go` -- this service previously had thorough
+raw-HTTP-request unit tests (`handler_test.go`'s
+`TestHandler_GoneExceptionWireShape`,
+`TestHandler_PostToConnection_PayloadTooLarge_WireShape`, etc., which
+assert on raw JSON bytes/headers) but no test driving the real
+`aws-sdk-go-v2` client through `pkgs/service`'s router
+(`newRoundTripClient`-style, per `services/dax/wire_sdk_roundtrip_test.go`).
+New tests: `TestAPIGwMgmt_SDKRoundTrip` (happy path: GetConnection's typed
+`Identity`/timestamps, PostToConnection delivery, DeleteConnection),
+`TestAPIGwMgmt_SDKRoundTrip_GoneException` (all 3 ops against an unknown
+connection ID, asserting `errors.As` into `*types.GoneException`),
+`TestAPIGwMgmt_SDKRoundTrip_PayloadTooLarge`, and
+`TestAPIGwMgmt_SDKRoundTrip_LimitExceeded` (a real unbuffered downstream
+channel with no reader, proving the full-buffer condition maps to a typed
+`*types.LimitExceededException` rather than a silent 200). All four pass
+under `go test -race`.
+
+Provenance: prior stamp (`last_audit_commit: 2d47b51d4`,
+`last_audit_date: 2026-07-29`) checked via `git show -s --format=%ad
+2d47b51d4` -> `2026-07-29`, exactly matching the recorded date -- no
+gap/false-stamp issue found for that entry itself. However the stamp had
+NOT advanced across the 2026-08-13 GetConnection fix documented in this same
+file's `ops.GetConnection.note` (a fix dated two weeks after the
+frontmatter's `last_audit_date`), so the stamp was stale by that gap. This
+pass refreshes it to current HEAD (`f16ac0367`) and today (2026-08-20).
+
+Gaps unchanged from prior passes (still correctly deferred, not fixed this
+pass): `ForbiddenException` is never returned (no IAM-authorization-check
+convention in this service; reachable via `pkgs/chaos` fault injection
+instead) and `LimitExceededException`'s rate-limiting half (as opposed to
+the implemented full-buffer half) is not modeled (no `pkgs/ratelimit`
+primitive exists). Both remain out of scope for a single-service pass; see
+the `deferred:` block above for the full justification, unchanged.
+
+Structurally unverifiable: `PostToConnection`'s `Data` payload is an opaque
+byte blob (the WebSocket message itself) with no AWS-defined internal
+structure to check against -- gopherstack's job is only to preserve it
+byte-for-byte and honor the 128 KB limit, both of which are verified by
+`TestAPIGwMgmt_SDKRoundTrip` and the pre-existing
+`TestHandler_PostToConnection_PayloadLimitBoundary`.
 
 ## Notes
 

@@ -150,6 +150,7 @@ type JobRunAttemptSummary struct {
 	StateDetails  string    `json:"stateDetails"`
 	Name          string    `json:"name"`
 	Type          string    `json:"type"`
+	Mode          string    `json:"mode"`
 	Attempt       int32     `json:"attempt"`
 }
 

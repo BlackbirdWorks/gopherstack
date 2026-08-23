@@ -173,7 +173,8 @@ func TestInMemoryBackend_DeleteApp_CascadesBranches(t *testing.T) {
 	_, err = b.CreateBranch(app.AppID, "b2", "", "", false, nil)
 	require.NoError(t, err)
 
-	require.NoError(t, b.DeleteApp(app.AppID))
+	_, err = b.DeleteApp(app.AppID)
+	require.NoError(t, err)
 
 	app2, err := b.CreateApp("cascade-app-2", "", "", "", nil)
 	require.NoError(t, err)
@@ -216,7 +217,8 @@ func TestInMemoryBackend_DeleteApp_CascadesAllChildren(t *testing.T) {
 	_, err = b.CreateBackendEnvironment(app.AppID, "dev", "stack", "artifacts")
 	require.NoError(t, err)
 
-	require.NoError(t, b.DeleteApp(app.AppID))
+	_, err = b.DeleteApp(app.AppID)
+	require.NoError(t, err)
 
 	_, err = b.GetApp(app.AppID)
 	require.Error(t, err)
@@ -248,7 +250,8 @@ func TestInMemoryBackend_DeleteBranch_CascadesJobs(t *testing.T) {
 	job, err := b.StartJob(app.AppID, branch.BranchName, "RELEASE", "", "", "", time.Time{})
 	require.NoError(t, err)
 
-	require.NoError(t, b.DeleteBranch(app.AppID, branch.BranchName))
+	_, err = b.DeleteBranch(app.AppID, branch.BranchName)
+	require.NoError(t, err)
 
 	_, err = b.GetJob(app.AppID, branch.BranchName, job.JobID)
 	require.Error(t, err, "job must not survive its branch's deletion")

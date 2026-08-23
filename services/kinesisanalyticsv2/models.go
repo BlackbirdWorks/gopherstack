@@ -1,6 +1,7 @@
 package kinesisanalyticsv2
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
@@ -41,8 +42,33 @@ type InputDescription struct {
 	KinesisStreamsInputDescription          *KinesisStreamsInputDesc          `json:"KinesisStreamsInputDescription,omitempty"`          //nolint:lll // AWS API name
 	KinesisFirehoseInputDescription         *KinesisFirehoseInputDesc         `json:"KinesisFirehoseInputDescription,omitempty"`         //nolint:lll // AWS API name
 	InputStartingPositionConfiguration      *InputStartingPositionConfig      `json:"InputStartingPositionConfiguration,omitempty"`      //nolint:lll // AWS API name
+	InputSchema                             *SourceSchemaDesc                 `json:"InputSchema,omitempty"`
+	InputParallelism                        *InputParallelismDesc             `json:"InputParallelism,omitempty"`
 	InputID                                 string                            `json:"InputId"`
 	NamePrefix                              string                            `json:"NamePrefix,omitempty"`
+	InAppStreamNames                        []string                          `json:"InAppStreamNames,omitempty"`
+}
+
+// inAppStreamNames generates the in-application stream names Kinesis Data
+// Analytics assigns for a given NamePrefix/parallelism count -- documented
+// directly on real AWS's Input.NamePrefix field: "Suppose that you specify a
+// prefix 'MyInApplicationStream.' Kinesis Data Analytics then creates one or
+// more (as per the InputParallelism count you specified) in-application
+// streams with the names 'MyInApplicationStream_001,'
+// 'MyInApplicationStream_002,' and so on."
+// (aws-sdk-go-v2/service/kinesisanalyticsv2@v1.41.4 types/types.go, Input.NamePrefix doc).
+func inAppStreamNames(namePrefix string, parallelism *InputParallelismDesc) []string {
+	count := int32(1)
+	if parallelism != nil && parallelism.Count > 0 {
+		count = parallelism.Count
+	}
+
+	names := make([]string, count)
+	for i := range names {
+		names[i] = fmt.Sprintf("%s_%03d", namePrefix, i+1)
+	}
+
+	return names
 }
 
 // KinesisStreamsOutputDesc describes a Kinesis Streams output.
@@ -84,6 +110,7 @@ type S3ReferenceDataSourceDesc struct {
 // ReferenceDataSourceDescription describes a reference data source.
 type ReferenceDataSourceDescription struct {
 	S3ReferenceDataSourceDescription *S3ReferenceDataSourceDesc `json:"S3ReferenceDataSourceDescription,omitempty"`
+	ReferenceSchema                  *SourceSchemaDesc          `json:"ReferenceSchema,omitempty"`
 	ReferenceID                      string                     `json:"ReferenceId"`
 	TableName                        string                     `json:"TableName,omitempty"`
 }
@@ -343,6 +370,67 @@ type RecordColumnDesc struct {
 	Name    string `json:"Name"`
 	Mapping string `json:"Mapping,omitempty"`
 	SQLType string `json:"SqlType"`
+}
+
+// CSVMappingParametersDesc describes delimiter mapping for CSV-formatted records.
+type CSVMappingParametersDesc struct {
+	RecordRowDelimiter    string `json:"RecordRowDelimiter"`
+	RecordColumnDelimiter string `json:"RecordColumnDelimiter"`
+}
+
+// JSONMappingParametersDesc describes the root path for JSON-formatted records.
+type JSONMappingParametersDesc struct {
+	RecordRowPath string `json:"RecordRowPath"`
+}
+
+// MappingParametersDesc carries the format-specific mapping info for a RecordFormatDesc.
+type MappingParametersDesc struct {
+	CSVMappingParameters  *CSVMappingParametersDesc  `json:"CSVMappingParameters,omitempty"`
+	JSONMappingParameters *JSONMappingParametersDesc `json:"JSONMappingParameters,omitempty"`
+}
+
+// RecordFormatDesc describes the format of records on a streaming or
+// reference source (shared shape for SourceSchemaDesc.RecordFormat and
+// InputSchemaUpdateDesc.RecordFormatUpdate -- real AWS's RecordFormat is
+// used unrenamed in both places).
+type RecordFormatDesc struct {
+	MappingParameters *MappingParametersDesc `json:"MappingParameters,omitempty"`
+	RecordFormatType  string                 `json:"RecordFormatType"`
+}
+
+// SourceSchemaDesc describes the format of records on a streaming source and
+// how they map to in-application columns (real AWS's SourceSchema shape,
+// reused unrenamed for Input.InputSchema, InputDescription.InputSchema,
+// ReferenceDataSource.ReferenceSchema, ReferenceDataSourceDescription.ReferenceSchema,
+// and ReferenceDataSourceUpdate.ReferenceSchemaUpdate -- verified against
+// botocore kinesisanalyticsv2/2018-05-23/service-2.json.gz, all five of
+// those members are typed "SourceSchema" with no per-direction renaming).
+type SourceSchemaDesc struct {
+	RecordFormat   *RecordFormatDesc  `json:"RecordFormat"`
+	RecordEncoding string             `json:"RecordEncoding,omitempty"`
+	RecordColumns  []RecordColumnDesc `json:"RecordColumns"`
+}
+
+// InputSchemaUpdateDesc mirrors real AWS's InputSchemaUpdate -- unlike
+// ReferenceDataSourceUpdate.ReferenceSchemaUpdate (which reuses SourceSchema
+// verbatim), InputUpdate.InputSchemaUpdate is its own shape with
+// Update-suffixed field names (verified against botocore's
+// "InputSchemaUpdate" shape).
+type InputSchemaUpdateDesc struct {
+	RecordFormatUpdate   *RecordFormatDesc  `json:"RecordFormatUpdate,omitempty"`
+	RecordEncodingUpdate string             `json:"RecordEncodingUpdate,omitempty"`
+	RecordColumnUpdates  []RecordColumnDesc `json:"RecordColumnUpdates,omitempty"`
+}
+
+// InputParallelismDesc describes the number of in-application streams
+// created for an input's streaming source.
+type InputParallelismDesc struct {
+	Count int32 `json:"Count,omitempty"`
+}
+
+// InputParallelismUpdateDesc mirrors real AWS's InputParallelismUpdate.
+type InputParallelismUpdateDesc struct {
+	CountUpdate int32 `json:"CountUpdate,omitempty"`
 }
 
 // DiscoveredSchema holds the inferred schema from DiscoverInputSchema.

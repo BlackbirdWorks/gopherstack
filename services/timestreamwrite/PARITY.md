@@ -6,9 +6,9 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: timestreamwrite
 sdk_module: aws-sdk-go-v2/service/timestreamwrite@v1.38.4
-last_audit_commit: ca3b796e
-last_audit_date: 2026-07-23
-overall: A            # independently re-verified this pass; no new fixes needed, prior sweep already got the surface right
+last_audit_commit: 53664f52
+last_audit_date: 2026-08-20
+overall: A            # wrapper-key/nested-shape sweep found and fixed one real gap (DataModelConfiguration/RecordVersion never modelled on CreateBatchLoadTask); rest of the surface re-verified clean
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
@@ -27,8 +27,8 @@ ops:
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   UntagResource: {wire: partial, errors: partial, state: ok, persist: ok, note: "real API can return ResourceNotFoundException for an unknown ARN; backend silently no-ops. NOT changed — ListTagsForResource/UntagResource have no-error signatures and existing tests (TestInMemoryBackend_DeleteDatabase_CleansUpTags etc.) deliberately assert empty-not-error after a resource is deleted. Fixing would need a signature change (add error return) rippling through the interface and ~10 call sites for an ambiguous case (AWS's own DeleteDatabase doc says distributed retries may already return either ResourceNotFoundException or success — clients must treat them as equivalent). See gaps."}
   ListTagsForResource: {wire: ok, errors: partial, state: ok, persist: ok, note: "same ResourceNotFoundException gap as UntagResource, same rationale for not changing"}
-  CreateBatchLoadTask: {wire: partial, errors: ok, state: ok, persist: ok, note: "ReportConfiguration is a required field on the real CreateBatchLoadTaskRequest; handler validates DataSourceConfiguration but not ReportConfiguration. NOT changed — ~7 existing tests create tasks without ReportConfiguration and a compliant SDK client always sends it (smithy client-side required-field validation blocks the request before it's even sent), so the gap is unreachable via real client traffic. ClientToken is accepted but not used for idempotent retry dedup (a repeat call with the same token creates a second task instead of returning the original) — deferred, batch-load is not a highest-traffic family."}
-  DescribeBatchLoadTask: {wire: ok, errors: ok, state: ok, persist: ok}
+  CreateBatchLoadTask: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed — DataModelConfiguration and RecordVersion, both real optional members of CreateBatchLoadTaskInput (api_op_CreateBatchLoadTask.go), were entirely unmodelled: the wire struct had no field for either, so a compliant client sending DataModelConfiguration (the normal way to specify the CSV-to-table column mapping) had it silently dropped, never stored, never echoed back by DescribeBatchLoadTask. Now modelled full-depth (DataModel/DataModelS3Configuration/DimensionMapping/MixedMeasureMapping/MultiMeasureMappings/MultiMeasureAttributeMapping) and threaded through Create->backend->Describe. ReportConfiguration is still a required field on the real CreateBatchLoadTaskRequest that the handler does not enforce as non-nil — NOT changed, same rationale as before (compliant clients always send it; smithy client-side validation blocks the request before it reaches the wire). ClientToken is accepted but not used for idempotent retry dedup — deferred, batch-load is not a highest-traffic family."}
+  DescribeBatchLoadTask: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed — DescribeBatchLoadTaskOutput.BatchLoadTaskDescription now includes DataModelConfiguration (deserializers.go:2981's case \"DataModelConfiguration\"), previously missing from batchLoadTaskDescriptionView entirely"}
   ListBatchLoadTasks: {wire: ok, errors: ok, state: ok, persist: ok}
   ResumeBatchLoadTask: {wire: ok, errors: ok, state: ok, persist: ok}
 families:
@@ -42,6 +42,56 @@ gaps:
   - "CreateBatchLoadTask does not validate ReportConfiguration as required, and ClientToken is accepted but not used for idempotent dedup (bd: file if desired)"
   - "DescribeEndpoints Address is hardcoded \"localhost\" instead of echoing the request Host (sibling timestreamquery does echo it); verified inert for normal custom-endpoint usage, but would matter for tooling that inspects the raw response instead of relying on SDK routing (bd: file if desired, low priority)"
 deferred: []
+reaudit_2026-08-20: >
+  Wrapper-key/nested-shape wire-parity sweep against the pinned
+  aws-sdk-go-v2/service/timestreamwrite@v1.38.4 module (types/types.go, types/enums.go,
+  serializers.go, deserializers.go, api_op_*.go). Confirmed the service is JSON-RPC 1.0
+  (awsAwsjson10_* prefix, X-Amz-Target: Timestream_20181101.<Op>), so the restjson
+  flat-body false-positive trap (gopherstack-cnhp) does not apply here: verified
+  awsAwsjson10_deserializeOpDocument<Op>Output is both defined AND called (grep -c == 2)
+  for WriteRecords/DescribeBatchLoadTask/DescribeTable/CreateBatchLoadTask/DescribeDatabase.
+  Ran the full "This member is required" grep across types/types.go and every api_op_*.go
+  and checked each hit against the handler; found one real bug class-(a) member-missing
+  gap: CreateBatchLoadTaskInput.DataModelConfiguration and .RecordVersion (both real,
+  optional root-level members serialized by serializers.go:1806
+  awsAwsjson10_serializeOpDocumentCreateBatchLoadTaskInput) had no field at all in
+  gopherstack's createBatchLoadTaskInput wire struct, so a compliant client sending
+  DataModelConfiguration -- the normal way to specify a batch load task's CSV-to-table
+  column mapping, not an edge case -- had it silently dropped on Create and never echoed
+  back by Describe (deserializers.go:2981's case "DataModelConfiguration" on
+  BatchLoadTaskDescription). Fixed: modelled the full DataModelConfiguration nest
+  (DataModel/DataModelS3Configuration/DimensionMapping/MixedMeasureMapping/
+  MultiMeasureMappings/MultiMeasureAttributeMapping, field names verified against
+  serializers.go:1209-1566) in both models.go (backend) and handler_batch_load_tasks.go
+  (wire), threaded through InMemoryBackend.CreateBatchLoadTask's new
+  dataModelCfg/recordVersion parameters, and added
+  TestCreateBatchLoadTask_DataModelConfigurationSDKRoundTrip
+  (wire_sdk_roundtrip_test.go) driving the real aws-sdk-go-v2 client through
+  CreateBatchLoadTask/DescribeBatchLoadTask over the real pkgs/service router. Proved by
+  hand-revert: removing the one `v.DataModelConfiguration = toDataModelConfigView(...)`
+  assignment reproduces exactly the predicted symptom (DescribeBatchLoadTask response has
+  a nil DataModelConfiguration), confirmed, then restored byte-identical. Verified
+  MeasureValue (string, Record.MeasureValue) vs MeasureValues (list of
+  Name/Value/Type structs, Record.MeasureValues) are correctly split in
+  handler_records.go/models.go, matching types.go:446-487 exactly -- no collision bug.
+  Verified RejectedRecordsException's body shape (flat "RejectedRecords" key at the error
+  body root, not nested; RejectedRecord{ExistingVersion,Reason,RecordIndex}) against
+  deserializers.go:4485-4525 and :4385-4429 -- exact match, confirmed by
+  TestWriteRecords_RecordsIngestedSDKRoundTrip and the pre-existing RejectedRecords unit
+  tests. Layer 1 (wrapper key + nesting level) re-checked op by op against each op's own
+  live deserializer for CreateDatabase/DescribeDatabase/ListDatabases/UpdateDatabase/
+  CreateTable/DescribeTable/ListTables/UpdateTable/WriteRecords/DescribeEndpoints/
+  TagResource/UntagResource/ListTagsForResource/CreateBatchLoadTask/DescribeBatchLoadTask/
+  ListBatchLoadTasks/ResumeBatchLoadTask -- all flat (no extra wrapper nesting), all
+  correct. Provenance check on the prior stamp: `git show -s --format=%ad ca3b796e` ==
+  2026-07-23 == the prior last_audit_date exactly, no gap -- clean. No banned
+  cyclop/gocyclo/gocognit/funlen nolints added (2 new `//nolint:dupl` on
+  toDataModelView/dataModelFromInput, a genuinely mirrored bidirectional conversion pair,
+  matching this repo's existing nolint:dupl convention e.g. services/swf/handler_activity_types.go).
+  go build/vet/fix -diff/gofmt/test -race/golangci-lint all clean;
+  fieldalignment -fix applied (also cleaned 3 pre-existing unrelated struct-literal
+  field-order issues in handler_records_test.go/handler_tables_test.go/tables_test.go as
+  a side effect, mechanical reordering only, no behavior change).
 reaudit_2026-07-23: >
   Independent field-diff re-audit against the checked-out aws-sdk-go-v2/service/timestreamwrite@v1.35.19
   module (types/types.go, types/errors.go, deserializers.go, api_op_*.go). Confirmed still accurate:
@@ -65,6 +115,19 @@ reaudit_2026-07-23: >
 
 Freeform: AWS-behavior specifics worth remembering, and any "looks-wrong-but-correct" traps
 so the next auditor doesn't re-flag them.
+
+- **`CreateBatchLoadTaskInput.DataModelConfiguration` is a real, commonly-used optional
+  root-level member** (`api_op_CreateBatchLoadTask.go`), not the exotic edge case its
+  omission from earlier sweeps might suggest — it's how a caller specifies the CSV
+  source-column-to-Timestream-column mapping (`DataModel.DimensionMappings`/
+  `MixedMeasureMappings`/`MultiMeasureMappings`) for a batch load. It nests
+  `DataModelS3Configuration` too (an alternate way to supply the model via S3 instead of
+  inline). Both directions (Create's request, Describe's
+  `BatchLoadTaskDescription.DataModelConfiguration` response) are now modelled — see the
+  2026-08-20 reaudit note above for field-name citations. If a future SDK bump adds new
+  `DataModel` sub-fields, re-run the required-member grep against `DataModel`,
+  `MixedMeasureMapping`, and `MultiMeasureAttributeMapping` specifically; those three
+  shapes are the ones most likely to grow.
 
 - **Protocol is `json` / `jsonVersion: "1.0"`** (confirmed via botocore
   `timestream-write/2018-11-01/service-2.json` metadata block), i.e. Content-Type

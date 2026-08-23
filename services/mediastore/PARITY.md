@@ -1,8 +1,8 @@
 ---
 service: mediastore
 sdk_module: aws-sdk-go-v2/service/mediastore@v1.32.4
-last_audit_commit: 7e4e35369
-last_audit_date: 2026-07-24
+last_audit_commit: 67b92e0b9
+last_audit_date: 2026-08-20
 overall: A            # all three prior gaps genuinely closed in code this pass, with tests
 ops:
   CreateContainer: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -234,3 +234,144 @@ Self-gates re-run after these changes: `go build ./services/mediastore/...`,
 `go vet ./services/mediastore/...`, `go test -race -count=1
 ./services/mediastore/...`, `gofmt -l services/mediastore/` all clean; see
 the top-level parity-3 phase-2 session receipt for verbatim output.
+
+## mediastore (this session, 2026-08-20)
+
+Wrapper-key / nested-shape wire-parity sweep, all 21 ops, against the
+**pinned** `aws-sdk-go-v2/service/mediastore@v1.32.4` (go.mod), read fresh
+from `$(go env GOMODCACHE)/.../mediastore@v1.32.4/{api_op_*.go,types/types.go,
+types/enums.go,types/errors.go,deserializers.go}` -- not trusted from the
+prior audit's v1.29.23-era conclusions. The SDK's own CHANGELOG.md for
+v1.29.24..v1.32.4 lists only dependency/infra bumps (smithy-go updates,
+clock-skew option, snapshot tests) for this service, no operation or shape
+changes, so no drift existed between audits -- confirmed by direct reading of
+the pinned version regardless.
+
+Protocol: confirmed JSON-RPC 1.1 (`awsAwsjson11_*` serializer/deserializer
+prefix in `serializers.go`/`deserializers.go`), single `POST /` with
+`X-Amz-Target: MediaStore_20170901.<Op>` (`serializers.go:59` for
+CreateContainer, same pattern every op). The restjson `cnhp` dead-code trap
+(`deserializeOpDocument<Op>Output` never called, live path decodes flat) does
+**not** apply to JSON-RPC services -- confirmed the opposite is true here:
+every op's `awsAwsjson11_deserializeOpDocument<Op>Output` **is** the live
+per-op deserialize path (called directly from each op's `HandleDeserialize`),
+and it decodes the body as a real wrapper-key map (e.g. `CreateContainerOutput`
+switches on top-level key `"Container"` -> `deserializeDocumentContainer`,
+`GetMetricPolicyOutput` switches on `"MetricPolicy"` ->
+`deserializeDocumentMetricPolicy`), not flat. Verified directly in
+`deserializers.go` for `CreateContainerOutput` (line ~3524),
+`DescribeContainerOutput` (~3715), `ListContainersOutput` (~3903),
+`GetMetricPolicyOutput` (~3867), `GetCorsPolicyOutput` (~3791),
+`GetLifecyclePolicyOutput` (~3827), `GetContainerPolicyOutput` (~3751),
+`ListTagsForResourceOutput` (~3948).
+
+**Full-field-list diff, every op, optional members included** (gopherstack
+`models.go`/`containers.go`/`cors_policy.go`/`lifecycle_policy.go`/
+`metric_policy.go`/`tags.go`/`handler.go` vs SDK `api_op_<Op>.go` Input/Output
+structs): all 21 ops match exactly, member-for-member, including optional
+fields (`Tags` on `CreateContainerInput`, `NextToken`/`MaxResults` on
+`ListContainersInput`, `AllowedMethods`/`ExposeHeaders`/`MaxAgeSeconds` on
+`CorsRule`, `MetricPolicyRules` on `MetricPolicy`). No fabricated members, no
+missing members. `DescribeContainerInput.ContainerName` is genuinely NOT
+`// This member is required` in the SDK (confirmed by reading the struct
+directly, not a sibling) -- gopherstack's server-side non-empty check on it is
+a defensible superset guard, not a shape mismatch (same conclusion as the
+prior audit, re-verified independently).
+
+**Enum check, both directions**:
+- `ContainerStatus` (`ACTIVE`/`CREATING`/`DELETING`, `types/enums.go`): all
+  three values represented by gopherstack's `containerStatusActive`/
+  `containerStatusCreating`/`containerStatusDeleting` constants
+  (`store.go:17,21,25`), byte-for-byte. Every constant gopherstack emits is a
+  real SDK value; every SDK value is representable.
+- `ContainerLevelMetrics` (`ENABLED`/`DISABLED`): `metric_policy.go`'s
+  `PutMetricPolicy` checks `policy.ContainerLevelMetrics != "ENABLED" &&
+  != "DISABLED"` -- both directions covered, no third value invented.
+- `MethodName` (`PUT`/`GET`/`DELETE`/`HEAD`, used in `CorsRule.AllowedMethods`):
+  gopherstack models `AllowedMethods []string` and does not validate rule
+  values against this enum server-side (accepts any string). This is a
+  **Layer 3 completeness gap** (missing validation), not a wire-shape bug --
+  disclosed, not fixed, consistent with the brief's Layer 3 being out of scope
+  for this hunt. No fabricated `MethodName` constant is emitted anywhere in
+  gopherstack's own code, so the "SDK value not representable" direction is
+  clean; only the "server accepts a value the enum doesn't have" direction is
+  an open (pre-existing, unchanged) gap.
+
+**`Container` item shape across CreateContainer / DescribeContainer /
+ListContainers**: identical. All three ops share `models.go`'s
+`containerObject` (`ARN`, `AccessLoggingEnabled`, `CreationTime`, `Endpoint`,
+`Name`, `Status` -- exactly the 6 fields of SDK `types.Container`) via the
+single `toContainerObject` conversion function (`handler.go`). CreateContainer/
+DescribeContainer nest it under `"Container"`; ListContainers nests the slice
+under `"Containers"` plus optional `"NextToken"` -- matches
+`deserializeOpDocumentListContainersOutput`'s two-key switch exactly.
+
+**`MaxAgeSeconds` / lifecycle-policy-as-string**: `CorsRule.MaxAgeSeconds` is
+Go `int` marshaled as a JSON number (`models.go`), matching the SDK's
+`json.Number`-decoded `int32` (`deserializeDocumentCorsRule`,
+`MaxAgeSeconds` case) -- same wire type, no string/number mismatch.
+`LifecyclePolicy`/`getLifecyclePolicyResponse.LifecyclePolicy` and
+`PutLifecyclePolicyInput.LifecyclePolicy` are both plain JSON strings in
+gopherstack (`lifecycle_policy.go`, `models.go`), matching
+`GetLifecyclePolicyOutput.LifecyclePolicy *string` / `PutLifecyclePolicyInput.
+LifecyclePolicy *string` in the SDK -- not a structure, confirmed correct.
+
+**Error mapping**: gopherstack's `writeBackendError` (`handler.go`) maps
+`ContainerNotFoundException` (404), `PolicyNotFoundException` (404, shared by
+container/lifecycle/metric policy not-found), `CorsPolicyNotFoundException`
+(404, its own type, not conflated with `PolicyNotFoundException`),
+`ContainerInUseException` (409), `ValidationException` (400), default
+`InternalFailure` (500). Cross-checked against every op's own
+`awsAwsjson11_deserializeOpError<Op>` switch in `deserializers.go`: each op's
+declared typed-exception set (e.g. `GetMetricPolicy` recognizes
+`ContainerInUseException`/`ContainerNotFoundException`/`InternalServerError`/
+`PolicyNotFoundException`; `ListContainers` recognizes only
+`InternalServerError`) is a *client-decode* allowlist, not a server
+restriction -- any op can still emit a generic `smithy.GenericAPIError` for a
+code outside its switch, so gopherstack's app-wide (not per-op) error mapping
+is not a shape bug. `LimitExceededException` is declared by the real SDK only
+for `CreateContainer` (per-account container-count quota) and is not modeled
+by gopherstack (no container-count cap enforced) -- a genuine, pre-existing,
+disclosed-not-fixed gap (quota/limit simulation, not a wire-shape defect).
+`InternalServerError` (fault, 500) is intentionally never deterministically
+triggered by any backend path, matching the fact that it models a genuine
+service-fault condition, not a client-reachable one.
+
+**Families**: Container, ContainerPolicy, CorsPolicy, LifecyclePolicy,
+MetricPolicy, Tags -- all CLEAN, zero bugs found this pass.
+
+**Existing tests**: read `containers_test.go`, `cors_policy_test.go`(n/a --
+folded into `handler_cors_policy_test.go`), `handler_containers_test.go`,
+`handler_cors_policy_test.go`, `handler_lifecycle_policy_test.go`,
+`handler_metric_policy_test.go`, `handler_policies_test.go`,
+`handler_tags_test.go`, `handler_sdk_route_table_test.go`,
+`sdk_completeness_test.go` -- no test asserts a wrong key, nesting, JSON type,
+or enum value; nothing corrected.
+
+**Hand-revert proof skipped for wire shape**: no shape bug was found to prove
+via revert. Instead, the wrapper-key claims above were proven by direct,
+independent reading of `deserializers.go`'s per-op switch statements (pasted
+inline above), which is the authoritative live-path check the brief's `cnhp`
+section calls for.
+
+**Provenance**: `last_audit_commit: 7e4e35369` -> `git show -s --format=%ad
+7e4e35369` = `Fri Jul 24 09:07:46 2026 -0500`; `last_audit_date: 2026-07-24`.
+Same day, no gap -- clean, not a stale stamp. Refreshed this pass to
+`last_audit_commit: 67b92e0b9` (repo HEAD at session start) /
+`last_audit_date: 2026-08-20`.
+
+**Gates** (verbatim outcomes): `go build ./services/mediastore/...` clean;
+`go vet ./services/mediastore/...` clean; `go fix -diff
+./services/mediastore/...` empty; `gofmt -l services/mediastore/` empty;
+`go test -race ./services/mediastore/...` `ok` (1.1s); `golangci-lint run
+./services/mediastore/...` `0 issues.`; line-length-120 sweep (`awk 'length >
+120'` over `services/mediastore/*.go`) empty; banned-nolint grep
+(cyclop/gocyclo/gocognit/funlen) empty. `git status --short` shows no changes
+under `services/mediastore/` from this session (only this `PARITY.md` edit);
+unrelated dirty files exist under `services/iotdataplane/` and `.claude/` from
+other concurrent work, not touched here.
+
+**Zero bugs found this session.** Every brief hint (Container/CorsRule/
+MetricPolicy field lists, `MaxAgeSeconds` int32, lifecycle policy as string,
+enum sets) matched the pinned v1.32.4 SDK exactly -- nothing in the brief
+disagreed with the pinned SDK.

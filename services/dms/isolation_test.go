@@ -26,13 +26,33 @@ func TestDMSRegionIsolation(t *testing.T) {
 
 	// 1. Create a replication instance with the SAME identifier in both regions.
 	eastRI, err := backend.CreateReplicationInstance(
-		ctxEast, "shared-ri", "dms.t3.medium", "", "", 0, false, false, false, nil,
+		ctxEast,
+		"shared-ri",
+		"dms.t3.medium",
+		"",
+		"",
+		0,
+		false,
+		false,
+		false,
+		nil,
+		ReplicationInstanceSettings{},
 	)
 	require.NoError(t, err)
 	assert.Contains(t, eastRI.ReplicationInstanceArn, "us-east-1")
 
 	westRI, err := backend.CreateReplicationInstance(
-		ctxWest, "shared-ri", "dms.r5.large", "", "", 0, false, false, false, nil,
+		ctxWest,
+		"shared-ri",
+		"dms.r5.large",
+		"",
+		"",
+		0,
+		false,
+		false,
+		false,
+		nil,
+		ReplicationInstanceSettings{},
 	)
 	require.NoError(t, err)
 	assert.Contains(t, westRI.ReplicationInstanceArn, "us-west-2")
@@ -63,9 +83,33 @@ func TestDMSRegionIsolation(t *testing.T) {
 	require.Len(t, westAll, 1)
 
 	// 4. Endpoints with the same identifier are isolated too.
-	_, err = backend.CreateEndpoint(ctxEast, "shared-ep", "source", "mysql", "", "", "", "", 0, nil)
+	_, err = backend.CreateEndpoint(
+		ctxEast,
+		"shared-ep",
+		"source",
+		"mysql",
+		"",
+		"",
+		"",
+		"",
+		0,
+		nil,
+		EndpointConnectionSettings{},
+	)
 	require.NoError(t, err)
-	_, err = backend.CreateEndpoint(ctxWest, "shared-ep", "target", "postgres", "", "", "", "", 0, nil)
+	_, err = backend.CreateEndpoint(
+		ctxWest,
+		"shared-ep",
+		"target",
+		"postgres",
+		"",
+		"",
+		"",
+		"",
+		0,
+		nil,
+		EndpointConnectionSettings{},
+	)
 	require.NoError(t, err)
 
 	eastEP, err := backend.DescribeEndpoints(ctxEast, "shared-ep")
@@ -105,10 +149,32 @@ func TestDMSTagAndConnectionRegionIsolation(t *testing.T) {
 	ctxWest := dmsCtxRegion("us-west-2")
 
 	eastRI, err := backend.CreateReplicationInstance(
-		ctxEast, "conn-ri", "dms.t3.medium", "", "", 0, false, false, false, nil,
+		ctxEast,
+		"conn-ri",
+		"dms.t3.medium",
+		"",
+		"",
+		0,
+		false,
+		false,
+		false,
+		nil,
+		ReplicationInstanceSettings{},
 	)
 	require.NoError(t, err)
-	eastEP, err := backend.CreateEndpoint(ctxEast, "conn-ep", "source", "mysql", "", "", "", "", 0, nil)
+	eastEP, err := backend.CreateEndpoint(
+		ctxEast,
+		"conn-ep",
+		"source",
+		"mysql",
+		"",
+		"",
+		"",
+		"",
+		0,
+		nil,
+		EndpointConnectionSettings{},
+	)
 	require.NoError(t, err)
 
 	// TestConnection in us-east-1 succeeds.
@@ -127,7 +193,11 @@ func TestDMSTagAndConnectionRegionIsolation(t *testing.T) {
 	// The east instance ARN does not resolve for tags in the west region.
 	require.NoError(
 		t,
-		backend.AddTagsToResource(ctxEast, eastRI.ReplicationInstanceArn, map[string]string{"env": "prod"}),
+		backend.AddTagsToResource(
+			ctxEast,
+			eastRI.ReplicationInstanceArn,
+			map[string]string{"env": "prod"},
+		),
 	)
 
 	eastTags, err := backend.ListTagsForResource(ctxEast, eastRI.ReplicationInstanceArn)
@@ -147,7 +217,17 @@ func TestDMSDefaultRegionFallback(t *testing.T) {
 
 	// No region in context -> default region store.
 	_, err := backend.CreateReplicationInstance(
-		context.Background(), "def-ri", "dms.t3.medium", "", "", 0, false, false, false, nil,
+		context.Background(),
+		"def-ri",
+		"dms.t3.medium",
+		"",
+		"",
+		0,
+		false,
+		false,
+		false,
+		nil,
+		ReplicationInstanceSettings{},
 	)
 	require.NoError(t, err)
 

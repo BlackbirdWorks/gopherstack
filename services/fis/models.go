@@ -185,6 +185,7 @@ type ExperimentAction struct {
 	Status      ExperimentActionStatus `json:"status"`
 	ActionID    string                 `json:"actionID"`
 	Description string                 `json:"description"`
+	StartAfter  []string               `json:"startAfter"`
 }
 
 // ExperimentActionStatus holds the status and reason for a single action.
@@ -496,6 +497,10 @@ type experimentTemplateDTO struct {
 	StopConditions                []experimentTemplateStopConditionDTO    `json:"stopConditions"`
 	CreationTime                  float64                                 `json:"creationTime"`
 	LastUpdateTime                float64                                 `json:"lastUpdateTime"`
+
+	// TargetAccountConfigurationsCount is kept out of the field block above so its
+	// long name doesn't force golines to widen every tag column past 120 chars.
+	TargetAccountConfigurationsCount int `json:"targetAccountConfigurationsCount,omitempty"`
 }
 
 // experimentResponseDTO is the outer envelope for experiment responses.
@@ -572,6 +577,8 @@ type experimentTargetDTO struct {
 }
 
 // experimentActionDTO is the JSON representation of a running experiment action.
+// StartAfter mirrors the real AWS FIS wire shape (types.ExperimentAction), carried
+// through from the owning template action's startAfter dependency list.
 type experimentActionDTO struct {
 	Parameters  map[string]string          `json:"parameters,omitempty"`
 	Targets     map[string]string          `json:"targets,omitempty"`
@@ -581,6 +588,7 @@ type experimentActionDTO struct {
 	EndTime     *float64                   `json:"endTime,omitempty"`
 	ActionID    string                     `json:"actionId"`
 	Description string                     `json:"description,omitempty"`
+	StartAfter  []string                   `json:"startAfter,omitempty"`
 }
 
 // experimentActionStatusDTO is the JSON representation of an action status.
@@ -678,8 +686,8 @@ type experimentReportErrorDTO struct {
 
 // listActionsResponseDTO is the outer envelope for list actions responses.
 type listActionsResponseDTO struct {
-	NextToken string      `json:"nextToken,omitempty"`
-	Actions   []actionDTO `json:"actions"`
+	NextToken string             `json:"nextToken,omitempty"`
+	Actions   []actionSummaryDTO `json:"actions"`
 }
 
 // actionResponseDTO is the outer envelope for a single action.
@@ -691,6 +699,18 @@ type actionResponseDTO struct {
 type actionDTO struct {
 	Targets     map[string]actionTargetDTO `json:"targets,omitempty"`
 	Parameters  map[string]actionParamDTO  `json:"parameters,omitempty"`
+	Tags        map[string]string          `json:"tags"`
+	ID          string                     `json:"id"`
+	Arn         string                     `json:"arn"`
+	Description string                     `json:"description,omitempty"`
+}
+
+// actionSummaryDTO is the JSON representation of a FIS action summary
+// (ListActions). The real AWS FIS wire shape (types.ActionSummary) has no
+// "parameters" field -- only the full action (GetAction, types.Action) does.
+// gopherstack previously reused actionDTO (with parameters) for ListActions too.
+type actionSummaryDTO struct {
+	Targets     map[string]actionTargetDTO `json:"targets,omitempty"`
 	Tags        map[string]string          `json:"tags"`
 	ID          string                     `json:"id"`
 	Arn         string                     `json:"arn"`
@@ -710,8 +730,8 @@ type actionParamDTO struct {
 
 // listTargetResourceTypesResponseDTO is the outer envelope for list target resource types.
 type listTargetResourceTypesResponseDTO struct {
-	NextToken           string                  `json:"nextToken,omitempty"`
-	TargetResourceTypes []targetResourceTypeDTO `json:"targetResourceTypes"`
+	NextToken           string                         `json:"nextToken,omitempty"`
+	TargetResourceTypes []targetResourceTypeSummaryDTO `json:"targetResourceTypes"`
 }
 
 // targetResourceTypeResponseDTO is the outer envelope for a single target resource type.
@@ -724,6 +744,17 @@ type targetResourceTypeDTO struct {
 	Parameters   map[string]targetRTParamDTO `json:"parameters,omitempty"`
 	ResourceType string                      `json:"resourceType"`
 	Description  string                      `json:"description,omitempty"`
+}
+
+// targetResourceTypeSummaryDTO is the JSON representation of a target resource
+// type summary (ListTargetResourceTypes). The real AWS FIS wire shape
+// (types.TargetResourceTypeSummary) has exactly two fields: resourceType and
+// description -- no "parameters" (only the full GetTargetResourceType response,
+// types.TargetResourceType, carries parameters). gopherstack previously reused
+// targetResourceTypeDTO (with parameters) for the list response too.
+type targetResourceTypeSummaryDTO struct {
+	ResourceType string `json:"resourceType"`
+	Description  string `json:"description,omitempty"`
 }
 
 // targetRTParamDTO is the JSON representation of a target resource type parameter.

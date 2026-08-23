@@ -306,9 +306,19 @@ func TestAppMesh_TagUnknownARN(t *testing.T) {
 //
 // Real AWS App Mesh (restjson1, httpPayload trait) puts the resource fields
 // directly at the response root -- there is no "mesh"/"virtualNode"/etc.
-// wrapper (verified against aws-sdk-go-v2's deserializers.go, which decodes
-// the whole body straight into e.g. MeshData rather than unwrapping a "mesh"
-// key first).
+// wrapper. Confirmed against aws-sdk-go-v2@v1.38.4's actual invoked
+// deserializer: each op's own `awsRestjson1_deserializeOp<Op>.HandleDeserialize`
+// (e.g. deserializers.go:244 for CreateMesh) calls
+// `awsRestjson1_deserializeDocumentMeshData(&output.Mesh, shape)` directly on
+// the raw decoded body -- not the generic `awsRestjson1_deserializeOpDocument
+// <Op>Output` helper that reads a `"mesh"` key. That helper function exists
+// in the generated file (smithy-go codegen artifact for the httpPayload
+// path) but is dead code: nothing calls it. Grepping for it and trusting its
+// `case "mesh":` line is the trap -- it looks authoritative but is never
+// exercised by a real client. List ops are the one place the wrapper
+// function IS live (see ListMeshesOutput, which has two members and no
+// single httpPayload field), which is why `listResp` correctly wraps under
+// a plural key while these single-resource ops must not.
 func TestAppMesh_ResponseFieldsAtTopLevel(t *testing.T) {
 	t.Parallel()
 

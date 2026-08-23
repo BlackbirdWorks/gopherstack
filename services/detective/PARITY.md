@@ -6,8 +6,8 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: detective
 sdk_module: aws-sdk-go-v2/service/detective@v1.41.4   # version audited against
-last_audit_commit: 40f059288a40c1d9b7956624bb288861e2e0651d
-last_audit_date: 2026-08-10
+last_audit_commit: 73f9bede0bad60884fc2dadfb77a2c83ef55fd27
+last_audit_date: 2026-08-20
 overall: A            # A = genuine fixes found; B = already-accurate, proven op-by-op
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
@@ -32,7 +32,7 @@ ops:
   UpdateDatasourcePackages: {wire: ok, errors: ok, state: ok, persist: ok, note: "always transitions to STARTED, no real ingest pipeline to fail - acceptable simplification; fixed this pass - DatasourcePackages entries outside the real 3-value enum (DETECTIVE_CORE, EKS_AUDIT, ASFF_SECURITYHUB_FINDING per botocore detective/2018-10-26 service-2.json shapes.DatasourcePackage) are now rejected with ValidationException instead of silently persisted"}
   StartMonitoringMember: {wire: ok, errors: ok, state: partial, persist: ok, note: "precondition status ACCEPTED_BUT_DISABLED is never reached elsewhere in the backend (AcceptInvitation goes straight to ENABLED), so this op can never succeed on a member reached only through normal API flow; see gaps"}
   GetInvestigation: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListIndicators: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed - real aws-sdk-go-v2 types.Indicator has IndicatorType + IndicatorDetail (a union of 8 type-specific sub-structs: FlaggedIpAddressDetail, ImpossibleTravelDetail, NewAsoDetail, NewGeolocationDetail, NewUserAgentDetail, RelatedFindingDetail, RelatedFindingGroupDetail, TTPsObservedDetail) and has NO Title member at all. This emulator previously returned a gopherstack-invented free-text Title field instead of IndicatorDetail -- deleted and replaced with the real union shape (interfaces.go IndicatorDetail + 8 sub-detail structs, handler_investigations.go indicatorDetailToJSON). Also added the two previously-missing IndicatorType values (NEW_ASO, NEW_USER_AGENT) to builtInIndicators so all 8 real enum values are producible and filterable. Fixed this pass - an IndicatorType filter value outside the 8-value enum (ListIndicators documents ValidationException in its error set) is now rejected instead of silently returning an empty Indicators list."}
+  ListIndicators: {wire: ok, errors: ok, state: ok, persist: ok, note: "real aws-sdk-go-v2 types.Indicator has IndicatorType + IndicatorDetail (a union of 8 type-specific sub-structs: FlaggedIpAddressDetail, ImpossibleTravelDetail, NewAsoDetail, NewGeolocationDetail, NewUserAgentDetail, RelatedFindingDetail, RelatedFindingGroupDetail, TTPsObservedDetail) and has NO Title member at all -- this emulator previously returned a gopherstack-invented free-text Title field instead of IndicatorDetail; deleted and replaced with the real union shape (interfaces.go IndicatorDetail + 8 sub-detail structs, handler_investigations.go indicatorDetailToJSON). Also added the two previously-missing IndicatorType values (NEW_ASO, NEW_USER_AGENT) to builtInIndicators so all 8 real enum values are producible and filterable. An IndicatorType filter value outside the 8-value enum (ListIndicators documents ValidationException in its error set) is rejected instead of silently returning an empty Indicators list. Fixed 2026-08-20: types.TTPsObservedDetail has a real (non-deprecated) Technique member (aws-sdk-go-v2/service/detective@v1.41.4/types/types.go, deserializers.go's awsRestjson1_deserializeDocumentTTPsObservedDetail's \"Technique\" case) that this emulator's TTPsObservedDetail struct never carried and indicatorDetailToJSON never emitted -- a real client always saw a nil Technique on every TTP_OBSERVED indicator. Added Technique to interfaces.go's TTPsObservedDetail, populated it in builtInIndicators, and added the wire key in indicatorDetailToJSON; proven via wire_sdk_roundtrip_test.go's TestListIndicators_TTPsObservedDetail_Technique_SDKRoundTrip using the real detectivesdk client's typed field."}
   ListInvestigations: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed - NextToken is now an opaque base64 offset instead of the raw next InvestigationId"}
   StartInvestigation: {wire: ok, errors: ok, state: ok, persist: ok, note: "EntityType is not a real input field (StartInvestigationInput has no EntityType member); derived server-side from EntityArn's role/ or user/ resource segment. ScopeStartTime/ScopeEndTime are required per SDK and validated as such."}
   UpdateInvestigationState: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -48,6 +48,7 @@ families:
 gaps:                     # known divergences NOT fixed — link bd issue ids
   - "StartMonitoringMember's precondition (member status ACCEPTED_BUT_DISABLED) is unreachable through normal API flow: AcceptInvitation transitions INVITED straight to ENABLED, mirroring the AWS happy path, but real Detective can also land a member in ACCEPTED_BUT_DISABLED (data-volume-too-high / volume-unknown edge cases per MemberDisabledReason) which this emulator does not model. Not fixed this pass: real AWS determines this state via internal GuardDuty volume telemetry with no documented client-controllable trigger, so modeling a way to reach it would mean inventing a control surface that does not exist in the real API rather than emulating one -- a larger, speculative feature, not a wire/state bug fix. Re-verified gopherstack-c902: ACCEPTED_BUT_DISABLED IS present in the pinned SDK's MemberStatus enum (types/enums.go, aws-sdk-go-v2/service/detective@v1.41.4, line 186), so this is not a wire gap -- the value exists in the model, it is just unreachable through any legitimate client action. Also re-verified the precondition itself is NOT missing: administrator.go's StartMonitoringMember already rejects any member whose status isn't ACCEPTED_BUT_DISABLED with ValidationException (see TestDetective_StartMonitoringMember's \"member not ACCEPTED_BUT_DISABLED returns 400\" case), so there was nothing left to fix here."
   - "MemberDetail still omits DisabledReason, VolumeUsageInBytes (deprecated), VolumeUsageUpdatedTime (deprecated), PercentOfGraphUtilization (deprecated), PercentOfGraphUtilizationUpdatedTime (deprecated), and VolumeUsageByDatasourcePackage. InvitationType and DatasourcePackageIngestStates were fixed this pass (see CreateMembers/GetMembers/ListMembers/ListInvitations notes). The remaining fields are volume/analytics telemetry this emulator does not model (no real data-ingest pipeline), and DisabledReason has no valid state to populate since ACCEPTED_BUT_DISABLED is unreachable (see the StartMonitoringMember gap above) -- all are optional fields real clients already treat as absent-safe, so omitting them is wire-legal, just incomplete. Low priority. Re-verified gopherstack-c902: DisabledReason and the volume metrics were deliberately split per the follow-up issue's instruction -- but the split does not change the verdict here. DisabledReason would be trivially serialisable IF the backend ever transitioned a member into ACCEPTED_BUT_DISABLED (storedMember already has a Status field to key off of), but grep confirms nothing in this codebase ever assigns memberStatusAcceptedDisabled to a member -- StartMonitoringMember only reads it as a precondition, never writes it. So there is no disabled-state instance anywhere in the backend for DisabledReason to be derived from; inventing a value would mean fabricating data with no backing state, which is worse than omitting the field. VolumeUsage*/PercentOfGraphUtilization genuinely need ingest-volume telemetry this emulator has no model for -- left absent rather than invented, matching this campaign's 'absent beats plausible-but-wrong' rule."
+  - "2026-08-20 wrapper-key/nested-shape sweep: DatasourcePackageIngestDetail (ListDatasourcePackages) still omits LastIngestStateChange (map[state]TimestampForCollection per package, deserializers.go's awsRestjson1_deserializeDocumentDatasourcePackageIngestDetail 'LastIngestStateChange' case) -- this emulator tracks a single datasourceChangedAt timestamp per package/graph (used to build the sibling BatchGetGraphMemberDatasources/BatchGetMembershipDatasources DatasourcePackageIngestHistory shape via ingestHistoryLocked) but ListDatasourcePackages' handler never surfaces it as LastIngestStateChange. Genuine Layer-3 omission (member never emitted), not fixed -- out of scope for this pass's wrapper-key/nesting charter; the backing data (datasourceChangedAt) already exists so a future pass could wire it with the same shape ingestHistoryToJSON already produces elsewhere. Not previously recorded by gopherstack-c902."
 deferred:                 # consciously not audited this pass (scope) — next pass targets
   - "Detective Organizations edge cases beyond the base Enable/Disable/List/Describe/Update surface (delegated-admin-account transfer, cross-region graph semantics) — out of scope for a single-region single-account emulator."
   - "UpdateOrganizationConfiguration's AutoEnable flag has no side effect: real AWS auto-enables Detective for new Organizations member accounts as they join the org. This emulator has no Organizations-service integration to source account-join events from, so AutoEnable is stored and returned correctly (DescribeOrganizationConfiguration) but never drives member auto-creation. Out of scope for a single-account emulator with no cross-service org simulation. Re-verified gopherstack-c902: services/organizations exists and other services (grafana, mgn) do reach it via a siblingServices/GetOrganizationsHandler cross_service.go pattern -- but only for synchronous reads (DescribeOrganizationalUnit, DescribeOrganization, ListDelegatedAdministrators, ListAccounts), never as an event source. Checked every other gopherstack service that models an AutoEnable-shaped org config (guardduty, inspector2, macie2, securityhub, all found via `grep -rl AutoEnable services`): every one of them stores and echoes AutoEnable identically, with zero side effect -- none has solved 'new account joins org' as a trigger. services/organizations' AcceptHandshake/InviteAccountToOrganization add an account to the org's own account list but publish no event or callback any sibling service subscribes to. This is a genuine cross-cutting gap (not a stale 'already solved elsewhere' claim like the codedeploy/EC2 case) -- AutoEnable is stored-and-echoed with no trigger to hook into anywhere in this codebase, which is the honest half of the stored-vs-ignored distinction, not the negligent half."
@@ -64,6 +65,40 @@ path/method pair was diffed byte-for-byte against
 matches exactly, including the PUT-vs-POST split on `/invitation`
 (AcceptInvitation=PUT, RejectInvitation lives at a different path
 `/invitation/removal`=POST) and the GET/POST/DELETE split on `/tags/{ResourceArn}`.
+
+### 2026-08-20 wrapper-key / nested-shape sweep
+
+`last_audit_commit` provenance correction: the value recorded before this
+pass (`40f059288a40c1d9b7956624bb288861e2e0651d`) dated to Jul 13 2026 by
+`git show -s --format=%ad`, nearly a month before the `last_audit_date` of
+2026-08-10 it sat next to — and `git log -- services/detective/PARITY.md`
+shows the file's actual last edit was `d39bf33e4ef267a3b2c2dc9cae2fd5df5c78aeda`
+(Aug 11 2026), the commit that produced everything currently recorded under
+`ops:`/`gaps:`/the "Real bugs fixed this pass" list below. The recorded sha
+was stale/wrong, not a real audit-base pointer. Corrected to the commit this
+session actually started from (`73f9bede0bad60884fc2dadfb77a2c83ef55fd27`,
+2026-08-20). No "FIXED" claim in the prior manifest failed re-derivation —
+every op re-verified against the pinned SDK's live deserializer this pass
+(see below) matched what `ops:` already recorded.
+
+This pass re-read every op's live `awsRestjson1_deserializeOpDocument<Op>Output`
+(all 29 ops checked; none hit the restjson1 single-structure-member dead-code
+trap — every op's response body is decoded generically then dispatched
+straight to that op's own `deserializeOpDocument<Op>Output`, confirmed by
+reading each op's `HandleDeserialize` body) plus every nested-type
+deserializer it references, against gopherstack's actual JSON keys emitted
+in `handler_*.go`. Wrapper key, nesting level, and JSON type all matched on
+every op — **zero Layer 1/2 wire-shape bugs found**. Enum-keyed maps
+(`DatasourcePackageIngestStates`, `ListDatasourcePackages`' return map) key
+on the real 3-value `DatasourcePackage` enum (`DETECTIVE_CORE`, `EKS_AUDIT`,
+`ASFF_SECURITYHUB_FINDING`) and value on the real 3-value
+`DatasourcePackageIngestState` enum (`STARTED`, `STOPPED`, `DISABLED`) —
+`services/detective/datasource_packages.go`'s `validDatasourcePackages` and
+`interfaces.go`'s ingest-state consts match both exactly. One genuine
+Layer-3 gap (a real member never emitted at all) surfaced incidentally while
+verifying `TTPsObservedDetail`'s field list and was fixed: see the
+`ListIndicators` `ops:` entry above for the `Technique` field fix, proven by
+`wire_sdk_roundtrip_test.go`'s real-SDK-client round trip.
 
 Real bugs fixed in prior passes (see `ops:` above for detail): CreateMembers
 UnprocessedAccounts reporting on re-invite; StartInvestigation trusting a

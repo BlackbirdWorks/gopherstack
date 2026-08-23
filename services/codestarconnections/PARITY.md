@@ -8,6 +8,15 @@ service: codestarconnections
 sdk_module: aws-sdk-go-v2/service/codestarconnections@v1.38.4   # version audited against
 last_audit_commit: 1d7169f66                       # HEAD when this manifest was written
 last_audit_date: 2026-08-07
+# 2026-08-19 re-audit (gopherstack-6flj wrapper-key/nested-shape sweep): all 27 ops
+# re-verified field-by-field against the LIVE awsjson1.0 deserializers in
+# codestarconnections@v1.38.4. Zero bugs, no code changed. last_audit_commit above is
+# NOT stale-by-fabrication -- 1d7169f66 is dated the same day as last_audit_date and the
+# schema defines this field as "HEAD when this manifest was written", not "a commit
+# touching this service". It IS unreachable from main (it lives only on the unmerged
+# chore/parity-upgrade branch), which breaks this schema's own re-audit protocol -- see
+# gopherstack-z31a. Also note the gaps: prose still cites SDK v1.35.15 while the header
+# is correctly v1.38.4; PullRequestComment re-confirmed still absent from v1.38.4.
 overall: A            # zero-gap field-diff pass against botocore's authoritative per-op error lists
                       # (2026-07-24). This pass (gopherstack-7mmd): re-examined whether
                       # GetResourceSyncStatus's Git-SHA-bearing fields and SyncBlocker.Contexts

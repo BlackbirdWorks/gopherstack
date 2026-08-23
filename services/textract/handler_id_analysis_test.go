@@ -285,3 +285,56 @@ func TestHandler_AnalyzeID_DocumentMetadataPagesMatchesInputCount(t *testing.T) 
 		})
 	}
 }
+
+// TestHandler_AnalyzeID_NoFabricatedGeometry asserts that
+// IdentityDocumentFields.Type/ValueDetection objects never carry a
+// "Geometry" key. The real SDK's types.AnalyzeIDDetections has no Geometry
+// member at all (Text, Confidence, NormalizedValue only) -- unlike the
+// sibling LendingDetection/ExpenseDetection types, which do carry Geometry.
+// A typed aws-sdk-go-v2 client can't observe this: its deserializer simply
+// has no case for an unrecognized key and silently ignores it, so this
+// raw-body assertion is the only way to prove the field never leaks onto
+// the wire.
+func TestHandler_AnalyzeID_NoFabricatedGeometry(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doTextractRequest(t, h, "AnalyzeID", map[string]any{
+		"DocumentPages": []any{
+			map[string]any{
+				"S3Object": map[string]any{"Bucket": "b", "Name": "id-front.jpg"},
+			},
+		},
+	})
+
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+	docs, ok := resp["IdentityDocuments"].([]any)
+	require.True(t, ok)
+	require.NotEmpty(t, docs)
+
+	doc, ok := docs[0].(map[string]any)
+	require.True(t, ok)
+
+	fields, ok := doc["IdentityDocumentFields"].([]any)
+	require.True(t, ok)
+	require.NotEmpty(t, fields)
+
+	for _, f := range fields {
+		fm, fieldOK := f.(map[string]any)
+		require.True(t, fieldOK)
+
+		if typeField, typeOK := fm["Type"].(map[string]any); typeOK {
+			assert.NotContains(t, typeField, "Geometry",
+				"AnalyzeIDDetections.Type has no real Geometry member")
+		}
+
+		if valueField, valueOK := fm["ValueDetection"].(map[string]any); valueOK {
+			assert.NotContains(t, valueField, "Geometry",
+				"AnalyzeIDDetections.ValueDetection has no real Geometry member")
+		}
+	}
+}

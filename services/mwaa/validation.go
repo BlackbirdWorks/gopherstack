@@ -34,17 +34,22 @@ func validLogLevels() map[string]struct{} {
 }
 
 // validAirflowVersions returns the set of supported Airflow versions.
+// Confirmed against aws-sdk-go-v2/service/mwaa@v1.43.4's "Valid values" doc
+// comment, repeated identically on types.Environment.AirflowVersion,
+// CreateEnvironmentInput.AirflowVersion, and UpdateEnvironmentInput.AirflowVersion:
+// "2.7.2, 2.8.1, 2.9.2, 2.10.1, 2.10.3, 2.11.0, and 3.0.6". gopherstack previously
+// accepted five stale pre-2.7 versions (including Airflow 1.x, fully removed from
+// MWAA) that real AWS now rejects, while rejecting three real, currently-offered
+// versions (2.10.1, 2.11.0, 3.0.6).
 func validAirflowVersions() map[string]struct{} {
 	return map[string]struct{}{
-		"2.10.3":  {},
-		"2.9.2":   {},
-		"2.8.1":   {},
-		"2.7.2":   {},
-		"2.6.3":   {},
-		"2.5.1":   {},
-		"2.4.3":   {},
-		"2.2.2":   {},
-		"1.10.12": {},
+		"2.7.2":  {},
+		"2.8.1":  {},
+		"2.9.2":  {},
+		"2.10.1": {},
+		"2.10.3": {},
+		"2.11.0": {},
+		"3.0.6":  {},
 	}
 }
 
@@ -59,7 +64,7 @@ func isValidEnvNameChar(r rune) bool {
 }
 
 // validateModuleLogging validates a single module logging configuration.
-func validateModuleLogging(field string, mlc *ModuleLoggingConfiguration) error {
+func validateModuleLogging(field string, mlc *ModuleLoggingConfigurationInput) error {
 	if mlc == nil {
 		return nil
 	}
@@ -79,13 +84,13 @@ func validateModuleLogging(field string, mlc *ModuleLoggingConfiguration) error 
 }
 
 // validateLoggingConfiguration validates the logging configuration for all five Airflow modules.
-func validateLoggingConfiguration(lc *LoggingConfiguration) error {
+func validateLoggingConfiguration(lc *LoggingConfigurationInput) error {
 	if lc == nil {
 		return nil
 	}
 
 	type moduleEntry struct {
-		mlc  *ModuleLoggingConfiguration
+		mlc  *ModuleLoggingConfigurationInput
 		name string
 	}
 

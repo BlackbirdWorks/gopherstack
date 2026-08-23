@@ -1,29 +1,29 @@
 ---
 service: managedblockchain
 sdk_module: aws-sdk-go-v2/service/managedblockchain@v1.34.4
-last_audit_commit: d08692ef
-last_audit_date: 2026-08-10
+last_audit_commit: a073b2b1
+last_audit_date: 2026-08-20
 overall: A
 ops:
   CreateNetwork: {wire: fixed, errors: fixed, state: fixed, persist: ok, note: "FrameworkConfiguration.Fabric.Edition, VpcEndpointServiceName, Framework restricted to HYPERLEDGER_FABRIC; see Notes"}
   GetNetwork: {wire: fixed, errors: ok, state: ok, persist: ok, note: "now returns FrameworkAttributes.Fabric + VpcEndpointServiceName"}
   ListNetworks: {wire: fixed, errors: ok, state: ok, persist: ok, note: "server-side pagination now implemented via pkgs/page; see Notes"}
   CreateMember: {wire: fixed, errors: fixed, state: fixed, persist: ok, note: "InvitationId now required and validated against a real PENDING invitation for this network, consumed (ACCEPTED) on success; MemberConfiguration.FrameworkConfiguration.Fabric.AdminUsername/AdminPassword required and validated, KmsKeyArn accepted; see Notes"}
-  GetMember: {wire: fixed, errors: ok, state: ok, persist: ok, note: "now returns FrameworkAttributes.Fabric.AdminUsername/CaEndpoint + KmsKeyArn"}
+  GetMember: {wire: fixed, errors: ok, state: ok, persist: ok, note: "now returns FrameworkAttributes.Fabric.AdminUsername/CaEndpoint + KmsKeyArn; LogPublishingConfiguration.Fabric.CaLogs wire key fixed CloudWatch->Cloudwatch, see 2026-08-20 Notes"}
   ListMembers: {wire: fixed, errors: ok, state: ok, persist: ok, note: "server-side pagination now implemented"}
   DeleteMember: {wire: ok, errors: ok, state: ok, persist: ok, note: "cascades to member's nodes, matching real AWS"}
-  UpdateMember: {wire: ok, errors: ok, state: ok, persist: ok}
+  UpdateMember: {wire: fixed, errors: ok, state: ok, persist: ok, note: "LogPublishingConfiguration.Fabric.CaLogs.Cloudwatch request/response wire key fixed, see 2026-08-20 Notes"}
   CreateNode: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "NodeConfiguration.StateDB accepted (defaults CouchDB), KmsKeyArn inherited from owning member; see Notes"}
-  GetNode: {wire: fixed, errors: ok, state: ok, persist: ok, note: "now returns FrameworkAttributes.Fabric.PeerEndpoint/PeerEventEndpoint + StateDB + KmsKeyArn"}
+  GetNode: {wire: fixed, errors: ok, state: ok, persist: ok, note: "now returns FrameworkAttributes.Fabric.PeerEndpoint/PeerEventEndpoint + StateDB + KmsKeyArn; LogPublishingConfiguration.Fabric.{ChaincodeLogs,PeerLogs} wire key fixed CloudWatch->Cloudwatch, see 2026-08-20 Notes"}
   ListNodes: {wire: fixed, errors: ok, state: ok, persist: ok, note: "server-side pagination now implemented"}
   DeleteNode: {wire: ok, errors: ok, state: ok, persist: ok}
-  UpdateNode: {wire: ok, errors: ok, state: ok, persist: ok}
+  UpdateNode: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "MemberId moved from a required query parameter to the required JSON body field a real client actually sends; LogPublishingConfiguration.Fabric.{ChaincodeLogs,PeerLogs}.Cloudwatch wire key fixed; see 2026-08-20 Notes"}
   CreateProposal: {wire: ok, errors: ok, state: ok, persist: ok}
   GetProposal: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListProposals: {wire: fixed, errors: ok, state: ok, persist: ok, note: "server-side pagination now implemented"}
+  ListProposals: {wire: fixed, errors: ok, state: ok, persist: ok, note: "server-side pagination now implemented; fabricated ProposalSummary.NetworkId member removed, see 2026-08-20 Notes"}
   VoteOnProposal: {wire: ok, errors: ok, state: ok, persist: ok, note: "tallies votes and resolves APPROVED/REJECTED against VotingPolicy; not a disguised no-op"}
   ListProposalVotes: {wire: fixed, errors: ok, state: ok, persist: ok, note: "server-side pagination now implemented"}
-  ListInvitations: {wire: fixed, errors: ok, state: ok, persist: ok, note: "server-side pagination now implemented"}
+  ListInvitations: {wire: fixed, errors: ok, state: ok, persist: ok, note: "server-side pagination now implemented; fabricated Invitation.NetworkId/NetworkName top-level members removed, see 2026-08-20 Notes"}
   RejectInvitation: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateAccessor: {wire: ok, errors: ok, state: ok, persist: ok}
   GetAccessor: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -34,11 +34,11 @@ ops:
   ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok}
 families:
   network: {status: fixed, note: "CreateNetwork/GetNetwork/ListNetworks field-diffed against types.go/api_op_*.go/validators.go; FrameworkAttributes+VpcEndpointServiceName+Framework restriction added, see Notes"}
-  member: {status: fixed, note: "MemberConfiguration.FrameworkConfiguration was entirely unmodeled (a real, required field per validateMemberFabricConfiguration) -- now implemented with real server-side validation + FrameworkAttributes/KmsKeyArn on responses, see Notes"}
-  node: {status: fixed, note: "StateDB/KmsKeyArn/FrameworkAttributes were entirely unmodeled -- now implemented; the prior audit's node-routing-URI fix remains correct and unchanged"}
-  proposal: {status: ok, note: "CreateProposal/GetProposal/ListProposals/ListProposalVotes/VoteOnProposal verified; vote tallying and threshold-based APPROVED/REJECTED transition confirmed real (not a stub); ListProposals/ListProposalVotes now paginate"}
-  invitation: {status: ok, note: "ListInvitations/RejectInvitation only -- correctly no CreateInvitation op (real AWS has none either; invitations are created only as a side effect of an approved proposal's Invitations actions, which executeProposalActionsLocked implements); ListInvitations now paginates"}
-  accessor: {status: ok, note: "CreateAccessor/GetAccessor/DeleteAccessor/ListAccessors verified; ListAccessors now paginates"}
+  member: {status: fixed, note: "MemberConfiguration.FrameworkConfiguration was entirely unmodeled (a real, required field per validateMemberFabricConfiguration) -- now implemented with real server-side validation + FrameworkAttributes/KmsKeyArn on responses, see Notes; distinct wire structs confirmed for Member vs MemberSummary, each matching its own live deserializer case list, see 2026-08-20 Notes"}
+  node: {status: fixed, note: "StateDB/KmsKeyArn/FrameworkAttributes were entirely unmodeled -- now implemented; the prior audit's node-routing-URI fix remains correct and unchanged; UpdateNode's MemberId location bug and the CloudWatch/Cloudwatch key bug fixed this pass, see 2026-08-20 Notes"}
+  proposal: {status: fixed, note: "CreateProposal/GetProposal/ListProposals/ListProposalVotes/VoteOnProposal verified; vote tallying and threshold-based APPROVED/REJECTED transition confirmed real (not a stub); ListProposals/ListProposalVotes now paginate; fabricated ProposalSummary.NetworkId removed this pass, see 2026-08-20 Notes"}
+  invitation: {status: fixed, note: "ListInvitations/RejectInvitation only -- correctly no CreateInvitation op (real AWS has none either; invitations are created only as a side effect of an approved proposal's Invitations actions, which executeProposalActionsLocked implements); ListInvitations now paginates; fabricated top-level NetworkId/NetworkName removed this pass, see 2026-08-20 Notes"}
+  accessor: {status: ok, note: "CreateAccessor/GetAccessor/DeleteAccessor/ListAccessors verified; ListAccessors now paginates; Accessor vs AccessorSummary wire structs confirmed distinct and each matches its own live deserializer, see 2026-08-20 Notes"}
   tags: {status: ok, note: "TagResource/UntagResource/ListTagsForResource verified against /tags/{ResourceArn} shape and ARN-keyed lookup"}
 gaps:
   - "Member.IsOwned is always true, even for a member created via CreateMember (i.e. joining via invitation, which in real AWS is not owned by the joining account's original network-owner relationship). gopherstack has no multi-account model to distinguish an owned member from an invited one, so this is a reasonable simplification, not flagged as a bug to fix (gopherstack-u84u re-reviewed this alongside InvitationId; InvitationId itself is now real, see Notes #8)."
@@ -160,3 +160,94 @@ mathematically guaranteed (remaining possible yes votes can't reach the requirem
 members on approval. This is the "grep-based stub hunting has false positives" trap from
 parity-principles.md #4 -- it would be easy to mistake this for a stub without reading the
 threshold math.
+
+## 2026-08-20 wrapper-key / nested-shape sweep
+
+Protocol re-confirmed restjson1 (56 `awsRestjson1_*` functions in `serializers.go`; every
+`HandleDeserialize` calls its `awsRestjson1_deserializeOpDocument<Op>Output` directly on the
+decoded body -- none of managedblockchain's 27 ops hit the singular-output dead-code trap from a
+prior appmesh audit). All 27 ops in the pinned SDK (`ls api_op_*.go`, v1.34.4) match
+`GetSupportedOperations()` exactly.
+
+The five summary/full pairs (Network/NetworkSummary, Member/MemberSummary, Node/NodeSummary,
+Proposal/ProposalSummary, Accessor/AccessorSummary) all use distinct gopherstack wire structs
+(`networkObject`/`networkSummaryObject`, etc.), and each was diffed field-by-field against its own
+live `awsRestjson1_deserializeDocument<Type>` case list -- confirming gopherstack does NOT reuse
+one wire struct across both sides of any pair (the dominant bug class this campaign, per kinesis
+Consumer/ConsumerDescription, codeconnections Host/Connection). Four real bugs were found and
+fixed, none of them a full/summary struct-reuse case:
+
+1. **`LogConfigurations.Cloudwatch` wire key was `"CloudWatch"` (capital W), not real AWS's
+   `"Cloudwatch"`** (`awsRestjson1_deserializeDocumentLogConfigurations`, deserializers.go:4999 --
+   confirmed case-sensitive, no other case). Silently dropped by a real client on GetMember's
+   `LogPublishingConfiguration.Fabric.CaLogs` and GetNode's `.Fabric.{ChaincodeLogs,PeerLogs}`.
+   Fixed in `models.go` (`logConfigRespObj`/`logConfigReq`), `handler_members.go`,
+   `handler_nodes.go`. Hand-revert reproduced a nil `ChaincodeLogs.Cloudwatch` through a real
+   `managedblockchainsdk.Client` in the new `Test_SDKRoundTrip_NodeCloudwatchLogConfig`
+   (`wire_shape_test.go`). Two existing tests (`TestHandler_UpdateMemberLogPublishingConfig`,
+   `TestHandler_UpdateNodeLogPublishingConfig`) asserted the wrong response key and were corrected.
+
+2. **`UpdateNode` required `memberId` as a query parameter; real AWS sends `MemberId` only in the
+   JSON body.** Confirmed via `awsRestjson1_serializeOpHttpBindingsUpdateNodeInput`
+   (serializers.go:2259, binds only NetworkId/NodeId to the URI, no `SetQuery("memberId")`) versus
+   `awsRestjson1_serializeOpDocumentUpdateNodeInput` (serializers.go:2285, serializes `MemberId`
+   into the body) -- unlike GetNode/ListNodes/DeleteNode, which really do bind `memberId` as a
+   query parameter and were left unchanged. This meant every real SDK client's `UpdateNode` call
+   was rejected outright with `InvalidRequestException`, not just a dropped field -- a request-side
+   HTTP-binding bug found incidentally while diffing the node family, outside this campaign's
+   strict response-wrapper-key scope but severe enough to fix. Fixed in `handler_nodes.go`
+   (`handleUpdateNode` now reads `MemberId` from the decoded body) and `models.go`
+   (`updateNodeRequest.MemberID` added). Hand-revert reproduced the exact real-client
+   `InvalidRequestException: MemberId is required...` in
+   `Test_SDKRoundTrip_NodeCloudwatchLogConfig`. Three existing tests
+   (`TestHandler_NodeLifecycle_RealWireShape`, `TestHandler_UpdateNode`,
+   `TestHandler_UpdateNodeLogPublishingConfig`) sent `memberId` as a query parameter for UpdateNode
+   and were corrected to send it in the body.
+
+3. **`ProposalSummary` (ListProposals) fabricated a `NetworkId` member real AWS never sends.**
+   `awsRestjson1_deserializeDocumentProposalSummary` (deserializers.go:6573) has no `NetworkId`
+   case at all -- only the full `Proposal` type (GetProposal) has one. Removed from
+   `proposalSummaryObject` (`models.go`) and `toProposalSummaryObject` (`handler_proposals.go`).
+   `TestHandler_ProposalSummaryHasNetworkID`, a test literally named for asserting the fabricated
+   field was present, was rewritten as `TestHandler_ProposalSummaryOmitsNetworkID` asserting its
+   absence. Hand-revert reproduced the field reappearing in the raw response body.
+
+4. **`Invitation` (ListInvitations) fabricated top-level `NetworkId`/`NetworkName` members.**
+   `awsRestjson1_deserializeDocumentInvitation` (deserializers.go:4762) has cases only for
+   `Arn`/`CreationDate`/`ExpirationDate`/`InvitationId`/`NetworkSummary`/`Status` -- real AWS
+   carries network identity only inside the nested `NetworkSummary`, confirmed against
+   `types.Invitation`'s field list (types/types.go:116-155). Removed from `invitationObject`
+   (`models.go`) and `toInvitationObject` (`handler_invitations.go`); the internal `Invitation`
+   struct's `NetworkID`/`NetworkName` fields were left alone since `members.go:109`'s
+   invitation/network-mismatch check on `CreateMember` genuinely needs them -- only the wire object
+   was fabricating them onto the response. No existing test asserted these fields, so a new one
+   (`TestHandler_InvitationOmitsTopLevelNetworkFields`) was added; hand-revert reproduced both
+   fields reappearing.
+
+All four fixes were proven by hand-revert (flip the fix back, run the relevant test, confirm the
+exact predicted symptom, restore, `diff` byte-identical against a pre-revert copy) before being
+finalized. Bug 1 and 2 were additionally proven end-to-end through a real
+`aws-sdk-go-v2/service/managedblockchain` client round-tripped through `pkgs/service`'s router
+(`wire_shape_test.go`, matching `services/mediaconvert/wire_shape_test.go`'s pattern) since
+`types.Node.LogPublishingConfiguration` gives a typed client field to observe. Bugs 3 and 4 used a
+raw-body absence assertion instead, since the corresponding real types
+(`types.ProposalSummary`, `types.Invitation`) have no field for a typed client to observe a
+fabricated key on.
+
+No other gap was found in the five summary/full pairs, `NetworkFrameworkAttributes`/
+`NetworkFabricAttributes`, `MemberFrameworkAttributes`/`MemberFabricAttributes`,
+`NodeFrameworkAttributes`/`NodeFabricAttributes`, `VotingPolicy`/`ApprovalThresholdPolicy`,
+`ProposalActions`/`InviteAction`/`RemoveAction`, or `MemberConfiguration`/
+`MemberFabricConfiguration`/`NodeConfiguration`. One gap was noted but NOT fixed (Layer 3, out of
+this campaign's scope): real AWS's `NodeConfiguration` (CreateNode's input) accepts an optional
+create-time `LogPublishingConfiguration` member (`api_op_CreateNode.go`'s
+`awsRestjson1_serializeDocumentNodeConfiguration`, serializers.go:2624) that gopherstack's
+`nodeConfiguration` request struct does not model at all -- a real client can only set node log
+config after creation via `UpdateNode` in gopherstack today.
+
+**`last_audit_commit` provenance**: this pass's audit date is 2026-08-20; `last_audit_commit` was
+updated to `a073b2b1` (this repo's HEAD at the time this file was written, per the schema). The
+prior entry (`d08692ef`, dated `2026-08-10` in this file) checks out: `git show -s --format=%ad
+d08692ef` returns `2026-08-10`, matching the manifest's `last_audit_date` -- unlike appmesh and
+codeconnections, both caught this campaign citing a 2026-07-13 sha against a 2026-08-10 audit
+date. Verdict: clean provenance, no fabricated audit trail.

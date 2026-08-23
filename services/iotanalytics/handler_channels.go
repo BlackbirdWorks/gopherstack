@@ -37,7 +37,6 @@ func (h *Handler) handleCreateChannel(c *echo.Context, body []byte) error {
 	})
 }
 
-//nolint:dupl // mirrors handleListDatastores — same pagination pattern, different resource types
 func (h *Handler) handleListChannels(c *echo.Context) error {
 	maxResults, cursor := parsePagination(c)
 	channels := h.Backend.ListChannels()
@@ -61,7 +60,6 @@ func (h *Handler) handleListChannels(c *echo.Context) error {
 
 		summaries = append(summaries, channelSummary{
 			ChannelName:            ch.Name,
-			ChannelARN:             ch.ARN,
 			ChannelStorage:         ch.Storage,
 			Status:                 ch.Status,
 			CreationTime:           ch.CreationTime,
@@ -95,8 +93,10 @@ func (h *Handler) handleDescribeChannel(c *echo.Context, name string) error {
 		LastMessageArrivalTime: ch.LastMessageArrivalTime,
 	}
 
+	resp := describeChannelResponse{Channel: detail}
+
 	if c.Request().URL.Query().Get("includeStatistics") == "true" {
-		detail.Statistics = &channelStatistics{
+		resp.Statistics = &channelStatistics{
 			Size: &channelStatisticsSize{
 				EstimatedSizeInBytes: 0,
 				EstimatedOn:          ch.LastUpdate,
@@ -104,7 +104,7 @@ func (h *Handler) handleDescribeChannel(c *echo.Context, name string) error {
 		}
 	}
 
-	return c.JSON(http.StatusOK, describeChannelResponse{Channel: detail})
+	return c.JSON(http.StatusOK, resp)
 }
 
 func (h *Handler) handleUpdateChannel(c *echo.Context, name string, body []byte) error {

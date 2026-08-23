@@ -58,7 +58,6 @@ func (h *Handler) handleListPipelines(c *echo.Context) error {
 
 		summaries = append(summaries, pipelineSummary{
 			PipelineName:          p.Name,
-			PipelineARN:           p.ARN,
 			ReprocessingSummaries: reprocessingSummariesSorted(p.Reprocessings),
 			CreationTime:          p.CreationTime,
 			LastUpdateTime:        p.LastUpdate,

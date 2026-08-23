@@ -89,7 +89,7 @@ func (h *Handler) handleDeleteFleetAdvisorDatabases(
 }
 
 type describeFleetAdvisorCollectorsInput struct {
-	Marker     *string       `json:"Marker"`
+	NextToken  *string       `json:"NextToken"`
 	MaxRecords *int32        `json:"MaxRecords"`
 	Filters    []filterEntry `json:"Filters"`
 }
@@ -105,6 +105,7 @@ type fleetAdvisorCollectorJSON struct {
 }
 
 type describeFleetAdvisorCollectorsOutput struct {
+	NextToken  *string                     `json:"NextToken,omitempty"`
 	Collectors []fleetAdvisorCollectorJSON `json:"Collectors"`
 }
 

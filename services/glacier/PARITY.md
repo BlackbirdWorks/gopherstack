@@ -6,9 +6,9 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: glacier
 sdk_module: aws-sdk-go-v2/service/glacier@v1.35.4
-last_audit_commit: f8ae77eb7c84189d9fca29cce357a9cfaf72fd9c
-last_audit_date: 2026-08-10
-overall: A            # both deferred resource families (Select jobs, range inventory retrieval) now implemented for real + field-diffed; 1 pre-existing leak fixed; select jobs now write real S3 OutputLocation output
+last_audit_commit: a073b2b1e2dbd50fb0f95ec57e5af0659ebb0d72
+last_audit_date: 2026-08-20
+overall: A            # wrapper-key/header/nested-shape sweep (2026-08-20): 1 real wire bug found and fixed (SelectParameters InputSerialization/OutputSerialization.Csv wire key was "Csv", real AWS is lowercase "csv"); 2 suspected wrapper-key bugs (GetVaultAccessPolicy/GetVaultNotifications) investigated and found to be FALSE POSITIVES -- gopherstack's existing flat shape was already correct, the wrapping helper in the real SDK's deserializers.go is dead code never reached from HandleDeserialize. All HTTP-header-bound response members (13 across 8 ops) audited against live HandleDeserialize/HttpBindings functions and found correct. Tree-hash algorithm cross-checked against the pinned SDK's own client-side implementation (internal/customizations/treehash.go), not just self-consistency.
 ops:
   CreateVault:            {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeVault:          {wire: ok, errors: ok, state: ok, persist: ok}
@@ -16,15 +16,15 @@ ops:
   ListVaults:             {wire: ok, errors: ok, state: ok, persist: ok, note: "marker/limit pagination verified vs SDK Marker/VaultList shape"}
   UploadArchive:          {wire: ok, errors: ok, state: ok, persist: ok, note: "ArchiveId/Checksum/Location are header-only on real wire (confirmed via awsRestjson1_deserializeOpHttpBindingsUploadArchiveOutput); gopherstack sets all three headers correctly, body is a harmless bonus"}
   DeleteArchive:          {wire: ok, errors: ok, state: ok, persist: ok, note: "gopherstack-ygfk (THIS PASS): now consults the vault's lock policy (checkVaultLockDelete) before deleting -- see families: vault_lock_enforcement"}
-  InitiateJob:            {wire: ok, errors: ok, state: ok, persist: ok, note: "response is header-only (X-Amz-Job-Id/x-amz-job-output-path/Location) on real wire; verified. This pass added real support for JobParameters.Type=select (SelectParameters/OutputLocation, full field validation, MissingParameterValueException vs InvalidParameterValueException distinguished) and JobParameters.InventoryRetrievalParameters (range inventory retrieval: StartDate/EndDate/Limit/Marker, validated) -- see Notes"}
-  DescribeJob:            {wire: ok, errors: ok, state: ok, persist: ok, note: "GlacierJobDescription now also carries JobOutputPath/OutputLocation/SelectParameters (select jobs) and a proper nested InventoryRetrievalParameters object (range inventory retrieval jobs) -- see Notes for the invented top-level Format field this replaced"}
-  ListJobs:               {wire: ok, errors: ok, state: ok, persist: ok, note: "same describeJobResponse DTO as DescribeJob, same coverage applies"}
+  InitiateJob:            {wire: ok, errors: ok, state: ok, persist: ok, note: "response is header-only (X-Amz-Job-Id/x-amz-job-output-path/Location) on real wire; verified. This pass added real support for JobParameters.Type=select (SelectParameters/OutputLocation, full field validation, MissingParameterValueException vs InvalidParameterValueException distinguished) and JobParameters.InventoryRetrievalParameters (range inventory retrieval: StartDate/EndDate/Limit/Marker, validated) -- see Notes. gopherstack-sweep-2026-08-20: request-body SelectParameters.InputSerialization/OutputSerialization.Csv key case fixed (see bug 12, Notes) -- request-side unmarshal was unaffected (Go's case-insensitive JSON decode fallback), only response-side DescribeJob/ListJobs echo was broken"}
+  DescribeJob:            {wire: ok, errors: ok, state: ok, persist: ok, note: "GlacierJobDescription now also carries JobOutputPath/OutputLocation/SelectParameters (select jobs) and a proper nested InventoryRetrievalParameters object (range inventory retrieval jobs) -- see Notes for the invented top-level Format field this replaced. gopherstack-sweep-2026-08-20 (bug 12): SelectParameters.InputSerialization/OutputSerialization.Csv wire key fixed from \"Csv\" to lowercase \"csv\" (confirmed via aws-sdk-go-v2/service/glacier@v1.35.4 deserializers.go:awsRestjson1_deserializeDocumentInputSerialization/OutputSerialization, `case \"csv\":`) -- a real SDK client's typed out.SelectParameters.InputSerialization.Csv was always nil before the fix. Proven via TestDescribeJob_SelectCsvSerialization_SDKRoundTrip (wire_sdk_roundtrip_test.go), hand-reverted and confirmed the exact nil-Csv symptom."}
+  ListJobs:               {wire: ok, errors: ok, state: ok, persist: ok, note: "same describeJobResponse DTO as DescribeJob, same coverage applies, including bug 12's Csv key fix"}
   GetJobOutput:           {wire: ok, errors: ok, state: ok, persist: ok, note: "archive-retrieval/inventory-retrieval unchanged; select jobs execute their SQL Expression for real against the stored archive and serve it directly (see select_jobs family note) -- a documented gopherstack convenience, not real AWS behavior (GetJobOutput's own docs cover only archive/inventory output, never Select)"}
   SetVaultNotifications:      {wire: ok, errors: ok, state: ok, persist: ok}
-  GetVaultNotifications:      {wire: ok, errors: ok, state: ok, persist: ok}
+  GetVaultNotifications:      {wire: ok, errors: ok, state: ok, persist: ok, note: "gopherstack-sweep-2026-08-20: investigated as a suspected wrapper-key bug (a \"vaultNotificationConfig\"-wrapping OpDocument helper exists in deserializers.go) and found to be a FALSE POSITIVE -- that helper is dead code, the op's live HandleDeserialize decodes the body FLAT. gopherstack's existing flat response is correct; do not wrap it. Regression-guarded by TestGetVaultNotifications_SDKRoundTrip."}
   DeleteVaultNotifications:   {wire: ok, errors: ok, state: ok, persist: ok}
   SetVaultAccessPolicy:       {wire: ok, errors: ok, state: ok, persist: ok, note: "gopherstack-ygfk: stored and echoed, DELIBERATELY still not enforced -- unlike vault lock policy (see families: vault_lock_enforcement), a vault access policy's documented purpose is granting/restricting access by Principal (cross-account/-role access control), which this emulator cannot evaluate without per-request caller identity (tracked separately, gopherstack-cu4g). Disclosed, not approximated."}
-  GetVaultAccessPolicy:       {wire: ok, errors: ok, state: ok, persist: ok}
+  GetVaultAccessPolicy:       {wire: ok, errors: ok, state: ok, persist: ok, note: "gopherstack-sweep-2026-08-20: same false-positive investigation and outcome as GetVaultNotifications above -- a \"policy\"-wrapping OpDocument helper exists but is dead code; gopherstack's existing flat response is correct. Regression-guarded by TestGetVaultAccessPolicy_SDKRoundTrip."}
   DeleteVaultAccessPolicy:    {wire: ok, errors: ok, state: ok, persist: ok}
   AddTagsToVault:         {wire: ok, errors: ok, state: ok, persist: ok}
   ListTagsForVault:       {wire: ok, errors: ok, state: ok, persist: ok}
@@ -37,7 +37,7 @@ ops:
   SetDataRetrievalPolicy: {wire: ok, errors: ok, state: ok, persist: ok}
   InitiateMultipartUpload:   {wire: ok, errors: ok, state: ok, persist: ok, note: "response header-only (Location/x-amz-multipart-upload-id) confirmed"}
   UploadMultipartPart:       {wire: ok, errors: ok, state: ok, persist: ok}
-  CompleteMultipartUpload:   {wire: ok, errors: ok, state: ok, persist: ok, note: "response header-only (ArchiveId/Checksum/Location) confirmed, same as UploadArchive"}
+  CompleteMultipartUpload:   {wire: ok, errors: ok, state: ok, persist: ok, note: "response header-only (ArchiveId/Checksum/Location) confirmed, same as UploadArchive. GAP (disclosed, not fixed, out of this sweep's wire-shape scope): unlike UploadArchive, the X-Amz-Sha256-Tree-Hash request header is trusted verbatim (multipart_uploads.go's CompleteMultipartUpload) rather than recomputed from the concatenated part bytes and verified -- a request-validation gap, not a wrong wire shape."}
   AbortMultipartUpload:      {wire: ok, errors: ok, state: ok, persist: ok}
   ListMultipartUploads:      {wire: ok, errors: ok, state: ok, persist: ok}
   ListParts:                 {wire: ok, errors: ok, state: ok, persist: ok}
@@ -57,6 +57,23 @@ leaks: {status: clean, note: "no goroutines/janitors in this service; retrievalD
 ---
 
 ## Notes
+
+### `last_audit_commit` provenance (2026-08-20 sweep)
+
+The manifest's previous `last_audit_commit`
+(`f8ae77eb7c84189d9fca29cce357a9cfaf72fd9c`) was dated **2026-07-24** —
+`git show -s --format=%ad` — while the manifest's own `last_audit_date` said
+**2026-08-10**, and the manifest's own body documented an even later
+**2026-08-14** pass (bugs 9–11, `vault_lock_enforcement`, commit
+`665fb5fbb` "fix(glacier): Vault Lock policies were stored, echoed, and
+never enforced", also dated 2026-08-14). So the cited sha was stale by
+multiple substantive commits and roughly three weeks relative to the
+manifest's own claimed audit date, and the manifest was *self-inconsistent*
+(claiming a 2026-08-10 audit date while documenting 2026-08-14 work) —
+the same stale-citation pattern this campaign previously caught on appmesh
+and codeconnections. **Verdict: WRONG, now corrected.** `last_audit_commit`
+is updated to this session's actual HEAD
+(`a073b2b1e2dbd50fb0f95ec57e5af0659ebb0d72`, 2026-08-20).
 
 Protocol: **restjson1** (AWS restJson1, not query-XML). Response bodies are JSON;
 request/response IDs and checksums are carried in **headers**, not JSON body, for
@@ -197,8 +214,123 @@ correct throughout (`formatDate` in models.go).
     unescaped (also only working by accident of the swallowed error) and is
     now properly escaped.
 
+### Bugs fixed / findings this pass (2026-08-20, wrapper-key/header sweep)
+
+12. **`SelectParameters.InputSerialization.Csv` / `OutputSerialization.Csv` wire
+    key was `"Csv"`, real AWS is lowercase `"csv"`.** Confirmed via
+    `aws-sdk-go-v2/service/glacier@v1.35.4`'s `deserializers.go`
+    (`awsRestjson1_deserializeDocumentInputSerialization`/`...OutputSerialization`,
+    both `case "csv":`) and `serializers.go` (both
+    `object.Key("csv")`) — an anomaly among glacier's otherwise-PascalCase
+    field names, live-checked (not the OpDocument-helper trap; `DescribeJob`'s
+    document deserializer genuinely is the live path, see finding 13). Impact
+    was one-directional: the *request*-parsing side (`InitiateJob`'s
+    `initiateJobRequest`) was unaffected because Go's `encoding/json.Unmarshal`
+    falls back to case-insensitive key matching, but the *response* side
+    (`DescribeJob`/`ListJobs` echoing `SelectParameters` back) used
+    `json.Marshal`, which always emits the exact tag — so a real SDK client's
+    typed `out.SelectParameters.InputSerialization.Csv` /
+    `.OutputSerialization.Csv` were always `nil` after a completed select job,
+    even though gopherstack had real values to report. Fixed in `models.go`
+    (`inputSerializationDTO`/`outputSerializationDTO`). Proven via
+    `TestDescribeJob_SelectCsvSerialization_SDKRoundTrip`
+    (`wire_sdk_roundtrip_test.go`) driven through a real
+    `aws-sdk-go-v2/service/glacier` client; hand-reverted and confirmed the
+    exact predicted symptom (`require.NotNil` on `Csv` failing with a `nil`
+    value), then restored and confirmed the diff is byte-identical to the fix.
+
+13. **False-positive investigated and correctly NOT fixed:
+    `GetVaultAccessPolicy`/`GetVaultNotifications` do NOT need a wrapper key.**
+    Both ops have an `awsRestjson1_deserializeOpDocument<Op>Output` helper in
+    `deserializers.go` whose case list matches on a wrapper key (`"policy"` /
+    `"vaultNotificationConfig"`) — following only that helper (as this pass
+    initially did, applying it and updating tests to match) is precisely the
+    dead-code trap `gopherstack-sdk-shape`'s SKILL.md and this campaign's
+    `_WRAPPER_KEY_SWEEP_REMAINDER.md` warn about (previously caught on
+    appmesh, `gopherstack-cnhp`). Reading each op's own live
+    `HandleDeserialize` shows both actually call the nested document
+    deserializer (`awsRestjson1_deserializeDocumentVaultAccessPolicy` /
+    `...VaultNotificationConfig`) **directly on the raw decoded body**, never
+    through the wrapping helper — so the real wire response is FLAT at the
+    response root, exactly what gopherstack already emitted. The "fix" was
+    applied, immediately falsification-tested with a real SDK round trip
+    (which failed with all-nil typed fields despite a 200 and a body that
+    *did* contain the data, just unwrapped), diagnosed, and fully reverted
+    (`models.go`, `handler_vault_access_policy.go`,
+    `handler_vault_notifications.go`, and both handler tests are byte-identical
+    to pre-session). Regression-guarded going forward by
+    `TestGetVaultAccessPolicy_SDKRoundTrip` /
+    `TestGetVaultNotifications_SDKRoundTrip` (`wire_sdk_roundtrip_test.go`),
+    which assert the real typed SDK client decodes non-nil `Policy` /
+    `VaultNotificationConfig` from gopherstack's flat body. **Lesson for the
+    next auditor**: for restjson1, before trusting any
+    `deserializeOpDocument<Op>Output`'s case list, confirm the op's own
+    `HandleDeserialize` actually calls it — `grep -c` counting only tells you
+    the helper is *defined*, not that it's *reachable*.
+
+14. **Header-bound response members audited against live `HandleDeserialize`
+    (not the dead-code-prone document helpers), all correct, 0 bugs.** Every
+    op with an `awsRestjson1_deserializeOpHttpBindings<Op>Output` function was
+    enumerated from `deserializers.go` directly (not assumed from a sibling):
+    `CreateVault` (`Location`), `UploadArchive`
+    (`Location`/`x-amz-archive-id`/`x-amz-sha256-tree-hash`),
+    `InitiateMultipartUpload` (`Location`/`x-amz-multipart-upload-id`),
+    `UploadMultipartPart` (`x-amz-sha256-tree-hash`),
+    `CompleteMultipartUpload`
+    (`Location`/`x-amz-archive-id`/`x-amz-sha256-tree-hash`), `InitiateJob`
+    (`Location`/`x-amz-job-id`/`x-amz-job-output-path`), `InitiateVaultLock`
+    (`x-amz-lock-id`), `PurchaseProvisionedCapacity` (`x-amz-capacity-id`),
+    `GetJobOutput`
+    (`Accept-Ranges`/`Content-Range`/`Content-Type`/`x-amz-archive-description`/`x-amz-sha256-tree-hash`).
+    All 9 ops' headers are present and correctly named in gopherstack's
+    handlers (`handler_vaults.go`, `handler_archives.go`,
+    `handler_multipart_uploads.go`, `handler_jobs.go`, `handler_vault_lock.go`,
+    `handler_provisioned_capacity.go`); `GetJobOutput`'s `X-Amz-Archive-Description`
+    and `ArchiveSHA256TreeHash` fixes from prior passes still hold. `GetJobOutput`
+    also correctly returns `206 Partial Content` with a computed `Content-Range`
+    for a `Range`-bound retrieval (`serveWithRange`, `handler_jobs.go`), matching
+    real Glacier's ranged-retrieval status code.
+
+15. **Tree-hash algorithm cross-checked against the pinned SDK's own
+    client-side implementation**, not just round-trip self-consistency: read
+    `aws-sdk-go-v2/service/glacier@v1.35.4/internal/customizations/treehash.go`
+    (the middleware that auto-computes `X-Amz-Sha256-Tree-Hash` on the client
+    when a caller doesn't set it) and confirmed gopherstack's
+    `computeLeafHashes`/`reduceTreeHashes` (`handler_archives.go`) implement
+    the identical algorithm: 1 MiB leaf chunks, pairwise SHA-256 concatenation
+    up the tree, odd node carried unchanged to the next level. Existing tests
+    (`TestTreeHash_EmptyBody`/`_SingleBlock`/`_TwoBlocks`,
+    `handler_archives_test.go`) already assert against independently-computed
+    `crypto/sha256` primitives rather than gopherstack's own recursive
+    function, and every SDK-driven test in this service that calls
+    `client.UploadArchive` with a real body (this pass's new tests included)
+    exercises the strongest possible cross-check: the real SDK client
+    computes and sends `X-Amz-Sha256-Tree-Hash` using *its own*
+    `treehash.go` algorithm, and gopherstack's server-side `computeTreeHash`
+    must produce the same value or the upload is rejected as a mismatch — all
+    such uploads in this test suite succeed.
+
+16. **Gap disclosed, not fixed (out of this sweep's scope — a request
+    validation gap, not a wrong wire shape): `CompleteMultipartUpload` trusts
+    the client-supplied `X-Amz-Sha256-Tree-Hash` header verbatim** rather than
+    recomputing it from the concatenated part bytes and rejecting a mismatch
+    the way `UploadArchive` does (`multipart_uploads.go`'s
+    `CompleteMultipartUpload`). See the `CompleteMultipartUpload` op entry
+    above.
+
 ### Traps for the next auditor
 
+- **Dead-code `deserializeOpDocument<Op>Output` wrapper helpers.**
+  `GetVaultAccessPolicy` and `GetVaultNotifications` each have a
+  `awsRestjson1_deserializeOpDocument<Op>Output` function in
+  `deserializers.go` whose case list matches a wrapper key (`"policy"` /
+  `"vaultNotificationConfig"`) — but neither op's actual
+  `HandleDeserialize` calls it; both call the nested document deserializer
+  directly on the raw body instead, so the real wire shape is FLAT, not
+  wrapped. Always confirm which function `HandleDeserialize` itself calls
+  before trusting an OpDocument helper's case list — see finding 13 above
+  (2026-08-20) for the full account of this pass tripping over exactly that
+  trap, catching it via a real SDK round-trip test, and reverting.
 - `UploadArchive` / `CompleteMultipartUpload` / `InitiateJob` /
   `InitiateMultipartUpload` responses carry a JSON body in gopherstack
   (`uploadArchiveResponse`, `completeMultipartUploadResponse`,

@@ -65,18 +65,15 @@ type S3LogDestination struct {
 	OutputFormat string `json:"OutputFormat,omitempty"`
 }
 
-// LogDestination wraps possible log destination types.
-type LogDestination struct {
+// LogConfiguration controls pipe execution logging. Matches the real API's flat
+// shape (aws-sdk-go-v2/service/pipes/types.PipeLogConfiguration): the three
+// destinations are direct top-level fields, not wrapped in a "Destinations" list.
+type LogConfiguration struct {
 	CloudwatchLogsLogDestination *CloudwatchLogsLogDestination `json:"CloudwatchLogsLogDestination,omitempty"`
 	FirehoseLogDestination       *FirehoseLogDestination       `json:"FirehoseLogDestination,omitempty"`
 	S3LogDestination             *S3LogDestination             `json:"S3LogDestination,omitempty"`
-}
-
-// LogConfiguration controls pipe execution logging.
-type LogConfiguration struct {
-	Level                string           `json:"Level,omitempty"`
-	Destinations         []LogDestination `json:"Destinations,omitempty"`
-	IncludeExecutionData []string         `json:"IncludeExecutionData,omitempty"`
+	Level                        string                        `json:"Level,omitempty"`
+	IncludeExecutionData         []string                      `json:"IncludeExecutionData,omitempty"`
 }
 
 // CloudWatchMetricsDestination configures a CloudWatch metrics destination.
@@ -143,7 +140,18 @@ func clonePipe(p *Pipe) *Pipe {
 	}
 	if p.LogConfiguration != nil {
 		lc := *p.LogConfiguration
-		lc.Destinations = append([]LogDestination(nil), p.LogConfiguration.Destinations...)
+		if lc.CloudwatchLogsLogDestination != nil {
+			v := *lc.CloudwatchLogsLogDestination
+			lc.CloudwatchLogsLogDestination = &v
+		}
+		if lc.FirehoseLogDestination != nil {
+			v := *lc.FirehoseLogDestination
+			lc.FirehoseLogDestination = &v
+		}
+		if lc.S3LogDestination != nil {
+			v := *lc.S3LogDestination
+			lc.S3LogDestination = &v
+		}
 		lc.IncludeExecutionData = append([]string(nil), p.LogConfiguration.IncludeExecutionData...)
 		cp.LogConfiguration = &lc
 	}

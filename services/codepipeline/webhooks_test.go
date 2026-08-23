@@ -132,7 +132,7 @@ func TestHandler_Webhook_FullModel(t *testing.T) {
 				"targetAction":   "SourceAction",
 				"authentication": "GITHUB_HMAC",
 				"authenticationConfiguration": map[string]any{
-					"secretToken": "super-secret",
+					"SecretToken": "super-secret",
 				},
 				"filters": []map[string]any{
 					{"jsonPath": "$.ref", "matchEquals": "refs/heads/main"},
@@ -149,6 +149,10 @@ func TestHandler_Webhook_FullModel(t *testing.T) {
 				require.True(t, ok, "definition key missing")
 				assert.Equal(t, "wh-full", def["name"])
 				assert.Equal(t, "GITHUB_HMAC", def["authentication"])
+
+				authConfig, ok := def["authenticationConfiguration"].(map[string]any)
+				require.True(t, ok, "authenticationConfiguration key missing")
+				assert.Equal(t, "super-secret", authConfig["SecretToken"])
 
 				filters, _ := def["filters"].([]any)
 				require.Len(t, filters, 1)
@@ -195,10 +199,23 @@ func TestHandler_Webhook_FullModel(t *testing.T) {
 				"targetAction":   "SourceAction",
 				"authentication": "IP",
 				"authenticationConfiguration": map[string]any{
-					"allowedIPRange": "192.168.1.0/24",
+					"AllowedIPRange": "192.168.1.0/24",
 				},
 			},
 			wantStatus: http.StatusOK,
+			checkFn: func(t *testing.T, out map[string]any) {
+				t.Helper()
+
+				wh, ok := out["webhook"].(map[string]any)
+				require.True(t, ok, "webhook key missing")
+
+				def, ok := wh["definition"].(map[string]any)
+				require.True(t, ok, "definition key missing")
+
+				authConfig, ok := def["authenticationConfiguration"].(map[string]any)
+				require.True(t, ok, "authenticationConfiguration key missing")
+				assert.Equal(t, "192.168.1.0/24", authConfig["AllowedIPRange"])
+			},
 		},
 		{
 			name: "invalid authentication type rejected",

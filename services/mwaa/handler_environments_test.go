@@ -1248,6 +1248,44 @@ func TestHTTP_LoggingConfig_AllModules(t *testing.T) {
 	assert.Equal(t, "CRITICAL", resp.Environment.LoggingConfiguration.WorkerLogs.LogLevel)
 }
 
+// TestHTTP_LoggingConfig_CloudWatchLogGroupArn_NotEchoedFromRequest proves
+// CloudWatchLogGroupArn is not part of the request wire shape (real AWS's
+// LoggingConfigurationInput/ModuleLoggingConfigurationInput has no such
+// member; it is server-computed and response-only). A client stuffing the
+// field into a request body must not have it echoed back as if genuine.
+func TestHTTP_LoggingConfig_CloudWatchLogGroupArn_NotEchoedFromRequest(t *testing.T) {
+	t.Parallel()
+
+	h := newHandlerForTest(t)
+	createRec := doMWAARequest(t, h, http.MethodPut, "/environments/http-log-spoof", map[string]any{
+		"DagS3Path": "dags/", "ExecutionRoleArn": "arn:r", "SourceBucketArn": "arn:b",
+		"NetworkConfiguration": networkConfigBody(),
+		"LoggingConfiguration": map[string]any{
+			"DagProcessingLogs": map[string]any{
+				"LogLevel":              "INFO",
+				"CloudWatchLogGroupArn": "arn:aws:logs:us-east-1:123456789012:log-group:spoofed:*",
+			},
+		},
+	})
+	require.Equal(t, http.StatusOK, createRec.Code)
+
+	doMWAARequest(t, h, http.MethodGet, "/environments/http-log-spoof", nil) // consume CREATING
+
+	getRec := doMWAARequest(t, h, http.MethodGet, "/environments/http-log-spoof", nil)
+	require.Equal(t, http.StatusOK, getRec.Code)
+
+	var resp struct {
+		Environment struct {
+			LoggingConfiguration *mwaa.LoggingConfiguration `json:"LoggingConfiguration"`
+		} `json:"Environment"`
+	}
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp))
+	require.NotNil(t, resp.Environment.LoggingConfiguration)
+	require.NotNil(t, resp.Environment.LoggingConfiguration.DagProcessingLogs)
+	assert.Equal(t, "INFO", resp.Environment.LoggingConfiguration.DagProcessingLogs.LogLevel)
+	assert.Empty(t, resp.Environment.LoggingConfiguration.DagProcessingLogs.CloudWatchLogGroupArn)
+}
+
 func TestUpdateEnvironment_HTTP_NonAvailable_Returns400(t *testing.T) {
 	t.Parallel()
 

@@ -77,10 +77,10 @@ func (b *InMemoryBackend) timeoutExecutionLocked(domain string, exec *WorkflowEx
 		},
 	}
 	b.appendHistoryEventLocked(domain, exec.WorkflowID, exec.RunID, "WorkflowExecutionTimedOut", attrs)
-	// ChildWorkflowExecutionTimedOutEventAttributes requires timeoutType (unlike
-	// ChildWorkflowExecutionTerminatedEventAttributes, which carries none) --
-	// propagateChildClosureLocked's base attrs don't cover it, so it must ride
-	// along as extra or the required wire key vanishes on the parent's event.
+	// ChildWorkflowExecutionTimedOutEventAttributes.TimeoutType is required
+	// (types/types.go, same real enum/value as WorkflowExecutionTimedOut above) --
+	// propagateChildClosureLocked's own base attrs carry no timeoutType, so it must
+	// come from extra here, same as Completed/Failed/Canceled pass their own payload.
 	b.propagateChildClosureLocked(domain, exec, "ChildWorkflowExecutionTimedOut", map[string]any{
 		attrTimeoutType: timeoutTypeStartToClose,
 	})

@@ -20,6 +20,12 @@ const (
 	// deliveryStreamTypeDirectPut is the default stream type for direct-put streams.
 	deliveryStreamTypeDirectPut     = "DirectPut"
 	deliveryStreamTypeKinesisSource = "KinesisStreamAsSource"
+	// deliveryStreamTypeMSKSource and deliveryStreamTypeDatabaseSource are real
+	// DeliveryStreamType enum values (aws-sdk-go-v2/service/firehose/types/
+	// enums.go@v1.46.4) accepted as a ListDeliveryStreams filter even though this
+	// backend does not poll MSK/database sources.
+	deliveryStreamTypeMSKSource      = "MSKAsSource"
+	deliveryStreamTypeDatabaseSource = "DatabaseAsSource"
 )
 
 // BufferingHints controls when buffered records are delivered to S3.
@@ -120,12 +126,14 @@ type S3DestinationDescription struct {
 // required set -- BucketARN/BufferingHints/CompressionFormat/EncryptionConfiguration/
 // RoleARN -- applies here too.
 type S3BackupDescription struct {
-	BufferingHints          *BufferingHints            `json:"BufferingHints,omitempty"`
-	EncryptionConfiguration *S3EncryptionConfiguration `json:"EncryptionConfiguration,omitempty"`
-	BucketARN               string                     `json:"BucketARN"`
-	RoleARN                 string                     `json:"RoleARN"`
-	Prefix                  string                     `json:"Prefix,omitempty"`
-	CompressionFormat       string                     `json:"CompressionFormat,omitempty"`
+	BufferingHints           *BufferingHints            `json:"BufferingHints,omitempty"`
+	EncryptionConfiguration  *S3EncryptionConfiguration `json:"EncryptionConfiguration,omitempty"`
+	CloudWatchLoggingOptions *CloudWatchLoggingOptions  `json:"CloudWatchLoggingOptions,omitempty"`
+	BucketARN                string                     `json:"BucketARN"`
+	RoleARN                  string                     `json:"RoleARN"`
+	Prefix                   string                     `json:"Prefix,omitempty"`
+	ErrorOutputPrefix        string                     `json:"ErrorOutputPrefix,omitempty"`
+	CompressionFormat        string                     `json:"CompressionFormat,omitempty"`
 }
 
 // HTTPEndpointRequestConfiguration holds the content-encoding and attributes for HTTP requests.
@@ -149,8 +157,12 @@ type HTTPEndpointDestinationDescription struct {
 	RetryOptions             *RetryOptions                     `json:"RetryOptions,omitempty"`
 	CloudWatchLoggingOptions *CloudWatchLoggingOptions         `json:"CloudWatchLoggingOptions,omitempty"`
 	S3BackupMode             string                            `json:"S3BackupMode,omitempty"`
-	S3BackupDescription      *S3BackupDescription              `json:"S3BackupDescription,omitempty"`
-	DestinationID            string                            `json:"DestinationId,omitempty"`
+	// S3BackupDescription is HttpEndpoint's single S3 bucket (used only as the
+	// backup/failed-data sink); its wire key is "S3DestinationDescription", not
+	// "S3BackupDescription", confirmed via
+	// awsAwsjson11_deserializeDocumentHttpEndpointDestinationDescription.
+	S3BackupDescription *S3BackupDescription `json:"S3DestinationDescription,omitempty"`
+	DestinationID       string               `json:"DestinationId,omitempty"`
 }
 
 // HTTPEndpointConfiguration holds the HTTP endpoint URL and name.
@@ -204,18 +216,20 @@ type RedshiftCopyCommand struct {
 
 // RedshiftDestinationDescription holds a Redshift destination config.
 type RedshiftDestinationDescription struct {
-	ProcessingConfiguration *ProcessingConfiguration `json:"ProcessingConfiguration,omitempty"`
-	RetryOptions            *RetryOptions            `json:"RetryOptions,omitempty"`
-	S3BackupDescription     *S3BackupDescription     `json:"S3BackupDescription,omitempty"`
+	ProcessingConfiguration  *ProcessingConfiguration  `json:"ProcessingConfiguration,omitempty"`
+	RetryOptions             *RetryOptions             `json:"RetryOptions,omitempty"`
+	S3BackupDescription      *S3BackupDescription      `json:"S3BackupDescription,omitempty"`
+	CloudWatchLoggingOptions *CloudWatchLoggingOptions `json:"CloudWatchLoggingOptions,omitempty"`
 	// S3Destination is the required intermediate S3 staging location that Amazon
 	// Redshift's COPY command reads from (wire field "S3DestinationDescription").
-	S3Destination  *S3DestinationDescription `json:"S3DestinationDescription,omitempty"`
-	CopyCommand    *RedshiftCopyCommand      `json:"CopyCommand,omitempty"`
-	ClusterJDBCURL string                    `json:"ClusterJDBCURL,omitempty"`
-	Username       string                    `json:"Username,omitempty"`
-	RoleARN        string                    `json:"RoleARN,omitempty"`
-	S3BackupMode   string                    `json:"S3BackupMode,omitempty"`
-	DestinationID  string                    `json:"DestinationId,omitempty"`
+	S3Destination               *S3DestinationDescription    `json:"S3DestinationDescription,omitempty"`
+	CopyCommand                 *RedshiftCopyCommand         `json:"CopyCommand,omitempty"`
+	SecretsManagerConfiguration *SecretsManagerConfiguration `json:"SecretsManagerConfiguration,omitempty"`
+	ClusterJDBCURL              string                       `json:"ClusterJDBCURL,omitempty"`
+	Username                    string                       `json:"Username,omitempty"`
+	RoleARN                     string                       `json:"RoleARN,omitempty"`
+	S3BackupMode                string                       `json:"S3BackupMode,omitempty"`
+	DestinationID               string                       `json:"DestinationId,omitempty"`
 }
 
 // OpenSearchDestinationDescription holds an OpenSearch (Elasticsearch) destination config.
@@ -224,15 +238,19 @@ type OpenSearchDestinationDescription struct {
 	BufferingHints           *BufferingHints           `json:"BufferingHints,omitempty"`
 	RetryOptions             *RetryOptions             `json:"RetryOptions,omitempty"`
 	CloudWatchLoggingOptions *CloudWatchLoggingOptions `json:"CloudWatchLoggingOptions,omitempty"`
-	S3BackupDescription      *S3BackupDescription      `json:"S3BackupDescription,omitempty"`
-	DomainARN                string                    `json:"DomainARN,omitempty"`
-	ClusterEndpoint          string                    `json:"ClusterEndpoint,omitempty"`
-	IndexName                string                    `json:"IndexName,omitempty"`
-	TypeName                 string                    `json:"TypeName,omitempty"`
-	IndexRotationPeriod      string                    `json:"IndexRotationPeriod,omitempty"`
-	S3BackupMode             string                    `json:"S3BackupMode,omitempty"`
-	RoleARN                  string                    `json:"RoleARN,omitempty"`
-	DestinationID            string                    `json:"DestinationId,omitempty"`
+	// S3BackupDescription is OpenSearch's single S3 bucket (used only as the
+	// backup/failed-document sink); its wire key is "S3DestinationDescription", not
+	// "S3BackupDescription", confirmed via
+	// awsAwsjson11_deserializeDocumentAmazonopensearchserviceDestinationDescription.
+	S3BackupDescription *S3BackupDescription `json:"S3DestinationDescription,omitempty"`
+	DomainARN           string               `json:"DomainARN,omitempty"`
+	ClusterEndpoint     string               `json:"ClusterEndpoint,omitempty"`
+	IndexName           string               `json:"IndexName,omitempty"`
+	TypeName            string               `json:"TypeName,omitempty"`
+	IndexRotationPeriod string               `json:"IndexRotationPeriod,omitempty"`
+	S3BackupMode        string               `json:"S3BackupMode,omitempty"`
+	RoleARN             string               `json:"RoleARN,omitempty"`
+	DestinationID       string               `json:"DestinationId,omitempty"`
 }
 
 // ElasticsearchDestinationDescription holds a legacy (pre-OpenSearch-rename) Elasticsearch
@@ -245,29 +263,37 @@ type ElasticsearchDestinationDescription struct {
 	BufferingHints           *BufferingHints           `json:"BufferingHints,omitempty"`
 	RetryOptions             *RetryOptions             `json:"RetryOptions,omitempty"`
 	CloudWatchLoggingOptions *CloudWatchLoggingOptions `json:"CloudWatchLoggingOptions,omitempty"`
-	S3BackupDescription      *S3BackupDescription      `json:"S3BackupDescription,omitempty"`
-	DomainARN                string                    `json:"DomainARN,omitempty"`
-	ClusterEndpoint          string                    `json:"ClusterEndpoint,omitempty"`
-	IndexName                string                    `json:"IndexName,omitempty"`
-	TypeName                 string                    `json:"TypeName,omitempty"`
-	IndexRotationPeriod      string                    `json:"IndexRotationPeriod,omitempty"`
-	S3BackupMode             string                    `json:"S3BackupMode,omitempty"`
-	RoleARN                  string                    `json:"RoleARN,omitempty"`
-	DestinationID            string                    `json:"DestinationId,omitempty"`
+	// S3BackupDescription is Elasticsearch's single S3 bucket (used only as the
+	// backup/failed-document sink); its wire key is "S3DestinationDescription", not
+	// "S3BackupDescription", confirmed via
+	// awsAwsjson11_deserializeDocumentElasticsearchDestinationDescription.
+	S3BackupDescription *S3BackupDescription `json:"S3DestinationDescription,omitempty"`
+	DomainARN           string               `json:"DomainARN,omitempty"`
+	ClusterEndpoint     string               `json:"ClusterEndpoint,omitempty"`
+	IndexName           string               `json:"IndexName,omitempty"`
+	TypeName            string               `json:"TypeName,omitempty"`
+	IndexRotationPeriod string               `json:"IndexRotationPeriod,omitempty"`
+	S3BackupMode        string               `json:"S3BackupMode,omitempty"`
+	RoleARN             string               `json:"RoleARN,omitempty"`
+	DestinationID       string               `json:"DestinationId,omitempty"`
 }
 
 // SplunkDestinationDescription holds a Splunk HEC destination config.
 type SplunkDestinationDescription struct {
-	ProcessingConfiguration           *ProcessingConfiguration  `json:"ProcessingConfiguration,omitempty"`
-	RetryOptions                      *RetryOptions             `json:"RetryOptions,omitempty"`
-	CloudWatchLoggingOptions          *CloudWatchLoggingOptions `json:"CloudWatchLoggingOptions,omitempty"`
-	S3BackupDescription               *S3BackupDescription      `json:"S3BackupDescription,omitempty"`
-	HECEndpoint                       string                    `json:"HECEndpoint,omitempty"`
-	HECEndpointType                   string                    `json:"HECEndpointType,omitempty"`
-	HECToken                          string                    `json:"HECToken,omitempty"`
-	S3BackupMode                      string                    `json:"S3BackupMode,omitempty"`
-	DestinationID                     string                    `json:"DestinationId,omitempty"`
-	HECAcknowledgmentTimeoutInSeconds int                       `json:"HECAcknowledgmentTimeoutInSeconds,omitempty"`
+	ProcessingConfiguration  *ProcessingConfiguration  `json:"ProcessingConfiguration,omitempty"`
+	RetryOptions             *RetryOptions             `json:"RetryOptions,omitempty"`
+	CloudWatchLoggingOptions *CloudWatchLoggingOptions `json:"CloudWatchLoggingOptions,omitempty"`
+	// S3BackupDescription is Splunk's single S3 bucket (used only as the
+	// backup/failed-event sink); its wire key is "S3DestinationDescription", not
+	// "S3BackupDescription", confirmed via
+	// awsAwsjson11_deserializeDocumentSplunkDestinationDescription.
+	S3BackupDescription               *S3BackupDescription `json:"S3DestinationDescription,omitempty"`
+	HECEndpoint                       string               `json:"HECEndpoint,omitempty"`
+	HECEndpointType                   string               `json:"HECEndpointType,omitempty"`
+	HECToken                          string               `json:"HECToken,omitempty"`
+	S3BackupMode                      string               `json:"S3BackupMode,omitempty"`
+	DestinationID                     string               `json:"DestinationId,omitempty"`
+	HECAcknowledgmentTimeoutInSeconds int                  `json:"HECAcknowledgmentTimeoutInSeconds,omitempty"`
 }
 
 // CatalogConfiguration describes where destination Apache Iceberg tables are persisted.

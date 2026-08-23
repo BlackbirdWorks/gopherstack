@@ -166,7 +166,6 @@ type subDomainView struct {
 }
 
 type domainAssociationView struct {
-	AppID                            string          `json:"appId"`
 	DomainName                       string          `json:"domainName"`
 	ARN                              string          `json:"domainAssociationArn"`
 	DomainStatus                     string          `json:"domainStatus"`
@@ -191,7 +190,6 @@ func toDomainAssociationView(d *DomainAssociation) domainAssociationView {
 
 	return domainAssociationView{
 		SubDomains:                       subs,
-		AppID:                            d.AppID,
 		DomainName:                       d.DomainName,
 		ARN:                              d.ARN,
 		DomainStatus:                     string(d.DomainStatus),

@@ -176,9 +176,14 @@ type WebhookFilter struct {
 }
 
 // WebhookAuthConfig holds the authentication configuration for a webhook.
+// Real types.WebhookAuthConfiguration
+// (awsAwsjson11_deserializeDocumentWebhookAuthConfiguration /
+// awsAwsjson11_serializeDocumentWebhookAuthConfiguration) uses the
+// capitalized wire keys "SecretToken"/"AllowedIPRange" -- unlike every other
+// member of WebhookDefinition/ListWebhookItem, which are lowerCamelCase.
 type WebhookAuthConfig struct {
-	SecretToken    string `json:"secretToken,omitempty"`
-	AllowedIPRange string `json:"allowedIPRange,omitempty"`
+	SecretToken    string `json:"SecretToken,omitempty"`
+	AllowedIPRange string `json:"AllowedIPRange,omitempty"`
 }
 
 // Webhook represents a CodePipeline webhook with full AWS-parity fields.
@@ -370,9 +375,11 @@ type Pipeline struct {
 	Metadata    PipelineMetadata    `json:"metadata"`
 }
 
-// PipelineSummary is a condensed view of a pipeline for listing.
+// PipelineSummary is a condensed view of a pipeline for listing. Real
+// types.PipelineSummary (awsAwsjson11_deserializeDocumentPipelineSummary) has
+// no pipelineArn member -- ListPipelines never surfaces it; use GetPipeline
+// for the ARN.
 type PipelineSummary struct {
-	PipelineArn   string  `json:"pipelineArn,omitempty"`
 	Name          string  `json:"name"`
 	PipelineType  string  `json:"pipelineType,omitempty"`
 	ExecutionMode string  `json:"executionMode,omitempty"`
@@ -407,10 +414,9 @@ type PipelineExecution struct {
 
 // StageState represents the state of a pipeline stage.
 type StageState struct {
-	InboundTransitionState  *StageTransitionState
-	OutboundTransitionState *StageTransitionState
-	StageName               string
-	ActionStates            []map[string]any
+	InboundTransitionState *StageTransitionState
+	StageName              string
+	ActionStates           []map[string]any
 }
 
 // ActionExecution records a single action's execution within a pipeline run.

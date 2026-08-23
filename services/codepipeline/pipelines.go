@@ -153,7 +153,6 @@ func (b *InMemoryBackend) ListPipelines(ctx context.Context) []PipelineSummary {
 			ExecutionMode: p.Declaration.ExecutionMode,
 			Created:       p.Metadata.Created,
 			Updated:       p.Metadata.Updated,
-			PipelineArn:   p.Metadata.PipelineArn,
 		})
 	}
 

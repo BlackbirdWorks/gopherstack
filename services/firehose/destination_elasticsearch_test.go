@@ -42,7 +42,10 @@ func TestElasticsearchDestination_CreateAndDescribe(t *testing.T) {
 	assert.Equal(t, "access-logs", d["IndexName"])
 	assert.Equal(t, "OneDay", d["IndexRotationPeriod"])
 
-	backup := d["S3BackupDescription"].(map[string]any)
+	// Elasticsearch's single S3 bucket (used only as the backup/failed-document sink)
+	// is wire-keyed "S3DestinationDescription", not "S3BackupDescription" -- confirmed
+	// via awsAwsjson11_deserializeDocumentElasticsearchDestinationDescription.
+	backup := d["S3DestinationDescription"].(map[string]any)
 	assert.Equal(t, "arn:aws:s3:::es-backup-bucket", backup["BucketARN"])
 }
 

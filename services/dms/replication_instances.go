@@ -18,6 +18,21 @@ func (b *InMemoryBackend) mustDescribeReplicationInstances(ctx context.Context) 
 	return list
 }
 
+// ReplicationInstanceSettings carries the optional top-level
+// ReplicationInstance settings CreateReplicationInstance/
+// ModifyReplicationInstance accept beyond the original identifier/class/
+// engineVersion/availabilityZone/allocatedStorage/multiAZ/... set -- see
+// api_op_CreateReplicationInstance.go / api_op_ModifyReplicationInstance.go,
+// databasemigrationservice@v1.66.4. KmsKeyID is create-only (real
+// ModifyReplicationInstanceInput has no KmsKeyId member) and is ignored by
+// ModifyReplicationInstance.
+type ReplicationInstanceSettings struct {
+	KmsKeyID                   string
+	DNSNameServers             string
+	NetworkType                string
+	PreferredMaintenanceWindow string
+}
+
 // CreateReplicationInstance creates a new DMS replication instance.
 func (b *InMemoryBackend) CreateReplicationInstance(
 	ctx context.Context,
@@ -25,6 +40,7 @@ func (b *InMemoryBackend) CreateReplicationInstance(
 	allocatedStorage int32,
 	multiAZ, autoMinorVersionUpgrade, publiclyAccessible bool,
 	kv map[string]string,
+	settings ReplicationInstanceSettings,
 ) (*ReplicationInstance, error) {
 	b.mu.Lock("CreateReplicationInstance")
 	defer b.mu.Unlock()
@@ -69,6 +85,10 @@ func (b *InMemoryBackend) CreateReplicationInstance(
 		Region:                        region,
 		CreationTime:                  time.Now().UTC(),
 		Tags:                          t,
+		KmsKeyID:                      settings.KmsKeyID,
+		DNSNameServers:                settings.DNSNameServers,
+		NetworkType:                   settings.NetworkType,
+		PreferredMaintenanceWindow:    settings.PreferredMaintenanceWindow,
 	}
 	b.replicationInstances.Put(ri)
 	cp := *ri
@@ -154,6 +174,7 @@ func (b *InMemoryBackend) ModifyReplicationInstance(
 	arnOrID, class, engineVersion string,
 	multiAZ, autoMinorVersionUpgrade *bool,
 	allocatedStorage *int32,
+	settings ReplicationInstanceSettings,
 ) (*ReplicationInstance, error) {
 	b.mu.Lock("ModifyReplicationInstance")
 	defer b.mu.Unlock()
@@ -181,6 +202,14 @@ func (b *InMemoryBackend) ModifyReplicationInstance(
 
 	if allocatedStorage != nil {
 		ri.AllocatedStorage = *allocatedStorage
+	}
+
+	if settings.NetworkType != "" {
+		ri.NetworkType = settings.NetworkType
+	}
+
+	if settings.PreferredMaintenanceWindow != "" {
+		ri.PreferredMaintenanceWindow = settings.PreferredMaintenanceWindow
 	}
 
 	cp := *ri

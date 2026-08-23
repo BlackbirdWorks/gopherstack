@@ -5,17 +5,17 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: mediastoredata
-sdk_module: aws-sdk-go-v2/service/mediastoredata@v1.32.4   # version audited against; go.mod pin -- was stale at v1.29.19, deserializers.go/validators.go are byte-identical between the two so no wire claim changed
-last_audit_commit: 54d89aa99a
-last_audit_date: 2026-08-10
-overall: A            # this pass: confirmed the per-op modeled-error enumeration from deserializers.go for all 5 ops, fixed a real accept-anything bug on x-amz-upload-availability (gopherstack was MORE permissive than the real enum), confirmed the STREAMING/container gaps are genuine and structural
+sdk_module: aws-sdk-go-v2/service/mediastoredata@v1.32.4   # version audited against; unchanged from prior pass, confirmed still the go.mod pin
+last_audit_commit: 2e04b49be7
+last_audit_date: 2026-08-20
+overall: A            # this pass: wrapper-key/HTTP-binding sweep. Found and fixed one real wire bug -- gopherstack never set the X-Amzn-ErrorType response header real mediastoredata sets on every error, which is the ONLY way a real client can recover a typed error from DescribeObject (a HEAD op: net/http always discards a HEAD response body, so the JSON __type body every other op's error relies on is unreadable for DescribeObject specifically). Proved with a real aws-sdk-go-v2 round-trip test (wire_sdk_roundtrip_test.go, new this pass) and a hand-revert. All other HTTP bindings/headers/status codes/greedy-path routing/Item shape/enums verified clean against deserializers.go/serializers.go at the pinned version -- see ops/families below.
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
   PutObject: {wire: ok, errors: ok, state: ok, persist: ok, note: "PutObjectOutput{ContentSHA256,ETag,StorageClass} JSON body fields verified against deserializeOpDocumentPutObjectOutput. errors: an earlier pass replaced 3 fabricated, non-existent exception names (InvalidPathException, InvalidStorageClassException, InvalidContentSHA256Exception) with real AWS error names -- ValidationException (path/storage-class/upload-availability validation, matching the AWS-wide/gopherstack-wide convention already used by this same handler's ListItems MaxResults check) and XAmzContentSHA256Mismatch (the real S3-family error for a declared X-Amz-Content-Sha256 that doesn't match the actual body, verified via AWS SDK GitHub issues across multiple language SDKs). Per the real deserializeOpErrorPutObject switch (re-confirmed this pass at the pinned v1.32.4 -- deserializers.go is byte-identical to v1.29.19), PutObject's OWN narrow modeled-error list is only {ContainerNotFoundException, InternalServerError} -- ValidationException/XAmzContentSHA256Mismatch are real AWS names but not officially enumerated for this specific op in the public smithy model (see gaps); this is the closest-to-correct choice achievable without live-AWS access, and a definite improvement over inventing new strings. BUG FIXED this pass: x-amz-upload-availability accepted and stored ANY string verbatim (no validation, no default) -- this is the exact 'emulator more permissive than the real service' inversion this pass was asked to hunt for: the real enum (types.UploadAvailability) has exactly 2 members (STANDARD, STREAMING) and PutObjectInput's doc comment states the default is 'standard' when omitted, matching the existing StorageClass empty->TEMPORAL default convention right above it in the same function. Now: empty defaults to STANDARD, unknown values are rejected with ValidationException via the new ErrInvalidUploadAvailability sentinel (errors.go), same as StorageClass. Covered by TestInMemoryBackend_UploadAvailability and TestMediaStoreData_UploadAvailabilityValidation."}
   GetObject: {wire: ok, errors: ok, state: ok, persist: ok, note: "body, Content-Type/Length/Range, ETag, Last-Modified, Cache-Control, X-Amz-Content-Sha256, Accept-Ranges all verified against deserializers.go httpBindings for GetObjectOutput. Range (single-range bytes=a-b, suffix, open) -> 206 + Content-Range; unsatisfiable -> 416. BUG FIXED this pass: the 416 response's __type was the fabricated \"InvalidRangeException\" even though the HTTP status (416) was already correct -- the real modeled name is \"RequestedRangeNotSatisfiableException\" (types.RequestedRangeNotSatisfiableException), confirmed via deserializeOpErrorGetObject's switch. A real client's errors.As(&types.RequestedRangeNotSatisfiableException{}) would NOT have matched gopherstack's old response; now it does. Conditional headers (If-Match/If-None-Match/If-Modified-Since/If-Unmodified-Since) implemented, not part of the modeled GetObjectInput but harmless/standard-HTTP. Per-op modeled errors confirmed via deserializeOpErrorGetObject: {ContainerNotFoundException, InternalServerError, ObjectNotFoundException, RequestedRangeNotSatisfiableException} -- all 4 real names, all correctly used."}
   DeleteObject: {wire: ok, errors: ok, state: ok, persist: ok, note: "Per-op modeled errors confirmed via deserializeOpErrorDeleteObject: {ContainerNotFoundException, InternalServerError, ObjectNotFoundException}. ObjectNotFoundException correctly used; DeleteObjectOutput is void (matches c.NoContent(200))."}
-  DescribeObject: {wire: ok, errors: ok, state: ok, persist: ok, note: "HEAD /{Path+}; correctly does NOT support Range (DescribeObjectInput has no Range field in the real SDK) and does not set StatusCode (DescribeObjectOutput has no StatusCode field, unlike GetObjectOutput). Per-op modeled errors confirmed via deserializeOpErrorDescribeObject: {ContainerNotFoundException, InternalServerError, ObjectNotFoundException}."}
+  DescribeObject: {wire: ok, errors: ok, state: ok, persist: ok, note: "HEAD /{Path+}; correctly does NOT support Range (DescribeObjectInput has no Range field in the real SDK) and does not set StatusCode (DescribeObjectOutput has no StatusCode field, unlike GetObjectOutput). Per-op modeled errors confirmed via deserializeOpErrorDescribeObject: {ContainerNotFoundException, InternalServerError, ObjectNotFoundException}. BUG FOUND AND FIXED this pass (2026-08-20): every error response (this op and all 4 others) carried its __type ONLY in the JSON body, never in the X-Amzn-ErrorType header that deserializeOpErrorDescribeObject (and every other op's deserializeOpError<Op>) checks FIRST, before ever attempting to decode a body. This was silently harmless for PUT/GET/DELETE (their error responses carry a body a real client CAN read) but a hard, 100%-reproducing break for DescribeObject specifically: DescribeObject is HEAD, and net/http's client transport unconditionally discards a HEAD response's body (RFC 7231 SS4.3.2) regardless of what the server wrote, so a real SDK caller could NEVER recover ObjectNotFoundException/InternalServerError/ContainerNotFoundException from a failed DescribeObject -- every failure silently degraded to an untyped smithy.GenericAPIError{Code:\"UnknownError\"}, which a caller's errors.As(&types.ObjectNotFoundException{}) (the normal, documented way to check for a 404) would never match. Reproduced against the REAL aws-sdk-go-v2 client via a new httptest+router round-trip (TestDescribeObject_SDKRoundTrip in wire_sdk_roundtrip_test.go, new this pass) and confirmed via hand-revert (commenting out just the header-Set line reproduces the exact original failure). Fixed via a new writeErrorJSON(c, status, code, msg) helper (handler.go) that sets X-Amzn-ErrorType alongside the existing JSON body, replacing all 7 c.JSON(status, errorResponse(...)) call sites in the package -- this also brings PutObject/GetObject/DeleteObject/ListItems's error responses one step closer to the real wire shape even though their bodies already worked."}
   ListItems: {wire: ok, errors: ok, state: ok, persist: ok, note: "GET / always (Path/MaxResults/NextToken are query params, never part of the URL path -- confirmed via serializers.go: opPath is literally \"/\" for ListItems). Item{Name,Type,ContentLength,ContentType,ETag,LastModified} field set and JSON key names verified byte-for-byte against deserializeDocumentItem AND types.Item -- gopherstack's internal Item struct carries extra CacheControl/StorageClass/SHA256 fields but these correctly never reach the wire (handler.go's itemEntry struct only serializes the 6 real fields). LastModified emitted as epoch-seconds JSON number (matches ParseEpochSeconds), MaxResults bounded 1-1000, folder synthesis from path prefixes with object/folder name-collision dedup verified by TestInMemoryBackend_ListItems_NoNameCollision. Per-op modeled errors confirmed via deserializeOpErrorListItems: {ContainerNotFoundException, InternalServerError} only (no ObjectNotFoundException) -- gopherstack never returns ObjectNotFoundException from ListItems, correct."}
 # Families audited as a group (when per-op is impractical):
 families:
@@ -90,3 +90,38 @@ leaks: {status: clean, note: "no goroutines/janitors; region map lazily allocate
   tests only checked HTTP status, not the error body) in handler_test.go's
   TestMediaStoreData_PathValidation, TestMediaStoreData_StorageClassValidation,
   TestMediaStoreData_ContentSHA256Verification, and TestMediaStoreData_RangeRequests.
+
+- **This pass's fix (2026-08-20):** wrapper-key/nested-shape/HTTP-binding sweep of all 5
+  ops. Confirmed clean, against the pinned v1.32.4 deserializers.go/serializers.go, with no
+  changes needed: every GetObject/DescribeObject header binding name and casing
+  (CacheControl->Cache-Control, ContentLength->Content-Length, ContentRange->Content-Range,
+  ContentType->Content-Type, ETag->ETag, LastModified->Last-Modified via
+  smithytime.ParseHTTPDate NOT epoch), GetObject's StatusCode (200 vs 206, sourced straight
+  from response.StatusCode, not hardcoded), PutObject's request-header bindings
+  (CacheControl->Cache-Control, ContentType->Content-Type, StorageClass->X-Amz-Storage-Class,
+  UploadAvailability->X-Amz-Upload-Availability) and JSON-body-only response
+  (ContentSHA256/ETag/StorageClass -- confirmed via deserializeOpDocumentPutObjectOutput
+  that GetObject's own body deserializer, deserializeOpDocumentGetObjectOutput, is the
+  polly-shape single-line `v.Body = body` with no JSON decode at all), ListItems' GET "/"
+  with Path/MaxResults/NextToken as query-only params (never a path segment) and its
+  Item{ContentLength,ContentType,ETag,LastModified,Name,Type} field set (LastModified
+  correctly epoch-seconds here, unlike the header form), the greedy `/{Path+}` routing
+  (gopherstack's router has no Echo route pattern at all -- pkgs/service.Router matches on
+  User-Agent and dispatches on the raw, already zero-loss r.URL.Path, so multi-segment
+  paths were never at risk), and both ItemType/StorageClass/UploadAvailability enums
+  checked both ways -- all found correct, all now covered by a real aws-sdk-go-v2
+  round-trip test (`wire_sdk_roundtrip_test.go`, new this pass:
+  TestPutGetObject_MultiSegmentPath_SDKRoundTrip, TestGetObject_Range_SDKRoundTrip,
+  TestDescribeObject_SDKRoundTrip, TestListItems_SDKRoundTrip) that drives the real SDK
+  client through the real `pkgs/service` router, not just this package's own JSON tags.
+  ONE real bug found and fixed: no op's error response ever set the `X-Amzn-ErrorType`
+  header, which `deserializeOpError<Op>` checks BEFORE attempting to decode a body --
+  harmless for PUT/GET/DELETE (whose error bodies a real client can read) but a 100%
+  reproducing break for DescribeObject, whose HEAD response body net/http's own transport
+  always discards client-side regardless of what the server sent, so no DescribeObject
+  error could ever deserialize into its real typed exception. See the DescribeObject `ops`
+  entry above for the full repro/fix/test detail. Structurally unverifiable, as always: the
+  actual bytes an object stores (this backend only proves shape and count, e.g. body
+  round-trips through a fixed test payload -- it cannot exhaustively prove every possible
+  byte sequence survives, though SHA-256-based ETag/ContentSHA256 gives strong indirect
+  coverage).

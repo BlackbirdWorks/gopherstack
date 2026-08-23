@@ -1,8 +1,8 @@
 ---
 service: emrserverless
 sdk_module: aws-sdk-go-v2/service/emrserverless@v1.44.4
-last_audit_commit: b0d0cfe0  # this pass (2026-08-13, gopherstack-tuh5) fixed ListApplications/ListJobRuns/ListSessions Get-field leaks; commit hash not yet known at edit time
-last_audit_date: 2026-08-13
+last_audit_commit: adb374d97  # gopherstack-tuh5 fix (2026-08-13): ListApplications/ListJobRuns/ListSessions Get-field leaks; this pass (2026-08-20) re-derived every op's wire shape from the pinned SDK from scratch and found the prior manifest's placeholder hash (b0d0cfe0) pointed at an unrelated resourcegroupstaggingapi commit
+last_audit_date: 2026-08-20
 overall: A
 ops:
   CreateApplication: {wire: ok, errors: ok, state: ok, persist: ok, note: "config sub-object allowlist extended to cover every types.CreateApplicationInput sub-object (added identityCenterConfiguration/diskEncryptionConfiguration/jobLevelCostAllocationConfiguration/schedulerConfiguration -- previously silently dropped); clientToken idempotency retained from prior pass"}
@@ -18,6 +18,7 @@ ops:
   CancelJobRun: {wire: ok, errors: ok, state: ok, persist: ok, note: "route is DELETE /applications/{appId}/jobruns/{jobRunId}, confirmed correct; rejects terminal states"}
   GetDashboardForJobRun: {wire: ok, errors: ok, state: ok, persist: n/a, note: "synthesized console URL, no persisted state to round-trip"}
   ListJobRunAttempts: {wire: fixed, errors: ok, state: ok, persist: n/a, note: "synthesizes a single attempt (0) from the job run; documented limitation, not a bug -- backend does not model retries. 2026-08-21: the synthesized attempt's required releaseLabel/stateDetails (types.JobRunAttemptSummary) were hardcoded to empty string under a comment claiming neither was tracked by the backend -- false, both are already stored on the backing JobRun -- now mirrors jr.ReleaseLabel/jr.StateDetails. See gopherstack-r80d batch 20 note below."}
+  ListJobRunAttempts: {wire: fixed, errors: ok, state: ok, persist: n/a, note: "synthesizes a single attempt (0) from the job run; documented limitation, not a bug -- backend does not model retries. 2026-08-20: jobRunAttemptToMap was missing the \"mode\" key entirely -- types.JobRunAttemptSummary declares Mode (confirmed against awsRestjson1_deserializeDocumentJobRunAttemptSummary), but JobRunAttemptSummary (models.go) had no Mode field and the synthesized attempt (job_run_attempts.go) never copied jr.Mode onto it, so a real SDK client's JobRunAttempts[].Mode always decoded as the zero value regardless of the job run's actual BATCH/STREAMING mode. Fixed: added JobRunAttemptSummary.Mode, wired from jr.Mode, added to jobRunAttemptToMap. Proven by TestListJobRunAttempts_Mode_SDKRoundTrip (wire_sdk_roundtrip_test.go)."}
   GetResourceDashboard: {wire: ok, errors: ok, state: ok, persist: n/a}
   StartSession: {wire: ok, errors: ok, state: ok, persist: ok, note: "field-diffed this pass against types.StartSessionInput/Output -- clientToken/executionRoleArn/configurationOverrides/idleTimeoutMinutes/name/tags all match; response root applicationId/arn/sessionId matches StartSessionOutput exactly"}
   GetSession: {wire: ok, errors: ok, state: ok, persist: ok, note: "field-diffed against awsRestjson1_deserializeDocumentSession: applicationId/arn/createdAt/createdBy/executionRoleArn (NOT executionRole -- Session uses the opposite field name from JobRun, confirmed via deserializers.go)/releaseLabel/sessionId/state/stateDetails/updatedAt (all required) plus startedAt/endedAt/idleTimeoutMinutes/configurationOverrides/tags all present and correctly keyed; sessionToMap needed no fix"}
@@ -47,7 +48,36 @@ reused from that package because this handler builds ad-hoc `map[string]any` wir
 rather than typed structs; worth revisiting if `pkgs/awstime` gains a
 `map[string]any`-friendly helper).
 
-### Real bugs found and fixed this pass
+### Re-audit, 2026-08-20 (wrapper-key / nested-shape sweep)
+
+Full independent re-derivation from the pinned SDK (v1.44.4, unchanged from the prior
+audit's pin -- no staleness there): every op's HTTP method/path re-read from
+`serializers.go`'s `SplitURI` calls, every response wrapper key and per-op live
+deserializer path re-read from `deserializers.go` (confirmed restjson1's wrapped
+`deserializeOpDocument<Op>Output` path is genuinely live -- called, not dead code -- for
+all 17 ops with a body; the other 5 are correctly void), and the full field/case list of
+`Application`/`ApplicationSummary`, `JobRun`/`JobRunSummary`,
+`JobRunAttemptSummary`, `Session`/`SessionSummary` re-read from their own
+`awsRestjson1_deserializeDocument*` switch statements rather than trusting this
+manifest's prior claims.
+
+Result: one real bug found (`ListJobRunAttempts`'s missing `mode`, see `ops` above) and
+one manifest-provenance defect fixed (`last_audit_commit` was a leftover placeholder
+pointing at an unrelated `resourcegroupstaggingapi` commit dated a month before
+`last_audit_date`; corrected to the actual `adb374d97`). Everything else the prior audit
+recorded held up under independent re-verification -- no additional wrong-key,
+wrong-nesting, wrong-type, or wrong-enum-value bugs found. The three request/response
+sibling-type pairs this sweep specifically targets
+(`ImageConfiguration`/`ImageConfigurationInput`,
+`IdentityCenterConfiguration`/`IdentityCenterConfigurationInput`, and the same pattern on
+every other `applicationConfigFields` sub-object) cannot leak the request-only-field bug
+class at all: this backend stores and echoes every sub-object as an opaque
+`map[string]any` passthrough keyed by its AWS wire field name rather than reconstructing
+a typed Go struct, so it only ever echoes back whatever subset of real field names the
+caller itself sent -- there is no code path that could fabricate a field the caller never
+sent.
+
+### Real bugs found and fixed (2026-08-13 pass, gopherstack-tuh5 unless noted)
 
 1. **JobRun response used the wrong wire field name for the execution role**
    (`handler.go`'s `jobRunToMap`). `GetJobRun`/`ListJobRuns` were emitting

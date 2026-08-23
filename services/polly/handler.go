@@ -504,12 +504,15 @@ func (h *Handler) listLexicons(c *echo.Context) error {
 		return err
 	}
 	end := min(offset+maxResults, len(lexicons))
-	attributes := make([]map[string]any, 0, end-offset)
+	descriptions := make([]map[string]any, 0, end-offset)
 	for _, lexicon := range lexicons[offset:end] {
-		attributes = append(attributes, lexiconAttributes(lexicon))
+		descriptions = append(descriptions, map[string]any{
+			"Name":       lexicon.Name,
+			"Attributes": lexiconAttributes(lexicon),
+		})
 	}
 
-	resp := map[string]any{"Lexicons": attributes}
+	resp := map[string]any{"Lexicons": descriptions}
 	// AWS omits NextToken when there are no further results.
 	if end < len(lexicons) {
 		resp["NextToken"] = encodeToken(end)
@@ -518,6 +521,11 @@ func (h *Handler) listLexicons(c *echo.Context) error {
 	return c.JSON(http.StatusOK, resp)
 }
 
+// lexiconAttributes builds the LexiconAttributes shape (Alphabet,
+// LanguageCode, LastModified, LexemesCount, LexiconArn, Size). Real Polly's
+// LexiconAttributes has no Name field -- GetLexicon's Name lives on the
+// sibling "Lexicon" member, and ListLexicons' Name is a sibling of
+// "Attributes" on each LexiconDescription item, never inside it.
 func lexiconAttributes(lexicon *Lexicon) map[string]any {
 	return map[string]any{
 		"Alphabet":     lexicon.Alphabet,
@@ -526,7 +534,6 @@ func lexiconAttributes(lexicon *Lexicon) map[string]any {
 		"LexemesCount": lexicon.LexemesCount,
 		"LexiconArn":   lexicon.ARN,
 		"Size":         lexicon.Size,
-		"Name":         lexicon.Name,
 	}
 }
 

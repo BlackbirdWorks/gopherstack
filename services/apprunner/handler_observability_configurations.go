@@ -139,13 +139,15 @@ type listObservabilityConfigurationsInput struct {
 	LatestOnly                     bool   `json:"LatestOnly"`
 }
 
+// observabilityConfigurationSummaryOutput mirrors types.ObservabilityConfigurationSummary,
+// which is narrower than types.ObservabilityConfiguration: it has no Status, Latest, or
+// CreatedAt (see deserializers.go:6215 in the pinned SDK — those three keys have no case
+// in the summary's own document deserializer and would be silently dropped by a real
+// client).
 type observabilityConfigurationSummaryOutput struct {
 	ObservabilityConfigurationArn      string `json:"ObservabilityConfigurationArn"`
 	ObservabilityConfigurationName     string `json:"ObservabilityConfigurationName"`
-	Status                             string `json:"Status"`
 	ObservabilityConfigurationRevision int32  `json:"ObservabilityConfigurationRevision"`
-	Latest                             bool   `json:"Latest"`
-	CreatedAt                          int64  `json:"CreatedAt"`
 }
 
 type listObservabilityConfigurationsOutput struct {
@@ -173,9 +175,6 @@ func (h *Handler) handleListObservabilityConfigurations(
 			ObservabilityConfigurationArn:      c.ObservabilityConfigurationArn,
 			ObservabilityConfigurationName:     c.ObservabilityConfigurationName,
 			ObservabilityConfigurationRevision: c.ObservabilityConfigurationRevision,
-			Status:                             c.Status,
-			Latest:                             c.Latest,
-			CreatedAt:                          c.CreatedAt.Unix(),
 		})
 	}
 

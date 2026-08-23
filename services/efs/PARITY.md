@@ -1,9 +1,9 @@
 ---
 service: efs
 sdk_module: aws-sdk-go-v2/service/efs@v1.44.4   # version audited against
-last_audit_commit: d59548b925a89fc0b11453a8877e95ae59073158
-last_audit_date: 2026-07-23
-overall: A            # cross-cutting pagination data-loss bug fixed + 4 gaps closed for real
+last_audit_commit: 2516ed984b0172a43275ab37c70f0cac8f6bc807
+last_audit_date: 2026-08-20
+overall: A            # wrapper-key/fabricated-field sweep this pass; 3 fabricated members removed, 1 real field added
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
   CreateFileSystem:                  {wire: ok, errors: ok, state: ok, persist: ok}
@@ -13,6 +13,8 @@ ops:
   UpdateFileSystemProtection:        {wire: ok, errors: ok, state: ok, persist: ok}
   CreateMountTarget:                 {wire: fixed, errors: ok, state: ok, persist: ok, note: "IpAddressType/Ipv6Address (dual-stack) support added this pass -- was a real gap, not previously documented"}
   DescribeMountTargets:              {wire: fixed, errors: ok, state: ok, persist: ok, note: "Ipv6Address now emitted when set; pagination data-loss bug fixed this pass, see notes"}
+  CreateMountTarget:                 {wire: ok (fixed 2026-08-20), errors: ok, state: ok, persist: ok, note: "removed fabricated MountTargetArn/SecurityGroups from the response -- types.MountTargetDescription has neither field at all"}
+  DescribeMountTargets:              {wire: ok (fixed 2026-08-20), errors: ok, state: ok, persist: ok, note: "Ipv6Address emitted when set; pagination data-loss bug fixed 2026-07-23; fabricated MountTargetArn/SecurityGroups removed 2026-08-20, see notes"}
   DeleteMountTarget:                 {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeMountTargetSecurityGroups: {wire: ok, errors: ok, state: ok, persist: ok}
   ModifyMountTargetSecurityGroups:   {wire: ok, errors: fixed, state: ok, persist: ok, note: "SecurityGroupLimitExceeded now 400 not 409"}
@@ -30,6 +32,9 @@ ops:
   CreateReplicationConfiguration:    {wire: fixed, errors: ok, state: ok, persist: ok, note: "Destination.LastReplicatedTimestamp now populated (epoch-seconds) at creation, simulating an instant initial sync -- was dormant/unset before this pass; 2026-08-21: Destination.Region (required output member, types/types.go:116-119) now defaulted to the source region for same-region replication (DestinationToCreate.Region is optional on input) -- see gopherstack-r80d batch 17 note below"}
   DeleteReplicationConfiguration:    {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeReplicationConfigurations: {wire: fixed, errors: ok, state: ok, persist: ok, note: "NextToken/MaxResults pagination implemented this pass (was previously always a single unpaginated page); LastReplicatedTimestamp now int64 epoch-seconds matching types.Destination.LastReplicatedTimestamp *time.Time wire shape, and populated"}
+  CreateReplicationConfiguration:    {wire: ok (fixed 2026-08-20), errors: ok, state: ok, persist: ok, note: "Destination.LastReplicatedTimestamp populated (epoch-seconds) at creation since 2026-07-23; 2026-08-20: removed fabricated FileSystemArn/AvailabilityZoneName/KmsKeyId from Destination response entries and added the real RoleArn field, see notes"}
+  DeleteReplicationConfiguration:    {wire: ok, errors: ok, state: ok, persist: ok}
+  DescribeReplicationConfigurations: {wire: ok (fixed 2026-08-20), errors: ok, state: ok, persist: ok, note: "NextToken/MaxResults pagination implemented 2026-07-23; LastReplicatedTimestamp int64 epoch-seconds since 2026-07-23; 2026-08-20: same fabricated-field/RoleArn fix as CreateReplicationConfiguration, both share destinationToResponse"}
   DescribeFileSystemPolicy:          {wire: ok, errors: ok, state: ok, persist: ok}
   PutFileSystemPolicy:               {wire: ok, errors: fixed, state: ok, persist: ok, note: "malformed/oversized policy now returns InvalidPolicyException (400), not ValidationException -- ValidationException isn't even in botocore's PutFileSystemPolicy error catalog (BadRequest, InternalServerError, FileSystemNotFound, InvalidPolicyException, IncorrectFileSystemLifeCycleState)"}
   DeleteFileSystemPolicy:            {wire: ok, errors: ok, state: ok, persist: ok}
@@ -60,7 +65,121 @@ leaks: {status: clean, note: "single self-terminating goroutine (fsActivationDel
 
 Protocol: **restjson1**, path-versioned under `/2015-02-01/...`.
 
-### Bugs found and fixed this pass (2026-07-23)
+### Bugs found and fixed this pass (2026-08-20)
+
+This pass was a targeted wrapper-key / nesting-level / fabricated-member sweep
+(the same campaign that found ~45 bugs across 18 other services this session),
+re-derived directly from `aws-sdk-go-v2/service/efs@v1.44.4`'s deserializers
+and `types/types.go`, not from the prior 2026-07-23 audit's own notes. That
+prior audit was performed against SDK v1.41.12 (its own "Verification method"
+section says so) even though the header pinned v1.44.4 at the time -- the SDK
+was bumped v1.41.12 -> v1.44.0 on 2026-08-05 (`build(deps): bump all 169 AWS
+service SDK modules`, commit `7e220f1efd`) and v1.44.0 -> v1.44.4 on
+2026-08-19 (`fix(deps): remediate security vulnerabilities`, commit
+`1b0b3b8fd1`), both after that audit ran. Re-checking efs's 31-op surface
+against the currently-pinned v1.44.4 found no operation additions/removals
+(same 31 ops both versions), so the op inventory itself was not stale --
+these two bugs are new findings, not shape drift from the version bump. None
+of the 2026-07-23 pass's "FIXED" claims (pagination data loss, IPv6 mount
+targets, error status codes, InvalidPolicyException, replication pagination
++ timestamp typing) failed re-derivation against v1.44.4; they were spot
+verified via `go test` and by re-reading the relevant deserializer functions,
+and stand as before.
+
+7. **`mtToResponse` (`handler_mount_targets.go`, used by both `CreateMountTarget`
+   and `DescribeMountTargets`) fabricated two members with no case at all in the
+   real deserializer.** `aws-sdk-go-v2/service/efs@v1.44.4`'s
+   `types.MountTargetDescription` (`types/types.go`) has exactly eleven fields --
+   `FileSystemId`, `LifeCycleState`, `MountTargetId`, `SubnetId`,
+   `AvailabilityZoneId`, `AvailabilityZoneName`, `IpAddress`, `Ipv6Address`,
+   `NetworkInterfaceId`, `OwnerId`, `VpcId` -- and no ARN field and no
+   `SecurityGroups` field at all; `deserializers.go`'s
+   `awsRestjson1_deserializeDocumentMountTargetDescription` declares cases for
+   exactly those eleven and nothing else. gopherstack additionally emitted a
+   `MountTargetArn` (unconditionally) and a `SecurityGroups` list (when
+   non-empty) on every `CreateMountTarget` and `DescribeMountTargets` response
+   entry -- both silently dropped by a real SDK client, since mount targets have
+   no ARN concept in the real API at all, and security groups are exposed only
+   via the separate `DescribeMountTargetSecurityGroups` operation (a different,
+   bare-list response shape, left untouched and still correct). This is the
+   dominant bug-class pattern from this session's campaign: a member generalized
+   from a wider/adjacent shape (`FileSystemArn` exists on `FileSystemDescription`;
+   `SecurityGroups` exists on `CreateMountTargetInput` as an INPUT field and on
+   `DescribeMountTargetSecurityGroupsOutput` as its own operation's whole
+   payload) leaking onto a narrower type that has neither. Two existing tests had
+   locked in the fabricated `MountTargetArn` field by name --
+   `TestMountTargetArn` (asserted the ARN was present and matched a pattern) and
+   one assertion inside `TestDescribeMountTargets_AccessPointIdFilter_HTTP` --
+   and a third, `TestMountTargetSecurityGroups`, asserted the fabricated
+   `SecurityGroups` list on the `CreateMountTarget` response body. All three
+   fixed: `TestMountTargetArn` renamed to `TestMountTargetArn_NotOnWire` and
+   inverted to assert absence; the AccessPointId-filter test's assertion swapped
+   to check `MountTargetId` instead; `TestMountTargetSecurityGroups` rewritten to
+   assert `SecurityGroups` is absent from the create response and instead verify
+   the value persisted via a follow-up `DescribeMountTargetSecurityGroups` call
+   (the correct, real operation for observing it). New round-trip test:
+   `TestMountTargetDescription_NoFabricatedSecurityGroups`
+   (`wire_sdk_roundtrip_test.go`) -- a raw-body absence assertion, since
+   `types.MountTargetDescription` has no field to bind either fabricated key to.
+
+8. **`rcToResponse` (`handler_replication.go`, used by `CreateReplicationConfiguration`
+   and `DescribeReplicationConfigurations`) serialized `ReplicationConfiguration.Destinations`
+   directly via Go struct tags, leaking three request-only fields onto the
+   response wire.** gopherstack's single `ReplicationDestination` Go struct was
+   reused for both the incoming request body (shaped like the real SDK's
+   request-side `types.DestinationToCreate`, which legitimately has
+   `AvailabilityZoneName`/`KmsKeyId`/`RoleArn` as input fields --
+   `serializers.go`'s `awsRestjson1_serializeDocumentDestinationToCreate`) and the
+   stored/output value, marshaled straight through `json.Marshal`'s struct-tag
+   reflection for the response. But the real response-side `types.Destination`
+   (`types/types.go`) has only seven fields -- `FileSystemId`,
+   `LastReplicatedTimestamp`, `OwnerId`, `Region`, `RoleArn`, `Status`,
+   `StatusMessage` -- and `deserializers.go`'s
+   `awsRestjson1_deserializeDocumentDestination` declares cases for exactly those
+   seven. `FileSystemArn`, `AvailabilityZoneName`, and `KmsKeyId` (the last of
+   which also had the wrong JSON key case, `KmsKeyID` instead of `KmsKeyId`) were
+   present on every emitted destination -- `FileSystemArn` unconditionally (it's
+   actively computed via `arn.Build` in `replication.go` for internal bookkeeping),
+   the other two whenever a caller supplied them on the request -- all three
+   silently dropped by a real SDK client, since `types.Destination` has no field
+   to bind them to. Conversely, the real, always-meaningful `RoleArn` field
+   (present on both the request and response types) was missing from
+   gopherstack's struct entirely -- found incidentally while fixing the other
+   three, not hunted separately, and trivial to add since the struct was already
+   being touched.
+
+   Fixed by adding a `destinationToResponse` builder (matching the
+   `fsToResponse`/`mtToResponse`/`apToResponse` convention already used
+   elsewhere in this package) that emits exactly the seven real
+   `types.Destination` fields, and routing `rcToResponse` through it instead of
+   marshaling `rc.Destinations` directly; added the `RoleArn` field to
+   `ReplicationDestination` (flows through automatically since
+   `CreateReplicationConfiguration`'s `copy(dests, destinations)` already copies
+   the whole struct) and corrected `KmsKeyID`'s request-parsing json tag from
+   `"KmsKeyID"` to `"KmsKeyId"`. One existing test,
+   `TestReplicationConfiguration_DestinationHasArnAndOwner`, explicitly asserted
+   `FileSystemArn` was present and looked like a valid ARN ("Real AWS generates a
+   destination file system and includes its ARN and owning account" -- the ARN
+   half of that claim is false per the real SDK); renamed to
+   `TestReplicationConfiguration_DestinationHasOwnerNoArn` and inverted to assert
+   `FileSystemArn`'s absence on the raw body while keeping the legitimate
+   `FileSystemId`/`OwnerId`/`Status` assertions. New round-trip tests:
+   `TestReplicationDestination_NoFabricatedFields` (raw-body absence assertion,
+   since `types.Destination` has no field to bind the three fabricated keys to)
+   and `TestReplicationDestination_RoleArnRoundTrips` (typed real-SDK-client
+   round-trip through `CreateReplicationConfiguration` and
+   `DescribeReplicationConfigurations`, proving the newly-added `RoleArn` field
+   actually reaches the wire in both directions).
+
+Both fixes were proven by hand-revert: reintroducing each removed fabrication
+(or reverting `rcToResponse`/`mtToResponse` to their pre-fix bodies) reproduced
+the exact predicted test failures (`MountTargetArn`/`SecurityGroups`/
+`FileSystemArn`/`AvailabilityZoneName`/`KmsKeyId` present-when-should-be-absent),
+and restoring the fix reproduced a byte-identical file (verified via `md5sum`
+before/after on all three touched files: `handler_mount_targets.go`,
+`handler_replication.go`, `models.go`).
+
+### Bugs found and fixed 2026-07-23 pass
 
 0. **Cross-cutting pagination data-loss bug (critical, pre-existing, newly caught):**
    the shared `paginate()` helper in `services/efs/store.go` -- used by
@@ -195,19 +314,50 @@ directly client-observable regardless of status-code nuance.
 
 ### Verification method
 
-All wire shapes (timestamps, error status codes, list-response keys, query-param names,
-request/response field sets) were cross-checked directly against
+2026-07-23 pass: wire shapes (timestamps, error status codes, list-response keys,
+query-param names, request/response field sets) were cross-checked directly against
 `aws-sdk-go-v2/service/efs@v1.41.12`'s generated `serializers.go` / `deserializers.go` /
 `types/types.go` / `types/errors.go` / per-op `api_op_*.go` files (in the local Go module
 cache), plus `botocore`'s `efs/service-2.json` service model (installed locally via pip, read
 via `gzip`+`json` since the installed copy ships gzip-compressed) for the authoritative
-per-error `httpStatusCode` table and per-operation error catalogs. This pass additionally
+per-error `httpStatusCode` table and per-operation error catalogs. That pass additionally
 wrote/strengthened pagination tests that walk *every* page and assert the *union* against the
 full created set (not just a single page's length), which is what caught bug #0 above -- a
 class of bug invisible to single-page assertions.
 
+2026-08-20 pass: re-derived against the now-pinned `aws-sdk-go-v2/service/efs@v1.44.4` (the
+module was bumped twice since the prior audit -- see the note under "Bugs found and fixed
+this pass (2026-08-20)" above). Method: for every op, read its own live
+`awsRestjson1_deserializeOp<Op>` `HandleDeserialize` to confirm which `deserializeOpDocument`
+path is actually called (all 31 efs ops call theirs directly on the whole decoded body --
+none hit the flat/dead-code trap that bit glacier/appmesh this session, since no efs op's
+Output has a single httpPayload-tagged member), then for every emitted field of every
+response-shaped type, matched it against that type's own
+`awsRestjson1_deserializeDocument<Type>` case list and `types/types.go` field list --
+never assumed a field carries over from a same-named or adjacent type. Cross-checked every
+enum's validation set (`LifeCycleState`, `PerformanceMode`, `ThroughputMode`,
+`TransitionToIARules`, `TransitionToArchiveRules`, `TransitionToPrimaryStorageClassRules`,
+`ReplicationStatus`, `ResourceIdType`, `IpAddressType`, `Status`,
+`ReplicationOverwriteProtection`) against `types/enums.go`'s `Values()` -- all clean;
+`lifecycle_config.go`'s IA/Archive validators already derive from `Values()` directly (fixed
+2026-07-23) so they cannot drift on a future SDK bump.
+
 ### Looks-wrong-but-correct traps (for the next auditor)
 
+- Mount targets have **no ARN and no `SecurityGroups` member on the wire at all** in real
+  AWS -- `types.MountTargetDescription` genuinely has neither field (see bug #7 above).
+  `SecurityGroups` IS a real field, but only as an INPUT on `CreateMountTargetInput` (settable
+  at creation) and as the entire bare-list OUTPUT of the separate
+  `DescribeMountTargetSecurityGroups` operation (`handler_mount_target_security_groups.go`,
+  untouched and correct) -- never as an output member of `CreateMountTarget`/
+  `DescribeMountTargets` themselves. Don't re-add either field to `mtToResponse` on the
+  assumption that "surely a real filesystem resource has security groups in its description";
+  verify against `types/types.go` first.
+- Similarly, a replication `Destination` entry has no ARN, no `AvailabilityZoneName`, and no
+  `KmsKeyId` on the wire -- those three exist only on the request-side `DestinationToCreate`
+  sibling type (see bug #8 above). `destinationToResponse` in `handler_replication.go` is the
+  single source of truth for what a `Destination` may emit; don't widen it by copying fields
+  from `ReplicationDestination`'s (request-shaped) struct tags.
 - `DescribeTags` and `ListTagsForResource` share one handler
   (`handleListTagsForResource`) in `dispatchTagAndMiscOps` despite being different real AWS
   operations at different paths. This is correct: both `DescribeTagsOutput` and

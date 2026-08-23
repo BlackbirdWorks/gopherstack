@@ -24,7 +24,7 @@ func TestTimestreamQueryDashboard(t *testing.T) {
 		"arn:aws:iam::000000000000:role/e2e-role",
 		"", "", "", "", "", "",
 		map[string]string{"Environment": "test"},
-		"", nil,
+		nil,
 	)
 	require.NoError(t, err)
 
@@ -130,7 +130,8 @@ func TestTimestreamQueryDashboard_Create(t *testing.T) {
 		"rate(1 hour)",
 		"arn:aws:iam::000000000000:role/e2e-role",
 		"", "", "", "", "", "",
-		nil, "", nil,
+		nil,
+		nil,
 	)
 	require.NoError(t, err)
 
