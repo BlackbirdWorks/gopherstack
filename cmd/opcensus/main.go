@@ -59,6 +59,7 @@ const (
 	resolutionChased          = "chased"
 	resolutionDynamicFallback = "dynamic-fallback"
 	resolutionUnresolved      = "unresolved"
+	resolutionAmbiguous       = "ambiguous"
 
 	maxWalkDepth = 8
 )
@@ -69,18 +70,20 @@ var (
 )
 
 type serviceResult struct {
-	Service     string   `json:"service"`
-	Resolution  string   `json:"resolution"` // direct, chased, dynamic-fallback, unresolved
-	ErrorReason string   `json:"errorReason,omitempty"`
-	SDKModules  []string `json:"sdkModules"` // aws-sdk-go-v2/service/<x> names found in the package's own source
-	AllOps      []string `json:"allOps"`
-	ListOps     []string `json:"listOps"`
-	DescribeOps []string `json:"describeOps"`
-	GetOps      []string `json:"getOps"`
-	Total       int      `json:"total"`
-	LDG         int      `json:"ldg"`     // len(ListOps)+len(DescribeOps)+len(GetOps)
-	Aliased     bool     `json:"aliased"` // true when no resolved SDK module matches the directory name
-	Error       bool     `json:"error,omitempty"`
+	Service          string   `json:"service"`
+	Resolution       string   `json:"resolution"`
+	ErrorReason      string   `json:"errorReason,omitempty"`
+	DescribeOps      []string `json:"describeOps"`
+	AllOps           []string `json:"allOps"`
+	ListOps          []string `json:"listOps"`
+	SDKModules       []string `json:"sdkModules"`
+	GetOps           []string `json:"getOps"`
+	DeclaredBy       []string `json:"declaredBy,omitempty"`
+	AmbiguousReasons []string `json:"ambiguousReasons,omitempty"`
+	Total            int      `json:"total"`
+	LDG              int      `json:"ldg"`
+	Aliased          bool     `json:"aliased"`
+	Error            bool     `json:"error,omitempty"`
 }
 
 func main() {
@@ -229,8 +232,12 @@ func printReport(w *os.File, results []serviceResult) {
 
 			continue
 		}
-		fmt.Fprintf(w, "%-28s %6d %6d %6d %6d %6d  %-16s %-14s\n",
-			r.Service, r.Total, len(r.ListOps), len(r.DescribeOps), len(r.GetOps), r.LDG, r.Resolution, module)
+		note := ""
+		if len(r.DeclaredBy) > 1 {
+			note = fmt.Sprintf("  [union of %d: %s]", len(r.DeclaredBy), strings.Join(r.DeclaredBy, ","))
+		}
+		fmt.Fprintf(w, "%-28s %6d %6d %6d %6d %6d  %-16s %-14s%s\n",
+			r.Service, r.Total, len(r.ListOps), len(r.DescribeOps), len(r.GetOps), r.LDG, r.Resolution, module, note)
 	}
 }
 
@@ -268,20 +275,30 @@ func formatModule(r serviceResult) string {
 // package-level var whose initializer isn't a plain string (a table/slice
 // literal or a call worth walking).
 type pkgIndex struct {
-	files     map[string]*ast.File
-	funcDecls map[string]*ast.FuncDecl
-	constVals map[string]string
-	varSpecs  map[string]ast.Expr
-	typeDecls map[string]ast.Expr
+	files map[string]*ast.File
+	// funcDecls is a last-one-wins lookup by function/method name, used to
+	// chase same-package helper calls -- safe because every name other than
+	// GetSupportedOperations is unique across a service package (verified by
+	// AST scan, gopherstack-1t0m). allFuncDecls keeps every declaration of a
+	// name, used at the GetSupportedOperations entry point specifically,
+	// since that method is legitimately declared more than once per package
+	// (one per handler type) in exactly two services today.
+	funcDecls    map[string]*ast.FuncDecl
+	allFuncDecls map[string][]*ast.FuncDecl
+	constVals    map[string]string
+	varSpecs     map[string]ast.Expr
+	typeDecls    map[string]ast.Expr
+	fset         *token.FileSet
 }
 
 func indexPackage(dir string) pkgIndex {
 	idx := pkgIndex{
-		files:     map[string]*ast.File{},
-		funcDecls: map[string]*ast.FuncDecl{},
-		constVals: map[string]string{},
-		varSpecs:  map[string]ast.Expr{},
-		typeDecls: map[string]ast.Expr{},
+		files:        map[string]*ast.File{},
+		funcDecls:    map[string]*ast.FuncDecl{},
+		allFuncDecls: map[string][]*ast.FuncDecl{},
+		constVals:    map[string]string{},
+		varSpecs:     map[string]ast.Expr{},
+		typeDecls:    map[string]ast.Expr{},
 	}
 
 	entries, err := os.ReadDir(dir)
@@ -290,6 +307,7 @@ func indexPackage(dir string) pkgIndex {
 	}
 
 	fset := token.NewFileSet()
+	idx.fset = fset
 	for _, e := range entries {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".go") || strings.HasSuffix(e.Name(), "_test.go") {
 			continue
@@ -310,6 +328,7 @@ func (idx pkgIndex) indexDecls(decls []ast.Decl) {
 	for _, decl := range decls {
 		if fd, isFunc := decl.(*ast.FuncDecl); isFunc {
 			idx.funcDecls[fd.Name.Name] = fd
+			idx.allFuncDecls[fd.Name.Name] = append(idx.allFuncDecls[fd.Name.Name], fd)
 
 			continue
 		}
@@ -360,18 +379,20 @@ func trimQuotes(s string) string { return strings.Trim(s, "\"`") }
 // variable names read but not defined in the walked function -- resolved
 // afterward by resolveDynamicSources.
 type opWalker struct {
-	idx            pkgIndex
-	seen           map[string]bool
-	visited        map[string]bool
-	dynamicSources map[string]bool
-	resolvedNames  map[string]bool
+	idx              pkgIndex
+	seen             map[string]bool
+	visited          map[*ast.FuncDecl]bool
+	dynamicSources   map[string]bool
+	resolvedNames    map[string]bool
+	ambiguousReasons []string
+	ambiguous        bool
 }
 
 func newOpWalker(idx pkgIndex) *opWalker {
 	return &opWalker{
 		idx:            idx,
 		seen:           map[string]bool{},
-		visited:        map[string]bool{},
+		visited:        map[*ast.FuncDecl]bool{},
 		dynamicSources: map[string]bool{},
 		resolvedNames:  map[string]bool{},
 	}
@@ -387,7 +408,7 @@ func (w *opWalker) recordLiteral(lit *ast.BasicLit) {
 }
 
 func (w *opWalker) walk(fd *ast.FuncDecl, depth int) {
-	if fd == nil || fd.Body == nil || depth > maxWalkDepth || w.visited[fd.Name.Name] {
+	if fd == nil || fd.Body == nil || depth > maxWalkDepth || w.visited[fd] {
 		return
 	}
 	if depth > 0 && !w.isTableShaped(fd) {
@@ -402,12 +423,10 @@ func (w *opWalker) walk(fd *ast.FuncDecl, depth int) {
 		// logic happens to contain.
 		return
 	}
-	w.visited[fd.Name.Name] = true
+	w.visited[fd] = true
 
 	ast.Inspect(fd.Body, func(n ast.Node) bool {
-		w.visitNode(n, depth)
-
-		return true
+		return w.visitNode(n, depth)
 	})
 }
 
@@ -442,10 +461,24 @@ func (w *opWalker) isTableType(t ast.Expr, depth int) bool {
 	return false
 }
 
-func (w *opWalker) visitNode(n ast.Node, depth int) {
+// visitNode returns whether ast.Inspect should descend into n's children.
+// It returns false for two shapes the walker cannot statically resolve to
+// real operation names -- a bare string concatenation, and a range over a
+// lookup/spec table whose body builds names by concatenation rather than
+// using the range's own keys directly -- so their fragments never enter
+// w.seen looking like real ops (gopherstack-k9n5: comprehend's
+// ops["Start"+prefix] over asyncJobSpecs()/resourceSpecs() produced entries
+// like "Start" and "DocumentClassificationJob", neither a real operation).
+func (w *opWalker) visitNode(n ast.Node, depth int) bool {
 	switch v := n.(type) {
 	case *ast.BasicLit:
 		w.recordLiteral(v)
+	case *ast.BinaryExpr:
+		if isStringConcat(v) {
+			w.recordAmbiguous(v, "operation name built by string concatenation")
+
+			return false
+		}
 	case *ast.CallExpr:
 		if id, isIdent := v.Fun.(*ast.Ident); isIdent {
 			if callee, ok := w.idx.funcDecls[id.Name]; ok {
@@ -455,6 +488,14 @@ func (w *opWalker) visitNode(n ast.Node, depth int) {
 	case *ast.Ident:
 		w.visitIdent(v, depth)
 	case *ast.RangeStmt:
+		if v.Body != nil && containsStringConcat(v.Body) {
+			w.recordAmbiguous(
+				v,
+				"range body builds operation names by string concatenation over a lookup table, not a direct op-name table",
+			)
+
+			return false
+		}
 		w.recordRangeTarget(v.X)
 	case *ast.SelectorExpr:
 		// A field/method access anywhere in the walked body, not just a
@@ -466,6 +507,70 @@ func (w *opWalker) visitNode(n ast.Node, depth int) {
 		// resolveDynamicSources, which is only consulted once the direct
 		// walk found zero literals (see censusService).
 		w.dynamicSources[v.Sel.Name] = true
+	}
+
+	return true
+}
+
+// containsStringConcat reports whether n contains a string concatenation
+// anywhere in its subtree.
+func containsStringConcat(n ast.Node) bool {
+	found := false
+	ast.Inspect(n, func(nn ast.Node) bool {
+		if found {
+			return false
+		}
+		if b, ok := nn.(*ast.BinaryExpr); ok && isStringConcat(b) {
+			found = true
+
+			return false
+		}
+
+		return true
+	})
+
+	return found
+}
+
+// isStringConcat reports whether b is a "+" building up a string, as
+// opposed to int/other arithmetic that also uses token.ADD (redshift's
+// GetSupportedOperations does `len(g1)+len(g2)`, not a string build) --
+// go/ast carries no type info, so this is a syntactic heuristic: at least
+// one operand must itself be, or resolve through nested "+" to, a string
+// literal.
+func isStringConcat(b *ast.BinaryExpr) bool {
+	if b.Op != token.ADD {
+		return false
+	}
+
+	return isStringOperand(b.X) || isStringOperand(b.Y)
+}
+
+func isStringOperand(e ast.Expr) bool {
+	switch v := e.(type) {
+	case *ast.BasicLit:
+		return v.Kind == token.STRING
+	case *ast.BinaryExpr:
+		return isStringConcat(v)
+	default:
+		return false
+	}
+}
+
+// recordAmbiguous marks the whole service as unresolvable rather than let a
+// partial, plausible-looking count stand in for a real one -- the same
+// precedent gopherstack-c7s3 set for total resolution failure.
+func (w *opWalker) recordAmbiguous(n ast.Node, why string) {
+	w.ambiguous = true
+
+	pos := "?"
+	if w.idx.fset != nil {
+		pos = w.idx.fset.Position(n.Pos()).String()
+	}
+
+	reason := pos + ": " + why
+	if !slices.Contains(w.ambiguousReasons, reason) {
+		w.ambiguousReasons = append(w.ambiguousReasons, reason)
 	}
 }
 
@@ -515,6 +620,12 @@ func (w *opWalker) extractLiterals(n ast.Node) {
 		switch v := n.(type) {
 		case *ast.BasicLit:
 			w.recordLiteral(v)
+		case *ast.BinaryExpr:
+			if isStringConcat(v) {
+				w.recordAmbiguous(v, "operation name built by string concatenation")
+
+				return false
+			}
 		case *ast.Ident:
 			if s, ok := w.idx.constVals[v.Name]; ok && opNameRe.MatchString(s) {
 				w.seen[s] = true
@@ -719,27 +830,66 @@ func censusService(dir, name string) serviceResult {
 
 	idx := indexPackage(dir)
 
-	entry, ok := idx.funcDecls["GetSupportedOperations"]
-	if !ok {
-		return finalizeResult(name, resolutionUnresolved, modules, nil)
+	// entries holds every GetSupportedOperations declaration in the
+	// package. Almost every service has exactly one; bedrock and redshift
+	// each have two (one handler type per file) -- both legitimate Go, so
+	// every entry is walked and the results unioned rather than picking
+	// one and silently dropping the rest (gopherstack-1t0m).
+	entries := idx.allFuncDecls["GetSupportedOperations"]
+	if len(entries) == 0 {
+		return finalizeResult(name, resolutionUnresolved, modules, nil, nil, nil)
 	}
 
 	w := newOpWalker(idx)
-	w.walk(entry, 0)
+	for _, entry := range entries {
+		w.walk(entry, 0)
+	}
 
 	resolution := resolutionDirect
 	switch {
 	case len(w.seen) == 0 && len(w.dynamicSources) > 0:
 		resolution = resolutionDynamicFallback
 		w.resolveDynamicSources()
-	case len(w.seen) > 0 && len(w.visited) > 1:
+	case len(w.seen) > 0 && len(w.visited) > len(entries):
 		resolution = resolutionChased
 	}
 	if len(w.seen) == 0 {
 		resolution = resolutionUnresolved
 	}
+	if w.ambiguous {
+		resolution = resolutionAmbiguous
+	}
 
-	return finalizeResult(name, resolution, modules, w.seen)
+	var declaredBy []string
+	if len(entries) > 1 {
+		for _, e := range entries {
+			declaredBy = append(declaredBy, receiverTypeName(e))
+		}
+		sort.Strings(declaredBy)
+	}
+
+	return finalizeResult(name, resolution, modules, w.seen, declaredBy, w.ambiguousReasons)
+}
+
+// receiverTypeName returns fd's receiver type name (e.g. "*Handler"), or "?"
+// for a bare function with no receiver.
+func receiverTypeName(fd *ast.FuncDecl) string {
+	if fd.Recv == nil || len(fd.Recv.List) != 1 {
+		return "?"
+	}
+
+	return exprTypeName(fd.Recv.List[0].Type)
+}
+
+func exprTypeName(e ast.Expr) string {
+	switch v := e.(type) {
+	case *ast.Ident:
+		return v.Name
+	case *ast.StarExpr:
+		return "*" + exprTypeName(v.X)
+	default:
+		return "?"
+	}
 }
 
 // finalizeResult buckets the resolved ops and marks the row as an explicit
@@ -749,10 +899,14 @@ func censusService(dir, name string) serviceResult {
 // failure means the numeric columns are "not checked," not "checked and
 // found small," and a reader must be able to tell those apart without
 // cross-referencing the resolution column by hand.
-func finalizeResult(name, resolution string, modules []string, seen map[string]bool) serviceResult {
+func finalizeResult(
+	name, resolution string, modules []string, seen map[string]bool, declaredBy, ambiguousReasons []string,
+) serviceResult {
 	r := bucketize(name, resolution, seen)
 	r.SDKModules = modules
 	r.Aliased = len(modules) > 0 && !slices.Contains(modules, name)
+	r.DeclaredBy = declaredBy
+	r.AmbiguousReasons = ambiguousReasons
 
 	var reasons []string
 	if len(modules) == 0 {
@@ -760,6 +914,12 @@ func finalizeResult(name, resolution string, modules []string, seen map[string]b
 	}
 	if resolution == resolutionUnresolved {
 		reasons = append(reasons, "no operations resolved from GetSupportedOperations")
+	}
+	if resolution == resolutionAmbiguous {
+		reasons = append(
+			reasons,
+			"operation names cannot be statically resolved: "+strings.Join(ambiguousReasons, "; "),
+		)
 	}
 	if len(reasons) > 0 {
 		r.Error = true

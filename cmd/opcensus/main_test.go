@@ -151,15 +151,40 @@ func TestCensusService_RealServices(t *testing.T) {
 	servicesDir := filepath.Join(repoRoot, "services")
 
 	tests := []struct {
-		name     string
-		total    int
-		ldg      int
-		listOps  int
-		describe int
-		getOps   int
+		name       string
+		declaredBy []string
+		total      int
+		ldg        int
+		listOps    int
+		describe   int
+		getOps     int
 	}{
 		{name: "ssm", total: 152, ldg: 80, listOps: 19, describe: 33, getOps: 28},
 		{name: "route53resolver", total: 72, ldg: 32, listOps: 17, describe: 0, getOps: 15},
+		// gopherstack-1t0m: bedrock declares GetSupportedOperations twice
+		// (Handler in handler.go, AgentsHandler in handler_agents_dispatch.go).
+		// 179 is the union, hand-verified by calling
+		// NewHandler(...).GetSupportedOperations() (108) and
+		// NewAgentsHandler(...).GetSupportedOperations() (77) and deduping --
+		// they overlap on exactly ListTagsForResource, TagResource,
+		// UntagResource, DeleteResourcePolicy, GetResourcePolicy,
+		// PutResourcePolicy. Before the fix this resolved to 77: AgentsHandler
+		// only, entirely bedrockagent-shaped, with none of Handler's real
+		// model-management ops.
+		{
+			name: "bedrock", total: 179, ldg: 78, listOps: 36, describe: 0, getOps: 42,
+			declaredBy: []string{"*AgentsHandler", "*Handler"},
+		},
+		// gopherstack-1t0m: redshift declares GetSupportedOperations twice
+		// (Handler in handler.go, ServerlessHandler in handler_serverless.go).
+		// 193 is the union, hand-verified the same way (Handler=145,
+		// ServerlessHandler=60, overlapping on 12 shared ops). Before the fix
+		// this resolved to 60: ServerlessHandler only -- none of Handler's
+		// cluster-management ops (CreateCluster, DescribeClusters, ...).
+		{
+			name: "redshift", total: 193, ldg: 73, listOps: 14, describe: 42, getOps: 17,
+			declaredBy: []string{"*Handler", "*ServerlessHandler"},
+		},
 	}
 
 	for _, tt := range tests {
@@ -181,6 +206,10 @@ func TestCensusService_RealServices(t *testing.T) {
 			assert.Len(t, got.ListOps, tt.listOps)
 			assert.Len(t, got.DescribeOps, tt.describe)
 			assert.Len(t, got.GetOps, tt.getOps)
+			if tt.declaredBy != nil {
+				assert.Equal(t, tt.declaredBy, got.DeclaredBy,
+					"multiple GetSupportedOperations declarations must be reported, not silently picked")
+			}
 		})
 	}
 }
@@ -418,6 +447,161 @@ var _ = examplesvc.Client{}
 		require.False(t, got.Error, "reason: %s", got.ErrorReason)
 		assert.Equal(t, []string{"ListWidgets"}, got.AllOps)
 		assert.NotContains(t, got.AllOps, "NotARealOperation")
+	})
+}
+
+// TestCensusService_MultipleDeclarations pins gopherstack-1t0m in isolation:
+// two receiver types in one package each legitimately declare
+// GetSupportedOperations (bedrock's Handler/AgentsHandler shape). Before the
+// fix, indexPackage's funcDecls map was keyed by name only, so the second
+// declaration silently overwrote the first and censusService walked only
+// whichever file os.ReadDir listed last -- reporting 2 ops (Bar's) with no
+// signal Foo's 2 ops (one overlapping) were ever dropped. The fix must
+// report the union, tagged by both owning types.
+func TestCensusService_MultipleDeclarations(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	// handler_a.go sorts before handler_b.go, so pre-fix this is the entry
+	// indexDecls visits and then loses when handler_b.go's GetSupportedOperations
+	// overwrites the same map key.
+	src1 := `package svc
+
+import "github.com/aws/aws-sdk-go-v2/service/examplesvc"
+
+type Foo struct{}
+
+func (h *Foo) GetSupportedOperations() []string {
+	return []string{"CreateWidget", "DeleteWidget"}
+}
+
+var _ = examplesvc.Client{}
+`
+	src2 := `package svc
+
+type Bar struct{}
+
+func (h *Bar) GetSupportedOperations() []string {
+	return []string{"DeleteWidget", "ListGizmos"}
+}
+`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "handler_a.go"), []byte(src1), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "handler_b.go"), []byte(src2), 0o600))
+
+	got := censusService(dir, "examplesvc")
+
+	require.False(t, got.Error, "reason: %s", got.ErrorReason)
+	assert.Equal(t, []string{"CreateWidget", "DeleteWidget", "ListGizmos"}, got.AllOps,
+		"union of both declarations, deduped -- not a silent pick of just one")
+	assert.Equal(t, 3, got.Total)
+	assert.Equal(t, []string{"*Bar", "*Foo"}, got.DeclaredBy)
+}
+
+// TestCensusService_AmbiguousConcatenation pins gopherstack-k9n5 in
+// isolation: comprehend's shape of building operation names by string
+// concatenation over a spec/lookup table (`ops["Start"+prefix]` ranging over
+// a helper that returns map[string]jobSpec keyed by name fragments like
+// "DocumentClassificationJob", not real op names). Before the fix this
+// produced fragment entries -- both the concatenation pieces ("Start") and
+// the lookup table's own keys, walked as if it were an op table. The fix
+// must refuse to resolve rather than report the fragments as real ops.
+func TestCensusService_AmbiguousConcatenation(t *testing.T) {
+	t.Parallel()
+
+	t.Run("range body concatenates onto a lookup table's keys", func(t *testing.T) {
+		t.Parallel()
+
+		dir := t.TempDir()
+		src := `package svc
+
+import "github.com/aws/aws-sdk-go-v2/service/examplesvc"
+
+type jobSpec struct {
+	objectField string
+}
+
+func jobSpecs() map[string]jobSpec {
+	return map[string]jobSpec{
+		"WidgetJob": {objectField: "WidgetJobProperties"},
+	}
+}
+
+func (h *Handler) buildOps() []string {
+	ops := []string{"DetectThing"}
+	for prefix := range jobSpecs() {
+		ops = append(ops, "Start"+prefix)
+		ops = append(ops, "Describe"+prefix)
+	}
+
+	return ops
+}
+
+type Handler struct{}
+
+func (h *Handler) GetSupportedOperations() []string {
+	return h.buildOps()
+}
+
+var _ = examplesvc.Client{}
+`
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "handler.go"), []byte(src), 0o600))
+
+		got := censusService(dir, "examplesvc")
+
+		require.True(
+			t,
+			got.Error,
+			"a concatenation-built op list must refuse to resolve, not report fragments as a real count",
+		)
+		assert.Equal(t, resolutionAmbiguous, got.Resolution)
+		assert.Contains(t, got.ErrorReason, "string concatenation")
+		assert.NotContains(t, got.AllOps, "Start", "concatenation fragment, not a real operation")
+		assert.NotContains(t, got.AllOps, "WidgetJob", "lookup-table key, not a real operation")
+		assert.NotContains(t, got.AllOps, "WidgetJobProperties", "spec field value, not a real operation")
+		assert.Contains(
+			t,
+			got.AllOps,
+			"DetectThing",
+			"a genuinely literal op declared outside the concat loop still resolves",
+		)
+	})
+
+	// int arithmetic also uses token.ADD ("+") -- redshift's real
+	// GetSupportedOperations does len(g1)+len(g2) when summing two helper
+	// slices' lengths for a make() capacity hint. This must not be mistaken
+	// for a string concatenation and must not mark the service ambiguous.
+	t.Run("int addition is not string concatenation", func(t *testing.T) {
+		t.Parallel()
+
+		dir := t.TempDir()
+		src := `package svc
+
+import "github.com/aws/aws-sdk-go-v2/service/examplesvc"
+
+func groupA() []string { return []string{"CreateThing"} }
+func groupB() []string { return []string{"DeleteThing"} }
+
+type Handler struct{}
+
+func (h *Handler) GetSupportedOperations() []string {
+	a := groupA()
+	b := groupB()
+	ops := make([]string, 0, len(a)+len(b))
+	ops = append(ops, a...)
+	ops = append(ops, b...)
+
+	return ops
+}
+
+var _ = examplesvc.Client{}
+`
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "handler.go"), []byte(src), 0o600))
+
+		got := censusService(dir, "examplesvc")
+
+		require.False(t, got.Error, "reason: %s", got.ErrorReason)
+		assert.NotEqual(t, resolutionAmbiguous, got.Resolution)
+		assert.Equal(t, []string{"CreateThing", "DeleteThing"}, got.AllOps)
 	})
 }
 
