@@ -1,5 +1,12 @@
 /.idea
 /Gopherstack.iml
+# JetBrains Safe Write and editor temporary/swap files
+.!*
+*.!*
+.*.swp
+.*.swo
+*~
+#*#
 /PLAN.md
 /new.sh
 /**/*.out
