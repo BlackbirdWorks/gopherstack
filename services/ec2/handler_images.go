@@ -502,8 +502,16 @@ func (h *Handler) handleCopyImage(vals url.Values, reqID string) (any, error) {
 	}, nil
 }
 
-func (h *Handler) handleDeregisterImage(vals url.Values, _ string) (any, error) {
-	return nil, h.Backend.DeregisterImage(vals.Get("ImageId"))
+func (h *Handler) handleDeregisterImage(vals url.Values, reqID string) (any, error) {
+	if err := h.Backend.DeregisterImage(vals.Get("ImageId")); err != nil {
+		return nil, err
+	}
+
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DeregisterImageResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
 // ---- VPC / Subnet attribute handlers ----

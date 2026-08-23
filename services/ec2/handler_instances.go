@@ -54,12 +54,23 @@ type describeInstanceCreditSpecsResponse struct {
 	} `xml:"instanceCreditSpecificationSet"`
 }
 
+type unsuccessfulInstanceCreditSpecItem struct {
+	InstanceID string `xml:"instanceId"`
+	Error      struct {
+		Code    string `xml:"code"`
+		Message string `xml:"message"`
+	} `xml:"error"`
+}
+
 type modifyInstanceCreditSpecResponse struct {
 	XMLName                                  xml.Name `xml:"ModifyInstanceCreditSpecificationResponse"`
 	RequestID                                string   `xml:"requestId"`
 	SuccessfulInstanceCreditSpecificationSet struct {
 		Items []instanceCreditSpecItem `xml:"item"`
 	} `xml:"successfulInstanceCreditSpecificationSet"`
+	UnsuccessfulInstanceCreditSpecificationSet struct {
+		Items []unsuccessfulInstanceCreditSpecItem `xml:"item"`
+	} `xml:"unsuccessfulInstanceCreditSpecificationSet"`
 }
 
 type instanceTopologyItem struct {
@@ -202,20 +213,41 @@ func (h *Handler) handleModifyInstanceCreditSpecification(
 	vals url.Values,
 	reqID string,
 ) (any, error) {
-	// Support InstanceCreditSpecification.1.InstanceId / CpuCredits form
-	instanceID := vals.Get("InstanceCreditSpecification.1.InstanceId")
-	cpuCredits := vals.Get("InstanceCreditSpecification.1.CpuCredits")
-	if instanceID == "" {
-		instanceID = vals.Get("InstanceId")
-		cpuCredits = vals.Get("CpuCredits")
+	var specs []InstanceCreditSpec
+	for i := 1; ; i++ {
+		instanceID := vals.Get(fmt.Sprintf("InstanceCreditSpecification.%d.InstanceId", i))
+		if instanceID == "" {
+			break
+		}
+		specs = append(specs, InstanceCreditSpec{
+			InstanceID: instanceID,
+			CPUCredits: vals.Get(fmt.Sprintf("InstanceCreditSpecification.%d.CpuCredits", i)),
+		})
 	}
 
-	if err := h.Backend.ModifyInstanceCreditSpecification(instanceID, cpuCredits); err != nil {
-		return nil, err
+	if len(specs) == 0 {
+		return nil, fmt.Errorf(
+			"%w: InstanceCreditSpecification is required", ErrInvalidParameter,
+		)
 	}
+
+	successful, unsuccessful := h.Backend.ModifyInstanceCreditSpecification(specs)
+
 	resp := &modifyInstanceCreditSpecResponse{RequestID: reqID}
-	resp.SuccessfulInstanceCreditSpecificationSet.Items = []instanceCreditSpecItem{
-		{InstanceID: instanceID, CPUCredits: cpuCredits},
+	for _, s := range successful {
+		resp.SuccessfulInstanceCreditSpecificationSet.Items = append(
+			resp.SuccessfulInstanceCreditSpecificationSet.Items,
+			instanceCreditSpecItem(s),
+		)
+	}
+	for _, s := range unsuccessful {
+		item := unsuccessfulInstanceCreditSpecItem{InstanceID: s.InstanceID}
+		item.Error.Code = ErrInstanceNotFound.Error()
+		item.Error.Message = fmt.Sprintf("The instance ID '%s' does not exist", s.InstanceID)
+		resp.UnsuccessfulInstanceCreditSpecificationSet.Items = append(
+			resp.UnsuccessfulInstanceCreditSpecificationSet.Items,
+			item,
+		)
 	}
 
 	return resp, nil
@@ -644,13 +676,13 @@ func (h *Handler) handleGetInstanceTypesFromInstanceRequirements(
 }
 
 func (h *Handler) handleReportInstanceStatus(vals url.Values, reqID string) (any, error) {
-	instanceID := vals.Get("InstanceId.1")
-	if instanceID == "" {
-		instanceID = vals.Get("InstanceId")
+	ids := parseMemberList(vals, "InstanceId")
+	if len(ids) == 0 {
+		return nil, fmt.Errorf("%w: at least one InstanceId is required", ErrInvalidParameter)
 	}
 	status := vals.Get("Status")
-	description := vals.Get("ReasonCode.1")
-	if err := h.Backend.ReportInstanceStatus(instanceID, status, description); err != nil {
+	description := vals.Get("Description")
+	if err := h.Backend.ReportInstanceStatus(ids, status, description); err != nil {
 		return nil, err
 	}
 
@@ -669,9 +701,43 @@ type describeInstanceTypeOfferingsResponse struct {
 	} `xml:"instanceTypeOfferingSet"`
 }
 
-func (h *Handler) handleDescribeInstanceTypeOfferings(_ url.Values, reqID string) (any, error) {
-	offerings := h.Backend.DescribeInstanceTypeOfferings()
+// applyInstanceTypeOfferingFilters filters offerings by the real "instance-type"
+// and "location" filter names (ec2@v1.319.1 api_op_DescribeInstanceTypeOfferings.go
+// DescribeInstanceTypeOfferingsInput.Filters doc comment).
+func applyInstanceTypeOfferingFilters(
+	offerings []InstanceTypeOffering,
+	filters map[string][]string,
+) []InstanceTypeOffering {
+	if len(filters) == 0 {
+		return offerings
+	}
+
+	out := make([]InstanceTypeOffering, 0, len(offerings))
+	for _, o := range offerings {
+		if vals, ok := filters["instance-type"]; ok && !anyEqual(o.InstanceType, vals) {
+			continue
+		}
+		if vals, ok := filters["location"]; ok && !anyEqual(o.Location, vals) {
+			continue
+		}
+		out = append(out, o)
+	}
+
+	return out
+}
+
+func (h *Handler) handleDescribeInstanceTypeOfferings(vals url.Values, reqID string) (any, error) {
 	resp := &describeInstanceTypeOfferingsResponse{RequestID: reqID}
+
+	// This backend only ever generates availability-zone offerings; an explicit
+	// request for another real LocationType (region/availability-zone-id/outpost)
+	// honestly has none, rather than fabricating a match.
+	if lt := vals.Get("LocationType"); lt != "" && lt != filterKeyAvailabilityZone {
+		return resp, nil
+	}
+
+	offerings := h.Backend.DescribeInstanceTypeOfferings()
+	offerings = applyInstanceTypeOfferingFilters(offerings, parseEC2Filters(vals))
 
 	for _, o := range offerings {
 		resp.InstanceTypeOfferingSet.Items = append(

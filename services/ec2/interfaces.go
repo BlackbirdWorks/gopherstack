@@ -1214,7 +1214,7 @@ type Backend interface {
 		hopLimit int,
 	) error
 	DescribeInstanceCreditSpecifications(ids []string) []InstanceCreditSpec
-	ModifyInstanceCreditSpecification(instanceID, cpuCredits string) error
+	ModifyInstanceCreditSpecification(specs []InstanceCreditSpec) (successful, unsuccessful []InstanceCreditSpec)
 	DescribeInstanceTopology(ids []string) []InstanceTopologyItem
 	MonitorInstances(instanceIDs []string) ([]MonitoringState, error)
 	UnmonitorInstances(instanceIDs []string) ([]MonitoringState, error)
@@ -1368,7 +1368,7 @@ type Backend interface {
 	ListVolumesInRecycleBin(volumeIDs []string) []*RecycleBinVolume
 	RestoreVolumeFromRecycleBin(volumeID string) error
 	RestoreAddressToClassic(publicIP string) error
-	ReportInstanceStatus(instanceID, status, description string) error
+	ReportInstanceStatus(instanceIDs []string, status, description string) error
 	ModifyVpnConnection(vpnConnectionID, vpnGatewayID string) error
 	CreateVpnConnectionRoute(vpnConnectionID, destinationCIDR string) (*VpnConnectionRoute, error)
 	DeleteVpnConnectionRoute(vpnConnectionID, destinationCIDR string) error

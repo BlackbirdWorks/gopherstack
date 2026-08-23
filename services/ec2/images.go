@@ -557,7 +557,7 @@ func (b *InMemoryBackend) DeregisterImage(imageID string) error {
 	defer b.mu.Unlock()
 
 	if _, ok := b.images.Get(imageID); !ok {
-		return fmt.Errorf("%w: image %s not found", ErrInvalidParameter, imageID)
+		return fmt.Errorf("%w: %s", ErrImageNotFound, imageID)
 	}
 	b.images.Delete(imageID)
 	b.imageUsageReports.Delete(imageID)

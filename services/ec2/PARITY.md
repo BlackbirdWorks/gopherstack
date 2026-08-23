@@ -299,3 +299,120 @@ response structs). Not reached: the other ~246 never-named rich-body ops, concen
 `handler_security_groups.go` (9), `handler_elastic_ips.go` (8), `handler_tgw_multicast.go`
 (7), `handler_instance_attrs.go` (7) -- next pass should pick one of those families, per
 the same method.
+
+**2026-08-23 follow-up pass -- never-named sweep, `handler_images.go`/`handler_instances.go`**:
+re-derived the never-audited count directly against `registerImagesOps`/`registerInstancesOps`
+(the structured op-registration blocks, not this file's prose) rather than trusting the
+prior pass's "17"/"15" figures. `handler_images.go` registers 27 ops; grepping every one
+against this whole file found exactly one prior hit, `RestoreImageFromRecycleBin`, and its
+context (2026-07-31 entry above) is a genuine audited-and-fixed op, not a "not reached"
+mention -- so 26/27 (96%) were never audited. `handler_instances.go` registers 28 ops; none
+appear anywhere in this file -- 28/28 (100%) never audited. Combined: 54/55 (98%) across
+both files. (Both files also implement several core ops dispatched from `buildCoreOps` in
+`handler.go` rather than their own `register*Ops` -- `DescribeImages`/`DescribeRegions`/
+`DescribeAvailabilityZones`/`DescribeImageAttribute` and `StartInstances`/`StopInstances`/
+`RebootInstances`/`DescribeInstanceStatus` -- excluded from this count since they weren't
+the object of the prior pass's per-file tallies either.)
+
+Audited all 55 registered ops by hand against the installed
+`aws-sdk-go-v2/service/ec2@v1.319.1` serializers/deserializers. Found and fixed 4 real bugs:
+(1) **`DeregisterImage`** (`handler_images.go`) returned `(nil, nil)` on success -- an
+untyped nil `any`. `xml.Marshal(nil)` serializes to zero bytes, so the wire response was
+just the XML declaration with no `DeregisterImageResponse` root element, no `requestId`,
+and no `Return` (real `DeregisterImageOutput.Return` is `*bool`, always true --
+`api_op_DeregisterImage.go:89`); smithy-go's client tolerates the empty body via
+`FetchRootElement`'s `io.EOF` branch and returns a zero-value output with `Return == nil`
+rather than erroring, so this was silent data loss, not a hard failure. Its not-found path
+also used `ErrInvalidParameter` (`InvalidParameterValue`) instead of the sentinel every
+other not-found path in `images.go`/`image_ops.go` already uses, `ErrImageNotFound`
+(`InvalidAMIID.NotFound`, the real code) -- a broken op beside many correct siblings of the
+same shape. Fixed both; `DeregisterImage` now returns a proper stub response and reuses
+`ErrImageNotFound`. (2) **`ReportInstanceStatus`** (`handler_instances.go`) only ever read
+`InstanceId.1` and `ReasonCode.1`, misreading the latter into the "description" arg passed
+to the backend -- the real, deprecated-but-still-real `Description` field
+(`serializers.go:91277`) was never read at all, and `Instances` (a required, unbounded list
+flattened as `InstanceId.N`) only ever validated its first element, so a batch call with a
+bad second ID silently succeeded instead of surfacing `InvalidInstanceID.NotFound`. Fixed:
+now parses the full `InstanceId.N` list via `parseMemberList` and reads the real
+`Description` field; `Backend.ReportInstanceStatus` signature changed from
+`(instanceID, status, description string)` to `(instanceIDs []string, status, description
+string)` and validates every listed instance. (3) **`ModifyInstanceCreditSpecification`**
+(`handler_instances.go`) had the identical shape: only read
+`InstanceCreditSpecification.1.*`, silently dropping every other entry in the required,
+unbounded `InstanceCreditSpecifications` list (`serializers.go:87727`) -- a real client
+batch-modifying a fleet's credit option in one call only got the first instance changed,
+with no error and no `UnsuccessfulInstanceCreditSpecifications` reporting for the rest.
+Fixed: parses the full list, and `Backend.ModifyInstanceCreditSpecification` now takes
+`[]InstanceCreditSpec` and returns `(successful, unsuccessful []InstanceCreditSpec)`
+per real per-item batch semantics; the handler reports failures via a new
+`UnsuccessfulInstanceCreditSpecificationSet` (`instanceId`/`error>code`/`error>message`,
+confirmed against `awsEc2query_deserializeDocumentUnsuccessfulInstanceCreditSpecificationItem`)
+using the real `InvalidInstanceID.NotFound` code. (4) **`DescribeInstanceTypeOfferings`**
+(`handler_instances.go`) took `_ url.Values`, ignoring the request entirely -- the real
+`instance-type`/`location` `Filters` (`api_op_DescribeInstanceTypeOfferings.go` doc comment)
+were silently discarded and every call returned the full static offering list regardless of
+what was asked for. Fixed via a new `applyInstanceTypeOfferingFilters` (reusing the
+existing `parseEC2Filters`/`anyEqual` helpers already used by every other filtered Describe
+in this package) and an explicit, honest empty result for a `LocationType` other than
+`availability-zone` (the only kind this backend's static generator produces -- not
+fabricating offerings for `region`/`availability-zone-id`/`outpost`, which it has no real
+data for).
+
+No sibling family shares (1)'s or (4)'s exact op; (2) and (3) are the same "batch op reads
+only index 1" shape and were both found and fixed together as a matched pair -- no other op
+in either file uses the `.N.` nested-list wire form, confirmed by grep.
+
+Proof for all 4: new real-SDK-client tests in `wire_field_fixes_ec2sweep11_test.go`
+(`TestDeregisterImage_RealClient`, `TestReportInstanceStatus_AllInstancesValidated_RealClient`,
+`TestModifyInstanceCreditSpecification_Batch_RealClient`,
+`TestDescribeInstanceTypeOfferings_Filters_RealClient`), each hand-reverted (`cp` from the
+pre-fix `git show HEAD:...` content) and confirmed failing with the documented symptom, then
+restored with `md5sum` identical to the fixed version before re-running green.
+
+No persisted struct's json tag or field name/type changed (`InstanceCreditSpec`'s shape is
+unchanged; only how it's passed/batched changed) -- no `ec2SnapshotVersion` bump.
+
+Found, real, but NOT fixed this pass (volume too large for one pass, named rather than
+synthesized around): every List/Describe op in both files silently ignores real
+`MaxResults`/`NextToken` pagination and always returns everything in one page --
+`DescribeInstanceCreditSpecifications`, `DescribeInstanceTopology`,
+`DescribeInstanceConnectEndpoints`, `DescribeInstanceEventWindows`, `DescribeElasticGpus`,
+`DescribeImportImageTasks`, `DescribeExportImageTasks`, `ListImagesInRecycleBin`,
+`DescribeFastLaunchImages`, `DescribeImageReferences`, `DescribeInstanceImageMetadata` --
+all confirmed via the installed SDK to have real `MaxResults`/`NextToken` on both
+Input and Output, none implemented here. `DescribeImages` (core op, same file) already
+implements this correctly via `parseImagesPagination`/`pkgs/page` -- a correct sibling
+right beside every one of these broken ones. Modelling gaps ruled real, not fabricatable,
+and left alone: `CopyImage` never reads the required `SourceRegion` or the real
+`Encrypted`/`KmsKeyId` (this backend's AMI type tracks no cross-region or
+block-device/encryption state at all, a pre-existing, already-documented structural gap);
+`GetDefaultCreditSpecification`/`ModifyDefaultCreditSpecification`'s `InstanceFamily` is a
+non-pointer required enum (unprovable per the pointer-vs-scalar rule) and the backend
+tracks one default across all families rather than per-family, which is a real but
+non-pointer-provable modelling gap, not touched. `CreateInstanceEventWindow`'s alternative
+`TimeRanges` input (mutually exclusive with `CronExpression`) is entirely unmodeled --
+documented, not fabricated. False positive ruled out by hand: `ReportInstanceStatus`'s
+backend method discards `status`/`description` entirely (`_ string, _ string`) and there is
+no real Describe surface that reflects customer-reported status back to the same account,
+so despite the misleading doc comment this is not a provable "fabricated success" bug --
+only the wire-parsing/multi-instance-validation gap above is.
+
+Gates: `go build ./...` (repo-wide, since two `Backend` interface method signatures
+changed), `go vet ./services/ec2/...`, `gofmt -l services/ec2/*.go` (clean), `go test
+./services/ec2/... -count=1` (`ok`, 1.0s, full suite including the new tests), `golangci-lint
+run ./services/ec2/...` (0 issues, after fixing 2 `goconst` findings the new code introduced
+-- reused `ErrInstanceNotFound.Error()`/`filterKeyAvailabilityZone` instead of new literals
+-- and 1 `nonamedreturns` finding by switching `ModifyInstanceCreditSpecification`'s named
+returns to local vars).
+
+Not reached: the other ~28 ops in `handler_instances.go` beyond the 4 fixed (batch
+credit-spec/report-status/type-offerings), and the other ~23 in `handler_images.go` beyond
+`DeregisterImage`/`RestoreImageFromRecycleBin` -- every op in both files was read and
+checked for the enumerated bug shapes, but only the pagination gap above and the 4 fixed
+bugs were found; the remaining ops (image lifecycle toggles, import/export image tasks,
+instance event windows, instance-connect endpoints, serial console, credit specification
+describe, etc.) matched their real wire shapes on inspection. Next pass should pick one of:
+`handler_volumes.go` (12), `handler_snapshots.go` (11), `handler_spot_fleet.go` (10),
+`handler_client_vpn.go` (9), `handler_security_groups.go` (9), `handler_elastic_ips.go` (8),
+`handler_tgw_multicast.go` (7), `handler_instance_attrs.go` (7), or return to close the
+pagination gap named above across both files audited this pass.
