@@ -585,7 +585,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Shield](services/shield/README.md) | A | 36 | 2 gaps; 3 deferred |
 | [Verified Permissions](services/verifiedpermissions/README.md) | A | 38 | 5 gaps |
 | [WAF](services/waf/README.md) | A | 4 | 2 structural gaps |
-| [WAFv2](services/wafv2/README.md) | A | 59 | 2 gaps; 1 structural gap |
+| [WAFv2](services/wafv2/README.md) | A | 59 | 3 gaps; 1 structural gap |
 
 ### Identity & Access
 
