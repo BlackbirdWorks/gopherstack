@@ -236,7 +236,7 @@ func verifyFullState(t *testing.T, b *glue.InMemoryBackend) {
 	require.NoError(t, err)
 	require.Len(t, partColStats, 1)
 
-	policy, hash, err := b.GetResourcePolicy("arn:aws:glue:us-east-1:123456789012:catalog")
+	policy, hash, _, _, err := b.GetResourcePolicy("arn:aws:glue:us-east-1:123456789012:catalog")
 	require.NoError(t, err)
 	assert.Equal(t, "policy-doc", policy)
 	assert.NotEmpty(t, hash)

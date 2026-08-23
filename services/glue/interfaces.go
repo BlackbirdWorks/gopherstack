@@ -323,7 +323,7 @@ type StorageBackend interface {
 
 	// Resource policy operations.
 	PutResourcePolicy(policy, resourceARN, existsCondition, hashCondition, enableHybrid string) (string, error)
-	GetResourcePolicy(resourceARN string) (string, string, error)
+	GetResourcePolicy(resourceARN string) (string, string, float64, float64, error)
 	DeleteResourcePolicy(resourceARN, policyHash string) error
 	ListResourcePolicies() []*resourcePolicyEntry
 

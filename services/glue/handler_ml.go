@@ -103,11 +103,19 @@ type getMLTaskRunInput struct {
 	TaskRunID   string `json:"TaskRunId"`
 }
 
-// getMLTaskRunOutput holds the result for GetMLTaskRun.
+// getMLTaskRunOutput holds the result for GetMLTaskRun. StartedOn/CompletedOn/
+// ExecutionTime/ErrorString/LogGroupName are real GetMLTaskRunOutput members
+// (api_op_GetMLTaskRun.go) backed by real state already tracked on MLTaskRun
+// (models.go) -- previously dropped entirely by this narrower response struct.
 type getMLTaskRunOutput struct {
-	TransformID string `json:"TransformId"`
-	TaskRunID   string `json:"TaskRunId"`
-	Status      string `json:"Status"`
+	TransformID   string  `json:"TransformId"`
+	TaskRunID     string  `json:"TaskRunId"`
+	Status        string  `json:"Status"`
+	ErrorString   string  `json:"ErrorString,omitempty"`
+	LogGroupName  string  `json:"LogGroupName,omitempty"`
+	StartedOn     float64 `json:"StartedOn,omitempty"`
+	CompletedOn   float64 `json:"CompletedOn,omitempty"`
+	ExecutionTime int     `json:"ExecutionTime,omitempty"`
 }
 
 func (h *Handler) handleGetMLTaskRun(
@@ -124,9 +132,14 @@ func (h *Handler) handleGetMLTaskRun(
 	}
 
 	return &getMLTaskRunOutput{
-		TransformID: run.TransformID,
-		TaskRunID:   run.TaskRunID,
-		Status:      run.Status,
+		TransformID:   run.TransformID,
+		TaskRunID:     run.TaskRunID,
+		Status:        run.Status,
+		ErrorString:   run.ErrorString,
+		LogGroupName:  run.LogGroupName,
+		StartedOn:     run.StartedOn,
+		CompletedOn:   run.CompletedOn,
+		ExecutionTime: run.ExecutionTime,
 	}, nil
 }
 

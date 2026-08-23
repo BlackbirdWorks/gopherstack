@@ -61,22 +61,32 @@ type getResourcePolicyInput struct {
 	ResourceArn string `json:"ResourceArn,omitempty"`
 }
 
-// getResourcePolicyOutput holds the result for GetResourcePolicy.
+// getResourcePolicyOutput holds the result for GetResourcePolicy. CreateTime/
+// UpdateTime are real GetResourcePolicyOutput members (api_op_GetResourcePolicy.go)
+// backed by real state this backend already tracks per policy (see
+// resourcePolicyEntry) -- previously dropped entirely.
 type getResourcePolicyOutput struct {
-	PolicyInJSON string `json:"PolicyInJson"`
-	PolicyHash   string `json:"PolicyHash,omitempty"`
+	PolicyInJSON string  `json:"PolicyInJson"`
+	PolicyHash   string  `json:"PolicyHash,omitempty"`
+	CreateTime   float64 `json:"CreateTime,omitempty"`
+	UpdateTime   float64 `json:"UpdateTime,omitempty"`
 }
 
 func (h *Handler) handleGetResourcePolicy(
 	_ context.Context,
 	in *getResourcePolicyInput,
 ) (*getResourcePolicyOutput, error) {
-	policy, hash, err := h.Backend.GetResourcePolicy(in.ResourceArn)
+	policy, hash, createTime, updateTime, err := h.Backend.GetResourcePolicy(in.ResourceArn)
 	if err != nil {
 		return nil, err
 	}
 
-	return &getResourcePolicyOutput{PolicyInJSON: policy, PolicyHash: hash}, nil
+	return &getResourcePolicyOutput{
+		PolicyInJSON: policy,
+		PolicyHash:   hash,
+		CreateTime:   createTime,
+		UpdateTime:   updateTime,
+	}, nil
 }
 
 // putResourcePolicyInput holds input for PutResourcePolicy.
