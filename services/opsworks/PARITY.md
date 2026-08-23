@@ -493,3 +493,47 @@ parallel-table bug. Added `handler_sdk_route_table_test.go`
 request per op and drives it through the real `Handler()`, asserting it
 does not fall through to the "unknown action" dispatch-miss branch
 (handler.go:262-263). No stale PARITY.md entries found.
+
+## 2026-08-23 — gopherstack-n3zi: first typed-client tests (10/74 ops)
+
+Chosen as the demonstration service for gopherstack-n3zi's measurement pass
+(a new `cmd/clientcoverage` AST census of every `_test.go` under
+`test/integration/` and `services/` that constructs a real
+`aws-sdk-go-v2` client and calls an op on it) because it measured 0/74 ops
+ever invoked by a typed client anywhere in the repo, on the census's most
+trustworthy (`direct`) opcensus resolution tier -- not the raw top-ranked
+gap, several of which (`bedrock`, `redshift`) turned out to have their own
+`opcensus` op-list defects (see gopherstack-n3zi's notes) that make their
+numbers unreliable.
+
+Added `sdk_roundtrip_helper_test.go` (`newRoundTripClient`/`newTestClient`,
+the same `httptest.Server` + `pkgs/service` router pattern used by
+`appmesh`/`grafana`) and `sdk_roundtrip_test.go`: three round-trip tests
+covering `CreateStack`, `DescribeStacks`, `UpdateStack`, `DeleteStack`,
+`TagResource`, `ListTags`, `UntagResource`, `CreateLayer`, `DescribeLayers`,
+`DeleteLayer` -- each asserting real field values read back through the
+real SDK deserializer, not just a 200. All 10 passed against the existing
+handler/backend with no wire-shape bug found this time; the value here is
+closing the blindness, not a bug this pass happened to catch.
+
+This also required adding `aws-sdk-go-v2/service/opsworks` as a direct
+`go.mod` dependency (`go get .../service/opsworks@v1.31.0`) -- it was
+previously only present transitively in the module cache, referenced by
+comment-only audits above, never imported. Since OpsWorks is AWS-deprecated,
+every SDK call now carries an `SA1019` staticcheck notice; exempted per-file
+in `.golangci.yml` (same precedent as `iotanalytics/handler_create_tags_test.go`)
+rather than sprinkling inline nolints.
+
+Remaining 64 ops (instances, apps, deployments, permissions, ECS/RDS/volume
+registration, load-based/time-based auto scaling, commands, agent versions,
+user profiles, service errors) are still only exercised via `doTarget`-style
+raw-body tests -- this pass does not change `overall: B`; the "no SDK-driven
+suite" line in that block predates it and is now a partial rather than
+total gap. Not attempted further: this was a coverage-measurement
+demonstration, not a full remediation pass (see gopherstack-n3zi).
+
+Gates: `go build ./...`, `go vet ./services/opsworks/...`, `gofmt -l` clean;
+`go test -race ./services/opsworks/...` green; `golangci-lint run
+./services/opsworks/...` 0 issues after fixing (govet shadow, tparallel,
+golines, unparam; SA1019 exempted per above). No
+`cyclop`/`gocyclo`/`gocognit`/`funlen` nolints added.

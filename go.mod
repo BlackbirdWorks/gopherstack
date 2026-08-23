@@ -216,6 +216,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/mgn v1.48.4
 	github.com/aws/aws-sdk-go-v2/service/networkmanager v1.44.4
 	github.com/aws/aws-sdk-go-v2/service/opensearchserverless v1.34.4
+	github.com/aws/aws-sdk-go-v2/service/opsworks v1.31.0
 	github.com/aws/aws-sdk-go-v2/service/outposts v1.66.1
 	github.com/aws/aws-sdk-go-v2/service/personalizeruntime v1.36.4
 	github.com/aws/aws-sdk-go-v2/service/resiliencehub v1.38.3
