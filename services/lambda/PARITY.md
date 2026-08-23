@@ -33,3 +33,34 @@ leaks: {status: clean, note: "event-source pollers + janitor + container lifecyc
 - durable_execution is intentionally NOT wired into Snapshot/Restore (durableExecutionStore isn't touched by persistence.go) — this predates the wire-shape rewrite and is unrelated to it; durable executions were never persisted, only cleared on Reset (lifecycle.go's `b.durableExecs.reset()`). Not flagged as a bug: no entry point exists to repopulate FunctionArn/DurableConfig/InputPayload after a restore anyway (see durable_execution family note above), so persisting the store today would only round-trip empty shells.
 - `ListLayers` and `ListLayerVersions` summary narrowing: `LayerVersion.Content` was previously populated on `ListLayers` and `ListLayerVersions` responses. In `aws-sdk-go-v2/service/lambda@v1.101.2`, `types.LayerVersionsListItem` does not contain `Content` (only `GetLayerVersion` / `PublishLayerVersion` returns `Content`). Fixed: `ListLayers` and `ListLayerVersions` omit `Content`.
 
+
+## 2026-08-23: pagination bug sweep (ListLayerVersions, ListProvisionedConcurrencyConfigs, ListCodeSigningConfigs, ListFunctionsByCodeSigningConfig)
+
+Discovered while auditing the pagination bug class found in medialive.
+`handleListLayerVersions`, `handleListProvisionedConcurrencyConfigs`,
+`handleListCodeSigningConfigs`, and `handleListFunctionsByCodeSigningConfig`
+all ignored the real `Marker`/`MaxItems` request members (lambda@v1.101.2:
+`ListLayerVersionsInput`, `ListProvisionedConcurrencyConfigsInput`,
+`ListCodeSigningConfigsInput`, `ListFunctionsByCodeSigningConfigInput`) and
+always returned every item in one unbounded page with no `NextMarker`,
+despite `NextMarker` already existing (unused) on all four output structs.
+Fixed using the existing `parsePaginationParams` + `pkgs/page.New` +
+`lambdaDefaultMaxItems` pattern already used by `ListFunctions`/`ListLayers`
+in this package. `ListLayerVersions`, `ListProvisionedConcurrencyConfigs`,
+and `ListFunctionsByCodeSigningConfig` are unexported `*InMemoryBackend`
+methods (not part of a public interface) but changed return type from a
+bare slice to `page.Page[T]`; `go build ./...` confirmed clean, and two
+pre-existing test call sites (persistence_test.go, layers_test.go) updated
+for the new `ListLayerVersions` signature. Proven with four
+`Test*_SDKRoundTrip_Pagination` tests (`list_pagination_ignored_test.go`),
+each driving the real SDK client across two 10-item pages of 25 seeded
+items and asserting the pages are disjoint; all four fail against the
+unfixed handlers (`should have 10 item(s), but has 25`), hand-reverted
+and confirmed.
+
+Audited but NOT fixed: `handleListFunctionURLConfigs` also ignores
+Marker/MaxItems, but the route is always called with a non-empty
+`{name}` path segment, and the per-function code path
+(`GetFunctionURLConfig(name)`) can only ever return 0 or 1 items — this
+service's data model has no per-qualifier function URL configs, so the
+unbounded branch is dead code with zero real blast radius. Not fixed.

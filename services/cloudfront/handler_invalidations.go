@@ -82,10 +82,15 @@ func (h *Handler) handleListInvalidations(c *echo.Context, distID string) error 
 		return h.handleError(c, err)
 	}
 
-	quantity := len(invs)
+	page, pageSize, isTruncated, nextMarker := paginateByMarkerID(
+		c,
+		invs,
+		func(inv *Invalidation) string { return inv.ID },
+	)
+
 	var sb strings.Builder
 
-	for _, inv := range invs {
+	for _, inv := range page {
 		fmt.Fprintf(
 			&sb,
 			`<InvalidationSummary>`+
@@ -97,14 +102,20 @@ func (h *Handler) handleListInvalidations(c *echo.Context, distID string) error 
 		)
 	}
 
+	nextMarkerXML := ""
+	if isTruncated {
+		nextMarkerXML = fmt.Sprintf(`<NextMarker>%s</NextMarker>`, nextMarker)
+	}
+
 	resp := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
 		`<InvalidationList xmlns="%s">`+
-		`<IsTruncated>false</IsTruncated>`+
+		`<IsTruncated>%t</IsTruncated>`+
 		`<MaxItems>%d</MaxItems>`+
 		`<Quantity>%d</Quantity>`+
+		`%s`+
 		`<Items>%s</Items>`+
 		`</InvalidationList>`,
-		cfNS, maxItems, quantity, sb.String())
+		cfNS, isTruncated, pageSize, len(page), nextMarkerXML, sb.String())
 
 	return xmlResp(c, http.StatusOK, resp)
 }

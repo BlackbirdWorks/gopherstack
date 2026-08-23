@@ -290,7 +290,7 @@ func TestInMemoryBackend_ListLayerVersions(t *testing.T) {
 				tt.setup(bk)
 			}
 
-			versions, err := bk.ListLayerVersions(tt.layerName, "")
+			versions, err := bk.ListLayerVersions(tt.layerName, "", "", 0)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -300,8 +300,8 @@ func TestInMemoryBackend_ListLayerVersions(t *testing.T) {
 
 			require.NoError(t, err)
 
-			got := make([]int64, len(versions))
-			for i, v := range versions {
+			got := make([]int64, len(versions.Data))
+			for i, v := range versions.Data {
 				got[i] = v.Version
 			}
 

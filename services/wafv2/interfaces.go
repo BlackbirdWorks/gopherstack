@@ -89,7 +89,7 @@ type StorageBackend interface {
 	PutLoggingConfiguration(ctx context.Context, resourceARN string, configJSON json.RawMessage) error
 	DeleteLoggingConfiguration(ctx context.Context, resourceARN string) error
 	GetLoggingConfiguration(ctx context.Context, resourceARN string) (json.RawMessage, error)
-	ListLoggingConfigurations(ctx context.Context) []json.RawMessage
+	ListLoggingConfigurations(ctx context.Context, scope string) []json.RawMessage
 	DeletePermissionPolicy(ctx context.Context, resourceARN string) error
 	DeleteRegexPatternSet(ctx context.Context, id, lockToken string) error
 	ListAPIKeys(ctx context.Context, scope string) []*APIKey

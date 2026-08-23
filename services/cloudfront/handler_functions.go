@@ -109,9 +109,11 @@ func (h *Handler) handleDescribeFunction(c *echo.Context, name string) error {
 func (h *Handler) handleListFunctions(c *echo.Context) error {
 	fns := h.Backend.ListFunctions()
 
+	page, pageSize, isTruncated, nextMarker := paginateByMarkerID(c, fns, func(fn *Function) string { return fn.Name })
+
 	var sb strings.Builder
 
-	for _, fn := range fns {
+	for _, fn := range page {
 		fmt.Fprintf(&sb,
 			`<FunctionSummary>`+
 				`<Name>%s</Name>`+
@@ -131,13 +133,19 @@ func (h *Handler) handleListFunctions(c *echo.Context) error {
 			fn.ARN, fn.Status, fn.CreatedTime, fn.LastModifiedTime)
 	}
 
+	nextMarkerXML := ""
+	if isTruncated {
+		nextMarkerXML = fmt.Sprintf(`<NextMarker>%s</NextMarker>`, nextMarker)
+	}
+
 	resp := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
 		`<FunctionList xmlns="%s">`+
 		`<MaxItems>%d</MaxItems>`+
 		`<Quantity>%d</Quantity>`+
+		`%s`+
 		`<Items>%s</Items>`+
 		`</FunctionList>`,
-		cfNS, maxItems, len(fns), sb.String())
+		cfNS, pageSize, len(page), nextMarkerXML, sb.String())
 
 	return xmlResp(c, http.StatusOK, resp)
 }

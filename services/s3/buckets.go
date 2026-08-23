@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
@@ -135,10 +136,16 @@ func (b *InMemoryBackend) HeadBucket(
 	return &s3.HeadBucketOutput{}, nil
 }
 
+// s3DefaultMaxBuckets is the real ListBuckets default page size when MaxBuckets is
+// omitted (aws-sdk-go-v2/service/s3 api_op_ListBuckets.go doc comment: "default 10,000").
+const s3DefaultMaxBuckets = 10000
+
 func (b *InMemoryBackend) ListBuckets(
 	_ context.Context,
-	_ *s3.ListBucketsInput,
+	input *s3.ListBucketsInput,
 ) (*s3.ListBucketsOutput, error) {
+	prefix := aws.ToString(input.Prefix)
+
 	// Snapshot bucket data under lock, release immediately.
 	var buckets []types.Bucket
 	func() {
@@ -151,18 +158,12 @@ func (b *InMemoryBackend) ListBuckets(
 			if bucket.DeletePending || bucket.IsDirectoryBucket {
 				continue
 			}
+			if prefix != "" && !strings.HasPrefix(bucket.Name, prefix) {
+				continue
+			}
 			buckets = append(buckets, types.Bucket{
 				Name:         aws.String(bucket.Name),
 				CreationDate: aws.Time(bucket.CreationDate),
-				// Real S3 only echoes BucketRegion on a paginated ListBuckets
-				// request; this backend implements no pagination/filtering, so it's
-				// always populated, matching the whole point of the field: dashboard
-				// visibility into a bucket's real region.
-				//
-				// Unlike GetBucketLocation's LocationConstraint (EMPTY for
-				// us-east-1, a legacy quirk), BucketRegion reports the literal
-				// region string, "us-east-1" included -- confirmed against the real
-				// ListBuckets doc's paginated examples. No empty-string special-casing.
 				BucketRegion: aws.String(bucket.Region),
 			})
 		}
@@ -173,13 +174,26 @@ func (b *InMemoryBackend) ListBuckets(
 		return *buckets[i].Name < *buckets[j].Name
 	})
 
-	return &s3.ListBucketsOutput{
-		Buckets: buckets,
+	maxBuckets := int(aws.ToInt32(input.MaxBuckets))
+
+	p := page.New(buckets, aws.ToString(input.ContinuationToken), maxBuckets, s3DefaultMaxBuckets)
+
+	out := &s3.ListBucketsOutput{
+		Buckets: p.Data,
 		Owner: &types.Owner{
 			DisplayName: aws.String("Gopherstack"),
 			ID:          aws.String("placeholder-id"),
 		},
-	}, nil
+	}
+	if p.Next != "" {
+		out.ContinuationToken = aws.String(p.Next)
+	}
+
+	if prefix != "" {
+		out.Prefix = aws.String(prefix)
+	}
+
+	return out, nil
 }
 
 // ListDirectoryBuckets returns all S3 Express directory buckets (name suffix

@@ -494,3 +494,43 @@ bugs are a different class of work than the method+path diff this pass's mandate
 three were resolved in follow-up passes the same day: the two wire-shape bugs by gopherstack-4ara
 (see the Notes entry above), the KeyValueStore structural gap by a further gopherstack-4ara pass
 that split the data plane into services/cloudfrontkeyvaluestore.
+
+## 2026-08-23: pagination bug sweep (ListInvalidations, ListInvalidationsForDistributionTenant, ListFunctions)
+
+Discovered while auditing the pagination bug class found in medialive.
+`handleListInvalidations`, `handleListInvalidationsForTenant`, and
+`handleListFunctions` all ignored the real, per-op `Marker`/`MaxItems`
+request members (cloudfront@v1.67.4: every List op's Input has
+`Marker *string, MaxItems *int32`) and always returned every item in one
+unbounded page — `handleListInvalidations` even hardcoded
+`<IsTruncated>false</IsTruncated>`. Fixed all three using a new shared
+`paginateByMarkerID` helper (`pagination_helper.go`, generalizing the
+existing correct pattern from `handleListDistributions`/
+`handleListAnycastIPLists`), sorted by `Invalidation.ID`/`Function.Name`.
+Proven with `TestListInvalidations_SDKRoundTrip_Pagination`,
+`TestListInvalidationsForDistributionTenant_SDKRoundTrip_Pagination`, and
+`TestListFunctions_SDKRoundTrip_Pagination`
+(`list_pagination_ignored_test.go`), each driving the real SDK client across
+two 10-item pages of 25 seeded items and asserting the pages are disjoint;
+all three fail against the unfixed handlers (`should have 10 item(s), but
+has 25`), hand-reverted and confirmed.
+
+Audited but NOT fixed this pass, same ignored-pagination pattern, all
+low blast radius given CloudFront's own low per-resource-type account quotas
+(cache policies, origin request policies, response headers policies ~20;
+key groups ~10; public keys ~100; real-time log configs ~20; field-level
+encryption configs/profiles, streaming distributions (legacy), trust stores,
+connection groups/functions, key value stores, VPC origins, origin access
+controls — all similarly small): `handleListCachePolicies`,
+`handleListContinuousDeploymentPolicies`, `handleListConnectionGroups`,
+`handleListConnectionFunctions`, `handleListFieldLevelEncryptions`,
+`handleListFieldLevelEncryptionProfiles`, `handleListPublicKeys`,
+`handleListKeyGroups`, `handleListKeyValueStores`, `handleListOAIs`,
+`handleListOriginAccessControls`, `handleListOriginRequestPolicies`,
+`handleListRealtimeLogConfigs`, `handleListResponseHeadersPolicies`,
+`handleListStreamingDistributions`, `handleListTrustStores`,
+`handleListVpcOrigins`. None of these apply an artificial default cap while
+discarding the client's token (the medialive/true-loop bug shape) — they
+simply return every item unbounded, so no data loss and no infinite loop,
+just a spec deviation. Follow-up: apply the same `paginateByMarkerID`
+helper to each.

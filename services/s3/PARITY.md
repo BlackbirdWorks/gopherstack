@@ -595,3 +595,22 @@ s3's List/Describe/Get families are now fully swept for this issue (45/45
 ops verified against the real deserializer, one op family's finding flagged
 rather than fixed). `services/_WRAPPER_KEY_SWEEP_REMAINDER.md` updated: 65
 of 162 services swept, 97 remain.
+
+## 2026-08-23: ListBuckets pagination bug
+
+The handler never parsed `continuation-token`/`max-buckets`/`prefix` off the
+request, and the backend's `ListBuckets` documented its own lack of
+pagination ("this backend implements no pagination/filtering") — both real
+`ListBucketsInput` members (httpQuery-bound,
+`awsRestxml_serializeOpHttpBindingsListBucketsInput`), discovered while
+auditing the pagination bug class found in medialive. Fixed: the handler now
+parses all three query params; the backend applies `Prefix` filtering and
+`pkgs/page`-style `ContinuationToken`/`MaxBuckets` pagination (default page
+size 10,000, matching the real API's documented default), echoing
+`ContinuationToken` in the XML response when truncated. No exported
+signature change (`ListBuckets(ctx, *s3.ListBucketsInput)` already matched
+the real SDK shape). Proven with `TestListBuckets_SDKRoundTrip_Pagination`
+(`handler_list_buckets_pagination_test.go`), which drives the real SDK
+client across two 10-item pages of 25 seeded buckets and asserts the pages
+are disjoint; fails against the unfixed handler (`should have 10 item(s),
+but has 25`), hand-reverted and confirmed.

@@ -4,6 +4,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -164,7 +165,11 @@ func (h *Handler) handleGetDistributionTenant(c *echo.Context, id string) error 
 func (h *Handler) handleGetDistributionTenantByDomain(c *echo.Context) error {
 	domain := c.Request().URL.Query().Get("domain")
 	if domain == "" {
-		return xmlResp(c, http.StatusBadRequest, cfErrorXML("InvalidArgument", "domain query parameter required"))
+		return xmlResp(
+			c,
+			http.StatusBadRequest,
+			cfErrorXML("InvalidArgument", "domain query parameter required"),
+		)
 	}
 
 	t, err := h.Backend.GetDistributionTenantByDomain(domain)
@@ -185,8 +190,14 @@ func (h *Handler) handleUpdateDistributionTenant(c *echo.Context, id string) err
 
 	ifMatch := c.Request().Header.Get("If-Match")
 	if ifMatch == "" || ifMatch != current.ETag {
-		return xmlResp(c, http.StatusPreconditionFailed,
-			cfErrorXML("PreconditionFailed", "If-Match ETag did not match the current distribution tenant ETag"))
+		return xmlResp(
+			c,
+			http.StatusPreconditionFailed,
+			cfErrorXML(
+				"PreconditionFailed",
+				"If-Match ETag did not match the current distribution tenant ETag",
+			),
+		)
 	}
 
 	body, err := readBody(c)
@@ -236,8 +247,14 @@ func (h *Handler) handleDeleteDistributionTenant(c *echo.Context, id string) err
 
 	ifMatch := c.Request().Header.Get("If-Match")
 	if ifMatch == "" || ifMatch != current.ETag {
-		return xmlResp(c, http.StatusPreconditionFailed,
-			cfErrorXML("PreconditionFailed", "If-Match ETag did not match the current distribution tenant ETag"))
+		return xmlResp(
+			c,
+			http.StatusPreconditionFailed,
+			cfErrorXML(
+				"PreconditionFailed",
+				"If-Match ETag did not match the current distribution tenant ETag",
+			),
+		)
 	}
 
 	if err := h.Backend.DeleteDistributionTenant(id); err != nil {
@@ -348,7 +365,10 @@ type listDistributionTenantsByCustomizationXML struct {
 
 // filterTenantsByCertificateArn narrows tenants to those whose certificate ARN matches certArn.
 // A blank certArn is a no-op (no filter requested).
-func (h *Handler) filterTenantsByCertificateArn(tenants []*DistributionTenant, certArn string) []*DistributionTenant {
+func (h *Handler) filterTenantsByCertificateArn(
+	tenants []*DistributionTenant,
+	certArn string,
+) []*DistributionTenant {
 	if certArn == "" {
 		return tenants
 	}
@@ -365,7 +385,11 @@ func (h *Handler) filterTenantsByCertificateArn(tenants []*DistributionTenant, c
 
 // paginateTenants applies the Marker/MaxItems page window to an already-sorted tenant list,
 // returning the page, the effective page size, and whether more results follow.
-func paginateTenants(tenants []*DistributionTenant, marker string, maxItemsReq int) ([]*DistributionTenant, int, bool) {
+func paginateTenants(
+	tenants []*DistributionTenant,
+	marker string,
+	maxItemsReq int,
+) ([]*DistributionTenant, int, bool) {
 	pageSize := maxItems
 	if maxItemsReq > 0 && maxItemsReq < maxItems {
 		pageSize = maxItemsReq
@@ -403,7 +427,10 @@ func (h *Handler) handleListDistributionTenantsByCustomization(c *echo.Context) 
 			return xmlResp(
 				c,
 				http.StatusBadRequest,
-				cfErrorXML("MalformedXML", "invalid ListDistributionTenantsByCustomizationRequest XML"),
+				cfErrorXML(
+					"MalformedXML",
+					"invalid ListDistributionTenantsByCustomizationRequest XML",
+				),
 			)
 		}
 	}
@@ -431,7 +458,10 @@ func (h *Handler) handleListDistributionTenantsByCustomization(c *echo.Context) 
 // DisassociateWebACL handlers
 // ---------------------------------------------------------------------------
 
-func (h *Handler) handleDisassociateDistributionTenantWebACL(c *echo.Context, tenantID string) error {
+func (h *Handler) handleDisassociateDistributionTenantWebACL(
+	c *echo.Context,
+	tenantID string,
+) error {
 	t, err := h.Backend.GetDistributionTenant(tenantID)
 	if err != nil {
 		return h.handleError(c, err)
@@ -550,7 +580,12 @@ func (h *Handler) handleVerifyDNSConfiguration(c *echo.Context) error {
 
 	var items strings.Builder
 	for _, dc := range configs {
-		fmt.Fprintf(&items, `<Item><Domain>%s</Domain><Status>%s</Status></Item>`, dc.Domain, dc.Status)
+		fmt.Fprintf(
+			&items,
+			`<Item><Domain>%s</Domain><Status>%s</Status></Item>`,
+			dc.Domain,
+			dc.Status,
+		)
 	}
 
 	resp := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
@@ -582,14 +617,20 @@ func (h *Handler) handleGetManagedCertificateDetails(c *echo.Context, tenantID s
 		)
 	}
 
-	resp := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
-		`<ManagedCertificateDetails xmlns="%s">`+
-		`<CertificateArn>%s</CertificateArn>`+
-		`<CertificateStatus>%s</CertificateStatus>`+
-		`<ValidationTokenHost>%s</ValidationTokenHost>`+
-		`<ValidationTokenDetails>%s</ValidationTokenDetails>`+
-		`</ManagedCertificateDetails>`,
-		cfNS, details.CertificateARN, details.CertificateStatus, details.ValidationTokenHost, tokens.String())
+	resp := fmt.Sprintf(
+		`<?xml version="1.0" encoding="UTF-8"?>`+
+			`<ManagedCertificateDetails xmlns="%s">`+
+			`<CertificateArn>%s</CertificateArn>`+
+			`<CertificateStatus>%s</CertificateStatus>`+
+			`<ValidationTokenHost>%s</ValidationTokenHost>`+
+			`<ValidationTokenDetails>%s</ValidationTokenDetails>`+
+			`</ManagedCertificateDetails>`,
+		cfNS,
+		details.CertificateARN,
+		details.CertificateStatus,
+		details.ValidationTokenHost,
+		tokens.String(),
+	)
 
 	return xmlResp(c, http.StatusOK, resp)
 }
@@ -601,7 +642,11 @@ func (h *Handler) handleGetManagedCertificateDetails(c *echo.Context, tenantID s
 func (h *Handler) handleCreateInvalidationForTenant(c *echo.Context, tenantID string) error {
 	body, err := readBody(c)
 	if err != nil {
-		return xmlResp(c, http.StatusInternalServerError, cfErrorXML("InternalFailure", err.Error()))
+		return xmlResp(
+			c,
+			http.StatusInternalServerError,
+			cfErrorXML("InternalFailure", err.Error()),
+		)
 	}
 
 	if qErr := validateQuantities(body); qErr != nil {
@@ -611,7 +656,11 @@ func (h *Handler) handleCreateInvalidationForTenant(c *echo.Context, tenantID st
 	var batch invalidationBatchXML
 	if len(body) > 0 {
 		if xmlErr := xml.Unmarshal(body, &batch); xmlErr != nil {
-			return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "invalid InvalidationBatch XML"))
+			return xmlResp(
+				c,
+				http.StatusBadRequest,
+				cfErrorXML("MalformedXML", "invalid InvalidationBatch XML"),
+			)
 		}
 	}
 
@@ -657,7 +706,11 @@ func (h *Handler) handleGetInvalidationForTenant(c *echo.Context, tenantID strin
 		}
 	}
 	if invID == "" {
-		return xmlResp(c, http.StatusBadRequest, cfErrorXML("InvalidArgument", "invalidation ID is required"))
+		return xmlResp(
+			c,
+			http.StatusBadRequest,
+			cfErrorXML("InvalidArgument", "invalidation ID is required"),
+		)
 	}
 
 	inv, err := h.Backend.GetInvalidationForTenant(tenantID, invID)
@@ -679,6 +732,14 @@ func (h *Handler) handleGetInvalidationForTenant(c *echo.Context, tenantID strin
 func (h *Handler) handleListInvalidationsForTenant(c *echo.Context, tenantID string) error {
 	invs := h.Backend.ListInvalidationsForTenant(tenantID)
 
+	sort.Slice(invs, func(i, j int) bool { return invs[i].ID < invs[j].ID })
+
+	page, pageSize, isTruncated, nextMarker := paginateByMarkerID(
+		c,
+		invs,
+		func(inv *Invalidation) string { return inv.ID },
+	)
+
 	type invSummary struct {
 		XMLName    xml.Name `xml:"InvalidationSummary"`
 		ID         string   `xml:"Id"`
@@ -688,21 +749,25 @@ func (h *Handler) handleListInvalidationsForTenant(c *echo.Context, tenantID str
 	type invList struct {
 		XMLName     xml.Name     `xml:"InvalidationList"`
 		XMLNS       string       `xml:"xmlns,attr"`
+		NextMarker  string       `xml:"NextMarker,omitempty"`
 		Items       []invSummary `xml:"Items>InvalidationSummary"`
 		MaxItems    int          `xml:"MaxItems"`
 		Quantity    int          `xml:"Quantity"`
 		IsTruncated bool         `xml:"IsTruncated"`
 	}
 
-	summaries := make([]invSummary, 0, len(invs))
-	for _, inv := range invs {
+	summaries := make([]invSummary, 0, len(page))
+	for _, inv := range page {
 		summaries = append(summaries, invSummary{
 			ID:         inv.ID,
 			Status:     inv.Status,
 			CreateTime: inv.CreateTime.Format(time.RFC3339),
 		})
 	}
-	list := invList{XMLNS: cfNS, MaxItems: maxItems, Quantity: len(summaries), Items: summaries}
+	list := invList{
+		XMLNS: cfNS, MaxItems: pageSize, Quantity: len(summaries), Items: summaries,
+		IsTruncated: isTruncated, NextMarker: nextMarker,
+	}
 	out, xmlErr := xml.Marshal(list)
 	if xmlErr != nil {
 		return h.handleError(c, xmlErr)
@@ -763,7 +828,11 @@ func (h *Handler) handleListDomainConflicts(c *echo.Context) error {
 	}
 
 	if req.Domain == "" {
-		return xmlResp(c, http.StatusBadRequest, cfErrorXML("InvalidArgument", "Domain is required"))
+		return xmlResp(
+			c,
+			http.StatusBadRequest,
+			cfErrorXML("InvalidArgument", "Domain is required"),
+		)
 	}
 
 	if req.DomainControlValidationResource == nil {

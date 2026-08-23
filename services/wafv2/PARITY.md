@@ -363,3 +363,26 @@ whose `Description` field alone exceeds `httputils.MaxRequestBodyBytes`
 (`handler_oversized_body_test.go`) asserts `apiErr.ErrorCode() ==
 "WAFInternalErrorException"`; confirmed it fails pre-fix with
 `*json.SyntaxError` (hand-reverted, byte-identical restore after).
+
+## 2026-08-23: ListLoggingConfigurations pagination and Scope bug
+
+`handleListLoggingConfigurations` never even parsed its request body —
+`Scope`, `Limit`, `LogScope`, and `NextMarker` are all real
+`ListLoggingConfigurationsInput` members (wafv2@v1.77.3
+api_op_ListLoggingConfigurations.go) — so it ignored the caller's `Scope`
+entirely (`ListLoggingConfigurations(ctx)` derived region only from the
+HTTP request's own region, not `arnRegionForScope(scope, ...)` the way
+`PutLoggingConfiguration` does, so a CLOUDFRONT-scope List would miss
+CLOUDFRONT-scope configs stored under the `""` region key) and always
+returned every logging configuration in one unbounded page. Fixed:
+`ListLoggingConfigurations` now takes a `scope` argument and resolves the
+storage region the same way `Put` does; the handler parses the request body
+and applies `Limit`/`NextMarker` pagination, sorted by `ResourceArn` for a
+stable cursor. `ListLoggingConfigurations` is an exported `StorageBackend`
+interface method — `go build ./...` confirmed clean after the signature
+change. Proven with
+`TestListLoggingConfigurations_SDKRoundTrip_Pagination`
+(`handler_list_logging_configurations_pagination_test.go`), which drives the
+real SDK client across two 10-item pages of 25 seeded configs and asserts
+the pages are disjoint; fails against the unfixed handler (`should have 10
+item(s), but has 25`), hand-reverted and confirmed.

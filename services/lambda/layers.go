@@ -170,14 +170,17 @@ func (b *InMemoryBackend) ListLayers(compatibleRuntime, marker string, maxItems 
 	return page.New(result, marker, maxItems, lambdaDefaultMaxItems)
 }
 
-// ListLayerVersions returns all versions of a specific layer in descending order.
-func (b *InMemoryBackend) ListLayerVersions(layerName, compatibleRuntime string) ([]*LayerVersion, error) {
+// ListLayerVersions returns a page of a specific layer's versions in descending order.
+// Marker is an opaque cursor; maxItems uses lambdaDefaultMaxItems when zero.
+func (b *InMemoryBackend) ListLayerVersions(
+	layerName, compatibleRuntime, marker string, maxItems int,
+) (page.Page[*LayerVersion], error) {
 	b.mu.RLock("ListLayerVersions")
 	defer b.mu.RUnlock()
 
 	versions, ok := b.layers[layerName]
 	if !ok {
-		return nil, ErrLayerNotFound
+		return page.Page[*LayerVersion]{}, ErrLayerNotFound
 	}
 
 	// Return a copy in reverse order (newest first), applying optional runtime filter.
@@ -196,7 +199,7 @@ func (b *InMemoryBackend) ListLayerVersions(layerName, compatibleRuntime string)
 		})
 	}
 
-	return result, nil
+	return page.New(result, marker, maxItems, lambdaDefaultMaxItems), nil
 }
 
 // DeleteLayerVersion removes an immutable layer version.

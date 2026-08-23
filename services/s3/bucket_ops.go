@@ -5,6 +5,7 @@ import (
 	"encoding/xml"
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -431,7 +432,25 @@ func (h *S3Handler) routeBucketGetStubs(
 
 func (h *S3Handler) listBuckets(ctx context.Context, w http.ResponseWriter, r *http.Request) {
 	h.setOperation(ctx, "ListBuckets")
-	out, err := h.Backend.ListBuckets(ctx, &s3.ListBucketsInput{})
+
+	q := r.URL.Query()
+	input := &s3.ListBucketsInput{}
+
+	if ct := q.Get("continuation-token"); ct != "" {
+		input.ContinuationToken = aws.String(ct)
+	}
+
+	if prefix := q.Get("prefix"); prefix != "" {
+		input.Prefix = aws.String(prefix)
+	}
+
+	if mb := q.Get("max-buckets"); mb != "" {
+		if n, convErr := strconv.Atoi(mb); convErr == nil && n > 0 {
+			input.MaxBuckets = aws.Int32(int32(n)) //nolint:gosec // bounded by query parsing
+		}
+	}
+
+	out, err := h.Backend.ListBuckets(ctx, input)
 	if err != nil {
 		WriteError(ctx, w, r, err)
 
@@ -443,6 +462,7 @@ func (h *S3Handler) listBuckets(ctx context.Context, w http.ResponseWriter, r *h
 			ID:          gopherstackName,
 			DisplayName: gopherstackName,
 		},
+		ContinuationToken: aws.ToString(out.ContinuationToken),
 	}
 
 	for _, b := range out.Buckets {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 )
 
 // PutLoggingConfiguration stores a full logging configuration JSON for the given resource ARN.
@@ -59,16 +60,27 @@ func (b *InMemoryBackend) GetLoggingConfiguration(ctx context.Context, resourceA
 	return out, nil
 }
 
-// ListLoggingConfigurations returns all stored logging configuration JSONs.
-func (b *InMemoryBackend) ListLoggingConfigurations(ctx context.Context) []json.RawMessage {
+// ListLoggingConfigurations returns all stored logging configuration JSONs for the
+// given scope (REGIONAL configs live under the request's actual region; CLOUDFRONT
+// configs are global and stored under the "" region key -- see arnRegionForScope).
+func (b *InMemoryBackend) ListLoggingConfigurations(ctx context.Context, scope string) []json.RawMessage {
 	b.mu.RLock("ListLoggingConfigurations")
 	defer b.mu.RUnlock()
 
-	region := getRegion(ctx, b.region)
+	region := arnRegionForScope(scope, getRegion(ctx, b.region))
 	regionMap := b.loggingConfigs[region]
-	result := make([]json.RawMessage, 0, len(regionMap))
 
-	for _, cfg := range regionMap {
+	arns := make([]string, 0, len(regionMap))
+	for arn := range regionMap {
+		arns = append(arns, arn)
+	}
+
+	sort.Strings(arns)
+
+	result := make([]json.RawMessage, 0, len(arns))
+
+	for _, arn := range arns {
+		cfg := regionMap[arn]
 		out := make(json.RawMessage, len(cfg))
 		copy(out, cfg)
 		result = append(result, out)

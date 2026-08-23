@@ -6,9 +6,10 @@ import (
 )
 
 type ListAllMyBucketsResult struct {
-	XMLName xml.Name    `xml:"ListAllMyBucketsResult"`
-	Owner   *Owner      `xml:"Owner"`
-	Buckets []BucketXML `xml:"Buckets>Bucket"`
+	XMLName           xml.Name    `xml:"ListAllMyBucketsResult"`
+	Owner             *Owner      `xml:"Owner"`
+	ContinuationToken string      `xml:"ContinuationToken,omitempty"`
+	Buckets           []BucketXML `xml:"Buckets>Bucket"`
 }
 
 type Owner struct {

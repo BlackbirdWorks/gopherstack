@@ -124,7 +124,9 @@ func (h *Handler) handleListLayers(c *echo.Context, bk *InMemoryBackend) error {
 
 func (h *Handler) handleListLayerVersions(c *echo.Context, bk *InMemoryBackend, layerName string) error {
 	compatibleRuntime := c.Request().URL.Query().Get("CompatibleRuntime")
-	versions, err := bk.ListLayerVersions(layerName, compatibleRuntime)
+	marker, maxItems := parsePaginationParams(c.Request())
+
+	p, err := bk.ListLayerVersions(layerName, compatibleRuntime, marker, maxItems)
 	if err != nil {
 		if errors.Is(err, ErrLayerNotFound) {
 			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
@@ -134,7 +136,7 @@ func (h *Handler) handleListLayerVersions(c *echo.Context, bk *InMemoryBackend, 
 		return h.writeError(c, http.StatusInternalServerError, "ServiceException", err.Error())
 	}
 
-	return c.JSON(http.StatusOK, &ListLayerVersionsOutput{LayerVersions: versions})
+	return c.JSON(http.StatusOK, &ListLayerVersionsOutput{LayerVersions: p.Data, NextMarker: p.Next})
 }
 
 func (h *Handler) handlePublishLayerVersion(c *echo.Context, bk *InMemoryBackend, layerName string) error {
