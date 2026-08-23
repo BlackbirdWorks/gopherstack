@@ -39,6 +39,39 @@ func registerSpotFleetOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["GetSpotPlacementScores"] = h.handleGetSpotPlacementScores
 }
 
+// parseSpotFleetTagSpecification extracts spot-fleet-request tags from
+// SpotFleetRequestConfig.TagSpecification.N.Tag.M.Key/Value. Unlike every
+// other create op's top-level TagSpecification.N, RequestSpotFleet's real
+// serializer nests it under the SpotFleetRequestConfig object (serializers.go
+// object.Key("SpotFleetRequestConfig") wrapping FlatKey("TagSpecification"),
+// serializers.go:65330) -- the same nesting LaunchSpecifications already uses
+// in this handler.
+func parseSpotFleetTagSpecification(vals url.Values) map[string]string {
+	tags := make(map[string]string)
+
+	for i := 1; i <= maxTagsPerRequest; i++ {
+		rt := vals.Get(fmt.Sprintf("SpotFleetRequestConfig.TagSpecification.%d.ResourceType", i))
+		if rt == "" {
+			break
+		}
+
+		if rt != "spot-fleet-request" {
+			continue
+		}
+
+		for j := 1; j <= maxTagsPerRequest; j++ {
+			key := vals.Get(fmt.Sprintf("SpotFleetRequestConfig.TagSpecification.%d.Tag.%d.Key", i, j))
+			if key == "" {
+				break
+			}
+
+			tags[key] = vals.Get(fmt.Sprintf("SpotFleetRequestConfig.TagSpecification.%d.Tag.%d.Value", i, j))
+		}
+	}
+
+	return tags
+}
+
 // handleRequestSpotFleet parses and dispatches a RequestSpotFleet call.
 func (h *Handler) handleRequestSpotFleet(vals url.Values, reqID string) (any, error) {
 	config := SpotFleetRequestConfig{}
@@ -100,6 +133,12 @@ func (h *Handler) handleRequestSpotFleet(vals url.Values, reqID string) (any, er
 		return nil, err
 	}
 
+	if tags := parseSpotFleetTagSpecification(vals); len(tags) > 0 {
+		if tagErr := h.Backend.CreateTags([]string{fleet.SpotFleetRequestID}, tags); tagErr != nil {
+			return nil, tagErr
+		}
+	}
+
 	return &requestSpotFleetResponse{
 		Xmlns:              ec2XMLNS,
 		RequestID:          reqID,
@@ -114,6 +153,14 @@ func (h *Handler) handleDescribeSpotFleetRequests(vals url.Values, reqID string)
 	if err != nil {
 		return nil, err
 	}
+
+	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageMaxDefault)
+	if err != nil {
+		return nil, err
+	}
+
+	var nextToken string
+	fleets, nextToken = pageSlice(fleets, offset, maxResults)
 
 	items := make([]spotFleetRequestConfigSetItem, 0, len(fleets))
 	for _, fleet := range fleets {
@@ -156,6 +203,7 @@ func (h *Handler) handleDescribeSpotFleetRequests(vals url.Values, reqID string)
 		Xmlns:                     ec2XMLNS,
 		RequestID:                 reqID,
 		SpotFleetRequestConfigSet: spotFleetRequestConfigSet{Items: items},
+		NextToken:                 nextToken,
 	}, nil
 }
 
@@ -176,7 +224,7 @@ func (h *Handler) handleCancelSpotFleetRequests(vals url.Values, reqID string) (
 		if r.Error != "" {
 			errorItems = append(errorItems, cancelSpotFleetErrorItem{
 				SpotFleetRequestID: r.SpotFleetRequestID,
-				Error:              r.Error,
+				Error:              cancelSpotFleetErrorDetail{Code: r.Error},
 			})
 		} else {
 			successItems = append(successItems, cancelSpotFleetSuccessItem{
@@ -232,6 +280,14 @@ func (h *Handler) handleDescribeSpotFleetInstances(vals url.Values, reqID string
 		return nil, err
 	}
 
+	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageMaxDefault)
+	if err != nil {
+		return nil, err
+	}
+
+	var nextToken string
+	instances, nextToken = pageSlice(instances, offset, maxResults)
+
 	items := make([]spotFleetInstanceItem, 0, len(instances))
 	for _, inst := range instances {
 		items = append(items, spotFleetInstanceItem{
@@ -247,6 +303,7 @@ func (h *Handler) handleDescribeSpotFleetInstances(vals url.Values, reqID string
 		RequestID:          reqID,
 		SpotFleetRequestID: fleetID,
 		ActiveInstances:    spotFleetInstanceSet{Items: items},
+		NextToken:          nextToken,
 	}, nil
 }
 
@@ -271,12 +328,27 @@ func (h *Handler) handleDescribeSpotFleetRequestHistory(
 		return nil, err
 	}
 
+	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageMaxDefault)
+	if err != nil {
+		return nil, err
+	}
+
+	var nextToken string
+	records, nextToken = pageSlice(records, offset, maxResults)
+
+	// LastEvaluatedTime is only present when nextToken is empty -- real AWS
+	// documents it as "all records up to this time were retrieved".
+	var lastEvaluatedTime string
+	if nextToken == "" {
+		lastEvaluatedTime = time.Now().UTC().Format(time.RFC3339)
+	}
+
 	items := make([]spotFleetHistoryRecordItem, 0, len(records))
 	for _, rec := range records {
 		items = append(items, spotFleetHistoryRecordItem{
 			Timestamp:        rec.Timestamp.Format(time.RFC3339),
 			EventType:        rec.EventType,
-			EventInformation: rec.EventInformation,
+			EventInformation: spotFleetEventInformationItem{EventDescription: rec.EventInformation},
 		})
 	}
 
@@ -286,6 +358,8 @@ func (h *Handler) handleDescribeSpotFleetRequestHistory(
 		SpotFleetRequestID: fleetID,
 		StartTime:          startTime.Format(time.RFC3339),
 		HistoryRecords:     spotFleetHistoryRecordSet{Items: items},
+		LastEvaluatedTime:  lastEvaluatedTime,
+		NextToken:          nextToken,
 	}, nil
 }
 
@@ -339,6 +413,7 @@ type describeSpotFleetRequestsResponse struct {
 	XMLName                   xml.Name                  `xml:"DescribeSpotFleetRequestsResponse"`
 	Xmlns                     string                    `xml:"xmlns,attr"`
 	RequestID                 string                    `xml:"requestId"`
+	NextToken                 string                    `xml:"nextToken,omitempty"`
 	SpotFleetRequestConfigSet spotFleetRequestConfigSet `xml:"spotFleetRequestConfigSet"`
 }
 
@@ -352,9 +427,20 @@ type cancelSpotFleetSuccessSet struct {
 	Items []cancelSpotFleetSuccessItem `xml:"item"`
 }
 
+// cancelSpotFleetErrorDetail matches CancelSpotFleetRequestsError
+// (ec2@v1.319.1 types/types.go, deserializers.go:81882): the real
+// deserializer reads <error> as a nested <code>/<message> structure via
+// awsEc2query_deserializeDocumentCancelSpotFleetRequestsError, not a scalar
+// value -- a bare string here silently loses the error code, since the
+// deserializer finds no child elements to decode.
+type cancelSpotFleetErrorDetail struct {
+	Code    string `xml:"code"`
+	Message string `xml:"message,omitempty"`
+}
+
 type cancelSpotFleetErrorItem struct {
-	SpotFleetRequestID string `xml:"spotFleetRequestId"`
-	Error              string `xml:"error"`
+	SpotFleetRequestID string                     `xml:"spotFleetRequestId"`
+	Error              cancelSpotFleetErrorDetail `xml:"error"`
 }
 
 type cancelSpotFleetErrorSet struct {
@@ -392,13 +478,21 @@ type describeSpotFleetInstancesResponse struct {
 	Xmlns              string               `xml:"xmlns,attr"`
 	RequestID          string               `xml:"requestId"`
 	SpotFleetRequestID string               `xml:"spotFleetRequestId"`
+	NextToken          string               `xml:"nextToken,omitempty"`
 	ActiveInstances    spotFleetInstanceSet `xml:"activeInstanceSet"`
 }
 
+// spotFleetEventInformationItem matches EventInformation (ec2@v1.319.1
+// deserializers.go:99294): the real deserializer reads <eventInformation> as
+// a nested element wrapping <eventDescription>, not a scalar value.
+type spotFleetEventInformationItem struct {
+	EventDescription string `xml:"eventDescription,omitempty"`
+}
+
 type spotFleetHistoryRecordItem struct {
-	Timestamp        string `xml:"timestamp"`
-	EventType        string `xml:"eventType,omitempty"`
-	EventInformation string `xml:"eventInformation,omitempty"`
+	Timestamp        string                        `xml:"timestamp"`
+	EventType        string                        `xml:"eventType,omitempty"`
+	EventInformation spotFleetEventInformationItem `xml:"eventInformation"`
 }
 
 type spotFleetHistoryRecordSet struct {
@@ -411,6 +505,8 @@ type describeSpotFleetRequestHistoryResponse struct {
 	RequestID          string                    `xml:"requestId"`
 	SpotFleetRequestID string                    `xml:"spotFleetRequestId"`
 	StartTime          string                    `xml:"startTime"`
+	LastEvaluatedTime  string                    `xml:"lastEvaluatedTime,omitempty"`
+	NextToken          string                    `xml:"nextToken,omitempty"`
 	HistoryRecords     spotFleetHistoryRecordSet `xml:"historyRecordSet"`
 }
 
@@ -480,6 +576,7 @@ func (h *Handler) handleDescribeSpotDatafeedSubscription(_ url.Values, reqID str
 type getSpotPlacementScoresResponse struct {
 	XMLName               xml.Name `xml:"GetSpotPlacementScoresResponse"`
 	RequestID             string   `xml:"requestId"`
+	NextToken             string   `xml:"nextToken,omitempty"`
 	SpotPlacementScoreSet struct {
 		Items []spotPlacementScoreItem `xml:"item"`
 	} `xml:"spotPlacementScoreSet"`
@@ -495,7 +592,15 @@ func (h *Handler) handleGetSpotPlacementScores(vals url.Values, reqID string) (a
 		return nil, err
 	}
 
-	resp := &getSpotPlacementScoresResponse{RequestID: reqID}
+	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageMaxDefault)
+	if err != nil {
+		return nil, err
+	}
+
+	var nextToken string
+	scores, nextToken = pageSlice(scores, offset, maxResults)
+
+	resp := &getSpotPlacementScoresResponse{RequestID: reqID, NextToken: nextToken}
 	for _, s := range scores {
 		resp.SpotPlacementScoreSet.Items = append(resp.SpotPlacementScoreSet.Items, spotPlacementScoreItem{
 			Region:             s.Region,

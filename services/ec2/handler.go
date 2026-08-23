@@ -848,6 +848,7 @@ const (
 
 	ec2PageMinSecurityGroupRules = 5 // api_op_DescribeSecurityGroupRules.go: "between 5 and 1000"
 	ec2PageMinSecurityGroups     = 5 // api_op_DescribeSecurityGroups.go: "between 5 and 1000"
+	ec2PageMinMovingAddresses    = 5 // api_op_DescribeMovingAddresses.go: "between 5 and 1000"
 
 	ec2PageMaxVolumesModifications = 500 // api_op_DescribeVolumesModifications.go: "up to a limit of 500"
 )

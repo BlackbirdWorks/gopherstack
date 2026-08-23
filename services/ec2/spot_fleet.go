@@ -339,11 +339,13 @@ func (b *InMemoryBackend) CancelSpotFleetRequests(
 	for _, id := range fleetIDs {
 		fleet, ok := b.spotFleets.Get(id)
 		if !ok {
+			// "fleetRequestIdDoesNotExist" is the real CancelBatchErrorCode enum
+			// value (ec2@v1.319.1 types/enums.go:1198), not a fabricated code.
 			results = append(results, SpotFleetCancelResult{
 				SpotFleetRequestID:            id,
 				CurrentSpotFleetRequestState:  SpotFleetStateCancelled,
 				PreviousSpotFleetRequestState: SpotFleetStateCancelled,
-				Error:                         "SpotFleetRequestIdNotFound",
+				Error:                         "fleetRequestIdDoesNotExist",
 			})
 
 			continue

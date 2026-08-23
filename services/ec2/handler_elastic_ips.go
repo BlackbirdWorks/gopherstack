@@ -9,6 +9,7 @@ import (
 type describeAddressesAttributeResponse struct {
 	XMLName    xml.Name `xml:"DescribeAddressesAttributeResponse"`
 	RequestID  string   `xml:"requestId"`
+	NextToken  string   `xml:"nextToken,omitempty"`
 	AddressSet struct {
 		Items []addressAttributeItem `xml:"item"`
 	} `xml:"addressSet"`
@@ -24,7 +25,15 @@ func (h *Handler) handleDescribeAddressesAttribute(vals url.Values, reqID string
 	ids := parseMemberList(vals, "AllocationId")
 	attrs := h.Backend.DescribeAddressesAttribute(ids)
 
-	resp := &describeAddressesAttributeResponse{RequestID: reqID}
+	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageMaxDefault)
+	if err != nil {
+		return nil, err
+	}
+
+	var nextToken string
+	attrs, nextToken = pageSlice(attrs, offset, maxResults)
+
+	resp := &describeAddressesAttributeResponse{RequestID: reqID, NextToken: nextToken}
 	for _, attr := range attrs {
 		resp.AddressSet.Items = append(
 			resp.AddressSet.Items,
@@ -96,6 +105,7 @@ type enableAddressTransferResponse struct {
 type describeAddressTransfersResponse struct {
 	XMLName            xml.Name `xml:"DescribeAddressTransfersResponse"`
 	RequestID          string   `xml:"requestId"`
+	NextToken          string   `xml:"nextToken,omitempty"`
 	AddressTransferSet struct {
 		Items []addressTransferDetailItem `xml:"item"`
 	} `xml:"addressTransferSet"`
@@ -163,7 +173,15 @@ func (h *Handler) handleDescribeAddressTransfers(vals url.Values, reqID string) 
 	ids := parseMemberList(vals, "AllocationId")
 	transfers := h.Backend.DescribeAddressTransfers(ids)
 
-	resp := &describeAddressTransfersResponse{RequestID: reqID}
+	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageMaxDefault)
+	if err != nil {
+		return nil, err
+	}
+
+	var nextToken string
+	transfers, nextToken = pageSlice(transfers, offset, maxResults)
+
+	resp := &describeAddressTransfersResponse{RequestID: reqID, NextToken: nextToken}
 	for _, t := range transfers {
 		resp.AddressTransferSet.Items = append(
 			resp.AddressTransferSet.Items,
@@ -202,6 +220,7 @@ func (h *Handler) handleRestoreAddressToClassic(vals url.Values, reqID string) (
 type describeMovingAddressesResponse struct {
 	XMLName                xml.Name `xml:"DescribeMovingAddressesResponse"`
 	RequestID              string   `xml:"requestId"`
+	NextToken              string   `xml:"nextToken,omitempty"`
 	MovingAddressStatusSet struct {
 		Items []movingAddressStatusItem `xml:"item"`
 	} `xml:"movingAddressStatusSet"`
@@ -212,7 +231,32 @@ func (h *Handler) handleDescribeMovingAddresses(vals url.Values, reqID string) (
 
 	statuses := h.Backend.DescribeMovingAddresses(publicIPs)
 
-	resp := &describeMovingAddressesResponse{RequestID: reqID}
+	// DescribeMovingAddressesInput.Filters documents only "moving-status"
+	// (api_op_DescribeMovingAddresses.go); the handler previously accepted
+	// and dropped it entirely.
+	if values, ok := parseEC2Filters(vals)["moving-status"]; ok {
+		filtered := statuses[:0:0]
+
+		for _, st := range statuses {
+			if anyEqual(st.MoveStatus, values) {
+				filtered = append(filtered, st)
+			}
+		}
+
+		statuses = filtered
+	}
+
+	maxResults, offset, err := parseEC2Pagination(
+		vals, ec2PageMinMovingAddresses, ec2PageMaxDefault, ec2PageMaxDefault,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	var nextToken string
+	statuses, nextToken = pageSlice(statuses, offset, maxResults)
+
+	resp := &describeMovingAddressesResponse{RequestID: reqID, NextToken: nextToken}
 	for _, st := range statuses {
 		resp.MovingAddressStatusSet.Items = append(resp.MovingAddressStatusSet.Items, movingAddressStatusItem{
 			PublicIP:   st.PublicIP,
@@ -420,6 +464,14 @@ func (h *Handler) handleDescribeAddresses(vals url.Values, reqID string) (any, e
 	addrs := h.Backend.DescribeAddresses(ids)
 
 	filters := parseEC2Filters(vals)
+
+	// DescribeAddressesInput.PublicIps (serializers.go:76230, FlatKey "PublicIp")
+	// is a direct request member, not a Filter -- fold it into the existing
+	// "public-ip" filter matcher rather than silently dropping it.
+	if publicIPs := parseMemberList(vals, "PublicIp"); len(publicIPs) > 0 {
+		filters["public-ip"] = append(filters["public-ip"], publicIPs...)
+	}
+
 	addrs = applyAddressFilters(addrs, filters, h.Backend)
 
 	items := make([]addressItem, 0, len(addrs))

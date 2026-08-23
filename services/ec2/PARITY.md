@@ -1142,3 +1142,181 @@ fix, 1 `modernize` replacing a hand-rolled contains-loop in a new test with
 
 Not reached, named: none -- every op in both files' never-audited pool (10 +
 20 = 30) was checked against the real SDK this pass.
+
+**2026-08-23 pass -- `handler_spot_fleet.go`/`handler_elastic_ips.go`, the two
+next never-named families off the 2026-08-23 tally above**: re-derived both
+counts by enumerating every dispatched op-name string rather than trusting
+the mapped estimate. `handler_spot_fleet.go`: mapped 10, re-derived 10 --
+`registerSpotFleetOps` and `spotFleetSupportedOperations()` agree exactly, no
+undercount here (this family already had a dedicated wire-shape audit pass
+under `aac77417a`/`b6b4b4940`). `handler_elastic_ips.go`: mapped 8,
+re-derived **14** -- the mapped count only saw the 9 ops in
+`registerElasticIpsOps`/`elasticIpsSupportedOperations()` (also 1 over: that
+list includes only 9, not the source of the gap) and missed the 5 basic CRUD
+ops (`AllocateAddress`/`AssociateAddress`/`DisassociateAddress`/
+`ReleaseAddress`/`DescribeAddresses`) that dispatch straight from `handler.go`'s
+`buildCoreOps` table without going through a `register*Ops`/`*SupportedOperations`
+pair at all -- exactly the "thin-bodied op the field-count proxy misses"
+failure mode named above, just one level removed (a whole *file* of
+minimally-wired ops missing from the family's own manifest, not a single op
+within it). 24 ops audited across both files; **12 wrong** (6 of 10 spot
+fleet, 6 of 14 elastic IPs).
+
+Bugs, each confirmed against the installed `aws-sdk-go-v2/service/ec2@v1.319.1`
+deserializer/serializer, not this backend's own output:
+
+1. **`RequestSpotFleet` accepted-and-dropped `TagSpecification.N`**
+   (accept-and-drop, request side): the real serializer nests it under
+   `SpotFleetRequestConfig.TagSpecification.N.*`
+   (`serializers.go:65330`, the same `object.Key("SpotFleetRequestConfig")` +
+   `FlatKey` nesting `LaunchSpecifications` already used one line up in this
+   same handler) -- not the top-level `TagSpecification.N` every other
+   create op uses. A fleet tagged at creation came back untagged from
+   `DescribeSpotFleetRequests`. Fixed with a dedicated
+   `parseSpotFleetTagSpecification` (the shared `parseTagSpecification`
+   helper assumes the top-level form) + `Backend.CreateTags`.
+2. **`CancelSpotFleetRequests`'s `<error>` rendered as a bare string.** The
+   real deserializer
+   (`awsEc2query_deserializeDocumentCancelSpotFleetRequestsError`,
+   `deserializers.go:81882`) reads `<error>` as a nested `<code>`/`<message>`
+   structure (`types.CancelSpotFleetRequestsError`); a scalar has no child
+   elements for it to find, so `NodeDecoder.Token()` returns `done` on the
+   first pass and the real client's `Code`/`Message` end up zero-valued --
+   silent data loss, not a hard decode failure (confirmed empirically: the
+   pre-fix real-client test failed on an empty string, not an error). The
+   backend's own error value was also wrong: `"SpotFleetRequestIdNotFound"`
+   is not a real `CancelBatchErrorCode`; the real enum value is
+   `"fleetRequestIdDoesNotExist"` (`enums.go:1198`). Fixed both: new
+   `cancelSpotFleetErrorDetail{Code, Message}` nested type, backend value
+   corrected.
+3. **`DescribeSpotFleetRequestHistory`'s `<eventInformation>` rendered as a
+   bare string** -- the same nesting-mismatch shape as bug 2, independently
+   discovered while wiring that op's pagination. The real deserializer
+   (`awsEc2query_deserializeDocumentEventInformation`, `deserializers.go:99294`)
+   reads it as a nested `<eventDescription>`/`<eventSubType>`/`<instanceId>`
+   structure (`types.EventInformation`); this backend's only tracked field
+   (a plain description string) was rendered as the bare element instead of
+   nested under `eventDescription`, so a real client's
+   `EventInformation.EventDescription` was always `nil`. Fixed with a new
+   `spotFleetEventInformationItem{EventDescription}` wrapper.
+4. **`DescribeAddresses` accepted-and-dropped `PublicIp.N`** (accept-and-drop,
+   request side) -- the real request member (`serializers.go:76230`,
+   `FlatKey("PublicIp")`) is separate from `Filters`; a client filtering by
+   public IP (e.g. `aws ec2 describe-addresses --public-ips x.x.x.x`, a
+   common real invocation) got every address back instead. Fixed by folding
+   `PublicIp.N` into the existing `"public-ip"` filter matcher rather than a
+   new code path.
+5. **`EnableAddressTransfer`/`DisableAddressTransfer`/`DescribeAddressTransfers`
+   share `addressTransferDetailItem`, which used wire tags
+   `"transferOfferStatus"` and `"transferOfferExpiry"`** -- DIFFERENT element
+   NAMEs than the real `AddressTransfer` deserializer's
+   `"addressTransferStatus"` and `"transferOfferExpirationTimestamp"`
+   (`deserializers.go:75605`), the exact "different element NAME, not a
+   casing near-miss" bug class this protocol is EC2-Query/case-insensitive
+   about. Both fields were silently zero-valued on every real client despite
+   the server computing and sending real data for both, on all three ops at
+   once (see sibling note below). Fixed by retagging the shared struct; the
+   type lives in `handler_volumes.go` (dead there, consumed only by
+   `handler_elastic_ips.go`) so that's the file touched, not a new struct.
+6. **`DescribeMovingAddresses` accepted-and-dropped its `"moving-status"`
+   `Filter`** (accept-and-drop, request side) -- real AWS documents exactly
+   one filter name for this op; it was silently ignored. Fixed with a small
+   inline `anyEqual` filter (no shared EIP filter helper covers this shape).
+7. **Seven List ops ignore real pagination** (the systemic class named
+   above, now closed for these two files): `DescribeSpotFleetRequests`,
+   `DescribeSpotFleetInstances`, `DescribeSpotFleetRequestHistory`,
+   `GetSpotPlacementScores`, `DescribeAddressesAttribute`,
+   `DescribeAddressTransfers`, `DescribeMovingAddresses` all declare real
+   `MaxResults`/`NextToken` on their SDK Input/Output but returned every
+   item in one unbounded page. Fixed via the existing
+   `parseEC2Pagination`/`pageSlice` helpers (`handler.go`), matching the
+   `ec2sweep11`/`ec2sweep23` convention exactly. `DescribeSpotFleetRequestHistory`
+   also gained the real `LastEvaluatedTime` (present only on the final page,
+   set to now -- this backend has no other honest source for it).
+   `DescribeMovingAddresses` needed its own `ec2PageMinMovingAddresses = 5`
+   bound (its real doc says "between 5 and 1000", unlike the other six,
+   which fall back to the documented 1..1000 default). Not paginated,
+   correctly: `DescribeAddresses` (the basic op) -- confirmed its real Input
+   has no `MaxResults`/`NextToken` at all.
+
+Sibling check: bug 5 is the one case where a fix landed on all three siblings
+at once (they share one struct), not one-of-a-pair -- checked
+`ModifyAddressAttribute`/`ResetAddressAttribute` (the other ops touching
+`AddressAttribute`-shaped types) and both were already correct (`ResetAddressAttribute`
+was fixed in an earlier, uncredited pass per its existing code comment).
+Bug 7's family was fully checked: `DescribeAddresses` is the one list op in
+either file confirmed to have no real pagination at all, not a missed sibling.
+
+False positives ruled out (all confirmed via the real deserializer, not
+assumed): `DeleteSpotDatafeedSubscription`/`DisassociateAddress`/
+`ReleaseAddress`'s bare `<return>true</return>` are harmless -- all three
+deserializers (`deserializers.go:21201`, `:46290`, `:68388`) discard the
+response body via `io.Copy(io.Discard, ...)` without parsing it at all, so
+no client ever reads the tag. `AssociateAddress`'s spurious `<return>` is the
+same already-documented cosmetic-only site from two passes ago (its one real
+member, `AssociationId`, was already correct). `ModifyAddressAttribute`'s
+extra `<domainName>` element is skipped by the real deserializer's default
+case, same shape.
+
+Modelling gaps (documented, not fixed -- structurally larger, not a broken
+partial implementation): `RequestSpotFleet` does not model
+`LaunchTemplateConfigs`/`SpotMaintenanceStrategies`/`OnDemand*`/`ValidFrom`/
+`ValidUntil` -- whole unimplemented request fields, not wire-shape bugs in
+what IS implemented. `AllocateAddress` never sets `CarrierIp`/
+`CustomerOwnedIp`/`CustomerOwnedIpv4Pool`/`NetworkBorderGroup`/
+`PublicIpv4Pool` -- Wavelength/BYOIP address pools have no backing concept
+in this backend at all.
+
+Not reached, named: none -- all 10 spot-fleet and all 14 elastic-IP ops were
+audited against the real SDK this pass.
+
+Snapshot bump: not needed. No field/tag/type on any persisted struct
+changed -- `addressTransferDetailItem`/`cancelSpotFleetErrorDetail`/
+`spotFleetEventInformationItem` are wire-response-only XML types, and
+`SpotFleetCancelResult` (whose `Error` value changed) is never persisted
+(constructed fresh per `CancelSpotFleetRequests` call, not part of any
+`backendSnapshot`). `go test ./pkgs/persistence/...` not run -- no touched
+type is registered there.
+
+Proof: `wire_field_fixes_ec2sweep24_test.go`, 12 new real-SDK-client tests,
+one per bug above (bug 7's seven ops split across
+`TestDescribeSpotFleetRequests_Pagination_RealClient`,
+`TestDescribeSpotFleetInstances_Pagination_RealClient`,
+`TestDescribeSpotFleetRequestHistory_Pagination_RealClient`,
+`TestGetSpotPlacementScores_Pagination_RealClient`,
+`TestDescribeAddressesAttribute_Pagination_RealClient`,
+`TestDescribeAddressTransfers_Pagination_RealClient`,
+`TestDescribeMovingAddresses_Pagination_RealClient`). Every fix hand-reverted
+in turn (`git show HEAD:<path>` over the 5 touched non-test files, ran the
+full new-test set, confirmed 11 of 12 failed -- `TestDescribeAddresses_PublicIpFilter_RealClient`'s
+sibling assertions all failed together with it -- restored from a saved
+copy, `md5sum` identical before/after all 5 files). Representative failures:
+- `TestRequestSpotFleet_TagSpecification_RealClient`: `Tags` empty.
+- `TestCancelSpotFleetRequests_ErrorCode_RealClient`: `Code` `""`, wanted
+  `"fleetRequestIdDoesNotExist"`.
+- `TestDescribeSpotFleetRequestHistory_Pagination_RealClient`:
+  `LastEvaluatedTime` nil, plus every page returning the same (empty)
+  `EventDescription` string, tripping the disjoint-IDs assertion.
+- `TestDescribeAddresses_PublicIpFilter_RealClient`: 3 addresses returned
+  instead of 1.
+- `TestEnableAddressTransfer_StatusAndExpiry_RealClient`:
+  `AddressTransferStatus` `""` (wanted `"pending"`),
+  `TransferOfferExpirationTimestamp` nil.
+- `TestDescribeMovingAddresses_MovingStatusFilter_RealClient`: a
+  non-matching filter value still returned the entry.
+- All six other `*_Pagination_RealClient` tests: `"1" is not greater than or
+  equal to "2"` (paginator never split across pages).
+
+Gates: `go build ./...` (repo-wide, background job, exit 0 -- no exported
+signature changed, run anyway since `pkgs/page` helpers are shared),
+`go vet ./services/ec2/...` (clean), `gofmt -l services/ec2/*.go` (clean),
+`go test -race -count=1 ./services/ec2/...` (`ok`, full suite including all
+new tests), `golangci-lint run ./services/ec2/...` (started at 11 issues --
+8 `fieldalignment` on the new/modified response structs with an appended
+`NextToken`, fixed by hand by reordering `NextToken` before the
+slice-backed field per the existing `describeSnapshotTierStatusResponse`
+convention rather than running `fieldalignment -fix`; 1 `shadow` on a
+reused `err` inside `handleRequestSpotFleet`, fixed by renaming to `tagErr`;
+2 `intrange` on manual pagination loops, fixed by converting to
+`for range ec2sweep11LoopGuard`; final state: 1 `nlreturn`, a disabled
+linter per this repo's convention, left as-is). No banned `//nolint`s.

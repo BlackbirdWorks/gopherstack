@@ -217,12 +217,20 @@ type describeReplaceRootVolumeTasksResponse struct {
 	} `xml:"replaceRootVolumeTaskSet"`
 }
 
+// addressTransferDetailItem matches AddressTransfer (ec2@v1.319.1
+// deserializers.go:75605, used only by handler_elastic_ips.go). The real
+// deserializer reads "addressTransferStatus" and
+// "transferOfferExpirationTimestamp" -- not "transferOfferStatus" or
+// "transferOfferExpiry" -- so the old tags were different element NAMEs the
+// deserializer's default case silently skips, leaving AddressTransferStatus
+// and TransferOfferExpirationTimestamp at their zero value on every real
+// client despite the server computing real data for both.
 type addressTransferDetailItem struct {
 	AllocationID        string `xml:"allocationId"`
 	PublicIP            string `xml:"publicIp"`
 	TransferAccountID   string `xml:"transferAccountId"`
-	TransferOfferStatus string `xml:"transferOfferStatus"`
-	TransferOfferExpiry string `xml:"transferOfferExpiry"`
+	TransferOfferStatus string `xml:"addressTransferStatus"`
+	TransferOfferExpiry string `xml:"transferOfferExpirationTimestamp"`
 }
 
 func (h *Handler) handleEnableEbsEncryptionByDefault(_ url.Values, reqID string) (any, error) {
