@@ -142,3 +142,53 @@ func TestAsyncLifecycle_Nodegroup(t *testing.T) {
 		})
 	}
 }
+
+// TestUpdateClusterVersion_ReturnedUpdateIsNotLiveAliased reproduces the CI
+// race in updates.go:30: UpdateClusterVersion returned the live stored *Update
+// with no copy, so scheduleUpdateTransition's timer callback later mutated
+// u.Status in place, racing any unsynchronized read of the field the caller
+// was handed. This asserts the returned pointer is a private snapshot: it
+// must stay InProgress even once the async transition has actually run.
+func TestUpdateClusterVersion_ReturnedUpdateIsNotLiveAliased(t *testing.T) {
+	t.Parallel()
+
+	synctest.Test(t, func(t *testing.T) {
+		b := NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
+		defer b.Reset()
+
+		_, err := b.CreateCluster("cl", "1.31", "arn:aws:iam::123456789012:role/eks", nil, nil, nil)
+		if err != nil {
+			t.Fatalf("CreateCluster: %v", err)
+		}
+
+		u, err := b.UpdateClusterVersion("cl", "1.32")
+		if err != nil {
+			t.Fatalf("UpdateClusterVersion: %v", err)
+		}
+
+		if u.Status != statusInProgress {
+			t.Fatalf("returned status = %q, want %q", u.Status, statusInProgress)
+		}
+
+		// Let scheduleUpdateTransition's timer fire. On unfixed code this
+		// mutates the exact object u points to, and -race flags the
+		// unsynchronized read above against that write.
+		time.Sleep(updateTransitionDelay + time.Millisecond)
+
+		if u.Status != statusInProgress {
+			t.Fatalf(
+				"returned *Update must be a private copy: u.Status changed to %q after the async transition ran",
+				u.Status,
+			)
+		}
+
+		got, err := b.DescribeUpdate("cl", u.ID)
+		if err != nil {
+			t.Fatalf("DescribeUpdate: %v", err)
+		}
+
+		if got.Status != statusSuccessful {
+			t.Fatalf("stored update status = %q, want %q", got.Status, statusSuccessful)
+		}
+	})
+}

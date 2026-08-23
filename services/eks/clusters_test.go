@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -995,4 +996,68 @@ func TestEKSBackendListAllClusters(t *testing.T) {
 
 	all := backend.ListAllClusters()
 	assert.Len(t, all, 2)
+}
+
+// TestDescribeClusterVpcConfigRace exercises DescribeCluster concurrently
+// with UpdateClusterConfig. DescribeCluster shallow-copies *Cluster
+// (cp := *c), which only copies the VpcConfig/AccessConfig pointers -- the
+// returned copy aliases the exact same *VpcConfig/*AccessConfig that
+// UpdateClusterConfig mutates in place under lock (c.VpcConfig.SubnetIDs =
+// ..., c.AccessConfig.AuthenticationMode = ...). Reading through the
+// returned copy's pointer races those in-place writes.
+func TestDescribeClusterVpcConfigRace(t *testing.T) {
+	t.Parallel()
+
+	b := eks.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
+	_, err := b.CreateCluster(
+		"vpc-race-cl", "1.31", "arn:aws:iam::123456789012:role/role",
+		&eks.VpcConfig{SubnetIDs: []string{"subnet-a"}}, nil, nil,
+	)
+	require.NoError(t, err)
+
+	const iterations = 2000
+
+	var wg sync.WaitGroup
+	wg.Add(3)
+
+	go func() {
+		defer wg.Done()
+
+		for range iterations {
+			c, describeErr := b.DescribeCluster("vpc-race-cl")
+			if describeErr != nil {
+				continue
+			}
+
+			if c.VpcConfig != nil {
+				_ = c.VpcConfig.SubnetIDs
+			}
+
+			if c.AccessConfig != nil {
+				_ = c.AccessConfig.AuthenticationMode
+			}
+		}
+	}()
+
+	go func() {
+		defer wg.Done()
+
+		for i := range iterations {
+			_, _ = b.UpdateClusterConfig("vpc-race-cl", eks.ClusterConfigUpdate{
+				SubnetIDs: []string{fmt.Sprintf("subnet-%d", i)},
+			})
+		}
+	}()
+
+	go func() {
+		defer wg.Done()
+
+		for range iterations {
+			_, _ = b.UpdateClusterConfig("vpc-race-cl", eks.ClusterConfigUpdate{
+				AccessConfig: &eks.AccessConfig{AuthenticationMode: "API"},
+			})
+		}
+	}()
+
+	wg.Wait()
 }

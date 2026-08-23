@@ -131,7 +131,7 @@ func (b *InMemoryBackend) UpdateClusterConfig(clusterName string, upd ClusterCon
 	b.storeUpdateLocked(u)
 	b.scheduleUpdateTransition(clusterName, u.ID)
 
-	return u, nil
+	return u.clone(), nil
 }
 
 // VpcEndpointUpdate carries optional VPC endpoint access changes for UpdateClusterVpcEndpoint.
@@ -188,7 +188,7 @@ func (b *InMemoryBackend) UpdateClusterVpcEndpoint(clusterName string, upd VpcEn
 	}
 	b.storeUpdateLocked(u)
 
-	return u, nil
+	return u.clone(), nil
 }
 
 // mergeClusterLogEntries applies logEntries on top of existing, enabling or disabling
@@ -248,12 +248,30 @@ func (b *InMemoryBackend) UpdateClusterVersion(clusterName, version string) (*Up
 	b.storeUpdateLocked(u)
 	b.scheduleUpdateTransition(clusterName, u.ID)
 
-	return u, nil
+	return u.clone(), nil
 }
 
 // storeUpdateLocked stores an update record. Must be called with b.mu held.
 func (b *InMemoryBackend) storeUpdateLocked(u *Update) {
 	b.updates.Put(u)
+}
+
+// clone deep-copies u's reference fields. A shallow "cp := *u" is not enough:
+// scheduleUpdateTransition and CancelUpdate mutate a live, stored *Update in
+// place under lock, so any copy that still aliases Params/Errors/Cancellation
+// stays exposed to that mutation after it crosses the lock boundary -- see
+// TestUpdateClusterVersion_ReturnedUpdateIsNotLiveAliased.
+func (u *Update) clone() *Update {
+	cp := *u
+	cp.Params = slices.Clone(u.Params)
+	cp.Errors = slices.Clone(u.Errors)
+
+	if u.Cancellation != nil {
+		c := *u.Cancellation
+		cp.Cancellation = &c
+	}
+
+	return &cp
 }
 
 // StoreUpdate stores an update record created outside the backend (e.g. by a handler).
@@ -303,9 +321,7 @@ func (b *InMemoryBackend) CancelUpdate(clusterName, updateID string) (*Update, e
 	}
 	b.storeUpdateLocked(u)
 
-	cp := *u
-
-	return &cp, nil
+	return u.clone(), nil
 }
 
 // DescribeUpdate returns an update record by cluster and update ID.
@@ -322,9 +338,7 @@ func (b *InMemoryBackend) DescribeUpdate(clusterName, updateID string) (*Update,
 		return nil, fmt.Errorf("%w: update %s not found in cluster %s", ErrNotFound, updateID, clusterName)
 	}
 
-	cp := *u
-
-	return &cp, nil
+	return u.clone(), nil
 }
 
 // ListUpdates returns all update IDs for a cluster sorted alphabetically.

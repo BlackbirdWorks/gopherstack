@@ -116,6 +116,36 @@ func (b *InMemoryBackend) newClusterLocked(
 	}
 }
 
+// clone deep-copies c's VpcConfig and AccessConfig pointers. A shallow
+// "cp := *c" is not enough: UpdateClusterConfig/UpdateClusterVpcEndpoint
+// mutate the live, stored VpcConfig/AccessConfig in place through their
+// existing pointers rather than replacing them, so any copy that still
+// aliases those pointers stays exposed to that mutation after it crosses the
+// lock boundary -- see TestDescribeClusterVpcConfigRace.
+//
+// KubernetesNetworkConfig, ComputeConfig, StorageConfig, and ConnectorConfig
+// are safe to alias: each is only ever replaced wholesale, never mutated
+// through an existing pointer. Tags is a *tags.Tags, which is self-
+// synchronized (pkgs/tags is safemap-backed) and safe to alias.
+func (c *Cluster) clone() *Cluster {
+	cp := *c
+
+	if c.VpcConfig != nil {
+		vc := *c.VpcConfig
+		vc.SubnetIDs = cloneStrings(c.VpcConfig.SubnetIDs)
+		vc.SecurityGroupIDs = cloneStrings(c.VpcConfig.SecurityGroupIDs)
+		vc.PublicAccessCIDRs = cloneStrings(c.VpcConfig.PublicAccessCIDRs)
+		cp.VpcConfig = &vc
+	}
+
+	if c.AccessConfig != nil {
+		ac := *c.AccessConfig
+		cp.AccessConfig = &ac
+	}
+
+	return &cp
+}
+
 // scheduleClusterActivation schedules the async CREATING -> ACTIVE transition
 // for the named cluster.
 func (b *InMemoryBackend) scheduleClusterActivation(name string) {
@@ -155,9 +185,7 @@ func (b *InMemoryBackend) CreateCluster(
 
 	b.scheduleClusterActivation(name)
 
-	cp := *c
-
-	return &cp, nil
+	return c.clone(), nil
 }
 
 func cloneVpcConfig(src *VpcConfig, clusterName string) *VpcConfig {
@@ -184,9 +212,8 @@ func (b *InMemoryBackend) DescribeCluster(name string) (*Cluster, error) {
 	if !ok {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, name)
 	}
-	cp := *c
 
-	return &cp, nil
+	return c.clone(), nil
 }
 
 // ListClusters returns all cluster names sorted alphabetically.
@@ -253,7 +280,7 @@ func (b *InMemoryBackend) DeleteCluster(name string) (*Cluster, error) {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, name)
 	}
 
-	cp := *c
+	cp := c.clone()
 	cp.Status = statusDeleting
 
 	// Collect nodegroups for cleanup before removal.
@@ -300,7 +327,7 @@ func (b *InMemoryBackend) DeleteCluster(name string) (*Cluster, error) {
 		}
 	}
 
-	return &cp, nil
+	return cp, nil
 }
 
 // RegisterCluster registers an external cluster.
@@ -345,9 +372,7 @@ func (b *InMemoryBackend) RegisterCluster(
 	b.accessPolicies[name] = make(map[string][]*AccessPolicyAssociation)
 	b.encryptionConfigs[name] = nil
 
-	cp := *c
-
-	return &cp, nil
+	return c.clone(), nil
 }
 
 // DeregisterCluster removes a registered external cluster.
@@ -426,8 +451,7 @@ func (b *InMemoryBackend) ListAllClusters() []*Cluster {
 	list := make([]*Cluster, 0, len(items))
 
 	for _, c := range items {
-		cp := *c
-		list = append(list, &cp)
+		list = append(list, c.clone())
 	}
 
 	return list
