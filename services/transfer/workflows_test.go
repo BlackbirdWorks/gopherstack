@@ -41,10 +41,10 @@ func TestSendWorkflowStepStateInvalidStatus(t *testing.T) {
 		status string
 		wantOK bool
 	}{
-		{status: "COMPLETE", wantOK: true},
-		{status: "EXCEPTION", wantOK: true},
-		{status: "SUCCESS", wantOK: false},   // old non-AWS value
-		{status: "FAILURE", wantOK: false},   // old non-AWS value
+		{status: "SUCCESS", wantOK: true},
+		{status: "FAILURE", wantOK: true},
+		{status: "COMPLETE", wantOK: false},  // fabricated value; real enum is SUCCESS/FAILURE
+		{status: "EXCEPTION", wantOK: false}, // fabricated value; real enum is SUCCESS/FAILURE
 		{status: "COMPLETED", wantOK: false}, // close but wrong
 		{status: "", wantOK: false},
 	}

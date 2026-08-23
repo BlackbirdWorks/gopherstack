@@ -60,10 +60,14 @@ const (
 	sshKeyTypeECDSAP521     = "ecdsa-sha2-nistp521"
 )
 
-// Workflow step state status constants (SendWorkflowStepState).
+// SendWorkflowStepState's Status is types.CustomStepStatus
+// (transfer@v1.75.4 api_op_SendWorkflowStepState.go); its only real values
+// are SUCCESS/FAILURE. This backend previously accepted the non-existent
+// "COMPLETE"/"EXCEPTION" instead, so no real client (which can only send
+// SUCCESS or FAILURE) could ever pass validation here.
 const (
-	workflowStepStatusComplete  = "COMPLETE"
-	workflowStepStatusException = "EXCEPTION"
+	workflowStepStatusSuccess = "SUCCESS"
+	workflowStepStatusFailure = "FAILURE"
 )
 
 // IdentityProviderDetails holds identity provider configuration for a Transfer server.

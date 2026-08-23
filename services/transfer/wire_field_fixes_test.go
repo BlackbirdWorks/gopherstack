@@ -8,6 +8,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	transfersdk "github.com/aws/aws-sdk-go-v2/service/transfer"
+	transfertypes "github.com/aws/aws-sdk-go-v2/service/transfer/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -91,4 +92,49 @@ func TestDescribeWorkflow_CustomStepTimeoutSecondsKey_RealClient(t *testing.T) {
 		"types.CustomStepDetails has no Timeout member")
 	assert.Contains(t, body, `"TimeoutSeconds"`,
 		"types.CustomStepDetails's real member is TimeoutSeconds")
+}
+
+// TestSendWorkflowStepState_CustomStepStatus_RealClient covers
+// gopherstack's fabricated-enum-value bug (this campaign, 2026-08-23):
+// SendWorkflowStepStateInput.Status is types.CustomStepStatus
+// (transfer@v1.75.4 api_op_SendWorkflowStepState.go), whose only real
+// values are SUCCESS/FAILURE. gopherstack previously required
+// "COMPLETE"/"EXCEPTION" instead -- values that don't exist on
+// CustomStepStatus, so a real SDK client (which can only ever send
+// CustomStepStatusSuccess or CustomStepStatusFailure) always got rejected
+// with a validation error. This drives the real client end to end and
+// asserts the typed DescribedExecution.Status this backend returns decodes
+// to the expected ExecutionStatus constant.
+func TestSendWorkflowStepState_CustomStepStatus_RealClient(t *testing.T) {
+	t.Parallel()
+
+	backend := transfer.NewInMemoryBackend(context.Background(), "123456789012", "us-east-1")
+	client := newTestTransferClient(t, transfer.NewHandler(backend))
+	ctx := t.Context()
+
+	// CreateExecution has no public SDK operation (real executions are
+	// triggered by file uploads); seed one directly against the backend, as
+	// workflows_test.go does.
+	wf, err := backend.CreateWorkflow("wire-field-fixes", nil, nil, nil)
+	require.NoError(t, err)
+
+	exec, err := backend.CreateExecution(wf.WorkflowID)
+	require.NoError(t, err)
+
+	_, err = client.SendWorkflowStepState(ctx, &transfersdk.SendWorkflowStepStateInput{
+		WorkflowId:  aws.String(wf.WorkflowID),
+		ExecutionId: aws.String(exec.ExecutionID),
+		Token:       aws.String("tok-abc"),
+		Status:      transfertypes.CustomStepStatusSuccess,
+	})
+	require.NoError(t, err,
+		"a real client can only send CustomStepStatusSuccess/Failure (SUCCESS/FAILURE); "+
+			"pre-fix, gopherstack rejected both with a validation error")
+
+	described, err := client.DescribeExecution(ctx, &transfersdk.DescribeExecutionInput{
+		WorkflowId:  aws.String(wf.WorkflowID),
+		ExecutionId: aws.String(exec.ExecutionID),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, transfertypes.ExecutionStatusCompleted, described.Execution.Status)
 }
