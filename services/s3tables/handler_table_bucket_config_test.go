@@ -20,15 +20,9 @@ func TestHandler_TableBucketEncryption_PutGetDeleteRoundTrip(t *testing.T) {
 	encodedARN := url.PathEscape(bucketARN)
 	path := "/buckets/" + encodedARN + "/encryption"
 
-	// Initially unconfigured: every bucket has encryption at rest, so Get
-	// returns the AES256 default rather than NotFound.
+	// Initially unconfigured: Get returns NotFound.
 	rec := doS3TablesRequest(t, h, http.MethodGet, path, nil)
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	result := parseResponse(t, rec)
-	defaultCfg, ok := result["encryptionConfiguration"].(map[string]any)
-	require.True(t, ok, "expected encryptionConfiguration to be an object")
-	assert.Equal(t, "AES256", defaultCfg["sseAlgorithm"])
+	assert.Equal(t, http.StatusNotFound, rec.Code)
 
 	// Put a real encryption configuration.
 	rec = doS3TablesRequest(t, h, http.MethodPut, path, map[string]any{
@@ -43,24 +37,18 @@ func TestHandler_TableBucketEncryption_PutGetDeleteRoundTrip(t *testing.T) {
 	rec = doS3TablesRequest(t, h, http.MethodGet, path, nil)
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	result = parseResponse(t, rec)
+	result := parseResponse(t, rec)
 	encCfg, ok := result["encryptionConfiguration"].(map[string]any)
 	require.True(t, ok, "expected encryptionConfiguration to be an object")
 	assert.Equal(t, "aws:kms", encCfg["sseAlgorithm"])
 
-	// Delete must actually clear the stored KMS override, reverting to the
-	// AES256 default -- not to NotFound, since every bucket has encryption
-	// at rest.
+	// Delete must actually clear the stored configuration, not just validate
+	// that the bucket exists.
 	rec = doS3TablesRequest(t, h, http.MethodDelete, path, nil)
 	require.Equal(t, http.StatusNoContent, rec.Code)
 
 	rec = doS3TablesRequest(t, h, http.MethodGet, path, nil)
-	require.Equal(t, http.StatusOK, rec.Code, "encryption must revert to the AES256 default after delete")
-
-	result = parseResponse(t, rec)
-	revertedCfg, ok := result["encryptionConfiguration"].(map[string]any)
-	require.True(t, ok, "expected encryptionConfiguration to be an object")
-	assert.Equal(t, "AES256", revertedCfg["sseAlgorithm"], "delete must clear the KMS override, not just leave it")
+	assert.Equal(t, http.StatusNotFound, rec.Code, "encryption config must be cleared after delete")
 }
 
 // TestParity_TableBucketMetricsConfiguration_PutGetDeleteRoundTrip verifies
@@ -166,17 +154,21 @@ func TestHandler_TableBucketMetricsConfigurationGet_NotFoundBucket(t *testing.T)
 func TestHandler_DeleteTableBucketEncryptionClearsConfig(t *testing.T) {
 	t.Parallel()
 
-	// Every bucket has encryption at rest, so GetTableBucketEncryption never
-	// 404s -- Delete only clears a custom KMS override, reverting Get to the
-	// AES256 default. Both cases below (a custom override was set, and no
-	// override was ever set) must land on the same AES256 default after
-	// delete.
 	tests := []struct {
-		name     string
-		putFirst bool
+		name         string
+		putFirst     bool
+		wantGetAfter int
 	}{
-		{name: "delete_after_put_reverts_to_aes256_default", putFirst: true},
-		{name: "delete_without_encryption_stays_aes256_default", putFirst: false},
+		{
+			name:         "delete_after_put_returns_not_found_on_get",
+			putFirst:     true,
+			wantGetAfter: http.StatusNotFound,
+		},
+		{
+			name:         "delete_without_encryption_returns_not_found",
+			putFirst:     false,
+			wantGetAfter: http.StatusNotFound,
+		},
 	}
 
 	for _, tt := range tests {
@@ -191,31 +183,21 @@ func TestHandler_DeleteTableBucketEncryptionClearsConfig(t *testing.T) {
 			if tt.putFirst {
 				rec := doS3TablesRequest(t, h, http.MethodPut, encPath, map[string]any{
 					"encryptionConfiguration": map[string]any{
-						"sseAlgorithm": "aws:kms",
-						"kmsKeyArn":    "arn:aws:kms:us-east-1:000000000000:key/test",
+						"sseAlgorithm": "AES256",
 					},
 				})
 				require.Equal(t, http.StatusNoContent, rec.Code)
 
 				rec = doS3TablesRequest(t, h, http.MethodGet, encPath, nil)
 				require.Equal(t, http.StatusOK, rec.Code, "encryption should be present before delete")
-
-				result := parseResponse(t, rec)
-				cfg, ok := result["encryptionConfiguration"].(map[string]any)
-				require.True(t, ok)
-				require.Equal(t, "aws:kms", cfg["sseAlgorithm"], "override should be in effect before delete")
 			}
 
 			rec := doS3TablesRequest(t, h, http.MethodDelete, encPath, nil)
 			assert.Equal(t, http.StatusNoContent, rec.Code, "DeleteTableBucketEncryption should succeed")
 
 			rec = doS3TablesRequest(t, h, http.MethodGet, encPath, nil)
-			require.Equal(t, http.StatusOK, rec.Code, "GetTableBucketEncryption after delete must still succeed")
-
-			result := parseResponse(t, rec)
-			cfg, ok := result["encryptionConfiguration"].(map[string]any)
-			require.True(t, ok, "expected encryptionConfiguration to be an object")
-			assert.Equal(t, "AES256", cfg["sseAlgorithm"], "delete must clear any override back to the AES256 default")
+			assert.Equal(t, tt.wantGetAfter, rec.Code,
+				"GetTableBucketEncryption after delete should return %d", tt.wantGetAfter)
 		})
 	}
 }
@@ -705,7 +687,7 @@ func TestHandler_BucketEncryptionAndMetricsRoute(t *testing.T) {
 			name:       "GET encryption",
 			method:     http.MethodGet,
 			subPath:    "encryption",
-			wantCode:   http.StatusOK,
+			wantCode:   http.StatusNotFound,
 			bucketName: "enc-get",
 		},
 		{

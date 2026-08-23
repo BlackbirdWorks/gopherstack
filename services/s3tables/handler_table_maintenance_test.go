@@ -131,15 +131,21 @@ func TestHandler_MaintenanceConfiguration(t *testing.T) {
 func TestHandler_Encryption(t *testing.T) {
 	t.Parallel()
 
-	// Every bucket and table has encryption at rest, so both Get variants
-	// return 200 with the AES256 default when no override was ever set --
-	// GetTableBucketEncryption never 404s for a bucket that exists.
 	tests := []struct {
-		name     string
-		pathType string // "bucket" or "table"
+		name       string
+		pathType   string // "bucket" or "table"
+		wantStatus int
 	}{
-		{name: "get_bucket_encryption_returns_aes256", pathType: "bucket"},
-		{name: "get_table_encryption_returns_aes256", pathType: "table"},
+		{
+			name:       "get_bucket_encryption_returns_not_found",
+			pathType:   "bucket",
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name:       "get_table_encryption_returns_aes256",
+			pathType:   "table",
+			wantStatus: http.StatusOK,
+		},
 	}
 
 	for _, tt := range tests {
@@ -161,12 +167,14 @@ func TestHandler_Encryption(t *testing.T) {
 			}
 
 			rec := doS3TablesRequest(t, h, http.MethodGet, path, nil)
-			require.Equal(t, http.StatusOK, rec.Code)
+			require.Equal(t, tt.wantStatus, rec.Code)
 
-			result := parseResponse(t, rec)
-			encCfg, ok := result["encryptionConfiguration"].(map[string]any)
-			require.True(t, ok, "expected encryptionConfiguration to be an object")
-			assert.Equal(t, "AES256", encCfg["sseAlgorithm"])
+			if tt.wantStatus == http.StatusOK {
+				result := parseResponse(t, rec)
+				encCfg, ok := result["encryptionConfiguration"].(map[string]any)
+				require.True(t, ok, "expected encryptionConfiguration to be an object")
+				assert.Equal(t, "AES256", encCfg["sseAlgorithm"])
+			}
 		})
 	}
 }

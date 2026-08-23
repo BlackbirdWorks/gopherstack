@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -219,22 +220,15 @@ func (h *Handler) handleGetTableBucketEncryption(ctx context.Context, r *http.Re
 		return nil, err
 	}
 
-	// Every table bucket has encryption at rest: SSE-S3/AES256 by default
-	// when no PutTableBucketEncryption override is set, mirroring
-	// GetTableEncryption's table-level fallback (tables.go's
-	// defaultSSEAlgorithm). GetTableBucketEncryption never 404s for this --
-	// DeleteTableBucketEncryption only removes a KMS override, it does not
-	// leave the bucket unencrypted.
-	encCfg := tb.Encryption
-	if encCfg == nil {
-		encCfg = map[string]any{"sseAlgorithm": defaultSSEAlgorithm}
+	if tb.Encryption == nil {
+		return nil, awserr.ErrNotFound
 	}
 
 	log := logger.Load(ctx)
 	log.InfoContext(ctx, "s3tables: got table bucket encryption", keyArn, bucketARN)
 
 	return json.Marshal(map[string]any{
-		"encryptionConfiguration": encCfg,
+		"encryptionConfiguration": tb.Encryption,
 	})
 }
 
