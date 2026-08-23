@@ -123,7 +123,9 @@ func TestBatchJobRegionIsolation(t *testing.T) {
 	assert.Contains(t, eastJob.JobARN, "us-east-1")
 
 	// us-east-1 sees the job; us-west-2 does not (cross-index isolation).
-	eastJobs, _, err := backend.ListJobs(ctxEast, "queue1", "", "", 0)
+	// job1 is still SUBMITTED (never scheduled); real AWS Batch's unfiltered
+	// ListJobs defaults to RUNNING-only, so filter explicitly.
+	eastJobs, _, err := backend.ListJobs(ctxEast, "queue1", "SUBMITTED", "", 0)
 	require.NoError(t, err)
 	require.Len(t, eastJobs, 1)
 	assert.Equal(t, "job1", eastJobs[0].JobName)

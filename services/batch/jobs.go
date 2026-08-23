@@ -305,6 +305,9 @@ func (b *InMemoryBackend) listJobIDsForQueue(region, queue string) ([]string, er
 }
 
 // ListJobs returns job summaries for a queue, optionally filtered by status.
+// Matching real AWS Batch's documented ListJobs behavior (api_op_ListJobs.go:
+// "If you don't specify a status, only RUNNING jobs are returned"), an
+// unspecified status defaults to RUNNING -- same pattern as ListServiceJobs.
 // Pagination is controlled via maxResults and nextToken (token encodes an integer offset).
 func (b *InMemoryBackend) ListJobs(
 	ctx context.Context,
@@ -321,18 +324,21 @@ func (b *InMemoryBackend) ListJobs(
 		return nil, "", err
 	}
 
-	if status != "" {
-		filtered := make([]string, 0, len(allKeys))
-
-		for _, k := range allKeys {
-			j, _ := b.jobs.Get(regionKey(region, k))
-			if j.Status == status {
-				filtered = append(filtered, k)
-			}
-		}
-
-		allKeys = filtered
+	wantStatus := status
+	if wantStatus == "" {
+		wantStatus = jobStatusRunning
 	}
+
+	filtered := make([]string, 0, len(allKeys))
+
+	for _, k := range allKeys {
+		j, _ := b.jobs.Get(regionKey(region, k))
+		if j.Status == wantStatus {
+			filtered = append(filtered, k)
+		}
+	}
+
+	allKeys = filtered
 
 	pageKeys, next := paginateMapKeys(allKeys, nextToken, maxResults)
 

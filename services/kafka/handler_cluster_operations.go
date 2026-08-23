@@ -43,12 +43,11 @@ type describeClusterOperationV2Output struct {
 // ClusterOperationV2Summary members -- are left absent rather than
 // fabricated (this backend tracks none of the three).
 //
-// operationArn uses the correct real wire key; Describe/V1 still emit the
-// same data under the wrong key "clusterOperationArn" (real ClusterOperationInfo
-// and ClusterOperationV2 both use "operationArn" too) -- a separate,
-// pre-existing wrong-key-name bug affecting the whole ClusterOperation family,
-// not fixed here since it needs the wider V2 Provisioned/Serverless/ErrorInfo
-// remodel to do properly (see gopherstack follow-up).
+// operationArn uses the correct real wire key. Describe/V1 already emit the
+// same field under "operationArn" too (ClusterOperation.ClusterOperationArn's
+// json tag, models.go) -- gopherstack-mk3t's item 1 (wrong key on those ops)
+// is stale, fixed by commit fb80d66c. mk3t's item 2, the wider V2
+// Provisioned/Serverless/ErrorInfo remodel, is still open.
 type clusterOperationV2SummaryOutput struct {
 	ClusterArn     string `json:"clusterArn"`
 	OperationArn   string `json:"operationArn"`
