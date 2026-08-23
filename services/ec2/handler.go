@@ -846,6 +846,9 @@ const (
 	ec2PageMinRecycleBin = 5 // api_op_ListVolumesInRecycleBin.go: "Valid range: 5 - 500"
 	ec2PageMaxRecycleBin = 500
 
+	ec2PageMinSecurityGroupRules = 5 // api_op_DescribeSecurityGroupRules.go: "between 5 and 1000"
+	ec2PageMinSecurityGroups     = 5 // api_op_DescribeSecurityGroups.go: "between 5 and 1000"
+
 	ec2PageMaxVolumesModifications = 500 // api_op_DescribeVolumesModifications.go: "up to a limit of 500"
 )
 

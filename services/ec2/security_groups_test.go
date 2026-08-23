@@ -175,7 +175,7 @@ func TestSecurityGroupRuleOperations(t *testing.T) {
 				require.NoError(t, err)
 				err = b.AuthorizeSecurityGroupEgress(sg.ID, []ec2.SecurityGroupRule{rule})
 				require.NoError(t, err)
-				err = b.RevokeSecurityGroupEgress(sg.ID, []ec2.SecurityGroupRule{rule})
+				_, err = b.RevokeSecurityGroupEgress(sg.ID, []ec2.SecurityGroupRule{rule})
 				require.NoError(t, err)
 				sgs := b.DescribeSecurityGroups([]string{sg.ID})
 				require.Len(t, sgs, 1)
@@ -186,12 +186,12 @@ func TestSecurityGroupRuleOperations(t *testing.T) {
 				// Revoking a rule that was never added must return InvalidPermission.NotFound (AWS behavior).
 				sg, err := b.CreateSecurityGroup("test-sg-revoke-egr-idem", "test", "vpc-default")
 				require.NoError(t, err)
-				err = b.RevokeSecurityGroupEgress(sg.ID, []ec2.SecurityGroupRule{rule})
+				_, err = b.RevokeSecurityGroupEgress(sg.ID, []ec2.SecurityGroupRule{rule})
 				require.Error(t, err)
 				require.ErrorIs(t, err, ec2.ErrNetworkInterfacePermissionNotFound)
 
 			case "revoke_egress_bad_sg":
-				err := b.RevokeSecurityGroupEgress("sg-nonexistent", []ec2.SecurityGroupRule{rule})
+				_, err := b.RevokeSecurityGroupEgress("sg-nonexistent", []ec2.SecurityGroupRule{rule})
 				require.Error(t, err)
 
 			case "auth_ingress_bad_sg":

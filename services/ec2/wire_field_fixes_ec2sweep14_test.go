@@ -192,6 +192,39 @@ func TestRevokeSecurityGroupIngress_SurfacesRevokedAndUnknown_RealClient(t *test
 	assert.Equal(t, int32(9999), aws.ToInt32(out.UnknownIpPermissions[0].FromPort))
 }
 
+// TestAssociateSecurityGroupVpc_WireShape_RealClient covers
+// handleAssociateSecurityGroupVpc, which pre-fix wrapped <state> in an extra
+// nested <state> element (associateSGVpcResponse's now-removed
+// sgVpcAssocStateItem). The real deserializer (ec2@v1.319.1
+// deserializers.go, awsEc2query_deserializeOpDocumentAssociateSecurityGroupVpcOutput)
+// reads the <state> element's value directly via decoder.Value(), which
+// cannot decode a child element in place of character data and returns an
+// error outright rather than silently dropping the field.
+func TestAssociateSecurityGroupVpc_WireShape_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := ec2.NewHandler(ec2.NewInMemoryBackend("000000000000", "us-east-1"))
+	client := newTestEC2Client(t, h)
+
+	vpc, err := client.CreateVpc(t.Context(), &ec2sdk.CreateVpcInput{CidrBlock: aws.String("10.51.0.0/16")})
+	require.NoError(t, err)
+
+	sg, err := client.CreateSecurityGroup(t.Context(), &ec2sdk.CreateSecurityGroupInput{
+		GroupName:   aws.String("sweep14-assoc-sg"),
+		Description: aws.String("sweep14 assoc test sg"),
+		VpcId:       vpc.Vpc.VpcId,
+	})
+	require.NoError(t, err)
+
+	out, err := client.AssociateSecurityGroupVpc(t.Context(), &ec2sdk.AssociateSecurityGroupVpcInput{
+		GroupId: sg.GroupId,
+		VpcId:   vpc.Vpc.VpcId,
+	})
+	require.NoError(t, err, "pre-fix this decode failed outright: "+
+		`expected value for state element, got xml.StartElement`)
+	assert.Equal(t, "associated", string(out.State))
+}
+
 // TestDisassociateSecurityGroupVpc_WireShape_RealClient covers
 // handleDisassociateSecurityGroupVpc, which pre-fix rendered a bare
 // <return>true</return> via stubResponse. The real
@@ -217,12 +250,10 @@ func TestDisassociateSecurityGroupVpc_WireShape_RealClient(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Set up the association directly on the backend rather than through
-	// client.AssociateSecurityGroupVpc: that op's response wraps <state> in
-	// an extra nested <state> element (associateSGVpcResponse's
-	// sgVpcAssocStateItem), which the real deserializer can't decode. That's
-	// a pre-existing bug in a different op, not in this task's queue.
-	_, err = b.AssociateSecurityGroupVpc(aws.ToString(sg.GroupId), aws.ToString(vpc.Vpc.VpcId))
+	_, err = client.AssociateSecurityGroupVpc(t.Context(), &ec2sdk.AssociateSecurityGroupVpcInput{
+		GroupId: sg.GroupId,
+		VpcId:   vpc.Vpc.VpcId,
+	})
 	require.NoError(t, err)
 
 	out, err := client.DisassociateSecurityGroupVpc(t.Context(), &ec2sdk.DisassociateSecurityGroupVpcInput{

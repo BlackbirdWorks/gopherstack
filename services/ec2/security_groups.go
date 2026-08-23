@@ -103,23 +103,24 @@ func (b *InMemoryBackend) RevokeSecurityGroupIngress(
 	return revoked, unknown, nil
 }
 
-// RevokeSecurityGroupEgress removes matching egress rules from a security group.
-// Returns InvalidPermission.NotFound if any requested rule does not exist.
+// RevokeSecurityGroupEgress removes matching egress rules from a security group,
+// returning the details of the rules actually revoked. Returns
+// InvalidPermission.NotFound if any requested rule does not exist.
 func (b *InMemoryBackend) RevokeSecurityGroupEgress(
 	groupID string,
 	rules []SecurityGroupRule,
-) error {
+) ([]*SecurityGroupRuleDetail, error) {
 	b.mu.Lock("RevokeSecurityGroupEgress")
 	defer b.mu.Unlock()
 
 	sg, ok := b.securityGroups.Get(groupID)
 	if !ok {
-		return fmt.Errorf("%w: %s", ErrSecurityGroupNotFound, groupID)
+		return nil, fmt.Errorf("%w: %s", ErrSecurityGroupNotFound, groupID)
 	}
 
 	for _, rule := range rules {
 		if !ruleExists(sg.EgressRules, rule) {
-			return fmt.Errorf(
+			return nil, fmt.Errorf(
 				"%w: rule not found in group %s",
 				ErrNetworkInterfacePermissionNotFound,
 				groupID,
@@ -127,11 +128,35 @@ func (b *InMemoryBackend) RevokeSecurityGroupEgress(
 		}
 	}
 
+	revoked := make([]*SecurityGroupRuleDetail, 0, len(rules))
+
 	for _, rule := range rules {
+		key := ruleKey(rule)
+		idx := -1
+
+		for i, r := range sg.EgressRules {
+			if ruleKey(r) == key {
+				idx = i
+
+				break
+			}
+		}
+
+		matched := sg.EgressRules[idx]
+		revoked = append(revoked, &SecurityGroupRuleDetail{
+			SecurityGroupRuleID: fmt.Sprintf("sgr-%s-out-%d", groupID, idx),
+			GroupID:             groupID,
+			Protocol:            matched.Protocol,
+			CIDRIPv4:            matched.IPRange,
+			Description:         matched.Description,
+			FromPort:            matched.FromPort,
+			ToPort:              matched.ToPort,
+			IsEgress:            true,
+		})
 		sg.EgressRules = removeRule(sg.EgressRules, rule)
 	}
 
-	return nil
+	return revoked, nil
 }
 
 // removeRule removes matching SecurityGroupRule entries from a slice. Matching

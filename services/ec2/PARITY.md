@@ -960,3 +960,185 @@ genuine gap and documented above. The 42 Category-C-empty cosmetic sites
 from the first pass remain deliberately untouched. The
 `AssociateSecurityGroupVpc` nested-`<state>` bug found incidentally above is
 real but out of this pass's named queue -- left for a future pass.
+
+**2026-08-23 pass -- `AssociateSecurityGroupVpc` fix, then
+`handler_security_groups.go`/`handler_client_vpn.go` census re-derivation**:
+fixed the `AssociateSecurityGroupVpc` bug named-but-left-unfixed above first
+(`associateSGVpcResponse.State` was `sgVpcAssocStateItem` -- a struct with its
+own `State string \`xml:"state"\`` field -- tagged `xml:"state"`, so the
+response nested `<state><state>associated</state></state>`; the real
+deserializer (`awsEc2query_deserializeOpDocumentAssociateSecurityGroupVpcOutput`)
+reads `<state>` via `decoder.Value()`, a scalar-only read that cannot handle a
+child element and fails outright: `expected value for state element, got
+xml.StartElement`. Fixed by flattening `State` to a plain string, matching
+`DisassociateSecurityGroupVpc`'s sibling shape exactly. The now-unused
+`sgVpcAssocStateItem` type (`handler_subnets.go`) was removed.
+
+Then re-derived the two files' never-audited counts before auditing, per the
+redirect's warning that five of today's counts were wrong and the file-level
+`(9)`/`(9)` estimate itself was flagged "next pass should re-derive". Method:
+enumerate every op string actually registered by each file's
+`register*Ops`/entries in `handler.go`'s dispatch map (dispatched op-name
+strings, not just Go func names), then grep each name against this
+PARITY.md's existing text to separate "named by a prior audit" (fixed, or
+confirmed-and-left-unfixed like `AssociateSecurityGroupVpc` was) from mere
+incidental mentions.
+
+`handler_security_groups.go`: **17 total ops** (10 via
+`registerSecurityGroupsOps` + 7 dispatched from `handler.go`'s main map:
+`DescribeSecurityGroups`, `CreateSecurityGroup`, `DeleteSecurityGroup`,
+`RevokeSecurityGroupEgress`, `AuthorizeSecurityGroupIngress/Egress`,
+`RevokeSecurityGroupIngress`), of which **7 were already named** (the five
+fixed earlier this same file plus `AssociateSecurityGroupVpc`/
+`DisassociateSecurityGroupVpc`) — leaving **10 never-audited**, not 9.
+Audited all 10.
+
+`handler_client_vpn.go`: **22 total ops** (19 via `registerClientVpnOps` + 3
+via `registerTGWClientVpnAttachmentOps`), of which **2 were already named**
+(`ApplySecurityGroupsToClientVpnTargetNetwork`,
+`DisassociateClientVpnTargetNetwork`, both fixed in the ec2sweep14 pass) —
+leaving **20 never-audited**, not 9. (`CreateClientVpnEndpoint` is mentioned
+once, in the parity4_new_ops entry, but only for a TGW-attachment side
+effect of its `TransitGatewayConfiguration.TransitGatewayId` field, never for
+its own response shape -- not counted as audited.) Audited all 22 (the 20
+never-audited plus re-confirming the 2 already-fixed still hold), since
+auditing only the unnamed subset in isolation risks missing a sibling bug
+next to a "done" op -- none found beside the 2 already-fixed ones.
+
+Bugs found and fixed (7):
+
+- **`RevokeSecurityGroupEgress`** (`handler_security_groups.go`,
+  `security_groups.go`): real `RevokeSecurityGroupEgressOutput`
+  (`awsEc2query_deserializeOpDocumentRevokeSecurityGroupEgressOutput`) has
+  `Return`/`RevokedSecurityGroupRuleSet`/`UnknownIpPermissionSet` — the exact
+  shape `RevokeSecurityGroupIngress` was fixed to render in the prior pass —
+  but Egress was left as bare `Return`. **A correct sibling right next to a
+  broken op, again**: `RevokeSecurityGroupIngress` was the reference.
+  `Backend.RevokeSecurityGroupEgress` signature changed from `(string,
+  []SecurityGroupRule) error` to `(string, []SecurityGroupRule)
+  ([]*SecurityGroupRuleDetail, error)`; kept its existing all-or-nothing
+  validate-then-revoke semantics (an existing test asserts
+  `InvalidPermission.NotFound` on any unmatched rule, unlike Ingress's
+  per-rule unknown-reporting) rather than also changing that behavior, so
+  `UnknownIpPermissionSet` is always empty by construction, not fabricated.
+- **`DescribeSecurityGroups`** (`handler_security_groups.go`): two bugs.
+  (1) Accept-and-drop: the real `DescribeSecurityGroupsInput` sends
+  `GroupName.N` (`awsEc2query_serializeOpDocumentDescribeSecurityGroupsInput`,
+  `object.FlatKey("GroupName")`) for `GroupNames`, but the handler read only
+  `GroupId.N`, silently returning every security group regardless of the
+  names requested. Fixed by reading `GroupName.N` via the existing
+  `parseMemberList` and filtering by name when no `GroupId.N` was given (both
+  together -- an edge case with no test coverage here -- still resolves by
+  ID only, a documented limitation, not a full union). (2) No
+  `MaxResults`/`NextToken` despite both being real on Input/Output ("between
+  5 and 1000" per the doc comment) -- fixed with the existing
+  `parseEC2Pagination`/`pageSlice` helpers, a new `ec2PageMinSecurityGroups =
+  5` constant.
+- **`DescribeSecurityGroupRules`**, **`DescribeStaleSecurityGroups`**,
+  **`DescribeSecurityGroupVpcAssociations`**, **`GetSecurityGroupsForVpc`**
+  (`handler_security_groups.go`): same "unbounded single page" gap as
+  ec2sweep11 -- all four declare real `MaxResults`/`NextToken` on their real
+  Input/Output (confirmed per-op against `api_op_*.go`; only
+  `DescribeSecurityGroupRules` documents explicit bounds, "between 5 and
+  1000", new constant `ec2PageMinSecurityGroupRules = 5`) but returned every
+  item in one page. Fixed identically via `parseEC2Pagination`/`pageSlice`.
+  Element names for all four (`securityGroupReferenceSet`,
+  `staleSecurityGroupSet`, `securityGroupVpcAssociationSet`,
+  `securityGroupForVpcSet`, `securityGroupRuleSet`, `nextToken`) were
+  confirmed against each op's real deserializer before touching them; all
+  already matched (a casing-insensitive protocol, so only a different
+  element *name* would have been a bug -- none was).
+- **`DescribeClientVpnEndpoints`**, **`DescribeClientVpnTargetNetworks`**,
+  **`DescribeClientVpnRoutes`**, **`DescribeClientVpnAuthorizationRules`**
+  (`handler_client_vpn.go`): same unbounded-single-page gap, no documented
+  bounds on any of the four so all use the existing `ec2PageMinDefault`/
+  `ec2PageMaxDefault` (1..1000). Element names (`clientVpnEndpoint`,
+  `clientVpnTargetNetworks`, `routes`, `authorizationRule`, `nextToken`)
+  confirmed against each deserializer; already correct.
+
+False positive ruled out (1): `DescribeClientVpnConnections` matched the same
+missing-pagination pattern by inspection, but this backend never models any
+active connection (documented in the existing code comment: "No API in this
+backend creates connections"), so the list is always empty and pagination
+can never actually trigger. Added the `NextToken` field for shape
+completeness (always empty, `omitempty`) but did not add pagination logic --
+there would be nothing to prove with a test, since no fixture can ever
+produce a second page.
+
+Confirmed correct as-is, no bug (19): `handler_security_groups.go` --
+`DescribeSecurityGroupReferences` (real Output has no
+`MaxResults`/`NextToken` at all, unlike its four siblings above),
+`UpdateSecurityGroupRuleDescriptionsIngress`/`Egress`, `ModifySecurityGroupRules`
+(all three real Outputs are `Return`-only, matching the existing
+`stubResponse`/`genericReturnResponse`). `handler_client_vpn.go` --
+`CreateClientVpnEndpoint`, `DeleteClientVpnEndpoint`,
+`AssociateClientVpnTargetNetwork`, `CreateClientVpnRoute`,
+`DeleteClientVpnRoute`, `AuthorizeClientVpnIngress`, `RevokeClientVpnIngress`,
+`TerminateClientVpnConnections`, `ModifyClientVpnEndpoint`,
+`ExportClientVpnClientConfiguration`,
+`ExportClientVpnClientCertificateRevocationList`,
+`ImportClientVpnClientCertificateRevocationList`,
+`AcceptTransitGatewayClientVpnAttachment`,
+`RejectTransitGatewayClientVpnAttachment`,
+`DeleteTransitGatewayClientVpnAttachment` -- every field name checked against
+the real Output struct and (for the non-scalar ones) the deserializer's
+`EqualFold` cases; all matched.
+
+Modelling gaps ruled real, not fabricatable, left alone: `CreateClientVpnEndpoint`
+never reads `AuthenticationOptions`/`ConnectionLogOptions`/
+`ClientConnectOptions`/`ClientLoginBannerOptions`/
+`ClientRouteEnforcementOptions`/`TagSpecifications`/`DisconnectOnSessionTimeout`/
+`EndpointIpAddressType`/`TrafficIpAddressType` -- this backend's
+`ClientVpnEndpoint`/`clientVpnEndpointItem` model none of these at all (no
+tag storage for this resource type exists anywhere, confirmed by grep), so
+this is a pre-existing structural gap, not a new accept-and-drop bug of the
+kind fixed above. `SelfServicePortal` (Input, an `enabled`/`disabled` enum)
+and `SelfServicePortalUrl` (Output, a real generated URL) are two distinct
+real fields this backend conflates into one `SelfServicePortalURL` string
+echoed verbatim -- flagged, not fixed: a believable synthetic URL format
+can't be sourced from anything real without guessing at AWS's actual
+generation scheme. `Filters` on all five `DescribeClientVpn*` list ops and on
+`DescribeSecurityGroups`/`DescribeSecurityGroupVpcAssociations`/
+`GetSecurityGroupsForVpc` are real but entirely unimplemented in this
+backend (only `group-id` is special-cased for `DescribeSecurityGroupRules`);
+left alone, matching this pass's pagination-only scope.
+
+Snapshot bump: not needed. The only persisted-shape change is
+`Backend.RevokeSecurityGroupEgress`'s added return value (an interface
+method signature, not a struct field), which `pkgs/persistence` doesn't
+serialize; no field/tag/type on any persisted struct changed. `go test
+./pkgs/persistence/...` green.
+
+Proof: `TestAssociateSecurityGroupVpc_WireShape_RealClient` (new) and
+`TestDisassociateSecurityGroupVpc_WireShape_RealClient` (updated to drive
+`AssociateSecurityGroupVpc` through the real client instead of the backend
+directly, now that it's fixed) in `wire_field_fixes_ec2sweep14_test.go`;
+`wire_field_fixes_ec2sweep22_test.go` (security groups: revoke-egress,
+group-name filter, 3 pagination round-trips via the real
+`ec2sdk.NewDescribe*Paginator`s); `wire_field_fixes_ec2sweep23_test.go`
+(client VPN: 4 pagination round-trips). Every fix hand-reverted in turn (`cp`
+from a saved pre-fix copy, ran only that fix's test, confirmed failure,
+restored, `md5sum` identical before/after every touched file) --
+representative failures:
+- `TestAssociateSecurityGroupVpc_WireShape_RealClient`: `expected value for
+  state element, got xml.StartElement` pre-fix.
+- `TestRevokeSecurityGroupEgress_SurfacesRevokedRules_RealClient`: `"[]"
+  should have 1 item(s), but has 0` on `out.RevokedSecurityGroupRules`.
+- `TestDescribeSecurityGroups_GroupNameFilter_RealClient`: 3 groups returned
+  instead of 1 (`GroupName.N` silently dropped).
+- `TestDescribeSecurityGroupRules_Pagination_RealClient` /
+  `TestDescribeClientVpnEndpoints_Pagination_RealClient`: `"1" is not
+  greater than or equal to "2"` (paginator never split across pages).
+
+Gates: `go build ./services/ec2/...`, `make build-check` (`go build ./...` +
+`go vet -tags e2e ./...` + `go vet -tags integration ./...`, exit 0 -- run
+because `Backend.RevokeSecurityGroupEgress`'s exported signature changed),
+`gofmt -l services/ec2/*.go` (clean), `go test -race ./services/ec2/...
+-count=1` (`ok`, full suite including all new tests), `go test
+./pkgs/persistence/...` (`ok`), `golangci-lint run ./services/ec2/...` (2
+issues found and fixed by hand: 1 `nlreturn` on the `AssociateSecurityGroupVpc`
+fix, 1 `modernize` replacing a hand-rolled contains-loop in a new test with
+`slices.Contains`; 0 issues after). No banned `//nolint`s.
+
+Not reached, named: none -- every op in both files' never-audited pool (10 +
+20 = 30) was checked against the real SDK this pass.

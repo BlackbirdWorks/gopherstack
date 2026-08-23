@@ -90,8 +90,14 @@ type Backend interface {
 		rules []SecurityGroupRule,
 	) (revoked []*SecurityGroupRuleDetail, unknown []SecurityGroupRule, err error)
 
-	// RevokeSecurityGroupEgress removes matching egress rules from a security group.
-	RevokeSecurityGroupEgress(groupID string, rules []SecurityGroupRule) error
+	// RevokeSecurityGroupEgress removes matching egress rules from a security
+	// group, returning the details of the rules actually revoked. Unlike
+	// RevokeSecurityGroupIngress, an unmatched rule fails the whole call
+	// rather than being reported back as unknown.
+	RevokeSecurityGroupEgress(
+		groupID string,
+		rules []SecurityGroupRule,
+	) (revoked []*SecurityGroupRuleDetail, err error)
 
 	// ---- VPCs ----
 

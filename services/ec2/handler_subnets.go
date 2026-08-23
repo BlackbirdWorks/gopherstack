@@ -40,10 +40,6 @@ type disassociateSubnetCIDRResponse struct {
 	SubnetID  string   `xml:"subnetId"`
 }
 
-type sgVpcAssocStateItem struct {
-	State string `xml:"state"`
-}
-
 func (h *Handler) handleCreateDefaultSubnet(vals url.Values, reqID string) (any, error) {
 	az := vals.Get("AvailabilityZone")
 	subnet, err := h.Backend.CreateDefaultSubnet(az)

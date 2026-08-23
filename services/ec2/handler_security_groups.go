@@ -6,10 +6,17 @@ import (
 	"net/url"
 )
 
+// associateSGVpcResponse matches AssociateSecurityGroupVpcOutput
+// (ec2@v1.319.1 api_op_AssociateSecurityGroupVpc.go / deserializers.go,
+// awsEc2query_deserializeOpDocumentAssociateSecurityGroupVpcOutput): a flat
+// <state> scalar, not a nested element. The real deserializer reads it via
+// decoder.Value(), which fails outright ("expected value for state element,
+// got xml.StartElement") if <state> contains a child element instead of text.
 type associateSGVpcResponse struct {
-	XMLName   xml.Name            `xml:"AssociateSecurityGroupVpcResponse"`
-	RequestID string              `xml:"requestId"`
-	State     sgVpcAssocStateItem `xml:"state"`
+	XMLName   xml.Name `xml:"AssociateSecurityGroupVpcResponse"`
+	Xmlns     string   `xml:"xmlns,attr"`
+	RequestID string   `xml:"requestId"`
+	State     string   `xml:"state"`
 }
 
 // sgVpcAssocStateDisassociated is the terminal state this backend reports
@@ -53,6 +60,7 @@ type staleSGItem struct {
 type describeStaleSecurityGroupsResponse struct {
 	XMLName               xml.Name `xml:"DescribeStaleSecurityGroupsResponse"`
 	RequestID             string   `xml:"requestId"`
+	NextToken             string   `xml:"nextToken,omitempty"`
 	StaleSecurityGroupSet struct {
 		Items []staleSGItem `xml:"item"`
 	} `xml:"staleSecurityGroupSet"`
@@ -67,6 +75,7 @@ type sgVpcAssocItem struct {
 type describeSecurityGroupVpcAssociationsResponse struct {
 	XMLName                        xml.Name `xml:"DescribeSecurityGroupVpcAssociationsResponse"`
 	RequestID                      string   `xml:"requestId"`
+	NextToken                      string   `xml:"nextToken,omitempty"`
 	SecurityGroupVpcAssociationSet struct {
 		Items []sgVpcAssocItem `xml:"item"`
 	} `xml:"securityGroupVpcAssociationSet"`
@@ -79,10 +88,12 @@ func (h *Handler) handleAssociateSecurityGroupVpc(vals url.Values, reqID string)
 	if err != nil {
 		return nil, err
 	}
-	resp := &associateSGVpcResponse{RequestID: reqID}
-	resp.State.State = result.State
 
-	return resp, nil
+	return &associateSGVpcResponse{
+		Xmlns:     ec2XMLNS,
+		RequestID: reqID,
+		State:     result.State,
+	}, nil
 }
 
 func (h *Handler) handleDisassociateSecurityGroupVpc(vals url.Values, reqID string) (any, error) {
@@ -128,7 +139,15 @@ func (h *Handler) handleDescribeStaleSecurityGroups(vals url.Values, reqID strin
 	}
 	stale := h.Backend.DescribeStaleSecurityGroups(vpcID)
 
-	resp := &describeStaleSecurityGroupsResponse{RequestID: reqID}
+	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageMaxDefault)
+	if err != nil {
+		return nil, err
+	}
+
+	var nextToken string
+	stale, nextToken = pageSlice(stale, offset, maxResults)
+
+	resp := &describeStaleSecurityGroupsResponse{RequestID: reqID, NextToken: nextToken}
 	for _, sg := range stale {
 		resp.StaleSecurityGroupSet.Items = append(resp.StaleSecurityGroupSet.Items, staleSGItem{
 			GroupID:     sg.GroupID,
@@ -148,7 +167,15 @@ func (h *Handler) handleDescribeSecurityGroupVpcAssociations(
 	sgIDs := parseMemberList(vals, "GroupId")
 	assocs := h.Backend.DescribeSecurityGroupVpcAssociations(sgIDs)
 
-	resp := &describeSecurityGroupVpcAssociationsResponse{RequestID: reqID}
+	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageMaxDefault)
+	if err != nil {
+		return nil, err
+	}
+
+	var nextToken string
+	assocs, nextToken = pageSlice(assocs, offset, maxResults)
+
+	resp := &describeSecurityGroupVpcAssociationsResponse{RequestID: reqID, NextToken: nextToken}
 	for _, a := range assocs {
 		resp.SecurityGroupVpcAssociationSet.Items = append(
 			resp.SecurityGroupVpcAssociationSet.Items,
@@ -166,6 +193,7 @@ func (h *Handler) handleDescribeSecurityGroupVpcAssociations(
 type getSecurityGroupsForVpcResponse struct {
 	XMLName                xml.Name `xml:"GetSecurityGroupsForVpcResponse"`
 	RequestID              string   `xml:"requestId"`
+	NextToken              string   `xml:"nextToken,omitempty"`
 	SecurityGroupForVpcSet struct {
 		Items []sgForVpcItem `xml:"item"`
 	} `xml:"securityGroupForVpcSet"`
@@ -182,7 +210,15 @@ func (h *Handler) handleGetSecurityGroupsForVpc(vals url.Values, reqID string) (
 		return nil, err
 	}
 
-	resp := &getSecurityGroupsForVpcResponse{RequestID: reqID}
+	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageMaxDefault)
+	if err != nil {
+		return nil, err
+	}
+
+	var nextToken string
+	sgs, nextToken = pageSlice(sgs, offset, maxResults)
+
+	resp := &getSecurityGroupsForVpcResponse{RequestID: reqID, NextToken: nextToken}
 	for _, sg := range sgs {
 		resp.SecurityGroupForVpcSet.Items = append(resp.SecurityGroupForVpcSet.Items, sgForVpcItem{
 			GroupID:     sg.GroupID,
@@ -244,6 +280,16 @@ func (h *Handler) handleDescribeSecurityGroupRules(vals url.Values, reqID string
 		return nil, err
 	}
 
+	maxResults, offset, err := parseEC2Pagination(
+		vals, ec2PageMinSecurityGroupRules, ec2PageMaxDefault, ec2PageMaxDefault,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	var nextToken string
+	rules, nextToken = pageSlice(rules, offset, maxResults)
+
 	items := make([]sgRuleDetailItem, 0, len(rules))
 	for _, r := range rules {
 		items = append(items, sgRuleDetailItem{
@@ -261,6 +307,7 @@ func (h *Handler) handleDescribeSecurityGroupRules(vals url.Values, reqID string
 	return &describeSecurityGroupRulesResponse{
 		Xmlns:     ec2XMLNS,
 		RequestID: reqID,
+		NextToken: nextToken,
 		Rules:     sgRuleDetailSet{Items: items},
 	}, nil
 }
@@ -288,6 +335,7 @@ type describeSecurityGroupRulesResponse struct {
 	XMLName   xml.Name        `xml:"DescribeSecurityGroupRulesResponse"`
 	Xmlns     string          `xml:"xmlns,attr"`
 	RequestID string          `xml:"requestId"`
+	NextToken string          `xml:"nextToken,omitempty"`
 	Rules     sgRuleDetailSet `xml:"securityGroupRuleSet"`
 }
 
@@ -530,11 +578,31 @@ func (h *Handler) handleRevokeSecurityGroupIngress(vals url.Values, reqID string
 
 func (h *Handler) handleDescribeSecurityGroups(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "GroupId")
-	groups := h.Backend.DescribeSecurityGroups(ids)
+
+	var groups []*SecurityGroup
+	if names := parseMemberList(vals, "GroupName"); len(ids) == 0 && len(names) > 0 {
+		for _, sg := range h.Backend.DescribeSecurityGroups(nil) {
+			if anyEqual(sg.Name, names) {
+				groups = append(groups, sg)
+			}
+		}
+	} else {
+		groups = h.Backend.DescribeSecurityGroups(ids)
+	}
 
 	// Apply named filters: vpc-id, group-name, group-id.
 	filters := parseEC2Filters(vals)
 	groups = applySecurityGroupFilters(groups, filters, h.Backend)
+
+	maxResults, offset, err := parseEC2Pagination(
+		vals, ec2PageMinSecurityGroups, ec2PageMaxDefault, ec2PageMaxDefault,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	var nextToken string
+	groups, nextToken = pageSlice(groups, offset, maxResults)
 
 	items := make([]sgItem, 0, len(groups))
 	for _, sg := range groups {
@@ -544,6 +612,7 @@ func (h *Handler) handleDescribeSecurityGroups(vals url.Values, reqID string) (a
 	return &describeSecurityGroupsResponse{
 		Xmlns:             ec2XMLNS,
 		RequestID:         reqID,
+		NextToken:         nextToken,
 		SecurityGroupInfo: sgItemSet{Items: items},
 	}, nil
 }
@@ -603,14 +672,16 @@ func (h *Handler) handleRevokeSecurityGroupEgress(vals url.Values, reqID string)
 
 	rules := parseIPPermissions(vals)
 
-	if err := h.Backend.RevokeSecurityGroupEgress(groupID, rules); err != nil {
+	revoked, err := h.Backend.RevokeSecurityGroupEgress(groupID, rules)
+	if err != nil {
 		return nil, err
 	}
 
 	return &revokeSecurityGroupEgressResponse{
-		Xmlns:     ec2XMLNS,
-		RequestID: reqID,
-		Return:    ec2BooleanTrue,
+		Xmlns:                       ec2XMLNS,
+		RequestID:                   reqID,
+		Return:                      true,
+		RevokedSecurityGroupRuleSet: sgRuleDetailSet{Items: sgRuleDetailItemsFrom(revoked)},
 	}, nil
 }
 
@@ -699,6 +770,7 @@ type describeSecurityGroupsResponse struct {
 	XMLName           xml.Name  `xml:"DescribeSecurityGroupsResponse"`
 	Xmlns             string    `xml:"xmlns,attr"`
 	RequestID         string    `xml:"requestId"`
+	NextToken         string    `xml:"nextToken,omitempty"`
 	SecurityGroupInfo sgItemSet `xml:"securityGroupInfo"`
 }
 
@@ -720,9 +792,17 @@ type deleteSecurityGroupResponse struct {
 	Return    bool     `xml:"return"`
 }
 
+// revokeSecurityGroupEgressResponse matches RevokeSecurityGroupEgressOutput
+// (ec2@v1.319.1 deserializers.go,
+// awsEc2query_deserializeOpDocumentRevokeSecurityGroupEgressOutput): same
+// shape as RevokeSecurityGroupIngressOutput. UnknownIpPermissionSet is always
+// empty here since Backend.RevokeSecurityGroupEgress fails the whole call
+// atomically on any unmatched rule rather than reporting it back as unknown.
 type revokeSecurityGroupEgressResponse struct {
-	XMLName   xml.Name `xml:"RevokeSecurityGroupEgressResponse"`
-	Xmlns     string   `xml:"xmlns,attr"`
-	RequestID string   `xml:"requestId"`
-	Return    string   `xml:"return"`
+	XMLName                     xml.Name           `xml:"RevokeSecurityGroupEgressResponse"`
+	Xmlns                       string             `xml:"xmlns,attr"`
+	RequestID                   string             `xml:"requestId"`
+	RevokedSecurityGroupRuleSet sgRuleDetailSet    `xml:"revokedSecurityGroupRuleSet"`
+	UnknownIPPermissionSet      []ipPermissionItem `xml:"unknownIpPermissionSet>item,omitempty"`
+	Return                      bool               `xml:"return"`
 }

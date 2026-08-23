@@ -23,6 +23,7 @@ type createClientVpnEndpointResponse struct {
 type describeClientVpnEndpointsResponse struct {
 	XMLName              xml.Name `xml:"DescribeClientVpnEndpointsResponse"`
 	RequestID            string   `xml:"requestId"`
+	NextToken            string   `xml:"nextToken,omitempty"`
 	ClientVpnEndpointSet struct {
 		Items []clientVpnEndpointItem `xml:"item"`
 	} `xml:"clientVpnEndpoint"`
@@ -40,6 +41,7 @@ type clientVpnTargetNetworkItem struct {
 type describeClientVpnTargetNetworksResponse struct {
 	XMLName                 xml.Name `xml:"DescribeClientVpnTargetNetworksResponse"`
 	RequestID               string   `xml:"requestId"`
+	NextToken               string   `xml:"nextToken,omitempty"`
 	ClientVpnTargetNetworks struct {
 		Items []clientVpnTargetNetworkItem `xml:"item"`
 	} `xml:"clientVpnTargetNetworks"`
@@ -63,6 +65,7 @@ type clientVpnRouteItem struct {
 type describeClientVpnRoutesResponse struct {
 	XMLName   xml.Name `xml:"DescribeClientVpnRoutesResponse"`
 	RequestID string   `xml:"requestId"`
+	NextToken string   `xml:"nextToken,omitempty"`
 	Routes    struct {
 		Items []clientVpnRouteItem `xml:"item"`
 	} `xml:"routes"`
@@ -86,6 +89,7 @@ type clientVpnAuthRuleItem struct {
 type describeClientVpnAuthorizationRulesResponse struct {
 	XMLName            xml.Name `xml:"DescribeClientVpnAuthorizationRulesResponse"`
 	RequestID          string   `xml:"requestId"`
+	NextToken          string   `xml:"nextToken,omitempty"`
 	AuthorizationRules struct {
 		Items []clientVpnAuthRuleItem `xml:"item"`
 	} `xml:"authorizationRule"`
@@ -113,6 +117,7 @@ type clientVpnConnectionItem struct {
 type describeClientVpnConnectionsResponse struct {
 	XMLName     xml.Name `xml:"DescribeClientVpnConnectionsResponse"`
 	RequestID   string   `xml:"requestId"`
+	NextToken   string   `xml:"nextToken,omitempty"`
 	Connections struct {
 		Items []clientVpnConnectionItem `xml:"item"`
 	} `xml:"connections"`
@@ -248,7 +253,15 @@ func (h *Handler) handleDescribeClientVpnEndpoints(vals url.Values, reqID string
 	ids := parseMemberList(vals, "ClientVpnEndpointId")
 	eps := h.Backend.DescribeClientVpnEndpoints(ids)
 
-	resp := &describeClientVpnEndpointsResponse{RequestID: reqID}
+	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageMaxDefault)
+	if err != nil {
+		return nil, err
+	}
+
+	var nextToken string
+	eps, nextToken = pageSlice(eps, offset, maxResults)
+
+	resp := &describeClientVpnEndpointsResponse{RequestID: reqID, NextToken: nextToken}
 	for _, ep := range eps {
 		resp.ClientVpnEndpointSet.Items = append(resp.ClientVpnEndpointSet.Items, toClientVpnEndpointItem(ep))
 	}
@@ -318,7 +331,15 @@ func (h *Handler) handleDescribeClientVpnTargetNetworks(vals url.Values, reqID s
 		return nil, err
 	}
 
-	resp := &describeClientVpnTargetNetworksResponse{RequestID: reqID}
+	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageMaxDefault)
+	if err != nil {
+		return nil, err
+	}
+
+	var nextToken string
+	networks, nextToken = pageSlice(networks, offset, maxResults)
+
+	resp := &describeClientVpnTargetNetworksResponse{RequestID: reqID, NextToken: nextToken}
 	for _, tn := range networks {
 		resp.ClientVpnTargetNetworks.Items = append(
 			resp.ClientVpnTargetNetworks.Items,
@@ -386,7 +407,15 @@ func (h *Handler) handleDescribeClientVpnRoutes(vals url.Values, reqID string) (
 		return nil, err
 	}
 
-	resp := &describeClientVpnRoutesResponse{RequestID: reqID}
+	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageMaxDefault)
+	if err != nil {
+		return nil, err
+	}
+
+	var nextToken string
+	routes, nextToken = pageSlice(routes, offset, maxResults)
+
+	resp := &describeClientVpnRoutesResponse{RequestID: reqID, NextToken: nextToken}
 	for _, r := range routes {
 		resp.Routes.Items = append(resp.Routes.Items, clientVpnRouteItem{
 			DestinationCidr: r.DestinationCidr,
@@ -459,7 +488,15 @@ func (h *Handler) handleDescribeClientVpnAuthorizationRules(
 		return nil, err
 	}
 
-	resp := &describeClientVpnAuthorizationRulesResponse{RequestID: reqID}
+	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageMaxDefault)
+	if err != nil {
+		return nil, err
+	}
+
+	var nextToken string
+	rules, nextToken = pageSlice(rules, offset, maxResults)
+
+	resp := &describeClientVpnAuthorizationRulesResponse{RequestID: reqID, NextToken: nextToken}
 	for _, r := range rules {
 		resp.AuthorizationRules.Items = append(resp.AuthorizationRules.Items, clientVpnAuthRuleItem{
 			Cidr:        r.Cidr,
