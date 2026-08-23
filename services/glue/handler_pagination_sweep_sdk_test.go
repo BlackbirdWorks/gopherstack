@@ -213,7 +213,7 @@ func paginationCasesCatalogAndCrawl() []paginationCase {
 			seed: func(t *testing.T, b *glue.InMemoryBackend) {
 				t.Helper()
 				for range 3 {
-					_, err := b.StartColumnStatisticsTaskRun("db1", "tbl1")
+					_, err := b.StartColumnStatisticsTaskRun("db1", "tbl1", "role")
 					require.NoError(t, err)
 				}
 			},
@@ -236,7 +236,7 @@ func paginationCasesCatalogAndCrawl() []paginationCase {
 			seed: func(t *testing.T, b *glue.InMemoryBackend) {
 				t.Helper()
 				for range 3 {
-					_, err := b.StartColumnStatisticsTaskRun("db2", "tbl2")
+					_, err := b.StartColumnStatisticsTaskRun("db2", "tbl2", "role")
 					require.NoError(t, err)
 				}
 			},

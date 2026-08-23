@@ -1028,3 +1028,231 @@ key to nest under and the old PascalCase failure tags don't match the real
 lowerCamelCase keys either. No pre-existing test asserted the old flat batch
 shape as correct (`TestTableOptimizer`'s `BatchGetTableOptimizer` section
 only checks `len(TableOptimizers) == 1`), so nothing needed correcting there.
+
+## 2026-08-23 gopherstack-n3zi (continued): 13 more of the 84 unaudited never-mentioned ops
+
+Continuation of the clientcoverage-driven audit that produced GetResourcePolicy/
+GetMLTaskRun/GetDataQualityRuleRecommendationRun (dated entry above, same day).
+That pass claimed "84 of the 111 never-mentioned ops remain unaudited, named
+individually in the manifest" — no such manifest exists in the repo or in that
+commit's diff. **Re-derived the never-mentioned set from scratch**: 299 ops
+confirmed directly via `grep -c 'name: "' handler_routing.go` (no duplicates,
+`sort -u` agrees), diffed word-boundary (`grep -w`) against every op name
+literally present anywhere in this file as it stood before this pass. Result:
+**96 ops never mentioned**, not 111/84 — the prior figures were not
+reconstructible and are corrected here rather than propagated.
+
+Of those 96, this pass **audited 24** against the pinned SDK
+(`aws-sdk-go-v2/service/glue@v1.152.0`) and found **11 real bugs**, all
+proven by a real `aws-sdk-go-v2/service/glue` client round trip (new file
+`wire_output_dropped_fields_test.go`-adjacent `never_mentioned_audit_test.go`),
+each hand-reverted (`git checkout HEAD -- <file>`, plus a targeted revert of
+`interfaces.go`'s one changed line where a file bundled multiple fixes),
+confirmed to fail with the exact error/behavior described below, then restored
+and `diff -rq` confirmed byte-identical against the fixed tree:
+
+1. **BatchDeleteConnection** — `Errors` was `[]ErrorDetail`, a JSON array;
+   the real `BatchDeleteConnectionOutput.Errors` is `map[string]types.ErrorDetail`
+   keyed by connection name (`awsAwsjson11_deserializeDocumentErrorByName`,
+   deserializers.go). A real client's decode **hard-fails** the instant any
+   connection is missing: `unexpected JSON type [map[...]]`. Backend signature
+   changed to return `map[string]ErrorDetail`; the per-name key (previously not
+   even tracked) is now the map key itself. `services/glue/connections.go`,
+   `handler_connections.go`, `interfaces.go`.
+
+2. **BatchGetDataQualityResult** — `ResultsNotFound` was `[]ErrorDetail`; the
+   real field is `[]string` (`awsAwsjson11_deserializeDocumentDataQualityResultIds`).
+   Same hard-fail class: `expected HashString to be of type string, got
+   map[string]interface {}`. Backend now returns `[]string` (bare not-found
+   IDs). `services/glue/data_quality_stats.go`, `handler_data_quality_stats.go`.
+
+3. **ColumnStatisticsTaskRun.StartedOn**'s json tag was `"StartedOn"`; the real
+   member is `StartTime` (`awsAwsjson11_deserializeDocumentColumnStatisticsTaskRun`'s
+   case list has no `StartedOn` key at all). Its sibling `MaterializedViewRefreshRun.StartedOn`,
+   fixed in the same prior pass that introduced this bug class
+   (`## Two additional bug classes` note, front matter), already carried the
+   correct `StartTime` tag — this one didn't. **Persisted struct**
+   (`columnStatTaskRuns *store.Table[ColumnStatisticsTaskRun]`), so
+   `glueSnapshotVersion` bumped 2→3 (`persistence.go`); golden regenerated
+   (`go test ./pkgs/persistence/... -run TestSnapshotVersionGuard -update`),
+   diff is exactly the tag rename plus two additive fields, nothing else.
+   `TestStartedOn_IsEpochSecondsNumber/ColumnStatisticsTaskRun`
+   (`timestamp_wire_shape_test.go`) already asserted the wire key by name and
+   needed updating from `"StartedOn"` to `"StartTime"`.
+
+4. **StartColumnStatisticsTaskRun** silently dropped `Role`, a **required**
+   real input member (`api_op_StartColumnStatisticsTaskRun.go`). Now required
+   (`InvalidInputException` if absent) and stored on the run
+   (`ColumnStatisticsTaskRun.Role`, new field). `CatalogID` (real casing is
+   `CatalogID`, capital D — confirmed from this op's own deserializer case
+   list), `ColumnNameList`, `SampleSize`, `SecurityConfiguration` remain
+   unmodeled (no backing per-column sampling/encryption state) — documented
+   gap, not fixed.
+
+5. **StopColumnStatisticsTaskRun** took `ColumnStatisticsTaskRunId`; the real
+   op (`api_op_StopColumnStatisticsTaskRun.go`) has **no run-ID member at
+   all** — it identifies the run by `DatabaseName`+`TableName`. A real
+   client's Stop call always sent an empty/absent run ID, hitting this
+   handler's `if in.ColumnStatisticsTaskRunID == "" { return &emptyOutput{},
+   nil }` early-return — **silently reporting success without stopping
+   anything**. Same shape as bug 6 below; found by reading the whole op per
+   the "check every op sharing that type" rule after finding 6 first. Backend
+   now finds and stops the most recently started run for the given table.
+
+6. **StopMaterializedViewRefreshTaskRun** — identical bug and identical fix:
+   took `RunId`, but the real op (`api_op_StopMaterializedViewRefreshTaskRun.go`)
+   has no run-ID member, only `DatabaseName`+`TableName`(+`CatalogId`,
+   unmodeled: this backend keeps one flat namespace). Same silent-no-op
+   failure mode as bug 5.
+
+7. **GetMaterializedViewRefreshTaskRun** — request field was `RunId`, real
+   member is `MaterializedViewRefreshTaskRunId`; response was a flat
+   `{RunId, Status}` pair instead of the real output's
+   `MaterializedViewRefreshTaskRun` (`*types.MaterializedViewRefreshTaskRun`)
+   wrapper object. A real client's request always decoded an empty run ID
+   backend-side; the pre-existing handler's fallback ("if RunId is empty,
+   return the first run in the whole account") was a gopherstack invention
+   with no basis in the real, required-member API — removed. Response now
+   wraps `*MaterializedViewRefreshRun` (whose json tags already matched the
+   real nested type's field names — the bug was entirely in this handler's
+   own separate flat struct, not the shared model).
+
+8. **StartMaterializedViewRefreshTaskRun** — response field was `RunId`; real
+   member is `MaterializedViewRefreshTaskRunId`
+   (`api_op_StartMaterializedViewRefreshTaskRun.go`). A real client's run ID
+   always decoded empty, breaking every subsequent Get/Stop call chained off
+   it. Sibling of bugs 6/7 — all three found together while reading the whole
+   materialized-view-refresh family per the "check every op sharing that
+   type" rule after the first one (7) turned up wrong.
+
+9. **CreateRegistry** dropped `Description` — trivially available from the
+   request, already tracked on `Registry.Description` — and fabricated a
+   `Status` field the real `CreateRegistryOutput`
+   (`api_op_CreateRegistry.go`) does not have at all. Response now returns
+   `Description`, not `Status`.
+
+10. **PutSchemaVersionMetadata** / **RemoveSchemaVersionMetadata** (sibling
+    ops, same bug) dropped `MetadataKey`/`MetadataValue` — trivially echoable
+    from the request — and `RegistryName`/`SchemaName`, both real response
+    members (`api_op_PutSchemaVersionMetadata.go`,
+    `api_op_RemoveSchemaVersionMetadata.go`). `SchemaArn`/`VersionNumber`/
+    `LatestVersion` were declared on the response struct but never actually
+    populated (always zero-valued) since the backend never looked up the
+    schema version behind the ID. New backend method
+    `FindSchemaVersionByID` (`registry.go`) scans every registered schema's
+    versions for a match (no existing ID→schema reverse index) and now
+    genuinely populates all five previously-fake-or-absent fields. The real
+    op also accepts identifying the version via `SchemaId`+`SchemaVersionNumber`
+    as an alternative to `SchemaVersionId`; this backend supports only the
+    `SchemaVersionId` path — documented, not fixed this pass.
+
+11. **GetDataQualityRuleset** returned a fabricated `Arn` field: confirmed
+    absent from every real data-quality-ruleset op's output
+    (Create/Get/Update/List, all four `api_op_*DataQualityRuleset*.go`) —
+    `DataQualityRuleset.ARN` is purely an internal field this backend keeps
+    for ARN-keyed `TagResource` dispatch and its own persistence, and must
+    never reach the wire. Fixed at the op layer (`getDataQualityRulesetOutput`
+    has no `ARN` field). **Sibling caught in the same family check**:
+    `ListDataQualityRulesets` (not itself in the 96 — already mentioned
+    elsewhere in this file — but sharing the exact same leak) marshaled
+    `[]*DataQualityRuleset` directly, leaking the same fabricated `Arn`; now
+    uses a dedicated `dataQualityRulesetListItem` summary type. The model's
+    own `ARN` field/json tag is untouched (kept for persistence + internal
+    dispatch), so no snapshot bump was needed here — only the two
+    wire-response paths were fixed. `RecommendationRunId` (real, set only
+    when a ruleset is promoted from a recommendation run — a flow this
+    backend doesn't have) is left absent, an honest gap.
+
+12. **CreateGlueIdentityCenterConfiguration** silently dropped `Scopes` and
+    `UserBackgroundSessionsEnabled`, both real request members
+    (`api_op_CreateGlueIdentityCenterConfiguration.go`). Now stored on
+    `IdentityCenterConfig` (two new fields, purely additive — no snapshot
+    bump needed for this half) and surfaced back on
+    `GetGlueIdentityCenterConfiguration` (sibling, not itself in the 96, but
+    the real `GetGlueIdentityCenterConfigurationOutput` carries the same two
+    fields — fixed alongside).
+
+13. **UpdateGlueIdentityCenterConfiguration** — worse than a drop: the real
+    op (`api_op_UpdateGlueIdentityCenterConfiguration.go`) has **no
+    `InstanceArn` member at all**, only `Scopes`/`UserBackgroundSessionsEnabled`.
+    The previous handler read a nonexistent `InstanceArn` from every real
+    Update call (always empty/absent) and used it to **overwrite the stored
+    `InstanceArn` with an empty string on every single real Update call** —
+    a destructive side effect no caller could have intended — while silently
+    dropping `Scopes`/`UserBackgroundSessionsEnabled` entirely. Fixed: Update
+    no longer touches `InstanceArn` at all (it's set once at Create and
+    never revisited, matching the real API's shape), and now genuinely
+    updates `Scopes`/`UserBackgroundSessionsEnabled`.
+
+**Ruled out, not a bug**: `GetMLTransform` was flagged by an early automated
+wire-key-diff pass as missing ~18 response fields. False positive: its
+response struct (`getMLTransformOutput`) embeds `*MLTransform` anonymously, so
+`encoding/json` flattens `MLTransform`'s fields directly — the diff tool
+didn't follow the embedded field. Manually re-checked field-by-field against
+`types.MLTransform`; the only real gap is `EvaluationMetrics`, already
+documented and re-confirmed absent multiple times (`ml_transforms` family
+note, front matter) since this backend never runs a real ML evaluation.
+
+**Identified, not fixed (time-boxed out of this pass)**: `GetUsageProfile`
+fabricates a `Tags` member the real `GetUsageProfileOutput`
+(`api_op_GetUsageProfile.go`) does not have, and drops the real
+`Configuration` (`*types.ProfileConfiguration`) member entirely —
+`UsageProfile` (models.go) has no field to source it from, so fixing this
+means adding `Configuration` to the model and threading it through
+Create/Update/Get, not a one-line change. Left as a named, provable follow-up
+rather than attempted under this pass's time budget.
+
+**13 ops from the 96-queue got real fixes** (BatchDeleteConnection,
+BatchGetDataQualityResult, StartColumnStatisticsTaskRun,
+StopColumnStatisticsTaskRun, GetMaterializedViewRefreshTaskRun,
+StartMaterializedViewRefreshTaskRun, StopMaterializedViewRefreshTaskRun,
+CreateRegistry, PutSchemaVersionMetadata, RemoveSchemaVersionMetadata,
+GetDataQualityRuleset, CreateGlueIdentityCenterConfiguration,
+UpdateGlueIdentityCenterConfiguration), plus 2 siblings outside the 96
+(ListDataQualityRulesets, GetGlueIdentityCenterConfiguration) — 15 ops
+touched total for 8 distinct root causes.
+
+**72 of the 96 were not reached this pass** and remain queued, named
+individually: BatchGetCustomEntityTypes, BatchGetDevEndpoints,
+BatchGetTriggers, BatchPutDataQualityStatisticAnnotation, CancelStatement,
+CreateIntegrationTableProperties, CreateScript, CreateWorkflow,
+DeleteBlueprint, DeleteCatalog, DeleteClassifier,
+DeleteColumnStatisticsForPartition, DeleteColumnStatisticsForTable,
+DeleteColumnStatisticsTaskSettings, DeleteCustomEntityType, DeleteDatabase,
+DeleteDataQualityRuleset, DeleteDevEndpoint,
+DeleteGlueIdentityCenterConfiguration, DeleteIntegrationResourceProperty,
+DeleteIntegrationTableProperties, DeleteMLTransform, DeleteRegistry,
+DeleteSchema, DeleteSchemaVersions, DeleteSession, DeleteTableOptimizer,
+DeleteTrigger, DeleteUsageProfile, DeleteUserDefinedFunction, DeleteWorkflow,
+GetCatalogImportStatus, GetClassifier, GetClassifiers,
+GetColumnStatisticsForPartition, GetCustomEntityType, GetDataflowGraph,
+GetDataQualityModel, GetDataQualityModelResult, GetDevEndpoint,
+GetDevEndpoints, GetMapping, GetPlan, GetSchemaVersionsDiff,
+GetSecurityConfigurations, GetSession, GetStatement, GetTableVersion,
+GetTrigger, GetWorkflowRunProperties, ImportCatalogToGlue,
+ListColumnStatisticsTaskRuns, ListDataQualityStatisticAnnotations,
+ListDataQualityStatistics, ListStatements, ListTableOptimizerRuns,
+ListUsageProfiles, ListWorkflows, PutDataQualityProfileAnnotation,
+PutWorkflowRunProperties, ResumeWorkflowRun, RunStatement, StartBlueprintRun,
+StartColumnStatisticsTaskRunSchedule, StopColumnStatisticsTaskRunSchedule,
+StopSession, StopWorkflowRun, UpdateJobFromSourceControl, UpdateRegistry,
+UpdateSourceControlFromJob, UpdateTableOptimizer, UpdateUsageProfile.
+
+A handful of these were screened by the same mechanical wire-key-diff script
+that produced the GetMLTransform false positive above (top-level key set
+only, no nested-type or embedded-struct resolution) and showed only
+apparent-gap signals (e.g. `RequestOrigin` missing across the Interactive
+Sessions family — `CancelStatement`/`DeleteSession`/`GetSession`/
+`GetStatement`/`ListStatements`/`RunStatement`/`StopSession`; `CatalogId`
+missing across several Delete/Get ops) rather than hard-fail signals — none
+of these were read against the actual SDK source this pass, so none are
+claimed as gaps here; they stay in the queue above pending a real read.
+
+Gates run: `go build ./...`, `go vet ./services/glue/...`, `gofmt -l`
+(clean), `go test -race ./services/glue/... ./pkgs/persistence/...` (pass),
+`make build-check` (clean — `CreateGlueIdentityCenterConfiguration`/
+`UpdateGlueIdentityCenterConfiguration`/`BatchDeleteConnection`/
+`BatchGetDataQualityResult`/`StartColumnStatisticsTaskRun`/
+`StopColumnStatisticsTaskRun`/`StopMaterializedViewRefreshTaskRun` all
+changed exported `StorageBackend` signatures), `golangci-lint run
+./services/glue/...` (0 issues).

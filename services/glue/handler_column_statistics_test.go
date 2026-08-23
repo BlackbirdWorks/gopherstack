@@ -12,20 +12,21 @@ import (
 )
 
 // TestStopColumnStatisticsTaskRun_NotFound verifies that
-// StopColumnStatisticsTaskRun raises EntityNotFoundException for an unknown run ID.
+// StopColumnStatisticsTaskRun raises EntityNotFoundException when no run
+// exists for the given table. The real StopColumnStatisticsTaskRunInput
+// (glue@v1.152.0 api_op_StopColumnStatisticsTaskRun.go) identifies the run by
+// DatabaseName+TableName, not a run ID.
 func TestStopColumnStatisticsTaskRun_NotFound(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
 		name      string
-		runID     string
 		wantError string
 		wantCode  int
 		create    bool
 	}{
 		{
 			name:      "stop_missing_run_returns_entity_not_found",
-			runID:     "no-such-run",
 			create:    false,
 			wantCode:  http.StatusBadRequest,
 			wantError: "EntityNotFoundException",
@@ -42,12 +43,11 @@ func TestStopColumnStatisticsTaskRun_NotFound(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
-			runID := tt.runID
 			if tt.create {
 				rec := doGlueRequest(t, h, "StartColumnStatisticsTaskRun", map[string]any{
 					"DatabaseName": "mydb",
 					"TableName":    "mytable",
-					"RoleArn":      "arn:aws:iam::123456789012:role/GlueRole",
+					"Role":         "arn:aws:iam::123456789012:role/GlueRole",
 				})
 				require.Equal(t, http.StatusOK, rec.Code)
 				var out struct {
@@ -55,11 +55,11 @@ func TestStopColumnStatisticsTaskRun_NotFound(t *testing.T) {
 				}
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
 				require.NotEmpty(t, out.RunID, "expected ColumnStatisticsTaskRunId in response")
-				runID = out.RunID
 			}
 
 			rec := doGlueRequest(t, h, "StopColumnStatisticsTaskRun", map[string]any{
-				"ColumnStatisticsTaskRunId": runID,
+				"DatabaseName": "mydb",
+				"TableName":    "mytable",
 			})
 			assert.Equal(t, tt.wantCode, rec.Code)
 			if tt.wantError != "" {
@@ -75,7 +75,11 @@ func TestColumnStatisticsTask(t *testing.T) {
 	h := newTestHandler(t)
 
 	// Start a run
-	rec := doGlueRequest(t, h, "StartColumnStatisticsTaskRun", map[string]any{})
+	rec := doGlueRequest(t, h, "StartColumnStatisticsTaskRun", map[string]any{
+		"DatabaseName": "mydb",
+		"TableName":    "mytable",
+		"Role":         "arn:aws:iam::123456789012:role/GlueRole",
+	})
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), "ColumnStatisticsTaskRunId")
 
@@ -86,6 +90,23 @@ func TestColumnStatisticsTask(t *testing.T) {
 	// Get task settings
 	rec = doGlueRequest(t, h, "GetColumnStatisticsTaskSettings", map[string]any{})
 	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
+// TestStartColumnStatisticsTaskRun_RequiresRole verifies that
+// StartColumnStatisticsTaskRun rejects a request missing the required Role
+// member (glue@v1.152.0 api_op_StartColumnStatisticsTaskRun.go: Role is
+// `This member is required`).
+func TestStartColumnStatisticsTaskRun_RequiresRole(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doGlueRequest(t, h, "StartColumnStatisticsTaskRun", map[string]any{
+		"DatabaseName": "mydb",
+		"TableName":    "mytable",
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "InvalidInputException")
 }
 
 func TestColumnStatistics_Table(t *testing.T) {
@@ -330,6 +351,7 @@ func TestColumnStatisticsTaskSettings(t *testing.T) {
 	startCSTRec := doGlueRequest(t, h, "StartColumnStatisticsTaskRun", map[string]any{
 		"DatabaseName": "cstdb",
 		"TableName":    "csttbl",
+		"Role":         "arn:aws:iam::123456789012:role/GlueRole",
 	})
 	require.Equal(t, http.StatusOK, startCSTRec.Code)
 	var startCSTOut map[string]any
@@ -339,6 +361,7 @@ func TestColumnStatisticsTaskSettings(t *testing.T) {
 	doGlueRequest(t, h, "StartColumnStatisticsTaskRun", map[string]any{
 		"DatabaseName": "cstdb",
 		"TableName":    "csttbl",
+		"Role":         "arn:aws:iam::123456789012:role/GlueRole",
 	})
 	listCSTRec := doGlueRequest(t, h, "ListColumnStatisticsTaskRuns", map[string]any{})
 	require.Equal(t, http.StatusOK, listCSTRec.Code)
@@ -347,6 +370,7 @@ func TestColumnStatisticsTaskSettings(t *testing.T) {
 	startCSTRec2 := doGlueRequest(t, h, "StartColumnStatisticsTaskRun", map[string]any{
 		"DatabaseName": "cstdb",
 		"TableName":    "csttbl",
+		"Role":         "arn:aws:iam::123456789012:role/GlueRole",
 	})
 	require.Equal(t, http.StatusOK, startCSTRec2.Code)
 	var startCSTOut2 map[string]any
@@ -359,7 +383,8 @@ func TestColumnStatisticsTaskSettings(t *testing.T) {
 	require.Equal(t, http.StatusOK, getCSTRunRec.Code)
 
 	stopCSTRec := doGlueRequest(t, h, "StopColumnStatisticsTaskRun", map[string]any{
-		"ColumnStatisticsTaskRunId": cstRunID,
+		"DatabaseName": "cstdb",
+		"TableName":    "csttbl",
 	})
 	assert.Equal(t, http.StatusOK, stopCSTRec.Code)
 

@@ -221,11 +221,11 @@ func TestSDKRoundTrip_GetColumnStatisticsTaskRuns_ScopesByTable(t *testing.T) {
 	t.Parallel()
 
 	backend := glue.NewInMemoryBackend(testAccountID, testRegion)
-	_, err := backend.StartColumnStatisticsTaskRun("db1", "tblA")
+	_, err := backend.StartColumnStatisticsTaskRun("db1", "tblA", "role")
 	require.NoError(t, err)
-	_, err = backend.StartColumnStatisticsTaskRun("db1", "tblB")
+	_, err = backend.StartColumnStatisticsTaskRun("db1", "tblB", "role")
 	require.NoError(t, err)
-	_, err = backend.StartColumnStatisticsTaskRun("db2", "tblA")
+	_, err = backend.StartColumnStatisticsTaskRun("db2", "tblA", "role")
 	require.NoError(t, err)
 
 	client := newTestGlueClient(t, glue.NewHandler(backend))

@@ -177,7 +177,7 @@ func TestExtendedStateSnapshotRestore(t *testing.T) {
 				require.NoError(t, err)
 				_, err = b.CreateColumnStatisticsTaskSettings("db", "table", "role", []string{"id"})
 				require.NoError(t, err)
-				_, err = b.StartColumnStatisticsTaskRun("db", "table")
+				_, err = b.StartColumnStatisticsTaskRun("db", "table", "role")
 				require.NoError(t, err)
 				_, err = b.StartMaterializedViewRefreshTaskRun("db", "view")
 				require.NoError(t, err)
@@ -185,7 +185,7 @@ func TestExtendedStateSnapshotRestore(t *testing.T) {
 					"integration", "arn:aws:s3:::source", "arn:aws:redshift:us-east-1:123456789012:cluster/target", nil,
 				)
 				require.NoError(t, err)
-				_, err = b.CreateGlueIdentityCenterConfiguration("instance")
+				_, err = b.CreateGlueIdentityCenterConfiguration("instance", nil, false)
 				require.NoError(t, err)
 			},
 			check: func(t *testing.T, b *glue.InMemoryBackend) {

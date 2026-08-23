@@ -12053,7 +12053,8 @@
       "ColumnStatisticsData.Type string `json:\"Type\"`",
       "ColumnStatisticsTaskRun.ColumnStatisticsTaskRunID string `json:\"ColumnStatisticsTaskRunId\"`",
       "ColumnStatisticsTaskRun.DatabaseName string `json:\"DatabaseName\"`",
-      "ColumnStatisticsTaskRun.StartedOn float64 `json:\"StartedOn,omitempty\"`",
+      "ColumnStatisticsTaskRun.Role string `json:\"Role,omitempty\"`",
+      "ColumnStatisticsTaskRun.StartedOn float64 `json:\"StartTime,omitempty\"`",
       "ColumnStatisticsTaskRun.Status string `json:\"Status\"`",
       "ColumnStatisticsTaskRun.TableName string `json:\"TableName\"`",
       "ColumnStatisticsTaskSettings.ColumnNameList []string `json:\"ColumnNameList,omitempty\"`",
@@ -12247,7 +12248,9 @@
       "IcebergTarget.Paths []string `json:\"Paths,omitempty\"`",
       "IdentityCenterConfig.ApplicationARN string `json:\"ApplicationArn,omitempty\"`",
       "IdentityCenterConfig.InstanceARN string `json:\"InstanceArn,omitempty\"`",
+      "IdentityCenterConfig.Scopes []string `json:\"Scopes,omitempty\"`",
       "IdentityCenterConfig.Status string `json:\"Status\"`",
+      "IdentityCenterConfig.UserBackgroundSessionsEnabled bool `json:\"UserBackgroundSessionsEnabled,omitempty\"`",
       "Integration.CreatedAt time.Time `json:\"CreateTime\"`",
       "Integration.IntegrationArn string `json:\"IntegrationArn,omitempty\"`",
       "Integration.IntegrationName string `json:\"IntegrationName\"`",
@@ -12595,7 +12598,7 @@
       "tableOptimizerRecord.Optimizer TableOptimizer",
       "tableOptimizerRecord.TableName string"
     ],
-    "version": 2
+    "version": 3
   },
   "grafana": {
     "fields": [

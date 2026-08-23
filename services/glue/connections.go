@@ -34,20 +34,24 @@ type ConnectionOptions struct {
 	MatchCriteria                  []string
 }
 
-// BatchDeleteConnection deletes multiple connections.
-func (b *InMemoryBackend) BatchDeleteConnection(names []string) ([]string, []ErrorDetail) {
+// BatchDeleteConnection deletes multiple connections. The real
+// BatchDeleteConnectionOutput.Errors is a map keyed by connection name
+// (glue@v1.152.0 deserializers.go: awsAwsjson11_deserializeDocumentErrorByName
+// decodes a JSON object, not an array) -- a real client fails to decode a
+// JSON array in that field.
+func (b *InMemoryBackend) BatchDeleteConnection(names []string) ([]string, map[string]ErrorDetail) {
 	b.mu.Lock("BatchDeleteConnection")
 	defer b.mu.Unlock()
 
 	succeeded := make([]string, 0, len(names))
-	errs := make([]ErrorDetail, 0, len(names))
+	errs := make(map[string]ErrorDetail, len(names))
 
 	for _, name := range names {
 		if !b.connections.Has(name) {
-			errs = append(errs, ErrorDetail{
+			errs[name] = ErrorDetail{
 				ErrorCode:    errEntityNotFoundCode,
 				ErrorMessage: "connection not found: " + name,
-			})
+			}
 
 			continue
 		}

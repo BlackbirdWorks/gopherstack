@@ -275,9 +275,17 @@ func (h *Handler) handleListColumnStatisticsTaskRuns(
 }
 
 // startColumnStatisticsTaskRunInput holds input for StartColumnStatisticsTaskRun.
+//
+// CatalogID (real member name is "CatalogID", not "CatalogId" --
+// glue@v1.152.0 api_op_StartColumnStatisticsTaskRun.go), ColumnNameList,
+// SampleSize, and SecurityConfiguration are not modeled: this backend has no
+// per-column sampling/encryption-scoped state to honor them against --
+// accepted on the wire and otherwise inert. Role is real and required
+// (ColumnStatisticsTaskRun.Role, models.go).
 type startColumnStatisticsTaskRunInput struct {
 	DatabaseName string `json:"DatabaseName"`
 	TableName    string `json:"TableName"`
+	Role         string `json:"Role"`
 }
 
 // startColumnStatisticsTaskRunOutput holds the result for StartColumnStatisticsTaskRun.
@@ -289,7 +297,11 @@ func (h *Handler) handleStartColumnStatisticsTaskRun(
 	_ context.Context,
 	in *startColumnStatisticsTaskRunInput,
 ) (*startColumnStatisticsTaskRunOutput, error) {
-	run, err := h.Backend.StartColumnStatisticsTaskRun(in.DatabaseName, in.TableName)
+	if in.Role == "" {
+		return nil, fmt.Errorf("%w: Role is required", ErrValidation)
+	}
+
+	run, err := h.Backend.StartColumnStatisticsTaskRun(in.DatabaseName, in.TableName, in.Role)
 	if err != nil {
 		return nil, err
 	}
@@ -313,19 +325,20 @@ func (h *Handler) handleStartColumnStatisticsTaskRunSchedule(
 }
 
 // stopColumnStatisticsTaskRunInput holds input for StopColumnStatisticsTaskRun.
+// The real StopColumnStatisticsTaskRunInput (glue@v1.152.0
+// api_op_StopColumnStatisticsTaskRun.go) identifies the run by
+// DatabaseName+TableName, not a run ID -- there is no
+// ColumnStatisticsTaskRunId member on this op at all.
 type stopColumnStatisticsTaskRunInput struct {
-	ColumnStatisticsTaskRunID string `json:"ColumnStatisticsTaskRunId"`
+	DatabaseName string `json:"DatabaseName"`
+	TableName    string `json:"TableName"`
 }
 
 func (h *Handler) handleStopColumnStatisticsTaskRun(
 	_ context.Context,
 	in *stopColumnStatisticsTaskRunInput,
 ) (*emptyOutput, error) {
-	if in.ColumnStatisticsTaskRunID == "" {
-		return &emptyOutput{}, nil
-	}
-
-	return &emptyOutput{}, h.Backend.StopColumnStatisticsTaskRun(in.ColumnStatisticsTaskRunID)
+	return &emptyOutput{}, h.Backend.StopColumnStatisticsTaskRun(in.DatabaseName, in.TableName)
 }
 
 // stopColumnStatisticsTaskRunScheduleInput holds input for StopColumnStatisticsTaskRunSchedule.

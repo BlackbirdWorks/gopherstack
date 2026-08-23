@@ -198,6 +198,29 @@ func (b *InMemoryBackend) registryARN(name string) string {
 	return arn.Build("glue", b.region, b.accountID, "registry/"+name)
 }
 
+// FindSchemaVersionByID locates a schema version and its owning schema by
+// version ID alone, for ops (PutSchemaVersionMetadata,
+// RemoveSchemaVersionMetadata) whose real request only ever carries
+// SchemaVersionId, not a SchemaId -- there is no existing index from version
+// ID back to its schema, so this scans every registered schema's versions.
+func (b *InMemoryBackend) FindSchemaVersionByID(schemaVersionID string) (*SchemaVersion, *Schema, bool) {
+	b.mu.RLock("FindSchemaVersionByID")
+	defer b.mu.RUnlock()
+
+	for _, s := range b.schemas.All() {
+		for _, sv := range b.schemaVersions[schemaVersionListKey(s.SchemaARN)] {
+			if sv.SchemaVersionID == schemaVersionID {
+				svCopy := *sv
+				sCopy := *s
+
+				return &svCopy, &sCopy, true
+			}
+		}
+	}
+
+	return nil, nil, false
+}
+
 func (b *InMemoryBackend) schemaARN(registryName, schemaName string) string {
 	return arn.Build(
 		"glue",

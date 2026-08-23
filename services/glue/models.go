@@ -533,6 +533,14 @@ type BatchStopJobRunError struct {
 }
 
 // DataQualityRuleset represents a Glue data quality ruleset.
+// DataQualityRuleset.ARN keeps its "Arn" json tag for persistence (this
+// struct is the value type of a persisted store.Table, and the tag doubles
+// as the on-disk key), but no data-quality-ruleset op in the real API
+// (Create/Get/Update/List, api_op_*DataQualityRuleset*.go) ever exposes an
+// Arn member on the wire -- confirmed absent from every one of their output
+// structs. GetDataQualityRuleset and ListDataQualityRulesets must not
+// marshal this struct directly for that reason -- see their own response
+// types below/in handler_data_quality_rulesets.go.
 type DataQualityRuleset struct {
 	Tags                             map[string]string       `json:"-"`
 	TargetTable                      *DataQualityTargetTable `json:"TargetTable,omitempty"`
@@ -619,12 +627,19 @@ type ColumnStatisticsTaskSettings struct {
 }
 
 // ColumnStatisticsTaskRun represents a column statistics task run.
+// ColumnStatisticsTaskRun.StartedOn deliberately carries the json tag
+// "StartTime", not "StartedOn": the real member name (glue@v1.152.0
+// deserializers.go: awsAwsjson11_deserializeDocumentColumnStatisticsTaskRun's
+// case list has StartTime, no StartedOn key at all) -- the sibling
+// MaterializedViewRefreshRun.StartedOn already carries the correct
+// "StartTime" tag; this one did not.
 type ColumnStatisticsTaskRun struct {
 	DatabaseName              string  `json:"DatabaseName"`
 	TableName                 string  `json:"TableName"`
 	ColumnStatisticsTaskRunID string  `json:"ColumnStatisticsTaskRunId"`
 	Status                    string  `json:"Status"`
-	StartedOn                 float64 `json:"StartedOn,omitempty"`
+	Role                      string  `json:"Role,omitempty"`
+	StartedOn                 float64 `json:"StartTime,omitempty"`
 }
 
 // MaterializedViewRefreshRun represents a materialized view refresh task run.
@@ -656,9 +671,11 @@ type Integration struct {
 
 // IdentityCenterConfig represents the Glue Identity Center configuration.
 type IdentityCenterConfig struct {
-	InstanceARN    string `json:"InstanceArn,omitempty"`
-	ApplicationARN string `json:"ApplicationArn,omitempty"`
-	Status         string `json:"Status"`
+	InstanceARN                   string   `json:"InstanceArn,omitempty"`
+	ApplicationARN                string   `json:"ApplicationArn,omitempty"`
+	Status                        string   `json:"Status"`
+	Scopes                        []string `json:"Scopes,omitempty"`
+	UserBackgroundSessionsEnabled bool     `json:"UserBackgroundSessionsEnabled,omitempty"`
 }
 
 // IntegrationResourceProperty stores resource-level properties for a Zero-ETL integration.

@@ -21,8 +21,8 @@ func TestBatchDeleteConnection_MixedResults(t *testing.T) {
 	assert.Len(t, succeeded, 2)
 	assert.Contains(t, succeeded, "conn1")
 	assert.Contains(t, succeeded, "conn2")
-	assert.Len(t, errs, 1)
-	assert.Equal(t, "EntityNotFoundException", errs[0].ErrorCode)
+	require.Len(t, errs, 1)
+	assert.Equal(t, "EntityNotFoundException", errs["missing"].ErrorCode)
 	assert.Equal(t, 0, glue.ConnectionCount(b))
 }
 

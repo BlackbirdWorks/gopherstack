@@ -90,11 +90,14 @@ func TestStartedOn_IsEpochSecondsNumber(t *testing.T) {
 		run, ok := getOut["ColumnStatisticsTaskRun"].(map[string]any)
 		require.True(t, ok)
 
-		startedOn, present := run["StartedOn"]
-		require.True(t, present, "StartedOn should be present on the wire")
+		// The real member name is StartTime, not StartedOn (glue@v1.152.0
+		// deserializers.go: awsAwsjson11_deserializeDocumentColumnStatisticsTaskRun's
+		// case list has StartTime, no StartedOn key at all).
+		startedOn, present := run["StartTime"]
+		require.True(t, present, "StartTime should be present on the wire")
 		_, isNumber := startedOn.(float64)
 		assert.True(
-			t, isNumber, "StartedOn must serialize as a JSON number (epoch seconds), got %T: %v", startedOn, startedOn,
+			t, isNumber, "StartTime must serialize as a JSON number (epoch seconds), got %T: %v", startedOn, startedOn,
 		)
 	})
 }

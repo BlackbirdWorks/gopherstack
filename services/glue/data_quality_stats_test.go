@@ -105,12 +105,11 @@ func TestBatchGetDataQualityResult_FoundAndMissing(t *testing.T) {
 	b := glue.NewInMemoryBackend("000000000000", "us-east-1")
 	b.AddDataQualityResultInternal(&glue.DataQualityResult{ResultID: "r1", Score: 0.95})
 
-	found, errs := b.BatchGetDataQualityResult([]string{"r1", "r2"})
+	found, notFound := b.BatchGetDataQualityResult([]string{"r1", "r2"})
 
 	assert.Len(t, found, 1)
 	assert.InDelta(t, 0.95, found[0].Score, 0.001)
-	assert.Len(t, errs, 1)
-	assert.Equal(t, "EntityNotFoundException", errs[0].ErrorCode)
+	assert.Equal(t, []string{"r2"}, notFound)
 }
 
 func TestNonNilSlices_BatchOutputs(t *testing.T) {

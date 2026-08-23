@@ -31,17 +31,31 @@ func (b *InMemoryBackend) StartMaterializedViewRefreshTaskRun(
 	return &cp, nil
 }
 
-// StopMaterializedViewRefreshTaskRun stops a refresh run.
-func (b *InMemoryBackend) StopMaterializedViewRefreshTaskRun(taskRunID string) error {
+// StopMaterializedViewRefreshTaskRun stops the most recently started refresh
+// run for a table. The real StopMaterializedViewRefreshTaskRunInput
+// identifies the run by DatabaseName+TableName, not a run ID (glue@v1.152.0
+// api_op_StopMaterializedViewRefreshTaskRun.go has no run-ID member at all).
+func (b *InMemoryBackend) StopMaterializedViewRefreshTaskRun(dbName, tableName string) error {
 	b.mu.Lock("StopMaterializedViewRefreshTaskRun")
 	defer b.mu.Unlock()
 
-	r, ok := b.materializedViewRuns.Get(taskRunID)
-	if !ok {
+	var latest *MaterializedViewRefreshRun
+
+	for _, r := range b.materializedViewRuns.All() {
+		if r.DatabaseName != dbName || r.TableName != tableName {
+			continue
+		}
+
+		if latest == nil || r.StartedOn > latest.StartedOn {
+			latest = r
+		}
+	}
+
+	if latest == nil {
 		return ErrMaterializedViewRunNotFound
 	}
 
-	r.Status = stateStopped
+	latest.Status = stateStopped
 
 	return nil
 }

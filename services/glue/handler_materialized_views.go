@@ -4,42 +4,34 @@ import (
 	"context"
 )
 
-// getMaterializedViewRefreshTaskRunInput holds input for GetMaterializedViewRefreshTaskRun.
+// getMaterializedViewRefreshTaskRunInput holds input for
+// GetMaterializedViewRefreshTaskRun. The real member name is
+// MaterializedViewRefreshTaskRunId, not RunId (glue@v1.152.0
+// api_op_GetMaterializedViewRefreshTaskRun.go), and CatalogId is a required
+// member not modeled: this backend keeps one flat namespace of refresh runs
+// with no per-catalog scoping -- accepted on the wire and otherwise inert.
 type getMaterializedViewRefreshTaskRunInput struct {
-	RunID string `json:"RunId"`
+	MaterializedViewRefreshTaskRunID string `json:"MaterializedViewRefreshTaskRunId"`
 }
 
-// getMaterializedViewRefreshTaskRunOutput holds the result for GetMaterializedViewRefreshTaskRun.
+// getMaterializedViewRefreshTaskRunOutput holds the result for
+// GetMaterializedViewRefreshTaskRun. The real output wraps the run under a
+// MaterializedViewRefreshTaskRun member (types.MaterializedViewRefreshTaskRun),
+// not a flat RunId/Status pair.
 type getMaterializedViewRefreshTaskRunOutput struct {
-	RunID  string `json:"RunId"`
-	Status string `json:"Status"`
+	MaterializedViewRefreshTaskRun *MaterializedViewRefreshRun `json:"MaterializedViewRefreshTaskRun,omitempty"`
 }
 
 func (h *Handler) handleGetMaterializedViewRefreshTaskRun(
 	_ context.Context,
 	in *getMaterializedViewRefreshTaskRunInput,
 ) (*getMaterializedViewRefreshTaskRunOutput, error) {
-	if in.RunID != "" {
-		run, err := h.Backend.GetMaterializedViewRefreshTaskRun(in.RunID)
-		if err != nil {
-			return nil, err
-		}
-
-		return &getMaterializedViewRefreshTaskRunOutput{
-			RunID:  run.TaskRunID,
-			Status: run.Status,
-		}, nil
+	run, err := h.Backend.GetMaterializedViewRefreshTaskRun(in.MaterializedViewRefreshTaskRunID)
+	if err != nil {
+		return nil, err
 	}
 
-	runs := h.Backend.ListMaterializedViewRefreshTaskRuns()
-	if len(runs) == 0 {
-		return &getMaterializedViewRefreshTaskRunOutput{Status: stateSucceeded}, nil
-	}
-
-	return &getMaterializedViewRefreshTaskRunOutput{
-		RunID:  runs[0].TaskRunID,
-		Status: runs[0].Status,
-	}, nil
+	return &getMaterializedViewRefreshTaskRunOutput{MaterializedViewRefreshTaskRun: run}, nil
 }
 
 // defaultListMaterializedViewRefreshTaskRunsLimit is used when
@@ -114,9 +106,12 @@ type startMaterializedViewRefreshTaskRunInput struct {
 	TableName    string `json:"TableName"`
 }
 
-// startMaterializedViewRefreshTaskRunOutput holds the result for StartMaterializedViewRefreshTaskRun.
+// startMaterializedViewRefreshTaskRunOutput holds the result for
+// StartMaterializedViewRefreshTaskRun. The real member name is
+// MaterializedViewRefreshTaskRunId, not RunId (glue@v1.152.0
+// api_op_StartMaterializedViewRefreshTaskRun.go).
 type startMaterializedViewRefreshTaskRunOutput struct {
-	RunID string `json:"RunId"`
+	MaterializedViewRefreshTaskRunID string `json:"MaterializedViewRefreshTaskRunId"`
 }
 
 func (h *Handler) handleStartMaterializedViewRefreshTaskRun(
@@ -128,21 +123,25 @@ func (h *Handler) handleStartMaterializedViewRefreshTaskRun(
 		return nil, err
 	}
 
-	return &startMaterializedViewRefreshTaskRunOutput{RunID: run.TaskRunID}, nil
+	return &startMaterializedViewRefreshTaskRunOutput{MaterializedViewRefreshTaskRunID: run.TaskRunID}, nil
 }
 
-// stopMaterializedViewRefreshTaskRunInput holds input for StopMaterializedViewRefreshTaskRun.
+// stopMaterializedViewRefreshTaskRunInput holds input for
+// StopMaterializedViewRefreshTaskRun. The real
+// StopMaterializedViewRefreshTaskRunInput (glue@v1.152.0
+// api_op_StopMaterializedViewRefreshTaskRun.go) identifies the run by
+// DatabaseName+TableName, not a run ID -- there is no RunId member on this
+// op at all. Previously a real client's Stop call always sent an empty
+// RunId, hitting this handler's early-return and silently no-op'ing instead
+// of stopping anything.
 type stopMaterializedViewRefreshTaskRunInput struct {
-	RunID string `json:"RunId"`
+	DatabaseName string `json:"DatabaseName"`
+	TableName    string `json:"TableName"`
 }
 
 func (h *Handler) handleStopMaterializedViewRefreshTaskRun(
 	_ context.Context,
 	in *stopMaterializedViewRefreshTaskRunInput,
 ) (*emptyOutput, error) {
-	if in.RunID == "" {
-		return &emptyOutput{}, nil
-	}
-
-	return &emptyOutput{}, h.Backend.StopMaterializedViewRefreshTaskRun(in.RunID)
+	return &emptyOutput{}, h.Backend.StopMaterializedViewRefreshTaskRun(in.DatabaseName, in.TableName)
 }

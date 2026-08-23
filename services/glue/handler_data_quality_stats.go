@@ -14,21 +14,21 @@ type batchGetDataQualityResultInput struct {
 
 type batchGetDataQualityResultOutput struct {
 	Results         []DataQualityResult `json:"Results"`
-	ResultsNotFound []ErrorDetail       `json:"ResultsNotFound"`
+	ResultsNotFound []string            `json:"ResultsNotFound"`
 }
 
 func (h *Handler) handleBatchGetDataQualityResult(
 	_ context.Context,
 	in *batchGetDataQualityResultInput,
 ) (*batchGetDataQualityResultOutput, error) {
-	found, errs := h.Backend.BatchGetDataQualityResult(in.ResultIDs)
+	found, notFound := h.Backend.BatchGetDataQualityResult(in.ResultIDs)
 	results := make([]DataQualityResult, 0, len(found))
 
 	for _, r := range found {
 		results = append(results, *r)
 	}
 
-	return &batchGetDataQualityResultOutput{Results: results, ResultsNotFound: errs}, nil
+	return &batchGetDataQualityResultOutput{Results: results, ResultsNotFound: notFound}, nil
 }
 
 // datapointInclusionAnnotation holds one annotation entry for

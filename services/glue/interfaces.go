@@ -113,7 +113,7 @@ type StorageBackend interface {
 	UpdateConnectionWithOptions(name, connType string, props map[string]string, opts ConnectionOptions) error
 
 	// Batch connection operations.
-	BatchDeleteConnection(names []string) ([]string, []ErrorDetail)
+	BatchDeleteConnection(names []string) ([]string, map[string]ErrorDetail)
 
 	// Batch table operations.
 	BatchDeleteTable(dbName string, tableNames []string) []TableError
@@ -128,7 +128,7 @@ type StorageBackend interface {
 	BatchGetCustomEntityTypes(names []string) ([]*CustomEntityType, []string)
 
 	// Batch data quality operations.
-	BatchGetDataQualityResult(resultIDs []string) ([]*DataQualityResult, []ErrorDetail)
+	BatchGetDataQualityResult(resultIDs []string) ([]*DataQualityResult, []string)
 
 	// Batch dev endpoint operations.
 	BatchGetDevEndpoints(names []string) ([]*DevEndpoint, []string)
@@ -414,8 +414,8 @@ type StorageBackend interface {
 	DeleteColumnStatisticsTaskSettings(dbName, tableName string) error
 	StartColumnStatisticsTaskRunSchedule(dbName, tableName string) error
 	StopColumnStatisticsTaskRunSchedule(dbName, tableName string) error
-	StartColumnStatisticsTaskRun(dbName, tableName string) (*ColumnStatisticsTaskRun, error)
-	StopColumnStatisticsTaskRun(runID string) error
+	StartColumnStatisticsTaskRun(dbName, tableName, role string) (*ColumnStatisticsTaskRun, error)
+	StopColumnStatisticsTaskRun(dbName, tableName string) error
 	GetColumnStatisticsTaskRun(runID string) (*ColumnStatisticsTaskRun, error)
 	GetColumnStatisticsTaskRuns() []*ColumnStatisticsTaskRun
 	ListColumnStatisticsTaskRuns() []*ColumnStatisticsTaskRun
@@ -424,7 +424,7 @@ type StorageBackend interface {
 	StartMaterializedViewRefreshTaskRun(
 		dbName, tableName string,
 	) (*MaterializedViewRefreshRun, error)
-	StopMaterializedViewRefreshTaskRun(taskRunID string) error
+	StopMaterializedViewRefreshTaskRun(dbName, tableName string) error
 	GetMaterializedViewRefreshTaskRun(taskRunID string) (*MaterializedViewRefreshRun, error)
 	ListMaterializedViewRefreshTaskRuns() []*MaterializedViewRefreshRun
 
@@ -456,9 +456,11 @@ type StorageBackend interface {
 	) error
 
 	// GlueIdentityCenter operations.
-	CreateGlueIdentityCenterConfiguration(instanceARN string) (*IdentityCenterConfig, error)
+	CreateGlueIdentityCenterConfiguration(
+		instanceARN string, scopes []string, userBackgroundSessionsEnabled bool,
+	) (*IdentityCenterConfig, error)
 	GetGlueIdentityCenterConfiguration() (*IdentityCenterConfig, error)
-	UpdateGlueIdentityCenterConfiguration(instanceARN string) error
+	UpdateGlueIdentityCenterConfiguration(scopes []string, userBackgroundSessionsEnabled bool) error
 	DeleteGlueIdentityCenterConfiguration() error
 
 	// ML transform task run operations.
@@ -484,6 +486,7 @@ type StorageBackend interface {
 	PutSchemaVersionMetadata(schemaVersionID, key, value string) error
 	QuerySchemaVersionMetadata(schemaVersionID string) map[string]string
 	RemoveSchemaVersionMetadata(schemaVersionID, key string) error
+	FindSchemaVersionByID(schemaVersionID string) (*SchemaVersion, *Schema, bool)
 
 	// Schema lookup by definition.
 	GetSchemaByDefinition(registryName, schemaName, definition string) (*SchemaVersion, error)
