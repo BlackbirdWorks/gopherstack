@@ -232,6 +232,52 @@ func TestQuickSight_ListFolders_Pagination(t *testing.T) {
 	}
 }
 
+// ListFolders/SearchFolders must return the FolderSummary shape, not Folder --
+// types.FolderSummary (types.go) has no FolderPath field, unlike Folder
+// (DescribeFolder's response type). An SDK client can't prove an extra key was
+// dropped -- its deserializer silently ignores unrecognized members -- so this
+// is a raw-body assertion, same proof method as
+// TestQuickSight_ListAssetBundleExportJobs_SummaryScoping.
+func TestQuickSight_ListFolders_OmitsFolderPath(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	doRequest(t, h, http.MethodPost, accountPath("/folders/parent"), map[string]any{"Name": "Parent"})
+	parentArn := fmt.Sprintf("arn:aws:quicksight:%s:%s:folder/parent", testRegion, testAccountID)
+	doRequest(t, h, http.MethodPost, accountPath("/folders/child"), map[string]any{
+		"Name": "Child", "ParentFolderArn": parentArn,
+	})
+
+	rec := doRequest(t, h, http.MethodGet, accountPath("/folders"), nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+	body := parseBody(t, rec)
+	items, ok := body["FolderSummaryList"].([]any)
+	require.True(t, ok)
+	for _, it := range items {
+		m, isMap := it.(map[string]any)
+		require.True(t, isMap)
+		_, hasPath := m["FolderPath"]
+		assert.False(t, hasPath, "FolderSummary must not carry FolderPath -- that's DescribeFolder's Folder-only field")
+	}
+
+	recSearch := doRequest(t, h, http.MethodPost, accountPath("/search/folders"), map[string]any{
+		"Filters": []any{
+			map[string]any{"Operator": "StringEquals", "Name": "PARENT_FOLDER_ARN", "Value": parentArn},
+		},
+	})
+	require.Equal(t, http.StatusOK, recSearch.Code)
+	bodySearch := parseBody(t, recSearch)
+	itemsSearch, ok := bodySearch["FolderSummaryList"].([]any)
+	require.True(t, ok)
+	require.NotEmpty(t, itemsSearch)
+	for _, it := range itemsSearch {
+		m, isMap := it.(map[string]any)
+		require.True(t, isMap)
+		_, hasPath := m["FolderPath"]
+		assert.False(t, hasPath, "FolderSummary must not carry FolderPath -- that's DescribeFolder's Folder-only field")
+	}
+}
+
 // ---- SearchFolders ----
 
 func TestQuickSight_SearchFolders(t *testing.T) {

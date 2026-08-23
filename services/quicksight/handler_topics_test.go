@@ -252,6 +252,9 @@ func TestQuickSight_TopicRefreshScheduleCRUD(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 	createBody := parseBody(t, createRec)
 	assert.Equal(t, "ds1", createBody["DatasetId"])
+	// CreateTopicRefreshScheduleOutput carries TopicArn (api_op_CreateTopicRefreshSchedule.go)
+	// -- this backend already tracks it on the topic record.
+	assert.Contains(t, createBody["TopicArn"], "topic/stp")
 
 	// Duplicate -> ResourceExistsException.
 	dupRec := doRequest(
@@ -292,6 +295,7 @@ func TestQuickSight_TopicRefreshScheduleCRUD(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, true, sched["IsEnabled"])
 	assert.Equal(t, "INCREMENTAL_REFRESH", sched["RefreshType"])
+	assert.Contains(t, describeBody["TopicArn"], "topic/stp")
 
 	// Describe missing schedule -> 404.
 	missingSchedRec := doRequest(
@@ -306,9 +310,11 @@ func TestQuickSight_TopicRefreshScheduleCRUD(t *testing.T) {
 	// List.
 	listRec := doRequest(t, h, http.MethodGet, accountPath("/topics/stp/schedules"), nil)
 	require.Equal(t, http.StatusOK, listRec.Code)
-	items, ok := parseBody(t, listRec)["RefreshSchedules"].([]any)
+	listBody := parseBody(t, listRec)
+	items, ok := listBody["RefreshSchedules"].([]any)
 	require.True(t, ok)
 	require.Len(t, items, 1)
+	assert.Contains(t, listBody["TopicArn"], "topic/stp")
 
 	// Update.
 	updateRec := doRequest(
@@ -321,6 +327,7 @@ func TestQuickSight_TopicRefreshScheduleCRUD(t *testing.T) {
 		},
 	)
 	require.Equal(t, http.StatusOK, updateRec.Code)
+	assert.Contains(t, parseBody(t, updateRec)["TopicArn"], "topic/stp")
 
 	describeAfterUpdate := doRequest(
 		t,
@@ -329,10 +336,12 @@ func TestQuickSight_TopicRefreshScheduleCRUD(t *testing.T) {
 		accountPath("/topics/stp/schedules/ds1"),
 		nil,
 	)
-	afterSched := parseBody(t, describeAfterUpdate)["RefreshSchedule"].(map[string]any)
+	afterBody := parseBody(t, describeAfterUpdate)
+	afterSched := afterBody["RefreshSchedule"].(map[string]any)
 	assert.Equal(t, false, afterSched["IsEnabled"])
 	// RefreshType untouched by the partial update.
 	assert.Equal(t, "INCREMENTAL_REFRESH", afterSched["RefreshType"])
+	assert.Contains(t, afterBody["TopicArn"], "topic/stp")
 
 	// Update missing -> 404.
 	updateMissingRec := doRequest(
@@ -344,9 +353,14 @@ func TestQuickSight_TopicRefreshScheduleCRUD(t *testing.T) {
 	)
 	assert.Equal(t, http.StatusNotFound, updateMissingRec.Code)
 
-	// Delete.
+	// Delete. DeleteTopicRefreshScheduleOutput carries DatasetArn/TopicArn
+	// (api_op_DeleteTopicRefreshSchedule.go) -- both already tracked by this
+	// backend, just never surfaced on delete.
 	deleteRec := doRequest(t, h, http.MethodDelete, accountPath("/topics/stp/schedules/ds1"), nil)
 	require.Equal(t, http.StatusOK, deleteRec.Code)
+	deleteBody := parseBody(t, deleteRec)
+	assert.Contains(t, deleteBody["TopicArn"], "topic/stp")
+	assert.Equal(t, "arn:aws:quicksight:us-east-1:000000000000:dataset/ds1", deleteBody["DatasetArn"])
 
 	// Delete missing -> 404.
 	deleteMissingRec := doRequest(

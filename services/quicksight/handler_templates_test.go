@@ -148,6 +148,36 @@ func TestQuickSight_ListTemplateVersions(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, missingRec.Code)
 }
 
+// ListTemplateVersions must return the TemplateVersionSummary shape, not
+// TemplateVersion -- types.TemplateVersionSummary (types.go) has no
+// SourceEntityArn or Definition, unlike the nested Version field
+// DescribeTemplate returns. Raw-body assertion: an SDK client's deserializer
+// silently drops unrecognized members, so it can't prove the leak.
+func TestQuickSight_ListTemplateVersions_OmitsDefinition(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	doRequest(t, h, http.MethodPost, accountPath("/templates/deftpl"), map[string]any{
+		"Name":       "V1",
+		"Definition": map[string]any{"DataSetIdentifierDeclarations": []any{}},
+	})
+
+	rec := doRequest(t, h, http.MethodGet, accountPath("/templates/deftpl/versions"), nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+	body := parseBody(t, rec)
+	versions, ok := body["TemplateVersionSummaryList"].([]any)
+	require.True(t, ok)
+	require.NotEmpty(t, versions)
+	for _, v := range versions {
+		m, isMap := v.(map[string]any)
+		require.True(t, isMap)
+		_, hasDefinition := m["Definition"]
+		assert.False(t, hasDefinition, "TemplateVersionSummary must not carry Definition")
+		_, hasSourceEntityArn := m["SourceEntityArn"]
+		assert.False(t, hasSourceEntityArn, "TemplateVersionSummary must not carry SourceEntityArn")
+	}
+}
+
 // ---- Template alias CRUD, not-found, and duplicate errors ----
 
 func TestQuickSight_TemplateAliasCRUD(t *testing.T) {

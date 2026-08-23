@@ -102,30 +102,31 @@ func (b *InMemoryBackend) UpdateCustomPermissions(
 	return cp.toCustomPermissions(), nil
 }
 
-func (b *InMemoryBackend) DeleteCustomPermissions(accountID, name string) error {
+func (b *InMemoryBackend) DeleteCustomPermissions(accountID, name string) (*CustomPermissions, error) {
 	b.mu.Lock("DeleteCustomPermissions")
 	defer b.mu.Unlock()
 
 	key := customPermissionsKey(accountID, name)
-	if !b.customPermissions.Has(key) {
-		return ErrCustomPermissionsNotFound
+	cp, ok := b.customPermissions.Get(key)
+	if !ok {
+		return nil, ErrCustomPermissionsNotFound
 	}
 
 	prefix := accountID + "/"
 	for k, v := range b.roleCustomPermissions {
 		if strings.HasPrefix(k, prefix) && v == name {
-			return ErrCustomPermissionsInUse
+			return nil, ErrCustomPermissionsInUse
 		}
 	}
 	for k, v := range b.userCustomPermissions {
 		if strings.HasPrefix(k, prefix) && v == name {
-			return ErrCustomPermissionsInUse
+			return nil, ErrCustomPermissionsInUse
 		}
 	}
 
 	b.customPermissions.Delete(key)
 
-	return nil
+	return cp.toCustomPermissions(), nil
 }
 
 //nolint:dupl // list functions share structure but operate on different stored types

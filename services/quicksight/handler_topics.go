@@ -372,11 +372,26 @@ func (h *Handler) handleCreateTopicRefreshSchedule(c *echo.Context) error {
 
 	return writeJSON(c, http.StatusOK, map[string]any{
 		keyTopicID:    topicID,
+		keyTopicArn:   h.topicArn(accountID, topicID),
 		keyDatasetID:  s.DatasetID,
 		keyDatasetArn: s.DatasetArn,
 		keyRequestID:  reqIDPlaceholder,
 		keyStatus:     http.StatusOK,
 	})
+}
+
+// topicArn resolves a topic's Arn for the CreateTopicRefreshSchedule/
+// DescribeTopicRefreshSchedule/UpdateTopicRefreshSchedule/
+// ListTopicRefreshSchedules responses, all of which carry a real, required
+// top-level TopicArn (api_op_*TopicRefreshSchedule*.go) this backend already
+// tracks on the topic record but previously never surfaced here.
+func (h *Handler) topicArn(accountID, topicID string) string {
+	t, err := h.Backend.DescribeTopic(accountID, topicID)
+	if err != nil {
+		return ""
+	}
+
+	return t.Arn
 }
 
 func (h *Handler) handleDescribeTopicRefreshSchedule(c *echo.Context) error {
@@ -392,6 +407,7 @@ func (h *Handler) handleDescribeTopicRefreshSchedule(c *echo.Context) error {
 
 	return writeJSON(c, http.StatusOK, map[string]any{
 		keyTopicID:         topicID,
+		keyTopicArn:        h.topicArn(accountID, topicID),
 		keyDatasetID:       s.DatasetID,
 		keyDatasetArn:      s.DatasetArn,
 		keyRefreshSchedule: topicRefreshScheduleToMap(s),
@@ -433,6 +449,7 @@ func (h *Handler) handleUpdateTopicRefreshSchedule(c *echo.Context) error {
 
 	return writeJSON(c, http.StatusOK, map[string]any{
 		keyTopicID:    topicID,
+		keyTopicArn:   h.topicArn(accountID, topicID),
 		keyDatasetID:  s.DatasetID,
 		keyDatasetArn: s.DatasetArn,
 		keyRequestID:  reqIDPlaceholder,
@@ -446,15 +463,18 @@ func (h *Handler) handleDeleteTopicRefreshSchedule(c *echo.Context) error {
 	topicID := seg(segs, segResID)
 	datasetID := seg(segs, segSubResID)
 
-	if err := h.Backend.DeleteTopicRefreshSchedule(accountID, topicID, datasetID); err != nil {
+	s, err := h.Backend.DeleteTopicRefreshSchedule(accountID, topicID, datasetID)
+	if err != nil {
 		return httpErr(c, err)
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
-		keyTopicID:   topicID,
-		keyDatasetID: datasetID,
-		keyRequestID: reqIDPlaceholder,
-		keyStatus:    http.StatusOK,
+		keyTopicID:    topicID,
+		keyTopicArn:   h.topicArn(accountID, topicID),
+		keyDatasetID:  datasetID,
+		keyDatasetArn: s.DatasetArn,
+		keyRequestID:  reqIDPlaceholder,
+		keyStatus:     http.StatusOK,
 	})
 }
 
@@ -479,6 +499,7 @@ func (h *Handler) handleListTopicRefreshSchedules(c *echo.Context) error {
 
 	return writeJSON(c, http.StatusOK, map[string]any{
 		keyTopicID:          topicID,
+		keyTopicArn:         h.topicArn(accountID, topicID),
 		keyRefreshSchedules: items,
 		keyRequestID:        reqIDPlaceholder,
 		keyStatus:           http.StatusOK,

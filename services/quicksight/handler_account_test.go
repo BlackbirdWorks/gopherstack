@@ -375,6 +375,41 @@ func TestQuickSight_IPRestriction_RoundTrip(t *testing.T) {
 	}
 }
 
+// UpdateIpRestrictionOutput carries AwsAccountId (api_op_UpdateIpRestriction.go)
+// -- this backend already has the account ID on hand, just never echoed it.
+func TestQuickSight_UpdateIPRestriction_ReturnsAwsAccountId(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doRequest(t, h, http.MethodPost, accountPath("/ip-restriction"), map[string]any{"Enabled": true})
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, testAccountID, parseBody(t, rec)["AwsAccountId"])
+}
+
+// UpdateQPersonalizationConfigurationOutput/UpdateQuickSightQSearchConfigurationOutput
+// echo back the mode/status that was just set (api_op_UpdateQPersonalizationConfiguration.go,
+// api_op_UpdateQuickSightQSearchConfiguration.go) -- this backend's Update
+// handlers computed the value and then discarded it.
+func TestQuickSight_UpdateQPersonalizationAndQSearchConfig_EchoValue(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	personalizationRec := doRequest(
+		t, h, http.MethodPut, accountPath("/q-personalization-configuration"),
+		map[string]any{"PersonalizationMode": "ENABLED"},
+	)
+	require.Equal(t, http.StatusOK, personalizationRec.Code)
+	assert.Equal(t, "ENABLED", parseBody(t, personalizationRec)["PersonalizationMode"])
+
+	qSearchRec := doRequest(
+		t, h, http.MethodPut, accountPath("/quicksight-q-search-configuration"),
+		map[string]any{"QSearchStatus": "ENABLED"},
+	)
+	require.Equal(t, http.StatusOK, qSearchRec.Code)
+	assert.Equal(t, "ENABLED", parseBody(t, qSearchRec)["QSearchStatus"])
+}
+
 // ---- Key Registration round-trip ----
 
 func TestQuickSight_KeyRegistration_RoundTrip(t *testing.T) {

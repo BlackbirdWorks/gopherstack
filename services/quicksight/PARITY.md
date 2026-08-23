@@ -242,7 +242,7 @@ families:
   Embed: {status: ok, note: "GenerateEmbedUrlFor*, GetSessionEmbedUrl, GetDashboardEmbedUrl, GetIdentityContext (embedurl.go; internally named GenerateIdentityContext, matching its own doc comment) -- all real. RE-VERIFIED (gopherstack-taqn), this family's claim holds up: diffed all 6 ops' response maps against their real Output types (GenerateEmbedUrlForAnonymousUser/ForRegisteredUser/ForRegisteredUserWithIdentity, GetDashboardEmbedUrl, GetSessionEmbedUrl, GetIdentityContext) in aws-sdk-go-v2/service/quicksight@v1.123.1 -- every field (EmbedUrl/AnonymousUserArn/RequestId/Status/Context) is present, none extra, none missing. The behavioral claim also re-checked against embedurl.go directly: GenerateEmbedURLForAnonymousUser validates the namespace exists, GenerateEmbedURLForRegisteredUser validates the user exists when its ARN is parseable, GetDashboardEmbedURL validates the dashboard exists; GenerateEmbedURLForRegisteredUserWithIdentity performs no such lookup, but its own doc comment explains why (identity-enhanced sessions authenticate via signing credentials, not an explicit UserArn/accountID to validate) -- not a discrepancy. Every URL/token is freshly generated per call, matching real AWS's single-use, time-limited embed URLs."}
   Brand: {status: ok, note: "CRUD + assignment + published-version real (brands.go, handler_brands.go). RE-VERIFIED (gopherstack-taqn): the 'spot-checked against types.BrandDetail, fields match' claim was FALSE. Diffed brandToMap (handler_brands.go) against types.BrandDetail in aws-sdk-go-v2/service/quicksight@v1.123.1: three fields are missing from the emitted map. VersionStatus is the most notable -- the internal Brand struct (types.go) already tracks it as CurrentVersionStat, and a keyVersionStatus=\"VersionStatus\" JSON-key constant even exists in handler_brands.go, but it is never wired into brandToMap's returned map, so tracked data is silently dropped on every read. Errors ([]string) and Logo (*Logo) are missing too, but those are genuinely unbuildable: the internal Brand struct has no slot for either and no real per-brand error/logo state to derive them from, so that part is a structural gap, not a wiring bug like VersionStatus."}
   OAuthClientApplication: {status: ok, note: "CRUD real (oauth.go, handler_oauth.go). FIXED (gopherstack-0qzf): class (a). CreateOAuthClientApplicationInput.Tags (api_op_CreateOAuthClientApplication.go; OAuthClientApp ARNs are already taggable per arnCollectorFuncs) was the only Create handler in this backend NOT calling the tagsFromBody + b.tags[arn] pattern every sibling family (ActionConnector, VPCConnection, Template, Theme, Topic, Dashboard, Analysis, DataSet, DataSource, CustomPermissions, Folder, Agent, KnowledgeBase) already uses -- instead handleCreateOAuthClientApp's isOAuthAppModeledField catch-all dumped the raw \"Tags\" body value into the Extra passthrough bag, which oauthAppToMap then echoed back verbatim on every Describe/List call as a top-level Tags field. Confirmed against types.OAuthClientApplication/OAuthClientApplicationSummary (types.go:14837): neither has a Tags member -- real AWS never returns tags there; they only surface via ListTagsForResource. Fixed: Tags now excluded from the Extra bag and applied via the standard tagsFromBody path. See TestQuickSight_OAuthClientApp_CreateTags. Everything else in this family (ClientId/ClientSecret correctly never echoed, CreationStatus/UpdateStatus wire-accurate) re-verified clean. FIXED (gopherstack-wl0s, 2026-08-13): CreateOAuthClientApplication accepted a request omitting ClientId, ClientSecret, OAuthClientAuthenticationType, or OAuthTokenEndpointUrl -- all four are 'This member is required' per validateOpCreateOAuthClientApplicationInput. OAuthClientAuthenticationType/OAuthTokenEndpointUrl already round-tripped correctly through the Extra passthrough bag (matching the originating audit's claim); ClientId/ClientSecret are and remain write-only by design (no response-shape member exists for either), so their fix is presence-validation only, same as the other two, just without a round-trip to prove. OAuthClientAuthenticationType is additionally validated against types.OAuthClientAuthenticationType.Values() (currently just TOKEN) rather than a hand-copied check. All four now return InvalidParameterValueException (the code CreateOAuthClientApplication's own awsRestjson1_deserializeOpErrorCreateOAuthClientApplication switch declares) when absent. See validateCreateOAuthClientAppFields (handler_oauth.go) and TestQuickSight_CreateOAuthClientApp_PresenceValidation."}
-  ActionConnector: {status: ok, note: "CRUD + search + permissions real (actionconnector.go, handler_actionconnector.go). AUDITED (gopherstack-0qzf), one gap found but NOT fixed (too large for this pass's bounded-fix scope, flagged for follow-up): ActionConnector.AuthenticationConfig on Create/Update (types.AuthConfig, AuthenticationMetadata is a secrets-carrying union -- password/apiKey/clientSecret depending on AuthenticationType) is a DIFFERENT, real-AWS-redacted type from what Describe/List return (types.ReadAuthConfig, whose AuthenticationMetadata union is ReadAuthenticationMetadata -- non-sensitive fields only; types.go:16760 vs types.go:2171). This backend stores the raw write-side config verbatim in storedActionConnector.AuthenticationConfig and echoes it back unmodified on every Describe/List (actionConnectorToMap), so any credential fields a caller supplies at Create time leak back out on every subsequent read instead of being redacted. Not class (a)/(b)/(c)/(d) as defined (it's an over-broad response, not a dropped/missing field or op) -- recording it here rather than force-fitting a category. A real fix requires modeling the whole ReadAuthenticationMetadata union (per-AuthenticationType redaction rules), which is a small feature, not a targeted fix; left for a follow-up bd issue rather than attempted here. Rest of the family (CRUD, Search, Describe/UpdateActionConnectorPermissions envelope keys) diffed clean against ActionConnectorSummary/DescribeActionConnectorPermissionsOutput/UpdateActionConnectorPermissionsOutput."}
+  ActionConnector: {status: ok, note: "CRUD + search + permissions real (actionconnector.go, handler_actionconnector.go). CORRECTED (2026-08-23, continuation pass): the note that used to stand here claimed AuthenticationConfig redaction was 'NOT fixed... flagged for follow-up' -- that was stale. actionconnector_auth.go/redactAuthenticationConfig (added 2026-08-11, PR #2414, predating gopherstack-0qzf's audit note) implements the real ReadAuthConfig projection in full: redacts ApiKey/Password/ClientSecret per AuthenticationType, adds SourceArn for IamConnectionMetadata, renames the write-side ClientCredentialsDetails/AuthorizationCodeGrantCredentialsDetails wrappers to their read-side Read* names -- confirmed against types.go:16760 (ReadAuthConfig) and deserializers.go:109643+. Wired into actionConnectorToMap and tested end-to-end (TestQuickSight_ActionConnector_AuthConfigRedaction, actionconnector_redaction_test.go, 6 subtests covering every AuthenticationMetadata variant). Some earlier pass fixed this without updating the note -- same failure mode as the stale SearchTopics/DeleteTopic notes gopherstack-0qzf already caught once in this file. FIXED (2026-08-23, continuation pass): actionConnectorSummaryToMap (ListActionConnectors/SearchActionConnectors) omitted CreatedTime entirely even though it's a real, tracked, non-fabricated field on both this backend's ActionConnector struct and types.ActionConnectorSummary (types.go:197). See TestQuickSight_ListActionConnectors_Pagination. Rest of the family (CRUD, Search, Describe/UpdateActionConnectorPermissions envelope keys) diffed clean against ActionConnectorSummary/DescribeActionConnectorPermissionsOutput/UpdateActionConnectorPermissionsOutput."}
   IdentityPropagationConfig: {status: ok, note: "list/update/delete real (identitypropagation.go, handler_identitypropagation.go). AUDITED (gopherstack-0qzf), no findings: Update/DeleteIdentityPropagationConfigOutput carry no data fields beyond RequestId/Status (api_op_Update/DeleteIdentityPropagationConfig.go) and none are fabricated; ListIdentityPropagationConfigsOutput.Services ([]types.AuthorizedTargetsByService: Service/AuthorizedTargets, types.go:2324) matches handleListIdentityPropagationConfigs's response map key-for-key. Genuinely clean. FIXED (gopherstack-hnyl): isValidServiceType was a hand-copied 3-entry allowlist missing GLUE_DATA_CATALOG, the 4th types.ServiceType member -- UpdateIdentityPropagationConfig falsely rejected it. Now derives from types.ServiceType.Values()."}
   AssetBundle: {status: ok, note: "export/import job lifecycle real (assetbundle.go, handler_assetbundle.go). FIXED (gopherstack-0qzf): class (a). StartAssetBundleExportJobInput (api_op_StartAssetBundleExportJob.go) accepts IncludeFolderMembers/IncludeFolderMemberships/IncludePermissions/IncludeTags, all four echoed back on DescribeAssetBundleExportJobOutput -- none were read from the request body, stored, or returned; a caller setting IncludeTags=true had no way to observe it back. Fixed: threaded through Start/storedAssetBundleExportJob/AssetBundleExportJob/exportJobToMap. See TestQuickSight_AssetBundleExportJob_IncludeFlags. NOT fixed, flagged for follow-up: CloudFormationOverridePropertyConfiguration and ValidationStrategy (both structs, api_op_StartAssetBundleExportJob.go) are also accepted-and-dropped class (a) findings, but modeling them (even as opaque pass-through) was judged out of this pass's bounded-fix scope; ExportFormat-conditional CLOUDFORMATION_JSON behavior isn't modeled at all. Import job lifecycle (StartAssetBundleImportJobInput/Output, DescribeAssetBundleImportJobOutput) diffed clean -- no comparable gaps. FIXED (gopherstack-g3jk): ListAssetBundleExportJobs reused exportJobToMap (the Describe shape) for its list items, leaking ResourceArns/IncludeFolderMemberships/DownloadUrl/IncludeFolderMembers -- none of which types.AssetBundleExportJobSummary (types.go:1278-1308) declares. Added a separate exportJobSummaryToMap scoped to the summary's 8 real members, mirroring the sibling ListAssetBundleImportJobs/importJobToMap, which was already correctly scoped. An SDK client can't prove this (its deserializer silently drops unrecognized members); see TestQuickSight_ListAssetBundleExportJobs_SummaryScoping, a raw-body assertion."}
   Automation: {status: ok, note: "StartAutomationJob/DescribeAutomationJob real (automation.go, handler_automation.go). AUDITED (gopherstack-0qzf), no findings: StartAutomationJobInput has no InputPayload-adjacent fields this backend misses (confirmed against api_op_StartAutomationJob.go), DescribeAutomationJobOutput's conditional IncludeInputPayload/IncludeOutputPayload query-param gating is implemented correctly (handleDescribeAutomationJob). Genuinely clean."}
@@ -622,3 +622,170 @@ ops (`CreateFolderMembership`/`DeleteFolderMembership`/`ListFolderMembers`/
 `GenerateEmbedUrlForRegisteredUser`/`GenerateEmbedUrlForRegisteredUserWithIdentity`
 (already covered narratively by the `taqn` Embed re-diff, not independently
 re-verified this pass).
+(SUPERSEDED by the 2026-08-23 continuation pass below -- most of the ops
+named here have now actually been reached.)
+
+## 2026-08-23: continuation pass, 13 wire-shape bugs found and fixed
+
+Continued the low-client-coverage campaign into the "Not reached" queue named
+directly above. All 13 findings are the same two bug classes this campaign
+kept finding elsewhere in this file: (A) a List/Search summary handler reusing
+a Describe-shape map-builder and leaking fields the real `*Summary` type
+doesn't carry, and (B) a mutate op (mostly Delete) whose real output carries a
+field (usually `Arn`) this backend already tracks on the record but the
+handler discarded instead of returning. Every fix below is proven with a real
+`aws-sdk-go-v2`-shaped raw-body assertion (an SDK client's deserializer can't
+prove class-A leaks -- it silently drops unrecognized members, same
+limitation already documented for `ListAssetBundleExportJobs`/
+`ListIAMPolicyAssignments`), hand-reverted against `git show HEAD:<path>`,
+confirmed failing, restored via `cp`, `md5sum`-verified byte-identical.
+
+Class A (List/Search summary leaking Describe-only fields):
+- `ListFolders`/`SearchFolders`: `folderToMap` (Folder's full shape, includes
+  `FolderPath`) was reused for `FolderSummaryList` items. `types.FolderSummary`
+  (types.go:10457) has no `FolderPath` -- that's `Folder`-only (types.go:10356),
+  populated only by `DescribeFolder`. Added `folderSummaryToMap`, scoped to the
+  7 real `FolderSummary` fields. See
+  `TestQuickSight_ListFolders_OmitsFolderPath` (handler_folders_test.go).
+- `ListTemplateVersions`: `templateVersionToMap` (full `TemplateVersion`,
+  includes `SourceEntityArn`/`Definition`) was reused for
+  `TemplateVersionSummaryList`. `types.TemplateVersionSummary` (types.go:20950)
+  has neither field. Added `templateVersionSummaryToMap`. See
+  `TestQuickSight_ListTemplateVersions_OmitsDefinition`
+  (handler_templates_test.go).
+- `ListThemeVersions`: same bug, `themeVersionToMap`'s `BaseThemeId`/
+  `Configuration` leaking into `ThemeVersionSummaryList`.
+  `types.ThemeVersionSummary` (types.go:21196) has neither. Added
+  `themeVersionSummaryToMap`. See
+  `TestQuickSight_ListThemeVersions_OmitsBaseThemeIDAndConfiguration`
+  (handler_themes_test.go).
+- `ListOAuthClientApplications`: `oauthAppToMap` (full
+  `OAuthClientApplication`, includes `OAuthAuthorizationEndpointUrl`/
+  `OAuthScopes`/`OAuthTokenEndpointUrl`) was reused for
+  `OAuthClientApplications` (the list). `types.OAuthClientApplicationSummary`
+  (types.go:14882), confirmed key-by-key against
+  `awsRestjson1_deserializeDocumentOAuthClientApplicationSummary`, has none of
+  the three. Added `oauthAppSummaryToMap`. See
+  `TestQuickSight_ListOAuthClientApps_OmitsDescribeOnlyFields`
+  (handler_oauth_test.go).
+
+Class B (mutate op dropping a field this backend already tracks):
+- `ListActionConnectors`/`SearchActionConnectors`: `actionConnectorSummaryToMap`
+  omitted `CreatedTime` entirely, even though it's a real, non-fabricated field
+  on both `ActionConnector` (this backend's struct) and
+  `types.ActionConnectorSummary` (types.go:197, optional but genuinely
+  tracked). Fixed. See `TestQuickSight_ListActionConnectors_Pagination`'s new
+  assertion (handler_actionconnector_test.go).
+- `ListBrands`: `types.BrandSummary.Description` (types.go:3220) is real,
+  caller-supplied data already sitting in `brand.Definition["Description"]` --
+  the same map `BrandName` was already being pulled from two lines above --
+  just never read out. Fixed. See `TestQuickSight_ListBrands_SurfacesDescription`
+  (handler_brands_test.go).
+- `DeleteCustomPermissions`: real `DeleteCustomPermissionsOutput` carries `Arn`
+  (api_op_DeleteCustomPermissions.go); this backend already builds it
+  deterministically at Create time. Backend signature changed to
+  `(*CustomPermissions, error)`; interface + handler updated. See
+  `TestQuickSight_CustomPermissionsCRUD`'s new assertion.
+- `DeleteVPCConnection`: real `DeleteVPCConnectionOutput` carries
+  `Arn`/`AvailabilityStatus`/`DeletionStatus`; this backend already tracks the
+  first two and the third is the same `statusDeleted` constant every other
+  hard-delete in this file already uses. Backend signature changed to
+  `(*VPCConnection, error)`. See `TestQuickSight_VPCConnectionCRUD`'s Delete
+  assertions.
+- `CreateTopicRefreshSchedule`/`DescribeTopicRefreshSchedule`/
+  `UpdateTopicRefreshSchedule`/`DeleteTopicRefreshSchedule`/
+  `ListTopicRefreshSchedules`: all 5 real outputs carry a top-level `TopicArn`
+  (confirmed against each op's own `api_op_*.go`); none were returning it,
+  even though `h.Backend.DescribeTopic` was one call away. Added a shared
+  `topicArn` helper. `DeleteTopicRefreshScheduleOutput` additionally carries
+  `DatasetArn`, also dropped -- backend signature changed to
+  `(*TopicRefreshSchedule, error)` so the handler has it. See
+  `TestQuickSight_TopicRefreshScheduleCRUD`'s new assertions
+  (handler_topics_test.go).
+- `DeleteRefreshSchedule` (DataSet-level, V1): real
+  `DeleteRefreshScheduleOutput` carries `Arn`/`ScheduleId`
+  (api_op_DeleteRefreshSchedule.go); this backend fetched the schedule to
+  validate it existed and then discarded it. Backend signature changed to
+  `(*RefreshSchedule, error)`. See
+  `TestQuickSight_DataSetRefreshScheduleCRUD`'s new assertions.
+- `UpdateIpRestriction`: real `UpdateIpRestrictionOutput` carries
+  `AwsAccountId` (api_op_UpdateIpRestriction.go); `accountID` was already a
+  local variable in the handler. See
+  `TestQuickSight_UpdateIPRestriction_ReturnsAwsAccountId` (handler_account_test.go).
+- `UpdateQPersonalizationConfiguration`/`UpdateQuickSightQSearchConfiguration`:
+  both real outputs echo back the mode/status that was just set
+  (`PersonalizationMode`/`QSearchStatus`); both handlers already received that
+  exact value from the backend call and discarded it with `_, err :=`. See
+  `TestQuickSight_UpdateQPersonalizationAndQSearchConfig_EchoValue`.
+
+Ops re-audited clean this pass, no findings: `CreateVPCConnection` (already
+correct), `CustomPermissions` CRUD proper aside from the Delete gap above
+(`CreateCustomPermissions`/`DescribeCustomPermissions`/
+`UpdateCustomPermissions`/`ListCustomPermissions` -- `Governance` remains the
+pre-existing, already-documented gap, not re-filed), `DescribeTopicRefresh`,
+`PutDataSetRefreshProperties`/`DescribeDataSetRefreshProperties`/
+`DeleteDataSetRefreshProperties` (all three real outputs carry no data fields
+beyond `RequestId`/`Status`), `DescribeIpRestriction`,
+`UpdateKeyRegistration`, `DescribeDefaultQBusinessApplication`/
+`UpdateDefaultQBusinessApplication`/`DeleteDefaultQBusinessApplication`,
+`DeleteAccountSubscription`, `UpdateSPICECapacity`,
+`UpdatePublicSharingSettings`, all 6 `Agent`/`KnowledgeBase`/`Space`/`Flow`
+permission ops (`DescribeAgentPermissions`/`UpdateAgentPermissions`/
+`DescribeKnowledgeBasePermissions`/`UpdateKnowledgeBasePermissions`/
+`DescribeSpacePermissions`/`UpdateSpacePermissions`/`GetFlowPermissions`/
+`UpdateFlowPermissions` -- wire shapes, including Space's camelCase quirk,
+all confirmed correct), and both `Embed` registered-user ops
+(`GenerateEmbedUrlForRegisteredUser`/
+`GenerateEmbedUrlForRegisteredUserWithIdentity`, confirmed against their real
+`EmbedUrl`/`RequestId`/`Status`-only output shapes, and the documented
+user-existence-validation behavior re-confirmed in code).
+
+Corrected one stale claim: the `ActionConnector` family note above says
+`AuthenticationConfig` redaction is "NOT fixed... flagged for follow-up" --
+that is no longer true. `actionconnector_auth.go`/`redactAuthenticationConfig`
+(added 2026-08-11, PR #2414, predating that note) implements the real
+`ReadAuthConfig` projection in full (redacts `ApiKey`/`Password`/
+`ClientSecret` per `AuthenticationType`, adds `SourceArn` for IAM), is wired
+into `actionConnectorToMap`, and is tested end-to-end in
+`TestQuickSight_ActionConnector_AuthConfigRedaction`
+(actionconnector_redaction_test.go). Some earlier pass fixed this without
+updating the note -- same failure mode as the stale `SearchTopics`/
+`DeleteTopic` notes `gopherstack-0qzf` already caught once in this file.
+
+One modelling gap found, NOT fixed (fabrication risk, not a bounded fix):
+`Create`/`Describe`/`UpdateAccountCustomizationOutput` all carry a real `Arn`
+field (api_op_{Create,Describe,Update}AccountCustomization.go); this backend's
+`AccountCustomization` struct has no `Arn` slot and no confirmed SDK evidence
+for the exact ARN resource-type path segment QuickSight uses for a
+namespace-scoped account customization (unlike every other resource type in
+this backend, whose ARN suffix -- e.g. `custom-permissions/{name}`,
+`vpc-connection/{id}` -- was confirmed once, historically, against real AWS
+console/CLI output or SDK doc comments). Minting one now would be exactly the
+unverified-wire-shape risk parity-principles.md rule 1 warns against.
+Left absent; flagged here for a follow-up pass with SDK/console evidence for
+the correct format, not guessed at.
+
+Still not reached (named, not a claim of a problem): full `Brand` CRUD proper
+(`CreateBrand`/`DeleteBrand`/`DeleteBrandAssignment`; `DescribeBrand` was
+already field-diffed by the `taqn` pass), `Folder` membership/search ops
+(`CreateFolderMembership`/`DeleteFolderMembership`/`ListFolderMembers`/
+`ListFoldersForResource`/`UpdateFolder`/`DescribeFolderPermissions`/
+`DescribeFolderResolvedPermissions`/`UpdateFolderPermissions`), `Template`/
+`Theme` alias sub-families in full (`CreateTemplateAlias`/
+`DescribeTemplateAlias`/`ListTemplateAliases`/`UpdateTemplateAlias`/
+`UpdateTemplatePermissions`/`DescribeTemplate`/`ListTemplates`/
+`DescribeTemplateDefinition`/`DescribeTemplatePermissions` and the equivalent
+`Theme` ops -- `ListTemplateVersions`/`ListThemeVersions` themselves are now
+fixed and covered above), `OAuthClientApplication`'s
+`DeleteOAuthClientApplication`/`DescribeOAuthClientApplication`/
+`UpdateOAuthClientApplication` (`ListOAuthClientApplications` now fixed and
+covered above), `ActionConnector`'s `CreateActionConnector`/
+`DeleteActionConnector` (`List`/`SearchActionConnectors` now fixed and covered
+above), and `AccountLevel`'s remaining un-independently-diffed sub-resources:
+`AccountCustomization` CRUD's `AccountCustomization` struct field-shape itself
+(only the missing top-level `Arn` was checked, see modelling gap above) and
+`AccountCustomPermission` (`DescribeAccountCustomPermission`/
+`UpdateAccountCustomPermission`/`DeleteAccountCustomPermission` -- all three
+carry no data fields beyond `RequestId`/`Status` per their SDK output structs,
+so spot-checked clean by inspection but not independently exercised with a
+test this pass).

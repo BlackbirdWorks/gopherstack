@@ -104,10 +104,16 @@ func TestQuickSight_VPCConnectionCRUD(t *testing.T) {
 	)
 	assert.Equal(t, http.StatusNotFound, updateMissingRec.Code)
 
-	// Delete.
+	// Delete. DeleteVPCConnectionOutput (api_op_DeleteVPCConnection.go) carries
+	// Arn/AvailabilityStatus/DeletionStatus -- this backend already tracks all
+	// three, just never surfaced them on delete.
 	deleteRec := doRequest(t, h, http.MethodDelete, accountPath("/vpc-connections/vc1"), nil)
 	require.Equal(t, http.StatusOK, deleteRec.Code)
-	assert.Equal(t, "vc1", parseBody(t, deleteRec)["VPCConnectionId"])
+	deleteBody := parseBody(t, deleteRec)
+	assert.Equal(t, "vc1", deleteBody["VPCConnectionId"])
+	assert.Contains(t, deleteBody["Arn"], "vpc-connection/vc1")
+	assert.Equal(t, "AVAILABLE", deleteBody["AvailabilityStatus"])
+	assert.Equal(t, "DELETED", deleteBody["DeletionStatus"])
 
 	// Delete missing -> 404.
 	deleteMissingRec := doRequest(t, h, http.MethodDelete, accountPath("/vpc-connections/vc1"), nil)

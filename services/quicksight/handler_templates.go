@@ -268,7 +268,7 @@ func (h *Handler) handleListTemplateVersions(c *echo.Context) error {
 
 	items := make([]map[string]any, 0, len(versions))
 	for _, v := range versions {
-		items = append(items, templateVersionToMap(v))
+		items = append(items, templateVersionSummaryToMap(v))
 	}
 
 	resp := map[string]any{
@@ -476,6 +476,25 @@ func templateVersionToMap(v *TemplateVersion) map[string]any {
 	}
 	if v.Definition != nil {
 		m[keyDefinition] = v.Definition
+	}
+
+	return m
+}
+
+// templateVersionSummaryToMap builds the types.TemplateVersionSummary shape
+// ListTemplateVersions returns (Arn/CreatedTime/Description/Status/
+// VersionNumber only) -- unlike Template's nested full TemplateVersion,
+// it has no SourceEntityArn or Definition. Same over-emission class as
+// Folder's dropped FolderPath leak on ListFolders/SearchFolders.
+func templateVersionSummaryToMap(v *TemplateVersion) map[string]any {
+	m := map[string]any{
+		keyVersionNumber: v.VersionNumber,
+		keyStatus:        v.Status,
+		keyArn:           v.Arn,
+		keyCreatedTime:   v.CreatedTime.Unix(),
+	}
+	if v.Description != "" {
+		m[keyDescription] = v.Description
 	}
 
 	return m

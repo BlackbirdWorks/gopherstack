@@ -319,7 +319,7 @@ type StorageBackend interface {
 		isEnabled *bool,
 		scheduleConfig map[string]any,
 	) (*TopicRefreshSchedule, error)
-	DeleteTopicRefreshSchedule(accountID, topicID, datasetID string) error
+	DeleteTopicRefreshSchedule(accountID, topicID, datasetID string) (*TopicRefreshSchedule, error)
 	ListTopicRefreshSchedules(accountID, topicID string) ([]*TopicRefreshSchedule, error)
 
 	// Topic reviewed answers
@@ -360,7 +360,7 @@ type StorageBackend interface {
 		subnetIDs, securityGroupIDs, dnsResolvers []string,
 		roleArn string,
 	) (*VPCConnection, error)
-	DeleteVPCConnection(accountID, vpcConnectionID string) error
+	DeleteVPCConnection(accountID, vpcConnectionID string) (*VPCConnection, error)
 	ListVPCConnections(accountID string, maxResults int32, nextToken string) ([]*VPCConnection, string, error)
 
 	// IAM policy assignments
@@ -471,7 +471,7 @@ type StorageBackend interface {
 	) (*CustomPermissions, error)
 	DescribeCustomPermissions(accountID, name string) (*CustomPermissions, error)
 	UpdateCustomPermissions(accountID, name string, capabilities map[string]any) (*CustomPermissions, error)
-	DeleteCustomPermissions(accountID, name string) error
+	DeleteCustomPermissions(accountID, name string) (*CustomPermissions, error)
 	ListCustomPermissions(accountID string, maxResults int32, nextToken string) ([]*CustomPermissions, string, error)
 
 	// Role custom permission
@@ -561,7 +561,7 @@ type StorageBackend interface {
 		startAfterDateTime time.Time,
 		scheduleFrequency map[string]any,
 	) (*RefreshSchedule, error)
-	DeleteRefreshSchedule(accountID, datasetID, scheduleID string) error
+	DeleteRefreshSchedule(accountID, datasetID, scheduleID string) (*RefreshSchedule, error)
 	ListRefreshSchedules(accountID, datasetID string) ([]*RefreshSchedule, error)
 
 	// DataSet refresh properties

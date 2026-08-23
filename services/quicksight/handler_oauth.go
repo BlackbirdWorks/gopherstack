@@ -94,6 +94,34 @@ func oauthAppToMap(app *OAuthClientApplication) map[string]any {
 	return m
 }
 
+// oauthAppSummaryFieldsOnlyOnDescribe are OAuthClientApplication members
+// (types.go:14837) absent from OAuthClientApplicationSummary (types.go:14882)
+// -- confirmed key-by-key against deserializers.go's
+// awsRestjson1_deserializeDocumentOAuthClientApplicationSummary, which has no
+// case for any of the three. Same over-emission class as
+// templateVersionSummaryToMap.
+func oauthAppSummaryFieldsOnlyOnDescribe(k string) bool {
+	switch k {
+	case "OAuthAuthorizationEndpointUrl", "OAuthScopes", "OAuthTokenEndpointUrl":
+		return true
+	}
+
+	return false
+}
+
+// oauthAppSummaryToMap builds the types.OAuthClientApplicationSummary shape
+// ListOAuthClientApplications returns.
+func oauthAppSummaryToMap(app *OAuthClientApplication) map[string]any {
+	m := oauthAppToMap(app)
+	for k := range m {
+		if oauthAppSummaryFieldsOnlyOnDescribe(k) {
+			delete(m, k)
+		}
+	}
+
+	return m
+}
+
 // isValidOAuthClientAuthenticationType derives its answer from
 // types.OAuthClientAuthenticationType.Values() (currently just "TOKEN", per
 // CreateOAuthClientApplicationInput's doc comment) so it cannot drift from
@@ -249,7 +277,7 @@ func (h *Handler) handleListOAuthClientApps(c *echo.Context) error {
 
 	items := make([]map[string]any, 0, len(apps))
 	for _, app := range apps {
-		items = append(items, oauthAppToMap(app))
+		items = append(items, oauthAppSummaryToMap(app))
 	}
 
 	resp := map[string]any{

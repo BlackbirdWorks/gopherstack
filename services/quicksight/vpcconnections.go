@@ -138,20 +138,23 @@ func (b *InMemoryBackend) UpdateVPCConnection(
 	return v.toVPCConnection(), nil
 }
 
-func (b *InMemoryBackend) DeleteVPCConnection(accountID, vpcConnectionID string) error {
+func (b *InMemoryBackend) DeleteVPCConnection(accountID, vpcConnectionID string) (*VPCConnection, error) {
 	b.mu.Lock("DeleteVPCConnection")
 	defer b.mu.Unlock()
 
 	key := vpcConnectionKey(accountID, vpcConnectionID)
 	v, ok := b.vpcConnections.Get(key)
 	if !ok {
-		return ErrVPCConnectionNotFound
+		return nil, ErrVPCConnectionNotFound
 	}
 
 	delete(b.tags, v.Arn)
 	b.vpcConnections.Delete(key)
 
-	return nil
+	out := v.toVPCConnection()
+	out.Status = statusDeleted
+
+	return out, nil
 }
 
 //nolint:dupl // list functions share structure but operate on different stored types

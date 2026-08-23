@@ -171,14 +171,21 @@ func (h *Handler) handleListBrands(c *echo.Context) error {
 	items := make([]map[string]any, 0, len(brands))
 	for _, brand := range brands {
 		name, _ := brand.Definition[keyBrandName].(string)
-		items = append(items, map[string]any{
+		m := map[string]any{
 			keyBrandID:         brand.BrandID,
 			keyArn:             brand.Arn,
 			keyBrandName:       name,
 			keyBrandStatus:     brand.Status,
 			keyCreatedTime:     brand.CreatedTime.Unix(),
 			keyLastUpdatedTime: brand.LastUpdatedTime.Unix(),
-		})
+		}
+		// BrandSummary.Description (types.go) is real, caller-supplied data
+		// already stored on brand.Definition -- same source BrandName is
+		// already pulled from above -- just never surfaced here.
+		if desc, ok := brand.Definition[keyDescription].(string); ok && desc != "" {
+			m[keyDescription] = desc
+		}
+		items = append(items, m)
 	}
 
 	resp := map[string]any{

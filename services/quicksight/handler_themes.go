@@ -221,7 +221,7 @@ func (h *Handler) handleListThemeVersions(c *echo.Context) error {
 
 	items := make([]map[string]any, 0, len(versions))
 	for _, v := range versions {
-		items = append(items, themeVersionToMap(v))
+		items = append(items, themeVersionSummaryToMap(v))
 	}
 
 	resp := map[string]any{
@@ -430,6 +430,25 @@ func themeVersionToMap(v *ThemeVersion) map[string]any {
 	}
 	if v.Configuration != nil {
 		m[keyConfiguration] = v.Configuration
+	}
+
+	return m
+}
+
+// themeVersionSummaryToMap builds the types.ThemeVersionSummary shape
+// ListThemeVersions returns (Arn/CreatedTime/Description/Status/
+// VersionNumber only) -- unlike Theme's nested full ThemeVersion, it has no
+// BaseThemeId or Configuration. Same over-emission class as
+// templateVersionSummaryToMap.
+func themeVersionSummaryToMap(v *ThemeVersion) map[string]any {
+	m := map[string]any{
+		keyVersionNumber: v.VersionNumber,
+		keyStatus:        v.Status,
+		keyArn:           v.Arn,
+		keyCreatedTime:   v.CreatedTime.Unix(),
+	}
+	if v.Description != "" {
+		m[keyDescription] = v.Description
 	}
 
 	return m

@@ -175,7 +175,7 @@ func (h *Handler) handleListFolders(c *echo.Context) error {
 
 	items := make([]map[string]any, 0, len(folders))
 	for _, f := range folders {
-		items = append(items, h.folderToMap(accountID, f))
+		items = append(items, h.folderSummaryToMap(f))
 	}
 
 	resp := map[string]any{
@@ -211,7 +211,7 @@ func (h *Handler) handleSearchFolders(c *echo.Context) error {
 
 	items := make([]map[string]any, 0, len(folders))
 	for _, f := range folders {
-		items = append(items, h.folderToMap(accountID, f))
+		items = append(items, h.folderSummaryToMap(f))
 	}
 
 	resp := map[string]any{
@@ -361,7 +361,18 @@ func (h *Handler) handleDescribeFolderResolvedPermissions(c *echo.Context) error
 // ---- shared helpers ----
 
 func (h *Handler) folderToMap(accountID string, f *Folder) map[string]any {
-	m := map[string]any{
+	m := h.folderSummaryToMap(f)
+	m["FolderPath"] = h.folderPath(accountID, f)
+
+	return m
+}
+
+// folderSummaryToMap builds the types.FolderSummary shape ListFolders/
+// SearchFolders return. Confirmed against types.go: FolderSummary has no
+// FolderPath field (that's Folder-only, populated by DescribeFolder) --
+// same over-emission class as VPCConnection's dropped SubnetIds leak.
+func (h *Handler) folderSummaryToMap(f *Folder) map[string]any {
+	return map[string]any{
 		keyArn:             f.Arn,
 		keyFolderID:        f.FolderID,
 		keyName:            f.Name,
@@ -369,10 +380,7 @@ func (h *Handler) folderToMap(accountID string, f *Folder) map[string]any {
 		keyCreatedTime:     f.CreatedTime.Unix(),
 		keyLastUpdatedTime: f.LastUpdatedTime.Unix(),
 		keySharingModel:    f.SharingModel,
-		"FolderPath":       h.folderPath(accountID, f),
 	}
-
-	return m
 }
 
 // folderPath walks the parent chain starting at f and returns the ancestor ARNs

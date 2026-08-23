@@ -74,8 +74,14 @@ func TestQuickSight_DataSetRefreshScheduleCRUD(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec.Code)
 	assert.Len(t, parseBody(t, listRec)["RefreshSchedules"].([]any), 1)
 
+	// DeleteRefreshScheduleOutput (api_op_DeleteRefreshSchedule.go) carries
+	// Arn/ScheduleId -- this backend already tracks the schedule's Arn, just
+	// never surfaced it on delete.
 	deleteRec := doRequest(t, h, http.MethodDelete, accountPath("/data-sets/ds1/refresh-schedules/s1"), nil)
 	require.Equal(t, http.StatusOK, deleteRec.Code)
+	deleteBody := parseBody(t, deleteRec)
+	assert.Equal(t, "s1", deleteBody["ScheduleId"])
+	assert.Contains(t, deleteBody["Arn"], "dataset/ds1")
 
 	deleteMissingRec := doRequest(t, h, http.MethodDelete, accountPath("/data-sets/ds1/refresh-schedules/s1"), nil)
 	assert.Equal(t, http.StatusNotFound, deleteMissingRec.Code)

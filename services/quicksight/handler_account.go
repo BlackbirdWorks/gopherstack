@@ -423,8 +423,9 @@ func (h *Handler) handleUpdateIPRestriction(c *echo.Context) error {
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
-		keyRequestID: reqIDPlaceholder,
-		keyStatus:    http.StatusOK,
+		keyAwsAccountID: accountID,
+		keyRequestID:    reqIDPlaceholder,
+		keyStatus:       http.StatusOK,
 	})
 }
 
@@ -606,15 +607,17 @@ func (h *Handler) handleUpdateQPersonalization(c *echo.Context) error {
 		return writeError(c, http.StatusBadRequest, errInvalidParam, errInvalidBody)
 	}
 
-	if _, err = h.Backend.UpdateQPersonalizationConfiguration(
+	mode, err := h.Backend.UpdateQPersonalizationConfiguration(
 		accountID, strField(body, keyPersonalizationMode),
-	); err != nil {
+	)
+	if err != nil {
 		return httpErr(c, err)
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
-		keyRequestID: reqIDPlaceholder,
-		keyStatus:    http.StatusOK,
+		keyPersonalizationMode: mode,
+		keyRequestID:           reqIDPlaceholder,
+		keyStatus:              http.StatusOK,
 	})
 }
 
@@ -643,15 +646,17 @@ func (h *Handler) handleUpdateQSearchConfig(c *echo.Context) error {
 		return writeError(c, http.StatusBadRequest, errInvalidParam, errInvalidBody)
 	}
 
-	if _, err = h.Backend.UpdateQuickSightQSearchConfiguration(
+	status, err := h.Backend.UpdateQuickSightQSearchConfiguration(
 		accountID, strField(body, keyQSearchStatus),
-	); err != nil {
+	)
+	if err != nil {
 		return httpErr(c, err)
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
-		keyRequestID: reqIDPlaceholder,
-		keyStatus:    http.StatusOK,
+		keyQSearchStatus: status,
+		keyRequestID:     reqIDPlaceholder,
+		keyStatus:        http.StatusOK,
 	})
 }
 
