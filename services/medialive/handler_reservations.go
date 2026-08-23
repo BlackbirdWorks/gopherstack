@@ -31,7 +31,8 @@ func toOfferingOutput(o *Offering) map[string]any {
 }
 
 func (h *Handler) handleListOfferings(c *echo.Context) error {
-	items, nextToken, err := h.Backend.ListOfferings(0, "")
+	maxResults, nextTokenParam := paginationParams(c)
+	items, nextToken, err := h.Backend.ListOfferings(maxResults, nextTokenParam)
 	if err != nil {
 		return respondErr(c, err)
 	}
@@ -140,7 +141,8 @@ func toReservationOutput(r *Reservation) map[string]any {
 }
 
 func (h *Handler) handleListReservations(c *echo.Context) error {
-	items, nextToken, err := h.Backend.ListReservations(0, "")
+	maxResults, nextTokenParam := paginationParams(c)
+	items, nextToken, err := h.Backend.ListReservations(maxResults, nextTokenParam)
 	if err != nil {
 		return respondErr(c, err)
 	}

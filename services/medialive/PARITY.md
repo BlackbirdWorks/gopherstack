@@ -1,7 +1,7 @@
 service: medialive
 sdk_module: aws-sdk-go-v2/service/medialive@v1.101.4   # version audited against
 last_audit_commit: 6c48ab50cb35a7b8834b7fea50407931c6df3119  # gopherstack-7ux2 (2026-08-13) fixed after this hash was recorded; hash not yet known at edit time
-last_audit_date: 2026-08-13
+last_audit_date: 2026-08-23
 overall: A            # Sweep 6 (gopherstack-jb9i): Channel now models all 17
                        # CreateChannelInput/UpdateChannelInput top-level members (was 5) --
                        # CdiInputSpecification/ChannelEngineVersion/ChannelSecurityGroups/
@@ -763,7 +763,13 @@ gaps:
     flow, Batch semantics beyond the wire-casing scope of sweep 4 and the association/
     leak/new-field fixes sweep 5 made was not re-performed (route matching for all of them was
     verified correct in sweep 4; op-by-op state-machine correctness beyond what these two
-    passes touched was not re-verified).
+    passes touched was not re-verified). UPDATE 2026-08-23: this gap is what prompted the
+    Reservation/Offering request-side audit below ("every List operation ignored the client's
+    maxResults/nextToken"), which found and fixed the same real bug across 20 List handlers
+    spanning every family in the service (not just Reservation/Offering) but did not attempt
+    the full state/error-code re-audit this entry originally called for; Cluster/Node/
+    SignalMap/Batch semantics and DeleteReservation's hard-delete-vs-DELETED-state question
+    (see the same dated entry) remain open.
 
 leaks: {status: clean, note: "No goroutines/janitors in this service (re-confirmed sweep 5: no `go func`/time.NewTicker/time.AfterFunc/context.WithCancel anywhere in non-test files). Two real leaks found and fixed this pass: (1) b.tags[ARN] rows were never removed on delete for every resource family outside the Channel/Input/InputSecurityGroup/Multiplex/InputDevice fast path (taggableResourceTags) -- Cluster/Node/SignalMap/CloudWatchAlarmTemplate(Group)/EventBridgeRuleTemplate(Group)/Reservation/Network/SdiSource/ChannelPlacementGroup all now clear their b.tags entry in their respective Delete method; regression-tested via TestTags_LegacyStoreClearedOnDelete. (2) DeleteCluster never cascade-deleted its ChannelPlacementGroups -- unlike Nodes (embedded in storedCluster.Nodes, removed automatically with their parent), ChannelPlacementGroup lives in its own top-level table keyed by \"clusterID/groupID\"; fixed via cascadeDeleteChannelPlacementGroups, regression-tested via TestChannelPlacementGroup_CascadeDeletedWithCluster. Every b.mu.Lock/RLock call site was re-verified this pass to have an immediately-following `defer b.mu.Unlock()`/`RUnlock()` (125 call sites, no exceptions)."}
 
@@ -951,3 +957,87 @@ the exact CI error) and against the real `aws-sdk-go-v2` client
 `handler_inputs_test.go`) before the fix, both now passing after it.
 `TestInput_CRUD`'s delete assertions were updated to match (input count
 stays 1, Describe returns 200 with state DELETED, not 404).
+
+## 2026-08-23: every List operation ignored the client's maxResults/nextToken
+
+Prompted by the still-open "deep state/error-code audit ... was not
+re-performed" gap for Reservation/Offering (see the `gaps` list above),
+this pass audited Offering/Reservation's request side, not just their
+already-`ok` wire shape. `handleListOfferings`/`handleListReservations`
+called `h.Backend.ListOfferings(0, "")`/`ListReservations(0, "")`
+unconditionally -- the request's actual `maxResults`/`nextToken` query
+params (both real, httpQuery-bound `ListOfferingsInput`/
+`ListReservationsInput` fields, confirmed against
+`awsRestjson1_serializeOpHttpBindingsListReservationsInput` in
+aws-sdk-go-v2/service/medialive@v1.101.4's serializers.go) were parsed by
+nobody and silently discarded.
+
+Since `pkgs/page.New`'s cursor is derived entirely from the `nextToken`
+argument passed in, an always-empty `nextToken` means every call restarts
+at item 0: a real client's paginator (`ListReservationsPaginator`, which by
+default has no protection against a server repeating the same token --
+`StopOnDuplicateToken` is off unless the caller opts in) resends whatever
+`nextToken` the server just gave it, gets back the identical first page and
+the identical `nextToken` again, and never terminates once a table exceeds
+`defaultMaxResults` (20).
+
+Checked the sibling: this is not a Reservation/Offering-only bug. Every
+`List*` handler in the service shared the exact same
+`h.Backend.ListX(0, "")` shape. Grepped for it and found 20 occurrences
+across every family -- Channel, Input, InputSecurityGroup, InputDevice
+(both `ListInputDevices` and `ListInputDeviceTransfers`), Multiplex,
+MultiplexProgram, Cluster (both `ListClusters` and `ListClusterAlerts`),
+Node, ChannelPlacementGroup, SignalMap, CloudWatchAlarmTemplate(Group),
+EventBridgeRuleTemplate(Group), Offering, Reservation, Network, SdiSource
+-- and confirmed each corresponding real op's serializer binds both
+`maxResults` and `nextToken` as httpQuery the same way. Fixed all 20 with
+the same change: a new `paginationParams(c)` helper (`handler.go`) reads
+`c.QueryParam("maxResults")`/`c.QueryParam("nextToken")`, and every one of
+the 20 handlers now passes those through instead of the hardcoded `(0,
+"")`. Purely additive to `handler.go`'s query-parsing surface; no
+persisted struct changed, so no `medialiveSnapshotVersion` bump.
+
+Proof: `TestListReservations_RealClientPaginator_AdvancesThroughAllPages`
+(`handler_reservations_pagination_test.go`) purchases 25 reservations (>
+`defaultMaxResults`), drives a real `medialivesdk.NewListReservationsPaginator`
+through two pages, and asserts page 2's reservation IDs are disjoint from
+page 1's. Confirmed failing against the unfixed handler (hand-reverted
+`handleListReservations` to its old `ListReservations(0, "")` body): every
+ID on page 2 was reported as "appeared on both page 1 and page 2" for all
+20 items, i.e. page 2 was a byte-for-byte repeat of page 1. Restored and
+re-verified `handler_reservations.go` was byte-identical via md5sum before
+and after. `go test -race ./services/medialive/...` passes with the fix in
+place.
+
+Not fixed, and called out separately rather than folded into the same fix:
+`ListAlerts`/`ListMultiplexAlerts` also have real `maxResults`/`nextToken`
+query params (confirmed the same way against
+`awsRestjson1_serializeOpHttpBindingsListAlertsInput`/
+`ListMultiplexAlertsInput`), but gopherstack's `ListAlerts`/
+`ListMultiplexAlerts` backend methods (`channels.go`/`multiplexes.go`)
+don't accept pagination arguments at all -- they always return every alert
+unbounded, with no `nextToken` ever emitted. This doesn't reproduce the
+same "stuck forever" failure mode (there's no dangling token for a real
+paginator to get stuck resending), so it's a lower-severity, structural
+modelling gap -- adding real truncation would mean widening both backend
+method signatures and their `ListAlertsOutput`/`ListMultiplexAlertsOutput`
+wire shape, out of scope for this pass. `ListVersions` and
+`ListTagsForResource` were checked and confirmed to genuinely have no
+`maxResults`/`nextToken` in the real API (`ListVersionsInput`/
+`ListTagsForResourceInput`'s httpBindings serializers take no query params
+beyond, for the latter, the required `resourceArn` URI segment) -- nothing
+to fix there.
+
+Also examined but left alone, unprovable: `DeleteReservation` hard-deletes
+the reservation from `b.reservations` after briefly setting `State =
+"CANCELED"` on the in-memory copy returned to the caller --
+`TestReservations_PurchaseListDescribeDeleteUpdate` already asserts
+`DescribeReservation` 404s immediately afterward, as a deliberate, tested
+choice. The real `ReservationState` enum has a fourth value, `DELETED`,
+distinct from `CANCELED`, that gopherstack's Reservation model can never
+reach (`types/enums.go`,
+aws-sdk-go-v2/service/medialive@v1.101.4) -- suggestive of the same
+soft-delete pattern this file's Input entry above documents, but there is
+no terraform-provider-aws resource for a MediaLive reservation and no CI
+failure to corroborate it the way the Input fix had, so this is flagged
+here as a follow-up question rather than changed.

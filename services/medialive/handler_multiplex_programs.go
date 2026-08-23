@@ -124,7 +124,8 @@ func (h *Handler) handleDeleteMultiplexProgram(c *echo.Context, resource string)
 }
 
 func (h *Handler) handleListMultiplexPrograms(c *echo.Context, multiplexID string) error {
-	summaries, nextToken, err := h.Backend.ListMultiplexPrograms(multiplexID, 0, "")
+	maxResults, nextTokenParam := paginationParams(c)
+	summaries, nextToken, err := h.Backend.ListMultiplexPrograms(multiplexID, maxResults, nextTokenParam)
 	if err != nil {
 		return respondErr(c, err)
 	}

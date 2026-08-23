@@ -90,7 +90,8 @@ func (h *Handler) handleGetSignalMap(c *echo.Context, identifier string) error {
 }
 
 func (h *Handler) handleListSignalMaps(c *echo.Context) error {
-	items, nextToken, err := h.Backend.ListSignalMaps(0, "")
+	maxResults, nextTokenParam := paginationParams(c)
+	items, nextToken, err := h.Backend.ListSignalMaps(maxResults, nextTokenParam)
 	if err != nil {
 		return respondErr(c, err)
 	}

@@ -58,7 +58,8 @@ func (h *Handler) handleGetEBRuleTemplateGroup(c *echo.Context, identifier strin
 }
 
 func (h *Handler) handleListEBRuleTemplateGroups(c *echo.Context) error {
-	items, nextToken, err := h.Backend.ListEventBridgeRuleTemplateGroups(0, "")
+	maxResults, nextTokenParam := paginationParams(c)
+	items, nextToken, err := h.Backend.ListEventBridgeRuleTemplateGroups(maxResults, nextTokenParam)
 	if err != nil {
 		return respondErr(c, err)
 	}
@@ -194,7 +195,8 @@ func (h *Handler) handleGetEBRuleTemplate(c *echo.Context, identifier string) er
 }
 
 func (h *Handler) handleListEBRuleTemplates(c *echo.Context) error {
-	items, nextToken, err := h.Backend.ListEventBridgeRuleTemplates(0, "")
+	maxResults, nextTokenParam := paginationParams(c)
+	items, nextToken, err := h.Backend.ListEventBridgeRuleTemplates(maxResults, nextTokenParam)
 	if err != nil {
 		return respondErr(c, err)
 	}

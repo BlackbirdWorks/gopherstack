@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -724,6 +725,24 @@ func extractTags(body map[string]any) map[string]string {
 
 func extractTagKeys(c *echo.Context) []string {
 	return c.Request().URL.Query()["tagKeys"]
+}
+
+// paginationParams reads the "maxResults"/"nextToken" query params every
+// List* operation in this service binds as httpQuery (verified against
+// aws-sdk-go-v2/service/medialive@v1.101.4's serializers.go, e.g.
+// awsRestjson1_serializeOpHttpBindingsListReservationsInput). Every List
+// handler in this file previously hardcoded (0, "") regardless of what the
+// caller sent, so a real client's paginator -- which resends the NextToken
+// it was given until the response's nextToken comes back empty -- got the
+// same first page and the same nextToken back forever and never
+// terminated.
+func paginationParams(c *echo.Context) (int, string) {
+	n, err := strconv.Atoi(c.QueryParam("maxResults"))
+	if err != nil || n < 0 {
+		n = 0
+	}
+
+	return n, c.QueryParam("nextToken")
 }
 
 func extractStringSlice(body map[string]any, key string) []string {

@@ -80,7 +80,8 @@ func (h *Handler) handleDeleteInput(c *echo.Context, inputID string) error {
 }
 
 func (h *Handler) handleListInputs(c *echo.Context) error {
-	summaries, nextToken, err := h.Backend.ListInputs(0, "")
+	maxResults, nextTokenParam := paginationParams(c)
+	summaries, nextToken, err := h.Backend.ListInputs(maxResults, nextTokenParam)
 	if err != nil {
 		return respondErr(c, err)
 	}

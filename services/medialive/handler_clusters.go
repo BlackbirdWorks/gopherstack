@@ -313,7 +313,8 @@ func (h *Handler) handleDeleteCluster(c *echo.Context, clusterID string) error {
 }
 
 func (h *Handler) handleListClusters(c *echo.Context) error {
-	summaries, nextToken, err := h.Backend.ListClusters(0, "")
+	maxResults, nextTokenParam := paginationParams(c)
+	summaries, nextToken, err := h.Backend.ListClusters(maxResults, nextTokenParam)
 	if err != nil {
 		return respondErr(c, err)
 	}
@@ -350,7 +351,8 @@ func (h *Handler) handleListClusters(c *echo.Context) error {
 }
 
 func (h *Handler) handleListClusterAlerts(c *echo.Context, clusterID string) error {
-	alerts, nextToken, err := h.Backend.ListClusterAlerts(clusterID, 0, "")
+	maxResults, nextTokenParam := paginationParams(c)
+	alerts, nextToken, err := h.Backend.ListClusterAlerts(clusterID, maxResults, nextTokenParam)
 	if err != nil {
 		return respondErr(c, err)
 	}
