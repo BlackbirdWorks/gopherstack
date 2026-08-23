@@ -97,14 +97,17 @@ func TestReservedInstances(t *testing.T) { //nolint:paralleltest // existing iss
 	})
 
 	t.Run("cancel listing", func(t *testing.T) { //nolint:paralleltest // existing issue.
-		require.NoError(t, b.CancelReservedInstancesListing(listingID))
+		cancelled, err := b.CancelReservedInstancesListing(listingID)
+		require.NoError(t, err)
+		assert.Equal(t, "cancelled", cancelled.Status)
 		listings := b.DescribeReservedInstancesListings([]string{listingID})
 		require.Len(t, listings, 1)
 		assert.Equal(t, "cancelled", listings[0].Status)
 	})
 
 	t.Run("cancel non-existent listing returns error", func(t *testing.T) { //nolint:paralleltest // existing issue.
-		require.Error(t, b.CancelReservedInstancesListing("rsl-nonexistent"))
+		_, err := b.CancelReservedInstancesListing("rsl-nonexistent")
+		require.Error(t, err)
 	})
 
 	t.Run("modify reserved instances", func(t *testing.T) { //nolint:paralleltest // existing issue.

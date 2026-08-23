@@ -55,16 +55,35 @@ func (h *Handler) handleModifyAddressAttribute(vals url.Values, reqID string) (a
 	}, nil
 }
 
+// resetAddressAttributeResponse matches ResetAddressAttributeOutput
+// (ec2@v1.319.1 api_op_ResetAddressAttribute.go): a nested <address> carrying
+// allocationId/publicIp/ptrRecord/ptrRecordUpdate. There is no Return member
+// at all -- the real deserializer has no case for it.
+type resetAddressAttributeResponse struct {
+	XMLName   xml.Name             `xml:"ResetAddressAttributeResponse"`
+	RequestID string               `xml:"requestId"`
+	Address   resetAddressAttrItem `xml:"address"`
+}
+
+type resetAddressAttrItem struct {
+	AllocationID string `xml:"allocationId,omitempty"`
+	PublicIP     string `xml:"publicIp,omitempty"`
+}
+
 func (h *Handler) handleResetAddressAttribute(vals url.Values, reqID string) (any, error) {
 	allocationID := vals.Get("AllocationId")
-	if err := h.Backend.ResetAddressAttribute(allocationID); err != nil {
+
+	addr, err := h.Backend.ResetAddressAttribute(allocationID)
+	if err != nil {
 		return nil, err
 	}
 
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "ResetAddressAttributeResponse"},
+	return &resetAddressAttributeResponse{
 		RequestID: reqID,
-		Return:    true,
+		Address: resetAddressAttrItem{
+			AllocationID: addr.AllocationID,
+			PublicIP:     addr.PublicIP,
+		},
 	}, nil
 }
 
@@ -117,16 +136,26 @@ func (h *Handler) handleEnableAddressTransfer(vals url.Values, reqID string) (an
 	}, nil
 }
 
+// disableAddressTransferResponse matches DisableAddressTransferOutput
+// (ec2@v1.319.1 api_op_DisableAddressTransfer.go): a nested <addressTransfer>,
+// no Return member.
+type disableAddressTransferResponse struct {
+	XMLName         xml.Name                  `xml:"DisableAddressTransferResponse"`
+	RequestID       string                    `xml:"requestId"`
+	AddressTransfer addressTransferDetailItem `xml:"addressTransfer"`
+}
+
 func (h *Handler) handleDisableAddressTransfer(vals url.Values, reqID string) (any, error) {
 	allocationID := vals.Get("AllocationId")
-	if err := h.Backend.DisableAddressTransfer(allocationID); err != nil {
+
+	transfer, err := h.Backend.DisableAddressTransfer(allocationID)
+	if err != nil {
 		return nil, err
 	}
 
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DisableAddressTransferResponse"},
-		RequestID: reqID,
-		Return:    true,
+	return &disableAddressTransferResponse{
+		RequestID:       reqID,
+		AddressTransfer: toAddressTransferDetailItem(transfer),
 	}, nil
 }
 
@@ -145,16 +174,28 @@ func (h *Handler) handleDescribeAddressTransfers(vals url.Values, reqID string) 
 	return resp, nil
 }
 
+// restoreAddressToClassicResponse matches RestoreAddressToClassicOutput
+// (ec2@v1.319.1 api_op_RestoreAddressToClassic.go): publicIp and status, no
+// Return member. This backend restores synchronously, so the reported status
+// is always the terminal "InClassic" rather than the transient
+// "MoveInProgress" real AWS may report while the restore is in flight.
+type restoreAddressToClassicResponse struct {
+	XMLName   xml.Name `xml:"RestoreAddressToClassicResponse"`
+	RequestID string   `xml:"requestId"`
+	PublicIP  string   `xml:"publicIp"`
+	Status    string   `xml:"status"`
+}
+
 func (h *Handler) handleRestoreAddressToClassic(vals url.Values, reqID string) (any, error) {
 	publicIP := vals.Get("PublicIp")
 	if err := h.Backend.RestoreAddressToClassic(publicIP); err != nil {
 		return nil, err
 	}
 
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "RestoreAddressToClassicResponse"},
+	return &restoreAddressToClassicResponse{
 		RequestID: reqID,
-		Return:    true,
+		PublicIP:  publicIP,
+		Status:    "InClassic",
 	}, nil
 }
 

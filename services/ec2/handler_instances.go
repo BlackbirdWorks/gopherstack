@@ -323,10 +323,17 @@ func (h *Handler) handleUnmonitorInstances(vals url.Values, reqID string) (any, 
 	return resp, nil
 }
 
+// serialConsoleAccessStatusResponse is shared by Get/Enable/DisableSerialConsoleAccess,
+// which all share this exact shape. XMLName carries no tag -- three
+// different ops render this struct under three different root element
+// names, and a tag here would always win over a runtime-set XMLName value
+// (encoding/xml: a tagged XMLName field's tag is used unconditionally by
+// Marshal, ignoring the field's value), silently forcing every response to
+// the tag's single hardcoded name.
 type serialConsoleAccessStatusResponse struct {
-	XMLName                    xml.Name `xml:"GetSerialConsoleAccessStatusResponse"`
-	RequestID                  string   `xml:"requestId"`
-	SerialConsoleAccessEnabled bool     `xml:"serialConsoleAccessEnabled"`
+	XMLName                    xml.Name
+	RequestID                  string `xml:"requestId"`
+	SerialConsoleAccessEnabled bool   `xml:"serialConsoleAccessEnabled"`
 }
 
 type defaultCreditSpecificationResponse struct {
@@ -347,28 +354,35 @@ type replaceRootVolumeTaskItem struct {
 	SnapshotID              string `xml:"snapshotId,omitempty"`
 }
 
+// handleEnableSerialConsoleAccess and handleDisableSerialConsoleAccess:
+// EnableSerialConsoleAccessOutput/DisableSerialConsoleAccessOutput both have
+// no Return member at all -- only SerialConsoleAccessEnabled (ec2@v1.319.1
+// deserializers.go, awsEc2query_deserializeOpDocumentEnableSerialConsoleAccessOutput
+// has no case for "return"), the same shape GetSerialConsoleAccessStatus
+// already renders correctly.
 func (h *Handler) handleEnableSerialConsoleAccess(_ url.Values, reqID string) (any, error) {
 	h.Backend.EnableSerialConsoleAccess()
 
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "EnableSerialConsoleAccessResponse"},
-		RequestID: reqID,
-		Return:    true,
+	return &serialConsoleAccessStatusResponse{
+		XMLName:                    xml.Name{Local: "EnableSerialConsoleAccessResponse"},
+		RequestID:                  reqID,
+		SerialConsoleAccessEnabled: h.Backend.GetSerialConsoleAccessStatus(),
 	}, nil
 }
 
 func (h *Handler) handleDisableSerialConsoleAccess(_ url.Values, reqID string) (any, error) {
 	h.Backend.DisableSerialConsoleAccess()
 
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DisableSerialConsoleAccessResponse"},
-		RequestID: reqID,
-		Return:    true,
+	return &serialConsoleAccessStatusResponse{
+		XMLName:                    xml.Name{Local: "DisableSerialConsoleAccessResponse"},
+		RequestID:                  reqID,
+		SerialConsoleAccessEnabled: h.Backend.GetSerialConsoleAccessStatus(),
 	}, nil
 }
 
 func (h *Handler) handleGetSerialConsoleAccessStatus(_ url.Values, reqID string) (any, error) {
 	return &serialConsoleAccessStatusResponse{
+		XMLName:                    xml.Name{Local: "GetSerialConsoleAccessStatusResponse"},
 		RequestID:                  reqID,
 		SerialConsoleAccessEnabled: h.Backend.GetSerialConsoleAccessStatus(),
 	}, nil

@@ -791,7 +791,7 @@ func TestUnassignPrivateIPAddresses_RecyclesIPs(t *testing.T) {
 	require.NoError(t, err)
 
 	// Assign two secondary IPs by count (auto-allocated).
-	err = b.AssignPrivateIPAddresses(eni.ID, 2, nil)
+	_, err = b.AssignPrivateIPAddresses(eni.ID, 2, nil)
 	require.NoError(t, err)
 
 	enis := b.DescribeNetworkInterfaces([]string{eni.ID})
@@ -806,7 +806,7 @@ func TestUnassignPrivateIPAddresses_RecyclesIPs(t *testing.T) {
 	require.NoError(t, err)
 
 	// Assign a new IP by count – it must reuse the freed IP.
-	err = b.AssignPrivateIPAddresses(eni.ID, 1, nil)
+	_, err = b.AssignPrivateIPAddresses(eni.ID, 1, nil)
 	require.NoError(t, err)
 
 	enis = b.DescribeNetworkInterfaces([]string{eni.ID})

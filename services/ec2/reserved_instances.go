@@ -114,18 +114,20 @@ func (b *InMemoryBackend) CreateReservedInstancesListing(
 	return &cp, nil
 }
 
-func (b *InMemoryBackend) CancelReservedInstancesListing(id string) error {
+func (b *InMemoryBackend) CancelReservedInstancesListing(id string) (*ReservedInstancesListing, error) {
 	b.mu.Lock("CancelReservedInstancesListing")
 	defer b.mu.Unlock()
 
 	l, ok := b.reservedInstancesListings.Get(id)
 	if !ok {
-		return fmt.Errorf("%w: %s", ErrReservedInstancesListingNotFound, id)
+		return nil, fmt.Errorf("%w: %s", ErrReservedInstancesListingNotFound, id)
 	}
 
 	l.Status = "cancelled"
 
-	return nil
+	cp := *l
+
+	return &cp, nil
 }
 
 func (b *InMemoryBackend) DescribeReservedInstancesListings(ids []string) []*ReservedInstancesListing {

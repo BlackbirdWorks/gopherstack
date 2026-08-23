@@ -244,17 +244,34 @@ func (h *Handler) handleCreateReservedInstancesListing(vals url.Values, reqID st
 	return resp, nil
 }
 
+// cancelReservedInstancesListingResponse matches
+// CancelReservedInstancesListingOutput (ec2@v1.319.1
+// api_op_CancelReservedInstancesListing.go): reservedInstancesListingsSet,
+// no Return member -- the same shape DescribeReservedInstancesListings
+// already renders correctly.
+type cancelReservedInstancesListingResponse struct {
+	XMLName                      xml.Name `xml:"CancelReservedInstancesListingResponse"`
+	RequestID                    string   `xml:"requestId"`
+	ReservedInstancesListingsSet struct {
+		Items []reservedInstancesListingItem `xml:"item"`
+	} `xml:"reservedInstancesListingsSet"`
+}
+
 func (h *Handler) handleCancelReservedInstancesListing(vals url.Values, reqID string) (any, error) {
 	id := vals.Get("ReservedInstancesListingId")
-	if err := h.Backend.CancelReservedInstancesListing(id); err != nil {
+
+	listing, err := h.Backend.CancelReservedInstancesListing(id)
+	if err != nil {
 		return nil, err
 	}
 
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "CancelReservedInstancesListingResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
+	resp := &cancelReservedInstancesListingResponse{RequestID: reqID}
+	resp.ReservedInstancesListingsSet.Items = append(
+		resp.ReservedInstancesListingsSet.Items,
+		toReservedInstancesListingItem(listing),
+	)
+
+	return resp, nil
 }
 
 func (h *Handler) handleDescribeReservedInstancesListings(

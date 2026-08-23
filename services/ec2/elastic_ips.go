@@ -185,20 +185,23 @@ func (b *InMemoryBackend) ModifyAddressAttribute(allocationID, domainName string
 }
 
 // ResetAddressAttribute clears the domain name for an Elastic IP.
-func (b *InMemoryBackend) ResetAddressAttribute(allocationID string) error {
+func (b *InMemoryBackend) ResetAddressAttribute(allocationID string) (*Address, error) {
 	if allocationID == "" {
-		return fmt.Errorf("%w: AllocationId is required", ErrInvalidParameter)
+		return nil, fmt.Errorf("%w: AllocationId is required", ErrInvalidParameter)
 	}
 
 	b.mu.Lock("ResetAddressAttribute")
 	defer b.mu.Unlock()
 
-	if _, ok := b.addresses.Get(allocationID); !ok {
-		return fmt.Errorf("%w: %s", ErrInvalidParameter, allocationID)
+	addr, ok := b.addresses.Get(allocationID)
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", ErrInvalidParameter, allocationID)
 	}
 	b.addressAttributes.Delete(allocationID)
 
-	return nil
+	cp := *addr
+
+	return &cp, nil
 }
 
 // ---- Instance console output ----
@@ -232,20 +235,28 @@ func (b *InMemoryBackend) EnableAddressTransfer(
 }
 
 // DisableAddressTransfer cancels an EIP transfer.
-func (b *InMemoryBackend) DisableAddressTransfer(allocationID string) error {
+func (b *InMemoryBackend) DisableAddressTransfer(allocationID string) (*AddressTransfer, error) {
 	if allocationID == "" {
-		return fmt.Errorf("%w: AllocationId is required", ErrInvalidParameter)
+		return nil, fmt.Errorf("%w: AllocationId is required", ErrInvalidParameter)
 	}
 
 	b.mu.Lock("DisableAddressTransfer")
 	defer b.mu.Unlock()
 
-	if _, ok := b.addresses.Get(allocationID); !ok {
-		return fmt.Errorf("%w: %s", ErrInvalidParameter, allocationID)
+	addr, ok := b.addresses.Get(allocationID)
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", ErrInvalidParameter, allocationID)
 	}
+
+	transfer, existed := b.addressTransfers[allocationID]
+	if !existed {
+		transfer = &AddressTransfer{AllocationID: allocationID, PublicIP: addr.PublicIP}
+	}
+
+	cp := *transfer
 	delete(b.addressTransfers, allocationID)
 
-	return nil
+	return &cp, nil
 }
 
 // DescribeAddressTransfers returns address transfers, optionally filtered by allocation ID.

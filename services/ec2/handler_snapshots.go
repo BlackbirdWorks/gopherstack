@@ -439,6 +439,18 @@ func (h *Handler) handleListSnapshotsInRecycleBin(vals url.Values, reqID string)
 	return resp, nil
 }
 
+// handleRestoreSnapshotFromRecycleBin: RestoreSnapshotFromRecycleBinOutput is
+// a near-full snapshot detail object, not a bare Return -- and the fields are
+// buildable from the Snapshot this backend already holds in hand at the
+// point it restores one (see RestoreSnapshotFromRecycleBin, snapshots.go).
+// NOT fixed here: nothing in this backend ever populates recycleBinSnapshots
+// in the first place (grep confirms no .Put call on that table anywhere --
+// DeleteSnapshot deletes outright, it never moves a snapshot to the recycle
+// bin), so this op can never succeed against a real snapshot today
+// regardless of response shape. That's a deeper gap than "response not
+// wired up": it's "the precondition state this op reads can never exist "
+// -- fixing DeleteSnapshot to model recycle-bin retention is out of scope
+// for a wire-shape pass. See PARITY.md.
 func (h *Handler) handleRestoreSnapshotFromRecycleBin(vals url.Values, reqID string) (any, error) {
 	id := vals.Get("SnapshotId")
 	if err := h.Backend.RestoreSnapshotFromRecycleBin(id); err != nil {

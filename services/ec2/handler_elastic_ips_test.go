@@ -24,7 +24,8 @@ func TestAddressAttribute(t *testing.T) { //nolint:paralleltest // existing issu
 	})
 
 	t.Run("reset clears domain name", func(t *testing.T) { //nolint:paralleltest // existing issue.
-		require.NoError(t, b.ResetAddressAttribute(addr.AllocationID))
+		_, err := b.ResetAddressAttribute(addr.AllocationID)
+		require.NoError(t, err)
 		attrs := b.DescribeAddressesAttribute([]string{addr.AllocationID})
 		require.Len(t, attrs, 1)
 		assert.Empty(t, attrs[0].DomainName)
@@ -52,7 +53,8 @@ func TestAddressTransfers(t *testing.T) { //nolint:paralleltest // existing issu
 	})
 
 	t.Run("disable transfer removes it", func(t *testing.T) { //nolint:paralleltest // existing issue.
-		require.NoError(t, b.DisableAddressTransfer(addr.AllocationID))
+		_, err := b.DisableAddressTransfer(addr.AllocationID)
+		require.NoError(t, err)
 		transfers := b.DescribeAddressTransfers([]string{addr.AllocationID})
 		assert.Empty(t, transfers)
 	})

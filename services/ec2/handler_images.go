@@ -168,6 +168,10 @@ const (
 	imageAttrImdsSupport = "imdsSupport"
 )
 
+// fastLaunchDefaultMaxParallelLaunches is real AWS's documented default for
+// EnableFastLaunchInput.MaxParallelLaunches when the request omits it.
+const fastLaunchDefaultMaxParallelLaunches = 6
+
 func (h *Handler) handleModifyImageAttribute(vals url.Values, reqID string) (any, error) {
 	imageID := vals.Get("ImageId")
 	attribute := vals.Get("Attribute")
@@ -481,16 +485,98 @@ func (h *Handler) handleRestoreImageFromRecycleBin(vals url.Values, reqID string
 	}, nil
 }
 
+// fastLaunchLaunchTemplateItem and fastLaunchSnapshotConfigItem match the
+// nested shapes of FastLaunchLaunchTemplateSpecificationResponse and
+// FastLaunchSnapshotConfigurationResponse (ec2@v1.319.1 types/types.go).
+type fastLaunchLaunchTemplateItem struct {
+	LaunchTemplateID   string `xml:"launchTemplateId,omitempty"`
+	LaunchTemplateName string `xml:"launchTemplateName,omitempty"`
+	Version            string `xml:"version,omitempty"`
+}
+
+type fastLaunchSnapshotConfigItem struct {
+	TargetResourceCount int `xml:"targetResourceCount,omitempty"`
+}
+
+// enableFastLaunchResponse matches EnableFastLaunchOutput (ec2@v1.319.1
+// api_op_EnableFastLaunch.go): there is no Return member at all -- the real
+// deserializer has no case for it, only imageId/launchTemplate/
+// maxParallelLaunches/ownerId/resourceType/snapshotConfiguration/state/
+// stateTransitionReason/stateTransitionTime.
+type enableFastLaunchResponse struct {
+	LaunchTemplate        *fastLaunchLaunchTemplateItem `xml:"launchTemplate,omitempty"`
+	SnapshotConfiguration *fastLaunchSnapshotConfigItem `xml:"snapshotConfiguration,omitempty"`
+	XMLName               xml.Name                      `xml:"EnableFastLaunchResponse"`
+	RequestID             string                        `xml:"requestId"`
+	ImageID               string                        `xml:"imageId,omitempty"`
+	ResourceType          string                        `xml:"resourceType,omitempty"`
+	OwnerID               string                        `xml:"ownerId,omitempty"`
+	State                 string                        `xml:"state,omitempty"`
+	MaxParallelLaunches   int                           `xml:"maxParallelLaunches,omitempty"`
+}
+
+// disableFastLaunchResponse matches DisableFastLaunchOutput (same shape as
+// EnableFastLaunchOutput). LaunchTemplate/MaxParallelLaunches/ResourceType/
+// SnapshotConfiguration are the parameters fast launch had before being
+// disabled; this backend doesn't persist that configuration, so those fields
+// are left absent rather than guessed.
+type disableFastLaunchResponse struct {
+	XMLName   xml.Name `xml:"DisableFastLaunchResponse"`
+	RequestID string   `xml:"requestId"`
+	ImageID   string   `xml:"imageId,omitempty"`
+	OwnerID   string   `xml:"ownerId,omitempty"`
+	State     string   `xml:"state,omitempty"`
+}
+
+// parseFastLaunchLaunchTemplate reads LaunchTemplate.{LaunchTemplateId,
+// LaunchTemplateName,Version} from the EnableFastLaunch request (ec2@v1.319.1
+// serializers.go, awsEc2query_serializeDocumentFastLaunchLaunchTemplateSpecificationRequest).
+func parseFastLaunchLaunchTemplate(vals url.Values) *fastLaunchLaunchTemplateItem {
+	id := vals.Get("LaunchTemplate.LaunchTemplateId")
+	name := vals.Get("LaunchTemplate.LaunchTemplateName")
+	version := vals.Get("LaunchTemplate.Version")
+
+	if id == "" && name == "" && version == "" {
+		return nil
+	}
+
+	return &fastLaunchLaunchTemplateItem{LaunchTemplateID: id, LaunchTemplateName: name, Version: version}
+}
+
 func (h *Handler) handleEnableFastLaunch(vals url.Values, reqID string) (any, error) {
 	imageID := vals.Get("ImageId")
 	if err := h.Backend.EnableFastLaunch(imageID); err != nil {
 		return nil, err
 	}
 
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "EnableFastLaunchResponse"},
-		RequestID: reqID,
-		Return:    true,
+	resourceType := vals.Get("ResourceType")
+	if resourceType == "" {
+		resourceType = "snapshot"
+	}
+
+	maxParallelLaunches := fastLaunchDefaultMaxParallelLaunches
+	if v := vals.Get("MaxParallelLaunches"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			maxParallelLaunches = n
+		}
+	}
+
+	var snapshotConfig *fastLaunchSnapshotConfigItem
+	if v := vals.Get("SnapshotConfiguration.TargetResourceCount"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			snapshotConfig = &fastLaunchSnapshotConfigItem{TargetResourceCount: n}
+		}
+	}
+
+	return &enableFastLaunchResponse{
+		RequestID:             reqID,
+		ImageID:               imageID,
+		ResourceType:          resourceType,
+		MaxParallelLaunches:   maxParallelLaunches,
+		OwnerID:               h.AccountID,
+		State:                 "enabling",
+		LaunchTemplate:        parseFastLaunchLaunchTemplate(vals),
+		SnapshotConfiguration: snapshotConfig,
 	}, nil
 }
 
@@ -500,10 +586,11 @@ func (h *Handler) handleDisableFastLaunch(vals url.Values, reqID string) (any, e
 		return nil, err
 	}
 
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DisableFastLaunchResponse"},
+	return &disableFastLaunchResponse{
 		RequestID: reqID,
-		Return:    true,
+		ImageID:   imageID,
+		OwnerID:   h.AccountID,
+		State:     "disabling",
 	}, nil
 }
 
@@ -547,6 +634,13 @@ func (h *Handler) handleCopyImage(vals url.Values, reqID string) (any, error) {
 	}, nil
 }
 
+// handleDeregisterImage: DeregisterImageOutput also has DeleteSnapshotResults
+// (ec2@v1.319.1 api_op_DeregisterImage.go), populated only when the request's
+// DeleteAssociatedSnapshots=true and a snapshot backing the AMI was actually
+// deleted. This backend doesn't track which snapshots back an AMI (AMIStub
+// has no block-device-mapping/snapshot fields at all -- see store.go), so
+// there's no real data to report for that case; left as a stub (Return only)
+// rather than adding a field that would always be empty. See PARITY.md.
 func (h *Handler) handleDeregisterImage(vals url.Values, reqID string) (any, error) {
 	if err := h.Backend.DeregisterImage(vals.Get("ImageId")); err != nil {
 		return nil, err

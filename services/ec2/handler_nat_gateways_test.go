@@ -49,7 +49,8 @@ func TestNatGatewayAddressOps(t *testing.T) { //nolint:paralleltest // existing 
 	})
 
 	t.Run("assign private address", func(t *testing.T) { //nolint:paralleltest // existing issue.
-		require.NoError(t, b.AssignPrivateNatGatewayAddress(nat.ID))
+		_, err := b.AssignPrivateNatGatewayAddress(nat.ID, 1, nil)
+		require.NoError(t, err)
 	})
 
 	t.Run("unknown NAT GW returns error", func(t *testing.T) { //nolint:paralleltest // existing issue.
@@ -138,7 +139,8 @@ func TestUnassignPrivateNatGatewayAddressHTTP(t *testing.T) {
 	require.NoError(t, err)
 	nat, err := h.Backend.CreateNatGateway("subnet-default", addr.AllocationID, nil)
 	require.NoError(t, err)
-	require.NoError(t, h.Backend.AssignPrivateNatGatewayAddress(nat.ID))
+	_, err = h.Backend.AssignPrivateNatGatewayAddress(nat.ID, 1, nil)
+	require.NoError(t, err)
 
 	described := h.Backend.DescribeNatGateways([]string{nat.ID})
 	require.Len(t, described, 1)

@@ -82,8 +82,13 @@ type Backend interface {
 	// AuthorizeSecurityGroupEgress appends egress rules to a security group.
 	AuthorizeSecurityGroupEgress(groupID string, rules []SecurityGroupRule) error
 
-	// RevokeSecurityGroupIngress removes matching ingress rules from a security group.
-	RevokeSecurityGroupIngress(groupID string, rules []SecurityGroupRule) error
+	// RevokeSecurityGroupIngress removes matching ingress rules from a security group,
+	// returning the details of the rules actually revoked and the subset of the
+	// requested rules that matched nothing.
+	RevokeSecurityGroupIngress(
+		groupID string,
+		rules []SecurityGroupRule,
+	) (revoked []*SecurityGroupRuleDetail, unknown []SecurityGroupRule, err error)
 
 	// RevokeSecurityGroupEgress removes matching egress rules from a security group.
 	RevokeSecurityGroupEgress(groupID string, rules []SecurityGroupRule) error
@@ -337,9 +342,10 @@ type Backend interface {
 	// DetachNetworkInterface detaches a network interface by attachment ID.
 	DetachNetworkInterface(attachmentID string, force bool) error
 
-	// AssignPrivateIPAddresses adds secondary private IPs to an ENI.
-	// If ips is non-empty those addresses are assigned; otherwise count new IPs are allocated.
-	AssignPrivateIPAddresses(eniID string, count int, ips []string) error
+	// AssignPrivateIPAddresses adds secondary private IPs to an ENI, returning
+	// the IPs actually assigned. If ips is non-empty those addresses are
+	// assigned; otherwise count new IPs are allocated.
+	AssignPrivateIPAddresses(eniID string, count int, ips []string) ([]string, error)
 
 	// UnassignPrivateIPAddresses removes secondary private IPs from an ENI.
 	UnassignPrivateIPAddresses(eniID string, ips []string) error
@@ -1199,7 +1205,7 @@ type Backend interface {
 
 	DescribeAddressesAttribute(allocationIDs []string) []AddressAttribute
 	ModifyAddressAttribute(allocationID, domainName string) error
-	ResetAddressAttribute(allocationID string) error
+	ResetAddressAttribute(allocationID string) (*Address, error)
 
 	// ---- batch1: instance ----
 
@@ -1279,10 +1285,10 @@ type Backend interface {
 	UnlockSnapshot(snapshotID string) error
 	DescribeLockedSnapshots(ids []string) []*SnapshotLock
 	CopyVolumes(sourceVolumeID string, size int, volumeType string, iops, throughput int) (*Volume, error)
-	DisassociateVpcCidrBlock(associationID string) error
+	DisassociateVpcCidrBlock(associationID string) (vpcID string, assoc *VpcCidrBlockAssociation, err error)
 	DisassociateNatGatewayAddress(natGatewayID string, associationIDs []string) (*NatGateway, error)
 	AssociateNatGatewayAddress(natGatewayID string, allocationIDs []string) (*NatGateway, error)
-	AssignPrivateNatGatewayAddress(natGatewayID string) error
+	AssignPrivateNatGatewayAddress(natGatewayID string, count int, ips []string) (*NatGateway, error)
 	DisableImage(imageID string) error
 	EnableImage(imageID string) error
 	EnableImageBlockPublicAccess(state string) error
@@ -1306,7 +1312,7 @@ type Backend interface {
 	CreateReplaceRootVolumeTask(instanceID, snapshotID string) (*ReplaceRootVolumeTask, error)
 	DescribeReplaceRootVolumeTasks(ids []string) []*ReplaceRootVolumeTask
 	EnableAddressTransfer(allocationID, transferAccountID string) (*AddressTransfer, error)
-	DisableAddressTransfer(allocationID string) error
+	DisableAddressTransfer(allocationID string) (*AddressTransfer, error)
 	DescribeAddressTransfers(allocationIDs []string) []*AddressTransfer
 	CreateSubnetCidrReservation(
 		subnetID, cidr, reservationType, description string,
@@ -1577,7 +1583,7 @@ type Backend interface {
 	DescribeReservedInstancesOfferings(instanceType, az, productDesc string) []*ReservedInstancesOffering
 	PurchaseReservedInstancesOffering(offeringID string, instanceCount int) (*ReservedInstance, error)
 	CreateReservedInstancesListing(reservedInstancesID string, instanceCount int) (*ReservedInstancesListing, error)
-	CancelReservedInstancesListing(id string) error
+	CancelReservedInstancesListing(id string) (*ReservedInstancesListing, error)
 	DescribeReservedInstancesListings(ids []string) []*ReservedInstancesListing
 	DescribeReservedInstancesModifications(ids []string) []*ReservedInstancesModification
 	ModifyReservedInstances(

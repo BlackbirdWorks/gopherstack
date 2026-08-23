@@ -62,15 +62,40 @@ func (h *Handler) handleAssociateNatGatewayAddress(vals url.Values, reqID string
 
 func (h *Handler) handleAssignPrivateNatGatewayAddress(vals url.Values, reqID string) (any, error) {
 	natGatewayID := vals.Get("NatGatewayId")
-	if err := h.Backend.AssignPrivateNatGatewayAddress(natGatewayID); err != nil {
+
+	count := 0
+	if v := vals.Get("PrivateIpAddressCount"); v != "" {
+		_, _ = fmt.Sscan(v, &count)
+	}
+
+	ips := parseMemberList(vals, "PrivateIpAddress")
+
+	ngw, err := h.Backend.AssignPrivateNatGatewayAddress(natGatewayID, count, ips)
+	if err != nil {
 		return nil, err
 	}
 
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "AssignPrivateNatGatewayAddressResponse"},
-		RequestID: reqID,
-		Return:    true,
+	item := toNatGatewayItem(ngw, nil)
+
+	return &assignPrivateNatGatewayAddressResponse{
+		Xmlns:               ec2XMLNS,
+		RequestID:           reqID,
+		NatGatewayID:        ngw.ID,
+		NatGatewayAddresses: item.NatGatewayAddresses,
 	}, nil
+}
+
+// assignPrivateNatGatewayAddressResponse matches
+// AssignPrivateNatGatewayAddressOutput (ec2@v1.319.1
+// api_op_AssignPrivateNatGatewayAddress.go): natGatewayAddressSet and
+// natGatewayId, no Return member -- the same shape as the sibling
+// Associate/Disassociate/UnassignPrivateNatGatewayAddress ops.
+type assignPrivateNatGatewayAddressResponse struct {
+	XMLName             xml.Name             `xml:"AssignPrivateNatGatewayAddressResponse"`
+	Xmlns               string               `xml:"xmlns,attr"`
+	RequestID           string               `xml:"requestId"`
+	NatGatewayID        string               `xml:"natGatewayId,omitempty"`
+	NatGatewayAddresses natGatewayAddressSet `xml:"natGatewayAddressSet"`
 }
 
 type unassignPrivateNatGatewayAddressResponse struct {

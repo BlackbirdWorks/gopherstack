@@ -570,7 +570,7 @@ func TestHandlerNetworkSpotPlacementOperations(t *testing.T) {
 			name: "UnassignPrivateIPAddresses_success",
 			setupFn: func(h *ec2.Handler) string {
 				eni, _ := h.Backend.CreateNetworkInterface("subnet-default", "")
-				_ = h.Backend.AssignPrivateIPAddresses(eni.ID, 0, []string{"10.0.1.50"})
+				_, _ = h.Backend.AssignPrivateIPAddresses(eni.ID, 0, []string{"10.0.1.50"})
 
 				return fmt.Sprintf(
 					"Action=UnassignPrivateIpAddresses&Version=2016-11-15&NetworkInterfaceId=%s&PrivateIpAddress.1=10.0.1.50",

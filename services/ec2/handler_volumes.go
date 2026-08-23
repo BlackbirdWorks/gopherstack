@@ -382,13 +382,21 @@ type listVolumesInRecycleBinResponse struct {
 	} `xml:"volumeSet"`
 }
 
+// resetEbsDefaultKmsKeyResponse matches ResetEbsDefaultKmsKeyIdOutput
+// (ec2@v1.319.1 api_op_ResetEbsDefaultKmsKeyId.go): kmsKeyId only, no Return
+// member -- the same shape Get/ModifyEbsDefaultKmsKeyId already render.
+type resetEbsDefaultKmsKeyResponse struct {
+	XMLName   xml.Name `xml:"ResetEbsDefaultKmsKeyIdResponse"`
+	RequestID string   `xml:"requestId"`
+	KmsKeyID  string   `xml:"kmsKeyId"`
+}
+
 func (h *Handler) handleResetEbsDefaultKmsKeyID(_ url.Values, reqID string) (any, error) {
 	h.Backend.ResetEbsDefaultKmsKeyID()
 
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "ResetEbsDefaultKmsKeyIdResponse"},
+	return &resetEbsDefaultKmsKeyResponse{
 		RequestID: reqID,
-		Return:    true,
+		KmsKeyID:  h.Backend.GetEbsDefaultKmsKeyID(),
 	}, nil
 }
 

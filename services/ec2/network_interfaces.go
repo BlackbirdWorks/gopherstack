@@ -232,26 +232,30 @@ func (b *InMemoryBackend) SetNetworkInterfaceDeleteOnTermination(
 
 // AssignPrivateIPAddresses adds secondary private IP addresses to an ENI.
 // count is used when ips is empty; otherwise the supplied IPs are assigned.
-func (b *InMemoryBackend) AssignPrivateIPAddresses(eniID string, count int, ips []string) error {
+// Returns the IPs actually assigned.
+func (b *InMemoryBackend) AssignPrivateIPAddresses(eniID string, count int, ips []string) ([]string, error) {
 	b.mu.Lock("AssignPrivateIPAddresses")
 	defer b.mu.Unlock()
 
 	eni, ok := b.networkInterfaces.Get(eniID)
 	if !ok {
-		return fmt.Errorf("%w: %s", ErrNetworkInterfaceNotFound, eniID)
+		return nil, fmt.Errorf("%w: %s", ErrNetworkInterfaceNotFound, eniID)
 	}
 
 	if len(ips) > 0 {
 		eni.SecondaryPrivateIPs = append(eni.SecondaryPrivateIPs, ips...)
 
-		return nil
+		return ips, nil
 	}
 
+	assigned := make([]string, 0, count)
 	for range count {
-		eni.SecondaryPrivateIPs = append(eni.SecondaryPrivateIPs, b.allocPrivateIP())
+		ip := b.allocPrivateIP()
+		eni.SecondaryPrivateIPs = append(eni.SecondaryPrivateIPs, ip)
+		assigned = append(assigned, ip)
 	}
 
-	return nil
+	return assigned, nil
 }
 
 // UnassignPrivateIPAddresses removes secondary private IP addresses from an ENI.

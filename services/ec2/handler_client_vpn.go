@@ -490,6 +490,16 @@ func (h *Handler) handleModifyClientVpnEndpoint(vals url.Values, reqID string) (
 	}, nil
 }
 
+// applySecurityGroupsToClientVpnTargetNetworkResponse matches
+// ApplySecurityGroupsToClientVpnTargetNetworkOutput (ec2@v1.319.1
+// api_op_ApplySecurityGroupsToClientVpnTargetNetwork.go): SecurityGroupIds,
+// no Return member.
+type applySecurityGroupsToClientVpnTargetNetworkResponse struct {
+	XMLName         xml.Name `xml:"ApplySecurityGroupsToClientVpnTargetNetworkResponse"`
+	RequestID       string   `xml:"requestId"`
+	SecurityGroupID []string `xml:"securityGroupIds>item"`
+}
+
 func (h *Handler) handleApplySecurityGroupsToClientVpnTargetNetwork(
 	vals url.Values,
 	reqID string,
@@ -500,10 +510,9 @@ func (h *Handler) handleApplySecurityGroupsToClientVpnTargetNetwork(
 		return nil, err
 	}
 
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "ApplySecurityGroupsToClientVpnTargetNetworkResponse"},
-		RequestID: reqID,
-		Return:    true,
+	return &applySecurityGroupsToClientVpnTargetNetworkResponse{
+		RequestID:       reqID,
+		SecurityGroupID: sgs,
 	}, nil
 }
 

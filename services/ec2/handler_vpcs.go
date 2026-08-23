@@ -95,17 +95,43 @@ func (h *Handler) handleModifyVpcPeeringConnectionOptions(
 	return resp, nil
 }
 
+// disassociateVpcCidrBlockResponse matches DisassociateVpcCidrBlockOutput
+// (ec2@v1.319.1 api_op_DisassociateVpcCidrBlock.go): cidrBlockAssociation
+// (nested associationId/cidrBlock/cidrBlockState>state) plus vpcId, no
+// Return member. Ipv6CidrBlockAssociation is never populated: this backend's
+// DisassociateVpcCidrBlock only tracks IPv4 secondary CIDR associations.
+type disassociateVpcCidrBlockResponse struct {
+	XMLName              xml.Name              `xml:"DisassociateVpcCidrBlockResponse"`
+	RequestID            string                `xml:"requestId"`
+	VpcID                string                `xml:"vpcId,omitempty"`
+	CidrBlockAssociation vpcCidrBlockAssocItem `xml:"cidrBlockAssociation"`
+}
+
+type vpcCidrBlockAssocItem struct {
+	AssociationID  string `xml:"associationId,omitempty"`
+	CidrBlock      string `xml:"cidrBlock,omitempty"`
+	CidrBlockState struct {
+		State string `xml:"state,omitempty"`
+	} `xml:"cidrBlockState"`
+}
+
 func (h *Handler) handleDisassociateVpcCidrBlock(vals url.Values, reqID string) (any, error) {
 	assocID := vals.Get("AssociationId")
-	if err := h.Backend.DisassociateVpcCidrBlock(assocID); err != nil {
+
+	vpcID, assoc, err := h.Backend.DisassociateVpcCidrBlock(assocID)
+	if err != nil {
 		return nil, err
 	}
 
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DisassociateVpcCidrBlockResponse"},
+	resp := &disassociateVpcCidrBlockResponse{
 		RequestID: reqID,
-		Return:    true,
-	}, nil
+		VpcID:     vpcID,
+	}
+	resp.CidrBlockAssociation.AssociationID = assoc.AssociationID
+	resp.CidrBlockAssociation.CidrBlock = assoc.CidrBlock
+	resp.CidrBlockAssociation.CidrBlockState.State = assoc.State
+
+	return resp, nil
 }
 
 func (h *Handler) handleModifyVpcAttribute(vals url.Values, reqID string) (any, error) {

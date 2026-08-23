@@ -12,6 +12,23 @@ type associateSGVpcResponse struct {
 	State     sgVpcAssocStateItem `xml:"state"`
 }
 
+// sgVpcAssocStateDisassociated is the terminal state this backend reports
+// immediately after DisassociateSecurityGroupVpc, since it drops the
+// association synchronously rather than modeling the real API's transient
+// "disassociating" state.
+const sgVpcAssocStateDisassociated = "disassociated"
+
+// disassociateSGVpcResponse matches DisassociateSecurityGroupVpcOutput
+// (ec2@v1.319.1 api_op_DisassociateSecurityGroupVpc.go): a flat <state>
+// scalar, unlike AssociateSecurityGroupVpcOutput's element name being the
+// same but this op has no Return field at all.
+type disassociateSGVpcResponse struct {
+	XMLName   xml.Name `xml:"DisassociateSecurityGroupVpcResponse"`
+	Xmlns     string   `xml:"xmlns,attr"`
+	RequestID string   `xml:"requestId"`
+	State     string   `xml:"state"`
+}
+
 type sgReferenceItem struct {
 	GroupID                string `xml:"groupId"`
 	ReferencingVpcID       string `xml:"referencingVpcId"`
@@ -75,10 +92,10 @@ func (h *Handler) handleDisassociateSecurityGroupVpc(vals url.Values, reqID stri
 		return nil, err
 	}
 
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DisassociateSecurityGroupVpcResponse"},
+	return &disassociateSGVpcResponse{
+		Xmlns:     ec2XMLNS,
 		RequestID: reqID,
-		Return:    true,
+		State:     sgVpcAssocStateDisassociated,
 	}, nil
 }
 
@@ -310,24 +327,28 @@ func securityGroupsSupportedOperations() []string {
 }
 
 type authorizeSecurityGroupIngressResponse struct {
-	XMLName   xml.Name `xml:"AuthorizeSecurityGroupIngressResponse"`
-	Xmlns     string   `xml:"xmlns,attr"`
-	RequestID string   `xml:"requestId"`
-	Return    bool     `xml:"return"`
+	XMLName              xml.Name        `xml:"AuthorizeSecurityGroupIngressResponse"`
+	Xmlns                string          `xml:"xmlns,attr"`
+	RequestID            string          `xml:"requestId"`
+	SecurityGroupRuleSet sgRuleDetailSet `xml:"securityGroupRuleSet"`
+	Return               bool            `xml:"return"`
 }
 
 type authorizeSecurityGroupEgressResponse struct {
-	XMLName   xml.Name `xml:"AuthorizeSecurityGroupEgressResponse"`
-	Xmlns     string   `xml:"xmlns,attr"`
-	RequestID string   `xml:"requestId"`
-	Return    bool     `xml:"return"`
+	XMLName              xml.Name        `xml:"AuthorizeSecurityGroupEgressResponse"`
+	Xmlns                string          `xml:"xmlns,attr"`
+	RequestID            string          `xml:"requestId"`
+	SecurityGroupRuleSet sgRuleDetailSet `xml:"securityGroupRuleSet"`
+	Return               bool            `xml:"return"`
 }
 
 type revokeSecurityGroupIngressResponse struct {
-	XMLName   xml.Name `xml:"RevokeSecurityGroupIngressResponse"`
-	Xmlns     string   `xml:"xmlns,attr"`
-	RequestID string   `xml:"requestId"`
-	Return    bool     `xml:"return"`
+	XMLName                     xml.Name           `xml:"RevokeSecurityGroupIngressResponse"`
+	Xmlns                       string             `xml:"xmlns,attr"`
+	RequestID                   string             `xml:"requestId"`
+	RevokedSecurityGroupRuleSet sgRuleDetailSet    `xml:"revokedSecurityGroupRuleSet"`
+	UnknownIPPermissionSet      []ipPermissionItem `xml:"unknownIpPermissionSet>item,omitempty"`
+	Return                      bool               `xml:"return"`
 }
 
 func parseIPPermissions(vals url.Values) []SecurityGroupRule {
@@ -390,6 +411,49 @@ func parseIPPermissions(vals url.Values) []SecurityGroupRule {
 	return rules
 }
 
+// newlyAddedRuleDetails re-reads a security group's rules after an Authorize
+// call and returns the last n of the requested direction. Authorize appends
+// rather than inserts and rejects duplicates (validateSecurityGroupRules), so
+// the tail of the direction-filtered, index-ordered list is exactly the set
+// just added.
+func newlyAddedRuleDetails(b Backend, groupID string, n int, egress bool) ([]*SecurityGroupRuleDetail, error) {
+	all, err := b.DescribeSecurityGroupRules(groupID)
+	if err != nil {
+		return nil, err
+	}
+
+	filtered := make([]*SecurityGroupRuleDetail, 0, len(all))
+	for _, d := range all {
+		if d.IsEgress == egress {
+			filtered = append(filtered, d)
+		}
+	}
+
+	if n > len(filtered) {
+		n = len(filtered)
+	}
+
+	return filtered[len(filtered)-n:], nil
+}
+
+func sgRuleDetailItemsFrom(details []*SecurityGroupRuleDetail) []sgRuleDetailItem {
+	items := make([]sgRuleDetailItem, 0, len(details))
+	for _, d := range details {
+		items = append(items, sgRuleDetailItem{
+			SecurityGroupRuleID: d.SecurityGroupRuleID,
+			GroupID:             d.GroupID,
+			Protocol:            d.Protocol,
+			CIDRIPv4:            d.CIDRIPv4,
+			Description:         d.Description,
+			FromPort:            d.FromPort,
+			ToPort:              d.ToPort,
+			IsEgress:            d.IsEgress,
+		})
+	}
+
+	return items
+}
+
 func (h *Handler) handleAuthorizeSecurityGroupIngress(vals url.Values, reqID string) (any, error) {
 	groupID := vals.Get("GroupId")
 	if groupID == "" {
@@ -402,10 +466,16 @@ func (h *Handler) handleAuthorizeSecurityGroupIngress(vals url.Values, reqID str
 		return nil, err
 	}
 
+	added, err := newlyAddedRuleDetails(h.Backend, groupID, len(rules), false)
+	if err != nil {
+		return nil, err
+	}
+
 	return &authorizeSecurityGroupIngressResponse{
-		Xmlns:     ec2XMLNS,
-		RequestID: reqID,
-		Return:    true,
+		Xmlns:                ec2XMLNS,
+		RequestID:            reqID,
+		Return:               true,
+		SecurityGroupRuleSet: sgRuleDetailSet{Items: sgRuleDetailItemsFrom(added)},
 	}, nil
 }
 
@@ -421,10 +491,16 @@ func (h *Handler) handleAuthorizeSecurityGroupEgress(vals url.Values, reqID stri
 		return nil, err
 	}
 
+	added, err := newlyAddedRuleDetails(h.Backend, groupID, len(rules), true)
+	if err != nil {
+		return nil, err
+	}
+
 	return &authorizeSecurityGroupEgressResponse{
-		Xmlns:     ec2XMLNS,
-		RequestID: reqID,
-		Return:    true,
+		Xmlns:                ec2XMLNS,
+		RequestID:            reqID,
+		Return:               true,
+		SecurityGroupRuleSet: sgRuleDetailSet{Items: sgRuleDetailItemsFrom(added)},
 	}, nil
 }
 
@@ -436,14 +512,17 @@ func (h *Handler) handleRevokeSecurityGroupIngress(vals url.Values, reqID string
 
 	rules := parseIPPermissions(vals)
 
-	if err := h.Backend.RevokeSecurityGroupIngress(groupID, rules); err != nil {
+	revoked, unknown, err := h.Backend.RevokeSecurityGroupIngress(groupID, rules)
+	if err != nil {
 		return nil, err
 	}
 
 	return &revokeSecurityGroupIngressResponse{
-		Xmlns:     ec2XMLNS,
-		RequestID: reqID,
-		Return:    true,
+		Xmlns:                       ec2XMLNS,
+		RequestID:                   reqID,
+		Return:                      true,
+		RevokedSecurityGroupRuleSet: sgRuleDetailSet{Items: sgRuleDetailItemsFrom(revoked)},
+		UnknownIPPermissionSet:      toIPPermissionItems(unknown),
 	}, nil
 }
 
@@ -487,11 +566,12 @@ func (h *Handler) handleCreateSecurityGroup(vals url.Values, reqID string) (any,
 	}
 
 	return &createSecurityGroupResponse{
-		Xmlns:     ec2XMLNS,
-		RequestID: reqID,
-		GroupID:   sg.ID,
-		Return:    true,
-		TagSet:    tagItemsFromMap(tags),
+		Xmlns:            ec2XMLNS,
+		RequestID:        reqID,
+		GroupID:          sg.ID,
+		SecurityGroupArn: sg.ARN,
+		Return:           true,
+		TagSet:           tagItemsFromMap(tags),
 	}, nil
 }
 
@@ -508,6 +588,7 @@ func (h *Handler) handleDeleteSecurityGroup(vals url.Values, reqID string) (any,
 	return &deleteSecurityGroupResponse{
 		Xmlns:     ec2XMLNS,
 		RequestID: reqID,
+		GroupID:   id,
 		Return:    true,
 	}, nil
 }
@@ -622,18 +703,20 @@ type describeSecurityGroupsResponse struct {
 }
 
 type createSecurityGroupResponse struct {
-	XMLName   xml.Name        `xml:"CreateSecurityGroupResponse"`
-	Xmlns     string          `xml:"xmlns,attr"`
-	RequestID string          `xml:"requestId"`
-	GroupID   string          `xml:"groupId"`
-	TagSet    []simpleTagItem `xml:"tagSet>item"`
-	Return    bool            `xml:"return"`
+	XMLName          xml.Name        `xml:"CreateSecurityGroupResponse"`
+	Xmlns            string          `xml:"xmlns,attr"`
+	RequestID        string          `xml:"requestId"`
+	GroupID          string          `xml:"groupId"`
+	SecurityGroupArn string          `xml:"securityGroupArn"`
+	TagSet           []simpleTagItem `xml:"tagSet>item"`
+	Return           bool            `xml:"return"`
 }
 
 type deleteSecurityGroupResponse struct {
 	XMLName   xml.Name `xml:"DeleteSecurityGroupResponse"`
 	Xmlns     string   `xml:"xmlns,attr"`
 	RequestID string   `xml:"requestId"`
+	GroupID   string   `xml:"groupId"`
 	Return    bool     `xml:"return"`
 }
 

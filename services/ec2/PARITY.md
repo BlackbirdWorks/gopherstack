@@ -768,3 +768,195 @@ of its 9 `Return: true` sites are Category B/C-real: `AuthorizeSecurityGroupEgre
 `RestoreAddressToClassic`), `handler_snapshots.go` (`RestoreSnapshotFromRecycleBin`,
 `RestoreSnapshotTier` -- already named above), and `handler_instances.go`
 (`EnableSerialConsoleAccess`/`DisableSerialConsoleAccess`).
+
+**2026-08-23 pass -- census follow-up, 21 of the 27 named `Return`-only sites
+fixed**: continuation of the two passes above, working the named queue of 27
+sites (20 Category C, 6 Category B) the census pass classified against the
+real `Return`-only-vs-real-shape distinction. Re-verified every site by hand
+against the installed `aws-sdk-go-v2/service/ec2@v1.319.1` deserializers
+before touching it, per parity-principles.md rule 2. The census undercounted
+by one name (27 claimed, only 26 distinct op names listed) -- worked all 26.
+
+Fixed 21:
+
+- **Security groups** (`handler_security_groups.go`, `security_groups.go`):
+  `CreateSecurityGroup` gained `SecurityGroupArn` (`SecurityGroup` gained an
+  `ARN` field, set at creation from `b.Region`/`b.AccountID`, additive/
+  `omitempty` -- no snapshot bump). `DeleteSecurityGroup` gained `GroupId`.
+  `AuthorizeSecurityGroupIngress`/`Egress` gained `SecurityGroupRules`: since
+  Authorize appends (never inserts) and rejects duplicates, the newly-added
+  rules are exactly the tail of the direction-filtered
+  `DescribeSecurityGroupRules` result, no backend signature change needed.
+  `RevokeSecurityGroupIngress` gained `RevokedSecurityGroupRules` and
+  `UnknownIpPermissions` -- `Backend.RevokeSecurityGroupIngress` signature
+  changed from `(string, []SecurityGroupRule) error` to
+  `(string, []SecurityGroupRule) ([]*SecurityGroupRuleDetail,
+  []SecurityGroupRule, error)` so unmatched-vs-matched rules are determined
+  where `sg.IngressRules` is actually visible (matches the existing
+  `ruleKey`/`removeRule` identity rules, including source-group
+  references). `DisassociateSecurityGroupVpc` was the worst of this batch:
+  the real Output has **no Return member at all**, only a flat `<state>`
+  scalar -- was rendering `stubResponse{Return: true}`, so a real client's
+  `State` was always empty. New `disassociateSGVpcResponse` reports
+  `"disassociated"` (this backend removes the association synchronously, no
+  transient `"disassociating"` state modeled). While building this,
+  confirmed a **pre-existing, out-of-queue bug** in the sibling
+  `AssociateSecurityGroupVpc`: its response wraps `<state>` in an extra
+  nested `<state>` (`sgVpcAssocStateItem`), which the real deserializer
+  cannot decode at all (`expected value for state element, got
+  xml.StartElement`) -- confirmed via a real-client call, left unfixed
+  (`AssociateSecurityGroupVpc` isn't in this pass's named queue), test setup
+  routed around it via direct backend calls instead. **Also found and fixed
+  a self-inflicted bug while building these fixes**: reusing one Go struct
+  type across multiple ops with a *tagged* `XMLName` field
+  (`serialConsoleAccessStatusResponse`, `instanceEventNotifAttrsResponse`)
+  silently ignores a runtime-set `XMLName` value -- `encoding/xml`'s
+  `Marshal` always uses the tag when one is present, confirmed with a
+  throwaway `xml.Marshal` repro. Both shared-struct types had their `XMLName`
+  tag removed and every call site updated to set it explicitly; caught by a
+  raw-body assertion test before it shipped.
+- **Elastic IPs** (`handler_elastic_ips.go`, `elastic_ips.go`):
+  `ResetAddressAttribute` gained a real `Address` (`AllocationId`/`PublicIp`;
+  `PtrRecord` correctly left empty -- reset clears it, so empty is the real
+  post-reset value, not a gap). `DisableAddressTransfer` gained a real
+  `AddressTransfer` -- backend now captures the transfer before deleting it
+  rather than discarding it. `RestoreAddressToClassic` gained `PublicIp` and
+  `Status` (`"InClassic"`, the terminal value; this backend restores
+  synchronously so it never reports the transient `"MoveInProgress"`).
+  `AssociateAddress` was investigated and found to be a **false positive**:
+  its only real member, `AssociationId`, was already wired correctly; the
+  spurious `<return>` is the harmless case documented as 1 of the 42
+  cosmetic-only sites two passes ago.
+- **Fast Launch** (`handler_images.go`): `EnableFastLaunch` and
+  `DisableFastLaunch` both had **no Return member at all** in the real
+  output, only `imageId`/`ownerId`/`state`/`resourceType`/
+  `maxParallelLaunches`/`launchTemplate`/`snapshotConfiguration`. Fixed
+  handler-locally (no backend/persistence change): echoes the request's own
+  `LaunchTemplate.*`/`MaxParallelLaunches`/`SnapshotConfiguration.*` fields
+  straight from `vals` (real request data, not fabricated), defaulting
+  `ResourceType="snapshot"` (the enum's only legal value) and
+  `MaxParallelLaunches=6` (real AWS's documented default) when the request
+  omits them. `State` reports the real transient values (`"enabling"`/
+  `"disabling"`) rather than a fabricated terminal state, since neither
+  exists as a terminal enum value in the real `FastLaunchStateCode`.
+  `DeregisterImage` (Category B) was investigated and left unfixed: its
+  missing sibling, `DeleteSnapshotResults`, is only ever populated when
+  `DeleteAssociatedSnapshots=true` *and* a backing snapshot was deleted, but
+  `AMIStub` (`images.go`) tracks no block-device-mapping/snapshot
+  association at all -- an always-empty field would be byte-identical to
+  today's response in every observable case, so adding it would be dead
+  code, not a fix. Named as a real modeling gap.
+- **Instance event notification attributes** (`handler_account_attrs.go`):
+  `RegisterInstanceEventNotificationAttributes`/
+  `DeregisterInstanceEventNotificationAttributes` both had no Return member,
+  only a nested `InstanceTagAttribute` (`IncludeAllTagsOfInstance`, real and
+  tracked; `InstanceTagKeys` left empty -- this backend only tracks the
+  all-tags boolean, not individually registered keys).
+- **Serial console access** (`handler_instances.go`):
+  `Enable`/`DisableSerialConsoleAccess` had no Return member, only
+  `SerialConsoleAccessEnabled` -- the same shape
+  `GetSerialConsoleAccessStatus` already rendered correctly, now shared via
+  one struct (see the XMLName-tag-reuse bug above).
+- **ENI/NAT private IPs** (`handler_network_interfaces.go`,
+  `network_interfaces.go`, `handler_nat_gateways.go`, `nat_gateways.go`):
+  `AssignPrivateIpAddresses` gained `AssignedPrivateIpAddresses` --
+  `Backend.AssignPrivateIPAddresses` now returns the IPs it actually
+  assigned (auto-allocated or caller-supplied) instead of discarding them.
+  `AssignPrivateNatGatewayAddress` had **no Return member at all**, only
+  `natGatewayAddressSet`/`natGatewayId` -- was a bare `stubResponse`; fixed
+  the same way as its siblings (`AssociateNatGatewayAddress`,
+  `UnassignPrivateNatGatewayAddress`, already correct) and extended
+  `Backend.AssignPrivateNatGatewayAddress` to honor `PrivateIpAddressCount`/
+  `PrivateIpAddresses` (previously only ever assigned exactly 1 IP,
+  discarding both request parameters).
+- **Client VPN / Reserved Instances / VPC CIDR** (`handler_client_vpn.go`,
+  `handler_reserved_instances.go`, `reserved_instances.go`,
+  `handler_vpcs.go`, `vpcs.go`): `ApplySecurityGroupsToClientVpnTargetNetwork`
+  gained `SecurityGroupIds` (echoes the request's own list -- the backend
+  stores exactly what's requested, confirmed by reading
+  `ApplySecurityGroupsToClientVpnTargetNetwork` in `client_vpn.go`).
+  `CancelReservedInstancesListing` gained `ReservedInstancesListings` (the
+  same shape `DescribeReservedInstancesListings` already renders) --
+  `Backend.CancelReservedInstancesListing` now returns the cancelled
+  listing instead of discarding it. `DisassociateVpcCidrBlock` had **no
+  Return member**, only a nested `CidrBlockAssociation`
+  (`associationId`/`cidrBlock`/`cidrBlockState>state`) plus `VpcId` --
+  `Backend.DisassociateVpcCidrBlock` now captures the association (with
+  `State` forced to the real terminal `"disassociated"` enum value, same
+  synchronous-backend reasoning as the security-group case above) and its
+  owning VPC ID before deleting the map entry, instead of discarding both.
+- **`ResetEbsDefaultKmsKeyId`** (`handler_volumes.go`): had no Return member,
+  only `KmsKeyId` -- `GetEbsDefaultKmsKeyID()` already correctly returns
+  `"alias/aws/ebs"` post-reset; the handler just wasn't calling it.
+
+False positive, confirmed correct as-is (2): `AssociateAddress` (above);
+`DisassociateTrunkInterface` -- the real `DisassociateTrunkInterfaceInput`
+has its own `ClientToken` request field (idempotency token, not something
+carried over from association time), and the handler already echoes
+`vals.Get("ClientToken")` alongside `Return`, matching the real Output
+exactly.
+
+Genuine gaps, confirmed and left unfixed (3): `RestoreSnapshotTier` --
+already documented above (no temporary-vs-permanent-restore or
+restore-expiry state tracked at all). `DeregisterImage` -- above.
+`RestoreSnapshotFromRecycleBin` -- re-investigated past what the prior
+entry above assumed. That entry said this was "buildable... just not
+attempted" since the backend has the restored `Snapshot` in hand at the
+point it discards it, and that part is still true (verified: the response
+struct built from it round-trips correctly against a real client via a
+throwaway test). But a full-repo grep for `recycleBinSnapshots.Put` found
+**zero call sites** -- nothing in this backend, including `DeleteSnapshot`,
+ever moves a snapshot into the recycle bin in the first place. The
+precondition this op reads can never be true against a real snapshot today,
+regardless of response shape, so there is no real-client round trip to
+prove and the fix was reverted rather than shipped as dead code. This is a
+deeper gap than previously documented: `DeleteSnapshot` needs to model
+recycle-bin retention before `RestoreSnapshotFromRecycleBin`'s response
+shape is worth building. Left as a `stubResponse`, same as before.
+
+Proof for all 21: `services/ec2/wire_field_fixes_ec2sweep{14..21}_test.go`,
+one or more `*_RealClient` tests per fix built against the real
+`ec2sdk.Client` (raw-body `ec2.ExportDispatch` assertions where the correct
+value coincides with a Go zero value, e.g. `DisableSerialConsoleAccess`).
+Every fix hand-reverted in turn (`cp` from a saved pre-fix copy, ran only
+that fix's test(s), confirmed failure, restored, `md5sum` identical
+before/after every touched file) -- representative failures:
+- `TestDisassociateSecurityGroupVpc_WireShape_RealClient`: `expected value
+  for state element, got xml.StartElement` pre-fix (via the buggy
+  `stubResponse{Return: true}` shape).
+- `TestAuthorizeSecurityGroupIngress_SurfacesRules_RealClient`: `"[]" should
+  have 1 item(s), but has 0` on `out.SecurityGroupRules`.
+- `TestEnableFastLaunch_WireShape_RealClient`: `MaxParallelLaunches` decoded
+  0 instead of the real default 6.
+- `TestAssignPrivateNatGatewayAddress_SurfacesAddresses_RealClient`:
+  `NatGatewayId`/`NatGatewayAddresses` both empty pre-fix.
+- `TestDisassociateVpcCidrBlock_WireShape_RealClient`: `CidrBlockAssociation`
+  nil pre-fix.
+
+Interface signature changes (all call sites within the ec2 package's own
+tests updated, no external callers found via full-repo grep):
+`Backend.RevokeSecurityGroupIngress`, `Backend.ResetAddressAttribute`,
+`Backend.DisableAddressTransfer`, `Backend.AssignPrivateIPAddresses`,
+`Backend.AssignPrivateNatGatewayAddress`,
+`Backend.CancelReservedInstancesListing`,
+`Backend.DisassociateVpcCidrBlock`. `SecurityGroup` gained an `ARN` field
+(additive, `omitempty`) -- no other persisted struct's json tag, field name,
+or type changed; no `ec2SnapshotVersion` bump; `go test
+./services/ec2/... -run TestPersist` green.
+
+Gates: `make build-check` (`go build ./...` + `go vet -tags e2e ./...` +
+`go vet -tags integration ./...`, exit 0 -- run because 7 exported `Backend`
+signatures changed), `gofmt -l` on every touched file (clean), `go test
+-race ./services/ec2/...` (`ok`, full suite including all new tests),
+`golangci-lint run ./services/ec2/...` (5 `fieldalignment` issues on structs
+added this pass, fixed via `fieldalignment -fix ./services/ec2/...` per the
+gates convention, re-ran to confirm 0 issues). No banned `//nolint`s
+(`grep -rn "nolint:cyclop\|nolint:gocyclo\|nolint:gocognit\|nolint:funlen"` on
+`services/ec2/` — 0).
+
+Not reached, named: none from the named 27/26-site queue -- every site was
+investigated and either fixed, confirmed a false positive, or confirmed a
+genuine gap and documented above. The 42 Category-C-empty cosmetic sites
+from the first pass remain deliberately untouched. The
+`AssociateSecurityGroupVpc` nested-`<state>` bug found incidentally above is
+real but out of this pass's named queue -- left for a future pass.

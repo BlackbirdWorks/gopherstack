@@ -129,7 +129,8 @@ func TestUpdateSGRuleDescriptions(t *testing.T) { //nolint:paralleltest // exist
 		}))
 
 		// Revoking without the description must still find and remove the rule.
-		require.NoError(t, b.RevokeSecurityGroupIngress(sg4.ID, []ec2.SecurityGroupRule{rule}))
+		_, _, err = b.RevokeSecurityGroupIngress(sg4.ID, []ec2.SecurityGroupRule{rule})
+		require.NoError(t, err)
 
 		rules, err := b.DescribeSecurityGroupRules(sg4.ID)
 		require.NoError(t, err)
