@@ -355,3 +355,34 @@ create-side name, unrenamed, and gopherstack has this right). Enum values
 emitted by non-test code (`DEFAULT`, `DELETING`, `JSON`, `READY`, `RUNNING`,
 `SUCCESSFUL`) were grepped and cross-checked against `types/enums.go` --
 all real, no fabricated constants.
+
+### Follow-up pass (2026-08-22)
+
+CI's terraform-tests job failed destroying a real
+`aws_kinesisanalyticsv2_application`: `DeleteApplication` returned
+`InvalidArgumentException` for a `CreateTimestamp` the real
+terraform-provider-aws itself had just echoed back. `DeleteApplication`'s
+optional safety check already tolerated the wire format's own millisecond
+truncation (`epsilon = 1e-3`), but that wasn't the precision loss that
+mattered: `terraform-provider-aws`'s `resourceApplicationRead` persists
+`create_timestamp` to Terraform state via `time.RFC3339`
+(`internal/service/kinesisanalyticsv2/application.go`), a format with *no*
+fractional-second component at all, and `resourceApplicationDelete` parses
+that string back with `time.Parse(time.RFC3339, ...)` before calling
+`DeleteApplication` -- so a real provider-driven delete can only ever send
+the whole-second-floored value, off by up to just under one full second,
+not one millisecond. Reproduced against the real HashiCorp AWS provider via
+`go test ./test/terraform/ -run TestTerraform_KinesisAnalyticsV2` (`tofu
+destroy` failing with the exact CI error) and against the real
+`aws-sdk-go-v2` client (`TestBackend_DeleteApplication_CreateTimestamp/second-truncated_timestamp_deletes`,
+`application_update_test.go`) before the fix, both now passing. Fixed by
+widening the tolerance to a full second (`epsilon = 1.0`), verified against
+the provider's own source rather than assumed; the mismatch-rejection case
+(`wrong := 12345.0`) still fails as expected, so the check still catches a
+genuinely wrong value.
+
+`DeleteApplication`'s row in `ops` above still correctly notes the
+1ms-vs-wire-truncation rationale for existing; that note is now stale on the
+precision figure (says 1e-3, code now uses 1.0) but the underlying
+`ops`/ `gaps` grades are unaffected -- not re-touching the YAML front matter
+for a single constant's value.

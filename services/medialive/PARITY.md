@@ -906,3 +906,48 @@ code) via hand-revert, then restored byte-identical (md5sum-verified).
 Same bug class as the sibling mediatailor (f41d5b42f) and vpclattice
 (gopherstack-wlo1, this session) services, and the s3control/iot instances
 that opened gopherstack-wlo1.
+
+## 2026-08-22: DeleteInput must stay describable as DELETED, not vanish
+
+CI's terraform-tests job failed destroying a real `aws_medialive_input`:
+`tofu destroy` reported `Error: waiting for delete AWS Elemental MediaLive
+Input (<id>): couldn't find resource (21 retries)`. `DeleteInput` removed
+the record outright, so `DescribeInput` 404'd immediately.
+
+Verified against terraform-provider-aws's own source
+(`internal/service/medialive/input.go`) rather than assumed: its
+`waitInputDeleted` polls `DescribeInput` via `statusInput` with
+`Pending: [InputStateDeleting]`, `Target: [InputStateDeleted]`. `statusInput`
+maps a `NotFoundException` to `(nil, "", nil)` -- an *indeterminate* result,
+not a success -- because `retry.StateChangeConf`'s empty-target convention
+(“not found means done”) does not apply here: the target is the literal
+string `"DELETED"`, never empty. An immediate 404 is therefore
+indistinguishable, from the waiter's perspective, from "still deleting", so
+it burns its `NotFoundChecks` budget (21 polls observed) and fails instead
+of succeeding. `resourceInputDelete` does treat a `NotFoundException`
+returned directly from the `DeleteInput` call itself as done (idempotent
+delete-of-already-gone), but that's a different code path from the
+post-delete wait.
+
+Real AWS models exactly this soft-delete window (`InputState` enum has
+`CREATING`/`DETACHED`/`ATTACHED`/`DELETING`/`DELETED` -- `types/enums.go`,
+aws-sdk-go-v2/service/medialive@v1.101.4): a deleted input stays describable
+with `State: DELETED` for some period rather than disappearing on the same
+call. Fixed by having `DeleteInput` mark the stored input `State =
+stateDeleted` in place instead of removing it from the table, mirroring the
+existing `stateDeleted` convention already used for Channel/Multiplex
+responses (`channels.go`, `multiplexes.go`) but, unlike those, actually
+leaving the record live for a subsequent `DescribeInput`. `ListInputs` and
+`InputCount` are unchanged and will continue to include a DELETED input;
+no test or real-client evidence required excluding it, and doing so
+speculatively would be an unverified guess. `BatchDeleteInput`
+(`batch.go`) still hard-deletes and was left alone -- out of scope, no
+failing test or provider evidence implicates it.
+
+Reproduced against the real HashiCorp AWS provider via `go test
+./test/terraform/ -run TestTerraform_MediaLive` (`tofu destroy` failing with
+the exact CI error) and against the real `aws-sdk-go-v2` client
+(`TestDeleteInput_RealClient_StaysDescribableAsDeleted`,
+`handler_inputs_test.go`) before the fix, both now passing after it.
+`TestInput_CRUD`'s delete assertions were updated to match (input count
+stays 1, Describe returns 200 with state DELETED, not 404).

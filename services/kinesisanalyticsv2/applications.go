@@ -276,15 +276,16 @@ func (b *InMemoryBackend) DeleteApplication(ctx context.Context, name string, cr
 	}
 
 	if createTimestampSeconds != nil {
-		// AWS JSON-protocol unixTimestamp values carry at most millisecond
-		// precision on the wire (smithy-go's FormatEpochSeconds/ParseEpochSeconds
-		// truncate to milliseconds), while app.CreatedAt -- and the CreateTimestamp
-		// echoed to the client in a prior DescribeApplication/CreateApplication
-		// response -- retains full nanosecond precision. A real SDK client can
-		// therefore only ever round-trip CreateTimestamp truncated to the
-		// millisecond, so the tolerance here must be at least 1ms or every
-		// legitimate DeleteApplication call would be rejected.
-		const epsilon = 1e-3
+		// terraform-provider-aws round-trips CreateTimestamp through Terraform
+		// state as time.RFC3339 (internal/service/kinesisanalyticsv2/
+		// application.go: resourceApplicationRead's d.Set("create_timestamp",
+		// ...Format(time.RFC3339)), which carries no fractional-second
+		// component at all, and resourceApplicationDelete parses that string
+		// back with time.Parse(time.RFC3339, ...) before sending it here. That
+		// truncates to the whole second, not the millisecond the wire format
+		// itself preserves, so the tolerance must cover a full second or every
+		// legitimate provider-driven DeleteApplication call would be rejected.
+		const epsilon = 1.0
 		if diff := *createTimestampSeconds - awstime.Epoch(app.CreatedAt); diff > epsilon || diff < -epsilon {
 			return ErrValidation
 		}

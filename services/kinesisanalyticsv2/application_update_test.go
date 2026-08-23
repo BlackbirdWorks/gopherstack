@@ -409,6 +409,30 @@ func TestBackend_DeleteApplication_CreateTimestamp(t *testing.T) {
 		require.ErrorIs(t, err, kinesisanalyticsv2.ErrNotFound)
 	})
 
+	t.Run("second-truncated timestamp deletes", func(t *testing.T) {
+		t.Parallel()
+
+		// terraform-provider-aws stores CreateTimestamp in Terraform state via
+		// time.RFC3339 (internal/service/kinesisanalyticsv2/application.go:
+		// resourceApplicationRead's d.Set("create_timestamp",
+		// ...Format(time.RFC3339))) -- a format with no fractional-second
+		// component -- and resourceApplicationDelete parses that string back
+		// with time.Parse(time.RFC3339, ...) before calling DeleteApplication.
+		// A real provider-driven delete can therefore only ever send the
+		// whole-second-floored value, which must still be accepted.
+		b := newTestBackend(t)
+		_, err := b.CreateApplication(ctx, "ts-sec-truncated-app", "FLINK-1_18", "", "", "", nil)
+		require.NoError(t, err)
+
+		createSeconds := appCreateEpochSeconds(t, b, "ts-sec-truncated-app")
+		truncated := math.Floor(createSeconds)
+
+		require.NoError(t, b.DeleteApplication(ctx, "ts-sec-truncated-app", &truncated))
+
+		_, err = b.DescribeApplication(ctx, "ts-sec-truncated-app")
+		require.ErrorIs(t, err, kinesisanalyticsv2.ErrNotFound)
+	})
+
 	t.Run("mismatched timestamp rejected", func(t *testing.T) {
 		t.Parallel()
 
