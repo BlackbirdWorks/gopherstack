@@ -2,6 +2,7 @@ package ec2
 
 import (
 	"encoding/xml"
+	"fmt"
 	"net/url"
 	"strconv"
 )
@@ -72,6 +73,7 @@ type tgwMulticastDomainItem struct {
 	OwnerID                         string                        `xml:"ownerId,omitempty"`
 	State                           string                        `xml:"state,omitempty"`
 	Options                         tgwMulticastDomainOptionsItem `xml:"options"`
+	TagSet                          []simpleTagItem               `xml:"tagSet>item"`
 }
 
 type createTransitGatewayMulticastDomainResponse struct {
@@ -85,6 +87,7 @@ type describeTransitGatewayMulticastDomainsResponse struct {
 	XMLName   xml.Name `xml:"DescribeTransitGatewayMulticastDomainsResponse"`
 	Xmlns     string   `xml:"xmlns,attr"`
 	RequestID string   `xml:"requestId"`
+	NextToken string   `xml:"nextToken,omitempty"`
 	Domains   struct {
 		Items []tgwMulticastDomainItem `xml:"item"`
 	} `xml:"transitGatewayMulticastDomains"`
@@ -145,6 +148,7 @@ type getTransitGatewayMulticastDomainAssociationsResponse struct {
 	XMLName                     xml.Name `xml:"GetTransitGatewayMulticastDomainAssociationsResponse"`
 	Xmlns                       string   `xml:"xmlns,attr"`
 	RequestID                   string   `xml:"requestId"`
+	NextToken                   string   `xml:"nextToken,omitempty"`
 	MulticastDomainAssociations struct {
 		Items []tgwMulticastGetAssociationItem `xml:"item"`
 	} `xml:"multicastDomainAssociations"`
@@ -208,6 +212,7 @@ type searchTransitGatewayMulticastGroupsResponse struct {
 	XMLName         xml.Name `xml:"SearchTransitGatewayMulticastGroupsResponse"`
 	Xmlns           string   `xml:"xmlns,attr"`
 	RequestID       string   `xml:"requestId"`
+	NextToken       string   `xml:"nextToken,omitempty"`
 	MulticastGroups struct {
 		Items []tgwMulticastGroupItem `xml:"item"`
 	} `xml:"multicastGroups"`
@@ -216,11 +221,12 @@ type searchTransitGatewayMulticastGroupsResponse struct {
 // ---- XML types: metering policies ----
 
 type tgwMeteringPolicyItem struct {
-	UpdateEffectiveAt              string   `xml:"updateEffectiveAt,omitempty"`
-	TransitGatewayID               string   `xml:"transitGatewayId,omitempty"`
-	TransitGatewayMeteringPolicyID string   `xml:"transitGatewayMeteringPolicyId,omitempty"`
-	State                          string   `xml:"state,omitempty"`
-	MiddleboxAttachmentIDs         []string `xml:"middleboxAttachmentIdSet>item"`
+	UpdateEffectiveAt              string          `xml:"updateEffectiveAt,omitempty"`
+	TransitGatewayID               string          `xml:"transitGatewayId,omitempty"`
+	TransitGatewayMeteringPolicyID string          `xml:"transitGatewayMeteringPolicyId,omitempty"`
+	State                          string          `xml:"state,omitempty"`
+	MiddleboxAttachmentIDs         []string        `xml:"middleboxAttachmentIdSet>item"`
+	TagSet                         []simpleTagItem `xml:"tagSet>item"`
 }
 
 type createTransitGatewayMeteringPolicyResponse struct {
@@ -234,6 +240,7 @@ type describeTransitGatewayMeteringPoliciesResponse struct {
 	XMLName   xml.Name `xml:"DescribeTransitGatewayMeteringPoliciesResponse"`
 	Xmlns     string   `xml:"xmlns,attr"`
 	RequestID string   `xml:"requestId"`
+	NextToken string   `xml:"nextToken,omitempty"`
 	Policies  struct {
 		Items []tgwMeteringPolicyItem `xml:"item"`
 	} `xml:"transitGatewayMeteringPolicies"`
@@ -287,7 +294,40 @@ type deleteTransitGatewayMeteringPolicyEntryResponse struct {
 
 const timeLayoutISO = "2006-01-02T15:04:05.000Z"
 
-func tgwMulticastDomainToItem(d *TransitGatewayMulticastDomain) tgwMulticastDomainItem {
+// parseTagSpecificationPlural is parseTagSpecification for the handful of EC2
+// ops whose request field is TagSpecifications.N (plural), not the near-universal
+// TagSpecification.N. CreateTransitGatewayMeteringPolicyInput is one of five
+// such ops in the pinned SDK (ec2@v1.319.1 serializers.go:72985, FlatKey
+// "TagSpecifications"); the other four (CreateCapacityReservation,
+// CreateTransitGatewayPolicyTable, CreateTransitGatewayRouteTable,
+// CreateTransitGatewayVpcAttachment) belong to other families.
+func parseTagSpecificationPlural(vals url.Values, resourceType string) map[string]string {
+	tags := make(map[string]string)
+
+	for i := 1; i <= maxTagsPerRequest; i++ {
+		rt := vals.Get(fmt.Sprintf("TagSpecifications.%d.ResourceType", i))
+		if rt == "" {
+			break
+		}
+
+		if rt != resourceType {
+			continue
+		}
+
+		for j := 1; j <= maxTagsPerRequest; j++ {
+			key := vals.Get(fmt.Sprintf("TagSpecifications.%d.Tag.%d.Key", i, j))
+			if key == "" {
+				break
+			}
+
+			tags[key] = vals.Get(fmt.Sprintf("TagSpecifications.%d.Tag.%d.Value", i, j))
+		}
+	}
+
+	return tags
+}
+
+func tgwMulticastDomainToItem(d *TransitGatewayMulticastDomain, tags map[string]string) tgwMulticastDomainItem {
 	return tgwMulticastDomainItem{
 		CreationTime:                    d.CreationTime.UTC().Format(timeLayoutISO),
 		TransitGatewayID:                d.TransitGatewayID,
@@ -299,16 +339,18 @@ func tgwMulticastDomainToItem(d *TransitGatewayMulticastDomain) tgwMulticastDoma
 			Igmpv2Support:                d.Igmpv2Support,
 			StaticSourcesSupport:         d.StaticSourcesSupport,
 		},
+		TagSet: tagItemsFromMap(tags),
 	}
 }
 
-func tgwMeteringPolicyToItem(p *TransitGatewayMeteringPolicy) tgwMeteringPolicyItem {
+func tgwMeteringPolicyToItem(p *TransitGatewayMeteringPolicy, tags map[string]string) tgwMeteringPolicyItem {
 	return tgwMeteringPolicyItem{
 		UpdateEffectiveAt:              p.UpdateEffectiveAt.UTC().Format(timeLayoutISO),
 		TransitGatewayID:               p.TransitGatewayID,
 		TransitGatewayMeteringPolicyID: p.ID,
 		State:                          p.State,
 		MiddleboxAttachmentIDs:         p.MiddleboxAttachmentIDs,
+		TagSet:                         tagItemsFromMap(tags),
 	}
 }
 
@@ -340,8 +382,9 @@ func (h *Handler) handleCreateTransitGatewayMulticastDomain(vals url.Values, req
 	autoAccept := vals.Get("Options.AutoAcceptSharedAssociations")
 	igmpv2 := vals.Get("Options.Igmpv2Support")
 	staticSources := vals.Get("Options.StaticSourcesSupport")
+	tags := parseTagSpecification(vals, "transit-gateway-multicast-domain")
 
-	domain, err := h.Backend.CreateTransitGatewayMulticastDomain(tgwID, autoAccept, igmpv2, staticSources)
+	domain, err := h.Backend.CreateTransitGatewayMulticastDomain(tgwID, autoAccept, igmpv2, staticSources, tags)
 	if err != nil {
 		return nil, err
 	}
@@ -349,7 +392,7 @@ func (h *Handler) handleCreateTransitGatewayMulticastDomain(vals url.Values, req
 	return &createTransitGatewayMulticastDomainResponse{
 		Xmlns:     ec2XMLNS,
 		RequestID: reqID,
-		Domain:    tgwMulticastDomainToItem(domain),
+		Domain:    tgwMulticastDomainToItem(domain, tags),
 	}, nil
 }
 
@@ -360,10 +403,18 @@ func (h *Handler) handleDescribeTransitGatewayMulticastDomains(
 	ids := parseMemberList(vals, "TransitGatewayMulticastDomainIds")
 	domains := h.Backend.DescribeTransitGatewayMulticastDomains(ids)
 
-	resp := &describeTransitGatewayMulticastDomainsResponse{Xmlns: ec2XMLNS, RequestID: reqID}
+	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageMaxDefault)
+	if err != nil {
+		return nil, err
+	}
+
+	var nextToken string
+	domains, nextToken = pageSlice(domains, offset, maxResults)
+
+	resp := &describeTransitGatewayMulticastDomainsResponse{Xmlns: ec2XMLNS, RequestID: reqID, NextToken: nextToken}
 
 	for _, d := range domains {
-		resp.Domains.Items = append(resp.Domains.Items, tgwMulticastDomainToItem(d))
+		resp.Domains.Items = append(resp.Domains.Items, tgwMulticastDomainToItem(d, h.Backend.TagsForResource(d.ID)))
 	}
 
 	return resp, nil
@@ -373,6 +424,7 @@ func (h *Handler) handleDeleteTransitGatewayMulticastDomain(vals url.Values, req
 	id := vals.Get("TransitGatewayMulticastDomainId")
 
 	existing := h.Backend.DescribeTransitGatewayMulticastDomains([]string{id})
+	tags := h.Backend.TagsForResource(id)
 
 	if err := h.Backend.DeleteTransitGatewayMulticastDomain(id); err != nil {
 		return nil, err
@@ -381,7 +433,7 @@ func (h *Handler) handleDeleteTransitGatewayMulticastDomain(vals url.Values, req
 	var item tgwMulticastDomainItem
 
 	if len(existing) > 0 {
-		item = tgwMulticastDomainToItem(existing[0])
+		item = tgwMulticastDomainToItem(existing[0], tags)
 		item.State = tgwRouteStateDeleted
 	}
 
@@ -458,7 +510,19 @@ func (h *Handler) handleGetTransitGatewayMulticastDomainAssociations(
 	domainID := vals.Get("TransitGatewayMulticastDomainId")
 	assocs := h.Backend.GetTransitGatewayMulticastDomainAssociations(domainID)
 
-	resp := &getTransitGatewayMulticastDomainAssociationsResponse{Xmlns: ec2XMLNS, RequestID: reqID}
+	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageMaxDefault)
+	if err != nil {
+		return nil, err
+	}
+
+	var nextToken string
+	assocs, nextToken = pageSlice(assocs, offset, maxResults)
+
+	resp := &getTransitGatewayMulticastDomainAssociationsResponse{
+		Xmlns:     ec2XMLNS,
+		RequestID: reqID,
+		NextToken: nextToken,
+	}
 
 	for _, a := range assocs {
 		resp.MulticastDomainAssociations.Items = append(
@@ -579,17 +643,24 @@ func (h *Handler) handleSearchTransitGatewayMulticastGroups(vals url.Values, req
 	domainID := vals.Get("TransitGatewayMulticastDomainId")
 	entries := h.Backend.SearchTransitGatewayMulticastGroups(domainID)
 
-	resp := &searchTransitGatewayMulticastGroupsResponse{Xmlns: ec2XMLNS, RequestID: reqID}
+	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageMaxDefault)
+	if err != nil {
+		return nil, err
+	}
+
+	var nextToken string
+	entries, nextToken = pageSlice(entries, offset, maxResults)
+
+	resp := &searchTransitGatewayMulticastGroupsResponse{Xmlns: ec2XMLNS, RequestID: reqID, NextToken: nextToken}
 
 	for _, e := range entries {
 		item := tgwMulticastGroupItem{
-			GroupIPAddress:             e.GroupIPAddress,
-			NetworkInterfaceID:         e.NetworkInterfaceID,
-			ResourceID:                 e.ResourceID,
-			ResourceType:               e.ResourceType,
-			TransitGatewayAttachmentID: e.NetworkInterfaceID,
-			GroupMember:                e.IsMember,
-			GroupSource:                e.IsSource,
+			GroupIPAddress:     e.GroupIPAddress,
+			NetworkInterfaceID: e.NetworkInterfaceID,
+			ResourceID:         e.ResourceID,
+			ResourceType:       e.ResourceType,
+			GroupMember:        e.IsMember,
+			GroupSource:        e.IsSource,
 		}
 
 		if e.IsMember {
@@ -611,8 +682,9 @@ func (h *Handler) handleSearchTransitGatewayMulticastGroups(vals url.Values, req
 func (h *Handler) handleCreateTransitGatewayMeteringPolicy(vals url.Values, reqID string) (any, error) {
 	tgwID := vals.Get("TransitGatewayId")
 	middleboxIDs := parseMemberList(vals, "MiddleboxAttachmentId")
+	tags := parseTagSpecificationPlural(vals, "transit-gateway-metering-policy")
 
-	policy, err := h.Backend.CreateTransitGatewayMeteringPolicy(tgwID, middleboxIDs)
+	policy, err := h.Backend.CreateTransitGatewayMeteringPolicy(tgwID, middleboxIDs, tags)
 	if err != nil {
 		return nil, err
 	}
@@ -620,7 +692,7 @@ func (h *Handler) handleCreateTransitGatewayMeteringPolicy(vals url.Values, reqI
 	return &createTransitGatewayMeteringPolicyResponse{
 		Xmlns:     ec2XMLNS,
 		RequestID: reqID,
-		Policy:    tgwMeteringPolicyToItem(policy),
+		Policy:    tgwMeteringPolicyToItem(policy, tags),
 	}, nil
 }
 
@@ -631,10 +703,18 @@ func (h *Handler) handleDescribeTransitGatewayMeteringPolicies(
 	ids := parseMemberList(vals, "TransitGatewayMeteringPolicyIds")
 	policies := h.Backend.DescribeTransitGatewayMeteringPolicies(ids)
 
-	resp := &describeTransitGatewayMeteringPoliciesResponse{Xmlns: ec2XMLNS, RequestID: reqID}
+	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageMaxDefault)
+	if err != nil {
+		return nil, err
+	}
+
+	var nextToken string
+	policies, nextToken = pageSlice(policies, offset, maxResults)
+
+	resp := &describeTransitGatewayMeteringPoliciesResponse{Xmlns: ec2XMLNS, RequestID: reqID, NextToken: nextToken}
 
 	for _, p := range policies {
-		resp.Policies.Items = append(resp.Policies.Items, tgwMeteringPolicyToItem(p))
+		resp.Policies.Items = append(resp.Policies.Items, tgwMeteringPolicyToItem(p, h.Backend.TagsForResource(p.ID)))
 	}
 
 	return resp, nil
@@ -644,6 +724,7 @@ func (h *Handler) handleDeleteTransitGatewayMeteringPolicy(vals url.Values, reqI
 	id := vals.Get("TransitGatewayMeteringPolicyId")
 
 	existing := h.Backend.DescribeTransitGatewayMeteringPolicies([]string{id})
+	tags := h.Backend.TagsForResource(id)
 
 	if err := h.Backend.DeleteTransitGatewayMeteringPolicy(id); err != nil {
 		return nil, err
@@ -652,7 +733,7 @@ func (h *Handler) handleDeleteTransitGatewayMeteringPolicy(vals url.Values, reqI
 	var item tgwMeteringPolicyItem
 
 	if len(existing) > 0 {
-		item = tgwMeteringPolicyToItem(existing[0])
+		item = tgwMeteringPolicyToItem(existing[0], tags)
 		item.State = tgwRouteStateDeleted
 	}
 

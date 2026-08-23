@@ -830,7 +830,7 @@ func (h *Handler) handleModifyTransitGatewayMeteringPolicy(vals url.Values, reqI
 	return &modifyTransitGatewayMeteringPolicyResponse{
 		Xmlns:     ec2XMLNS,
 		RequestID: reqID,
-		Policy:    tgwMeteringPolicyToItem(policy),
+		Policy:    tgwMeteringPolicyToItem(policy, h.Backend.TagsForResource(policy.ID)),
 	}, nil
 }
 

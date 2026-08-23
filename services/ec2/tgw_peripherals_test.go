@@ -582,7 +582,7 @@ func TestTGWPeripherals_ModifyMeteringPolicyAndGetEntries(t *testing.T) {
 	tgw, err := bk.CreateTransitGateway(ec2.CreateTransitGatewayParams{Description: "test-tgw"})
 	require.NoError(t, err)
 
-	policy, err := bk.CreateTransitGatewayMeteringPolicy(tgw.ID, []string{"tgw-attach-1"})
+	policy, err := bk.CreateTransitGatewayMeteringPolicy(tgw.ID, []string{"tgw-attach-1"}, nil)
 	require.NoError(t, err)
 
 	_, err = bk.ModifyTransitGatewayMeteringPolicy("tgw-metering-policy-nonexistent", nil, nil)
@@ -701,7 +701,7 @@ func TestTGWPeripherals_RejectMulticastDomainAssociations(t *testing.T) {
 	tgw, err := bk.CreateTransitGateway(ec2.CreateTransitGatewayParams{Description: "test-tgw"})
 	require.NoError(t, err)
 
-	domain, err := bk.CreateTransitGatewayMulticastDomain(tgw.ID, "", "", "")
+	domain, err := bk.CreateTransitGatewayMulticastDomain(tgw.ID, "", "", "", nil)
 	require.NoError(t, err)
 
 	_, err = bk.AssociateTransitGatewayMulticastDomain(domain.ID, "tgw-attach-1", []string{"subnet-1"})

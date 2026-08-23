@@ -768,6 +768,7 @@ type Backend interface {
 	// CreateTransitGatewayMulticastDomain creates a new multicast domain on a transit gateway.
 	CreateTransitGatewayMulticastDomain(
 		tgwID, autoAcceptSharedAssociations, igmpv2Support, staticSourcesSupport string,
+		tags map[string]string,
 	) (*TransitGatewayMulticastDomain, error)
 
 	// DescribeTransitGatewayMulticastDomains returns multicast domains, optionally filtered by ID.
@@ -826,6 +827,7 @@ type Backend interface {
 	CreateTransitGatewayMeteringPolicy(
 		tgwID string,
 		middleboxAttachmentIDs []string,
+		tags map[string]string,
 	) (*TransitGatewayMeteringPolicy, error)
 
 	// DescribeTransitGatewayMeteringPolicies returns metering policies, optionally filtered by ID.

@@ -1320,3 +1320,210 @@ reused `err` inside `handleRequestSpotFleet`, fixed by renaming to `tagErr`;
 2 `intrange` on manual pagination loops, fixed by converting to
 `for range ec2sweep11LoopGuard`; final state: 1 `nlreturn`, a disabled
 linter per this repo's convention, left as-is). No banned `//nolint`s.
+
+**2026-08-23 pass -- `handler_tgw_multicast.go`/`handler_instance_attrs.go`,
+next two never-named families**: re-derived both counts by enumerating both
+dispatch paths (`register*Ops` and any op whose handler func is actually
+*defined* in the file but dispatched from `handler.go`'s `buildCoreOps`
+table), per the elastic-IPs lesson above. `handler_tgw_multicast.go`: mapped
+7, re-derived **16** -- all 16 from its own `registerTGWMulticastOps`
+(`tgwMulticastSupportedOperations()` already listed the same 16; the
+mapped-7 estimate was simply stale). No `buildCoreOps` ops belong to this
+file; `AcceptTransitGatewayMulticastDomainAssociations` looks related by
+name but dispatches from `handler_buildops_advanced.go` and is implemented
+in `accept_ops.go` -- a different family, out of scope, named here only so
+it isn't mistaken for an uncounted op of this one. `handler_instance_attrs.go`:
+mapped 7, re-derived **16** -- 14 from its own `registerInstanceAttrOps`, plus
+`ModifyInstanceAttribute`/`ResetInstanceAttribute`, which dispatch from
+`buildCoreOps` in `handler.go` but whose handler funcs are defined in this
+file. `DescribeInstanceAttribute` also dispatches from `buildCoreOps` and is
+named alongside them there, but its handler func lives in
+`handler_instances_lifecycle.go` -- a different family, excluded. 32 ops
+audited across both files; **3 wrong**, all in `handler_tgw_multicast.go`.
+`handler_instance_attrs.go`/`instance_attrs.go` came back clean: every
+response element name, every request field name (including the
+`AssociationTarget.InstanceId`/`AssociationTarget.DedicatedHostId` nesting)
+checked against the pinned SDK's serializers/deserializers matched exactly,
+and the two near-miss candidates below were ruled out as false positives,
+not fixed.
+
+Bugs, each confirmed against the installed `aws-sdk-go-v2/service/ec2@v1.319.1`
+deserializer/serializer, not this backend's own output:
+
+1. **`SearchTransitGatewayMulticastGroups` copied `NetworkInterfaceId` into
+   the response's `TransitGatewayAttachmentId` field** (wrong value, not a
+   name/nesting bug): the real `TransitGatewayMulticastGroup` type
+   (`types/types.go:24172`) declares `NetworkInterfaceId` and
+   `TransitGatewayAttachmentId` as two separate fields; our backend's
+   `TransitGatewayMulticastGroupEntry` never tracked an attachment ID at
+   all, so the handler had silently duplicated the ENI ID into the wrong
+   field. Fix: drop the bogus assignment (the field now renders absent via
+   `omitempty`, since this backend genuinely has no attachment-ID data for a
+   multicast group entry, rather than fabricate a value).
+2. **Four List/Get ops ignored real `MaxResults`/`NextToken` pagination**
+   (list op ignoring pagination): `DescribeTransitGatewayMulticastDomains`,
+   `DescribeTransitGatewayMeteringPolicies`,
+   `GetTransitGatewayMulticastDomainAssociations`,
+   `SearchTransitGatewayMulticastGroups` all declare both on their real
+   Input/Output (none document an explicit range, so `ec2PageMinDefault`/
+   `ec2PageMaxDefault` apply per the existing convention) but returned every
+   item in one unbounded page. Fixed with the established
+   `parseEC2Pagination`/`pageSlice` helpers, matching the pattern already
+   used by `handler_elastic_ips.go` etc. Note:
+   `DescribeTransitGatewayMeteringPolicies` has no SDK-generated
+   `Paginator` (the smithy model doesn't mark it paginated despite the
+   Input/Output declaring the fields) -- its proof test drives pages by
+   hand instead of `NewXxxPaginator`.
+3. **`CreateTransitGatewayMulticastDomain`/`CreateTransitGatewayMeteringPolicy`
+   accepted-and-dropped `TagSpecifications`** (accept-and-drop): both IDs
+   were already valid `CreateTags` targets (`resource_types.go` lists
+   `tgwMeteringPolicies`/`tgwMulticastDomains`), and `DeleteTransitGateway*`
+   already cleaned up `b.tags` on delete, but nothing ever wrote to it on
+   create and neither Describe/Create/Delete response rendered a `tagSet`
+   element -- a tag set at creation came back invisible from every read.
+   Fixed by threading a `tags map[string]string` through both
+   `Backend.CreateTransitGatewayMulticastDomain`/
+   `CreateTransitGatewayMeteringPolicy` (interface signature change, single
+   implementer `InMemoryBackend`; `b.setTagsLocked` mirrors the existing
+   `transit_gateways.go` convention) and rendering `h.Backend.TagsForResource(id)`
+   via `tagItemsFromMap` in both Describe loops and both Delete responses.
+   Sub-bug found while writing this fix's proof test:
+   `CreateTransitGatewayMeteringPolicyInput` sends its tags as
+   `TagSpecifications.N.*` (plural) on the wire
+   (`serializers.go:72985`, `FlatKey("TagSpecifications")`) -- one of only 5
+   ops in the whole pinned SDK that do this, against 112 that use the
+   near-universal singular `TagSpecification.N.*`. The shared
+   `parseTagSpecification` helper (used at 48 other call sites, all
+   singular) would have silently matched nothing for this op, so a
+   `parseTagSpecificationPlural` variant was added locally rather than
+   changing the shared helper's wire format for everyone. The other 4
+   plural-form ops (`CreateCapacityReservation`,
+   `CreateTransitGatewayPolicyTable`, `CreateTransitGatewayRouteTable`,
+   `CreateTransitGatewayVpcAttachment`) belong to other families and were
+   not touched -- worth a follow-up sweep.
+
+Correct sibling check: yes. `AssociateTransitGatewayMulticastDomain`/
+`DisassociateTransitGatewayMulticastDomain`/
+`GetTransitGatewayMulticastDomainAssociations` share the
+`tgwMulticastDomainAssociationsAggregate`/`tgwMulticastGetAssociationItem`
+wire types, both of which declare `ResourceID`/`ResourceOwnerID` fields
+matching the real `TransitGatewayMulticastDomainAssociations` type
+(`types/types.go:24130`) exactly by name -- but neither field is ever
+populated, because the shared `TransitGatewayMulticastDomainAssociation`
+model (`accept_ops.go`, owned by the `AcceptTransitGatewayMulticastDomainAssociations`
+family) carries no VPC-ID/owner-ID data to populate them from. Named as a
+modelling gap below, not fixed here: filling it in would mean adding a
+`tgwVpcAttachments` lookup and possibly widening that shared struct, which
+risks the sibling family this pass didn't audit. `ModifyTransitGatewayMeteringPolicy`
+in `handler_tgw_peripherals.go` shares `tgwMeteringPolicyToItem` and needed
+a one-line call-site update for the new `tags` parameter (already followed
+the correct `h.Backend.TagsForResource(...)`-at-render-site pattern used one
+function above it for `tgwVpcAttachmentToItem`, so nothing else there was
+wrong) -- not a bug, a forced touch from the shared-helper signature change,
+confirmed by reading the surrounding function.
+
+Modelling gaps and false positives ruled out, separately from the bugs above:
+
+- **`ResourceID`/`ResourceOwnerID` never populated on multicast domain
+  associations** (see sibling check above) -- real fields, real wire tags,
+  no backing data in this backend's association model. Not fixed; flagged
+  for whoever next touches `accept_ops.go`'s
+  `TransitGatewayMulticastDomainAssociation`.
+- **`ResourceOwnerId`/`SubnetId` missing entirely from `tgwMulticastGroupItem`**
+  (real fields on `types.TransitGatewayMulticastGroup`, `types/types.go:24172`)
+  -- same shape of gap, not fixed, `TransitGatewayMulticastGroupEntry` has no
+  subnet/owner data to source them from.
+- **`tagSet`/ARN fields on the multicast-domain and metering-policy item
+  types themselves** -- `tagSet` is now wired (bug 3); the `transitGatewayMulticastDomainArn`
+  field the real deserializer also reads (`deserializers.go:168416`) has no
+  backend equivalent (no ARN modelling anywhere in this service) and was
+  left out, consistent with how the rest of the service handles ARNs.
+- **False positive -- `ModifyInstanceAttribute`/`ResetInstanceAttribute`'s
+  hardcoded `Return: true`**: looked like the 21-fixed `Return: true` bug
+  class at a glance (`ModifyInstanceAttributeOutput`/`ResetInstanceAttributeOutput`
+  in the real SDK have no `Return` member at all), but the real
+  deserializer for both ops (`deserializers.go:59714`+) discards the
+  response body wholesale (`io.Copy(io.Discard, response.Body)`) without
+  parsing any XML -- unlike the 21 previously-fixed sites, a real client
+  cannot observe this field either way, so there is no round-trip proof
+  possible and it was left alone.
+- **False positive -- `ModifyInstanceAttribute`'s missing `Kernel.Value`/
+  `Ramdisk.Value` parsing**: the real request supports both
+  (`serializers.go:87595`/`87602`), and this handler's `parseModifyInstanceAttributeValue`
+  checks list omits both, so a real client setting either gets our generic
+  "exactly one modifiable attribute" error instead of a real one. Not a
+  two-file bug, though: `attrKernel`/`attrRamdisk` are already a deliberate,
+  commented design choice one file over
+  (`handler_instances_lifecycle.go`'s `instanceAttributeValue`: "Modern
+  (HVM) instances have no kernel/ramdisk image; AWS returns an empty
+  value") -- this backend models only HVM instances, so both real AWS and
+  this emulator reject the call either way, just with different error
+  text. Left alone rather than half-wiring a request param this backend has
+  nowhere to store.
+- **False positive -- `EnclaveOptions` unmodelled in `ModifyInstanceAttribute`**:
+  real request field (`serializers.go:87562`), silently rejected here same
+  as Kernel/Ramdisk, but Nitro Enclaves have zero modelling anywhere in this
+  service (not just this op) -- a whole-service gap, not scoped to these two
+  files.
+- **False positive -- `ModifyInstanceCapacityReservationAttributesOutput`
+  hardcodes `Return: true`, discarding the backend's own bool**: looked
+  like a dropped-value bug, but `Backend.ModifyInstanceCapacityReservationAttributes`
+  never returns `(false, nil)` -- every non-error path returns the updated
+  instance, so `true` is always correct.
+- **False positive -- `stoppedRequiredAttrs` (backend, `instance_attrs.go`)
+  omits `attrUserData` while `modifyInstanceAttributeStoppedRequired`
+  (handler) includes it**: looked like a missed guard, but
+  `SetInstanceAttribute` is also called from `RunInstances`
+  (`handler_instances_lifecycle.go:58`, setting initial `UserData` on a
+  freshly-launched, non-stopped instance) -- the handler-level check
+  correctly enforces "stopped to *modify* userData post-launch" while the
+  shared backend setter correctly does not re-enforce that for the
+  launch-time case. Confirmed by reading both call sites; not a bug.
+
+Not reached, named: none -- all 32 ops across both files were audited
+against the real SDK this pass.
+
+Snapshot bump: not needed. `TransitGatewayMulticastDomain`,
+`TransitGatewayMeteringPolicy`, `TransitGatewayMeteringPolicyEntry`, and
+`TransitGatewayMulticastGroupEntry` (the persisted structs backing this
+family) are unchanged -- tags live in the pre-existing generic `b.tags` map,
+not on any of these structs, and every touched response type
+(`tgwMulticastDomainItem`, `tgwMeteringPolicyItem`, the four `NextToken`
+additions) is wire-response-only, never part of a `backendSnapshot`.
+`go test ./pkgs/persistence/...` run anyway: `ok`.
+
+Proof: `wire_field_fixes_ec2sweep25_test.go`, 7 new real-SDK-client tests.
+Each hand-reverted in place (not via a saved-file `cp` for the isolated
+`TransitGatewayAttachmentId`/pagination bugs -- reverted the specific hunk
+in `handler_tgw_multicast.go`, ran the one test, confirmed the failure
+below, then restored the whole file from a `cp`-saved copy and `md5sum`
+diffed identical; same restore-and-verify done for `interfaces.go`,
+`tgw_multicast.go`, and `handler_tgw_peripherals.go`, which were untouched
+by any individual hunk revert but re-verified byte-identical regardless).
+Representative failures:
+- `TestSearchTransitGatewayMulticastGroups_TransitGatewayAttachmentId_RealClient`:
+  `TransitGatewayAttachmentId` set (to the ENI ID) instead of nil.
+- `TestSearchTransitGatewayMulticastGroups_Pagination_RealClient`: `"1" is
+  not greater than or equal to "2"` (paginator never split across pages) --
+  same failure shape confirmed for the other three pagination ops before
+  restoring.
+- `TestCreateTransitGatewayMulticastDomain_Tags_RealClient`: "Tags empty on
+  describe - TagSpecification accepted at create but dropped from
+  Describe".
+- `TestCreateTransitGatewayMeteringPolicy_Tags_RealClient`, reverted to the
+  singular-form `parseTagSpecification` to isolate the plural-wire-key
+  sub-bug specifically: same "Tags empty on describe" failure, confirming
+  the plural key really is required for this one op.
+
+Gates: `go build ./...` (clean, exported `Backend` interface signature
+changed -- `CreateTransitGatewayMulticastDomain`/`CreateTransitGatewayMeteringPolicy`
+gained a `tags map[string]string` parameter, single implementer
+`InMemoryBackend`, no other package implements `Backend`), `make build-check`
+(clean: `go build ./...` + `go vet -tags e2e ./...` + `go vet -tags
+integration ./...`), `go vet ./services/ec2/...` (clean), `gofmt -l
+services/ec2/*.go` (clean after `goimports -w`/`golines -w --max-len=120` on
+the two touched files -- both had pre-existing-style violations introduced
+by this pass's own edits, not carried over from before it), `go test -race
+-count=1 ./services/ec2/...` (`ok`, full suite including all 7 new tests),
+`golangci-lint run ./services/ec2/...` (`0 issues`), `go test
+./pkgs/persistence/...` (`ok`). No banned `//nolint`s.
