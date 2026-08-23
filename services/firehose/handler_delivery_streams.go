@@ -2,6 +2,7 @@ package firehose
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
@@ -260,9 +261,16 @@ type createDeliveryStreamInput struct {
 	SplunkDestinationConfiguration        *splunkDestinationInput        `json:"SplunkDestinationConfiguration"`
 	IcebergDestinationConfiguration       *icebergDestinationInput       `json:"IcebergDestinationConfiguration"`
 	SnowflakeDestinationConfiguration     *snowflakeDestinationInput     `json:"SnowflakeDestinationConfiguration"`
-	DeliveryStreamName                    string                         `json:"DeliveryStreamName"`
-	DeliveryStreamType                    string                         `json:"DeliveryStreamType"`
-	Tags                                  []svcTags.KV                   `json:"Tags"`
+	// AmazonOpenSearchServerlessDestinationConfiguration is a real, distinct 11th
+	// destination type (types.AmazonOpenSearchServerlessDestinationConfiguration) this
+	// backend does not implement. Captured only as a presence marker (json.RawMessage,
+	// not a typed struct) so handleCreateDeliveryStream can reject it explicitly instead
+	// of silently dropping it and creating a stream with zero destinations -- see
+	// validateSingleDestination.
+	AmazonOpenSearchServerlessDestinationConfiguration json.RawMessage `json:"AmazonOpenSearchServerlessDestinationConfiguration,omitempty"` //nolint:lll // AWS field name
+	DeliveryStreamName                                 string          `json:"DeliveryStreamName"`
+	DeliveryStreamType                                 string          `json:"DeliveryStreamType"`
+	Tags                                               []svcTags.KV    `json:"Tags"`
 }
 
 type createDeliveryStreamOutput struct {
@@ -678,10 +686,22 @@ func validateSingleDestination(in *createDeliveryStreamInput) error {
 	if in.SnowflakeDestinationConfiguration != nil {
 		provided++
 	}
+	if in.AmazonOpenSearchServerlessDestinationConfiguration != nil {
+		provided++
+	}
 
 	if provided > 1 {
 		return fmt.Errorf("%w: at most one destination configuration may be specified, got %d",
 			ErrValidation, provided)
+	}
+
+	// AmazonOpenSearchServerlessDestinationConfiguration is a real destination type
+	// (see the field's own doc comment) this backend has no field/build path for --
+	// reject explicitly rather than silently create a stream with zero destinations.
+	if in.AmazonOpenSearchServerlessDestinationConfiguration != nil {
+		return fmt.Errorf(
+			"%w: AmazonOpenSearchServerlessDestinationConfiguration is not supported by this emulator",
+			ErrValidation)
 	}
 
 	return nil

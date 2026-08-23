@@ -1,6 +1,10 @@
 package firehose
 
-import "context"
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+)
 
 // aosUpdateField holds the AmazonOpenSearch update field separately so its long name
 // does not drive gofmt alignment in updateDestinationInput. Embedding keeps
@@ -22,6 +26,10 @@ type updateDestinationInput struct {
 	DeliveryStreamName             string                         `json:"DeliveryStreamName"`
 	CurrentDeliveryStreamVersionID string                         `json:"CurrentDeliveryStreamVersionId"`
 	DestinationID                  string                         `json:"DestinationId"`
+	// AmazonOpenSearchServerlessDestinationUpdate: see createDeliveryStreamInput's
+	// AmazonOpenSearchServerlessDestinationConfiguration doc comment -- same
+	// unimplemented-11th-destination-type reasoning, captured only to reject explicitly.
+	AmazonOpenSearchServerlessDestinationUpdate json.RawMessage `json:"AmazonOpenSearchServerlessDestinationUpdate,omitempty"` //nolint:lll // AWS field name
 }
 
 type updateDestinationOutput struct{}
@@ -30,6 +38,16 @@ func (h *Handler) handleUpdateDestination(
 	ctx context.Context,
 	in *updateDestinationInput,
 ) (*updateDestinationOutput, error) {
+	// AmazonOpenSearchServerlessDestinationUpdate is a real destination type this
+	// backend has no field/build path for -- reject explicitly rather than falling
+	// through to applyDestinationUpdate's generic "got 0" message, which would
+	// misreport that the caller supplied nothing.
+	if in.AmazonOpenSearchServerlessDestinationUpdate != nil {
+		return nil, fmt.Errorf(
+			"%w: AmazonOpenSearchServerlessDestinationUpdate is not supported by this emulator",
+			ErrValidation)
+	}
+
 	rawS3 := in.ExtendedS3DestinationUpdate
 	if rawS3 == nil {
 		rawS3 = in.S3DestinationUpdate

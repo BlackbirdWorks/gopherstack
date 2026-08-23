@@ -39,7 +39,7 @@ ops:
   TagDeliveryStream: {wire: ok, errors: ok, state: ok, persist: ok}
   UntagDeliveryStream: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateDestination: {wire: ok, errors: ok, state: ok, persist: ok, note: "extended this pass with IcebergDestinationUpdate/SnowflakeDestinationUpdate/ElasticsearchDestinationUpdate, sharing the existing exactly-one-destination / CurrentDeliveryStreamVersionId optimistic-concurrency enforcement. FIXED 2026-08-21 (gopherstack-r80d batch 28) -- shares buildS3DestinationDescription/buildS3BackupDescription with CreateDeliveryStream, so the same 3 required-output-member fixes documented on DescribeDeliveryStream's note apply here too (this op itself returns an empty body, matching the real SDK's UpdateDestinationOutput, which has no members at all)."}
-  CreateDeliveryStream: {wire: ok, errors: ok, state: ok, persist: ok, note: "response is DeliveryStreamARN only, matches SDK. Added Iceberg/Snowflake/legacy-Elasticsearch destination-configuration parsing this pass; added the at-most-one-destination validation that was previously missing (see Notes). FIXED 2026-08-20: HttpEndpoint/Amazonopensearchservice/Splunk's single S3 bucket used the wrong wire key ('S3BackupConfiguration' instead of 'S3Configuration') — see 2026-08-20 Notes."}
+  CreateDeliveryStream: {wire: ok, errors: ok, state: ok, persist: ok, note: "response is DeliveryStreamARN only, matches SDK. Added Iceberg/Snowflake/legacy-Elasticsearch destination-configuration parsing this pass; added the at-most-one-destination validation that was previously missing (see Notes). FIXED 2026-08-20: HttpEndpoint/Amazonopensearchservice/Splunk's single S3 bucket used the wrong wire key ('S3BackupConfiguration' instead of 'S3Configuration') — see 2026-08-20 Notes. FIXED 2026-08-23: AmazonOpenSearchServerlessDestinationConfiguration (the unimplemented 11th destination type) had no field in createDeliveryStreamInput at all, so a real client naming it as the sole destination was silently accept-and-dropped -- validateSingleDestination saw zero destinations and let the call through, creating a stream with NO destination and no error. Now detected (json.RawMessage presence marker) and rejected explicitly with InvalidArgumentException. See 2026-08-23 Notes."}
   DeleteDeliveryStream: {wire: ok, errors: ok, state: ok, persist: ok, note: "cascade-cleans all destination pointers, Tags registry, pending-flush watch entry, and Kinesis poller on delete — verified no ghost state survives across the 5 new destination fields added this pass."}
   DescribeDeliveryStream: {wire: ok, errors: ok, state: ok, persist: ok, note: "Destinations[] wrapper extended this pass with IcebergDestinationDescription/SnowflakeDestinationDescription/ElasticsearchDestinationDescription entries, exact-case wire keys verified against deserializers.go. Snowflake's write-only PrivateKey/KeyPassphrase are correctly never echoed back (matches real SDK, which has no such fields on the Description type). FIXED 2026-08-20: HttpEndpoint/Amazonopensearchservice/Splunk/Elasticsearch's single S3 bucket was returned under wire key 'S3BackupDescription' but the real deserializer reads 'S3DestinationDescription' for these 4 families — see 2026-08-20 Notes."}
   ListDeliveryStreams: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-20: DeliveryStreamType filter now accepts all 4 real enum values (DirectPut, KinesisStreamAsSource, MSKAsSource, DatabaseAsSource) — previously rejected the latter 2 with ErrValidation even though they are valid SDK enum values."}
@@ -48,7 +48,7 @@ ops:
   ListTagsForDeliveryStream: {wire: ok, errors: ok, state: ok, persist: ok}
   TagDeliveryStream: {wire: ok, errors: ok, state: ok, persist: ok}
   UntagDeliveryStream: {wire: ok, errors: ok, state: ok, persist: ok}
-  UpdateDestination: {wire: ok, errors: ok, state: ok, persist: ok, note: "extended this pass with IcebergDestinationUpdate/SnowflakeDestinationUpdate/ElasticsearchDestinationUpdate, sharing the existing exactly-one-destination / CurrentDeliveryStreamVersionId optimistic-concurrency enforcement. FIXED 2026-08-20: the nested S3 bucket field on HttpEndpoint/Amazonopensearchservice/Splunk/Elasticsearch/Snowflake/Redshift/ExtendedS3 Update payloads used the Create-only wire key ('S3Configuration'/'S3BackupConfiguration') instead of the real Update key ('S3Update'/'S3BackupUpdate'), so a real client's Update-shaped bucket change was silently dropped — see 2026-08-20 Notes, the campaign's single biggest finding for this service."}
+  UpdateDestination: {wire: ok, errors: ok, state: ok, persist: ok, note: "extended this pass with IcebergDestinationUpdate/SnowflakeDestinationUpdate/ElasticsearchDestinationUpdate, sharing the existing exactly-one-destination / CurrentDeliveryStreamVersionId optimistic-concurrency enforcement. FIXED 2026-08-20: the nested S3 bucket field on HttpEndpoint/Amazonopensearchservice/Splunk/Elasticsearch/Snowflake/Redshift/ExtendedS3 Update payloads used the Create-only wire key ('S3Configuration'/'S3BackupConfiguration') instead of the real Update key ('S3Update'/'S3BackupUpdate'), so a real client's Update-shaped bucket change was silently dropped — see 2026-08-20 Notes, the campaign's single biggest finding for this service. FIXED 2026-08-23: AmazonOpenSearchServerlessDestinationUpdate had no field in updateDestinationInput either -- a real client supplying only that key fell through to applyDestinationUpdate's generic 'exactly one destination update must be specified, got 0', which is misleading (the caller did supply one) though not state-corrupting. Now detected and rejected with an accurate 'not supported by this emulator' message. See 2026-08-23 Notes."}
   StartDeliveryStreamEncryption: {wire: ok, errors: ok, state: ok, persist: ok}
   StopDeliveryStreamEncryption: {wire: ok, errors: ok, state: ok, persist: ok}
 
@@ -94,14 +94,24 @@ gaps:
     field-diffed). Deferred — low-traffic advanced configuration, no bd id filed yet.
   - >
     AmazonOpenSearchServerlessDestinationConfiguration (a real, distinct 11th destination
-    type in the SDK, separate from Amazonopensearchservice) is not implemented. Not in this
-    pass's explicit destination scope; newly identified, deferred.
+    type in the SDK, separate from Amazonopensearchservice) is still not implemented as a
+    real delivery pipeline. FIXED 2026-08-23 (this pass): the accept-and-drop half of this
+    gap -- CreateDeliveryStream/UpdateDestination had no field at all for this key, so a
+    real client naming it as the SOLE destination got json.Unmarshal's silent-drop, then
+    validateSingleDestination/applyDestinationUpdate saw zero destinations and let the call
+    through, creating (or leaving) a stream with NO destination configured and no error --
+    is now closed: both ops detect the key's presence (via a json.RawMessage marker field)
+    and reject explicitly with ErrValidation ("... is not supported by this emulator")
+    instead of silently succeeding. See CreateDeliveryStream/UpdateDestination ops entries
+    and the 2026-08-23 Notes section below. The remaining, still-open half (a real
+    OpenSearch-Serverless delivery pipeline) is unchanged and correctly still deferred.
 
 deferred:
   - Redshift RedshiftDataExecutor cli.go wiring (mechanics implemented 2026-08-07, see gaps)
   - Iceberg/Snowflake real catalog-commit / Snowpipe-Streaming ingest mechanics (see gaps)
   - Elasticsearch/OpenSearch VpcConfiguration and DocumentIdOptions fields (see gaps)
-  - AmazonOpenSearchServerlessDestinationConfiguration destination family (see gaps)
+  - AmazonOpenSearchServerlessDestinationConfiguration real delivery pipeline (see gaps; the
+    accept-and-drop request-side bug is now fixed, only the pipeline itself remains deferred)
   - MSK source ingestion path (present via SourceDescription wire shape, CreateDeliveryStream/
     DescribeDeliveryStream round-trip correctly). Real polling/ingestion is genuinely
     unimplemented: unlike KinesisStreamAsSource (wired via the KinesisReader interface, set
@@ -114,6 +124,50 @@ leaks: {status: clean, note: "Kinesis poller cancel funcs tracked per region/nam
 ---
 
 ## Notes
+
+### 2026-08-23 pass: AmazonOpenSearchServerlessDestinationConfiguration accept-and-drop fixed
+
+The pre-existing gap note for the unimplemented 11th destination type
+(`AmazonOpenSearchServerlessDestinationConfiguration`/`-Update`) only disclosed that the
+real delivery pipeline was unbuilt; it did not distinguish that from what actually happens
+on the wire when a real client sends the key. Checked: `createDeliveryStreamInput` and
+`updateDestinationInput` had no field for either wire key at all, so `json.Unmarshal`
+silently dropped it. On `CreateDeliveryStream`, `validateSingleDestination` only rejects
+`provided > 1`; a request naming this destination as its *only* one saw `provided == 0` and
+was let through, creating a delivery stream with **zero** destinations and returning 200 —
+a real accept-and-drop bug (the client believes OpenSearch-Serverless delivery is
+configured; nothing is, and nothing signals that). On `UpdateDestination`,
+`applyDestinationUpdate` requires exactly one; the same silent drop produced
+`provided == 0`, so the call still failed, but with a misleading "got 0" message given the
+caller *did* supply a destination.
+
+Fixed by adding a `json.RawMessage` presence-marker field for each wire key
+(`createDeliveryStreamInput.AmazonOpenSearchServerlessDestinationConfiguration`,
+`updateDestinationInput.AmazonOpenSearchServerlessDestinationUpdate`) and rejecting
+explicitly with `ErrValidation` ("... is not supported by this emulator") the moment either
+is non-nil — before the request reaches `validateSingleDestination`/the backend at all.
+This is the same "detect and reject rather than silently drop" pattern already established
+in this campaign for unsupported tagged-union variants (e.g. route53resolver's
+`FirewallAdvancedContentCategory`/`FirewallAdvancedThreatCategory`/
+`PartnerThreatProtection`). The real delivery-pipeline gap itself (no OpenSearch-Serverless
+backend to write to) is unchanged and remains correctly deferred — this fix only closes the
+silent-success/misleading-error half.
+
+Proof: `wire_aoss_destination_test.go` drives both ops through a real
+`aws-sdk-go-v2/service/firehose` client. `TestCreateDeliveryStream_AmazonOpenSearchServerless_RejectedNotSilentlyDropped`
+asserts `CreateDeliveryStream` returns an error and no stream is left behind — hand-reverted
+to the pre-fix files (`cp` from `git show HEAD:...`), confirmed the call succeeds with **no
+error** and a real `DeliveryStreamARN` (the exact silent-success bug), restored, `md5sum`
+byte-identical. `TestUpdateDestination_AmazonOpenSearchServerless_RejectedNotConfusing`
+asserts the rejection message says "not supported by this emulator" — hand-reverted,
+confirmed it instead says "exactly one destination update must be specified, got 0",
+restored, byte-identical. Gates: `go build ./services/firehose/...`, `go vet`, `gofmt -l`
+(clean), `go test -race ./services/firehose/...` (pass), `golangci-lint run
+./services/firehose/...` (0 issues, after manually reordering `updateDestinationInput`'s
+fields to satisfy `fieldalignment` rather than running the `-fix` tool). No persisted
+struct changed — the new fields are request-only DTOs (`createDeliveryStreamInput`/
+`updateDestinationInput`), never stored in `backendSnapshot`; no snapshot version bump
+needed.
 
 ### 2026-07-23 pass: added Iceberg/Snowflake/legacy-Elasticsearch destinations, CreateDeliveryStream validation, PutRecord Encrypted field
 
