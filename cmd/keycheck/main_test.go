@@ -1830,3 +1830,407 @@ func (h *Handler) handleGetSchedule(body []byte) []byte {
 		"userAttrsBuilder has a SECOND call site that uses its result directly as real output, so it "+
 			"is not a pure conversion producer and its keys must stay visible")
 }
+
+// svcDeclaredOpsFallbackFixture reproduces apigatewaymanagementapi's real
+// shape (gopherstack-zquj): there is no dispatch TABLE at all -- routing is
+// a bare if/method comparison this scanner cannot read as a switch or map
+// (findOpDispatch only recognises *ast.SwitchStmt and *ast.CompositeLit),
+// so every existing convention resolves zero ops. GetSupportedOperations()
+// is the only place "GetSchedule" appears as a literal, next to a real
+// handleGetSchedule function.
+const svcDeclaredOpsFallbackFixture = `package svc
+
+type Handler struct{}
+
+func (h *Handler) GetSupportedOperations() []string {
+	return []string{"GetSchedule"}
+}
+
+func (h *Handler) Handler(method string) []byte {
+	if method == "POST" {
+		return h.handleGetSchedule(nil)
+	}
+	return nil
+}
+
+func (h *Handler) handleGetSchedule(body []byte) []byte {
+	resp := map[string]any{
+		"Target": map[string]any{
+			"EcsParameters": map[string]any{
+				"NetworkConfiguration": map[string]any{
+					"awsvpcConfiguration": map[string]any{},
+				},
+			},
+		},
+	}
+	_ = resp
+	return nil
+}
+`
+
+func TestRunCheck_DeclaredOpsFallback(t *testing.T) {
+	t.Parallel()
+
+	sdkDir := t.TempDir()
+	writeFile(t, sdkDir, "deserializers.go", sdkGoodFixture)
+	svcDir := t.TempDir()
+	writeFile(t, svcDir, "handler.go", svcDeclaredOpsFallbackFixture)
+
+	res, err := runCheck(filepath.Join(sdkDir, "deserializers.go"), "awsRestjson1_", svcDir, "")
+	require.NoError(t, err)
+	require.Equal(t, 1, res.HandlerOpsResolved,
+		"a service with NO dispatch table at all (routing via a bare if/method comparison this "+
+			"scanner cannot read as a table) must still resolve via GetSupportedOperations()'s own "+
+			"literal op list plus the handle<Op> naming convention")
+	require.Empty(t, res.UnresolvedOps)
+	require.Len(t, res.OpsChecked, 1)
+	assert.Equal(t, "handleGetSchedule", res.OpsChecked[0].Handler)
+	assert.Empty(t, res.OpsChecked[0].NotInTree)
+}
+
+// svcDeclaredOpsFallbackNoOverResolveFixture proves the fallback (a) never
+// disturbs an op already bound by a real dispatch table, even when
+// GetSupportedOperations() and a same-named handle<Op> function both exist
+// as decoys, and (b) never fabricates a binding for an advertised op with
+// no discoverable handler.
+const svcDeclaredOpsFallbackNoOverResolveFixture = `package svc
+
+type Handler struct{}
+
+func (h *Handler) GetSupportedOperations() []string {
+	return []string{"GetSchedule", "DeleteSchedule"}
+}
+
+func (h *Handler) Dispatch(op string, body []byte) []byte {
+	switch op {
+	case "GetSchedule":
+		return h.handleRealGetSchedule(body)
+	}
+	return nil
+}
+
+func (h *Handler) handleRealGetSchedule(body []byte) []byte {
+	resp := map[string]any{
+		"Target": map[string]any{
+			"EcsParameters": map[string]any{
+				"NetworkConfiguration": map[string]any{
+					"awsvpcConfiguration": map[string]any{},
+				},
+			},
+		},
+	}
+	_ = resp
+	return nil
+}
+
+func (h *Handler) handleGetSchedule(body []byte) []byte { return nil }
+`
+
+func TestRunCheck_DeclaredOpsFallback_DoesNotOverResolve(t *testing.T) {
+	t.Parallel()
+
+	sdkDir := t.TempDir()
+	writeFile(t, sdkDir, "deserializers.go", sdkGoodFixture)
+	svcDir := t.TempDir()
+	writeFile(t, svcDir, "handler.go", svcDeclaredOpsFallbackNoOverResolveFixture)
+
+	res, err := runCheck(filepath.Join(sdkDir, "deserializers.go"), "awsRestjson1_", svcDir, "")
+	require.NoError(t, err)
+
+	require.Len(t, res.OpsChecked, 1, "GetSchedule is the only op with a real dispatch binding")
+	assert.Equal(t, "handleRealGetSchedule", res.OpsChecked[0].Handler,
+		"an op already bound by a real dispatch table must never be silently rebound to a "+
+			"same-named handle<Op> function the fallback happens to also find")
+	assert.Empty(t, res.AmbiguousOps,
+		"the fallback finding a second handle<Op> candidate for an ALREADY-bound op must never "+
+			"manufacture a spurious ambiguity")
+	assert.NotContains(t, res.UnresolvedOps, "DeleteSchedule",
+		"an advertised op with no discoverable handler must stay invisible, never fabricated "+
+			"as a binding or forced into UnresolvedOps")
+}
+
+// svcNamedStructRouteTableFixture reproduces networkmanager's real
+// route-table shape (gopherstack-zquj): a package-level `type route
+// struct{ fn dispatchFunc; op string }` NAMED type (not glue's anonymous
+// struct), whose handler field is a bare-lowercase-named method
+// (dispatch<Op>, not handle<Op>).
+const svcNamedStructRouteTableFixture = `package svc
+
+type dispatchFunc func([]byte) []byte
+
+type route struct {
+	fn dispatchFunc
+	op string
+}
+
+type Handler struct{}
+
+func (h *Handler) routeTable() []route {
+	return []route{
+		{op: "GetSchedule", fn: h.dispatchGetSchedule},
+	}
+}
+
+func (h *Handler) dispatchGetSchedule(body []byte) []byte {
+	resp := map[string]any{
+		"Target": map[string]any{
+			"EcsParameters": map[string]any{
+				"NetworkConfiguration": map[string]any{
+					"awsvpcConfiguration": map[string]any{},
+				},
+			},
+		},
+	}
+	_ = resp
+	return nil
+}
+`
+
+func TestRunCheck_NamedStructRouteTableDispatch(t *testing.T) {
+	t.Parallel()
+
+	sdkDir := t.TempDir()
+	writeFile(t, sdkDir, "deserializers.go", sdkGoodFixture)
+	svcDir := t.TempDir()
+	writeFile(t, svcDir, "handler.go", svcNamedStructRouteTableFixture)
+
+	res, err := runCheck(filepath.Join(sdkDir, "deserializers.go"), "awsRestjson1_", svcDir, "")
+	require.NoError(t, err)
+	require.Equal(t, 1, res.HandlerOpsResolved,
+		"networkmanager's real shape -- a named (not anonymous) struct route-table literal whose "+
+			"handler field is bare-lowercase-named -- must resolve a handler")
+	require.Empty(t, res.UnresolvedOps)
+	require.Len(t, res.OpsChecked, 1)
+	assert.Equal(t, "dispatchGetSchedule", res.OpsChecked[0].Handler)
+	assert.Empty(t, res.OpsChecked[0].NotInTree)
+}
+
+// svcNamedStructNoFuncFieldFixture is a named-struct slice with NO
+// func-typed field at all (a validation-rule table, not a dispatch table)
+// whose "name" field merely happens to hold a real op-shaped string. It
+// must never be misread as op dispatch.
+const svcNamedStructNoFuncFieldFixture = `package svc
+
+type validationRule struct {
+	name string
+	min  int
+	max  int
+}
+
+type Handler struct{}
+
+func (h *Handler) rules() []validationRule {
+	return []validationRule{
+		{name: "GetSchedule", min: 1, max: 10},
+	}
+}
+`
+
+func TestRunCheck_NamedStructRouteTableDispatch_DoesNotOverResolve(t *testing.T) {
+	t.Parallel()
+
+	sdkDir := t.TempDir()
+	writeFile(t, sdkDir, "deserializers.go", sdkGoodFixture)
+	svcDir := t.TempDir()
+	writeFile(t, svcDir, "handler.go", svcNamedStructNoFuncFieldFixture)
+
+	res, err := runCheck(filepath.Join(sdkDir, "deserializers.go"), "awsRestjson1_", svcDir, "")
+	require.NoError(t, err)
+	assert.Zero(t, res.HandlerOpsResolved,
+		"a named-struct slice with no func-typed field must never be misread as an op-dispatch "+
+			"table just because one of its fields holds a real-op-shaped string")
+	assert.Empty(t, res.OpsChecked)
+}
+
+// svcPairedReturnDispatchFixture reproduces grafana and s3tables's real
+// route-resolution shape (gopherstack-zquj): a tree of
+// `func (h *Handler) routeX(...) (string, dispatchFunc)` helpers whose
+// terminal case co-locates the op name and handler in one return statement.
+// There is no dispatch table anywhere -- the binding only ever exists at
+// the return site.
+const svcPairedReturnDispatchFixture = `package svc
+
+type dispatchFunc func([]byte) []byte
+
+type Handler struct{}
+
+func (h *Handler) routeRequest(path string) (string, dispatchFunc) {
+	return h.routeSchedule(path)
+}
+
+func (h *Handler) routeSchedule(path string) (string, dispatchFunc) {
+	if path == "/schedule" {
+		return "GetSchedule", h.handleGetSchedule
+	}
+	return "", nil
+}
+
+func (h *Handler) handleGetSchedule(body []byte) []byte {
+	resp := map[string]any{
+		"Target": map[string]any{
+			"EcsParameters": map[string]any{
+				"NetworkConfiguration": map[string]any{
+					"awsvpcConfiguration": map[string]any{},
+				},
+			},
+		},
+	}
+	_ = resp
+	return nil
+}
+`
+
+func TestRunCheck_PairedReturnDispatch(t *testing.T) {
+	t.Parallel()
+
+	sdkDir := t.TempDir()
+	writeFile(t, sdkDir, "deserializers.go", sdkGoodFixture)
+	svcDir := t.TempDir()
+	writeFile(t, svcDir, "handler.go", svcPairedReturnDispatchFixture)
+
+	res, err := runCheck(filepath.Join(sdkDir, "deserializers.go"), "awsRestjson1_", svcDir, "")
+	require.NoError(t, err)
+	require.Equal(t, 1, res.HandlerOpsResolved,
+		"grafana/s3tables's real shape -- return \"Op\", h.handleOp inside a func returning "+
+			"(string, dispatchFunc), with no dispatch TABLE anywhere -- must resolve a handler")
+	require.Empty(t, res.UnresolvedOps)
+	require.Len(t, res.OpsChecked, 1)
+	assert.Equal(t, "handleGetSchedule", res.OpsChecked[0].Handler)
+	assert.Empty(t, res.OpsChecked[0].NotInTree)
+}
+
+// svcPairedReturnWrongSignatureFixture returns a two-value (string, string)
+// result that LOOKS like an (op, handler) pair -- a string literal followed
+// by a handle<Op>-shaped selector -- but the enclosing func's OWN declared
+// signature is not (string, func-shaped). It must never be treated as
+// paired-return dispatch.
+const svcPairedReturnWrongSignatureFixture = `package svc
+
+type Handler struct{}
+
+func (h *Handler) describe() (string, string) {
+	return "GetSchedule", h.handleGetSchedule
+}
+
+func (h *Handler) handleGetSchedule(body []byte) []byte { return nil }
+`
+
+func TestRunCheck_PairedReturnDispatch_DoesNotOverResolve(t *testing.T) {
+	t.Parallel()
+
+	sdkDir := t.TempDir()
+	writeFile(t, sdkDir, "deserializers.go", sdkGoodFixture)
+	svcDir := t.TempDir()
+	writeFile(t, svcDir, "handler.go", svcPairedReturnWrongSignatureFixture)
+
+	res, err := runCheck(filepath.Join(sdkDir, "deserializers.go"), "awsRestjson1_", svcDir, "")
+	require.NoError(t, err)
+	assert.Zero(t, res.HandlerOpsResolved,
+		"a two-value return that merely LOOKS like (op, handler) but whose enclosing func does not "+
+			"itself declare a (string, func-shaped) signature must never be treated as paired-return "+
+			"dispatch")
+	assert.Empty(t, res.OpsChecked)
+}
+
+// svcLooseSwitchCaseDispatchFixture reproduces polly and iotwireless's real
+// shape (gopherstack-zquj): a switch on a real op-name string whose case
+// body calls a bare-lowercase-named method (no handle/json prefix), the
+// entire case body being exactly that one return statement.
+const svcLooseSwitchCaseDispatchFixture = `package svc
+
+type Handler struct{}
+
+func (h *Handler) dispatch(op string) []byte {
+	switch op {
+	case "GetSchedule":
+		return h.getSchedule()
+	}
+	return nil
+}
+
+func (h *Handler) getSchedule() []byte {
+	resp := map[string]any{
+		"Target": map[string]any{
+			"EcsParameters": map[string]any{
+				"NetworkConfiguration": map[string]any{
+					"awsvpcConfiguration": map[string]any{},
+				},
+			},
+		},
+	}
+	_ = resp
+	return nil
+}
+`
+
+func TestRunCheck_LooseSwitchCaseDispatch(t *testing.T) {
+	t.Parallel()
+
+	sdkDir := t.TempDir()
+	writeFile(t, sdkDir, "deserializers.go", sdkGoodFixture)
+	svcDir := t.TempDir()
+	writeFile(t, svcDir, "handler.go", svcLooseSwitchCaseDispatchFixture)
+
+	res, err := runCheck(filepath.Join(sdkDir, "deserializers.go"), "awsRestjson1_", svcDir, "")
+	require.NoError(t, err)
+	require.Equal(t, 1, res.HandlerOpsResolved,
+		"polly/iotwireless's real shape -- a switch case whose body is a single return statement "+
+			"calling a bare-lowercase-named method -- must resolve a handler")
+	require.Empty(t, res.UnresolvedOps)
+	require.Len(t, res.OpsChecked, 1)
+	assert.Equal(t, "getSchedule", res.OpsChecked[0].Handler)
+	assert.Empty(t, res.OpsChecked[0].NotInTree)
+}
+
+// svcLooseSwitchCaseMultiStatementFixture is the same switch, except the
+// case body does real work (a call to an unrelated locally-declared
+// function) BEFORE finally delegating -- a shape this repo's real
+// op-dispatch switches never use. The loose fallback must refuse to guess
+// which of the two calls is "the handler" and leave the op unresolved
+// entirely, rather than risk grabbing the wrong one.
+const svcLooseSwitchCaseMultiStatementFixture = `package svc
+
+type Handler struct{}
+
+func (h *Handler) dispatch(op string) []byte {
+	switch op {
+	case "GetSchedule":
+		h.validateRequest()
+		return h.getSchedule()
+	}
+	return nil
+}
+
+func (h *Handler) validateRequest() {}
+
+func (h *Handler) getSchedule() []byte {
+	resp := map[string]any{
+		"Target": map[string]any{
+			"EcsParameters": map[string]any{
+				"NetworkConfiguration": map[string]any{
+					"awsvpcConfiguration": map[string]any{},
+				},
+			},
+		},
+	}
+	_ = resp
+	return nil
+}
+`
+
+func TestRunCheck_LooseSwitchCaseDispatch_DoesNotOverResolve(t *testing.T) {
+	t.Parallel()
+
+	sdkDir := t.TempDir()
+	writeFile(t, sdkDir, "deserializers.go", sdkGoodFixture)
+	svcDir := t.TempDir()
+	writeFile(t, svcDir, "handler.go", svcLooseSwitchCaseMultiStatementFixture)
+
+	res, err := runCheck(filepath.Join(sdkDir, "deserializers.go"), "awsRestjson1_", svcDir, "")
+	require.NoError(t, err)
+	assert.Empty(t, res.OpsChecked,
+		"a case body with a preceding call before the real delegation must never be loosely "+
+			"resolved -- the single-statement-body gate must leave it unbound rather than risk "+
+			"grabbing the wrong call as the handler")
+	assert.Empty(t, res.UnresolvedOps, "an unbound op is invisible, not a forced ERROR")
+}

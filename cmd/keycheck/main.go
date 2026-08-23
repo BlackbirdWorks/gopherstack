@@ -308,6 +308,120 @@
 // gap, confirmed by hand against handler_shards.go/handler_consumers.go: the
 // real wire structs were already correctly tagged throughout.
 //
+// FOUR MORE DISPATCH CONVENTIONS, added for gopherstack-zquj's 17-service
+// wholly-unresolved tier (HandlerOpsResolved was 0 for all 17; 13 now
+// substantially or fully resolve):
+//
+//   - DECLARED-OPS NAME-MATCHED HANDLER RECOVERY (resolveDeclaredOpsFallback).
+//     apigatewaymanagementapi, appconfigdata, mediastoredata, bedrockagent,
+//     elasticsearch, lambda and mwaa route via a maze of nested method/path
+//     if-else and switch trees with no dispatch TABLE at all -- nothing
+//     else in this file can bind an op it never sees as a table entry. This
+//     trusts two things already independently authoritative in this repo,
+//     never a guess: GetSupportedOperations()'s own literal []string return
+//     (this repo's hand-maintained, tested contract for what a service
+//     implements) and the handle<Op>/json<Op> naming convention. For every
+//     op literalStringReturns finds with no existing binding, if
+//     "handle"+op or "json"+op is declared in the package, it's bound, each
+//     under its OWN groupID so a genuinely-missing op recovered this way
+//     can never be swept into filterEnumGroups's enum-table
+//     reclassification. Deliberately conservative about extraction: only a
+//     direct `return []string{...}` composite (string literals or
+//     resolvable consts) is read -- iotwireless's GetSupportedOperations
+//     flattens several supportedXOps() helper calls in a for-range append
+//     loop and forecast's builds off a live h.ops map plus 8 appended
+//     literals, and BOTH yield nothing here rather than guessing. An op
+//     GetSupportedOperations() advertises with no discoverable handle<Op>
+//     function (mwaa's InvokeRestApi; forecast's ~63 ops that route through
+//     one generic data-driven execute(), never a per-op function at all)
+//     stays invisible -- never bound, never forced into UnresolvedOps --
+//     the same as any other never-bound op has always been in this file;
+//     that silence is a known, disclosed limit of this convention, not new
+//     dishonesty.
+//
+//   - NAMED-STRUCT ROUTE-TABLE DISPATCH, an extension of
+//     recordSliceBindingDispatch. networkmanager's real shape is a
+//     package-level `type route struct{ fn dispatchFunc; op string; method
+//     string; pattern []string }` NAMED type (not glue's anonymous struct),
+//     scattered across many small per-resource-family []route{...} literals
+//     (globalNetworkCoreRoutes, siteRoutes, ...) rather than one big table.
+//     Gated on structHasFuncField: the named type must itself declare a
+//     func-typed field, the same "this literal is genuinely a table of
+//     handler functions" signal mapValueIsFuncType already requires for map
+//     dispatch, so an unrelated named-struct slice (a validation-rule list)
+//     that merely has a string field can never be misattributed. The
+//     handler half tries strict findHandlerSelector first, falling back to
+//     structFieldHandler (networkmanager's handlers are named dispatch<Op>,
+//     not handle<Op>).
+//
+//   - PAIRED STRING+HANDLER RETURN DISPATCH (recordPairedReturnDispatch).
+//     grafana and s3tables resolve routes through a tree of small
+//     `func (h *Handler) routeX(...) (string, dispatchFunc)` helpers whose
+//     terminal case co-locates the op name and its handler in one
+//     statement: `return "CreateWorkspace", h.handleCreateWorkspace`. There
+//     is no dispatch table anywhere -- no switch, no map, no slice literal
+//     -- so none of this file's other conventions could ever see it; the
+//     binding only ever exists at the return site. Gated on the enclosing
+//     func's OWN declared return signature being exactly (string,
+//     func-shaped) (funcReturnsStringAndHandler), checked structurally, not
+//     by scanning for the shape opportunistically, so an unrelated
+//     two-value return elsewhere in the package can never be misread even
+//     if it happens to return a string literal next to a handle<Op>-shaped
+//     selector. A nested closure's own return statements are excluded
+//     (ast.Inspect stops at any *ast.FuncLit) so they are never attributed
+//     to the enclosing func's signature.
+//
+//   - LOOSE SWITCH-CASE DISPATCH, an extension of findHandlerCall. polly and
+//     iotwireless switch on a real op-name string (`switch op { case
+//     opCreateWirelessDevice: ... }`, resolved via ps.constVals same as
+//     everywhere else) but call a bare-lowercase-named method
+//     (h.synthesizeSpeech, h.createWirelessDevice -- no handle/json
+//     prefix), the same "bare lowercase method value" shape already trusted
+//     for map dispatch (findHandlerSelectorLoose) but never extended to
+//     switch-case bodies before now. Gated on the case body being EXACTLY
+//     one return statement -- every real instance of this shape in this
+//     repo is a pure one-line delegation; a case that does real work first
+//     (validation, a helper call) before finally delegating -- a shape this
+//     repo's real op-dispatch switches never use -- stays strict-only, so
+//     the loose match can never grab an earlier, unrelated call and
+//     misattribute it as the handler. This is also why dynamodbstreams
+//     stays correctly unresolved despite its own single-statement-return
+//     switch cases (`case "DescribeStream": return
+//     dispatchDescribeStream(ctx, body, h.Streams.DescribeStream)`): the
+//     call target is a bare package-level function identifier
+//     (dispatchDescribeStream), not a `h.foo`-shaped selector, which
+//     matchHandlerCall has never matched in either strict or loose mode --
+//     inherited from the original strict matcher's shape, not a new
+//     carve-out, but load-bearing here: extending to bare identifiers would
+//     bind DescribeStream to dispatchDescribeStream, whose own body crosses
+//     into the sibling dynamodb package (ddbbackend.ToWireGetRecordsOutput)
+//     that this same-package-only walk cannot follow, producing "0 written
+//     keys, N/A" -- a false clean, strictly worse than staying an honest
+//     ERROR. See gopherstack-zquj.
+//
+// Sweeping what these four newly resolve found the same false-positive
+// shapes recurring, not new bugs: SHARED-ERROR-HELPER POLLUTION again
+// (apigatewaymanagementapi's writeModeledError embeds connectionId in every
+// error envelope, credited to all 3 ops; appconfigdata's structured
+// validation-error Details maps the same way), the OUTPUT-SUFFIX COLLISION
+// class again (mediastoredata's internal ListItemsOutput/Item backend
+// return types, never marshaled directly, collide with the *Output
+// heuristic), KNOWN BLIND SPOT #4's dynamic-map gap again
+// (elasticsearch's LimitsByRole map[string]Limits), an httpPayload/raw-blob
+// passthrough gap adjacent to the existing header/status-line disclosure
+// (iotwireless's GetPositionEstimate GeoJSON blob has no document
+// deserializer at all to check against), and a JSON-encoded-as-a-STRING
+// variant of blind spot #2 (lambda's GetLayerVersionPolicy builds an IAM
+// policy map that gets marshaled into the wire response's "Policy" STRING
+// field, not written as top-level document keys). One real bug found this
+// way: gopherstack-wla0 (s3tables GetTable/ListTables write
+// "tableBucketARN", which is not a real member of either shape at all --
+// the real member is "tableBucketId", a system-assigned identifier
+// genuinely distinct from the ARN and never tracked anywhere in this
+// service's internal models, so every real client's TableBucketId decodes
+// empty on both ops; filed structural, not tag-fixed, since a real fix
+// needs a new ID synthesized and threaded through table-bucket creation).
+//
 // Usage:
 //
 //	go run ./cmd/keycheck -sdk <path to deserializers.go> -prefix awsAwsjson11_ -svc <service dir> [-op OpName]
@@ -722,6 +836,7 @@ func scanPackage(dir string) (*pkgScan, error) {
 	for _, f := range files {
 		ps.findOpDispatch(f)
 	}
+	ps.resolveDeclaredOpsFallback()
 	for _, f := range files {
 		ps.findCopyChains(f)
 	}
@@ -1261,6 +1376,10 @@ func (ps *pkgScan) indexConsts(d *ast.GenDecl) {
 	}
 }
 
+// goStringTypeName is the AST identifier spelling of Go's builtin string
+// type, shared by every gate in this file that needs to recognise one.
+const goStringTypeName = "string"
+
 // isMapAnyType reports whether t is any string-keyed map type
 // (map[string]any, map[string]interface{}, map[string]string,
 // map[string][]string, ...). The unchecked-key exposure this scanner hunts
@@ -1273,7 +1392,7 @@ func isMapAnyType(t ast.Expr) bool {
 		return false
 	}
 	keyID, ok := mt.Key.(*ast.Ident)
-	if !ok || keyID.Name != "string" {
+	if !ok || keyID.Name != goStringTypeName {
 		return false
 	}
 	if st, isStruct := mt.Value.(*ast.StructType); isStruct && len(st.Fields.List) == 0 {
@@ -1340,6 +1459,7 @@ func (ps *pkgScan) findOpDispatch(f *ast.File) {
 		case *ast.FuncDecl:
 			if d.Body != nil {
 				ps.findOpDispatchIn(d.Body, d.Name.Name)
+				ps.recordPairedReturnDispatch(d)
 			}
 		case *ast.GenDecl:
 			if d.Tok != token.VAR {
@@ -1438,7 +1558,143 @@ func (ps *pkgScan) bindOp(op, handler, groupID string) {
 	ps.ambiguousOps[op][handler] = true
 }
 
+// resolveDeclaredOpsFallback binds op->handler directly by name for services
+// whose real routing is a maze of nested method/path if-else and switch
+// trees this scanner cannot read as a dispatch TABLE at all -- found live
+// sweeping gopherstack-zquj's 17-service wholly-unresolved tier
+// (apigatewaymanagementapi, appconfigdata, mediastoredata, bedrockagent,
+// elasticsearch, lambda, mwaa: HandlerOpsResolved was 0 for every one of
+// them despite each having a real, correct handle<Op> function per op).
+//
+// It trusts two things ALREADY independently authoritative in this repo,
+// never a guess: GetSupportedOperations()'s own literal return value (this
+// repo's hand-maintained, tested contract for what a service implements --
+// e.g. sdk_completeness_test.go) and the handle<Op>/json<Op> naming
+// convention this file already trusts everywhere else (handleNameRe). For
+// every op literalStringReturns finds in GetSupportedOperations() that has
+// NO existing binding from any other convention, if a function named
+// "handle"+op or "json"+op is declared in this package, bind it -- exactly
+// the mapping every other convention in this file already assumes, just
+// recovered without going through a table this scanner can parse.
+//
+// Ops already bound by another mechanism are skipped so this can never
+// manufacture a spurious ambiguity for an already-correctly-resolved op.
+// Each binding gets its OWN groupID (never a shared one across the whole
+// GetSupportedOperations() list) so a genuinely-missing real op recovered
+// this way can never be swept into filterEnumGroups's enum-table
+// reclassification alongside an unrelated sibling failure -- that
+// corroboration signal only makes sense for a single dispatch SOURCE (one
+// switch, one table) that might be an enum/type-string table misread as op
+// dispatch, which this fallback categorically is not.
+//
+// Deliberately conservative about extraction: literalStringReturns only
+// reads a direct `return []string{...}` composite literal (string literals
+// or resolvable package-level consts). A GetSupportedOperations built by
+// flattening helper-function calls (iotwireless's
+// supportedOperationGroups(), a for-range append loop) or any other
+// computed shape yields nothing here rather than guessing.
+func (ps *pkgScan) resolveDeclaredOpsFallback() {
+	fd, ok := ps.funcDecls["GetSupportedOperations"]
+	if !ok || fd.Body == nil {
+		return
+	}
+	for _, ops := range literalStringReturns(ps, fd.Body) {
+		for _, op := range ops {
+			if _, bound := ps.opToHandler[op]; bound {
+				continue
+			}
+			for _, prefix := range [2]string{"handle", "json"} {
+				name := prefix + op
+				if _, declared := ps.funcDecls[name]; declared {
+					ps.bindOp(op, name, "declaredops@"+op)
+
+					break
+				}
+			}
+		}
+	}
+}
+
+// literalStringReturns collects the element list of every literal
+// []string{...} composite return in body (there may be more than one, e.g.
+// an early-return branch plus a default), resolving each element via
+// resolveKey (string literal or package-level const, same rule as
+// everywhere else in this file). A composite literal containing even one
+// unresolvable element is dropped whole rather than contributing a
+// silently-incomplete op list.
+func literalStringReturns(ps *pkgScan, body *ast.BlockStmt) [][]string {
+	var out [][]string
+	ast.Inspect(body, func(n ast.Node) bool {
+		ret, ok := n.(*ast.ReturnStmt)
+		if !ok || len(ret.Results) != 1 {
+			return true
+		}
+		cl, ok := ret.Results[0].(*ast.CompositeLit)
+		if !ok {
+			return true
+		}
+		at, ok := cl.Type.(*ast.ArrayType)
+		if !ok || at.Len != nil {
+			return true
+		}
+		eltID, isIdent := at.Elt.(*ast.Ident)
+		if !isIdent || eltID.Name != goStringTypeName {
+			return true
+		}
+
+		ops := make([]string, 0, len(cl.Elts))
+		for _, elt := range cl.Elts {
+			op, dyn := ps.resolveKey(elt)
+			if dyn || op == "" {
+				return true
+			}
+			ops = append(ops, op)
+		}
+		if len(ops) > 0 {
+			out = append(out, ops)
+		}
+
+		return true
+	})
+
+	return out
+}
+
+// findHandlerCall resolves a switch case body to its handler function name.
+// It tries the ordinary strict handle/json-prefix rule (handleNameRe)
+// first. If that finds nothing AND the case body is exactly one return
+// statement -- this repo's real shape for every bare-lowercase-method
+// switch-case dispatch found live for gopherstack-zquj (polly's
+// `case opSynthesizeSpeech: return h.synthesizeSpeech(c)`, iotwireless's
+// `case opCreateMulticastGroup: return true, h.createMulticastGroup(c)`) --
+// it falls back to the first call anywhere in that single return statement
+// to a function actually DECLARED in this package (ps.funcDecls), the same
+// trust already extended to map dispatch's bare-lowercase values
+// (findHandlerSelectorLoose). Restricting the loose fallback to a
+// single-statement case body is the gate: a case that does real work
+// (validation, a helper call) before finally delegating -- a shape this
+// repo's real op-dispatch switches never use -- stays strict-only, so the
+// loose match can never grab an unrelated earlier call and misattribute it
+// as the handler.
 func (ps *pkgScan) findHandlerCall(stmts []ast.Stmt) string {
+	if h := matchHandlerCall(stmts, handleNameRe.MatchString); h != "" {
+		return h
+	}
+	if len(stmts) != 1 {
+		return ""
+	}
+	if _, ok := stmts[0].(*ast.ReturnStmt); !ok {
+		return ""
+	}
+
+	return matchHandlerCall(stmts, func(name string) bool {
+		_, ok := ps.funcDecls[name]
+
+		return ok
+	})
+}
+
+func matchHandlerCall(stmts []ast.Stmt, match func(string) bool) string {
 	handler := ""
 	for _, stmt := range stmts {
 		ast.Inspect(stmt, func(n ast.Node) bool {
@@ -1450,7 +1706,7 @@ func (ps *pkgScan) findHandlerCall(stmts []ast.Stmt) string {
 				return true
 			}
 			sel, ok := call.Fun.(*ast.SelectorExpr)
-			if ok && handleNameRe.MatchString(sel.Sel.Name) {
+			if ok && match(sel.Sel.Name) {
 				handler = sel.Sel.Name
 
 				return false
@@ -1515,6 +1771,83 @@ func (ps *pkgScan) mapValueIsFuncType(t ast.Expr) bool {
 		return true
 	case *ast.Ident:
 		return ps.funcTypeNames[v.Name]
+	default:
+		return false
+	}
+}
+
+// recordPairedReturnDispatch handles grafana and s3tables's real
+// route-resolution convention (found live for gopherstack-zquj): a tree of
+// small `func (h *Handler) routeX(...) (string, dispatchFunc)` helpers
+// (routeRequest -> routeWorkspaces -> routeWorkspaceByID -> ...) whose
+// terminal case bodies co-locate the op name and its handler in one
+// statement, e.g. `return "CreateWorkspace", h.handleCreateWorkspace`. There
+// is no dispatch TABLE here at all -- no switch on an op string, no map or
+// slice literal -- so none of this file's other conventions can see it; the
+// op name and handler are only ever bound together at the return site.
+//
+// Gated on fd's OWN declared return signature being exactly (string,
+// <func-shaped>) (funcReturnsStringAndHandler) so this can never fire on
+// some unrelated two-value return elsewhere in the package. A nested
+// closure's own return statements are excluded (ast.Inspect stops at any
+// *ast.FuncLit) so they are never attributed to fd's signature. The handler
+// half tries the ordinary strict findHandlerSelector first, falling back to
+// findHandlerSelectorLoose -- grafana/s3tables already use handle<Op>
+// naming throughout, but the loose fallback costs nothing extra here and
+// keeps this convention consistent with every other staged strict-then-loose
+// match in this file.
+func (ps *pkgScan) recordPairedReturnDispatch(fd *ast.FuncDecl) {
+	if fd.Body == nil || !ps.funcReturnsStringAndHandler(fd.Type) {
+		return
+	}
+	groupID := "pairedreturn@" + ps.fset.Position(fd.Pos()).String()
+	ast.Inspect(fd.Body, func(n ast.Node) bool {
+		if _, isFuncLit := n.(*ast.FuncLit); isFuncLit {
+			return false
+		}
+		ret, ok := n.(*ast.ReturnStmt)
+		if !ok || len(ret.Results) != pairedReturnResultCount {
+			return true
+		}
+		op, dyn := ps.resolveKey(ret.Results[0])
+		if dyn || op == "" {
+			return true
+		}
+		handler := findHandlerSelector(ret.Results[1])
+		if handler == "" {
+			handler = ps.findHandlerSelectorLoose(ret.Results[1])
+		}
+		if handler == "" {
+			return true
+		}
+		ps.handlerSourceFunc[handler] = fd.Name.Name
+		ps.bindOp(op, handler, groupID)
+
+		return true
+	})
+}
+
+// pairedReturnResultCount is the arity of the (op, handler) pair
+// recordPairedReturnDispatch and funcReturnsStringAndHandler both gate on.
+const pairedReturnResultCount = 2
+
+// funcReturnsStringAndHandler reports whether ft's declared results are
+// exactly (string, F) for some func-shaped F (an inline func type, or a
+// package-level function type indexed by indexFuncTypes) -- the signature
+// gate for recordPairedReturnDispatch.
+func (ps *pkgScan) funcReturnsStringAndHandler(ft *ast.FuncType) bool {
+	if ft.Results == nil || len(ft.Results.List) != pairedReturnResultCount {
+		return false
+	}
+	first, ok := ft.Results.List[0].Type.(*ast.Ident)
+	if !ok || first.Name != goStringTypeName {
+		return false
+	}
+	switch t := ft.Results.List[1].Type.(type) {
+	case *ast.FuncType:
+		return true
+	case *ast.Ident:
+		return ps.funcTypeNames[t.Name]
 	default:
 		return false
 	}
@@ -1589,24 +1922,52 @@ func (ps *pkgScan) findLocalCallInReturns(body *ast.BlockStmt) string {
 	return name
 }
 
-// recordSliceBindingDispatch handles glue's ordered-binding-slice dispatch
-// convention (handler_routing.go): a package-level
+// recordSliceBindingDispatch handles two of this repo's ordered-binding-slice
+// dispatch conventions: glue's package-level
 // []struct{ bind func(*Handler) service.JSONOpFunc; name string }{...}
-// literal, iterated in buildOps() rather than a map[string]X{...} literal.
-// Gated on the slice's element type being an inline anonymous struct type,
-// so this cannot misattribute an unrelated named-struct slice elsewhere in
-// the package. The handler selector is resolved with the ordinary strict
-// findHandlerSelector (glue's binding funcs already use the
-// service.WrapOp(h.handleX) shape 36 other services use), so this convention
-// needs only the new slice-shape recognition, not a matching loosening.
+// literal (handler_routing.go, anonymous struct element type), and
+// networkmanager's named []route{...} literal (`type route struct{ fn
+// dispatchFunc; op string; method string; pattern []string }`, found live
+// for gopherstack-zquj) -- scattered across many small per-resource-family
+// helper funcs (globalNetworkCoreRoutes, siteRoutes, ...) rather than one
+// big table, so this fires once per literal wherever findOpDispatch's walk
+// finds one, not just at a single package-level var.
+//
+// A named struct element type is only accepted when it is declared locally
+// (ps.structTypes) AND at least one of its OWN fields is itself func-typed
+// (structHasFuncField) -- the same "this literal is genuinely a table of
+// handler functions" signal mapValueIsFuncType already requires before
+// loosening map dispatch, so this can never misattribute an unrelated
+// named-struct slice elsewhere in the package (a validation-rule list, a
+// config table) that merely happens to carry a string field.
+//
+// The handler selector tries the ordinary strict findHandlerSelector first
+// (glue's binding funcs already use the service.WrapOp(h.handleX) shape 36
+// other services use); a named-struct element additionally falls back to
+// structFieldHandler (networkmanager's handler methods are named
+// dispatch<Op>, not handle<Op>) -- the same staged strict-then-loose rule
+// used everywhere else in this file. The anonymous-struct case is left
+// strict-only: it needed only the new shape recognition, not a matching
+// loosening.
 func (ps *pkgScan) recordSliceBindingDispatch(cl *ast.CompositeLit, enclosingFunc string) {
 	at, isArray := cl.Type.(*ast.ArrayType)
 	if !isArray || at.Len != nil {
 		return
 	}
-	if _, isStruct := at.Elt.(*ast.StructType); !isStruct {
+
+	loose := false
+	switch elt := at.Elt.(type) {
+	case *ast.StructType:
+	case *ast.Ident:
+		st, ok := ps.structTypes[elt.Name]
+		if !ok || !ps.structHasFuncField(st) {
+			return
+		}
+		loose = true
+	default:
 		return
 	}
+
 	groupID := "slice@" + ps.fset.Position(cl.Pos()).String()
 	for _, elt := range cl.Elts {
 		ecl, isLit := elt.(*ast.CompositeLit)
@@ -1618,12 +1979,56 @@ func (ps *pkgScan) recordSliceBindingDispatch(cl *ast.CompositeLit, enclosingFun
 			continue
 		}
 		handler := findHandlerSelector(ecl)
+		if handler == "" && loose {
+			handler = ps.structFieldHandler(ecl)
+		}
 		if handler == "" {
 			continue
 		}
 		ps.handlerSourceFunc[handler] = enclosingFunc
 		ps.bindOp(name, handler, groupID)
 	}
+}
+
+// structHasFuncField reports whether st declares at least one field whose
+// type is func-shaped (an inline func type, or a package-level function
+// type indexed by indexFuncTypes) -- the gate that lets
+// recordSliceBindingDispatch trust a named struct type as a genuine
+// handler-binding table.
+func (ps *pkgScan) structHasFuncField(st *ast.StructType) bool {
+	if st.Fields == nil {
+		return false
+	}
+	for _, f := range st.Fields.List {
+		switch t := f.Type.(type) {
+		case *ast.FuncType:
+			return true
+		case *ast.Ident:
+			if ps.funcTypeNames[t.Name] {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+// structFieldHandler returns the first field value in a keyed struct
+// literal that findHandlerSelectorLoose resolves to a locally-declared
+// function -- structFieldString's counterpart for the handler half of a
+// named-struct route-table entry, without hardcoding that field's name.
+func (ps *pkgScan) structFieldHandler(cl *ast.CompositeLit) string {
+	for _, elt := range cl.Elts {
+		kv, ok := elt.(*ast.KeyValueExpr)
+		if !ok {
+			continue
+		}
+		if name := ps.findHandlerSelectorLoose(kv.Value); name != "" {
+			return name
+		}
+	}
+
+	return ""
 }
 
 // structFieldString returns the first field value in a keyed struct literal
