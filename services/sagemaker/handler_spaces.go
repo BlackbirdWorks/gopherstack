@@ -146,9 +146,12 @@ func (h *Handler) handleListSpaces(ctx context.Context, body []byte) ([]byte, er
 	})
 }
 
+// updateSpaceInput mirrors UpdateSpaceInput (api_op_UpdateSpace.go:27-42).
 type updateSpaceInput struct {
-	DomainID  string `json:"DomainId"`
-	SpaceName string `json:"SpaceName"`
+	DomainID         string          `json:"DomainId"`
+	SpaceName        string          `json:"SpaceName"`
+	SpaceDisplayName string          `json:"SpaceDisplayName"`
+	SpaceSettings    json.RawMessage `json:"SpaceSettings"`
 }
 
 func (h *Handler) handleUpdateSpace(ctx context.Context, body []byte) ([]byte, error) {
@@ -166,7 +169,10 @@ func (h *Handler) handleUpdateSpace(ctx context.Context, body []byte) ([]byte, e
 		return nil, fmt.Errorf("%w: SpaceName is required", errInvalidRequest)
 	}
 
-	s, err := h.Backend.UpdateSpace(ctx, req.DomainID, req.SpaceName)
+	s, err := h.Backend.UpdateSpace(ctx, req.DomainID, req.SpaceName, UpdateSpaceOptions{
+		SpaceDisplayName: req.SpaceDisplayName,
+		SpaceSettings:    req.SpaceSettings,
+	})
 	if err != nil {
 		return nil, err
 	}

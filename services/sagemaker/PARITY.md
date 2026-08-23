@@ -5315,3 +5315,101 @@ both real-`aws-sdk-go-v2` round-trips per the proof standard above.
 literals — two touched by this pass, one pre-existing and unrelated in
 `handler_training_jobs.go` — to the existing `keyStatus` constant once this pass's additions
 crossed `goconst`'s duplicate threshold). No `//nolint` added.
+
+## parity-28 (2026-08-23): the 16 "not reached" ops closed out — UpdateSpace/UpdateUserProfile drop their payload
+
+Audited all 16 ops parity-27 left as "not reached, named": `CreateEdgeDeploymentStage`,
+`CreateNotebookInstanceLifecycleConfig`, `CreateUserProfile`,
+`DescribeNotebookInstanceLifecycleConfig`, `DescribeStudioLifecycleConfig`,
+`DescribeTrainingPlanExtensionHistory`, `DisassociateTrialComponent`,
+`StartEdgeDeploymentStage`, `StartMonitoringSchedule`, `StopEdgeDeploymentStage`,
+`StopProcessingJob`, `StopTransformJob`, `UpdateDevices`, `UpdateProject`, `UpdateSpace`,
+`UpdateUserProfile`. Re-derived the queue from this file's own "Not reached, named" list
+(87 never-named minus the 71 parity-27 read = 16); it still holds. Found and fixed two real
+bugs, both siblings of the same shape.
+
+**Bug 1 — UpdateSpace silently drops `SpaceDisplayName`/`SpaceSettings`.**
+`UpdateSpaceInput` (`api_op_UpdateSpace.go:27-42`) carries `DomainId`/`SpaceName` (required)
+plus optional `SpaceDisplayName`/`SpaceSettings`. gopherstack's `updateSpaceInput`
+(`handler_spaces.go`) declared only `DomainId`/`SpaceName` — a real client's
+`SpaceDisplayName`/`SpaceSettings` were parsed into no field, so `json.Unmarshal` silently
+dropped them, and `InMemoryBackend.UpdateSpace` (`spaces.go`) took no parameter for either and
+only bumped `LastModifiedTime`. Every real `UpdateSpace` call returned `200 OK` with the ARN,
+looking successful, while the space's `SpaceDisplayName`/`SpaceSettings` never changed — the
+entire substance of the operation was a no-op. `CreateSpace` already threads both fields
+correctly (`CreateSpaceOptions`), so this was specifically an Update-path gap, not a modelling
+gap. Fixed by adding `UpdateSpaceOptions{SpaceDisplayName, SpaceSettings}`, decoding both in
+the handler, and applying each in the backend only when the client actually sent it
+(`SpaceDisplayName != ""`, `len(SpaceSettings) > 0` — the zero state is reachable on this
+endpoint since neither member is required, so `omitempty`-style partial application here is
+correct, not a bug).
+
+**Bug 2 — UpdateUserProfile silently drops `UserSettings`.** Identical shape.
+`UpdateUserProfileInput` (`api_op_UpdateUserProfile.go:26-38`) carries `DomainId`/
+`UserProfileName` (required) plus optional `UserSettings`. gopherstack's
+`updateUserProfileInput` (`handler_user_profiles.go`) declared only the two required fields;
+`InMemoryBackend.UpdateUserProfile` (`user_profiles.go`) took no `UserSettings` parameter and
+only bumped `LastModifiedTime`. Same 200-OK-but-nothing-changed symptom. `CreateUserProfile`
+already threads `UserSettings` correctly. Fixed by adding
+`UpdateUserProfileOptions{UserSettings}`, decoding it in the handler, and applying it in the
+backend only when `len(UserSettings) > 0`.
+
+Proven with a real `aws-sdk-go-v2/service/sagemaker` client
+(`TestHandler_UpdateSpace_RealClient`, `TestHandler_UpdateUserProfile_RealClient`,
+`handler_cluster_space_realclient_test.go`): each test creates a resource, calls Update with a
+changed `SpaceDisplayName`/`SpaceSettings.AppType` (or `UserSettings.ExecutionRole`), then
+Describes and asserts the new value stuck. Pre-fix (hand-revert via `cp` of the four pre-fix
+files, md5-identical restore after), both tests fail — Describe still shows the *original*
+value (`"Original Name"`/`AppTypeJupyterLab`/`.../role/original`) even though Update returned no
+error, confirming the update was silently discarded rather than rejected.
+
+**Sibling check — all 16, not just the two with bugs.** `CreateEdgeDeploymentStage`/
+`StartEdgeDeploymentStage`/`StopEdgeDeploymentStage`/`UpdateDevices` (`edge_deployment.go`,
+`device_fleets.go`) request shapes verified against `types.DeploymentStage`/`types.Device` —
+correct. `CreateNotebookInstanceLifecycleConfig`/`DescribeNotebookInstanceLifecycleConfig`,
+`CreateUserProfile`, `DescribeTrainingPlanExtensionHistory`, `DisassociateTrialComponent`,
+`StartMonitoringSchedule`, `UpdateProject` all read clean against their `api_op_*.go` shapes —
+`CreateUserProfile`/`UpdateProject` in particular are the create-side and update-adjacent
+siblings of the two bugs above, and both correctly thread their optional fields, confirming
+the Update-path drop was specific to `UpdateSpace`/`UpdateUserProfile`, not a repo-wide pattern.
+
+**Sibling inconsistency noted, not fixed (unprovable).** `StopTransformJob`
+(`transform_jobs.go`) rejects stopping a job that isn't `InProgress`; four other `Stop*` ops in
+this file share that same explicit "AWS rejects stopping..." guard
+(`StopCompilationJob`/`StopAutoMLJob`/`StopLabelingJob`/`StopMonitoringSchedule`). This queue's
+`StopProcessingJob`/`StopEdgeDeploymentStage` (and, outside the queue, `StopTrainingJob`/
+`StopHyperParameterTuningJob`/`StopOptimizationJob`/`StopInferenceRecommendationsJob`/
+`StopEdgePackagingJob`) have no such guard — calling them on an already-terminal job silently
+re-transitions it to `Stopping`→`Stopped`, overwriting a `Completed`/`Failed` status. Checked
+both ops' real `Errors` sections (`docs.aws.amazon.com/sagemaker/latest/APIReference/
+API_StopProcessingJob.html`, `.../API_StopTransformJob.html`): both document only
+`ResourceNotFound`, no state-conflict error, for either op — so this is a real internal
+inconsistency between siblings, but not provable as a wire-shape or documented-error bug from
+the pinned SDK the way the two fixes above are. Left as-is; flagging for whoever next touches
+`Stop*` job lifecycle so the guard convention gets applied (or deliberately rejected)
+uniformly rather than op-by-op.
+
+**Modelling looseness noted, not fixed.** `DescribeStudioLifecycleConfig`
+(`handler_studio_lifecycle_configs.go`) marshals the full `StudioLifecycleConfig` struct
+including `Tags`, but the real `DescribeStudioLifecycleConfigOutput`
+(`api_op_DescribeStudioLifecycleConfig.go`) has no `Tags` member at all. This is gopherstack
+emitting an extra, unmodeled field rather than dropping a modeled one — real clients ignore
+unrecognized response keys, so this doesn't reproduce as a client-visible bug and wasn't fixed.
+
+No modelling gaps found (no optional SDK member read had zero backing state).
+
+Snapshot bump: not needed. `Space`/`UserProfile`'s persisted struct tags/types are unchanged —
+`SpaceDisplayName`/`SpaceSettings`/`UserSettings` were already present fields (populated by
+Create, previously just unreachable from Update); only the Update path's plumbing changed.
+`go test ./pkgs/persistence/...` passes unchanged.
+
+**New tests:** `TestHandler_UpdateSpace_RealClient`, `TestHandler_UpdateUserProfile_RealClient`
+(`handler_cluster_space_realclient_test.go`).
+
+**Gates:** `go build ./services/sagemaker/...`, `go vet ./services/sagemaker/...`, `gofmt -l
+services/sagemaker/` (clean), `go test -race ./services/sagemaker/...`, `go test
+./pkgs/persistence/...`, `make build-check` (exported signatures of `InMemoryBackend.UpdateSpace`/
+`UpdateUserProfile` changed). Work left uncommitted per instructions.
+
+**Ops not reached:** none — all 16 from the parity-27 queue were read. No further never-named
+ops from the original 87 remain outside this file: 71 (parity-27) + 16 (this pass) = 87.

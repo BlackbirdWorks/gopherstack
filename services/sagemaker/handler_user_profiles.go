@@ -184,9 +184,12 @@ func (h *Handler) handleDeleteUserProfile(ctx context.Context, body []byte) erro
 	return nil
 }
 
+// updateUserProfileInput mirrors UpdateUserProfileInput
+// (api_op_UpdateUserProfile.go:26-38).
 type updateUserProfileInput struct {
-	DomainID        string `json:"DomainId"`
-	UserProfileName string `json:"UserProfileName"`
+	DomainID        string          `json:"DomainId"`
+	UserProfileName string          `json:"UserProfileName"`
+	UserSettings    json.RawMessage `json:"UserSettings"`
 }
 
 func (h *Handler) handleUpdateUserProfile(ctx context.Context, body []byte) ([]byte, error) {
@@ -204,7 +207,9 @@ func (h *Handler) handleUpdateUserProfile(ctx context.Context, body []byte) ([]b
 		return nil, fmt.Errorf("%w: UserProfileName is required", errInvalidRequest)
 	}
 
-	up, err := h.Backend.UpdateUserProfile(ctx, req.DomainID, req.UserProfileName)
+	up, err := h.Backend.UpdateUserProfile(ctx, req.DomainID, req.UserProfileName, UpdateUserProfileOptions{
+		UserSettings: req.UserSettings,
+	})
 	if err != nil {
 		return nil, err
 	}

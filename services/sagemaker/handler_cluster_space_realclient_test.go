@@ -80,3 +80,77 @@ func TestHandler_DescribeSpace_Status_RealClient(t *testing.T) {
 	require.Len(t, list.Spaces, 1)
 	assert.Equal(t, smtypes.SpaceStatusInService, list.Spaces[0].Status)
 }
+
+// TestHandler_UpdateSpace_RealClient proves UpdateSpaceInput really carries
+// SpaceDisplayName/SpaceSettings (api_op_UpdateSpace.go:27-42,
+// sagemaker@v1.263.2) and that DescribeSpace reflects the update. Before the
+// fix, the handler's updateSpaceInput struct declared only DomainId/SpaceName,
+// so a real client's SpaceDisplayName/SpaceSettings were silently dropped by
+// json.Unmarshal: UpdateSpace returned 200 OK but left the space unchanged.
+func TestHandler_UpdateSpace_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestSageMakerClient(t, h)
+
+	_, err := client.CreateSpace(t.Context(), &sagemakersdk.CreateSpaceInput{
+		DomainId:         aws.String("d-1"),
+		SpaceName:        aws.String("space-1"),
+		SpaceDisplayName: aws.String("Original Name"),
+		SpaceSettings:    &smtypes.SpaceSettings{AppType: smtypes.AppTypeJupyterLab},
+	})
+	require.NoError(t, err)
+
+	_, err = client.UpdateSpace(t.Context(), &sagemakersdk.UpdateSpaceInput{
+		DomainId:         aws.String("d-1"),
+		SpaceName:        aws.String("space-1"),
+		SpaceDisplayName: aws.String("Updated Name"),
+		SpaceSettings:    &smtypes.SpaceSettings{AppType: smtypes.AppTypeCodeEditor},
+	})
+	require.NoError(t, err)
+
+	desc, err := client.DescribeSpace(t.Context(), &sagemakersdk.DescribeSpaceInput{
+		DomainId:  aws.String("d-1"),
+		SpaceName: aws.String("space-1"),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "Updated Name", aws.ToString(desc.SpaceDisplayName))
+	require.NotNil(t, desc.SpaceSettings)
+	assert.Equal(t, smtypes.AppTypeCodeEditor, desc.SpaceSettings.AppType)
+}
+
+// TestHandler_UpdateUserProfile_RealClient proves UpdateUserProfileInput
+// really carries UserSettings (api_op_UpdateUserProfile.go:26-38,
+// sagemaker@v1.263.2) and that DescribeUserProfile reflects the update.
+// Before the fix, the handler's updateUserProfileInput struct declared only
+// DomainId/UserProfileName, so a real client's UserSettings was silently
+// dropped by json.Unmarshal: UpdateUserProfile returned 200 OK but left the
+// profile's settings unchanged.
+func TestHandler_UpdateUserProfile_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestSageMakerClient(t, h)
+
+	_, err := client.CreateUserProfile(t.Context(), &sagemakersdk.CreateUserProfileInput{
+		DomainId:        aws.String("d-1"),
+		UserProfileName: aws.String("user-1"),
+		UserSettings:    &smtypes.UserSettings{ExecutionRole: aws.String("arn:aws:iam::123456789012:role/original")},
+	})
+	require.NoError(t, err)
+
+	_, err = client.UpdateUserProfile(t.Context(), &sagemakersdk.UpdateUserProfileInput{
+		DomainId:        aws.String("d-1"),
+		UserProfileName: aws.String("user-1"),
+		UserSettings:    &smtypes.UserSettings{ExecutionRole: aws.String("arn:aws:iam::123456789012:role/updated")},
+	})
+	require.NoError(t, err)
+
+	desc, err := client.DescribeUserProfile(t.Context(), &sagemakersdk.DescribeUserProfileInput{
+		DomainId:        aws.String("d-1"),
+		UserProfileName: aws.String("user-1"),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, desc.UserSettings)
+	assert.Equal(t, "arn:aws:iam::123456789012:role/updated", aws.ToString(desc.UserSettings.ExecutionRole))
+}
