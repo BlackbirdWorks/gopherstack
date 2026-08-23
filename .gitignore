@@ -3,10 +3,14 @@
 # JetBrains Safe Write and editor temporary/swap files
 .!*
 *.!*
+*.swp
+*.swo
+*.swn
 .*.swp
 .*.swo
+.*.swn
 *~
-#*#
+\#*#
 /PLAN.md
 /new.sh
 /**/*.out
