@@ -1266,7 +1266,7 @@ func TestWireResourceGroupsTagging_CrossServiceResources(t *testing.T) {
 				t.Helper()
 
 				ccBk := codecommitbackend.NewInMemoryBackend(accountID, region)
-				repo, err := ccBk.CreateRepository("wiring-test-repo", "", nil)
+				repo, err := ccBk.CreateRepository("wiring-test-repo", "", "", nil)
 				require.NoError(t, err)
 				require.NoError(t, ccBk.TagResource(repo.ARN, map[string]string{wantTagKey: wantTagValue}))
 

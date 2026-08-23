@@ -107,3 +107,90 @@ func Test_SDKRoundTrip_DeleteFile_CommitMetadata(t *testing.T) {
 	require.Equal(t, "grace@example.com", aws.ToString(getOut.Commit.Author.Email),
 		"DeleteFileInput.Email must populate the commit's author identity")
 }
+
+// Test_SDKRoundTrip_CreateUnreferencedMergeCommit_CommitMetadata proves
+// CreateUnreferencedMergeCommitInput's CommitMessage/AuthorName/Email reach
+// the resulting commit, the same way PutFile's and DeleteFile's do.
+// gopherstack's decode struct omitted all three, so the commit GetCommit
+// returned always carried the hardcoded "Unreferenced merge commit" message
+// and empty author/committer identity no matter what the client sent.
+func Test_SDKRoundTrip_CreateUnreferencedMergeCommit_CommitMetadata(t *testing.T) {
+	t.Parallel()
+
+	h := codecommit.NewHandler(codecommit.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion))
+	client := newTestCodeCommitClient(t, h)
+	ctx := t.Context()
+
+	const repoName = "unref-merge-metadata-repo"
+
+	_, err := client.CreateRepository(ctx, &codecommitsdk.CreateRepositoryInput{
+		RepositoryName: aws.String(repoName),
+	})
+	require.NoError(t, err)
+
+	putOut, err := client.PutFile(ctx, &codecommitsdk.PutFileInput{
+		RepositoryName: aws.String(repoName),
+		BranchName:     aws.String("main"),
+		FilePath:       aws.String("hello.txt"),
+		FileContent:    []byte("hello"),
+	})
+	require.NoError(t, err)
+
+	mergeOut, err := client.CreateUnreferencedMergeCommit(ctx, &codecommitsdk.CreateUnreferencedMergeCommitInput{
+		RepositoryName:             aws.String(repoName),
+		SourceCommitSpecifier:      aws.String(aws.ToString(putOut.CommitId)),
+		DestinationCommitSpecifier: aws.String(aws.ToString(putOut.CommitId)),
+		MergeOption:                "FAST_FORWARD_MERGE",
+		CommitMessage:              aws.String("unref merge result"),
+		AuthorName:                 aws.String("Katherine Johnson"),
+		Email:                      aws.String("katherine@example.com"),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, mergeOut.CommitId)
+
+	getOut, err := client.GetCommit(ctx, &codecommitsdk.GetCommitInput{
+		RepositoryName: aws.String(repoName),
+		CommitId:       mergeOut.CommitId,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, getOut.Commit)
+
+	require.Equal(t, "unref merge result", aws.ToString(getOut.Commit.Message),
+		"CreateUnreferencedMergeCommitInput.CommitMessage must reach the resulting commit, not a hardcoded default")
+	require.Equal(t, "Katherine Johnson", aws.ToString(getOut.Commit.Author.Name),
+		"CreateUnreferencedMergeCommitInput.AuthorName must populate the commit's author identity")
+	require.Equal(t, "katherine@example.com", aws.ToString(getOut.Commit.Author.Email),
+		"CreateUnreferencedMergeCommitInput.Email must populate the commit's author identity")
+}
+
+// Test_SDKRoundTrip_CreateRepository_KmsKeyId proves CreateRepositoryInput's
+// KmsKeyId reaches the created repository's metadata: gopherstack's decode
+// struct previously omitted it, so a repository created with a customer key
+// always reported an empty kmsKeyId no matter what the client sent, even
+// though Repository.KmsKeyID is a real tracked field (populated correctly by
+// UpdateRepositoryEncryptionKey).
+func Test_SDKRoundTrip_CreateRepository_KmsKeyId(t *testing.T) {
+	t.Parallel()
+
+	h := codecommit.NewHandler(codecommit.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion))
+	client := newTestCodeCommitClient(t, h)
+	ctx := t.Context()
+
+	const repoName = "create-repo-kms-key"
+	const kmsKeyID = "arn:aws:kms:us-east-1:123456789012:key/my-key"
+
+	_, err := client.CreateRepository(ctx, &codecommitsdk.CreateRepositoryInput{
+		RepositoryName: aws.String(repoName),
+		KmsKeyId:       aws.String(kmsKeyID),
+	})
+	require.NoError(t, err)
+
+	getOut, err := client.GetRepository(ctx, &codecommitsdk.GetRepositoryInput{
+		RepositoryName: aws.String(repoName),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, getOut.RepositoryMetadata)
+
+	require.Equal(t, kmsKeyID, aws.ToString(getOut.RepositoryMetadata.KmsKeyId),
+		"CreateRepositoryInput.KmsKeyId must reach the created repository's metadata")
+}

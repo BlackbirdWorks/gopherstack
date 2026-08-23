@@ -11,7 +11,9 @@ import (
 )
 
 // CreateRepository creates a new CodeCommit repository.
-func (b *InMemoryBackend) CreateRepository(name, description string, kv map[string]string) (*Repository, error) {
+func (b *InMemoryBackend) CreateRepository(
+	name, description, kmsKeyID string, kv map[string]string,
+) (*Repository, error) {
 	b.mu.Lock("CreateRepository")
 	defer b.mu.Unlock()
 
@@ -41,6 +43,7 @@ func (b *InMemoryBackend) CreateRepository(name, description string, kv map[stri
 		LastModifiedDate: now,
 		CloneURLHTTP:     fmt.Sprintf("https://git-codecommit.%s.amazonaws.com/v1/repos/%s", b.region, name),
 		CloneURLSSH:      fmt.Sprintf("ssh://git-codecommit.%s.amazonaws.com/v1/repos/%s", b.region, name),
+		KmsKeyID:         kmsKeyID,
 		Tags:             t,
 	}
 	b.repositories.Put(r)

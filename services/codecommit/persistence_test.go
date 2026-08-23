@@ -29,7 +29,7 @@ func TestInMemoryBackend_RestoreVersionMismatch(t *testing.T) {
 	t.Parallel()
 
 	b := codecommit.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion)
-	_, err := b.CreateRepository("seed-repo", "seed", nil)
+	_, err := b.CreateRepository("seed-repo", "seed", "", nil)
 	require.NoError(t, err)
 
 	// A syntactically valid but version-mismatched snapshot.
@@ -53,7 +53,7 @@ func TestInMemoryBackend_RestoreOldSnapshotDecodesAsZero(t *testing.T) {
 	t.Parallel()
 
 	b := codecommit.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion)
-	_, err := b.CreateRepository("seed-repo", "seed", nil)
+	_, err := b.CreateRepository("seed-repo", "seed", "", nil)
 	require.NoError(t, err)
 
 	// A shape entirely lacking "version"/"tables" keys.
@@ -77,7 +77,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 
 	original := codecommit.NewInMemoryBackend("111122223333", "us-west-2")
 
-	repo, err := original.CreateRepository("repo-1", "a repo", map[string]string{"env": "test"})
+	repo, err := original.CreateRepository("repo-1", "a repo", "", map[string]string{"env": "test"})
 	require.NoError(t, err)
 
 	tmpl, err := original.CreateApprovalRuleTemplate("tmpl-1", "a template", `{"Version":"2018-11-08"}`)
@@ -135,7 +135,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	// Scalars: accountID/region surface indirectly through a freshly created
 	// resource (there is no direct accessor), nextPRCounter through the next
 	// assigned pull request ID continuing from the restored counter.
-	newRepo, err := fresh.CreateRepository("repo-2", "", nil)
+	newRepo, err := fresh.CreateRepository("repo-2", "", "", nil)
 	require.NoError(t, err)
 	assert.Equal(t, "111122223333", newRepo.AccountID)
 	assert.Contains(t, newRepo.ARN, "us-west-2")
@@ -253,7 +253,7 @@ func TestHandler_SnapshotRestoreDelegate(t *testing.T) {
 
 	h := codecommit.NewHandler(codecommit.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion))
 
-	_, err := h.Backend.CreateRepository("delegate-repo", "", nil)
+	_, err := h.Backend.CreateRepository("delegate-repo", "", "", nil)
 	require.NoError(t, err)
 
 	snap := h.Snapshot(t.Context())

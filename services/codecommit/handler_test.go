@@ -423,7 +423,7 @@ func TestBackend_Reset(t *testing.T) {
 	b := codecommit.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion)
 
 	// Seed data
-	_, err := b.CreateRepository("repo-a", "", nil)
+	_, err := b.CreateRepository("repo-a", "", "", nil)
 	require.NoError(t, err)
 	_, err = b.CreateApprovalRuleTemplate("tmpl", "", "{}")
 	require.NoError(t, err)

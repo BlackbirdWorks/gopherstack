@@ -293,7 +293,7 @@ func (b *InMemoryBackend) GetMergeOptions(
 
 // CreateUnreferencedMergeCommit creates a new unreferenced merge commit.
 func (b *InMemoryBackend) CreateUnreferencedMergeCommit(
-	repoName, sourceCommitID, destinationCommitID string,
+	repoName, sourceCommitID, destinationCommitID, authorName, authorEmail, message string,
 ) (*Commit, error) {
 	b.mu.Lock("CreateUnreferencedMergeCommit")
 	defer b.mu.Unlock()
@@ -302,13 +302,21 @@ func (b *InMemoryBackend) CreateUnreferencedMergeCommit(
 		return nil, fmt.Errorf("%w: repository %s not found", ErrNotFound, repoName)
 	}
 
+	if message == "" {
+		message = "Unreferenced merge commit"
+	}
+
 	commitID := uuid.NewString()
 	treeID := uuid.NewString()
 	now := time.Now().UTC()
 	commit := &Commit{
 		CommitID:       commitID,
 		TreeID:         treeID,
-		Message:        "Unreferenced merge commit",
+		Message:        message,
+		AuthorName:     authorName,
+		AuthorEmail:    authorEmail,
+		CommitterName:  authorName,
+		CommitterEmail: authorEmail,
 		RepositoryName: repoName,
 		Parents:        []string{sourceCommitID, destinationCommitID},
 		CreatedAt:      now,
