@@ -463,7 +463,23 @@ func (b *InMemoryBackend) ListCACertificates() []*CACertificate {
 	return out
 }
 
-func (b *InMemoryBackend) UpdateCACertificate(id, status string) error {
+// UpdateCACertificateInput is the input for UpdateCACertificate. NewStatus
+// and NewAutoRegistrationStatus are real query parameters, not body fields
+// (iot@v1.77.4 serializers.go
+// awsRestjson1_serializeOpHttpBindingsUpdateCACertificateInput); RegistrationConfig
+// and RemoveAutoRegistration are real body fields
+// (awsRestjson1_serializeOpDocumentUpdateCACertificateInput) -- all four
+// were previously entirely unimplemented beyond NewStatus, which itself was
+// read from the wrong location (body instead of query), so a real client's
+// status change was always silently dropped.
+type UpdateCACertificateInput struct {
+	RegistrationConfig        *RegistrationConfig
+	NewStatus                 string
+	NewAutoRegistrationStatus string
+	RemoveAutoRegistration    bool
+}
+
+func (b *InMemoryBackend) UpdateCACertificate(id string, input *UpdateCACertificateInput) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -471,8 +487,16 @@ func (b *InMemoryBackend) UpdateCACertificate(id, status string) error {
 	if !ok {
 		return fmt.Errorf("CA certificate %q not found: %w", id, ErrResourceNotFound)
 	}
-	if status != "" {
-		ca.Status = status
+	if input.NewStatus != "" {
+		ca.Status = input.NewStatus
+	}
+	if input.RemoveAutoRegistration {
+		ca.AutoRegistration = ""
+	} else if input.NewAutoRegistrationStatus != "" {
+		ca.AutoRegistration = input.NewAutoRegistrationStatus
+	}
+	if input.RegistrationConfig != nil {
+		ca.RegistrationConfig = *input.RegistrationConfig
 	}
 	ca.LastModifiedDate = float64(time.Now().Unix())
 

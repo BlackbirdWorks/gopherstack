@@ -172,6 +172,33 @@ func TestEventConfigurations(t *testing.T) {
 	}
 }
 
+// TestEventConfigurations_DatesSurface guards DescribeEventConfigurationsOutput's
+// real creationDate/lastModifiedDate members (iot@v1.77.4
+// api_op_DescribeEventConfigurations.go), previously entirely unmodeled on
+// EventConfigurations -- a real client got neither back no matter how many
+// times UpdateEventConfigurations was called.
+func TestEventConfigurations_DatesSurface(t *testing.T) {
+	t.Parallel()
+	h, _ := newHandlerForBatch3Test(t)
+
+	iotOK(t, h, http.MethodPatch, "/event-configurations", map[string]any{
+		"eventConfigurations": map[string]any{
+			"THING": map[string]any{"Enabled": true},
+		},
+	})
+
+	out := iotOK(t, h, http.MethodGet, "/event-configurations", nil)
+
+	created, ok := out["creationDate"].(float64)
+	if !ok || created <= 0 {
+		t.Errorf("expected non-zero creationDate, got %v", out["creationDate"])
+	}
+	modified, ok := out["lastModifiedDate"].(float64)
+	if !ok || modified <= 0 {
+		t.Errorf("expected non-zero lastModifiedDate, got %v", out["lastModifiedDate"])
+	}
+}
+
 // TestBatch3_AuditFinding tests ListAuditFindings (empty list since we have no direct create endpoint).
 //
 // Real AWS IoT's ListAuditFindings is POST /audit/findings (its filter

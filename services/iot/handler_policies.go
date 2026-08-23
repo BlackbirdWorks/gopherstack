@@ -479,7 +479,15 @@ func (h *Handler) handleListPrincipalPolicies(c *echo.Context) error {
 		}
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{keyPolicies: out})
+	pageSize, start := parseIoTMarkerPagination(c)
+	page, nextMarker := paginateMaps(out, pageSize, start)
+
+	resp := map[string]any{keyPolicies: page}
+	if nextMarker != "" {
+		resp["nextMarker"] = nextMarker
+	}
+
+	return c.JSON(http.StatusOK, resp)
 }
 
 func (h *Handler) handleListPolicyPrincipals(c *echo.Context) error {
@@ -489,43 +497,85 @@ func (h *Handler) handleListPolicyPrincipals(c *echo.Context) error {
 		principals = []string{}
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"principals": principals})
+	pageSize, start := parseIoTMarkerPagination(c)
+	page, nextMarker := paginateMaps(principals, pageSize, start)
+
+	resp := map[string]any{"principals": page}
+	if nextMarker != "" {
+		resp["nextMarker"] = nextMarker
+	}
+
+	return c.JSON(http.StatusOK, resp)
 }
 
 func (h *Handler) handleListTargetsForPolicy(c *echo.Context) error {
 	policyName := strings.TrimPrefix(c.Request().URL.Path, "/policy-targets/")
 	targets := h.Backend.ListTargetsForPolicy(policyName)
 
-	return c.JSON(http.StatusOK, map[string]any{"targets": targets})
+	pageSize, start := parseIoTMarkerPagination(c)
+	page, nextMarker := paginateMaps(targets, pageSize, start)
+
+	resp := map[string]any{"targets": page}
+	if nextMarker != "" {
+		resp["nextMarker"] = nextMarker
+	}
+
+	return c.JSON(http.StatusOK, resp)
 }
 
 func (h *Handler) handleListPrincipalThings(c *echo.Context) error {
 	principal := c.Request().Header.Get(headerIoTPrincipal)
 	things := h.Backend.ListPrincipalThings(principal)
 
-	return c.JSON(http.StatusOK, map[string]any{keyThings: things})
+	pageSize, start := parseIoTPagination(c)
+	page, nextToken := paginateMaps(things, pageSize, start)
+
+	resp := map[string]any{keyThings: page}
+	if nextToken != "" {
+		resp["nextToken"] = nextToken
+	}
+
+	return c.JSON(http.StatusOK, resp)
 }
 
 func (h *Handler) handleListPrincipalThingsV2(c *echo.Context) error {
 	principal := c.Request().Header.Get(headerIoTPrincipal)
+	thingPrincipalType := c.QueryParam("thingPrincipalType")
 	things := h.Backend.ListPrincipalThings(principal)
-	summaries := make([]map[string]any, len(things))
-	for i, t := range things {
-		summaries[i] = map[string]any{"thingName": t}
+
+	summaries := make([]map[string]any, 0, len(things))
+	for _, t := range things {
+		if thingPrincipalType != "" && thingPrincipalType != defaultThingPrincipalType {
+			continue
+		}
+		summaries = append(summaries, map[string]any{
+			"thingName":          t,
+			"thingPrincipalType": defaultThingPrincipalType,
+		})
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"principalThingObjects": summaries})
+	pageSize, start := parseIoTPagination(c)
+	page, nextToken := paginateMaps(summaries, pageSize, start)
+
+	resp := map[string]any{"principalThingObjects": page}
+	if nextToken != "" {
+		resp["nextToken"] = nextToken
+	}
+
+	return c.JSON(http.StatusOK, resp)
 }
 
 func (h *Handler) handleGetEffectivePolicies(c *echo.Context) error {
 	var req struct {
-		ThingName string `json:"thingName"`
 		Principal string `json:"principal"`
 	}
 	if err := readBody(c, &req); err != nil {
 		return err
 	}
-	policies := h.Backend.GetEffectivePolicies(req.ThingName, req.Principal)
+	// thingName is a query parameter, not a body field (iot@v1.77.4
+	// serializers.go awsRestjson1_serializeOpHttpBindingsGetEffectivePoliciesInput).
+	thingName := c.QueryParam(keyThingName)
+	policies := h.Backend.GetEffectivePolicies(thingName, req.Principal)
 	out := make([]map[string]any, len(policies))
 	for i, p := range policies {
 		out[i] = map[string]any{

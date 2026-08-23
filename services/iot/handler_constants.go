@@ -11,6 +11,8 @@ const (
 	keyThingTypeArn            = "thingTypeArn"
 	keyThingGroupName          = "thingGroupName"
 	keyThingGroupArn           = "thingGroupArn"
+	keyGroupName               = "groupName"
+	keyGroupArn                = "groupArn"
 	keyCertificateID           = "certificateId"
 	keyCertificateArn          = "certificateArn"
 	keyCertificateMode         = "certificateMode"

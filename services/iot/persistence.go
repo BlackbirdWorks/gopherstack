@@ -505,6 +505,8 @@ func cloneIoTCommandExecution(e *IoTCommandExecution) *IoTCommandExecution {
 func cloneEventConfigurations(e *EventConfigurations) *EventConfigurations {
 	cp := EventConfigurations{
 		EventConfigurations: make(map[string]*EventConfigEntry, len(e.EventConfigurations)),
+		CreationDate:        e.CreationDate,
+		LastModifiedDate:    e.LastModifiedDate,
 	}
 	for k, v := range e.EventConfigurations {
 		entry := *v

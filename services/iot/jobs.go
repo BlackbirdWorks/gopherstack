@@ -512,7 +512,20 @@ func (b *InMemoryBackend) ListJobs() []*Job {
 	return out
 }
 
-func (b *InMemoryBackend) UpdateJob(jobID, description string) error {
+// UpdateJobInput is the input for UpdateJob. Mirrors types (v1.77.4)
+// beyond description: AbortConfig/JobExecutionsRolloutConfig/TimeoutConfig/
+// JobExecutionsRetryConfig/PresignedURLConfig, all previously silently
+// dropped -- UpdateJob only ever applied Description.
+type UpdateJobInput struct {
+	AbortConfig                *AbortConfig
+	JobExecutionsRolloutConfig *JobExecutionsRolloutConfig
+	TimeoutConfig              *TimeoutConfig
+	JobExecutionsRetryConfig   *JobExecutionsRetryConfig
+	PresignedURLConfig         *PresignedURLConfig
+	Description                string
+}
+
+func (b *InMemoryBackend) UpdateJob(jobID string, input *UpdateJobInput) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -520,8 +533,23 @@ func (b *InMemoryBackend) UpdateJob(jobID, description string) error {
 	if !ok {
 		return fmt.Errorf("job %q not found: %w", jobID, ErrResourceNotFound)
 	}
-	if description != "" {
-		j.Description = description
+	if input.Description != "" {
+		j.Description = input.Description
+	}
+	if input.AbortConfig != nil {
+		j.AbortConfig = input.AbortConfig
+	}
+	if input.JobExecutionsRolloutConfig != nil {
+		j.JobExecutionsRolloutConfig = input.JobExecutionsRolloutConfig
+	}
+	if input.TimeoutConfig != nil {
+		j.TimeoutConfig = input.TimeoutConfig
+	}
+	if input.JobExecutionsRetryConfig != nil {
+		j.JobExecutionsRetryConfig = cloneJobExecutionsRetryConfig(input.JobExecutionsRetryConfig)
+	}
+	if input.PresignedURLConfig != nil {
+		j.PresignedURLConfig = input.PresignedURLConfig
 	}
 	j.LastUpdatedAt = float64(time.Now().Unix())
 

@@ -199,18 +199,31 @@ func (h *Handler) handleDescribeDomainConfiguration(c *echo.Context) error {
 }
 
 func (h *Handler) handleListDomainConfigurations(c *echo.Context) error {
+	serviceType := c.QueryParam("serviceType")
+
 	configs := h.Backend.ListDomainConfigurations()
-	summaries := make([]map[string]any, len(configs))
-	for i, dc := range configs {
-		summaries[i] = map[string]any{
+	summaries := make([]map[string]any, 0, len(configs))
+	for _, dc := range configs {
+		if serviceType != "" && dc.ServiceType != serviceType {
+			continue
+		}
+		summaries = append(summaries, map[string]any{
 			keyDomainConfigName:         dc.DomainConfigurationName,
 			keyDomainConfigARN:          dc.DomainConfigurationARN,
 			"domainConfigurationStatus": dc.DomainConfigurationStatus,
 			"serviceType":               dc.ServiceType,
-		}
+		})
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"domainConfigurations": summaries})
+	pageSize, start := parseIoTMarkerPagination(c)
+	page, nextMarker := paginateMaps(summaries, pageSize, start)
+
+	resp := map[string]any{"domainConfigurations": page}
+	if nextMarker != "" {
+		resp["nextMarker"] = nextMarker
+	}
+
+	return c.JSON(http.StatusOK, resp)
 }
 
 func (h *Handler) handleUpdateDomainConfiguration(c *echo.Context) error {

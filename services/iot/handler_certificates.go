@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"sort"
 	"strings"
 
 	"github.com/labstack/echo/v5"
@@ -563,12 +564,18 @@ func (h *Handler) handleListCACertificates(c *echo.Context) error {
 func (h *Handler) handleUpdateCACertificate(c *echo.Context) error {
 	id := caCertIDFromPath(c.Request().URL.Path)
 	var req struct {
-		NewStatus string `json:"newStatus"`
+		RegistrationConfig     *RegistrationConfig `json:"registrationConfig"`
+		RemoveAutoRegistration bool                `json:"removeAutoRegistration"`
 	}
 	if err := readBody(c, &req); err != nil {
 		return err
 	}
-	if err := h.Backend.UpdateCACertificate(id, req.NewStatus); err != nil {
+	if err := h.Backend.UpdateCACertificate(id, &UpdateCACertificateInput{
+		NewStatus:                 c.QueryParam("newStatus"),
+		NewAutoRegistrationStatus: c.QueryParam("newAutoRegistrationStatus"),
+		RegistrationConfig:        req.RegistrationConfig,
+		RemoveAutoRegistration:    req.RemoveAutoRegistration,
+	}); err != nil {
 		return respondErr(c, err)
 	}
 
@@ -748,7 +755,24 @@ func (h *Handler) handleRejectCertificateTransfer(c *echo.Context) error {
 func (h *Handler) handleListOutgoingCertificates(c *echo.Context) error {
 	certs := h.Backend.ListOutgoingCertificates()
 
-	return c.JSON(http.StatusOK, map[string]any{"outgoingCertificates": certs})
+	ascending := c.QueryParam("isAscendingOrder") == "true"
+	sort.Slice(certs, func(i, j int) bool {
+		if ascending {
+			return certs[i].CreationDate < certs[j].CreationDate
+		}
+
+		return certs[i].CreationDate > certs[j].CreationDate
+	})
+
+	pageSize, start := parseIoTMarkerPagination(c)
+	page, nextMarker := paginateMaps(certs, pageSize, start)
+
+	resp := map[string]any{"outgoingCertificates": page}
+	if nextMarker != "" {
+		resp["nextMarker"] = nextMarker
+	}
+
+	return c.JSON(http.StatusOK, resp)
 }
 
 func (h *Handler) dispatchCACertOps(c *echo.Context, op string) (bool, error) {

@@ -7,9 +7,18 @@ import (
 
 // V2LoggingOptions holds the account-level V2 logging configuration.
 type V2LoggingOptions struct {
-	DefaultLogLevel string `json:"defaultLogLevel"`
-	RoleARN         string `json:"roleArn,omitempty"`
-	DisableAllLogs  bool   `json:"disableAllLogs"`
+	DefaultLogLevel     string                    `json:"defaultLogLevel"`
+	RoleARN             string                    `json:"roleArn,omitempty"`
+	EventConfigurations []LogEventConfigurationV2 `json:"eventConfigurations,omitempty"`
+	DisableAllLogs      bool                      `json:"disableAllLogs"`
+}
+
+// LogEventConfigurationV2 is one per-event-type logging override
+// (types.LogEventConfiguration, aws-sdk-go-v2/service/iot@v1.77.4).
+type LogEventConfigurationV2 struct {
+	EventType      string `json:"eventType"`
+	LogDestination string `json:"logDestination,omitempty"`
+	LogLevel       string `json:"logLevel,omitempty"`
 }
 
 // V2LoggingLevel holds a per-target logging level.
@@ -45,14 +54,17 @@ func (b *InMemoryBackend) GetV2LoggingOptions() *V2LoggingOptions {
 	return &cp
 }
 
-func (b *InMemoryBackend) SetV2LoggingOptions(roleARN, defaultLogLevel string, disableAllLogs bool) error {
+func (b *InMemoryBackend) SetV2LoggingOptions(
+	roleARN, defaultLogLevel string, disableAllLogs bool, eventConfigurations []LogEventConfigurationV2,
+) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
 	b.v2LoggingOptions = &V2LoggingOptions{
-		RoleARN:         roleARN,
-		DefaultLogLevel: defaultLogLevel,
-		DisableAllLogs:  disableAllLogs,
+		RoleARN:             roleARN,
+		DefaultLogLevel:     defaultLogLevel,
+		DisableAllLogs:      disableAllLogs,
+		EventConfigurations: eventConfigurations,
 	}
 
 	return nil

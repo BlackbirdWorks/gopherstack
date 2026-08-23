@@ -248,4 +248,27 @@ func TestListMetricValues(t *testing.T) {
 			"/metric-values?thingName=no-such&metricName=aws:num-connections", nil, nil)
 		assert.Equal(t, http.StatusNotFound, rec.Code)
 	})
+
+	// guards types.MetricValue's real numbers/strings members (v1.77.4),
+	// previously entirely unmodeled on MetricValueData.
+	t.Run("numbers_and_strings_survive", func(t *testing.T) {
+		t.Parallel()
+
+		h, b := newRefHandler()
+		b.AddThingInternal(iot.Thing{ThingName: "num-str-thing"})
+
+		b.AddMetricValueInternal("num-str-thing", "custom:multi", iot.MetricDatapoint{
+			Timestamp: 100,
+			Value: &iot.MetricValueData{
+				Numbers: []float64{1.5, 2.5},
+				Strings: []string{"a", "b"},
+			},
+		})
+
+		rec := doRefRequest(t, h, http.MethodGet,
+			"/metric-values?thingName=num-str-thing&metricName=custom:multi", nil, nil)
+		require.Equal(t, http.StatusOK, rec.Code)
+		assert.Contains(t, rec.Body.String(), `"numbers":[1.5,2.5]`)
+		assert.Contains(t, rec.Body.String(), `"strings":["a","b"]`)
+	})
 }

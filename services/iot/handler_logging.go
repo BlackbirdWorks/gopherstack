@@ -42,14 +42,17 @@ func (h *Handler) handleGetV2LoggingOptions(c *echo.Context) error {
 
 func (h *Handler) handleSetV2LoggingOptions(c *echo.Context) error {
 	var req struct {
-		RoleARN         string `json:"roleArn"`
-		DefaultLogLevel string `json:"defaultLogLevel"`
-		DisableAllLogs  bool   `json:"disableAllLogs"`
+		RoleARN             string                    `json:"roleArn"`
+		DefaultLogLevel     string                    `json:"defaultLogLevel"`
+		EventConfigurations []LogEventConfigurationV2 `json:"eventConfigurations"`
+		DisableAllLogs      bool                      `json:"disableAllLogs"`
 	}
 	if err := readBody(c, &req); err != nil {
 		return err
 	}
-	if err := h.Backend.SetV2LoggingOptions(req.RoleARN, req.DefaultLogLevel, req.DisableAllLogs); err != nil {
+	if err := h.Backend.SetV2LoggingOptions(
+		req.RoleARN, req.DefaultLogLevel, req.DisableAllLogs, req.EventConfigurations,
+	); err != nil {
 		return respondErr(c, err)
 	}
 
@@ -83,9 +86,28 @@ func (h *Handler) handleDeleteV2LoggingLevel(c *echo.Context) error {
 }
 
 func (h *Handler) handleListV2LoggingLevels(c *echo.Context) error {
-	items := h.Backend.ListV2LoggingLevels()
+	targetType := c.QueryParam("targetType")
 
-	return c.JSON(http.StatusOK, map[string]any{"logTargetConfigurations": items})
+	items := h.Backend.ListV2LoggingLevels()
+	if targetType != "" {
+		filtered := make([]*V2LoggingLevel, 0, len(items))
+		for _, l := range items {
+			if tt, _ := l.Target["targetType"].(string); tt == targetType {
+				filtered = append(filtered, l)
+			}
+		}
+		items = filtered
+	}
+
+	pageSize, start := parseIoTPagination(c)
+	page, nextToken := paginateMaps(items, pageSize, start)
+
+	resp := map[string]any{"logTargetConfigurations": page}
+	if nextToken != "" {
+		resp["nextToken"] = nextToken
+	}
+
+	return c.JSON(http.StatusOK, resp)
 }
 
 func (h *Handler) handleGetLoggingOptions(c *echo.Context) error {

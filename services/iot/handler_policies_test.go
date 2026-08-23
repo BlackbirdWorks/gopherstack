@@ -44,6 +44,173 @@ func TestPolicyPrincipalOps(t *testing.T) {
 	}
 }
 
+// TestGetEffectivePolicies_ThingNameIsQueryParam guards
+// GetEffectivePoliciesInput's real thingName member: a query parameter, not
+// a JSON body field (iot@v1.77.4 serializers.go
+// awsRestjson1_serializeOpHttpBindingsGetEffectivePoliciesInput) --
+// previously read from the body, where a real client never puts it, so
+// thing-scoped effective-policy resolution always saw an empty thingName.
+func TestGetEffectivePolicies_ThingNameIsQueryParam(t *testing.T) {
+	t.Parallel()
+	b := iot.NewInMemoryBackend()
+	h := iot.NewHandler(b, nil)
+
+	b.AddThingInternal(iot.Thing{ThingName: "effective-policy-thing"})
+	b.AddPolicyInternal(iot.Policy{
+		PolicyName:     "thing-scoped-policy",
+		PolicyDocument: `{"Version":"2012-10-17"}`,
+		ARN:            "arn:aws:iot:us-east-1:000000000000:policy/thing-scoped-policy",
+	})
+	require.NoError(t, b.AttachThingPrincipal(&iot.AttachThingPrincipalInput{
+		ThingName: "effective-policy-thing",
+		Principal: "arn:aws:iot:us-east-1:000000000000:cert/eff1",
+	}))
+	require.NoError(t, b.AttachPrincipalPolicy(&iot.AttachPrincipalPolicyInput{
+		PolicyName: "thing-scoped-policy",
+		Principal:  "arn:aws:iot:us-east-1:000000000000:cert/eff1",
+	}))
+
+	out := iotOK(t, h, http.MethodPost, "/effective-policies?thingName=effective-policy-thing", map[string]any{})
+	policies, _ := out["effectivePolicies"].([]any)
+	require.Len(t, policies, 1)
+	entry, _ := policies[0].(map[string]any)
+	assert.Equal(t, "thing-scoped-policy", entry["policyName"])
+}
+
+// TestListPrincipalThingsV2_WireShapeAndFilter guards
+// ListPrincipalThingsV2Output's real principalThingObjects member -- each
+// entry is {thingName, thingPrincipalType} (types.PrincipalThingObject,
+// iot@v1.77.4), not a bare thingName -- and the real thingPrincipalType
+// query filter, both previously unimplemented (the handler delegated to the
+// V1 ListPrincipalThings and only ever emitted a bare thingName).
+func TestListPrincipalThingsV2_WireShapeAndFilter(t *testing.T) {
+	t.Parallel()
+	b := iot.NewInMemoryBackend()
+	h := iot.NewHandler(b, nil)
+
+	b.AddThingInternal(iot.Thing{ThingName: "v2-principal-thing"})
+	require.NoError(t, b.AttachThingPrincipal(&iot.AttachThingPrincipalInput{
+		ThingName: "v2-principal-thing",
+		Principal: "arn:aws:iot:us-east-1:000000000000:cert/pt1",
+	}))
+
+	rec := doRefRequest(t, h, http.MethodGet, "/principal-things-v2", nil,
+		map[string]string{"X-Amzn-Principal": "arn:aws:iot:us-east-1:000000000000:cert/pt1"})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	objs, _ := out["principalThingObjects"].([]any)
+	require.Len(t, objs, 1)
+	entry, ok := objs[0].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "v2-principal-thing", entry["thingName"])
+	assert.Equal(t, "NON_EXCLUSIVE_THING", entry["thingPrincipalType"])
+}
+
+// TestPolicyPrincipalListing_Pagination guards the real marker/pageSize
+// (ListPrincipalPolicies/ListPolicyPrincipals/ListTargetsForPolicy,
+// iot@v1.77.4) and maxResults/nextToken (ListPrincipalThings) pagination
+// params, previously entirely ignored across this whole family -- every
+// list op always returned everything in one page.
+func TestPolicyPrincipalListing_Pagination(t *testing.T) {
+	t.Parallel()
+	b := iot.NewInMemoryBackend()
+	h := iot.NewHandler(b, nil)
+
+	const principal = "arn:aws:iot:us-east-1:000000000000:cert/pag1"
+
+	for i := range 3 {
+		name := "pag-policy-" + string(rune('a'+i))
+		b.AddPolicyInternal(iot.Policy{
+			PolicyName: name,
+			ARN:        "arn:aws:iot:us-east-1:000000000000:policy/" + name,
+		})
+		require.NoError(t, b.AttachPrincipalPolicy(&iot.AttachPrincipalPolicyInput{
+			PolicyName: name,
+			Principal:  principal,
+		}))
+	}
+
+	t.Run("list_principal_policies", func(t *testing.T) {
+		t.Parallel()
+
+		rec := doRefRequest(t, h, http.MethodGet, "/principal-policies?pageSize=1", nil,
+			map[string]string{"X-Amzn-Principal": principal})
+		require.Equal(t, http.StatusOK, rec.Code)
+
+		var out map[string]any
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+		policies, _ := out["policies"].([]any)
+		assert.LessOrEqual(t, len(policies), 1)
+		assert.NotEmpty(t, out["nextMarker"])
+	})
+
+	t.Run("list_policy_principals", func(t *testing.T) {
+		t.Parallel()
+
+		for i := range 3 {
+			require.NoError(t, b.AttachPrincipalPolicy(&iot.AttachPrincipalPolicyInput{
+				PolicyName: "pag-policy-a",
+				Principal:  "arn:aws:iot:us-east-1:000000000000:cert/pag-multi-" + string(rune('a'+i)),
+			}))
+		}
+
+		rec := doRefRequest(t, h, http.MethodGet, "/policy-principals?pageSize=1", nil,
+			map[string]string{"X-Amzn-Policy-Name": "pag-policy-a"})
+		require.Equal(t, http.StatusOK, rec.Code)
+
+		var out map[string]any
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+		princs, _ := out["principals"].([]any)
+		assert.LessOrEqual(t, len(princs), 1)
+		assert.NotEmpty(t, out["nextMarker"])
+	})
+
+	t.Run("list_targets_for_policy", func(t *testing.T) {
+		t.Parallel()
+
+		for i := range 3 {
+			require.NoError(t, b.AttachPolicy(&iot.AttachPolicyInput{
+				PolicyName: "pag-policy-b",
+				Target:     "arn:aws:iot:us-east-1:000000000000:cert/pag-target-" + string(rune('a'+i)),
+			}))
+		}
+
+		rec := doRefRequest(t, h, http.MethodGet, "/policy-targets/pag-policy-b?pageSize=1", nil, nil)
+		require.Equal(t, http.StatusOK, rec.Code)
+
+		var out map[string]any
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+		targets, _ := out["targets"].([]any)
+		assert.LessOrEqual(t, len(targets), 1)
+		assert.NotEmpty(t, out["nextMarker"])
+	})
+
+	t.Run("list_principal_things", func(t *testing.T) {
+		t.Parallel()
+
+		for i := range 3 {
+			name := "pag-thing-" + string(rune('a'+i))
+			b.AddThingInternal(iot.Thing{ThingName: name})
+			require.NoError(t, b.AttachThingPrincipal(&iot.AttachThingPrincipalInput{
+				ThingName: name,
+				Principal: "arn:aws:iot:us-east-1:000000000000:cert/pag-thing-principal",
+			}))
+		}
+
+		rec := doRefRequest(t, h, http.MethodGet, "/principal-things?maxResults=1", nil,
+			map[string]string{"X-Amzn-Principal": "arn:aws:iot:us-east-1:000000000000:cert/pag-thing-principal"})
+		require.Equal(t, http.StatusOK, rec.Code)
+
+		var out map[string]any
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+		things, _ := out["things"].([]any)
+		assert.LessOrEqual(t, len(things), 1)
+		assert.NotEmpty(t, out["nextToken"])
+	})
+}
+
 // TestRefinement1_AttachPrincipalPolicy_Handler verifies AttachPrincipalPolicy via HTTP.
 func TestAttachPrincipalPolicy_Handler(t *testing.T) {
 	t.Parallel()

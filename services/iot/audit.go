@@ -621,6 +621,8 @@ func (b *InMemoryBackend) ListRelatedResourcesForAuditFinding(findingID string) 
 // EventConfigurations holds the IoT event configurations.
 type EventConfigurations struct {
 	EventConfigurations map[string]*EventConfigEntry `json:"eventConfigurations"`
+	CreationDate        float64                      `json:"creationDate,omitempty"`
+	LastModifiedDate    float64                      `json:"lastModifiedDate,omitempty"`
 }
 
 // EventConfigEntry holds the enabled flag for an event type.
@@ -637,6 +639,8 @@ func (b *InMemoryBackend) DescribeEventConfigurations() *EventConfigurations {
 	}
 	cp := EventConfigurations{
 		EventConfigurations: make(map[string]*EventConfigEntry, len(b.eventConfigurations.EventConfigurations)),
+		CreationDate:        b.eventConfigurations.CreationDate,
+		LastModifiedDate:    b.eventConfigurations.LastModifiedDate,
 	}
 	for k, v := range b.eventConfigurations.EventConfigurations {
 		e := *v
@@ -650,13 +654,19 @@ func (b *InMemoryBackend) UpdateEventConfigurations(cfgs map[string]*EventConfig
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
+	now := float64(time.Now().Unix())
+
 	if b.eventConfigurations == nil {
-		b.eventConfigurations = &EventConfigurations{EventConfigurations: make(map[string]*EventConfigEntry)}
+		b.eventConfigurations = &EventConfigurations{
+			EventConfigurations: make(map[string]*EventConfigEntry),
+			CreationDate:        now,
+		}
 	}
 	for k, v := range cfgs {
 		e := *v
 		b.eventConfigurations.EventConfigurations[k] = &e
 	}
+	b.eventConfigurations.LastModifiedDate = now
 
 	return nil
 }

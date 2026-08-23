@@ -242,12 +242,24 @@ func (h *Handler) handleListJobs(c *echo.Context) error {
 func (h *Handler) handleUpdateJob(c *echo.Context) error {
 	jobID := strings.TrimPrefix(c.Request().URL.Path, "/jobs/")
 	var req struct {
-		Description string `json:"description"`
+		AbortConfig                *AbortConfig                `json:"abortConfig"`
+		JobExecutionsRolloutConfig *JobExecutionsRolloutConfig `json:"jobExecutionsRolloutConfig"`
+		TimeoutConfig              *TimeoutConfig              `json:"timeoutConfig"`
+		JobExecutionsRetryConfig   *JobExecutionsRetryConfig   `json:"jobExecutionsRetryConfig"`
+		PresignedURLConfig         *PresignedURLConfig         `json:"presignedUrlConfig"`
+		Description                string                      `json:"description"`
 	}
 	if err := readBody(c, &req); err != nil {
 		return err
 	}
-	if err := h.Backend.UpdateJob(jobID, req.Description); err != nil {
+	if err := h.Backend.UpdateJob(jobID, &UpdateJobInput{
+		Description:                req.Description,
+		AbortConfig:                req.AbortConfig,
+		JobExecutionsRolloutConfig: req.JobExecutionsRolloutConfig,
+		TimeoutConfig:              req.TimeoutConfig,
+		JobExecutionsRetryConfig:   req.JobExecutionsRetryConfig,
+		PresignedURLConfig:         req.PresignedURLConfig,
+	}); err != nil {
 		return respondErr(c, err)
 	}
 

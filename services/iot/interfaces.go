@@ -98,7 +98,7 @@ type StorageBackend interface {
 	CreateJob(input *CreateJobInput) (*Job, error)
 	DescribeJob(jobID string) (*Job, error)
 	ListJobs() []*Job
-	UpdateJob(jobID, description string) error
+	UpdateJob(jobID string, input *UpdateJobInput) error
 	CancelJob(jobID, comment string) (*Job, error)
 	DeleteJob(jobID string) error
 	GetJobDocument(jobID string) (string, error)
@@ -187,7 +187,7 @@ type StorageBackend interface {
 	) (*CACertificate, error)
 	DescribeCACertificate(id string) (*CACertificate, error)
 	ListCACertificates() []*CACertificate
-	UpdateCACertificate(id, status string) error
+	UpdateCACertificate(id string, input *UpdateCACertificateInput) error
 	DeleteCACertificate(id string) error
 	ListCertificatesByCA(caID string) []*Certificate
 
@@ -309,7 +309,9 @@ type StorageBackend interface {
 
 	// Batch 3: V2 logging.
 	GetV2LoggingOptions() *V2LoggingOptions
-	SetV2LoggingOptions(roleARN, defaultLogLevel string, disableAllLogs bool) error
+	SetV2LoggingOptions(
+		roleARN, defaultLogLevel string, disableAllLogs bool, eventConfigurations []LogEventConfigurationV2,
+	) error
 	SetV2LoggingLevel(target map[string]any, logLevel string) error
 	DeleteV2LoggingLevel(target map[string]any) error
 	ListV2LoggingLevels() []*V2LoggingLevel

@@ -50,6 +50,29 @@ func TestIndexing_GetSetIndexingConfiguration(t *testing.T) {
 	}
 }
 
+// TestIndexing_DeviceDefenderIndexingModeSurvives guards
+// ThingIndexingConfiguration's real deviceDefenderIndexingMode member
+// (types.ThingIndexingConfiguration, iot@v1.77.4), previously entirely
+// unmodeled -- an UpdateIndexingConfiguration call setting it had no effect,
+// and GetIndexingConfiguration could never surface it.
+func TestIndexing_DeviceDefenderIndexingModeSurvives(t *testing.T) {
+	t.Parallel()
+	h := newIoTHandlerBatch1(t)
+
+	iotOK(t, h, http.MethodPost, "/indices/config", map[string]any{
+		"thingIndexingConfiguration": map[string]any{
+			"thingIndexingMode":          "REGISTRY",
+			"deviceDefenderIndexingMode": "VIOLATIONS",
+		},
+	})
+
+	out := iotOK(t, h, http.MethodGet, "/indices/config", nil)
+	tic := out["thingIndexingConfiguration"].(map[string]any)
+	if tic["deviceDefenderIndexingMode"] != "VIOLATIONS" {
+		t.Errorf("deviceDefenderIndexingMode not surfaced: %v", tic)
+	}
+}
+
 // TestIndexing_ListAndDescribeIndex exercises ListIndices and DescribeIndex over HTTP.
 func TestIndexing_ListAndDescribeIndex(t *testing.T) {
 	t.Parallel()

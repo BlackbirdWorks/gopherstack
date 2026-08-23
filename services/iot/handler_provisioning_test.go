@@ -86,6 +86,47 @@ func TestDomainConfiguration(t *testing.T) {
 	iotExpectError(t, h, "/domainConfigurations/my-config")
 }
 
+// TestListDomainConfigurations_ServiceTypeFilterAndPagination guards
+// ListDomainConfigurationsInput's real serviceType/pageSize/marker query
+// params (iot@v1.77.4 serializers.go
+// awsRestjson1_serializeOpHttpBindingsListDomainConfigurationsInput) and
+// ListDomainConfigurationsOutput's real nextMarker member -- previously all
+// three request params were silently ignored (every domain configuration
+// was always returned in one page regardless of serviceType) and no
+// nextMarker was ever returned.
+func TestListDomainConfigurations_ServiceTypeFilterAndPagination(t *testing.T) {
+	t.Parallel()
+	h := newIoTHandlerBatch1(t)
+
+	iotOK(t, h, http.MethodPost, "/domainConfigurations/data-config", map[string]any{"serviceType": "DATA"})
+	iotOK(t, h, http.MethodPost, "/domainConfigurations/cred-config",
+		map[string]any{"serviceType": "CREDENTIAL_PROVIDER"})
+
+	t.Run("service_type_filter", func(t *testing.T) {
+		t.Parallel()
+
+		out := iotOK(t, h, http.MethodGet, "/domainConfigurations?serviceType=DATA", nil)
+		configs, _ := out["domainConfigurations"].([]any)
+		require.Len(t, configs, 1)
+		entry, _ := configs[0].(map[string]any)
+		assert.Equal(t, "data-config", entry["domainConfigurationName"])
+	})
+
+	t.Run("pagination", func(t *testing.T) {
+		t.Parallel()
+
+		out := iotOK(t, h, http.MethodGet, "/domainConfigurations?pageSize=1", nil)
+		configs, _ := out["domainConfigurations"].([]any)
+		require.Len(t, configs, 1)
+		require.NotEmpty(t, out["nextMarker"])
+
+		out2 := iotOK(t, h, http.MethodGet, "/domainConfigurations?pageSize=1&marker="+out["nextMarker"].(string), nil)
+		configs2, _ := out2["domainConfigurations"].([]any)
+		require.Len(t, configs2, 1)
+		assert.Empty(t, out2["nextMarker"])
+	})
+}
+
 // TestNewOps_ProvisioningTemplate tests ProvisioningTemplate CRUD.
 func TestProvisioningTemplate(t *testing.T) {
 	t.Parallel()
