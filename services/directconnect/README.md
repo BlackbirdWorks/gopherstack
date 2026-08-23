@@ -7,7 +7,7 @@
 
 | Metric | Value |
 | --- | --- |
-| Operations audited | 64 (63 ok, 1 partial) |
+| PARITY entries audited | 64 (63 ok, 1 partial) |
 | Known gaps | 3 |
 | Structural gaps (can't be emulated) | 8 |
 | Deferred items | 1 |

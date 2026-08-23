@@ -459,11 +459,11 @@ See [`examples/README.md`](examples/README.md) for prerequisites and teardown.
 
 Every service links to its own page with a coverage breakdown — audited operations, known gaps, deferred items and resource-leak status — generated from that service's `PARITY.md` audit.
 
-**Parity** is the overall grade recorded by that service's most recent audit. **Operations** is the number of API operations audited; a dash means the service is tracked by feature family instead. Run `make docs` to refresh this table.
+**Parity** is the overall grade recorded by that service's most recent audit. **PARITY Entries** is the number of `ops:` entries audited in that service's PARITY.md -- a hand-grouped audit unit, not a raw operation count (one entry can name more than one real operation); a dash means the service is tracked by feature family instead. Run `make docs` to refresh this table.
 
 ### Compute
 
-| Service | Parity | Operations | Notes |
+| Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
 | [App Runner](services/apprunner/README.md) | A | 39 | 2 gaps |
 | [Auto Scaling](services/autoscaling/README.md) | A | 66 | 2 gaps |
@@ -474,7 +474,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 
 ### Containers
 
-| Service | Parity | Operations | Notes |
+| Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
 | [ECR](services/ecr/README.md) | A | 58 | 1 gap; 2 deferred |
 | [ECS](services/ecs/README.md) | A | 65 | 6 gaps; 3 deferred |
@@ -482,7 +482,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 
 ### Storage
 
-| Service | Parity | Operations | Notes |
+| Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
 | [Backup](services/backup/README.md) | A | 54 | clean |
 | [Data Lifecycle Manager](services/dlm/README.md) | A | 8 | clean |
@@ -495,7 +495,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 
 ### Database
 
-| Service | Parity | Operations | Notes |
+| Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
 | [DAX](services/dax/README.md) | A | 21 | 1 deferred |
 | [DocumentDB](services/docdb/README.md) | A | 55 | 8 gaps; 1 deferred |
@@ -515,7 +515,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 
 ### Networking & Content Delivery
 
-| Service | Parity | Operations | Notes |
+| Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
 | [API Gateway](services/apigateway/README.md) | A | 123 | 10 gaps; 2 deferred |
 | [API Gateway Management API](services/apigatewaymanagementapi/README.md) | A | 3 | 1 gap; 2 deferred |
@@ -532,7 +532,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 
 ### Messaging & Integration
 
-| Service | Parity | Operations | Notes |
+| Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
 | [Amazon MQ](services/mq/README.md) | A | 25 | 5 gaps; 1 deferred |
 | [AppSync](services/appsync/README.md) | A | 74 | 4 gaps; 2 deferred |
@@ -550,7 +550,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 
 ### Analytics
 
-| Service | Parity | Operations | Notes |
+| Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
 | [Athena](services/athena/README.md) | A | 26 | 1 gap; 1 deferred |
 | [Clean Rooms](services/cleanrooms/README.md) | A | — | 17 families; 6 gaps; 2 deferred |
@@ -571,7 +571,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 
 ### Security
 
-| Service | Parity | Operations | Notes |
+| Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
 | [ACM](services/acm/README.md) | A | 38 | 6 gaps; 3 deferred |
 | [ACM PCA](services/acmpca/README.md) | A | 23 | 9 gaps |
@@ -589,7 +589,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 
 ### Identity & Access
 
-| Service | Parity | Operations | Notes |
+| Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
 | [Cognito Identity](services/cognitoidentity/README.md) | A | 23 | 2 gaps; 4 deferred |
 | [Cognito Identity Provider](services/cognitoidp/README.md) | A | 67 | 5 gaps; 5 deferred |
@@ -603,7 +603,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 
 ### Management & Governance
 
-| Service | Parity | Operations | Notes |
+| Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
 | [Account](services/account/README.md) | A | 16 | 5 gaps; 1 deferred |
 | [AppConfig](services/appconfig/README.md) | A | 56 | 7 gaps; 1 deferred |
@@ -626,7 +626,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 
 ### Developer Tools
 
-| Service | Parity | Operations | Notes |
+| Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
 | [Amplify](services/amplify/README.md) | A | 48 | 4 gaps |
 | [CodeArtifact](services/codeartifact/README.md) | A | 48 | 8 gaps; 3 deferred |
@@ -641,7 +641,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 
 ### Machine Learning
 
-| Service | Parity | Operations | Notes |
+| Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
 | [Bedrock](services/bedrock/README.md) | A | 80 | 11 gaps |
 | [Bedrock Agent](services/bedrockagent/README.md) | A | 77 | 5 gaps; 2 deferred |
@@ -659,7 +659,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 
 ### Media
 
-| Service | Parity | Operations | Notes |
+| Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
 | [MediaConvert](services/mediaconvert/README.md) | A | 34 | 7 gaps; 1 deferred |
 | [MediaLive](services/medialive/README.md) | A | — | 26 families; 4 gaps |
@@ -670,7 +670,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 
 ### IoT
 
-| Service | Parity | Operations | Notes |
+| Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
 | [IoT Analytics](services/iotanalytics/README.md) | A | 34 | 3 gaps |
 | [IoT Core](services/iot/README.md) | A | 76 | clean |
@@ -679,7 +679,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 
 ### Migration & Transfer
 
-| Service | Parity | Operations | Notes |
+| Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
 | [DataSync](services/datasync/README.md) | A | 53 | 4 gaps; 1 deferred |
 | [Database Migration Service](services/dms/README.md) | A | 98 | clean |
@@ -687,7 +687,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 
 ### Other
 
-| Service | Parity | Operations | Notes |
+| Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
 | [AppStream 2.0](services/appstream/README.md) | A | 42 | clean |
 | [Cloudfrontkeyvaluestore](services/cloudfrontkeyvaluestore/README.md) | B | 6 | 3 gaps; 1 structural gap |

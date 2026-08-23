@@ -7,7 +7,7 @@
 
 | Metric | Value |
 | --- | --- |
-| Operations audited | 4 (4 ok) |
+| PARITY entries audited | 4 (4 ok) |
 | Feature families | 16 (16 ok) |
 | Known gaps | none |
 | Structural gaps (can't be emulated) | 2 |
