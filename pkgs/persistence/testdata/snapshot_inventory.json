@@ -5043,6 +5043,7 @@
       "Delivery.Arn string `json:\"arn\"`",
       "Delivery.CreationTime int64 `json:\"-\"`",
       "Delivery.DeliveryDestinationArn string `json:\"deliveryDestinationArn\"`",
+      "Delivery.DeliveryDestinationType string `json:\"deliveryDestinationType,omitempty\"`",
       "Delivery.DeliverySourceName string `json:\"deliverySourceName\"`",
       "Delivery.FieldDelimiter string `json:\"fieldDelimiter,omitempty\"`",
       "Delivery.ID string `json:\"id\"`",

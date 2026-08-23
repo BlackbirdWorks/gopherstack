@@ -422,6 +422,35 @@ func TestInMemoryBackend_AdminGetUserAuthFactors(t *testing.T) {
 	}
 }
 
+// TestInMemoryBackend_GetUserAuthFactors_SoftwareToken is a regression guard:
+// GetUserAuthFactors and AdminGetUserAuthFactors share commonAuthFactorSetLocked,
+// which must derive SOFTWARE_TOKEN for both -- a real SDK client's
+// ConfiguredUserAuthFactors uses the same types.AuthFactorType enum
+// (PASSWORD/EMAIL_OTP/SMS_OTP/WEB_AUTHN/SOFTWARE_TOKEN) on both
+// GetUserAuthFactorsOutput and AdminGetUserAuthFactorsOutput.
+func TestInMemoryBackend_GetUserAuthFactors_SoftwareToken(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	pool, err := b.CreateUserPool("factors-pool-self")
+	require.NoError(t, err)
+	client, err := b.CreateUserPoolClient(pool.ID, "factors-client-self")
+	require.NoError(t, err)
+
+	tokens := signUpConfirmAndLogin(t, b, client.ClientID, "factors-user-self")
+
+	secret, _, err := b.AssociateSoftwareToken(tokens.AccessToken, "")
+	require.NoError(t, err)
+	code, err := cognitoidp.GenerateTOTPCode(secret, time.Now())
+	require.NoError(t, err)
+	_, err = b.VerifySoftwareToken(tokens.AccessToken, "", code)
+	require.NoError(t, err)
+
+	_, factors, err := b.GetUserAuthFactors(tokens.AccessToken)
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{"PASSWORD", "SOFTWARE_TOKEN"}, factors)
+}
+
 func TestInMemoryBackend_ListUsersFiltered(t *testing.T) {
 	t.Parallel()
 
