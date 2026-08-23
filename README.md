@@ -557,7 +557,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [EMR](services/emr/README.md) | A | 65 | 1 gap; 4 structural gaps |
 | [EMR Serverless](services/emrserverless/README.md) | A | 23 | 1 gap |
 | [Elasticsearch](services/elasticsearch/README.md) | A | 51 | 5 gaps |
-| [Glue](services/glue/README.md) | A | 54 | 14 gaps; 6 deferred |
+| [Glue](services/glue/README.md) | A | 57 | 18 gaps; 6 deferred |
 | [Glue DataBrew](services/databrew/README.md) | A | 44 | 4 gaps |
 | [Kinesis](services/kinesis/README.md) | A | 48 | 12 gaps; 1 deferred |
 | [Kinesis Analytics](services/kinesisanalytics/README.md) | A | 20 | 2 gaps |
@@ -567,7 +567,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Managed Streaming for Kafka](services/kafka/README.md) | A | 64 | 3 gaps |
 | [Managed Workflows for Apache Airflow](services/mwaa/README.md) | A | 12 | 3 gaps; 1 deferred |
 | [OpenSearch](services/opensearch/README.md) | A | 14 | 1 gap; 1 deferred |
-| [QuickSight](services/quicksight/README.md) | A | 73 | 1 gap |
+| [QuickSight](services/quicksight/README.md) | A | 74 | 1 gap |
 
 ### Security
 
