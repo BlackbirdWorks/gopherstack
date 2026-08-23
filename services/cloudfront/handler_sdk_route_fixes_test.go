@@ -142,9 +142,19 @@ func TestGetManagedCertificateDetails_RealClient(t *testing.T) {
 
 // TestDisassociateDistributionTenantWebACL_RealClient drives the real
 // aws-sdk-go-v2 client to prove DisassociateDistributionTenantWebACL is
-// reachable. Real path is PUT "distribution-tenant/{Id}/disassociate-web-acl"
-// (cloudfront@v1.67.4 serializers.go); gopherstack previously had no route for
-// it at all -- only the Associate variant was wired (gopherstack-o31x).
+// reachable and populates its pointer output fields. Real path is PUT
+// "distribution-tenant/{Id}/disassociate-web-acl" (cloudfront@v1.67.4
+// serializers.go); gopherstack previously had no route for it at all -- only
+// the Associate variant was wired (gopherstack-o31x).
+//
+// DisassociateDistributionTenantWebACLOutput carries ETag on the response
+// "ETag" header and Id as a body XML element
+// (awsRestxml_deserializeOpHttpBindingsDisassociateDistributionTenantWebACLOutput,
+// awsRestxml_deserializeOpDocumentDisassociateDistributionTenantWebACLOutput).
+// gopherstack's handler never set the ETag header (unlike its non-tenant
+// sibling, fixed for the same bug class in the commit that added the ETag
+// test above) -- a real client decoded ETag as nil regardless of backend
+// state. The body Id was already correct via distributionTenantXML.
 //
 // Deliberately does not round-trip through AssociateDistributionTenantWebACL
 // first (that op's own request wire-shape bug was fixed separately, see
@@ -164,11 +174,59 @@ func TestDisassociateDistributionTenantWebACL_RealClient(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	_, err = client.DisassociateDistributionTenantWebACL(t.Context(), &cfsdk.DisassociateDistributionTenantWebACLInput{
-		Id:      created.DistributionTenant.Id,
-		IfMatch: created.ETag,
+	disOut, err := client.DisassociateDistributionTenantWebACL(
+		t.Context(),
+		&cfsdk.DisassociateDistributionTenantWebACLInput{
+			Id:      created.DistributionTenant.Id,
+			IfMatch: created.ETag,
+		},
+	)
+	require.NoError(t, err)
+	assert.NotEmpty(
+		t, aws.ToString(disOut.ETag), "DisassociateDistributionTenantWebACL must return ETag on the response header",
+	)
+	assert.Equal(t, aws.ToString(created.DistributionTenant.Id), aws.ToString(disOut.Id))
+}
+
+// TestAssociateDistributionTenantWebACL_RealClient_ETag drives the real
+// aws-sdk-go-v2 client to prove AssociateDistributionTenantWebACL populates
+// its pointer output fields. AssociateDistributionTenantWebACLOutput carries
+// ETag on the response "ETag" header and Id/WebACLArn as top-level
+// response-body XML elements (cloudfront@v1.67.4
+// deserializers.go:awsRestxml_deserializeOpDocumentAssociateDistributionTenantWebACLOutput).
+// gopherstack's handler returned a bare 200 with c.NoContent -- no ETag
+// header, no body at all -- so a real client decoded ETag/Id/WebACLArn as nil
+// regardless of backend state, same bug class as the non-tenant sibling
+// (fixed 2026-08-23) despite the commit message for that fix claiming this
+// tenant-scoped op was checked and correct.
+func TestAssociateDistributionTenantWebACL_RealClient_ETag(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestCloudFrontClient(t, h)
+
+	created, err := client.CreateDistributionTenant(t.Context(), &cfsdk.CreateDistributionTenantInput{
+		DistributionId: aws.String("dist-assoc-etag-real-client"),
+		Name:           aws.String("assoc-etag-real-client-tenant"),
+		Domains:        []types.DomainItem{{Domain: aws.String("assoc-etag-real-client.example.com")}},
 	})
 	require.NoError(t, err)
+
+	const webACLArn = "arn:aws:wafv2:us-east-1:123456789012:global/webacl/assoc-etag-real-client/abc123"
+
+	assocOut, err := client.AssociateDistributionTenantWebACL(
+		t.Context(),
+		&cfsdk.AssociateDistributionTenantWebACLInput{
+			Id:        created.DistributionTenant.Id,
+			WebACLArn: aws.String(webACLArn),
+		},
+	)
+	require.NoError(t, err)
+	assert.NotEmpty(
+		t, aws.ToString(assocOut.ETag), "AssociateDistributionTenantWebACL must return ETag on the response header",
+	)
+	assert.Equal(t, aws.ToString(created.DistributionTenant.Id), aws.ToString(assocOut.Id))
+	assert.Equal(t, webACLArn, aws.ToString(assocOut.WebACLArn))
 }
 
 // TestAssociateDisassociateDistributionWebACL_RealClient_ETag drives the real

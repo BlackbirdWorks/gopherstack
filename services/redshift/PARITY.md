@@ -1277,3 +1277,19 @@ the pinned `redshift@v1.65.4/api_client.go:637` `AddSDKAgentKeyValue` call) only
 `UnknownError`; passes now with `InternalFailure`. `TestHandler_NormalSizedBodyStillRoutes`
 is the regression guard. Gates: `go build`, `go vet`, `gofmt -l` (clean), `go test -race
 ./services/redshift/...` (pass), `golangci-lint run ./services/redshift/...` (0 issues).
+
+**2026-08-23 -- empty-body sweep and `gaps:` re-check, no fixes found (gopherstack-jf8z)**:
+audited redshift for the same two bug classes checked in cloudfront the same pass. Class 1
+(empty body where the real Output requires a document): `grep -n "return nil, nil$"` and the
+broader `"return nil,"`/`"nil, nil"` scans across every `handler_*.go` found nothing -- every
+`redshiftActionFn` (`func(vals url.Values) (any, error)`) returns a concrete typed wrapper
+struct on the success path, even for void ops (e.g. `handleDeleteTags` still returns
+`&response{Xmlns: redshiftXMLNS}` with a real `DeleteTagsResponse` root, never a bare nil
+through `writeXMLResponse`'s `xml.Marshal`). No `c.NoContent`/direct-write bypass of the
+dispatch table exists in this service (Query protocol, single `dispatch` -> `writeXMLResponse`
+path, confirmed via the `awsAwsquery_` deserializer prefix in `redshift@v1.65.4`). Class 2:
+this file's `gaps:` front-matter is `[]` and has been for the prior several passes -- zero live
+entries to re-check against the "does the state already exist in the backend" test. No code
+changes this pass. Gates: `go build ./services/redshift/...` clean; `go test
+./services/redshift/... -count=1` -- `ok github.com/blackbirdworks/gopherstack/services/redshift
+0.328s`.

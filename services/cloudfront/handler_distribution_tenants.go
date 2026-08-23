@@ -51,7 +51,18 @@ func (h *Handler) handleAssociateDistributionTenantWebACL(c *echo.Context, tenan
 		return h.handleError(c, assocErr)
 	}
 
-	return c.NoContent(http.StatusOK)
+	t, getErr := h.Backend.GetDistributionTenant(tenantID)
+	if getErr != nil {
+		return h.handleError(c, getErr)
+	}
+
+	c.Response().Header().Set("ETag", t.ETag)
+
+	return xmlResp(c, http.StatusOK, fmt.Sprintf(
+		`<?xml version="1.0" encoding="UTF-8"?>`+
+			`<AssociateDistributionTenantWebACLResult xmlns="%s"><Id>%s</Id><WebACLArn>%s</WebACLArn>`+
+			`</AssociateDistributionTenantWebACLResult>`,
+		cfNS, tenantID, req.WebACLArn))
 }
 
 func (h *Handler) distributionTenantXML(t *DistributionTenant) string {
@@ -470,6 +481,8 @@ func (h *Handler) handleDisassociateDistributionTenantWebACL(
 	if disErr := h.Backend.DisassociateDistributionTenantWebACL(tenantID); disErr != nil {
 		return h.handleError(c, disErr)
 	}
+
+	c.Response().Header().Set("ETag", t.ETag)
 
 	return xmlResp(c, http.StatusOK, h.distributionTenantXML(t))
 }
