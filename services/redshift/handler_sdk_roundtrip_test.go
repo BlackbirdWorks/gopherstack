@@ -266,6 +266,8 @@ func TestSDKRoundTrip_MutatingOpFixes(t *testing.T) {
 		{testModifyCustomDomainAssociationCertExpiryTime, "modify custom domain association cert expiry time"},
 		{testCreateSnapshotScheduleTags, "create snapshot schedule tags"},
 		{testBatchDeleteClusterSnapshotsRealWireShape, "batch delete cluster snapshots real wire shape"},
+		{testModifyClusterDBRevisionClusterWrapper, "modify cluster db revision cluster wrapper"},
+		{testListRecommendationsRecommendationType, "list recommendations recommendation type"},
 	}
 
 	for _, tc := range cases {
@@ -382,4 +384,52 @@ func testBatchDeleteClusterSnapshotsRealWireShape(
 	require.NoError(t, err)
 	assert.ElementsMatch(t, []string{"rt-batch-del-1", "rt-batch-del-2"}, out.Resources)
 	assert.Equal(t, 0, redshift.SnapshotCount(backend))
+}
+
+// testModifyClusterDBRevisionClusterWrapper: ModifyClusterDbRevisionOutput
+// (redshift@v1.65.4 deserializers.go:52728) looks for a nested <Cluster>
+// element inside ModifyClusterDbRevisionResult -- every other Cluster-
+// returning op (ModifyCluster, RebootCluster, ...) wraps that way -- but the
+// handler flattened xmlCluster's own fields directly under
+// ModifyClusterDbRevisionResult with no <Cluster> wrapper, so a real client
+// always decoded a nil Cluster.
+func testModifyClusterDBRevisionClusterWrapper(
+	t *testing.T, backend *redshift.InMemoryBackend, client *redshiftsdk.Client,
+) {
+	t.Helper()
+	ctx := t.Context()
+
+	_, err := backend.CreateCluster("rt-dbrev-cluster", "dc2.large", "dev", "admin")
+	require.NoError(t, err)
+
+	out, err := client.ModifyClusterDbRevision(ctx, &redshiftsdk.ModifyClusterDbRevisionInput{
+		ClusterIdentifier: aws.String("rt-dbrev-cluster"),
+		RevisionTarget:    aws.String("1"),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, out.Cluster)
+	assert.Equal(t, "rt-dbrev-cluster", aws.ToString(out.Cluster.ClusterIdentifier))
+}
+
+// testListRecommendationsRecommendationType: Recommendation.RecommendationType
+// (redshift@v1.65.4 deserializers.go around the Recommendation document
+// deserializer) is the wire name for a recommendation's type, but the
+// handler tagged that field "Type" -- a name the real deserializer never
+// matches -- so a real client's RecommendationType always decoded nil even
+// though the backend always populates a value (e.g. "Security").
+func testListRecommendationsRecommendationType(
+	t *testing.T, backend *redshift.InMemoryBackend, client *redshiftsdk.Client,
+) {
+	t.Helper()
+	ctx := t.Context()
+
+	_, err := backend.CreateCluster("rt-rec-cluster", "dc2.large", "dev", "admin")
+	require.NoError(t, err)
+
+	out, err := client.ListRecommendations(ctx, &redshiftsdk.ListRecommendationsInput{
+		ClusterIdentifier: aws.String("rt-rec-cluster"),
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, out.Recommendations)
+	assert.Equal(t, "Security", aws.ToString(out.Recommendations[0].RecommendationType))
 }

@@ -88,6 +88,97 @@ leaks: {status: clean, note: "reviewed reconciler.go: StartReconciler/StopReconc
 
 ## Notes
 
+### 2026-08-23 pass: cluster-management ops audit after opcensus union-bug fix (no bd id assigned this session)
+
+`cmd/opcensus` used to index `GetSupportedOperations` by name only, so when a
+service declared the method in two files (here, `*Handler` and
+`*ServerlessHandler`), the second silently overwrote the first in every
+downstream tool. For redshift that dropped `*Handler`'s ~133 ops (the whole
+classic cluster-management surface: `CreateCluster`, `DescribeClusters`, etc.)
+from every audit/coverage run to date -- they were never counted, so this is
+the first pass to actually look at them as a group. Confirmed via
+`go run ./cmd/opcensus -json` (`declaredBy: [*Handler, *ServerlessHandler]`,
+`total: 193`) and `cmd/clientcoverage` (15/193 real-SDK-client-tested, 7.8%,
+the worst ratio of any large service) before auditing.
+
+Audited (wire shape only, against `redshift@v1.65.4/deserializers.go`,
+confirmed AWS Query/XML case-insensitive decoding first so casing near-misses
+were not filed): the shared `xmlCluster`/`toXMLClusterWithTags` struct (backs
+`CreateCluster`, `DeleteCluster`, `DescribeClusters`, `ModifyCluster`,
+`RebootCluster`, `PauseCluster`, `ResumeCluster`, `ResizeCluster`,
+`RotateEncryptionKey`, `ModifyClusterIamRoles`, `ModifyClusterMaintenance`,
+`RestoreFromClusterSnapshot`, `FailoverPrimaryCompute`), `ModifyClusterDbRevision`,
+`DescribeClusterDbRevisions`, `CancelResize`/`DescribeResize`, all six
+reserved-node ops, `DescribeAccountAttributes`, `DescribeClusterTracks`,
+`DescribeClusterVersions`, `DescribeOrderableClusterOptions`, `DescribeStorage`,
+`DescribeNodeConfigurationOptions`, `ListRecommendations`, and the Snapshot
+family (`CreateClusterSnapshot`/`DeleteClusterSnapshot`/
+`DescribeClusterSnapshots`/`CopyClusterSnapshot`/`AuthorizeSnapshotAccess`).
+
+Two real bugs found and fixed, both proven with a real-SDK-client round trip
+(`handler_sdk_roundtrip_test.go`, confirmed failing against hand-reverted
+code before the fix, restored copy `md5sum`-identical to the fix):
+
+- **`ModifyClusterDbRevision`** (`handler_cluster_mgmt.go`): every other
+  Cluster-returning op wraps its XML as `<XxxResult><Cluster>...</Cluster></XxxResult>`,
+  matching `awsAwsquery_deserializeOpDocumentModifyClusterDbRevisionOutput`
+  (`deserializers.go:52728`), which looks for a nested `<Cluster>` element.
+  This op alone flattened `xmlCluster`'s fields directly under
+  `<ModifyClusterDbRevisionResult>` with no `<Cluster>` wrapper (`Result
+  xmlCluster \`xml:"ModifyClusterDbRevisionResult"\``), so a real client's
+  `ModifyClusterDbRevisionOutput.Cluster` always decoded nil regardless of
+  backend state. Fixed by renaming the field to `Cluster` and adding
+  `>Cluster` to the tag, matching every sibling op. Test:
+  `testModifyClusterDBRevisionClusterWrapper`.
+- **`ListRecommendations`** (`handler_advisor.go`): `recommendationXML.Type`
+  was tagged `xml:"Type"`, but the real `Recommendation` document deserializer
+  (`deserializers.go`, case list around `awsAwsquery_deserializeDocumentRecommendation`)
+  has no `Type` case at all -- the field is named `RecommendationType`
+  (`types.Recommendation.RecommendationType`, a `*string`). The handler
+  always populates a real value (e.g. `"Security"`), so this wasn't a
+  modelling gap -- a real client's `RecommendationType` always decoded to
+  `nil`. Fixed the tag to `xml:"RecommendationType"`. Test:
+  `testListRecommendationsRecommendationType`.
+
+One finding dropped as unprovable: `CancelResize`/`DescribeResize`'s shared
+`xmlResizeProgress` emits `<AllowCancelResize>`, but neither
+`CancelResizeOutput` nor `DescribeResizeOutput` has any such case in their
+deserializers (confirmed: 16 cases each, `AllowCancelResize` absent from
+both). It turns out to be a real field, but on a different type entirely --
+`types.ResizeInfo.AllowCancelResize`, nested under `types.Cluster.ResizeInfo`
+(itself not modeled in `xmlCluster` -- a separate, unfixed modelling gap).
+Every deserializer here defaults unmatched elements to
+`decoder.Decoder.Skip()`, so the fabricated element is silently discarded by
+a real client and there is no observable behavioral difference to assert
+before/after removing it -- it fails this audit's own proof bar (a real-SDK
+round trip that fails pre-fix), so left in place and only documented here.
+
+Everything else checked (list wrapper names, member field names, nested
+struct paths) matched the real deserializer exactly; the remaining
+differences from the full `types.Cluster`/`types.Snapshot`/etc. field sets
+are gopherstack never emitting an optional member it doesn't track --
+modelling gaps, not wire bugs, per this campaign's own rule.
+
+**Not reached this pass** (named per the "an unnamed op is an unchecked op"
+rule) -- roughly 100 of the ~133 previously-invisible `*Handler` ops,
+concentrated in: `ClusterSecurityGroup`/`ClusterSubnetGroup`/
+`ClusterParameterGroup` CRUD, `EventSubscription`/`DescribeEvents`,
+`Hsm*`, `Partner*`, `SnapshotCopyGrant`/`SnapshotSchedule`/`EnableSnapshotCopy`/
+`DisableSnapshotCopy`, `UsageLimit` CRUD, `AuthenticationProfile` CRUD,
+`EndpointAccess`/`EndpointAuthorization` CRUD, `CustomDomainAssociation` CRUD,
+`Integration`/`InboundIntegration`, `Qev2IdcApplication`/`RedshiftIdcApplication`
+CRUD, `DataShare` CRUD, `BatchModifyClusterSnapshots`, `ModifyClusterSnapshot`,
+`ModifySnapshotCopyRetentionPeriod`, `RevokeSnapshotAccess`,
+`RestoreTableFromClusterSnapshot`, `AddPartner`/`DeletePartner`/
+`UpdatePartnerStatus`, `GetResourcePolicy`/`PutResourcePolicy`/
+`DeleteResourcePolicy`, `RegisterNamespace`/`DeregisterNamespace` (already
+covered by the 2026-08-13 gopherstack-3jqz pass above). Several of these
+already have real-SDK-client tests from prior passes (see the 2026-08-13/
+2026-08-08 entries below); this pass did not re-verify those, per the
+schema's own re-audit protocol (unchanged files since their `last_audit_commit`
+are trusted).
+
+
 ### 2026-08-13 pass: CreateHsmConfiguration dropped both HSM secrets (bd gopherstack-afi1)
 
 From the "five ops drop the fields that define what they do" required-member
