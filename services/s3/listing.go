@@ -121,10 +121,12 @@ func (b *InMemoryBackend) processListObjects(
 func (b *InMemoryBackend) snapshotLatestVersions(objectSnapshots []*StoredObject) []*StoredObjectVersion {
 	versions := make([]*StoredObjectVersion, 0, len(objectSnapshots))
 	for _, obj := range objectSnapshots {
-		var latest *StoredObjectVersion
+		var snap *StoredObjectVersion
 		func() {
 			obj.mu.RLock("ListObjects")
 			defer obj.mu.RUnlock()
+
+			var latest *StoredObjectVersion
 
 			latestID := obj.LatestVersionID
 			if latestID != "" {
@@ -133,13 +135,26 @@ func (b *InMemoryBackend) snapshotLatestVersions(objectSnapshots []*StoredObject
 				// Fallback: scan for latest if not cached
 				latest = findLatestVersion(obj.Versions)
 			}
+
+			if latest == nil || latest.Deleted {
+				return
+			}
+
+			// objectFromVersion reads StorageClass (and other scalar fields)
+			// from the returned pointer well after this RUnlock -- the
+			// lifecycle janitor's applyStorageClassTransitions mutates that
+			// same live *StoredObjectVersion under obj.mu.Lock, so the
+			// caller must work from a snapshot, not the live pointer (see
+			// TestListObjects_RacesWithStorageClassTransition).
+			v := *latest
+			snap = &v
 		}()
 
-		if latest == nil || latest.Deleted {
+		if snap == nil {
 			continue
 		}
 
-		versions = append(versions, latest)
+		versions = append(versions, snap)
 	}
 
 	return versions

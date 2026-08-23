@@ -581,7 +581,7 @@ func (b *InMemoryBackend) GetObject(
 
 	// Use per-object lock for version operations instead of holding bucket lock
 	var (
-		ver              *StoredObjectVersion
+		verSnap          StoredObjectVersion
 		dataToDecompress []byte
 		isCompressed     bool
 		size             int64
@@ -593,29 +593,38 @@ func (b *InMemoryBackend) GetObject(
 		obj.mu.RLock("GetObject")
 		defer obj.mu.RUnlock()
 
-		ver, err = resolveObjectVersion(obj, versionID)
+		var liveVer *StoredObjectVersion
+
+		liveVer, err = resolveObjectVersion(obj, versionID)
 		if err != nil {
 			return
 		}
 
-		dataToDecompress = ver.Data
-		isCompressed = ver.IsCompressed
-		size = ver.Size
-		metadata = maps.Clone(ver.Metadata)
-		versionIDStr = ver.VersionID
+		// The lifecycle janitor's applyStorageClassTransitions mutates
+		// StorageClass on this same *StoredObjectVersion under obj.mu.Lock,
+		// so the caller below -- reading past this closure's RUnlock -- must
+		// work from an independent snapshot, not the live pointer (see
+		// TestGetObject_RacesWithStorageClassTransition).
+		verSnap = *liveVer
+
+		dataToDecompress = liveVer.Data
+		isCompressed = liveVer.IsCompressed
+		size = liveVer.Size
+		metadata = maps.Clone(liveVer.Metadata)
+		versionIDStr = liveVer.VersionID
 	}()
 
 	if err != nil {
 		return nil, err
 	}
 
-	decrypted, skipDecompress, decErr := decryptVersionForGet(ctx, ver, dataToDecompress)
+	decrypted, skipDecompress, decErr := decryptVersionForGet(ctx, &verSnap, dataToDecompress)
 	if decErr != nil {
 		return nil, decErr
 	}
 
 	if skipDecompress {
-		out := buildGetObjectOutput(decrypted, size, ver, metadata, versionIDStr)
+		out := buildGetObjectOutput(decrypted, size, &verSnap, metadata, versionIDStr)
 		out.TagCount = b.objectTagCount(bucketName, key, versionIDStr)
 
 		return out, nil
@@ -627,7 +636,7 @@ func (b *InMemoryBackend) GetObject(
 		return nil, err
 	}
 
-	out := buildGetObjectOutput(data, size, ver, metadata, versionIDStr)
+	out := buildGetObjectOutput(data, size, &verSnap, metadata, versionIDStr)
 	out.TagCount = b.objectTagCount(bucketName, key, versionIDStr)
 
 	return out, nil
@@ -806,13 +815,15 @@ func (b *InMemoryBackend) HeadObject(
 	}
 
 	var (
-		ver     *StoredObjectVersion
+		verSnap *StoredObjectVersion
 		headErr error
 	)
 
 	func() {
 		obj.mu.RLock("HeadObject")
 		defer obj.mu.RUnlock()
+
+		var liveVer *StoredObjectVersion
 
 		if versionID != nil && *versionID != "" {
 			// Use provided version ID
@@ -822,13 +833,23 @@ func (b *InMemoryBackend) HeadObject(
 
 				return
 			}
-			ver = v
+			liveVer = v
 		} else if latestID := obj.LatestVersionID; latestID != "" {
 			// Use cached latest version ID to avoid scanning all versions
-			ver = obj.Versions[latestID]
+			liveVer = obj.Versions[latestID]
 		} else {
 			// Fallback: scan for latest (shouldn't happen in normal operation)
-			ver = findLatestVersion(obj.Versions)
+			liveVer = findLatestVersion(obj.Versions)
+		}
+
+		// The lifecycle janitor's applyStorageClassTransitions mutates
+		// StorageClass on this same *StoredObjectVersion under obj.mu.Lock,
+		// so the reads below -- past this closure's RUnlock -- must work
+		// from an independent snapshot, not the live pointer (same class as
+		// TestGetObject_RacesWithStorageClassTransition).
+		if liveVer != nil {
+			snap := *liveVer
+			verSnap = &snap
 		}
 	}()
 
@@ -836,6 +857,7 @@ func (b *InMemoryBackend) HeadObject(
 		return nil, headErr
 	}
 
+	ver := verSnap
 	if ver == nil {
 		return nil, ErrNoSuchKey
 	}
@@ -856,6 +878,12 @@ func (b *InMemoryBackend) HeadObject(
 		"versionId", aws.ToString(versionID),
 		"foundContentType", ver.ContentType)
 
+	return b.buildHeadObjectOutput(bucketName, key, ver), nil
+}
+
+// buildHeadObjectOutput assembles a HeadObjectOutput from a version snapshot,
+// mirroring buildGetObjectOutput's role for GetObject.
+func (b *InMemoryBackend) buildHeadObjectOutput(bucketName, key string, ver *StoredObjectVersion) *s3.HeadObjectOutput {
 	sc := ver.StorageClass
 	if sc == "" {
 		sc = storageStandard
@@ -881,7 +909,7 @@ func (b *InMemoryBackend) HeadObject(
 		SSECustomerAlgorithm: ptrconv.NilIfEmpty(ver.SSECAlgorithm),
 		SSECustomerKeyMD5:    ptrconv.NilIfEmpty(ver.SSECKeyMD5),
 		TagCount:             b.objectTagCount(bucketName, key, ver.VersionID),
-	}, nil
+	}
 }
 
 // verifyChecksum validates the S3 checksum if a hasher is provided.
