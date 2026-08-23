@@ -41,7 +41,7 @@ func TestBackend_SnapshotRestore_FullStateRoundTrip(t *testing.T) {
 		[]wafv2.RegexEntry{{RegexString: "^abc$"}}, nil)
 	require.NoError(t, err)
 
-	rg, err := b.CreateRuleGroup(ctx, "full-state-rg", wafv2.ScopeRegional, "desc", "{}", 10, nil, nil, nil)
+	rg, err := b.CreateRuleGroup(ctx, "full-state-rg", wafv2.ScopeRegional, "desc", "{}", 10, nil, nil, nil, nil)
 	require.NoError(t, err)
 
 	ms, err := b.PutManagedRuleSetVersions(ctx, "full-state-mrs", "full-state-mrs", wafv2.ScopeRegional, "", "",
@@ -214,7 +214,7 @@ func TestBackend_Snapshot_WithNewResources(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	_, err = b.CreateRuleGroup(context.Background(), "my-rg", "REGIONAL", "", "", 10, nil, nil, nil)
+	_, err = b.CreateRuleGroup(context.Background(), "my-rg", "REGIONAL", "", "", 10, nil, nil, nil, nil)
 	require.NoError(t, err)
 
 	_, err = b.CreateAPIKey(context.Background(), "REGIONAL", []string{"example.com"})

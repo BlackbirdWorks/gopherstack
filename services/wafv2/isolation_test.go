@@ -22,12 +22,12 @@ func TestWAFv2RegionIsolation(t *testing.T) {
 
 	// Create same-named WebACL in both regions.
 	eastACL, err := backend.CreateWebACL(ctxEast, "shared-acl", ScopeRegional, "",
-		[]byte(`{"Allow":{}}`), nil, nil, nil, nil, nil, nil, nil, nil)
+		[]byte(`{"Allow":{}}`), nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	require.NoError(t, err)
 	assert.Contains(t, eastACL.ARN, "us-east-1")
 
 	westACL, err := backend.CreateWebACL(ctxWest, "shared-acl", ScopeRegional, "",
-		[]byte(`{"Allow":{}}`), nil, nil, nil, nil, nil, nil, nil, nil)
+		[]byte(`{"Allow":{}}`), nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	require.NoError(t, err)
 	assert.Contains(t, westACL.ARN, "us-west-2")
 
@@ -64,7 +64,7 @@ func TestWAFv2DefaultRegionFallback(t *testing.T) {
 
 	// No region in context → default region.
 	acl, err := backend.CreateWebACL(context.Background(), "default-acl", ScopeRegional, "",
-		[]byte(`{"Allow":{}}`), nil, nil, nil, nil, nil, nil, nil, nil)
+		[]byte(`{"Allow":{}}`), nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	require.NoError(t, err)
 
 	// Explicit default region sees it.

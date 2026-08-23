@@ -46,7 +46,7 @@ func (b *InMemoryBackend) CreateRuleGroup(
 	name, scope, description, visibilityConfig string,
 	capacity int64,
 	rules []map[string]any,
-	customResponseBodies json.RawMessage,
+	customResponseBodies, monetizationConfig json.RawMessage,
 	tags map[string]string,
 ) (*RuleGroup, error) {
 	b.mu.Lock("CreateRuleGroup")
@@ -70,6 +70,7 @@ func (b *InMemoryBackend) CreateRuleGroup(
 		Capacity:             capacity,
 		Rules:                cloneRules(rules),
 		CustomResponseBodies: customResponseBodies,
+		MonetizationConfig:   monetizationConfig,
 		LockToken:            uuid.NewString(),
 		Tags:                 cloneTags(tags),
 	}
@@ -196,7 +197,7 @@ func (b *InMemoryBackend) UpdateRuleGroup(
 	ctx context.Context,
 	id, description, visibilityConfig, lockToken string,
 	rules []map[string]any,
-	customResponseBodies json.RawMessage,
+	customResponseBodies, monetizationConfig json.RawMessage,
 ) (*RuleGroup, error) {
 	b.mu.Lock("UpdateRuleGroup")
 	defer b.mu.Unlock()
@@ -227,6 +228,10 @@ func (b *InMemoryBackend) UpdateRuleGroup(
 		rg.CustomResponseBodies = customResponseBodies
 	}
 
+	if len(monetizationConfig) > 0 {
+		rg.MonetizationConfig = monetizationConfig
+	}
+
 	rg.LockToken = uuid.NewString()
 
 	return cloneRuleGroup(rg), nil
@@ -240,6 +245,12 @@ func cloneRuleGroup(rg *RuleGroup) *RuleGroup {
 		crb := make(json.RawMessage, len(rg.CustomResponseBodies))
 		copy(crb, rg.CustomResponseBodies)
 		cp.CustomResponseBodies = crb
+	}
+
+	if rg.MonetizationConfig != nil {
+		mc := make(json.RawMessage, len(rg.MonetizationConfig))
+		copy(mc, rg.MonetizationConfig)
+		cp.MonetizationConfig = mc
 	}
 
 	return &cp

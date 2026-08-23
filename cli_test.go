@@ -868,7 +868,7 @@ func TestWireResourceGroupsTagging_CrossServiceResources(t *testing.T) {
 				wafBk := wafv2backend.NewInMemoryBackend(accountID, region)
 				webACL, err := wafBk.CreateWebACL(
 					context.Background(), "wiring-test-acl", "REGIONAL", "",
-					json.RawMessage(`{"Allow":{}}`), nil, nil, nil, nil, nil, nil, nil, nil,
+					json.RawMessage(`{"Allow":{}}`), nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
 				)
 				require.NoError(t, err)
 				require.NoError(t, wafBk.TagResource(
@@ -2319,7 +2319,7 @@ func TestWireResourceGroupsTagging_TagResourcesRoundTrip(t *testing.T) {
 				wafBk := wafv2backend.NewInMemoryBackend(accountID, region)
 				webACL, err := wafBk.CreateWebACL(
 					context.Background(), "roundtrip-acl", "REGIONAL", "",
-					json.RawMessage(`{"Allow":{}}`), nil, nil, nil, nil, nil, nil, nil, nil,
+					json.RawMessage(`{"Allow":{}}`), nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
 				)
 				require.NoError(t, err)
 

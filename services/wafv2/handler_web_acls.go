@@ -11,18 +11,22 @@ import (
 
 // createWebACLRequest is the request body for CreateWebACL.
 type createWebACLRequest struct {
-	DefaultAction        json.RawMessage  `json:"DefaultAction"`
-	VisibilityConfig     json.RawMessage  `json:"VisibilityConfig"`
-	CustomResponseBodies json.RawMessage  `json:"CustomResponseBodies"`
-	AssociationConfig    json.RawMessage  `json:"AssociationConfig"`
-	CaptchaConfig        json.RawMessage  `json:"CaptchaConfig"`
-	ChallengeConfig      json.RawMessage  `json:"ChallengeConfig"`
-	Name                 string           `json:"Name"`
-	Scope                string           `json:"Scope"`
-	Description          string           `json:"Description"`
-	Tags                 []tags.KV        `json:"Tags"`
-	TokenDomains         []string         `json:"TokenDomains"`
-	Rules                []map[string]any `json:"Rules"`
+	DefaultAction                json.RawMessage  `json:"DefaultAction"`
+	VisibilityConfig             json.RawMessage  `json:"VisibilityConfig"`
+	CustomResponseBodies         json.RawMessage  `json:"CustomResponseBodies"`
+	AssociationConfig            json.RawMessage  `json:"AssociationConfig"`
+	CaptchaConfig                json.RawMessage  `json:"CaptchaConfig"`
+	ChallengeConfig              json.RawMessage  `json:"ChallengeConfig"`
+	MonetizationConfig           json.RawMessage  `json:"MonetizationConfig"`
+	DataProtectionConfig         json.RawMessage  `json:"DataProtectionConfig"`
+	ApplicationConfig            json.RawMessage  `json:"ApplicationConfig"`
+	OnSourceDDoSProtectionConfig json.RawMessage  `json:"OnSourceDDoSProtectionConfig"`
+	Name                         string           `json:"Name"`
+	Scope                        string           `json:"Scope"`
+	Description                  string           `json:"Description"`
+	Tags                         []tags.KV        `json:"Tags"`
+	TokenDomains                 []string         `json:"TokenDomains"`
+	Rules                        []map[string]any `json:"Rules"`
 }
 
 func (h *Handler) handleCreateWebACL(ctx context.Context, body []byte) ([]byte, error) {
@@ -81,6 +85,10 @@ func (h *Handler) handleCreateWebACL(ctx context.Context, body []byte) ([]byte, 
 		req.AssociationConfig,
 		req.CaptchaConfig,
 		req.ChallengeConfig,
+		req.MonetizationConfig,
+		req.DataProtectionConfig,
+		req.ApplicationConfig,
+		req.OnSourceDDoSProtectionConfig,
 		tags,
 	)
 	if err != nil {
@@ -202,33 +210,7 @@ func (h *Handler) marshalWebACL(w *WebACL) ([]byte, error) {
 		webACLMap["TokenDomains"] = w.TokenDomains
 	}
 
-	if len(w.CustomResponseBodies) > 0 {
-		var crb any
-		if json.Unmarshal(w.CustomResponseBodies, &crb) == nil {
-			webACLMap["CustomResponseBodies"] = crb
-		}
-	}
-
-	if len(w.AssociationConfig) > 0 {
-		var ac any
-		if json.Unmarshal(w.AssociationConfig, &ac) == nil {
-			webACLMap["AssociationConfig"] = ac
-		}
-	}
-
-	if len(w.CaptchaConfig) > 0 {
-		var cc any
-		if json.Unmarshal(w.CaptchaConfig, &cc) == nil {
-			webACLMap["CaptchaConfig"] = cc
-		}
-	}
-
-	if len(w.ChallengeConfig) > 0 {
-		var chc any
-		if json.Unmarshal(w.ChallengeConfig, &chc) == nil {
-			webACLMap["ChallengeConfig"] = chc
-		}
-	}
+	addOptionalWebACLConfigs(webACLMap, w)
 
 	return json.Marshal(map[string]any{
 		"WebACL":     webACLMap,
@@ -236,21 +218,55 @@ func (h *Handler) marshalWebACL(w *WebACL) ([]byte, error) {
 	})
 }
 
+// addOptionalWebACLConfigs unmarshals each opaque config field on w that is
+// present and adds it to webACLMap under its wire key. Extracted from
+// marshalWebACL to keep its cognitive complexity down.
+func addOptionalWebACLConfigs(webACLMap map[string]any, w *WebACL) {
+	configs := []struct {
+		key string
+		raw json.RawMessage
+	}{
+		{"CustomResponseBodies", w.CustomResponseBodies},
+		{"AssociationConfig", w.AssociationConfig},
+		{"CaptchaConfig", w.CaptchaConfig},
+		{"ChallengeConfig", w.ChallengeConfig},
+		{"MonetizationConfig", w.MonetizationConfig},
+		{"DataProtectionConfig", w.DataProtectionConfig},
+		{"ApplicationConfig", w.ApplicationConfig},
+		{"OnSourceDDoSProtectionConfig", w.OnSourceDDoSProtectionConfig},
+	}
+
+	for _, c := range configs {
+		if len(c.raw) == 0 {
+			continue
+		}
+
+		var v any
+		if json.Unmarshal(c.raw, &v) == nil {
+			webACLMap[c.key] = v
+		}
+	}
+}
+
 // updateWebACLRequest is the request body for UpdateWebACL.
 type updateWebACLRequest struct {
-	DefaultAction        json.RawMessage  `json:"DefaultAction"`
-	VisibilityConfig     json.RawMessage  `json:"VisibilityConfig"`
-	CustomResponseBodies json.RawMessage  `json:"CustomResponseBodies"`
-	AssociationConfig    json.RawMessage  `json:"AssociationConfig"`
-	CaptchaConfig        json.RawMessage  `json:"CaptchaConfig"`
-	ChallengeConfig      json.RawMessage  `json:"ChallengeConfig"`
-	ID                   string           `json:"Id"`
-	Name                 string           `json:"Name"`
-	Scope                string           `json:"Scope"`
-	LockToken            string           `json:"LockToken"`
-	Description          string           `json:"Description"`
-	TokenDomains         []string         `json:"TokenDomains"`
-	Rules                []map[string]any `json:"Rules"`
+	DefaultAction                json.RawMessage  `json:"DefaultAction"`
+	VisibilityConfig             json.RawMessage  `json:"VisibilityConfig"`
+	CustomResponseBodies         json.RawMessage  `json:"CustomResponseBodies"`
+	AssociationConfig            json.RawMessage  `json:"AssociationConfig"`
+	CaptchaConfig                json.RawMessage  `json:"CaptchaConfig"`
+	ChallengeConfig              json.RawMessage  `json:"ChallengeConfig"`
+	MonetizationConfig           json.RawMessage  `json:"MonetizationConfig"`
+	DataProtectionConfig         json.RawMessage  `json:"DataProtectionConfig"`
+	ApplicationConfig            json.RawMessage  `json:"ApplicationConfig"`
+	OnSourceDDoSProtectionConfig json.RawMessage  `json:"OnSourceDDoSProtectionConfig"`
+	ID                           string           `json:"Id"`
+	Name                         string           `json:"Name"`
+	Scope                        string           `json:"Scope"`
+	LockToken                    string           `json:"LockToken"`
+	Description                  string           `json:"Description"`
+	TokenDomains                 []string         `json:"TokenDomains"`
+	Rules                        []map[string]any `json:"Rules"`
 }
 
 func (h *Handler) handleUpdateWebACL(ctx context.Context, body []byte) ([]byte, error) {
@@ -288,6 +304,10 @@ func (h *Handler) handleUpdateWebACL(ctx context.Context, body []byte) ([]byte, 
 		req.AssociationConfig,
 		req.CaptchaConfig,
 		req.ChallengeConfig,
+		req.MonetizationConfig,
+		req.DataProtectionConfig,
+		req.ApplicationConfig,
+		req.OnSourceDDoSProtectionConfig,
 	)
 	if err != nil {
 		return nil, err

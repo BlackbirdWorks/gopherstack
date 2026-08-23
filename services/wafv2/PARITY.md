@@ -48,9 +48,9 @@ overall: A            # New this pass: the AI-bot pay-per-crawl monetization-rep
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
-  CreateWebACL: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: Summary was missing Description field"}
+  CreateWebACL: {wire: fixed, errors: ok, state: ok, persist: ok, note: "fixed: Summary was missing Description field; 2026-08-23 gopherstack request-side sweep: MonetizationConfig/DataProtectionConfig/ApplicationConfig/OnSourceDDoSProtectionConfig were accepted and silently dropped, see Notes"}
   GetWebACL: {wire: ok, errors: fixed, state: ok, persist: ok, note: "ApplicationIntegrationURL top-level field not modeled (see gaps). gopherstack-4ly2 (2026-08-21): handler unconditionally required Id, but GetWebACLInput marks no member required (wafv2@v1.77.3 api_op_GetWebACL.go) -- ARN is a real alternative to Name+Scope+Id. Added GetWebACLByARN (region-scoped via the existing webACLsByARN index/webACLIDByARNInRegion) so an ARN-only request now resolves; Id-absent-and-ARN-absent still rejects."}
-  UpdateWebACL: {wire: ok, errors: ok, state: ok, persist: ok}
+  UpdateWebACL: {wire: fixed, errors: ok, state: ok, persist: ok, note: "2026-08-23: same MonetizationConfig/DataProtectionConfig/ApplicationConfig/OnSourceDDoSProtectionConfig drop as CreateWebACL, see Notes"}
   DeleteWebACL: {wire: ok, errors: ok, state: ok, persist: ok}
   ListWebACLs: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateIPSet: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: Summary was missing Description field"}
@@ -63,9 +63,9 @@ ops:
   UpdateRegexPatternSet: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteRegexPatternSet: {wire: ok, errors: ok, state: ok, persist: ok}
   ListRegexPatternSets: {wire: ok, errors: ok, state: ok, persist: ok}
-  CreateRuleGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: Summary was missing Description field"}
+  CreateRuleGroup: {wire: fixed, errors: ok, state: ok, persist: ok, note: "fixed: Summary was missing Description field; 2026-08-23: MonetizationConfig was accepted and silently dropped, see Notes"}
   GetRuleGroup: {wire: ok, errors: fixed, state: ok, persist: ok, note: "gopherstack-4ly2 (2026-08-21): handler unconditionally required Id, but GetRuleGroupInput marks no member required (wafv2@v1.77.3 api_op_GetRuleGroup.go) -- ARN is a real alternative to Name+Scope+Id. Added GetRuleGroupByARN (region-scoped via the existing ruleGroupsByARN index) so an ARN-only request now resolves; Id-absent-and-ARN-absent still rejects."}
-  UpdateRuleGroup: {wire: ok, errors: ok, state: ok, persist: ok}
+  UpdateRuleGroup: {wire: fixed, errors: ok, state: ok, persist: ok, note: "2026-08-23: same MonetizationConfig drop as CreateRuleGroup, see Notes"}
   DeleteRuleGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "correctly blocks delete while referenced by a WebACL rule"}
   ListRuleGroups: {wire: ok, errors: ok, state: ok, persist: ok}
   AssociateWebACL: {wire: ok, errors: ok, state: ok, persist: ok, note: "resource-type allowlist is deliberately permissive for unknown types (see Notes)"}
@@ -95,7 +95,7 @@ ops:
   GetRateBasedStatementManagedKeys: {wire: ok, errors: ok, state: partial, note: "always returns empty ManagedKeys lists (no rate-limiting simulation); documented AWS-accurate empty shape"}
   GetSampledRequests: {wire: ok, errors: ok, state: partial, note: "always returns empty SampledRequests/PopulationSize=0; no traffic sampling exists to report"}
   GetTopPathStatisticsByTraffic: {wire: fixed, errors: ok, state: partial, note: "FIXED 2026-08-13 (bd gopherstack-kb66): emitted {UrlStatistics: []}, a key that does not exist in the real API, and never emitted the required PathStatistics/TotalRequestCount (awsAwsjson11_serializeOpDocumentGetTopPathStatisticsByTrafficInput/deserializer, wafv2@v1.77.3). The request side was also wrong: it read WebACLName/WebACLId, neither of which exists on this op's wire shape at all -- the real request identifies the web ACL by WebAclArn, matching GetSampledRequests' convention. Now emits real PathStatistics/TotalRequestCount keys, honestly empty/zero (this backend has no per-request path/bot traffic model to aggregate, same structural gap as GetSampledRequests above), proven with a real aws-sdk-go-v2 client round trip (TestGetTopPathStatisticsByTraffic_SDKRoundTrip)."}
-  DescribeAllManagedProducts: {wire: ok, errors: ok, state: ok, persist: n/a, note: "static catalog, no persistence needed"}
+  DescribeAllManagedProducts: {wire: ok, errors: ok, state: ok, persist: n/a, note: "static catalog, no persistence needed; 2026-08-23: reviewed Scope (required on DescribeAllManagedProductsInput, api_op_DescribeAllManagedProducts.go) -- decode ignores the whole body (`_ []byte`), same as its siblings DescribeManagedProductsByVendor/DescribeManagedRuleGroup, which DO parse Scope but never filter on it either; the catalog (managed_rule_catalog.go) carries no per-entry scope-availability data for any of the three ops, so this is the existing modelling gap, not new -- not fixed, see gaps"}
   DescribeManagedProductsByVendor: {wire: ok, errors: ok, state: ok, persist: n/a}
   DescribeManagedRuleGroup: {wire: ok, errors: ok, state: ok, persist: n/a}
   ListAvailableManagedRuleGroups: {wire: ok, errors: ok, state: ok, persist: n/a}
@@ -115,6 +115,7 @@ families:
   errCodeLookup: {status: ok, note: "fixed: ErrUnavailableEntity/ErrConfigurationWarning sentinels existed but had no switch case in handleError, would have 500'd if ever returned (currently unreachable/dead -- no handler returns them yet, but the lookup gap is now closed for when they are wired up)"}
 gaps:                     # known divergences NOT fixed — link bd issue ids
   - "GetWebACL response omits the optional top-level ApplicationIntegrationURL field. RE-VERIFIED 2026-08-10 (gopherstack-iens) against the pinned SDK's doc comment (api_op_GetWebACL.go:60-68, v1.77.3: 'This is only populated if you are using a rule group in your web ACL that integrates with your applications in this way [...] the account takeover prevention managed rule group AWSManagedRulesATPRuleSet and the account creation fraud prevention managed rule group AWSManagedRulesACFPRuleSet') and the linked AWS developer guide (waf-application-integration.md, fetched 2026-08-10), which additionally documents a third trigger: the targeted protection level of AWSManagedRulesBotControlRuleSet. gopherstack's managed_rule_catalog.go models all three rule groups by name, so the *trigger condition* is in principle detectable from a WebACL's Rules. What is NOT knowable is the URL's *content*: neither the SDK doc comments nor the developer guide (including waf-application-integration-location-in-console.md, fetched 2026-08-10) publish a URL format/example -- it is described only as a console-surfaced, AWS-generated per-web-ACL integration URL with no documented grammar (unlike an ARN, which follows a published grammar this emulator can legitimately reproduce). Fabricating a value here would be inventing external service behavior with no spec to match against. Correct statement is therefore 'absent unless the ACL uses ATP/ACFP/targeted Bot Control, and even then the value's content is undocumented and unmodelable' -- not a blanket 'unmodelable' claim, but the same 'never absent' bottom line since presence without a matching value would be equally wrong. Left unmodeled rather than invented."
+  - "DescribeAllManagedProducts/DescribeManagedProductsByVendor/DescribeManagedRuleGroup all take a required Scope member (REGIONAL vs CLOUDFRONT, api_op_DescribeAllManagedProducts.go:29-40 etc., v1.77.3) that real AWS could in principle use to vary which managed products are offered per scope, but this emulator's static catalog (managed_rule_catalog.go) carries no per-entry scope-availability data at all -- Scope is parsed (or, for DescribeAllManagedProducts, not even parsed -- its decode ignores the request body entirely) but never affects any of the three ops' output, consistently. RE-VERIFIED 2026-08-23 during the request-side accept-and-drop sweep: no backend state exists to lose here (unlike MonetizationConfig etc. below, which reuse an already-modeled opaque-config storage pattern), so this is the existing modelling-gap class, not a new bug. Not fixed."
   - "GetManagedRuleSet/ListManagedRuleSets don't model Description/LabelNamespace (ManagedRuleSet/ManagedRuleSetSummary structs in types/types.go, v1.77.3, DO have both fields -- gopherstack's ManagedRuleSet struct in managed_rule_sets.go does not). RE-VERIFIED 2026-08-10 (gopherstack-iens): confirmed against the pinned SDK that PutManagedRuleSetVersionsInput (api_op_PutManagedRuleSetVersions.go:47-95, v1.77.3 -- the only op that creates/updates a ManagedRuleSet in this emulator; there genuinely is no CreateManagedRuleSet in the real API either, per every ManagedRuleSet op's doc comment: 'intended for use only by vendors [...] Vendors, you can use the managed rule set APIs to provide controlled rollout') has no Description/LabelNamespace input fields, and neither does UpdateManagedRuleSetVersionExpiryDateInput (api_op_UpdateManagedRuleSetVersionExpiryDate.go:38-90). No modeled or real API path can ever set them, so an always-absent field here is observationally identical to what a real, non-vendor-onboarded caller would see. Vendor-only Firewall-Manager API family, not used by Terraform/CDK for the common WAFv2 workflow. Claim holds as originally recorded."
 structural_gaps:
   - "GetRevenueStatistics/GetRevenueStatisticsSummary/GetRevenueStatisticsTimeSeries/ListSettlementRecords (added in aws-sdk-go-v2/service/wafv2@v1.76.0) always return honestly empty/zero results. This emulator has no real HTTP traffic, no AI-bot detection pipeline, and no billing/blockchain-settlement system, so there is no genuine revenue, bot, path, or settlement data to report -- exactly the same class of gap already documented for GetRateBasedStatementManagedKeys/GetSampledRequests/GetTopPathStatisticsByTraffic above. Deliberately NOT fabricated: no invented dollar amounts, bot names, path statistics, or settlement records. Every field validated (required-ness, enums, CLOUDFRONT-only Scope, Currency=USDC, 90-day TimeWindow cap, Filter enum values, Limit bounds) is checked for real; only the *data*, which cannot exist in this backend (no traffic source, no AI/ML bot-detection engine, no settlement/billing system), is honestly absent -- not a buildable state model."
@@ -387,3 +388,57 @@ real SDK client across two 10-item pages of 25 seeded configs and asserts
 the pages are disjoint; fails against the unfixed handler (`should have 10
 item(s), but has 25`), hand-reverted and confirmed.
 
+
+## 2026-08-23: CreateWebACL/UpdateWebACL/CreateRuleGroup/UpdateRuleGroup silently
+   dropped MonetizationConfig, DataProtectionConfig, ApplicationConfig, and
+   OnSourceDDoSProtectionConfig
+
+Part of a request-side accept-and-drop sweep of the ~26 sagemaker/wafv2
+candidates a prior pass left unread. `MonetizationConfig` is a real member of
+`CreateWebACLInput`, `UpdateWebACLInput`, `CreateRuleGroupInput`, and
+`UpdateRuleGroupInput`; `DataProtectionConfig`, `ApplicationConfig`, and
+`OnSourceDDoSProtectionConfig` are real members of `CreateWebACLInput`/
+`UpdateWebACLInput` only (wafv2@v1.77.3 `api_op_CreateWebACL.go:76-142`,
+`api_op_UpdateWebACL.go:134-200`, `api_op_CreateRuleGroup.go:101`,
+`api_op_UpdateRuleGroup.go:131`). `createWebACLRequest`/`updateWebACLRequest`/
+`createRuleGroupRequest`/`updateRuleGroupRequest` (`handler_web_acls.go`,
+`handler_rule_groups.go`) had no struct fields for any of them, so
+`json.Unmarshal` silently discarded whatever a caller sent and `GetWebACL`/
+`GetRuleGroup` never echoed them back — a real client's write appeared to
+succeed while changing nothing.
+
+This is not a modelling gap: `WebACL`/`RuleGroup` (`models.go`) already store
+and round-trip three sibling opaque nested configs the identical way
+(`AssociationConfig`/`CaptchaConfig`/`ChallengeConfig` on `WebACL`,
+`CustomResponseBodies` on both) — an untyped `json.RawMessage` accepted on
+create/update, stored verbatim, and echoed back on Get. The four missing
+fields just never got added to that same, already-working pattern. Fixed by
+adding `MonetizationConfig`/`DataProtectionConfig`/`ApplicationConfig`/
+`OnSourceDDoSProtectionConfig` (`WebACL`) and `MonetizationConfig`
+(`RuleGroup`) as `json.RawMessage` fields, threading them through
+`CreateWebACL`/`UpdateWebACL`/`CreateRuleGroup`/`UpdateRuleGroup`
+(`StorageBackend` interface + `InMemoryBackend` — all exported signature
+changes; `go build ./...` and `go vet ./...` confirmed clean, and
+`go test ./pkgs/persistence/...` confirmed the additive `WebACL`/`RuleGroup`
+field change needed a `testdata/snapshot_inventory.json` golden refresh, not
+a `wafv2SnapshotVersion` bump — every old field is still present unchanged),
+and echoing them back in `marshalWebACL`/`handleGetRuleGroup` exactly like
+their siblings. `UpdateWebACL`'s per-field apply logic and
+`marshalWebACL`'s per-field emit logic were each extracted into a helper
+(`applyOptionalWebACLConfigs`, `addOptionalWebACLConfigs`) to stay under
+`cyclop`/`gocognit` after adding four more fields to each.
+
+Proven with `TestWebACL_OptionalConfigs` and `TestRuleGroup_MonetizationConfig`
+(`wire_field_fixes_test.go`), which drive the real `aws-sdk-go-v2/service/wafv2`
+client's `Create*`/`Update*`/`Get*` round trip for all four fields; confirmed
+failing pre-fix (`Expected value not to be nil` on
+`got.WebACL.MonetizationConfig`/`got.RuleGroup.MonetizationConfig`) by hand-
+reverting `models.go`, `interfaces.go`, `web_acls.go`, `rule_groups.go`,
+`handler_web_acls.go`, and `handler_rule_groups.go` to their pre-fix
+`git show HEAD` content (plus their now-stale test call sites) and re-running
+just the two new tests; restored and `md5sum`-confirmed byte-identical to the
+fixed versions before re-applying the test call-site updates.
+
+`DescribeAllManagedProducts`' `Scope` (also flagged unread) was checked
+separately and is NOT the same class: see the `gaps` entry above — no
+backend state exists to lose, consistent with its two sibling catalog ops.
