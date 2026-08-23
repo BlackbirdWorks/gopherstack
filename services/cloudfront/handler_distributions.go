@@ -380,11 +380,22 @@ func (h *Handler) handleAssociateDistributionWebACL(c *echo.Context, distributio
 		}
 	}
 
+	d, getErr := h.Backend.GetDistribution(distributionID)
+	if getErr != nil {
+		return h.handleError(c, getErr)
+	}
+
 	if assocErr := h.Backend.AssociateDistributionWebACL(distributionID, req.WebACLArn); assocErr != nil {
 		return h.handleError(c, assocErr)
 	}
 
-	return c.NoContent(http.StatusOK)
+	c.Response().Header().Set("ETag", d.ETag)
+
+	return xmlResp(c, http.StatusOK, fmt.Sprintf(
+		`<?xml version="1.0" encoding="UTF-8"?>`+
+			`<AssociateDistributionWebACLResult xmlns="%s"><Id>%s</Id><WebACLArn>%s</WebACLArn>`+
+			`</AssociateDistributionWebACLResult>`,
+		cfNS, d.ID, req.WebACLArn))
 }
 
 func (h *Handler) handleCopyDistribution(c *echo.Context, primaryDistID string) error {
@@ -495,6 +506,8 @@ func (h *Handler) handleDisassociateDistributionWebACL(c *echo.Context, distID s
 	if disErr := h.Backend.DisassociateDistributionWebACL(distID); disErr != nil {
 		return h.handleError(c, disErr)
 	}
+
+	c.Response().Header().Set("ETag", d.ETag)
 
 	return xmlResp(c, http.StatusOK, distributionResponseXML(d, h.Backend.CountInProgressInvalidations(d.ID)))
 }
