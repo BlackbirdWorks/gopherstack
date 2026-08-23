@@ -1,5 +1,10 @@
 package mq
 
+import (
+	"encoding/json"
+	"fmt"
+)
+
 const (
 	// BrokerStateRunning indicates an active broker.
 	BrokerStateRunning = "RUNNING"
@@ -183,6 +188,13 @@ type WeeklyStartTime struct {
 }
 
 // LdapServerMetadata configures LDAP authentication for a broker.
+//
+// ServiceAccountPassword uses a real json tag (not "-") so it decodes from
+// CreateBroker/UpdateBroker request bodies (handler_brokers.go reuses this
+// struct as the wire input shape); MarshalJSON below redacts it from every
+// encode, matching AWS's split between LdapServerMetadataInput (has the
+// password) and LdapServerMetadataOutput (does not) in
+// aws-sdk-go-v2/service/mq/types/types.go.
 type LdapServerMetadata struct {
 	RoleBase               string   `json:"roleBase,omitempty"`
 	RoleName               string   `json:"roleName,omitempty"`
@@ -191,10 +203,26 @@ type LdapServerMetadata struct {
 	UserRoleName           string   `json:"userRoleName,omitempty"`
 	UserSearchMatching     string   `json:"userSearchMatching,omitempty"`
 	ServiceAccountUsername string   `json:"serviceAccountUsername,omitempty"`
-	ServiceAccountPassword string   `json:"-"`
+	ServiceAccountPassword string   `json:"serviceAccountPassword,omitempty"`
 	Hosts                  []string `json:"hosts,omitempty"`
 	RoleSearchSubtree      bool     `json:"roleSearchSubtree"`
 	UserSearchSubtree      bool     `json:"userSearchSubtree"`
+}
+
+// MarshalJSON redacts ServiceAccountPassword: it must decode from request
+// bodies but never appear in a response or a persistence snapshot.
+func (l LdapServerMetadata) MarshalJSON() ([]byte, error) {
+	type alias LdapServerMetadata
+
+	a := alias(l)
+	a.ServiceAccountPassword = ""
+
+	b, err := json.Marshal(a)
+	if err != nil {
+		return nil, fmt.Errorf("marshal ldap server metadata: %w", err)
+	}
+
+	return b, nil
 }
 
 // Logs configures CloudWatch Logs export for an Amazon MQ broker.

@@ -307,11 +307,17 @@ func experimentDefinitionToSummary(d ExperimentDefinition) ExperimentDefinitionS
 
 // buildExperimentDefinitionFilterLocked builds a predicate matching
 // ListExperimentDefinitions's optional identifier/status filters. Returns
-// ok=false when an identifier filter was supplied but could not be
-// resolved to anything -- callers should treat that as "no matches"
-// (an empty result), not an error, matching normal AWS list-filter
-// semantics for a filter value that names nothing. Must be called under
-// lock.
+// ok=false when ApplicationIdentifier was supplied but could not be
+// resolved to anything -- callers should treat that as "no matches" (an
+// empty result), not an error, matching normal AWS list-filter semantics
+// for a filter value that names nothing. ConfigurationProfileIdentifier and
+// EnvironmentIdentifier are resolved per-candidate (see
+// experimentDefinitionMatchesProfileLocked/experimentDefinitionMatchesEnvLocked)
+// rather than against one global application, so a name-form filter
+// resolves correctly even when ApplicationIdentifier was not supplied --
+// matching ListExperimentDefinitionsInput's doc comments, which describe
+// all three identifiers as independently resolvable by ID or name
+// (api_op_ListExperimentDefinitions.go). Must be called under lock.
 func (b *InMemoryBackend) buildExperimentDefinitionFilterLocked(
 	applicationIdentifier, configurationProfileIdentifier, environmentIdentifier, status string,
 ) (func(*ExperimentDefinition) bool, bool) {
@@ -320,19 +326,22 @@ func (b *InMemoryBackend) buildExperimentDefinitionFilterLocked(
 		return nil, false
 	}
 
-	profileID, ok := b.resolveExperimentDefinitionFilterProfileLocked(
-		appID, appFilterActive, configurationProfileIdentifier,
-	)
-	if !ok {
-		return nil, false
-	}
+	return func(def *ExperimentDefinition) bool {
+		if appFilterActive && def.ApplicationID != appID {
+			return false
+		}
 
-	envID, ok := b.resolveExperimentDefinitionFilterEnvLocked(appID, appFilterActive, environmentIdentifier)
-	if !ok {
-		return nil, false
-	}
+		if configurationProfileIdentifier != "" &&
+			!b.experimentDefinitionMatchesProfileLocked(def, configurationProfileIdentifier) {
+			return false
+		}
 
-	return experimentDefinitionFilterPredicate(appID, profileID, envID, status, appFilterActive), true
+		if environmentIdentifier != "" && !b.experimentDefinitionMatchesEnvLocked(def, environmentIdentifier) {
+			return false
+		}
+
+		return status == "" || def.Status == status
+	}, true
 }
 
 // resolveExperimentDefinitionFilterAppLocked resolves
@@ -355,67 +364,31 @@ func (b *InMemoryBackend) resolveExperimentDefinitionFilterAppLocked(
 	return resolved, true, true
 }
 
-// resolveExperimentDefinitionFilterProfileLocked resolves
-// ListExperimentDefinitions's optional ConfigurationProfileIdentifier
-// filter. A configuration-profile identifier can only be resolved by name
-// within an application scope; without one (appFilterActive is false) this
-// backend falls back to matching the literal value against the ID field
-// only -- a documented, narrower gap (see PARITY.md) rather than a
-// fabricated cross-application name resolution. Must be called under lock.
-func (b *InMemoryBackend) resolveExperimentDefinitionFilterProfileLocked(
-	appID string, appFilterActive bool, configurationProfileIdentifier string,
-) (string, bool) {
-	if !appFilterActive || configurationProfileIdentifier == "" {
-		return configurationProfileIdentifier, true
+// experimentDefinitionMatchesProfileLocked reports whether identifier names
+// def's configuration profile, either as its ID or as a name resolved
+// within def's own application -- so the filter works by name even when
+// ApplicationIdentifier was not supplied. Must be called under lock.
+func (b *InMemoryBackend) experimentDefinitionMatchesProfileLocked(def *ExperimentDefinition, identifier string) bool {
+	if def.ConfigurationProfileID == identifier {
+		return true
 	}
 
-	resolved, err := b.resolveProfileID(appID, configurationProfileIdentifier)
-	if err != nil {
-		return "", false
-	}
+	resolved, err := b.resolveProfileID(def.ApplicationID, identifier)
 
-	return resolved, true
+	return err == nil && resolved == def.ConfigurationProfileID
 }
 
-// resolveExperimentDefinitionFilterEnvLocked resolves
-// ListExperimentDefinitions's optional EnvironmentIdentifier filter, with
-// the same app-scope caveat as
-// resolveExperimentDefinitionFilterProfileLocked. Must be called under lock.
-func (b *InMemoryBackend) resolveExperimentDefinitionFilterEnvLocked(
-	appID string, appFilterActive bool, environmentIdentifier string,
-) (string, bool) {
-	if !appFilterActive || environmentIdentifier == "" {
-		return environmentIdentifier, true
+// experimentDefinitionMatchesEnvLocked is
+// experimentDefinitionMatchesProfileLocked for EnvironmentIdentifier. Must
+// be called under lock.
+func (b *InMemoryBackend) experimentDefinitionMatchesEnvLocked(def *ExperimentDefinition, identifier string) bool {
+	if def.EnvironmentID == identifier {
+		return true
 	}
 
-	resolved, err := b.resolveEnvID(appID, environmentIdentifier)
-	if err != nil {
-		return "", false
-	}
+	resolved, err := b.resolveEnvID(def.ApplicationID, identifier)
 
-	return resolved, true
-}
-
-// experimentDefinitionFilterPredicate builds the actual per-definition
-// match predicate from already-resolved filter values.
-func experimentDefinitionFilterPredicate(
-	appID, profileID, envID, status string, appFilterActive bool,
-) func(*ExperimentDefinition) bool {
-	return func(def *ExperimentDefinition) bool {
-		if appFilterActive && def.ApplicationID != appID {
-			return false
-		}
-
-		if profileID != "" && def.ConfigurationProfileID != profileID {
-			return false
-		}
-
-		if envID != "" && def.EnvironmentID != envID {
-			return false
-		}
-
-		return status == "" || def.Status == status
-	}
+	return err == nil && resolved == def.EnvironmentID
 }
 
 // experimentDefinitionHasActiveRunLocked reports whether any RUNNING run

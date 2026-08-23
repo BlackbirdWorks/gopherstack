@@ -43,6 +43,18 @@ func (h *Handler) handleCreateDatastore(c *echo.Context, body []byte) error {
 	})
 }
 
+// datastoreFileFormatType derives DatastoreSummary.FileFormatType (types.go:952,
+// FileFormatType enum in enums.go: JSON|PARQUET) from a datastore's
+// FileFormatConfiguration. AWS IoT Analytics defaults an unconfigured
+// datastore to JSON storage.
+func datastoreFileFormatType(cfg *FileFormatConfiguration) string {
+	if cfg != nil && cfg.ParquetConfiguration != nil {
+		return "PARQUET"
+	}
+
+	return "JSON"
+}
+
 func (h *Handler) handleListDatastores(c *echo.Context) error {
 	maxResults, cursor := parsePagination(c)
 	datastores := h.Backend.ListDatastores()
@@ -67,6 +79,8 @@ func (h *Handler) handleListDatastores(c *echo.Context) error {
 		summaries = append(summaries, datastoreSummary{
 			DatastoreName:          ds.Name,
 			DatastoreStorage:       ds.Storage,
+			Partitions:             ds.Partitions,
+			FileFormatType:         datastoreFileFormatType(ds.FileFormatConfiguration),
 			Status:                 ds.Status,
 			CreationTime:           ds.CreationTime,
 			LastUpdateTime:         ds.LastUpdate,

@@ -18237,7 +18237,7 @@
       "LdapServerMetadata.RoleName string `json:\"roleName,omitempty\"`",
       "LdapServerMetadata.RoleSearchMatching string `json:\"roleSearchMatching,omitempty\"`",
       "LdapServerMetadata.RoleSearchSubtree bool `json:\"roleSearchSubtree\"`",
-      "LdapServerMetadata.ServiceAccountPassword string `json:\"-\"`",
+      "LdapServerMetadata.ServiceAccountPassword string `json:\"serviceAccountPassword,omitempty\"`",
       "LdapServerMetadata.ServiceAccountUsername string `json:\"serviceAccountUsername,omitempty\"`",
       "LdapServerMetadata.UserBase string `json:\"userBase,omitempty\"`",
       "LdapServerMetadata.UserRoleName string `json:\"userRoleName,omitempty\"`",

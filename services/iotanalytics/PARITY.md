@@ -17,12 +17,12 @@ ops:
   DescribeDatastore: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-20: statistics was nested inside the datastore object; AWS returns it as a sibling top-level member (deserializers.go:2184 awsRestjson1_deserializeOpDocumentDescribeDatastoreOutput has separate datastore/statistics cases). FIXED 2026-08-20: datastoreDetail also emitted partitions under 'partitions' instead of AWS's 'datastorePartitions' (deserializers.go:7177 awsRestjson1_deserializeDocumentDatastore) -- a real client's Datastore.DatastorePartitions stayed nil even when the backend had partitions stored"}
   UpdateDatastore: {wire: ok, errors: ok, state: ok, persist: ok, note: "updateDatastoreRequest still accepts a 'partitions' body field UpdateDatastoreInput has no real counterpart for (api_op_UpdateDatastore.go:32 UpdateDatastoreInput: DatastoreStorage/FileFormatConfiguration/RetentionPeriod only, no partitions member) -- disclosed, not fixed, see Notes"}
   DeleteDatastore: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListDatastores: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-20: datastoreSummary fabricated a datastoreArn member DatastoreSummary doesn't have (deserializers.go:7677 awsRestjson1_deserializeDocumentDatastoreSummary has no arn case) -- removed. Gap disclosed, not fixed: DatastoreSummary also carries real datastorePartitions/fileFormatType members this backend's summary never emits, see Notes"}
+  ListDatastores: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-20: datastoreSummary fabricated a datastoreArn member DatastoreSummary doesn't have (deserializers.go:7677 awsRestjson1_deserializeDocumentDatastoreSummary has no arn case) -- removed. FIXED 2026-08-23: datastoreSummary was also missing DatastoreSummary's real datastorePartitions/fileFormatType members (types.go:952). Confirmed against the real *DatastoreSummary type (not the Datastore detail type, which has no fileFormatType member at all -- types.go:707) before adding: datastorePartitions now round-trips from Datastore.Partitions, fileFormatType is derived from FileFormatConfiguration (defaulting to JSON, matching 'The default file format is JSON' in api_op_CreateDatastore.go's doc comment, since gopherstack never persisted a resolved format type before). See TestListDatastores_SummaryCarriesPartitionsAndFileFormatType (list_summaries_missing_members_test.go)."}
   CreateDataset: {wire: fixed, errors: ok, state: ok, persist: ok, note: "now validates tags before create (see CreateChannel). FIXED 2026-08-23 (manifest-harvest pass): CreateDatasetInput/CreateDatasetOutput/Dataset's real retentionPeriod member (deserializers.go:6271 awsRestjson1_deserializeDocumentDataset, api_op_CreateDataset.go:75/117) was accepted on the wire (createDatasetRequest had no field for it) then silently dropped -- an accept-and-drop gap, same class as Datastore's already-correctly-modeled RetentionPeriod (this backend already had the RetentionPeriod type + validateRetentionPeriod/cloneRetentionPeriod helpers from Datastore; Dataset just never used them). Fixed: Dataset gained RetentionPeriod, CreateDataset validates and stores it, both CreateDatasetOutput and DescribeDatasetOutput echo it. DatasetSummary (ListDatasets) correctly has no retentionPeriod member on the real SDK type -- not part of this fix. Verified via TestDataset_RetentionPeriod_RoundTrips, driven through the real aws-sdk-go-v2 client, hand-reverted (datasets.go/handler_datasets.go/models.go/interfaces.go) to confirm it fails against unfixed code (nil RetentionPeriod on both responses), restored, md5sum identical. Additive-only struct field; pkgs/persistence snapshot-version guard confirmed no bump needed."}
   DescribeDataset: {wire: fixed, errors: ok, state: ok, persist: ok, note: "same Dataset.retentionPeriod fix as CreateDataset -- see above."}
   UpdateDataset: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteDataset: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListDatasets: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-20: datasetSummary fabricated a datasetArn member DatasetSummary doesn't have (deserializers.go:7011 awsRestjson1_deserializeDocumentDatasetSummary has no arn case) -- removed. Gap disclosed, not fixed: DatasetSummary also carries real actions (as narrower DatasetActionSummary)/triggers members this backend's summary never emits"}
+  ListDatasets: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-20: datasetSummary fabricated a datasetArn member DatasetSummary doesn't have (deserializers.go:7011 awsRestjson1_deserializeDocumentDatasetSummary has no arn case) -- removed. FIXED 2026-08-23: datasetSummary was also missing DatasetSummary's real actions/triggers members (types.go:652). Confirmed against the real *DatasetSummary type before adding: actions uses the narrower datasetActionSummary shape (types.go:522 DatasetActionSummary -- actionName/actionType only, ActionType derived from which of QueryAction/ContainerAction the full DatasetAction carried, not the full action body), triggers reuses DatasetTrigger unchanged (same type real AWS uses in both the summary and detail view). See TestListDatasets_SummaryCarriesActionsAndTriggers (list_summaries_missing_members_test.go)."}
   CreatePipeline: {wire: ok, errors: ok, state: ok, persist: ok, note: "now validates tags before create (see CreateChannel)"}
   DescribePipeline: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdatePipeline: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -166,11 +166,17 @@ leaks: {status: clean, note: "no goroutines/janitors owned by this backend; svcC
     `deserializers.go:6271`; `awsRestjson1_serializeOpDocumentCreateDatasetInput`,
     `serializers.go:359`) this backend's `Dataset` model has no field for at all -- adding it
     would require a model field plus create/update/describe wiring, out of scope for a
-    wire-shape sweep. `DatastoreSummary` carries real `datastorePartitions`/`fileFormatType`
-    members (`awsRestjson1_deserializeDocumentDatastoreSummary`) this backend's summary never
-    emits. `DatasetSummary` carries real `actions` (as the narrower `DatasetActionSummary`,
-    `actionName`+`actionType` only, NOT the full `DatasetAction`) and `triggers` members this
-    backend's summary never emits. `updateDatastoreRequest.Partitions` (json key
+    wire-shape sweep. **FIXED 2026-08-23**: `DatastoreSummary` carries real
+    `datastorePartitions`/`fileFormatType` members
+    (`awsRestjson1_deserializeDocumentDatastoreSummary`) this backend's summary previously
+    never emitted; `DatasetSummary` carried real `actions` (as the narrower
+    `DatasetActionSummary`, `actionName`+`actionType` only, NOT the full `DatasetAction`) and
+    `triggers` members it also never emitted. Both are now populated in `handleListDatastores`/
+    `handleListDatasets` (`handler_datastores.go`/`handler_datasets.go`), verified against a
+    real aws-sdk-go-v2 client round trip
+    (`TestListDatastores_SummaryCarriesPartitionsAndFileFormatType`,
+    `TestListDatasets_SummaryCarriesActionsAndTriggers`,
+    `list_summaries_missing_members_test.go`). `updateDatastoreRequest.Partitions` (json key
     `"partitions"`, left unfixed) is a genuinely FABRICATED request member --
     `UpdateDatastoreInput` has no partitions member at all in the real SDK
     (`api_op_UpdateDatastore.go:32`: `DatastoreStorage`/`FileFormatConfiguration`/
