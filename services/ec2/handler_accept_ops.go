@@ -23,13 +23,14 @@ type acceptAddressTransferResponse struct {
 }
 
 type capacityReservationItem struct {
-	CapacityReservationID  string `xml:"capacityReservationId"`
-	InstanceType           string `xml:"instanceType"`
-	AvailabilityZone       string `xml:"availabilityZone"`
-	OwnedBy                string `xml:"ownerId,omitempty"`
-	State                  string `xml:"state"`
-	AvailableInstanceCount int    `xml:"availableInstanceCount"`
-	TotalInstanceCount     int    `xml:"totalInstanceCount"`
+	CapacityReservationID  string          `xml:"capacityReservationId"`
+	InstanceType           string          `xml:"instanceType"`
+	AvailabilityZone       string          `xml:"availabilityZone"`
+	OwnedBy                string          `xml:"ownerId,omitempty"`
+	State                  string          `xml:"state"`
+	TagSet                 []simpleTagItem `xml:"tagSet>item"`
+	AvailableInstanceCount int             `xml:"availableInstanceCount"`
+	TotalInstanceCount     int             `xml:"totalInstanceCount"`
 }
 
 // acceptCapacityReservationBillingOwnershipResponse matches the real
@@ -487,15 +488,7 @@ func (h *Handler) handleDescribeCapacityReservations(vals url.Values, reqID stri
 
 	for _, cr := range reservations {
 		resp.CapacityReservations.Items = append(resp.CapacityReservations.Items,
-			capacityReservationItem{
-				CapacityReservationID:  cr.CapacityReservationID,
-				InstanceType:           cr.InstanceType,
-				AvailabilityZone:       cr.AvailabilityZone,
-				OwnedBy:                cr.OwnedBy,
-				State:                  cr.State,
-				AvailableInstanceCount: cr.AvailableInstanceCount,
-				TotalInstanceCount:     cr.TotalInstanceCount,
-			})
+			toCapacityReservationItem(cr, h.Backend.TagsForResource(cr.CapacityReservationID)))
 	}
 
 	return resp, nil

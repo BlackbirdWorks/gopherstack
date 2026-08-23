@@ -1018,7 +1018,7 @@ func TestPersistence_Parity4Fields(t *testing.T) {
 	require.NoError(t, err)
 
 	// Capacity Reservation cancellation quote.
-	cr, err := b.CreateCapacityReservation("m5.large", "us-east-1a", 2)
+	cr, err := b.CreateCapacityReservation("m5.large", "us-east-1a", 2, nil)
 	require.NoError(t, err)
 	quote, err := b.CreateCapacityReservationCancellationQuote(cr.CapacityReservationID, nil)
 	require.NoError(t, err)

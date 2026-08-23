@@ -121,7 +121,7 @@ func (h *Handler) handlePurchaseCapacityBlock(vals url.Values, reqID string) (an
 	resp := &purchaseCapacityBlockResponse{
 		Xmlns:               ec2XMLNS,
 		RequestID:           reqID,
-		CapacityReservation: toCapacityReservationItem(cr),
+		CapacityReservation: toCapacityReservationItem(cr, tags),
 	}
 	resp.CapacityBlocks.Items = []capacityBlockItem{
 		toCapacityBlockItem(block, h.Backend.TagsForResource(block.CapacityBlockID)),

@@ -57,6 +57,7 @@ type CapacityReservationTopologyEntry struct {
 func (b *InMemoryBackend) CreateCapacityReservation(
 	instanceType, availabilityZone string,
 	instanceCount int,
+	tags map[string]string,
 ) (*CapacityReservation, error) {
 	if instanceType == "" {
 		return nil, fmt.Errorf("%w: InstanceType is required", ErrInvalidParameter)
@@ -76,6 +77,7 @@ func (b *InMemoryBackend) CreateCapacityReservation(
 		OwnedBy:                b.AccountID,
 	}
 	b.capacityReservations.Put(cr)
+	b.setTagsLocked(cr.CapacityReservationID, tags)
 
 	return cr, nil
 }

@@ -79,18 +79,20 @@ func tgwPeripheralsSupportedOperations() []string {
 // ---- XML types: policy tables ----
 
 type tgwPolicyTableItem struct {
-	CreationTime                string `xml:"creationTime,omitempty"`
-	TransitGatewayID            string `xml:"transitGatewayId,omitempty"`
-	TransitGatewayPolicyTableID string `xml:"transitGatewayPolicyTableId,omitempty"`
-	State                       string `xml:"state,omitempty"`
+	CreationTime                string          `xml:"creationTime,omitempty"`
+	TransitGatewayID            string          `xml:"transitGatewayId,omitempty"`
+	TransitGatewayPolicyTableID string          `xml:"transitGatewayPolicyTableId,omitempty"`
+	State                       string          `xml:"state,omitempty"`
+	TagSet                      []simpleTagItem `xml:"tagSet>item"`
 }
 
-func tgwPolicyTableToItem(pt *TransitGatewayPolicyTable) tgwPolicyTableItem {
+func tgwPolicyTableToItem(pt *TransitGatewayPolicyTable, tags map[string]string) tgwPolicyTableItem {
 	return tgwPolicyTableItem{
 		CreationTime:                pt.CreationTime.UTC().Format(timeLayoutISO),
 		TransitGatewayID:            pt.TransitGatewayID,
 		TransitGatewayPolicyTableID: pt.TransitGatewayPolicyTableID,
 		State:                       pt.State,
+		TagSet:                      tagItemsFromMap(tags),
 	}
 }
 
@@ -418,7 +420,9 @@ type rejectTransitGatewayMulticastDomainAssociationsResponse struct {
 // ---- Handlers: policy tables ----
 
 func (h *Handler) handleCreateTransitGatewayPolicyTable(vals url.Values, reqID string) (any, error) {
-	pt, err := h.Backend.CreateTransitGatewayPolicyTable(vals.Get("TransitGatewayId"))
+	tags := parseTagSpecificationPlural(vals, "transit-gateway-policy-table")
+
+	pt, err := h.Backend.CreateTransitGatewayPolicyTable(vals.Get("TransitGatewayId"), tags)
 	if err != nil {
 		return nil, err
 	}
@@ -426,7 +430,7 @@ func (h *Handler) handleCreateTransitGatewayPolicyTable(vals url.Values, reqID s
 	return &createTransitGatewayPolicyTableResponse{
 		Xmlns:       ec2XMLNS,
 		RequestID:   reqID,
-		PolicyTable: tgwPolicyTableToItem(pt),
+		PolicyTable: tgwPolicyTableToItem(pt, tags),
 	}, nil
 }
 
@@ -439,7 +443,8 @@ func (h *Handler) handleDescribeTransitGatewayPolicyTables(
 
 	resp := &describeTransitGatewayPolicyTablesResponse{Xmlns: ec2XMLNS, RequestID: reqID}
 	for _, pt := range pts {
-		resp.PolicyTables.Items = append(resp.PolicyTables.Items, tgwPolicyTableToItem(pt))
+		item := tgwPolicyTableToItem(pt, h.Backend.TagsForResource(pt.TransitGatewayPolicyTableID))
+		resp.PolicyTables.Items = append(resp.PolicyTables.Items, item)
 	}
 
 	return resp, nil
@@ -455,7 +460,7 @@ func (h *Handler) handleDeleteTransitGatewayPolicyTable(vals url.Values, reqID s
 
 	var item tgwPolicyTableItem
 	if len(existing) > 0 {
-		item = tgwPolicyTableToItem(existing[0])
+		item = tgwPolicyTableToItem(existing[0], h.Backend.TagsForResource(existing[0].TransitGatewayPolicyTableID))
 		item.State = tgwRouteStateDeleted
 	}
 

@@ -404,7 +404,7 @@ func (b *InMemoryBackend) AssociateVpcCidrBlock(
 
 // CreateTransitGatewayRouteTable creates a new TGW route table.
 func (b *InMemoryBackend) CreateTransitGatewayRouteTable(
-	tgwID string,
+	tgwID string, tags map[string]string,
 ) (*TransitGatewayRouteTable, error) {
 	if tgwID == "" {
 		return nil, fmt.Errorf("%w: TransitGatewayId is required", ErrInvalidParameter)
@@ -424,6 +424,7 @@ func (b *InMemoryBackend) CreateTransitGatewayRouteTable(
 		CreateTime:       time.Now(),
 	}
 	b.tgwRouteTables.Put(rt)
+	b.setTagsLocked(rt.RouteTableID, tags)
 
 	cp := *rt
 

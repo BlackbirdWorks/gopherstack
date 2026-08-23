@@ -109,7 +109,7 @@ type TransitGatewayAttachmentPropagation struct {
 // CreateTransitGatewayPolicyTable creates a new policy table on the given
 // transit gateway.
 func (b *InMemoryBackend) CreateTransitGatewayPolicyTable(
-	tgwID string,
+	tgwID string, tags map[string]string,
 ) (*TransitGatewayPolicyTable, error) {
 	if tgwID == "" {
 		return nil, fmt.Errorf("%w: TransitGatewayId is required", ErrInvalidParameter)
@@ -129,6 +129,7 @@ func (b *InMemoryBackend) CreateTransitGatewayPolicyTable(
 		CreationTime:                time.Now().UTC(),
 	}
 	b.tgwPolicyTables.Put(pt)
+	b.setTagsLocked(pt.TransitGatewayPolicyTableID, tags)
 
 	cp := *pt
 

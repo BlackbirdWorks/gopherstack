@@ -1527,3 +1527,105 @@ by this pass's own edits, not carried over from before it), `go test -race
 -count=1 ./services/ec2/...` (`ok`, full suite including all 7 new tests),
 `golangci-lint run ./services/ec2/...` (`0 issues`), `go test
 ./pkgs/persistence/...` (`ok`). No banned `//nolint`s.
+
+**2026-08-23 follow-up pass (gopherstack-dj4i) -- the other four plural-form
+tag ops**: the pass above fixed `CreateTransitGatewayMeteringPolicy` and gave
+it a scoped `parseTagSpecificationPlural` (the pinned `ec2@v1.319.1`
+`serializers.go` has exactly five ops that serialize tags as plural
+`TagSpecifications.N.*` rather than the near-universal singular
+`TagSpecification.N.*`) but deliberately left the other four unidentified.
+Grepped `serializers.go` for all five `"TagSpecifications"` occurrences and
+named the owning op for each by walking back to the nearest
+`awsEc2query_serializeOpDocument*Input` function:
+`CreateCapacityReservation` (line 69572/function 69482), `CreateTransitGatewayMeteringPolicy`
+(72985/72968, fixed previously), `CreateTransitGatewayPolicyTable`
+(73120/73110), `CreateTransitGatewayRouteTable` (73237/73227),
+`CreateTransitGatewayVpcAttachment` (73275/73251).
+
+All four remaining ops are implemented in gopherstack, and none of them
+parsed tags at all -- not even with the wrong (singular) parser. Every one
+accepted `TagSpecifications` in the request, returned `200 OK`, and silently
+dropped the tags:
+
+- `CreateCapacityReservation` (`capacity_reservations.go`,
+  `handler_capacity_reservations.go`): backend took no `tags` param at all,
+  and `capacityReservationItem` (`handler_accept_ops.go`) had no `TagSet`
+  field -- the whole capacity-reservation family had zero tag rendering,
+  even though `CreateCapacityReservationBySplitting` and
+  `PurchaseCapacityBlock` already parse tags correctly (singular form, not
+  part of this bug) and already store them via `b.tags`/`setTagsLocked` --
+  those tags were ALSO being silently dropped from every response, just
+  because the item struct never had a `TagSet` field to render them into.
+  Added `TagSet []simpleTagItem` to `capacityReservationItem`, threaded a
+  `tags map[string]string` param through `toCapacityReservationItem` and
+  `Backend.CreateCapacityReservation`, and rewired all six call sites
+  (`handler_capacity_reservations.go`, `handler_capacity_block.go`,
+  `handler_capacity_reservation_ops.go` x2, `handler_accept_ops.go`'s
+  Describe) to pass real tags (freshly-parsed tags for Create/Split's
+  destination, `Backend.TagsForResource` for everything reading an existing
+  reservation).
+- `CreateTransitGatewayPolicyTable` (`tgw_peripherals.go`,
+  `handler_tgw_peripherals.go`): same shape -- no `tags` param, no `TagSet`
+  field on `tgwPolicyTableItem`. Added both, wired Create/Describe/Delete.
+- `CreateTransitGatewayRouteTable` (`ec2core.go`, `handler_ec2core.go`): same
+  shape. Added `TagSet` to `tgwRouteTableItem`, wired Create/Describe/Delete.
+- `CreateTransitGatewayVpcAttachment` (`networking1.go`,
+  `handler_networking1.go`): `tgwVpcAttachmentItem` already had `TagSet` and
+  `Describe` already rendered it via `TagsForResource` -- only `Create`
+  itself never parsed the request's tags (passed `nil` into
+  `tgwVpcAttachmentToItem`) and the backend method never stored them. Fixed
+  both.
+
+All four fixes reuse the existing `parseTagSpecificationPlural` helper
+(`handler_tgw_multicast.go`) with each op's real AWS `ResourceType` string
+(`capacity-reservation`, `transit-gateway-policy-table`,
+`transit-gateway-route-table`, `transit-gateway-attachment` -- confirmed
+against `types/enums.go` in the pinned SDK). The shared singular
+`parseTagSpecification` (48 call sites) was not touched.
+
+Noted but explicitly out of scope: `CreateTransitGatewayVpcAttachment`'s
+backend signature already had a `subnetIDs []string` parameter that was
+discarded (`_ []string`) -- `SubnetIds` from the create request is dropped
+and only settable later via `ModifyTransitGatewayVpcAttachment`. That's a
+different bug (not a tag bug, not one of the five plural-form ops) and was
+left alone; worth its own bd issue.
+
+Snapshot bump: not needed. `CapacityReservation`, `TransitGatewayPolicyTable`,
+`TransitGatewayRouteTable`, and `TransitGatewayVpcAttachment` (the persisted
+structs) are unchanged -- tags live in the pre-existing generic `b.tags` map
+via `setTagsLocked`/`TagsForResource`, not on any of these structs. Every
+touched type (`capacityReservationItem`, `tgwPolicyTableItem`,
+`tgwRouteTableItem`) is wire-response-only. `go test ./pkgs/persistence/...`
+run anyway: `ok`.
+
+Proof: `wire_field_fixes_ec2dj4i_test.go`, 4 new real-SDK-client tests (one
+per fixed op), each doing a Create-with-tags then Describe round trip.
+Hand-reverted all 20 touched non-test files at once via `cp` to a scratchpad
+(the four fixes share a chain of signature changes across
+`interfaces.go`/handlers/backends, so no single hunk reverts in isolation),
+ran the new test file against the reverted tree, confirmed all four fail,
+then restored every file from the scratchpad copy and `md5sum`-diffed all 20
+identical against the post-fix state. Failures under the reverted (pre-fix)
+code, all the same shape:
+- `TestCreateCapacityReservation_Tags_RealClient`: "Tags empty on create
+  response - TagSpecifications accepted but never applied".
+- `TestCreateTransitGatewayPolicyTable_Tags_RealClient`: same.
+- `TestCreateTransitGatewayRouteTable_Tags_RealClient`: same.
+- `TestCreateTransitGatewayVpcAttachment_Tags_RealClient`: same.
+
+Gates: `go build ./services/ec2/...` and `go build ./...` (clean -- exported
+`Backend` interface changed: `CreateCapacityReservation`,
+`CreateTransitGatewayPolicyTable`, `CreateTransitGatewayRouteTable`, and
+`CreateTransitGatewayVpcAttachment` each gained a `tags map[string]string`
+param, single implementer `InMemoryBackend`, no other package implements
+`Backend`), `go vet -tags e2e ./services/ec2/...` and `go vet -tags
+integration ./services/ec2/...` (clean; the repo-wide `go vet -tags e2e/
+integration ./...` fails, but only on pre-existing, concurrent, unrelated
+`services/wafv2/` breakage -- confirmed via `git status` showing wafv2 files
+already dirty before this pass touched anything), `go vet ./services/ec2/...`
+(clean), `gofmt -l services/ec2/` (clean), `go test -race
+./services/ec2/...` (`ok`, full suite including the 4 new tests),
+`golangci-lint run ./services/ec2/...` (`0 issues` -- fixed one `golines`
+line-wrap and two `fieldalignment` reorderings on the newly-added `TagSet`
+fields by hand, not via `-fix`), `go test ./pkgs/persistence/...` (`ok`). No
+banned `//nolint`s.

@@ -66,7 +66,7 @@ type LaunchTemplateVersion struct {
 
 // CreateTransitGatewayVpcAttachment creates a new TGW VPC attachment.
 func (b *InMemoryBackend) CreateTransitGatewayVpcAttachment(
-	tgwID, vpcID string, _ []string,
+	tgwID, vpcID string, _ []string, tags map[string]string,
 ) (*TransitGatewayVpcAttachment, error) {
 	if tgwID == "" {
 		return nil, fmt.Errorf("%w: TransitGatewayId is required", ErrInvalidParameter)
@@ -91,6 +91,7 @@ func (b *InMemoryBackend) CreateTransitGatewayVpcAttachment(
 		CreationTime:               time.Now().UTC(),
 	}
 	b.tgwVpcAttachments.Put(att)
+	b.setTagsLocked(att.TransitGatewayAttachmentID, tags)
 
 	cp := *att
 

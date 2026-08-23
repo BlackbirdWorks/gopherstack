@@ -59,7 +59,7 @@ func TestHandlerDeleteTransitGatewayRouteTable(t *testing.T) {
 	tgw, err := b.CreateTransitGateway(ec2.CreateTransitGatewayParams{Description: "test-tgw"})
 	require.NoError(t, err)
 
-	rt, err := b.CreateTransitGatewayRouteTable(tgw.ID)
+	rt, err := b.CreateTransitGatewayRouteTable(tgw.ID, nil)
 	require.NoError(t, err)
 
 	rec := postForm(
@@ -95,7 +95,7 @@ func TestHandlerTGWRoutes(t *testing.T) {
 	tgw, err := b.CreateTransitGateway(ec2.CreateTransitGatewayParams{Description: "test-tgw"})
 	require.NoError(t, err)
 
-	rt, err := b.CreateTransitGatewayRouteTable(tgw.ID)
+	rt, err := b.CreateTransitGatewayRouteTable(tgw.ID, nil)
 	require.NoError(t, err)
 	rtID := rt.RouteTableID
 
@@ -103,7 +103,7 @@ func TestHandlerTGWRoutes(t *testing.T) {
 	// exists (real AWS requires either a real attachment or Blackhole=true;
 	// previously neither was enforced, so a route with no attachment at all
 	// silently "succeeded").
-	att, err := b.CreateTransitGatewayVpcAttachment(tgw.ID, "vpc-route-http", nil)
+	att, err := b.CreateTransitGatewayVpcAttachment(tgw.ID, "vpc-route-http", nil, nil)
 	require.NoError(t, err)
 	attID := att.TransitGatewayAttachmentID
 
@@ -186,7 +186,7 @@ func TestHandlerTGWRoute_Validation(t *testing.T) {
 
 				b, h, tgwID, rtID := newTGWRouteTestFixture(t)
 
-				att, err := b.CreateTransitGatewayVpcAttachment(tgwID, "vpc-replace-neg", nil)
+				att, err := b.CreateTransitGatewayVpcAttachment(tgwID, "vpc-replace-neg", nil, nil)
 				require.NoError(t, err)
 
 				return dispatchHandler(h, url.Values{
@@ -245,7 +245,7 @@ func newTGWRouteTestFixture(t *testing.T) (*ec2.InMemoryBackend, *ec2.Handler, s
 	tgw, err := b.CreateTransitGateway(ec2.CreateTransitGatewayParams{Description: "test-tgw"})
 	require.NoError(t, err)
 
-	rt, err := b.CreateTransitGatewayRouteTable(tgw.ID)
+	rt, err := b.CreateTransitGatewayRouteTable(tgw.ID, nil)
 	require.NoError(t, err)
 
 	return b, h, tgw.ID, rt.RouteTableID
@@ -267,14 +267,14 @@ func TestHandlerTGWRouteTableAssociation(t *testing.T) {
 	tgw, err := b.CreateTransitGateway(ec2.CreateTransitGatewayParams{Description: "test-tgw"})
 	require.NoError(t, err)
 
-	rt, err := b.CreateTransitGatewayRouteTable(tgw.ID)
+	rt, err := b.CreateTransitGatewayRouteTable(tgw.ID, nil)
 	require.NoError(t, err)
 	rtID := rt.RouteTableID
 
 	vpc, err := b.CreateVpc("10.7.0.0/16")
 	require.NoError(t, err)
 
-	attach, err := b.CreateTransitGatewayVpcAttachment(tgw.ID, vpc.ID, []string{})
+	attach, err := b.CreateTransitGatewayVpcAttachment(tgw.ID, vpc.ID, []string{}, nil)
 	require.NoError(t, err)
 	attachID := attach.TransitGatewayAttachmentID
 
@@ -407,9 +407,9 @@ func TestTransitGatewayRoutePropagationHTTP(t *testing.T) {
 
 	tgw, err := h.Backend.CreateTransitGateway(ec2.CreateTransitGatewayParams{Description: "tgw"})
 	require.NoError(t, err)
-	rt, err := h.Backend.CreateTransitGatewayRouteTable(tgw.ID)
+	rt, err := h.Backend.CreateTransitGatewayRouteTable(tgw.ID, nil)
 	require.NoError(t, err)
-	att, err := h.Backend.CreateTransitGatewayVpcAttachment(tgw.ID, "vpc-default", nil)
+	att, err := h.Backend.CreateTransitGatewayVpcAttachment(tgw.ID, "vpc-default", nil, nil)
 	require.NoError(t, err)
 
 	resp, err := ec2.ExportDispatch(h, url.Values{
@@ -439,7 +439,7 @@ func TestDescribeTransitGatewayAttachmentsHTTP(t *testing.T) {
 	tgw, err := h.Backend.CreateTransitGateway(ec2.CreateTransitGatewayParams{Description: "tgw"})
 	require.NoError(t, err)
 
-	_, err = h.Backend.CreateTransitGatewayVpcAttachment(tgw.ID, "vpc-default", nil)
+	_, err = h.Backend.CreateTransitGatewayVpcAttachment(tgw.ID, "vpc-default", nil, nil)
 	require.NoError(t, err)
 
 	resp, err := ec2.ExportDispatch(h, url.Values{"Action": {"DescribeTransitGatewayAttachments"}})

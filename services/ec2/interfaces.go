@@ -506,6 +506,7 @@ type Backend interface {
 	CreateTransitGatewayVpcAttachment(
 		tgwID, vpcID string,
 		subnetIDs []string,
+		tags map[string]string,
 	) (*TransitGatewayVpcAttachment, error)
 
 	// DescribeTransitGatewayVpcAttachments returns TGW VPC attachments, optionally filtered by IDs.
@@ -602,7 +603,7 @@ type Backend interface {
 	// ---- Transit Gateway Route Tables ----
 
 	// CreateTransitGatewayRouteTable creates a new TGW route table.
-	CreateTransitGatewayRouteTable(tgwID string) (*TransitGatewayRouteTable, error)
+	CreateTransitGatewayRouteTable(tgwID string, tags map[string]string) (*TransitGatewayRouteTable, error)
 
 	// DescribeTransitGatewayRouteTables returns TGW route tables, optionally filtered by IDs.
 	DescribeTransitGatewayRouteTables(ids []string) []*TransitGatewayRouteTable
@@ -699,7 +700,7 @@ type Backend interface {
 	// ---- Transit Gateway Policy Tables ----
 
 	// CreateTransitGatewayPolicyTable creates a new policy table on a transit gateway.
-	CreateTransitGatewayPolicyTable(tgwID string) (*TransitGatewayPolicyTable, error)
+	CreateTransitGatewayPolicyTable(tgwID string, tags map[string]string) (*TransitGatewayPolicyTable, error)
 
 	// DescribeTransitGatewayPolicyTables returns policy tables, optionally filtered by ID.
 	DescribeTransitGatewayPolicyTables(ids []string) []*TransitGatewayPolicyTable
@@ -1332,6 +1333,7 @@ type Backend interface {
 	CreateCapacityReservation(
 		instanceType, availabilityZone string,
 		instanceCount int,
+		tags map[string]string,
 	) (*CapacityReservation, error)
 	CancelCapacityReservation(reservationID string) error
 	ModifyCapacityReservation(reservationID string, instanceCount int) error

@@ -32,7 +32,7 @@ type groupsForCapacityReservationResponse struct {
 
 // ---- Handler implementations ----
 
-func toCapacityReservationItem(cr *CapacityReservation) capacityReservationItem {
+func toCapacityReservationItem(cr *CapacityReservation, tags map[string]string) capacityReservationItem {
 	return capacityReservationItem{
 		CapacityReservationID:  cr.CapacityReservationID,
 		InstanceType:           cr.InstanceType,
@@ -41,6 +41,7 @@ func toCapacityReservationItem(cr *CapacityReservation) capacityReservationItem 
 		State:                  cr.State,
 		TotalInstanceCount:     cr.TotalInstanceCount,
 		AvailableInstanceCount: cr.AvailableInstanceCount,
+		TagSet:                 tagItemsFromMap(tags),
 	}
 }
 
@@ -52,14 +53,16 @@ func (h *Handler) handleCreateCapacityReservation(vals url.Values, reqID string)
 		count = 1
 	}
 
-	cr, err := h.Backend.CreateCapacityReservation(instanceType, az, count)
+	tags := parseTagSpecificationPlural(vals, "capacity-reservation")
+
+	cr, err := h.Backend.CreateCapacityReservation(instanceType, az, count, tags)
 	if err != nil {
 		return nil, err
 	}
 
 	return &createCapacityReservationResponse{
 		RequestID:           reqID,
-		CapacityReservation: toCapacityReservationItem(cr),
+		CapacityReservation: toCapacityReservationItem(cr, tags),
 	}, nil
 }
 

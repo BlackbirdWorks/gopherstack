@@ -23,7 +23,7 @@ func TestNetworking1_TGWVpcAttachment(t *testing.T) {
 	vpc, err := bk.CreateVpc("10.0.0.0/16")
 	require.NoError(t, err)
 
-	att, err := bk.CreateTransitGatewayVpcAttachment(tgw.ID, vpc.ID, nil)
+	att, err := bk.CreateTransitGatewayVpcAttachment(tgw.ID, vpc.ID, nil, nil)
 	require.NoError(t, err)
 	assert.NotEmpty(t, att.TransitGatewayAttachmentID)
 
@@ -40,13 +40,13 @@ func TestNetworking1_TGWVpcAttachment(t *testing.T) {
 	assert.Empty(t, bk.DescribeTransitGatewayVpcAttachments(nil))
 
 	// Error cases.
-	_, err2 := bk.CreateTransitGatewayVpcAttachment("", vpc.ID, nil)
+	_, err2 := bk.CreateTransitGatewayVpcAttachment("", vpc.ID, nil, nil)
 	require.Error(t, err2)
 
-	_, err3 := bk.CreateTransitGatewayVpcAttachment(tgw.ID, "", nil)
+	_, err3 := bk.CreateTransitGatewayVpcAttachment(tgw.ID, "", nil, nil)
 	require.Error(t, err3)
 
-	_, err4 := bk.CreateTransitGatewayVpcAttachment("nonexistent", vpc.ID, nil)
+	_, err4 := bk.CreateTransitGatewayVpcAttachment("nonexistent", vpc.ID, nil, nil)
 	require.Error(t, err4)
 
 	err5 := bk.DeleteTransitGatewayVpcAttachment("")

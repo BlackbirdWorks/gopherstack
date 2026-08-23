@@ -16,9 +16,9 @@ func TestTransitGatewayRoutePropagation(t *testing.T) {
 
 	tgw, err := b.CreateTransitGateway(ec2.CreateTransitGatewayParams{Description: "test tgw"})
 	require.NoError(t, err)
-	rt, err := b.CreateTransitGatewayRouteTable(tgw.ID)
+	rt, err := b.CreateTransitGatewayRouteTable(tgw.ID, nil)
 	require.NoError(t, err)
-	att, err := b.CreateTransitGatewayVpcAttachment(tgw.ID, "vpc-default", nil)
+	att, err := b.CreateTransitGatewayVpcAttachment(tgw.ID, "vpc-default", nil, nil)
 	require.NoError(t, err)
 
 	// Before enabling, both getters return empty.
@@ -86,7 +86,7 @@ func TestTransitGatewayRouteTableOps_ClientVpnAttachment(t *testing.T) {
 			tgw, err := b.CreateTransitGateway(ec2.CreateTransitGatewayParams{Description: "test tgw"})
 			require.NoError(t, err)
 
-			rt, err := b.CreateTransitGatewayRouteTable(tgw.ID)
+			rt, err := b.CreateTransitGatewayRouteTable(tgw.ID, nil)
 			require.NoError(t, err)
 
 			_, err = b.CreateClientVpnEndpointWithOptions(
@@ -129,7 +129,7 @@ func TestDescribeTransitGatewayAttachments(t *testing.T) {
 
 	tgw, err := b.CreateTransitGateway(ec2.CreateTransitGatewayParams{Description: "test tgw"})
 	require.NoError(t, err)
-	att, err := b.CreateTransitGatewayVpcAttachment(tgw.ID, "vpc-default", nil)
+	att, err := b.CreateTransitGatewayVpcAttachment(tgw.ID, "vpc-default", nil, nil)
 	require.NoError(t, err)
 
 	all := b.DescribeTransitGatewayAttachments(nil)
