@@ -809,6 +809,7 @@ cdk deploy
 - [Migrating from LocalStack](docs/migration.md)
 - [Architecture](docs/architecture/README.md)
 - [Examples](examples/README.md)
+- [Chaos Testing](docs/chaos.md)
 
 ## Development
 
