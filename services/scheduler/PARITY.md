@@ -616,3 +616,37 @@ Proven with a real `aws-sdk-go-v2/service/scheduler` client's
 (`handler_oversized_body_test.go`) asserts `apiErr.ErrorCode() ==
 "InternalServerException"`; confirmed it fails pre-fix with
 `*json.SyntaxError` (hand-reverted, byte-identical restore after).
+
+## gopherstack-wlo1 (2026-08-22): handleREST's restOpUnknown branch was untyped
+
+`handleREST`'s own `if action == restOpUnknown { return c.String(http.StatusNotFound,
+"not found") }` guard (handler.go) wrote a bare text/plain 404 -- a
+different, earlier site than the `httputils.ReadBody` failure the
+`gopherstack-o7gx` entry above already fixed. scheduler is restjson1
+(`scheduler@v1.20.4` `awsRestjson1_` prefix; error decode via
+`restjson.GetErrorInfo`), so a real client saw
+`smithy.GenericAPIError{Code:"UnknownError"}`.
+
+Reachability: `RouteMatcher` (handler.go) accepts any request whose path has
+the coarse `/schedules` or `/schedule-groups` prefix (or a scheduler-owned
+`/tags/{arn}`), while `parseSchedulerRESTPath`/`parseScheduleRESTPath`
+classify by exact method+segment-count -- a prefix-matched path using a
+method none of those cases recognise (e.g. PATCH) falls through to
+`restOpUnknown`, the same prefix-vs-classifier gap securityhub's analogous
+fix (a98561767) established as provable, not the xray case above where the
+two checks are identical.
+
+Fixed: routes through the existing `handleError(ctx, c, action, ErrNotFound)`
+-- `ErrNotFound` (errors.go) already maps to `ResourceNotFoundException` at
+404 in `handleError`'s own switch, so no new exception vocabulary was
+introduced.
+
+Proof: `TestHandleREST_WrongMethodSurfacesResourceNotFoundException`
+(`handler_restopunknown_dispatch_malformed_test.go`) drives a real
+Scheduler client's `ListSchedules` through a Finalize-stage middleware that
+rewrites the request's HTTP method to PATCH post-signing (GET, the method
+`ListSchedules` really uses, is itself a valid case in
+`parseScheduleRESTPath`, so path corruption alone doesn't reach this
+branch). Hand-reverted `handler.go` to `git show HEAD`, confirmed the test
+fails with `*json.SyntaxError: "invalid character 'o' in literal null
+(expecting 'u')"`, restored the fix, `md5sum`-confirmed byte-identical.

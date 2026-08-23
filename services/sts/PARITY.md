@@ -513,3 +513,35 @@ MFA note and the `strictConditions`/`UserLookup` code in `assume_role.go`/
 `store.go`/`interfaces.go`/`provider.go`. The header was never updated to
 match, so it understated the true last-touched date by three weeks. Corrected
 above to `bfc0729e6` / 2026-08-20 (this session's starting HEAD).
+
+## gopherstack-wlo1 (2026-08-22): Handler()'s method-not-allowed branch was untyped
+
+`Handler()`'s own `if c.Request().Method != http.MethodPost { return
+c.String(http.StatusMethodNotAllowed, "Method not allowed") }` guard
+(handler.go) wrote a bare text/plain 405. STS is AWS Query/XML
+(`sts@v1.45.4` `awsAwsquery_` prefix), whose deserializer expects the
+wrapped `<ErrorResponse><Error>` document; plain text doesn't decode, so a
+real client saw a raw XML-unmarshal failure rather than a typed API error.
+
+Reachability: `RouteMatcher` (handler.go) matches purely on Content-Type
+and whether the body contains `Version=2011-06-15` -- it never inspects the
+HTTP method -- so a request with any other method still routes to
+`Handler()`. (GET is separately special-cased into a 200
+`GetSupportedOperations` response above this check, so the proof uses PUT,
+not GET.)
+
+Fixed: routes through the existing `handleError(ctx, c,
+fmt.Errorf("%w: method not allowed", ErrValidation))` -- `ErrValidation`
+already maps to `invalidParamValue` ("InvalidParameterValue") at 400 in
+`mapErrorToCode`'s switch, so no new exception vocabulary was introduced.
+The status code changes from the old 405 to 400 as a result (matching every
+other validation-class STS error); `TestHandler_MethodNotAllowed`
+(handler_test.go) updated accordingly.
+
+Proof: `TestHandler_WrongMethodSurfacesInvalidParameterValue`
+(`handler_dispatch_malformed_test.go`) drives a real STS client's
+`GetCallerIdentity` through a Finalize-stage middleware that rewrites the
+request's HTTP method to PUT post-signing, keeping the form-encoded body
+and Content-Type intact. Hand-reverted `handler.go` to `git show HEAD`,
+confirmed the test fails with `apiErr.ErrorCode() == "UnknownError"`,
+restored the fix, `md5sum`-confirmed byte-identical.

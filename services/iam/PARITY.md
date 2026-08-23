@@ -88,3 +88,28 @@ confirmed failing pre-fix with `UnknownError`; passes now with `ServiceFailure`.
 `TestHandler_NormalSizedBodyStillRoutes` is the regression guard. Gates: `go build`,
 `go vet`, `gofmt -l` (clean), `go test -race ./services/iam/...` (pass),
 `golangci-lint run ./services/iam/...` (0 issues).
+
+## gopherstack-wlo1 (2026-08-22): Handler()'s method-not-allowed branch was untyped -- and structurally unreachable via routing
+
+`Handler()`'s own `if c.Request().Method != http.MethodPost { return
+c.String(http.StatusMethodNotAllowed, "Method not allowed") }` guard
+(handler.go) wrote a bare text/plain 405. IAM is AWS Query/XML
+(`iam@v1.58.1` `awsAwsquery_` prefix), whose deserializer expects the
+wrapped `<ErrorResponse><Error>` document; plain text doesn't decode, so a
+real client would have seen a raw XML-unmarshal failure rather than a typed
+API error.
+
+UNLIKE sts's identical-looking branch (also fixed this pass), this one is
+provably unreachable via any request a real client -- or even a corrupted
+one -- can construct: `RouteMatcher` (handler.go) itself checks
+`r.Method != http.MethodPost` and rejects non-POST requests before
+`Handler()` is ever invoked, so no request that reaches `Handler()` through
+`service.NewServiceRouter`/`RouteMatcher` can ever fail this check. The
+same "coarse check equals fine check" deadlock as xray's analogous branch
+(see that service's PARITY.md entry this pass).
+
+Fixed defensively for consistency with the class, reusing this file's
+existing `writeError(c, http.StatusMethodNotAllowed, "InvalidParameterValue",
+"Method not allowed")` helper and the same `"InvalidParameterValue"` code
+already used elsewhere in `Handler()` for malformed input -- not proven by
+a real SDK client, since none can reach it.

@@ -246,3 +246,43 @@ leaks: {status: clean, note: TTL sweeper + stream trimming verified, ctx-cancel 
 - 2026-07-11 re-audit: aws-sdk-go-v2/service/dynamodb bumped f459c9fa's v1.59.2 -> HEAD's v1.60.0 (e51c0de9); diffed api_op_*.go/types.go between the two module versions — zero surface change (v1.60.0's only changelog entry is "Add request serialization snapshot tests"), so no new-op audit was needed this cycle.
 - 2026-07-11 re-audit: no real bugs found. All gates pass (build, vet, race tests, go fix -diff empty, golangci-lint 0 issues) with zero working-tree changes required.
 - 2026-07-24 follow-up sweep: verified against dynamodbstreams@v1.35.0 (go.mod) that ShardFilter is the only new DescribeStreamInput field this backend hadn't wired up (types.ShardFilter{ShardId, Type}, only CHILD_SHARDS defined in ShardFilterType.Values()). services/dynamodbstreams (the sibling client-facing service that reads this backend's stream buffer) required no changes — it passes ShardFilter straight through the SDK input struct, which already carried the field; the gap was entirely on the dynamodb-backend side. `go build ./...` and `go test -race ./services/dynamodbstreams/...` both verified clean after the change.
+
+## gopherstack-wlo1 (2026-08-22): CBOR request/response path had its own untyped dispatch errors, missed by c6554e9f8
+
+`c6554e9f8` typed `Handler()`'s own dispatch errors (`writeDynamoDBDispatchError`)
+but never touched `handleCBORRequest` (`cbor.go`), a separate hand-rolled path
+branched into *before* `Handler()`'s own `httputils.ReadBody` call
+(`if service.IsCBORRequest(c.Request()) { return h.handleCBORRequest(...) }`).
+All three of its own failure branches (ReadBody failure, response
+`json.Marshal` failure, `service.JSONToCBOR` encode failure) wrote a bare
+`c.String(http.StatusInternalServerError, "internal server error")`.
+
+DynamoDB is JSON-RPC 1.0 (`dynamodb@v1.63.1` `awsAwsjson10_` prefix), and its
+error deserializer (`deserializers.go:86-121`,
+`awsAwsjson10_deserializeOpErrorBatchExecuteStatement`) always JSON-decodes the
+response body via `json.NewDecoder` regardless of the *request's* content
+type -- there is no CBOR handling anywhere in the error path. So a real client
+saw `smithy.GenericAPIError{Code:"UnknownError"}` for every one of these three
+failures on the CBOR wire option, same shape as `c6554e9f8`'s finding on the
+main dispatch path.
+
+Fixed: all three sites now call the existing `writeDynamoDBDispatchError(c,
+http.StatusInternalServerError, "InternalFailure", "internal server error")`
+helper (handler.go), the same helper and code `c6554e9f8` already established
+for this class on the JSON path.
+
+Proof: `aws-sdk-go-v2/service/dynamodb` never sends
+`application/x-amz-cbor-1.1` itself (that wire option is used by other
+language SDKs), so `TestHandleCBORRequest_OversizedBodySurfacesInternalFailure`
+(`handler_cbor_dispatch_malformed_test.go`) drives a real client's `PutItem`
+through a Finalize-stage middleware that rewrites the Content-Type header to
+CBOR post-signing, with an item attribute large enough to exceed
+`httputils.MaxRequestBodyBytes`, forcing the ReadBody-failure branch.
+Hand-reverted `cbor.go` to `git show HEAD`, confirmed the test fails with
+`*json.SyntaxError: "invalid character 'i' looking for beginning of value"`,
+restored the fix, `md5sum`-confirmed byte-identical.
+
+The other two branches (response marshal/CBOR-encode failure) are fixed
+defensively for consistency with the same helper but not independently
+proven by a client -- `response` is backend-constructed and `json.Marshal`
+essentially cannot fail on it.

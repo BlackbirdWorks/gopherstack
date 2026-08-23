@@ -460,7 +460,7 @@ func (h *Handler) handleRESTAPI(c *echo.Context) error {
 
 	action, pathParams, ok := parseAPIGWRESTPath(c.Request().Method, c.Request().URL.Path, query)
 	if !ok {
-		return c.String(http.StatusNotFound, "not found")
+		return h.handleError(ctx, c, action, errUnknownOperation)
 	}
 
 	// ImportRestApi, PutRestApi, ImportApiKeys, and ImportDocumentationParts all

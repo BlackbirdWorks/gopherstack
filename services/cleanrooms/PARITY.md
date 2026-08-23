@@ -478,3 +478,35 @@ only named `resourceArn`/`schemaTypeProperties`/`selectedAnalysisMethods`/
 `go build ./...`/`go vet -tags e2e/integration ./...` gates were run anyway
 as a courtesy (see the bd gopherstack-r80d batch-8 comment for verbatim
 output) and are also clean.
+
+## gopherstack-wlo1 (2026-08-22): Handler()'s dispatch-miss branch was untyped
+
+`Handler()`'s own `if op == opUnknown { return c.String(http.StatusNotFound,
+"not found") }` guard (handler.go) wrote a bare text/plain 404. cleanrooms
+is restjson1 (`cleanrooms@v1.49.4` `awsRestjson1_` prefix; error decode via
+`restjson.GetErrorInfo`), so a real client saw
+`smithy.GenericAPIError{Code:"UnknownError"}`.
+
+Reachability: `RouteMatcher` (handler.go) accepts any request whose path
+has the coarse `/collaborations`, `/configuredTables`, or `/memberships`
+prefix (or a cleanrooms-owned tagged-resource ARN), while `classifyPath`
+classifies by exact method+path -- a prefix-matched sub-path
+`classifyPath` doesn't recognise falls through to `opUnknown`, the same
+prefix-vs-classifier gap securityhub's analogous fix (a98561767)
+established as provable.
+
+Fixed: routes through the existing `handleError(c, ErrNotFound)` --
+`ErrNotFound` (errors.go) already maps to `ResourceNotFoundException` at
+404 in `handleError`'s own switch, so no new exception vocabulary was
+introduced.
+
+Proof: `TestHandler_UnrecognisedPathSurfacesResourceNotFoundException`
+(`handler_dispatch_malformed_test.go`) drives a real Clean Rooms client's
+`ListCollaborations` through a Finalize-stage middleware that rewrites the
+signed request's path from `/collaborations` to
+`/collaborations/does-not-exist/nowhere` post-signing -- still inside
+`RouteMatcher`'s `/collaborations` prefix but matching none of
+`classifyPath`'s cases. Hand-reverted `handler.go` to `git show HEAD`,
+confirmed the test fails with `*json.SyntaxError: "invalid character 'o' in
+literal null (expecting 'u')"`, restored the fix, `md5sum`-confirmed
+byte-identical.

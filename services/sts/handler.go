@@ -178,7 +178,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		}
 
 		if c.Request().Method != http.MethodPost {
-			return c.String(http.StatusMethodNotAllowed, "Method not allowed")
+			return h.handleError(ctx, c, fmt.Errorf("%w: method not allowed", ErrValidation))
 		}
 
 		response, err := h.dispatch(ctx, c.Request())

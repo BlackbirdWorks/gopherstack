@@ -213,7 +213,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 		action, name := parseDataBrewRESTPath(c.Request().Method, c.Request().URL.Path)
 		if action == opUnknown {
-			return c.String(http.StatusNotFound, "not found")
+			return h.handleError(c, errUnknownAction)
 		}
 
 		body, err := httputils.ReadBody(c.Request())

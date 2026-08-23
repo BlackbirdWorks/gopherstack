@@ -628,3 +628,42 @@ has no equivalent permanent `TestExtractOperation_SDKRouteTable`-style test
 committed (gopherstack-4nek's verification was a one-off collision check,
 not a committed test) -- a good candidate for a future pass, now that the
 pattern exists in this same file's sibling services.
+
+## gopherstack-wlo1 (2026-08-22): handleRESTAPI's dispatch-miss branch was untyped
+
+`handleRESTAPI`'s own `if !ok { return c.String(http.StatusNotFound, "not
+found") }` guard (handler.go, from `parseAPIGWRESTPath`) wrote a bare
+text/plain 404 -- a different site from `handleJSONProtocol`'s dispatch
+errors `c6554e9f8` already typed, and from `handleRESTAPI`'s own
+`ReadBody`-failure branch `gopherstack-o7gx` already typed. apigateway is
+restjson1 (`apigateway@v1.42.4` `awsRestjson1_` prefix; error decode via
+`restjson.GetErrorInfo`), so a real client saw
+`smithy.GenericAPIError{Code:"UnknownError"}`.
+
+Reachability: `RouteMatcher` (handler.go) accepts any request under the
+coarse `isAPIGWTopLevelRESTPath` prefixes (`/restapis`, `/apikeys`, etc.),
+while `parseAPIGWRESTPath` classifies by exact method+path structure -- a
+prefix-matched sub-path it doesn't recognise falls through to `!ok`, the
+same prefix-vs-classifier gap securityhub's analogous fix (a98561767)
+established as provable.
+
+Fixed: routes through the existing `handleError(ctx, c, action,
+errUnknownOperation)` -- `errUnknownOperation` already maps to
+`"UnknownOperationException"` at 400 in `handleError`'s own switch (the
+same code/helper `handleJSONProtocol`'s analogous branches use), so no new
+exception vocabulary was introduced.
+
+Proof: `TestHandleRESTAPI_UnrecognisedPathSurfacesUnknownOperationException`
+(`handler_restapi_dispatch_malformed_test.go`) drives a real apigateway
+client's `CreateRestApi` through a Finalize-stage middleware that rewrites
+the signed request's path from `/restapis` to
+`/restapis/does-not-exist/nowhere` post-signing -- still inside
+`RouteMatcher`'s `/restapis` prefix but matching none of
+`parseAPIGWRESTPath`'s cases. Hand-reverted `handler.go` to `git show
+HEAD`, confirmed the test fails with `*json.SyntaxError: "invalid character
+'o' in literal null (expecting 'u')"`, restored the fix,
+`md5sum`-confirmed byte-identical.
+
+Two pre-existing tests (`TestHandleRESTAPI_Branches/unknown_rest_path_returns_404`,
+`TestParseAPIGWMethodPath_EdgeCases`'s two subtests) asserted the old bare
+404 by status code alone; updated to assert the new, correct 400.

@@ -357,7 +357,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 		op, _ := classifyPath(c.Request().Method, c.Request().URL.Path)
 		if op == opUnknown {
-			return c.String(http.StatusNotFound, "not found")
+			return h.handleError(c, ErrNotFound)
 		}
 
 		body, err := httputils.ReadBody(c.Request())

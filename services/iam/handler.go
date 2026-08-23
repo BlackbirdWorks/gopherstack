@@ -446,7 +446,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		}
 
 		if c.Request().Method != http.MethodPost {
-			return c.String(http.StatusMethodNotAllowed, "Method not allowed")
+			return h.writeError(c, http.StatusMethodNotAllowed, "InvalidParameterValue", "Method not allowed")
 		}
 
 		body, err := httputils.ReadBody(c.Request())

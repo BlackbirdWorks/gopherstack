@@ -221,3 +221,32 @@ code, just not xray's (it's `secretsmanager`/`transfer`'s modeled type).
 "InternalFailure"`; confirmed it fails pre-fix with the old
 `"InternalServiceError"` code (hand-reverted, byte-identical restore
 after).
+
+## gopherstack-wlo1 (2026-08-22): Handler()'s !xrayPaths[path] branch was untyped -- and structurally unreachable via routing
+
+`Handler()`'s own `if !xrayPaths[path] { return c.String(http.StatusNotFound,
+"not found") }` guard (handler.go) wrote a bare text/plain 404. xray is
+restjson1 (`xray@v1.39.4` `awsRestjson1_` prefix; error decode via
+`restjson.GetErrorInfo`), so a real client would have seen
+`smithy.GenericAPIError{Code:"UnknownError"}`.
+
+UNLIKE every other dispatch-miss instance this issue found (securityhub,
+scheduler, cleanrooms, databrew, apigateway), this one is provably
+unreachable via any request a real client can construct AND unreachable via
+gopherstack's own routing pipeline: `RouteMatcher` (handler.go) checks the
+*identical* `xrayPaths[path]` condition before `Handler()` is ever invoked,
+so no request that reaches `Handler()` through
+`service.NewServiceRouter`/`RouteMatcher` can ever fail this check -- there
+is no daylight between the coarse router check and the fine one, unlike the
+prefix-vs-classifier gap that made the other services' analogous branches
+provable. `TestHandler_UnknownPath` (handler_test.go) is the one place this
+branch is exercised, and it does so by calling `h.Handler()(c)` directly,
+bypassing `RouteMatcher`/`RouteHandler` entirely -- a white-box-only path,
+not a real-client one.
+
+Fixed defensively for consistency with the class, reusing the existing
+`errUnknownPath` sentinel and `handleError` (already routes it to
+`errInvalidRequestException` at 400, the same generic 400 `dispatch()`'s
+own `errUnknownPath` site already produces two lines below) -- not proven
+by a real SDK client, since none can reach it. `TestHandler_UnknownPath`
+updated to assert the new typed 400 body instead of the old bare 404.

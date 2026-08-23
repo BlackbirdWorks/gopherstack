@@ -219,7 +219,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		log := logger.Load(ctx)
 
 		if c.Request().Method != http.MethodPost {
-			return c.String(http.StatusMethodNotAllowed, "Method not allowed")
+			return h.writeError(c, http.StatusMethodNotAllowed, "InvalidInputException", "Method not allowed")
 		}
 
 		op := h.ExtractOperation(c)

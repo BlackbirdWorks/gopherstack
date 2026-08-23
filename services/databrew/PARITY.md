@@ -102,3 +102,38 @@ type-specific paths only for Create/Update) and every
 same-path/different-method collision. No pre-existing table existed to
 check, and no new routing bugs found. This test is now the permanent
 regression guard for route-table drift.
+
+## gopherstack-wlo1 (2026-08-22): Handler()'s dispatch-miss branch was untyped
+
+`Handler()`'s own `if action == opUnknown { return c.String(http.StatusNotFound,
+"not found") }` guard (handler.go) wrote a bare text/plain 404 -- a
+different site from the `httputils.ReadBody` failure `gopherstack-o7gx`
+already fixed in this same file. databrew is restjson1
+(`databrew@v1.42.4` `awsRestjson1_` prefix; error decode via
+`restjson.GetErrorInfo`), so a real client saw
+`smithy.GenericAPIError{Code:"UnknownError"}`.
+
+Reachability: `RouteMatcher` (handler.go) unconditionally matches "recipes"
+(among other unambiguous segments) as the request path's first segment,
+without inspecting the HTTP method, while `parseRecipeOp`
+(handler_recipes.go) classifies by exact method: PUT with an empty name
+segment matches none of its cases and falls through to `opUnknown`. (A
+corrupted *path* alone doesn't reach this branch for GET, the method
+`ListRecipes` really uses -- `parseRecipeOp` maps every non-empty-name GET
+to `DescribeRecipe` and every empty-name GET to `ListRecipes` -- only a
+method a real client never sends does, unlike the path-corruption technique
+that worked for cleanrooms/apigateway/scheduler.)
+
+Fixed: routes through the existing `handleError(c, errUnknownAction)` --
+`errUnknownAction` (handler.go) already maps to `errCodeResourceNotFound`
+("ResourceNotFoundException") at 404 in `handleError`'s own switch, so no
+new exception vocabulary was introduced.
+
+Proof: `TestHandler_WrongMethodSurfacesResourceNotFoundException`
+(`handler_dispatch_malformed_test.go`) drives a real DataBrew client's
+`ListRecipes` through a Finalize-stage middleware that rewrites the
+request's HTTP method to PUT post-signing, keeping its `/recipes` path (no
+name segment) unchanged. Hand-reverted `handler.go` to `git show HEAD`,
+confirmed the test fails with `*json.SyntaxError: "invalid character 'o' in
+literal null (expecting 'u')"`, restored the fix, `md5sum`-confirmed
+byte-identical.

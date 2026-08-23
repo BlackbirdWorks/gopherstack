@@ -200,3 +200,45 @@ drives `handleError` directly with a synthetic unmatched error and asserts
 the JSON response's `__type` is `InternalServerException`; confirmed it
 fails pre-fix with the old `"InternalServerError"` code (hand-reverted,
 byte-identical restore after).
+
+## gopherstack-wlo1 (2026-08-22): handleCBOR's own dispatch errors were never typed
+
+`handleCBOR` (`handler.go`) is a separate hand-rolled path parallel to the
+main `service.HandleTarget`-based dispatch (already typed and correct). Its
+own method-not-allowed, missing/malformed-`X-Amz-Target`, ReadBody-failure,
+and CBOR-response-encode-failure branches all wrote a bare
+`c.String(http.Status..., "...")` -- text/plain. TimestreamWrite is
+JSON-RPC 1.0 (`timestreamwrite@v1.38.4` `awsAwsjson10_` prefix; its error
+decode goes through `restjson.GetErrorInfo`, `__type`/`message`), so a real
+client saw `smithy.GenericAPIError{Code:"UnknownError"}` for any of these
+four sites. Same class as `c6554e9f8`'s `pkgs/service.HandleTarget` finding,
+missed here because `handleCBOR` never calls that shared helper.
+
+Fixed: the method-not-allowed and missing-target branches now emit
+`c.JSON(status, map[string]string{keyTypeField: "UnknownOperationException",
+keyMessageField: "..."})` -- the same `__type`/`message` shape and constants
+(`keyTypeField`/`keyMessageField`) `handleCBOR`'s own already-correct
+"invalid CBOR body" branch uses three lines below, and the same
+`"UnknownOperationException"` code `pkgs/service.HandleTarget` uses for its
+analogous branches. The ReadBody-failure and CBOR-encode-failure branches
+now emit `{__type: "InternalFailure", message: "internal server error"}`.
+
+Proof: `aws-sdk-go-v2/service/timestreamwrite` never sends
+`application/x-amz-cbor-1.1` itself. `TestHandleCBOR_WrongMethodSurfacesUnknownOperationException`
+(`handler_cbor_dispatch_malformed_test.go`) drives a real client's
+`WriteRecords` through a Finalize-stage middleware that rewrites the request
+to CBOR content type and its HTTP method to GET post-signing (matched only
+on the `WriteRecords` target, so the client's preliminary `DescribeEndpoints`
+discovery call is left untouched). Hand-reverted `handler.go` to
+`git show HEAD`, confirmed the test fails with `*json.SyntaxError: "invalid
+character 'M' looking for beginning of value"`, restored the fix,
+`md5sum`-confirmed byte-identical.
+
+The ReadBody-failure and CBOR-encode-failure branches are fixed for
+consistency but not independently client-proven: `readBodyBytes`
+(handler.go) uses a local `io.LimitReader`/`io.ReadAll` that silently
+truncates at its 10 MiB cap rather than erroring the way
+`httputils.ReadBody`'s `http.MaxBytesReader` does, so an oversized body
+lands in the (already-correct) CBOR-decode-failure branch instead, not this
+one -- genuinely hard to trigger through a real client without a live I/O
+error mid-read.

@@ -403,7 +403,7 @@ func (h *Handler) handleREST(c *echo.Context) error {
 
 	action, name := parseSchedulerRESTPath(c.Request().Method, c.Request().URL.Path)
 	if action == restOpUnknown {
-		return c.String(http.StatusNotFound, "not found")
+		return h.handleError(ctx, c, action, ErrNotFound)
 	}
 
 	body, err := httputils.ReadBody(c.Request())

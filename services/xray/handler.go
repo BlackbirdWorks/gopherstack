@@ -350,7 +350,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		path := c.Request().URL.Path
 
 		if !xrayPaths[path] {
-			return c.String(http.StatusNotFound, "not found")
+			return h.handleError(c, path, fmt.Errorf("%w: %s", errUnknownPath, path))
 		}
 
 		// GET /EncryptionConfig → GetEncryptionConfig (no body). POST /EncryptionConfig

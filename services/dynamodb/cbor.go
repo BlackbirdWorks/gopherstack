@@ -31,7 +31,8 @@ func (h *DynamoDBHandler) handleCBORRequest(
 	if err != nil {
 		log.ErrorContext(ctx, "failed to read CBOR request body", "error", err)
 
-		return c.String(http.StatusInternalServerError, "internal server error")
+		return writeDynamoDBDispatchError(c, http.StatusInternalServerError,
+			"InternalFailure", "internal server error")
 	}
 
 	jsonBody, err := service.CBORToJSON(raw)
@@ -55,14 +56,16 @@ func (h *DynamoDBHandler) handleCBORRequest(
 	if err != nil {
 		log.ErrorContext(ctx, "failed to marshal DynamoDB response", "error", err)
 
-		return c.String(http.StatusInternalServerError, "internal server error")
+		return writeDynamoDBDispatchError(c, http.StatusInternalServerError,
+			"InternalFailure", "internal server error")
 	}
 
 	cborPayload, err := service.JSONToCBOR(jsonPayload, binaryKeys)
 	if err != nil {
 		log.ErrorContext(ctx, "failed to encode CBOR response", "error", err)
 
-		return c.String(http.StatusInternalServerError, "internal server error")
+		return writeDynamoDBDispatchError(c, http.StatusInternalServerError,
+			"InternalFailure", "internal server error")
 	}
 
 	checksum := crc32.ChecksumIEEE(cborPayload)

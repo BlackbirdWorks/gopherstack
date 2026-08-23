@@ -177,6 +177,10 @@ func TestHandler_MissingAction(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
+// gopherstack-wlo1: Handler()'s method-not-allowed branch now routes through
+// handleError(ErrValidation), a typed InvalidParameterValue XML error
+// response at 400 -- not the bare "Method not allowed" text/plain 405 this
+// test previously encoded.
 func TestHandler_MethodNotAllowed(t *testing.T) {
 	t.Parallel()
 
@@ -187,7 +191,7 @@ func TestHandler_MethodNotAllowed(t *testing.T) {
 	c := e.NewContext(req, rec)
 
 	require.NoError(t, h.Handler()(c))
-	assert.Equal(t, http.StatusMethodNotAllowed, rec.Code)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 func TestHandler_GetRequest_ListsOperations(t *testing.T) {

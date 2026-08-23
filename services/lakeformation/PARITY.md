@@ -375,3 +375,30 @@ Freeform: AWS-behavior specifics worth remembering.
   `DeleteObjectsOnCancel` distinguish `TransactionCommittedException` from
   `TransactionCanceledException` per-op (not interchangeable); see `errTransactionCommitted`
   in `errors.go`/`handler.go`.
+
+## gopherstack-wlo1 (2026-08-22): Handler()'s method-not-allowed branch was untyped
+
+`Handler()`'s own `if c.Request().Method != http.MethodPost { return
+c.String(http.StatusMethodNotAllowed, "Method not allowed") }` guard
+(handler.go) wrote a bare text/plain 405. LakeFormation is restjson1
+(`lakeformation@v1.50.4` `awsRestjson1_` prefix; error decode via
+`restjson.GetErrorInfo`), so a real client saw
+`smithy.GenericAPIError{Code:"UnknownError"}`.
+
+Reachability: `RouteMatcher` (handler.go) matches purely on URL path
+(`isLakeFormationPath`) and the SigV4 credential scope's service component
+-- it never inspects the HTTP method -- so a request with any other method
+still routes to `Handler()`.
+
+Fixed: uses the existing `writeError(c, http.StatusMethodNotAllowed,
+"InvalidInputException", "Method not allowed")` -- `InvalidInputException`
+is the same code this file's own `handleError` already uses for
+`ErrValidation`, so no new exception vocabulary was introduced.
+
+Proof: `TestHandler_WrongMethodSurfacesInvalidInputException`
+(`handler_dispatch_malformed_test.go`) drives a real LakeFormation client's
+`GetDataLakeSettings` through a Finalize-stage middleware that rewrites the
+request's HTTP method to PUT post-signing. Hand-reverted `handler.go` to
+`git show HEAD`, confirmed the test fails with `*json.SyntaxError: "invalid
+character 'M' looking for beginning of value"`, restored the fix,
+`md5sum`-confirmed byte-identical.
