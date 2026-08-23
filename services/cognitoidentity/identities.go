@@ -329,6 +329,15 @@ func (b *InMemoryBackend) LookupDeveloperIdentity(
 			return nil, fmt.Errorf("%w: identity %q not found", ErrIdentityPoolNotFound, identityID)
 		}
 
+		if identity.IdentityPoolID != poolID {
+			return nil, fmt.Errorf(
+				"%w: identity %q not found in pool %q",
+				ErrIdentityPoolNotFound,
+				identityID,
+				poolID,
+			)
+		}
+
 		byID = identity
 	}
 

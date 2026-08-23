@@ -28,7 +28,7 @@ ops:
   GetPrincipalTagAttributeMap: {wire: ok, errors: ok, state: ok, persist: ok}
   ListIdentities: {wire: ok, errors: ok, state: ok, persist: ok, note: "timestamps now routed through pkgs/awstime.Epoch (prior pass)"}
   ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: n/a}
-  LookupDeveloperIdentity: {wire: ok, errors: ok, state: ok, persist: n/a, note: "NEW this pass: when both IdentityId and DeveloperUserIdentifier are supplied, they are now cross-validated and a ResourceConflictException is returned on mismatch, per the operation's own doc comment (\"If you supply both, DeveloperUserIdentifier will be matched against IdentityId... Otherwise, a ResourceConflictException is thrown\"); previously the DeveloperUserIdentifier argument was silently ignored whenever IdentityId was also set"}
+  LookupDeveloperIdentity: {wire: ok, errors: ok, state: ok, persist: n/a, note: "when both IdentityId and DeveloperUserIdentifier are supplied, they are cross-validated and a ResourceConflictException is returned on mismatch, per the operation's own doc comment (\"If you supply both, DeveloperUserIdentifier will be matched against IdentityId... Otherwise, a ResourceConflictException is thrown\"). 2026-08-23: fixed cross-pool identity leak -- IdentityId is now checked against IdentityPoolID like UnlinkDeveloperIdentity already does, see body note below"}
   MergeDeveloperIdentities: {wire: ok, errors: ok, state: ok, persist: ok}
   SetPrincipalTagAttributeMap: {wire: ok, errors: ok, state: ok, persist: ok}
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -311,3 +311,51 @@ against gopherstack's emitted JSON tags, field-by-field, and the enum value sets
   hand-revert). Gates: `go build`/`go vet`/`go fix -diff`/`gofmt -l` clean,
   `go test -race ./services/cognitoidentity/...` passes, `golangci-lint run
   ./services/cognitoidentity/...` reports 0 issues.
+
+## 2026-08-23 — owner-scoping sweep: LookupDeveloperIdentity leaked identities across pools
+
+`LookupDeveloperIdentity` requires `IdentityPoolId` and accepts an optional
+`IdentityId`, but when `IdentityId` was supplied it was resolved via
+`identityGet(region, identityID)` -- a region-wide lookup keyed only on the
+identity ID, never checked against the given `IdentityPoolId`. Any caller
+who knew (or brute-forced) another pool's identity ID could pass their own,
+unrelated pool's ID and read that identity's `DeveloperUserIdentifierList`
+(the backend-issued developer user identifiers linked to it) -- a
+cross-principal information disclosure.
+
+`UnlinkDeveloperIdentity`, ~130 lines below in the same file
+(`identities.go`), already does this correctly:
+`if identity.IdentityPoolID != poolID { return ...ErrIdentityPoolNotFound... }`.
+`LookupDeveloperIdentity` was the one op in the family that skipped it.
+
+Confirmed against the pinned SDK
+(`aws-sdk-go-v2/service/cognitoidentity@v1.36.4/api_op_LookupDeveloperIdentity.go`):
+`IdentityPoolId` is a required input member; `IdentityId` has no
+independent scope of its own in the real API (there is no
+`DeveloperProviderName` field on the real wire input either, despite
+gopherstack's `lookupDeveloperIdentityInput` carrying one -- a separate,
+pre-existing wire-shape mismatch not touched by this fix; real traffic
+never sends it, so it doesn't change LookupDeveloperIdentity's behavior for
+a genuine client).
+
+Fixed by adding the same `identity.IdentityPoolID != poolID` check, same
+error and message shape as `UnlinkDeveloperIdentity`
+(`ErrIdentityPoolNotFound`, `"identity %q not found in pool %q"`).
+
+Proof: `sdk_lookup_developer_identity_cross_pool_test.go` --
+`TestLookupDeveloperIdentity_CrossPoolIdentityID_RealClient` -- creates two
+pools with a real `aws-sdk-go-v2` client, links a developer identity to
+pool A via `GetOpenIdTokenForDeveloperIdentity`, then calls
+`LookupDeveloperIdentity` with pool B's ID and pool A's `IdentityId`.
+Failed against unfixed code (`An error is expected but got nil`, plus a
+custom message showing the leaked cross-pool identity/pool triple); passes
+after the fix with `*types.ResourceNotFoundException`. Hand-reverted
+`identities.go` via `cp` from `git show HEAD:...`, reran the test (failed,
+confirming reproduction), restored the fix, `md5sum` confirmed byte-identical
+to the pre-revert file. `go test ./services/cognitoidentity/...` and
+`go test ./pkgs/persistence/...` both pass (no persisted struct changed).
+
+Update `ops.LookupDeveloperIdentity.note` above: now also cross-validates
+`IdentityId` against the supplied `IdentityPoolId`, returning
+`ResourceNotFoundException` on a pool/identity mismatch, matching
+`UnlinkDeveloperIdentity`'s existing behavior.
