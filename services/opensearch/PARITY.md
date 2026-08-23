@@ -230,7 +230,17 @@ families:
   serverless:
     status: deferred
     note: >
-      Field-level wire/state audit still out of scope this pass -- see items_still_open. UPDATE
+      UPDATE (2026-08-23, manifest-harvest pass): started the field-level audit. One real bug
+      found and fixed (DeleteCollection not-found mapped to 500 InternalServerException instead
+      of the real 404 ResourceNotFoundException -- serverlessErrorTable was missing the
+      ErrDomainNotFound entry). DeletionProtection confirmed as a genuine unimplemented-behavior
+      gap (request field silently dropped, so a "protected" collection can always be deleted) but
+      left deferred -- fixing it right also needs UpdateCollection, which this Handler doesn't
+      implement at all. Re-counted the un-advertised-op gap at 25 real ops (not ~15): the
+      CollectionGroup/LifecyclePolicy/VpcEndpoint families, the Index family, Tag*Resource,
+      Account Settings, and GetPoliciesStats. See the dated section at the end of this file for
+      full detail. Field-level wire/state audit still out of scope this pass -- see
+      items_still_open. UPDATE
       (2026-07-31, reverse sdkcheck sweep, gopherstack-vhw2): the "structurally blocked, not in
       go.mod" reasoning below is now stale for the operation-naming half of this problem --
       aws-sdk-go-v2/service/opensearchserverless was added to go.mod this sweep (needed for the
@@ -580,13 +590,14 @@ beyond the capability's existence/name/status.
 
 ## items_still_open (this pass)
 
-- **serverless** (OpenSearch Serverless collections/policies): explicitly out
-  of this pass's assigned scope. `aws-sdk-go-v2/service/opensearchserverless`
-  was added to go.mod in the 2026-07-31 reverse-sdkcheck sweep (see families.serverless)
-  to fix an operation-naming bug (8 fabricated policy op names) and verify the
-  rest of serverlessOperations() against the real client, but no field-level
-  wire/state diff of Collection/AccessPolicy/SecurityConfig/SecurityPolicy was
-  done. Still needs a dedicated audit pass.
+- **serverless** (OpenSearch Serverless collections/policies): partially
+  audited 2026-08-23 (manifest-harvest pass, see the dated section at the end
+  of this file) -- one real bug fixed (DeleteCollection not-found -> 500
+  instead of 404), DeletionProtection confirmed as a real but correctly
+  deferred gap (needs UpdateCollection too), and the missing-op count
+  corrected to 25 (not ~15). Full field-level wire/state diff of
+  Collection/AccessPolicy/SecurityConfig/SecurityPolicy is still not done.
+  Still needs a dedicated audit pass.
 - **Un-re-verified ops outside the assigned scope/deferred list**: GetCompatibleVersions,
   ListVersions, DescribeDomainAutoTunes, DescribeDomainChangeProgress,
   DescribeDomainHealth, DescribeDomainNodes, DescribeDryRunProgress,
@@ -772,3 +783,63 @@ before this session started; the scan snapshot predates that commit). 1
 (`LimitsByRole.data`) is a `map[string]types.Limits` dynamic role-name key, not
 a struct field -- correctly absent from the SDK's per-key case-switch table by
 construction, not a bug.
+
+# 2026-08-23 manifest-harvest pass (serverless field-level audit, partial)
+
+Took the `serverless` family's still-open item ("field-level wire/state audit
+still out of scope this pass", `items_still_open` above). Started the audit
+against `aws-sdk-go-v2/service/opensearchserverless@v1.34.4`; found and fixed
+one real bug, confirmed one genuine unimplemented-behavior gap (deferred,
+correctly out of pass scope), and re-counted the un-advertised-op gap.
+
+- **`DeleteCollection`: not-found mapped to the wrong HTTP status/error
+  code -- FIXED.** `DeleteServerlessCollection` (`serverless.go:267`) returns
+  the shared `ErrDomainNotFound` sentinel on an unknown id, but
+  `serverlessErrorTable()` (`handler_serverless_jsonrpc.go`) never listed it,
+  so `awserr.Classify` fell through to the `serverlessInternalError()`
+  fallback: a real client got HTTP 500 `InternalServerException` instead of
+  the real AOSS HTTP 404 `ResourceNotFoundException`
+  (`opensearchserverless@v1.34.4/types/errors.go`'s `ResourceNotFoundException`,
+  confirmed as the exception `DeleteCollection` is documented to return).
+  Fixed by adding `ErrDomainNotFound: {Code: "ResourceNotFoundException",
+  HTTPStatus: http.StatusNotFound}` to `serverlessErrorTable()`. Proven via a
+  real `opensearchserverless.Client.DeleteCollection` call against an unknown
+  id (`TestServerless_RealSDKClient_DeleteCollection_NotFound`,
+  `handler_serverless_real_client_test.go`) -- confirmed failing
+  (`StatusCode: 500 ... InternalServerException: internal error`) against the
+  unfixed table, passing after, hand-reverted/restored/`md5sum`-verified
+  byte-identical. Gates: `go build`, `go vet`, `gofmt -l` (clean),
+  `go test ./services/opensearch/...` (pass), `golangci-lint run` (0 issues).
+- **`CollectionDetail`/`CreateCollectionDetail.DeletionProtection` --
+  confirmed real gap, correctly deferred, not fixed this pass.** The real
+  `CreateCollectionInput`/`UpdateCollectionInput` both carry a
+  `DeletionProtection` field ("When set to ENABLED, the collection cannot be
+  deleted" -- doc comment on both). `ServerlessCollection` (`serverless.go`)
+  has no such field at all: `jrCreateCollection` silently drops the request
+  field, and `DeleteServerlessCollection` has nothing to check, so a
+  protected collection can always be deleted -- real AWS-divergent behavior,
+  not just a missing echo field. Not fixed this pass: doing it right needs
+  `UpdateCollection` too (the only other op that can flip the flag post-create,
+  per the real API) which this Handler doesn't implement at all (next
+  finding), so a `CreateCollection`-only half-fix would model a flag nothing
+  else can ever change -- a correctness trap, not a shortcut. Left for the
+  dedicated serverless pass along with `UpdateCollection`.
+- **Un-advertised real AOSS ops: re-counted at 25, not ~15.** Enumerated
+  every `func (c *Client)` in `opensearchserverless@v1.34.4`'s `api_op_*.go`
+  files: 44 real ops total against this Handler's `serverlessOperations()`
+  list of 19. The 25 missing: `UpdateCollection`; the entire
+  `CollectionGroup` family (`Create/Delete/Update/List/BatchGet`); the entire
+  `LifecyclePolicy` family (`Create/Delete/Update/List/BatchGet`,
+  plus `BatchGetEffectiveLifecyclePolicy`); the entire `VpcEndpoint` family
+  (`Create/Delete/Update/List/BatchGet`); the `Index` family
+  (`Create/Delete/Get/Update` -- a real control-plane resource, distinct from
+  this package's own invented classic-OpenSearch `/index/{name}` data-plane
+  routes); `TagResource`/`UntagResource`/`ListTagsForResource`;
+  `GetAccountSettings`/`UpdateAccountSettings`; `GetPoliciesStats`. None of
+  these are field-level gaps on an existing op -- they are whole operations
+  this Handler has never implemented, each needing its own request/response
+  wire types, backend state, and routing. Out of scope for a single pass;
+  noted here so the next auditor doesn't re-derive the count from scratch.
+  Full field-level diff of the 19 already-advertised ops' Collection/
+  AccessPolicy/SecurityConfig/SecurityPolicy shapes beyond `DeletionProtection`
+  above is still not done and remains this family's main open item.

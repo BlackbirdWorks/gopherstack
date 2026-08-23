@@ -119,6 +119,11 @@ func serverlessErrorTable() map[error]awserr.APIError {
 		ErrInvalidParameter:         {Code: "ValidationException", HTTPStatus: http.StatusBadRequest},
 		ErrApplicationNotFound:      {Code: "ResourceNotFoundException", HTTPStatus: http.StatusNotFound},
 		ErrApplicationAlreadyExists: {Code: "ConflictException", HTTPStatus: http.StatusConflict},
+		// DeleteServerlessCollection (serverless.go) reuses the shared
+		// domain-not-found sentinel; without this entry it fell through to
+		// serverlessInternalError() (500 InternalServerException) instead of
+		// the real AOSS 404 ResourceNotFoundException.
+		ErrDomainNotFound: {Code: "ResourceNotFoundException", HTTPStatus: http.StatusNotFound},
 	}
 }
 

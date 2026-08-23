@@ -115,6 +115,26 @@ func TestServerless_RealSDKClient_Collections(t *testing.T) {
 	require.NoError(t, err)
 }
 
+// TestServerless_RealSDKClient_DeleteCollection_NotFound confirms
+// DeleteCollection on an unknown id maps to the real AOSS 404
+// ResourceNotFoundException. Before this fix, DeleteServerlessCollection's
+// ErrDomainNotFound sentinel was absent from serverlessErrorTable, so
+// awserr.Classify fell through to the 500 InternalServerException fallback.
+func TestServerless_RealSDKClient_DeleteCollection_NotFound(t *testing.T) {
+	t.Parallel()
+
+	h := testServerlessHandler(t)
+	client := newTestServerlessClient(t, h)
+
+	_, err := client.DeleteCollection(t.Context(), &opensearchserverless.DeleteCollectionInput{
+		Id: aws.String("nonexistent-id"),
+	})
+	require.Error(t, err)
+
+	var nf *aosstypes.ResourceNotFoundException
+	require.ErrorAsf(t, err, &nf, "got error: %v", err)
+}
+
 // TestServerless_RealSDKClient_AccessPolicy drives the full AccessPolicy
 // CRUD family through the real client.
 func TestServerless_RealSDKClient_AccessPolicy(t *testing.T) {
