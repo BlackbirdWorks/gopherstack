@@ -24,7 +24,8 @@ import (
 
 var errNoVersionStruct = errors.New("no struct with an int-typed Version field")
 
-var errPersistenceFileMissing = errors.New("persistence.go missing after parse")
+var errVersionConstUnresolved = errors.New(
+	"package source declares a *SnapshotVersion const but the AST scan did not resolve it")
 
 // updateGolden is package-level because flag.Bool must register before
 // TestMain/go test parses os.Args; there is no per-test alternative.
@@ -39,9 +40,12 @@ var updateGolden = flag.Bool("update", false, "regenerate pkgs/persistence/testd
 // the version instead sends Restore down the ResetAll path and discards every user's
 // persisted state on the exact upgrade that was only meant to extend it.
 //
-// The guard walks every services/*/persistence.go, extracts the <service>SnapshotVersion
-// constant, and then recursively expands the fields of every "*Snapshot"-suffixed struct
-// in the *whole service package* (not just persistence.go, and not just one level deep --
+// The guard walks every services/*/ package, extracts the <service>SnapshotVersion
+// constant from wherever in the package it is declared (gopherstack-hciy: quicksight and
+// securityhub keep theirs in store.go, not persistence.go -- a scan limited to
+// persistence.go silently skipped both, no golden entry, no failure, no coverage), and
+// then recursively expands the fields of every "*Snapshot"-suffixed struct in the *whole
+// service package* (not just persistence.go, and not just one level deep --
 // gopherstack-5i6p: apigateway's additive Tags field landed on the nested stageSnapshot,
 // invisible to a scan limited to the top-level struct). Recursion also follows every type
 // registered via store.Register(reg, name, store.New(keyFn)): most services persist the
@@ -97,6 +101,81 @@ func TestSnapshotVersionGuard(t *testing.T) {
 
 	for _, v := range violations {
 		t.Error(v)
+	}
+}
+
+// TestScanServiceSnapshotsCoversStoreGoConst is the regression test for gopherstack-hciy:
+// quicksight and securityhub declare their SnapshotVersion const in store.go rather than
+// persistence.go, so a scan limited to persistence.go silently omits them from live --
+// no golden entry, no failure, no coverage. Before the fix to findVersionConstInPackage /
+// scanServiceDir this fails: live["quicksight"] and live["securityhub"] are both absent.
+func TestScanServiceSnapshotsCoversStoreGoConst(t *testing.T) {
+	t.Parallel()
+
+	live, err := scanServiceSnapshots(servicesDir(t))
+	require.NoError(t, err)
+
+	tests := []struct {
+		name string
+	}{
+		{name: "quicksight"},
+		{name: "securityhub"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			info, ok := live[tt.name]
+			require.True(t, ok, "%s: SnapshotVersion const lives in store.go, not persistence.go -- "+
+				"scanServiceDir must search the whole package", tt.name)
+			assert.Positive(t, info.Version)
+			assert.NotEmpty(t, info.Fields)
+		})
+	}
+}
+
+// TestScanServiceSnapshotsFailsLoudOnUnresolvedConst covers the fail-loud half of
+// gopherstack-hciy: a const declaration shape the AST scan cannot resolve (here, two
+// names sharing one ValueSpec) must not be silently dropped from coverage the way
+// quicksight and securityhub were -- scanServiceSnapshots must error, not skip.
+func TestScanServiceSnapshotsFailsLoudOnUnresolvedConst(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		src     string
+		wantErr string
+	}{
+		{
+			name: "shared value spec not seen by ast scan but caught by text scan",
+			src: `package widget
+
+type backendSnapshot struct {
+	Version int
+	Name    string ` + "`json:\"name\"`" + `
+}
+
+const _, widgetSnapshotVersion = 0, 1
+`,
+			wantErr: "widget",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			root := t.TempDir()
+			svcDir := filepath.Join(root, "widget")
+			require.NoError(t, os.Mkdir(svcDir, 0o755))
+			require.NoError(t, os.WriteFile(filepath.Join(svcDir, "persistence.go"), []byte(tt.src), 0o644))
+
+			_, err := scanServiceSnapshots(root)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.wantErr)
+			assert.ErrorIs(t, err, errVersionConstUnresolved)
+		})
 	}
 }
 
@@ -380,10 +459,15 @@ func addedFields(oldFields, newFields []string) []string {
 
 var versionConstRE = regexp.MustCompile(`(?i)snapshotversion$`)
 
-// scanServiceSnapshots parses every services/*/persistence.go (plus the rest of that
-// service's package, for type resolution -- see scanServiceDir) and extracts, per
-// service, the version constant and the recursively-expanded fields reachable from its
-// persisted state.
+// scanServiceSnapshots parses every services/*/ package and extracts, per service, the
+// version constant and the recursively-expanded fields reachable from its persisted
+// state. It does not require a persistence.go file to exist -- see scanServiceDir --
+// so a service that keeps its const in store.go or anywhere else is still found.
+//
+// checkNoMissedVersionConsts is the belt-and-suspenders half of gopherstack-hciy: even
+// with the whole-package AST search below, a const declared in a form that scan does not
+// resolve (e.g. sharing a ValueSpec with another name) must not silently vanish the way
+// quicksight and securityhub did -- it must fail the test, not be skipped.
 func scanServiceSnapshots(servicesDir string) (map[string]snapshotInfo, error) {
 	entries, err := os.ReadDir(servicesDir)
 	if err != nil {
@@ -398,9 +482,6 @@ func scanServiceSnapshots(servicesDir string) (map[string]snapshotInfo, error) {
 		}
 
 		dir := filepath.Join(servicesDir, e.Name())
-		if _, statErr := os.Stat(filepath.Join(dir, "persistence.go")); statErr != nil {
-			continue
-		}
 
 		info, ok, scanErr := scanServiceDir(dir)
 		if scanErr != nil {
@@ -412,15 +493,81 @@ func scanServiceSnapshots(servicesDir string) (map[string]snapshotInfo, error) {
 		}
 	}
 
+	if checkErr := checkNoMissedVersionConsts(servicesDir, result); checkErr != nil {
+		return nil, checkErr
+	}
+
 	return result, nil
 }
 
+// checkNoMissedVersionConsts textually confirms every services/*/ directory whose source
+// looks like it declares a *SnapshotVersion const ended up as a key in result. This is
+// independent of the AST-based scan in scanServiceDir/findVersionConstInPackage: it exists
+// so a future declaration shape that AST scan cannot resolve fails loudly instead of
+// silently dropping coverage, which is exactly how quicksight and securityhub went
+// unnoticed (their const was findable, just not by a scan limited to persistence.go).
+func checkNoMissedVersionConsts(servicesDir string, result map[string]snapshotInfo) error {
+	entries, err := os.ReadDir(servicesDir)
+	if err != nil {
+		return err
+	}
+
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+
+		declares, checkErr := dirDeclaresVersionConstText(filepath.Join(servicesDir, e.Name()))
+		if checkErr != nil {
+			return checkErr
+		}
+
+		if _, ok := result[e.Name()]; declares && !ok {
+			return fmt.Errorf("%s: %w", e.Name(), errVersionConstUnresolved)
+		}
+	}
+
+	return nil
+}
+
+var versionConstDeclRE = regexp.MustCompile(`[A-Za-z_][A-Za-z0-9_]*SnapshotVersion\s*=\s*\d`)
+
+// dirDeclaresVersionConstText reports whether any non-test .go file directly inside dir
+// contains a `<name>SnapshotVersion = <int literal>`-shaped assignment, found by regexp
+// over the raw source rather than by parsing -- deliberately a different mechanism than
+// the AST scan it cross-checks.
+func dirDeclaresVersionConstText(dir string) (bool, error) {
+	files, err := os.ReadDir(dir)
+	if err != nil {
+		return false, err
+	}
+
+	for _, f := range files {
+		name := f.Name()
+		if f.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+
+		data, readErr := os.ReadFile(filepath.Join(dir, name))
+		if readErr != nil {
+			return false, readErr
+		}
+
+		if versionConstDeclRE.Match(data) {
+			return true, nil
+		}
+	}
+
+	return false, nil
+}
+
 // scanServiceDir parses every non-test .go file in a service package and produces its
-// snapshotInfo. persistence.go alone supplies the version constant (repo convention: it
-// always lives there). Field expansion starts from every "*Snapshot"-suffixed struct
-// declared anywhere in the package, plus every type resolved from a
-// store.Register(reg, name, store.New(keyFn)) call anywhere in the package (this is what
-// recovers domain models like eks's Cluster that are persisted directly rather than
+// snapshotInfo. The version constant is looked up across every file in the package, not
+// just persistence.go (gopherstack-hciy: quicksight and securityhub keep theirs in
+// store.go) -- see findVersionConstInPackage. Field expansion starts from every
+// "*Snapshot"-suffixed struct declared anywhere in the package, plus every type resolved
+// from a store.Register(reg, name, store.New(keyFn)) call anywhere in the package (this is
+// what recovers domain models like eks's Cluster that are persisted directly rather than
 // through a dedicated DTO), and recurses into any locally-declared named struct type a
 // field refers to.
 //
@@ -435,12 +582,7 @@ func scanServiceDir(dir string) (snapshotInfo, bool, error) {
 		return snapshotInfo{}, false, err
 	}
 
-	pfile, ok := files["persistence.go"]
-	if !ok {
-		return snapshotInfo{}, false, fmt.Errorf("%s: %w", dir, errPersistenceFileMissing)
-	}
-
-	version, hasVersion, err := findVersionConst(pfile)
+	version, hasVersion, err := findVersionConstInPackage(files)
 	if err != nil {
 		return snapshotInfo{}, false, err
 	}
@@ -717,6 +859,32 @@ func expandFields(
 			expandFields(fset, ref, structDecls, visited, out)
 		}
 	}
+}
+
+// findVersionConstInPackage searches every parsed file for the version constant, in
+// sorted filename order, and returns the first match. Repo convention keeps it in
+// persistence.go, but gopherstack-hciy showed that convention is not enforced, so this
+// no longer assumes a specific filename.
+func findVersionConstInPackage(files map[string]*ast.File) (int, bool, error) {
+	names := make([]string, 0, len(files))
+	for name := range files {
+		names = append(names, name)
+	}
+
+	sort.Strings(names)
+
+	for _, name := range names {
+		version, ok, err := findVersionConst(files[name])
+		if err != nil {
+			return 0, false, err
+		}
+
+		if ok {
+			return version, true, nil
+		}
+	}
+
+	return 0, false, nil
 }
 
 func findVersionConst(f *ast.File) (int, bool, error) {
