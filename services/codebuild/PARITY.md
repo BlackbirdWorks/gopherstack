@@ -270,7 +270,10 @@ lists were becoming unwieldy) wired through from new `createFleetInput`/
 semantics mirror the existing `applyProjectOptionalFields` convention for optional
 string-field updates on this service.
 
-**Also found, NOT fixed in this pass**: `Fleet.ComputeConfiguration`/`ProxyConfiguration`/
+**STALE CLAIM, FIXED in the very next section (2026-07-25 pass #2 below) -- flagged by
+`cmd/staleclaims`, gopherstack-anjf: this paragraph was dispatch-bait for a reader who
+stopped at the first match.** Original text follows, kept for history: "Also found, NOT
+fixed in this pass": `Fleet.ComputeConfiguration`/`ProxyConfiguration`/
 `VpcConfig`/`ScalingConfiguration` (all real fields on `types.Fleet`) remained entirely
 unmodeled -- these are nested objects (attribute-based-compute vCPU/memory/disk specs,
 subnet/security-group VPC config, scaling-type semantics) that would require real design
