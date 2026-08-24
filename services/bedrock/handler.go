@@ -480,7 +480,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 				return c.JSON(
 					http.StatusInternalServerError,
-					errorResponse("InternalFailure", "internal server error"),
+					errorResponse("InternalServerException", "internal server error"),
 				)
 			}
 		}
@@ -613,7 +613,7 @@ func (h *Handler) writeError(c *echo.Context, err error) error {
 	case errors.Is(err, ErrValidation):
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", err.Error()))
 	default:
-		return c.JSON(http.StatusInternalServerError, errorResponse("InternalFailure", err.Error()))
+		return c.JSON(http.StatusInternalServerError, errorResponse("InternalServerException", err.Error()))
 	}
 }
 

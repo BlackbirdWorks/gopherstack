@@ -115,7 +115,7 @@ func (h *Handler) handleListEnforcedGuardrailsConfiguration(c *echo.Context) err
 func (h *Handler) handlePutEnforcedGuardrailConfiguration(c *echo.Context) error {
 	body, err := httputils.ReadBody(c.Request())
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, errorResponse("InternalFailure", "internal server error"))
+		return c.JSON(http.StatusInternalServerError, errorResponse("InternalServerException", "internal server error"))
 	}
 
 	in, parseErr := parseBody[putEnforcedGuardrailConfigurationInput](body)

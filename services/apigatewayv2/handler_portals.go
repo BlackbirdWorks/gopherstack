@@ -452,15 +452,16 @@ func (h *Handler) handleDisablePortal(c *echo.Context, portalID string) error {
 	return c.JSON(http.StatusOK, p)
 }
 
+// handleDeletePortal is idempotent: apigatewayv2@v1.37.4's own
+// deserializeOpErrorDeletePortal has no NotFoundException case (unlike
+// GetPortal, UpdatePortal, DisablePortal and DeletePortalProduct, which all
+// model it), so a real client can never type a 404 here. Returning 204
+// regardless of prior existence matches that asymmetry.
 func (h *Handler) handleDeletePortal(c *echo.Context, portalID string) error {
 	log := logger.Load(c.Request().Context())
 
-	if err := h.Backend.DeletePortal(portalID); err != nil {
+	if err := h.Backend.DeletePortal(portalID); err != nil && !errors.Is(err, ErrPortalNotFound) {
 		log.Error("apigatewayv2: delete portal failed", "portalId", portalID, "error", err)
-
-		if errors.Is(err, ErrPortalNotFound) {
-			return writeErr(c, http.StatusNotFound, msgNotFound)
-		}
 
 		return writeErr(c, http.StatusInternalServerError, err.Error())
 	}
