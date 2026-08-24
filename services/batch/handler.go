@@ -275,7 +275,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		if err != nil {
 			log.ErrorContext(ctx, "batch: failed to read request body", "error", err)
 
-			return c.JSON(http.StatusInternalServerError, errorResponse("InternalFailure", "internal server error"))
+			return c.JSON(http.StatusInternalServerError, errorResponse("ServerException", "internal server error"))
 		}
 
 		fn, ok := h.ops[path]
@@ -295,7 +295,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		if marshalErr != nil {
 			log.ErrorContext(ctx, "batch: failed to marshal response", "error", marshalErr)
 
-			return c.JSON(http.StatusInternalServerError, errorResponse("InternalFailure", "internal server error"))
+			return c.JSON(http.StatusInternalServerError, errorResponse("ServerException", "internal server error"))
 		}
 
 		return c.JSONBlob(http.StatusOK, out)
@@ -365,7 +365,7 @@ func (h *Handler) handleTags(ctx context.Context, c *echo.Context, log *slog.Log
 		if readErr != nil {
 			log.ErrorContext(ctx, "batch: failed to read tags body", "error", readErr)
 
-			return c.JSON(http.StatusInternalServerError, errorResponse("InternalFailure", "internal server error"))
+			return c.JSON(http.StatusInternalServerError, errorResponse("ServerException", "internal server error"))
 		}
 
 		return h.handleTagResource(ctx, c, resourceARN, body)
@@ -376,12 +376,17 @@ func (h *Handler) handleTags(ctx context.Context, c *echo.Context, log *slog.Log
 	}
 }
 
+// batch@v1.68.4's types/errors.go models exactly two exceptions, ClientException
+// and ServerException, wired into all 44 of batch's own deserializeOpError
+// switches. "InternalFailure" (the prior default-branch code, also used at every
+// other 500 site in this file) is not modeled anywhere, so it deserialized as an
+// untyped smithy.GenericAPIError instead of *types.ServerException.
 func (h *Handler) writeError(c *echo.Context, err error) error {
 	switch {
 	case errors.Is(err, ErrNotFound), errors.Is(err, ErrAlreadyExists), errors.Is(err, ErrValidation):
 		return c.JSON(http.StatusBadRequest, errorResponse("ClientException", err.Error()))
 	default:
-		return c.JSON(http.StatusInternalServerError, errorResponse("InternalFailure", err.Error()))
+		return c.JSON(http.StatusInternalServerError, errorResponse("ServerException", err.Error()))
 	}
 }
 

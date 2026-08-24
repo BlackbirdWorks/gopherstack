@@ -150,12 +150,21 @@ func (b *InMemoryBackend) UpdateCollaboration(
 	return c, nil
 }
 
+// DeleteCollaboration deletes the collaboration identified by id. A
+// nonexistent id is a no-op success, not ErrNotFound: cleanrooms@v1.49.4's
+// awsRestjson1_deserializeOpErrorDeleteCollaboration switch does not type
+// ResourceNotFoundException at all (only AccessDeniedException,
+// InternalServerException, ThrottlingException, ValidationException), so a
+// real client would see an untyped smithy.GenericAPIError instead of any
+// modeled exception. Inference: a delete this op's own SDK cannot report
+// not-found for must be idempotent instead -- DeleteCollaborationOutput
+// carries no fields at all, so an empty success fabricates nothing.
 func (b *InMemoryBackend) DeleteCollaboration(id string) error {
 	b.mu.Lock("DeleteCollaboration")
 	defer b.mu.Unlock()
 	c, ok := b.collaborations.Get(id)
 	if !ok {
-		return ErrNotFound
+		return nil
 	}
 	delete(b.tagsByArn, c.Arn)
 	b.collaborations.Delete(id)

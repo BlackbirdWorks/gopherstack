@@ -86,6 +86,14 @@ func (b *InMemoryBackend) ListDomains(ctx context.Context) []*Domain {
 
 // DeleteDomain deletes a domain by name, cascade-deleting all its repositories,
 // packages, package versions, package groups, external connections, policies, and Tags.
+// A nonexistent domain returns (nil, nil) rather than ErrNotFound: unlike every
+// sibling Delete op in this package (DeleteRepository, DeletePackage,
+// DeletePackageGroup), codeartifact@v1.41.4's awsRestjson1_deserializeOpErrorDeleteDomain
+// switch does not type ResourceNotFoundException at all, so a real client would see
+// an untyped smithy.GenericAPIError instead of *types.ResourceNotFoundException.
+// Inference: a delete this op's own SDK cannot report not-found for must be
+// idempotent instead (DeleteDomainOutput.Domain is a nilable pointer on the wire,
+// so omitting it is not a fabrication).
 func (b *InMemoryBackend) DeleteDomain(ctx context.Context, name string) (*Domain, error) {
 	region := getRegion(ctx, b.region)
 
@@ -94,7 +102,7 @@ func (b *InMemoryBackend) DeleteDomain(ctx context.Context, name string) (*Domai
 
 	d, ok := b.domains.Get(regionKey(region, name))
 	if !ok {
-		return nil, fmt.Errorf("%w: domain %s not found", ErrNotFound, name)
+		return nil, nil //nolint:nilnil // idempotent delete: no domain to describe, not an error
 	}
 	cp := *d
 

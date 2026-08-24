@@ -403,10 +403,14 @@ func TestHandler_ErrorPaths(t *testing.T) {
 			wantStatus: http.StatusNotFound,
 		},
 		{
-			name:       "delete_domain_not_found",
+			// DeleteDomain is idempotent for a nonexistent domain, not a 404:
+			// codeartifact@v1.41.4's deserializeOpErrorDeleteDomain switch does
+			// not type ResourceNotFoundException at all, unlike every sibling
+			// Delete op (gopherstack-wlo1).
+			name:       "delete_domain_not_found_is_idempotent",
 			method:     http.MethodDelete,
 			path:       "/v1/domain?domain=nope",
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusOK,
 		},
 		{
 			name: "describe_repository_not_found",
