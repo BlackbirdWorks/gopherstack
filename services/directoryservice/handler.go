@@ -463,6 +463,12 @@ func (h *Handler) mapError(c *echo.Context, err error) error {
 		return c.JSON(http.StatusBadRequest, errResp("SnapshotLimitExceededException", err.Error()))
 	case errors.Is(err, ErrUnsupportedOperation):
 		return c.JSON(http.StatusBadRequest, errResp("UnsupportedOperationException", err.Error()))
+	case errors.Is(err, ErrDirectoryNotFoundDDNE):
+		return c.JSON(http.StatusBadRequest, errResp("DirectoryDoesNotExistException", err.Error()))
+	case errors.Is(err, ErrDirectoryAlreadyInRegion):
+		return c.JSON(http.StatusBadRequest, errResp("DirectoryAlreadyInRegionException", err.Error()))
+	case errors.Is(err, ErrCertificateDoesNotExist):
+		return c.JSON(http.StatusBadRequest, errResp("CertificateDoesNotExistException", err.Error()))
 	case errors.Is(err, awserr.ErrNotFound):
 		return c.JSON(http.StatusBadRequest, errResp("EntityDoesNotExistException", err.Error()))
 	case errors.Is(err, awserr.ErrAlreadyExists):

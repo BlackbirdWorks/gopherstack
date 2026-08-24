@@ -14,7 +14,7 @@ func (b *InMemoryBackend) EnableLDAPS(ctx context.Context, directoryID, ldapsTyp
 	defer b.mu.Unlock()
 
 	if _, ok := b.directoryGet(region, directoryID); !ok {
-		return ErrDirectoryNotFound
+		return ErrDirectoryNotFoundDDNE
 	}
 
 	now := time.Now().UTC()
@@ -43,7 +43,7 @@ func (b *InMemoryBackend) DisableLDAPS(ctx context.Context, directoryID, ldapsTy
 	defer b.mu.Unlock()
 
 	if _, ok := b.directoryGet(region, directoryID); !ok {
-		return ErrDirectoryNotFound
+		return ErrDirectoryNotFoundDDNE
 	}
 
 	if setting, ok := b.ldapsSettingGet(region, directoryID, ldapsType); ok {
@@ -67,7 +67,7 @@ func (b *InMemoryBackend) DescribeLDAPSSettings(
 	defer b.mu.RUnlock()
 
 	if _, ok := b.directoryGet(region, directoryID); !ok {
-		return nil, "", ErrDirectoryNotFound
+		return nil, "", ErrDirectoryNotFoundDDNE
 	}
 
 	var result []LDAPSSetting

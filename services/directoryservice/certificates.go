@@ -25,7 +25,7 @@ func (b *InMemoryBackend) RegisterCertificate(
 	defer b.mu.Unlock()
 
 	if _, ok := b.directoryGet(region, directoryID); !ok {
-		return "", ErrDirectoryNotFound
+		return "", ErrDirectoryNotFoundDDNE
 	}
 
 	cert, parseErr := parseCertificatePEM(certData)
@@ -72,7 +72,7 @@ func (b *InMemoryBackend) DeregisterCertificate(ctx context.Context, directoryID
 
 	cert, ok := b.certificateGet(region, certID)
 	if !ok || cert.DirectoryID != directoryID {
-		return ErrCertNotFound
+		return ErrCertificateDoesNotExist
 	}
 
 	b.certificateDelete(region, certID)
@@ -93,7 +93,7 @@ func (b *InMemoryBackend) ListCertificates(
 	defer b.mu.RUnlock()
 
 	if _, ok := b.directoryGet(region, directoryID); !ok {
-		return nil, "", ErrDirectoryNotFound
+		return nil, "", ErrDirectoryNotFoundDDNE
 	}
 
 	var ids []string
@@ -150,7 +150,7 @@ func (b *InMemoryBackend) DescribeCertificate(ctx context.Context, directoryID, 
 
 	cert, ok := b.certificateGet(region, certID)
 	if !ok || cert.DirectoryID != directoryID {
-		return nil, ErrCertNotFound
+		return nil, ErrCertificateDoesNotExist
 	}
 
 	return &CertDetail{
@@ -186,7 +186,7 @@ func (b *InMemoryBackend) EnableCAEnrollmentPolicy(ctx context.Context, director
 	defer b.mu.Unlock()
 
 	if _, ok := b.directoryGet(region, directoryID); !ok {
-		return ErrDirectoryNotFound
+		return ErrDirectoryNotFoundDDNE
 	}
 
 	b.caEnrollmentStore(region)[directoryID] = &CAEnrollmentPolicy{
@@ -209,7 +209,7 @@ func (b *InMemoryBackend) DisableCAEnrollmentPolicy(ctx context.Context, directo
 	defer b.mu.Unlock()
 
 	if _, ok := b.directoryGet(region, directoryID); !ok {
-		return ErrDirectoryNotFound
+		return ErrDirectoryNotFoundDDNE
 	}
 
 	store := b.caEnrollmentStore(region)
@@ -239,7 +239,7 @@ func (b *InMemoryBackend) DescribeCAEnrollmentPolicy(
 	defer b.mu.RUnlock()
 
 	if _, ok := b.directoryGet(region, directoryID); !ok {
-		return nil, ErrDirectoryNotFound
+		return nil, ErrDirectoryNotFoundDDNE
 	}
 
 	if policy, ok := b.caEnrollmentStoreRO(region)[directoryID]; ok {

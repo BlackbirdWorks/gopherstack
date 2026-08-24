@@ -14,7 +14,7 @@ func (b *InMemoryBackend) EnableDirectoryDataAccess(ctx context.Context, directo
 	defer b.mu.Unlock()
 
 	if _, ok := b.directoryGet(region, directoryID); !ok {
-		return ErrDirectoryNotFound
+		return ErrDirectoryNotFoundDDNE
 	}
 
 	b.dirDataAccessStore(region)[directoryID] = true
@@ -30,7 +30,7 @@ func (b *InMemoryBackend) DisableDirectoryDataAccess(ctx context.Context, direct
 	defer b.mu.Unlock()
 
 	if _, ok := b.directoryGet(region, directoryID); !ok {
-		return ErrDirectoryNotFound
+		return ErrDirectoryNotFoundDDNE
 	}
 
 	b.dirDataAccessStore(region)[directoryID] = false
@@ -49,7 +49,7 @@ func (b *InMemoryBackend) DescribeDirectoryDataAccess(
 	defer b.mu.RUnlock()
 
 	if _, ok := b.directoryGet(region, directoryID); !ok {
-		return nil, ErrDirectoryNotFound
+		return nil, ErrDirectoryNotFoundDDNE
 	}
 
 	enabled := b.dirDataAccessStoreRO(region)[directoryID]
@@ -69,7 +69,7 @@ func (b *InMemoryBackend) UpdateSettings(
 	defer b.mu.Unlock()
 
 	if _, ok := b.directoryGet(region, directoryID); !ok {
-		return "", ErrDirectoryNotFound
+		return "", ErrDirectoryNotFoundDDNE
 	}
 
 	dirSettings := b.dirSettingsStore(region)
@@ -112,7 +112,7 @@ func (b *InMemoryBackend) DescribeSettings(
 	defer b.mu.RUnlock()
 
 	if _, ok := b.directoryGet(region, directoryID); !ok {
-		return nil, "", ErrDirectoryNotFound
+		return nil, "", ErrDirectoryNotFoundDDNE
 	}
 
 	settings := b.dirSettingsStoreRO(region)[directoryID]
@@ -141,7 +141,7 @@ func (b *InMemoryBackend) UpdateDirectorySetup(ctx context.Context, directoryID,
 	defer b.mu.Unlock()
 
 	if _, ok := b.directoryGet(region, directoryID); !ok {
-		return ErrDirectoryNotFound
+		return ErrDirectoryNotFoundDDNE
 	}
 
 	now := time.Now().UTC()
@@ -170,7 +170,7 @@ func (b *InMemoryBackend) DescribeUpdateDirectory(
 	defer b.mu.RUnlock()
 
 	if _, ok := b.directoryGet(region, directoryID); !ok {
-		return nil, "", ErrDirectoryNotFound
+		return nil, "", ErrDirectoryNotFoundDDNE
 	}
 
 	var result []UpdateInfoEntry

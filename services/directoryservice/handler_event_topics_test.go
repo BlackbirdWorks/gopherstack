@@ -41,7 +41,7 @@ func TestDescribeEventTopics_Filtering(t *testing.T) {
 		assert.Equal(t, "topic-a", topics[0].(map[string]any)["TopicName"])
 	})
 
-	t.Run("duplicate topic registration returns EntityAlreadyExistsException", func(t *testing.T) {
+	t.Run("duplicate topic registration succeeds, no already-exists code is modeled", func(t *testing.T) {
 		t.Parallel()
 		h := newTestHandler(t)
 		dirID := mustCreateSimpleAD(t, h, "corp.example.com")
@@ -58,9 +58,12 @@ func TestDescribeEventTopics_Filtering(t *testing.T) {
 			"RegisterEventTopic",
 			map[string]any{"DirectoryId": dirID, "TopicName": "my-topic"},
 		)
-		assert.Equal(t, http.StatusBadRequest, rec.Code)
-		body := respBody(t, rec)
-		assert.Equal(t, "EntityAlreadyExistsException", body["__type"])
+		assert.Equal(t, http.StatusOK, rec.Code)
+
+		listRec := doRequest(t, h, "DescribeEventTopics", map[string]any{"DirectoryId": dirID})
+		body := respBody(t, listRec)
+		topics, _ := body["EventTopics"].([]any)
+		assert.Len(t, topics, 1, "re-registration must refresh, not duplicate, the topic entry")
 	})
 }
 

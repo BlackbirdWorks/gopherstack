@@ -215,7 +215,7 @@ func TestDependentResourceRegionIsolation(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = backend.DescribeCertificate(ctxWest, westDir.DirectoryID, eastCert)
-	require.ErrorIs(t, err, ErrCertNotFound)
+	require.ErrorIs(t, err, ErrCertificateDoesNotExist)
 
 	cert, err := backend.DescribeCertificate(ctxEast, eastDir.DirectoryID, eastCert)
 	require.NoError(t, err)

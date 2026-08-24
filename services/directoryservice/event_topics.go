@@ -19,10 +19,12 @@ func (b *InMemoryBackend) RegisterEventTopic(ctx context.Context, directoryID, t
 		return ErrDirectoryNotFound
 	}
 
-	if _, exists := b.eventTopicGet(region, directoryID, topicName); exists {
-		return ErrAliasAlreadyExists
-	}
-
+	// RegisterEventTopic's own error set (deserializers.go) types no
+	// already-exists exception, so a re-registration of the same topic must
+	// succeed rather than error (inferred, not documented -- unlike
+	// codecommit's delete ops, AWS's RegisterEventTopic doc comment says
+	// nothing about repeat calls, but the same "no case to report it" logic
+	// applies: re-registering just refreshes the subscription).
 	b.eventTopicPut(&storedEventTopic{
 		region:          region,
 		DirectoryID:     directoryID,
