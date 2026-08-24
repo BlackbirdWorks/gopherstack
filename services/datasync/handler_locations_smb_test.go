@@ -77,7 +77,7 @@ func TestDataSync_Smb(t *testing.T) {
 	rec = doRequest(t, h, "DescribeLocationSmb", map[string]any{
 		"LocationArn": "arn:aws:datasync:us-east-1:000000000000:location/notexist",
 	})
-	assert.Equal(t, http.StatusNotFound, rec.Code)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 // TestDataSync_UpdateLocationSmb_ServerHostname covers gopherstack-2xhy:

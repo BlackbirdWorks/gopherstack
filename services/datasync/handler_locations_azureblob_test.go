@@ -69,7 +69,7 @@ func TestDataSync_AzureBlob(t *testing.T) {
 	rec = doRequest(t, h, "DescribeLocationAzureBlob", map[string]any{
 		"LocationArn": "arn:aws:datasync:us-east-1:000000000000:location/notexist",
 	})
-	assert.Equal(t, http.StatusNotFound, rec.Code)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	// Missing required field
 	rec = doRequest(t, h, "CreateLocationAzureBlob", map[string]any{"Subdirectory": "/x"})

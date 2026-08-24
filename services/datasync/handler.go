@@ -222,17 +222,19 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 	var typeErr *json.UnmarshalTypeError
 
 	switch {
-	case errors.Is(err, awserr.ErrNotFound):
-		return c.JSON(http.StatusNotFound, map[string]string{
-			keyType:    "ResourceNotFoundException",
-			keyMessage: err.Error(),
-		})
-	case errors.Is(err, awserr.ErrAlreadyExists):
-		return c.JSON(http.StatusBadRequest, map[string]string{
-			keyType:    "ResourceExistsException",
-			keyMessage: err.Error(),
-		})
-	case errors.Is(err, awserr.ErrInvalidParameter),
+	// ErrNotFound/ErrAlreadyExists deliberately map to the SAME wire code as
+	// ErrInvalidParameter below: every one of datasync's 53
+	// awsAwsjson11_deserializeOpError<Op> switches (aws-sdk-go-v2/service/
+	// datasync@v1.61.4 deserializers.go) types only InternalException and
+	// InvalidRequestException -- confirmed against types/errors.go, which
+	// defines exactly those two exception structs and no
+	// ResourceNotFoundException/ResourceExistsException type at all, in the
+	// whole service. Emitting either fabricated code here decodes client-side
+	// as an untyped smithy.GenericAPIError for every not-found/already-exists
+	// condition in datasync, not just one operation.
+	case errors.Is(err, awserr.ErrNotFound),
+		errors.Is(err, awserr.ErrAlreadyExists),
+		errors.Is(err, awserr.ErrInvalidParameter),
 		errors.Is(err, errInvalidRequest),
 		errors.Is(err, errUnknownAction),
 		errors.As(err, &syntaxErr),

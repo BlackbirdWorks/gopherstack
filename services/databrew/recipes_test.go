@@ -234,11 +234,17 @@ func TestHandlerListRecipeVersions(t *testing.T) {
 	assert.NotNil(t, resp["Recipes"])
 }
 
-func TestHandlerListRecipeVersions_NotFound(t *testing.T) {
+// TestHandlerListRecipeVersions_UnknownRecipe verifies the handler surfaces
+// ListRecipeVersions's real behavior for an unknown recipe: 200 with an
+// empty list, not a 404 (see TestListRecipeVersions_UnknownRecipe).
+func TestHandlerListRecipeVersions_UnknownRecipe(t *testing.T) {
 	t.Parallel()
 	h := newTestHandler()
 	rec := databrewReq(t, h, http.MethodGet, "/databrew/v1/recipes/no-such/recipeVersions", nil)
-	assert.Equal(t, http.StatusNotFound, rec.Code)
+	assert.Equal(t, http.StatusOK, rec.Code)
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Empty(t, resp["Recipes"])
 }
 
 func TestHandlerDeleteRecipeVersion(t *testing.T) {
@@ -589,11 +595,17 @@ func TestDeleteRecipeVersion_LatestWorking(t *testing.T) {
 	assert.ErrorIs(t, err, databrew.ErrValidation)
 }
 
-// TestListRecipeVersions_NotFound verifies ListRecipeVersions 404s for an
-// unknown recipe.
-func TestListRecipeVersions_NotFound(t *testing.T) {
+// TestListRecipeVersions_UnknownRecipe verifies ListRecipeVersions returns an
+// empty list rather than erroring for an unknown recipe: its own SDK
+// deserializeOpError switch types only ValidationException, not
+// ResourceNotFoundException (aws-sdk-go-v2/service/databrew@v1.42.4
+// deserializers.go), so a not-found sentinel here would decode client-side
+// as an untyped smithy.GenericAPIError instead of a real exception type.
+func TestListRecipeVersions_UnknownRecipe(t *testing.T) {
 	t.Parallel()
 	b := newTestBackend()
-	_, _, err := b.ListRecipeVersions(context.Background(), "no-such-r", 100, "")
-	assert.ErrorIs(t, err, databrew.ErrNotFound)
+	versions, next, err := b.ListRecipeVersions(context.Background(), "no-such-r", 100, "")
+	require.NoError(t, err)
+	assert.Empty(t, versions)
+	assert.Empty(t, next)
 }

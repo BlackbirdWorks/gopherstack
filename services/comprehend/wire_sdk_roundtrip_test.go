@@ -8,6 +8,7 @@ import (
 	awscfg "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	comprehendsdk "github.com/aws/aws-sdk-go-v2/service/comprehend"
+	"github.com/aws/aws-sdk-go-v2/service/comprehend/types"
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -88,4 +89,74 @@ func TestDetectTargetedSentiment_EntityShapeSDKRoundTrip(t *testing.T) {
 	assert.NotNil(t, mention.EndOffset)
 	require.NotNil(t, mention.MentionSentiment)
 	assert.NotEmpty(t, string(mention.MentionSentiment.Sentiment))
+}
+
+// TestPutResourcePolicy_RevisionMismatchSDKRoundTrip proves a stale
+// PolicyRevisionId on PutResourcePolicy surfaces as
+// types.InvalidRequestException, not types.ResourceInUseException.
+// PutResourcePolicy's own awsAwsjson11_deserializeOpErrorPutResourcePolicy
+// switch (aws-sdk-go-v2/service/comprehend@v1.43.4 deserializers.go) types
+// only InternalServerException, InvalidRequestException and
+// ResourceNotFoundException -- ResourceInUseException is absent, so a
+// ResourceInUseException wire code decodes to an untyped
+// smithy.GenericAPIError and errors.As into *types.ResourceInUseException
+// fails.
+func TestPutResourcePolicy_RevisionMismatchSDKRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	backend := comprehend.NewInMemoryBackend("000000000000", "us-east-1")
+	h := comprehend.NewHandler(backend)
+	client := newTestComprehendSDKClient(t, h)
+
+	arn := "arn:aws:comprehend:us-east-1:000000000000:document-classifier/test"
+
+	_, err := client.PutResourcePolicy(t.Context(), &comprehendsdk.PutResourcePolicyInput{
+		ResourceArn:    aws.String(arn),
+		ResourcePolicy: aws.String(`{"Version":"2012-10-17","Statement":[]}`),
+	})
+	require.NoError(t, err)
+
+	_, err = client.PutResourcePolicy(t.Context(), &comprehendsdk.PutResourcePolicyInput{
+		ResourceArn:      aws.String(arn),
+		ResourcePolicy:   aws.String(`{"Version":"2012-10-17","Statement":[]}`),
+		PolicyRevisionId: aws.String("stale-revision"),
+	})
+	require.Error(t, err)
+
+	var invalidRequest *types.InvalidRequestException
+	require.ErrorAs(t, err, &invalidRequest)
+
+	var resourceInUse *types.ResourceInUseException
+	assert.NotErrorAs(t, err, &resourceInUse)
+}
+
+// TestDeleteResourcePolicy_RevisionMismatchSDKRoundTrip is the DeleteResourcePolicy
+// counterpart: its deserializeOpError switch models the identical three
+// codes as PutResourcePolicy's, also excluding ResourceInUseException.
+func TestDeleteResourcePolicy_RevisionMismatchSDKRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	backend := comprehend.NewInMemoryBackend("000000000000", "us-east-1")
+	h := comprehend.NewHandler(backend)
+	client := newTestComprehendSDKClient(t, h)
+
+	arn := "arn:aws:comprehend:us-east-1:000000000000:document-classifier/test"
+
+	_, err := client.PutResourcePolicy(t.Context(), &comprehendsdk.PutResourcePolicyInput{
+		ResourceArn:    aws.String(arn),
+		ResourcePolicy: aws.String(`{"Version":"2012-10-17","Statement":[]}`),
+	})
+	require.NoError(t, err)
+
+	_, err = client.DeleteResourcePolicy(t.Context(), &comprehendsdk.DeleteResourcePolicyInput{
+		ResourceArn:      aws.String(arn),
+		PolicyRevisionId: aws.String("stale-revision"),
+	})
+	require.Error(t, err)
+
+	var invalidRequest *types.InvalidRequestException
+	require.ErrorAs(t, err, &invalidRequest)
+
+	var resourceInUse *types.ResourceInUseException
+	assert.NotErrorAs(t, err, &resourceInUse)
 }

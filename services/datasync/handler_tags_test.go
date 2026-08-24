@@ -48,12 +48,12 @@ func TestDataSync_Tags(t *testing.T) {
 	tags = listResp["Tags"].([]any)
 	assert.Len(t, tags, 1)
 
-	// TagResource unknown resource returns 404
+	// TagResource unknown resource returns 400
 	rec = doRequest(t, h, "TagResource", map[string]any{
 		"ResourceArn": "arn:aws:datasync:us-east-1:000000000000:agent/notexist",
 		"Tags":        []any{map[string]any{"Key": "k", "Value": "v"}},
 	})
-	assert.Equal(t, http.StatusNotFound, rec.Code)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 // TestDataSync_TagsRoundTrip verifies that tags applied via TagResource are visible

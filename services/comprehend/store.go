@@ -507,7 +507,11 @@ func (b *InMemoryBackend) PutResourcePolicy(resourceArn, policy, expectedRevisio
 	defer b.mu.Unlock()
 
 	if expectedRevision != "" && b.policyRevisions[resourceArn] != expectedRevision {
-		return "", fmt.Errorf("%w: policy revision mismatch", ErrConflict)
+		// PutResourcePolicy's own deserializeOpError switch types only
+		// InternalServerException, InvalidRequestException and
+		// ResourceNotFoundException -- ResourceInUseException is not modeled
+		// for this op (aws-sdk-go-v2/service/comprehend deserializers.go).
+		return "", fmt.Errorf("%w: policy revision mismatch", ErrValidation)
 	}
 
 	revision := uuid.NewString()
@@ -536,7 +540,9 @@ func (b *InMemoryBackend) DeleteResourcePolicy(resourceArn, expectedRevision str
 	defer b.mu.Unlock()
 
 	if expectedRevision != "" && b.policyRevisions[resourceArn] != expectedRevision {
-		return fmt.Errorf("%w: policy revision mismatch", ErrConflict)
+		// DeleteResourcePolicy's own deserializeOpError switch, like
+		// PutResourcePolicy's, has no ResourceInUseException case.
+		return fmt.Errorf("%w: policy revision mismatch", ErrValidation)
 	}
 	if _, ok := b.policies[resourceArn]; !ok {
 		return fmt.Errorf("%w: resource policy not found for %q", ErrNotFound, resourceArn)

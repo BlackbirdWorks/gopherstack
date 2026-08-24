@@ -56,5 +56,5 @@ func TestDataSync_FsxLustre(t *testing.T) {
 	rec = doRequest(t, h, "DescribeLocationFsxLustre", map[string]any{
 		"LocationArn": "arn:aws:datasync:us-east-1:000000000000:location/notexist",
 	})
-	assert.Equal(t, http.StatusNotFound, rec.Code)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }

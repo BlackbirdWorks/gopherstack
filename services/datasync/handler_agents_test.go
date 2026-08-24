@@ -59,10 +59,10 @@ func TestDataSync_Agent(t *testing.T) {
 			},
 		},
 		{
-			name:     "DescribeAgent unknown ARN returns 404",
+			name:     "DescribeAgent unknown ARN returns 400",
 			action:   "DescribeAgent",
 			body:     map[string]any{"AgentArn": "arn:aws:datasync:us-east-1:000000000000:agent/notexist"},
-			wantCode: http.StatusNotFound,
+			wantCode: http.StatusBadRequest,
 		},
 		{
 			name:     "DescribeAgent missing ARN returns 400",
@@ -71,19 +71,19 @@ func TestDataSync_Agent(t *testing.T) {
 			wantCode: http.StatusBadRequest,
 		},
 		{
-			name:   "UpdateAgent unknown ARN returns 404",
+			name:   "UpdateAgent unknown ARN returns 400",
 			action: "UpdateAgent",
 			body: map[string]any{
 				"AgentArn": "arn:aws:datasync:us-east-1:000000000000:agent/notexist",
 				"Name":     "new",
 			},
-			wantCode: http.StatusNotFound,
+			wantCode: http.StatusBadRequest,
 		},
 		{
-			name:     "DeleteAgent unknown ARN returns 404",
+			name:     "DeleteAgent unknown ARN returns 400",
 			action:   "DeleteAgent",
 			body:     map[string]any{"AgentArn": "arn:aws:datasync:us-east-1:000000000000:agent/notexist"},
-			wantCode: http.StatusNotFound,
+			wantCode: http.StatusBadRequest,
 		},
 		{
 			name:     "ListAgents empty returns empty list",
@@ -162,7 +162,7 @@ func TestDataSync_AgentCRUD(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 	assert.Equal(t, 0, datasync.AgentCount(h.Backend.(*datasync.InMemoryBackend)))
 
-	// Describe deleted returns 404
+	// Describe deleted returns 400
 	rec = doRequest(t, h, "DescribeAgent", map[string]any{"AgentArn": agentArn})
-	assert.Equal(t, http.StatusNotFound, rec.Code)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }

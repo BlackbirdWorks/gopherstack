@@ -102,7 +102,10 @@ func TestCreateSubnetGroupRequiresSubnet(t *testing.T) {
 
 			if tt.wantErr {
 				require.Error(t, err)
-				assert.ErrorIs(t, err, dax.ErrInvalidParameterValue)
+				// CreateSubnetGroup's own deserializeOpError switch has no
+				// InvalidParameterValueException case; InvalidSubnet is the
+				// code it actually types (see validateSubnetIDs).
+				assert.ErrorIs(t, err, dax.ErrInvalidSubnet)
 			} else {
 				require.NoError(t, err)
 			}

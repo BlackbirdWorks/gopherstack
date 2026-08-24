@@ -211,6 +211,13 @@ func (b *InMemoryBackend) ListRecipes(
 // versions of a particular DataBrew recipe, except for LATEST_WORKING").
 // The returned slice is never nil (an unpublished recipe returns an empty,
 // non-nil slice) so callers marshal "Recipes":[] rather than "Recipes":null.
+//
+// Deliberately does NOT reject an unknown name: ListRecipeVersions's own
+// awsRestjson1_deserializeOpErrorListRecipeVersions switch (aws-sdk-go-v2/
+// service/databrew@v1.42.4 deserializers.go) types only ValidationException
+// -- ResourceNotFoundException is not modeled for this op at all, unlike
+// DescribeRecipe/UpdateRecipe/etc. An unknown name falls through to the same
+// empty-slice result as a never-published recipe.
 func (b *InMemoryBackend) ListRecipeVersions(
 	ctx context.Context,
 	name string,
@@ -220,9 +227,6 @@ func (b *InMemoryBackend) ListRecipeVersions(
 	b.mu.RLock("ListRecipeVersions")
 	defer b.mu.RUnlock()
 	region := getRegion(ctx, b.defaultRegion)
-	if !b.recipesTable(region).Has(name) {
-		return nil, "", ErrNotFound
-	}
 
 	// versions is stored in publish order (oldest first), which is also
 	// numerically increasing (PublishRecipe always appends "len+1.0"), so no

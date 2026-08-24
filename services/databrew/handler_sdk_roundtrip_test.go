@@ -199,6 +199,30 @@ func Test_SDKRoundTrip_ListRecipeVersions_BarePath(t *testing.T) {
 	require.Equal(t, "1.0", aws.ToString(out.Recipes[0].RecipeVersion))
 }
 
+// Test_SDKRoundTrip_ListRecipeVersions_UnknownRecipeSucceeds proves
+// ListRecipeVersions for a recipe name that was never created returns an
+// empty list rather than an error. ListRecipeVersions's own
+// awsRestjson1_deserializeOpErrorListRecipeVersions switch (aws-sdk-go-v2/
+// service/databrew@v1.42.4 deserializers.go) types only ValidationException
+// -- there is no ResourceNotFoundException case for this op at all, unlike
+// DescribeRecipe/UpdateRecipe/DeleteRecipe. Before the fix, the backend
+// returned ErrNotFound (wire code ResourceNotFoundException) here, which
+// this op's switch cannot type: the real client decoded it as an untyped
+// smithy.GenericAPIError rather than *types.ResourceNotFoundException.
+func Test_SDKRoundTrip_ListRecipeVersions_UnknownRecipeSucceeds(t *testing.T) {
+	t.Parallel()
+
+	backend := databrew.NewInMemoryBackend("000000000000", rtTestRegion)
+	h := databrew.NewHandler(backend)
+	client := newRoundTripClient(t, h)
+
+	out, err := client.ListRecipeVersions(t.Context(), &databrewsdk.ListRecipeVersionsInput{
+		Name: aws.String("never-created-recipe"),
+	})
+	require.NoError(t, err, "ListRecipeVersions for an unknown recipe must not error")
+	require.Empty(t, out.Recipes)
+}
+
 // Test_SDKRoundTrip_BatchDeleteRecipeVersion_RealPath proves
 // BatchDeleteRecipeVersion routes correctly over its real wire path
 // POST /recipes/{Name}/batchDeleteRecipeVersion. Before the fix,

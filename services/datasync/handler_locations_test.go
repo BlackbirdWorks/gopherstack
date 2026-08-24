@@ -57,16 +57,16 @@ func TestDataSync_LocationS3(t *testing.T) {
 			wantCode: http.StatusBadRequest,
 		},
 		{
-			name:     "DescribeLocationS3 unknown ARN returns 404",
+			name:     "DescribeLocationS3 unknown ARN returns 400",
 			action:   "DescribeLocationS3",
 			body:     map[string]any{"LocationArn": "arn:aws:datasync:us-east-1:000000000000:location/notexist"},
-			wantCode: http.StatusNotFound,
+			wantCode: http.StatusBadRequest,
 		},
 		{
-			name:     "DeleteLocation unknown ARN returns 404",
+			name:     "DeleteLocation unknown ARN returns 400",
 			action:   "DeleteLocation",
 			body:     map[string]any{"LocationArn": "arn:aws:datasync:us-east-1:000000000000:location/notexist"},
-			wantCode: http.StatusNotFound,
+			wantCode: http.StatusBadRequest,
 		},
 		{
 			name:     "ListLocations empty returns empty list",
@@ -157,11 +157,11 @@ func TestDataSync_UpdateLocationS3(t *testing.T) {
 			wantCode: http.StatusBadRequest,
 		},
 		{
-			name: "not found returns 404",
+			name: "not found returns 400",
 			body: map[string]any{
 				"LocationArn": "arn:aws:datasync:us-east-1:000000000000:location/notexist",
 			},
-			wantCode: http.StatusNotFound,
+			wantCode: http.StatusBadRequest,
 		},
 	}
 
