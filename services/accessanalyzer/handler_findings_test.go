@@ -316,9 +316,11 @@ func TestFindingRecommendationLifecycle(t *testing.T) {
 				arn := mustAnalyzer(t, b, "rec-analyzer")
 				findingID := mustFinding(t, b, "rec-analyzer")
 
-				rec := doRequest(t, h, http.MethodPost, "/recommendation/"+findingID, map[string]any{
-					"analyzerArn": arn,
-				})
+				// AnalyzerArn is a query parameter, not a body member -- the real
+				// SDK sends no body for this operation
+				// (awsRestjson1_serializeOpHttpBindingsGenerateFindingRecommendationInput,
+				// aws-sdk-go-v2/service/accessanalyzer@v1.51.4 serializers.go).
+				rec := doRequest(t, h, http.MethodPost, "/recommendation/"+findingID+"?analyzerArn="+arn, nil)
 				assert.Equal(t, http.StatusOK, rec.Code)
 
 				rec2 := doRequest(t, h, http.MethodGet, "/recommendation/"+findingID+"?analyzerArn="+arn, nil)
@@ -340,18 +342,18 @@ func TestFindingRecommendationLifecycle(t *testing.T) {
 		{
 			// Previously GenerateFindingRecommendation created a recommendation
 			// record for any finding ID unconditionally, without checking it
-			// exists -- a bogus ID would 200 and fabricate a ResourceArn-less
-			// record. It must now 404, matching GetFindingRecommendation's
-			// modeled ResourceNotFoundException.
+			// exists. It must reject a bogus ID -- as ValidationException/400,
+			// not ResourceNotFoundException/404: GenerateFindingRecommendation's
+			// own deserializeOpError switch (aws-sdk-go-v2/service/
+			// accessanalyzer@v1.51.4 deserializers.go) does not type
+			// ResourceNotFoundException.
 			name: "generate_for_missing_finding_is_not_found",
 			fn: func(t *testing.T, b *accessanalyzer.InMemoryBackend, h *accessanalyzer.Handler) {
 				t.Helper()
 				arn := mustAnalyzer(t, b, "rec-missing-finding-analyzer")
 
-				rec := doRequest(t, h, http.MethodPost, "/recommendation/no-such-finding", map[string]any{
-					"analyzerArn": arn,
-				})
-				assert.Equal(t, http.StatusNotFound, rec.Code)
+				rec := doRequest(t, h, http.MethodPost, "/recommendation/no-such-finding?analyzerArn="+arn, nil)
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
 			},
 		},
 	}
@@ -382,9 +384,11 @@ func TestGetFindingRecommendation_WireShape(t *testing.T) {
 	arn := mustAnalyzer(t, b, "rec-wire-analyzer")
 	findingID := mustFinding(t, b, "rec-wire-analyzer")
 
-	genRec := doRequest(t, h, http.MethodPost, "/recommendation/"+findingID, map[string]any{
-		"analyzerArn": arn,
-	})
+	// AnalyzerArn is a query parameter, not a body member -- the real SDK
+	// sends no body for this operation
+	// (awsRestjson1_serializeOpHttpBindingsGenerateFindingRecommendationInput,
+	// aws-sdk-go-v2/service/accessanalyzer@v1.51.4 serializers.go).
+	genRec := doRequest(t, h, http.MethodPost, "/recommendation/"+findingID+"?analyzerArn="+arn, nil)
 	require.Equal(t, http.StatusOK, genRec.Code)
 
 	getRec := doRequest(t, h, http.MethodGet, "/recommendation/"+findingID+"?analyzerArn="+arn, nil)

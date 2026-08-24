@@ -81,7 +81,11 @@ func TestGetGeneratedPolicy(t *testing.T) {
 		missingJob bool
 	}{
 		{name: "existing_job", wantStatus: http.StatusOK},
-		{name: "missing_job", wantStatus: http.StatusNotFound, missingJob: true},
+		// GetGeneratedPolicy's own deserializeOpError switch
+		// (aws-sdk-go-v2/service/accessanalyzer@v1.51.4 deserializers.go) does
+		// not type ResourceNotFoundException, so an unrecognized jobId is
+		// reported as ValidationException/400, not 404.
+		{name: "missing_job", wantStatus: http.StatusBadRequest, missingJob: true},
 	}
 
 	for _, tt := range tests {
@@ -138,7 +142,11 @@ func TestCancelPolicyGeneration(t *testing.T) {
 		missingJob bool
 	}{
 		{name: "cancel_existing", wantStatus: http.StatusOK},
-		{name: "cancel_missing", wantStatus: http.StatusNotFound, missingJob: true},
+		// CancelPolicyGeneration's own deserializeOpError switch
+		// (aws-sdk-go-v2/service/accessanalyzer@v1.51.4 deserializers.go) does
+		// not type ResourceNotFoundException, so an unrecognized jobId is
+		// reported as ValidationException/400, not 404.
+		{name: "cancel_missing", wantStatus: http.StatusBadRequest, missingJob: true},
 	}
 
 	for _, tt := range tests {

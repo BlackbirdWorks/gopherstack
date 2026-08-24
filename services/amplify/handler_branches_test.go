@@ -148,11 +148,16 @@ func TestHandler_ListBranches(t *testing.T) {
 			wantStatus: http.StatusOK,
 		},
 		{
-			name: "returns_404_for_missing_app",
+			// ListBranches' own deserializeOpError switch
+			// (aws-sdk-go-v2/service/amplify@v1.41.4 deserializers.go) does not
+			// type NotFoundException at all -- only BadRequestException,
+			// InternalFailureException, UnauthorizedException -- so an
+			// unrecognized appId is reported as invalid input, not 404.
+			name: "returns_400_for_missing_app",
 			setup: func(_ *amplify.InMemoryBackend) string {
 				return "nonexistent"
 			},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 	}
 

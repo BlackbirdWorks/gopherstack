@@ -2,6 +2,7 @@ package accessanalyzer
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 	"time"
@@ -104,6 +105,16 @@ func (h *Handler) handleListArchiveRules(path string) (any, int, error) {
 
 	rules, err := h.Backend.ListArchiveRules(analyzerName)
 	if err != nil {
+		if errors.Is(err, ErrAnalyzerNotFound) {
+			// ListArchiveRules' own deserializeOpError switch (aws-sdk-go-v2/service/
+			// accessanalyzer@v1.51.4 deserializers.go) does not type
+			// ResourceNotFoundException -- only AccessDeniedException,
+			// InternalServerException, ThrottlingException, ValidationException. An
+			// unrecognized analyzerName is reported as invalid input, matching
+			// account's errRegionNotFound precedent.
+			return nil, 0, ErrValidation
+		}
+
 		return nil, 0, err
 	}
 

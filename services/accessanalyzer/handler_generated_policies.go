@@ -2,10 +2,26 @@ package accessanalyzer
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 	"time"
 )
+
+// errPolicyGenerationJobNotModeled translates ErrPolicyGenerationNotFound for
+// GetGeneratedPolicy and CancelPolicyGeneration, whose own deserializeOpError
+// switches (aws-sdk-go-v2/service/accessanalyzer@v1.51.4 deserializers.go) do
+// not type ResourceNotFoundException -- only AccessDeniedException,
+// InternalServerException, ThrottlingException, ValidationException. An
+// unrecognized jobId is reported as invalid input, matching account's
+// errRegionNotFound precedent.
+func errPolicyGenerationJobNotModeled(err error) error {
+	if errors.Is(err, ErrPolicyGenerationNotFound) {
+		return ErrValidation
+	}
+
+	return err
+}
 
 const (
 	opStartPolicyGeneration  = "StartPolicyGeneration"
@@ -130,7 +146,7 @@ func (h *Handler) handleGetGeneratedPolicy(path string) (any, int, error) {
 
 	pg, err := h.Backend.GetPolicyGeneration(jobID)
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, errPolicyGenerationJobNotModeled(err)
 	}
 
 	properties := map[string]any{
@@ -181,7 +197,7 @@ func (h *Handler) handleCancelPolicyGeneration(path string) (int, error) {
 	jobID := extractLastSegment(path, pathGeneration)
 
 	if err := h.Backend.CancelPolicyGeneration(jobID); err != nil {
-		return 0, err
+		return 0, errPolicyGenerationJobNotModeled(err)
 	}
 
 	return http.StatusOK, nil

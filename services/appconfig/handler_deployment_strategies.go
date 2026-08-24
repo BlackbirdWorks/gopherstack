@@ -34,6 +34,15 @@ func (h *Handler) handleCreateDeploymentStrategy(c *echo.Context) error {
 		req.Tags,
 	)
 	if err != nil {
+		// CreateDeploymentStrategy models only BadRequestException,
+		// InternalServerException and ServiceQuotaExceededException
+		// (appconfig@v1.48.4 deserializers.go) -- no ConflictException, so a
+		// name collision maps to BadRequestException here, matching
+		// CreateApplication's precedent.
+		if errors.Is(err, awserr.ErrInvalidParameter) || errors.Is(err, awserr.ErrAlreadyExists) {
+			return badRequestResponse(c, err)
+		}
+
 		return internalServerErrorResponse(c, err)
 	}
 
