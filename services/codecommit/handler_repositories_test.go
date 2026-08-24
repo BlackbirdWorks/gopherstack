@@ -116,9 +116,13 @@ func TestHandler_DeleteRepository(t *testing.T) {
 			wantStatus: http.StatusOK,
 		},
 		{
+			// DeleteRepository is idempotent in real AWS: deleting a name
+			// that does not exist succeeds (its own error switch has no
+			// RepositoryDoesNotExistException case), unlike every other
+			// repository-name op.
 			name:       "nonexistent_repository",
 			repoName:   "missing-repo",
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusOK,
 		},
 	}
 

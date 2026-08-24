@@ -53,6 +53,9 @@ func (h *Handler) handleDeleteBranch(body []byte) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	if br == nil {
+		return map[string]any{}, nil
+	}
 
 	return map[string]any{
 		"deletedBranch": map[string]any{

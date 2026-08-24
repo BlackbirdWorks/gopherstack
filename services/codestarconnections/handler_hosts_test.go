@@ -58,7 +58,10 @@ func TestHandler_CreateHost(t *testing.T) {
 	}
 }
 
-func TestHandler_CreateHost_Duplicate(t *testing.T) {
+// TestHandler_CreateHost_DuplicateNameSucceeds mirrors
+// TestHostNameNotUnique: CreateHost's own error switch has no code for a
+// name collision, so a duplicate name is not rejected.
+func TestHandler_CreateHost_DuplicateNameSucceeds(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -72,7 +75,7 @@ func TestHandler_CreateHost_Duplicate(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec1.Code)
 
 	rec2 := doRequest(t, h, "CreateHost", body)
-	assert.Equal(t, http.StatusBadRequest, rec2.Code)
+	assert.Equal(t, http.StatusOK, rec2.Code)
 }
 
 func TestHandler_GetHost(t *testing.T) {
@@ -267,8 +270,13 @@ func TestHandler_UpdateHost(t *testing.T) {
 	}
 }
 
-// TestHostNameUniqueness verifies duplicate host names are rejected.
-func TestHostNameUniqueness(t *testing.T) {
+// TestHostNameNotUnique verifies duplicate host names are NOT rejected:
+// CreateHost's own error switch (codestarconnections@v1.38.4
+// deserializers.go's awsAwsjson10_deserializeOpErrorCreateHost) is exactly
+// [LimitExceededException] -- no code for a name collision -- so a second
+// create for the same name gets a distinct ARN, not an error (same behavior
+// as sibling codeconnections@v1.13.4's identical switch).
+func TestHostNameNotUnique(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -279,13 +287,17 @@ func TestHostNameUniqueness(t *testing.T) {
 		"ProviderEndpoint": "https://example.com",
 	})
 	require.Equal(t, http.StatusOK, rec1.Code)
+	arn1 := parseResp(t, rec1)["HostArn"].(string)
 
 	rec2 := doRequest(t, h, "CreateHost", map[string]any{
 		"Name":             "host-a",
 		"ProviderType":     "GitHub",
 		"ProviderEndpoint": "https://other.com",
 	})
-	assert.Equal(t, http.StatusBadRequest, rec2.Code)
+	require.Equal(t, http.StatusOK, rec2.Code)
+	arn2 := parseResp(t, rec2)["HostArn"].(string)
+
+	assert.NotEqual(t, arn1, arn2)
 }
 
 // TestDeleteHostCleansIndex verifies hostsByName index is updated on delete.

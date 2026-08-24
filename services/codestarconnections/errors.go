@@ -30,16 +30,13 @@ const (
 var (
 	// ErrNotFound is returned when a requested resource does not exist.
 	ErrNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
-	// ErrAlreadyExists is returned when a connection or host with the same name
-	// already exists. The real CreateConnection/CreateHost operations do not
-	// document a dedicated typed exception for this, so it maps to the generic
-	// InvalidInputException (see handler.go's error switch).
-	ErrAlreadyExists = awserr.New("InvalidInputException", awserr.ErrAlreadyExists)
 	// ErrResourceAlreadyExists is returned when a repository link or sync
-	// configuration with the same identity already exists. Unlike
-	// ErrAlreadyExists above, the real CreateRepositoryLink/CreateSyncConfiguration
-	// operations both register a dedicated ResourceAlreadyExistsException for
-	// this case (confirmed against aws-sdk-go-v2's per-op error deserializers).
+	// configuration with the same identity already exists. CreateConnection
+	// and CreateHost have no equivalent: neither's own error switch
+	// (codestarconnections@v1.38.4 deserializers.go) has any code for a
+	// name collision, so a duplicate name is not rejected there -- only
+	// CreateRepositoryLink/CreateSyncConfiguration register a dedicated
+	// ResourceAlreadyExistsException.
 	ErrResourceAlreadyExists = awserr.New("ResourceAlreadyExistsException", awserr.ErrAlreadyExists)
 	// ErrValidation is returned when input validation fails. The real
 	// aws-sdk-go-v2/service/codestarconnections@v1.38.4 types/errors.go has

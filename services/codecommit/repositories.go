@@ -75,7 +75,12 @@ func (b *InMemoryBackend) DeleteRepository(name string) (*Repository, error) {
 
 	r, ok := b.repositories.Get(name)
 	if !ok {
-		return nil, fmt.Errorf("%w: repository %s not found", ErrNotFound, name)
+		// DeleteRepository is idempotent in real AWS: deleting a nonexistent
+		// repository succeeds with no RepositoryId, not
+		// RepositoryDoesNotExistException -- its own deserializeOpError
+		// switch has no such case (codecommit@v1.36.4 deserializers.go),
+		// unlike every other repository-name op (inference).
+		return nil, nil //nolint:nilnil // nil repository is a meaningful "already gone" signal, not an error
 	}
 	cp := *r
 	b.repositories.Delete(name)

@@ -122,11 +122,10 @@ func seedFullState(t *testing.T, b *codestarconnections.InMemoryBackend) seededS
 // round trip across every store.Table-backed resource family the Phase 3.3
 // conversion touched: connections, hosts (clean, ARN-keyed), repositoryLinks,
 // syncConfigurations, repositorySyncStatuses, resourceSyncStatuses, and
-// syncBlockers (dirty, region-composite-keyed). It also proves the byName/
-// byRegion/byResource secondary indexes survive the round trip (duplicate
-// creates are rejected, region-scoped listings are correct, sync blocker
-// resolution still finds its target) rather than merely checking the primary
-// key lookups.
+// syncBlockers (dirty, region-composite-keyed). It also proves the byRegion/
+// byResource secondary indexes survive the round trip (region-scoped
+// listings are correct, sync blocker resolution still finds its target)
+// rather than merely checking the primary key lookups.
 func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	t.Parallel()
 
@@ -148,7 +147,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	assert.Equal(t, "111122223333", restored.AccountID())
 	assert.Equal(t, "us-east-1", restored.Region())
 
-	// connections: primary lookup + byRegion + byName (duplicate-name reject).
+	// connections: primary lookup + byRegion.
 	gotEastConn, err := restored.GetConnection(ctxEast, eastConn.ConnectionArn)
 	require.NoError(t, err)
 	assert.Equal(t, "GitHub", gotEastConn.ProviderType)
@@ -161,9 +160,12 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	assert.Len(t, restored.ListConnections(ctxEast, "", ""), 1)
 	assert.Len(t, restored.ListConnections(ctxWest, "", ""), 1)
 
-	_, err = restored.CreateConnection(ctxEast, "shared-conn", "GitHub", "", nil)
-	require.ErrorIs(t, err, codestarconnections.ErrAlreadyExists,
-		"byName index must be rebuilt so the duplicate-name check still fires after restore")
+	// CreateConnection does not reject a duplicate name (its own error switch
+	// has no code for a name collision -- see errors.go), so a same-name
+	// create after restore must still succeed with a distinct ARN.
+	dupConn, err := restored.CreateConnection(ctxEast, "shared-conn", "GitHub", "", nil)
+	require.NoError(t, err)
+	assert.NotEqual(t, eastConn.ConnectionArn, dupConn.ConnectionArn)
 
 	// hosts.
 	gotHost, err := restored.GetHost(ctxEast, eastHost.HostArn)

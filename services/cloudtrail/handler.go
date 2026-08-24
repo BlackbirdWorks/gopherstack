@@ -266,33 +266,42 @@ func (h *Handler) buildOps() map[string]func(*echo.Context, []byte) error {
 	}
 }
 
+// errorMapping maps a sentinel error to the HTTP status and __type code
+// this service's real deserializeOpError<Op> switches expect.
+type errorMapping struct {
+	sentinel error
+	code     string
+	status   int
+}
+
+//nolint:gochecknoglobals // package-level lookup table for error mapping
+var errorMappings = []errorMapping{
+	{ErrNotFound, "TrailNotFoundException", http.StatusNotFound},
+	{ErrChannelNotFound, "ChannelNotFoundException", http.StatusNotFound},
+	{ErrEventDataStoreNotFound, "EventDataStoreNotFoundException", http.StatusNotFound},
+	{ErrResourceNotFound, "ResourceNotFoundException", http.StatusNotFound},
+	{ErrImportNotFound, "ImportNotFoundException", http.StatusNotFound},
+	{ErrResourcePolicyNotFound, "ResourcePolicyNotFoundException", http.StatusNotFound},
+	{ErrChannelAlreadyExists, "ChannelAlreadyExistsException", http.StatusConflict},
+	{ErrEventDataStoreAlreadyExists, "EventDataStoreAlreadyExistsException", http.StatusConflict},
+	{ErrDashboardConflict, "ConflictException", http.StatusConflict},
+	{ErrQueryIDNotFound, "QueryIdNotFoundException", http.StatusNotFound},
+	{ErrQueryInactive, "InactiveQueryException", http.StatusBadRequest},
+	{ErrTerminationProtected, "EventDataStoreTerminationProtectedException", http.StatusConflict},
+	{ErrInsightNotEnabled, "InsightNotEnabledException", http.StatusBadRequest},
+	{ErrAlreadyExists, "TrailAlreadyExistsException", http.StatusConflict},
+	{ErrValidation, "InvalidParameterException", http.StatusBadRequest},
+	{errInvalidRequest, "InvalidParameterCombinationException", http.StatusBadRequest},
+}
+
 func (h *Handler) handleError(c *echo.Context, err error) error {
-	switch {
-	case errors.Is(err, ErrNotFound):
-		return c.JSON(http.StatusNotFound, errResp("TrailNotFoundException", err.Error()))
-	case errors.Is(err, ErrChannelNotFound):
-		return c.JSON(http.StatusNotFound, errResp("ChannelNotFoundException", err.Error()))
-	case errors.Is(err, ErrDashboardNotFound):
-		return c.JSON(http.StatusNotFound, errResp("DashboardNotFoundException", err.Error()))
-	case errors.Is(err, ErrEventDataStoreNotFound):
-		return c.JSON(http.StatusNotFound, errResp("EventDataStoreNotFoundException", err.Error()))
-	case errors.Is(err, ErrQueryIDNotFound):
-		return c.JSON(http.StatusNotFound, errResp("QueryIdNotFoundException", err.Error()))
-	case errors.Is(err, ErrQueryInactive):
-		return c.JSON(http.StatusBadRequest, errResp("InactiveQueryException", err.Error()))
-	case errors.Is(err, ErrTerminationProtected):
-		return c.JSON(http.StatusConflict, errResp("EventDataStoreTerminationProtectedException", err.Error()))
-	case errors.Is(err, ErrInsightNotEnabled):
-		return c.JSON(http.StatusBadRequest, errResp("InsightNotEnabledException", err.Error()))
-	case errors.Is(err, ErrAlreadyExists):
-		return c.JSON(http.StatusConflict, errResp("TrailAlreadyExistsException", err.Error()))
-	case errors.Is(err, ErrValidation):
-		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", err.Error()))
-	case errors.Is(err, errInvalidRequest):
-		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", err.Error()))
-	default:
-		return c.JSON(http.StatusInternalServerError, errResp("InternalFailure", err.Error()))
+	for _, m := range errorMappings {
+		if errors.Is(err, m.sentinel) {
+			return c.JSON(m.status, errResp(m.code, err.Error()))
+		}
 	}
+
+	return c.JSON(http.StatusInternalServerError, errResp("InternalFailure", err.Error()))
 }
 
 func errResp(code, msg string) map[string]string {

@@ -97,6 +97,9 @@ func (h *Handler) handleDeleteRepository(body []byte) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	if r == nil {
+		return map[string]any{}, nil
+	}
 
 	return map[string]any{
 		keyRepositoryID: r.RepositoryID,

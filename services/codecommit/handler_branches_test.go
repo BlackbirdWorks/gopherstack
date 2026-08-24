@@ -238,7 +238,10 @@ func TestHandler_DeleteBranch_TableDriven(t *testing.T) {
 		wantCode   int
 	}{
 		{name: "success", branchName: "main", seed: true, wantCode: http.StatusOK},
-		{name: "not_found", branchName: "no-branch", seed: true, wantCode: http.StatusNotFound},
+		// DeleteBranch is idempotent in real AWS: deleting a branch name that
+		// does not exist succeeds (its own error switch has no
+		// BranchDoesNotExistException case), unlike GetBranch.
+		{name: "not_found", branchName: "no-branch", seed: true, wantCode: http.StatusOK},
 		{name: "repo_not_found", branchName: "main", seed: false, wantCode: http.StatusNotFound},
 	}
 

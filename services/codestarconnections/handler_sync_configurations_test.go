@@ -178,10 +178,13 @@ func TestHandler_DeleteSyncConfiguration(t *testing.T) {
 			wantErr: false,
 		},
 		{
+			// DeleteSyncConfiguration is idempotent in real AWS: its own
+			// error switch has no ResourceNotFoundException case, unlike
+			// GetSyncConfiguration.
 			name:    "not found",
 			setupFn: func(_ *codestarconnections.Handler) {},
 			input:   map[string]any{"ResourceName": "nonexistent", "SyncType": "CFN_STACK_SYNC"},
-			wantErr: true,
+			wantErr: false,
 		},
 	}
 

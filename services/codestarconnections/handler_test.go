@@ -531,20 +531,37 @@ func TestErrValidationMapping(t *testing.T) {
 	assert.Equal(t, "InvalidInputException", resp["__type"])
 }
 
-// TestErrAlreadyExistsMapping verifies ErrAlreadyExists maps to 400.
-func TestErrAlreadyExistsMapping(t *testing.T) {
+// TestErrResourceAlreadyExistsMapping verifies ErrResourceAlreadyExists maps
+// to ResourceAlreadyExistsException, the code CreateRepositoryLink's own
+// error switch actually types for a duplicate identity (unlike
+// CreateConnection/CreateHost -- see TestConnectionNameNotUnique/
+// TestHostNameNotUnique).
+func TestErrResourceAlreadyExistsMapping(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
 
-	doRequest(t, h, "CreateConnection", map[string]any{"ConnectionName": "dup", "ProviderType": "GitHub"})
+	connRec := doRequest(t, h, "CreateConnection", map[string]any{
+		"ConnectionName": "link-conn",
+		"ProviderType":   "GitHub",
+	})
+	require.Equal(t, http.StatusOK, connRec.Code)
+	connArn := parseResp(t, connRec)["ConnectionArn"].(string)
 
-	rec := doRequest(t, h, "CreateConnection", map[string]any{"ConnectionName": "dup", "ProviderType": "GitHub"})
+	linkBody := map[string]any{
+		"ConnectionArn":    connArn,
+		"OwnerId":          "owner",
+		"RepositoryName":   "repo",
+		"EncryptionKeyArn": "arn:aws:kms:us-east-1:000000000000:key/key1",
+	}
+	rec := doRequest(t, h, "CreateRepositoryLink", linkBody)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doRequest(t, h, "CreateRepositoryLink", linkBody)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	assert.Equal(t, "InvalidInputException", resp["__type"])
+	resp := parseResp(t, rec)
+	assert.Equal(t, "ResourceAlreadyExistsException", resp["__type"])
 }
 
 func TestErrorTypes(t *testing.T) {
@@ -565,12 +582,6 @@ func TestErrorTypes(t *testing.T) {
 			wantErrType: "ResourceNotFoundException",
 		},
 		{
-			name:        "duplicate name returns InvalidInputException",
-			action:      "CreateConnection",
-			body:        map[string]any{"ConnectionName": "dup-err-conn", "ProviderType": "GitHub"},
-			wantErrType: "InvalidInputException",
-		},
-		{
 			name:        "validation error returns InvalidInputException",
 			action:      "CreateConnection",
 			body:        map[string]any{"ConnectionName": "valid-err-conn", "ProviderType": "INVALID"},
@@ -583,12 +594,6 @@ func TestErrorTypes(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
-
-			// For duplicate test, create the connection first.
-			if tt.name == "duplicate name returns InvalidInputException" {
-				rec := doRequest(t, h, "CreateConnection", tt.body)
-				require.Equal(t, http.StatusOK, rec.Code)
-			}
 
 			rec := doRequest(t, h, "CreateConnection", tt.body)
 			if tt.action != "CreateConnection" {

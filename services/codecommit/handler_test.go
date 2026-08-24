@@ -626,17 +626,6 @@ func TestHandler_NotFoundErrorTypes_AreResourceSpecific(t *testing.T) {
 			},
 			wantErrType: "CommentDoesNotExistException",
 		},
-		{
-			name:   "DeletePullRequestApprovalRule_rule_not_found",
-			action: "DeletePullRequestApprovalRule",
-			body: func(t *testing.T, h *codecommit.Handler) map[string]any {
-				t.Helper()
-				prID := setupPR(t, h, "nf-rule-repo")
-
-				return map[string]any{"pullRequestId": prID, "approvalRuleName": "no-such-rule"}
-			},
-			wantErrType: "ApprovalRuleDoesNotExistException",
-		},
 	}
 
 	for _, tt := range tests {

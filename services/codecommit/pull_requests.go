@@ -266,9 +266,13 @@ func (b *InMemoryBackend) DeletePullRequestApprovalRule(prID, ruleName string) (
 
 	rule, ok := b.prApprovalRules.Get(prApprovalRuleKey(prID, ruleName))
 	if !ok {
-		return "", fmt.Errorf(
-			"%w: approval rule %s not found on pull request %s", ErrApprovalRuleNotFound, ruleName, prID,
-		)
+		// DeletePullRequestApprovalRule is idempotent in real AWS: "If the
+		// approval rule was deleted in an earlier API call, the response is
+		// 200 OK without content" (codecommit@v1.36.4
+		// api_op_DeletePullRequestApprovalRule.go:49) -- its own error
+		// switch has no ApprovalRuleDoesNotExistException case, unlike
+		// UpdatePullRequestApprovalRuleContent.
+		return "", nil
 	}
 	b.prApprovalRules.Delete(prApprovalRuleKey(prID, ruleName))
 

@@ -56,9 +56,13 @@ func (b *InMemoryBackend) CreateHost(
 	b.mu.Lock("CreateHost")
 	defer b.mu.Unlock()
 
-	if len(b.hostsByName.Get(regionKey(region, name))) > 0 {
-		return nil, fmt.Errorf("%w: host %q already exists", ErrAlreadyExists, name)
-	}
+	// A duplicate Name is NOT rejected: CreateHost's real error list is
+	// exactly [LimitExceededException] (codestarconnections@v1.38.4
+	// deserializers.go's awsAwsjson10_deserializeOpErrorCreateHost switch) --
+	// no InvalidInputException case for a name collision -- so a real
+	// client's second create for the same name gets a distinct ARN, not an
+	// error (same behavior as sibling codeconnections@v1.13.4, confirmed
+	// independently against its own identical switch).
 
 	id := uuid.NewString()
 	hostArn := arn.Build("codestar-connections", region, b.accountID, "host/"+name+"/"+id[:8])
