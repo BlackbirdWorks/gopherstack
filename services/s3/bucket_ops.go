@@ -445,8 +445,8 @@ func (h *S3Handler) listBuckets(ctx context.Context, w http.ResponseWriter, r *h
 	}
 
 	if mb := q.Get("max-buckets"); mb != "" {
-		if n, convErr := strconv.Atoi(mb); convErr == nil && n > 0 {
-			input.MaxBuckets = aws.Int32(int32(n)) //nolint:gosec // bounded by query parsing
+		if n, convErr := strconv.ParseInt(mb, 10, 32); convErr == nil && n > 0 {
+			input.MaxBuckets = aws.Int32(int32(n))
 		}
 	}
 
