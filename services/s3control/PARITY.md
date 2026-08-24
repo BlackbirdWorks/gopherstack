@@ -160,9 +160,7 @@ ops:
   ListJobs: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateAccessGrantsLocation: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateAccessGrantsLocation: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListAccessGrantsLocations: {wire: ok, errors: ok, state: ok, persist: ok, note: "see route fix above"}
   CreateAccessGrant: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListAccessGrants: {wire: ok, errors: ok, state: ok, persist: ok, note: "see route fix above"}
   DeleteAccessGrant: {wire: ok, errors: ok, state: ok, persist: ok, note: "THIS PASS: ghost-map-row leak fix -- delete left generic resourceTags behind forever; now cascade-cleaned via the grant's AccessGrantArn."}
   DeleteAccessGrantsLocation: {wire: ok, errors: ok, state: ok, persist: ok, note: "THIS PASS: same resourceTags cascade-cleanup fix as DeleteAccessGrant."}
   DeleteAccessGrantsInstance: {wire: ok, errors: ok, state: ok, persist: ok, note: "cascade-cleans accessGrantsInstancePolicies and resourceTags (previously left behind forever). Deliberately does NOT cascade-delete AccessGrants/AccessGrantsLocations -- the real op's doc comment requires the caller delete those first, and this precondition IS enforced (errAccessGrantsInstanceNotEmpty, see the dedicated 'DeleteAccessGrantsInstance precondition -- FIXED' section below and TestHandler_DeleteAccessGrantsInstance_Precondition). 2026-07-30: corrected stale 'un-enforced precondition' language in this row/the access-grants family note/gaps -- the precondition was already enforced in code; only the summary text had not been updated to match."}

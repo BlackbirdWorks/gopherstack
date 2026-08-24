@@ -88,7 +88,6 @@ ops:
   ListResourceScans: {wire: ok, errors: ok, state: ok, persist: ok}
   ListResourceScanResources: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: was silently discarding the not-found error (`_`) and returning 200 with an empty list for an unknown ResourceScanId; SDK models ResourceScanNotFound for this op. Now surfaces it with the correct unsuffixed code"}
   ListResourceScanRelatedResources: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: same disguised-stub pattern as ListResourceScanResources — was discarding the not-found error; now surfaces ResourceScanNotFound"}
-  DescribeType: {wire: ok, errors: ok, state: ok, persist: ok}
   ActivateType: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (gopherstack-vc2g): handler read form key TypeArn, which ActivateTypeInput does not have -- the real ARN identifier is PublicTypeArn (serializers.go:7181). A caller identifying the type by ARN had the value silently dropped. The prior 'wire: ok, field-diffed' claim only checked the modeled error switch, not the request field names."}
   DeactivateType: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (gopherstack-vc2g): handler read form key TypeArn; DeactivateTypeInput sends Arn (serializers.go:7751). Same silent-drop bug as ActivateType. The prior 'wire: ok, field-diffed' claim only checked the modeled error switch, not the request field names."}
   RegisterType: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW this pass, field-diffed (SDK models only CFNRegistryException for this op)"}

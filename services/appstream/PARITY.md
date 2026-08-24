@@ -34,7 +34,7 @@ ops:
   StopAppBlockBuilder: {wire: ok, errors: fixed, state: ok, persist: ok, note: "same StopFleet bug class -- now idempotent on already-STOPPED"}
   StartAppBlockBuilder: {wire: ok, errors: ok, state: ok, persist: ok, note: "InvalidAccountStatusException on already-RUNNING IS in real deserializer -- left unchanged"}
   StopImageBuilder: {wire: ok, errors: fixed, state: ok, persist: ok, note: "same StopFleet bug class -- now idempotent on already-STOPPED"}
-  StartImageBuilder: {wire: ok, errors: ok, state: ok, persist: ok, note: "InvalidAccountStatusException on already-RUNNING IS in real deserializer -- left unchanged"}
+  StartImageBuilder: {wire: fixed, errors: ok, state: ok, persist: ok, note: "InvalidAccountStatusException on already-RUNNING IS in real deserializer -- left unchanged. real StartImageBuilderOutput carries ONLY ImageBuilder -- a prior version invented a top-level StreamingURL field that no real SDK client would ever receive; removed it (and dropped the now-unused url return value from the backend method, which returns error only now)."}
   DescribeApplications: {wire: fixed, errors: ok, state: ok, persist: ok, note: "real request carries Arns (not Names); backend was doing a Name-keyed map lookup against the caller's ARN, so any real SDK client's Describe-after-Create always 404'd -- added findApplication() Name-or-Arn resolver"}
   DescribeAppBlocks: {wire: fixed, errors: ok, state: ok, persist: ok, note: "same DescribeApplications bug class; added findAppBlock() resolver"}
   DescribeImages: {wire: fixed, errors: ok, state: ok, persist: ok, note: "real request supports both Names and Arns filters; the Arns-only path was mis-resolved through the Name-keyed table -- added findImage() resolver so either identifier works"}
@@ -60,7 +60,6 @@ ops:
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok}
-  StartImageBuilder: {wire: fixed, errors: ok, state: ok, persist: ok, note: "real StartImageBuilderOutput carries ONLY ImageBuilder -- a prior version invented a top-level StreamingURL field that no real SDK client would ever receive; removed it (and dropped the now-unused url return value from the backend method, which returns error only now)"}
   CreateStreamingURL: {wire: fixed, errors: ok, state: ok, persist: ok, note: "real CreateStreamingURLOutput carries Expires (epoch seconds) alongside StreamingURL, and CreateStreamingURLInput accepts an optional Validity (default 60s) -- both were missing; backend now accepts validitySeconds and returns the computed expiry"}
   CreateImageBuilderStreamingURL: {wire: fixed, errors: ok, state: ok, persist: ok, note: "same Expires/Validity gap as CreateStreamingURL; real default is 3600s"}
   CreateAppBlockBuilderStreamingURL: {wire: fixed, errors: ok, state: ok, persist: ok, note: "same Expires/Validity gap as CreateStreamingURL; real default is 3600s"}

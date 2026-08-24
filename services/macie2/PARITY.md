@@ -77,7 +77,6 @@ ops:
   BatchUpdateAutomatedDiscoveryAccounts: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeBuckets: {wire: ok, errors: ok, state: ok, persist: n/a}
   GetBucketStatistics: {wire: fixed, errors: ok, state: ok, persist: n/a, note: "route method was GET with accountId as a query param; real SDK sends POST /datasources/s3/statistics with accountId in the JSON body -- unreachable via real client before fix. accountId itself is still unused by the (intentionally global, single-account) stats aggregation. 2026-08-15 pass: response key 'classifiableBucketCount' does not exist on the real GetBucketStatisticsOutput at all (real key is 'classifiableObjectCount', a summed object count, not a bucket count) -- a real client's ClassifiableObjectCount was always 0. Also added 'objectCount'/'sizeInBytes' aggregate fields, summed from per-bucket S3BucketMetadata.ObjectCount/SizeInBytes the backend already tracks but never rolled up. 'lastUpdated'/'sizeInBytesCompressed'/'bucketStatisticsBySensitivity' remain unmodeled (no compression/sensitivity-scan tracking in this backend) -- disclosed, not fixed."}
-  BatchGetCustomDataIdentifiers: {wire: fixed, errors: ok, state: ok, persist: n/a}
   GetClassificationExportConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
   PutClassificationExportConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
   GetClassificationScope: {wire: ok, errors: ok, state: ok, persist: ok}
