@@ -162,6 +162,146 @@ func TestGetRuleGroup_RealSDKClient_ARNOptional(t *testing.T) {
 	assert.Equal(t, aws.ToString(created.Summary.Id), aws.ToString(got.RuleGroup.Id))
 }
 
+// TestWebACL_OptionalConfigs drives the real aws-sdk-go-v2 client:
+// MonetizationConfig, DataProtectionConfig, ApplicationConfig, and
+// OnSourceDDoSProtectionConfig are all real CreateWebACLInput/
+// UpdateWebACLInput members (wafv2@v1.77.3 api_op_CreateWebACL.go,
+// api_op_UpdateWebACL.go) that this handler silently discarded --
+// createWebACLRequest/updateWebACLRequest had no fields for them at all, so
+// json.Unmarshal dropped them and GetWebACL never echoed them back, unlike
+// their sibling opaque configs (AssociationConfig/CaptchaConfig/
+// ChallengeConfig) which this handler already round-trips.
+func TestWebACL_OptionalConfigs(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestWAFV2Client(t, h)
+
+	vc := &types.VisibilityConfig{
+		CloudWatchMetricsEnabled: true,
+		MetricName:               aws.String("metric"),
+		SampledRequestsEnabled:   true,
+	}
+
+	created, err := client.CreateWebACL(t.Context(), &wafv2sdk.CreateWebACLInput{
+		Name:             aws.String("optional-configs-acl"),
+		Scope:            types.ScopeRegional,
+		DefaultAction:    &types.DefaultAction{Allow: &types.AllowAction{}},
+		VisibilityConfig: vc,
+		MonetizationConfig: &types.MonetizationConfig{
+			CurrencyMode: types.CurrencyModeTest,
+		},
+		DataProtectionConfig: &types.DataProtectionConfig{
+			DataProtections: []types.DataProtection{
+				{
+					Action: types.DataProtectionActionHash,
+					Field:  &types.FieldToProtect{FieldType: types.FieldToProtectTypeSingleHeader},
+				},
+			},
+		},
+		ApplicationConfig: &types.ApplicationConfig{
+			Attributes: []types.ApplicationAttribute{
+				{Name: aws.String("attr1"), Values: []string{"v1", "v2"}},
+			},
+		},
+		OnSourceDDoSProtectionConfig: &types.OnSourceDDoSProtectionConfig{
+			ALBLowReputationMode: types.LowReputationModeAlwaysOn,
+		},
+	})
+	require.NoError(t, err)
+
+	got, err := client.GetWebACL(t.Context(), &wafv2sdk.GetWebACLInput{Id: created.Summary.Id})
+	require.NoError(t, err)
+
+	require.NotNil(t, got.WebACL.MonetizationConfig,
+		"MonetizationConfig was silently dropped by createWebACLRequest before it had a field for it")
+	assert.Equal(t, types.CurrencyModeTest, got.WebACL.MonetizationConfig.CurrencyMode)
+
+	require.NotNil(t, got.WebACL.DataProtectionConfig)
+	require.Len(t, got.WebACL.DataProtectionConfig.DataProtections, 1)
+	assert.Equal(t, types.DataProtectionActionHash, got.WebACL.DataProtectionConfig.DataProtections[0].Action)
+
+	require.NotNil(t, got.WebACL.ApplicationConfig)
+	require.Len(t, got.WebACL.ApplicationConfig.Attributes, 1)
+	assert.Equal(t, "attr1", aws.ToString(got.WebACL.ApplicationConfig.Attributes[0].Name))
+
+	require.NotNil(t, got.WebACL.OnSourceDDoSProtectionConfig)
+	assert.Equal(t, types.LowReputationModeAlwaysOn, got.WebACL.OnSourceDDoSProtectionConfig.ALBLowReputationMode)
+
+	updated, err := client.UpdateWebACL(t.Context(), &wafv2sdk.UpdateWebACLInput{
+		Id:               created.Summary.Id,
+		Name:             created.Summary.Name,
+		Scope:            types.ScopeRegional,
+		LockToken:        created.Summary.LockToken,
+		DefaultAction:    &types.DefaultAction{Allow: &types.AllowAction{}},
+		VisibilityConfig: vc,
+		MonetizationConfig: &types.MonetizationConfig{
+			CurrencyMode: types.CurrencyModeReal,
+		},
+	})
+	require.NoError(t, err)
+	_ = updated
+
+	got2, err := client.GetWebACL(t.Context(), &wafv2sdk.GetWebACLInput{Id: created.Summary.Id})
+	require.NoError(t, err)
+	require.NotNil(t, got2.WebACL.MonetizationConfig)
+	assert.Equal(t, types.CurrencyModeReal, got2.WebACL.MonetizationConfig.CurrencyMode,
+		"UpdateWebACL's MonetizationConfig was silently dropped before updateWebACLRequest had a field for it")
+}
+
+// TestRuleGroup_MonetizationConfig drives the real aws-sdk-go-v2 client:
+// MonetizationConfig is a real CreateRuleGroupInput/UpdateRuleGroupInput
+// member (wafv2@v1.77.3 api_op_CreateRuleGroup.go,
+// api_op_UpdateRuleGroup.go) that this handler silently discarded.
+func TestRuleGroup_MonetizationConfig(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestWAFV2Client(t, h)
+
+	vc := &types.VisibilityConfig{
+		CloudWatchMetricsEnabled: true,
+		MetricName:               aws.String("metric"),
+		SampledRequestsEnabled:   true,
+	}
+
+	created, err := client.CreateRuleGroup(t.Context(), &wafv2sdk.CreateRuleGroupInput{
+		Name:             aws.String("monetized-rulegroup"),
+		Scope:            types.ScopeRegional,
+		Capacity:         aws.Int64(10),
+		VisibilityConfig: vc,
+		MonetizationConfig: &types.MonetizationConfig{
+			CurrencyMode: types.CurrencyModeTest,
+		},
+	})
+	require.NoError(t, err)
+
+	got, err := client.GetRuleGroup(t.Context(), &wafv2sdk.GetRuleGroupInput{Id: created.Summary.Id})
+	require.NoError(t, err)
+	require.NotNil(t, got.RuleGroup.MonetizationConfig,
+		"MonetizationConfig was silently dropped by createRuleGroupRequest before it had a field for it")
+	assert.Equal(t, types.CurrencyModeTest, got.RuleGroup.MonetizationConfig.CurrencyMode)
+
+	updated, err := client.UpdateRuleGroup(t.Context(), &wafv2sdk.UpdateRuleGroupInput{
+		Id:               created.Summary.Id,
+		Name:             created.Summary.Name,
+		Scope:            types.ScopeRegional,
+		LockToken:        created.Summary.LockToken,
+		VisibilityConfig: vc,
+		MonetizationConfig: &types.MonetizationConfig{
+			CurrencyMode: types.CurrencyModeReal,
+		},
+	})
+	require.NoError(t, err)
+	_ = updated
+
+	got2, err := client.GetRuleGroup(t.Context(), &wafv2sdk.GetRuleGroupInput{Id: created.Summary.Id})
+	require.NoError(t, err)
+	require.NotNil(t, got2.RuleGroup.MonetizationConfig)
+	assert.Equal(t, types.CurrencyModeReal, got2.RuleGroup.MonetizationConfig.CurrencyMode,
+		"UpdateRuleGroup's MonetizationConfig was silently dropped before updateRuleGroupRequest had a field for it")
+}
+
 // TestCheckCapacity_WireKeyCase proves gopherstack-zquj's keycheck sweep
 // finding: wafv2@v1.77.3's CheckCapacityOutput has exactly one member,
 // "Capacity" (deserializers.go's

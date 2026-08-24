@@ -198,6 +198,29 @@ func (b *InMemoryBackend) registryARN(name string) string {
 	return arn.Build("glue", b.region, b.accountID, "registry/"+name)
 }
 
+// FindSchemaVersionByID locates a schema version and its owning schema by
+// version ID alone, for ops (PutSchemaVersionMetadata,
+// RemoveSchemaVersionMetadata) whose real request only ever carries
+// SchemaVersionId, not a SchemaId -- there is no existing index from version
+// ID back to its schema, so this scans every registered schema's versions.
+func (b *InMemoryBackend) FindSchemaVersionByID(schemaVersionID string) (*SchemaVersion, *Schema, bool) {
+	b.mu.RLock("FindSchemaVersionByID")
+	defer b.mu.RUnlock()
+
+	for _, s := range b.schemas.All() {
+		for _, sv := range b.schemaVersions[schemaVersionListKey(s.SchemaARN)] {
+			if sv.SchemaVersionID == schemaVersionID {
+				svCopy := *sv
+				sCopy := *s
+
+				return &svCopy, &sCopy, true
+			}
+		}
+	}
+
+	return nil, nil, false
+}
+
 func (b *InMemoryBackend) schemaARN(registryName, schemaName string) string {
 	return arn.Build(
 		"glue",
@@ -282,33 +305,40 @@ func (b *InMemoryBackend) ListRegistries() []*Registry {
 }
 
 // UpdateRegistry updates a registry's description.
-func (b *InMemoryBackend) UpdateRegistry(name, description string) error {
+func (b *InMemoryBackend) UpdateRegistry(name, description string) (*Registry, error) {
 	b.mu.Lock("UpdateRegistry")
 	defer b.mu.Unlock()
 
 	reg, ok := b.registries.Get(name)
 	if !ok {
-		return ErrNotFound
+		return nil, ErrNotFound
 	}
 
 	reg.Description = description
 	reg.UpdatedTime = float64(time.Now().Unix())
 
-	return nil
+	cp := *reg
+	cp.Tags = maps.Clone(reg.Tags)
+
+	return &cp, nil
 }
 
 // DeleteRegistry deletes a registry by name.
-func (b *InMemoryBackend) DeleteRegistry(name string) error {
+func (b *InMemoryBackend) DeleteRegistry(name string) (*Registry, error) {
 	b.mu.Lock("DeleteRegistry")
 	defer b.mu.Unlock()
 
-	if !b.registries.Has(name) {
-		return ErrNotFound
+	reg, ok := b.registries.Get(name)
+	if !ok {
+		return nil, ErrNotFound
 	}
 
 	b.registries.Delete(name)
 
-	return nil
+	cp := *reg
+	cp.Tags = maps.Clone(reg.Tags)
+
+	return &cp, nil
 }
 
 // isValidCompatibilityMode reports whether mode is one of the schema
@@ -454,18 +484,18 @@ func (b *InMemoryBackend) ListSchemas(registryName string) []*Schema {
 // UpdateSchema updates a schema's compatibility and description.
 func (b *InMemoryBackend) UpdateSchema(
 	registryName, schemaName, compatibility, description string,
-) error {
+) (*Schema, error) {
 	b.mu.Lock("UpdateSchema")
 	defer b.mu.Unlock()
 
 	s, ok := b.schemas.Get(schemaKey(registryName, schemaName))
 	if !ok {
-		return ErrNotFound
+		return nil, ErrNotFound
 	}
 
 	if compatibility != "" {
 		if !isValidCompatibilityMode(compatibility) {
-			return fmt.Errorf("%w: invalid Compatibility %q", ErrValidation, compatibility)
+			return nil, fmt.Errorf("%w: invalid Compatibility %q", ErrValidation, compatibility)
 		}
 
 		s.Compatibility = compatibility
@@ -477,11 +507,14 @@ func (b *InMemoryBackend) UpdateSchema(
 
 	s.UpdatedTime = float64(time.Now().Unix())
 
-	return nil
+	cp := *s
+	cp.Tags = maps.Clone(s.Tags)
+
+	return &cp, nil
 }
 
 // DeleteSchema deletes a schema by registry and schema name.
-func (b *InMemoryBackend) DeleteSchema(registryName, schemaName string) error {
+func (b *InMemoryBackend) DeleteSchema(registryName, schemaName string) (*Schema, error) {
 	b.mu.Lock("DeleteSchema")
 	defer b.mu.Unlock()
 
@@ -489,13 +522,16 @@ func (b *InMemoryBackend) DeleteSchema(registryName, schemaName string) error {
 
 	s, ok := b.schemas.Get(key)
 	if !ok {
-		return ErrNotFound
+		return nil, ErrNotFound
 	}
 
 	delete(b.schemaVersions, schemaVersionListKey(s.SchemaARN))
 	b.schemas.Delete(key)
 
-	return nil
+	cp := *s
+	cp.Tags = maps.Clone(s.Tags)
+
+	return &cp, nil
 }
 
 // RegisterSchemaVersion registers a new version of a schema.

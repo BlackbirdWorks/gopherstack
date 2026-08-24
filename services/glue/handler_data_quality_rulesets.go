@@ -38,12 +38,18 @@ type getDataQualityRulesetInput struct {
 	Name string `json:"Name"`
 }
 
+// getDataQualityRulesetOutput deliberately has no Arn field: real
+// GetDataQualityRulesetOutput (glue@v1.152.0
+// api_op_GetDataQualityRuleset.go) has no such member -- see
+// DataQualityRuleset.ARN's doc comment (models.go). RecommendationRunId
+// (real, set only when a ruleset is created from a recommendation-run
+// promotion flow) has no backing state anywhere in this backend and is left
+// absent rather than invented.
 type getDataQualityRulesetOutput struct {
 	TargetTable                      *DataQualityTargetTable `json:"TargetTable,omitempty"`
 	Name                             string                  `json:"Name"`
 	Ruleset                          string                  `json:"Ruleset,omitempty"`
 	Description                      string                  `json:"Description,omitempty"`
-	ARN                              string                  `json:"Arn,omitempty"`
 	DataQualitySecurityConfiguration string                  `json:"DataQualitySecurityConfiguration,omitempty"`
 	CreatedOn                        float64                 `json:"CreatedOn,omitempty"`
 	LastModifiedOn                   float64                 `json:"LastModifiedOn,omitempty"`
@@ -62,7 +68,6 @@ func (h *Handler) handleGetDataQualityRuleset(
 		Name:                             r.Name,
 		Ruleset:                          r.Ruleset,
 		Description:                      r.Description,
-		ARN:                              r.ARN,
 		DataQualitySecurityConfiguration: r.DataQualitySecurityConfiguration,
 		TargetTable:                      r.TargetTable,
 		CreatedOn:                        r.CreatedOn,
@@ -126,9 +131,25 @@ type listDataQualityRulesetsInput struct {
 	MaxResults int32                             `json:"MaxResults,omitempty"`
 }
 
+// dataQualityRulesetListItem mirrors DataQualityRuleset minus ARN: real
+// DataQualityRulesetListDetails (glue@v1.152.0 types/types.go) has no Arn
+// member, unlike DataQualityRuleset which keeps one internally for
+// ARN-keyed TagResource dispatch and persistence -- marshaling
+// *DataQualityRuleset directly here would leak that internal-only field
+// onto the wire.
+type dataQualityRulesetListItem struct {
+	TargetTable                      *DataQualityTargetTable `json:"TargetTable,omitempty"`
+	Name                             string                  `json:"Name"`
+	Ruleset                          string                  `json:"Ruleset,omitempty"`
+	Description                      string                  `json:"Description,omitempty"`
+	DataQualitySecurityConfiguration string                  `json:"DataQualitySecurityConfiguration,omitempty"`
+	CreatedOn                        float64                 `json:"CreatedOn,omitempty"`
+	LastModifiedOn                   float64                 `json:"LastModifiedOn,omitempty"`
+}
+
 type listDataQualityRulesetsOutput struct {
-	NextToken string                `json:"NextToken,omitempty"`
-	Rulesets  []*DataQualityRuleset `json:"Rulesets"`
+	NextToken string                       `json:"NextToken,omitempty"`
+	Rulesets  []dataQualityRulesetListItem `json:"Rulesets"`
 }
 
 // matchesTimeWindow reports whether value falls strictly after after (when
@@ -198,7 +219,20 @@ func (h *Handler) handleListDataQualityRulesets(
 
 	page, next := paginateSlice(filtered, in.NextToken, limit)
 
-	return &listDataQualityRulesetsOutput{Rulesets: page, NextToken: next}, nil
+	items := make([]dataQualityRulesetListItem, 0, len(page))
+	for _, r := range page {
+		items = append(items, dataQualityRulesetListItem{
+			Name:                             r.Name,
+			Ruleset:                          r.Ruleset,
+			Description:                      r.Description,
+			DataQualitySecurityConfiguration: r.DataQualitySecurityConfiguration,
+			TargetTable:                      r.TargetTable,
+			CreatedOn:                        r.CreatedOn,
+			LastModifiedOn:                   r.LastModifiedOn,
+		})
+	}
+
+	return &listDataQualityRulesetsOutput{Rulesets: items, NextToken: next}, nil
 }
 
 type startDataQualityRulesetEvaluationRunInput struct {

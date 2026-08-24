@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"sort"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 // --- Code signing configs ---
@@ -101,7 +103,7 @@ func (b *InMemoryBackend) UpdateCodeSigningConfig(
 }
 
 // ListCodeSigningConfigs returns all code signing configs.
-func (b *InMemoryBackend) ListCodeSigningConfigs() []*CodeSigningConfig {
+func (b *InMemoryBackend) ListCodeSigningConfigs(marker string, maxItems int) page.Page[*CodeSigningConfig] {
 	b.mu.RLock("ListCodeSigningConfigs")
 	defer b.mu.RUnlock()
 
@@ -111,7 +113,7 @@ func (b *InMemoryBackend) ListCodeSigningConfigs() []*CodeSigningConfig {
 		return cfgs[i].CodeSigningConfigID < cfgs[j].CodeSigningConfigID
 	})
 
-	return cfgs
+	return page.New(cfgs, marker, maxItems, lambdaDefaultMaxItems)
 }
 
 // PutFunctionCodeSigningConfig associates a code signing config with a function.
@@ -163,13 +165,16 @@ func (b *InMemoryBackend) DeleteFunctionCodeSigningConfig(functionName string) e
 	return nil
 }
 
-// ListFunctionsByCodeSigningConfig returns function ARNs associated with a code signing config.
-func (b *InMemoryBackend) ListFunctionsByCodeSigningConfig(cscARN string) ([]string, error) {
+// ListFunctionsByCodeSigningConfig returns a page of function ARNs associated with a
+// code signing config.
+func (b *InMemoryBackend) ListFunctionsByCodeSigningConfig(
+	cscARN, marker string, maxItems int,
+) (page.Page[string], error) {
 	b.mu.RLock("ListFunctionsByCodeSigningConfig")
 	defer b.mu.RUnlock()
 
 	if _, ok := b.codeSigningConfigs.Get(cscARN); !ok {
-		return nil, ErrFunctionNotFound
+		return page.Page[string]{}, ErrFunctionNotFound
 	}
 
 	var arns []string
@@ -185,5 +190,5 @@ func (b *InMemoryBackend) ListFunctionsByCodeSigningConfig(cscARN string) ([]str
 
 	sort.Strings(arns)
 
-	return arns, nil
+	return page.New(arns, marker, maxItems, lambdaDefaultMaxItems), nil
 }

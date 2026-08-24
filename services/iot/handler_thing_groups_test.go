@@ -114,7 +114,9 @@ func TestDynamicThingGroup(t *testing.T) {
 	// Create
 	out := iotOK(t, h, http.MethodPost, "/dynamic-thing-groups/my-dynamic-group", map[string]any{
 		"queryString": "thingName:*",
-		"description": "test dynamic group",
+		"thingGroupProperties": map[string]any{
+			"thingGroupDescription": "test dynamic group",
+		},
 	})
 	if out["thingGroupName"] != "my-dynamic-group" {
 		t.Errorf("expected thingGroupName=my-dynamic-group, got %v", out)
@@ -130,6 +132,47 @@ func TestDynamicThingGroup(t *testing.T) {
 
 	// Delete
 	iotOK(t, h, http.MethodDelete, "/dynamic-thing-groups/my-dynamic-group", nil)
+}
+
+// TestDynamicThingGroup_RealWireShape guards CreateDynamicThingGroupInput/
+// UpdateDynamicThingGroupInput's real body shape (iot@v1.77.4
+// api_op_CreateDynamicThingGroup.go/api_op_UpdateDynamicThingGroup.go):
+// description lives nested under thingGroupProperties.thingGroupDescription
+// (a top-level "description" field, as this handler previously read, does
+// not exist on the wire and is silently ignored by a real client's
+// deserializer) -- description was always dropped. Also guards indexName/
+// queryVersion (previously entirely unmodeled) and UpdateDynamicThingGroup's
+// real expectedVersion optimistic-lock semantics, previously entirely
+// unimplemented despite the sibling static UpdateThingGroup already
+// enforcing it via the same UpdateThingGroupInput struct.
+func TestDynamicThingGroup_RealWireShape(t *testing.T) {
+	t.Parallel()
+	h, _ := newHandlerForBatch3Test(t)
+
+	out := iotOK(t, h, http.MethodPost, "/dynamic-thing-groups/wire-shape-group", map[string]any{
+		"queryString":  "thingName:*",
+		"indexName":    "AWS_Things",
+		"queryVersion": "2017-09-30",
+		"thingGroupProperties": map[string]any{
+			"thingGroupDescription": "nested description",
+		},
+	})
+	assert.Equal(t, "AWS_Things", out["indexName"])
+	assert.Equal(t, "2017-09-30", out["queryVersion"])
+
+	descOut := iotOK(t, h, http.MethodGet, "/thing-groups/wire-shape-group", nil)
+	props, _ := descOut["thingGroupProperties"].(map[string]any)
+	assert.Equal(t, "nested description", props["thingGroupDescription"])
+
+	t.Run("expected_version_conflict", func(t *testing.T) {
+		t.Parallel()
+
+		rec := iotRequest(t, h, http.MethodPatch, "/dynamic-thing-groups/wire-shape-group", map[string]any{
+			"queryString":     "thingName:device*",
+			"expectedVersion": 99,
+		})
+		assert.Equal(t, http.StatusConflict, rec.Code)
+	})
 }
 
 func TestBackend_UpdateThingGroupsForThing(t *testing.T) {

@@ -929,3 +929,494 @@ SDK's own `serializers.go` HTTP bindings while here: `CreateCommand`
 (`DELETE /command-executions/{executionId}`) all already matched their real
 routes correctly -- `GetCommandExecution` was the only unreachable op left in
 the family.
+
+## 2026-08-23 (pass #6, continued): audit/device-defender family + singleton ops
+
+**Re-derived the never-audited count instead of trusting the prior pass's prose.**
+Diffed every op name in `op_names.go` (276 total) against every op name appearing
+anywhere in this file -- including the structured `ops:`/`families:` blocks, not
+just prose -- distinguishing "named in an actually-audited context" from "merely
+listed in the prior pass's own not-reached enumeration" (a name-only grep can't
+tell those apart, since the prior pass's own two 52/50-item lists name every op
+it did NOT audit). Excluding lines that only enumerate not-yet-reached ops, 174
+of 276 ops resolve to genuinely-audited context (the `ops:` block, `families:`
+prose, the Commands over-wide-response section, and the 2026-08-23 pass's own
+found-and-fixed/audited-correct lists) and **102 do not -- the 102 figure holds
+exactly**, matching the prior pass's own two lists (52 void-output + 50
+has-body) name-for-name.
+
+**Audited 19 of the 102** (13 from the audit/device-defender family, plus 6
+singletons): `DescribeAuditMitigationActionsTask`, `ListAuditMitigationActionsExecutions`,
+`ListAuditSuppressions`, `ListAuditTasks`, `ListRelatedResourcesForAuditFinding`,
+`DescribeAccountAuditConfiguration`, `DescribeAuditSuppression`, `DescribeAuditTask`,
+`CreateScheduledAudit`, `DescribeScheduledAudit`, `ListScheduledAudits`,
+`StartOnDemandAuditTask`, `UpdateScheduledAudit`, `CreateBillingGroup`,
+`UpdateBillingGroup`, `CancelJob`, `GetRegistrationCode`, `GetPackageConfiguration`,
+`ListSbomValidationResults`. Found and fixed 5 real bugs across 4 ops (a ~26% hit
+rate), field-diffed against the pinned SDK's deserializer/type definitions, not
+against gopherstack's own output:
+
+- `UpdateAccountAuditConfiguration`/`DescribeAccountAuditConfiguration`
+  (`audit.go`): real `types.AuditCheckConfiguration` (v1.77.4) has both
+  `enabled` and `configuration` (`map[string]string`); this backend's
+  `AuditCheckConfig` only ever modeled `enabled`, so a real client's
+  `UpdateAccountAuditConfiguration` call setting per-check configuration
+  values had them silently dropped, and `DescribeAccountAuditConfiguration`
+  could never surface them. Fixed: added `Configuration` to `AuditCheckConfig`
+  (purely additive; both request-parsing and response marshaling already bind
+  the same struct, so no handler change was needed beyond the type). See
+  `TestUpdateAccountAuditConfiguration_ConfigurationFieldSurvives`.
+- `DescribeScheduledAudit` (`audit.go`): `ScheduledAudit.Tags` (internal
+  write-only scratch state -- the canonical tag store is the separately
+  persisted `resourceTags` map, confirmed by grep: `sa.Tags` is written once
+  at Create and never read back) was tagged `json:"tags,omitempty"`, leaking
+  onto the wire even though real `DescribeScheduledAuditOutput` has no
+  `tags` member -- the same leaked-field class already fixed for
+  Job/JobTemplate/SecurityProfile. Fixed via `json:"-"`.
+- `ListScheduledAudits` (`handler_audit.go`): `ScheduledAuditMetadata`
+  (v1.77.4) has `dayOfMonth`/`dayOfWeek`; the backend already tracks both per
+  scheduled audit (set on `CreateScheduledAudit`, mutable via
+  `UpdateScheduledAudit`) but the list summary only ever emitted
+  `scheduledAuditName`/`scheduledAuditArn`/`frequency`. Fixed to include both.
+  See `TestScheduledAudit_ListFieldsAndDescribeWireShape` (covers both fixes
+  above, table-driven over MONTHLY/WEEKLY).
+- `DescribeAuditMitigationActionsTask` (`handler_devicedefender.go`): real
+  `DescribeAuditMitigationActionsTaskOutput.actionsDefinition`
+  (`[]types.MitigationAction`, v1.77.4) was never surfaced at all -- a real
+  client's deserializer never found the key and it stayed permanently empty.
+  This is the same field its sibling `DescribeDetectMitigationActionsTask`
+  already resolves via the existing `MitigationActionRefs` helper (fixed in
+  an earlier pass), just never given the same treatment on the audit side.
+  Fixed via a new `auditMitigationTaskActionsDefinition` helper that
+  collects the unique action names across `AuditCheckToActionsMapping`'s
+  per-check lists and resolves them the same way. See
+  `TestDeviceDefender_AuditMitigationTaskLifecycle`'s new `actionsDefinition`
+  assertions.
+- `CancelJob` (`jobs.go`/`handler_jobs.go`): two bugs. (1) real
+  `CancelJobOutput` has a `description` member this handler never returned
+  (the backend already tracks `Job.Description`). (2) `CancelJob`
+  unconditionally set `Status` to `CANCELED` regardless of the job's current
+  state, silently "re-canceling" an already-`COMPLETED`/`CANCELED`/`FAILED`/
+  `DELETION_IN_PROGRESS` job instead of returning
+  `InvalidStateTransitionException` -- the same terminal-state guard
+  `CancelJobExecution`/`CancelAuditTask` already enforce elsewhere in this
+  service. Both fixed. See `TestCancelJob_DescriptionAndTerminalStateGuard`.
+
+**Sibling check**: yes -- the `DescribeAuditMitigationActionsTask` bug is a
+direct case of "a correct sibling beside a broken op" (shape #7): its
+detect-mitigation sibling already had the `actionsDefinition` fix from an
+earlier pass, but the audit-mitigation side was never given the same
+treatment despite sharing the identical `MitigationActionRefs` resolution
+mechanism. The other three fixes (`AuditCheckConfig.Configuration`,
+`ScheduledAudit.Tags`, `ListScheduledAudits` fields) have no direct sibling
+within their own small families -- checked and none found.
+
+**Audited and found already correct** (field-diffed, no gap):
+`ListAuditMitigationActionsExecutions`, `ListAuditSuppressions`, `ListAuditTasks`,
+`DescribeAuditSuppression`, `CreateScheduledAudit`, `StartOnDemandAuditTask`,
+`CreateBillingGroup`, `UpdateBillingGroup`, `GetRegistrationCode`,
+`GetPackageConfiguration`, `ListSbomValidationResults`.
+
+**Modelling gaps found, not fixed** (per `parity-principles.md`'s no-synthesis
+rule -- reported, not guessed at):
+- Audit *task execution* is not simulated at all: `StartOnDemandAuditTask`
+  ignores its `TargetCheckNames` input entirely (bound to `_`), audit tasks
+  never transition past `IN_PROGRESS` (only `CancelAuditTask` moves them, to
+  `CANCELED`), and `DescribeAuditTaskOutput`'s real `auditDetails`
+  (`map[string]types.AuditCheckDetails`, per-check pass/fail detail) and
+  `taskStatistics` (`*types.TaskStatistics`, aggregate check counts) have no
+  backing state to compute from -- there is no simulated check-execution
+  result to roll up. This is the same class of gap as the already-documented
+  `DescribeDomainConfiguration` TLS subsystem: an entire unmodeled subsystem,
+  not a wire-shape omission fixable at the handler layer.
+- `AuditFinding.RelatedResources` (`[]map[string]any`) has no production
+  write path anywhere in this service -- grepped every `.go` file outside
+  `_test.go`; the only assignment is the field's own clone helper. It is
+  reachable only via test-only seeding, so `ListRelatedResourcesForAuditFinding`
+  and `DescribeAuditFinding`'s `relatedResources` field can never be
+  populated in any real-client-driven scenario. Converting the freeform
+  `map[string]any` to a typed `RelatedResource{additionalInfo,
+  resourceIdentifier, resourceType}` (mirroring the fix already applied to
+  `AuditFinding.NonCompliantResource` in an earlier pass) would not close
+  this gap, since nothing populates the field either way -- reported, not
+  fixed.
+
+**False positives ruled out**: `EventConfigEntry.Enabled` uses the wire key
+`"Enabled"` (capitalized) -- looked like a casing bug at first glance, but
+confirmed correct against `awsRestjson1_deserializeDocumentConfiguration`
+(v1.77.4): real `types.Configuration.Enabled` genuinely serializes under
+`"Enabled"`, not `"enabled"`. `GetPackageConfiguration` initially looked like
+it was missing the real `versionUpdateByJobsConfig` wrapper key (the handler
+returns the whole `*PackageConfiguration` struct with no visible wrapper in
+the handler code) -- but `PackageConfiguration`'s own field is tagged
+`json:"versionUpdateByJobsConfig,omitempty"`, so the wrapper is already
+present; not a bug.
+
+**Snapshot version**: bumped `iotSnapshotVersion` 2 -> 3. Reason: the
+`ScheduledAudit.Tags` retag from `json:"tags,omitempty"` to `json:"-"` is a
+persisted-struct json-tag change (`ScheduledAudit` round-trips via the
+generic `store.Table[ScheduledAudit]` registry, which marshals the struct
+directly per its own json tags -- `pkgs/store/table.go`'s `Snapshot`/`Restore`
+use `json.Marshal`/`Unmarshal` on the same type). `pkgs/persistence`'s
+`TestSnapshotVersionGuard` confirmed this needed a bump (failed without one:
+"at least one existing field's name, type, or json tag changed or was
+removed -- this is NOT the additive case"); bumped, then regenerated
+`pkgs/persistence/testdata/snapshot_inventory.json` via `-update` and
+re-ran the guard clean. Functionally the removed field was dead weight (its
+real state lives in the separately-persisted `resourceTags` map and is never
+read back from `ScheduledAudit.Tags`), but the guard is right that the
+on-disk shape changed and can't tell the difference from a dangerous change
+without the bump.
+
+**Ops not reached this pass** (of the 102; the remaining 83): the rest of the
+audit/device-defender family already covered by prior passes' `ops:`/
+`families:` entries is done, but `CreateDynamicThingGroup`/
+`UpdateDynamicThingGroup`, all of `handler_routing.go`'s grab-bag
+(`DescribeEncryptionConfiguration`, `DescribeEventConfigurations`,
+`DescribeManagedJobTemplate`, `DescribeThingRegistrationTask`,
+`GetBehaviorModelTrainingSummaries`, `GetThingConnectivityData`,
+`ListDomainConfigurations`, `ListManagedJobTemplates`, `ListMetricValues`,
+`ListOutgoingCertificates`, `ListThingGroupsForThing`, `ListThingPrincipals`,
+`ListThingPrincipalsV2`, `ListThingRegistrationTaskReports`,
+`ListThingRegistrationTasks`, `RegisterThing`, `StartThingRegistrationTask`,
+`TestAuthorization`, `TestInvokeAuthorizer`), `handler_policies.go`'s
+(`GetEffectivePolicies`, `ListPolicyPrincipals`, `ListPrincipalPolicies`,
+`ListPrincipalThings`, `ListPrincipalThingsV2`, `ListTargetsForPolicy`),
+`handler_logging.go` (`GetLoggingOptions`, `GetV2LoggingOptions`,
+`ListV2LoggingLevels`), `handler_indexing.go` (`GetIndexingConfiguration`),
+and the 52 void-output ops listed in the 2026-08-23 (pass #6) entry above
+remain unaudited by any pass. These are the next pass's ground.
+
+Gates run: `go build ./...`, `go vet ./services/iot/...`, `gofmt -l`,
+`go test -race ./services/iot/... ./pkgs/persistence/...`,
+`golangci-lint run ./services/iot/...` -- all clean.
+
+## 2026-08-23 (pass #7): all 31 has-body ops from the never-audited 83 + 8 void-op spot checks
+
+**Re-derived the 83 figure independently** (diffed `op_names.go`'s 276 ops
+against every "genuinely audited" mention in this file's `ops:`/`families:`
+blocks, distinguishing that from the prior pass's own not-reached
+enumeration) -- **confirmed exactly 83**, split 31 has-body / 52 void-output,
+matching pass #6's own count name-for-name.
+
+**Audited all 31 has-body ops.** Found and fixed 13 real bugs across 12 ops
+(a ~39% hit rate on the has-body queue), field-diffed against the pinned
+SDK's serializer/deserializer/type definitions:
+
+- `DescribeEventConfigurations`/`UpdateEventConfigurations` (`audit.go`):
+  `EventConfigurations` never modeled `creationDate`/`lastModifiedDate`
+  (both real `DescribeEventConfigurationsOutput` members) -- a real client
+  got neither back no matter how many times `UpdateEventConfigurations` ran.
+  Fixed: `CreationDate` set once on first write, `LastModifiedDate` on every
+  write. See `TestEventConfigurations_DatesSurface`.
+- `ListDomainConfigurations` (`handler_provisioning.go`): the real
+  `serviceType`/`marker`/`pageSize` query params (input) and `nextMarker`
+  (output) were entirely ignored -- every domain configuration was always
+  returned in one unfiltered page. Fixed. New shared
+  `parseIoTMarkerPagination` helper (`handler.go`) factors out the
+  marker/pageSize pattern, also applied to `ListOutgoingCertificates` below.
+  See `TestListDomainConfigurations_ServiceTypeFilterAndPagination`.
+- `ListThingGroupsForThing` (`handler_thing_groups.go`): real
+  `ListThingGroupsForThingOutput.thingGroups` is
+  `[]types.GroupNameAndArn{groupName,groupArn}` -- this op returned bare
+  group-name strings, which a real client's deserializer (expects a JSON
+  object) would reject outright. **Correct sibling**: `ListThingGroups`
+  (plain, non-thing-scoped) already got this right from an earlier pass,
+  with a comment explaining the exact shape -- `ListThingGroupsForThing` was
+  never given the same fix despite sharing the identical `GroupNameAndArn`
+  wire type. Also added the real `maxResults`/`nextToken` pagination,
+  previously ignored. See
+  `TestListThingGroupsForThing_WireShapeAndPagination`.
+- `ListThingPrincipals` (`handler.go`): real `maxResults`/`nextToken`
+  pagination entirely ignored. Fixed. See `TestListThingPrincipals_Pagination`.
+- `ListThingPrincipalsV2`/`ListPrincipalThingsV2` (`handler.go`/
+  `handler_policies.go`): the real `thingPrincipalType` query filter
+  (`EXCLUSIVE_THING`/`NON_EXCLUSIVE_THING`) was ignored on both ops; separately
+  `ListPrincipalThingsV2` didn't even call its own V2 backend method (it
+  delegated to V1 `ListPrincipalThings` and only ever emitted a bare
+  `thingName`, dropping `thingPrincipalType` from every entry, the whole
+  reason a V2 variant of this op exists per real AWS). Both fixed. See
+  `TestListThingPrincipalsV2_ThingPrincipalTypeFilter`,
+  `TestListPrincipalThingsV2_WireShapeAndFilter`. **Follow-up gap, not
+  fixed** (see below): `AttachThingPrincipal` drops its own real
+  `thingPrincipalType` query param entirely, so every attachment is always
+  stored as the default `NON_EXCLUSIVE_THING` regardless of what a real
+  client requests -- these two filters are correct but can only ever
+  observe the default value until that's fixed.
+- `ListPrincipalPolicies`/`ListPolicyPrincipals`/`ListTargetsForPolicy`
+  (`handler_policies.go`): the real `marker`/`pageSize` pagination
+  (`nextMarker` on output) was ignored on all three. Fixed. See
+  `TestPolicyPrincipalListing_Pagination`.
+- `GetEffectivePolicies` (`handler_policies.go`): real
+  `GetEffectivePoliciesInput.thingName` is a query parameter, not a body
+  field (`principal`/`cognitoIdentityPoolId` are body fields) -- a real
+  client's thing-scoped effective-policy resolution always saw an empty
+  `thingName`. Fixed. See `TestGetEffectivePolicies_ThingNameIsQueryParam`.
+- `ListV2LoggingLevels`/`SetV2LoggingOptions`/`GetV2LoggingOptions`
+  (`handler_logging.go`/`logging.go`): two bugs. (1) `ListV2LoggingLevels`
+  ignored the real `targetType` filter and `maxResults`/`nextToken`
+  pagination entirely. (2) `SetV2LoggingOptionsInput`'s real
+  `eventConfigurations` member
+  (`[]types.LogEventConfiguration{eventType,logDestination,logLevel}`) was
+  silently dropped, and `GetV2LoggingOptionsOutput` never modeled it at all.
+  Both fixed (new `LogEventConfigurationV2` type); `SetV2LoggingOptions`'s
+  exported `Backend` interface signature changed to add the parameter --
+  `make build-check` run clean afterward. See
+  `TestListV2LoggingLevels_TargetTypeFilterAndPagination`,
+  `TestV2LoggingOptions_EventConfigurationsSurvive`.
+- `GetIndexingConfiguration`/`UpdateIndexingConfiguration`
+  (`handler_indexing.go`/`types.go`): `ThingIndexingConfiguration` never
+  modeled the real `deviceDefenderIndexingMode` member -- silently dropped
+  on Update, never surfaced on Get. Fixed (purely additive field; no
+  snapshot bump). See `TestIndexing_DeviceDefenderIndexingModeSurvives`.
+  **Modelling gap, not fixed**: the real type's `managedFields` (both
+  Thing/ThingGroup indexing configs) and `filter.geoLocations` have no
+  backing concept in this backend at all (no simulated "already known by
+  Fleet Indexing" managed-field catalog) -- reported, not synthesized.
+- `CreateDynamicThingGroup`/`UpdateDynamicThingGroup`
+  (`handler_thing_groups.go`/`thing_groups.go`/`types.go`): the real request
+  body nests description under `thingGroupProperties.thingGroupDescription`
+  (mirroring the sibling static `CreateThingGroup`/`UpdateThingGroup`,
+  already correct) -- both dynamic ops instead read a top-level
+  `description` field that doesn't exist on the wire, so a real client's
+  description was always silently dropped. Both also dropped `indexName`/
+  `queryVersion` entirely (now modeled on `ThingGroup`, threaded through
+  Create/Update/response). **Correct sibling**: static `UpdateThingGroup`
+  already enforces `expectedVersion`'s optimistic-lock semantics via the
+  shared `UpdateThingGroupInput` struct; `UpdateDynamicThingGroup` received
+  the same struct but never checked the field -- fixed to match. See
+  `TestDynamicThingGroup_RealWireShape`.
+- `UpdateJob` (`handler_jobs.go`/`jobs.go`): real `UpdateJobInput` has six
+  members beyond `description` -- `abortConfig`, `jobExecutionsRolloutConfig`,
+  `timeoutConfig`, `jobExecutionsRetryConfig`, `presignedUrlConfig`, and
+  `namespaceId` -- this op only ever applied `description`, silently
+  dropping the other five already-modeled-on-`Job` config blocks (the sixth,
+  `namespaceId`, has no backing field on `Job` at all -- reported as a
+  modelling gap, not fixed, since `CreateJob` also never persists it). Fixed
+  the five. Driven through a real generated SDK client
+  (`TestUpdateJob_AdvancedFieldsSurvive`) since the bug is on the request
+  side and a body-shape-only test can't prove it.
+- `UpdateCACertificate` (`handler_certificates.go`/`certificates.go`):
+  real `newStatus`/`newAutoRegistrationStatus` are query parameters, not
+  body fields -- this op read `newStatus` from the body only, so a real
+  client's status change was **always silently dropped**, the single
+  highest-impact bug this pass found. `registrationConfig`/
+  `removeAutoRegistration` (real body fields) were also entirely
+  unimplemented. All fixed. See
+  `TestUpdateCACertificate_QueryParamsAndBodyFields`; the pre-existing
+  `TestCACertificate` also asserted an update that never took effect and
+  is now a real round-trip assertion.
+- `TestAuthorization`/`TestInvokeAuthorizer`,
+  `ListThingRegistrationTasks`/`ListThingRegistrationTaskReports`,
+  `RegisterThing`/`StartThingRegistrationTask`, `ListManagedJobTemplates`/
+  `DescribeManagedJobTemplate`, `GetBehaviorModelTrainingSummaries`,
+  `ListMetricValues`, `DescribeEncryptionConfiguration`,
+  `DescribeThingRegistrationTask` -- field-diffed, found already correct.
+
+**Spot-checked 8 void-output ops' request-decode structs** against their
+real `<Op>Input` (the never-swept request-side class this campaign has
+flagged repeatedly): `UpdateJob` (above, fixed), `UpdateCACertificate`
+(above, fixed), `UpdateTopicRuleDestination` and `UpdateAuditSuppression`
+(field-diffed, already correct), plus **found but not fixed** for time
+(reported here for the next pass, each a confirmed accept-and-drop):
+`UpdatePackage` drops the real `unsetDefaultVersion` bool entirely;
+`UpdatePackageVersion` drops `action`/`artifact`/`attributes`/`recipe` (four
+real members, only `description`/`status` are applied); `UpdateProvisioningTemplate`
+drops `defaultVersionId`/`preProvisioningHook`/`removePreProvisioningHook`
+(the `ProvisioningHook` type already exists from an earlier pass's
+`CreateProvisioningTemplate` fix, so wiring these three is mechanical, not
+a modelling gap).
+
+**Modelling gaps found, not fixed** (no backing state to synthesize from,
+per `parity-principles.md`'s no-synthesis rule):
+- `GetThingConnectivityData`: real `GetThingConnectivityDataOutput` has nine
+  members beyond `connected`/`timestamp`/`disconnectReason`
+  (`cleanSession`, `clientId`, `keepAliveDuration`, `sessionExpiry`,
+  `sourceIp`, `sourcePort`, `targetIp`, `targetPort`, `vpcEndpointId`) --
+  this backend's connectivity model is already documented (`store.go`'s
+  `SetThingConnectivityInternal`) as derived from live MQTT session events
+  it doesn't yet simulate; none of the nine socket-level fields have
+  anywhere to come from.
+- `TestInvokeAuthorizer`: real `TestInvokeAuthorizerInput.httpContext`/
+  `tlsContext` (beyond the already-modeled `mqttContext`/`token`/
+  `tokenSignature`) have no backing use in `TestInvokeAuthorizer`'s
+  evaluation logic, which never actually invokes a Lambda authorizer --
+  it derives a deterministic result from stored authorizer config alone.
+- `ListMetricValues`: real `ListMetricValuesInput.dimensionName`/
+  `dimensionValueOperator` filter has no backing state -- `MetricDatapoint`
+  doesn't track a dimension per datapoint at all (only
+  `AddMetricValueInternal`-seeded test data exists).
+- `TestAuthorization`: real `TestAuthorizationInput.clientId` is a query
+  parameter (confirmed via `serializers.go`), currently read from the body
+  instead -- **investigated and NOT fixed**: `ClientID` has zero
+  consumers anywhere in `TestAuthorization`'s evaluation logic (grepped;
+  no `${iot:ClientId}`-style policy-variable substitution exists in this
+  backend at all), so the wire-location fix would have no observable effect
+  and no way to satisfy this campaign's "real-SDK-client round-trip,
+  confirmed to fail against unfixed code" proof requirement. Reported as
+  unprovable rather than counted as a fix.
+
+**False positive ruled out**: `ListDomainConfigurations`' response entries
+include a `domainConfigurationStatus` key that real
+`types.DomainConfigurationSummary` doesn't have (only
+`domainConfigurationArn`/`domainConfigurationName`/`serviceType`) --
+confirmed via the deserializer that extra keys are silently ignored by a
+real client, not a wire-shape defect; left as-is (pre-existing, out of
+scope for this fix).
+
+**Sibling checks**: every fix above notes its family in-line;
+`ListThingGroupsForThing`/`ListThingGroups` and static/dynamic
+`UpdateThingGroup` are the two genuine "correct sibling exists" cases
+(shape #8) found this pass.
+
+**Snapshot version**: NOT bumped (stays 3). Every persisted-struct change
+this pass (`EventConfigurations.CreationDate`/`LastModifiedDate`,
+`MetricValueData.Numbers`/`Strings`, `ThingIndexingConfiguration.DeviceDefenderIndexingMode`,
+`V2LoggingOptions.EventConfigurations`, `ThingGroup.IndexName`/`QueryVersion`)
+is purely additive -- confirmed by `pkgs/persistence`'s
+`TestSnapshotVersionGuard`, which reported each as "additive only, needs no
+bump" rather than a bump case. `pkgs/persistence/testdata/snapshot_inventory.json`
+regenerated via `-update` and merged by hand: a concurrent, uncommitted,
+unrelated `services/ec2/` change (owned by another in-flight session, not
+touched by this pass) was also live in the working tree when `-update` ran
+and got pulled into the same regeneration pass; that single `ec2` line was
+manually excluded from the diff before committing so this pass's golden-file
+change is iot-only. `go test ./pkgs/persistence/` is clean for `iot`; it
+still fails for the pre-existing, unrelated `ec2` reason, confirmed present
+before this pass started (`git status` showed `services/ec2/*` already
+modified) and out of this pass's scope per its own instructions.
+
+**Hand-revert verified for every fix above**: each change was reverted via
+`cp` from a scratch backup, its guarding test confirmed to fail against the
+reverted code (quoted failure captured during the session), then restored
+and `md5sum`-confirmed identical to the fixed version before moving on.
+
+**Ops not reached this pass**: all 31 has-body ops from the 83 were
+reached; the 52 void-output ops were spot-checked (8 of 52 request-decode
+structs diffed, see above) but not exhaustively field-diffed. The full
+52-op void list (unchanged from pass #6's enumeration, reproduced there)
+remains the next pass's most direct ground, prioritizing the three
+found-but-not-fixed `Update*` ops above and a full request-side sweep of
+the rest.
+
+Gates run: `go build ./...`, `go vet ./services/iot/...`, `gofmt -l
+services/iot/`, `go test -race -count=1 ./services/iot/...`,
+`go test ./pkgs/persistence/...` (iot clean, ec2 pre-existing/out-of-scope
+failure), `golangci-lint run ./services/iot/...` (0 issues), `make
+build-check` (exit 0, whole-repo, covers the `SetV2LoggingOptions`
+exported-signature change) -- all clean. Work left uncommitted per this
+pass's instructions.
+
+## 2026-08-23 (pass #8): the four `Update*`/`AttachThingPrincipal` bugs pass #7 found but ran out of time to fix
+
+Fixed all four, re-verified against `iot@v1.77.4` before touching code (all
+four confirmed real; none were false positives or query/URI-bound
+mislabeled as body):
+
+- **`AttachThingPrincipal`** (`handler.go`): real `thingPrincipalType` is a
+  **query parameter**
+  (`awsRestjson1_serializeOpHttpBindingsAttachThingPrincipalInput`,
+  `serializers.go`), not a body field -- confirmed via the serializer, not
+  guessed from the Input struct. The handler never read it at all, so
+  every attachment was silently forced to the default `NON_EXCLUSIVE_THING`
+  regardless of what a real client requested. This was also a genuine
+  storage gap, not just a handler oversight: `thingPrincipals` was
+  `map[string][]string` with nowhere to record a per-principal type at all,
+  so `ListThingPrincipalsV2` hardcoded `defaultThingPrincipalType` for
+  every entry and `ListPrincipalThingsV2` didn't even have its own backend
+  method (it delegated to V1 `ListPrincipalThings` and hardcoded the same
+  default). Fixed: added `thingPrincipalTypes map[string]map[string]string`
+  (thingName -> principal -> type) to `InMemoryBackend`, wired through
+  `AttachThingPrincipal`/`DetachThingPrincipal`/`ListThingPrincipalsV2`, and
+  gave `ListPrincipalThingsV2` its own real backend method (new
+  `PrincipalThingObject` type, new `Backend.ListPrincipalThingsV2` method)
+  instead of borrowing V1's. Persisted in `backendSnapshot` as a new
+  `thingPrincipalTypes` field (purely additive, no version bump -- see
+  below). See `TestAttachThingPrincipal_ThingPrincipalTypeSurvives_SDKRoundTrip`
+  (new, real generated SDK v2 client round-trip through both
+  `ListThingPrincipalsV2` and `ListPrincipalThingsV2`).
+  **Unblocked**: the two V2 list filter tests pass #7 landed
+  (`TestListThingPrincipalsV2_ThingPrincipalTypeFilter`,
+  `TestListPrincipalThingsV2_WireShapeAndFilter`) could previously only ever
+  observe the default type, so their EXCLUSIVE_THING-filter assertions were
+  unfalsifiable by construction. Both rewritten to attach a real
+  `EXCLUSIVE_THING` principal alongside a default one and assert the filter
+  separates them by actual recorded type, not a hardcoded constant.
+- **`UpdatePackage`** (`handler_packages.go`/`packages.go`): real
+  `unsetDefaultVersion` bool
+  (`awsRestjson1_serializeOpDocumentUpdatePackageInput`, `serializers.go`)
+  is a body field, confirmed dropped -- entirely unread by the handler, so
+  a default version could be set but never cleared. Fixed:
+  `UpdateIoTPackage` takes a new `unsetDefaultVersion bool` parameter;
+  `unsetDefaultVersion=true` clears `DefaultVersionName`, otherwise a
+  non-empty `defaultVersionName` still sets it (mutually exclusive per AWS
+  docs). See `TestUpdatePackage_UnsetDefaultVersionSurvives` (SDK
+  round-trip: set, confirm, unset, confirm cleared).
+- **`UpdatePackageVersion`** (`handler_packages.go`/`packages.go`): real
+  `action`/`artifact`/`attributes`/`recipe` (four body fields,
+  `awsRestjson1_serializeOpDocumentUpdatePackageVersionInput`) confirmed
+  dropped -- only `description`/`status` were ever applied. `action`
+  (`PUBLISH`/`DEPRECATE`) is a lifecycle-transition shorthand for `status`,
+  not a field of its own (`GetPackageVersionOutput` has no `action`
+  member) -- mapped `PUBLISH`->`PUBLISHED`, `DEPRECATE`->`DEPRECATED`,
+  applied only when `status` isn't explicitly given. New
+  `UpdateIoTPackageVersionOptions` struct (mirrors the existing
+  `CreateIoTPackageVersionOptions` pattern) bundles the four. See
+  `TestUpdatePackageVersion_AdvancedFieldsSurvive` (SDK round-trip
+  asserting all four survive through `GetPackageVersion`).
+- **`UpdateProvisioningTemplate`** (`handler_provisioning.go`/
+  `provisioning.go`): real `defaultVersionId`/`preProvisioningHook`/
+  `removePreProvisioningHook` (three body fields,
+  `awsRestjson1_serializeOpDocumentUpdateProvisioningTemplateInput`)
+  confirmed dropped. Mechanical, as pass #7 flagged: `ProvisioningTemplate`
+  already modeled `DefaultVersionID`/`PreProvisioningHook` (from
+  `CreateProvisioningTemplate`'s existing fields), just never wired on
+  Update. Fixed: `UpdateProvisioningTemplate` takes three new parameters;
+  `removePreProvisioningHook=true` clears the hook, else a non-nil
+  `preProvisioningHook` replaces it. See
+  `TestUpdateProvisioningTemplate_AdvancedFieldsSurvive` (SDK round-trip:
+  set `defaultVersionId`/hook, confirm via `DescribeProvisioningTemplate`,
+  then remove the hook and confirm it clears).
+
+**Hand-revert verified for every fix above**: each change was reverted via
+`cp` from a scratch backup to the exact pre-fix line, its guarding test run
+and confirmed to fail against the reverted code (failure output captured
+during the session, see report), then restored and `md5sum`-confirmed
+byte-identical to the fixed version before moving on.
+
+**Snapshot version**: NOT bumped (stays 3). The only persisted-struct
+change this pass, `backendSnapshot.ThingPrincipalTypes
+map[string]map[string]string`, is a brand-new field with no prior on-disk
+key to collide with -- purely additive. `pkgs/persistence`'s
+`TestSnapshotVersionGuard` confirmed this directly ("bookkeeping, not a
+version-bump case... diff is additive only and needs no bump") before the
+golden file was regenerated with `-update`.
+`pkgs/persistence/testdata/snapshot_inventory.json` diff is a single added
+line (`backendSnapshot.ThingPrincipalTypes ...`); `git status` was checked
+before and after -- `services/ec2/` was dirty (another in-flight session,
+per this pass's own instructions) both times and the regenerated golden
+diff contains no `ec2` entries, so nothing needed manual exclusion this
+time (contrast pass #7, which did need to hand-exclude a concurrent `ec2`
+line).
+
+**Not touched, still open**: the 52 void-output ops' request-decode
+structs beyond the 8 pass #7 spot-checked, and the three modelling gaps
+pass #7 investigated and left (`GetThingConnectivityData`,
+`TestInvokeAuthorizer`'s `httpContext`/`tlsContext`, `ListMetricValues`'
+`dimensionName`) -- re-confirmed genuine gaps (no backing state anywhere
+in this backend to synthesize from), not touched, per this pass's own
+scope.
+
+Gates run: `gofmt -l services/iot/` (clean), `go vet ./services/iot/...`
+(clean), `go build ./...` (clean), `go test -race -count=1
+./services/iot/...` (clean), `go test ./pkgs/persistence/...` (clean, iot
+and ec2 both -- no pre-existing ec2 failure was hit this pass),
+`golangci-lint run ./services/iot/...` (0 issues after one `--fix` pass for
+two `golines` line-length and one `fieldalignment` finding introduced by
+this pass's own edits, plus one `testifylint` JSONEq finding in a new
+test), `go build ./...` + `go vet -tags e2e ./...` + `go vet -tags
+integration ./...` (`make build-check`'s three steps, run individually;
+exit 0 -- covers this pass's exported-signature changes to
+`UpdateIoTPackage`, `UpdateIoTPackageVersion`, `UpdateProvisioningTemplate`,
+and the new `Backend.ListPrincipalThingsV2`). Work left uncommitted per
+this pass's instructions.

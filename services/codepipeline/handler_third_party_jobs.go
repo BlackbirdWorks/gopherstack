@@ -135,6 +135,7 @@ type putThirdPartyJobFailureResultInput struct {
 	ClientToken    string `json:"clientToken"`
 	FailureDetails struct {
 		Message string `json:"message"`
+		Type    string `json:"type"`
 	} `json:"failureDetails"`
 }
 
@@ -147,5 +148,6 @@ func (h *Handler) handlePutThirdPartyJobFailureResult(
 		in.JobID,
 		in.ClientToken,
 		in.FailureDetails.Message,
+		in.FailureDetails.Type,
 	)
 }

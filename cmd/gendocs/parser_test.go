@@ -525,6 +525,114 @@ overall: A
 	}
 }
 
+// TestParseParityFile_DuplicateEntryKey guards the nested-duplicate defect
+// class from gopherstack-fg0u: checkDuplicateKey only ever watched column-0
+// keys, so two ops: (or families:) entries for the same name -- e.g. a
+// union merge across branches re-describing one op's fix under two dates --
+// passed silently, as seen in services/apprunner/PARITY.md's doubled
+// AssociateCustomDomain/DisassociateCustomDomain entries. The same name
+// appearing once in ops: and once in families: is a different, legitimate
+// case (they're separate schema sections, not a duplicate) and must not
+// trip this check.
+func TestParseParityFile_DuplicateEntryKey(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		content string
+		wantErr bool
+	}{
+		{
+			name: "duplicate ops entry, same op re-described",
+			content: `---
+service: example
+ops:
+  AssociateCustomDomain: {wire: fixed, errors: ok, state: ok, persist: ok, note: "fixed 2026-08-21"}
+  AssociateCustomDomain: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed 2026-08-19"}
+---
+`,
+			wantErr: true,
+		},
+		{
+			name: "duplicate families entry",
+			content: `---
+service: example
+families:
+  routing: {status: ok}
+  routing: {status: partial}
+---
+`,
+			wantErr: true,
+		},
+		{
+			name: "duplicate ops entry, block style",
+			content: `---
+service: example
+ops:
+  GetExecutionHistory:
+    wire: fixed
+    errors: ok
+    state: ok
+    persist: ok
+  GetExecutionHistory:
+    wire: ok
+    errors: ok
+    state: ok
+    persist: ok
+---
+`,
+			wantErr: true,
+		},
+		{
+			name: "same key in ops and families is not a duplicate",
+			content: `---
+service: example
+ops:
+  leaks: {wire: ok, errors: ok, state: ok, persist: ok}
+families:
+  leaks: {status: clean}
+---
+`,
+			wantErr: false,
+		},
+		{
+			name: "no duplicate entries",
+			content: `---
+service: example
+ops:
+  CreateApp: {wire: ok, errors: ok, state: ok, persist: ok}
+  GetApp: {wire: ok, errors: ok, state: ok, persist: ok}
+families:
+  routing: {status: ok}
+---
+`,
+			wantErr: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			dir := t.TempDir()
+			path := filepath.Join(dir, "PARITY.md")
+			require.NoError(t, os.WriteFile(path, []byte(tc.content), 0o600))
+
+			doc, err := ParseParityFile(path)
+			require.NoError(t, err)
+
+			runErr := checkParseWarnings([]*ParityDoc{doc})
+			if tc.wantErr {
+				assert.NotEmpty(t, doc.Warnings)
+				require.Error(t, runErr)
+			} else {
+				assert.Empty(t, doc.Warnings)
+				require.NoError(t, runErr)
+			}
+		})
+	}
+}
+
 func TestParseParityFile_BlockStyleOpCounted(t *testing.T) {
 	t.Parallel()
 

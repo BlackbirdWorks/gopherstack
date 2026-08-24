@@ -9,6 +9,7 @@ import (
 type describeAddressesAttributeResponse struct {
 	XMLName    xml.Name `xml:"DescribeAddressesAttributeResponse"`
 	RequestID  string   `xml:"requestId"`
+	NextToken  string   `xml:"nextToken,omitempty"`
 	AddressSet struct {
 		Items []addressAttributeItem `xml:"item"`
 	} `xml:"addressSet"`
@@ -24,7 +25,15 @@ func (h *Handler) handleDescribeAddressesAttribute(vals url.Values, reqID string
 	ids := parseMemberList(vals, "AllocationId")
 	attrs := h.Backend.DescribeAddressesAttribute(ids)
 
-	resp := &describeAddressesAttributeResponse{RequestID: reqID}
+	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageMaxDefault)
+	if err != nil {
+		return nil, err
+	}
+
+	var nextToken string
+	attrs, nextToken = pageSlice(attrs, offset, maxResults)
+
+	resp := &describeAddressesAttributeResponse{RequestID: reqID, NextToken: nextToken}
 	for _, attr := range attrs {
 		resp.AddressSet.Items = append(
 			resp.AddressSet.Items,
@@ -55,16 +64,35 @@ func (h *Handler) handleModifyAddressAttribute(vals url.Values, reqID string) (a
 	}, nil
 }
 
+// resetAddressAttributeResponse matches ResetAddressAttributeOutput
+// (ec2@v1.319.1 api_op_ResetAddressAttribute.go): a nested <address> carrying
+// allocationId/publicIp/ptrRecord/ptrRecordUpdate. There is no Return member
+// at all -- the real deserializer has no case for it.
+type resetAddressAttributeResponse struct {
+	XMLName   xml.Name             `xml:"ResetAddressAttributeResponse"`
+	RequestID string               `xml:"requestId"`
+	Address   resetAddressAttrItem `xml:"address"`
+}
+
+type resetAddressAttrItem struct {
+	AllocationID string `xml:"allocationId,omitempty"`
+	PublicIP     string `xml:"publicIp,omitempty"`
+}
+
 func (h *Handler) handleResetAddressAttribute(vals url.Values, reqID string) (any, error) {
 	allocationID := vals.Get("AllocationId")
-	if err := h.Backend.ResetAddressAttribute(allocationID); err != nil {
+
+	addr, err := h.Backend.ResetAddressAttribute(allocationID)
+	if err != nil {
 		return nil, err
 	}
 
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "ResetAddressAttributeResponse"},
+	return &resetAddressAttributeResponse{
 		RequestID: reqID,
-		Return:    true,
+		Address: resetAddressAttrItem{
+			AllocationID: addr.AllocationID,
+			PublicIP:     addr.PublicIP,
+		},
 	}, nil
 }
 
@@ -77,6 +105,7 @@ type enableAddressTransferResponse struct {
 type describeAddressTransfersResponse struct {
 	XMLName            xml.Name `xml:"DescribeAddressTransfersResponse"`
 	RequestID          string   `xml:"requestId"`
+	NextToken          string   `xml:"nextToken,omitempty"`
 	AddressTransferSet struct {
 		Items []addressTransferDetailItem `xml:"item"`
 	} `xml:"addressTransferSet"`
@@ -117,16 +146,26 @@ func (h *Handler) handleEnableAddressTransfer(vals url.Values, reqID string) (an
 	}, nil
 }
 
+// disableAddressTransferResponse matches DisableAddressTransferOutput
+// (ec2@v1.319.1 api_op_DisableAddressTransfer.go): a nested <addressTransfer>,
+// no Return member.
+type disableAddressTransferResponse struct {
+	XMLName         xml.Name                  `xml:"DisableAddressTransferResponse"`
+	RequestID       string                    `xml:"requestId"`
+	AddressTransfer addressTransferDetailItem `xml:"addressTransfer"`
+}
+
 func (h *Handler) handleDisableAddressTransfer(vals url.Values, reqID string) (any, error) {
 	allocationID := vals.Get("AllocationId")
-	if err := h.Backend.DisableAddressTransfer(allocationID); err != nil {
+
+	transfer, err := h.Backend.DisableAddressTransfer(allocationID)
+	if err != nil {
 		return nil, err
 	}
 
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DisableAddressTransferResponse"},
-		RequestID: reqID,
-		Return:    true,
+	return &disableAddressTransferResponse{
+		RequestID:       reqID,
+		AddressTransfer: toAddressTransferDetailItem(transfer),
 	}, nil
 }
 
@@ -134,7 +173,15 @@ func (h *Handler) handleDescribeAddressTransfers(vals url.Values, reqID string) 
 	ids := parseMemberList(vals, "AllocationId")
 	transfers := h.Backend.DescribeAddressTransfers(ids)
 
-	resp := &describeAddressTransfersResponse{RequestID: reqID}
+	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageMaxDefault)
+	if err != nil {
+		return nil, err
+	}
+
+	var nextToken string
+	transfers, nextToken = pageSlice(transfers, offset, maxResults)
+
+	resp := &describeAddressTransfersResponse{RequestID: reqID, NextToken: nextToken}
 	for _, t := range transfers {
 		resp.AddressTransferSet.Items = append(
 			resp.AddressTransferSet.Items,
@@ -145,22 +192,35 @@ func (h *Handler) handleDescribeAddressTransfers(vals url.Values, reqID string) 
 	return resp, nil
 }
 
+// restoreAddressToClassicResponse matches RestoreAddressToClassicOutput
+// (ec2@v1.319.1 api_op_RestoreAddressToClassic.go): publicIp and status, no
+// Return member. This backend restores synchronously, so the reported status
+// is always the terminal "InClassic" rather than the transient
+// "MoveInProgress" real AWS may report while the restore is in flight.
+type restoreAddressToClassicResponse struct {
+	XMLName   xml.Name `xml:"RestoreAddressToClassicResponse"`
+	RequestID string   `xml:"requestId"`
+	PublicIP  string   `xml:"publicIp"`
+	Status    string   `xml:"status"`
+}
+
 func (h *Handler) handleRestoreAddressToClassic(vals url.Values, reqID string) (any, error) {
 	publicIP := vals.Get("PublicIp")
 	if err := h.Backend.RestoreAddressToClassic(publicIP); err != nil {
 		return nil, err
 	}
 
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "RestoreAddressToClassicResponse"},
+	return &restoreAddressToClassicResponse{
 		RequestID: reqID,
-		Return:    true,
+		PublicIP:  publicIP,
+		Status:    "InClassic",
 	}, nil
 }
 
 type describeMovingAddressesResponse struct {
 	XMLName                xml.Name `xml:"DescribeMovingAddressesResponse"`
 	RequestID              string   `xml:"requestId"`
+	NextToken              string   `xml:"nextToken,omitempty"`
 	MovingAddressStatusSet struct {
 		Items []movingAddressStatusItem `xml:"item"`
 	} `xml:"movingAddressStatusSet"`
@@ -171,7 +231,32 @@ func (h *Handler) handleDescribeMovingAddresses(vals url.Values, reqID string) (
 
 	statuses := h.Backend.DescribeMovingAddresses(publicIPs)
 
-	resp := &describeMovingAddressesResponse{RequestID: reqID}
+	// DescribeMovingAddressesInput.Filters documents only "moving-status"
+	// (api_op_DescribeMovingAddresses.go); the handler previously accepted
+	// and dropped it entirely.
+	if values, ok := parseEC2Filters(vals)["moving-status"]; ok {
+		filtered := statuses[:0:0]
+
+		for _, st := range statuses {
+			if anyEqual(st.MoveStatus, values) {
+				filtered = append(filtered, st)
+			}
+		}
+
+		statuses = filtered
+	}
+
+	maxResults, offset, err := parseEC2Pagination(
+		vals, ec2PageMinMovingAddresses, ec2PageMaxDefault, ec2PageMaxDefault,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	var nextToken string
+	statuses, nextToken = pageSlice(statuses, offset, maxResults)
+
+	resp := &describeMovingAddressesResponse{RequestID: reqID, NextToken: nextToken}
 	for _, st := range statuses {
 		resp.MovingAddressStatusSet.Items = append(resp.MovingAddressStatusSet.Items, movingAddressStatusItem{
 			PublicIP:   st.PublicIP,
@@ -379,6 +464,14 @@ func (h *Handler) handleDescribeAddresses(vals url.Values, reqID string) (any, e
 	addrs := h.Backend.DescribeAddresses(ids)
 
 	filters := parseEC2Filters(vals)
+
+	// DescribeAddressesInput.PublicIps (serializers.go:76230, FlatKey "PublicIp")
+	// is a direct request member, not a Filter -- fold it into the existing
+	// "public-ip" filter matcher rather than silently dropping it.
+	if publicIPs := parseMemberList(vals, "PublicIp"); len(publicIPs) > 0 {
+		filters["public-ip"] = append(filters["public-ip"], publicIPs...)
+	}
+
 	addrs = applyAddressFilters(addrs, filters, h.Backend)
 
 	items := make([]addressItem, 0, len(addrs))

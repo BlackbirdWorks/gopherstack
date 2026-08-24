@@ -204,6 +204,9 @@ func (h *Handler) handleCreateUnreferencedMergeCommit(body []byte) (any, error) 
 		SourceCommitSpecifier      string `json:"sourceCommitSpecifier"`
 		DestinationCommitSpecifier string `json:"destinationCommitSpecifier"`
 		MergeOption                string `json:"mergeOption"`
+		AuthorName                 string `json:"authorName"`
+		Email                      string `json:"email"`
+		CommitMessage              string `json:"commitMessage"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, err
@@ -214,6 +217,7 @@ func (h *Handler) handleCreateUnreferencedMergeCommit(body []byte) (any, error) 
 
 	commit, err := h.Backend.CreateUnreferencedMergeCommit(
 		req.RepositoryName, req.SourceCommitSpecifier, req.DestinationCommitSpecifier,
+		req.AuthorName, req.Email, req.CommitMessage,
 	)
 	if err != nil {
 		return nil, err

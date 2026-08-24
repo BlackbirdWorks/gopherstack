@@ -32,8 +32,6 @@ var (
 
 	// ErrTrustNotFound is returned when a trust does not exist.
 	ErrTrustNotFound = awserr.New(errEntityNotExistsException, awserr.ErrNotFound)
-	// ErrCertNotFound is returned when a certificate does not exist.
-	ErrCertNotFound = awserr.New(errEntityNotExistsException, awserr.ErrNotFound)
 	// ErrConditionalForwarderNotFound is returned when a conditional forwarder does not exist.
 	ErrConditionalForwarderNotFound = awserr.New(errEntityNotExistsException, awserr.ErrNotFound)
 	// ErrSchemaExtensionNotFound is returned when a schema extension does not exist.
@@ -44,4 +42,21 @@ var (
 	ErrAssessmentNotFound = awserr.New(errEntityNotExistsException, awserr.ErrNotFound)
 	// ErrInvalidCertificate is returned when CertificateData is not a parseable PEM certificate.
 	ErrInvalidCertificate = awserr.New("InvalidCertificateException", awserr.ErrInvalidParameter)
+
+	// ErrDirectoryNotFoundDDNE is returned when a directory does not exist,
+	// for operations whose own deserializeOpError switch types
+	// DirectoryDoesNotExistException rather than the generic
+	// EntityDoesNotExistException -- verified per-op against
+	// aws-sdk-go-v2/service/directoryservice@v1.41.4 deserializers.go.
+	// EntityDoesNotExistException is unmodeled on these ops, so returning it
+	// there makes errors.As into the real SDK's typed exception fail.
+	ErrDirectoryNotFoundDDNE = awserr.New("DirectoryDoesNotExistException", awserr.ErrNotFound)
+	// ErrDirectoryAlreadyInRegion is returned by AddRegion when the
+	// directory is already replicated into the requested Region.
+	ErrDirectoryAlreadyInRegion = awserr.New("DirectoryAlreadyInRegionException", awserr.ErrAlreadyExists)
+	// ErrCertificateDoesNotExist is returned when a certificate does not
+	// exist, for DeregisterCertificate/DescribeCertificate specifically --
+	// both type CertificateDoesNotExistException, not the generic
+	// EntityDoesNotExistException.
+	ErrCertificateDoesNotExist = awserr.New("CertificateDoesNotExistException", awserr.ErrNotFound)
 )

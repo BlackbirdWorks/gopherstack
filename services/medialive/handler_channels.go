@@ -956,7 +956,8 @@ func (h *Handler) handleDeleteChannel(c *echo.Context, channelID string) error {
 }
 
 func (h *Handler) handleListChannels(c *echo.Context) error {
-	summaries, nextToken, err := h.Backend.ListChannels(0, "")
+	maxResults, nextTokenParam := paginationParams(c)
+	summaries, nextToken, err := h.Backend.ListChannels(maxResults, nextTokenParam)
 	if err != nil {
 		return respondErr(c, err)
 	}

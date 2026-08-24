@@ -28,7 +28,7 @@ func (h *Handler) handleSearchJobs(c *echo.Context) error {
 	}
 
 	nextTokenIn := q.Get("nextToken")
-	pg := page.New(jobs, nextTokenIn, maxResults, defaultJobsPageSize)
+	pg := page.New(jobs, nextTokenIn, maxResults, defaultListPageSize)
 
 	out := searchJobsOutput{Jobs: pg.Data}
 	if pg.Next != "" {

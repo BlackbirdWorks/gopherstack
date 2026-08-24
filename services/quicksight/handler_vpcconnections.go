@@ -145,14 +145,18 @@ func (h *Handler) handleDeleteVPCConnection(c *echo.Context) error {
 	accountID := seg(segs, segAccountID)
 	vpcConnectionID := seg(segs, segResID)
 
-	if err := h.Backend.DeleteVPCConnection(accountID, vpcConnectionID); err != nil {
+	v, err := h.Backend.DeleteVPCConnection(accountID, vpcConnectionID)
+	if err != nil {
 		return httpErr(c, err)
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
-		keyVPCConnectionID: vpcConnectionID,
-		keyRequestID:       reqIDPlaceholder,
-		keyStatus:          http.StatusOK,
+		keyArn:                v.Arn,
+		keyVPCConnectionID:    vpcConnectionID,
+		keyAvailabilityStatus: v.AvailabilityStatus,
+		"DeletionStatus":      v.Status,
+		keyRequestID:          reqIDPlaceholder,
+		keyStatus:             http.StatusOK,
 	})
 }
 

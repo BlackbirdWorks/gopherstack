@@ -14,16 +14,18 @@ type createAutoScalingConfigurationInput struct {
 }
 
 type autoScalingConfigurationOutput struct {
+	DeletedAt                        *int64 `json:"DeletedAt,omitempty"`
 	AutoScalingConfigurationArn      string `json:"AutoScalingConfigurationArn"`
 	AutoScalingConfigurationName     string `json:"AutoScalingConfigurationName"`
 	Status                           string `json:"Status"`
+	CreatedAt                        int64  `json:"CreatedAt"`
 	AutoScalingConfigurationRevision int32  `json:"AutoScalingConfigurationRevision"`
 	MaxConcurrency                   int32  `json:"MaxConcurrency"`
 	MaxSize                          int32  `json:"MaxSize"`
 	MinSize                          int32  `json:"MinSize"`
 	IsDefault                        bool   `json:"IsDefault"`
 	HasAssociatedService             bool   `json:"HasAssociatedService"`
-	CreatedAt                        int64  `json:"CreatedAt"`
+	Latest                           bool   `json:"Latest"`
 }
 
 type createAutoScalingConfigurationOutput struct {
@@ -31,7 +33,7 @@ type createAutoScalingConfigurationOutput struct {
 }
 
 func toAutoScalingConfigurationOutput(cfg *AutoScalingConfiguration) autoScalingConfigurationOutput {
-	return autoScalingConfigurationOutput{
+	out := autoScalingConfigurationOutput{
 		AutoScalingConfigurationArn:      cfg.AutoScalingConfigurationArn,
 		AutoScalingConfigurationName:     cfg.AutoScalingConfigurationName,
 		AutoScalingConfigurationRevision: cfg.AutoScalingConfigurationRevision,
@@ -41,8 +43,16 @@ func toAutoScalingConfigurationOutput(cfg *AutoScalingConfiguration) autoScaling
 		MinSize:                          cfg.MinSize,
 		IsDefault:                        cfg.IsDefault,
 		HasAssociatedService:             cfg.HasAssociatedService,
+		Latest:                           cfg.Latest,
 		CreatedAt:                        cfg.CreatedAt.Unix(),
 	}
+
+	if !cfg.DeletedAt.IsZero() {
+		deletedAt := cfg.DeletedAt.Unix()
+		out.DeletedAt = &deletedAt
+	}
+
+	return out
 }
 
 func (h *Handler) handleCreateAutoScalingConfiguration(

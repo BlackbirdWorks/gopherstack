@@ -33,7 +33,7 @@ func (b *InMemoryBackend) startADAssessmentLocked(
 ) (string, error) {
 	d, ok := b.directoryGet(region, directoryID)
 	if !ok {
-		return "", ErrDirectoryNotFound
+		return "", ErrDirectoryNotFoundDDNE
 	}
 
 	now := time.Now().UTC()

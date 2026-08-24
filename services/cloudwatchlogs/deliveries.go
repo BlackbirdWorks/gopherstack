@@ -53,6 +53,10 @@ func (b *InMemoryBackend) CreateDelivery(
 	b.mu.Lock("CreateDelivery")
 	defer b.mu.Unlock()
 
+	if dest := b.deliveryDestinationByArnLocked(deliveryDestinationArn); dest != nil {
+		d.DeliveryDestinationType = dest.DeliveryDestinationType
+	}
+
 	b.deliveries.Put(d)
 
 	cp := *d
@@ -203,6 +207,20 @@ func (b *InMemoryBackend) PutDeliveryDestination(
 	b.deliveryDestinations.Put(&stored)
 
 	return &dest, nil
+}
+
+// deliveryDestinationByArnLocked finds a DeliveryDestination by its ARN.
+// deliveryDestinations is keyed by name, not ARN, so this scans; the table is
+// small (one entry per configured destination) and this is only called on
+// CreateDelivery. Caller must hold at least a read lock.
+func (b *InMemoryBackend) deliveryDestinationByArnLocked(destArn string) *DeliveryDestination {
+	for _, d := range b.deliveryDestinations.All() {
+		if d.Arn == destArn {
+			return d
+		}
+	}
+
+	return nil
 }
 
 // GetDeliveryDestination returns a delivery destination by name.

@@ -108,8 +108,9 @@ func (h *Handler) dispatchObjectLambdaConfigMethod(c *echo.Context, method strin
 // --- CreateAccessPointForObjectLambda handler ---
 
 type createAccessPointForObjectLambdaResponseXML struct {
-	XMLName                    xml.Name `xml:"CreateAccessPointForObjectLambdaResult"`
-	ObjectLambdaAccessPointArn string   `xml:"ObjectLambdaAccessPointArn"`
+	XMLName                    xml.Name     `xml:"CreateAccessPointForObjectLambdaResult"`
+	Alias                      *olAliasItem `xml:"Alias,omitempty"`
+	ObjectLambdaAccessPointArn string       `xml:"ObjectLambdaAccessPointArn"`
 }
 
 func (h *Handler) handleCreateAccessPointForObjectLambda(c *echo.Context) error {
@@ -118,16 +119,23 @@ func (h *Handler) handleCreateAccessPointForObjectLambda(c *echo.Context) error 
 
 	ap := h.Backend.CreateAccessPointForObjectLambda(accountID, name)
 
+	var alias *olAliasItem
+	if ap.Alias != nil {
+		alias = &olAliasItem{Value: ap.Alias.Value, Status: ap.Alias.Status}
+	}
+
 	return writeXML(c, createAccessPointForObjectLambdaResponseXML{
 		ObjectLambdaAccessPointArn: ap.ObjectLambdaAccessPointArn,
+		Alias:                      alias,
 	})
 }
 
 // handleGetAccessPointForObjectLambda. Real GetAccessPointForObjectLambdaOutput
 // has no ObjectLambdaAccessPointArn field — only Alias, CreationDate, Name,
-// and PublicAccessBlockConfiguration. Alias/CreationDate/PublicAccessBlockConfiguration
-// are omitted (GAP, not fabricated): ObjectLambdaAccessPoint (models.go)
-// tracks none of the three.
+// and PublicAccessBlockConfiguration. Alias is modeled and returned below
+// (ObjectLambdaAccessPoint.Alias, models.go) -- CreationDate/
+// PublicAccessBlockConfiguration are still omitted (GAP, not fabricated):
+// ObjectLambdaAccessPoint tracks neither.
 func (h *Handler) handleGetAccessPointForObjectLambda(c *echo.Context) error {
 	accountID := accountIDFromRequest(c)
 	name := strings.TrimPrefix(c.Request().URL.Path, pathObjectLambdaPrefix)

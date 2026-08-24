@@ -392,6 +392,45 @@ func TestKinesisPrecision_DefaultMillisecond(t *testing.T) {
 	assert.Equal(t, "MILLISECOND", dest["ApproximateCreationDateTimePrecision"])
 }
 
+// TestDisableKinesisStreamingDestination_EchoesConfig verifies that
+// DisableKinesisStreamingDestinationOutput.EnableKinesisStreamingConfiguration
+// (deserializers.go:18931, a real modeled response member despite its
+// "being enabled" doc comment) reflects the disabled destination's stored
+// precision, instead of always being omitted.
+func TestDisableKinesisStreamingDestination_EchoesConfig(t *testing.T) {
+	t.Parallel()
+
+	backend := dynamodb.NewInMemoryDB()
+	handler := dynamodb.NewHandler(backend)
+	createTableHelper(t, backend, "DisableEchoTable", "pk")
+
+	streamARN := "arn:aws:kinesis:us-east-1:123456789012:stream/disable-echo"
+
+	code, _ := invokeOp(t, handler, "EnableKinesisStreamingDestination", map[string]any{
+		"TableName": "DisableEchoTable",
+		"StreamArn": streamARN,
+		"EnableKinesisStreamingConfiguration": map[string]any{
+			"ApproximateCreationDateTimePrecision": "MICROSECOND",
+		},
+	})
+	require.Equal(t, http.StatusOK, code)
+
+	code2, resp2 := invokeOp(t, handler, "DisableKinesisStreamingDestination", map[string]any{
+		"TableName": "DisableEchoTable",
+		"StreamArn": streamARN,
+	})
+	require.Equal(t, http.StatusOK, code2)
+	assert.Equal(t, "DISABLING", resp2["DestinationStatus"])
+
+	cfg, ok := resp2["EnableKinesisStreamingConfiguration"].(map[string]any)
+	require.True(
+		t, ok,
+		"expected EnableKinesisStreamingConfiguration on DisableKinesisStreamingDestination response, got %v",
+		resp2,
+	)
+	assert.Equal(t, "MICROSECOND", cfg["ApproximateCreationDateTimePrecision"])
+}
+
 // TestUpdateKinesisPrecision verifies that UpdateKinesisStreamingDestination
 // persists the new precision and DescribeKinesisStreamingDestination reflects it.
 

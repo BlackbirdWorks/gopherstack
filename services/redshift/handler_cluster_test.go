@@ -153,12 +153,68 @@ func TestRedshiftHandler_DeleteCluster_TableDriven(t *testing.T) {
 func TestRedshiftHandler_DescribeLoggingStatus(t *testing.T) {
 	t.Parallel()
 
-	h := newRedshiftHandler()
-	rec := postRedshiftForm(t, h, "Action=DescribeLoggingStatus&Version=2012-12-01")
+	tests := []struct {
+		setup        func(t *testing.T, h *redshift.Handler)
+		name         string
+		body         string
+		wantContains []string
+		wantCode     int
+	}{
+		{
+			name: "logging_never_enabled",
+			setup: func(t *testing.T, h *redshift.Handler) {
+				t.Helper()
+				postRedshiftForm(t, h, "Action=CreateCluster&Version=2012-12-01&ClusterIdentifier=dls-cluster")
+			},
+			body:         "Action=DescribeLoggingStatus&Version=2012-12-01&ClusterIdentifier=dls-cluster",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"DescribeLoggingStatusResponse", "<LoggingEnabled>false</LoggingEnabled>"},
+		},
+		{
+			name: "reflects_enabled_state",
+			setup: func(t *testing.T, h *redshift.Handler) {
+				t.Helper()
+				postRedshiftForm(t, h, "Action=CreateCluster&Version=2012-12-01&ClusterIdentifier=dls-cluster2")
+				postRedshiftForm(t, h, "Action=EnableLogging&Version=2012-12-01"+
+					"&ClusterIdentifier=dls-cluster2&BucketName=dls-bucket")
+			},
+			body:     "Action=DescribeLoggingStatus&Version=2012-12-01&ClusterIdentifier=dls-cluster2",
+			wantCode: http.StatusOK,
+			wantContains: []string{
+				"DescribeLoggingStatusResponse", "<LoggingEnabled>true</LoggingEnabled>", "dls-bucket",
+			},
+		},
+		{
+			name:         "missing_cluster_id",
+			body:         "Action=DescribeLoggingStatus&Version=2012-12-01",
+			wantCode:     http.StatusBadRequest,
+			wantContains: []string{"InvalidParameterValue"},
+		},
+		{
+			name:         "cluster_not_found",
+			body:         "Action=DescribeLoggingStatus&Version=2012-12-01&ClusterIdentifier=nonexistent",
+			wantCode:     http.StatusBadRequest,
+			wantContains: []string{"ClusterNotFound"},
+		},
+	}
 
-	assert.Equal(t, http.StatusOK, rec.Code)
-	assert.Contains(t, rec.Body.String(), "DescribeLoggingStatusResponse")
-	assert.Contains(t, rec.Body.String(), "LoggingEnabled")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newRedshiftHandler()
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+
+			rec := postRedshiftForm(t, h, tt.body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+
+			for _, s := range tt.wantContains {
+				assert.Contains(t, rec.Body.String(), s)
+			}
+		})
+	}
 }
 
 // mockDNSRegistrar is a test double for redshift.DNSRegistrar.

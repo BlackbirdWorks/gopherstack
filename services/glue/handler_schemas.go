@@ -146,12 +146,15 @@ type createRegistryInput struct {
 	Description  string            `json:"Description"`
 }
 
-// createRegistryOutput holds the result for CreateRegistry.
+// createRegistryOutput holds the result for CreateRegistry. Real
+// CreateRegistryOutput (glue@v1.152.0 api_op_CreateRegistry.go) carries
+// Description, not Status -- Status does not exist anywhere on this op's
+// response.
 type createRegistryOutput struct {
 	Tags         map[string]string `json:"Tags,omitempty"`
 	RegistryName string            `json:"RegistryName"`
 	RegistryArn  string            `json:"RegistryArn"`
-	Status       string            `json:"Status"`
+	Description  string            `json:"Description,omitempty"`
 }
 
 func (h *Handler) handleCreateRegistry(
@@ -166,7 +169,7 @@ func (h *Handler) handleCreateRegistry(
 	return &createRegistryOutput{
 		RegistryName: reg.Name,
 		RegistryArn:  reg.ARN,
-		Status:       reg.Status,
+		Description:  reg.Description,
 		Tags:         reg.Tags,
 	}, nil
 }
@@ -275,11 +278,12 @@ func (h *Handler) handleDeleteRegistry(
 		name = in.RegistryID.RegistryName
 	}
 
-	if err := h.Backend.DeleteRegistry(name); err != nil {
+	reg, err := h.Backend.DeleteRegistry(name)
+	if err != nil {
 		return nil, err
 	}
 
-	return &deleteRegistryOutput{RegistryName: name, Status: stateDeleting}, nil
+	return &deleteRegistryOutput{RegistryName: name, RegistryArn: reg.ARN, Status: stateDeleting}, nil
 }
 
 // schemaIDInput identifies a schema by registry + schema name or by ARN.
@@ -311,11 +315,12 @@ func (h *Handler) handleDeleteSchema(
 		schemaName = in.SchemaID.SchemaName
 	}
 
-	if err := h.Backend.DeleteSchema(registryName, schemaName); err != nil {
+	s, err := h.Backend.DeleteSchema(registryName, schemaName)
+	if err != nil {
 		return nil, err
 	}
 
-	return &deleteSchemaOutput{SchemaName: schemaName, Status: stateDeleting}, nil
+	return &deleteSchemaOutput{SchemaName: schemaName, SchemaArn: s.SchemaARN, Status: stateDeleting}, nil
 }
 
 // deleteSchemaVersionsInput holds input for DeleteSchemaVersions.
@@ -861,10 +866,19 @@ type putSchemaVersionMetadataInput struct {
 	SchemaVersionID string `json:"SchemaVersionId"`
 }
 
-// putSchemaVersionMetadataOutput holds the result for PutSchemaVersionMetadata.
+// putSchemaVersionMetadataOutput holds the result for
+// PutSchemaVersionMetadata. Real PutSchemaVersionMetadataOutput
+// (glue@v1.152.0 api_op_PutSchemaVersionMetadata.go) also carries
+// MetadataKey/MetadataValue (trivially available from the request) and
+// RegistryName/SchemaName (derived below via FindSchemaVersionByID) --
+// previously dropped entirely.
 type putSchemaVersionMetadataOutput struct {
 	SchemaVersionID string `json:"SchemaVersionId"`
 	SchemaArn       string `json:"SchemaArn"`
+	RegistryName    string `json:"RegistryName,omitempty"`
+	SchemaName      string `json:"SchemaName,omitempty"`
+	MetadataKey     string `json:"MetadataKey,omitempty"`
+	MetadataValue   string `json:"MetadataValue,omitempty"`
 	VersionNumber   int64  `json:"VersionNumber"`
 	LatestVersion   bool   `json:"LatestVersion"`
 }
@@ -883,7 +897,21 @@ func (h *Handler) handlePutSchemaVersionMetadata(
 		return nil, err
 	}
 
-	return &putSchemaVersionMetadataOutput{SchemaVersionID: in.SchemaVersionID}, nil
+	out := &putSchemaVersionMetadataOutput{
+		SchemaVersionID: in.SchemaVersionID,
+		MetadataKey:     key,
+		MetadataValue:   value,
+	}
+
+	if sv, s, ok := h.Backend.FindSchemaVersionByID(in.SchemaVersionID); ok {
+		out.SchemaArn = sv.SchemaARN
+		out.VersionNumber = sv.VersionNumber
+		out.LatestVersion = sv.VersionNumber == s.LatestSchemaVersion
+		out.RegistryName = s.RegistryName
+		out.SchemaName = s.SchemaName
+	}
+
+	return out, nil
 }
 
 // querySchemaVersionMetadataInput holds input for QuerySchemaVersionMetadata.
@@ -960,10 +988,18 @@ type removeSchemaVersionMetadataInput struct {
 	SchemaVersionID string `json:"SchemaVersionId"`
 }
 
-// removeSchemaVersionMetadataOutput holds the result for RemoveSchemaVersionMetadata.
+// removeSchemaVersionMetadataOutput holds the result for
+// RemoveSchemaVersionMetadata. Real RemoveSchemaVersionMetadataOutput
+// (glue@v1.152.0 api_op_RemoveSchemaVersionMetadata.go) also carries
+// MetadataKey/MetadataValue and RegistryName/SchemaName -- previously
+// dropped entirely, same as PutSchemaVersionMetadata.
 type removeSchemaVersionMetadataOutput struct {
 	SchemaVersionID string `json:"SchemaVersionId"`
 	SchemaArn       string `json:"SchemaArn"`
+	RegistryName    string `json:"RegistryName,omitempty"`
+	SchemaName      string `json:"SchemaName,omitempty"`
+	MetadataKey     string `json:"MetadataKey,omitempty"`
+	MetadataValue   string `json:"MetadataValue,omitempty"`
 	VersionNumber   int64  `json:"VersionNumber"`
 	LatestVersion   bool   `json:"LatestVersion"`
 }
@@ -972,16 +1008,31 @@ func (h *Handler) handleRemoveSchemaVersionMetadata(
 	_ context.Context,
 	in *removeSchemaVersionMetadataInput,
 ) (*removeSchemaVersionMetadataOutput, error) {
-	key := ""
+	key, value := "", ""
 	if in.MetadataKeyValue != nil {
 		key = in.MetadataKeyValue.MetadataKey
+		value = in.MetadataKeyValue.MetadataValue
 	}
 
 	if err := h.Backend.RemoveSchemaVersionMetadata(in.SchemaVersionID, key); err != nil {
 		return nil, err
 	}
 
-	return &removeSchemaVersionMetadataOutput{SchemaVersionID: in.SchemaVersionID}, nil
+	out := &removeSchemaVersionMetadataOutput{
+		SchemaVersionID: in.SchemaVersionID,
+		MetadataKey:     key,
+		MetadataValue:   value,
+	}
+
+	if sv, s, ok := h.Backend.FindSchemaVersionByID(in.SchemaVersionID); ok {
+		out.SchemaArn = sv.SchemaARN
+		out.VersionNumber = sv.VersionNumber
+		out.LatestVersion = sv.VersionNumber == s.LatestSchemaVersion
+		out.RegistryName = s.RegistryName
+		out.SchemaName = s.SchemaName
+	}
+
+	return out, nil
 }
 
 // updateRegistryInput holds input for UpdateRegistry.
@@ -1005,11 +1056,12 @@ func (h *Handler) handleUpdateRegistry(
 		name = in.RegistryID.RegistryName
 	}
 
-	if err := h.Backend.UpdateRegistry(name, in.Description); err != nil {
+	reg, err := h.Backend.UpdateRegistry(name, in.Description)
+	if err != nil {
 		return nil, err
 	}
 
-	return &updateRegistryOutput{RegistryName: name}, nil
+	return &updateRegistryOutput{RegistryName: name, RegistryArn: reg.ARN}, nil
 }
 
 // updateSchemaInput holds input for UpdateSchema.
@@ -1036,9 +1088,10 @@ func (h *Handler) handleUpdateSchema(
 		schemaName = in.SchemaID.SchemaName
 	}
 
-	if err := h.Backend.UpdateSchema(registryName, schemaName, in.Compatibility, in.Description); err != nil {
+	s, err := h.Backend.UpdateSchema(registryName, schemaName, in.Compatibility, in.Description)
+	if err != nil {
 		return nil, err
 	}
 
-	return &updateSchemaOutput{SchemaName: schemaName, RegistryName: registryName}, nil
+	return &updateSchemaOutput{SchemaName: schemaName, RegistryName: registryName, SchemaArn: s.SchemaARN}, nil
 }

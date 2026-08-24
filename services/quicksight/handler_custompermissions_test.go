@@ -63,6 +63,10 @@ func TestQuickSight_CustomPermissionsCRUD(t *testing.T) {
 
 	deleteRec := doRequest(t, h, http.MethodDelete, accountPath("/custom-permissions/cp1"), nil)
 	require.Equal(t, http.StatusOK, deleteRec.Code)
+	// DeleteCustomPermissionsOutput carries Arn (api_op_DeleteCustomPermissions.go)
+	// -- this backend already builds it deterministically at Create time, just
+	// never surfaced it back on delete.
+	assert.Equal(t, arn, parseBody(t, deleteRec)["Arn"])
 
 	deleteMissingRec := doRequest(t, h, http.MethodDelete, accountPath("/custom-permissions/cp1"), nil)
 	assert.Equal(t, http.StatusNotFound, deleteMissingRec.Code)

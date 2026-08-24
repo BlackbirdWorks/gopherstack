@@ -49,9 +49,18 @@ type instanceCreditSpecItem struct {
 type describeInstanceCreditSpecsResponse struct {
 	XMLName                        xml.Name `xml:"DescribeInstanceCreditSpecificationsResponse"`
 	RequestID                      string   `xml:"requestId"`
+	NextToken                      string   `xml:"nextToken,omitempty"`
 	InstanceCreditSpecificationSet struct {
 		Items []instanceCreditSpecItem `xml:"item"`
 	} `xml:"instanceCreditSpecificationSet"`
+}
+
+type unsuccessfulInstanceCreditSpecItem struct {
+	InstanceID string `xml:"instanceId"`
+	Error      struct {
+		Code    string `xml:"code"`
+		Message string `xml:"message"`
+	} `xml:"error"`
 }
 
 type modifyInstanceCreditSpecResponse struct {
@@ -60,6 +69,9 @@ type modifyInstanceCreditSpecResponse struct {
 	SuccessfulInstanceCreditSpecificationSet struct {
 		Items []instanceCreditSpecItem `xml:"item"`
 	} `xml:"successfulInstanceCreditSpecificationSet"`
+	UnsuccessfulInstanceCreditSpecificationSet struct {
+		Items []unsuccessfulInstanceCreditSpecItem `xml:"item"`
+	} `xml:"unsuccessfulInstanceCreditSpecificationSet"`
 }
 
 type instanceTopologyItem struct {
@@ -77,6 +89,7 @@ type instanceTopologyItem struct {
 type describeInstanceTopologyResponse struct {
 	XMLName     xml.Name `xml:"DescribeInstanceTopologyResponse"`
 	RequestID   string   `xml:"requestId"`
+	NextToken   string   `xml:"nextToken,omitempty"`
 	InstanceSet struct {
 		Items []instanceTopologyItem `xml:"item"`
 	} `xml:"instanceSet"`
@@ -187,7 +200,15 @@ func (h *Handler) handleDescribeInstanceCreditSpecifications(
 	ids := parseMemberList(vals, "InstanceId")
 	specs := h.Backend.DescribeInstanceCreditSpecifications(ids)
 
-	resp := &describeInstanceCreditSpecsResponse{RequestID: reqID}
+	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageMaxDefault)
+	if err != nil {
+		return nil, err
+	}
+
+	var nextToken string
+	specs, nextToken = pageSlice(specs, offset, maxResults)
+
+	resp := &describeInstanceCreditSpecsResponse{RequestID: reqID, NextToken: nextToken}
 	for _, s := range specs {
 		resp.InstanceCreditSpecificationSet.Items = append(
 			resp.InstanceCreditSpecificationSet.Items,
@@ -202,20 +223,41 @@ func (h *Handler) handleModifyInstanceCreditSpecification(
 	vals url.Values,
 	reqID string,
 ) (any, error) {
-	// Support InstanceCreditSpecification.1.InstanceId / CpuCredits form
-	instanceID := vals.Get("InstanceCreditSpecification.1.InstanceId")
-	cpuCredits := vals.Get("InstanceCreditSpecification.1.CpuCredits")
-	if instanceID == "" {
-		instanceID = vals.Get("InstanceId")
-		cpuCredits = vals.Get("CpuCredits")
+	var specs []InstanceCreditSpec
+	for i := 1; ; i++ {
+		instanceID := vals.Get(fmt.Sprintf("InstanceCreditSpecification.%d.InstanceId", i))
+		if instanceID == "" {
+			break
+		}
+		specs = append(specs, InstanceCreditSpec{
+			InstanceID: instanceID,
+			CPUCredits: vals.Get(fmt.Sprintf("InstanceCreditSpecification.%d.CpuCredits", i)),
+		})
 	}
 
-	if err := h.Backend.ModifyInstanceCreditSpecification(instanceID, cpuCredits); err != nil {
-		return nil, err
+	if len(specs) == 0 {
+		return nil, fmt.Errorf(
+			"%w: InstanceCreditSpecification is required", ErrInvalidParameter,
+		)
 	}
+
+	successful, unsuccessful := h.Backend.ModifyInstanceCreditSpecification(specs)
+
 	resp := &modifyInstanceCreditSpecResponse{RequestID: reqID}
-	resp.SuccessfulInstanceCreditSpecificationSet.Items = []instanceCreditSpecItem{
-		{InstanceID: instanceID, CPUCredits: cpuCredits},
+	for _, s := range successful {
+		resp.SuccessfulInstanceCreditSpecificationSet.Items = append(
+			resp.SuccessfulInstanceCreditSpecificationSet.Items,
+			instanceCreditSpecItem(s),
+		)
+	}
+	for _, s := range unsuccessful {
+		item := unsuccessfulInstanceCreditSpecItem{InstanceID: s.InstanceID}
+		item.Error.Code = ErrInstanceNotFound.Error()
+		item.Error.Message = fmt.Sprintf("The instance ID '%s' does not exist", s.InstanceID)
+		resp.UnsuccessfulInstanceCreditSpecificationSet.Items = append(
+			resp.UnsuccessfulInstanceCreditSpecificationSet.Items,
+			item,
+		)
 	}
 
 	return resp, nil
@@ -225,7 +267,17 @@ func (h *Handler) handleDescribeInstanceTopology(vals url.Values, reqID string) 
 	ids := parseMemberList(vals, "InstanceId")
 	items := h.Backend.DescribeInstanceTopology(ids)
 
-	resp := &describeInstanceTopologyResponse{RequestID: reqID}
+	maxResults, offset, err := parseEC2Pagination(
+		vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageDefaultInstanceTopology,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	var nextToken string
+	items, nextToken = pageSlice(items, offset, maxResults)
+
+	resp := &describeInstanceTopologyResponse{RequestID: reqID, NextToken: nextToken}
 	for _, item := range items {
 		ti := instanceTopologyItem{
 			InstanceID:       item.InstanceID,
@@ -271,10 +323,17 @@ func (h *Handler) handleUnmonitorInstances(vals url.Values, reqID string) (any, 
 	return resp, nil
 }
 
+// serialConsoleAccessStatusResponse is shared by Get/Enable/DisableSerialConsoleAccess,
+// which all share this exact shape. XMLName carries no tag -- three
+// different ops render this struct under three different root element
+// names, and a tag here would always win over a runtime-set XMLName value
+// (encoding/xml: a tagged XMLName field's tag is used unconditionally by
+// Marshal, ignoring the field's value), silently forcing every response to
+// the tag's single hardcoded name.
 type serialConsoleAccessStatusResponse struct {
-	XMLName                    xml.Name `xml:"GetSerialConsoleAccessStatusResponse"`
-	RequestID                  string   `xml:"requestId"`
-	SerialConsoleAccessEnabled bool     `xml:"serialConsoleAccessEnabled"`
+	XMLName                    xml.Name
+	RequestID                  string `xml:"requestId"`
+	SerialConsoleAccessEnabled bool   `xml:"serialConsoleAccessEnabled"`
 }
 
 type defaultCreditSpecificationResponse struct {
@@ -295,28 +354,35 @@ type replaceRootVolumeTaskItem struct {
 	SnapshotID              string `xml:"snapshotId,omitempty"`
 }
 
+// handleEnableSerialConsoleAccess and handleDisableSerialConsoleAccess:
+// EnableSerialConsoleAccessOutput/DisableSerialConsoleAccessOutput both have
+// no Return member at all -- only SerialConsoleAccessEnabled (ec2@v1.319.1
+// deserializers.go, awsEc2query_deserializeOpDocumentEnableSerialConsoleAccessOutput
+// has no case for "return"), the same shape GetSerialConsoleAccessStatus
+// already renders correctly.
 func (h *Handler) handleEnableSerialConsoleAccess(_ url.Values, reqID string) (any, error) {
 	h.Backend.EnableSerialConsoleAccess()
 
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "EnableSerialConsoleAccessResponse"},
-		RequestID: reqID,
-		Return:    true,
+	return &serialConsoleAccessStatusResponse{
+		XMLName:                    xml.Name{Local: "EnableSerialConsoleAccessResponse"},
+		RequestID:                  reqID,
+		SerialConsoleAccessEnabled: h.Backend.GetSerialConsoleAccessStatus(),
 	}, nil
 }
 
 func (h *Handler) handleDisableSerialConsoleAccess(_ url.Values, reqID string) (any, error) {
 	h.Backend.DisableSerialConsoleAccess()
 
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DisableSerialConsoleAccessResponse"},
-		RequestID: reqID,
-		Return:    true,
+	return &serialConsoleAccessStatusResponse{
+		XMLName:                    xml.Name{Local: "DisableSerialConsoleAccessResponse"},
+		RequestID:                  reqID,
+		SerialConsoleAccessEnabled: h.Backend.GetSerialConsoleAccessStatus(),
 	}, nil
 }
 
 func (h *Handler) handleGetSerialConsoleAccessStatus(_ url.Values, reqID string) (any, error) {
 	return &serialConsoleAccessStatusResponse{
+		XMLName:                    xml.Name{Local: "GetSerialConsoleAccessStatusResponse"},
 		RequestID:                  reqID,
 		SerialConsoleAccessEnabled: h.Backend.GetSerialConsoleAccessStatus(),
 	}, nil
@@ -363,6 +429,7 @@ type createInstanceConnectEndpointResponse struct {
 type describeInstanceConnectEndpointsResponse struct {
 	XMLName                    xml.Name `xml:"DescribeInstanceConnectEndpointsResponse"`
 	RequestID                  string   `xml:"requestId"`
+	NextToken                  string   `xml:"nextToken,omitempty"`
 	InstanceConnectEndpointSet struct {
 		Items []instanceConnectEndpointItem `xml:"item"`
 	} `xml:"instanceConnectEndpointSet"`
@@ -390,6 +457,7 @@ type createInstanceEventWindowResponse struct {
 type describeInstanceEventWindowsResponse struct {
 	XMLName                xml.Name `xml:"DescribeInstanceEventWindowsResponse"`
 	RequestID              string   `xml:"requestId"`
+	NextToken              string   `xml:"nextToken,omitempty"`
 	InstanceEventWindowSet struct {
 		Items []instanceEventWindowItem `xml:"item"`
 	} `xml:"instanceEventWindowSet"`
@@ -481,7 +549,15 @@ func (h *Handler) handleDescribeInstanceConnectEndpoints(
 	ids := parseMemberList(vals, "InstanceConnectEndpointId")
 	eps := h.Backend.DescribeInstanceConnectEndpoints(ids)
 
-	resp := &describeInstanceConnectEndpointsResponse{RequestID: reqID}
+	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageMaxDefault)
+	if err != nil {
+		return nil, err
+	}
+
+	var nextToken string
+	eps, nextToken = pageSlice(eps, offset, maxResults)
+
+	resp := &describeInstanceConnectEndpointsResponse{RequestID: reqID, NextToken: nextToken}
 	for _, ep := range eps {
 		resp.InstanceConnectEndpointSet.Items = append(
 			resp.InstanceConnectEndpointSet.Items,
@@ -564,7 +640,17 @@ func (h *Handler) handleDescribeInstanceEventWindows(vals url.Values, reqID stri
 	ids := parseMemberList(vals, "InstanceEventWindowId")
 	ews := h.Backend.DescribeInstanceEventWindows(ids)
 
-	resp := &describeInstanceEventWindowsResponse{RequestID: reqID}
+	maxResults, offset, err := parseEC2Pagination(
+		vals, ec2PageMinEventWindows, ec2PageMaxEventWindows, ec2PageMaxEventWindows,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	var nextToken string
+	ews, nextToken = pageSlice(ews, offset, maxResults)
+
+	resp := &describeInstanceEventWindowsResponse{RequestID: reqID, NextToken: nextToken}
 	for _, ew := range ews {
 		resp.InstanceEventWindowSet.Items = append(
 			resp.InstanceEventWindowSet.Items,
@@ -644,13 +730,13 @@ func (h *Handler) handleGetInstanceTypesFromInstanceRequirements(
 }
 
 func (h *Handler) handleReportInstanceStatus(vals url.Values, reqID string) (any, error) {
-	instanceID := vals.Get("InstanceId.1")
-	if instanceID == "" {
-		instanceID = vals.Get("InstanceId")
+	ids := parseMemberList(vals, "InstanceId")
+	if len(ids) == 0 {
+		return nil, fmt.Errorf("%w: at least one InstanceId is required", ErrInvalidParameter)
 	}
 	status := vals.Get("Status")
-	description := vals.Get("ReasonCode.1")
-	if err := h.Backend.ReportInstanceStatus(instanceID, status, description); err != nil {
+	description := vals.Get("Description")
+	if err := h.Backend.ReportInstanceStatus(ids, status, description); err != nil {
 		return nil, err
 	}
 
@@ -669,9 +755,43 @@ type describeInstanceTypeOfferingsResponse struct {
 	} `xml:"instanceTypeOfferingSet"`
 }
 
-func (h *Handler) handleDescribeInstanceTypeOfferings(_ url.Values, reqID string) (any, error) {
-	offerings := h.Backend.DescribeInstanceTypeOfferings()
+// applyInstanceTypeOfferingFilters filters offerings by the real "instance-type"
+// and "location" filter names (ec2@v1.319.1 api_op_DescribeInstanceTypeOfferings.go
+// DescribeInstanceTypeOfferingsInput.Filters doc comment).
+func applyInstanceTypeOfferingFilters(
+	offerings []InstanceTypeOffering,
+	filters map[string][]string,
+) []InstanceTypeOffering {
+	if len(filters) == 0 {
+		return offerings
+	}
+
+	out := make([]InstanceTypeOffering, 0, len(offerings))
+	for _, o := range offerings {
+		if vals, ok := filters["instance-type"]; ok && !anyEqual(o.InstanceType, vals) {
+			continue
+		}
+		if vals, ok := filters["location"]; ok && !anyEqual(o.Location, vals) {
+			continue
+		}
+		out = append(out, o)
+	}
+
+	return out
+}
+
+func (h *Handler) handleDescribeInstanceTypeOfferings(vals url.Values, reqID string) (any, error) {
 	resp := &describeInstanceTypeOfferingsResponse{RequestID: reqID}
+
+	// This backend only ever generates availability-zone offerings; an explicit
+	// request for another real LocationType (region/availability-zone-id/outpost)
+	// honestly has none, rather than fabricating a match.
+	if lt := vals.Get("LocationType"); lt != "" && lt != filterKeyAvailabilityZone {
+		return resp, nil
+	}
+
+	offerings := h.Backend.DescribeInstanceTypeOfferings()
+	offerings = applyInstanceTypeOfferingFilters(offerings, parseEC2Filters(vals))
 
 	for _, o := range offerings {
 		resp.InstanceTypeOfferingSet.Items = append(
@@ -705,6 +825,7 @@ func (h *Handler) handleSendDiagnosticInterrupt(vals url.Values, reqID string) (
 type describeElasticGpusResponse struct {
 	XMLName       xml.Name `xml:"DescribeElasticGpusResponse"`
 	RequestID     string   `xml:"requestId"`
+	NextToken     string   `xml:"nextToken,omitempty"`
 	ElasticGpuSet struct {
 		Items []elasticGpuItem `xml:"item"`
 	} `xml:"elasticGpuSet"`
@@ -715,7 +836,15 @@ func (h *Handler) handleDescribeElasticGpus(vals url.Values, reqID string) (any,
 
 	gpus := h.Backend.DescribeElasticGpus(ids)
 
-	resp := &describeElasticGpusResponse{RequestID: reqID}
+	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinElasticGpus, ec2PageMaxDefault, ec2PageMaxDefault)
+	if err != nil {
+		return nil, err
+	}
+
+	var nextToken string
+	gpus, nextToken = pageSlice(gpus, offset, maxResults)
+
+	resp := &describeElasticGpusResponse{RequestID: reqID, NextToken: nextToken}
 	for _, g := range gpus {
 		resp.ElasticGpuSet.Items = append(resp.ElasticGpuSet.Items, elasticGpuItem{
 			ElasticGpuID:   g.ElasticGpuID,

@@ -231,17 +231,21 @@ func (b *InMemoryBackend) GetServiceAttributes(serviceID string) (string, map[st
 	return svc.ARN, copyAttrs(attrs), nil
 }
 
-// UpdateServiceAttributes sets or merges custom attributes for a service identified by ARN.
-func (b *InMemoryBackend) UpdateServiceAttributes(serviceARN string, attributes map[string]string) error {
+// UpdateServiceAttributes sets or merges custom attributes for a service
+// identified by ID or ARN (real ServiceId wire field accepts either).
+func (b *InMemoryBackend) UpdateServiceAttributes(serviceIDOrARN string, attributes map[string]string) error {
 	b.mu.Lock("UpdateServiceAttributes")
 	defer b.mu.Unlock()
 
-	svcMatches := b.servicesByARN.Get(serviceARN)
-	if len(svcMatches) == 0 {
-		return fmt.Errorf("%w: service with ARN %s not found", ErrServiceNotFound, serviceARN)
-	}
+	svcID := serviceIDOrARN
+	if !b.services.Has(svcID) {
+		svcMatches := b.servicesByARN.Get(serviceIDOrARN)
+		if len(svcMatches) == 0 {
+			return fmt.Errorf("%w: service %s not found", ErrServiceNotFound, serviceIDOrARN)
+		}
 
-	svcID := svcMatches[0].ID
+		svcID = svcMatches[0].ID
+	}
 
 	existing := b.serviceAttributes[svcID]
 
@@ -256,7 +260,7 @@ func (b *InMemoryBackend) UpdateServiceAttributes(serviceARN string, attributes 
 		return fmt.Errorf(
 			"%w: service %s would have %d attributes, exceeding the maximum of %d",
 			ErrServiceAttributesLimitExceeded,
-			serviceARN,
+			serviceIDOrARN,
 			merged,
 			maxServiceAttrCount,
 		)

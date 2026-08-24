@@ -113,11 +113,17 @@ func TestHandler_ListNamespaces_MaxNamespacesLimitsPage(t *testing.T) {
 	assert.Contains(t, result, keyContinuationTokenTestKey)
 }
 
-func TestHandler_GetNamespaceIncludesTableBucketArn(t *testing.T) {
+// TestHandler_GetNamespaceIncludesTableBucketId locks in the gopherstack-wla0
+// fix: GetNamespaceOutput has no tableBucketARN member at all (confirmed via
+// awsRestjson1_deserializeOpDocumentGetNamespaceOutput in
+// aws-sdk-go-v2/service/s3tables@v1.18.4's deserializers.go) -- its
+// bucket-identifying field is the system-assigned tableBucketId.
+func TestHandler_GetNamespaceIncludesTableBucketId(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	bucketARN := createBucketHelper(t, h, "ns-arn-bucket")
+	bucketARN := createBucketHelper(t, h, "ns-id-bucket")
+	wantBucketID := getTableBucketIDHelper(t, h, bucketARN)
 	createNamespaceHelper(t, h, bucketARN, []string{"ns1"})
 
 	encodedARN := url.PathEscape(bucketARN)
@@ -125,15 +131,21 @@ func TestHandler_GetNamespaceIncludesTableBucketArn(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	result := parseResponse(t, rec)
-	assert.Equal(t, bucketARN, result["tableBucketARN"],
-		"GetNamespace response must include tableBucketARN")
+	assert.NotContains(t, result, "tableBucketARN",
+		"GetNamespaceOutput has no tableBucketARN member on the real API")
+	assert.Equal(t, wantBucketID, result["tableBucketId"],
+		"GetNamespace response must include the real tableBucketId")
 }
 
-func TestHandler_ListNamespacesIncludesTableBucketArn(t *testing.T) {
+// TestHandler_ListNamespacesIncludesTableBucketId is the NamespaceSummary
+// counterpart of TestHandler_GetNamespaceIncludesTableBucketId above --
+// NamespaceSummary also has no tableBucketARN member.
+func TestHandler_ListNamespacesIncludesTableBucketId(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	bucketARN := createBucketHelper(t, h, "list-ns-arn-bucket")
+	bucketARN := createBucketHelper(t, h, "list-ns-id-bucket")
+	wantBucketID := getTableBucketIDHelper(t, h, bucketARN)
 	createNamespaceHelper(t, h, bucketARN, []string{"ns1"})
 
 	encodedARN := url.PathEscape(bucketARN)
@@ -148,8 +160,10 @@ func TestHandler_ListNamespacesIncludesTableBucketArn(t *testing.T) {
 	require.Len(t, namespaces, 1)
 
 	entry := namespaces[0].(map[string]any)
-	assert.Equal(t, bucketARN, entry["tableBucketARN"],
-		"ListNamespaces summary must include tableBucketARN")
+	assert.NotContains(t, entry, "tableBucketARN",
+		"NamespaceSummary has no tableBucketARN member on the real API")
+	assert.Equal(t, wantBucketID, entry["tableBucketId"],
+		"ListNamespaces summary must include the real tableBucketId")
 }
 
 // ======================================================================

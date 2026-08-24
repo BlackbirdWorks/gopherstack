@@ -103,7 +103,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 
 	// channelsByName uniqueness enforced post-restore (index survived).
 	_, err = fresh.CreateChannel("channel1", "aws", nil, nil)
-	require.ErrorIs(t, err, cloudtrail.ErrAlreadyExists)
+	require.ErrorIs(t, err, cloudtrail.ErrChannelAlreadyExists)
 
 	// dashboards table + dashboardsByARN index.
 	dashboards := fresh.ListDashboards()
@@ -114,7 +114,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 
 	// dashboardsByName uniqueness enforced post-restore (index survived).
 	_, err = fresh.CreateDashboard("dashboard1", "CUSTOM", nil, nil, nil, false)
-	require.ErrorIs(t, err, cloudtrail.ErrAlreadyExists)
+	require.ErrorIs(t, err, cloudtrail.ErrDashboardConflict)
 
 	// eventDataStores table + edsByARN index.
 	edsList := fresh.ListEventDataStores()
@@ -125,7 +125,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 
 	// edsByName uniqueness enforced post-restore (index survived).
 	_, err = fresh.CreateEventDataStore("eds1", true, false, false, 0, nil, "", "", nil)
-	require.ErrorIs(t, err, cloudtrail.ErrAlreadyExists)
+	require.ErrorIs(t, err, cloudtrail.ErrEventDataStoreAlreadyExists)
 
 	// queries table.
 	queries := fresh.ListQueries()
@@ -208,7 +208,7 @@ func TestInMemoryBackend_UpdateEventDataStore_RenamePreservesIndex(t *testing.T)
 
 	// The new name must be findable and unique.
 	_, err = b.CreateEventDataStore("renamed", false, false, false, 0, nil, "", "", nil)
-	require.ErrorIs(t, err, cloudtrail.ErrAlreadyExists, "renamed index entry must be present")
+	require.ErrorIs(t, err, cloudtrail.ErrEventDataStoreAlreadyExists, "renamed index entry must be present")
 
 	snap := b.Snapshot(t.Context())
 	fresh := cloudtrail.NewInMemoryBackend("000000000000", "us-east-1")
@@ -252,7 +252,7 @@ func TestInMemoryBackend_UpdateDashboard_WidgetsAndScheduleSurviveRestore(t *tes
 
 	// dashboardsByName index still resolves by the (unchanged) original name.
 	_, err = b.CreateDashboard("my-dashboard", "CUSTOM", nil, nil, nil, false)
-	require.ErrorIs(t, err, cloudtrail.ErrAlreadyExists)
+	require.ErrorIs(t, err, cloudtrail.ErrDashboardConflict)
 
 	snap := b.Snapshot(t.Context())
 	fresh := cloudtrail.NewInMemoryBackend("000000000000", "us-east-1")
@@ -330,7 +330,7 @@ func TestInMemoryBackend_RestoreVersionMismatch(t *testing.T) {
 	assert.Empty(t, out.Events)
 
 	_, err = b.GetResourcePolicy("arn:aws:cloudtrail:us-east-1:000000000000:eventdatastore/eds-000001")
-	require.ErrorIs(t, err, cloudtrail.ErrNotFound)
+	require.ErrorIs(t, err, cloudtrail.ErrResourcePolicyNotFound)
 }
 
 // TestInMemoryBackend_RestoreInvalidData verifies malformed JSON surfaces as

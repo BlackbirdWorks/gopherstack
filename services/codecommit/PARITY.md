@@ -27,7 +27,7 @@ overall: A            # this pass (gopherstack-gvkf): the entire Comment family 
                       # SameFileContentException now returned by PutFile/CreateCommit.
                       # Content-level merge/conflict diffing remains a gap.
 ops:
-  CreateRepository: {wire: ok, errors: ok, state: ok, persist: ok}
+  CreateRepository: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "FIXED 2026-08-23 — decode struct (createRepositoryInput) dropped CreateRepositoryInput.KmsKeyId entirely, so a repository created with a customer KMS key always reported an empty kmsKeyId; Repository.KmsKeyID is a real tracked field, correctly populated by UpdateRepositoryEncryptionKey but never by CreateRepository itself. Now threaded through CreateRepository's backend signature and set at creation time."}
   GetRepository: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteRepository: {wire: ok, errors: ok, state: fixed, persist: ok, note: "cascades branches/commits/files/fileHistory/triggers/PRs/comments/commentReactions; comments and fileHistory were leaking past repo deletion before this pass (see Notes)"}
   ListRepositories: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -86,7 +86,7 @@ ops:
   MergeBranchesByFastForward: {wire: ok, errors: ok, state: ok, persist: ok, note: "OUT-OF-SCOPE FINDING (not fixed this pass, flagging per audit brief): same TargetBranch/source-dest-existence-validation gaps found and fixed in Squash/ThreeWay this pass also apply here — TargetBranch is accepted by the real MergeBranchesByFastForwardInput but never read (always updates destinationCommitSpecifier's literal string as if it were the target branch name), and neither source nor destination specifier is validated to exist before creating a commit and moving a branch. Also creates a brand-new zero-parent commit unconditionally, where real AWS fast-forward semantics would typically just move the branch pointer to the existing source commit without fabricating a new one. This op was graded ok by two prior audits and is outside this pass's assigned scope (codecommit-3bsb was Squash/ThreeWay/GetMergeConflicts specifically); left as-is, not re-graded, but noted for a future pass."}
   MergeBranchesBySquash: {wire: ok, errors: ok, state: fixed, persist: ok, note: "FIXED this pass — was calling the FastForward backend method verbatim; now a real distinct method: resolves+validates both specifiers exist (CommitDoesNotExistException if not, previously unvalidated), creates a commit with exactly ONE parent (the destination tip, matching real squash-merge shape vs. 3-way's two), and honors TargetBranch/CommitMessage/AuthorName/Email request fields that were previously silently dropped. Content-level squash (combining file changes) still not modeled — see gaps."}
   MergeBranchesByThreeWay: {wire: ok, errors: ok, state: fixed, persist: ok, note: "FIXED this pass — same as MergeBranchesBySquash, but the created commit has TWO parents ([destination, source]), a real merge-commit shape FastForward's zero-parent commit and Squash's one-parent commit both lack. Content-level 3-way merge still not modeled — see gaps."}
-  CreateUnreferencedMergeCommit: {wire: ok, errors: ok, state: ok, persist: ok}
+  CreateUnreferencedMergeCommit: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "FIXED 2026-08-23 — decode struct dropped CreateUnreferencedMergeCommitInput's authorName/commitMessage/email entirely (the exact bug class PutFile/DeleteFile were fixed for, gopherstack-n3zi's flagged lead): the resulting commit always carried the hardcoded 'Unreferenced merge commit' message and an anonymous author, even though Commit.AuthorName/AuthorEmail/Message are real tracked fields populated correctly by CreateCommit and MergeBranchesBySquash/ByThreeWay. Now threaded through the backend signature and set on the commit, defaulting to the prior hardcoded message only when the client omits commitMessage (matching MergeBranchesBySquash/ByThreeWay's own default-message pattern)."}
   GetMergeCommit: {wire: ok, errors: ok, state: ok, persist: ok}
   GetMergeConflicts: {wire: fixed, errors: fixed, state: fixed, persist: n/a, note: "FIXED this pass — three bugs: (1) required-field/mergeOption-enum validation was entirely missing (repositoryName/sourceCommitSpecifier/destinationCommitSpecifier/mergeOption all 'This member is required' per the real SDK's validateOpGetMergeConflictsInput); (2) sourceCommitId/destinationCommitId echoed the raw request specifier instead of the resolved commit ID (now resolved via resolveCommitSpecifier, CommitDoesNotExistException if unresolvable); (3) SEVERE — mergeable was hardcoded to `false` (inverted: this emulator never computes real conflicts, so every merge was actually mergeable, but every real client polling this op before merging would have seen mergeable:false and refused to proceed). Now true. conflicts/mergeHunks remain always empty — no content-diff engine (see gaps); this is AWS-correct for FAST_FORWARD_MERGE specifically (doc-guaranteed empty) but a documented gap for SQUASH_MERGE/THREE_WAY_MERGE. FIXED (gopherstack-lx5h) — response key was also wrong: emitted \"conflicts\", real required key (deserializers.go) is conflictMetadataList. Confirmed the always-empty list itself is the deliberate, documented stub described above (no content-diff engine) and left that behavior untouched; only the key name changed, which is a zero-behavior-change fix since the value is always []"}
   GetMergeOptions: {wire: ok, errors: ok, state: n/a, persist: n/a}
@@ -114,6 +114,8 @@ gaps:
   - "MergeBranchesBySquash/MergeBranchesByThreeWay (FIXED this pass to be real, distinct backend methods — see ops table) still do not model content-level squash/3-way merge semantics: the produced commit has the right parent-count shape (one parent for squash, two for three-way) and the right branch-tip update, but there is no second version of any file to actually combine. Root cause, re-confirmed this pass: File is stored flatly, keyed only by repoName|filePath (fileKey in store_setup.go) — there is no per-branch or per-commit file tree at all, so there is no 'source branch version' vs 'destination branch version' of a file to even diff, let alone merge. Implementing real content-level merge semantics is not a bug fix but a full data-model rework (branch- or commit-scoped file trees) touching PutFile/DeleteFile/CreateCommit/GetFile/GetFolder/GetDifferences and every other file-reading op; out of scope for this pass. (bd: gopherstack-3bsb follow-up)"
   - "GetMergeConflicts (FIXED this pass — see ops table for the mergeable-inversion bug and validation gaps closed)/BatchDescribeMergeConflicts/DescribeMergeConflicts never report a real conflict: conflicts/mergeHunks are always empty. Same root cause as the merge-strategy gap above (no per-branch file state to diff) — there is nothing to diff even in principle without a data-model change. Note: for FAST_FORWARD_MERGE specifically this is not a gap at all — AWS's own GetMergeConflictsOutput.ConflictMetadataList doc comment guarantees an empty list for that strategy, so the behavior is correct by definition there; the gap is genuinely only SQUASH_MERGE/THREE_WAY_MERGE. (bd: gopherstack-3bsb follow-up)"
   - "FilePathConflictsWithSubmodulePathException (ErrFilePathConflicts in errors.go) is declared and wired into errCodeLookup, but no backend path ever returns it — submodules aren't modeled at all in this backend, so there is no concept to build a conflict check on. SameFileContentException (ErrSameFileContent) was the other half of this gap and is FIXED this pass — PutFile and CreateCommit's putFiles entries now compare new content against the existing blob at that path and reject identical writes (see PutFile/CreateCommit ops rows). Note this is a best-effort approximation, not full parity: because File has no per-branch identity (same root cause as the merge gaps above), the comparison is against the single flat current value at that path repo-wide, not specifically against the destination branch's parent-commit content the way real AWS computes it — for a repo with no branch divergence at a path (the common case) these are identical, but they could theoretically diverge. (bd: gopherstack-3bsb follow-up, partially closed)"
+  - "2026-08-23: MergePullRequestBySquash/MergePullRequestByThreeWay drop authorName/commitMessage/email from their decode structs, the same shape as the CreateUnreferencedMergeCommit bug fixed this pass — but this is a modelling gap, not a bug: neither backend method creates a Commit at all (they only flip PullRequestStatus and LastActivityDate; unlike MergeBranchesBySquash/ByThreeWay, no branch tip moves and no commit object exists to carry an author/message onto). The real MergePullRequestBySquashOutput doesn't even return author/message — that data would surface via PullRequestTarget.MergeMetadata (MergeCommitId/MergedBy/IsMerged, types.go:936 in codecommit@v1.36.4), a struct gopherstack's PullRequestTarget doesn't model at all. Adding just the three decode fields with nothing to do with them would be a no-op stub, which parity-principles.md rule 1 forbids. Root cause is the same PR-merge-doesn't-create-a-commit gap already noted by the 2026-08-07 pass (see 'Traps for the next auditor' below) — not synthesized here. (bd: gopherstack-3bsb follow-up)"
+  - "2026-08-23: UpdateApprovalRuleTemplateContent/UpdatePullRequestApprovalRuleContent drop ExistingRuleContentSha256 from their decode structs. This IS a genuine modelling gap, not a false positive: ApprovalRuleTemplate.RuleContentSha256 is a real tracked field (computed and returned correctly elsewhere), so the precondition value exists to compare against — but there is no comparison logic anywhere in this backend, and no InvalidRuleContentSha256Exception equivalent in errors.go (the real SDK has one: deserializers.go:15493, codecommit@v1.36.4), confirming the optimistic-concurrency check itself was never implemented, not merely that the parameter was dropped. A real client relying on this precondition to avoid clobbering a concurrent edit gets no protection. Not synthesized (accepting the field with no check would be worse than dropping it — a false sense of safety). (bd: gopherstack-3bsb follow-up)"
 deferred: []
 leaks: {status: clean, note: "no goroutines/janitors in this service; Reset/Snapshot/Restore cover all state including the 3 dirty tables (comments, files, prApprovalRules). Fixed this pass: DeleteRepository never cleaned up fileHistory[repoName], and never cascade-deleted comments (compared-commit comments by RepoName, PR comments by PRid) or their commentReactions — both are ghost-row leaks now closed (see Notes); locked by TestHandler_DeleteRepository_Cascade_FileHistory and TestHandler_DeleteRepository_Cascade_Comments."}
 ---
@@ -418,6 +420,77 @@ findings from field-diffing the file/commit/merge-conflict/pagination surface ag
    `delete()`-d in the same cascade. Locked by
    `TestHandler_DeleteRepository_Cascade_{Comments,FileHistory}`.
 
+### 2026-08-23 — merges.go finally opened, plus CreateRepository
+
+The 2026-08-23 request-side sweep (see `services/codecommit/handler_files_sdk_roundtrip_test.go`'s
+`PutFile`/`DeleteFile` fixes) left a strong but explicitly unconfirmed lead: five merge ops
+looked like they dropped `authorName`/`commitMessage`/`email` the same way PutFile/DeleteFile
+did, but `merges.go` itself was never opened. This pass opened it and checked each of the five
+against the pinned SDK (codecommit@v1.36.4) individually rather than trusting the precedent:
+
+1. **`MergeBranchesBySquash`/`MergeBranchesByThreeWay` — REFUTED.** Both already decode
+   `authorName`/`commitMessage`/`email` via the shared `mergeBranchesRequest` struct and pass
+   them through `MergeBranchesOptions` into the backend, which sets `Commit.AuthorName`/
+   `AuthorEmail`/`Message` correctly. This was fixed by the 2026-08-07 pass (see below); the
+   lead's own pattern-match caught these as false positives had it read the file.
+2. **`CreateUnreferencedMergeCommit` — CONFIRMED, fixed this pass.** Decode struct had none of
+   the three fields; backend hardcoded `Message: "Unreferenced merge commit"` and never set
+   `AuthorName`/`AuthorEmail`, despite those being real tracked `Commit` fields populated
+   correctly elsewhere (`CreateCommit`, the two ops above). Real-client proof:
+   `Test_SDKRoundTrip_CreateUnreferencedMergeCommit_CommitMetadata` — creates a repo, calls
+   `CreateUnreferencedMergeCommit` with `CommitMessage`/`AuthorName`/`Email` set, reads the
+   result back via `GetCommit`. Confirmed failing against unfixed code (quoted below), fixed,
+   hand-reverted via `cp` and reconfirmed failing identically, restored byte-identical (`md5sum`
+   matched). Fix: `merges.go`'s `CreateUnreferencedMergeCommit` gained three trailing string
+   params (`authorName, authorEmail, message`); `handler_merges.go`'s decode struct gained
+   `authorName`/`email`/`commitMessage` JSON tags.
+   ```
+   Error: Not equal:
+     expected: "unref merge result"
+     actual  : "Unreferenced merge commit"
+   ```
+3. **`MergePullRequestBySquash`/`MergePullRequestByThreeWay` — MODELLING GAP, not a bug.** Both
+   drop the same three fields, but unlike every op above, neither backend method creates a
+   `Commit` at all — they only flip `PullRequestStatus`/`LastActivityDate`. There is no commit
+   object for an author/message to land on. Real AWS's `MergePullRequestBySquashOutput` doesn't
+   even return author/message directly; that data lives in `PullRequestTarget.MergeMetadata`
+   (`MergeCommitId`/`MergedBy`/`IsMerged`, `types.go:936`), a struct gopherstack's
+   `PullRequestTarget` doesn't model. See `gaps` above; not synthesized (a decode-only fix with
+   no backend consumer would be exactly the no-op stub `parity-principles.md` rule 1 forbids).
+
+**`CreateRepository` — found independently while widening the scan past the five merge ops
+(28 of codecommit's 30 raw candidates had never been read), CONFIRMED, fixed this pass.**
+`createRepositoryInput` dropped `CreateRepositoryInput.KmsKeyId`; `Repository.KmsKeyID` is a
+real tracked field (correctly populated by `UpdateRepositoryEncryptionKey`, exercised by
+`wire_encryption_key_test.go`) but `CreateRepository` itself never set it. A repository created
+with a customer KMS key always reported an empty `kmsKeyId`. Real-client proof:
+`Test_SDKRoundTrip_CreateRepository_KmsKeyId` — creates a repo with `KmsKeyId` set, reads it
+back via `GetRepository`. Confirmed failing against unfixed code, hand-reverted and
+reconfirmed, restored byte-identical. Fix: `CreateRepository`'s backend signature gained a
+`kmsKeyID string` param (all in-package callers, including five test call sites in
+`handler_test.go`/`persistence_test.go`, updated); `createRepositoryInput` gained a
+`KmsKeyID json:"kmsKeyId"` field.
+
+Also checked and ruled real gaps, not bugs (see `gaps` above): `UpdateApprovalRuleTemplateContent`/
+`UpdatePullRequestApprovalRuleContent` drop `ExistingRuleContentSha256` — `RuleContentSha256` is
+tracked, but no comparison logic or `InvalidRuleContentSha256Exception` equivalent exists
+anywhere in this backend, so the precondition concept itself was never built, not merely
+wired to the wrong field.
+
+Not reached this pass (named, not implied covered): the remaining unread portion of
+codecommit's 30 raw candidates beyond the 5 merge ops + `CreateRepository` — specifically
+`PostCommentForComparedCommit`/`PostCommentForPullRequest`/`PostCommentReply`'s
+`ClientRequestToken`/`Location` (checked; `Comment` has no such fields at all — likely the
+same class of modelling gap as `ExternalIds`/`Extensions` elsewhere in this campaign, but not
+verified against `InvalidRuleContentSha256Exception`-style error-set evidence the way the sha256
+gap above was), and every List/Get op's dropped `MaxResults`/`NextToken`/filter-only params
+(`GetCommentsForPullRequest`, `GetCommentReactions`, `DescribePullRequestEvents`'s `ActorArn`/
+`PullRequestEventType`, `ListFileCommitHistory`'s `CommitSpecifier`, `GetDifferences`'s
+`AfterPath`/`BeforePath`) — these narrow what a real client could filter/paginate by rather than
+returning wrong data for the un-filtered case, a materially different (and lower-severity) risk
+profile than the four confirmed-or-refuted findings above, and were triaged by comparison against
+the pinned SDK's Input structs but not each individually proven against a real client.
+
 ### Traps for the next auditor
 
 - `MergeBranchesBySquash`/`MergeBranchesByThreeWay` (fixed 2026-08-07 to be real, distinct
@@ -469,3 +542,18 @@ findings from field-diffing the file/commit/merge-conflict/pagination surface ag
 Both proven via real `aws-sdk-go-v2/service/codecommit` client round trips
 (wire_field_fixes_y1zn_test.go), hand-reverted/confirmed-failing/restored/
 `md5sum`-verified byte-identical.
+
+## 2026-08-23 request-side accept-and-drop (gopherstack-n3zi)
+
+PutFile and DeleteFile dropped commitMessage, name and email; PutFile also
+dropped fileMode and parentCommitId. All body-bound, all real members of
+PutFileInput (api_op_PutFile.go:56-77). Commit.Message was hardcoded to
+"Add "+path / "Delete "+path, and Commit.AuthorName/AuthorEmail -- fields that
+exist and are populated correctly by CreateCommit (commits.go:122-127) -- were
+never set. Proven by real-SDK-client round trip failing pre-fix with
+expected "initial import", actual "Add hello.txt".
+
+NOT AUDITED, LIKELY THE SAME BUG: CreateUnreferencedMergeCommit,
+MergeBranchesBySquash, MergeBranchesByThreeWay, MergePullRequestBySquash and
+MergePullRequestByThreeWay all show the same missing authorName, commitMessage
+and email in the same scan. merges.go was never opened. Treat as unconfirmed.

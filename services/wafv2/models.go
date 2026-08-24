@@ -51,21 +51,25 @@ type VisibilityConfig struct {
 
 // WebACL represents an AWS WAFv2 Web ACL.
 type WebACL struct {
-	Tags                 map[string]string `json:"tags,omitempty"`
-	ARN                  string            `json:"arn,omitempty"`
-	DefaultAction        json.RawMessage   `json:"defaultAction,omitempty"`
-	VisibilityConfig     json.RawMessage   `json:"visibilityConfig,omitempty"`
-	CustomResponseBodies json.RawMessage   `json:"customResponseBodies,omitempty"`
-	AssociationConfig    json.RawMessage   `json:"associationConfig,omitempty"`
-	CaptchaConfig        json.RawMessage   `json:"captchaConfig,omitempty"`
-	ChallengeConfig      json.RawMessage   `json:"challengeConfig,omitempty"`
-	ID                   string            `json:"id"`
-	Name                 string            `json:"name"`
-	Scope                string            `json:"scope"`
-	Description          string            `json:"description"`
-	LockToken            string            `json:"lockToken"`
-	TokenDomains         []string          `json:"tokenDomains,omitempty"`
-	Rules                []map[string]any  `json:"rules,omitempty"`
+	Tags                         map[string]string `json:"tags,omitempty"`
+	ARN                          string            `json:"arn,omitempty"`
+	DefaultAction                json.RawMessage   `json:"defaultAction,omitempty"`
+	VisibilityConfig             json.RawMessage   `json:"visibilityConfig,omitempty"`
+	CustomResponseBodies         json.RawMessage   `json:"customResponseBodies,omitempty"`
+	AssociationConfig            json.RawMessage   `json:"associationConfig,omitempty"`
+	CaptchaConfig                json.RawMessage   `json:"captchaConfig,omitempty"`
+	ChallengeConfig              json.RawMessage   `json:"challengeConfig,omitempty"`
+	MonetizationConfig           json.RawMessage   `json:"monetizationConfig,omitempty"`
+	DataProtectionConfig         json.RawMessage   `json:"dataProtectionConfig,omitempty"`
+	ApplicationConfig            json.RawMessage   `json:"applicationConfig,omitempty"`
+	OnSourceDDoSProtectionConfig json.RawMessage   `json:"onSourceDDoSProtectionConfig,omitempty"`
+	ID                           string            `json:"id"`
+	Name                         string            `json:"name"`
+	Scope                        string            `json:"scope"`
+	Description                  string            `json:"description"`
+	LockToken                    string            `json:"lockToken"`
+	TokenDomains                 []string          `json:"tokenDomains,omitempty"`
+	Rules                        []map[string]any  `json:"rules,omitempty"`
 }
 
 // IPSet represents an AWS WAFv2 IP Set.
@@ -103,6 +107,7 @@ type RuleGroup struct {
 	Description          string            `json:"description"`
 	VisibilityConfig     string            `json:"visibilityConfig"`
 	CustomResponseBodies json.RawMessage   `json:"customResponseBodies,omitempty"`
+	MonetizationConfig   json.RawMessage   `json:"monetizationConfig,omitempty"`
 	LockToken            string            `json:"lockToken"`
 	Rules                []map[string]any  `json:"rules,omitempty"`
 	Capacity             int64             `json:"capacity"`

@@ -425,8 +425,9 @@ func TestImportTerminology_SetsLanguagesFromCSV(t *testing.T) {
 	}
 }
 
-// TestImportTerminology_MergeStrategyValidation verifies that only OVERWRITE
-// is accepted as MergeStrategy.
+// TestImportTerminology_MergeStrategyValidation verifies that MergeStrategy
+// is required and only OVERWRITE is accepted (ImportTerminologyInput.
+// MergeStrategy is "This member is required" in the real SDK).
 func TestImportTerminology_MergeStrategyValidation(t *testing.T) {
 	t.Parallel()
 
@@ -436,7 +437,7 @@ func TestImportTerminology_MergeStrategyValidation(t *testing.T) {
 		wantCode      int
 	}{
 		{name: "overwrite_accepted", mergeStrategy: "OVERWRITE", wantCode: http.StatusOK},
-		{name: "empty_accepted", mergeStrategy: "", wantCode: http.StatusOK},
+		{name: "empty_rejected", mergeStrategy: "", wantCode: http.StatusBadRequest},
 		{name: "merge_rejected", mergeStrategy: "MERGE", wantCode: http.StatusBadRequest},
 		{name: "invalid_rejected", mergeStrategy: "REPLACE", wantCode: http.StatusBadRequest},
 	}

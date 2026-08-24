@@ -136,6 +136,10 @@ func TestQuickSight_ListActionConnectors_Pagination(t *testing.T) {
 		// List summaries must not include AuthenticationConfig (matches the
 		// real ActionConnectorSummary shape).
 		assert.NotContains(t, m, "AuthenticationConfig")
+		// CreatedTime is a real, non-fabricated value this backend already
+		// tracks (ActionConnector.CreatedTime) and ActionConnectorSummary
+		// carries it too -- must not be silently dropped.
+		assert.Contains(t, m, "CreatedTime")
 	}
 
 	page2Path := accountPath(fmt.Sprintf("/action-connectors?max-results=2&next-token=%s", next))

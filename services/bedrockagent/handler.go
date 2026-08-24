@@ -290,7 +290,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		if err != nil {
 			log.ErrorContext(ctx, "bedrockagent: failed to read body", "error", err)
 
-			return c.JSON(http.StatusInternalServerError, errResp("InternalFailure", "internal server error"))
+			return c.JSON(http.StatusInternalServerError, errResp("InternalServerException", "internal server error"))
 		}
 
 		return h.dispatch(ctx, c, path, method, query, body)

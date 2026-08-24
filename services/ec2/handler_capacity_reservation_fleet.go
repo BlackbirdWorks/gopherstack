@@ -136,6 +136,14 @@ func (h *Handler) handleDescribeCapacityReservationFleets(vals url.Values, reqID
 
 	fleets := h.Backend.DescribeCapacityReservationFleets(ids, filters)
 
+	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageMaxDefault)
+	if err != nil {
+		return nil, err
+	}
+
+	var nextToken string
+	fleets, nextToken = pageSlice(fleets, offset, maxResults)
+
 	items := make([]capacityReservationFleetItem, 0, len(fleets))
 	for _, fleet := range fleets {
 		items = append(
@@ -147,6 +155,7 @@ func (h *Handler) handleDescribeCapacityReservationFleets(vals url.Values, reqID
 	return &describeCapacityReservationFleetsResponse{
 		Xmlns:     ec2XMLNS,
 		RequestID: reqID,
+		NextToken: nextToken,
 		Fleets:    capacityReservationFleetSet{Items: items},
 	}, nil
 }

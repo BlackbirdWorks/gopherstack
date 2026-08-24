@@ -77,7 +77,7 @@ func (h *Handler) handleListSecurityProfilesForTarget(c *echo.Context) error {
 				keyName: p,
 				keyArn:  h.Backend.SecurityProfileARN(p),
 			},
-			"target": map[string]string{keyArn: targetARN},
+			keyTarget: map[string]string{keyArn: targetARN},
 		}
 	}
 

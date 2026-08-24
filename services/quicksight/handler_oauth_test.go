@@ -196,6 +196,33 @@ func TestQuickSight_ListOAuthClientApps_Pagination(t *testing.T) {
 	assert.Len(t, parseBody(t, page2)["OAuthClientApplications"].([]any), 2)
 }
 
+// ListOAuthClientApplications must return the OAuthClientApplicationSummary
+// shape, not OAuthClientApplication -- types.OAuthClientApplicationSummary
+// (types.go) has no OAuthAuthorizationEndpointUrl/OAuthScopes/
+// OAuthTokenEndpointUrl, unlike DescribeOAuthClientApplication's response
+// type. Raw-body assertion: an SDK client's deserializer silently drops
+// unrecognized members, so it can't prove the leak.
+func TestQuickSight_ListOAuthClientApps_OmitsDescribeOnlyFields(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	doRequest(t, h, http.MethodPost, accountPath("/oauth-client-applications"), oauthAppBody("app1", "App One"))
+
+	rec := doRequest(t, h, http.MethodGet, accountPath("/oauth-client-applications"), nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+	items, ok := parseBody(t, rec)["OAuthClientApplications"].([]any)
+	require.True(t, ok)
+	require.NotEmpty(t, items)
+	for _, it := range items {
+		m, isMap := it.(map[string]any)
+		require.True(t, isMap)
+		for _, k := range []string{"OAuthAuthorizationEndpointUrl", "OAuthScopes", "OAuthTokenEndpointUrl"} {
+			_, has := m[k]
+			assert.False(t, has, "OAuthClientApplicationSummary must not carry "+k)
+		}
+	}
+}
+
 // ---- OAuth Client App tests ---- //nolint:godot // existing issue.
 func TestQuickSight_OAuthClientApps(t *testing.T) { //nolint:paralleltest // existing issue.
 	h := newTestHandler(t)

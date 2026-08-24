@@ -96,6 +96,7 @@ func (b *InMemoryBackend) AcceptHandshake(handshakeID string) (*Handshake, error
 					b.accounts.Put(acct)
 					b.accountParent[acctID] = b.root.ID
 					b.addAccountChild(b.root.ID, acctID)
+					b.setTagsLocked(acctID, h.PendingTags)
 				}
 
 				break
@@ -329,6 +330,7 @@ func validateHandshakeTarget(target HandshakeParty) error {
 func (b *InMemoryBackend) InviteAccountToOrganization(
 	target HandshakeParty,
 	notes string,
+	tags []Tag,
 ) (*Handshake, error) {
 	b.mu.Lock("InviteAccountToOrganization")
 	defer b.mu.Unlock()
@@ -338,6 +340,12 @@ func (b *InMemoryBackend) InviteAccountToOrganization(
 	}
 
 	if err := validateHandshakeTarget(target); err != nil {
+		return nil, err
+	}
+
+	// AWS: "If any one of the tags is not valid ... the entire request fails
+	// and invitations are not sent", matching CreateAccount's Tags handling.
+	if err := validateNewTags(nil, tags); err != nil {
 		return nil, err
 	}
 
@@ -371,6 +379,7 @@ func (b *InMemoryBackend) InviteAccountToOrganization(
 			{Type: handshakeResourceOrg, Value: b.org.ID},
 			{Type: handshakeResourceMasterEmail, Value: b.org.MasterAccountEmail},
 		},
+		PendingTags: tags,
 	}
 
 	if notes != "" {

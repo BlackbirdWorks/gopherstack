@@ -32,7 +32,7 @@ func (h *Handler) handleTags(ctx context.Context, c *echo.Context) error {
 func (h *Handler) listTagsForResource(ctx context.Context, c *echo.Context, resourceARN string) error {
 	tagMap, err := h.Backend.ListTagsForResource(resourceARN)
 	if err != nil {
-		return h.handleBackendError(ctx, c, "ListTagsForResource", err)
+		return h.handleBackendError(ctx, c, opListTagsForResource, err)
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{"tags": tagMap})
@@ -54,7 +54,7 @@ func (h *Handler) tagResource(ctx context.Context, c *echo.Context, resourceARN 
 	}
 
 	if tagErr := h.Backend.TagResource(resourceARN, input.Tags); tagErr != nil {
-		return h.handleBackendError(ctx, c, "TagResource", tagErr)
+		return h.handleBackendError(ctx, c, opTagResource, tagErr)
 	}
 
 	return c.NoContent(http.StatusOK)
@@ -65,7 +65,7 @@ func (h *Handler) untagResource(ctx context.Context, c *echo.Context, resourceAR
 	tagKeys := c.Request().URL.Query()["tagKeys"]
 
 	if untagErr := h.Backend.UntagResource(resourceARN, tagKeys); untagErr != nil {
-		return h.handleBackendError(ctx, c, "UntagResource", untagErr)
+		return h.handleBackendError(ctx, c, opUntagResource, untagErr)
 	}
 
 	return c.NoContent(http.StatusOK)
@@ -75,11 +75,11 @@ func (h *Handler) untagResource(ctx context.Context, c *echo.Context, resourceAR
 func parseTagsOperation(method string) string {
 	switch method {
 	case http.MethodGet:
-		return "ListTagsForResource"
+		return opListTagsForResource
 	case http.MethodPost:
-		return "TagResource"
+		return opTagResource
 	case http.MethodDelete:
-		return "UntagResource"
+		return opUntagResource
 	default:
 		return opUnknown
 	}

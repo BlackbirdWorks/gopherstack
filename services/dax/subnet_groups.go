@@ -135,14 +135,21 @@ func subnetGroupCopy(sg *SubnetGroup) *SubnetGroup {
 	return &cp
 }
 
-// validateSubnetIDs checks the format of subnet IDs.
+// validateSubnetIDs rejects a missing or malformed SubnetIds list.
+// CreateSubnetGroup/UpdateSubnetGroup's own deserializeOpError switches
+// (aws-sdk-go-v2/service/dax@v1.32.4 deserializers.go) type InvalidSubnet
+// for this, not the generic InvalidParameterValueException every other
+// bad-value check in this package uses -- neither op's switch has an
+// InvalidParameterValueException case at all. The SDK's client-side
+// validateOpCreateSubnetGroupInput only rejects a nil SubnetIds, not an
+// empty-but-non-nil one, so a real client can reach both branches here.
 func validateSubnetIDs(ids []string) error {
 	if len(ids) == 0 {
-		return fmt.Errorf("%w: at least one SubnetId is required", ErrInvalidParameterValue)
+		return fmt.Errorf("%w: at least one SubnetId is required", ErrInvalidSubnet)
 	}
 	for _, id := range ids {
 		if !subnetRegexp.MatchString(id) {
-			return fmt.Errorf("%w: invalid subnet ID %q", ErrInvalidParameterValue, id)
+			return fmt.Errorf("%w: invalid subnet ID %q", ErrInvalidSubnet, id)
 		}
 	}
 

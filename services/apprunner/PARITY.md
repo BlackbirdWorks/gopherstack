@@ -2,22 +2,23 @@
 service: apprunner
 sdk_module: aws-sdk-go-v2/service/apprunner@v1.42.4
 last_audit_commit:                                # unknown: pass ran without git access at write time, never backfilled -- gopherstack-33in
-last_audit_date: 2026-08-21
+last_audit_date: 2026-08-23
 overall: A            # full field-diff sweep: closed every gaps/deferred item from the 2026-07-13 audit,
-                       # plus the wrapper-key/nested-shape sweep (2026-08-19, one fabricated-field bug fixed)
+                       # plus the wrapper-key/nested-shape sweep (2026-08-19, one fabricated-field bug fixed);
+                       # 2026-08-23: closed the four member-never-emitted items disclosed 2026-08-19 (see Notes)
 ops:
   CreateService: {wire: fixed, errors: ok, state: ok, persist: ok, note: "immediate RUNNING (no OPERATION_IN_PROGRESS poll-forever trap); full field set now threaded: InstanceConfiguration (Cpu/Memory/InstanceRoleArn), SourceConfiguration (ImageRepository incl. ImageConfiguration, CodeRepository incl. SourceCodeVersion/CodeConfiguration, AuthenticationConfiguration, AutoDeploymentsEnabled with real default), AutoScalingConfigurationArn (resolved-or-default, HasAssociatedService bookkeeping), NetworkConfiguration (Egress/IngressConfiguration, IpAddressType, real defaults), HealthCheckConfiguration (real defaults), EncryptionConfiguration, ObservabilityConfiguration. Service response now includes the previously-missing required AutoScalingConfigurationSummary and NetworkConfiguration fields. FIXED 2026-08-21 (bd gopherstack-r80d, batch 10; fixed but NOT counted -- see Notes): validateSourceConfig checked CodeRepository.RepositoryUrl but never SourceCodeVersion (types.go:245-263, both required on CodeRepository) -- an omitted SourceCodeVersion was silently accepted and then dropped from codeRepositoryOutput entirely. Added the same required-field check already used for RepositoryUrl/ImageIdentifier. Not counted: the real aws-sdk-go-v2 client's own generated validateCodeRepository (validators.go:792-806) already rejects a nil SourceCodeVersion client-side, so no real Go SDK client can ever reach gopherstack in the buggy state -- proven instead via a raw request bypassing that client-side check, which is real for any other caller (raw HTTP, a non-Go SDK) but not provable via this campaign's real-SDK-client round-trip standard."}
   DescribeService: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateService: {wire: ok, errors: ok, state: ok, persist: ok, note: "rejects update unless status RUNNING, matches InvalidStateException; rejects switching between image/code source types (InvalidRequestException, matching the real op's documented restriction); all new CreateService fields are independently patchable (nil/empty = no change)"}
-  DeleteService: {wire: ok, errors: ok, state: ok, persist: ok, note: "now cascade-cleans the service's customDomains map entry and recomputes the old AutoScalingConfiguration's HasAssociatedService (see leaks)"}
-  ListServices: {wire: ok, errors: ok, state: ok, persist: ok}
+  DeleteService: {wire: fixed, errors: ok, state: ok, persist: ok, note: "now cascade-cleans the service's customDomains map entry and recomputes the old AutoScalingConfiguration's HasAssociatedService (see leaks). FIXED 2026-08-23: Service.DeletedAt (deserializers.go:6615) was entirely absent from storedService and Service -- added the field, set on DeleteService before the row is evicted from the store, emitted as an omitempty pointer (only DeleteService's own response can ever observe it, since ListServices/DescribeService can no longer see the service after eviction)."}
+  ListServices: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-23: ServiceSummary.UpdatedAt (deserializers.go:6939) was omitted from the wire struct even though storedService.UpdatedAt was already tracked and current -- emit-only fix, no backend logic change."}
   PauseService: {wire: ok, errors: ok, state: ok, persist: ok}
   ResumeService: {wire: ok, errors: ok, state: ok, persist: ok}
-  StartDeployment: {wire: ok, errors: ok, state: ok, persist: ok, note: "records a real operation; completes immediately (SUCCEEDED) rather than modeling OPERATION_IN_PROGRESS"}
+  StartDeployment: {wire: ok, errors: fixed, state: ok, persist: ok, note: "records a real operation; completes immediately (SUCCEEDED) rather than modeling OPERATION_IN_PROGRESS. FIXED 2026-08-23 (gopherstack-wlo1): a non-running service reported InvalidStateException, a code StartDeployment's own deserializeOpError switch cannot type (only InternalServiceErrorException/InvalidRequestException/ResourceNotFoundException are modeled for this op, unlike UpdateService/PauseService/ResumeService which do model InvalidStateException) -- now reports InvalidRequestException."}
   ListOperations: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed -- OperationSummary now includes UpdatedAt (set equal to StartedAt/EndedAt since operations complete immediately in this backend's simplified state machine)"}
-  CreateAutoScalingConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
-  DescribeAutoScalingConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
-  DeleteAutoScalingConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
+  CreateAutoScalingConfiguration: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-23: AutoScalingConfiguration.Latest (deserializers.go:4692) and .DeletedAt (deserializers.go:4660) were both untracked/unemitted. Latest is now computed the same way ObservabilityConfiguration.Latest already was -- b.asgByName[name] tracks revisions in creation order; the new revision flips the prior last entry's Latest to false and sets its own to true. DeletedAt was already tracked on storedAutoScalingConfiguration/AutoScalingConfiguration (DeleteAutoScalingConfiguration already set it) but never surfaced on the wire; emit-only fix, omitempty pointer."}
+  DescribeAutoScalingConfiguration: {wire: fixed, errors: ok, state: ok, persist: ok, note: "same Latest/DeletedAt fix as CreateAutoScalingConfiguration."}
+  DeleteAutoScalingConfiguration: {wire: fixed, errors: ok, state: ok, persist: ok, note: "same Latest/DeletedAt fix as CreateAutoScalingConfiguration; on delete, the remaining highest-revision sibling (if any) gets Latest promoted to true, mirroring DeleteObservabilityConfiguration's existing convention."}
   ListAutoScalingConfigurations: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed -- summary now includes real HasAssociatedService, recomputed from live CreateService/UpdateService/DeleteService association state"}
   UpdateDefaultAutoScalingConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
   ListServicesForAutoScalingConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed -- now returns real associated service ARNs; CreateService threads AutoScalingConfigurationArn (explicit, name-only-ARN, or the account's always-present seeded default) into a real association tracked on every service"}
@@ -28,19 +29,17 @@ ops:
   DescribeObservabilityConfiguration: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-21 (bd gopherstack-r80d, batch 10): same TraceConfiguration gap and fix as CreateObservabilityConfiguration above."}
   DeleteObservabilityConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
   ListObservabilityConfigurations: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed 2026-08-19 -- summary entries were emitting fabricated Status/Latest/CreatedAt keys that have no case in the real types.ObservabilityConfigurationSummary document deserializer (deserializers.go:6215-6270); a real client would silently drop them. Now emits only ObservabilityConfigurationArn/Name/Revision, matching the narrower summary type exactly (types/types.go:613-628)"}
-  CreateVpcConnector: {wire: ok, errors: ok, state: ok, persist: ok}
-  DescribeVpcConnector: {wire: ok, errors: ok, state: ok, persist: ok}
-  DeleteVpcConnector: {wire: ok, errors: ok, state: ok, persist: ok}
+  CreateVpcConnector: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-23: VpcConnector.DeletedAt (deserializers.go:7299) was already tracked on storedVpcConnector/VpcConnector (DeleteVpcConnector already set it) but never surfaced on the wire; emit-only fix, omitempty pointer."}
+  DescribeVpcConnector: {wire: fixed, errors: ok, state: ok, persist: ok, note: "same DeletedAt fix as CreateVpcConnector."}
+  DeleteVpcConnector: {wire: fixed, errors: ok, state: ok, persist: ok, note: "same DeletedAt fix as CreateVpcConnector."}
   ListVpcConnectors: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateVpcIngressConnection: {wire: ok, errors: ok, state: partial, persist: ok, note: "doesn't validate ServiceArn refers to an existing service (dangling ref allowed); matches real op's documented error set which has no ResourceNotFoundException, so not a wire bug -- see gaps"}
-  DescribeVpcIngressConnection: {wire: ok, errors: ok, state: ok, persist: ok}
-  DeleteVpcIngressConnection: {wire: ok, errors: ok, state: ok, persist: ok}
+  DescribeVpcIngressConnection: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-23: VpcIngressConnection.DeletedAt (deserializers.go:7547) was already tracked on storedVpcIngressConnection/VpcIngressConnection (DeleteVpcIngressConnection already set it) but never surfaced on the wire; emit-only fix, omitempty pointer."}
+  DeleteVpcIngressConnection: {wire: fixed, errors: ok, state: ok, persist: ok, note: "same DeletedAt fix as DescribeVpcIngressConnection."}
   ListVpcIngressConnections: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateVpcIngressConnection: {wire: ok, errors: ok, state: ok, persist: ok}
-  AssociateCustomDomain: {wire: fixed, errors: ok, state: ok, persist: ok, note: "fixed to use InvalidRequestException (not ResourceNotFoundException) for unknown ServiceArn, matching this op's documented error set. FIXED 2026-08-21 (bd gopherstack-r80d, batch 10): required vpcDNSTargets (api_op_AssociateCustomDomain.go, required) had no struct field on associateCustomDomainOutput at all -- DescribeCustomDomains (identical required set) already emitted it correctly as []. Added, always []any{} (this backend doesn't model per-domain VPC ingress DNS targets, so empty is the honest value, not fabricated)."}
-  DisassociateCustomDomain: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-21 (bd gopherstack-r80d, batch 10): same vpcDNSTargets gap and fix as AssociateCustomDomain above."}
-  AssociateCustomDomain: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed to use InvalidRequestException (not ResourceNotFoundException) for unknown ServiceArn, matching this op's documented error set. 2026-08-19: also added the previously-missing VpcDNSTargets key (deserializers.go:7705-7763), emitted as an always-empty list since this backend doesn't model VPC-based custom domain DNS -- matches DescribeCustomDomains's existing convention for the same field"}
-  DisassociateCustomDomain: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-08-19: added the previously-missing VpcDNSTargets key (deserializers.go:8462-8520), same empty-list convention as AssociateCustomDomain/DescribeCustomDomains"}
+  AssociateCustomDomain: {wire: fixed, errors: ok, state: ok, persist: ok, note: "fixed to use InvalidRequestException (not ResourceNotFoundException) for unknown ServiceArn, matching this op's documented error set. FIXED 2026-08-21 (bd gopherstack-r80d, batch 10): required vpcDNSTargets (api_op_AssociateCustomDomain.go, required; deserializers.go:7705-7763) had no struct field on associateCustomDomainOutput at all -- DescribeCustomDomains (identical required set) already emitted it correctly as []. Added, always []any{} (this backend doesn't model per-domain VPC ingress DNS targets, so empty is the honest value, not fabricated). Originally logged 2026-08-19 as a separate duplicate entry describing the same fix; merged 2026-08-23 (gopherstack-fg0u)."}
+  DisassociateCustomDomain: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-21 (bd gopherstack-r80d, batch 10): same vpcDNSTargets gap and fix as AssociateCustomDomain above (deserializers.go:8462-8520). Originally logged 2026-08-19 as a separate duplicate entry describing the same fix; merged 2026-08-23 (gopherstack-fg0u)."}
   DescribeCustomDomains: {wire: ok, errors: ok, state: ok, persist: ok}
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -49,7 +48,7 @@ families:
   error_taxonomy: {status: ok, note: "was systemically broken across all 35 ops -- see Notes; fixed 2026-07-13"}
 gaps:
   - "CreateVpcIngressConnection doesn't validate that ServiceArn refers to an existing service, allowing a dangling reference. Left as-is because CreateVpcIngressConnection's documented error set has no ResourceNotFoundException -- adding validation would need a new InvalidRequestException-mapped check, not a NotFound one, to stay wire-correct; low traffic op, deferred. Re-verified 2026-07-23: still the correct call, not a bug."
-  - "2026-08-19 (Layer 3, disclosed not fixed -- member-never-emitted hunting is out of scope this sweep, only fixed incidentally-surfaced VpcDNSTargets above): ListServices's ServiceSummary items omit UpdatedAt, present on the real types.ServiceSummary (deserializers.go:6856-6963); Service/VpcConnector/VpcIngressConnection all omit DeletedAt, present on their real full types (deserializers.go:6572, 7261, 7500) -- storedVpcConnector/storedVpcIngressConnection/storedAutoScalingConfiguration already track DeletedAt internally but their wire structs never surface it; AutoScalingConfiguration additionally omits Latest (deserializers.go:4591), which isn't tracked in the domain type at all; CustomDomain omits CertificateValidationRecords (deserializers.go:4899, 5381), a genuine backend gap since no cert validation flow is modeled."
+  - "2026-08-19 (Layer 3, disclosed not fixed): CLOSED 2026-08-23 -- ListServices's ServiceSummary.UpdatedAt (deserializers.go:6939, emit-only: storedService.UpdatedAt was already tracked and current), Service.DeletedAt (deserializers.go:6615, needed a new storedService field plus a DeleteService write since real AWS keeps returning it on the DeleteService response even though this backend evicts the row from the store immediately after), VpcConnector.DeletedAt (deserializers.go:7299, emit-only) and VpcIngressConnection.DeletedAt (deserializers.go:7547, emit-only) all now round-trip through a real aws-sdk-go-v2 client. AutoScalingConfiguration.Latest (deserializers.go:4692) is now computed the same way ObservabilityConfiguration.Latest already was, via a b.asgByName[name] revision-order list; AutoScalingConfiguration.DeletedAt (deserializers.go:4660, emit-only -- also already tracked internally) closed alongside it. See ops table above for per-op detail. Still open: CustomDomain omits CertificateValidationRecords (deserializers.go:4899, 5381), a genuine backend gap since no cert validation flow is modeled -- not touched, no internal tracking exists to surface."
 deferred: []
 leaks: {status: clean, note: "no goroutines/janitors in this backend; existing leak_test.go covers handler/backend lifecycle. 2026-07-23: found and fixed one real leak -- DeleteService left its b.customDomains[serviceArn] entry behind forever (unreachable once the service is gone, since DescribeCustomDomains 404s on a deleted ServiceArn); now cascade-deleted, covered by TestDeleteService_CascadesCustomDomains. New AutoScalingConfiguration HasAssociatedService bookkeeping (CreateService/UpdateService/DeleteService) stays entirely inside the existing b.mu critical sections, no new lock paths or goroutines introduced."}
 ---
@@ -374,3 +373,62 @@ fields, 1 counted bug, 2 fixed-but-not-counted findings, 1 disclosed
     for verbatim output). Zero `cyclop`/`gocyclo`/`gocognit`/`funlen` nolints introduced.
     No existing test asserted a wrong key for either bug, so none needed correcting -- only
     new tests were added.
+
+- 2026-08-23: Closed the four member-never-emitted items the 2026-08-19 Layer 3 sweep
+  disclosed but explicitly left unfixed (member-never-emitted hunting was out of scope that
+  pass). Verified each against `aws-sdk-go-v2/service/apprunner@v1.42.4/deserializers.go`
+  (the go.mod-pinned version; the 2026-08-19 note cited line numbers from the same tag) before
+  touching code:
+  - `ServiceSummary.UpdatedAt` (deserializers.go:6939): emit-only -- `storedService.UpdatedAt`
+    was already tracked and current, `toSummary()`/`serviceSummaryOutput` just never carried it.
+  - `Service.DeletedAt` (deserializers.go:6615): NOT emit-only -- `storedService` had no
+    `DeletedAt` field at all, and `DeleteService` evicts the row from the store (`b.services.
+    Delete`) rather than soft-deleting it, so no later Describe/List can ever observe it; only
+    `DeleteService`'s own response can. Added the field, set it right before eviction.
+  - `VpcConnector.DeletedAt` (deserializers.go:7299) / `VpcIngressConnection.DeletedAt`
+    (deserializers.go:7547): emit-only -- both were already tracked internally (confirmed:
+    `DeleteVpcConnector`/`DeleteVpcIngressConnection` already set them) but `vpcConnectorOutput`/
+    `vpcIngressConnectionOutput` never carried the key.
+  - `AutoScalingConfiguration.Latest` (deserializers.go:4692): NOT emit-only -- unlike the note's
+    other three items, `Latest` was not tracked anywhere in the domain model. Computed the same
+    way `ObservabilityConfiguration.Latest` already was (this codebase's own established pattern
+    for the identical "is this the highest revision of this name" fact): `b.asgByName[name]`
+    already held revisions in creation order for `latestOnly` list filtering; `Create`/
+    `DeleteAutoScalingConfiguration` now flip the prior/new last entry's `Latest` bit the same
+    way `Create`/`DeleteObservabilityConfiguration` do. `AutoScalingConfiguration.DeletedAt`
+    (deserializers.go:4660) was bundled into this fix too -- same already-tracked-but-unemitted
+    gap as VpcConnector/VpcIngressConnection, on the same struct.
+  - Not touched: `CustomDomain.CertificateValidationRecords` (deserializers.go:4899, 5381) --
+    still a genuine backend gap, no cert-validation flow modeled, nothing internal to surface.
+  - Persisted-struct changes: `storedService` gained `DeletedAt time.Time`;
+    `storedAutoScalingConfiguration` gained `Latest bool`. Both are additive
+    (`encoding/json` zero-values a missing key on restore of an older snapshot: `DeletedAt`
+    correctly defaults to "not deleted"; a pre-fix snapshot's `Latest` defaults to `false` for
+    every revision of a name until the next Create/Delete on that name recomputes it -- a
+    cosmetic gap on the very first read after upgrade, not a data-loss risk). Snapshot version
+    was NOT bumped (correctly -- see pkgs/persistence's `TestSnapshotVersionGuard`, which exists
+    specifically to catch a reflexive bump on an additive change). `go test ./pkgs/persistence/...
+    -run TestSnapshotVersionGuard` reports apprunner's golden is out of date (additive-only diff,
+    needs `-update`) -- refresh deferred to the orchestrator per this campaign's standing rule.
+  - Proof: `wire_output_required_r80d_gapclosure_test.go` adds 5 real-`aws-sdk-go-v2`-client
+    round-trip tests, one per fixed member (`TestListServices_SummaryHasUpdatedAt`,
+    `TestDeleteService_ResponseHasDeletedAt`, `TestDeleteVpcConnector_ResponseHasDeletedAt`,
+    `TestDeleteVpcIngressConnection_ResponseHasDeletedAt`, `TestAutoScalingConfiguration_Latest`).
+    All 5 hand-verified to fail against the pre-fix code (nil-pointer/false-value assertions),
+    confirmed to pass against the fix, then the fix was hand-reverted via `cp` to the 9 touched
+    source files and restored, `md5sum`-verified identical to the fixed state post-restore.
+  - Introduced-then-fixed side effects: adding `*int64`/`bool` fields to `serviceOutput`,
+    `autoScalingConfigurationOutput`, `vpcConnectorOutput`, `vpcIngressConnectionOutput` tripped
+    `govet fieldalignment` (9 findings) -- fixed by hand-reordering fields in just those 4 wire
+    structs (verified the target layout using the `fieldalignment` binary as a read-only oracle
+    against an isolated scratch file, per this campaign's "no package-wide/fieldalignment -fix"
+    rule -- the actual repo files were never run through an automated fixer). Mirroring
+    `DeleteObservabilityConfiguration`'s `Latest`-promotion logic in `DeleteAutoScalingConfiguration`
+    also tripped `dupl` (the two functions are now near-identical by design); moved the existing
+    `//nolint:dupl` comments from the two `List*` functions (no longer duplicates of each other
+    after this change, so the old directives went stale/unused per `nolintlint`) onto the two
+    `Delete*` functions where the real duplication now lives.
+  - Gates: `go build`, `go vet`, `go fix -diff`, `gofmt -l`, `go test -race`, `golangci-lint run`
+    all clean on `./services/apprunner/...` (0 issues). Full existing suite (`go test
+    ./services/apprunner/...`) green throughout -- no existing test asserted the old
+    (missing-field) shape, so none needed correcting.

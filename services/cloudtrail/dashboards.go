@@ -24,7 +24,7 @@ func (b *InMemoryBackend) CreateDashboard(
 		return nil, fmt.Errorf("%w: Name is required", ErrValidation)
 	}
 	if matches := b.dashboardsByName.Get(name); len(matches) > 0 {
-		return nil, fmt.Errorf("%w: dashboard %s already exists", ErrAlreadyExists, name)
+		return nil, fmt.Errorf("%w: dashboard %s already exists", ErrDashboardConflict, name)
 	}
 
 	b.dashboardCounter++
@@ -62,7 +62,7 @@ func (b *InMemoryBackend) DeleteDashboard(dashboardIDOrARN string) error {
 
 	d := b.findDashboardLocked(dashboardIDOrARN)
 	if d == nil {
-		return fmt.Errorf("%w: dashboard %s not found", ErrDashboardNotFound, dashboardIDOrARN)
+		return fmt.Errorf("%w: dashboard %s not found", ErrResourceNotFound, dashboardIDOrARN)
 	}
 
 	d.Tags.Close()
@@ -78,7 +78,7 @@ func (b *InMemoryBackend) GetDashboard(dashIDOrARN string) (*Dashboard, error) {
 
 	d := b.findDashboardLocked(dashIDOrARN)
 	if d == nil {
-		return nil, fmt.Errorf("%w: dashboard %s not found", ErrDashboardNotFound, dashIDOrARN)
+		return nil, fmt.Errorf("%w: dashboard %s not found", ErrResourceNotFound, dashIDOrARN)
 	}
 	cp := *d
 
@@ -101,7 +101,7 @@ func (b *InMemoryBackend) UpdateDashboard(
 
 	d := b.findDashboardLocked(dashIDOrARN)
 	if d == nil {
-		return nil, fmt.Errorf("%w: dashboard %s not found", ErrDashboardNotFound, dashIDOrARN)
+		return nil, fmt.Errorf("%w: dashboard %s not found", ErrResourceNotFound, dashIDOrARN)
 	}
 	if widgets != nil {
 		d.Widgets = widgets
@@ -147,7 +147,7 @@ func (b *InMemoryBackend) StartDashboardRefresh(dashIDOrARN string) (*Dashboard,
 
 	d := b.findDashboardLocked(dashIDOrARN)
 	if d == nil {
-		return nil, fmt.Errorf("%w: dashboard %s not found", ErrDashboardNotFound, dashIDOrARN)
+		return nil, fmt.Errorf("%w: dashboard %s not found", ErrResourceNotFound, dashIDOrARN)
 	}
 	b.dashboardCounter++
 	d.LastRefreshID = fmt.Sprintf("refresh-%06d", b.dashboardCounter)

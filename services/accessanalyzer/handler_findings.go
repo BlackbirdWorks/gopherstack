@@ -2,6 +2,7 @@ package accessanalyzer
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"time"
 )
@@ -62,7 +63,7 @@ func (h *Handler) dispatchFindingOps(op, path, query string, body []byte) (any, 
 
 		return r, c, true, e
 	case opGenerateFindingRecommendation:
-		c, e := h.handleGenerateFindingRecommendation(path, body)
+		c, e := h.handleGenerateFindingRecommendation(path, query)
 
 		return nil, c, true, e
 	case opGetFindingRecommendation:
@@ -290,18 +291,29 @@ func (h *Handler) handleGetFindingsStatistics(body []byte) (any, int, error) {
 	return map[string]any{"findingsStatistics": []any{map[string]any{statsKey: countsJSON}}}, http.StatusOK, nil
 }
 
-func (h *Handler) handleGenerateFindingRecommendation(path string, body []byte) (int, error) {
+// handleGenerateFindingRecommendation serves POST /recommendation/{id}.
+// AnalyzerArn is a query parameter, not a body member --
+// awsRestjson1_serializeOpHttpBindingsGenerateFindingRecommendationInput
+// (aws-sdk-go-v2/service/accessanalyzer@v1.51.4 serializers.go) sends no
+// request body at all for this operation, so decoding AnalyzerArn from the
+// body meant it was always empty and (since the SDK sends zero body bytes)
+// json.Unmarshal failed on every real call, returning ValidationException
+// regardless of whether the finding existed.
+func (h *Handler) handleGenerateFindingRecommendation(path, query string) (int, error) {
 	findingID := extractLastSegment(path, pathRecommendation)
+	analyzerArn := queryParamValue(query, keyAnalyzerArn)
 
-	var req struct {
-		AnalyzerArn string `json:"analyzerArn"`
-	}
+	if err := h.Backend.GenerateFindingRecommendation(analyzerArn, findingID); err != nil {
+		if errors.Is(err, ErrFindingNotFound) {
+			// GenerateFindingRecommendation's own deserializeOpError switch
+			// (aws-sdk-go-v2/service/accessanalyzer@v1.51.4 deserializers.go) does
+			// not type ResourceNotFoundException -- only AccessDeniedException,
+			// InternalServerException, ThrottlingException, ValidationException. An
+			// unrecognized findingId is reported as invalid input, matching
+			// account's errRegionNotFound precedent.
+			return 0, ErrValidation
+		}
 
-	if err := json.Unmarshal(body, &req); err != nil {
-		return 0, ErrValidation
-	}
-
-	if err := h.Backend.GenerateFindingRecommendation(req.AnalyzerArn, findingID); err != nil {
 		return 0, err
 	}
 

@@ -361,6 +361,7 @@ type Datastore struct {
 type Dataset struct {
 	Tags                    map[string]string        `json:"tags"`
 	VersioningConfiguration *VersioningConfiguration `json:"versioningConfiguration,omitempty"`
+	RetentionPeriod         *RetentionPeriod         `json:"retentionPeriod,omitempty"`
 	Name                    string                   `json:"name"`
 	ARN                     string                   `json:"arn"`
 	Status                  string                   `json:"status"`
@@ -526,14 +527,19 @@ type createDatastoreResponse struct {
 // datastoreSummary is a summary of a datastore for list operations. AWS's
 // DatastoreSummary shape has no datastoreArn member (deserializers.go
 // awsRestjson1_deserializeDocumentDatastoreSummary) -- unlike the full Datastore
-// detail, the summary omits it.
+// detail, the summary omits it. It does carry DatastorePartitions and
+// FileFormatType, which the full Datastore detail type does not (types.go:952
+// vs types.go:707 -- FileFormatType is summary-only, derived from the
+// datastore's FileFormatConfiguration).
 type datastoreSummary struct {
-	DatastoreStorage       *DatastoreStorage `json:"datastoreStorage,omitempty"`
-	DatastoreName          string            `json:"datastoreName"`
-	Status                 string            `json:"status"`
-	CreationTime           float64           `json:"creationTime"`
-	LastUpdateTime         float64           `json:"lastUpdateTime,omitempty"`
-	LastMessageArrivalTime float64           `json:"lastMessageArrivalTime,omitempty"`
+	DatastoreStorage       *DatastoreStorage    `json:"datastoreStorage,omitempty"`
+	Partitions             *DatastorePartitions `json:"datastorePartitions,omitempty"`
+	DatastoreName          string               `json:"datastoreName"`
+	Status                 string               `json:"status"`
+	FileFormatType         string               `json:"fileFormatType,omitempty"`
+	CreationTime           float64              `json:"creationTime"`
+	LastUpdateTime         float64              `json:"lastUpdateTime,omitempty"`
+	LastMessageArrivalTime float64              `json:"lastMessageArrivalTime,omitempty"`
 }
 
 // listDatastoresResponse is the response body for ListDatastores.
@@ -592,25 +598,39 @@ type createDatasetRequest struct {
 	ContentDeliveryRules    []ContentDeliveryRule    `json:"contentDeliveryRules,omitempty"`
 	LateDataRules           []LateDataRule           `json:"lateDataRules,omitempty"`
 	VersioningConfiguration *VersioningConfiguration `json:"versioningConfiguration,omitempty"`
+	RetentionPeriod         *RetentionPeriod         `json:"retentionPeriod,omitempty"`
 	DatasetName             string                   `json:"datasetName"`
 	Tags                    []tagDTO                 `json:"tags,omitempty"`
 }
 
 // createDatasetResponse is the response body for CreateDataset.
 type createDatasetResponse struct {
-	DatasetName string `json:"datasetName"`
-	DatasetARN  string `json:"datasetArn"`
+	RetentionPeriod *RetentionPeriod `json:"retentionPeriod,omitempty"`
+	DatasetName     string           `json:"datasetName"`
+	DatasetARN      string           `json:"datasetArn"`
+}
+
+// datasetActionSummary is the narrower shape DatasetSummary.Actions carries
+// (types.go:522 DatasetActionSummary) -- ActionName/ActionType only, unlike
+// the full DatasetAction's QueryAction/ContainerAction bodies.
+type datasetActionSummary struct {
+	ActionName string `json:"actionName,omitempty"`
+	ActionType string `json:"actionType,omitempty"`
 }
 
 // datasetSummary is a summary of a dataset for list operations. AWS's DatasetSummary
 // shape has no datasetArn member (deserializers.go
 // awsRestjson1_deserializeDocumentDatasetSummary) -- unlike the full Dataset detail,
-// the summary omits it.
+// the summary omits it. It does carry Actions (as the narrower
+// datasetActionSummary, not full DatasetAction) and Triggers (the same
+// DatasetTrigger type the detail view uses), per types.go:652.
 type datasetSummary struct {
-	DatasetName    string  `json:"datasetName"`
-	Status         string  `json:"status"`
-	CreationTime   float64 `json:"creationTime"`
-	LastUpdateTime float64 `json:"lastUpdateTime,omitempty"`
+	DatasetName    string                 `json:"datasetName"`
+	Status         string                 `json:"status"`
+	Actions        []datasetActionSummary `json:"actions,omitempty"`
+	Triggers       []DatasetTrigger       `json:"triggers,omitempty"`
+	CreationTime   float64                `json:"creationTime"`
+	LastUpdateTime float64                `json:"lastUpdateTime,omitempty"`
 }
 
 // listDatasetsResponse is the response body for ListDatasets.
@@ -627,6 +647,7 @@ type describeDatasetResponse struct {
 // datasetDetail is a detailed view of a dataset.
 type datasetDetail struct {
 	VersioningConfiguration *VersioningConfiguration `json:"versioningConfiguration,omitempty"`
+	RetentionPeriod         *RetentionPeriod         `json:"retentionPeriod,omitempty"`
 	Name                    string                   `json:"name"`
 	ARN                     string                   `json:"arn"`
 	Status                  string                   `json:"status"`

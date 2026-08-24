@@ -84,15 +84,41 @@ func (h *Handler) handleCreateDataset(c *echo.Context, body []byte) error {
 		req.ContentDeliveryRules,
 		req.VersioningConfiguration,
 		req.LateDataRules,
+		req.RetentionPeriod,
 	)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
 
 	return c.JSON(http.StatusOK, createDatasetResponse{
-		DatasetName: ds.Name,
-		DatasetARN:  ds.ARN,
+		DatasetName:     ds.Name,
+		DatasetARN:      ds.ARN,
+		RetentionPeriod: ds.RetentionPeriod,
 	})
+}
+
+// datasetActionSummaries maps each DatasetAction to the narrower
+// datasetActionSummary shape DatasetSummary.Actions carries (ActionName +
+// a derived ActionType, "QUERY" or "CONTAINER" -- see DatasetActionType
+// enums.go), dropping the QueryAction/ContainerAction bodies real AWS
+// itself never returns in a DatasetSummary.
+func datasetActionSummaries(actions []DatasetAction) []datasetActionSummary {
+	if len(actions) == 0 {
+		return nil
+	}
+
+	out := make([]datasetActionSummary, 0, len(actions))
+
+	for _, a := range actions {
+		actionType := "QUERY"
+		if a.ContainerAction != nil {
+			actionType = "CONTAINER"
+		}
+
+		out = append(out, datasetActionSummary{ActionName: a.ActionName, ActionType: actionType})
+	}
+
+	return out
 }
 
 func (h *Handler) handleListDatasets(c *echo.Context) error {
@@ -119,6 +145,8 @@ func (h *Handler) handleListDatasets(c *echo.Context) error {
 		summaries = append(summaries, datasetSummary{
 			DatasetName:    ds.Name,
 			Status:         ds.Status,
+			Actions:        datasetActionSummaries(ds.Actions),
+			Triggers:       ds.Triggers,
 			CreationTime:   ds.CreationTime,
 			LastUpdateTime: ds.LastUpdate,
 		})
@@ -144,6 +172,7 @@ func (h *Handler) handleDescribeDataset(c *echo.Context, name string) error {
 			ContentDeliveryRules:    ds.ContentDeliveryRules,
 			LateDataRules:           ds.LateDataRules,
 			VersioningConfiguration: ds.VersioningConfiguration,
+			RetentionPeriod:         ds.RetentionPeriod,
 			Tags:                    mapToTagsSorted(ds.Tags),
 			Name:                    ds.Name,
 			ARN:                     ds.ARN,

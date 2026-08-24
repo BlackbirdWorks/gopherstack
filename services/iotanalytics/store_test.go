@@ -246,7 +246,7 @@ func TestInMemoryBackend_ErrAlreadyExists_Direct(t *testing.T) {
 		{
 			name: "dataset",
 			create: func(b *iotanalytics.InMemoryBackend) error {
-				_, err := b.CreateDataset(context.Background(), "dup", nil, nil, nil, nil, nil, nil)
+				_, err := b.CreateDataset(context.Background(), "dup", nil, nil, nil, nil, nil, nil, nil)
 
 				return err
 			},

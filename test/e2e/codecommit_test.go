@@ -16,7 +16,7 @@ import (
 func TestCodeCommitDashboard(t *testing.T) {
 	stack := newStack(t)
 
-	_, err := stack.CodeCommitHandler.Backend.CreateRepository("e2e-test-repo", "E2E test repository", nil)
+	_, err := stack.CodeCommitHandler.Backend.CreateRepository("e2e-test-repo", "E2E test repository", "", nil)
 	require.NoError(t, err)
 
 	server := httptest.NewServer(stack.Echo)

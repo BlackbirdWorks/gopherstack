@@ -49,7 +49,10 @@ func TestBlueprintRun(t *testing.T) {
 	doGlueRequest(t, h, "CreateBlueprint", map[string]any{"Name": "run-bp", "BlueprintLocation": "s3://bucket/run-bp"})
 
 	// Start a run
-	rec := doGlueRequest(t, h, "StartBlueprintRun", map[string]any{"BlueprintName": "run-bp"})
+	rec := doGlueRequest(t, h, "StartBlueprintRun", map[string]any{
+		"BlueprintName": "run-bp",
+		"RoleArn":       "arn:aws:iam::000000000000:role/GlueRole",
+	})
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), "RunId")
 
@@ -232,7 +235,10 @@ func TestStartBlueprintRun_NotFound(t *testing.T) {
 				doGlueRequest(t, h, "CreateBlueprint", createBody)
 			}
 
-			rec := doGlueRequest(t, h, "StartBlueprintRun", map[string]any{"BlueprintName": bpName})
+			rec := doGlueRequest(t, h, "StartBlueprintRun", map[string]any{
+				"BlueprintName": bpName,
+				"RoleArn":       "arn:aws:iam::000000000000:role/GlueRole",
+			})
 			assert.Equal(t, tt.wantCode, rec.Code)
 			if tt.wantError != "" {
 				assert.Contains(t, rec.Body.String(), tt.wantError)
@@ -351,13 +357,19 @@ func TestBlueprint_Run_Lifecycle(t *testing.T) {
 	h := newTestHandler(t)
 	doGlueRequest(t, h, "CreateBlueprint", map[string]any{"Name": "bp-run", "BlueprintLocation": "s3://bucket/bp-run"})
 
-	startBpRec1 := doGlueRequest(t, h, "StartBlueprintRun", map[string]any{"BlueprintName": "bp-run"})
+	startBpRec1 := doGlueRequest(t, h, "StartBlueprintRun", map[string]any{
+		"BlueprintName": "bp-run",
+		"RoleArn":       "arn:aws:iam::000000000000:role/GlueRole",
+	})
 	require.Equal(t, http.StatusOK, startBpRec1.Code)
 	var startBpOut1 map[string]any
 	require.NoError(t, json.Unmarshal(startBpRec1.Body.Bytes(), &startBpOut1))
 	assert.NotEmpty(t, startBpOut1["RunId"])
 
-	startRec := doGlueRequest(t, h, "StartBlueprintRun", map[string]any{"BlueprintName": "bp-run"})
+	startRec := doGlueRequest(t, h, "StartBlueprintRun", map[string]any{
+		"BlueprintName": "bp-run",
+		"RoleArn":       "arn:aws:iam::000000000000:role/GlueRole",
+	})
 	require.Equal(t, http.StatusOK, startRec.Code)
 	var startOut map[string]any
 	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startOut))
@@ -374,7 +386,7 @@ func TestBlueprint_Run_Lifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, getBpRunsRec.Code)
 	var getBpRunsOut map[string]any
 	require.NoError(t, json.Unmarshal(getBpRunsRec.Body.Bytes(), &getBpRunsOut))
-	bpRuns := getBpRunsOut["Runs"].([]any)
+	bpRuns := getBpRunsOut["BlueprintRuns"].([]any)
 	assert.GreaterOrEqual(t, len(bpRuns), 1)
 }
 

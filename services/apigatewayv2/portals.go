@@ -103,13 +103,15 @@ func (b *InMemoryBackend) CreatePortal(input CreatePortalInput) (*Portal, error)
 	id := randomID()
 	now := isoTime{time.Now()}
 	portal := &Portal{
-		PortalID:      id,
-		PortalArn:     "arn:aws:apigateway:" + defaultRegion + "::/portals/" + id,
-		LogoURI:       input.LogoURI,
-		LastModified:  &now,
-		Tags:          copyTags(input.Tags),
-		Authorization: input.Authorization,
-		PortalContent: input.PortalContent,
+		PortalID:                  id,
+		PortalArn:                 "arn:aws:apigateway:" + defaultRegion + "::/portals/" + id,
+		LogoURI:                   input.LogoURI,
+		LastModified:              &now,
+		Tags:                      copyTags(input.Tags),
+		Authorization:             input.Authorization,
+		PortalContent:             input.PortalContent,
+		IncludedPortalProductArns: slices.Clone(input.IncludedPortalProductArns),
+		RumAppMonitorName:         input.RumAppMonitorName,
 		EndpointConfiguration: endpointConfigurationResponseFromRequest(
 			id, input.EndpointConfiguration,
 		),
@@ -413,11 +415,21 @@ func (b *InMemoryBackend) UpdatePortal(portalID string, input UpdatePortalInput)
 	if input.LogoURI != "" {
 		p.LogoURI = input.LogoURI
 	}
+	if input.RumAppMonitorName != "" {
+		p.RumAppMonitorName = input.RumAppMonitorName
+	}
+	if input.IncludedPortalProductArns != nil {
+		p.IncludedPortalProductArns = slices.Clone(input.IncludedPortalProductArns)
+	}
 	if input.Status != "" {
 		p.PublishStatus = input.Status
 	}
 
 	now := isoTime{time.Now()}
+	if input.Status == "PUBLISHED" {
+		p.LastPublished = &now
+		p.LastPublishedDescription = input.PublishDescription
+	}
 	p.LastModified = &now
 
 	cp := *p

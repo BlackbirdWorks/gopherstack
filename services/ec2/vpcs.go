@@ -2,6 +2,7 @@ package ec2
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -83,10 +84,14 @@ func (b *InMemoryBackend) GetVpcPeeringConnectionOptions(
 
 // ---- EIP attributes ----
 
-// DisassociateVpcCidrBlock removes a secondary CIDR block association from a VPC.
-func (b *InMemoryBackend) DisassociateVpcCidrBlock(associationID string) error {
+// DisassociateVpcCidrBlock removes a secondary CIDR block association from a
+// VPC, returning the owning VPC ID and the association as it stood at
+// removal (State forced to "disassociated": this backend drops the
+// association synchronously rather than modeling the real API's transient
+// "disassociating" state).
+func (b *InMemoryBackend) DisassociateVpcCidrBlock(associationID string) (string, *VpcCidrBlockAssociation, error) {
 	if associationID == "" {
-		return fmt.Errorf("%w: AssociationId is required", ErrInvalidParameter)
+		return "", nil, fmt.Errorf("%w: AssociationId is required", ErrInvalidParameter)
 	}
 
 	b.mu.Lock("DisassociateVpcCidrBlock")
@@ -97,12 +102,20 @@ func (b *InMemoryBackend) DisassociateVpcCidrBlock(associationID string) error {
 		if assoc.AssociationID == associationID {
 			delete(b.vpcCidrAssociations, key)
 
-			return nil
+			cp := *assoc
+			cp.State = vpcCidrBlockStateDisassociated
+			vpcID := strings.TrimSuffix(key, ":"+associationID)
+
+			return vpcID, &cp, nil
 		}
 	}
 
-	return fmt.Errorf("%w: %s", ErrInvalidParameter, associationID)
+	return "", nil, fmt.Errorf("%w: %s", ErrInvalidParameter, associationID)
 }
+
+// vpcCidrBlockStateDisassociated matches types.VpcCidrBlockStateCodeDisassociated
+// (ec2@v1.319.1 types/enums.go).
+const vpcCidrBlockStateDisassociated = "disassociated"
 
 // ---- NAT Gateway address ops ----
 

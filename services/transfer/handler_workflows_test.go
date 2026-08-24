@@ -141,8 +141,9 @@ func TestHandler_SendWorkflowStepStateInvalidStatus(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
-// TestHandler_SendWorkflowStepStateExceptionStatus verifies EXCEPTION is valid.
-func TestHandler_SendWorkflowStepStateExceptionStatus(t *testing.T) {
+// TestHandler_SendWorkflowStepStateFailureStatus verifies FAILURE (the real
+// CustomStepStatus value) is valid and moves the execution to EXCEPTION.
+func TestHandler_SendWorkflowStepStateFailureStatus(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -156,7 +157,7 @@ func TestHandler_SendWorkflowStepStateExceptionStatus(t *testing.T) {
 		"WorkflowId":  wf.WorkflowID,
 		"ExecutionId": exec.ExecutionID,
 		"Token":       "tok-abc",
-		"Status":      "EXCEPTION",
+		"Status":      "FAILURE",
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -344,7 +345,7 @@ func TestHandler_DescribeWorkflowTypedCopyStepDetails(t *testing.T) {
 	assert.Equal(t, "TRUE", copyDetails["OverwriteExisting"])
 }
 
-// Test 29: SendWorkflowStepState COMPLETE transitions execution to COMPLETED.
+// Test 29: SendWorkflowStepState SUCCESS transitions execution to COMPLETED.
 func TestHandler_SendWorkflowStepStateSuccess(t *testing.T) {
 	t.Parallel()
 
@@ -359,7 +360,7 @@ func TestHandler_SendWorkflowStepStateSuccess(t *testing.T) {
 		"WorkflowId":  wf.WorkflowID,
 		"ExecutionId": exec.ExecutionID,
 		"Token":       "tok-abc",
-		"Status":      "COMPLETE",
+		"Status":      "SUCCESS",
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 

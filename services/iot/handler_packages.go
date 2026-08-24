@@ -169,13 +169,16 @@ func (h *Handler) handleGetPackage(c *echo.Context) error {
 func (h *Handler) handleUpdatePackage(c *echo.Context) error {
 	name := strings.TrimPrefix(c.Request().URL.Path, "/packages/")
 	var req struct {
-		Description        string `json:"description"`
-		DefaultVersionName string `json:"defaultVersionName"`
+		Description         string `json:"description"`
+		DefaultVersionName  string `json:"defaultVersionName"`
+		UnsetDefaultVersion bool   `json:"unsetDefaultVersion"`
 	}
 	if err := readBody(c, &req); err != nil {
 		return err
 	}
-	if err := h.Backend.UpdateIoTPackage(name, req.Description, req.DefaultVersionName); err != nil {
+	if err := h.Backend.UpdateIoTPackage(
+		name, req.Description, req.DefaultVersionName, req.UnsetDefaultVersion,
+	); err != nil {
 		return respondErr(c, err)
 	}
 
@@ -265,13 +268,23 @@ func (h *Handler) handleGetPackageVersion(c *echo.Context) error {
 func (h *Handler) handleUpdatePackageVersion(c *echo.Context) error {
 	pkgName, versionName := packageAndVersion(c.Request().URL.Path)
 	var req struct {
-		Description string `json:"description"`
-		Status      string `json:"status"`
+		Description string                  `json:"description"`
+		Status      string                  `json:"status"`
+		Action      string                  `json:"action"`
+		Artifact    *PackageVersionArtifact `json:"artifact"`
+		Attributes  map[string]string       `json:"attributes"`
+		Recipe      string                  `json:"recipe"`
 	}
 	if err := readBody(c, &req); err != nil {
 		return err
 	}
-	if err := h.Backend.UpdateIoTPackageVersion(pkgName, versionName, req.Description, req.Status); err != nil {
+	if err := h.Backend.UpdateIoTPackageVersion(pkgName, versionName, req.Description, req.Status,
+		UpdateIoTPackageVersionOptions{
+			Action:     req.Action,
+			Artifact:   req.Artifact,
+			Attributes: req.Attributes,
+			Recipe:     req.Recipe,
+		}); err != nil {
 		return respondErr(c, err)
 	}
 

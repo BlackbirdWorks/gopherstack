@@ -757,7 +757,7 @@ func TestHandler_ServiceAttributes(t *testing.T) {
 		{name: "update_and_get", wantCode: http.StatusOK},
 		{name: "get_not_found", wantCode: http.StatusBadRequest},
 		{name: "get_missing_service_id", wantCode: http.StatusBadRequest},
-		{name: "update_missing_arn", wantCode: http.StatusBadRequest},
+		{name: "update_missing_id", wantCode: http.StatusBadRequest},
 		{name: "update_service_not_found", wantCode: http.StatusBadRequest},
 		{name: "delete_and_verify", wantCode: http.StatusOK},
 		{name: "delete_missing_id", wantCode: http.StatusBadRequest},
@@ -787,7 +787,7 @@ func TestHandler_ServiceAttributes(t *testing.T) {
 			case "update_and_get":
 				svcID, svcARN := createSvc()
 				updateRec := doSDRequest(t, h, "UpdateServiceAttributes", map[string]any{
-					"ServiceArn": svcARN,
+					"ServiceId":  svcID,
 					"Attributes": map[string]string{"env": "prod", "version": "1.0"},
 				})
 				assert.Equal(t, http.StatusOK, updateRec.Code, "update should succeed: %s", updateRec.Body.String())
@@ -801,13 +801,14 @@ func TestHandler_ServiceAttributes(t *testing.T) {
 				attrs := sa["Attributes"].(map[string]any)
 				assert.Equal(t, "prod", attrs["env"])
 				assert.Equal(t, "1.0", attrs["version"])
-				assert.Equal(t, svcARN, sa["Arn"])
+				assert.Equal(t, svcARN, sa["ServiceArn"])
 
 			case "get_not_found":
 				_, svcARN := createSvc()
-				// Update then get a different ID
+				// Update then get a different ID. ServiceId accepts an ARN value too
+				// (real AWS: "The ID or Amazon Resource Name (ARN) of the service").
 				doSDRequest(t, h, "UpdateServiceAttributes", map[string]any{
-					"ServiceArn": svcARN,
+					"ServiceId":  svcARN,
 					"Attributes": map[string]string{"env": "prod"},
 				})
 				// No attributes for another service ID
@@ -818,7 +819,7 @@ func TestHandler_ServiceAttributes(t *testing.T) {
 				getRec := doSDRequest(t, h, "GetServiceAttributes", map[string]any{})
 				assert.Equal(t, tt.wantCode, getRec.Code)
 
-			case "update_missing_arn":
+			case "update_missing_id":
 				updateRec := doSDRequest(t, h, "UpdateServiceAttributes", map[string]any{
 					"Attributes": map[string]string{"env": "prod"},
 				})
@@ -826,15 +827,15 @@ func TestHandler_ServiceAttributes(t *testing.T) {
 
 			case "update_service_not_found":
 				updateRec := doSDRequest(t, h, "UpdateServiceAttributes", map[string]any{
-					"ServiceArn": "arn:aws:servicediscovery:us-east-1:000000000000:service/svc-99999999",
+					"ServiceId":  "arn:aws:servicediscovery:us-east-1:000000000000:service/svc-99999999",
 					"Attributes": map[string]string{"env": "prod"},
 				})
 				assert.Equal(t, tt.wantCode, updateRec.Code)
 
 			case "delete_and_verify":
-				svcID, svcARN := createSvc()
+				svcID, _ := createSvc()
 				doSDRequest(t, h, "UpdateServiceAttributes", map[string]any{
-					"ServiceArn": svcARN,
+					"ServiceId":  svcID,
 					"Attributes": map[string]string{"env": "prod"},
 				})
 				deleteRec := doSDRequest(t, h, "DeleteServiceAttributes", map[string]any{"ServiceId": svcID})
@@ -924,7 +925,7 @@ func TestHandler_UpdateServiceAttributesQuota(t *testing.T) {
 
 			var createResp map[string]any
 			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
-			svcARN := createResp["Service"].(map[string]any)["Arn"].(string)
+			svcID := createResp["Service"].(map[string]any)["Id"].(string)
 
 			if tt.presetTo > 0 {
 				preset := make(map[string]string, tt.presetTo)
@@ -933,14 +934,14 @@ func TestHandler_UpdateServiceAttributesQuota(t *testing.T) {
 				}
 
 				presetRec := doSDRequest(t, h, "UpdateServiceAttributes", map[string]any{
-					"ServiceArn": svcARN,
+					"ServiceId":  svcID,
 					"Attributes": preset,
 				})
 				require.Equal(t, http.StatusOK, presetRec.Code, presetRec.Body.String())
 			}
 
 			rec := doSDRequest(t, h, "UpdateServiceAttributes", map[string]any{
-				"ServiceArn": svcARN,
+				"ServiceId":  svcID,
 				"Attributes": tt.attrs,
 			})
 			assert.Equal(t, tt.wantCode, rec.Code, rec.Body.String())

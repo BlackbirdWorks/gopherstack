@@ -528,21 +528,24 @@ func (b *InMemoryBackend) UpdateTopicRefreshSchedule(
 	return s.toTopicRefreshSchedule(), nil
 }
 
-func (b *InMemoryBackend) DeleteTopicRefreshSchedule(accountID, topicID, datasetID string) error {
+func (b *InMemoryBackend) DeleteTopicRefreshSchedule(
+	accountID, topicID, datasetID string,
+) (*TopicRefreshSchedule, error) {
 	b.mu.Lock("DeleteTopicRefreshSchedule")
 	defer b.mu.Unlock()
 
 	t, ok := b.topics.Get(topicKey(accountID, topicID))
 	if !ok {
-		return ErrTopicNotFound
+		return nil, ErrTopicNotFound
 	}
 
-	if _, exists := t.RefreshSchedules[datasetID]; !exists {
-		return ErrTopicRefreshScheduleNotFound
+	s, exists := t.RefreshSchedules[datasetID]
+	if !exists {
+		return nil, ErrTopicRefreshScheduleNotFound
 	}
 	delete(t.RefreshSchedules, datasetID)
 
-	return nil
+	return s.toTopicRefreshSchedule(), nil
 }
 
 func (b *InMemoryBackend) ListTopicRefreshSchedules(accountID, topicID string) ([]*TopicRefreshSchedule, error) {

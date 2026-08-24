@@ -22,7 +22,13 @@ func (b *InMemoryBackend) TagResource(resourceArn string, tags map[string]string
 	defer b.mu.Unlock()
 
 	if !b.arnExists(resourceArn) {
-		return nil, fmt.Errorf("%w: %s", ErrTagNotFound, resourceArn)
+		// TagResource's own awsAwsjson11_deserializeOpErrorTagResource switch
+		// (aws-sdk-go-v2/service/dax@v1.32.4 deserializers.go) has no
+		// TagNotFoundFault case -- only UntagResource types that fault.
+		// arnExists only ever resolves cluster ARNs (see arnExists below), so
+		// ClusterNotFoundFault, which TagResource's switch does type, is both
+		// the wire-correct and semantically correct code here.
+		return nil, fmt.Errorf("%w: %s", ErrClusterNotFound, resourceArn)
 	}
 
 	existing := b.tags[resourceArn]
@@ -102,7 +108,10 @@ func (b *InMemoryBackend) ListTags(
 	defer b.mu.RUnlock()
 
 	if !b.arnExists(resourceArn) {
-		return nil, "", fmt.Errorf("%w: %s", ErrTagNotFound, resourceArn)
+		// ListTags's own awsAwsjson11_deserializeOpErrorListTags switch has no
+		// TagNotFoundFault case either (see the identical note in TagResource
+		// above).
+		return nil, "", fmt.Errorf("%w: %s", ErrClusterNotFound, resourceArn)
 	}
 
 	allTags := b.tags[resourceArn]

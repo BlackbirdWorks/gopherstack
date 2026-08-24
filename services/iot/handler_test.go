@@ -695,3 +695,136 @@ func TestListThings_Pagination(t *testing.T) {
 	assert.Len(t, seen, total, "all things returned exactly once")
 	assert.GreaterOrEqual(t, pages, 3, "maxResults=2 over 5 items should span >=3 pages")
 }
+
+// TestListThingGroupsForThing_WireShapeAndPagination guards
+// ListThingGroupsForThingOutput's real "thingGroups" member: []types.GroupNameAndArn
+// (iot@v1.77.4 api_op_ListThingGroupsForThing.go), a list of
+// {groupName, groupArn} objects -- previously bare group-name strings, which
+// a real client's deserializer (awsRestjson1_deserializeDocumentGroupNameAndArn,
+// expects a JSON object) would reject outright. Also guards the real
+// maxResults/nextToken pagination, previously entirely ignored.
+func TestListThingGroupsForThing_WireShapeAndPagination(t *testing.T) {
+	t.Parallel()
+
+	h, b := newRefHandler()
+	b.AddThingInternal(iot.Thing{ThingName: "multi-group-thing"})
+
+	const total = 3
+	for i := range total {
+		name := fmt.Sprintf("group-%02d", i)
+		_, err := b.CreateThingGroup(&iot.CreateThingGroupInput{ThingGroupName: name})
+		require.NoError(t, err)
+		require.NoError(t, b.AddThingToThingGroup(&iot.AddThingToThingGroupInput{
+			ThingName:      "multi-group-thing",
+			ThingGroupName: name,
+		}))
+	}
+
+	t.Run("wire_shape", func(t *testing.T) {
+		t.Parallel()
+
+		rec := doRefRequest(t, h, http.MethodGet, "/things/multi-group-thing/thing-groups", nil, nil)
+		require.Equal(t, http.StatusOK, rec.Code)
+
+		var out map[string]any
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+		groups, ok := out["thingGroups"].([]any)
+		require.True(t, ok)
+		require.Len(t, groups, total)
+
+		entry, ok := groups[0].(map[string]any)
+		require.True(t, ok, "each entry must be an object, not a bare string")
+		assert.NotEmpty(t, entry["groupName"])
+		assert.NotEmpty(t, entry["groupArn"])
+	})
+
+	t.Run("pagination", func(t *testing.T) {
+		t.Parallel()
+
+		rec := doRefRequest(t, h, http.MethodGet, "/things/multi-group-thing/thing-groups?maxResults=2", nil, nil)
+		require.Equal(t, http.StatusOK, rec.Code)
+
+		var out map[string]any
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+		groups, _ := out["thingGroups"].([]any)
+		assert.LessOrEqual(t, len(groups), 2)
+		assert.NotEmpty(t, out["nextToken"])
+	})
+}
+
+// TestListThingPrincipals_Pagination guards ListThingPrincipalsInput's real
+// maxResults/nextToken pagination (iot@v1.77.4
+// api_op_ListThingPrincipals.go), previously entirely ignored -- every
+// principal was always returned in one page.
+func TestListThingPrincipals_Pagination(t *testing.T) {
+	t.Parallel()
+
+	h, b := newRefHandler()
+	b.AddThingInternal(iot.Thing{ThingName: "paginated-principal-thing"})
+
+	const total = 3
+	for i := range total {
+		require.NoError(t, b.AttachThingPrincipal(&iot.AttachThingPrincipalInput{
+			ThingName: "paginated-principal-thing",
+			Principal: fmt.Sprintf("arn:aws:iot:us-east-1:000000000000:cert/p%02d", i),
+		}))
+	}
+
+	rec := doRefRequest(t, h, http.MethodGet, "/things/paginated-principal-thing/principals?maxResults=2", nil, nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	principals, _ := out["principals"].([]any)
+	assert.LessOrEqual(t, len(principals), 2)
+	assert.NotEmpty(t, out["nextToken"])
+}
+
+// TestListThingPrincipalsV2_ThingPrincipalTypeFilter guards
+// ListThingPrincipalsV2Input's real thingPrincipalType query filter
+// (iot@v1.77.4 serializers.go
+// awsRestjson1_serializeOpHttpBindingsListThingPrincipalsV2Input).
+// AttachThingPrincipal now persists the real thingPrincipalType it's given
+// (previously dropped, so every attachment was always the default
+// NON_EXCLUSIVE_THING and this filter could only ever observe one value) --
+// attaches one of each type and confirms the filter distinguishes them by
+// their real recorded type, not a hardcoded default.
+func TestListThingPrincipalsV2_ThingPrincipalTypeFilter(t *testing.T) {
+	t.Parallel()
+
+	h, b := newRefHandler()
+	b.AddThingInternal(iot.Thing{ThingName: "v2-filter-thing"})
+	require.NoError(t, b.AttachThingPrincipal(&iot.AttachThingPrincipalInput{
+		ThingName: "v2-filter-thing",
+		Principal: "arn:aws:iot:us-east-1:000000000000:cert/v2p1",
+	}))
+	require.NoError(t, b.AttachThingPrincipal(&iot.AttachThingPrincipalInput{
+		ThingName:          "v2-filter-thing",
+		Principal:          "arn:aws:iot:us-east-1:000000000000:cert/v2p2",
+		ThingPrincipalType: "EXCLUSIVE_THING",
+	}))
+
+	rec := doRefRequest(t, h, http.MethodGet,
+		"/things/v2-filter-thing/principals-v2?thingPrincipalType=EXCLUSIVE_THING", nil, nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	objs, _ := out["thingPrincipalObjects"].([]any)
+	require.Len(t, objs, 1, "EXCLUSIVE_THING filter must return only the EXCLUSIVE_THING attachment")
+	entry, _ := objs[0].(map[string]any)
+	assert.Equal(t, "arn:aws:iot:us-east-1:000000000000:cert/v2p2", entry["principal"])
+	assert.Equal(t, "EXCLUSIVE_THING", entry["thingPrincipalType"])
+
+	rec2 := doRefRequest(t, h, http.MethodGet,
+		"/things/v2-filter-thing/principals-v2?thingPrincipalType=NON_EXCLUSIVE_THING", nil, nil)
+	require.Equal(t, http.StatusOK, rec2.Code)
+
+	var out2 map[string]any
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out2))
+	objs2, _ := out2["thingPrincipalObjects"].([]any)
+	require.Len(t, objs2, 1)
+	entry2, _ := objs2[0].(map[string]any)
+	assert.Equal(t, "arn:aws:iot:us-east-1:000000000000:cert/v2p1", entry2["principal"])
+	assert.Equal(t, "NON_EXCLUSIVE_THING", entry2["thingPrincipalType"])
+}

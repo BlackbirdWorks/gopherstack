@@ -243,12 +243,18 @@ func (b *InMemoryBackend) AssociateNatGatewayAddress(
 	return &cp, nil
 }
 
-// AssignPrivateNatGatewayAddress assigns a new secondary private IP to a NAT
-// gateway, appending it to the gateway's real address state. See
-// UnassignPrivateNatGatewayAddress (nat_gateways.go) for the inverse.
-func (b *InMemoryBackend) AssignPrivateNatGatewayAddress(natGatewayID string) error {
+// AssignPrivateNatGatewayAddress assigns secondary private IPs to a NAT
+// gateway, appending them to the gateway's real address state and returning
+// the updated gateway. ips is used when non-empty; otherwise count new IPs
+// are auto-allocated (at least 1, matching the real API's implicit default
+// of one address when neither PrivateIpAddressCount nor PrivateIpAddresses
+// is given). See UnassignPrivateNatGatewayAddress (nat_gateways.go) for the
+// inverse.
+func (b *InMemoryBackend) AssignPrivateNatGatewayAddress(
+	natGatewayID string, count int, ips []string,
+) (*NatGateway, error) {
 	if natGatewayID == "" {
-		return fmt.Errorf("%w: NatGatewayId is required", ErrInvalidParameter)
+		return nil, fmt.Errorf("%w: NatGatewayId is required", ErrInvalidParameter)
 	}
 
 	b.mu.Lock("AssignPrivateNatGatewayAddress")
@@ -256,12 +262,24 @@ func (b *InMemoryBackend) AssignPrivateNatGatewayAddress(natGatewayID string) er
 
 	ngw, ok := b.natGateways.Get(natGatewayID)
 	if !ok {
-		return fmt.Errorf("%w: %s", ErrInvalidParameter, natGatewayID)
+		return nil, fmt.Errorf("%w: %s", ErrInvalidParameter, natGatewayID)
 	}
 
-	ngw.SecondaryPrivateIPs = append(ngw.SecondaryPrivateIPs, b.allocPrivateIP())
+	if len(ips) > 0 {
+		ngw.SecondaryPrivateIPs = append(ngw.SecondaryPrivateIPs, ips...)
 
-	return nil
+		return ngw, nil
+	}
+
+	if count < 1 {
+		count = 1
+	}
+
+	for range count {
+		ngw.SecondaryPrivateIPs = append(ngw.SecondaryPrivateIPs, b.allocPrivateIP())
+	}
+
+	return ngw, nil
 }
 
 // ---- NAT gateway address management ----

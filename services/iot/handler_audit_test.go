@@ -3,6 +3,9 @@ package iot_test
 import (
 	"net/http"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestUpdateAccountAuditConfiguration_ChecksSurviveIndependentUpdates guards
@@ -169,6 +172,33 @@ func TestEventConfigurations(t *testing.T) {
 	}
 }
 
+// TestEventConfigurations_DatesSurface guards DescribeEventConfigurationsOutput's
+// real creationDate/lastModifiedDate members (iot@v1.77.4
+// api_op_DescribeEventConfigurations.go), previously entirely unmodeled on
+// EventConfigurations -- a real client got neither back no matter how many
+// times UpdateEventConfigurations was called.
+func TestEventConfigurations_DatesSurface(t *testing.T) {
+	t.Parallel()
+	h, _ := newHandlerForBatch3Test(t)
+
+	iotOK(t, h, http.MethodPatch, "/event-configurations", map[string]any{
+		"eventConfigurations": map[string]any{
+			"THING": map[string]any{"Enabled": true},
+		},
+	})
+
+	out := iotOK(t, h, http.MethodGet, "/event-configurations", nil)
+
+	created, ok := out["creationDate"].(float64)
+	if !ok || created <= 0 {
+		t.Errorf("expected non-zero creationDate, got %v", out["creationDate"])
+	}
+	modified, ok := out["lastModifiedDate"].(float64)
+	if !ok || modified <= 0 {
+		t.Errorf("expected non-zero lastModifiedDate, got %v", out["lastModifiedDate"])
+	}
+}
+
 // TestBatch3_AuditFinding tests ListAuditFindings (empty list since we have no direct create endpoint).
 //
 // Real AWS IoT's ListAuditFindings is POST /audit/findings (its filter
@@ -265,4 +295,90 @@ func TestMitigationAction(t *testing.T) {
 	iotOK(t, h, http.MethodDelete, "/mitigationactions/actions/my-action", nil)
 
 	iotExpectError(t, h, "/mitigationactions/actions/my-action")
+}
+
+// TestUpdateAccountAuditConfiguration_ConfigurationFieldSurvives guards a
+// previously-unmodeled member: real types.AuditCheckConfiguration
+// (v1.77.4) has both "enabled" and "configuration" (map[string]string);
+// this backend's AuditCheckConfig only ever had "enabled", so a real
+// client's UpdateAccountAuditConfiguration call setting per-check
+// configuration values had them silently dropped, and
+// DescribeAccountAuditConfiguration could never surface them.
+func TestUpdateAccountAuditConfiguration_ConfigurationFieldSurvives(t *testing.T) {
+	t.Parallel()
+	h := newIoTHandler(t)
+
+	iotOK(t, h, http.MethodPatch, "/audit/configuration", map[string]any{
+		"auditCheckConfigurations": map[string]any{
+			"CA_CERTIFICATE_EXPIRING_CHECK": map[string]any{
+				"enabled":       true,
+				"configuration": map[string]any{"caCertificateMaxExpirationDays": "30"},
+			},
+		},
+	})
+
+	out := iotOK(t, h, http.MethodGet, "/audit/configuration", nil)
+	checks, ok := out["auditCheckConfigurations"].(map[string]any)
+	require.True(t, ok, "expected auditCheckConfigurations map, got %#v", out["auditCheckConfigurations"])
+
+	check, ok := checks["CA_CERTIFICATE_EXPIRING_CHECK"].(map[string]any)
+	require.True(t, ok, "expected check entry, got %#v", checks)
+
+	assert.Equal(t, true, check["enabled"])
+	cfg, ok := check["configuration"].(map[string]any)
+	require.True(t, ok, "expected configuration map to survive round-trip, got %#v", check)
+	assert.Equal(t, "30", cfg["caCertificateMaxExpirationDays"])
+}
+
+func TestScheduledAudit_ListFieldsAndDescribeWireShape(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		frequency  string
+		dayOfMonth string
+		dayOfWeek  string
+	}{
+		{name: "monthly", frequency: "MONTHLY", dayOfMonth: "15"},
+		{name: "weekly", frequency: "WEEKLY", dayOfWeek: "MON"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newIoTHandler(t)
+
+			body := map[string]any{
+				"frequency": tt.frequency,
+				"tags":      []map[string]any{{"Key": "env", "Value": "prod"}},
+			}
+			if tt.dayOfMonth != "" {
+				body["dayOfMonth"] = tt.dayOfMonth
+			}
+			if tt.dayOfWeek != "" {
+				body["dayOfWeek"] = tt.dayOfWeek
+			}
+			iotOK(t, h, http.MethodPost, "/audit/scheduledaudits/sched-"+tt.name, body)
+
+			// DescribeScheduledAuditOutput (v1.77.4) has no "tags" member --
+			// the internal Tags field (populated above, non-empty) must not
+			// leak onto the wire.
+			describeOut := iotOK(t, h, http.MethodGet, "/audit/scheduledaudits/sched-"+tt.name, nil)
+			_, hasTags := describeOut["tags"]
+			assert.False(t, hasTags, "DescribeScheduledAudit must not leak an internal tags field: %#v", describeOut)
+
+			// ListScheduledAudits' ScheduledAuditMetadata (v1.77.4) has
+			// dayOfMonth/dayOfWeek -- the backend already tracks both per
+			// scheduled audit but never surfaced them here.
+			listOut := iotOK(t, h, http.MethodGet, "/audit/scheduledaudits", nil)
+			audits, ok := listOut["scheduledAudits"].([]any)
+			require.True(t, ok)
+			require.Len(t, audits, 1)
+
+			entry, ok := audits[0].(map[string]any)
+			require.True(t, ok)
+			assert.Equal(t, tt.dayOfMonth, entry["dayOfMonth"])
+			assert.Equal(t, tt.dayOfWeek, entry["dayOfWeek"])
+		})
+	}
 }

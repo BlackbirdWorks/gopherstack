@@ -15,16 +15,22 @@ import (
 // awsAwsjson11_deserializeOpDocumentCreateGlueIdentityCenterConfigurationOutput
 // in the pinned glue SDK's deserializers.go) -- so this backend must
 // generate and track one rather than leaving it unset.
-func (b *InMemoryBackend) CreateGlueIdentityCenterConfiguration(instanceARN string) (*IdentityCenterConfig, error) {
+func (b *InMemoryBackend) CreateGlueIdentityCenterConfiguration(
+	instanceARN string,
+	scopes []string,
+	userBackgroundSessionsEnabled bool,
+) (*IdentityCenterConfig, error) {
 	b.mu.Lock("CreateGlueIdentityCenterConfiguration")
 	defer b.mu.Unlock()
 
 	appARN := arn.Build("sso", "", b.accountID, fmt.Sprintf("application/apl-%s", uuid.NewString()))
 
 	b.glueIdentityCenterConfig = &IdentityCenterConfig{
-		InstanceARN:    instanceARN,
-		ApplicationARN: appARN,
-		Status:         "ENABLED",
+		InstanceARN:                   instanceARN,
+		ApplicationARN:                appARN,
+		Status:                        "ENABLED",
+		Scopes:                        scopes,
+		UserBackgroundSessionsEnabled: userBackgroundSessionsEnabled,
 	}
 
 	cp := *b.glueIdentityCenterConfig
@@ -47,7 +53,14 @@ func (b *InMemoryBackend) GetGlueIdentityCenterConfiguration() (*IdentityCenterC
 }
 
 // UpdateGlueIdentityCenterConfiguration updates the configuration.
-func (b *InMemoryBackend) UpdateGlueIdentityCenterConfiguration(instanceARN string) error {
+// UpdateGlueIdentityCenterConfiguration updates Scopes/
+// UserBackgroundSessionsEnabled. Real UpdateGlueIdentityCenterConfigurationInput
+// (glue@v1.152.0 api_op_UpdateGlueIdentityCenterConfiguration.go) has no
+// InstanceArn member at all -- InstanceArn is set once at Create and is not
+// updatable through this op.
+func (b *InMemoryBackend) UpdateGlueIdentityCenterConfiguration(
+	scopes []string, userBackgroundSessionsEnabled bool,
+) error {
 	b.mu.Lock("UpdateGlueIdentityCenterConfiguration")
 	defer b.mu.Unlock()
 
@@ -55,7 +68,8 @@ func (b *InMemoryBackend) UpdateGlueIdentityCenterConfiguration(instanceARN stri
 		b.glueIdentityCenterConfig = &IdentityCenterConfig{}
 	}
 
-	b.glueIdentityCenterConfig.InstanceARN = instanceARN
+	b.glueIdentityCenterConfig.Scopes = scopes
+	b.glueIdentityCenterConfig.UserBackgroundSessionsEnabled = userBackgroundSessionsEnabled
 
 	return nil
 }

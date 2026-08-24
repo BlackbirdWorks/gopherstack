@@ -126,6 +126,7 @@ type listHandshakesFilterRequest struct {
 type inviteAccountToOrganizationRequest struct {
 	Target HandshakeParty `json:"Target"`
 	Notes  string         `json:"Notes,omitempty"`
+	Tags   []Tag          `json:"Tags,omitempty"`
 }
 
 type inviteAccountToOrganizationResponse struct {
@@ -378,7 +379,7 @@ func (h *Handler) handleInviteAccountToOrganization(c *echo.Context, body []byte
 		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "Target.Type is required")
 	}
 
-	hs, err := h.Backend.InviteAccountToOrganization(req.Target, req.Notes)
+	hs, err := h.Backend.InviteAccountToOrganization(req.Target, req.Notes, req.Tags)
 	if err != nil {
 		return h.handleBackendError(c, err)
 	}

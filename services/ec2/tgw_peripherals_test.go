@@ -33,7 +33,7 @@ func TestTGWPeripherals_PolicyTableLifecycle(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			pt, createErr := bk.CreateTransitGatewayPolicyTable(tt.tgwID)
+			pt, createErr := bk.CreateTransitGatewayPolicyTable(tt.tgwID, nil)
 			if tt.wantErr {
 				require.Error(t, createErr)
 				assert.Nil(t, pt)
@@ -49,7 +49,7 @@ func TestTGWPeripherals_PolicyTableLifecycle(t *testing.T) {
 		})
 	}
 
-	pt, err := bk.CreateTransitGatewayPolicyTable(tgw.ID)
+	pt, err := bk.CreateTransitGatewayPolicyTable(tgw.ID, nil)
 	require.NoError(t, err)
 
 	described := bk.DescribeTransitGatewayPolicyTables([]string{pt.TransitGatewayPolicyTableID})
@@ -75,7 +75,7 @@ func TestTGWPeripherals_PolicyTableAssociations(t *testing.T) {
 	tgw, err := bk.CreateTransitGateway(ec2.CreateTransitGatewayParams{Description: "test-tgw"})
 	require.NoError(t, err)
 
-	pt, err := bk.CreateTransitGatewayPolicyTable(tgw.ID)
+	pt, err := bk.CreateTransitGatewayPolicyTable(tgw.ID, nil)
 	require.NoError(t, err)
 
 	_, err = bk.AssociateTransitGatewayPolicyTable("tgw-ptb-nonexistent", "tgw-attach-1")
@@ -126,7 +126,7 @@ func TestTGWPeripherals_PolicyTableEntriesValidation(t *testing.T) {
 	tgw, err := bk.CreateTransitGateway(ec2.CreateTransitGatewayParams{Description: "test-tgw"})
 	require.NoError(t, err)
 
-	pt, err := bk.CreateTransitGatewayPolicyTable(tgw.ID)
+	pt, err := bk.CreateTransitGatewayPolicyTable(tgw.ID, nil)
 	require.NoError(t, err)
 
 	entries, err := bk.GetTransitGatewayPolicyTableEntries(pt.TransitGatewayPolicyTableID)
@@ -142,13 +142,13 @@ func TestTGWPeripherals_PolicyTableEntryLifecycle(t *testing.T) {
 	tgw, err := bk.CreateTransitGateway(ec2.CreateTransitGatewayParams{Description: "test-tgw"})
 	require.NoError(t, err)
 
-	pt, err := bk.CreateTransitGatewayPolicyTable(tgw.ID)
+	pt, err := bk.CreateTransitGatewayPolicyTable(tgw.ID, nil)
 	require.NoError(t, err)
 
-	rt, err := bk.CreateTransitGatewayRouteTable(tgw.ID)
+	rt, err := bk.CreateTransitGatewayRouteTable(tgw.ID, nil)
 	require.NoError(t, err)
 
-	otherRT, err := bk.CreateTransitGatewayRouteTable(tgw.ID)
+	otherRT, err := bk.CreateTransitGatewayRouteTable(tgw.ID, nil)
 	require.NoError(t, err)
 
 	// Missing/invalid required fields.
@@ -277,10 +277,10 @@ func TestTGWPeripherals_PolicyTableEntrySnapshotRestore(t *testing.T) {
 	tgw, err := bk.CreateTransitGateway(ec2.CreateTransitGatewayParams{Description: "test-tgw"})
 	require.NoError(t, err)
 
-	pt, err := bk.CreateTransitGatewayPolicyTable(tgw.ID)
+	pt, err := bk.CreateTransitGatewayPolicyTable(tgw.ID, nil)
 	require.NoError(t, err)
 
-	rt, err := bk.CreateTransitGatewayRouteTable(tgw.ID)
+	rt, err := bk.CreateTransitGatewayRouteTable(tgw.ID, nil)
 	require.NoError(t, err)
 
 	_, err = bk.CreateTransitGatewayPolicyTableEntry(
@@ -320,10 +320,10 @@ func TestTGWPeripherals_DeletePolicyTableCascadesEntries(t *testing.T) {
 	tgw, err := bk.CreateTransitGateway(ec2.CreateTransitGatewayParams{Description: "test-tgw"})
 	require.NoError(t, err)
 
-	pt, err := bk.CreateTransitGatewayPolicyTable(tgw.ID)
+	pt, err := bk.CreateTransitGatewayPolicyTable(tgw.ID, nil)
 	require.NoError(t, err)
 
-	rt, err := bk.CreateTransitGatewayRouteTable(tgw.ID)
+	rt, err := bk.CreateTransitGatewayRouteTable(tgw.ID, nil)
 	require.NoError(t, err)
 
 	_, err = bk.CreateTransitGatewayPolicyTableEntry(
@@ -350,7 +350,7 @@ func TestTGWPeripherals_RouteTableAnnouncementLifecycle(t *testing.T) {
 	tgw, err := bk.CreateTransitGateway(ec2.CreateTransitGatewayParams{Description: "test-tgw"})
 	require.NoError(t, err)
 
-	rt, err := bk.CreateTransitGatewayRouteTable(tgw.ID)
+	rt, err := bk.CreateTransitGatewayRouteTable(tgw.ID, nil)
 	require.NoError(t, err)
 
 	peerAtt, err := bk.CreateTransitGatewayPeeringAttachment(tgw.ID, "tgw-peer-1", "")
@@ -399,7 +399,7 @@ func TestTGWPeripherals_GetRouteTableAssociations(t *testing.T) {
 	tgw, err := bk.CreateTransitGateway(ec2.CreateTransitGatewayParams{Description: "test-tgw"})
 	require.NoError(t, err)
 
-	rt, err := bk.CreateTransitGatewayRouteTable(tgw.ID)
+	rt, err := bk.CreateTransitGatewayRouteTable(tgw.ID, nil)
 	require.NoError(t, err)
 
 	_, err = bk.GetTransitGatewayRouteTableAssociations("tgw-rtb-nonexistent")
@@ -409,7 +409,7 @@ func TestTGWPeripherals_GetRouteTableAssociations(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, assocs)
 
-	att, err := bk.CreateTransitGatewayVpcAttachment(tgw.ID, "vpc-assoctest", nil)
+	att, err := bk.CreateTransitGatewayVpcAttachment(tgw.ID, "vpc-assoctest", nil, nil)
 	require.NoError(t, err)
 
 	_, err = bk.AssociateTransitGatewayRouteTable(rt.RouteTableID, att.TransitGatewayAttachmentID)
@@ -433,7 +433,7 @@ func TestTGWPeripherals_GetRouteTablePropagationsAlwaysEmpty(t *testing.T) {
 	tgw, err := bk.CreateTransitGateway(ec2.CreateTransitGatewayParams{Description: "test-tgw"})
 	require.NoError(t, err)
 
-	rt, err := bk.CreateTransitGatewayRouteTable(tgw.ID)
+	rt, err := bk.CreateTransitGatewayRouteTable(tgw.ID, nil)
 	require.NoError(t, err)
 
 	props, err := bk.GetTransitGatewayRouteTablePropagations(rt.RouteTableID)
@@ -452,7 +452,7 @@ func TestTGWPeripherals_GetAttachmentPropagationsAlwaysEmpty(t *testing.T) {
 	_, err = bk.GetTransitGatewayAttachmentPropagations("tgw-attach-nonexistent")
 	require.ErrorIs(t, err, ec2.ErrTGWAttachmentNotFound)
 
-	att, err := bk.CreateTransitGatewayVpcAttachment(tgw.ID, "vpc-default", nil)
+	att, err := bk.CreateTransitGatewayVpcAttachment(tgw.ID, "vpc-default", nil, nil)
 	require.NoError(t, err)
 
 	props, err := bk.GetTransitGatewayAttachmentPropagations(att.TransitGatewayAttachmentID)
@@ -468,15 +468,15 @@ func TestTGWPeripherals_SearchTransitGatewayRoutes(t *testing.T) {
 	tgw, err := bk.CreateTransitGateway(ec2.CreateTransitGatewayParams{Description: "test-tgw"})
 	require.NoError(t, err)
 
-	rt, err := bk.CreateTransitGatewayRouteTable(tgw.ID)
+	rt, err := bk.CreateTransitGatewayRouteTable(tgw.ID, nil)
 	require.NoError(t, err)
 
 	// CreateTransitGatewayRoute validates the attachment exists (see
 	// TestEC2Core_TransitGatewayRouteTables), so use real attachments rather
 	// than fabricated "tgw-attach-N" strings.
-	att1, err := bk.CreateTransitGatewayVpcAttachment(tgw.ID, "vpc-search1", nil)
+	att1, err := bk.CreateTransitGatewayVpcAttachment(tgw.ID, "vpc-search1", nil, nil)
 	require.NoError(t, err)
-	att2, err := bk.CreateTransitGatewayVpcAttachment(tgw.ID, "vpc-search2", nil)
+	att2, err := bk.CreateTransitGatewayVpcAttachment(tgw.ID, "vpc-search2", nil, nil)
 	require.NoError(t, err)
 
 	_, err = bk.CreateTransitGatewayRoute(rt.RouteTableID, "10.0.0.0/24", att1.TransitGatewayAttachmentID, false)
@@ -520,7 +520,7 @@ func TestTGWPeripherals_ExportTransitGatewayRoutes(t *testing.T) {
 	tgw, err := bk.CreateTransitGateway(ec2.CreateTransitGatewayParams{Description: "test-tgw"})
 	require.NoError(t, err)
 
-	rt, err := bk.CreateTransitGatewayRouteTable(tgw.ID)
+	rt, err := bk.CreateTransitGatewayRouteTable(tgw.ID, nil)
 	require.NoError(t, err)
 
 	_, err = bk.ExportTransitGatewayRoutes("", "my-bucket")
@@ -551,7 +551,7 @@ func TestTGWPeripherals_ModifyVpcAttachment(t *testing.T) {
 	tgw, err := bk.CreateTransitGateway(ec2.CreateTransitGatewayParams{Description: "test-tgw"})
 	require.NoError(t, err)
 
-	att, err := bk.CreateTransitGatewayVpcAttachment(tgw.ID, "vpc-default", nil)
+	att, err := bk.CreateTransitGatewayVpcAttachment(tgw.ID, "vpc-default", nil, nil)
 	require.NoError(t, err)
 
 	_, err = bk.ModifyTransitGatewayVpcAttachment("tgw-attach-nonexistent", nil, nil)
@@ -582,7 +582,7 @@ func TestTGWPeripherals_ModifyMeteringPolicyAndGetEntries(t *testing.T) {
 	tgw, err := bk.CreateTransitGateway(ec2.CreateTransitGatewayParams{Description: "test-tgw"})
 	require.NoError(t, err)
 
-	policy, err := bk.CreateTransitGatewayMeteringPolicy(tgw.ID, []string{"tgw-attach-1"})
+	policy, err := bk.CreateTransitGatewayMeteringPolicy(tgw.ID, []string{"tgw-attach-1"}, nil)
 	require.NoError(t, err)
 
 	_, err = bk.ModifyTransitGatewayMeteringPolicy("tgw-metering-policy-nonexistent", nil, nil)
@@ -653,7 +653,7 @@ func TestTGWPeripherals_RejectVpcAttachment(t *testing.T) {
 	tgw, err := bk.CreateTransitGateway(ec2.CreateTransitGatewayParams{Description: "test-tgw"})
 	require.NoError(t, err)
 
-	att, err := bk.CreateTransitGatewayVpcAttachment(tgw.ID, "vpc-default", nil)
+	att, err := bk.CreateTransitGatewayVpcAttachment(tgw.ID, "vpc-default", nil, nil)
 	require.NoError(t, err)
 
 	_, err = bk.RejectTransitGatewayVpcAttachment("tgw-attach-nonexistent")
@@ -701,7 +701,7 @@ func TestTGWPeripherals_RejectMulticastDomainAssociations(t *testing.T) {
 	tgw, err := bk.CreateTransitGateway(ec2.CreateTransitGatewayParams{Description: "test-tgw"})
 	require.NoError(t, err)
 
-	domain, err := bk.CreateTransitGatewayMulticastDomain(tgw.ID, "", "", "")
+	domain, err := bk.CreateTransitGatewayMulticastDomain(tgw.ID, "", "", "", nil)
 	require.NoError(t, err)
 
 	_, err = bk.AssociateTransitGatewayMulticastDomain(domain.ID, "tgw-attach-1", []string{"subnet-1"})

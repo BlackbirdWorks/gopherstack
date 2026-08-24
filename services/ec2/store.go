@@ -262,6 +262,7 @@ type SecurityGroup struct {
 	Name         string              `json:"name,omitempty"`
 	Description  string              `json:"description,omitempty"`
 	VPCID        string              `json:"vpcID,omitempty"`
+	ARN          string              `json:"arn,omitempty"`
 	IngressRules []SecurityGroupRule `json:"ingressRules,omitempty"`
 	EgressRules  []SecurityGroupRule `json:"egressRules,omitempty"`
 }

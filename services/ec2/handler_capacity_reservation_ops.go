@@ -18,7 +18,10 @@ type createCapacityReservationBySplittingResponse struct {
 	InstanceCount                  int                     `xml:"instanceCount"`
 }
 
-func (h *Handler) handleCreateCapacityReservationBySplitting(vals url.Values, reqID string) (any, error) {
+func (h *Handler) handleCreateCapacityReservationBySplitting(
+	vals url.Values,
+	reqID string,
+) (any, error) {
 	instanceCount, _ := strconv.Atoi(vals.Get("InstanceCount"))
 	tags := parseTagSpecification(vals, "capacity-reservation")
 
@@ -32,10 +35,13 @@ func (h *Handler) handleCreateCapacityReservationBySplitting(vals url.Values, re
 	}
 
 	return &createCapacityReservationBySplittingResponse{
-		Xmlns:                          ec2XMLNS,
-		RequestID:                      reqID,
-		SourceCapacityReservation:      toCapacityReservationItem(src),
-		DestinationCapacityReservation: toCapacityReservationItem(dst),
+		Xmlns:     ec2XMLNS,
+		RequestID: reqID,
+		SourceCapacityReservation: toCapacityReservationItem(
+			src,
+			h.Backend.TagsForResource(src.CapacityReservationID),
+		),
+		DestinationCapacityReservation: toCapacityReservationItem(dst, tags),
 		InstanceCount:                  dst.TotalInstanceCount,
 	}, nil
 }
@@ -49,7 +55,10 @@ type moveCapacityReservationInstancesResponse struct {
 	InstanceCount                  int                     `xml:"instanceCount"`
 }
 
-func (h *Handler) handleMoveCapacityReservationInstances(vals url.Values, reqID string) (any, error) {
+func (h *Handler) handleMoveCapacityReservationInstances(
+	vals url.Values,
+	reqID string,
+) (any, error) {
 	instanceCount, _ := strconv.Atoi(vals.Get("InstanceCount"))
 
 	dst, src, err := h.Backend.MoveCapacityReservationInstances(
@@ -62,17 +71,26 @@ func (h *Handler) handleMoveCapacityReservationInstances(vals url.Values, reqID 
 	}
 
 	return &moveCapacityReservationInstancesResponse{
-		Xmlns:                          ec2XMLNS,
-		RequestID:                      reqID,
-		SourceCapacityReservation:      toCapacityReservationItem(src),
-		DestinationCapacityReservation: toCapacityReservationItem(dst),
-		InstanceCount:                  instanceCount,
+		Xmlns:     ec2XMLNS,
+		RequestID: reqID,
+		SourceCapacityReservation: toCapacityReservationItem(
+			src,
+			h.Backend.TagsForResource(src.CapacityReservationID),
+		),
+		DestinationCapacityReservation: toCapacityReservationItem(
+			dst,
+			h.Backend.TagsForResource(dst.CapacityReservationID),
+		),
+		InstanceCount: instanceCount,
 	}, nil
 }
 
 // ---- Capacity Reservation billing ownership ----
 
-func (h *Handler) handleAssociateCapacityReservationBillingOwner(vals url.Values, reqID string) (any, error) {
+func (h *Handler) handleAssociateCapacityReservationBillingOwner(
+	vals url.Values,
+	reqID string,
+) (any, error) {
 	err := h.Backend.AssociateCapacityReservationBillingOwner(
 		vals.Get("CapacityReservationId"),
 		vals.Get("UnusedReservationBillingOwnerId"),
@@ -88,7 +106,10 @@ func (h *Handler) handleAssociateCapacityReservationBillingOwner(vals url.Values
 	}, nil
 }
 
-func (h *Handler) handleDisassociateCapacityReservationBillingOwner(vals url.Values, reqID string) (any, error) {
+func (h *Handler) handleDisassociateCapacityReservationBillingOwner(
+	vals url.Values,
+	reqID string,
+) (any, error) {
 	err := h.Backend.DisassociateCapacityReservationBillingOwner(
 		vals.Get("CapacityReservationId"),
 		vals.Get("UnusedReservationBillingOwnerId"),
@@ -104,7 +125,10 @@ func (h *Handler) handleDisassociateCapacityReservationBillingOwner(vals url.Val
 	}, nil
 }
 
-func (h *Handler) handleRejectCapacityReservationBillingOwnership(vals url.Values, reqID string) (any, error) {
+func (h *Handler) handleRejectCapacityReservationBillingOwnership(
+	vals url.Values,
+	reqID string,
+) (any, error) {
 	if err := h.Backend.RejectCapacityReservationBillingOwnership(vals.Get("CapacityReservationId")); err != nil {
 		return nil, err
 	}
@@ -148,15 +172,29 @@ type describeCapacityReservationBillingRequestsResponse struct {
 	} `xml:"capacityReservationBillingRequestSet"`
 }
 
-func (h *Handler) handleDescribeCapacityReservationBillingRequests(vals url.Values, reqID string) (any, error) {
+func (h *Handler) handleDescribeCapacityReservationBillingRequests(
+	vals url.Values,
+	reqID string,
+) (any, error) {
 	ids := parseMemberList(vals, "CapacityReservationId")
 	filters := parseEC2Filters(vals)
 
 	requests := h.Backend.DescribeCapacityReservationBillingRequests(ids, filters)
 
-	resp := &describeCapacityReservationBillingRequestsResponse{Xmlns: ec2XMLNS, RequestID: reqID}
+	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageMaxDefault)
+	if err != nil {
+		return nil, err
+	}
+
+	var nextToken string
+	requests, nextToken = pageSlice(requests, offset, maxResults)
+
+	resp := &describeCapacityReservationBillingRequestsResponse{Xmlns: ec2XMLNS, RequestID: reqID, NextToken: nextToken}
 	for _, r := range requests {
-		resp.Requests.Items = append(resp.Requests.Items, toCapacityReservationBillingRequestItem(r))
+		resp.Requests.Items = append(
+			resp.Requests.Items,
+			toCapacityReservationBillingRequestItem(r),
+		)
 	}
 
 	return resp, nil
@@ -204,7 +242,10 @@ type createCapacityReservationCancellationQuoteResponse struct {
 	Quote     capacityReservationCancellationQuoteItem `xml:"capacityReservationCancellationQuote"`
 }
 
-func (h *Handler) handleCreateCapacityReservationCancellationQuote(vals url.Values, reqID string) (any, error) {
+func (h *Handler) handleCreateCapacityReservationCancellationQuote(
+	vals url.Values,
+	reqID string,
+) (any, error) {
 	tags := parseTagSpecification(vals, "capacity-reservation-cancellation-quote")
 
 	quote, err := h.Backend.CreateCapacityReservationCancellationQuote(
@@ -234,12 +275,27 @@ type describeCapacityReservationCancellationQuotesResponse struct {
 	} `xml:"capacityReservationCancellationQuoteSet"`
 }
 
-func (h *Handler) handleDescribeCapacityReservationCancellationQuotes(vals url.Values, reqID string) (any, error) {
+func (h *Handler) handleDescribeCapacityReservationCancellationQuotes(
+	vals url.Values,
+	reqID string,
+) (any, error) {
 	ids := parseMemberList(vals, "CapacityReservationCancellationQuoteId")
 
 	quotes := h.Backend.DescribeCapacityReservationCancellationQuotes(ids)
 
-	resp := &describeCapacityReservationCancellationQuotesResponse{Xmlns: ec2XMLNS, RequestID: reqID}
+	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageMaxDefault)
+	if err != nil {
+		return nil, err
+	}
+
+	var nextToken string
+	quotes, nextToken = pageSlice(quotes, offset, maxResults)
+
+	resp := &describeCapacityReservationCancellationQuotesResponse{
+		Xmlns:     ec2XMLNS,
+		RequestID: reqID,
+		NextToken: nextToken,
+	}
 	for _, q := range quotes {
 		resp.Quotes.Items = append(
 			resp.Quotes.Items,

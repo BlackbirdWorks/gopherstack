@@ -731,6 +731,15 @@ func TestPagination_ForgedTokenRejected(t *testing.T) {
 		{name: "describe_instance_types", action: "DescribeInstanceTypes"},
 		{name: "describe_snapshots", action: "DescribeSnapshots"},
 		{name: "describe_network_acls", action: "DescribeNetworkAcls"},
+		{name: "describe_volume_status", action: "DescribeVolumeStatus"},
+		{name: "describe_volumes_modifications", action: "DescribeVolumesModifications"},
+		{name: "describe_replace_root_volume_tasks", action: "DescribeReplaceRootVolumeTasks"},
+		{name: "list_volumes_in_recycle_bin", action: "ListVolumesInRecycleBin"},
+		{name: "describe_snapshot_tier_status", action: "DescribeSnapshotTierStatus"},
+		{name: "describe_locked_snapshots", action: "DescribeLockedSnapshots"},
+		{name: "list_snapshots_in_recycle_bin", action: "ListSnapshotsInRecycleBin"},
+		{name: "describe_import_snapshot_tasks", action: "DescribeImportSnapshotTasks"},
+		{name: "describe_fast_snapshot_restores", action: "DescribeFastSnapshotRestores"},
 	}
 
 	for _, tt := range tests {
@@ -1009,7 +1018,7 @@ func TestPersistence_Parity4Fields(t *testing.T) {
 	require.NoError(t, err)
 
 	// Capacity Reservation cancellation quote.
-	cr, err := b.CreateCapacityReservation("m5.large", "us-east-1a", 2)
+	cr, err := b.CreateCapacityReservation("m5.large", "us-east-1a", 2, nil)
 	require.NoError(t, err)
 	quote, err := b.CreateCapacityReservationCancellationQuote(cr.CapacityReservationID, nil)
 	require.NoError(t, err)

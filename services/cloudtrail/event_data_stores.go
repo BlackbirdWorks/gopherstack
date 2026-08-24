@@ -25,7 +25,7 @@ func (b *InMemoryBackend) CreateEventDataStore(
 		return nil, fmt.Errorf("%w: Name is required", ErrValidation)
 	}
 	if matches := b.edsByName.Get(name); len(matches) > 0 {
-		return nil, fmt.Errorf("%w: event data store %s already exists", ErrAlreadyExists, name)
+		return nil, fmt.Errorf("%w: event data store %s already exists", ErrEventDataStoreAlreadyExists, name)
 	}
 
 	b.edsCounter++

@@ -33,8 +33,6 @@ var (
 	errReportJobNotFound         = errors.New("report job not found")
 	errScanJobNotFound           = errors.New("scan job not found")
 	errLegalHoldNotFound         = errors.New("legal hold not found")
-	errRecoveryPointNotFound     = errors.New("recovery point not found")
-	errVaultNotFoundB1           = errors.New("vault not found")
 	errBackupJobNotFound         = errors.New("backup job not found")
 	errBackupPlanNotFoundB1      = errors.New("backup plan not found")
 )

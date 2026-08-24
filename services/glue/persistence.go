@@ -26,7 +26,14 @@ import (
 // silently zero out every optimizer's Type/Configuration/LastRun rather than
 // erroring -- not a case encoding/json's default zero-value-on-missing-field
 // behavior can absorb safely.
-const glueSnapshotVersion = 2
+//
+// Bumped 2 -> 3 (clientcoverage-driven audit, 2026-08-23):
+// ColumnStatisticsTaskRun.StartedOn's json tag changed from "StartedOn" to
+// "StartTime" (matching the real member name -- see the field's doc comment
+// in models.go). columnStatTaskRuns is a persisted store.Table[
+// ColumnStatisticsTaskRun], so an older snapshot's "StartedOn" key would
+// silently fail to populate the renamed field on restore.
+const glueSnapshotVersion = 3
 
 // backendSnapshot is the top-level on-disk shape for the Glue backend.
 //

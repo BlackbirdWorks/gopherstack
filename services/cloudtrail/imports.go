@@ -38,7 +38,7 @@ func (b *InMemoryBackend) GetImport(importID string) (*Import, error) {
 
 	imp, ok := b.imports.Get(importID)
 	if !ok {
-		return nil, fmt.Errorf("%w: import %s not found", ErrNotFound, importID)
+		return nil, fmt.Errorf("%w: import %s not found", ErrImportNotFound, importID)
 	}
 	cp := *imp
 
@@ -68,7 +68,7 @@ func (b *InMemoryBackend) StopImport(importID string) (*Import, error) {
 
 	imp, ok := b.imports.Get(importID)
 	if !ok {
-		return nil, fmt.Errorf("%w: import %s not found", ErrNotFound, importID)
+		return nil, fmt.Errorf("%w: import %s not found", ErrImportNotFound, importID)
 	}
 	imp.ImportStatus = "STOPPED"
 	imp.UpdatedTimestamp = time.Now().UTC()

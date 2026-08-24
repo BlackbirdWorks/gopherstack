@@ -3,6 +3,8 @@ package s3
 import (
 	"context"
 	"time"
+
+	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 )
 
 // PutObjectLockConfiguration stores the object lock configuration for a bucket.
@@ -60,6 +62,7 @@ func (b *InMemoryBackend) PutObjectRetention(
 	versionID *string,
 	mode string,
 	retainUntil time.Time,
+	bypassGovernance bool,
 ) error {
 	b.mu.RLock("PutObjectRetention")
 	bucket, err := b.getBucket(bucketName)
@@ -77,8 +80,57 @@ func (b *InMemoryBackend) PutObjectRetention(
 		return findErr
 	}
 
+	if validateErr := validateRetentionChange(
+		ver.RetentionMode, ver.RetainUntil, mode, retainUntil, bypassGovernance,
+	); validateErr != nil {
+		return validateErr
+	}
+
 	ver.RetentionMode = mode
 	ver.RetainUntil = retainUntil
+
+	return nil
+}
+
+// validateRetentionChange enforces S3's one-way retention ratchet.
+//
+// COMPLIANCE: the retain-until date may only be extended and the mode can
+// never change, for any principal — real S3 has no bypass for COMPLIANCE
+// mode (docs.aws.amazon.com/AmazonS3/latest/userguide/object-lock-overview.html:
+// "When an object is locked in compliance mode, its retention mode can't be
+// changed, and its retention period can't be shortened").
+//
+// GOVERNANCE: the retain-until date may be shortened, removed, or upgraded
+// to COMPLIANCE; shortening or removing it requires bypassGovernance (the
+// x-amz-bypass-governance-retention: true header). gopherstack has no IAM
+// evaluator, so this header is the only gate checked here — real S3 also
+// requires the s3:BypassGovernanceRetention permission.
+func validateRetentionChange(
+	oldMode string,
+	oldUntil time.Time,
+	newMode string,
+	newUntil time.Time,
+	bypassGovernance bool,
+) error {
+	if oldMode == "" || oldUntil.IsZero() || !time.Now().Before(oldUntil) {
+		return nil
+	}
+
+	if oldMode == string(types.ObjectLockRetentionModeCompliance) {
+		if newMode != string(types.ObjectLockRetentionModeCompliance) {
+			return ErrRetentionModeDowngrade
+		}
+
+		if newUntil.Before(oldUntil) {
+			return ErrRetentionPeriodShortened
+		}
+
+		return nil
+	}
+
+	if newUntil.Before(oldUntil) && !bypassGovernance {
+		return ErrRetentionPeriodShortened
+	}
 
 	return nil
 }

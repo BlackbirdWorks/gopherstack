@@ -132,3 +132,30 @@ bucket triage.
   verified against current AWS documentation that real AWS sends these
   fields on the wire -- the pinned SDK's Go struct just hasn't caught up yet.
   Left as-is per that prior, already-documented decision.
+
+## gopherstack-fabricated-enum sweep (2026-08-23): 1 fixed, request-side fabricated enum values
+
+Part of a repo-wide sweep for enum *values* gopherstack invents that don't
+exist in the pinned SDK's `types/enums.go` (distinct from the field-name/
+map-key class above) -- see `iam`'s `SummaryKeyType: "SAMLProviders"` for
+the instance that started the campaign.
+
+- `SendWorkflowStepState`: {wire: fixed, severity: unmatchable state --
+  highest}. `SendWorkflowStepStateInput.Status` is `types.CustomStepStatus`
+  (transfer@v1.75.4 `api_op_SendWorkflowStepState.go`), whose only real
+  values are `SUCCESS`/`FAILURE`. gopherstack required `COMPLETE`/
+  `EXCEPTION` instead -- values `CustomStepStatus` does not define -- so
+  **no real client could ever successfully call this operation**: the SDK
+  can only send `CustomStepStatusSuccess`/`CustomStepStatusFailure`, and
+  gopherstack rejected both with a 400 `InvalidRequestException`. A prior
+  test (`workflows_test.go`) had this backwards, explicitly commenting
+  `SUCCESS`/`FAILURE` as "old non-AWS value[s]". Fixed in `models.go`
+  (`workflowStepStatusSuccess`/`workflowStepStatusFailure` constants) and
+  `workflows.go`. Proven via
+  `TestSendWorkflowStepState_CustomStepStatus_RealClient`
+  (wire_field_fixes_test.go), a real `transfersdk.Client` round-trip
+  asserting `DescribedExecution.Status` decodes to
+  `types.ExecutionStatusCompleted`; hand-reverted, confirmed failing
+  against unfixed code (`InvalidRequestException: Status must be COMPLETE
+  or EXCEPTION, got "SUCCESS"`), restored, `md5sum`-verified
+  byte-identical.

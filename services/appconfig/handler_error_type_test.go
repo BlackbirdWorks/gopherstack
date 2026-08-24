@@ -94,6 +94,60 @@ func TestCreateApplication_DuplicateNameSurfacesBadRequestException(t *testing.T
 	assert.Equal(t, "BadRequestException", apiErr.ErrorCode())
 }
 
+// TestCreateDeploymentStrategy_ErrorsSurfaceBadRequestException guards
+// CreateDeploymentStrategy specifically: it also models only
+// BadRequestException, InternalServerException and
+// ServiceQuotaExceededException (appconfig@v1.48.4 deserializers.go) -- no
+// ConflictException -- but unlike every other Create* handler in this
+// package, it previously mapped every backend error unconditionally to
+// InternalServerException/500, including a missing Name (ErrBadRequest) and
+// a duplicate name (ErrConflict), neither of which InternalServerException
+// or a 500 status can be typed by CreateDeploymentStrategy's own
+// deserializeOpError switch.
+func TestCreateDeploymentStrategy_ErrorsSurfaceBadRequestException(t *testing.T) {
+	t.Parallel()
+
+	t.Run("missing name", func(t *testing.T) {
+		t.Parallel()
+
+		backend := appconfig.NewInMemoryBackend("000000000000", "us-east-1")
+		client := newTestAppConfigClient(t, appconfig.NewHandler(backend))
+
+		_, err := client.CreateDeploymentStrategy(t.Context(), &appconfigsdk.CreateDeploymentStrategyInput{
+			Name:                        aws.String(""),
+			DeploymentDurationInMinutes: aws.Int32(1),
+			GrowthFactor:                aws.Float32(10),
+		})
+		require.Error(t, err)
+
+		var apiErr smithy.APIError
+		require.ErrorAs(t, err, &apiErr, "SDK must surface a typed API error, not an opaque one")
+		assert.Equal(t, "BadRequestException", apiErr.ErrorCode())
+	})
+
+	t.Run("duplicate name", func(t *testing.T) {
+		t.Parallel()
+
+		backend := appconfig.NewInMemoryBackend("000000000000", "us-east-1")
+		client := newTestAppConfigClient(t, appconfig.NewHandler(backend))
+
+		input := &appconfigsdk.CreateDeploymentStrategyInput{
+			Name:                        aws.String("dup-strategy"),
+			DeploymentDurationInMinutes: aws.Int32(1),
+			GrowthFactor:                aws.Float32(10),
+		}
+		_, err := client.CreateDeploymentStrategy(t.Context(), input)
+		require.NoError(t, err)
+
+		_, err = client.CreateDeploymentStrategy(t.Context(), input)
+		require.Error(t, err)
+
+		var apiErr smithy.APIError
+		require.ErrorAs(t, err, &apiErr, "SDK must surface a typed API error, not an opaque one")
+		assert.Equal(t, "BadRequestException", apiErr.ErrorCode())
+	})
+}
+
 // TestCreateExtension_DuplicateNameSurfacesConflictException is the
 // contrasting case: CreateExtension does model ConflictException
 // (appconfig@v1.48.4 deserializers.go:1276), so the shared conflictResponse

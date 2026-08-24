@@ -36,9 +36,10 @@ type disableKinesisInput struct {
 }
 
 type disableKinesisOutput struct {
-	TableName         string `json:"TableName,omitempty"`
-	StreamArn         string `json:"StreamArn,omitempty"`
-	DestinationStatus string `json:"DestinationStatus,omitempty"`
+	StreamingConfig   *enableKinesisStreamingConfigWire `json:"EnableKinesisStreamingConfiguration,omitempty"`
+	TableName         string                            `json:"TableName,omitempty"`
+	StreamArn         string                            `json:"StreamArn,omitempty"`
+	DestinationStatus string                            `json:"DestinationStatus,omitempty"`
 }
 
 type enableKinesisStreamingConfigWire struct {
@@ -114,6 +115,7 @@ func (h *DynamoDBHandler) handleDisableKinesisStreamingDestination(
 		TableName:         ptrconv.String(out.TableName),
 		StreamArn:         ptrconv.String(out.StreamArn),
 		DestinationStatus: string(out.DestinationStatus),
+		StreamingConfig:   fromSDKEnableKinesisStreamingConfig(out.EnableKinesisStreamingConfiguration),
 	}, nil
 }
 

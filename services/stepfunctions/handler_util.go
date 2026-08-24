@@ -129,7 +129,7 @@ func (h *Handler) handleTestState(body []byte) (any, error) {
 		return out, nil //nolint:nilerr // execution errors are encoded in the response body
 	}
 
-	if result.Error != "" {
+	if result.Failed {
 		return &testStateOutput{Status: "FAILED", Error: result.Error, Cause: result.Cause}, nil
 	}
 

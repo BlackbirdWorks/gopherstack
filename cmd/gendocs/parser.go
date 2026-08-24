@@ -154,6 +154,33 @@ func checkDuplicateKey(doc *ParityDoc, path string, offset, lineIdx int, key str
 	))
 }
 
+// checkDuplicateEntryKey appends a Warnings entry the second time a key is
+// seen inside an ops:/families: block -- checkDuplicateKey's counterpart for
+// entries nested one level down, since that guard only ever watched column-0
+// keys and so passed silently over two ops: entries for the same operation
+// (e.g. a union merge across branches re-describing the same fix under both
+// dates; gopherstack-fg0u). seen is mutated in place, keyed by entry name and
+// valued by the 1-based line of its first occurrence; callers pass a fresh
+// map per block so an ops: entry can share a name with a families: entry
+// without tripping this.
+func checkDuplicateEntryKey(
+	doc *ParityDoc, path string, offset, lineIdx int, blockKey, key string, seen map[string]int,
+) {
+	line := offset + lineIdx + 1
+
+	first, ok := seen[key]
+	if !ok {
+		seen[key] = line
+
+		return
+	}
+
+	doc.Warnings = append(doc.Warnings, fmt.Sprintf(
+		"%s:%d: duplicate %s key %q (first seen at line %d)",
+		path, line, blockKey, key, first,
+	))
+}
+
 // checkOpStatusTokens runs checkStatusToken over every status field of op.
 func checkOpStatusTokens(doc *ParityDoc, path string, offset, lineIdx int, op OpStatus) {
 	checkStatusToken(doc, path, offset, lineIdx, op.Name, "wire", op.Wire)
@@ -534,6 +561,7 @@ func isNoteFoldEnd(line string) bool {
 func parseOpsBlock(lines []string, start int, doc *ParityDoc, path string, offset int) ([]OpStatus, int) {
 	var ops []OpStatus
 
+	seenKeyLine := map[string]int{}
 	pendingFold := false
 	i := start
 	for i < len(lines) {
@@ -545,6 +573,7 @@ func parseOpsBlock(lines []string, start int, doc *ParityDoc, path string, offse
 		}
 
 		if key, content, ok := matchEntry(lines[i]); ok {
+			checkDuplicateEntryKey(doc, path, offset, i, "ops", key, seenKeyLine)
 			head := beforeNote(content)
 			op := OpStatus{
 				Name:    key,
@@ -568,6 +597,7 @@ func parseOpsBlock(lines []string, start int, doc *ParityDoc, path string, offse
 		if key, keyIndent, ok := matchBlockEntryKey(lines, i); ok {
 			var fields map[string]string
 			entryLine := i
+			checkDuplicateEntryKey(doc, path, offset, entryLine, "ops", key, seenKeyLine)
 			fields, i = consumeBlockEntry(lines, i, keyIndent)
 			op := OpStatus{
 				Name:    key,
@@ -595,6 +625,7 @@ func parseOpsBlock(lines []string, start int, doc *ParityDoc, path string, offse
 func parseFamiliesBlock(lines []string, start int, doc *ParityDoc, path string, offset int) ([]FamilyStatus, int) {
 	var families []FamilyStatus
 
+	seenKeyLine := map[string]int{}
 	pendingFold := false
 	i := start
 	for i < len(lines) {
@@ -606,6 +637,7 @@ func parseFamiliesBlock(lines []string, start int, doc *ParityDoc, path string, 
 		}
 
 		if key, content, ok := matchEntry(lines[i]); ok {
+			checkDuplicateEntryKey(doc, path, offset, i, "families", key, seenKeyLine)
 			head := beforeNote(content)
 			f := FamilyStatus{
 				Name:   key,
@@ -626,6 +658,7 @@ func parseFamiliesBlock(lines []string, start int, doc *ParityDoc, path string, 
 		if key, keyIndent, ok := matchBlockEntryKey(lines, i); ok {
 			var fields map[string]string
 			entryLine := i
+			checkDuplicateEntryKey(doc, path, offset, entryLine, "families", key, seenKeyLine)
 			fields, i = consumeBlockEntry(lines, i, keyIndent)
 			f := FamilyStatus{
 				Name:   key,

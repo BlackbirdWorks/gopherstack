@@ -24,6 +24,7 @@ const (
 	keyOwnerAccountID    = "ownerAccountId"
 	keyCreatedAt         = "createdAt"
 	keyTableBucketARN    = "tableBucketARN"
+	keyTableBucketID     = "tableBucketId"
 	keyConfiguration     = "configuration"
 	keyTableARN          = "tableARN"
 	keyStatusField       = "status"

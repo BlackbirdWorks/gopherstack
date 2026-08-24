@@ -105,6 +105,7 @@ func (b *InMemoryBackend) DeprecateWorkflowType(domain, name, version string) er
 		return fmt.Errorf("%w: workflow type %s/%s", ErrTypeDeprecated, name, version)
 	}
 	wt.Status = statusDeprecated
+	wt.DeprecationDate = float64(time.Now().UnixMilli()) / milliDivisor
 
 	return nil
 }
@@ -123,6 +124,7 @@ func (b *InMemoryBackend) UndeprecateWorkflowType(domain, name, version string) 
 		return fmt.Errorf("%w: workflow type %s/%s", ErrTypeAlreadyExists, name, version)
 	}
 	wt.Status = statusRegistered
+	wt.DeprecationDate = 0
 
 	return nil
 }

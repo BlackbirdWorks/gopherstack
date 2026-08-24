@@ -1,19 +1,27 @@
 service: workspaces
 sdk_module: aws-sdk-go-v2/service/workspaces@v1.73.1
 last_audit_commit: 7c8077891728
-last_audit_date: 2026-08-10
+last_audit_date: 2026-08-23
 overall: A            # follow-up pass on gopherstack-o5ig: both deferred items from the prior
                        # pass (RunningMode-while-STOPPED, Applications family) fixed for real,
                        # plus 3 more genuine bugs found via the same sweep classes.
                        # gopherstack-gt9o (part of the gopherstack-u8my sdk_module pin sweep):
                        # ClientProperties' ClientExperiencePolicy/LogUploadEnabled are now
                        # threaded end-to-end; ClientProperties family moves partial -> ok.
+                       # 2026-08-23: closed the WorkspaceName item this file itself flagged as
+                       # "the cheapest of these to close" (see the 2026-08-13 trap note below).
+                       # WorkspaceRequest.WorkspaceName was accepted by CreateWorkspaces nowhere
+                       # AND the response was independently fabricating a WorkspaceName by
+                       # echoing UserName -- two bugs, not one: an accept-and-drop on the request
+                       # side, and a wire value real AWS never returns for a normal user-assigned
+                       # WorkSpace on the response side. See CreateWorkspaces/DescribeWorkspaces
+                       # ops rows and the dated Notes section for the full writeup.
 
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
-  CreateWorkspaces: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (prior pass) — was all-or-nothing; now partitions FailedRequests/PendingRequests per item, matching real FailedCreateWorkspaceRequest{WorkspaceRequest,ErrorCode,ErrorMessage} shape"}
-  DescribeWorkspaces: {wire: ok, errors: ok, state: ok, persist: ok, note: "pagination (25/page), region filter, WorkspaceIds/DirectoryId/UserName/BundleId filters all verified against real field names"}
+  CreateWorkspaces: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "FIXED (prior pass) — was all-or-nothing; now partitions FailedRequests/PendingRequests per item, matching real FailedCreateWorkspaceRequest{WorkspaceRequest,ErrorCode,ErrorMessage} shape. FIXED 2026-08-23: WorkspaceRequest.WorkspaceName (aws-sdk-go-v2/service/workspaces@v1.73.1/types/types.go:1874-1879, real input member, required for user-decoupled WorkSpaces where UserName=[UNDEFINED]) was accepted nowhere -- createWorkspaceSpec/WorkspaceCreationSpec had no field for it at all, so it was silently dropped end to end. Now threaded through ThemeUpdateOptions-style (see appstream's UpdateThemeForStack fix, same session) into WorkspaceCreationSpec and echoed on PendingRequests/FailedRequests.WorkspaceRequest."}
+  DescribeWorkspaces: {wire: fixed, errors: ok, state: ok, persist: ok, note: "pagination (25/page), region filter, WorkspaceIds/DirectoryId/UserName/BundleId filters all verified against real field names. FIXED 2026-08-23: workspaceResp already had a WorkspaceName wire key (added after this file's 2026-08-13 audit without a corresponding PARITY.md update -- see Notes), but InMemoryBackend.CreateWorkspace was fabricating its value by echoing UserName (or WorkspaceId when UserName was empty) for EVERY WorkSpace -- real types.Workspace.WorkspaceName is documented as 'the name of the user-decoupled WorkSpace' and 'not applicable if UserName is specified for user-assigned WorkSpaces', so a real client describing an ordinary WorkSpace was receiving a fabricated field value that does not exist on real AWS's wire for that case. Now only ever set from the caller-supplied WorkspaceRequest.WorkspaceName, absent (omitempty) otherwise."}
   DescribeWorkspacesConnectionStatus: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED — ConnectionStateCheckTimestamp/LastKnownUserConnectionTimestamp were entirely missing from the response (only WorkspaceId/ConnectionState were wired); both are now emitted as epoch-seconds numbers via awstime.Epoch. LastKnownUserConnectionTimestamp stays zero-valued (0, omitted) since this backend models no actual client connection activity."}
   ModifyWorkspaceProperties: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (gopherstack-hnyl): isValidComputeTypeName was a hand-copied 9-entry allowlist predating 14 values types.Compute now has (GENERALPURPOSE_4XLARGE/8XLARGE and the G6/GR6/G6F GPU families) -- ComputeTypeName was falsely rejected for any of them. Now derives from types.Compute.Values()."}
   ModifyWorkspaceState: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -88,6 +96,62 @@ leaks: {status: clean, note: "no goroutines/janitors in this service; all state 
 ---
 
 ## Notes
+
+### 2026-08-23 pass: WorkspaceName accept-and-drop, plus an independent fabricated value
+
+Found via this file's own "cheapest of these to close" trap note (2026-08-13 section,
+see Traps below), then found to be worse than described once the current source was
+read rather than trusted: two separate bugs, not one.
+
+1. **Request-side accept-and-drop.** `WorkspaceRequest.WorkspaceName`
+   (`aws-sdk-go-v2/service/workspaces@v1.73.1/types/types.go:1874-1879` -- "required if
+   `UserName` is `[UNDEFINED]` for user-decoupled WorkSpaces... not applicable if
+   `UserName` is specified for user-assigned WorkSpaces") was a real input member
+   `createWorkspaceSpec` (`handler_workspaces.go`) had no JSON field for at all --
+   `json.Unmarshal` silently dropped it on the floor, and `WorkspaceCreationSpec`
+   (`interfaces.go`), the struct passed to the backend, had no field to carry it even
+   if the handler had decoded it.
+2. **Response-side fabrication, found independently while fixing (1).**
+   `InMemoryBackend.CreateWorkspace` (`workspaces.go`) derived `WorkspaceName` from
+   `spec.UserName` (falling back to the generated `WorkspaceId` when `UserName` was
+   empty) for *every* WorkSpace -- so a completely ordinary user-assigned WorkSpace,
+   for which real AWS's own doc comment says this field is "not applicable", got a
+   populated `WorkspaceName` in every `DescribeWorkspaces`/`CreateWorkspaces` response a
+   real client would ever see. This is more severe than the request-side gap: it's a
+   value on the wire that AWS's real service would never send, not merely a caller
+   value silently discarded.
+
+Fixed by threading `WorkspaceName` through `createWorkspaceSpec` ->
+`WorkspaceCreationSpec` -> `storedWorkspace` (which already had a `WorkspaceName` field
+and JSON tag, added by some later, undated pass -- see the Traps section) unchanged,
+and deleting the `UserName`/`WorkspaceId` fallback derivation entirely so the field is
+only ever real, caller-supplied data. Also threaded onto `pendingWorkspace`'s and
+`workspaceRequestResp`'s own `WorkspaceName` JSON keys (previously absent from both,
+even though the destination `Workspace`/wire type already carried the field) so
+`CreateWorkspaces`' own response echoes it too, not just a follow-up `DescribeWorkspaces`.
+
+No persisted-struct schema change: `storedWorkspace.WorkspaceName`
+(`models.go:19`, `json:"workspaceName,omitempty"`) already existed and was already
+round-tripped by `Snapshot`/`Restore` -- only how it gets populated changed, not its
+shape or JSON tag. No golden refresh needed.
+
+**Proof**: `TestCreateWorkspaces_RealSDKClient_WorkspaceNameThreadedThrough`
+(`wire_field_fixes_test.go`, a real `aws-sdk-go-v2` client round trip) and
+`TestWorkspace_WorkspaceNameThreadedThrough` (`workspaces_test.go`) both assert the
+caller-supplied value round-trips through `CreateWorkspaces`' `PendingRequests` and a
+follow-up `DescribeWorkspaces`, and that an ordinary user-assigned WorkSpace's
+`WorkspaceName` decodes as `nil`/absent, not a fabricated `UserName` echo.
+`TestWorkspace_RealMembersPopulated` previously asserted
+`ws["WorkspaceName"] == tt.userName` -- a test that had locked in the fabrication bug
+-- corrected to assert the key is genuinely absent instead of deleted outright.
+Hand-reverted `interfaces.go`/`handler_workspaces.go`/`workspaces.go` to `git show
+HEAD`, confirmed all three tests fail with exactly the predicted symptom (empty/absent
+`WorkspaceName` where a real value was expected, and a fabricated `[UNDEFINED]`/
+`UserName` value where nothing should be present), restored, `md5sum` byte-identical.
+`go build`/`go vet`/`go test -race ./services/workspaces/...`/
+`golangci-lint run ./services/workspaces/...`/`make build-check` (repo-wide, since
+`UpdateThemeForStack`'s sibling appstream fix this session also changed an exported
+interface signature) all clean.
 
 Protocol: awsjson1.1, single POST endpoint, `X-Amz-Target: WorkspacesService.<Op>`.
 Route matcher (`strings.HasPrefix(header, "WorkspacesService.")`) is simple and every
@@ -329,14 +393,25 @@ are all clean.
   `TestDeleteTags_RemovedFromDescribeWorkspaces` (which asserted the fabricated field)
   were rewritten to `TestCreateTags_VisibleInDescribeTags`/`TestDeleteTags_RemovedFromDescribeTags`,
   reading back through the real `DescribeTags` op instead.
-  INVERSE FOUND, not fixed (out of this pass's cheap-delete scope): the real
-  `Workspace` type also declares `DataReplicationSettings`, `IpAddress`,
-  `ModificationStates`, `RelatedWorkspaces`, `StandbyWorkspacesProperties`, and
-  `WorkspaceName` -- none of which this backend tracks or emits anywhere. `WorkspaceName`
-  in particular looks like the cheapest of these to close (a plain string, and
-  `WorkspaceRequest.WorkspaceName` is already a real *input* field accepted by
-  neither `createWorkspaceSpec` nor echoed by `workspaceRequestResp`) -- flagged for a
-  future pass, not filed as a bd issue yet.
+  INVERSE FOUND at the time, since closed by later (undated-in-this-file) work:
+  `DataReplicationSettings`/`IpAddress`/`RelatedWorkspaces` are real, backend-tracked
+  data as of `CreateStandbyWorkspaces` (see that op's note) and `IpAddress` was always
+  set at `CreateWorkspace` time; `ModificationStates`/`StandbyWorkspacesProperties`
+  round-trip a real field but this backend has no code path that ever populates either
+  (correct-by-absence, not fabricated -- no modification-tracking or extra
+  standby-property feature exists to source them from). `WorkspaceName` was wired onto
+  the wire (`workspaceResp`/`pendingWorkspace` both gained the JSON key) sometime after
+  this note was written, but WITHOUT actually closing the gap this note described:
+  `WorkspaceRequest.WorkspaceName` (the real *input* field) was still accepted by
+  neither `createWorkspaceSpec` nor `WorkspaceCreationSpec`, AND the response side had
+  independently started fabricating a value by echoing `UserName` (or the generated
+  `WorkspaceId`) for every WorkSpace -- worse than the original silently-absent gap,
+  since real `WorkspaceName` is documented as "not applicable if UserName is specified
+  for user-assigned WorkSpaces" (a normal WorkSpace should never carry this key at all).
+  Both closed 2026-08-23 -- see `CreateWorkspaces`/`DescribeWorkspaces` ops rows and the
+  dated Notes section below. This is the "claims wrong in both directions" trap this
+  campaign's task brief warns about: the field went from under-implemented to
+  over-implemented (fabricated) without a PARITY.md update either time.
 - `CreateIpGroup`/`DescribeIpGroups`/etc use **lowercase** wire keys (`groupId`,
   `groupName`, `groupDesc`, `userRules`, `ipRule`, `ruleDesc`) — this looks wrong
   at a glance (every other shape in this service is PascalCase) but is verified

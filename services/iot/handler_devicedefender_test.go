@@ -74,6 +74,24 @@ func TestDeviceDefender_AuditMitigationTaskLifecycle(t *testing.T) {
 
 	// DescribeAuditMitigationActionsTask
 	describeOut := iotOK(t, h, http.MethodGet, "/audit/mitigationactions/tasks/task-1", nil)
+
+	// actionsDefinition ([]types.MitigationAction, v1.77.4) was previously
+	// never surfaced -- the sibling DescribeDetectMitigationActionsTask
+	// already resolved this via MitigationActionRefs, but this side wasn't
+	// given the same treatment, so a real client's deserializer never found
+	// the key.
+	actionsDefinition, ok := describeOut["actionsDefinition"].([]any)
+	if !ok || len(actionsDefinition) != 1 {
+		t.Fatalf("expected 1 resolved action in actionsDefinition, got %v", describeOut["actionsDefinition"])
+	}
+	actionDef, _ := actionsDefinition[0].(map[string]any)
+	if actionDef["id"] != actionID || actionDef["name"] != "update-ca-certs" {
+		t.Errorf("actionsDefinition[0] = %v, want id=%s name=update-ca-certs", actionDef, actionID)
+	}
+	if actionDef["roleArn"] != "arn:aws:iam::000000000000:role/MitigationRole" {
+		t.Errorf("actionsDefinition[0].roleArn = %v", actionDef["roleArn"])
+	}
+
 	if describeOut["taskStatus"] != "IN_PROGRESS" {
 		t.Errorf("expected taskStatus=IN_PROGRESS, got %v", describeOut)
 	}

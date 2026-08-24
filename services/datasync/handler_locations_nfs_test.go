@@ -70,7 +70,7 @@ func TestDataSync_Nfs(t *testing.T) {
 	rec = doRequest(t, h, "DescribeLocationNfs", map[string]any{
 		"LocationArn": "arn:aws:datasync:us-east-1:000000000000:location/notexist",
 	})
-	assert.Equal(t, http.StatusNotFound, rec.Code)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 // TestDataSync_UpdateLocationNfs_ServerHostname covers gopherstack-pz2v:

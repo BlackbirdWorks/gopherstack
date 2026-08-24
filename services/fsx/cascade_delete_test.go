@@ -32,9 +32,9 @@ func TestFSx_DeleteFileSystem_CascadesToChildren(t *testing.T) {
 	svmID := decodeField(t, svmRec, "StorageVirtualMachine")["StorageVirtualMachineId"].(string)
 
 	volRec := doFSxRequest(t, h, "CreateVolume", map[string]any{
-		"VolumeType":              "ONTAP",
-		"Name":                    "vol1",
-		"StorageVirtualMachineId": svmID,
+		"VolumeType":         "ONTAP",
+		"Name":               "vol1",
+		"OntapConfiguration": map[string]any{"StorageVirtualMachineId": svmID},
 	})
 	require.Equal(t, http.StatusOK, volRec.Code)
 	volID := decodeField(t, volRec, "Volume")["VolumeId"].(string)
@@ -97,9 +97,9 @@ func TestFSx_DeleteVolume_CascadesToSnapshots(t *testing.T) {
 	fsID := createFS(t, h, "OPENZFS")
 
 	volRec := doFSxRequest(t, h, "CreateVolume", map[string]any{
-		"VolumeType":   "OPENZFS",
-		"Name":         "vol1",
-		"FileSystemId": fsID,
+		"VolumeType":           "OPENZFS",
+		"Name":                 "vol1",
+		"OpenZFSConfiguration": map[string]any{"ParentVolumeId": openZFSRootVolumeID(t, h, fsID)},
 	})
 	require.Equal(t, http.StatusOK, volRec.Code)
 	volID := decodeField(t, volRec, "Volume")["VolumeId"].(string)
@@ -134,9 +134,9 @@ func TestFSx_DeleteStorageVirtualMachine_CascadesToVolumes(t *testing.T) {
 	svmID := decodeField(t, svmRec, "StorageVirtualMachine")["StorageVirtualMachineId"].(string)
 
 	volRec := doFSxRequest(t, h, "CreateVolume", map[string]any{
-		"VolumeType":              "ONTAP",
-		"Name":                    "vol1",
-		"StorageVirtualMachineId": svmID,
+		"VolumeType":         "ONTAP",
+		"Name":               "vol1",
+		"OntapConfiguration": map[string]any{"StorageVirtualMachineId": svmID},
 	})
 	require.Equal(t, http.StatusOK, volRec.Code)
 	require.Equal(t, 1, fsx.VolumeCount(b))

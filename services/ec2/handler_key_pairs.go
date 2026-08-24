@@ -50,6 +50,7 @@ type deleteKeyPairResponse struct {
 	XMLName   xml.Name `xml:"DeleteKeyPairResponse"`
 	Xmlns     string   `xml:"xmlns,attr"`
 	RequestID string   `xml:"requestId"`
+	KeyPairID string   `xml:"keyPairId,omitempty"`
 	Return    bool     `xml:"return"`
 }
 
@@ -113,6 +114,11 @@ func (h *Handler) handleDeleteKeyPair(vals url.Values, reqID string) (any, error
 		return nil, fmt.Errorf("%w: KeyName is required", ErrInvalidParameter)
 	}
 
+	var keyPairID string
+	if kps := h.Backend.DescribeKeyPairs([]string{name}); len(kps) == 1 {
+		keyPairID = kps[0].KeyPairID
+	}
+
 	if err := h.Backend.DeleteKeyPair(name); err != nil {
 		return nil, err
 	}
@@ -120,6 +126,7 @@ func (h *Handler) handleDeleteKeyPair(vals url.Values, reqID string) (any, error
 	return &deleteKeyPairResponse{
 		Xmlns:     ec2XMLNS,
 		RequestID: reqID,
+		KeyPairID: keyPairID,
 		Return:    true,
 	}, nil
 }

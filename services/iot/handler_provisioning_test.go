@@ -4,6 +4,9 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	iotsdk "github.com/aws/aws-sdk-go-v2/service/iot"
+	iottypes "github.com/aws/aws-sdk-go-v2/service/iot/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -84,6 +87,47 @@ func TestDomainConfiguration(t *testing.T) {
 	iotOK(t, h, http.MethodDelete, "/domainConfigurations/my-config", nil)
 
 	iotExpectError(t, h, "/domainConfigurations/my-config")
+}
+
+// TestListDomainConfigurations_ServiceTypeFilterAndPagination guards
+// ListDomainConfigurationsInput's real serviceType/pageSize/marker query
+// params (iot@v1.77.4 serializers.go
+// awsRestjson1_serializeOpHttpBindingsListDomainConfigurationsInput) and
+// ListDomainConfigurationsOutput's real nextMarker member -- previously all
+// three request params were silently ignored (every domain configuration
+// was always returned in one page regardless of serviceType) and no
+// nextMarker was ever returned.
+func TestListDomainConfigurations_ServiceTypeFilterAndPagination(t *testing.T) {
+	t.Parallel()
+	h := newIoTHandlerBatch1(t)
+
+	iotOK(t, h, http.MethodPost, "/domainConfigurations/data-config", map[string]any{"serviceType": "DATA"})
+	iotOK(t, h, http.MethodPost, "/domainConfigurations/cred-config",
+		map[string]any{"serviceType": "CREDENTIAL_PROVIDER"})
+
+	t.Run("service_type_filter", func(t *testing.T) {
+		t.Parallel()
+
+		out := iotOK(t, h, http.MethodGet, "/domainConfigurations?serviceType=DATA", nil)
+		configs, _ := out["domainConfigurations"].([]any)
+		require.Len(t, configs, 1)
+		entry, _ := configs[0].(map[string]any)
+		assert.Equal(t, "data-config", entry["domainConfigurationName"])
+	})
+
+	t.Run("pagination", func(t *testing.T) {
+		t.Parallel()
+
+		out := iotOK(t, h, http.MethodGet, "/domainConfigurations?pageSize=1", nil)
+		configs, _ := out["domainConfigurations"].([]any)
+		require.Len(t, configs, 1)
+		require.NotEmpty(t, out["nextMarker"])
+
+		out2 := iotOK(t, h, http.MethodGet, "/domainConfigurations?pageSize=1&marker="+out["nextMarker"].(string), nil)
+		configs2, _ := out2["domainConfigurations"].([]any)
+		require.Len(t, configs2, 1)
+		assert.Empty(t, out2["nextMarker"])
+	})
 }
 
 // TestNewOps_ProvisioningTemplate tests ProvisioningTemplate CRUD.
@@ -219,4 +263,60 @@ func TestDescribeProvisioningTemplateVersion(t *testing.T) {
 		rec := doRefRequest(t, h, http.MethodGet, "/provisioning-templates/tmpl2/versions/999", nil, nil)
 		assert.Equal(t, http.StatusNotFound, rec.Code)
 	})
+}
+
+// TestUpdateProvisioningTemplate_AdvancedFieldsSurvive guards
+// UpdateProvisioningTemplateInput's real defaultVersionId/
+// preProvisioningHook/removePreProvisioningHook members (iot@v1.77.4
+// api_op_UpdateProvisioningTemplate.go), previously all silently dropped.
+// Driven through a real generated AWS SDK v2 client.
+func TestUpdateProvisioningTemplate_AdvancedFieldsSurvive(t *testing.T) {
+	t.Parallel()
+
+	client, _ := newIoTSDKClient(t)
+	ctx := t.Context()
+
+	_, err := client.CreateProvisioningTemplate(ctx, &iotsdk.CreateProvisioningTemplateInput{
+		TemplateName:        aws.String("adv-tmpl"),
+		TemplateBody:        aws.String(`{"Version":"2020-01-01"}`),
+		ProvisioningRoleArn: aws.String("arn:aws:iam::000000000000:role/ProvRole"),
+	})
+	require.NoError(t, err)
+
+	_, err = client.CreateProvisioningTemplateVersion(ctx, &iotsdk.CreateProvisioningTemplateVersionInput{
+		TemplateName: aws.String("adv-tmpl"),
+		TemplateBody: aws.String(`{"Version":"2020-01-01","v":2}`),
+	})
+	require.NoError(t, err)
+
+	_, err = client.UpdateProvisioningTemplate(ctx, &iotsdk.UpdateProvisioningTemplateInput{
+		TemplateName:     aws.String("adv-tmpl"),
+		DefaultVersionId: aws.Int32(2),
+		PreProvisioningHook: &iottypes.ProvisioningHook{
+			TargetArn: aws.String("arn:aws:lambda:us-east-1:000000000000:function:hook"),
+		},
+	})
+	require.NoError(t, err)
+
+	out, err := client.DescribeProvisioningTemplate(ctx, &iotsdk.DescribeProvisioningTemplateInput{
+		TemplateName: aws.String("adv-tmpl"),
+	})
+	require.NoError(t, err)
+	assert.EqualValues(t, 2, aws.ToInt32(out.DefaultVersionId))
+	require.NotNil(t, out.PreProvisioningHook)
+	assert.Equal(t,
+		"arn:aws:lambda:us-east-1:000000000000:function:hook", aws.ToString(out.PreProvisioningHook.TargetArn),
+	)
+
+	_, err = client.UpdateProvisioningTemplate(ctx, &iotsdk.UpdateProvisioningTemplateInput{
+		TemplateName:              aws.String("adv-tmpl"),
+		RemovePreProvisioningHook: aws.Bool(true),
+	})
+	require.NoError(t, err)
+
+	out2, err := client.DescribeProvisioningTemplate(ctx, &iotsdk.DescribeProvisioningTemplateInput{
+		TemplateName: aws.String("adv-tmpl"),
+	})
+	require.NoError(t, err)
+	assert.Nil(t, out2.PreProvisioningHook, "removePreProvisioningHook must clear the hook")
 }

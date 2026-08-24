@@ -49,6 +49,13 @@ const (
 
 	redriveStatusRedrivable    = "REDRIVABLE"
 	redriveStatusNotRedrivable = "NOT_REDRIVABLE"
+
+	// redriveStatusReasonRunning/Succeeded match AWS's documented
+	// redriveStatusReason values (aws-sdk-go-v2/service/sfn@v1.45.4
+	// api_op_DescribeExecution.go) for the two NOT_REDRIVABLE cases this
+	// backend produces.
+	redriveStatusReasonRunning   = "Execution is RUNNING and cannot be redriven."
+	redriveStatusReasonSucceeded = "Execution is SUCCEEDED and cannot be redriven."
 )
 
 // regionContextKey is the context key for the per-request AWS region.

@@ -431,10 +431,8 @@ func (h *Handler) buildOpsGroup1() map[string]redshiftActionFn {
 
 func (h *Handler) buildOpsGroup2() map[string]redshiftActionFn {
 	return map[string]redshiftActionFn{
-		"DescribeEvents": h.handleDescribeEvents,
-		"DescribeLoggingStatus": func(_ url.Values) (any, error) {
-			return h.loggingStatusResponse(), nil
-		},
+		"DescribeEvents":                              h.handleDescribeEvents,
+		"DescribeLoggingStatus":                       h.handleDescribeLoggingStatus,
 		"DescribeOrderableClusterOptions":             h.handleDescribeOrderableClusterOptions,
 		"DescribePartners":                            h.handleDescribePartners,
 		"DescribeReservedNodeExchangeStatus":          h.handleDescribeReservedNodeExchangeStatus,
@@ -838,6 +836,9 @@ var errCodeSentinels = []error{
 	ErrQev2IdcApplicationAlreadyExists,
 	ErrNamespaceRegistrationInvalidClusterState,
 	ErrInvalidNamespace,
+	ErrSnapshotAccessNotFound,
+	ErrSecurityGroupIngressNotFound,
+	ErrAuthorizationAlreadyExists,
 }
 
 func resolveErrCode(opErr error) (string, int) {
@@ -1002,21 +1003,4 @@ func (h *Handler) writeXMLResponse(c *echo.Context, status int, v any) error {
 	}
 
 	return c.Blob(status, "text/xml", xmlBytes)
-}
-
-func (h *Handler) loggingStatusResponse() any {
-	type describeLoggingStatusResult struct {
-		XMLName        xml.Name `xml:"DescribeLoggingStatusResult"`
-		LoggingEnabled bool     `xml:"LoggingEnabled"`
-	}
-	type response struct {
-		XMLName                     xml.Name                    `xml:"DescribeLoggingStatusResponse"`
-		Xmlns                       string                      `xml:"xmlns,attr"`
-		DescribeLoggingStatusResult describeLoggingStatusResult `xml:"DescribeLoggingStatusResult"`
-	}
-
-	return &response{
-		Xmlns:                       redshiftXMLNS,
-		DescribeLoggingStatusResult: describeLoggingStatusResult{LoggingEnabled: false},
-	}
 }

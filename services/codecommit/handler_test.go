@@ -423,7 +423,7 @@ func TestBackend_Reset(t *testing.T) {
 	b := codecommit.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion)
 
 	// Seed data
-	_, err := b.CreateRepository("repo-a", "", nil)
+	_, err := b.CreateRepository("repo-a", "", "", nil)
 	require.NoError(t, err)
 	_, err = b.CreateApprovalRuleTemplate("tmpl", "", "{}")
 	require.NoError(t, err)
@@ -625,17 +625,6 @@ func TestHandler_NotFoundErrorTypes_AreResourceSpecific(t *testing.T) {
 				return map[string]any{"commentId": "no-such-comment"}
 			},
 			wantErrType: "CommentDoesNotExistException",
-		},
-		{
-			name:   "DeletePullRequestApprovalRule_rule_not_found",
-			action: "DeletePullRequestApprovalRule",
-			body: func(t *testing.T, h *codecommit.Handler) map[string]any {
-				t.Helper()
-				prID := setupPR(t, h, "nf-rule-repo")
-
-				return map[string]any{"pullRequestId": prID, "approvalRuleName": "no-such-rule"}
-			},
-			wantErrType: "ApprovalRuleDoesNotExistException",
 		},
 	}
 

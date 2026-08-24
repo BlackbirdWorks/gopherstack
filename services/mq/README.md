@@ -9,17 +9,15 @@
 | --- | --- |
 | PARITY entries audited | 25 (23 ok, 2 partial) |
 | Feature families | 2 (2 ok) |
-| Known gaps | 5 |
+| Known gaps | 3 |
 | Deferred items | 1 |
 | Resource leaks | clean |
 
 ### Known gaps
 
 - DescribeSharedResources (now callable via aws-sdk-go-v2/service/mq@v1.39.4, the pinned version) always returns an empty sharedResources list: this backend does not model AWS RAM cross-account resource sharing, so there is no real state to report against. This is an honest empty result, not a stub -- BrokerId is still validated against real broker state.
-- cli.go's wireTaggingMQ (resourcegroupstaggingapi wiring) discards the error DeleteTags now returns, always reporting success to the Resource Groups Tagging API even for an unknown ARN. Needs a cli.go change out of scope for this pass -- see DeleteTags's op note.
 - 2026-08-20 sweep, never-emitted (layer 3, not hunted as a rule -- disclosed, not fixed): DescribeBrokerOutput.storageSize/pendingStorageSize (api_op_DescribeBroker.go, both *int32) and UpdateBrokerOutput.storageSize/resourceShareArns (api_op_UpdateBroker.go) have no slot in gopherstack's brokerResponse/updateBrokerResponse at all. BrokerInstance.ipAddress (types/types.go, confirmed present in deserializers.go's awsRestjson1_deserializeDocumentBrokerInstance case list) is similarly missing from gopherstack's BrokerInstance struct.
 - 2026-08-20 sweep: Configuration (types/types.go) declares AuthenticationStrategy as a required member; ListConfigurationsOutput/DescribeConfigurationOutput/CreateConfigurationOutput/UpdateConfigurationOutput all carry it (confirmed via each op's api_op_*.go). gopherstack's Configuration model has no such field, so CreateConfiguration/DescribeConfiguration/ListConfigurations/UpdateConfiguration never emit authenticationStrategy at all. Never-emitted, not fixed this pass.
-- 2026-08-20 sweep: LdapServerMetadata.ServiceAccountPassword carries json:"-" for the documented secrets-out-of-persisted-blob reason, but gopherstack reuses that same struct as the CreateBroker/UpdateBroker request body's ldapServerMetadata shape (handler_brokers.go createBrokerInput/updateBrokerInput). json:"-" excludes the field from json.Unmarshal too, so a real client's serviceAccountPassword in the request body is silently discarded on ingest. This is a request-parsing gap, not a response wire-shape bug (the four bug classes this sweep targets), and has no client-observable failure -- the call still succeeds with 200 and nothing echoes the password either way. Disclosed, not fixed.
 
 ### Deferred
 

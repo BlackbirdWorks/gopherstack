@@ -14,6 +14,7 @@ type StorageBackend interface {
 		ctx context.Context,
 		name, queryString, scheduleExpression, executionRoleArn,
 		notificationTopicArn, errorReportS3BucketName, targetDatabase, targetTable, clientToken, kmsKeyID string,
+		errorReportEncryptionOption, errorReportObjectKeyPrefix string,
 		tags map[string]string,
 		targetDetail *ScheduledQueryTargetDetail,
 	) (*ScheduledQuery, error)

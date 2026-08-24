@@ -378,7 +378,7 @@ func (h *Handler) handleReleaseIpamPoolAllocation(vals url.Values, reqID string)
 		return nil, err
 	}
 
-	return &releaseIpamPoolAllocationResponse{RequestID: reqID, Return: true}, nil
+	return &releaseIpamPoolAllocationResponse{RequestID: reqID, Success: true}, nil
 }
 
 type describeIpamPoolAllocationsResponse struct {

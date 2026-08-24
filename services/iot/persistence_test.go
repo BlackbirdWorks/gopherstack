@@ -382,7 +382,7 @@ func seedPackagesAndCommands(t *testing.T, b *iot.InMemoryBackend) {
 func seedAccountSingletons(t *testing.T, b *iot.InMemoryBackend) {
 	t.Helper()
 
-	err := b.SetV2LoggingOptions("arn:aws:iam::123456789012:role/gap-role", "ERROR", false)
+	err := b.SetV2LoggingOptions("arn:aws:iam::123456789012:role/gap-role", "ERROR", false, nil)
 	require.NoError(t, err)
 
 	err = b.SetV2LoggingLevel(map[string]any{"targetType": "DEFAULT", "targetName": "DEFAULT"}, "DEBUG")

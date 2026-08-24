@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/xml"
 	"net/http"
+	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
@@ -12,6 +13,18 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
+
+// bypassGovernanceRetentionHeader parses the X-Amz-Bypass-Governance-Retention
+// request header (DeleteObjectInput.BypassGovernanceRetention /
+// DeleteObjectsInput.BypassGovernanceRetention on the wire).
+func bypassGovernanceRetentionHeader(r *http.Request) *bool {
+	v := r.Header.Get("X-Amz-Bypass-Governance-Retention")
+	if v == "" {
+		return nil
+	}
+
+	return aws.Bool(strings.EqualFold(v, "true"))
+}
 
 // setDeleteObjectResponseHeaders copies the optional version-id and
 // delete-marker response headers from a backend DeleteObject result. Pulled
@@ -68,9 +81,10 @@ func (h *S3Handler) deleteObject(
 	}
 
 	out, err := h.Backend.DeleteObject(ctx, &s3.DeleteObjectInput{
-		Bucket:    aws.String(bucketName),
-		Key:       aws.String(key),
-		VersionId: vid,
+		Bucket:                    aws.String(bucketName),
+		Key:                       aws.String(key),
+		VersionId:                 vid,
+		BypassGovernanceRetention: bypassGovernanceRetentionHeader(r),
 	})
 	if err != nil {
 		WriteError(ctx, w, r, err)
@@ -139,6 +153,7 @@ func (h *S3Handler) deleteObjects(
 			Objects: make([]types.ObjectIdentifier, 0, len(req.Objects)),
 			Quiet:   aws.Bool(req.Quiet),
 		},
+		BypassGovernanceRetention: bypassGovernanceRetentionHeader(r),
 	}
 
 	for _, obj := range req.Objects {

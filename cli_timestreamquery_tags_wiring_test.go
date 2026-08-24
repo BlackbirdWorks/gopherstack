@@ -51,6 +51,7 @@ func TestInitializeServices_TimestreamQueryTagsWiring(t *testing.T) {
 		"arn:aws:iam::000000000000:role/tsq-role",
 		"arn:aws:sns:us-east-1:000000000000:tsq-topic",
 		"tsq-error-bucket", "", "", "", "",
+		"", "",
 		map[string]string{"stage": "prod"},
 		nil,
 	)

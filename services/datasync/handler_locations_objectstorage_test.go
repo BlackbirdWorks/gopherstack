@@ -74,7 +74,7 @@ func TestDataSync_ObjectStorage(t *testing.T) {
 	rec = doRequest(t, h, "DescribeLocationObjectStorage", map[string]any{
 		"LocationArn": "arn:aws:datasync:us-east-1:000000000000:location/notexist",
 	})
-	assert.Equal(t, http.StatusNotFound, rec.Code)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 // TestDataSync_UpdateLocationObjectStorage_ServerHostname covers

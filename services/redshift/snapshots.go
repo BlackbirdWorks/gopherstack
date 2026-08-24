@@ -24,6 +24,15 @@ func (b *InMemoryBackend) AuthorizeSnapshotAccess(snapshotID, accountWithRestore
 		return nil, fmt.Errorf("%w: snapshot %s not found", ErrSnapshotNotFound, snapshotID)
 	}
 
+	for _, a := range snap.AccountsWithRestoreAccess {
+		if a.AccountID == accountWithRestoreAccess {
+			return nil, fmt.Errorf(
+				"%w: account %s already has restore access to snapshot %s",
+				ErrAuthorizationAlreadyExists, accountWithRestoreAccess, snapshotID,
+			)
+		}
+	}
+
 	snap.AccountsWithRestoreAccess = append(snap.AccountsWithRestoreAccess, AccountWithRestoreAccess{
 		AccountID: accountWithRestoreAccess,
 	})
@@ -35,6 +44,9 @@ func (b *InMemoryBackend) AuthorizeSnapshotAccess(snapshotID, accountWithRestore
 func (b *InMemoryBackend) RevokeSnapshotAccess(snapshotID, accountWithRestoreAccess string) (*Snapshot, error) {
 	if snapshotID == "" {
 		return nil, fmt.Errorf("%w: SnapshotIdentifier is required", ErrInvalidParameter)
+	}
+	if accountWithRestoreAccess == "" {
+		return nil, fmt.Errorf("%w: AccountWithRestoreAccess is required", ErrInvalidParameter)
 	}
 
 	b.mu.Lock("RevokeSnapshotAccess")
@@ -61,7 +73,7 @@ func (b *InMemoryBackend) RevokeSnapshotAccess(snapshotID, accountWithRestoreAcc
 	if !found {
 		return nil, fmt.Errorf(
 			"%w: account %s does not have restore access",
-			ErrInvalidParameter,
+			ErrSnapshotAccessNotFound,
 			accountWithRestoreAccess,
 		)
 	}
@@ -72,7 +84,10 @@ func (b *InMemoryBackend) RevokeSnapshotAccess(snapshotID, accountWithRestoreAcc
 }
 
 // ModifyClusterSnapshot updates the manual retention period of a snapshot.
-func (b *InMemoryBackend) ModifyClusterSnapshot(snapshotID string, retentionPeriod int, _ bool) (*Snapshot, error) {
+// A nil retentionPeriod means the caller omitted ManualSnapshotRetentionPeriod
+// entirely (e.g. a Force-only call) and leaves the existing value untouched --
+// distinct from an explicit -1, which real AWS defines as "retain indefinitely".
+func (b *InMemoryBackend) ModifyClusterSnapshot(snapshotID string, retentionPeriod *int, _ bool) (*Snapshot, error) {
 	if snapshotID == "" {
 		return nil, fmt.Errorf("%w: SnapshotIdentifier is required", ErrInvalidParameter)
 	}
@@ -85,8 +100,8 @@ func (b *InMemoryBackend) ModifyClusterSnapshot(snapshotID string, retentionPeri
 		return nil, fmt.Errorf("%w: snapshot %s not found", ErrSnapshotNotFound, snapshotID)
 	}
 
-	if retentionPeriod >= -1 {
-		snap.ManualSnapshotRetentionPeriod = retentionPeriod
+	if retentionPeriod != nil {
+		snap.ManualSnapshotRetentionPeriod = *retentionPeriod
 	}
 
 	return cloneSnapshot(snap), nil
@@ -122,10 +137,13 @@ func (b *InMemoryBackend) BatchDeleteClusterSnapshots(identifiers []string) ([]S
 
 // BatchModifyClusterSnapshots modifies the retention period for a list of snapshots.
 // The force parameter is accepted for API compatibility but has no effect in the in-memory backend.
+// A nil retentionPeriod means the caller omitted ManualSnapshotRetentionPeriod
+// entirely and leaves each snapshot's existing value untouched -- same
+// omitted-vs-explicit-(-1) distinction as ModifyClusterSnapshot.
 // Returns errors and the list of successfully modified snapshot identifiers.
 func (b *InMemoryBackend) BatchModifyClusterSnapshots(
 	identifiers []string,
-	retentionPeriod int,
+	retentionPeriod *int,
 	_ bool,
 ) ([]SnapshotBatchError, []string) {
 	b.mu.Lock("BatchModifyClusterSnapshots")
@@ -147,7 +165,10 @@ func (b *InMemoryBackend) BatchModifyClusterSnapshots(
 			continue
 		}
 
-		snap.ManualSnapshotRetentionPeriod = retentionPeriod
+		if retentionPeriod != nil {
+			snap.ManualSnapshotRetentionPeriod = *retentionPeriod
+		}
+
 		modified = append(modified, id)
 	}
 

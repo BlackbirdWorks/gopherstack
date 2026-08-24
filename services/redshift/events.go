@@ -90,6 +90,29 @@ func (b *InMemoryBackend) DisableLogging(clusterID string) (*LoggingStatus, erro
 	return &cp, nil
 }
 
+// GetLoggingStatus returns the current logging status for the specified cluster.
+func (b *InMemoryBackend) GetLoggingStatus(clusterID string) (*LoggingStatus, error) {
+	if clusterID == "" {
+		return nil, fmt.Errorf("%w: ClusterIdentifier is required", ErrInvalidParameter)
+	}
+
+	b.mu.RLock("GetLoggingStatus")
+	defer b.mu.RUnlock()
+
+	if _, exists := b.clusters.Get(clusterID); !exists {
+		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, clusterID)
+	}
+
+	status, ok := b.loggingStatuses[clusterID]
+	if !ok {
+		return &LoggingStatus{}, nil
+	}
+
+	cp := *status
+
+	return &cp, nil
+}
+
 // DescribeEvents returns events for a Redshift resource.
 // This in-memory implementation returns an empty list since events are not tracked.
 func (b *InMemoryBackend) DescribeEvents(sourceIdentifier, sourceType string) ([]Event, error) {

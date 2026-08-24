@@ -171,6 +171,9 @@ func (h *Handler) handleDeleteApprovalRuleTemplate(body []byte) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	if templateID == "" {
+		return map[string]any{}, nil
+	}
 
 	return map[string]any{
 		"approvalRuleTemplateId": templateID,

@@ -11,7 +11,9 @@ import (
 )
 
 // CreateRepository creates a new CodeCommit repository.
-func (b *InMemoryBackend) CreateRepository(name, description string, kv map[string]string) (*Repository, error) {
+func (b *InMemoryBackend) CreateRepository(
+	name, description, kmsKeyID string, kv map[string]string,
+) (*Repository, error) {
 	b.mu.Lock("CreateRepository")
 	defer b.mu.Unlock()
 
@@ -41,6 +43,7 @@ func (b *InMemoryBackend) CreateRepository(name, description string, kv map[stri
 		LastModifiedDate: now,
 		CloneURLHTTP:     fmt.Sprintf("https://git-codecommit.%s.amazonaws.com/v1/repos/%s", b.region, name),
 		CloneURLSSH:      fmt.Sprintf("ssh://git-codecommit.%s.amazonaws.com/v1/repos/%s", b.region, name),
+		KmsKeyID:         kmsKeyID,
 		Tags:             t,
 	}
 	b.repositories.Put(r)
@@ -72,7 +75,12 @@ func (b *InMemoryBackend) DeleteRepository(name string) (*Repository, error) {
 
 	r, ok := b.repositories.Get(name)
 	if !ok {
-		return nil, fmt.Errorf("%w: repository %s not found", ErrNotFound, name)
+		// DeleteRepository is idempotent in real AWS: deleting a nonexistent
+		// repository succeeds with no RepositoryId, not
+		// RepositoryDoesNotExistException -- its own deserializeOpError
+		// switch has no such case (codecommit@v1.36.4 deserializers.go),
+		// unlike every other repository-name op (inference).
+		return nil, nil //nolint:nilnil // nil repository is a meaningful "already gone" signal, not an error
 	}
 	cp := *r
 	b.repositories.Delete(name)

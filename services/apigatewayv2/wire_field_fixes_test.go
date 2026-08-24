@@ -122,6 +122,106 @@ func TestPortal_PublishStatusWireKeyAndLifecycle(t *testing.T) {
 	require.Equal(t, apigatewayv2types.PublishStatusDisabled, got.PublishStatus)
 }
 
+// TestPortal_IncludedPortalProductArnsAndRumAppMonitorName drives
+// CreatePortal/UpdatePortal/GetPortal through the real SDK client.
+// IncludedPortalProductArns and RumAppMonitorName are real members of
+// CreatePortalInput/UpdatePortalInput/GetPortalOutput/PortalSummary
+// (aws-sdk-go-v2/service/apigatewayv2@v1.37.4's api_op_CreatePortal.go,
+// api_op_UpdatePortal.go, api_op_GetPortal.go, types.PortalSummary --
+// IncludedPortalProductArns is even a *required* PortalSummary member)
+// gopherstack's Portal model had no field to receive either into, so both
+// were silently dropped on Create and Update and a real client's typed
+// .IncludedPortalProductArns/.RumAppMonitorName were always empty regardless
+// of what was sent.
+func TestPortal_IncludedPortalProductArnsAndRumAppMonitorName(t *testing.T) {
+	t.Parallel()
+
+	backend := apigatewayv2.NewInMemoryBackend()
+	client := newTestAPIGatewayV2Client(t, apigatewayv2.NewHandler(backend))
+
+	product, err := client.CreatePortalProduct(t.Context(), &apigatewayv2sdk.CreatePortalProductInput{
+		DisplayName: aws.String("included-product"),
+	})
+	require.NoError(t, err)
+
+	created, err := client.CreatePortal(t.Context(), &apigatewayv2sdk.CreatePortalInput{
+		Authorization: &apigatewayv2types.Authorization{
+			None: &apigatewayv2types.None{},
+		},
+		EndpointConfiguration: &apigatewayv2types.EndpointConfigurationRequest{
+			None: &apigatewayv2types.None{},
+		},
+		PortalContent:             testPortalContent(),
+		IncludedPortalProductArns: []string{aws.ToString(product.PortalProductArn)},
+		RumAppMonitorName:         aws.String("created-monitor"),
+	})
+	require.NoError(t, err)
+	require.Equal(t, []string{aws.ToString(product.PortalProductArn)}, created.IncludedPortalProductArns)
+	require.Equal(t, "created-monitor", aws.ToString(created.RumAppMonitorName))
+
+	updated, err := client.UpdatePortal(t.Context(), &apigatewayv2sdk.UpdatePortalInput{
+		PortalId:                  created.PortalId,
+		IncludedPortalProductArns: []string{},
+		RumAppMonitorName:         aws.String("updated-monitor"),
+	})
+	require.NoError(t, err)
+	require.Empty(t, updated.IncludedPortalProductArns)
+	require.Equal(t, "updated-monitor", aws.ToString(updated.RumAppMonitorName))
+
+	got, err := client.GetPortal(t.Context(), &apigatewayv2sdk.GetPortalInput{
+		PortalId: created.PortalId,
+	})
+	require.NoError(t, err)
+	require.Empty(t, got.IncludedPortalProductArns)
+	require.Equal(t, "updated-monitor", aws.ToString(got.RumAppMonitorName))
+}
+
+// TestPortal_LastPublishedDescription drives CreatePortal/PublishPortal/
+// GetPortal through the real SDK client. PublishPortalInput.Description is
+// documented as becoming the portal's LastPublishedDescription
+// (aws-sdk-go-v2/service/apigatewayv2@v1.37.4's api_op_PublishPortal.go:
+// "When the portal is published, this description becomes the last
+// published description.") -- gopherstack decoded Description off the wire
+// but never used it, and GetPortalOutput.LastPublished/
+// LastPublishedDescription had no backing field at all, so a real client
+// polling GetPortal after PublishPortal always saw both unset.
+func TestPortal_LastPublishedDescription(t *testing.T) {
+	t.Parallel()
+
+	backend := apigatewayv2.NewInMemoryBackend()
+	client := newTestAPIGatewayV2Client(t, apigatewayv2.NewHandler(backend))
+
+	created, err := client.CreatePortal(t.Context(), &apigatewayv2sdk.CreatePortalInput{
+		Authorization: &apigatewayv2types.Authorization{
+			None: &apigatewayv2types.None{},
+		},
+		EndpointConfiguration: &apigatewayv2types.EndpointConfigurationRequest{
+			None: &apigatewayv2types.None{},
+		},
+		PortalContent: testPortalContent(),
+	})
+	require.NoError(t, err)
+
+	before, err := client.GetPortal(t.Context(), &apigatewayv2sdk.GetPortalInput{
+		PortalId: created.PortalId,
+	})
+	require.NoError(t, err)
+	require.Nil(t, before.LastPublished)
+
+	_, err = client.PublishPortal(t.Context(), &apigatewayv2sdk.PublishPortalInput{
+		PortalId:    created.PortalId,
+		Description: aws.String("v1 release notes"),
+	})
+	require.NoError(t, err)
+
+	after, err := client.GetPortal(t.Context(), &apigatewayv2sdk.GetPortalInput{
+		PortalId: created.PortalId,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, after.LastPublished)
+	require.Equal(t, "v1 release notes", aws.ToString(after.LastPublishedDescription))
+}
+
 // TestPortalProduct_LastModified drives CreatePortalProduct/
 // GetPortalProduct through the real SDK client. PortalProductSummary/
 // GetPortalProductOutput's LastModified is a real member

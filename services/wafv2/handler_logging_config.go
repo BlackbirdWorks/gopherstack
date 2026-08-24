@@ -141,19 +141,78 @@ func (h *Handler) handleGetLoggingConfiguration(ctx context.Context, body []byte
 	})
 }
 
-// handleListLoggingConfigurations lists all logging configurations.
-func (h *Handler) handleListLoggingConfigurations(ctx context.Context, _ []byte) ([]byte, error) {
-	configs := h.Backend.ListLoggingConfigurations(ctx)
-	items := make([]any, 0, len(configs))
+// listLoggingConfigurationsRequest mirrors ListLoggingConfigurationsInput
+// (wafv2@v1.77.3 api_op_ListLoggingConfigurations.go): Scope, Limit, LogScope, and
+// NextMarker are all real request members, not just Scope.
+type listLoggingConfigurationsRequest struct {
+	Scope      string `json:"Scope"`
+	LogScope   string `json:"LogScope"`
+	NextMarker string `json:"NextMarker"`
+	Limit      int    `json:"Limit"`
+}
+
+// handleListLoggingConfigurations lists logging configurations for the request's Scope,
+// paginated by Limit/NextMarker.
+func (h *Handler) handleListLoggingConfigurations(ctx context.Context, body []byte) ([]byte, error) {
+	var req listLoggingConfigurationsRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	configs := h.Backend.ListLoggingConfigurations(ctx, req.Scope)
+
+	type entry struct {
+		doc any
+		arn string
+	}
+
+	entries := make([]entry, 0, len(configs))
 
 	for _, cfg := range configs {
-		var v any
-		if err := json.Unmarshal(cfg, &v); err == nil {
-			items = append(items, v)
+		var v map[string]any
+		if err := json.Unmarshal(cfg, &v); err != nil {
+			continue
+		}
+
+		arn, _ := v["ResourceArn"].(string)
+		entries = append(entries, entry{arn: arn, doc: v})
+	}
+
+	if req.NextMarker != "" {
+		idx := -1
+
+		for i, e := range entries {
+			if e.arn == req.NextMarker {
+				idx = i
+
+				break
+			}
+		}
+
+		if idx >= 0 {
+			entries = entries[idx+1:]
+		} else {
+			entries = nil
 		}
 	}
 
-	return json.Marshal(map[string]any{"LoggingConfigurations": items})
+	nextMarker := ""
+	if req.Limit > 0 && len(entries) > req.Limit {
+		nextMarker = entries[req.Limit-1].arn
+		entries = entries[:req.Limit]
+	}
+
+	items := make([]any, 0, len(entries))
+	for _, e := range entries {
+		items = append(items, e.doc)
+	}
+
+	resp := map[string]any{"LoggingConfigurations": items}
+	if nextMarker != "" {
+		resp["NextMarker"] = nextMarker
+	}
+
+	return json.Marshal(resp)
 }
 
 // loggingConfigDispatchOps returns the logging-configuration-family operation dispatch

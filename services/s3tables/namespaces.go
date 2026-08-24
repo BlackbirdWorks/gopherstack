@@ -26,7 +26,8 @@ func (b *InMemoryBackend) CreateNamespace(
 	b.muNamespaces.Lock("CreateNamespace")
 	defer b.muNamespaces.Unlock()
 
-	if !b.tableBuckets.Has(tableBucketARN) {
+	tb, ok := b.tableBuckets.Get(tableBucketARN)
+	if !ok {
 		return nil, fmt.Errorf(
 			"%w: table bucket %q not found",
 			ErrTableBucketNotFound,
@@ -49,6 +50,7 @@ func (b *InMemoryBackend) CreateNamespace(
 	ns := &Namespace{
 		Namespace:      cloneStringSlice(namespace),
 		TableBucketARN: tableBucketARN,
+		TableBucketID:  tb.BucketID,
 		OwnerAccountID: b.accountID,
 		CreatedBy:      b.accountID,
 		CreatedAt:      time.Now().UTC(),

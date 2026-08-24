@@ -152,6 +152,36 @@ func TestQuickSight_ListThemeVersions(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, missingRec.Code)
 }
 
+// ListThemeVersions must return the ThemeVersionSummary shape, not
+// ThemeVersion -- types.ThemeVersionSummary (types.go) has no BaseThemeId or
+// Configuration, unlike the nested Version field DescribeTheme returns.
+// Raw-body assertion: an SDK client's deserializer silently drops
+// unrecognized members, so it can't prove the leak.
+func TestQuickSight_ListThemeVersions_OmitsBaseThemeIDAndConfiguration(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	doRequest(t, h, http.MethodPost, accountPath("/themes/cfgthm"), map[string]any{
+		"Name": "V1", "BaseThemeId": "SEASIDE",
+		"Configuration": map[string]any{"DataColorPalette": map[string]any{"EmptyFillColor": "#FFFFFF"}},
+	})
+
+	rec := doRequest(t, h, http.MethodGet, accountPath("/themes/cfgthm/versions"), nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+	body := parseBody(t, rec)
+	versions, ok := body["ThemeVersionSummaryList"].([]any)
+	require.True(t, ok)
+	require.NotEmpty(t, versions)
+	for _, v := range versions {
+		m, isMap := v.(map[string]any)
+		require.True(t, isMap)
+		_, hasBaseThemeID := m["BaseThemeId"]
+		assert.False(t, hasBaseThemeID, "ThemeVersionSummary must not carry BaseThemeId")
+		_, hasConfiguration := m["Configuration"]
+		assert.False(t, hasConfiguration, "ThemeVersionSummary must not carry Configuration")
+	}
+}
+
 // ---- Theme alias CRUD, not-found, and duplicate errors ----
 
 func TestQuickSight_ThemeAliasCRUD(t *testing.T) {

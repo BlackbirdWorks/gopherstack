@@ -120,7 +120,7 @@ func TestListSigningCertificates(t *testing.T) {
 			b := newBackend(t)
 			tt.setup(b)
 
-			certs, err := b.ListSigningCertificates(tt.user)
+			p, err := b.ListSigningCertificates(tt.user, "", 0)
 			if tt.wantErr != nil {
 				require.Error(t, err)
 				assert.ErrorIs(t, err, tt.wantErr)
@@ -129,10 +129,10 @@ func TestListSigningCertificates(t *testing.T) {
 			}
 
 			require.NoError(t, err)
-			assert.Len(t, certs, tt.wantCount)
+			assert.Len(t, p.Data, tt.wantCount)
 
 			if tt.user != "" {
-				for _, c := range certs {
+				for _, c := range p.Data {
 					assert.Equal(t, tt.user, c.UserName)
 				}
 			}
@@ -148,10 +148,12 @@ func TestUpdateSigningCertificate(t *testing.T) {
 		name          string
 		certificateID string
 		status        string
+		updateAs      string
 	}{
 		{name: "changes status", status: "Inactive"},
 		{name: "invalid status rejected", status: "Deleted", wantErr: iam.ErrInvalidAction},
 		{name: "not found", certificateID: "ASCANONEXISTENT", status: "Inactive", wantErr: iam.ErrAccessKeyNotFound},
+		{name: "wrong owner rejected", status: "Inactive", updateAs: "mallory", wantErr: iam.ErrAccessKeyNotFound},
 	}
 
 	for _, tt := range tests {
@@ -160,6 +162,7 @@ func TestUpdateSigningCertificate(t *testing.T) {
 
 			b := newBackend(t)
 			_, _ = b.CreateUser("cert-user", "/", "")
+			_, _ = b.CreateUser("mallory", "/", "")
 
 			certID := tt.certificateID
 			if certID == "" {
@@ -168,7 +171,12 @@ func TestUpdateSigningCertificate(t *testing.T) {
 				certID = cert.CertificateID
 			}
 
-			err := b.UpdateSigningCertificate(certID, tt.status)
+			updateAs := tt.updateAs
+			if updateAs == "" {
+				updateAs = "cert-user"
+			}
+
+			err := b.UpdateSigningCertificate(updateAs, certID, tt.status)
 			if tt.wantErr != nil {
 				require.Error(t, err)
 				assert.ErrorIs(t, err, tt.wantErr)
@@ -177,10 +185,10 @@ func TestUpdateSigningCertificate(t *testing.T) {
 			}
 
 			require.NoError(t, err)
-			certs, err := b.ListSigningCertificates("cert-user")
+			p, err := b.ListSigningCertificates("cert-user", "", 0)
 			require.NoError(t, err)
-			require.Len(t, certs, 1)
-			assert.Equal(t, tt.status, certs[0].Status)
+			require.Len(t, p.Data, 1)
+			assert.Equal(t, tt.status, p.Data[0].Status)
 		})
 	}
 }
@@ -192,9 +200,11 @@ func TestDeleteSigningCertificate(t *testing.T) {
 		wantErr       error
 		name          string
 		certificateID string
+		deleteAs      string
 	}{
 		{name: "success"},
 		{name: "not found", certificateID: "ASCANONEXISTENT", wantErr: iam.ErrAccessKeyNotFound},
+		{name: "wrong owner rejected", deleteAs: "mallory", wantErr: iam.ErrAccessKeyNotFound},
 	}
 
 	for _, tt := range tests {
@@ -203,6 +213,7 @@ func TestDeleteSigningCertificate(t *testing.T) {
 
 			b := newBackend(t)
 			_, _ = b.CreateUser("delete-user", "/", "")
+			_, _ = b.CreateUser("mallory", "/", "")
 
 			certID := tt.certificateID
 			if certID == "" {
@@ -211,7 +222,12 @@ func TestDeleteSigningCertificate(t *testing.T) {
 				certID = cert.CertificateID
 			}
 
-			err := b.DeleteSigningCertificate(certID)
+			deleteAs := tt.deleteAs
+			if deleteAs == "" {
+				deleteAs = "delete-user"
+			}
+
+			err := b.DeleteSigningCertificate(deleteAs, certID)
 			if tt.wantErr != nil {
 				require.Error(t, err)
 				assert.ErrorIs(t, err, tt.wantErr)
@@ -220,9 +236,9 @@ func TestDeleteSigningCertificate(t *testing.T) {
 			}
 
 			require.NoError(t, err)
-			certs, err := b.ListSigningCertificates("delete-user")
+			p, err := b.ListSigningCertificates("delete-user", "", 0)
 			require.NoError(t, err)
-			assert.Empty(t, certs)
+			assert.Empty(t, p.Data)
 		})
 	}
 }
@@ -253,9 +269,9 @@ func TestSigningCertificateReset_ClearsCertificates(t *testing.T) {
 
 	// After reset, user doesn't exist so list by user fails. Test all-certs list.
 	_, _ = b.CreateUser("zoe", "/", "")
-	certs, err := b.ListSigningCertificates("zoe")
+	p, err := b.ListSigningCertificates("zoe", "", 0)
 	require.NoError(t, err)
-	assert.Empty(t, certs)
+	assert.Empty(t, p.Data)
 }
 
 func TestSigningCertificate_MultipleCertsPerUser(t *testing.T) {
@@ -272,9 +288,9 @@ func TestSigningCertificate_MultipleCertsPerUser(t *testing.T) {
 
 	assert.NotEqual(t, cert1.CertificateID, cert2.CertificateID)
 
-	certs, err := b.ListSigningCertificates("multi-cert-user")
+	p, err := b.ListSigningCertificates("multi-cert-user", "", 0)
 	require.NoError(t, err)
-	assert.Len(t, certs, 2)
+	assert.Len(t, p.Data, 2)
 }
 
 func TestSigningCertificate_ToggleStatus(t *testing.T) {
@@ -285,14 +301,14 @@ func TestSigningCertificate_ToggleStatus(t *testing.T) {
 	cert, _ := b.UploadSigningCertificate("toggle-user", "body")
 
 	// Active → Inactive.
-	require.NoError(t, b.UpdateSigningCertificate(cert.CertificateID, "Inactive"))
+	require.NoError(t, b.UpdateSigningCertificate("toggle-user", cert.CertificateID, "Inactive"))
 
-	certs, _ := b.ListSigningCertificates("toggle-user")
-	assert.Equal(t, "Inactive", certs[0].Status)
+	p, _ := b.ListSigningCertificates("toggle-user", "", 0)
+	assert.Equal(t, "Inactive", p.Data[0].Status)
 
 	// Inactive → Active.
-	require.NoError(t, b.UpdateSigningCertificate(cert.CertificateID, "Active"))
+	require.NoError(t, b.UpdateSigningCertificate("toggle-user", cert.CertificateID, "Active"))
 
-	certs, _ = b.ListSigningCertificates("toggle-user")
-	assert.Equal(t, "Active", certs[0].Status)
+	p, _ = b.ListSigningCertificates("toggle-user", "", 0)
+	assert.Equal(t, "Active", p.Data[0].Status)
 }

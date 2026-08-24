@@ -281,11 +281,10 @@ func TestIntegration_ServiceDiscovery_ServiceAttributesLifecycle(t *testing.T) {
 	var createResult map[string]any
 	require.NoError(t, json.Unmarshal([]byte(createBody), &createResult))
 	svcID := createResult["Service"].(map[string]any)["Id"].(string)
-	svcARN := createResult["Service"].(map[string]any)["Arn"].(string)
 
 	// UpdateServiceAttributes.
 	updateResp := servicediscoveryRequest(t, "UpdateServiceAttributes", map[string]any{
-		"ServiceArn": svcARN,
+		"ServiceId":  svcID,
 		"Attributes": map[string]string{"env": "staging", "version": "2.0"},
 	})
 	updateBody := servicediscoveryReadBody(t, updateResp)

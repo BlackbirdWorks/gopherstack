@@ -354,6 +354,9 @@ func (h *Handler) handleDeletePullRequestApprovalRule(body []byte) (any, error) 
 	if err != nil {
 		return nil, err
 	}
+	if ruleID == "" {
+		return map[string]any{}, nil
+	}
 
 	return map[string]any{
 		keyApprovalRuleID: ruleID,

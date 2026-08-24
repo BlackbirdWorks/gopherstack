@@ -316,8 +316,8 @@ gaps:
   - "Map Distributed Map ResultWriter's WriterConfig (Transformation/OutputType) is parsed but not applied, only the plain S3-export shape; per-item result records omit ExecutionArn/Name/StartDate/StopDate since gopherstack Map iterations aren't backed by real child executions (bd: gopherstack-8j8, implemented this pass -- see asl_map_and_distributed_map notes)"
   - "Map ItemProcessor.ProcessorConfig.Mode (INLINE/DISTRIBUTED) not parsed/validated (bd: gopherstack-8im)"
   - "StartExecution has no ClientRequestToken idempotency; EXPRESS's immediate-name-reuse semantics (vs STANDARD's reuse restriction) are not modeled (bd: gopherstack-1sf)"
-  - "TaskScheduledEventDetails/TaskSucceededEventDetails still omit resourceType/region/parameters/timeoutInSeconds/heartbeatInSeconds/outputDetails.truncated; no TaskSubmitted/TaskStarted history events for .sync/.waitForTaskToken (bd: gopherstack-996)"
-  - "DescribeExecutionOutput missing RedriveStatus/RedriveStatusReason/MapRunArn/TraceHeader/InputDetails/OutputDetails (found this pass via SDK field-diff; StateMachineVersionArn/StateMachineAliasArn were fixed this pass, these were not, bd: gopherstack-f5dc)"
+  - "STALE, corrected 2026-08-23: resourceType/region/parameters were fixed by the 2026-08-21 batch-10 pass (see notes below, TaskScheduledEventDetails.Region/.Parameters and TaskSucceededEventDetails.Resource/.ResourceType) but this line was never updated after that fix landed -- re-verified live against models.go/execution_history.go this pass. Still genuinely open: TaskScheduledEventDetails.TimeoutInSeconds/HeartbeatInSeconds are never set (RecordTaskScheduled has no timeout/heartbeat value in scope to assign); no TaskSubmitted/TaskStarted history events are emitted for .sync/.waitForTaskToken Task states (bd: gopherstack-996)"
+  - "STALE, corrected 2026-08-23 (manifest-harvest pass): re-read models.go/executions.go directly instead of trusting this note -- RedriveStatus, TraceHeader, InputDetails, and OutputDetails were already declared on Execution AND already assigned real values at every relevant transition (initializeExecutionRecord/finalizeExecutionRecordLocked/StopExecution/resetExecutionForRedrive); this line's claim that gopherstack-f5dc left them missing was wrong. RedriveStatusReason (real, AWS: 'When redriveStatus is NOT_REDRIVABLE, redriveStatusReason specifies the reason', api_op_DescribeExecution.go) WAS a genuine gap -- declared but never assigned, so real clients always decoded an empty string -- FIXED this pass: populated with AWS's exact documented reason strings ('Execution is RUNNING and cannot be redriven.' / 'Execution is SUCCEEDED and cannot be redriven.') at every NOT_REDRIVABLE transition and cleared at every REDRIVABLE one. MapRunArn remains genuinely absent: Execution.MapRunArn is never assigned anywhere in this backend because Map iterations aren't backed by real child executions -- same structural gap already tracked under bd gopherstack-8j8 above, not a separate bug. Proven via a real aws-sdk-go-v2/service/sfn client round trip (wire_redrivestatusreason_test.go), which also incidentally caught and fixed a second, unrelated real bug it exposed: a bare {\"Type\":\"Fail\"} state (Error/Cause both optional per the ASL spec) was silently recorded as SUCCEEDED, not FAILED, because asl.ExecutionResult had no way to distinguish 'failed with an empty error code' from 'succeeded' other than checking Error != \"\" -- fixed by adding ExecutionResult.Failed and switching every consumer (asl/executor.go's Parallel-branch and Map-iteration paths, executions.go's async and sync finalizers, handler_util.go's TestState) off the Error != \"\" check."
   - "Non-standard intrinsic functions (StringConcat, ArraySlice, MathSubtract, etc.) are accepted by this emulator but do not exist in real AWS Step Functions -- permissive superset, not a correctness bug against valid AWS definitions, but a definition that only works here would fail on real AWS (no bd filed; informational)"
   - "ListExecutions' new executionListItem view (gopherstack-dv4s) omits itemCount/mapRunArn, which real ExecutionListItem declares (types.go, sfn@v1.45.4) -- the domain Execution struct never tracked either field, a missing-field gap distinct from the over-wide leak this pass fixed (bd: unfiled)"
 deferred: []
@@ -642,3 +642,68 @@ required output fields, 4 real bugs found and fixed, all proven via real
 (`wire_output_required_r80d_test.go`), each hand-reverted (all 5 touched
 files reverted to `HEAD` together, confirmed all 4 tests fail against the
 pre-fix code), confirmed failing, restored, `md5sum`-verified byte-identical.
+
+## 2026-08-23 pass (manifest harvest): stale gap notes corrected, RedriveStatusReason fixed, Fail-state-with-no-error-code bug found and fixed
+
+Read this file's `gaps:` block against the current code instead of trusting
+its prose. Two of the seven entries were stale:
+
+- `DescribeExecutionOutput missing RedriveStatus/RedriveStatusReason/
+  MapRunArn/TraceHeader/InputDetails/OutputDetails` (bd gopherstack-f5dc):
+  four of the six named fields (`RedriveStatus`, `TraceHeader`,
+  `InputDetails`, `OutputDetails`) were already declared on `Execution`
+  *and* already assigned real values at every relevant transition
+  (`initializeExecutionRecord`/`finalizeExecutionRecordLocked`/
+  `StopExecution`/`resetExecutionForRedrive`, `executions.go`) -- the note
+  was simply wrong. `RedriveStatusReason` was the one real gap: declared
+  (`models.go`) but never assigned anywhere, so a real client always
+  decoded an empty string regardless of `redriveStatus`. Fixed by
+  populating it with AWS's exact documented reason strings
+  (`api_op_DescribeExecution.go`: "Execution is RUNNING and cannot be
+  redriven." / "Execution is SUCCEEDED and cannot be redriven.") at every
+  `NOT_REDRIVABLE` transition, and clearing it at every `REDRIVABLE`
+  transition. `MapRunArn` remains genuinely unset -- confirmed via grep
+  that no code path ever assigns `Execution.MapRunArn` -- but that is the
+  same structural gap already tracked under bd gopherstack-8j8 (Map
+  iterations aren't backed by real child executions), not a distinct bug;
+  folded into that entry rather than kept as a separate false gap.
+- `TaskScheduledEventDetails/TaskSucceededEventDetails still omit
+  resourceType/region/parameters/...` (bd gopherstack-996, written
+  2026-07-11): `resourceType`/`region`/`parameters` were fixed by the
+  2026-08-21 batch-10 pass above, which never updated this older note.
+  `TimeoutInSeconds`/`HeartbeatInSeconds` and the missing
+  TaskSubmitted/TaskStarted events remain genuinely open.
+
+**Real bug found via the round-trip test written to prove the
+`RedriveStatusReason` fix** (`wire_redrivestatusreason_test.go`, table
+covering a `Pass`-only state machine and a bare `{"Type":"Fail"}` state
+machine): the bare-`Fail` case decoded as `Status: SUCCEEDED`, not
+`FAILED`. Root cause: `asl.Executor.Execute` turns a `FailError` into
+`&ExecutionResult{Error: failErr.ErrCode, Cause: failErr.Cause}`, and every
+consumer (`executions.go`'s async and sync finalizers, `handler_util.go`'s
+TestState, and `asl/executor.go`'s own Parallel-branch and Map-iteration
+result handling) treated `result.Error != ""` as the failure signal. `Fail`
+states' `Error`/`Cause` are both optional per the ASL spec (real AWS: a
+bare `{"Type":"Fail"}` still ends the execution as `FAILED`, just with
+`error`/`cause` absent from the output), so an empty `ErrCode` was
+indistinguishable from success -- a genuine wrong-answer bug reachable by
+any minimal Fail state, not an edge case. Fixed by adding
+`ExecutionResult.Failed bool`, set `true` on the `FailError` path, and
+switching every one of the five `Error != ""` call sites listed above to
+check `Failed` instead (`Error`/`Cause` are still copied through
+unchanged, so already-passing tests that assert specific error text were
+unaffected).
+
+Proof: `wire_redrivestatusreason_test.go`'s two subtests fail against the
+pre-fix code (`succeeded`: `RedriveStatusReason` expected non-empty, got
+`""`; `failed`: `Status` expected `FAILED`, got `SUCCEEDED`, and
+`RedriveStatus` expected `REDRIVABLE`, got `NOT_REDRIVABLE`) and pass after
+it. Hand-reverted all four touched files
+(`store.go`/`executions.go`/`asl/executor.go`/`handler_util.go`) to `HEAD`
+via `cp`, confirmed both subtests fail with the errors quoted above,
+restored the fix via `cp`, `md5sum`-verified byte-identical to the
+pre-revert state. `go build ./...`, `go test ./services/stepfunctions/...`,
+`golangci-lint run ./services/stepfunctions/...` (0 issues) all clean.
+No persisted struct changed (`ExecutionResult` is an in-process handoff
+type, never persisted; `Execution.RedriveStatusReason` was already a
+persisted field, just newly populated).

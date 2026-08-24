@@ -482,8 +482,12 @@ func TestIntegration_Batch_ListJobsAllQueues(t *testing.T) {
 
 	found := false
 	for _, q := range queuesOut.JobQueues {
+		// Real AWS Batch defaults an unfiltered ListJobs to RUNNING-only; the
+		// unmanaged CE here never schedules the job past SUBMITTED, so filter
+		// explicitly for it.
 		listOut, lerr := client.ListJobs(ctx, &batch.ListJobsInput{
-			JobQueue: q.JobQueueName,
+			JobQueue:  q.JobQueueName,
+			JobStatus: batchtypes.JobStatusSubmitted,
 		})
 		require.NoError(t, lerr)
 		for _, s := range listOut.JobSummaryList {

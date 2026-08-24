@@ -682,10 +682,62 @@ func TestWorkspace_RealMembersPopulated(t *testing.T) {
 			ws, ok := wsList[0].(map[string]any)
 			require.True(t, ok)
 			assert.Equal(t, wsID, ws["WorkspaceId"])
-			assert.Equal(t, tt.userName, ws["WorkspaceName"])
+			// WorkspaceName is "not applicable if UserName is specified for
+			// user-assigned WorkSpaces" (types.WorkspaceRequest.WorkspaceName's
+			// doc comment) -- must stay absent, not fabricated from UserName.
+			assert.NotContains(t, ws, "WorkspaceName")
 			assert.NotEmpty(t, ws["IpAddress"])
 		})
 	}
+}
+
+// TestWorkspace_WorkspaceNameThreadedThrough proves CreateWorkspaces'
+// WorkspaceRequest.WorkspaceName (aws-sdk-go-v2/service/workspaces@v1.73.1
+// types.WorkspaceRequest.WorkspaceName, real input member for user-decoupled
+// WorkSpaces) is actually stored and echoed back by DescribeWorkspaces,
+// rather than accepted and silently discarded.
+func TestWorkspace_WorkspaceNameThreadedThrough(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	doTargetRequest(t, h, "RegisterWorkspaceDirectory", map[string]any{
+		"DirectoryId": "d-decoupled123",
+	})
+
+	rec := doTargetRequest(t, h, "CreateWorkspaces", map[string]any{
+		"Workspaces": []map[string]any{
+			{
+				"UserName":      "[UNDEFINED]",
+				"WorkspaceName": "decoupled-ws-1",
+				"DirectoryId":   "d-decoupled123",
+				"BundleId":      "wsb-bh8rsxt14",
+			},
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var createResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	pending, _ := createResp["PendingRequests"].([]any)
+	require.Len(t, pending, 1)
+	pendingItem := pending[0].(map[string]any)
+	assert.Equal(t, "decoupled-ws-1", pendingItem["WorkspaceName"],
+		"CreateWorkspaces' PendingRequests must echo the caller-supplied WorkspaceName")
+	wsID := pendingItem["WorkspaceId"].(string)
+
+	descRec := doTargetRequest(t, h, "DescribeWorkspaces", map[string]any{
+		"WorkspaceIds": []string{wsID},
+	})
+	require.Equal(t, http.StatusOK, descRec.Code)
+
+	var descResp map[string]any
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
+	wsList, _ := descResp["Workspaces"].([]any)
+	require.Len(t, wsList, 1)
+	ws := wsList[0].(map[string]any)
+	assert.Equal(t, "decoupled-ws-1", ws["WorkspaceName"],
+		"DescribeWorkspaces must echo the caller-supplied WorkspaceName, not drop it")
 }
 
 func TestCreateStandbyWorkspaces_DataReplicationAndRelated(t *testing.T) {

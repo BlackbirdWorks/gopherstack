@@ -14,7 +14,7 @@ func (b *InMemoryBackend) EnableClientAuthentication(ctx context.Context, direct
 	defer b.mu.Unlock()
 
 	if _, ok := b.directoryGet(region, directoryID); !ok {
-		return ErrDirectoryNotFound
+		return ErrDirectoryNotFoundDDNE
 	}
 
 	now := time.Now().UTC()
@@ -42,7 +42,7 @@ func (b *InMemoryBackend) DisableClientAuthentication(ctx context.Context, direc
 	defer b.mu.Unlock()
 
 	if _, ok := b.directoryGet(region, directoryID); !ok {
-		return ErrDirectoryNotFound
+		return ErrDirectoryNotFoundDDNE
 	}
 
 	now := time.Now().UTC()
@@ -75,7 +75,7 @@ func (b *InMemoryBackend) DescribeClientAuthenticationSettings(
 	defer b.mu.RUnlock()
 
 	if _, ok := b.directoryGet(region, directoryID); !ok {
-		return nil, "", ErrDirectoryNotFound
+		return nil, "", ErrDirectoryNotFoundDDNE
 	}
 
 	var result []ClientAuthInfo

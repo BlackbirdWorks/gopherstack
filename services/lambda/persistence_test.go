@@ -329,9 +329,9 @@ func TestPersistenceLayers(t *testing.T) {
 	assert.Len(t, layers.Data, 2)
 
 	// Verify versions are restored.
-	versions, err := bk2.ListLayerVersions("layer-a", "")
+	versions, err := bk2.ListLayerVersions("layer-a", "", "", 0)
 	require.NoError(t, err)
-	assert.Len(t, versions, 2)
+	assert.Len(t, versions.Data, 2)
 
 	// Verify policy is restored.
 	policy, err := bk2.GetLayerVersionPolicy("layer-a", 1)

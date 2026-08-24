@@ -500,24 +500,40 @@ func (h *Handler) handleAssignPrivateIPAddresses(vals url.Values, reqID string) 
 
 	ips := parseMemberList(vals, "PrivateIpAddress")
 
-	if err := h.Backend.AssignPrivateIPAddresses(eniID, count, ips); err != nil {
+	assigned, err := h.Backend.AssignPrivateIPAddresses(eniID, count, ips)
+	if err != nil {
 		return nil, err
 	}
 
+	items := make([]assignedPrivateIPItem, 0, len(assigned))
+	for _, ip := range assigned {
+		items = append(items, assignedPrivateIPItem{PrivateIPAddress: ip})
+	}
+
 	return &assignPrivateIPAddressesResponse{
-		Xmlns:              ec2XMLNS,
-		RequestID:          reqID,
-		NetworkInterfaceID: eniID,
-		Return:             true,
+		Xmlns:                      ec2XMLNS,
+		RequestID:                  reqID,
+		NetworkInterfaceID:         eniID,
+		AssignedPrivateIPAddresses: items,
 	}, nil
 }
 
+// assignPrivateIPAddressesResponse matches AssignPrivateIpAddressesOutput
+// (ec2@v1.319.1 api_op_AssignPrivateIpAddresses.go): there is no Return
+// member at all -- the real deserializer has no case for it, only
+// assignedIpv4PrefixSet/assignedPrivateIpAddressesSet/networkInterfaceId.
+// AssignedIpv4Prefixes is omitted: this backend doesn't support the
+// Ipv4Prefix request form, only individual addresses/count.
 type assignPrivateIPAddressesResponse struct {
-	XMLName            xml.Name `xml:"AssignPrivateIpAddressesResponse"`
-	Xmlns              string   `xml:"xmlns,attr"`
-	RequestID          string   `xml:"requestId"`
-	NetworkInterfaceID string   `xml:"networkInterfaceId"`
-	Return             bool     `xml:"return"`
+	XMLName                    xml.Name                `xml:"AssignPrivateIpAddressesResponse"`
+	Xmlns                      string                  `xml:"xmlns,attr"`
+	RequestID                  string                  `xml:"requestId"`
+	NetworkInterfaceID         string                  `xml:"networkInterfaceId"`
+	AssignedPrivateIPAddresses []assignedPrivateIPItem `xml:"assignedPrivateIpAddressesSet>item,omitempty"`
+}
+
+type assignedPrivateIPItem struct {
+	PrivateIPAddress string `xml:"privateIpAddress"`
 }
 
 func (h *Handler) handleUnassignPrivateIPAddresses(vals url.Values, reqID string) (any, error) {

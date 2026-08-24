@@ -82,11 +82,22 @@ type Backend interface {
 	// AuthorizeSecurityGroupEgress appends egress rules to a security group.
 	AuthorizeSecurityGroupEgress(groupID string, rules []SecurityGroupRule) error
 
-	// RevokeSecurityGroupIngress removes matching ingress rules from a security group.
-	RevokeSecurityGroupIngress(groupID string, rules []SecurityGroupRule) error
+	// RevokeSecurityGroupIngress removes matching ingress rules from a security group,
+	// returning the details of the rules actually revoked and the subset of the
+	// requested rules that matched nothing.
+	RevokeSecurityGroupIngress(
+		groupID string,
+		rules []SecurityGroupRule,
+	) (revoked []*SecurityGroupRuleDetail, unknown []SecurityGroupRule, err error)
 
-	// RevokeSecurityGroupEgress removes matching egress rules from a security group.
-	RevokeSecurityGroupEgress(groupID string, rules []SecurityGroupRule) error
+	// RevokeSecurityGroupEgress removes matching egress rules from a security
+	// group, returning the details of the rules actually revoked. Unlike
+	// RevokeSecurityGroupIngress, an unmatched rule fails the whole call
+	// rather than being reported back as unknown.
+	RevokeSecurityGroupEgress(
+		groupID string,
+		rules []SecurityGroupRule,
+	) (revoked []*SecurityGroupRuleDetail, err error)
 
 	// ---- VPCs ----
 
@@ -337,9 +348,10 @@ type Backend interface {
 	// DetachNetworkInterface detaches a network interface by attachment ID.
 	DetachNetworkInterface(attachmentID string, force bool) error
 
-	// AssignPrivateIPAddresses adds secondary private IPs to an ENI.
-	// If ips is non-empty those addresses are assigned; otherwise count new IPs are allocated.
-	AssignPrivateIPAddresses(eniID string, count int, ips []string) error
+	// AssignPrivateIPAddresses adds secondary private IPs to an ENI, returning
+	// the IPs actually assigned. If ips is non-empty those addresses are
+	// assigned; otherwise count new IPs are allocated.
+	AssignPrivateIPAddresses(eniID string, count int, ips []string) ([]string, error)
 
 	// UnassignPrivateIPAddresses removes secondary private IPs from an ENI.
 	UnassignPrivateIPAddresses(eniID string, ips []string) error
@@ -494,6 +506,7 @@ type Backend interface {
 	CreateTransitGatewayVpcAttachment(
 		tgwID, vpcID string,
 		subnetIDs []string,
+		tags map[string]string,
 	) (*TransitGatewayVpcAttachment, error)
 
 	// DescribeTransitGatewayVpcAttachments returns TGW VPC attachments, optionally filtered by IDs.
@@ -590,7 +603,7 @@ type Backend interface {
 	// ---- Transit Gateway Route Tables ----
 
 	// CreateTransitGatewayRouteTable creates a new TGW route table.
-	CreateTransitGatewayRouteTable(tgwID string) (*TransitGatewayRouteTable, error)
+	CreateTransitGatewayRouteTable(tgwID string, tags map[string]string) (*TransitGatewayRouteTable, error)
 
 	// DescribeTransitGatewayRouteTables returns TGW route tables, optionally filtered by IDs.
 	DescribeTransitGatewayRouteTables(ids []string) []*TransitGatewayRouteTable
@@ -687,7 +700,7 @@ type Backend interface {
 	// ---- Transit Gateway Policy Tables ----
 
 	// CreateTransitGatewayPolicyTable creates a new policy table on a transit gateway.
-	CreateTransitGatewayPolicyTable(tgwID string) (*TransitGatewayPolicyTable, error)
+	CreateTransitGatewayPolicyTable(tgwID string, tags map[string]string) (*TransitGatewayPolicyTable, error)
 
 	// DescribeTransitGatewayPolicyTables returns policy tables, optionally filtered by ID.
 	DescribeTransitGatewayPolicyTables(ids []string) []*TransitGatewayPolicyTable
@@ -756,6 +769,7 @@ type Backend interface {
 	// CreateTransitGatewayMulticastDomain creates a new multicast domain on a transit gateway.
 	CreateTransitGatewayMulticastDomain(
 		tgwID, autoAcceptSharedAssociations, igmpv2Support, staticSourcesSupport string,
+		tags map[string]string,
 	) (*TransitGatewayMulticastDomain, error)
 
 	// DescribeTransitGatewayMulticastDomains returns multicast domains, optionally filtered by ID.
@@ -814,6 +828,7 @@ type Backend interface {
 	CreateTransitGatewayMeteringPolicy(
 		tgwID string,
 		middleboxAttachmentIDs []string,
+		tags map[string]string,
 	) (*TransitGatewayMeteringPolicy, error)
 
 	// DescribeTransitGatewayMeteringPolicies returns metering policies, optionally filtered by ID.
@@ -1199,7 +1214,7 @@ type Backend interface {
 
 	DescribeAddressesAttribute(allocationIDs []string) []AddressAttribute
 	ModifyAddressAttribute(allocationID, domainName string) error
-	ResetAddressAttribute(allocationID string) error
+	ResetAddressAttribute(allocationID string) (*Address, error)
 
 	// ---- batch1: instance ----
 
@@ -1214,7 +1229,7 @@ type Backend interface {
 		hopLimit int,
 	) error
 	DescribeInstanceCreditSpecifications(ids []string) []InstanceCreditSpec
-	ModifyInstanceCreditSpecification(instanceID, cpuCredits string) error
+	ModifyInstanceCreditSpecification(specs []InstanceCreditSpec) (successful, unsuccessful []InstanceCreditSpec)
 	DescribeInstanceTopology(ids []string) []InstanceTopologyItem
 	MonitorInstances(instanceIDs []string) ([]MonitoringState, error)
 	UnmonitorInstances(instanceIDs []string) ([]MonitoringState, error)
@@ -1278,11 +1293,11 @@ type Backend interface {
 	LockSnapshot(snapshotID, lockMode string, durationDays int) (*SnapshotLock, error)
 	UnlockSnapshot(snapshotID string) error
 	DescribeLockedSnapshots(ids []string) []*SnapshotLock
-	CopyVolumes(volumeIDs []string, destinationRegion string) ([]CopyVolumesResult, error)
-	DisassociateVpcCidrBlock(associationID string) error
+	CopyVolumes(sourceVolumeID string, size int, volumeType string, iops, throughput int) (*Volume, error)
+	DisassociateVpcCidrBlock(associationID string) (vpcID string, assoc *VpcCidrBlockAssociation, err error)
 	DisassociateNatGatewayAddress(natGatewayID string, associationIDs []string) (*NatGateway, error)
 	AssociateNatGatewayAddress(natGatewayID string, allocationIDs []string) (*NatGateway, error)
-	AssignPrivateNatGatewayAddress(natGatewayID string) error
+	AssignPrivateNatGatewayAddress(natGatewayID string, count int, ips []string) (*NatGateway, error)
 	DisableImage(imageID string) error
 	EnableImage(imageID string) error
 	EnableImageBlockPublicAccess(state string) error
@@ -1306,7 +1321,7 @@ type Backend interface {
 	CreateReplaceRootVolumeTask(instanceID, snapshotID string) (*ReplaceRootVolumeTask, error)
 	DescribeReplaceRootVolumeTasks(ids []string) []*ReplaceRootVolumeTask
 	EnableAddressTransfer(allocationID, transferAccountID string) (*AddressTransfer, error)
-	DisableAddressTransfer(allocationID string) error
+	DisableAddressTransfer(allocationID string) (*AddressTransfer, error)
 	DescribeAddressTransfers(allocationIDs []string) []*AddressTransfer
 	CreateSubnetCidrReservation(
 		subnetID, cidr, reservationType, description string,
@@ -1318,6 +1333,7 @@ type Backend interface {
 	CreateCapacityReservation(
 		instanceType, availabilityZone string,
 		instanceCount int,
+		tags map[string]string,
 	) (*CapacityReservation, error)
 	CancelCapacityReservation(reservationID string) error
 	ModifyCapacityReservation(reservationID string, instanceCount int) error
@@ -1368,7 +1384,7 @@ type Backend interface {
 	ListVolumesInRecycleBin(volumeIDs []string) []*RecycleBinVolume
 	RestoreVolumeFromRecycleBin(volumeID string) error
 	RestoreAddressToClassic(publicIP string) error
-	ReportInstanceStatus(instanceID, status, description string) error
+	ReportInstanceStatus(instanceIDs []string, status, description string) error
 	ModifyVpnConnection(vpnConnectionID, vpnGatewayID string) error
 	CreateVpnConnectionRoute(vpnConnectionID, destinationCIDR string) (*VpnConnectionRoute, error)
 	DeleteVpnConnectionRoute(vpnConnectionID, destinationCIDR string) error
@@ -1577,7 +1593,7 @@ type Backend interface {
 	DescribeReservedInstancesOfferings(instanceType, az, productDesc string) []*ReservedInstancesOffering
 	PurchaseReservedInstancesOffering(offeringID string, instanceCount int) (*ReservedInstance, error)
 	CreateReservedInstancesListing(reservedInstancesID string, instanceCount int) (*ReservedInstancesListing, error)
-	CancelReservedInstancesListing(id string) error
+	CancelReservedInstancesListing(id string) (*ReservedInstancesListing, error)
 	DescribeReservedInstancesListings(ids []string) []*ReservedInstancesListing
 	DescribeReservedInstancesModifications(ids []string) []*ReservedInstancesModification
 	ModifyReservedInstances(

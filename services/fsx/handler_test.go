@@ -92,18 +92,60 @@ func createFSandBackup(t *testing.T, h *fsx.Handler, fsType string) string {
 	return out["Backup"].(map[string]any)["BackupId"].(string)
 }
 
+// createVolume creates a volume of volType. Real CreateVolumeInput has no
+// top-level FileSystemId or StorageVirtualMachineId at all (fsx@v1.68.4
+// api_op_CreateVolume.go) -- the parent file system is only reachable via
+// OntapConfiguration.StorageVirtualMachineId (ONTAP) or
+// OpenZFSConfiguration.ParentVolumeId (OPENZFS), so this helper resolves (or
+// creates) one of those anchors under fsID before calling CreateVolume, the
+// same way fileSystemCreateBody mirrors CreateFileSystem's own per-type
+// required config block. An empty fsID creates a fresh file system of volType.
 func createVolume(t *testing.T, h *fsx.Handler, fsID, volType, name string) string { //nolint:unparam // existing issue.
 	t.Helper()
-	rec := doFSxRequest(t, h, "CreateVolume", map[string]any{
-		"VolumeType":   volType,
-		"FileSystemId": fsID,
-		"Name":         name,
-	})
+
+	if fsID == "" {
+		fsID = createFS(t, h, volType)
+	}
+
+	body := map[string]any{
+		"VolumeType": volType,
+		"Name":       name,
+	}
+
+	switch volType {
+	case "ONTAP":
+		svmID := createSVM(t, h, fsID, name+"-svm")
+		body["OntapConfiguration"] = map[string]any{"StorageVirtualMachineId": svmID}
+	case "OPENZFS":
+		body["OpenZFSConfiguration"] = map[string]any{"ParentVolumeId": openZFSRootVolumeID(t, h, fsID)}
+	}
+
+	rec := doFSxRequest(t, h, "CreateVolume", body)
 	require.Equal(t, http.StatusOK, rec.Code)
 	var out map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
 
 	return out["Volume"].(map[string]any)["VolumeId"].(string)
+}
+
+// openZFSRootVolumeID returns the RootVolumeId AWS auto-creates for an
+// OPENZFS file system, the anchor a real client must supply as
+// OpenZFSConfiguration.ParentVolumeId when creating a child volume.
+func openZFSRootVolumeID(t *testing.T, h *fsx.Handler, fsID string) string {
+	t.Helper()
+	rec := doFSxRequest(t, h, "DescribeFileSystems", map[string]any{"FileSystemIds": []string{fsID}})
+	require.Equal(t, http.StatusOK, rec.Code)
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	fileSystems, ok := out["FileSystems"].([]any)
+	require.True(t, ok)
+	require.Len(t, fileSystems, 1)
+	fs, ok := fileSystems[0].(map[string]any)
+	require.True(t, ok)
+	openZFS, ok := fs["OpenZFSConfiguration"].(map[string]any)
+	require.True(t, ok, "OpenZFSConfiguration must be present on an OPENZFS file system, got %v", fs)
+
+	return openZFS["RootVolumeId"].(string)
 }
 
 func createSVM(t *testing.T, h *fsx.Handler, fsID, name string) string {
@@ -247,8 +289,7 @@ func Test_CreationTime_IsEpochSecondsNumber(t *testing.T) {
 			field: "Snapshot",
 			create: func(t *testing.T, h *fsx.Handler) map[string]any {
 				t.Helper()
-				volID := decodeField(t, doFSxRequest(t, h, "CreateVolume",
-					map[string]any{"VolumeType": "ONTAP", "Name": "vol1"}), "Volume")["VolumeId"].(string)
+				volID := createVolume(t, h, "", "ONTAP", "vol1")
 
 				return decodeField(t, doFSxRequest(t, h, "CreateSnapshot", map[string]any{
 					"VolumeId": volID,
@@ -274,9 +315,14 @@ func Test_CreationTime_IsEpochSecondsNumber(t *testing.T) {
 			field: "Volume",
 			create: func(t *testing.T, h *fsx.Handler) map[string]any {
 				t.Helper()
+				fsID := createFS(t, h, "ONTAP")
+				svmID := createSVM(t, h, fsID, "svm2")
 
-				return decodeField(t, doFSxRequest(t, h, "CreateVolume",
-					map[string]any{"VolumeType": "ONTAP", "Name": "vol2"}), "Volume")
+				return decodeField(t, doFSxRequest(t, h, "CreateVolume", map[string]any{
+					"VolumeType":         "ONTAP",
+					"Name":               "vol2",
+					"OntapConfiguration": map[string]any{"StorageVirtualMachineId": svmID},
+				}), "Volume")
 			},
 		},
 		{

@@ -176,7 +176,9 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	assert.Equal(t, int32(1), fresh.RevisionFor("jd-1"))
 
 	// jobs table + byQueue index (ListJobs by queue) + byARN index (DescribeJobs by ARN).
-	jobsInQueue, _, err := fresh.ListJobs(t.Context(), "queue-1", "", "", 0)
+	// job-1 is still SUBMITTED (never scheduled), so an unfiltered ListJobs --
+	// which real AWS Batch defaults to RUNNING-only -- would find nothing here.
+	jobsInQueue, _, err := fresh.ListJobs(t.Context(), "queue-1", "SUBMITTED", "", 0)
 	require.NoError(t, err)
 	require.Len(t, jobsInQueue, 1)
 	assert.Equal(t, "job-1", jobsInQueue[0].JobName)
@@ -304,7 +306,9 @@ func TestBatch_PersistenceSnapshotRestore(t *testing.T) {
 	assert.Equal(t, jq.JobQueueArn, jobs[0].JobQueue)
 
 	// jobsByQueue index is rebuilt — ListJobs must return the submitted job.
-	listed, _, err := b2.ListJobs(context.Background(), jq.JobQueueName, "", "", 0)
+	// test-job is still SUBMITTED (never scheduled); real AWS Batch's
+	// unfiltered ListJobs defaults to RUNNING-only, so filter explicitly.
+	listed, _, err := b2.ListJobs(context.Background(), jq.JobQueueName, "SUBMITTED", "", 0)
 	require.NoError(t, err)
 	require.Len(t, listed, 1)
 	assert.Equal(t, job.JobID, listed[0].JobID)

@@ -61,7 +61,8 @@ func (h *Handler) handleGetCWAlarmTemplateGroup(c *echo.Context, identifier stri
 }
 
 func (h *Handler) handleListCWAlarmTemplateGroups(c *echo.Context) error {
-	items, nextToken, err := h.Backend.ListCloudWatchAlarmTemplateGroups(0, "")
+	maxResults, nextTokenParam := paginationParams(c)
+	items, nextToken, err := h.Backend.ListCloudWatchAlarmTemplateGroups(maxResults, nextTokenParam)
 	if err != nil {
 		return respondErr(c, err)
 	}
@@ -199,7 +200,8 @@ func (h *Handler) handleGetCWAlarmTemplate(c *echo.Context, identifier string) e
 }
 
 func (h *Handler) handleListCWAlarmTemplates(c *echo.Context) error {
-	items, nextToken, err := h.Backend.ListCloudWatchAlarmTemplates(0, "")
+	maxResults, nextTokenParam := paginationParams(c)
+	items, nextToken, err := h.Backend.ListCloudWatchAlarmTemplates(maxResults, nextTokenParam)
 	if err != nil {
 		return respondErr(c, err)
 	}

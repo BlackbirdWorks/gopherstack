@@ -246,9 +246,12 @@ func TestDeleteSyncConfiguration(t *testing.T) {
 			wantStatus: http.StatusOK,
 		},
 		{
+			// DeleteSyncConfiguration is idempotent in real AWS: its own
+			// error switch has no ResourceNotFoundException case, unlike
+			// GetSyncConfiguration.
 			name:       "not_found",
 			preCreate:  false,
-			wantStatus: http.StatusBadRequest,
+			wantStatus: http.StatusOK,
 		},
 	}
 

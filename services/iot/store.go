@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"sort"
 	"sync"
 	"time"
 
@@ -33,6 +34,7 @@ type InMemoryBackend struct {
 	jobTargets             map[string][]string
 	securityProfileTargets map[string][]string
 	thingPrincipals        map[string][]string
+	thingPrincipalTypes    map[string]map[string]string // thingName -> principal -> thingPrincipalType
 	auditMitigationTasks   map[string]string
 	auditTasks             map[string]string
 	thingGroupMembers      map[string][]string
@@ -127,6 +129,7 @@ func NewInMemoryBackend() *InMemoryBackend {
 		policyTargets:          make(map[string][]string),
 		securityProfileTargets: make(map[string][]string),
 		thingPrincipals:        make(map[string][]string),
+		thingPrincipalTypes:    make(map[string]map[string]string),
 		auditMitigationTasks:   make(map[string]string),
 		auditTasks:             make(map[string]string),
 		thingGroupMembers:      make(map[string][]string),
@@ -193,6 +196,7 @@ func (b *InMemoryBackend) Reset() {
 	b.policyTargets = make(map[string][]string)
 	b.securityProfileTargets = make(map[string][]string)
 	b.thingPrincipals = make(map[string][]string)
+	b.thingPrincipalTypes = make(map[string]map[string]string)
 	b.auditMitigationTasks = make(map[string]string)
 	b.auditTasks = make(map[string]string)
 	b.thingGroupMembers = make(map[string][]string)
@@ -510,6 +514,15 @@ func (b *InMemoryBackend) AttachThingPrincipal(input *AttachThingPrincipalInput)
 
 	b.thingPrincipals[input.ThingName] = appendUnique(b.thingPrincipals[input.ThingName], input.Principal)
 
+	principalType := input.ThingPrincipalType
+	if principalType == "" {
+		principalType = defaultThingPrincipalType
+	}
+	if b.thingPrincipalTypes[input.ThingName] == nil {
+		b.thingPrincipalTypes[input.ThingName] = make(map[string]string)
+	}
+	b.thingPrincipalTypes[input.ThingName][input.Principal] = principalType
+
 	return nil
 }
 
@@ -631,12 +644,25 @@ func (b *InMemoryBackend) DetachThingPrincipal(thingName, principal string) erro
 	for i, p := range principals {
 		if p == principal {
 			b.thingPrincipals[thingName] = append(principals[:i], principals[i+1:]...)
+			delete(b.thingPrincipalTypes[thingName], principal)
 
 			return nil
 		}
 	}
 
 	return nil // AWS returns success even if not found
+}
+
+// thingPrincipalTypeFor returns the recorded thingPrincipalType for a
+// thing/principal pair, falling back to defaultThingPrincipalType when the
+// attachment recorded no type (e.g. internal registration paths that bypass
+// AttachThingPrincipal). Callers must hold b.mu.
+func (b *InMemoryBackend) thingPrincipalTypeFor(thingName, principal string) string {
+	if t, ok := b.thingPrincipalTypes[thingName][principal]; ok {
+		return t
+	}
+
+	return defaultThingPrincipalType
 }
 
 // ListThingPrincipalsV2 returns typed principal objects attached to a thing.
@@ -654,11 +680,31 @@ func (b *InMemoryBackend) ListThingPrincipalsV2(thingName string) ([]*ThingPrinc
 	for _, p := range principals {
 		out = append(out, &ThingPrincipalObject{
 			Principal:          p,
-			ThingPrincipalType: defaultThingPrincipalType,
+			ThingPrincipalType: b.thingPrincipalTypeFor(thingName, p),
 		})
 	}
 
 	return out, nil
+}
+
+// ListPrincipalThingsV2 returns typed thing objects a principal is attached to.
+func (b *InMemoryBackend) ListPrincipalThingsV2(principal string) []*PrincipalThingObject {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	var out []*PrincipalThingObject
+	for thingName, principals := range b.thingPrincipals {
+		if !slices.Contains(principals, principal) {
+			continue
+		}
+		out = append(out, &PrincipalThingObject{
+			ThingName:          thingName,
+			ThingPrincipalType: b.thingPrincipalTypeFor(thingName, principal),
+		})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ThingName < out[j].ThingName })
+
+	return out
 }
 
 // ThingConnectivityData is a thing's most recently reported connectivity

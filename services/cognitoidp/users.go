@@ -613,10 +613,13 @@ const (
 	authFactorSoftwareToken = "SOFTWARE_TOKEN"
 )
 
-// commonAuthFactorSetLocked computes the PASSWORD/SMS_OTP/WEB_AUTHN factors
-// shared by GetUserAuthFactors and AdminGetUserAuthFactors, derived from the
-// user's real password/MFA/WebAuthn state. Caller must hold at least a read
-// lock.
+// commonAuthFactorSetLocked computes the PASSWORD/SMS_OTP/WEB_AUTHN/
+// SOFTWARE_TOKEN factors shared by GetUserAuthFactors and
+// AdminGetUserAuthFactors, derived from the user's real password/MFA/WebAuthn
+// state. SOFTWARE_TOKEN comes from user.TOTPVerified (the user completed
+// AssociateSoftwareToken + VerifySoftwareToken) or "SOFTWARE_TOKEN_MFA" being
+// present in user.UserMFASettingList (enabled as an active MFA method).
+// Caller must hold at least a read lock.
 func (b *InMemoryBackend) commonAuthFactorSetLocked(user *User) map[string]struct{} {
 	factorSet := map[string]struct{}{}
 
@@ -636,6 +639,10 @@ func (b *InMemoryBackend) commonAuthFactorSetLocked(user *User) map[string]struc
 
 	if len(b.webauthnCredentials[userStateKey(user.UserPoolID, user.Username)]) > 0 {
 		factorSet[authFactorWebAuthn] = struct{}{}
+	}
+
+	if user.TOTPVerified || slices.Contains(user.UserMFASettingList, "SOFTWARE_TOKEN_MFA") {
+		factorSet[authFactorSoftwareToken] = struct{}{}
 	}
 
 	return factorSet
@@ -667,11 +674,8 @@ func (b *InMemoryBackend) GetUserAuthFactors(accessToken string) (*User, []strin
 }
 
 // AdminGetUserAuthFactors returns the authentication factors currently
-// configured for a user, derived from the same real password/MFA/WebAuthn
-// state as GetUserAuthFactors, plus SOFTWARE_TOKEN (derived from
-// user.TOTPVerified -- the user completed AssociateSoftwareToken +
-// VerifySoftwareToken -- or "SOFTWARE_TOKEN_MFA" being present in
-// user.UserMFASettingList, i.e. it is enabled as an active MFA method).
+// configured for a user, derived from the same real password/MFA/WebAuthn/
+// SOFTWARE_TOKEN state as GetUserAuthFactors (commonAuthFactorSetLocked).
 // AdminGetUserAuthFactorsOutput additionally carries PreferredMfaSetting and
 // UserMFASettingList verbatim from the user record (fields the self-service
 // GetUserAuthFactorsOutput does not have).
@@ -689,10 +693,6 @@ func (b *InMemoryBackend) AdminGetUserAuthFactors(userPoolID, username string) (
 	}
 
 	factorSet := b.commonAuthFactorSetLocked(user)
-
-	if user.TOTPVerified || slices.Contains(user.UserMFASettingList, "SOFTWARE_TOKEN_MFA") {
-		factorSet[authFactorSoftwareToken] = struct{}{}
-	}
 
 	factors := make([]string, 0, len(factorSet))
 	for f := range factorSet {

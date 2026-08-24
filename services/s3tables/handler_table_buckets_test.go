@@ -225,7 +225,9 @@ func TestHandler_CreateTableBucket_AppliesEncryptionStorageClassAndTags(t *testi
 	scRec := doS3TablesRequest(t, h, http.MethodGet, "/buckets/"+encodedARN+"/storage-class", nil)
 	require.Equal(t, http.StatusOK, scRec.Code)
 	scResult := parseResponse(t, scRec)
-	assert.Equal(t, "INTELLIGENT_TIERING", scResult["storageClass"])
+	scCfg, ok := scResult["storageClassConfiguration"].(map[string]any)
+	require.True(t, ok, "expected storageClassConfiguration to be an object")
+	assert.Equal(t, "INTELLIGENT_TIERING", scCfg["storageClass"])
 
 	tagRec := doS3TablesRequest(t, h, http.MethodGet, "/tag/"+encodedARN, nil)
 	require.Equal(t, http.StatusOK, tagRec.Code)

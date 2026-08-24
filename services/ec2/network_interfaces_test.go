@@ -217,7 +217,7 @@ func TestNetworkInterfaceCRUD(t *testing.T) {
 			case "assign_count":
 				eni, cerr := b.CreateNetworkInterface("subnet-default", "")
 				require.NoError(t, cerr)
-				aerr := b.AssignPrivateIPAddresses(eni.ID, 2, nil)
+				_, aerr := b.AssignPrivateIPAddresses(eni.ID, 2, nil)
 				require.NoError(t, aerr)
 				enis := b.DescribeNetworkInterfaces([]string{eni.ID})
 				require.Len(t, enis, 1)
@@ -226,7 +226,7 @@ func TestNetworkInterfaceCRUD(t *testing.T) {
 			case "assign_explicit":
 				eni, cerr := b.CreateNetworkInterface("subnet-default", "")
 				require.NoError(t, cerr)
-				aerr := b.AssignPrivateIPAddresses(eni.ID, 0, []string{"10.0.1.100", "10.0.1.101"})
+				_, aerr := b.AssignPrivateIPAddresses(eni.ID, 0, []string{"10.0.1.100", "10.0.1.101"})
 				require.NoError(t, aerr)
 				enis := b.DescribeNetworkInterfaces([]string{eni.ID})
 				require.Len(t, enis, 1)
@@ -236,7 +236,7 @@ func TestNetworkInterfaceCRUD(t *testing.T) {
 			case "unassign":
 				eni, cerr := b.CreateNetworkInterface("subnet-default", "")
 				require.NoError(t, cerr)
-				aerr := b.AssignPrivateIPAddresses(eni.ID, 0, []string{"10.0.1.100"})
+				_, aerr := b.AssignPrivateIPAddresses(eni.ID, 0, []string{"10.0.1.100"})
 				require.NoError(t, aerr)
 				uerr := b.UnassignPrivateIPAddresses(eni.ID, []string{"10.0.1.100"})
 				require.NoError(t, uerr)

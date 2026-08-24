@@ -194,42 +194,49 @@ func (b *InMemoryBackend) EnableVolumeIO(volumeID string) error {
 
 // ---- Snapshot locking ----
 
-// CopyVolumes creates copies of the given volumes.
+// CopyVolumes creates a crash-consistent copy of a single EBS volume. Size, if
+// zero, inherits the source volume's size (CopyVolumesInput.Size doc: "If not
+// specified, the size defaults to the size of the source volume"); volumeType,
+// if empty, defaults to gp2 (doc: "If not specified, the volume type defaults
+// to gp2"), not the source's type.
 func (b *InMemoryBackend) CopyVolumes(
-	volumeIDs []string,
-	_ string,
-) ([]CopyVolumesResult, error) {
-	if len(volumeIDs) == 0 {
-		return nil, fmt.Errorf("%w: at least one VolumeId is required", ErrInvalidParameter)
+	sourceVolumeID string,
+	size int,
+	volumeType string,
+	iops, throughput int,
+) (*Volume, error) {
+	if sourceVolumeID == "" {
+		return nil, fmt.Errorf("%w: SourceVolumeId is required", ErrInvalidParameter)
 	}
 
 	b.mu.Lock("CopyVolumes")
 	defer b.mu.Unlock()
 
-	for _, id := range volumeIDs {
-		if _, ok := b.volumes.Get(id); !ok {
-			return nil, fmt.Errorf("%w: %s", ErrVolumeNotFound, id)
-		}
+	src, ok := b.volumes.Get(sourceVolumeID)
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", ErrVolumeNotFound, sourceVolumeID)
 	}
 
-	results := make([]CopyVolumesResult, 0, len(volumeIDs))
-	for _, id := range volumeIDs {
-		src, _ := b.volumes.Get(id)
-		newVol := &Volume{
-			ID:         newVolumeID(),
-			AZ:         src.AZ,
-			VolumeType: src.VolumeType,
-			Size:       src.Size,
-			State:      stateAvailable,
-			Encrypted:  src.Encrypted,
-			KmsKeyID:   src.KmsKeyID,
-			CreateTime: time.Now().UTC(),
-		}
-		b.volumes.Put(newVol)
-		results = append(results, CopyVolumesResult{SourceVolumeID: id, DestVolumeID: newVol.ID})
+	newSize := size
+	if newSize == 0 {
+		newSize = src.Size
 	}
 
-	return results, nil
+	newVol := &Volume{
+		ID:         newVolumeID(),
+		AZ:         src.AZ,
+		VolumeType: volumeType,
+		Size:       newSize,
+		State:      stateAvailable,
+		Encrypted:  src.Encrypted,
+		KmsKeyID:   src.KmsKeyID,
+		Iops:       iops,
+		Throughput: throughput,
+		CreateTime: time.Now().UTC(),
+	}
+	b.volumes.Put(newVol)
+
+	return newVol, nil
 }
 
 // ---- VPC CIDR disassociation ----

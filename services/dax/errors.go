@@ -37,4 +37,6 @@ var (
 	ErrSubnetGroupInUse = awserr.New("SubnetGroupInUseFault", awserr.ErrConflict)
 	// ErrParameterGroupInUse is returned when attempting to delete a parameter group used by a cluster.
 	ErrParameterGroupInUse = awserr.New("ParameterGroupInUseFault", awserr.ErrConflict)
+	// ErrInvalidSubnet is returned when a supplied subnet ID is malformed or missing.
+	ErrInvalidSubnet = awserr.New("InvalidSubnet", awserr.ErrInvalidParameter)
 )

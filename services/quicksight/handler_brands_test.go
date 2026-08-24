@@ -161,6 +161,27 @@ func TestQuickSight_ListBrands_Pagination(t *testing.T) {
 	}
 }
 
+// ListBrands must surface BrandSummary.Description -- real, caller-supplied
+// data already stored on brand.Definition (the same source BrandName is
+// already pulled from), just never read out for the list response.
+func TestQuickSight_ListBrands_SurfacesDescription(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	doRequest(t, h, http.MethodPost, accountPath("/brands/described"), map[string]any{
+		"BrandDefinition": map[string]any{"BrandName": "Described", "Description": "a test brand"},
+	})
+
+	rec := doRequest(t, h, http.MethodGet, accountPath("/brands"), nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+	items, ok := parseBody(t, rec)["Brands"].([]any)
+	require.True(t, ok)
+	require.NotEmpty(t, items)
+	m, isMap := items[0].(map[string]any)
+	require.True(t, isMap)
+	assert.Equal(t, "a test brand", m["Description"])
+}
+
 // ---- Brand tests ---- //nolint:godot // existing issue.
 func TestQuickSight_Brands(t *testing.T) { //nolint:paralleltest // existing issue.
 	h := newTestHandler(t)

@@ -769,3 +769,79 @@ func TestJobTemplate(t *testing.T) {
 	// Verify deletion
 	iotExpectError(t, h, "/job-templates/my-template")
 }
+
+// TestCancelJob_DescriptionAndTerminalStateGuard covers two previously-unmodeled
+// gaps: real CancelJobOutput (v1.77.4) has a "description" member this
+// handler never returned, and CancelJob unconditionally set Status to
+// CANCELED for any job regardless of its current state, silently
+// "re-canceling" an already-terminal job instead of returning
+// InvalidStateTransitionException -- the same terminal-state guard
+// CancelJobExecution/CancelAuditTask already enforce.
+// TestUpdateJob_AdvancedFieldsSurvive guards UpdateJobInput's real
+// abortConfig/jobExecutionsRolloutConfig/timeoutConfig/
+// jobExecutionsRetryConfig/presignedUrlConfig members (iot@v1.77.4
+// api_op_UpdateJob.go), previously all silently dropped -- UpdateJob only
+// ever applied description. Driven through a real generated AWS SDK v2
+// client so a genuinely wrong/missing wire shape would be caught, not just
+// a handler-internal mismatch.
+func TestUpdateJob_AdvancedFieldsSurvive(t *testing.T) {
+	t.Parallel()
+
+	client, b := newIoTSDKClient(t)
+	ctx := t.Context()
+
+	_, err := client.CreateJob(ctx, &iotsdk.CreateJobInput{
+		JobId:   aws.String("update-advanced-job"),
+		Targets: []string{"arn:aws:iot:us-east-1:000000000000:thing/adv-thing-2"},
+	})
+	require.NoError(t, err)
+
+	_, err = client.UpdateJob(ctx, &iotsdk.UpdateJobInput{
+		JobId: aws.String("update-advanced-job"),
+		AbortConfig: &iottypes.AbortConfig{
+			CriteriaList: []iottypes.AbortCriteria{
+				{
+					Action:                    iottypes.AbortActionCancel,
+					FailureType:               iottypes.JobExecutionFailureTypeFailed,
+					MinNumberOfExecutedThings: aws.Int32(5),
+					ThresholdPercentage:       aws.Float64(20),
+				},
+			},
+		},
+		TimeoutConfig: &iottypes.TimeoutConfig{InProgressTimeoutInMinutes: aws.Int64(45)},
+	})
+	require.NoError(t, err)
+
+	out, err := client.DescribeJob(ctx, &iotsdk.DescribeJobInput{JobId: aws.String("update-advanced-job")})
+	require.NoError(t, err)
+	require.NotNil(t, out.Job)
+
+	require.NotNil(t, out.Job.AbortConfig)
+	require.Len(t, out.Job.AbortConfig.CriteriaList, 1)
+	assert.Equal(t, iottypes.AbortActionCancel, out.Job.AbortConfig.CriteriaList[0].Action)
+	assert.EqualValues(t, 5, *out.Job.AbortConfig.CriteriaList[0].MinNumberOfExecutedThings)
+
+	require.NotNil(t, out.Job.TimeoutConfig)
+	assert.EqualValues(t, 45, *out.Job.TimeoutConfig.InProgressTimeoutInMinutes)
+
+	_ = b
+}
+
+func TestCancelJob_DescriptionAndTerminalStateGuard(t *testing.T) {
+	t.Parallel()
+	h := newIoTHandler(t)
+
+	iotOK(t, h, http.MethodPut, "/jobs/cancel-desc-job", map[string]any{
+		"targets":     []any{"arn:aws:iot:us-east-1:000000000000:thing/my-thing"},
+		"document":    `{"action":"update"}`,
+		"description": "a job worth describing",
+	})
+
+	out := iotOK(t, h, http.MethodPut, "/jobs/cancel-desc-job/cancel", map[string]any{"comment": "no longer needed"})
+	assert.Equal(t, "cancel-desc-job", out["jobId"])
+	assert.Equal(t, "a job worth describing", out["description"])
+
+	rec := iotRequest(t, h, http.MethodPut, "/jobs/cancel-desc-job/cancel", nil)
+	assert.Equal(t, http.StatusConflict, rec.Code,
+		"canceling an already-CANCELED job must return InvalidStateTransitionException, got: %s", rec.Body.String())
+}

@@ -148,7 +148,7 @@ func (h *Handler) handleListJobs(c *echo.Context) error {
 	}
 
 	nextTokenIn := q.Get("nextToken")
-	pg := page.New(jobs, nextTokenIn, maxResults, defaultJobsPageSize)
+	pg := page.New(jobs, nextTokenIn, maxResults, defaultListPageSize)
 
 	out := jobsListOutput{Jobs: pg.Data, TotalCount: len(jobs)}
 	if pg.Next != "" {

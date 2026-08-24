@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 )
 
@@ -56,7 +58,10 @@ func (h *S3Handler) putObjectRetention(
 		vid = &versionID
 	}
 
-	if putErr := h.Backend.PutObjectRetention(ctx, bucketName, key, vid, ret.Mode, retainUntil); putErr != nil {
+	if putErr := h.Backend.PutObjectRetention(
+		ctx, bucketName, key, vid, ret.Mode, retainUntil,
+		aws.ToBool(bypassGovernanceRetentionHeader(r)),
+	); putErr != nil {
 		WriteError(ctx, w, r, putErr)
 
 		return

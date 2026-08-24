@@ -145,8 +145,12 @@ func (b *InMemoryBackend) DescribeThemeForStack(stackName string) (*Theme, error
 	return th.toTheme(), nil
 }
 
-// UpdateThemeForStack updates the theme for a stack.
-func (b *InMemoryBackend) UpdateThemeForStack(stackName string) (*Theme, error) {
+// UpdateThemeForStack updates the theme for a stack. Every field on opts
+// besides StackName is optional on the real wire (UpdateThemeForStackInput,
+// api_op_UpdateThemeForStack.go:29-64) -- omitted means unchanged.
+// AttributesToDelete is applied after every set field so a delete always
+// wins over a same-request set.
+func (b *InMemoryBackend) UpdateThemeForStack(stackName string, opts ThemeUpdateOptions) (*Theme, error) {
 	b.mu.Lock("UpdateThemeForStack")
 	defer b.mu.Unlock()
 
@@ -155,5 +159,44 @@ func (b *InMemoryBackend) UpdateThemeForStack(stackName string) (*Theme, error) 
 		return nil, ErrNotFound
 	}
 
+	applyThemeUpdate(th, opts)
+
 	return th.toTheme(), nil
+}
+
+func applyThemeUpdate(th *storedTheme, opts ThemeUpdateOptions) {
+	if opts.FaviconS3Location != nil {
+		th.FaviconS3Location = *opts.FaviconS3Location
+	}
+
+	if opts.OrganizationLogoS3Location != nil {
+		th.OrganizationLogoS3Location = *opts.OrganizationLogoS3Location
+	}
+
+	if opts.TitleText != nil {
+		th.ThemeTitleText = *opts.TitleText
+	}
+
+	if opts.ThemeStyling != "" {
+		th.ThemeStyling = opts.ThemeStyling
+	}
+
+	if opts.State != "" {
+		th.State = opts.State
+	}
+
+	if opts.FooterLinks != nil {
+		links := make([]storedThemeFooterLink, 0, len(opts.FooterLinks))
+		for _, l := range opts.FooterLinks {
+			links = append(links, storedThemeFooterLink(l))
+		}
+
+		th.ThemeFooterLinks = links
+	}
+
+	for _, attr := range opts.AttributesToDelete {
+		if attr == "FOOTER_LINKS" {
+			th.ThemeFooterLinks = nil
+		}
+	}
 }

@@ -29,7 +29,7 @@ func newPersistenceTestBackend(t *testing.T) *iotanalytics.InMemoryBackend {
 	_, err = b.CreateDatastore(ctx, "ds1", map[string]string{"team": "iot"}, nil, nil, nil, nil)
 	require.NoError(t, err)
 
-	dataset, err := b.CreateDataset(ctx, "dataset1", map[string]string{"owner": "me"}, nil, nil, nil, nil, nil)
+	dataset, err := b.CreateDataset(ctx, "dataset1", map[string]string{"owner": "me"}, nil, nil, nil, nil, nil, nil)
 	require.NoError(t, err)
 
 	_, err = b.CreatePipeline(ctx, "pipeline1", map[string]string{"stage": "prod"}, []iotanalytics.PipelineActivity{

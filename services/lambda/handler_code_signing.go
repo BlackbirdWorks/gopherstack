@@ -245,14 +245,17 @@ func (h *Handler) handleUpdateCodeSigningConfig(c *echo.Context, bk *InMemoryBac
 
 // handleListCodeSigningConfigs handles GET /2020-04-22/code-signing-configs.
 func (h *Handler) handleListCodeSigningConfigs(c *echo.Context, bk *InMemoryBackend) error {
-	cfgs := bk.ListCodeSigningConfigs()
+	marker, maxItems := parsePaginationParams(c.Request())
+	p := bk.ListCodeSigningConfigs(marker, maxItems)
 
-	return c.JSON(http.StatusOK, &ListCodeSigningConfigsOutput{CodeSigningConfigs: cfgs})
+	return c.JSON(http.StatusOK, &ListCodeSigningConfigsOutput{CodeSigningConfigs: p.Data, NextMarker: p.Next})
 }
 
 // handleListFunctionsByCodeSigningConfig handles GET /2020-04-22/code-signing-configs/{cscArn}/functions.
 func (h *Handler) handleListFunctionsByCodeSigningConfig(c *echo.Context, bk *InMemoryBackend, cscARN string) error {
-	arns, err := bk.ListFunctionsByCodeSigningConfig(cscARN)
+	marker, maxItems := parsePaginationParams(c.Request())
+
+	p, err := bk.ListFunctionsByCodeSigningConfig(cscARN, marker, maxItems)
 	if err != nil {
 		if errors.Is(err, ErrFunctionNotFound) {
 			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
@@ -262,5 +265,5 @@ func (h *Handler) handleListFunctionsByCodeSigningConfig(c *echo.Context, bk *In
 		return h.writeError(c, http.StatusInternalServerError, "ServiceException", err.Error())
 	}
 
-	return c.JSON(http.StatusOK, &ListFunctionsByCodeSigningConfigOutput{FunctionArns: arns})
+	return c.JSON(http.StatusOK, &ListFunctionsByCodeSigningConfigOutput{FunctionArns: p.Data, NextMarker: p.Next})
 }

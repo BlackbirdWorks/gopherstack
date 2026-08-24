@@ -465,8 +465,10 @@ func (b *InMemoryBackend) DeleteService(serviceArn string) (*Service, error) {
 		return nil, fmt.Errorf("service %s not found: %w", serviceArn, ErrNotFound)
 	}
 
+	now := time.Now().UTC()
 	svc.Status = statusDeleted
-	svc.UpdatedAt = time.Now().UTC()
+	svc.UpdatedAt = now
+	svc.DeletedAt = now
 	b.addOperation(svc, opTypeDelete)
 
 	cp := svc.toService()
@@ -565,9 +567,16 @@ func (b *InMemoryBackend) StartDeployment(serviceArn string) (string, error) {
 	}
 
 	if svc.Status != statusRunning {
+		// Unlike UpdateService/PauseService/ResumeService, StartDeployment's
+		// documented error set has no InvalidStateException (only
+		// InternalServiceErrorException, InvalidRequestException, and
+		// ResourceNotFoundException -- confirmed against
+		// deserializeOpErrorStartDeployment in the vendored SDK), so a
+		// non-running service is reported via ErrInvalidParameter here
+		// rather than the usual ErrInvalidState.
 		return "", fmt.Errorf(
 			"service %s cannot start deployment in status %s: %w",
-			serviceArn, svc.Status, ErrInvalidState,
+			serviceArn, svc.Status, ErrInvalidParameter,
 		)
 	}
 

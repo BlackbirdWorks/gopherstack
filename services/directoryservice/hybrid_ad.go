@@ -109,7 +109,7 @@ func (b *InMemoryBackend) UpdateHybridAD(
 
 	d, ok := b.directoryGet(region, directoryID)
 	if !ok || !d.IsHybridAD {
-		return "", ErrDirectoryNotFound
+		return "", ErrDirectoryNotFoundDDNE
 	}
 
 	hasAdminUpdate := adminAccountSecretArn != ""
@@ -187,7 +187,7 @@ func (b *InMemoryBackend) DescribeHybridADUpdate(
 
 	d, ok := b.directoryGet(region, directoryID)
 	if !ok || !d.IsHybridAD {
-		return nil, nil, ErrDirectoryNotFound
+		return nil, nil, ErrDirectoryNotFoundDDNE
 	}
 
 	var adminAccount, selfManaged []HybridADUpdateEntry

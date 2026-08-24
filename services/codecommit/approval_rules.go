@@ -186,7 +186,13 @@ func (b *InMemoryBackend) DeleteApprovalRuleTemplate(name string) (string, error
 
 	t, ok := b.approvalRuleTemplates.Get(name)
 	if !ok {
-		return "", fmt.Errorf("%w: approval rule template %s not found", ErrApprovalRuleTemplateNotFound, name)
+		// DeleteApprovalRuleTemplate is idempotent in real AWS: "If the
+		// template has been previously deleted, the only response is a
+		// 200 OK" (codecommit@v1.36.4
+		// api_op_DeleteApprovalRuleTemplate.go:39) -- its own error switch
+		// has no ApprovalRuleTemplateDoesNotExistException case, unlike
+		// GetApprovalRuleTemplate.
+		return "", nil
 	}
 	b.approvalRuleTemplates.Delete(name)
 

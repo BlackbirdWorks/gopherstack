@@ -84,7 +84,10 @@ func TestDisassociateVpcCidrBlock(t *testing.T) { //nolint:paralleltest // exist
 	require.NoError(t, setupErr)
 
 	t.Run("disassociates cidr block", func(t *testing.T) {
-		require.NoError(t, b.DisassociateVpcCidrBlock(assoc.AssociationID))
+		vpcID, disassoc, err := b.DisassociateVpcCidrBlock(assoc.AssociationID)
+		require.NoError(t, err)
+		assert.Equal(t, vpc.ID, vpcID)
+		assert.Equal(t, "disassociated", disassoc.State)
 	})
 }
 

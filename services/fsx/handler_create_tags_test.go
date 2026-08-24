@@ -159,13 +159,20 @@ func TestCreateOpsWithTags_RoundTrip(t *testing.T) {
 			name: "snapshot",
 			setup: func(t *testing.T, client *fsxsdk.Client) string {
 				t.Helper()
+				fsOut := createTestOntapFS(t, client)
+				svmOut, err := client.CreateStorageVirtualMachine(t.Context(), &fsxsdk.CreateStorageVirtualMachineInput{
+					FileSystemId: fsOut.FileSystem.FileSystemId,
+					Name:         aws.String("snap-source-svm"),
+				})
+				require.NoError(t, err)
+
 				volOut, err := client.CreateVolume(t.Context(), &fsxsdk.CreateVolumeInput{
 					Name:       aws.String("snap-source-volume"),
 					VolumeType: types.VolumeTypeOntap,
 					OntapConfiguration: &types.CreateOntapVolumeConfiguration{
 						JunctionPath:            aws.String("/snap-source"),
 						SizeInMegabytes:         aws.Int32(1024),
-						StorageVirtualMachineId: aws.String("svm-dummysource0"),
+						StorageVirtualMachineId: svmOut.StorageVirtualMachine.StorageVirtualMachineId,
 					},
 				})
 				require.NoError(t, err)
@@ -200,13 +207,20 @@ func TestCreateOpsWithTags_RoundTrip(t *testing.T) {
 			name: "volume",
 			setup: func(t *testing.T, client *fsxsdk.Client) string {
 				t.Helper()
+				fsOut := createTestOntapFS(t, client)
+				svmOut, err := client.CreateStorageVirtualMachine(t.Context(), &fsxsdk.CreateStorageVirtualMachineInput{
+					FileSystemId: fsOut.FileSystem.FileSystemId,
+					Name:         aws.String("tagged-volume-svm"),
+				})
+				require.NoError(t, err)
+
 				out, err := client.CreateVolume(t.Context(), &fsxsdk.CreateVolumeInput{
 					Name:       aws.String("tagged-volume"),
 					VolumeType: types.VolumeTypeOntap,
 					OntapConfiguration: &types.CreateOntapVolumeConfiguration{
 						JunctionPath:            aws.String("/tagged-vol"),
 						SizeInMegabytes:         aws.Int32(1024),
-						StorageVirtualMachineId: aws.String("svm-dummysource0"),
+						StorageVirtualMachineId: svmOut.StorageVirtualMachine.StorageVirtualMachineId,
 					},
 					Tags: []types.Tag{{Key: aws.String("env"), Value: aws.String("prod")}},
 				})
@@ -272,4 +286,32 @@ func createTestOntapFS(t *testing.T, client *fsxsdk.Client) *fsxsdk.CreateFileSy
 	require.NoError(t, err)
 
 	return out
+}
+
+// createTestOntapVolume creates a fresh ONTAP file system, a storage virtual
+// machine on it, and an ONTAP volume anchored at that SVM -- real
+// CreateVolumeInput has no top-level FileSystemId/StorageVirtualMachineId at
+// all (fsx@v1.68.4 api_op_CreateVolume.go); the SVM is the only real anchor
+// for an ONTAP volume's parent file system.
+func createTestOntapVolume(t *testing.T, client *fsxsdk.Client, name string) *fsxsdk.CreateVolumeOutput {
+	t.Helper()
+
+	fsOut := createTestOntapFS(t, client)
+
+	svmOut, err := client.CreateStorageVirtualMachine(t.Context(), &fsxsdk.CreateStorageVirtualMachineInput{
+		FileSystemId: fsOut.FileSystem.FileSystemId,
+		Name:         aws.String(name + "-svm"),
+	})
+	require.NoError(t, err)
+
+	volOut, err := client.CreateVolume(t.Context(), &fsxsdk.CreateVolumeInput{
+		VolumeType: types.VolumeTypeOntap,
+		Name:       aws.String(name),
+		OntapConfiguration: &types.CreateOntapVolumeConfiguration{
+			StorageVirtualMachineId: svmOut.StorageVirtualMachine.StorageVirtualMachineId,
+		},
+	})
+	require.NoError(t, err)
+
+	return volOut
 }

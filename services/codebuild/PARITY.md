@@ -79,7 +79,7 @@ ops:
   CreateWebhook:   {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass: adds manualCreation/scopeConfiguration/pullRequestBuildPolicy request fields and status/secret/lastModifiedSecret/statusMessage response fields, see gaps fixed below"}
   UpdateWebhook:   {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass: adds pullRequestBuildPolicy/rotateSecret request fields (rotateSecret regenerates secret+lastModifiedSecret)"}
   DeleteWebhook:   {wire: ok, errors: ok, state: ok, persist: ok, note: "clears Project.Webhook"}
-  ImportSourceCredentials: {wire: ok, errors: ok, state: ok, persist: ok}
+  ImportSourceCredentials: {wire: ok, errors: ok, state: ok, persist: ok, note: "re-audited 2026-08-23 (gopherstack-secp): Username is parsed off the wire and discarded, same as Token -- not a fix, see Notes"}
   DeleteSourceCredentials: {wire: ok, errors: ok, state: ok, persist: ok}
   ListSourceCredentials: {wire: ok, errors: ok, state: ok, persist: ok}
   PutResourcePolicy: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -116,6 +116,43 @@ leaks: {status: clean, note: "janitor.Run selects on ctx.Done() and calls worker
 ---
 
 ## Notes
+
+### 2026-08-23 audit of `gopherstack-secp` (ImportSourceCredentials Username)
+
+Confirmed real: `ImportSourceCredentialsInput.Username` exists (pinned SDK
+`codebuild@v1.72.4/api_op_ImportSourceCredentials.go:57-59`, `*string`, not
+required -- doc comment: "The Bitbucket username when the authType is
+BASIC_AUTH. This parameter is not valid for other types of source providers
+or connections"). `handler_source_credentials.go`'s
+`importSourceCredentialsInput` parses it off the wire but
+`handleImportSourceCredentials` never passes it to
+`InMemoryBackend.ImportSourceCredentials` (`source_credentials.go`), and the
+backend's `SourceCredentials` struct (`models.go`) has no field for it.
+
+Not fixed, reclassified as a modelling gap rather than accept-and-drop data
+loss, for two reasons:
+
+1. **No API surface can ever observe it either way.** The real
+   `SourceCredentialsInfo` (the only type any codebuild op returns for stored
+   credentials -- `types/types.go:2785-2802`) has exactly four members
+   (Arn/AuthType/Resource/ServerType) and no `Username`. AWS itself never
+   returns Bitbucket usernames back through any op; a black-box parity test
+   cannot distinguish "gopherstack stores Username but never serializes it"
+   from "gopherstack drops Username on the floor" -- there is no
+   `ListSourceCredentials` (or any other) response shape a real SDK client
+   could assert against, so the round-trip proof the issue proposed is not
+   constructible against the real API surface.
+2. **The existing design already discards the sibling required field the
+   same way.** `ImportSourceCredentials`'s `Token` -- the actual auth
+   secret, always required -- is accepted and explicitly discarded
+   (`source_credentials.go`: `_ = token`) for the identical reason: nothing
+   in this emulator ever authenticates to a real Git host, and no op
+   surfaces stored credential material back. Adding a `Username` field that
+   is stored but that no real op will ever read would be exactly the
+   "fabricated/never-read field" anti-pattern this pass was warned against,
+   not a fix for it.
+
+No code changed for this issue.
 
 Protocol: awsjson1.1 (single POST endpoint, `X-Amz-Target: CodeBuild_20161006.<Op>`).
 Route matcher (`RouteMatcher`) is a simple `X-Amz-Target` prefix check — verified every
@@ -233,7 +270,10 @@ lists were becoming unwieldy) wired through from new `createFleetInput`/
 semantics mirror the existing `applyProjectOptionalFields` convention for optional
 string-field updates on this service.
 
-**Also found, NOT fixed in this pass**: `Fleet.ComputeConfiguration`/`ProxyConfiguration`/
+**STALE CLAIM, FIXED in the very next section (2026-07-25 pass #2 below) -- flagged by
+`cmd/staleclaims`, gopherstack-anjf: this paragraph was dispatch-bait for a reader who
+stopped at the first match.** Original text follows, kept for history: "Also found, NOT
+fixed in this pass": `Fleet.ComputeConfiguration`/`ProxyConfiguration`/
 `VpcConfig`/`ScalingConfiguration` (all real fields on `types.Fleet`) remained entirely
 unmodeled -- these are nested objects (attribute-based-compute vCPU/memory/disk specs,
 subnet/security-group VPC config, scaling-type semantics) that would require real design

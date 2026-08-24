@@ -125,6 +125,42 @@ func TestCloudWatchLogsBackend_GetAndDeleteDelivery(t *testing.T) {
 	})
 }
 
+// TestCreateDelivery_DeliveryDestinationType is a regression guard: real
+// types.Delivery.DeliveryDestinationType ("Displays whether the delivery
+// destination associated with this delivery is CloudWatch Logs, Amazon S3,
+// Firehose, or X-Ray", cloudwatchlogs@v1.81.1 types/types.go:539-540) is
+// server-derived from the paired DeliveryDestination at CreateDelivery time,
+// not client-supplied.
+func TestCreateDelivery_DeliveryDestinationType(t *testing.T) {
+	t.Parallel()
+
+	t.Run("derives_type_from_paired_destination", func(t *testing.T) {
+		t.Parallel()
+
+		b := newTestBackend(t)
+		dest, err := b.PutDeliveryDestination("dst", "arn:aws:s3:::bucket", "JSON", "S3", nil)
+		require.NoError(t, err)
+
+		delivery, err := b.CreateDelivery("src", dest.Arn, "", nil, nil, nil)
+		require.NoError(t, err)
+		assert.Equal(t, "S3", delivery.DeliveryDestinationType)
+
+		got, err := b.GetDelivery(delivery.ID)
+		require.NoError(t, err)
+		assert.Equal(t, "S3", got.DeliveryDestinationType)
+	})
+
+	t.Run("unknown_destination_arn_leaves_type_empty", func(t *testing.T) {
+		t.Parallel()
+
+		b := newTestBackend(t)
+
+		delivery, err := b.CreateDelivery("src", "arn:aws:logs:::delivery-destination:ghost", "", nil, nil, nil)
+		require.NoError(t, err)
+		assert.Empty(t, delivery.DeliveryDestinationType)
+	})
+}
+
 func TestDeliveryDestination_CRUD(t *testing.T) {
 	t.Parallel()
 

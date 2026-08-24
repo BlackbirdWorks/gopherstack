@@ -12,6 +12,11 @@ func (h *Handler) handlePutFile(body []byte) (any, error) {
 		BranchName     string `json:"branchName"`
 		FilePath       string `json:"filePath"`
 		FileContent    string `json:"fileContent"` // base64 encoded
+		FileMode       string `json:"fileMode"`
+		Name           string `json:"name"`
+		Email          string `json:"email"`
+		CommitMessage  string `json:"commitMessage"`
+		ParentCommitID string `json:"parentCommitId"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, err
@@ -26,7 +31,13 @@ func (h *Handler) handlePutFile(body []byte) (any, error) {
 		content = []byte(req.FileContent)
 	}
 
-	commit, blobID, err := h.Backend.PutFile(req.RepositoryName, req.BranchName, req.FilePath, content)
+	commit, blobID, err := h.Backend.PutFile(req.RepositoryName, req.BranchName, req.FilePath, content, PutFileMetadata{
+		FileMode:       req.FileMode,
+		AuthorName:     req.Name,
+		AuthorEmail:    req.Email,
+		CommitMessage:  req.CommitMessage,
+		ParentCommitID: req.ParentCommitID,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -117,6 +128,9 @@ func (h *Handler) handleDeleteFile(body []byte) (any, error) {
 		BranchName     string `json:"branchName"`
 		FilePath       string `json:"filePath"`
 		ParentCommitID string `json:"parentCommitId"`
+		Name           string `json:"name"`
+		Email          string `json:"email"`
+		CommitMessage  string `json:"commitMessage"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, err
@@ -125,7 +139,12 @@ func (h *Handler) handleDeleteFile(body []byte) (any, error) {
 		return nil, fmt.Errorf("%w: repositoryName and filePath are required", errInvalidRequest)
 	}
 
-	commit, blobID, err := h.Backend.DeleteFile(req.RepositoryName, req.BranchName, req.FilePath, req.ParentCommitID)
+	commit, blobID, err := h.Backend.DeleteFile(req.RepositoryName, req.BranchName, req.FilePath, DeleteFileMetadata{
+		ParentCommitID: req.ParentCommitID,
+		AuthorName:     req.Name,
+		AuthorEmail:    req.Email,
+		CommitMessage:  req.CommitMessage,
+	})
 	if err != nil {
 		return nil, err
 	}

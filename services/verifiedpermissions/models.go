@@ -1,6 +1,10 @@
 package verifiedpermissions
 
-import "time"
+import (
+	"time"
+
+	cedar "github.com/cedar-policy/cedar-go"
+)
 
 // ValidationMode constants for policy store validation settings.
 const (
@@ -138,13 +142,17 @@ type PolicyStoreSchema struct {
 }
 
 // AuthorizationRequest represents a single authorization evaluation request.
+// Context is internal-only (never wire-marshaled directly -- the JSON echo in
+// AuthDecision.Request is built field-by-field by the handler layer, see
+// toBatchRequestEcho), so it carries no json tag.
 type AuthorizationRequest struct {
-	PrincipalEntityType string `json:"principalEntityType,omitempty"`
-	PrincipalEntityID   string `json:"principalEntityId,omitempty"`
-	ActionType          string `json:"actionType,omitempty"`
-	ActionID            string `json:"actionId,omitempty"`
-	ResourceEntityType  string `json:"resourceEntityType,omitempty"`
-	ResourceEntityID    string `json:"resourceEntityId,omitempty"`
+	PrincipalEntityType string       `json:"principalEntityType,omitempty"`
+	PrincipalEntityID   string       `json:"principalEntityId,omitempty"`
+	ActionType          string       `json:"actionType,omitempty"`
+	ActionID            string       `json:"actionId,omitempty"`
+	ResourceEntityType  string       `json:"resourceEntityType,omitempty"`
+	ResourceEntityID    string       `json:"resourceEntityId,omitempty"`
+	Context             cedar.Record `json:"-"`
 }
 
 // AuthDecision is the result of a single authorization evaluation.

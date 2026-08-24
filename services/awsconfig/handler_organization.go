@@ -79,10 +79,19 @@ type putOrganizationConfigRuleInput struct {
 	OrganizationConfigRuleName string `json:"OrganizationConfigRuleName"`
 }
 
+type putOrganizationConfigRuleOutput struct {
+	OrganizationConfigRuleArn string `json:"OrganizationConfigRuleArn"`
+}
+
 func (h *Handler) handlePutOrganizationConfigRule(
 	_ context.Context, in *putOrganizationConfigRuleInput,
-) (*emptyOutput, error) {
-	return &emptyOutput{}, h.Backend.PutOrganizationConfigRule(in.OrganizationConfigRuleName)
+) (*putOrganizationConfigRuleOutput, error) {
+	arnStr, err := h.Backend.PutOrganizationConfigRule(in.OrganizationConfigRuleName)
+	if err != nil {
+		return nil, err
+	}
+
+	return &putOrganizationConfigRuleOutput{OrganizationConfigRuleArn: arnStr}, nil
 }
 
 // PutOrganizationConformancePack request/response types and handler.

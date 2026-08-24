@@ -69,8 +69,10 @@ func TestHandler_JobOperations(t *testing.T) {
 		jobID, _ := submitOut["jobId"].(string)
 		require.NotEmpty(t, jobID)
 
-		// ListJobs returns the submitted job.
-		listRec := post(t, h, "/v1/listjobs", map[string]any{"jobQueue": "my-queue"})
+		// ListJobs returns the submitted job. The job is still SUBMITTED
+		// (never scheduled); real AWS Batch's unfiltered ListJobs defaults to
+		// RUNNING-only, so filter explicitly.
+		listRec := post(t, h, "/v1/listjobs", map[string]any{"jobQueue": "my-queue", "jobStatus": "SUBMITTED"})
 		require.Equal(t, http.StatusOK, listRec.Code)
 
 		var listOut map[string]any
@@ -517,13 +519,23 @@ func TestHandler_ListJobs_NoQueue(t *testing.T) {
 	rec = post(t, h, "/v1/listjobs", map[string]any{})
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
-	// With the queue specified, the submitted job is returned.
+	// With no jobStatus filter, real AWS Batch returns only RUNNING jobs
+	// (api_op_ListJobs.go: "If you don't specify a status, only RUNNING jobs
+	// are returned"). The submitted job is still SUBMITTED, so it's excluded.
 	rec = post(t, h, "/v1/listjobs", map[string]any{"jobQueue": "q1"})
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
 	mustUnmarshal(t, rec, &out)
 	summaries, _ := out["jobSummaryList"].([]any)
+	assert.Empty(t, summaries)
+
+	// Filtering explicitly by the job's actual status still finds it.
+	rec = post(t, h, "/v1/listjobs", map[string]any{"jobQueue": "q1", "jobStatus": "SUBMITTED"})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	mustUnmarshal(t, rec, &out)
+	summaries, _ = out["jobSummaryList"].([]any)
 	assert.NotEmpty(t, summaries)
 }
 
@@ -654,7 +666,9 @@ func TestListJobs_SummaryIncludesJobArn(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	rec = post(t, h, "/v1/listjobs", map[string]any{"jobQueue": "audit-q-arn"})
+	// The job is still SUBMITTED (never scheduled); real AWS Batch's
+	// unfiltered ListJobs defaults to RUNNING-only, so filter explicitly.
+	rec = post(t, h, "/v1/listjobs", map[string]any{"jobQueue": "audit-q-arn", "jobStatus": "SUBMITTED"})
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any

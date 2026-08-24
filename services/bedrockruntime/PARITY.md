@@ -273,3 +273,25 @@ ContentType`, `InvokeModelWithResponseStreamOutput.ContentType`,
 `CountTokensOutput.InputTokens`, `StartAsyncInvokeOutput.InvocationArn`. No
 code changes; see `services/_REQUIRED_OUTPUT_CANDIDATES.md`'s
 settled-services table.
+
+## 2026-08-23: ListAsyncInvokes pagination bug
+
+`handleListAsyncInvokes` ignored `maxResults`/`nextToken` (both real,
+httpQuery-bound `ListAsyncInvokesInput` members —
+`awsRestjson1_serializeOpHttpBindingsListAsyncInvokesInput`,
+serializers.go:1115-1146) and always returned every invocation in one
+unbounded page with no `nextToken`, discovered while auditing the pagination
+bug class found in medialive (every List handler ignoring its real
+request's pagination member). Unlike medialive's bug this did not loop
+forever (no artificial default cap was applied to be re-exceeded — the
+handler just returned everything), but it did mean a client requesting
+`maxResults` never got a bounded page. Fixed: reads `maxResults` (default
+10, matching the real API's documented default) and `nextToken`
+(`InvocationArn` of the last item on the previous page), returns `nextToken`
+in the response when truncated. Proven with
+`TestListAsyncInvokes_SDKRoundTrip_Pagination`
+(`handler_list_async_invokes_pagination_test.go`), which drives the real SDK
+client across two 10-item pages of 25 seeded invocations and asserts the
+pages are disjoint; fails against the unfixed handler (`should have 10
+item(s), but has 25`), hand-reverted and confirmed.
+

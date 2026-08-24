@@ -50,7 +50,7 @@ func TestInMemoryBackend_Dataset(t *testing.T) {
 				require.Error(t, err)
 				assert.Equal(t, iotanalytics.ErrDatasetNotFound, err)
 			default:
-				ds, err := b.CreateDataset(context.Background(), tt.datasetName, nil, nil, nil, nil, nil, nil)
+				ds, err := b.CreateDataset(context.Background(), tt.datasetName, nil, nil, nil, nil, nil, nil, nil)
 				require.NoError(t, err)
 				assert.Equal(t, tt.datasetName, ds.Name)
 
@@ -77,7 +77,7 @@ func TestInMemoryBackend_DatasetContentCap(t *testing.T) {
 
 	b := iotanalytics.NewInMemoryBackend()
 
-	_, err := b.CreateDataset(context.Background(), "capped_ds", nil, nil, nil, nil, nil, nil)
+	_, err := b.CreateDataset(context.Background(), "capped_ds", nil, nil, nil, nil, nil, nil, nil)
 	require.NoError(t, err)
 
 	// Fill to exactly the cap.

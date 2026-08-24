@@ -32,7 +32,7 @@ type groupsForCapacityReservationResponse struct {
 
 // ---- Handler implementations ----
 
-func toCapacityReservationItem(cr *CapacityReservation) capacityReservationItem {
+func toCapacityReservationItem(cr *CapacityReservation, tags map[string]string) capacityReservationItem {
 	return capacityReservationItem{
 		CapacityReservationID:  cr.CapacityReservationID,
 		InstanceType:           cr.InstanceType,
@@ -41,6 +41,7 @@ func toCapacityReservationItem(cr *CapacityReservation) capacityReservationItem 
 		State:                  cr.State,
 		TotalInstanceCount:     cr.TotalInstanceCount,
 		AvailableInstanceCount: cr.AvailableInstanceCount,
+		TagSet:                 tagItemsFromMap(tags),
 	}
 }
 
@@ -52,14 +53,16 @@ func (h *Handler) handleCreateCapacityReservation(vals url.Values, reqID string)
 		count = 1
 	}
 
-	cr, err := h.Backend.CreateCapacityReservation(instanceType, az, count)
+	tags := parseTagSpecificationPlural(vals, "capacity-reservation")
+
+	cr, err := h.Backend.CreateCapacityReservation(instanceType, az, count, tags)
 	if err != nil {
 		return nil, err
 	}
 
 	return &createCapacityReservationResponse{
 		RequestID:           reqID,
-		CapacityReservation: toCapacityReservationItem(cr),
+		CapacityReservation: toCapacityReservationItem(cr, tags),
 	}, nil
 }
 
@@ -251,6 +254,7 @@ type capacityReservationTopologyItem struct {
 type describeCapacityReservationTopologyResponse struct {
 	XMLName                xml.Name `xml:"DescribeCapacityReservationTopologyResponse"`
 	RequestID              string   `xml:"requestId"`
+	NextToken              string   `xml:"nextToken,omitempty"`
 	CapacityReservationSet struct {
 		Items []capacityReservationTopologyItem `xml:"item"`
 	} `xml:"capacityReservationSet"`
@@ -261,7 +265,15 @@ func (h *Handler) handleDescribeCapacityReservationTopology(vals url.Values, req
 
 	entries := h.Backend.DescribeCapacityReservationTopology(ids)
 
-	resp := &describeCapacityReservationTopologyResponse{RequestID: reqID}
+	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageMaxDefault)
+	if err != nil {
+		return nil, err
+	}
+
+	var nextToken string
+	entries, nextToken = pageSlice(entries, offset, maxResults)
+
+	resp := &describeCapacityReservationTopologyResponse{RequestID: reqID, NextToken: nextToken}
 	for _, e := range entries {
 		resp.CapacityReservationSet.Items = append(resp.CapacityReservationSet.Items, capacityReservationTopologyItem{
 			CapacityReservationID: e.CapacityReservationID,

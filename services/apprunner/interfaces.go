@@ -205,6 +205,7 @@ type AutoScalingConfiguration struct {
 	MinSize                          int32
 	IsDefault                        bool
 	HasAssociatedService             bool
+	Latest                           bool
 }
 
 // AutoScalingConfigurationSummary is a summary entry for list responses.
@@ -307,6 +308,7 @@ type Service struct {
 	Source                      SourceConfig
 	CreatedAt                   time.Time
 	UpdatedAt                   time.Time
+	DeletedAt                   time.Time
 	Network                     NetworkConfig
 	Instance                    InstanceConfig
 	Observability               ServiceObservability
@@ -324,6 +326,7 @@ type Service struct {
 // CreatedAt is first so its non-pointer prefix (wall, ext) reduces GC pointer bytes.
 type ServiceSummary struct {
 	CreatedAt   time.Time
+	UpdatedAt   time.Time
 	ServiceArn  string
 	ServiceID   string
 	ServiceName string

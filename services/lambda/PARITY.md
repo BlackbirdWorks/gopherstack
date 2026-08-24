@@ -33,3 +33,111 @@ leaks: {status: clean, note: "event-source pollers + janitor + container lifecyc
 - durable_execution is intentionally NOT wired into Snapshot/Restore (durableExecutionStore isn't touched by persistence.go) — this predates the wire-shape rewrite and is unrelated to it; durable executions were never persisted, only cleared on Reset (lifecycle.go's `b.durableExecs.reset()`). Not flagged as a bug: no entry point exists to repopulate FunctionArn/DurableConfig/InputPayload after a restore anyway (see durable_execution family note above), so persisting the store today would only round-trip empty shells.
 - `ListLayers` and `ListLayerVersions` summary narrowing: `LayerVersion.Content` was previously populated on `ListLayers` and `ListLayerVersions` responses. In `aws-sdk-go-v2/service/lambda@v1.101.2`, `types.LayerVersionsListItem` does not contain `Content` (only `GetLayerVersion` / `PublishLayerVersion` returns `Content`). Fixed: `ListLayers` and `ListLayerVersions` omit `Content`.
 
+
+## 2026-08-23: pagination bug sweep (ListLayerVersions, ListProvisionedConcurrencyConfigs, ListCodeSigningConfigs, ListFunctionsByCodeSigningConfig)
+
+Discovered while auditing the pagination bug class found in medialive.
+`handleListLayerVersions`, `handleListProvisionedConcurrencyConfigs`,
+`handleListCodeSigningConfigs`, and `handleListFunctionsByCodeSigningConfig`
+all ignored the real `Marker`/`MaxItems` request members (lambda@v1.101.2:
+`ListLayerVersionsInput`, `ListProvisionedConcurrencyConfigsInput`,
+`ListCodeSigningConfigsInput`, `ListFunctionsByCodeSigningConfigInput`) and
+always returned every item in one unbounded page with no `NextMarker`,
+despite `NextMarker` already existing (unused) on all four output structs.
+Fixed using the existing `parsePaginationParams` + `pkgs/page.New` +
+`lambdaDefaultMaxItems` pattern already used by `ListFunctions`/`ListLayers`
+in this package. `ListLayerVersions`, `ListProvisionedConcurrencyConfigs`,
+and `ListFunctionsByCodeSigningConfig` are unexported `*InMemoryBackend`
+methods (not part of a public interface) but changed return type from a
+bare slice to `page.Page[T]`; `go build ./...` confirmed clean, and two
+pre-existing test call sites (persistence_test.go, layers_test.go) updated
+for the new `ListLayerVersions` signature. Proven with four
+`Test*_SDKRoundTrip_Pagination` tests (`list_pagination_ignored_test.go`),
+each driving the real SDK client across two 10-item pages of 25 seeded
+items and asserting the pages are disjoint; all four fail against the
+unfixed handlers (`should have 10 item(s), but has 25`), hand-reverted
+and confirmed.
+
+Audited but NOT fixed: `handleListFunctionURLConfigs` also ignores
+Marker/MaxItems, but the route is always called with a non-empty
+`{name}` path segment, and the per-function code path
+(`GetFunctionURLConfig(name)`) can only ever return 0 or 1 items — this
+service's data model has no per-qualifier function URL configs, so the
+unbounded branch is dead code with zero real blast radius. Not fixed.
+
+## 2026-08-23: DeleteFunction's Qualifier discarded — every delete removed the whole function
+
+Read `serializeOpHttpBindings<Op>Input` directly for `DeleteFunctionInput`
+(lambda@v1.101.2 serializers.go:1690,
+`awsRestjson1_serializeOpHttpBindingsDeleteFunctionInput`): `FunctionName`
+is URI-bound, `Qualifier` is query-bound
+(`encoder.SetQuery("Qualifier")`). `handleDeleteFunction`
+(`handler_functions.go`) never read the query string at all — it called
+`h.Backend.DeleteFunction(name)` unconditionally, so a client asking to
+delete one published version (`DeleteFunctionInput{FunctionName,
+Qualifier: "2"}`) instead had the entire function deleted: every version,
+every alias, every event source mapping. `api_op_DeleteFunction.go`'s doc
+comment is explicit: "To delete a specific function version, use the
+Qualifier parameter. Otherwise, all versions and aliases are deleted", and
+"You can't delete a version that an alias references." The backend already
+tracked exactly the state this needed (`b.versionIndex`/`b.versions` for
+published versions, `b.aliasesByFunction` for the alias-reference check) —
+only `DeleteFunction`'s dispatch ignored the qualifier.
+
+Fixed via the existing `QualifierInvoker`/`QualifierResolver`
+optional-extension pattern (`store.go`) rather than changing
+`StorageBackend.DeleteFunction`'s existing signature (would have required
+touching `services/cloudformation/resources.go:2150`, the one out-of-package
+caller, and running `make build-check`): added `QualifierDeleter` with
+`DeleteFunctionVersion(name, qualifier string) error`, implemented on
+`InMemoryBackend` (`functions.go`). `handleDeleteFunction` now reads
+`Qualifier` off the query string; when present it type-asserts
+`QualifierDeleter` and calls `DeleteFunctionVersion`, which deletes only the
+targeted `b.versionIndex[name][qualifier]` entry (and its `b.versions[name]`
+slice element) after checking `b.aliasesByFunction` for a referencing alias
+(`ErrVersionReferencedByAlias`, new sentinel → 409 ResourceConflictException)
+and rejecting `Qualifier=$LATEST` (`ErrInvalidParameterValue` → 400 — $LATEST
+has no separate version resource; omit Qualifier to delete the whole
+function). An empty Qualifier still calls the original unqualified
+`DeleteFunction` path unchanged. Function tags are only released when the
+whole function is deleted (`qualifier == ""`).
+
+`TestDeleteFunction_Qualifier` (`delete_function_version_test.go`) drives
+the real `aws-sdk-go-v2` lambda client, table-driven across three cases:
+qualified delete removes only the targeted version ($LATEST and the other
+version survive, `GetFunctionConfiguration(Qualifier: v1)` now 404s);
+qualified delete is rejected with `ResourceConflictException` when an alias
+still references that version (and the version survives the rejected
+delete); unqualified delete still removes the whole function. Hand-reverted
+`handleDeleteFunction` back to its pre-fix unconditional
+`h.Backend.DeleteFunction(name)` call: both the "removes only that version"
+and "blocked by alias reference" subtests failed exactly as predicted (the
+whole function vanished instead of just the targeted version, so
+`GetFunctionConfiguration` against the survivor 404'd and the
+expected-error assertion against the alias-referenced delete saw no error
+at all); restored and confirmed byte-identical via `md5sum`.
+
+**Modelling gaps found in the same header sweep, not implemented**:
+`InvokeInput`'s `TenantId` (lambda@v1.101.2 serializers.go:3859,
+`awsRestjson1_serializeOpHttpBindingsInvokeInput`) is a real
+`X-Amz-Tenant-Id` header for Lambda's multi-tenant-function feature —
+gopherstack has no tenant concept anywhere in this service, so this is a
+genuine unmodeled feature, not a discarded-but-tracked field; reported, not
+attempted. `InvokeInput.DurableExecutionName` (request header) and
+`InvokeOutput.DurableExecutionArn` (response header, deserializers.go:8744,
+`awsRestjson1_deserializeOpHttpBindingsInvokeOutput`) are likewise never
+wired on the `Invoke` path — consistent with, not a new instance of, the
+already-documented durable_execution family gap above ("gopherstack has no
+StartDurableExecution entry point... this emulator's Invoke path does not
+model durable-execution semantics").
+
+Gates: `go build ./...`, `go vet ./services/lambda/...`, `go test -race
+-count=1 ./services/lambda/...`, `go fix -diff ./services/lambda/...` (no
+diff), `gofmt -l services/lambda/` (no output), `golangci-lint run
+./services/lambda/...` (1 finding — `godot` on the new
+`DeleteFunctionVersion` doc comment's closing quoted sentence, fixed by
+rewording so the comment's last line ends outside the quote; 0 issues after,
+no `//nolint` added), `go test ./pkgs/persistence/...` (no persisted struct
+changed) all clean. No exported method signature was changed —
+`StorageBackend.DeleteFunction` is untouched — so `make build-check` was not
+required; `go build ./...` (whole repo) confirmed clean regardless.

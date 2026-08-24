@@ -101,11 +101,13 @@ func TestHandler_DeleteApprovalRuleTemplate(t *testing.T) {
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
 
-	// not found after deletion
+	// DeleteApprovalRuleTemplate is idempotent in real AWS: "If the
+	// template has been previously deleted, the only response is a 200 OK"
+	// (codecommit@v1.36.4 api_op_DeleteApprovalRuleTemplate.go:39).
 	rec = doRequest(t, h, "DeleteApprovalRuleTemplate", map[string]any{
 		"approvalRuleTemplateName": "tmpl1",
 	})
-	assert.Equal(t, http.StatusNotFound, rec.Code)
+	assert.Equal(t, http.StatusOK, rec.Code)
 }
 
 func TestHandler_GetApprovalRuleTemplate(t *testing.T) {

@@ -395,17 +395,41 @@ func (h *Handler) handleListFunctions(c *echo.Context) error {
 }
 
 func (h *Handler) handleDeleteFunction(c *echo.Context, name string) error {
-	if err := h.Backend.DeleteFunction(name); err != nil {
-		if errors.Is(err, ErrFunctionNotFound) {
-			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
-				"Function not found: "+name)
+	qualifier := c.Request().URL.Query().Get("Qualifier")
+
+	var err error
+	if qualifier != "" {
+		qd, ok := h.Backend.(QualifierDeleter)
+		if !ok {
+			return h.writeError(c, http.StatusInternalServerError, "ServiceException",
+				"backend does not support qualified delete")
 		}
 
-		return h.writeError(c, http.StatusInternalServerError, "ServiceException", err.Error())
+		err = qd.DeleteFunctionVersion(name, qualifier)
+	} else {
+		err = h.Backend.DeleteFunction(name)
 	}
 
-	// Release the tags entry for this function's ARN.
-	h.deleteTags(buildARN(h.DefaultRegion, h.AccountID, name))
+	if err != nil {
+		switch {
+		case errors.Is(err, ErrFunctionNotFound), errors.Is(err, ErrVersionNotFound):
+			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
+				"Function not found: "+name)
+		case errors.Is(err, ErrVersionReferencedByAlias):
+			return h.writeError(c, http.StatusConflict, "ResourceConflictException",
+				"An alias is pointing to the version that you are trying to delete")
+		case errors.Is(err, ErrInvalidParameterValue):
+			return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException",
+				"Cannot delete $LATEST as a version; omit Qualifier to delete the whole function")
+		default:
+			return h.writeError(c, http.StatusInternalServerError, "ServiceException", err.Error())
+		}
+	}
+
+	// Deleting a single version leaves the function (and its tags) in place.
+	if qualifier == "" {
+		h.deleteTags(buildARN(h.DefaultRegion, h.AccountID, name))
+	}
 
 	return c.NoContent(http.StatusNoContent)
 }

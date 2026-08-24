@@ -518,6 +518,12 @@ linters:
       # rather than sprinkling ~15 identical inline nolints.
       - path: 'iotanalytics/handler_create_tags_test.go'
         linters: [ staticcheck ]
+      # Same reasoning as iotanalytics/handler_create_tags_test.go above.
+      - path: 'iotanalytics/dataset_retention_period_test.go'
+        linters: [ staticcheck ]
+      # Same reasoning as iotanalytics/handler_create_tags_test.go above.
+      - path: 'iotanalytics/list_summaries_missing_members_test.go'
+        linters: [ staticcheck ]
       # Same reasoning as iotanalytics/handler_create_tags_test.go above -- this
       # cli.go composition-root wiring test also drives the deprecated iotanalytics
       # SDK client end to end.

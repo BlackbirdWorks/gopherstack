@@ -78,7 +78,7 @@ func (h *Handler) listWebhooks(ctx context.Context, c *echo.Context, appID strin
 
 	webhooks, outToken, err := h.Backend.ListWebhooks(appID, nextToken, maxResults)
 	if err != nil {
-		return h.handleBackendError(ctx, c, "ListWebhooks", err)
+		return h.handleBackendError(ctx, c, opListWebhooks, err)
 	}
 
 	resp := map[string]any{"webhooks": toWebhookViews(webhooks)}

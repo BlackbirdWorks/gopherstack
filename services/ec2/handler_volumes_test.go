@@ -163,17 +163,28 @@ func TestCopyVolumes(t *testing.T) { //nolint:paralleltest // existing issue.
 	b := ec2.NewInMemoryBackend("000000000000", "us-east-1")
 
 	v1, _ := b.CreateVolume("us-east-1a", "gp2", 10, "")
-	v2, _ := b.CreateVolume("us-east-1a", "gp3", 20, "")
 
-	t.Run("creates copies", func(t *testing.T) { //nolint:paralleltest // existing issue.
-		results, err := b.CopyVolumes([]string{v1.ID, v2.ID}, "us-west-2")
+	t.Run("creates a copy inheriting source size", func(t *testing.T) { //nolint:paralleltest // existing issue.
+		copy1, err := b.CopyVolumes(v1.ID, 0, "gp2", 0, 0)
 		require.NoError(t, err)
-		require.Len(t, results, 2)
-		assert.NotEqual(t, v1.ID, results[0].DestVolumeID)
+		assert.NotEqual(t, v1.ID, copy1.ID)
+		assert.Equal(t, v1.Size, copy1.Size)
 	})
 
-	t.Run("empty list returns error", func(t *testing.T) { //nolint:paralleltest // existing issue.
-		_, err := b.CopyVolumes(nil, "us-west-2")
+	t.Run("explicit size overrides source size", func(t *testing.T) { //nolint:paralleltest // existing issue.
+		copy2, err := b.CopyVolumes(v1.ID, 50, "gp3", 3000, 125)
+		require.NoError(t, err)
+		assert.Equal(t, 50, copy2.Size)
+		assert.Equal(t, "gp3", copy2.VolumeType)
+	})
+
+	t.Run("empty source volume ID returns error", func(t *testing.T) { //nolint:paralleltest // existing issue.
+		_, err := b.CopyVolumes("", 0, "", 0, 0)
+		require.Error(t, err)
+	})
+
+	t.Run("unknown source volume returns error", func(t *testing.T) { //nolint:paralleltest // existing issue.
+		_, err := b.CopyVolumes("vol-missing", 0, "", 0, 0)
 		require.Error(t, err)
 	})
 }

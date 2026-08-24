@@ -197,7 +197,15 @@ func (h *Handler) handleDescribeCapacityManagerDataExports(vals url.Values, reqI
 
 	exports := h.Backend.DescribeCapacityManagerDataExports(ids)
 
-	resp := &describeCapacityManagerDataExportsResponse{Xmlns: ec2XMLNS, RequestID: reqID}
+	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageMaxDefault)
+	if err != nil {
+		return nil, err
+	}
+
+	var nextToken string
+	exports, nextToken = pageSlice(exports, offset, maxResults)
+
+	resp := &describeCapacityManagerDataExportsResponse{Xmlns: ec2XMLNS, RequestID: reqID, NextToken: nextToken}
 	for _, e := range exports {
 		resp.Exports.Items = append(
 			resp.Exports.Items,
@@ -257,10 +265,18 @@ type getCapacityManagerMonitoredTagKeysResponse struct {
 	} `xml:"capacityManagerTagKeySet"`
 }
 
-func (h *Handler) handleGetCapacityManagerMonitoredTagKeys(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleGetCapacityManagerMonitoredTagKeys(vals url.Values, reqID string) (any, error) {
 	keys := h.Backend.GetCapacityManagerMonitoredTagKeys()
 
-	resp := &getCapacityManagerMonitoredTagKeysResponse{Xmlns: ec2XMLNS, RequestID: reqID}
+	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageMaxDefault)
+	if err != nil {
+		return nil, err
+	}
+
+	var nextToken string
+	keys, nextToken = pageSlice(keys, offset, maxResults)
+
+	resp := &getCapacityManagerMonitoredTagKeysResponse{Xmlns: ec2XMLNS, RequestID: reqID, NextToken: nextToken}
 	for _, k := range keys {
 		resp.CapacityManagerTagKeys.Items = append(
 			resp.CapacityManagerTagKeys.Items, toCapacityManagerMonitoredTagKeyItem(k),

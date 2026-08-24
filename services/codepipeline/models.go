@@ -167,6 +167,12 @@ type Job struct {
 	PipelineName string `json:"pipelineName,omitempty"`
 	Nonce        string `json:"nonce"`
 	Status       string `json:"status"`
+	// FailureMessage/FailureType carry PutJobFailureResult's FailureDetails.
+	// Real AWS Job/JobDetails don't surface these back to callers either (see
+	// PARITY.md) -- tracked here the same way Status is: internal state, not
+	// echoed on the wire.
+	FailureMessage string `json:"failureMessage,omitempty"`
+	FailureType    string `json:"failureType,omitempty"`
 }
 
 // WebhookFilter represents a filter applied to incoming webhook payloads.

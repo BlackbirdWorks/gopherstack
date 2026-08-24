@@ -6,22 +6,24 @@ import (
 )
 
 // BatchGetDataQualityResult retrieves multiple data quality results by ID.
+// The real BatchGetDataQualityResultOutput.ResultsNotFound is a list of
+// result IDs (glue@v1.152.0 deserializers.go:
+// awsAwsjson11_deserializeDocumentDataQualityResultIds decodes into []string,
+// not a list of ErrorDetail objects) -- a real client fails to decode
+// ErrorDetail objects into that string list.
 func (b *InMemoryBackend) BatchGetDataQualityResult(
 	resultIDs []string,
-) ([]*DataQualityResult, []ErrorDetail) {
+) ([]*DataQualityResult, []string) {
 	b.mu.RLock("BatchGetDataQualityResult")
 	defer b.mu.RUnlock()
 
 	found := make([]*DataQualityResult, 0, len(resultIDs))
-	errs := make([]ErrorDetail, 0, len(resultIDs))
+	notFound := make([]string, 0, len(resultIDs))
 
 	for _, id := range resultIDs {
 		dqr, ok := b.dataQualityResult.Get(id)
 		if !ok {
-			errs = append(errs, ErrorDetail{
-				ErrorCode:    "EntityNotFoundException",
-				ErrorMessage: "data quality result not found: " + id,
-			})
+			notFound = append(notFound, id)
 
 			continue
 		}
@@ -30,7 +32,7 @@ func (b *InMemoryBackend) BatchGetDataQualityResult(
 		found = append(found, &cp)
 	}
 
-	return found, errs
+	return found, notFound
 }
 
 // AddDataQualityResultInternal adds a data quality result directly to the backend without validation.

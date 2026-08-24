@@ -54,15 +54,50 @@ func TestCACertificate(t *testing.T) {
 		t.Errorf("expected creationDate on ListCACertificates entry, got %v", first)
 	}
 
-	// Update
-	iotOK(t, h, http.MethodPut, "/cacertificates/"+certID, map[string]any{
-		"newStatus": "INACTIVE",
-	})
+	// Update: newStatus is a real query parameter, not a body field
+	// (iot@v1.77.4 serializers.go).
+	iotOK(t, h, http.MethodPut, "/cacertificates/"+certID+"?newStatus=INACTIVE", nil)
+
+	out4 := iotOK(t, h, http.MethodGet, "/cacertificates/"+certID, nil)
+	desc4 := out4["certificateDescription"].(map[string]any)
+	if desc4["status"] != "INACTIVE" {
+		t.Errorf("expected status INACTIVE after UpdateCACertificate, got %v", desc4["status"])
+	}
 
 	// Delete
 	iotOK(t, h, http.MethodDelete, "/cacertificates/"+certID, nil)
 
 	iotExpectError(t, h, "/cacertificates/"+certID)
+}
+
+// TestUpdateCACertificate_QueryParamsAndBodyFields guards
+// UpdateCACertificateInput's real wire shape (iot@v1.77.4 serializers.go):
+// newStatus/newAutoRegistrationStatus are query parameters, and
+// registrationConfig/removeAutoRegistration are body fields -- previously
+// only newStatus was read at all, and from the wrong location (body), so a
+// real client's status change was always silently dropped.
+func TestUpdateCACertificate_QueryParamsAndBodyFields(t *testing.T) {
+	t.Parallel()
+	h := newIoTHandler(t)
+
+	out := iotOK(t, h, http.MethodPost, "/cacertificate/register", map[string]any{
+		"caCertificate": "-----BEGIN CERTIFICATE-----\ntest\n-----END CERTIFICATE-----",
+	})
+	certID, _ := out["certificateId"].(string)
+	require.NotEmpty(t, certID)
+
+	iotOK(t, h, http.MethodPut,
+		"/cacertificates/"+certID+"?newStatus=INACTIVE&newAutoRegistrationStatus=ENABLE",
+		map[string]any{
+			"registrationConfig": map[string]any{"templateName": "updated-template"},
+		})
+
+	out2 := iotOK(t, h, http.MethodGet, "/cacertificates/"+certID, nil)
+	desc, _ := out2["certificateDescription"].(map[string]any)
+	assert.Equal(t, "INACTIVE", desc["status"])
+	assert.Equal(t, "ENABLE", desc["autoRegistrationStatus"])
+	regConfig, _ := out2["registrationConfig"].(map[string]any)
+	assert.Equal(t, "updated-template", regConfig["templateName"])
 }
 
 // TestListCertificatesByCA checks the ListCertificatesByCA wire shape:
@@ -718,6 +753,32 @@ func TestListOutgoingCertificates(t *testing.T) {
 	rec = doRefRequest(t, h, http.MethodGet, "/certificates-out-going", nil, nil)
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), cert.CertificateID)
+}
+
+// TestListOutgoingCertificates_Pagination guards ListOutgoingCertificatesInput's
+// real marker/pageSize query params and ListOutgoingCertificatesOutput's real
+// nextMarker member (iot@v1.77.4 api_op_ListOutgoingCertificates.go),
+// previously entirely ignored -- every outgoing certificate was always
+// returned in one page.
+func TestListOutgoingCertificates_Pagination(t *testing.T) {
+	t.Parallel()
+
+	h, b := newRefHandler()
+
+	for range 3 {
+		cert, err := b.RegisterCertificate(&iot.RegisterCertificateInput{Status: "ACTIVE"})
+		require.NoError(t, err)
+		require.NoError(t, b.TransferCertificate(cert.CertificateID, "123456789012", ""))
+	}
+
+	rec := doRefRequest(t, h, http.MethodGet, "/certificates-out-going?pageSize=1", nil, nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	certs, _ := out["outgoingCertificates"].([]any)
+	assert.LessOrEqual(t, len(certs), 1)
+	assert.NotEmpty(t, out["nextMarker"])
 }
 
 // TestCertificateProviderCRUD checks the CertificateProvider lifecycle,

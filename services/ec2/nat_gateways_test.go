@@ -19,8 +19,10 @@ func TestUnassignPrivateNatGatewayAddress(t *testing.T) {
 	nat, err := b.CreateNatGateway("subnet-default", addr.AllocationID, nil)
 	require.NoError(t, err)
 
-	require.NoError(t, b.AssignPrivateNatGatewayAddress(nat.ID))
-	require.NoError(t, b.AssignPrivateNatGatewayAddress(nat.ID))
+	_, err = b.AssignPrivateNatGatewayAddress(nat.ID, 1, nil)
+	require.NoError(t, err)
+	_, err = b.AssignPrivateNatGatewayAddress(nat.ID, 1, nil)
+	require.NoError(t, err)
 
 	described := b.DescribeNatGateways([]string{nat.ID})
 	require.Len(t, described, 1)

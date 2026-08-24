@@ -11,8 +11,8 @@ type batchDeleteConnectionInput struct {
 }
 
 type batchDeleteConnectionOutput struct {
-	Errors    []ErrorDetail `json:"Errors"`
-	Succeeded []string      `json:"Succeeded"`
+	Errors    map[string]ErrorDetail `json:"Errors"`
+	Succeeded []string               `json:"Succeeded"`
 }
 
 func (h *Handler) handleBatchDeleteConnection(

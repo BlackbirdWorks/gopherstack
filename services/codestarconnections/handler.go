@@ -248,7 +248,7 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 		errType, statusCode = "ResourceAlreadyExistsException", http.StatusBadRequest
 	case errors.Is(err, ErrTagLimitExceeded):
 		errType, statusCode = "LimitExceededException", http.StatusBadRequest
-	case errors.Is(err, ErrAlreadyExists), errors.Is(err, ErrValidation),
+	case errors.Is(err, ErrValidation),
 		errors.Is(err, errInvalidRequest), errors.Is(err, errUnknownAction),
 		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
 		errType, statusCode = errTypeInvalidInput, http.StatusBadRequest

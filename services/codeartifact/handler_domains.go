@@ -131,6 +131,12 @@ func (h *Handler) handleDeleteDomain(c *echo.Context, name string) error {
 		return h.handleError(c, err)
 	}
 
+	if d == nil {
+		// Idempotent: no domain existed to describe. DeleteDomainOutput.Domain
+		// is a nilable pointer on the wire, so omitting it is not a fabrication.
+		return c.JSON(http.StatusOK, map[string]any{})
+	}
+
 	return c.JSON(http.StatusOK, map[string]any{
 		keyDomain: domainToMap(d, repoCount),
 	})

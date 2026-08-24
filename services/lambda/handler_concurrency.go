@@ -212,7 +212,9 @@ func (h *Handler) handleListProvisionedConcurrencyConfigs(c *echo.Context, name 
 		return h.writeError(c, http.StatusInternalServerError, "ServiceException", "backend not available")
 	}
 
-	configs, err := lambdaBk.ListProvisionedConcurrencyConfigs(name)
+	marker, maxItems := parsePaginationParams(c.Request())
+
+	p, err := lambdaBk.ListProvisionedConcurrencyConfigs(name, marker, maxItems)
 	if err != nil {
 		if errors.Is(err, ErrFunctionNotFound) {
 			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
@@ -223,6 +225,7 @@ func (h *Handler) handleListProvisionedConcurrencyConfigs(c *echo.Context, name 
 	}
 
 	return c.JSON(http.StatusOK, &ListProvisionedConcurrencyConfigsOutput{
-		ProvisionedConcurrencyConfigs: configs,
+		ProvisionedConcurrencyConfigs: p.Data,
+		NextMarker:                    p.Next,
 	})
 }

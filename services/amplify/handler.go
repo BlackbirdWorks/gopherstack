@@ -33,6 +33,18 @@ const (
 
 	opUnknown = "Unknown"
 
+	// Operation names referenced from more than one file (dispatch, op-name
+	// parsing, and amplifyNotFoundCode's per-op not-found mapping).
+	opListBranches            = "ListBranches"
+	opTagResource             = "TagResource"
+	opUntagResource           = "UntagResource"
+	opListTagsForResource     = "ListTagsForResource"
+	opListArtifacts           = "ListArtifacts"
+	opListJobs                = "ListJobs"
+	opListBackendEnvironments = "ListBackendEnvironments"
+	opListDomainAssociations  = "ListDomainAssociations"
+	opListWebhooks            = "ListWebhooks"
+
 	// Path segment literals shared by the routing tree below.
 	subWebhooks            = "webhooks"
 	subBackendEnvironments = "backendenvironments"
@@ -101,11 +113,11 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DeleteApp",
 		"CreateBranch",
 		"GetBranch",
-		"ListBranches",
+		opListBranches,
 		"DeleteBranch",
-		"TagResource",
-		"UntagResource",
-		"ListTagsForResource",
+		opTagResource,
+		opUntagResource,
+		opListTagsForResource,
 		"CreateBackendEnvironment",
 		"CreateDeployment",
 		"CreateDomainAssociation",
@@ -120,11 +132,11 @@ func (h *Handler) GetSupportedOperations() []string {
 		"GetDomainAssociation",
 		"GetJob",
 		"GetWebhook",
-		"ListArtifacts",
-		"ListBackendEnvironments",
-		"ListDomainAssociations",
-		"ListJobs",
-		"ListWebhooks",
+		opListArtifacts,
+		opListBackendEnvironments,
+		opListDomainAssociations,
+		opListJobs,
+		opListWebhooks,
 		"StartDeployment",
 		"StartJob",
 		"StopJob",
@@ -258,11 +270,11 @@ func parseAppSubPathOp(method, sub string) string {
 	case arnResourceBranches:
 		return parseBranchesOperation(method)
 	case subWebhooks:
-		return parseListOrCreateOp(method, "ListWebhooks", "CreateWebhook")
+		return parseListOrCreateOp(method, opListWebhooks, "CreateWebhook")
 	case subBackendEnvironments:
-		return parseListOrCreateOp(method, "ListBackendEnvironments", "CreateBackendEnvironment")
+		return parseListOrCreateOp(method, opListBackendEnvironments, "CreateBackendEnvironment")
 	case subDomains:
-		return parseListOrCreateOp(method, "ListDomainAssociations", "CreateDomainAssociation")
+		return parseListOrCreateOp(method, opListDomainAssociations, "CreateDomainAssociation")
 	case subAccessLogs:
 		if method == http.MethodPost {
 			return "GenerateAccessLogs"
@@ -312,7 +324,7 @@ func parseAppBranchSubPathOp(method, sub string) string {
 	case sub == subJobs && method == http.MethodPost:
 		return "StartJob"
 	case sub == subJobs && method == http.MethodGet:
-		return "ListJobs"
+		return opListJobs
 	case sub == subDeployments && method == http.MethodPost:
 		return "CreateDeployment"
 	default:
@@ -338,7 +350,7 @@ func parseJobActionPathOp(method, action string) string {
 	case action == subStop && method == http.MethodDelete:
 		return "StopJob"
 	case action == subArtifactsRoot && method == http.MethodGet:
-		return "ListArtifacts"
+		return opListArtifacts
 	default:
 		return opUnknown
 	}
@@ -526,7 +538,9 @@ func (h *Handler) handleBackendError(ctx context.Context, c *echo.Context, op st
 	log.ErrorContext(ctx, "Amplify operation failed", "operation", op, "error", err)
 
 	if errors.Is(err, awserr.ErrNotFound) {
-		return amplifyErrorJSON(c, http.StatusNotFound, err.Error())
+		code, status := amplifyNotFoundCode(op)
+
+		return amplifyErrorCodeJSON(c, status, code, err.Error())
 	}
 
 	if errors.Is(err, awserr.ErrAlreadyExists) || errors.Is(err, awserr.ErrConflict) ||
@@ -535,6 +549,32 @@ func (h *Handler) handleBackendError(ctx context.Context, c *echo.Context, op st
 	}
 
 	return amplifyErrorJSON(c, http.StatusInternalServerError, "internal error: "+err.Error())
+}
+
+// amplifyNotFoundCode picks the wire code/status for a not-found condition
+// on op, since not every Amplify operation's own deserializeOpError switch
+// (aws-sdk-go-v2/service/amplify@v1.41.4 deserializers.go) types the same
+// exception for it:
+//
+//   - TagResource/UntagResource/ListTagsForResource type
+//     ResourceNotFoundException, not NotFoundException -- a different wire
+//     name than every other Amplify operation's not-found case.
+//   - The six List* operations that take a parent identifier (appId/
+//     branchName/jobId) do not type NotFoundException at all -- only
+//     BadRequestException, InternalFailureException, UnauthorizedException
+//     (+LimitExceededException for some) -- so an unrecognized parent
+//     identifier is reported as invalid input instead.
+//   - Every other operation types plain NotFoundException.
+func amplifyNotFoundCode(op string) (string, int) {
+	switch op {
+	case opTagResource, opUntagResource, opListTagsForResource:
+		return "ResourceNotFoundException", http.StatusNotFound
+	case opListBranches, opListBackendEnvironments, opListJobs, opListWebhooks,
+		opListDomainAssociations, opListArtifacts:
+		return "BadRequestException", http.StatusBadRequest
+	default:
+		return "NotFoundException", http.StatusNotFound
+	}
 }
 
 // codeForStatus maps an HTTP status code to the Amplify restjson1 exception
@@ -563,7 +603,13 @@ func codeForStatus(status int) string {
 // "__type" and "message" so aws-sdk-go-v2 resolves the correct typed
 // exception (see codeForStatus).
 func amplifyErrorJSON(c *echo.Context, status int, message string) error {
-	code := codeForStatus(status)
+	return amplifyErrorCodeJSON(c, status, codeForStatus(status), message)
+}
+
+// amplifyErrorCodeJSON writes an Amplify-shaped restjson1 error response
+// with an explicit wire code, for the cases (see amplifyNotFoundCode) where
+// the code cannot be derived from the HTTP status alone.
+func amplifyErrorCodeJSON(c *echo.Context, status int, code, message string) error {
 	c.Response().Header().Set("X-Amzn-Errortype", code)
 
 	return c.JSON(status, map[string]any{"__type": code, "message": message})

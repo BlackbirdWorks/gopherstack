@@ -64,6 +64,7 @@ type snapshotTierStatusItem struct {
 type describeSnapshotTierStatusResponse struct {
 	XMLName               xml.Name `xml:"DescribeSnapshotTierStatusResponse"`
 	RequestID             string   `xml:"requestId"`
+	NextToken             string   `xml:"nextToken,omitempty"`
 	SnapshotTierStatusSet struct {
 		Items []snapshotTierStatusItem `xml:"item"`
 	} `xml:"snapshotTierStatusSet"`
@@ -177,11 +178,52 @@ func (h *Handler) handleDisableSnapshotBlockPublicAccess(_ url.Values, reqID str
 	return &disableSnapshotBlockPublicAccessResponse{RequestID: reqID, State: "unblocked"}, nil
 }
 
-func (h *Handler) handleDescribeSnapshotTierStatus(vals url.Values, reqID string) (any, error) {
-	ids := parseMemberList(vals, "SnapshotId")
-	items := h.Backend.DescribeSnapshotTierStatus(ids)
+// applySnapshotTierFilters matches DescribeSnapshotTierStatusInput's real
+// filters (api_op_DescribeSnapshotTierStatus.go doc comment: snapshot-id,
+// volume-id, last-tiering-operation). last-tiering-operation is left
+// unenforced -- this backend tracks only the current tier, not the archive/
+// restore operation history the filter values describe -- rather than
+// fabricating a match against untracked state.
+func applySnapshotTierFilters(items []SnapshotTierItem, filters map[string][]string) []SnapshotTierItem {
+	if len(filters) == 0 {
+		return items
+	}
 
-	resp := &describeSnapshotTierStatusResponse{RequestID: reqID}
+	out := items[:0:0]
+itemLoop:
+	for _, item := range items {
+		for name, values := range filters {
+			switch name {
+			case "snapshot-id":
+				if !anyEqual(item.SnapshotID, values) {
+					continue itemLoop
+				}
+			case filterKeyVolumeID:
+				if !anyEqual(item.VolumeID, values) {
+					continue itemLoop
+				}
+			}
+		}
+
+		out = append(out, item)
+	}
+
+	return out
+}
+
+func (h *Handler) handleDescribeSnapshotTierStatus(vals url.Values, reqID string) (any, error) {
+	items := h.Backend.DescribeSnapshotTierStatus(nil)
+	items = applySnapshotTierFilters(items, parseEC2Filters(vals))
+
+	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageMaxDefault)
+	if err != nil {
+		return nil, err
+	}
+
+	var nextToken string
+	items, nextToken = pageSlice(items, offset, maxResults)
+
+	resp := &describeSnapshotTierStatusResponse{RequestID: reqID, NextToken: nextToken}
 	for _, item := range items {
 		resp.SnapshotTierStatusSet.Items = append(
 			resp.SnapshotTierStatusSet.Items,
@@ -227,23 +269,22 @@ func (h *Handler) handleResetSnapshotAttribute(vals url.Values, reqID string) (a
 }
 
 type lockSnapshotResponse struct {
-	XMLName    xml.Name `xml:"LockSnapshotResponse"`
-	RequestID  string   `xml:"requestId"`
-	SnapshotID string   `xml:"snapshotId"`
-	LockState  string   `xml:"lockState"`
+	XMLName       xml.Name `xml:"LockSnapshotResponse"`
+	RequestID     string   `xml:"requestId"`
+	SnapshotID    string   `xml:"snapshotId"`
+	LockState     string   `xml:"lockState"`
+	LockCreatedOn string   `xml:"lockCreatedOn"`
+	LockExpiresOn string   `xml:"lockExpiresOn,omitempty"`
+	LockDuration  int      `xml:"lockDuration,omitempty"`
 }
 
 type describeLockedSnapshotsResponse struct {
 	XMLName     xml.Name `xml:"DescribeLockedSnapshotsResponse"`
 	RequestID   string   `xml:"requestId"`
+	NextToken   string   `xml:"nextToken,omitempty"`
 	SnapshotSet struct {
 		Items []snapshotLockItem `xml:"item"`
 	} `xml:"snapshotSet"`
-}
-
-type copyVolumesVolumeItem struct {
-	SourceVolumeID string `xml:"sourceVolumeId"`
-	DestVolumeID   string `xml:"destVolumeId"`
 }
 
 func (h *Handler) handleLockSnapshot(vals url.Values, reqID string) (any, error) {
@@ -262,11 +303,24 @@ func (h *Handler) handleLockSnapshot(vals url.Values, reqID string) (any, error)
 		return nil, err
 	}
 
-	return &lockSnapshotResponse{
-		RequestID:  reqID,
-		SnapshotID: lock.SnapshotID,
-		LockState:  lock.LockState,
-	}, nil
+	resp := &lockSnapshotResponse{
+		RequestID:     reqID,
+		SnapshotID:    lock.SnapshotID,
+		LockState:     lock.LockState,
+		LockDuration:  lock.LockDurationDays,
+		LockCreatedOn: lock.LockCreatedOn.UTC().Format("2006-01-02T15:04:05.000Z"),
+	}
+	if !lock.LockExpiresOn.IsZero() {
+		resp.LockExpiresOn = lock.LockExpiresOn.UTC().Format("2006-01-02T15:04:05.000Z")
+	}
+
+	return resp, nil
+}
+
+type unlockSnapshotResponse struct {
+	XMLName    xml.Name `xml:"UnlockSnapshotResponse"`
+	RequestID  string   `xml:"requestId"`
+	SnapshotID string   `xml:"snapshotId"`
 }
 
 func (h *Handler) handleUnlockSnapshot(vals url.Values, reqID string) (any, error) {
@@ -275,10 +329,9 @@ func (h *Handler) handleUnlockSnapshot(vals url.Values, reqID string) (any, erro
 		return nil, err
 	}
 
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "UnlockSnapshotResponse"},
-		RequestID: reqID,
-		Return:    true,
+	return &unlockSnapshotResponse{
+		RequestID:  reqID,
+		SnapshotID: snapshotID,
 	}, nil
 }
 
@@ -286,7 +339,15 @@ func (h *Handler) handleDescribeLockedSnapshots(vals url.Values, reqID string) (
 	ids := parseMemberList(vals, "SnapshotId")
 	locks := h.Backend.DescribeLockedSnapshots(ids)
 
-	resp := &describeLockedSnapshotsResponse{RequestID: reqID}
+	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageMaxDefault)
+	if err != nil {
+		return nil, err
+	}
+
+	var nextToken string
+	locks, nextToken = pageSlice(locks, offset, maxResults)
+
+	resp := &describeLockedSnapshotsResponse{RequestID: reqID, NextToken: nextToken}
 	for _, l := range locks {
 		item := snapshotLockItem{
 			SnapshotID:       l.SnapshotID,
@@ -306,6 +367,7 @@ func (h *Handler) handleDescribeLockedSnapshots(vals url.Values, reqID string) (
 type listSnapshotsInRecycleBinResponse struct {
 	XMLName     xml.Name `xml:"ListSnapshotsInRecycleBinResponse"`
 	RequestID   string   `xml:"requestId"`
+	NextToken   string   `xml:"nextToken,omitempty"`
 	SnapshotSet struct {
 		Items []recycleBinSnapshotItem `xml:"item"`
 	} `xml:"snapshotSet"`
@@ -326,6 +388,7 @@ type importSnapshotResponse struct {
 type describeImportSnapshotTasksResponse struct {
 	XMLName               xml.Name `xml:"DescribeImportSnapshotTasksResponse"`
 	RequestID             string   `xml:"requestId"`
+	NextToken             string   `xml:"nextToken,omitempty"`
 	ImportSnapshotTaskSet struct {
 		Items []importSnapshotTaskItem `xml:"item"`
 	} `xml:"importSnapshotTaskSet"`
@@ -336,9 +399,18 @@ type fastLaunchImageItem struct {
 	State   string `xml:"state"`
 }
 
+type enableDisableFastSnapshotRestoresResponse struct {
+	XMLName    xml.Name
+	RequestID  string `xml:"requestId"`
+	Successful struct {
+		Items []fastSnapshotRestoreItem `xml:"item"`
+	} `xml:"successful"`
+}
+
 type describeFastSnapshotRestoresResponse struct {
 	XMLName                xml.Name `xml:"DescribeFastSnapshotRestoresResponse"`
 	RequestID              string   `xml:"requestId"`
+	NextToken              string   `xml:"nextToken,omitempty"`
 	FastSnapshotRestoreSet struct {
 		Items []fastSnapshotRestoreItem `xml:"item"`
 	} `xml:"fastSnapshotRestoreSet"`
@@ -348,7 +420,15 @@ func (h *Handler) handleListSnapshotsInRecycleBin(vals url.Values, reqID string)
 	ids := parseMemberList(vals, "SnapshotId")
 	snaps := h.Backend.ListSnapshotsInRecycleBin(ids)
 
-	resp := &listSnapshotsInRecycleBinResponse{RequestID: reqID}
+	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageMaxDefault)
+	if err != nil {
+		return nil, err
+	}
+
+	var nextToken string
+	snaps, nextToken = pageSlice(snaps, offset, maxResults)
+
+	resp := &listSnapshotsInRecycleBinResponse{RequestID: reqID, NextToken: nextToken}
 	for _, snap := range snaps {
 		resp.SnapshotSet.Items = append(
 			resp.SnapshotSet.Items,
@@ -359,6 +439,18 @@ func (h *Handler) handleListSnapshotsInRecycleBin(vals url.Values, reqID string)
 	return resp, nil
 }
 
+// handleRestoreSnapshotFromRecycleBin: RestoreSnapshotFromRecycleBinOutput is
+// a near-full snapshot detail object, not a bare Return -- and the fields are
+// buildable from the Snapshot this backend already holds in hand at the
+// point it restores one (see RestoreSnapshotFromRecycleBin, snapshots.go).
+// NOT fixed here: nothing in this backend ever populates recycleBinSnapshots
+// in the first place (grep confirms no .Put call on that table anywhere --
+// DeleteSnapshot deletes outright, it never moves a snapshot to the recycle
+// bin), so this op can never succeed against a real snapshot today
+// regardless of response shape. That's a deeper gap than "response not
+// wired up": it's "the precondition state this op reads can never exist "
+// -- fixing DeleteSnapshot to model recycle-bin retention is out of scope
+// for a wire-shape pass. See PARITY.md.
 func (h *Handler) handleRestoreSnapshotFromRecycleBin(vals url.Values, reqID string) (any, error) {
 	id := vals.Get("SnapshotId")
 	if err := h.Backend.RestoreSnapshotFromRecycleBin(id); err != nil {
@@ -403,7 +495,15 @@ func (h *Handler) handleDescribeImportSnapshotTasks(vals url.Values, reqID strin
 	ids := parseMemberList(vals, "ImportTaskId")
 	tasks := h.Backend.DescribeImportSnapshotTasks(ids)
 
-	resp := &describeImportSnapshotTasksResponse{RequestID: reqID}
+	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageMaxDefault)
+	if err != nil {
+		return nil, err
+	}
+
+	var nextToken string
+	tasks, nextToken = pageSlice(tasks, offset, maxResults)
+
+	resp := &describeImportSnapshotTasksResponse{RequestID: reqID, NextToken: nextToken}
 	for _, t := range tasks {
 		resp.ImportSnapshotTaskSet.Items = append(
 			resp.ImportSnapshotTaskSet.Items,
@@ -418,38 +518,65 @@ func (h *Handler) handleDescribeImportSnapshotTasks(vals url.Values, reqID strin
 	return resp, nil
 }
 
+// fastSnapshotRestoreResultSet renders the (snapshotId, availabilityZone,
+// state) triples this backend actually applied. Enable/DisableFastSnapshotRestores
+// complete synchronously here, so every requested pair is reported in its real
+// terminal state -- never the transient "enabling"/"disabling" real AWS uses
+// for an async operation this mock doesn't have.
+func fastSnapshotRestoreResultSet(snaps, azs []string, state string) []fastSnapshotRestoreItem {
+	items := make([]fastSnapshotRestoreItem, 0, len(snaps)*len(azs))
+	for _, snap := range snaps {
+		for _, az := range azs {
+			items = append(items, fastSnapshotRestoreItem{SnapshotID: snap, AvailabilityZone: az, State: state})
+		}
+	}
+
+	return items
+}
+
 func (h *Handler) handleEnableFastSnapshotRestores(vals url.Values, reqID string) (any, error) {
-	snaps := parseMemberList(vals, "SnapshotId")
+	snaps := parseMemberList(vals, "SourceSnapshotId")
 	azs := parseMemberList(vals, "AvailabilityZone")
 	if err := h.Backend.EnableFastSnapshotRestores(snaps, azs); err != nil {
 		return nil, err
 	}
 
-	return &stubResponse{
+	resp := &enableDisableFastSnapshotRestoresResponse{
 		XMLName:   xml.Name{Local: "EnableFastSnapshotRestoresResponse"},
 		RequestID: reqID,
-		Return:    true,
-	}, nil
+	}
+	resp.Successful.Items = fastSnapshotRestoreResultSet(snaps, azs, stateEnabledFastLaunch)
+
+	return resp, nil
 }
 
 func (h *Handler) handleDisableFastSnapshotRestores(vals url.Values, reqID string) (any, error) {
-	snaps := parseMemberList(vals, "SnapshotId")
+	snaps := parseMemberList(vals, "SourceSnapshotId")
 	azs := parseMemberList(vals, "AvailabilityZone")
 	if err := h.Backend.DisableFastSnapshotRestores(snaps, azs); err != nil {
 		return nil, err
 	}
 
-	return &stubResponse{
+	resp := &enableDisableFastSnapshotRestoresResponse{
 		XMLName:   xml.Name{Local: "DisableFastSnapshotRestoresResponse"},
 		RequestID: reqID,
-		Return:    true,
-	}, nil
+	}
+	resp.Successful.Items = fastSnapshotRestoreResultSet(snaps, azs, "disabled")
+
+	return resp, nil
 }
 
-func (h *Handler) handleDescribeFastSnapshotRestores(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleDescribeFastSnapshotRestores(vals url.Values, reqID string) (any, error) {
 	items := h.Backend.DescribeFastSnapshotRestores()
 
-	resp := &describeFastSnapshotRestoresResponse{RequestID: reqID}
+	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageMaxDefault)
+	if err != nil {
+		return nil, err
+	}
+
+	items, nextToken := pageSlice(items, offset, maxResults)
+
+	resp := &describeFastSnapshotRestoresResponse{RequestID: reqID, NextToken: nextToken}
 	for _, item := range items {
 		resp.FastSnapshotRestoreSet.Items = append(
 			resp.FastSnapshotRestoreSet.Items,

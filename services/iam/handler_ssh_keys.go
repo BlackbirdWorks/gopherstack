@@ -114,6 +114,7 @@ func (h *Handler) iamSSHKeyListDeleteDispatch() map[string]iamActionFn {
 				ListSSHPublicKeysResult: listSSHPublicKeysResult{
 					SSHPublicKeys: members,
 					IsTruncated:   p.Next != "",
+					Marker:        p.Next,
 				},
 				ResponseMetadata: ResponseMetadata{RequestID: reqID},
 			}, nil

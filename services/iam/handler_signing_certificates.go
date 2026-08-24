@@ -10,13 +10,17 @@ import (
 func (h *Handler) iamSigningCertificateDispatch() map[string]iamActionFn {
 	return map[string]iamActionFn{
 		"ListSigningCertificates": func(vals url.Values, reqID string) (any, error) {
-			certs, err := h.Backend.ListSigningCertificates(vals.Get("UserName"))
+			p, err := h.Backend.ListSigningCertificates(
+				vals.Get("UserName"),
+				vals.Get("Marker"),
+				parseMaxItems(vals.Get("MaxItems")),
+			)
 			if err != nil {
 				return nil, err
 			}
 
-			xmlCerts := make([]signingCertXML, 0, len(certs))
-			for _, c := range certs {
+			xmlCerts := make([]signingCertXML, 0, len(p.Data))
+			for _, c := range p.Data {
 				xmlCerts = append(xmlCerts, signingCertXML{
 					CertificateID:   c.CertificateID,
 					UserName:        c.UserName,
@@ -31,13 +35,14 @@ func (h *Handler) iamSigningCertificateDispatch() map[string]iamActionFn {
 				Xmlns:   iamXMLNS,
 				ListSigningCertificatesResult: listSigningCertificatesResult{
 					Certificates: xmlCerts,
-					IsTruncated:  false,
+					IsTruncated:  p.Next != "",
+					Marker:       p.Next,
 				},
 				ResponseMetadata: ResponseMetadata{RequestID: reqID},
 			}, nil
 		},
 		"DeleteSigningCertificate": func(vals url.Values, reqID string) (any, error) {
-			if err := h.Backend.DeleteSigningCertificate(vals.Get("CertificateId")); err != nil {
+			if err := h.Backend.DeleteSigningCertificate(vals.Get("UserName"), vals.Get("CertificateId")); err != nil {
 				return nil, err
 			}
 
@@ -49,7 +54,7 @@ func (h *Handler) iamSigningCertificateDispatch() map[string]iamActionFn {
 		},
 		"UpdateSigningCertificate": func(vals url.Values, reqID string) (any, error) {
 			if err := h.Backend.UpdateSigningCertificate(
-				vals.Get("CertificateId"), vals.Get("Status"),
+				vals.Get("UserName"), vals.Get("CertificateId"), vals.Get("Status"),
 			); err != nil {
 				return nil, err
 			}

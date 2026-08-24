@@ -69,5 +69,5 @@ func (b *InMemoryBackend) findResourceTagsLocked(resourceID string) (*tags.Tags,
 		return eds.Tags, nil
 	}
 
-	return nil, fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceID)
+	return nil, fmt.Errorf("%w: resource %s not found", ErrResourceNotFound, resourceID)
 }

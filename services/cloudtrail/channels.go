@@ -21,7 +21,7 @@ func (b *InMemoryBackend) CreateChannel(
 		return nil, fmt.Errorf("%w: Name is required", ErrValidation)
 	}
 	if matches := b.channelsByName.Get(name); len(matches) > 0 {
-		return nil, fmt.Errorf("%w: channel %s already exists", ErrAlreadyExists, name)
+		return nil, fmt.Errorf("%w: channel %s already exists", ErrChannelAlreadyExists, name)
 	}
 
 	b.channelCounter++

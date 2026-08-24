@@ -489,14 +489,19 @@ func TestHandler_GetTableResponseUsesLowercaseArns(t *testing.T) {
 	result := parseResponse(t, rec)
 
 	_, hasTableARN := result["tableARN"]
-	_, hasTableBucketARN := result["tableBucketARN"]
 	_, hasWrongTableArn := result["tableArn"]
-	_, hasWrongBucketArn := result["tableBucketArn"]
+	_, hasFabricatedBucketARN := result["tableBucketARN"]
 
 	assert.True(t, hasTableARN, "GetTable response must include 'tableARN'")
-	assert.True(t, hasTableBucketARN, "GetTable response must include 'tableBucketARN'")
 	assert.False(t, hasWrongTableArn, "GetTable must not use lowercase 'tableArn'")
-	assert.False(t, hasWrongBucketArn, "GetTable must not use lowercase 'tableBucketArn'")
+	// GetTableOutput has no tableBucketARN member at all -- its
+	// bucket-identifying field is the real, system-assigned tableBucketId
+	// (gopherstack-wla0; confirmed via
+	// awsRestjson1_deserializeOpDocumentGetTableOutput in
+	// aws-sdk-go-v2/service/s3tables@v1.18.4's deserializers.go).
+	assert.False(t, hasFabricatedBucketARN, "GetTableOutput has no tableBucketARN member on the real API")
+	assert.Equal(t, getTableBucketIDHelper(t, h, bucketARN), result["tableBucketId"],
+		"GetTable response must include the real tableBucketId")
 }
 
 func TestHandler_ListTablesResponseUsesLowercaseArns(t *testing.T) {
@@ -521,10 +526,14 @@ func TestHandler_ListTablesResponseUsesLowercaseArns(t *testing.T) {
 
 	entry := tables[0].(map[string]any)
 	_, hasTableARN := entry["tableARN"]
-	_, hasTableBucketARN := entry["tableBucketARN"]
 	_, hasWrong := entry["tableArn"]
+	_, hasFabricatedBucketARN := entry["tableBucketARN"]
 
 	assert.True(t, hasTableARN, "ListTables entry must include 'tableARN'")
-	assert.True(t, hasTableBucketARN, "ListTables entry must include 'tableBucketARN'")
 	assert.False(t, hasWrong, "ListTables entry must not use lowercase 'tableArn'")
+	// TableSummary has no tableBucketARN member either -- same fix as
+	// GetTable above (gopherstack-wla0).
+	assert.False(t, hasFabricatedBucketARN, "TableSummary has no tableBucketARN member on the real API")
+	assert.Equal(t, getTableBucketIDHelper(t, h, bucketARN), entry["tableBucketId"],
+		"ListTables entry must include the real tableBucketId")
 }

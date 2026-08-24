@@ -25,11 +25,7 @@ func TestS3AccessPoint_WireShape(t *testing.T) {
 	h := newTestHandler(t)
 	client := newTestFSxClient(t, h)
 
-	volOut, err := client.CreateVolume(t.Context(), &fsxsdk.CreateVolumeInput{
-		VolumeType: types.VolumeTypeOntap,
-		Name:       aws.String("ap-vol"),
-	})
-	require.NoError(t, err)
+	volOut := createTestOntapVolume(t, client, "ap-vol")
 
 	createOut, err := client.CreateAndAttachS3AccessPoint(t.Context(), &fsxsdk.CreateAndAttachS3AccessPointInput{
 		Name: aws.String("my-ap"),

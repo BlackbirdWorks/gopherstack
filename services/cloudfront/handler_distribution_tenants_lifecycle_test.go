@@ -654,22 +654,27 @@ func TestAssociateDistributionTenantWebACL(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		check      func(*testing.T, *httptest.ResponseRecorder)
-		name       string
-		tenantID   string
-		body       []byte
-		wantStatus int
+		check         func(*testing.T, *httptest.ResponseRecorder)
+		name          string
+		tenantID      string
+		body          []byte
+		wantStatus    int
+		useRealTenant bool
 	}{
 		{
-			name:     "associate_tenant_web_acl_success",
-			tenantID: "tenant-abc-123",
+			name: "associate_tenant_web_acl_success",
 			body: []byte(
 				`<AssociateDistributionTenantWebACLRequest>` +
 					`<WebACLArn>arn:aws:wafv2:us-east-1:123:global/webacl/tenant/abc</WebACLArn>` +
 					`</AssociateDistributionTenantWebACLRequest>`,
 			),
-			wantStatus: http.StatusOK,
-			check:      func(t *testing.T, _ *httptest.ResponseRecorder) { t.Helper() },
+			wantStatus:    http.StatusOK,
+			useRealTenant: true,
+			check: func(t *testing.T, rec *httptest.ResponseRecorder) {
+				t.Helper()
+				assert.NotEmpty(t, rec.Header().Get("ETag"))
+				assert.Contains(t, rec.Body.String(), "arn:aws:wafv2:us-east-1:123:global/webacl/tenant/abc")
+			},
 		},
 		{
 			name:     "associate_tenant_web_acl_empty_tenant",
@@ -693,12 +698,17 @@ func TestAssociateDistributionTenantWebACL(t *testing.T) {
 
 			h := newTestHandler(t)
 
+			tenantID := tt.tenantID
+			if tt.useRealTenant {
+				tenantID = createTestTenant(t, h, "dist-assoc-tenant-webacl", "assoc-tenant-webacl.example.com")
+			}
+
 			var path string
-			if tt.tenantID == "" {
+			if tenantID == "" {
 				// POST to the tenant endpoint with empty tenant ID segment
 				path = "/2020-05-31/distribution-tenant//associate-web-acl"
 			} else {
-				path = "/2020-05-31/distribution-tenant/" + tt.tenantID + "/associate-web-acl"
+				path = "/2020-05-31/distribution-tenant/" + tenantID + "/associate-web-acl"
 			}
 
 			rec := doXML(t, h, http.MethodPut, path, tt.body)

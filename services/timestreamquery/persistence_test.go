@@ -29,7 +29,7 @@ func TestInMemoryBackend_RestoreVersionMismatch(t *testing.T) {
 
 	_, err := b.CreateScheduledQuery(
 		t.Context(), "seed-sq", "SELECT 1", "rate(1 hour)", "arn:aws:iam::123456789012:role/x",
-		"", "", "", "", "", "", nil, nil,
+		"", "", "", "", "", "", "", "", nil, nil,
 	)
 	require.NoError(t, err)
 
@@ -63,7 +63,7 @@ func TestInMemoryBackend_SnapshotRestore_EmptyState(t *testing.T) {
 
 	_, err := fresh.CreateScheduledQuery(
 		t.Context(), "post-restore", "SELECT 1", "rate(1 hour)", "arn:aws:iam::123456789012:role/x",
-		"", "", "", "", "", "", nil, nil,
+		"", "", "", "", "", "", "", "", nil, nil,
 	)
 	require.NoError(t, err)
 }
@@ -89,6 +89,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	eastSQ, err := original.CreateScheduledQuery(
 		ctxEast, "shared-sq", "SELECT 1", "rate(1 hour)", "arn:aws:iam::123456789012:role/east",
 		"sns-topic", "err-bucket", "db1", "tbl1", "", "arn:aws:kms:us-east-1:123456789012:key/east-key",
+		"", "",
 		map[string]string{"env": "east"},
 		&ScheduledQueryTargetDetail{
 			TimeColumn:        "time",
@@ -99,7 +100,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 
 	westSQ, err := original.CreateScheduledQuery(
 		ctxWest, "shared-sq", "SELECT 2", "rate(2 hours)", "arn:aws:iam::123456789012:role/west",
-		"", "", "", "", "", "", nil, nil,
+		"", "", "", "", "", "", "", "", nil, nil,
 	)
 	require.NoError(t, err)
 
@@ -253,7 +254,7 @@ func TestPersistence_HandlerSnapshotDelegates(t *testing.T) {
 
 	_, err := backend.CreateScheduledQuery(
 		t.Context(), "persist-test", "SELECT 1", "rate(1 hour)", "arn:aws:iam::123:role/r",
-		"arn:aws:sns:us-east-1:123:topic", "my-errors-bucket", "", "", "", "", map[string]string{"k": "v"}, nil,
+		"arn:aws:sns:us-east-1:123:topic", "my-errors-bucket", "", "", "", "", "", "", map[string]string{"k": "v"}, nil,
 	)
 	require.NoError(t, err)
 
@@ -286,7 +287,7 @@ func TestPersistence_HandlerRestoreDelegates(t *testing.T) {
 
 	_, err := backend.CreateScheduledQuery(
 		t.Context(), "handler-snap-test", "SELECT 1", "rate(1 hour)", "arn:aws:iam::123:role/r",
-		"arn:aws:sns:us-east-1:123:topic", "my-errors-bucket", "", "", "", "", nil, nil,
+		"arn:aws:sns:us-east-1:123:topic", "my-errors-bucket", "", "", "", "", "", "", nil, nil,
 	)
 	require.NoError(t, err)
 

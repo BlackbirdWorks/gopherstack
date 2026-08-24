@@ -902,7 +902,12 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 	case errors.Is(err, errInvalidRequest):
 		return c.JSON(http.StatusBadRequest, errResp("ValidationException", err.Error()))
 	default:
-		return c.JSON(http.StatusInternalServerError, errResp("InternalFailure", err.Error()))
+		// codeartifact@v1.41.4 types/errors.go models InternalServerException as the
+		// service's sole FaultServer exception, wired into 45 of 48 ops (all but
+		// ListTagsForResource/TagResource/UntagResource, which model no server fault
+		// at all). "InternalFailure" is not a codeartifact-modeled code at all, so it
+		// deserialized as an untyped smithy.GenericAPIError on every op.
+		return c.JSON(http.StatusInternalServerError, errResp("InternalServerException", err.Error()))
 	}
 }
 

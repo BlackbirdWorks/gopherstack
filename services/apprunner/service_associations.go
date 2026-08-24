@@ -150,6 +150,7 @@ func (b *InMemoryBackend) ensureDefaultAutoScalingConfiguration() {
 		MaxSize:                          defaultMaxSize,
 		MinSize:                          defaultMinSize,
 		IsDefault:                        true,
+		Latest:                           true,
 		CreatedAt:                        time.Now().UTC(),
 	}
 	b.autoScalingConfigs.Put(cfg)

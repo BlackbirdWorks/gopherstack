@@ -281,9 +281,14 @@ type ThingGroup struct {
 	Description     string            `json:"description,omitempty"`
 	ParentGroupName string            `json:"parentGroupName,omitempty"`
 	QueryString     string            `json:"queryString,omitempty"`
-	Members         []string          `json:"members"`
-	Version         int64             `json:"version"`
-	IsDynamic       bool              `json:"isDynamic,omitempty"`
+	// IndexName/QueryVersion apply only to dynamic thing groups
+	// (types.CreateDynamicThingGroupInput/UpdateDynamicThingGroupInput,
+	// aws-sdk-go-v2/service/iot@v1.77.4).
+	IndexName    string   `json:"indexName,omitempty"`
+	QueryVersion string   `json:"queryVersion,omitempty"`
+	Members      []string `json:"members"`
+	Version      int64    `json:"version"`
+	IsDynamic    bool     `json:"isDynamic,omitempty"`
 }
 
 // Certificate represents an AWS IoT Certificate.
@@ -376,6 +381,8 @@ type CreateThingGroupInput struct {
 	ParentGroupName string
 	Description     string
 	QueryString     string
+	IndexName       string
+	QueryVersion    string
 }
 
 // UpdateThingGroupInput is the input for UpdateThingGroup.
@@ -389,6 +396,8 @@ type UpdateThingGroupInput struct {
 	ThingGroupName  string
 	Description     string
 	QueryString     string
+	IndexName       string
+	QueryVersion    string
 	ExpectedVersion int64
 }
 
@@ -512,6 +521,7 @@ type ThingIndexingConfiguration struct {
 	ThingIndexingMode             string          `json:"thingIndexingMode"`
 	ThingConnectivityIndexingMode string          `json:"thingConnectivityIndexingMode,omitempty"`
 	NamedShadowIndexingMode       string          `json:"namedShadowIndexingMode,omitempty"`
+	DeviceDefenderIndexingMode    string          `json:"deviceDefenderIndexingMode,omitempty"`
 	CustomFields                  []IndexingField `json:"customFields,omitempty"`
 }
 
@@ -684,6 +694,13 @@ type UpdateThingGroupsForThingInput struct {
 // as returned by ListThingPrincipalsV2.
 type ThingPrincipalObject struct {
 	Principal          string `json:"principal"`
+	ThingPrincipalType string `json:"thingPrincipalType"`
+}
+
+// PrincipalThingObject represents a thing and its relation type to a
+// principal, as returned by ListPrincipalThingsV2.
+type PrincipalThingObject struct {
+	ThingName          string `json:"thingName"`
 	ThingPrincipalType string `json:"thingPrincipalType"`
 }
 

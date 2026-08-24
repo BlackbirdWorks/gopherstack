@@ -592,3 +592,14 @@ Both `items_still_open` above are genuinely new findings (not previously tracked
 anywhere in this file), surfaced by the same real-SDK field-diffing this pass applied to
 the 5 gaps it was scoped to close — noted here rather than silently left out, per this
 campaign's "no bad tests, no reclassifying an unfinished item as ok" rule.
+
+RE-VERIFIED 2026-08-23 (manifest-harvest pass, ranked items 1 and 4 of that pass's queue):
+re-read `grants.go`/`store.go` fresh rather than trusting this note. Both deferrals still
+hold. (1) `CreateGrant` still mints a brand-new `GrantID`/`GrantToken` on every call
+regardless of `Name` -- no dedup lookup by `Name` exists in `CreateGrant` (`grants.go`).
+`Grant` (models.go) and its `byToken` index (`store.go`) still store exactly one
+`GrantToken` string per grant, confirmed by re-reading both -- "same GrantId, fresh token,
+old token still valid" genuinely needs a storage-model change (multiple tokens per grant),
+not a quick fix. (2) `grep -rn DryRun services/kms/*.go` (excluding tests) returns nothing
+-- still entirely absent, still a broad multi-op feature addition. No code changed for
+either item this pass.

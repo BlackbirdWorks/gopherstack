@@ -137,7 +137,13 @@ func (b *InMemoryBackend) DeleteSyncConfiguration(ctx context.Context, resourceN
 
 	key := regionKey(region, syncConfigKey(resourceName, syncType))
 	if !b.syncConfigurations.Has(key) {
-		return fmt.Errorf("%w: sync configuration not found: %s/%s", ErrNotFound, resourceName, syncType)
+		// DeleteSyncConfiguration is idempotent in real AWS:
+		// DeleteSyncConfigurationOutput carries no fields at all
+		// (codestarconnections@v1.38.4 api_op_DeleteSyncConfiguration.go),
+		// and its own error switch has no ResourceNotFoundException case,
+		// unlike GetSyncConfiguration (inference, confirmed independently
+		// against sibling codeconnections@v1.13.4's identical switch).
+		return nil
 	}
 
 	b.syncConfigurations.Delete(key)

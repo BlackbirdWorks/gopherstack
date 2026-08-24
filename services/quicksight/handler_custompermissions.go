@@ -158,11 +158,13 @@ func (h *Handler) handleDeleteCustomPermissions(c *echo.Context) error {
 	accountID := seg(segs, segAccountID)
 	name := seg(segs, segResID)
 
-	if err := h.Backend.DeleteCustomPermissions(accountID, name); err != nil {
+	cp, err := h.Backend.DeleteCustomPermissions(accountID, name)
+	if err != nil {
 		return httpErr(c, err)
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
+		keyArn:       cp.Arn,
 		keyRequestID: reqIDPlaceholder,
 		keyStatus:    http.StatusOK,
 	})

@@ -33,7 +33,7 @@ func (h *Handler) handleCreateModelImportJob(c *echo.Context) error {
 	if err != nil {
 		return c.JSON(
 			http.StatusInternalServerError,
-			errorResponse("InternalFailure", "internal server error"),
+			errorResponse("InternalServerException", "internal server error"),
 		)
 	}
 

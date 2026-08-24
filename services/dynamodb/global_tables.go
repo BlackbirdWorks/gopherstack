@@ -323,6 +323,9 @@ func (db *InMemoryDB) DescribeGlobalTableSettings(
 			ReplicaProvisionedReadCapacityUnits:  &rcu,
 			ReplicaProvisionedWriteCapacityUnits: &wcu,
 			ReplicaBillingModeSummary:            &types.BillingModeSummary{BillingMode: effectiveBilling},
+			ReplicaProvisionedWriteCapacityAutoScalingSettings: sdkAutoScalingSettingsDescription(
+				gt.WriteCapacityAutoScaling,
+			),
 		}
 
 		var rs *StoredReplicaSettings
@@ -333,9 +336,14 @@ func (db *InMemoryDB) DescribeGlobalTableSettings(
 					TableClass: types.TableClass(rs.TableClass),
 				}
 			}
+			desc.ReplicaProvisionedReadCapacityAutoScalingSettings = sdkAutoScalingSettingsDescription(
+				rs.ReadCapacityAutoScaling,
+			)
 		}
 
-		desc.ReplicaGlobalSecondaryIndexSettings = db.replicaGSISettingsRLocked(region, name, rs)
+		desc.ReplicaGlobalSecondaryIndexSettings = db.replicaGSISettingsRLocked(
+			region, name, rs, gt.GSIWriteCapacityAutoScaling,
+		)
 
 		replicaSettings = append(replicaSettings, desc)
 	}
@@ -627,8 +635,7 @@ func (db *InMemoryDB) UpdateGlobalTableSettings(
 
 	name := *input.GlobalTableName
 
-	billingMode, writeCapacityUnits, replicationGroup, replicaSettings, exists :=
-		db.updateGlobalTableSettingsLocked(name, input)
+	snap, exists := db.updateGlobalTableSettingsLocked(name, input)
 	if !exists {
 		return nil, &Error{
 			Type:    errGlobalTableNotFoundType,
@@ -637,16 +644,13 @@ func (db *InMemoryDB) UpdateGlobalTableSettings(
 	}
 
 	effectiveBilling := types.BillingModePayPerRequest
-	if billingMode != "" {
-		effectiveBilling = types.BillingMode(billingMode)
+	if snap.billingMode != "" {
+		effectiveBilling = types.BillingMode(snap.billingMode)
 	}
 
-	replicas := make([]types.ReplicaSettingsDescription, 0, len(replicationGroup))
-	for _, region := range replicationGroup {
-		replicas = append(
-			replicas,
-			buildGlobalTableReplicaDesc(region, effectiveBilling, writeCapacityUnits, replicaSettings),
-		)
+	replicas := make([]types.ReplicaSettingsDescription, 0, len(snap.replicationGroup))
+	for _, region := range snap.replicationGroup {
+		replicas = append(replicas, buildGlobalTableReplicaDesc(region, effectiveBilling, snap))
 	}
 
 	return &dynamodb.UpdateGlobalTableSettingsOutput{
@@ -655,20 +659,32 @@ func (db *InMemoryDB) UpdateGlobalTableSettings(
 	}, nil
 }
 
+// globalTableSettingsSnapshot is a copy of the StoredGlobalTable fields
+// UpdateGlobalTableSettings needs to build its response, taken under
+// db.mu.Lock so the response-building code below can run lock-free.
+type globalTableSettingsSnapshot struct {
+	writeCapacityUnits          *int64
+	writeCapacityAutoScaling    *autoScalingThroughput
+	replicaSettings             map[string]*StoredReplicaSettings
+	gsiWriteCapacityAutoScaling map[string]*autoScalingThroughput
+	billingMode                 string
+	replicationGroup            []string
+}
+
 // updateGlobalTableSettingsLocked applies the UpdateGlobalTableSettings
-// mutation and snapshots the resulting billing mode, replication group, and
-// replica settings, all under a single defer-protected db.mu.Lock. Returns
-// exists=false if the named global table does not exist.
+// mutation and snapshots the resulting state, all under a single
+// defer-protected db.mu.Lock. Returns exists=false if the named global table
+// does not exist.
 func (db *InMemoryDB) updateGlobalTableSettingsLocked(
 	name string,
 	input *dynamodb.UpdateGlobalTableSettingsInput,
-) (string, *int64, []string, map[string]*StoredReplicaSettings, bool) {
+) (globalTableSettingsSnapshot, bool) {
 	db.mu.Lock("UpdateGlobalTableSettings")
 	defer db.mu.Unlock()
 
 	gt, exists := db.globalTables.Get(name)
 	if !exists {
-		return "", nil, nil, nil, false
+		return globalTableSettingsSnapshot{}, false
 	}
 
 	applyGlobalTableSettingsMutation(gt, input)
@@ -676,7 +692,14 @@ func (db *InMemoryDB) updateGlobalTableSettingsLocked(
 	replicationGroup := make([]string, len(gt.ReplicationGroup))
 	copy(replicationGroup, gt.ReplicationGroup)
 
-	return gt.BillingMode, gt.WriteCapacityUnits, replicationGroup, gt.ReplicaSettings, true
+	return globalTableSettingsSnapshot{
+		billingMode:                 gt.BillingMode,
+		writeCapacityUnits:          gt.WriteCapacityUnits,
+		writeCapacityAutoScaling:    gt.WriteCapacityAutoScaling,
+		replicationGroup:            replicationGroup,
+		replicaSettings:             gt.ReplicaSettings,
+		gsiWriteCapacityAutoScaling: gt.GSIWriteCapacityAutoScaling,
+	}, true
 }
 
 // applyGlobalTableSettingsMutation mutates gt with billing mode, write capacity, and
@@ -694,7 +717,33 @@ func applyGlobalTableSettingsMutation(
 		gt.WriteCapacityUnits = &v
 	}
 
+	if input.GlobalTableProvisionedWriteCapacityAutoScalingSettingsUpdate != nil {
+		gt.WriteCapacityAutoScaling = throughputFromUpdate(
+			input.GlobalTableProvisionedWriteCapacityAutoScalingSettingsUpdate,
+		)
+	}
+
+	applyGlobalTableGSISettingsUpdates(gt, input.GlobalTableGlobalSecondaryIndexSettingsUpdate)
 	applyReplicaSettingsUpdates(gt, input.ReplicaSettingsUpdate)
+}
+
+// applyGlobalTableGSISettingsUpdates persists the global (not per-replica)
+// write-capacity autoscaling settings for each named GSI, keyed by index name.
+func applyGlobalTableGSISettingsUpdates(
+	gt *StoredGlobalTable,
+	updates []types.GlobalTableGlobalSecondaryIndexSettingsUpdate,
+) {
+	for _, gu := range updates {
+		if gu.IndexName == nil || gu.ProvisionedWriteCapacityAutoScalingSettingsUpdate == nil {
+			continue
+		}
+		if gt.GSIWriteCapacityAutoScaling == nil {
+			gt.GSIWriteCapacityAutoScaling = make(map[string]*autoScalingThroughput)
+		}
+		gt.GSIWriteCapacityAutoScaling[*gu.IndexName] = throughputFromUpdate(
+			gu.ProvisionedWriteCapacityAutoScalingSettingsUpdate,
+		)
+	}
 }
 
 // applyReplicaSettingsUpdates persists per-replica billing, throughput, and GSI changes onto gt.
@@ -733,6 +782,12 @@ func applySingleReplicaSettingsUpdate(gt *StoredGlobalTable, ru types.ReplicaSet
 		rs.ReadCapacityUnits = &v
 	}
 
+	if ru.ReplicaProvisionedReadCapacityAutoScalingSettingsUpdate != nil {
+		rs.ReadCapacityAutoScaling = throughputFromUpdate(
+			ru.ReplicaProvisionedReadCapacityAutoScalingSettingsUpdate,
+		)
+	}
+
 	applyGSISettingsUpdates(rs, ru.ReplicaGlobalSecondaryIndexSettingsUpdate)
 }
 
@@ -757,6 +812,11 @@ func applyGSISettingsUpdates(
 			v := *gu.ProvisionedReadCapacityUnits
 			grs.ReadCapacityUnits = &v
 		}
+		if gu.ProvisionedReadCapacityAutoScalingSettingsUpdate != nil {
+			grs.ReadCapacityAutoScaling = throughputFromUpdate(
+				gu.ProvisionedReadCapacityAutoScalingSettingsUpdate,
+			)
+		}
 	}
 }
 
@@ -765,11 +825,15 @@ func applyGSISettingsUpdates(
 // UpdateGlobalTableSettingsInput.GlobalTableProvisionedWriteCapacityUnits,
 // which is a global -- not per-replica -- setting in the v1 API, so the same
 // value applies to every replica).
+// buildGlobalTableReplicaDesc builds one region's ReplicaSettingsDescription.
+// Write-capacity settings (WCU + its autoscaling) are global-table-level, not
+// per-replica, in the v1 API (api_op_UpdateGlobalTableSettings.go), so the
+// same snap.writeCapacityUnits/writeCapacityAutoScaling/
+// gsiWriteCapacityAutoScaling values apply uniformly to every replica.
 func buildGlobalTableReplicaDesc(
 	region string,
 	billing types.BillingMode,
-	writeCapacityUnits *int64,
-	replicaSettings map[string]*StoredReplicaSettings,
+	snap globalTableSettingsSnapshot,
 ) types.ReplicaSettingsDescription {
 	r := region
 	desc := types.ReplicaSettingsDescription{
@@ -780,12 +844,16 @@ func buildGlobalTableReplicaDesc(
 		},
 	}
 
-	if writeCapacityUnits != nil {
-		wcu := *writeCapacityUnits
+	if snap.writeCapacityUnits != nil {
+		wcu := *snap.writeCapacityUnits
 		desc.ReplicaProvisionedWriteCapacityUnits = &wcu
 	}
 
-	rs, ok := replicaSettings[region]
+	desc.ReplicaProvisionedWriteCapacityAutoScalingSettings = sdkAutoScalingSettingsDescription(
+		snap.writeCapacityAutoScaling,
+	)
+
+	rs, ok := snap.replicaSettings[region]
 	if !ok || rs == nil {
 		return desc
 	}
@@ -800,6 +868,10 @@ func buildGlobalTableReplicaDesc(
 		desc.ReplicaProvisionedReadCapacityUnits = &rcu
 	}
 
+	desc.ReplicaProvisionedReadCapacityAutoScalingSettings = sdkAutoScalingSettingsDescription(
+		rs.ReadCapacityAutoScaling,
+	)
+
 	if len(rs.GSISettings) > 0 {
 		gsiDescs := make([]types.ReplicaGlobalSecondaryIndexSettingsDescription, 0, len(rs.GSISettings))
 		for idxName, grs := range rs.GSISettings {
@@ -812,10 +884,18 @@ func buildGlobalTableReplicaDesc(
 				rcu := *grs.ReadCapacityUnits
 				gdesc.ProvisionedReadCapacityUnits = &rcu
 			}
-			if writeCapacityUnits != nil {
-				wcu := *writeCapacityUnits
+			if grs != nil {
+				gdesc.ProvisionedReadCapacityAutoScalingSettings = sdkAutoScalingSettingsDescription(
+					grs.ReadCapacityAutoScaling,
+				)
+			}
+			if snap.writeCapacityUnits != nil {
+				wcu := *snap.writeCapacityUnits
 				gdesc.ProvisionedWriteCapacityUnits = &wcu
 			}
+			gdesc.ProvisionedWriteCapacityAutoScalingSettings = sdkAutoScalingSettingsDescription(
+				snap.gsiWriteCapacityAutoScaling[idxName],
+			)
 			gsiDescs = append(gsiDescs, gdesc)
 		}
 		desc.ReplicaGlobalSecondaryIndexSettings = gsiDescs
@@ -827,6 +907,7 @@ func buildGlobalTableReplicaDesc(
 func (db *InMemoryDB) replicaGSISettingsRLocked(
 	region, tableName string,
 	rs *StoredReplicaSettings,
+	gsiWriteCapacityAutoScaling map[string]*autoScalingThroughput,
 ) []types.ReplicaGlobalSecondaryIndexSettingsDescription {
 	tbl := db.getTableInRegionRLocked(region, tableName, "DescribeGlobalTableSettings.gsi")
 	if tbl == nil {
@@ -850,17 +931,26 @@ func (db *InMemoryDB) replicaGSISettingsRLocked(
 		if gsi.ProvisionedThroughput.WriteCapacityUnits != nil {
 			wcu = *gsi.ProvisionedThroughput.WriteCapacityUnits
 		}
+		var readAutoScaling *autoScalingThroughput
 		if rs != nil && rs.GSISettings != nil {
-			if grs, ok := rs.GSISettings[gsiName]; ok && grs != nil && grs.ReadCapacityUnits != nil {
-				rcu = *grs.ReadCapacityUnits
+			if grs, ok := rs.GSISettings[gsiName]; ok && grs != nil {
+				if grs.ReadCapacityUnits != nil {
+					rcu = *grs.ReadCapacityUnits
+				}
+				readAutoScaling = grs.ReadCapacityAutoScaling
 			}
 		}
-		gsiDescs = append(gsiDescs, types.ReplicaGlobalSecondaryIndexSettingsDescription{
-			IndexName:                     &gsiName,
-			IndexStatus:                   types.IndexStatusActive,
-			ProvisionedReadCapacityUnits:  &rcu,
-			ProvisionedWriteCapacityUnits: &wcu,
-		})
+		gsiDesc := types.ReplicaGlobalSecondaryIndexSettingsDescription{
+			IndexName:                                  &gsiName,
+			IndexStatus:                                types.IndexStatusActive,
+			ProvisionedReadCapacityUnits:               &rcu,
+			ProvisionedWriteCapacityUnits:              &wcu,
+			ProvisionedReadCapacityAutoScalingSettings: sdkAutoScalingSettingsDescription(readAutoScaling),
+		}
+		gsiDesc.ProvisionedWriteCapacityAutoScalingSettings = sdkAutoScalingSettingsDescription(
+			gsiWriteCapacityAutoScaling[gsiName],
+		)
+		gsiDescs = append(gsiDescs, gsiDesc)
 	}
 
 	return gsiDescs

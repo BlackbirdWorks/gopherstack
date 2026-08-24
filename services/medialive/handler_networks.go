@@ -118,7 +118,8 @@ func (h *Handler) handleDeleteNetwork(c *echo.Context, networkID string) error {
 }
 
 func (h *Handler) handleListNetworks(c *echo.Context) error {
-	nets, nextToken, err := h.Backend.ListNetworks(0, "")
+	maxResults, nextTokenParam := paginationParams(c)
+	nets, nextToken, err := h.Backend.ListNetworks(maxResults, nextTokenParam)
 	if err != nil {
 		return respondErr(c, err)
 	}

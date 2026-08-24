@@ -20,21 +20,16 @@ type actionIdentifierJSON struct {
 	ActionID   string `json:"actionId"`
 }
 
-type entityJSON struct {
-	Identifier *entityIdentifierJSON      `json:"identifier,omitempty"`
-	Attributes map[string]json.RawMessage `json:"attrs,omitempty"`
-	Parents    []entityIdentifierJSON     `json:"parents,omitempty"`
-}
-
 type batchIsAuthorizedRequestItem struct {
-	Principal *entityIdentifierJSON `json:"principal,omitempty"`
-	Action    *actionIdentifierJSON `json:"action,omitempty"`
-	Resource  *entityIdentifierJSON `json:"resource,omitempty"`
+	Principal *entityIdentifierJSON  `json:"principal,omitempty"`
+	Action    *actionIdentifierJSON  `json:"action,omitempty"`
+	Resource  *entityIdentifierJSON  `json:"resource,omitempty"`
+	Context   *contextDefinitionJSON `json:"context,omitempty"`
 }
 
 type batchIsAuthorizedInput struct {
 	PolicyStoreID string                         `json:"policyStoreId"`
-	Entities      []entityJSON                   `json:"entities,omitempty"`
+	Entities      *entitiesDefinitionJSON        `json:"entities,omitempty"`
 	Requests      []batchIsAuthorizedRequestItem `json:"requests"`
 }
 
@@ -145,6 +140,11 @@ func (h *Handler) handleBatchIsAuthorized(
 		return nil, err
 	}
 
+	entities, err := entitiesToCedar(in.Entities)
+	if err != nil {
+		return nil, err
+	}
+
 	requests := make([]AuthorizationRequest, 0, len(in.Requests))
 
 	for _, r := range in.Requests {
@@ -165,10 +165,15 @@ func (h *Handler) handleBatchIsAuthorized(
 			req.ResourceEntityID = r.Resource.EntityID
 		}
 
+		req.Context, err = contextToCedar(r.Context)
+		if err != nil {
+			return nil, err
+		}
+
 		requests = append(requests, req)
 	}
 
-	decisions, err := h.Backend.BatchIsAuthorized(resolvedID, requests)
+	decisions, err := h.Backend.BatchIsAuthorized(resolvedID, requests, entities)
 	if err != nil {
 		return nil, err
 	}
@@ -177,15 +182,16 @@ func (h *Handler) handleBatchIsAuthorized(
 }
 
 type batchIsAuthorizedWithTokenRequestItem struct {
-	Action   *actionIdentifierJSON `json:"action,omitempty"`
-	Resource *entityIdentifierJSON `json:"resource,omitempty"`
+	Action   *actionIdentifierJSON  `json:"action,omitempty"`
+	Resource *entityIdentifierJSON  `json:"resource,omitempty"`
+	Context  *contextDefinitionJSON `json:"context,omitempty"`
 }
 
 type batchIsAuthorizedWithTokenInput struct {
 	PolicyStoreID string                                  `json:"policyStoreId"`
 	AccessToken   string                                  `json:"accessToken,omitempty"`
 	IdentityToken string                                  `json:"identityToken,omitempty"`
-	Entities      []entityJSON                            `json:"entities,omitempty"`
+	Entities      *entitiesDefinitionJSON                 `json:"entities,omitempty"`
 	Requests      []batchIsAuthorizedWithTokenRequestItem `json:"requests"`
 }
 
@@ -273,6 +279,11 @@ func (h *Handler) handleBatchIsAuthorizedWithToken(
 
 	principalType, principalID := h.principalFromToken(resolvedID, isAccessToken, token)
 
+	entities, err := entitiesToCedar(in.Entities)
+	if err != nil {
+		return nil, err
+	}
+
 	requests := make([]AuthorizationRequest, 0, len(in.Requests))
 
 	for _, r := range in.Requests {
@@ -291,10 +302,15 @@ func (h *Handler) handleBatchIsAuthorizedWithToken(
 			req.ResourceEntityID = r.Resource.EntityID
 		}
 
+		req.Context, err = contextToCedar(r.Context)
+		if err != nil {
+			return nil, err
+		}
+
 		requests = append(requests, req)
 	}
 
-	decisions, err := h.Backend.BatchIsAuthorizedWithToken(resolvedID, requests)
+	decisions, err := h.Backend.BatchIsAuthorizedWithToken(resolvedID, requests, entities)
 	if err != nil {
 		return nil, err
 	}
@@ -308,10 +324,12 @@ func (h *Handler) handleBatchIsAuthorizedWithToken(
 }
 
 type isAuthorizedInput struct {
-	Principal     *entityIdentifierJSON `json:"principal,omitempty"`
-	Action        *actionIdentifierJSON `json:"action,omitempty"`
-	Resource      *entityIdentifierJSON `json:"resource,omitempty"`
-	PolicyStoreID string                `json:"policyStoreId"`
+	Principal     *entityIdentifierJSON   `json:"principal,omitempty"`
+	Action        *actionIdentifierJSON   `json:"action,omitempty"`
+	Resource      *entityIdentifierJSON   `json:"resource,omitempty"`
+	Context       *contextDefinitionJSON  `json:"context,omitempty"`
+	Entities      *entitiesDefinitionJSON `json:"entities,omitempty"`
+	PolicyStoreID string                  `json:"policyStoreId"`
 }
 
 type isAuthorizedOutput struct {
@@ -347,7 +365,17 @@ func (h *Handler) handleIsAuthorized(_ context.Context, in *isAuthorizedInput) (
 		req.ResourceEntityID = in.Resource.EntityID
 	}
 
-	decision, err := h.Backend.IsAuthorized(resolvedID, req)
+	req.Context, err = contextToCedar(in.Context)
+	if err != nil {
+		return nil, err
+	}
+
+	entities, err := entitiesToCedar(in.Entities)
+	if err != nil {
+		return nil, err
+	}
+
+	decision, err := h.Backend.IsAuthorized(resolvedID, req, entities)
 	if err != nil {
 		return nil, err
 	}
@@ -532,11 +560,13 @@ func audienceClaimMatches(v any, configured []string) bool {
 }
 
 type isAuthorizedWithTokenInput struct {
-	Action        *actionIdentifierJSON `json:"action,omitempty"`
-	Resource      *entityIdentifierJSON `json:"resource,omitempty"`
-	PolicyStoreID string                `json:"policyStoreId"`
-	AccessToken   string                `json:"accessToken,omitempty"`
-	IdentityToken string                `json:"identityToken,omitempty"`
+	Action        *actionIdentifierJSON   `json:"action,omitempty"`
+	Resource      *entityIdentifierJSON   `json:"resource,omitempty"`
+	Context       *contextDefinitionJSON  `json:"context,omitempty"`
+	Entities      *entitiesDefinitionJSON `json:"entities,omitempty"`
+	PolicyStoreID string                  `json:"policyStoreId"`
+	AccessToken   string                  `json:"accessToken,omitempty"`
+	IdentityToken string                  `json:"identityToken,omitempty"`
 }
 
 // isAuthorizedWithTokenOutput mirrors the real SDK's
@@ -588,7 +618,17 @@ func (h *Handler) handleIsAuthorizedWithToken(
 
 	req.PrincipalEntityType, req.PrincipalEntityID = h.principalFromToken(resolvedID, isAccessToken, token)
 
-	decision, err := h.Backend.IsAuthorizedWithToken(resolvedID, req)
+	req.Context, err = contextToCedar(in.Context)
+	if err != nil {
+		return nil, err
+	}
+
+	entities, err := entitiesToCedar(in.Entities)
+	if err != nil {
+		return nil, err
+	}
+
+	decision, err := h.Backend.IsAuthorizedWithToken(resolvedID, req, entities)
 	if err != nil {
 		return nil, err
 	}

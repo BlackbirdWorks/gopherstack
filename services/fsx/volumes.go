@@ -34,15 +34,45 @@ func (v *storedVolume) toPublic() *Volume {
 	}
 }
 
-type createVolumeInput struct {
-	VolumeType              string `json:"VolumeType"`
-	FileSystemID            string `json:"FileSystemId,omitempty"`
-	StorageVirtualMachineID string `json:"StorageVirtualMachineId,omitempty"`
-	Name                    string `json:"Name"`
-	Tags                    []Tag  `json:"Tags,omitempty"`
+// createOntapVolumeConfigInput is the real CreateVolumeInput.OntapConfiguration
+// shape (fsx@v1.68.4 types.CreateOntapVolumeConfiguration) -- only
+// StorageVirtualMachineId (the sole required member) is modeled; the rest is
+// out of this fix's scope (Volume's response has no OntapVolumeConfiguration
+// at all, a pre-existing, disclosed Layer-3 gap).
+type createOntapVolumeConfigInput struct {
+	StorageVirtualMachineID string `json:"StorageVirtualMachineId"`
 }
 
-// CreateVolume creates a volume.
+// createOpenZFSVolumeConfigInput is the real
+// CreateVolumeInput.OpenZFSConfiguration shape (fsx@v1.68.4
+// types.CreateOpenZFSVolumeConfiguration) -- only ParentVolumeId (the sole
+// required member) is modeled, same scoping rationale as
+// createOntapVolumeConfigInput.
+type createOpenZFSVolumeConfigInput struct {
+	ParentVolumeID string `json:"ParentVolumeId"`
+}
+
+// createVolumeInput mirrors the real CreateVolumeInput wire shape
+// (fsx@v1.68.4 api_op_CreateVolume.go): there is no top-level FileSystemId
+// or StorageVirtualMachineId at all -- StorageVirtualMachineId lives nested
+// under OntapConfiguration (required for VolumeType=ONTAP) and the
+// equivalent OpenZFS anchor is OpenZFSConfiguration.ParentVolumeId (required
+// for VolumeType=OPENZFS); FileSystemId is derived server-side from
+// whichever anchor resolves.
+type createVolumeInput struct {
+	VolumeType           string                          `json:"VolumeType"`
+	Name                 string                          `json:"Name"`
+	OntapConfiguration   *createOntapVolumeConfigInput   `json:"OntapConfiguration,omitempty"`
+	OpenZFSConfiguration *createOpenZFSVolumeConfigInput `json:"OpenZFSConfiguration,omitempty"`
+	Tags                 []Tag                           `json:"Tags,omitempty"`
+}
+
+// CreateVolume creates a volume. Real AWS requires OntapConfiguration for
+// VolumeType=ONTAP and OpenZFSConfiguration for VolumeType=OPENZFS
+// (types.MissingVolumeConfiguration, "A volume configuration is required for
+// this operation.") -- there is no other way for a real client to name the
+// parent file system, since CreateVolumeInput carries neither a
+// FileSystemId nor a top-level StorageVirtualMachineId.
 func (b *InMemoryBackend) CreateVolume(input *createVolumeInput) (*Volume, error) {
 	if input.VolumeType == "" {
 		return nil, ErrValidation
@@ -55,16 +85,9 @@ func (b *InMemoryBackend) CreateVolume(input *createVolumeInput) (*Volume, error
 	b.mu.Lock("CreateVolume")
 	defer b.mu.Unlock()
 
-	if input.FileSystemID != "" {
-		if !b.fileSystems.Has(input.FileSystemID) {
-			return nil, ErrFileSystemNotFound
-		}
-	}
-
-	if input.StorageVirtualMachineID != "" {
-		if !b.storageVirtualMachines.Has(input.StorageVirtualMachineID) {
-			return nil, ErrStorageVirtualMachineNotFound
-		}
+	fileSystemID, svmID, err := b.resolveVolumeParentLocked(input)
+	if err != nil {
+		return nil, err
 	}
 
 	id := newFSxVolumeID()
@@ -77,8 +100,8 @@ func (b *InMemoryBackend) CreateVolume(input *createVolumeInput) (*Volume, error
 		Tags:                    tags,
 		VolumeID:                id,
 		VolumeType:              input.VolumeType,
-		FileSystemID:            input.FileSystemID,
-		StorageVirtualMachineID: input.StorageVirtualMachineID,
+		FileSystemID:            fileSystemID,
+		StorageVirtualMachineID: svmID,
 		Name:                    input.Name,
 		Lifecycle:               lifecycleAvailable,
 		ResourceARN:             arn,
@@ -88,6 +111,38 @@ func (b *InMemoryBackend) CreateVolume(input *createVolumeInput) (*Volume, error
 	b.tags[arn] = tags
 
 	return v.toPublic(), nil
+}
+
+// resolveVolumeParentLocked validates and resolves CreateVolume's per-type
+// configuration block into (FileSystemId, StorageVirtualMachineId). Caller
+// must already hold b.mu.
+func (b *InMemoryBackend) resolveVolumeParentLocked(input *createVolumeInput) (string, string, error) {
+	switch input.VolumeType {
+	case fileSystemTypeONTAP:
+		if input.OntapConfiguration == nil || input.OntapConfiguration.StorageVirtualMachineID == "" {
+			return "", "", ErrMissingVolumeConfiguration
+		}
+
+		svm, ok := b.storageVirtualMachines.Get(input.OntapConfiguration.StorageVirtualMachineID)
+		if !ok {
+			return "", "", ErrStorageVirtualMachineNotFound
+		}
+
+		return svm.FileSystemID, svm.StorageVirtualMachineID, nil
+	case fileSystemTypeOpenZFS:
+		if input.OpenZFSConfiguration == nil || input.OpenZFSConfiguration.ParentVolumeID == "" {
+			return "", "", ErrMissingVolumeConfiguration
+		}
+
+		parent, ok := b.volumes.Get(input.OpenZFSConfiguration.ParentVolumeID)
+		if !ok {
+			return "", "", ErrVolumeNotFound
+		}
+
+		return parent.FileSystemID, "", nil
+	default:
+		return "", "", nil
+	}
 }
 
 type createVolumeFromBackupInput struct {

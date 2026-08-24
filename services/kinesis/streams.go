@@ -19,6 +19,50 @@ func isValidStreamName(s string) bool {
 	return streamNameRe.MatchString(s)
 }
 
+// resolveCreateStreamMaxRecordSize validates CreateStreamInput's own
+// MaxRecordSizeInKiB member (kinesis@v1.46.4 api_op_CreateStream.go:101-103)
+// and converts it to bytes, or returns defaultMaxRecordSizeBytes when unset
+// (kiB <= 0).
+func resolveCreateStreamMaxRecordSize(kiB int) (int, error) {
+	if kiB <= 0 {
+		return defaultMaxRecordSizeBytes, nil
+	}
+
+	sizeBytes := kiB * bytesPerKiB
+	if sizeBytes < defaultMaxRecordSizeBytes || sizeBytes > absoluteMaxRecordSizeBytes {
+		return 0, ErrInvalidArgument
+	}
+
+	return sizeBytes, nil
+}
+
+// resolveCreateStreamModeAndShardCount validates CreateStreamInput's
+// StreamMode and ShardCount together and returns the effective values.
+// ON_DEMAND streams ignore any caller-supplied ShardCount — AWS auto-manages
+// capacity and a freshly created on-demand stream starts with
+// defaultOnDemandShardCount shards.
+func resolveCreateStreamModeAndShardCount(mode string, shardCount int) (string, int, error) {
+	if mode == "" {
+		mode = streamModeProvisioned
+	} else if mode != streamModeProvisioned && mode != streamModeOnDemand {
+		return "", 0, ErrInvalidArgument
+	}
+
+	if mode == streamModeOnDemand {
+		shardCount = defaultOnDemandShardCount
+	} else if shardCount <= 0 {
+		shardCount = defaultShardCount
+	}
+	if shardCount > maxShardsPerStream {
+		return "", 0, ErrInvalidArgument
+	}
+	if shardCount > maxShardCount {
+		shardCount = maxShardCount
+	}
+
+	return mode, shardCount, nil
+}
+
 // CreateStream creates a new Kinesis stream.
 func (b *InMemoryBackend) CreateStream(ctx context.Context, input *CreateStreamInput) error {
 	region := getRegion(ctx, b.region)
@@ -37,27 +81,9 @@ func (b *InMemoryBackend) CreateStream(ctx context.Context, input *CreateStreamI
 		return ErrStreamAlreadyExists
 	}
 
-	streamMode := input.StreamMode
-	if streamMode == "" {
-		streamMode = streamModeProvisioned
-	} else if streamMode != streamModeProvisioned && streamMode != streamModeOnDemand {
-		return ErrInvalidArgument
-	}
-
-	// Clamp shardCount to a safe range before using it for allocations or shard math.
-	// ON_DEMAND streams ignore any caller-supplied ShardCount — AWS auto-manages
-	// capacity and a freshly created on-demand stream starts with 4 shards.
-	shardCount := input.ShardCount
-	if streamMode == streamModeOnDemand {
-		shardCount = defaultOnDemandShardCount
-	} else if shardCount <= 0 {
-		shardCount = defaultShardCount
-	}
-	if shardCount > maxShardsPerStream {
-		return ErrInvalidArgument
-	}
-	if shardCount > maxShardCount {
-		shardCount = maxShardCount
+	streamMode, shardCount, err := resolveCreateStreamModeAndShardCount(input.StreamMode, input.ShardCount)
+	if err != nil {
+		return err
 	}
 
 	now := time.Now()
@@ -69,26 +95,36 @@ func (b *InMemoryBackend) CreateStream(ctx context.Context, input *CreateStreamI
 	}
 
 	if streamMode == streamModeOnDemand {
-		if err := checkOnDemandLimit(b.streamsByRegion.Get(region), b.onDemandStreamCountLimit); err != nil {
-			return err
+		if odErr := checkOnDemandLimit(b.streamsByRegion.Get(region), b.onDemandStreamCountLimit); odErr != nil {
+			return odErr
 		}
+	}
+
+	maxRecordSizeBytes, err := resolveCreateStreamMaxRecordSize(input.MaxRecordSizeInKiB)
+	if err != nil {
+		return err
+	}
+
+	if input.WarmThroughputMiBps < 0 || input.WarmThroughputMiBps > maxWarmThroughputMiBps {
+		return ErrInvalidArgument
 	}
 
 	streamARN := arn.Build("kinesis", region, accountID, "stream/"+input.StreamName)
 
 	b.streams.Put(&Stream{
-		Name:               input.StreamName,
-		ARN:                streamARN,
-		Region:             region,
-		Status:             streamStatusActive,
-		Shards:             shards,
-		mu:                 newStreamLock(input.StreamName),
-		Tags:               tags.New("kinesis.stream." + input.StreamName + ".tags"),
-		CreatedAt:          now,
-		RetentionPeriod:    defaultRetentionHours,
-		Consumers:          make(map[string]*Consumer),
-		StreamMode:         streamMode,
-		MaxRecordSizeBytes: defaultMaxRecordSizeBytes,
+		Name:                input.StreamName,
+		ARN:                 streamARN,
+		Region:              region,
+		Status:              streamStatusActive,
+		Shards:              shards,
+		mu:                  newStreamLock(input.StreamName),
+		Tags:                tags.New("kinesis.stream." + input.StreamName + ".tags"),
+		CreatedAt:           now,
+		RetentionPeriod:     defaultRetentionHours,
+		Consumers:           make(map[string]*Consumer),
+		StreamMode:          streamMode,
+		MaxRecordSizeBytes:  maxRecordSizeBytes,
+		WarmThroughputMiBps: input.WarmThroughputMiBps,
 	})
 
 	return nil

@@ -231,6 +231,15 @@ type CreateStreamInput struct {
 	AccountID  string
 	StreamMode string
 	ShardCount int
+	// MaxRecordSizeInKiB mirrors CreateStreamInput's own field of the same
+	// name (kinesis@v1.46.4 api_op_CreateStream.go:101-103), not just
+	// UpdateMaxRecordSize's. Zero means "not specified" -- CreateStream keeps
+	// defaultMaxRecordSizeBytes, same as an omitted request member.
+	MaxRecordSizeInKiB int
+	// WarmThroughputMiBps mirrors CreateStreamInput's own field of the same
+	// name (kinesis@v1.46.4 api_op_CreateStream.go:119-121). Zero means "not
+	// specified".
+	WarmThroughputMiBps int
 }
 
 // DeleteStreamInput is the input for DeleteStream.
@@ -642,6 +651,11 @@ type DescribeAccountSettingsOutput struct {
 type UpdateStreamModeInput struct {
 	StreamARN         string
 	StreamModeDetails StreamModeDetails
+	// WarmThroughputMiBps mirrors UpdateStreamModeInput's own field
+	// (kinesis@v1.46.4 api_op_UpdateStreamMode.go, "only valid when the
+	// stream mode is being updated to on-demand"). Zero means "not
+	// specified".
+	WarmThroughputMiBps int
 }
 
 // StreamModeDetails describes the mode of a Kinesis stream.

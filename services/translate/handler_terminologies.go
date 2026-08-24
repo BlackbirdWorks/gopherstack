@@ -75,7 +75,11 @@ func (h *Handler) importTerminology(input map[string]any) (map[string]any, error
 	}
 
 	mergeStrategy, _ := input["MergeStrategy"].(string)
-	if mergeStrategy != "" && mergeStrategy != "OVERWRITE" {
+	if mergeStrategy == "" {
+		return nil, fmt.Errorf("%w: MergeStrategy is required", ErrInvalidParameter)
+	}
+
+	if mergeStrategy != "OVERWRITE" {
 		return nil, fmt.Errorf("%w: MergeStrategy must be OVERWRITE", ErrInvalidParameter)
 	}
 

@@ -150,6 +150,7 @@ func (b *InMemoryBackend) CreateTableBucket(
 		OwnerAccountID: b.accountID,
 		CreatedAt:      time.Now().UTC(),
 		StorageClass:   storageClass,
+		BucketID:       uuid.NewString(),
 		Encryption:     cloneAnyMap(opts.Encryption),
 		MaintenanceConfiguration: map[string]any{
 			maintenanceTypeIcebergUnreferencedFileRemoval: map[string]any{

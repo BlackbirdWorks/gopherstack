@@ -79,7 +79,11 @@ func TestInstanceCreditSpecifications(t *testing.T) { //nolint:paralleltest // e
 	})
 
 	t.Run("modify changes to unlimited", func(t *testing.T) { //nolint:paralleltest // existing issue.
-		require.NoError(t, b.ModifyInstanceCreditSpecification(inst.ID, "unlimited"))
+		successful, unsuccessful := b.ModifyInstanceCreditSpecification(
+			[]ec2.InstanceCreditSpec{{InstanceID: inst.ID, CPUCredits: "unlimited"}},
+		)
+		require.Len(t, successful, 1)
+		require.Empty(t, unsuccessful)
 		specs := b.DescribeInstanceCreditSpecifications([]string{inst.ID})
 		require.Len(t, specs, 1)
 		assert.Equal(t, "unlimited", specs[0].CPUCredits)

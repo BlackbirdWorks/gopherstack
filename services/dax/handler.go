@@ -228,11 +228,18 @@ var daxErrCodeMappings = []errCodeMapping{ //nolint:gochecknoglobals // package-
 	{ErrParameterGroupAlreadyExists, "ParameterGroupAlreadyExistsFault"},
 	{ErrSubnetGroupAlreadyExists, "SubnetGroupAlreadyExistsFault"},
 	{ErrSubnetGroupInUse, "SubnetGroupInUseFault"},
-	{ErrParameterGroupInUse, "ParameterGroupInUseFault"},
+	// DeleteParameterGroup's own awsAwsjson11_deserializeOpErrorDeleteParameterGroup
+	// switch (aws-sdk-go-v2/service/dax@v1.32.4 deserializers.go) has no
+	// ParameterGroupInUseFault case -- that type doesn't exist anywhere in the
+	// DAX SDK at all (types/errors.go defines no such struct). The switch's
+	// InvalidParameterGroupStateFault is the code the real op actually types
+	// for "this parameter group can't be modified/deleted right now".
+	{ErrParameterGroupInUse, "InvalidParameterGroupStateFault"},
 	{ErrInvalidClusterState, "InvalidClusterStateFault"},
 
 	// Specific invalid parameter variants.
 	{ErrInvalidARN, "InvalidARNFault"},
+	{ErrInvalidSubnet, "InvalidSubnet"},
 	{ErrInvalidParameterValue, "InvalidParameterValueException"},
 	{ErrInvalidParameterCombination, "InvalidParameterCombinationException"},
 

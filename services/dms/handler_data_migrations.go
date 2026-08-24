@@ -20,15 +20,24 @@ type createDataMigrationInput struct {
 	Tags                       []tagEntry `json:"Tags"`
 }
 
+// dataMigrationSettingsJSON mirrors real AWS's DataMigrationSettings, the
+// nested object DataMigration.DataMigrationSettings deserializes into
+// (databasemigrationservice@v1.66.4 deserializers.go:16546); NumberOfJobs and
+// EnableCloudwatchLogs are flat request-input fields but the response nests
+// them under this object, and renames the latter to CloudwatchLogsEnabled.
+type dataMigrationSettingsJSON struct {
+	NumberOfJobs          int32 `json:"NumberOfJobs"`
+	CloudwatchLogsEnabled bool  `json:"CloudwatchLogsEnabled"`
+}
+
 type dataMigrationJSON struct {
-	DataMigrationName    string `json:"DataMigrationName"`
-	DataMigrationArn     string `json:"DataMigrationArn"`
-	MigrationProjectArn  string `json:"MigrationProjectArn"`
-	DataMigrationType    string `json:"DataMigrationType"`
-	ServiceAccessRoleArn string `json:"ServiceAccessRoleArn"`
-	DataMigrationStatus  string `json:"DataMigrationStatus"`
-	NumberOfJobs         int32  `json:"NumberOfJobs"`
-	EnableCloudwatchLogs bool   `json:"EnableCloudwatchLogs"`
+	DataMigrationName     string                    `json:"DataMigrationName"`
+	DataMigrationArn      string                    `json:"DataMigrationArn"`
+	MigrationProjectArn   string                    `json:"MigrationProjectArn"`
+	DataMigrationType     string                    `json:"DataMigrationType"`
+	ServiceAccessRoleArn  string                    `json:"ServiceAccessRoleArn"`
+	DataMigrationStatus   string                    `json:"DataMigrationStatus"`
+	DataMigrationSettings dataMigrationSettingsJSON `json:"DataMigrationSettings"`
 }
 
 type createDataMigrationOutput struct {
@@ -75,8 +84,10 @@ func dmToJSON(dm *DataMigration) dataMigrationJSON {
 		DataMigrationType:    dm.DataMigrationType,
 		ServiceAccessRoleArn: dm.ServiceAccessRoleArn,
 		DataMigrationStatus:  dm.DataMigrationStatus,
-		NumberOfJobs:         dm.NumberOfJobs,
-		EnableCloudwatchLogs: dm.EnableCloudwatchLogs,
+		DataMigrationSettings: dataMigrationSettingsJSON{
+			NumberOfJobs:          dm.NumberOfJobs,
+			CloudwatchLogsEnabled: dm.EnableCloudwatchLogs,
+		},
 	}
 }
 

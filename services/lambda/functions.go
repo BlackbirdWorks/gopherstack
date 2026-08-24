@@ -345,6 +345,57 @@ func (b *InMemoryBackend) DeleteFunction(name string) error {
 	return nil
 }
 
+// DeleteFunctionVersion deletes a single published version of a function,
+// leaving $LATEST, every other version, and every alias that doesn't
+// reference this version intact. This is DeleteFunctionInput's real
+// query-bound Qualifier member (lambda@v1.101.2 serializers.go
+// awsRestjson1_serializeOpHttpBindingsDeleteFunctionInput) -- api_op_DeleteFunction.go's
+// doc comment: "To delete a specific function version, use the Qualifier
+// parameter. Otherwise, all versions and aliases are deleted", and you can't
+// delete a version that an alias references.
+func (b *InMemoryBackend) DeleteFunctionVersion(name, qualifier string) error {
+	if qualifier == "" {
+		return b.DeleteFunction(name)
+	}
+
+	if qualifier == versionLatest {
+		return ErrInvalidParameterValue
+	}
+
+	b.mu.Lock("DeleteFunctionVersion")
+	defer b.mu.Unlock()
+
+	if _, ok := b.functions.Get(name); !ok {
+		return ErrFunctionNotFound
+	}
+
+	vMap := b.versionIndex[name]
+	if vMap == nil {
+		return ErrVersionNotFound
+	}
+	if _, ok := vMap[qualifier]; !ok {
+		return ErrVersionNotFound
+	}
+
+	for _, a := range b.aliasesByFunction.Get(name) {
+		if a.FunctionVersion == qualifier {
+			return ErrVersionReferencedByAlias
+		}
+	}
+
+	delete(vMap, qualifier)
+
+	kept := b.versions[name][:0]
+	for _, v := range b.versions[name] {
+		if v.Version != qualifier {
+			kept = append(kept, v)
+		}
+	}
+	b.versions[name] = kept
+
+	return nil
+}
+
 // UpdateFunction replaces a Lambda function's configuration.
 // Any running container is evicted so the next invocation picks up the new code/config.
 func (b *InMemoryBackend) UpdateFunction(fn *FunctionConfiguration) error {

@@ -23,7 +23,15 @@ import (
 // OTAUpdateInfo.otaUpdateFiles wire key. Same Go field, different on-disk
 // key -- an older snapshot would decode Files as its zero value (nil),
 // silently dropping every OTA update's file list.
-const iotSnapshotVersion = 2
+//
+// Bumped 2 -> 3: the scheduledAudits table's ScheduledAudit.Tags field was
+// retagged json:"tags,omitempty" -> json:"-" (real DescribeScheduledAuditOutput
+// has no "tags" member; harmless to drop functionally, since the canonical
+// tag store is the separately-persisted resourceTags map and Tags on
+// ScheduledAudit is write-only scratch state, but the field removal is a
+// real on-disk shape change the guard cannot tell apart from a dangerous
+// one without this bump).
+const iotSnapshotVersion = 3
 
 type backendSnapshot struct {
 	Tables                          map[string]json.RawMessage                    `json:"tables"`
@@ -37,6 +45,7 @@ type backendSnapshot struct {
 	PolicyTargets                   map[string][]string                           `json:"policyTargets"`
 	SecurityProfileTargets          map[string][]string                           `json:"securityProfileTargets"`
 	ThingPrincipals                 map[string][]string                           `json:"thingPrincipals"`
+	ThingPrincipalTypes             map[string]map[string]string                  `json:"thingPrincipalTypes"`
 	ThingGroupIndexingConfiguration *ThingGroupIndexingConfiguration              `json:"thingGroupIndexingConfiguration"`
 	AuditMitigationTasks            map[string]string                             `json:"auditMitigationTasks"`
 	AuditMitigationExecutions       map[string][]*AuditMitigationActionExecution  `json:"auditMitigationExecutions"`
@@ -126,6 +135,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		PolicyTargets:          copyStringSliceMap(b.policyTargets),
 		SecurityProfileTargets: copyStringSliceMap(b.securityProfileTargets),
 		ThingPrincipals:        copyStringSliceMap(b.thingPrincipals),
+		ThingPrincipalTypes:    copyNestedStringMap(b.thingPrincipalTypes),
 		AuditMitigationTasks:   copyStringMap(b.auditMitigationTasks),
 		AuditTasks:             copyStringMap(b.auditTasks),
 
@@ -222,6 +232,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.policyTargets = copyStringSliceMap(snap.PolicyTargets)
 	b.securityProfileTargets = copyStringSliceMap(snap.SecurityProfileTargets)
 	b.thingPrincipals = copyStringSliceMap(snap.ThingPrincipals)
+	b.thingPrincipalTypes = copyNestedStringMap(snap.ThingPrincipalTypes)
 	b.auditMitigationTasks = copyStringMap(snap.AuditMitigationTasks)
 	b.auditTasks = copyStringMap(snap.AuditTasks)
 
@@ -305,6 +316,10 @@ func ensureNonNilSnap(snap *backendSnapshot) {
 
 	if snap.ThingPrincipals == nil {
 		snap.ThingPrincipals = make(map[string][]string)
+	}
+
+	if snap.ThingPrincipalTypes == nil {
+		snap.ThingPrincipalTypes = make(map[string]map[string]string)
 	}
 
 	if snap.AuditMitigationTasks == nil {
@@ -497,6 +512,8 @@ func cloneIoTCommandExecution(e *IoTCommandExecution) *IoTCommandExecution {
 func cloneEventConfigurations(e *EventConfigurations) *EventConfigurations {
 	cp := EventConfigurations{
 		EventConfigurations: make(map[string]*EventConfigEntry, len(e.EventConfigurations)),
+		CreationDate:        e.CreationDate,
+		LastModifiedDate:    e.LastModifiedDate,
 	}
 	for k, v := range e.EventConfigurations {
 		entry := *v

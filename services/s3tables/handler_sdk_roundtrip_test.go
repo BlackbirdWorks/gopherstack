@@ -88,3 +88,83 @@ func TestSDKRoundTrip_NamespaceIDFix(t *testing.T) {
 	assert.NotEmpty(t, aws.ToString(listOut.Namespaces[0].NamespaceId))
 	assert.Equal(t, aws.ToString(getOut.NamespaceId), aws.ToString(listOut.Namespaces[0].NamespaceId))
 }
+
+// TestSDKRoundTrip_TableBucketIDFix covers gopherstack-wla0: GetTable and
+// ListTables wrote the wire key "tableBucketARN", but the real
+// GetTableOutput/TableSummary deserializers
+// (awsRestjson1_deserializeOpDocumentGetTableOutput/
+// ...DocumentTableSummary in s3tables@v1.18.4's deserializers.go) have no
+// such member -- only "tableBucketId", a genuinely different,
+// system-assigned value. GetNamespace/ListNamespaces had the identical bug
+// (GetNamespaceOutput/NamespaceSummary also lack tableBucketARN). Before the
+// fix, every one of these four real client calls decoded TableBucketId as
+// nil; this test fails against the unfixed handler with exactly that
+// symptom (asserted via hand-revert, see PARITY.md).
+func TestSDKRoundTrip_TableBucketIDFix(t *testing.T) {
+	t.Parallel()
+
+	backend := s3tables.NewInMemoryBackend("000000000000", rtTestRegion)
+	h := s3tables.NewHandler(backend)
+	client := newTestS3TablesClient(t, h)
+	ctx := t.Context()
+
+	bucketOut, err := client.CreateTableBucket(ctx, &s3tablessdk.CreateTableBucketInput{
+		Name: aws.String("wla0-bucket"),
+	})
+	require.NoError(t, err)
+
+	getBucketOut, err := client.GetTableBucket(ctx, &s3tablessdk.GetTableBucketInput{
+		TableBucketARN: bucketOut.Arn,
+	})
+	require.NoError(t, err)
+	wantBucketID := aws.ToString(getBucketOut.TableBucketId)
+	assert.NotEmpty(t, wantBucketID)
+
+	listBucketsOut, err := client.ListTableBuckets(ctx, &s3tablessdk.ListTableBucketsInput{})
+	require.NoError(t, err)
+	require.Len(t, listBucketsOut.TableBuckets, 1)
+	assert.Equal(t, wantBucketID, aws.ToString(listBucketsOut.TableBuckets[0].TableBucketId))
+
+	_, err = client.CreateNamespace(ctx, &s3tablessdk.CreateNamespaceInput{
+		TableBucketARN: bucketOut.Arn,
+		Namespace:      []string{"wla0_namespace"},
+	})
+	require.NoError(t, err)
+
+	getNsOut, err := client.GetNamespace(ctx, &s3tablessdk.GetNamespaceInput{
+		TableBucketARN: bucketOut.Arn,
+		Namespace:      aws.String("wla0_namespace"),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, wantBucketID, aws.ToString(getNsOut.TableBucketId))
+
+	listNsOut, err := client.ListNamespaces(ctx, &s3tablessdk.ListNamespacesInput{
+		TableBucketARN: bucketOut.Arn,
+	})
+	require.NoError(t, err)
+	require.Len(t, listNsOut.Namespaces, 1)
+	assert.Equal(t, wantBucketID, aws.ToString(listNsOut.Namespaces[0].TableBucketId))
+
+	_, err = client.CreateTable(ctx, &s3tablessdk.CreateTableInput{
+		TableBucketARN: bucketOut.Arn,
+		Namespace:      aws.String("wla0_namespace"),
+		Name:           aws.String("wla0_table"),
+		Format:         "ICEBERG",
+	})
+	require.NoError(t, err)
+
+	getTableOut, err := client.GetTable(ctx, &s3tablessdk.GetTableInput{
+		TableBucketARN: bucketOut.Arn,
+		Namespace:      aws.String("wla0_namespace"),
+		Name:           aws.String("wla0_table"),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, wantBucketID, aws.ToString(getTableOut.TableBucketId))
+
+	listTablesOut, err := client.ListTables(ctx, &s3tablessdk.ListTablesInput{
+		TableBucketARN: bucketOut.Arn,
+	})
+	require.NoError(t, err)
+	require.Len(t, listTablesOut.Tables, 1)
+	assert.Equal(t, wantBucketID, aws.ToString(listTablesOut.Tables[0].TableBucketId))
+}

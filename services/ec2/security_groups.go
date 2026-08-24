@@ -50,42 +50,77 @@ func (b *InMemoryBackend) AuthorizeSecurityGroupEgress(
 }
 
 // RevokeSecurityGroupIngress removes matching ingress rules from a security group.
+// Rules that don't match anything are reported back as unknown rather than
+// silently ignored, matching the real RevokeSecurityGroupIngressOutput shape
+// (Return, SecurityGroupRules, UnknownIpPermissions).
 func (b *InMemoryBackend) RevokeSecurityGroupIngress(
 	groupID string,
 	rules []SecurityGroupRule,
-) error {
+) ([]*SecurityGroupRuleDetail, []SecurityGroupRule, error) {
 	b.mu.Lock("RevokeSecurityGroupIngress")
 	defer b.mu.Unlock()
 
 	sg, ok := b.securityGroups.Get(groupID)
 	if !ok {
-		return fmt.Errorf("%w: %s", ErrSecurityGroupNotFound, groupID)
+		return nil, nil, fmt.Errorf("%w: %s", ErrSecurityGroupNotFound, groupID)
 	}
 
+	var revoked []*SecurityGroupRuleDetail
+	var unknown []SecurityGroupRule
+
 	for _, rule := range rules {
+		idx := -1
+		key := ruleKey(rule)
+
+		for i, r := range sg.IngressRules {
+			if ruleKey(r) == key {
+				idx = i
+
+				break
+			}
+		}
+
+		if idx < 0 {
+			unknown = append(unknown, rule)
+
+			continue
+		}
+
+		matched := sg.IngressRules[idx]
+		revoked = append(revoked, &SecurityGroupRuleDetail{
+			SecurityGroupRuleID: fmt.Sprintf("sgr-%s-in-%d", groupID, idx),
+			GroupID:             groupID,
+			Protocol:            matched.Protocol,
+			CIDRIPv4:            matched.IPRange,
+			Description:         matched.Description,
+			FromPort:            matched.FromPort,
+			ToPort:              matched.ToPort,
+			IsEgress:            false,
+		})
 		sg.IngressRules = removeRule(sg.IngressRules, rule)
 	}
 
-	return nil
+	return revoked, unknown, nil
 }
 
-// RevokeSecurityGroupEgress removes matching egress rules from a security group.
-// Returns InvalidPermission.NotFound if any requested rule does not exist.
+// RevokeSecurityGroupEgress removes matching egress rules from a security group,
+// returning the details of the rules actually revoked. Returns
+// InvalidPermission.NotFound if any requested rule does not exist.
 func (b *InMemoryBackend) RevokeSecurityGroupEgress(
 	groupID string,
 	rules []SecurityGroupRule,
-) error {
+) ([]*SecurityGroupRuleDetail, error) {
 	b.mu.Lock("RevokeSecurityGroupEgress")
 	defer b.mu.Unlock()
 
 	sg, ok := b.securityGroups.Get(groupID)
 	if !ok {
-		return fmt.Errorf("%w: %s", ErrSecurityGroupNotFound, groupID)
+		return nil, fmt.Errorf("%w: %s", ErrSecurityGroupNotFound, groupID)
 	}
 
 	for _, rule := range rules {
 		if !ruleExists(sg.EgressRules, rule) {
-			return fmt.Errorf(
+			return nil, fmt.Errorf(
 				"%w: rule not found in group %s",
 				ErrNetworkInterfacePermissionNotFound,
 				groupID,
@@ -93,11 +128,35 @@ func (b *InMemoryBackend) RevokeSecurityGroupEgress(
 		}
 	}
 
+	revoked := make([]*SecurityGroupRuleDetail, 0, len(rules))
+
 	for _, rule := range rules {
+		key := ruleKey(rule)
+		idx := -1
+
+		for i, r := range sg.EgressRules {
+			if ruleKey(r) == key {
+				idx = i
+
+				break
+			}
+		}
+
+		matched := sg.EgressRules[idx]
+		revoked = append(revoked, &SecurityGroupRuleDetail{
+			SecurityGroupRuleID: fmt.Sprintf("sgr-%s-out-%d", groupID, idx),
+			GroupID:             groupID,
+			Protocol:            matched.Protocol,
+			CIDRIPv4:            matched.IPRange,
+			Description:         matched.Description,
+			FromPort:            matched.FromPort,
+			ToPort:              matched.ToPort,
+			IsEgress:            true,
+		})
 		sg.EgressRules = removeRule(sg.EgressRules, rule)
 	}
 
-	return nil
+	return revoked, nil
 }
 
 // removeRule removes matching SecurityGroupRule entries from a slice. Matching
@@ -550,6 +609,7 @@ func (b *InMemoryBackend) CreateSecurityGroup(
 		Name:        name,
 		Description: description,
 		VPCID:       vpcID,
+		ARN:         "arn:aws:ec2:" + b.Region + ":" + b.AccountID + ":security-group/" + id,
 		// Real AWS creates new security groups with a default allow-all egress rule.
 		EgressRules: []SecurityGroupRule{
 			{Protocol: "-1", IPRange: cidrAllIPv4},

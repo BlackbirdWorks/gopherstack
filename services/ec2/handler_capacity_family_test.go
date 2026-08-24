@@ -171,7 +171,7 @@ func TestHandler_CreateCapacityReservationBySplittingAndMove(t *testing.T) {
 	t.Parallel()
 
 	bk := ec2.NewInMemoryBackend("000000000000", "us-east-1")
-	src, err := bk.CreateCapacityReservation("m5.xlarge", "us-east-1a", 10)
+	src, err := bk.CreateCapacityReservation("m5.xlarge", "us-east-1a", 10, nil)
 	require.NoError(t, err)
 
 	h := ec2.NewHandler(bk)
@@ -216,7 +216,7 @@ func TestHandler_CapacityReservationBillingOwnerFlow(t *testing.T) {
 	t.Parallel()
 
 	bk := ec2.NewInMemoryBackend("000000000000", "us-east-1")
-	cr, err := bk.CreateCapacityReservation("m5.xlarge", "us-east-1a", 1)
+	cr, err := bk.CreateCapacityReservation("m5.xlarge", "us-east-1a", 1, nil)
 	require.NoError(t, err)
 
 	h := ec2.NewHandler(bk)
@@ -360,7 +360,7 @@ func TestCapacityReservation(t *testing.T) { //nolint:paralleltest // existing i
 	var crID string
 
 	t.Run("create reservation", func(t *testing.T) { //nolint:paralleltest // existing issue.
-		cr, err := b.CreateCapacityReservation("t3.micro", "us-east-1a", 2)
+		cr, err := b.CreateCapacityReservation("t3.micro", "us-east-1a", 2, nil)
 		require.NoError(t, err)
 		assert.NotEmpty(t, cr.CapacityReservationID)
 		assert.Equal(t, "active", cr.State)
@@ -407,7 +407,7 @@ func TestInterruptibleCapacityReservationAllocationHTTP(t *testing.T) {
 
 	h := newTestHandler()
 
-	cr, err := h.Backend.CreateCapacityReservation("m5.large", "us-east-1a", 10)
+	cr, err := h.Backend.CreateCapacityReservation("m5.large", "us-east-1a", 10, nil)
 	require.NoError(t, err)
 
 	resp, err := ec2.ExportDispatch(h, url.Values{
@@ -435,7 +435,7 @@ func TestGetCapacityReservationUsageHTTP(t *testing.T) {
 
 	h := newTestHandler()
 
-	cr, err := h.Backend.CreateCapacityReservation("m5.large", "us-east-1a", 10)
+	cr, err := h.Backend.CreateCapacityReservation("m5.large", "us-east-1a", 10, nil)
 	require.NoError(t, err)
 
 	resp, err := ec2.ExportDispatch(h, url.Values{
@@ -453,7 +453,7 @@ func TestDescribeCapacityReservationTopologyHTTP(t *testing.T) {
 
 	h := newTestHandler()
 
-	cr, err := h.Backend.CreateCapacityReservation("m5.large", "us-east-1a", 10)
+	cr, err := h.Backend.CreateCapacityReservation("m5.large", "us-east-1a", 10, nil)
 	require.NoError(t, err)
 
 	resp, err := ec2.ExportDispatch(h, url.Values{"Action": {"DescribeCapacityReservationTopology"}})
@@ -471,7 +471,7 @@ func TestAllOpsReturn200HTTP(t *testing.T) {
 
 	h := newTestHandler()
 
-	cr, err := h.Backend.CreateCapacityReservation("m5.large", "us-east-1a", 10)
+	cr, err := h.Backend.CreateCapacityReservation("m5.large", "us-east-1a", 10, nil)
 	require.NoError(t, err)
 	addr, err := h.Backend.AllocateAddress()
 	require.NoError(t, err)
@@ -553,7 +553,7 @@ func TestHandler_CapacityReservationCancellationQuote(t *testing.T) {
 			setup: func(t *testing.T, h *ec2.Handler) url.Values {
 				t.Helper()
 
-				cr, err := h.Backend.CreateCapacityReservation("m5.large", "us-east-1a", 4)
+				cr, err := h.Backend.CreateCapacityReservation("m5.large", "us-east-1a", 4, nil)
 				require.NoError(t, err)
 
 				return url.Values{
@@ -594,7 +594,7 @@ func TestHandler_CapacityReservationCancellationQuote_DescribeRoundTrip(t *testi
 
 	h := newHandler()
 
-	cr, err := h.Backend.CreateCapacityReservation("t3.micro", "us-east-1a", 1)
+	cr, err := h.Backend.CreateCapacityReservation("t3.micro", "us-east-1a", 1, nil)
 	require.NoError(t, err)
 
 	quote, err := h.Backend.CreateCapacityReservationCancellationQuote(cr.CapacityReservationID, nil)
@@ -763,7 +763,7 @@ func TestHandler_CapacityFamily_TagDualWritePathVisibility(t *testing.T) {
 			create: func(t *testing.T, h *ec2.Handler) string {
 				t.Helper()
 
-				cr, err := h.Backend.CreateCapacityReservation("m5.large", "us-east-1a", 4)
+				cr, err := h.Backend.CreateCapacityReservation("m5.large", "us-east-1a", 4, nil)
 				require.NoError(t, err)
 
 				rec := postForm(t, h,

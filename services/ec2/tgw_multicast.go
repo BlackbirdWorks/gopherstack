@@ -101,6 +101,7 @@ type TransitGatewayMeteringPolicyEntry struct {
 // which case they default to "disable" as AWS does.
 func (b *InMemoryBackend) CreateTransitGatewayMulticastDomain(
 	tgwID, autoAcceptSharedAssociations, igmpv2Support, staticSourcesSupport string,
+	tags map[string]string,
 ) (*TransitGatewayMulticastDomain, error) {
 	if tgwID == "" {
 		return nil, fmt.Errorf("%w: TransitGatewayId is required", ErrInvalidParameter)
@@ -136,6 +137,7 @@ func (b *InMemoryBackend) CreateTransitGatewayMulticastDomain(
 		StaticSourcesSupport:         staticSourcesSupport,
 	}
 	b.tgwMulticastDomains.Put(domain)
+	b.setTagsLocked(domain.ID, tags)
 
 	cp := *domain
 
@@ -509,6 +511,7 @@ func (b *InMemoryBackend) SearchTransitGatewayMulticastGroups(
 func (b *InMemoryBackend) CreateTransitGatewayMeteringPolicy(
 	tgwID string,
 	middleboxAttachmentIDs []string,
+	tags map[string]string,
 ) (*TransitGatewayMeteringPolicy, error) {
 	if tgwID == "" {
 		return nil, fmt.Errorf("%w: TransitGatewayId is required", ErrInvalidParameter)
@@ -532,6 +535,7 @@ func (b *InMemoryBackend) CreateTransitGatewayMeteringPolicy(
 		UpdateEffectiveAt:      time.Now().UTC(),
 	}
 	b.tgwMeteringPolicies.Put(policy)
+	b.setTagsLocked(policy.ID, tags)
 
 	return copyTGWMeteringPolicy(policy), nil
 }

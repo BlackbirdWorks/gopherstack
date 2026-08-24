@@ -36,24 +36,13 @@ ops:
   CreateDomainAssociation: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed 2026-08-21 (gopherstack-r80d batch 14): statusReason is a required response member that was tagged omitempty and dropped -- gopherstack never tracks a real reason (disclosed, honestly empty, not fabricated); see Notes"}
   UpdateDomainAssociation: {wire: ok, errors: ok, state: ok, persist: ok, note: "same statusReason presence fix as CreateDomainAssociation (gopherstack-r80d batch 14)"}
   DeleteDomainAssociation: {wire: ok, errors: ok, state: ok, persist: ok, note: "same statusReason presence fix as CreateDomainAssociation (gopherstack-r80d batch 14)"}
-  GetDomainAssociation: {wire: ok, errors: ok, state: ok, persist: ok, note: "same statusReason presence fix as CreateDomainAssociation (gopherstack-r80d batch 14)"}
+  GetDomainAssociation: {wire: ok, errors: ok, state: ok, persist: ok, note: "same statusReason presence fix as CreateDomainAssociation (gopherstack-r80d batch 14). fixed 2026-08-19: domainAssociationView carried a fabricated \"appId\" field with no case in the real deserializer -- types.DomainAssociation has no AppId member at all (types/types.go:542); removed. Applies to every op returning a DomainAssociation (Create/Update/Delete/Get/List)."}
   ListDomainAssociations: {wire: ok, errors: ok, state: ok, persist: ok, note: "same statusReason presence fix as CreateDomainAssociation (gopherstack-r80d batch 14)"}
   CreateWebhook: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed 2026-08-21 (gopherstack-r80d batch 14): description is a required response member that was tagged omitempty and dropped whenever the caller left it unset (CreateWebhookInput.Description is optional); see Notes"}
   UpdateWebhook: {wire: ok, errors: ok, state: ok, persist: ok, note: "same description presence fix as CreateWebhook (gopherstack-r80d batch 14)"}
   DeleteWebhook: {wire: ok, errors: ok, state: ok, persist: ok, note: "same description presence fix as CreateWebhook (gopherstack-r80d batch 14)"}
   GetWebhook: {wire: ok, errors: ok, state: ok, persist: ok, note: "same description presence fix as CreateWebhook (gopherstack-r80d batch 14)"}
   ListWebhooks: {wire: ok, errors: ok, state: ok, persist: ok, note: "same description presence fix as CreateWebhook (gopherstack-r80d batch 14)"}
-  StartDeployment: {wire: ok, errors: ok, state: ok, persist: ok}
-  CreateDomainAssociation: {wire: ok, errors: ok, state: ok, persist: ok}
-  UpdateDomainAssociation: {wire: ok, errors: ok, state: ok, persist: ok}
-  DeleteDomainAssociation: {wire: ok, errors: ok, state: ok, persist: ok}
-  GetDomainAssociation: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed 2026-08-19: domainAssociationView carried a fabricated \"appId\" field with no case in the real deserializer -- types.DomainAssociation has no AppId member at all (types/types.go:542); removed. Applies to every op returning a DomainAssociation (Create/Update/Delete/Get/List)."}
-  ListDomainAssociations: {wire: ok, errors: ok, state: ok, persist: ok}
-  CreateWebhook: {wire: ok, errors: ok, state: ok, persist: ok}
-  UpdateWebhook: {wire: ok, errors: ok, state: ok, persist: ok}
-  DeleteWebhook: {wire: ok, errors: ok, state: ok, persist: ok}
-  GetWebhook: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListWebhooks: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateBackendEnvironment: {wire: ok, errors: ok, state: ok, persist: ok}
   GetBackendEnvironment: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed 2026-08-19: backendEnvironmentView carried a fabricated \"appId\" field with no case in the real deserializer -- types.BackendEnvironment has no AppId member at all (types/types.go:230); removed. Applies to every op returning a BackendEnvironment (Create/Delete/Get/List)."}
   DeleteBackendEnvironment: {wire: ok, errors: ok, state: ok, persist: ok}

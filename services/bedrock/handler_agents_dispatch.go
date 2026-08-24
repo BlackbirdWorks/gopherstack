@@ -931,7 +931,7 @@ func (h *AgentsHandler) Handler() echo.HandlerFunc {
 
 				return c.JSON(
 					http.StatusInternalServerError,
-					agentErrResp("InternalFailure", "internal server error"),
+					agentErrResp("InternalServerException", "internal server error"),
 				)
 			}
 		}

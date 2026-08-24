@@ -13,6 +13,7 @@ type createVpcConnectorInput struct {
 }
 
 type vpcConnectorOutput struct {
+	DeletedAt            *int64   `json:"DeletedAt,omitempty"`
 	VpcConnectorArn      string   `json:"VpcConnectorArn"`
 	VpcConnectorName     string   `json:"VpcConnectorName"`
 	Status               string   `json:"Status"`
@@ -36,7 +37,7 @@ func toVpcConnectorOutput(vc *VpcConnector) vpcConnectorOutput {
 		sn = []string{}
 	}
 
-	return vpcConnectorOutput{
+	out := vpcConnectorOutput{
 		VpcConnectorArn:      vc.VpcConnectorArn,
 		VpcConnectorName:     vc.VpcConnectorName,
 		VpcConnectorRevision: vc.VpcConnectorRevision,
@@ -45,6 +46,13 @@ func toVpcConnectorOutput(vc *VpcConnector) vpcConnectorOutput {
 		SecurityGroups:       sg,
 		CreatedAt:            vc.CreatedAt.Unix(),
 	}
+
+	if !vc.DeletedAt.IsZero() {
+		deletedAt := vc.DeletedAt.Unix()
+		out.DeletedAt = &deletedAt
+	}
+
+	return out
 }
 
 func (h *Handler) handleCreateVpcConnector(

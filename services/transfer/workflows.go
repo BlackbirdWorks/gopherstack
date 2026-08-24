@@ -121,15 +121,16 @@ func (b *InMemoryBackend) ListWorkflows() []*Workflow {
 }
 
 // SendWorkflowStepStateRecord advances an execution by matching a token.
-// Status must be "COMPLETE" or "EXCEPTION" per AWS API contract.
+// Status must be "SUCCESS" or "FAILURE" per AWS API contract
+// (types.CustomStepStatus).
 func (b *InMemoryBackend) SendWorkflowStepStateRecord(workflowID, executionID, token, status string) error {
 	// Validate status before acquiring the lock.
 	switch status {
-	case workflowStepStatusComplete, workflowStepStatusException:
+	case workflowStepStatusSuccess, workflowStepStatusFailure:
 		// valid
 	default:
 		return fmt.Errorf(
-			"%w: Status must be COMPLETE or EXCEPTION, got %q",
+			"%w: Status must be SUCCESS or FAILURE, got %q",
 			ErrValidation,
 			status,
 		)
@@ -155,10 +156,10 @@ func (b *InMemoryBackend) SendWorkflowStepStateRecord(workflowID, executionID, t
 	e.PendingTokens[token] = status
 
 	switch status {
-	case workflowStepStatusComplete:
+	case workflowStepStatusSuccess:
 		e.Status = "COMPLETED"
-	case workflowStepStatusException:
-		e.Status = workflowStepStatusException
+	case workflowStepStatusFailure:
+		e.Status = "EXCEPTION"
 	}
 
 	return nil

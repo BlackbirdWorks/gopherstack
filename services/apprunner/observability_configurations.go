@@ -65,6 +65,8 @@ func (b *InMemoryBackend) DescribeObservabilityConfiguration(obsArn string) (*Ob
 }
 
 // DeleteObservabilityConfiguration deletes an observability config.
+//
+//nolint:dupl // mirrors DeleteAutoScalingConfiguration's revision-list bookkeeping by design.
 func (b *InMemoryBackend) DeleteObservabilityConfiguration(obsArn string) (*ObservabilityConfiguration, error) {
 	b.mu.Lock("DeleteObservabilityConfiguration")
 	defer b.mu.Unlock()
@@ -100,7 +102,7 @@ func (b *InMemoryBackend) DeleteObservabilityConfiguration(obsArn string) (*Obse
 }
 
 // ListObservabilityConfigurations returns observability configs with optional name filter.
-func (b *InMemoryBackend) ListObservabilityConfigurations( //nolint:dupl // existing issue.
+func (b *InMemoryBackend) ListObservabilityConfigurations(
 	nameFilter string,
 	latestOnly bool,
 	maxResults int32,

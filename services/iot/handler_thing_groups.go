@@ -191,8 +191,8 @@ func (h *Handler) handleListThingGroups(c *echo.Context) error {
 		// "thingGroupArn" -- every real client's GroupName/GroupArn decoded
 		// empty before this fix.
 		out = append(out, map[string]string{
-			"groupName": tg.ThingGroupName,
-			"groupArn":  tg.ThingGroupARN,
+			keyGroupName: tg.ThingGroupName,
+			keyGroupArn:  tg.ThingGroupARN,
 		})
 	}
 
@@ -277,9 +277,26 @@ func (h *Handler) handleListThingsInThingGroup(c *echo.Context) error {
 
 func (h *Handler) handleListThingGroupsForThing(c *echo.Context) error {
 	thingName := extractThingName(c.Request().URL.Path)
-	groups := h.Backend.ListThingGroupsForThing(thingName)
+	names := h.Backend.ListThingGroupsForThing(thingName)
 
-	return c.JSON(http.StatusOK, map[string]any{"thingGroups": groups})
+	out := make([]map[string]any, 0, len(names))
+	for _, name := range names {
+		entry := map[string]any{keyGroupName: name}
+		if tg, err := h.Backend.DescribeThingGroup(name); err == nil {
+			entry[keyGroupArn] = tg.ThingGroupARN
+		}
+		out = append(out, entry)
+	}
+
+	pageSize, start := parseIoTPagination(c)
+	page, nextToken := paginateMaps(out, pageSize, start)
+
+	resp := map[string]any{"thingGroups": page}
+	if nextToken != "" {
+		resp["nextToken"] = nextToken
+	}
+
+	return c.JSON(http.StatusOK, resp)
 }
 
 // resolveBatch3DynamicGroupOps handles dynamic thing group ops.
@@ -302,18 +319,36 @@ func resolveBatch3DynamicGroupOps(path, method string) string {
 func (h *Handler) handleCreateDynamicThingGroup(c *echo.Context) error {
 	name := strings.TrimPrefix(c.Request().URL.Path, "/dynamic-thing-groups/")
 	var req struct {
-		QueryString string `json:"queryString"`
-		Description string `json:"description"`
+		ThingGroupProperties *struct {
+			AttributePayload      *AttributePayload `json:"attributePayload"`
+			ThingGroupDescription string            `json:"thingGroupDescription"`
+		} `json:"thingGroupProperties"`
+		QueryString  string `json:"queryString"`
+		IndexName    string `json:"indexName"`
+		QueryVersion string `json:"queryVersion"`
 		// []types.Tag on the wire, not a map (serializers.go:2625, aws-sdk-go-v2/service/iot@v1.77.4).
 		Tags []tags.KV `json:"tags,omitempty"`
 	}
 	if err := readBody(c, &req); err != nil {
 		return err
 	}
+
+	desc := ""
+	var attrs map[string]string
+	if req.ThingGroupProperties != nil {
+		desc = req.ThingGroupProperties.ThingGroupDescription
+		if req.ThingGroupProperties.AttributePayload != nil {
+			attrs = req.ThingGroupProperties.AttributePayload.Attributes
+		}
+	}
+
 	tg, err := h.Backend.CreateDynamicThingGroup(&CreateThingGroupInput{
 		ThingGroupName: name,
-		Description:    req.Description,
+		Description:    desc,
+		Attributes:     attrs,
 		QueryString:    req.QueryString,
+		IndexName:      req.IndexName,
+		QueryVersion:   req.QueryVersion,
 		Tags:           tags.MapFromKV(req.Tags),
 	})
 	if err != nil {
@@ -324,7 +359,9 @@ func (h *Handler) handleCreateDynamicThingGroup(c *echo.Context) error {
 		"thingGroupName": tg.ThingGroupName,
 		"thingGroupArn":  tg.ThingGroupARN,
 		keyThingGroupID:  tg.ThingGroupID,
-		keyVersion:       tg.Version,
+		"queryString":    tg.QueryString,
+		"indexName":      tg.IndexName,
+		"queryVersion":   tg.QueryVersion,
 	})
 }
 
@@ -340,16 +377,39 @@ func (h *Handler) handleDeleteDynamicThingGroup(c *echo.Context) error {
 func (h *Handler) handleUpdateDynamicThingGroup(c *echo.Context) error {
 	name := strings.TrimPrefix(c.Request().URL.Path, "/dynamic-thing-groups/")
 	var req struct {
-		QueryString string `json:"queryString"`
-		Description string `json:"description"`
+		ThingGroupProperties *struct {
+			AttributePayload      *AttributePayload `json:"attributePayload"`
+			ThingGroupDescription string            `json:"thingGroupDescription"`
+		} `json:"thingGroupProperties"`
+		QueryString     string `json:"queryString"`
+		IndexName       string `json:"indexName"`
+		QueryVersion    string `json:"queryVersion"`
+		ExpectedVersion int64  `json:"expectedVersion"`
 	}
 	if err := readBody(c, &req); err != nil {
 		return err
 	}
+
+	desc := ""
+	var attrs map[string]string
+	var merge *bool
+	if req.ThingGroupProperties != nil {
+		desc = req.ThingGroupProperties.ThingGroupDescription
+		if req.ThingGroupProperties.AttributePayload != nil {
+			attrs = req.ThingGroupProperties.AttributePayload.Attributes
+			merge = req.ThingGroupProperties.AttributePayload.Merge
+		}
+	}
+
 	version, err := h.Backend.UpdateDynamicThingGroup(&UpdateThingGroupInput{
-		ThingGroupName: name,
-		Description:    req.Description,
-		QueryString:    req.QueryString,
+		ThingGroupName:  name,
+		Description:     desc,
+		Attributes:      attrs,
+		Merge:           merge,
+		QueryString:     req.QueryString,
+		IndexName:       req.IndexName,
+		QueryVersion:    req.QueryVersion,
+		ExpectedVersion: req.ExpectedVersion,
 	})
 	if err != nil {
 		return respondErr(c, err)

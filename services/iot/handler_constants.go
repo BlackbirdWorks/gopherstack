@@ -11,6 +11,8 @@ const (
 	keyThingTypeArn            = "thingTypeArn"
 	keyThingGroupName          = "thingGroupName"
 	keyThingGroupArn           = "thingGroupArn"
+	keyGroupName               = "groupName"
+	keyGroupArn                = "groupArn"
 	keyCertificateID           = "certificateId"
 	keyCertificateArn          = "certificateArn"
 	keyCertificateMode         = "certificateMode"
@@ -28,6 +30,7 @@ const (
 	keyPolicyVersionID         = "policyVersionId"
 	keyInvalidPath             = "invalid path"
 	keyCommandArn              = "commandArn"
+	keyTarget                  = "target"
 
 	// URL path prefix constants.
 	pathPolicies         = "/policies"

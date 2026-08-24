@@ -29,7 +29,7 @@ func (b *InMemoryBackend) AddRegion(
 	}
 
 	if _, exists := b.dsRegionGet(region, directoryID, regionName); exists {
-		return ErrAliasAlreadyExists
+		return ErrDirectoryAlreadyInRegion
 	}
 
 	var storedVpc *storedVpcSettings
@@ -66,7 +66,7 @@ func (b *InMemoryBackend) RemoveRegion(ctx context.Context, directoryID string) 
 	defer b.mu.Unlock()
 
 	if _, ok := b.directoryGet(region, directoryID); !ok {
-		return ErrDirectoryNotFound
+		return ErrDirectoryNotFoundDDNE
 	}
 
 	for _, r := range slices.Clone(b.dsRegionsInRegion(region)) {
@@ -89,7 +89,7 @@ func (b *InMemoryBackend) DescribeRegions(
 	defer b.mu.RUnlock()
 
 	if _, ok := b.directoryGet(region, directoryID); !ok {
-		return nil, "", ErrDirectoryNotFound
+		return nil, "", ErrDirectoryNotFoundDDNE
 	}
 
 	var all []storedRegion

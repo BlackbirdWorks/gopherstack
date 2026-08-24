@@ -42,6 +42,7 @@ type createRuleGroupRequest struct {
 	Description          string           `json:"Description"`
 	VisibilityConfig     json.RawMessage  `json:"VisibilityConfig"`
 	CustomResponseBodies json.RawMessage  `json:"CustomResponseBodies"`
+	MonetizationConfig   json.RawMessage  `json:"MonetizationConfig"`
 	Rules                []map[string]any `json:"Rules"`
 	Tags                 []tags.KV        `json:"Tags"`
 	Capacity             int64            `json:"Capacity"`
@@ -100,6 +101,7 @@ func (h *Handler) handleCreateRuleGroup(ctx context.Context, body []byte) ([]byt
 		req.Capacity,
 		req.Rules,
 		req.CustomResponseBodies,
+		req.MonetizationConfig,
 		tags,
 	)
 	if err != nil {
@@ -188,6 +190,13 @@ func (h *Handler) handleGetRuleGroup(ctx context.Context, body []byte) ([]byte, 
 		}
 	}
 
+	if len(rg.MonetizationConfig) > 0 {
+		var mc any
+		if json.Unmarshal(rg.MonetizationConfig, &mc) == nil {
+			ruleGroupMap["MonetizationConfig"] = mc
+		}
+	}
+
 	return json.Marshal(map[string]any{
 		"RuleGroup":  ruleGroupMap,
 		keyLockToken: rg.LockToken,
@@ -222,6 +231,7 @@ type updateRuleGroupRequest struct {
 	Description          string           `json:"Description"`
 	VisibilityConfig     json.RawMessage  `json:"VisibilityConfig"`
 	CustomResponseBodies json.RawMessage  `json:"CustomResponseBodies"`
+	MonetizationConfig   json.RawMessage  `json:"MonetizationConfig"`
 	Rules                []map[string]any `json:"Rules"`
 }
 
@@ -247,6 +257,7 @@ func (h *Handler) handleUpdateRuleGroup(ctx context.Context, body []byte) ([]byt
 		req.LockToken,
 		req.Rules,
 		req.CustomResponseBodies,
+		req.MonetizationConfig,
 	)
 	if err != nil {
 		return nil, err

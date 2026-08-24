@@ -2,6 +2,7 @@ package iot
 
 import (
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -161,6 +162,29 @@ func (h *Handler) handleStartAuditMitigationActionsTask(c *echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]any{keyTaskID: task.TaskID})
 }
 
+// auditMitigationTaskActionsDefinition resolves AuditCheckToActionsMapping's
+// per-check action-name lists to the real DescribeAuditMitigationActionsTaskOutput
+// "actionsDefinition" member -- []types.MitigationAction (id/name/roleArn/
+// actionParams, v1.77.4) -- the same field DescribeDetectMitigationActionsTask
+// already surfaces via MitigationActionRefs for its own (flat) Actions list.
+// This side was never given the same treatment: a real client's deserializer
+// never found "actionsDefinition" and it stayed permanently empty.
+func (h *Handler) auditMitigationTaskActionsDefinition(t *AuditMitigationTask) []MitigationActionRef {
+	seen := make(map[string]bool)
+	names := make([]string, 0, len(t.AuditCheckToActionsMapping))
+	for _, checkNames := range t.AuditCheckToActionsMapping {
+		for _, name := range checkNames {
+			if !seen[name] {
+				seen[name] = true
+				names = append(names, name)
+			}
+		}
+	}
+	sort.Strings(names)
+
+	return h.Backend.MitigationActionRefs(names)
+}
+
 func (h *Handler) handleDescribeAuditMitigationActionsTask(c *echo.Context) error {
 	taskID := strings.TrimPrefix(c.Request().URL.Path, pathAuditMitigationTasks+"/")
 
@@ -169,7 +193,15 @@ func (h *Handler) handleDescribeAuditMitigationActionsTask(c *echo.Context) erro
 		return respondErr(c, err)
 	}
 
-	return c.JSON(http.StatusOK, task)
+	return c.JSON(http.StatusOK, map[string]any{
+		keyTarget:                    task.Target,
+		"auditCheckToActionsMapping": task.AuditCheckToActionsMapping,
+		"actionsDefinition":          h.auditMitigationTaskActionsDefinition(task),
+		"taskStatistics":             task.TaskStatistics,
+		"taskStatus":                 task.TaskStatus,
+		"startTime":                  task.StartTime,
+		"endTime":                    task.EndTime,
+	})
 }
 
 // handleListAuditMitigationActionsTasks builds
@@ -262,7 +294,7 @@ func (h *Handler) detectMitigationTaskSummaryWire(t *DetectMitigationTask) map[s
 	return map[string]any{
 		"taskId":                        t.TaskID,
 		"taskStatus":                    t.TaskStatus,
-		"target":                        t.Target,
+		keyTarget:                       t.Target,
 		"taskStatistics":                t.TaskStatistics,
 		"actionsDefinition":             h.Backend.MitigationActionRefs(t.Actions),
 		"taskStartTime":                 t.StartTime,

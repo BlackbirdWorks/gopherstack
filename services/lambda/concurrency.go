@@ -3,6 +3,8 @@ package lambda
 import (
 	"fmt"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 // PutFunctionConcurrency sets the reserved concurrent executions for a function.
@@ -202,16 +204,16 @@ func (b *InMemoryBackend) DeleteProvisionedConcurrencyConfig(name, qualifier str
 
 // ListProvisionedConcurrencyConfigs returns all provisioned concurrency configurations for a function.
 func (b *InMemoryBackend) ListProvisionedConcurrencyConfigs(
-	name string,
-) ([]*ProvisionedConcurrencyConfig, error) {
+	name, marker string, maxItems int,
+) (page.Page[*ProvisionedConcurrencyConfig], error) {
 	b.mu.RLock("ListProvisionedConcurrencyConfigs")
 	defer b.mu.RUnlock()
 
 	if _, ok := b.functions.Get(name); !ok {
-		return nil, ErrFunctionNotFound
+		return page.Page[*ProvisionedConcurrencyConfig]{}, ErrFunctionNotFound
 	}
 
-	configs := b.provisionedConcurrenciesByFunction.Get(name)
+	configs := append([]*ProvisionedConcurrencyConfig(nil), b.provisionedConcurrenciesByFunction.Get(name)...)
 
-	return append([]*ProvisionedConcurrencyConfig(nil), configs...), nil
+	return page.New(configs, marker, maxItems, lambdaDefaultMaxItems), nil
 }

@@ -85,8 +85,15 @@ func (b *InMemoryBackend) CancelAuditTask(input *CancelAuditTaskInput) error {
 }
 
 // AuditCheckConfig holds config for a single audit check.
+//
+// Configuration mirrors types.AuditCheckConfiguration's "configuration" map
+// member (v1.77.4) -- previously entirely unmodeled, so a real client's
+// UpdateAccountAuditConfiguration call setting per-check configuration
+// values had them silently dropped, and DescribeAccountAuditConfiguration
+// could never surface them.
 type AuditCheckConfig struct {
-	Enabled bool `json:"enabled"`
+	Configuration map[string]string `json:"configuration,omitempty"`
+	Enabled       bool              `json:"enabled"`
 }
 
 // AccountAuditConfiguration holds the account-level audit configuration.
@@ -614,6 +621,8 @@ func (b *InMemoryBackend) ListRelatedResourcesForAuditFinding(findingID string) 
 // EventConfigurations holds the IoT event configurations.
 type EventConfigurations struct {
 	EventConfigurations map[string]*EventConfigEntry `json:"eventConfigurations"`
+	CreationDate        float64                      `json:"creationDate,omitempty"`
+	LastModifiedDate    float64                      `json:"lastModifiedDate,omitempty"`
 }
 
 // EventConfigEntry holds the enabled flag for an event type.
@@ -630,6 +639,8 @@ func (b *InMemoryBackend) DescribeEventConfigurations() *EventConfigurations {
 	}
 	cp := EventConfigurations{
 		EventConfigurations: make(map[string]*EventConfigEntry, len(b.eventConfigurations.EventConfigurations)),
+		CreationDate:        b.eventConfigurations.CreationDate,
+		LastModifiedDate:    b.eventConfigurations.LastModifiedDate,
 	}
 	for k, v := range b.eventConfigurations.EventConfigurations {
 		e := *v
@@ -643,20 +654,31 @@ func (b *InMemoryBackend) UpdateEventConfigurations(cfgs map[string]*EventConfig
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
+	now := float64(time.Now().Unix())
+
 	if b.eventConfigurations == nil {
-		b.eventConfigurations = &EventConfigurations{EventConfigurations: make(map[string]*EventConfigEntry)}
+		b.eventConfigurations = &EventConfigurations{
+			EventConfigurations: make(map[string]*EventConfigEntry),
+			CreationDate:        now,
+		}
 	}
 	for k, v := range cfgs {
 		e := *v
 		b.eventConfigurations.EventConfigurations[k] = &e
 	}
+	b.eventConfigurations.LastModifiedDate = now
 
 	return nil
 }
 
 // ScheduledAudit represents an IoT scheduled audit.
+//
+// Tags is internal-only storage for ListTagsForResource -- real
+// DescribeScheduledAuditOutput has no "tags" member (confirmed against
+// v1.77.4's awsRestjson1_deserializeOpDocumentDescribeScheduledAuditOutput),
+// same leaked-field class already fixed for Job/JobTemplate/SecurityProfile.
 type ScheduledAudit struct {
-	Tags               map[string]string `json:"tags,omitempty"`
+	Tags               map[string]string `json:"-"`
 	ScheduledAuditName string            `json:"scheduledAuditName"`
 	ScheduledAuditARN  string            `json:"scheduledAuditArn"`
 	Frequency          string            `json:"frequency"`

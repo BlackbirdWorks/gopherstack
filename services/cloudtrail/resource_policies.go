@@ -8,7 +8,7 @@ func (b *InMemoryBackend) DeleteResourcePolicy(resourceARN string) error {
 	defer b.mu.Unlock()
 
 	if !b.resourcePolicies.Delete(resourceARN) {
-		return fmt.Errorf("%w: resource policy for %s not found", ErrNotFound, resourceARN)
+		return fmt.Errorf("%w: resource policy for %s not found", ErrResourcePolicyNotFound, resourceARN)
 	}
 
 	return nil
@@ -21,7 +21,7 @@ func (b *InMemoryBackend) GetResourcePolicy(resourceARN string) (*ResourcePolicy
 
 	rp, ok := b.resourcePolicies.Get(resourceARN)
 	if !ok {
-		return nil, fmt.Errorf("%w: resource policy for %s not found", ErrNotFound, resourceARN)
+		return nil, fmt.Errorf("%w: resource policy for %s not found", ErrResourcePolicyNotFound, resourceARN)
 	}
 	cp := *rp
 

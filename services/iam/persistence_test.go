@@ -236,9 +236,9 @@ func TestInMemoryBackend_FullStateSnapshotRestore(t *testing.T) {
 	require.Len(t, mfaDevices.Data, 1)
 	assert.Equal(t, mfa.SerialNumber, mfaDevices.Data[0].SerialNumber)
 
-	signingCerts, err := fresh.ListSigningCertificates("alice")
+	signingCerts, err := fresh.ListSigningCertificates("alice", "", 0)
 	require.NoError(t, err)
-	assert.Len(t, signingCerts, 1)
+	assert.Len(t, signingCerts.Data, 1)
 
 	serverCerts, err := fresh.ListServerCertificates("")
 	require.NoError(t, err)

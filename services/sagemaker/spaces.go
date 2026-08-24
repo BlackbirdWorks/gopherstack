@@ -244,8 +244,20 @@ func (b *InMemoryBackend) ListSpaces(ctx context.Context, params ListSpacesParam
 	return paginateSlice(list, params.NextToken, params.MaxResults)
 }
 
+// UpdateSpaceOptions bundles UpdateSpace's optional fields
+// (api_op_UpdateSpace.go:27-42). Both are omitted from the request when
+// unset, so only a non-empty value is applied.
+type UpdateSpaceOptions struct {
+	SpaceDisplayName string
+	SpaceSettings    json.RawMessage
+}
+
 // UpdateSpace updates a space in a domain. Returns the updated space.
-func (b *InMemoryBackend) UpdateSpace(ctx context.Context, domainID, spaceName string) (*Space, error) {
+func (b *InMemoryBackend) UpdateSpace(
+	ctx context.Context,
+	domainID, spaceName string,
+	opts UpdateSpaceOptions,
+) (*Space, error) {
 	b.mu.Lock("UpdateSpace")
 	defer b.mu.Unlock()
 
@@ -256,6 +268,14 @@ func (b *InMemoryBackend) UpdateSpace(ctx context.Context, domainID, spaceName s
 	s, ok := b.spacesStore(region).Get(key)
 	if !ok {
 		return nil, fmt.Errorf("%w: space %q not found in domain %q", ErrSpaceNotFound, spaceName, domainID)
+	}
+
+	if opts.SpaceDisplayName != "" {
+		s.SpaceDisplayName = opts.SpaceDisplayName
+	}
+
+	if len(opts.SpaceSettings) > 0 {
+		s.SpaceSettings = opts.SpaceSettings
 	}
 
 	s.LastModifiedTime = time.Now()

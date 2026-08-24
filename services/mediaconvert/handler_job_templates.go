@@ -6,6 +6,8 @@ import (
 	"strings"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 func parseJobTemplateRoute(method, suffix string) mcRoute {
@@ -52,6 +54,7 @@ type jobTemplateWrapper struct {
 }
 
 type jobTemplatesListOutput struct {
+	NextToken    string         `json:"nextToken,omitempty"`
 	JobTemplates []*JobTemplate `json:"jobTemplates"`
 }
 
@@ -123,9 +126,9 @@ func (h *Handler) handleListJobTemplates(c *echo.Context) error {
 		reverseSlice(templates)
 	}
 
-	out := jobTemplatesListOutput{JobTemplates: limitSlice(templates, parseMaxResults(q.Get("maxResults")))}
+	pg := page.New(templates, q.Get("nextToken"), parseMaxResults(q.Get("maxResults")), defaultListPageSize)
 
-	return c.JSON(http.StatusOK, out)
+	return c.JSON(http.StatusOK, jobTemplatesListOutput{JobTemplates: pg.Data, NextToken: pg.Next})
 }
 
 type updateJobTemplateInput struct {

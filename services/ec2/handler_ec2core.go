@@ -152,12 +152,13 @@ type associateVpcCidrBlockResponse struct {
 }
 
 type tgwRouteTableItem struct {
-	TransitGatewayRouteTableID   string `xml:"transitGatewayRouteTableId"`
-	TransitGatewayID             string `xml:"transitGatewayId"`
-	State                        string `xml:"state"`
-	CreationTime                 string `xml:"creationTime"`
-	DefaultAssociationRouteTable bool   `xml:"defaultAssociationRouteTable"`
-	DefaultPropagationRouteTable bool   `xml:"defaultPropagationRouteTable"`
+	TransitGatewayRouteTableID   string          `xml:"transitGatewayRouteTableId"`
+	TransitGatewayID             string          `xml:"transitGatewayId"`
+	State                        string          `xml:"state"`
+	CreationTime                 string          `xml:"creationTime"`
+	TagSet                       []simpleTagItem `xml:"tagSet>item"`
+	DefaultAssociationRouteTable bool            `xml:"defaultAssociationRouteTable"`
+	DefaultPropagationRouteTable bool            `xml:"defaultPropagationRouteTable"`
 }
 
 type createTransitGatewayRouteTableResponse struct {
@@ -429,7 +430,7 @@ func (h *Handler) handleAssociateVpcCidrBlock(vals url.Values, reqID string) (an
 	}, nil
 }
 
-func tgwRTToItem(rt *TransitGatewayRouteTable) tgwRouteTableItem {
+func tgwRTToItem(rt *TransitGatewayRouteTable, tags map[string]string) tgwRouteTableItem {
 	return tgwRouteTableItem{
 		TransitGatewayRouteTableID:   rt.RouteTableID,
 		TransitGatewayID:             rt.TransitGatewayID,
@@ -437,19 +438,22 @@ func tgwRTToItem(rt *TransitGatewayRouteTable) tgwRouteTableItem {
 		DefaultAssociationRouteTable: rt.DefaultAssociation,
 		DefaultPropagationRouteTable: rt.DefaultPropagation,
 		CreationTime:                 rt.CreateTime.UTC().Format("2006-01-02T15:04:05.000Z"),
+		TagSet:                       tagItemsFromMap(tags),
 	}
 }
 
 func (h *Handler) handleCreateTransitGatewayRouteTable(vals url.Values, reqID string) (any, error) {
 	tgwID := vals.Get("TransitGatewayId")
-	rt, err := h.Backend.CreateTransitGatewayRouteTable(tgwID)
+	tags := parseTagSpecificationPlural(vals, "transit-gateway-route-table")
+
+	rt, err := h.Backend.CreateTransitGatewayRouteTable(tgwID, tags)
 	if err != nil {
 		return nil, err
 	}
 
 	return &createTransitGatewayRouteTableResponse{
 		RequestID:                reqID,
-		TransitGatewayRouteTable: tgwRTToItem(rt),
+		TransitGatewayRouteTable: tgwRTToItem(rt, tags),
 	}, nil
 }
 
@@ -465,7 +469,7 @@ func (h *Handler) handleDescribeTransitGatewayRouteTables(
 	for _, rt := range rts {
 		resp.TransitGatewayRouteTables.Items = append(
 			resp.TransitGatewayRouteTables.Items,
-			tgwRTToItem(rt),
+			tgwRTToItem(rt, h.Backend.TagsForResource(rt.RouteTableID)),
 		)
 	}
 
@@ -485,7 +489,7 @@ func (h *Handler) handleDeleteTransitGatewayRouteTable(vals url.Values, reqID st
 	var item tgwRouteTableItem
 
 	if len(existing) > 0 {
-		item = tgwRTToItem(existing[0])
+		item = tgwRTToItem(existing[0], h.Backend.TagsForResource(existing[0].RouteTableID))
 		item.State = tgwRouteStateDeleted
 	}
 

@@ -34,16 +34,16 @@ func TestDataSync_Task(t *testing.T) {
 			wantCode: http.StatusBadRequest,
 		},
 		{
-			name:     "DescribeTask unknown ARN returns 404",
+			name:     "DescribeTask unknown ARN returns 400",
 			action:   "DescribeTask",
 			body:     map[string]any{"TaskArn": "arn:aws:datasync:us-east-1:000000000000:task/notexist"},
-			wantCode: http.StatusNotFound,
+			wantCode: http.StatusBadRequest,
 		},
 		{
-			name:     "DeleteTask unknown ARN returns 404",
+			name:     "DeleteTask unknown ARN returns 400",
 			action:   "DeleteTask",
 			body:     map[string]any{"TaskArn": "arn:aws:datasync:us-east-1:000000000000:task/notexist"},
-			wantCode: http.StatusNotFound,
+			wantCode: http.StatusBadRequest,
 		},
 		{
 			name:     "ListTasks empty returns empty list",
@@ -166,14 +166,14 @@ func TestDataSync_TaskExecution(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, "SUCCESS", execEntry["Status"])
 
-	// StartTaskExecution unknown task returns 404
+	// StartTaskExecution unknown task returns 400
 	rec = doRequest(
 		t,
 		h,
 		"StartTaskExecution",
 		map[string]any{"TaskArn": "arn:aws:datasync:us-east-1:000000000000:task/notexist"},
 	)
-	assert.Equal(t, http.StatusNotFound, rec.Code)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 // TestDataSync_UpdateTaskExecution covers UpdateTaskExecution.
@@ -216,12 +216,12 @@ func TestDataSync_UpdateTaskExecution(t *testing.T) {
 			wantCode: http.StatusBadRequest,
 		},
 		{
-			name: "not found returns 404",
+			name: "not found returns 400",
 			body: map[string]any{
 				"TaskExecutionArn": "arn:aws:datasync:us-east-1:000000000000:task/notexist/execution/notexist",
 				"Options":          map[string]any{"BytesPerSecond": 1048576},
 			},
-			wantCode: http.StatusNotFound,
+			wantCode: http.StatusBadRequest,
 		},
 	}
 
@@ -413,7 +413,7 @@ func TestDataSync_DescribeTaskExecutionLazyAdvance(t *testing.T) {
 }
 
 // TestDataSync_ListTaskExecutionsUnknownTask verifies that listing executions for
-// a non-existent task returns 404.
+// a non-existent task returns 400.
 func TestDataSync_ListTaskExecutionsUnknownTask(t *testing.T) {
 	t.Parallel()
 
@@ -421,7 +421,7 @@ func TestDataSync_ListTaskExecutionsUnknownTask(t *testing.T) {
 	rec := doRequest(t, h, "ListTaskExecutions", map[string]any{
 		"TaskArn": "arn:aws:datasync:us-east-1:000000000000:task/notexist",
 	})
-	assert.Equal(t, http.StatusNotFound, rec.Code)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 // TestDataSync_StartTaskExecutionRejectsConcurrent verifies that starting a

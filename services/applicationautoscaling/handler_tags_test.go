@@ -232,6 +232,11 @@ func TestHandler_ListTagsForResource_EmptyARN(t *testing.T) {
 	h := newTestHandler(t)
 	rec := doRequest(t, h, "ListTagsForResource", map[string]any{"ResourceARN": ""})
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+	var errBody map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errBody))
+	assert.Equal(t, "ResourceNotFoundException", errBody["__type"],
+		"ListTagsForResource's own deserializeOpError switch types only ResourceNotFoundException")
 }
 
 func TestHandler_UntagResource(t *testing.T) {

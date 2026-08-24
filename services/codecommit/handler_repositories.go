@@ -12,6 +12,7 @@ type createRepositoryInput struct {
 	Tags                  map[string]string `json:"tags"`
 	RepositoryName        string            `json:"repositoryName"`
 	RepositoryDescription string            `json:"repositoryDescription"`
+	KmsKeyID              string            `json:"kmsKeyId"`
 }
 
 type getRepositoryInput struct {
@@ -60,7 +61,7 @@ func (h *Handler) handleCreateRepository(body []byte) (any, error) {
 		return nil, fmt.Errorf("%w: repositoryName is required", errInvalidRequest)
 	}
 
-	r, err := h.Backend.CreateRepository(in.RepositoryName, in.RepositoryDescription, in.Tags)
+	r, err := h.Backend.CreateRepository(in.RepositoryName, in.RepositoryDescription, in.KmsKeyID, in.Tags)
 	if err != nil {
 		return nil, err
 	}
@@ -95,6 +96,9 @@ func (h *Handler) handleDeleteRepository(body []byte) (any, error) {
 	r, err := h.Backend.DeleteRepository(in.RepositoryName)
 	if err != nil {
 		return nil, err
+	}
+	if r == nil {
+		return map[string]any{}, nil
 	}
 
 	return map[string]any{

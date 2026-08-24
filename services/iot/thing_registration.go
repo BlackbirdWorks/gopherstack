@@ -222,8 +222,9 @@ func (b *InMemoryBackend) ListThingRegistrationTaskReports(taskID, reportType st
 }
 
 // defaultThingPrincipalType is the AWS IoT default relation type applied when
-// a principal's attachment type was not recorded (e.g. attached via the v1
-// AttachThingPrincipal operation, which does not persist a relation type).
+// a principal's attachment type was not recorded -- either AttachThingPrincipal
+// was called without a thingPrincipalType, or the principal was attached via
+// an internal path (e.g. RegisterThing) that bypasses that operation entirely.
 const defaultThingPrincipalType = "NON_EXCLUSIVE_THING"
 
 // managedJobTemplateVersion is the (only) version published for every entry

@@ -84,6 +84,7 @@ func actionConnectorSummaryToMap(a *ActionConnector) map[string]any {
 		keyName:              a.Name,
 		keyConnectorType:     a.Type,
 		keyStatus:            a.Status,
+		keyCreatedTime:       a.CreatedTime.Unix(),
 		keyLastUpdatedTime:   a.LastUpdatedTime.Unix(),
 	}
 }

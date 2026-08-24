@@ -328,7 +328,7 @@ func TestHandler_SnapshotRestore_ServiceAttributesAndHealth(t *testing.T) {
 	svcARN := svc["Arn"].(string)
 
 	updateRec := doSDRequest(t, h, "UpdateServiceAttributes", map[string]any{
-		"ServiceArn": svcARN,
+		"ServiceId":  svcID,
 		"Attributes": map[string]string{"stage": "test"},
 	})
 	require.Equal(t, http.StatusOK, updateRec.Code)
@@ -362,4 +362,5 @@ func TestHandler_SnapshotRestore_ServiceAttributesAndHealth(t *testing.T) {
 	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut))
 	attrs := getOut["ServiceAttributes"].(map[string]any)["Attributes"].(map[string]any)
 	assert.Equal(t, "test", attrs["stage"])
+	assert.Equal(t, svcARN, getOut["ServiceAttributes"].(map[string]any)["ServiceArn"])
 }

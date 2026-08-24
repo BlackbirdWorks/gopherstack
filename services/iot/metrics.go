@@ -413,12 +413,16 @@ type MetricDatapoint struct {
 	Timestamp float64          `json:"timestamp"`
 }
 
-// MetricValueData is the polymorphic value of a metric datapoint.
+// MetricValueData is the polymorphic value of a metric datapoint. Mirrors
+// types.MetricValue (v1.77.4), which also has Numbers/Strings beyond the
+// four members previously modeled here.
 type MetricValueData struct {
-	Count  *int64   `json:"count,omitempty"`
-	Number *float64 `json:"number,omitempty"`
-	Cidrs  []string `json:"cidrs,omitempty"`
-	Ports  []int32  `json:"ports,omitempty"`
+	Count   *int64    `json:"count,omitempty"`
+	Number  *float64  `json:"number,omitempty"`
+	Cidrs   []string  `json:"cidrs,omitempty"`
+	Ports   []int32   `json:"ports,omitempty"`
+	Numbers []float64 `json:"numbers,omitempty"`
+	Strings []string  `json:"strings,omitempty"`
 }
 
 // metricValueKey builds the composite key for a thing/metric pair.

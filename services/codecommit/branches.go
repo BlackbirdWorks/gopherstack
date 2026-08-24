@@ -67,7 +67,11 @@ func (b *InMemoryBackend) DeleteBranch(repositoryName, branchName string) (*Bran
 
 	br, ok := b.branches.Get(branchKey(repositoryName, branchName))
 	if !ok {
-		return nil, fmt.Errorf("%w: branch %s not found", ErrBranchNotFound, branchName)
+		// DeleteBranch is idempotent in real AWS: DeleteBranchOutput.DeletedBranch
+		// is optional (codecommit@v1.36.4 api_op_DeleteBranch.go:45), and its own
+		// error switch has no BranchDoesNotExistException case, unlike GetBranch
+		// (inference).
+		return nil, nil //nolint:nilnil // nil branch is a meaningful "already gone" signal, not an error
 	}
 
 	cp := *br

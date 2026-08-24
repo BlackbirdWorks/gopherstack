@@ -2,10 +2,12 @@ package s3_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	sdk_s3 "github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
+	"github.com/aws/smithy-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -152,4 +154,98 @@ func TestBucketVersioning_MfaDeleteEcho(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, types.BucketVersioningStatusEnabled, out.Status)
 	assert.Equal(t, types.MFADeleteStatusEnabled, out.MFADelete)
+}
+
+// TestDeleteObject_BypassGovernanceRetention is a regression test: the real
+// DeleteObjectInput/DeleteObjectsInput header X-Amz-Bypass-Governance-Retention
+// (s3@v1.106.5 serializers.go, awsRestxml_serializeOpHttpBindingsDeleteObjectInput
+// and ...DeleteObjectsInput) was never read anywhere in gopherstack (confirmed
+// by grep before this fix), so checkObjectLockForDelete blocked every delete of
+// a retained object unconditionally -- indistinguishable from real AWS's
+// unbypassable COMPLIANCE mode even for GOVERNANCE mode, where a caller sending
+// this header (with s3:BypassGovernanceRetention permission, which this
+// emulator does not model separately) must be allowed to delete. The backend
+// already tracked RetentionMode (GOVERNANCE vs COMPLIANCE) -- only the
+// enforcement path ignored both the mode and the header.
+func TestDeleteObject_BypassGovernanceRetention(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		bypass      *bool
+		name        string
+		bucket      string
+		mode        types.ObjectLockRetentionMode
+		wantAllowed bool
+	}{
+		{
+			name:        "governance_without_bypass_is_blocked",
+			bucket:      "bypass-governance-without",
+			mode:        types.ObjectLockRetentionModeGovernance,
+			bypass:      nil,
+			wantAllowed: false,
+		},
+		{
+			name:        "governance_with_bypass_is_allowed",
+			bucket:      "bypass-governance-with",
+			mode:        types.ObjectLockRetentionModeGovernance,
+			bypass:      aws.Bool(true),
+			wantAllowed: true,
+		},
+		{
+			name:        "compliance_with_bypass_stays_blocked",
+			bucket:      "bypass-compliance-with",
+			mode:        types.ObjectLockRetentionModeCompliance,
+			bypass:      aws.Bool(true),
+			wantAllowed: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			client := newRealS3ClientTest(t)
+			bucket := tt.bucket
+			key := "locked.txt"
+
+			_, err := client.CreateBucket(t.Context(), &sdk_s3.CreateBucketInput{
+				Bucket:                     aws.String(bucket),
+				ObjectLockEnabledForBucket: aws.Bool(true),
+			})
+			require.NoError(t, err)
+
+			_, err = client.PutObject(t.Context(), &sdk_s3.PutObjectInput{
+				Bucket: aws.String(bucket),
+				Key:    aws.String(key),
+				Body:   nil,
+			})
+			require.NoError(t, err)
+
+			_, err = client.PutObjectRetention(t.Context(), &sdk_s3.PutObjectRetentionInput{
+				Bucket: aws.String(bucket),
+				Key:    aws.String(key),
+				Retention: &types.ObjectLockRetention{
+					Mode:            tt.mode,
+					RetainUntilDate: aws.Time(time.Now().Add(time.Hour)),
+				},
+			})
+			require.NoError(t, err)
+
+			_, err = client.DeleteObject(t.Context(), &sdk_s3.DeleteObjectInput{
+				Bucket:                    aws.String(bucket),
+				Key:                       aws.String(key),
+				BypassGovernanceRetention: tt.bypass,
+			})
+
+			if tt.wantAllowed {
+				require.NoError(t, err)
+			} else {
+				require.Error(t, err)
+
+				var apiErr smithy.APIError
+				require.ErrorAs(t, err, &apiErr)
+				assert.Equal(t, "InvalidObjectState", apiErr.ErrorCode())
+			}
+		})
+	}
 }

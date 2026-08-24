@@ -79,6 +79,7 @@ func cloneDataset(d *Dataset) *Dataset {
 	cp.ContentDeliveryRules = cloneContentDeliveryRules(d.ContentDeliveryRules)
 	cp.LateDataRules = cloneLateDataRules(d.LateDataRules)
 	cp.VersioningConfiguration = cloneVersioningConfiguration(d.VersioningConfiguration)
+	cp.RetentionPeriod = cloneRetentionPeriod(d.RetentionPeriod)
 
 	return &cp
 }
@@ -93,8 +94,13 @@ func (b *InMemoryBackend) CreateDataset(
 	contentDeliveryRules []ContentDeliveryRule,
 	versioningConfig *VersioningConfiguration,
 	lateDataRules []LateDataRule,
+	retentionPeriod *RetentionPeriod,
 ) (*Dataset, error) {
 	if err := validateResourceName(name); err != nil {
+		return nil, err
+	}
+
+	if err := validateRetentionPeriod(retentionPeriod); err != nil {
 		return nil, err
 	}
 
@@ -119,6 +125,7 @@ func (b *InMemoryBackend) CreateDataset(
 		ContentDeliveryRules:    cloneContentDeliveryRules(contentDeliveryRules),
 		LateDataRules:           cloneLateDataRules(lateDataRules),
 		VersioningConfiguration: cloneVersioningConfiguration(versioningConfig),
+		RetentionPeriod:         cloneRetentionPeriod(retentionPeriod),
 	}
 	maps.Copy(d.Tags, tags)
 	b.datasets.Put(d)
@@ -217,7 +224,7 @@ func (b *InMemoryBackend) ListDatasets() []*Dataset {
 
 // AddDatasetInternal seeds a dataset by name (test helper).
 func (b *InMemoryBackend) AddDatasetInternal(name string) *Dataset {
-	d, _ := b.CreateDataset(b.svcCtx, name, nil, nil, nil, nil, nil, nil)
+	d, _ := b.CreateDataset(b.svcCtx, name, nil, nil, nil, nil, nil, nil, nil)
 
 	return d
 }

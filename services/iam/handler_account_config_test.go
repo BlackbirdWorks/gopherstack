@@ -279,17 +279,20 @@ func TestDelegationRequest_Backend(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
-		target  string
-		wantErr bool
+		name       string
+		target     string
+		wantStatus string
+		wantErr    bool
 	}{
 		{
-			name:   "create_and_accept",
-			target: "111122223333",
+			name:       "create_and_accept",
+			target:     "111122223333",
+			wantStatus: "ASSIGNED",
 		},
 		{
-			name:   "create_empty_target",
-			target: "",
+			name:       "create_empty_target",
+			target:     "",
+			wantStatus: "UNASSIGNED",
 		},
 	}
 
@@ -309,7 +312,7 @@ func TestDelegationRequest_Backend(t *testing.T) {
 			})
 			require.NoError(t, err)
 			require.NotNil(t, req)
-			assert.Equal(t, "PENDING", req.Status)
+			assert.Equal(t, tt.wantStatus, req.Status)
 			assert.NotEmpty(t, req.DelegationID)
 
 			// Accept

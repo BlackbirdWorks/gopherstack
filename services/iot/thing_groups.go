@@ -263,6 +263,8 @@ func (b *InMemoryBackend) CreateDynamicThingGroup(input *CreateThingGroupInput) 
 		Version:         1,
 		CreatedAt:       time.Now(),
 		QueryString:     input.QueryString,
+		IndexName:       input.IndexName,
+		QueryVersion:    input.QueryVersion,
 		IsDynamic:       true,
 	}
 	b.thingGroups.Put(tg)
@@ -299,11 +301,23 @@ func (b *InMemoryBackend) UpdateDynamicThingGroup(input *UpdateThingGroupInput) 
 	if !ok {
 		return 0, fmt.Errorf("%w: %s", ErrThingGroupNotFound, input.ThingGroupName)
 	}
+
+	if input.ExpectedVersion != 0 && input.ExpectedVersion != tg.Version {
+		return 0, fmt.Errorf("%w: expected version %d but current is %d",
+			ErrVersionConflict, input.ExpectedVersion, tg.Version)
+	}
+
 	if input.Description != "" {
 		tg.Description = input.Description
 	}
 	if input.QueryString != "" {
 		tg.QueryString = input.QueryString
+	}
+	if input.IndexName != "" {
+		tg.IndexName = input.IndexName
+	}
+	if input.QueryVersion != "" {
+		tg.QueryVersion = input.QueryVersion
 	}
 	tg.Version++
 

@@ -92,7 +92,7 @@ func (h *Handler) listJobs(ctx context.Context, c *echo.Context, appID, branchNa
 
 	jobs, outToken, err := h.Backend.ListJobs(appID, branchName, nextToken, maxResults)
 	if err != nil {
-		return h.handleBackendError(ctx, c, "ListJobs", err)
+		return h.handleBackendError(ctx, c, opListJobs, err)
 	}
 
 	resp := map[string]any{"jobSummaries": toJobSummaryViews(jobs)}

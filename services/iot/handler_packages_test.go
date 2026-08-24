@@ -4,11 +4,96 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	iotsdk "github.com/aws/aws-sdk-go-v2/service/iot"
+	iottypes "github.com/aws/aws-sdk-go-v2/service/iot/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/services/iot"
 )
+
+// TestUpdatePackage_UnsetDefaultVersionSurvives guards UpdatePackageInput's
+// real unsetDefaultVersion bool (iot@v1.77.4 api_op_UpdatePackage.go),
+// previously silently dropped -- a real client could set a default version
+// but never clear it. Driven through a real generated AWS SDK v2 client.
+func TestUpdatePackage_UnsetDefaultVersionSurvives(t *testing.T) {
+	t.Parallel()
+
+	client, _ := newIoTSDKClient(t)
+	ctx := t.Context()
+
+	_, err := client.CreatePackage(ctx, &iotsdk.CreatePackageInput{PackageName: aws.String("unset-pkg")})
+	require.NoError(t, err)
+
+	_, err = client.UpdatePackage(ctx, &iotsdk.UpdatePackageInput{
+		PackageName:        aws.String("unset-pkg"),
+		DefaultVersionName: aws.String("1.0.0"),
+	})
+	require.NoError(t, err)
+
+	out, err := client.GetPackage(ctx, &iotsdk.GetPackageInput{PackageName: aws.String("unset-pkg")})
+	require.NoError(t, err)
+	assert.Equal(t, "1.0.0", aws.ToString(out.DefaultVersionName))
+
+	_, err = client.UpdatePackage(ctx, &iotsdk.UpdatePackageInput{
+		PackageName:         aws.String("unset-pkg"),
+		UnsetDefaultVersion: aws.Bool(true),
+	})
+	require.NoError(t, err)
+
+	out2, err := client.GetPackage(ctx, &iotsdk.GetPackageInput{PackageName: aws.String("unset-pkg")})
+	require.NoError(t, err)
+	assert.Empty(t, aws.ToString(out2.DefaultVersionName), "unsetDefaultVersion must clear defaultVersionName")
+}
+
+// TestUpdatePackageVersion_AdvancedFieldsSurvive guards
+// UpdatePackageVersionInput's real action/artifact/attributes/recipe
+// members (iot@v1.77.4 api_op_UpdatePackageVersion.go), previously all
+// silently dropped -- only description/status were ever applied. action
+// (PUBLISH/DEPRECATE) is a lifecycle-transition shorthand for status, not a
+// stored field of its own. Driven through a real generated AWS SDK v2
+// client.
+func TestUpdatePackageVersion_AdvancedFieldsSurvive(t *testing.T) {
+	t.Parallel()
+
+	client, _ := newIoTSDKClient(t)
+	ctx := t.Context()
+
+	_, err := client.CreatePackage(ctx, &iotsdk.CreatePackageInput{PackageName: aws.String("adv-pkg")})
+	require.NoError(t, err)
+	_, err = client.CreatePackageVersion(ctx, &iotsdk.CreatePackageVersionInput{
+		PackageName: aws.String("adv-pkg"),
+		VersionName: aws.String("1.0.0"),
+	})
+	require.NoError(t, err)
+
+	_, err = client.UpdatePackageVersion(ctx, &iotsdk.UpdatePackageVersionInput{
+		PackageName: aws.String("adv-pkg"),
+		VersionName: aws.String("1.0.0"),
+		Action:      iottypes.PackageVersionActionPublish,
+		Recipe:      aws.String(`{"format":"2.0"}`),
+		Attributes:  map[string]string{"env": "prod"},
+		Artifact: &iottypes.PackageVersionArtifact{
+			S3Location: &iottypes.S3Location{Bucket: aws.String("b"), Key: aws.String("k")},
+		},
+	})
+	require.NoError(t, err)
+
+	out, err := client.GetPackageVersion(ctx, &iotsdk.GetPackageVersionInput{
+		PackageName: aws.String("adv-pkg"),
+		VersionName: aws.String("1.0.0"),
+	})
+	require.NoError(t, err)
+
+	assert.Equal(t, iottypes.PackageVersionStatusPublished, out.Status)
+	assert.JSONEq(t, `{"format":"2.0"}`, aws.ToString(out.Recipe))
+	assert.Equal(t, "prod", out.Attributes["env"])
+	require.NotNil(t, out.Artifact)
+	require.NotNil(t, out.Artifact.S3Location)
+	assert.Equal(t, "b", aws.ToString(out.Artifact.S3Location.Bucket))
+	assert.Equal(t, "k", aws.ToString(out.Artifact.S3Location.Key))
+}
 
 // TestBatch3_PackageVersionCRUD tests PackageVersion create/get/update/list/delete.
 func TestPackageVersionCRUD(t *testing.T) {

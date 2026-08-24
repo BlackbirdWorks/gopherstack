@@ -157,7 +157,7 @@ func (h *Handler) listBranches(ctx context.Context, c *echo.Context, appID strin
 
 	branches, outToken, err := h.Backend.ListBranches(appID, nextToken, maxResults)
 	if err != nil {
-		return h.handleBackendError(ctx, c, "ListBranches", err)
+		return h.handleBackendError(ctx, c, opListBranches, err)
 	}
 
 	resp := map[string]any{"branches": toBranchViews(branches)}
@@ -208,7 +208,7 @@ func parseBranchesOperation(method string) string {
 	case http.MethodPost:
 		return "CreateBranch"
 	case http.MethodGet:
-		return "ListBranches"
+		return opListBranches
 	default:
 		return opUnknown
 	}

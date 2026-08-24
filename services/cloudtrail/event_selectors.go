@@ -101,7 +101,7 @@ func (b *InMemoryBackend) GetEDSInsightSelectors(edsIDOrARN string) (string, []I
 
 	eds := b.findEventDataStoreLocked(edsIDOrARN)
 	if eds == nil {
-		return "", nil, fmt.Errorf("%w: event data store %s not found", ErrEventDataStoreNotFound, edsIDOrARN)
+		return "", nil, fmt.Errorf("%w: event data store %s not found", ErrNotFound, edsIDOrARN)
 	}
 	if len(eds.InsightSelectors) == 0 {
 		return "", nil, fmt.Errorf(
@@ -172,7 +172,7 @@ func (b *InMemoryBackend) PutEDSInsightSelectors(
 
 	eds := b.findEventDataStoreLocked(edsIDOrARN)
 	if eds == nil {
-		return nil, fmt.Errorf("%w: event data store %s not found", ErrEventDataStoreNotFound, edsIDOrARN)
+		return nil, fmt.Errorf("%w: event data store %s not found", ErrNotFound, edsIDOrARN)
 	}
 	eds.InsightSelectors = make([]InsightSelector, len(selectors))
 	copy(eds.InsightSelectors, selectors)

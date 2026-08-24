@@ -78,7 +78,6 @@ ops:
   GetUsagePlanKeys: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteUsagePlanKey: {wire: ok, errors: ok, state: ok, persist: ok}
   GetUsage: {wire: ok, errors: ok, state: ok, persist: n/a}
-  UpdateUsage: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateModel: {wire: ok, errors: ok, state: ok, persist: ok}
   GetModel: {wire: ok, errors: ok, state: ok, persist: ok}
   GetModels: {wire: ok, errors: ok, state: ok, persist: ok}

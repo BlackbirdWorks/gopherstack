@@ -299,3 +299,1622 @@ response structs). Not reached: the other ~246 never-named rich-body ops, concen
 `handler_security_groups.go` (9), `handler_elastic_ips.go` (8), `handler_tgw_multicast.go`
 (7), `handler_instance_attrs.go` (7) -- next pass should pick one of those families, per
 the same method.
+
+**2026-08-23 follow-up pass -- never-named sweep, `handler_images.go`/`handler_instances.go`**:
+re-derived the never-audited count directly against `registerImagesOps`/`registerInstancesOps`
+(the structured op-registration blocks, not this file's prose) rather than trusting the
+prior pass's "17"/"15" figures. `handler_images.go` registers 27 ops; grepping every one
+against this whole file found exactly one prior hit, `RestoreImageFromRecycleBin`, and its
+context (2026-07-31 entry above) is a genuine audited-and-fixed op, not a "not reached"
+mention -- so 26/27 (96%) were never audited. `handler_instances.go` registers 28 ops; none
+appear anywhere in this file -- 28/28 (100%) never audited. Combined: 54/55 (98%) across
+both files. (Both files also implement several core ops dispatched from `buildCoreOps` in
+`handler.go` rather than their own `register*Ops` -- `DescribeImages`/`DescribeRegions`/
+`DescribeAvailabilityZones`/`DescribeImageAttribute` and `StartInstances`/`StopInstances`/
+`RebootInstances`/`DescribeInstanceStatus` -- excluded from this count since they weren't
+the object of the prior pass's per-file tallies either.)
+
+Audited all 55 registered ops by hand against the installed
+`aws-sdk-go-v2/service/ec2@v1.319.1` serializers/deserializers. Found and fixed 4 real bugs:
+(1) **`DeregisterImage`** (`handler_images.go`) returned `(nil, nil)` on success -- an
+untyped nil `any`. `xml.Marshal(nil)` serializes to zero bytes, so the wire response was
+just the XML declaration with no `DeregisterImageResponse` root element, no `requestId`,
+and no `Return` (real `DeregisterImageOutput.Return` is `*bool`, always true --
+`api_op_DeregisterImage.go:89`); smithy-go's client tolerates the empty body via
+`FetchRootElement`'s `io.EOF` branch and returns a zero-value output with `Return == nil`
+rather than erroring, so this was silent data loss, not a hard failure. Its not-found path
+also used `ErrInvalidParameter` (`InvalidParameterValue`) instead of the sentinel every
+other not-found path in `images.go`/`image_ops.go` already uses, `ErrImageNotFound`
+(`InvalidAMIID.NotFound`, the real code) -- a broken op beside many correct siblings of the
+same shape. Fixed both; `DeregisterImage` now returns a proper stub response and reuses
+`ErrImageNotFound`. (2) **`ReportInstanceStatus`** (`handler_instances.go`) only ever read
+`InstanceId.1` and `ReasonCode.1`, misreading the latter into the "description" arg passed
+to the backend -- the real, deprecated-but-still-real `Description` field
+(`serializers.go:91277`) was never read at all, and `Instances` (a required, unbounded list
+flattened as `InstanceId.N`) only ever validated its first element, so a batch call with a
+bad second ID silently succeeded instead of surfacing `InvalidInstanceID.NotFound`. Fixed:
+now parses the full `InstanceId.N` list via `parseMemberList` and reads the real
+`Description` field; `Backend.ReportInstanceStatus` signature changed from
+`(instanceID, status, description string)` to `(instanceIDs []string, status, description
+string)` and validates every listed instance. (3) **`ModifyInstanceCreditSpecification`**
+(`handler_instances.go`) had the identical shape: only read
+`InstanceCreditSpecification.1.*`, silently dropping every other entry in the required,
+unbounded `InstanceCreditSpecifications` list (`serializers.go:87727`) -- a real client
+batch-modifying a fleet's credit option in one call only got the first instance changed,
+with no error and no `UnsuccessfulInstanceCreditSpecifications` reporting for the rest.
+Fixed: parses the full list, and `Backend.ModifyInstanceCreditSpecification` now takes
+`[]InstanceCreditSpec` and returns `(successful, unsuccessful []InstanceCreditSpec)`
+per real per-item batch semantics; the handler reports failures via a new
+`UnsuccessfulInstanceCreditSpecificationSet` (`instanceId`/`error>code`/`error>message`,
+confirmed against `awsEc2query_deserializeDocumentUnsuccessfulInstanceCreditSpecificationItem`)
+using the real `InvalidInstanceID.NotFound` code. (4) **`DescribeInstanceTypeOfferings`**
+(`handler_instances.go`) took `_ url.Values`, ignoring the request entirely -- the real
+`instance-type`/`location` `Filters` (`api_op_DescribeInstanceTypeOfferings.go` doc comment)
+were silently discarded and every call returned the full static offering list regardless of
+what was asked for. Fixed via a new `applyInstanceTypeOfferingFilters` (reusing the
+existing `parseEC2Filters`/`anyEqual` helpers already used by every other filtered Describe
+in this package) and an explicit, honest empty result for a `LocationType` other than
+`availability-zone` (the only kind this backend's static generator produces -- not
+fabricating offerings for `region`/`availability-zone-id`/`outpost`, which it has no real
+data for).
+
+No sibling family shares (1)'s or (4)'s exact op; (2) and (3) are the same "batch op reads
+only index 1" shape and were both found and fixed together as a matched pair -- no other op
+in either file uses the `.N.` nested-list wire form, confirmed by grep.
+
+Proof for all 4: new real-SDK-client tests in `wire_field_fixes_ec2sweep11_test.go`
+(`TestDeregisterImage_RealClient`, `TestReportInstanceStatus_AllInstancesValidated_RealClient`,
+`TestModifyInstanceCreditSpecification_Batch_RealClient`,
+`TestDescribeInstanceTypeOfferings_Filters_RealClient`), each hand-reverted (`cp` from the
+pre-fix `git show HEAD:...` content) and confirmed failing with the documented symptom, then
+restored with `md5sum` identical to the fixed version before re-running green.
+
+No persisted struct's json tag or field name/type changed (`InstanceCreditSpec`'s shape is
+unchanged; only how it's passed/batched changed) -- no `ec2SnapshotVersion` bump.
+
+Found, real, but NOT fixed this pass (volume too large for one pass, named rather than
+synthesized around): every List/Describe op in both files silently ignores real
+`MaxResults`/`NextToken` pagination and always returns everything in one page --
+`DescribeInstanceCreditSpecifications`, `DescribeInstanceTopology`,
+`DescribeInstanceConnectEndpoints`, `DescribeInstanceEventWindows`, `DescribeElasticGpus`,
+`DescribeImportImageTasks`, `DescribeExportImageTasks`, `ListImagesInRecycleBin`,
+`DescribeFastLaunchImages`, `DescribeImageReferences`, `DescribeInstanceImageMetadata` --
+all confirmed via the installed SDK to have real `MaxResults`/`NextToken` on both
+Input and Output, none implemented here. `DescribeImages` (core op, same file) already
+implements this correctly via `parseImagesPagination`/`pkgs/page` -- a correct sibling
+right beside every one of these broken ones. Modelling gaps ruled real, not fabricatable,
+and left alone: `CopyImage` never reads the required `SourceRegion` or the real
+`Encrypted`/`KmsKeyId` (this backend's AMI type tracks no cross-region or
+block-device/encryption state at all, a pre-existing, already-documented structural gap);
+`GetDefaultCreditSpecification`/`ModifyDefaultCreditSpecification`'s `InstanceFamily` is a
+non-pointer required enum (unprovable per the pointer-vs-scalar rule) and the backend
+tracks one default across all families rather than per-family, which is a real but
+non-pointer-provable modelling gap, not touched. `CreateInstanceEventWindow`'s alternative
+`TimeRanges` input (mutually exclusive with `CronExpression`) is entirely unmodeled --
+documented, not fabricated. False positive ruled out by hand: `ReportInstanceStatus`'s
+backend method discards `status`/`description` entirely (`_ string, _ string`) and there is
+no real Describe surface that reflects customer-reported status back to the same account,
+so despite the misleading doc comment this is not a provable "fabricated success" bug --
+only the wire-parsing/multi-instance-validation gap above is.
+
+Gates: `go build ./...` (repo-wide, since two `Backend` interface method signatures
+changed), `go vet ./services/ec2/...`, `gofmt -l services/ec2/*.go` (clean), `go test
+./services/ec2/... -count=1` (`ok`, 1.0s, full suite including the new tests), `golangci-lint
+run ./services/ec2/...` (0 issues, after fixing 2 `goconst` findings the new code introduced
+-- reused `ErrInstanceNotFound.Error()`/`filterKeyAvailabilityZone` instead of new literals
+-- and 1 `nonamedreturns` finding by switching `ModifyInstanceCreditSpecification`'s named
+returns to local vars).
+
+Not reached: the other ~28 ops in `handler_instances.go` beyond the 4 fixed (batch
+credit-spec/report-status/type-offerings), and the other ~23 in `handler_images.go` beyond
+`DeregisterImage`/`RestoreImageFromRecycleBin` -- every op in both files was read and
+checked for the enumerated bug shapes, but only the pagination gap above and the 4 fixed
+bugs were found; the remaining ops (image lifecycle toggles, import/export image tasks,
+instance event windows, instance-connect endpoints, serial console, credit specification
+describe, etc.) matched their real wire shapes on inspection. Next pass should pick one of:
+`handler_volumes.go` (12), `handler_snapshots.go` (11), `handler_spot_fleet.go` (10),
+`handler_client_vpn.go` (9), `handler_security_groups.go` (9), `handler_elastic_ips.go` (8),
+`handler_tgw_multicast.go` (7), `handler_instance_attrs.go` (7), or return to close the
+pagination gap named above across both files audited this pass.
+
+**2026-08-23 pass -- closed the ec2sweep11 `MaxResults`/`NextToken` gap named above**:
+verified each of the eleven named ops against the installed
+`aws-sdk-go-v2/service/ec2@v1.319.1` directly (not trusting the prior pass's list) --
+all eleven really do declare `MaxResults *int32`/`NextToken *string` on both Input and
+Output, and all eleven handlers really did ignore both, always returning every item in
+one page with no `nextToken` on the response. All eleven are the same severity: the
+**unbounded-single-page** form, not the medialive infinite-loop form -- none applied any
+default cap, so a real SDK paginator got everything in one call and stopped (never
+restarted at item 0). No cap being applied at all is what makes this milder than a
+default-cap-plus-ignored-token bug would be.
+
+Fixed via two new shared helpers in `handler.go` (`parseEC2Pagination` -- generalizes
+`handleDescribeImages`' existing `parseImagesPagination` with per-op min/max/default
+bounds instead of hardcoded constants; `pageSlice[T any]` -- factors out the
+offset/limit/`page.EncodeHMACToken` truncation block `DescribeImages`/`DescribeSnapshots`/
+`DescribeNetworkAcls` each already duplicated inline) rather than writing 11 near-copies
+of `parseImagesPagination`, per the one-coarse-pattern-per-repo rule; reuses
+`pkgs/page`'s existing `DecodeHMACToken`/`EncodeHMACToken`, no new pagination mechanism.
+Bounds/defaults per op, sourced from the pinned SDK's doc comments where given, falling
+back to `DescribeImages`' own (1..1000, default 1000) where the doc gives no explicit
+range: `DescribeInstanceEventWindows` 20..500 ("between 20 and 500"); `DescribeElasticGpus`
+5..1000 ("between 5 and 1000"); `DescribeInstanceTopology` default 20 ("Default: 20"),
+bounds fall back to 1..1000; the other eight fall back to 1..1000/1000 entirely
+(their docs give no explicit range or default). Every response struct gained a
+`NextToken string \`xml:"nextToken,omitempty"\`` field.
+
+Proof: `pagination_ec2sweep11_test.go`, one real-SDK-client-paginator test per op
+(`ec2sdk.NewDescribeXPaginator`, `StopOnDuplicateToken` left at its real default of
+`false`), five seeded items at `MaxResults=2` (three seeded pages), asserting the IDs
+returned across pages are disjoint and total 5 -- the shape that fails pre-fix, since
+pre-fix the first (only) page already contains all 5 IDs. Hand-reverted all three
+touched handler files to the pre-fix `git show HEAD:...` content via `cp` and confirmed:
+9 of the 11 tests failed with `"1" is not greater than or equal to "2"` (pagination
+collapsed to one page); `DescribeInstanceEventWindows` needed re-seeding at 45 items
+(its 20-item MaxResults floor makes 5 items fit on one page even correctly paginated --
+a single-page test proves nothing, exactly the pitfall this ticket warned about) and
+then failed the same way once seeded past the floor. `DescribeElasticGpus` and
+`ListImagesInRecycleBin` have no data path that can ever populate more than zero items
+in this backend (see below), so their tests instead assert a forged `NextToken` is now
+rejected -- both failed pre-fix with "an error is expected but got nil" (the token was
+silently ignored, not validated). Restored all three files via `cp` from the saved
+fixed copies; `md5sum` identical before/after the revert-and-restore cycle.
+
+Two of the eleven could not get the full two-page proof, for reasons pre-dating and
+outside this pass's scope: **`DescribeElasticGpus`** has no generated SDK Paginator at
+all (Elastic Graphics was retired in 2023 -- see the type's existing doc comment) even
+though its Input still carries `MaxResults`/`NextToken`, and this backend's
+`DescribeElasticGpus` always returns an empty list (no API here ever attaches one) --
+the fix and its `MaxResults` bounds validation are real and now correct, but nothing
+can ever populate a second page. **`ListImagesInRecycleBin`** genuinely has no
+SDK-reachable producer in this backend: `DeregisterImage` deletes AMIs outright rather
+than moving them to the recycle bin, so `recycleBinImages` is never written by any real
+operation -- a pre-existing structural gap (same shape as the AMI-recycle-bin absence
+already), not something this pagination fix should also invent. Both are still fixed
+correctly; only the strongest proof shape is unavailable for them.
+
+Backend interface unchanged; no `Backend` method gained/lost a parameter. No persisted
+struct's json tag changed -- only new XML-only response fields -- so no
+`ec2SnapshotVersion` bump. Gates: `go build ./...` (repo-wide sanity check; no exported
+signature actually changed), `go vet ./services/ec2/...`, `gofmt -l services/ec2/*.go`
+(clean), `go test -race ./services/ec2/...` (`ok`, full suite including the 11 new
+tests), `golangci-lint run ./services/ec2/...` (0 issues, after fixing 1 `godot` and 9
+`prealloc` findings the new test file introduced); no banned `//nolint`s.
+
+**2026-08-23 pass -- `handler_volumes.go`/`handler_snapshots.go` never-named sweep**:
+re-derived the count directly against `registerVolumesOps`/`registerSnapshotsOps` plus
+each file's own core ops dispatched from `buildCoreOps` (`CreateVolume`/`DescribeVolumes`/
+`DeleteVolume`/`AttachVolume`/`DetachVolume`/`DescribeVolumeAttribute`/
+`ModifyVolumeAttribute` for volumes; `DescribeSnapshotAttribute`/`ModifySnapshotAttribute`
+for snapshots), grepped against every op name mentioned anywhere in this file, and split
+"named-and-audited" from "named-only-as-a-not-reached-count" per the redirect's method.
+`handler_volumes.go`: 22 total ops, 3 previously audited (`CreateVolume`, `DescribeVolumes`,
+`ModifyEbsDefaultKmsKeyId` -- all from the 2026-08-05/08-12 `ebs_snapshot_lineage` passes)
+-- **19/22 (86%) never audited**. `handler_snapshots.go`: 24 total ops, 4 previously audited
+(`CopySnapshot`, `CreateSnapshots`, `CreateSnapshot`, `DescribeSnapshots`, same passes) --
+**20/24 (83%) never audited**. Combined: **39/46 (85%) never audited**, well above the
+prior pass's 12/11 "real-body" estimate (that number counted only a field-count heuristic
+subset of never-named ops, not the true never-audited total).
+
+Read every one of the 39 by hand against `aws-sdk-go-v2/service/ec2@v1.319.1`
+serializers/deserializers/api_op_*.go. Found and fixed **7 real bugs**, two of them the
+most severe class this sweep has found (a real client's request or response silently
+decoding to nothing, every time, not merely a missing field):
+
+1. **`CopyVolumes`** (`handler_volumes.go`) was wrong on both sides of the wire. Request:
+   read `VolumeId.N` (a list) and a fabricated `DestinationRegion` field; the real
+   `CopyVolumesInput` has a single required `SourceVolumeId` (serializers.go:69198,
+   confirmed against `api_op_CopyVolumes.go`) and no cross-region concept at all (the op
+   copies within the same AZ) -- a real client's request never populated `VolumeId.N`, so
+   `volumeIDs` was always empty and every real call failed with `InvalidParameterValue: at
+   least one VolumeId is required`, regardless of what was asked to be copied. Response: a
+   custom `{sourceVolumeId, destVolumeId}` item instead of the real `Volumes []types.Volume`
+   full-volume-item shape (`awsEc2query_deserializeDocumentVolumeList`, element `item` ->
+   `Volume`) -- even a hand-built request that reached the backend would have decoded to
+   zero volumes, since `sourceVolumeId`/`destVolumeId` aren't real `Volume` fields. Fixed:
+   `Backend.CopyVolumes` signature changed from `(volumeIDs []string, destinationRegion
+   string) ([]CopyVolumesResult, error)` to `(sourceVolumeID string, size int, volumeType
+   string, iops, throughput int) (*Volume, error)` (real `CopyVolumesInput`: `Size` inherits
+   the source's if zero per its doc comment, `VolumeType` defaults to `gp2` -- not the
+   source's type -- per its own doc comment, a real asymmetry preserved rather than
+   normalized away); handler now reads `SourceVolumeId`/`Size`/`VolumeType`/`Iops`/
+   `Throughput`, reuses the existing `parseVolumePerf` validation `CreateVolume` already
+   uses, and renders the result through the existing `toVolumeItem`/`volumeItemSet` (the
+   same types `DescribeVolumes` already renders correctly) instead of a bespoke item type.
+   `CopyVolumesResult` and the now-orphaned `copyVolumesVolumeItem` type deleted.
+2. **`EnableFastSnapshotRestores`/`DisableFastSnapshotRestores`** (`handler_snapshots.go`),
+   same two-sided shape as (1). Request: both read `SnapshotId.N`; the real wire key is
+   `SourceSnapshotId` (serializers.go:84014-84019 Enable, 83152-83157 Disable, both
+   `FlatKey("SourceSnapshotId")` off `...Input.SourceSnapshotIds`) -- a real client's
+   request never populated `SnapshotId.N`, so every real call silently enabled/disabled
+   fast restores for zero snapshots while still reporting success. Response: a bare
+   `stubResponse{Return: true}`; the real `Enable/DisableFastSnapshotRestoresOutput` have
+   no `Return` field at all, only `Successful`/`Unsuccessful` sets
+   (deserializers.go:210002-210012 Enable, 208034-208044 Disable) -- the real API's only
+   per-item confirmation signal, always empty pre-fix even once the request-side bug is
+   imagined fixed. Fixed both: request now reads `SourceSnapshotId`; response now reports
+   every requested (snapshotId, availabilityZone) pair as `Successful` in its real
+   *terminal* state (`enabled`/`disabled`) rather than the transient `enabling`/`disabling`
+   real AWS uses for an operation this mock completes synchronously -- reusing the existing
+   `fastSnapshotRestoreItem` type `DescribeFastSnapshotRestores` already renders correctly.
+   `Unsuccessful` is left empty/absent: this backend's `Enable/DisableFastSnapshotRestores`
+   never fails a specific pair once the top-level call succeeds, so there is nothing to
+   report there without fabricating errors.
+3. **`DescribeSnapshotTierStatus`** (`handler_snapshots.go`) read a `SnapshotId.N` list that
+   does not exist on the real `DescribeSnapshotTierStatusInput` at all -- it has only
+   `Filters` (confirmed via `api_op_DescribeSnapshotTierStatus.go`'s doc comment and
+   serializers.go:80972-80999, which serializes only `DryRun`/`Filter`/`MaxResults`/
+   `NextToken`), with a real `snapshot-id` filter key. A real client filtering by snapshot
+   ID -- the only way the real API supports it -- had that filter silently ignored,
+   returning every snapshot's tier status instead of the one asked for. Fixed: handler now
+   calls `Backend.DescribeSnapshotTierStatus(nil)` (all snapshots) and applies a new
+   `applySnapshotTierFilters` matching the real `snapshot-id`/`volume-id` filter keys
+   (`last-tiering-operation` is real but left unenforced -- this backend tracks only the
+   current tier, not the archive/restore operation history that filter's values describe,
+   so enforcing it would mean fabricating a match against state that doesn't exist).
+4. **`LockSnapshot`** (`handler_snapshots.go`) returned only `snapshotId`/`lockState`, even
+   though the backend's `SnapshotLock` already computes `LockDurationDays`/`LockCreatedOn`/
+   `LockExpiresOn` -- state the sibling `DescribeLockedSnapshots` already renders correctly
+   from the same struct. The real `LockSnapshotOutput` models `lockDuration`/`lockCreatedOn`/
+   `lockExpiresOn` (deserializers.go:216295-216340), so a client reading those fields
+   straight off the `LockSnapshot` response it just got back -- the natural way to confirm
+   what was just locked, rather than issuing a follow-up Describe -- got zero values despite
+   the state genuinely existing one struct field away. Fixed by rendering all three from the
+   same `lock` the handler already had. (`CoolOffPeriod`/`CoolOffPeriodExpiresOn`/
+   `LockDurationStartTime` are real fields this backend has no cool-off-period concept for
+   at all -- left absent, not fabricated.)
+5. **`UnlockSnapshot`** (`handler_snapshots.go`) returned a generic
+   `stubResponse{Return: true}`; the real `UnlockSnapshotOutput` has no `Return` field --
+   only `snapshotId` (deserializers.go:223213-223224) -- so a client confirming the unlock
+   via the response's own `SnapshotId`, the op's only real confirmation signal, got an empty
+   string. Fixed with a dedicated `unlockSnapshotResponse{SnapshotID}`.
+6. **Nine List/Describe ops across both files silently ignored real `MaxResults`/
+   `NextToken` pagination**, the exact gap the redirect asked these two files to check and
+   the prior pass's `ec2sweep11` fix (11 ops in `handler_images.go`/`handler_instances.go`)
+   did not touch: `DescribeVolumeStatus`, `DescribeVolumesModifications`,
+   `DescribeReplaceRootVolumeTasks`, `ListVolumesInRecycleBin` (volumes); `DescribeSnapshotTierStatus`
+   (also bug 3, above), `DescribeLockedSnapshots`, `ListSnapshotsInRecycleBin`,
+   `DescribeImportSnapshotTasks`, `DescribeFastSnapshotRestores` (snapshots). All nine
+   confirmed via the installed SDK to declare `MaxResults`/`NextToken` on both Input and
+   Output; none applied a cap or emitted a token pre-fix -- the same milder,
+   unbounded-single-page form as `ec2sweep11`, not the medialive-style infinite loop. Fixed
+   with the same `parseEC2Pagination`/`pageSlice` helpers `ec2sweep11` added, no second
+   mechanism invented. Bounds per op, from the pinned SDK's own doc comments where stated,
+   falling back to `DescribeImages`' 1..1000/1000 where not: `ListVolumesInRecycleBin`
+   5..500 ("Valid range: 5 - 500"); `DescribeVolumesModifications` 1..500 ("up to a limit of
+   500"); the other seven fall back to 1..1000/1000 entirely.
+7. Sibling check on bug (6)'s class (rule 8): every other Describe/List op in both files was
+   checked against the installed SDK for a `MaxResults`/`NextToken` pair on its Input/Output
+   -- none of the remaining ops in either file declare one, so no further pagination bug
+   exists here. Sibling check on bugs (1)/(2)'s "wrong wire key" class: grepped every other
+   `parseMemberList(vals, "SnapshotId")`/`"VolumeId"` call site in both files against the
+   installed SDK's serializers for the corresponding op; `DescribeLockedSnapshots` and
+   `ListSnapshotsInRecycleBin` really do use `SnapshotId.N` (serializers.go:79491-79496,
+   86745-86750) -- correct siblings, not touched. No other op in either file shares bug (4)
+   or (5)'s "state computed but not surfaced on this op's own response" shape by inspection.
+
+Proof for all 7: new real-SDK-client tests in `wire_field_fixes_ec2sweep12_test.go`
+(`TestCopyVolumes_RealClient`, `TestLockSnapshot_SurfacesLockFields_RealClient`,
+`TestUnlockSnapshot_SurfacesSnapshotID_RealClient`,
+`TestDescribeSnapshotTierStatus_Filters_RealClient`,
+`TestEnableDisableFastSnapshotRestores_SurfacesResults_RealClient`) plus two
+`dispatchHandler`-driven multi-page round-trip tests covering all nine pagination ops
+(`TestVolumesFamilyPagination_RealPageRoundTrip`, `TestSnapshotsFamilyPagination_RealPageRoundTrip`,
+seeded 7 items at `MaxResults=3` -- above every op's page-size floor, learning
+`ec2sweep11`'s lesson that an under-seeded fixture can't fail even pre-fix). The pagination
+round-trip helper asserts not just that every item is eventually seen, but that the first
+page holds `<= MaxResults` items and that more than one page was needed -- the first
+version of this test asserted only item-set completeness and **false-passed against
+unfixed code**, because an unpaginated handler returns everything in one page with no
+`nextToken`, which trivially satisfies "every item was seen." Caught by hand-reverting
+before trusting it, per the same lesson stated explicitly for next time. `TestPagination_
+ForgedTokenRejected` (`persistence_test.go`) extended with all nine ops' forged-token
+rejection cases. `ListVolumesInRecycleBin`/`ListSnapshotsInRecycleBin` get the
+forged-token proof only, not the real multi-page round-trip: same structural gap as
+`ec2sweep11`'s `ListImagesInRecycleBin` finding -- `DeleteVolume`/`DeleteSnapshot` delete
+outright rather than moving anything into `recycleBinVolumes`/`recycleBinSnapshots`, so
+there is no SDK-reachable producer for either table, and inventing one (e.g. an
+export_test.go seeding helper) was out of scope for this pass. Hand-revert: reverted
+`handler_volumes.go`, `handler_snapshots.go`, `volumes.go`, `snapshots.go`,
+`interfaces.go`, `handler.go`, `handler_filters.go`, and `handler_volumes_test.go` to
+`git show HEAD:...` content via `cp`, confirmed all 7 new tests fail with the documented
+symptom (and only those 7 -- every pre-existing `RealClient`/pagination test in the
+package still passed against the reverted files, confirming the revert didn't
+accidentally touch unrelated code), then restored all eight files from the saved copies;
+`md5sum` identical before/after for every file, twice (once before the lint cleanup pass,
+once after).
+
+No persisted struct's json tag, field name, or type changed -- `Volume`'s field set is
+unchanged (`CopyVolumes` now populates the same fields `CreateVolume` already does, just
+via a different call path); response-only XML structs and a deleted transient
+`CopyVolumesResult` return type aren't part of any `backendSnapshot`. No
+`ec2SnapshotVersion` bump; `go test ./pkgs/persistence/...` still green.
+
+Modelling gaps found but NOT fixed (documented, not synthesized): `RestoreSnapshotTier`
+never reads the real `PermanentRestore`/`TemporaryRestoreDays` input fields at all (only
+`SnapshotId`), and its response is a bare `stubResponse{Return: true}` where the real
+`RestoreSnapshotTierOutput` has `IsPermanentRestore`/`RestoreDuration`/`RestoreStartTime` --
+this backend tracks no temporary-vs-permanent-restore or restore-expiry concept
+whatsoever, so building the real response honestly means adding that state, not just
+wiring up existing fields; out of scope for this pass, named rather than worked around.
+`RestoreSnapshotFromRecycleBin` returns the same bare `stubResponse{Return: true}` where
+the real `RestoreSnapshotFromRecycleBinOutput` is a near-full snapshot detail object
+(`description`/`encrypted`/`outpostArn`/and more per deserializers.go:221896-221934) --
+the backend already has the restored `Snapshot` in hand at the point it discards it
+(`volumes.go`... `snapshots.go`'s `RestoreSnapshotFromRecycleBin`), so this is buildable
+without fabrication, just not attempted this pass. `DescribeVolumeAttribute` always wraps
+a boolean under whatever `Attribute` name the caller passed, never validating it against
+the real two-value enum (`autoEnableIO`/`productCodes`) or rendering the real
+`productCodes` list shape for that attribute -- a real client asking for `productCodes`
+gets an empty list via a decode-and-skip side effect rather than a real, deliberate
+empty-list render, which happens to be harmless today only because this backend never
+tracks product codes at all. `GetEbsEncryptionByDefaultOutput` also models `sseType`,
+entirely unrendered here -- this backend has no SSE-type concept, so left absent rather
+than fabricated. False positives ruled out by hand: `RestoreVolumeFromRecycleBin`'s bare
+`{Return: bool}` shape is actually correct (deserializers.go:222186-222199 confirms the
+real `RestoreVolumeFromRecycleBinOutput` has only `Return`) -- flagged initially by
+pattern-matching against the snapshots-side bug (bugs 1/2's shape), then confirmed correct
+per-op rather than assumed broken by association.
+
+Gates: `go build ./...` (repo-wide, `Backend.CopyVolumes`'s exported signature changed),
+`make build-check` (`go build ./...`, `go vet -tags e2e ./...`, `go vet -tags integration
+./...`, all clean), `go vet ./services/ec2/...`, `gofmt -l services/ec2/*.go` (clean),
+`go test -race ./services/ec2/... -count=1` (`ok`, full suite including all new tests),
+`go test ./pkgs/persistence/... -count=1` (`ok`), `golangci-lint run ./services/ec2/...`
+(0 issues, after `--fix` corrected 2 `goconst` findings by consolidating a third
+pre-existing `"volume-id"` literal onto the existing `filterKeyVolumeID` constant, plus
+1 `fieldalignment` and 1 `testifylint` finding on the new test file; 5 `lll` and 1
+`unparam` fixed by hand -- collapsing `paginationRoundTrip`'s always-3 `maxResults`
+parameter into a local constant, the correct fix rather than a suppression). No banned
+`//nolint`s.
+
+Not reached, named per the redirect's request: every other op in
+`handler_volumes.go`/`handler_snapshots.go` beyond the 39 audited and the 7 fixed matched
+its real wire shape on inspection. Largest still-unswept never-named families from the
+2026-08-23 tally above: `handler_spot_fleet.go` (10), `handler_client_vpn.go` (9),
+`handler_security_groups.go` (9), `handler_elastic_ips.go` (8), `handler_tgw_multicast.go`
+(7), `handler_instance_attrs.go` (7) -- next pass should re-derive each file's count
+against its own `register*Ops` before picking one, per the method demonstrated here.
+
+**2026-08-23 pass -- bare `Return: true` stub census (whole-repo redirect)**: a
+whole-repo grep for `Return:\s+true` in `services/*/handler*.go` turned up **118 real
+code sites, every one in `services/ec2`** (a 119th grep hit was a comment in
+`handler_reserved_instances.go` documenting an already-fixed op, not a live site; every
+other service greps clean). Mapped each site to its real `<Op>Output` struct in
+`aws-sdk-go-v2/service/ec2@v1.319.1` (case-insensitive filename match, since several ops
+differ only in AWS's inconsistent `Ip`/`IP`, `Dns`/`DNS`, `Acl`/`ACL` casing between
+Go SDK and this repo's op names) and classified each by the redirect's three-way test:
+
+- **47 correct** (`Return` is the real output's only member) -- left alone.
+- **7 "Return + missing siblings"**: `AuthorizeSecurityGroupEgress`/
+  `AuthorizeSecurityGroupIngress` (missing `SecurityGroupRules`), `DeleteSecurityGroup`
+  (missing `GroupId`), `DeleteKeyPair` (missing `KeyPairId` -- **fixed this pass**),
+  `DeregisterImage` (missing `DeleteSnapshotResults`), `DisassociateTrunkInterface`
+  (missing `ClientToken`), `RevokeSecurityGroupIngress` (missing
+  `RevokedSecurityGroupRules`/`UnknownIpPermissions`).
+- **21 "no `Return` field, real members silently dropped"** -- the damaging class: e.g.
+  `AssignPrivateIPAddresses` (real output is
+  `AssignedIpv4Prefixes`/`AssignedPrivateIpAddresses`/`NetworkInterfaceId`, none rendered),
+  `DisassociateClientVpnTargetNetwork` (real output is `associationId`/`status`, **fixed
+  this pass**), `RestoreSnapshotTier`/`RestoreSnapshotFromRecycleBin` (already named
+  as unfixed gaps in the 08-23 volumes/snapshots entry above -- this sweep re-derived them
+  independently from the SDK side, corroborating that entry), plus 17 more listed in this
+  session's report.
+- **1 wire-tag mismatch, the sharpest bug found**: `ReleaseIpamPoolAllocation`
+  (`handler_advanced_networking.go`/`handler_ipam.go`) rendered `<return>true</return>`,
+  but the real `ReleaseIpamPoolAllocationOutput`'s only member is `Success`, decoded off
+  `<success>` (`deserializers.go`,
+  `awsEc2query_deserializeOpDocumentReleaseIpamPoolAllocationOutput` has no `case` for
+  `"return"` at all -- the real client's deserializer silently skips the emulator's tag
+  via its `default:` branch, so `Success` stayed permanently nil regardless of the actual
+  release outcome). **Fixed this pass.**
+- **42 "no `Return`, but the real output has no other members either"** -- e.g.
+  `DeleteVpc`, `RebootInstances`, `ModifyImageAttribute`: technically wrong (the emulator
+  renders a field the real op doesn't have) but harmless in practice, since an unknown XML
+  tag is silently skipped by the real deserializer's own `default:` case and there is
+  nothing real for a client to miss. Left alone -- fixing these is pure noise removal, not
+  a client-visible bug, and 42 near-identical one-line diffs aren't a good use of a
+  "depth over breadth" pass.
+
+Fixed 3, the highest-confidence and most damaging of the non-cosmetic findings:
+
+1. **`ReleaseIpamPoolAllocation`** (`handler_advanced_networking.go`,
+   `handler_ipam.go:381`) -- wire tag mismatch above. Changed the response struct's
+   `Return bool `xml:"return"`` field to `Success bool `xml:"success"``, matching
+   `api_op_ReleaseIpamPoolAllocation.go:67`.
+2. **`DeleteKeyPair`** (`handler_key_pairs.go:110-131`) -- added `KeyPairId` (wire tag
+   `keyPairId`, `api_op_DeleteKeyPair.go:47`, confirmed against
+   `awsEc2query_deserializeOpDocumentDeleteKeyPairOutput`), looked up via the existing
+   `Backend.DescribeKeyPairs` before the delete removes it from the backend.
+3. **`DisassociateClientVpnTargetNetwork`** (`handler_client_vpn.go:290-310`) -- replaced
+   the generic `stubResponse{Return: true}` with a new
+   `disassociateClientVpnTargetNetworkResponse{AssociationID, Status}`, matching
+   `api_op_DisassociateClientVpnTargetNetwork.go:61-64` and its deserializer
+   (`associationId`/`status` wire tags); modeled on the sibling
+   `associateClientVpnTargetNetworkResponse` already in the same file, using the real
+   `AssociationStatusCode` enum value `"disassociating"`
+   (`types/enums.go:698`).
+
+Proof for all 3: `services/ec2/wire_field_fixes_ec2sweep13_test.go`, three
+`*_RealClient` tests built against the real `ec2sdk.Client`. Hand-reverted each fix in
+turn (`cp` from a saved copy of the pre-fix file, ran only that fix's test, restored,
+`md5sum` identical before/after every file):
+- `TestReleaseIpamPoolAllocation_WireField_RealClient`: pre-fix failure --
+  `Expected value not to be nil` on `out.Success` ("pre-fix the real deserializer has no
+  case for `<return>`, so this stayed nil").
+- `TestDeleteKeyPair_SurfacesKeyPairID_RealClient`: pre-fix failure -- `Expected value
+  not to be nil` on `out.KeyPairId`.
+- `TestDisassociateClientVpnTargetNetwork_SurfacesAssociation_RealClient`: pre-fix
+  failure -- `Expected value not to be nil` on `out.AssociationId`.
+
+No persisted struct changed (all three fixes are response-only XML shapes plus one
+backend lookup call already exported); no `ec2SnapshotVersion` bump needed, and none of
+`KeyPair`/`ClientVpnEndpoint`/`IpamPoolAllocation` persisted fields changed.
+
+Gates: `go build ./...` (no exported signature changed, so `make build-check` wasn't
+required, but ran anyway -- clean), `go vet ./services/ec2/...` and `gofmt -l` on every
+touched file (clean), `go test -race ./services/ec2/...` (`ok`, full suite including the
+3 new tests), `golangci-lint run ./services/ec2/...` (0 issues). No banned `//nolint`s.
+
+Not reached, named: the 6 remaining Category-B sites and 20 remaining Category-C-real
+sites listed in this session's report (file:line for each), and all 42 Category-C-empty
+sites (cosmetic-only, listed by file above) -- deliberately not attempted this pass per
+"depth over breadth." Largest remaining concentration: `handler_security_groups.go` (5
+of its 9 `Return: true` sites are Category B/C-real: `AuthorizeSecurityGroupEgress`,
+`AuthorizeSecurityGroupIngress`, `DeleteSecurityGroup`, `RevokeSecurityGroupIngress`,
+`DisassociateSecurityGroupVpc`), then `handler_images.go` (`DeregisterImage`,
+`EnableFastLaunch`, `DisableFastLaunch`), `handler_elastic_ips.go`
+(`AssociateAddress`, `DisableAddressTransfer`, `ResetAddressAttribute`,
+`RestoreAddressToClassic`), `handler_snapshots.go` (`RestoreSnapshotFromRecycleBin`,
+`RestoreSnapshotTier` -- already named above), and `handler_instances.go`
+(`EnableSerialConsoleAccess`/`DisableSerialConsoleAccess`).
+
+**2026-08-23 pass -- census follow-up, 21 of the 27 named `Return`-only sites
+fixed**: continuation of the two passes above, working the named queue of 27
+sites (20 Category C, 6 Category B) the census pass classified against the
+real `Return`-only-vs-real-shape distinction. Re-verified every site by hand
+against the installed `aws-sdk-go-v2/service/ec2@v1.319.1` deserializers
+before touching it, per parity-principles.md rule 2. The census undercounted
+by one name (27 claimed, only 26 distinct op names listed) -- worked all 26.
+
+Fixed 21:
+
+- **Security groups** (`handler_security_groups.go`, `security_groups.go`):
+  `CreateSecurityGroup` gained `SecurityGroupArn` (`SecurityGroup` gained an
+  `ARN` field, set at creation from `b.Region`/`b.AccountID`, additive/
+  `omitempty` -- no snapshot bump). `DeleteSecurityGroup` gained `GroupId`.
+  `AuthorizeSecurityGroupIngress`/`Egress` gained `SecurityGroupRules`: since
+  Authorize appends (never inserts) and rejects duplicates, the newly-added
+  rules are exactly the tail of the direction-filtered
+  `DescribeSecurityGroupRules` result, no backend signature change needed.
+  `RevokeSecurityGroupIngress` gained `RevokedSecurityGroupRules` and
+  `UnknownIpPermissions` -- `Backend.RevokeSecurityGroupIngress` signature
+  changed from `(string, []SecurityGroupRule) error` to
+  `(string, []SecurityGroupRule) ([]*SecurityGroupRuleDetail,
+  []SecurityGroupRule, error)` so unmatched-vs-matched rules are determined
+  where `sg.IngressRules` is actually visible (matches the existing
+  `ruleKey`/`removeRule` identity rules, including source-group
+  references). `DisassociateSecurityGroupVpc` was the worst of this batch:
+  the real Output has **no Return member at all**, only a flat `<state>`
+  scalar -- was rendering `stubResponse{Return: true}`, so a real client's
+  `State` was always empty. New `disassociateSGVpcResponse` reports
+  `"disassociated"` (this backend removes the association synchronously, no
+  transient `"disassociating"` state modeled). While building this,
+  confirmed a **pre-existing, out-of-queue bug** in the sibling
+  `AssociateSecurityGroupVpc`: its response wraps `<state>` in an extra
+  nested `<state>` (`sgVpcAssocStateItem`), which the real deserializer
+  cannot decode at all (`expected value for state element, got
+  xml.StartElement`) -- confirmed via a real-client call, left unfixed
+  (`AssociateSecurityGroupVpc` isn't in this pass's named queue), test setup
+  routed around it via direct backend calls instead. **Also found and fixed
+  a self-inflicted bug while building these fixes**: reusing one Go struct
+  type across multiple ops with a *tagged* `XMLName` field
+  (`serialConsoleAccessStatusResponse`, `instanceEventNotifAttrsResponse`)
+  silently ignores a runtime-set `XMLName` value -- `encoding/xml`'s
+  `Marshal` always uses the tag when one is present, confirmed with a
+  throwaway `xml.Marshal` repro. Both shared-struct types had their `XMLName`
+  tag removed and every call site updated to set it explicitly; caught by a
+  raw-body assertion test before it shipped.
+- **Elastic IPs** (`handler_elastic_ips.go`, `elastic_ips.go`):
+  `ResetAddressAttribute` gained a real `Address` (`AllocationId`/`PublicIp`;
+  `PtrRecord` correctly left empty -- reset clears it, so empty is the real
+  post-reset value, not a gap). `DisableAddressTransfer` gained a real
+  `AddressTransfer` -- backend now captures the transfer before deleting it
+  rather than discarding it. `RestoreAddressToClassic` gained `PublicIp` and
+  `Status` (`"InClassic"`, the terminal value; this backend restores
+  synchronously so it never reports the transient `"MoveInProgress"`).
+  `AssociateAddress` was investigated and found to be a **false positive**:
+  its only real member, `AssociationId`, was already wired correctly; the
+  spurious `<return>` is the harmless case documented as 1 of the 42
+  cosmetic-only sites two passes ago.
+- **Fast Launch** (`handler_images.go`): `EnableFastLaunch` and
+  `DisableFastLaunch` both had **no Return member at all** in the real
+  output, only `imageId`/`ownerId`/`state`/`resourceType`/
+  `maxParallelLaunches`/`launchTemplate`/`snapshotConfiguration`. Fixed
+  handler-locally (no backend/persistence change): echoes the request's own
+  `LaunchTemplate.*`/`MaxParallelLaunches`/`SnapshotConfiguration.*` fields
+  straight from `vals` (real request data, not fabricated), defaulting
+  `ResourceType="snapshot"` (the enum's only legal value) and
+  `MaxParallelLaunches=6` (real AWS's documented default) when the request
+  omits them. `State` reports the real transient values (`"enabling"`/
+  `"disabling"`) rather than a fabricated terminal state, since neither
+  exists as a terminal enum value in the real `FastLaunchStateCode`.
+  `DeregisterImage` (Category B) was investigated and left unfixed: its
+  missing sibling, `DeleteSnapshotResults`, is only ever populated when
+  `DeleteAssociatedSnapshots=true` *and* a backing snapshot was deleted, but
+  `AMIStub` (`images.go`) tracks no block-device-mapping/snapshot
+  association at all -- an always-empty field would be byte-identical to
+  today's response in every observable case, so adding it would be dead
+  code, not a fix. Named as a real modeling gap.
+- **Instance event notification attributes** (`handler_account_attrs.go`):
+  `RegisterInstanceEventNotificationAttributes`/
+  `DeregisterInstanceEventNotificationAttributes` both had no Return member,
+  only a nested `InstanceTagAttribute` (`IncludeAllTagsOfInstance`, real and
+  tracked; `InstanceTagKeys` left empty -- this backend only tracks the
+  all-tags boolean, not individually registered keys).
+- **Serial console access** (`handler_instances.go`):
+  `Enable`/`DisableSerialConsoleAccess` had no Return member, only
+  `SerialConsoleAccessEnabled` -- the same shape
+  `GetSerialConsoleAccessStatus` already rendered correctly, now shared via
+  one struct (see the XMLName-tag-reuse bug above).
+- **ENI/NAT private IPs** (`handler_network_interfaces.go`,
+  `network_interfaces.go`, `handler_nat_gateways.go`, `nat_gateways.go`):
+  `AssignPrivateIpAddresses` gained `AssignedPrivateIpAddresses` --
+  `Backend.AssignPrivateIPAddresses` now returns the IPs it actually
+  assigned (auto-allocated or caller-supplied) instead of discarding them.
+  `AssignPrivateNatGatewayAddress` had **no Return member at all**, only
+  `natGatewayAddressSet`/`natGatewayId` -- was a bare `stubResponse`; fixed
+  the same way as its siblings (`AssociateNatGatewayAddress`,
+  `UnassignPrivateNatGatewayAddress`, already correct) and extended
+  `Backend.AssignPrivateNatGatewayAddress` to honor `PrivateIpAddressCount`/
+  `PrivateIpAddresses` (previously only ever assigned exactly 1 IP,
+  discarding both request parameters).
+- **Client VPN / Reserved Instances / VPC CIDR** (`handler_client_vpn.go`,
+  `handler_reserved_instances.go`, `reserved_instances.go`,
+  `handler_vpcs.go`, `vpcs.go`): `ApplySecurityGroupsToClientVpnTargetNetwork`
+  gained `SecurityGroupIds` (echoes the request's own list -- the backend
+  stores exactly what's requested, confirmed by reading
+  `ApplySecurityGroupsToClientVpnTargetNetwork` in `client_vpn.go`).
+  `CancelReservedInstancesListing` gained `ReservedInstancesListings` (the
+  same shape `DescribeReservedInstancesListings` already renders) --
+  `Backend.CancelReservedInstancesListing` now returns the cancelled
+  listing instead of discarding it. `DisassociateVpcCidrBlock` had **no
+  Return member**, only a nested `CidrBlockAssociation`
+  (`associationId`/`cidrBlock`/`cidrBlockState>state`) plus `VpcId` --
+  `Backend.DisassociateVpcCidrBlock` now captures the association (with
+  `State` forced to the real terminal `"disassociated"` enum value, same
+  synchronous-backend reasoning as the security-group case above) and its
+  owning VPC ID before deleting the map entry, instead of discarding both.
+- **`ResetEbsDefaultKmsKeyId`** (`handler_volumes.go`): had no Return member,
+  only `KmsKeyId` -- `GetEbsDefaultKmsKeyID()` already correctly returns
+  `"alias/aws/ebs"` post-reset; the handler just wasn't calling it.
+
+False positive, confirmed correct as-is (2): `AssociateAddress` (above);
+`DisassociateTrunkInterface` -- the real `DisassociateTrunkInterfaceInput`
+has its own `ClientToken` request field (idempotency token, not something
+carried over from association time), and the handler already echoes
+`vals.Get("ClientToken")` alongside `Return`, matching the real Output
+exactly.
+
+Genuine gaps, confirmed and left unfixed (3): `RestoreSnapshotTier` --
+already documented above (no temporary-vs-permanent-restore or
+restore-expiry state tracked at all). `DeregisterImage` -- above.
+`RestoreSnapshotFromRecycleBin` -- re-investigated past what the prior
+entry above assumed. That entry said this was "buildable... just not
+attempted" since the backend has the restored `Snapshot` in hand at the
+point it discards it, and that part is still true (verified: the response
+struct built from it round-trips correctly against a real client via a
+throwaway test). But a full-repo grep for `recycleBinSnapshots.Put` found
+**zero call sites** -- nothing in this backend, including `DeleteSnapshot`,
+ever moves a snapshot into the recycle bin in the first place. The
+precondition this op reads can never be true against a real snapshot today,
+regardless of response shape, so there is no real-client round trip to
+prove and the fix was reverted rather than shipped as dead code. This is a
+deeper gap than previously documented: `DeleteSnapshot` needs to model
+recycle-bin retention before `RestoreSnapshotFromRecycleBin`'s response
+shape is worth building. Left as a `stubResponse`, same as before.
+
+Proof for all 21: `services/ec2/wire_field_fixes_ec2sweep{14..21}_test.go`,
+one or more `*_RealClient` tests per fix built against the real
+`ec2sdk.Client` (raw-body `ec2.ExportDispatch` assertions where the correct
+value coincides with a Go zero value, e.g. `DisableSerialConsoleAccess`).
+Every fix hand-reverted in turn (`cp` from a saved pre-fix copy, ran only
+that fix's test(s), confirmed failure, restored, `md5sum` identical
+before/after every touched file) -- representative failures:
+- `TestDisassociateSecurityGroupVpc_WireShape_RealClient`: `expected value
+  for state element, got xml.StartElement` pre-fix (via the buggy
+  `stubResponse{Return: true}` shape).
+- `TestAuthorizeSecurityGroupIngress_SurfacesRules_RealClient`: `"[]" should
+  have 1 item(s), but has 0` on `out.SecurityGroupRules`.
+- `TestEnableFastLaunch_WireShape_RealClient`: `MaxParallelLaunches` decoded
+  0 instead of the real default 6.
+- `TestAssignPrivateNatGatewayAddress_SurfacesAddresses_RealClient`:
+  `NatGatewayId`/`NatGatewayAddresses` both empty pre-fix.
+- `TestDisassociateVpcCidrBlock_WireShape_RealClient`: `CidrBlockAssociation`
+  nil pre-fix.
+
+Interface signature changes (all call sites within the ec2 package's own
+tests updated, no external callers found via full-repo grep):
+`Backend.RevokeSecurityGroupIngress`, `Backend.ResetAddressAttribute`,
+`Backend.DisableAddressTransfer`, `Backend.AssignPrivateIPAddresses`,
+`Backend.AssignPrivateNatGatewayAddress`,
+`Backend.CancelReservedInstancesListing`,
+`Backend.DisassociateVpcCidrBlock`. `SecurityGroup` gained an `ARN` field
+(additive, `omitempty`) -- no other persisted struct's json tag, field name,
+or type changed; no `ec2SnapshotVersion` bump; `go test
+./services/ec2/... -run TestPersist` green.
+
+Gates: `make build-check` (`go build ./...` + `go vet -tags e2e ./...` +
+`go vet -tags integration ./...`, exit 0 -- run because 7 exported `Backend`
+signatures changed), `gofmt -l` on every touched file (clean), `go test
+-race ./services/ec2/...` (`ok`, full suite including all new tests),
+`golangci-lint run ./services/ec2/...` (5 `fieldalignment` issues on structs
+added this pass, fixed via `fieldalignment -fix ./services/ec2/...` per the
+gates convention, re-ran to confirm 0 issues). No banned `//nolint`s
+(`grep -rn "nolint:cyclop\|nolint:gocyclo\|nolint:gocognit\|nolint:funlen"` on
+`services/ec2/` — 0).
+
+Not reached, named: none from the named 27/26-site queue -- every site was
+investigated and either fixed, confirmed a false positive, or confirmed a
+genuine gap and documented above. The 42 Category-C-empty cosmetic sites
+from the first pass remain deliberately untouched. The
+`AssociateSecurityGroupVpc` nested-`<state>` bug found incidentally above is
+real but out of this pass's named queue -- left for a future pass.
+
+**2026-08-23 pass -- `AssociateSecurityGroupVpc` fix, then
+`handler_security_groups.go`/`handler_client_vpn.go` census re-derivation**:
+fixed the `AssociateSecurityGroupVpc` bug named-but-left-unfixed above first
+(`associateSGVpcResponse.State` was `sgVpcAssocStateItem` -- a struct with its
+own `State string \`xml:"state"\`` field -- tagged `xml:"state"`, so the
+response nested `<state><state>associated</state></state>`; the real
+deserializer (`awsEc2query_deserializeOpDocumentAssociateSecurityGroupVpcOutput`)
+reads `<state>` via `decoder.Value()`, a scalar-only read that cannot handle a
+child element and fails outright: `expected value for state element, got
+xml.StartElement`. Fixed by flattening `State` to a plain string, matching
+`DisassociateSecurityGroupVpc`'s sibling shape exactly. The now-unused
+`sgVpcAssocStateItem` type (`handler_subnets.go`) was removed.
+
+Then re-derived the two files' never-audited counts before auditing, per the
+redirect's warning that five of today's counts were wrong and the file-level
+`(9)`/`(9)` estimate itself was flagged "next pass should re-derive". Method:
+enumerate every op string actually registered by each file's
+`register*Ops`/entries in `handler.go`'s dispatch map (dispatched op-name
+strings, not just Go func names), then grep each name against this
+PARITY.md's existing text to separate "named by a prior audit" (fixed, or
+confirmed-and-left-unfixed like `AssociateSecurityGroupVpc` was) from mere
+incidental mentions.
+
+`handler_security_groups.go`: **17 total ops** (10 via
+`registerSecurityGroupsOps` + 7 dispatched from `handler.go`'s main map:
+`DescribeSecurityGroups`, `CreateSecurityGroup`, `DeleteSecurityGroup`,
+`RevokeSecurityGroupEgress`, `AuthorizeSecurityGroupIngress/Egress`,
+`RevokeSecurityGroupIngress`), of which **7 were already named** (the five
+fixed earlier this same file plus `AssociateSecurityGroupVpc`/
+`DisassociateSecurityGroupVpc`) — leaving **10 never-audited**, not 9.
+Audited all 10.
+
+`handler_client_vpn.go`: **22 total ops** (19 via `registerClientVpnOps` + 3
+via `registerTGWClientVpnAttachmentOps`), of which **2 were already named**
+(`ApplySecurityGroupsToClientVpnTargetNetwork`,
+`DisassociateClientVpnTargetNetwork`, both fixed in the ec2sweep14 pass) —
+leaving **20 never-audited**, not 9. (`CreateClientVpnEndpoint` is mentioned
+once, in the parity4_new_ops entry, but only for a TGW-attachment side
+effect of its `TransitGatewayConfiguration.TransitGatewayId` field, never for
+its own response shape -- not counted as audited.) Audited all 22 (the 20
+never-audited plus re-confirming the 2 already-fixed still hold), since
+auditing only the unnamed subset in isolation risks missing a sibling bug
+next to a "done" op -- none found beside the 2 already-fixed ones.
+
+Bugs found and fixed (7):
+
+- **`RevokeSecurityGroupEgress`** (`handler_security_groups.go`,
+  `security_groups.go`): real `RevokeSecurityGroupEgressOutput`
+  (`awsEc2query_deserializeOpDocumentRevokeSecurityGroupEgressOutput`) has
+  `Return`/`RevokedSecurityGroupRuleSet`/`UnknownIpPermissionSet` — the exact
+  shape `RevokeSecurityGroupIngress` was fixed to render in the prior pass —
+  but Egress was left as bare `Return`. **A correct sibling right next to a
+  broken op, again**: `RevokeSecurityGroupIngress` was the reference.
+  `Backend.RevokeSecurityGroupEgress` signature changed from `(string,
+  []SecurityGroupRule) error` to `(string, []SecurityGroupRule)
+  ([]*SecurityGroupRuleDetail, error)`; kept its existing all-or-nothing
+  validate-then-revoke semantics (an existing test asserts
+  `InvalidPermission.NotFound` on any unmatched rule, unlike Ingress's
+  per-rule unknown-reporting) rather than also changing that behavior, so
+  `UnknownIpPermissionSet` is always empty by construction, not fabricated.
+- **`DescribeSecurityGroups`** (`handler_security_groups.go`): two bugs.
+  (1) Accept-and-drop: the real `DescribeSecurityGroupsInput` sends
+  `GroupName.N` (`awsEc2query_serializeOpDocumentDescribeSecurityGroupsInput`,
+  `object.FlatKey("GroupName")`) for `GroupNames`, but the handler read only
+  `GroupId.N`, silently returning every security group regardless of the
+  names requested. Fixed by reading `GroupName.N` via the existing
+  `parseMemberList` and filtering by name when no `GroupId.N` was given (both
+  together -- an edge case with no test coverage here -- still resolves by
+  ID only, a documented limitation, not a full union). (2) No
+  `MaxResults`/`NextToken` despite both being real on Input/Output ("between
+  5 and 1000" per the doc comment) -- fixed with the existing
+  `parseEC2Pagination`/`pageSlice` helpers, a new `ec2PageMinSecurityGroups =
+  5` constant.
+- **`DescribeSecurityGroupRules`**, **`DescribeStaleSecurityGroups`**,
+  **`DescribeSecurityGroupVpcAssociations`**, **`GetSecurityGroupsForVpc`**
+  (`handler_security_groups.go`): same "unbounded single page" gap as
+  ec2sweep11 -- all four declare real `MaxResults`/`NextToken` on their real
+  Input/Output (confirmed per-op against `api_op_*.go`; only
+  `DescribeSecurityGroupRules` documents explicit bounds, "between 5 and
+  1000", new constant `ec2PageMinSecurityGroupRules = 5`) but returned every
+  item in one page. Fixed identically via `parseEC2Pagination`/`pageSlice`.
+  Element names for all four (`securityGroupReferenceSet`,
+  `staleSecurityGroupSet`, `securityGroupVpcAssociationSet`,
+  `securityGroupForVpcSet`, `securityGroupRuleSet`, `nextToken`) were
+  confirmed against each op's real deserializer before touching them; all
+  already matched (a casing-insensitive protocol, so only a different
+  element *name* would have been a bug -- none was).
+- **`DescribeClientVpnEndpoints`**, **`DescribeClientVpnTargetNetworks`**,
+  **`DescribeClientVpnRoutes`**, **`DescribeClientVpnAuthorizationRules`**
+  (`handler_client_vpn.go`): same unbounded-single-page gap, no documented
+  bounds on any of the four so all use the existing `ec2PageMinDefault`/
+  `ec2PageMaxDefault` (1..1000). Element names (`clientVpnEndpoint`,
+  `clientVpnTargetNetworks`, `routes`, `authorizationRule`, `nextToken`)
+  confirmed against each deserializer; already correct.
+
+False positive ruled out (1): `DescribeClientVpnConnections` matched the same
+missing-pagination pattern by inspection, but this backend never models any
+active connection (documented in the existing code comment: "No API in this
+backend creates connections"), so the list is always empty and pagination
+can never actually trigger. Added the `NextToken` field for shape
+completeness (always empty, `omitempty`) but did not add pagination logic --
+there would be nothing to prove with a test, since no fixture can ever
+produce a second page.
+
+Confirmed correct as-is, no bug (19): `handler_security_groups.go` --
+`DescribeSecurityGroupReferences` (real Output has no
+`MaxResults`/`NextToken` at all, unlike its four siblings above),
+`UpdateSecurityGroupRuleDescriptionsIngress`/`Egress`, `ModifySecurityGroupRules`
+(all three real Outputs are `Return`-only, matching the existing
+`stubResponse`/`genericReturnResponse`). `handler_client_vpn.go` --
+`CreateClientVpnEndpoint`, `DeleteClientVpnEndpoint`,
+`AssociateClientVpnTargetNetwork`, `CreateClientVpnRoute`,
+`DeleteClientVpnRoute`, `AuthorizeClientVpnIngress`, `RevokeClientVpnIngress`,
+`TerminateClientVpnConnections`, `ModifyClientVpnEndpoint`,
+`ExportClientVpnClientConfiguration`,
+`ExportClientVpnClientCertificateRevocationList`,
+`ImportClientVpnClientCertificateRevocationList`,
+`AcceptTransitGatewayClientVpnAttachment`,
+`RejectTransitGatewayClientVpnAttachment`,
+`DeleteTransitGatewayClientVpnAttachment` -- every field name checked against
+the real Output struct and (for the non-scalar ones) the deserializer's
+`EqualFold` cases; all matched.
+
+Modelling gaps ruled real, not fabricatable, left alone: `CreateClientVpnEndpoint`
+never reads `AuthenticationOptions`/`ConnectionLogOptions`/
+`ClientConnectOptions`/`ClientLoginBannerOptions`/
+`ClientRouteEnforcementOptions`/`TagSpecifications`/`DisconnectOnSessionTimeout`/
+`EndpointIpAddressType`/`TrafficIpAddressType` -- this backend's
+`ClientVpnEndpoint`/`clientVpnEndpointItem` model none of these at all (no
+tag storage for this resource type exists anywhere, confirmed by grep), so
+this is a pre-existing structural gap, not a new accept-and-drop bug of the
+kind fixed above. `SelfServicePortal` (Input, an `enabled`/`disabled` enum)
+and `SelfServicePortalUrl` (Output, a real generated URL) are two distinct
+real fields this backend conflates into one `SelfServicePortalURL` string
+echoed verbatim -- flagged, not fixed: a believable synthetic URL format
+can't be sourced from anything real without guessing at AWS's actual
+generation scheme. `Filters` on all five `DescribeClientVpn*` list ops and on
+`DescribeSecurityGroups`/`DescribeSecurityGroupVpcAssociations`/
+`GetSecurityGroupsForVpc` are real but entirely unimplemented in this
+backend (only `group-id` is special-cased for `DescribeSecurityGroupRules`);
+left alone, matching this pass's pagination-only scope.
+
+Snapshot bump: not needed. The only persisted-shape change is
+`Backend.RevokeSecurityGroupEgress`'s added return value (an interface
+method signature, not a struct field), which `pkgs/persistence` doesn't
+serialize; no field/tag/type on any persisted struct changed. `go test
+./pkgs/persistence/...` green.
+
+Proof: `TestAssociateSecurityGroupVpc_WireShape_RealClient` (new) and
+`TestDisassociateSecurityGroupVpc_WireShape_RealClient` (updated to drive
+`AssociateSecurityGroupVpc` through the real client instead of the backend
+directly, now that it's fixed) in `wire_field_fixes_ec2sweep14_test.go`;
+`wire_field_fixes_ec2sweep22_test.go` (security groups: revoke-egress,
+group-name filter, 3 pagination round-trips via the real
+`ec2sdk.NewDescribe*Paginator`s); `wire_field_fixes_ec2sweep23_test.go`
+(client VPN: 4 pagination round-trips). Every fix hand-reverted in turn (`cp`
+from a saved pre-fix copy, ran only that fix's test, confirmed failure,
+restored, `md5sum` identical before/after every touched file) --
+representative failures:
+- `TestAssociateSecurityGroupVpc_WireShape_RealClient`: `expected value for
+  state element, got xml.StartElement` pre-fix.
+- `TestRevokeSecurityGroupEgress_SurfacesRevokedRules_RealClient`: `"[]"
+  should have 1 item(s), but has 0` on `out.RevokedSecurityGroupRules`.
+- `TestDescribeSecurityGroups_GroupNameFilter_RealClient`: 3 groups returned
+  instead of 1 (`GroupName.N` silently dropped).
+- `TestDescribeSecurityGroupRules_Pagination_RealClient` /
+  `TestDescribeClientVpnEndpoints_Pagination_RealClient`: `"1" is not
+  greater than or equal to "2"` (paginator never split across pages).
+
+Gates: `go build ./services/ec2/...`, `make build-check` (`go build ./...` +
+`go vet -tags e2e ./...` + `go vet -tags integration ./...`, exit 0 -- run
+because `Backend.RevokeSecurityGroupEgress`'s exported signature changed),
+`gofmt -l services/ec2/*.go` (clean), `go test -race ./services/ec2/...
+-count=1` (`ok`, full suite including all new tests), `go test
+./pkgs/persistence/...` (`ok`), `golangci-lint run ./services/ec2/...` (2
+issues found and fixed by hand: 1 `nlreturn` on the `AssociateSecurityGroupVpc`
+fix, 1 `modernize` replacing a hand-rolled contains-loop in a new test with
+`slices.Contains`; 0 issues after). No banned `//nolint`s.
+
+Not reached, named: none -- every op in both files' never-audited pool (10 +
+20 = 30) was checked against the real SDK this pass.
+
+**2026-08-23 pass -- `handler_spot_fleet.go`/`handler_elastic_ips.go`, the two
+next never-named families off the 2026-08-23 tally above**: re-derived both
+counts by enumerating every dispatched op-name string rather than trusting
+the mapped estimate. `handler_spot_fleet.go`: mapped 10, re-derived 10 --
+`registerSpotFleetOps` and `spotFleetSupportedOperations()` agree exactly, no
+undercount here (this family already had a dedicated wire-shape audit pass
+under `aac77417a`/`b6b4b4940`). `handler_elastic_ips.go`: mapped 8,
+re-derived **14** -- the mapped count only saw the 9 ops in
+`registerElasticIpsOps`/`elasticIpsSupportedOperations()` (also 1 over: that
+list includes only 9, not the source of the gap) and missed the 5 basic CRUD
+ops (`AllocateAddress`/`AssociateAddress`/`DisassociateAddress`/
+`ReleaseAddress`/`DescribeAddresses`) that dispatch straight from `handler.go`'s
+`buildCoreOps` table without going through a `register*Ops`/`*SupportedOperations`
+pair at all -- exactly the "thin-bodied op the field-count proxy misses"
+failure mode named above, just one level removed (a whole *file* of
+minimally-wired ops missing from the family's own manifest, not a single op
+within it). 24 ops audited across both files; **12 wrong** (6 of 10 spot
+fleet, 6 of 14 elastic IPs).
+
+Bugs, each confirmed against the installed `aws-sdk-go-v2/service/ec2@v1.319.1`
+deserializer/serializer, not this backend's own output:
+
+1. **`RequestSpotFleet` accepted-and-dropped `TagSpecification.N`**
+   (accept-and-drop, request side): the real serializer nests it under
+   `SpotFleetRequestConfig.TagSpecification.N.*`
+   (`serializers.go:65330`, the same `object.Key("SpotFleetRequestConfig")` +
+   `FlatKey` nesting `LaunchSpecifications` already used one line up in this
+   same handler) -- not the top-level `TagSpecification.N` every other
+   create op uses. A fleet tagged at creation came back untagged from
+   `DescribeSpotFleetRequests`. Fixed with a dedicated
+   `parseSpotFleetTagSpecification` (the shared `parseTagSpecification`
+   helper assumes the top-level form) + `Backend.CreateTags`.
+2. **`CancelSpotFleetRequests`'s `<error>` rendered as a bare string.** The
+   real deserializer
+   (`awsEc2query_deserializeDocumentCancelSpotFleetRequestsError`,
+   `deserializers.go:81882`) reads `<error>` as a nested `<code>`/`<message>`
+   structure (`types.CancelSpotFleetRequestsError`); a scalar has no child
+   elements for it to find, so `NodeDecoder.Token()` returns `done` on the
+   first pass and the real client's `Code`/`Message` end up zero-valued --
+   silent data loss, not a hard decode failure (confirmed empirically: the
+   pre-fix real-client test failed on an empty string, not an error). The
+   backend's own error value was also wrong: `"SpotFleetRequestIdNotFound"`
+   is not a real `CancelBatchErrorCode`; the real enum value is
+   `"fleetRequestIdDoesNotExist"` (`enums.go:1198`). Fixed both: new
+   `cancelSpotFleetErrorDetail{Code, Message}` nested type, backend value
+   corrected.
+3. **`DescribeSpotFleetRequestHistory`'s `<eventInformation>` rendered as a
+   bare string** -- the same nesting-mismatch shape as bug 2, independently
+   discovered while wiring that op's pagination. The real deserializer
+   (`awsEc2query_deserializeDocumentEventInformation`, `deserializers.go:99294`)
+   reads it as a nested `<eventDescription>`/`<eventSubType>`/`<instanceId>`
+   structure (`types.EventInformation`); this backend's only tracked field
+   (a plain description string) was rendered as the bare element instead of
+   nested under `eventDescription`, so a real client's
+   `EventInformation.EventDescription` was always `nil`. Fixed with a new
+   `spotFleetEventInformationItem{EventDescription}` wrapper.
+4. **`DescribeAddresses` accepted-and-dropped `PublicIp.N`** (accept-and-drop,
+   request side) -- the real request member (`serializers.go:76230`,
+   `FlatKey("PublicIp")`) is separate from `Filters`; a client filtering by
+   public IP (e.g. `aws ec2 describe-addresses --public-ips x.x.x.x`, a
+   common real invocation) got every address back instead. Fixed by folding
+   `PublicIp.N` into the existing `"public-ip"` filter matcher rather than a
+   new code path.
+5. **`EnableAddressTransfer`/`DisableAddressTransfer`/`DescribeAddressTransfers`
+   share `addressTransferDetailItem`, which used wire tags
+   `"transferOfferStatus"` and `"transferOfferExpiry"`** -- DIFFERENT element
+   NAMEs than the real `AddressTransfer` deserializer's
+   `"addressTransferStatus"` and `"transferOfferExpirationTimestamp"`
+   (`deserializers.go:75605`), the exact "different element NAME, not a
+   casing near-miss" bug class this protocol is EC2-Query/case-insensitive
+   about. Both fields were silently zero-valued on every real client despite
+   the server computing and sending real data for both, on all three ops at
+   once (see sibling note below). Fixed by retagging the shared struct; the
+   type lives in `handler_volumes.go` (dead there, consumed only by
+   `handler_elastic_ips.go`) so that's the file touched, not a new struct.
+6. **`DescribeMovingAddresses` accepted-and-dropped its `"moving-status"`
+   `Filter`** (accept-and-drop, request side) -- real AWS documents exactly
+   one filter name for this op; it was silently ignored. Fixed with a small
+   inline `anyEqual` filter (no shared EIP filter helper covers this shape).
+7. **Seven List ops ignore real pagination** (the systemic class named
+   above, now closed for these two files): `DescribeSpotFleetRequests`,
+   `DescribeSpotFleetInstances`, `DescribeSpotFleetRequestHistory`,
+   `GetSpotPlacementScores`, `DescribeAddressesAttribute`,
+   `DescribeAddressTransfers`, `DescribeMovingAddresses` all declare real
+   `MaxResults`/`NextToken` on their SDK Input/Output but returned every
+   item in one unbounded page. Fixed via the existing
+   `parseEC2Pagination`/`pageSlice` helpers (`handler.go`), matching the
+   `ec2sweep11`/`ec2sweep23` convention exactly. `DescribeSpotFleetRequestHistory`
+   also gained the real `LastEvaluatedTime` (present only on the final page,
+   set to now -- this backend has no other honest source for it).
+   `DescribeMovingAddresses` needed its own `ec2PageMinMovingAddresses = 5`
+   bound (its real doc says "between 5 and 1000", unlike the other six,
+   which fall back to the documented 1..1000 default). Not paginated,
+   correctly: `DescribeAddresses` (the basic op) -- confirmed its real Input
+   has no `MaxResults`/`NextToken` at all.
+
+Sibling check: bug 5 is the one case where a fix landed on all three siblings
+at once (they share one struct), not one-of-a-pair -- checked
+`ModifyAddressAttribute`/`ResetAddressAttribute` (the other ops touching
+`AddressAttribute`-shaped types) and both were already correct (`ResetAddressAttribute`
+was fixed in an earlier, uncredited pass per its existing code comment).
+Bug 7's family was fully checked: `DescribeAddresses` is the one list op in
+either file confirmed to have no real pagination at all, not a missed sibling.
+
+False positives ruled out (all confirmed via the real deserializer, not
+assumed): `DeleteSpotDatafeedSubscription`/`DisassociateAddress`/
+`ReleaseAddress`'s bare `<return>true</return>` are harmless -- all three
+deserializers (`deserializers.go:21201`, `:46290`, `:68388`) discard the
+response body via `io.Copy(io.Discard, ...)` without parsing it at all, so
+no client ever reads the tag. `AssociateAddress`'s spurious `<return>` is the
+same already-documented cosmetic-only site from two passes ago (its one real
+member, `AssociationId`, was already correct). `ModifyAddressAttribute`'s
+extra `<domainName>` element is skipped by the real deserializer's default
+case, same shape.
+
+Modelling gaps (documented, not fixed -- structurally larger, not a broken
+partial implementation): `RequestSpotFleet` does not model
+`LaunchTemplateConfigs`/`SpotMaintenanceStrategies`/`OnDemand*`/`ValidFrom`/
+`ValidUntil` -- whole unimplemented request fields, not wire-shape bugs in
+what IS implemented. `AllocateAddress` never sets `CarrierIp`/
+`CustomerOwnedIp`/`CustomerOwnedIpv4Pool`/`NetworkBorderGroup`/
+`PublicIpv4Pool` -- Wavelength/BYOIP address pools have no backing concept
+in this backend at all.
+
+Not reached, named: none -- all 10 spot-fleet and all 14 elastic-IP ops were
+audited against the real SDK this pass.
+
+Snapshot bump: not needed. No field/tag/type on any persisted struct
+changed -- `addressTransferDetailItem`/`cancelSpotFleetErrorDetail`/
+`spotFleetEventInformationItem` are wire-response-only XML types, and
+`SpotFleetCancelResult` (whose `Error` value changed) is never persisted
+(constructed fresh per `CancelSpotFleetRequests` call, not part of any
+`backendSnapshot`). `go test ./pkgs/persistence/...` not run -- no touched
+type is registered there.
+
+Proof: `wire_field_fixes_ec2sweep24_test.go`, 12 new real-SDK-client tests,
+one per bug above (bug 7's seven ops split across
+`TestDescribeSpotFleetRequests_Pagination_RealClient`,
+`TestDescribeSpotFleetInstances_Pagination_RealClient`,
+`TestDescribeSpotFleetRequestHistory_Pagination_RealClient`,
+`TestGetSpotPlacementScores_Pagination_RealClient`,
+`TestDescribeAddressesAttribute_Pagination_RealClient`,
+`TestDescribeAddressTransfers_Pagination_RealClient`,
+`TestDescribeMovingAddresses_Pagination_RealClient`). Every fix hand-reverted
+in turn (`git show HEAD:<path>` over the 5 touched non-test files, ran the
+full new-test set, confirmed 11 of 12 failed -- `TestDescribeAddresses_PublicIpFilter_RealClient`'s
+sibling assertions all failed together with it -- restored from a saved
+copy, `md5sum` identical before/after all 5 files). Representative failures:
+- `TestRequestSpotFleet_TagSpecification_RealClient`: `Tags` empty.
+- `TestCancelSpotFleetRequests_ErrorCode_RealClient`: `Code` `""`, wanted
+  `"fleetRequestIdDoesNotExist"`.
+- `TestDescribeSpotFleetRequestHistory_Pagination_RealClient`:
+  `LastEvaluatedTime` nil, plus every page returning the same (empty)
+  `EventDescription` string, tripping the disjoint-IDs assertion.
+- `TestDescribeAddresses_PublicIpFilter_RealClient`: 3 addresses returned
+  instead of 1.
+- `TestEnableAddressTransfer_StatusAndExpiry_RealClient`:
+  `AddressTransferStatus` `""` (wanted `"pending"`),
+  `TransferOfferExpirationTimestamp` nil.
+- `TestDescribeMovingAddresses_MovingStatusFilter_RealClient`: a
+  non-matching filter value still returned the entry.
+- All six other `*_Pagination_RealClient` tests: `"1" is not greater than or
+  equal to "2"` (paginator never split across pages).
+
+Gates: `go build ./...` (repo-wide, background job, exit 0 -- no exported
+signature changed, run anyway since `pkgs/page` helpers are shared),
+`go vet ./services/ec2/...` (clean), `gofmt -l services/ec2/*.go` (clean),
+`go test -race -count=1 ./services/ec2/...` (`ok`, full suite including all
+new tests), `golangci-lint run ./services/ec2/...` (started at 11 issues --
+8 `fieldalignment` on the new/modified response structs with an appended
+`NextToken`, fixed by hand by reordering `NextToken` before the
+slice-backed field per the existing `describeSnapshotTierStatusResponse`
+convention rather than running `fieldalignment -fix`; 1 `shadow` on a
+reused `err` inside `handleRequestSpotFleet`, fixed by renaming to `tagErr`;
+2 `intrange` on manual pagination loops, fixed by converting to
+`for range ec2sweep11LoopGuard`; final state: 1 `nlreturn`, a disabled
+linter per this repo's convention, left as-is). No banned `//nolint`s.
+
+**2026-08-23 pass -- `handler_tgw_multicast.go`/`handler_instance_attrs.go`,
+next two never-named families**: re-derived both counts by enumerating both
+dispatch paths (`register*Ops` and any op whose handler func is actually
+*defined* in the file but dispatched from `handler.go`'s `buildCoreOps`
+table), per the elastic-IPs lesson above. `handler_tgw_multicast.go`: mapped
+7, re-derived **16** -- all 16 from its own `registerTGWMulticastOps`
+(`tgwMulticastSupportedOperations()` already listed the same 16; the
+mapped-7 estimate was simply stale). No `buildCoreOps` ops belong to this
+file; `AcceptTransitGatewayMulticastDomainAssociations` looks related by
+name but dispatches from `handler_buildops_advanced.go` and is implemented
+in `accept_ops.go` -- a different family, out of scope, named here only so
+it isn't mistaken for an uncounted op of this one. `handler_instance_attrs.go`:
+mapped 7, re-derived **16** -- 14 from its own `registerInstanceAttrOps`, plus
+`ModifyInstanceAttribute`/`ResetInstanceAttribute`, which dispatch from
+`buildCoreOps` in `handler.go` but whose handler funcs are defined in this
+file. `DescribeInstanceAttribute` also dispatches from `buildCoreOps` and is
+named alongside them there, but its handler func lives in
+`handler_instances_lifecycle.go` -- a different family, excluded. 32 ops
+audited across both files; **3 wrong**, all in `handler_tgw_multicast.go`.
+`handler_instance_attrs.go`/`instance_attrs.go` came back clean: every
+response element name, every request field name (including the
+`AssociationTarget.InstanceId`/`AssociationTarget.DedicatedHostId` nesting)
+checked against the pinned SDK's serializers/deserializers matched exactly,
+and the two near-miss candidates below were ruled out as false positives,
+not fixed.
+
+Bugs, each confirmed against the installed `aws-sdk-go-v2/service/ec2@v1.319.1`
+deserializer/serializer, not this backend's own output:
+
+1. **`SearchTransitGatewayMulticastGroups` copied `NetworkInterfaceId` into
+   the response's `TransitGatewayAttachmentId` field** (wrong value, not a
+   name/nesting bug): the real `TransitGatewayMulticastGroup` type
+   (`types/types.go:24172`) declares `NetworkInterfaceId` and
+   `TransitGatewayAttachmentId` as two separate fields; our backend's
+   `TransitGatewayMulticastGroupEntry` never tracked an attachment ID at
+   all, so the handler had silently duplicated the ENI ID into the wrong
+   field. Fix: drop the bogus assignment (the field now renders absent via
+   `omitempty`, since this backend genuinely has no attachment-ID data for a
+   multicast group entry, rather than fabricate a value).
+2. **Four List/Get ops ignored real `MaxResults`/`NextToken` pagination**
+   (list op ignoring pagination): `DescribeTransitGatewayMulticastDomains`,
+   `DescribeTransitGatewayMeteringPolicies`,
+   `GetTransitGatewayMulticastDomainAssociations`,
+   `SearchTransitGatewayMulticastGroups` all declare both on their real
+   Input/Output (none document an explicit range, so `ec2PageMinDefault`/
+   `ec2PageMaxDefault` apply per the existing convention) but returned every
+   item in one unbounded page. Fixed with the established
+   `parseEC2Pagination`/`pageSlice` helpers, matching the pattern already
+   used by `handler_elastic_ips.go` etc. Note:
+   `DescribeTransitGatewayMeteringPolicies` has no SDK-generated
+   `Paginator` (the smithy model doesn't mark it paginated despite the
+   Input/Output declaring the fields) -- its proof test drives pages by
+   hand instead of `NewXxxPaginator`.
+3. **`CreateTransitGatewayMulticastDomain`/`CreateTransitGatewayMeteringPolicy`
+   accepted-and-dropped `TagSpecifications`** (accept-and-drop): both IDs
+   were already valid `CreateTags` targets (`resource_types.go` lists
+   `tgwMeteringPolicies`/`tgwMulticastDomains`), and `DeleteTransitGateway*`
+   already cleaned up `b.tags` on delete, but nothing ever wrote to it on
+   create and neither Describe/Create/Delete response rendered a `tagSet`
+   element -- a tag set at creation came back invisible from every read.
+   Fixed by threading a `tags map[string]string` through both
+   `Backend.CreateTransitGatewayMulticastDomain`/
+   `CreateTransitGatewayMeteringPolicy` (interface signature change, single
+   implementer `InMemoryBackend`; `b.setTagsLocked` mirrors the existing
+   `transit_gateways.go` convention) and rendering `h.Backend.TagsForResource(id)`
+   via `tagItemsFromMap` in both Describe loops and both Delete responses.
+   Sub-bug found while writing this fix's proof test:
+   `CreateTransitGatewayMeteringPolicyInput` sends its tags as
+   `TagSpecifications.N.*` (plural) on the wire
+   (`serializers.go:72985`, `FlatKey("TagSpecifications")`) -- one of only 5
+   ops in the whole pinned SDK that do this, against 112 that use the
+   near-universal singular `TagSpecification.N.*`. The shared
+   `parseTagSpecification` helper (used at 48 other call sites, all
+   singular) would have silently matched nothing for this op, so a
+   `parseTagSpecificationPlural` variant was added locally rather than
+   changing the shared helper's wire format for everyone. The other 4
+   plural-form ops (`CreateCapacityReservation`,
+   `CreateTransitGatewayPolicyTable`, `CreateTransitGatewayRouteTable`,
+   `CreateTransitGatewayVpcAttachment`) belong to other families and were
+   not touched -- worth a follow-up sweep.
+
+Correct sibling check: yes. `AssociateTransitGatewayMulticastDomain`/
+`DisassociateTransitGatewayMulticastDomain`/
+`GetTransitGatewayMulticastDomainAssociations` share the
+`tgwMulticastDomainAssociationsAggregate`/`tgwMulticastGetAssociationItem`
+wire types, both of which declare `ResourceID`/`ResourceOwnerID` fields
+matching the real `TransitGatewayMulticastDomainAssociations` type
+(`types/types.go:24130`) exactly by name -- but neither field is ever
+populated, because the shared `TransitGatewayMulticastDomainAssociation`
+model (`accept_ops.go`, owned by the `AcceptTransitGatewayMulticastDomainAssociations`
+family) carries no VPC-ID/owner-ID data to populate them from. Named as a
+modelling gap below, not fixed here: filling it in would mean adding a
+`tgwVpcAttachments` lookup and possibly widening that shared struct, which
+risks the sibling family this pass didn't audit. `ModifyTransitGatewayMeteringPolicy`
+in `handler_tgw_peripherals.go` shares `tgwMeteringPolicyToItem` and needed
+a one-line call-site update for the new `tags` parameter (already followed
+the correct `h.Backend.TagsForResource(...)`-at-render-site pattern used one
+function above it for `tgwVpcAttachmentToItem`, so nothing else there was
+wrong) -- not a bug, a forced touch from the shared-helper signature change,
+confirmed by reading the surrounding function.
+
+Modelling gaps and false positives ruled out, separately from the bugs above:
+
+- **`ResourceID`/`ResourceOwnerID` never populated on multicast domain
+  associations** (see sibling check above) -- real fields, real wire tags,
+  no backing data in this backend's association model. Not fixed; flagged
+  for whoever next touches `accept_ops.go`'s
+  `TransitGatewayMulticastDomainAssociation`.
+- **`ResourceOwnerId`/`SubnetId` missing entirely from `tgwMulticastGroupItem`**
+  (real fields on `types.TransitGatewayMulticastGroup`, `types/types.go:24172`)
+  -- same shape of gap, not fixed, `TransitGatewayMulticastGroupEntry` has no
+  subnet/owner data to source them from.
+- **`tagSet`/ARN fields on the multicast-domain and metering-policy item
+  types themselves** -- `tagSet` is now wired (bug 3); the `transitGatewayMulticastDomainArn`
+  field the real deserializer also reads (`deserializers.go:168416`) has no
+  backend equivalent (no ARN modelling anywhere in this service) and was
+  left out, consistent with how the rest of the service handles ARNs.
+- **False positive -- `ModifyInstanceAttribute`/`ResetInstanceAttribute`'s
+  hardcoded `Return: true`**: looked like the 21-fixed `Return: true` bug
+  class at a glance (`ModifyInstanceAttributeOutput`/`ResetInstanceAttributeOutput`
+  in the real SDK have no `Return` member at all), but the real
+  deserializer for both ops (`deserializers.go:59714`+) discards the
+  response body wholesale (`io.Copy(io.Discard, response.Body)`) without
+  parsing any XML -- unlike the 21 previously-fixed sites, a real client
+  cannot observe this field either way, so there is no round-trip proof
+  possible and it was left alone.
+- **False positive -- `ModifyInstanceAttribute`'s missing `Kernel.Value`/
+  `Ramdisk.Value` parsing**: the real request supports both
+  (`serializers.go:87595`/`87602`), and this handler's `parseModifyInstanceAttributeValue`
+  checks list omits both, so a real client setting either gets our generic
+  "exactly one modifiable attribute" error instead of a real one. Not a
+  two-file bug, though: `attrKernel`/`attrRamdisk` are already a deliberate,
+  commented design choice one file over
+  (`handler_instances_lifecycle.go`'s `instanceAttributeValue`: "Modern
+  (HVM) instances have no kernel/ramdisk image; AWS returns an empty
+  value") -- this backend models only HVM instances, so both real AWS and
+  this emulator reject the call either way, just with different error
+  text. Left alone rather than half-wiring a request param this backend has
+  nowhere to store.
+- **False positive -- `EnclaveOptions` unmodelled in `ModifyInstanceAttribute`**:
+  real request field (`serializers.go:87562`), silently rejected here same
+  as Kernel/Ramdisk, but Nitro Enclaves have zero modelling anywhere in this
+  service (not just this op) -- a whole-service gap, not scoped to these two
+  files.
+- **False positive -- `ModifyInstanceCapacityReservationAttributesOutput`
+  hardcodes `Return: true`, discarding the backend's own bool**: looked
+  like a dropped-value bug, but `Backend.ModifyInstanceCapacityReservationAttributes`
+  never returns `(false, nil)` -- every non-error path returns the updated
+  instance, so `true` is always correct.
+- **False positive -- `stoppedRequiredAttrs` (backend, `instance_attrs.go`)
+  omits `attrUserData` while `modifyInstanceAttributeStoppedRequired`
+  (handler) includes it**: looked like a missed guard, but
+  `SetInstanceAttribute` is also called from `RunInstances`
+  (`handler_instances_lifecycle.go:58`, setting initial `UserData` on a
+  freshly-launched, non-stopped instance) -- the handler-level check
+  correctly enforces "stopped to *modify* userData post-launch" while the
+  shared backend setter correctly does not re-enforce that for the
+  launch-time case. Confirmed by reading both call sites; not a bug.
+
+Not reached, named: none -- all 32 ops across both files were audited
+against the real SDK this pass.
+
+Snapshot bump: not needed. `TransitGatewayMulticastDomain`,
+`TransitGatewayMeteringPolicy`, `TransitGatewayMeteringPolicyEntry`, and
+`TransitGatewayMulticastGroupEntry` (the persisted structs backing this
+family) are unchanged -- tags live in the pre-existing generic `b.tags` map,
+not on any of these structs, and every touched response type
+(`tgwMulticastDomainItem`, `tgwMeteringPolicyItem`, the four `NextToken`
+additions) is wire-response-only, never part of a `backendSnapshot`.
+`go test ./pkgs/persistence/...` run anyway: `ok`.
+
+Proof: `wire_field_fixes_ec2sweep25_test.go`, 7 new real-SDK-client tests.
+Each hand-reverted in place (not via a saved-file `cp` for the isolated
+`TransitGatewayAttachmentId`/pagination bugs -- reverted the specific hunk
+in `handler_tgw_multicast.go`, ran the one test, confirmed the failure
+below, then restored the whole file from a `cp`-saved copy and `md5sum`
+diffed identical; same restore-and-verify done for `interfaces.go`,
+`tgw_multicast.go`, and `handler_tgw_peripherals.go`, which were untouched
+by any individual hunk revert but re-verified byte-identical regardless).
+Representative failures:
+- `TestSearchTransitGatewayMulticastGroups_TransitGatewayAttachmentId_RealClient`:
+  `TransitGatewayAttachmentId` set (to the ENI ID) instead of nil.
+- `TestSearchTransitGatewayMulticastGroups_Pagination_RealClient`: `"1" is
+  not greater than or equal to "2"` (paginator never split across pages) --
+  same failure shape confirmed for the other three pagination ops before
+  restoring.
+- `TestCreateTransitGatewayMulticastDomain_Tags_RealClient`: "Tags empty on
+  describe - TagSpecification accepted at create but dropped from
+  Describe".
+- `TestCreateTransitGatewayMeteringPolicy_Tags_RealClient`, reverted to the
+  singular-form `parseTagSpecification` to isolate the plural-wire-key
+  sub-bug specifically: same "Tags empty on describe" failure, confirming
+  the plural key really is required for this one op.
+
+Gates: `go build ./...` (clean, exported `Backend` interface signature
+changed -- `CreateTransitGatewayMulticastDomain`/`CreateTransitGatewayMeteringPolicy`
+gained a `tags map[string]string` parameter, single implementer
+`InMemoryBackend`, no other package implements `Backend`), `make build-check`
+(clean: `go build ./...` + `go vet -tags e2e ./...` + `go vet -tags
+integration ./...`), `go vet ./services/ec2/...` (clean), `gofmt -l
+services/ec2/*.go` (clean after `goimports -w`/`golines -w --max-len=120` on
+the two touched files -- both had pre-existing-style violations introduced
+by this pass's own edits, not carried over from before it), `go test -race
+-count=1 ./services/ec2/...` (`ok`, full suite including all 7 new tests),
+`golangci-lint run ./services/ec2/...` (`0 issues`), `go test
+./pkgs/persistence/...` (`ok`). No banned `//nolint`s.
+
+**2026-08-23 follow-up pass (gopherstack-dj4i) -- the other four plural-form
+tag ops**: the pass above fixed `CreateTransitGatewayMeteringPolicy` and gave
+it a scoped `parseTagSpecificationPlural` (the pinned `ec2@v1.319.1`
+`serializers.go` has exactly five ops that serialize tags as plural
+`TagSpecifications.N.*` rather than the near-universal singular
+`TagSpecification.N.*`) but deliberately left the other four unidentified.
+Grepped `serializers.go` for all five `"TagSpecifications"` occurrences and
+named the owning op for each by walking back to the nearest
+`awsEc2query_serializeOpDocument*Input` function:
+`CreateCapacityReservation` (line 69572/function 69482), `CreateTransitGatewayMeteringPolicy`
+(72985/72968, fixed previously), `CreateTransitGatewayPolicyTable`
+(73120/73110), `CreateTransitGatewayRouteTable` (73237/73227),
+`CreateTransitGatewayVpcAttachment` (73275/73251).
+
+All four remaining ops are implemented in gopherstack, and none of them
+parsed tags at all -- not even with the wrong (singular) parser. Every one
+accepted `TagSpecifications` in the request, returned `200 OK`, and silently
+dropped the tags:
+
+- `CreateCapacityReservation` (`capacity_reservations.go`,
+  `handler_capacity_reservations.go`): backend took no `tags` param at all,
+  and `capacityReservationItem` (`handler_accept_ops.go`) had no `TagSet`
+  field -- the whole capacity-reservation family had zero tag rendering,
+  even though `CreateCapacityReservationBySplitting` and
+  `PurchaseCapacityBlock` already parse tags correctly (singular form, not
+  part of this bug) and already store them via `b.tags`/`setTagsLocked` --
+  those tags were ALSO being silently dropped from every response, just
+  because the item struct never had a `TagSet` field to render them into.
+  Added `TagSet []simpleTagItem` to `capacityReservationItem`, threaded a
+  `tags map[string]string` param through `toCapacityReservationItem` and
+  `Backend.CreateCapacityReservation`, and rewired all six call sites
+  (`handler_capacity_reservations.go`, `handler_capacity_block.go`,
+  `handler_capacity_reservation_ops.go` x2, `handler_accept_ops.go`'s
+  Describe) to pass real tags (freshly-parsed tags for Create/Split's
+  destination, `Backend.TagsForResource` for everything reading an existing
+  reservation).
+- `CreateTransitGatewayPolicyTable` (`tgw_peripherals.go`,
+  `handler_tgw_peripherals.go`): same shape -- no `tags` param, no `TagSet`
+  field on `tgwPolicyTableItem`. Added both, wired Create/Describe/Delete.
+- `CreateTransitGatewayRouteTable` (`ec2core.go`, `handler_ec2core.go`): same
+  shape. Added `TagSet` to `tgwRouteTableItem`, wired Create/Describe/Delete.
+- `CreateTransitGatewayVpcAttachment` (`networking1.go`,
+  `handler_networking1.go`): `tgwVpcAttachmentItem` already had `TagSet` and
+  `Describe` already rendered it via `TagsForResource` -- only `Create`
+  itself never parsed the request's tags (passed `nil` into
+  `tgwVpcAttachmentToItem`) and the backend method never stored them. Fixed
+  both.
+
+All four fixes reuse the existing `parseTagSpecificationPlural` helper
+(`handler_tgw_multicast.go`) with each op's real AWS `ResourceType` string
+(`capacity-reservation`, `transit-gateway-policy-table`,
+`transit-gateway-route-table`, `transit-gateway-attachment` -- confirmed
+against `types/enums.go` in the pinned SDK). The shared singular
+`parseTagSpecification` (48 call sites) was not touched.
+
+Noted but explicitly out of scope: `CreateTransitGatewayVpcAttachment`'s
+backend signature already had a `subnetIDs []string` parameter that was
+discarded (`_ []string`) -- `SubnetIds` from the create request is dropped
+and only settable later via `ModifyTransitGatewayVpcAttachment`. That's a
+different bug (not a tag bug, not one of the five plural-form ops) and was
+left alone; worth its own bd issue.
+
+Snapshot bump: not needed. `CapacityReservation`, `TransitGatewayPolicyTable`,
+`TransitGatewayRouteTable`, and `TransitGatewayVpcAttachment` (the persisted
+structs) are unchanged -- tags live in the pre-existing generic `b.tags` map
+via `setTagsLocked`/`TagsForResource`, not on any of these structs. Every
+touched type (`capacityReservationItem`, `tgwPolicyTableItem`,
+`tgwRouteTableItem`) is wire-response-only. `go test ./pkgs/persistence/...`
+run anyway: `ok`.
+
+Proof: `wire_field_fixes_ec2dj4i_test.go`, 4 new real-SDK-client tests (one
+per fixed op), each doing a Create-with-tags then Describe round trip.
+Hand-reverted all 20 touched non-test files at once via `cp` to a scratchpad
+(the four fixes share a chain of signature changes across
+`interfaces.go`/handlers/backends, so no single hunk reverts in isolation),
+ran the new test file against the reverted tree, confirmed all four fail,
+then restored every file from the scratchpad copy and `md5sum`-diffed all 20
+identical against the post-fix state. Failures under the reverted (pre-fix)
+code, all the same shape:
+- `TestCreateCapacityReservation_Tags_RealClient`: "Tags empty on create
+  response - TagSpecifications accepted but never applied".
+- `TestCreateTransitGatewayPolicyTable_Tags_RealClient`: same.
+- `TestCreateTransitGatewayRouteTable_Tags_RealClient`: same.
+- `TestCreateTransitGatewayVpcAttachment_Tags_RealClient`: same.
+
+Gates: `go build ./services/ec2/...` and `go build ./...` (clean -- exported
+`Backend` interface changed: `CreateCapacityReservation`,
+`CreateTransitGatewayPolicyTable`, `CreateTransitGatewayRouteTable`, and
+`CreateTransitGatewayVpcAttachment` each gained a `tags map[string]string`
+param, single implementer `InMemoryBackend`, no other package implements
+`Backend`), `go vet -tags e2e ./services/ec2/...` and `go vet -tags
+integration ./services/ec2/...` (clean; the repo-wide `go vet -tags e2e/
+integration ./...` fails, but only on pre-existing, concurrent, unrelated
+`services/wafv2/` breakage -- confirmed via `git status` showing wafv2 files
+already dirty before this pass touched anything), `go vet ./services/ec2/...`
+(clean), `gofmt -l services/ec2/` (clean), `go test -race
+./services/ec2/...` (`ok`, full suite including the 4 new tests),
+`golangci-lint run ./services/ec2/...` (`0 issues` -- fixed one `golines`
+line-wrap and two `fieldalignment` reorderings on the newly-added `TagSet`
+fields by hand, not via `-fix`), `go test ./pkgs/persistence/...` (`ok`). No
+banned `//nolint`s.
+
+**2026-08-23 pass (gopherstack-6cuc, plus trunk_enclave/capacity_reservations
+audit)**: fixed the accept-and-drop bug named in gopherstack-6cuc --
+`CreateTransitGatewayVpcAttachment`'s backend method already took a
+`subnetIDs []string` parameter and discarded it (`_ []string`), so
+`SubnetIds` sent on create never reached stored state and was only settable
+later via `ModifyTransitGatewayVpcAttachment`. Now stores a defensive copy
+into `TransitGatewayVpcAttachment.SubnetIDs` on create. Interface signature
+already named the parameter correctly (`interfaces.go`) -- only the
+`InMemoryBackend` implementation's `_` needed fixing, no call sites changed.
+
+Then audited two never-fully-swept files end to end against the installed
+`aws-sdk-go-v2/service/ec2@v1.319.1` deserializers:
+
+- `handler_trunk_enclave.go` (Trunk Interface association + Enclave
+  Certificate IAM Role association families, 6 ops, all registered by this
+  file's own `registerTrunkEnclaveOps` -- none dispatch via `buildCoreOps`).
+  All XML element names, nested-type field names, and the `Return`-vs-no-
+  `Return` shape of each op checked line-for-line against the deserializer
+  and matched, with one exception: `DescribeTrunkInterfaceAssociations`
+  declares `MaxResults`/`NextToken`/`Filters` on its real input and
+  `NextToken` on its output, but the handler ignored all of them, always
+  returning every association in one page with no `NextToken` -- the
+  "List op ignoring real pagination" shape. Fixed using the existing
+  `parseEC2Pagination`/`pageSlice` helpers (same pattern as
+  `handler_elastic_ips.go`), `ec2PageMinDefault`/`ec2PageMaxDefault` bounds
+  (op has no documented MaxResults range).
+- `handler_capacity_reservations.go` (8 of `registerCapacityFamilyOps`'s 30
+  Capacity Reservation ops live here: `CreateCapacityReservation`,
+  `CancelCapacityReservation`, `ModifyCapacityReservation`,
+  `GetGroupsForCapacityReservation`,
+  `CreateInterruptibleCapacityReservationAllocation`,
+  `UpdateInterruptibleCapacityReservationAllocation`,
+  `GetCapacityReservationUsage`, `DescribeCapacityReservationTopology` --
+  the other 22 Fleet/Capacity-Block/Capacity-Manager/billing-transfer ops
+  registered by the same function live in other files, not audited this
+  pass). Two more Capacity-Reservation-family ops,
+  `AcceptCapacityReservationBillingOwnership` and
+  `DescribeCapacityReservations`, are registered by a third file
+  (`handler_buildops_advanced.go`'s `registerAcceptAndAdvancedOps`) -- a
+  second *file*, not a second *dispatch path*: `buildCoreOps` (the map
+  literal in `handler.go`) has no Capacity Reservation entries at all: every
+  op in this family dispatches via its own `register*Ops` function, called
+  once each from `opRegistrars()`, with no override collision. All 8
+  in-file ops field-diffed clean except the same pagination shape as above:
+  `DescribeCapacityReservationTopology` declares
+  `MaxResults`/`NextToken`/`Filters` and a `nextToken` output field, ignored
+  entirely. Fixed the same way.
+
+Modelling gaps found but NOT fixed (no observable behavior change possible,
+so no provable round-trip test could be written): `GetGroupsForCapacityReservation`
+also declares `MaxResults`/`NextToken`, but this backend's
+`GetGroupsForCapacityReservation` always returns an empty slice (comment:
+"no group associations tracked") -- paginating zero items is a no-op, so a
+pagination fix here is inert until Capacity Reservation Groups are modeled
+at all; left unfixed rather than ship an unprovable change.
+`GetCapacityReservationUsage`'s real output also has `InterruptionInfo`
+(details about the source reservation for an interruptible allocation) and
+its own `MaxResults`/`NextToken` over `InstanceUsageSet` -- this backend
+aggregates usage into at most one row per account, so multi-page usage
+output can't occur either; `InterruptionInfo` itself is unmapped (a real
+field-count gap, not wrong data) and would need new backing state to
+populate honestly.
+
+False positive ruled out: `instanceConnectEndpointItem` is declared in
+`handler_capacity_reservations.go` (misplaced -- it's Instance Connect
+Endpoint's response type, unrelated to Capacity Reservations) but is used
+correctly from `handler_instances.go`; dead code / bad file placement, not a
+bug.
+
+No snapshot bump: `TransitGatewayVpcAttachment.SubnetIDs` already existed on
+the persisted struct (only `Modify` wrote it before); no new persisted
+fields added by the pagination fixes (`NextToken` is response-only,
+generated per request, never stored). `go test ./pkgs/persistence/...`: `ok`.
+
+Proof:
+- `wire_field_fixes_ec26cuc_test.go` --
+  `TestCreateTransitGatewayVpcAttachment_SubnetIds_RealClient`: real
+  `CreateTransitGatewayVpcAttachment` with `SubnetIds` then
+  `DescribeTransitGatewayVpcAttachments`, asserting subnets come back on
+  both. Pre-fix (hand-reverted `networking1.go` via `cp` to scratchpad,
+  `md5sum`-verified identical restore after): fails both assertions with
+  "SubnetIds empty on create response - accepted but never applied" and
+  "... dropped from stored state" (listB `[]string{}` vs listA the two
+  seeded IDs).
+- `pagination_ec26cuc_trunk_test.go` --
+  `TestDescribeTrunkInterfaceAssociations_Pagination`: creates 3 trunk
+  associations, drives the real generated
+  `NewDescribeTrunkInterfaceAssociationsPaginator` with `Limit: 1`, asserts
+  >=3 disjoint pages. Pre-fix (hand-reverted `handler_trunk_enclave.go`,
+  `md5sum`-verified restore): "expected MaxResults=1 to split 3
+  associations across pages" -- \"1\" is not >= \"3\" (single page, no
+  `NextToken`).
+- `pagination_ec26cuc_captopo_test.go` --
+  `TestDescribeCapacityReservationTopology_Pagination`: creates 3 capacity
+  reservations, drives `DescribeCapacityReservationTopology` manually across
+  3 pages with `MaxResults: 1` (no generated paginator for this op), asserts
+  disjoint IDs and an empty final `NextToken`. Pre-fix (hand-reverted
+  `handler_capacity_reservations.go`, `md5sum`-verified restore): page one
+  returns all 3 entries -- "MaxResults=1 ignored - all entries returned on
+  page one" ("should have 1 item(s), but has 3").
+
+Gates: `go build ./...` (clean), `go test -race ./services/ec2/...`
+(`ok`, full suite including the 3 new tests), `golangci-lint run
+./services/ec2/...` (`0 issues` -- fixed two `golines` line-wraps and
+dropped one unused `//nolint:gosec` by hand), `go test
+./pkgs/persistence/...` (`ok`). No banned `//nolint`s.
+
+Not reached this pass (named, per the task's own list of unaudited files):
+`handler_subnets.go`, `handler_ec2core.go`, the remainder of
+`handler_networking1.go` beyond the TGW VPC Attachment ops (DHCP Options,
+Flow Logs, Launch Template Versions), and the other 22
+`registerCapacityFamilyOps` ops living outside
+`handler_capacity_reservations.go` (Fleet/Capacity-Block/Capacity-Manager/
+billing-transfer). Work left uncommitted for the orchestrator.
+
+**2026-08-23 pass (gopherstack-6cuc follow-up: the "other 22" named above)**:
+finished the `registerCapacityFamilyOps` queue named by the previous entry.
+`registerCapacityFamilyOps` (`handler_capacity_family.go`) actually registers
+38 ops, not 30 -- the earlier count was stale. The full map:
+
+- `handler_capacity_reservation_fleet.go` (4 ops): `CreateCapacityReservationFleet`,
+  `DescribeCapacityReservationFleets`, `ModifyCapacityReservationFleet`,
+  `CancelCapacityReservationFleets`.
+- `handler_capacity_block.go` (7 ops): `DescribeCapacityBlockOfferings`,
+  `PurchaseCapacityBlock`, `DescribeCapacityBlockExtensionOfferings`,
+  `PurchaseCapacityBlockExtension`, `DescribeCapacityBlocks`,
+  `DescribeCapacityBlockStatus`, `DescribeCapacityBlockExtensionHistory`.
+- `handler_capacity_reservation_ops.go` (8 ops): `CreateCapacityReservationBySplitting`,
+  `MoveCapacityReservationInstances`, `AssociateCapacityReservationBillingOwner`,
+  `DisassociateCapacityReservationBillingOwner`, `RejectCapacityReservationBillingOwnership`,
+  `DescribeCapacityReservationBillingRequests`, `CreateCapacityReservationCancellationQuote`,
+  `DescribeCapacityReservationCancellationQuotes`.
+- `handler_capacity_manager.go` (11 ops): `EnableCapacityManager`,
+  `DisableCapacityManager`, `UpdateCapacityManagerOrganizationsAccess`,
+  `GetCapacityManagerAttributes`, `GetCapacityManagerMetricData`,
+  `GetCapacityManagerMetricDimensions`, `CreateCapacityManagerDataExport`,
+  `DescribeCapacityManagerDataExports`, `DeleteCapacityManagerDataExport`,
+  `GetCapacityManagerMonitoredTagKeys`, `UpdateCapacityManagerMonitoredTagKeys`.
+- `handler_capacity_reservations.go` (8 ops, audited in the prior pass):
+  `CreateCapacityReservation`, `CancelCapacityReservation`,
+  `ModifyCapacityReservation`, `GetGroupsForCapacityReservation`,
+  `CreateInterruptibleCapacityReservationAllocation`,
+  `UpdateInterruptibleCapacityReservationAllocation`, `GetCapacityReservationUsage`,
+  `DescribeCapacityReservationTopology`.
+
+Two more Capacity-Reservation ops, `AcceptCapacityReservationBillingOwnership`
+and `DescribeCapacityReservations`, are registered by
+`handler_buildops_advanced.go`'s `registerAcceptAndAdvancedOps` but
+implemented in `handler_accept_ops.go` -- a second *file* for the
+registration (confirmed: `buildCoreOps` in `handler.go` has zero Capacity
+Reservation entries; every op in this family dispatches from its own
+`register*Ops`, called once each from `opRegistrars()`, no `buildCoreOps`
+override collision). Audited both this pass.
+
+**32 ops audited this pass** (the 30 outside `handler_capacity_reservations.go`
+plus the 2 from `handler_accept_ops.go`), each field-diffed against the
+installed `aws-sdk-go-v2/service/ec2@v1.319.1` deserializers/serializers
+line-for-line, not just checked for field-count. **10 real bugs found and
+fixed**, all the same "List op ignoring real pagination" shape found earlier
+in this file's sibling pass (`handler_trunk_enclave.go`,
+`handler_capacity_reservations.go`): each op's real SDK input declares
+`MaxResults`/`NextToken` (9 of the 10 also have a generated
+`New<Op>Paginator`) but the handler ignored both, always returning every
+matching item in one page with no `NextToken`. Fixed identically to the prior
+pass, using the existing `parseEC2Pagination`/`pageSlice` helpers with
+`ec2PageMinDefault`/`ec2PageMaxDefault` bounds (none of the ten ops' SDK doc
+comments give a narrower range):
+
+- `DescribeCapacityReservationFleets` (`handler_capacity_reservation_fleet.go`)
+- `DescribeCapacityBlocks`, `DescribeCapacityBlockStatus`,
+  `DescribeCapacityBlockExtensionHistory` (`handler_capacity_block.go`)
+- `DescribeCapacityBlockOfferings` (`handler_capacity_block.go`) -- provable
+  because the backend generates 2 fresh offerings per call; `MaxResults=1`
+  now correctly splits that into two.
+- `DescribeCapacityReservationBillingRequests`,
+  `DescribeCapacityReservationCancellationQuotes`
+  (`handler_capacity_reservation_ops.go`) -- the latter has no generated SDK
+  paginator, driven manually.
+- `DescribeCapacityManagerDataExports`, `GetCapacityManagerMonitoredTagKeys`
+  (`handler_capacity_manager.go`)
+- `DescribeCapacityReservations` (`handler_accept_ops.go`) -- the response
+  struct had no `NextToken` field at all; added one.
+
+`describeCapacityReservationFleetsResponse`/`describeCapacityBlocksResponse`/
+etc. already had `NextToken` fields (dead weight until now);
+`describeCapacityReservationsResponse` did not and needed one added.
+
+All ten fixes are handler-layer only (mirroring `pageSlice`'s existing usage
+elsewhere in this package) -- no `Backend` interface signature changed, so
+`make build-check` was run as a precaution but had nothing to fix.
+
+**Recorded as inert, not fixed**: `DescribeCapacityBlockExtensionOfferings`
+also ignores real `MaxResults`/`NextToken`, but this backend's
+`DescribeCapacityBlockExtensionOfferings` always generates exactly one
+offering per call (`capacity_block.go`) -- paginating over one item can't be
+proven to fail a test, so left alone per the same rule applied to
+`GetGroupsForCapacityReservation` in the prior pass.
+
+**Modelling gaps found, NOT fixed** (no backing state to populate honestly,
+so no provable round-trip test could distinguish a fix from a no-op):
+- `DescribeCapacityReservationBillingRequests`'s real input has a *required*
+  `Role` enum (`odcr-owner` vs `unused-reservation-billing-owner`) that the
+  handler never reads and the backend has no notion of -- this backend
+  models a single account, so there's no second "consumer" account
+  perspective for the two roles to actually differ over. Accepted-and-dropped,
+  but not the "looks deliberate" `_ param` shape -- it is a real, provable
+  gap in principle, just not implementable without multi-account state this
+  backend doesn't have.
+- `GetCapacityManagerMetricData`/`GetCapacityManagerMetricDimensions`
+  (already correctly, and explicitly, documented in `capacity_manager.go` as
+  always-empty: this backend doesn't simulate the historical utilization
+  pipeline Capacity Manager aggregates from) -- confirmed still honest, not
+  re-touched. Their response XML types (`Items []struct{}`) are dead-weight
+  placeholders since the backend never returns anything to serialize into
+  them; flagged but not changed since there's no observable bug today.
+- `GetCapacityManagerAttributesOutput`'s real shape has
+  `EarliestDatapointTimestamp`/`LatestDatapointTimestamp` (histogram bounds
+  for ingested metric data) that our response struct omits entirely -- same
+  root cause as the metrics gap above (no ingestion pipeline modeled).
+- `capacityManagerMonitoredTagKeyItem.EarliestDatapointTimestamp` is declared
+  on the XML struct but the backend's `CapacityManagerMonitoredTagKey` type
+  has no such field to source it from -- same root cause.
+- `CapacityReservationFleet`'s real deserializer also has a
+  `capacityReservationFleetArn` field our `capacityReservationFleetItem`
+  omits -- a field-count gap (ARN not modeled), not a wrong-data bug.
+- `DescribeCapacityReservationCancellationQuotes` and
+  `DescribeCapacityManagerDataExports` both ignore real `Filters` (only
+  `MaxResults`/`NextToken` were fixed this pass) -- lower-priority, generic
+  filter support, scoped out to keep this pass to the named pagination bug
+  shape; `DescribeCapacityReservations`'s real `Filters` (state,
+  instance-type, tenancy, etc.) are likewise still ignored.
+
+**False positives ruled out**: `capacityManagerStatusResponse`'s
+`XMLName xml.Name \`xml:""\`` field is empty-tagged, not tagged -- verified
+directly (`encoding/xml.Marshal` on a struct with `xml:""` honors a
+runtime-set `Name.Local`; only a *non-empty* tag wins over it) that this is
+the safe pattern, not the "shared struct with a tagged XMLName silently
+ignores a runtime-set XMLName" trap this package is otherwise prone to.
+`ModifyCapacityReservationFleet`'s use of the shared `stubResponse{Return:
+true}` is correct, not the "Return: true where the real output has no
+Return field" bug -- `ModifyCapacityReservationFleetOutput`'s real
+deserializer has only a `return` element. `UnusedReservationBillingOwnerId`
+(the param name for `AssociateCapacityReservationBillingOwner`/
+`DisassociateCapacityReservationBillingOwner`) is real AWS naming, not a
+copied/wrong field. All `TagSpecification`/`TagSpecifications.N` usages in
+this pass's five files (`CreateCapacityReservationFleet`, `PurchaseCapacityBlock`,
+`CreateCapacityReservationBySplitting`, `CreateCapacityReservationCancellationQuote`,
+`CreateCapacityManagerDataExport`) were checked directly against their real
+serializers and are all singular-form (`TagSpecification`), matching this
+package's existing `parseTagSpecification` singular parser -- none of them
+are among the plural-form five.
+
+No snapshot bump: all ten fixes are handler-layer pagination; `NextToken` is
+response-only and never persisted, and no `Backend`/persisted struct changed.
+`go test ./pkgs/persistence/...`: `ok`.
+
+Proof: `pagination_capacityfamily_test.go`, ten new `t.Parallel()` real-SDK-
+client tests, one per fixed op (nine drive the real generated
+`New<Op>Paginator` with `Limit: 1` across >=2 pages and assert disjoint IDs
+via the existing `assertDisjointPages` helper; `DescribeCapacityReservationCancellationQuotes`
+has no generated paginator so is driven manually, matching the
+`DescribeCapacityReservationTopology` precedent). Hand-reverted all five
+touched handler files at once via `cp` to a scratchpad (`git show HEAD:<path>`
+for each, since none of this pass's fixes share a cross-file signature
+chain -- each op's fix is self-contained to its own handler function), ran
+the new test file against the reverted tree: all ten tests failed, each with
+the "MaxResults ignored, page one contains everything, no NextToken" shape,
+e.g. `TestDescribeCapacityBlockOfferings_Pagination`: `"... should have 1
+item(s), but has 2"`; `TestDescribeCapacityReservationCancellationQuotes_Pagination`:
+`"... should have 1 item(s), but has 3"`; the eight generated-paginator tests
+all failed on `assertDisjointPages`' `"1" is not greater than or equal to
+"2"` (only one page produced). Restored all five files from the scratchpad
+copies and `md5sum`-diffed identical against the post-fix state.
+
+Gates: `go build ./...` (clean, no exported signature changed),
+`go vet -tags e2e ./services/ec2/...` and `go vet -tags integration
+./services/ec2/...` (clean), `go vet ./services/ec2/...` (clean),
+`gofmt -l services/ec2/` (clean), `go test -race ./services/ec2/...` (`ok`,
+full suite including the 10 new tests), `golangci-lint run
+./services/ec2/...` (`0 issues` -- fixed one `govet` shadow, one `intrange`,
+and three `prealloc` findings by hand, not via `-fix`), `go test
+./pkgs/persistence/...` (`ok`), `make build-check` (clean). No banned
+`//nolint`s.
+
+**Ops not reached this pass**: none within the queue named by the prior
+entry -- all 30 `registerCapacityFamilyOps` ops outside
+`handler_capacity_reservations.go`, plus the 2 `handler_accept_ops.go` ops,
+were read and field-diffed. Work left **uncommitted** for the orchestrator.

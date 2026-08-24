@@ -355,8 +355,9 @@ func (h *Handler) handleAttachThingPrincipal(c *echo.Context) error {
 	principal := c.Request().Header.Get(headerIoTPrincipal)
 
 	if err := h.Backend.AttachThingPrincipal(&AttachThingPrincipalInput{
-		ThingName: thingName,
-		Principal: principal,
+		ThingName:          thingName,
+		Principal:          principal,
+		ThingPrincipalType: c.QueryParam("thingPrincipalType"),
 	}); err != nil {
 		return h.handleError(c, err)
 	}
@@ -382,6 +383,28 @@ func parseIoTPagination(c *echo.Context) (int, int) {
 	start := 0
 	if tok := c.QueryParam("nextToken"); tok != "" {
 		if n, err := strconv.Atoi(tok); err == nil && n > 0 {
+			start = n
+		}
+	}
+
+	return pageSize, start
+}
+
+// parseIoTMarkerPagination reads the pageSize and marker query parameters --
+// the wire names List ops like ListDomainConfigurations/
+// ListOutgoingCertificates/ListPolicyPrincipals/ListPrincipalPolicies/
+// ListTargetsForPolicy use instead of maxResults/nextToken (iot@v1.77.4
+// serializers.go) -- returning the page size (clamped to
+// [1, iotDefaultPageSize]) and the decoded start offset.
+func parseIoTMarkerPagination(c *echo.Context) (int, int) {
+	pageSize := iotDefaultPageSize
+	if v := parseInt32QueryParam(c, "pageSize"); v > 0 && int(v) < pageSize {
+		pageSize = int(v)
+	}
+
+	start := 0
+	if marker := c.QueryParam("marker"); marker != "" {
+		if n, err := strconv.Atoi(marker); err == nil && n > 0 {
 			start = n
 		}
 	}
@@ -462,7 +485,15 @@ func (h *Handler) handleListThingPrincipals(c *echo.Context) error {
 		return h.handleError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"principals": principals})
+	pageSize, start := parseIoTPagination(c)
+	page, nextToken := paginateMaps(principals, pageSize, start)
+
+	resp := map[string]any{"principals": page}
+	if nextToken != "" {
+		resp["nextToken"] = nextToken
+	}
+
+	return c.JSON(http.StatusOK, resp)
 }
 
 func (h *Handler) handleDetachThingPrincipal(c *echo.Context) error {
@@ -485,18 +516,22 @@ func extractThingName(path string) string {
 func (h *Handler) handleListThingPrincipalsV2(c *echo.Context) error {
 	after := strings.TrimPrefix(c.Request().URL.Path, "/things/")
 	thingName := strings.TrimSuffix(after, "/principals-v2")
+	thingPrincipalType := c.QueryParam("thingPrincipalType")
 
 	principals, err := h.Backend.ListThingPrincipalsV2(thingName)
 	if err != nil {
 		return h.handleError(c, err)
 	}
 
-	out := make([]map[string]any, len(principals))
-	for i, p := range principals {
-		out[i] = map[string]any{
+	out := make([]map[string]any, 0, len(principals))
+	for _, p := range principals {
+		if thingPrincipalType != "" && p.ThingPrincipalType != thingPrincipalType {
+			continue
+		}
+		out = append(out, map[string]any{
 			"principal":          p.Principal,
 			"thingPrincipalType": p.ThingPrincipalType,
-		}
+		})
 	}
 
 	pageSize, start := parseIoTPagination(c)

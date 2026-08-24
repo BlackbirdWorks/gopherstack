@@ -222,10 +222,18 @@ func (b *InMemoryBackend) DeleteUserProfile(ctx context.Context, domainID, name 
 	return nil
 }
 
+// UpdateUserProfileOptions bundles UpdateUserProfile's optional fields
+// (api_op_UpdateUserProfile.go:26-38). UserSettings is omitted from the
+// request when unset, so only a non-empty value is applied.
+type UpdateUserProfileOptions struct {
+	UserSettings json.RawMessage
+}
+
 // UpdateUserProfile updates a user profile in a domain. Returns the updated profile.
 func (b *InMemoryBackend) UpdateUserProfile(
 	ctx context.Context,
 	domainID, userProfileName string,
+	opts UpdateUserProfileOptions,
 ) (*UserProfile, error) {
 	b.mu.Lock("UpdateUserProfile")
 	defer b.mu.Unlock()
@@ -242,6 +250,10 @@ func (b *InMemoryBackend) UpdateUserProfile(
 			userProfileName,
 			domainID,
 		)
+	}
+
+	if len(opts.UserSettings) > 0 {
+		up.UserSettings = opts.UserSettings
 	}
 
 	up.LastModifiedTime = time.Now()

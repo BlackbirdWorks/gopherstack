@@ -103,3 +103,81 @@ func TestDescribeEvents_NodeRebootSourceType_SDKRoundTrip(t *testing.T) {
 			"enum has no NODE value (enums.go), so any other value is a fabricated "+
 			"wire value the real service never emits")
 }
+
+// TestDeleteParameterGroupInUse_TypesAsInvalidParameterGroupState_RealClient
+// proves that deleting a parameter group still attached to a cluster
+// surfaces as types.InvalidParameterGroupStateFault, not a fabricated
+// ParameterGroupInUseFault. DeleteParameterGroup's own
+// awsAwsjson11_deserializeOpErrorDeleteParameterGroup switch (aws-sdk-go-v2/
+// service/dax@v1.32.4 deserializers.go) has no ParameterGroupInUseFault case
+// -- that type does not exist anywhere in the DAX SDK's types/errors.go.
+func TestDeleteParameterGroupInUse_TypesAsInvalidParameterGroupState_RealClient(t *testing.T) {
+	t.Parallel()
+
+	backend := dax.NewInMemoryBackend("123456789012", "us-east-1")
+	h := dax.NewHandler(backend)
+	client := newTestDAXSDKClient(t, h)
+
+	_, err := client.CreateCluster(t.Context(), &daxsdk.CreateClusterInput{
+		ClusterName:       aws.String("uses-default-pg"),
+		NodeType:          aws.String("dax.r5.large"),
+		IamRoleArn:        aws.String("arn:aws:iam::123456789012:role/DAXRole"),
+		ReplicationFactor: 1,
+	})
+	require.NoError(t, err)
+
+	_, err = client.DeleteParameterGroup(t.Context(), &daxsdk.DeleteParameterGroupInput{
+		ParameterGroupName: aws.String(dax.DefaultParameterGroupName),
+	})
+	require.Error(t, err)
+
+	var invalidState *daxtypes.InvalidParameterGroupStateFault
+	require.ErrorAs(t, err, &invalidState)
+}
+
+// TestTagResource_UnknownARN_TypesAsClusterNotFound_RealClient proves that
+// TagResource against an ARN that doesn't resolve to an existing cluster
+// surfaces as types.ClusterNotFoundFault, not a fabricated TagNotFoundFault.
+// TagResource's own deserializeOpError switch has no TagNotFoundFault case
+// -- only UntagResource types that fault.
+func TestTagResource_UnknownARN_TypesAsClusterNotFound_RealClient(t *testing.T) {
+	t.Parallel()
+
+	backend := dax.NewInMemoryBackend("123456789012", "us-east-1")
+	h := dax.NewHandler(backend)
+	client := newTestDAXSDKClient(t, h)
+
+	_, err := client.TagResource(t.Context(), &daxsdk.TagResourceInput{
+		ResourceName: aws.String("arn:aws:dax:us-east-1:123456789012:cache/no-such-cluster"),
+		Tags:         []daxtypes.Tag{{Key: aws.String("k"), Value: aws.String("v")}},
+	})
+	require.Error(t, err)
+
+	var clusterNotFound *daxtypes.ClusterNotFoundFault
+	require.ErrorAs(t, err, &clusterNotFound)
+}
+
+// TestCreateSubnetGroup_MalformedSubnetID_TypesAsInvalidSubnet_RealClient
+// proves a malformed subnet ID on CreateSubnetGroup surfaces as
+// types.InvalidSubnet, not a fabricated InvalidParameterValueException.
+// CreateSubnetGroup's own awsAwsjson11_deserializeOpErrorCreateSubnetGroup
+// switch (aws-sdk-go-v2/service/dax@v1.32.4 deserializers.go) has no
+// InvalidParameterValueException case at all; the client-side
+// validateOpCreateSubnetGroupInput middleware only rejects a nil SubnetIds,
+// not a malformed subnet ID string, so this request reaches the server.
+func TestCreateSubnetGroup_MalformedSubnetID_TypesAsInvalidSubnet_RealClient(t *testing.T) {
+	t.Parallel()
+
+	backend := dax.NewInMemoryBackend("123456789012", "us-east-1")
+	h := dax.NewHandler(backend)
+	client := newTestDAXSDKClient(t, h)
+
+	_, err := client.CreateSubnetGroup(t.Context(), &daxsdk.CreateSubnetGroupInput{
+		SubnetGroupName: aws.String("bad-subnet-sg"),
+		SubnetIds:       []string{"not-a-real-subnet-id"},
+	})
+	require.Error(t, err)
+
+	var invalidSubnet *daxtypes.InvalidSubnet
+	require.ErrorAs(t, err, &invalidSubnet)
+}

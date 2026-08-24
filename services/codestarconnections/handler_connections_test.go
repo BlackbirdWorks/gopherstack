@@ -56,7 +56,10 @@ func TestHandler_CreateConnection(t *testing.T) {
 	}
 }
 
-func TestHandler_CreateConnection_Duplicate(t *testing.T) {
+// TestHandler_CreateConnection_DuplicateNameSucceeds mirrors
+// TestConnectionNameNotUnique: CreateConnection's own error switch has no
+// code for a name collision, so a duplicate name is not rejected.
+func TestHandler_CreateConnection_DuplicateNameSucceeds(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -66,7 +69,7 @@ func TestHandler_CreateConnection_Duplicate(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec1.Code)
 
 	rec2 := doRequest(t, h, "CreateConnection", body)
-	assert.Equal(t, http.StatusBadRequest, rec2.Code)
+	assert.Equal(t, http.StatusOK, rec2.Code)
 }
 
 func TestHandler_GetConnection(t *testing.T) {
@@ -263,8 +266,14 @@ func TestHandler_DeleteConnection(t *testing.T) {
 	}
 }
 
-// TestConnectionNameUniqueness verifies duplicate connection names are rejected.
-func TestConnectionNameUniqueness(t *testing.T) {
+// TestConnectionNameNotUnique verifies duplicate connection names are NOT
+// rejected: CreateConnection's own error switch (codestarconnections@v1.38.4
+// deserializers.go's awsAwsjson10_deserializeOpErrorCreateConnection) is
+// exactly [LimitExceededException, ResourceNotFoundException,
+// ResourceUnavailableException] -- no code for a name collision -- so a
+// second create for the same name gets a distinct ARN, not an error (same
+// behavior as sibling codeconnections@v1.13.4's identical switch).
+func TestConnectionNameNotUnique(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -274,12 +283,16 @@ func TestConnectionNameUniqueness(t *testing.T) {
 		"ProviderType":   "GitHub",
 	})
 	require.Equal(t, http.StatusOK, rec1.Code)
+	arn1 := parseResp(t, rec1)["ConnectionArn"].(string)
 
 	rec2 := doRequest(t, h, "CreateConnection", map[string]any{
 		"ConnectionName": "dup",
 		"ProviderType":   "GitHub",
 	})
-	assert.Equal(t, http.StatusBadRequest, rec2.Code)
+	require.Equal(t, http.StatusOK, rec2.Code)
+	arn2 := parseResp(t, rec2)["ConnectionArn"].(string)
+
+	assert.NotEqual(t, arn1, arn2)
 }
 
 // TestDeleteConnectionCleansIndex verifies connectionsByName index is updated on delete.

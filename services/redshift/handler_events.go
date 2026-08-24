@@ -70,6 +70,32 @@ func (h *Handler) handleDisableLogging(vals url.Values) (any, error) {
 	}, nil
 }
 
+// ---- DescribeLoggingStatus ----
+
+type describeLoggingStatusResponse struct {
+	XMLName xml.Name         `xml:"DescribeLoggingStatusResponse"`
+	Xmlns   string           `xml:"xmlns,attr"`
+	Result  xmlLoggingStatus `xml:"DescribeLoggingStatusResult"`
+}
+
+func (h *Handler) handleDescribeLoggingStatus(vals url.Values) (any, error) {
+	clusterID := vals.Get("ClusterIdentifier")
+
+	status, err := h.Backend.GetLoggingStatus(clusterID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &describeLoggingStatusResponse{
+		Xmlns: redshiftXMLNS,
+		Result: xmlLoggingStatus{
+			LoggingEnabled: status.LoggingEnabled,
+			BucketName:     status.BucketName,
+			S3KeyPrefix:    status.S3KeyPrefix,
+		},
+	}, nil
+}
+
 // ---- Events XML types ----
 
 type xmlEvent struct {

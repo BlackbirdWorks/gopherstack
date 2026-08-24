@@ -358,7 +358,8 @@ func TestInMemoryBackend_Snapshot_AllMaps(t *testing.T) {
 	require.NoError(t, b.PutConfigRule(&awsconfig.ConfigRule{ConfigRuleName: "rule-x"}))
 	require.NoError(t, b.PutConfigurationAggregator("agg-1", nil, nil, nil))
 	require.NoError(t, b.PutConformancePack("pack-1", "", "", "", "", "", nil))
-	require.NoError(t, b.PutOrganizationConfigRule("org-rule-1"))
+	_, err := b.PutOrganizationConfigRule("org-rule-1")
+	require.NoError(t, err)
 	require.NoError(t, b.PutOrganizationConformancePack("org-pack-1"))
 
 	snap := b.Snapshot(t.Context())
@@ -408,9 +409,10 @@ func TestInMemoryBackend_Snapshot_AllTables_FullState(t *testing.T) {
 	require.NoError(t, b.PutConfigRule(&awsconfig.ConfigRule{ConfigRuleName: "rule-x"}))
 	require.NoError(t, b.PutConfigurationAggregator("agg-1", nil, nil, nil))
 	require.NoError(t, b.PutConformancePack("pack-1", "", "", "", "", "", nil))
-	require.NoError(t, b.PutOrganizationConfigRule("org-rule-1"))
+	_, err := b.PutOrganizationConfigRule("org-rule-1")
+	require.NoError(t, err)
 	require.NoError(t, b.PutOrganizationConformancePack("org-pack-1"))
-	_, err := b.PutStoredQuery("query-1", "", "", nil)
+	_, err = b.PutStoredQuery("query-1", "", "", nil)
 	require.NoError(t, err)
 	require.NoError(t, b.PutRetentionConfiguration("retention-1", 30))
 	require.NoError(t, b.PutRemediationConfigurations([]awsconfig.RemediationConfiguration{

@@ -167,13 +167,16 @@ func (h *Handler) handleDeleteDataSetRefreshSchedule(c *echo.Context) error {
 	datasetID := seg(segs, segResID)
 	scheduleID := seg(segs, segSubResID)
 
-	if err := h.Backend.DeleteRefreshSchedule(accountID, datasetID, scheduleID); err != nil {
+	s, err := h.Backend.DeleteRefreshSchedule(accountID, datasetID, scheduleID)
+	if err != nil {
 		return httpErr(c, err)
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
-		keyRequestID: reqIDPlaceholder,
-		keyStatus:    http.StatusOK,
+		keyArn:             s.Arn,
+		keyScheduleIDField: s.ScheduleID,
+		keyRequestID:       reqIDPlaceholder,
+		keyStatus:          http.StatusOK,
 	})
 }
 

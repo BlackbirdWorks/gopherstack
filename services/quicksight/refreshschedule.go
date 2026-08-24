@@ -113,22 +113,23 @@ func (b *InMemoryBackend) UpdateRefreshSchedule(
 	return s.toRefreshSchedule(), nil
 }
 
-func (b *InMemoryBackend) DeleteRefreshSchedule(accountID, datasetID, scheduleID string) error {
+func (b *InMemoryBackend) DeleteRefreshSchedule(accountID, datasetID, scheduleID string) (*RefreshSchedule, error) {
 	b.mu.Lock("DeleteRefreshSchedule")
 	defer b.mu.Unlock()
 
 	ds, ok := b.dataSets.Get(dataSetKey(accountID, datasetID))
 	if !ok {
-		return ErrDataSetNotFound
+		return nil, ErrDataSetNotFound
 	}
 
 	schedules := refreshSchedulesLocked(ds)
-	if _, exists := schedules[scheduleID]; !exists {
-		return ErrRefreshScheduleNotFound
+	s, exists := schedules[scheduleID]
+	if !exists {
+		return nil, ErrRefreshScheduleNotFound
 	}
 	delete(schedules, scheduleID)
 
-	return nil
+	return s.toRefreshSchedule(), nil
 }
 
 func (b *InMemoryBackend) ListRefreshSchedules(accountID, datasetID string) ([]*RefreshSchedule, error) {

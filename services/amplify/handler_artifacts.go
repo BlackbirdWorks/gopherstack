@@ -75,7 +75,7 @@ func (h *Handler) listArtifacts(ctx context.Context, c *echo.Context, appID, bra
 
 	artifacts, outToken, err := h.Backend.ListArtifacts(appID, branchName, jobID, nextToken, maxResults)
 	if err != nil {
-		return h.handleBackendError(ctx, c, "ListArtifacts", err)
+		return h.handleBackendError(ctx, c, opListArtifacts, err)
 	}
 
 	resp := map[string]any{"artifacts": toArtifactViews(artifacts)}

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/labstack/echo/v5"
@@ -390,13 +391,32 @@ func extractLastSegment(path, prefix string) string {
 
 // queryParamValue returns the first value of the given "&"-delimited query
 // parameter, or "" if absent.
+// queryParamValue reads a single value from a raw (still percent-encoded)
+// URL query string, the form c.Request().URL.RawQuery and every op's own
+// httpbinding-serialized request carries it in. ARNs contain ":" and "/",
+// which the real SDK client always percent-encodes on the wire (verified
+// against awsRestjson1_serializeOpHttpBindingsGenerateFindingRecommendationInput
+// in aws-sdk-go-v2/service/accessanalyzer@v1.51.4 serializers.go), so the
+// value must be unescaped before use -- an unescaped comparison against a
+// decoded ARN stored by the backend never matches.
+// site happens to want "analyzerArn", but the parameter documents intent.
+//
+//nolint:unparam // key is a general-purpose lookup key; every current call
 func queryParamValue(query, key string) string {
 	prefix := key + "="
 
 	for part := range strings.SplitSeq(query, "&") {
-		if v, ok := strings.CutPrefix(part, prefix); ok {
+		v, ok := strings.CutPrefix(part, prefix)
+		if !ok {
+			continue
+		}
+
+		decoded, err := url.QueryUnescape(v)
+		if err != nil {
 			return v
 		}
+
+		return decoded
 	}
 
 	return ""

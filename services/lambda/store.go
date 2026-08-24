@@ -47,6 +47,15 @@ type QualifierResolver interface {
 	GetFunctionByQualifier(name, qualifier string) (*FunctionConfiguration, error)
 }
 
+// QualifierDeleter is an optional extension of StorageBackend that supports
+// deleting a single published function version via DeleteFunctionInput's
+// query-bound Qualifier member, leaving the rest of the function (and any
+// other versions/aliases) intact. Backends implement this to support
+// ?Qualifier= on DeleteFunction.
+type QualifierDeleter interface {
+	DeleteFunctionVersion(name, qualifier string) error
+}
+
 // S3CodeFetcher can retrieve zip bytes from an S3-compatible store.
 // It is used by InMemoryBackend to pull Zip Lambda code from S3.
 type S3CodeFetcher interface {

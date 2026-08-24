@@ -7,8 +7,8 @@
 service: servicediscovery
 sdk_module: aws-sdk-go-v2/service/servicediscovery@v1.43.4   # version audited against; matches go.mod (verified)
 botocore_model: servicediscovery/2017-03-14/service-2.json (botocore 1.43.56)  # for shape constraints not carried into the Go SDK comments
-last_audit_commit: 778e7aa0                       # this pass (2026-08-13, gopherstack-tuh5) fixed a ListServices Get-field leak; commit hash not yet known at edit time
-last_audit_date: 2026-08-13
+last_audit_commit: dbf9633c9                      # this pass (2026-08-23, request-side sweep) fixed UpdateServiceAttributes; commit hash not yet known at edit time
+last_audit_date: 2026-08-23
 overall: A            # real bugs found and fixed this pass (follow-up to gopherstack-bq50)
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
@@ -27,8 +27,8 @@ ops:
   ListServices: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "gopherstack-tuh5: was reusing serviceToMap (the full GetService converter) unscoped, leaking a top-level NamespaceId that types.ServiceSummary does not declare (confirmed against awsAwsjson11_deserializeDocumentServiceSummary; the nested, deprecated DnsConfig.NamespaceId is a distinct field on both shapes and is unaffected). namespaceToMap in this same file was checked and is clean (types.NamespaceSummary matches exactly). serviceToMap now delegates to a dedicated serviceSummaryToMap plus the one extra field. Regression: raw-body assertion (an SDK client discards unrecognised keys and can't observe an over-wide response). Prior pass: Filters now implement NAMESPACE_ID/RESOURCE_OWNER -- fixed, see Notes"}
   DeleteService: {wire: ok, errors: ok, state: ok, persist: ok, note: "was silently auto-deregistering instances instead of failing ResourceInUse -- fixed prior pass"}
   UpdateService: {wire: ok, errors: fixed, state: ok, persist: ok, note: "DnsConfig.RoutingPolicy/DnsRecords[].Type and HealthCheckConfig.Type now validated (see CreateService) -- fixed"}
-  GetServiceAttributes: {wire: ok, errors: ok, state: ok, persist: ok}
-  UpdateServiceAttributes: {wire: ok, errors: fixed, state: fixed, persist: ok, note: "botocore model DOES carry the quota (shape ServiceAttributesMap{max:30,min:1}, ServiceAttributeKey{max:255}, ServiceAttributeValue{max:1024}); the prior pass's 'no documented numbers' excuse was wrong -- ServiceAttributesLimitExceededException and InvalidInput now enforced, see gopherstack-bq50 Notes"}
+  GetServiceAttributes: {wire: fixed, errors: ok, state: ok, persist: ok, note: "response emitted the generic keyArn (\"Arn\") for ServiceAttributes.ServiceArn; real key is \"ServiceArn\" (deserializers.go:6001), distinct from Service/Namespace which really do use \"Arn\" -- fixed 2026-08-23"}
+  UpdateServiceAttributes: {wire: fixed, errors: fixed, state: fixed, persist: ok, note: "REQUEST decode struct read wire key \"ServiceArn\"; real key is \"ServiceId\" (serializers.go:3040-3043, accepts ID or ARN) -- every real client call failed \"ServiceArn is required\". Fixed 2026-08-23, see Notes. Also: botocore model DOES carry the quota (shape ServiceAttributesMap{max:30,min:1}, ServiceAttributeKey{max:255}, ServiceAttributeValue{max:1024}); the prior pass's 'no documented numbers' excuse was wrong -- ServiceAttributesLimitExceededException and InvalidInput now enforced, see gopherstack-bq50 Notes"}
   DeleteServiceAttributes: {wire: ok, errors: ok, state: ok, persist: ok}
   RegisterInstance: {wire: ok, errors: ok, state: fixed, persist: ok, note: "custom-attribute quota (30 count/255 key/1024 value/5000 total, documented) and AWS_INIT_HEALTH_STATUS seeding were unenforced/unimplemented -- fixed, see Notes"}
   DeregisterInstance: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -314,3 +314,42 @@ type for `secretsmanager`/`transfer`), just not this service's.
 "InternalFailure"`; confirmed it fails pre-fix with the old
 `"InternalServiceError"` code (hand-reverted, byte-identical restore
 after).
+
+## 2026-08-23: UpdateServiceAttributes request decoded the wrong wire key
+
+Request-side sweep (accept-and-drop class, first audit of the request side
+rather than the response side). `handler_services.go`'s
+`updateServiceAttributesRequest` decoded `json:"ServiceArn"`. The real
+`UpdateServiceAttributesInput` has no `ServiceArn` member at all --
+serializers.go:3040-3043 always emits the identifier under key `"ServiceId"`
+(which accepts either the service ID or its ARN, per the SDK doc comment).
+Since servicediscovery is JSON-RPC 1.1 (case-sensitive, no fallback key),
+every real client call left the identifier empty and failed validation with
+"ServiceArn is required" -- this operation was 100% non-functional for any
+real caller. The existing unit/persistence tests all passed because they
+hand-built request bodies using the same wrong key, matching the bug
+instead of catching it (`services_test.go`, `persistence_test.go`).
+
+Fixed: decode struct now reads `json:"ServiceId"`; the backend method
+(`UpdateServiceAttributes`, `services.go`) now resolves its argument as
+either a bare ID (`b.services.Has`) or an ARN (`b.servicesByARN.Get`),
+matching the doc'd "ID or ARN" semantics -- previously it only looked up by
+ARN, so even a corrected wire key would have broken most real callers
+(which send the plain ID).
+
+While proving this end-to-end with a real SDK client, found a second, entangled
+bug: `GetServiceAttributes`'s response emitted the ARN under the shared
+`keyArn` constant ("Arn"), but `ServiceAttributes.ServiceArn` (unlike
+`Service`/`Namespace`) really is named "ServiceArn" on the wire
+(deserializers.go:6001) -- a real client always saw an empty ARN back. Fixed
+alongside since it blocked proving the request-side fix round-trips.
+
+Proof: `TestUpdateServiceAttributes_RoundTrip`
+(`wire_update_service_attributes_test.go`) drives the real
+`aws-sdk-go-v2/service/servicediscovery` client through
+CreateService -> UpdateServiceAttributes -> GetServiceAttributes, by both ID
+and ARN. Confirmed it fails pre-fix with exactly `InvalidInput: invalid
+request: ServiceArn is required` (hand-reverted via `cp`, md5sum-identical
+restore after). Existing tests (`services_test.go`,
+`persistence_test.go`) updated to send the real `ServiceId` key instead of
+the bug-matching `ServiceArn` key.

@@ -157,6 +157,11 @@ type Handshake struct {
 	State               string              `json:"state"`
 	Parties             []HandshakeParty    `json:"parties"`
 	Resources           []HandshakeResource `json:"resources"`
+	// PendingTags holds InviteAccountToOrganizationInput.Tags until the
+	// handshake is accepted, at which point they're applied to the newly
+	// created Account. AWS's Handshake response object has no Tags field, so
+	// this is internal bookkeeping only -- never serialized on the wire.
+	PendingTags []Tag `json:"-"`
 }
 
 // HandshakeParty is a participant in a handshake.

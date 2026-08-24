@@ -193,6 +193,11 @@ type ExecutionResult struct {
 	Output any
 	Error  string
 	Cause  string
+	// Failed is true iff a Fail state (or an unhandled Task failure) ended
+	// the execution. A Fail state's Error/Cause are both optional per the
+	// ASL spec, so Error alone cannot distinguish "failed with no error
+	// code" from "succeeded" -- callers must check Failed, not Error != "".
+	Failed bool
 }
 
 const (
@@ -486,7 +491,7 @@ func (e *Executor) Execute(
 	if err != nil {
 		var failErr *FailError
 		if errors.As(err, &failErr) {
-			return &ExecutionResult{Error: failErr.ErrCode, Cause: failErr.Cause}, nil
+			return &ExecutionResult{Error: failErr.ErrCode, Cause: failErr.Cause, Failed: true}, nil
 		}
 
 		return nil, err
@@ -1601,7 +1606,7 @@ func (e *Executor) runParallelBranch(
 		return
 	}
 
-	if res.Error != "" {
+	if res.Failed {
 		errs[idx] = &FailError{ErrCode: res.Error, Cause: res.Cause}
 
 		return
@@ -1898,11 +1903,11 @@ func (e *Executor) runMapItem(
 	}
 
 	// A Fail state (or an unhandled Task failure) inside the iterator
-	// surfaces as a successful Execute() call with res.Error populated
-	// rather than a Go error — mirror runParallelBranch's handling so Map
+	// surfaces as a successful Execute() call with res.Failed set rather
+	// than a Go error — mirror runParallelBranch's handling so Map
 	// iteration failures propagate to the Map state's own Catch/Retry
 	// instead of silently producing a nil result for the failed item.
-	if res.Error != "" {
+	if res.Failed {
 		errs[idx] = &FailError{ErrCode: res.Error, Cause: res.Cause}
 
 		return

@@ -757,11 +757,16 @@ func TestHandler_DeletePortal(t *testing.T) {
 			wantStatus: http.StatusNoContent,
 		},
 		{
+			// DeletePortal is idempotent: apigatewayv2@v1.37.4's own
+			// deserializeOpErrorDeletePortal has no NotFoundException case,
+			// so a real client can never type a 404 here (unlike GetPortal/
+			// UpdatePortal/DisablePortal/DeletePortalProduct, which all model
+			// it). Matches that asymmetry with a 204 regardless.
 			name: "not_found",
 			setup: func(_ *apigatewayv2.Handler) string {
 				return "nonexistent"
 			},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusNoContent,
 		},
 	}
 

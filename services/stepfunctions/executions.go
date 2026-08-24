@@ -215,7 +215,7 @@ func finalizeSyncExecutionResult(
 		return syncResult
 	}
 
-	if result.Error != "" {
+	if result.Failed {
 		syncResult.Status = statusFailed
 		syncResult.Error = result.Error
 		syncResult.Cause = result.Cause
@@ -244,6 +244,7 @@ func (b *InMemoryBackend) initializeExecutionRecord(
 		Input:                  input,
 		InputDetails:           &CloudWatchEventsExecutionDataDetails{Truncated: false},
 		RedriveStatus:          redriveStatusNotRedrivable,
+		RedriveStatusReason:    redriveStatusReasonRunning,
 		history: []*HistoryEvent{
 			{Timestamp: now, Type: "ExecutionStarted", ID: executionStartedEventID, PreviousEventID: 0},
 		},
@@ -522,6 +523,7 @@ func (b *InMemoryBackend) finalizeExecutionRecordLocked(
 		exec.Status = statusFailed
 		exec.Error = execErr.Error()
 		exec.RedriveStatus = redriveStatusRedrivable
+		exec.RedriveStatusReason = ""
 		b.removeFromStatusBucket(exec.StateMachineArn, statusRunning, execARN)
 		b.addToStatusBucket(exec.StateMachineArn, exec.Status, execARN)
 		exec.history = append(exec.history, &HistoryEvent{
@@ -531,11 +533,12 @@ func (b *InMemoryBackend) finalizeExecutionRecordLocked(
 		return
 	}
 
-	if result.Error != "" {
+	if result.Failed {
 		exec.Status = statusFailed
 		exec.Error = result.Error
 		exec.Cause = result.Cause
 		exec.RedriveStatus = redriveStatusRedrivable
+		exec.RedriveStatusReason = ""
 		b.removeFromStatusBucket(exec.StateMachineArn, statusRunning, execARN)
 		b.addToStatusBucket(exec.StateMachineArn, exec.Status, execARN)
 		exec.history = append(exec.history, &HistoryEvent{
@@ -550,6 +553,7 @@ func (b *InMemoryBackend) finalizeExecutionRecordLocked(
 	exec.Output = string(outputBytes)
 	exec.OutputDetails = &CloudWatchEventsExecutionDataDetails{Truncated: false}
 	exec.RedriveStatus = redriveStatusNotRedrivable
+	exec.RedriveStatusReason = redriveStatusReasonSucceeded
 	b.removeFromStatusBucket(exec.StateMachineArn, statusRunning, execARN)
 	b.addToStatusBucket(exec.StateMachineArn, exec.Status, execARN)
 	exec.history = append(exec.history, &HistoryEvent{
@@ -579,6 +583,7 @@ func (b *InMemoryBackend) StopExecution(executionArn, errCode, cause string) err
 	exec.Error = errCode
 	exec.Cause = cause
 	exec.RedriveStatus = redriveStatusRedrivable
+	exec.RedriveStatusReason = ""
 	b.removeFromStatusBucket(exec.StateMachineArn, statusRunning, executionArn)
 	b.addToStatusBucket(exec.StateMachineArn, statusAborted, executionArn)
 
@@ -671,6 +676,7 @@ func (b *InMemoryBackend) resetExecutionForRedrive(exec *Execution, executionARN
 	exec.RedriveCount++
 	exec.RedriveDate = &now
 	exec.RedriveStatus = redriveStatusNotRedrivable
+	exec.RedriveStatusReason = redriveStatusReasonRunning
 	exec.OutputDetails = nil
 	b.removeFromStatusBucket(smARN, oldStatus, executionARN)
 	b.addToStatusBucket(smARN, statusRunning, executionARN)

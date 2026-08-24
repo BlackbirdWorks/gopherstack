@@ -322,6 +322,7 @@ type serviceOutput struct {
 	ObservabilityConfiguration      *serviceObservabilityConfigurationOutput `json:"ObservabilityConfiguration,omitempty"`
 	EncryptionConfiguration         *encryptionConfigurationOutput           `json:"EncryptionConfiguration,omitempty"`
 	HealthCheckConfiguration        *healthCheckConfigurationOutput          `json:"HealthCheckConfiguration,omitempty"`
+	DeletedAt                       *int64                                   `json:"DeletedAt,omitempty"`
 	InstanceConfiguration           instanceConfigurationOutput              `json:"InstanceConfiguration"`
 	NetworkConfiguration            networkConfigurationOutput               `json:"NetworkConfiguration"`
 	SourceConfiguration             sourceConfigurationOutput                `json:"SourceConfiguration"`
@@ -382,6 +383,11 @@ func (h *Handler) toServiceOutput(svc *Service) serviceOutput {
 
 	if svc.EncryptionKmsKey != "" {
 		out.EncryptionConfiguration = &encryptionConfigurationOutput{KmsKey: svc.EncryptionKmsKey}
+	}
+
+	if !svc.DeletedAt.IsZero() {
+		deletedAt := svc.DeletedAt.Unix()
+		out.DeletedAt = &deletedAt
 	}
 
 	return out
@@ -667,6 +673,7 @@ type serviceSummaryOutput struct {
 	ServiceURL  string `json:"ServiceUrl"`
 	Status      string `json:"Status"`
 	CreatedAt   int64  `json:"CreatedAt"`
+	UpdatedAt   int64  `json:"UpdatedAt"`
 }
 
 type listServicesOutput struct {
@@ -692,6 +699,7 @@ func (h *Handler) handleListServices(
 			ServiceURL:  s.ServiceURL,
 			Status:      s.Status,
 			CreatedAt:   s.CreatedAt.Unix(),
+			UpdatedAt:   s.UpdatedAt.Unix(),
 		})
 	}
 

@@ -87,32 +87,61 @@ func (b *InMemoryBackend) RevokeClusterSecurityGroupIngress(
 		return nil, fmt.Errorf("%w: security group %s not found", ErrSecurityGroupNotFound, groupName)
 	}
 
-	if cidrIP != "" {
-		filtered := sg.IPRanges[:0]
+	foundCIDR := revokeCIDRIngress(sg, cidrIP)
+	foundEC2Group := revokeEC2GroupIngress(sg, ec2GroupName, ec2GroupOwnerID)
 
-		for _, r := range sg.IPRanges {
-			if r.CIDRIP != cidrIP {
-				filtered = append(filtered, r)
-			}
-		}
-
-		sg.IPRanges = filtered
-	}
-
-	if ec2GroupName != "" {
-		filtered := sg.EC2SecurityGroups[:0]
-
-		for _, g := range sg.EC2SecurityGroups {
-			if g.EC2SecurityGroupName != ec2GroupName ||
-				(ec2GroupOwnerID != "" && g.EC2SecurityGroupOwnerID != ec2GroupOwnerID) {
-				filtered = append(filtered, g)
-			}
-		}
-
-		sg.EC2SecurityGroups = filtered
+	if !foundCIDR && !foundEC2Group {
+		return nil, fmt.Errorf(
+			"%w: no matching ingress rule in security group %s",
+			ErrSecurityGroupIngressNotFound,
+			groupName,
+		)
 	}
 
 	return cloneSecurityGroup(sg), nil
+}
+
+// revokeCIDRIngress removes cidrIP from sg.IPRanges, reporting whether it was present.
+// A blank cidrIP is a no-op (the caller didn't ask to revoke a CIDR rule).
+func revokeCIDRIngress(sg *ClusterSecurityGroup, cidrIP string) bool {
+	if cidrIP == "" {
+		return false
+	}
+
+	before := len(sg.IPRanges)
+	filtered := sg.IPRanges[:0]
+
+	for _, r := range sg.IPRanges {
+		if r.CIDRIP != cidrIP {
+			filtered = append(filtered, r)
+		}
+	}
+
+	sg.IPRanges = filtered
+
+	return len(filtered) < before
+}
+
+// revokeEC2GroupIngress removes the matching EC2 security group from sg.EC2SecurityGroups,
+// reporting whether it was present. A blank ec2GroupName is a no-op.
+func revokeEC2GroupIngress(sg *ClusterSecurityGroup, ec2GroupName, ec2GroupOwnerID string) bool {
+	if ec2GroupName == "" {
+		return false
+	}
+
+	before := len(sg.EC2SecurityGroups)
+	filtered := sg.EC2SecurityGroups[:0]
+
+	for _, g := range sg.EC2SecurityGroups {
+		if g.EC2SecurityGroupName != ec2GroupName ||
+			(ec2GroupOwnerID != "" && g.EC2SecurityGroupOwnerID != ec2GroupOwnerID) {
+			filtered = append(filtered, g)
+		}
+	}
+
+	sg.EC2SecurityGroups = filtered
+
+	return len(filtered) < before
 }
 
 // AuthorizeClusterSecurityGroupIngress adds an ingress rule to a cluster security group.
@@ -135,9 +164,27 @@ func (b *InMemoryBackend) AuthorizeClusterSecurityGroupIngress(
 	}
 
 	if cidrIP != "" {
+		for _, r := range sg.IPRanges {
+			if r.CIDRIP == cidrIP {
+				return nil, fmt.Errorf(
+					"%w: CIDRIP %s already authorized on security group %s",
+					ErrAuthorizationAlreadyExists, cidrIP, groupName,
+				)
+			}
+		}
+
 		sg.IPRanges = append(sg.IPRanges, IPRange{CIDRIP: cidrIP, Status: ingressStatusAuthorized})
 	}
 	if ec2GroupName != "" {
+		for _, g := range sg.EC2SecurityGroups {
+			if g.EC2SecurityGroupName == ec2GroupName && g.EC2SecurityGroupOwnerID == ec2GroupOwnerID {
+				return nil, fmt.Errorf(
+					"%w: EC2SecurityGroupName %s already authorized on security group %s",
+					ErrAuthorizationAlreadyExists, ec2GroupName, groupName,
+				)
+			}
+		}
+
 		sg.EC2SecurityGroups = append(sg.EC2SecurityGroups, EC2SecurityGroup{
 			EC2SecurityGroupName:    ec2GroupName,
 			EC2SecurityGroupOwnerID: ec2GroupOwnerID,

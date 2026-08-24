@@ -113,9 +113,16 @@ func TestDataSync_UnknownAction(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
-// TestDataSync_NotFoundReturns404 verifies that all describe/delete/update operations
-// return 404 (not 400) for unknown ARNs, matching real AWS DataSync behavior.
-func TestDataSync_NotFoundReturns404(t *testing.T) {
+// TestDataSync_NotFoundReturnsInvalidRequest verifies that all describe/
+// delete/update operations return 400 InvalidRequestException (not a 404
+// ResourceNotFoundException) for unknown ARNs. Every one of datasync's 53
+// awsAwsjson11_deserializeOpError<Op> switches (aws-sdk-go-v2/service/
+// datasync@v1.61.4 deserializers.go) types only InternalException and
+// InvalidRequestException; types/errors.go defines no
+// ResourceNotFoundException struct at all anywhere in the service, so a 404
+// ResourceNotFoundException wire code here would decode client-side as an
+// untyped smithy.GenericAPIError.
+func TestDataSync_NotFoundReturnsInvalidRequest(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -175,11 +182,11 @@ func TestDataSync_NotFoundReturns404(t *testing.T) {
 
 			h := newTestHandler(t)
 			rec := doRequest(t, h, tt.action, tt.body)
-			assert.Equal(t, http.StatusNotFound, rec.Code, "expected 404 for %s with unknown ARN", tt.action)
+			assert.Equal(t, http.StatusBadRequest, rec.Code, "expected 400 for %s with unknown ARN", tt.action)
 
 			var resp map[string]any
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-			assert.Equal(t, "ResourceNotFoundException", resp["__type"])
+			assert.Equal(t, "InvalidRequestException", resp["__type"])
 		})
 	}
 }

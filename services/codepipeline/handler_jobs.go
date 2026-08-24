@@ -151,6 +151,7 @@ type putJobFailureResultInput struct {
 	JobID          string `json:"jobId"`
 	FailureDetails struct {
 		Message string `json:"message"`
+		Type    string `json:"type"`
 	} `json:"failureDetails"`
 }
 
@@ -162,5 +163,5 @@ func (h *Handler) handlePutJobFailureResult(
 		return nil, fmt.Errorf("%w: jobId is required", errInvalidRequest)
 	}
 
-	return &emptyOut{}, h.Backend.PutJobFailureResult(ctx, in.JobID, in.FailureDetails.Message)
+	return &emptyOut{}, h.Backend.PutJobFailureResult(ctx, in.JobID, in.FailureDetails.Message, in.FailureDetails.Type)
 }

@@ -500,6 +500,14 @@ func applyClusterStringUpdates(c *Cluster, req *updateClusterRequest) {
 	if req.SnsTopicStatus != "" {
 		c.SnsTopicStatus = req.SnsTopicStatus
 	}
+
+	if req.Engine != "" {
+		c.Engine = req.Engine
+	}
+
+	if req.ParameterGroupName != "" {
+		c.ParameterGroupName = req.ParameterGroupName
+	}
 }
 
 // validateUpdateClusterRequest validates the update cluster request fields.
@@ -567,6 +575,10 @@ func applyClusterUpdates(c *Cluster, req *updateClusterRequest) {
 	if req.AutoMinorVersionUpgrade != nil {
 		c.AutoMinorVersionUpgrade = *req.AutoMinorVersionUpgrade
 	}
+
+	if req.SecurityGroupIDs != nil {
+		c.SecurityGroupIDs = req.SecurityGroupIDs
+	}
 }
 
 // UpdateCluster modifies an existing cluster.
@@ -588,6 +600,14 @@ func (b *InMemoryBackend) UpdateCluster(ctx context.Context, req *updateClusterR
 	if req.ACLName != "" {
 		if _, aclOK := b.aclsStore(region).Get(req.ACLName); !aclOK {
 			return nil, fmt.Errorf("ACL %q not found: %w", req.ACLName, ErrACLNotFound)
+		}
+	}
+
+	if req.ParameterGroupName != "" {
+		if _, pgOK := b.parameterGroupsStore(region).Get(req.ParameterGroupName); !pgOK {
+			return nil, fmt.Errorf(
+				"parameter group %q not found: %w", req.ParameterGroupName, ErrParameterGroupNotFound,
+			)
 		}
 	}
 

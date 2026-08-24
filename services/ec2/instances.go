@@ -324,23 +324,31 @@ func (b *InMemoryBackend) DescribeInstanceCreditSpecifications(ids []string) []I
 	return out
 }
 
-// ModifyInstanceCreditSpecification updates the CPU credit spec for an instance.
+// ModifyInstanceCreditSpecification updates the CPU credit spec for each given
+// instance, reporting per-instance success/failure rather than aborting the
+// whole batch on one bad ID (ec2@v1.319.1 serializers.go:87727,
+// InstanceCreditSpecifications is a required, unbounded list serialized as
+// flat InstanceCreditSpecification.N; ModifyInstanceCreditSpecificationOutput
+// reports per-item results via Successful/UnsuccessfulInstanceCreditSpecifications).
 func (b *InMemoryBackend) ModifyInstanceCreditSpecification(
-	instanceID, cpuCredits string,
-) error {
-	if instanceID == "" {
-		return fmt.Errorf("%w: InstanceId is required", ErrInvalidParameter)
-	}
-
+	specs []InstanceCreditSpec,
+) ([]InstanceCreditSpec, []InstanceCreditSpec) {
 	b.mu.Lock("ModifyInstanceCreditSpecification")
 	defer b.mu.Unlock()
 
-	if _, ok := b.instances.Get(instanceID); !ok {
-		return fmt.Errorf("%w: %s", ErrInstanceNotFound, instanceID)
-	}
-	b.instanceCreditSpecs[instanceID] = cpuCredits
+	var successful, unsuccessful []InstanceCreditSpec
 
-	return nil
+	for _, spec := range specs {
+		if _, ok := b.instances.Get(spec.InstanceID); !ok {
+			unsuccessful = append(unsuccessful, spec)
+
+			continue
+		}
+		b.instanceCreditSpecs[spec.InstanceID] = spec.CPUCredits
+		successful = append(successful, spec)
+	}
+
+	return successful, unsuccessful
 }
 
 // ---- DescribeInstanceTopology ----
@@ -738,17 +746,22 @@ func (b *InMemoryBackend) GetInstanceTypesFromInstanceRequirements() []string {
 
 // ---- GetSubnetCidrReservations ----
 
-// ReportInstanceStatus records a custom status for an instance.
-func (b *InMemoryBackend) ReportInstanceStatus(instanceID string, _ string, _ string) error {
-	if instanceID == "" {
+// ReportInstanceStatus records a custom status for the given instances. Real
+// AWS validates every listed instance, not just the first (ec2@v1.319.1
+// serializers.go:91277, ReportInstanceStatusInput.Instances is a required,
+// unbounded list serialized as flat InstanceId.N).
+func (b *InMemoryBackend) ReportInstanceStatus(instanceIDs []string, _ string, _ string) error {
+	if len(instanceIDs) == 0 {
 		return fmt.Errorf("%w: InstanceId is required", ErrInvalidParameter)
 	}
 
 	b.mu.RLock("ReportInstanceStatus")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.instances.Get(instanceID); !ok {
-		return fmt.Errorf("%w: %s", ErrInstanceNotFound, instanceID)
+	for _, instanceID := range instanceIDs {
+		if _, ok := b.instances.Get(instanceID); !ok {
+			return fmt.Errorf("%w: %s", ErrInstanceNotFound, instanceID)
+		}
 	}
 
 	return nil

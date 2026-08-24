@@ -25,6 +25,7 @@ const (
 	filterKeyDescription      = "description"
 	filterKeyInstanceID       = "instance-id"
 	filterKeyAvailabilityZone = "availability-zone"
+	filterKeyVolumeID         = "volume-id"
 )
 
 // tagMatch returns true when the resource's tag at tagKey equals any of values.
@@ -152,7 +153,7 @@ volLoop:
 
 func volumeMatchesFilter(vol *Volume, filterName string, values []string, b Backend) bool {
 	switch filterName {
-	case "volume-id":
+	case filterKeyVolumeID:
 		return anyEqual(vol.ID, values)
 	case filterKeyStatus:
 		return anyEqual(vol.State, values)
@@ -260,7 +261,7 @@ func snapshotMatchesFilter(s *Snapshot, filterName string, values []string, b Ba
 	switch filterName {
 	case "snapshot-id":
 		return anyEqual(s.SnapshotID, values)
-	case "volume-id":
+	case filterKeyVolumeID:
 		return anyEqual(s.VolumeID, values)
 	case filterKeyStatus:
 		return anyEqual(s.State, values)

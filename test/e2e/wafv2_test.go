@@ -27,6 +27,7 @@ func TestWafv2Dashboard(t *testing.T) {
 		nil,
 		nil,
 		nil, nil, nil, nil,
+		nil, nil, nil, nil,
 		map[string]string{"Environment": "test"},
 	)
 	require.NoError(t, err)

@@ -225,10 +225,12 @@ func (h *Handler) handleCreateTransitGatewayVpcAttachment(
 	reqID string,
 ) (any, error) {
 	subnetIDs := parseMemberList(vals, "SubnetIds")
+	tags := parseTagSpecificationPlural(vals, "transit-gateway-attachment")
 	att, err := h.Backend.CreateTransitGatewayVpcAttachment(
 		vals.Get("TransitGatewayId"),
 		vals.Get("VpcId"),
 		subnetIDs,
+		tags,
 	)
 	if err != nil {
 		return nil, err
@@ -236,7 +238,7 @@ func (h *Handler) handleCreateTransitGatewayVpcAttachment(
 
 	return &createTransitGatewayVpcAttachmentResponse{
 		RequestID:  reqID,
-		Attachment: tgwVpcAttachmentToItem(att, nil),
+		Attachment: tgwVpcAttachmentToItem(att, tags),
 	}, nil
 }
 

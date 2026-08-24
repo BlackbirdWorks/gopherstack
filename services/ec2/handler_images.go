@@ -36,6 +36,7 @@ type disableImageBlockPublicAccessResponse struct {
 type describeInstanceImageMetadataResponse struct {
 	XMLName                  xml.Name `xml:"DescribeInstanceImageMetadataResponse"`
 	RequestID                string   `xml:"requestId"`
+	NextToken                string   `xml:"nextToken,omitempty"`
 	InstanceImageMetadataSet struct {
 		Items []instanceImageMetadataItem `xml:"item"`
 	} `xml:"instanceImageMetadataSet"`
@@ -167,6 +168,10 @@ const (
 	imageAttrImdsSupport = "imdsSupport"
 )
 
+// fastLaunchDefaultMaxParallelLaunches is real AWS's documented default for
+// EnableFastLaunchInput.MaxParallelLaunches when the request omits it.
+const fastLaunchDefaultMaxParallelLaunches = 6
+
 func (h *Handler) handleModifyImageAttribute(vals url.Values, reqID string) (any, error) {
 	imageID := vals.Get("ImageId")
 	attribute := vals.Get("Attribute")
@@ -214,7 +219,15 @@ func (h *Handler) handleDescribeInstanceImageMetadata(vals url.Values, reqID str
 	ids := parseMemberList(vals, "InstanceId")
 	items := h.Backend.DescribeInstanceImageMetadata(ids)
 
-	resp := &describeInstanceImageMetadataResponse{RequestID: reqID}
+	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageMaxDefault)
+	if err != nil {
+		return nil, err
+	}
+
+	var nextToken string
+	items, nextToken = pageSlice(items, offset, maxResults)
+
+	resp := &describeInstanceImageMetadataResponse{RequestID: reqID, NextToken: nextToken}
 	for _, item := range items {
 		resp.InstanceImageMetadataSet.Items = append(
 			resp.InstanceImageMetadataSet.Items,
@@ -235,6 +248,7 @@ type importImageResponse struct {
 type describeImportImageTasksResponse struct {
 	XMLName            xml.Name `xml:"DescribeImportImageTasksResponse"`
 	RequestID          string   `xml:"requestId"`
+	NextToken          string   `xml:"nextToken,omitempty"`
 	ImportImageTaskSet struct {
 		Items []importImageTaskItem `xml:"item"`
 	} `xml:"importImageTaskSet"`
@@ -284,6 +298,7 @@ func toExportImageTaskItem(t *ExportImageTaskRec) exportImageTaskItem {
 type describeExportImageTasksResponse struct {
 	XMLName            xml.Name `xml:"DescribeExportImageTasksResponse"`
 	RequestID          string   `xml:"requestId"`
+	NextToken          string   `xml:"nextToken,omitempty"`
 	ExportImageTaskSet struct {
 		Items []exportImageTaskItem `xml:"item"`
 	} `xml:"exportImageTaskSet"`
@@ -297,6 +312,7 @@ type recycleBinImageItem struct {
 type listImagesInRecycleBinResponse struct {
 	XMLName   xml.Name `xml:"ListImagesInRecycleBinResponse"`
 	RequestID string   `xml:"requestId"`
+	NextToken string   `xml:"nextToken,omitempty"`
 	ImageSet  struct {
 		Items []recycleBinImageItem `xml:"item"`
 	} `xml:"imageSet"`
@@ -309,6 +325,7 @@ type recycleBinSnapshotItem struct {
 type describeFastLaunchImagesResponse struct {
 	XMLName            xml.Name `xml:"DescribeFastLaunchImagesResponse"`
 	RequestID          string   `xml:"requestId"`
+	NextToken          string   `xml:"nextToken,omitempty"`
 	FastLaunchImageSet struct {
 		Items []fastLaunchImageItem `xml:"item"`
 	} `xml:"fastLaunchImageSet"`
@@ -363,7 +380,15 @@ func (h *Handler) handleDescribeImportImageTasks(vals url.Values, reqID string) 
 	ids := parseMemberList(vals, "ImportTaskId")
 	tasks := h.Backend.DescribeImportImageTasks(ids)
 
-	resp := &describeImportImageTasksResponse{RequestID: reqID}
+	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageMaxDefault)
+	if err != nil {
+		return nil, err
+	}
+
+	var nextToken string
+	tasks, nextToken = pageSlice(tasks, offset, maxResults)
+
+	resp := &describeImportImageTasksResponse{RequestID: reqID, NextToken: nextToken}
 	for _, t := range tasks {
 		resp.ImportImageTaskSet.Items = append(resp.ImportImageTaskSet.Items, importImageTaskItem{
 			ImportTaskID: t.ImportTaskID,
@@ -408,7 +433,15 @@ func (h *Handler) handleDescribeExportImageTasks(vals url.Values, reqID string) 
 	ids := parseMemberList(vals, "ExportImageTaskId")
 	tasks := h.Backend.DescribeExportImageTasks(ids)
 
-	resp := &describeExportImageTasksResponse{RequestID: reqID}
+	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageMaxDefault)
+	if err != nil {
+		return nil, err
+	}
+
+	var nextToken string
+	tasks, nextToken = pageSlice(tasks, offset, maxResults)
+
+	resp := &describeExportImageTasksResponse{RequestID: reqID, NextToken: nextToken}
 	for _, t := range tasks {
 		resp.ExportImageTaskSet.Items = append(resp.ExportImageTaskSet.Items, toExportImageTaskItem(t))
 	}
@@ -420,7 +453,15 @@ func (h *Handler) handleListImagesInRecycleBin(vals url.Values, reqID string) (a
 	ids := parseMemberList(vals, "ImageId")
 	images := h.Backend.ListImagesInRecycleBin(ids)
 
-	resp := &listImagesInRecycleBinResponse{RequestID: reqID}
+	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageMaxDefault)
+	if err != nil {
+		return nil, err
+	}
+
+	var nextToken string
+	images, nextToken = pageSlice(images, offset, maxResults)
+
+	resp := &listImagesInRecycleBinResponse{RequestID: reqID, NextToken: nextToken}
 	for _, img := range images {
 		resp.ImageSet.Items = append(resp.ImageSet.Items, recycleBinImageItem{
 			ImageID: img.ImageID,
@@ -444,16 +485,98 @@ func (h *Handler) handleRestoreImageFromRecycleBin(vals url.Values, reqID string
 	}, nil
 }
 
+// fastLaunchLaunchTemplateItem and fastLaunchSnapshotConfigItem match the
+// nested shapes of FastLaunchLaunchTemplateSpecificationResponse and
+// FastLaunchSnapshotConfigurationResponse (ec2@v1.319.1 types/types.go).
+type fastLaunchLaunchTemplateItem struct {
+	LaunchTemplateID   string `xml:"launchTemplateId,omitempty"`
+	LaunchTemplateName string `xml:"launchTemplateName,omitempty"`
+	Version            string `xml:"version,omitempty"`
+}
+
+type fastLaunchSnapshotConfigItem struct {
+	TargetResourceCount int `xml:"targetResourceCount,omitempty"`
+}
+
+// enableFastLaunchResponse matches EnableFastLaunchOutput (ec2@v1.319.1
+// api_op_EnableFastLaunch.go): there is no Return member at all -- the real
+// deserializer has no case for it, only imageId/launchTemplate/
+// maxParallelLaunches/ownerId/resourceType/snapshotConfiguration/state/
+// stateTransitionReason/stateTransitionTime.
+type enableFastLaunchResponse struct {
+	LaunchTemplate        *fastLaunchLaunchTemplateItem `xml:"launchTemplate,omitempty"`
+	SnapshotConfiguration *fastLaunchSnapshotConfigItem `xml:"snapshotConfiguration,omitempty"`
+	XMLName               xml.Name                      `xml:"EnableFastLaunchResponse"`
+	RequestID             string                        `xml:"requestId"`
+	ImageID               string                        `xml:"imageId,omitempty"`
+	ResourceType          string                        `xml:"resourceType,omitempty"`
+	OwnerID               string                        `xml:"ownerId,omitempty"`
+	State                 string                        `xml:"state,omitempty"`
+	MaxParallelLaunches   int                           `xml:"maxParallelLaunches,omitempty"`
+}
+
+// disableFastLaunchResponse matches DisableFastLaunchOutput (same shape as
+// EnableFastLaunchOutput). LaunchTemplate/MaxParallelLaunches/ResourceType/
+// SnapshotConfiguration are the parameters fast launch had before being
+// disabled; this backend doesn't persist that configuration, so those fields
+// are left absent rather than guessed.
+type disableFastLaunchResponse struct {
+	XMLName   xml.Name `xml:"DisableFastLaunchResponse"`
+	RequestID string   `xml:"requestId"`
+	ImageID   string   `xml:"imageId,omitempty"`
+	OwnerID   string   `xml:"ownerId,omitempty"`
+	State     string   `xml:"state,omitempty"`
+}
+
+// parseFastLaunchLaunchTemplate reads LaunchTemplate.{LaunchTemplateId,
+// LaunchTemplateName,Version} from the EnableFastLaunch request (ec2@v1.319.1
+// serializers.go, awsEc2query_serializeDocumentFastLaunchLaunchTemplateSpecificationRequest).
+func parseFastLaunchLaunchTemplate(vals url.Values) *fastLaunchLaunchTemplateItem {
+	id := vals.Get("LaunchTemplate.LaunchTemplateId")
+	name := vals.Get("LaunchTemplate.LaunchTemplateName")
+	version := vals.Get("LaunchTemplate.Version")
+
+	if id == "" && name == "" && version == "" {
+		return nil
+	}
+
+	return &fastLaunchLaunchTemplateItem{LaunchTemplateID: id, LaunchTemplateName: name, Version: version}
+}
+
 func (h *Handler) handleEnableFastLaunch(vals url.Values, reqID string) (any, error) {
 	imageID := vals.Get("ImageId")
 	if err := h.Backend.EnableFastLaunch(imageID); err != nil {
 		return nil, err
 	}
 
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "EnableFastLaunchResponse"},
-		RequestID: reqID,
-		Return:    true,
+	resourceType := vals.Get("ResourceType")
+	if resourceType == "" {
+		resourceType = "snapshot"
+	}
+
+	maxParallelLaunches := fastLaunchDefaultMaxParallelLaunches
+	if v := vals.Get("MaxParallelLaunches"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			maxParallelLaunches = n
+		}
+	}
+
+	var snapshotConfig *fastLaunchSnapshotConfigItem
+	if v := vals.Get("SnapshotConfiguration.TargetResourceCount"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			snapshotConfig = &fastLaunchSnapshotConfigItem{TargetResourceCount: n}
+		}
+	}
+
+	return &enableFastLaunchResponse{
+		RequestID:             reqID,
+		ImageID:               imageID,
+		ResourceType:          resourceType,
+		MaxParallelLaunches:   maxParallelLaunches,
+		OwnerID:               h.AccountID,
+		State:                 "enabling",
+		LaunchTemplate:        parseFastLaunchLaunchTemplate(vals),
+		SnapshotConfiguration: snapshotConfig,
 	}, nil
 }
 
@@ -463,10 +586,11 @@ func (h *Handler) handleDisableFastLaunch(vals url.Values, reqID string) (any, e
 		return nil, err
 	}
 
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DisableFastLaunchResponse"},
+	return &disableFastLaunchResponse{
 		RequestID: reqID,
-		Return:    true,
+		ImageID:   imageID,
+		OwnerID:   h.AccountID,
+		State:     "disabling",
 	}, nil
 }
 
@@ -474,7 +598,15 @@ func (h *Handler) handleDescribeFastLaunchImages(vals url.Values, reqID string) 
 	ids := parseMemberList(vals, "ImageId")
 	items := h.Backend.DescribeFastLaunchImages(ids)
 
-	resp := &describeFastLaunchImagesResponse{RequestID: reqID}
+	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageMaxDefault)
+	if err != nil {
+		return nil, err
+	}
+
+	var nextToken string
+	items, nextToken = pageSlice(items, offset, maxResults)
+
+	resp := &describeFastLaunchImagesResponse{RequestID: reqID, NextToken: nextToken}
 	for _, item := range items {
 		resp.FastLaunchImageSet.Items = append(
 			resp.FastLaunchImageSet.Items,
@@ -502,8 +634,23 @@ func (h *Handler) handleCopyImage(vals url.Values, reqID string) (any, error) {
 	}, nil
 }
 
-func (h *Handler) handleDeregisterImage(vals url.Values, _ string) (any, error) {
-	return nil, h.Backend.DeregisterImage(vals.Get("ImageId"))
+// handleDeregisterImage: DeregisterImageOutput also has DeleteSnapshotResults
+// (ec2@v1.319.1 api_op_DeregisterImage.go), populated only when the request's
+// DeleteAssociatedSnapshots=true and a snapshot backing the AMI was actually
+// deleted. This backend doesn't track which snapshots back an AMI (AMIStub
+// has no block-device-mapping/snapshot fields at all -- see store.go), so
+// there's no real data to report for that case; left as a stub (Return only)
+// rather than adding a field that would always be empty. See PARITY.md.
+func (h *Handler) handleDeregisterImage(vals url.Values, reqID string) (any, error) {
+	if err := h.Backend.DeregisterImage(vals.Get("ImageId")); err != nil {
+		return nil, err
+	}
+
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DeregisterImageResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
 
 // ---- VPC / Subnet attribute handlers ----
@@ -545,6 +692,7 @@ type imageReferenceItem struct {
 type describeImageReferencesResponse struct {
 	XMLName           xml.Name `xml:"DescribeImageReferencesResponse"`
 	RequestID         string   `xml:"requestId"`
+	NextToken         string   `xml:"nextToken,omitempty"`
 	ImageReferenceSet struct {
 		Items []imageReferenceItem `xml:"item"`
 	} `xml:"imageReferenceSet"`
@@ -555,7 +703,15 @@ func (h *Handler) handleDescribeImageReferences(vals url.Values, reqID string) (
 
 	refs := h.Backend.DescribeImageReferences(imageIDs)
 
-	resp := &describeImageReferencesResponse{RequestID: reqID}
+	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageMaxDefault)
+	if err != nil {
+		return nil, err
+	}
+
+	var nextToken string
+	refs, nextToken = pageSlice(refs, offset, maxResults)
+
+	resp := &describeImageReferencesResponse{RequestID: reqID, NextToken: nextToken}
 	for _, r := range refs {
 		resp.ImageReferenceSet.Items = append(resp.ImageReferenceSet.Items, imageReferenceItem{
 			ImageID:      r.ImageID,

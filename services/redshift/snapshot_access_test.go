@@ -277,7 +277,8 @@ func TestBackend_BatchDeleteAndModifySnapshots(t *testing.T) {
 			&redshift.Snapshot{SnapshotIdentifier: "m2", ClusterIdentifier: "c1", Status: "available"},
 		)
 
-		errs, modified := b.BatchModifyClusterSnapshots([]string{"m1", "m2"}, 7, false)
+		retention := 7
+		errs, modified := b.BatchModifyClusterSnapshots([]string{"m1", "m2"}, &retention, false)
 		assert.Empty(t, errs)
 		assert.ElementsMatch(t, []string{"m1", "m2"}, modified)
 	})
@@ -290,7 +291,8 @@ func TestBackend_BatchDeleteAndModifySnapshots(t *testing.T) {
 			&redshift.Snapshot{SnapshotIdentifier: "m3", ClusterIdentifier: "c1", Status: "available"},
 		)
 
-		errs, modified := b.BatchModifyClusterSnapshots([]string{"m3", "missing"}, 14, true)
+		retention := 14
+		errs, modified := b.BatchModifyClusterSnapshots([]string{"m3", "missing"}, &retention, true)
 		assert.Len(t, errs, 1)
 		assert.Equal(t, "missing", errs[0].SnapshotIdentifier)
 		assert.Equal(t, []string{"m3"}, modified)
@@ -369,6 +371,15 @@ func TestBatchModifyClusterSnapshots_Success(t *testing.T) {
 
 // ---- AuthorizeSnapshotAccess duplicate account ----
 
+// TestAuthorizeSnapshotAccess_DuplicateAccount: this op's own declared error
+// switch (redshift@v1.65.4 deserializers.go,
+// awsAwsquery_deserializeOpErrorAuthorizeSnapshotAccess) lists
+// AuthorizationAlreadyExists -- the same fault AuthorizeEndpointAccess's own
+// sibling test (TestAuthorizeEndpointAccess_DuplicateReturnsError) already
+// asserts for the identical re-grant condition -- so re-authorizing an
+// account that already has restore access must error, not silently add a
+// second entry. Previously asserted the opposite ("AWS allows multiple
+// accounts"), a claim never checked against the SDK error switch.
 func TestAuthorizeSnapshotAccess_DuplicateAccount(t *testing.T) {
 	t.Parallel()
 
@@ -387,9 +398,9 @@ func TestAuthorizeSnapshotAccess_DuplicateAccount(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec1.Code)
 	assert.Contains(t, rec1.Body.String(), "111111111111")
 
-	// Second authorize adds another entry (AWS allows multiple accounts)
 	rec2 := postRedshiftForm(t, h, body)
-	assert.Equal(t, http.StatusOK, rec2.Code)
+	assert.Equal(t, http.StatusBadRequest, rec2.Code)
+	assert.Contains(t, rec2.Body.String(), "AuthorizationAlreadyExists")
 }
 
 // ---- AuthorizeSnapshotAccess: snapshot not found ----
@@ -464,7 +475,8 @@ func TestHandler_RevokeSnapshotAccess(t *testing.T) {
 			},
 			body: "Action=RevokeSnapshotAccess&Version=2012-12-01" +
 				"&SnapshotIdentifier=snap-rsa2&AccountWithRestoreAccess=nonexistent",
-			wantCode: http.StatusBadRequest,
+			wantCode:     http.StatusBadRequest,
+			wantContains: []string{"AuthorizationNotFound"},
 		},
 	}
 
@@ -559,6 +571,7 @@ func TestBackend_RevokeSnapshotAccess(t *testing.T) {
 
 	tests := []struct {
 		setup      func(b *redshift.InMemoryBackend)
+		wantErrIs  error
 		name       string
 		snapshotID string
 		accountID  string
@@ -580,12 +593,21 @@ func TestBackend_RevokeSnapshotAccess(t *testing.T) {
 			snapshotID: "",
 			accountID:  "acc1",
 			wantErr:    true,
+			wantErrIs:  redshift.ErrInvalidParameter,
+		},
+		{
+			name:       "missing_account_id",
+			snapshotID: "snap1",
+			accountID:  "",
+			wantErr:    true,
+			wantErrIs:  redshift.ErrInvalidParameter,
 		},
 		{
 			name:       "snapshot_not_found",
 			snapshotID: "missing",
 			accountID:  "acc1",
 			wantErr:    true,
+			wantErrIs:  redshift.ErrSnapshotNotFound,
 		},
 		{
 			name: "account_not_found",
@@ -596,6 +618,7 @@ func TestBackend_RevokeSnapshotAccess(t *testing.T) {
 			snapshotID: "snap2",
 			accountID:  "nonexistent",
 			wantErr:    true,
+			wantErrIs:  redshift.ErrSnapshotAccessNotFound,
 		},
 	}
 
@@ -613,6 +636,10 @@ func TestBackend_RevokeSnapshotAccess(t *testing.T) {
 			if tt.wantErr {
 				require.Error(t, err)
 
+				if tt.wantErrIs != nil {
+					require.ErrorIs(t, err, tt.wantErrIs)
+				}
+
 				return
 			}
 
@@ -627,13 +654,16 @@ func TestBackend_RevokeSnapshotAccess(t *testing.T) {
 func TestBackend_ModifyClusterSnapshot(t *testing.T) {
 	t.Parallel()
 
+	thirty := 30
+	minusOne := -1
+
 	tests := []struct {
 		setup           func(b *redshift.InMemoryBackend)
+		retentionPeriod *int
 		name            string
 		snapshotID      string
-		retentionPeriod int
-		wantErr         bool
 		wantRetention   int
+		wantErr         bool
 	}{
 		{
 			name: "success",
@@ -642,7 +672,7 @@ func TestBackend_ModifyClusterSnapshot(t *testing.T) {
 				_, _ = b.CreateClusterSnapshot("snap1", "c1")
 			},
 			snapshotID:      "snap1",
-			retentionPeriod: 30,
+			retentionPeriod: &thirty,
 			wantErr:         false,
 			wantRetention:   30,
 		},
@@ -655,6 +685,36 @@ func TestBackend_ModifyClusterSnapshot(t *testing.T) {
 			name:       "snapshot_not_found",
 			snapshotID: "missing",
 			wantErr:    true,
+		},
+		{
+			name: "omitted_retention_period_leaves_existing_value_unchanged",
+			setup: func(b *redshift.InMemoryBackend) {
+				_, _ = b.CreateCluster("c2", "dc2.large", "dev", "admin")
+				_, _ = b.CreateClusterSnapshot("snap2", "c2")
+
+				retained := 30
+				_, err := b.ModifyClusterSnapshot("snap2", &retained, false)
+				require.NoError(t, err)
+			},
+			snapshotID:      "snap2",
+			retentionPeriod: nil,
+			wantErr:         false,
+			wantRetention:   30,
+		},
+		{
+			name: "explicit_negative_one_sets_indefinite_retention",
+			setup: func(b *redshift.InMemoryBackend) {
+				_, _ = b.CreateCluster("c3", "dc2.large", "dev", "admin")
+				_, _ = b.CreateClusterSnapshot("snap3", "c3")
+
+				retained := 30
+				_, err := b.ModifyClusterSnapshot("snap3", &retained, false)
+				require.NoError(t, err)
+			},
+			snapshotID:      "snap3",
+			retentionPeriod: &minusOne,
+			wantErr:         false,
+			wantRetention:   -1,
 		},
 	}
 

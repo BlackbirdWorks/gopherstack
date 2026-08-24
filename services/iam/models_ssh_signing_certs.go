@@ -37,6 +37,7 @@ type sshPublicKeyXML struct {
 
 // listSSHPublicKeysResult contains the list of SSH public keys.
 type listSSHPublicKeysResult struct {
+	Marker        string                `xml:"Marker,omitempty"`
 	SSHPublicKeys []sshPublicKeyMetaXML `xml:"SSHPublicKeys>member"`
 	IsTruncated   bool                  `xml:"IsTruncated"`
 }
@@ -88,6 +89,7 @@ type signingCertXML struct {
 
 // listSigningCertificatesResult contains the list of signing certificates.
 type listSigningCertificatesResult struct {
+	Marker       string           `xml:"Marker,omitempty"`
 	Certificates []signingCertXML `xml:"Certificates>member"`
 	IsTruncated  bool             `xml:"IsTruncated"`
 }

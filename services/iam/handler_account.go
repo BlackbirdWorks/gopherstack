@@ -496,17 +496,21 @@ func (h *Handler) iamOrgsDispatch() map[string]iamActionFn {
 func (h *Handler) iamDelegationDispatch() map[string]iamActionFn {
 	return map[string]iamActionFn{
 		"GetDelegationRequest": func(vals url.Values, reqID string) (any, error) {
-			// Validation-only: the mock keeps no delegation-request state to
-			// return, and AWS-meaningful emulation is out of scope. We perform
-			// AWS-accurate input validation of the required DelegationRequestId
-			// parameter and return an empty success response.
 			if vals.Get("DelegationRequestId") == "" {
 				return nil, fmt.Errorf("%w: DelegationRequestId must not be empty", ErrValidationError)
 			}
 
-			return &iamSimpleTagResponse{
-				XMLName:          xml.Name{Local: "GetDelegationRequestResponse"},
-				Xmlns:            iamXMLNS,
+			req, err := h.Backend.GetDelegationRequest(vals.Get("DelegationRequestId"))
+			if err != nil {
+				return nil, err
+			}
+
+			return &getDelegationRequestResponse{
+				XMLName: xml.Name{Local: "GetDelegationRequestResponse"},
+				Xmlns:   iamXMLNS,
+				GetDelegationRequestResult: getDelegationRequestResult{
+					DelegationRequest: toDelegationRequestXML(req),
+				},
 				ResponseMetadata: ResponseMetadata{RequestID: reqID},
 			}, nil
 		},
@@ -548,13 +552,24 @@ func (h *Handler) iamDelegationDispatch() map[string]iamActionFn {
 				ResponseMetadata: ResponseMetadata{RequestID: reqID},
 			}, nil
 		},
-		"ListDelegationRequests": func(_ url.Values, reqID string) (any, error) {
+		"ListDelegationRequests": func(vals url.Values, reqID string) (any, error) {
+			p, err := h.Backend.ListDelegationRequests(vals.Get("Marker"), parseMaxItems(vals.Get("MaxItems")))
+			if err != nil {
+				return nil, err
+			}
+
+			reqs := make([]delegationRequestXML, 0, len(p.Data))
+			for i := range p.Data {
+				reqs = append(reqs, toDelegationRequestXML(&p.Data[i]))
+			}
+
 			return &listDelegationRequestsResponse{
 				XMLName: xml.Name{Local: "ListDelegationRequestsResponse"},
 				Xmlns:   iamXMLNS,
 				ListDelegationRequestsResult: listDelegationRequestsResult{
-					DelegationRequests: []string{},
-					IsTruncated:        false,
+					DelegationRequests: reqs,
+					IsTruncated:        p.Next != "",
+					Marker:             p.Next,
 				},
 				ResponseMetadata: ResponseMetadata{RequestID: reqID},
 			}, nil
@@ -632,6 +647,12 @@ func (h *Handler) iamOrgsReportDispatch() map[string]iamActionFn {
 				ResponseMetadata: ResponseMetadata{RequestID: reqID},
 			}, nil
 		},
+		// Shadowed by iamAccessAdvisorDispatch's real opGenerateServiceLastAccessed
+		// entry (handler_access_advisor.go), since buildDispatchTable merges
+		// iamComprehensiveDispatchTable after iamCompletenessDispatchTable (see that
+		// table's own doc comment: "These entries override earlier stub
+		// implementations."). Kept verbatim as dead code from the completeness pass --
+		// unlike that entry, this one never reads Arn and fabricates its JobID.
 		"GenerateServiceLastAccessedDetails": func(_ url.Values, reqID string) (any, error) {
 			return &generateServiceLastAccessedDetailsResponse{
 				XMLName: xml.Name{Local: "GenerateServiceLastAccessedDetailsResponse"},

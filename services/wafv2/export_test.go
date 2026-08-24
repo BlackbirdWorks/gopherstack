@@ -20,7 +20,25 @@ func CreateWebACLSimple(
 		da = json.RawMessage(`{"Allow":{}}`)
 	}
 
-	return b.CreateWebACL(context.Background(), name, scope, description, da, nil, nil, nil, nil, nil, nil, nil, tags)
+	return b.CreateWebACL(
+		context.Background(),
+		name,
+		scope,
+		description,
+		da,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		tags,
+	)
 }
 
 // WebACLCount returns the number of WebACLs in the backend (across all regions).

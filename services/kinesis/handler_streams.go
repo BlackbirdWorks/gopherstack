@@ -14,10 +14,12 @@ type jsonStreamModeDetails struct {
 }
 
 type jsonCreateStreamReq struct {
-	StreamModeDetails *jsonStreamModeDetails `json:"StreamModeDetails,omitempty"`
-	Tags              map[string]string      `json:"Tags,omitempty"`
-	StreamName        string                 `json:"StreamName"`
-	ShardCount        int                    `json:"ShardCount"`
+	StreamModeDetails   *jsonStreamModeDetails `json:"StreamModeDetails,omitempty"`
+	Tags                map[string]string      `json:"Tags,omitempty"`
+	StreamName          string                 `json:"StreamName"`
+	ShardCount          int                    `json:"ShardCount"`
+	MaxRecordSizeInKiB  int                    `json:"MaxRecordSizeInKiB,omitempty"`
+	WarmThroughputMiBps int                    `json:"WarmThroughputMiBps,omitempty"`
 }
 
 type jsonDeleteStreamReq struct {
@@ -131,11 +133,13 @@ func (h *Handler) handleCreateStream(
 	}
 
 	err := h.Backend.CreateStream(ctx, &CreateStreamInput{
-		StreamName: req.StreamName,
-		ShardCount: shardCount,
-		Region:     region,
-		AccountID:  h.AccountID,
-		StreamMode: streamMode,
+		StreamName:          req.StreamName,
+		ShardCount:          shardCount,
+		Region:              region,
+		AccountID:           h.AccountID,
+		StreamMode:          streamMode,
+		MaxRecordSizeInKiB:  req.MaxRecordSizeInKiB,
+		WarmThroughputMiBps: req.WarmThroughputMiBps,
 	})
 	if err != nil {
 		if !errors.Is(err, ErrStreamAlreadyExists) {

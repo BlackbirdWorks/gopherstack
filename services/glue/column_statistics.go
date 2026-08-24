@@ -126,7 +126,9 @@ func (b *InMemoryBackend) StopColumnStatisticsTaskRunSchedule(dbName, tableName 
 }
 
 // StartColumnStatisticsTaskRun starts a column statistics task run.
-func (b *InMemoryBackend) StartColumnStatisticsTaskRun(dbName, tableName string) (*ColumnStatisticsTaskRun, error) {
+func (b *InMemoryBackend) StartColumnStatisticsTaskRun(
+	dbName, tableName, role string,
+) (*ColumnStatisticsTaskRun, error) {
 	b.mu.Lock("StartColumnStatisticsTaskRun")
 	defer b.mu.Unlock()
 
@@ -136,6 +138,7 @@ func (b *InMemoryBackend) StartColumnStatisticsTaskRun(dbName, tableName string)
 		TableName:                 tableName,
 		ColumnStatisticsTaskRunID: runID,
 		Status:                    "STARTED",
+		Role:                      role,
 		StartedOn:                 float64(time.Now().Unix()),
 	}
 	b.columnStatTaskRuns.Put(run)
@@ -144,17 +147,32 @@ func (b *InMemoryBackend) StartColumnStatisticsTaskRun(dbName, tableName string)
 	return &cp, nil
 }
 
-// StopColumnStatisticsTaskRun stops a task run.
-func (b *InMemoryBackend) StopColumnStatisticsTaskRun(runID string) error {
+// StopColumnStatisticsTaskRun stops the most recently started task run for a
+// table. The real StopColumnStatisticsTaskRunInput identifies the run by
+// DatabaseName+TableName, not a run ID (glue@v1.152.0
+// api_op_StopColumnStatisticsTaskRun.go has no run-ID member at all) --
+// mirrors StopMaterializedViewRefreshTaskRun's identical shape.
+func (b *InMemoryBackend) StopColumnStatisticsTaskRun(dbName, tableName string) error {
 	b.mu.Lock("StopColumnStatisticsTaskRun")
 	defer b.mu.Unlock()
 
-	r, ok := b.columnStatTaskRuns.Get(runID)
-	if !ok {
+	var latest *ColumnStatisticsTaskRun
+
+	for _, r := range b.columnStatTaskRuns.All() {
+		if r.DatabaseName != dbName || r.TableName != tableName {
+			continue
+		}
+
+		if latest == nil || r.StartedOn > latest.StartedOn {
+			latest = r
+		}
+	}
+
+	if latest == nil {
 		return ErrColumnStatTaskRunNotFound
 	}
 
-	r.Status = stateStopped
+	latest.Status = stateStopped
 
 	return nil
 }

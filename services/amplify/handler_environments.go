@@ -83,7 +83,7 @@ func (h *Handler) listBackendEnvironments(ctx context.Context, c *echo.Context, 
 
 	envs, outToken, err := h.Backend.ListBackendEnvironments(appID, nextToken, maxResults)
 	if err != nil {
-		return h.handleBackendError(ctx, c, "ListBackendEnvironments", err)
+		return h.handleBackendError(ctx, c, opListBackendEnvironments, err)
 	}
 
 	resp := map[string]any{"backendEnvironments": toBackendEnvironmentViews(envs)}

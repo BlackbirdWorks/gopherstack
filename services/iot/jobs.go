@@ -512,7 +512,20 @@ func (b *InMemoryBackend) ListJobs() []*Job {
 	return out
 }
 
-func (b *InMemoryBackend) UpdateJob(jobID, description string) error {
+// UpdateJobInput is the input for UpdateJob. Mirrors types (v1.77.4)
+// beyond description: AbortConfig/JobExecutionsRolloutConfig/TimeoutConfig/
+// JobExecutionsRetryConfig/PresignedURLConfig, all previously silently
+// dropped -- UpdateJob only ever applied Description.
+type UpdateJobInput struct {
+	AbortConfig                *AbortConfig
+	JobExecutionsRolloutConfig *JobExecutionsRolloutConfig
+	TimeoutConfig              *TimeoutConfig
+	JobExecutionsRetryConfig   *JobExecutionsRetryConfig
+	PresignedURLConfig         *PresignedURLConfig
+	Description                string
+}
+
+func (b *InMemoryBackend) UpdateJob(jobID string, input *UpdateJobInput) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -520,14 +533,37 @@ func (b *InMemoryBackend) UpdateJob(jobID, description string) error {
 	if !ok {
 		return fmt.Errorf("job %q not found: %w", jobID, ErrResourceNotFound)
 	}
-	if description != "" {
-		j.Description = description
+	if input.Description != "" {
+		j.Description = input.Description
+	}
+	if input.AbortConfig != nil {
+		j.AbortConfig = input.AbortConfig
+	}
+	if input.JobExecutionsRolloutConfig != nil {
+		j.JobExecutionsRolloutConfig = input.JobExecutionsRolloutConfig
+	}
+	if input.TimeoutConfig != nil {
+		j.TimeoutConfig = input.TimeoutConfig
+	}
+	if input.JobExecutionsRetryConfig != nil {
+		j.JobExecutionsRetryConfig = cloneJobExecutionsRetryConfig(input.JobExecutionsRetryConfig)
+	}
+	if input.PresignedURLConfig != nil {
+		j.PresignedURLConfig = input.PresignedURLConfig
 	}
 	j.LastUpdatedAt = float64(time.Now().Unix())
 
 	return nil
 }
 
+// CancelJob cancels a job. Real AWS IoT rejects canceling a job already in a
+// terminal state (CancelJobInput has no Force-independent override for this
+// -- Force only affects whether IN_PROGRESS job EXECUTIONS are canceled,
+// confirmed against CancelJobInput's docs, v1.77.4); this previously set
+// Status unconditionally, silently "re-canceling" an already-COMPLETED or
+// already-CANCELED job instead of returning InvalidStateTransitionException,
+// the same class of terminal-state guard CancelJobExecution/CancelAuditTask
+// already enforce.
 func (b *InMemoryBackend) CancelJob(jobID, _ string) (*Job, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -535,6 +571,9 @@ func (b *InMemoryBackend) CancelJob(jobID, _ string) (*Job, error) {
 	j, ok := b.jobs.Get(jobID)
 	if !ok {
 		return nil, fmt.Errorf("job %q not found: %w", jobID, ErrResourceNotFound)
+	}
+	if j.Status != JobStatusInProgress {
+		return nil, fmt.Errorf("%w: job %q is already in state %s", ErrInvalidStateTransition, jobID, j.Status)
 	}
 	j.Status = JobStatusCanceled
 	j.LastUpdatedAt = float64(time.Now().Unix())

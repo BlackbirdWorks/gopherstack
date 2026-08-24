@@ -68,7 +68,7 @@ func (h *Handler) handleGetUseCaseForModelAccess(c *echo.Context) error {
 func (h *Handler) handlePutUseCaseForModelAccess(c *echo.Context) error {
 	body, err := httputils.ReadBody(c.Request())
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, errorResponse("InternalFailure", "internal server error"))
+		return c.JSON(http.StatusInternalServerError, errorResponse("InternalServerException", "internal server error"))
 	}
 
 	in, parseErr := parseBody[putUseCaseForModelAccessInput](body)

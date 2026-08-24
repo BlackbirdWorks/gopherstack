@@ -113,8 +113,8 @@ func (h *Handler) handleListBillingGroups(c *echo.Context) error {
 	summaries := make([]map[string]any, len(groups))
 	for i, bg := range groups {
 		summaries[i] = map[string]any{
-			"groupName": bg.BillingGroupName,
-			"groupArn":  bg.BillingGroupARN,
+			keyGroupName: bg.BillingGroupName,
+			keyGroupArn:  bg.BillingGroupARN,
 		}
 	}
 

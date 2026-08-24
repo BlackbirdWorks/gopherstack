@@ -85,7 +85,7 @@ func (h *Handler) listDomainAssociations(ctx context.Context, c *echo.Context, a
 
 	domains, outToken, err := h.Backend.ListDomainAssociations(appID, nextToken, maxResults)
 	if err != nil {
-		return h.handleBackendError(ctx, c, "ListDomainAssociations", err)
+		return h.handleBackendError(ctx, c, opListDomainAssociations, err)
 	}
 
 	resp := map[string]any{"domainAssociations": toDomainAssociationViews(domains)}

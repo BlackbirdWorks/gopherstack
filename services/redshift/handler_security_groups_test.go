@@ -222,6 +222,17 @@ func TestRedshiftHandler_RevokeClusterSecurityGroupIngress(t *testing.T) {
 			wantContains: []string{"ClusterSecurityGroupNotFound"},
 		},
 		{
+			name: "cidr_never_authorized",
+			setup: func(h *redshift.Handler) {
+				postRedshiftForm(t, h, "Action=CreateClusterSecurityGroup&Version=2012-12-01"+
+					"&ClusterSecurityGroupName=unauth-sg")
+			},
+			body: "Action=RevokeClusterSecurityGroupIngress&Version=2012-12-01" +
+				"&ClusterSecurityGroupName=unauth-sg&CIDRIP=10.0.0.0/8",
+			wantCode:     http.StatusBadRequest,
+			wantContains: []string{"AuthorizationNotFound"},
+		},
+		{
 			name:         "missing_cidr_and_ec2_group",
 			body:         "Action=RevokeClusterSecurityGroupIngress&Version=2012-12-01&ClusterSecurityGroupName=some-sg",
 			wantCode:     http.StatusBadRequest,
@@ -323,6 +334,19 @@ func TestHandler_AuthorizeClusterSecurityGroupIngress(t *testing.T) {
 				"&ClusterSecurityGroupName=nonexistent&CIDRIP=10.0.0.1/32",
 			wantCode:     http.StatusBadRequest,
 			wantContains: []string{"ClusterSecurityGroupNotFound"},
+		},
+		{
+			name: "duplicate_cidr",
+			setup: func(_ *testing.T, _ *redshift.Handler, b *redshift.InMemoryBackend) {
+				b.AddSecurityGroupInternal(&redshift.ClusterSecurityGroup{
+					ClusterSecurityGroupName: "dup-sg",
+					IPRanges:                 []redshift.IPRange{{CIDRIP: "10.0.0.0/8", Status: "authorized"}},
+				})
+			},
+			body: "Action=AuthorizeClusterSecurityGroupIngress&Version=2012-12-01" +
+				"&ClusterSecurityGroupName=dup-sg&CIDRIP=10.0.0.0%2F8",
+			wantCode:     http.StatusBadRequest,
+			wantContains: []string{"AuthorizationAlreadyExists"},
 		},
 	}
 

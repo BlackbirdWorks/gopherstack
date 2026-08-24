@@ -239,7 +239,7 @@ func TestCapacityReservationSplittingAndMove(t *testing.T) {
 
 	bk := newTestBackend()
 
-	src, err := bk.CreateCapacityReservation("m5.xlarge", "us-east-1a", 10)
+	src, err := bk.CreateCapacityReservation("m5.xlarge", "us-east-1a", 10, nil)
 	require.NoError(t, err)
 
 	dst, srcAfter, err := bk.CreateCapacityReservationBySplitting(src.CapacityReservationID, 4, nil)
@@ -275,7 +275,7 @@ func TestCapacityReservationBillingOwner_Lifecycle(t *testing.T) {
 
 	bk := newTestBackend()
 
-	cr, err := bk.CreateCapacityReservation("m5.xlarge", "us-east-1a", 1)
+	cr, err := bk.CreateCapacityReservation("m5.xlarge", "us-east-1a", 1, nil)
 	require.NoError(t, err)
 
 	require.NoError(t, bk.AssociateCapacityReservationBillingOwner(cr.CapacityReservationID, "111111111111"))
@@ -426,7 +426,7 @@ func TestInterruptibleCapacityReservationAllocation(t *testing.T) {
 
 	b := newTestBackend()
 
-	cr, err := b.CreateCapacityReservation("m5.large", "us-east-1a", 10)
+	cr, err := b.CreateCapacityReservation("m5.large", "us-east-1a", 10, nil)
 	require.NoError(t, err)
 
 	alloc, err := b.CreateInterruptibleCapacityReservationAllocation(cr.CapacityReservationID, 4)
@@ -461,7 +461,7 @@ func TestUpdateInterruptibleAllocationNotFound(t *testing.T) {
 
 	b := newTestBackend()
 
-	cr, err := b.CreateCapacityReservation("m5.large", "us-east-1a", 10)
+	cr, err := b.CreateCapacityReservation("m5.large", "us-east-1a", 10, nil)
 	require.NoError(t, err)
 
 	_, err = b.UpdateInterruptibleCapacityReservationAllocation(cr.CapacityReservationID, 5)
@@ -473,7 +473,7 @@ func TestGetCapacityReservationUsage(t *testing.T) {
 
 	b := newTestBackend()
 
-	cr, err := b.CreateCapacityReservation("m5.large", "us-east-1a", 10)
+	cr, err := b.CreateCapacityReservation("m5.large", "us-east-1a", 10, nil)
 	require.NoError(t, err)
 
 	instances, err := b.RunInstances("ami-test", "m5.large", "", 2)
@@ -509,7 +509,7 @@ func TestDescribeCapacityReservationTopology(t *testing.T) {
 
 	b := newTestBackend()
 
-	cr, err := b.CreateCapacityReservation("m5.large", "us-east-1a", 10)
+	cr, err := b.CreateCapacityReservation("m5.large", "us-east-1a", 10, nil)
 	require.NoError(t, err)
 
 	topo := b.DescribeCapacityReservationTopology([]string{cr.CapacityReservationID})

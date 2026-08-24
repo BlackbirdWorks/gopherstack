@@ -33,6 +33,7 @@ func (b *InMemoryBackend) CreateWebACL(
 	rules []map[string]any,
 	tokenDomains []string,
 	customResponseBodies, associationConfig, captchaConfig, challengeConfig json.RawMessage,
+	monetizationConfig, dataProtectionConfig, applicationConfig, onSourceDDoSProtectionConfig json.RawMessage,
 	tags map[string]string,
 ) (*WebACL, error) {
 	b.mu.Lock("CreateWebACL")
@@ -47,21 +48,25 @@ func (b *InMemoryBackend) CreateWebACL(
 	id := uuid.NewString()
 	arnStr := b.buildWebACLARN(name, id, scope, region)
 	w := &WebACL{
-		ARN:                  arnStr,
-		ID:                   id,
-		Name:                 name,
-		Scope:                scope,
-		Description:          description,
-		DefaultAction:        defaultAction,
-		VisibilityConfig:     visibilityConfig,
-		Rules:                cloneRules(rules),
-		TokenDomains:         cloneAddresses(tokenDomains),
-		CustomResponseBodies: customResponseBodies,
-		AssociationConfig:    associationConfig,
-		CaptchaConfig:        captchaConfig,
-		ChallengeConfig:      challengeConfig,
-		LockToken:            uuid.NewString(),
-		Tags:                 cloneTags(tags),
+		ARN:                          arnStr,
+		ID:                           id,
+		Name:                         name,
+		Scope:                        scope,
+		Description:                  description,
+		DefaultAction:                defaultAction,
+		VisibilityConfig:             visibilityConfig,
+		Rules:                        cloneRules(rules),
+		TokenDomains:                 cloneAddresses(tokenDomains),
+		CustomResponseBodies:         customResponseBodies,
+		AssociationConfig:            associationConfig,
+		CaptchaConfig:                captchaConfig,
+		ChallengeConfig:              challengeConfig,
+		MonetizationConfig:           monetizationConfig,
+		DataProtectionConfig:         dataProtectionConfig,
+		ApplicationConfig:            applicationConfig,
+		OnSourceDDoSProtectionConfig: onSourceDDoSProtectionConfig,
+		LockToken:                    uuid.NewString(),
+		Tags:                         cloneTags(tags),
 	}
 	b.webACLs.Put(w)
 
@@ -129,6 +134,7 @@ func (b *InMemoryBackend) UpdateWebACL(
 	rules []map[string]any,
 	tokenDomains []string,
 	customResponseBodies, associationConfig, captchaConfig, challengeConfig json.RawMessage,
+	monetizationConfig, dataProtectionConfig, applicationConfig, onSourceDDoSProtectionConfig json.RawMessage,
 ) (*WebACL, error) {
 	b.mu.Lock("UpdateWebACL")
 	defer b.mu.Unlock()
@@ -163,6 +169,25 @@ func (b *InMemoryBackend) UpdateWebACL(
 		w.TokenDomains = cloneAddresses(tokenDomains)
 	}
 
+	applyOptionalWebACLConfigs(
+		w,
+		customResponseBodies, associationConfig, captchaConfig, challengeConfig,
+		monetizationConfig, dataProtectionConfig, applicationConfig, onSourceDDoSProtectionConfig,
+	)
+
+	w.LockToken = uuid.NewString()
+
+	return cloneWebACL(w), nil
+}
+
+// applyOptionalWebACLConfigs sets each opaque config field on w when the
+// caller supplied a non-empty value, leaving the existing value otherwise.
+// Extracted from UpdateWebACL to keep its cyclomatic complexity down.
+func applyOptionalWebACLConfigs(
+	w *WebACL,
+	customResponseBodies, associationConfig, captchaConfig, challengeConfig json.RawMessage,
+	monetizationConfig, dataProtectionConfig, applicationConfig, onSourceDDoSProtectionConfig json.RawMessage,
+) {
 	if len(customResponseBodies) > 0 {
 		w.CustomResponseBodies = customResponseBodies
 	}
@@ -179,9 +204,21 @@ func (b *InMemoryBackend) UpdateWebACL(
 		w.ChallengeConfig = challengeConfig
 	}
 
-	w.LockToken = uuid.NewString()
+	if len(monetizationConfig) > 0 {
+		w.MonetizationConfig = monetizationConfig
+	}
 
-	return cloneWebACL(w), nil
+	if len(dataProtectionConfig) > 0 {
+		w.DataProtectionConfig = dataProtectionConfig
+	}
+
+	if len(applicationConfig) > 0 {
+		w.ApplicationConfig = applicationConfig
+	}
+
+	if len(onSourceDDoSProtectionConfig) > 0 {
+		w.OnSourceDDoSProtectionConfig = onSourceDDoSProtectionConfig
+	}
 }
 
 // DeleteWebACL deletes a WebACL by ID.
@@ -288,6 +325,30 @@ func cloneWebACL(w *WebACL) *WebACL {
 		chc := make(json.RawMessage, len(w.ChallengeConfig))
 		copy(chc, w.ChallengeConfig)
 		cp.ChallengeConfig = chc
+	}
+
+	if w.MonetizationConfig != nil {
+		mc := make(json.RawMessage, len(w.MonetizationConfig))
+		copy(mc, w.MonetizationConfig)
+		cp.MonetizationConfig = mc
+	}
+
+	if w.DataProtectionConfig != nil {
+		dpc := make(json.RawMessage, len(w.DataProtectionConfig))
+		copy(dpc, w.DataProtectionConfig)
+		cp.DataProtectionConfig = dpc
+	}
+
+	if w.ApplicationConfig != nil {
+		ac := make(json.RawMessage, len(w.ApplicationConfig))
+		copy(ac, w.ApplicationConfig)
+		cp.ApplicationConfig = ac
+	}
+
+	if w.OnSourceDDoSProtectionConfig != nil {
+		osdc := make(json.RawMessage, len(w.OnSourceDDoSProtectionConfig))
+		copy(osdc, w.OnSourceDDoSProtectionConfig)
+		cp.OnSourceDDoSProtectionConfig = osdc
 	}
 
 	return &cp

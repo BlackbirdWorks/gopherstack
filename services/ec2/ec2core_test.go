@@ -153,7 +153,7 @@ func TestEC2Core_TransitGatewayRouteTables(t *testing.T) {
 	tgw, err := bk.CreateTransitGateway(ec2.CreateTransitGatewayParams{Description: "test-tgw"})
 	require.NoError(t, err)
 
-	rt, err := bk.CreateTransitGatewayRouteTable(tgw.ID)
+	rt, err := bk.CreateTransitGatewayRouteTable(tgw.ID, nil)
 	require.NoError(t, err)
 	assert.NotEmpty(t, rt.RouteTableID)
 
@@ -169,7 +169,7 @@ func TestEC2Core_TransitGatewayRouteTables(t *testing.T) {
 	// (CreateTransitGatewayRoute validates it and derives the real
 	// ResourceId/ResourceType rather than hardcoding "vpc", matching the same
 	// fix already applied to Associate/DisassociateTransitGatewayRouteTable).
-	routeAtt1, err := bk.CreateTransitGatewayVpcAttachment(tgw.ID, "vpc-route1", nil)
+	routeAtt1, err := bk.CreateTransitGatewayVpcAttachment(tgw.ID, "vpc-route1", nil, nil)
 	require.NoError(t, err)
 
 	route, err := bk.CreateTransitGatewayRoute(
@@ -183,7 +183,7 @@ func TestEC2Core_TransitGatewayRouteTables(t *testing.T) {
 	// Replace route: real AWS only replaces a route that already exists, and
 	// likewise validates the attachment (both previously unchecked: Replace
 	// silently upserted any destination CIDR with any attachment ID).
-	routeAtt2, err := bk.CreateTransitGatewayVpcAttachment(tgw.ID, "vpc-route2", nil)
+	routeAtt2, err := bk.CreateTransitGatewayVpcAttachment(tgw.ID, "vpc-route2", nil, nil)
 	require.NoError(t, err)
 
 	replaced, err := bk.ReplaceTransitGatewayRoute(
@@ -223,7 +223,7 @@ func TestEC2Core_TransitGatewayRouteTables(t *testing.T) {
 	// Associate route table: attachmentID must be a real, existing attachment
 	// (AssociateTransitGatewayRouteTable validates it, deriving the real
 	// ResourceType rather than hardcoding "vpc" -- gopherstack-8pce).
-	vpcAtt, err := bk.CreateTransitGatewayVpcAttachment(tgw.ID, "vpc-assoctest", nil)
+	vpcAtt, err := bk.CreateTransitGatewayVpcAttachment(tgw.ID, "vpc-assoctest", nil, nil)
 	require.NoError(t, err)
 
 	assoc, err := bk.AssociateTransitGatewayRouteTable(rt.RouteTableID, vpcAtt.TransitGatewayAttachmentID)
@@ -238,10 +238,10 @@ func TestEC2Core_TransitGatewayRouteTables(t *testing.T) {
 	)
 
 	// Error cases.
-	_, err2 := bk.CreateTransitGatewayRouteTable("")
+	_, err2 := bk.CreateTransitGatewayRouteTable("", nil)
 	require.Error(t, err2)
 
-	_, err3 := bk.CreateTransitGatewayRouteTable("nonexistent")
+	_, err3 := bk.CreateTransitGatewayRouteTable("nonexistent", nil)
 	require.Error(t, err3)
 
 	// Delete route table.

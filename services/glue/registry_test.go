@@ -24,7 +24,8 @@ func Test_CreateSchema_ReturnedCopyNotAliasedByLaterUpdate(t *testing.T) {
 
 	// UpdateSchema must not retroactively change a struct already handed back to a
 	// caller from CreateSchema.
-	require.NoError(t, b.UpdateSchema("reg1", "sch1", "BACKWARD", ""))
+	_, err = b.UpdateSchema("reg1", "sch1", "BACKWARD", "")
+	require.NoError(t, err)
 	assert.Equal(t, "NONE", created.Compatibility, "CreateSchema's returned copy must not alias backend state")
 
 	fresh, err := b.DescribeSchema("reg1", "sch1")
@@ -86,7 +87,7 @@ func Test_UpdateSchema_RejectsInvalidCompatibility(t *testing.T) {
 	_, _, err = b.CreateSchema("reg", "sch", "AVRO", "NONE", "", "", nil)
 	require.NoError(t, err)
 
-	err = b.UpdateSchema("reg", "sch", "GARBAGE", "")
+	_, err = b.UpdateSchema("reg", "sch", "GARBAGE", "")
 	require.ErrorIs(t, err, glue.ErrValidation)
 
 	fresh, err := b.DescribeSchema("reg", "sch")

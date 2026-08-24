@@ -29,12 +29,14 @@ func (b *InMemoryBackend) DeleteObject(
 		return nil, err
 	}
 
+	bypassGovernance := aws.ToBool(input.BypassGovernanceRetention)
+
 	var out *s3.DeleteObjectOutput
 	func() {
 		bucket.mu.Lock("DeleteObject")
 		defer bucket.mu.Unlock()
 
-		out, err = b.deleteObjectLocked(bucket, *input.Key, input.VersionId)
+		out, err = b.deleteObjectLocked(bucket, *input.Key, input.VersionId, bypassGovernance)
 	}()
 
 	if err != nil {
@@ -83,6 +85,7 @@ func (b *InMemoryBackend) deleteObjectLocked(
 	bucket *StoredBucket,
 	key string,
 	versionID *string,
+	bypassGovernance bool,
 ) (*s3.DeleteObjectOutput, error) {
 	obj, exists := bucket.Objects[key]
 	if !exists {
@@ -90,7 +93,7 @@ func (b *InMemoryBackend) deleteObjectLocked(
 		return &s3.DeleteObjectOutput{}, nil
 	}
 
-	if err := checkObjectLockForDelete(obj, versionID); err != nil {
+	if err := checkObjectLockForDelete(obj, versionID, bypassGovernance); err != nil {
 		return nil, err
 	}
 
@@ -112,11 +115,16 @@ func findLatestVersion(versions map[string]*StoredObjectVersion) *StoredObjectVe
 	return nil
 }
 
-// checkObjectLockForDelete returns ErrObjectLocked if the target version is under
-// a legal hold or an active retention policy. Must be called with bucket.mu held.
-// obj.mu is acquired internally to guard against concurrent PutObject calls that
-// update LatestVersionID / Versions under obj.mu after releasing bucket.mu.
-func checkObjectLockForDelete(obj *StoredObject, versionID *string) error {
+// checkObjectLockForDelete returns ErrInvalidObjectState if the target version is
+// under a legal hold or an active retention policy. A GOVERNANCE-mode retention
+// (but never COMPLIANCE, and never a legal hold) is bypassable when the caller
+// sent X-Amz-Bypass-Governance-Retention: true — the real DeleteObjectInput/
+// DeleteObjectsInput header (aws-sdk-go-v2/service/s3 serializers.go
+// awsRestxml_serializeOpHttpBindingsDeleteObjectInput). Must be called with
+// bucket.mu held. obj.mu is acquired internally to guard against concurrent
+// PutObject calls that update LatestVersionID / Versions under obj.mu after
+// releasing bucket.mu.
+func checkObjectLockForDelete(obj *StoredObject, versionID *string, bypassGovernance bool) error {
 	obj.mu.RLock("checkObjectLockForDelete")
 	defer obj.mu.RUnlock()
 
@@ -140,6 +148,10 @@ func checkObjectLockForDelete(obj *StoredObject, versionID *string) error {
 	}
 
 	if ver.RetentionMode != "" && !ver.RetainUntil.IsZero() && time.Now().Before(ver.RetainUntil) {
+		if bypassGovernance && ver.RetentionMode == string(types.ObjectLockRetentionModeGovernance) {
+			return nil
+		}
+
 		return ErrInvalidObjectState
 	}
 
@@ -324,6 +336,8 @@ func (b *InMemoryBackend) DeleteObjects(
 		return out, nil
 	}
 
+	bypassGovernance := aws.ToBool(input.BypassGovernanceRetention)
+
 	// Hold the bucket lock for the entire batch to avoid per-object lock churn
 	// when deleting thousands of objects.
 	var tagKeysToDelete []string
@@ -333,7 +347,7 @@ func (b *InMemoryBackend) DeleteObjects(
 		defer bucket.mu.Unlock()
 
 		for _, obj := range input.Delete.Objects {
-			deleted, tagKey, delErr := b.deleteSingleObject(bucket, bucketName, obj)
+			deleted, tagKey, delErr := b.deleteSingleObject(bucket, bucketName, obj, bypassGovernance)
 			if delErr != nil {
 				out.Errors = append(out.Errors, types.Error{
 					Key:     obj.Key,
@@ -384,8 +398,9 @@ func (b *InMemoryBackend) deleteSingleObject(
 	bucket *StoredBucket,
 	bucketName string,
 	obj types.ObjectIdentifier,
+	bypassGovernance bool,
 ) (types.DeletedObject, string, error) {
-	delOut, delErr := b.deleteObjectLocked(bucket, aws.ToString(obj.Key), obj.VersionId)
+	delOut, delErr := b.deleteObjectLocked(bucket, aws.ToString(obj.Key), obj.VersionId, bypassGovernance)
 	if delErr != nil {
 		return types.DeletedObject{}, "", delErr
 	}

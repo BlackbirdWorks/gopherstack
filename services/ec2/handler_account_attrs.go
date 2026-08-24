@@ -61,12 +61,15 @@ type describePrincipalIDFormatResponse struct {
 	} `xml:"principals"`
 }
 
+// instanceEventNotifAttrsResponse is shared by Describe/Register/Deregister
+// InstanceEventNotificationAttributes, which all share this exact shape.
+// XMLName carries no tag -- a tagged XMLName field's tag wins unconditionally
+// over a runtime-set value in encoding/xml's Marshal, which would silently
+// force every response to one hardcoded root element name.
 type instanceEventNotifAttrsResponse struct {
-	XMLName              xml.Name `xml:"DescribeInstanceEventNotificationAttributesResponse"`
-	RequestID            string   `xml:"requestId"`
-	InstanceTagAttribute struct {
-		IncludeAllTagsOfInstance bool `xml:"includeAllTagsOfInstance"`
-	} `xml:"instanceTagAttribute"`
+	XMLName              xml.Name
+	RequestID            string                   `xml:"requestId"`
+	InstanceTagAttribute instanceTagAttributeItem `xml:"instanceTagAttribute"`
 }
 
 // ---- Handler implementations ----
@@ -201,10 +204,22 @@ func (h *Handler) handleDescribeInstanceEventNotificationAttributes(
 	reqID string,
 ) (any, error) {
 	attrs := h.Backend.DescribeInstanceEventNotificationAttributes()
-	resp := &instanceEventNotifAttrsResponse{RequestID: reqID}
+	resp := &instanceEventNotifAttrsResponse{
+		XMLName:   xml.Name{Local: "DescribeInstanceEventNotificationAttributesResponse"},
+		RequestID: reqID,
+	}
 	resp.InstanceTagAttribute.IncludeAllTagsOfInstance = attrs.IncludeAllTagsOfInstance
 
 	return resp, nil
+}
+
+// instanceTagAttributeItem matches types.InstanceTagNotificationAttribute
+// (ec2@v1.319.1 types/types.go). InstanceTagKeys is never populated: this
+// backend only tracks the all-tags boolean (account_attrs.go's
+// InstanceEventNotificationAttributes), not individually registered keys.
+type instanceTagAttributeItem struct {
+	InstanceTagKeys          []string `xml:"instanceTagKeySet>item,omitempty"`
+	IncludeAllTagsOfInstance bool     `xml:"includeAllTagsOfInstance"`
 }
 
 func (h *Handler) handleDeregisterInstanceEventNotificationAttributes(
@@ -213,10 +228,10 @@ func (h *Handler) handleDeregisterInstanceEventNotificationAttributes(
 ) (any, error) {
 	h.Backend.DeregisterInstanceEventNotificationAttributes()
 
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DeregisterInstanceEventNotificationAttributesResponse"},
-		RequestID: reqID,
-		Return:    true,
+	return &instanceEventNotifAttrsResponse{
+		XMLName:              xml.Name{Local: "DeregisterInstanceEventNotificationAttributesResponse"},
+		RequestID:            reqID,
+		InstanceTagAttribute: instanceTagAttributeItem{},
 	}, nil
 }
 
@@ -227,10 +242,10 @@ func (h *Handler) handleRegisterInstanceEventNotificationAttributes(
 	includeAllTags := vals.Get("InstanceTagAttribute.IncludeAllTagsOfInstance") == ec2BooleanTrue
 	h.Backend.RegisterInstanceEventNotificationAttributes(includeAllTags)
 
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "RegisterInstanceEventNotificationAttributesResponse"},
-		RequestID: reqID,
-		Return:    true,
+	return &instanceEventNotifAttrsResponse{
+		XMLName:              xml.Name{Local: "RegisterInstanceEventNotificationAttributesResponse"},
+		RequestID:            reqID,
+		InstanceTagAttribute: instanceTagAttributeItem{IncludeAllTagsOfInstance: includeAllTags},
 	}, nil
 }
 

@@ -36,11 +36,14 @@ func (b *InMemoryBackend) TagResource(resourceARN string, kv map[string]string) 
 }
 
 // ListTagsForResource returns tags for a scalable target identified by its ARN.
+//
+// Unlike TagResource/UntagResource, ListTagsForResource's own
+// deserializeOpError switch in the vendored SDK types only
+// ResourceNotFoundException -- it has no ValidationException case -- so an
+// empty ResourceARN reports ResourceNotFoundException here instead of
+// ErrValidation, matching the modeled error surface rather than a code the
+// op's own switch cannot type.
 func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]string, error) {
-	if resourceARN == "" {
-		return nil, fmt.Errorf("%w: ResourceARN is required", ErrValidation)
-	}
-
 	b.mu.RLock("ListTagsForResource")
 	defer b.mu.RUnlock()
 
