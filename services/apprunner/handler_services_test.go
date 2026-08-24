@@ -306,14 +306,20 @@ func TestStartDeployment_StateGuard(t *testing.T) { //nolint:paralleltest // exi
 			wantCode: http.StatusOK,
 		},
 		{
-			name: "deploy PAUSED service returns InvalidStateException",
+			// StartDeployment's own deserializeOpError switch in the
+			// vendored SDK types only InternalServiceErrorException,
+			// InvalidRequestException, and ResourceNotFoundException --
+			// unlike UpdateService/PauseService/ResumeService it has no
+			// InvalidStateException case, so a non-running service must
+			// report InvalidRequestException instead.
+			name: "deploy PAUSED service returns InvalidRequestException",
 			setup: func(t *testing.T, h *apprunner.Handler, arn string) {
 				t.Helper()
 				rec := doRequest(t, h, "PauseService", map[string]any{"ServiceArn": arn})
 				require.Equal(t, http.StatusOK, rec.Code)
 			},
 			wantCode: http.StatusBadRequest,
-			wantType: "InvalidStateException",
+			wantType: "InvalidRequestException",
 		},
 	}
 

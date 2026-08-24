@@ -117,6 +117,30 @@ func TestGetPredictiveScalingForecast_SDKRoundTrip(t *testing.T) {
 	}
 }
 
+// TestListTagsForResource_EmptyARN_SDKRoundTrip proves ListTagsForResource
+// with an empty ResourceARN types as ResourceNotFoundException through the
+// real client, not as an untyped GenericAPIError. ListTagsForResource's own
+// deserializeOpErrorListTagsForResource switch in the vendored SDK has no
+// ValidationException case -- only ResourceNotFoundException -- so a
+// ValidationException body would fail errors.As here.
+func TestListTagsForResource_EmptyARN_SDKRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	backend := applicationautoscaling.NewInMemoryBackend("123456789012", "us-east-1")
+	h := applicationautoscaling.NewHandler(backend)
+	client := newTestAASSDKClient(t, h)
+
+	_, err := client.ListTagsForResource(t.Context(), &aassdk.ListTagsForResourceInput{
+		ResourceARN: aws.String(""),
+	})
+	require.Error(t, err)
+
+	var notFound *aastypes.ResourceNotFoundException
+	require.ErrorAs(t, err, &notFound,
+		"empty ResourceARN must type as ResourceNotFoundException, "+
+			"the only exception ListTagsForResource's own switch can type")
+}
+
 func mustParseTime(t *testing.T, s string) time.Time {
 	t.Helper()
 
