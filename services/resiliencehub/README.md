@@ -10,7 +10,7 @@
 | PARITY entries audited | 63 (45 ok, 18 partial) |
 | Feature families | 3 (3 ok) |
 | Known gaps | 1 |
-| Structural gaps (can't be emulated) | 6 |
+| Structural gaps (can't be emulated) | 7 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
@@ -28,6 +28,7 @@ These do not block an A grade — no implementation could produce real data here
 - The resource-grouping-recommendation family (Start/DescribeResourceGroupingRecommendationTask, ListResourceGroupingRecommendations, Accept/RejectResourceGroupingRecommendations) implements the FULL real task/accept/reject state machine but always completes with zero generated recommendations -- this is AWS's proprietary ML resource-clustering output (GroupingRecommendation.ConfidenceLevel/Score), with no published clustering rule to derive from; same fabrication-risk class as the main recommendation families above.
 - AppRegistryApp and Terraform resource-mapping types remain opaque/unresolved even after this pass's cross-service resolution work: no services/appregistry package exists anywhere in this tree (confirmed absent), and a Terraform state file is an external S3 object with a schema this emulator has no reason to parse -- there is no in-tree data source for either, unlike CfnStack/ResourceGroup/EKS which this pass wired against real backends. Verified by TestIntegration_ResilienceHub_ResourceMappingResolution/app_registry_app_stays_unresolved asserting zero resources are invented for it.
 - ListSuggestedResiliencyPolicies' 5-tier RTO/RPO table (policies.go's suggestedPolicyTiers) is a coarse, self-invented halving progression (60s/600s/3600s/86400s/604800s), not AWS-published defaults. AWS's real per-tier suggested defaults are operational data (like services/grafana's supported-version list) not encoded anywhere in the SDK module or its docs -- there is nothing in this tree to derive real numbers from, only a defensible documented stand-in (mirrors services/grafana's ListVersions precedent, the same class of gap this template's structural_gaps clause anticipates).
+- DescribeAppVersion and UpdateAppVersion (bd: gopherstack-1nqb) are deliberately omitted from the UI dashboard surface: they are redundant with the app detail modal's direct presentation and editing of application metadata, as this emulator defaults appVersion to 'draft' and assesses it directly rather than requiring separate version-specific UI tabs.
 
 ## More
 

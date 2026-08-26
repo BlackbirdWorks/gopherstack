@@ -94,14 +94,14 @@ func (r *Registry) Register(svc Registerable, mws ...Middleware) error {
 		svc,
 	)
 
-	// Apply global middlewares
-	for _, mw := range r.middlewares {
-		h = mw(h)
+	// Apply global middlewares in registration order (first registered is outermost).
+	for i := len(r.middlewares) - 1; i >= 0; i-- {
+		h = r.middlewares[i](h)
 	}
 
 	// Apply per-service middlewares
-	for _, mw := range mws {
-		h = mw(h)
+	for i := len(mws) - 1; i >= 0; i-- {
+		h = mws[i](h)
 	}
 
 	// CloudTrail capture wraps next so it observes the final request/response

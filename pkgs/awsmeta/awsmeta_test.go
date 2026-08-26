@@ -236,3 +236,90 @@ func TestFromRequest(t *testing.T) {
 		})
 	}
 }
+
+type mockResolver struct {
+	principal *awsmeta.Principal
+	matchKey  string
+}
+
+func (m *mockResolver) ResolvePrincipal(
+	_ context.Context,
+	accessKeyID, _ string,
+) (*awsmeta.Principal, bool) {
+	if accessKeyID == m.matchKey {
+		return m.principal, true
+	}
+
+	return nil, false
+}
+
+func TestPrincipalResolversAndHelpers(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		principal *awsmeta.Principal
+		name      string
+		key       string
+		wantArn   string
+		wantUser  string
+		wantUID   string
+		chain     awsmeta.PrincipalResolverChain
+		wantOk    bool
+	}{
+		{
+			name:   "empty-chain-returns-false",
+			chain:  awsmeta.PrincipalResolverChain{},
+			key:    "AKIA123",
+			wantOk: false,
+		},
+		{
+			name: "chain-resolves-first-match",
+			chain: awsmeta.PrincipalResolverChain{
+				&mockResolver{matchKey: "AKIA111", principal: &awsmeta.Principal{
+					Kind:      awsmeta.PrincipalKindUser,
+					Arn:       "arn:aws:iam::123456789012:user/alice",
+					UserName:  "alice",
+					AccountID: "123456789012",
+					UserID:    "AIDA111",
+				}},
+				&mockResolver{matchKey: "AKIA222", principal: &awsmeta.Principal{
+					Kind:      awsmeta.PrincipalKindUser,
+					Arn:       "arn:aws:iam::123456789012:user/bob",
+					UserName:  "bob",
+					AccountID: "123456789012",
+					UserID:    "AIDA222",
+				}},
+			},
+			key:      "AKIA222",
+			wantOk:   true,
+			wantArn:  "arn:aws:iam::123456789012:user/bob",
+			wantUser: "bob",
+			wantUID:  "AIDA222",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			p, ok := tt.chain.ResolvePrincipal(t.Context(), tt.key, "")
+			assert.Equal(t, tt.wantOk, ok)
+			if tt.wantOk {
+				assert.NotNil(t, p)
+				assert.Equal(t, tt.wantArn, p.Arn)
+				assert.Equal(t, tt.wantUser, p.UserName)
+				assert.Equal(t, tt.wantUID, p.UserID)
+
+				ctx := awsmeta.Set(t.Context(), &awsmeta.Metadata{
+					Principal: p,
+				})
+				assert.Equal(t, tt.wantArn, awsmeta.CallerArn(ctx))
+				assert.Equal(t, tt.wantUser, awsmeta.UserName(ctx))
+				assert.Equal(t, tt.wantUID, awsmeta.UserID(ctx))
+				assert.Equal(t, p, awsmeta.GetPrincipal(ctx))
+			} else {
+				assert.Nil(t, p)
+			}
+		})
+	}
+}
