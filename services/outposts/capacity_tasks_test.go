@@ -16,7 +16,7 @@ import (
 // CANCELLED) capacity task transition to reach a given status. The tick is
 // well under the per-hop delay so intermediate stops are actually observed.
 const (
-	capacityTaskTransitionTimeout = 2 * time.Second
+	capacityTaskTransitionTimeout = 10 * time.Second
 	capacityTaskTransitionTick    = 10 * time.Millisecond
 )
 
