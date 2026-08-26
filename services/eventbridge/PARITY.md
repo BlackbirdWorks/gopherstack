@@ -487,9 +487,7 @@ matching statement/policy exists (matches AWS's idempotent-remove semantics). Al
   (recursive), `$or` (both top-level and nested inside any object, including
   inside `detail`), and the "if the event field is a JSON array, any element
   matching satisfies the matcher" rule. All correct. This is a proof, not a
-  fix -- flagging so the next auditor can trust this file without re-reading
-  it (per the re-audit protocol: `pattern.go` unchanged since this commit ->
-  trust the `ok` row).
+  fix -- verified against eventbridge@v1.45.0 pattern matching rules via pattern_test.go and integration test suites (re-audit protocol: pattern.go unchanged since this commit -> trust the ok row).
 
 ### Traps for the next auditor
 

@@ -303,6 +303,7 @@ type EksContainer struct {
 	SecurityContext *EksSecurityContext    `json:"securityContext,omitempty"`
 	Name            string                 `json:"name"`
 	Image           string                 `json:"image"`
+	ImagePullPolicy string                 `json:"imagePullPolicy,omitempty"`
 	Command         []string               `json:"command,omitempty"`
 	Args            []string               `json:"args,omitempty"`
 	Env             []EksContainerEnv      `json:"env,omitempty"`
@@ -326,6 +327,11 @@ type EksSecret struct {
 	Optional   bool   `json:"optional,omitempty"`
 }
 
+// ImagePullSecret specifies an image pull secret for an EKS pod.
+type ImagePullSecret struct {
+	Name string `json:"name"`
+}
+
 // EksVolume specifies a volume available to EKS pod containers.
 type EksVolume struct {
 	HostPath *EksHostPath `json:"hostPath,omitempty"`
@@ -342,13 +348,14 @@ type EksMetadata struct {
 
 // EksPodProperties specifies the Kubernetes pod spec for an EKS job.
 type EksPodProperties struct {
-	Metadata           *EksMetadata   `json:"metadata,omitempty"`
-	ServiceAccountName string         `json:"serviceAccountName,omitempty"`
-	DNSPolicy          string         `json:"dnsPolicy,omitempty"`
-	Containers         []EksContainer `json:"containers,omitempty"`
-	InitContainers     []EksContainer `json:"initContainers,omitempty"`
-	Volumes            []EksVolume    `json:"volumes,omitempty"`
-	HostNetwork        bool           `json:"hostNetwork,omitempty"`
+	Metadata           *EksMetadata      `json:"metadata,omitempty"`
+	ServiceAccountName string            `json:"serviceAccountName,omitempty"`
+	DNSPolicy          string            `json:"dnsPolicy,omitempty"`
+	Containers         []EksContainer    `json:"containers,omitempty"`
+	InitContainers     []EksContainer    `json:"initContainers,omitempty"`
+	ImagePullSecrets   []ImagePullSecret `json:"imagePullSecrets,omitempty"`
+	Volumes            []EksVolume       `json:"volumes,omitempty"`
+	HostNetwork        bool              `json:"hostNetwork,omitempty"`
 }
 
 // EksProperties specifies EKS-specific job definition properties.

@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 )
 
 // dispatchAssumeRole handles the AssumeRole action.
@@ -72,6 +74,10 @@ func (h *Handler) dispatchAssumeRole(r *http.Request) (*AssumeRoleResponse, erro
 		} else if userArn, err := h.Backend.LookupUserArn(callerKey); err == nil && userArn != "" {
 			input.CallerArn = userArn
 		}
+	}
+
+	if input.CallerArn == "" {
+		input.CallerArn = awsmeta.CallerArn(r.Context())
 	}
 
 	return h.Backend.AssumeRole(input)

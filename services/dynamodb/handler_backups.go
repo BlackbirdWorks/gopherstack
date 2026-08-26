@@ -318,49 +318,8 @@ type describeTableReplicaAutoScalingInput struct {
 	TableName string `json:"TableName"`
 }
 
-type replicaAutoScalingDescription struct {
-	WriteCapAutoScaling *autoScalingSettingsDescWire `json:"ReplicaProvisionedWriteCapacityAutoScalingSettings,omitempty"`
-	RegionName          string                       `json:"RegionName"`
-	ReplicaStatus       string                       `json:"ReplicaStatus"`
-}
-
-type tableAutoScalingDescription struct {
-	TableName   string                          `json:"TableName"`
-	TableStatus string                          `json:"TableStatus"`
-	Replicas    []replicaAutoScalingDescription `json:"Replicas,omitempty"`
-}
-
 type describeTableReplicaAutoScalingOutput struct {
-	TableAutoScalingDescription tableAutoScalingDescription `json:"TableAutoScalingDescription"`
-}
-
-// describeTableReplicaAutoScalingOutputFromSDK converts the SDK
-// TableAutoScalingDescription into the wire shape.
-func describeTableReplicaAutoScalingOutputFromSDK(
-	d *sdktypes.TableAutoScalingDescription,
-) *describeTableReplicaAutoScalingOutput {
-	if d == nil {
-		return &describeTableReplicaAutoScalingOutput{}
-	}
-
-	replicas := make([]replicaAutoScalingDescription, 0, len(d.Replicas))
-	for _, r := range d.Replicas {
-		replicas = append(replicas, replicaAutoScalingDescription{
-			RegionName:    aws.ToString(r.RegionName),
-			ReplicaStatus: string(r.ReplicaStatus),
-			WriteCapAutoScaling: autoScalingSettingsDescWireFromSDK(
-				r.ReplicaProvisionedWriteCapacityAutoScalingSettings,
-			),
-		})
-	}
-
-	return &describeTableReplicaAutoScalingOutput{
-		TableAutoScalingDescription: tableAutoScalingDescription{
-			TableName:   aws.ToString(d.TableName),
-			TableStatus: string(d.TableStatus),
-			Replicas:    replicas,
-		},
-	}
+	TableAutoScalingDescription tableAutoScalingDescWire `json:"TableAutoScalingDescription"`
 }
 
 func (h *DynamoDBHandler) describeTableReplicaAutoScaling(
@@ -384,5 +343,7 @@ func (h *DynamoDBHandler) describeTableReplicaAutoScaling(
 		return nil, err
 	}
 
-	return describeTableReplicaAutoScalingOutputFromSDK(out.TableAutoScalingDescription), nil
+	return &describeTableReplicaAutoScalingOutput{
+		TableAutoScalingDescription: buildTableAutoScalingDescWire(out.TableAutoScalingDescription),
+	}, nil
 }

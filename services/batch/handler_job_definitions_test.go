@@ -299,3 +299,80 @@ func TestHandler_RegisterJobDefinition_EksProperties(t *testing.T) {
 	require.Len(t, containers, 1)
 	assert.Equal(t, "busybox", containers[0].(map[string]any)["image"])
 }
+
+func TestHandler_RegisterJobDefinition_EksProperties_ImagePullFields(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name            string
+		imagePullPolicy string
+		secretName      string
+	}{
+		{
+			name:            "with_image_pull_policy_and_secrets",
+			imagePullPolicy: "Always",
+			secretName:      "my-reg-secret",
+		},
+		{
+			name:            "with_if_not_present_policy",
+			imagePullPolicy: "IfNotPresent",
+			secretName:      "registry-cred",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			jdName := "jd-" + tt.name
+
+			rec := post(t, h, "/v1/registerjobdefinition", map[string]any{
+				"jobDefinitionName": jdName,
+				"type":              "container",
+				"eksProperties": map[string]any{
+					"podProperties": map[string]any{
+						"containers": []map[string]any{
+							{
+								"name":            "main",
+								"image":           "alpine:latest",
+								"imagePullPolicy": tt.imagePullPolicy,
+							},
+						},
+						"imagePullSecrets": []map[string]any{
+							{
+								"name": tt.secretName,
+							},
+						},
+					},
+				},
+			})
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			rec = post(t, h, "/v1/describejobdefinitions", map[string]any{
+				"jobDefinitions": []string{jdName},
+			})
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var out map[string]any
+			mustUnmarshal(t, rec, &out)
+			items := out["jobDefinitions"].([]any)
+			require.Len(t, items, 1)
+
+			jd := items[0].(map[string]any)
+			eksProps, ok := jd["eksProperties"].(map[string]any)
+			require.True(t, ok)
+
+			podProps := eksProps["podProperties"].(map[string]any)
+			containers := podProps["containers"].([]any)
+			require.Len(t, containers, 1)
+			container := containers[0].(map[string]any)
+			assert.Equal(t, tt.imagePullPolicy, container["imagePullPolicy"])
+
+			secrets := podProps["imagePullSecrets"].([]any)
+			require.Len(t, secrets, 1)
+			secret := secrets[0].(map[string]any)
+			assert.Equal(t, tt.secretName, secret["name"])
+		})
+	}
+}

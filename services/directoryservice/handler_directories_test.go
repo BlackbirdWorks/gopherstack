@@ -245,6 +245,37 @@ func TestDirectoryService_DescribeDirectories(t *testing.T) {
 		)
 	})
 
+	t.Run("VpcSettings SecurityGroupId is populated on DescribeDirectories", func(t *testing.T) {
+		t.Parallel()
+		h := newTestHandler(t)
+
+		createRec := doRequest(t, h, "CreateDirectory", map[string]any{
+			"Name":     "vpc-secgroup.example.com",
+			"Password": "Admin1234!",
+			"Size":     "Small",
+			"VpcSettings": map[string]any{
+				"VpcId":     "vpc-12345678",
+				"SubnetIds": []string{"subnet-1111", "subnet-2222"},
+			},
+		})
+		var createResp map[string]any
+		require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+		dirID := createResp["DirectoryId"].(string)
+
+		rec := doRequest(t, h, "DescribeDirectories", map[string]any{"DirectoryIds": []string{dirID}})
+		resp := respBody(t, rec)
+		dirs, ok := resp["DirectoryDescriptions"].([]any)
+		require.True(t, ok)
+		require.Len(t, dirs, 1)
+		dir := dirs[0].(map[string]any)
+
+		vpcSettings, ok := dir["VpcSettings"].(map[string]any)
+		require.True(t, ok, "VpcSettings must be present in DescribeDirectories output")
+		sgID, ok := vpcSettings["SecurityGroupId"].(string)
+		require.True(t, ok, "SecurityGroupId must be a string on the wire")
+		assert.NotEmpty(t, sgID)
+	})
+
 	t.Run("empty backend returns empty list", func(t *testing.T) {
 		t.Parallel()
 		h := newTestHandler(t)

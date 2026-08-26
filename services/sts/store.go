@@ -1,11 +1,13 @@
 package sts
 
 import (
+	"context"
 	"crypto/rand"
 	"fmt"
 	"sync/atomic"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
@@ -331,6 +333,26 @@ func (b *InMemoryBackend) LookupSession(accessKeyID, sessionToken string) *Sessi
 	}
 
 	return session
+}
+
+// ResolvePrincipal resolves an access key ID and session token to an awsmeta.Principal for an assumed role.
+func (b *InMemoryBackend) ResolvePrincipal(
+	_ context.Context,
+	accessKeyID, sessionToken string,
+) (*awsmeta.Principal, bool) {
+	s := b.LookupSession(accessKeyID, sessionToken)
+	if s == nil {
+		return nil, false
+	}
+
+	return &awsmeta.Principal{
+		Kind:           awsmeta.PrincipalKindAssumedRole,
+		Arn:            s.AssumedRoleArn,
+		AccountID:      s.AccountID,
+		SessionName:    s.SessionName,
+		UserID:         s.AssumedRoleID,
+		SourceIdentity: s.SourceIdentity,
+	}, true
 }
 
 // ValidateSessionCredential looks up a session by (accessKeyID, sessionToken).

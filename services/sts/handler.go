@@ -420,31 +420,9 @@ func parseTransitiveTagKeys(r *http.Request) []string {
 	return keys
 }
 
-// extractAccessKeyFromAuth parses the SigV4 Authorization header and returns
-// the access key ID (the portion before the first '/' in the Credential field).
-// Returns an empty string if the header is absent or unparseable.
+// extractAccessKeyFromAuth parses the SigV4 Authorization header or query params and returns the access key ID.
 func extractAccessKeyFromAuth(r *http.Request) string {
-	auth := r.Header.Get("Authorization")
-	if auth == "" {
-		return ""
-	}
-
-	_, after, ok := strings.Cut(auth, "Credential=")
-	if !ok {
-		return ""
-	}
-
-	// Strip any trailing comma/space that follows the Credential value.
-	if commaIdx := strings.IndexAny(after, ", "); commaIdx != -1 {
-		after = after[:commaIdx]
-	}
-
-	before, _, ok := strings.Cut(after, "/")
-	if !ok {
-		return after
-	}
-
-	return before
+	return httputils.ExtractAccessKeyFromRequest(r)
 }
 
 // Reset clears all in-memory state from the backend. It is used by the

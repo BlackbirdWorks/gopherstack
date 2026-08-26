@@ -2,13 +2,16 @@ package iam
 
 import (
 	"context"
+	"encoding/json"
 	"encoding/xml"
 	"net/http"
 	"strings"
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
+	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -39,6 +42,7 @@ var internalPathPrefixes = []string{
 type EnforcementBackend interface {
 	GetUserByAccessKeyID(accessKeyID string) (*User, error)
 	GetPoliciesForUser(userName string) ([]string, error)
+	GetPoliciesForRole(roleName string) ([]string, error)
 }
 
 type EnforcementConfig struct {
@@ -55,8 +59,8 @@ type EnforcementConfig struct {
 
 // EnforcementMiddleware returns an Echo middleware that enforces IAM policies on
 // every incoming request. It extracts the caller's access key from the
-// SigV4 Authorization header, resolves the associated IAM user, collects all
-// attached policies, and evaluates them against the requested IAM action.
+// SigV4 Authorization header, resolves the associated IAM user or assumed role,
+// collects all attached policies, and evaluates them against the requested IAM action.
 //
 // If the access key is not found in the IAM backend (e.g. a test/dummy key),
 // the request is allowed through without enforcement so existing tooling is
@@ -91,34 +95,103 @@ func isInternalPath(path string) bool {
 	return false
 }
 
+func extractRoleNameFromArn(arn string) string {
+	parts := strings.Split(arn, ":")
+	if len(parts) == 0 {
+		return ""
+	}
+
+	res := parts[len(parts)-1]
+	res = strings.TrimPrefix(res, "assumed-role/")
+	res = strings.TrimPrefix(res, "role/")
+	roleName, _, _ := strings.Cut(res, "/")
+
+	return roleName
+}
+
+func resolveAssumedRoleIdentityPolicies(
+	ctx context.Context,
+	r *http.Request,
+	principal *awsmeta.Principal,
+	backend EnforcementBackend,
+) ([]string, ConditionContext, string, bool) {
+	if principal == nil || principal.Kind != awsmeta.PrincipalKindAssumedRole {
+		return nil, ConditionContext{}, "", false
+	}
+
+	roleName := extractRoleNameFromArn(principal.Arn)
+	if roleName == "" {
+		return nil, ConditionContext{}, "", false
+	}
+
+	docs, err := backend.GetPoliciesForRole(roleName)
+	if err != nil {
+		return nil, ConditionContext{}, "", false
+	}
+
+	region := awsmeta.Region(ctx)
+	if region == "" {
+		region = httputils.ExtractRegionFromRequest(r, "us-east-1")
+	}
+
+	condCtx := ConditionContext{
+		PrincipalARN:     principal.Arn,
+		PrincipalAccount: principal.AccountID,
+		RequestedRegion:  region,
+		Username:         principal.SessionName,
+		UserID:           principal.UserID,
+		SourceIP:         extractClientIP(r),
+	}
+
+	return docs, condCtx, roleName, true
+}
+
+func resolveCallerIdentityPolicies(
+	ctx context.Context,
+	r *http.Request,
+	backend EnforcementBackend,
+) ([]string, ConditionContext, string, bool) {
+	principal := awsmeta.GetPrincipal(ctx)
+	if docs, condCtx, roleName, ok := resolveAssumedRoleIdentityPolicies(ctx, r, principal, backend); ok {
+		return docs, condCtx, roleName, true
+	}
+
+	accessKeyID := ExtractAccessKeyID(r)
+	if accessKeyID == "" {
+		return nil, ConditionContext{}, "", false
+	}
+
+	user, err := backend.GetUserByAccessKeyID(accessKeyID)
+	if err != nil {
+		return nil, ConditionContext{}, "", false
+	}
+
+	docs, err := backend.GetPoliciesForUser(user.UserName)
+	if err != nil {
+		return nil, ConditionContext{}, "", false
+	}
+
+	return docs, buildConditionContext(r, user), user.UserName, true
+}
+
 // enforceIAMPolicy evaluates IAM policies for the request and either allows or denies it.
 func enforceIAMPolicy(c *echo.Context, next echo.HandlerFunc, backend EnforcementBackend, cfg EnforcementConfig) error {
 	r := c.Request()
 	ctx := r.Context()
 	log := logger.Load(ctx)
 
-	accessKeyID := ExtractAccessKeyID(r)
-	if accessKeyID == "" {
-		return next(c)
-	}
-
-	user, err := backend.GetUserByAccessKeyID(accessKeyID)
-	if err != nil {
+	policyDocs, condCtx, callerName, enforced := resolveCallerIdentityPolicies(ctx, r, backend)
+	if !enforced {
 		// Unknown key (test/dummy) — pass through without enforcement.
 		return next(c)
 	}
 
-	policyDocs, err := backend.GetPoliciesForUser(user.UserName)
-	if err != nil {
-		log.WarnContext(ctx, "IAM enforcement: failed to load policies",
-			"user", user.UserName, "error", err)
-
-		return next(c)
-	}
-
-	action := ExtractIAMAction(r)
+	action := ExtractTargetOrFormIAMAction(r)
 	if action == "" {
 		action = extractActionFromProviders(r, cfg.ActionExtractors)
+	}
+	if action == "" {
+		action = extractS3IAMAction(r)
 	}
 
 	if action == "" {
@@ -139,9 +212,6 @@ func enforceIAMPolicy(c *echo.Context, next echo.HandlerFunc, backend Enforcemen
 	// Collect resource-based policies for the accessed resource.
 	resourceDocs := collectResourcePolicies(ctx, cfg.ResourceProviders, resourceARN)
 
-	// Build condition context from the request and resolved user.
-	condCtx := buildConditionContext(r, user)
-
 	// Determine what resource string to match against policy Resource fields.
 	matchResource := resourceARN
 	if matchResource == "" {
@@ -154,9 +224,9 @@ func enforceIAMPolicy(c *echo.Context, next echo.HandlerFunc, backend Enforcemen
 	// Explicit Deny from identity policy always wins.
 	if idResult == EvalExplicitDeny {
 		log.InfoContext(ctx, "IAM enforcement: access denied (identity policy)",
-			"user", user.UserName, "action", action, "resource", matchResource)
+			"caller", callerName, "action", action, "resource", matchResource)
 
-		return writeAccessDenied(c, action)
+		return writeAccessDenied(c, action, matchResource)
 	}
 
 	// Resource-based policies: allow if any grants access, deny on explicit deny.
@@ -165,9 +235,9 @@ func enforceIAMPolicy(c *echo.Context, next echo.HandlerFunc, backend Enforcemen
 
 		if resResult == EvalExplicitDeny {
 			log.InfoContext(ctx, "IAM enforcement: access denied (resource policy)",
-				"user", user.UserName, "action", action, "resource", matchResource)
+				"caller", callerName, "action", action, "resource", matchResource)
 
-			return writeAccessDenied(c, action)
+			return writeAccessDenied(c, action, matchResource)
 		}
 
 		// Resource policy Allow is sufficient even without identity Allow.
@@ -179,9 +249,9 @@ func enforceIAMPolicy(c *echo.Context, next echo.HandlerFunc, backend Enforcemen
 	// No Allow from either identity or resource policy.
 	if idResult != EvalAllow {
 		log.InfoContext(ctx, "IAM enforcement: access denied (implicit deny)",
-			"user", user.UserName, "action", action, "resource", matchResource)
+			"caller", callerName, "action", action, "resource", matchResource)
 
-		return writeAccessDenied(c, action)
+		return writeAccessDenied(c, action, matchResource)
 	}
 
 	return next(c)
@@ -217,13 +287,31 @@ func collectResourcePolicies(ctx context.Context, providers []ResourcePolicyProv
 	return docs
 }
 
+const (
+	arnMinSegments         = 5
+	arnAccountSegmentIndex = 4
+)
+
 // buildConditionContext constructs the per-request condition evaluation context.
 func buildConditionContext(r *http.Request, user *User) ConditionContext {
+	accountID := ""
+	if parts := strings.Split(user.Arn, ":"); len(parts) >= arnMinSegments {
+		accountID = parts[arnAccountSegmentIndex]
+	}
+
+	region := awsmeta.Region(r.Context())
+	if region == "" {
+		region = httputils.ExtractRegionFromRequest(r, "us-east-1")
+	}
+
 	return ConditionContext{
-		SourceIP:      extractClientIP(r),
-		Username:      user.UserName,
-		UserID:        user.UserID,
-		PrincipalTags: user.Tags,
+		PrincipalARN:     user.Arn,
+		PrincipalAccount: accountID,
+		RequestedRegion:  region,
+		SourceIP:         extractClientIP(r),
+		Username:         user.UserName,
+		UserID:           user.UserID,
+		PrincipalTags:    user.Tags,
 	}
 }
 
@@ -281,28 +369,95 @@ type sentinelError string
 
 func (e sentinelError) Error() string { return string(e) }
 
-// ExtractAccessKeyID extracts the AWS access key ID from the SigV4 Authorization header.
-// The expected format is:
-//
-//	AWS4-HMAC-SHA256 Credential=AKID/date/region/service/aws4_request, ...
+// ExtractAccessKeyID extracts the AWS access key ID from the SigV4 Authorization header or query params.
 func ExtractAccessKeyID(r *http.Request) string {
-	auth := r.Header.Get("Authorization")
-	if auth == "" || !strings.Contains(auth, "Credential=") {
-		return ""
-	}
-
-	_, after, found := strings.Cut(auth, "Credential=")
-	if !found {
-		return ""
-	}
-
-	akid, _, _ := strings.Cut(after, "/")
-
-	return akid
+	return httputils.ExtractAccessKeyFromRequest(r)
 }
 
-// writeAccessDenied writes an HTTP 403 XML error response.
-func writeAccessDenied(c *echo.Context, action string) error {
+type jsonRPCErrorResponse struct {
+	Type    string `json:"__type"`
+	Message string `json:"Message"`
+}
+
+type s3AccessDeniedError struct {
+	XMLName   xml.Name `xml:"Error"`
+	Code      string   `xml:"Code"`
+	Message   string   `xml:"Message"`
+	Resource  string   `xml:"Resource,omitempty"`
+	RequestID string   `xml:"RequestId"`
+	HostID    string   `xml:"HostId,omitempty"`
+}
+
+func isJSONRPCRequest(r *http.Request) bool {
+	if r.Header.Get("X-Amz-Target") != "" {
+		return true
+	}
+
+	ct := r.Header.Get("Content-Type")
+
+	return strings.Contains(ct, "application/x-amz-json-1.0") || strings.Contains(ct, "application/x-amz-json-1.1")
+}
+
+func isS3Request(r *http.Request) bool {
+	if r.Header.Get("X-Amz-Target") != "" {
+		return false
+	}
+
+	ct := r.Header.Get("Content-Type")
+	if strings.Contains(ct, "application/x-www-form-urlencoded") {
+		return false
+	}
+
+	for _, prefix := range nonS3RESTPathPrefixes {
+		if strings.HasPrefix(r.URL.Path, prefix) {
+			return false
+		}
+	}
+
+	return true
+}
+
+func writeJSONRPCAccessDenied(c *echo.Context, action string) error {
+	resp := jsonRPCErrorResponse{
+		Type:    "com.amazon.coral.service#AccessDeniedException",
+		Message: "User is not authorized to perform: " + action,
+	}
+
+	body, err := json.Marshal(resp)
+	if err != nil {
+		return c.String(http.StatusBadRequest, `{"__type":"AccessDeniedException"}`)
+	}
+
+	c.Response().Header().Set("Content-Type", "application/x-amz-json-1.0")
+
+	return c.Blob(http.StatusBadRequest, "application/x-amz-json-1.0", body)
+}
+
+func writeS3AccessDenied(c *echo.Context, resource string) error {
+	reqID := c.Response().Header().Get("X-Amz-Request-Id")
+	if reqID == "" {
+		reqID = "gopherstack-request"
+	}
+
+	resp := s3AccessDeniedError{
+		Code:      "AccessDenied",
+		Message:   "Access Denied",
+		Resource:  resource,
+		RequestID: reqID,
+		HostID:    "gopherstack",
+	}
+
+	body, err := xml.Marshal(resp)
+	if err != nil {
+		return c.String(http.StatusForbidden, "AccessDenied")
+	}
+
+	c.Response().Header().Set("Content-Type", "application/xml")
+
+	return c.XMLBlob(http.StatusForbidden, append([]byte(xml.Header), body...))
+}
+
+func writeQueryXMLAccessDenied(c *echo.Context, action string) error {
 	resp := accessDeniedResponse{
 		Xmlns: iamXMLNS,
 		Error: iamDeniedError{
@@ -321,4 +476,18 @@ func writeAccessDenied(c *echo.Context, action string) error {
 	c.Response().Header().Set("Content-Type", "text/xml; charset=utf-8")
 
 	return c.XMLBlob(http.StatusForbidden, body)
+}
+
+// writeAccessDenied writes a protocol-appropriate access denied error response.
+func writeAccessDenied(c *echo.Context, action, resource string) error {
+	r := c.Request()
+	if isJSONRPCRequest(r) {
+		return writeJSONRPCAccessDenied(c, action)
+	}
+
+	if isS3Request(r) {
+		return writeS3AccessDenied(c, resource)
+	}
+
+	return writeQueryXMLAccessDenied(c, action)
 }

@@ -506,21 +506,25 @@ func directoryVpcSettingsJSON(vs *DirectoryVpcSettings) map[string]any {
 		return nil
 	}
 
-	secGroups := vs.SecurityGroupIDs
-	if secGroups == nil {
-		secGroups = []string{}
+	secGroupID := vs.SecurityGroupID
+	if secGroupID == "" && len(vs.SecurityGroupIDs) > 0 {
+		secGroupID = vs.SecurityGroupIDs[0]
 	}
 	azs := vs.AvailabilityZones
 	if azs == nil {
 		azs = []string{}
 	}
 
-	return map[string]any{
+	res := map[string]any{
 		keyVpcID:            vs.VpcID,
 		keySubnetIDs:        vs.SubnetIDs,
-		"SecurityGroupIds":  secGroups,
 		"AvailabilityZones": azs,
 	}
+	if secGroupID != "" {
+		res["SecurityGroupId"] = secGroupID
+	}
+
+	return res
 }
 
 func directoryConnectSettingsJSON(cs *DirectoryConnectSettingsDescription) map[string]any {

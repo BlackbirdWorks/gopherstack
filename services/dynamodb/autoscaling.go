@@ -6,12 +6,11 @@ package dynamodb
 
 import (
 	"context"
+	"sort"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
-
-	"github.com/blackbirdworks/gopherstack/services/dynamodb/models"
 )
 
 // mergeAutoScalingSettingsFromInput merges an UpdateTableReplicaAutoScalingInput
@@ -83,20 +82,17 @@ func throughputFromUpdate(u *types.AutoScalingSettingsUpdate) *autoScalingThroug
 }
 
 // applyAutoScalingSettingsLocked sets table.AutoScaling from input and
-// snapshots the table's name, status, replica list, and the just-applied
-// write-capacity settings, all under a single defer-protected table.mu.Lock.
+// returns the table's name and status under a single defer-protected table.mu.Lock.
 func applyAutoScalingSettingsLocked(
 	table *Table,
 	input *dynamodb.UpdateTableReplicaAutoScalingInput,
-) (string, string, []models.ReplicaDescription, *autoScalingThroughput) {
+) (string, string) {
 	table.mu.Lock("UpdateTableReplicaAutoScaling")
 	defer table.mu.Unlock()
 
 	table.AutoScaling = mergeAutoScalingSettingsFromInput(table.AutoScaling, input)
-	replicas := make([]models.ReplicaDescription, len(table.Replicas))
-	copy(replicas, table.Replicas)
 
-	return table.Name, table.Status, replicas, table.AutoScaling.Write
+	return table.Name, table.Status
 }
 
 // --- UpdateTableReplicaAutoScaling ---
@@ -116,20 +112,8 @@ func (db *InMemoryDB) UpdateTableReplicaAutoScaling(
 		return nil, err
 	}
 
-	tableName, tableStatus, replicas, write := applyAutoScalingSettingsLocked(table, input)
-
-	replicaDescs := make([]types.ReplicaAutoScalingDescription, 0, len(replicas))
-
-	for _, r := range replicas {
-		region := r.RegionName
-		status := r.ReplicaStatus
-
-		replicaDescs = append(replicaDescs, types.ReplicaAutoScalingDescription{
-			RegionName:    &region,
-			ReplicaStatus: types.ReplicaStatus(status),
-			ReplicaProvisionedWriteCapacityAutoScalingSettings: sdkAutoScalingSettingsDescription(write),
-		})
-	}
+	tableName, _ := applyAutoScalingSettingsLocked(table, input)
+	tableStatus, replicaDescs := replicaAutoScalingDescriptionsRLocked(table)
 
 	return &dynamodb.UpdateTableReplicaAutoScalingOutput{
 		TableAutoScalingDescription: &types.TableAutoScalingDescription{
@@ -168,8 +152,27 @@ func replicaAutoScalingDescriptionsRLocked(table *Table) (string, []types.Replic
 	defer table.mu.RUnlock()
 
 	var write *types.AutoScalingSettingsDescription
+	var gsiDescriptions []types.ReplicaGlobalSecondaryIndexAutoScalingDescription
 	if table.AutoScaling != nil {
 		write = sdkAutoScalingSettingsDescription(table.AutoScaling.Write)
+		if len(table.AutoScaling.GlobalSecondaryIndexes) > 0 {
+			gsiDescriptions = make(
+				[]types.ReplicaGlobalSecondaryIndexAutoScalingDescription,
+				0,
+				len(table.AutoScaling.GlobalSecondaryIndexes),
+			)
+			for name, throughput := range table.AutoScaling.GlobalSecondaryIndexes {
+				idxName := name
+				gsiDescriptions = append(gsiDescriptions, types.ReplicaGlobalSecondaryIndexAutoScalingDescription{
+					IndexName:   &idxName,
+					IndexStatus: types.IndexStatusActive,
+					ProvisionedWriteCapacityAutoScalingSettings: sdkAutoScalingSettingsDescription(throughput),
+				})
+			}
+			sort.Slice(gsiDescriptions, func(i, j int) bool {
+				return *gsiDescriptions[i].IndexName < *gsiDescriptions[j].IndexName
+			})
+		}
 	}
 
 	replicas := make([]types.ReplicaAutoScalingDescription, 0, len(table.Replicas))
@@ -181,6 +184,7 @@ func replicaAutoScalingDescriptionsRLocked(table *Table) (string, []types.Replic
 			RegionName:    &region,
 			ReplicaStatus: types.ReplicaStatus(status),
 			ReplicaProvisionedWriteCapacityAutoScalingSettings: write,
+			GlobalSecondaryIndexes:                             gsiDescriptions,
 		})
 	}
 

@@ -372,6 +372,7 @@ const (
 // DirectoryVpcSettings holds VPC networking settings for a directory.
 type DirectoryVpcSettings struct {
 	VpcID             string
+	SecurityGroupID   string
 	SubnetIDs         []string
 	SecurityGroupIDs  []string
 	AvailabilityZones []string

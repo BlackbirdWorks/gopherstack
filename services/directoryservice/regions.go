@@ -34,9 +34,18 @@ func (b *InMemoryBackend) AddRegion(
 
 	var storedVpc *storedVpcSettings
 	if vpcSettings != nil {
+		secGroupID := vpcSettings.SecurityGroupID
+		if secGroupID == "" {
+			if len(vpcSettings.SecurityGroupIDs) > 0 {
+				secGroupID = vpcSettings.SecurityGroupIDs[0]
+			} else {
+				secGroupID = synthesizeSecurityGroupID(directoryID)
+			}
+		}
 		storedVpc = &storedVpcSettings{
 			VpcID:             vpcSettings.VpcID,
 			SubnetIDs:         vpcSettings.SubnetIDs,
+			SecurityGroupID:   secGroupID,
 			SecurityGroupIDs:  vpcSettings.SecurityGroupIDs,
 			AvailabilityZones: vpcSettings.AvailabilityZones,
 		}
@@ -110,6 +119,7 @@ func (b *InMemoryBackend) DescribeRegions(
 		if r.VpcSettings != nil {
 			vpcSettings = &DirectoryVpcSettings{
 				VpcID:             r.VpcSettings.VpcID,
+				SecurityGroupID:   r.VpcSettings.SecurityGroupID,
 				SubnetIDs:         r.VpcSettings.SubnetIDs,
 				SecurityGroupIDs:  r.VpcSettings.SecurityGroupIDs,
 				AvailabilityZones: r.VpcSettings.AvailabilityZones,

@@ -111,3 +111,78 @@ func TestUpdateTableReplicaAutoScaling_ProvisionedWriteCapacityAutoScalingUpdate
 	assert.Equal(t, int64(5), aws.ToInt64(descSettings.MinimumUnits))
 	assert.Equal(t, int64(500), aws.ToInt64(descSettings.MaximumUnits))
 }
+
+func TestUpdateTableReplicaAutoScaling_GlobalSecondaryIndexUpdates_RoundTrip(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		indexName string
+		minUnits  int64
+		maxUnits  int64
+		disabled  bool
+	}{
+		{
+			name:      "single_gsi_autoscaling",
+			indexName: "gsi-1",
+			minUnits:  10,
+			maxUnits:  1000,
+			disabled:  false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			client := newTestDynamoDBClient(t, dynamodb.NewHandler(dynamodb.NewInMemoryDB()))
+
+			_, err := client.CreateGlobalTable(t.Context(), &sdk.CreateGlobalTableInput{
+				GlobalTableName: aws.String("gt-gsi-table"),
+				ReplicationGroup: []types.Replica{
+					{RegionName: aws.String("us-east-1")},
+					{RegionName: aws.String("eu-west-1")},
+				},
+			})
+			require.NoError(t, err)
+
+			out, err := client.UpdateTableReplicaAutoScaling(t.Context(), &sdk.UpdateTableReplicaAutoScalingInput{
+				TableName: aws.String("gt-gsi-table"),
+				GlobalSecondaryIndexUpdates: []types.GlobalSecondaryIndexAutoScalingUpdate{
+					{
+						IndexName: aws.String(tt.indexName),
+						ProvisionedWriteCapacityAutoScalingUpdate: &types.AutoScalingSettingsUpdate{
+							MinimumUnits:        aws.Int64(tt.minUnits),
+							MaximumUnits:        aws.Int64(tt.maxUnits),
+							AutoScalingDisabled: aws.Bool(tt.disabled),
+						},
+					},
+				},
+			})
+			require.NoError(t, err)
+			require.NotNil(t, out.TableAutoScalingDescription)
+			require.Len(t, out.TableAutoScalingDescription.Replicas, 1)
+			require.Len(t, out.TableAutoScalingDescription.Replicas[0].GlobalSecondaryIndexes, 1)
+
+			gsi := out.TableAutoScalingDescription.Replicas[0].GlobalSecondaryIndexes[0]
+			assert.Equal(t, tt.indexName, aws.ToString(gsi.IndexName))
+			require.NotNil(t, gsi.ProvisionedWriteCapacityAutoScalingSettings)
+			assert.Equal(t, tt.minUnits, aws.ToInt64(gsi.ProvisionedWriteCapacityAutoScalingSettings.MinimumUnits))
+			assert.Equal(t, tt.maxUnits, aws.ToInt64(gsi.ProvisionedWriteCapacityAutoScalingSettings.MaximumUnits))
+
+			desc, err := client.DescribeTableReplicaAutoScaling(t.Context(), &sdk.DescribeTableReplicaAutoScalingInput{
+				TableName: aws.String("gt-gsi-table"),
+			})
+			require.NoError(t, err)
+			require.NotNil(t, desc.TableAutoScalingDescription)
+			require.Len(t, desc.TableAutoScalingDescription.Replicas, 1)
+			require.Len(t, desc.TableAutoScalingDescription.Replicas[0].GlobalSecondaryIndexes, 1)
+
+			descGsi := desc.TableAutoScalingDescription.Replicas[0].GlobalSecondaryIndexes[0]
+			assert.Equal(t, tt.indexName, aws.ToString(descGsi.IndexName))
+			require.NotNil(t, descGsi.ProvisionedWriteCapacityAutoScalingSettings)
+			assert.Equal(t, tt.minUnits, aws.ToInt64(descGsi.ProvisionedWriteCapacityAutoScalingSettings.MinimumUnits))
+			assert.Equal(t, tt.maxUnits, aws.ToInt64(descGsi.ProvisionedWriteCapacityAutoScalingSettings.MaximumUnits))
+		})
+	}
+}

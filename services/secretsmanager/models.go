@@ -88,16 +88,17 @@ type RotationRulesType struct {
 
 // CreateSecretInput is the request payload for CreateSecret.
 type CreateSecretInput struct {
-	Name               string          `json:"Name"`
-	Description        string          `json:"Description,omitempty"`
-	SecretString       string          `json:"SecretString,omitempty"`
-	ClientRequestToken string          `json:"ClientRequestToken,omitempty"`
-	KmsKeyID           string          `json:"KmsKeyId,omitempty"`
-	Region             string          `json:"-"`
-	Type               string          `json:"Type,omitempty"`
-	SecretBinary       []byte          `json:"SecretBinary,omitempty"`
-	Tags               []Tag           `json:"Tags,omitempty"`
-	AddReplicaRegions  []ReplicaRegion `json:"AddReplicaRegions,omitempty"`
+	Name                        string          `json:"Name"`
+	Description                 string          `json:"Description,omitempty"`
+	SecretString                string          `json:"SecretString,omitempty"`
+	ClientRequestToken          string          `json:"ClientRequestToken,omitempty"`
+	KmsKeyID                    string          `json:"KmsKeyId,omitempty"`
+	Region                      string          `json:"-"`
+	Type                        string          `json:"Type,omitempty"`
+	SecretBinary                []byte          `json:"SecretBinary,omitempty"`
+	Tags                        []Tag           `json:"Tags,omitempty"`
+	AddReplicaRegions           []ReplicaRegion `json:"AddReplicaRegions,omitempty"`
+	ForceOverwriteReplicaSecret bool            `json:"ForceOverwriteReplicaSecret,omitempty"`
 }
 
 // Tag represents a key/value tag pair in the Secrets Manager wire format.
@@ -156,6 +157,7 @@ type PutSecretValueInput struct {
 	SecretString       string `json:"SecretString,omitempty"`
 	ClientRequestToken string `json:"ClientRequestToken,omitempty"`
 	SecretBinary       []byte `json:"SecretBinary,omitempty"`
+	RotationToken      string `json:"RotationToken,omitempty"`
 	// VersionStages are the staging labels to attach to the new version.
 	// AWSCURRENT is always added; AWSPENDING is a common value during rotation.
 	VersionStages []string `json:"VersionStages,omitempty"`

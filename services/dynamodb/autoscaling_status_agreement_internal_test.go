@@ -200,7 +200,7 @@ func TestTableAutoScaling_TableStatusSourcedFromSameField(t *testing.T) {
 				mu:     lockmetrics.New("test.table"),
 			}
 
-			_, updStatus, _, _ := applyAutoScalingSettingsLocked(
+			_, updStatus := applyAutoScalingSettingsLocked(
 				table,
 				&sdkdynamodb.UpdateTableReplicaAutoScalingInput{TableName: aws.String(table.Name)},
 			)
