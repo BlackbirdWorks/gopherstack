@@ -135,7 +135,17 @@ func TestIAMEnforcement(t *testing.T) {
 			accessKeyID: "AKIABEDROCKAGENTUSER2",
 			method:      "PUT",
 			path:        "/knowledgebases",
-			body:        `{"name":"test-kb","roleArn":"arn:aws:iam::000000000000:role/role","knowledgeBaseConfiguration":{"type":"VECTOR"},"storageConfiguration":{"type":"OPENSEARCH_SERVERLESS"}}`,
+			body: `
+				{
+				  "name": "test-kb",
+				  "roleArn": "arn:aws:iam::000000000000:role/role",
+				  "knowledgeBaseConfiguration": {
+				    "type": "VECTOR"
+				  },
+				  "storageConfiguration": {
+				    "type": "OPENSEARCH_SERVERLESS"
+				  }
+				}`,
 			setupBackend: func(b *mockBEDROCKAGENTIAMBackend) {
 				b.users["user2"] = &iam.User{UserName: "user2"}
 				b.keyMap["AKIABEDROCKAGENTUSER2"] = "user2"

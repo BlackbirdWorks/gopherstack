@@ -135,7 +135,20 @@ func TestIAMEnforcement(t *testing.T) {
 			accessKeyID: "AKIAMWAAUSER2",
 			method:      "POST",
 			path:        "/environments/test-env",
-			body:        `{"DagS3Path":"dags","ExecutionRoleArn":"arn:aws:iam::000000000000:role/role","NetworkConfiguration":{"SubnetIds":["subnet-1"],"SecurityGroupIds":["sg-1"]},"SourceBucketArn":"arn:aws:s3:::bucket"}`,
+			body: `
+				{
+				  "DagS3Path": "dags",
+				  "ExecutionRoleArn": "arn:aws:iam::000000000000:role/role",
+				  "NetworkConfiguration": {
+				    "SubnetIds": [
+				      "subnet-1"
+				    ],
+				    "SecurityGroupIds": [
+				      "sg-1"
+				    ]
+				  },
+				  "SourceBucketArn": "arn:aws:s3:::bucket"
+				}`,
 			setupBackend: func(b *mockMWAAIAMBackend) {
 				b.users["user2"] = &iam.User{UserName: "user2"}
 				b.keyMap["AKIAMWAAUSER2"] = "user2"

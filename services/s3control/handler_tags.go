@@ -21,7 +21,7 @@ func extractTagOps(path, method string) string {
 		return "UntagResource"
 	}
 
-	return "Unknown"
+	return opUnknown
 }
 
 // dispatchTagDispatch handles resource tagging dispatch.

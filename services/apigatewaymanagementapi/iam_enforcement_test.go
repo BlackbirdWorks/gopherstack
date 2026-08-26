@@ -58,7 +58,10 @@ func (m *mockAPIGATEWAYMANAGEMENTAPIIAMBackend) GetGroupPoliciesForUser(_ string
 	return nil, nil
 }
 
-func setupAPIGATEWAYMANAGEMENTAPIEnforcementServer(t *testing.T, iamBackend *mockAPIGATEWAYMANAGEMENTAPIIAMBackend) *httptest.Server {
+func setupAPIGATEWAYMANAGEMENTAPIEnforcementServer(
+	t *testing.T,
+	iamBackend *mockAPIGATEWAYMANAGEMENTAPIIAMBackend,
+) *httptest.Server {
 	t.Helper()
 
 	backend := apigatewaymanagementapi.NewInMemoryBackend()

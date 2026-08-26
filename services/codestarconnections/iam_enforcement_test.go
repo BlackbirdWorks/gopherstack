@@ -58,7 +58,10 @@ func (m *mockCODESTARCONNECTIONSIAMBackend) GetGroupPoliciesForUser(_ string) ([
 	return nil, nil
 }
 
-func setupCODESTARCONNECTIONSEnforcementServer(t *testing.T, iamBackend *mockCODESTARCONNECTIONSIAMBackend) *httptest.Server {
+func setupCODESTARCONNECTIONSEnforcementServer(
+	t *testing.T,
+	iamBackend *mockCODESTARCONNECTIONSIAMBackend,
+) *httptest.Server {
 	t.Helper()
 
 	backend := codestarconnections.NewInMemoryBackend("000000000000", "us-east-1")

@@ -135,7 +135,20 @@ func TestIAMEnforcement(t *testing.T) {
 			accessKeyID: "AKIAMQUSER2",
 			method:      "POST",
 			path:        "/v1/brokers",
-			body:        `{"brokerName":"test-b","engineType":"ACTIVEMQ","engineVersion":"5.17.6","hostInstanceType":"mq.t3.micro","deploymentMode":"SINGLE_INSTANCE","users":[{"username":"u","password":"p"}]}`,
+			body: `
+				{
+				  "brokerName": "test-b",
+				  "engineType": "ACTIVEMQ",
+				  "engineVersion": "5.17.6",
+				  "hostInstanceType": "mq.t3.micro",
+				  "deploymentMode": "SINGLE_INSTANCE",
+				  "users": [
+				    {
+				      "username": "u",
+				      "password": "p"
+				    }
+				  ]
+				}`,
 			setupBackend: func(b *mockMQIAMBackend) {
 				b.users["user2"] = &iam.User{UserName: "user2"}
 				b.keyMap["AKIAMQUSER2"] = "user2"

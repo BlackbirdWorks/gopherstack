@@ -135,7 +135,17 @@ func TestIAMEnforcement(t *testing.T) {
 			accessKeyID: "AKIAFISUSER2",
 			method:      "POST",
 			path:        "/experimentTemplates",
-			body:        `{"description":"desc","roleArn":"arn:aws:iam::000000000000:role/role","actions":{},"stopConditions":[{"source":"none"}]}`,
+			body: `
+				{
+				  "description": "desc",
+				  "roleArn": "arn:aws:iam::000000000000:role/role",
+				  "actions": {},
+				  "stopConditions": [
+				    {
+				      "source": "none"
+				    }
+				  ]
+				}`,
 			setupBackend: func(b *mockFISIAMBackend) {
 				b.users["user2"] = &iam.User{UserName: "user2"}
 				b.keyMap["AKIAFISUSER2"] = "user2"

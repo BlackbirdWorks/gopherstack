@@ -13,8 +13,8 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
-	"github.com/blackbirdworks/gopherstack/services/scheduler"
 	"github.com/blackbirdworks/gopherstack/services/iam"
+	"github.com/blackbirdworks/gopherstack/services/scheduler"
 )
 
 var errNoSuchEntity = errors.New("NoSuchEntity")
@@ -129,7 +129,18 @@ func TestIAMEnforcement(t *testing.T) {
 			name:        "denied_action_returns_access_denied",
 			accessKeyID: "AKIASCHEDULERUSER2",
 			target:      "AWSScheduler.CreateSchedule",
-			body:        `{"Name":"test-sch","ScheduleExpression":"rate(1 minute)","FlexibleTimeWindow":{"Mode":"OFF"},"Target":{"Arn":"arn:aws:sqs:us-east-1:000000000000:q","RoleArn":"arn:aws:iam::000000000000:role/r"}}`,
+			body: `
+				{
+				  "Name": "test-sch",
+				  "ScheduleExpression": "rate(1 minute)",
+				  "FlexibleTimeWindow": {
+				    "Mode": "OFF"
+				  },
+				  "Target": {
+				    "Arn": "arn:aws:sqs:us-east-1:000000000000:q",
+				    "RoleArn": "arn:aws:iam::000000000000:role/r"
+				  }
+				}`,
 			setupBackend: func(b *mockSCHEDULERIAMBackend) {
 				b.users["user2"] = &iam.User{UserName: "user2"}
 				b.keyMap["AKIASCHEDULERUSER2"] = "user2"

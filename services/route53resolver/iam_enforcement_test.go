@@ -13,8 +13,8 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
-	"github.com/blackbirdworks/gopherstack/services/route53resolver"
 	"github.com/blackbirdworks/gopherstack/services/iam"
+	"github.com/blackbirdworks/gopherstack/services/route53resolver"
 )
 
 var errNoSuchEntity = errors.New("NoSuchEntity")
@@ -129,7 +129,19 @@ func TestIAMEnforcement(t *testing.T) {
 			name:        "denied_action_returns_access_denied",
 			accessKeyID: "AKIAROUTE53RESOLVERUSER2",
 			target:      "Route53Resolver.CreateResolverEndpoint",
-			body:        `{"CreatorRequestId":"req-1","SecurityGroupIds":["sg-123"],"Direction":"INBOUND","IpAddresses":[{"SubnetId":"subnet-123"}]}`,
+			body: `
+				{
+				  "CreatorRequestId": "req-1",
+				  "SecurityGroupIds": [
+				    "sg-123"
+				  ],
+				  "Direction": "INBOUND",
+				  "IpAddresses": [
+				    {
+				      "SubnetId": "subnet-123"
+				    }
+				  ]
+				}`,
 			setupBackend: func(b *mockROUTE53RESOLVERIAMBackend) {
 				b.users["user2"] = &iam.User{UserName: "user2"}
 				b.keyMap["AKIAROUTE53RESOLVERUSER2"] = "user2"

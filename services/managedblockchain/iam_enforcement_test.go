@@ -58,7 +58,10 @@ func (m *mockMANAGEDBLOCKCHAINIAMBackend) GetGroupPoliciesForUser(_ string) ([]s
 	return nil, nil
 }
 
-func setupMANAGEDBLOCKCHAINEnforcementServer(t *testing.T, iamBackend *mockMANAGEDBLOCKCHAINIAMBackend) *httptest.Server {
+func setupMANAGEDBLOCKCHAINEnforcementServer(
+	t *testing.T,
+	iamBackend *mockMANAGEDBLOCKCHAINIAMBackend,
+) *httptest.Server {
 	t.Helper()
 
 	backend := managedblockchain.NewInMemoryBackend()
@@ -135,7 +138,27 @@ func TestIAMEnforcement(t *testing.T) {
 			accessKeyID: "AKIAMANAGEDBLOCKCHAINUSER2",
 			method:      "POST",
 			path:        "/networks",
-			body:        `{"Name":"test-n","Framework":"HYPERLEDGER_FABRIC","FrameworkVersion":"2.2","VotingPolicy":{"ApprovalThresholdPolicy":{"ThresholdPercentage":50,"ProposalDurationInHours":24,"ThresholdComparator":"GREATER_THAN"}},"MemberConfiguration":{"Name":"m1","FrameworkConfiguration":{"Fabric":{"AdminPassword":"password1"}}}}`,
+			body: `
+				{
+				  "Name": "test-n",
+				  "Framework": "HYPERLEDGER_FABRIC",
+				  "FrameworkVersion": "2.2",
+				  "VotingPolicy": {
+				    "ApprovalThresholdPolicy": {
+				      "ThresholdPercentage": 50,
+				      "ProposalDurationInHours": 24,
+				      "ThresholdComparator": "GREATER_THAN"
+				    }
+				  },
+				  "MemberConfiguration": {
+				    "Name": "m1",
+				    "FrameworkConfiguration": {
+				      "Fabric": {
+				        "AdminPassword": "password1"
+				      }
+				    }
+				  }
+				}`,
 			setupBackend: func(b *mockMANAGEDBLOCKCHAINIAMBackend) {
 				b.users["user2"] = &iam.User{UserName: "user2"}
 				b.keyMap["AKIAMANAGEDBLOCKCHAINUSER2"] = "user2"

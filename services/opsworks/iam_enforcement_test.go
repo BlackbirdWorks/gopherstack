@@ -129,7 +129,12 @@ func TestIAMEnforcement(t *testing.T) {
 			name:        "denied_action_returns_access_denied",
 			accessKeyID: "AKIAOPSWORKSUSER2",
 			target:      "OpsWorks_20130218.CreateStack",
-			body:        `{"Name":"test-stack","ServiceRoleArn":"arn:aws:iam::000000000000:role/role","DefaultInstanceProfileArn":"arn:aws:iam::000000000000:instance-profile/ip"}`,
+			body: `
+				{
+				  "Name": "test-stack",
+				  "ServiceRoleArn": "arn:aws:iam::000000000000:role/role",
+				  "DefaultInstanceProfileArn": "arn:aws:iam::000000000000:instance-profile/ip"
+				}`,
 			setupBackend: func(b *mockOPSWORKSIAMBackend) {
 				b.users["user2"] = &iam.User{UserName: "user2"}
 				b.keyMap["AKIAOPSWORKSUSER2"] = "user2"

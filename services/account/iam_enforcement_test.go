@@ -135,7 +135,17 @@ func TestIAMEnforcement(t *testing.T) {
 			accessKeyID: "AKIAACCOUNTUSER2",
 			method:      "POST",
 			path:        "/putContactInformation",
-			body:        `{"contactInformation":{"addressLine1":"123","city":"City","countryCode":"US","fullName":"Name","phoneNumber":"123","postalCode":"12345"}}`,
+			body: `
+				{
+				  "contactInformation": {
+				    "addressLine1": "123",
+				    "city": "City",
+				    "countryCode": "US",
+				    "fullName": "Name",
+				    "phoneNumber": "123",
+				    "postalCode": "12345"
+				  }
+				}`,
 			setupBackend: func(b *mockACCOUNTIAMBackend) {
 				b.users["user2"] = &iam.User{UserName: "user2"}
 				b.keyMap["AKIAACCOUNTUSER2"] = "user2"

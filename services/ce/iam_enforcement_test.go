@@ -117,7 +117,17 @@ func TestIAMEnforcement(t *testing.T) {
 			name:        "allowed_action_succeeds",
 			accessKeyID: "AKIACEUSER1",
 			target:      "AWSInsightsIndexService.GetCostAndUsage",
-			body:        `{"TimePeriod":{"Start":"2026-01-01","End":"2026-01-02"},"Granularity":"DAILY","Metrics":["UnblendedCost"]}`,
+			body: `
+				{
+				  "TimePeriod": {
+				    "Start": "2026-01-01",
+				    "End": "2026-01-02"
+				  },
+				  "Granularity": "DAILY",
+				  "Metrics": [
+				    "UnblendedCost"
+				  ]
+				}`,
 			setupBackend: func(b *mockCEIAMBackend) {
 				b.users["user1"] = &iam.User{UserName: "user1"}
 				b.keyMap["AKIACEUSER1"] = "user1"

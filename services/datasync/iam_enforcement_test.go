@@ -129,7 +129,11 @@ func TestIAMEnforcement(t *testing.T) {
 			name:        "denied_action_returns_access_denied",
 			accessKeyID: "AKIADATASYNCUSER2",
 			target:      "FmrsService.CreateTask",
-			body:        `{"SourceLocationArn":"arn:aws:datasync:us-east-1:000000000000:location/loc-1","DestinationLocationArn":"arn:aws:datasync:us-east-1:000000000000:location/loc-2"}`,
+			body: `
+				{
+				  "SourceLocationArn": "arn:aws:datasync:us-east-1:000000000000:location/loc-1",
+				  "DestinationLocationArn": "arn:aws:datasync:us-east-1:000000000000:location/loc-2"
+				}`,
 			setupBackend: func(b *mockDATASYNCIAMBackend) {
 				b.users["user2"] = &iam.User{UserName: "user2"}
 				b.keyMap["AKIADATASYNCUSER2"] = "user2"

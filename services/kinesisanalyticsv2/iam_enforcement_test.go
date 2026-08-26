@@ -58,7 +58,10 @@ func (m *mockKINESISANALYTICSV2IAMBackend) GetGroupPoliciesForUser(_ string) ([]
 	return nil, nil
 }
 
-func setupKINESISANALYTICSV2EnforcementServer(t *testing.T, iamBackend *mockKINESISANALYTICSV2IAMBackend) *httptest.Server {
+func setupKINESISANALYTICSV2EnforcementServer(
+	t *testing.T,
+	iamBackend *mockKINESISANALYTICSV2IAMBackend,
+) *httptest.Server {
 	t.Helper()
 
 	backend := kinesisanalyticsv2.NewInMemoryBackend("000000000000", "us-east-1")
@@ -129,7 +132,12 @@ func TestIAMEnforcement(t *testing.T) {
 			name:        "denied_action_returns_access_denied",
 			accessKeyID: "AKIAKINESISANALYTICSV2USER2",
 			target:      "KinesisAnalytics_20180523.CreateApplication",
-			body:        `{"ApplicationName":"test-app","RuntimeEnvironment":"FLINK-1_15","ServiceExecutionRole":"arn:aws:iam::000000000000:role/role"}`,
+			body: `
+				{
+				  "ApplicationName": "test-app",
+				  "RuntimeEnvironment": "FLINK-1_15",
+				  "ServiceExecutionRole": "arn:aws:iam::000000000000:role/role"
+				}`,
 			setupBackend: func(b *mockKINESISANALYTICSV2IAMBackend) {
 				b.users["user2"] = &iam.User{UserName: "user2"}
 				b.keyMap["AKIAKINESISANALYTICSV2USER2"] = "user2"

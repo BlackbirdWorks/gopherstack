@@ -135,7 +135,12 @@ func TestIAMEnforcement(t *testing.T) {
 			accessKeyID: "AKIAPIPESUSER2",
 			method:      "POST",
 			path:        "/v1/pipes/p1",
-			body:        `{"RoleArn":"arn:aws:iam::000000000000:role/r","Source":"arn:aws:sqs:us-east-1:000000000000:q","Target":"arn:aws:sqs:us-east-1:000000000000:q2"}`,
+			body: `
+				{
+				  "RoleArn": "arn:aws:iam::000000000000:role/r",
+				  "Source": "arn:aws:sqs:us-east-1:000000000000:q",
+				  "Target": "arn:aws:sqs:us-east-1:000000000000:q2"
+				}`,
 			setupBackend: func(b *mockPIPESIAMBackend) {
 				b.users["user2"] = &iam.User{UserName: "user2"}
 				b.keyMap["AKIAPIPESUSER2"] = "user2"

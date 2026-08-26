@@ -13,8 +13,8 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
-	"github.com/blackbirdworks/gopherstack/services/redshift"
 	"github.com/blackbirdworks/gopherstack/services/iam"
+	"github.com/blackbirdworks/gopherstack/services/redshift"
 )
 
 var errNoSuchEntity = errors.New("NoSuchEntity")
@@ -126,7 +126,9 @@ func TestIAMEnforcement(t *testing.T) {
 		{
 			name:        "denied_action_returns_access_denied",
 			accessKeyID: "AKIAREDSHIFTUSER2",
-			body:        "Action=CreateCluster&ClusterIdentifier=test-cl&NodeType=dc2.large&MasterUsername=admin&MasterUserPassword=Pass1234&Version=2012-12-01",
+			body: "Action=CreateCluster&ClusterIdentifier=test-cl&" +
+				"NodeType=dc2.large&MasterUsername=admin&" +
+				"MasterUserPassword=Pass1234&Version=2012-12-01",
 			setupBackend: func(b *mockREDSHIFTIAMBackend) {
 				b.users["user2"] = &iam.User{UserName: "user2"}
 				b.keyMap["AKIAREDSHIFTUSER2"] = "user2"

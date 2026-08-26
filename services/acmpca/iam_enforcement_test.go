@@ -129,7 +129,17 @@ func TestIAMEnforcement(t *testing.T) {
 			name:        "denied_action_returns_access_denied",
 			accessKeyID: "AKIAACMPCAUSER2",
 			target:      "ACMPrivateCA.CreateCertificateAuthority",
-			body:        `{"CertificateAuthorityConfiguration":{"KeyAlgorithm":"RSA_2048","SigningAlgorithm":"SHA256WITHRSA","Subject":{"CommonName":"test"}},"CertificateAuthorityType":"ROOT"}`,
+			body: `
+				{
+				  "CertificateAuthorityConfiguration": {
+				    "KeyAlgorithm": "RSA_2048",
+				    "SigningAlgorithm": "SHA256WITHRSA",
+				    "Subject": {
+				      "CommonName": "test"
+				    }
+				  },
+				  "CertificateAuthorityType": "ROOT"
+				}`,
 			setupBackend: func(b *mockACMPCAIAMBackend) {
 				b.users["user2"] = &iam.User{UserName: "user2"}
 				b.keyMap["AKIAACMPCAUSER2"] = "user2"

@@ -135,7 +135,19 @@ func TestIAMEnforcement(t *testing.T) {
 			accessKeyID: "AKIABEDROCKUSER2",
 			method:      "POST",
 			path:        "/custom-models",
-			body:        `{"jobName":"test-job","customModelName":"model","roleArn":"arn:aws:iam::000000000000:role/role","baseModelIdentifier":"base","trainingDataConfig":{"s3Uri":"s3://b/k"},"outputDataConfig":{"s3Uri":"s3://b/k"}}`,
+			body: `
+				{
+				  "jobName": "test-job",
+				  "customModelName": "model",
+				  "roleArn": "arn:aws:iam::000000000000:role/role",
+				  "baseModelIdentifier": "base",
+				  "trainingDataConfig": {
+				    "s3Uri": "s3://b/k"
+				  },
+				  "outputDataConfig": {
+				    "s3Uri": "s3://b/k"
+				  }
+				}`,
 			setupBackend: func(b *mockBEDROCKIAMBackend) {
 				b.users["user2"] = &iam.User{UserName: "user2"}
 				b.keyMap["AKIABEDROCKUSER2"] = "user2"

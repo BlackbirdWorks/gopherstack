@@ -135,7 +135,14 @@ func TestIAMEnforcement(t *testing.T) {
 			accessKeyID: "AKIADLMUSER2",
 			method:      "POST",
 			path:        "/policies",
-			body:        `{"Description":"desc","ExecutionRoleArn":"arn:aws:iam::000000000000:role/r","PolicyDetails":{"PolicyType":"EBS_SNAPSHOT_MANAGEMENT"}}`,
+			body: `
+				{
+				  "Description": "desc",
+				  "ExecutionRoleArn": "arn:aws:iam::000000000000:role/r",
+				  "PolicyDetails": {
+				    "PolicyType": "EBS_SNAPSHOT_MANAGEMENT"
+				  }
+				}`,
 			setupBackend: func(b *mockDLMIAMBackend) {
 				b.users["user2"] = &iam.User{UserName: "user2"}
 				b.keyMap["AKIADLMUSER2"] = "user2"

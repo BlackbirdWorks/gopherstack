@@ -126,7 +126,9 @@ func TestIAMEnforcement(t *testing.T) {
 		{
 			name:        "denied_action_returns_access_denied",
 			accessKeyID: "AKIADOCDBUSER2",
-			body:        "Action=CreateDBCluster&DBClusterIdentifier=test-cluster&Engine=docdb&MasterUsername=admin&MasterUserPassword=Pass1234&Version=2014-10-31",
+			body: "Action=CreateDBCluster&DBClusterIdentifier=test-cluster&" +
+				"Engine=docdb&MasterUsername=admin&" +
+				"MasterUserPassword=Pass1234&Version=2014-10-31",
 			setupBackend: func(b *mockDOCDBIAMBackend) {
 				b.users["user2"] = &iam.User{UserName: "user2"}
 				b.keyMap["AKIADOCDBUSER2"] = "user2"

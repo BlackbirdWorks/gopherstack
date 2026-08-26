@@ -58,7 +58,10 @@ func (m *mockAPPLICATIONAUTOSCALINGIAMBackend) GetGroupPoliciesForUser(_ string)
 	return nil, nil
 }
 
-func setupAPPLICATIONAUTOSCALINGEnforcementServer(t *testing.T, iamBackend *mockAPPLICATIONAUTOSCALINGIAMBackend) *httptest.Server {
+func setupAPPLICATIONAUTOSCALINGEnforcementServer(
+	t *testing.T,
+	iamBackend *mockAPPLICATIONAUTOSCALINGIAMBackend,
+) *httptest.Server {
 	t.Helper()
 
 	backend := applicationautoscaling.NewInMemoryBackend("000000000000", "us-east-1")
@@ -129,7 +132,12 @@ func TestIAMEnforcement(t *testing.T) {
 			name:        "denied_action_returns_access_denied",
 			accessKeyID: "AKIAAPPLICATIONAUTOSCALINGUSER2",
 			target:      "AnyScaleFrontendService.RegisterScalableTarget",
-			body:        `{"ServiceNamespace":"ecs","ResourceId":"service/default/web","ScalableDimension":"ecs:service:DesiredCount"}`,
+			body: `
+				{
+				  "ServiceNamespace": "ecs",
+				  "ResourceId": "service/default/web",
+				  "ScalableDimension": "ecs:service:DesiredCount"
+				}`,
 			setupBackend: func(b *mockAPPLICATIONAUTOSCALINGIAMBackend) {
 				b.users["user2"] = &iam.User{UserName: "user2"}
 				b.keyMap["AKIAAPPLICATIONAUTOSCALINGUSER2"] = "user2"

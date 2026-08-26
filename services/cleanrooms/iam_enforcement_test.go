@@ -135,7 +135,16 @@ func TestIAMEnforcement(t *testing.T) {
 			accessKeyID: "AKIACLEANROOMSUSER2",
 			method:      "POST",
 			path:        "/collaborations",
-			body:        `{"name":"test-collab","creatorMemberAbilities":["CAN_QUERY"],"creatorDisplayName":"creator","members":[],"queryLogStatus":"DISABLED"}`,
+			body: `
+				{
+				  "name": "test-collab",
+				  "creatorMemberAbilities": [
+				    "CAN_QUERY"
+				  ],
+				  "creatorDisplayName": "creator",
+				  "members": [],
+				  "queryLogStatus": "DISABLED"
+				}`,
 			setupBackend: func(b *mockCLEANROOMSIAMBackend) {
 				b.users["user2"] = &iam.User{UserName: "user2"}
 				b.keyMap["AKIACLEANROOMSUSER2"] = "user2"

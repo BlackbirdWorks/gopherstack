@@ -129,7 +129,15 @@ func TestIAMEnforcement(t *testing.T) {
 			name:        "denied_action_returns_access_denied",
 			accessKeyID: "AKIALIGHTSAILUSER2",
 			target:      "Lightsail_20161128.CreateInstances",
-			body:        `{"instanceNames":["test-inst"],"availabilityZone":"us-east-1a","blueprintId":"amazon_linux_2","bundleId":"nano_2_0"}`,
+			body: `
+				{
+				  "instanceNames": [
+				    "test-inst"
+				  ],
+				  "availabilityZone": "us-east-1a",
+				  "blueprintId": "amazon_linux_2",
+				  "bundleId": "nano_2_0"
+				}`,
 			setupBackend: func(b *mockLIGHTSAILIAMBackend) {
 				b.users["user2"] = &iam.User{UserName: "user2"}
 				b.keyMap["AKIALIGHTSAILUSER2"] = "user2"

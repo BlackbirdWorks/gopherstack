@@ -13,8 +13,8 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
-	"github.com/blackbirdworks/gopherstack/services/neptune"
 	"github.com/blackbirdworks/gopherstack/services/iam"
+	"github.com/blackbirdworks/gopherstack/services/neptune"
 )
 
 var errNoSuchEntity = errors.New("NoSuchEntity")

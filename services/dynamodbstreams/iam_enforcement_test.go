@@ -59,7 +59,10 @@ func (m *mockDDBSTREAMSSTREAMSIAMBackend) GetGroupPoliciesForUser(_ string) ([]s
 	return nil, nil
 }
 
-func setupDDBSTREAMSSTREAMSEnforcementServer(t *testing.T, iamBackend *mockDDBSTREAMSSTREAMSIAMBackend) *httptest.Server {
+func setupDDBSTREAMSSTREAMSEnforcementServer(
+	t *testing.T,
+	iamBackend *mockDDBSTREAMSSTREAMSIAMBackend,
+) *httptest.Server {
 	t.Helper()
 
 	backend := dynamodb.NewInMemoryDB()

@@ -129,7 +129,22 @@ func TestIAMEnforcement(t *testing.T) {
 			name:        "denied_action_returns_access_denied",
 			accessKeyID: "AKIACODEBUILDUSER2",
 			target:      "CodeBuild_20161006.CreateProject",
-			body:        `{"name":"test-proj","source":{"type":"NO_SOURCE"},"artifacts":{"type":"NO_ARTIFACTS"},"environment":{"type":"LINUX_CONTAINER","image":"aws/codebuild/standard:5.0","computeType":"BUILD_GENERAL1_SMALL"},"serviceRole":"arn:aws:iam::000000000000:role/service-role"}`,
+			body: `
+				{
+				  "name": "test-proj",
+				  "source": {
+				    "type": "NO_SOURCE"
+				  },
+				  "artifacts": {
+				    "type": "NO_ARTIFACTS"
+				  },
+				  "environment": {
+				    "type": "LINUX_CONTAINER",
+				    "image": "aws/codebuild/standard:5.0",
+				    "computeType": "BUILD_GENERAL1_SMALL"
+				  },
+				  "serviceRole": "arn:aws:iam::000000000000:role/service-role"
+				}`,
 			setupBackend: func(b *mockCODEBUILDIAMBackend) {
 				b.users["user2"] = &iam.User{UserName: "user2"}
 				b.keyMap["AKIACODEBUILDUSER2"] = "user2"

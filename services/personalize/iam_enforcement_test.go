@@ -129,7 +129,14 @@ func TestIAMEnforcement(t *testing.T) {
 			name:        "denied_action_returns_access_denied",
 			accessKeyID: "AKIAPERSONALIZEUSER2",
 			target:      "AmazonPersonalizeRuntime.GetPersonalizedRanking",
-			body:        `{"campaignArn":"arn:aws:personalize:us-east-1:000000000000:campaign/c","inputList":["1"],"userId":"u"}`,
+			body: `
+				{
+				  "campaignArn": "arn:aws:personalize:us-east-1:000000000000:campaign/c",
+				  "inputList": [
+				    "1"
+				  ],
+				  "userId": "u"
+				}`,
 			setupBackend: func(b *mockPERSONALIZEIAMBackend) {
 				b.users["user2"] = &iam.User{UserName: "user2"}
 				b.keyMap["AKIAPERSONALIZEUSER2"] = "user2"

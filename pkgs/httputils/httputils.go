@@ -501,15 +501,30 @@ func ScopedPrefixMatch(r *http.Request, path, prefix, serviceName string) bool {
 	return scope == "" || scope == serviceName
 }
 
+func isAllowedHeaderSpecial(c rune) bool {
+	switch c {
+	case '-', '_', '.', '+', '/', '=', ':', '~':
+		return true
+	default:
+		return false
+	}
+}
+
+func isAllowedHeaderChar(c rune) bool {
+	if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') {
+		return true
+	}
+
+	return isAllowedHeaderSpecial(c)
+}
+
 // SanitizeHeaderString removes control characters and unexpected characters while
 // preserving alphanumeric, hyphens, underscores, periods, and base64/ARN characters (+, /, =, :, ~).
 // This breaks the taint for static analysis tools like CodeQL which flag raw header values in logs.
 func SanitizeHeaderString(s string) string {
 	var b strings.Builder
 	for _, c := range s {
-		if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
-			(c >= '0' && c <= '9') || c == '-' || c == '_' || c == '.' ||
-			c == '+' || c == '/' || c == '=' || c == ':' || c == '~' {
+		if isAllowedHeaderChar(c) {
 			b.WriteRune(c)
 		}
 	}

@@ -126,7 +126,8 @@ func TestIAMEnforcement(t *testing.T) {
 		{
 			name:        "denied_action_returns_access_denied",
 			accessKeyID: "AKIARDSUSER2",
-			body:        "Action=CreateDBInstance&DBInstanceIdentifier=test-db&DBInstanceClass=db.t3.micro&Engine=mysql&Version=2014-10-31",
+			body: "Action=CreateDBInstance&DBInstanceIdentifier=test-db&" +
+				"DBInstanceClass=db.t3.micro&Engine=mysql&Version=2014-10-31",
 			setupBackend: func(b *mockRDSIAMBackend) {
 				b.users["user2"] = &iam.User{UserName: "user2"}
 				b.keyMap["AKIARDSUSER2"] = "user2"

@@ -135,7 +135,16 @@ func TestIAMEnforcement(t *testing.T) {
 			accessKeyID: "AKIAEKSUSER2",
 			method:      "POST",
 			path:        "/clusters",
-			body:        `{"name":"test-cluster","roleArn":"arn:aws:iam::000000000000:role/role","resourcesVpcConfig":{"subnetIds":["sub-1"]}}`,
+			body: `
+				{
+				  "name": "test-cluster",
+				  "roleArn": "arn:aws:iam::000000000000:role/role",
+				  "resourcesVpcConfig": {
+				    "subnetIds": [
+				      "sub-1"
+				    ]
+				  }
+				}`,
 			setupBackend: func(b *mockEKSIAMBackend) {
 				b.users["user2"] = &iam.User{UserName: "user2"}
 				b.keyMap["AKIAEKSUSER2"] = "user2"

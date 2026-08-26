@@ -135,7 +135,21 @@ func TestIAMEnforcement(t *testing.T) {
 			accessKeyID: "AKIAXRAYUSER2",
 			method:      "POST",
 			path:        "/CreateSamplingRule",
-			body:        `{"SamplingRule":{"RuleName":"r1","ResourceARN":"*","Priority":10,"FixedRate":0.05,"ReservoirSize":1,"ServiceName":"*","ServiceType":"*","Host":"*","HTTPMethod":"*","URLPath":"*"}}`,
+			body: `
+				{
+				  "SamplingRule": {
+				    "RuleName": "r1",
+				    "ResourceARN": "*",
+				    "Priority": 10,
+				    "FixedRate": 0.05,
+				    "ReservoirSize": 1,
+				    "ServiceName": "*",
+				    "ServiceType": "*",
+				    "Host": "*",
+				    "HTTPMethod": "*",
+				    "URLPath": "*"
+				  }
+				}`,
 			setupBackend: func(b *mockXRAYIAMBackend) {
 				b.users["user2"] = &iam.User{UserName: "user2"}
 				b.keyMap["AKIAXRAYUSER2"] = "user2"

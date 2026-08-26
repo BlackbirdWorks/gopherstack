@@ -58,7 +58,10 @@ func (m *mockVERIFIEDPERMISSIONSIAMBackend) GetGroupPoliciesForUser(_ string) ([
 	return nil, nil
 }
 
-func setupVERIFIEDPERMISSIONSEnforcementServer(t *testing.T, iamBackend *mockVERIFIEDPERMISSIONSIAMBackend) *httptest.Server {
+func setupVERIFIEDPERMISSIONSEnforcementServer(
+	t *testing.T,
+	iamBackend *mockVERIFIEDPERMISSIONSIAMBackend,
+) *httptest.Server {
 	t.Helper()
 
 	backend := verifiedpermissions.NewInMemoryBackend("000000000000", "us-east-1")

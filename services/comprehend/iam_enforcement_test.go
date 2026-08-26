@@ -129,7 +129,15 @@ func TestIAMEnforcement(t *testing.T) {
 			name:        "denied_action_returns_access_denied",
 			accessKeyID: "AKIACOMPREHENDUSER2",
 			target:      "Comprehend_20171127.CreateDocumentClassifier",
-			body:        `{"DocumentClassifierName":"test-dc","DataAccessRoleArn":"arn:aws:iam::000000000000:role/role","InputDataConfig":{"S3Uri":"s3://b/k"},"LanguageCode":"en"}`,
+			body: `
+				{
+				  "DocumentClassifierName": "test-dc",
+				  "DataAccessRoleArn": "arn:aws:iam::000000000000:role/role",
+				  "InputDataConfig": {
+				    "S3Uri": "s3://b/k"
+				  },
+				  "LanguageCode": "en"
+				}`,
 			setupBackend: func(b *mockCOMPREHENDIAMBackend) {
 				b.users["user2"] = &iam.User{UserName: "user2"}
 				b.keyMap["AKIACOMPREHENDUSER2"] = "user2"

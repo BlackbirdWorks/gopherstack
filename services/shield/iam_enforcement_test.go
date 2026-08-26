@@ -129,7 +129,11 @@ func TestIAMEnforcement(t *testing.T) {
 			name:        "denied_action_returns_access_denied",
 			accessKeyID: "AKIASHIELDUSER2",
 			target:      "AWSShield_20160616.CreateProtection",
-			body:        `{"Name":"test-prot","ResourceArn":"arn:aws:elasticloadbalancing:us-east-1:000000000000:loadbalancer/app/lb/1"}`,
+			body: `
+				{
+				  "Name": "test-prot",
+				  "ResourceArn": "arn:aws:elasticloadbalancing:us-east-1:000000000000:loadbalancer/app/lb/1"
+				}`,
 			setupBackend: func(b *mockSHIELDIAMBackend) {
 				b.users["user2"] = &iam.User{UserName: "user2"}
 				b.keyMap["AKIASHIELDUSER2"] = "user2"

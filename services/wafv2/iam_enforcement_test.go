@@ -129,7 +129,19 @@ func TestIAMEnforcement(t *testing.T) {
 			name:        "denied_action_returns_access_denied",
 			accessKeyID: "AKIAWAFV2USER2",
 			target:      "AWSWAF_20190729.CreateWebACL",
-			body:        `{"Name":"acl","Scope":"REGIONAL","DefaultAction":{"Allow":{}},"VisibilityConfig":{"SampledRequestsEnabled":true,"CloudWatchMetricsEnabled":true,"MetricName":"m"}}`,
+			body: `
+				{
+				  "Name": "acl",
+				  "Scope": "REGIONAL",
+				  "DefaultAction": {
+				    "Allow": {}
+				  },
+				  "VisibilityConfig": {
+				    "SampledRequestsEnabled": true,
+				    "CloudWatchMetricsEnabled": true,
+				    "MetricName": "m"
+				  }
+				}`,
 			setupBackend: func(b *mockWAFV2IAMBackend) {
 				b.users["user2"] = &iam.User{UserName: "user2"}
 				b.keyMap["AKIAWAFV2USER2"] = "user2"

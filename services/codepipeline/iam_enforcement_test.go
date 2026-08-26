@@ -129,7 +129,18 @@ func TestIAMEnforcement(t *testing.T) {
 			name:        "denied_action_returns_access_denied",
 			accessKeyID: "AKIACODEPIPELINEUSER2",
 			target:      "CodePipeline_20150709.CreatePipeline",
-			body:        `{"pipeline":{"name":"test-pipe","roleArn":"arn:aws:iam::000000000000:role/role","stages":[],"artifactStore":{"type":"S3","location":"bucket"}}}`,
+			body: `
+				{
+				  "pipeline": {
+				    "name": "test-pipe",
+				    "roleArn": "arn:aws:iam::000000000000:role/role",
+				    "stages": [],
+				    "artifactStore": {
+				      "type": "S3",
+				      "location": "bucket"
+				    }
+				  }
+				}`,
 			setupBackend: func(b *mockCODEPIPELINEIAMBackend) {
 				b.users["user2"] = &iam.User{UserName: "user2"}
 				b.keyMap["AKIACODEPIPELINEUSER2"] = "user2"

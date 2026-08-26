@@ -58,7 +58,10 @@ func (m *mockRESOURCEGROUPSTAGGINGAPIIAMBackend) GetGroupPoliciesForUser(_ strin
 	return nil, nil
 }
 
-func setupRESOURCEGROUPSTAGGINGAPIEnforcementServer(t *testing.T, iamBackend *mockRESOURCEGROUPSTAGGINGAPIIAMBackend) *httptest.Server {
+func setupRESOURCEGROUPSTAGGINGAPIEnforcementServer(
+	t *testing.T,
+	iamBackend *mockRESOURCEGROUPSTAGGINGAPIIAMBackend,
+) *httptest.Server {
 	t.Helper()
 
 	backend := resourcegroupstaggingapi.NewInMemoryBackend("000000000000", "us-east-1")

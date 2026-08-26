@@ -135,7 +135,9 @@ func TestIAMEnforcement(t *testing.T) {
 			accessKeyID: "AKIAS3CUSER2",
 			method:      http.MethodPut,
 			path:        "/v20180820/configuration/publicAccessBlock",
-			body:        `<PublicAccessBlockConfiguration xmlns="http://awss3.amazonaws.com/doc/2006-03-01/"></PublicAccessBlockConfiguration>`,
+			body: `
+				<PublicAccessBlockConfiguration xmlns="http://awss3.amazonaws.com/doc/2006-03-01/">
+				</PublicAccessBlockConfiguration>`,
 			setupBackend: func(b *mockS3ControlIAMBackend) {
 				b.users["user2"] = &iam.User{UserName: "user2"}
 				b.keyMap["AKIAS3CUSER2"] = "user2"

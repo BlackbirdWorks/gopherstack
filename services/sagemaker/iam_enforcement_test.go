@@ -129,7 +129,12 @@ func TestIAMEnforcement(t *testing.T) {
 			name:        "denied_action_returns_access_denied",
 			accessKeyID: "AKIASAGEMAKERUSER2",
 			target:      "SageMaker.CreateNotebookInstance",
-			body:        `{"NotebookInstanceName":"test-nb","InstanceType":"ml.t3.medium","RoleArn":"arn:aws:iam::000000000000:role/role"}`,
+			body: `
+				{
+				  "NotebookInstanceName": "test-nb",
+				  "InstanceType": "ml.t3.medium",
+				  "RoleArn": "arn:aws:iam::000000000000:role/role"
+				}`,
 			setupBackend: func(b *mockSAGEMAKERIAMBackend) {
 				b.users["user2"] = &iam.User{UserName: "user2"}
 				b.keyMap["AKIASAGEMAKERUSER2"] = "user2"

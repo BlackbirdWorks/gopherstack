@@ -60,7 +60,10 @@ func (m *mockCLOUDFRONTKEYVALUESTOREIAMBackend) GetGroupPoliciesForUser(_ string
 	return nil, nil
 }
 
-func setupCLOUDFRONTKEYVALUESTOREEnforcementServer(t *testing.T, iamBackend *mockCLOUDFRONTKEYVALUESTOREIAMBackend) (*httptest.Server, string) {
+func setupCLOUDFRONTKEYVALUESTOREEnforcementServer(
+	t *testing.T,
+	iamBackend *mockCLOUDFRONTKEYVALUESTOREIAMBackend,
+) (*httptest.Server, string) {
 	t.Helper()
 
 	backend := cloudfront.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
@@ -164,7 +167,12 @@ func TestIAMEnforcement(t *testing.T) {
 			srv, kvsARN := setupCLOUDFRONTKEYVALUESTOREEnforcementServer(t, iamBackend)
 			ctx := t.Context()
 
-			req, err := http.NewRequestWithContext(ctx, tt.method, srv.URL+tt.pathFunc(kvsARN), strings.NewReader(tt.body))
+			req, err := http.NewRequestWithContext(
+				ctx,
+				tt.method,
+				srv.URL+tt.pathFunc(kvsARN),
+				strings.NewReader(tt.body),
+			)
 			require.NoError(t, err)
 			req.Header.Set("Content-Type", "application/json")
 			req.Header.Set(

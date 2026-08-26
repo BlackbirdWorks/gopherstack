@@ -122,7 +122,12 @@ func TestIAMEnforcement(t *testing.T) {
 			accessKeyID: "AKIARDSDATAUSER1",
 			method:      "POST",
 			path:        "/Execute",
-			body:        `{"resourceArn":"arn:aws:rds:us-east-1:000000000000:cluster:c","secretArn":"arn:aws:secretsmanager:us-east-1:000000000000:secret:s","sql":"SELECT 1"}`,
+			body: `
+				{
+				  "resourceArn": "arn:aws:rds:us-east-1:000000000000:cluster:c",
+				  "secretArn": "arn:aws:secretsmanager:us-east-1:000000000000:secret:s",
+				  "sql": "SELECT 1"
+				}`,
 			setupBackend: func(b *mockRDSDATAIAMBackend) {
 				b.users["user1"] = &iam.User{UserName: "user1"}
 				b.keyMap["AKIARDSDATAUSER1"] = "user1"
@@ -135,7 +140,12 @@ func TestIAMEnforcement(t *testing.T) {
 			accessKeyID: "AKIARDSDATAUSER2",
 			method:      "POST",
 			path:        "/BatchExecute",
-			body:        `{"resourceArn":"arn:aws:rds:us-east-1:000000000000:cluster:c","secretArn":"arn:aws:secretsmanager:us-east-1:000000000000:secret:s","sql":"SELECT 1"}`,
+			body: `
+				{
+				  "resourceArn": "arn:aws:rds:us-east-1:000000000000:cluster:c",
+				  "secretArn": "arn:aws:secretsmanager:us-east-1:000000000000:secret:s",
+				  "sql": "SELECT 1"
+				}`,
 			setupBackend: func(b *mockRDSDATAIAMBackend) {
 				b.users["user2"] = &iam.User{UserName: "user2"}
 				b.keyMap["AKIARDSDATAUSER2"] = "user2"

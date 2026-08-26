@@ -13,8 +13,8 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
-	"github.com/blackbirdworks/gopherstack/services/route53"
 	"github.com/blackbirdworks/gopherstack/services/iam"
+	"github.com/blackbirdworks/gopherstack/services/route53"
 )
 
 var errNoSuchEntity = errors.New("NoSuchEntity")
@@ -135,7 +135,11 @@ func TestIAMEnforcement(t *testing.T) {
 			accessKeyID: "AKIAROUTE53USER2",
 			method:      "POST",
 			path:        "/2013-04-01/hostedzone",
-			body:        `<CreateHostedZoneRequest xmlns="https://route53.amazonaws.com/doc/2013-04-01/"><Name>example.com.</Name><CallerReference>ref1</CallerReference></CreateHostedZoneRequest>`,
+			body: `
+				<CreateHostedZoneRequest xmlns="https://route53.amazonaws.com/doc/2013-04-01/">
+				<Name>example.com.</Name>
+				<CallerReference>ref1</CallerReference>
+				</CreateHostedZoneRequest>`,
 			setupBackend: func(b *mockROUTE53IAMBackend) {
 				b.users["user2"] = &iam.User{UserName: "user2"}
 				b.keyMap["AKIAROUTE53USER2"] = "user2"

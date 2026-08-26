@@ -135,7 +135,14 @@ func TestIAMEnforcement(t *testing.T) {
 			accessKeyID: "AKIAGRAFANAUSER2",
 			method:      "POST",
 			path:        "/workspaces",
-			body:        `{"accountAccessType":"CURRENT_ACCOUNT","authenticationProviders":["AWS_SSO"],"permissionType":"SERVICE_MANAGED"}`,
+			body: `
+				{
+				  "accountAccessType": "CURRENT_ACCOUNT",
+				  "authenticationProviders": [
+				    "AWS_SSO"
+				  ],
+				  "permissionType": "SERVICE_MANAGED"
+				}`,
 			setupBackend: func(b *mockGRAFANAIAMBackend) {
 				b.users["user2"] = &iam.User{UserName: "user2"}
 				b.keyMap["AKIAGRAFANAUSER2"] = "user2"

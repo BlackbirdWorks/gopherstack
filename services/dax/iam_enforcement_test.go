@@ -129,7 +129,13 @@ func TestIAMEnforcement(t *testing.T) {
 			name:        "denied_action_returns_access_denied",
 			accessKeyID: "AKIADAXUSER2",
 			target:      "AmazonDAXV3.CreateCluster",
-			body:        `{"ClusterName":"test-cluster","NodeType":"dax.r4.large","ReplicationFactor":1,"IamRoleArn":"arn:aws:iam::000000000000:role/role"}`,
+			body: `
+				{
+				  "ClusterName": "test-cluster",
+				  "NodeType": "dax.r4.large",
+				  "ReplicationFactor": 1,
+				  "IamRoleArn": "arn:aws:iam::000000000000:role/role"
+				}`,
 			setupBackend: func(b *mockDAXIAMBackend) {
 				b.users["user2"] = &iam.User{UserName: "user2"}
 				b.keyMap["AKIADAXUSER2"] = "user2"

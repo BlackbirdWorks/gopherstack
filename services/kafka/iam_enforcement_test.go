@@ -135,7 +135,18 @@ func TestIAMEnforcement(t *testing.T) {
 			accessKeyID: "AKIAKAFKAUSER2",
 			method:      "POST",
 			path:        "/v1/clusters",
-			body:        `{"clusterName":"test-c","kafkaVersion":"2.8.1","numberOfBrokerNodes":2,"brokerNodeGroupInfo":{"clientSubnets":["sub-1"],"instanceType":"kafka.m5.large"}}`,
+			body: `
+				{
+				  "clusterName": "test-c",
+				  "kafkaVersion": "2.8.1",
+				  "numberOfBrokerNodes": 2,
+				  "brokerNodeGroupInfo": {
+				    "clientSubnets": [
+				      "sub-1"
+				    ],
+				    "instanceType": "kafka.m5.large"
+				  }
+				}`,
 			setupBackend: func(b *mockKAFKAIAMBackend) {
 				b.users["user2"] = &iam.User{UserName: "user2"}
 				b.keyMap["AKIAKAFKAUSER2"] = "user2"
