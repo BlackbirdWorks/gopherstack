@@ -20,7 +20,7 @@ func (h *Handler) handleListTagsForResource(c *echo.Context) error {
 
 	return h.writeXML(c, snsListTagsResponse{
 		Result:           snsListTagsResult{Tags: tagList},
-		ResponseMetadata: ResponseMetadata{RequestID: uuid.New().String()},
+		ResponseMetadata: ResponseMetadata{RequestID: uuid.NewString()},
 	})
 }
 

@@ -47,7 +47,7 @@ func (b *InMemoryBackend) StartRestoreJob(
 	}
 
 	now := time.Now().UTC()
-	jobID := "restore-job-" + uuid.New().String()[:8]
+	jobID := "restore-job-" + uuid.NewString()[:8]
 
 	job := &RestoreJob{
 		RestoreJobID:     jobID,

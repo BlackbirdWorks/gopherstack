@@ -174,7 +174,7 @@ func enqueueReceivedMessage(
 	accountID string,
 ) {
 	q.receiveGeneration++
-	receipt := msg.MessageID + ":" + strconv.FormatUint(q.receiveGeneration, 10) + ":" + uuid.New().String()
+	receipt := msg.MessageID + ":" + strconv.FormatUint(q.receiveGeneration, 10) + ":" + uuid.NewString()
 	msg.ReceiptHandle = receipt
 	msg.ApproximateReceiveCount++
 	msg.Attributes[attrApproxReceiveCount] = strconv.Itoa(msg.ApproximateReceiveCount)

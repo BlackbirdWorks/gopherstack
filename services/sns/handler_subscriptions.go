@@ -75,7 +75,7 @@ func (h *Handler) handleSubscribe(c *echo.Context) error {
 
 	return h.writeXML(c, SubscribeResponse{
 		SubscribeResult:  SubscribeResult{SubscriptionArn: subArn},
-		ResponseMetadata: ResponseMetadata{RequestID: uuid.New().String()},
+		ResponseMetadata: ResponseMetadata{RequestID: uuid.NewString()},
 	})
 }
 
@@ -95,7 +95,7 @@ func (h *Handler) handleUnsubscribe(c *echo.Context) error {
 	}
 
 	return h.writeXML(c, UnsubscribeResponse{
-		ResponseMetadata: ResponseMetadata{RequestID: uuid.New().String()},
+		ResponseMetadata: ResponseMetadata{RequestID: uuid.NewString()},
 	})
 }
 
@@ -118,7 +118,7 @@ func (h *Handler) handleConfirmSubscription(c *echo.Context) error {
 
 	return h.writeXML(c, ConfirmSubscriptionResponse{
 		ConfirmSubscriptionResult: ConfirmSubscriptionResult{SubscriptionArn: sub.SubscriptionArn},
-		ResponseMetadata:          ResponseMetadata{RequestID: uuid.New().String()},
+		ResponseMetadata:          ResponseMetadata{RequestID: uuid.NewString()},
 	})
 }
 
@@ -135,7 +135,7 @@ func (h *Handler) handleListSubscriptions(c *echo.Context) error {
 			Subscriptions: toXMLSubscriptions(subs),
 			NextToken:     token,
 		},
-		ResponseMetadata: ResponseMetadata{RequestID: uuid.New().String()},
+		ResponseMetadata: ResponseMetadata{RequestID: uuid.NewString()},
 	})
 }
 
@@ -157,7 +157,7 @@ func (h *Handler) handleListSubscriptionsByTopic(c *echo.Context) error {
 			Subscriptions: toXMLSubscriptions(subs),
 			NextToken:     token,
 		},
-		ResponseMetadata: ResponseMetadata{RequestID: uuid.New().String()},
+		ResponseMetadata: ResponseMetadata{RequestID: uuid.NewString()},
 	})
 }
 
@@ -181,7 +181,7 @@ func (h *Handler) handleGetSubscriptionAttributes(c *echo.Context) error {
 
 	return h.writeXML(c, GetSubscriptionAttributesResponse{
 		GetSubscriptionAttributesResult: GetSubscriptionAttributesResult{Attributes: entries},
-		ResponseMetadata:                ResponseMetadata{RequestID: uuid.New().String()},
+		ResponseMetadata:                ResponseMetadata{RequestID: uuid.NewString()},
 	})
 }
 
@@ -204,6 +204,6 @@ func (h *Handler) handleSetSubscriptionAttributes(c *echo.Context) error {
 	}
 
 	return h.writeXML(c, SetSubscriptionAttributesResponse{
-		ResponseMetadata: ResponseMetadata{RequestID: uuid.New().String()},
+		ResponseMetadata: ResponseMetadata{RequestID: uuid.NewString()},
 	})
 }

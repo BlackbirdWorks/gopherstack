@@ -295,7 +295,7 @@ func (b *InMemoryBackend) deliverToApplicationSubscriptions(ev *events.SNSPublis
 			continue
 		}
 
-		msgID := uuid.New().String()
+		msgID := uuid.NewString()
 
 		func() {
 			b.mu.Lock("deliverToApplicationSubscriptions-record")

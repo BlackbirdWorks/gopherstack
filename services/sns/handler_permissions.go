@@ -43,7 +43,7 @@ func (h *Handler) handleAddPermission(c *echo.Context) error {
 	}
 
 	return h.writeXML(c, AddPermissionResponse{
-		ResponseMetadata: ResponseMetadata{RequestID: uuid.New().String()},
+		ResponseMetadata: ResponseMetadata{RequestID: uuid.NewString()},
 	})
 }
 
@@ -65,6 +65,6 @@ func (h *Handler) handleRemovePermission(c *echo.Context) error {
 	}
 
 	return h.writeXML(c, RemovePermissionResponse{
-		ResponseMetadata: ResponseMetadata{RequestID: uuid.New().String()},
+		ResponseMetadata: ResponseMetadata{RequestID: uuid.NewString()},
 	})
 }

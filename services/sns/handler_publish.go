@@ -62,7 +62,7 @@ func (h *Handler) handlePublish(c *echo.Context) error {
 
 	return h.writeXML(c, PublishResponse{
 		PublishResult:    PublishResult{MessageID: messageID},
-		ResponseMetadata: ResponseMetadata{RequestID: uuid.New().String()},
+		ResponseMetadata: ResponseMetadata{RequestID: uuid.NewString()},
 	})
 }
 
@@ -92,10 +92,10 @@ func (h *Handler) publishFIFOTopic(
 		// synthesized message ID and does not actually re-publish the message.
 		return h.writeXML(c, PublishResponse{
 			PublishResult: PublishResult{
-				MessageID:      uuid.New().String(),
+				MessageID:      uuid.NewString(),
 				SequenceNumber: h.nextFIFOSeqNum(topicArn),
 			},
-			ResponseMetadata: ResponseMetadata{RequestID: uuid.New().String()},
+			ResponseMetadata: ResponseMetadata{RequestID: uuid.NewString()},
 		})
 	}
 
@@ -113,7 +113,7 @@ func (h *Handler) publishFIFOTopic(
 			MessageID:      messageID,
 			SequenceNumber: h.nextFIFOSeqNum(topicArn),
 		},
-		ResponseMetadata: ResponseMetadata{RequestID: uuid.New().String()},
+		ResponseMetadata: ResponseMetadata{RequestID: uuid.NewString()},
 	})
 }
 
@@ -246,7 +246,7 @@ func (h *Handler) handlePublishBatch(c *echo.Context) error {
 
 	return h.writeXML(c, PublishBatchResponse{
 		PublishBatchResult: PublishBatchResult{Successful: successful, Failed: failed},
-		ResponseMetadata:   ResponseMetadata{RequestID: uuid.New().String()},
+		ResponseMetadata:   ResponseMetadata{RequestID: uuid.NewString()},
 	})
 }
 
@@ -330,7 +330,7 @@ func (h *Handler) batchEntryFIFODedup(
 
 	if id != "" && h.dedup.isDuplicate(topicArn, id) {
 		return "", &XMLPublishBatchSuccessEntry{
-			MessageID:      uuid.New().String(),
+			MessageID:      uuid.NewString(),
 			SequenceNumber: h.nextFIFOSeqNum(topicArn),
 			ID:             entry.id,
 		}, nil

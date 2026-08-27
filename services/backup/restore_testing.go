@@ -336,7 +336,7 @@ func (b *InMemoryBackend) StartScanJob(backupVaultArn string, input StartScanJob
 	now := time.Now().UTC()
 	done := now
 	job := &ScanJob{
-		ScanJobID:                "scan-job-" + uuid.New().String()[:8],
+		ScanJobID:                "scan-job-" + uuid.NewString()[:8],
 		BackupVaultArn:           backupVaultArn,
 		BackupVaultName:          input.BackupVaultName,
 		Status:                   statusCompleted,

@@ -133,10 +133,12 @@ func WriteJSON(ctx context.Context, w http.ResponseWriter, code int, payload any
 func WriteXML(ctx context.Context, w http.ResponseWriter, code int, payload any) {
 	log := logger.Load(ctx)
 
-	var buf bytes.Buffer
+	buf := GetBuffer()
+	defer PutBuffer(buf)
+
 	buf.WriteString(xml.Header)
 
-	encoder := xml.NewEncoder(&buf)
+	encoder := xml.NewEncoder(buf)
 	if err := encoder.Encode(payload); err != nil {
 		log.ErrorContext(ctx, "failed to marshal XML response", "error", err)
 		http.Error(w, "internal server error", http.StatusInternalServerError)

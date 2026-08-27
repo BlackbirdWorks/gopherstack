@@ -326,7 +326,7 @@ func (b *InMemoryBackend) Publish(
 		archivePolicy = topic.Attributes[attrArchivePolicy]
 		sigVersion = resolveSignatureVersion(topic.Attributes[attrSignatureVersion])
 
-		messageID = uuid.New().String()
+		messageID = uuid.NewString()
 
 		// resolveMsg returns the appropriate message body for a given protocol.
 		resolveMsg := buildMessageResolver(message, parsePerProtocolMessages(message, messageStructure))
@@ -397,7 +397,7 @@ func (b *InMemoryBackend) PublishToTargetArn(
 		return "", fmt.Errorf("%w: endpoint %s is disabled", ErrEndpointDisabled, targetArn)
 	}
 
-	return uuid.New().String(), nil
+	return uuid.NewString(), nil
 }
 
 // PublishSMS publishes a message directly to a phone number via SMS.

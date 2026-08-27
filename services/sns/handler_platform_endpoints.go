@@ -34,7 +34,7 @@ func (h *Handler) handleCreatePlatformEndpoint(c *echo.Context) error {
 
 	return h.writeXML(c, CreatePlatformEndpointResponse{
 		CreatePlatformEndpointResult: CreatePlatformEndpointResult{EndpointArn: ep.EndpointArn},
-		ResponseMetadata:             ResponseMetadata{RequestID: uuid.New().String()},
+		ResponseMetadata:             ResponseMetadata{RequestID: uuid.NewString()},
 	})
 }
 
@@ -51,7 +51,7 @@ func (h *Handler) handleGetEndpointAttributes(c *echo.Context) error {
 
 	return h.writeXML(c, GetEndpointAttributesResponse{
 		GetEndpointAttributesResult: GetEndpointAttributesResult{Attributes: attrsToEntries(attrs)},
-		ResponseMetadata:            ResponseMetadata{RequestID: uuid.New().String()},
+		ResponseMetadata:            ResponseMetadata{RequestID: uuid.NewString()},
 	})
 }
 
@@ -68,7 +68,7 @@ func (h *Handler) handleSetEndpointAttributes(c *echo.Context) error {
 	}
 
 	return h.writeXML(c, SetEndpointAttributesResponse{
-		ResponseMetadata: ResponseMetadata{RequestID: uuid.New().String()},
+		ResponseMetadata: ResponseMetadata{RequestID: uuid.NewString()},
 	})
 }
 
@@ -106,7 +106,7 @@ func (h *Handler) handleListEndpointsByPlatformApplication(c *echo.Context) erro
 			Endpoints: members,
 			NextToken: token,
 		},
-		ResponseMetadata: ResponseMetadata{RequestID: uuid.New().String()},
+		ResponseMetadata: ResponseMetadata{RequestID: uuid.NewString()},
 	})
 }
 
@@ -121,6 +121,6 @@ func (h *Handler) handleDeleteEndpoint(c *echo.Context) error {
 	}
 
 	return h.writeXML(c, DeleteEndpointResponse{
-		ResponseMetadata: ResponseMetadata{RequestID: uuid.New().String()},
+		ResponseMetadata: ResponseMetadata{RequestID: uuid.NewString()},
 	})
 }
