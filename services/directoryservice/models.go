@@ -8,7 +8,8 @@ import (
 type storedVpcSettings struct {
 	VpcID             string   `json:"vpcId"`
 	SubnetIDs         []string `json:"subnetIds"`
-	SecurityGroupIDs  []string `json:"securityGroupIds"`
+	SecurityGroupID   string   `json:"securityGroupId,omitempty"`
+	SecurityGroupIDs  []string `json:"securityGroupIds,omitempty"`
 	AvailabilityZones []string `json:"availabilityZones"`
 }
 
@@ -71,6 +72,7 @@ func (d *storedDirectory) toDirectory() Directory {
 	if d.VpcSettings != nil {
 		dir.VpcSettings = &DirectoryVpcSettings{
 			VpcID:             d.VpcSettings.VpcID,
+			SecurityGroupID:   d.VpcSettings.SecurityGroupID,
 			SubnetIDs:         d.VpcSettings.SubnetIDs,
 			SecurityGroupIDs:  d.VpcSettings.SecurityGroupIDs,
 			AvailabilityZones: d.VpcSettings.AvailabilityZones,

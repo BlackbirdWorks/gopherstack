@@ -1,12 +1,14 @@
 package iam
 
 import (
+	"context"
 	"fmt"
 	"maps"
 	"slices"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
@@ -215,6 +217,25 @@ func (b *InMemoryBackend) GetUserByAccessKeyID(accessKeyID string) (*User, error
 	}
 
 	return u, nil
+}
+
+// ResolvePrincipal resolves an access key ID to an awsmeta.Principal representing an IAM User.
+func (b *InMemoryBackend) ResolvePrincipal(
+	_ context.Context,
+	accessKeyID, _ string,
+) (*awsmeta.Principal, bool) {
+	u, err := b.GetUserByAccessKeyID(accessKeyID)
+	if err != nil || u == nil {
+		return nil, false
+	}
+
+	return &awsmeta.Principal{
+		Kind:      awsmeta.PrincipalKindUser,
+		Arn:       u.Arn,
+		UserName:  u.UserName,
+		AccountID: b.accountID,
+		UserID:    u.UserID,
+	}, true
 }
 
 // GetPoliciesForUser returns the policy documents for all policies attached to the named user.

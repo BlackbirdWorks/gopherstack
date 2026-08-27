@@ -192,6 +192,37 @@ func (b *InMemoryBackend) ListAttachedRolePolicies(roleName string) ([]AttachedP
 	return result, nil
 }
 
+// GetPoliciesForRole returns the policy documents for all managed and inline policies attached to the role.
+func (b *InMemoryBackend) GetPoliciesForRole(roleName string) ([]string, error) {
+	b.mu.RLock("GetPoliciesForRole")
+	defer b.mu.RUnlock()
+
+	if _, exists := b.roles.Get(roleName); !exists {
+		return nil, fmt.Errorf("%w: role %q not found", ErrRoleNotFound, roleName)
+	}
+
+	arns := b.rolePolicies[roleName]
+	inline := b.roleInlinePolicies[roleName]
+	docs := make([]string, 0, len(arns)+len(inline))
+
+	for _, policyArn := range arns {
+		policy, exists := b.getPolicyByARNLocked(policyArn)
+		if !exists || policy.PolicyDocument == "" {
+			continue
+		}
+
+		docs = append(docs, policy.PolicyDocument)
+	}
+
+	for _, doc := range inline {
+		if doc != "" {
+			docs = append(docs, doc)
+		}
+	}
+
+	return docs, nil
+}
+
 // PutRolePolicy creates or replaces an inline policy on a role.
 func (b *InMemoryBackend) PutRolePolicy(roleName, policyName, policyDocument string) error {
 	b.mu.Lock("PutRolePolicy")

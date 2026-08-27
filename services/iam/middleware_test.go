@@ -52,6 +52,10 @@ func (m *mockEnforcementBackend) GetPoliciesForUser(userName string) ([]string, 
 	return m.policies[userName], nil
 }
 
+func (m *mockEnforcementBackend) GetPoliciesForRole(roleName string) ([]string, error) {
+	return m.policies[roleName], nil
+}
+
 func TestEnforcementMiddleware(t *testing.T) {
 	t.Parallel()
 
@@ -168,6 +172,55 @@ func TestEnforcementMiddleware(t *testing.T) {
 				"Authorization": "AWS4-HMAC-SHA256 Credential=AKIATEST6/20230101/us-east-1/s3/aws4_request",
 			},
 			wantStatus: http.StatusForbidden,
+		},
+		{
+			name: "jsonrpc_implicit_deny_returns_400_bad_request",
+			setupBackend: func(b *mockEnforcementBackend) {
+				b.users["alice"] = &iam.User{UserName: "alice"}
+				b.keyMap["AKIAJSONRPC"] = "alice"
+				b.policies["alice"] = []string{}
+			},
+			requestPath:   "/",
+			requestMethod: http.MethodPost,
+			headers: map[string]string{
+				"Authorization": "AWS4-HMAC-SHA256 Credential=AKIAJSONRPC/20230101/us-east-1/dynamodb/aws4_request",
+				"X-Amz-Target":  "DynamoDB_20120810.PutItem",
+				"Content-Type":  "application/x-amz-json-1.0",
+			},
+			body:       `{"TableName":"orders"}`,
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "condition_requested_region_match",
+			setupBackend: func(b *mockEnforcementBackend) {
+				policy := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"s3:*",` +
+					`"Resource":"*","Condition":{"StringEquals":{"aws:RequestedRegion":"us-east-1"}}}]}`
+				b.users["alice"] = &iam.User{UserName: "alice"}
+				b.keyMap["AKIAREGION1"] = "alice"
+				b.policies["alice"] = []string{policy}
+			},
+			requestPath:   "/my-bucket/key",
+			requestMethod: http.MethodGet,
+			headers: map[string]string{
+				"Authorization": "AWS4-HMAC-SHA256 Credential=AKIAREGION1/20230101/us-east-1/s3/aws4_request",
+			},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name: "condition_principal_account_match",
+			setupBackend: func(b *mockEnforcementBackend) {
+				policy := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"s3:*",` +
+					`"Resource":"*","Condition":{"StringEquals":{"aws:PrincipalAccount":"123456789012"}}}]}`
+				b.users["alice"] = &iam.User{UserName: "alice", Arn: "arn:aws:iam::123456789012:user/alice"}
+				b.keyMap["AKIAACCT1"] = "alice"
+				b.policies["alice"] = []string{policy}
+			},
+			requestPath:   "/my-bucket/key",
+			requestMethod: http.MethodGet,
+			headers: map[string]string{
+				"Authorization": "AWS4-HMAC-SHA256 Credential=AKIAACCT1/20230101/us-east-1/s3/aws4_request",
+			},
+			wantStatus: http.StatusOK,
 		},
 	}
 
@@ -329,4 +382,90 @@ func getKey(b *mockEnforcementBackend) string {
 	}
 
 	return "UNKNOWN"
+}
+
+func TestEnforcementMiddleware_ResourcePolicyProviders(t *testing.T) {
+	t.Parallel()
+
+	allowResourcePolicy := `{
+		"Version":"2012-10-17",
+		"Statement":[{"Effect":"Allow","Principal":"*","Action":["s3:GetObject","lambda:InvokeFunction"],"Resource":"*"}]
+	}`
+	denyResourcePolicy := `{
+		"Version":"2012-10-17",
+		"Statement":[{"Effect":"Deny","Principal":"*","Action":"*","Resource":"*"}]
+	}`
+
+	tests := []struct {
+		setupBackend func(*mockEnforcementBackend)
+		provider     *mockResourceProvider
+		name         string
+		requestPath  string
+		method       string
+		wantStatus   int
+	}{
+		{
+			name: "resource_policy_allows_when_user_has_no_policy",
+			setupBackend: func(b *mockEnforcementBackend) {
+				b.users["alice"] = &iam.User{UserName: "alice"}
+				b.keyMap["AKIARES1"] = "alice"
+				b.policies["alice"] = []string{}
+			},
+			provider: &mockResourceProvider{
+				policies: map[string]string{
+					"arn:aws:s3:::my-bucket/obj": allowResourcePolicy,
+				},
+			},
+			requestPath: "/my-bucket/obj",
+			method:      http.MethodGet,
+			wantStatus:  http.StatusOK,
+		},
+		{
+			name: "resource_policy_explicit_deny_overrides_allow",
+			setupBackend: func(b *mockEnforcementBackend) {
+				allowS3 := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"s3:*","Resource":"*"}]}`
+				b.users["alice"] = &iam.User{UserName: "alice"}
+				b.keyMap["AKIARES2"] = "alice"
+				b.policies["alice"] = []string{allowS3}
+			},
+			provider: &mockResourceProvider{
+				policies: map[string]string{
+					"arn:aws:s3:::denied-bucket/obj": denyResourcePolicy,
+				},
+			},
+			requestPath: "/denied-bucket/obj",
+			method:      http.MethodGet,
+			wantStatus:  http.StatusForbidden,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			backend := newMockEnforcementBackend()
+			tt.setupBackend(backend)
+
+			cfg := iam.EnforcementConfig{
+				ResourceProviders: []iam.ResourcePolicyProvider{tt.provider},
+			}
+
+			e := echo.New()
+			e.Use(iam.EnforcementMiddleware(backend, cfg))
+			e.Any("/*", func(c *echo.Context) error {
+				return c.String(http.StatusOK, "ok")
+			})
+
+			req := httptest.NewRequest(tt.method, tt.requestPath, strings.NewReader(""))
+			req.Header.Set(
+				"Authorization",
+				"AWS4-HMAC-SHA256 Credential="+getKey(backend)+"/20230101/us-east-1/s3/aws4_request",
+			)
+
+			rec := httptest.NewRecorder()
+			e.ServeHTTP(rec, req)
+
+			require.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
 }

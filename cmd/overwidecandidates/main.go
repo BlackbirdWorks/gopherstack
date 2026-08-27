@@ -58,9 +58,10 @@ var dirModuleOverride = map[string]string{
 }
 
 var (
-	// Leading quote anchors this to a real import line; unanchored, it also
-	// matches a host that merely embeds the path (evil.com/github.com/...).
-	sdkImportRe   = regexp.MustCompile(`"github\.com/aws/aws-sdk-go-v2/service/([a-z0-9]+)`)
+	// sdkModsFor runs grep -o with this same pattern, so each output line is
+	// exactly one match. Anchored per-line: unanchored, this would also match a
+	// lookalike host such as evil.com/github.com/aws/aws-sdk-go-v2/service/s3.
+	sdkImportRe   = regexp.MustCompile(`(?m)^github\.com/aws/aws-sdk-go-v2/service/([a-z0-9]+)$`)
 	summaryNameRe = regexp.MustCompile(`(Summary|Item|Brief|Entry|Ref|Preview|Metadata|Info)$`)
 	sliceFieldRe  = regexp.MustCompile(`(?m)^\s*(\w+)\s+\[\](\*?)(\w+\.)?(\w+)`)
 	ptrFieldRe    = regexp.MustCompile(`(?m)^\s*(\w+)\s+\*(\w+\.)?(\w+)\b`)

@@ -21,14 +21,16 @@ type ConditionContext struct {
 	// PrincipalTags are the tags on the calling principal (IAM user/role),
 	// exposed to policies as ${aws:PrincipalTag/<key>} and the
 	// aws:PrincipalTag/<key> condition key.
-	PrincipalTags map[string]string `json:"principalTags,omitempty"`
-	// RequestTags are the tags supplied in the current request (e.g. a
-	// CreateUser Tags parameter), exposed as ${aws:RequestTag/<key>} and the
-	// aws:RequestTag/<key> condition key.
-	RequestTags map[string]string `json:"requestTags,omitempty"`
-	SourceIP    string            `json:"sourceIP,omitempty"`
-	Username    string            `json:"username,omitempty"`
-	UserID      string            `json:"userID,omitempty"`
+	PrincipalTags    map[string]string `json:"principalTags,omitempty"`
+	RequestTags      map[string]string `json:"requestTags,omitempty"`
+	PrincipalARN     string            `json:"principalARN,omitempty"`
+	PrincipalAccount string            `json:"principalAccount,omitempty"`
+	RequestedRegion  string            `json:"requestedRegion,omitempty"`
+	CurrentTime      string            `json:"currentTime,omitempty"`
+	EpochTime        string            `json:"epochTime,omitempty"`
+	SourceIP         string            `json:"sourceIP,omitempty"`
+	Username         string            `json:"username,omitempty"`
+	UserID           string            `json:"userID,omitempty"`
 }
 
 // conditionMatches returns true if all condition operators in the map are satisfied
@@ -81,39 +83,59 @@ func conditionValues(v any) []string {
 	return nil
 }
 
+func resolveAWSStandardKey(lower string, ctx ConditionContext) (string, bool) {
+	switch lower {
+	case "aws:username":
+		return ctx.Username, true
+	case "aws:userid":
+		return ctx.UserID, true
+	case "aws:principalarn":
+		return ctx.PrincipalARN, true
+	case "aws:principalaccount":
+		return ctx.PrincipalAccount, true
+	case "aws:requestedregion":
+		return ctx.RequestedRegion, true
+	case "aws:currenttime":
+		if ctx.CurrentTime != "" {
+			return ctx.CurrentTime, true
+		}
+
+		return time.Now().UTC().Format(time.RFC3339), true
+	case "aws:epochtime":
+		if ctx.EpochTime != "" {
+			return ctx.EpochTime, true
+		}
+
+		return strconv.FormatInt(time.Now().UTC().Unix(), 10), true
+	default:
+		return "", false
+	}
+}
+
 // resolveContextKey maps a condition key name to its value from the ConditionContext.
 // Keys are normalised to lower-case before lookup.
 func resolveContextKey(key string, ctx ConditionContext) string {
 	lower := strings.ToLower(key)
 
-	switch lower {
-	case ctxKeySourceIP:
-		// ContextEntries from SimulatePolicy requests are stored in Extra.
-		if ctx.Extra != nil {
-			if v, ok := ctx.Extra[ctxKeySourceIP]; ok {
-				return v
-			}
-		}
-
-		return ctx.SourceIP
-	case "aws:username":
-
-		return ctx.Username
-	case "aws:userid":
-
-		return ctx.UserID
-	default:
-		if v, ok := resolveTagKey(lower, ctx); ok {
+	if ctx.Extra != nil {
+		if v, ok := ctx.Extra[lower]; ok {
 			return v
 		}
-		if ctx.Extra != nil {
-			if v, ok := ctx.Extra[lower]; ok {
-				return v
-			}
-		}
-
-		return ""
 	}
+
+	if lower == ctxKeySourceIP {
+		return ctx.SourceIP
+	}
+
+	if val, ok := resolveAWSStandardKey(lower, ctx); ok {
+		return val
+	}
+
+	if v, ok := resolveTagKey(lower, ctx); ok {
+		return v
+	}
+
+	return ""
 }
 
 // resolveTagKey resolves the aws:PrincipalTag/<key> and aws:RequestTag/<key>

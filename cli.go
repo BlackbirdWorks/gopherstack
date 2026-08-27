@@ -4024,28 +4024,149 @@ func (a *ebFirehoseAdapter) PutRecord(ctx context.Context, deliveryStreamARN, da
 	return a.backend.PutRecord(ctx, streamName, []byte(data))
 }
 
-// ebECSTaskRunnerAdapter adapts the ECS backend to the eventbridge.ECSTaskRunner interface.
-// The payload is the delivered event JSON (subject to the target's Input/InputPath/
-// InputTransformer configuration); it is parsed for a "TaskDefinition" (and optional
-// "LaunchType") field, mirroring how the Step Functions ECS integration (SFNRunTask)
-// derives RunTaskInput from its input map, since EventBridge does not otherwise thread
-// the target's EcsParameters.TaskDefinitionArn through to delivery.
+// ebECSTaskRunnerAdapter adapts the ECS backend to the eventbridge.ECSTaskRunner
+// and eventbridge.ECSTaskRunnerWithParams interfaces.
 type ebECSTaskRunnerAdapter struct {
 	backend *ecsbackend.InMemoryBackend
 }
 
-func (a *ebECSTaskRunnerAdapter) RunTask(_ context.Context, clusterARN string, payload []byte) error {
+func (a *ebECSTaskRunnerAdapter) RunTask(ctx context.Context, clusterARN string, payload []byte) error {
+	return a.RunTaskWithParams(ctx, clusterARN, nil, payload)
+}
+
+func convertEcsNetworkConfig(cfg *ebbackend.NetworkConfiguration) *ecsbackend.NetworkConfiguration {
+	if cfg == nil || cfg.AwsvpcConfiguration == nil {
+		return nil
+	}
+
+	return &ecsbackend.NetworkConfiguration{
+		AwsvpcConfiguration: &ecsbackend.AwsvpcConfiguration{
+			AssignPublicIP: cfg.AwsvpcConfiguration.AssignPublicIP,
+			Subnets:        cfg.AwsvpcConfiguration.Subnets,
+			SecurityGroups: cfg.AwsvpcConfiguration.SecurityGroups,
+		},
+	}
+}
+
+func convertEcsPlacementConstraints(pcs []ebbackend.PlacementConstraint) []ecsbackend.PlacementConstraint {
+	if len(pcs) == 0 {
+		return nil
+	}
+
+	out := make([]ecsbackend.PlacementConstraint, len(pcs))
+	for i, pc := range pcs {
+		out[i] = ecsbackend.PlacementConstraint{
+			Type:       pc.Type,
+			Expression: pc.Expression,
+		}
+	}
+
+	return out
+}
+
+func convertEcsPlacementStrategy(pss []ebbackend.PlacementStrategy) []ecsbackend.PlacementStrategy {
+	if len(pss) == 0 {
+		return nil
+	}
+
+	out := make([]ecsbackend.PlacementStrategy, len(pss))
+	for i, ps := range pss {
+		out[i] = ecsbackend.PlacementStrategy{
+			Type:  ps.Type,
+			Field: ps.Field,
+		}
+	}
+
+	return out
+}
+
+func convertEcsCapacityProviderStrategy(
+	cps []ebbackend.CapacityProviderStrategyItem,
+) []ecsbackend.CapacityProviderStrategyItem {
+	if len(cps) == 0 {
+		return nil
+	}
+
+	out := make([]ecsbackend.CapacityProviderStrategyItem, len(cps))
+	for i, cp := range cps {
+		out[i] = ecsbackend.CapacityProviderStrategyItem{
+			CapacityProvider: cp.CapacityProvider,
+			Base:             int(cp.Base),
+			Weight:           int(cp.Weight),
+		}
+	}
+
+	return out
+}
+
+func convertEcsTags(tags []ebbackend.EcsTag) []ecsbackend.Tag {
+	if len(tags) == 0 {
+		return nil
+	}
+
+	out := make([]ecsbackend.Tag, len(tags))
+	for i, t := range tags {
+		out[i] = ecsbackend.Tag{
+			Key:   t.Key,
+			Value: t.Value,
+		}
+	}
+
+	return out
+}
+
+func buildECSRunInput(
+	clusterARN string,
+	params *ebbackend.EcsParameters,
+	payload []byte,
+) ecsbackend.RunTaskInput {
 	var input map[string]any
-	_ = json.Unmarshal(payload, &input)
+	if len(payload) > 0 {
+		_ = json.Unmarshal(payload, &input)
+	}
 
-	taskDefinition, _ := input["TaskDefinition"].(string)
-	launchType, _ := input["LaunchType"].(string)
+	runInput := ecsbackend.RunTaskInput{
+		Cluster: clusterARN,
+	}
 
-	_, err := a.backend.RunTask(ecsbackend.RunTaskInput{
-		Cluster:        clusterARN,
-		TaskDefinition: taskDefinition,
-		LaunchType:     launchType,
-	})
+	if params != nil {
+		runInput.TaskDefinition = params.TaskDefinitionArn
+		runInput.LaunchType = params.LaunchType
+		runInput.Group = params.Group
+		runInput.PlatformVersion = params.PlatformVersion
+		runInput.PropagateTags = params.PropagateTags
+		runInput.EnableECSManagedTags = params.EnableECSManagedTags
+		runInput.EnableExecuteCommand = params.EnableExecuteCommand
+		runInput.Count = int(params.TaskCount)
+		runInput.NetworkConfiguration = convertEcsNetworkConfig(params.NetworkConfiguration)
+		runInput.PlacementConstraints = convertEcsPlacementConstraints(params.PlacementConstraints)
+		runInput.PlacementStrategy = convertEcsPlacementStrategy(params.PlacementStrategy)
+		runInput.CapacityProviderStrategy = convertEcsCapacityProviderStrategy(params.CapacityProviderStrategy)
+		runInput.Tags = convertEcsTags(params.Tags)
+	}
+
+	if runInput.TaskDefinition == "" && input != nil {
+		if td, ok := input["TaskDefinition"].(string); ok {
+			runInput.TaskDefinition = td
+		}
+	}
+	if runInput.LaunchType == "" && input != nil {
+		if lt, ok := input["LaunchType"].(string); ok {
+			runInput.LaunchType = lt
+		}
+	}
+
+	return runInput
+}
+
+func (a *ebECSTaskRunnerAdapter) RunTaskWithParams(
+	_ context.Context,
+	clusterARN string,
+	params *ebbackend.EcsParameters,
+	payload []byte,
+) error {
+	runInput := buildECSRunInput(clusterARN, params, payload)
+	_, err := a.backend.RunTask(runInput)
 
 	return err
 }
@@ -10581,6 +10702,11 @@ func setupRegistry(
 	// out to every AWS region.
 	registry.Use(service.RegionTrackingMiddleware(globalCfg.GetRegion()))
 
+	principalResolvers := buildPrincipalResolvers(services)
+	if len(principalResolvers) > 0 {
+		registry.Use(service.Middleware(principalMiddleware(principalResolvers)))
+	}
+
 	if enforceIAM {
 		iamBackend := findIAMBackend(services)
 		if iamBackend != nil {
@@ -10642,15 +10768,78 @@ func findIAMBackend(services []service.Registerable) iambackend.EnforcementBacke
 // services. Services that implement the iam.ActionExtractor interface are automatically
 // included so their REST-API action mappings are used by the enforcement middleware.
 func buildActionExtractors(services []service.Registerable) []iambackend.ActionExtractor {
-	var extractors []iambackend.ActionExtractor
+	extractors := make([]iambackend.ActionExtractor, 0, len(services))
 
 	for _, svc := range services {
 		if ae, ok := svc.(iambackend.ActionExtractor); ok {
 			extractors = append(extractors, ae)
+		} else {
+			extractors = append(extractors, iambackend.NewRegisterableActionExtractor(svc))
 		}
 	}
 
 	return extractors
+}
+
+// extractStorageResourcePolicyProvider extracts a ResourcePolicyProvider adapter for storage/compute services.
+func extractStorageResourcePolicyProvider(svc service.Registerable) iambackend.ResourcePolicyProvider {
+	switch h := svc.(type) {
+	case *s3backend.S3Handler:
+		if b, ok := h.Backend.(s3PolicyBackend); ok {
+			return &s3PolicyAdapter{backend: b}
+		}
+	case *sqsbackend.Handler:
+		if b, ok := h.Backend.(sqsPolicyBackend); ok {
+			return &sqsPolicyAdapter{backend: b}
+		}
+	case *kmsbackend.Handler:
+		if b, ok := h.Backend.(kmsPolicyBackend); ok {
+			return &kmsPolicyAdapter{backend: b}
+		}
+	case *secretsmanagerbackend.Handler:
+		if b, ok := h.Backend.(secretsManagerPolicyBackend); ok {
+			return &secretsManagerPolicyAdapter{backend: b}
+		}
+	case *lambdabackend.Handler:
+		if b, ok := h.Backend.(lambdaPolicyBackend); ok {
+			return &lambdaPolicyAdapter{backend: b}
+		}
+	}
+
+	return nil
+}
+
+// extractExtendedResourcePolicyProvider extracts a ResourcePolicyProvider adapter for extended services.
+func extractExtendedResourcePolicyProvider(svc service.Registerable) iambackend.ResourcePolicyProvider {
+	switch h := svc.(type) {
+	case *ecrbackend.Handler:
+		if b, ok := h.Backend.(ecrPolicyBackend); ok {
+			return &ecrPolicyAdapter{backend: b}
+		}
+	case *snsbackend.Handler:
+		if b, ok := h.Backend.(snsPolicyBackend); ok {
+			return &snsPolicyAdapter{backend: b}
+		}
+	case *ebbackend.Handler:
+		if b, ok := h.Backend.(ebPolicyBackend); ok {
+			return &ebPolicyAdapter{backend: b}
+		}
+	case *bedrockbackend.Handler:
+		if h.Backend != nil {
+			return &bedrockPolicyAdapter{backend: h.Backend}
+		}
+	}
+
+	return nil
+}
+
+// extractResourcePolicyProvider extracts a ResourcePolicyProvider adapter for a service if supported.
+func extractResourcePolicyProvider(svc service.Registerable) iambackend.ResourcePolicyProvider {
+	if p := extractStorageResourcePolicyProvider(svc); p != nil {
+		return p
+	}
+
+	return extractExtendedResourcePolicyProvider(svc)
 }
 
 // buildResourcePolicyProviders builds a list of ResourcePolicyProvider adapters
@@ -10661,19 +10850,53 @@ func buildResourcePolicyProviders(
 	var providers []iambackend.ResourcePolicyProvider
 
 	for _, svc := range services {
-		switch h := svc.(type) {
-		case *s3backend.S3Handler:
-			if b, ok := h.Backend.(s3PolicyBackend); ok {
-				providers = append(providers, &s3PolicyAdapter{backend: b})
-			}
-		case *sqsbackend.Handler:
-			if b, ok := h.Backend.(sqsPolicyBackend); ok {
-				providers = append(providers, &sqsPolicyAdapter{backend: b})
-			}
+		if p := extractResourcePolicyProvider(svc); p != nil {
+			providers = append(providers, p)
 		}
 	}
 
 	return providers
+}
+
+// buildPrincipalResolvers collects PrincipalResolver implementations from registered service backends.
+func buildPrincipalResolvers(services []service.Registerable) awsmeta.PrincipalResolverChain {
+	var chain awsmeta.PrincipalResolverChain
+
+	for _, svc := range services {
+		switch h := svc.(type) {
+		case *iambackend.Handler:
+			if r, ok := h.Backend.(awsmeta.PrincipalResolver); ok {
+				chain = append(chain, r)
+			}
+		case *stsbackend.Handler:
+			if r, ok := h.Backend.(awsmeta.PrincipalResolver); ok {
+				chain = append(chain, r)
+			}
+		}
+	}
+
+	return chain
+}
+
+// principalMiddleware populates the resolved caller Principal onto the request context.
+func principalMiddleware(resolvers awsmeta.PrincipalResolverChain) echo.MiddlewareFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c *echo.Context) error {
+			req := c.Request()
+			ctx := req.Context()
+			meta := awsmeta.Get(ctx)
+
+			if meta != nil && meta.AccessKeyID != "" && meta.Principal == nil {
+				if p, ok := resolvers.ResolvePrincipal(ctx, meta.AccessKeyID, meta.SecurityToken); ok && p != nil {
+					meta.Principal = p
+					ctx = awsmeta.Set(ctx, meta)
+					c.SetRequest(req.WithContext(ctx))
+				}
+			}
+
+			return next(c)
+		}
+	}
 }
 
 // s3PolicyBackend is the minimal S3 backend interface needed for bucket policies.
@@ -10686,6 +10909,44 @@ type sqsPolicyBackend interface {
 	GetQueueAttributes(
 		input *sqsbackend.GetQueueAttributesInput,
 	) (*sqsbackend.GetQueueAttributesOutput, error)
+}
+
+// kmsPolicyBackend is the minimal KMS backend interface needed for key policies.
+type kmsPolicyBackend interface {
+	GetKeyPolicy(ctx context.Context, input *kmsbackend.GetKeyPolicyInput) (*kmsbackend.GetKeyPolicyOutput, error)
+}
+
+// secretsManagerPolicyBackend is the minimal Secrets Manager backend interface needed for resource policies.
+type secretsManagerPolicyBackend interface {
+	GetResourcePolicy(
+		ctx context.Context,
+		input *secretsmanagerbackend.GetResourcePolicyInput,
+	) (*secretsmanagerbackend.GetResourcePolicyOutput, error)
+}
+
+// lambdaPolicyBackend is the minimal Lambda backend interface needed for function policies.
+type lambdaPolicyBackend interface {
+	GetPolicy(functionName, qualifier string) (*lambdabackend.GetPolicyOutput, error)
+}
+
+// ecrPolicyBackend is the minimal ECR backend interface needed for repository policies.
+type ecrPolicyBackend interface {
+	GetRepositoryPolicy(ctx context.Context, repositoryName string) (*ecrbackend.RepositoryPolicyResult, error)
+}
+
+// snsPolicyBackend is the minimal SNS backend interface needed for topic policies.
+type snsPolicyBackend interface {
+	GetTopicAttributes(topicArn string) (map[string]string, error)
+}
+
+// ebPolicyBackend is the minimal EventBridge backend interface needed for bus policies.
+type ebPolicyBackend interface {
+	DescribeEventBus(ctx context.Context, name string) (*ebbackend.EventBus, error)
+}
+
+// bedrockPolicyBackend is the minimal Bedrock backend interface needed for resource policies.
+type bedrockPolicyBackend interface {
+	GetResourcePolicy(resourceArn string) (*bedrockbackend.ResourcePolicy, error)
 }
 
 // s3PolicyAdapter wraps an S3 backend to implement ResourcePolicyProvider.
@@ -10752,6 +11013,196 @@ func (a *sqsPolicyAdapter) GetResourcePolicy(
 	}
 
 	return out.Attributes["Policy"], nil
+}
+
+// kmsPolicyAdapter wraps a KMS backend to implement ResourcePolicyProvider.
+type kmsPolicyAdapter struct {
+	backend kmsPolicyBackend
+}
+
+func (a *kmsPolicyAdapter) GetResourcePolicy(
+	ctx context.Context,
+	resourceARN string,
+) (string, error) {
+	const prefix = "arn:aws:kms:"
+	if !strings.HasPrefix(resourceARN, prefix) {
+		return "", nil
+	}
+
+	out, err := a.backend.GetKeyPolicy(ctx, &kmsbackend.GetKeyPolicyInput{KeyID: resourceARN})
+	if err != nil {
+		return "", err
+	}
+
+	return out.Policy, nil
+}
+
+// secretsManagerPolicyAdapter wraps a Secrets Manager backend to implement ResourcePolicyProvider.
+type secretsManagerPolicyAdapter struct {
+	backend secretsManagerPolicyBackend
+}
+
+func (a *secretsManagerPolicyAdapter) GetResourcePolicy(
+	ctx context.Context,
+	resourceARN string,
+) (string, error) {
+	const prefix = "arn:aws:secretsmanager:"
+	if !strings.HasPrefix(resourceARN, prefix) {
+		return "", nil
+	}
+
+	out, err := a.backend.GetResourcePolicy(
+		ctx,
+		&secretsmanagerbackend.GetResourcePolicyInput{SecretID: resourceARN},
+	)
+	if err != nil {
+		return "", err
+	}
+
+	return out.ResourcePolicy, nil
+}
+
+// lambdaPolicyAdapter wraps a Lambda backend to implement ResourcePolicyProvider.
+type lambdaPolicyAdapter struct {
+	backend lambdaPolicyBackend
+}
+
+func (a *lambdaPolicyAdapter) GetResourcePolicy(
+	_ context.Context,
+	resourceARN string,
+) (string, error) {
+	const prefix = "arn:aws:lambda:"
+	if !strings.HasPrefix(resourceARN, prefix) {
+		return "", nil
+	}
+
+	parts := strings.Split(resourceARN, ":")
+	const arnMinParts = 6
+	if len(parts) < arnMinParts {
+		return "", nil
+	}
+
+	fnName := strings.TrimPrefix(parts[5], "function:")
+	if fnName == "" {
+		return "", nil
+	}
+
+	out, err := a.backend.GetPolicy(fnName, "")
+	if err != nil || out == nil || out.Policy == nil {
+		return "", err
+	}
+
+	return *out.Policy, nil
+}
+
+// ecrPolicyAdapter wraps an ECR backend to implement ResourcePolicyProvider.
+type ecrPolicyAdapter struct {
+	backend ecrPolicyBackend
+}
+
+func (a *ecrPolicyAdapter) GetResourcePolicy(
+	ctx context.Context,
+	resourceARN string,
+) (string, error) {
+	const prefix = "arn:aws:ecr:"
+	if !strings.HasPrefix(resourceARN, prefix) {
+		return "", nil
+	}
+
+	parts := strings.Split(resourceARN, ":")
+	const arnMinParts = 6
+	if len(parts) < arnMinParts {
+		return "", nil
+	}
+
+	repoName := strings.TrimPrefix(parts[5], "repository/")
+	if repoName == "" {
+		return "", nil
+	}
+
+	out, err := a.backend.GetRepositoryPolicy(ctx, repoName)
+	if err != nil || out == nil {
+		return "", err
+	}
+
+	return out.PolicyText, nil
+}
+
+// snsPolicyAdapter wraps a SNS backend to implement ResourcePolicyProvider.
+type snsPolicyAdapter struct {
+	backend snsPolicyBackend
+}
+
+func (a *snsPolicyAdapter) GetResourcePolicy(
+	_ context.Context,
+	resourceARN string,
+) (string, error) {
+	const prefix = "arn:aws:sns:"
+	if !strings.HasPrefix(resourceARN, prefix) {
+		return "", nil
+	}
+
+	attrs, err := a.backend.GetTopicAttributes(resourceARN)
+	if err != nil {
+		return "", err
+	}
+
+	return attrs["Policy"], nil
+}
+
+// ebPolicyAdapter wraps an EventBridge backend to implement ResourcePolicyProvider.
+type ebPolicyAdapter struct {
+	backend ebPolicyBackend
+}
+
+func (a *ebPolicyAdapter) GetResourcePolicy(
+	ctx context.Context,
+	resourceARN string,
+) (string, error) {
+	const prefix = "arn:aws:events:"
+	if !strings.HasPrefix(resourceARN, prefix) {
+		return "", nil
+	}
+
+	parts := strings.Split(resourceARN, ":")
+	const arnMinParts = 6
+	if len(parts) < arnMinParts {
+		return "", nil
+	}
+
+	busName := strings.TrimPrefix(parts[5], "event-bus/")
+	if busName == "" {
+		busName = "default"
+	}
+
+	bus, err := a.backend.DescribeEventBus(ctx, busName)
+	if err != nil || bus == nil {
+		return "", err
+	}
+
+	return bus.Policy, nil
+}
+
+// bedrockPolicyAdapter wraps a Bedrock backend to implement ResourcePolicyProvider.
+type bedrockPolicyAdapter struct {
+	backend bedrockPolicyBackend
+}
+
+func (a *bedrockPolicyAdapter) GetResourcePolicy(
+	_ context.Context,
+	resourceARN string,
+) (string, error) {
+	const prefix = "arn:aws:bedrock:"
+	if !strings.HasPrefix(resourceARN, prefix) {
+		return "", nil
+	}
+
+	rp, err := a.backend.GetResourcePolicy(resourceARN)
+	if err != nil || rp == nil {
+		return "", err
+	}
+
+	return rp.PolicyDocument, nil
 }
 
 // startEmbeddedDNS creates and starts the embedded DNS server.

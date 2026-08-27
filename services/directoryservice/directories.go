@@ -68,6 +68,14 @@ func synthesizeDNSIPv6Addrs(directoryID string) []string {
 	}
 }
 
+// synthesizeSecurityGroupID deterministically derives a domain controller security
+// group ID for a directory from its ID, matching AWS's auto-created security group.
+func synthesizeSecurityGroupID(directoryID string) string {
+	sum := sha256.Sum256([]byte(directoryID))
+
+	return fmt.Sprintf("sg-%x", sum[:4])
+}
+
 func (b *InMemoryBackend) newStoredDirectory(
 	region, name, shortName, description string,
 	dirType DirectoryType,
@@ -110,9 +118,18 @@ func (b *InMemoryBackend) newStoredDirectory(
 		d.DesiredNumberOfDomainCtrls = defaultRegionDomainControllers
 	}
 	if vpcSettings != nil {
+		secGroupID := vpcSettings.SecurityGroupID
+		if secGroupID == "" {
+			if len(vpcSettings.SecurityGroupIDs) > 0 {
+				secGroupID = vpcSettings.SecurityGroupIDs[0]
+			} else {
+				secGroupID = synthesizeSecurityGroupID(id)
+			}
+		}
 		d.VpcSettings = &storedVpcSettings{
 			VpcID:             vpcSettings.VpcID,
 			SubnetIDs:         vpcSettings.SubnetIDs,
+			SecurityGroupID:   secGroupID,
 			SecurityGroupIDs:  vpcSettings.SecurityGroupIDs,
 			AvailabilityZones: vpcSettings.AvailabilityZones,
 		}

@@ -56,6 +56,7 @@ import (
 	eksbackend "github.com/blackbirdworks/gopherstack/services/eks"
 	elasticachebackend "github.com/blackbirdworks/gopherstack/services/elasticache"
 	emrbackend "github.com/blackbirdworks/gopherstack/services/emr"
+	ebbackend "github.com/blackbirdworks/gopherstack/services/eventbridge"
 	firehosebackend "github.com/blackbirdworks/gopherstack/services/firehose"
 	fisbackend "github.com/blackbirdworks/gopherstack/services/fis"
 	gluebackend "github.com/blackbirdworks/gopherstack/services/glue"
@@ -3756,4 +3757,152 @@ func TestBuildSnapshotHandler_MultipleServices_StatePreservedIndependently(t *te
 		`{"topics":["arn:aws:sns:us-east-1:000000000000:alerts"]}`,
 		string(services["sns"].Data()),
 	)
+}
+
+func TestEBECSTaskRunnerAdapter(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		params     *ebbackend.EcsParameters
+		setup      func(t *testing.T, bk *ecsbackend.InMemoryBackend)
+		name       string
+		clusterARN string
+		payload    []byte
+		wantCount  int
+		wantErr    bool
+	}{
+		{
+			name: "run_task_legacy_payload_only",
+			setup: func(t *testing.T, bk *ecsbackend.InMemoryBackend) {
+				t.Helper()
+				_, err := bk.CreateCluster(ecsbackend.CreateClusterInput{ClusterName: "cluster-1"})
+				require.NoError(t, err)
+				_, err = bk.RegisterTaskDefinition(ecsbackend.RegisterTaskDefinitionInput{
+					Family: "task-def-1",
+					ContainerDefinitions: []ecsbackend.ContainerDefinition{
+						{Name: "app", Image: "alpine"},
+					},
+				})
+				require.NoError(t, err)
+			},
+			clusterARN: "cluster-1",
+			payload:    []byte(`{"TaskDefinition":"task-def-1","LaunchType":"FARGATE"}`),
+			params:     nil,
+			wantErr:    false,
+			wantCount:  1,
+		},
+		{
+			name: "run_task_with_params_full",
+			setup: func(t *testing.T, bk *ecsbackend.InMemoryBackend) {
+				t.Helper()
+				_, err := bk.CreateCluster(ecsbackend.CreateClusterInput{ClusterName: "cluster-2"})
+				require.NoError(t, err)
+				_, err = bk.CreateCapacityProvider(ecsbackend.CreateCapacityProviderInput{Name: "cp-1"})
+				require.NoError(t, err)
+				_, err = bk.RegisterTaskDefinition(ecsbackend.RegisterTaskDefinitionInput{
+					Family: "task-def-2",
+					ContainerDefinitions: []ecsbackend.ContainerDefinition{
+						{Name: "worker", Image: "busybox"},
+					},
+				})
+				require.NoError(t, err)
+			},
+			clusterARN: "cluster-2",
+			payload:    []byte(`{}`),
+			params: &ebbackend.EcsParameters{
+				TaskDefinitionArn: "task-def-2",
+				LaunchType:        "EC2",
+				TaskCount:         2,
+				Group:             "group-1",
+				PlatformVersion:   "LATEST",
+				PropagateTags:     "TASK_DEFINITION",
+				NetworkConfiguration: &ebbackend.NetworkConfiguration{
+					AwsvpcConfiguration: &ebbackend.AwsVpcConfiguration{
+						AssignPublicIP: "ENABLED",
+						Subnets:        []string{"subnet-123"},
+						SecurityGroups: []string{"sg-123"},
+					},
+				},
+				PlacementConstraints: []ebbackend.PlacementConstraint{
+					{Type: "distinctInstance"},
+				},
+				PlacementStrategy: []ebbackend.PlacementStrategy{
+					{Type: "spread", Field: "attribute:ecs.availability-zone"},
+				},
+				CapacityProviderStrategy: []ebbackend.CapacityProviderStrategyItem{
+					{CapacityProvider: "cp-1", Base: 1, Weight: 2},
+				},
+				Tags: []ebbackend.EcsTag{
+					{Key: "env", Value: "prod"},
+				},
+				EnableECSManagedTags: true,
+				EnableExecuteCommand: true,
+			},
+			wantErr:   false,
+			wantCount: 2,
+		},
+		{
+			name: "run_task_with_params_fallback_to_payload",
+			setup: func(t *testing.T, bk *ecsbackend.InMemoryBackend) {
+				t.Helper()
+				_, err := bk.CreateCluster(ecsbackend.CreateClusterInput{ClusterName: "cluster-3"})
+				require.NoError(t, err)
+				_, err = bk.RegisterTaskDefinition(ecsbackend.RegisterTaskDefinitionInput{
+					Family: "task-def-3",
+					ContainerDefinitions: []ecsbackend.ContainerDefinition{
+						{Name: "app", Image: "alpine"},
+					},
+				})
+				require.NoError(t, err)
+			},
+			clusterARN: "cluster-3",
+			payload:    []byte(`{"TaskDefinition":"task-def-3"}`),
+			params: &ebbackend.EcsParameters{
+				Group: "fallback-group",
+			},
+			wantErr:   false,
+			wantCount: 1,
+		},
+		{
+			name: "run_task_unknown_task_definition_returns_error",
+			setup: func(t *testing.T, bk *ecsbackend.InMemoryBackend) {
+				t.Helper()
+				_, err := bk.CreateCluster(ecsbackend.CreateClusterInput{ClusterName: "cluster-4"})
+				require.NoError(t, err)
+			},
+			clusterARN: "cluster-4",
+			payload:    []byte(`{"TaskDefinition":"nonexistent-task-def"}`),
+			params:     nil,
+			wantErr:    true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			bk := ecsbackend.NewInMemoryBackend("123456789012", "us-east-1", nil)
+			if tt.setup != nil {
+				tt.setup(t, bk)
+			}
+
+			adapter := &ebECSTaskRunnerAdapter{backend: bk}
+
+			var err error
+			if tt.params != nil {
+				err = adapter.RunTaskWithParams(t.Context(), tt.clusterARN, tt.params, tt.payload)
+			} else {
+				err = adapter.RunTask(t.Context(), tt.clusterARN, tt.payload)
+			}
+
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				tasks, listErr := bk.ListTasks(tt.clusterARN)
+				require.NoError(t, listErr)
+				assert.Len(t, tasks, tt.wantCount)
+			}
+		})
+	}
 }

@@ -21,6 +21,9 @@ const (
 
 	// pathPublicAccessBlock is the path suffix for the public access block sub-resource.
 	pathPublicAccessBlock = "/configuration/publicAccessBlock"
+
+	// opUnknown is the sentinel for unrecognized operations.
+	opUnknown = "Unknown"
 )
 
 // Handler is the Echo HTTP handler for S3 Control operations.
@@ -144,7 +147,25 @@ func (h *Handler) MatchPriority() int { return service.PriorityPathVersioned }
 
 // ExtractOperation extracts the S3 Control operation from the request.
 func (h *Handler) ExtractOperation(c *echo.Context) string {
-	r := c.Request()
+	return h.IAMOpFromRequest(c.Request())
+}
+
+// IAMAction returns the IAM action for an S3 Control HTTP request.
+func (h *Handler) IAMAction(r *http.Request) string {
+	op := h.IAMOpFromRequest(r)
+	if op == "" || op == opUnknown {
+		return ""
+	}
+
+	if strings.HasSuffix(r.URL.Path, pathPublicAccessBlock) {
+		return "s3:" + op
+	}
+
+	return "s3control:" + op
+}
+
+// IAMOpFromRequest extracts the operation name from an HTTP request.
+func (h *Handler) IAMOpFromRequest(r *http.Request) string {
 	path := r.URL.Path
 	method := r.Method
 

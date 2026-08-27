@@ -3,6 +3,7 @@ package service
 import (
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/labstack/echo/v5"
 
@@ -94,13 +95,13 @@ func (r *Registry) Register(svc Registerable, mws ...Middleware) error {
 		svc,
 	)
 
-	// Apply global middlewares
-	for _, mw := range r.middlewares {
+	// Apply global middlewares in registration order (first registered is outermost).
+	for _, mw := range slices.Backward(r.middlewares) {
 		h = mw(h)
 	}
 
 	// Apply per-service middlewares
-	for _, mw := range mws {
+	for _, mw := range slices.Backward(mws) {
 		h = mw(h)
 	}
 

@@ -111,14 +111,21 @@ type autoScalingSettingsDescWire struct {
 	AutoScalingDisabled *bool  `json:"AutoScalingDisabled,omitempty"`
 }
 
+// replicaGSIAutoScalingDescWire is the wire format for
+// types.ReplicaGlobalSecondaryIndexAutoScalingDescription.
+type replicaGSIAutoScalingDescWire struct {
+	WriteCap    *autoScalingSettingsDescWire `json:"ProvisionedWriteCapacityAutoScalingSettings,omitempty"`
+	IndexName   string                       `json:"IndexName,omitempty"`
+	IndexStatus string                       `json:"IndexStatus,omitempty"`
+}
+
 // replicaAutoScalingDescWire is the wire format for
-// types.ReplicaAutoScalingDescription, trimmed to the members this emulator
-// tracks (GlobalSecondaryIndexes and the read-capacity settings are not
-// modeled).
+// types.ReplicaAutoScalingDescription.
 type replicaAutoScalingDescWire struct {
-	WriteCapAutoScaling *autoScalingSettingsDescWire `json:"ReplicaProvisionedWriteCapacityAutoScalingSettings,omitempty"`
-	RegionName          string                       `json:"RegionName,omitempty"`
-	ReplicaStatus       string                       `json:"ReplicaStatus,omitempty"`
+	WriteCap      *autoScalingSettingsDescWire    `json:"ReplicaProvisionedWriteCapacityAutoScalingSettings,omitempty"`
+	RegionName    string                          `json:"RegionName,omitempty"`
+	ReplicaStatus string                          `json:"ReplicaStatus,omitempty"`
+	GSIs          []replicaGSIAutoScalingDescWire `json:"GlobalSecondaryIndexes,omitempty"`
 }
 
 type tableAutoScalingDescWire struct {
@@ -173,12 +180,26 @@ func buildTableAutoScalingDescWire(d *types.TableAutoScalingDescription) tableAu
 	}
 
 	for _, r := range d.Replicas {
+		var gsis []replicaGSIAutoScalingDescWire
+		if len(r.GlobalSecondaryIndexes) > 0 {
+			gsis = make([]replicaGSIAutoScalingDescWire, 0, len(r.GlobalSecondaryIndexes))
+			for _, g := range r.GlobalSecondaryIndexes {
+				gsis = append(gsis, replicaGSIAutoScalingDescWire{
+					IndexName:   ptrconv.String(g.IndexName),
+					IndexStatus: string(g.IndexStatus),
+					WriteCap: autoScalingSettingsDescWireFromSDK(
+						g.ProvisionedWriteCapacityAutoScalingSettings,
+					),
+				})
+			}
+		}
 		desc.Replicas = append(desc.Replicas, replicaAutoScalingDescWire{
 			RegionName:    ptrconv.String(r.RegionName),
 			ReplicaStatus: string(r.ReplicaStatus),
-			WriteCapAutoScaling: autoScalingSettingsDescWireFromSDK(
+			WriteCap: autoScalingSettingsDescWireFromSDK(
 				r.ReplicaProvisionedWriteCapacityAutoScalingSettings,
 			),
+			GSIs: gsis,
 		})
 	}
 

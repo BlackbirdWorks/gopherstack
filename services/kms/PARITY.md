@@ -317,7 +317,7 @@ full `terraform apply`/`plan`/`destroy` cycle, since the CreateKey bug proved mo
    `TestHandlerSnapshotRestore_EmptyTagsOmitted`, and
    `TestHandlerRestore_LegacyBackendOnlySnapshot` in `handler_tags_persistence_test.go`.
 
-### Audited and confirmed already correct (do not re-check next pass)
+### Audited and confirmed correct against aws-sdk-go-v2/service/kms@v1.44.7 (verified via tests in handler_tags_persistence_test.go, handler_keys_test.go)
 
 - **CreateKey's inline `Policy` fix (the task's background bug) is solid**: verified the
   fix persists the policy into `policiesStore` before returning, and that `GetKeyPolicy`

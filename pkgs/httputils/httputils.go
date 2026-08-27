@@ -401,12 +401,64 @@ func ExtractServiceFromRequest(r *http.Request) string {
 	return ""
 }
 
+func extractBareAccessKey(raw string) string {
+	if idx := strings.IndexAny(raw, ", \t\r\n"); idx != -1 {
+		raw = raw[:idx]
+	}
+
+	if !strings.Contains(raw, "/") && raw != "" {
+		return SanitizeHeaderString(raw)
+	}
+
+	return ""
+}
+
 // ExtractAccessKeyFromRequest extracts the AWS access key ID from an HTTP request.
 // It checks the SigV4 Authorization header credential scope first, then the
 // X-Amz-Credential query parameter, and returns an empty string if none is found.
 func ExtractAccessKeyFromRequest(r *http.Request) string {
 	if scope := extractSigV4ScopeFromRequest(r); scope != nil {
 		return SanitizeHeaderString(scope[sigV4AccessKeyIndex])
+	}
+
+	if r == nil {
+		return ""
+	}
+
+	if auth := r.Header.Get("Authorization"); auth != "" {
+		if _, raw, ok := strings.Cut(auth, "Credential="); ok {
+			if key := extractBareAccessKey(raw); key != "" {
+				return key
+			}
+		}
+	}
+
+	if r.URL != nil {
+		if cred := r.URL.Query().Get("X-Amz-Credential"); cred != "" {
+			if key := extractBareAccessKey(cred); key != "" {
+				return key
+			}
+		}
+	}
+
+	return ""
+}
+
+// ExtractSecurityTokenFromRequest extracts the AWS session token from an HTTP request.
+// It checks the X-Amz-Security-Token header first, then the X-Amz-Security-Token query parameter.
+func ExtractSecurityTokenFromRequest(r *http.Request) string {
+	if r == nil {
+		return ""
+	}
+
+	if tok := r.Header.Get("X-Amz-Security-Token"); tok != "" {
+		return SanitizeHeaderString(tok)
+	}
+
+	if r.URL != nil {
+		if tok := r.URL.Query().Get("X-Amz-Security-Token"); tok != "" {
+			return SanitizeHeaderString(tok)
+		}
 	}
 
 	return ""
@@ -449,14 +501,30 @@ func ScopedPrefixMatch(r *http.Request, path, prefix, serviceName string) bool {
 	return scope == "" || scope == serviceName
 }
 
-// SanitizeHeaderString removes all characters except alphanumeric, hyphens,
-// underscores, and periods. This breaks the taint for static analysis tools
-// like CodeQL which flag raw header values in logs.
+func isAllowedHeaderSpecial(c rune) bool {
+	switch c {
+	case '-', '_', '.', '+', '/', '=', ':', '~':
+		return true
+	default:
+		return false
+	}
+}
+
+func isAllowedHeaderChar(c rune) bool {
+	if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') {
+		return true
+	}
+
+	return isAllowedHeaderSpecial(c)
+}
+
+// SanitizeHeaderString removes control characters and unexpected characters while
+// preserving alphanumeric, hyphens, underscores, periods, and base64/ARN characters (+, /, =, :, ~).
+// This breaks the taint for static analysis tools like CodeQL which flag raw header values in logs.
 func SanitizeHeaderString(s string) string {
 	var b strings.Builder
 	for _, c := range s {
-		if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
-			(c >= '0' && c <= '9') || c == '-' || c == '_' || c == '.' {
+		if isAllowedHeaderChar(c) {
 			b.WriteRune(c)
 		}
 	}
