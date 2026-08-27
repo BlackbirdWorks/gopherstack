@@ -74,7 +74,7 @@ func (b *InMemoryBackend) CreatePlatformEndpoint(
 			appRegion = b.region
 		}
 		endpointArn := arn.Build("sns", appRegion, b.accountID,
-			"endpoint/"+platform+"/"+appName+"/"+uuid.New().String())
+			"endpoint/"+platform+"/"+appName+"/"+uuid.NewString())
 
 		// Allocate with room for Token and Enabled (endpointExtraAttrs) beyond caller-supplied attrs.
 		attrs := make(map[string]string, len(attributes)+endpointExtraAttrs)

@@ -536,10 +536,13 @@ func (b *InMemoryBackend) DeleteApplication(ctx context.Context, name string, cr
 	go func() {
 		defer cancel()
 
+		t := time.NewTimer(transitionDelay)
+		defer t.Stop()
+
 		select {
 		case <-cancelCtx.Done():
 			return
-		case <-time.After(transitionDelay):
+		case <-t.C:
 		}
 
 		b.mu.Lock("DeleteApplication.async")
@@ -725,10 +728,13 @@ func (b *InMemoryBackend) launchTransition(region, name, targetStatus string) {
 	go func() {
 		defer cancel()
 
+		t := time.NewTimer(transitionDelay)
+		defer t.Stop()
+
 		select {
 		case <-ctx.Done():
 			return
-		case <-time.After(transitionDelay):
+		case <-t.C:
 		}
 
 		b.mu.Lock("launchTransition.async")

@@ -22,7 +22,7 @@ func (h *Handler) writeXML(c *echo.Context, v any) error {
 func (h *Handler) writeError(c *echo.Context, status int, code, message string) error {
 	errResp := ErrorResponse{
 		Error:     Error{Type: "Sender", Code: code, Message: message},
-		RequestID: uuid.New().String(),
+		RequestID: uuid.NewString(),
 	}
 
 	httputils.WriteXML(c.Request().Context(), c.Response(), status, errResp)

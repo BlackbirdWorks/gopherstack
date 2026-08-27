@@ -3,9 +3,9 @@ package dynamodb
 import (
 	"container/list"
 	"fmt"
-	"hash/fnv"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
@@ -63,12 +63,10 @@ func newExpressionCacheWithTTL(capacity int, ttl time.Duration) *ExpressionCache
 
 // getShard returns the shard for a given key.
 func (c *ExpressionCache) getShard(key string) *cacheShard {
-	h := fnv.New32a()
-	_, _ = h.Write([]byte(key))
-
+	h := httputils.FNV32a(key)
 	shardCount := uint32(len(c.shards)) // #nosec G115 - shard count is constant 16
 
-	return c.shards[h.Sum32()%shardCount]
+	return c.shards[h%shardCount]
 }
 
 // Get retrieves a value from the cache. Expired entries are removed and a miss is returned.

@@ -446,7 +446,7 @@ func (h *Handler) forwardHTTPAPIHTTPIntegration(
 	// Merge query parameters.
 	upstreamReq.URL.RawQuery = c.Request().URL.RawQuery
 
-	client := &http.Client{Timeout: httpClientTimeout}
+	client := h.getHTTPClient()
 
 	resp, doErr := client.Do(upstreamReq)
 	if doErr != nil {

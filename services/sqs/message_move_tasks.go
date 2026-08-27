@@ -188,7 +188,7 @@ func (b *InMemoryBackend) startMessageMoveTaskLocked(
 	srcQueue, _ := b.lookupQueueByURL("", srcURL)
 	totalCount := approximateQueueDepthLocked(srcQueue)
 
-	taskHandle := uuid.New().String()
+	taskHandle := uuid.NewString()
 
 	ctx, cancel := context.WithCancel(b.svcCtx)
 

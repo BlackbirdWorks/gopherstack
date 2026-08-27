@@ -124,7 +124,7 @@ func (b *InMemoryBackend) StartCopyJob(
 	}
 
 	now := time.Now().UTC()
-	copyJobID := "copy-job-" + uuid.New().String()[:8]
+	copyJobID := "copy-job-" + uuid.NewString()[:8]
 	destRPArn := "arn:aws:backup:" + b.region + ":" + b.accountID + ":recovery-point:" + copyJobID
 
 	job := &CopyJob{

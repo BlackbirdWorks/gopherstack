@@ -23,7 +23,7 @@ func (h *Handler) handleCheckIfPhoneNumberIsOptedOut(c *echo.Context) error {
 		CheckIfPhoneNumberIsOptedOutResult: CheckIfPhoneNumberIsOptedOutResult{
 			IsOptedOut: optedOut,
 		},
-		ResponseMetadata: ResponseMetadata{RequestID: uuid.New().String()},
+		ResponseMetadata: ResponseMetadata{RequestID: uuid.NewString()},
 	})
 }
 
@@ -40,7 +40,7 @@ func (h *Handler) handleCreateSMSSandboxPhoneNumber(c *echo.Context) error {
 	}
 
 	return h.writeXML(c, CreateSMSSandboxPhoneNumberResponse{
-		ResponseMetadata: ResponseMetadata{RequestID: uuid.New().String()},
+		ResponseMetadata: ResponseMetadata{RequestID: uuid.NewString()},
 	})
 }
 
@@ -55,7 +55,7 @@ func (h *Handler) handleDeleteSMSSandboxPhoneNumber(c *echo.Context) error {
 	}
 
 	return h.writeXML(c, DeleteSMSSandboxPhoneNumberResponse{
-		ResponseMetadata: ResponseMetadata{RequestID: uuid.New().String()},
+		ResponseMetadata: ResponseMetadata{RequestID: uuid.NewString()},
 	})
 }
 
@@ -69,7 +69,7 @@ func (h *Handler) handleGetSMSAttributes(c *echo.Context) error {
 
 	return h.writeXML(c, GetSMSAttributesResponse{
 		GetSMSAttributesResult: GetSMSAttributesResult{Attributes: attrsToEntries(attrs)},
-		ResponseMetadata:       ResponseMetadata{RequestID: uuid.New().String()},
+		ResponseMetadata:       ResponseMetadata{RequestID: uuid.NewString()},
 	})
 }
 
@@ -81,7 +81,7 @@ func (h *Handler) handleGetSMSSandboxAccountStatus(c *echo.Context) error {
 
 	return h.writeXML(c, GetSMSSandboxAccountStatusResponse{
 		GetSMSSandboxAccountStatusResult: GetSMSSandboxAccountStatusResult{IsInSandbox: inSandbox},
-		ResponseMetadata:                 ResponseMetadata{RequestID: uuid.New().String()},
+		ResponseMetadata:                 ResponseMetadata{RequestID: uuid.NewString()},
 	})
 }
 
@@ -99,7 +99,7 @@ func (h *Handler) handleListOriginationNumbers(c *echo.Context) error {
 			PhoneNumbers: nums,
 			NextToken:    token,
 		},
-		ResponseMetadata: ResponseMetadata{RequestID: uuid.New().String()},
+		ResponseMetadata: ResponseMetadata{RequestID: uuid.NewString()},
 	})
 }
 
@@ -117,7 +117,7 @@ func (h *Handler) handleListPhoneNumbersOptedOut(c *echo.Context) error {
 			PhoneNumbers: nums,
 			NextToken:    token,
 		},
-		ResponseMetadata: ResponseMetadata{RequestID: uuid.New().String()},
+		ResponseMetadata: ResponseMetadata{RequestID: uuid.NewString()},
 	})
 }
 
@@ -144,7 +144,7 @@ func (h *Handler) handleListSMSSandboxPhoneNumbers(c *echo.Context) error {
 			PhoneNumbers: members,
 			NextToken:    token,
 		},
-		ResponseMetadata: ResponseMetadata{RequestID: uuid.New().String()},
+		ResponseMetadata: ResponseMetadata{RequestID: uuid.NewString()},
 	})
 }
 
@@ -161,7 +161,7 @@ func (h *Handler) handleVerifySMSSandboxPhoneNumber(c *echo.Context) error {
 	}
 
 	return h.writeXML(c, VerifySMSSandboxPhoneNumberResponse{
-		ResponseMetadata: ResponseMetadata{RequestID: uuid.New().String()},
+		ResponseMetadata: ResponseMetadata{RequestID: uuid.NewString()},
 	})
 }
 
@@ -176,7 +176,7 @@ func (h *Handler) handleOptInPhoneNumber(c *echo.Context) error {
 	}
 
 	return h.writeXML(c, OptInPhoneNumberResponse{
-		ResponseMetadata: ResponseMetadata{RequestID: uuid.New().String()},
+		ResponseMetadata: ResponseMetadata{RequestID: uuid.NewString()},
 	})
 }
 
@@ -202,6 +202,6 @@ func (h *Handler) handleSetSMSAttributes(c *echo.Context) error {
 	}
 
 	return h.writeXML(c, SetSMSAttributesResponse{
-		ResponseMetadata: ResponseMetadata{RequestID: uuid.New().String()},
+		ResponseMetadata: ResponseMetadata{RequestID: uuid.NewString()},
 	})
 }

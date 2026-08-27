@@ -46,7 +46,7 @@ func (b *InMemoryBackend) SendMessage(input *SendMessageInput) (*SendMessageOutp
 	sha256Body := computeSHA256(input.MessageBody)
 	md5Attrs := computeMD5OfMessageAttributes(input.MessageAttributes)
 	md5SysAttrs := computeMD5OfMessageAttributes(input.MessageSystemAttributes)
-	msgID := uuid.New().String()
+	msgID := uuid.NewString()
 
 	// #55: resolve queue under global RLock, then mutate under per-queue lock.
 	b.mu.RLock("SendMessage")
@@ -722,7 +722,7 @@ func (b *InMemoryBackend) SendMessageBatch(
 			sha256Body:  computeSHA256(entry.MessageBody),
 			md5Attrs:    computeMD5OfMessageAttributes(entry.MessageAttributes),
 			md5SysAttrs: computeMD5OfMessageAttributes(entry.MessageSystemAttributes),
-			msgID:       uuid.New().String(),
+			msgID:       uuid.NewString(),
 		}
 	}
 

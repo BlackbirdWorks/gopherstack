@@ -32,7 +32,7 @@ func (h *Handler) handleCreateTopic(c *echo.Context) error {
 
 	return h.writeXML(c, CreateTopicResponse{
 		CreateTopicResult: CreateTopicResult{TopicArn: topic.TopicArn},
-		ResponseMetadata:  ResponseMetadata{RequestID: uuid.New().String()},
+		ResponseMetadata:  ResponseMetadata{RequestID: uuid.NewString()},
 	})
 }
 
@@ -51,7 +51,7 @@ func (h *Handler) handleDeleteTopic(c *echo.Context) error {
 	h.fifoSeqNums.Delete(topicArn)
 
 	return h.writeXML(c, DeleteTopicResponse{
-		ResponseMetadata: ResponseMetadata{RequestID: uuid.New().String()},
+		ResponseMetadata: ResponseMetadata{RequestID: uuid.NewString()},
 	})
 }
 
@@ -71,7 +71,7 @@ func (h *Handler) handleListTopics(c *echo.Context) error {
 
 	return h.writeXML(c, ListTopicsResponse{
 		ListTopicsResult: ListTopicsResult{Topics: members, NextToken: token},
-		ResponseMetadata: ResponseMetadata{RequestID: uuid.New().String()},
+		ResponseMetadata: ResponseMetadata{RequestID: uuid.NewString()},
 	})
 }
 
@@ -90,7 +90,7 @@ func (h *Handler) handleGetTopicAttributes(c *echo.Context) error {
 
 	return h.writeXML(c, GetTopicAttributesResponse{
 		GetTopicAttributesResult: GetTopicAttributesResult{Attributes: entries},
-		ResponseMetadata:         ResponseMetadata{RequestID: uuid.New().String()},
+		ResponseMetadata:         ResponseMetadata{RequestID: uuid.NewString()},
 	})
 }
 
@@ -113,7 +113,7 @@ func (h *Handler) handleSetTopicAttributes(c *echo.Context) error {
 	}
 
 	return h.writeXML(c, SetTopicAttributesResponse{
-		ResponseMetadata: ResponseMetadata{RequestID: uuid.New().String()},
+		ResponseMetadata: ResponseMetadata{RequestID: uuid.NewString()},
 	})
 }
 
@@ -130,7 +130,7 @@ func (h *Handler) handleGetDataProtectionPolicy(c *echo.Context) error {
 
 	return h.writeXML(c, GetDataProtectionPolicyResponse{
 		GetDataProtectionPolicyResult: GetDataProtectionPolicyResult{DataProtectionPolicy: policy},
-		ResponseMetadata:              ResponseMetadata{RequestID: uuid.New().String()},
+		ResponseMetadata:              ResponseMetadata{RequestID: uuid.NewString()},
 	})
 }
 
@@ -147,6 +147,6 @@ func (h *Handler) handlePutDataProtectionPolicy(c *echo.Context) error {
 	}
 
 	return h.writeXML(c, PutDataProtectionPolicyResponse{
-		ResponseMetadata: ResponseMetadata{RequestID: uuid.New().String()},
+		ResponseMetadata: ResponseMetadata{RequestID: uuid.NewString()},
 	})
 }

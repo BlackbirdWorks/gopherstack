@@ -134,10 +134,13 @@ const httpBackoffMaxInterval = 30 * time.Second
 // is cancelled. backoff is doubled on each call and capped at httpBackoffMaxInterval.
 // Returns true when the caller should proceed with the next attempt, false when it should stop.
 func httpDeliveryBackoff(ctx context.Context, deadline time.Time, backoff *time.Duration) bool {
+	t := time.NewTimer(*backoff)
+	defer t.Stop()
+
 	select {
 	case <-ctx.Done():
 		return false
-	case <-time.After(*backoff):
+	case <-t.C:
 		*backoff *= 2
 		if *backoff > httpBackoffMaxInterval {
 			*backoff = httpBackoffMaxInterval

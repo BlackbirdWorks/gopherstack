@@ -49,14 +49,16 @@ func ensureLambdaFunction(ctx context.Context, cl *lambda.Client, roleArn string
 			return lambdaFunctionName, nil
 		}
 
+		t := time.NewTimer(pollInterval)
 		select {
 		case <-waitCtx.Done():
+			t.Stop()
 			log.WarnContext(
 				ctx, "gave up waiting for lambda function to leave Pending state", "function", lambdaFunctionName,
 			)
 
 			return lambdaFunctionName, nil
-		case <-time.After(pollInterval):
+		case <-t.C:
 		}
 	}
 }

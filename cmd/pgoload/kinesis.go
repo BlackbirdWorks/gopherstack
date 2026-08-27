@@ -67,10 +67,13 @@ func waitStreamActive(ctx context.Context, cl *kinesis.Client, log *slog.Logger)
 			return aws.ToString(shards.Shards[0].ShardId), nil
 		}
 
+		t := time.NewTimer(pollInterval)
 		select {
 		case <-ctx.Done():
+			t.Stop()
+
 			return "", fmt.Errorf("waiting for stream %s: %w", kinesisStreamName, ctx.Err())
-		case <-time.After(pollInterval):
+		case <-t.C:
 		}
 	}
 

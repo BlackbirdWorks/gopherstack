@@ -2,11 +2,11 @@ package forecast
 
 import (
 	"fmt"
-	"hash/fnv"
 	"strconv"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
+	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 )
 
 const (
@@ -132,10 +132,7 @@ func (b *InMemoryBackend) GetAccuracyMetrics(predictorArn string) (map[string]an
 
 // stableSeed returns a deterministic 32-bit value derived from s.
 func stableSeed(s string) uint32 {
-	h := fnv.New32a()
-	_, _ = h.Write([]byte(s))
-
-	return h.Sum32()
+	return httputils.FNV32a(s)
 }
 
 // predictorQuantiles returns the forecast quantiles configured on the predictor,

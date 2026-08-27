@@ -90,10 +90,13 @@ func NewInMemoryBackendWithContext(svcCtx context.Context, accountID, region str
 // can wait for it.
 func (b *InMemoryBackend) runDelayed(fn func()) {
 	b.wg.Go(func() {
+		t := time.NewTimer(stateTransitionDelay)
+		defer t.Stop()
+
 		select {
 		case <-b.svcCtx.Done():
 			return
-		case <-time.After(stateTransitionDelay):
+		case <-t.C:
 		}
 
 		fn()

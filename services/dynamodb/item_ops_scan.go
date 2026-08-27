@@ -4,10 +4,10 @@ import (
 	"cmp"
 	"context"
 	"fmt"
-	"hash/fnv"
 	"slices"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/dynamoattr"
+	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/services/dynamodb/models"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -389,9 +389,7 @@ func applySegmentFilter(
 
 	for _, item := range candidate {
 		pkVal := BuildKeyString(item, pkDef.AttributeName)
-		h := fnv.New32a()
-		_, _ = h.Write([]byte(pkVal))
-		if int(h.Sum32())%totalSegments == segment {
+		if int(httputils.FNV32a(pkVal))%totalSegments == segment {
 			filtered = append(filtered, item)
 		}
 	}

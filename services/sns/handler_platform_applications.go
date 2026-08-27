@@ -34,7 +34,7 @@ func (h *Handler) handleCreatePlatformApplication(c *echo.Context) error {
 		CreatePlatformApplicationResult: CreatePlatformApplicationResult{
 			PlatformApplicationArn: app.PlatformApplicationArn,
 		},
-		ResponseMetadata: ResponseMetadata{RequestID: uuid.New().String()},
+		ResponseMetadata: ResponseMetadata{RequestID: uuid.NewString()},
 	})
 }
 
@@ -58,7 +58,7 @@ func (h *Handler) handleGetPlatformApplicationAttributes(c *echo.Context) error 
 		GetPlatformApplicationAttributesResult: GetPlatformApplicationAttributesResult{
 			Attributes: attrsToEntries(attrs),
 		},
-		ResponseMetadata: ResponseMetadata{RequestID: uuid.New().String()},
+		ResponseMetadata: ResponseMetadata{RequestID: uuid.NewString()},
 	})
 }
 
@@ -80,7 +80,7 @@ func (h *Handler) handleSetPlatformApplicationAttributes(c *echo.Context) error 
 	}
 
 	return h.writeXML(c, SetPlatformApplicationAttributesResponse{
-		ResponseMetadata: ResponseMetadata{RequestID: uuid.New().String()},
+		ResponseMetadata: ResponseMetadata{RequestID: uuid.NewString()},
 	})
 }
 
@@ -105,7 +105,7 @@ func (h *Handler) handleListPlatformApplications(c *echo.Context) error {
 			PlatformApplications: members,
 			NextToken:            token,
 		},
-		ResponseMetadata: ResponseMetadata{RequestID: uuid.New().String()},
+		ResponseMetadata: ResponseMetadata{RequestID: uuid.NewString()},
 	})
 }
 
@@ -125,6 +125,6 @@ func (h *Handler) handleDeletePlatformApplication(c *echo.Context) error {
 	}
 
 	return h.writeXML(c, DeletePlatformApplicationResponse{
-		ResponseMetadata: ResponseMetadata{RequestID: uuid.New().String()},
+		ResponseMetadata: ResponseMetadata{RequestID: uuid.NewString()},
 	})
 }

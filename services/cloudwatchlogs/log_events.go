@@ -180,7 +180,7 @@ func classifyLogEvents(
 	events []InputLogEvent,
 	retentionCutoffMs, hardCutoff, futureLimit int64,
 ) ([]InputLogEvent, *RejectedLogEventsInfo) {
-	var acceptedEvents []InputLogEvent
+	acceptedEvents := make([]InputLogEvent, 0, len(events))
 	var tracker rejectedTracker
 
 	for i, e := range events {
@@ -358,7 +358,7 @@ func (b *InMemoryBackend) appendEvents(
 	for _, ev := range events {
 		idx := len(stream.events)
 		ptr := base64.StdEncoding.EncodeToString(
-			fmt.Appendf(nil, "%s/%s/%d", groupName, streamName, idx),
+			[]byte(groupName + "/" + streamName + "/" + strconv.Itoa(idx)),
 		)
 		out := &OutputLogEvent{
 			IngestionTime: now,

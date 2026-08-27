@@ -2,9 +2,10 @@ package personalize
 
 import (
 	"fmt"
-	"hash/fnv"
 
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 )
 
 // --- Personalize Runtime ---
@@ -83,9 +84,8 @@ func deterministicScore(seed string, rank int) float64 {
 		scoreBuckets = 1000  // hash buckets mapped into a [0,1) base score
 		rankDecay    = 100.0 // divisor controlling per-rank score decay
 	)
-	h := fnv.New32a()
-	_, _ = h.Write([]byte(seed))
-	base := float64(h.Sum32()%scoreBuckets) / float64(scoreBuckets)
+	h := httputils.FNV32a(seed)
+	base := float64(h%scoreBuckets) / float64(scoreBuckets)
 	decay := float64(rank) / rankDecay
 	score := base - decay
 	if score < 0 {

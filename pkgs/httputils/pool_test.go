@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"hash"
 	"hash/crc32"
+	"hash/fnv"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -205,6 +206,50 @@ func TestHasherPools(t *testing.T) {
 			require.NotNil(t, h2)
 			assert.Equal(t, tt.want.emptySum, h2.Sum(nil))
 			tt.args.release(h2)
+		})
+	}
+}
+
+func TestFNV(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		input string
+	}{
+		{
+			name:  "empty_string",
+			input: "",
+		},
+		{
+			name:  "simple_string",
+			input: "hello world",
+		},
+		{
+			name:  "dynamodb_partition_key",
+			input: "user#12345:orders#2023-01-01",
+		},
+		{
+			name:  "unicode_string",
+			input: "Hello 世界 🚀",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			// Check FNV32a matches hash/fnv
+			h32 := fnv.New32a()
+			_, err32 := h32.Write([]byte(tt.input))
+			require.NoError(t, err32)
+			assert.Equal(t, h32.Sum32(), httputils.FNV32a(tt.input))
+
+			// Check FNV64a matches hash/fnv
+			h64 := fnv.New64a()
+			_, err64 := h64.Write([]byte(tt.input))
+			require.NoError(t, err64)
+			assert.Equal(t, h64.Sum64(), httputils.FNV64a(tt.input))
 		})
 	}
 }

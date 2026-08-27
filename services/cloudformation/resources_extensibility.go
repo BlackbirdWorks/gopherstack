@@ -328,10 +328,13 @@ func (rc *ResourceCreator) createCustomResource(
 	}
 
 	// Wait for the Lambda to PUT the response.
+	timer := time.NewTimer(customResourceTimeout)
+	defer timer.Stop()
+
 	select {
 	case resp := <-respCh:
 		return rc.applyCustomResourceResponse(logicalID, requestID, resp, physicalIDs)
-	case <-time.After(customResourceTimeout):
+	case <-timer.C:
 		return defaultPhysID, nil
 	case <-ctx.Done():
 		return defaultPhysID, nil
@@ -427,6 +430,9 @@ func (rc *ResourceCreator) updateCustomResource(
 		return nil
 	}
 
+	timer := time.NewTimer(customResourceTimeout)
+	defer timer.Stop()
+
 	select {
 	case resp := <-respCh:
 		if resp.Status == cfnStatusFailed {
@@ -444,7 +450,7 @@ func (rc *ResourceCreator) updateCustomResource(
 		}
 
 		return nil
-	case <-time.After(customResourceTimeout):
+	case <-timer.C:
 		return nil
 	case <-ctx.Done():
 		return nil
@@ -491,6 +497,9 @@ func (rc *ResourceCreator) deleteCustomResource(
 	}
 
 	// Wait for Delete response (fire-and-forget if timeout).
+	timer := time.NewTimer(customResourceTimeout)
+	defer timer.Stop()
+
 	select {
 	case resp := <-respCh:
 		if resp.Status == cfnStatusFailed {
@@ -501,7 +510,7 @@ func (rc *ResourceCreator) deleteCustomResource(
 		}
 
 		return nil
-	case <-time.After(customResourceTimeout):
+	case <-timer.C:
 		return nil
 	case <-ctx.Done():
 		return nil

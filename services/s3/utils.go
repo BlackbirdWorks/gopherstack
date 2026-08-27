@@ -49,7 +49,7 @@ func CalculateChecksum(data []byte, algorithm string) string {
 		sum = make([]byte, crc32Len)
 		binary.BigEndian.PutUint32(sum, c)
 	case ChecksumCRC32C:
-		c := crc32.Checksum(data, crc32.MakeTable(crc32.Castagnoli))
+		c := crc32.Checksum(data, crc32CastagnoliTable)
 		sum = make([]byte, crc32Len)
 		binary.BigEndian.PutUint32(sum, c)
 	case ChecksumSHA1:
