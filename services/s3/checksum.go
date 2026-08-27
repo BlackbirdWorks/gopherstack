@@ -4,11 +4,20 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"hash"
+	"hash/crc32"
 	"hash/crc64"
 )
 
 // ChecksumCRC64NVME is the algorithm name for CRC64/NVME checksums.
 const ChecksumCRC64NVME = "CRC64NVME"
+
+// crc32CastagnoliTable is the lookup table for the CRC32 Castagnoli polynomial.
+var crc32CastagnoliTable = crc32.MakeTable(crc32.Castagnoli) //nolint:gochecknoglobals // pre-computed lookup table
+
+// NewCRC32C returns a new CRC32C (Castagnoli) hash using the pre-computed table.
+func NewCRC32C() hash.Hash32 {
+	return crc32.New(crc32CastagnoliTable)
+}
 
 // crc64NVMEPoly is the CRC-64/NVME polynomial (Rocksoft^tm model) reflected
 // (reversed) for use with standard little-endian (right-shifting) algorithms.

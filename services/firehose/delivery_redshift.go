@@ -97,6 +97,9 @@ func (b *InMemoryBackend) executeRedshiftCopyWithRetry(
 	deadline := time.Now().Add(maxRetry)
 	backoff := redshiftBackoffInitial
 
+	timer := time.NewTimer(backoff)
+	defer timer.Stop()
+
 	for {
 		execErr := b.redshiftData.ExecuteStatement(ctx, copySQL, clusterID, database, dbUser)
 		if execErr == nil {
@@ -110,10 +113,18 @@ func (b *InMemoryBackend) executeRedshiftCopyWithRetry(
 			return
 		}
 
+		if !timer.Stop() {
+			select {
+			case <-timer.C:
+			default:
+			}
+		}
+		timer.Reset(backoff)
+
 		select {
 		case <-ctx.Done():
 			return
-		case <-time.After(backoff):
+		case <-timer.C:
 			backoff *= 2
 			if backoff > redshiftBackoffMax {
 				backoff = redshiftBackoffMax

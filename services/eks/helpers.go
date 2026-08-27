@@ -4,13 +4,13 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
-	"hash/fnv"
 	"maps"
 	"strconv"
 	"time"
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -91,10 +91,7 @@ func cloneTaints(ts []NodegroupTaint) []NodegroupTaint {
 // and endpoint URL components, not for strong uniqueness or cryptographic
 // guarantees.
 func stableID(input string) string {
-	h := fnv.New32a()
-	_, _ = h.Write([]byte(input))
-
-	return fmt.Sprintf("%08x", h.Sum32())
+	return fmt.Sprintf("%08x", httputils.FNV32a(input))
 }
 
 // oidcIDBytes is the number of random bytes needed to produce a 16-char hex OIDC ID.

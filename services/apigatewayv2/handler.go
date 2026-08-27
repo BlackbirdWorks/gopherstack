@@ -99,6 +99,7 @@ type Handler struct {
 	authCache             *authorizerCache
 	subCollectionDispatch map[subDispatchKey]func(*Handler, *echo.Context, string) error
 	subResourceDispatch   map[subDispatchKey]func(*Handler, *echo.Context, string, string) error
+	httpClient            *http.Client
 }
 
 // NewHandler creates a new API Gateway v2 Handler.
@@ -108,7 +109,21 @@ func NewHandler(backend StorageBackend) *Handler {
 		authCache:             newAuthorizerCache(),
 		subCollectionDispatch: newSubCollectionDispatch(),
 		subResourceDispatch:   newSubResourceDispatch(),
+		httpClient:            &http.Client{Timeout: httpClientTimeout},
 	}
+}
+
+// SetHTTPClient configures the HTTP client used for HTTP_PROXY integration calls.
+func (h *Handler) SetHTTPClient(c *http.Client) {
+	h.httpClient = c
+}
+
+func (h *Handler) getHTTPClient() *http.Client {
+	if h.httpClient != nil {
+		return h.httpClient
+	}
+
+	return &http.Client{Timeout: httpClientTimeout}
 }
 
 // SetLambdaInvoker configures the Lambda invoker for AWS_PROXY integrations.

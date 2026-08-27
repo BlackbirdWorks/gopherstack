@@ -2,8 +2,9 @@ package ssm
 
 import (
 	"fmt"
-	"hash/fnv"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 )
 
 // --- Inventory deletion job records ---
@@ -34,10 +35,9 @@ type InventoryDeletion struct {
 // ID (rather than a fabricated all-zeros ID) keeps GetDefaultPatchBaseline
 // stable across calls and consistent for a given OS.
 func defaultBaselineID(os string) string {
-	h := fnv.New64a()
-	_, _ = h.Write([]byte("AWS-DefaultPatchBaseline:" + os))
+	h := httputils.FNV64a("AWS-DefaultPatchBaseline:" + os)
 
-	return fmt.Sprintf("pb-%017x", h.Sum64())
+	return fmt.Sprintf("pb-%017x", h)
 }
 
 // defaultPatchScanOS is the operating system assumed for a patch operation

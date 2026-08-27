@@ -2,7 +2,6 @@ package ec2
 
 import (
 	"fmt"
-	"hash/fnv"
 	"maps"
 	"math"
 	"sort"
@@ -10,6 +9,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 )
 
 // SpotFleet allocation strategies.
@@ -709,9 +710,8 @@ func (b *InMemoryBackend) DescribeSpotDatafeedSubscription() *SpotDatafeed {
 // that varies predictably without randomness, keeping tests deterministic.
 // Price is ~30–70% of the on-demand base.
 func deterministicSpotPrice(instanceType, az, product string) float64 {
-	h := fnv.New32a()
-	_, _ = h.Write([]byte(instanceType + "|" + az + "|" + product))
-	ratio := spotPriceMinRatio + float64(h.Sum32()%spotPriceHashModulus)/spotPriceDivisor // 0.30 – 0.70
+	h := httputils.FNV32a(instanceType + "|" + az + "|" + product)
+	ratio := spotPriceMinRatio + float64(h%spotPriceHashModulus)/spotPriceDivisor // 0.30 – 0.70
 	base, ok := spotPriceBaseTable[instanceType]
 
 	if !ok {
@@ -780,10 +780,9 @@ func GenerateSpotPriceHistory(
 // string so repeated queries against the same inputs are stable, since this
 // mock has no real capacity telemetry to sample from.
 func spotPlacementScoreFor(seed string) int32 {
-	h := fnv.New32a()
-	_, _ = h.Write([]byte(seed))
+	h := httputils.FNV32a(seed)
 
-	return int32(h.Sum32()%spotPlacementScoreRange) + spotPlacementScoreFloor
+	return int32(h%spotPlacementScoreRange) + spotPlacementScoreFloor
 }
 
 // GetSpotPlacementScores returns deterministic Spot placement scores for the

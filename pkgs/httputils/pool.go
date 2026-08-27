@@ -143,3 +143,35 @@ func PutMD5(h hash.Hash) {
 		md5Pool.Put(h)
 	}
 }
+
+// FNV32a computes the 32-bit FNV-1a hash of a string with zero heap allocations.
+func FNV32a(s string) uint32 {
+	const (
+		offset32 = 2166136261
+		prime32  = 16777619
+	)
+
+	h := uint32(offset32)
+	for i := range len(s) {
+		h ^= uint32(s[i])
+		h *= prime32
+	}
+
+	return h
+}
+
+// FNV64a computes the 64-bit FNV-1a hash of a string with zero heap allocations.
+func FNV64a(s string) uint64 {
+	const (
+		offset64 = 14695981039346656037
+		prime64  = 1099511628211
+	)
+
+	h := uint64(offset64)
+	for i := range len(s) {
+		h ^= uint64(s[i])
+		h *= prime64
+	}
+
+	return h
+}

@@ -157,10 +157,13 @@ func (b *InMemoryBackend) recipeVersionsStoreRO(region string) map[string][]*Rec
 // post-Shutdown state mutation.
 func (b *InMemoryBackend) runDelayed(delay time.Duration, fn func()) {
 	b.wg.Go(func() {
+		t := time.NewTimer(delay)
+		defer t.Stop()
+
 		select {
 		case <-b.svcCtx.Done():
 			return
-		case <-time.After(delay):
+		case <-t.C:
 		}
 		fn()
 	})

@@ -2,12 +2,12 @@ package personalize
 
 import (
 	"fmt"
-	"hash/fnv"
 	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
+	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 )
 
 // --- Solution ---
@@ -313,8 +313,7 @@ func (b *InMemoryBackend) GetSolutionMetrics(svArn string) (map[string]any, erro
 // svMetric returns a stable [0.01, 0.99] metric value derived from the solution version ARN and metric name.
 func svMetric(svArn, metricName string) float64 {
 	const buckets = 98 // maps hash into [0.01, 0.99]
-	h := fnv.New32a()
-	_, _ = h.Write([]byte(svArn + "|" + metricName))
+	h := httputils.FNV32a(svArn + "|" + metricName)
 
-	return float64(h.Sum32()%buckets+1) / 100.0 //nolint:mnd // 100.0 converts integer percent to float ratio
+	return float64(h%buckets+1) / 100.0 //nolint:mnd // 100.0 converts integer percent to float ratio
 }

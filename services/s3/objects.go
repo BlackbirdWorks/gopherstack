@@ -3,9 +3,7 @@ package s3
 import (
 	"bytes"
 	"context"
-	"crypto/md5"  //nolint:gosec // MD5 required for S3 ETag compatibility
-	"crypto/sha1" //nolint:gosec // SHA1 required for S3 checksum compatibility
-	"crypto/sha256"
+	"crypto/md5" //nolint:gosec // MD5 required for S3 ETag compatibility
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/hex"
@@ -13,7 +11,6 @@ import (
 	"errors"
 	"fmt"
 	"hash"
-	"hash/crc32"
 	"io"
 	"maps"
 	"net/url"
@@ -1062,28 +1059,14 @@ func (b *InMemoryBackend) computeObjectHashes(
 	writers := []io.Writer{md5Hasher, buf}
 
 	var s3Hasher hash.Hash
-	algo := string(algorithm)
-	if algo != "" {
-		switch strings.ToUpper(algo) {
-		case ChecksumCRC32:
-			s3Hasher = crc32.NewIEEE()
-		case ChecksumCRC32C:
-			s3Hasher = crc32.New(crc32.MakeTable(crc32.Castagnoli))
-		case ChecksumSHA1:
-			//nolint:gosec // SHA1 supported
-			s3Hasher = sha1.New()
-		case ChecksumSHA256:
-			s3Hasher = sha256.New()
-		case ChecksumCRC64NVME:
-			s3Hasher = NewCRC64NVME()
-		}
+	if algo := string(algorithm); algo != "" {
+		s3Hasher = newS3Hasher(algo)
 		if s3Hasher != nil {
 			writers = append(writers, s3Hasher)
 		}
 	}
 
-	tr := io.TeeReader(body, io.MultiWriter(writers...))
-	n, err := io.Copy(io.Discard, tr)
+	n, err := io.Copy(io.MultiWriter(writers...), body)
 	if err != nil {
 		return 0, nil, "", nil, err
 	}

@@ -2,11 +2,12 @@ package ec2
 
 import (
 	"fmt"
-	"hash/fnv"
 	"slices"
 	"sort"
 
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 )
 
 func (b *InMemoryBackend) CreateTrafficMirrorFilter(
@@ -262,10 +263,9 @@ const maxTrafficMirrorVNI = 16777215
 // trafficMirrorSessionVNI derives a deterministic pseudo-random VXLAN
 // virtual network identifier (1-maxTrafficMirrorVNI) from the session ID.
 func trafficMirrorSessionVNI(id string) int {
-	h := fnv.New32a()
-	_, _ = h.Write([]byte(id))
+	h := httputils.FNV32a(id)
 
-	return int(h.Sum32()%maxTrafficMirrorVNI) + 1
+	return int(h%maxTrafficMirrorVNI) + 1
 }
 
 func (b *InMemoryBackend) DeleteTrafficMirrorSession(id string) error {

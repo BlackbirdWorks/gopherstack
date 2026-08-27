@@ -895,7 +895,7 @@ func newS3Hasher(algo string) hash.Hash {
 	case ChecksumCRC32:
 		return crc32.NewIEEE()
 	case ChecksumCRC32C:
-		return crc32.New(crc32.MakeTable(crc32.Castagnoli))
+		return NewCRC32C()
 	case ChecksumCRC64NVME:
 		return NewCRC64NVME()
 	case ChecksumSHA1:

@@ -3,13 +3,13 @@ package elb
 import (
 	"context"
 	"fmt"
-	"hash/fnv"
 	"regexp"
 	"slices"
 	"sort"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -44,10 +44,9 @@ var regionHostedZoneIDs = map[string]string{ //nolint:gochecknoglobals // immuta
 // dnsNameSuffix returns a stable 10-digit numeric suffix for an ELB DNS name,
 // derived from a hash of the account ID and LB name.
 func dnsNameSuffix(accountID, lbName string) string {
-	h := fnv.New64a()
-	_, _ = h.Write([]byte(accountID + ":" + lbName))
+	h := httputils.FNV64a(accountID + ":" + lbName)
 
-	return fmt.Sprintf("%010d", h.Sum64()%dnsHashModLB)
+	return fmt.Sprintf("%010d", h%dnsHashModLB)
 }
 
 // canonicalHostedZoneIDForRegion returns the Classic ELB hosted zone ID for the given region.
@@ -57,10 +56,9 @@ func canonicalHostedZoneIDForRegion(region string) string {
 		return id
 	}
 
-	h := fnv.New32a()
-	_, _ = h.Write([]byte("elb-hzid:" + region))
+	h := httputils.FNV32a("elb-hzid:" + region)
 
-	return fmt.Sprintf("Z%09d", h.Sum32()%dnsHashModHZ)
+	return fmt.Sprintf("Z%09d", h%dnsHashModHZ)
 }
 
 // lbCopy returns a deep copy of a LoadBalancer, excluding the Tags pointer (which is

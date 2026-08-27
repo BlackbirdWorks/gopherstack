@@ -2,9 +2,10 @@ package ec2
 
 import (
 	"fmt"
-	"hash/fnv"
 	"sort"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 )
 
 // ---- constants ----
@@ -158,10 +159,9 @@ func (b *InMemoryBackend) DescribeAwsNetworkPerformanceMetricSubscriptions() []*
 // networkPerformanceLatencyMs derives a deterministic latency value (in ms) for a
 // source/destination pair so repeated queries against the same pair are stable.
 func networkPerformanceLatencyMs(source, destination string) float32 {
-	h := fnv.New32a()
-	_, _ = h.Write([]byte(source + "->" + destination))
+	h := httputils.FNV32a(source + "->" + destination)
 
-	frac := float64(h.Sum32()%networkPerformanceHashModulus) / networkPerformanceHashModulus
+	frac := float64(h%networkPerformanceHashModulus) / networkPerformanceHashModulus
 
 	return float32(networkPerformanceBaseLatencyMs + frac*networkPerformanceLatencyJitterMs)
 }

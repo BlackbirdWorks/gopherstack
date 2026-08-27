@@ -114,10 +114,13 @@ func isDone(ctx context.Context) bool {
 
 // waitOrDone sleeps for d or until ctx is done. Returns true if ctx was cancelled.
 func waitOrDone(ctx context.Context, d time.Duration) bool {
+	t := time.NewTimer(d)
+	defer t.Stop()
+
 	select {
 	case <-ctx.Done():
 		return true
-	case <-time.After(d):
+	case <-t.C:
 		return false
 	}
 }

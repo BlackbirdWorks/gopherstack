@@ -375,10 +375,13 @@ func waitTableActive(ctx context.Context, cl *dynamodb.Client, log *slog.Logger)
 			return nil
 		}
 
+		t := time.NewTimer(pollInterval)
 		select {
 		case <-ctx.Done():
+			t.Stop()
+
 			return fmt.Errorf("waiting for table %s: %w", ddbTableName, ctx.Err())
-		case <-time.After(pollInterval):
+		case <-t.C:
 		}
 	}
 
