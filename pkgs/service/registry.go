@@ -3,6 +3,7 @@ package service
 import (
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/labstack/echo/v5"
 
@@ -95,13 +96,13 @@ func (r *Registry) Register(svc Registerable, mws ...Middleware) error {
 	)
 
 	// Apply global middlewares in registration order (first registered is outermost).
-	for i := len(r.middlewares) - 1; i >= 0; i-- {
-		h = r.middlewares[i](h)
+	for _, mw := range slices.Backward(r.middlewares) {
+		h = mw(h)
 	}
 
 	// Apply per-service middlewares
-	for i := len(mws) - 1; i >= 0; i-- {
-		h = mws[i](h)
+	for _, mw := range slices.Backward(mws) {
+		h = mw(h)
 	}
 
 	// CloudTrail capture wraps next so it observes the final request/response
