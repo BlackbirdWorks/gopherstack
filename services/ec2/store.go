@@ -79,15 +79,16 @@ const (
 	// and other resources that are not currently in use.
 	stateAvailable = "available"
 
-	stateInUse              = "in-use"
-	stateCancelled          = "cancelled"
-	resourceTypeVPC         = "vpc"
-	resourceTypeSnapshot    = "snapshot"
-	resourceTypeENI         = "network-interface"
-	vpcDefaultName          = "vpc-default"
-	archX8664               = "x86_64"
-	resourceTypeFISInstance = "aws:ec2:instance"
-	ec2BooleanFalse         = "false"
+	stateInUse               = "in-use"
+	stateCancelled           = "cancelled"
+	vpcEndpointTypeInterface = "Interface"
+	resourceTypeVPC          = "vpc"
+	resourceTypeSnapshot     = "snapshot"
+	resourceTypeENI          = "network-interface"
+	vpcDefaultName           = "vpc-default"
+	archX8664                = "x86_64"
+	resourceTypeFISInstance  = "aws:ec2:instance"
+	ec2BooleanFalse          = "false"
 
 	// stateActive is the "active" state string used by peering connections,
 	// capacity reservations, and spot instance requests.

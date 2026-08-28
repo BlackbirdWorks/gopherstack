@@ -18,6 +18,7 @@ func (h *Handler) handleCreateVpnGateway(vals url.Values, reqID string) (any, er
 		Type:            vgw.Type,
 		AttachedVPCID:   vgw.AttachedVPCID,
 		AttachmentState: vgw.AttachmentState,
+		TagSet:          tagItemsFromMap(h.Backend.TagsForResource(vgw.VpnGatewayID)),
 	}
 
 	return &createVpnGatewayResponse{
@@ -40,6 +41,7 @@ func (h *Handler) handleDescribeVpnGateways(vals url.Values, reqID string) (any,
 			Type:            vgw.Type,
 			AttachedVPCID:   vgw.AttachedVPCID,
 			AttachmentState: vgw.AttachmentState,
+			TagSet:          tagItemsFromMap(h.Backend.TagsForResource(vgw.VpnGatewayID)),
 		})
 	}
 
@@ -101,6 +103,7 @@ func (h *Handler) handleCreateCustomerGateway(vals url.Values, reqID string) (an
 			Type:              cgw.Type,
 			BgpAsn:            cgw.BgpAsn,
 			IPAddress:         cgw.IPAddress,
+			TagSet:            tagItemsFromMap(h.Backend.TagsForResource(cgw.CustomerGatewayID)),
 		},
 	}, nil
 }
@@ -118,6 +121,7 @@ func (h *Handler) handleDescribeCustomerGateways(vals url.Values, reqID string) 
 			Type:              cgw.Type,
 			BgpAsn:            cgw.BgpAsn,
 			IPAddress:         cgw.IPAddress,
+			TagSet:            tagItemsFromMap(h.Backend.TagsForResource(cgw.CustomerGatewayID)),
 		})
 	}
 

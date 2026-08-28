@@ -136,11 +136,26 @@ type getTransitGatewayPrefixListReferencesResponse struct {
 }
 
 type verifiedAccessEndpointItem struct {
-	VerifiedAccessEndpointID string `xml:"verifiedAccessEndpointId"`
-	VerifiedAccessGroupID    string `xml:"verifiedAccessGroupId"`
-	Status                   string `xml:"status"`
-	Description              string `xml:"description,omitempty"`
-	EndpointType             string `xml:"endpointType,omitempty"`
+	VerifiedAccessEndpointID string          `xml:"verifiedAccessEndpointId"`
+	VerifiedAccessGroupID    string          `xml:"verifiedAccessGroupId"`
+	Status                   string          `xml:"status"`
+	Description              string          `xml:"description,omitempty"`
+	EndpointType             string          `xml:"endpointType,omitempty"`
+	TagSet                   []simpleTagItem `xml:"tagSet>item"`
+}
+
+// toVerifiedAccessEndpointItem converts a backend VerifiedAccessEndpoint
+// into its wire item, including any tags applied via the shared CreateTags
+// op.
+func (h *Handler) toVerifiedAccessEndpointItem(ep *VerifiedAccessEndpoint) verifiedAccessEndpointItem {
+	return verifiedAccessEndpointItem{
+		VerifiedAccessEndpointID: ep.VerifiedAccessEndpointID,
+		VerifiedAccessGroupID:    ep.VerifiedAccessGroupID,
+		Status:                   ep.Status,
+		Description:              ep.Description,
+		EndpointType:             ep.EndpointType,
+		TagSet:                   tagItemsFromMap(h.Backend.TagsForResource(ep.VerifiedAccessEndpointID)),
+	}
 }
 
 func toTGWPeeringAttachmentItem(

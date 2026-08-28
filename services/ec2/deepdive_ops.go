@@ -179,7 +179,7 @@ func (b *InMemoryBackend) CreateVpcEndpointWithRouteTableIDs(
 	}
 
 	if endpointType == "" {
-		endpointType = "Interface"
+		endpointType = vpcEndpointTypeInterface
 	}
 
 	b.mu.Lock("CreateVpcEndpoint")

@@ -22,7 +22,7 @@ func (b *InMemoryBackend) CreateVpcEndpointServiceConfiguration(
 	cfg := &VpcEndpointServiceConfig{
 		ServiceID:               svcID,
 		ServiceName:             svcName,
-		ServiceType:             "Interface",
+		ServiceType:             vpcEndpointTypeInterface,
 		AcceptanceRequired:      acceptanceRequired,
 		NetworkLoadBalancerARNs: nlbARNs,
 	}

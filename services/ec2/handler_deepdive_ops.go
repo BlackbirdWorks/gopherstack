@@ -21,17 +21,8 @@ func toVpcEndpointItem(ep *VpcEndpoint, tags map[string]string) vpcEndpointItem 
 		TagSet:          tagItemsFromMap(tags),
 	}
 
-	for _, sid := range ep.SubnetIDs {
-		item.SubnetIDs.Items = append(item.SubnetIDs.Items, struct {
-			SubnetID string `xml:"subnetId"`
-		}{SubnetID: sid})
-	}
-
-	for _, rtID := range ep.RouteTableIDs {
-		item.RouteTableIDs.Items = append(item.RouteTableIDs.Items, struct {
-			RouteTableID string `xml:"routeTableId"`
-		}{RouteTableID: rtID})
-	}
+	item.SubnetIDs.Items = append(item.SubnetIDs.Items, ep.SubnetIDs...)
+	item.RouteTableIDs.Items = append(item.RouteTableIDs.Items, ep.RouteTableIDs...)
 
 	for _, pr := range ep.PayerResponsibilities {
 		item.PayerResponsibilitySet = append(item.PayerResponsibilitySet, payerResponsibilityEntryItem(pr))
@@ -315,15 +306,11 @@ type createLaunchTemplateResponse struct {
 }
 
 type vpcEndpointSubnetIDSet struct {
-	Items []struct {
-		SubnetID string `xml:"subnetId"`
-	} `xml:"item"`
+	Items []string `xml:"item"`
 }
 
 type vpcEndpointRouteTableIDSet struct {
-	Items []struct {
-		RouteTableID string `xml:"routeTableId"`
-	} `xml:"item"`
+	Items []string `xml:"item"`
 }
 
 type vpcEndpointItem struct {

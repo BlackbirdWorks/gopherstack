@@ -604,7 +604,7 @@ func TestVpcEndpoint_SubnetIDsInResponse(t *testing.T) {
 		"VpcEndpointId.1": {ep.ID},
 	})
 	require.NoError(t, err)
-	assert.Contains(t, resp, "<subnetId>subnet-default</subnetId>",
+	assert.Contains(t, resp, "<subnetIdSet><item>subnet-default</item></subnetIdSet>",
 		"SubnetId must appear in DescribeVpcEndpoints response")
 }
 
@@ -639,7 +639,7 @@ func TestVpcEndpoint_RouteTableIDsInResponse(t *testing.T) {
 		"VpcEndpointId.1": {ep.ID},
 	})
 	require.NoError(t, err)
-	assert.Contains(t, resp, "<routeTableId>"+rt.ID+"</routeTableId>",
+	assert.Contains(t, resp, "<routeTableIdSet><item>"+rt.ID+"</item></routeTableIdSet>",
 		"RouteTableId must appear in DescribeVpcEndpoints response")
 }
 
@@ -667,7 +667,7 @@ func TestVpcEndpoint_CreateWithRouteTableID(t *testing.T) {
 		"RouteTableId.1":  {rt.ID},
 	})
 	require.NoError(t, err)
-	assert.Contains(t, resp, "<routeTableId>"+rt.ID+"</routeTableId>",
+	assert.Contains(t, resp, "<routeTableIdSet><item>"+rt.ID+"</item></routeTableIdSet>",
 		"RouteTableId must be returned in CreateVpcEndpoint response")
 }
 
@@ -697,8 +697,7 @@ func TestVpcEndpoint_MultipleSubnets(t *testing.T) {
 		"SubnetId.2":      {subnet2.ID},
 	})
 	require.NoError(t, err)
-	assert.Contains(t, resp, "<subnetId>subnet-default</subnetId>")
-	assert.Contains(t, resp, "<subnetId>"+subnet2.ID+"</subnetId>")
+	assert.Contains(t, resp, "<subnetIdSet><item>subnet-default</item><item>"+subnet2.ID+"</item></subnetIdSet>")
 }
 
 // TestVpcEndpoint_DeleteReturnsDeleted verifies DeleteVpcEndpoints

@@ -20,10 +20,23 @@ type describeVerifiedAccessEndpointsResponse struct {
 }
 
 type verifiedAccessGroupItem struct {
-	VerifiedAccessGroupID    string `xml:"verifiedAccessGroupId"`
-	VerifiedAccessInstanceID string `xml:"verifiedAccessInstanceId"`
-	Status                   string `xml:"status"`
-	Description              string `xml:"description,omitempty"`
+	VerifiedAccessGroupID    string          `xml:"verifiedAccessGroupId"`
+	VerifiedAccessInstanceID string          `xml:"verifiedAccessInstanceId"`
+	Status                   string          `xml:"status"`
+	Description              string          `xml:"description,omitempty"`
+	TagSet                   []simpleTagItem `xml:"tagSet>item"`
+}
+
+// toVerifiedAccessGroupItem converts a backend VerifiedAccessGroup into its
+// wire item, including any tags applied via the shared CreateTags op.
+func (h *Handler) toVerifiedAccessGroupItem(grp *VerifiedAccessGroup) verifiedAccessGroupItem {
+	return verifiedAccessGroupItem{
+		VerifiedAccessGroupID:    grp.VerifiedAccessGroupID,
+		VerifiedAccessInstanceID: grp.VerifiedAccessInstanceID,
+		Status:                   grp.Status,
+		Description:              grp.Description,
+		TagSet:                   tagItemsFromMap(h.Backend.TagsForResource(grp.VerifiedAccessGroupID)),
+	}
 }
 
 type createVerifiedAccessGroupResponse struct {
@@ -53,6 +66,7 @@ type verifiedAccessInstanceItem struct {
 	VerifiedAccessTrustProviderSet struct {
 		Items []verifiedAccessTrustProviderCondensedItem `xml:"item"`
 	} `xml:"verifiedAccessTrustProviderSet"`
+	TagSet []simpleTagItem `xml:"tagSet>item"`
 }
 
 // toVerifiedAccessInstanceItem converts a backend VerifiedAccessInstance into
@@ -65,6 +79,7 @@ func (h *Handler) toVerifiedAccessInstanceItem(inst *VerifiedAccessInstance) ver
 		VerifiedAccessInstanceID: inst.VerifiedAccessInstanceID,
 		Status:                   inst.Status,
 		Description:              inst.Description,
+		TagSet:                   tagItemsFromMap(h.Backend.TagsForResource(inst.VerifiedAccessInstanceID)),
 	}
 	if len(inst.AttachedTrustProviderIDs) == 0 {
 		return item
@@ -100,10 +115,11 @@ type describeVerifiedAccessInstancesResponse struct {
 }
 
 type verifiedAccessTrustProviderItem struct {
-	VerifiedAccessTrustProviderID string `xml:"verifiedAccessTrustProviderId"`
-	TrustProviderType             string `xml:"trustProviderType"`
-	Status                        string `xml:"status"`
-	Description                   string `xml:"description,omitempty"`
+	VerifiedAccessTrustProviderID string          `xml:"verifiedAccessTrustProviderId"`
+	TrustProviderType             string          `xml:"trustProviderType"`
+	Status                        string          `xml:"status"`
+	Description                   string          `xml:"description,omitempty"`
+	TagSet                        []simpleTagItem `xml:"tagSet>item"`
 }
 
 type createVerifiedAccessTrustProviderResponse struct {
@@ -133,14 +149,8 @@ func (h *Handler) handleCreateVerifiedAccessEndpoint(vals url.Values, reqID stri
 	}
 
 	return &createVerifiedAccessEndpointResponse{
-		RequestID: reqID,
-		VerifiedAccessEndpoint: verifiedAccessEndpointItem{
-			VerifiedAccessEndpointID: ep.VerifiedAccessEndpointID,
-			VerifiedAccessGroupID:    ep.VerifiedAccessGroupID,
-			Status:                   ep.Status,
-			Description:              ep.Description,
-			EndpointType:             ep.EndpointType,
-		},
+		RequestID:              reqID,
+		VerifiedAccessEndpoint: h.toVerifiedAccessEndpointItem(ep),
 	}, nil
 }
 
@@ -152,14 +162,8 @@ func (h *Handler) handleDeleteVerifiedAccessEndpoint(vals url.Values, reqID stri
 	}
 
 	return &deleteVerifiedAccessEndpointResponse{
-		RequestID: reqID,
-		VerifiedAccessEndpoint: verifiedAccessEndpointItem{
-			VerifiedAccessEndpointID: ep.VerifiedAccessEndpointID,
-			VerifiedAccessGroupID:    ep.VerifiedAccessGroupID,
-			Status:                   ep.Status,
-			Description:              ep.Description,
-			EndpointType:             ep.EndpointType,
-		},
+		RequestID:              reqID,
+		VerifiedAccessEndpoint: h.toVerifiedAccessEndpointItem(ep),
 	}, nil
 }
 
@@ -177,13 +181,7 @@ func (h *Handler) handleDescribeVerifiedAccessEndpoints(vals url.Values, reqID s
 	for _, ep := range eps {
 		resp.VerifiedAccessEndpointSet.Items = append(
 			resp.VerifiedAccessEndpointSet.Items,
-			verifiedAccessEndpointItem{
-				VerifiedAccessEndpointID: ep.VerifiedAccessEndpointID,
-				VerifiedAccessGroupID:    ep.VerifiedAccessGroupID,
-				Status:                   ep.Status,
-				Description:              ep.Description,
-				EndpointType:             ep.EndpointType,
-			},
+			h.toVerifiedAccessEndpointItem(ep),
 		)
 	}
 
@@ -199,14 +197,8 @@ func (h *Handler) handleModifyVerifiedAccessEndpoint(vals url.Values, reqID stri
 	}
 
 	return &modifyVerifiedAccessEndpointResponse{
-		RequestID: reqID,
-		VerifiedAccessEndpoint: verifiedAccessEndpointItem{
-			VerifiedAccessEndpointID: ep.VerifiedAccessEndpointID,
-			VerifiedAccessGroupID:    ep.VerifiedAccessGroupID,
-			Status:                   ep.Status,
-			Description:              ep.Description,
-			EndpointType:             ep.EndpointType,
-		},
+		RequestID:              reqID,
+		VerifiedAccessEndpoint: h.toVerifiedAccessEndpointItem(ep),
 	}, nil
 }
 
@@ -226,13 +218,8 @@ func (h *Handler) handleCreateVerifiedAccessGroup(vals url.Values, reqID string)
 	}
 
 	return &createVerifiedAccessGroupResponse{
-		RequestID: reqID,
-		VerifiedAccessGroup: verifiedAccessGroupItem{
-			VerifiedAccessGroupID:    grp.VerifiedAccessGroupID,
-			VerifiedAccessInstanceID: grp.VerifiedAccessInstanceID,
-			Status:                   grp.Status,
-			Description:              grp.Description,
-		},
+		RequestID:           reqID,
+		VerifiedAccessGroup: h.toVerifiedAccessGroupItem(grp),
 	}, nil
 }
 
@@ -244,13 +231,8 @@ func (h *Handler) handleDeleteVerifiedAccessGroup(vals url.Values, reqID string)
 	}
 
 	return &deleteVerifiedAccessGroupResponse{
-		RequestID: reqID,
-		VerifiedAccessGroup: verifiedAccessGroupItem{
-			VerifiedAccessGroupID:    grp.VerifiedAccessGroupID,
-			VerifiedAccessInstanceID: grp.VerifiedAccessInstanceID,
-			Status:                   grp.Status,
-			Description:              grp.Description,
-		},
+		RequestID:           reqID,
+		VerifiedAccessGroup: h.toVerifiedAccessGroupItem(grp),
 	}, nil
 }
 
@@ -268,12 +250,7 @@ func (h *Handler) handleDescribeVerifiedAccessGroups(vals url.Values, reqID stri
 	for _, grp := range groups {
 		resp.VerifiedAccessGroupSet.Items = append(
 			resp.VerifiedAccessGroupSet.Items,
-			verifiedAccessGroupItem{
-				VerifiedAccessGroupID:    grp.VerifiedAccessGroupID,
-				VerifiedAccessInstanceID: grp.VerifiedAccessInstanceID,
-				Status:                   grp.Status,
-				Description:              grp.Description,
-			},
+			h.toVerifiedAccessGroupItem(grp),
 		)
 	}
 
@@ -338,13 +315,8 @@ func (h *Handler) handleCreateVerifiedAccessTrustProvider(vals url.Values, reqID
 	}
 
 	return &createVerifiedAccessTrustProviderResponse{
-		RequestID: reqID,
-		VerifiedAccessTrustProvider: verifiedAccessTrustProviderItem{
-			VerifiedAccessTrustProviderID: tp.VerifiedAccessTrustProviderID,
-			TrustProviderType:             tp.TrustProviderType,
-			Status:                        tp.Status,
-			Description:                   tp.Description,
-		},
+		RequestID:                   reqID,
+		VerifiedAccessTrustProvider: h.toVerifiedAccessTrustProviderItem(tp),
 	}, nil
 }
 
@@ -356,13 +328,8 @@ func (h *Handler) handleDeleteVerifiedAccessTrustProvider(vals url.Values, reqID
 	}
 
 	return &deleteVerifiedAccessTrustProviderResponse{
-		RequestID: reqID,
-		VerifiedAccessTrustProvider: verifiedAccessTrustProviderItem{
-			VerifiedAccessTrustProviderID: tp.VerifiedAccessTrustProviderID,
-			TrustProviderType:             tp.TrustProviderType,
-			Status:                        tp.Status,
-			Description:                   tp.Description,
-		},
+		RequestID:                   reqID,
+		VerifiedAccessTrustProvider: h.toVerifiedAccessTrustProviderItem(tp),
 	}, nil
 }
 
@@ -383,12 +350,7 @@ func (h *Handler) handleDescribeVerifiedAccessTrustProviders(
 	for _, tp := range providers {
 		resp.VerifiedAccessTrustProviderSet.Items = append(
 			resp.VerifiedAccessTrustProviderSet.Items,
-			verifiedAccessTrustProviderItem{
-				VerifiedAccessTrustProviderID: tp.VerifiedAccessTrustProviderID,
-				TrustProviderType:             tp.TrustProviderType,
-				Status:                        tp.Status,
-				Description:                   tp.Description,
-			},
+			h.toVerifiedAccessTrustProviderItem(tp),
 		)
 	}
 
@@ -410,13 +372,14 @@ type detachVerifiedAccessTrustProviderResponse struct {
 }
 
 // toVerifiedAccessTrustProviderItem converts a backend VerifiedAccessTrustProvider
-// into its wire item.
-func toVerifiedAccessTrustProviderItem(tp *VerifiedAccessTrustProvider) verifiedAccessTrustProviderItem {
+// into its wire item, including any tags applied via the shared CreateTags op.
+func (h *Handler) toVerifiedAccessTrustProviderItem(tp *VerifiedAccessTrustProvider) verifiedAccessTrustProviderItem {
 	return verifiedAccessTrustProviderItem{
 		VerifiedAccessTrustProviderID: tp.VerifiedAccessTrustProviderID,
 		TrustProviderType:             tp.TrustProviderType,
 		Status:                        tp.Status,
 		Description:                   tp.Description,
+		TagSet:                        tagItemsFromMap(h.Backend.TagsForResource(tp.VerifiedAccessTrustProviderID)),
 	}
 }
 
@@ -467,7 +430,7 @@ func (h *Handler) describeVerifiedAccessInstanceAndProvider(
 
 	var tpItem verifiedAccessTrustProviderItem
 	if tps := h.Backend.DescribeVerifiedAccessTrustProviders([]string{providerID}); len(tps) > 0 {
-		tpItem = toVerifiedAccessTrustProviderItem(tps[0])
+		tpItem = h.toVerifiedAccessTrustProviderItem(tps[0])
 	}
 
 	return instItem, tpItem

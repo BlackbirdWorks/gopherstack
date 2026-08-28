@@ -13,14 +13,10 @@ type describeAccountAttributesResponse struct {
 	} `xml:"accountAttributeSet"`
 }
 
-type cidrItem struct {
-	CIDR string `xml:"cidrIp"`
-}
-
 type prefixListItem struct {
-	PrefixListID   string     `xml:"prefixListId"`
-	PrefixListName string     `xml:"prefixListName"`
-	CidrsSet       []cidrItem `xml:"cidrSet>item"`
+	PrefixListID   string   `xml:"prefixListId"`
+	PrefixListName string   `xml:"prefixListName"`
+	CidrsSet       []string `xml:"cidrSet>item"`
 }
 
 type describePrefixListsResponse struct {
@@ -103,9 +99,7 @@ func (h *Handler) handleDescribePrefixLists(vals url.Values, reqID string) (any,
 			PrefixListID:   pl.PrefixListID,
 			PrefixListName: pl.PrefixListName,
 		}
-		for _, cidr := range pl.CIDRs {
-			item.CidrsSet = append(item.CidrsSet, cidrItem{CIDR: cidr})
-		}
+		item.CidrsSet = append(item.CidrsSet, pl.CIDRs...)
 		resp.PrefixListSet.Items = append(resp.PrefixListSet.Items, item)
 	}
 

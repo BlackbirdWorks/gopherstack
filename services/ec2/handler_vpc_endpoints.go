@@ -1,8 +1,11 @@
 package ec2
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/xml"
 	"net/url"
+	"strings"
 )
 
 type createVpcEndpointConnectionNotificationResponse struct {
@@ -67,11 +70,7 @@ func toConnectionNotifItem(n *VpcEndpointConnectionNotification) connectionNotif
 		ConnectionNotificationType:  n.ConnectionNotificationType,
 		ConnectionNotificationState: n.ConnectionNotificationState,
 	}
-	for _, e := range n.ConnectionEvents {
-		item.ConnectionEvents.Items = append(item.ConnectionEvents.Items, struct {
-			Event string `xml:"item"`
-		}{Event: e})
-	}
+	item.ConnectionEvents.Items = append(item.ConnectionEvents.Items, n.ConnectionEvents...)
 
 	return item
 }
@@ -337,9 +336,7 @@ type connectionNotifItem struct {
 	ConnectionNotificationType  string `xml:"connectionNotificationType"`
 	ConnectionNotificationState string `xml:"connectionNotificationState"`
 	ConnectionEvents            struct {
-		Items []struct {
-			Event string `xml:"item"`
-		} `xml:"item"`
+		Items []string `xml:"item"`
 	} `xml:"connectionEvents"`
 }
 
@@ -376,20 +373,64 @@ type describeVpcEndpointServicesResponse struct {
 	XMLName      xml.Name `xml:"DescribeVpcEndpointServicesResponse"`
 	RequestID    string   `xml:"requestId"`
 	ServiceNames struct {
-		Items []serviceNameItem `xml:"item"`
+		Items []string `xml:"item"`
 	} `xml:"serviceNameSet"`
+	ServiceDetails struct {
+		Items []serviceDetailItem `xml:"item"`
+	} `xml:"serviceDetailSet"`
 }
 
-type serviceNameItem struct {
-	ServiceName string `xml:"serviceName"`
+type serviceTypeDetailItem struct {
+	ServiceType string `xml:"serviceType"`
+}
+
+type serviceDetailItem struct {
+	ServiceName                string                  `xml:"serviceName"`
+	ServiceID                  string                  `xml:"serviceId,omitempty"`
+	Owner                      string                  `xml:"owner,omitempty"`
+	ServiceType                []serviceTypeDetailItem `xml:"serviceType>item"`
+	AvailabilityZoneSet        []string                `xml:"availabilityZoneSet>item,omitempty"`
+	VpcEndpointPolicySupported bool                    `xml:"vpcEndpointPolicySupported"`
+	AcceptanceRequired         bool                    `xml:"acceptanceRequired"`
+	ManagesVpcEndpoints        bool                    `xml:"managesVpcEndpoints"`
+}
+
+// vpcEndpointServiceID derives a stable synthetic ID for one of the
+// built-in AWS-owned endpoint services, so repeated Describe calls return
+// the same serviceId (real AWS IDs don't change between calls).
+func vpcEndpointServiceID(name string) string {
+	sum := sha256.Sum256([]byte(name))
+
+	return "vpce-svc-" + hex.EncodeToString(sum[:])[:17]
+}
+
+// gatewayEndpointServiceType returns "Gateway" for the AWS services that
+// real AWS exposes as gateway (not interface) endpoints; s3 and dynamodb.
+func gatewayEndpointServiceType(name string) string {
+	if strings.HasSuffix(name, ".s3") || strings.HasSuffix(name, ".dynamodb") {
+		return "Gateway"
+	}
+
+	return vpcEndpointTypeInterface
 }
 
 func (h *Handler) handleDescribeVpcEndpointServices(_ url.Values, reqID string) (any, error) {
 	names := h.Backend.DescribeVpcEndpointServices()
+	azs := h.Backend.DescribeAvailabilityZones(h.Region)
 	resp := &describeVpcEndpointServicesResponse{RequestID: reqID}
 
 	for _, n := range names {
-		resp.ServiceNames.Items = append(resp.ServiceNames.Items, serviceNameItem{ServiceName: n})
+		resp.ServiceNames.Items = append(resp.ServiceNames.Items, n)
+		resp.ServiceDetails.Items = append(resp.ServiceDetails.Items, serviceDetailItem{
+			ServiceName:                n,
+			ServiceID:                  vpcEndpointServiceID(n),
+			ServiceType:                []serviceTypeDetailItem{{ServiceType: gatewayEndpointServiceType(n)}},
+			AvailabilityZoneSet:        azs,
+			Owner:                      "amazon",
+			VpcEndpointPolicySupported: true,
+			AcceptanceRequired:         false,
+			ManagesVpcEndpoints:        false,
+		})
 	}
 
 	return resp, nil
