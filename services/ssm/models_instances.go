@@ -264,12 +264,18 @@ type DescribeEffectiveInstanceAssociationsOutputFull struct {
 	Associations []InstanceAssociationInfo `json:"Associations"`
 }
 
-// InstanceAssociationInfo is a minimal association info for an instance.
+// InstanceAssociationInfo mirrors types.InstanceAssociation (ssm@v1.73.4,
+// api_op_DescribeEffectiveInstanceAssociations.go): AssociationId,
+// AssociationVersion, Content and InstanceId. Name and DocumentVersion are
+// not real members of this type -- they were previously emitted here in
+// error, and InstanceId (always known: it's the input filter key) was
+// silently dropped instead. Content (the association document's own body)
+// is not modeled -- deriving it needs a documentsStore lookup by
+// Name+DocumentVersion this backend does not thread through here yet.
 type InstanceAssociationInfo struct {
 	AssociationID      string `json:"AssociationId"`
-	Name               string `json:"Name"`
-	DocumentVersion    string `json:"DocumentVersion"`
 	AssociationVersion string `json:"AssociationVersion"`
+	InstanceID         string `json:"InstanceId"`
 }
 
 // DescribeInstanceAssociationsStatusOutputFull has status info.
@@ -278,12 +284,23 @@ type DescribeInstanceAssociationsStatusOutputFull struct {
 	InstanceAssociationStatusInfos []InstanceAssociationStatusInfo `json:"InstanceAssociationStatusInfos"`
 }
 
-// InstanceAssociationStatusInfo has status of an association on an instance.
+// InstanceAssociationStatusInfo has status of an association on an
+// instance. Mirrors types.InstanceAssociationStatusInfo (ssm@v1.73.4).
+// AssociationVersion/DocumentVersion/InstanceId/AssociationName are all
+// real members this backend already tracks on the underlying Association
+// (assoc.AssociationVersion/DocumentVersion/InstanceID/AssociationName) but
+// previously never echoed here. DetailedStatus/ErrorCode/ExecutionSummary/
+// OutputUrl remain unmodeled -- no per-execution detail/error/S3-output
+// state exists in this backend's synchronous association model.
 type InstanceAssociationStatusInfo struct {
-	AssociationID string  `json:"AssociationId"`
-	Name          string  `json:"Name"`
-	Status        string  `json:"Status"`
-	ExecutionDate float64 `json:"ExecutionDate"`
+	AssociationID      string  `json:"AssociationId"`
+	AssociationName    string  `json:"AssociationName,omitempty"`
+	AssociationVersion string  `json:"AssociationVersion,omitempty"`
+	DocumentVersion    string  `json:"DocumentVersion,omitempty"`
+	InstanceID         string  `json:"InstanceId"`
+	Name               string  `json:"Name"`
+	Status             string  `json:"Status"`
+	ExecutionDate      float64 `json:"ExecutionDate"`
 }
 
 // DescribeInstanceInformationOutputFull extends the empty stub.
@@ -308,12 +325,16 @@ type DescribeInstancePatchStatesOutputFull struct {
 }
 
 // InstancePatchState represents patch compliance state for an instance.
+// OperationEndTime is a real required member (types.InstancePatchState,
+// ssm@v1.73.4) that had no Go field at all -- always nil on the wire even
+// though every patch operation this backend runs completes synchronously.
 type InstancePatchState struct {
 	InstanceID         string  `json:"InstanceId"`
 	PatchGroup         string  `json:"PatchGroup"`
 	BaselineID         string  `json:"BaselineId"`
 	Operation          string  `json:"Operation"`
 	OperationStartTime float64 `json:"OperationStartTime"`
+	OperationEndTime   float64 `json:"OperationEndTime"`
 	FailedCount        int     `json:"FailedCount"`
 	InstalledCount     int     `json:"InstalledCount"`
 	MissingCount       int     `json:"MissingCount"`

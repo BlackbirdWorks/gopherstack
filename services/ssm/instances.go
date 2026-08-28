@@ -253,9 +253,8 @@ func (b *InMemoryBackend) DescribeEffectiveInstanceAssociations(
 		if assoc.InstanceID == input.InstanceID {
 			result = append(result, InstanceAssociationInfo{
 				AssociationID:      assoc.AssociationID,
-				Name:               assoc.Name,
-				DocumentVersion:    assoc.DocumentVersion,
 				AssociationVersion: "1",
+				InstanceID:         assoc.InstanceID,
 			})
 		}
 	}
@@ -287,10 +286,14 @@ func (b *InMemoryBackend) DescribeInstanceAssociationsStatus(
 			}
 
 			result = append(result, InstanceAssociationStatusInfo{
-				AssociationID: assoc.AssociationID,
-				Name:          assoc.Name,
-				Status:        status,
-				ExecutionDate: assoc.LastUpdateAssociationDate,
+				AssociationID:      assoc.AssociationID,
+				AssociationName:    assoc.AssociationName,
+				AssociationVersion: assoc.AssociationVersion,
+				DocumentVersion:    assoc.DocumentVersion,
+				InstanceID:         assoc.InstanceID,
+				Name:               assoc.Name,
+				Status:             status,
+				ExecutionDate:      assoc.LastUpdateAssociationDate,
 			})
 		}
 	}

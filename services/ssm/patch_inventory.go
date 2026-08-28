@@ -177,12 +177,15 @@ func (b *InMemoryBackend) applyPatchBaselineOperation(
 		operation,
 	)
 
+	operationTime := UnixTimeFloat(time.Now())
+
 	state := &InstancePatchState{
 		InstanceID:         instanceID,
 		PatchGroup:         patchGroup,
 		BaselineID:         baseline.BaselineID,
 		Operation:          operation,
-		OperationStartTime: UnixTimeFloat(time.Now()),
+		OperationStartTime: operationTime,
+		OperationEndTime:   operationTime,
 		InstalledCount:     installedCount,
 		MissingCount:       missingCount,
 	}
