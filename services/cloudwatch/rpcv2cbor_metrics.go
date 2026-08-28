@@ -186,6 +186,15 @@ func (h *Handler) cborGetMetricStatistics(input cbor.Map, c *echo.Context) error
 			m["SampleCount"] = cbor.Float64(*dp.SampleCount)
 		}
 
+		if len(dp.ExtendedStatistics) > 0 {
+			es := make(cbor.Map, len(dp.ExtendedStatistics))
+			for k, v := range dp.ExtendedStatistics {
+				es[k] = cbor.Float64(v)
+			}
+
+			m["ExtendedStatistics"] = es
+		}
+
 		if dp.Unit != "" {
 			m["Unit"] = cbor.String(dp.Unit)
 		}

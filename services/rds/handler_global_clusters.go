@@ -24,10 +24,19 @@ func (h *Handler) handleDescribeGlobalClusters(vals url.Values) (any, error) {
 }
 
 type xmlGlobalClusterMember struct {
-	DBClusterArn          string `xml:"DBClusterArn"`
-	GlobalWriteForwarding bool   `xml:"GlobalWriteForwarding,omitempty"`
-	IsWriter              bool   `xml:"IsWriter"`
+	DBClusterArn                string `xml:"DBClusterArn"`
+	GlobalWriteForwardingStatus string `xml:"GlobalWriteForwardingStatus"`
+	IsWriter                    bool   `xml:"IsWriter"`
 }
+
+// globalWriteForwardingStatusEnabled and globalWriteForwardingStatusDisabled
+// are two of the five types.WriteForwardingStatus enum members (rds@v1.124.1
+// types/enums.go); this backend does not implement write forwarding, so a
+// member's status is always one of these two, never enabling/disabling/unknown.
+const (
+	globalWriteForwardingStatusEnabled  = "enabled"
+	globalWriteForwardingStatusDisabled = "disabled"
+)
 
 type xmlGlobalClusterMemberList struct {
 	Members []xmlGlobalClusterMember `xml:"GlobalClusterMember"`
@@ -129,6 +138,21 @@ func (h *Handler) handleModifyGlobalCluster(vals url.Values) (any, error) {
 	}, nil
 }
 
+// AddGlobalClusterMemberInternal appends a member directly to an existing
+// global cluster, bypassing normal validation. Used for seeding tests: no
+// gopherstack API currently populates GlobalClusterMembers (CreateDBCluster
+// never wires a DB cluster into a global cluster's membership).
+func (b *InMemoryBackend) AddGlobalClusterMemberInternal(globalClusterID string, member GlobalClusterMember) {
+	b.mu.Lock("AddGlobalClusterMemberInternal")
+	defer b.mu.Unlock()
+
+	gc, ok := b.globalClusters.Get(globalClusterID)
+	if !ok {
+		return
+	}
+	gc.GlobalClusterMembers = append(gc.GlobalClusterMembers, member)
+}
+
 func toXMLGlobalCluster(gc *GlobalCluster) xmlGlobalCluster {
 	x := xmlGlobalCluster{
 		GlobalClusterIdentifier: gc.GlobalClusterIdentifier,
@@ -144,7 +168,15 @@ func toXMLGlobalCluster(gc *GlobalCluster) xmlGlobalCluster {
 	if len(gc.GlobalClusterMembers) > 0 {
 		members := make([]xmlGlobalClusterMember, 0, len(gc.GlobalClusterMembers))
 		for _, m := range gc.GlobalClusterMembers {
-			members = append(members, xmlGlobalClusterMember(m))
+			status := globalWriteForwardingStatusDisabled
+			if m.GlobalWriteForwarding {
+				status = globalWriteForwardingStatusEnabled
+			}
+			members = append(members, xmlGlobalClusterMember{
+				DBClusterArn:                m.DBClusterArn,
+				GlobalWriteForwardingStatus: status,
+				IsWriter:                    m.IsWriter,
+			})
 		}
 
 		x.GlobalClusterMembers = &xmlGlobalClusterMemberList{Members: members}
