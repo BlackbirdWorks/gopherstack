@@ -381,6 +381,7 @@ type GetRecordResult struct {
 	ApproximateArrivalTimestamp time.Time
 	PartitionKey                string
 	SequenceNumber              string
+	EncryptionType              string
 	Data                        []byte
 }
 

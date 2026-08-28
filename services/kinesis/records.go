@@ -225,6 +225,11 @@ func (b *InMemoryBackend) GetRecords(ctx context.Context, input *GetRecordsInput
 		limit = maxGetRecordsLimit
 	}
 
+	enc := stream.EncryptionType
+	if enc == "" {
+		enc = encryptionTypeNone
+	}
+
 	start := min(it.Position, shard.Records.len())
 
 	end := min(start+limit, shard.Records.len())
@@ -245,6 +250,7 @@ func (b *InMemoryBackend) GetRecords(ctx context.Context, input *GetRecordsInput
 			PartitionKey:                r.PartitionKey,
 			SequenceNumber:              r.SequenceNumber,
 			ApproximateArrivalTimestamp: r.ApproximateArrivalTimestamp,
+			EncryptionType:              enc,
 		})
 		actualEnd = i + 1
 	}
