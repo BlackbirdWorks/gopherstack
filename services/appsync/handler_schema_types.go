@@ -90,9 +90,13 @@ func (h *Handler) createTypeHandler(ctx context.Context, c *echo.Context, apiID 
 }
 
 // getType handles GET /v1/apis/{apiId}/types/{typeName}.
+//
+// format is a required SDK input (SDL or JSON) but is not read: real AWS
+// converts the definition between GraphQL SDL and its JSON AST on the fly,
+// which needs a real GraphQL parser this package doesn't have. The
+// definition is always returned in the format it was stored in — a
+// structural gap, not a filter-plumbing bug (PARITY.md).
 func (h *Handler) getType(ctx context.Context, c *echo.Context, apiID, typeName string) error {
-	// The format query parameter (SDL or JSON) is accepted for AWS SDK compatibility.
-	// The definition is returned in the format it was stored in.
 	t, err := h.Backend.GetType(apiID, typeName)
 	if err != nil {
 		return h.handleError(ctx, c, "GetType", err)
@@ -102,9 +106,10 @@ func (h *Handler) getType(ctx context.Context, c *echo.Context, apiID, typeName 
 }
 
 // listTypes handles GET /v1/apis/{apiId}/types.
+//
+// format is a required SDK input; see getType's doc comment above for why
+// it is not read here either — same structural gap, not a filter bug.
 func (h *Handler) listTypes(ctx context.Context, c *echo.Context, apiID string) error {
-	// The format query parameter (SDL or JSON) is accepted for AWS SDK compatibility.
-	// Each type is returned in the format it was stored in.
 	q := c.Request().URL.Query()
 	nextToken := q.Get("nextToken")
 	maxResults, _ := strconv.Atoi(q.Get("maxResults"))
@@ -157,6 +162,10 @@ func (h *Handler) updateType(ctx context.Context, c *echo.Context, apiID, typeNa
 }
 
 // listTypesByAssociation handles GET /v1/mergedApis/{mergedApiId}/sourceApiAssociations/{assocId}/types.
+//
+// format is parsed here but the backend discards it (see ListTypesByAssociation's
+// blank third parameter) — same structural gap as getType/listTypes above: no
+// SDL<->JSON conversion capability exists, so there is nothing to apply it to.
 func (h *Handler) listTypesByAssociation(
 	ctx context.Context,
 	c *echo.Context,

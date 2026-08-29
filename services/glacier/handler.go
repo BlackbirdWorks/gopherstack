@@ -74,10 +74,17 @@ const (
 	minListLimit = 1
 	// maxListVaultsLimit is the maximum allowed ?limit value for ListVaults.
 	maxListVaultsLimit = 50
+	// defaultListVaultsLimit is ListVaults' documented default when ?limit is omitted.
+	defaultListVaultsLimit = 10
 	// maxListJobsLimit is the maximum allowed ?limit value for ListJobs.
 	maxListJobsLimit = 1000
+	// defaultListJobsLimit is ListJobs' documented default when ?limit is omitted.
+	defaultListJobsLimit = 50
 	// maxListUploadsLimit is the maximum allowed ?limit for ListMultipartUploads / ListParts.
 	maxListUploadsLimit = 1000
+	// defaultListUploadsLimit is ListMultipartUploads'/ListParts' documented default
+	// when ?limit is omitted.
+	defaultListUploadsLimit = 50
 	// maxVaultNameLen is the maximum length of a vault name.
 	maxVaultNameLen = 255
 )

@@ -83,7 +83,7 @@ type StorageBackend interface {
 	GetBackendEnvironment(appID, environmentName string) (*BackendEnvironment, error)
 	DeleteBackendEnvironment(appID, environmentName string) (*BackendEnvironment, error)
 	ListBackendEnvironments(
-		appID, nextToken string,
+		appID, environmentName, nextToken string,
 		maxResults int,
 	) ([]*BackendEnvironment, string, error)
 	// Logs and artifacts

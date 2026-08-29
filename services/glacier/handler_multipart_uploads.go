@@ -190,18 +190,21 @@ func paginateUploadList( //nolint:dupl // three typed paginate funcs share ident
 	}
 
 	limitStr := c.QueryParam("limit")
-	if limitStr == "" {
-		return items, nil, nil
-	}
 
-	n, err := strconv.Atoi(limitStr)
-	if err != nil || n < minListLimit || n > maxListUploadsLimit {
-		return nil, nil, fmt.Errorf(
-			"%w: must be between %d and %d",
-			ErrLimitOutOfRange,
-			minListLimit,
-			maxListUploadsLimit,
-		)
+	n := defaultListUploadsLimit
+
+	if limitStr != "" {
+		var err error
+
+		n, err = strconv.Atoi(limitStr)
+		if err != nil || n < minListLimit || n > maxListUploadsLimit {
+			return nil, nil, fmt.Errorf(
+				"%w: must be between %d and %d",
+				ErrLimitOutOfRange,
+				minListLimit,
+				maxListUploadsLimit,
+			)
+		}
 	}
 
 	if n >= len(items) {
@@ -256,18 +259,21 @@ func paginatePartList(
 	}
 
 	limitStr := c.QueryParam("limit")
-	if limitStr == "" {
-		return parts, nil, nil
-	}
 
-	n, err := strconv.Atoi(limitStr)
-	if err != nil || n < minListLimit || n > maxListUploadsLimit {
-		return nil, nil, fmt.Errorf(
-			"%w: must be between %d and %d",
-			ErrLimitOutOfRange,
-			minListLimit,
-			maxListUploadsLimit,
-		)
+	n := defaultListUploadsLimit
+
+	if limitStr != "" {
+		var err error
+
+		n, err = strconv.Atoi(limitStr)
+		if err != nil || n < minListLimit || n > maxListUploadsLimit {
+			return nil, nil, fmt.Errorf(
+				"%w: must be between %d and %d",
+				ErrLimitOutOfRange,
+				minListLimit,
+				maxListUploadsLimit,
+			)
+		}
 	}
 
 	if n >= len(parts) {

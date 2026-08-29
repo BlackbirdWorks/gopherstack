@@ -250,3 +250,13 @@ func (b *InMemoryBackend) AddMultipartUploadInternal(accountID, region, vaultNam
 	cp.VaultARN = vaultARN(accountID, region, vaultName)
 	b.multipartUploads.Put(&cp)
 }
+
+// AddMultipartPartInternal adds an uploaded part directly to the backend for testing,
+// bypassing the real byte-range upload + tree-hash computation.
+func (b *InMemoryBackend) AddMultipartPartInternal(accountID, region, vaultName, uploadID string, part MultipartPart) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	uKey := uploadKey{AccountID: accountID, Region: region, VaultName: vaultName, UploadID: uploadID}
+	b.multipartParts[uKey] = append(b.multipartParts[uKey], part)
+}

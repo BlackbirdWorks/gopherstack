@@ -102,7 +102,8 @@ func (h *Handler) handleBatchGetImage(
 }
 
 type describeImagesFilter struct {
-	TagStatus string `json:"tagStatus,omitempty"`
+	TagStatus   string `json:"tagStatus,omitempty"`
+	ImageStatus string `json:"imageStatus,omitempty"`
 }
 
 type describeImagesInput struct {
@@ -250,14 +251,20 @@ func (h *Handler) handleDescribeImages(
 		return nil, err
 	}
 
+	maxResults := in.MaxResults
+
 	if len(in.ImageIDs) == 0 {
-		imgs = filterAndPaginateImages(imgs, in.Filter, in.NextToken, in.MaxResults)
+		if maxResults <= 0 {
+			maxResults = 100 // AWS default when maxResults is not used.
+		}
+
+		imgs = filterAndPaginateImages(imgs, in.Filter, in.NextToken)
 	}
 
 	var nextToken string
-	if len(in.ImageIDs) == 0 && in.MaxResults > 0 && len(imgs) > in.MaxResults {
-		nextToken = base64.StdEncoding.EncodeToString([]byte(imgs[in.MaxResults].ImageDigest))
-		imgs = imgs[:in.MaxResults]
+	if len(in.ImageIDs) == 0 && len(imgs) > maxResults {
+		nextToken = base64.StdEncoding.EncodeToString([]byte(imgs[maxResults].ImageDigest))
+		imgs = imgs[:maxResults]
 	}
 
 	details := make([]imageDetailView, 0, len(imgs))
@@ -268,17 +275,25 @@ func (h *Handler) handleDescribeImages(
 	return &describeImagesOutput{ImageDetails: details, NextToken: nextToken}, nil
 }
 
-func filterAndPaginateImages(imgs []Image, filter *describeImagesFilter, nextToken string, _ int) []Image {
-	if filter != nil && filter.TagStatus != "" {
-		filtered := imgs[:0]
-		for _, img := range imgs {
-			isTagged := len(img.Tags) > 0
-			if passesTagFilter(isTagged, filter.TagStatus) {
-				filtered = append(filtered, img)
-			}
-		}
-		imgs = filtered
+func filterAndPaginateImages(imgs []Image, filter *describeImagesFilter, nextToken string) []Image {
+	tagStatusFilter := ""
+	imageStatusFilter := ""
+
+	if filter != nil {
+		tagStatusFilter = filter.TagStatus
+		imageStatusFilter = filter.ImageStatus
 	}
+
+	filtered := imgs[:0]
+
+	for _, img := range imgs {
+		isTagged := len(img.Tags) > 0
+		if passesTagFilter(isTagged, tagStatusFilter) && passesImageStatusFilter(img.ImageStatus, imageStatusFilter) {
+			filtered = append(filtered, img)
+		}
+	}
+
+	imgs = filtered
 
 	if nextToken != "" {
 		decoded, decErr := base64.StdEncoding.DecodeString(nextToken)
@@ -300,7 +315,8 @@ func filterAndPaginateImages(imgs []Image, filter *describeImagesFilter, nextTok
 }
 
 type listImagesFilter struct {
-	TagStatus string `json:"tagStatus,omitempty"`
+	TagStatus   string `json:"tagStatus,omitempty"`
+	ImageStatus string `json:"imageStatus,omitempty"`
 }
 
 type listImagesInput struct {
@@ -321,11 +337,14 @@ func (h *Handler) handleListImages(
 	in *listImagesInput,
 ) (*listImagesOutput, error) {
 	tagStatusFilter := ""
+	imageStatusFilter := ""
+
 	if in.Filter != nil {
 		tagStatusFilter = in.Filter.TagStatus
+		imageStatusFilter = in.Filter.ImageStatus
 	}
 
-	imageIDs, err := h.Backend.ListImages(ctx, in.RepositoryName, tagStatusFilter)
+	imageIDs, err := h.Backend.ListImages(ctx, in.RepositoryName, tagStatusFilter, imageStatusFilter)
 	if err != nil {
 		return nil, err
 	}
@@ -349,13 +368,18 @@ func (h *Handler) handleListImages(
 	}
 
 	// Apply maxResults page limit; emit opaque token = base64(digest:tag).
+	maxResults := in.MaxResults
+	if maxResults <= 0 {
+		maxResults = 100 // AWS default when maxResults is not used.
+	}
+
 	var nextToken string
-	if in.MaxResults > 0 && len(imageIDs) > in.MaxResults {
-		next := imageIDs[in.MaxResults]
+	if len(imageIDs) > maxResults {
+		next := imageIDs[maxResults]
 		nextToken = base64.StdEncoding.EncodeToString(
 			[]byte(next.ImageDigest + ":" + next.ImageTag),
 		)
-		imageIDs = imageIDs[:in.MaxResults]
+		imageIDs = imageIDs[:maxResults]
 	}
 
 	return &listImagesOutput{ImageIDs: imageIDs, NextToken: nextToken}, nil

@@ -349,12 +349,29 @@ Found and fixed 4 bugs (all confirmed against a real
   through the shared `appsyncPaginate` helper.
 - `ListSourceApiAssociations`: same bug -- `maxResults`/`nextToken`
   ignored, every association on one page.
-- `ListTypesByAssociation`: same bug -- `maxResults`/`nextToken` ignored
-  (though `format`, this op's other real parameter, was already read and
-  applied correctly).
+- `ListTypesByAssociation`: same bug -- `maxResults`/`nextToken` ignored.
 
-`ApiType` (`ListGraphqlApis`) and `Format` (`ListTypes`,
-`ListTypesByAssociation`) were already read and applied correctly before
-this pass -- no change. No parameter was left unfixed for a structural-gap
-or SDK-ambiguity reason in this service: every declared constraining
-parameter is now honored.
+`ApiType` (`ListGraphqlApis`) was already read and applied correctly before
+this pass -- no change.
+
+**Correction (2026-08-29, gopherstack-6flj follow-up):** the claim above that
+`Format` on `ListTypes`/`ListTypesByAssociation` was "already read and
+applied correctly" was wrong. `ListTypes`/`GetType` never read `format` at
+all, and `ListTypesByAssociation`'s handler reads it but passes it into
+`Backend.ListTypesByAssociation`'s blank-identifier third parameter --
+discarded either way. This is left unfixed, but as a genuine **structural
+gap**, not a parameter-plumbing bug: real AWS uses `format` to convert a
+type's definition between GraphQL SDL text and its JSON AST representation
+on the fly, which needs a real GraphQL SDL<->JSON parser/serializer this
+package doesn't have (and building one is out of scope for a
+parameter-plumbing sweep). Every stored `APIType` already carries a single
+`Format` value fixed at creation/update time (`CreateType`/`UpdateType`
+both take and store it correctly), and `Get`/`List` return the definition
+in that stored format regardless of what the caller asks for -- there is no
+conversion to apply the requested `format` to, so plumbing it through
+end-to-end would be a schema-only change with no real behavior to ratify
+(the exact reasoning already used for `ecr`'s `ListImageReferrers`). Now
+disclosed in code as a structural gap (`handler_schema_types.go`'s
+`getType`/`listTypes`/`listTypesByAssociation` doc comments) instead of the
+previous "accepted for AWS SDK compatibility" comment, which read as though
+the behavior were intentional and complete.

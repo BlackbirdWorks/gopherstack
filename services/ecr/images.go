@@ -304,11 +304,28 @@ func passesTagFilter(isTagged bool, tagStatusFilter string) bool {
 	}
 }
 
+// passesImageStatusFilter reports whether an image with the given status should be
+// included given imageStatusFilter. An empty filter means "not specified", which per
+// AWS docs (DescribeImages/ListImages) means only ACTIVE images are returned; "ANY"
+// disables the status filter entirely.
+func passesImageStatusFilter(status, imageStatusFilter string) bool {
+	switch imageStatusFilter {
+	case "", imageStatusActive:
+		return status == imageStatusActive
+	case "ANY":
+		return true
+	default:
+		return status == imageStatusFilter
+	}
+}
+
 // ListImages lists image identifiers for a repository.
 // tagStatusFilter controls which images to return: "TAGGED", "UNTAGGED", or "ANY" (default).
+// imageStatusFilter controls status filtering: "" defaults to ACTIVE-only per AWS docs,
+// "ANY" disables it, or an explicit status ("ACTIVE"/"ARCHIVED"/"ACTIVATING").
 func (b *InMemoryBackend) ListImages(
 	ctx context.Context, //nolint:revive // existing issue.
-	repositoryName, tagStatusFilter string,
+	repositoryName, tagStatusFilter, imageStatusFilter string,
 ) ([]ImageIdentifier, error) {
 	b.mu.RLock("ListImages")
 	defer b.mu.RUnlock()
@@ -329,7 +346,7 @@ func (b *InMemoryBackend) ListImages(
 		tags := imageTagsLocked(img, digestTags)
 		isTagged := len(tags) > 0
 
-		if !passesTagFilter(isTagged, tagStatusFilter) {
+		if !passesTagFilter(isTagged, tagStatusFilter) || !passesImageStatusFilter(img.ImageStatus, imageStatusFilter) {
 			continue
 		}
 
@@ -612,6 +629,10 @@ func (b *InMemoryBackend) AddImageInternal(repositoryName string, img Image) {
 	// exactly as PutImage's normalizeImageFields does, so a test-seeded image
 	// is found by repo-scoped lookups the same way a PutImage-created one is.
 	cp.RepositoryName = repositoryName
+	if cp.ImageStatus == "" {
+		cp.ImageStatus = imageStatusActive
+	}
+
 	b.images.Put(&cp)
 
 	if img.ImageID.ImageTag != "" {

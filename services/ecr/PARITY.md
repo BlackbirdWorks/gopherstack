@@ -599,3 +599,68 @@ All four (`layers.go`, `images.go`, `image_scanning.go`) correctly report a per-
 failure (missing layer digest, image not found by digest/tag, repository not found)
 while still returning results for every other requested item in the same call. No
 bugs found in this class.
+
+## gopherstack-6flj constrained-parameter sweep (2026-08-29)
+
+Measured every List/Describe collection op against its own Input struct in
+`ecr@v1.60.4`. Two real bug classes, both silent (200 OK, wrong membership):
+
+1. **Undocumented-unlimited `maxResults` on five ops.** `DescribeImages`,
+   `ListImages`, `DescribeRepositories`, `DescribePullThroughCacheRules`, and
+   `DescribeRepositoryCreationTemplates` all gated their page-limit logic on
+   `in.MaxResults > 0`, so an unset `maxResults` returned every matching item
+   in one page instead of the docs' "if this parameter is not used, returns
+   up to 100 results and a nextToken". `ListPullTimeUpdateExclusions`
+   (`handler_account_settings.go`) already had this right
+   (`paginatePullTimeUpdateExclusions`) and was the tell that the other five
+   were an inconsistency, not a deliberate choice. All five now default
+   `maxResults` to 100 before paginating.
+2. **`ImageStatus` filter never plumbed on `DescribeImages`/`ListImages`.**
+   Both ops' real `Filter` types (`DescribeImagesFilter`/`ListImagesFilter`)
+   carry `ImageStatus` alongside `TagStatus`; gopherstack's wire structs
+   (`describeImagesFilter`/`listImagesFilter`) only had `TagStatus` — the
+   field was entirely absent from the request struct, so it could never be
+   read regardless of what a client sent. Both ops also document "If not
+   specified, only images with ACTIVE status are returned" — a real,
+   observable default, since `UpdateImageStorageClass` can move an image to
+   `ARCHIVED` (`images.go`'s `ImageStatus` field). Before this fix, an
+   archived image kept appearing in every default-filter `DescribeImages`/
+   `ListImages` call forever. Fixed by adding `ImageStatus` to both filter
+   structs and a shared `passesImageStatusFilter` (mirrors the existing
+   `passesTagFilter` convention): unset or explicit `"ACTIVE"` means
+   ACTIVE-only, `"ANY"` disables the filter, anything else matches exactly.
+   `ListImages`'s backend signature gained an `imageStatusFilter string`
+   parameter (only caller: `handler_images.go`; `interfaces_test.go`'s
+   `stubBackend` and `images_test.go`'s direct backend calls updated to
+   match — confirmed via `go vet ./...` repo-wide, no other implementers).
+
+`ListImageReferrers`'s `Filter`/`MaxResults`/`NextToken` omission (documented
+in round 4 above) was re-confirmed still correct: the backend's
+`ListImageReferrers` unconditionally returns `[]ImageReferrer{}` because
+`PutImage` never records a referrer edge, so those fields would have zero
+observable effect. Left as-is.
+
+Also checked and confirmed already correct: `ListGraphqlApis`-style filters
+don't apply here, but `DescribeImages`'s/`ListImages`'s `TagStatus`,
+`DescribeRepositoryCreationTemplates`'s `Prefixes`, and
+`DescribePullThroughCacheRules`'s `EcrRepositoryPrefixes` were all already
+correctly plumbed through to their backends. `DescribeImageScanFindings`
+already defaulted `maxResults` to 100 (`image_scanning.go`) — the one op in
+this family that got it right independently.
+
+One pre-existing test asserted the old (wrong) default behavior:
+`TestDescribeImages_LastArchivedAt_LastActivatedAt_ViaUpdateImageStorageClass`
+(`handler_images_test.go`) called `DescribeImages` with no filter right after
+archiving an image and expected it back — now given an explicit
+`imageStatus: ARCHIVED` filter, since an unfiltered call correctly excludes
+it post-fix.
+
+New tests in `list_filter_params_test.go`, driven through the real
+`ecrsdk.Client` (`newTestECRClient`), each confirmed to fail against
+unmodified code first: `TestDescribeImages_DefaultPageSize`,
+`TestListImages_DefaultPageSize`, `TestDescribeRepositories_DefaultPageSize`,
+`TestDescribePullThroughCacheRules_DefaultPageSize`,
+`TestDescribeRepositoryCreationTemplates_DefaultPageSize`,
+`TestDescribeImages_ImageStatusFilter_DefaultsToActiveOnly`,
+`TestDescribeImages_ImageStatusFilter_Explicit`,
+`TestListImages_ImageStatusFilter_DefaultsToActiveOnly`.

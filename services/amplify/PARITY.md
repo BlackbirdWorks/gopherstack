@@ -55,7 +55,7 @@ ops:
   CreateBackendEnvironment: {wire: ok, errors: ok, state: ok, persist: ok}
   GetBackendEnvironment: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed 2026-08-19: backendEnvironmentView carried a fabricated \"appId\" field with no case in the real deserializer -- types.BackendEnvironment has no AppId member at all (types/types.go:230); removed. Applies to every op returning a BackendEnvironment (Create/Delete/Get/List)."}
   DeleteBackendEnvironment: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListBackendEnvironments: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListBackendEnvironments: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed 2026-08-29 (gopherstack-6flj constrained-parameter sweep): environmentName is a real ListBackendEnvironmentsInput filter member that neither the handler nor InMemoryBackend.ListBackendEnvironments ever read -- every call returned every backend environment for the app regardless of the filter. See Notes."}
   GenerateAccessLogs: {wire: ok, errors: ok, state: ok, persist: n/a, note: "URL-only response, nothing to persist"}
   GetArtifactUrl: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed 2026-08-19: the \"artifactId\" key (required string, api_op_GetArtifactUrl.go:39) carried InMemoryBackend.GetArtifactURL's first return value, which was artifact.ArtifactType (\"BUILD\") not the artifact's real ID -- same key, wrong value, no decode failure since both are strings. Now echoes artifact.ArtifactID."}
   ListArtifacts: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed 2026-08-19: per-item Artifact wire view (artifactView) carried a fabricated \"artifactType\" field with no case at all in the real deserializer (types.Artifact has only ArtifactId/ArtifactFileName, types/types.go:157) -- removed. 2026-07-23: janitor.go now creates a real Artifact record (type BUILD, an internal-only bookkeeping field, never on the wire) for every job it advances to SUCCEED, indexed by job so ListArtifacts/GetArtifactUrl have real content -- see Notes"}
@@ -90,6 +90,40 @@ leaks: {status: clean, note: "janitor.Run blocks on <-ctx.Done() and calls worke
 ## Notes
 
 Protocol: **restjson1**. Timestamps are Unix epoch-seconds `float64` (createTime/updateTime/startTime/endTime/commitTime/lastDeployTime), not ISO8601 -- already correct throughout (toAppView/toBranchView/toJobSummaryView/toProductionBranchView/etc.), including every new timestamp field added this sweep.
+
+### Fixed this sweep (2026-08-29, gopherstack-6flj constrained-parameter sweep): ListBackendEnvironments' EnvironmentName filter never plumbed
+
+Measured every List op against its own Input struct in `amplify@v1.41.4`. Seven of
+the eight (`ListApps`, `ListArtifacts`, `ListBranches`, `ListDomainAssociations`,
+`ListJobs`, `ListTagsForResource`, `ListWebhooks`) declare only `MaxResults`/
+`NextToken` (or nothing at all, for `ListTagsForResource`) beyond required
+path-bound scoping IDs (`AppId`/`BranchName`/`JobId`) -- no real filter to check
+beyond pagination, which is already handled uniformly by the shared
+`amplifyPaginate` helper (`store.go`) called from every List backend method,
+confirmed reached from every corresponding handler.
+
+`ListBackendEnvironments` is the one exception: its real Input
+(`api_op_ListBackendEnvironments.go`) also carries `EnvironmentName` ("The name
+of the backend environment"), confirmed query-bound via
+`awsRestjson1_serializeOpHttpBindingsListBackendEnvironmentsInput`
+(`encoder.SetQuery("environmentName")`). Neither `listBackendEnvironments`
+(`handler_environments.go`) nor `InMemoryBackend.ListBackendEnvironments`
+(`environments.go`) read it at all -- a client filtering to one environment name
+got every backend environment for the app back instead. Fixed by adding
+`environmentName` as a third backend parameter (exact-match filter applied
+before pagination, empty string meaning "no filter" like every other filter
+convention in this package) and reading `q.Get("environmentName")` in the
+handler. `StorageBackend`'s only implementer is `InMemoryBackend`, confirmed via
+`go vet ./...` repo-wide; test call sites in `environments_test.go` and
+`persistence_test.go` updated to pass `""` for the new parameter.
+
+New test in `list_filter_params_test.go`, driven through the real
+`amplifysdk.Client`: `TestListBackendEnvironments_EnvironmentNameFilter`,
+confirmed to fail against unmodified code first (returned all 3 seeded
+environments instead of the 1 matching `environmentName`).
+
+Every other List op's declared parameters were confirmed already correctly
+plumbed -- no change.
 
 ### Fixed this sweep (2026-08-29): write-only-state sweep found seven accepted-and-dropped request members across three resource types
 

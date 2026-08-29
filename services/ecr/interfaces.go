@@ -203,9 +203,12 @@ type Backend interface {
 	// StartImageScan starts an image scan and returns the scan status.
 	StartImageScan(ctx context.Context, repositoryName string, imageID ImageIdentifier) (*ImageScanStartResult, error)
 
-	// ListImages lists image identifiers for a repository.
+	// ListImages lists image identifiers for a repository, filtered by tag and image status.
 	// tagStatusFilter can be "TAGGED", "UNTAGGED", or "" / "ANY" for all images.
-	ListImages(ctx context.Context, repositoryName, tagStatusFilter string) ([]ImageIdentifier, error)
+	// imageStatusFilter can be "ACTIVE"/"ARCHIVED"/"ACTIVATING", or "" (defaults to ACTIVE)/"ANY".
+	ListImages(
+		ctx context.Context, repositoryName, tagStatusFilter, imageStatusFilter string,
+	) ([]ImageIdentifier, error)
 
 	// ListImageReferrers lists image referrers for a subject image.
 	ListImageReferrers(ctx context.Context, repositoryName string, subject ImageIdentifier) ([]ImageReferrer, error)

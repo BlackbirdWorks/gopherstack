@@ -151,7 +151,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "my-stack", gotEnv.StackName)
 
-	envs, _, err := fresh.ListBackendEnvironments(app.AppID, "", 0)
+	envs, _, err := fresh.ListBackendEnvironments(app.AppID, "", "", 0)
 	require.NoError(t, err)
 	require.Len(t, envs, 1)
 }

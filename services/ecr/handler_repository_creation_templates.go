@@ -112,10 +112,15 @@ func (h *Handler) handleDescribeRepositoryCreationTemplates(
 	}
 
 	// Apply maxResults page limit; emit opaque token = base64(next prefix).
+	maxResults := in.MaxResults
+	if maxResults <= 0 {
+		maxResults = 100 // AWS default when maxResults is not used.
+	}
+
 	var nextToken string
-	if in.MaxResults > 0 && len(tmpls) > in.MaxResults {
-		nextToken = base64.StdEncoding.EncodeToString([]byte(tmpls[in.MaxResults].Prefix))
-		tmpls = tmpls[:in.MaxResults]
+	if len(tmpls) > maxResults {
+		nextToken = base64.StdEncoding.EncodeToString([]byte(tmpls[maxResults].Prefix))
+		tmpls = tmpls[:maxResults]
 	}
 
 	out := make([]repositoryCreationTemplateView, 0, len(tmpls))

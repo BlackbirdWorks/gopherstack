@@ -145,18 +145,21 @@ func paginateJobList( //nolint:dupl // three typed paginate funcs share identica
 	}
 
 	limitStr := c.QueryParam("limit")
-	if limitStr == "" {
-		return items, nil, nil
-	}
 
-	n, err := strconv.Atoi(limitStr)
-	if err != nil || n < minListLimit || n > maxListJobsLimit {
-		return nil, nil, fmt.Errorf(
-			"%w: must be between %d and %d",
-			ErrLimitOutOfRange,
-			minListLimit,
-			maxListJobsLimit,
-		)
+	n := defaultListJobsLimit
+
+	if limitStr != "" {
+		var err error
+
+		n, err = strconv.Atoi(limitStr)
+		if err != nil || n < minListLimit || n > maxListJobsLimit {
+			return nil, nil, fmt.Errorf(
+				"%w: must be between %d and %d",
+				ErrLimitOutOfRange,
+				minListLimit,
+				maxListJobsLimit,
+			)
+		}
 	}
 
 	if n >= len(items) {
