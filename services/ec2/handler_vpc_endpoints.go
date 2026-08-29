@@ -107,7 +107,11 @@ func (h *Handler) handleDescribeVpcEndpointConnectionNotifications(
 	vals url.Values,
 	reqID string,
 ) (any, error) {
-	ids := parseMemberList(vals, "ConnectionNotificationId")
+	var ids []string
+	if id := vals.Get("ConnectionNotificationId"); id != "" {
+		ids = []string{id}
+	}
+
 	notifs := h.Backend.DescribeVpcEndpointConnectionNotifications(ids)
 
 	resp := &describeVpcEndpointConnectionNotificationsResponse{RequestID: reqID}
@@ -158,7 +162,7 @@ func (h *Handler) handleModifyVpcEndpointConnectionNotification(
 }
 
 func (h *Handler) handleDescribeVpcEndpointConnections(vals url.Values, reqID string) (any, error) {
-	serviceIDs := parseMemberList(vals, "ServiceId")
+	serviceIDs := parseEC2Filters(vals)["service-id"]
 	conns := h.Backend.DescribeVpcEndpointConnections(serviceIDs)
 
 	resp := &describeVpcEndpointConnectionsResponse{RequestID: reqID}

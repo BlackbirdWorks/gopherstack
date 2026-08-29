@@ -77,19 +77,19 @@ func TestNetworkInsightsAnalysis(t *testing.T) { //nolint:paralleltest // existi
 	})
 
 	t.Run("describe returns analysis", func(t *testing.T) { //nolint:paralleltest // existing issue.
-		analyses := b.DescribeNetworkInsightsAnalyses([]string{analysisID})
+		analyses := b.DescribeNetworkInsightsAnalyses([]string{analysisID}, "")
 		require.Len(t, analyses, 1)
 		assert.Equal(t, "succeeded", analyses[0].Status)
 	})
 
 	t.Run("describe all", func(t *testing.T) { //nolint:paralleltest // existing issue.
-		analyses := b.DescribeNetworkInsightsAnalyses(nil)
+		analyses := b.DescribeNetworkInsightsAnalyses(nil, "")
 		assert.NotEmpty(t, analyses)
 	})
 
 	t.Run("delete analysis", func(t *testing.T) { //nolint:paralleltest // existing issue.
 		require.NoError(t, b.DeleteNetworkInsightsAnalysis(analysisID))
-		analyses := b.DescribeNetworkInsightsAnalyses([]string{analysisID})
+		analyses := b.DescribeNetworkInsightsAnalyses([]string{analysisID}, "")
 		assert.Empty(t, analyses)
 	})
 
@@ -137,12 +137,12 @@ func TestNetworkInsightsAccessScope(t *testing.T) { //nolint:paralleltest // exi
 	})
 
 	t.Run("describe scope analyses", func(t *testing.T) { //nolint:paralleltest // existing issue.
-		analyses := b.DescribeNetworkInsightsAccessScopeAnalyses(nil)
+		analyses := b.DescribeNetworkInsightsAccessScopeAnalyses(nil, "")
 		assert.NotEmpty(t, analyses)
 	})
 
 	t.Run("delete scope analysis", func(t *testing.T) { //nolint:paralleltest // existing issue.
-		analyses := b.DescribeNetworkInsightsAccessScopeAnalyses(nil)
+		analyses := b.DescribeNetworkInsightsAccessScopeAnalyses(nil, "")
 		require.NotEmpty(t, analyses)
 		require.NoError(t, b.DeleteNetworkInsightsAccessScopeAnalysis(analyses[0].NetworkInsightsAccessScopeAnalysisID))
 	})

@@ -1956,3 +1956,105 @@ scope. No source changes.
 Gates: `go vet ./services/ec2/...` clean (no source changed; full
 `go build`/`golangci-lint`/`go test` gates not re-run for a read-only
 audit with no diff).
+
+**2026-08-29 pass -- request-wrapper-key sweep, IPAM/Local Gateway/VPC
+Endpoint/Network Insights families (21 ops)**: diffed the 202 implemented
+`Describe*`/`List*` operation strings in `services/ec2/*.go` against every op
+name mentioned anywhere in this file, giving ~123 never-verified-in-PARITY
+candidates; picked a 21-op tranche across four related families and read
+each handler's request-parsing code against its own
+`awsEc2query_serializeOpDocument<Op>Input` in the pinned
+`aws-sdk-go-v2/service/ec2@v1.319.1/serializers.go`, not a sibling's shape.
+
+IPAM family (7, `handler_ipam_discovery.go`/`handler_ipam.go`/
+`handler_ipam_policy.go`): DescribeIpamByoasn, DescribeIpamExternalResourceVerificationTokens,
+DescribeIpamPolicies, DescribeIpamPrefixListResolvers,
+DescribeIpamPrefixListResolverTargets, DescribeIpamResourceDiscoveries,
+DescribeIpamResourceDiscoveryAssociations.
+
+Local Gateway family (6, `handler_local_gateway.go`): DescribeLocalGateways,
+DescribeLocalGatewayVirtualInterfaces, DescribeLocalGatewayVirtualInterfaceGroups,
+DescribeLocalGatewayRouteTables, DescribeLocalGatewayRouteTableVpcAssociations,
+DescribeLocalGatewayRouteTableVirtualInterfaceGroupAssociations.
+
+VPC Endpoint family (4, `handler_vpc_endpoints.go`): DescribeVpcEndpointAssociations,
+DescribeVpcEndpointConnections, DescribeVpcEndpointServicePermissions,
+DescribeVpcEndpointConnectionNotifications.
+
+Network Insights family (4, `handler_network_insights.go`): DescribeNetworkInsightsPaths,
+DescribeNetworkInsightsAnalyses, DescribeNetworkInsightsAccessScopes,
+DescribeNetworkInsightsAccessScopeAnalyses.
+
+All 21 ops' ID-list request keys (`parseMemberList`'s singular-flattened
+prefixes, e.g. `LocalGatewayId.N`, `IpamPolicyId.N`,
+`NetworkInsightsAccessScopeId.N`) checked correct against each op's own
+`object.FlatKey(...)` call -- no ID-key bug in this tranche. Found and fixed
+4 real bugs, all class-1 (silent empty/ignored filter, no error):
+
+1. **`DescribeVpcEndpointConnections`** (`handler_vpc_endpoints.go`) read a
+   `ServiceId.N` indexed list that does not exist on the wire at all --
+   `DescribeVpcEndpointConnectionsInput` has no ServiceId/ServiceIds field
+   (`api_op_DescribeVpcEndpointConnections.go`: only DryRun/Filters/MaxResults/
+   NextToken); a real client narrows by service only via a `service-id`
+   `Filter` (serializers.go:82487). The service-id filter was always
+   silently ignored -- every call returned every connection. Fixed: read
+   `parseEC2Filters(vals)["service-id"]` instead.
+2. **`DescribeVpcEndpointConnectionNotifications`** (`handler_vpc_endpoints.go`)
+   read `ConnectionNotificationId` as an indexed list
+   (`parseMemberList(vals, "ConnectionNotificationId")` -> looks for
+   `ConnectionNotificationId.1`), but the real field is a scalar `*string`
+   serialized as a bare `ConnectionNotificationId` key (serializers.go:82458)
+   -- a key a real client's single-ID lookup never matches. Fixed: read
+   `vals.Get("ConnectionNotificationId")` as a scalar, wrapped into a
+   1-element slice for the existing `[]string`-taking backend method.
+3. **`DescribeNetworkInsightsAnalyses`** (`handler_network_insights.go`)
+   never read `NetworkInsightsPathId`, a real scalar filter field distinct
+   from the `NetworkInsightsAnalysisIds` list (serializers.go:79838,
+   `object.Key("NetworkInsightsPathId")`) -- narrowing analyses to one path
+   was silently ignored. Fixed: `Backend.DescribeNetworkInsightsAnalyses`
+   gained a `pathID string` parameter (interface signature change, only
+   in-package callers, `go vet ./...` run repo-wide clean).
+4. **`DescribeNetworkInsightsAccessScopeAnalyses`** (same file) never read
+   `NetworkInsightsAccessScopeId`, the real scalar filter field distinct from
+   `NetworkInsightsAccessScopeAnalysisIds` (serializers.go:79751). Fixed the
+   same way: `Backend.DescribeNetworkInsightsAccessScopeAnalyses` gained a
+   `scopeID string` parameter.
+
+Left alone, not fabricated: all 6 Local Gateway ops and all 7 IPAM ops
+declare a real `Filters []types.Filter` field that none of their handlers
+apply at all (only ID lists) -- e.g. `DescribeLocalGateways` supports
+`local-gateway-id`/`outpost-arn`/`owner-id`/`state` filters
+(`api_op_DescribeLocalGateways.go`) and applies none of them. This is a
+missing-feature gap (no filter-matching code exists to read a wrong key),
+not this pass's "reads an existing wire key under the wrong name" bug class
+-- named here rather than invented as a fix, since building real per-field
+filter semantics for 13 ops is a separate, much larger pass.
+`DescribeVpcEndpointAssociations`/`DescribeVpcEndpointServicePermissions`
+have the same gap (Filters declared, never read) for the same reason.
+
+Existing tests: none of this tranche's 21 ops had a prior
+`wire_field_fixes*_test.go` case (request-side or response-side), so no
+wrong/blind/insufficiently-specific existing test to correct.
+
+New tests (`services/ec2/wire_field_fixes_ec2sweep33_test.go`, 4
+`*_RealClient` tests against the real `ec2sdk.Client`, each confirmed
+failing pre-fix by running before the corresponding source change):
+`TestDescribeVpcEndpointConnections_ServiceIdFilter_RealClient`,
+`TestDescribeVpcEndpointConnectionNotifications_IdFilter_RealClient`,
+`TestDescribeNetworkInsightsAnalyses_PathIdFilter_RealClient`,
+`TestDescribeNetworkInsightsAccessScopeAnalyses_ScopeIdFilter_RealClient`.
+
+Not reached this pass: the ~102 other never-verified-in-PARITY ops (of the
+~123 candidate set), including DescribeSubnets, DescribeDhcpOptions,
+DescribeInternetGateways (response-side already covered by
+`wire_field_fixes_test.go`'s tag test but not this request-key class),
+DescribeVpnConnections/VpnGateways/CustomerGateways, DescribeInstanceStatus,
+DescribeInstanceTypes, DescribeFleets/FleetHistory/FleetInstances,
+DescribeSpotPriceHistory, the whole `DescribeTrafficMirrorFilterRules` /
+Route Server / Verified Access logging-config / VPC block-public-access
+surface, and more -- see the full 123-op diff method above to regenerate.
+
+Gates: `go build ./services/ec2/...`, `go vet ./...` (repo-wide, two backend
+signatures changed), `go test -race -count=1 ./services/ec2/...` (full
+suite green), `golangci-lint run ./services/ec2/...` (0 issues, run last).
+No banned nolints.

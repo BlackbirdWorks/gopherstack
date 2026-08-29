@@ -1571,13 +1571,13 @@ type Backend interface {
 	DescribeNetworkInsightsPaths(ids []string) []*NetworkInsightsPath
 	StartNetworkInsightsAnalysis(pathID string) (*NetworkInsightsAnalysis, error)
 	DeleteNetworkInsightsAnalysis(id string) error
-	DescribeNetworkInsightsAnalyses(ids []string) []*NetworkInsightsAnalysis
+	DescribeNetworkInsightsAnalyses(ids []string, pathID string) []*NetworkInsightsAnalysis
 	CreateNetworkInsightsAccessScope() (*NetworkInsightsAccessScope, error)
 	DeleteNetworkInsightsAccessScope(id string) error
 	DescribeNetworkInsightsAccessScopes(ids []string) []*NetworkInsightsAccessScope
 	StartNetworkInsightsAccessScopeAnalysis(scopeID string) (*NetworkInsightsAccessScopeAnalysis, error)
 	DeleteNetworkInsightsAccessScopeAnalysis(id string) error
-	DescribeNetworkInsightsAccessScopeAnalyses(ids []string) []*NetworkInsightsAccessScopeAnalysis
+	DescribeNetworkInsightsAccessScopeAnalyses(ids []string, scopeID string) []*NetworkInsightsAccessScopeAnalysis
 
 	// ---- batch5: BYOIP ----
 	ProvisionByoipCidr(cidr, description string) (*ByoipCidr, error)
