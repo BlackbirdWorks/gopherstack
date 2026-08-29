@@ -92,7 +92,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	domain, err := original.CreateDomainAssociation(
 		app.AppID, "example.com",
 		[]amplify.SubDomainSetting{{Prefix: "www", BranchName: branch.BranchName}},
-		true,
+		true, nil, "", nil,
 	)
 	require.NoError(t, err)
 
@@ -207,7 +207,7 @@ func TestInMemoryBackend_DeleteApp_CascadesAllChildren(t *testing.T) {
 	_, err = b.CreateDomainAssociation(
 		app.AppID, "example.com",
 		[]amplify.SubDomainSetting{{Prefix: "www", BranchName: branch.BranchName}},
-		true,
+		true, nil, "", nil,
 	)
 	require.NoError(t, err)
 

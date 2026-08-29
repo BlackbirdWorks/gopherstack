@@ -21,7 +21,7 @@ func TestInMemoryBackend_DomainAssociation_Lifecycle(t *testing.T) {
 	}
 
 	// Create
-	da, err := b.CreateDomainAssociation(app.AppID, "example.com", subs, true)
+	da, err := b.CreateDomainAssociation(app.AppID, "example.com", subs, true, nil, "", nil)
 	require.NoError(t, err)
 	assert.Equal(t, "example.com", da.DomainName)
 	assert.Equal(t, app.AppID, da.AppID)
@@ -29,11 +29,11 @@ func TestInMemoryBackend_DomainAssociation_Lifecycle(t *testing.T) {
 	assert.NotEmpty(t, da.ARN)
 
 	// Duplicate create
-	_, err = b.CreateDomainAssociation(app.AppID, "example.com", subs, false)
+	_, err = b.CreateDomainAssociation(app.AppID, "example.com", subs, false, nil, "", nil)
 	require.Error(t, err)
 
 	// Create for nonexistent app
-	_, err = b.CreateDomainAssociation("nonexistent", "example.com", subs, false)
+	_, err = b.CreateDomainAssociation("nonexistent", "example.com", subs, false, nil, "", nil)
 	require.Error(t, err)
 
 	// Get
@@ -58,13 +58,13 @@ func TestInMemoryBackend_DomainAssociation_Lifecycle(t *testing.T) {
 	newSubs := []amplify.SubDomainSetting{
 		{Prefix: "api", BranchName: "main"},
 	}
-	updated, err := b.UpdateDomainAssociation(app.AppID, "example.com", newSubs, false)
+	updated, err := b.UpdateDomainAssociation(app.AppID, "example.com", newSubs, false, nil, "", nil)
 	require.NoError(t, err)
 	assert.Len(t, updated.SubDomains, 1)
 	assert.Equal(t, "api", updated.SubDomains[0].SubDomainSetting.Prefix)
 
 	// Update nonexistent
-	_, err = b.UpdateDomainAssociation(app.AppID, "nothere.com", newSubs, false)
+	_, err = b.UpdateDomainAssociation(app.AppID, "nothere.com", newSubs, false, nil, "", nil)
 	require.Error(t, err)
 
 	// Delete

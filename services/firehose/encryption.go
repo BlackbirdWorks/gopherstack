@@ -7,13 +7,24 @@ import (
 	"time"
 )
 
+// validateEncryptionConfigInput checks the shared CUSTOMER_MANAGED_CMK/KeyARN
+// requirement enforced by both StartDeliveryStreamEncryption and CreateDeliveryStream's
+// own DeliveryStreamEncryptionConfigurationInput.
+func validateEncryptionConfigInput(input *EncryptionConfigInput) error {
+	if input != nil && input.KeyType == "CUSTOMER_MANAGED_CMK" && strings.TrimSpace(input.KeyARN) == "" {
+		return fmt.Errorf("%w: KeyARN is required when KeyType is CUSTOMER_MANAGED_CMK", ErrValidation)
+	}
+
+	return nil
+}
+
 // StartDeliveryStreamEncryption enables server-side encryption for a delivery stream.
 // In this in-memory implementation the status transitions directly to ENABLED.
 func (b *InMemoryBackend) StartDeliveryStreamEncryption(
 	ctx context.Context, name string, input *EncryptionConfigInput,
 ) error {
-	if input != nil && input.KeyType == "CUSTOMER_MANAGED_CMK" && strings.TrimSpace(input.KeyARN) == "" {
-		return fmt.Errorf("%w: KeyARN is required when KeyType is CUSTOMER_MANAGED_CMK", ErrValidation)
+	if err := validateEncryptionConfigInput(input); err != nil {
+		return err
 	}
 
 	b.mu.Lock("StartDeliveryStreamEncryption")

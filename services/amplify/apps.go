@@ -81,6 +81,8 @@ func applyAppOptionsCreate(app *App, opts AppOptions) {
 	app.BuildSpec = ptrconv.String(opts.BuildSpec)
 	app.CustomHeaders = ptrconv.String(opts.CustomHeaders)
 	app.IAMServiceRoleArn = ptrconv.String(opts.IAMServiceRoleArn)
+	app.ComputeRoleARN = ptrconv.String(opts.ComputeRoleARN)
+	app.JobConfigBuildComputeType = ptrconv.String(opts.JobConfigBuildComputeType)
 	app.AutoBranchCreationPatterns = opts.AutoBranchCreationPatterns
 	app.CustomRules = opts.CustomRules
 
@@ -93,10 +95,11 @@ func applyAppOptionsCreate(app *App, opts AppOptions) {
 	app.EnableBranchAutoDeletion = ptrconv.Bool(opts.EnableBranchAutoDeletion)
 }
 
-// applyAppOptionsUpdate applies opts to an existing app, leaving any field
-// whose opts pointer is nil unchanged (real Amplify UpdateApp partial-update
-// semantics).
-func applyAppOptionsUpdate(app *App, opts AppOptions) {
+// applyAppOptionsUpdateStrings applies opts's string/pointer-object fields to
+// an existing app, leaving any field whose opts pointer is nil unchanged.
+// Split out of applyAppOptionsUpdate to keep both functions under the
+// cyclomatic complexity budget.
+func applyAppOptionsUpdateStrings(app *App, opts AppOptions) {
 	if opts.EnvironmentVariables != nil {
 		app.EnvironmentVariables = opts.EnvironmentVariables
 	}
@@ -125,6 +128,14 @@ func applyAppOptionsUpdate(app *App, opts AppOptions) {
 		app.IAMServiceRoleArn = *opts.IAMServiceRoleArn
 	}
 
+	if opts.ComputeRoleARN != nil {
+		app.ComputeRoleARN = *opts.ComputeRoleARN
+	}
+
+	if opts.JobConfigBuildComputeType != nil {
+		app.JobConfigBuildComputeType = *opts.JobConfigBuildComputeType
+	}
+
 	if opts.AutoBranchCreationPatterns != nil {
 		app.AutoBranchCreationPatterns = opts.AutoBranchCreationPatterns
 	}
@@ -132,6 +143,13 @@ func applyAppOptionsUpdate(app *App, opts AppOptions) {
 	if opts.CustomRules != nil {
 		app.CustomRules = opts.CustomRules
 	}
+}
+
+// applyAppOptionsUpdate applies opts to an existing app, leaving any field
+// whose opts pointer is nil unchanged (real Amplify UpdateApp partial-update
+// semantics).
+func applyAppOptionsUpdate(app *App, opts AppOptions) {
+	applyAppOptionsUpdateStrings(app, opts)
 
 	if opts.EnableBranchAutoBuild != nil {
 		app.EnableBranchAutoBuild = *opts.EnableBranchAutoBuild

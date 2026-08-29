@@ -105,6 +105,45 @@ type mskSourceConfigurationInput struct {
 	ReadFromTimestamp           float64                         `json:"ReadFromTimestamp,omitempty"`
 }
 
+// directPutSourceConfigurationInput holds Direct PUT source config.
+type directPutSourceConfigurationInput struct {
+	ThroughputHintInMBs int32 `json:"ThroughputHintInMBs"`
+}
+
+// databaseSourceAuthConfigInput holds database source authentication config.
+type databaseSourceAuthConfigInput struct {
+	SecretsManagerConfiguration *SecretsManagerConfiguration `json:"SecretsManagerConfiguration"`
+}
+
+// databaseSourceVPCConfigInput holds the VPC endpoint service used to reach a
+// database source.
+type databaseSourceVPCConfigInput struct {
+	VPCEndpointServiceName string `json:"VpcEndpointServiceName"`
+}
+
+// databaseIncludeExcludeListInput is the shared Include/Exclude pattern list shape
+// used by DatabaseSourceConfiguration's Databases/Tables/Columns members.
+type databaseIncludeExcludeListInput struct {
+	Include []string `json:"Include"`
+	Exclude []string `json:"Exclude"`
+}
+
+// databaseSourceConfigurationInput holds database source config (preview API,
+// types.DatabaseSourceConfiguration).
+type databaseSourceConfigurationInput struct {
+	DatabaseSourceAuthenticationConfiguration *databaseSourceAuthConfigInput   `json:"DatabaseSourceAuthenticationConfiguration"` //nolint:lll // AWS field name
+	DatabaseSourceVPCConfiguration            *databaseSourceVPCConfigInput    `json:"DatabaseSourceVPCConfiguration"`
+	Databases                                 *databaseIncludeExcludeListInput `json:"Databases"`
+	Tables                                    *databaseIncludeExcludeListInput `json:"Tables"`
+	Columns                                   *databaseIncludeExcludeListInput `json:"Columns"`
+	Endpoint                                  string                           `json:"Endpoint"`
+	SnapshotWatermarkTable                    string                           `json:"SnapshotWatermarkTable"`
+	SSLMode                                   string                           `json:"SSLMode"`
+	Type                                      string                           `json:"Type"`
+	SurrogateKeys                             []string                         `json:"SurrogateKeys"`
+	Port                                      int32                            `json:"Port"`
+}
+
 // redshiftDestinationInput holds the Redshift destination configuration.
 // redshiftCopyCommandInput holds the Redshift COPY command configuration. AWS nests
 // these fields under RedshiftDestinationConfiguration.CopyCommand on the wire, not as
@@ -267,10 +306,13 @@ type createDeliveryStreamInput struct {
 	// not a typed struct) so handleCreateDeliveryStream can reject it explicitly instead
 	// of silently dropping it and creating a stream with zero destinations -- see
 	// validateSingleDestination.
-	AmazonOpenSearchServerlessDestinationConfiguration json.RawMessage `json:"AmazonOpenSearchServerlessDestinationConfiguration,omitempty"` //nolint:lll // AWS field name
-	DeliveryStreamName                                 string          `json:"DeliveryStreamName"`
-	DeliveryStreamType                                 string          `json:"DeliveryStreamType"`
-	Tags                                               []svcTags.KV    `json:"Tags"`
+	AmazonOpenSearchServerlessDestinationConfiguration json.RawMessage                    `json:"AmazonOpenSearchServerlessDestinationConfiguration,omitempty"` //nolint:lll // AWS field name
+	DatabaseSourceConfiguration                        *databaseSourceConfigurationInput  `json:"DatabaseSourceConfiguration"`                                  //nolint:lll // AWS field name
+	DirectPutSourceConfiguration                       *directPutSourceConfigurationInput `json:"DirectPutSourceConfiguration"`                                 //nolint:lll // AWS field name
+	DeliveryStreamEncryptionConfigurationInput         *EncryptionConfigInput             `json:"DeliveryStreamEncryptionConfigurationInput"`                   //nolint:lll // AWS field name
+	DeliveryStreamName                                 string                             `json:"DeliveryStreamName"`
+	DeliveryStreamType                                 string                             `json:"DeliveryStreamType"`
+	Tags                                               []svcTags.KV                       `json:"Tags"`
 }
 
 type createDeliveryStreamOutput struct {
@@ -632,6 +674,8 @@ func buildS3BackupDescription(b *s3BackupInput) *S3BackupDescription {
 func buildSourceDescription(
 	ks *kinesisStreamSrcInput,
 	msk *mskSourceConfigurationInput,
+	db *databaseSourceConfigurationInput,
+	directPut *directPutSourceConfigurationInput,
 ) *SourceDescription {
 	if ks != nil {
 		return &SourceDescription{
@@ -653,7 +697,55 @@ func buildSourceDescription(
 		}
 	}
 
+	if db != nil {
+		return &SourceDescription{DatabaseSourceDescription: buildDatabaseSourceDescription(db)}
+	}
+
+	if directPut != nil {
+		return &SourceDescription{
+			DirectPutSourceDescription: &DirectPutSourceDescription{
+				ThroughputHintInMBs: directPut.ThroughputHintInMBs,
+			},
+		}
+	}
+
 	return nil
+}
+
+func buildDatabaseIncludeExcludeList(l *databaseIncludeExcludeListInput) *DatabaseIncludeExcludeList {
+	if l == nil {
+		return nil
+	}
+
+	return &DatabaseIncludeExcludeList{Include: l.Include, Exclude: l.Exclude}
+}
+
+func buildDatabaseSourceDescription(db *databaseSourceConfigurationInput) *DatabaseSourceDescription {
+	desc := &DatabaseSourceDescription{
+		Endpoint:               db.Endpoint,
+		Port:                   db.Port,
+		SnapshotWatermarkTable: db.SnapshotWatermarkTable,
+		SSLMode:                db.SSLMode,
+		Type:                   db.Type,
+		SurrogateKeys:          db.SurrogateKeys,
+		Databases:              buildDatabaseIncludeExcludeList(db.Databases),
+		Tables:                 buildDatabaseIncludeExcludeList(db.Tables),
+		Columns:                buildDatabaseIncludeExcludeList(db.Columns),
+	}
+
+	if db.DatabaseSourceAuthenticationConfiguration != nil {
+		desc.DatabaseSourceAuthenticationConfiguration = &DatabaseSourceAuthenticationConfiguration{
+			SecretsManagerConfiguration: db.DatabaseSourceAuthenticationConfiguration.SecretsManagerConfiguration,
+		}
+	}
+
+	if db.DatabaseSourceVPCConfiguration != nil {
+		desc.DatabaseSourceVPCConfiguration = &DatabaseSourceVPCConfiguration{
+			VPCEndpointServiceName: db.DatabaseSourceVPCConfiguration.VPCEndpointServiceName,
+		}
+	}
+
+	return desc
 }
 
 // validateSingleDestination rejects a CreateDeliveryStream request that names more than
@@ -731,6 +823,10 @@ func (h *Handler) handleCreateDeliveryStream(
 		return nil, err
 	}
 
+	if err := validateEncryptionConfigInput(in.DeliveryStreamEncryptionConfigurationInput); err != nil {
+		return nil, err
+	}
+
 	s, err := h.Backend.CreateDeliveryStream(ctx, CreateDeliveryStreamInput{
 		Name:               in.DeliveryStreamName,
 		DeliveryStreamType: in.DeliveryStreamType,
@@ -750,6 +846,7 @@ func (h *Handler) handleCreateDeliveryStream(
 		SnowflakeDestination: buildSnowflakeDestination(in.SnowflakeDestinationConfiguration),
 		Source: buildSourceDescription(
 			in.KinesisStreamSourceConfiguration, in.MSKSourceConfiguration,
+			in.DatabaseSourceConfiguration, in.DirectPutSourceConfiguration,
 		),
 	})
 	if err != nil {
@@ -763,6 +860,14 @@ func (h *Handler) handleCreateDeliveryStream(
 		}
 
 		_ = h.Backend.TagDeliveryStream(ctx, in.DeliveryStreamName, tagMap)
+	}
+
+	if in.DeliveryStreamEncryptionConfigurationInput != nil {
+		if encErr := h.Backend.StartDeliveryStreamEncryption(
+			ctx, in.DeliveryStreamName, in.DeliveryStreamEncryptionConfigurationInput,
+		); encErr != nil {
+			return nil, encErr
+		}
 	}
 
 	return &createDeliveryStreamOutput{DeliveryStreamARN: s.ARN}, nil

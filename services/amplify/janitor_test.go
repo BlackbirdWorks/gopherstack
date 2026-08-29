@@ -105,7 +105,7 @@ func TestJanitor_AdvanceDomains(t *testing.T) {
 
 	subs := []amplify.SubDomainSetting{{Prefix: "www", BranchName: "main"}}
 
-	da, err := b.CreateDomainAssociation(app.AppID, "example.com", subs, true)
+	da, err := b.CreateDomainAssociation(app.AppID, "example.com", subs, true, nil, "", nil)
 	require.NoError(t, err)
 	assert.Equal(t, amplify.DomainStatusPendingVerification, da.DomainStatus)
 	require.Len(t, da.SubDomains, 1)
