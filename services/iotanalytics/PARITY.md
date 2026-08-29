@@ -335,3 +335,39 @@ leaks: {status: clean, note: "no goroutines/janitors owned by this backend; svcC
   present and wired correctly, nothing to fix.
 - `TestSDKCompleteness` (sdk_completeness_test.go) confirms all 34 SDK ops are handled with
   zero entries in the `notImplemented` acknowledgement list.
+
+## 2026-08-28 — wrapper-key-sweep: UpdateDatastore accepted a phantom partitions field (acceptguard)
+
+acceptguard flagged `updateDatastoreRequest.Partitions` (`models.go:146`, read in
+`handleUpdateDatastore`) as matching no member of any real Input in the module. Confirmed
+against iotanalytics@v1.32.0's `UpdateDatastoreInput` (`api_op_UpdateDatastore.go`):
+`DatastoreName`/`DatastoreStorage`/`FileFormatConfiguration`/`RetentionPeriod` only — no
+partitions member at all. `CreateDatastoreInput` has `DatastorePartitions`; partitions are
+settable only at creation and are immutable afterward, matching real AWS's documented
+behavior for this field.
+
+Fixed by removing `Partitions` from `updateDatastoreRequest` (`models.go`), the corresponding
+parameter from `Backend.UpdateDatastore` (`datastores.go`, `interfaces.go`), and its call site
+(`handler_datastores.go`); the now-dead `partitions != nil` clone/validate branches were
+removed with it. `validateDatastorePartitions` remains, still used by `CreateDatastore`.
+
+A typed-client fail-before test isn't constructible here — `UpdateDatastoreInput`'s Go struct
+never had a partitions field to send incorrectly, so a real client's request is identical
+before and after. Proof is a raw-body test instead
+(`TestUpdateDatastore_RawPartitionsFieldIgnored`, `wire_field_fixes_test.go`, new file):
+sending `{"partitions": {...}}` directly to `PUT /datastores/{name}` must not affect the stored
+datastore. Hand-reverted `datastores.go`/`handler_datastores.go`/`interfaces.go`/`models.go`,
+confirmed this test fails (the raw partitions key mutated the datastore), restored. A companion
+real-SDK test (`TestUpdateDatastore_PartitionsImmutable`) proves the correct behavior a typed
+client actually observes: partitions set at `CreateDatastore` survive an `UpdateDatastore` call
+that changes an unrelated field.
+
+**Test judgement**: `datastores_test.go`'s `TestInMemoryBackend_DatastorePartitionsValidation`
+previously called `b.UpdateDatastore(..., tt.partitions)` for every non-error case, asserting
+partitions could be set via update — this was itself testing the bug as correct behavior. The
+call is removed; the test now only validates `CreateDatastore`'s partition-shape checks, and its
+doc comment was corrected to say `UpdateDatastore` doesn't take partitions at all rather than
+"validates" them.
+
+Gates: `go build`, `go vet`, `go test -race -count=1`, `golangci-lint run` — all clean
+(`./services/iotanalytics/...`).

@@ -39,7 +39,6 @@ func (b *InMemoryBackend) CreateJourney(region, accountID, appID string, req cre
 		ID:                     id,
 		Name:                   req.Name,
 		State:                  journeyStateDraft,
-		Tags:                   nonNilTagsCopy(req.Tags),
 		StartActivity:          req.StartActivity,
 		RefreshFrequency:       req.RefreshFrequency,
 		LocalTime:              req.LocalTime,

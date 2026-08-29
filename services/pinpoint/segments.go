@@ -31,22 +31,16 @@ func (b *InMemoryBackend) CreateSegment(region, accountID, appID string, req cre
 	segmentARN := arn.Build("mobiletargeting", region, accountID, fmt.Sprintf("apps/%s/segments/%s", appID, id))
 
 	now2 := nowRFC3339()
-	segType := segmentTypeDimensional
-
-	if len(req.ImportDefinition) > 0 {
-		segType = segmentTypeImport
-	}
 
 	s := &Segment{
 		ApplicationID:    appID,
 		ARN:              segmentARN,
 		ID:               id,
 		Name:             req.Name,
-		SegmentType:      segType,
+		SegmentType:      segmentTypeDimensional,
 		Tags:             nonNilTagsCopy(req.Tags),
 		Dimensions:       cloneAnyMap(req.Dimensions),
 		SegmentGroups:    cloneAnyMap(req.SegmentGroups),
-		ImportDefinition: cloneAnyMap(req.ImportDefinition),
 		CreationDate:     now2,
 		LastModifiedDate: now2,
 	}
@@ -132,11 +126,6 @@ func (b *InMemoryBackend) UpdateSegment(
 
 	if len(req.SegmentGroups) > 0 {
 		s.SegmentGroups = cloneAnyMap(req.SegmentGroups)
-	}
-
-	if len(req.ImportDefinition) > 0 {
-		s.ImportDefinition = cloneAnyMap(req.ImportDefinition)
-		s.SegmentType = segmentTypeImport
 	}
 
 	s.LastModifiedDate = nowRFC3339()

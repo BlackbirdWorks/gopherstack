@@ -52,7 +52,6 @@ type StorageBackend interface {
 		storage *DatastoreStorage,
 		retention *RetentionPeriod,
 		fileFormat *FileFormatConfiguration,
-		partitions *DatastorePartitions,
 	) error
 	DeleteDatastore(name string) error
 	ListDatastores() []*Datastore

@@ -583,12 +583,14 @@ type datastoreDetail struct {
 	LastUpdateTime          float64                  `json:"lastUpdateTime,omitempty"`
 }
 
-// updateDatastoreRequest is the request body for UpdateDatastore.
+// updateDatastoreRequest is the request body for UpdateDatastore. The real
+// UpdateDatastoreInput has no partitions member (iotanalytics@v1.32.0
+// api_op_UpdateDatastore.go) -- partitions are settable only at
+// CreateDatastore and are immutable after that.
 type updateDatastoreRequest struct {
 	DatastoreStorage        *DatastoreStorage        `json:"datastoreStorage,omitempty"`
 	RetentionPeriod         *RetentionPeriod         `json:"retentionPeriod,omitempty"`
 	FileFormatConfiguration *FileFormatConfiguration `json:"fileFormatConfiguration,omitempty"`
-	Partitions              *DatastorePartitions     `json:"partitions,omitempty"`
 }
 
 // createDatasetRequest is the request body for CreateDataset.

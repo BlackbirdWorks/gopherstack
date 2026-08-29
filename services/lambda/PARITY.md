@@ -161,3 +161,58 @@ New real-SDK-client proof: `TestUpdateAlias_UnknownVersionSurfacesResourceNotFou
 in `wire_field_fixes_test.go`; hand-reverted `versions_aliases.go` +
 `handler_versions_aliases.go`, confirmed both tests fail
 (`ResourceNotFoundException` never surfaced), restored.
+
+## 2026-08-28: PutFunctionScalingConfig invented a flat MaximumConcurrency field (acceptguard)
+
+acceptguard flagged `PutFunctionScalingConfigInput.MaximumConcurrency` (`models.go:130`, read
+in `PutFunctionScalingConfig`) as matching no member of any real Input in the module. Confirmed
+against lambda@v1.101.2's real shape (`api_op_PutFunctionScalingConfig.go`,
+`api_op_GetFunctionScalingConfig.go`, `types/types.go:1614`): the real request nests a
+`FunctionScalingConfig *types.FunctionScalingConfig` under the request body key
+`"FunctionScalingConfig"`, and that nested type carries `MinExecutionEnvironments`/
+`MaxExecutionEnvironments` (both `*int32`) — an unrelated concept (execution-environment
+pool sizing for Lambda Managed Instances functions) to the flat concurrency-limit field a
+prior version invented. `GetFunctionScalingConfigOutput` is also a different shape than what
+gopherstack emulated: `AppliedFunctionScalingConfig`/`RequestedFunctionScalingConfig`/
+`FunctionArn` as three top-level members, not a single flat struct.
+
+Fixed by reshaping `FunctionScalingConfig` to the real nested type
+(`MaxExecutionEnvironments`/`MinExecutionEnvironments`), `PutFunctionScalingConfigInput` to
+nest it under `FunctionScalingConfig`, and adding real `PutFunctionScalingConfigOutput`
+(`FunctionState`) and `GetFunctionScalingConfigOutput` (`AppliedFunctionScalingConfig`/
+`RequestedFunctionScalingConfig`/`FunctionArn`) types (`models.go`). Backend methods
+(`function_settings.go`) now return/accept the real Output/Input shapes directly. The
+concurrency-throttling logic in `invocation.go` (`acquireConcurrencySlot`) that previously read
+`sc.MaximumConcurrency` now reads `sc.MaxExecutionEnvironments` as its enforcement knob — a
+reasonable emulation choice given execution-environment count is the real API's actual
+concurrency-shaping lever for this operation, and no other field in the real shape serves an
+analogous role.
+
+Proven via a real `aws-sdk-go-v2/service/lambda` client round trip
+(`TestPutFunctionScalingConfig_MinMaxExecutionEnvironments`, `wire_field_fixes_test.go`):
+`PutFunctionScalingConfig` with `MinExecutionEnvironments`/`MaxExecutionEnvironments`, then
+`GetFunctionScalingConfig` asserts both values round-trip through
+`AppliedFunctionScalingConfig`/`RequestedFunctionScalingConfig`/`FunctionArn`. Hand-reverted
+`function_settings.go`/`invocation.go`/`models.go`/`store_setup.go`, confirmed the test fails
+(the real client's `FunctionScalingConfig` was never read; response fields empty), restored.
+
+**Test judgement**: `function_settings_test.go`'s `TestFunctionScalingConfig_PutGet` sent a raw
+body of `{"MaximumConcurrency":10}` and asserted it round-tripped — testing the invented field as
+correct. Rewrote to send the real wire shape (`{"FunctionScalingConfig":{"MaxExecutionEnvironments":10}}`)
+and assert against `AppliedFunctionScalingConfig.MaxExecutionEnvironments`.
+`TestScalingConfig_MaximumConcurrency_Enforced`/`TestScalingConfig_ZeroConcurrency_Blocked`
+constructed `PutFunctionScalingConfigInput{MaximumConcurrency: &n}` literals directly — updated
+to the nested `FunctionScalingConfig{MaxExecutionEnvironments: &n}` shape; the concurrency
+enforcement behavior itself (a limit of N blocks the N+1th concurrent invocation) was already
+correct and is unchanged, only the field it reads moved.
+
+Known gap noted, not fixed (out of scope for this finding): the real
+`PutFunctionScalingConfigInput`/`GetFunctionScalingConfigInput` mark `Qualifier` as a required
+member (a version/alias-scoped scaling config), but gopherstack's route
+(`/2025-11-30/functions/{name}/function-scaling-config`) has no qualifier segment and the
+backend stores one scaling config per function name regardless of qualifier. A real client must
+still supply `Qualifier` (client-side SDK validation requires it), and gopherstack silently
+ignores it rather than erroring or scoping by it. Worth a follow-up bd issue.
+
+Gates: `go build`, `go vet`, `go test -race -count=1`, `golangci-lint run` — all clean
+(`./services/lambda/...`).

@@ -5,6 +5,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	lambdasdk "github.com/aws/aws-sdk-go-v2/service/lambda"
+	lambdatypes "github.com/aws/aws-sdk-go-v2/service/lambda/types"
 	smithy "github.com/aws/smithy-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -95,4 +96,49 @@ func TestUpdateAlias_LatestVersionSucceeds(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "$LATEST", aws.ToString(out.FunctionVersion))
+}
+
+// TestPutFunctionScalingConfig_MinMaxExecutionEnvironments covers
+// gopherstack-wksweep-lambda-1: the real FunctionScalingConfig
+// (lambda@v1.101.2 types/types.go:1614, nested under
+// PutFunctionScalingConfigInput.FunctionScalingConfig) has
+// MinExecutionEnvironments/MaxExecutionEnvironments -- an unrelated concept
+// to a flat MaximumConcurrency field a prior version invented. This proves
+// the real nested shape round-trips through GetFunctionScalingConfig's
+// AppliedFunctionScalingConfig/RequestedFunctionScalingConfig/FunctionArn,
+// none of which a prior version emitted either.
+func TestPutFunctionScalingConfig_MinMaxExecutionEnvironments(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newInMemoryHandler(t)
+	client := newWireTestLambdaClient(t, h)
+	ctx := t.Context()
+
+	createFunctionForTest(t, h, "scaling-wire-fn")
+
+	putOut, err := client.PutFunctionScalingConfig(ctx, &lambdasdk.PutFunctionScalingConfigInput{
+		FunctionName: aws.String("scaling-wire-fn"),
+		Qualifier:    aws.String("$LATEST"),
+		FunctionScalingConfig: &lambdatypes.FunctionScalingConfig{
+			MinExecutionEnvironments: aws.Int32(2),
+			MaxExecutionEnvironments: aws.Int32(10),
+		},
+	})
+	require.NoError(t, err)
+	assert.NotEmpty(t, putOut.FunctionState)
+
+	getOut, err := client.GetFunctionScalingConfig(ctx, &lambdasdk.GetFunctionScalingConfigInput{
+		FunctionName: aws.String("scaling-wire-fn"),
+		Qualifier:    aws.String("$LATEST"),
+	})
+	require.NoError(t, err)
+	assert.Contains(t, aws.ToString(getOut.FunctionArn), "scaling-wire-fn")
+
+	require.NotNil(t, getOut.AppliedFunctionScalingConfig)
+	assert.Equal(t, int32(2), aws.ToInt32(getOut.AppliedFunctionScalingConfig.MinExecutionEnvironments))
+	assert.Equal(t, int32(10), aws.ToInt32(getOut.AppliedFunctionScalingConfig.MaxExecutionEnvironments))
+
+	require.NotNil(t, getOut.RequestedFunctionScalingConfig)
+	assert.Equal(t, int32(2), aws.ToInt32(getOut.RequestedFunctionScalingConfig.MinExecutionEnvironments))
+	assert.Equal(t, int32(10), aws.ToInt32(getOut.RequestedFunctionScalingConfig.MaxExecutionEnvironments))
 }

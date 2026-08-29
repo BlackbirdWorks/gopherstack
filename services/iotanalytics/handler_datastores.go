@@ -143,7 +143,7 @@ func (h *Handler) handleUpdateDatastore(c *echo.Context, name string, body []byt
 	}
 
 	err := h.Backend.UpdateDatastore(
-		name, req.DatastoreStorage, req.RetentionPeriod, req.FileFormatConfiguration, req.Partitions,
+		name, req.DatastoreStorage, req.RetentionPeriod, req.FileFormatConfiguration,
 	)
 	if err != nil {
 		return h.writeBackendError(c, err)

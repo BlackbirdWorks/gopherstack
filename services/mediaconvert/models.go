@@ -14,9 +14,8 @@ type ReservationPlan struct {
 
 // Queue represents a MediaConvert queue.
 type Queue struct {
-	ReservationPlan  *ReservationPlan  `json:"reservationPlan,omitempty"`
-	ServiceOverrides map[string]any    `json:"serviceOverrides,omitempty"`
-	Tags             map[string]string `json:"tags,omitempty"`
+	ReservationPlan *ReservationPlan  `json:"reservationPlan,omitempty"`
+	Tags            map[string]string `json:"tags,omitempty"`
 	// MaximumConcurrentFeeds is *int32 on the real wire (CreateQueueInput/
 	// UpdateQueueInput/Queue, aws-sdk-go-v2/service/mediaconvert@v1.97.1
 	// api_op_CreateQueue.go:47-49, deserializers.go:24653+96), so nil vs a

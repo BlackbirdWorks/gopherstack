@@ -43,7 +43,6 @@ type createQueueInput struct {
 	// response field names differ).
 	ReservationPlanSettings *ReservationPlan  `json:"reservationPlanSettings,omitempty"`
 	MaximumConcurrentFeeds  *int              `json:"maximumConcurrentFeeds,omitempty"`
-	ServiceOverrides        map[string]any    `json:"serviceOverrides,omitempty"`
 	Tags                    map[string]string `json:"tags,omitempty"`
 	Name                    string            `json:"name"`
 	Description             string            `json:"description,omitempty"`
@@ -73,7 +72,7 @@ func (h *Handler) handleCreateQueue(c *echo.Context, body []byte) error {
 
 	q, err := h.Backend.CreateQueueFull(
 		in.Name, in.Description, in.PricingPlan, in.Status,
-		in.Tags, in.ConcurrentJobs, in.ReservationPlanSettings, in.ServiceOverrides,
+		in.Tags, in.ConcurrentJobs, in.ReservationPlanSettings,
 		QueueCreateExtras{MaximumConcurrentFeeds: in.MaximumConcurrentFeeds},
 	)
 	if err != nil {

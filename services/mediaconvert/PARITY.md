@@ -452,3 +452,41 @@ Gates: `go build ./...`, `go vet ./services/mediaconvert/...`, `gofmt -l`
 `golangci-lint run ./services/mediaconvert/...` (0 issues). No persisted
 struct changed -- this is response-shape-only, no backend/model field
 touched, no snapshot version bump needed.
+
+## 2026-08-28 — wrapper-key-sweep: CreateQueue accepted and echoed a phantom ServiceOverrides field (acceptguard)
+
+acceptguard flagged `createQueueInput.ServiceOverrides` (`handler_queues.go:76`, read in
+`handleCreateQueue`) as matching no member of any real Input in the module. Confirmed against
+mediaconvert@v1.97.1's `CreateQueueInput` (`api_op_CreateQueue.go`): `Name`/`ConcurrentJobs`/
+`Description`/`MaximumConcurrentFeeds`/`PricingPlan`/`ReservationPlanSettings`/`Status`/`Tags`
+only — no such member. The real `Queue` output type has no `ServiceOverrides` either
+(`types/types.go`), so this was fabricated on **both** the request and response sides: a prior
+version accepted it at creation and echoed it back under `"serviceOverrides"` on every `Queue`
+response.
+
+Fixed by removing `ServiceOverrides` from `createQueueInput` (`handler_queues.go`), the `Queue`
+struct (`models.go`), the `CreateQueueFull` backend signature/interface
+(`queues.go`/`interfaces.go`), and its clone logic (`cloneQueue`); `deepCloneMap` itself stays
+(still used by job templates/jobs/presets settings maps).
+
+A typed-client fail-before test isn't constructible — the real `CreateQueueInput`/`Queue` Go
+structs never had this field, so a real client's request/response are identical before and
+after. Proof is a raw-body test instead (`TestCreateQueue_RawServiceOverridesFieldIgnored`,
+`wire_field_fixes_test.go`, new file): posting `{"serviceOverrides": {...}}` to `CreateQueue`
+must not appear in the create response or a follow-up `GetQueue`. Hand-reverted
+`handler_queues.go`/`interfaces.go`/`models.go`/`queues.go` (and the callers in
+`persistence_test.go`/`queues_test.go` that passed the now-removed parameter), confirmed the
+raw-body test fails (the field round-tripped on both create and get), restored. A companion
+real-SDK test (`TestCreateQueue_RealSDKHasNoServiceOverrides`) proves `CreateQueue`/`GetQueue`
+still work end to end through a typed client.
+
+**Test judgement**: `queues_test.go`'s `TestCreateQueue_ServiceOverrides` and
+`TestCreateQueue_ServiceOverridesDeepCopy` — a well-tested fabrication, matching this sweep's
+appstream/pipes precedent — asserted the phantom field stored and deep-copied correctly. Both
+removed (the feature doesn't exist). `TestInMemoryBackend_SnapshotRestore_FullState`
+(`persistence_test.go`) asserted `gotQueue.ServiceOverrides` was non-nil after a restore round
+trip — that assertion removed, the rest of the test (queue/job-template/job/preset snapshot
+coverage) is unaffected.
+
+Gates: `go build`, `go vet`, `go test -race -count=1`, `golangci-lint run` — all clean
+(`./services/mediaconvert/...`).

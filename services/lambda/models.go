@@ -887,15 +887,28 @@ type PutFunctionRecursionConfigInput struct {
 	RecursiveLoop string `json:"RecursiveLoop"`
 }
 
-// FunctionScalingConfig holds the scaling configuration for a Lambda function.
+// FunctionScalingConfig holds the scaling configuration for a Lambda Managed
+// Instances function (lambda@v1.101.2 types/types.go:1614).
 type FunctionScalingConfig struct {
-	MaximumConcurrency *int   `json:"MaximumConcurrency,omitempty"`
-	FunctionArn        string `json:"FunctionArn,omitempty"`
+	MaxExecutionEnvironments *int32 `json:"MaxExecutionEnvironments,omitempty"`
+	MinExecutionEnvironments *int32 `json:"MinExecutionEnvironments,omitempty"`
 }
 
 // PutFunctionScalingConfigInput is the request body for PutFunctionScalingConfig.
 type PutFunctionScalingConfigInput struct {
-	MaximumConcurrency *int `json:"MaximumConcurrency,omitempty"`
+	FunctionScalingConfig *FunctionScalingConfig `json:"FunctionScalingConfig,omitempty"`
+}
+
+// PutFunctionScalingConfigOutput is the response body for PutFunctionScalingConfig.
+type PutFunctionScalingConfigOutput struct {
+	FunctionState FunctionState `json:"FunctionState,omitempty"`
+}
+
+// GetFunctionScalingConfigOutput is the response body for GetFunctionScalingConfig.
+type GetFunctionScalingConfigOutput struct {
+	AppliedFunctionScalingConfig   *FunctionScalingConfig `json:"AppliedFunctionScalingConfig,omitempty"`
+	RequestedFunctionScalingConfig *FunctionScalingConfig `json:"RequestedFunctionScalingConfig,omitempty"`
+	FunctionArn                    string                 `json:"FunctionArn,omitempty"`
 }
 
 // SnapStart holds the SnapStart configuration for a Lambda function.

@@ -706,3 +706,27 @@ previously locked in incorrect behavior.
 
 Gates: `go build`, `go vet`, `go test -race -count=1`, `golangci-lint run` —
 all clean (`./services/apigateway/...`).
+
+## 2026-08-28 — wrapper-key-sweep follow-up: GetDocumentationPart/DeleteDocumentationPart DocPartID (acceptguard, not a bug)
+
+acceptguard flagged `getDocumentationPartInput.DocPartID`/`deleteDocumentationPartInput.DocPartID`
+(`handler_documentation.go:144,196`) as matching no real member of `GetDocumentationPartInput`/
+`DeleteDocumentationPartInput`. Investigated against apigateway@v1.42.4's serializer
+(`awsRestjson1_serializeOpHttpBindingsGetDocumentationPartInput`, serializers.go:4810-4834):
+`DocumentationPartId`/`RestApiId` are both `httpLabel`-bound (`encoder.SetURI(...)`) — pure URL
+path segments, never a JSON body member on the real wire at all. No real client ever sends a
+member literally named "documentationPartId"; the value is positional in the URL
+(`/restapis/{id}/documentation/parts/{part_id}`).
+
+gopherstack's router (`parseAPIGWRestAPIsDocDeep`, `handler_router.go`) already parses that
+segment positionally off the real incoming URL and threads it through the JSON body merge
+(`injectJSONFieldAPIGW`) under gopherstack's own internal key name, `docPartId` — this key is
+router-to-handler plumbing, not a claim about the wire shape, and it doesn't need to match the
+SDK's httpLabel name to work correctly. Confirmed with a real
+`aws-sdk-go-v2/service/apigateway` client round trip
+(`TestGetAndDeleteDocumentationPart_RealSDKPathParamRoundTrip`, `wire_field_fixes_test.go`):
+create, get, delete, get-again-404, all pass unmodified. **Verdict: false positive, code left
+unchanged.**
+
+Gates: `go build`, `go vet`, `go test -race -count=1`, `golangci-lint run` — all clean
+(`./services/apigateway/...`).

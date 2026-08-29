@@ -75,3 +75,53 @@ func TestCreateStage_AccessLogAndMethodSettings_ViaUpdateStageRealClient(t *test
 		aws.ToString(got.AccessLogSettings.DestinationArn))
 	assert.Equal(t, aws.ToString(cert.ClientCertificateId), aws.ToString(got.ClientCertificateId))
 }
+
+// TestGetAndDeleteDocumentationPart_RealSDKPathParamRoundTrip documents the
+// gopherstack-wksweep-apigw-2 investigation result: acceptguard flagged
+// getDocumentationPartInput.DocPartID/deleteDocumentationPartInput.DocPartID
+// (handler_documentation.go:8,18) as matching no real Input member. That's a
+// false positive for this pair -- DocumentationPartId/RestApiId are
+// httpLabel-bound (apigateway@v1.42.4 serializers.go:4815-4831,
+// encoder.SetURI, not a JSON body field at all), so no real client ever
+// sends a member named "documentationPartId" on the wire; the value is a
+// positional URL segment. The router (handler_router.go:70) already parses
+// that segment positionally off the real URL and threads it through under
+// gopherstack's own internal key name -- "DocPartID" is plumbing between the
+// router and the action handler, not a wire member. This proves a real typed
+// client's GetDocumentationPart/DeleteDocumentationPart still work.
+func TestGetAndDeleteDocumentationPart_RealSDKPathParamRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	client := newTestAPIGatewayClient(t, apigateway.NewHandler(apigateway.NewInMemoryBackend()))
+	ctx := t.Context()
+
+	api, err := client.CreateRestApi(ctx, &apigwsdk.CreateRestApiInput{Name: aws.String("docpart-wire-fix-api")})
+	require.NoError(t, err)
+
+	part, err := client.CreateDocumentationPart(ctx, &apigwsdk.CreateDocumentationPartInput{
+		RestApiId:  api.Id,
+		Location:   &apigwtypes.DocumentationPartLocation{Type: apigwtypes.DocumentationPartTypeApi},
+		Properties: aws.String(`{"description":"wire fix test"}`),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, part.Id)
+
+	got, err := client.GetDocumentationPart(ctx, &apigwsdk.GetDocumentationPartInput{
+		RestApiId:           api.Id,
+		DocumentationPartId: part.Id,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, aws.ToString(part.Id), aws.ToString(got.Id))
+
+	_, err = client.DeleteDocumentationPart(ctx, &apigwsdk.DeleteDocumentationPartInput{
+		RestApiId:           api.Id,
+		DocumentationPartId: part.Id,
+	})
+	require.NoError(t, err)
+
+	_, err = client.GetDocumentationPart(ctx, &apigwsdk.GetDocumentationPartInput{
+		RestApiId:           api.Id,
+		DocumentationPartId: part.Id,
+	})
+	require.Error(t, err, "deleted documentation part must not still be retrievable")
+}
