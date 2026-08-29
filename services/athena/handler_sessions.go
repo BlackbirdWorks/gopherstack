@@ -10,13 +10,14 @@ const (
 )
 
 type startSessionInput struct {
-	MonitoringConfiguration MonitoringConfiguration `json:"MonitoringConfiguration"`
-	WorkGroup               string                  `json:"WorkGroup"`
-	Description             string                  `json:"Description"`
-	NotebookVersion         string                  `json:"NotebookVersion"`
-	NotebookID              string                  `json:"NotebookId"`
-	SessionConfiguration    SessionConfiguration    `json:"SessionConfiguration"`
-	EngineConfiguration     EngineConfiguration     `json:"EngineConfiguration"`
+	MonitoringConfiguration     MonitoringConfiguration `json:"MonitoringConfiguration"`
+	WorkGroup                   string                  `json:"WorkGroup"`
+	Description                 string                  `json:"Description"`
+	NotebookVersion             string                  `json:"NotebookVersion"`
+	NotebookID                  string                  `json:"NotebookId"`
+	ExecutionRole               string                  `json:"ExecutionRole"`
+	EngineConfiguration         EngineConfiguration     `json:"EngineConfiguration"`
+	SessionIdleTimeoutInMinutes int32                   `json:"SessionIdleTimeoutInMinutes"`
 }
 
 type sessionIDInput struct {
@@ -49,9 +50,20 @@ func (h *Handler) sessionCoreOps() map[string]athenaActionFn {
 				return nil, err
 			}
 
+			const secondsPerMinute = 60
+
+			sessionCfg := SessionConfiguration{
+				ExecutionRole: input.ExecutionRole,
+				// StartSessionInput only carries SessionIdleTimeoutInMinutes; the
+				// stored/returned model tracks IdleTimeoutSeconds (aws-sdk-go-v2
+				// athena@v1.60.4 types.SessionConfiguration carries both, this
+				// converts the one real clients actually send).
+				IdleTimeoutSeconds: int64(input.SessionIdleTimeoutInMinutes) * secondsPerMinute,
+			}
+
 			id, state, err := h.Backend.StartSession(
 				input.WorkGroup, input.Description, input.NotebookVersion,
-				input.EngineConfiguration, input.SessionConfiguration,
+				input.EngineConfiguration, sessionCfg,
 				input.MonitoringConfiguration, input.NotebookID,
 			)
 			if err != nil {

@@ -28,9 +28,9 @@ type deleteLogAnomalyDetectorOutput struct{}
 
 // --- ListLogAnomalyDetectors ---.
 type listLogAnomalyDetectorsInput struct {
-	NextToken             string   `json:"nextToken"`
-	FilterLogGroupArnList []string `json:"filterLogGroupArnList"`
-	Limit                 int      `json:"limit"`
+	NextToken         string `json:"nextToken"`
+	FilterLogGroupArn string `json:"filterLogGroupArn"`
+	Limit             int    `json:"limit"`
 }
 
 type listLogAnomalyDetectorsOutput struct {
@@ -145,7 +145,12 @@ func (h *Handler) handleListLogAnomalyDetectors(
 	if err := json.Unmarshal(b, &input); err != nil {
 		return nil, err
 	}
-	detectors, next, err := h.Backend.ListLogAnomalyDetectors(input.FilterLogGroupArnList, input.Limit, input.NextToken)
+	var filter []string
+	if input.FilterLogGroupArn != "" {
+		filter = []string{input.FilterLogGroupArn}
+	}
+
+	detectors, next, err := h.Backend.ListLogAnomalyDetectors(filter, input.Limit, input.NextToken)
 	if err != nil {
 		return nil, err
 	}

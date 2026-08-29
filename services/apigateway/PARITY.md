@@ -666,3 +666,43 @@ HEAD`, confirmed the test fails with `*json.SyntaxError: "invalid character
 Two pre-existing tests (`TestHandleRESTAPI_Branches/unknown_rest_path_returns_404`,
 `TestParseAPIGWMethodPath_EdgeCases`'s two subtests) asserted the old bare
 404 by status code alone; updated to assert the new, correct 400.
+
+## 2026-08-28 — wrapper-key-sweep: CreateStage accepted three request members it doesn't have (acceptguard)
+
+`cmd/acceptguard` flagged `CreateStage` reading `AccessLogSettings` and
+`MethodSettings` from the request body; independently verifying against the
+real SDK also turned up a third, `ClientCertificateID`, that acceptguard
+only ranked "needs review" (it's a real member of a *different* op's
+Input). Real `CreateStageInput` (`apigateway@v1.42.4` `api_op_CreateStage.go`)
+has none of the three -- `AccessLogSettings`/`MethodSettings`/
+`ClientCertificateId` are all real `Stage` (response) fields, but only
+settable afterward via `UpdateStage`'s PATCH operations
+(`/accessLogSettings/...`, `/*/*/...`, `/clientCertificateId`), never at
+creation. Fixed by removing all three from `CreateStageInput`
+(`models.go`) and no longer populating them in `CreateStage`
+(`stages.go`); `UpdateStage`/`UpdateStageInput` were already correct and
+unchanged.
+
+Proven via a real `aws-sdk-go-v2/service/apigateway` client round trip in
+`wire_field_fixes_test.go` (new):
+`TestCreateStage_AccessLogAndMethodSettings_ViaUpdateStageRealClient` creates
+a stage (asserting none of the three are set, since `CreateStageInput`'s Go
+struct structurally cannot carry them), then sets all three via
+`UpdateStage`'s `PatchOperations` and confirms they round-trip through both
+the `UpdateStage` response and a follow-up `GetStage`. This test passes
+both before and after the source fix -- the real SDK struct never had these
+fields to send incorrectly, so there's no request-shape difference
+observable through the typed client. The actual fail-before/pass-after
+proof lives in `stages_test.go`'s Go-level backend tests
+(`TestStage_ClientCertificateId_Create`, `TestBackend_Stage_ClientCertificateId`,
+`TestStage_AccessLogSettings`, `TestStage_MethodSettings`), which
+constructed `apigateway.CreateStageInput{...}` literals setting these three
+fields directly -- exactly the bug the real SDK struct can't express.
+Rewrote all four to `CreateStage` (no such fields) followed by `UpdateStage`
+(setting them), matching the real two-step workflow; this doesn't compile
+against the pre-fix `CreateStageInput` (which still had the fields, so the
+literals would build but exercise the wrong path), confirming the tests
+previously locked in incorrect behavior.
+
+Gates: `go build`, `go vet`, `go test -race -count=1`, `golangci-lint run` —
+all clean (`./services/apigateway/...`).

@@ -323,3 +323,50 @@ pass after.
 
 Gates: `go build`, `go vet`, `go test -race -count=1`, `golangci-lint run` —
 all clean (`./services/athena/...`).
+
+## 2026-08-28 — wrapper-key-sweep: request-side member-name bugs (acceptguard)
+
+`cmd/acceptguard` flagged two request-side bugs in `services/athena/`:
+
+1. `CreateDataCatalog`/`UpdateDataCatalog` read a top-level `ConnectionType`
+   request field. Neither `CreateDataCatalogInput` nor `UpdateDataCatalogInput`
+   has such a member (`athena@v1.60.4` `api_op_{Create,Update}DataCatalog.go`)
+   -- `ConnectionType` exists only on the response types (`DataCatalog`,
+   `DataCatalogSummary`). Real AWS derives it from the `"connection-type"`
+   key inside the `Parameters` map for a `FEDERATED` catalog (documented on
+   `CreateDataCatalogInput.Parameters`). A real client can only ever set
+   `Parameters["connection-type"]`, so the response field was always empty.
+   Fixed by removing `ConnectionType` from both wire input structs and both
+   backend signatures (`CreateDataCatalog`/`UpdateDataCatalog` dropped the
+   `connectionType string` parameter), deriving it instead from
+   `params[dataCatalogConnectionTypeParam]` (`"connection-type"`,
+   `data_catalogs.go`).
+2. `StartSession` read a top-level `SessionConfiguration` object.
+   `StartSessionInput` has no such member (`api_op_StartSession.go`) --
+   `SessionConfiguration` exists only on `GetSessionOutput`, and real AWS
+   derives it server-side from the real top-level `ExecutionRole` and
+   `SessionIdleTimeoutInMinutes` request fields, which gopherstack didn't
+   read at all. Fixed by replacing the `SessionConfiguration` wire field
+   with `ExecutionRole`/`SessionIdleTimeoutInMinutes` (matching the real
+   wire keys) and building the internal `SessionConfiguration` from them in
+   the handler (`IdleTimeoutSeconds = minutes * 60`, since gopherstack's
+   internal model tracks seconds).
+
+Both proven via a real `aws-sdk-go-v2/service/athena` client round trip in
+`wire_field_fixes_test.go`: `TestCreateDataCatalog_ConnectionTypeRealClient`
+(Create/Update with `Parameters: {"connection-type": ...}` → `GetDataCatalog`
+echoes it) and `TestStartSession_ExecutionRoleRealClient` (`StartSession`
+with `ExecutionRole`/`SessionIdleTimeoutInMinutes` → `GetSession` echoes
+both, converted to seconds). Hand-reverted `data_catalogs.go`,
+`handler_data_catalogs.go`, `handler_sessions.go`, `interfaces.go` (plus
+`export_test.go`'s now-mismatched call site) together, confirmed both tests
+fail pre-fix (`ConnectionType`/`ExecutionRole` empty on the real client's
+response), restored the fix.
+
+`handler_data_catalogs_test.go`'s `TestHandler_DataCatalog_FederatedStatus`
+and `TestHandler_DataCatalog_ListIncludesStatus` sent the wrong top-level
+`ConnectionType` request key directly as raw JSON -- updated both to send
+`Parameters: {"connection-type": ...}`, the real derivation path.
+
+Gates: `go build`, `go vet`, `go test -race -count=1`, `golangci-lint run` —
+all clean (`./services/athena/...`).

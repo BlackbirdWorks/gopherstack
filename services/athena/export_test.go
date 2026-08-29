@@ -197,7 +197,7 @@ func PopulateEveryTable(t *testing.T, b *InMemoryBackend) Fixture {
 	namedQueryID, err := b.CreateNamedQuery("nq1", "", "db", "SELECT 1", "wg1")
 	require.NoError(t, err)
 
-	_, err = b.CreateDataCatalog("cat1", "GLUE", "", "", nil, nil)
+	_, err = b.CreateDataCatalog("cat1", "GLUE", "", nil, nil)
 	require.NoError(t, err)
 
 	require.NoError(t, b.CreatePreparedStatement("ps1", "", "wg1", "SELECT 1"))

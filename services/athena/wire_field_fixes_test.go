@@ -185,3 +185,88 @@ func TestCreateWorkGroup_EngineAndMonitoringConfiguration_RealClient(t *testing.
 	assert.Equal(t, "s3://my-bucket/results/", outputLoc,
 		"UpdateWorkGroup's ConfigurationUpdates must merge, not wholesale-replace the stored configuration")
 }
+
+// TestCreateDataCatalog_ConnectionTypeRealClient covers
+// gopherstack-wksweep-athena-1: CreateDataCatalogInput/UpdateDataCatalogInput
+// have no top-level ConnectionType member (athena@v1.60.4
+// api_op_{Create,Update}DataCatalog.go) -- only the response types
+// (DataCatalog/DataCatalogSummary) carry ConnectionType. Real AWS derives it
+// from the "connection-type" key inside the Parameters map for a FEDERATED
+// catalog. Before the fix, gopherstack read a nonexistent top-level
+// ConnectionType request field, so a real client's connection type was
+// always dropped and the response field stayed empty.
+func TestCreateDataCatalog_ConnectionTypeRealClient(t *testing.T) {
+	t.Parallel()
+
+	backend := athena.NewInMemoryBackend(config.DefaultRegion, "123456789012")
+	client := newTestAthenaClient(t, athena.NewHandler(backend))
+	ctx := t.Context()
+
+	_, err := client.CreateDataCatalog(ctx, &athenasdk.CreateDataCatalogInput{
+		Name: aws.String("fed-catalog"),
+		Type: types.DataCatalogTypeFederated,
+		Parameters: map[string]string{
+			"connection-type": "REDSHIFT",
+		},
+	})
+	require.NoError(t, err)
+
+	got, err := client.GetDataCatalog(ctx, &athenasdk.GetDataCatalogInput{Name: aws.String("fed-catalog")})
+	require.NoError(t, err)
+	require.NotNil(t, got.DataCatalog)
+	assert.Equal(t, types.ConnectionType("REDSHIFT"), got.DataCatalog.ConnectionType,
+		"ConnectionType must be derived from Parameters[connection-type]; pre-fix it was always empty")
+
+	_, err = client.UpdateDataCatalog(ctx, &athenasdk.UpdateDataCatalogInput{
+		Name: aws.String("fed-catalog"),
+		Type: types.DataCatalogTypeFederated,
+		Parameters: map[string]string{
+			"connection-type": "MYSQL",
+		},
+	})
+	require.NoError(t, err)
+
+	updated, err := client.GetDataCatalog(ctx, &athenasdk.GetDataCatalogInput{Name: aws.String("fed-catalog")})
+	require.NoError(t, err)
+	require.NotNil(t, updated.DataCatalog)
+	assert.Equal(t, types.ConnectionType("MYSQL"), updated.DataCatalog.ConnectionType)
+}
+
+// TestStartSession_ExecutionRoleRealClient covers gopherstack-wksweep-athena-2:
+// StartSessionInput has no SessionConfiguration member (athena@v1.60.4
+// api_op_StartSession.go) -- ExecutionRole and SessionIdleTimeoutInMinutes
+// are top-level request fields instead, and GetSessionOutput's
+// SessionConfiguration is derived from them server-side. Before the fix,
+// gopherstack decoded a nonexistent top-level SessionConfiguration object
+// that a real client never sends, so ExecutionRole was always dropped.
+func TestStartSession_ExecutionRoleRealClient(t *testing.T) {
+	t.Parallel()
+
+	backend := athena.NewInMemoryBackend(config.DefaultRegion, "123456789012")
+	client := newTestAthenaClient(t, athena.NewHandler(backend))
+	ctx := t.Context()
+
+	const (
+		idleMinutes   = 15
+		secondsPerMin = 60
+		idleSeconds   = idleMinutes * secondsPerMin
+	)
+
+	start, err := client.StartSession(ctx, &athenasdk.StartSessionInput{
+		WorkGroup: aws.String("primary"),
+		EngineConfiguration: &types.EngineConfiguration{
+			CoordinatorDpuSize: aws.Int32(1),
+		},
+		ExecutionRole:               aws.String("arn:aws:iam::123456789012:role/spark-exec"),
+		SessionIdleTimeoutInMinutes: aws.Int32(idleMinutes),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, start.SessionId)
+
+	got, err := client.GetSession(ctx, &athenasdk.GetSessionInput{SessionId: start.SessionId})
+	require.NoError(t, err)
+	require.NotNil(t, got.SessionConfiguration)
+	assert.Equal(t, "arn:aws:iam::123456789012:role/spark-exec", aws.ToString(got.SessionConfiguration.ExecutionRole),
+		"SessionConfiguration.ExecutionRole must round-trip; pre-fix it was always empty")
+	assert.Equal(t, int64(idleSeconds), aws.ToInt64(got.SessionConfiguration.IdleTimeoutSeconds))
+}

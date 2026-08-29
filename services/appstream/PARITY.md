@@ -420,3 +420,49 @@ coverage against the SDK's authoritative op list, complementary to the
 existing `TestAppStream_RPCv2CBOR/every_supported_operation_is_reachable_over_CBOR`
 in handler_test.go, which only checks internal self-consistency against
 `GetSupportedOperations()`. No stale PARITY.md entries found.
+
+## 2026-08-28 — wrapper-key-sweep: request-side fabricated members (acceptguard)
+
+`cmd/acceptguard` flagged two request-side bugs in `services/appstream/`
+where the handler decoded a member real AWS never sends:
+
+1. `CreateUser` read a top-level `Email` request field. Real
+   `CreateUserInput` has no `Email` member at all (`appstream@v1.64.5`
+   `api_op_CreateUser.go`) -- `UserName` is documented as "The email address
+   of the user"; it *is* the email, there is no separate field. `types.User`
+   (the response type) has no `Email` member either. Fixed by removing
+   `Email` end to end: the wire request/response structs, `storedUser`/`User`
+   models, and the `CreateUser` backend signature all dropped it.
+2. `CreateUsageReportSubscription` read top-level `S3BucketName`/`Schedule`
+   request fields. Real `CreateUsageReportSubscriptionInput` takes zero
+   parameters (`api_op_CreateUsageReportSubscription.go`) -- AWS derives the
+   bucket (creating or reusing one) and the schedule (the only enum value is
+   `DAILY`) server-side. A real client's marshaled body is always `{}`, so
+   `S3BucketName` was always empty on the response. Fixed by dropping both
+   parameters from the backend's `CreateUsageReportSubscription()` (now
+   takes no args) and deriving `S3BucketName` as
+   `"appstream-logs-<region>-<accountID>"` and `Schedule` as the constant
+   `"DAILY"`.
+
+Proven via a real `aws-sdk-go-v2/service/appstream` client round trip in
+`wire_field_fixes_test.go` (new). `TestCreateUsageReportSubscription_NoInputRealClient`
+genuinely fails pre-fix (`S3BucketName` empty on the real client's response,
+confirmed by hand-reverting `handler_user.go`/`interfaces.go`/`users.go`/
+`usage_report_subscriptions.go` together and re-running) and passes after.
+`TestCreateUser_UserNameIsEmailRealClient` passes both before and after --
+`CreateUserInput`'s Go struct never had an `Email` field to send incorrectly
+in the first place, so there is no request-shape difference a real typed
+client can observe; the fix there is dead-field removal, not a behavior
+change reachable through the wire. `handler_user.go`'s `userToResponse`
+previously echoed an invented `"Email"` key that no real client's generated
+`types.User` struct has any way to read.
+
+Several raw-body tests (`handler_test.go`'s `createUser` helper,
+`users_test.go` ×6, `usage_report_subscriptions_test.go` ×3,
+`persistence_test.go`) sent the fabricated `Email`/`S3BucketName`/`Schedule`
+request keys directly as raw JSON -- updated to match the real, narrower
+request shape; none asserted on the removed response values, so no test
+lost coverage.
+
+Gates: `go build`, `go vet`, `go test -race -count=1`, `golangci-lint run` —
+all clean (`./services/appstream/...`).

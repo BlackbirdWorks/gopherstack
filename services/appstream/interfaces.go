@@ -137,7 +137,7 @@ type StorageBackend interface {
 	ListExportImageTasks(maxResults int32, nextToken string) ([]*ExportImageTask, string, error)
 
 	// UsageReportSubscriptions
-	CreateUsageReportSubscription(schedule, s3Bucket string) (*UsageReportSubscription, error)
+	CreateUsageReportSubscription() (*UsageReportSubscription, error)
 	DeleteUsageReportSubscription() error
 	DescribeUsageReportSubscriptions() ([]*UsageReportSubscription, error)
 
@@ -153,7 +153,7 @@ type StorageBackend interface {
 	UpdateThemeForStack(stackName string, opts ThemeUpdateOptions) (*Theme, error)
 
 	// Users
-	CreateUser(userName, email, firstName, lastName, authType string) (*User, error)
+	CreateUser(userName, firstName, lastName, authType string) (*User, error)
 	DeleteUser(userName, authType string) error
 	DescribeUsers(authType string) ([]*User, error)
 	DisableUser(userName, authType string) error
@@ -416,11 +416,15 @@ type ThemeUpdateOptions struct {
 }
 
 // User is an AppStream UserPool user.
+//
+// Real AppStream has no separate Email member on CreateUserInput or
+// types.User -- UserName IS the user's email address (aws-sdk-go-v2
+// appstream@v1.64.5 api_op_CreateUser.go's UserName doc: "The email address
+// of the user").
 type User struct {
 	CreatedTime        time.Time
 	UserName           string
 	Arn                string
-	Email              string
 	FirstName          string
 	LastName           string
 	AuthenticationType string

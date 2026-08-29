@@ -591,3 +591,47 @@ unmarshal failure falls straight to default.
 == smithy.FaultServer`; confirmed it fails pre-fix with the old
 `"InternalServerError"` code (hand-reverted, byte-identical restore
 after).
+
+## 2026-08-28 — wrapper-key-sweep: request-side member-name/shape bugs (acceptguard)
+
+`cmd/acceptguard` flagged two request-side bugs in `services/cloudwatchlogs/`
+where the handler decoded a member real AWS never sends:
+
+1. `DeleteScheduledQuery`, `UpdateScheduledQuery`, `GetScheduledQuery`, and
+   `GetScheduledQueryHistory` all read `scheduledQueryArn` from the request
+   body. The real member on all four Input types is `Identifier`
+   (`cloudwatchlogs@v1.81.1` `api_op_{Delete,Update,Get,GetHistory}ScheduledQuery.go`,
+   confirmed against each op's own `awsAwsjson11_serializeOpDocument*Input`
+   in `serializers.go` -- wire key `"identifier"`). A real client sending
+   `identifier` left the field permanently empty, so these four ops could
+   never resolve the query a real client asked for -- the highest-value bug
+   in this pass. Fixed by renaming the wire struct field/JSON tag to
+   `Identifier`/`identifier` in `handler_scheduled_queries.go`; no alias
+   kept, since nothing in-repo (UI, tests) depended on the old name --
+   `ui/`'s `ScheduledQueryArn` usage under `timestreamquery/` is an unrelated
+   service (Timestream Query's own, differently-shaped, `ScheduledQueryArn`
+   member is real for *that* service).
+2. `ListLogAnomalyDetectors` read a `filterLogGroupArnList` array. The real
+   member is singular `FilterLogGroupArn *string`
+   (`api_op_ListLogAnomalyDetectors.go`, wire key `"filterLogGroupArn"`).
+   Fixed by changing the wire field to a single string and wrapping it in a
+   one-element slice before calling the (unchanged) backend, which already
+   took `[]string`.
+
+Both proven via a real `aws-sdk-go-v2/service/cloudwatchlogs` client round
+trip in `wire_field_fixes_test.go` (new): `TestScheduledQuery_IdentifierRealClient`
+(Create → Get/Update/GetHistory/Delete all addressed by `Identifier`) and
+`TestListLogAnomalyDetectors_FilterLogGroupArnRealClient` (two detectors on
+different log groups, `FilterLogGroupArn` returns only the matching one).
+Hand-reverted `handler_scheduled_queries.go`/`handler_anomaly_detectors.go`
+only, confirmed both tests fail pre-fix (`GetScheduledQuery` 400
+`InvalidParameterException: scheduledQueryArn is required`; filter returned
+both detectors instead of one), restored the fix.
+
+`handler_scheduled_queries_test.go`'s `TestHandler_GetScheduledQuery_WireShape`
+and `TestHandler_ScheduledQuery_DestinationConfiguration` sent the wrong
+`scheduledQueryArn` request key directly as raw JSON -- updated both to send
+`identifier`, the real member.
+
+Gates: `go build`, `go vet`, `go test -race -count=1`, `golangci-lint run` —
+all clean (`./services/cloudwatchlogs/...`).
