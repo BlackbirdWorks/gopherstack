@@ -5,6 +5,8 @@ import (
 	"strconv"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 func (h *Handler) handleListConfigurationRevisions(c *echo.Context, configID string) error {
@@ -13,10 +15,27 @@ func (h *Handler) handleListConfigurationRevisions(c *echo.Context, configID str
 		return h.writeError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{
+	q := c.Request().URL.Query()
+	nextToken := q.Get("nextToken")
+	maxResults := 0
+
+	if s := q.Get("maxResults"); s != "" {
+		if n, parseErr := strconv.Atoi(s); parseErr == nil && n > 0 && n <= 100 {
+			maxResults = n
+		}
+	}
+
+	pg := page.New(revisions, nextToken, maxResults, mqDefaultPageSize)
+
+	resp := map[string]any{
 		"configurationId": configID,
-		"revisions":       revisions,
-	})
+		"revisions":       pg.Data,
+	}
+	if pg.Next != "" {
+		resp["nextToken"] = pg.Next
+	}
+
+	return c.JSON(http.StatusOK, resp)
 }
 
 func (h *Handler) handleDescribeConfigurationRevision(

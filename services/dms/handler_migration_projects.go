@@ -157,6 +157,65 @@ type describeMigrationProjectsOutput struct {
 	MigrationProjects []migrationProjectJSON `json:"MigrationProjects"`
 }
 
+// dataProviderDescriptorsMatch reports whether any descriptor in the list
+// matches the given name-or-ARN identifier.
+func dataProviderDescriptorsMatch(descriptors []DataProviderDescriptor, identifier string) bool {
+	for _, d := range descriptors {
+		if d.DataProviderName == identifier || d.DataProviderArn == identifier {
+			return true
+		}
+	}
+
+	return false
+}
+
+// migrationProjectFilters holds the five documented DescribeMigrationProjects
+// filter values (api_op_DescribeMigrationProjects.go).
+type migrationProjectFilters struct {
+	project         string
+	instanceProfile string
+	dataProvider    string
+	sourceProvider  string
+	targetProvider  string
+}
+
+func migrationProjectFiltersFrom(filters []filterEntry) migrationProjectFilters {
+	return migrationProjectFilters{
+		project:         extractFilterValue(filters, "migration-project-identifier"),
+		instanceProfile: extractFilterValue(filters, "instance-profile-identifier"),
+		dataProvider:    extractFilterValue(filters, "data-provider-identifier"),
+		sourceProvider:  extractFilterValue(filters, "source-data-provider-identifier"),
+		targetProvider:  extractFilterValue(filters, "target-data-provider-identifier"),
+	}
+}
+
+func (f migrationProjectFilters) matches(mp *MigrationProject) bool {
+	if f.project != "" && mp.MigrationProjectName != f.project && mp.MigrationProjectArn != f.project {
+		return false
+	}
+
+	if f.instanceProfile != "" &&
+		mp.InstanceProfileName != f.instanceProfile && mp.InstanceProfileArn != f.instanceProfile {
+		return false
+	}
+
+	if f.dataProvider != "" &&
+		!dataProviderDescriptorsMatch(mp.SourceDataProviderDescriptors, f.dataProvider) &&
+		!dataProviderDescriptorsMatch(mp.TargetDataProviderDescriptors, f.dataProvider) {
+		return false
+	}
+
+	if f.sourceProvider != "" && !dataProviderDescriptorsMatch(mp.SourceDataProviderDescriptors, f.sourceProvider) {
+		return false
+	}
+
+	if f.targetProvider != "" && !dataProviderDescriptorsMatch(mp.TargetDataProviderDescriptors, f.targetProvider) {
+		return false
+	}
+
+	return true
+}
+
 func (h *Handler) handleDescribeMigrationProjects(
 	ctx context.Context, in *describeMigrationProjectsInput,
 ) (*describeMigrationProjectsOutput, error) {
@@ -169,9 +228,13 @@ func (h *Handler) handleDescribeMigrationProjects(
 		return list[i].MigrationProjectName < list[j].MigrationProjectName
 	})
 
+	filters := migrationProjectFiltersFrom(in.Filters)
+
 	all := make([]migrationProjectJSON, 0, len(list))
 	for _, mp := range list {
-		all = append(all, mpToJSON(mp))
+		if filters.matches(mp) {
+			all = append(all, mpToJSON(mp))
+		}
 	}
 
 	data, nextMarker := dmsPaginate(all, in.Marker, in.MaxRecords)

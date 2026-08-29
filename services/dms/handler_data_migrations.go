@@ -31,13 +31,13 @@ type dataMigrationSettingsJSON struct {
 }
 
 type dataMigrationJSON struct {
-	DataMigrationName     string                    `json:"DataMigrationName"`
-	DataMigrationArn      string                    `json:"DataMigrationArn"`
-	MigrationProjectArn   string                    `json:"MigrationProjectArn"`
-	DataMigrationType     string                    `json:"DataMigrationType"`
-	ServiceAccessRoleArn  string                    `json:"ServiceAccessRoleArn"`
-	DataMigrationStatus   string                    `json:"DataMigrationStatus"`
-	DataMigrationSettings dataMigrationSettingsJSON `json:"DataMigrationSettings"`
+	DataMigrationSettings *dataMigrationSettingsJSON `json:"DataMigrationSettings,omitempty"`
+	DataMigrationName     string                     `json:"DataMigrationName"`
+	DataMigrationArn      string                     `json:"DataMigrationArn"`
+	MigrationProjectArn   string                     `json:"MigrationProjectArn"`
+	DataMigrationType     string                     `json:"DataMigrationType"`
+	ServiceAccessRoleArn  string                     `json:"ServiceAccessRoleArn"`
+	DataMigrationStatus   string                     `json:"DataMigrationStatus"`
 }
 
 type createDataMigrationOutput struct {
@@ -84,7 +84,7 @@ func dmToJSON(dm *DataMigration) dataMigrationJSON {
 		DataMigrationType:    dm.DataMigrationType,
 		ServiceAccessRoleArn: dm.ServiceAccessRoleArn,
 		DataMigrationStatus:  dm.DataMigrationStatus,
-		DataMigrationSettings: dataMigrationSettingsJSON{
+		DataMigrationSettings: &dataMigrationSettingsJSON{
 			NumberOfJobs:          dm.NumberOfJobs,
 			CloudwatchLogsEnabled: dm.EnableCloudwatchLogs,
 		},
@@ -114,6 +114,7 @@ type describeDataMigrationsInput struct {
 	DataMigrationIdentifier *string       `json:"DataMigrationIdentifier"`
 	Marker                  *string       `json:"Marker"`
 	MaxRecords              *int32        `json:"MaxRecords"`
+	WithoutSettings         *bool         `json:"WithoutSettings"`
 	Filters                 []filterEntry `json:"Filters"`
 }
 
@@ -139,9 +140,16 @@ func (h *Handler) handleDescribeDataMigrations(
 		return list[i].DataMigrationName < list[j].DataMigrationName
 	})
 
+	withoutSettings := ptrconv.Bool(in.WithoutSettings)
+
 	all := make([]dataMigrationJSON, 0, len(list))
 	for _, dm := range list {
-		all = append(all, dmToJSON(dm))
+		item := dmToJSON(dm)
+		if withoutSettings {
+			item.DataMigrationSettings = nil
+		}
+
+		all = append(all, item)
 	}
 
 	data, nextMarker := dmsPaginate(all, in.Marker, in.MaxRecords)

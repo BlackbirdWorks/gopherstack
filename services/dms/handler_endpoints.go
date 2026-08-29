@@ -130,7 +130,7 @@ type createEndpointOutput struct {
 var validEndpointTypesTable = sync.OnceValue(func() map[string]bool {
 	return map[string]bool{
 		endpointTypeSource: true,
-		"target":           true,
+		endpointTypeTarget: true,
 	}
 })
 
@@ -384,7 +384,7 @@ type describeEndpointTypesOutput struct {
 }
 
 func (h *Handler) handleDescribeEndpointTypes(
-	_ context.Context, _ *describeEndpointTypesInput,
+	_ context.Context, in *describeEndpointTypesInput,
 ) (*describeEndpointTypesOutput, error) {
 	engines := []string{
 		engineNameMySQL,
@@ -401,25 +401,35 @@ func (h *Handler) handleDescribeEndpointTypes(
 		"redshift",
 		"dynamodb",
 	}
+
+	engineFilter := extractFilterValue(in.Filters, "engine-name")
+	directionFilter := extractFilterValue(in.Filters, "endpoint-type")
+
 	const endpointDirections = 2 // source and target
 	types := make([]supportedEndpointTypeJSON, 0, len(engines)*endpointDirections)
 
 	for _, e := range engines {
-		types = append(
-			types,
-			supportedEndpointTypeJSON{
+		if engineFilter != "" && e != engineFilter {
+			continue
+		}
+
+		if directionFilter == "" || directionFilter == endpointTypeSource {
+			types = append(types, supportedEndpointTypeJSON{
 				EngineName:        e,
 				SupportsCDC:       true,
 				EndpointType:      endpointTypeSource,
 				EngineDisplayName: e,
-			},
-			supportedEndpointTypeJSON{
+			})
+		}
+
+		if directionFilter == "" || directionFilter == endpointTypeTarget {
+			types = append(types, supportedEndpointTypeJSON{
 				EngineName:        e,
 				SupportsCDC:       true,
-				EndpointType:      "target",
+				EndpointType:      endpointTypeTarget,
 				EngineDisplayName: e,
-			},
-		)
+			})
+		}
 	}
 
 	return &describeEndpointTypesOutput{SupportedEndpointTypes: types}, nil

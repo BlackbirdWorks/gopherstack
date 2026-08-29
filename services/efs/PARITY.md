@@ -3,7 +3,12 @@ service: efs
 sdk_module: aws-sdk-go-v2/service/efs@v1.44.4   # version audited against
 last_audit_commit: 2516ed984b0172a43275ab37c70f0cac8f6bc807
 last_audit_date: 2026-08-29
-overall: A            # gopherstack-6flj follow-up (2026-08-29): write-only-state sweep. 2 real bugs
+overall: A            # gopherstack-21my (2026-08-29, same-day continuation): parameter-honoring sweep
+                      # (does a filter/pagination parameter, once correctly read, actually narrow the
+                      # result -- distinct from the wrapper-key sweep below, which checked key NAMES).
+                      # Came back genuinely clean, no changes -- see the dated section at the end of this
+                      # file for what was checked and the disclosed gaps re-confirmed as deliberate.
+                      # gopherstack-6flj follow-up (2026-08-29): write-only-state sweep. 2 real bugs
                       # found and fixed -- CreateFileSystemInput.Backup was silently dropped (a
                       # real SDK client's Backup:true never enabled DescribeBackupPolicy), and
                       # Destination.StatusMessage was never modeled at all (dormant in this
@@ -485,3 +490,38 @@ members in `models.go`, so they're never dropped once the optional parent is pre
 built unconditionally into their response maps (`fsToResponse`/`mtToResponse`).
 `DescribeMountTargetSecurityGroups`'s `SecurityGroups` and `DescribeTags`'s `Tags` are
 both always non-nil, always-present keys. `BackupPolicy.Status` is always present.
+
+### 2026-08-29: parameter-honoring sweep (gopherstack-21my) -- confirmed clean, no changes
+
+Distinct from the 2026-08-29 wrapper-key sweep above (which checked query/path/header
+KEY NAMES): this pass checked, for every List/Describe op with a filter or pagination
+parameter, whether the VALUE once correctly read is actually applied to narrow the
+result -- the class where a key-name audit finds nothing wrong but the parameter is
+silently ignored, discarded, or applied to the wrong baseline.
+
+Audited `describeByIDOrFilter` (`store.go`) and `describeListResponse` (`handler.go`),
+the two shared chokepoints `DescribeAccessPoints`/`DescribeMountTargets` route through,
+plus every op that bypasses them (`DescribeFileSystems`, `DescribeReplicationConfigurations`,
+`DescribeMountTargets`'s `AccessPointId` branch, which resolves the access point to its
+file system before delegating -- confirmed correct, not a chokepoint blind spot).
+Confirmed correctly applied: `DescribeAccessPoints` (`AccessPointId` identity lookup,
+`FileSystemId` filter), `DescribeFileSystems` (`FileSystemId` identity lookup,
+`CreationToken` filter -- both bypass the shared helper but are independently correct),
+`DescribeMountTargets` (`MountTargetId` identity, `FileSystemId` filter, `AccessPointId`
+resolved-then-delegated), `DescribeReplicationConfigurations` (`FileSystemId` filter).
+Pagination (`Marker`/`MaxItems` or `NextToken`/`MaxResults`) is applied via the shared
+`paginate()` helper for every op that calls it, with no bypass found among the
+collection-returning ops.
+
+Re-confirmed as deliberate, disclosed gaps rather than bugs (not fixed this pass):
+`ListTagsForResource`/`DescribeTags` still ignore `MaxResults`/`Marker` -- tag maps are
+bounded by AWS's own per-resource tagging limit (typically ~50), unlike e.g. mq's
+`ListConfigurationRevisions` (fixed this same pass, gopherstack-mq) where revision count
+is genuinely unbounded per-resource state; `DeleteReplicationConfiguration`'s
+`deletionMode` remains inert (this backend models a single account/region, so
+`ALL_CONFIGURATIONS` vs `LOCAL_CONFIGURATION_ONLY` has no distinguishable backing state
+to differ on). `DescribeAccountPreferences` returns a single per-account
+`ResourceIdPreference` object, not a paginated collection, so `MaxResults`/`NextToken`
+being unapplied is structurally correct (nothing to page over), not a gap.
+
+No code changes this pass -- every parameter-honoring check came back clean.

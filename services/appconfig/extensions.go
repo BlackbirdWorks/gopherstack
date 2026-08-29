@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"maps"
 	"sort"
+	"strings"
 )
 
 // CreateExtension creates a new AppConfig extension at version 1. See
@@ -52,9 +53,12 @@ func (b *InMemoryBackend) CreateExtension(
 	return &cp, nil
 }
 
-// resolveExtensionID resolves an identifier (ID or name) to the extension ID
-// it names, without regard to which version(s) currently exist. Must be
-// called under lock.
+// resolveExtensionID resolves an identifier -- the ID, the name, or the ARN
+// (every ExtensionIdentifier member is documented "The name, the ID, or the
+// Amazon Resource Name (ARN) of the extension", e.g. api_op_GetExtension.go,
+// api_op_CreateExtensionAssociation.go, api_op_ListExtensionAssociations.go)
+// -- to the extension ID it names, without regard to which version(s)
+// currently exist. Must be called under lock.
 func (b *InMemoryBackend) resolveExtensionID(identifier string) (string, bool) {
 	if len(b.extensionsByID.Get(identifier)) > 0 {
 		return identifier, true
@@ -62,6 +66,12 @@ func (b *InMemoryBackend) resolveExtensionID(identifier string) (string, bool) {
 
 	if matches := b.extensionsByName.Get(identifier); len(matches) > 0 {
 		return matches[0].ID, true
+	}
+
+	if id, ok := strings.CutPrefix(identifier, b.appconfigARN("extension/")); ok {
+		if len(b.extensionsByID.Get(id)) > 0 {
+			return id, true
+		}
 	}
 
 	return "", false
@@ -354,11 +364,30 @@ func (b *InMemoryBackend) ListExtensionAssociations(
 	b.mu.RLock("ListExtensionAssociations")
 	defer b.mu.RUnlock()
 
+	// ExtensionIdentifier accepts name/ID/ARN (api_op_ListExtensionAssociations.go),
+	// but ExtensionAssociation only stores ExtensionArn -- resolve to the
+	// canonical ARN once up front so the loop below can compare on it. An
+	// identifier that doesn't resolve to any known extension matches nothing,
+	// the same "no matches, not an error" convention used elsewhere in this
+	// package (e.g. resolveExperimentDefinitionFilterAppLocked) -- the
+	// unresolvable-sentinel keeps this a plain equality filter instead of an
+	// early return, so pagination still runs its normal empty-result path.
+	extensionArnFilter := extensionIdentifier
+
+	if extensionIdentifier != "" {
+		id, ok := b.resolveExtensionID(extensionIdentifier)
+		if !ok {
+			extensionArnFilter = "\x00unresolvable"
+		} else if ext := b.latestExtensionVersion(id); ext != nil {
+			extensionArnFilter = ext.Arn
+		}
+	}
+
 	all := b.extensionAssociations.All()
 	out := make([]ExtensionAssociation, 0, len(all))
 
 	for _, a := range all {
-		if extensionIdentifier != "" && a.ExtensionArn != extensionIdentifier {
+		if extensionArnFilter != "" && a.ExtensionArn != extensionArnFilter {
 			continue
 		}
 
