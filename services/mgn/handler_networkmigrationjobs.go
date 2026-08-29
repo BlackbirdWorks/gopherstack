@@ -7,6 +7,14 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
+func nmFilterJobIDs(f *nmJobFiltersWire) []string {
+	if f == nil {
+		return nil
+	}
+
+	return f.JobIDs
+}
+
 // nmJobDetailsResponse converts a page of NetworkMigrationJob into the
 // shared wire response shape every family-N List* job-details op (plus
 // family M's ListNetworkMigrationMappings/MappingUpdates) uses --
@@ -44,7 +52,8 @@ func (h *Handler) handleListNetworkMigrationAnalyses(_ context.Context, _ *http.
 	}
 
 	pg, err := h.Backend.ListNetworkMigrationAnalyses(
-		req.NetworkMigrationDefinitionID, req.NetworkMigrationExecutionID, req.NextToken, int(req.MaxResults),
+		req.NetworkMigrationDefinitionID, req.NetworkMigrationExecutionID, nmFilterJobIDs(req.Filters),
+		req.NextToken, int(req.MaxResults),
 	)
 	if err != nil {
 		return nil, err
@@ -103,7 +112,8 @@ func (h *Handler) handleListNetworkMigrationCodeGenerations(
 	}
 
 	pg, err := h.Backend.ListNetworkMigrationCodeGenerations(
-		req.NetworkMigrationDefinitionID, req.NetworkMigrationExecutionID, req.NextToken, int(req.MaxResults),
+		req.NetworkMigrationDefinitionID, req.NetworkMigrationExecutionID, nmFilterJobIDs(req.Filters),
+		req.NextToken, int(req.MaxResults),
 	)
 	if err != nil {
 		return nil, err
@@ -162,7 +172,8 @@ func (h *Handler) handleListNetworkMigrationDeployments(
 	}
 
 	pg, err := h.Backend.ListNetworkMigrationDeployments(
-		req.NetworkMigrationDefinitionID, req.NetworkMigrationExecutionID, req.NextToken, int(req.MaxResults),
+		req.NetworkMigrationDefinitionID, req.NetworkMigrationExecutionID, nmFilterJobIDs(req.Filters),
+		req.NextToken, int(req.MaxResults),
 	)
 	if err != nil {
 		return nil, err

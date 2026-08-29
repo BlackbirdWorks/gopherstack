@@ -136,10 +136,10 @@ ops:
   # repo has no SSM execution engine, and real AWS's own public API for this family is likewise
   # metadata-only (execution happens as part of a launch, outside this API surface).
   PutSourceServerAction: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListSourceServerActions: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListSourceServerActions: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (constraint sweep): Filters.ActionIDs was decoded from the wire but never passed to the backend -- every source server's full action list came back regardless of the filter."}
   RemoveSourceServerAction: {wire: ok, errors: ok, state: ok, persist: ok}
   PutTemplateAction: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListTemplateActions: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListTemplateActions: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (constraint sweep): same Filters.ActionIDs-dropped bug as ListSourceServerActions."}
   RemoveTemplateAction: {wire: ok, errors: ok, state: ok, persist: ok}
   # service_init (2)
   InitializeService: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -158,19 +158,19 @@ ops:
   ListNetworkMigrationMapperSegmentConstructs: {wire: ok, errors: ok, state: partial, persist: ok, note: "always returns an empty list after validating the (definition, execution) scope exists (networkmigration.go:254-277)"}
   ListNetworkMigrationMapperSegments: {wire: ok, errors: ok, state: partial, persist: ok, note: "always returns an empty list, same reason as ListNetworkMigrationMapperSegmentConstructs (networkmigration.go:278-287)"}
   UpdateNetworkMigrationMapperSegment: {wire: ok, errors: ok, state: partial, persist: ok, note: "always 404s -- no segment ever exists to update (networkmigration.go:288-297)"}
-  ListNetworkMigrationMappings: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListNetworkMigrationMappingUpdates: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListNetworkMigrationMappings: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (constraint sweep): Filters.JobIDs -- the shared listNMScopedRequest wire struct did not even carry a filters field, so it was silently dropped regardless of what a real client sent."}
+  ListNetworkMigrationMappingUpdates: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (constraint sweep): same Filters.JobIDs gap as ListNetworkMigrationMappings."}
   StartNetworkMigrationMapping: {wire: ok, errors: ok, state: ok, persist: ok, note: "auto-vivifies a NetworkMigrationExecution on first reference to an unseen (DefinitionID, ExecutionID) pair, since no op in this SDK surface creates one explicitly (resolveOrCreateExecutionLocked, networkmigrationjobs.go:74-118) -- a documented, deliberate convention, not independently confirmed against real AWS behavior"}
   StartNetworkMigrationMappingUpdate: {wire: ok, errors: ok, state: ok, persist: ok, note: "same auto-vivification convention as StartNetworkMigrationMapping"}
   # network_migration_analysis_deploy (10)
   StartNetworkMigrationAnalysis: {wire: ok, errors: ok, state: ok, persist: ok, note: "real PENDING->STARTED->SUCCEEDED job bookkeeping (networkmigrationjobs.go); same auto-vivification convention"}
-  ListNetworkMigrationAnalyses: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListNetworkMigrationAnalyses: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (constraint sweep): same Filters.JobIDs gap as ListNetworkMigrationMappings."}
   ListNetworkMigrationAnalysisResults: {wire: ok, errors: ok, state: partial, persist: ok, note: "always returns an empty Items list even after the parent job SUCCEEDS (networkmigrationjobs.go:207-211) -- no real network-analysis engine exists to produce findings"}
   StartNetworkMigrationCodeGeneration: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListNetworkMigrationCodeGenerations: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListNetworkMigrationCodeGenerations: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (constraint sweep): same Filters.JobIDs gap as ListNetworkMigrationMappings."}
   ListNetworkMigrationCodeGenerationSegments: {wire: ok, errors: ok, state: partial, persist: ok, note: "always empty Items, same reason as ListNetworkMigrationAnalysisResults (networkmigrationjobs.go:230-234) -- no code-generation engine exists"}
   StartNetworkMigrationDeployment: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListNetworkMigrationDeployments: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListNetworkMigrationDeployments: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (constraint sweep): same Filters.JobIDs gap as ListNetworkMigrationMappings."}
   ListNetworkMigrationDeployedStacks: {wire: ok, errors: ok, state: partial, persist: ok, note: "always empty Items -- no real CloudFormation-equivalent deployment engine exists (networkmigrationjobs.go:250-257)"}
   ListNetworkMigrationExecutions: {wire: ok, errors: ok, state: ok, persist: ok}
 families:

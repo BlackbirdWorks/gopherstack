@@ -165,7 +165,7 @@ func (h *Handler) handleCreateClassificationJob(body []byte) (any, int, error) {
 		return nil, http.StatusInternalServerError, err
 	}
 
-	return map[string]string{"jobArn": jobArn, "jobId": id, "jobStatus": "RUNNING"}, http.StatusOK, nil
+	return map[string]string{"jobArn": jobArn, "jobId": id, keyJobStatus: "RUNNING"}, http.StatusOK, nil
 }
 
 func (h *Handler) handleDescribeClassificationJob(jobID string) (any, int, error) {
@@ -184,9 +184,12 @@ func (h *Handler) handleDescribeClassificationJob(jobID string) (any, int, error
 func (h *Handler) handleListClassificationJobs(body []byte) (any, int, error) {
 	var req struct {
 		FilterCriteria map[string]any `json:"filterCriteria"`
-		SortCriteria   map[string]any `json:"sortCriteria"`
-		NextToken      string         `json:"nextToken"`
-		MaxResults     int            `json:"maxResults"`
+		SortCriteria   *struct {
+			AttributeName string `json:"attributeName"`
+			OrderBy       string `json:"orderBy"`
+		} `json:"sortCriteria"`
+		NextToken  string `json:"nextToken"`
+		MaxResults int    `json:"maxResults"`
 	}
 
 	if len(body) > 0 {
@@ -195,7 +198,14 @@ func (h *Handler) handleListClassificationJobs(body []byte) (any, int, error) {
 		}
 	}
 
-	jobs, nextToken, err := h.Backend.ListClassificationJobs(req.FilterCriteria, req.MaxResults, req.NextToken)
+	var sortBy *ListJobsSortCriteria
+	if req.SortCriteria != nil {
+		sortBy = &ListJobsSortCriteria{
+			AttributeName: req.SortCriteria.AttributeName, OrderBy: req.SortCriteria.OrderBy,
+		}
+	}
+
+	jobs, nextToken, err := h.Backend.ListClassificationJobs(req.FilterCriteria, sortBy, req.MaxResults, req.NextToken)
 	if err != nil {
 		return nil, http.StatusInternalServerError, err
 	}

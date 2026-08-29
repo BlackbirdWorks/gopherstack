@@ -1233,11 +1233,23 @@ type listNMMapperSegmentConstructsRequest struct {
 	MaxResults                   int32  `json:"maxResults,omitempty"`
 }
 
+// nmJobFiltersWire mirrors the identical {jobIDs: []string} Filters shape
+// declared by ListNetworkMigrationAnalyses/CodeGenerations/Deployments/
+// Mappings/MappingUpdates -- the five listNMScopedRequest ops with a real
+// job-details Output; the other listNMScopedRequest ops (AnalysisResults,
+// CodeGenerationSegments, DeployedStacks, MapperSegments) either have no
+// Filters member at all or a differently-shaped one, so this field stays
+// nil and unused for those, which is harmless.
+type nmJobFiltersWire struct {
+	JobIDs []string `json:"jobIDs,omitempty"`
+}
+
 type listNMScopedRequest struct {
-	NetworkMigrationDefinitionID string `json:"networkMigrationDefinitionID"`
-	NetworkMigrationExecutionID  string `json:"networkMigrationExecutionID"`
-	NextToken                    string `json:"nextToken,omitempty"`
-	MaxResults                   int32  `json:"maxResults,omitempty"`
+	Filters                      *nmJobFiltersWire `json:"filters,omitempty"`
+	NetworkMigrationDefinitionID string            `json:"networkMigrationDefinitionID"`
+	NetworkMigrationExecutionID  string            `json:"networkMigrationExecutionID"`
+	NextToken                    string            `json:"nextToken,omitempty"`
+	MaxResults                   int32             `json:"maxResults,omitempty"`
 }
 
 type genericItemsResponse struct {

@@ -190,7 +190,7 @@ func TestBuckets_DescribeBuckets_Empty(t *testing.T) {
 		{name: "no_criteria", criteria: nil},
 		{name: "empty_criteria", criteria: map[string]any{}},
 		{name: "name_filter_no_match", criteria: map[string]any{
-			"bucketName": map[string]any{"value": "nonexistent"},
+			"bucketName": map[string]any{"eq": []any{"nonexistent"}},
 		}},
 	}
 
@@ -354,7 +354,10 @@ func TestBuckets_DescribeBuckets_FilterByName(t *testing.T) {
 			wantNames: []string{"prod-logs"},
 		},
 		{
-			name:      "substring_match",
+			// Real DescribeBuckets' bucketName criterion supports "prefix",
+			// not substring matching (types.BucketCriteriaAdditionalProperties
+			// has no "contains" operator).
+			name:      "prefix_match",
 			filter:    "prod",
 			wantCount: 2,
 			wantNames: []string{"prod-logs", "prod-data"},
@@ -387,7 +390,7 @@ func TestBuckets_DescribeBuckets_FilterByName(t *testing.T) {
 			seedBucket(t, b, "my-gamma", "us-east-1", "NOT_PUBLIC", "AES256", 0, 0)
 
 			buckets := describeBuckets(t, h, map[string]any{
-				"bucketName": map[string]any{"value": tc.filter},
+				"bucketName": map[string]any{"prefix": tc.filter},
 			})
 
 			assert.Len(t, buckets, tc.wantCount)
@@ -434,7 +437,7 @@ func TestBuckets_DescribeBuckets_FilterByRegion(t *testing.T) {
 			seedBucket(t, b, "eu-1", "eu-west-1", "NOT_PUBLIC", "AES256", 0, 0)
 
 			buckets := describeBuckets(t, h, map[string]any{
-				"region": map[string]any{"value": tc.region},
+				"region": map[string]any{"eq": []any{tc.region}},
 			})
 
 			assert.Len(t, buckets, tc.wantCount)

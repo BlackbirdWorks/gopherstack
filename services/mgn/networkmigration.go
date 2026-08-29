@@ -293,19 +293,20 @@ func (b *InMemoryBackend) StartNetworkMigrationMappingUpdate(definitionID, execu
 	return b.createAndScheduleNMJobLocked(definitionID, executionID, StageMappingUpdate)
 }
 
-// ListNetworkMigrationMappings returns a page of mapping job details.
+// ListNetworkMigrationMappings returns a page of mapping job details
+// matching jobIDs (ListNetworkMigrationMappingsFilters.JobIDs).
 func (b *InMemoryBackend) ListNetworkMigrationMappings(
-	definitionID, executionID, token string,
+	definitionID, executionID string, jobIDs []string, token string,
 	limit int,
 ) (page.Page[*NetworkMigrationJob], error) {
-	return b.listNMJobs(definitionID, executionID, StageMapping, token, limit)
+	return b.listNMJobs(definitionID, executionID, StageMapping, jobIDs, token, limit)
 }
 
 // ListNetworkMigrationMappingUpdates returns a page of mapping-update job
-// details.
+// details matching jobIDs (ListNetworkMigrationMappingUpdatesFilters.JobIDs).
 func (b *InMemoryBackend) ListNetworkMigrationMappingUpdates(
-	definitionID, executionID, token string,
+	definitionID, executionID string, jobIDs []string, token string,
 	limit int,
 ) (page.Page[*NetworkMigrationJob], error) {
-	return b.listNMJobs(definitionID, executionID, StageMappingUpdate, token, limit)
+	return b.listNMJobs(definitionID, executionID, StageMappingUpdate, jobIDs, token, limit)
 }

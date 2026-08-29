@@ -88,8 +88,8 @@ func (h *Handler) handleDeleteKB(ctx context.Context, c *echo.Context, kbID stri
 	return c.JSON(http.StatusOK, map[string]any{"knowledgeBaseId": kbID, keyStatus: statusDeleting})
 }
 
-func (h *Handler) handleListKBs(ctx context.Context, c *echo.Context) error {
-	maxResults, nextToken := pageParams(c.Request().URL.Query())
+func (h *Handler) handleListKBs(ctx context.Context, c *echo.Context, body []byte) error {
+	maxResults, nextToken := bodyPageParams(body)
 
 	summaries, outToken, err := h.Backend.ListKnowledgeBases(ctx, maxResults, nextToken)
 	if err != nil {
@@ -222,9 +222,9 @@ func (h *Handler) handleDeleteKBDocs(
 }
 
 func (h *Handler) handleListKBDocs(
-	ctx context.Context, c *echo.Context, kbID, dsID string,
+	ctx context.Context, c *echo.Context, kbID, dsID string, body []byte,
 ) error {
-	maxResults, nextToken := pageParams(c.Request().URL.Query())
+	maxResults, nextToken := bodyPageParams(body)
 
 	details, outToken, err := h.Backend.ListKnowledgeBaseDocuments(ctx, kbID, dsID, maxResults, nextToken)
 	if err != nil {

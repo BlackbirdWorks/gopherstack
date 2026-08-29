@@ -148,14 +148,17 @@ func (b *InMemoryBackend) scheduleNMJobLocked(jobID, definitionID, executionID s
 }
 
 // nmJobsForExecution returns every NetworkMigrationJob for (definitionID,
-// executionID) matching activity, in Snapshot (deterministic) order.
-// Callers must hold b.mu (either lock).
-func (b *InMemoryBackend) nmJobsForExecutionLocked(definitionID, executionID, activity string) []*NetworkMigrationJob {
+// executionID) matching activity and jobIDs (empty jobIDs means
+// unfiltered), in Snapshot (deterministic) order. Callers must hold b.mu
+// (either lock).
+func (b *InMemoryBackend) nmJobsForExecutionLocked(
+	definitionID, executionID, activity string, jobIDs []string,
+) []*NetworkMigrationJob {
 	items := b.nmJobsByExecution.Get(nmExecutionKey(definitionID, executionID))
 	out := make([]*NetworkMigrationJob, 0, len(items))
 
 	for _, j := range items {
-		if j.Activity == activity {
+		if j.Activity == activity && (len(jobIDs) == 0 || containsStr(jobIDs, j.JobID)) {
 			out = append(out, j.clone())
 		}
 	}
@@ -171,12 +174,13 @@ func (b *InMemoryBackend) StartNetworkMigrationAnalysis(definitionID, executionI
 	return b.createAndScheduleNMJobLocked(definitionID, executionID, StageAnalyze)
 }
 
-// ListNetworkMigrationAnalyses returns a page of analysis job details.
+// ListNetworkMigrationAnalyses returns a page of analysis job details
+// matching jobIDs (ListNetworkMigrationAnalysesFilters.JobIDs).
 func (b *InMemoryBackend) ListNetworkMigrationAnalyses(
-	definitionID, executionID, token string,
+	definitionID, executionID string, jobIDs []string, token string,
 	limit int,
 ) (page.Page[*NetworkMigrationJob], error) {
-	return b.listNMJobs(definitionID, executionID, StageAnalyze, token, limit)
+	return b.listNMJobs(definitionID, executionID, StageAnalyze, jobIDs, token, limit)
 }
 
 // ListNetworkMigrationAnalysisResults always returns an empty list -- see
@@ -194,12 +198,12 @@ func (b *InMemoryBackend) StartNetworkMigrationCodeGeneration(definitionID, exec
 }
 
 // ListNetworkMigrationCodeGenerations returns a page of code-generation job
-// details.
+// details matching jobIDs (ListNetworkMigrationCodeGenerationsFilters.JobIDs).
 func (b *InMemoryBackend) ListNetworkMigrationCodeGenerations(
-	definitionID, executionID, token string,
+	definitionID, executionID string, jobIDs []string, token string,
 	limit int,
 ) (page.Page[*NetworkMigrationJob], error) {
-	return b.listNMJobs(definitionID, executionID, StageCodeGeneration, token, limit)
+	return b.listNMJobs(definitionID, executionID, StageCodeGeneration, jobIDs, token, limit)
 }
 
 // ListNetworkMigrationCodeGenerationSegments always returns an empty list --
@@ -216,12 +220,13 @@ func (b *InMemoryBackend) StartNetworkMigrationDeployment(definitionID, executio
 	return b.createAndScheduleNMJobLocked(definitionID, executionID, StageDeploy)
 }
 
-// ListNetworkMigrationDeployments returns a page of deployment job details.
+// ListNetworkMigrationDeployments returns a page of deployment job details
+// matching jobIDs (ListNetworkMigrationDeployerJobFilters.JobIDs).
 func (b *InMemoryBackend) ListNetworkMigrationDeployments(
-	definitionID, executionID, token string,
+	definitionID, executionID string, jobIDs []string, token string,
 	limit int,
 ) (page.Page[*NetworkMigrationJob], error) {
-	return b.listNMJobs(definitionID, executionID, StageDeploy, token, limit)
+	return b.listNMJobs(definitionID, executionID, StageDeploy, jobIDs, token, limit)
 }
 
 // ListNetworkMigrationDeployedStacks always returns an empty list -- no real
@@ -282,9 +287,10 @@ func (b *InMemoryBackend) ListNetworkMigrationExecutions(
 
 // listNMJobs is the shared paged-list helper backing every family-N List*
 // job-details op (Analyses/CodeGenerations/Deployments) plus family M's
-// ListNetworkMigrationMappings/MappingUpdates (networkmigration.go).
+// ListNetworkMigrationMappings/MappingUpdates (networkmigration.go). jobIDs
+// mirrors each op's own Filters.JobIDs (empty means unfiltered).
 func (b *InMemoryBackend) listNMJobs(
-	definitionID, executionID, activity, token string,
+	definitionID, executionID, activity string, jobIDs []string, token string,
 	limit int,
 ) (page.Page[*NetworkMigrationJob], error) {
 	b.mu.RLock("listNMJobs:" + activity)
@@ -295,7 +301,7 @@ func (b *InMemoryBackend) listNMJobs(
 	}
 
 	return page.New(
-		b.nmJobsForExecutionLocked(definitionID, executionID, activity),
+		b.nmJobsForExecutionLocked(definitionID, executionID, activity, jobIDs),
 		token,
 		limit,
 		defaultPageLimit,

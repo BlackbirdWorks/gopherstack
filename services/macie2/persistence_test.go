@@ -153,7 +153,7 @@ func seedFullState(t *testing.T, original *macie2.InMemoryBackend) restoredIDs {
 	require.NoError(t, err)
 
 	require.NoError(t, original.CreateSampleFindings([]string{"SensitiveData:S3Object/Personal"}))
-	findingIDs, _, err := original.ListFindings(nil, 0, "")
+	findingIDs, _, err := original.ListFindings(nil, nil, 0, "")
 	require.NoError(t, err)
 	require.Len(t, findingIDs, 1)
 
@@ -253,7 +253,7 @@ func assertRestoredState(t *testing.T, fresh *macie2.InMemoryBackend, ids restor
 	require.NoError(t, err)
 	require.Len(t, findings, 1)
 
-	buckets, err := fresh.DescribeBuckets(nil)
+	buckets, _, err := fresh.DescribeBuckets(nil, nil, "", 0)
 	require.NoError(t, err)
 	require.Len(t, buckets, 1)
 

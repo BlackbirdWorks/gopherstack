@@ -84,6 +84,47 @@ func (b *InMemoryBackend) DescribeClassificationJob(jobID string) (*Classificati
 	return &cp, nil
 }
 
+// ListJobsSortCriteria mirrors types.ListJobsSortCriteria. AttributeName's
+// four defined enum values (createdAt, jobStatus, name, jobType --
+// types/enums.go) are all backed by ClassificationJobSummary fields.
+type ListJobsSortCriteria struct {
+	AttributeName string
+	OrderBy       string
+}
+
+func sortJobSummaries(result []*ClassificationJobSummary, sortBy *ListJobsSortCriteria) {
+	if sortBy == nil {
+		sort.Slice(result, func(i, j int) bool { return result[i].CreatedAt.Before(result[j].CreatedAt) })
+
+		return
+	}
+
+	desc := sortBy.OrderBy == sortOrderDesc
+
+	sort.Slice(result, func(i, j int) bool {
+		var less bool
+
+		switch sortBy.AttributeName {
+		case keyCreatedAt:
+			less = result[i].CreatedAt.Before(result[j].CreatedAt)
+		case keyJobStatus:
+			less = result[i].JobStatus < result[j].JobStatus
+		case "name":
+			less = result[i].Name < result[j].Name
+		case "jobType":
+			less = result[i].JobType < result[j].JobType
+		default:
+			return false
+		}
+
+		if desc {
+			return !less
+		}
+
+		return less
+	})
+}
+
 // ListClassificationJobs returns summaries of jobs matching filterCriteria,
 // paginated by maxResults/nextToken. filterCriteria mirrors the wire shape
 // of types.ListJobsFilterCriteria: {"includes": [...], "excludes": [...]},
@@ -92,7 +133,7 @@ func (b *InMemoryBackend) DescribeClassificationJob(jobID string) (*Classificati
 // matching) -- GT/GTE/LT/LTE/CONTAINS/STARTS_WITH terms are treated as
 // non-filtering, not as errors.
 func (b *InMemoryBackend) ListClassificationJobs(
-	filterCriteria map[string]any, maxResults int, nextToken string,
+	filterCriteria map[string]any, sortBy *ListJobsSortCriteria, maxResults int, nextToken string,
 ) ([]*ClassificationJobSummary, string, error) {
 	return listPaginated(
 		b, "ListClassificationJobs", b.classificationJobs.All(),
@@ -103,9 +144,7 @@ func (b *InMemoryBackend) ListClassificationJobs(
 
 			return jobToSummary(job), true
 		},
-		func(result []*ClassificationJobSummary) {
-			sort.Slice(result, func(i, j int) bool { return result[i].CreatedAt.Before(result[j].CreatedAt) })
-		},
+		func(result []*ClassificationJobSummary) { sortJobSummaries(result, sortBy) },
 		nextToken, maxResults,
 	)
 }

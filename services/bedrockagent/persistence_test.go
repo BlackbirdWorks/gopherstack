@@ -262,7 +262,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, ids.ingestionJobID, job.IngestionJobID)
 
-	jobList, _, err := fresh.ListIngestionJobs(ctx, ids.kbID, ids.dataSourceID, 0, "")
+	jobList, _, err := fresh.ListIngestionJobs(ctx, ids.kbID, ids.dataSourceID, nil, nil, 0, "")
 	require.NoError(t, err)
 	require.Len(t, jobList, 1)
 

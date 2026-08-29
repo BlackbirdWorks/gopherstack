@@ -42,21 +42,76 @@ func (b *InMemoryBackend) GetFindings(findingIDs []string) ([]*Finding, error) {
 	return result, nil
 }
 
-// ListFindings returns finding IDs (optionally filtered).
-func (b *InMemoryBackend) ListFindings(criteria map[string]any, limit int, token string) ([]string, string, error) {
+// FindingSortCriteria mirrors types.SortCriteria for ListFindings. Only the
+// AttributeName values backed by this model's fields are honored --
+// resourcesAffected and policyDetails.action.apiCallDetails.firstSeen/
+// lastSeen are documented AttributeName values (types.SortCriteria doc
+// comment) this backend has no comparable scalar for, so sorting by them is
+// left a no-op rather than inventing an ordering.
+type FindingSortCriteria struct {
+	AttributeName string
+	OrderBy       string
+}
+
+func sortFindings(findings []*storedFinding, sortBy *FindingSortCriteria) {
+	if sortBy == nil {
+		sort.Slice(findings, func(i, k int) bool { return findings[i].ID < findings[k].ID })
+
+		return
+	}
+
+	desc := sortBy.OrderBy == sortOrderDesc
+
+	sort.Slice(findings, func(i, k int) bool {
+		var less bool
+
+		switch sortBy.AttributeName {
+		case "count":
+			less = findings[i].Count < findings[k].Count
+		case keyCreatedAt:
+			less = findings[i].CreatedAt.Before(findings[k].CreatedAt)
+		case keyUpdatedAt:
+			less = findings[i].UpdatedAt.Before(findings[k].UpdatedAt)
+		case "type":
+			less = findings[i].Type < findings[k].Type
+		case "severity.score":
+			less = findings[i].Severity.Score < findings[k].Severity.Score
+		default:
+			return false
+		}
+
+		if desc {
+			return !less
+		}
+
+		return less
+	})
+}
+
+// ListFindings returns finding IDs, filtered by criteria and sorted by
+// sortBy.
+func (b *InMemoryBackend) ListFindings(
+	criteria map[string]any, sortBy *FindingSortCriteria, limit int, token string,
+) ([]string, string, error) {
 	b.mu.RLock("ListFindings")
 	defer b.mu.RUnlock()
 
-	var filtered []string
+	var filtered []*storedFinding
+
 	for _, finding := range b.findings.All() {
 		if matchesFindingCriteria(finding, criteria) {
-			filtered = append(filtered, finding.ID)
+			filtered = append(filtered, finding)
 		}
 	}
 
-	sort.Strings(filtered)
+	sortFindings(filtered, sortBy)
 
-	data, next := paginate(filtered, token, b.paginationSecret, limit)
+	ids := make([]string, len(filtered))
+	for i, f := range filtered {
+		ids[i] = f.ID
+	}
+
+	data, next := paginate(ids, token, b.paginationSecret, limit)
 
 	return data, next, nil
 }
@@ -67,13 +122,13 @@ func getFindingFieldValue(finding *storedFinding, key string) string {
 		return finding.Type
 	case "category":
 		return finding.Category
-	case "updatedAt":
+	case keyUpdatedAt:
 		return finding.UpdatedAt.Format(time.RFC3339)
 	case "severity.description":
 		return finding.Severity.Description
-	case "accountId":
+	case bucketFieldAccountID:
 		return finding.AccountID
-	case "region":
+	case bucketFieldRegion:
 		return finding.Region
 	}
 
@@ -219,13 +274,19 @@ func (b *InMemoryBackend) CreateSampleFindings(findingTypes []string) error {
 }
 
 // GetFindingStatistics returns statistics grouped by the given field.
-func (b *InMemoryBackend) GetFindingStatistics(groupBy string, _ map[string]any) ([]FindingStatisticsGroup, error) {
+func (b *InMemoryBackend) GetFindingStatistics(
+	groupBy string, criteria map[string]any,
+) ([]FindingStatisticsGroup, error) {
 	b.mu.RLock("GetFindingStatistics")
 	defer b.mu.RUnlock()
 
 	counts := make(map[string]int64)
 
 	for _, f := range b.findings.All() {
+		if !matchesFindingCriteria(f, criteria) {
+			continue
+		}
+
 		var key string
 
 		switch groupBy {

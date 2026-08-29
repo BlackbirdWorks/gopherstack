@@ -49,9 +49,25 @@ func (h *Handler) dispatchBucketOps(op string, body []byte) (any, int, bool, err
 	return nil, 0, false, nil
 }
 
+type bucketCriterionWire struct {
+	Prefix *string  `json:"prefix"`
+	Gt     *int64   `json:"gt"`
+	Gte    *int64   `json:"gte"`
+	Lt     *int64   `json:"lt"`
+	Lte    *int64   `json:"lte"`
+	Eq     []string `json:"eq"`
+	Neq    []string `json:"neq"`
+}
+
 func (h *Handler) handleDescribeBuckets(body []byte) (any, int, error) {
 	var req struct {
-		Criteria map[string]any `json:"criteria"`
+		Criteria     map[string]bucketCriterionWire `json:"criteria"`
+		SortCriteria *struct {
+			AttributeName string `json:"attributeName"`
+			OrderBy       string `json:"orderBy"`
+		} `json:"sortCriteria"`
+		NextToken  string `json:"nextToken"`
+		MaxResults int    `json:"maxResults"`
 	}
 
 	if len(body) > 0 {
@@ -60,9 +76,23 @@ func (h *Handler) handleDescribeBuckets(body []byte) (any, int, error) {
 		}
 	}
 
-	buckets, err := h.Backend.DescribeBuckets(req.Criteria)
+	criteria := make(map[string]BucketCriterion, len(req.Criteria))
+	for k, v := range req.Criteria {
+		criteria[k] = BucketCriterion(v)
+	}
+
+	var sortBy *BucketSortCriteria
+	if req.SortCriteria != nil {
+		sortBy = &BucketSortCriteria{AttributeName: req.SortCriteria.AttributeName, OrderBy: req.SortCriteria.OrderBy}
+	}
+
+	buckets, nextToken, err := h.Backend.DescribeBuckets(criteria, sortBy, req.NextToken, req.MaxResults)
 	if err != nil {
 		return nil, http.StatusInternalServerError, err
+	}
+
+	if nextToken != "" {
+		return map[string]any{"buckets": buckets, "nextToken": nextToken}, http.StatusOK, nil
 	}
 
 	return map[string]any{"buckets": buckets}, http.StatusOK, nil

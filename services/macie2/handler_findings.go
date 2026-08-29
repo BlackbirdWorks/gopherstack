@@ -88,9 +88,12 @@ func (h *Handler) handleGetFindings(body []byte) (any, int, error) {
 func (h *Handler) handleListFindings(body []byte) (any, int, error) {
 	var req struct {
 		FindingCriteria map[string]any `json:"findingCriteria"`
-		SortCriteria    map[string]any `json:"sortCriteria"`
-		MaxResults      *int32         `json:"maxResults"`
-		NextToken       string         `json:"nextToken"`
+		SortCriteria    *struct {
+			AttributeName string `json:"attributeName"`
+			OrderBy       string `json:"orderBy"`
+		} `json:"sortCriteria"`
+		MaxResults *int32 `json:"maxResults"`
+		NextToken  string `json:"nextToken"`
 	}
 
 	if len(body) > 0 {
@@ -104,7 +107,14 @@ func (h *Handler) handleListFindings(body []byte) (any, int, error) {
 		limit = int(*req.MaxResults)
 	}
 
-	ids, next, err := h.Backend.ListFindings(req.FindingCriteria, limit, req.NextToken)
+	var sortBy *FindingSortCriteria
+	if req.SortCriteria != nil {
+		sortBy = &FindingSortCriteria{
+			AttributeName: req.SortCriteria.AttributeName, OrderBy: req.SortCriteria.OrderBy,
+		}
+	}
+
+	ids, next, err := h.Backend.ListFindings(req.FindingCriteria, sortBy, limit, req.NextToken)
 	if err != nil {
 		return nil, http.StatusInternalServerError, err
 	}

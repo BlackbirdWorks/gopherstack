@@ -25,6 +25,7 @@ type StorageBackend interface {
 	DescribeClassificationJob(jobID string) (*ClassificationJob, error)
 	ListClassificationJobs(
 		filterCriteria map[string]any,
+		sortBy *ListJobsSortCriteria,
 		maxResults int,
 		nextToken string,
 	) ([]*ClassificationJobSummary, string, error)
@@ -72,7 +73,9 @@ type StorageBackend interface {
 	BatchUpdateAutomatedDiscoveryAccounts(updates []AutoDiscoveryAccountUpdate) error
 
 	// Bucket operations
-	DescribeBuckets(criteria map[string]any) ([]map[string]any, error)
+	DescribeBuckets(
+		criteria map[string]BucketCriterion, sortBy *BucketSortCriteria, token string, limit int,
+	) ([]map[string]any, string, error)
 	GetBucketStatistics(accountID string) (map[string]any, error)
 
 	// Batch custom data identifier
@@ -188,6 +191,7 @@ type StorageBackend interface {
 	GetFindings(findingIDs []string) ([]*Finding, error)
 	ListFindings(
 		criteria map[string]any,
+		sortBy *FindingSortCriteria,
 		maxResults int,
 		nextToken string,
 	) ([]string, string, error)

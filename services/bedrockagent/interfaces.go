@@ -112,7 +112,8 @@ type StorageBackend interface {
 	GetIngestionJob(ctx context.Context, kbID, dataSourceID, ingestionJobID string) (*IngestionJob, error)
 	StopIngestionJob(ctx context.Context, kbID, dataSourceID, ingestionJobID string) (*IngestionJob, error)
 	ListIngestionJobs(
-		ctx context.Context, kbID, dataSourceID string, maxResults int, nextToken string,
+		ctx context.Context, kbID, dataSourceID string, filters []IngestionJobFilter, sortBy *IngestionJobSortBy,
+		maxResults int, nextToken string,
 	) ([]*IngestionJob, string, error)
 
 	// Flow operations.

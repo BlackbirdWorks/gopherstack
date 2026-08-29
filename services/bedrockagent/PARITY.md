@@ -66,7 +66,7 @@ ops:
     cleaned up; actionGroups/agentAliases/agentCollaborators/agentKBAssocs and
     the agent's + every alias's tags map entry were left as permanent ghost
     rows. Fixed — see Notes: cascade-delete."}
-  ListAgents: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListAgents: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (constraint sweep): maxResults/nextToken are body-bound per the real SDK (ListAgentsInput's own httpBindings serializer has no query bindings at all, POST /agents/), but the handler read them from the URL query string via the shared pageParams helper -- a real client's pagination was always ignored. Same body-vs-query mismatch fixed across ListAgentVersions/ActionGroups/Aliases/Collaborators/KnowledgeBases/ListKnowledgeBases/ListDataSources/ListKnowledgeBaseDocuments below (ListFlows/ListFlowAliases/ListFlowVersions/ListPrompts were already correct: those really are query-bound, confirmed per-op)."}
   PrepareAgent: {wire: ok, errors: ok, state: ok, persist: ok}
   ListAgentVersions: {wire: fixed, errors: ok, state: ok, persist: ok,
     note: "was unreachable: POST to the collection path (real wire method for
@@ -125,7 +125,9 @@ ops:
     AgentActionGroup record. Proven via
     Test_SDKRoundTrip_ListAgentActionGroups_UpdatedAt
     (wire_output_required_r80d_test.go), hand-reverted/confirmed-failing/
-    restored, md5sum-verified byte-identical."}
+    restored, md5sum-verified byte-identical. SEPARATELY (constraint sweep):
+    maxResults/nextToken query-vs-body binding bug fixed, see ListAgents'
+    note."}
   CreateAgentAlias: {wire: fixed, errors: ok, state: fixed, persist: ok,
     note: "(prior sweep) now auto-creates a numbered agent version when
     routingConfiguration is empty, matching real AWS (see Notes) — was
@@ -152,7 +154,9 @@ ops:
     had no fields for either. Added, populated from the persisted AgentAlias
     record. Proven via Test_SDKRoundTrip_ListAgentAliases_CreatedAtUpdatedAt
     (wire_output_required_r80d_test.go), hand-reverted/confirmed-failing/
-    restored, md5sum-verified byte-identical."}
+    restored, md5sum-verified byte-identical. SEPARATELY (constraint sweep):
+    maxResults/nextToken query-vs-body binding bug fixed, see ListAgents'
+    note."}
   AssociateAgentCollaborator: {wire: fixed, errors: fixed, state: ok, persist: ok,
     note: "same DRAFT-only {agentVersion} path constraint as
     CreateAgentActionGroup, confirmed via the API reference — fixed.
@@ -179,7 +183,9 @@ ops:
   ListAgentCollaborators: {wire: fixed, errors: ok, state: ok, persist: ok,
     note: "was totally unreachable: POST (real wire method) had no case at all and
     404'd — fixed. See AssociateAgentCollaborator's 2026-08-21 note for the
-    lastUpdatedAt fix, which applies here too (shared struct)."}
+    lastUpdatedAt fix, which applies here too (shared struct). SEPARATELY
+    (constraint sweep): maxResults/nextToken query-vs-body binding bug
+    fixed, see ListAgents' note."}
   CreateKnowledgeBase: {wire: fixed, errors: ok, state: ok, persist: ok,
     note: "invented 'tags' wire field removed — see Notes: invented-tags-field.
     b.tags[KnowledgeBaseArn] seed was already correct, kept as-is."}
@@ -189,7 +195,7 @@ ops:
     note: "cascade-delete gap: did not clean up dataSources (nor, transitively,
     ingestionJobs/kbDocuments under each), nor the KB's tags map entry. Fixed
     — see Notes: cascade-delete."}
-  ListKnowledgeBases: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListKnowledgeBases: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (constraint sweep): same query-vs-body maxResults/nextToken binding bug as ListAgents -- see that row."}
   AssociateAgentKnowledgeBase: {wire: ok, errors: fixed, state: ok, persist: ok,
     note: "same DRAFT-only {agentVersion} path constraint as
     CreateAgentActionGroup, confirmed via the API reference — fixed"}
@@ -210,7 +216,9 @@ ops:
     leaking agentId/agentVersion/createdAt. Real types.AgentKnowledgeBaseSummary
     (bedrockagent@v1.58.4, types/types.go) declares only knowledgeBaseId,
     knowledgeBaseState, updatedAt, description. Fixed with a dedicated
-    AgentKnowledgeBaseSummary type."}
+    AgentKnowledgeBaseSummary type. SEPARATELY (constraint sweep):
+    maxResults/nextToken query-vs-body binding bug fixed, see ListAgents'
+    note."}
   CreateDataSource: {wire: ok, errors: ok, state: ok, persist: ok}
   GetDataSource: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateDataSource: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -218,7 +226,9 @@ ops:
     note: "cascade-delete gap: did not clean up ingestionJobs or kbDocuments
     scoped under the data source. Fixed — see Notes: cascade-delete."}
   ListDataSources: {wire: fixed, errors: ok, state: ok, persist: ok,
-    note: "was misrouted: POST (real wire method) hit Create instead of List — fixed"}
+    note: "was misrouted: POST (real wire method) hit Create instead of List — fixed.
+    SEPARATELY (constraint sweep): maxResults/nextToken query-vs-body
+    binding bug fixed, see ListAgents' note."}
   StartIngestionJob: {wire: fixed, errors: ok, state: fixed, persist: ok,
     note: "IngestionJob/IngestionJobSummary never modeled the real
     'statistics' field (numberOfDocumentsScanned/NewDocumentsIndexed/
@@ -238,7 +248,17 @@ ops:
   ListIngestionJobs: {wire: fixed, errors: ok, state: ok, persist: ok,
     note: "was misrouted: POST (real wire method) hit Start instead of List
     — fixed (prior sweep). Summaries now also carry Statistics (this sweep,
-    same fix as StartIngestionJob)."}
+    same fix as StartIngestionJob). SEPARATELY (constraint sweep):
+    maxResults/nextToken/filters/sortBy are all body-bound (dataSourceId/
+    knowledgeBaseId are the only URI-bound members) but the handler ignored
+    the body entirely, reading maxResults/nextToken from the query string
+    instead and never parsing filters/sortBy at all -- Filters.Attribute/
+    Operator's only defined values are STATUS/EQ and SortBy.Attribute's are
+    STATUS/STARTED_AT (types/enums.go), both now applied. Also fixed a
+    second, self-inflicted bug found while testing this: the fix's own
+    result-ID list went through the shared tableIDs() helper, which
+    re-sorts alphabetically by ID -- silently undoing the just-applied
+    sort. Ordering now built directly from the sorted slice."}
   CreateFlow: {wire: fixed, errors: ok, state: fixed, persist: ok,
     note: "(prior sweep) Status enum was SCREAMING_SNAKE_CASE (NOT_PREPARED);
     real FlowStatus wire values are Pascal-case
@@ -424,7 +444,8 @@ ops:
     base-path conventions already in this file — no real client sends it, but
     it's a superset of the real API, not a divergence from it). classifyDocPath
     updated to match. See TestKBDocumentsRealWireRouting for the regression
-    coverage."}
+    coverage. SEPARATELY (constraint sweep): maxResults/nextToken
+    query-vs-body binding bug fixed, see ListAgents' note."}
   ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok}
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok}

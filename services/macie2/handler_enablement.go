@@ -62,11 +62,11 @@ func (h *Handler) handleGetMacieSession() (any, int) {
 	}
 
 	return map[string]any{
-		"createdAt":                  session.CreatedAt.UTC().Format(time.RFC3339),
+		keyCreatedAt:                 session.CreatedAt.UTC().Format(time.RFC3339),
 		"findingPublishingFrequency": session.FindingPublishingFrequency,
 		"serviceRole":                session.ServiceRole,
 		"status":                     session.Status,
-		"updatedAt":                  session.UpdatedAt.UTC().Format(time.RFC3339),
+		keyUpdatedAt:                 session.UpdatedAt.UTC().Format(time.RFC3339),
 	}, http.StatusOK
 }
 
