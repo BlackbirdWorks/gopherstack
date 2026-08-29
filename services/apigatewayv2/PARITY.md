@@ -20,6 +20,17 @@ overall: A            # write-only-state sweep pass (this pass, 2026-08-28). Exi
                        # against the vendored SDK's httpBindingEncoder-based serializers.go/
                        # api_op_*.go for the ops this pass touched. Did not re-verify every op in
                        # this large service (24k lines) -- see gaps for scope not reached.
+                       # ---- query/header-to-non-string-field sweep (this pass, 2026-08-29) ----
+                       # Hunted for query/header values fed into a non-string Go field without
+                       # conversion (the apigateway-v1 Limit-into-JSON-body class). No merging
+                       # pattern here (nothing merges query values into the JSON body) and no
+                       # hard-fail found. Inventoried every non-string query/header/path member
+                       # across all 103 ops: MaxResults is *string on every Get*/List sibling
+                       # except ListRoutingRules (*int32, serializers.go:6988) -- all correctly
+                       # parsed via apigwPaginationParams/strconv. Found and fixed two inert
+                       # (SILENT) params: ExportApi's IncludeExtensions (*bool) and
+                       # ListRoutingRules' MaxResults/NextToken were declared but never read. See
+                       # ExportApi/ListRoutingRules rows.
                        # ---- prior pass's note follows ----
                        # gopherstack-0xs7 follow-up pass. Verified against live code (not
                        # PARITY.md prose) that gopherstack-e81/2tx/jni0 were all still genuinely
@@ -71,7 +82,7 @@ ops:
   DeleteApi: {wire: ok, errors: ok, state: ok, persist: ok, note: "now also purges authorizerCache entries for the API's authorizers on cascade delete -- see Notes #11"}
   ImportApi: {wire: fixed, errors: fixed, state: ok, persist: ok, note: "basepath and failOnWarnings query params (SetQuery in serializers.go, not body fields) are now read and validated instead of silently ignored; basepath=prepend now prefixes route paths with the spec's declared base path. basepath=split and failOnWarnings-triggered rollback remain unimplemented -- bd gopherstack-jni0, narrowed, see gaps. Api.importInfo/warnings shape itself is correct (Notes #8) but always empty since the emulator never generates import warnings, so failOnWarnings has no observable effect yet."}
   ReimportApi: {wire: fixed, errors: fixed, state: ok, persist: ok, note: "same basepath/failOnWarnings fix as ImportApi -- bd gopherstack-jni0, narrowed"}
-  ExportApi: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed (gopherstack-h910): OutputType (required query param 'outputType', verified against validateOpExportApiInput/serializeOpHttpBindingsExportApiInput) was ignored and JSON was always returned. Now required (400 if missing/invalid) and YAML actually serializes via gopkg.in/yaml.v3 when requested. StageName/ExportVersion/IncludeExtensions remain unwired -- StageName would need per-stage route filtering this backend's route model doesn't support (routes are API-level, not stage-scoped); ExportVersion/IncludeExtensions are cosmetic knobs on the exported doc's own metadata/extension-inclusion, not state this backend tracks. Left absent rather than fabricated."}
+  ExportApi: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed (gopherstack-h910): OutputType (required query param 'outputType', verified against validateOpExportApiInput/serializeOpHttpBindingsExportApiInput) was ignored and JSON was always returned. Now required (400 if missing/invalid) and YAML actually serializes via gopkg.in/yaml.v3 when requested. Also fixed (query/header wrapper-key sweep, this pass): IncludeExtensions (real *bool query param, api_op_ExportApi.go:52, serializers.go:3975) was never read, so AWS extension keys (x-amazon-apigateway-authtype and friends) were always emitted; now defaults true (AWS's documented default) and false strips them recursively. StageName/ExportVersion remain unwired -- StageName would need per-stage route filtering this backend's route model doesn't support (routes are API-level, not stage-scoped); ExportVersion is a cosmetic knob on the exported doc's own metadata, not state this backend tracks. Left absent rather than fabricated."}
   CreateRoute: {wire: ok, errors: ok, state: ok, persist: ok, note: "HTTP routeKey format + WS $connect/$disconnect/$default/custom validated; auth type NONE/AWS_IAM/JWT/CUSTOM enforced"}
   GetRoute: {wire: ok, errors: ok, state: ok, persist: ok}
   GetRoutes: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -135,7 +146,7 @@ ops:
   DeleteVpcLink: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateRoutingRule: {wire: fixed, errors: fixed, state: ok, persist: ok, note: "Actions/Conditions are now typed AWS union shapes (RoutingRuleAction/RoutingRuleActionInvokeAPI, RoutingRuleCondition/RoutingRuleMatchBasePaths/RoutingRuleMatchHeaders/RoutingRuleMatchHeaderValue) instead of []map[string]any passthrough, with required-subfield and FK (target api/stage must exist) validation, plus RoutingRulePriority's modeled [1,1000000] range -- gopherstack-e81, closed, see Notes #12."}
   GetRoutingRule: {wire: fixed, errors: ok, state: ok, persist: ok, note: "same typed-shape fix as CreateRoutingRule"}
-  ListRoutingRules: {wire: fixed, errors: ok, state: ok, persist: ok, note: "same typed-shape fix as CreateRoutingRule"}
+  ListRoutingRules: {wire: fixed, errors: ok, state: ok, persist: ok, note: "same typed-shape fix as CreateRoutingRule. Also fixed (query/header wrapper-key sweep, this pass): MaxResults/NextToken (real *int32/*string query params, api_op_ListRoutingRules.go:40-45, serializers.go:6988 -- the one List op in this service where MaxResults is int32, unlike every Get*/List sibling's *string MaxResults) were never read at all, so every rule always came back in one page regardless of the limit a client asked for. Now paginates via the shared apigwPaginationParams/page.New path like every other List/Get collection op."}
   PutRoutingRule: {wire: fixed, errors: fixed, state: ok, persist: ok, note: "same typed-shape + validation fix as CreateRoutingRule"}
   DeleteRoutingRule: {wire: ok, errors: ok, state: ok, persist: ok}
   TagResource: {wire: fixed, errors: fixed, state: ok, persist: ok, note: "now supports stage ARNs (arn:.../apis/{id}/stages/{name}) in addition to apis/vpclinks/domainnames; 404s were surfacing as 500 for stage ARNs before the errStageNotFound check was added to the handler"}

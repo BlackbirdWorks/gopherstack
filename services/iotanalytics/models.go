@@ -422,6 +422,7 @@ type PipelineReprocessing struct {
 type ChannelMessage struct {
 	MessageID string
 	Payload   []byte
+	ArrivedAt float64
 }
 
 // epochSeconds converts a [time.Time] to a float64 Unix epoch seconds value.

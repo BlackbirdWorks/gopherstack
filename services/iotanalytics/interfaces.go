@@ -95,7 +95,12 @@ type StorageBackend interface {
 	UntagResource(resourceARN string, tagKeys []string) error
 
 	BatchPutMessage(channelName string, messages []messageInput) ([]BatchPutMessageErrorEntry, error)
-	SampleChannelData(channelName string, maxMessages int) ([][]byte, error)
+	SampleChannelData(
+		channelName string,
+		maxMessages int,
+		hasStart bool, startTime float64,
+		hasEnd bool, endTime float64,
+	) ([][]byte, error)
 
 	StartPipelineReprocessing(pipelineName string, startTime, endTime *float64) (string, error)
 	CancelPipelineReprocessing(pipelineName, reprocessingID string) error

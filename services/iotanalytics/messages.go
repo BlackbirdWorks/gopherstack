@@ -53,6 +53,8 @@ func (b *InMemoryBackend) BatchPutMessage(
 		return errs, nil
 	}
 
+	now := epochSeconds(time.Now())
+
 	for _, msg := range messages {
 		if len(msg.MessageID) > maxMessageIDLen {
 			errs = append(errs, BatchPutMessageErrorEntry{
@@ -78,7 +80,11 @@ func (b *InMemoryBackend) BatchPutMessage(
 
 		current := b.channelMessages[channelName]
 		if len(current) < maxChannelMessages {
-			b.channelMessages[channelName] = append(current, msg.Payload)
+			b.channelMessages[channelName] = append(current, ChannelMessage{
+				MessageID: msg.MessageID,
+				Payload:   msg.Payload,
+				ArrivedAt: now,
+			})
 		} else {
 			errs = append(errs, BatchPutMessageErrorEntry{
 				ChannelName:  channelName,
@@ -94,7 +100,7 @@ func (b *InMemoryBackend) BatchPutMessage(
 	// been held continuously since) at the top of this function.
 	if len(b.channelMessages[channelName]) > 0 {
 		c, _ := b.channels.Get(channelName)
-		c.LastMessageArrivalTime = epochSeconds(time.Now())
+		c.LastMessageArrivalTime = now
 	}
 
 	if errs == nil {

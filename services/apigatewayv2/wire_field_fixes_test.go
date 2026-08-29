@@ -70,6 +70,126 @@ func TestListRoutingRules_WireKey(t *testing.T) {
 	require.Equal(t, aws.ToString(created.RoutingRuleId), aws.ToString(out.RoutingRules[0].RoutingRuleId))
 }
 
+// TestListRoutingRules_MaxResultsAndNextToken drives ListRoutingRules through
+// the real SDK client with MaxResults set. Before the fix,
+// handleRoutingRulesCollection never read the maxResults/nextToken query
+// params at all (unlike every other List/Get collection op in this service,
+// which goes through the shared handleGetList/apigwPaginationParams path) --
+// MaxResults is a real *int32 member of ListRoutingRulesInput
+// (aws-sdk-go-v2/service/apigatewayv2@v1.37.4's api_op_ListRoutingRules.go:40,
+// serialized via encoder.SetQuery("maxResults").Integer, serializers.go:6988)
+// -- so a real client always got every routing rule back in one page
+// regardless of the limit it asked for, and NextToken was always empty.
+func TestListRoutingRules_MaxResultsAndNextToken(t *testing.T) {
+	t.Parallel()
+
+	backend := apigatewayv2.NewInMemoryBackend()
+	client := newTestAPIGatewayV2Client(t, apigatewayv2.NewHandler(backend))
+
+	dn, err := client.CreateDomainName(t.Context(), &apigatewayv2sdk.CreateDomainNameInput{
+		DomainName: aws.String("rr-maxresults.example.com"),
+	})
+	require.NoError(t, err)
+
+	api, err := client.CreateApi(t.Context(), &apigatewayv2sdk.CreateApiInput{
+		Name:         aws.String("rr-maxresults-api"),
+		ProtocolType: apigatewayv2types.ProtocolTypeHttp,
+	})
+	require.NoError(t, err)
+
+	_, err = client.CreateStage(t.Context(), &apigatewayv2sdk.CreateStageInput{
+		ApiId:     api.ApiId,
+		StageName: aws.String("prod"),
+	})
+	require.NoError(t, err)
+
+	const numRules = 3
+
+	for i := range numRules {
+		_, err = client.CreateRoutingRule(t.Context(), &apigatewayv2sdk.CreateRoutingRuleInput{
+			DomainName: dn.DomainName,
+			Priority:   aws.Int32(int32(i + 1)),
+			Actions: []apigatewayv2types.RoutingRuleAction{
+				{InvokeApi: &apigatewayv2types.RoutingRuleActionInvokeApi{
+					ApiId: api.ApiId,
+					Stage: aws.String("prod"),
+				}},
+			},
+			Conditions: []apigatewayv2types.RoutingRuleCondition{
+				{MatchBasePaths: &apigatewayv2types.RoutingRuleMatchBasePaths{
+					AnyOf: []string{fmt.Sprintf("/foo%d", i)},
+				}},
+			},
+		})
+		require.NoError(t, err)
+	}
+
+	first, err := client.ListRoutingRules(t.Context(), &apigatewayv2sdk.ListRoutingRulesInput{
+		DomainName: dn.DomainName,
+		MaxResults: aws.Int32(2),
+	})
+	require.NoError(t, err)
+	require.Len(t, first.RoutingRules, 2, "MaxResults=2 must cap the first page at 2 rules")
+	require.NotNil(t, first.NextToken)
+	require.NotEmpty(t, aws.ToString(first.NextToken))
+
+	second, err := client.ListRoutingRules(t.Context(), &apigatewayv2sdk.ListRoutingRulesInput{
+		DomainName: dn.DomainName,
+		MaxResults: aws.Int32(2),
+		NextToken:  first.NextToken,
+	})
+	require.NoError(t, err)
+	require.Len(t, second.RoutingRules, 1, "the remaining rule must be on the second page")
+	require.Empty(t, aws.ToString(second.NextToken))
+}
+
+// TestExportApi_IncludeExtensions drives ExportApi through the real SDK
+// client with IncludeExtensions set. Before the fix, handleExportAPI never
+// read the includeExtensions query param at all -- IncludeExtensions is a
+// real *bool member of ExportApiInput (api_op_ExportApi.go:52), serialized
+// via encoder.SetQuery("includeExtensions").Boolean (serializers.go:3975) --
+// so AWS API Gateway extensions (x-amazon-apigateway-authtype and friends)
+// were always emitted regardless of what a real client asked for.
+func TestExportApi_IncludeExtensions(t *testing.T) {
+	t.Parallel()
+
+	backend := apigatewayv2.NewInMemoryBackend()
+	client := newTestAPIGatewayV2Client(t, apigatewayv2.NewHandler(backend))
+
+	api, err := client.CreateApi(t.Context(), &apigatewayv2sdk.CreateApiInput{
+		Name:         aws.String("export-ext-api"),
+		ProtocolType: apigatewayv2types.ProtocolTypeHttp,
+	})
+	require.NoError(t, err)
+
+	_, err = client.CreateRoute(t.Context(), &apigatewayv2sdk.CreateRouteInput{
+		ApiId:             api.ApiId,
+		RouteKey:          aws.String("GET /secure"),
+		AuthorizationType: apigatewayv2types.AuthorizationTypeAwsIam,
+	})
+	require.NoError(t, err)
+
+	withExt, err := client.ExportApi(t.Context(), &apigatewayv2sdk.ExportApiInput{
+		ApiId:             api.ApiId,
+		OutputType:        aws.String("JSON"),
+		Specification:     aws.String("OAS30"),
+		IncludeExtensions: aws.Bool(true),
+	})
+	require.NoError(t, err)
+	assert.Contains(t, string(withExt.Body), "x-amazon-apigateway-authtype",
+		"IncludeExtensions=true must include AWS extensions")
+
+	withoutExt, err := client.ExportApi(t.Context(), &apigatewayv2sdk.ExportApiInput{
+		ApiId:             api.ApiId,
+		OutputType:        aws.String("JSON"),
+		Specification:     aws.String("OAS30"),
+		IncludeExtensions: aws.Bool(false),
+	})
+	require.NoError(t, err)
+	assert.NotContains(t, string(withoutExt.Body), "x-amazon-apigateway-authtype",
+		"IncludeExtensions=false must strip AWS extensions")
+}
+
 // TestPortal_PublishStatusWireKeyAndLifecycle drives CreatePortal/
 // PublishPortal/DisablePortal/GetPortal through the real SDK client. Before
 // the fix, gopherstack emitted the portal's publish state under "status"

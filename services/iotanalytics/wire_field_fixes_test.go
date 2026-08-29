@@ -3,6 +3,7 @@ package iotanalytics_test
 import (
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	iotanalyticssdk "github.com/aws/aws-sdk-go-v2/service/iotanalytics" //nolint:staticcheck // AWS has deprecated this service; gopherstack still supports it
@@ -12,6 +13,64 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/services/iotanalytics"
 )
+
+// TestSampleChannelData_StartTimeExcludesEarlierMessages drives
+// BatchPutMessage/SampleChannelData through the real SDK client. Before the
+// fix, handleSampleChannelData never read the startTime/endTime query params
+// at all -- both are real *time.Time members of SampleChannelDataInput
+// (api_op_SampleChannelData.go:45,56), serialized via
+// encoder.SetQuery("startTime").String(smithytime.FormatDateTime(...))
+// (serializers.go:2192) -- so a real client's time window was always
+// ignored and every stored message came back regardless of when it arrived.
+//
+// Message arrival time is recorded with whole-second resolution
+// ([epochSeconds]), matching every other stored timestamp in this backend,
+// so the two batches below are separated by a real sleep across a second
+// boundary rather than a synctest fake clock: SampleChannelData is served
+// over a real httptest.Server/SDK client round trip, which synctest's
+// bubble can't durably block on (see gopherstack-tests skill).
+//
+//nolint:staticcheck // iotanalytics is AWS-deprecated; gopherstack still emulates it
+func TestSampleChannelData_StartTimeExcludesEarlierMessages(t *testing.T) {
+	t.Parallel()
+
+	backend := iotanalytics.NewInMemoryBackend()
+	client := newTestIoTAnalyticsClient(t, iotanalytics.NewHandler(backend))
+	ctx := t.Context()
+
+	_, err := client.CreateChannel(ctx, &iotanalyticssdk.CreateChannelInput{
+		ChannelName: aws.String("sample_window_channel"),
+	})
+	require.NoError(t, err)
+
+	_, err = client.BatchPutMessage(ctx, &iotanalyticssdk.BatchPutMessageInput{
+		ChannelName: aws.String("sample_window_channel"),
+		Messages: []iotanalyticstypes.Message{
+			{MessageId: aws.String("early"), Payload: []byte(`{"phase":"early"}`)},
+		},
+	})
+	require.NoError(t, err)
+
+	time.Sleep(1100 * time.Millisecond)
+	cutoff := time.Now()
+	time.Sleep(1100 * time.Millisecond)
+
+	_, err = client.BatchPutMessage(ctx, &iotanalyticssdk.BatchPutMessageInput{
+		ChannelName: aws.String("sample_window_channel"),
+		Messages: []iotanalyticstypes.Message{
+			{MessageId: aws.String("late"), Payload: []byte(`{"phase":"late"}`)},
+		},
+	})
+	require.NoError(t, err)
+
+	out, err := client.SampleChannelData(ctx, &iotanalyticssdk.SampleChannelDataInput{
+		ChannelName: aws.String("sample_window_channel"),
+		StartTime:   aws.Time(cutoff),
+	})
+	require.NoError(t, err)
+	require.Len(t, out.Payloads, 1, "StartTime must exclude the message that arrived before it")
+	assert.JSONEq(t, `{"phase":"late"}`, string(out.Payloads[0]))
+}
 
 // TestUpdateDatastore_PartitionsImmutable covers gopherstack-wksweep-iota-1:
 // the real UpdateDatastoreInput (iotanalytics@v1.32.0
