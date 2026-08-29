@@ -3,6 +3,7 @@ package eks
 import (
 	"encoding/json"
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/labstack/echo/v5"
@@ -350,7 +351,8 @@ func (h *Handler) handleDescribeCluster(c *echo.Context, name string) error {
 }
 
 func (h *Handler) handleListClusters(c *echo.Context) error {
-	names := h.Backend.ListClusters()
+	includeExternal := slices.Contains(c.Request().URL.Query()["include"], "all")
+	names := h.Backend.ListClusters(includeExternal)
 
 	maxResults, nextToken := eksPaginationParams(c)
 	p := page.New(names, nextToken, maxResults, eksDefaultPageSize)

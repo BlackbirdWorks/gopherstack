@@ -3,6 +3,7 @@ package eks
 import (
 	"encoding/json"
 	"net/http"
+	"slices"
 
 	"github.com/labstack/echo/v5"
 
@@ -184,6 +185,19 @@ func (h *Handler) handleListPodIdentityAssociations(c *echo.Context, clusterName
 	assocs, err := h.Backend.ListPodIdentityAssociations(clusterName)
 	if err != nil {
 		return h.handleError(c, err)
+	}
+
+	q := c.Request().URL.Query()
+	if namespace := q.Get("namespace"); namespace != "" {
+		assocs = slices.DeleteFunc(assocs, func(a *PodIdentityAssociation) bool {
+			return a.Namespace != namespace
+		})
+	}
+
+	if sa := q.Get("serviceAccount"); sa != "" {
+		assocs = slices.DeleteFunc(assocs, func(a *PodIdentityAssociation) bool {
+			return a.ServiceAccount != sa
+		})
 	}
 
 	result := make([]map[string]any, len(assocs))

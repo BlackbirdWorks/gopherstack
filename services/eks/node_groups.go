@@ -336,12 +336,13 @@ func (b *InMemoryBackend) UpdateNodegroupVersion(
 	}
 
 	u := &Update{
-		ID:          stableID(clusterName + "/" + nodegroupName + "/version-update/" + time.Now().String()),
-		ClusterName: clusterName,
-		Status:      statusInProgress,
-		Type:        typeVersionUpdate,
-		Params:      []UpdateParam{{Type: "Version", Value: version}},
-		CreatedAt:   time.Now().UTC(),
+		ID:            stableID(clusterName + "/" + nodegroupName + "/version-update/" + time.Now().String()),
+		ClusterName:   clusterName,
+		NodegroupName: nodegroupName,
+		Status:        statusInProgress,
+		Type:          typeVersionUpdate,
+		Params:        []UpdateParam{{Type: "Version", Value: version}},
+		CreatedAt:     time.Now().UTC(),
 	}
 	b.storeUpdateLocked(u)
 	b.scheduleUpdateTransition(clusterName, u.ID)

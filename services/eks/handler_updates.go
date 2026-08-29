@@ -3,6 +3,7 @@ package eks
 import (
 	"encoding/json"
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/google/uuid"
@@ -271,6 +272,14 @@ func (h *Handler) handleListUpdates(c *echo.Context, clusterName string) error {
 	ids, err := h.Backend.ListUpdates(clusterName)
 	if err != nil {
 		return h.handleError(c, err)
+	}
+
+	if nodegroupName := c.Request().URL.Query().Get("nodegroupName"); nodegroupName != "" {
+		ids = slices.DeleteFunc(ids, func(id string) bool {
+			u, descErr := h.Backend.DescribeUpdate(clusterName, id)
+
+			return descErr != nil || u.NodegroupName != nodegroupName
+		})
 	}
 
 	maxResults, nextToken := eksPaginationParams(c)

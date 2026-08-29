@@ -100,13 +100,16 @@ func (b *InMemoryBackend) GetCollaboration(id string) (*Collaboration, error) {
 }
 
 func (b *InMemoryBackend) ListCollaborations(
-	_, maxResults, nextToken string,
+	memberStatus, maxResults, nextToken string,
 ) ([]*CollaborationSummary, string) {
 	b.mu.RLock("ListCollaborations")
 	defer b.mu.RUnlock()
 	all := b.collaborations.All()
 	items := make([]*CollaborationSummary, 0, len(all))
 	for _, c := range all {
+		if memberStatus != "" && memberStatus != statusActive {
+			continue
+		}
 		items = append(items, &CollaborationSummary{
 			CollaborationIdentifier: c.CollaborationIdentifier,
 			ID:                      c.ID,
@@ -364,7 +367,7 @@ func (b *InMemoryBackend) GetCollaborationChangeRequest(
 }
 
 func (b *InMemoryBackend) ListCollaborationChangeRequests(
-	collaborationID, maxResults, nextToken string,
+	collaborationID, status, maxResults, nextToken string,
 ) ([]*CollaborationChangeRequest, string, error) {
 	b.mu.RLock("ListCollaborationChangeRequests")
 	defer b.mu.RUnlock()
@@ -372,6 +375,11 @@ func (b *InMemoryBackend) ListCollaborationChangeRequests(
 		return nil, "", ErrNotFound
 	}
 	items := slices.Clone(b.changeRequestsByCollaboration.Get(collaborationID))
+	if status != "" {
+		items = slices.DeleteFunc(items, func(r *CollaborationChangeRequest) bool {
+			return r.Status != status
+		})
+	}
 	sort.Slice(
 		items,
 		func(i, j int) bool { return items[i].ID < items[j].ID },
