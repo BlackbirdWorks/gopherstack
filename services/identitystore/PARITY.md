@@ -4,6 +4,20 @@ sdk_module: aws-sdk-go-v2/service/identitystore@v1.39.4   # version audited agai
 last_audit_commit: a872ba9b                       # HEAD when the previous manifest was written (git not run this pass)
 last_audit_date: 2026-07-25
 overall: A            # all 5 previously-dismissed gaps re-investigated: 1 real bug fixed, 3 implemented with concrete evidence, 1 kept as documented (justified) superset; a 6th, previously-unflagged wire bug found and fixed (CreateUser accepted an invented ExternalIds field)
+                       # RE-AUDITED 2026-08-28 (gopherstack-6flj/21my wrapper-key + per-item sweep,
+                       # no code changes): re-verified every List/Describe op's wrapper key AND
+                       # per-item field names/types directly against
+                       # identitystore@v1.39.4/deserializers.go (case-sensitive AWSJSON1.1 PascalCase
+                       # keys -- ListUsers -> Users, ListGroups -> Groups, ListGroupMemberships /
+                       # ListGroupMembershipsForMember -> GroupMemberships, IsMemberInGroups ->
+                       # Results, all with NextToken where applicable). Per-item shapes (User, Group,
+                       # GroupMembership, GroupMembershipExistenceResult, MemberId union, and every
+                       # nested Name/Email/Address/PhoneNumber/Photo/Role/ExternalId sub-shape) were
+                       # field-diffed member-for-member against the deserializer's own case lists,
+                       # not against this file's prior claims. Genuinely clean: no wrapper-key, no
+                       # per-item wrong-key/wrong-nesting, and no invented-member bugs found. The one
+                       # known divergence from the real User shape is the already-disclosed
+                       # Extensions field (see deferred below), unchanged this pass.
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
