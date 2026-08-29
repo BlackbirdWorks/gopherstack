@@ -65,7 +65,7 @@ type StorageBackend interface {
 	GetConfigurationProfile(applicationID, profileID string) (*ConfigurationProfile, error)
 	// ListConfigurationProfiles returns paginated profiles for an application.
 	ListConfigurationProfiles(
-		applicationID, nextToken string,
+		applicationID, nextToken, profileType string,
 		maxResults int,
 	) ([]ConfigurationProfile, string, error)
 	// UpdateConfigurationProfile updates a configuration profile. Nil
@@ -207,6 +207,7 @@ type StorageBackend interface {
 	// ListExtensionAssociations returns paginated extension associations.
 	ListExtensionAssociations(
 		nextToken, extensionIdentifier, resourceIdentifier string,
+		extensionVersionNumber int32,
 		maxResults int,
 	) ([]ExtensionAssociation, string)
 	// UpdateExtensionAssociation updates an extension association's parameters.

@@ -12,6 +12,8 @@ type getModelInput struct {
 
 type getModelsInput struct {
 	RestAPIID string `json:"restApiId"`
+	Position  string `json:"position"`
+	Limit     int    `json:"limit"`
 }
 
 type deleteModelInput struct {
@@ -74,8 +76,15 @@ func (h *Handler) getModelsAction(b []byte) (int, any, error) {
 	if err != nil {
 		return 0, nil, err
 	}
+	if input.Limit == 0 && input.Position == "" {
+		return http.StatusOK, map[string]any{keyItem: ms}, nil
+	}
+	page, position := paginatePageByKey(ms, input.Limit, input.Position, func(m Model) string { return m.Name })
+	if position != "" {
+		return http.StatusOK, map[string]any{keyItem: page, keyPosition: position}, nil
+	}
 
-	return http.StatusOK, map[string]any{keyItem: ms}, nil
+	return http.StatusOK, map[string]any{keyItem: page}, nil
 }
 
 func (h *Handler) deleteModelAction(b []byte) (int, any, error) {

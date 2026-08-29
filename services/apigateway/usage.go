@@ -202,6 +202,9 @@ func (b *InMemoryBackend) GetUsage(input GetUsageInput) (*UsageData, error) {
 
 	for _, upk := range b.usagePlanKeysByPlan.Get(input.UsagePlanID) {
 		keyID := upk.ID
+		if input.KeyID != "" && keyID != input.KeyID {
+			continue
+		}
 		used, remaining := b.usage.usageForKey(plan, keyID)
 		if override, hasOverride := b.usageOverrides[input.UsagePlanID][keyID]; hasOverride {
 			remaining = int(override)

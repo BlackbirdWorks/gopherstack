@@ -54,46 +54,46 @@ ops:
   DeleteIntegrationResponse: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateDeployment: {wire: ok, errors: ok, state: ok, persist: ok, note: "real snapshot of resources/methods/integrations at deploy time (apiData/apiSnapshot); inline stage create/update via stageName param"}
   GetDeployment: {wire: ok, errors: ok, state: ok, persist: ok}
-  GetDeployments: {wire: ok, errors: ok, state: ok, persist: ok}
+  GetDeployments: {wire: fixed, errors: ok, state: ok, persist: ok, note: "2026-08-29 wrapper-key sweep: REQUEST direction verified against apigateway@v1.42.4 serializers.go (prior grading was response-only). limit/position were never read at all -- every call returned the full unpaginated list regardless of Limit; now paginated via paginatePageByKey. Also found and fixed a service-wide bug in injectJSONFieldAPIGW: query-string limit was always JSON-quoted, so a real client's numeric Limit 500'd on json.Unmarshal into every Limit-typed handler struct (affected every list op with pagination, not just this one) -- limit is now injected as a bare JSON number."}
   DeleteDeployment: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateStage: {wire: ok, errors: ok, state: ok, persist: ok, note: "prior sweep: cacheCluster{Enabled,Size,Status} fields. This sweep: documentationVersion field added, wired through the stageSnapshot DTO for persistence"}
   GetStage: {wire: ok, errors: ok, state: ok, persist: ok, note: "this sweep: documentationVersion now included in the response"}
-  GetStages: {wire: ok, errors: ok, state: ok, persist: ok}
+  GetStages: {wire: fixed, errors: ok, state: ok, persist: ok, note: "2026-08-29 wrapper-key sweep: REQUEST direction verified. deploymentId query filter (serializers.go:7042) was never read -- every call returned every stage on the REST API regardless of deploymentId; now filtered against Stage.DeploymentID."}
   DeleteStage: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateAuthorizer: {wire: ok, errors: ok, state: ok, persist: ok, note: "TOKEN/REQUEST/COGNITO_USER_POOLS identitySource + TTL; cache bounded (bd gopherstack #1403)"}
   GetAuthorizer: {wire: ok, errors: ok, state: ok, persist: ok}
-  GetAuthorizers: {wire: ok, errors: ok, state: ok, persist: ok}
+  GetAuthorizers: {wire: fixed, errors: ok, state: ok, persist: ok, note: "2026-08-29 wrapper-key sweep: REQUEST direction verified. limit/position (serializers.go:4264,4268) were never read -- always returned every authorizer in one page; now paginated."}
   DeleteAuthorizer: {wire: ok, errors: ok, state: ok, persist: ok}
   TestInvokeAuthorizer: {wire: ok, errors: ok, state: ok, persist: n/a}
   CreateApiKey: {wire: ok, errors: ok, state: ok, persist: ok, note: "prior sweep: customerId field. This sweep: StageKeys ([]types.StageKey -> validated + formatted '{restApiId}/{stageName}' strings, referenced stage must exist or NotFoundException) added — see Notes"}
   GetApiKey: {wire: ok, errors: ok, state: ok, persist: ok, note: "customerId (prior sweep) and stageKeys (this sweep) now included in the response"}
-  GetApiKeys: {wire: ok, errors: ok, state: ok, persist: ok, note: "customerId (prior sweep) and stageKeys (this sweep) now included per item"}
+  GetApiKeys: {wire: fixed, errors: ok, state: ok, persist: ok, note: "customerId (prior sweep) and stageKeys now included per item. 2026-08-29 wrapper-key sweep: REQUEST direction verified. Two real bugs: (1) includeValues query filter (serializers.go:4106, plural) was read under the wrong key \"includeValue\" (singular -- GetApiKey's own key, serializers.go:4036) so a real client's includeValues=true never returned key values; (2) customerId (serializers.go:4102) and nameQuery/\"name\" (serializers.go:4114) filters were never read at all -- always returned every key. Both APIKey.CustomerID and APIKey.Name already existed as backing fields, so these were real gaps, not modeling limits. An existing unit test (api_keys_test.go TestGetApiKeys_ValueHiddenByDefault) asserted the wrong singular key as correct -- corrected to \"includeValues\"."}
   DeleteApiKey: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateUsagePlan: {wire: ok, errors: ok, state: ok, persist: ok}
   GetUsagePlan: {wire: ok, errors: ok, state: ok, persist: ok}
-  GetUsagePlans: {wire: ok, errors: ok, state: ok, persist: ok}
+  GetUsagePlans: {wire: fixed, errors: ok, state: ok, persist: ok, note: "2026-08-29 wrapper-key sweep: REQUEST direction verified. keyId query filter (serializers.go:7521) was never read -- always returned every usage plan regardless of key association; now backed by new GetUsagePlansForKey (real usagePlanKeys index)."}
   DeleteUsagePlan: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateUsagePlanKey: {wire: ok, errors: ok, state: ok, persist: ok}
   GetUsagePlanKey: {wire: ok, errors: ok, state: ok, persist: ok}
-  GetUsagePlanKeys: {wire: ok, errors: ok, state: ok, persist: ok}
+  GetUsagePlanKeys: {wire: fixed, errors: ok, state: ok, persist: ok, note: "2026-08-29 wrapper-key sweep: REQUEST direction verified. name query filter (serializers.go:7442) was never read -- always returned every key on the plan; now filtered against UsagePlanKey.Name."}
   DeleteUsagePlanKey: {wire: ok, errors: ok, state: ok, persist: ok}
-  GetUsage: {wire: ok, errors: ok, state: ok, persist: n/a}
+  GetUsage: {wire: fixed, errors: ok, state: ok, persist: n/a, note: "2026-08-29 wrapper-key sweep: REQUEST direction verified. keyId query filter (serializers.go:7200) had no backing field on GetUsageInput at all -- always returned every key's usage on the plan; KeyID field added and now filters Items."}
   CreateModel: {wire: ok, errors: ok, state: ok, persist: ok}
   GetModel: {wire: ok, errors: ok, state: ok, persist: ok}
-  GetModels: {wire: ok, errors: ok, state: ok, persist: ok}
+  GetModels: {wire: fixed, errors: ok, state: ok, persist: ok, note: "2026-08-29 wrapper-key sweep: REQUEST direction verified. limit/position never read -- now paginated. GetModel's flatten query param (serializers.go:6009) remains a gap: Model.Schema is stored as an opaque string, no $ref resolver exists to distinguish flattened vs non-flattened output -- not fabricated."}
   DeleteModel: {wire: ok, errors: ok, state: ok, persist: ok}
   GetModelTemplate: {wire: ok, errors: ok, state: ok, persist: n/a}
   CreateRequestValidator: {wire: ok, errors: ok, state: ok, persist: ok}
   GetRequestValidator: {wire: ok, errors: ok, state: ok, persist: ok}
-  GetRequestValidators: {wire: ok, errors: ok, state: ok, persist: ok}
+  GetRequestValidators: {wire: fixed, errors: ok, state: ok, persist: ok, note: "2026-08-29 wrapper-key sweep: REQUEST direction verified. limit/position never read -- now paginated."}
   DeleteRequestValidator: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateBasePathMapping: {wire: ok, errors: ok, state: ok, persist: ok}
-  GetBasePathMapping: {wire: ok, errors: ok, state: ok, persist: ok}
-  GetBasePathMappings: {wire: ok, errors: ok, state: ok, persist: ok}
+  GetBasePathMapping: {wire: ok, errors: ok, state: ok, persist: ok, note: "domainNameId gap, see GetBasePathMappings note"}
+  GetBasePathMappings: {wire: fixed, errors: ok, state: ok, persist: ok, note: "2026-08-29 wrapper-key sweep: REQUEST direction verified. limit/position never read -- now paginated. domainNameId (serializers.go:4436, and on Create/Delete/Update/GetBasePathMapping/GetDomainName*/UpdateDomainName) is a gap across all of these -- no DomainNameID concept exists in this backend's models, not fabricated."}
   DeleteBasePathMapping: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateDomainName: {wire: ok, errors: ok, state: ok, persist: ok}
-  GetDomainName: {wire: ok, errors: ok, state: ok, persist: ok}
-  GetDomainNames: {wire: ok, errors: ok, state: ok, persist: ok}
+  GetDomainName: {wire: ok, errors: ok, state: ok, persist: ok, note: "domainNameId gap, see GetBasePathMappings note"}
+  GetDomainNames: {wire: fixed, errors: ok, state: ok, persist: ok, note: "2026-08-29 wrapper-key sweep: REQUEST direction verified. resourceOwner query filter (serializers.go:5307) was never read; sibling GetDomainNameAccessAssociations already had the SELF/OTHER_ACCOUNTS handling, GetDomainNames just never mirrored it -- now does (OTHER_ACCOUNTS returns empty, matching a backend that only ever creates self-owned resources)."}
   DeleteDomainName: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateDomainNameAccessAssociation: {wire: ok, errors: ok, state: ok, persist: ok}
   GetDomainNameAccessAssociations: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -101,34 +101,34 @@ ops:
   RejectDomainNameAccessAssociation: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateDocumentationPart: {wire: ok, errors: ok, state: ok, persist: ok}
   GetDocumentationPart: {wire: ok, errors: ok, state: ok, persist: ok}
-  GetDocumentationParts: {wire: ok, errors: ok, state: ok, persist: ok}
+  GetDocumentationParts: {wire: fixed, errors: ok, state: ok, persist: ok, note: "2026-08-29 wrapper-key sweep: REQUEST direction verified. name/path/type filters and limit/position pagination (serializers.go:4896-4925) were ALL never read -- previously read only restApiId; now filtered against DocumentationPart.Location and paginated. locationStatus remains a gap: this backend has no separate \"documented version\" snapshot to distinguish DOCUMENTED/UNDOCUMENTED -- not fabricated."}
   DeleteDocumentationPart: {wire: ok, errors: ok, state: ok, persist: ok}
   ImportDocumentationParts: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateDocumentationVersion: {wire: ok, errors: ok, state: ok, persist: ok}
   GetDocumentationVersion: {wire: ok, errors: ok, state: ok, persist: ok}
-  GetDocumentationVersions: {wire: ok, errors: ok, state: ok, persist: ok}
+  GetDocumentationVersions: {wire: fixed, errors: ok, state: ok, persist: ok, note: "2026-08-29 wrapper-key sweep: REQUEST direction verified. limit/position never read -- now paginated."}
   DeleteDocumentationVersion: {wire: ok, errors: ok, state: ok, persist: ok}
   GetAccount: {wire: ok, errors: ok, state: ok, persist: ok}
-  GetTags: {wire: ok, errors: ok, state: ok, persist: ok}
+  GetTags: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-08-29 wrapper-key sweep: limit/position (serializers.go:7117,7121) never read; left unfixed as a gap, not a bug, given tag maps per resource are small and bounded -- flagged for follow-up, not fabricated"}
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   TestInvokeMethod: {wire: ok, errors: ok, state: ok, persist: n/a}
   GetGatewayResponse: {wire: ok, errors: ok, state: ok, persist: ok}
-  GetGatewayResponses: {wire: ok, errors: ok, state: ok, persist: ok}
+  GetGatewayResponses: {wire: fixed, errors: ok, state: ok, persist: ok, note: "2026-08-29 wrapper-key sweep: REQUEST direction verified. limit/position never read (fixed set of 12 default response types, so re-sorted by responseType only when paginating to satisfy cursor ordering)."}
   PutGatewayResponse: {wire: ok, errors: ok, state: ok, persist: ok, note: "unchanged: still a correct full replace for the real PUT operation"}
   DeleteGatewayResponse: {wire: ok, errors: ok, state: ok, persist: ok}
   GenerateClientCertificate: {wire: ok, errors: ok, state: ok, persist: ok}
   GetClientCertificate: {wire: ok, errors: ok, state: ok, persist: ok}
-  GetClientCertificates: {wire: ok, errors: ok, state: ok, persist: ok}
+  GetClientCertificates: {wire: fixed, errors: ok, state: ok, persist: ok, note: "2026-08-29 wrapper-key sweep: REQUEST direction verified. limit/position never read -- now paginated."}
   DeleteClientCertificate: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateVpcLink: {wire: ok, errors: ok, state: ok, persist: ok}
   GetVpcLink: {wire: ok, errors: ok, state: ok, persist: ok}
-  GetVpcLinks: {wire: ok, errors: ok, state: ok, persist: ok}
+  GetVpcLinks: {wire: fixed, errors: ok, state: ok, persist: ok, note: "2026-08-29 wrapper-key sweep: REQUEST direction verified. limit/position never read -- now paginated."}
   DeleteVpcLink: {wire: ok, errors: ok, state: ok, persist: ok}
   GetExport: {wire: fixed, errors: ok, state: ok, persist: n/a, note: "2026-08-21 (gopherstack-eax4): Swagger 2.0 + OAS 3.0 export, real per-API/stage synthesis. GetExportOutput's ContentType/ContentDisposition are HTTP response headers and Body is the raw payload (apigateway@v1.42.4 deserializers.go:10166 awsRestjson1_deserializeOpHttpBindingsGetExportOutput, :10183 awsRestjson1_deserializeOpDocumentGetExportOutput), never JSON fields. Body was already served correctly (the export map was the sole JSON payload, not wrapped under a field) and Content-Type already happened to read application/json correctly; Content-Disposition was never set. Now routed through handler.go's rawBinaryResponse mechanism with both headers set; ContentDisposition's exact value is a synthesized, non-wire-mandated filename (AWS's docs confirm the header but not a fixed format). Proven via TestAPIGateway_GetExport_HeadersNotBody_RealClient."}
   GetSdk: {wire: fixed, errors: ok, state: ok, persist: n/a, note: "2026-08-21 (gopherstack-eax4): fixed the header-vs-body confusion found 2026-08-21 while fixing gopherstack-tp8x's medialive DescribeInputDeviceThumbnail (same bug class). Real GetSdkOutput's ContentType/ContentDisposition are HTTP response headers (apigateway@v1.42.4 deserializers.go:13316 awsRestjson1_deserializeOpHttpBindingsGetSdkOutput -- Content-Disposition/Content-Type header names) and Body is the raw binary payload (deserializers.go:13333 awsRestjson1_deserializeOpDocumentGetSdkOutput copies response.Body directly, no JSON parsing), never JSON fields. handler_sdk.go's opGetSdk action used to return {\"contentType\",\"contentDisposition\",\"body\"} as a map, JSON-marshalled by dispatch() with Content-Type application/json. Fixed by returning a *rawBinaryResponse (handler.go), which dispatch()/dispatchAndRespond()/handleJSONProtocol()/dispatchRestAPISpec() now special-case to write real headers + raw body via c.Blob instead of JSON-marshalling -- a general mechanism, not a GetSdk-only special case, following iotdataplane's GetThingShadow / medialive's DescribeInputDeviceThumbnail (gopherstack-tp8x) c.Blob-with-real-headers precedent (both write directly to echo.Context from a per-route handler; apigateway's actionFn signature has no echo.Context, so the escape lives in dispatch()'s shared choke point instead). Proven via TestAPIGateway_GetSdk_HeadersNotBody_RealClient, which fails against the pre-fix code (hand-revert confirmed: ContentType decoded \"application/json\", ContentDisposition nil) and passes post-fix. The old TestAPIGateway_GetSdk test asserted the broken JSON shape directly and was replaced."}
   GetSdkType: {wire: ok, errors: ok, state: ok, persist: n/a}
-  GetSdkTypes: {wire: ok, errors: ok, state: ok, persist: n/a}
+  GetSdkTypes: {wire: ok, errors: ok, state: ok, persist: n/a, note: "2026-08-29 wrapper-key sweep: limit/position (serializers.go:6892,6896) never read; left unfixed since the catalog is a small fixed set (sdkTypeCatalog()), not user-controlled growth -- flagged for follow-up, not fabricated"}
   ImportApiKeys: {wire: ok, errors: ok, state: ok, persist: ok}
   ImportRestApi: {wire: ok, errors: ok, state: ok, persist: ok}
   PutRestApi: {wire: ok, errors: ok, state: ok, persist: ok}

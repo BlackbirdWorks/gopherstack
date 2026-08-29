@@ -348,6 +348,7 @@ func (b *InMemoryBackend) GetExtensionAssociation(
 // optionally filtered by extensionIdentifier (ARN prefix) and/or resourceIdentifier (ARN prefix).
 func (b *InMemoryBackend) ListExtensionAssociations(
 	nextToken, extensionIdentifier, resourceIdentifier string,
+	extensionVersionNumber int32,
 	maxResults int,
 ) ([]ExtensionAssociation, string) {
 	b.mu.RLock("ListExtensionAssociations")
@@ -362,6 +363,10 @@ func (b *InMemoryBackend) ListExtensionAssociations(
 		}
 
 		if resourceIdentifier != "" && a.ResourceArn != resourceIdentifier {
+			continue
+		}
+
+		if extensionVersionNumber != 0 && a.ExtensionVersionNumber != extensionVersionNumber {
 			continue
 		}
 

@@ -133,7 +133,7 @@ type StorageBackend interface {
 	// Domain Names
 	CreateDomainName(input CreateDomainNameInput) (*DomainName, error)
 	GetDomainName(name string) (*DomainName, error)
-	GetDomainNames() ([]DomainName, error)
+	GetDomainNames(resourceOwner string) ([]DomainName, error)
 	GetDomainNamesPage(limit int, position string) ([]DomainName, string, error)
 	DeleteDomainName(name string) error
 
@@ -160,6 +160,7 @@ type StorageBackend interface {
 	CreateUsagePlan(input CreateUsagePlanInput) (*UsagePlan, error)
 	GetUsagePlan(id string) (*UsagePlan, error)
 	GetUsagePlans() ([]UsagePlan, error)
+	GetUsagePlansForKey(keyID string) ([]UsagePlan, error)
 	GetUsagePlansPage(limit int, position string) ([]UsagePlan, string, error)
 	DeleteUsagePlan(id string) error
 

@@ -108,6 +108,23 @@ func (b *InMemoryBackend) GetUsagePlans() ([]UsagePlan, error) {
 	return all, nil
 }
 
+// GetUsagePlansForKey returns usage plans that keyID is associated with,
+// sorted by ID. Backs GetUsagePlans' keyId query filter (real key: "keyId",
+// apigateway@v1.42.4/serializers.go:7521).
+func (b *InMemoryBackend) GetUsagePlansForKey(keyID string) ([]UsagePlan, error) {
+	b.mu.RLock("GetUsagePlansForKey")
+	defer b.mu.RUnlock()
+	all := make([]UsagePlan, 0)
+	for _, p := range b.usagePlans.All() {
+		if b.usagePlanKeys.Has(usagePlanKeyKey(p.ID, keyID)) {
+			all = append(all, *p)
+		}
+	}
+	sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
+
+	return all, nil
+}
+
 // DeleteUsagePlan removes a usage plan by ID along with its key associations.
 func (b *InMemoryBackend) DeleteUsagePlan(id string) error {
 	b.mu.Lock("DeleteUsagePlan")

@@ -75,9 +75,11 @@ func (h *Handler) handleGetConfigurationProfile(
 
 func (h *Handler) handleListConfigurationProfiles(c *echo.Context, applicationID string) error {
 	nextToken, maxResults := appConfigPaginationParams(c)
+	profileType := c.Request().URL.Query().Get("type")
 	profiles, outToken, err := h.Backend.ListConfigurationProfiles(
 		applicationID,
 		nextToken,
+		profileType,
 		maxResults,
 	)
 	if err != nil {

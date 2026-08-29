@@ -9,6 +9,19 @@ sdk_module: aws-sdk-go-v2/service/transfer@v1.75.4   # version audited against (
 last_audit_commit: 58b3ad76d                         # HEAD when this manifest was written
 last_audit_date: 2026-08-28
 overall: A                # WebApp create/wire rewrite to real shape, SecurityPolicy catalog rewrite to real names/algos, Start* op wire fixes, epoch-timestamp bug class fixed across Certificate/HostKey/SSHPublicKey
+                           # 2026-08-29 wrapper-key sweep (query/path/header key hunt, cross-service with
+                           # apigateway/efs/appconfig): the class this sweep hunts (a handler reading a
+                           # query/path/header parameter under a name the real wire never sends) is
+                           # STRUCTURALLY N/A here -- grepped every awsAwsjson11_serializeOpHttpBindings*
+                           # func in transfer@v1.75.4 serializers.go: zero SetURI/SetQuery calls exist
+                           # anywhere in the file (confirmed by exact grep count), only SetHeader for
+                           # Content-Type and X-Amz-Target. Transfer is JSON-RPC 1.1, not REST -- every
+                           # request member (filters, pagination NextToken/MaxResults, ServerId, etc.)
+                           # travels as a JSON body field decoded via encoding/json into a typed Go
+                           # struct, matched by struct tag against the real member name, not by an
+                           # ad-hoc query/path lookup under a hand-copied key string. No source of the
+                           # bug class exists to audit. (JSON body field-name mismatches are a related
+                           # but distinct bug class, out of this sweep's scope.)
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 families:

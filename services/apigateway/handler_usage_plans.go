@@ -7,6 +7,7 @@ import (
 
 type getUsagePlansPageInput struct {
 	Position string `json:"position"`
+	KeyID    string `json:"keyId"`
 	Limit    int    `json:"limit"`
 }
 
@@ -25,6 +26,9 @@ type getUsagePlanKeyInput struct {
 
 type getUsagePlanKeysInput struct {
 	UsagePlanID string `json:"usagePlanId"`
+	Position    string `json:"position"`
+	NameQuery   string `json:"name"`
+	Limit       int    `json:"limit"`
 }
 
 type deleteUsagePlanKeyInput struct {
@@ -179,6 +183,20 @@ func (h *Handler) getUsagePlansAction(b []byte) (int, any, error) {
 	if err := json.Unmarshal(b, &input); err != nil {
 		return 0, nil, err
 	}
+
+	if input.KeyID != "" {
+		ps, err := h.Backend.GetUsagePlansForKey(input.KeyID)
+		if err != nil {
+			return 0, nil, err
+		}
+		if input.Limit == 0 && input.Position == "" {
+			return http.StatusOK, map[string]any{keyItem: ps}, nil
+		}
+		page, position := paginatePageByKey(ps, input.Limit, input.Position, func(p UsagePlan) string { return p.ID })
+
+		return http.StatusOK, map[string]any{keyItem: page, keyPosition: position}, nil
+	}
+
 	if input.Limit == 0 && input.Position == "" {
 		ps, err := h.Backend.GetUsagePlans()
 		if err != nil {
@@ -242,8 +260,24 @@ func (h *Handler) getUsagePlanKeysAction(b []byte) (int, any, error) {
 	if err != nil {
 		return 0, nil, err
 	}
+	if input.NameQuery != "" {
+		filtered := make([]UsagePlanKey, 0, len(ks))
+		for _, k := range ks {
+			if k.Name == input.NameQuery {
+				filtered = append(filtered, k)
+			}
+		}
+		ks = filtered
+	}
+	if input.Limit == 0 && input.Position == "" {
+		return http.StatusOK, map[string]any{keyItem: ks}, nil
+	}
+	page, position := paginatePageByKey(ks, input.Limit, input.Position, func(k UsagePlanKey) string { return k.ID })
+	if position != "" {
+		return http.StatusOK, map[string]any{keyItem: page, keyPosition: position}, nil
+	}
 
-	return http.StatusOK, map[string]any{keyItem: ks}, nil
+	return http.StatusOK, map[string]any{keyItem: page}, nil
 }
 
 func (h *Handler) deleteUsagePlanKeyAction(b []byte) (int, any, error) {

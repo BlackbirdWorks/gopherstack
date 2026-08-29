@@ -958,6 +958,7 @@ type GetUsageInput struct {
 	UsagePlanID string `json:"usagePlanId"`
 	StartDate   string `json:"startDate"`
 	EndDate     string `json:"endDate"`
+	KeyID       string `json:"keyId,omitempty"`
 	Position    string `json:"position,omitempty"`
 	Limit       int    `json:"limit,omitempty"`
 }

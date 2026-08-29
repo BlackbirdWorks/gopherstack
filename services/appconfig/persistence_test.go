@@ -227,7 +227,7 @@ func assertApplicationFamilyRestored(t *testing.T, fresh *appconfig.InMemoryBack
 	require.NoError(t, err)
 	assert.Equal(t, seed.profile.Name, gotProfile.Name)
 
-	profileItems, _, err := fresh.ListConfigurationProfiles(seed.app.ID, "", 0)
+	profileItems, _, err := fresh.ListConfigurationProfiles(seed.app.ID, "", "", 0)
 	require.NoError(t, err)
 	assert.Len(t, profileItems, 2, "seedFullState creates the freeform profile plus a feature-flag profile")
 }
@@ -331,7 +331,7 @@ func assertExtensionFamilyRestored(t *testing.T, fresh *appconfig.InMemoryBacken
 	require.NoError(t, err)
 	assert.Equal(t, seed.assoc.ResourceArn, gotAssoc.ResourceArn)
 
-	assocItems, _ := fresh.ListExtensionAssociations("", "", "", 0)
+	assocItems, _ := fresh.ListExtensionAssociations("", "", "", 0, 0)
 	assert.Len(t, assocItems, 1)
 }
 

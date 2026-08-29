@@ -37,8 +37,9 @@ func parseAPIGWDomainNameAccessAssociationsPath(method string, segs []string, n 
 }
 
 type getDomainNamesPageInput struct {
-	Position string `json:"position"`
-	Limit    int    `json:"limit"`
+	Position      string `json:"position"`
+	ResourceOwner string `json:"resourceOwner"`
+	Limit         int    `json:"limit"`
 }
 
 type getDomainNameInput struct {
@@ -136,8 +137,11 @@ func (h *Handler) getDomainNamesAction(b []byte) (int, any, error) {
 	if err := json.Unmarshal(b, &input); err != nil {
 		return 0, nil, err
 	}
+	if input.ResourceOwner == resourceOwnerOther {
+		return http.StatusOK, map[string]any{keyItem: []DomainName{}}, nil
+	}
 	if input.Limit == 0 && input.Position == "" {
-		dns, err := h.Backend.GetDomainNames()
+		dns, err := h.Backend.GetDomainNames(input.ResourceOwner)
 		if err != nil {
 			return 0, nil, err
 		}
