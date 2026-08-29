@@ -93,7 +93,18 @@ families:
       nil. This backend is single-page for all three, so the correct value is always an empty
       string rather than omitted; fixed by adding jsonKeyNextToken: "" to each response. Proven via
       TestVpcEndpointListOps_NextTokenPresent_RealClient (wire_output_required_r80d_test.go), which
-      fails against the unfixed decode for all three ops.
+      fails against the unfixed decode for all three ops. (7, gopherstack-rz6y, 2026-08-29) The (5)
+      fix above only covered the List paths (they route through toVpcEndpointSummary); the same
+      StatusUntil leak was still reachable through CreateVpcEndpoint/UpdateVpcEndpoint/
+      DescribeVpcEndpoints, which marshal the raw *VpcEndpoint struct directly and so still emitted
+      "statusUntil" whenever an endpoint carried a non-zero value (only possible via
+      DeleteVpcEndpoint with SetProcessingDelay > 0, still-visible during its DELETING window).
+      types.VpcEndpoint (opensearch@v1.75.4 types/types.go:3442) has no such member. Fixed by
+      changing StatusUntil's tag to json:"-" on VpcEndpoint (the same audit found
+      InboundConnection/OutboundConnection/Capability's StatusUntil fields never actually reach the
+      wire -- all three already go through dedicated converter functions that omit it, so no
+      change was needed there). Proven via TestVpcEndpoint_RawBody_NoLeakedStatusUntil
+      (wire_field_fixes_test.go), which fails against the unfixed tag.
   packages:
     status: ok
     note: >
