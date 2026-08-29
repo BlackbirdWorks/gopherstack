@@ -133,6 +133,89 @@ leaks: {status: clean, note: "janitor.go sweeps expired refresh tokens/mfa sessi
 
 ## Notes
 
+### 2026-08-29 (error-path sweep: what a typed client sees on failure)
+
+Extracted all 129 `awsAwsjson11_deserializeOpError<Op>` switches from
+cognitoidentityprovider@v1.67.4's deserializers.go and cross-referenced every backend call site
+that raises a sentinel error against its own op's modeled set. `resolveErrorType`'s shared
+`cognitoSentinelErrors` table was correct; every bug was the sentinel chosen at a call site.
+
+**Method note — this service has a real trap for static analysis.** Many ops have two
+registrations under the same wire action name: an older stub/simple handler (e.g.
+`handleCreateResourceServer`, a pure echo with no backend call at all) registered in an early
+`*OpsA()` group, and a later `*OpsB()`/`*OpsC()` "Accurate" handler that calls the real backend
+method, registered later in `dispatchTable()`'s `maps.Copy` sequence and silently winning
+(`registerStubOpsIfAbsent`-style precedent, parity-principles.md item 2). A first analysis pass
+that doesn't resolve `maps.Copy` order — or that misses `opXxx` constant map keys (vs quoted
+string literals) — traces the *dead* stub instead of the live handler. This produced two false
+starts this pass: `CreateIdentityProvider`'s live handler (`CreateIdentityProviderFull`) already
+correctly used `ErrDuplicateProvider`, and `VerifyUserAttribute`'s live handler
+(`VerifyUserAttributeWithCode`) already correctly used `ErrInvalidParameter` — both were flagged
+by an initial naive trace of the dead `CreateIdentityProvider`/`VerifyUserAttribute` methods,
+which I also fixed for hygiene (harmless — unreachable via any real client) but which were never
+the actual bug. Re-derived the dispatch table by simulating `maps.Copy` in
+`dispatchTable()`'s real order before trusting any cross-reference.
+
+Confirmed bugs fixed (real `aws-sdk-go-v2/service/cognitoidentityprovider` client,
+`errors.As` against the SDK's own typed exception, in `error_path_sweep_test.go`):
+
+- **Fabricated code, `CreateUserPool`**: rejected a duplicate pool name with wire code
+  `UserPoolAlreadyExistsException` — not a real AWS Cognito error (absent from
+  `types/errors.go` entirely) and not even correct behavior: AWS Cognito does not enforce
+  unique pool names (`CreateUserPool`'s own deserializer models no "already exists" exception at
+  all). Removed the duplicate-name rejection entirely (a second pool with the same name now
+  succeeds with a distinct ID) and deleted the now-dead `poolNameExists` helper. An existing
+  test (`user_pools_test.go`) and an HTTP-level test (`user_pools_config_test.go`) both asserted
+  the fabricated-reject behavior as correct and were corrected.
+- **Fabricated code, `AdminCreateUser`**: rejected a duplicate username with wire code
+  `UserAlreadyExistsException` — also absent from the entire SDK. `AdminCreateUser`'s own
+  deserializer models `UsernameExistsException` (already used correctly by `SignUp`). Repointed
+  all three call sites (including two dead legacy methods, for hygiene) to the existing
+  `ErrUsernameExists` sentinel; fixed one existing test asserting the fabricated code.
+- **Wrong code, `AdminGetDevice`/`AdminListDevices`**: raised `UserNotFoundException` for a
+  missing user, but both ops' own deserializers model `ResourceNotFoundException` — unlike
+  `AdminGetUser` and similar ops, which do model `UserNotFoundException`. Repointed to
+  `ErrDeviceNotFound` (same wire code, already correct for the sibling device-not-found check
+  two lines below).
+- **Wrong code, `AddCustomAttributes`/`SetUserMFAPreference`/`AdminSetUserMFAPreference`**: all
+  three raised `InvalidUserPoolConfigurationException` for a semantic validation failure (bad
+  custom-attribute name; preferred MFA not in the enabled list), but none of the three ops model
+  that code — only `InvalidParameterException`, which they all model. `InvalidUserPoolConfigurationException`
+  is genuinely correct elsewhere in this file (`InitiateAuth`/`AdminInitiateAuth`, which do model
+  it, for unsupported/misconfigured auth flows) — confirmed each call site against its own
+  op's deserializer rather than assuming the sentinel was wrong everywhere.
+- **Wrong code, `CreateUserPoolDomain`**: raised `GroupExistsException` (`CreateGroup`'s own
+  sentinel, `ErrAlreadyExists`) for a duplicate domain; the op has no dedicated "already exists"
+  exception, so repointed to `ErrInvalidParameter` (which it does model, and which real Cognito
+  domains-must-be-globally-unique behavior plausibly maps to as a bad-value rejection).
+- **Wrong code, `RevokeToken`**: raised `NotAuthorizedException` for a token issued to a
+  different client, but its own deserializer models `UnauthorizedException` — a distinct,
+  newer type ("the request isn't authorized... invalid access token") — not the generic
+  `NotAuthorizedException` most other ops use. Added `ErrTokenUnauthorized`.
+- **Wrong code, `AssociateSoftwareToken`**: raised `UserNotFoundException` when a session's
+  bound user no longer exists (deleted after the session was issued); its deserializer doesn't
+  model that, only `NotAuthorizedException` (consistent with the surrounding stale-session
+  checks in the same function). Note: `VerifySoftwareToken` shares this exact code path and
+  *does* model `UserNotFoundException` — but also models `NotAuthorizedException`, so this is a
+  correct choice for both, just less specific than ideal for `VerifySoftwareToken`. Not covered
+  by a new integration test (constructing a stale-session/deleted-user state requires internal
+  fixture manipulation disproportionate to this one-line fix); verified by code inspection
+  against both ops' deserializers.
+
+**Left, not fixed**: `CreateResourceServer` raises `GroupExistsException` for a duplicate
+(userPoolID, identifier) pair; the op's deserializer models no "already exists" exception at
+all, but unlike the ssm Delete-idempotent findings in the same campaign pass, there's no doc
+comment or established sibling convention indicating whether real AWS upserts, silently ignores,
+or does something else entirely for this case — left rather than guessed, per this campaign's
+restraint principle.
+
+**Also observed, not part of this bug class**: `handler_mfa.go`'s `mfaOpsB()` registers a
+`wrapAccuracy(h.handleAdminSetUserMFASetting)` handler under the dispatch key
+`"AdminSetUserMFASetting"` — not a real AWS Cognito action name (the real op is
+`AdminSetUserMFAPreference`, already correctly registered via `opAdminSetUserMFAPreference` in
+the same map). This extra entry is dead code — no real client can ever send that action name —
+left as-is (harmless, out of this pass's error-class scope).
+
 ### What this pass fixed (2026-08-22, gopherstack-1b07)
 
 Closed the structural gap gopherstack-zquj filed as gopherstack-1b07 (see

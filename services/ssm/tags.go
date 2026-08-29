@@ -42,7 +42,7 @@ func (b *InMemoryBackend) AddTagsToResource(
 		params := b.parametersStore(region)
 		name := input.ResourceID
 		if !params.Has(name) {
-			return ErrParameterNotFound
+			return ErrInvalidResourceID
 		}
 		if b.tags[region] == nil {
 			b.tags[region] = make(map[string]*tags.Tags)
@@ -89,7 +89,7 @@ func (b *InMemoryBackend) RemoveTagsFromResource(
 		params := b.parametersStore(region)
 		name := input.ResourceID
 		if !params.Has(name) {
-			return ErrParameterNotFound
+			return ErrInvalidResourceID
 		}
 		tagsStore := b.tagsStore(region)
 		if tagsStore[name] != nil {
@@ -126,7 +126,7 @@ func (b *InMemoryBackend) ListTagsForResource(
 		params := b.parametersStore(region)
 		name := input.ResourceID
 		if !params.Has(name) {
-			return nil, ErrParameterNotFound
+			return nil, ErrInvalidResourceID
 		}
 		var tagList []Tag
 		tagsStore := b.tagsStore(region)

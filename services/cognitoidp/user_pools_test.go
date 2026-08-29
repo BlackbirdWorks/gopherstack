@@ -166,20 +166,16 @@ func TestInMemoryBackend_CreateUserPool(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		errTarget error
-		name      string
-		poolName  string
-		wantErr   bool
+		name     string
+		poolName string
 	}{
 		{
 			name:     "success",
 			poolName: "my-pool",
 		},
 		{
-			name:      "duplicate_name",
-			poolName:  "my-pool",
-			wantErr:   true,
-			errTarget: cognitoidp.ErrUserPoolAlreadyExists,
+			name:     "duplicate_name",
+			poolName: "my-pool",
 		},
 	}
 
@@ -189,25 +185,26 @@ func TestInMemoryBackend_CreateUserPool(t *testing.T) {
 
 			b := newTestBackend()
 
+			var firstID string
 			if tt.name == "duplicate_name" {
-				// Pre-create pool to trigger duplicate.
-				_, setupErr := b.CreateUserPool("my-pool")
+				// AWS Cognito does not enforce unique pool names — CreateUserPool
+				// has no "already exists" exception in its own SDK model
+				// (aws-sdk-go-v2/service/cognitoidentityprovider@v1.67.4). A
+				// second pool with the same name must succeed with a distinct ID.
+				first, setupErr := b.CreateUserPool("my-pool")
 				require.NoError(t, setupErr)
+				firstID = first.ID
 			}
 
 			pool, createErr := b.CreateUserPool(tt.poolName)
-
-			if tt.wantErr {
-				require.Error(t, createErr)
-				assert.ErrorIs(t, createErr, tt.errTarget)
-
-				return
-			}
-
 			require.NoError(t, createErr)
 			assert.NotEmpty(t, pool.ID)
 			assert.Equal(t, tt.poolName, pool.Name)
 			assert.NotEmpty(t, pool.ARN)
+
+			if tt.name == "duplicate_name" {
+				assert.NotEqual(t, firstID, pool.ID)
+			}
 		})
 	}
 }

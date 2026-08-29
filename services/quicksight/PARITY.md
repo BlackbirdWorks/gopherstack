@@ -293,6 +293,67 @@ leaks: {status: clean, note: "no goroutines/timers/janitors found in this servic
 
 ## Notes
 
+### 2026-08-29 (error-path sweep: what a typed client sees on failure)
+
+Extracted all 277 `awsRestjson1_deserializeOpError<Op>` switches from quicksight@v1.123.1's
+deserializers.go. quicksight's error-write mechanism is structurally different from most other
+gopherstack services: there is no per-sentinel wire-code lookup table — every handler calls a
+single shared `httpErr(c, err)` (handler_paths.go) that classifies by the sentinel's
+**category** (`awserr.ErrNotFound`/`ErrAlreadyExists`/`ErrConflict`/`ErrInvalidParameter`) and
+writes one of exactly 4 hardcoded wire codes (`ResourceNotFoundException`/`ConflictException`/
+`ConflictException`/`InvalidParameterValueException`) — plus a generic `InternalFailure`
+fallback. The specific `Code` string passed to each sentinel's `awserr.New(...)` call in
+errors.go is otherwise discarded on the wire.
+
+**This looked like a systemic bug and turned out not to be one — recorded because it took real
+verification to rule out.** ~57 ops model `ResourceExistsException` distinctly from
+`ConflictException` for their own "already exists" case (real AWS QuickSight uses both, for
+different conditions within the same op), and all 20 of the `errResourceExists`-coded sentinels
+in errors.go (`ErrFolderAlreadyExists`, `ErrTemplateAlreadyExists`, `ErrAgentAlreadyExists`, ...)
+would be wrongly flattened to `ConflictException` by `httpErr`'s hardcoded default. Checked every
+one: every single raise site already has a call-site-local workaround (`if errors.Is(err,
+ErrXAlreadyExists) { return writeError(c, http.StatusConflict, errResourceExistsCode,
+err.Error()) }` before falling through to `httpErr`) — confirmed by grepping each sentinel's
+raise site(s) against its workaround site(s) 1:1 (e.g. `ErrTopicAlreadyExists` has two raise
+sites, in `topics.go` and `topics_v2.go`, each with its own matching workaround in
+`handler_topics.go`/`handler_topics_v2.go`). Same for the one `PreconditionNotMetException`
+sentinel (`ErrAccountTerminationProtectionEnabled`, `handler_account.go:244`). Genuinely clean —
+not fixed, because there was nothing to fix.
+
+**Real bug found and fixed**: `GetFlowMetadata`, `GetFlowPermissions`, `UpdateFlowPermissions`
+raised `ErrFlowNotFound` (wire `ResourceNotFoundException`) for an unresolvable `FlowId` — the
+same sentinel their siblings `DescribeFlow`/`UpdateFlow`/`DeleteFlow` correctly use. But unlike
+those three, none of these ops model `ResourceNotFoundException` in their own deserializer; they
+model only `InvalidParameterValueException`, `AccessDeniedException`, `InternalFailureException`,
+`ThrottlingException` — a real, deliberate asymmetry in AWS's own Smithy model for this
+newer/permissions-scoped corner of the Flow API family. Repointed all three call sites to
+`ErrValidation` (wire `InvalidParameterValueException`). Two existing tests
+(`handler_flow_test.go`) asserted the wrong 404/`ResourceNotFoundException` behavior as correct
+and were fixed. Covered by `error_path_sweep_test.go` (real `aws-sdk-go-v2/service/quicksight`
+client, `errors.As` against `types.InvalidParameterValueException`).
+
+**Method note**: found by diffing, for each of the 277 ops, its own modeled code set against the
+4 codes `httpErr`/its workarounds can ever emit, and flagging any op with zero overlap on a
+condition gopherstack actually raises for it (27 ops model none of
+`ResourceNotFoundException`/`ConflictException`/`ResourceExistsException`/
+`InvalidParameterValueException`/`PreconditionNotMetException`; of those, only the three Flow
+permission ops had a live not-found raise site — the rest are List/Search ops with no natural
+not-found condition, or `BatchDeleteKnowledgeBase`, whose per-item failures are correctly
+reported in the success response body rather than as a top-level exception, confirmed by reading
+its backend method).
+
+**Not exhaustively re-verified**: given the sheer op count (277) and that the shared
+category-based mechanism narrows the space where a wrong-code bug can hide (mixing up which
+*specific* not-found/conflict sentinel to raise is wire-invisible here, unlike ssm/cognitoidp,
+since same-category sentinels collapse to the same code), this pass targeted the two highest-
+yield angles — the category-flattening theory (false alarm) and the no-core-code-modeled op list
+(real bug, fixed) — rather than tracing every op's full call graph as was done for ssm/cognitoidp.
+A deeper pass could still check for wrong-*category* selections (e.g. a condition raising
+`ErrAlreadyExists`/`ErrConflict` where the op's model wants `ErrInvalidParameter`, or vice versa)
+across the remaining ~250 ops not covered here.
+
+### Notes below this line predate the 2026-08-29 error-path sweep.
+
 Protocol: **REST-JSON (restjson1)**, not action-header dispatch -- routing is by HTTP
 method + URL path (`classifyRequest` in handler.go), unlike most gopherstack services
 that dispatch on an `X-Amz-Target`-style op header. `GetSupportedOperations()` still

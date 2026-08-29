@@ -1,6 +1,7 @@
 package quicksight
 
 import (
+	"fmt"
 	"sort"
 	"time"
 
@@ -289,7 +290,11 @@ func (b *InMemoryBackend) GetFlowMetadata(accountID, flowID string) (*Flow, erro
 
 	f, ok := b.flows.Get(flowKey(accountID, flowID))
 	if !ok {
-		return nil, ErrFlowNotFound
+		// GetFlowMetadata's own deserializer models InvalidParameterValueException,
+		// not ResourceNotFoundException, for an unresolvable FlowId -- unlike
+		// CreateFlow/DescribeFlow/UpdateFlow/DeleteFlow, which do model it
+		// (quicksight@v1.123.1 deserializers.go).
+		return nil, fmt.Errorf("%w: flow %q not found", ErrValidation, flowID)
 	}
 
 	return f.toFlow(), nil
@@ -303,7 +308,9 @@ func (b *InMemoryBackend) GetFlowPermissions(accountID, flowID string) (*Flow, [
 
 	f, ok := b.flows.Get(flowKey(accountID, flowID))
 	if !ok {
-		return nil, nil, ErrFlowNotFound
+		// GetFlowPermissions's own deserializer models InvalidParameterValueException,
+		// not ResourceNotFoundException, for an unresolvable FlowId.
+		return nil, nil, fmt.Errorf("%w: flow %q not found", ErrValidation, flowID)
 	}
 
 	return f.toFlow(), clonePermissions(f.Permissions), nil
@@ -319,7 +326,10 @@ func (b *InMemoryBackend) UpdateFlowPermissions(
 	key := flowKey(accountID, flowID)
 	f, ok := b.flows.Get(key)
 	if !ok {
-		return nil, nil, ErrFlowNotFound
+		// UpdateFlowPermissions's own deserializer models
+		// InvalidParameterValueException, not ResourceNotFoundException, for an
+		// unresolvable FlowId.
+		return nil, nil, fmt.Errorf("%w: flow %q not found", ErrValidation, flowID)
 	}
 
 	f.Permissions = applyGrantRevoke(f.Permissions, grant, revoke)

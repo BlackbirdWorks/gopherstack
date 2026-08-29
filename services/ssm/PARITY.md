@@ -366,6 +366,78 @@ leaks: {status: clean, note: "Janitor (janitor.go) is the only background gorout
 
 ## Notes
 
+### 2026-08-29 (error-path sweep: what a typed client sees on failure)
+
+Extracted all 152 `awsAwsjson11_deserializeOpError<Op>` switches from ssm@v1.73.4's
+deserializers.go (ground truth for which exception codes each op actually models) and
+cross-referenced every backend call site that raises a sentinel error against its own op's set.
+The shared error table (`classifySSMError`/`classifySSMErrorExtended` in handler.go) was
+correct; every bug was the sentinel chosen at a specific call site, consistent with this
+campaign's pattern across other services. Six real bugs fixed, all covered by new
+`error_path_sweep_test.go` (real `aws-sdk-go-v2/service/ssm` client, `errors.As` against the
+SDK's own typed exception):
+
+- **Sentinel reused across the Parameter resource family**: `AddTagsToResource`,
+  `RemoveTagsFromResource`, `ListTagsForResource` all raised `ErrParameterNotFound`
+  ("ParameterNotFound") for a missing Parameter target — none of these three ops model that
+  code; their own deserializers model `InvalidResourceId` ("The resource ID isn't valid...",
+  ssm@v1.73.4 types/errors.go). New `ErrInvalidResourceID` sentinel wired at all three call sites.
+- **Fabricated code**: `DeleteActivation` raised a wire code of `"ActivationNotFound"`, which
+  does not appear anywhere in ssm@v1.73.4 (not `types/errors.go`, not any deserializer) — not a
+  real AWS SSM error at all. Its own deserializer models `InvalidActivationId`. Renamed the
+  sentinel to `ErrInvalidActivationID` (single call site, single blast radius) and fixed two
+  existing tests (`activations_test.go`, `ops_metadata_test.go`) that asserted the fabricated
+  code as correct.
+- **Should-not-error (idempotent delete)**: `DeleteMaintenanceWindow` and `DeletePatchBaseline`
+  both raised a not-found error for an unknown ID, but neither op's deserializer models any
+  not-found-shaped exception (only `InternalServerError`, plus `ResourceInUseException` for the
+  latter) — matching `DeleteOpsItem`'s sibling pattern, whose own SDK doc comment states
+  explicitly: "This operation is idempotent. The system doesn't throw an exception if you
+  repeatedly call this operation for the same OpsItem." `DeleteOpsItem` itself had the identical
+  bug (raised `OpsItemNotFoundException`, which it doesn't model either). All three now delete
+  idempotently and return success.
+- **Missing-error → wrong success behavior**: `GetPatchBaselineForPatchGroup` raised
+  `DoesNotExistException` (unmodeled — the op's deserializer declares zero exceptions besides
+  `InternalServerError`) when no explicit patch-group mapping was registered. Real AWS always
+  resolves a patch group to a baseline, falling back to the AWS-managed default for the OS — the
+  same fallback `GetDefaultPatchBaseline` already implements. Now shares that fallback logic
+  (new `defaultPatchGroupKey` constant replacing three duplicated `"default"` literals).
+
+**Left, not fixed — codes I could not establish with confidence:**
+- `ErrValidationException` ("ValidationException") is raised across roughly 60 of the 152 ops as
+  a generic "field X is required" catch-all, but only 3 ops (`GetAccessToken`,
+  `StartAccessRequest`, `StartExecutionPreview`) declare it in their own deserializer. The
+  overwhelming majority of these call sites check a field the SDK's own client-side
+  `validateOp<Op>Input` already marks `// This member is required` and rejects before the
+  request is ever sent (confirmed for several, e.g. `PutParameterInput.Name`,
+  `DeletePatchBaselineInput.BaselineId`) — unreachable through a real typed client, so not part
+  of this bug class and not fixed. A smaller set are semantic (non-required-field) checks — e.g.
+  `validateParameterName`'s length/regex/reserved-prefix checks in `PutParameter`, which the
+  client-side validator does *not* block — where I could not establish with the SDK's own
+  deserializer what code AWS actually sends for a shape-constraint violation on a legacy
+  JSON-RPC service like ssm (unlike newer REST-JSON services, ssm's op models don't uniformly
+  declare `ValidationException`, and I could not rule out that AWS's front-end applies it
+  uniformly regardless of per-op modeling). Left rather than guessed, per this campaign's
+  restraint principle.
+- `ErrCiphertextTooShort` falls through to a generic 500 (never classified) but is only
+  reachable via a corrupted/forged stored ciphertext — not a condition a well-formed client
+  request can trigger — so left as an internal invariant guard, not a client-facing bug.
+- **Missing-error, fixed**: `ErrInvalidKeyID` (wire `InvalidKeyId`) was raised at exactly the
+  right call site (`encryptSSMValue`, parameter_encryption.go:78 — `PutParameter` models
+  `InvalidKeyId`) but was never wired into `classifySSMErrorExtended`, so a KMS-backed
+  `PutParameter` failure always surfaced as an opaque 500 `InternalServerError` (and got
+  retried 3x by the SDK's retry logic as a result) instead of the modeled 400. Fixed via a new
+  `classifySSMResourceIdentityError` split-out (also covers `ErrInvalidActivationID`/
+  `ErrInvalidResourceID`, keeping `classifySSMErrorExtended` under the cyclop budget). Covered
+  by `TestPutParameter_InvalidKMSKey_RealClient`.
+
+**Also observed, not part of this bug class**: `GetPatchBaselineForPatchBaselineOutput` (the
+gopherstack-internal type name for `GetPatchBaselineForPatchGroup`'s response) has a typo baked
+into its name; unrelated to error wiring, left as-is. `ErrExecutionPreviewNotFound`,
+`ErrInventoryNotFound`, `ErrDocumentVersionNotFound` are declared in errors.go but never raised
+anywhere in the package — dead sentinels, not wired to any call site; left as-is (declaring but
+not using is not itself a wire bug).
+
 ### 2026-08-22 (gopherstack-enpq, doc-prose/bidirectional re-audit pass 11)
 
 Passes 4–10 swept all 152 ssm ops with `cmd/structfielddiff` (field-list diff against the pinned

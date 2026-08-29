@@ -391,6 +391,24 @@ func classifySSMMiscNotFoundError(reqErr error) (string, int, bool) {
 	}
 }
 
+// classifySSMResourceIdentityError handles the three malformed/unknown
+// resource-identifier errors, split out for the same cyclop-budget reason as
+// classifySSMResourceDataSyncError.
+func classifySSMResourceIdentityError(reqErr error) (string, int, bool) {
+	statusCode := http.StatusBadRequest
+
+	switch {
+	case errors.Is(reqErr, ErrInvalidKeyID):
+		return "InvalidKeyId", statusCode, true
+	case errors.Is(reqErr, ErrInvalidActivationID):
+		return "InvalidActivationId", statusCode, true
+	case errors.Is(reqErr, ErrInvalidResourceID):
+		return "InvalidResourceId", statusCode, true
+	default:
+		return "", 0, false
+	}
+}
+
 func classifySSMErrorExtended(reqErr error) (string, int) {
 	statusCode := http.StatusBadRequest
 
@@ -414,6 +432,10 @@ func classifySSMErrorExtended(reqErr error) (string, int) {
 		return code, status
 	}
 
+	if code, status, ok := classifySSMResourceIdentityError(reqErr); ok {
+		return code, status
+	}
+
 	switch {
 	case errors.Is(reqErr, ErrInvalidAggregator):
 		return "InvalidAggregatorException", statusCode
@@ -421,8 +443,6 @@ func classifySSMErrorExtended(reqErr error) (string, int) {
 		return "ResourceNotFoundException", statusCode
 	case errors.Is(reqErr, ErrAccessRequestNotFound):
 		return "ResourceNotFoundException", statusCode
-	case errors.Is(reqErr, ErrActivationNotFound):
-		return "ActivationNotFound", statusCode
 	case errors.Is(reqErr, ErrAssociationNotFound):
 		return "AssociationDoesNotExist", statusCode
 	case errors.Is(reqErr, ErrAutomationExecutionNotFound):

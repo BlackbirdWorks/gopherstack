@@ -20,10 +20,6 @@ func (b *InMemoryBackend) CreateUserPool(name string) (*UserPool, error) {
 	b.mu.Lock("CreateUserPool")
 	defer b.mu.Unlock()
 
-	if b.poolNameExists(name) {
-		return nil, fmt.Errorf("%w: pool %q already exists", ErrUserPoolAlreadyExists, name)
-	}
-
 	poolID := b.region + "_" + randomAlphanumeric(poolIDSuffixLen)
 	issuerURL := fmt.Sprintf("%s/%s", b.endpoint, poolID)
 
@@ -261,10 +257,6 @@ func validatePassword(policy *PasswordPolicy, password string) error {
 func (b *InMemoryBackend) CreateUserPoolWithOpts(name string, opts UserPoolOptions) (*UserPool, error) {
 	b.mu.Lock("CreateUserPoolWithOpts")
 	defer b.mu.Unlock()
-
-	if b.poolNameExists(name) {
-		return nil, fmt.Errorf("%w: pool %q already exists", ErrUserPoolAlreadyExists, name)
-	}
 
 	poolID := b.region + "_" + randomAlphanumeric(poolIDSuffixLen)
 	issuerURL := fmt.Sprintf("%s/%s", b.endpoint, poolID)

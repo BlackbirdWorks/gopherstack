@@ -154,7 +154,11 @@ func (b *InMemoryBackend) AdminGetDevice(userPoolID, username, deviceKey string)
 	}
 
 	if _, ok := b.users.Get(userKey(userPoolID, username)); !ok {
-		return nil, fmt.Errorf("%w: user %q not found", ErrUserNotFound, username)
+		// AdminGetDevice's own deserializer models ResourceNotFoundException,
+		// not UserNotFoundException, for a missing user — unlike AdminGetUser
+		// and similar ops (aws-sdk-go-v2/service/cognitoidentityprovider
+		// @v1.67.4 deserializers.go).
+		return nil, fmt.Errorf("%w: user %q not found", ErrDeviceNotFound, username)
 	}
 
 	dev, ok := b.devices[userStateKey(userPoolID, username)][deviceKey]
@@ -203,7 +207,9 @@ func (b *InMemoryBackend) AdminListDevices(
 	}
 
 	if _, ok := b.users.Get(userKey(userPoolID, username)); !ok {
-		return nil, "", fmt.Errorf("%w: user %q not found", ErrUserNotFound, username)
+		// AdminListDevices's own deserializer models ResourceNotFoundException,
+		// not UserNotFoundException, for a missing user (same as AdminGetDevice).
+		return nil, "", fmt.Errorf("%w: user %q not found", ErrDeviceNotFound, username)
 	}
 
 	devices, token := b.paginateDevicesLocked(userStateKey(userPoolID, username), limit, nextToken)

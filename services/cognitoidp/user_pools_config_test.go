@@ -98,9 +98,13 @@ func TestHandler_CreateUserPool(t *testing.T) {
 			wantContains: []string{"my-test-pool", "Arn", "Id"},
 		},
 		{
+			// AWS Cognito does not enforce unique pool names — CreateUserPool
+			// has no "already exists" exception in its own SDK model
+			// (aws-sdk-go-v2/service/cognitoidentityprovider@v1.67.4). A second
+			// pool with the same name must succeed with a distinct ID.
 			name:     "duplicate_pool",
 			body:     map[string]any{"PoolName": "duplicate-pool"},
-			wantCode: http.StatusBadRequest,
+			wantCode: http.StatusOK,
 		},
 	}
 

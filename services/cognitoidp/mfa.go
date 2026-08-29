@@ -207,7 +207,11 @@ func (b *InMemoryBackend) resolveMFASetupSubjectLocked(accessToken, session stri
 
 		user, ok := b.users.Get(userKey(entry.PoolID, entry.Username))
 		if !ok {
-			return nil, "", fmt.Errorf("%w: user %q not found", ErrUserNotFound, entry.Username)
+			// AssociateSoftwareToken's own deserializer models
+			// NotAuthorizedException, not UserNotFoundException, and treats a
+			// session whose user no longer exists the same as any other stale
+			// session (consistent with the other session checks above).
+			return nil, "", fmt.Errorf("%w: user %q not found", ErrNotAuthorized, entry.Username)
 		}
 
 		return user, session, nil
@@ -404,9 +408,12 @@ func (b *InMemoryBackend) applyMFAPreferenceLocked(
 	if preferredMFA != "" {
 		found := slices.Contains(settings, preferredMFA)
 		if !found && len(settings) > 0 {
+			// AdminSetUserMFAPreference/SetUserMFAPreference's own deserializers
+			// model InvalidParameterException for this, not
+			// InvalidUserPoolConfigurationException.
 			return fmt.Errorf(
 				"%w: preferred MFA %q is not in the enabled MFA list",
-				ErrInvalidUserPoolConfig,
+				ErrInvalidParameter,
 				preferredMFA,
 			)
 		}

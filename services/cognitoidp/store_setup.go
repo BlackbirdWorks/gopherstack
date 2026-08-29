@@ -90,13 +90,6 @@ func userPoolReplicasKeyFn(v *UserPoolReplica) string {
 }
 func userPoolReplicasPoolIndexFn(v *UserPoolReplica) string { return v.UserPoolID }
 
-// poolNameExists reports whether a pool with the given (globally unique) Name
-// already exists, via the poolsByName secondary index. Caller must hold at
-// least a read lock.
-func (b *InMemoryBackend) poolNameExists(name string) bool {
-	return len(b.poolsByName.Get(name)) > 0
-}
-
 // userBySub looks up a user by poolID+sub via the usersBySub secondary index.
 // Caller must hold at least a read lock.
 func (b *InMemoryBackend) userBySub(poolID, sub string) (*User, bool) {

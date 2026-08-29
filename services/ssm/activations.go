@@ -362,7 +362,7 @@ func (b *InMemoryBackend) DeleteActivation(
 
 	activations := b.activationsStore(region)
 	if !activations.Has(input.ActivationID) {
-		return nil, ErrActivationNotFound
+		return nil, ErrInvalidActivationID
 	}
 
 	activations.Delete(input.ActivationID)

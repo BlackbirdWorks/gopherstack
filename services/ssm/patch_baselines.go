@@ -23,6 +23,11 @@ const (
 	patchDeploymentStatusPendingApproval  = "PENDING_APPROVAL"
 )
 
+// defaultPatchGroupKey is the patchGroupToBaseline key used for the
+// OS-agnostic default patch baseline (RegisterDefaultPatchBaseline without a
+// specific OS). Per-OS defaults use "default-" + OperatingSystem.
+const defaultPatchGroupKey = "default"
+
 func (b *InMemoryBackend) patchGroupToBaselineStore(region string) map[string]string {
 	return b.patchGroupToBaseline[region]
 }
@@ -308,7 +313,7 @@ func (b *InMemoryBackend) patchGroupsForBaselineLocked(region, baselineID string
 	var groups []string
 
 	for group, id := range b.patchGroupToBaselineStore(region) {
-		if id == baselineID && group != "default" && !strings.HasPrefix(group, "default-") {
+		if id == baselineID && group != defaultPatchGroupKey && !strings.HasPrefix(group, "default-") {
 			groups = append(groups, group)
 		}
 	}
@@ -431,7 +436,7 @@ func (b *InMemoryBackend) GetDefaultPatchBaseline(
 	b.mu.RLock("GetDefaultPatchBaseline")
 	defer b.mu.RUnlock()
 
-	key := "default"
+	key := defaultPatchGroupKey
 	if input.OperatingSystem != "" {
 		key = "default-" + input.OperatingSystem
 	}
@@ -479,19 +484,47 @@ func (b *InMemoryBackend) GetPatchBaselineForPatchGroup(
 	b.mu.RLock("GetPatchBaselineForPatchGroup")
 	defer b.mu.RUnlock()
 
-	id, ok := b.patchGroupToBaselineStore(region)[input.PatchGroup]
-	if !ok {
-		return nil, fmt.Errorf(
-			"%w: patch group %q not found",
-			ErrPatchBaselineNotFound,
-			input.PatchGroup,
-		)
+	if id, ok := b.patchGroupToBaselineStore(region)[input.PatchGroup]; ok {
+		return &GetPatchBaselineForPatchBaselineOutput{
+			BaselineID:      id,
+			PatchGroup:      input.PatchGroup,
+			OperatingSystem: input.OperatingSystem,
+		}, nil
+	}
+
+	// No explicit mapping registered for this patch group: real AWS always
+	// resolves to a baseline, falling back to the AWS-managed default for the
+	// OS (GetPatchBaselineForPatchGroup's own deserializer models no
+	// exception besides InternalServerError) — the same fallback
+	// GetDefaultPatchBaseline uses.
+	key := defaultPatchGroupKey
+	if input.OperatingSystem != "" {
+		key = "default-" + input.OperatingSystem
+	}
+	if id, ok := b.patchGroupToBaselineStore(region)[key]; ok {
+		os := input.OperatingSystem
+		if os == "" {
+			if blPtr, foundBl := b.patchBaselinesStore(region).Get(id); foundBl {
+				os = blPtr.OperatingSystem
+			}
+		}
+
+		return &GetPatchBaselineForPatchBaselineOutput{
+			BaselineID:      id,
+			PatchGroup:      input.PatchGroup,
+			OperatingSystem: os,
+		}, nil
+	}
+
+	os := input.OperatingSystem
+	if os == "" {
+		os = defaultPatchScanOS
 	}
 
 	return &GetPatchBaselineForPatchBaselineOutput{
-		BaselineID:      id,
+		BaselineID:      defaultBaselineID(os),
 		PatchGroup:      input.PatchGroup,
-		OperatingSystem: input.OperatingSystem,
+		OperatingSystem: os,
 	}, nil
 }
 
@@ -522,7 +555,7 @@ func (b *InMemoryBackend) RegisterDefaultPatchBaseline(
 		b.patchGroupToBaseline[region] = make(map[string]string)
 	}
 	store := b.patchGroupToBaselineStore(region)
-	store["default"] = input.BaselineID
+	store[defaultPatchGroupKey] = input.BaselineID
 
 	// Also store per-OS key when the baseline has a known OperatingSystem.
 	if bl, ok := b.patchBaselinesStore(region).Get(input.BaselineID); ok && bl.OperatingSystem != "" {
@@ -546,10 +579,6 @@ func (b *InMemoryBackend) DeletePatchBaseline(
 	defer b.mu.Unlock()
 
 	patchBaselines := b.patchBaselinesStore(region)
-	if !patchBaselines.Has(input.BaselineID) {
-		return nil, ErrPatchBaselineNotFound
-	}
-
 	patchBaselines.Delete(input.BaselineID)
 
 	return &DeletePatchBaselineOutput{BaselineID: input.BaselineID}, nil

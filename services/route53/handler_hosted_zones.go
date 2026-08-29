@@ -518,7 +518,13 @@ type updateHZFeaturesResponse struct {
 	Xmlns   string   `xml:"xmlns,attr"`
 }
 
-func (h *Handler) updateHostedZoneFeatures(c *echo.Context, _ string) error {
+func (h *Handler) updateHostedZoneFeatures(c *echo.Context, path string) error {
+	zoneID := strings.TrimSuffix(strings.TrimPrefix(path, route53HZPrefix), route53FeaturesSuffix)
+
+	if _, err := h.Backend.GetHostedZone(zoneID); err != nil {
+		return handleBackendError(c, err)
+	}
+
 	return writeXML(c, http.StatusOK, updateHZFeaturesResponse{Xmlns: route53Namespace})
 }
 

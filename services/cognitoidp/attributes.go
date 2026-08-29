@@ -70,9 +70,14 @@ func (b *InMemoryBackend) AddCustomAttributes(userPoolID string, attrs []SchemaA
 
 	for _, a := range attrs {
 		if !strings.HasPrefix(a.Name, "custom:") {
+			// AddCustomAttributes's own deserializer models
+			// InvalidParameterException, not InvalidUserPoolConfigurationException
+			// (aws-sdk-go-v2/service/cognitoidentityprovider@v1.67.4
+			// deserializers.go) — unlike InitiateAuth/AdminInitiateAuth, which
+			// genuinely do model the latter for auth-flow misconfiguration.
 			return fmt.Errorf(
 				"%w: attribute name %q must start with 'custom:' prefix",
-				ErrInvalidUserPoolConfig,
+				ErrInvalidParameter,
 				a.Name,
 			)
 		}
@@ -138,7 +143,9 @@ func (b *InMemoryBackend) VerifyUserAttribute(accessToken, attributeName, _ stri
 	case attrEmail, attrPhoneNumber:
 		// valid
 	default:
-		return fmt.Errorf("%w: attribute %q is not verifiable", ErrInvalidUserPoolConfig, attributeName)
+		// VerifyUserAttribute's own deserializer models InvalidParameterException
+		// for this, not InvalidUserPoolConfigurationException.
+		return fmt.Errorf("%w: attribute %q is not verifiable", ErrInvalidParameter, attributeName)
 	}
 
 	return nil

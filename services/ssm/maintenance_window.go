@@ -778,10 +778,6 @@ func (b *InMemoryBackend) DeleteMaintenanceWindow(
 	defer b.mu.Unlock()
 
 	mwTable := b.maintenanceWindowsStore(region)
-	if !mwTable.Has(input.WindowID) {
-		return nil, ErrMaintenanceWindowNotFound
-	}
-
 	mwTable.Delete(input.WindowID)
 
 	return &DeleteMaintenanceWindowOutput{WindowID: input.WindowID}, nil

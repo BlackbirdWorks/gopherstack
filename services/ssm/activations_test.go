@@ -636,7 +636,7 @@ func TestDeleteActivation_NotFound(t *testing.T) {
 	b := ssm.NewInMemoryBackend()
 	_, err := b.DeleteActivation(context.TODO(), &ssm.DeleteActivationInput{ActivationID: "nonexistent"})
 	require.Error(t, err)
-	assert.ErrorIs(t, err, ssm.ErrActivationNotFound)
+	assert.ErrorIs(t, err, ssm.ErrInvalidActivationID)
 }
 
 // TestCreateActivation_WithTags covers tags path in CreateActivation.
@@ -819,7 +819,7 @@ func TestDeleteActivation_TableDriven(t *testing.T) {
 			name:       "nonexistent_activation_returns_error",
 			setupFirst: false,
 			wantStatus: http.StatusBadRequest,
-			wantErrMsg: "ActivationNotFound",
+			wantErrMsg: "InvalidActivationId",
 		},
 	}
 

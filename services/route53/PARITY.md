@@ -101,6 +101,43 @@ leaks: {status: clean, note: "no goroutines, tickers, or background timers anywh
 
 ## Notes
 
+### 2026-08-29 (error-path sweep: what a typed client sees on failure)
+
+Extracted all 71 `awsRestxml_deserializeOpError<Op>` switches from route53@v1.65.6's
+deserializers.go and cross-referenced every backend/handler call site raising a sentinel
+error (or a literal wire code) against its own op's modeled set. `backendErrorTable`
+(handler.go) — the shared sentinel-to-wire-code table every op funnels through via
+`handleBackendError` — was correct and 1:1 with errors.go's sentinels (unlike quicksight,
+which collapses by category; unlike this table, which maps every sentinel to its own distinct
+code, matching real AWS's fine-grained Route 53 error set). No sentinel-reuse or wrong-code
+bugs found across the 62 ops resolvable by direct backend-method-name call-graph tracing
+(op name == `StorageBackend` interface method name here, confirmed via interfaces.go).
+
+**Real bug found and fixed**: `UpdateHostedZoneFeatures` never validated `HostedZoneId` at
+all — `updateHostedZoneFeatures` (handler_hosted_zones.go) discarded its `path` argument
+(`func (h *Handler) updateHostedZoneFeatures(c *echo.Context, _ string) error`) and
+unconditionally returned success. Its own deserializer models `NoSuchHostedZone` for exactly
+this case (alongside `InvalidInput`/`LimitsExceeded`/`PriorRequestNotComplete`) — a
+missing-error bug (returning success where AWS raises), not a wrong-code one. Fixed by parsing
+the zone ID from the path (same `TrimPrefix`/`TrimSuffix` pattern as the sibling
+`disassociateVPCFromHostedZone`) and validating existence via the already-available
+`GetHostedZone` backend method before returning success. Covered by
+`error_path_sweep_test.go` (real `aws-sdk-go-v2/service/route53` client, `errors.As` against
+`types.NoSuchHostedZone`). Persisting the `EnableAcceleratedRecovery` flag itself is a separate,
+larger feature gap (the `StorageBackend` interface has no such field/method) and was left
+out of scope for this error-path-only pass.
+
+**Method note**: 9 of the 71 ops (`GetAccountLimit`, `GetCheckerIpRanges`, `GetGeoLocation`,
+`GetHealthCheckLastFailureReason`, `GetHostedZoneLimit`, `GetReusableDelegationSetLimit`,
+`GetTrafficPolicyInstanceCount`, `ListGeoLocations`, `UpdateHostedZoneFeatures`) have no
+backend method of the same name — they're implemented as handler-layer functions instead
+(`getHostedZoneLimit`, `getGeoLocation`, etc., in handler_*.go), so a naive op-name-to-method
+call-graph trace misses them entirely and silently under-reports. Re-traced each by its actual
+handler function name. `GetGeoLocation` raises `NoSuchGeoLocation` via a direct `xmlError(...)`
+call rather than a named sentinel (correct — the code was simply invisible to sentinel-based
+tracing, not missing). `GetCheckerIpRanges`/`GetTrafficPolicyInstanceCount`/`GetAccountLimit`
+model no core error code at all and correctly raise none.
+
 **Protocol**: REST-XML (path/verb routing, XML request+response bodies), matching
 `aws-sdk-go-v2/service/route53`'s `awsRestxml_*` (de)serializers. Namespace
 `https://route53.amazonaws.com/doc/2013-04-01/` on every response root element.

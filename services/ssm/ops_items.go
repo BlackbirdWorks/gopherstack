@@ -559,10 +559,6 @@ func (b *InMemoryBackend) DeleteOpsItem(
 	defer b.mu.Unlock()
 
 	opsItems := b.opsItemsStore(region)
-	if !opsItems.Has(input.OpsItemID) {
-		return nil, ErrOpsItemNotFound
-	}
-
 	opsItems.Delete(input.OpsItemID)
 	delete(b.opsItemRelatedItemsStore(region), input.OpsItemID)
 
