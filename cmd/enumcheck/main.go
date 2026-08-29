@@ -29,15 +29,17 @@
 //     zero wire keys for them -- same disclosed protocol scope as
 //     cmd/keycheck.
 //
-// TWO CHECKS, two confidence levels (see scan.go/reuse.go for the full
+// THREE CHECKS, two confidence levels (see scan.go/reuse.go for the full
 // mechanics):
 //
 //   - CONFIDENT (literal-value): a map[string]any entry keyed to a resolved
-//     wire key whose value statically resolves (a string literal, a
-//     same-package string const, or a types.SomeEnumMember/types.SomeEnum("x")
-//     selector/conversion) to a string that is not a member of that key's
-//     real enum. Sound: the value is fully known and the enum's members are
-//     ground truth from the SDK itself.
+//     wire key with exactly ONE real SDK enum candidate and no Polymorphic
+//     plain-string sighting, whose value statically resolves (a string
+//     literal, a same-package string const, or a
+//     types.SomeEnumMember/types.SomeEnum("x") selector/conversion) to a
+//     string that is not a member of that key's real enum. Sound: both the
+//     value and which enum applies are fully known, and the enum's members
+//     are ground truth from the SDK itself.
 //   - NEEDS REVIEW (cross-enum-reuse): the guardduty shape itself, where the
 //     wrong value is a runtime variable, not a literal, so check A can't see
 //     it. reuse.go detects the STRUCTURE instead: a package-level helper that
@@ -50,6 +52,18 @@
 //     never be promoted to confident -- it is flagged purely because reusing
 //     one value source across two enums that don't even share the same
 //     member set can only be correct by accident.
+//   - NEEDS REVIEW (ambiguous-key): a map[string]any entry statically
+//     resolved exactly like the confident check, but keyed to a wire key
+//     with 2+ real SDK enum candidates (or a Polymorphic one) -- which
+//     candidate applies at this emission site is unknown, so this can never
+//     be confident, but a value failing membership in at least one candidate
+//     is still worth a human's judgement. This is what catches
+//     inspector2's rescanDurationState reusing statusEnabled ("ENABLED")
+//     under the 13-enum-wide "status" key, valid only for the
+//     Status/DelegatedAdminStatus senses of that key and never for the
+//     EcrRescanDurationStatus actually in play there -- a real bug the
+//     all-or-nothing ambiguous-key filter dropped silently until this tier
+//     was added.
 //
 // SCOPE, disclosed rather than silently under-covered: only files directly
 // in services/<dir> are scanned (no recursion into subpackages); only

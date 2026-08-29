@@ -25,6 +25,12 @@ const (
 	// Ec2ScanModeState.ScanModeStatus has only SUCCESS/PENDING members, no
 	// ENABLED.
 	scanModeStatusSuccess = "SUCCESS"
+
+	// ecrRescanDurationStatusSuccess is types.EcrRescanDurationStatusSuccess
+	// (inspector2@v1.54.1 types/enums.go:1289-1303) -- distinct from
+	// statusEnabled: EcrRescanDurationState.Status has only
+	// SUCCESS/PENDING/FAILED members, no ENABLED.
+	ecrRescanDurationStatusSuccess = "SUCCESS"
 )
 
 // InMemoryBackend is the in-memory implementation of Inspector2.

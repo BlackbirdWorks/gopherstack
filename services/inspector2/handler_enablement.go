@@ -124,7 +124,7 @@ func (h *Handler) handleGetConfiguration(c *echo.Context) error {
 		"ecrConfiguration": map[string]any{
 			"rescanDurationState": map[string]any{
 				"rescanDuration": cfg.EcrRescanDuration,
-				keyStatus:        statusEnabled,
+				keyStatus:        ecrRescanDurationStatusSuccess,
 				keyUpdatedAt:     nil,
 			},
 		},

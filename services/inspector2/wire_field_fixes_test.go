@@ -31,3 +31,23 @@ func TestGetConfiguration_ScanModeStatus_RealSDKClient(t *testing.T) {
 	require.NotNil(t, out.Ec2Configuration.ScanModeState)
 	assert.Equal(t, types.Ec2ScanModeStatusSuccess, out.Ec2Configuration.ScanModeState.ScanModeStatus)
 }
+
+// TestGetConfiguration_EcrRescanDurationStatus_RealSDKClient proves
+// EcrRescanDurationState.Status (inspector2@v1.54.1 types/types.go's
+// EcrRescanDurationState, types/enums.go:1289-1303) decodes as the real
+// types.EcrRescanDurationStatusSuccess ("SUCCESS") member, not the
+// non-member string "ENABLED" the handler previously emitted --
+// EcrRescanDurationStatus only has SUCCESS/PENDING/FAILED, no ENABLED.
+func TestGetConfiguration_EcrRescanDurationStatus_RealSDKClient(t *testing.T) {
+	t.Parallel()
+
+	client := newRoundTripTestClient(t)
+	ctx := t.Context()
+
+	out, err := client.GetConfiguration(ctx, &inspector2sdk.GetConfigurationInput{})
+	require.NoError(t, err)
+
+	require.NotNil(t, out.EcrConfiguration)
+	require.NotNil(t, out.EcrConfiguration.RescanDurationState)
+	assert.Equal(t, types.EcrRescanDurationStatusSuccess, out.EcrConfiguration.RescanDurationState.Status)
+}

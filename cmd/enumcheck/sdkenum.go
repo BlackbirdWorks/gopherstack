@@ -101,6 +101,20 @@ func (reg *enumRegistry) isMemberOfAny(value string, types []string) bool {
 	return false
 }
 
+// isMemberOfAll reports whether value belongs to every one of the named enum
+// types -- used by the ambiguous-key NEEDS REVIEW check, where "belongs to
+// every candidate sense of this key" is the only true-negative signal
+// available without knowing which sense actually applies.
+func (reg *enumRegistry) isMemberOfAll(value string, types []string) bool {
+	for _, t := range types {
+		if !reg.membersByType[t][value] {
+			return false
+		}
+	}
+
+	return true
+}
+
 // sameMemberSet reports whether two enum types declare exactly the same
 // member values -- used to decide whether reusing one value source across
 // both is even structurally possible without a bug.

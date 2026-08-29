@@ -68,6 +68,16 @@ func printFinding(f finding) {
 		return
 	}
 
+	if f.Kind == kindAmbiguousKey {
+		fmt.Fprintf(
+			os.Stdout,
+			"%s:%d  key=%q value=%q is not a member of every candidate enum for this key: %s\n",
+			f.File, f.Line, f.Key, f.Value, f.Enum,
+		)
+
+		return
+	}
+
 	fmt.Fprintf(
 		os.Stdout,
 		"%s:%d  key=%q value=%q is not a member of %s\n",

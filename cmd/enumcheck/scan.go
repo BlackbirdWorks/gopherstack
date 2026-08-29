@@ -13,17 +13,23 @@ import (
 )
 
 const (
-	kindLiteral = "literal-value"
-	kindReuse   = "cross-enum-reuse"
+	kindLiteral      = "literal-value"
+	kindReuse        = "cross-enum-reuse"
+	kindAmbiguousKey = "ambiguous-key"
 )
 
 // finding is one enumcheck result. CONFIDENT findings (kindLiteral) show a
 // statically-resolved value that is provably not a member of the enum its
-// wire key deserializes into. NEEDS REVIEW findings (kindReuse) show the
-// same dynamic value source feeding two wire keys whose real SDK enums have
-// different declared member sets -- structurally suspicious, but the actual
-// runtime values are never inspected, so this is never promoted to
-// confident. See scan.go's doc comments for why.
+// wire key deserializes into. NEEDS REVIEW findings come in two kinds:
+// kindReuse shows the same dynamic value source feeding two wire keys whose
+// real SDK enums have different declared member sets -- structurally
+// suspicious, but the actual runtime values are never inspected, so this is
+// never promoted to confident. kindAmbiguousKey shows a statically-resolved
+// value under a wire key with 2+ real SDK enum candidates (or a Polymorphic
+// one, also a plain non-enum string somewhere) that fails membership in at
+// least one candidate -- real, but which candidate sense actually applies at
+// this emission site is unknown, so this can never be confident either. See
+// scan.go's doc comments for why.
 type finding struct {
 	File      string `json:"file"`
 	Kind      string `json:"kind"`
@@ -336,17 +342,7 @@ func checkLiteralElt(
 	}
 
 	fact, known := wireKeys[key]
-	// Require an UNAMBIGUOUS single enum candidate, and reject a Polymorphic
-	// key (deserializes as a plain, non-enum string in at least one other
-	// struct this scan can't tell apart from the enum-typed sense). Both
-	// restrictions came from hand-checking this scan's own early findings
-	// against the pinned SDK: a key with 2+ real enum candidates (apigateway
-	// export.go's OpenAPI-document "type", unrelated to any of API
-	// Gateway's own DocumentationPartType/AuthorizerType/IntegrationType;
-	// securityhub's "ErrorCode", really an int32 field on the struct this
-	// code actually builds) was wrong every single time checked by hand --
-	// see the package doc comment.
-	if !known || len(fact.Enums) != 1 || fact.Polymorphic {
+	if !known {
 		return finding{}, false
 	}
 
@@ -356,21 +352,48 @@ func checkLiteralElt(
 	// confirmed live at services/cloudwatchlogs/handler_integrations.go:181,
 	// a nil-backend fallback), never a real enum-typed field's intended
 	// value -- excluded to avoid flagging every such placeholder as a bug.
-	if !ok || val == "" || reg.isMemberOfAny(val, fact.Enums) {
+	if !ok || val == "" {
 		return finding{}, false
 	}
 
 	pos := fset.Position(kv.Value.Pos())
+	base := finding{
+		File: relPath(repoRoot, pos.Filename), Line: pos.Line,
+		Key: key, Enum: strings.Join(fact.Enums, "|"), Value: val,
+	}
 
-	return finding{
-		File:      relPath(repoRoot, pos.Filename),
-		Line:      pos.Line,
-		Kind:      kindLiteral,
-		Key:       key,
-		Enum:      strings.Join(fact.Enums, "|"),
-		Value:     val,
-		Confident: true,
-	}, true
+	// An UNAMBIGUOUS single enum candidate with no Polymorphic plain-string
+	// sighting is CONFIDENT: the emitted value's own enum type is known for
+	// certain, so a non-member value is sound proof of a bug.
+	if len(fact.Enums) == 1 && !fact.Polymorphic {
+		if reg.isMemberOfAny(val, fact.Enums) {
+			return finding{}, false
+		}
+
+		base.Kind, base.Confident = kindLiteral, true
+
+		return base, true
+	}
+
+	// Otherwise the key is ambiguous (2+ real enum candidates SDK-wide,
+	// e.g. inspector2's "status" spanning 13 unrelated *Status enums) or
+	// Polymorphic (also a plain, non-enum string somewhere) -- this scan
+	// cannot tell which sense applies at this emission site, so it is never
+	// CONFIDENT. But when the value fails membership in at least one
+	// candidate, at least one real sense of this key would reject it --
+	// worth a human's judgement even though the scan can't prove which sense
+	// is the true one. Confirmed live: inspector2's rescanDurationState
+	// reused statusEnabled ("ENABLED") under "status", valid only for
+	// Status/DelegatedAdminStatus, never for the EcrRescanDurationStatus
+	// (SUCCESS/PENDING/FAILED) actually in play there -- a real bug the
+	// prior all-or-nothing filter dropped silently.
+	if reg.isMemberOfAll(val, fact.Enums) {
+		return finding{}, false
+	}
+
+	base.Kind = kindAmbiguousKey
+
+	return base, true
 }
 
 func exprText(fset *token.FileSet, e ast.Expr) string {
