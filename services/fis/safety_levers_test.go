@@ -109,7 +109,7 @@ func TestFISHandler_UpdateSafetyLeverState(t *testing.T) {
 		{
 			name: "engage_lever",
 			input: map[string]any{
-				"updateSafetyLeverStateInput": map[string]any{
+				"state": map[string]any{
 					"status": "engaged",
 					"reason": "testing safety lever",
 				},
@@ -120,7 +120,7 @@ func TestFISHandler_UpdateSafetyLeverState(t *testing.T) {
 		{
 			name: "disengage_lever",
 			input: map[string]any{
-				"updateSafetyLeverStateInput": map[string]any{
+				"state": map[string]any{
 					"status": "disengaged",
 					"reason": "resuming operations",
 				},
@@ -195,7 +195,7 @@ func TestUpdateSafetyLever_DefaultAlias(t *testing.T) {
 	h := newTestHandler(t)
 
 	body := map[string]any{
-		"updateSafetyLeverStateInput": map[string]any{
+		"state": map[string]any{
 			"status": "engaged",
 			"reason": "testing default alias",
 		},
@@ -250,7 +250,7 @@ func TestSafetyLever_PreservedAcrossPersistence(t *testing.T) {
 	rec := doRequest(
 		t, h, http.MethodPatch, "/safetyLevers/000000000000",
 		map[string]any{
-			"updateSafetyLeverStateInput": map[string]any{
+			"state": map[string]any{
 				"status": "engaged",
 				"reason": "test lock",
 			},

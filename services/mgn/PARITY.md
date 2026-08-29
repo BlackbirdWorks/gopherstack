@@ -84,10 +84,10 @@ ops:
   # launch_configuration (6)
   GetLaunchConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "flattened per-server shape backed by an internal LaunchConfiguration type this package invented -- no named SDK struct exists for it (models.go)"}
   UpdateLaunchConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
-  CreateLaunchConfigurationTemplate: {wire: ok, errors: ok, state: ok, persist: ok}
+  CreateLaunchConfigurationTemplate: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (gopherstack-101r): Ec2LaunchTemplateID was accepted from the request body, but it is Output-only on the real Input (api_op_CreateLaunchConfigurationTemplate.go:104) -- no real client can ever send it. Removed from the wire request and the backend Input struct rather than derived: this backend has no imageID to hand a companion EC2 launch template at template-creation time (unlike LaunchConfiguration.Ec2LaunchTemplateID, which real UpdateLaunchConfigurationInput does accept -- a distinct, per-source-server field), so deriving one would mean fabricating it. Stays permanently empty on Output, same honesty bar as ImportErrorData's Ec2LaunchTemplateID."}
   DeleteLaunchConfigurationTemplate: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeLaunchConfigurationTemplates: {wire: ok, errors: ok, state: ok, persist: ok}
-  UpdateLaunchConfigurationTemplate: {wire: ok, errors: ok, state: ok, persist: ok}
+  UpdateLaunchConfigurationTemplate: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (gopherstack-101r): same Ec2LaunchTemplateID removal as CreateLaunchConfigurationTemplate (api_op_UpdateLaunchConfigurationTemplate.go:106 is Output-only too)."}
   # replication_configuration (6)
   GetReplicationConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "flattened per-server shape, same invented-internal-type pattern as GetLaunchConfiguration"}
   UpdateReplicationConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}

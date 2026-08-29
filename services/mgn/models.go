@@ -519,6 +519,11 @@ type LaunchTemplateDiskConf struct {
 }
 
 // LaunchConfigurationTemplate mirrors types.LaunchConfigurationTemplate.
+// Ec2LaunchTemplateID is Output-only on Create/UpdateLaunchConfigurationTemplate
+// (aws-sdk-go-v2/service/mgn@v1.48.4 api_op_CreateLaunchConfigurationTemplate.go:104,
+// api_op_UpdateLaunchConfigurationTemplate.go:106 -- absent from both Inputs) and
+// always empty here: this backend has no imageID to hand a companion EC2 launch
+// template at template-creation time, so deriving one would mean fabricating it.
 type LaunchConfigurationTemplate struct {
 	Tags                                *tags.Tags
 	Licensing                           *Licensing

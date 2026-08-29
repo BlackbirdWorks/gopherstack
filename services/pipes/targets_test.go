@@ -90,28 +90,6 @@ const (
 	b2ECSTarget    = "arn:aws:ecs:us-east-1:123456789012:cluster/cluster"
 )
 
-// nestedString extracts a string from nested map[string]any.
-func nestedString(t *testing.T, m map[string]any, keys ...string) string {
-	t.Helper()
-	cur := m
-	for i, k := range keys {
-		if i == len(keys)-1 {
-			v, ok := cur[k]
-			require.True(t, ok, "key %q missing in %v", k, cur)
-			s, ok := v.(string)
-			require.True(t, ok, "key %q is not string: %T", k, v)
-
-			return s
-		}
-		sub, ok := cur[k]
-		require.True(t, ok, "intermediate key %q missing", k)
-		cur, ok = sub.(map[string]any)
-		require.True(t, ok, "intermediate key %q is not object: %T", k, sub)
-	}
-
-	return ""
-}
-
 // nestedFloat extracts a float64 from nested map[string]any.
 func nestedFloat(t *testing.T, m map[string]any, keys ...string) float64 {
 	t.Helper()

@@ -413,7 +413,6 @@ type createLaunchConfigurationTemplateRequest struct {
 	SmallVolumeConf                     *launchTemplateDiskConfWire `json:"smallVolumeConf,omitempty"`
 	Tags                                map[string]string           `json:"tags,omitempty"`
 	BootMode                            string                      `json:"bootMode,omitempty"`
-	Ec2LaunchTemplateID                 string                      `json:"ec2LaunchTemplateID,omitempty"`
 	LaunchDisposition                   string                      `json:"launchDisposition,omitempty"`
 	MapAutoTaggingMpeID                 string                      `json:"mapAutoTaggingMpeID,omitempty"`
 	ParametersEncryptionKey             string                      `json:"parametersEncryptionKey,omitempty"`
@@ -447,7 +446,6 @@ type updateLaunchConfigurationTemplateRequest struct {
 	LargeVolumeConf                     *launchTemplateDiskConfWire `json:"largeVolumeConf,omitempty"`
 	SmallVolumeConf                     *launchTemplateDiskConfWire `json:"smallVolumeConf,omitempty"`
 	BootMode                            *string                     `json:"bootMode,omitempty"`
-	Ec2LaunchTemplateID                 *string                     `json:"ec2LaunchTemplateID,omitempty"`
 	PostLaunchActions                   *postLaunchActionsWire      `json:"postLaunchActions,omitempty"`
 	EnableMapAutoTagging                *bool                       `json:"enableMapAutoTagging,omitempty"`
 	Licensing                           *licensingWire              `json:"licensing,omitempty"`

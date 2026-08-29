@@ -66,12 +66,11 @@ func (b *InMemoryBackend) CreatePipe(ctx context.Context, in CreatePipeInput) (*
 		DesiredState: in.DesiredState, CurrentState: stateCreating,
 		AccountID: b.accountID, Region: region,
 		CreationTime: now, LastModifiedTime: now,
-		Tags:                    mergeTags(nil, in.Tags),
-		SourceParameters:        in.SourceParameters,
-		TargetParameters:        in.TargetParameters,
-		LogConfiguration:        in.LogConfiguration,
-		EnrichmentParameters:    in.EnrichmentParameters,
-		RuntimeMetricsStreaming: in.RuntimeMetricsStreaming,
+		Tags:                 mergeTags(nil, in.Tags),
+		SourceParameters:     in.SourceParameters,
+		TargetParameters:     in.TargetParameters,
+		LogConfiguration:     in.LogConfiguration,
+		EnrichmentParameters: in.EnrichmentParameters,
 	}
 	pipesTable.Put(p)
 
@@ -139,9 +138,6 @@ func applyUpdateFields(p *Pipe, in UpdatePipeInput) {
 	}
 	if in.EnrichmentParameters != nil {
 		p.EnrichmentParameters = in.EnrichmentParameters
-	}
-	if in.RuntimeMetricsStreaming != nil {
-		p.RuntimeMetricsStreaming = in.RuntimeMetricsStreaming
 	}
 }
 

@@ -51,3 +51,36 @@ func TestUpdatePipe_KmsKeyIdentifierCanBeCleared(t *testing.T) {
 	require.Empty(t, aws.ToString(after.KmsKeyIdentifier),
 		"explicit empty KmsKeyIdentifier on UpdatePipe must revert to the default key, not be silently ignored")
 }
+
+// TestCreateUpdatePipe_RuntimeMetricsStreamingNotAccepted proves
+// gopherstack-101r's fix for handler.go's createPipeRequest/updatePipeRequest:
+// RuntimeMetricsStreaming does not exist anywhere in the real Pipes SDK
+// (aws-sdk-go-v2/service/pipes@v1.26.4 -- absent from CreatePipeInput,
+// UpdatePipeInput, and types.Pipe), so no typed client can express it; this
+// exercises the raw body a stray caller might still send and proves the key
+// is gone entirely rather than silently accepted.
+func TestCreateUpdatePipe_RuntimeMetricsStreamingNotAccepted(t *testing.T) {
+	t.Parallel()
+
+	h := b2Handler(t)
+
+	created := b2Create(t, h, "rms-gone", map[string]any{
+		"RoleArn": "arn:aws:iam::123456789012:role/r",
+		"Source":  b2SQSSource,
+		"Target":  b2LambdaTarget,
+		"RuntimeMetricsStreaming": map[string]any{
+			"Level": "ALL",
+		},
+	})
+	_, present := created["RuntimeMetricsStreaming"]
+	require.False(t, present, "Create must not echo back a RuntimeMetricsStreaming key")
+
+	updated := b2Update(t, h, "rms-gone", map[string]any{
+		"RoleArn": "arn:aws:iam::123456789012:role/r",
+		"RuntimeMetricsStreaming": map[string]any{
+			"Level": "ERRORS",
+		},
+	})
+	_, present = updated["RuntimeMetricsStreaming"]
+	require.False(t, present, "Update must not echo back a RuntimeMetricsStreaming key")
+}
