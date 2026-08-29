@@ -94,6 +94,40 @@ func (b *InMemoryBackend) ListActionExecutions(
 	return out, nil
 }
 
+// StageSucceededInExecution reports whether stageName succeeded within
+// pipelineExecutionID, backing ListPipelineExecutions'
+// Filter.SucceededInStage (types.SucceededInStageFilter). A stage is
+// considered succeeded when at least one action execution is recorded for
+// it in this run and every one of them completed Succeeded -- the
+// mechanical definition this backend's flat ActionExecution records can
+// support; there is no separate per-stage status anywhere else in this
+// backend to consult instead.
+func (b *InMemoryBackend) StageSucceededInExecution(
+	ctx context.Context,
+	pipelineName, pipelineExecutionID, stageName string,
+) bool {
+	b.mu.RLock("StageSucceededInExecution")
+	defer b.mu.RUnlock()
+
+	region := getRegion(ctx, b.region)
+
+	found := false
+
+	for _, ae := range b.actionExecutionsStoreRO(region)[pipelineName] {
+		if ae.PipelineExecutionID != pipelineExecutionID || ae.StageName != stageName {
+			continue
+		}
+
+		found = true
+
+		if ae.Status != statusSucceeded {
+			return false
+		}
+	}
+
+	return found
+}
+
 // ListDeployActionExecutionTargets returns the deploy targets for an action
 // execution. Real ListDeployActionExecutionTargetsInput marks only
 // ActionExecutionId required (codepipeline@v1.49.4

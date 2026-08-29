@@ -169,10 +169,27 @@ func (h *Handler) handleStopPipelineExecution(
 	return &pipelineExecutionOutput{PipelineExecutionID: exec.PipelineExecutionID}, nil
 }
 
+// succeededInStageFilter mirrors types.SucceededInStageFilter
+// (codepipeline@v1.49.4 types/types.go:2517): filters
+// ListPipelineExecutions to runs where stageName succeeded in the current
+// pipeline version.
+type succeededInStageFilter struct {
+	StageName string `json:"stageName"`
+}
+
+// pipelineExecutionFilter mirrors types.PipelineExecutionFilter
+// (types/types.go:1661), the ListPipelineExecutionsInput.Filter member --
+// previously accepted nowhere by gopherstack, silently returning every
+// execution regardless of the caller's filter.
+type pipelineExecutionFilter struct {
+	SucceededInStage *succeededInStageFilter `json:"succeededInStage"`
+}
+
 type listPipelineExecutionsInput struct {
-	PipelineName string `json:"pipelineName"`
-	NextToken    string `json:"nextToken"`
-	MaxResults   int32  `json:"maxResults"`
+	Filter       *pipelineExecutionFilter `json:"filter"`
+	PipelineName string                   `json:"pipelineName"`
+	NextToken    string                   `json:"nextToken"`
+	MaxResults   int32                    `json:"maxResults"`
 }
 
 type listPipelineExecutionsOutput struct {
@@ -191,6 +208,19 @@ func (h *Handler) handleListPipelineExecutions(
 	execs, err := h.Backend.ListPipelineExecutions(ctx, in.PipelineName)
 	if err != nil {
 		return nil, err
+	}
+
+	if in.Filter != nil && in.Filter.SucceededInStage != nil && in.Filter.SucceededInStage.StageName != "" {
+		stageName := in.Filter.SucceededInStage.StageName
+		filtered := execs[:0]
+
+		for _, e := range execs {
+			if h.Backend.StageSucceededInExecution(ctx, in.PipelineName, e.PipelineExecutionID, stageName) {
+				filtered = append(filtered, e)
+			}
+		}
+
+		execs = filtered
 	}
 
 	items := make([]map[string]any, len(execs))
@@ -214,8 +244,27 @@ func (h *Handler) handleListPipelineExecutions(
 	}, nil
 }
 
-type actionExecutionFilter struct {
+// latestInPipelineExecutionFilter mirrors types.LatestInPipelineExecutionFilter
+// (codepipeline@v1.49.4 types/types.go:1409): both PipelineExecutionId and
+// StartTimeRange are required on the real wire. This backend has no
+// cross-execution "latest run" history distinct from a single execution's
+// own action records, so StartTimeRange (Latest vs All) does not change the
+// result -- PipelineExecutionId alone is enough data to resolve the filter
+// to a single execution's actions, which is the field this backend can
+// honor without fabricating history it doesn't model.
+type latestInPipelineExecutionFilter struct {
 	PipelineExecutionID string `json:"pipelineExecutionId"`
+	StartTimeRange      string `json:"startTimeRange"`
+}
+
+// actionExecutionFilter mirrors types.ActionExecutionFilter
+// (types/types.go:247). LatestInPipelineExecution was previously accepted
+// nowhere by gopherstack, so a caller using it (instead of the flat
+// PipelineExecutionId member) silently got every action execution for the
+// whole pipeline back, unfiltered.
+type actionExecutionFilter struct {
+	LatestInPipelineExecution *latestInPipelineExecutionFilter `json:"latestInPipelineExecution"`
+	PipelineExecutionID       string                           `json:"pipelineExecutionId"`
 }
 
 type listActionExecutionsInput struct {
@@ -241,6 +290,9 @@ func (h *Handler) handleListActionExecutions(
 	var execFilter string
 	if in.Filter != nil {
 		execFilter = in.Filter.PipelineExecutionID
+		if execFilter == "" && in.Filter.LatestInPipelineExecution != nil {
+			execFilter = in.Filter.LatestInPipelineExecution.PipelineExecutionID
+		}
 	}
 
 	items, err := h.Backend.ListActionExecutions(ctx, in.PipelineName, execFilter)

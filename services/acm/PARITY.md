@@ -7,8 +7,36 @@
 service: acm
 sdk_module: aws-sdk-go-v2/service/acm@v1.43.4   # version audited against
 last_audit_commit:                                # unknown: pass ran without git access at write time, never backfilled -- gopherstack-33in
-last_audit_date: 2026-08-19
+last_audit_date: 2026-08-29
 overall: A            # A = genuine fix found (wire-shape bug); B = already-accurate, proven op-by-op
+# 2026-08-29 pass (gopherstack-6flj/21my dropped-filter/wrapper-key class,
+# targeted re-sweep): genuinely clean, no bug found -- reported honestly as
+# such rather than manufacturing one. Sampled the highest-risk surface for
+# this campaign's specific bug class (a filter/sort/precondition field
+# accepted-and-silently-ignored): ListCertificates SortBy/SortOrder
+# (certificates.go ListCertificates, confirmed correctly applied both
+# directions, ASCENDING default matches "if you specify SortBy you must also
+# specify SortOrder" -- no documented default order to diverge from);
+# SearchCertificates' recursive And/Or/Not filter tree (search_certificates.go
+# certFilterStatement.matches -- confirmed correct boolean semantics, not
+# swapped); ImportCertificate.Tags (confirmed stored+echoed, not
+# write-only-state); CreateAcmeEndpoint.CertificateTags/AllowedKeyAlgorithms
+# (a real, less-audited field this pass suspected might be dropped --
+# confirmed parsed/stored/echoed in acme_endpoints.go/handler_acme_endpoints.go);
+# GetAcmeExternalAccountBindingCredentials' PascalCase KeyId/MacKey wire keys
+# and the whole ACME-family PascalCase convention (AcmeDomainValidationArn/
+# AcmeEndpointArn/CreatedAt/DomainName/PrevalidationDetails/PrevalidationType/
+# Status/UpdatedAt/HostedZoneId/ResourceRecord/DomainScope) verified field-by-
+# field against deserializers.go's own switch cases -- all correctly cased,
+# unlike the lowerCamelCase used everywhere else in this service; CertificateDetail
+# field-spot-checked against the real deserializer, no new fabricated/missing
+# member found beyond what's already tracked in gaps (AcmeAccountId/
+# AcmeEndpointArn/CertificateKeyPairOrigin, already documented as
+# correct-by-absence). Not re-read this pass: the full field-by-field re-diff
+# of every op is NOT repeated here -- this pass trusted the 9 prior dated
+# passes' "wire: ok" rows for surface it did not independently re-check
+# (RequestCertificate/DescribeCertificate/ExportCertificate/RevokeCertificate/
+# the full ACME EAB and domain-validation CRUD beyond the spot-checks above).
 # 2026-07-25 pass: implemented 23 ops added between v1.37.21 and v1.43.0 (the
 # ACME family: endpoints, external account bindings, accounts, domain
 # validations; plus SearchCertificates and generic resource tagging). No

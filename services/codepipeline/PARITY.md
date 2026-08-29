@@ -7,8 +7,9 @@
 service: codepipeline
 sdk_module: aws-sdk-go-v2/service/codepipeline@v1.49.4   # version audited against
 last_audit_commit: d50d1410                              # stale -- git usage disallowed this pass; see last_audit_date
-last_audit_date: 2026-08-23
-overall: A            # 2026-08-19 wrapper-key/nested-shape sweep: 4 real bugs found and fixed, all previously invisible to raw-body tests. (1) GetPipelineState's StageState emitted a fabricated "outboundTransitionState" member -- real types.StageState has no such field at all (only inboundTransitionState is wire-visible). (2) GetPipelineState's inboundTransitionState used wrong keys "disabled"/"reason" -- real types.TransitionState is "enabled" (bool, INVERTED sense) / "disabledReason"; a real client's DisabledReason was always blank. (3) ListPipelines' PipelineSummary emitted a fabricated "pipelineArn" member -- real types.PipelineSummary has no ARN field at all (GetPipelineState is the only source of the ARN). (4) PutWebhook/ListWebhooks' AuthenticationConfiguration used lowercase "secretToken"/"allowedIPRange" on BOTH request parse and response emit -- real types.WebhookAuthConfiguration uses capitalized "SecretToken"/"AllowedIPRange" (uniquely, unlike every other WebhookDefinition member); a real client's IP/GITHUB_HMAC auth config was silently dropped on write and never echoed back on read. Also fixed incidentally while auditing GetPipelineState's wrapper key: its top-level Created/Updated (real, always-populated members) were never emitted at all. See families/ops notes below for citations and gopherstack-2mwl-style detail. No other bugs found across the other 30 ops swept (webhooks/customActionTypes/jobsAndThirdPartyJobs/ruleOps/pipeline CRUD/executions all independently re-diffed clean). Overall grade held at A -- these were real client-visible wire bugs but narrow in blast radius and now fixed with hand-reverted proof.
+last_audit_date: 2026-08-29
+overall: A            # 2026-08-29: dropped-filter sweep found and fixed 2 real bugs -- ListPipelineExecutions.Filter.SucceededInStage and ListActionExecutions.Filter.LatestInPipelineExecution were both accepted nowhere, silently returning unfiltered results. See the dated notes section near the bottom of this file for full detail. Grade held at A -- narrow blast radius, fixed with hand-reverted proof.
+# 2026-08-19 wrapper-key/nested-shape sweep: 4 real bugs found and fixed, all previously invisible to raw-body tests. (1) GetPipelineState's StageState emitted a fabricated "outboundTransitionState" member -- real types.StageState has no such field at all (only inboundTransitionState is wire-visible). (2) GetPipelineState's inboundTransitionState used wrong keys "disabled"/"reason" -- real types.TransitionState is "enabled" (bool, INVERTED sense) / "disabledReason"; a real client's DisabledReason was always blank. (3) ListPipelines' PipelineSummary emitted a fabricated "pipelineArn" member -- real types.PipelineSummary has no ARN field at all (GetPipelineState is the only source of the ARN). (4) PutWebhook/ListWebhooks' AuthenticationConfiguration used lowercase "secretToken"/"allowedIPRange" on BOTH request parse and response emit -- real types.WebhookAuthConfiguration uses capitalized "SecretToken"/"AllowedIPRange" (uniquely, unlike every other WebhookDefinition member); a real client's IP/GITHUB_HMAC auth config was silently dropped on write and never echoed back on read. Also fixed incidentally while auditing GetPipelineState's wrapper key: its top-level Created/Updated (real, always-populated members) were never emitted at all. See families/ops notes below for citations and gopherstack-2mwl-style detail. No other bugs found across the other 30 ops swept (webhooks/customActionTypes/jobsAndThirdPartyJobs/ruleOps/pipeline CRUD/executions all independently re-diffed clean). Overall grade held at A -- these were real client-visible wire bugs but narrow in blast radius and now fixed with hand-reverted proof.
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
@@ -20,9 +21,9 @@ ops:
   StartPipelineExecution: {wire: ok, errors: ok, state: ok, persist: ok, note: "now gates on the first unresolved Approval-category action (action_engine.go runPipelineActions) instead of always completing synchronously; StartTime/Trigger/ExecutionMode/ExecutionType now populated"}
   StopPipelineExecution: {wire: ok, errors: ok, state: ok, persist: ok, note: "now abandons (rather than silently orphaning) any action execution left InProgress on a pending approval gate, clearing its token so a stopped execution's approval can never be resurrected"}
   GetPipelineExecution: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed (was partial): now includes executionMode/executionType/trigger/rollbackMetadata, matching the real PipelineExecution shape exactly (verified field-by-field against awsAwsjson11_deserializeDocumentPipelineExecution -- this shape has NO startTime/lastUpdateTime, unlike PipelineExecutionSummary; an earlier draft of this fix incorrectly added them here too and was corrected before landing). ArtifactRevisions/Variables remain omitted -- no artifact-store or pipeline-variable resolution engine exists to populate them (see deferred)."}
-  ListPipelineExecutions: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed (was partial): summaries now include startTime/lastUpdateTime (epoch seconds)/executionMode/executionType/rollbackMetadata, verified field-by-field against awsAwsjson11_deserializeDocumentPipelineExecutionSummary (confirmed this shape has NO pipelineName/pipelineVersion, unlike the GetPipelineExecution detail shape). sourceRevisions/statusSummary/stopTrigger remain omitted -- no source-revision or stop-reason tracking exists (see deferred)."}
+  ListPipelineExecutions: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed (was partial): summaries now include startTime/lastUpdateTime (epoch seconds)/executionMode/executionType/rollbackMetadata, verified field-by-field against awsAwsjson11_deserializeDocumentPipelineExecutionSummary (confirmed this shape has NO pipelineName/pipelineVersion, unlike the GetPipelineExecution detail shape). sourceRevisions/statusSummary/stopTrigger remain omitted -- no source-revision or stop-reason tracking exists (see deferred). 2026-08-29: FIXED a dropped-filter bug -- ListPipelineExecutionsInput.Filter (types.PipelineExecutionFilter, types/types.go:1661, serializers.go:3924/4326) was accepted nowhere; a real client's Filter.SucceededInStage.StageName request silently returned every execution instead of only the ones where that stage genuinely succeeded (the worse-than-empty wrong-answer class this campaign targets, not a silent drop to empty). Now applied via a new backend method, StageSucceededInExecution (pipeline_executions.go): a stage 'succeeded' when at least one action execution is recorded for it in that run and every one completed Succeeded. Test: TestListPipelineExecutions_SucceededInStageFilter_RealClient (wire_field_fixes_test.go)."}
   GetPipelineState: {wire: ok, errors: ok, state: ok, persist: n/a, note: "actionStates[].latestExecution now includes token/summary/lastStatusChange (fixed -- required for the real approval-token handshake: PutApprovalResult's token can ONLY come from here in real AWS); actionStates[].currentRevision now populated from PutActionRevision (fixed, was entirely absent). 2026-08-19: fixed 3 real wire bugs re-diffed against awsAwsjson11_deserializeDocumentGetPipelineStateOutput/StageState/TransitionState. (a) stageStates[].outboundTransitionState was a FABRICATED member -- real types.StageState has no such field (only inboundTransitionState is wire-visible, regardless of DisableStageTransition's Outbound transitionType); removed from the wire builder and the internal StageState Go type. (b) inboundTransitionState used wrong keys 'disabled'/'reason' -- real types.TransitionState is 'enabled' (bool, semantics INVERTED from our stored Disabled) / 'disabledReason'; a real client's TransitionState.DisabledReason was always blank (the unrecognized 'reason' key was silently dropped). (c) top-level created/updated (real, always-populated members) were never emitted at all -- added. New tests: TestGetPipelineState_InboundTransitionState, TestGetPipelineState_CreatedUpdated, TestGetPipelineState_OmitsOutboundTransitionState (pipeline_state_wire_test.go), all real-SDK-client round trips except the outbound-omission check (raw body, justified: real types.StageState has no field for the fabricated key to bind to, so a client round trip cannot observe its absence)."}
-  ListActionExecutions: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: actionExecutions is no longer purely derived state safely rebuildable by StartPipelineExecution alone (an approval gate's token lives only on its ActionExecution record) so it is now persisted (backendSnapshot version bumped 1->2); correctly cleared on DeletePipeline"}
+  ListActionExecutions: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: actionExecutions is no longer purely derived state safely rebuildable by StartPipelineExecution alone (an approval gate's token lives only on its ActionExecution record) so it is now persisted (backendSnapshot version bumped 1->2); correctly cleared on DeletePipeline. 2026-08-29: FIXED a dropped-filter bug -- ActionExecutionFilter.LatestInPipelineExecution (types.LatestInPipelineExecutionFilter, types/types.go:1409, serializers.go:2855/3786) was accepted nowhere; a real client narrowing via this member (instead of the flat Filter.PipelineExecutionId) got every action execution for the whole pipeline back, unfiltered. Fixed by resolving LatestInPipelineExecution.PipelineExecutionId into the same execution-ID filter the flat member already used -- this backend has no cross-execution 'latest run' history beyond a single execution's own action records, so StartTimeRange (Latest vs All) does not change the result; narrowing to the named execution is the real behavior this backend's data can honor without fabricating history it doesn't model. Test: TestListActionExecutions_LatestInPipelineExecutionFilter_RealClient (wire_field_fixes_test.go)."}
   PutActionRevision: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed (was a stub: validated the pipeline exists, mutated nothing, always returned NewRevision=true). Now tracks the submitted ActionRevision per stage/action (surfaced via GetPipelineState), returns NewRevision=false on a repeat revisionId, and triggers a real, persisted pipeline execution (Trigger=PutActionRevision) via the same synchronous run engine as StartPipelineExecution. New ActionNotFoundException for an unknown stage/action (previously silently accepted)."}
   PutApprovalResult: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed multiple real bugs at once (see 'Bugs found and fixed this pass' below): the wire-shape field name mismatch (approvalResult -> result), the entirely-unparsed required token field, the RFC3339-string approvedAt (should be epoch seconds), and the complete absence of any state mutation. Now implements the real token-handshake: validates the action is an Approval-category action with an open (InProgress) approval request, matches token, and resumes (Approved) or fails (Rejected) the paused pipeline execution."}
   RetryStageExecution: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed (was a stub: fabricated an InProgress PipelineExecution response never written to executionsStore). Now requires an actually-Failed/Abandoned action in the given stage/execution (StageNotRetryableException otherwise, matching real AWS's real precondition), resets it (FAILED_ACTIONS) or the whole stage (ALL_ACTIONS), and resumes the SAME execution via the shared run engine. retryMode was previously parsed but silently dropped -- now threaded through and validated."}
@@ -338,3 +339,61 @@ deserializers.go) is "enabled" (inverted polarity) and "disabledReason".
 Proven via `TestGetPipelineState_EnabledDisabledReasonKeys_RealClient`
 (wire_field_fixes_y1zn_test.go), hand-reverted/confirmed-failing/restored/
 `md5sum`-verified byte-identical.
+
+## 2026-08-29 pass: dropped-filter sweep (gopherstack-6flj/21my class), 2 confirmed bugs
+
+Re-swept `ListPipelineExecutions`/`ListActionExecutions` for the specific
+class this campaign flags as worse than a silent drop: a request field
+naming a filter, sort, or precondition that is accepted nowhere, silently
+disabling the caller's filter rather than erroring or returning empty.
+Confirmed by reading `ListPipelineExecutionsInput`/`ListActionExecutionsInput`
+directly in the pinned SDK (`codepipeline@v1.49.4`, `api_op_*.go`) rather than
+trusting this file's prior "wire: ok" claims on these two ops, which were
+accurate for the response shape but never checked the request `Filter`
+member at all.
+
+1. **`ListPipelineExecutionsInput.Filter`** (`types.PipelineExecutionFilter`
+   -> `SucceededInStage.StageName`, `types/types.go:1661`,
+   `serializers.go:3924`/`4326`) was parsed nowhere in
+   `listPipelineExecutionsInput` -- the struct had no `Filter` field at all.
+   A real client filtering for executions where a given stage succeeded got
+   every execution back unfiltered -- a plausible wrong answer, not an
+   empty/error response. Fixed: added `pipelineExecutionFilter`/
+   `succeededInStageFilter` wire types and a new backend method
+   `StageSucceededInExecution` (mechanical definition: at least one action
+   execution recorded for that stage in that run, and every one of them
+   `Succeeded`) to `handleListPipelineExecutions`.
+2. **`ListActionExecutionsInput.Filter.LatestInPipelineExecution`**
+   (`types.LatestInPipelineExecutionFilter`, `types/types.go:1409`,
+   `serializers.go:2855`/`3786`) was parsed nowhere in `actionExecutionFilter`
+   -- only the flat `PipelineExecutionId` member was read. A real client
+   narrowing via this (required-both-subfields) member instead of the flat
+   one got every action execution for the whole pipeline back, unfiltered.
+   Fixed: `LatestInPipelineExecution.PipelineExecutionId` now resolves into
+   the same execution-ID filter the flat member already used. `StartTimeRange`
+   (Latest vs All) is accepted but does not change the result -- this backend
+   has no cross-execution "latest run" history distinct from a single
+   execution's own flat action records, so narrowing to the named execution
+   is the complete real behavior this backend's data can honor without
+   fabricating a distinction it can't verify.
+
+Both proven via a real `aws-sdk-go-v2` client round trip
+(`wire_field_fixes_test.go`:
+`TestListPipelineExecutions_SucceededInStageFilter_RealClient`,
+`TestListActionExecutions_LatestInPipelineExecutionFilter_RealClient`),
+hand-reverted against `git checkout --` on the two touched source files,
+confirmed both new subtests fail with the exact predicted symptom (both
+executions/actions returned instead of the filtered one) against unmodified
+code, restored via a scratchpad copy, `md5sum`-verified byte-identical before
+re-applying.
+
+Not reached this pass (scope: `ListPipelineExecutions`/`ListActionExecutions`
+request filters specifically, per this campaign's explicit hint that this
+service "is full of such fields"): no further dropped filter/sort/precondition
+fields were found on any other op -- `ListActionTypes.RegionFilter` (already
+documented as a correct-by-absence gap) and `ListActionTypes.ActionOwnerFilter`
+(confirmed applied, `handler_custom_action_types.go`) were spot-checked;
+`ListPipelines`/`ListWebhooks`/`ListRuleExecutions`/`ListRuleTypes` have no
+filter members in the real SDK to have dropped. The remaining ~35 ops were
+not re-read this pass (out of scope: this pass targeted the filter/sort/
+precondition bug class specifically, not a full re-sweep).
