@@ -42,8 +42,15 @@ func (b *InMemoryBackend) CreateCluster(input CreateClusterInput) (*Cluster, err
 	b.mu.Lock("CreateCluster")
 	defer b.mu.Unlock()
 
-	if b.clusters.Has(name) {
-		return nil, fmt.Errorf("%w: %s", ErrClusterAlreadyExists, name)
+	// Real ECS's CreateCluster is idempotent: calling it again with an
+	// existing ClusterName returns the existing cluster rather than
+	// erroring (CreateCluster's own deserializeOpError models no
+	// "already exists" exception at all, and no such type exists anywhere
+	// in ecs@v1.90.0's SDK).
+	if existing, ok := b.clusters.Get(name); ok {
+		cp := *existing
+
+		return &cp, nil
 	}
 
 	if err := b.validateCapacityProviderStrategyLocked(input.DefaultCapacityProviderStrategy); err != nil {

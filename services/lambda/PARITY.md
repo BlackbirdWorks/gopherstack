@@ -216,3 +216,59 @@ ignores it rather than erroring or scoping by it. Worth a follow-up bd issue.
 
 Gates: `go build`, `go vet`, `go test -race -count=1`, `golangci-lint run` — all clean
 (`./services/lambda/...`).
+
+### 2026-08-29 -- ERROR PATH sweep (wrong-error-code class)
+
+Extracted ground truth from all 85 `awsRestjson1_deserializeOpError<Op>` switches
+in `lambda@v1.101.2/deserializers.go` (REST-JSON, matched via `strings.EqualFold`
+against `X-Amzn-ErrorType`/body `__type`) and diffed every literal exception-code
+string used across `services/lambda/*.go` (both `errors.go` sentinels and
+handler-inline `h.writeError(...)` literals) against both that per-op ground
+truth and the 56 real shapes in `lambda@v1.101.2/types/errors.go`.
+
+**Unlike ecs this same sweep, lambda's codes were already disciplined**: of 9
+distinct literal exception-name strings hardcoded in handler files (outside the
+`errors.go` sentinel table), only `MethodNotAllowedException` isn't a real
+Lambda type -- and that one is a router-level HTTP-405 guard on unsupported
+path/method combinations, not tied to any operation's error model (a real SDK
+client can never trigger it), so it's out of this bug class and untouched.
+
+**2 bugs found and fixed**, both the "two distinct exceptions are both modeled
+by this exact op, and gopherstack always emits the wrong one" shape (same as
+cloudformation's `DescribeStackInstance` this same sweep):
+
+1. `PutFunctionCodeSigningConfig` (`code_signing.go`): when the function exists
+   but the given `CodeSigningConfigArn` doesn't, the backend returned
+   `ErrFunctionNotFound` ("ResourceNotFoundException") -- the *function*-not-found
+   sentinel -- for the CSC-not-found case too (the handler's own error message
+   literally said "Function or code signing config not found", indicating the
+   two conditions were known but conflated). This op's own deserializer models
+   `CodeSigningConfigNotFoundException` as a distinct shape from
+   `ResourceNotFoundException`; fixed the backend to return
+   `ErrCodeSigningConfigNotFound` for this branch and the handler to map it to
+   the correct wire code.
+2. `GetProvisionedConcurrencyConfig` (`concurrency.go`/`handler_concurrency.go`):
+   the "config not found for this qualifier" branch already used a
+   distinctly-named sentinel (`ErrProvisionedConcurrencyConfigNotFound`) but the
+   handler mapped it to the generic `ResourceNotFoundException` wire code
+   instead of `ProvisionedConcurrencyConfigNotFoundException`, which this op's
+   own deserializer models as a separate shape. `DeleteProvisionedConcurrencyConfig`
+   uses the same sentinel correctly -- its own deserializer does **not** model
+   the specific exception, only `ResourceNotFoundException`, so that call site
+   was left unchanged (verified from its own switch, not assumed from the
+   sibling).
+
+Pre-existing test asserting the wrong behavior as correct (found and fixed,
+same shape as the iam `InvalidAction` test): `provisioned_concurrency_test.go`'s
+`TestGetProvisionedConcurrencyConfig/config_not_found` asserted `wantErrType:
+"ResourceNotFoundException"`; updated to `"ProvisionedConcurrencyConfigNotFoundException"`.
+
+New tests: `error_code_fixes_lambdasweep_test.go`, both driving the real
+`aws-sdk-go-v2/service/lambda` client and asserting via `errors.As` against the
+SDK's own typed exception; both confirmed failing against the pre-fix code.
+
+Gates: `go build ./services/lambda/...`, `go vet ./services/lambda/...` and
+repo-wide `go vet ./...` (clean except a pre-existing, unrelated
+`services/appconfig` failure from a concurrently-edited service), `go test
+-race -count=1 ./services/lambda/...` (pass), `golangci-lint run --fix
+./services/lambda/...` (0 issues).

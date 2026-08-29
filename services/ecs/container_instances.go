@@ -7,14 +7,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-
-	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
-)
-
-// ErrContainerInstanceNotFound is returned when a container instance does not exist.
-var ErrContainerInstanceNotFound = awserr.New(
-	"ContainerInstanceNotFoundException",
-	awserr.ErrNotFound,
 )
 
 // RegisterContainerInstance registers a container instance to a cluster.
@@ -71,7 +63,7 @@ func (b *InMemoryBackend) DeregisterContainerInstance(
 
 	ci, ok := b.containerInstances.Get(scopedKey(clusterName, containerInstance))
 	if !ok {
-		return nil, fmt.Errorf("%w: %s", ErrContainerInstanceNotFound, containerInstance)
+		return nil, fmt.Errorf("%w: container instance %s not found", ErrInvalidParameter, containerInstance)
 	}
 
 	if !force {
@@ -266,7 +258,7 @@ func (b *InMemoryBackend) UpdateContainerInstancesState(
 	for _, ref := range containerInstances {
 		ci, found := b.containerInstances.Get(scopedKey(clusterName, ref))
 		if !found {
-			return nil, fmt.Errorf("%w: %s", ErrContainerInstanceNotFound, ref)
+			return nil, fmt.Errorf("%w: container instance %s not found", ErrInvalidParameter, ref)
 		}
 
 		ci.Status = status
@@ -294,7 +286,7 @@ func (b *InMemoryBackend) UpdateContainerAgent(
 
 	ci, ok := b.containerInstances.Get(scopedKey(clusterName, containerInstance))
 	if !ok {
-		return nil, fmt.Errorf("%w: %s", ErrContainerInstanceNotFound, containerInstance)
+		return nil, fmt.Errorf("%w: container instance %s not found", ErrInvalidParameter, containerInstance)
 	}
 
 	ci.AgentUpdateStatus = "PENDING"

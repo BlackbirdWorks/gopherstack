@@ -391,14 +391,13 @@ func (b *InMemoryBackend) ListStackSetOperationResults(
 ) ([]StackSetOperationResult, error) {
 	b.mu.RLock("ListStackSetOperationResults")
 	defer b.mu.RUnlock()
-	opResults, ok := b.stackSetOpResults[stackSetName]
-	if !ok {
-		return []StackSetOperationResult{}, nil
+	if !b.stackSets.Has(stackSetName) {
+		return nil, fmt.Errorf("%w: %s", ErrStackSetNotFound, stackSetName)
 	}
-	results, ok := opResults[operationID]
-	if !ok {
-		return []StackSetOperationResult{}, nil
+	if _, ok := b.stackSetOperations[stackSetName][operationID]; !ok {
+		return nil, fmt.Errorf("%w: %s in %s", ErrOperationNotFound, operationID, stackSetName)
 	}
+	results := b.stackSetOpResults[stackSetName][operationID]
 	out := make([]StackSetOperationResult, len(results))
 	copy(out, results)
 

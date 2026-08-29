@@ -1931,3 +1931,28 @@ and three `prealloc` findings by hand, not via `-fix`), `go test
 entry -- all 30 `registerCapacityFamilyOps` ops outside
 `handler_capacity_reservations.go`, plus the 2 `handler_accept_ops.go` ops,
 were read and field-diffed. Work left **uncommitted** for the orchestrator.
+
+**2026-08-29 -- ERROR PATH audited (wrong-error-code sweep, class: sentinel
+maps to a code the SDK's own per-op deserializer doesn't model, so a real
+client's `errors.As` into a typed exception silently falls through to a
+generic error). Structurally clean -- 0 bugs, 0/785 ops at risk by
+construction.** Extracted every `awsEc2query_deserializeOpError<Op>` in
+`aws-sdk-go-v2/service/ec2@v1.319.1/deserializers.go` (785 functions, one per
+routed action) and confirmed none contain a single `case`/`EqualFold` branch
+-- each is unconditionally `switch { default: return &smithy.GenericAPIError{
+Code: errorCode, ... } }`. There is also no `types/errors.go` in this SDK
+package -- EC2 models **zero** typed per-operation exceptions in this pinned
+version. Every EC2 error, for every op, becomes a `smithy.GenericAPIError`
+carrying whatever `Code` string the server sent; a real client can never
+`errors.As` into an op-specific typed exception for this service at all, so
+the "code not modeled by this op" bug class found in iam/dynamodb/s3/sts and
+in cloudformation this same sweep cannot occur here -- there is no per-op
+model to be inconsistent with. `handler.go`'s shared `errCodeLookup` table
+(sentinel -> XML `Code` string) is therefore the entire error surface;
+auditing individual call sites for wire-string accuracy against real AWS
+would be a general parity sweep, not this bug class, and was left alone per
+scope. No source changes.
+
+Gates: `go vet ./services/ec2/...` clean (no source changed; full
+`go build`/`golangci-lint`/`go test` gates not re-run for a read-only
+audit with no diff).

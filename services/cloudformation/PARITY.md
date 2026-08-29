@@ -393,3 +393,66 @@ Proof: `TestHandler_OversizedBodySurfacesInternalFailure` in
 is the regression guard. Gates: `go build`, `go vet`, `gofmt -l` (clean),
 `go test -race ./services/cloudformation/...` (pass), `golangci-lint run
 ./services/cloudformation/...` (0 issues).
+
+**2026-08-29 -- ERROR PATH verified: per-op error code choice audited against
+`cloudformation@v1.76.1`'s 90 `deserializeOpError<Op>` switches (0/90 model
+anything for EC2-style generic fallback -- this service DOES model typed
+per-op exceptions, unlike EC2's 785-op all-generic switch checked in the same
+sweep).** 3 bugs fixed, all the "codes emitted but a real client can't
+`errors.As` into them for this op" shape:
+
+1. `GetHookResult` (`hooks.go`) returned `"SUCCEEDED", nil` for any unknown
+   `HookResultId` instead of raising `HookResultNotFound` (modeled by this op's
+   own deserializer). Compounding wire-field bug fixed alongside it:
+   `handler_hooks.go` read `HookResultToken`, a field that doesn't exist on the
+   wire -- the real `GetHookResultInput` field is `HookResultId`
+   (`serializers.go:8480`) -- so every real-client call missed the lookup and
+   hit the always-SUCCEEDED path regardless of whether the ID was valid.
+2. `DescribeStackInstance` (`stack_instances.go`) never checked whether the
+   `StackSetName` itself existed, so an unknown stack set surfaced
+   `StackInstanceNotFoundException` instead of `StackSetNotFoundException` --
+   both are modeled by this op's own deserializer, so the correct code was
+   directly establishable, not a leave-it case.
+3. `ListStackSetOperationResults` (`stack_sets.go`) never returned an error at
+   all -- an unknown `StackSetName` or `OperationId` silently returned an empty
+   `Summaries` list (HTTP 200) instead of `StackSetNotFoundException` /
+   `OperationNotFoundException`, both modeled by this op.
+
+A pre-existing test (`hooks_test.go`'s `TestHookResults`) asserted the old
+`GetHookResult`-always-succeeds behavior as correct (`"GetHookResult — unknown
+token returns SUCCEEDED (no error)"`); updated to assert the real
+`HookResultNotFound` 400.
+
+**Left unfixed, no correct code establishable from the deserializer (RESTRAINT --
+do not invent a code):** three more asymmetries surfaced by the same per-op
+audit, all a real, SDK-modeled exception name emitted by a `Delete`/`Execute` op
+whose *own* deserializer switch models nothing for that failure at all (so
+neither the current code nor any alternative can be shown correct or incorrect
+from the SDK alone):
+- `DeleteChangeSet` emits `"ChangeSetNotFound"` (modeled only by
+  `DescribeChangeSet`/`DescribeChangeSetHooks`/`ExecuteChangeSet`/`GetTemplate`,
+  not by `DeleteChangeSet` itself).
+- `ExecuteStackRefactor` emits `"StackRefactorNotFoundException"` (modeled only
+  by `DescribeStackRefactor`).
+- `DeleteStackSet` emits `"StackSetNotFoundException"` for any non-"not empty"
+  failure (modeled by many sibling ops -- `DescribeStackSet`,
+  `ListStackInstances`, etc. -- but `DeleteStackSet`'s own deserializer models
+  only `OperationInProgressException`/`StackSetNotEmptyException`).
+
+Also noted, out of the error-code class and left: `SetTypeConfiguration` and
+`DescribeType`'s registry-miss fallback path never raise `TypeNotFoundException`
+(the latter is a documented deliberate convenience fallback, not an oversight);
+`ListHookResults` reads wire fields (`HookResultToken`) that don't exist on the
+real `ListHookResultsInput` (real fields are `TargetId`/`TargetType`/`TypeArn`/
+`Status`/`NextToken`) -- a wire-shape bug, different class, not touched.
+`CreateStack`/`UpdateStack`/`DeleteStack`/`RollbackStack`/`ExecuteChangeSet` all
+model `TokenAlreadyExistsException` for `ClientRequestToken` reuse, which this
+backend doesn't track at all (no idempotency-token infrastructure exists) --
+a feature gap, not a sentinel-choice bug, out of proportion to fix in this
+sweep.
+
+Gates: `go build ./services/cloudformation/...`, `go vet ./...` (repo-wide;
+clean except a pre-existing `services/appconfig` vet failure from a
+concurrently-edited service, not this one), `go test -race -count=1
+./services/cloudformation/...` (pass), `golangci-lint run --fix
+./services/cloudformation/...` (0 issues).

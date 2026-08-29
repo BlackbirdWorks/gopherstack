@@ -461,7 +461,7 @@ func (b *InMemoryBackend) StopTask(cluster, taskArn, reason string) (*Task, erro
 
 		task, ok := b.tasks.Get(taskArn)
 		if !ok || clusterKey(task.ClusterArn) != clusterName {
-			ferr = fmt.Errorf("%w: %s", ErrTaskNotFound, taskArn)
+			ferr = fmt.Errorf("%w: task %s not found", ErrInvalidParameter, taskArn)
 
 			return
 		}
@@ -807,7 +807,7 @@ func (b *InMemoryBackend) ExecuteCommand(
 
 	t, ok := b.tasks.Get(task)
 	if !ok || clusterKey(t.ClusterArn) != clusterName {
-		return nil, fmt.Errorf("%w: %s", ErrTaskNotFound, task)
+		return nil, fmt.Errorf("%w: task %s not found", ErrInvalidParameter, task)
 	}
 
 	if t.LastStatus != statusRunning {

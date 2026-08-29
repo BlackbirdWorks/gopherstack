@@ -2,12 +2,7 @@ package ecs
 
 import (
 	"fmt"
-
-	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 )
-
-// ErrAccountSettingNotFound is returned when an account setting does not exist.
-var ErrAccountSettingNotFound = awserr.New("AccountSettingNotFoundException", awserr.ErrNotFound)
 
 // accountSettingKey builds the map key for an account setting.
 func accountSettingKey(name, principalArn string) string {
@@ -83,7 +78,7 @@ func (b *InMemoryBackend) DeleteAccountSetting(name, principalArn string) (*Acco
 
 	setting, ok := b.accountSettings.Get(key)
 	if !ok {
-		return nil, fmt.Errorf("%w: %s", ErrAccountSettingNotFound, name)
+		return nil, fmt.Errorf("%w: account setting %s not found", ErrInvalidParameter, name)
 	}
 
 	b.accountSettings.Delete(key)

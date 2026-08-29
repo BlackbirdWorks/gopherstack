@@ -249,6 +249,9 @@ func (b *InMemoryBackend) DescribeStackInstance(
 ) (*StackInstance, error) {
 	b.mu.RLock("DescribeStackInstance")
 	defer b.mu.RUnlock()
+	if !b.stackSets.Has(stackSetName) {
+		return nil, fmt.Errorf("%w: %s", ErrStackSetNotFound, stackSetName)
+	}
 	for _, inst := range b.stackInstances[stackSetName] {
 		if inst.Account == account && inst.Region == region {
 			i := inst

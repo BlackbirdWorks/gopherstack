@@ -760,3 +760,79 @@ both confirmed unchanged from the prior sweep's assessment.
   ecs change (`cli.go` has zero diff in this sweep) and out of scope
   (services/ecs/ only, shared file). `go build ./services/ecs/...` and
   `go build ./...` excluding the root package both pass clean.
+
+### 2026-08-29 -- ERROR PATH sweep: fabricated exception codes (class: iam ErrInvalidAction shape)
+
+Extracted ground truth from all 77 `awsAwsjson11_deserializeOpError<Op>` switches
+in `ecs@v1.90.0/deserializers.go` (JSON-RPC protocol, matched via
+`strings.EqualFold` against `X-Amzn-ErrorType`/body `__type`) and cross-checked
+every `awserr.New(...)` sentinel's code string against both that per-op ground
+truth and `ecs@v1.90.0/types/errors.go`'s 29 real exception shapes.
+
+**11 fabricated error codes found and fixed** -- each was a code string that
+appears in **zero** of the 77 per-op switches AND has no corresponding type in
+`types/errors.go` at all (the strongest signal, same as iam's `ErrInvalidAction`
+being 0-of-176): `TaskNotFoundException`, `TaskDefinitionNotFoundException`,
+`ClusterAlreadyExistsException`, `ServiceAlreadyExistsException`,
+`AccountSettingNotFoundException`, `ContainerInstanceNotFoundException`,
+`CapacityProviderNotFoundException`, `CapacityProviderAlreadyExistsException`,
+`ExpressGatewayServiceNotFoundException`, `ExpressGatewayServiceAlreadyExistsException`.
+All were removed from `errors.go`/their owning files along with their now-dead
+`ErrXxx` sentinels; call sites now use whichever code that specific op's own
+deserializer actually models:
+
+- **StopTask, ExecuteCommand** (`tasks.go`), **DescribeTaskDefinition** /
+  **DeregisterTaskDefinition** (`task_definitions.go`, via the shared
+  `findTaskDefinitionLocked` also used by CreateService/UpdateService/RunTask/
+  StartTask/CreateTaskSet/UpdateTaskSet), **DeleteAccountSetting**
+  (`account_settings.go`), **DeregisterContainerInstance** /
+  **UpdateContainerInstancesState** / **UpdateContainerAgent**
+  (`container_instances.go`), **DeleteCapacityProvider** /
+  **UpdateCapacityProvider** (`capacity_providers.go`): all now use
+  `ErrInvalidParameter` ("InvalidParameterException"), which every one of the
+  77 ops models -- the universal fallback once a fabricated code is ruled out.
+- **CreateService** (`services.go`), **CreateCapacityProvider**
+  (`capacity_providers.go`), **CreateExpressGatewayService**
+  (`express_gateway.go`): duplicate-name/ARN case now uses
+  `ErrInvalidParameter` too -- none of these three `Create*` ops model any
+  "already exists" exception, matching the established real-AWS pattern
+  (`InvalidParameterException: Creation of service was not idempotent.`).
+- **DeleteExpressGatewayService** / **UpdateExpressGatewayService**
+  (`express_gateway.go`): now use the pre-existing `ErrServiceNotFound`
+  ("ServiceNotFoundException", the same code ordinary ECS services use) --
+  both ops' own deserializers model that exact shape.
+- **DescribeExpressGatewayService** (`express_gateway.go`): now uses a new
+  `ErrResourceNotFound` ("ResourceNotFoundException") -- its own deserializer
+  models a *different* code from its Delete/Update siblings for what is
+  conceptually the same "service not found" condition; verified from its own
+  switch, not assumed from the siblings.
+
+**Second-shape bug (should not error at all): `CreateCluster`
+(`clusters.go`) is idempotent in real ECS** -- calling it again with an
+existing `ClusterName` returns the existing cluster (HTTP 200), not an error.
+`CreateCluster`'s own deserializer models zero exceptions for this condition,
+and no "ClusterAlreadyExistsException" type exists anywhere in the SDK, same
+signal as `RemoveClientIDFromOpenIDConnectProvider`'s idempotency bug from the
+iam pass. Fixed to return the existing cluster.
+
+**Pre-existing tests asserting the fabricated codes as correct (found and
+fixed, same shape as the iam `InvalidAction` test):**
+`handler_clusters_test.go`'s `TestECS_CreateCluster_AlreadyExists` (asserted
+400 `ClusterAlreadyExistsException`; renamed
+`TestECS_CreateCluster_Idempotent`, now asserts 200),
+`handler_services_test.go`'s `TestECS_CreateService_AlreadyExists`,
+`handler_express_gateway_test.go`'s `TestECS_CreateExpressGatewayService_DuplicateARN`,
+`handler_container_instances_test.go`'s `TestECS_DeregisterContainerInstance_NotFound`,
+`handler_capacity_providers_test.go`'s `TestECS_CreateCapacityProvider_AlreadyExists`
+(all four updated to assert the real `InvalidParameterException`).
+
+New tests: `error_code_fixes_ecssweep_test.go`, all driving the real
+`aws-sdk-go-v2/service/ecs` client and asserting via `errors.As` against the
+SDK's own typed exception (or, for `CreateCluster`, asserting success on the
+second call) -- confirmed failing against the pre-fix code for every case.
+
+Gates: `go build ./services/ecs/...`, `go vet ./services/ecs/...` and
+repo-wide `go vet ./...` (clean except a pre-existing, unrelated
+`services/appconfig` failure from a concurrently-edited service), `go test
+-race -count=1 ./services/ecs/...` (pass), `golangci-lint run --fix
+./services/ecs/...` (0 issues).

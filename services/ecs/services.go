@@ -130,7 +130,7 @@ func (b *InMemoryBackend) CreateService(input CreateServiceInput) (*Service, err
 	b.ensureClusterLocked(clusterName)
 
 	if b.services.Has(scopedKey(clusterName, input.ServiceName)) {
-		return nil, fmt.Errorf("%w: %s", ErrServiceAlreadyExists, input.ServiceName)
+		return nil, fmt.Errorf("%w: service %s already exists", ErrInvalidParameter, input.ServiceName)
 	}
 
 	if err := b.validateCapacityProviderStrategyLocked(input.CapacityProviderStrategy); err != nil {

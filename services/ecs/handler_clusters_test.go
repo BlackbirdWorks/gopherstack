@@ -55,7 +55,12 @@ func TestECS_CreateCluster(t *testing.T) {
 	}
 }
 
-func TestECS_CreateCluster_AlreadyExists(t *testing.T) {
+// TestECS_CreateCluster_Idempotent covers real ECS's documented idempotent
+// behavior: calling CreateCluster again with an existing ClusterName returns
+// the existing cluster (HTTP 200), not an error. "ClusterAlreadyExistsException"
+// is not a real ECS exception type -- it appears in no per-op
+// deserializeOpError switch and has no shape in ecs@v1.90.0/types/errors.go.
+func TestECS_CreateCluster_Idempotent(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -64,8 +69,8 @@ func TestECS_CreateCluster_AlreadyExists(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	rec2 := doECSRequest(t, h, "CreateCluster", map[string]any{"clusterName": "dupe"})
-	assert.Equal(t, http.StatusBadRequest, rec2.Code)
-	assert.Contains(t, rec2.Body.String(), "ClusterAlreadyExistsException")
+	assert.Equal(t, http.StatusOK, rec2.Code)
+	assert.Contains(t, rec2.Body.String(), "\"clusterName\":\"dupe\"")
 }
 
 func TestECS_DescribeClusters(t *testing.T) {

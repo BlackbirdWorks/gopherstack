@@ -3,20 +3,6 @@ package ecs
 import (
 	"fmt"
 	"time"
-
-	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
-)
-
-// ErrCapacityProviderNotFound is returned when a capacity provider does not exist.
-var ErrCapacityProviderNotFound = awserr.New(
-	"CapacityProviderNotFoundException",
-	awserr.ErrNotFound,
-)
-
-// ErrCapacityProviderAlreadyExists is returned when a capacity provider already exists.
-var ErrCapacityProviderAlreadyExists = awserr.New(
-	"CapacityProviderAlreadyExistsException",
-	awserr.ErrAlreadyExists,
 )
 
 // builtinCapacityProviders returns a synthesized CapacityProvider for FARGATE or
@@ -62,7 +48,7 @@ func (b *InMemoryBackend) CreateCapacityProvider(
 	defer b.mu.Unlock()
 
 	if b.capacityProviders.Has(input.Name) {
-		return nil, fmt.Errorf("%w: %s", ErrCapacityProviderAlreadyExists, input.Name)
+		return nil, fmt.Errorf("%w: capacity provider %s already exists", ErrInvalidParameter, input.Name)
 	}
 
 	cp := &CapacityProvider{
@@ -94,7 +80,7 @@ func (b *InMemoryBackend) DeleteCapacityProvider(nameOrArn string) (*CapacityPro
 
 	key, cp := b.findCapacityProviderLocked(nameOrArn)
 	if cp == nil {
-		return nil, fmt.Errorf("%w: %s", ErrCapacityProviderNotFound, nameOrArn)
+		return nil, fmt.Errorf("%w: capacity provider %s not found", ErrInvalidParameter, nameOrArn)
 	}
 
 	b.capacityProviders.Delete(key)
@@ -290,7 +276,7 @@ func (b *InMemoryBackend) UpdateCapacityProvider(
 
 	_, cp := b.findCapacityProviderLocked(input.Name)
 	if cp == nil {
-		return nil, fmt.Errorf("%w: %s", ErrCapacityProviderNotFound, input.Name)
+		return nil, fmt.Errorf("%w: capacity provider %s not found", ErrInvalidParameter, input.Name)
 	}
 
 	if input.AutoScalingGroupProvider != nil {

@@ -231,7 +231,7 @@ func (b *InMemoryBackend) findTaskDefinitionLocked(familyOrArn string) (*TaskDef
 		return td, nil
 	}
 
-	return nil, fmt.Errorf("%w: %s", ErrTaskDefinitionNotFound, familyOrArn)
+	return nil, fmt.Errorf("%w: task definition %s not found", ErrInvalidParameter, familyOrArn)
 }
 
 // DeregisterTaskDefinition marks a task definition revision as INACTIVE.
@@ -257,7 +257,7 @@ func (b *InMemoryBackend) DeregisterTaskDefinition(
 		}
 	}
 
-	return nil, fmt.Errorf("%w: %s", ErrTaskDefinitionNotFound, taskDefinitionArn)
+	return nil, fmt.Errorf("%w: task definition %s not found", ErrInvalidParameter, taskDefinitionArn)
 }
 
 // ListTaskDefinitions returns ARNs of task definitions, optionally filtered by family prefix.

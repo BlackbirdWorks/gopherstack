@@ -163,7 +163,7 @@ func (h *Handler) handleGetProvisionedConcurrencyConfig(c *echo.Context, name, q
 		}
 
 		if errors.Is(err, ErrProvisionedConcurrencyConfigNotFound) {
-			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
+			return h.writeError(c, http.StatusNotFound, "ProvisionedConcurrencyConfigNotFoundException",
 				"No provisioned concurrency config found for qualifier: "+qualifier)
 		}
 

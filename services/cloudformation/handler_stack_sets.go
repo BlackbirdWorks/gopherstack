@@ -538,6 +538,10 @@ func (h *Handler) handleDescribeStackInstance(form url.Values, c *echo.Context) 
 	region := form.Get("StackInstanceRegion")
 	inst, err := h.Backend.DescribeStackInstance(name, account, region)
 	if err != nil {
+		if errors.Is(err, ErrStackSetNotFound) {
+			return h.xmlError(c, "StackSetNotFoundException", err.Error())
+		}
+
 		return h.xmlError(c, "StackInstanceNotFoundException", err.Error())
 	}
 	type instXML struct {
@@ -806,6 +810,10 @@ func (h *Handler) handleListStackSetOperationResults(form url.Values, c *echo.Co
 
 	results, err := h.Backend.ListStackSetOperationResults(stackSetName, operationID, "")
 	if err != nil {
+		if errors.Is(err, ErrStackSetNotFound) {
+			return h.xmlError(c, "StackSetNotFoundException", err.Error())
+		}
+
 		return h.xmlError(c, "OperationNotFoundException", err.Error())
 	}
 

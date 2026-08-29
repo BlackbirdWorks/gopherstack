@@ -451,6 +451,10 @@ func TestECS_DeregisterContainerInstance(t *testing.T) {
 	}
 }
 
+// TestECS_DeregisterContainerInstance_NotFound asserts the real code:
+// DeregisterContainerInstance's own deserializer models no
+// "ContainerInstanceNotFoundException" (that shape doesn't exist anywhere in
+// ecs@v1.90.0), only InvalidParameterException for this condition.
 func TestECS_DeregisterContainerInstance_NotFound(t *testing.T) {
 	t.Parallel()
 
@@ -462,7 +466,7 @@ func TestECS_DeregisterContainerInstance_NotFound(t *testing.T) {
 		"containerInstance": "arn:aws:ecs:us-east-1:000000000000:container-instance/x/nonexistent",
 	})
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
-	assert.Contains(t, rec.Body.String(), "ContainerInstanceNotFoundException")
+	assert.Contains(t, rec.Body.String(), "InvalidParameterException")
 }
 
 func TestECS_DeregisterContainerInstance_WithoutForce_NoLinkedTasks(t *testing.T) {

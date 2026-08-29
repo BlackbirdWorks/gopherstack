@@ -85,6 +85,11 @@ func TestECS_CreateExpressGatewayService(t *testing.T) {
 	}
 }
 
+// TestECS_CreateExpressGatewayService_DuplicateARN asserts the real code:
+// CreateExpressGatewayService's own deserializer models no "already exists"
+// exception at all (no such shape exists in ecs@v1.90.0/types/errors.go
+// either), so real AWS uses InvalidParameterException, the same code
+// CreateService uses for its own duplicate-name case.
 func TestECS_CreateExpressGatewayService_DuplicateARN(t *testing.T) {
 	t.Parallel()
 
@@ -100,7 +105,7 @@ func TestECS_CreateExpressGatewayService_DuplicateARN(t *testing.T) {
 	rec := doECSRequest(t, h, "CreateExpressGatewayService", input)
 
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
-	assert.Contains(t, rec.Body.String(), "AlreadyExists")
+	assert.Contains(t, rec.Body.String(), "InvalidParameterException")
 }
 
 func TestECS_DeleteExpressGatewayService(t *testing.T) {
