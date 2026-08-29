@@ -21,7 +21,7 @@ ops:
   DeleteMessageBatch: {wire: ok, errors: ok, state: ok, persist: ok, note: "batch-level QueueDoesNotExist, per-entry delegates to DeleteMessage"}
   ChangeMessageVisibilityBatch: {wire: ok, errors: ok, state: ok, persist: ok}
   PurgeQueue: {wire: ok, errors: ok, state: ok, persist: ok, note: "60s cooldown enforced (PurgeQueueInProgress); FIFO dedup state reset on purge"}
-  TagQueue/UntagQueue/ListQueueTags: {wire: ok, errors: ok, state: ok, persist: ok, note: "pkgs/tags-backed"}
+  TagQueue/UntagQueue/ListQueueTags: {wire: ok, errors: ok, state: ok, persist: ok, note: "pkgs/tags-backed. VERIFIED CLEAN (wrapper-key sweep, 2026-08-29): checked for the stepfunctions-class bug (a Tags field typed as a Go map when the SDK sends an array, or vice versa). sqs@v1.46.4 TagQueueInput.Tags is genuinely map[string]string (a JSON object on the wire, unlike RDS/SNS/CloudWatch's array-of-{Key,Value}) and UntagQueueInput.TagKeys is []string — handler_tags.go's jsonTagQueueReq/jsonUntagQueueReq (JSON-RPC, the pinned SDK's only real wire path; X-Amz-Target: AmazonSQS.*) already decode exactly these shapes via pkgs/tags.Tags' map-backed (Un)MarshalJSON. Confirmed via TestTagQueueFamily_SDKRoundTrip (tag_queue_sdk_test.go) driving the real SDK client."}
   ListDeadLetterSourceQueues: {wire: ok, errors: ok, state: ok, persist: n/a}
   AddPermission/RemovePermission: {wire: ok, errors: ok, state: ok, persist: ok, note: "rebuilds an IAM policy doc into Attributes[Policy], deterministic (sorted labels)"}
   StartMessageMoveTask: {wire: ok, errors: ok, state: ok, persist: partial, note: "RUNNING tasks are correctly NOT persisted (goroutine can't resume); default-destination lookup via RedrivePolicy scan; rate-limited via ticker; TOCTOU-safe under b.mu"}
