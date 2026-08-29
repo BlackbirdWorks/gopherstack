@@ -6,14 +6,15 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: kinesisanalyticsv2
 sdk_module: aws-sdk-go-v2/service/kinesisanalyticsv2@v1.41.4
-last_audit_commit: 3cec37291
-last_audit_date: 2026-08-20
-overall: A            # every previously-documented gap either fixed or narrowed to a
-                       # deliberately-scoped, explicitly-documented remainder
+last_audit_commit: 55397dd52
+last_audit_date: 2026-08-29
+overall: A            # one real invented-request-member bug found and fixed this pass
+                       # (UpdateApplication.ApplicationDescription); every other prior
+                       # finding re-verified, none regressed
 ops:
   CreateApplication: {wire: ok, errors: ok, state: ok, persist: ok, note: "inline ApplicationConfiguration/CloudWatchLoggingOptions were previously silently discarded (fixed pre-existing pass); ApplicationCodeConfiguration/FlinkApplicationConfiguration/EnvironmentProperties/ApplicationSnapshotConfiguration/ApplicationSystemRollbackConfiguration/ApplicationEncryptionConfiguration/ZeppelinApplicationConfiguration were accepted-but-not-modeled (this and a prior pass's gap) -- now seeded via SeedApplicationConfiguration's extended SeedConfig, still without bumping past version 1. ZeppelinApplicationConfiguration (Studio notebook: MonitoringConfiguration/CatalogConfiguration+GlueDataCatalogConfiguration/DeployAsApplicationConfiguration+S3ContentBaseLocation/CustomArtifactsConfiguration+S3orMaven) is now fully typed and echoed via ZeppelinApplicationConfigurationDescription -- sized first (4-level-deep tree, one ArtifactType-discriminated union, ~9 leaf fields across 3 wire variants, no recursion), all shallow and typeable, no part left opaque. Referenced ARNs (GlueDataCatalogConfiguration.DatabaseARN, S3ContentLocation/S3ContentBaseLocation.BucketARN) are stored as plain strings with no cross-service existence check, matching this service's pre-existing convention for every other ARN field (ServiceExecutionRole, S3CodeLocationDesc.BucketARN, KinesisStreamsInputDesc.ResourceARN, etc.) -- this codebase has no cross-service backend-to-backend validation anywhere, so adding it only here would be a new, unprecedented architecture, not a fix. This pass also dropped an invented top-level Tags field from applicationDetailOutput (real ApplicationDetail, types/types.go:179, has no such member -- tags are only retrievable via the separate ListTagsForResource op); harmless to a typed client (unknown JSON keys are ignored) but a genuine shape deviation."}
   DescribeApplication: {wire: ok, errors: ok, state: ok, persist: ok, note: "applicationDetailOutput previously omitted LastUpdateTimestamp/ConditionalToken/ApplicationVersionCreateTimestamp/ApplicationVersionRolledBackFrom/To/ApplicationVersionUpdatedFrom/ApplicationMaintenanceConfigurationDescription (all now populated); its VpcConfigurationDescriptions was WRONGLY placed at the top level of ApplicationDetail (real AWS has no such field -- it only exists nested inside ApplicationConfigurationDescription) -- this gopherstack-invented field placement is fixed (moved into appConfigDesc, matching real ApplicationConfigurationDescription.VpcConfigurationDescriptions)."}
-  UpdateApplication: {wire: ok, errors: ok, state: ok, persist: ok, note: "ApplicationConfigurationUpdate (code/Flink/env-properties/snapshot/rollback/encryption/SQL-input-output-refdata/VPC sub-updates), CloudWatchLoggingOptionUpdates, RunConfigurationUpdate, RuntimeEnvironmentUpdate, and ConditionalToken were all accepted-but-ignored; all now implemented (applications.go/application_update_apply.go/handler_application_update.go). ConditionalToken is a deterministic sha256-derived function of (ApplicationARN, ApplicationVersionId) -- see conditionalToken/checkAndBumpVersionOrToken in store.go -- so it needs no extra persisted field and automatically rotates on every version bump. Sub-resource IDs referenced by CloudWatchLoggingOptionUpdates/SqlApplicationConfigurationUpdate/VpcConfigurationUpdates are validated to exist BEFORE the version is bumped (validateUpdateReferences), matching the Add*/Delete* config ops' existing 'find before bumping' convention -- a request naming an unknown ID leaves ApplicationVersionId untouched. ZeppelinApplicationConfigurationUpdate (this pass's gap) was also accepted-but-ignored; now implemented (applyZeppelinConfigUpdate), merging onto any existing ZeppelinConfig the same way applyFlinkConfigUpdate does. CustomArtifactsConfigurationUpdate reuses the create-time item shape wholesale (verified: real AWS's botocore model has no separate per-item update shape). THIS PASS'S BUG: InputUpdate.InputSchemaUpdate/InputParallelismUpdate and ReferenceDataSourceUpdate.ReferenceSchemaUpdate (same root cause as AddApplicationInput/AddApplicationReferenceDataSource's gap) were accepted-but-ignored -- a code comment even said so explicitly ('InputSchemaUpdate/InputParallelismUpdate are not modeled anywhere in this backend...and are ignored if present on the wire') but this was never surfaced as a PARITY.md gap despite InputSchema being a REQUIRED member one level up. Fixed: InputSchemaUpdateDesc (types/types.go:1336 'InputSchemaUpdate' -- its own Update-suffixed shape, field names RecordFormatUpdate/RecordEncodingUpdate/RecordColumnUpdates, NOT SourceSchema reused) and InputParallelismUpdateDesc now apply in applyInputUpdate, regenerating InAppStreamNames when NamePrefixUpdate or InputParallelismUpdate lands. ReferenceDataSourceUpdate.ReferenceSchemaUpdate is the asymmetric case: real AWS types it plain *SourceSchema (types/types.go:2106), NOT a dedicated Update shape like InputSchemaUpdate -- verified and modeled as such (ReferenceDataSourceUpdate.ReferenceSchemaUpdate *SourceSchemaDesc, reusing the same type as the create/describe sides). Proven via TestUpdateApplication_InputSchemaUpdate_SDKRoundTrip and TestUpdateApplication_ReferenceSchemaUpdate_SDKRoundTrip."}
+  UpdateApplication: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "2026-08-29: request accepted a gopherstack-invented ApplicationDescription member and actually applied it to backend state -- real UpdateApplicationInput (api_op_UpdateApplication.go:33-78) has exactly 8 members (ApplicationName, ApplicationConfigurationUpdate, CloudWatchLoggingOptionUpdates, ConditionalToken, CurrentApplicationVersionId, RunConfigurationUpdate, RuntimeEnvironmentUpdate, ServiceExecutionRoleUpdate) and no way to change an application's description after CreateApplication. Found by cmd/acceptguard (a decoded-but-never-real request field being read and applied). DELETED from updateApplicationInput/UpdateApplicationParams/applyBasicFields; proven by TestKAV2_UpdateApplication_ApplicationDescription_NotARealField (wire_field_fixes_test.go), which failed against the unfixed code. ApplicationConfigurationUpdate (code/Flink/env-properties/snapshot/rollback/encryption/SQL-input-output-refdata/VPC sub-updates), CloudWatchLoggingOptionUpdates, RunConfigurationUpdate, RuntimeEnvironmentUpdate, and ConditionalToken were all accepted-but-ignored; all now implemented (applications.go/application_update_apply.go/handler_application_update.go). ConditionalToken is a deterministic sha256-derived function of (ApplicationARN, ApplicationVersionId) -- see conditionalToken/checkAndBumpVersionOrToken in store.go -- so it needs no extra persisted field and automatically rotates on every version bump. Sub-resource IDs referenced by CloudWatchLoggingOptionUpdates/SqlApplicationConfigurationUpdate/VpcConfigurationUpdates are validated to exist BEFORE the version is bumped (validateUpdateReferences), matching the Add*/Delete* config ops' existing 'find before bumping' convention -- a request naming an unknown ID leaves ApplicationVersionId untouched. ZeppelinApplicationConfigurationUpdate (this pass's gap) was also accepted-but-ignored; now implemented (applyZeppelinConfigUpdate), merging onto any existing ZeppelinConfig the same way applyFlinkConfigUpdate does. CustomArtifactsConfigurationUpdate reuses the create-time item shape wholesale (verified: real AWS's botocore model has no separate per-item update shape). THIS PASS'S BUG: InputUpdate.InputSchemaUpdate/InputParallelismUpdate and ReferenceDataSourceUpdate.ReferenceSchemaUpdate (same root cause as AddApplicationInput/AddApplicationReferenceDataSource's gap) were accepted-but-ignored -- a code comment even said so explicitly ('InputSchemaUpdate/InputParallelismUpdate are not modeled anywhere in this backend...and are ignored if present on the wire') but this was never surfaced as a PARITY.md gap despite InputSchema being a REQUIRED member one level up. Fixed: InputSchemaUpdateDesc (types/types.go:1336 'InputSchemaUpdate' -- its own Update-suffixed shape, field names RecordFormatUpdate/RecordEncodingUpdate/RecordColumnUpdates, NOT SourceSchema reused) and InputParallelismUpdateDesc now apply in applyInputUpdate, regenerating InAppStreamNames when NamePrefixUpdate or InputParallelismUpdate lands. ReferenceDataSourceUpdate.ReferenceSchemaUpdate is the asymmetric case: real AWS types it plain *SourceSchema (types/types.go:2106), NOT a dedicated Update shape like InputSchemaUpdate -- verified and modeled as such (ReferenceDataSourceUpdate.ReferenceSchemaUpdate *SourceSchemaDesc, reusing the same type as the create/describe sides). Proven via TestUpdateApplication_InputSchemaUpdate_SDKRoundTrip and TestUpdateApplication_ReferenceSchemaUpdate_SDKRoundTrip."}
   DeleteApplication: {wire: ok, errors: ok, state: ok, persist: ok, note: "CreateTimestamp request field is now validated against the application's actual CreateTimestamp (epoch-seconds float64 comparison with 1e-3/1ms tolerance, matching smithy-go's millisecond-precision unixTimestamp wire truncation); a mismatch returns InvalidArgumentException instead of silently deleting. DeleteApplication remains synchronous (see gaps, unchanged from prior audit)."}
   ListApplications: {wire: ok, errors: ok, state: ok, persist: ok}
   StartApplication: {wire: ok, errors: ok, state: ok, persist: ok, note: "RunConfiguration request field (ApplicationRestoreConfiguration/FlinkRunConfiguration) was never parsed at all -- now applied and echoed back via DescribeApplication's ApplicationConfigurationDescription.RunConfigurationDescription. SqlRunConfigurations was accepted-but-ignored, and its InputId was never validated: this pass found it DOES have somewhere to land -- real AWS's InputDescription (not RunConfigurationDescription, which has no such field) carries a per-input InputStartingPositionConfiguration -- so it is now validated (unknown InputId -> ResourceNotFoundException, checked BEFORE ApplicationStatus is mutated to RUNNING) and stored/echoed on the matching InputDescription."}
@@ -386,3 +387,94 @@ genuinely wrong value.
 precision figure (says 1e-3, code now uses 1.0) but the underlying
 `ops`/ `gaps` grades are unaffected -- not re-touching the YAML front matter
 for a single constant's value.
+
+### Follow-up pass (2026-08-29, gopherstack-6flj/21my wrapper-key/silent-drop sweep, V1-vs-V2 lens)
+
+Paired with `services/kinesisanalytics` under the explicit instruction to
+verify V1 (`kinesisanalytics`) and V2 (`kinesisanalyticsv2`) do not share
+Go types or assume shape parity. **Confirmed 0 shared types**: neither
+package imports the other (`grep -rn "kinesisanalytics\"" services/kinesisanalyticsv2/*.go`
+and the reverse both come back empty except an unrelated ARN-namespace
+string literal in `store.go:109`), each has its own separate `models.go`,
+and each is registered under its own SDK module (`kinesisanalytics@v1.33.4`
+vs. `kinesisanalyticsv2@v1.41.4`, confirmed via `go.mod`) -- there is no
+op-level V1/V2 naming collision within either package for this concern to
+even apply to (unlike kafka's V1/V2 cluster ops sharing one package).
+
+Independently re-derived member lists from the pinned SDK's own
+`awsAwsjson11_deserializeDocument*`/`serializeOpDocument*` case switches
+(not by reading `types.go`) and diffed against gopherstack's structs,
+rather than trusting this file's prior audits:
+- `ApplicationDetail` (v2): **18 of 18** deserializer cases, all 18 present
+  on `applicationDetailOutput` (`handler_applications.go:157-176`),
+  including `ApplicationMode`, traced end-to-end request-to-response
+  (`handler_applications.go:324` -> `applications.go:37` ->
+  `persistence.go:132/180` -> `handler_applications.go:725`) -- not
+  write-only.
+- `ApplicationSummary` (v2): **6 of 6**, matching `applicationSummary`
+  (`models.go:501-508`) exactly -- re-confirms the gopherstack-r80d note
+  above independently.
+- `ApplicationDetail` (v1): **12 of 12** deserializer cases
+  (`deserializers.go:2870`), matching the `applicationDetailOutput`-
+  equivalent struct at `models.go:219-230` exactly.
+- `InputDescription` (v1): **9 of 9** (`deserializers.go:3400`), matching
+  `models.go:81-91` exactly; traced `InputID`/`InputStartingPositionConfiguration`
+  to their actual write sites (`application_inputs.go:32`,
+  `applications.go:486,641-642`) -- both genuinely wired, not
+  present-but-unpopulated.
+- `OutputDescription` (v1): **6 of 6** (`deserializers.go:4133`), matching
+  `models.go:117-124` exactly.
+- `CreateApplicationInput` (v1, request side): **7 of 7** serializer fields
+  (`serializers.go:2350`) all read and acted on in
+  `handleCreateApplication` (`handler_applications.go:9-77`).
+
+**Real bug found and fixed** (write-only-state, forward direction --
+accepted-and-acted-on capability that shouldn't exist): `UpdateApplication`
+(v2) accepted an `ApplicationDescription` request field and applied it to
+`app.ApplicationDescription` (`application_update_apply.go`'s
+`applyBasicFields`, introduced in `3c8a7ff5f`, survived three subsequent
+detailed `UpdateApplication` audits of this same op because it visibly
+"worked" -- the accepted-but-ignored-field detector this campaign otherwise
+relies on doesn't catch a field that IS wired, just wired to something
+that doesn't exist). Real AWS's `UpdateApplicationInput` has no such member
+(verified by reading `api_op_UpdateApplication.go:33-78` directly -- 8
+members total, none of them a description field); there is no real-AWS way
+to change an application's description after `CreateApplication`. Caught
+by `cmd/acceptguard`'s repo-wide run flagging
+`handler_application_update.go:248`. Four existing tests
+(`handler_applications_test.go`'s `TestKAV2_UpdateApplication/update_description`,
+`handler_application_versions_test.go`'s `TestKAV2_RollbackApplication`,
+`applications_test.go`'s `TestBackend_UpdateApplication`,
+`whitebox_test.go`'s `TestBackend_UpdateApplication_ConditionalToken`) were
+asserting this wrong behavior as correct -- exactly the "asserting wrong
+behaviour as correct" pattern this campaign has flagged repeatedly
+elsewhere; all four rewritten to use `ServiceExecutionRoleUpdate` (a real
+member) as their version-distinguishing marker field instead, and the
+`update_description` case now asserts `ApplicationDescription` does NOT
+change. New regression test:
+`TestKAV2_UpdateApplication_ApplicationDescription_NotARealField`
+(`wire_field_fixes_test.go`), confirmed to fail against the pre-fix code.
+
+Write-only-state check, both directions, beyond the bug above: no other
+persisted-but-unread or computable-but-unemitted fields found this pass --
+`RollbackApplication`'s `ApplicationVersionRolledBackFrom/To` and
+`UpdateApplication`'s `ConditionalToken` rotation (both already fixed in
+the 2026-08-11 pass) were re-checked and remain correctly wired.
+
+Gates this pass: `go build ./services/kinesisanalytics/... ./services/kinesisanalyticsv2/...`,
+`go vet ./...` (repo-wide, since `UpdateApplicationParams`'s field set
+changed), `go test ./services/kinesisanalytics/... ./services/kinesisanalyticsv2/... -race -count=1`,
+`golangci-lint run --fix ./services/kinesisanalytics/... ./services/kinesisanalyticsv2/...`
+-- all clean (0 lint issues, tests pass). `cmd/enumcheck`/`cmd/zeroguard`/
+`cmd/xmlitemwrap` repo-wide runs: no findings for either service.
+`cmd/acceptguard` repo-wide: one finding (the bug above), re-ran clean
+after the fix.
+
+Ops NOT independently re-derived from the deserializer this pass (trusted
+from the prior three audits' documented derivations, files unchanged since
+`3cec37291`/`782e2a93`): the `Add*`/`Delete*` config family,
+`CreateApplicationSnapshot`/`DescribeApplicationSnapshot`/
+`ListApplicationSnapshots`/`DeleteApplicationSnapshot`,
+`CreateApplicationPresignedUrl`, `DiscoverInputSchema`, and every
+`*ConfigurationDescription` sub-shape covered by the 2026-08-20 pass's
+field-by-field re-verification.

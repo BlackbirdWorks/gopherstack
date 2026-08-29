@@ -182,7 +182,6 @@ type UpdateApplicationParams struct {
 	Name                           string
 	ConditionalToken               string
 	ServiceExecutionRoleUpdate     string
-	ApplicationDescription         string
 	RuntimeEnvironmentUpdate       string
 	CloudWatchLoggingOptionUpdates []CloudWatchLoggingOptionUpdate
 	CurrentApplicationVersionID    int64
