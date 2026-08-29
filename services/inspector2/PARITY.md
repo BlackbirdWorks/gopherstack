@@ -56,7 +56,7 @@ ops:
   DeleteFilter: {wire: ok, errors: ok, state: ok, persist: ok}
   ListFilters: {wire: ok, errors: ok, state: ok, persist: ok}
   ListFindings: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed 2026-08-21 (gopherstack-r80d batch 12) — severity was a fabricated {label,score} nested object; real wire shape is a bare Severity string enum (deserializers.go's awsRestjson1_deserializeDocumentFinding), which made every real SDK client's call fail once a finding existed, not merely drop a field. Also fixed: required Remediation (no struct field) and Resources (dropped when empty) were both omitted."}
-  GetConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
+  GetConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (cmd/enumcheck sweep, 1d6e40d1a): Ec2ScanModeState.ScanModeStatus was the non-member string \"ENABLED\" -- types.Ec2ScanModeStatus only has SUCCESS/PENDING (types/enums.go:1191-1207). UpdateConfiguration applies scan-mode changes synchronously with no pending state modeled, so the setting is always already in effect -- now emits SUCCESS (scanModeStatusSuccess, store.go). See TestGetConfiguration_ScanModeStatus_RealSDKClient (wire_field_fixes_test.go). NOTE: ecrConfiguration.rescanDurationState's status (handler_enablement.go:127) reuses the same statusEnabled=\"ENABLED\" constant for types.EcrRescanDurationStatus (SUCCESS/PENDING/FAILED, types/enums.go:1289-1303) -- same bug class, out of this pass's scope (enumcheck did not flag it), left for a follow-up."}
   UpdateConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok}

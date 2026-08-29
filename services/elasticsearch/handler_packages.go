@@ -184,7 +184,7 @@ func (h *Handler) handleDissociatePackage(w http.ResponseWriter, r *http.Request
 	h.writeJSON(r, w, map[string]any{"DomainPackageDetails": map[string]any{
 		"PackageID":           parts[0],
 		"DomainName":          parts[1],
-		"DomainPackageStatus": "DISSOCIATED",
+		"DomainPackageStatus": "DISSOCIATING",
 	}})
 }
 

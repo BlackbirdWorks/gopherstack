@@ -55,7 +55,7 @@ ops:
   UpdatePackage: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-08-10: LastUpdatedAt now advances on update"}
   DeletePackage: {wire: ok, errors: ok, state: ok, persist: ok}
   AssociatePackage: {wire: ok, errors: ok, state: ok, persist: ok}
-  DissociatePackage: {wire: ok, errors: ok, state: ok, persist: ok}
+  DissociatePackage: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (cmd/enumcheck sweep, 1d6e40d1a): DomainPackageStatus was the non-member string \"DISSOCIATED\" -- types.DomainPackageStatus only has ASSOCIATING/ASSOCIATION_FAILED/ACTIVE/DISSOCIATING/DISSOCIATION_FAILED (types/enums.go:189-198), no terminal DISSOCIATED. Now emits DISSOCIATING (the transitional state a real client sees on a successful call; this backend completes the removal synchronously, but that is an implementation detail, not a wire value). See TestDissociatePackage_DomainPackageStatus_RealSDKClient (wire_field_fixes_test.go)."}
   GetPackageVersionHistory: {wire: ok, errors: ok, state: ok, persist: n/a}
   ListDomainsForPackage: {wire: ok, errors: ok, state: ok, persist: n/a}
   ListPackagesForDomain: {wire: ok, errors: ok, state: ok, persist: n/a}

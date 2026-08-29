@@ -153,7 +153,7 @@ func TestAccessPreviewLifecycle(t *testing.T) {
 				// underlying record.
 				f, ok := findings[0].(map[string]any)
 				require.True(t, ok)
-				assert.Equal(t, "New", f["changeType"])
+				assert.Equal(t, "NEW", f["changeType"])
 				assert.Equal(t, "000000000000", f["resourceOwnerAccount"])
 				_, hasAnalyzerArn := f["analyzerArn"]
 				assert.False(t, hasAnalyzerArn, "AccessPreviewFinding has no analyzerArn member")

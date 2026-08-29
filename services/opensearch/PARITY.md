@@ -616,7 +616,7 @@ beyond the capability's existence/name/status.
   DescribeDomainHealth, DescribeDomainNodes, DescribeDryRunProgress,
   DescribeInstanceTypeLimits, GetDomainMaintenanceStatus, GetUpgradeHistory,
   GetUpgradeStatus, ListDomainMaintenances, ListInstanceTypeDetails,
-  StartDomainMaintenance, UpgradeDomain, and the index/document data-plane ops
+  StartDomainMaintenance, and the index/document data-plane ops
   (CreateIndex/DeleteIndex/GetIndex/UpdateIndex) were not touched or
   field-diffed this pass (they were not in the original 1-gap/8-deferred list
   this pass was scoped to fix). Not reclassified either direction; still
@@ -646,6 +646,22 @@ beyond the capability's existence/name/status.
   correct" was itself wrong -- GetIndexOutput's only member is IndexSchema
   (api_op_GetIndex.go), not the metadata envelope either. See the `indices`
   family note above for the fix; GetIndex/DeleteIndex are now both settled.
+  UPDATE (cmd/enumcheck sweep, 1d6e40d1a): UpgradeDomain field-diffed and
+  FIXED -- UpgradeDomainOutput (api_op_UpgradeDomain.go:59-79) has
+  AdvancedOptions/ChangeProgressDetails/DomainName/PerformCheckOnly/
+  TargetVersion/UpgradeId, no StepStatus member at all (that name belongs to
+  types.UpgradeStepItem, a GetUpgradeHistory/GetUpgradeStatus type). The
+  handler emitted an invented `"StepStatus": "REQUESTED"` key -- "REQUESTED"
+  is also not a member of UpgradeStatus (IN_PROGRESS/SUCCEEDED/
+  SUCCEEDED_WITH_ISSUES/FAILED) -- which a real client silently discards on
+  decode (unknown JSON keys aren't errors), so the bug was invisible to any
+  test that only inspects the decoded typed struct. Now emits UpgradeId/
+  DomainName/TargetVersion/PerformCheckOnly (echoed from the real request);
+  AdvancedOptions/ChangeProgressDetails have no backing state in this
+  synchronous backend, so they're left absent rather than fabricated. Removed
+  from the not-field-diffed list above. See
+  TestUpgradeDomain_RealSDKClient/TestUpgradeDomain_RawBody_NoInventedStepStatus
+  (wire_field_fixes_test.go).
 - **VpcEndpoint's derived AvailabilityZones/VPCId, Application's Endpoint,
   and CancelDomainConfigChange's absence of per-property
   CancelledChangeProperties** are synthesized/omitted non-stub defaults (no

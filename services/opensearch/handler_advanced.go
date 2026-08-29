@@ -162,8 +162,9 @@ func (h *Handler) handleUpgradeDomainRoutes(w http.ResponseWriter, r *http.Reque
 	}
 
 	var req struct {
-		DomainName    string `json:"DomainName"`
-		TargetVersion string `json:"TargetVersion"`
+		DomainName       string `json:"DomainName"`
+		TargetVersion    string `json:"TargetVersion"`
+		PerformCheckOnly bool   `json:"PerformCheckOnly"`
 	}
 	if len(body) > 0 {
 		_ = json.Unmarshal(body, &req)
@@ -175,11 +176,17 @@ func (h *Handler) handleUpgradeDomainRoutes(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	// UpgradeDomainOutput (opensearch@v1.75.4 api_op_UpgradeDomain.go) has
+	// AdvancedOptions/ChangeProgressDetails/DomainName/PerformCheckOnly/
+	// TargetVersion/UpgradeId -- no StepStatus member (that belongs to
+	// UpgradeStepItem, a GetUpgradeHistory/GetUpgradeStatus type).
+	// AdvancedOptions/ChangeProgressDetails have no backing state here, so
+	// they're left off rather than fabricated.
 	h.writeJSON(r, w, map[string]any{
-		"UpgradeId":     fmt.Sprintf("upgrade-%s", req.DomainName),
-		"DomainName":    req.DomainName,
-		"TargetVersion": req.TargetVersion,
-		"StepStatus":    "REQUESTED",
+		"UpgradeId":        fmt.Sprintf("upgrade-%s", req.DomainName),
+		"DomainName":       req.DomainName,
+		"TargetVersion":    req.TargetVersion,
+		"PerformCheckOnly": req.PerformCheckOnly,
 	})
 }
 

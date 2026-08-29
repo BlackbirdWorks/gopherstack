@@ -118,7 +118,7 @@ func (h *Handler) handleGetConfiguration(c *echo.Context) error {
 		"ec2Configuration": map[string]any{
 			"scanModeState": map[string]any{
 				"scanMode":       cfg.Ec2ScanMode,
-				"scanModeStatus": statusEnabled,
+				"scanModeStatus": scanModeStatusSuccess,
 			},
 		},
 		"ecrConfiguration": map[string]any{
