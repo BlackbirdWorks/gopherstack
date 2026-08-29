@@ -10,7 +10,7 @@ import (
 )
 
 // TestDescribeDBClusters_Filters verifies AWS's DescribeDBClusters
-// Filters.Filter.N.Name/Values.member.M contract: db-cluster-id,
+// Filters.Filter.N.Name/Values.Value.M contract: db-cluster-id,
 // db-cluster-resource-id, and engine narrow the result set (OR within a
 // filter's Values, AND across filters); clone-group-id and domain are
 // accepted but not modeled (vacuous match, matching the existing
@@ -40,34 +40,34 @@ func TestDescribeDBClusters_Filters(t *testing.T) {
 	}{
 		{
 			name:     "engine filter matches only aurora-mysql clusters",
-			query:    "Filters.Filter.1.Name=engine&Filters.Filter.1.Values.member.1=aurora-mysql",
+			query:    "Filters.Filter.1.Name=engine&Filters.Filter.1.Values.Value.1=aurora-mysql",
 			wantCode: http.StatusOK,
 			wantIDs:  []string{"filt-mysql-clu"},
 		},
 		{
 			name: "db-cluster-id filter with multiple values ORs together",
 			query: "Filters.Filter.1.Name=db-cluster-id" +
-				"&Filters.Filter.1.Values.member.1=filt-mysql-clu" +
-				"&Filters.Filter.1.Values.member.2=filt-pg-clu",
+				"&Filters.Filter.1.Values.Value.1=filt-mysql-clu" +
+				"&Filters.Filter.1.Values.Value.2=filt-pg-clu",
 			wantCode: http.StatusOK,
 			wantIDs:  []string{"filt-mysql-clu", "filt-pg-clu"},
 		},
 		{
 			name: "two filters AND together",
-			query: "Filters.Filter.1.Name=engine&Filters.Filter.1.Values.member.1=aurora-postgresql" +
-				"&Filters.Filter.2.Name=db-cluster-id&Filters.Filter.2.Values.member.1=filt-mysql-clu",
+			query: "Filters.Filter.1.Name=engine&Filters.Filter.1.Values.Value.1=aurora-postgresql" +
+				"&Filters.Filter.2.Name=db-cluster-id&Filters.Filter.2.Values.Value.1=filt-mysql-clu",
 			wantCode: http.StatusOK,
 			wantIDs:  nil,
 		},
 		{
 			name:     "domain filter is accepted but vacuous",
-			query:    "Filters.Filter.1.Name=domain&Filters.Filter.1.Values.member.1=d-1",
+			query:    "Filters.Filter.1.Name=domain&Filters.Filter.1.Values.Value.1=d-1",
 			wantCode: http.StatusOK,
 			wantIDs:  []string{"filt-mysql-clu", "filt-pg-clu"},
 		},
 		{
 			name:        "unrecognized filter name is rejected",
-			query:       "Filters.Filter.1.Name=bogus-filter&Filters.Filter.1.Values.member.1=x",
+			query:       "Filters.Filter.1.Name=bogus-filter&Filters.Filter.1.Values.Value.1=x",
 			wantCode:    http.StatusBadRequest,
 			wantErrText: "InvalidParameterValue",
 		},
@@ -116,7 +116,7 @@ func TestDescribeDBClusters_Filters(t *testing.T) {
 }
 
 // TestDescribeDBSnapshots_Filters verifies AWS's DescribeDBSnapshots
-// Filters.Filter.N.Name/Values.member.M contract: db-instance-id,
+// Filters.Filter.N.Name/Values.Value.M contract: db-instance-id,
 // db-snapshot-id, snapshot-type, and engine narrow the result set; an
 // unrecognized filter name returns InvalidParameterValue.
 func TestDescribeDBSnapshots_Filters(t *testing.T) {
@@ -143,27 +143,27 @@ func TestDescribeDBSnapshots_Filters(t *testing.T) {
 	}{
 		{
 			name:     "snapshot-type filter matches only manual snapshots",
-			query:    "Filters.Filter.1.Name=snapshot-type&Filters.Filter.1.Values.member.1=manual",
+			query:    "Filters.Filter.1.Name=snapshot-type&Filters.Filter.1.Values.Value.1=manual",
 			wantCode: http.StatusOK,
 			wantIDs:  []string{"filt-snap-1", "filt-snap-2"},
 		},
 		{
 			name: "db-snapshot-id filter with multiple values ORs together",
 			query: "Filters.Filter.1.Name=db-snapshot-id" +
-				"&Filters.Filter.1.Values.member.1=filt-snap-1" +
-				"&Filters.Filter.1.Values.member.2=filt-snap-2",
+				"&Filters.Filter.1.Values.Value.1=filt-snap-1" +
+				"&Filters.Filter.1.Values.Value.2=filt-snap-2",
 			wantCode: http.StatusOK,
 			wantIDs:  []string{"filt-snap-1", "filt-snap-2"},
 		},
 		{
 			name:     "db-instance-id filter narrows to one snapshot",
-			query:    "Filters.Filter.1.Name=db-instance-id&Filters.Filter.1.Values.member.1=filt-snap-db-1",
+			query:    "Filters.Filter.1.Name=db-instance-id&Filters.Filter.1.Values.Value.1=filt-snap-db-1",
 			wantCode: http.StatusOK,
 			wantIDs:  []string{"filt-snap-1"},
 		},
 		{
 			name:        "unrecognized filter name is rejected",
-			query:       "Filters.Filter.1.Name=bogus-filter&Filters.Filter.1.Values.member.1=x",
+			query:       "Filters.Filter.1.Name=bogus-filter&Filters.Filter.1.Values.Value.1=x",
 			wantCode:    http.StatusBadRequest,
 			wantErrText: "InvalidParameterValue",
 		},
@@ -215,7 +215,7 @@ func TestDescribeDBSnapshots_Filters(t *testing.T) {
 }
 
 // TestDescribeDBClusterSnapshots_Filters verifies AWS's
-// DescribeDBClusterSnapshots Filters.Filter.N.Name/Values.member.M contract
+// DescribeDBClusterSnapshots Filters.Filter.N.Name/Values.Value.M contract
 // and that the op now paginates via Marker/MaxRecords like every other
 // Describe op (it previously returned every cluster snapshot unpaginated).
 func TestDescribeDBClusterSnapshots_Filters(t *testing.T) {
@@ -252,7 +252,7 @@ func TestDescribeDBClusterSnapshots_Filters(t *testing.T) {
 
 		rec := postRDSForm(t, h,
 			"Action=DescribeDBClusterSnapshots&Version=2014-10-31"+
-				"&Filters.Filter.1.Name=snapshot-type&Filters.Filter.1.Values.member.1=manual")
+				"&Filters.Filter.1.Name=snapshot-type&Filters.Filter.1.Values.Value.1=manual")
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var resp describeResp
@@ -271,7 +271,7 @@ func TestDescribeDBClusterSnapshots_Filters(t *testing.T) {
 
 		rec := postRDSForm(t, h,
 			"Action=DescribeDBClusterSnapshots&Version=2014-10-31"+
-				"&Filters.Filter.1.Name=bogus-filter&Filters.Filter.1.Values.member.1=x")
+				"&Filters.Filter.1.Name=bogus-filter&Filters.Filter.1.Values.Value.1=x")
 		require.Equal(t, http.StatusBadRequest, rec.Code)
 		assert.Contains(t, rec.Body.String(), "InvalidParameterValue")
 	})

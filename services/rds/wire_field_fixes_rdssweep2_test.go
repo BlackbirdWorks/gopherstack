@@ -187,3 +187,47 @@ func TestDescribeGlobalClusters_GlobalWriteForwardingStatus_RealClient(t *testin
 		})
 	}
 }
+
+// TestDescribeDBInstances_Filters_RealClient covers a wrong-key bug:
+// parseDescribeFilters read Filters.Filter.N.Values.member.M, but
+// awsAwsquery_serializeDocumentFilterValueList (rds@v1.124.1
+// serializers.go:11730) puts the real aws-sdk-go-v2 client's Values array
+// under Filters.Filter.N.Values.Value.M -- "member" never appears on the
+// wire for this shape. A real client's engine filter therefore matched
+// nothing, so a Describe that should exclude the non-matching instance
+// silently dropped every instance instead.
+func TestDescribeDBInstances_Filters_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := newTestRDSHandler()
+	client := newTestRDSClient(t, h)
+	ctx := t.Context()
+
+	_, err := client.CreateDBInstance(ctx, &rdssdk.CreateDBInstanceInput{
+		DBInstanceIdentifier: aws.String("filt-real-mysql"),
+		Engine:               aws.String("mysql"),
+		DBInstanceClass:      aws.String("db.t3.micro"),
+	})
+	require.NoError(t, err)
+
+	_, err = client.CreateDBInstance(ctx, &rdssdk.CreateDBInstanceInput{
+		DBInstanceIdentifier: aws.String("filt-real-postgres"),
+		Engine:               aws.String("postgres"),
+		DBInstanceClass:      aws.String("db.t3.micro"),
+	})
+	require.NoError(t, err)
+
+	out, err := client.DescribeDBInstances(ctx, &rdssdk.DescribeDBInstancesInput{
+		Filters: []types.Filter{
+			{Name: aws.String("engine"), Values: []string{"mysql"}},
+		},
+	})
+	require.NoError(t, err)
+
+	gotIDs := make([]string, 0, len(out.DBInstances))
+	for _, inst := range out.DBInstances {
+		gotIDs = append(gotIDs, aws.ToString(inst.DBInstanceIdentifier))
+	}
+	assert.ElementsMatch(t, []string{"filt-real-mysql"}, gotIDs,
+		"engine=mysql filter must include the matching instance and exclude the postgres one")
+}

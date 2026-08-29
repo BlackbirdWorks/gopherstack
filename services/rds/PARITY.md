@@ -205,7 +205,7 @@ families:
   engine_versions_and_orderable_options: {status: ok, note: "DescribeDBEngineVersions/DescribeOrderableDBInstanceOptions/DescribeDBMajorEngineVersions all backed by real (small, static) catalogs — not a stub since callers get consistent, well-shaped data; no engine-name validation on Create (see gaps). UPDATED (parity-5/phantom-triage, 2026-07-31): DescribeDBEngineVersions now also merges in custom engine versions (previously only reachable via the fabricated DescribeCustomDBEngineVersions action) — see custom_db_engine_versions family and overall: header."}
   tags: {status: ok, note: "AddTagsToResource/RemoveTagsFromResource/ListTagsForResource use pkgs/tags-style per-ARN map, cleaned up on every delete path (instance, cluster, snapshot, option group, param group, cluster endpoint — verified via TestRDSBackend_TagsCleanedUpOnDelete table)"}
   pagination: {status: ok, note: "Marker/MaxRecords via pkgs/page.Page[T] (paginateDescribe) — consistent across all Describe* ops; DescribeDBClusterSnapshots and DescribeEvents were missing pagination entirely (returned every row regardless of MaxRecords) — FIXED this pass, see Notes"}
-  describe_filters: {status: ok, note: "DescribeDBInstances Filters (db-cluster-id/db-instance-id/dbi-resource-id/domain/engine) added prior pass; DescribeDBClusters (clone-group-id/db-cluster-id/db-cluster-resource-id/domain/engine), DescribeDBSnapshots (db-instance-id/db-snapshot-id/dbi-resource-id/snapshot-type/engine), and DescribeDBClusterSnapshots (db-cluster-id/db-cluster-snapshot-id/snapshot-type/engine) Filters added THIS pass. DescribeEvents Filters intentionally left unimplemented: the real aws-sdk-go-v2 DescribeEventsInput.Filters doc comment reads literally 'This parameter isn't currently supported' — the emulator already matches real AWS by accepting-but-ignoring it, which is NOT a gap (prior ledger incorrectly listed it as one)"}
+  describe_filters: {status: ok, note: "DescribeDBInstances Filters (db-cluster-id/db-instance-id/dbi-resource-id/domain/engine) added prior pass; DescribeDBClusters (clone-group-id/db-cluster-id/db-cluster-resource-id/domain/engine), DescribeDBSnapshots (db-instance-id/db-snapshot-id/dbi-resource-id/snapshot-type/engine), and DescribeDBClusterSnapshots (db-cluster-id/db-cluster-snapshot-id/snapshot-type/engine) Filters added a prior pass. DescribeEvents Filters intentionally left unimplemented: the real aws-sdk-go-v2 DescribeEventsInput.Filters doc comment reads literally 'This parameter isn't currently supported' — the emulator already matches real AWS by accepting-but-ignoring it, which is NOT a gap (prior ledger incorrectly listed it as one). FIXED THIS PASS (wrapper-key sweep, 2026-08-29): the shared parseDescribeFilters (handler_db_instances.go, request-direction, all 4 filtered ops) read Filters.Filter.N.Values.member.M — rds@v1.124.1 serializers.go:11730 awsAwsquery_serializeDocumentFilterValueList's array element name is 'Value', never 'member', so a real client's Filters values never reached the parser and every filtered Describe call silently returned an unfiltered (in this parser's specific empty-values-list case, actually an OVER-filtered/empty) result. Corrected to Values.Value.M; see Notes."}
   global_clusters: {status: ok, note: "Create/Modify/Delete/Describe + Remove/Failover/SwitchoverGlobalCluster real"}
   blue_green_deployments: {status: ok, note: "Create/Describe/Delete/Switchover real (refinement1)"}
   db_proxies: {status: ok, note: "proxy/proxy-target/proxy-target-group/proxy-endpoint CRUD real (refinement3)"}
@@ -671,3 +671,61 @@ caller's fault. Proof: `TestHandler_OversizedBodySurfacesInternalFailure` in
 `UnknownError`; passes now with `InternalFailure`. `TestHandler_NormalSizedBodyStillRoutes`
 is the regression guard. Gates: `go build`, `go vet`, `gofmt -l` (clean), `go test -race
 ./services/rds/...` (pass), `golangci-lint run ./services/rds/...` (0 issues).
+
+**2026-08-29 (wrapper-key sweep, gopherstack-101r family) -- DescribeDBInstances/DescribeDBClusters/
+DescribeDBSnapshots/DescribeDBClusterSnapshots Filters silently discarded a real client's filter
+values (REQUEST direction)**: the shared `parseDescribeFilters` (`handler_db_instances.go`) parsed
+`Filters.Filter.N.Name` correctly but read values from `Filters.Filter.N.Values.member.M`. Confirmed
+against `rds@v1.124.1` `serializers.go:11730` `awsAwsquery_serializeDocumentFilterValueList` --
+`array := value.Array("Value")` -- the real aws-sdk-go-v2 client always sends
+`Filters.Filter.N.Values.Value.M`; `member` never appears on the wire for this shape (same bug class
+already fixed in `services/docdb/filters.go`, `6160e4dad`). Every one of the 4 ops sharing this parser
+was affected identically; all 4 already implemented exactly the AWS-documented filter names (verified
+per-op against each op's own `DescribeXxxInput.Filters` doc comment in `api_op_DescribeXxx.go`) via
+`isKnownDBXxxFilterName`/`matchesAllDBXxxFilters`, so no filter-name coverage changed, only the value
+parsing key.
+
+Triage of every other rds SDK operation carrying a `Filters []types.Filter` member (43 total,
+`api_op_*.go` doc comments read individually): 22 are "This parameter isn't currently supported" per
+AWS's own doc comment (correctly left unimplemented, matching real AWS's accept-but-ignore behavior)
+and 21 document real supported filter names. Of those 21, only the 4 above have any filter-matching
+logic implemented in this backend at all; the other 17 (DescribeBlueGreenDeployments,
+DescribeDBClusterAutomatedBackups, DescribeDBClusterBacktracks, DescribeDBClusterEndpoints,
+DescribeDBClusterParameters, DescribeDBEngineVersions, DescribeDBInstanceAutomatedBackups,
+DescribeDBParameters, DescribeDBRecommendations, DescribeDBShardGroups,
+DescribeDBSnapshotTenantDatabases, DescribeEngineDefaultParameters, DescribeExportTasks,
+DescribeGlobalClusters, DescribeIntegrations, DescribePendingMaintenanceActions,
+DescribeTenantDatabases) silently ignore the `Filters` parameter entirely -- a real, pre-existing gap,
+but a "Filters not implemented" feature gap distinct from this pass's "Filters implemented with the
+wrong wire key" bug; left alone rather than inventing 17 new filter behaviors under this fix's scope.
+
+Repo-wide sweep for the same idiom (`Values.member` / `Filters.Filter.N` and, more broadly, any
+query-protocol filter parser reading an indexed `Values`-shaped array) verified each hit against that
+service's own pinned SDK serializer rather than assuming: `elbv2` (`handler_listener_rules.go`),
+`elasticbeanstalk` (`handler_platforms.go`), `iam` (`handler.go`, `handler_account.go`),
+`autoscaling` (`handler_tags.go`), and `ec2` (`handler_filters.go`, `handler_tags.go`,
+`handler_local_gateway.go`) all correctly use their own service's real array element name (`member`
+for the AWS-query-protocol services above, confirmed against each one's own
+`awsAwsquery_serializeDocument*` array-encoding call; the EC2-query-protocol flat `Filter.N.Value.M`
+for ec2, confirmed against `awsEc2query_serializeDocumentFilter`'s `object.FlatKey("Value")`) --
+none of these needed a fix. `redshift/handler_advisor.go`'s `nodeConfigFilterValue` scans for any key
+prefixed `.Values.` rather than hardcoding a spelling, so it isn't vulnerable to this bug class either
+way. `services/neptune/handler.go` already uses the correct `Filters.Filter.N.Values.Value.1` spelling
+(off-limits this session -- another agent editing it concurrently -- but nothing to report there for
+this bug). `services/kafka/` has no `Filters.Filter`/`Values.member` idiom at all (off-limits, nothing
+found). `services/docdb/filters.go` is the reference implementation (off-limits, already correct).
+
+Existing tests asserting the wrong spelling as correct (fixed this pass, all raw-`url.Values` tests
+that bypass the real SDK serializer so they'd silently "pass" against either spelling as long as the
+handler's own parser matched): `Test_DescribeDBInstances_Filters` (`db_instances_test.go`) and
+`TestDescribeDBClusters_Filters`/`TestDescribeDBSnapshots_Filters`/
+`TestDescribeDBClusterSnapshots_Filters` (`describe_filters_test.go`) all built
+`Filters.Filter.N.Values.member.M` query strings by hand; updated to `Values.Value.M`. Added
+`TestDescribeDBInstances_Filters_RealClient` (`wire_field_fixes_rdssweep2_test.go`), which drives
+`DescribeDBInstances` through the real `aws-sdk-go-v2` client with an `engine=mysql` filter against
+one matching and one excluded instance -- confirmed failing against the unmodified parser (returned
+zero instances, not just failing to exclude the postgres one) before the fix, passing after.
+
+Gates: `go build ./services/rds/...`, `go build ./...` (repo-wide, no signature changes but checked
+per this session's constraints), `go vet ./services/rds/...`, `go test -race -count=1
+./services/rds/...` (pass), `golangci-lint run --fix ./services/rds/...` (0 issues).

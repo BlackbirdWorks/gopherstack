@@ -166,7 +166,11 @@ func (h *Handler) handleDeleteDBInstance(vals url.Values) (any, error) {
 }
 
 // parseDescribeFilters parses the AWS query-protocol "Filters.Filter.N.Name" /
-// "Filters.Filter.N.Values.member.M" parameters into a filter-name -> values map.
+// "Filters.Filter.N.Values.Value.M" parameters into a filter-name -> values
+// map. Confirmed against rds@v1.124.1 serializers.go:11730,
+// awsAwsquery_serializeDocumentFilterValueList's array element name "Value",
+// not the generic "member" -- a real client's Filters never appear on the
+// wire as "Filters.Filter.N.Values.member.M".
 func parseDescribeFilters(vals url.Values) map[string][]string {
 	filters := make(map[string][]string)
 	for i := 1; ; i++ {
@@ -176,7 +180,7 @@ func parseDescribeFilters(vals url.Values) map[string][]string {
 		}
 		var values []string
 		for j := 1; ; j++ {
-			v := vals.Get(fmt.Sprintf("Filters.Filter.%d.Values.member.%d", i, j))
+			v := vals.Get(fmt.Sprintf("Filters.Filter.%d.Values.Value.%d", i, j))
 			if v == "" {
 				break
 			}
