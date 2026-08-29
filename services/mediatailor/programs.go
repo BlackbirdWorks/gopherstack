@@ -300,7 +300,7 @@ func (b *InMemoryBackend) DeleteProgram(channelName, programName string) error {
 
 // GetChannelSchedule returns a paginated schedule for a channel.
 func (b *InMemoryBackend) GetChannelSchedule(
-	channelName string, maxResults int, nextToken string,
+	channelName, audience string, maxResults int, nextToken string,
 ) ([]*ProgramScheduleEntry, string, error) {
 	b.mu.RLock("GetChannelSchedule")
 	defer b.mu.RUnlock()
@@ -315,10 +315,24 @@ func (b *InMemoryBackend) GetChannelSchedule(
 		return all[i].ScheduledStartTime.Before(all[j].ScheduledStartTime)
 	})
 
+	if audience != "" {
+		all = slices.DeleteFunc(slices.Clone(all), func(prog *Program) bool {
+			return !slices.ContainsFunc(
+				prog.AudienceMedia,
+				func(am AudienceMedia) bool { return am.Audience == audience },
+			)
+		})
+	}
+
 	pg := page.New(all, nextToken, maxResults, defaultMaxResults)
 
 	out := make([]*ProgramScheduleEntry, 0, len(pg.Data))
 	for _, prog := range pg.Data {
+		audiences := make([]string, 0, len(prog.AudienceMedia))
+		for _, am := range prog.AudienceMedia {
+			audiences = append(audiences, am.Audience)
+		}
+
 		out = append(out, &ProgramScheduleEntry{
 			ARN:                        prog.ARN,
 			ChannelName:                prog.ChannelName,
@@ -329,6 +343,7 @@ func (b *InMemoryBackend) GetChannelSchedule(
 			ScheduleEntryType:          "PROGRAM",
 			ApproximateStartTime:       prog.ScheduledStartTime,
 			ApproximateDurationSeconds: prog.DurationMillis / millisPerSecond,
+			Audiences:                  audiences,
 		})
 	}
 

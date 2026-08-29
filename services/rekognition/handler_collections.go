@@ -92,7 +92,7 @@ func (h *Handler) handleDescribeCollection(
 		return nil, err
 	}
 
-	faces, _, err := h.Backend.ListFaces(req.CollectionID, 0, "")
+	faces, _, err := h.Backend.ListFaces(req.CollectionID, nil, "", 0, "")
 	if err != nil {
 		return nil, err
 	}

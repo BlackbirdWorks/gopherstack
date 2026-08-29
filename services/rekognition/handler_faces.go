@@ -98,9 +98,11 @@ func (h *Handler) handleDeleteFaces(_ context.Context, req *deleteFacesReq) (*de
 }
 
 type listFacesReq struct {
-	CollectionID string `json:"CollectionId"`
-	NextToken    string `json:"NextToken"`
-	MaxResults   int32  `json:"MaxResults"`
+	CollectionID string   `json:"CollectionId"`
+	NextToken    string   `json:"NextToken"`
+	UserID       string   `json:"UserId"`
+	FaceIDs      []string `json:"FaceIds"`
+	MaxResults   int32    `json:"MaxResults"`
 }
 
 type faceEntry struct {
@@ -121,7 +123,9 @@ func (h *Handler) handleListFaces(_ context.Context, req *listFacesReq) (*listFa
 		return nil, fmt.Errorf("%w: CollectionId is required", ErrValidation)
 	}
 
-	faces, nextToken, err := h.Backend.ListFaces(req.CollectionID, req.MaxResults, req.NextToken)
+	faces, nextToken, err := h.Backend.ListFaces(
+		req.CollectionID, req.FaceIDs, req.UserID, req.MaxResults, req.NextToken,
+	)
 	if err != nil {
 		return nil, err
 	}

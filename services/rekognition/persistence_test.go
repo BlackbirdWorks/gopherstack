@@ -143,12 +143,12 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 
 	// faces table + facesByCollection index: two collections, one face
 	// each, must not cross-contaminate after restore.
-	facesColl1, _, err := fresh.ListFaces("coll1", 0, "")
+	facesColl1, _, err := fresh.ListFaces("coll1", nil, "", 0, "")
 	require.NoError(t, err)
 	require.Len(t, facesColl1, 1)
 	assert.Equal(t, ids.faceID, facesColl1[0].FaceID)
 
-	facesColl2, _, err := fresh.ListFaces("coll2", 0, "")
+	facesColl2, _, err := fresh.ListFaces("coll2", nil, "", 0, "")
 	require.NoError(t, err)
 	require.Len(t, facesColl2, 1)
 	assert.NotEqual(t, ids.faceID, facesColl2[0].FaceID)
@@ -168,7 +168,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	assert.Equal(t, "v", spTags["k"])
 
 	// projects table.
-	projects, _, err := fresh.DescribeProjects(nil, 0, "")
+	projects, _, err := fresh.DescribeProjects(nil, nil, 0, "")
 	require.NoError(t, err)
 	require.Len(t, projects, 1)
 	assert.Equal(t, ids.projectARN, projects[0].ProjectARN)
@@ -193,7 +193,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	assert.Equal(t, "TRAIN", ds.DatasetType)
 
 	// datasetEntries raw map (left un-converted; persisted directly alongside the tables).
-	entries, _, err := fresh.ListDatasetEntries(ids.datasetARN, 0, "")
+	entries, _, err := fresh.ListDatasetEntries(ids.datasetARN, rekognition.ListDatasetEntriesFilter{}, 0, "")
 	require.NoError(t, err)
 	require.Len(t, entries, 1)
 	assert.Contains(t, entries[0], "s3://bucket/1.jpg")

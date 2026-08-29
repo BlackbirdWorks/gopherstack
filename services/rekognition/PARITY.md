@@ -2,8 +2,13 @@
 service: rekognition
 sdk_module: aws-sdk-go-v2/service/rekognition@v1.54.4   # version audited against (was stale at v1.51.26; go.mod pins v1.54.4 -- corrected this sweep)
 last_audit_commit: 903d74b67                       # HEAD when this manifest was written
-last_audit_date: 2026-08-10
+last_audit_date: 2026-08-29
 overall: A            # field-completeness follow-up sweep (see Notes #6): shallow CreateProjectVersion/StartProjectVersion/CopyProjectVersion fields and async-video Get* JobTag/Video/SelectedSegmentTypes/GetRequestMetadata now modeled; deep Custom Labels manifests and post-training fields stay deliberately deferred
+                       # 2026-08-29 (gopherstack wrapper-key/constraint-parameter sweep): three constraint
+                       # parameters found never applied -- DescribeProjects.Features (never plumbed, and its
+                       # documented default changes real behavior), ListDatasetEntries' four filters
+                       # (ContainsLabels/Labeled/SourceRefContains/HasErrors, none read at all), ListFaces'
+                       # FaceIds/UserId (never read). See the three rows' notes below.
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
@@ -13,7 +18,7 @@ ops:
   ListCollections: {wire: ok, errors: ok, state: ok, persist: ok}
   IndexFaces: {wire: ok, errors: ok, state: ok, persist: ok, note: "real face storage; deterministic per-identity Confidence (not canned) — see backend.go faceConfidence. FaceDetail/BoundingBox/IndexFacesModelVersion/UserId fields on Face are omitted (optional pointer fields on the real SDK type, zero-value-safe on decode)"}
   DeleteFaces: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListFaces: {wire: ok, errors: ok, state: ok, persist: ok, note: "real pagination via facesByCollection index"}
+  ListFaces: {wire: ok, errors: ok, state: ok, persist: ok, note: "real pagination via facesByCollection index. FIXED (gopherstack wrapper-key sweep, 2026-08-29): FaceIds and UserId filters (own doc comments, api_op_ListFaces.go) were read by nothing at all -- listFacesReq had no such fields, so every call returned every face in the collection regardless of what was requested. UserId now resolved against the associating user's storedUser.FaceIDs (see AssociateFaces)."}
   SearchFaces: {wire: ok, errors: ok, state: ok, persist: ok, note: "deterministic per-identity similarity (same ExternalImageId => 100.0), not canned — see faceSimilarity"}
   SearchFacesByImage: {wire: ok, errors: ok, state: ok, persist: ok, note: "similarity varies per imageKey (S3 path or byte length) via FNV-1a seed, not canned"}
   CreateUser: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this sweep: duplicate UserId now returns ConflictException (was ResourceAlreadyExistsException) — see Notes #2"}
@@ -35,7 +40,7 @@ ops:
   ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateProject: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this sweep: duplicate name now returns ResourceInUseException (was ResourceAlreadyExistsException) — see Notes #2"}
   DeleteProject: {wire: ok, errors: ok, state: ok, persist: ok}
-  DescribeProjects: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this sweep: CreationTimestamp was an ISO8601 string ('2006-01-02T15:04:05.000Z' Format()) — real awsjson1.1 wire shape is an epoch-seconds JSON number; SDK deserializer errors with 'expected DateTime to be a JSON Number, got string instead'. Now epochSeconds() — see Notes #1"}
+  DescribeProjects: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this sweep: CreationTimestamp was an ISO8601 string ('2006-01-02T15:04:05.000Z' Format()) — real awsjson1.1 wire shape is an epoch-seconds JSON number; SDK deserializer errors with 'expected DateTime to be a JSON Number, got string instead'. Now epochSeconds() — see Notes #1. FIXED (gopherstack wrapper-key sweep, 2026-08-29): Features filter (api_op_DescribeProjects.go: 'Specifies the type of customization to filter projects by. If no value is specified, CUSTOM_LABELS is used as a default.') was never plumbed through the call chain -- describeProjectsReq had no such field. Worse than a missing filter: the documented default silently changed real behavior too, since an absent Features now excludes CONTENT_MODERATION projects (previously every DescribeProjects call, filtered or not, returned every project regardless of feature)."}
   CreateProjectVersion: {wire: partial, errors: ok, state: ok, persist: ok, note: "FIXED this sweep (2026-08-10, Notes #6): OutputConfig is now enforced as required (was silently optional -- more permissive than the real validator); FeatureConfig.ContentModeration.ConfidenceThreshold now parsed/stored/echoed (shallow, 2 levels, no unions); TrainingData/TestingData now cross-validated (both-or-neither) though their contents stay opaque -- see gaps. Prior sweep (2026-07-23): Tags/OutputConfig/KmsKeyId/VersionDescription parsed, stored, echoed — see Notes #5. Duplicate (ProjectArn,VersionName) returns ResourceInUseException — see Notes #2"}
   DeleteProjectVersion: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeProjectVersions: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this sweep (Notes #6): now also echoes FeatureConfig/MaxInferenceUnits/MinInferenceUnits/SourceProjectVersionArn (previously stored by Start/CopyProjectVersion but never serialized here). Prior sweep: CreationTimestamp string->epoch-seconds — see Notes #1"}
@@ -48,7 +53,7 @@ ops:
   CreateDataset: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this sweep (2026-07-23): now rejects a duplicate (ProjectArn,DatasetType) pair with ResourceAlreadyExistsException (via an explicit b.datasets.Range scan, since datasetARN is still always uuid-suffixed so the table key itself never collides) — see Notes #5"}
   DeleteDataset: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeDataset: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this sweep: CreationTimestamp + LastUpdatedTimestamp string->epoch-seconds — see Notes #1"}
-  ListDatasetEntries: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListDatasetEntries: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (gopherstack wrapper-key sweep, 2026-08-29): ContainsLabels/Labeled/SourceRefContains/HasErrors (all four own doc comments, api_op_ListDatasetEntries.go) were read by nothing at all -- listDatasetEntriesReq had none of these fields. ContainsLabels/Labeled/SourceRefContains now parse the stored JSON-lines manifest entries (source-ref, *-metadata blocks) via entryLabels/entrySourceRef. HasErrors is honoured structurally, not fabricated: this backend has no entry-level error concept (see computeDatasetStats' ErrorEntries note), so HasErrors=true now correctly returns an empty result rather than inventing error entries."}
   ListDatasetLabels: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateDatasetEntries: {wire: ok, errors: ok, state: ok, persist: ok}
   DistributeDatasetEntries: {wire: ok, errors: ok, state: ok, persist: ok}

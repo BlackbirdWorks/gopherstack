@@ -5,6 +5,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 // cloneReceiptRuleSet returns a deep copy of a ReceiptRuleSet.
@@ -99,8 +101,11 @@ func (b *InMemoryBackend) CloneReceiptRuleSet(originalName, newName string) erro
 	return nil
 }
 
-// ListReceiptRuleSets returns a sorted slice of all receipt rule sets (name + createdAt only).
-func (b *InMemoryBackend) ListReceiptRuleSets() []ReceiptRuleSet {
+// ListReceiptRuleSets returns a page of receipt rule sets (name + createdAt
+// only) sorted by name. Real ListReceiptRuleSets has no MaxItems request
+// field -- AWS hardcodes the page size at 100 (see ListReceiptRuleSetsOutput's
+// NextToken doc comment).
+func (b *InMemoryBackend) ListReceiptRuleSets(nextToken string) page.Page[ReceiptRuleSet] {
 	b.mu.RLock("ListReceiptRuleSets")
 	defer b.mu.RUnlock()
 
@@ -110,7 +115,7 @@ func (b *InMemoryBackend) ListReceiptRuleSets() []ReceiptRuleSet {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 
-	return out
+	return page.New(out, nextToken, 0, sesDefaultMaxItems)
 }
 
 // DescribeReceiptRuleSet returns a deep copy of the named rule set.

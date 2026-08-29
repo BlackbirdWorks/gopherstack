@@ -242,3 +242,92 @@ func TestCreateOpsWithTags_RoundTrip(t *testing.T) {
 		})
 	}
 }
+
+// TestGetChannelSchedule_AudienceFilter proves GetChannelScheduleInput.Audience
+// (api_op_GetChannelSchedule.go: "The single audience for
+// GetChannelScheduleRequest") constrains the returned schedule entries to
+// those whose Audiences list contains the requested value. Before the fix,
+// the handler read only MaxResults/NextToken from the query string; Audience
+// was never read, and ScheduleEntry.Audiences was never even populated from
+// CreateProgramInput.AudienceMedia.
+func TestGetChannelSchedule_AudienceFilter(t *testing.T) {
+	t.Parallel()
+
+	backend := mediatailor.NewInMemoryBackend("000000000000", mediatailorTagsRTRegion)
+	client := newTestMediaTailorClient(t, mediatailor.NewHandler(backend))
+
+	_, err := client.CreateChannel(t.Context(), &mediatailorsdk.CreateChannelInput{
+		ChannelName:  aws.String("audience-channel"),
+		PlaybackMode: types.PlaybackModeLoop,
+		Outputs: []types.RequestOutputItem{
+			{ManifestName: aws.String("index"), SourceGroup: aws.String("default")},
+		},
+	})
+	require.NoError(t, err)
+
+	_, err = client.CreateSourceLocation(t.Context(), &mediatailorsdk.CreateSourceLocationInput{
+		SourceLocationName: aws.String("sl-for-audience"),
+		HttpConfiguration:  &types.HttpConfiguration{BaseUrl: aws.String("https://example.com")},
+	})
+	require.NoError(t, err)
+
+	_, err = client.CreateVodSource(t.Context(), &mediatailorsdk.CreateVodSourceInput{
+		SourceLocationName: aws.String("sl-for-audience"),
+		VodSourceName:      aws.String("vs-for-audience"),
+		HttpPackageConfigurations: []types.HttpPackageConfiguration{
+			{Path: aws.String("/vod"), SourceGroup: aws.String("default"), Type: types.TypeHls},
+		},
+	})
+	require.NoError(t, err)
+
+	base := time.Now().UnixMilli()
+
+	_, err = client.CreateProgram(t.Context(), &mediatailorsdk.CreateProgramInput{
+		ChannelName:        aws.String("audience-channel"),
+		ProgramName:        aws.String("prog-family"),
+		SourceLocationName: aws.String("sl-for-audience"),
+		VodSourceName:      aws.String("vs-for-audience"),
+		ScheduleConfiguration: &types.ScheduleConfiguration{
+			Transition: &types.Transition{
+				Type:                     aws.String("ABSOLUTE"),
+				RelativePosition:         types.RelativePositionAfterProgram,
+				ScheduledStartTimeMillis: aws.Int64(base),
+				DurationMillis:           aws.Int64(30000),
+			},
+		},
+		AudienceMedia: []types.AudienceMedia{{Audience: aws.String("FAMILY")}},
+	})
+	require.NoError(t, err)
+
+	_, err = client.CreateProgram(t.Context(), &mediatailorsdk.CreateProgramInput{
+		ChannelName:        aws.String("audience-channel"),
+		ProgramName:        aws.String("prog-adult"),
+		SourceLocationName: aws.String("sl-for-audience"),
+		VodSourceName:      aws.String("vs-for-audience"),
+		ScheduleConfiguration: &types.ScheduleConfiguration{
+			Transition: &types.Transition{
+				Type:                     aws.String("ABSOLUTE"),
+				RelativePosition:         types.RelativePositionAfterProgram,
+				ScheduledStartTimeMillis: aws.Int64(base + 60000),
+				DurationMillis:           aws.Int64(30000),
+			},
+		},
+		AudienceMedia: []types.AudienceMedia{{Audience: aws.String("ADULT")}},
+	})
+	require.NoError(t, err)
+
+	all, err := client.GetChannelSchedule(t.Context(), &mediatailorsdk.GetChannelScheduleInput{
+		ChannelName: aws.String("audience-channel"),
+	})
+	require.NoError(t, err)
+	require.Len(t, all.Items, 2)
+	assert.ElementsMatch(t, []string{"FAMILY"}, all.Items[0].Audiences)
+
+	family, err := client.GetChannelSchedule(t.Context(), &mediatailorsdk.GetChannelScheduleInput{
+		ChannelName: aws.String("audience-channel"),
+		Audience:    aws.String("FAMILY"),
+	})
+	require.NoError(t, err)
+	require.Len(t, family.Items, 1)
+	assert.Equal(t, "prog-family", aws.ToString(family.Items[0].ProgramName))
+}

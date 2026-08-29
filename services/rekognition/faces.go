@@ -82,8 +82,12 @@ func (b *InMemoryBackend) DeleteFaces(collectionID string, faceIDs []string) ([]
 	return deleted, nil
 }
 
-// ListFaces returns a paginated list of faces in a collection.
-func (b *InMemoryBackend) ListFaces(collectionID string, maxResults int32, nextToken string) ([]*Face, string, error) {
+// ListFaces returns a paginated list of faces in a collection, optionally
+// constrained to faceIDs and/or the faces associated with userID (own doc
+// comments, api_op_ListFaces.go).
+func (b *InMemoryBackend) ListFaces(
+	collectionID string, faceIDs []string, userID string, maxResults int32, nextToken string,
+) ([]*Face, string, error) {
 	b.mu.RLock("ListFaces")
 	defer b.mu.RUnlock()
 
@@ -92,6 +96,27 @@ func (b *InMemoryBackend) ListFaces(collectionID string, maxResults int32, nextT
 	}
 
 	faces := b.facesByCollection.Get(collectionID)
+
+	if len(faceIDs) > 0 {
+		wanted := make(map[string]bool, len(faceIDs))
+		for _, id := range faceIDs {
+			wanted[id] = true
+		}
+
+		faces = slices.DeleteFunc(slices.Clone(faces), func(f *storedFace) bool { return !wanted[f.FaceID] })
+	}
+
+	if userID != "" {
+		var userFaceIDs map[string]bool
+		if u, ok := b.users.Get(userKey(collectionID, userID)); ok {
+			userFaceIDs = make(map[string]bool, len(u.FaceIDs))
+			for _, id := range u.FaceIDs {
+				userFaceIDs[id] = true
+			}
+		}
+
+		faces = slices.DeleteFunc(slices.Clone(faces), func(f *storedFace) bool { return !userFaceIDs[f.FaceID] })
+	}
 
 	start := 0
 	if nextToken != "" {

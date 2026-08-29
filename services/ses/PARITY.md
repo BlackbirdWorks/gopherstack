@@ -7,7 +7,10 @@
 service: ses
 sdk_module: aws-sdk-go-v2/service/ses@v1.37.4   # version audited against (query-XML, 2010-12-01); verified == go.mod this pass
 last_audit_commit: a40e7cc1                      # NOT updated this pass -- git commands were off-limits
-last_audit_date: 2026-08-10                       # gopherstack-mhnk follow-up pass (see families for fixes)
+last_audit_date: 2026-08-29                       # gopherstack wrapper-key/constraint sweep: 4 fixes below
+                       # (ListTemplates default page size, DescribeConfigurationSet attribute gating,
+                       # ListCustomVerificationEmailTemplates + ListReceiptRuleSets pagination never
+                       # plumbed through the call chain at all) -- see the four rows' notes.
 overall: A            # gopherstack-mhnk pass fixed: (1) GetSendStatistics Bounces/Complaints were hardcoded
                        # zero even though the AWS mailbox simulator addresses are a real, documented,
                        # deterministic trigger AWS publishes -- now genuinely reachable; (2) NotificationType
@@ -64,13 +67,13 @@ ops:
   CreateTemplate: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateTemplate: {wire: ok, errors: ok, state: ok, persist: ok}
   GetTemplate: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListTemplates: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListTemplates: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (gopherstack wrapper-key sweep, 2026-08-29): MaxItems defaulted to sesDefaultMaxItems (100) when absent -- real ListTemplatesInput.MaxItems documents 10 as its default (own doc comment, api_op_ListTemplates.go) and a distinct 100 cap for oversized requests, both now enforced via listTemplatesDefaultMaxItems/listTemplatesMaxItemsCap (templates.go)."}
   DeleteTemplate: {wire: ok, errors: ok, state: ok, persist: ok}
   TestRenderTemplate: {wire: ok, errors: ok, state: ok, persist: ok, note: "{{key}} substitution against real stored template parts"}
   CreateConfigurationSet: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteConfigurationSet: {wire: ok, errors: ok, state: ok, persist: ok, note: "cascades event destinations + tracking options"}
   ListConfigurationSets: {wire: ok, errors: ok, state: ok, persist: ok}
-  DescribeConfigurationSet: {wire: ok, errors: ok, state: ok, persist: ok}
+  DescribeConfigurationSet: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (gopherstack wrapper-key sweep, 2026-08-29): ConfigurationSetAttributeNames (api_op_DescribeConfigurationSet.go: 'A list of configuration set attributes to return') was read by nothing -- EventDestinations/TrackingOptions/DeliveryOptions/ReputationOptions were unconditionally included regardless of what was requested, matching real AWS SES behavior of only returning the attribute groups named in the request. Now gated via parseSESMemberList (handler_configuration_sets.go)."}
   CreateConfigurationSetEventDestination: {wire: ok, errors: ok, state: ok, persist: ok, note: "gopherstack-mhnk pass: EventDestination.MatchingEventTypes is a required member restricted to the 8-value EventType enum (send/reject/bounce/complaint/delivery/open/click/renderingFailure — confirmed required via botocore ses/2010-12-01 service-2.json EventDestination.required, and the enum via aws-sdk-go-v2/service/ses/types/enums.go EventType), but was completely unvalidated: absent, empty, wrong-case (\"Send\"), or nonsense values all succeeded. Added validateMatchingEventTypes (shared with UpdateConfigurationSetEventDestination) -> InvalidParameterValue. Several existing tests/fixtures across this service used capitalized event-type strings (\"Send\"/\"Bounce\") that no real AWS client would ever send (the wire enum is lowercase-only) or omitted MatchingEventTypes entirely; all were corrected to real lowercase values rather than the validation being loosened to accommodate them."}
   DeleteConfigurationSetEventDestination: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateConfigurationSetTrackingOptions: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -78,11 +81,11 @@ ops:
   CreateCustomVerificationEmailTemplate: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteCustomVerificationEmailTemplate: {wire: ok, errors: ok, state: ok, persist: ok}
   GetCustomVerificationEmailTemplate: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListCustomVerificationEmailTemplates: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListCustomVerificationEmailTemplates: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (gopherstack wrapper-key sweep, 2026-08-29): MaxResults/NextToken were never plumbed through the call chain at all -- handleListCustomVerificationEmailTemplates took no query params and the backend method took none either, so ListCustomVerificationEmailTemplatesOutput.NextToken was always empty and every template was returned in one page regardless of MaxResults. Now paginated (own documented 1-50 range, default+cap 50, api_op_ListCustomVerificationEmailTemplates.go) via page.New (custom_verification.go)."}
   CreateReceiptRuleSet: {wire: ok, errors: ok, state: ok, persist: ok}
   CloneReceiptRuleSet: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteReceiptRuleSet: {wire: ok, errors: ok, state: ok, persist: ok, note: "BEHAVIOR BUG FIXED this pass: previously allowed deleting the active rule set and silently cleared the active pointer. Real AWS SES explicitly forbids this (\"The currently active rule set cannot be deleted.\", api_op_DeleteReceiptRuleSet.go doc comment) via CannotDeleteException (wire code \"CannotDelete\", confirmed in deserializers.go). Added ErrReceiptRuleSetActive -> CannotDelete; the active pointer is no longer touched by delete and callers must SetActiveReceiptRuleSet to something else (or \"\") first."}
-  ListReceiptRuleSets: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListReceiptRuleSets: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (gopherstack wrapper-key sweep, 2026-08-29): NextToken was never plumbed through the call chain -- handleListReceiptRuleSets took no query params and the backend method took none either, so ListReceiptRuleSetsOutput.NextToken was always empty and every rule set was returned in one page. Now paginated at the real 100-per-page default (own doc comment, api_op_ListReceiptRuleSets.go) via page.New (receipt_rule_sets.go)."}
   DescribeReceiptRuleSet: {wire: ok, errors: ok, state: ok, persist: ok}
   SetActiveReceiptRuleSet: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeActiveReceiptRuleSet: {wire: ok, errors: ok, state: ok, persist: ok}

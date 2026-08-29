@@ -688,8 +688,8 @@ func TestBackend_ListReceiptRuleSets_SortedOrder(t *testing.T) {
 	b.AddReceiptRuleSetInternal(ses.ReceiptRuleSet{Name: "zzz-set", CreatedAt: time.Now()})
 	b.AddReceiptRuleSetInternal(ses.ReceiptRuleSet{Name: "aaa-set", CreatedAt: time.Now()})
 
-	sets := b.ListReceiptRuleSets()
-	require.Len(t, sets, 2)
-	assert.Equal(t, "aaa-set", sets[0].Name)
-	assert.Equal(t, "zzz-set", sets[1].Name)
+	sets := b.ListReceiptRuleSets("")
+	require.Len(t, sets.Data, 2)
+	assert.Equal(t, "aaa-set", sets.Data[0].Name)
+	assert.Equal(t, "zzz-set", sets.Data[1].Name)
 }

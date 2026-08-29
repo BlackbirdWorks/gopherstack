@@ -3,6 +3,7 @@ package comprehend_test
 import (
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awscfg "github.com/aws/aws-sdk-go-v2/config"
@@ -364,4 +365,64 @@ func TestFlywheelIteration_StatusFieldSDKRoundTrip(t *testing.T) {
 	}
 
 	assert.Equal(t, types.FlywheelIterationStatusCompleted, last.Status)
+}
+
+// TestListFlywheelIterationHistory_Filter proves ListFlywheelIterationHistoryInput.Filter
+// (types.FlywheelIterationFilter: CreationTimeBefore/CreationTimeAfter,
+// api_op_ListFlywheelIterationHistory.go) constrains the returned iterations.
+func TestListFlywheelIterationHistory_Filter(t *testing.T) {
+	t.Parallel()
+
+	backend := comprehend.NewInMemoryBackend("000000000000", "us-east-1")
+	h := comprehend.NewHandler(backend)
+	client := newTestComprehendSDKClient(t, h)
+
+	flywheel, err := client.CreateFlywheel(t.Context(), &comprehendsdk.CreateFlywheelInput{
+		FlywheelName:      aws.String("filter-flywheel"),
+		DataAccessRoleArn: aws.String("arn:aws:iam::000000000000:role/comprehend-role"),
+		DataLakeS3Uri:     aws.String("s3://bucket/prefix"),
+		ModelType:         types.ModelTypeDocumentClassifier,
+	})
+	require.NoError(t, err)
+
+	_, err = client.StartFlywheelIteration(t.Context(), &comprehendsdk.StartFlywheelIterationInput{
+		FlywheelArn: flywheel.FlywheelArn,
+	})
+	require.NoError(t, err)
+
+	// CreationTimeAfter/Before are wire-encoded as whole epoch seconds (see
+	// filterTime, handler_jobs.go), so the two iterations must land in
+	// different UTC seconds for the filter to distinguish them.
+	time.Sleep(1200 * time.Millisecond)
+	cutoff := time.Now()
+	time.Sleep(1200 * time.Millisecond)
+
+	second, err := client.StartFlywheelIteration(t.Context(), &comprehendsdk.StartFlywheelIterationInput{
+		FlywheelArn: flywheel.FlywheelArn,
+	})
+	require.NoError(t, err)
+
+	out, err := client.ListFlywheelIterationHistory(t.Context(), &comprehendsdk.ListFlywheelIterationHistoryInput{
+		FlywheelArn: flywheel.FlywheelArn,
+		Filter:      &types.FlywheelIterationFilter{CreationTimeAfter: aws.Time(cutoff)},
+	})
+	require.NoError(t, err)
+	require.Len(t, out.FlywheelIterationPropertiesList, 1)
+	assert.Equal(
+		t,
+		aws.ToString(second.FlywheelIterationId),
+		aws.ToString(out.FlywheelIterationPropertiesList[0].FlywheelIterationId),
+	)
+
+	before, err := client.ListFlywheelIterationHistory(t.Context(), &comprehendsdk.ListFlywheelIterationHistoryInput{
+		FlywheelArn: flywheel.FlywheelArn,
+		Filter:      &types.FlywheelIterationFilter{CreationTimeBefore: aws.Time(cutoff)},
+	})
+	require.NoError(t, err)
+	require.Len(t, before.FlywheelIterationPropertiesList, 1)
+	assert.NotEqual(
+		t,
+		aws.ToString(second.FlywheelIterationId),
+		aws.ToString(before.FlywheelIterationPropertiesList[0].FlywheelIterationId),
+	)
 }

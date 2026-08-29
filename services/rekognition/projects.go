@@ -74,12 +74,13 @@ func (b *InMemoryBackend) DeleteProject(projectARN string) error {
 	return nil
 }
 
-// DescribeProjects lists projects, optionally filtered by name.
-// DescribeProjectsInput.ProjectNames filters by name (see storedProject's
-// doc comment), not by ARN -- there is no ProjectArns filter member on the
-// real input at all.
+// DescribeProjects lists projects, optionally filtered by name and/or
+// customization feature. DescribeProjectsInput.ProjectNames filters by name
+// (see storedProject's doc comment), not by ARN -- there is no ProjectArns
+// filter member on the real input at all. An absent/empty features filter
+// defaults to CUSTOM_LABELS only (own doc comment, api_op_DescribeProjects.go).
 func (b *InMemoryBackend) DescribeProjects(
-	projectNames []string, maxResults int32, nextToken string,
+	projectNames, features []string, maxResults int32, nextToken string,
 ) ([]*Project, string, error) {
 	b.mu.RLock("DescribeProjects")
 	defer b.mu.RUnlock()
@@ -91,6 +92,14 @@ func (b *InMemoryBackend) DescribeProjects(
 	filter := make(map[string]bool, len(projectNames))
 	for _, name := range projectNames {
 		filter[name] = true
+	}
+
+	if len(features) == 0 {
+		features = []string{defaultProjectFeature}
+	}
+	featureFilter := make(map[string]bool, len(features))
+	for _, f := range features {
+		featureFilter[f] = true
 	}
 
 	// Apply nextToken offset.
@@ -118,6 +127,9 @@ func (b *InMemoryBackend) DescribeProjects(
 	for i := start; i < len(items); i++ {
 		v := items[i]
 		if len(filter) > 0 && !filter[v.Name] {
+			continue
+		}
+		if !featureFilter[v.Feature] {
 			continue
 		}
 
