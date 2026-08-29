@@ -823,3 +823,75 @@ distinguishes the two rather than just rejecting everything.
 success path. Gates: `go build`, `go vet`, `gofmt -l` (clean), `go test -race
 ./services/cloudwatch/...` (pass), `golangci-lint run ./services/cloudwatch/...` (0 issues,
 0 new nolints). No exported signature changed.
+
+## 2026-08-29 -- exhaustive indexed-list/filter-key request-parameter sweep
+
+**Protocol confirmed first, per the campaign's explicit warning for this
+service:** `cloudwatch@v1.66.3`'s pinned SDK client sets
+`options.Protocol = rpcv2.NewCBOR(...)` (`api_client.go:214`) and has no
+`serializers.go` at all -- request/response field mapping instead comes from
+the generated `schemas` package (`AddMember("FieldName", ...)` calls) plus
+each type's own `Serialize`/`SerializeMembers` methods. `handler.go`
+confirms real dispatch: `isCBORRequest(r)` routes to `handleCBOR`/
+`dispatchCBOR` (`handler.go:243-254,344-346`); the form-encoded
+`vals url.Values` handlers (`handler_alarms.go`, `handler_metrics.go`, etc.)
+are the classic Query/XML path, reachable only by a hand-built legacy
+request, never by a real `aws-sdk-go-v2` client at this pinned version. **All
+verification effort this pass went into the CBOR path**, since that's the
+only one both live and modeled by the pinned SDK.
+
+**Every list-cardinality read on the CBOR path checked against its
+operation's real Go input struct + `schemas.go` member name, 0 bugs found.**
+~35 call sites across `cborStrList` (8 distinct fields --
+`AlarmNames`/`AlarmActions`/`OKActions`/`InsufficientDataActions`/
+`AlarmTypes`/`DashboardNames`/`LogGroupIdentifiers`/`MetricNames`/
+`AdditionalStatistics`/`Statistics`/`ExtendedStatistics`/`Statuses`/`Names`,
+each op's own struct checked rather than inferred from a sibling),
+`cborDimensions` (7 sites, always the literal `"Dimensions"` key, matching
+`types.Dimension.{Name,Value}`), `cborFloatList` (`MetricDatum.Values`/
+`Counts`), `parseMetricDataQueries` (`GetMetricData.MetricDataQueries` plus
+the nested `MetricStat.{Stat,Period,Metric}`/`Metric.{Namespace,MetricName,
+Dimensions}` chain), `cborMetricStreamFilters`/
+`cborMetricStreamStatisticsConfigurations` (`PutMetricStream`'s nested
+`IncludeFilters`/`ExcludeFilters`/`StatisticsConfigurations`, down to
+`IncludeMetrics[].{MetricName,Namespace}`), `cborMuteTargetAlarmNames`
+(`MuteTargets.AlarmNames`, confirmed against `schemas.MuteTargets_AlarmNames`),
+plain `Tags`/`TagKeys` on the three tag ops, `MetricData` on `PutMetricData`,
+and `ManagedRules` on `PutManagedInsightRules`. Every key matched exactly;
+no cardinality mistakes (no scalar-getter used on a list field or vice
+versa) found anywhere in this set.
+
+**Missing feature, left alone (not this bug class), and one real
+CBOR-vs-legacy divergence worth flagging for the next pass:**
+`PutMetricAlarmInput.Metrics []types.MetricDataQuery` (metric-math alarms)
+is a real, modeled field that `cborPutMetricAlarm` never reads at all --
+but the **dead** legacy XML `handlePutMetricAlarm` (`handler_alarms.go:51`)
+*does* parse it via `parseMetricDataQueriesFromForm`. So the unreachable
+path has strictly more feature coverage than the one real clients hit; this
+is a missing-feature gap on the live path, not a wrong-key bug, but is
+exactly the kind of live/dead divergence this service's protocol split
+makes easy to miss. Also unread on the CBOR path: `MetricStat.Unit`,
+`DescribeAlarmsForMetricInput` doesn't need it but `GetMetricStatistics`
+doesn't propagate `Unit` into a request-side list check (it's a scalar
+enum, not a list, so out of this bug class) -- noted for a future feature
+pass, not fixed here.
+
+**Dead legacy XML/Query path, spot-checked but not exhaustively
+cross-referenced:** the pinned SDK has no serializer for this protocol at
+all (it's not what `aws-sdk-go-v2` cloudwatch@v1.55+ ever sends), so there
+is no "real SDK" to check these call sites against the way the campaign
+otherwise requires. Read `parseMemberList`/`parseCWTagsFromForm`/
+`parseCWTagKeysFromForm`/`parseDimensionsFromForm` (the direct form-path
+analogs of the CBOR helpers above) and confirmed they consistently iterate
+every `.member.N` entry (no shape-2 truncation-at-first-element bug), but
+did not verify their key spelling against anything authoritative, since
+nothing authoritative for this protocol is pinned in this repo. Given they
+are unreachable by any real typed client, this is deliberately left
+unresolved rather than guessed at.
+
+**Coverage: N-of-N for the CBOR path (~35 of 35 list-cardinality sites);
+the dead XML path was read for the same shape-2 pattern but explicitly not
+graded pass/fail against a serializer that doesn't exist for it.** No code
+changes in this service this pass -- the live path enumeration found
+nothing to fix, which is itself informative given how much of this bug
+class showed up when the same method was pointed at ec2's Query/XML surface.

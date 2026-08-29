@@ -293,13 +293,13 @@ func (b *InMemoryBackend) DescribeDBClusters(
 	clusters := b.clustersInRegion(region)
 	result := make([]DBCluster, 0, len(clusters))
 	for _, c := range clusters {
-		if filters.Engine != "" && c.Engine != filters.Engine {
+		if len(filters.Engine) > 0 && !slices.Contains(filters.Engine, c.Engine) {
 			continue
 		}
-		if filters.EngineVersion != "" && c.EngineVersion != filters.EngineVersion {
+		if len(filters.EngineVersion) > 0 && !slices.Contains(filters.EngineVersion, c.EngineVersion) {
 			continue
 		}
-		if filters.Status != "" && c.Status != filters.Status {
+		if len(filters.Status) > 0 && !slices.Contains(filters.Status, c.Status) {
 			continue
 		}
 		result = append(result, cloneCluster(c))

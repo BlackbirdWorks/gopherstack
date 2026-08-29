@@ -71,7 +71,7 @@ func (h *Handler) handleCreateDBInstance(ctx context.Context, vals url.Values) (
 
 func (h *Handler) handleDescribeDBInstances(ctx context.Context, vals url.Values) (any, error) {
 	id := vals.Get("DBInstanceIdentifier")
-	clusterFilter := parseNeptuneFilterValue(vals, "db-cluster-id")
+	clusterFilter := parseNeptuneFilterValues(vals, "db-cluster-id")
 	instances, err := h.Backend.DescribeDBInstances(ctx, id, clusterFilter)
 	if err != nil {
 		return nil, err
@@ -287,9 +287,9 @@ func (h *Handler) handleDescribePendingMaintenanceActions(
 	ctx context.Context,
 	vals url.Values,
 ) (any, error) {
-	resourceFilter := parseNeptuneFilterValue(vals, "db-cluster-id")
-	if resourceFilter == "" {
-		resourceFilter = parseNeptuneFilterValue(vals, "db-instance-id")
+	resourceFilter := parseNeptuneFilterValues(vals, "db-cluster-id")
+	if len(resourceFilter) == 0 {
+		resourceFilter = parseNeptuneFilterValues(vals, "db-instance-id")
 	}
 	resources := h.Backend.DescribePendingMaintenanceActions(ctx, resourceFilter)
 	members := make([]xmlResourcePendingMaintenanceActions, 0, len(resources))
@@ -337,7 +337,7 @@ func (h *Handler) handleDescribeValidDBInstanceModifications(
 	if id == "" {
 		return nil, fmt.Errorf("%w: DBInstanceIdentifier is required", ErrInstanceNotFound)
 	}
-	if _, err := h.Backend.DescribeDBInstances(ctx, id, ""); err != nil {
+	if _, err := h.Backend.DescribeDBInstances(ctx, id, nil); err != nil {
 		return nil, err
 	}
 

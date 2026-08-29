@@ -319,9 +319,9 @@ type GlobalClusterMember struct {
 
 // DBClusterFilters holds filter values for DescribeDBClusters.
 type DBClusterFilters struct {
-	Engine        string
-	EngineVersion string
-	Status        string
+	Engine        []string
+	EngineVersion []string
+	Status        []string
 }
 
 // ParameterValue is a single persisted parameter override applied to a DB

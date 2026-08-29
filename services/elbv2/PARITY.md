@@ -292,3 +292,56 @@ confirmed failing pre-fix with `UnknownError`; passes now with `InternalFailure`
 `TestHandler_NormalSizedBodyStillRoutes` is the regression guard. Gates: `go build`,
 `go vet`, `gofmt -l` (clean), `go test -race ./services/elbv2/...` (pass),
 `golangci-lint run ./services/elbv2/...` (0 issues).
+
+## 2026-08-29 -- exhaustive indexed-list/filter-key request-parameter sweep
+
+Every generic indexed-list parse site enumerated against its own operation's
+serializer in `elasticloadbalancingv2@v1.58.5` (request-side parameter
+reads -- this service's protocol is confirmed `awsAwsquery_*` / Query-XML,
+not one of the two CBOR/hand-read exceptions).
+
+**~40 call sites checked by hand, 0 new bugs found.** Generic single-level
+lists (25 sites): `parseMembers` across `Certificates`/`ResourceArns`/
+`AlpnPolicy`/`RuleArns`/`ListenerArns`/`Names` (checked independently for
+`DescribeSSLPolicies`/`DescribeTargetGroups`/`DescribeLoadBalancers`/
+`DescribeTrustStores` -- four different `serializeDocument*Names` functions
+sharing only the field name `Names`, all confirmed `member`-wrapped)/
+`TargetGroupArns`/`LoadBalancerArns`/`SecurityGroups`/`Subnets`
+(`CreateLoadBalancer` and `SetSubnets` checked independently, same
+serializer)/`RemoveIpamPools`/`TrustStoreArns`, plus `parseTagKeys`,
+`parseCertArns`, and `parseRevocationIDs` (already correctly `int64`, per
+the prior `RemoveTrustStoreRevocations` fix). Nested lists (~15 more sites):
+`parseKVAttrs` (three independent `*Attributes` shapes --
+`ListenerAttributes`/`LoadBalancerAttributes`/`TargetGroupAttributes`, each
+its own serializer, all identically `Key`/`Value`/`member`), `parseActions`
+(`DefaultActions` on `CreateListener`/`ModifyListener`, `Actions` on
+`CreateRule`/`ModifyRule` -- same `awsAwsquery_serializeDocumentActions`,
+confirmed on both op pairs independently), `parseForwardConfigTargetGroups`
+(`ForwardConfig.TargetGroups.member.N.{TargetGroupArn,Weight}`),
+`parseSubnetMappings`, `parseTargets` (`Register`/`Deregister`/
+`DescribeTargetHealth`, same `TargetDescriptions`), and
+`parseTrustStoreRevocationContents` (already correctly rejecting the
+invented plain-content shape per the prior fix).
+
+**Missing feature, left alone (not this bug class):** `SubnetMapping.
+SourceNatIpv6Prefix` and `TargetDescription.{AvailabilityZone,QuicServerId}`
+are real, unparsed request fields (confirmed on the types, not invented);
+`DescribeTargetHealth.Include` is never parsed either.
+
+**Not re-walked from scratch this pass** (already fixed/verified against
+this identical bug class in prior, cited passes -- see the `CreateListener`/
+`CreateRule`/`AddTrustStoreRevocations`/`RemoveTrustStoreRevocations`/
+`RegisterTargets` family notes above): the `Conditions`/`RegexValues`/
+`QueryStringPairs` chain (`parseConditions`/`parseConditionAt`/
+`parseRegexValues`/`parseQueryStringPairs`), and the `Transforms`/
+`RewriteConfig` chain (`parseTransforms`/`parseRewriteConfigs`). Spot-read
+their outer wrapper calls this pass to confirm they still route through
+`Actions.member`/`Conditions.member`/`Transforms.member` as documented
+above; did not re-verify every leaf field a second time.
+
+**Coverage: N-of-N for every site read this pass (40 of 40 freshly
+checked); the Conditions/Transforms family (documented separately above,
+not recounted here) was cross-referenced rather than re-verified.** No code
+changes in this service this pass -- the enumeration found nothing to fix,
+consistent with how much of this exact bug class this service's PARITY.md
+already shows fixed from earlier campaigns.

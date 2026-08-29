@@ -314,3 +314,63 @@ this file's prior "wire: ok" grade.
   Fault-suffix trap this campaign targets — e.g. `DBInstanceNotFound` genuinely has no
   `Fault` suffix while `DBClusterNotFoundFault` does) and is the sole path to the wire; the
   `errors.go` literal is only ever used for `errors.Is` identity. No new fix needed.
+
+## 2026-08-29 -- exhaustive indexed-list/filter-key request-parameter sweep
+
+Every request-side indexed-list or filter-key parse site enumerated against
+its own operation's serializer in `neptune@v1.48.4` (a different surface from
+the 2026-08-15 response-wrapper-key pass above: this is what the handler
+*reads off incoming requests*, not what it *writes into responses*).
+
+**30 of 30 call sites checked, all resolved by hand** (small enough surface
+that scripting wasn't needed): 9 `parseMemberList` call sites, 6
+`parseNeptuneFilterValue(s)` call sites, and 15 more through five small
+fixed-key helpers (`parseTagEntries` x8, `parseTagKeyMembers` x1,
+`parseSubnetIDMembers` x2, `parseSourceIDMembers` x1, `parseParameterEntries`
+x3) -- each helper's hardcoded key verified once against its serializer,
+since every call site shares the same literal key.
+
+**Two real bugs found, both fixed:**
+
+1. **Wrong inner element name (shape 3).** `ModifyEventSubscription` and
+   `DescribeEvents` both read `EventCategories.member.N`. The real serializer
+   (`awsAwsquery_serializeDocumentEventCategoriesList`, serializers.go:4971-4972)
+   wraps each entry in `EventCategory`, not the generic `member` -- so a real
+   client's `EventCategories` was silently dropped on both ops. Notably,
+   the sibling `SourceIds` field on `CreateEventSubscription` was *already*
+   fixed to `SourceIds.SourceId.N` (see the comment on `parseSourceIDMembers`)
+   while this identically-shaped field was not -- confirms the "don't infer
+   from a sibling fix" warning cuts both ways.
+2. **Wrong cardinality, list read as scalar (shape 2).** `parseNeptuneFilterValue`
+   read only `Filters.Filter.N.Values.Value.1`; the real serializer
+   (`awsAwsquery_serializeDocumentFilterValueList`, serializers.go:5012-5013)
+   makes `Values` a repeated `Value` list of arbitrary length, so a filter
+   with 2+ values behaved like a 1-value filter and silently excluded
+   matches on every value after the first. Affected `DescribeDBClusters`
+   (engine/engine-version/status), `DescribeDBInstances` (db-cluster-id),
+   and `DescribePendingMaintenanceActions` (db-cluster-id/db-instance-id).
+   Renamed to `parseNeptuneFilterValues` (returns `[]string`); `DBClusterFilters`
+   fields and the two other filter parameters widened to `[]string`, matched
+   via `slices.Contains`.
+
+**Everything else already correct**, including several call sites carrying
+an inline comment citing the exact serializer line that had *already* fixed
+this same bug class in an earlier pass (`SourceIds.SourceId.N`,
+`StaticMembers`/`ExcludedMembers.member.N`, `SubnetIds.SubnetIdentifier.N`) --
+those are why this pass found only 2 new bugs rather than the higher count
+an untouched service would show.
+
+**Missing feature, left alone (not this bug class):** `CreateEventSubscription`
+never parses `EventCategories` from the request at all (real, optional input
+member, confirmed on `CreateEventSubscriptionInput`) -- a parameter never
+read, not a wrong key.
+
+Tests: `wire_field_fixes_indexedlist_test.go`, all three driving the real
+typed SDK client and asserting on the decoded response. Confirmed failing
+against unmodified code first (`git stash` of just the fixed source files,
+run, `git stash pop`).
+
+Gates: `go build`, `go vet`, `go test -race -count=1`, `golangci-lint run`
+all clean for `services/neptune`; repo-wide `go vet` clean except a
+pre-existing, uncommitted route53 signature mismatch from a concurrently
+active agent working in that directory (not touched here).

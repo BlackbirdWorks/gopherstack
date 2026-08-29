@@ -729,3 +729,59 @@ confirmed failing pre-fix with `UnknownError`; passes now with `InternalFailure`
 `TestHandler_NormalSizedBodyStillRoutes` is the regression guard. Gates: `go build`,
 `go vet`, `gofmt -l` (clean), `go test -race ./services/autoscaling/...` (pass),
 `golangci-lint run ./services/autoscaling/...` (0 issues).
+
+## 2026-08-29 -- exhaustive indexed-list/filter-key request-parameter sweep
+
+Every generic indexed-list parse site enumerated against its own operation's
+serializer in `autoscaling@v1.70.4` (request-side parameter reads, not the
+response-wrapper-key class the 2026-08-29 error/wrapper passes above cover).
+
+**~42 call sites checked by hand this pass, 0 bugs found:** 31 `parseMembers`
+call sites (`InstanceIds`/`SecurityGroups`/`ClassicLinkVPCSecurityGroups`/
+`LaunchConfigurationNames`/`NotificationTypes`/`AutoScalingGroupNames`/
+`AvailabilityZones`/`LoadBalancerNames`/`TargetGroupARNs`/
+`TerminationPolicies`/`ScalingProcesses`/`ScheduledActionNames`/
+`LifecycleHookNames`/`InstanceRefreshIds`/`Metrics`/`PolicyNames`, each
+checked against its own operation's serializer independently -- several keys
+like `InstanceIds`/`TargetGroupARNs`/`AvailabilityZones` are read identically
+across multiple sibling operations, and each one's own serializer was read
+rather than inferred from the first), `parseTags`/`parseResourceTags` (3
+sites) plus `parseTagFilters` (already correctly iterating every
+`Values.member.M`, not just the first), `parseBlockDeviceMappings`/
+`parseEbsBlockDevice`, `parseLifecycleHookSpecifications`,
+`parseCapacityReservationTarget`/`parseCapacityReservationSpecification`,
+`parseTrafficSources` (Attach+Detach), and `parseBatchScheduledActions`. All
+confirmed to use the generic query-protocol `.member.N` wrapper this
+handler already assumes, with the field's own `serializeDocument*` function
+read in each case rather than pattern-matched by name.
+
+**Not re-derived from scratch this pass** (previously exhaustively verified
+against the identical bug class with serializers.go line citations -- see
+"bd gopherstack-2uti" and the immediately-following predictive-scaling
+section above): the `TargetTrackingConfiguration`/
+`PredictiveScalingConfiguration`/`MixedInstancesPolicy.LaunchTemplate.
+Overrides[].InstanceRequirements` nested-list machinery in
+`handler_scaling_policies.go`/`handler_auto_scaling_groups.go`, including the
+`BaselinePerformanceFactors.Cpu.Reference.item.M` singular/`item`-wrapped
+outlier that prior pass already caught. Spot-checked
+`parseLaunchTemplateOverrides`'s outer `Overrides.member.N` wrapper and the
+`CapacityReservationSpecification`/`CapacityReservationTarget` sub-lists this
+pass; did not re-walk every leaf field of the ~25-field `InstanceRequirements`
+struct a second time.
+
+**Missing feature, left alone (not this bug class):** `DescribeAutoScalingGroups`
+never parses its real `Filters` member (confirmed on
+`DescribeAutoScalingGroupsInput`); `DescribePolicies` never parses `PolicyTypes`.
+Both are parameters never read, not wrong keys.
+
+**Coverage: N-of-N for every generic-helper call site found this pass (73
+of 73: 42 freshly checked + the ~31 already covered by the 2026-08-08/02ue
+scaling-policy pass, cross-referenced rather than re-verified).** What
+remains unchecked by any pass: the handful of pure-scalar object parsers
+(`parseInstanceLifecyclePolicy`, `parseInstanceMaintenancePolicy`,
+`parseAvailabilityZoneDistribution`, `parseAvailabilityZoneImpairmentPolicy`,
+`parseInstancesDistribution`) carry no `.N` indexing at all, so they are
+outside this bug class by construction and were not separately audited here.
+
+No code changes in this service this pass -- the enumeration found nothing
+to fix.
