@@ -90,22 +90,27 @@ func (b *InMemoryBackend) PutResourcePolicy(
 	return &p, nil
 }
 
-// DescribeResourcePolicies returns resource policies, sorted by name.
+// DescribeResourcePolicies returns resource policies, sorted by name, with
+// Limit/NextToken pagination (api_op_DescribeResourcePolicies.go:29-42 --
+// no documented default, so this falls back to defaultDescribeLimit like
+// every other Describe op in this service, e.g. DescribeLogStreams).
 // resourceArn (when set) looks up the single resource-scoped policy on that
 // ARN. Otherwise policyScope filters by scope, defaulting to ACCOUNT per
 // DescribeResourcePoliciesInput's own doc comment ("When not specified,
 // defaults to ACCOUNT").
-func (b *InMemoryBackend) DescribeResourcePolicies(policyScope, resourceArn string) []ResourcePolicy {
+func (b *InMemoryBackend) DescribeResourcePolicies(
+	policyScope, resourceArn, nextToken string, limit int,
+) ([]ResourcePolicy, string) {
 	b.mu.RLock("DescribeResourcePolicies")
 	defer b.mu.RUnlock()
 
 	if resourceArn != "" {
 		p, ok := b.resourcePolicies.Get(resourcePolicyStoreKey("", resourceArn))
 		if !ok {
-			return []ResourcePolicy{}
+			return []ResourcePolicy{}, ""
 		}
 
-		return []ResourcePolicy{*p}
+		return []ResourcePolicy{*p}, ""
 	}
 
 	if policyScope == "" {
@@ -122,7 +127,25 @@ func (b *InMemoryBackend) DescribeResourcePolicies(policyScope, resourceArn stri
 
 	sort.Slice(out, func(i, j int) bool { return out[i].PolicyName < out[j].PolicyName })
 
-	return out
+	startIdx := parseNextToken(nextToken)
+	if startIdx >= len(out) {
+		return []ResourcePolicy{}, ""
+	}
+
+	if limit <= 0 {
+		limit = defaultDescribeLimit
+	}
+
+	end := startIdx + limit
+
+	var outToken string
+	if end < len(out) {
+		outToken = encodeNextToken(end)
+	} else {
+		end = len(out)
+	}
+
+	return out[startIdx:end], outToken
 }
 
 // DeleteResourcePolicy removes a resource policy by name (account scope) or

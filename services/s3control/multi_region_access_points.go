@@ -1,6 +1,9 @@
 package s3control
 
-import "fmt"
+import (
+	"fmt"
+	"sort"
+)
 
 // CreateMultiRegionAccessPoint creates an async MRAP request and stores the MRAP instance.
 func (b *InMemoryBackend) CreateMultiRegionAccessPoint(
@@ -89,7 +92,10 @@ func (b *InMemoryBackend) DeleteMultiRegionAccessPoint(accountID, name string) e
 	return nil
 }
 
-// ListMultiRegionAccessPoints returns all MRAPs for an account.
+// ListMultiRegionAccessPoints returns all MRAPs for an account, sorted by
+// name so the handler's index-based nextToken pagination (s3cPaginate)
+// stays stable across calls -- store.Table.All()'s iteration order is
+// unspecified.
 func (b *InMemoryBackend) ListMultiRegionAccessPoints(accountID string) []*MultiRegionAccessPoint {
 	b.mu.RLock("ListMultiRegionAccessPoints")
 	defer b.mu.RUnlock()
@@ -102,6 +108,8 @@ func (b *InMemoryBackend) ListMultiRegionAccessPoints(accountID string) []*Multi
 			out = append(out, &cp)
 		}
 	}
+
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 
 	return out
 }

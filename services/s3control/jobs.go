@@ -3,6 +3,7 @@ package s3control
 import (
 	"fmt"
 	"maps"
+	"sort"
 )
 
 // CreateJob creates an S3 Batch Operations job.
@@ -78,7 +79,9 @@ func (b *InMemoryBackend) GetJob(accountID, jobID string) (*BatchJob, error) {
 	return &cp, nil
 }
 
-// ListJobs returns all batch jobs for an account.
+// ListJobs returns all batch jobs for an account, sorted by JobID so the
+// handler's index-based nextToken pagination (s3cPaginate) stays stable
+// across calls -- store.Table.All()'s iteration order is unspecified.
 func (b *InMemoryBackend) ListJobs(accountID string) []*BatchJob {
 	b.mu.RLock("ListJobs")
 	defer b.mu.RUnlock()
@@ -91,6 +94,8 @@ func (b *InMemoryBackend) ListJobs(accountID string) []*BatchJob {
 			out = append(out, &cp)
 		}
 	}
+
+	sort.Slice(out, func(i, j int) bool { return out[i].JobID < out[j].JobID })
 
 	return out
 }

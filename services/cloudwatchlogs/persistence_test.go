@@ -452,7 +452,7 @@ func TestInMemoryBackend_SnapshotRestore_CompletenessMapsSurvive(t *testing.T) {
 			},
 			verify: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
 				t.Helper()
-				policies := b.DescribeResourcePolicies("", "")
+				policies, _ := b.DescribeResourcePolicies("", "", "", 0)
 				require.Len(t, policies, 1)
 				assert.Equal(t, "my-policy", policies[0].PolicyName)
 			},

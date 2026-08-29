@@ -604,14 +604,24 @@ func filterGlobalTables(
 	return filtered
 }
 
-// applyGlobalTableLimit applies an optional page size limit to the result set.
+// defaultListGlobalTablesLimit is ListGlobalTablesInput.Limit's documented
+// default when the caller omits it (api_op_ListGlobalTables.go:35: "if the
+// parameter is not specified, DynamoDB defaults to 100").
+const defaultListGlobalTablesLimit = 100
+
+// applyGlobalTableLimit applies a page size limit to the result set, falling
+// back to defaultListGlobalTablesLimit when the caller didn't specify one.
 // Returns the (possibly truncated) list and an optional cursor for the next page.
 func applyGlobalTableLimit(list []types.GlobalTable, limit *int32) ([]types.GlobalTable, *string) {
-	if limit == nil || int(*limit) >= len(list) {
+	n := defaultListGlobalTablesLimit
+	if limit != nil {
+		n = int(*limit)
+	}
+
+	if n >= len(list) {
 		return list, nil
 	}
 
-	n := int(*limit)
 	if n <= 0 {
 		return []types.GlobalTable{}, nil
 	}

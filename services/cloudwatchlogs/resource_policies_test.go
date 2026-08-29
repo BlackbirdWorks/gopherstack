@@ -39,7 +39,7 @@ func TestResourcePolicy_CRUD(t *testing.T) {
 			},
 			verify: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
 				t.Helper()
-				policies := b.DescribeResourcePolicies("", "")
+				policies, _ := b.DescribeResourcePolicies("", "", "", 0)
 				require.Len(t, policies, 1)
 				assert.Equal(t, "my-policy", policies[0].PolicyName)
 				assert.JSONEq(t, `{"Version":"2012-10-17"}`, policies[0].PolicyDocument)
@@ -56,7 +56,7 @@ func TestResourcePolicy_CRUD(t *testing.T) {
 			},
 			verify: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
 				t.Helper()
-				policies := b.DescribeResourcePolicies("", "")
+				policies, _ := b.DescribeResourcePolicies("", "", "", 0)
 				require.Len(t, policies, 2)
 				assert.Equal(t, "a-policy", policies[0].PolicyName)
 				assert.Equal(t, "z-policy", policies[1].PolicyName)
@@ -74,7 +74,7 @@ func TestResourcePolicy_CRUD(t *testing.T) {
 			},
 			verify: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
 				t.Helper()
-				policies := b.DescribeResourcePolicies("", "")
+				policies, _ := b.DescribeResourcePolicies("", "", "", 0)
 				require.Len(t, policies, 1)
 				assert.JSONEq(t, `{"new":"doc"}`, policies[0].PolicyDocument)
 			},
@@ -90,7 +90,8 @@ func TestResourcePolicy_CRUD(t *testing.T) {
 			},
 			verify: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
 				t.Helper()
-				assert.Empty(t, b.DescribeResourcePolicies("", ""))
+				emptyPolicies, _ := b.DescribeResourcePolicies("", "", "", 0)
+				assert.Empty(t, emptyPolicies)
 			},
 		},
 		{
@@ -122,9 +123,9 @@ func TestResourcePolicy_CRUD(t *testing.T) {
 			verify: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
 				t.Helper()
 				arn := "arn:aws:logs:us-east-1:000000000000:log-group:/my/group"
-				accountScoped := b.DescribeResourcePolicies("", "")
+				accountScoped, _ := b.DescribeResourcePolicies("", "", "", 0)
 				assert.Empty(t, accountScoped)
-				resourceScoped := b.DescribeResourcePolicies("", arn)
+				resourceScoped, _ := b.DescribeResourcePolicies("", arn, "", 0)
 				require.Len(t, resourceScoped, 1)
 				assert.Equal(t, arn, resourceScoped[0].ResourceArn)
 			},
