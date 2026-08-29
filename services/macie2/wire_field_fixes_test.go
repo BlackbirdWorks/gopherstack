@@ -124,3 +124,46 @@ func TestUpdateResourceProfile_SensitivityScoreOverridden_RealClient(t *testing.
 	assert.True(t, aws.ToBool(out.SensitivityScoreOverridden))
 	assert.Equal(t, int32(100), aws.ToInt32(out.SensitivityScore))
 }
+
+// TestGetSensitivityInspectionTemplate_RealClient drives
+// ListSensitivityInspectionTemplates then GetSensitivityInspectionTemplate
+// through a real SDK client. Real GetSensitivityInspectionTemplateOutput's ID
+// field is wire key "sensitivityInspectionTemplateId" (confirmed at
+// aws-sdk-go-v2/service/macie2@v1.54.4 deserializers.go:7839, function
+// awsRestjson1_deserializeOpDocumentGetSensitivityInspectionTemplateOutput) --
+// distinct from the "id" key used by the list-view SensitivityInspectionTemplatesEntry
+// shape (deserializers.go:21230). The pre-fix backend emitted "id" for the Get
+// response too, so a real client's SensitivityInspectionTemplateId was always
+// nil regardless of the template's actual ID.
+func TestGetSensitivityInspectionTemplate_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := macie2.NewHandler(macie2.NewInMemoryBackend("000000000000", "us-east-1"))
+	client := newTestMacie2SDKClient(t, h)
+
+	listOut, err := client.ListSensitivityInspectionTemplates(
+		t.Context(), &macie2sdk.ListSensitivityInspectionTemplatesInput{},
+	)
+	require.NoError(t, err)
+	require.Len(t, listOut.SensitivityInspectionTemplates, 1)
+
+	id := aws.ToString(listOut.SensitivityInspectionTemplates[0].Id)
+	require.NotEmpty(t, id)
+
+	_, err = client.UpdateSensitivityInspectionTemplate(
+		t.Context(),
+		&macie2sdk.UpdateSensitivityInspectionTemplateInput{
+			Id:          aws.String(id),
+			Description: aws.String("real-client description"),
+		},
+	)
+	require.NoError(t, err)
+
+	out, err := client.GetSensitivityInspectionTemplate(t.Context(), &macie2sdk.GetSensitivityInspectionTemplateInput{
+		Id: aws.String(id),
+	})
+	require.NoError(t, err)
+
+	assert.Equal(t, id, aws.ToString(out.SensitivityInspectionTemplateId))
+	assert.Equal(t, "real-client description", aws.ToString(out.Description))
+}

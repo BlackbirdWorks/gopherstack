@@ -6,8 +6,8 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: macie2
 sdk_module: aws-sdk-go-v2/service/macie2@v1.54.4
-last_audit_commit: 82c8a1c8
-last_audit_date: 2026-07-23
+last_audit_commit: da77e2959
+last_audit_date: 2026-08-29
 overall: A                # all 5 prior gaps + both deferred field audits closed this pass; zero gaps/deferred remain
                           # 2026-08-21 (gopherstack-c8ge): fixed two singleton-config-with-no-Create-op
                           # merge bugs -- UpdateSensitivityInspectionTemplate wholesale-assigned
@@ -93,7 +93,7 @@ ops:
   UpdateRevealConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
   GetSensitiveDataOccurrences: {wire: ok, errors: ok, state: ok, persist: n/a}
   GetSensitiveDataOccurrencesAvailability: {wire: ok, errors: ok, state: ok, persist: n/a}
-  GetSensitivityInspectionTemplate: {wire: ok, errors: ok, state: ok, persist: ok}
+  GetSensitivityInspectionTemplate: {wire: fixed, errors: ok, state: ok, persist: ok, note: "2026-08-29: response ID field emitted wire key 'id' -- real GetSensitivityInspectionTemplateOutput uses 'sensitivityInspectionTemplateId' (distinct from the list-view SensitivityInspectionTemplatesEntry's 'id' key). See TestGetSensitivityInspectionTemplate_RealClient."}
   ListSensitivityInspectionTemplates: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateSensitivityInspectionTemplate: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "route method was PATCH; real SDK sends PUT /templates/sensitivity-inspections/{id} -- unreachable via real client before fix. 2026-08-21 (gopherstack-c8ge): singleton with no Create op. Real UpdateSensitivityInspectionTemplateInput carries Description/Excludes/Includes as independently-optional pointers, but the handler wholesale-assigned all three every call (Description as a bare string, indistinguishable omitted-vs-empty), so updating just one wiped the other two. Description is now decoded as *string and all three merge only when actually provided. See TestUpdateSensitivityInspectionTemplate_FieldsSurviveIndependentUpdates."}
   GetUsageStatistics: {wire: ok, errors: ok, state: ok, persist: n/a}
@@ -319,3 +319,64 @@ restored and `md5sum`-verified byte-identical.
 
 **Gates:** `go build`, `go vet` (default/e2e/integration), `gofmt -l` (clean), `go test -race`
 (pass), `golangci-lint run` (0 issues).
+
+## 2026-08-29 write-only-state sweep (gopherstack-6flj / gopherstack-21my)
+
+Forward+reverse write-only-state sweep of every backend file (administrator, allow_lists,
+automated_discovery, buckets, classification_jobs, custom_data_identifiers, enablement,
+findings, findings_filters, members, organization, resource_profiles, reveal_configuration,
+sensitivity_inspection, tags, usage) against `macie2@v1.54.4`, on top of the already-thorough
+2026-08-15 wrapper-key/nesting sweep and 2026-08-21 dropped-field sweep. One new bug found:
+
+- **`GetSensitivityInspectionTemplate`** emitted the template ID under wire key `"id"`.
+  `GetSensitivityInspectionTemplateOutput`'s deserializer
+  (`deserializers.go:7839`, function
+  `awsRestjson1_deserializeOpDocumentGetSensitivityInspectionTemplateOutput`) reads it under
+  `"sensitivityInspectionTemplateId"` instead -- a genuinely different key from the one the
+  list-view `SensitivityInspectionTemplatesEntry` shape uses (`"id"`,
+  `deserializers.go:21230`, feeding `ListSensitivityInspectionTemplatesOutput`). A real
+  client's `GetSensitivityInspectionTemplateOutput.SensitivityInspectionTemplateId` was
+  always `nil` regardless of the template's actual ID. Fixed by retagging
+  `SensitivityInspectionTemplate.ID`'s json tag (that Go type backs only the Get response;
+  the List response uses the separately-tagged `SensitivityInspectionTemplateSummary`, which
+  was already correct). One ratifying test fixed
+  (`handler_sensitivity_inspection_test.go`'s `TestSensitivityInspectionTemplates` asserted
+  `getResp["id"]`, the pre-fix wrong key, as correct). New real-client round-trip test:
+  `TestGetSensitivityInspectionTemplate_RealClient` (`wire_field_fixes_test.go`) -- confirmed
+  failing against unmodified code (`SensitivityInspectionTemplateId` decoded empty instead of
+  the real ID) before the fix, passing after.
+
+Fields checked and confirmed readable/computable (not write-only): `ClassificationJob`'s
+`ClientToken` (stored, surfaces on `DescribeClassificationJobOutput`, matching the real
+shape); `ResourceProfileDetection.Suppressed` (set by `UpdateResourceProfileDetections`, read
+by `ListResourceProfileDetections`); `AllowListCriteria`/`Regex`/`S3WordsList` (round-trip
+through Create/Get/Update unchanged); `ClassificationScope` ADD/REMOVE/REPLACE merge (already
+fixed 2026-08-21, re-verified clean); `GetFindingStatistics`'s four `groupBy` keys all compute
+from stored `Finding` fields, not a stub.
+
+Observed, not fixed (reduced-scope/structural, matches existing PARITY.md disclosures):
+`CreateClassificationJob`'s `ClientToken` is not used for idempotent dedup (a repeat call
+with the same token creates a second job) -- this is request-level idempotency semantics, not
+a wire-shape bug, and no other op in this service enforces client-token dedup either;
+`GetUsageStatistics`/`GetUsageTotals` remain all-zero/empty (no billing engine, already
+disclosed); `UpdateSensitivityInspectionTemplate`'s handler additionally accepts an
+undocumented `name` field with no effect on any real client (the real
+`UpdateSensitivityInspectionTemplateInput` has no `Name` member at all) -- harmless
+extra-acceptance, not a drop.
+
+**Tool output:** `enumcheck` flagged `GetSensitiveDataOccurrences`'s `"status": "SUCCESS"` as
+not matching any single candidate enum family; confirmed against
+`types.RevealRequestStatus.Values()` (`SUCCESS`/`PROCESSING`/`ERROR`) that `SUCCESS` is valid
+-- false positive, the tool just can't disambiguate which of several same-named-field enums
+applies. `acceptguard`/`zeroguard`/`xmlitemwrap` had zero macie2 findings.
+
+**Not reached this pass:** `store.go`/`store_setup.go`/`persistence.go`/`provider.go` (read
+only incidentally, not independently audited this session); `handler_buckets.go`,
+`handler_administrator.go`, `handler_members.go`, `handler_organization.go`,
+`handler_usage.go`, `handler_tags.go` handler-layer files were not re-read line-by-line this
+pass (their backends were, in `buckets.go`/`administrator.go`/`members.go`/`organization.go`/
+`usage.go`/`tags.go`, and matched their existing `ok` PARITY rows with no new findings).
+
+**Gates:** `go build ./services/macie2/...`, `go vet ./services/macie2/...`,
+`go test -race -count=1 ./services/macie2/...` (pass), `golangci-lint run --fix
+./services/macie2/...` (0 issues, reformatted one test call's line wrap only).

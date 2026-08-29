@@ -492,11 +492,16 @@ type RevealConfiguration struct {
 	Status   string `json:"status"`
 }
 
-// SensitivityInspectionTemplate holds template configuration.
+// SensitivityInspectionTemplate holds template configuration. ID's wire key
+// is "sensitivityInspectionTemplateId" -- distinct from the "id" key used by
+// SensitivityInspectionTemplateSummary (the ListSensitivityInspectionTemplates
+// list-view type), which wraps the real types.SensitivityInspectionTemplatesEntry
+// shape instead of GetSensitivityInspectionTemplateOutput's flat fields
+// (macie2@v1.54.4 deserializers.go:7839 vs :21230).
 type SensitivityInspectionTemplate struct {
 	Excludes    map[string]any `json:"excludes,omitempty"`
 	Includes    map[string]any `json:"includes,omitempty"`
-	ID          string         `json:"id"`
+	ID          string         `json:"sensitivityInspectionTemplateId"`
 	Name        string         `json:"name"`
 	Description string         `json:"description,omitempty"`
 }
