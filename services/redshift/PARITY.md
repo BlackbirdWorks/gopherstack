@@ -1379,3 +1379,57 @@ updated the comment to the correct version. No behavior change.
 Gates: `go build ./services/redshift/...`, `go vet ./...` (repo-wide), `go test -race -count=1
 ./services/redshift/...`, `golangci-lint run --fix ./services/redshift/...` — all clean, no
 regressions (expected, since no runtime code changed).
+
+## 2026-08-29 indexed-list wire-key sweep (rds `Values.Value`/neptune `EventCategory` bug family)
+
+Enumerated every hand-parsed indexed-list query key in this service -- every `vals.Get(fmt.Sprintf(...))`
+call site plus every `parseStringList`/`parseTagListPrefixed`/`parseParameterList` caller (19 sites) --
+and resolved each against its own operation's `awsAwsquery_serializeOpDocument<Op>Input` in the pinned
+redshift@v1.65.4 SDK, following up the wrapper-list serializer it calls to the actual `value.Array("...")`
+element name. 19-of-19 resolved (17 by direct serializer read, 2 by hand-tracing a two-level nested
+serializer). Two real bugs found, both real client's-eye-view zeros regardless of what the backend stored:
+
+1. **`nodeConfigFilterValue` (`handler_advisor.go`), wrong key entirely.** Looked for
+   `<prefix>.Values.<M>` after matching a filter's `.Name` key. The real wire shape (serializers.go:
+   `awsAwsquery_serializeOpDocumentDescribeNodeConfigurationOptionsInput` wraps `Filters` under object key
+   `"Filter"`, `awsAwsquery_serializeDocumentNodeConfigurationOptionsFilterList` names each element
+   `NodeConfigurationOptionsFilter`, and `awsAwsquery_serializeDocumentNodeConfigurationOptionsFilter`
+   wraps `Values` under singular object key `"Value"`, itself an `array("item")` per
+   `awsAwsquery_serializeDocumentValueStringList`) puts every value at
+   `Filter.NodeConfigurationOptionsFilter.N.Value.item.M` -- plural "Values" never appears on the wire at
+   all. A real client's `NodeType`/`NumberOfNodes`/`Mode` filters on `DescribeNodeConfigurationOptions`
+   were silently ignored entirely (fell through to the full unfiltered option set), same bug class as
+   rds's `Values.Value`/neptune's `EventCategory`, just a different wrapper depth. Fixed the prefix match
+   to `.Value.item.`.
+2. **`parseStringList(vals, "ScheduleDefinitions.ScheduleDefinition")` (`handler_snapshot_schedules.go`,
+   both `CreateSnapshotSchedule` and `ModifySnapshotSchedule`), missing separator, not a wrong element
+   name.** `awsAwsquery_serializeDocumentScheduleDefinitionList` confirms the element name itself
+   (`ScheduleDefinition`) was already right, but the prefix argument was missing its trailing `.`, so the
+   handler looked for `ScheduleDefinitions.ScheduleDefinition1` while a real client always sends
+   `ScheduleDefinitions.ScheduleDefinition.1` -- schedule definitions were silently dropped on every
+   Create/Modify regardless of what a client sent. Fixed both call sites to `"ScheduleDefinitions.ScheduleDefinition."`.
+
+**Confirmed NOT present in this service**: the rds `Values.Value`/neptune `EventCategory` bugs
+themselves don't recur verbatim -- `parseDescribeFilters`-equivalent generic `Filters.Filter.N.Values.*`
+parsing doesn't exist here (redshift's only generic filter surface is the advisor one above, fixed);
+`EventCategories.EventCategory.N`/`SourceIds.SourceId.N` (`handler_events.go`, `CreateEventSubscription`/
+`ModifyEventSubscription`) already read the correct element names, cross-checked against
+`awsAwsquery_serializeDocumentEventCategoriesList`/`awsAwsquery_serializeDocumentSourceIdsList`. No list
+truncated to its first element (checked every loop terminates on first empty index, not a fixed `.1`/`[0]`
+read). No Create/Modify divergence found among the 19 resolved sites (each list-accepting param used
+consistently across its Create/Modify pair, where both exist). One structural gap noted but not fixed
+(out of this class's scope, filed for awareness only): `handleCreateCluster` (`handler.go`) only ever
+reads 5 of `CreateClusterInput`'s fields (`ClusterIdentifier`/`NodeType`/`DBName`/`MasterUsername`/
+`MasterUserPassword`) -- `IamRoles`/`VpcSecurityGroupIds`/`ClusterSubnetGroupName`/etc. are silently
+ignored at creation time even though `ModifyClusterIamRoles` and friends manage the equivalent state
+post-creation. This is a missing-feature gap, not a wrong-key bug -- no wire key is misread, the keys are
+simply never looked at.
+
+Two new SDK-driven tests added to `handler_sdk_roundtrip_test.go`
+(`TestDescribeNodeConfigurationOptions_FilterWireKey`, `TestCreateSnapshotSchedule_ScheduleDefinitionsWireKey`),
+both confirmed failing against the pre-fix code (asserted defaults/empty results) before the fix, passing after.
+
+Gates: `go build ./services/redshift/...`, `go vet ./services/redshift/...` and `go vet ./...` (repo-wide,
+clean -- no signature changes), `go test -race -count=1 ./services/redshift/...` (pass), `golangci-lint run
+./services/redshift/...` (0 issues, ran plain after an initial `paralleltest`/`tparallel` finding on the
+new test's subtests, fixed by adding the missing `t.Parallel()` calls, re-ran clean).

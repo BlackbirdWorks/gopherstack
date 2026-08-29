@@ -469,3 +469,21 @@ control-plane REST/JSON surface this campaign's bug class targets, out of scope)
 **Gates:** `go build ./services/dax/...`, `go vet ./services/dax/...`,
 `go test -race -count=1 ./services/dax/...` (pass, including `./services/dax/dataplane/...`),
 `golangci-lint run --fix ./services/dax/...` (0 issues, no changes).
+
+## 2026-08-29 indexed-list wire-key sweep (rds `Values.Value`/neptune `EventCategory` bug family, N/A)
+
+Same check as memorydb (same campaign, same reasoning): confirmed DAX is JSON-RPC 1.1
+(`awsAwsjson11_*` prefix, pinned dax@v1.32.4), so this service also decodes requests via
+`encoding/json` into typed structs with no indexed `list.N` key parsing -- the structural precondition
+for the rds/neptune bug family doesn't exist here either. Spot-checked slice-typed request fields
+(`CreateCluster`/`DecreaseReplicationFactor`/`IncreaseReplicationFactor`/`UpdateCluster`/
+`CreateParameterGroup`/`UpdateParameterGroup`/`DescribeParameters`) against `awsAwsjson11_serializeOpDocument<Op>Input`
+in the pinned SDK -- all json tags match. Confirmed `DescribeEventsInput` (dax@v1.32.4
+api_op_DescribeEvents.go) has no `EventCategories` field, so the neptune-specific variant doesn't apply.
+No `[0]`/first-element-only truncation found in request-decode paths (the one `[0]` hit,
+`vpcIDFromSubnets` in `subnet_groups.go`, derives a synthetic placeholder VPC ID from a subnet list and
+isn't request filtering). This bug class doesn't apply to this service.
+
+Gates: `go build ./services/dax/...`, `go vet ./services/dax/...` and `go vet ./...` (repo-wide, clean),
+`go test -race -count=1 ./services/dax/...` (pass, including `./services/dax/dataplane/...`, no changes),
+`golangci-lint run ./services/dax/...` (0 issues). No code changed this pass.

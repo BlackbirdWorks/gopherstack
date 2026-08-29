@@ -303,3 +303,26 @@ back, confirmed byte-identical via `md5sum`. Gates run clean: `go build
 `golangci-lint run ./services/docdb/...` (0 issues after adding an
 `unknownOp` constant elasticache already uses, to keep `goconst` happy with
 the third `"Unknown"` literal the migration introduced).
+
+## 2026-08-29 indexed-list wire-key sweep (rds `Values.Value`/neptune `EventCategory` bug family, clean)
+
+Enumerated every hand-parsed indexed-list query key in this service -- every `vals.Get(fmt.Sprintf(...))`
+call site (16 sites across `filters.go`, `handler_db_cluster_parameter_groups.go`,
+`handler_db_cluster_snapshots.go`, `handler_db_subnet_groups.go`, `handler_db_clusters.go`,
+`handler_tags.go`, `handler_events.go`) -- and resolved all 16 against their own operation's
+`awsAwsquery_serializeOpDocument<Op>Input`/nested list serializer in the pinned docdb@v1.51.4 SDK. 16-of-16
+resolved by direct serializer read. All 16 correct, including `EventCategories.EventCategory.N` and
+`SourceIds.SourceId.N` (`handler_events.go`, cross-checked against
+`awsAwsquery_serializeDocumentEventCategoriesList`/`awsAwsquery_serializeDocumentSourceIdsList`) and
+`Filters.Filter.N.Values.Value.M` (`filters.go`, already fixed and cited by commit `6160e4dad`) -- this
+service had already been swept for exactly this bug class. No list truncated to its first element (every
+loop terminates on first empty index, not a fixed `.1`/`[0]` read). No Create/Modify divergence:
+`parseAvailabilityZones`/`parseVpcSecurityGroupIDs`/`parseCloudwatchEnableLogTypes`/
+`parseCloudwatchDisableLogTypes` are each called from both `CreateDBCluster` and `ModifyDBCluster`.
+`DeleteDBInstance`/`DescribeCertificates`/`DescribeDBEngineVersions`/pending-maintenance/global-cluster ops
+carry no list-typed request fields, so there was no indexed-parsing surface to check there. This bug
+class appears exhausted in docdb.
+
+Gates: `go build ./services/docdb/...`, `go vet ./services/docdb/...` and `go vet ./...` (repo-wide,
+clean), `go test -race -count=1 ./services/docdb/...` (pass, no changes), `golangci-lint run
+./services/docdb/...` (0 issues). No code changed this pass.

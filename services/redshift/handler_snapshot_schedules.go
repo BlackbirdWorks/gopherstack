@@ -61,7 +61,7 @@ type createSnapshotScheduleResponse struct {
 func (h *Handler) handleCreateSnapshotSchedule(vals url.Values) (any, error) {
 	scheduleID := vals.Get("ScheduleIdentifier")
 	description := vals.Get("ScheduleDescription")
-	definitions := parseStringList(vals, "ScheduleDefinitions.ScheduleDefinition")
+	definitions := parseStringList(vals, "ScheduleDefinitions.ScheduleDefinition.")
 	tagMap := parseRedshiftTags(vals)
 
 	sched, err := h.Backend.CreateSnapshotSchedule(scheduleID, description, definitions, tagMap)
@@ -135,7 +135,7 @@ type modifySnapshotScheduleResponse struct {
 
 func (h *Handler) handleModifySnapshotSchedule(vals url.Values) (any, error) {
 	scheduleID := vals.Get("ScheduleIdentifier")
-	definitions := parseStringList(vals, "ScheduleDefinitions.ScheduleDefinition")
+	definitions := parseStringList(vals, "ScheduleDefinitions.ScheduleDefinition.")
 
 	sched, err := h.Backend.ModifySnapshotSchedule(scheduleID, definitions)
 	if err != nil {

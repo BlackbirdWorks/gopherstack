@@ -191,8 +191,14 @@ func nodeConfigurationOptions(actionType, baseNodeType string) []nodeConfigOptio
 }
 
 // nodeConfigFilterValue returns the first requested value for a node-config
-// filter. It accepts both the AWS Filter.member.N.Name/Values.member.M encoding
-// and a plain query parameter of the same name for convenience.
+// filter. redshift@v1.65.4 serializers.go
+// (awsAwsquery_serializeOpDocumentDescribeNodeConfigurationOptionsInput wraps
+// Filters as "Filter.NodeConfigurationOptionsFilter.N", and
+// awsAwsquery_serializeDocumentNodeConfigurationOptionsFilter/
+// awsAwsquery_serializeDocumentValueStringList put each value under
+// "...N.Value.item.M" -- singular "Value" wrapping an "item" list, not
+// plural "Values". It also accepts a plain query parameter of the same name
+// for convenience.
 func nodeConfigFilterValue(vals url.Values, name string) string {
 	if v := vals.Get(name); v != "" {
 		return v
@@ -205,7 +211,7 @@ func nodeConfigFilterValue(vals url.Values, name string) string {
 
 		prefix := strings.TrimSuffix(key, ".Name")
 		for vk, vv := range vals {
-			if strings.HasPrefix(vk, prefix+".Values.") && len(vv) > 0 {
+			if strings.HasPrefix(vk, prefix+".Value.item.") && len(vv) > 0 {
 				return vv[0]
 			}
 		}

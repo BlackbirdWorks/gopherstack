@@ -694,3 +694,83 @@ func testRevokeClusterSecurityGroupIngressAuthorizationNotFoundErrorCode(
 	require.ErrorAs(t, err, &apiErr)
 	assert.Equal(t, "AuthorizationNotFound", apiErr.ErrorCode())
 }
+
+// TestDescribeNodeConfigurationOptions_FilterWireKey drives a real
+// aws-sdk-go-v2 client with typed Filters. redshift@v1.65.4 serializers.go
+// (awsAwsquery_serializeOpDocumentDescribeNodeConfigurationOptionsInput,
+// awsAwsquery_serializeDocumentNodeConfigurationOptionsFilter,
+// awsAwsquery_serializeDocumentValueStringList) puts each filter value on
+// the wire as "Filter.NodeConfigurationOptionsFilter.N.Value.item.M" --
+// singular "Value" wrapping an "item" list, not the plural
+// "...Values.M" the handler's nodeConfigFilterValue looked for. A real
+// client's filters were silently ignored entirely.
+func TestDescribeNodeConfigurationOptions_FilterWireKey(t *testing.T) {
+	t.Parallel()
+
+	backend := redshift.NewInMemoryBackend("000000000000", rtTestRegion)
+	h := redshift.NewHandler(backend)
+	client := newTestRedshiftClient(t, h)
+	ctx := t.Context()
+
+	t.Run("NodeType filter selects the requested target", func(t *testing.T) {
+		t.Parallel()
+
+		out, err := client.DescribeNodeConfigurationOptions(ctx, &redshiftsdk.DescribeNodeConfigurationOptionsInput{
+			ActionType: types.ActionTypeRecommendNodeConfig,
+			Filters: []types.NodeConfigurationOptionsFilter{
+				{
+					Name:     types.NodeConfigurationOptionsFilterNameNodeType,
+					Operator: types.OperatorTypeEq,
+					Values:   []string{"ra3.4xlarge"},
+				},
+			},
+		})
+		require.NoError(t, err)
+		require.NotEmpty(t, out.NodeConfigurationOptionList)
+		assert.Equal(t, "ra3.4xlarge", aws.ToString(out.NodeConfigurationOptionList[0].NodeType))
+	})
+
+	t.Run("NumberOfNodes filter narrows the result set", func(t *testing.T) {
+		t.Parallel()
+
+		out, err := client.DescribeNodeConfigurationOptions(ctx, &redshiftsdk.DescribeNodeConfigurationOptionsInput{
+			ActionType: types.ActionTypeRecommendNodeConfig,
+			Filters: []types.NodeConfigurationOptionsFilter{
+				{
+					Name:     types.NodeConfigurationOptionsFilterNameNumNodes,
+					Operator: types.OperatorTypeEq,
+					Values:   []string{"4"},
+				},
+			},
+		})
+		require.NoError(t, err)
+		require.Len(t, out.NodeConfigurationOptionList, 1)
+		assert.EqualValues(t, 4, aws.ToInt32(out.NodeConfigurationOptionList[0].NumberOfNodes))
+	})
+}
+
+// TestCreateSnapshotSchedule_ScheduleDefinitionsWireKey drives a real
+// aws-sdk-go-v2 client. redshift@v1.65.4 serializers.go
+// (awsAwsquery_serializeDocumentScheduleDefinitionList) puts each entry on
+// the wire as "ScheduleDefinitions.ScheduleDefinition.N" -- the handler's
+// parseStringList call was missing the separating "." before the index, so
+// the key it looked for ("ScheduleDefinitions.ScheduleDefinition" + N, with
+// no dot) never matched anything a real client sent.
+func TestCreateSnapshotSchedule_ScheduleDefinitionsWireKey(t *testing.T) {
+	t.Parallel()
+
+	backend := redshift.NewInMemoryBackend("000000000000", rtTestRegion)
+	h := redshift.NewHandler(backend)
+	client := newTestRedshiftClient(t, h)
+	ctx := t.Context()
+
+	out, err := client.CreateSnapshotSchedule(ctx, &redshiftsdk.CreateSnapshotScheduleInput{
+		ScheduleIdentifier: aws.String("rt-sched-wire"),
+		ScheduleDefinitions: []string{
+			"rate(12 hours)",
+			"cron(30 4 * * ? *)",
+		},
+	})
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{"rate(12 hours)", "cron(30 4 * * ? *)"}, out.ScheduleDefinitions)
+}

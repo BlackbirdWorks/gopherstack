@@ -277,3 +277,26 @@ genuinely different key name (as in the UpdateServiceAttributes fix this
 same pass, servicediscovery/PARITY.md) is. Retagged both `IPDiscovery`
 fields to the correct casing anyway for self-documentation/consistency
 with `clusterObject`, but this is not counted as a functional fix.
+
+## 2026-08-29 indexed-list wire-key sweep (rds `Values.Value`/neptune `EventCategory` bug family, N/A)
+
+Checked whether the rds `Filters.Filter.N.Values.Value.M` / neptune `EventCategories.EventCategory.N`
+bug family (a wrong *inner element name* in an XML/Query-protocol indexed list, or a hand-parsed request
+key mismatched against the SDK's own field name) recurs here. MemoryDB is JSON-RPC 1.1 (confirmed:
+`awsAwsjson11_*` serializer prefix in the pinned memorydb@v1.36.4 SDK), so requests decode via
+`encoding/json` into typed Go structs (`models_*.go`) -- there is no indexed `list.N`-style key parsing at
+all; JSON arrays decode natively. The structural precondition for this bug class (a hand-built indexed
+key string that can name the wrong wrapper element) doesn't exist on the request-decode path. Spot-checked
+every request struct with a slice-typed field (`CreateACL`/`UpdateACL`/`TagResource`/`UntagResource`/
+`BatchUpdateCluster`/`CreateSubnetGroup`/`UpdateSubnetGroup`/`DescribeServiceUpdates`/
+`PurchaseReservedNodesOffering`/`CreateMultiRegionCluster`/`UpdateParameterGroup`/`CreateUser`/
+`UpdateUser`) against the pinned SDK's `awsAwsjson11_serializeOpDocument<Op>Input` `object.Key(...)`
+calls -- all json tags match the real wire field name. Confirmed `DescribeEventsInput` (memorydb@v1.36.4
+api_op_DescribeEvents.go) has no `EventCategories` field at all, so the neptune-specific variant is
+structurally impossible here. No list truncated to its first element (checked `statusFilter` in
+`service_updates.go`, uses `slices.Contains` over the full slice). This bug class doesn't apply to this
+service.
+
+Gates: `go build ./services/memorydb/...`, `go vet ./services/memorydb/...` and `go vet ./...`
+(repo-wide, clean), `go test -race -count=1 ./services/memorydb/...` (pass, no changes), `golangci-lint
+run ./services/memorydb/...` (0 issues). No code changed this pass.
