@@ -1,5 +1,24 @@
 package networkmanager
 
+import awsarn "github.com/aws/aws-sdk-go-v2/aws/arn"
+
+// edgeLocationFromArn extracts the region segment from an ARN
+// (arn:partition:service:region:account:resource) for use as an
+// Attachment/Peering's EdgeLocation -- the real API derives EdgeLocation
+// from the region of the underlying referenced resource (VPC, VPN
+// connection, transit gateway) rather than accepting it as a caller
+// parameter (confirmed: none of CreateVpcAttachmentInput/
+// CreateSiteToSiteVpnAttachmentInput/CreateTransitGatewayPeeringInput has
+// an EdgeLocation member). Returns "" for an unparseable ARN.
+func edgeLocationFromArn(arnStr string) string {
+	parsed, err := awsarn.Parse(arnStr)
+	if err != nil {
+		return ""
+	}
+
+	return parsed.Region
+}
+
 // EC2Resolver lets this backend validate ARNs that reference EC2 resources
 // (VPC/Subnet/CustomerGateway/TransitGateway/VpnConnection/
 // TransitGatewayConnectPeer/TransitGatewayRouteTable) against the real

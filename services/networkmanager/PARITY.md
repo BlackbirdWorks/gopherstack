@@ -1,5 +1,22 @@
 ---
-# PARITY MANIFEST -- IMPLEMENTED, A. This pass (2026-08-06, gopherstack-xhi2) resolves
+# PARITY MANIFEST -- IMPLEMENTED, A. This pass (2026-08-28, wrapper-key/write-only-state sweep)
+# found and fixed two real write-only-state bugs the prior wire_field_fixes_test.go pass
+# (gopherstack-6flj) had not caught: (1) EdgeLocation on VPC/Site-to-Site-VPN attachments and
+# Transit Gateway peerings was permanently blank -- none of the three real Create*Input shapes
+# accepts EdgeLocation as a caller parameter (confirmed against the pinned SDK's
+# api_op_Create{VpcAttachment,SiteToSiteVpnAttachment,TransitGatewayPeering}.go), so AWS derives it
+# from the referenced resource's own region; this backend never derived it, which also silently
+# broke ListAttachments'/ListPeerings' EdgeLocation filter (fixed via a new edgeLocationFromArn
+# helper in crossservice.go using aws-sdk-go-v2/aws/arn.Parse). (2) UpdateNetworkResourceMetadata
+# wrote into its own resourceMetadata table but GetNetworkResources's gatherers never read it back
+# -- networkResourceWire.Metadata already existed on the wire type but was permanently empty.
+# Both fixes are covered by new round-trip tests in wire_field_fixes_test.go (real aws-sdk-go-v2
+# client, fail-before/pass-after verified). enumcheck/zeroguard report no findings for this
+# service. `go build`, `go vet`, `go test -race -count=1`, and `golangci-lint run`, all scoped to
+# ./services/networkmanager/..., pass clean. See the per-op notes below for the fixed entries; the
+# prior pass's own summary follows unmodified.
+#
+# Prior pass (2026-08-06, gopherstack-xhi2) resolves
 # gopherstack-r9yz's open integration-test-coverage question the 2026-08-05 pass deliberately left
 # unresolved (see git history for that pass's frontmatter): added test/integration/
 # networkmanager_test.go (6 tests, real aws-sdk-go-v2 client against the Docker test container --
@@ -112,17 +129,17 @@ ops:
   AcceptAttachment: {wire: ok, errors: ok, state: ok, persist: ok}
   RejectAttachment: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteAttachment: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListAttachments: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListAttachments: {wire: fixed, errors: ok, state: ok, persist: ok, note: "EdgeLocation filter now actually matches -- every attachment's EdgeLocation was permanently empty before this pass (gopherstack-6flj)"}
   # Q1. VPC attachments (3)
-  CreateVpcAttachment: {wire: ok, errors: ok, state: ok, persist: ok, note: "VpcArn/SubnetArns validated against services/ec2's real VPC/Subnet state via EC2Resolver (this pass)"}
-  GetVpcAttachment: {wire: ok, errors: ok, state: ok, persist: ok}
+  CreateVpcAttachment: {wire: fixed, errors: ok, state: ok, persist: ok, note: "VpcArn/SubnetArns validated against services/ec2's real VPC/Subnet state via EC2Resolver; EdgeLocation (a real, always-set Attachment member -- CreateVpcAttachmentInput has no EdgeLocation input field) now derived from VpcArn's region segment instead of permanently empty, which also silently broke ListAttachments' EdgeLocation filter (this pass, gopherstack-6flj)"}
+  GetVpcAttachment: {wire: fixed, errors: ok, state: ok, persist: ok, note: "EdgeLocation now derived (see CreateVpcAttachment)"}
   UpdateVpcAttachment: {wire: ok, errors: ok, state: ok, persist: ok}
   # Q2. Connect attachments (2)
   CreateConnectAttachment: {wire: ok, errors: ok, state: ok, persist: ok, note: "TransportAttachmentId IS validated against this package's own attachments, unlike the EC2/DirectConnect ARNs elsewhere in this family (attachments.go:33-35)"}
   GetConnectAttachment: {wire: ok, errors: ok, state: ok, persist: ok}
   # Q3. Site-to-Site VPN attachments (2)
-  CreateSiteToSiteVpnAttachment: {wire: ok, errors: ok, state: ok, persist: ok, note: "VpnConnectionArn validated against services/ec2's real VpnConnection state via EC2Resolver (this pass)"}
-  GetSiteToSiteVpnAttachment: {wire: ok, errors: ok, state: ok, persist: ok}
+  CreateSiteToSiteVpnAttachment: {wire: fixed, errors: ok, state: ok, persist: ok, note: "VpnConnectionArn validated against services/ec2's real VpnConnection state via EC2Resolver; EdgeLocation now derived from VpnConnectionArn's region segment instead of permanently empty (this pass, gopherstack-6flj)"}
+  GetSiteToSiteVpnAttachment: {wire: fixed, errors: ok, state: ok, persist: ok, note: "EdgeLocation now derived (see CreateSiteToSiteVpnAttachment)"}
   # Q4. Direct Connect Gateway attachments (3)
   CreateDirectConnectGatewayAttachment: {wire: ok, errors: ok, state: ok, persist: ok, note: "DirectConnectGatewayArn validated against services/directconnect's real gateway state via DirectConnectResolver, wired through cli.go's wireNetworkManagerDirectConnect (this pass)"}
   GetDirectConnectGatewayAttachment: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -131,22 +148,22 @@ ops:
   CreateTransitGatewayRouteTableAttachment: {wire: ok, errors: ok, state: ok, persist: ok, note: "TransitGatewayRouteTableArn validated against services/ec2's real TGW route-table state via EC2Resolver (this pass); PeeringId validated against this package's own peerings"}
   GetTransitGatewayRouteTableAttachment: {wire: ok, errors: ok, state: ok, persist: ok}
   # R. Peerings (4)
-  CreateTransitGatewayPeering: {wire: ok, errors: ok, state: ok, persist: ok, note: "TransitGatewayArn validated against services/ec2's real TransitGateway state via EC2Resolver (this pass); TransitGatewayPeeringAttachmentId left empty rather than fabricated since the underlying EC2 resource is not modeled here"}
-  GetTransitGatewayPeering: {wire: ok, errors: ok, state: ok, persist: ok}
+  CreateTransitGatewayPeering: {wire: fixed, errors: ok, state: ok, persist: ok, note: "TransitGatewayArn validated against services/ec2's real TransitGateway state via EC2Resolver; TransitGatewayPeeringAttachmentId left empty rather than fabricated since the underlying EC2 resource is not modeled here; EdgeLocation now derived from TransitGatewayArn's region segment instead of permanently empty, which also silently broke ListPeerings' EdgeLocation filter (this pass, gopherstack-6flj)"}
+  GetTransitGatewayPeering: {wire: fixed, errors: ok, state: ok, persist: ok, note: "EdgeLocation now derived (see CreateTransitGatewayPeering)"}
   DeletePeering: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListPeerings: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListPeerings: {wire: fixed, errors: ok, state: ok, persist: ok, note: "EdgeLocation filter now actually matches -- every peering's EdgeLocation was permanently empty before this pass (gopherstack-6flj)"}
   # S. Route Analysis (2) -- PARITY.md's own pre-implementation audit called this "the single
   # riskiest fabrication surface"; the implementation resolved that honestly rather than faking it.
   StartRouteAnalysis: {wire: ok, errors: ok, state: ok, persist: ok, note: "real single-hop walk over EC2 Transit Gateway route-table state via EC2Resolver (this pass): resolves the anchor attachment, its associated real TGW route table, and a genuine longest-prefix-match against Destination.IpAddress, returning real CONNECTED/BLACKHOLE/INACTIVE/ROUTE_NOT_FOUND verdicts with a real PathComponent -- not a full multi-hop cross-TGW-peering walk with cycle detection (documented scope reduction, routeanalysis.go); falls back to the prior honest NOT_CONNECTED/TRANSIT_GATEWAY_ATTACHMENT_NOT_FOUND when no EC2Resolver is wired"}
   GetRouteAnalysis: {wire: ok, errors: ok, state: ok, persist: ok}
   # T. Network introspection (5)
-  GetNetworkResources: {wire: ok, errors: ok, state: ok, persist: ok, note: "real rollup over this backend's own modeled state across 8 resource kinds (introspection.go:47-234); Definition is this package's own already-known attributes serialized as JSON, not a real cross-service Describe call into services/ec2 (a documented simplification of AWS's real behavior)"}
+  GetNetworkResources: {wire: fixed, errors: ok, state: ok, persist: ok, note: "real rollup over this backend's own modeled state across 8 resource kinds (introspection.go:47-234); Definition is this package's own already-known attributes serialized as JSON, not a real cross-service Describe call into services/ec2 (a documented simplification of AWS's real behavior); now also reads back UpdateNetworkResourceMetadata's stored Metadata per-ResourceArn -- the wire field existed but was never populated before this pass (gopherstack-6flj)"}
   GetNetworkResourceCounts: {wire: ok, errors: ok, state: ok, persist: ok, note: "deliberately does not validate GlobalNetworkId existence, matching the real SDK's error set which has no ResourceNotFoundException for this one op (introspection.go:237-257)"}
   GetNetworkResourceRelationships: {wire: ok, errors: ok, state: ok, persist: ok, note: "real Device->Site/Link->Site/Device->Link/Attachment->CoreNetwork edges derived from modeled state (introspection.go:259-392)"}
   GetNetworkRoutes: {wire: ok, errors: ok, state: partial, persist: ok, note: "STRUCTURAL GAP (see structural_gaps:): echoes the resolved RouteTableType/Arn but always returns an empty route list -- no BGP session state exists anywhere in this repo to derive real routes from (introspection.go:394-417)"}
   GetNetworkTelemetry: {wire: ok, errors: ok, state: partial, persist: ok, note: "STRUCTURAL GAP (see structural_gaps:): Health.Status is deterministically UP for every Connection/ConnectPeer already AVAILABLE and nothing else -- no real device/BGP/IPsec telemetry data source exists anywhere in this repo, and no flapping/degraded values are ever invented (introspection.go:419-480)"}
   # U. Update network resource metadata (1)
-  UpdateNetworkResourceMetadata: {wire: ok, errors: ok, state: ok, persist: ok}
+  UpdateNetworkResourceMetadata: {wire: ok, errors: ok, state: ok, persist: ok, note: "own Output.Metadata echo was already correct; the write-only-state gap was on the GetNetworkResources read side (see there), now fixed"}
   # V. Organizations integration (2)
   StartOrganizationServiceAccessUpdate: {wire: ok, errors: ok, state: ok, persist: ok, note: "OrganizationId is a synthetic, deterministically-generated-once identifier -- this repo has no independent AWS Organizations backend to bind against (orgaccess.go)"}
   ListOrganizationServiceAccessStatus: {wire: ok, errors: ok, state: ok, persist: ok, note: "the one op in this 95-op surface with zero typed exception cases in the real SDK; handler never returns an apiError for it (orgaccess.go:43-51)"}

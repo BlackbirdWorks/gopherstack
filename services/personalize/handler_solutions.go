@@ -47,10 +47,12 @@ func (h *Handler) describeSolution(input map[string]any) (map[string]any, error)
 func (h *Handler) updateSolution(input map[string]any) (map[string]any, error) {
 	nameOrArn, _ := input["solutionArn"].(string)
 
-	// The real UpdateSolutionInput only carries performAutoTraining and
-	// performIncrementalUpdate (both optional *bool) -- performAutoML/
-	// performHPO are creation-only and are not accepted here. A nil pointer
-	// means "not specified in the request", leaving the current value alone.
+	// The real UpdateSolutionInput carries performAutoTraining and
+	// performIncrementalUpdate (both optional *bool) plus solutionUpdateConfig
+	// (AutoTrainingConfig/EventsConfig only) -- performAutoML/performHPO and
+	// every other SolutionConfig member are creation-only and are not
+	// accepted here. A nil pointer means "not specified in the request",
+	// leaving the current value alone.
 	var performAutoTraining, performIncrementalUpdate *bool
 	if v, ok := input["performAutoTraining"].(bool); ok {
 		performAutoTraining = &v
@@ -58,8 +60,9 @@ func (h *Handler) updateSolution(input map[string]any) (map[string]any, error) {
 	if v, ok := input[keyPerformIncrementalUpdate].(bool); ok {
 		performIncrementalUpdate = &v
 	}
+	solutionUpdateConfig := decodeConfig[SolutionUpdateConfig](rawMap(input, "solutionUpdateConfig"))
 
-	sol, err := h.Backend.UpdateSolution(nameOrArn, performAutoTraining, performIncrementalUpdate)
+	sol, err := h.Backend.UpdateSolution(nameOrArn, performAutoTraining, performIncrementalUpdate, solutionUpdateConfig)
 	if err != nil {
 		return nil, err
 	}
@@ -98,9 +101,10 @@ func (h *Handler) listSolutions(input map[string]any) (map[string]any, error) {
 func (h *Handler) createSolutionVersion(input map[string]any) (map[string]any, error) {
 	solutionArn, _ := input["solutionArn"].(string)
 	trainingMode, _ := input["trainingMode"].(string)
+	name, _ := input["name"].(string)
 	tags := extractTags(input)
 
-	sv, err := h.Backend.CreateSolutionVersion(solutionArn, trainingMode, tags)
+	sv, err := h.Backend.CreateSolutionVersion(solutionArn, trainingMode, name, tags)
 	if err != nil {
 		return nil, err
 	}
@@ -244,6 +248,9 @@ func solutionVersionToMap(sv *SolutionVersion) map[string]any {
 	}
 	if sv.FailureReason != "" {
 		m["failureReason"] = sv.FailureReason
+	}
+	if sv.Name != "" {
+		m["name"] = sv.Name
 	}
 
 	return m

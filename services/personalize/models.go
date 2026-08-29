@@ -75,6 +75,7 @@ type SolutionVersion struct {
 	FailureReason            string
 	Status                   string
 	TrainingMode             string
+	Name                     string
 	TrainingHours            float64
 	PerformAutoML            bool
 	PerformHPO               bool
@@ -178,6 +179,22 @@ type Recommender struct {
 	Name                               string
 	Status                             string
 	MinRecommendationRequestsPerSecond int32
+}
+
+// recommenderModelMetrics returns deterministic, ARN-derived evaluation
+// metrics for a recommender -- the real Recommender.ModelMetrics member
+// (types.go:1697, deserializers.go:14660, a plain map[string]float64 with
+// no fixed key set) had no source in this backend at all (no real training
+// pipeline computes recommender performance), following the same ARN-hash
+// deterministic-mock convention already established for SolutionVersion
+// metrics (solutions.go's svMetric, GetSolutionMetrics).
+func recommenderModelMetrics(recommenderArn string) map[string]float64 {
+	return map[string]float64{
+		"coverage":        svMetric(recommenderArn, "coverage"),
+		"precision_at_5":  svMetric(recommenderArn, "p@5"),
+		"precision_at_10": svMetric(recommenderArn, "p@10"),
+		"precision_at_25": svMetric(recommenderArn, "p@25"),
+	}
 }
 
 // MetricAttribute describes a single tracked metric within a metric
