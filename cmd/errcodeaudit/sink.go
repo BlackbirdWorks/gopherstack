@@ -2,6 +2,8 @@ package main
 
 import (
 	"go/ast"
+	"go/token"
+	"strconv"
 	"strings"
 )
 
@@ -15,6 +17,7 @@ const (
 	labelErrType   = "errtype"
 	labelErrorType = "errortype"
 	labelWireType  = "__type"
+	labelWireError = "error"
 )
 
 // paramInfo is one flattened function/method parameter (a `status, code
@@ -69,6 +72,29 @@ func buildSinkPositions(files []*ast.File) map[string]map[int]bool {
 	return sinks
 }
 
+// looksLikeErrSinkFuncName reports whether a function's own name marks it
+// as a candidate wire-error-writing sink: any name containing "err"
+// (case-insensitive). This tool started narrower (an "...Error" suffix
+// only) and widened twice while chasing real misses this scan's own
+// mapper-consumption demotion exposed: services/batch's errorResponse and
+// services/eks's errResp (name has no "Error" suffix), then
+// services/mediastoredata's writeErrorJSON (forwards its code param
+// transitively into a registered sink one hop later -- invisible to
+// markTransitiveSinks if never even collected here) and
+// services/rolesanywhere's errBody (no "error" substring at all, only
+// "err"). A false name match here is harmless on its own: registration
+// additionally requires the function's own body to write a parameter into
+// a Code/Type-labeled field, an X.Error.Code-shaped selector chain, or a
+// raw wire-discriminator map key -- see markCompositeLitSinks/
+// markSelectorAssignSinks -- so a same-named function that does none of
+// those contributes zero sink positions, never a wrong one. Given that
+// body-shape gate carries the real precision, narrowing the name gate
+// further than "contains err" has repeatedly cost real recall for no
+// measured safety benefit.
+func looksLikeErrSinkFuncName(name string) bool {
+	return strings.Contains(strings.ToLower(name), "err")
+}
+
 func collectErrFuncs(files []*ast.File) map[string]*errFuncInfo {
 	out := map[string]*errFuncInfo{}
 
@@ -79,7 +105,7 @@ func collectErrFuncs(files []*ast.File) map[string]*errFuncInfo {
 				continue
 			}
 
-			if !strings.HasSuffix(fd.Name.Name, "Error") {
+			if !looksLikeErrSinkFuncName(fd.Name.Name) {
 				continue
 			}
 
@@ -120,15 +146,71 @@ func markDirectSinks(name string, fi *errFuncInfo, sinks map[string]map[int]bool
 	paramIndex := stringParamIndex(fi.params)
 
 	ast.Inspect(fi.body, func(n ast.Node) bool {
-		cl, isCL := n.(*ast.CompositeLit)
-		if !isCL {
-			return true
+		switch node := n.(type) {
+		case *ast.CompositeLit:
+			markCompositeLitSinks(node, paramIndex, name, sinks)
+		case *ast.AssignStmt:
+			markSelectorAssignSinks(node, paramIndex, name, sinks)
 		}
-
-		markCompositeLitSinks(cl, paramIndex, name, sinks)
 
 		return true
 	})
+}
+
+// markSelectorAssignSinks covers services/elasticache's own xmlError:
+// resp.Error.Code = code, resp.Error.Type = faultType(status) -- a field
+// written by plain selector assignment rather than inside a composite
+// literal, which markCompositeLitSinks never sees. selectorSinkFieldMatches
+// uses the selector's own immediate qualifier name (e.g. "Error" in
+// resp.Error.Code) in place of narrowFieldNameMatches's composite-literal
+// type-name context, since there is no literal type to read here.
+func markSelectorAssignSinks(
+	as *ast.AssignStmt,
+	paramIndex map[string]int,
+	name string,
+	sinks map[string]map[int]bool,
+) {
+	if len(as.Lhs) != len(as.Rhs) {
+		return
+	}
+
+	for i, lhs := range as.Lhs {
+		sel, isSel := lhs.(*ast.SelectorExpr)
+		if !isSel || !selectorSinkFieldMatches(sel) {
+			continue
+		}
+
+		valID, isIdentVal := as.Rhs[i].(*ast.Ident)
+		if !isIdentVal {
+			continue
+		}
+
+		if idx, known := paramIndex[valID.Name]; known {
+			markSink(sinks, name, idx)
+		}
+	}
+}
+
+func selectorSinkFieldMatches(sel *ast.SelectorExpr) bool {
+	lower := strings.ToLower(sel.Sel.Name)
+	if lower == labelErrorCode || lower == labelErrorType {
+		return true
+	}
+
+	var qualifier string
+
+	switch x := sel.X.(type) {
+	case *ast.SelectorExpr:
+		qualifier = x.Sel.Name
+	case *ast.Ident:
+		qualifier = x.Name
+	}
+
+	if !strings.Contains(strings.ToLower(qualifier), "err") {
+		return false
+	}
+
+	return lower == labelCode || lower == labelType || lower == labelErrType
 }
 
 // stringParamIndex maps each named string parameter's own name to its
@@ -146,7 +228,7 @@ func stringParamIndex(params []paramInfo) map[string]int {
 }
 
 // markCompositeLitSinks marks fi's caller-visible sink positions for every
-// keyed element of cl whose field name matches narrowFieldNameMatches and
+// keyed element of cl whose key marks it as an error-code discriminator and
 // whose value is a parameter identifier.
 func markCompositeLitSinks(
 	cl *ast.CompositeLit,
@@ -162,8 +244,7 @@ func markCompositeLitSinks(
 			continue
 		}
 
-		key, isIdentKey := kv.Key.(*ast.Ident)
-		if !isIdentKey || !narrowFieldNameMatches(key.Name, litTypeName) {
+		if !sinkKeyMatches(kv.Key, litTypeName) {
 			continue
 		}
 
@@ -175,6 +256,35 @@ func markCompositeLitSinks(
 		if idx, known := paramIndex[valID.Name]; known {
 			markSink(sinks, name, idx)
 		}
+	}
+}
+
+// sinkKeyMatches covers both ways this repo keys a wire-error map/struct
+// literal: a struct field name (narrowFieldNameMatches) or a raw
+// string-literal map key naming the wire discriminator directly --
+// services/identitystore's own map[string]string{"__type": errType, ...}
+// keys by the literal itself, unlike ecs's map[string]string{keyTypeField:
+// code, ...}, which keys by a resolved const. Without this second case,
+// writeResourceError/writeError's own "__type" sink was invisible to
+// buildSinkPositions entirely, and every call-site literal passed to them
+// (identitystore's handleBackendError: "ResourceNotFoundException",
+// "ConflictException", "ValidationException") went unchecked -- mirrors
+// extract.go's compositeKeyMatches/narrowLiteralKeyMatches, used there for
+// the analogous VALUE-extraction case.
+func sinkKeyMatches(key ast.Expr, litTypeName string) bool {
+	switch k := key.(type) {
+	case *ast.Ident:
+		return narrowFieldNameMatches(k.Name, litTypeName)
+	case *ast.BasicLit:
+		if k.Kind != token.STRING {
+			return false
+		}
+
+		v, err := strconv.Unquote(k.Value)
+
+		return err == nil && narrowLiteralKeyMatches(v)
+	default:
+		return false
 	}
 }
 

@@ -12,6 +12,16 @@ import (
 	"strings"
 )
 
+// Package/function names extract.go and mapper.go both match against when
+// recognizing a sentinel-error declaration call (awserr.New/Newf,
+// errors.New) or an errors.Is identity check.
+const (
+	pkgAwserr     = "awserr"
+	pkgErrors     = "errors"
+	fnSentinelNew = "New"
+	fnAwserrNewf  = "Newf"
+)
+
 // mechanism identifies which syntactic shape produced a candidate emitted
 // code, matching one of the four emission mechanisms this tool's brief
 // identified by reading services/ecs, services/iam, services/lambda and
@@ -23,13 +33,14 @@ import (
 type mechanism string
 
 const (
-	mechAwserrNew  mechanism = "awserr.New/Newf arg"
-	mechStdlibErr  mechanism = "errors.New arg"
-	mechErrorCall  mechanism = "*Error()-suffixed call arg"
-	mechFieldLit   mechanism = "code/type field literal"
-	mechFieldIdent mechanism = "code/type field via resolved const"
-	mechCodeVar    mechanism = "code-named var/const"
-	mechReturnStmt mechanism = "return in *Error*-named func"
+	mechAwserrNew    mechanism = "awserr.New/Newf arg"
+	mechStdlibErr    mechanism = "errors.New arg"
+	mechErrorCall    mechanism = "*Error()-suffixed call arg"
+	mechFieldLit     mechanism = "code/type field literal"
+	mechFieldIdent   mechanism = "code/type field via resolved const"
+	mechCodeVar      mechanism = "code-named var/const"
+	mechReturnStmt   mechanism = "return in *Error*-named func"
+	mechMapperOutput mechanism = "central error-code mapper table output"
 )
 
 // candidate is one emitted-code sighting. Indirect marks a value reached
@@ -37,13 +48,20 @@ const (
 // const/var), never more -- mirroring cmd/enumcheck's single-hop discipline
 // (resolveConstString's Ident case): a value assembled through more
 // indirection than that resolves to nothing and produces no candidate,
-// never a wrong one.
+// never a wrong one. MapperReason, set post-extraction by
+// demoteMapperConsumedSentinels, overrides scan.go's normal confidence
+// logic when non-empty: this candidate is a sentinel declaration's own
+// literal (mechAwserrNew/mechStdlibErr) that a central error-code mapper in
+// this same service dir consumes only through errors.Is identity, never by
+// reading the literal itself -- see mapper.go.
 type candidate struct {
-	File      string
-	Code      string
-	Mechanism mechanism
-	Line      int
-	Indirect  bool
+	File         string
+	Code         string
+	MapperReason string
+	Mechanism    mechanism
+	Line         int
+	pos          token.Pos
+	Indirect     bool
 }
 
 // codeShapeRe is the filter that separates an AWS-style error code
@@ -67,20 +85,27 @@ func looksLikeCode(s string) bool {
 // services/comprehend's fieldLanguageCode ("LanguageCode") both contain
 // "code" as a substring but are not error codes at all, and were false
 // positives before this narrowing. A name starting with "code"
-// (services/iam's codeNoSuchEntity, cloudformation's local `code :=`) or
-// containing both "err" and "code" (cloudformation's errCodeValidation)
-// is the pattern actually observed at real error-code declaration sites --
-// EXCEPT a "key"/"field" prefix, this repo's own naming convention for a
-// wire KEY-NAME constant (services/quicksight and services/securityhub's
-// own `keyErrorCode = "ErrorCode"`, the JSON field name "ErrorCode" itself,
-// not a code value -- both false positives before this exclusion).
+// (services/iam's codeNoSuchEntity, cloudformation's local `code :=`), a
+// name starting with "errtype"/"errortype" (services/swf's own local
+// `errType` -- set inside an errors.Is-driven switch exactly like
+// mapper.go's other shapes, but built through a bare local variable rather
+// than a table row, struct field, or function return), or containing both
+// "err" and "code" (cloudformation's errCodeValidation) is the pattern
+// actually observed at real error-code declaration sites -- EXCEPT a
+// "key"/"field" prefix, this repo's own naming convention for a wire
+// KEY-NAME constant (services/quicksight and services/securityhub's own
+// `keyErrorCode = "ErrorCode"`, the JSON field name "ErrorCode" itself, not
+// a code value -- both false positives before this exclusion).
 func looksLikeCodeVarName(name string) bool {
 	lower := strings.ToLower(name)
 	if strings.HasPrefix(lower, "key") || strings.HasPrefix(lower, "field") {
 		return false
 	}
 
-	if strings.HasPrefix(lower, "code") {
+	hasCodeOrErrTypePrefix := strings.HasPrefix(lower, "code") ||
+		strings.HasPrefix(lower, "errtype") ||
+		strings.HasPrefix(lower, "errortype")
+	if hasCodeOrErrTypePrefix {
 		return true
 	}
 
@@ -116,6 +141,8 @@ func extractCandidates(dir, repoRoot string) ([]candidate, error) {
 			out,
 			extractFromFile(f, fset, repoRoot, structTypes, pkgStrings, sinkPositions)...)
 	}
+
+	out = append(out, applyMapperDetection(files, structTypes, pkgStrings, fset, repoRoot, out)...)
 
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].File != out[j].File {
@@ -157,11 +184,20 @@ func parseNonTestDirFiles(fset *token.FileSet, dir string) ([]*ast.File, error) 
 	return files, nil
 }
 
+// collectTopLevelStructs collects every struct type declaration in f,
+// package-level AND function-local alike: rds/neptune's own error-code
+// mapper table (rdsErrorCode/neptuneErrorCode in handler[_dispatch].go)
+// declares its row struct (`type errorMapping struct { sentinel error; code
+// string }`) scoped to the mapper function, not the package, so
+// matchCompositeLit needs the same resolution reach to see the mapper's own
+// OUTPUT code field -- without it, that field silently resolves to nothing
+// (positionalFieldNames returns nil) and the table's output is never
+// checked at all.
 func collectTopLevelStructs(f *ast.File, out map[string]*ast.StructType) {
-	for _, decl := range f.Decls {
-		gd, ok := decl.(*ast.GenDecl)
+	ast.Inspect(f, func(n ast.Node) bool {
+		gd, ok := n.(*ast.GenDecl)
 		if !ok || gd.Tok != token.TYPE {
-			continue
+			return true
 		}
 
 		for _, spec := range gd.Specs {
@@ -174,7 +210,9 @@ func collectTopLevelStructs(f *ast.File, out map[string]*ast.StructType) {
 				out[ts.Name.Name] = st
 			}
 		}
-	}
+
+		return true
+	})
 }
 
 // collectPackageStrings collects every top-level (package-scope) single
@@ -310,7 +348,7 @@ func newCandidate(
 		file = p.Filename
 	}
 
-	return candidate{File: file, Line: p.Line, Code: code, Mechanism: m, Indirect: indirect}
+	return candidate{File: file, Line: p.Line, Code: code, Mechanism: m, pos: pos, Indirect: indirect}
 }
 
 // matchCallExpr covers three of the four handler.go mechanisms directly:
@@ -334,23 +372,23 @@ func matchCallExpr(
 		pkgIdent, isPkg := sel.X.(*ast.Ident)
 
 		switch {
-		case isPkg && pkgIdent.Name == "awserr" && (sel.Sel.Name == "New" || sel.Sel.Name == "Newf"):
+		case isPkg && pkgIdent.Name == pkgAwserr && (sel.Sel.Name == fnSentinelNew || sel.Sel.Name == fnAwserrNewf):
 			return literalArgCandidates(
 				call.Args[:min(1, len(call.Args))],
 				fset,
 				repoRoot,
 				mechAwserrNew,
 			)
-		case isPkg && pkgIdent.Name == "errors" && sel.Sel.Name == "New":
+		case isPkg && pkgIdent.Name == pkgErrors && sel.Sel.Name == fnSentinelNew:
 			return literalArgCandidates(call.Args, fset, repoRoot, mechStdlibErr)
-		case strings.HasSuffix(sel.Sel.Name, "Error"):
+		case looksLikeErrSinkFuncName(sel.Sel.Name):
 			return sinkArgCandidates(call.Args, sinkPositions[sel.Sel.Name], fset, repoRoot)
 		}
 
 		return nil
 	}
 
-	if ident, isIdent := call.Fun.(*ast.Ident); isIdent && strings.HasSuffix(ident.Name, "Error") {
+	if ident, isIdent := call.Fun.(*ast.Ident); isIdent && looksLikeErrSinkFuncName(ident.Name) {
 		return sinkArgCandidates(call.Args, sinkPositions[ident.Name], fset, repoRoot)
 	}
 
@@ -540,10 +578,16 @@ func compositeKeyMatches(
 	return false
 }
 
+// narrowLiteralKeyMatches's "error" case is services/iotdataplane's own
+// `keyError = "error"` map key -- confirmed, by grep, the only literal
+// "error" wire key anywhere in this repo's non-test service source, so
+// this stays narrow rather than risking a JSON field that legitimately
+// holds something other than a bare code string (a nested error object, an
+// error-present boolean) under some other service's own convention.
 func narrowLiteralKeyMatches(v string) bool {
 	lower := strings.ToLower(v)
 
-	return lower == labelWireType || lower == labelCode || lower == labelErrorCode
+	return lower == labelWireType || lower == labelCode || lower == labelErrorCode || lower == labelWireError
 }
 
 // positionalFieldNames resolves a composite literal's type expression to
@@ -684,15 +728,36 @@ func matchGenDecl(gd *ast.GenDecl, fset *token.FileSet, repoRoot string) []candi
 }
 
 // matchReturnLiterals covers services/cloudformation's mapCreateStackError/
-// stackInstancesErrorCode shape: a function whose name marks it as an
+// stackInstancesErrorCode shape (a bare literal returned directly),
+// services/fis's classifyError shape (a struct literal returned directly,
+// e.g. errorClass{exceptionType: "ValidationException", httpStatus: ...}),
+// and services/cloudfront's notFoundCodeCore shape (a bare literal returned
+// directly from a switch whose cases are errors.Is(err, SentinelX) --
+// mapper.go's own table/switch detection recognizes this exact function as
+// a mapper too, but notFoundCodeCore's NAME has no "Error" in it, so
+// without also gating on function BODY, this rule would never see its
+// output and demoteMapperConsumedSentinels would suppress the sentinel
+// declaration with nothing left checking the real wire code at all).
+// Two gates, either sufficient: the function's own name marks it as an
 // error-code classifier (contains "Error", case-insensitive -- excludes
 // unrelated functions the same way codeFieldLabel's "code" substring check
-// does) returning a code-shaped literal directly. Always NEEDS REVIEW (see
-// scan.go): the function-name heuristic is the weakest signal this tool
-// uses, since a function merely named "...Error..." can return any string,
-// not necessarily a wire error code.
+// does), or its body contains at least one errors.Is call (marking it as a
+// sentinel-identity classifier regardless of what it's named). Always NEEDS
+// REVIEW (see scan.go): both gates are heuristics, since a matching
+// function can still return any string, not necessarily a wire error code.
+// A struct literal's fields are read without any field-name filter --
+// narrowFieldNameMatches exists to rule OUT unrelated Type/Code fields on
+// structs this scan reaches incidentally, but a composite literal reached
+// only via one of these two gated heuristics has no such incidental-reach
+// problem, so an extra field-name gate here would only hide a real mapper
+// output sitting under an unanticipated field name (fis's own
+// "exceptionType").
 func matchReturnLiterals(fd *ast.FuncDecl, fset *token.FileSet, repoRoot string) []candidate {
-	if fd.Body == nil || !strings.Contains(strings.ToLower(fd.Name.Name), "error") {
+	if fd.Body == nil {
+		return nil
+	}
+
+	if !strings.Contains(strings.ToLower(fd.Name.Name), "error") && !containsErrorsIsCall(fd.Body) {
 		return nil
 	}
 
@@ -705,21 +770,55 @@ func matchReturnLiterals(fd *ast.FuncDecl, fset *token.FileSet, repoRoot string)
 		}
 
 		for _, result := range ret.Results {
-			lit, isLit := result.(*ast.BasicLit)
-			if !isLit || lit.Kind != token.STRING {
-				continue
-			}
-
-			v, err := strconv.Unquote(lit.Value)
-			if err != nil || !looksLikeCode(v) {
-				continue
-			}
-
-			out = append(out, newCandidate(fset, repoRoot, lit.Pos(), v, mechReturnStmt, true))
+			out = append(out, returnResultCandidates(result, fset, repoRoot)...)
 		}
 
 		return true
 	})
 
 	return out
+}
+
+func returnResultCandidates(result ast.Expr, fset *token.FileSet, repoRoot string) []candidate {
+	switch e := result.(type) {
+	case *ast.BasicLit:
+		if c, ok := returnLitCandidate(e, fset, repoRoot); ok {
+			return []candidate{c}
+		}
+	case *ast.CompositeLit:
+		var out []candidate
+
+		for _, elt := range e.Elts {
+			v := elt
+			if kv, keyed := elt.(*ast.KeyValueExpr); keyed {
+				v = kv.Value
+			}
+
+			lit, isLit := v.(*ast.BasicLit)
+			if !isLit {
+				continue
+			}
+
+			if c, ok := returnLitCandidate(lit, fset, repoRoot); ok {
+				out = append(out, c)
+			}
+		}
+
+		return out
+	}
+
+	return nil
+}
+
+func returnLitCandidate(lit *ast.BasicLit, fset *token.FileSet, repoRoot string) (candidate, bool) {
+	if lit.Kind != token.STRING {
+		return candidate{}, false
+	}
+
+	v, err := strconv.Unquote(lit.Value)
+	if err != nil || !looksLikeCode(v) {
+		return candidate{}, false
+	}
+
+	return newCandidate(fset, repoRoot, lit.Pos(), v, mechReturnStmt, true), true
 }

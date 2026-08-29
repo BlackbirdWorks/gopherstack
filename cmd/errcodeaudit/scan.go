@@ -134,6 +134,9 @@ func buildFinding(c candidate, gt *serviceGroundTruth) finding {
 	f := finding{File: c.File, Line: c.Line, Code: c.Code, Mechanism: c.Mechanism}
 
 	switch {
+	case c.MapperReason != "":
+		f.Confident = false
+		f.Reason = c.MapperReason
 	case gt.resolvedModules > 1:
 		f.Confident = false
 		f.Reason = "service resolves 2+ SDK modules; which one's exception set applies here is unknown"
