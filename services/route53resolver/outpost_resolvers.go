@@ -27,6 +27,7 @@ func (b *InMemoryBackend) CreateOutpostResolver(
 
 	id := "rslvr-op-" + uuid.New().String()[:8]
 	resolverARN := arn.Build("route53resolver", region, b.accountID, "outpost-resolver/"+id)
+	now := currentTime()
 	r := &OutpostResolver{
 		ID:                    id,
 		ARN:                   resolverARN,
@@ -37,6 +38,8 @@ func (b *InMemoryBackend) CreateOutpostResolver(
 		InstanceCount:         instanceCount,
 		Status:                statusOperational,
 		Region:                region,
+		CreationTime:          now,
+		ModificationTime:      now,
 	}
 	b.outpostResolvers.Put(r)
 	cp := *r
@@ -51,14 +54,17 @@ func (b *InMemoryBackend) AddOutpostResolverInternal(name, outpostARN string) *O
 
 	id := "rslvr-op-" + uuid.New().String()[:8]
 	resolverARN := arn.Build("route53resolver", b.region, b.accountID, "outpost-resolver/"+id)
+	now := currentTime()
 	r := &OutpostResolver{
-		ID:            id,
-		ARN:           resolverARN,
-		Name:          name,
-		OutpostARN:    outpostARN,
-		InstanceCount: defaultOutpostResolverInstanceCount,
-		Status:        statusOperational,
-		Region:        b.region,
+		ID:               id,
+		ARN:              resolverARN,
+		Name:             name,
+		OutpostARN:       outpostARN,
+		InstanceCount:    defaultOutpostResolverInstanceCount,
+		Status:           statusOperational,
+		Region:           b.region,
+		CreationTime:     now,
+		ModificationTime: now,
 	}
 	b.outpostResolvers.Put(r)
 	cp := *r
@@ -137,6 +143,7 @@ func (b *InMemoryBackend) UpdateOutpostResolver(
 	if instanceCount > 0 {
 		r.InstanceCount = instanceCount
 	}
+	r.ModificationTime = currentTime()
 	cp := *r
 
 	return &cp, nil

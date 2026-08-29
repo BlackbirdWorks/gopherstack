@@ -2,11 +2,17 @@
 service: efs
 sdk_module: aws-sdk-go-v2/service/efs@v1.44.4   # version audited against
 last_audit_commit: 2516ed984b0172a43275ab37c70f0cac8f6bc807
-last_audit_date: 2026-08-20
-overall: A            # wrapper-key/fabricated-field sweep this pass; 3 fabricated members removed, 1 real field added
+last_audit_date: 2026-08-29
+overall: A            # gopherstack-6flj follow-up (2026-08-29): write-only-state sweep. 2 real bugs
+                      # found and fixed -- CreateFileSystemInput.Backup was silently dropped (a
+                      # real SDK client's Backup:true never enabled DescribeBackupPolicy), and
+                      # Destination.StatusMessage was never modeled at all (dormant in this
+                      # backend, which never produces a non-ENABLED replication status, but wired
+                      # for wire-shape completeness). 2026-08-20 pass's 3 fabricated-member
+                      # removals stand, re-verified.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
-  CreateFileSystem:                  {wire: ok, errors: ok, state: ok, persist: ok}
+  CreateFileSystem:                  {wire: fixed, errors: ok, state: ok, persist: ok, note: "gopherstack-6flj follow-up: the real Backup *bool request member (api_op_CreateFileSystem.go -- default false, but true when AvailabilityZoneName is set) had no field at all in createFileSystemBody/CreateFileSystemRequest -- a real SDK client's Backup:true was silently dropped, and DescribeBackupPolicy always reported DISABLED regardless. Added; also implements the documented One-Zone default-flip (Backup omitted + AvailabilityZoneName set -> ENABLED)."}
   DescribeFileSystems:               {wire: ok, errors: ok, state: ok, persist: ok, note: "pagination data-loss bug fixed this pass, see notes"}
   DeleteFileSystem:                  {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateFileSystem:                  {wire: ok, errors: ok, state: ok, persist: ok}
@@ -27,9 +33,9 @@ ops:
   DeleteTags:                        {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeLifecycleConfiguration:    {wire: ok, errors: ok, state: ok, persist: ok}
   PutLifecycleConfiguration:         {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (gopherstack-hnyl): isValidTransitionToIA/isValidTransitionToArchive were hand-copied lists each missing AFTER_1_DAY and each wrongly accepting values from other fields (TransitionToIA took a nonexistent \"NONE\"; TransitionToArchive took AFTER_1_ACCESS, which belongs to TransitionToPrimaryStorageClassRules, plus a typo'd AFTER_90_DAYS_1). Both now derive from types.TransitionToIARules.Values()/types.TransitionToArchiveRules.Values()."}
-  CreateReplicationConfiguration:    {wire: fixed, errors: ok, state: ok, persist: ok, note: "Destination.LastReplicatedTimestamp populated (epoch-seconds) at creation since 2026-07-23; 2026-08-20: removed fabricated FileSystemArn/AvailabilityZoneName/KmsKeyId from Destination response entries and added the real RoleArn field, see notes; 2026-08-21: Destination.Region (required output member, types/types.go:116-119) now defaulted to the source region for same-region replication (DestinationToCreate.Region is optional on input) -- see gopherstack-r80d batch 17 note below"}
+  CreateReplicationConfiguration:    {wire: fixed, errors: ok, state: ok, persist: ok, note: "Destination.LastReplicatedTimestamp populated (epoch-seconds) at creation since 2026-07-23; 2026-08-20: removed fabricated FileSystemArn/AvailabilityZoneName/KmsKeyId from Destination response entries and added the real RoleArn field, see notes; 2026-08-21: Destination.Region (required output member, types/types.go:116-119) now defaulted to the source region for same-region replication (DestinationToCreate.Region is optional on input) -- see gopherstack-r80d batch 17 note below; 2026-08-29: Destination.StatusMessage (a real, non-required types.Destination member) was never modeled in ReplicationDestination at all -- added, but dormant: this backend's replication Status is always synchronously ENABLED (never PAUSED/ERROR), so no code path yet writes a non-empty value. Wired for wire-shape completeness, no test (indistinguishable from the pre-fix behavior on an always-empty field, same reasoning as route53resolver's ResolverRuleAssociation.StatusMessage)."}
   DeleteReplicationConfiguration:    {wire: ok, errors: ok, state: ok, persist: ok}
-  DescribeReplicationConfigurations: {wire: fixed, errors: ok, state: ok, persist: ok, note: "NextToken/MaxResults pagination implemented 2026-07-23; LastReplicatedTimestamp int64 epoch-seconds since 2026-07-23; 2026-08-20: same fabricated-field/RoleArn fix as CreateReplicationConfiguration, both share destinationToResponse"}
+  DescribeReplicationConfigurations: {wire: fixed, errors: ok, state: ok, persist: ok, note: "NextToken/MaxResults pagination implemented 2026-07-23; LastReplicatedTimestamp int64 epoch-seconds since 2026-07-23; 2026-08-20: same fabricated-field/RoleArn fix as CreateReplicationConfiguration, both share destinationToResponse; 2026-08-29: shares CreateReplicationConfiguration's StatusMessage fix, see its entry"}
   DescribeFileSystemPolicy:          {wire: ok, errors: ok, state: ok, persist: ok}
   PutFileSystemPolicy:               {wire: ok, errors: fixed, state: ok, persist: ok, note: "malformed/oversized policy now returns InvalidPolicyException (400), not ValidationException -- ValidationException isn't even in botocore's PutFileSystemPolicy error catalog (BadRequest, InternalServerError, FileSystemNotFound, InvalidPolicyException, IncorrectFileSystemLifeCycleState)"}
   DeleteFileSystemPolicy:            {wire: ok, errors: ok, state: ok, persist: ok}
@@ -409,6 +415,56 @@ wire type at all. These are harmless extraneous keys (ignored by a real restjson
 client, which decodes only fields it declares) rather than a required-field
 violation, so left as-is rather than removed as part of this cut -- out of scope for a
 required-*missing*-field audit.
+
+### 2026-08-29: write-only-state sweep (gopherstack-6flj follow-up)
+
+Method: for each domain struct in `models.go`, enumerated every field the backend
+persists, then checked which real operation can read it back, per family
+(FileSystem, MountTarget, AccessPoint, Replication, LifecycleConfiguration,
+FileSystemPolicy, BackupPolicy, AccountPreferences). Cross-checked every
+List/Describe-shaped SDK input struct's own field list against gopherstack's
+matching wire-input struct (not just the response side), since an accepted
+request field that's silently dropped is the same bug class in reverse.
+`enumcheck`/`acceptguard`/`zeroguard`/`xmlitemwrap` (repo-wide, grepped for
+`services/efs`) found nothing for this service.
+
+**`CreateFileSystemInput.Backup` silently dropped (critical, request-side):**
+`api_op_CreateFileSystem.go`'s `CreateFileSystemInput.Backup *bool` ("Specifies
+whether automatic backups are enabled... Default is false. However, if you
+specify an AvailabilityZoneName, the default is true") had no counterpart at
+all in `createFileSystemBody`/`CreateFileSystemRequest` -- a real SDK client's
+`Backup: aws.Bool(true)` was accepted by JSON unmarshal (unknown-field-tolerant)
+and then discarded, so a follow-up `DescribeBackupPolicy` always reported
+`DISABLED` regardless of what the client asked for at creation time. This is
+the "accepted from a request and never stored" write-only-state pattern.
+Fixed: added `Backup *bool` end to end (`createFileSystemBody` ->
+`CreateFileSystemRequest` -> `CreateFileSystem`'s new
+`enableBackup`/`backupStore` write, mirroring the documented One-Zone
+default-flip when `Backup` is omitted but `AvailabilityZoneName` is set).
+Proven by hand-revert: reverting the three call sites reproduced
+`TestCreateFileSystem_BackupRoundTrips`/`TestCreateFileSystem_OneZoneDefaultsBackupEnabled`
+failing (`DescribeBackupPolicy` returning `DISABLED` instead of `ENABLED`);
+restored, tests pass (`wire_sdk_roundtrip_test.go`).
+
+**`Destination.StatusMessage` never modeled (dormant):** see
+`CreateReplicationConfiguration`'s ops entry above. Real, non-required
+`types.Destination` member with no gopherstack field to source a value from at
+all; the backend's replication `Status` never transitions to `PAUSED`/`ERROR`
+(always synchronous `ENABLED`), so the fix is real but currently unreachable --
+flagged, not manufactured into a fake failure scenario.
+
+**Confirmed clean by this sweep (not re-litigating the 2026-08-20 pass, but
+independently re-derived against the same pinned SDK)**: `ResolverEndpoint`... n/a
+(that's route53resolver) -- for EFS: `FileSystemDescription` (18 fields, all
+present including nested `SizeInBytes`/`FileSystemProtection`),
+`MountTargetDescription` (11 fields, no ARN/SecurityGroups, matches the
+2026-08-20 fix), `AccessPointDescription` (10 fields, all present),
+`ReplicationConfigurationDescription`/`Destination` (6 + 7 fields), `LifecyclePolicy`
+(3 fields), `BackupPolicy` (1 field), `ResourceIdPreference` (`ResourceIdType`
++ `Resources`, the latter a fixed `[FILE_SYSTEM, MOUNT_TARGET]` value since
+this mock's ID-preference setting always applies to both -- not fabricated).
+`CreateMountTargetInput`/`UpdateFileSystemInput` request-side field sets also
+verified complete against `api_op_*.go`.
 
 Everything else in this service's required-output surface came back clean: `PosixUser`
 (`Uid`/`Gid`) and `CreationInfo` (`Permissions`/`OwnerUid`/`OwnerGid`) -- both nested,

@@ -17,6 +17,9 @@ type outpostResolverOutput struct {
 	OutpostArn            string `json:"OutpostArn"`
 	PreferredInstanceType string `json:"PreferredInstanceType"`
 	Status                string `json:"Status"`
+	StatusMessage         string `json:"StatusMessage,omitempty"`
+	CreationTime          string `json:"CreationTime,omitempty"`
+	ModificationTime      string `json:"ModificationTime,omitempty"`
 	InstanceCount         int32  `json:"InstanceCount"`
 }
 
@@ -43,6 +46,9 @@ func outpostResolverToOutput(r *OutpostResolver) outpostResolverOutput {
 		PreferredInstanceType: r.PreferredInstanceType,
 		InstanceCount:         r.InstanceCount,
 		Status:                r.Status,
+		StatusMessage:         r.StatusMessage,
+		CreationTime:          r.CreationTime,
+		ModificationTime:      r.ModificationTime,
 	}
 }
 

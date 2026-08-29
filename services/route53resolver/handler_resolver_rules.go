@@ -59,10 +59,11 @@ type resolverRuleIDInput struct {
 }
 
 type targetIP struct {
-	IP       string `json:"Ip"`
-	Ipv6     string `json:"Ipv6,omitempty"`
-	Protocol string `json:"Protocol,omitempty"`
-	Port     int32  `json:"Port"`
+	IP                   string `json:"Ip"`
+	Ipv6                 string `json:"Ipv6,omitempty"`
+	Protocol             string `json:"Protocol,omitempty"`
+	ServerNameIndication string `json:"ServerNameIndication,omitempty"`
+	Port                 int32  `json:"Port"`
 }
 
 type resolverRuleOutput struct {

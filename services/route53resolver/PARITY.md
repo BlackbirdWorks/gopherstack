@@ -2,7 +2,18 @@
 service: route53resolver
 sdk_module: aws-sdk-go-v2/service/route53resolver@v1.48.4
 last_audit_commit: 22d69640
-last_audit_date: 2026-08-15
+last_audit_date: 2026-08-29
+                       # gopherstack-6flj follow-up sweep (2026-08-29): write-only-state hand
+                       # search across all families. 2 real bugs found and fixed:
+                       # TargetAddress.ServerNameIndication (nested inside ResolverRule.TargetIps,
+                       # both request- and response-side) had no counterpart at all -- a real DoH
+                       # target's SNI was silently dropped on Create/UpdateResolverRule and never
+                       # echoed back; OutpostResolver.CreationTime/ModificationTime/StatusMessage
+                       # were never tracked at all (same "field literally never existed" class
+                       # already fixed for FirewallDomainList in an earlier pass) -- every
+                       # Create/Get/List/Update/Delete response left them permanently empty.
+                       # enumcheck/acceptguard/zeroguard/xmlitemwrap (repo-wide, grepped for this
+                       # service) found nothing new.
 overall: A            # gopherstack-6flj (2026-08-15): full wrapper-key/nesting sweep of all 30
                        # List/Describe/Get ops against route53resolver@v1.48.4's own
                        # awsAwsjson11_ deserializer case lists (JSON-RPC 1.1, case-sensitive;
@@ -95,11 +106,11 @@ ops:
   ListResolverEndpointIpAddresses: {wire: ok, errors: ok, state: ok, persist: ok}
   AssociateResolverEndpointIpAddress: {wire: fixed, errors: ok, state: ok, persist: ok, note: "removed invented IpAddresses response field, see notes"}
   DisassociateResolverEndpointIpAddress: {wire: fixed, errors: ok, state: ok, persist: ok, note: "removed invented IpAddresses response field, see notes"}
-  CreateResolverRule: {wire: fixed, errors: ok, state: ok, persist: ok, note: "Tags input field was missing entirely -- silently dropped tags on create; added. gopherstack-y9w3: added DelegationRecord (verified against api_op_CreateResolverRule.go and types.ResolverRule -- 'DNS queries with delegation records that point to this domain name are forwarded to resolvers on your network'), stored and echoed on Create/Get/List. The DELEGATE RuleTypeOption itself remains an unimplemented structural gap (see gaps) -- this only fixes the independent field-drop bug, it does not newly support delegation rule creation."}
-  GetResolverRule: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListResolverRules: {wire: fixed, errors: ok, state: ok, persist: ok, note: "gopherstack-66dr: Filters was modelled but not on this wire-input struct -- same silently-ignored-filter bug as ListResolverEndpoints. Added Filters (CreatorRequestId/DomainName/Name/ResolverEndpointId/Status/Type, both name forms); unknown filter names reject with InvalidParameterException."}
+  CreateResolverRule: {wire: fixed, errors: ok, state: ok, persist: ok, note: "Tags input field was missing entirely -- silently dropped tags on create; added. gopherstack-y9w3: added DelegationRecord (verified against api_op_CreateResolverRule.go and types.ResolverRule -- 'DNS queries with delegation records that point to this domain name are forwarded to resolvers on your network'), stored and echoed on Create/Get/List. The DELEGATE RuleTypeOption itself remains an unimplemented structural gap (see gaps) -- this only fixes the independent field-drop bug, it does not newly support delegation rule creation. gopherstack-6flj follow-up: TargetAddress.ServerNameIndication (types/types.go:1682, both serializers.go:4838 request-side and deserializers.go:13705 response-side -- 'The Server Name Indication of the DoH server') had no field in gopherstack's targetIP wire struct or TargetIP domain model at all; a real client's TargetIps[].ServerNameIndication was silently dropped on create and never echoed. Added."}
+  GetResolverRule: {wire: fixed, errors: ok, state: ok, persist: ok, note: "gopherstack-6flj follow-up: shares CreateResolverRule's TargetAddress.ServerNameIndication fix, see its entry."}
+  ListResolverRules: {wire: fixed, errors: ok, state: ok, persist: ok, note: "gopherstack-66dr: Filters was modelled but not on this wire-input struct -- same silently-ignored-filter bug as ListResolverEndpoints. Added Filters (CreatorRequestId/DomainName/Name/ResolverEndpointId/Status/Type, both name forms); unknown filter names reject with InvalidParameterException. gopherstack-6flj follow-up: shares CreateResolverRule's TargetAddress.ServerNameIndication fix, see its entry."}
   DeleteResolverRule: {wire: ok, errors: ok, state: ok, persist: ok, note: "cascades tags + rule associations"}
-  UpdateResolverRule: {wire: ok, errors: ok, state: ok, persist: ok}
+  UpdateResolverRule: {wire: fixed, errors: ok, state: ok, persist: ok, note: "gopherstack-6flj follow-up: shares CreateResolverRule's TargetAddress.ServerNameIndication fix, see its entry (UpdateResolverRuleInput.Config.TargetIps shares the same targetIP wire type)."}
   AssociateResolverRule: {wire: fixed, errors: ok, state: ok, persist: ok, note: "gopherstack-6flj: resolverRuleAssociationOutput (shared by GetResolverRuleAssociation/DisassociateResolverRule/ListResolverRuleAssociations too) never emitted StatusMessage, a real non-required types.ResolverRuleAssociation member. Added; genuinely always empty in this backend (no async failure state to source a value from) so the fix is undemonstrated by a test -- see wire_field_fixes_test.go's comment."}
   GetResolverRuleAssociation: {wire: fixed, errors: ok, state: ok, persist: ok, note: "gopherstack-6flj: shares AssociateResolverRule's StatusMessage fix, see its entry."}
   DisassociateResolverRule: {wire: fixed, errors: ok, state: ok, persist: ok, note: "CRITICAL: request shape was ResolverRuleAssociationId (an ID that only ever appears in Get/List responses); real API requires ResolverRuleId+VPCId. Every real SDK client call was rejected with ValidationException before this fix. Backend now looks up the association by (ResolverRuleID, VPCID) pair."}
@@ -141,11 +152,11 @@ ops:
   GetFirewallConfig: {wire: fixed, errors: ok, state: ok, persist: ok, note: "OwnerID -> OwnerId json tag (same bug class, see GetFirewallRuleGroup); AWS correctly returns no Arn for this type (verified, kept as-is)"}
   UpdateFirewallConfig: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FirewallFailOpenStatus now accepts USE_LOCAL_RESOURCE_SETTING (verified against types/enums.go), not just ENABLED/DISABLED"}
   ListFirewallConfigs: {wire: ok, errors: ok, state: ok, persist: ok}
-  CreateOutpostResolver: {wire: ok, errors: ok, state: ok, persist: ok}
-  GetOutpostResolver: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListOutpostResolvers: {wire: fixed, errors: ok, state: ok, persist: ok, note: "gopherstack-hvni sweep: OutpostArn (ListOutpostResolversRequest member) was missing from the wire-input struct -- silently dropped, every call returned the unfiltered list. Added as a direct equality filter on OutpostResolver.OutpostARN."}
-  DeleteOutpostResolver: {wire: ok, errors: ok, state: ok, persist: ok}
-  UpdateOutpostResolver: {wire: ok, errors: ok, state: ok, persist: ok}
+  CreateOutpostResolver: {wire: fixed, errors: ok, state: ok, persist: ok, note: "gopherstack-6flj follow-up: types.OutpostResolver's CreationTime/ModificationTime/StatusMessage (types/types.go:1078, deserializers.go:12034) were never tracked at all -- no field on the domain model or wire struct -- so every response left them permanently empty, the same 'field literally never existed' class already fixed for FirewallDomainList. Added; CreationTime/ModificationTime now set at create, ModificationTime bumped on update. StatusMessage is wired but dormant (this backend has no async-failure state to source a value from, same as ResolverRuleAssociation.StatusMessage)."}
+  GetOutpostResolver: {wire: fixed, errors: ok, state: ok, persist: ok, note: "gopherstack-6flj follow-up: shares CreateOutpostResolver's timestamp fix, see its entry."}
+  ListOutpostResolvers: {wire: fixed, errors: ok, state: ok, persist: ok, note: "gopherstack-hvni sweep: OutpostArn (ListOutpostResolversRequest member) was missing from the wire-input struct -- silently dropped, every call returned the unfiltered list. Added as a direct equality filter on OutpostResolver.OutpostARN. gopherstack-6flj follow-up: shares CreateOutpostResolver's timestamp fix, see its entry."}
+  DeleteOutpostResolver: {wire: fixed, errors: ok, state: ok, persist: ok, note: "gopherstack-6flj follow-up: shares CreateOutpostResolver's timestamp fix, see its entry (the deleted resource's now-populated CreationTime/ModificationTime are echoed back same as before)."}
+  UpdateOutpostResolver: {wire: fixed, errors: ok, state: ok, persist: ok, note: "gopherstack-6flj follow-up: shares CreateOutpostResolver's timestamp fix -- ModificationTime now bumps on every update, see its entry."}
   GetResolverConfig: {wire: fixed, errors: ok, state: ok, persist: ok, note: "OwnerID -> OwnerId json tag (same bug class). FIXED 2026-08-13: deleted the fabricated extra Arn field -- see gaps below for the SDK citation."}
   UpdateResolverConfig: {wire: fixed, errors: ok, state: ok, persist: ok, note: "AutodefinedReverseFlag now accepts USE_LOCAL_RESOURCE_SETTING (verified against types/enums.go), not just ENABLE/DISABLE. gopherstack-jp7o sweep: the wire-input struct's JSON tag was \"AutodefinedReverse\", not the real request member \"AutodefinedReverseFlag\" (api_op_UpdateResolverConfig.go) -- every real SDK call silently dropped the value. Fixed the tag; the *response* member is genuinely AutodefinedReverse (types.go), so only the request side was wrong."}
   ListResolverConfigs: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -435,3 +446,65 @@ mirroring the pre-existing ENABLE/DISABLE -> ENABLING/DISABLING transient-status
   returning `""` for an unset policy rather than erroring -- reasonable mock behavior for a
   void-result-style read, matches the "empty envelope after real backend logic is correct"
   guidance in parity-principles.md #4.
+
+## 2026-08-29: write-only-state follow-up sweep (gopherstack-6flj)
+
+Method: for each domain struct in `models.go`, enumerated stored fields and checked
+which real op can read them back; then diffed every family's real SDK type
+(`ResolverEndpoint`, `ResolverRule`+`TargetAddress`, `FirewallRuleGroup`,
+`FirewallRuleGroupAssociation`, `FirewallDomainList`, `FirewallRule`, `OutpostResolver`,
+`ResolverQueryLogConfigAssociation`, `FirewallConfig`, `ResolverConfig`,
+`ResolverDnssecConfig`) field-for-field against `types/types.go` and each type's own
+`awsAwsjson11_deserializeDocument<Type>` case list (exact-case keys, per this service's
+hand-rolled awsjson1.1 decoder -- see the OwnerID/OwnerId note above).
+`enumcheck`/`acceptguard`/`zeroguard`/`xmlitemwrap` (repo-wide, grepped for this service)
+found nothing.
+
+**`TargetAddress.ServerNameIndication` silently dropped (both directions):** verified
+against `types/types.go:1682` and both `serializers.go:4838`
+(`awsAwsjson11_serializeDocumentTargetAddress`, request-side) and `deserializers.go:13705`
+(`awsAwsjson11_deserializeDocumentTargetAddress`, response-side) -- a real, always-real
+field ("The Server Name Indication of the DoH server that you want to forward queries to.
+This is only used if the Protocol of the TargetAddress is DoH"). Neither gopherstack's
+`targetIP` wire struct (`handler_resolver_rules.go`) nor its `TargetIP` domain model
+(`models.go`) had a field for it at all -- a real SDK client setting
+`TargetIps[].ServerNameIndication` on `CreateResolverRule`/`UpdateResolverRule` had the
+value accepted (unknown-field-tolerant JSON decode) and discarded; `GetResolverRule`/
+`ListResolverRules` never echoed it back. This is the "accepted from a request and never
+stored" write-only-state pattern, one level deeper than the top-level fields this
+campaign's earlier passes checked -- `ResolverRule` itself was already clean, but its
+nested `TargetAddress` member type was not independently re-verified until this pass.
+Fixed: added `ServerNameIndication` to both structs (same field order, so the existing
+`targetIP(t)`/`TargetIP(t)` typed conversions still compile). Proven by
+`TestResolverRule_TargetIps_ServerNameIndicationRoundTrip`
+(`wire_field_fixes_test.go`) -- a real `aws-sdk-go-v2` client sets it on
+`CreateResolverRule` and reads it back via `GetResolverRule`; hand-reverted (confirmed
+failing against `HEAD`), restored.
+
+**`OutpostResolver.CreationTime`/`ModificationTime`/`StatusMessage` never tracked at
+all:** verified against `types/types.go:1078` and `deserializers.go:12034`
+(`awsAwsjson11_deserializeDocumentOutpostResolver`, 11 cases: `Arn`, `CreationTime`,
+`CreatorRequestId`, `Id`, `InstanceCount`, `ModificationTime`, `Name`, `OutpostArn`,
+`PreferredInstanceType`, `Status`, `StatusMessage`). gopherstack's `OutpostResolver`
+domain model and `outpostResolverOutput` wire struct had neither timestamp field at all
+-- every `Create`/`Get`/`List`/`Update`/`Delete` response left them permanently empty
+regardless of backend state, the same "field literally never existed" class already
+fixed for `FirewallDomainList` (see the 2026-07-24-era note above). Fixed:
+`CreationTime`/`ModificationTime` set at creation (`currentTime()`, same convention as
+every other family), `ModificationTime` bumped on `UpdateOutpostResolver`. `StatusMessage`
+is wired through but genuinely dormant -- this backend's Outpost Resolver `Status`
+transitions straight to `OPERATIONAL` synchronously and never produces an
+error/detail message, so no code path yet writes a non-empty value; same reasoning as
+the pre-existing `ResolverRuleAssociation.StatusMessage` dormant fix. Proven by
+`TestOutpostResolver_TimestampsRoundTrip` (`wire_field_fixes_test.go`) for the two
+timestamps; hand-reverted (confirmed failing), restored.
+
+**Confirmed clean by this pass's re-derivation** (not re-litigating prior passes, but
+independently re-checked field-for-field against the same pinned SDK):
+`FirewallRuleGroup` (11 fields), `FirewallRuleGroupAssociation` (13 fields, `StatusMessage`
+already present), `FirewallDomainList` (12 fields, `Category`/`ManagedListType`
+structurally absent per the existing gap), `FirewallRule` (20 fields, `Status`/
+`StatusMessage`/`Id`/`Arn` correctly absent, matching the pre-existing disclosed note),
+`ResolverQueryLogConfigAssociation` (7 fields), `FirewallConfig`/`ResolverConfig`/
+`ResolverDnssecConfig` (4 fields each, no `Arn` on any of the three, matching the
+2026-08-13 fix).
