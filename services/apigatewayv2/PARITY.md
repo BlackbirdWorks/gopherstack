@@ -1,9 +1,27 @@
 ---
 service: apigatewayv2
 sdk_module: aws-sdk-go-v2/service/apigatewayv2@v1.37.4
-last_audit_commit: 7c8077891
-last_audit_date: 2026-08-10
-overall: A            # gopherstack-0xs7 follow-up pass. Verified against live code (not
+last_audit_commit: e50f52dce
+last_audit_date: 2026-08-28
+overall: A            # write-only-state sweep pass (this pass, 2026-08-28). Existing
+                       # wire_field_fixes_test.go (ListRoutingRules wrapper key, Portal
+                       # PublishStatus) was a PARTIAL prior pass, not a finished one -- per this
+                       # campaign's protocol, treated as a signal to dig deeper rather than skip.
+                       # Ran the write-only-state method (what does each backend persist, what real
+                       # op reads it back) across the Api/Stage/Route/Integration/Authorizer/
+                       # Deployment/DomainName/VpcLink/RoutingRule families. Found one real bug:
+                       # UpdateAuthorizer's AuthorizerResultTtlInSeconds/EnableSimpleResponses were
+                       # plain int32/bool with a truthy/nonzero guard (not *int32/*bool like the
+                       # real SDK), so a client's documented way to explicitly disable caching
+                       # (TTL=0) or simple responses (false) was silently dropped -- fixed, see
+                       # UpdateAuthorizer row and Notes. enumcheck: 0 findings in this service.
+                       # apigatewayv2 is REST-shaped (path-bound members via echo routes in
+                       # handler.go, e.g. /v2/apis/{apiId}/authorizers/{authorizerId}), confirmed
+                       # against the vendored SDK's httpBindingEncoder-based serializers.go/
+                       # api_op_*.go for the ops this pass touched. Did not re-verify every op in
+                       # this large service (24k lines) -- see gaps for scope not reached.
+                       # ---- prior pass's note follows ----
+                       # gopherstack-0xs7 follow-up pass. Verified against live code (not
                        # PARITY.md prose) that gopherstack-e81/2tx/jni0 were all still genuinely
                        # open, then closed the real parts of each: RoutingRule Actions/Conditions
                        # are now typed unions (gopherstack-e81, see Notes #12); UpdateRoute now
@@ -54,7 +72,7 @@ ops:
   ImportApi: {wire: fixed, errors: fixed, state: ok, persist: ok, note: "basepath and failOnWarnings query params (SetQuery in serializers.go, not body fields) are now read and validated instead of silently ignored; basepath=prepend now prefixes route paths with the spec's declared base path. basepath=split and failOnWarnings-triggered rollback remain unimplemented -- bd gopherstack-jni0, narrowed, see gaps. Api.importInfo/warnings shape itself is correct (Notes #8) but always empty since the emulator never generates import warnings, so failOnWarnings has no observable effect yet."}
   ReimportApi: {wire: fixed, errors: fixed, state: ok, persist: ok, note: "same basepath/failOnWarnings fix as ImportApi -- bd gopherstack-jni0, narrowed"}
   ExportApi: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed (gopherstack-h910): OutputType (required query param 'outputType', verified against validateOpExportApiInput/serializeOpHttpBindingsExportApiInput) was ignored and JSON was always returned. Now required (400 if missing/invalid) and YAML actually serializes via gopkg.in/yaml.v3 when requested. StageName/ExportVersion/IncludeExtensions remain unwired -- StageName would need per-stage route filtering this backend's route model doesn't support (routes are API-level, not stage-scoped); ExportVersion/IncludeExtensions are cosmetic knobs on the exported doc's own metadata/extension-inclusion, not state this backend tracks. Left absent rather than fabricated."}
-  CreateRoute: {wire: ok, errors: ok, state: ok, persist: ok, note: "HTTP routeKey format + WS \$connect/\$disconnect/\$default/custom validated; auth type NONE/AWS_IAM/JWT/CUSTOM enforced"}
+  CreateRoute: {wire: ok, errors: ok, state: ok, persist: ok, note: "HTTP routeKey format + WS $connect/$disconnect/$default/custom validated; auth type NONE/AWS_IAM/JWT/CUSTOM enforced"}
   GetRoute: {wire: ok, errors: ok, state: ok, persist: ok}
   GetRoutes: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateRoute: {wire: ok, errors: fixed, state: fixed, persist: ok, note: "was mutating RouteKey before validating AuthorizationType, so a rejected update (bad auth type) could still leave a changed route key -- fixed by validating the whole input before mutating anything, see Notes #13. Also now rejects a route-key change on a quick-create $default route (gopherstack-2tx, see Notes #14)."}
@@ -91,7 +109,7 @@ ops:
   CreateAuthorizer: {wire: ok, errors: ok, state: ok, persist: ok, note: "JWT issuer/audience + REQUEST identitySource/payloadFormatVersion/enableSimpleResponses/TTL all modeled and enforced on the data plane (http_proxy.go, authorizer.go)"}
   GetAuthorizer: {wire: ok, errors: ok, state: ok, persist: ok}
   GetAuthorizers: {wire: ok, errors: ok, state: ok, persist: ok}
-  UpdateAuthorizer: {wire: ok, errors: ok, state: ok, persist: ok}
+  UpdateAuthorizer: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "write-only-state bug (gopherstack-wire-sweep, this pass): AuthorizerResultTtlInSeconds/EnableSimpleResponses were plain int32/bool (not *int32/*bool like the real SDK's UpdateAuthorizerInput, api_op_UpdateAuthorizer.go) with a truthy/nonzero guard, so a real client's documented way to disable caching (TTL=0) or simple responses (false) via Update was silently dropped, leaving the previous value forever. The Authorizer response shape also carried omitempty on both fields, which would have hidden a real 0/false value as an absent key on GetAuthorizer/ListAuthorizers -- also fixed. Round-trip test in wire_field_fixes_test.go."}
   DeleteAuthorizer: {wire: ok, errors: ok, state: ok, persist: ok, note: "now purges authorizerCache entries for this authorizer -- see Notes #11 (bd gopherstack-wmh, closed)"}
   ResetAuthorizersCache: {wire: ok, errors: ok, state: ok, persist: n/a, note: "cache is in-memory only by design"}
   CreateModel: {wire: ok, errors: ok, state: ok, persist: ok}

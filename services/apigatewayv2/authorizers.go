@@ -692,16 +692,16 @@ func (b *InMemoryBackend) UpdateAuthorizer(
 		a.AuthorizerCredentialsArn = input.AuthorizerCredentialsArn
 	}
 
-	if input.AuthorizerResultTTLInSeconds != 0 {
-		a.AuthorizerResultTTLInSeconds = input.AuthorizerResultTTLInSeconds
+	if input.AuthorizerResultTTLInSeconds != nil {
+		a.AuthorizerResultTTLInSeconds = *input.AuthorizerResultTTLInSeconds
 	}
 
 	if input.AuthorizerPayloadFormatVersion != "" {
 		a.AuthorizerPayloadFormatVersion = input.AuthorizerPayloadFormatVersion
 	}
 
-	if input.EnableSimpleResponses {
-		a.EnableSimpleResponses = input.EnableSimpleResponses
+	if input.EnableSimpleResponses != nil {
+		a.EnableSimpleResponses = *input.EnableSimpleResponses
 	}
 
 	if input.JwtConfiguration != nil {

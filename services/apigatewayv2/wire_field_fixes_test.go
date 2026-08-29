@@ -337,3 +337,69 @@ func TestCreateProductRestEndpointPage_DisplayContent(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &got))
 	require.Equal(t, "My REST Page", got.DisplayContent["title"])
 }
+
+// TestUpdateAuthorizer_TTLAndSimpleResponsesCanBeCleared drives
+// CreateAuthorizer/UpdateAuthorizer/GetAuthorizer through the real SDK
+// client. Before the fix, UpdateAuthorizerInput.AuthorizerResultTtlInSeconds
+// and .EnableSimpleResponses were plain int32/bool (not *int32/*bool, unlike
+// the real SDK's UpdateAuthorizerInput, api_op_UpdateAuthorizer.go), and the
+// backend only applied them when non-zero/true -- so a real client's
+// documented way to disable caching (TTL=0, "If it equals 0, authorization
+// caching is disabled" per AuthorizerResultTtlInSeconds's doc comment) or
+// disable simple responses (false) via Update was silently dropped, leaving
+// the previous value forever. The Authorizer response shape itself also
+// carried `omitempty` on both fields, which would have hidden a real 0/false
+// value as an absent key -- also fixed.
+func TestUpdateAuthorizer_TTLAndSimpleResponsesCanBeCleared(t *testing.T) {
+	t.Parallel()
+
+	backend := apigatewayv2.NewInMemoryBackend()
+	client := newTestAPIGatewayV2Client(t, apigatewayv2.NewHandler(backend))
+
+	api, err := client.CreateApi(t.Context(), &apigatewayv2sdk.CreateApiInput{
+		Name:         aws.String("authz-ttl-clear-api"),
+		ProtocolType: apigatewayv2types.ProtocolTypeHttp,
+	})
+	require.NoError(t, err)
+
+	created, err := client.CreateAuthorizer(t.Context(), &apigatewayv2sdk.CreateAuthorizerInput{
+		ApiId:          api.ApiId,
+		AuthorizerType: apigatewayv2types.AuthorizerTypeRequest,
+		Name:           aws.String("authz-ttl-clear"),
+		IdentitySource: []string{"$request.header.Authorization"},
+		AuthorizerUri: aws.String(
+			"arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/" +
+				"arn:aws:lambda:us-east-1:123456789012:function:authz/invocations",
+		),
+		AuthorizerPayloadFormatVersion: aws.String("2.0"),
+		AuthorizerResultTtlInSeconds:   aws.Int32(300),
+		EnableSimpleResponses:          aws.Bool(true),
+	})
+	require.NoError(t, err)
+	require.Equal(t, int32(300), aws.ToInt32(created.AuthorizerResultTtlInSeconds))
+	require.True(t, aws.ToBool(created.EnableSimpleResponses))
+
+	updated, err := client.UpdateAuthorizer(t.Context(), &apigatewayv2sdk.UpdateAuthorizerInput{
+		ApiId:                        api.ApiId,
+		AuthorizerId:                 created.AuthorizerId,
+		AuthorizerResultTtlInSeconds: aws.Int32(0),
+		EnableSimpleResponses:        aws.Bool(false),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, updated.AuthorizerResultTtlInSeconds,
+		"explicit TTL=0 must survive the update, not be dropped as a zero value")
+	require.Equal(t, int32(0), aws.ToInt32(updated.AuthorizerResultTtlInSeconds))
+	require.NotNil(t, updated.EnableSimpleResponses)
+	require.False(t, aws.ToBool(updated.EnableSimpleResponses))
+
+	got, err := client.GetAuthorizer(t.Context(), &apigatewayv2sdk.GetAuthorizerInput{
+		ApiId:        api.ApiId,
+		AuthorizerId: created.AuthorizerId,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, got.AuthorizerResultTtlInSeconds,
+		"a real 0 TTL must round-trip through GetAuthorizer, not be omitted as an unset field")
+	require.Equal(t, int32(0), aws.ToInt32(got.AuthorizerResultTtlInSeconds))
+	require.NotNil(t, got.EnableSimpleResponses)
+	require.False(t, aws.ToBool(got.EnableSimpleResponses))
+}

@@ -307,10 +307,35 @@ func (h *Handler) handleUpdateHTTPNamespace(_ context.Context, body []byte) ([]b
 	return json.Marshal(map[string]string{keyOperationID: opID})
 }
 
+// dnsNamespacePropertiesChangeRequest mirrors types.PrivateDnsNamespacePropertiesChange
+// / types.PublicDnsNamespacePropertiesChange: the only mutable DNS property on
+// an existing namespace is the SOA record's TTL (types.go:946-975,
+// 1004-1033).
+type dnsNamespacePropertiesChangeRequest struct {
+	DNSProperties *dnsPropertiesRequest `json:"DnsProperties"`
+}
+
+type updateDNSNamespaceChange struct {
+	Properties  *dnsNamespacePropertiesChangeRequest `json:"Properties"`
+	Description string                               `json:"Description"`
+}
+
+// dnsNamespaceChangeSOATTL extracts the requested SOA TTL from a
+// Private/PublicDnsNamespaceChange, returning (0, false) when the caller did
+// not request a TTL change.
+func dnsNamespaceChangeSOATTL(change updateDNSNamespaceChange) (int64, bool) {
+	if change.Properties == nil || change.Properties.DNSProperties == nil ||
+		change.Properties.DNSProperties.SOA == nil {
+		return 0, false
+	}
+
+	return change.Properties.DNSProperties.SOA.TTL, true
+}
+
 type updatePrivateDNSNamespaceRequest struct {
-	ID               string                `json:"Id"`
-	UpdaterRequestID string                `json:"UpdaterRequestId"`
-	Namespace        updateNamespaceChange `json:"Namespace"`
+	ID               string                   `json:"Id"`
+	UpdaterRequestID string                   `json:"UpdaterRequestId"`
+	Namespace        updateDNSNamespaceChange `json:"Namespace"`
 }
 
 func (h *Handler) handleUpdatePrivateDNSNamespace(_ context.Context, body []byte) ([]byte, error) {
@@ -323,7 +348,9 @@ func (h *Handler) handleUpdatePrivateDNSNamespace(_ context.Context, body []byte
 		return nil, fmt.Errorf("%w: Id is required", errInvalidRequest)
 	}
 
-	opID, err := h.Backend.UpdatePrivateDNSNamespace(req.ID, req.Namespace.Description)
+	soaTTL, hasSOATTL := dnsNamespaceChangeSOATTL(req.Namespace)
+
+	opID, err := h.Backend.UpdatePrivateDNSNamespace(req.ID, req.Namespace.Description, soaTTL, hasSOATTL)
 	if err != nil {
 		return nil, err
 	}
@@ -332,9 +359,9 @@ func (h *Handler) handleUpdatePrivateDNSNamespace(_ context.Context, body []byte
 }
 
 type updatePublicDNSNamespaceRequest struct {
-	ID               string                `json:"Id"`
-	UpdaterRequestID string                `json:"UpdaterRequestId"`
-	Namespace        updateNamespaceChange `json:"Namespace"`
+	ID               string                   `json:"Id"`
+	UpdaterRequestID string                   `json:"UpdaterRequestId"`
+	Namespace        updateDNSNamespaceChange `json:"Namespace"`
 }
 
 func (h *Handler) handleUpdatePublicDNSNamespace(_ context.Context, body []byte) ([]byte, error) {
@@ -347,7 +374,9 @@ func (h *Handler) handleUpdatePublicDNSNamespace(_ context.Context, body []byte)
 		return nil, fmt.Errorf("%w: Id is required", errInvalidRequest)
 	}
 
-	opID, err := h.Backend.UpdatePublicDNSNamespace(req.ID, req.Namespace.Description)
+	soaTTL, hasSOATTL := dnsNamespaceChangeSOATTL(req.Namespace)
+
+	opID, err := h.Backend.UpdatePublicDNSNamespace(req.ID, req.Namespace.Description, soaTTL, hasSOATTL)
 	if err != nil {
 		return nil, err
 	}

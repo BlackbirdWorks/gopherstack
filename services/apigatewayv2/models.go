@@ -204,8 +204,8 @@ type Authorizer struct {
 	AuthorizerCredentialsArn       string            `json:"authorizerCredentialsArn,omitempty"`
 	AuthorizerPayloadFormatVersion string            `json:"authorizerPayloadFormatVersion,omitempty"`
 	IdentitySource                 []string          `json:"identitySource,omitempty"`
-	AuthorizerResultTTLInSeconds   int32             `json:"authorizerResultTtlInSeconds,omitempty"`
-	EnableSimpleResponses          bool              `json:"enableSimpleResponses,omitempty"`
+	AuthorizerResultTTLInSeconds   int32             `json:"authorizerResultTtlInSeconds"`
+	EnableSimpleResponses          bool              `json:"enableSimpleResponses"`
 }
 
 // CreateAPIInput is the input for CreateAPI.
@@ -374,14 +374,14 @@ type CreateAuthorizerInput struct {
 // UpdateAuthorizerInput is the input for UpdateAuthorizer (PATCH).
 type UpdateAuthorizerInput struct {
 	JwtConfiguration               *JwtConfiguration `json:"jwtConfiguration,omitempty"`
+	AuthorizerResultTTLInSeconds   *int32            `json:"authorizerResultTtlInSeconds,omitempty"`
+	EnableSimpleResponses          *bool             `json:"enableSimpleResponses,omitempty"`
 	Name                           string            `json:"name,omitempty"`
 	AuthorizerType                 string            `json:"authorizerType,omitempty"`
 	AuthorizerURI                  string            `json:"authorizerUri,omitempty"`
 	AuthorizerCredentialsArn       string            `json:"authorizerCredentialsArn,omitempty"`
 	AuthorizerPayloadFormatVersion string            `json:"authorizerPayloadFormatVersion,omitempty"`
 	IdentitySource                 []string          `json:"identitySource,omitempty"`
-	AuthorizerResultTTLInSeconds   int32             `json:"authorizerResultTtlInSeconds,omitempty"`
-	EnableSimpleResponses          bool              `json:"enableSimpleResponses,omitempty"`
 }
 
 // UpdateAPIMappingInput is the input for UpdateAPIMapping (PATCH).

@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -103,7 +104,7 @@ func TestInMemoryBackend_UpdateAuthorizer_AllFields(t *testing.T) {
 		AuthorizerURI:                "https://auth.example.com",
 		IdentitySource:               []string{"$request.header.Authorization"},
 		AuthorizerCredentialsArn:     "arn:aws:iam::123:role/role",
-		AuthorizerResultTTLInSeconds: 300,
+		AuthorizerResultTTLInSeconds: aws.Int32(300),
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "new-auth", updated.Name)

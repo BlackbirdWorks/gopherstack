@@ -7,9 +7,35 @@
 service: servicediscovery
 sdk_module: aws-sdk-go-v2/service/servicediscovery@v1.43.4   # version audited against; matches go.mod (verified)
 botocore_model: servicediscovery/2017-03-14/service-2.json (botocore 1.43.56)  # for shape constraints not carried into the Go SDK comments
-last_audit_commit: dbf9633c9                      # this pass (2026-08-23, request-side sweep) fixed UpdateServiceAttributes; commit hash not yet known at edit time
-last_audit_date: 2026-08-23
-overall: A            # real bugs found and fixed this pass (follow-up to gopherstack-bq50)
+last_audit_commit: e50f52dce                      # this pass (2026-08-28, write-only-state sweep)
+last_audit_date: 2026-08-28
+overall: A            # write-only-state sweep pass (2026-08-28). No wire_field_fixes_test.go
+                       # existed yet for this service despite the prior pass's extensive
+                       # "audited and confirmed correct" notes below -- per this campaign's
+                       # protocol, treated those as claims to verify, not proof. Ran the
+                       # write-only-state method (what does each backend persist, what real op
+                       # reads it back) across every namespace/service/instance Update op. Found
+                       # one real bug: UpdatePrivateDnsNamespace/UpdatePublicDnsNamespace's
+                       # Namespace.Properties.DnsProperties.SOA.TTL (types.
+                       # PrivateDnsNamespaceChange/PublicDnsNamespaceChange, types.go:923-1033)
+                       # was entirely absent from the wire-decode struct -- only Description was
+                       # read -- so a real client's documented way to change a namespace's SOA
+                       # TTL after creation was silently dropped. Fixed, see UpdatePrivateDNSNamespace/
+                       # UpdatePublicDNSNamespace rows and wire_field_fixes_test.go (new file, two
+                       # round-trip tests). UpdateHTTPNamespace unaffected (HttpNamespaceChange has
+                       # only Description, confirmed against types.go:408-416). enumcheck: 0
+                       # findings in this service. Protocol re-confirmed: X-Amz-Target
+                       # Route53AutoNaming_v20170314.<Op>, POST /, awsjson1.1-shaped (handler_sdk_
+                       # route_table_test.go). Also examined UpdateService's DnsConfig/
+                       # HealthCheckConfig omission semantics (real AWS: "If you omit any existing
+                       # DnsRecords or HealthCheckConfig configurations from an UpdateService
+                       # request, the configurations are deleted from the service" per
+                       # api_op_UpdateService.go's doc comment) -- this backend does NOT delete an
+                       # existing HealthCheckConfig/DnsConfig.DnsRecords when omitted from an
+                       # UpdateService call, a real but distinct (not write-only-state) behavioral
+                       # gap; left unfixed this pass, see gaps.
+                       # ---- prior pass's note follows ----
+                       # real bugs found and fixed this pass (follow-up to gopherstack-bq50)
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
@@ -19,9 +45,9 @@ ops:
   GetNamespace: {wire: fixed, errors: ok, state: ok, persist: ok, note: "response included a Tags field; real types.Namespace has none (tags only via ListTagsForResource) -- fixed, see Notes"}
   ListNamespaces: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "Tags field removed (see GetNamespace); Filters now implement TYPE/NAME/HTTP_NAME/RESOURCE_OWNER with EQ/BEGINS_WITH -- fixed, see Notes"}
   DeleteNamespace: {wire: ok, errors: ok, state: ok, persist: ok}
-  UpdateHttpNamespace: {wire: ok, errors: ok, state: ok, persist: ok}
-  UpdatePrivateDnsNamespace: {wire: ok, errors: ok, state: ok, persist: ok}
-  UpdatePublicDnsNamespace: {wire: ok, errors: ok, state: ok, persist: ok}
+  UpdateHttpNamespace: {wire: ok, errors: ok, state: ok, persist: ok, note: "confirmed no SOA/DnsProperties surface exists to update -- HttpNamespaceChange has only Description, types.go:408-416"}
+  UpdatePrivateDnsNamespace: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "write-only-state bug (this pass): Namespace.Properties.DnsProperties.SOA.TTL (types.PrivateDnsNamespaceChange, types.go:923-975) was entirely absent from the wire-decode struct -- only Description was read, so a real client's documented way to change the SOA TTL after creation was silently dropped. Fixed; round-trip test in wire_field_fixes_test.go."}
+  UpdatePublicDnsNamespace: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "same SOA TTL wire-decode gap as UpdatePrivateDnsNamespace (types.PublicDnsNamespaceChange, types.go:981-1033) -- fixed, same pass"}
   CreateService: {wire: fixed, errors: fixed, state: fixed, persist: ok, note: "Tags field removed from response; ServiceAlreadyExists now enforced (case-insensitive within DNS namespaces, case-sensitive within HTTP namespaces); DnsConfig.RoutingPolicy/DnsRecords[].Type and HealthCheckConfig.Type now validated against their closed enums (see gopherstack-bq50 Notes) -- fixed"}
   GetService: {wire: fixed, errors: ok, state: ok, persist: ok, note: "Tags field removed (see CreateService) -- fixed"}
   ListServices: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "gopherstack-tuh5: was reusing serviceToMap (the full GetService converter) unscoped, leaking a top-level NamespaceId that types.ServiceSummary does not declare (confirmed against awsAwsjson11_deserializeDocumentServiceSummary; the nested, deprecated DnsConfig.NamespaceId is a distinct field on both shapes and is unaffected). namespaceToMap in this same file was checked and is clean (types.NamespaceSummary matches exactly). serviceToMap now delegates to a dedicated serviceSummaryToMap plus the one extra field. Regression: raw-body assertion (an SDK client discards unrecognised keys and can't observe an over-wide response). Prior pass: Filters now implement NAMESPACE_ID/RESOURCE_OWNER -- fixed, see Notes"}
@@ -54,6 +80,7 @@ gaps:                     # known divergences NOT fixed — link bd issue ids
   - "GetInstancesHealthStatus/DiscoverInstances never surface HealthStatus=UNKNOWN. The enum value itself IS present in the source (types.HealthStatusUnknown, aws-sdk-go-v2/service/servicediscovery@v1.43.4/types/enums.go:74) -- this is NOT a source-level wire gap. Real Cloud Map instances backed by an AWS-managed HealthCheckConfig start UNKNOWN until the Route53 health check propagates; gopherstack has no Route53 health-check subsystem to drive that transition, so all instances are HEALTHY until explicitly marked UNHEALTHY via UpdateInstanceCustomHealthStatus. Confirmed structural (would require simulating real endpoint health evaluation); the precondition bug found alongside this claim (explicitly-requested unknown instance IDs silently omitted instead of erroring) WAS fixable and has been fixed, see gopherstack-bq50 Notes"
   - "DuplicateRequest ('operation is already in progress', returned by CreateHttpNamespace/CreatePrivateDnsNamespace/CreatePublicDnsNamespace/DeleteNamespace/DeregisterInstance/RegisterInstance/UpdateHttpNamespace/UpdatePrivateDnsNamespace/UpdatePublicDnsNamespace/UpdateService per strings.EqualFold(\"DuplicateRequest\", errorCode) in the vendored deserializers.go -- re-verified this pass, the operation list is one op fewer than a prior audit missed adding UpdateService/the three UpdateXNamespace ops) has no genuine trigger path: every op completes synchronously under the backend's coarse write lock, so there is never an observable in-flight/PENDING window for a concurrent duplicate request to collide with. Checked the narrower question this pass -- is there a *synchronous* duplicate AWS refuses that this backend accepts? Registering the same service+instance ID twice is upsert semantics in real AWS too (no error); creating a duplicate-name service is already caught by ServiceAlreadyExists, a different exception. No synchronous trigger found; sentinel intentionally not added (would be dead code with no real trigger)"
   - "ResourceLimitExceeded (CreateHttpNamespace/CreatePrivateDnsNamespace/CreatePublicDnsNamespace/CreateService/RegisterInstance) and RequestLimitExceeded (account-wide API throttling quota) are real SDK error types with no quota numbers documented anywhere in the vendored SDK source or the botocore model (only external doc links, e.g. cloud-map-limits.html) -- left unenforced rather than guessing at unverified thresholds"
+  - "UpdateService does not implement the documented omit-to-delete semantics: api_op_UpdateService.go's doc comment states 'If you omit any existing DnsRecords or HealthCheckConfig configurations from an UpdateService request, the configurations are deleted from the service.' This backend's UpdateService only applies DnsConfig.DnsRecords[].TTL/HealthCheckConfig when present in the request and leaves the existing stored config untouched when omitted, instead of deleting it. Found this pass via the write-only-state method but not fixed (distinct bug class from the SOA TTL fix -- a real client can still express every value it wants stored, it just can't clear one to unset via omission); needs its own bd issue and a design call on how 'explicitly send nothing' is distinguished from 'field omitted for brevity' in this handler's json.Unmarshal-based decoding"
 deferred:                 # consciously not audited this pass (scope) — next pass targets
   - "Full cross-account/shared-namespace support (OwnerAccount request param, ARN-as-Id acceptance for namespace/service ID fields, real per-resource ResourceOwner tracking) -- not emulated; single-account model throughout. The RESOURCE_OWNER *filter* itself IS now handled this pass (coarse SELF-always-true/OTHER_ACCOUNTS-always-false semantics matching a single-account backend), but that's filtering only, not the underlying sharing model. Re-confirmed structural this pass: gopherstack has no per-request account concept anywhere in the codebase -- pkgs/arn hardcodes a single fake account ID (000000000000) repo-wide -- so a second account to share a namespace with doesn't exist to model against. A partial cross-account model confined to this one service would be fake work, not emulation"
 leaks: {status: clean, note: "no goroutines/janitors in this service; all state is plain maps/store.Table guarded by lockmetrics.RWMutex"}
