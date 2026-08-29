@@ -5414,3 +5414,64 @@ services/sagemaker/` (clean), `go test -race ./services/sagemaker/...`, `go test
 
 **Ops not reached:** none — all 16 from the parity-27 queue were read. No further never-named
 ops from the original 87 remain outside this file: 71 (parity-27) + 16 (this pass) = 87.
+
+## 2026-08-29 error-path sweep (wrong-code bug hunt, ERROR path only)
+
+Audited sagemaker's not-found error-sentinel choices against each op's own
+`awsAwsjson11_deserializeOpError<Op>` switch (sagemaker@v1.263.2 deserializers.go) — not the
+service's general error-type list. This service's `handleError` maps two "families" of not-found:
+the generic `awserr.ErrNotFound` -> `ValidationException` (the majority of "older" CRUD ops,
+whose relevant Describe/Delete ops model no not-found-shaped exception at all — for these,
+`ValidationException` matches real, documented SageMaker behavior and is correct as-is, e.g.
+Algorithm/Endpoint/EndpointConfig/Model/NotebookInstance/CodeRepository/InferenceComponent/
+ModelPackage/ModelPackageGroup/Project all confirmed empty-switch on their Describe/Delete ops),
+and the special-cased `ErrResourceNotFound` -> `ResourceNotFound` (checked ahead of the generic
+branch), previously documented as covering only the AIBenchmarkJob/AIRecommendationJob/
+AIWorkloadConfig/generic-Job families.
+
+**That "only" claim was wrong.** Extracting the modeled-code set for all 403 ops showed 218 of
+them (54%) model `ResourceNotFound` — including nearly every classic `Describe*`/`Delete*`/
+`Stop*`/`Update*` op for many long-standing resource families this service already had CRUD
+support for well before the Job families existed. Cross-referencing against actual call sites
+found 8 more resource families whose "not found" sentinel was still wired to the generic
+`ValidationException` branch despite their own Describe/Stop/Delete/Update ops modeling
+`ResourceNotFound` exclusively (an unmodeled `ValidationException` for these ops falls through to
+a generic `smithy.GenericAPIError` for a real client — `errors.As` against neither
+`*types.ValidationException` nor `*types.ResourceNotFound` succeeds):
+
+- `TrainingJob` (`DescribeTrainingJob`/`StopTrainingJob`/`DeleteTrainingJob`/`UpdateTrainingJob`)
+- `TransformJob` (`DescribeTransformJob`/`StopTransformJob`)
+- `HyperParameterTuningJob` (`DescribeHyperParameterTuningJob`/`StopHyperParameterTuningJob`)
+- `DeviceFleet` (`DescribeDeviceFleet`/`UpdateDeviceFleet`)
+- `Device` (`DescribeDevice`)
+- `EdgeDeploymentPlan` (`DescribeEdgeDeploymentPlan`)
+- `InferenceRecommendationsJob` (`DescribeInferenceRecommendationsJob`/
+  `StopInferenceRecommendationsJob`)
+- `EdgePackagingJob` (`DescribeEdgePackagingJob`)
+
+Fixed by redefining each family's `Err<X>NotFound` sentinel from
+`awserr.New("ValidationException", awserr.ErrNotFound)` to
+`awserr.New("ResourceNotFound", ErrResourceNotFound)` — the same shared special-case sentinel the
+Job families already used, now with an updated doc comment listing all covered families instead
+of the narrower (inaccurate) original claim. No call-site regression risk: sibling ops on the same
+resource that don't model `ResourceNotFound` (e.g. `DeleteHyperParameterTuningJob`, an empty
+switch) get an equally-unmodeled code either way.
+
+**Deliberately not chased further this pass**: a parallel `ConflictException`-vs-`ResourceInUse`
+mismatch exists for a comparable-sized set of `Update*`/`Delete*` ops (e.g. `DeleteAlgorithm`,
+`DeleteCluster`, `UpdateCodeRepository`, `UpdateTrial`, ~25 more model `ConflictException` per
+their own deserializer switch), but a spot-check (`DeleteAlgorithm`) found no "in use" guard
+implemented in the backend at all for that op — a missing check, not a wrong sentinel at an
+existing call site, and therefore a different (parity-gap, not wire-shape) class of work outside
+this pass's scope. Left for a follow-up.
+
+New tests, real typed `aws-sdk-go-v2` client, `errors.As` against `*types.ResourceNotFound`, all
+9 hand-verified to fail against the pre-fix code first (asserted a
+`*smithy.GenericAPIError`/`ValidationException`, not the typed exception):
+`services/sagemaker/wire_error_code_not_modeled_test.go`. No pre-existing tests asserted the wrong
+code for these 8 families (none checked the specific `__type`/error text, only HTTP status), so
+none needed correcting.
+
+Gates: `go build ./services/sagemaker/...` (clean), `go vet ./...` (repo-wide, clean — no
+signature changes), `go test -race -count=1 ./services/sagemaker/...` (pass), `golangci-lint run
+--fix ./services/sagemaker/...` (0 issues). Work left uncommitted per this pass's instructions.

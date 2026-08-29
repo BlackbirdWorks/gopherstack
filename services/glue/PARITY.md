@@ -1493,3 +1493,47 @@ changes this pass), `go test -race -count=1 ./services/glue/...` (pass, includin
 `wire_field_fixes_test.go`, each new assertion hand-verified to fail against the pre-fix
 literals then restored), `golangci-lint run --fix ./services/glue/...` (0 issues). Work left
 uncommitted per this pass's instructions.
+
+## 2026-08-29 error-path sweep (wrong-code/should-not-error bug hunt, ERROR path only)
+
+Audited glue's not-found error-sentinel choices at call sites against each op's own
+`awsAwsjson11_deserializeOpError<Op>` switch in `deserializers.go` (glue@v1.152.0) — not the
+service's general error-type list. Extracted the modeled-code set for all 299 ops. 8 real bugs
+found and fixed, all in the class "generic `ErrNotFound` (-> `EntityNotFoundException`) used at a
+call site whose own op does not model `EntityNotFoundException` at all":
+
+- **Wrong code, fixed to `InvalidInputException`** (the op's actual modeled not-found-adjacent
+  code): `DeleteFormType`, `DeleteGlossary`, `DeleteGlossaryTerm`, `ListGlossaryTerms`,
+  `DeleteUsageProfile`, `DeleteSession`, `StopSession`, `DeleteWorkflow`, `DeleteAsset`,
+  `DeleteAssetType`, `DescribeConnectionType`.
+- **Wrong code, fixed to `MaterializedViewRefreshTaskNotRunningException`** (the op's actual
+  modeled code for "nothing running to stop"): `StopMaterializedViewRefreshTaskRun` — new sentinel
+  `ErrMaterializedViewRefreshTaskNotRunning` added, wired into `handler.go`'s switch.
+- **Should-not-error (idempotent delete), fixed to a silent no-op**: `DeleteJob` and
+  `DeleteTrigger` — both ops' own SDK doc comments state "If the X is not found, no exception is
+  thrown" (`api_op_DeleteJob.go`, `api_op_DeleteTrigger.go`), confirmed by their error switches
+  also having no not-found case at all.
+
+Five pre-existing tests were asserting the old, wrong behavior as correct and were fixed alongside
+the source: `TestDeleteUsageProfile_NotFound` (handler_usage_profiles_test.go), `TestBlueprint_DeleteNotFound`
+(handler_blueprints_test.go), `TestStopMaterializedViewRefreshTaskRun_NotFound`
+(handler_materialized_views_test.go), `TestExtractResource`/`delete_job_extracts_job_name`
+(handler_crawlers_test.go), `TestGlue_ErrorCases`/`delete_nonexistent_job` (handler_test.go).
+`TestTrigger_DeleteTrigger`/`not-found` and `TestWorkflow_DeleteAndList` needed no code changes
+(only relied on `wantCode`, which is unaffected or already correct).
+
+New tests, real typed `aws-sdk-go-v2` client, `errors.As` against the SDK's own exception type
+(or `require.NoError` for the idempotent-delete cases), every one hand-verified to fail against
+the pre-fix code first: `services/glue/wire_error_code_not_modeled_test.go`.
+
+Spot-checked (not exhaustive) for the same class beyond these 8: crawlers (Start/Stop/Update/
+Delete), connection_types (Delete/Register), resource_policies (Put/Delete), jobs/workflows
+(StartJobRun/StartWorkflowRun's `ConcurrentRunsExceededException`), dev_endpoints
+(`ResourceNumberLimitExceededException`), dashboard (`GetSessionEndpoint`'s
+`IllegalSessionStateException`) — all already correct. Integrations family (Delete/Modify/Get/
+UpdateIntegration*) already uses `EntityNotFoundException`, which IS modeled by those specific
+ops — left as-is, no bug.
+
+Gates: `go build ./services/glue/...` (clean), `go vet ./...` (repo-wide, clean — no signature
+changes), `go test -race -count=1 ./services/glue/...` (pass), `golangci-lint run --fix
+./services/glue/...` (0 issues). Work left uncommitted per this pass's instructions.

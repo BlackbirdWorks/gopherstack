@@ -218,13 +218,16 @@ func (b *InMemoryBackend) UpdateSourceControlFromJob(jobName string, details Sou
 	return nil
 }
 
-// DeleteJob deletes a Glue job by name, also removing all job runs and bookmarks.
+// DeleteJob deletes a Glue job by name, also removing all job runs and
+// bookmarks. Per AWS's documented behavior (api_op_DeleteJob.go: "If the job
+// definition is not found, no exception is thrown"), deleting an unknown
+// name is a no-op, not an error.
 func (b *InMemoryBackend) DeleteJob(name string) error {
 	b.mu.Lock("DeleteJob")
 	defer b.mu.Unlock()
 
 	if !b.jobs.Has(name) {
-		return ErrNotFound
+		return nil
 	}
 
 	b.jobs.Delete(name)

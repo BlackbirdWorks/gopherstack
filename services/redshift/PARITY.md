@@ -1354,3 +1354,28 @@ new `wire_field_fixes_test.go` and the one corrected pre-existing test, each new
 assertion hand-verified to fail against the pre-fix literal then restored),
 `golangci-lint run --fix ./services/redshift/...` (0 issues). Work left uncommitted per this
 pass's instructions.
+
+## 2026-08-29 error-path sweep (wrong-code bug hunt, no fix needed)
+
+Cross-referenced the `errCodeSentinels`/`resolveErrCode` table (`handler.go`) and a sample of
+call sites (crawlers-equivalent multi-code ops: `DeleteCluster`, `CreateClusterSnapshot`,
+`RevokeEndpointAccess`, `DescribeReservedNodeExchangeStatus`) against each op's own
+`awsAwsquery_deserializeOpError<Op>` switch (redshift@v1.65.4 deserializers.go, all 145 ops
+extracted). Found no wrong-sentinel bugs: every checked sentinel's wire code appears in the
+modeled set of every op that raises it. This service's `errors.go` already carries extensive
+per-op SDK-verified citations from a prior pass (e.g. `ErrSnapshotAccessNotFound`,
+`ErrSecurityGroupIngressNotFound`, `ErrNamespaceRegistrationInvalidClusterState` all cite their
+specific `deserializeOpError<Op>` switch by name), and that prior work held up under
+re-verification. `DescribeReservedNodeExchangeStatus` models both `ReservedNodeNotFound` and a
+second, AWS-side-misspelled `ReservedNodeExchangeNotFond` code the SDK also recognizes; this
+backend only implements the first condition (reserved node doesn't exist) — a coverage gap
+(no exchange-status-not-found case exists in this backend at all), not a wrong-code bug, so left
+unfixed per this pass's scope.
+
+Only change: `errors.go`'s header comment cited SDK version v1.62.3 (stale — go.mod pins
+v1.65.4); re-verified every code string against v1.65.4's `types/errors.go` (unchanged) and
+updated the comment to the correct version. No behavior change.
+
+Gates: `go build ./services/redshift/...`, `go vet ./...` (repo-wide), `go test -race -count=1
+./services/redshift/...`, `golangci-lint run --fix ./services/redshift/...` — all clean, no
+regressions (expected, since no runtime code changed).

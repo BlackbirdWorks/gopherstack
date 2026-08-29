@@ -6,9 +6,21 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 )
 
 var ErrMaterializedViewRunNotFound = fmt.Errorf("materialized view refresh run not found: %w", ErrNotFound)
+
+// ErrMaterializedViewRefreshTaskNotRunning is returned by
+// StopMaterializedViewRefreshTaskRun when no refresh run is in progress for
+// the given table. StopMaterializedViewRefreshTaskRun's error switch
+// (glue@v1.152.0 deserializers.go) has no EntityNotFoundException case;
+// MaterializedViewRefreshTaskNotRunningException is the code it models for
+// this condition.
+var ErrMaterializedViewRefreshTaskNotRunning = awserr.New(
+	"MaterializedViewRefreshTaskNotRunningException", awserr.ErrInvalidParameter,
+)
 
 // StartMaterializedViewRefreshTaskRun starts a refresh run.
 func (b *InMemoryBackend) StartMaterializedViewRefreshTaskRun(
@@ -52,7 +64,7 @@ func (b *InMemoryBackend) StopMaterializedViewRefreshTaskRun(dbName, tableName s
 	}
 
 	if latest == nil {
-		return ErrMaterializedViewRunNotFound
+		return ErrMaterializedViewRefreshTaskNotRunning
 	}
 
 	latest.Status = stateStopped

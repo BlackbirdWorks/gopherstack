@@ -218,13 +218,15 @@ func (b *InMemoryBackend) UpdateWorkflow(name string, update Workflow) error {
 	return nil
 }
 
-// DeleteWorkflow deletes a Glue workflow and all its runs by name.
+// DeleteWorkflow deletes a Glue workflow and all its runs by name. Its error
+// switch has no EntityNotFoundException case, unlike GetWorkflow's, so an
+// unknown Name surfaces as InvalidInputException.
 func (b *InMemoryBackend) DeleteWorkflow(name string) error {
 	b.mu.Lock("DeleteWorkflow")
 	defer b.mu.Unlock()
 
 	if !b.workflows.Has(name) {
-		return ErrNotFound
+		return fmt.Errorf("workflow %q not found: %w", name, ErrValidation)
 	}
 
 	b.workflows.Delete(name)
