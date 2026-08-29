@@ -55,13 +55,14 @@ const (
 // this same service dir consumes only through errors.Is identity, never by
 // reading the literal itself -- see mapper.go.
 type candidate struct {
-	File         string
-	Code         string
-	MapperReason string
-	Mechanism    mechanism
-	Line         int
-	pos          token.Pos
-	Indirect     bool
+	File            string
+	Code            string
+	MapperReason    string
+	Mechanism       mechanism
+	Line            int
+	pos             token.Pos
+	Indirect        bool
+	RoutingFallback bool
 }
 
 // codeShapeRe is the filter that separates an AWS-style error code
@@ -143,6 +144,7 @@ func extractCandidates(dir, repoRoot string) ([]candidate, error) {
 	}
 
 	out = append(out, applyMapperDetection(files, structTypes, pkgStrings, fset, repoRoot, out)...)
+	applyRoutingFallbackDetection(files, out)
 
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].File != out[j].File {

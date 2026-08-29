@@ -113,7 +113,7 @@ func classify(candidates []candidate, gt *serviceGroundTruth) []finding {
 	var out []finding
 
 	for _, c := range candidates {
-		if gt.codes[c.Code] || genericProtocolCodes[c.Code] {
+		if gt.codes[c.Code] || genericProtocolCodes[c.Code] || c.RoutingFallback {
 			continue
 		}
 
