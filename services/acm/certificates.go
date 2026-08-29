@@ -664,31 +664,47 @@ func (b *InMemoryBackend) DescribeCertificate(ctx context.Context, arn string) (
 
 // ListCertificatesParams holds all filter and sorting options for ListCertificates.
 type ListCertificatesParams struct {
-	NextToken        string
-	SortBy           string
-	SortOrder        string
-	StatusFilter     []string
-	KeyTypes         []string
-	KeyUsage         []string
-	ExtendedKeyUsage []string
-	MaxItems         int
+	NextToken                 string
+	SortBy                    string
+	SortOrder                 string
+	StatusFilter              []string
+	KeyTypes                  []string
+	KeyUsage                  []string
+	ExtendedKeyUsage          []string
+	CertificateKeyPairOrigins []string
+	MaxItems                  int
+}
+
+// certKeyPairOrigin derives a certificate's CertificateKeyPairOrigin.
+// gopherstack never creates Certificate records through the ACME workflow
+// (acme_accounts.go et al. model ACME resources separately), so ACME is
+// never produced here -- only the two origins RequestCertificate/
+// ImportCertificate can actually generate.
+func certKeyPairOrigin(c *Certificate) string {
+	if c.Type == certTypeImported {
+		return "CUSTOMER_PROVIDED"
+	}
+
+	return "AWS_MANAGED"
 }
 
 // listCertFilters holds compiled filter sets for ListCertificates.
 type listCertFilters struct {
-	statusSet      map[string]struct{}
-	keyTypeSet     map[string]struct{}
-	keyUsageSet    map[string]struct{}
-	extKeyUsageSet map[string]struct{}
+	statusSet        map[string]struct{}
+	keyTypeSet       map[string]struct{}
+	keyUsageSet      map[string]struct{}
+	extKeyUsageSet   map[string]struct{}
+	keyPairOriginSet map[string]struct{}
 }
 
 // buildListCertFilters compiles the filter sets from ListCertificatesParams.
 func buildListCertFilters(p ListCertificatesParams) listCertFilters {
 	f := listCertFilters{
-		statusSet:      make(map[string]struct{}, len(p.StatusFilter)),
-		keyTypeSet:     make(map[string]struct{}, len(p.KeyTypes)),
-		keyUsageSet:    make(map[string]struct{}, len(p.KeyUsage)),
-		extKeyUsageSet: make(map[string]struct{}, len(p.ExtendedKeyUsage)),
+		statusSet:        make(map[string]struct{}, len(p.StatusFilter)),
+		keyTypeSet:       make(map[string]struct{}, len(p.KeyTypes)),
+		keyUsageSet:      make(map[string]struct{}, len(p.KeyUsage)),
+		extKeyUsageSet:   make(map[string]struct{}, len(p.ExtendedKeyUsage)),
+		keyPairOriginSet: make(map[string]struct{}, len(p.CertificateKeyPairOrigins)),
 	}
 
 	for _, s := range p.StatusFilter {
@@ -705,6 +721,10 @@ func buildListCertFilters(p ListCertificatesParams) listCertFilters {
 
 	for _, eku := range p.ExtendedKeyUsage {
 		f.extKeyUsageSet[eku] = struct{}{}
+	}
+
+	for _, o := range p.CertificateKeyPairOrigins {
+		f.keyPairOriginSet[o] = struct{}{}
 	}
 
 	return f
@@ -730,6 +750,12 @@ func (f listCertFilters) matches(c *Certificate) bool {
 
 	if len(f.extKeyUsageSet) > 0 && !matchesAny(c.ExtendedKeyUsage, f.extKeyUsageSet) {
 		return false
+	}
+
+	if len(f.keyPairOriginSet) > 0 {
+		if _, ok := f.keyPairOriginSet[certKeyPairOrigin(c)]; !ok {
+			return false
+		}
 	}
 
 	return true
