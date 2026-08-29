@@ -235,8 +235,11 @@ type InstanceImageMetadataItem struct {
 	LaunchTime       time.Time
 	InstanceID       string `json:"instanceID,omitempty"`
 	ImageID          string `json:"imageID,omitempty"`
+	ImageName        string `json:"imageName,omitempty"`
 	ImageState       string `json:"imageState,omitempty"`
+	ImageOwnerID     string `json:"imageOwnerID,omitempty"`
 	AvailabilityZone string `json:"availabilityZone,omitempty"`
+	ZoneID           string `json:"zoneID,omitempty"`
 	InstanceType     string `json:"instanceType,omitempty"`
 	OwnerID          string `json:"ownerID,omitempty"`
 	StateName        string `json:"stateName,omitempty"`
@@ -264,11 +267,27 @@ func (b *InMemoryBackend) DescribeInstanceImageMetadata(
 		if b.imageDisabled[inst.ImageID] {
 			imageState = stateDisabledImg
 		}
+
+		var imageName string
+		if img := b.lookupImageLocked(inst.ImageID); img != nil {
+			imageName = img.Name
+		}
+
+		az := inst.Placement.AvailabilityZone
+
+		var zoneID string
+		if az != "" {
+			zoneID = az + "1"
+		}
+
 		out = append(out, InstanceImageMetadataItem{
 			InstanceID:       inst.ID,
 			ImageID:          inst.ImageID,
+			ImageName:        imageName,
 			ImageState:       imageState,
-			AvailabilityZone: inst.Placement.AvailabilityZone,
+			ImageOwnerID:     b.AccountID,
+			AvailabilityZone: az,
+			ZoneID:           zoneID,
 			InstanceType:     inst.InstanceType,
 			OwnerID:          b.AccountID,
 			StateName:        inst.State.Name,
@@ -587,11 +606,6 @@ func (b *InMemoryBackend) CopyImage(sourceImageID, name, description string) (*A
 		SourceImageID:  src.ImageID,
 	}
 	b.images.Put(newImage)
-	b.imageUsageReports.Put(&ImageUsageReport{
-		ImageID:        newImage.ImageID,
-		State:          stateAvailable,
-		GenerationDate: time.Now().UTC().Format(time.RFC3339),
-	})
 
 	cp := *newImage
 
@@ -611,7 +625,6 @@ func (b *InMemoryBackend) DeregisterImage(imageID string) error {
 		return fmt.Errorf("%w: %s", ErrImageNotFound, imageID)
 	}
 	b.images.Delete(imageID)
-	b.imageUsageReports.Delete(imageID)
 	delete(b.tags, imageID)
 
 	return nil

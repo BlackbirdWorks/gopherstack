@@ -38,10 +38,15 @@ type modifyVpcPeeringConnectionOptionsResponse struct {
 	AccepterPeeringConnectionOptions  peeringOptionsItem `xml:"accepterPeeringConnectionOptions"`
 }
 
+// addressAttributeItem matches types.AddressAttribute (ec2@v1.319.1
+// deserializers.go, awsEc2query_deserializeDocumentAddressAttribute):
+// allocationId/publicIp/ptrRecord/ptrRecordUpdate. There is no "domainName"
+// member on the response -- that name is only the ModifyAddressAttribute
+// request parameter, echoed back here as the resulting ptrRecord value.
 type addressAttributeItem struct {
 	AllocationID string `xml:"allocationId"`
 	PublicIP     string `xml:"publicIp"`
-	DomainName   string `xml:"domainName,omitempty"`
+	PtrRecord    string `xml:"ptrRecord,omitempty"`
 }
 
 func (h *Handler) handleCreateDefaultVpc(_ url.Values, reqID string) (any, error) {

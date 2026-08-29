@@ -37,10 +37,10 @@ func (h *Handler) handleDescribeAddressesAttribute(vals url.Values, reqID string
 	for _, attr := range attrs {
 		resp.AddressSet.Items = append(
 			resp.AddressSet.Items,
-			addressAttributeItem{ //nolint:staticcheck // xml tags differ from backend type
+			addressAttributeItem{
 				AllocationID: attr.AllocationID,
 				PublicIP:     attr.PublicIP,
-				DomainName:   attr.DomainName,
+				PtrRecord:    attr.DomainName,
 			},
 		)
 	}
@@ -55,12 +55,14 @@ func (h *Handler) handleModifyAddressAttribute(vals url.Values, reqID string) (a
 		return nil, err
 	}
 
+	address := addressAttributeItem{AllocationID: allocationID, PtrRecord: domainName}
+	if attrs := h.Backend.DescribeAddressesAttribute([]string{allocationID}); len(attrs) == 1 {
+		address.PublicIP = attrs[0].PublicIP
+	}
+
 	return &modifyAddressAttributeResponse{
 		RequestID: reqID,
-		Address: addressAttributeItem{
-			AllocationID: allocationID,
-			DomainName:   domainName,
-		},
+		Address:   address,
 	}, nil
 }
 

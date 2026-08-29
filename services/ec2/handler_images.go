@@ -231,7 +231,7 @@ func (h *Handler) handleDescribeInstanceImageMetadata(vals url.Values, reqID str
 	for _, item := range items {
 		resp.InstanceImageMetadataSet.Items = append(
 			resp.InstanceImageMetadataSet.Items,
-			toInstanceImageMetadataItem(item),
+			toInstanceImageMetadataItem(item, h.Backend.TagsForResource(item.InstanceID)),
 		)
 	}
 

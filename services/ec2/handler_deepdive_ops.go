@@ -72,11 +72,16 @@ func (h *Handler) handleDescribeImageUsageReports(_ url.Values, reqID string) (a
 	reports := h.Backend.DescribeImageUsageReports()
 	items := make([]imageUsageReportItem, 0, len(reports))
 	for _, report := range reports {
-		items = append(items, imageUsageReportItem{
-			ImageID:        report.ImageID,
-			State:          report.State,
-			GenerationDate: report.GenerationDate,
-		})
+		item := imageUsageReportItem{
+			ImageID:  report.ImageID,
+			ReportID: report.ReportID,
+			State:    report.State,
+		}
+		if !report.CreatedAt.IsZero() {
+			item.CreationTime = report.CreatedAt.Format(time.RFC3339)
+		}
+
+		items = append(items, item)
 	}
 
 	return &describeImageUsageReportsResponse{
@@ -282,9 +287,10 @@ type createImageResponse struct {
 }
 
 type imageUsageReportItem struct {
-	ImageID        string `xml:"imageId"`
-	State          string `xml:"state"`
-	GenerationDate string `xml:"generationDate"`
+	ImageID      string `xml:"imageId,omitempty"`
+	ReportID     string `xml:"reportId,omitempty"`
+	State        string `xml:"state,omitempty"`
+	CreationTime string `xml:"creationTime,omitempty"`
 }
 
 type imageUsageReportSet struct {

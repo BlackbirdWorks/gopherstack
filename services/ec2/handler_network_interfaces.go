@@ -7,16 +7,25 @@ import (
 	"strconv"
 )
 
+type niAttachmentAttr struct {
+	AttachmentID        string `xml:"attachmentId,omitempty"`
+	InstanceID          string `xml:"instanceId,omitempty"`
+	Status              string `xml:"status,omitempty"`
+	DeviceIndex         int    `xml:"deviceIndex"`
+	DeleteOnTermination bool   `xml:"deleteOnTermination"`
+}
+
 type niAttributeResponse struct {
-	XMLName            xml.Name `xml:"DescribeNetworkInterfaceAttributeResponse"`
-	RequestID          string   `xml:"requestId"`
-	NetworkInterfaceID string   `xml:"networkInterfaceId"`
-	Description        struct {
+	Description *struct {
 		Value string `xml:"value"`
-	} `xml:"description"`
-	SourceDestCheck struct {
+	} `xml:"description,omitempty"`
+	SourceDestCheck *struct {
 		Value bool `xml:"value"`
-	} `xml:"sourceDestCheck"`
+	} `xml:"sourceDestCheck,omitempty"`
+	Attachment         *niAttachmentAttr `xml:"attachment,omitempty"`
+	XMLName            xml.Name          `xml:"DescribeNetworkInterfaceAttributeResponse"`
+	RequestID          string            `xml:"requestId"`
+	NetworkInterfaceID string            `xml:"networkInterfaceId"`
 }
 
 type niPermissionStateItem struct {
@@ -87,8 +96,36 @@ func (h *Handler) handleDescribeNetworkInterfaceAttribute(
 		RequestID:          reqID,
 		NetworkInterfaceID: result.NetworkInterfaceID,
 	}
-	resp.Description.Value = result.Description
-	resp.SourceDestCheck.Value = result.SourceDestCheck
+
+	// Real AWS returns only the block matching the requested Attribute
+	// (ec2@v1.319.1 deserializers.go,
+	// awsEc2query_deserializeOpDocumentDescribeNetworkInterfaceAttributeOutput):
+	// description/groupSet/sourceDestCheck/attachment/
+	// associatePublicIpAddress are mutually exclusive per call, not all
+	// echoed together.
+	switch attribute {
+	case "attachment":
+		if result.HasAttachment {
+			resp.Attachment = &niAttachmentAttr{
+				AttachmentID:        result.AttachmentID,
+				InstanceID:          result.AttachInstanceID,
+				DeviceIndex:         result.AttachDeviceIndex,
+				Status:              result.AttachStatus,
+				DeleteOnTermination: result.AttachDeleteOnTerm,
+			}
+		}
+	case "sourceDestCheck":
+		resp.SourceDestCheck = &struct {
+			Value bool `xml:"value"`
+		}{Value: result.SourceDestCheck}
+	case "groupSet", "associatePublicIpAddress":
+		// Not modeled by this backend: security groups and the launch-time
+		// public-IP-association flag are not tracked per network interface.
+	default:
+		resp.Description = &struct {
+			Value string `xml:"value"`
+		}{Value: result.Description}
+	}
 
 	return resp, nil
 }

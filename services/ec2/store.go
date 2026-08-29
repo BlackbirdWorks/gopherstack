@@ -191,13 +191,6 @@ type LaunchTemplate struct {
 	LatestVersionNumber  int64     `json:"latestVersionNumber"`
 }
 
-// ImageUsageReport represents a synthetic AMI usage report entry.
-type ImageUsageReport struct {
-	GenerationDate string `json:"generationDate,omitempty"`
-	ImageID        string `json:"imageID,omitempty"`
-	State          string `json:"state,omitempty"`
-}
-
 // VpcEndpoint represents an EC2 VPC endpoint.
 type VpcEndpoint struct {
 	CreateTime      time.Time `json:"createTime"`
@@ -317,7 +310,6 @@ type InMemoryBackend struct {
 	spotRequests                   *store.Table[SpotInstanceRequest]
 	instances                      *store.Table[Instance]
 	images                         *store.Table[AMIStub]
-	imageUsageReports              *store.Table[ImageUsageReport]
 	launchTemplates                *store.Table[LaunchTemplate]
 	vpcEndpoints                   *store.Table[VpcEndpoint]
 	tags                           map[string]map[string]string

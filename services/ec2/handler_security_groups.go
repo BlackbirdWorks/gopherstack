@@ -67,9 +67,11 @@ type describeStaleSecurityGroupsResponse struct {
 }
 
 type sgVpcAssocItem struct {
-	GroupID string `xml:"groupId"`
-	VpcID   string `xml:"vpcId"`
-	State   string `xml:"state"`
+	GroupID      string `xml:"groupId"`
+	GroupOwnerID string `xml:"groupOwnerId,omitempty"`
+	VpcID        string `xml:"vpcId"`
+	VpcOwnerID   string `xml:"vpcOwnerId,omitempty"`
+	State        string `xml:"state"`
 }
 
 type describeSecurityGroupVpcAssociationsResponse struct {
@@ -180,9 +182,11 @@ func (h *Handler) handleDescribeSecurityGroupVpcAssociations(
 		resp.SecurityGroupVpcAssociationSet.Items = append(
 			resp.SecurityGroupVpcAssociationSet.Items,
 			sgVpcAssocItem{
-				GroupID: a.SGID,
-				VpcID:   a.VPCID,
-				State:   a.State,
+				GroupID:      a.SGID,
+				GroupOwnerID: a.GroupOwnerID,
+				VpcID:        a.VPCID,
+				VpcOwnerID:   a.VPCOwnerID,
+				State:        a.State,
 			},
 		)
 	}

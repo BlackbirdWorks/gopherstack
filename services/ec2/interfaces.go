@@ -54,8 +54,9 @@ type Backend interface {
 	// CreateImage creates an AMI from an instance.
 	CreateImage(instanceID, name, description string) (*AMIStub, error)
 
-	// DescribeImageUsageReports returns synthetic image usage reports.
-	DescribeImageUsageReports() []*ImageUsageReport
+	// DescribeImageUsageReports returns the usage reports created via
+	// CreateImageUsageReport.
+	DescribeImageUsageReports() []*UsageReport
 
 	// ---- regions / AZs ----
 

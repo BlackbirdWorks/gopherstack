@@ -77,6 +77,7 @@ type modifyInstanceCreditSpecResponse struct {
 type instanceTopologyItem struct {
 	InstanceID       string `xml:"instanceId"`
 	InstanceType     string `xml:"instanceType"`
+	GroupName        string `xml:"groupName,omitempty"`
 	AvailabilityZone string `xml:"availabilityZone"`
 	ZoneID           string `xml:"zoneId"`
 	NetworkNodeSet   struct {
@@ -280,6 +281,7 @@ func (h *Handler) handleDescribeInstanceTopology(vals url.Values, reqID string) 
 		ti := instanceTopologyItem{
 			InstanceID:       item.InstanceID,
 			InstanceType:     item.InstanceType,
+			GroupName:        item.GroupName,
 			AvailabilityZone: item.AvailabilityZone,
 			ZoneID:           item.ZoneID,
 		}

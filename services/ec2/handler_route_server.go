@@ -309,12 +309,15 @@ type routeServerRouteItem struct {
 	RouteInstalled        bool    `xml:"routeInstalled,omitempty"`
 }
 
+// getRouteServerRoutingDatabaseResponse matches
+// GetRouteServerRoutingDatabaseOutput (ec2@v1.319.1
+// api_op_GetRouteServerRoutingDatabase.go): areRoutesPersisted/nextToken/
+// routeSet only -- there is no routeServerId member on the response.
 type getRouteServerRoutingDatabaseResponse struct {
-	XMLName       xml.Name `xml:"GetRouteServerRoutingDatabaseResponse"`
-	Xmlns         string   `xml:"xmlns,attr"`
-	RequestID     string   `xml:"requestId"`
-	RouteServerID string   `xml:"routeServerId,omitempty"`
-	Routes        struct {
+	XMLName   xml.Name `xml:"GetRouteServerRoutingDatabaseResponse"`
+	Xmlns     string   `xml:"xmlns,attr"`
+	RequestID string   `xml:"requestId"`
+	Routes    struct {
 		Items []routeServerRouteItem `xml:"item"`
 	} `xml:"routeSet"`
 	AreRoutesPersisted bool `xml:"areRoutesPersisted,omitempty"`
@@ -605,7 +608,7 @@ func (h *Handler) handleGetRouteServerRoutingDatabase(vals url.Values, reqID str
 	}
 
 	resp := &getRouteServerRoutingDatabaseResponse{
-		Xmlns: ec2XMLNS, RequestID: reqID, RouteServerID: routeServerID, AreRoutesPersisted: arePersisted,
+		Xmlns: ec2XMLNS, RequestID: reqID, AreRoutesPersisted: arePersisted,
 	}
 	for _, r := range routes {
 		resp.Routes.Items = append(resp.Routes.Items, routeServerRouteItem{
