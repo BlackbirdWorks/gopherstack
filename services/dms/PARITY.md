@@ -169,7 +169,7 @@ ops:
   DescribeReplicationTaskAssessmentRuns: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass -- output items were a hand-rolled 4-field map; now the real ReplicationTaskAssessmentRun shape (AssessmentProgress, ResultStatistic, ResultLocationBucket/Folder, ServiceAccessRoleArn, creation-date epoch, IsLatestTaskAssessmentRun). Filters extended to replication-task-assessment-run-arn/replication-instance-arn/status (previously only replication-task-arn)"}
   StartReplicationTaskAssessment: {wire: ok, errors: ok, state: ok, persist: n/a}
 families:
-  fleet-advisor: {status: ok, note: "CreateFleetAdvisorCollector/DeleteFleetAdvisorCollector/DescribeFleetAdvisorCollectors/DescribeFleetAdvisorDatabases/DeleteFleetAdvisorDatabases all mutate/read real backend state and persist. DescribeFleetAdvisorLsaAnalysis/SchemaObjectSummary/Schemas field-diffed this pass (deferred item #2, now resolved): response field names (Analysis/FleetAdvisorSchemaObjects/FleetAdvisorSchemas + NextToken) match types.go exactly; the lists are legitimately always-empty since no LSA-analysis or schema-conversion engine exists to populate them (rule 4). AWS ended support for Fleet Advisor entirely on 2026-05-20 (already past as of this audit) -- low future value. FIXED 2026-08-20 -- DescribeFleetAdvisorCollectors's request struct used a fabricated Marker field; the real DescribeFleetAdvisorCollectorsInput's pagination token field is NextToken (api_op_DescribeFleetAdvisorCollectors.go), like its 4 siblings in this family, not the Marker/MaxRecords convention most other DMS Describe ops use. The response struct was also missing NextToken entirely. Both now match. Low severity: no pagination logic exists for this op (list is always returned in full, same as its siblings), and nothing read the old Marker field, so this was a pure wire-shape correction with no behavioral difference to prove via a discriminating test -- documented here rather than backed by a dedicated test for that reason."}
+  fleet-advisor: {status: ok, note: "CreateFleetAdvisorCollector/DeleteFleetAdvisorCollector/DescribeFleetAdvisorCollectors/DescribeFleetAdvisorDatabases/DeleteFleetAdvisorDatabases all mutate/read real backend state and persist. DescribeFleetAdvisorLsaAnalysis/SchemaObjectSummary/Schemas field-diffed this pass (deferred item #2, now resolved): response field names (Analysis/FleetAdvisorSchemaObjects/FleetAdvisorSchemas + NextToken) match types.go exactly; the lists are legitimately always-empty since no LSA-analysis or schema-conversion engine exists to populate them (rule 4). AWS ended support for Fleet Advisor entirely on 2026-05-20 (already past as of this audit) -- low future value. FIXED 2026-08-20 -- DescribeFleetAdvisorCollectors's request struct used a fabricated Marker field; the real DescribeFleetAdvisorCollectorsInput's pagination token field is NextToken (api_op_DescribeFleetAdvisorCollectors.go), like its 4 siblings in this family, not the Marker/MaxRecords convention most other DMS Describe ops use. The response struct was also missing NextToken entirely. Both now match. Low severity: no pagination logic exists for this op (list is always returned in full, same as its siblings), and nothing read the old Marker field, so this was a pure wire-shape correction with no behavioral difference to prove via a discriminating test -- documented here rather than backed by a dedicated test for that reason. FIXED 2026-08-29 (error-path sweep) -- DeleteFleetAdvisorCollector's own deserializeOpError models CollectorNotFoundFault, not the service-wide ResourceNotFoundFault every other DMS delete op raises (deserializers.go:2875-2913, confirmed against all 119 ops' error switches); the backend was returning ErrNotFound (ResourceNotFoundFault) for a missing collector, which a real client's errors.As(&types.CollectorNotFoundFault{}) would never match. Now returns the dedicated ErrCollectorNotFound sentinel. An existing test (TestDeleteFleetAdvisorCollector_NotFound) asserted the old wrong code as correct via a raw __type string check; converted to drive the real SDK client and assert the typed exception via errors.As."}
   metadata-model: {status: ok, note: "FIXED this pass -- DescribeMetadataModel/DescribeMetadataModelChildren/the six Describe*Requests list ops/Cancel*/GetTargetSelectionRules/ExportMetadataModelAssessment/StartExtensionPackAssociation were all field-diffed against types.go and api_op_*.go this pass (deferred item #1, now resolved) and every wire-shape bug found was fixed -- see the per-op notes above. Definition/MetadataModelName/MetadataModelType/schema-object contents stay legitimately empty; no schema-conversion SQL-generation engine exists, matching the SDK doc's 'might not be populated' language."}
   static-reference-data: {status: ok, note: "DescribeOrderableReplicationInstances/DescribeEngineVersions/DescribeEndpointTypes/DescribeEventCategories/DescribeApplicableIndividualAssessments return realistic static catalogs; legitimate for AWS reference-data ops (rule 4: an op with no mutable backend state behind it is not a stub). DescribeEndpointTypes FIXED this pass -- EndpointType values were hardcoded uppercase SOURCE/TARGET, but the real enum is lowercase source/target."}
   assessment-runs: {status: ok, note: "FIXED this pass (deferred item #3, now resolved) -- StartReplicationTaskAssessmentRun now validates its four required fields and IncludeOnly/Exclude mutual exclusion, then synchronously runs a real (bounded, static-catalog-backed) set of IndividualAssessment checks, all passing. DescribeReplicationTaskIndividualAssessments and DescribeReplicationTaskAssessmentResults are now backed by that real state instead of hardcoded empty lists. Cancel/Delete/DescribeReplicationTaskAssessmentRuns now return the full real ReplicationTaskAssessmentRun wire shape instead of a hand-rolled 4-field map."}
@@ -628,3 +628,58 @@ leaks: {status: clean, note: "no goroutines, janitors, or timers in this service
   service both before and after this pass's fixes -- consistent with this
   campaign's repeated observation that these tools miss the write-only-state
   bug class entirely.
+
+- **2026-08-29 error-path sweep**: every prior pass's `errors: ok` mark on
+  every one of the 119 op rows was an unverified blanket claim -- no pass had
+  actually extracted each op's own `deserializeOpError<Op>` switch from
+  `databasemigrationservice@v1.66.4/deserializers.go` and cross-checked it
+  against the sentinel each backend call site raises. This pass did: all 119
+  `awsAwsjson11_deserializeOpError*` functions extracted (8 model no typed
+  exception at all -- `DescribeAccountAttributes`, `DescribeEndpointSettings`,
+  `DescribeEndpointTypes`, `DescribeEngineVersions`, `DescribeEventCategories`,
+  `DescribeEvents`, `DescribeExtensionPackAssociations`,
+  `DescribeOrderableReplicationInstances`; the remaining 111 model between 1
+  and 11 typed exceptions each). Protocol confirmed JSON-RPC 1.1
+  (`awsAwsjson11_*`), matching the prior notes above.
+
+  **One confirmed wrong-sentinel bug, fixed**: `DeleteFleetAdvisorCollector`
+  -- see the `fleet-advisor` note above for the full citation and fix.
+
+  **One systemic fabricated-code finding, left unfixed (RESTRAINT)**:
+  `ErrValidation` (wire code `"ValidationException"`) is used at 11 call
+  sites across 8 operations (`CreateDataMigration`,
+  `ApplyPendingMaintenanceAction`, `CreateEndpoint`/`ModifyEndpoint`,
+  `CreateReplicationTask`, `StartReplicationTask`,
+  `ReloadTables`/`ReloadReplicationTables`, `StartReplication`,
+  `CreateInstanceProfile`) to reject an invalid enum-shaped string on a
+  required field (e.g. `MigrationType`, `SslMode`, `ApplyAction`,
+  `NetworkType`). `types.ValidationException` **does not exist anywhere** in
+  this SDK's `types/errors.go` (confirmed: only 26 exception types are
+  declared service-wide, none named `ValidationException` or any generic
+  `InvalidParameterValueException`-equivalent), so a real client's
+  `errors.As(&types.ValidationException{})` can never succeed against this
+  code path -- it always falls through to `smithy.GenericAPIError`. Confirmed
+  reachable: `validateOp<Op>Input` for these ops only checks field presence,
+  never enum-value membership (e.g. `MigrationTypeValue` is a bare string
+  type; `validateOpCreateReplicationTaskInput` only calls
+  `smithy.NewErrParamRequired` when the field is empty). Not fixed because no
+  operation among the 8 models any typed exception that fits "invalid
+  enum-shaped input value" -- most model only resource-shaped faults
+  (`ResourceNotFoundFault`, `InvalidResourceStateFault`,
+  `ResourceAlreadyExistsFault`, `AccessDeniedFault`, ...) with no
+  validation-flavored member at all (`ApplyPendingMaintenanceAction` models
+  only `ResourceNotFoundFault`). Per this campaign's restraint rule ("if an
+  op models no exception matching the failure, say so and leave it -- do not
+  invent an error code"), left as-is rather than guessing a replacement.
+  Flagging here so a future pass with more evidence (e.g. real AWS API
+  traffic) can resolve it with confidence instead of guessing.
+
+  **Also confirmed unimplemented, not fixed (feature gaps, not sentinel
+  bugs)**: three other operation-unique codes have no corresponding backend
+  validation at all, so they can never fire: `ImportCertificate` models
+  `InvalidCertificateFault` (no PEM-content validation exists);
+  `ModifyReplicationSubnetGroup` models `SubnetAlreadyInUse` (no cross-group
+  subnet-membership tracking exists); `ModifyReplicationInstance` models
+  `UpgradeDependencyFailureFault` (no engine-version upgrade-path modeling
+  exists). Each would require adding new business-logic simulation, not
+  swapping a wrong sentinel, so left out of scope for this pass.

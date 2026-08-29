@@ -140,7 +140,7 @@ func (b *InMemoryBackend) DeleteFleetAdvisorCollector(ctx context.Context, nameO
 		return nil
 	}
 
-	return fmt.Errorf("%w: fleet advisor collector %s not found", ErrNotFound, nameOrID)
+	return fmt.Errorf("%w: fleet advisor collector %s not found", ErrCollectorNotFound, nameOrID)
 }
 
 // DescribeFleetAdvisorCollectors returns all fleet advisor collectors.

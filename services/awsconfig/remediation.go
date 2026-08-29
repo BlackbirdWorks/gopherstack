@@ -104,10 +104,18 @@ func (b *InMemoryBackend) DescribeRemediationExceptions(ruleName string) []Remed
 // given rule, cascade-deleting any recorded remediation executions for it too
 // (StartRemediationExecution/DescribeRemediationExecutionStatus both require a
 // remediation configuration to exist, so leaving them behind would strand
-// permanently-unreachable rows instead of a clean delete).
+// permanently-unreachable rows instead of a clean delete). Errors with
+// ErrNoSuchRemediationConfiguration when ruleName has no remediation
+// configuration, matching real AWS Config's declared error model (verified
+// against aws-sdk-go-v2/service/configservice's DeleteRemediationConfiguration
+// deserializer).
 func (b *InMemoryBackend) DeleteRemediationConfiguration(ruleName string) error {
 	b.mu.Lock("DeleteRemediationConfiguration")
 	defer b.mu.Unlock()
+
+	if !b.remediationConfigs.Has(ruleName) {
+		return fmt.Errorf("%w: %s", ErrNoSuchRemediationConfiguration, ruleName)
+	}
 
 	b.remediationConfigs.Delete(ruleName)
 

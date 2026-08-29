@@ -74,6 +74,16 @@ func (b *InMemoryBackend) SendEmail(
 	return msgID, nil
 }
 
+// checkFromIdentity verifies the from address against registered identities,
+// acquiring b.mu itself. Used by callers that check identity once up front
+// rather than per SendEmail call, e.g. SendBulkEmail.
+func (b *InMemoryBackend) checkFromIdentity(from string) error {
+	b.mu.RLock("checkFromIdentity")
+	defer b.mu.RUnlock()
+
+	return b.checkFromIdentityLocked(from)
+}
+
 // checkFromIdentityLocked verifies the from address against registered identities.
 // It checks exact email match first, then the domain portion as a fallback.
 // Must be called with b.mu held for writing or reading.
@@ -88,7 +98,7 @@ func (b *InMemoryBackend) checkFromIdentityLocked(from string) error {
 		}
 	}
 
-	return fmt.Errorf("%w: identity not verified for sending: %s", ErrInvalidInput, from)
+	return fmt.Errorf("%w: identity not verified for sending: %s", ErrMailFromDomainNotVerified, from)
 }
 
 // ListEmails returns a copy of all captured emails.
@@ -177,6 +187,15 @@ func (b *InMemoryBackend) SendBulkEmail(
 	baseSubject, baseHTML, baseText, defaultVars, err := b.resolveBulkTemplate(defaultContent.Template)
 	if err != nil {
 		return nil, err
+	}
+
+	if b.checkFromIdentity(fromEmailAddress) != nil {
+		results := make([]bulkEmailEntryResultOutput, len(bulkEmailEntries))
+		for i := range bulkEmailEntries {
+			results[i] = bulkEmailEntryResultOutput{Status: keyStatusMailFromDomainNotVerified}
+		}
+
+		return results, nil
 	}
 
 	results := make([]bulkEmailEntryResultOutput, 0, len(bulkEmailEntries))

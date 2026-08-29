@@ -11,11 +11,12 @@ import (
 // deliverability/reputation entities) that build ad-hoc map[string]any
 // responses rather than typed structs.
 const (
-	keyStatus        = "Status"
-	keyStatusSuccess = "SUCCESS"
-	keyMessageID     = "MessageId"
-	keyEndpointID    = "EndpointId"
-	keySubject       = "Subject"
+	keyStatus                          = "Status"
+	keyStatusSuccess                   = "SUCCESS"
+	keyStatusMailFromDomainNotVerified = "MAIL_FROM_DOMAIN_NOT_VERIFIED"
+	keyMessageID                       = "MessageId"
+	keyEndpointID                      = "EndpointId"
+	keySubject                         = "Subject"
 )
 
 const sesv2DefaultMaxItems = 100

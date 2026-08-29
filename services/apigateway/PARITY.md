@@ -730,3 +730,39 @@ unchanged.**
 
 Gates: `go build`, `go vet`, `go test -race -count=1`, `golangci-lint run` — all clean
 (`./services/apigateway/...`).
+
+- **2026-08-29 error-path sweep**: protocol confirmed REST-JSON
+  (`awsRestjson1_*` serializer prefix) before relying on it. All 124
+  `awsRestjson1_deserializeOpError*` functions extracted from
+  `apigateway@v1.42.4/deserializers.go` (matching the 124 real SDK ops
+  confirmed by `TestSDKCompleteness`). The modeled set is unusually flat
+  across this service: nearly every op models the same core
+  `BadRequestException`/`ConflictException`/`NotFoundException`/
+  `TooManyRequestsException`/`UnauthorizedException` group, with
+  `LimitExceededException` on most mutating ops and a rare
+  `ServiceUnavailableException` limited to the four `Deployment` ops
+  (`CreateDeployment`/`GetDeployment`/`GetDeployments`/`UpdateDeployment`).
+  Wire mechanism: a single service-wide `sentinel -> errType` switch
+  (`handler.go`'s `handleError`), not a per-op table.
+
+  Spot-checked every op whose modeled set narrows below the family default
+  (the ops missing `BadRequestException` -- `DeleteMethod`, `GetMethod`,
+  `GetMethodResponse`, `GetResource`, `GetDocumentationVersion` -- and the
+  handful missing `NotFoundException` entirely -- `CreateDomainName`,
+  `CreateDomainNameAccessAssociation`, `CreateRestApi`, `CreateVpcLink`,
+  `GenerateClientCertificate`) against their real backend call sites
+  (`methods.go`, `resources.go`, `documentation.go`): each raises only the
+  sentinel(s) its own operation actually models. No wrong-sentinel,
+  fabricated-code, or missing-error bug found in this class this pass --
+  **this service comes back clean for error-path parity** at the sampled
+  depth above (every table-narrowing deviation checked; the flat majority of
+  ops sharing the family default was not individually re-verified per op
+  given the uniformity already confirmed). `LimitExceededException`/
+  `TooManyRequestsException`/`UnauthorizedException`/
+  `ServiceUnavailableException` have no corresponding backend logic (no
+  account-level resource quotas, no request throttling, no deployment
+  service-unavailable simulation) to ever raise them on the control plane --
+  feature gaps, not sentinel bugs. (`ErrQuotaExceeded`/`ErrThrottled` in
+  `errors.go` are real and wired, but serve the data-plane request-proxy path
+  -- `proxy.go`'s usage-plan throttle/quota enforcement on an actual API
+  invocation -- not any control-plane SDK operation in this table.)

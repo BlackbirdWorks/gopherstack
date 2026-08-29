@@ -26,8 +26,8 @@ ops:
   PutConfigurationSetSuppressionOptions: {wire: ok, errors: ok, state: ok, persist: ok}
   PutConfigurationSetTrackingOptions: {wire: fixed, errors: ok, state: ok, persist: ok, note: "CustomRedirectDomain is optional on this op's own input (api_op_PutConfigurationSetTrackingOptions.go), so a caller can set HttpsPolicy alone -- see GetConfigurationSet's 2026-08-21 entry"}
   PutConfigurationSetVdmOptions: {wire: ok, errors: ok, state: ok, persist: ok}
-  SendEmail: {wire: ok, errors: ok, state: ok, persist: ok}
-  SendBulkEmail: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "request body was parsed into map[string]any with ad-hoc type assertions; now typed (bulkEmailEntry/bulkEmailDestination/messageHeader/messageTag/replacementEmailContent/replacementTemplate in send_email.go, field-diffed against types.BulkEmailEntry et al), and the response uses bulkEmailEntryResultOutput (types.BulkEmailEntryResult) instead of a raw map. gopherstack-afi1: DefaultContent (required, api_op_SendBulkEmail.go:43) was decoded into sendBulkEmailInput but never read -- SendEmail was called with hardcoded empty subject/HTML/text, so every bulk email was recorded with no content regardless of what the caller sent. Now resolves DefaultContent.Template (inline TemplateContent, or a TemplateName lookup against b.emailTemplates -- NotFoundException if missing) and applies {{var}} substitution (parseTemplateVars/renderTemplateVars, shared with TestRenderEmailTemplate) using TemplateData merged with each entry's ReplacementEmailContent.ReplacementTemplate.ReplacementTemplateData as a per-recipient override. DefaultContent.Template.Attachments/Headers and per-entry ReplacementHeaders/ReplacementTags remain unstored/inert -- consistent with SendEmail's existing scope, which doesn't model attachments/headers/tags on Email either."}
+  SendEmail: {wire: ok, errors: fixed, state: ok, persist: ok, note: "FIXED 2026-08-29 (error-path sweep) -- an unverified From identity/domain raised BadRequestException (the generic sentinel), but SendEmail's own deserializeOpError models the dedicated MailFromDomainNotVerifiedException for exactly this case (types/errors.go:220, 'The message can't be sent because the sending domain isn't verified.'); a real client's errors.As against that type never matched. Now raises the dedicated sentinel. Wrong-sentinel bug, not missing -- gopherstack already checked the condition, just labeled it with the wrong wire code."}
+  SendBulkEmail: {wire: fixed, errors: fixed, state: fixed, persist: ok, note: "request body was parsed into map[string]any with ad-hoc type assertions; now typed (bulkEmailEntry/bulkEmailDestination/messageHeader/messageTag/replacementEmailContent/replacementTemplate in send_email.go, field-diffed against types.BulkEmailEntry et al), and the response uses bulkEmailEntryResultOutput (types.BulkEmailEntryResult) instead of a raw map. gopherstack-afi1: DefaultContent (required, api_op_SendBulkEmail.go:43) was decoded into sendBulkEmailInput but never read -- SendEmail was called with hardcoded empty subject/HTML/text, so every bulk email was recorded with no content regardless of what the caller sent. Now resolves DefaultContent.Template (inline TemplateContent, or a TemplateName lookup against b.emailTemplates -- NotFoundException if missing) and applies {{var}} substitution (parseTemplateVars/renderTemplateVars, shared with TestRenderEmailTemplate) using TemplateData merged with each entry's ReplacementEmailContent.ReplacementTemplate.ReplacementTemplateData as a per-recipient override. DefaultContent.Template.Attachments/Headers and per-entry ReplacementHeaders/ReplacementTags remain unstored/inert -- consistent with SendEmail's existing scope, which doesn't model attachments/headers/tags on Email either. FIXED 2026-08-29 (error-path sweep) -- per-entry SendEmail call was `msgID, _ := b.SendEmail(...)`, silently discarding the from-identity-not-verified error and always reporting Status SUCCESS with a synthesized message ID regardless. Real AWS reports this per-entry via Status: MAIL_FROM_DOMAIN_NOT_VERIFIED (types.go:305, a real BulkEmailStatus enum value -- confirmed no top-level exception applies here, since the from-identity check is per-recipient-eligible, not per-request). Missing-error bug (success where AWS reports failure), not a wrong sentinel. Now checks the From identity once up front and returns that status for every entry, recording no emails, when unverified."}
   ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok}
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -549,3 +549,48 @@ real `aws-sdk-go-v2/service/sesv2` client, not just decoded JSON maps.
   line with no `to*Output(...)` wrapper), it's the same bug, not a new one —
   add a DTO in `wire_output.go` the same way, don't assume `overall: A`
   means every individual op was actually wire-checked.
+
+- **2026-08-29 error-path sweep**: protocol re-confirmed REST-JSON
+  (`awsRestjson1_*` serializer prefix) before relying on it, per this
+  campaign's standing rule that briefs get protocol wrong often enough to be
+  worth re-checking. All 112 `awsRestjson1_deserializeOpError*` functions
+  extracted from `sesv2@v1.66.4/deserializers.go` (matching the 112
+  dispatch-table ops), none modeling zero typed exceptions -- every op models
+  at least `BadRequestException`/`TooManyRequestsException`. Wire mechanism:
+  a single service-wide `sentinel -> (wireType, httpStatus)` switch
+  (`handler.go`'s `handleOpError`), same shape as the shared-table pattern
+  this campaign has found elsewhere -- correct in aggregate, with the bug
+  living at specific call sites rather than the table itself.
+
+  **Two confirmed bugs found and fixed, both on the same code path**
+  (`checkFromIdentityLocked` in `send_email.go`) -- see the `SendEmail`/
+  `SendBulkEmail` `ops:` notes above for full citations:
+  1. `SendEmail`: wrong-sentinel bug -- raised the generic
+     `BadRequestException` for an unverified From identity where the op's
+     own deserializer models the dedicated
+     `MailFromDomainNotVerifiedException`.
+  2. `SendBulkEmail`: missing-error bug -- silently discarded the identical
+     per-entry error (`msgID, _ := b.SendEmail(...)`) and always reported
+     `Status: SUCCESS`; real AWS reports `MAIL_FROM_DOMAIN_NOT_VERIFIED` per
+     entry (a `BulkEmailStatus` enum value, not a top-level exception, since
+     verification is evaluated once for the shared From address but surfaced
+     per recipient result).
+
+  No prior test exercised the unverified-identity path for either op (a gap,
+  not a wrong test) -- both new tests (`TestSendEmail_UnverifiedIdentity`,
+  `TestSendBulkEmail_UnverifiedIdentity`) drive the real SDK client and
+  failed against the pre-fix code before the fix landed.
+
+  **Left unimplemented, not fixed (feature gaps)**: this service has no
+  sentinel at all for `ConcurrentModificationException` (modeled on ~15 ops:
+  every `Delete*`/`Update*` on configuration sets, contacts, contact lists,
+  dedicated IP pools, email identities, multi-region endpoints, tenants,
+  `TagResource`/`UntagResource`), `LimitExceededException` (quota-shaped, ~15
+  ops), `ConflictException` (`PutAccountDetails`/`PutAccountPricingAttributes`/
+  `UpdateReputationEntity*` -- distinct from the `AlreadyExistsException`
+  sentinel this service already has), `AccountSuspendedException`, and
+  `SendingPausedException`. None have corresponding backend logic (no
+  optimistic-concurrency versioning, no quota tracking, no account-suspension
+  or sending-pause simulation) to ever raise them, so implementing any would
+  mean adding new business-logic simulation from scratch, not fixing a wrong
+  sentinel -- out of scope for a sentinel-correctness pass.

@@ -91,7 +91,7 @@ ops:
   # --- RemediationConfiguration family ---
   PutRemediationConfigurations: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeRemediationConfigurations: {wire: ok, errors: ok, state: ok, persist: ok}
-  DeleteRemediationConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "extended: cascade-deletes any recorded remediation executions for the rule too (new remediationExecutions table introduced this pass)"}
+  DeleteRemediationConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "extended: cascade-deletes any recorded remediation executions for the rule too (new remediationExecutions table introduced this pass). FIXED 2026-08-29 (error-path sweep) -- this op previously deleted unconditionally and never raised for a rule with no remediation configuration, although its own deserializeOpError models NoSuchRemediationConfigurationException for exactly this case ('You specified an Config rule without a remediation configuration.', types/errors.go:1283) and its Output struct is a plain void result (no per-item FailedBatches-style field, unlike the sibling DeleteRemediationExceptions). Missing-error bug: real AWS raises, this emulator returned success. Now checks existence first."}
   PutRemediationExceptions: {wire: fixed, errors: fixed, state: fixed, persist: n/a, note: "previously graded 'wire: ok' in error (gopherstack-m0ow): the handler read invented flat ConfigRuleName/ResourceType/ResourceId fields; real required member is ResourceKeys []types.RemediationExceptionResourceKey (a LIST, one exception per key -- 'Config adds exception for each resource key. For example, Config adds 3 exceptions for 3 resource keys'), with wire keys ResourceType/ResourceId nested PascalCase inside each array element. Also note RemediationExceptionResourceKey's wire keys are PascalCase, unlike the pre-existing, similarly-named ResourceKey type (used by StartRemediationExecution/DescribeRemediationExecutionStatus) whose wire keys are lowerCamelCase -- verified as two distinct serializers (awsAwsjson11_serializeDocumentRemediationExceptionResourceKey vs awsAwsjson11_serializeDocumentResourceKey), not the same shape reused. Backend signature changed to accept the key list, upserting one exception per key. ConfigRuleName/ResourceKeys presence now validated -- InvalidParameterValueException (new ErrInvalidParameterValue sentinel), not ValidationException: this op's declared error switch is InsufficientPermissionsException/InvalidParameterValueException only (verified against awsAwsjson11_deserializeOpErrorPutRemediationExceptions), matching this package's documented policy of not modeling ValidationException on ops that don't declare it. ExpirationTime/Message (real optional members) aren't modeled: gopherstack's RemediationException has no fields to reflect them into, so they're left for the JSON decoder to silently discard."}
   DescribeRemediationExceptions: {wire: ok, errors: ok, state: ok, persist: n/a}
   DeleteRemediationExceptions: {wire: fixed, errors: ok, state: fixed, persist: n/a, note: "previously graded 'wire: ok' in error (gopherstack-m0ow): the handler read ConfigRuleName + an invented ResourceGroupName field that doesn't exist on the real API surface, so a real client's request never populated it and nothing was ever actually deleted. Real required member is ResourceKeys []types.RemediationExceptionResourceKey (same PascalCase-nested list shape as PutRemediationExceptions -- see its note). Backend signature changed to accept the key list, deleting exceptions matching (ResourceType, ResourceID) pairs. No validation error added for a missing ConfigRuleName/ResourceKeys: this op's declared error switch is NoSuchRemediationExceptionException only (verified against awsAwsjson11_deserializeOpErrorDeleteRemediationExceptions) -- no ValidationException/InvalidParameterValueException modeled at all, so an empty request is treated as a no-op rather than inventing an error code AWS doesn't declare for this op."}
@@ -437,3 +437,43 @@ leaks: {status: clean, note: "no goroutines/janitors in this service; single coa
   (`"unknown"` vs `"UNKNOWN"`), not a JSON key, misclassified by the scanner.
   `medialive` (225) and `quicksight` (4) were already-documented
   SHARED-ERROR-HELPER POLLUTION. No code changes for any of these five.
+
+- **2026-08-29 error-path sweep**: all 102 `awsAwsjson11_deserializeOpError*`
+  functions extracted from `configservice@v1.68.4/deserializers.go` (matching
+  the 102 dispatch-table ops confirmed above) and cross-checked against every
+  sentinel this service's `errorWireMappings` table (`handler.go`) and its
+  call sites raise. 2 ops model no typed exception at all
+  (`DescribeRemediationConfigurations`, `GetComplianceSummaryByConfigRule`).
+  Wire mechanism confirmed: a single service-wide `sentinel -> (wireType,
+  httpStatus)` table (`handler.go`'s `errorWireMappings`), not a per-op
+  switch, so the bug surface is entirely "does each call site choose the
+  sentinel its own operation actually models," matching this campaign's
+  standing observation that the shared table is usually correct and the bug
+  is at the call site.
+
+  **One confirmed missing-error bug, fixed**: `DeleteRemediationConfiguration`
+  -- see the `ops:` note above for the full citation and fix. An existing
+  test (`TestDeleteRemediationConfiguration`) only covered the happy path and
+  never exercised the not-found case, so it never caught the gap (a blind
+  test, not a wrong one).
+
+  **Confirmed clean by inspection, not fixed**:
+  `DeleteRemediationExceptions`'s own declared error model has no
+  `ValidationException`/not-found-shaped exception (only
+  `NoSuchRemediationExceptionException`, a distinct wire type this service
+  does not implement); confirmed its real `DeleteRemediationExceptionsOutput`
+  carries a `FailedBatches []types.FailedDeleteRemediationExceptionsBatch`
+  field, i.e. per-item failures are real AWS's own documented mechanism for
+  this op, not a typed exception -- so treating an unknown key as a no-op
+  (existing behavior, `remediation.go`'s doc comment) is correct, not a gap.
+
+  **Not independently re-verified this pass** (no unique per-op codes
+  suggesting a call-site mismatch, given the time budget): the remaining ~40
+  quota/role/S3-validation-shaped exceptions unique to single ops
+  (`PutConfigurationAggregator`'s `InvalidRoleException`/
+  `NoAvailableOrganizationException`, `PutDeliveryChannel`'s
+  `InvalidS3KeyPrefixException`/`NoSuchBucketException`/..., `PutConfigRule`'s
+  `MaxNumberOfConfigRulesExceededException`, etc.) have no corresponding
+  backend validation logic at all (no quota tracking, no S3-bucket-existence
+  check, no IAM-role validation), so they can never fire -- feature gaps, not
+  wrong-sentinel bugs, and out of scope for a sentinel-correctness pass.
