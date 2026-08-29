@@ -182,7 +182,10 @@ func (h *Handler) handleListMigrations(w http.ResponseWriter, r *http.Request) {
 
 	migrations, err := h.Backend.ListMigrations(q.Get("applicationId"), q.Get("status"))
 	if err != nil {
-		h.writeMigrationError(r, w, err)
+		// Unlike GetMigration/StartMigration, ListMigrations's own deserializer
+		// (opensearch@v1.75.4 deserializers.go) has no ResourceNotFoundException
+		// case -- only ValidationException.
+		h.writeError(r, w, http.StatusBadRequest, "ValidationException", err.Error())
 
 		return
 	}

@@ -290,13 +290,10 @@ func (h *Handler) handleCreateApplication(w http.ResponseWriter, r *http.Request
 	app, createErr := h.Backend.CreateApplication(req.Name, appConfigs, dataSources, svcTags.MapFromKV(req.TagList))
 	if createErr != nil {
 		if errors.Is(createErr, ErrApplicationAlreadyExists) {
-			h.writeError(
-				r,
-				w,
-				http.StatusConflict,
-				"ResourceAlreadyExistsException",
-				createErr.Error(),
-			)
+			// CreateApplication's own deserializer (opensearch@v1.75.4
+			// deserializers.go) models ConflictException, not
+			// ResourceAlreadyExistsException, for this case.
+			h.writeError(r, w, http.StatusConflict, "ConflictException", createErr.Error())
 		} else {
 			h.writeError(r, w, http.StatusBadRequest, "ValidationException", createErr.Error())
 		}

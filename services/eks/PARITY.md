@@ -4,6 +4,26 @@ service: eks
 sdk_module: aws-sdk-go-v2/service/eks@v1.90.4
 last_audit_commit: 7c297a53  # gopherstack-uult (2026-08-13) fixed after this hash was recorded; hash not yet known at edit time
 last_audit_date: 2026-08-13
+# ERROR path verified 2026-08-29 (wrapper-key-sweep pass): extracted every
+# op's deserializeOpError<Op> switch (eks@v1.90.4 deserializers.go, 65 ops
+# N-of-N). Handler.handleError is one global 4-sentinel table applied to all
+# ops -- found systemic bug: ErrValidation's code was "InvalidParameterValueException",
+# which does not exist anywhere in this SDK (0 occurrences); fixed to
+# "InvalidParameterException", the code every op that models parameter
+# validation actually uses (both errors.go and the handler.go literal fixed).
+# Also fixed 4 wrong-code call sites where a real code was used but the
+# specific op does not model it: CreateFargateProfile's cluster-not-found and
+# duplicate-profile paths, CreateCapability's cluster-not-found path, and
+# CreateNodegroup's cluster-not-found path all emitted ResourceNotFoundException/
+# ResourceInUseException, unmodeled by those 3 ops -- now ErrValidation
+# (InvalidParameterException), the only client-fault code each models.
+# TagResource/UntagResource/ListTagsForResource route through a dedicated
+# handleTagError instead of the global table: their own switches model only
+# BadRequestException/NotFoundException, an entirely different exception
+# family from the rest of this service. See error_sentinel_fixes_test.go
+# (real-SDK errors.As assertions, each confirmed failing pre-fix).
+# fargate_profiles_test.go/node_groups_test.go had 3 pre-existing tests
+# asserting the old wrong status codes as correct; corrected alongside the fix.
 overall: A            # route-matcher pass (prior audit) + gaps/deferred closeout pass (this audit)
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.

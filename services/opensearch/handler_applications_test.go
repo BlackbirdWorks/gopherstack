@@ -845,14 +845,19 @@ func TestMigrations_HTTPHandler(t *testing.T) {
 			},
 		},
 		{
-			name: "list_unknown_application_returns_409",
+			// ListMigrations's own deserializer (opensearch@v1.75.4
+			// deserializers.go) has no ResourceNotFoundException case, unlike
+			// GetMigration/StartMigration -- an unknown application here is
+			// ValidationException (400), not the 409 the rest of this family
+			// uses.
+			name: "list_unknown_application_returns_400",
 			run: func(t *testing.T, h *opensearch.Handler) {
 				t.Helper()
 
 				resp := doRequest(t, h, http.MethodGet,
 					"/2021-01-01/opensearch/app-migrations?applicationId=no-such-app", nil)
 				defer resp.Body.Close()
-				assert.Equal(t, http.StatusConflict, resp.StatusCode)
+				assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
 			},
 		},
 		{

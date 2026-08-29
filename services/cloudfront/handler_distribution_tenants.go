@@ -2,6 +2,7 @@ package cloudfront
 
 import (
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"net/http"
 	"sort"
@@ -10,6 +11,18 @@ import (
 
 	"github.com/labstack/echo/v5"
 )
+
+// handleDomainAssociationError maps UpdateDomainAssociation errors. Its own
+// deserializer (cloudfront@v1.67.4 deserializers.go) models EntityNotFound
+// for an unknown target distribution, not NoSuchDistribution -- unlike most
+// other distribution ops that reuse ErrNotFound.
+func (h *Handler) handleDomainAssociationError(c *echo.Context, err error) error {
+	if errors.Is(err, ErrNotFound) {
+		return xmlResp(c, http.StatusNotFound, cfErrorXML(codeEntityNotFound, err.Error()))
+	}
+
+	return h.handleError(c, err)
+}
 
 // associateDistributionTenantWebACLRequestXML models a real
 // AssociateDistributionTenantWebACLRequest body: root
@@ -532,7 +545,7 @@ func (h *Handler) handleUpdateDomainAssociation(c *echo.Context) error {
 		req.Domain, req.TargetResource.DistributionTenantID, req.TargetResource.DistributionID,
 	)
 	if updateErr != nil {
-		return h.handleError(c, updateErr)
+		return h.handleDomainAssociationError(c, updateErr)
 	}
 
 	// Real UpdateDomainAssociationOutput carries a single ResourceId (not a

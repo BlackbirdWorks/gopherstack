@@ -7,6 +7,33 @@ last_audit_date: 2026-08-14  # gopherstack-7185: response shapes of Create/Delet
                               # swept (the class prior passes only checked for List/Describe).
                               # 2 bugs found (DeleteVpcOrigin empty envelope, UpdateDomainAssociation
                               # wrong output key). See DeleteVpcOrigin/UpdateDomainAssociation op rows.
+# ERROR path verified 2026-08-29 (wrapper-key-sweep pass): extracted every
+# op's deserializeOpError<Op> switch (cloudfront@v1.67.4 deserializers.go,
+# 167 ops N-of-N) against errCodeMapping/notFoundCode (handler_dispatch.go)
+# and every backend call site. Systemic finding: ErrConnectionFunctionNotFound,
+# ErrConnectionGroupNotFound, ErrDistributionTenantNotFound, ErrTrustStoreNotFound,
+# ErrVpcOriginNotFound each carried a fabricated per-resource "NoSuchXxx" code
+# that does not exist anywhere in the pinned SDK -- every op in each of those
+# 5 families (connection function/group, distribution tenant, trust store,
+# VPC origin -- ~20 ops) actually models the shared EntityNotFound code
+# instead (already the convention this file used for KVS/resource-policy).
+# All 5 sentinels + the errCodeMapping/notFoundCode literals fixed. Also
+# fixed 8 more per-op mismatches where a shared sentinel's code didn't match
+# the specific op's own modeled set: AssociateDistributionWebACL/
+# DisassociateDistributionWebACL and TagResource/UntagResource/
+# ListTagsForResource each reused ErrNotFound's NoSuchDistribution instead of
+# their own EntityNotFound/NoSuchResource; CreateDistributionTenant/
+# UpdateDistributionTenant's domain-conflict case used a fabricated
+# "DomainConflictException" (renamed sentinel to ErrCNAMEAlreadyExists, the
+# code both ops actually model, shared with CreateDistribution's alias-
+# collision case); UpdateDomainAssociation's own domain-conflict and unknown-
+# target-distribution paths used the same wrong codes; CreateKeyGroup/
+# UpdateKeyGroup's unknown-item-public-key case and UpdateTrustStore's
+# rename-collision case each used a code their op doesn't model, corrected
+# to the modeled ValidationException-equivalent. See error_sentinel_fixes_test.go
+# (real-SDK errors.As assertions, each confirmed failing pre-fix). 10
+# pre-existing tests across 6 test files asserted the old wrong codes/status
+# as correct; corrected alongside the fix.
 overall: A            # gopherstack-o31x: first FULL route diff of all 167 real cloudfront
                        # control-plane ops (method+path) against cloudfront@v1.67.4
                        # serializers.go, not just the ops other work happened to touch.

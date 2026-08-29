@@ -6,6 +6,20 @@ last_audit_commit: acb2e23f9  # gopherstack-uult (2026-08-13) fixed after this h
 last_audit_date: 2026-08-14  # gopherstack-7185: response shapes of Create/Delete/Modify ops
                               # swept. 1 bug found and fixed (DeleteIndex response envelope --
                               # see the `indices` family and items_still_open notes).
+# ERROR path verified 2026-08-29 (wrapper-key-sweep pass): audited every op's
+# deserializeOpError<Op> switch (opensearch@v1.75.4 deserializers.go, 96 ops
+# extracted N-of-N) against this Handler's writeError call sites. 7 bugs found
+# and fixed: ListMigrations, AddDataSource, AddDirectQueryDataSource, AddTags,
+# RemoveTags each emitted a code their own op does not model (fixed to the
+# ValidationException each op actually models); CreateApplication emitted
+# ResourceAlreadyExistsException (unmodeled) instead of ConflictException
+# (modeled); GetUpgradeHistory/GetUpgradeStatus silently swallowed a
+# ResourceNotFoundException-shaped backend error and returned a fabricated
+# 200 success instead (missing-error class) -- both now propagate the real
+# error. See error_sentinel_fixes_test.go (real-SDK errors.As assertions,
+# each confirmed failing pre-fix). handler_applications_test.go/
+# handler_data_sources_test.go/handler_tags_test.go had 4 pre-existing tests
+# asserting the old wrong codes as correct; corrected alongside the fix.
 overall: A            # RAISED from A- (parity-5, this pass). The two gaps that previously held the grade
                       # down -- AttachDataSource's workspaceConfiguration/workspaceId, and StartMigration's
                       # MigrationOptions.Workspace/ExportOptions/ConflictResolution -- are now built to the

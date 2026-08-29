@@ -18,7 +18,7 @@ func (b *InMemoryBackend) CancelInstanceRefresh(groupName string) (string, error
 	}
 
 	for _, r := range b.instanceRefreshes[groupName] {
-		if r.Status == statusInProgress || r.Status == "Pending" {
+		if r.Status == statusInProgress || r.Status == statusPending {
 			r.Status = "Cancelling"
 
 			return r.InstanceRefreshID, nil
@@ -61,6 +61,15 @@ func (b *InMemoryBackend) StartInstanceRefreshWithInput(input StartInstanceRefre
 		return nil, fmt.Errorf("%w: %q", ErrGroupNotFound, input.AutoScalingGroupName)
 	}
 
+	for _, r := range b.instanceRefreshes[input.AutoScalingGroupName] {
+		if r.Status == statusInProgress || r.Status == statusPending {
+			return nil, fmt.Errorf(
+				"%w: an instance refresh is already in progress for group %q",
+				ErrInstanceRefreshInProgress, input.AutoScalingGroupName,
+			)
+		}
+	}
+
 	strategy := input.Strategy
 	if strategy == "" {
 		strategy = "Rolling"
@@ -97,7 +106,7 @@ func (b *InMemoryBackend) RollbackInstanceRefresh(groupName string) (string, err
 	}
 
 	for _, r := range b.instanceRefreshes[groupName] {
-		if r.Status == statusInProgress || r.Status == "Pending" {
+		if r.Status == statusInProgress || r.Status == statusPending {
 			r.Status = "RollbackInProgress"
 
 			return r.InstanceRefreshID, nil

@@ -256,9 +256,12 @@ func TestKeyGroupItemValidation(t *testing.T) {
 		wantCode int
 	}{
 		{
+			// CreateKeyGroup's own deserializer (cloudfront@v1.67.4
+			// deserializers.go) has no NoSuchPublicKey case -- this is
+			// InvalidArgument (400), not 404.
 			name:     "nonexistent_key_id_rejected",
 			items:    []string{"pk-doesnotexist"},
-			wantCode: http.StatusNotFound,
+			wantCode: http.StatusBadRequest,
 		},
 	}
 

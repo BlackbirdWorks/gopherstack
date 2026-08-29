@@ -2,12 +2,26 @@ package cloudfront
 
 import (
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
 
 	"github.com/labstack/echo/v5"
 )
+
+// handleWebACLAssociationError maps AssociateDistributionWebACL/
+// DisassociateDistributionWebACL errors. Both ops' own deserializers
+// (cloudfront@v1.67.4 deserializers.go) model EntityNotFound for a missing
+// distribution, not NoSuchDistribution -- unlike most other distribution
+// ops that reuse ErrNotFound.
+func (h *Handler) handleWebACLAssociationError(c *echo.Context, err error) error {
+	if errors.Is(err, ErrNotFound) {
+		return xmlResp(c, http.StatusNotFound, cfErrorXML(codeEntityNotFound, err.Error()))
+	}
+
+	return h.handleError(c, err)
+}
 
 type distributionConfigMinimal struct {
 	CallerReference string `xml:"CallerReference"`
@@ -382,11 +396,11 @@ func (h *Handler) handleAssociateDistributionWebACL(c *echo.Context, distributio
 
 	d, getErr := h.Backend.GetDistribution(distributionID)
 	if getErr != nil {
-		return h.handleError(c, getErr)
+		return h.handleWebACLAssociationError(c, getErr)
 	}
 
 	if assocErr := h.Backend.AssociateDistributionWebACL(distributionID, req.WebACLArn); assocErr != nil {
-		return h.handleError(c, assocErr)
+		return h.handleWebACLAssociationError(c, assocErr)
 	}
 
 	c.Response().Header().Set("ETag", d.ETag)
@@ -500,11 +514,11 @@ func (h *Handler) handleSetFunctionAssociations(c *echo.Context, distributionID 
 func (h *Handler) handleDisassociateDistributionWebACL(c *echo.Context, distID string) error {
 	d, err := h.Backend.GetDistribution(distID)
 	if err != nil {
-		return h.handleError(c, err)
+		return h.handleWebACLAssociationError(c, err)
 	}
 
 	if disErr := h.Backend.DisassociateDistributionWebACL(distID); disErr != nil {
-		return h.handleError(c, disErr)
+		return h.handleWebACLAssociationError(c, disErr)
 	}
 
 	c.Response().Header().Set("ETag", d.ETag)

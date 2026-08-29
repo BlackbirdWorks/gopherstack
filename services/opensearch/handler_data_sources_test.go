@@ -442,7 +442,10 @@ func TestOpenSearchHandler_AddDataSource(t *testing.T) {
 					map[string]any{"Name": "dup-ds", "DataSourceType": map[string]any{}})
 				r2.Body.Close()
 			},
-			wantCode: http.StatusConflict,
+			// AddDataSource's own deserializer (opensearch@v1.75.4
+			// deserializers.go) has no ResourceAlreadyExistsException case --
+			// a duplicate name is ValidationException (400).
+			wantCode: http.StatusBadRequest,
 		},
 		{
 			name:       "invalid_json",
@@ -522,9 +525,12 @@ func TestOpenSearchHandler_AddDirectQueryDataSource(t *testing.T) {
 			wantCode: http.StatusBadRequest,
 		},
 		{
+			// AddDirectQueryDataSource's own deserializer (opensearch@v1.75.4
+			// deserializers.go) has no ResourceAlreadyExistsException case --
+			// a duplicate name is ValidationException (400).
 			name:     "duplicate",
 			dsName:   "dup-source",
-			wantCode: http.StatusConflict,
+			wantCode: http.StatusBadRequest,
 		},
 	}
 

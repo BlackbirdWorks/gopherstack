@@ -124,7 +124,7 @@ func TestTrustStore_NameUniqueness(t *testing.T) {
 }
 
 // TestTrustStore_NotFound verifies Get/Update/Delete on a missing ID return 404
-// NoSuchTrustStore.
+// EntityNotFound.
 func TestTrustStore_NotFound(t *testing.T) {
 	t.Parallel()
 	h := newCFHandler(t)
@@ -134,8 +134,8 @@ func TestTrustStore_NotFound(t *testing.T) {
 	if getRR.Code != http.StatusNotFound {
 		t.Fatalf("expected 404 on get, got %d: %s", getRR.Code, getRR.Body.String())
 	}
-	if !strings.Contains(getRR.Body.String(), "NoSuchTrustStore") {
-		t.Errorf("expected NoSuchTrustStore error, got: %s", getRR.Body.String())
+	if !strings.Contains(getRR.Body.String(), "EntityNotFound") {
+		t.Errorf("expected EntityNotFound error, got: %s", getRR.Body.String())
 	}
 
 	updateRR := cfRequest(t, h, http.MethodPut, prefix+"trust-store/does-not-exist",

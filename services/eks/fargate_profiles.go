@@ -22,14 +22,20 @@ func (b *InMemoryBackend) CreateFargateProfile(
 	b.mu.Lock("CreateFargateProfile")
 	defer b.mu.Unlock()
 
+	// CreateFargateProfile's own deserializer (eks@v1.90.4 deserializers.go)
+	// has no ResourceNotFoundException or ResourceInUseException case --
+	// unlike CreateNodegroup/CreateAddon/CreateCapability, an unknown
+	// cluster or duplicate profile name here is ErrValidation
+	// (InvalidParameterException), the only client-fault code it models
+	// besides InvalidRequestException.
 	if _, ok := b.clusters.Get(clusterName); !ok {
-		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
+		return nil, fmt.Errorf("%w: cluster %s not found", ErrValidation, clusterName)
 	}
 
 	if _, ok := b.fargateProfiles.Get(fargateProfileKey(clusterName, profileName)); ok {
 		return nil, fmt.Errorf(
 			"%w: fargate profile %s already exists in cluster %s",
-			ErrAlreadyExists,
+			ErrValidation,
 			profileName,
 			clusterName,
 		)

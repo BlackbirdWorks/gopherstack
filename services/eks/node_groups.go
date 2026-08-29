@@ -40,8 +40,11 @@ func (b *InMemoryBackend) CreateNodegroup(
 	b.mu.Lock("CreateNodegroup")
 	defer b.mu.Unlock()
 
+	// CreateNodegroup's own deserializer (eks@v1.90.4 deserializers.go) has
+	// no ResourceNotFoundException case -- an unknown cluster here is
+	// ErrValidation (InvalidParameterException), not ErrNotFound.
 	if _, ok := b.clusters.Get(clusterName); !ok {
-		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
+		return nil, fmt.Errorf("%w: cluster %s not found", ErrValidation, clusterName)
 	}
 
 	if _, ok := b.nodegroups.Get(nodegroupKey(clusterName, nodegroupName)); ok {

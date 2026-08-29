@@ -119,7 +119,7 @@ func TestConnectionGroup_NameUniqueness(t *testing.T) {
 }
 
 // TestConnectionGroup_NotFound verifies Get/GetByRoutingEndpoint/Update/Delete on a
-// missing ID or endpoint return 404 NoSuchConnectionGroup.
+// missing ID or endpoint return 404 EntityNotFound.
 func TestConnectionGroup_NotFound(t *testing.T) {
 	t.Parallel()
 	h := newCFHandler(t)
@@ -129,8 +129,8 @@ func TestConnectionGroup_NotFound(t *testing.T) {
 	if getRR.Code != http.StatusNotFound {
 		t.Fatalf("expected 404 on get, got %d: %s", getRR.Code, getRR.Body.String())
 	}
-	if !strings.Contains(getRR.Body.String(), "NoSuchConnectionGroup") {
-		t.Errorf("expected NoSuchConnectionGroup error, got: %s", getRR.Body.String())
+	if !strings.Contains(getRR.Body.String(), "EntityNotFound") {
+		t.Errorf("expected EntityNotFound error, got: %s", getRR.Body.String())
 	}
 
 	byEndpointRR := cfRequest(
@@ -412,7 +412,7 @@ func TestConnectionFunction_TestResultVariesWithInput(t *testing.T) {
 }
 
 // TestConnectionFunction_NotFound verifies Describe/Get/Update/Delete/Publish/Test on a
-// missing ID return 404 NoSuchConnectionFunction.
+// missing ID return 404 EntityNotFound.
 func TestConnectionFunction_NotFound(t *testing.T) {
 	t.Parallel()
 	h := newCFHandler(t)
@@ -433,8 +433,8 @@ func TestConnectionFunction_NotFound(t *testing.T) {
 		if rr.Code != http.StatusNotFound {
 			t.Errorf("%s %s: expected 404, got %d: %s", tc.method, tc.path, rr.Code, rr.Body.String())
 		}
-		if !strings.Contains(rr.Body.String(), "NoSuchConnectionFunction") {
-			t.Errorf("%s %s: expected NoSuchConnectionFunction, got: %s", tc.method, tc.path, rr.Body.String())
+		if !strings.Contains(rr.Body.String(), "EntityNotFound") {
+			t.Errorf("%s %s: expected EntityNotFound, got: %s", tc.method, tc.path, rr.Body.String())
 		}
 	}
 }
@@ -696,7 +696,7 @@ func TestTestConnectionFunction_TableDriven(t *testing.T) {
 				return "no-such-fn"
 			},
 			wantCode: http.StatusNotFound,
-			wantBody: []string{"NoSuchConnectionFunction"},
+			wantBody: []string{"EntityNotFound"},
 		},
 	}
 

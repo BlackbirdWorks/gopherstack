@@ -3,6 +3,32 @@ service: autoscaling
 sdk_module: aws-sdk-go-v2/service/autoscaling@v1.70.4
 last_audit_commit: 1c4ee34e
 last_audit_date: 2026-07-23
+# ERROR path verified 2026-08-29 (wrapper-key-sweep pass): extracted every
+# op's deserializeOpError<Op> switch (autoscaling@v1.70.4 deserializers.go,
+# 66/67 ops N-of-N). Handler.autoscalingErrorCode is one global sentinel
+# table applied to all ops. Confirmed the AlreadyExists/ResourceInUse/
+# ScalingActivityInProgress/ActiveInstanceRefreshNotFound sentinels are each
+# used only by ops that model that exact code -- no wrong-code bugs found
+# there. "ValidationError" (ErrInvalidParameter and 5 other not-found
+# sentinels' shared code) does not exist anywhere in this SDK's exception set
+# -- confirmed: the whole autoscaling API models only 11 typed exceptions
+# (AlreadyExistsFault/LimitExceededFault/ResourceContentionFault/
+# ResourceInUseFault/ScalingActivityInProgressFault/
+# ActiveInstanceRefreshNotFoundFault/InstanceRefreshInProgressFault/
+# IrreversibleInstanceRefreshFault/InvalidNextToken/
+# IdempotentParameterMismatchError/ServiceLinkedRoleFailure), none matching
+# generic not-found/invalid-parameter -- left as-is per campaign restraint
+# (no op models anything this class of failure could be corrected to).
+# ErrUnknownAction ("InvalidAction") fires only for an unrecognized Action=
+# value at the routing layer, before any operation is identified -- a real
+# typed SDK client can never construct such a request, so this path is
+# unreachable by real traffic and not a bug of this class.
+# Missing-error bug found and fixed: StartInstanceRefresh accepted a second
+# concurrent call unconditionally instead of rejecting it -- the op's own
+# deserializer models InstanceRefreshInProgress for exactly this case. Added
+# ErrInstanceRefreshInProgress and an in-progress check (instance_refreshes.go).
+# See error_sentinel_fixes_test.go (real-SDK errors.As assertion, confirmed
+# failing pre-fix).
 overall: A            # parity-3 sweep. No aws-sdk-go-v2/service/autoscaling version bump
                        # (still v1.64.2 in go.mod/go.sum). This pass independently
                        # field-diffed the prior pass's "gaps" list against actual code

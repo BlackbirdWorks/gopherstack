@@ -214,15 +214,11 @@ func (h *Handler) handleAddDataSource(w http.ResponseWriter, r *http.Request, do
 		switch {
 		case errors.Is(addErr, ErrDomainNotFound):
 			h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", addErr.Error())
-		case errors.Is(addErr, ErrDataSourceAlreadyExists):
-			h.writeError(
-				r,
-				w,
-				http.StatusConflict,
-				"ResourceAlreadyExistsException",
-				addErr.Error(),
-			)
 		default:
+			// AddDataSource's own deserializer (opensearch@v1.75.4
+			// deserializers.go) has no ResourceAlreadyExistsException case --
+			// a duplicate name, like any other client-fault, is
+			// ValidationException.
 			h.writeError(r, w, http.StatusBadRequest, "ValidationException", addErr.Error())
 		}
 
@@ -267,17 +263,10 @@ func (h *Handler) handleAddDirectQueryDataSource(w http.ResponseWriter, r *http.
 		req.OpenSearchArns,
 	)
 	if addErr != nil {
-		if errors.Is(addErr, ErrDataSourceAlreadyExists) {
-			h.writeError(
-				r,
-				w,
-				http.StatusConflict,
-				"ResourceAlreadyExistsException",
-				addErr.Error(),
-			)
-		} else {
-			h.writeError(r, w, http.StatusBadRequest, "ValidationException", addErr.Error())
-		}
+		// AddDirectQueryDataSource's own deserializer (opensearch@v1.75.4
+		// deserializers.go) has no ResourceAlreadyExistsException case -- a
+		// duplicate name, like any other client-fault, is ValidationException.
+		h.writeError(r, w, http.StatusBadRequest, "ValidationException", addErr.Error())
 
 		return
 	}

@@ -199,7 +199,13 @@ func (h *Handler) dispatchUpgradeStatusRoutes(w http.ResponseWriter, r *http.Req
 		domainName, _ := strings.CutSuffix(trimmed, "/history")
 		history, err := h.Backend.GetUpgradeHistory(domainName)
 		if err != nil {
-			history = []*UpgradeHistory{}
+			// GetUpgradeHistory's own deserializer (opensearch@v1.75.4
+			// deserializers.go) models ResourceNotFoundException for a
+			// nonexistent domain -- this must not silently succeed with a
+			// fabricated empty list.
+			h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", err.Error())
+
+			return
 		}
 
 		h.writeJSON(r, w, map[string]any{"UpgradeHistories": history})
@@ -207,7 +213,11 @@ func (h *Handler) dispatchUpgradeStatusRoutes(w http.ResponseWriter, r *http.Req
 		domainName, _ := strings.CutSuffix(trimmed, "/status")
 		upgradeName, upgradeStatus, upgradeStep, err := h.Backend.GetUpgradeStatus(domainName)
 		if err != nil {
-			upgradeName, upgradeStatus, upgradeStep = "INITIAL", upgradeStatusSucceeded, upgradeStepUpgrade
+			// GetUpgradeStatus's own deserializer models ResourceNotFoundException
+			// for a nonexistent domain -- see GetUpgradeHistory above.
+			h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", err.Error())
+
+			return
 		}
 
 		h.writeJSON(r, w, map[string]any{

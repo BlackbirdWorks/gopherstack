@@ -27,7 +27,7 @@ func TestGetManagedCertificateDetails_NotFound(t *testing.T) {
 	// SplitURI), not nested under distribution-tenant.
 	rec := doXML(t, h, http.MethodGet, prefix+"managed-certificate/does-not-exist", nil)
 	assert.Equal(t, http.StatusNotFound, rec.Code)
-	assert.Contains(t, rec.Body.String(), "NoSuchDistributionTenant")
+	assert.Contains(t, rec.Body.String(), "EntityNotFound")
 }
 
 // TestGetManagedCertificateDetails_StableACrossCalls verifies the derived
@@ -464,7 +464,7 @@ func TestGetManagedCertificateDetails_TableDriven(t *testing.T) {
 				return "no-such-tenant"
 			},
 			wantCode: http.StatusNotFound,
-			wantBody: []string{"NoSuchDistributionTenant"},
+			wantBody: []string{"EntityNotFound"},
 		},
 		{
 			name: "tenant_domain_appears_in_validation_tokens",
