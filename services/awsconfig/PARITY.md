@@ -477,3 +477,35 @@ leaks: {status: clean, note: "no goroutines/janitors in this service; single coa
   backend validation logic at all (no quota tracking, no S3-bucket-existence
   check, no IAM-role validation), so they can never fire -- feature gaps, not
   wrong-sentinel bugs, and out of scope for a sentinel-correctness pass.
+
+## 2026-08-29 ordering-bug audit (paginate-before-filter, iam class) -- clean, no code change
+
+Audited every `pkgs/page.New(...)` call site (3, via `grep -rn "page.New(" services/awsconfig`) plus
+every handler reading `NextToken`/`Filters` together. `pkgs/page.New` is filter-blind by design
+(operates on the slice it is handed, computes `Next` from that slice's own length) -- correct here
+requires only that callers pass it an already-filtered slice, which all three do:
+`handleDescribeConfigRules` (`handler_config_rules.go:83`) filters by `ConfigRuleNames` in
+`Backend.DescribeConfigRules` before `page.New`; `handleListConnectors`
+(`handler_connectors.go:123`) filters by the request's `Filters` in `Backend.ListConnectors` before
+`page.New`; `GetResourceConfigHistoryPage` (`resources.go:212`) resolves the single
+resourceType/resourceID's history before paginating it -- a single-resource lookup, not a
+combinable collection filter. No filter is ever applied to a `page.Data` result after the fact
+anywhere in this service.
+
+One related-but-different finding, not the ordering bug: `handleGetComplianceDetailsByConfigRule`
+(`handler_config_rules.go:114`) declares `NextToken` on both its input and output structs but never
+reads or writes either -- the field is bound (decoded from the request) and then silently discarded,
+matching this campaign's "parsed then discarded" class rather than "wrongly ordered" (there is no
+pagination cursor here to get backwards; the op always returns every result in one response, which
+over-returns rather than silently drops data, and doesn't reflect a `NextToken` even when a client
+supplies a stale/foreign one). Left unfixed this pass -- flagged for whoever next touches this op's
+pagination surface, since fixing it means adding real `page.New` pagination, not a one-line ordering
+swap.
+
+Every other Describe*/List* op checked (`handler_aggregators.go`'s `DescribeConfigurationAggregators`/
+`DescribeAggregationAuthorizations`/`DescribePendingAggregationRequests`,
+`handleListDiscoveredResources`, `handleListAggregateDiscoveredResources`) implements no pagination
+at all -- no `NextToken` read anywhere in the handler -- so there is no cursor for a filter-ordering
+bug to hide behind.
+
+Zero ordering-bug findings; no files changed.

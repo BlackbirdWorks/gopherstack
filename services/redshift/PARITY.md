@@ -1433,3 +1433,61 @@ Gates: `go build ./services/redshift/...`, `go vet ./services/redshift/...` and 
 clean -- no signature changes), `go test -race -count=1 ./services/redshift/...` (pass), `golangci-lint run
 ./services/redshift/...` (0 issues, ran plain after an initial `paralleltest`/`tparallel` finding on the
 new test's subtests, fixed by adding the missing `t.Parallel()` calls, re-ran clean).
+
+## 2026-08-29 ordering-bug sweep (paginate-before-filter, iam class)
+
+Audited every filtered-and-paginated operation for order of operations (filter-then-paginate is
+correct; paginate-then-filter silently shorts the page and can be missed entirely past the cursor).
+Found and fixed one real instance in classic `DescribeClusters`; the entire serverless List family (11
+ops) plus `DescribeClusterSnapshots`/`DescribeQev2IdcApplications` were already correct. All other
+classic `Describe*` ops implement no pagination at all in either handler or backend (confirmed by
+grepping every backend `Describe*` signature for a marker/token parameter), so there is no cursor to
+get the order wrong.
+
+1. **`DescribeClusters` (`handler.go`/`store.go`), paginate-then-filter, plus wrong param names and
+   wrong match semantics.** The handler read singular `TagKey`/`TagValue` query params, applied them as
+   an AND filter to the *page* `Backend.DescribeClusters` had already cut by `Marker`/`MaxRecords`, and
+   discarded the singular strings supplied by no real client. Real `DescribeClustersInput` (redshift@
+   v1.65.4 `api_op_DescribeClusters.go`) has `TagKeys`/`TagValues []string`, wire-encoded as
+   `TagKeys.TagKey.N`/`TagValues.TagValue.N` (`serializers.go:12572`,
+   `awsAwsquery_serializeDocumentTagKeyList`), matched as "any tag whose key is in TagKeys OR whose
+   value is in TagValues" per the operation doc comment -- not an AND of one key/value pair. Moved the
+   tag filter into `InMemoryBackend.DescribeClusters` (new `tagKeys, tagValues []string` params),
+   applied to the full snapshot before the `Marker` cut/`MaxRecords` slice, and added
+   `clusterMatchesTagKeysOrValues` implementing the real any-key-or-value semantics via `Tags.Range`.
+   Marker/nextMarker were already computed correctly independent of the tag filter (unlike the iam bug,
+   a client that kept following `Marker` to empty would eventually see every match, just via
+   short/uneven pages) -- so this was the "page comes back short" half of the class, not the
+   "truncation lies" half. `handler_cluster_mgmt.go`/`handler_advisor.go`'s id-only lookups pass
+   `nil, nil` (unaffected, since a non-empty `ClusterIdentifier` bypasses tag filtering and pagination
+   entirely). The prior `TestDescribeClusters_TagFilter` (`handler_cluster_test.go`) hand-built form
+   posts with the wrong singular param names and asserted the bug's own output as correct; replaced
+   with SDK-driven `TestDescribeClusters_TagKeysFilter` and
+   `TestDescribeClusters_TagKeysFilter_PaginationOrdering` (`handler_cluster_tagkeys_test.go`), the
+   latter creating more tag-matching clusters than fit in one page and asserting the full match set is
+   reachable by following `Marker`. Both confirmed failing against the pre-fix handler (wrong clusters
+   returned / filter engaging as a no-op) before the fix.
+
+**Clean, verified**: all 11 `services/redshift/serverless_*.go` `List*` backends (`ListRecoveryPointsSL`,
+`ListServerlessUsageLimits`, `ListNamespaces`, `ListServerlessSnapshots`, `ListEndpointAccessSL`,
+`ListWorkgroups`, `ListServerlessTracks`, `ListSnapshotCopyConfigurationsSL`,
+`ListCustomDomainAssociationsSL`, `ListTableRestoreStatusSL`, `ListServerlessScheduledActions`) filter
+the full index before slicing by `nextToken`/`maxResults`, and their handlers pass request fields
+straight through with no post-backend re-filtering. `DescribeClusterSnapshots` (`handler_snapshots.go`)
+filters fully in the backend, then paginates the filtered slice in the handler via a base64 marker --
+correct. `DescribeQev2IdcApplications` has only a single-ID lookup, no combinable filter.
+
+**Gaps noted, not fixed** (no pagination implemented at all, so no ordering bug is possible; each is a
+structural/never-plumbed gap, judged unobservable for a typically small collection per operation, left
+for a future "never-plumbed pagination" pass rather than folded into this one): `DescribeEvents`,
+`DescribeReservedNodeOfferings`, `DescribeDataShares*`, `DescribeEndpointAccess`,
+`DescribeEndpointAuthorization`, `DescribeClusterParameterGroups`/`Parameters`, and others enumerated
+above under classic `Describe*` -- none read `Marker`/`MaxRecords` from the request at all.
+
+New test file: `handler_cluster_tagkeys_test.go` (SDK-driven, real `redshiftsdk.Client`, per this
+service's `newTestRedshiftClient` harness -- required here since the bug included wrong wire-key
+binding, not just handler logic over an already-correct value).
+
+Gates: `go build ./services/redshift/...`, `go vet ./...` (repo-wide, `DescribeClusters` signature
+changed), `go test -race -count=1 ./services/redshift/...` (pass), `golangci-lint run
+./services/redshift/...` (0 issues after fixing a `govet` shadow and an `nlreturn` finding).

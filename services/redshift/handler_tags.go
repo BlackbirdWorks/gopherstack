@@ -131,12 +131,18 @@ func parseRedshiftTags(vals url.Values) map[string]string {
 }
 
 // parseRedshiftTagKeys extracts TagKeys.TagKey.N from form values.
-// At most maxListItems keys are returned to prevent resource exhaustion.
 func parseRedshiftTagKeys(vals url.Values) []string {
+	return parseRedshiftTagKeysAt(vals, "TagKeys.TagKey.")
+}
+
+// parseRedshiftTagKeysAt extracts a "<prefix>N"-indexed string list (e.g.
+// TagKeys.TagKey.N or TagValues.TagValue.N) from form values. At most
+// maxListItems entries are returned to prevent resource exhaustion.
+func parseRedshiftTagKeysAt(vals url.Values, prefix string) []string {
 	var keys []string
 
 	for i := 1; i <= maxListItems; i++ {
-		key := vals.Get(fmt.Sprintf("TagKeys.TagKey.%d", i))
+		key := vals.Get(fmt.Sprintf("%s%d", prefix, i))
 		if key == "" {
 			return keys
 		}

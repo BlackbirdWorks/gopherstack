@@ -636,7 +636,7 @@ func TestRestoreFromClusterSnapshot_Lifecycle(t *testing.T) {
 			"restored cluster should start in restoring state when an activation delay is configured")
 
 		require.Eventually(t, func() bool {
-			clusters, _, descErr := b.DescribeClusters("restored-cluster", "", 0)
+			clusters, _, descErr := b.DescribeClusters("restored-cluster", "", 0, nil, nil)
 
 			return descErr == nil && len(clusters) == 1 && clusters[0].Status == "available"
 		}, time.Second, 5*time.Millisecond,

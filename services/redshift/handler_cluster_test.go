@@ -349,91 +349,16 @@ func TestDeleteCluster_FinalSnapshot(t *testing.T) {
 }
 
 // ----- DescribeClusters tag filtering -----
-
-// TestDescribeClusters_TagFilter verifies that DescribeClusters supports
-// filtering by TagKey and TagValue. Real AWS supports these filters.
-func TestDescribeClusters_TagFilter(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name       string
-		tagKey     string
-		tagValue   string
-		wantInBody []string
-		wantAbsent []string
-		wantCode   int
-	}{
-		{
-			name:       "filter_by_tag_key_returns_matching_clusters",
-			tagKey:     "env",
-			wantInBody: []string{"tagged-cluster"},
-			wantAbsent: []string{"untagged-cluster"},
-			wantCode:   http.StatusOK,
-		},
-		{
-			name:       "filter_by_tag_key_and_value",
-			tagKey:     "env",
-			tagValue:   "prod",
-			wantInBody: []string{"tagged-cluster"},
-			wantAbsent: []string{"untagged-cluster"},
-			wantCode:   http.StatusOK,
-		},
-		{
-			name:       "filter_by_nonexistent_tag_returns_empty",
-			tagKey:     "does-not-exist",
-			wantAbsent: []string{"tagged-cluster", "untagged-cluster"},
-			wantCode:   http.StatusOK,
-		},
-		{
-			name:       "no_filter_returns_all",
-			wantInBody: []string{"tagged-cluster", "untagged-cluster"},
-			wantCode:   http.StatusOK,
-		},
-		{
-			name:       "filter_by_value_only",
-			tagValue:   "prod",
-			wantInBody: []string{"tagged-cluster"},
-			wantAbsent: []string{"untagged-cluster"},
-			wantCode:   http.StatusOK,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newRedshiftHandler()
-			postRedshiftForm(t, h, "Action=CreateCluster&Version=2012-12-01&ClusterIdentifier=tagged-cluster")
-			postRedshiftForm(t, h, "Action=CreateCluster&Version=2012-12-01&ClusterIdentifier=untagged-cluster")
-			postRedshiftForm(t, h,
-				"Action=CreateTags&Version=2012-12-01&ResourceName=tagged-cluster&"+
-					"Tags.Tag.1.Key=env&Tags.Tag.1.Value=prod")
-
-			body := "Action=DescribeClusters&Version=2012-12-01"
-			if tt.tagKey != "" {
-				body += "&TagKey=" + tt.tagKey
-			}
-			if tt.tagValue != "" {
-				body += "&TagValue=" + tt.tagValue
-			}
-
-			rec := postRedshiftForm(t, h, body)
-			assert.Equal(t, tt.wantCode, rec.Code)
-
-			for _, s := range tt.wantInBody {
-				assert.Contains(t, rec.Body.String(), s,
-					"expected %q in DescribeClusters response for TagKey=%q TagValue=%q",
-					s, tt.tagKey, tt.tagValue)
-			}
-
-			for _, s := range tt.wantAbsent {
-				assert.NotContains(t, rec.Body.String(), s,
-					"expected %q absent in DescribeClusters response for TagKey=%q TagValue=%q",
-					s, tt.tagKey, tt.tagValue)
-			}
-		})
-	}
-}
+//
+// Tag-filter coverage (real TagKeys/TagValues param names, and the
+// filter-before-paginate ordering) lives in
+// TestDescribeClusters_TagKeysFilter and
+// TestDescribeClusters_TagKeysFilter_PaginationOrdering
+// (handler_cluster_tagkeys_test.go), driven through the real SDK client.
+// A prior version of this file tested singular "TagKey"/"TagValue" query
+// params that do not exist on the real DescribeClustersInput
+// (redshift@v1.65.4 defines TagKeys/TagValues as []string) and so asserted
+// behavior no real client can produce.
 
 // TestDescribeClusters_Pagination verifies Marker/MaxRecords pagination.
 func TestDescribeClusters_Pagination(t *testing.T) {
@@ -533,14 +458,14 @@ func TestDescribeClusters_DeepCopy(t *testing.T) {
 	_, err := b.CreateCluster("c1", "dc2.large", "dev", "admin")
 	require.NoError(t, err)
 
-	clusters, _, err := b.DescribeClusters("", "", 0)
+	clusters, _, err := b.DescribeClusters("", "", 0, nil, nil)
 	require.NoError(t, err)
 	require.Len(t, clusters, 1)
 
 	// Modifying the returned slice should not affect the backend
 	clusters[0].ClusterIdentifier = "mutated"
 
-	clusters2, _, err := b.DescribeClusters("", "", 0)
+	clusters2, _, err := b.DescribeClusters("", "", 0, nil, nil)
 	require.NoError(t, err)
 	assert.Equal(t, "c1", clusters2[0].ClusterIdentifier, "backend should not be mutated by caller")
 }

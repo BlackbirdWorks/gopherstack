@@ -275,7 +275,7 @@ func (h *Handler) handleDescribeNodeConfigurationOptions(vals url.Values) (any, 
 	// otherwise honour an explicit NodeType filter or fall back to a default.
 	baseNodeType := nodeConfigFilterValue(vals, "NodeType")
 	if id := vals.Get("ClusterIdentifier"); id != "" && baseNodeType == "" {
-		if clusters, _, err := h.Backend.DescribeClusters(id, "", 0); err == nil && len(clusters) > 0 {
+		if clusters, _, err := h.Backend.DescribeClusters(id, "", 0, nil, nil); err == nil && len(clusters) > 0 {
 			baseNodeType = clusters[0].NodeType
 		}
 	}
@@ -338,7 +338,7 @@ type listRecommendationsResponse struct {
 func (h *Handler) handleListRecommendations(vals url.Values) (any, error) {
 	id := vals.Get("ClusterIdentifier")
 
-	clusters, _, err := h.Backend.DescribeClusters(id, "", 0)
+	clusters, _, err := h.Backend.DescribeClusters(id, "", 0, nil, nil)
 	if err != nil {
 		// An explicit unknown ClusterIdentifier surfaces the not-found error.
 		return nil, err

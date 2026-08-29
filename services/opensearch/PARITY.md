@@ -897,3 +897,27 @@ correctly out of pass scope), and re-counted the un-advertised-op gap.
   Full field-level diff of the 19 already-advertised ops' Collection/
   AccessPolicy/SecurityConfig/SecurityPolicy shapes beyond `DeletionProtection`
   above is still not done and remains this family's main open item.
+
+## 2026-08-29 ordering-bug audit (paginate-before-filter, iam class) -- clean, no code change
+
+Audited for the recently-found iam-class bug (a filter applied to an already-paginated page instead
+of to the full set before pagination, with truncation sometimes computed to hide the loss). Grepped
+every handler for `NextToken`/`nextToken`/`MaxResults`/`maxResults`/`IsTruncated`: only 4 files
+reference pagination at all (`handler_insights.go`, `handler_vpc_endpoints.go`, `handler_advanced.go`,
+plus the `NextToken` JSON-key constant in `handler.go`).
+
+- `handleListInsights` (`handler_insights.go`): always returns an empty list -- this backend has no
+  analytics engine to generate insights from (documented in-code); no filter or pagination logic to
+  get wrong.
+- `handleVersionsRoutes` / ListVersions (`handler_advanced.go`): paginates a fixed, hardcoded version
+  catalog by `nextToken`/`maxResults`; no filter parameter exists on this op at all, so there is no
+  order to get wrong.
+- `handleVpcEndpointRootRoutes`/`handleVpcEndpointIDRoutes` (`handler_vpc_endpoints.go`): the
+  `ListVpcEndpoints*` ops return every stored item unpaginated (hardcoded empty `NextToken` in the
+  response, documented in-code as a required-but-inert response member) -- no truncation is ever
+  claimed, so no client can be misled into thinking there's more.
+
+No other List/Describe operation in this service implements `NextToken`/`MaxResults` pagination in
+either handler or backend (confirmed by the same grep across all of `services/opensearch`), so there
+is no cursor for a filter-ordering bug to hide behind anywhere else in this service. Zero findings;
+no files changed.

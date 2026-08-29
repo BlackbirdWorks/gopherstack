@@ -279,7 +279,7 @@ type modifyClusterDBRevisionResponse struct {
 
 func (h *Handler) handleModifyClusterDBRevision(vals url.Values) (any, error) {
 	id := vals.Get("ClusterIdentifier")
-	clusters, _, err := h.Backend.DescribeClusters(id, "", 0)
+	clusters, _, err := h.Backend.DescribeClusters(id, "", 0, nil, nil)
 	if err != nil {
 		return nil, err
 	}

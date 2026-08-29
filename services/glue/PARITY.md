@@ -1537,3 +1537,34 @@ ops — left as-is, no bug.
 Gates: `go build ./services/glue/...` (clean), `go vet ./...` (repo-wide, clean — no signature
 changes), `go test -race -count=1 ./services/glue/...` (pass), `golangci-lint run --fix
 ./services/glue/...` (0 issues). Work left uncommitted per this pass's instructions.
+
+## 2026-08-29 ordering-bug audit (paginate-before-filter, iam class) -- clean, no code change
+
+Audited every `paginateSlice(...)` call site (48, via `grep -rn "paginateSlice(" services/glue`) for
+order of operations. This service funnels essentially all NextToken-based pagination through one
+shared generic helper (`paginateSlice`, `handler.go:226`) plus a shared `matchesTagFilter`
+(`handler.go:243`) and a handful of op-specific filter predicates (`matchesIntegrationFilters`,
+`filterByDependentJobName`, the `Expression`/`partitionExpr` predicate in
+`handler_partitions.go:handleGetPartitions`). In every site checked, the filter loop builds a new
+`filtered`/`matching` slice first and `paginateSlice` is called on that result, not on the raw
+backend list -- i.e. filter-then-paginate throughout: `handler_connections.go` (GetConnections,
+ConnectionType/MatchCriteria), `handler_dev_endpoints.go`/`handler_blueprints.go`/
+`handler_crawlers.go`/`handler_jobs.go`/`handler_triggers.go` (Tags via `matchesTagFilter`),
+`handler_integrations.go` (DescribeInboundIntegrations/DescribeIntegrations, both self-contained
+filter+paginate pairs), `handler_partitions.go` (GetPartitions, `Expression` predicate applied to the
+full set before the slice), `handler_data_quality_rulesets.go`/`handler_ml.go`/
+`handler_materialized_views.go`/`handler_data_quality_stats.go`/`handler_schemas.go` (each function's
+own `continue`-based filter loop precedes its own `paginateSlice` call; verified no cross-wiring
+between a file's multiple list functions). `paginateSlice` itself is filter-blind (operates purely on
+the slice it's given, computing `next` from that same slice's length), so as long as callers pass it
+the already-filtered slice -- which all 48 do -- there is no way for this helper to reproduce the iam
+shape.
+
+One structural, not-ordering gap noted in passing: `handleGetTableVersions`/`GetTableVersions`
+(`handler_tables.go:205`) and `SearchTables` return everything unpaginated even though real
+`GetTableVersionsInput`/`SearchTablesInput` support `MaxResults`/`NextToken` -- no pagination
+implemented at all, so no order to get wrong, but also no truncation, meaning this over-returns
+rather than silently drops data. Left as a "never plumbed pagination" gap for a future pass, not
+folded into this one.
+
+Zero ordering-bug findings; no files changed.
