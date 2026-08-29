@@ -396,11 +396,20 @@ func (b *InMemoryBackend) ListShards(ctx context.Context, input *ListShardsInput
 	startShardID := resolveListShardsStartCursor(input)
 	result := filterShards(stream.Shards, startShardID, includeAll, predicate)
 
-	// Apply MaxResults pagination.
-	if input.MaxResults > 0 && input.MaxResults < len(result) {
-		nextToken := result[input.MaxResults-1].ShardID
+	// Apply MaxResults pagination. AWS documents a default AND max of 1000
+	// (api_op_ListShards.go): an omitted or out-of-range value still caps the
+	// page, it doesn't return every shard the stream has ever had.
+	const maxListShardsResults = 1000
 
-		return &ListShardsOutput{Shards: result[:input.MaxResults], NextToken: nextToken}, nil
+	maxResults := input.MaxResults
+	if maxResults <= 0 || maxResults > maxListShardsResults {
+		maxResults = maxListShardsResults
+	}
+
+	if maxResults < len(result) {
+		nextToken := result[maxResults-1].ShardID
+
+		return &ListShardsOutput{Shards: result[:maxResults], NextToken: nextToken}, nil
 	}
 
 	return &ListShardsOutput{Shards: result}, nil

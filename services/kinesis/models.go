@@ -57,8 +57,9 @@ const (
 
 	// maxGetRecordsLimit is the maximum number of records per GetRecords call.
 	maxGetRecordsLimit = 10000
-	// defaultGetRecordsLimit is the default limit for GetRecords.
-	defaultGetRecordsLimit = 1000
+	// defaultGetRecordsLimit is the default limit for GetRecords (api_op_GetRecords.go:
+	// "Specify a value of up to 10,000 ... The default value is 10,000.").
+	defaultGetRecordsLimit = 10000
 	// maxGetRecordsResponseBytes is the AWS 10 MiB cap on GetRecords response payload.
 	maxGetRecordsResponseBytes = 10 * 1024 * 1024
 

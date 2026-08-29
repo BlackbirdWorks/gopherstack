@@ -48,6 +48,50 @@ leaks: {status: clean, note: "no goroutines/timers introduced; all ops are synch
 
 ## Notes
 
+### 2026-08-29 constraint-not-honoured sweep (gopherstack-wksw, same day as the audit above)
+
+Independent pass for a different bug class than the sweep above: a parameter that
+constrains a result (filter/page-limit) present in the real Input but silently unapplied,
+read wrong, or applied to the wrong baseline. All 3 collection-returning ops re-checked
+against their own `api_op_List*.go` in `mediapackage@v1.42.4`, confirmed query-bound (REST-
+JSON, `serializeOpHttpBindingsList*Input` -- `maxResults`/`nextToken`/`includeChannelId`/
+`includeStatus`/`channelId` all `encoder.SetQuery`, no JSON body member for any of them):
+
+- `ListChannels` (`MaxResults`/`NextToken` only, no filter): `handler_channels.go:120-138`
+  reads both query params, `channels.go:116-130` passes through to the shared
+  `pkgs/page.New` helper. Correct.
+- `ListHarvestJobs` (`IncludeChannelId`/`IncludeStatus`/`MaxResults`/`NextToken`):
+  `handler_harvest_jobs.go:83-106` reads all four; `harvest_jobs.go:104-135` applies
+  `IncludeChannelId`/`IncludeStatus` as exact-match filters before paginating. Correct --
+  and `IncludeStatus` has no real SDK enum type (plain `*string` in both
+  `ListHarvestJobsInput` and `HarvestJob.Status`, confirmed no `HarvestJobStatus` type
+  exists in `types/`), so exact string comparison is the whole contract, not a
+  case-folding or partial-match question.
+- `ListOriginEndpoints` (`ChannelId`/`MaxResults`/`NextToken`): `handler_origin_endpoints.go:
+  249-269` reads all three; `origin_endpoints.go:237-261` uses the `channelId`-indexed
+  `originEndpointsByChannel` map when set, falls back to the full snapshot when empty.
+  Correct; a `ChannelId` naming a channel with no endpoints correctly returns empty rather
+  than erroring (AWS documents no channel-existence check for this filter).
+
+**Documented-default check**: none of the three ops' `MaxResults` doc comments in the
+pinned SDK state a numeric default (`"Upper bound on number of records to return."` /
+`"The upper bound on the number of records to return."` -- no number given, unlike
+kinesis/sns's ops which do). `store.go:10`'s `defaultMaxResults = 20` is therefore an
+internal choice, not a violation of a documented contract -- nothing to fix here per this
+sweep's "take semantics from the SDK's own doc comment, never invent them" rule; a missing
+number in the doc isn't license to assert AWS's real default from outside knowledge either.
+All three ops share one `pkgs/page.New` call site each, so a default-size bug would have
+hit identically everywhere; confirmed no such bug in `page.New` itself (`limit <= 0 ->
+defaultLimit`, correct fallback, no max-clamp because none is documented to clamp to).
+
+**0 bugs found.** Genuinely clean for this class -- reconfirms, from a completely
+different angle (parameter-by-parameter against each op's own doc comment) than the
+same-date audit above (HTTP-binding/wire-shape re-derivation), that this service's List
+surface is small (3 ops, 5 total constraining parameters excluding NextToken) and already
+correct.
+
+## Notes
+
 ### 2026-08-20: wrapper-key / nested-shape wire-parity sweep (zero bugs found)
 
 Full re-verification of every op's wire shape against

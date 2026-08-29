@@ -35,7 +35,7 @@ ops:
   StartTextTranslationJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed - request had zero required-field validation (DataAccessRoleArn/InputDataConfig/OutputDataConfig/SourceLanguageCode/TargetLanguageCodes could all be omitted and a job would still be created); added InvalidRequestException for missing required fields, UnsupportedLanguagePairException for unrecognized language codes, ResourceNotFoundException when TerminologyNames/ParallelDataNames reference a resource that doesn't exist, and Settings enum validation (Brevity not supported for batch jobs per the API reference, unlike TranslateText/TranslateDocument)"}
   StopTextTranslationJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed - missing JobId now ResourceNotFoundException (was InvalidRequestException, not modeled for this op)"}
   DescribeTextTranslationJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed - same ResourceNotFoundException correction as StopTextTranslationJob"}
-  ListTextTranslationJobs: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed - Filter.JobStatus accepted any string silently matching zero jobs instead of rejecting unrecognized values; added InvalidFilterException validation against the JobStatus enum"}
+  ListTextTranslationJobs: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed - Filter.JobStatus accepted any string silently matching zero jobs instead of rejecting unrecognized values; added InvalidFilterException validation against the JobStatus enum. gopherstack-wksw (2026-08-29, constraint-not-honoured sweep): the previous entry above covered only Filter.JobStatus -- Filter.JobName/SubmittedAfterTime/SubmittedBeforeTime (the other 3 of 4 real TextTranslationJobFilter members, api_op_ListTextTranslationJobs.go/types.go) were never read by the handler at all and the backend method didn't even accept them, so a real client's name or time-window request silently returned every job in the account. Separately, sort order was `sort.Strings(ids)` over JobID (a random UUID) -- arbitrary, not the documented order. Fixed: handler now decodes all 4 filter fields (textTranslationJobFilterFromMap, handler_text_translation_jobs.go) and enforces the Filter doc comment's 'you can only set one filter at a time' (InvalidFilterException if >1 is set); backend (matchesJobFilter/sortJobs, text_translation_jobs.go) applies JobName/JobStatus as exact match and SubmittedAfterTime/SubmittedBeforeTime as open time-bound filters, sorting ascending (oldest-first) only for SubmittedBeforeTime and descending (newest-first) otherwise -- both directions are explicitly documented on TextTranslationJobFilter's own SubmittedAfterTime/SubmittedBeforeTime doc comments; the no-time-filter default descending order is this pass's judgment call (undocumented case), noted in code. Proven via TestListTextTranslationJobs_SDKRoundTrip_Filters (wire_sdk_roundtrip_test.go), a real aws-sdk-go-v2 client round trip, confirmed failing pre-fix on all 4 subtests (JobName returned all 3 jobs instead of 1; SubmittedAfterTime/SubmittedBeforeTime returned all 3 instead of 2; default order came back in random UUID order, not newest-first)."}
   TranslateText: {wire: ok, errors: ok, state: n/a, persist: n/a, note: "fixed - TerminologyNames referencing a nonexistent terminology was silently ignored instead of erroring (real AWS models ResourceNotFoundException for exactly this, the operation's only named-resource reference); added TextSizeLimitExceededException (10,000-byte sync quota), UnsupportedLanguagePairException (language code not in the supported list), and Settings.Formality/Profanity/Brevity enum validation"}
   TranslateDocument: {wire: ok, errors: ok, state: n/a, persist: n/a, note: "fixed - Document.ContentType (a required member of Document) was read from the wire nowhere at all and never validated; added ContentType required check, LimitExceededException (100,000-byte document size quota -- this op models LimitExceededException, not TextSizeLimitExceededException, for size overflow), UnsupportedLanguagePairException, the same TerminologyNames ResourceNotFoundException fix as TranslateText, and Settings enum validation"}
   ListLanguages: {wire: ok, errors: ok, state: ok, persist: n/a, note: "fixed - DisplayLanguageCode accepted any string; real Translate models a fixed 10-value enum (de/en/es/fr/it/ja/ko/pt/zh/zh-TW) distinct from the ~75 translation-target language codes this op itself returns; added UnsupportedDisplayLanguageCodeException"}
@@ -56,11 +56,58 @@ gaps:
   - "VALUE-CORRECTNESS, DISCLOSED NOT FIXED (2026-08-20 wrapper-key sweep): DeleteParallelData returns pd.Status as it stood immediately before deletion (e.g. ACTIVE), never the DELETING value real AWS documents for 'the status of the parallel data deletion' (DeleteParallelDataResponse.Status, botocore service-2.json). This is a right-key/right-type/questionable-VALUE issue, not a shape break -- ACTIVE is still a valid ParallelDataStatus enum member, so no client-side deserialization failure results -- and fixing it properly would need a transient DELETING state in the lifecycle model (delete marks DELETING, a later poll/janitor actually removes the row), which is lifecycle-state-machine work out of scope for a wrapper-key/nesting sweep. Left as-is; flagging for a future targeted pass."
   - "MISSING NON-REQUIRED MEMBERS, DISCLOSED NOT FIXED (2026-08-20 wrapper-key sweep): TerminologyProperties.SkippedTermCount and .Message, and ParallelDataProperties.FailedRecordCount/ImportedDataSize/ImportedRecordCount/SkippedRecordCount/.Message are real optional response members this emulator never populates (terminologyToMap/parallelDataToMap omit them entirely rather than emitting a zero value). None are marked required in types.TerminologyProperties/types.ParallelDataProperties, and populating them honestly would require modeling per-record import/skip counters the backend doesn't track today -- Layer-3-scope, left as a disclosed gap rather than fabricated."
   - "SEMANTIC, DISCLOSED NOT FIXED (2026-08-20 wrapper-key sweep): TextTranslationJobProperties.JobDetails is always {TranslatedDocumentsCount:0, DocumentsWithErrorsCount:0, InputDocumentsCount:0} regardless of job size (jobToMap, handler_text_translation_jobs.go) -- the wrapper key and nested field names are correct (verified against types.JobDetails), but the values are a hardcoded stub since this emulator never actually reads/counts documents in the InputDataConfig S3 location. Semantic gap, not a wire-shape bug; left as-is."
+  - "SEMANTIC, DISCLOSED NOT FIXED (gopherstack-wksw, 2026-08-29 constraint-not-honoured sweep): ListLanguages' DisplayLanguageCode is validated against the real 10-value enum (fixed by a prior pass, see ops entry) but never actually applied -- knownLanguages() (handler_languages.go) returns every LanguageName in English regardless of the requested DisplayLanguageCode, since this emulator has no localized name table for the ~75 x 10 language/display-language combinations real AWS serves. The response's own DisplayLanguageCode field correctly echoes what was requested, so a client can tell what it asked for; only the LanguageName strings themselves don't follow it. Structural gap (no i18n data modeled anywhere in this service), not a filter/pagination bug -- left as-is rather than fabricating partial translations for a handful of languages."
 deferred: []
 leaks: {status: clean, note: "no goroutines/janitors in this service; job lifecycle advances synchronously inside DescribeTextTranslationJob and parallel-data lifecycle advances synchronously inside GetParallelData, both under the existing backend mutex, no new background state"}
 ---
 
 ## Notes
+
+### 2026-08-29 constraint-not-honoured sweep (gopherstack-wksw)
+
+New bug class for this campaign: a parameter constraining a result (filter/sort/page
+limit) present in the real Input but not correctly honoured. All 5 collection-returning
+ops (`ListLanguages`, `ListParallelData`, `ListTagsForResource`, `ListTerminologies`,
+`ListTextTranslationJobs`) read against their own `api_op_List*.go` in
+`translate@v1.36.4`. Confirmed JSON-RPC 1.1 (`awsAwsjson11_*`), every member body-bound
+(no `serializeOpHttpBindings<Op>Input` function exists for any op in this service).
+
+**1 real bug found and fixed** -- `ListTextTranslationJobs.Filter` (see its ops entry
+above for full detail): 3 of 4 real filter fields never plumbed at all, plus a wrong sort
+order. This is the deepest finding in this service for this class: the previous pass's
+`ListTextTranslationJobs` entry read as "fixed" and specifically named `Filter.JobStatus`,
+which was genuinely fixed -- but nothing in that entry said the sibling fields were even
+checked, and they weren't plumbed. Matches this campaign's chokepoint lesson: a fix that
+lands correctly on `Filter.JobStatus` says nothing about `Filter.JobName`/
+`SubmittedAfterTime`/`SubmittedBeforeTime` on the same struct.
+
+**1 gap newly disclosed** (not a fix for this class, a data-completeness gap surfaced
+while checking `ListLanguages.DisplayLanguageCode`): see its own gaps entry above.
+
+**Confirmed already correct**: `ListLanguages.MaxResults` (no documented default in the
+SDK's own doc comment -- `store.go`'s internal default of 500 isn't a violation of an
+unstated contract); `ListParallelData`/`ListTerminologies` (`MaxResults`/`NextToken`
+only, no filter fields on either op's real Input, default page size 100 from the shared
+`paginate` helper matches every sibling in this service); `ListTagsForResource` (no
+pagination member on the real Input at all -- `ResourceArn` only, correctly has none).
+
+Test style: real `aws-sdk-go-v2/service/translate` client round trip
+(`TestListTextTranslationJobs_SDKRoundTrip_Filters`, `wire_sdk_roundtrip_test.go`) via the
+existing `newTestTranslateSDKClient` helper -- deliberately not a hand-built request,
+since this is exactly the "never plumbed" bug class the campaign brief calls out as most
+likely to be missed by a hand-built request that already omits the field the same way the
+bug does. Confirmed failing pre-fix on all 4 subtests. Timestamps controlled via a new
+test-only `SetJobSubmittedAtForTest` in the pre-existing `export_test.go` (not a new file)
+rather than real wall-clock sleeps between job creations. `go vet ./...` (repo-wide, since
+`ListTextTranslationJobs`'s backend signature changed from
+`(statusFilter string, maxResults int, nextToken string)` to
+`(filter TextTranslationJobFilter, maxResults int, nextToken string)` -- 3 pre-existing
+call sites in `persistence_test.go`/`text_translation_jobs_test.go` updated),
+`go test -race -count=1 ./services/translate/...`, and
+`golangci-lint run ./services/translate/...` (0 issues after decomposing the backend
+filter/sort logic into `matchesJobFilter`/`sortJobs` to stay under `gocognit`'s ceiling,
+and the handler's Filter decoding into `textTranslationJobFilterFromMap` to fix a
+`govet` shadow warning and a `nestif` complexity flag -- no `//nolint` used) all clean.
 
 - 2026-08-22, gopherstack-r80d batch 31 (required-output-member audit):
   translate (6 required output fields / 19 ops, 2 ops-with-required per a

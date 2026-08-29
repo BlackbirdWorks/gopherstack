@@ -321,9 +321,14 @@ func (b *InMemoryBackend) ListStreams(ctx context.Context, input *ListStreamsInp
 		names = names[idx:]
 	}
 
+	const (
+		defaultListStreamsLimit = 100
+		maxListStreamsLimit     = 100
+	)
+
 	limit := input.Limit
-	if limit <= 0 {
-		limit = len(names)
+	if limit <= 0 || limit > maxListStreamsLimit {
+		limit = defaultListStreamsLimit
 	}
 
 	if limit > len(names) {

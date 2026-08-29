@@ -49,6 +49,7 @@ families:
   http_https_delivery: {status: ok, note: "RSA-2048 self-signed cert; SignatureVersion-aware signing (SHA1withRSA for the AWS default SignatureVersion=1, SHA256withRSA when a topic explicitly sets SignatureVersion=2), retry via DeliveryPolicy/EffectiveDeliveryPolicy, DLQ redrive, concurrency-capped worker semaphore, ctx-cancel on shutdown; fixed this pass: delivery previously always signed with SHA-256 regardless of the topic's SignatureVersion attribute (and always declared SignatureVersion=2 in every envelope: HTTP/HTTPS, Lambda, Firehose, and the SQS delivery envelope built by services/sqs) — now resolveSignatureVersion/signWithVersion select SHA1 vs SHA256 per-topic and every envelope declares the version that actually produced its Signature"}
   error_codes: {status: ok, note: "NotFound/TopicAlreadyExists/PlatformApplicationAlreadyExists/InvalidParameter/EndpointDisabled/OptedOut/AuthorizationError(permission label)/SubscriptionLimitExceeded/FilterPolicyLimitExceeded all map to correct AWS code strings; fixed this pass: handleBackendError previously only split 400-vs-500 (per the prior audit's own 'verified' note) with NO 403 bucket at all, so AuthorizationError/SubscriptionLimitExceeded/FilterPolicyLimitExceeded (all documented HTTP 403 in the SNS API errors tables) were silently returning 400; EndpointDisabled correctly stays 400 (confirmed against API_Publish.html, not 403 despite being permission-adjacent)"}
 gaps:
+  - "gopherstack-wksw (2026-08-29, constraint-not-honoured sweep): ListPhoneNumbersOptedOut's backend method (InMemoryBackend.ListPhoneNumbersOptedOut) accepts a maxResults int parameter, but the real ListPhoneNumbersOptedOutInput (api_op_ListPhoneNumbersOptedOut.go) has no MaxResults member at all -- only NextToken (itself serialized under the unusual lowercase 'nextToken' key for this one op, confirmed against awsAwsjson1_serializeOpDocumentListPhoneNumbersOptedOutInput -- verified NOT a bug, gopherstack's handler_sms.go already reads the matching lowercase form key). The extra backend parameter is inert (the handler always passes a form value that a real client never sends), not a wire defect -- noted here only because it looked suspicious at first read."
   - "2026-08-14 (gopherstack-3tpf): ConfirmSubscriptionInput.AuthenticateOnUnsubscribe (aws-sdk-go-v2/service/sns@v1.42.4 api_op_ConfirmSubscription.go:14 doc comment: 'This call requires an AWS signature only when the AuthenticateOnUnsubscribe flag is set to \"true\"') is accepted by the real SDK request shape but has no field on gopherstack's ConfirmSubscriptionInput and is silently dropped. Structurally undeliverable without the caller-identity/SigV4-principal infrastructure gopherstack does not have (see gopherstack-cu4g, open): Unsubscribe (subscriptions.go:217) takes no caller identity at all today, so there is nothing to condition an 'unauthenticated unsubscribe' rejection on. Same class as sts's disclosed JWTPayloadSizeExceededException gap and secretsmanager's disclosed PutSecretValueInput.RotationToken gap. DISCLOSED, not fixed."
 deferred:
   - "PutDataProtectionPolicy: the policy statement grammar (DataIdentifier ARNs, Operation/Audit/De-identify/Deny shapes, Principal formats) is not validated — only the top-level document shape (JSON object, <=30,720 chars, Name/Version/Statement present). Amazon SNS message data protection is also no longer available to new customers as of 2026-04-30 per docs.aws.amazon.com/sns/latest/dg/sns-message-data-protection-availability-change.html (existing customers may continue using it); implementing the full grammar is disproportionate feature work for a frozen/legacy feature and was explicitly out of scope this pass (bd gopherstack-4wtz)."
@@ -57,6 +58,43 @@ leaks: {status: clean, note: "fixed this pass: (1) topicMessageArchive was never
 ---
 
 ## Notes
+
+### 2026-08-29 constraint-not-honoured sweep (gopherstack-wksw)
+
+New bug class for this campaign: a parameter that constrains a result (filter/sort/page
+limit) present in the real Input but not correctly honoured -- distinct from the wire-key
+bugs prior passes swept for. Read every collection-returning op's real `<Op>Input` in
+`sns@v1.42.4` (`ListEndpointsByPlatformApplication`, `ListOriginationNumbers`,
+`ListPhoneNumbersOptedOut`, `ListPlatformApplications`, `ListSMSSandboxPhoneNumbers`,
+`ListSubscriptions`, `ListSubscriptionsByTopic`, `ListTagsForResource`, `ListTopics`) --
+9 ops total. SNS's List surface turned out to be almost entirely pagination (`NextToken`,
+sometimes `MaxResults`) plus a required target-scoping ARN on 2 ops
+(`ListSubscriptionsByTopic.TopicArn`, `ListEndpointsByPlatformApplication.
+PlatformApplicationArn`) -- no filter/sort parameters exist on any SNS List op beyond
+that, which is a much smaller real surface than the campaign brief's rough estimate of
+~22 (confirmed overestimate, consistent with 8 other services this campaign).
+
+**0 bugs found.** Every op checked out: `NextToken` correctly read and threaded through
+(`pagination.go`'s shared `paginate`/`decodeToken`/`encodeToken`); the 3 ops with a real
+`MaxResults` member (`ListOriginationNumbers`, `ListSMSSandboxPhoneNumbers`, and --
+inertly, see gaps -- `ListPhoneNumbersOptedOut`) correctly resolve via `resolvePageSize`
+against per-op default/max constants matching each op's own doc comment;
+`ListSubscriptionsByTopic`/`ListEndpointsByPlatformApplication` correctly 404
+(`ErrTopicNotFound`/`ErrPlatformApplicationNotFound`) before filtering rather than
+silently returning empty for a nonexistent target, and correctly scope results to only
+that target's subscriptions/endpoints (`b.subscriptionsByTopic`/filtering by
+`PlatformApplicationArn`, verified not leaking cross-target results). One SNS-specific
+wire quirk re-confirmed while checking this class: `ListPhoneNumbersOptedOut`'s `NextToken`
+is genuinely serialized under a lowercase `nextToken` key by the real SDK (confirmed in
+`serializers.go`, not a case-insensitivity artifact) and `handler_sms.go` already matches
+it exactly -- correct, not a bug, but easy to mistake for one on a quick read.
+
+Test style: no new tests needed (0 bugs to regress-guard); existing pagination/filter
+tests (`pagination_test.go`, `platform_endpoints_test.go`, `subscriptions_test.go`) already
+assert on decoded response content for the cases that exist. Real SDK client not driven
+fresh for this pass -- the existing wrapper-key sweep entry above (`TagResource/
+UntagResource/ListTagsForResource`, `tag_resource_sdk_test.go`) and `ListOriginationNumbers`
+entry already have real-client round-trip coverage on this same code path.
 
 Freeform notes for the next auditor — AWS-behavior specifics worth remembering, and
 "looks-wrong-but-correct" traps.

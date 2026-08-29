@@ -403,6 +403,13 @@ func (b *InMemoryBackend) ListCertificateAuthorities(
 
 	sort.Slice(cas, func(i, j int) bool { return cas[i].ARN < cas[j].ARN })
 
+	// api_op_ListCertificateAuthorities.go: "Although the maximum value is
+	// 1000, the action only returns a maximum of 100 items." -- the page size
+	// never exceeds defaultMaxItems (100) even when the caller requests more.
+	if maxItems <= 0 || maxItems > defaultMaxItems {
+		maxItems = defaultMaxItems
+	}
+
 	return page.New(cas, nextToken, maxItems, defaultMaxItems), nil
 }
 

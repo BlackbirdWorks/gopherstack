@@ -124,24 +124,83 @@ func advanceJob(job *TranslationJob) {
 	}
 }
 
+// TextTranslationJobFilter mirrors types.TextTranslationJobFilter
+// (api_op_ListTextTranslationJobs.go): JobName/JobStatus/SubmittedAfterTime/
+// SubmittedBeforeTime, each optional and independently zero-valued when unset.
+type TextTranslationJobFilter struct {
+	SubmittedAfterTime  *time.Time
+	SubmittedBeforeTime *time.Time
+	JobName             string
+	JobStatus           string
+}
+
+// matchesJobFilter reports whether job satisfies every constraint set on
+// filter (each field is independently optional).
+func matchesJobFilter(job *TranslationJob, filter TextTranslationJobFilter) bool {
+	if filter.JobName != "" && job.JobName != filter.JobName {
+		return false
+	}
+
+	if filter.JobStatus != "" && job.JobStatus != filter.JobStatus {
+		return false
+	}
+
+	if filter.SubmittedAfterTime != nil && !job.SubmittedAt.After(*filter.SubmittedAfterTime) {
+		return false
+	}
+
+	if filter.SubmittedBeforeTime != nil && !job.SubmittedAt.Before(*filter.SubmittedBeforeTime) {
+		return false
+	}
+
+	return true
+}
+
+// sortJobs orders jobs by SubmittedAt following the two documented cases on
+// TextTranslationJobFilter's own fields: SubmittedBeforeTime returns
+// ascending (oldest to newest); SubmittedAfterTime returns descending
+// (newest to oldest). No case is documented for an unfiltered/JobName/
+// JobStatus-only request, so this backend defaults to the same descending
+// order SubmittedAfterTime uses, for a consistent "most recent first"
+// default across every other filter combination. JobID is a stable tiebreak
+// for equal timestamps.
+func sortJobs(jobs []*TranslationJob, ascending bool) {
+	sort.Slice(jobs, func(i, j int) bool {
+		if jobs[i].SubmittedAt.Equal(jobs[j].SubmittedAt) {
+			return jobs[i].JobID < jobs[j].JobID
+		}
+
+		if ascending {
+			return jobs[i].SubmittedAt.Before(jobs[j].SubmittedAt)
+		}
+
+		return jobs[i].SubmittedAt.After(jobs[j].SubmittedAt)
+	})
+}
+
 // ListTextTranslationJobs returns a paginated list of translation jobs.
 func (b *InMemoryBackend) ListTextTranslationJobs(
-	statusFilter string,
+	filter TextTranslationJobFilter,
 	maxResults int,
 	nextToken string,
 ) ([]*TranslationJob, string) {
 	b.mu.RLock("ListTextTranslationJobs")
 	defer b.mu.RUnlock()
 
-	ids := make([]string, 0, b.jobs.Len())
+	jobs := make([]*TranslationJob, 0, b.jobs.Len())
 
 	for _, job := range b.jobs.All() {
-		if statusFilter == "" || strings.EqualFold(job.JobStatus, statusFilter) {
-			ids = append(ids, job.JobID)
+		if matchesJobFilter(job, filter) {
+			jobs = append(jobs, job)
 		}
 	}
 
-	sort.Strings(ids)
+	sortJobs(jobs, filter.SubmittedBeforeTime != nil)
+
+	ids := make([]string, len(jobs))
+	for i, job := range jobs {
+		ids[i] = job.JobID
+	}
 
 	return paginate(ids, func(id string) *TranslationJob { return tableGet(b.jobs, id) }, maxResults, nextToken)
 }

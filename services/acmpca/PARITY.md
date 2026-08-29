@@ -14,7 +14,7 @@ overall: A            # wrapper-key/nested-shape re-audit this pass: zero new wi
 ops:
   CreateCertificateAuthority: {wire: ok, errors: ok, state: ok, persist: ok, note: "ROOT auto-signs+activates; SUBORDINATE -> PENDING_CERTIFICATE. FIXED THIS PASS: IdempotencyToken now deduplicated (5-min window); KeyStorageSecurityStandard/UsageMode/RevocationConfiguration now accepted, validated, stored, and echoed (previously entirely absent from the model -- a gap not listed in the prior manifest, found via full field-diff)."}
   DescribeCertificateAuthority: {wire: ok, errors: ok, state: ok, persist: ok, note: "reports RestorableUntil, LastStateChangeAt (new field, fixed this pass), KeyStorageSecurityStandard, UsageMode, RevocationConfiguration (omitted entirely when unconfigured, matching a nil *types.RevocationConfiguration). A CA past its RestorableUntil deadline now correctly returns ResourceNotFoundException (fixed this pass -- see gaps)."}
-  ListCertificateAuthorities: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED THIS PASS: ResourceOwner now validated and enforced -- SELF/empty lists this account's CAs, OTHER_ACCOUNTS returns an empty page (no cross-account sharing modeled), anything else is InvalidParameterException. Also now filters out CAs past their RestorableUntil deadline."}
+  ListCertificateAuthorities: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED THIS PASS: ResourceOwner now validated and enforced -- SELF/empty lists this account's CAs, OTHER_ACCOUNTS returns an empty page (no cross-account sharing modeled), anything else is InvalidParameterException. Also now filters out CAs past their RestorableUntil deadline. gopherstack-wksw (2026-08-29, constraint-not-honoured sweep): MaxResults' documented ceiling (api_op_ListCertificateAuthorities.go: 'Although the maximum value is 1000, the action only returns a maximum of 100 items.') was not applied -- a caller-requested MaxResults above 100 (up to the accepted max of 1000) returned that many items in one page instead of AWS's hard 100-item page cap. Fixed: certificate_authorities.go's ListCertificateAuthorities now clamps to defaultMaxItems (100) whenever the requested value is <=0 or >100, matching the doc comment exactly (not just the omitted-parameter default). TestInMemoryBackend_ListCertificateAuthorities_MaxResultsCappedAt100 (list_certificate_authorities_maxresults_test.go) confirmed failing pre-fix for MaxResults=500 and MaxResults=1000 (both returned the full requested count against 105 seeded CAs)."}
   DeleteCertificateAuthority: {wire: ok, errors: ok, state: ok, persist: ok, note: "tracks RestorableUntil (default 30d) and sets LastStateChangeAt (new field, fixed this pass)."}
   UpdateCertificateAuthority: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED THIS PASS: now accepts RevocationConfiguration (omitting the field leaves the CA's existing configuration unchanged, matching the real API's documented semantics -- distinguished from an explicit null via a custom UnmarshalJSON tracking which wire keys were present); sets LastStateChangeAt on status change."}
   RestoreCertificateAuthority: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED THIS PASS: clears RestorableUntil and now correctly rejects a restore attempted after the RestorableUntil deadline (ResourceNotFoundException, matching real AWS permanently removing the CA once its restoration window ends) -- see caGet/casInRegion in store.go, the single choke point every CA read/write goes through."}
@@ -53,6 +53,36 @@ leaks: {status: clean, note: "no goroutines/janitors in this service; all state 
 
 Protocol: awsjson1.1 (single POST, `X-Amz-Target: ACMPrivateCA.<Op>`; RouteMatcher prefix
 `"ACMPrivateCA."` confirmed against the SDK's `ServiceID`/operation names — correct).
+
+### 2026-08-29 constraint-not-honoured sweep (gopherstack-wksw)
+
+New bug class for this campaign: a parameter constraining a result (filter/page-limit)
+present in the real Input but not correctly honoured -- distinct from the wire-shape bugs
+the 2026-08-20 sweep covered. All 3 collection-returning ops (`ListCertificateAuthorities`,
+`ListPermissions`, `ListTags`) re-read against their own `api_op_List*.go` in
+`acmpca@v1.50.0`. **1 real bug found and fixed** -- `ListCertificateAuthorities`'s
+100-item hard page cap (see its ops entry above for detail). `ListPermissions` and
+`ListTags` were re-confirmed clean: both share the same `pkgs/page.New(items, nextToken,
+maxItems, defaultMaxItems)` call shape, but neither op's own doc comment documents a
+lower-than-requested actual-return ceiling the way `ListCertificateAuthorities`'s does (each
+just says "specify the maximum number of items to return" with no "only returns a maximum
+of N" caveat), so `page.New`'s plain `limit <= 0 -> defaultLimit` fallback with no upper
+clamp is correct behavior for those two, not a second instance of the same bug. This also
+confirms the "family is never the unit of truth" rule directly: three ops share one
+pagination helper and one `defaultMaxItems` constant, but only one of the three has a
+documented ceiling below what a caller can request.
+
+`ListCertificateAuthorities.ResourceOwner` (already fixed by a prior pass, per its own ops
+entry) re-verified still correct -- SELF/empty scope to the account, OTHER_ACCOUNTS empty,
+anything else rejected.
+
+Test style: real backend method call (`b.ListCertificateAuthorities`), not a hand-built
+request, since `MaxResults` already decodes correctly as a plain Go int at the handler --
+the bug is entirely in the backend's page-size resolution, the narrow exception this
+campaign's brief allows for skipping a full SDK-client round trip. Seeded via
+`CreateCertificateAuthority` (105 real CAs, EC key gen, ~30ms total) rather than fabricating
+`CertificateAuthority` structs directly, since acmpca has no existing whitebox test file for
+that pattern and the real creation path is fast enough here.
 
 ### 2026-08-20 re-audit: wrapper-key / nested-shape sweep (zero new wire bugs)
 
