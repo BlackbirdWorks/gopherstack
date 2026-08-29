@@ -372,3 +372,49 @@ with a branch opened at `e15f163e` and merged ten days later. Verdict: the
 originally-stamped date was accurate for the pass it described; the stamp
 simply stopped advancing afterward. This pass's fixes bring `sdk_module`,
 `last_audit_commit`, and `last_audit_date` back in sync with actual HEAD.
+
+### 2026-08-29: independent re-sweep, GENUINELY CLEAN (gopherstack-6flj/21my)
+
+No code changes since `last_audit_commit`; `git log d5aaf8e79..HEAD --
+services/mwaa/` shows only the already-recorded 2026-08-20
+wrapper-key/AirflowVersion/LoggingConfiguration sweep and an unrelated
+IAM-enforcement test addition. Re-derived member lists directly from
+`types/types.go`/`api_op_*.go` rather than trusting the prior manifest's
+counts, and checked write-only state both directions:
+
+- **N of N member coverage, independently re-counted**: `Environment`
+  27/27 real fields on gopherstack's struct match 34/34 wire-serialized
+  members on the real `types.Environment` (the delta is `Environment`'s
+  unexported `region` field, which carries no json tag and is never
+  serialized -- not a wire gap); `CreateEnvironmentInput` 25/25 (24 body
+  fields + `Name` bound from the path); `UpdateEnvironmentInput` 23/23 (22
+  body fields + `Name` from the path, `KmsKey`/`EndpointManagement`
+  correctly absent since the real `UpdateEnvironmentInput` has no such
+  members).
+- **FORWARD (accept-and-drop)**: re-read `createEnvironmentRequest`/
+  `updateEnvironmentRequest` against `buildEnvironment`/
+  `applyUpdateScalars`/`applyUpdateS3Paths` field-by-field; every accepted
+  field is either stored on `Environment` or is real request-only
+  plumbing with no response counterpart (none found this pass).
+  `invokeRestAPIRequest.Body`/`.QueryParameters` are decoded and never
+  read by `InvokeRestAPI` -- already investigated and disclosed as a gap
+  (a per-path Airflow route table gopherstack cannot fabricate), not a
+  fresh finding.
+- **REVERSE (computable-but-unemitted)**: no stored field found without a
+  reader; `LastUpdate.WorkerReplacementStrategy`,
+  `NetworkConfiguration.SecurityGroupIds` (update-merge path),
+  `LoggingConfiguration` (via `convertLoggingConfiguration`) all round-trip
+  through `GetEnvironment`'s direct struct marshal.
+- **Enums**: `EndpointManagement`, `EnvironmentStatus` (12 values, `MAINTENANCE`
+  disclosed unmodeled), `WebserverAccessMode`, `WorkerReplacementStrategy`,
+  `RestApiMethod`/`validRestAPIMethods()`, `LoggingLevel` all re-diffed
+  against `types/enums.go` field-for-field; no invented or missing values
+  found.
+- Tools: `enumcheck` run repo-wide, zero findings for `services/mwaa/`.
+  `go build`, `go vet ./...` (repo-wide), `go test -race -count=1
+  ./services/mwaa/...`, `golangci-lint run ./services/mwaa/...` all clean,
+  0 issues.
+
+Verdict: no bugs found this pass. This is the second independent
+confirmation (after 2026-08-20's sweep) that this service's wire shape is
+correct in both directions.
