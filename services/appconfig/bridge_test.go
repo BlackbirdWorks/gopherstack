@@ -75,6 +75,7 @@ func (f *bridgeFixture) deployHostedContent(
 	dep, err := f.ac.StartDeployment(
 		f.appID, f.envID, f.profileID, strategy.ID,
 		strconv.FormatInt(int64(hcv.VersionNumber), 10), "",
+		nil, nil, nil,
 	)
 	require.NoError(t, err)
 

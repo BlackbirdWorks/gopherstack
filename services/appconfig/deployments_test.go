@@ -36,7 +36,7 @@ func TestBackend_StartDeployment_ZeroDurationCompletesSynchronously(t *testing.T
 	b := appconfig.NewInMemoryBackend("123456789012", "us-east-1")
 	appID, envID, profileID, strategyID := seedDeployableConfig(t, b, []byte(`{}`))
 
-	dep, err := b.StartDeployment(appID, envID, profileID, strategyID, "1", "")
+	dep, err := b.StartDeployment(appID, envID, profileID, strategyID, "1", "", nil, nil, nil)
 	require.NoError(t, err)
 	assert.Equal(t, "COMPLETE", dep.State)
 	assert.InDelta(t, float32(100), dep.PercentageComplete, 0.001)
@@ -71,7 +71,7 @@ func TestBackend_StartDeployment_ProgressesThroughGrowthAndBake(t *testing.T) {
 	strategy, err := b.CreateDeploymentStrategy("progress-strat", "", 10, 5, 10, "LINEAR", "NONE", nil)
 	require.NoError(t, err)
 
-	dep, err := b.StartDeployment(app.ID, env.ID, profile.ID, strategy.ID, "1", "")
+	dep, err := b.StartDeployment(app.ID, env.ID, profile.ID, strategy.ID, "1", "", nil, nil, nil)
 	require.NoError(t, err)
 	assert.Equal(t, "DEPLOYING", dep.State, "a non-zero-duration strategy must not complete synchronously")
 	require.Len(t, dep.EventLog, 1)
@@ -137,7 +137,7 @@ func TestBackend_StartDeployment_UnknownHostedVersion_NotFound(t *testing.T) {
 	require.NoError(t, err)
 
 	// No HostedConfigurationVersion was ever created for this profile.
-	_, err = b.StartDeployment(app.ID, env.ID, profile.ID, strategy.ID, "1", "")
+	_, err = b.StartDeployment(app.ID, env.ID, profile.ID, strategy.ID, "1", "", nil, nil, nil)
 	require.Error(t, err)
 }
 
@@ -165,7 +165,7 @@ func TestBackend_StartDeployment_NonHostedProfile_SkipsVersionValidation(t *test
 	strategy, err := b.CreateDeploymentStrategy("ssm-strat", "", 0, 0, 100, "LINEAR", "NONE", nil)
 	require.NoError(t, err)
 
-	_, err = b.StartDeployment(app.ID, env.ID, profile.ID, strategy.ID, "1", "")
+	_, err = b.StartDeployment(app.ID, env.ID, profile.ID, strategy.ID, "1", "", nil, nil, nil)
 	require.NoError(t, err, "non-hosted profiles must not be validated against hostedConfigVersions")
 }
 
@@ -199,10 +199,10 @@ func TestBackend_StopDeployment_AllowRevert_RevertsToPreviousVersion(t *testing.
 	strategy, err := b.CreateDeploymentStrategy("revert-strat", "", 0, 0, 100, "LINEAR", "NONE", nil)
 	require.NoError(t, err)
 
-	_, err = b.StartDeployment(app.ID, env.ID, profile.ID, strategy.ID, "1", "")
+	_, err = b.StartDeployment(app.ID, env.ID, profile.ID, strategy.ID, "1", "", nil, nil, nil)
 	require.NoError(t, err)
 
-	dep2, err := b.StartDeployment(app.ID, env.ID, profile.ID, strategy.ID, "2", "")
+	dep2, err := b.StartDeployment(app.ID, env.ID, profile.ID, strategy.ID, "2", "", nil, nil, nil)
 	require.NoError(t, err)
 	require.Equal(t, "COMPLETE", dep2.State)
 
@@ -232,7 +232,7 @@ func TestBackend_StopDeployment_CompleteWithoutAllowRevert_Rejected(t *testing.T
 	b := appconfig.NewInMemoryBackend("123456789012", "us-east-1")
 	appID, envID, profileID, strategyID := seedDeployableConfig(t, b, []byte(`{}`))
 
-	dep, err := b.StartDeployment(appID, envID, profileID, strategyID, "1", "")
+	dep, err := b.StartDeployment(appID, envID, profileID, strategyID, "1", "", nil, nil, nil)
 	require.NoError(t, err)
 	require.Equal(t, "COMPLETE", dep.State)
 

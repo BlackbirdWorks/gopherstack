@@ -84,6 +84,10 @@ func toRiskConfigJSON(cfg *TypedRiskConfiguration) *riskConfigurationJSON {
 		ClientID:   cfg.ClientID,
 	}
 
+	if !cfg.LastModifiedAt.IsZero() {
+		out.LastModifiedDate = float64(cfg.LastModifiedAt.Unix())
+	}
+
 	if cfg.CompromisedCredentialsRiskConfig != nil {
 		c := &compromisedCredRiskConfigJSON{
 			EventFilter: cfg.CompromisedCredentialsRiskConfig.EventFilter,
