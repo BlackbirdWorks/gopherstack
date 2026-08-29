@@ -125,12 +125,12 @@ func TestBatchJobRegionIsolation(t *testing.T) {
 	// us-east-1 sees the job; us-west-2 does not (cross-index isolation).
 	// job1 is still SUBMITTED (never scheduled); real AWS Batch's unfiltered
 	// ListJobs defaults to RUNNING-only, so filter explicitly.
-	eastJobs, _, err := backend.ListJobs(ctxEast, "queue1", "SUBMITTED", "", 0)
+	eastJobs, _, err := backend.ListJobs(ctxEast, "queue1", "SUBMITTED", "", 0, nil)
 	require.NoError(t, err)
 	require.Len(t, eastJobs, 1)
 	assert.Equal(t, "job1", eastJobs[0].JobName)
 
-	westJobs, _, err := backend.ListJobs(ctxWest, "queue1", "", "", 0)
+	westJobs, _, err := backend.ListJobs(ctxWest, "queue1", "", "", 0, nil)
 	require.NoError(t, err)
 	assert.Empty(t, westJobs)
 

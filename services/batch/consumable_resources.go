@@ -179,8 +179,37 @@ func (b *InMemoryBackend) UpdateConsumableResource(
 	return &cp, nil
 }
 
-// ListConsumableResources returns all consumable resources sorted by name.
-func (b *InMemoryBackend) ListConsumableResources(ctx context.Context) []*ConsumableResource {
+// consumableResourceMatchesFilters reports whether cr satisfies every filter
+// entry (AND across entries, OR within one entry's Values). Only
+// CONSUMABLE_RESOURCE_NAME is a documented filter name for this op.
+func consumableResourceMatchesFilters(cr *ConsumableResource, filters []KeyValueFilter) bool {
+	for _, f := range filters {
+		if f.Name != "CONSUMABLE_RESOURCE_NAME" {
+			return false
+		}
+
+		matched := false
+
+		for _, v := range f.Values {
+			if filterValueMatches(cr.ConsumableResourceName, v, true) {
+				matched = true
+
+				break
+			}
+		}
+
+		if !matched {
+			return false
+		}
+	}
+
+	return true
+}
+
+// ListConsumableResources returns all consumable resources sorted by name,
+// optionally filtered by name (CONSUMABLE_RESOURCE_NAME, case-insensitive,
+// trailing '*' is a prefix match -- api_op_ListConsumableResources.go).
+func (b *InMemoryBackend) ListConsumableResources(ctx context.Context, filters []KeyValueFilter) []*ConsumableResource {
 	region := getRegion(ctx, b.region)
 
 	b.mu.RLock("ListConsumableResources")
@@ -190,6 +219,10 @@ func (b *InMemoryBackend) ListConsumableResources(ctx context.Context) []*Consum
 	list := make([]*ConsumableResource, 0, len(group))
 
 	for _, cr := range group {
+		if !consumableResourceMatchesFilters(cr, filters) {
+			continue
+		}
+
 		cp := *cr
 		cp.Tags = tagsCloneOrEmpty(cr.Tags)
 		list = append(list, &cp)
