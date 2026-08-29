@@ -6,17 +6,39 @@ import (
 )
 
 type startBuildInput struct {
-	ArtifactsOverride            *ProjectArtifacts     `json:"artifactsOverride,omitempty"`
-	ProjectName                  string                `json:"projectName"`
-	BuildspecOverride            string                `json:"buildspecOverride,omitempty"`
-	ComputeTypeOverride          string                `json:"computeTypeOverride,omitempty"`
-	ImageOverride                string                `json:"imageOverride,omitempty"`
-	ServiceRoleOverride          string                `json:"serviceRoleOverride,omitempty"`
-	SourceVersion                string                `json:"sourceVersion,omitempty"`
-	IdempotencyToken             string                `json:"idempotencyToken,omitempty"`
-	EnvironmentVariablesOverride []EnvironmentVariable `json:"environmentVariablesOverride,omitempty"`
-	TimeoutInMinutesOverride     int32                 `json:"timeoutInMinutesOverride,omitempty"`
-	DebugSessionEnabled          bool                  `json:"debugSessionEnabled,omitempty"`
+	ArtifactsOverride                *ProjectArtifacts      `json:"artifactsOverride,omitempty"`
+	CacheOverride                    *ProjectCache          `json:"cacheOverride,omitempty"`
+	RegistryCredentialOverride       *RegistryCredential    `json:"registryCredentialOverride,omitempty"`
+	FleetOverride                    *ProjectFleet          `json:"fleetOverride,omitempty"`
+	SourceAuthOverride               *SourceAuth            `json:"sourceAuthOverride,omitempty"`
+	BuildStatusConfigOverride        *BuildStatusConfig     `json:"buildStatusConfigOverride,omitempty"`
+	GitSubmodulesConfigOverride      *GitSubmodulesConfig   `json:"gitSubmodulesConfigOverride,omitempty"`
+	InsecureSslOverride              *bool                  `json:"insecureSslOverride,omitempty"`
+	ReportBuildStatusOverride        *bool                  `json:"reportBuildStatusOverride,omitempty"`
+	PrivilegedModeOverride           *bool                  `json:"privilegedModeOverride,omitempty"`
+	GitCloneDepthOverride            *int32                 `json:"gitCloneDepthOverride,omitempty"`
+	ProjectName                      string                 `json:"projectName"`
+	BuildspecOverride                string                 `json:"buildspecOverride,omitempty"`
+	ComputeTypeOverride              string                 `json:"computeTypeOverride,omitempty"`
+	ImageOverride                    string                 `json:"imageOverride,omitempty"`
+	ServiceRoleOverride              string                 `json:"serviceRoleOverride,omitempty"`
+	SourceVersion                    string                 `json:"sourceVersion,omitempty"`
+	SourceTypeOverride               string                 `json:"sourceTypeOverride,omitempty"`
+	SourceLocationOverride           string                 `json:"sourceLocationOverride,omitempty"`
+	EnvironmentTypeOverride          string                 `json:"environmentTypeOverride,omitempty"`
+	CertificateOverride              string                 `json:"certificateOverride,omitempty"`
+	ImagePullCredentialsTypeOverride string                 `json:"imagePullCredentialsTypeOverride,omitempty"`
+	HostKernelOverride               string                 `json:"hostKernelOverride,omitempty"`
+	EncryptionKeyOverride            string                 `json:"encryptionKeyOverride,omitempty"`
+	IdempotencyToken                 string                 `json:"idempotencyToken,omitempty"`
+	EnvironmentVariablesOverride     []EnvironmentVariable  `json:"environmentVariablesOverride,omitempty"`
+	SecondaryArtifactsOverride       []ProjectArtifacts     `json:"secondaryArtifactsOverride,omitempty"`
+	SecondarySourcesOverride         []ProjectSource        `json:"secondarySourcesOverride,omitempty"`
+	SecondarySourcesVersionOverride  []ProjectSourceVersion `json:"secondarySourcesVersionOverride,omitempty"`
+	TimeoutInMinutesOverride         int32                  `json:"timeoutInMinutesOverride,omitempty"`
+	QueuedTimeoutInMinutesOverride   int32                  `json:"queuedTimeoutInMinutesOverride,omitempty"`
+	AutoRetryLimitOverride           int32                  `json:"autoRetryLimitOverride,omitempty"`
+	DebugSessionEnabled              bool                   `json:"debugSessionEnabled,omitempty"`
 }
 
 type startBuildOutput struct {
@@ -32,14 +54,37 @@ func (h *Handler) handleStartBuild(
 	}
 
 	build, err := h.Backend.StartBuild(in.ProjectName, StartBuildConfig{
-		EnvVarsOverride:          in.EnvironmentVariablesOverride,
-		BuildspecOverride:        in.BuildspecOverride,
-		ComputeTypeOverride:      in.ComputeTypeOverride,
-		ImageOverride:            in.ImageOverride,
-		ServiceRoleOverride:      in.ServiceRoleOverride,
-		SourceVersion:            in.SourceVersion,
-		TimeoutInMinutesOverride: in.TimeoutInMinutesOverride,
-		DebugSessionEnabled:      in.DebugSessionEnabled,
+		EnvVarsOverride:                  in.EnvironmentVariablesOverride,
+		BuildspecOverride:                in.BuildspecOverride,
+		ComputeTypeOverride:              in.ComputeTypeOverride,
+		ImageOverride:                    in.ImageOverride,
+		ServiceRoleOverride:              in.ServiceRoleOverride,
+		SourceVersion:                    in.SourceVersion,
+		TimeoutInMinutesOverride:         in.TimeoutInMinutesOverride,
+		DebugSessionEnabled:              in.DebugSessionEnabled,
+		ArtifactsOverride:                in.ArtifactsOverride,
+		CacheOverride:                    in.CacheOverride,
+		RegistryCredentialOverride:       in.RegistryCredentialOverride,
+		FleetOverride:                    in.FleetOverride,
+		SourceAuthOverride:               in.SourceAuthOverride,
+		BuildStatusConfigOverride:        in.BuildStatusConfigOverride,
+		GitSubmodulesConfigOverride:      in.GitSubmodulesConfigOverride,
+		InsecureSslOverride:              in.InsecureSslOverride,
+		ReportBuildStatusOverride:        in.ReportBuildStatusOverride,
+		PrivilegedModeOverride:           in.PrivilegedModeOverride,
+		GitCloneDepthOverride:            in.GitCloneDepthOverride,
+		SourceTypeOverride:               in.SourceTypeOverride,
+		SourceLocationOverride:           in.SourceLocationOverride,
+		EnvironmentTypeOverride:          in.EnvironmentTypeOverride,
+		CertificateOverride:              in.CertificateOverride,
+		ImagePullCredentialsTypeOverride: in.ImagePullCredentialsTypeOverride,
+		HostKernelOverride:               in.HostKernelOverride,
+		EncryptionKeyOverride:            in.EncryptionKeyOverride,
+		SecondaryArtifactsOverride:       in.SecondaryArtifactsOverride,
+		SecondarySourcesOverride:         in.SecondarySourcesOverride,
+		SecondarySourcesVersionOverride:  in.SecondarySourcesVersionOverride,
+		QueuedTimeoutInMinutesOverride:   in.QueuedTimeoutInMinutesOverride,
+		AutoRetryLimitOverride:           in.AutoRetryLimitOverride,
 	})
 	if err != nil {
 		return nil, err

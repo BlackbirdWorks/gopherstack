@@ -2,8 +2,14 @@
 service: athena
 sdk_module: aws-sdk-go-v2/service/athena@v1.60.4
 last_audit_commit: c47d785b7
-last_audit_date: 2026-07-23
+last_audit_date: 2026-08-28
 overall: A            # genuine wire-shape fixes found in a previously well-built, well-tested service
+                       # 2026-08-28 (gopherstack-6flj write-only-state sweep): CreateWorkGroup silently
+                       # dropped Configuration.EngineConfiguration/MonitoringConfiguration entirely (no
+                       # model field existed); EngineConfiguration.Classifications was missing too,
+                       # affecting the pre-existing StartSession path as well since real AWS reuses one
+                       # EngineConfiguration type for both. Fixed with a real-client round-trip test. See
+                       # the WorkGroup op row and Notes.
                        # 2026-08-21 (gopherstack-1vv2): fixed UpdateWorkGroup wholesale-replacing
                        # Configuration with the narrower ConfigurationUpdates payload, destroying
                        # fields (ResultConfiguration/EngineVersion/etc.) any single-field Update
@@ -21,14 +27,14 @@ ops:
   GetQueryResults: {wire: ok, errors: ok, state: ok, persist: ok, note: "ResultSet/Row/Datum/ColumnInfo shapes verified against awsAwsjson11 deserializers; header row only on first page, matching AWS."}
   ListQueryExecutions: {wire: ok, errors: ok, state: ok, persist: ok, note: "opaque-token pagination via pkgs' page-token codec"}
   BatchGetQueryExecution: {wire: ok, errors: ok, state: ok, persist: ok}
-  WorkGroup (Create/Get/List/Update/Delete): {wire: ok, errors: ok, state: ok, persist: fixed, note: "FIXED (2026-07-23) — WorkGroup carried an invented Tags field (real GetWorkGroupOutput.WorkGroup has none; tags are TagResource/ListTagsForResource-only) that also went stale the moment TagResource/UntagResource were called, since those never touched it. Field removed; CreateWorkGroup's Tags input now flows only into resourceTags. Also FIXED (previous pass) — ResultConfiguration.ACLConfiguration was tagged json:\"ACLConfiguration\"; real wire key is \"AclConfiguration\". 2026-08-21 (gopherstack-1vv2): persist was accept-and-corrupt — UpdateWorkGroupInput.ConfigurationUpdates is types.WorkGroupConfigurationUpdates, a partial-update shape a real client only ever sends the changed fields of, but the handler decoded it into the same WorkGroupConfiguration type as Create and the backend wholesale-replaced wg.Configuration with it -- so any single-field Update (e.g. just EnforceWorkGroupConfiguration) silently erased ResultConfiguration/EngineVersion/etc. set at Create. Fixed: new WorkGroupConfigurationUpdates type (pointer scalars, so omitted is distinguishable from explicit false/0/empty) with a MergeInto that only touches fields actually present. See TestHandler_UpdateWorkGroup_PreservesUnmentionedConfiguration. IdentityCenterConfiguration/ManagedQueryResultsConfiguration and ResultConfigurationUpdates' Remove* explicit-clear flags remain unmodeled -- separate gaps, not fixed this pass."}
+  WorkGroup (Create/Get/List/Update/Delete): {wire: ok, errors: ok, state: ok, persist: fixed, note: "FIXED 2026-08-28 (gopherstack-6flj) — WorkGroupConfiguration had no EngineConfiguration or MonitoringConfiguration field at all (both real members on types.WorkGroupConfiguration/types.WorkGroupConfigurationUpdates), so CreateWorkGroup/UpdateWorkGroup silently dropped them; added both, wired through MergeInto for Update's partial-update semantics. Also fixed EngineConfiguration.Classifications ([]types.Classification), missing from the shared EngineConfiguration model used by both WorkGroup and Session. IdentityCenterConfiguration/ManagedQueryResultsConfiguration/QueryResultsS3AccessGrantsConfiguration remain unmodeled -- see gaps. FIXED (2026-07-23) — WorkGroup carried an invented Tags field (real GetWorkGroupOutput.WorkGroup has none; tags are TagResource/ListTagsForResource-only) that also went stale the moment TagResource/UntagResource were called, since those never touched it. Field removed; CreateWorkGroup's Tags input now flows only into resourceTags. Also FIXED (previous pass) — ResultConfiguration.ACLConfiguration was tagged json:\"ACLConfiguration\"; real wire key is \"AclConfiguration\". 2026-08-21 (gopherstack-1vv2): persist was accept-and-corrupt — UpdateWorkGroupInput.ConfigurationUpdates is types.WorkGroupConfigurationUpdates, a partial-update shape a real client only ever sends the changed fields of, but the handler decoded it into the same WorkGroupConfiguration type as Create and the backend wholesale-replaced wg.Configuration with it -- so any single-field Update (e.g. just EnforceWorkGroupConfiguration) silently erased ResultConfiguration/EngineVersion/etc. set at Create. Fixed: new WorkGroupConfigurationUpdates type (pointer scalars, so omitted is distinguishable from explicit false/0/empty) with a MergeInto that only touches fields actually present. See TestHandler_UpdateWorkGroup_PreservesUnmentionedConfiguration. ResultConfigurationUpdates' Remove* explicit-clear flags remain unmodeled -- separate gap, not fixed this pass."}
   NamedQuery (Create/Get/List/BatchGet/Delete/Update): {wire: ok, errors: ok, state: ok, persist: ok}
   DataCatalog (Create/Get/List/Update/Delete): {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (2026-07-23) — CreateDataCatalogOutput/DeleteDataCatalogOutput now populate the optional DataCatalog object (SDK v1.57.2) with the created/just-deleted record. Also FIXED — DataCatalog carried the same invented Tags field as WorkGroup (see above); removed, CreateDataCatalog's Tags input now flows only into resourceTags."}
   PreparedStatement (Create/Get/List/BatchGet/Delete/Update): {wire: ok, errors: ok, state: ok, persist: ok}
   CapacityReservation (Create/Get/List/Update/Cancel/Delete): {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (2026-07-23) — CapacityReservation carried the same invented Tags field as WorkGroup/DataCatalog, but worse: CreateCapacityReservation had never built an ARN or written to resourceTags at all, so a capacity reservation's tags were previously unreachable via TagResource/ListTagsForResource entirely (no arn.Build call existed for this resource kind). Added InMemoryBackend.capacityReservationARN and wired Create/Delete to mirror/cascade-clean resourceTags like WorkGroup/DataCatalog already did."}
   CapacityAssignmentConfiguration (Put/Get): {wire: ok, errors: ok, state: ok, persist: ok}
   Notebook (Create/Delete/Export/Import/Update/UpdateMetadata/GetMetadata/ListMetadata): {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (2026-07-23) — CreateNotebookInput carried an invented Tags field; the real CreateNotebookInput has only Name/WorkGroup/ClientRequestToken (unlike WorkGroup/DataCatalog/CapacityReservation, notebooks cannot be tagged at creation in the real API). Removed; a client sending Tags anyway (as no real SDK client would) is now harmlessly ignored rather than silently accepted. A notebook remains taggable after creation via TagResource against its ARN."}
-  Session (Start/Get/GetStatus/Terminate/List/ListNotebookSessions): {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (gopherstack-cgq3) — StartSession was missing the real optional MonitoringConfiguration field (types.MonitoringConfiguration: CloudWatchLoggingConfiguration/ManagedLoggingConfiguration/S3LoggingConfiguration, per GetSessionOutput.MonitoringConfiguration). Now accepted, stored on Session, and echoed by GetSession, matching the real API's own StartSession->GetSession round trip. StartSession's own request struct also still carries a SessionConfiguration field with no counterpart on the real StartSessionInput (only GetSessionOutput has SessionConfiguration, and it's workgroup-derived there, not client-supplied) — out of this fix's scope, left as-is and noted here for a future pass."}
+  Session (Start/Get/GetStatus/Terminate/List/ListNotebookSessions): {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-28 (gopherstack-6flj) — EngineConfiguration.Classifications ([]types.Classification{Name,Properties}) was missing from the shared EngineConfiguration model, affecting StartSession the same way it affected CreateWorkGroup; see the WorkGroup row. FIXED (gopherstack-cgq3) — StartSession was missing the real optional MonitoringConfiguration field (types.MonitoringConfiguration: CloudWatchLoggingConfiguration/ManagedLoggingConfiguration/S3LoggingConfiguration, per GetSessionOutput.MonitoringConfiguration). Now accepted, stored on Session, and echoed by GetSession, matching the real API's own StartSession->GetSession round trip. StartSession's own request struct also still carries a SessionConfiguration field with no counterpart on the real StartSessionInput (only GetSessionOutput has SessionConfiguration, and it's workgroup-derived there, not client-supplied) — out of this fix's scope, left as-is and noted here for a future pass."}
   Calculation (Start/Get/GetStatus/GetCode/Stop/List): {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-21 (gopherstack-us9u kind-mismatch sweep) -- CalculationStatistics.Progress was int64, hardcoded to 100 on every calculation; the real types.CalculationStatistics.Progress is *string (deserializers.go case \"Progress\": expected DescriptionString to be of type string), so every real SDK client's GetCalculationExecutionStatus/GetCalculationExecution call failed outright since Progress is always populated. Fixed by changing the field to string (now \"COMPLETED\"). Proven via a real aws-sdk-go-v2/service/athena client round trip (wire_calculation_progress_test.go), hand-reverted/confirmed-failing (expected DescriptionString to be of type string, got json.Number instead)/restored, md5sum-verified byte-identical."}
   Database/TableMetadata (Get/List): {wire: ok, errors: ok, state: ok, persist: ok, note: "'dirty' tables round-trip through the DTO registry in persistence.go; verified by persistence_test.go (the store_setup_test.go filename this note previously cited does not exist in the tree — stale reference, the coverage itself is real and passing)"}
   Tags (Tag/Untag/ListTagsForResource): {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (2026-07-23) — TagResource/UntagResource/ListTagsForResource now validate ResourceARN resolves to a currently existing taggable resource (workgroup/datacatalog/capacity-reservation/notebook, parsed from the ARN's kind/id resource segment), returning InvalidRequestException (ErrNotFound) otherwise instead of silently no-oping or returning an empty tag list. ListTagsForResource now also honors MaxResults/NextToken pagination (previously ignored both, always returning every tag in one response)."}
@@ -41,6 +47,8 @@ families:
   janitor/leaks: {status: clean, note: "worker.Group-based ticker with ctx cancellation; sweeps queryExecutions+queryResults, sessions, calculations under RLock-collect/Lock-delete with re-verification to avoid racing a concurrent revival. No goroutine leak risk found."}
 gaps:
   - DeleteDataCatalogInput.DeleteCatalogOnly (real SDK v1.57.2 field, FEDERATED-catalog-only) is not modeled as a request input; gopherstack does not simulate the underlying CFN Stack/Lambda/Glue Connection resources a FEDERATED catalog's deletion would otherwise need to selectively preserve, so the flag would have no observable effect either way in this emulator. Not a wire-shape break (an extra unrecognized request field is harmlessly ignored). (bd: unfiled)
+  - "WorkGroupConfiguration.IdentityCenterConfiguration/ManagedQueryResultsConfiguration/QueryResultsS3AccessGrantsConfiguration (real members on types.WorkGroupConfiguration/types.WorkGroupConfigurationUpdates, confirmed 2026-08-28 via serializers.go) remain unmodeled — each is a substantial real feature (IAM Identity Center-gated workgroups, Athena-managed query-result-object lifecycle, S3 Access Grants) this emulator does not simulate end to end, not a quick wire-shape passthrough. WorkGroup.IdentityCenterApplicationArn (the paired response field) likewise unmodeled. (bd: unfiled)"
+  - "QueryExecution.SubstatementType (real *string member on types.QueryExecution, e.g. further classifying a DDL StatementType as CTAS) is not modeled — found 2026-08-28 field-diffing types.QueryExecution, not fixed this pass; low-value single descriptive field. (bd: unfiled)"
 deferred:
   - none — full routed-op surface re-audited this pass (base + extended dispatch tables, 70 ops total)
 leaks: {status: clean, note: "janitor uses pkgs/worker.Group with proper ctx.Done() teardown; no raw goroutines spawned elsewhere in the service. New capacityReservationARN-based resourceTags entries are cascade-deleted on DeleteCapacityReservation (TestInMemoryBackend_DeleteCapacityReservation_CascadesTags), matching the existing WorkGroup/DataCatalog cascade-delete behavior — no ghost tag rows after delete."}
@@ -226,3 +234,92 @@ symptom; restored and `md5sum`-verified byte-identical.
 
 **Gates:** `go build`, `go vet` (default/e2e/integration), `gofmt -l` (clean), `go test -race`
 (pass), `golangci-lint run` (0 issues).
+
+## 2026-08-28 pass (gopherstack-6flj): write-only-state sweep
+
+An existing `wire_field_fixes_test.go` (1 test, `ResultReuseInformation`
+nesting) marked this service PARTIAL, not finished, per this campaign's own
+established rule; `wire_calculation_progress_test.go` (a second, separate
+dedicated test) was also present and likewise not treated as proof of
+completeness. Ran the write-only-state method first: for every write op this
+task named (`UpdateWorkGroup`, `UpdateDataCatalog`, `UpdateNamedQuery`,
+`UpdatePreparedStatement`, `UpdateNotebookMetadata`, the capacity-reservation
+ops), field-diffed the real `aws-sdk-go-v2/service/athena@v1.60.4`
+request/response types directly against gopherstack's models (never against
+gopherstack's own prior output).
+
+`UpdateDataCatalog`/`UpdateNamedQuery`/`UpdatePreparedStatement`/
+`UpdateNotebookMetadata`/`CreateCapacityReservation`/
+`UpdateCapacityReservation`/`PutCapacityAssignmentConfiguration` all
+field-diffed clean: every accepted field is genuinely stored and every
+stored field has a real read path (`GetDataCatalog`/`GetNamedQuery`/
+`GetPreparedStatement`/`GetNotebookMetadata`/`GetCapacityReservation`).
+`NamedQuery`/`PreparedStatement`/`DataCatalog`/`TableMetadata`/`Database`
+model shapes all match `types.go` exactly, field for field.
+
+**One genuine bug found and fixed**, in `WorkGroup`/`Session` — the two
+resources that share Athena's `EngineConfiguration` type:
+
+1. **`WorkGroupConfiguration` had no `EngineConfiguration` or
+   `MonitoringConfiguration` field at all.** Both are real members of
+   `types.WorkGroupConfiguration` (`serializers.go`'s
+   `awsAwsjson11_serializeDocumentWorkGroupConfiguration` "EngineConfiguration"/
+   "MonitoringConfiguration" cases) and of the partial-update
+   `types.WorkGroupConfigurationUpdates` shape. A real client configuring a
+   Spark-notebook workgroup's default engine sizing
+   (`CoordinatorDpuSize`/`DefaultExecutorDpuSize`/`MaxConcurrentDpus`) or
+   log delivery (`CloudWatchLoggingConfiguration`/etc.) on `CreateWorkGroup`
+   had it silently dropped before ever reaching the backend — accepted,
+   never stored, an accept-then-drop bug on the primary method's own list.
+   Fixed: added both fields to `WorkGroupConfiguration` and
+   `WorkGroupConfigurationUpdates` (`models.go`), reusing the identical
+   `EngineConfiguration`/`MonitoringConfiguration` types this service
+   already defines for `Session` (confirmed the real SDK genuinely shares
+   one generated type for both uses, not two separately-named ones), and
+   extended `MergeInto` so `UpdateWorkGroup`'s partial-update semantics
+   (established by the 2026-08-21 `gopherstack-1vv2` pass) cover the two
+   new fields the same way as every other member.
+2. **`EngineConfiguration.Classifications` was missing from the model
+   entirely.** `types.EngineConfiguration` has a `Classifications
+   []types.Classification{Name, Properties}` member (a real, commonly-used
+   Spark/EMR-style named-configuration-block list) with no counterpart in
+   gopherstack's `EngineConfiguration` model — silently dropped on both
+   `CreateWorkGroup` and the pre-existing `StartSession`, since real AWS
+   reuses this one type for both. Fixed: added `Classification` (new type)
+   and `EngineConfiguration.Classifications` (`models.go`); flows through
+   automatically on both `WorkGroup` and `Session` since both already wire
+   `EngineConfiguration` straight through with no per-field handler code.
+
+Swept one hop further into `types.QueryExecution` and found
+`SubstatementType` (a real `*string`, further classifying a DDL
+`StatementType`, e.g. `CTAS`) also unmodeled — a genuinely lower-value
+single descriptive field, documented as a new `gaps:` entry rather than
+fixed this pass given the time this sweep already spent on the two real
+accept-then-drop bugs above.
+
+`WorkGroupConfiguration.IdentityCenterConfiguration`/
+`ManagedQueryResultsConfiguration`/`QueryResultsS3AccessGrantsConfiguration`
+(and `WorkGroup.IdentityCenterApplicationArn`) were also confirmed present
+on the real type this pass but are NOT fixed — each represents a
+substantial real feature (IAM Identity Center-gated workgroup access,
+Athena-managed query-result-object lifecycle, S3 Access Grants) that would
+need real design work to simulate, not a wire-shape passthrough; documented
+as `gaps:` entries. `IdentityCenterConfiguration`/
+`ManagedQueryResultsConfiguration` specifically were already flagged
+unmodeled by the 2026-08-21 pass; this pass additionally confirmed
+`QueryResultsS3AccessGrantsConfiguration` belongs in the same bucket.
+
+Round-trip test: `TestCreateWorkGroup_EngineAndMonitoringConfiguration_RealClient`
+(`wire_field_fixes_test.go`), driving the real `aws-sdk-go-v2/service/athena`
+client through `CreateWorkGroup` → `GetWorkGroup` → `UpdateWorkGroup` →
+`GetWorkGroup`, asserting `EngineConfiguration`/`MonitoringConfiguration`/
+`Classifications` all round-trip and that `UpdateWorkGroup`'s
+`ConfigurationUpdates` still merges rather than wholesale-replaces (guarding
+against a regression of the 2026-08-21 `gopherstack-1vv2` fix). Hand-verified
+to fail against the pre-fix `models.go` (`git stash` of only that file) and
+pass after.
+
+`enumcheck` (`go run ./cmd/enumcheck`) reports 0 findings for athena.
+
+Gates: `go build`, `go vet`, `go test -race -count=1`, `golangci-lint run` —
+all clean (`./services/athena/...`).

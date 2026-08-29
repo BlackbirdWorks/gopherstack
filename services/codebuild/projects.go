@@ -38,6 +38,7 @@ type ProjectConfig struct {
 	VpcConfig               *VpcConfig
 	LogsConfig              *LogsConfig
 	Environment             *ProjectEnvironment
+	BadgeEnabled            *bool
 	Description             string
 	Name                    string
 	EncryptionKey           string
@@ -52,6 +53,34 @@ type ProjectConfig struct {
 	QueuedTimeoutInMinutes  int32
 	ConcurrentBuildLimit    int32
 	AutoRetryLimit          int32
+}
+
+// applyBadge sets p.Badge from a CreateProject/UpdateProject badgeEnabled
+// request (aws-sdk-go-v2/service/codebuild@v1.72.4/api_op_CreateProject.go's
+// BadgeEnabled *bool, api_op_UpdateProject.go's identical field). nil means
+// the request didn't mention badgeEnabled, leaving the current value
+// unchanged (Update partial-update semantics; on Create, p.Badge starts
+// nil, so nil correctly leaves badging disabled). Enabling for the first
+// time generates a stable badgeRequestUrl; re-enabling an already-enabled
+// badge leaves its URL unchanged, matching real AWS not rotating it on every
+// UpdateProject call.
+func (b *InMemoryBackend) applyBadge(p *Project, badgeEnabled *bool, name string) {
+	if badgeEnabled == nil {
+		return
+	}
+
+	if !*badgeEnabled {
+		p.Badge = &ProjectBadge{BadgeEnabled: false}
+
+		return
+	}
+
+	if p.Badge != nil && p.Badge.BadgeEnabled {
+		return
+	}
+
+	url := "https://codebuild." + b.region + ".amazonaws.com/badges?uuid=" + uuid.NewString() + "&project=" + name
+	p.Badge = &ProjectBadge{BadgeEnabled: true, BadgeRequestURL: url}
 }
 
 // CreateProject creates a new CodeBuild project.
@@ -107,6 +136,8 @@ func (b *InMemoryBackend) CreateProject(cfg ProjectConfig) (*Project, error) {
 	if cfg.Environment != nil {
 		p.Environment = *cfg.Environment
 	}
+
+	b.applyBadge(p, cfg.BadgeEnabled, cfg.Name)
 
 	b.projects.Put(p)
 
@@ -229,6 +260,7 @@ func (b *InMemoryBackend) UpdateProject(name string, cfg ProjectConfig) (*Projec
 	}
 
 	applyProjectOptionalFields(p, cfg)
+	b.applyBadge(p, cfg.BadgeEnabled, p.Name)
 
 	if len(cfg.Tags) > 0 {
 		p.Tags = mergeTags(p.Tags, cfg.Tags)
