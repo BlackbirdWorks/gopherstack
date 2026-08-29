@@ -2,9 +2,14 @@
 service: swf
 sdk_module: aws-sdk-go-v2/service/swf@v1.37.4   # verified this pass; go.mod pin, was stale at v1.33.14
 last_audit_commit: fd65c414d
-last_audit_date: 2026-08-20
+last_audit_date: 2026-08-29
 overall: A            # genuine fixes found this pass, plus a wrapper-key/nested-shape sweep
-                       # (2026-08-20) that found and fixed 2 more real bugs; see Notes
+                       # (2026-08-20) that found and fixed 2 more real bugs; see Notes.
+                       # 2026-08-29: one more genuine bug found and fixed (ListOpen/
+                       # ListClosedWorkflowExecutions ReverseOrder + default sort order,
+                       # see Notes) in the wrapper-key/silent-drop sweep (bd gopherstack-6flj/
+                       # 21my). last_audit_commit left unchanged per this campaign's
+                       # convention -- the orchestrator, not this pass, creates the commit.
 ops:
   RegisterDomain: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeDomain: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -27,8 +32,8 @@ ops:
   TerminateWorkflowExecution: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "childPolicy was parsed off the wire into handleTerminateWorkflowExecutionInput and then silently discarded -- the backend call took no such parameter, so a client's per-call override never applied and only the policy stored at StartWorkflowExecution time governed. Now threaded through and, combined with a new TERMINATE/REQUEST_CANCEL child-policy cascade onto open children, actually takes effect; also propagates ChildWorkflowExecutionTerminated to the parent execution, see Notes. ADDITIONALLY (gopherstack-7gse, 2026-08-10): now sweeps expired executions first, same as StartWorkflowExecution above -- see Notes: timeout enforcement"}
   DescribeWorkflowExecution: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "openCounts.openTimers/openChildWorkflowExecutions were hardcoded 0; executionInfo.parent was entirely missing; ADDITIONALLY (gopherstack-jsi8, 2026-08-07): the wire's Execution.RunId (a real, required field per types.WorkflowExecution) was parsed off the request and then silently discarded -- the Go-level backend method took no runID parameter at all, so a client asking for a specific historical run always got whatever run currently occupied the domain+workflowId slot instead. Now threaded through end to end; see Notes. ADDITIONALLY (gopherstack-7gse, 2026-08-10): now sweeps expired executions (EXECUTION_START_TO_CLOSE only) before resolving, so a RUNNING execution whose timeout has elapsed reads back as TIMED_OUT instead of staying RUNNING forever -- see Notes: timeout enforcement"}
   GetWorkflowExecutionHistory: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "gopherstack-jsi8, 2026-08-07: same Execution.RunId-discarded bug as DescribeWorkflowExecution above, same fix -- see Notes. Also sweeps expired executions first, same as DescribeWorkflowExecution (gopherstack-7gse)"}
-  ListOpenWorkflowExecutions: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "executionInfo.parent was missing, same fix as DescribeWorkflowExecution. Also sweeps expired executions first (gopherstack-7gse) so a timed-out execution moves from the open list to the closed list on the next call instead of staying open forever -- see Notes: timeout enforcement"}
-  ListClosedWorkflowExecutions: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "executionInfo.parent was missing, same fix as DescribeWorkflowExecution. Also sweeps expired executions first (gopherstack-7gse), same effect as ListOpenWorkflowExecutions above"}
+  ListOpenWorkflowExecutions: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "executionInfo.parent was missing, same fix as DescribeWorkflowExecution. Also sweeps expired executions first (gopherstack-7gse) so a timed-out execution moves from the open list to the closed list on the next call instead of staying open forever -- see Notes: timeout enforcement. 2026-08-29 wrapper-key/wire sweep: ReverseOrder (real, per-op input member) was dropped entirely and results had no default sort order at all (arbitrary index-insertion order) instead of real AWS's documented descending-start-time default -- see Notes"}
+  ListClosedWorkflowExecutions: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "executionInfo.parent was missing, same fix as DescribeWorkflowExecution. Also sweeps expired executions first (gopherstack-7gse), same effect as ListOpenWorkflowExecutions above. 2026-08-29 wrapper-key/wire sweep: same ReverseOrder/default-order bug as ListOpenWorkflowExecutions, ordered by close time when closeTimeFilter selects the results, by start time when startTimeFilter does -- see Notes"}
   RequestCancelWorkflowExecution: {wire: fixed, errors: ok, state: ok, persist: ok, note: "2026-08-20 wire-parity sweep: WorkflowExecutionCancelRequestedEventAttributes.Cause was stamped OPERATOR_INITIATED for a direct call, a value the real WorkflowExecutionCancelRequestedCause enum does not define at all (its only value is CHILD_POLICY_APPLIED) -- see Notes. Also sweeps expired executions first (gopherstack-7gse), defense-in-depth consistency with the other execution-touching ops -- see Notes: timeout enforcement"}
   SignalWorkflowExecution: {wire: ok, errors: ok, state: ok, persist: ok, note: "now also sweeps expired executions first (gopherstack-7gse), same as RequestCancelWorkflowExecution"}
   CountOpenWorkflowExecutions: {wire: ok, errors: ok, state: fixed, persist: n/a, note: "now sweeps expired executions first (gopherstack-7gse) so a timed-out execution is no longer counted as open -- see Notes: timeout enforcement"}
@@ -65,6 +70,89 @@ leaks: {status: clean, note: "no goroutines/timers spawned by this service, incl
 ---
 
 ## Notes
+
+### 2026-08-29: ListOpen/ListClosedWorkflowExecutions dropped ReverseOrder and had no default sort order
+
+Wrapper-key/silent-drop sweep (bd gopherstack-6flj/21my) against
+`aws-sdk-go-v2/service/swf@v1.37.4` (pin unchanged, reconfirmed against
+go.mod). `enumcheck`/`acceptguard`/`zeroguard`/`xmlitemwrap` all came back
+clean for swf this pass -- this bug was found by hand (write-only-state
+sweep over every List op's request struct), not by a tool.
+
+`ListOpenWorkflowExecutionsInput.ReverseOrder` and
+`ListClosedWorkflowExecutionsInput.ReverseOrder` (both real, documented
+members -- `api_op_ListOpenWorkflowExecutions.go`/
+`api_op_ListClosedWorkflowExecutions.go`: "When set to true, returns the
+results in reverse order. By default the results are returned in
+descending order of the start [or the close] time of the executions")
+had no corresponding field anywhere in `handleListOpenWorkflowExecutionsInput`/
+`handleListClosedWorkflowExecutionsInput` (`handler_workflow_executions.go`)
+-- a real client's `ReverseOrder: true` was silently discarded on the way
+in. Worse, there was no default ordering either:
+`ListOpenWorkflowExecutions`/`ListClosedWorkflowExecutions`
+(`workflow_executions.go`) built their result slice directly from
+`executionsByDomain.Get(domain)`, a `pkgs/store.Index` group whose own doc
+comment is explicit that "iteration order within the group is insertion
+order, not any table-defined order" -- so even a caller that never touched
+`ReverseOrder` at all did not get real AWS's documented
+descending-start-time (or descending-close-time, for
+`ListClosedWorkflowExecutions` when `closeTimeFilter` selected the page)
+default; it got arbitrary insertion order.
+
+Fixed: added `ReverseOrder bool` to both wire input structs, threaded it
+into `ExecutionFilter.ReverseOrder` (`workflow_executions.go`), and added
+`sortExecutionsByTimestamp` (`workflow_executions.go`), called from both
+`ListOpenWorkflowExecutions` (always by `StartTimestamp` -- `ListOpen`'s
+only filter is `startTimeFilter`, required) and `ListClosedWorkflowExecutions`
+(by `CloseTimestamp` when the caller's `closeTimeFilter` populated
+`filter.CloseOldestDate`, matching `ExecutionTimeFilter.OldestDate` being a
+required member whenever `closeTimeFilter` is present at all; by
+`StartTimestamp` otherwise, matching `CloseTimeFilter`'s own doc: "if this
+parameter is specified, the returned results are ordered by their close
+times" vs. `StartTimeFilter`'s "...ordered by their start times").
+`CountOpenWorkflowExecutions`/`CountClosedWorkflowExecutions` do not carry
+a `ReverseOrder` member in the real SDK (they return only a count, no
+ordered list) and were correctly left untouched.
+
+Proven via two real `aws-sdk-go-v2/service/swf` client round trips
+(`wire_field_fixes_test.go`,
+`TestListOpenWorkflowExecutions_ReverseOrder_SDKRoundTrip`/
+`TestListClosedWorkflowExecutions_ReverseOrder_SDKRoundTrip`): each starts
+three real executions (the second test closes them via
+`TerminateWorkflowExecution` out of start order specifically so a fix that
+accidentally sorted `ListClosedWorkflowExecutions` by `StartTimestamp`
+instead of `CloseTimestamp` would produce a detectably different, still-wrong
+sequence), asserts the default page comes back newest-first, then asserts
+`ReverseOrder: true` flips it to oldest-first. Confirmed both tests fail
+against the pre-fix code (default order came back as plain start-of-request
+insertion order, not sorted; hand-reverted via `git show HEAD:` before this
+pass touched the files, re-ran, restored the fix, re-ran clean) before
+counting this as a real bug.
+
+Everything else in the wrapper-key/silent-drop sweep for swf this pass came
+back clean: re-read `ExecutionFilter`/`WorkflowExecutionFilter`/
+`WorkflowTypeFilter`/`TagFilter`/`CloseStatusFilter` wiring in
+`handler_workflow_executions.go` end to end (all four are correctly parsed
+and applied, including the mutually-exclusive `executionFilter`/
+`typeFilter`/`tagFilter`/`closeStatusFilter` combinations) and the
+`enumcheck` findings on `decision_orchestration.go`/`decision_tasks.go`/
+`workflow_executions.go` `cause` values (`OPERATION_NOT_PERMITTED`,
+`UNKNOWN_EXTERNAL_WORKFLOW_EXECUTION`, `TIMER_ID_ALREADY_IN_USE`,
+`TIMER_ID_UNKNOWN`, `CHILD_POLICY_APPLIED`) -- all five are real values of
+their own specific `*FailedCause`/`*Cause` enum (already cross-checked
+against `types/enums.go` in the 2026-08-20 sweep below); `enumcheck` flags
+them only because it cannot disambiguate which of the many same-named
+`cause` enums applies at each call site (documented ~2.5% needs-review
+precision), not because any value is actually wrong. Not re-litigated with
+fresh citations here since the 2026-08-20 sweep already did that work.
+
+**Not reached this pass:** activity type/task surface
+(`activity_tasks.go`/`activity_types.go`), domain surface (`domains.go`),
+decision-task/history internals beyond the `cause`-enum spot-check above,
+tag operations. These were exhaustively covered by the 2026-08-20 and
+2026-08-21 (`gopherstack-r80d` batch 17) sweeps below and were not
+re-audited from scratch this pass; this pass's own new coverage is the
+List/Count execution-filter surface only.
 
 Protocol: SWF is **awsjson1.0** (`application/x-amz-json-1.0`, `X-Amz-Target:
 SimpleWorkflowService.<Op>`) -- confirmed against the real
