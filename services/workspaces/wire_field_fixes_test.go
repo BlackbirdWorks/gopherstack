@@ -231,3 +231,129 @@ func TestCreateWorkspaces_RealSDKClient_WorkspaceNameThreadedThrough(t *testing.
 	assert.Nil(t, normalOut.Workspaces[0].WorkspaceName,
 		"WorkspaceName is not applicable for a user-assigned WorkSpace and must not be fabricated from UserName")
 }
+
+// TestDescribeWorkspaceDirectories_RealSDKClient_SettingsRoundTrip proves
+// DescribeWorkspaceDirectories echoes back the directory-level settings set
+// via the seven Modify* ops (EndpointEncryptionMode,
+// CertificateBasedAuthProperties, SamlProperties, SelfservicePermissions,
+// WorkspaceAccessProperties, WorkspaceCreationProperties) plus IpGroupIds
+// (AssociateIpGroups) -- all real members of
+// types.WorkspaceDirectory (aws-sdk-go-v2/service/workspaces@v1.73.1
+// deserializers.go's awsAwsjson11_deserializeDocumentWorkspaceDirectory case
+// list). Real AWS has no separate Describe op for any of these settings;
+// DescribeWorkspaceDirectories is the only place a real client ever reads
+// them back. Before this fix, this backend's dirResp (handler_directories.go)
+// carried only DirectoryId/DirectoryName/DirectoryType/Alias/State/SubnetIds
+// -- every one of these real fields was silently dropped even though the
+// Modify* ops genuinely stored the data (accept-and-drop, not mere
+// omission): a real client's typed fields all decoded nil/empty regardless
+// of what was configured.
+func TestDescribeWorkspaceDirectories_RealSDKClient_SettingsRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	client := newTestHandlerAndClient(t)
+	ctx := t.Context()
+
+	_, err := client.RegisterWorkspaceDirectory(ctx, &wssdk.RegisterWorkspaceDirectoryInput{
+		DirectoryId:            aws.String("d-settings11111"),
+		WorkspaceDirectoryName: aws.String("settings-dir"),
+	})
+	require.NoError(t, err)
+
+	groupID, err := client.CreateIpGroup(ctx, &wssdk.CreateIpGroupInput{GroupName: aws.String("settings-group")})
+	require.NoError(t, err)
+
+	_, err = client.AssociateIpGroups(ctx, &wssdk.AssociateIpGroupsInput{
+		DirectoryId: aws.String("d-settings11111"),
+		GroupIds:    []string{aws.ToString(groupID.GroupId)},
+	})
+	require.NoError(t, err)
+
+	_, err = client.ModifyEndpointEncryptionMode(ctx, &wssdk.ModifyEndpointEncryptionModeInput{
+		DirectoryId:            aws.String("d-settings11111"),
+		EndpointEncryptionMode: types.EndpointEncryptionModeFipsValidated,
+	})
+	require.NoError(t, err)
+
+	_, err = client.ModifyCertificateBasedAuthProperties(ctx, &wssdk.ModifyCertificateBasedAuthPropertiesInput{
+		ResourceId: aws.String("d-settings11111"),
+		CertificateBasedAuthProperties: &types.CertificateBasedAuthProperties{
+			Status:                  types.CertificateBasedAuthStatusEnumEnabled,
+			CertificateAuthorityArn: aws.String("arn:aws:acm-pca:us-east-1:000000000000:certificate-authority/ca-1"),
+		},
+	})
+	require.NoError(t, err)
+
+	_, err = client.ModifySamlProperties(ctx, &wssdk.ModifySamlPropertiesInput{
+		ResourceId: aws.String("d-settings11111"),
+		SamlProperties: &types.SamlProperties{
+			Status:                  types.SamlStatusEnumEnabled,
+			UserAccessUrl:           aws.String("https://idp.example.com/sso"),
+			RelayStateParameterName: aws.String("RelayState"),
+		},
+	})
+	require.NoError(t, err)
+
+	_, err = client.ModifySelfservicePermissions(ctx, &wssdk.ModifySelfservicePermissionsInput{
+		ResourceId: aws.String("d-settings11111"),
+		SelfservicePermissions: &types.SelfservicePermissions{
+			RestartWorkspace:   types.ReconnectEnumEnabled,
+			IncreaseVolumeSize: types.ReconnectEnumEnabled,
+			ChangeComputeType:  types.ReconnectEnumDisabled,
+			SwitchRunningMode:  types.ReconnectEnumEnabled,
+			RebuildWorkspace:   types.ReconnectEnumDisabled,
+		},
+	})
+	require.NoError(t, err)
+
+	_, err = client.ModifyWorkspaceAccessProperties(ctx, &wssdk.ModifyWorkspaceAccessPropertiesInput{
+		ResourceId: aws.String("d-settings11111"),
+		WorkspaceAccessProperties: &types.WorkspaceAccessProperties{
+			DeviceTypeWindows: types.AccessPropertyValueAllow,
+			DeviceTypeOsx:     types.AccessPropertyValueDeny,
+		},
+	})
+	require.NoError(t, err)
+
+	_, err = client.ModifyWorkspaceCreationProperties(ctx, &wssdk.ModifyWorkspaceCreationPropertiesInput{
+		ResourceId: aws.String("d-settings11111"),
+		WorkspaceCreationProperties: &types.WorkspaceCreationProperties{
+			DefaultOu:             aws.String("OU=WorkSpaces,DC=example,DC=com"),
+			CustomSecurityGroupId: aws.String("sg-0123456789abcdef0"),
+		},
+	})
+	require.NoError(t, err)
+
+	descOut, err := client.DescribeWorkspaceDirectories(ctx, &wssdk.DescribeWorkspaceDirectoriesInput{
+		DirectoryIds: []string{"d-settings11111"},
+	})
+	require.NoError(t, err)
+	require.Len(t, descOut.Directories, 1)
+
+	dir := descOut.Directories[0]
+
+	assert.Equal(t, []string{aws.ToString(groupID.GroupId)}, dir.IpGroupIds,
+		"WorkspaceDirectory.IpGroupIds must round-trip the AssociateIpGroups association")
+	assert.Equal(t, types.EndpointEncryptionModeFipsValidated, dir.EndpointEncryptionMode)
+
+	require.NotNil(t, dir.CertificateBasedAuthProperties)
+	assert.Equal(t, types.CertificateBasedAuthStatusEnumEnabled, dir.CertificateBasedAuthProperties.Status)
+	assert.Equal(t, "arn:aws:acm-pca:us-east-1:000000000000:certificate-authority/ca-1",
+		aws.ToString(dir.CertificateBasedAuthProperties.CertificateAuthorityArn))
+
+	require.NotNil(t, dir.SamlProperties)
+	assert.Equal(t, types.SamlStatusEnumEnabled, dir.SamlProperties.Status)
+	assert.Equal(t, "https://idp.example.com/sso", aws.ToString(dir.SamlProperties.UserAccessUrl))
+
+	require.NotNil(t, dir.SelfservicePermissions)
+	assert.Equal(t, types.ReconnectEnumEnabled, dir.SelfservicePermissions.RestartWorkspace)
+	assert.Equal(t, types.ReconnectEnumDisabled, dir.SelfservicePermissions.ChangeComputeType)
+
+	require.NotNil(t, dir.WorkspaceAccessProperties)
+	assert.Equal(t, types.AccessPropertyValueAllow, dir.WorkspaceAccessProperties.DeviceTypeWindows)
+	assert.Equal(t, types.AccessPropertyValueDeny, dir.WorkspaceAccessProperties.DeviceTypeOsx)
+
+	require.NotNil(t, dir.WorkspaceCreationProperties)
+	assert.Equal(t, "OU=WorkSpaces,DC=example,DC=com", aws.ToString(dir.WorkspaceCreationProperties.DefaultOu))
+	assert.Equal(t, "sg-0123456789abcdef0", aws.ToString(dir.WorkspaceCreationProperties.CustomSecurityGroupId))
+}

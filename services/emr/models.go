@@ -624,6 +624,9 @@ type Cluster struct {
 	// AutoTerminate is the real API's inverse of KeepJobFlowAliveWhenNoSteps:
 	// true means the cluster terminates after completing all steps.
 	AutoTerminate bool `json:"AutoTerminate"`
+	// SessionEnabled indicates whether Spark Connect sessions (StartSession
+	// et al.) are enabled on this cluster (emr@v1.64.4 types.go:447-448).
+	SessionEnabled bool `json:"SessionEnabled"`
 }
 
 // ClusterStatus holds the status fields for a Cluster.
@@ -825,6 +828,7 @@ type RunJobFlowParams struct {
 	EbsRootVolumeIops       int                      `json:"EbsRootVolumeIops,omitempty"`
 	EbsRootVolumeThroughput int                      `json:"EbsRootVolumeThroughput,omitempty"`
 	VisibleToAllUsers       bool                     `json:"VisibleToAllUsers"`
+	SessionEnabled          bool                     `json:"SessionEnabled,omitempty"`
 }
 
 // ListClustersParams holds filter and pagination params for ListClusters.

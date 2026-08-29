@@ -1,8 +1,29 @@
 service: workspaces
 sdk_module: aws-sdk-go-v2/service/workspaces@v1.73.1
 last_audit_commit: 7c8077891728
-last_audit_date: 2026-08-23
-overall: A            # follow-up pass on gopherstack-o5ig: both deferred items from the prior
+last_audit_date: 2026-08-28
+overall: A            # 2026-08-28 (gopherstack-6flj/21my wrapper-key/silent-drop sweep):
+                       # DescribeWorkspaceDirectories' dirResp carried only
+                       # DirectoryId/DirectoryName/DirectoryType/Alias/State/SubnetIds --
+                       # EndpointEncryptionMode, CertificateBasedAuthProperties, SamlProperties,
+                       # SelfservicePermissions, WorkspaceAccessProperties,
+                       # WorkspaceCreationProperties, and ipGroupIds were all silently dropped
+                       # despite this backend already holding the data via the 7 Modify*
+                       # directory-settings ops and AssociateIpGroups -- real AWS has no
+                       # separate Describe op for any of these settings, so this was an
+                       # accept-and-drop bug across the whole DescribeWorkspaceDirectories
+                       # response, not a mere omission. Fixed by reading the existing
+                       # storedDirSettings.Properties prefixed keys and directoryIpGroups back
+                       # into the response; see DescribeWorkspaceDirectories's op note. Two
+                       # related gaps found and disclosed (not fixed, budget): UserSettings on
+                       # ModifyStreamingProperties is accepted off the wire and then dropped
+                       # before reaching the backend (a second accept-and-drop, smaller in
+                       # scope); WorkspaceBundle has no BundleType/CreationTime/
+                       # LastUpdatedTime/State at all (no existing state to read back, unlike
+                       # the directory-settings fix -- a real gap, not accept-and-drop). No
+                       # other silent-drop, hard-decode-error, invented-member, or
+                       # wrong-enum-value bugs found in the ops re-checked this pass.
+                       # follow-up pass on gopherstack-o5ig: both deferred items from the prior
                        # pass (RunningMode-while-STOPPED, Applications family) fixed for real,
                        # plus 3 more genuine bugs found via the same sweep classes.
                        # gopherstack-gt9o (part of the gopherstack-u8my sdk_module pin sweep):
@@ -34,7 +55,7 @@ ops:
   DeleteTags: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeTags: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeWorkspaceBundles: {wire: ok, errors: ok, state: ok, persist: ok, note: "Amazon-owned static list + custom bundles, owner filter, pagination all verified"}
-  DescribeWorkspaceDirectories: {wire: ok, errors: ok, state: ok, persist: ok}
+  DescribeWorkspaceDirectories: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-28 (gopherstack-6flj/21my wrapper-key/silent-drop sweep): dirResp (handler_directories.go) carried only DirectoryId/DirectoryName/DirectoryType/Alias/State/SubnetIds -- every one of these real WorkspaceDirectory members (workspaces@v1.73.1 deserializers.go's awsAwsjson11_deserializeDocumentWorkspaceDirectory case list) was silently dropped despite this backend already holding the data via the 7 Modify* directory-settings ops (see DirectoryModifyOps below) and AssociateIpGroups: EndpointEncryptionMode, CertificateBasedAuthProperties, SamlProperties, SelfservicePermissions, WorkspaceAccessProperties, WorkspaceCreationProperties, and ipGroupIds (note the unusual lowercase-led wire key, deserializers.go:18124). Real AWS has no separate Describe op for any of these settings -- DescribeWorkspaceDirectories is the only place a real client ever reads them back, so this was an accept-and-drop bug across the whole family, not a mere omission. Fixed by reading storedDirSettings.Properties' existing prefixed keys (CertAuth_/Saml_/SelfSvc_/Access_/Creation_) and b.directoryIpGroups back into the new WorkspaceDirectory fields (interfaces.go), threaded through dirResp. Pointer sub-structs stay nil (omitted) for a directory never touched by the corresponding Modify op. See TestDescribeWorkspaceDirectories_RealSDKClient_SettingsRoundTrip in wire_field_fixes_test.go. NOT fixed this pass: WorkspaceAccessProperties.AccessEndpointConfig (ModifyWorkspaceAccessProperties' handler never accepted it as input either -- genuine unbuilt feature, not accept-and-drop) and StreamingProperties (ModifyStreamingProperties only threads StreamingExperiencePreferredProtocol through as a flat string; UserSettings/GlobalAccelerator/StorageConnectors are accepted on the input struct in the handler but never passed to the backend at all -- see gaps below, disclosed not fixed, out of scope for this pass' budget)."}
   RegisterWorkspaceDirectory: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED — re-registering an already-registered directory silently 200'd (unconditionally idempotent); now returns ResourceAlreadyExistsException, matching real AWS."}
   DeregisterWorkspaceDirectory: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED — deregistered a directory unconditionally even with live WorkSpaces still assigned to it (a ghost-reference risk: DescribeWorkspaces would keep returning WorkSpaces whose DirectoryId no longer resolved to any registered directory). Real AWS: 'If any WorkSpaces are registered to this directory, you must remove them before you can deregister the directory' — now enforced via InvalidResourceStateException. Also now cascade-cleans the directoryIpGroups association map on a successful deregister (was leaked as an orphaned entry keyed by the dead DirectoryId)."}
   RestoreWorkspace: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (prior pass) — was a true no-op with no existence check (silently 200'd for unknown WorkspaceId); now returns ResourceNotFoundException. No snapshot modeling, so still otherwise a no-op beyond validation — acceptable given no snapshot state exists to restore from."}
@@ -73,6 +94,8 @@ families:
 
 gaps:
   - "clientProperties (ModifyClientProperties/DescribeClientProperties, including the ClientExperiencePolicy/LogUploadEnabled fields fixed this pass, gopherstack-gt9o) is NOT part of backendSnapshot -- pre-existing, deliberate (see persistence.go's field comment and whitebox_test.go), out of scope for gopherstack-gt9o which is about the missing fields, not this separate ephemeral-persistence gap. (bd: none filed for the persistence gap itself)"
+  - "ModifyStreamingProperties' UserSettings ([]types.UserSetting -- Action/Permission/MaximumLength, real per workspaces@v1.73.1 types.go:1277-1291) is decoded off the wire by modifyStreamingPropertiesInput (handler_directories.go's sibling file) but then dropped before it ever reaches Backend.ModifyStreamingProperties -- only StreamingExperiencePreferredProtocol is threaded through. This is a genuine accept-and-drop, found but NOT fixed this pass (gopherstack-6flj/21my, 2026-08-28) due to budget: storedDirSettings.Properties is a flat map[string]string, so representing a list of structs needs either a JSON-encoded value or a schema change, more than a field-level fix. GlobalAccelerator/StorageConnectors (also real StreamingProperties members) aren't captured by the input struct at all, so those are a separate, smaller unbuilt-feature gap, not accept-and-drop. DescribeWorkspaceDirectories' new StreamingProperties field was deliberately left out of this pass' fix for the same reason -- see that op's note. (bd: gopherstack-6flj/21my)"
+  - "WorkspaceBundle (custom bundles) has no BundleType/CreationTime/LastUpdatedTime/State at all -- all four are real WorkspaceBundle members (workspaces@v1.73.1 types.go:1507-1543) DescribeWorkspaceBundles never populates. Unlike the DescribeWorkspaceDirectories fix above, this is not accept-and-drop: storedCustomBundle (models.go) never captured CreationTime either, so there is no existing state to read back -- CreateWorkspaceBundle would need a new CreatedAt field threaded through persistence.go's snapshot DTO. State is buildable cheaply (this backend creates bundles synchronously and never fails, so a hardcoded AVAILABLE would be honest, matching the pattern already used for e.g. EMR's WAITING-on-create clusters), but was left out of this pass' scope. Found but not fixed (bd: gopherstack-6flj/21my, 2026-08-28)."
   # All gaps from the prior pass (CreateStandbyWorkspaces FailedStandbyRequests,
   # AssociateIpGroups/DisassociateIpGroups persistence) were closed for real this
   # pass — see the ops table entries above for what changed.

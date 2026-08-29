@@ -446,13 +446,78 @@ type AccountModification struct {
 }
 
 // WorkspaceDirectory holds WorkSpace directory details.
+//
+// IPGroupIDs / EndpointEncryptionMode / CertificateBasedAuthProperties /
+// SamlProperties / SelfservicePermissions / WorkspaceAccessProperties /
+// WorkspaceCreationProperties are all real members of the wire type
+// (aws-sdk-go-v2/service/workspaces@v1.73.1/types.WorkspaceDirectory) that
+// real AWS's DescribeWorkspaceDirectories echoes back -- there is no
+// separate Describe op for any of these settings, only Modify* ops, so
+// DescribeWorkspaceDirectories is the only place a real client ever reads
+// them. Pointer sub-structs are nil (omitted) when the directory was never
+// touched by the corresponding Modify op, matching this backend's honest
+// no-default-simulated posture elsewhere.
 type WorkspaceDirectory struct {
-	DirectoryID   string
-	DirectoryName string
-	DirectoryType string
-	Alias         string
-	State         string
-	SubnetIDs     []string
+	CertificateBasedAuthProperties *CertificateBasedAuthProperties
+	SamlProperties                 *SamlProperties
+	SelfservicePermissions         *SelfservicePermissions
+	WorkspaceAccessProperties      *WorkspaceAccessProperties
+	WorkspaceCreationProperties    *WorkspaceCreationProperties
+	DirectoryID                    string
+	DirectoryName                  string
+	DirectoryType                  string
+	Alias                          string
+	State                          string
+	EndpointEncryptionMode         string
+	SubnetIDs                      []string
+	IPGroupIDs                     []string
+}
+
+// CertificateBasedAuthProperties mirrors types.CertificateBasedAuthProperties.
+type CertificateBasedAuthProperties struct {
+	Status                  string
+	CertificateAuthorityArn string
+}
+
+// SamlProperties mirrors types.SamlProperties.
+type SamlProperties struct {
+	Status                  string
+	UserAccessUrl           string //nolint:revive,staticcheck // matches real SDK field name
+	RelayStateParameterName string
+}
+
+// SelfservicePermissions mirrors types.SelfservicePermissions.
+type SelfservicePermissions struct {
+	RestartWorkspace   string
+	IncreaseVolumeSize string
+	ChangeComputeType  string
+	SwitchRunningMode  string
+	RebuildWorkspace   string
+}
+
+// WorkspaceAccessProperties mirrors types.WorkspaceAccessProperties (device
+// type members only -- AccessEndpointConfig is not modeled by
+// ModifyWorkspaceAccessProperties's handler and stays omitted).
+type WorkspaceAccessProperties struct {
+	DeviceTypeWindows    string
+	DeviceTypeOsx        string
+	DeviceTypeWeb        string
+	DeviceTypeIos        string
+	DeviceTypeAndroid    string
+	DeviceTypeChromeOs   string
+	DeviceTypeZeroClient string
+	DeviceTypeLinux      string
+}
+
+// WorkspaceCreationProperties mirrors the two fields
+// ModifyWorkspaceCreationProperties' handler actually threads through
+// (types.DefaultWorkspaceCreationProperties has more real members --
+// EnableInternetAccess, EnableMaintenanceMode, EnableWorkDocs,
+// UserEnabledAsLocalAdministrator -- that this backend never accepted as
+// input either, so they stay genuinely omitted rather than fabricated).
+type WorkspaceCreationProperties struct {
+	DefaultOu             string
+	CustomSecurityGroupId string //nolint:revive,staticcheck // matches real SDK field name
 }
 
 var _ StorageBackend = (*InMemoryBackend)(nil)

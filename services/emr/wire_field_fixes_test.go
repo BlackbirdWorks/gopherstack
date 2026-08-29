@@ -339,6 +339,60 @@ func TestWireShape_StudioSummary_NoFabricatedFields(t *testing.T) {
 		"StudioSummary must not carry DefaultS3Location -- real StudioSummary has no such member")
 }
 
+// TestWireShape_RunJobFlow_SessionEnabled_RoundTrip proves
+// RunJobFlowInput.SessionEnabled (emr@v1.64.4 api_op_RunJobFlow.go:238-240,
+// real, "Indicates whether Spark Connect sessions are enabled on the
+// cluster") reaches Cluster.SessionEnabled (types.go:447-448) on read-back
+// instead of being silently discarded -- gopherstack previously had no such
+// field anywhere in its RunJobFlow input/Cluster output structs at all, so
+// a real client's SessionEnabled was dropped by json.Unmarshal (unknown
+// field, not an error) and Cluster.SessionEnabled always deserialized nil
+// regardless of what was requested. It also proves the other half of real
+// StartSession's documented precondition ("The cluster must be in the
+// RUNNING or WAITING state and have sessions enabled") is now enforced: a
+// cluster launched without SessionEnabled must reject StartSession even
+// while WAITING, which it did not before this fix (nothing checked the
+// field because the field did not exist).
+func TestWireShape_RunJobFlow_SessionEnabled_RoundTrip(t *testing.T) {
+	t.Parallel()
+
+	backend := emr.NewInMemoryBackend(testAccountID, testRegion)
+	h := emr.NewHandler(backend)
+	client := newTestEMRClient(t, h)
+	ctx := t.Context()
+
+	enabledOut, err := client.RunJobFlow(ctx, &emrsdk.RunJobFlowInput{
+		Name:           awssdk.String("session-enabled-cluster"),
+		Instances:      &emrtypes.JobFlowInstancesConfig{},
+		SessionEnabled: awssdk.Bool(true),
+	})
+	require.NoError(t, err)
+
+	descOut, err := client.DescribeCluster(ctx, &emrsdk.DescribeClusterInput{ClusterId: enabledOut.JobFlowId})
+	require.NoError(t, err)
+	require.NotNil(t, descOut.Cluster)
+	assert.True(t, awssdk.ToBool(descOut.Cluster.SessionEnabled),
+		"Cluster.SessionEnabled must round-trip true when RunJobFlowInput.SessionEnabled was true")
+
+	_, err = client.StartSession(ctx, &emrsdk.StartSessionInput{ClusterId: enabledOut.JobFlowId})
+	require.NoError(t, err, "StartSession must succeed on a cluster launched with SessionEnabled=true")
+
+	disabledOut, err := client.RunJobFlow(ctx, &emrsdk.RunJobFlowInput{
+		Name:      awssdk.String("session-disabled-cluster"),
+		Instances: &emrtypes.JobFlowInstancesConfig{},
+	})
+	require.NoError(t, err)
+
+	descOut2, err := client.DescribeCluster(ctx, &emrsdk.DescribeClusterInput{ClusterId: disabledOut.JobFlowId})
+	require.NoError(t, err)
+	require.NotNil(t, descOut2.Cluster)
+	assert.False(t, awssdk.ToBool(descOut2.Cluster.SessionEnabled),
+		"Cluster.SessionEnabled must be false, not fabricated true, when never requested")
+
+	_, err = client.StartSession(ctx, &emrsdk.StartSessionInput{ClusterId: disabledOut.JobFlowId})
+	assert.Error(t, err, "StartSession must reject a cluster launched without SessionEnabled=true")
+}
+
 // TestWireShape_DescribePersistentAppUI_RealShape proves
 // DescribePersistentAppUI's response uses the real
 // types.PersistentAppUI shape (PersistentAppUIId/CreationTime) instead of

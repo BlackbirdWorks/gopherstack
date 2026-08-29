@@ -128,8 +128,8 @@ func sessionARN(region, accountID, clusterID, sessionID string) string {
 }
 
 // StartSession creates and starts a new interactive session on a cluster.
-// The referenced cluster must exist and be in a state that can host a
-// session (see sessionCanStart).
+// The referenced cluster must exist, be in a state that can host a session
+// (see sessionCanStart), and have been launched with SessionEnabled=true.
 func (b *InMemoryBackend) StartSession(ctx context.Context, params StartSessionParams) (*Session, error) {
 	if params.ClusterID == "" {
 		return nil, fmt.Errorf("%w: ClusterId is required", ErrValidation)
@@ -148,6 +148,11 @@ func (b *InMemoryBackend) StartSession(ctx context.Context, params StartSessionP
 	if !sessionCanStart(cluster.Status.State) {
 		return nil, fmt.Errorf("%w: cluster %s is not in a state that can host a session (state %s)",
 			errSessionClusterNotReady, params.ClusterID, cluster.Status.State)
+	}
+
+	if !cluster.SessionEnabled {
+		return nil, fmt.Errorf("%w: cluster %s was not launched with SessionEnabled",
+			errSessionsNotEnabled, params.ClusterID)
 	}
 
 	id := b.nextSessionID()
