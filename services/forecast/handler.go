@@ -216,7 +216,98 @@ func (h *Handler) dispatchListMonitorEvaluations(input map[string]any) ([]byte, 
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{"PredictorMonitorEvaluations": evaluations})
+	maxResults := 0
+	if mr, ok := input["MaxResults"].(float64); ok {
+		maxResults = int(mr)
+	}
+	nextToken, _ := input["NextToken"].(string)
+
+	if tokenErr := page.ValidateToken(nextToken); tokenErr != nil {
+		return nil, fmt.Errorf("%w: NextToken %q is not valid", ErrInvalidNextToken, nextToken)
+	}
+
+	evaluations = filterMonitorEvaluations(evaluations, filtersFromInput(input))
+
+	entries := make([]map[string]any, 0, len(evaluations))
+	for _, e := range evaluations {
+		entries = append(entries, monitorEvaluationOutput(e))
+	}
+
+	pg := page.New(entries, nextToken, maxResults, defaultListPageSize)
+	out := map[string]any{"PredictorMonitorEvaluations": pg.Data}
+	if pg.Next != "" {
+		out["NextToken"] = pg.Next
+	}
+
+	return json.Marshal(out)
+}
+
+// filterMonitorEvaluations applies ListMonitorEvaluations's Filters
+// parameter, whose only real Key is "EvaluationState" (api_op_
+// ListMonitorEvaluations.go's doc comment) -- MonitorEvaluation.
+// EvaluationState is a plain string field, so this reuses the same
+// IS/IS_NOT matching listOutput's applyFilters uses for List<Kind>
+// operations.
+func filterMonitorEvaluations(evaluations []MonitorEvaluation, filters []resourceFilter) []MonitorEvaluation {
+	if len(filters) == 0 {
+		return evaluations
+	}
+
+	result := make([]MonitorEvaluation, 0, len(evaluations))
+	for _, e := range evaluations {
+		if monitorEvaluationMatchesFilters(e, filters) {
+			result = append(result, e)
+		}
+	}
+
+	return result
+}
+
+func monitorEvaluationMatchesFilters(e MonitorEvaluation, filters []resourceFilter) bool {
+	for _, f := range filters {
+		if f.key != "EvaluationState" {
+			continue
+		}
+
+		matches := e.EvaluationState == f.value
+		if f.condition == "IS_NOT" {
+			matches = !matches
+		}
+		if !matches {
+			return false
+		}
+	}
+
+	return true
+}
+
+// monitorEvaluationOutput converts a MonitorEvaluation to its wire shape.
+// CreationTime/EvaluationTime must be epoch-seconds JSON numbers (JSON-RPC
+// 1.1 timestamp format, pkgs/awstime.Epoch) -- MonitorEvaluation's own
+// `json:"CreationTime"` struct tag marshals time.Time as an RFC3339 string
+// instead, which the real SDK's ListMonitorEvaluations deserializer
+// rejects.
+func monitorEvaluationOutput(e MonitorEvaluation) map[string]any {
+	out := map[string]any{
+		"CreationTime":    awstime.Epoch(e.CreationTime),
+		"EvaluationTime":  awstime.Epoch(e.EvaluationTime),
+		"MonitorArn":      e.MonitorArn,
+		"MonitorName":     e.MonitorName,
+		"Status":          e.Status,
+		"EvaluationState": e.EvaluationState,
+		"MetricResults":   e.MetricResults,
+	}
+	if e.ResourceArn != "" {
+		out["ResourceArn"] = e.ResourceArn
+	}
+	if e.Message != "" {
+		out["Message"] = e.Message
+	}
+	if e.PredictorEvent != nil {
+		out["PredictorEvent"] = e.PredictorEvent
+	}
+
+	return out
 }
 
 func (h *Handler) dispatchDeleteResourceTree(input map[string]any) ([]byte, error) {
@@ -345,6 +436,8 @@ func listOutput(spec operationSpec, resources []*Resource, input map[string]any)
 		return nil, fmt.Errorf("%w: NextToken %q is not valid", ErrInvalidNextToken, nextToken)
 	}
 
+	resources = applyFilters(spec, resources, filtersFromInput(input))
+
 	summaries := make([]map[string]any, 0, len(resources))
 	for _, r := range resources {
 		summaries = append(summaries, summaryOutput(spec, r))
@@ -357,6 +450,101 @@ func listOutput(spec operationSpec, resources []*Resource, input map[string]any)
 	}
 
 	return out, nil
+}
+
+// resourceFilter is one entry of a List operation's Filters array (every
+// Filter-bearing Forecast List op uses the identical types.Filter shape:
+// Condition IS/IS_NOT, Key, Value).
+type resourceFilter struct {
+	condition string
+	key       string
+	value     string
+}
+
+func filtersFromInput(input map[string]any) []resourceFilter {
+	raw, ok := input["Filters"].([]any)
+	if !ok {
+		return nil
+	}
+
+	filters := make([]resourceFilter, 0, len(raw))
+	for _, f := range raw {
+		m, mapOK := f.(map[string]any)
+		if !mapOK {
+			continue
+		}
+		filters = append(filters, resourceFilter{
+			condition: stringValue(m["Condition"]),
+			key:       stringValue(m["Key"]),
+			value:     stringValue(m["Value"]),
+		})
+	}
+
+	return filters
+}
+
+// applyFilters keeps only the resources matching every filter that can be
+// resolved to an actual value on the resource: "Status" reads
+// resource.Status, a Key matching the operation's own ARN field reads
+// resource.ARN, and any other Key is looked up directly in resource.Data
+// under that name -- covering every Filter Key the real Forecast List ops
+// declare except two structural gaps left unfiltered (not silently
+// mismatched): ListForecasts/ListPredictors's "DatasetGroupArn" (the
+// predictor's DatasetGroupArn lives nested under InputDataConfig/DataConfig
+// and is never recorded top-level -- see addCRUD's Predictor registration
+// comment) and ListExplainabilityExports's "ResourceArn" (the create
+// request's own field is ExplainabilityArn, not ResourceArn -- no data
+// exists under the literal filter Key name). A filter whose Key cannot be
+// resolved is left unapplied rather than treated as never matching, so an
+// unfixable filter degrades to "not yet honoured" instead of "always
+// empty".
+func applyFilters(spec operationSpec, resources []*Resource, filters []resourceFilter) []*Resource {
+	if len(filters) == 0 {
+		return resources
+	}
+
+	result := make([]*Resource, 0, len(resources))
+	for _, r := range resources {
+		if resourceMatchesFilters(spec, r, filters) {
+			result = append(result, r)
+		}
+	}
+
+	return result
+}
+
+func resourceMatchesFilters(spec operationSpec, r *Resource, filters []resourceFilter) bool {
+	for _, f := range filters {
+		value, resolvable := filterFieldValue(spec, r, f.key)
+		if !resolvable {
+			continue
+		}
+
+		matches := value == f.value
+		if f.condition == "IS_NOT" {
+			matches = !matches
+		}
+		if !matches {
+			return false
+		}
+	}
+
+	return true
+}
+
+func filterFieldValue(spec operationSpec, r *Resource, key string) (string, bool) {
+	switch key {
+	case "Status":
+		return r.Status, true
+	case spec.arnField:
+		return r.ARN, true
+	}
+
+	if v, ok := r.Data[key]; ok {
+		return stringValue(v), true
+	}
+
+	return "", false
 }
 
 func createFails(kind resourceKind, input map[string]any) bool {

@@ -279,3 +279,30 @@ been published. All four are fixed together as one coherent asset-storage featur
 - `ListPackages` derives its package list by scanning `packageVersions`, not the `packages` table
   directly — this is intentional (a "package" only meaningfully exists once it has a version) and
   is why `PublishPackageVersion` inserts into both tables.
+
+## 2026-08-29 pass: campaign class audit (constraining parameter never honoured)
+
+Measured 12 List operations against the pinned SDK (codeartifact@v1.41.4).
+Most were already correctly filtered from prior passes (ListPackageVersions's
+status/sortBy fix is noted in an earlier section of this file). One real
+finding: **ListPackages** declares `packagePrefix`/`publish`/`upstream` as
+query-bound filters (serializers.go's
+`awsRestjson1_serializeOpHttpBindingsListPackagesInput`), none of which
+`handleListPackages` read -- always returned every package in the repository
+regardless of what was requested. Fixed by threading all three through to
+`InMemoryBackend.ListPackages`, which now also looks up each package's real
+stored `PackageOriginConfiguration` (previously synthesized fresh `Package`
+values from `PackageVersion` records alone, with `OriginConfigPublish`/
+`OriginConfigUpstream` always blank even when `PutPackageOriginConfiguration`
+had set them) so publish/upstream filtering has real data to match against;
+an unset origin config defaults to ALLOW/ALLOW, matching
+`PackageOriginRestrictions`'s real default.
+
+Decomposed into `listPackagesFilters` (packages.go) rather than adding a
+`//nolint:gocognit` — matches this campaign's established pattern of a
+per-op filter type over a complexity suppression.
+
+Tests: `list_filter_params_test.go`, driven through the real SDK client
+(`newTestCodeArtifactClient`) -- `TestListPackages_Filters` covers
+packagePrefix and publish. Fails against pre-fix code (confirmed by
+reverting packages.go/handler_packages.go only).

@@ -259,3 +259,40 @@ leaks: {status: clean, note: "no goroutines/janitors in this service; Reset()/Sn
   gap found for the validation logic added this pass: it reads `arnIndex`
   (always rebuilt from the tables, pre- and post-restore) and never itself
   needs to persist any new state.
+
+## 2026-08-29 pass: List Filters parameter never applied (campaign class)
+
+Measured 29 List operations (List<Kind> x 12 addCRUD families +
+ListMonitorEvaluations; ListTagsForResource excluded, it carries no
+constraining parameter). All 12 addCRUD List ops and ListMonitorEvaluations
+declare a `Filters []types.Filter` array (Condition IS/IS_NOT, Key, Value);
+`handler.go`'s shared `listOutput()` applied MaxResults/NextToken but never
+read `Filters` at all -- every List op returned every resource of its kind
+regardless of any filter the client sent. `ListMonitorEvaluations` additionally
+ignored its own MaxResults/NextToken (routed through a separate
+`dispatchListMonitorEvaluations`, not `listOutput`) and marshaled
+`MonitorEvaluation.CreationTime`/`EvaluationTime` as `time.Time`'s default
+RFC3339 JSON string instead of the JSON-RPC 1.1 epoch-seconds number the real
+deserializer expects -- caught only because the new SDK-driven test failed to
+decode the response at all, not a filter-class bug but fixed alongside it
+(`pkgs/awstime.Epoch`).
+
+Fixed by adding `applyFilters`/`filterFieldValue` (handler.go): "Status"
+resolves to `resource.Status`, a Key matching the operation's own ARN field
+resolves to `resource.ARN`, any other Key is looked up directly in
+`resource.Data`. Covers every Filter Key across all 12 families except two
+left unfiltered (not silently mismatched, and not invented):
+- `ListForecasts`/`ListPredictors`'s `DatasetGroupArn` -- the predictor's
+  DatasetGroupArn lives nested under InputDataConfig/DataConfig and was never
+  recorded top-level (documented in `registerDataOperations`'s Predictor
+  comment before this pass; a genuine structural gap, not new).
+- `ListExplainabilityExports`'s `ResourceArn` -- CreateExplainabilityExport's
+  own field is `ExplainabilityArn`, not `ResourceArn`; no data exists under
+  the filter's literal Key name and mapping one to the other would be
+  inventing semantics the SDK doc doesn't state.
+
+Tests: `list_filter_params_test.go`, driven through the real SDK client
+(`newTestForecastClient`) -- `TestListPredictors_StatusFilter` (IS/IS_NOT),
+`TestListDatasetImportJobs_DatasetArnFilter` (a Data-field Key, not Status),
+`TestListMonitorEvaluations_EvaluationStateFilter`. All three fail against
+pre-fix code (confirmed by reverting the handler.go changes only).

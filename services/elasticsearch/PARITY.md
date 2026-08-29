@@ -529,3 +529,41 @@ member. Proven via
 not a bug -- LimitsByRole is `map[string]types.Limits` keyed by role name
 ("data" is a real role value), not a struct field; correctly absent from the
 SDK's per-key case-switch table by construction.
+
+## 2026-08-29 pass: campaign class audit (constraining parameter never honoured)
+
+Measured 24 Describe/List/Get operations against the pinned SDK
+(elasticsearchservice@v1.45.4; verified from the SDK output shape, not the
+op name -- e.g. DescribeElasticsearchDomains returns a collection despite
+its singular-sounding name and was counted). Four real findings, all fixed:
+
+- **DescribeInboundCrossClusterSearchConnections** and
+  **DescribeOutboundCrossClusterSearchConnections**: both declare
+  `Filters`/`MaxResults`/`NextToken` (restjson1 JSON-body fields per their
+  own `serializeOpDocument` functions), but neither handler read the request
+  body at all -- always returned every connection. Fixed with a shared
+  generic `describeCrossClusterConnections` (list_filter_params.go) applying
+  all five real Filternames each op documents (`cross-cluster-search-
+  connection-id`, `source-domain-info.{domain-name,owner-id,region}`,
+  `destination-domain-info.domain-name` for inbound; the destination-scoped
+  mirror for outbound) plus `pkgs/page` pagination.
+- **DescribePackages**: its request struct read a `PackageIDs` key that does
+  not exist on the real `DescribePackagesInput` (only `Filters`,
+  `MaxResults`, `NextToken` do) -- no real client could ever have populated
+  it, so this op was unconditionally unfiltered. Fixed to read `Filters`
+  (`Name` in PackageID/PackageName/PackageStatus, `Value` a list) plus
+  pagination.
+- **ListDomainNames**: ignored its query-bound `engineType` parameter. This
+  backend only ever manages Elasticsearch-engine domains (OpenSearch domains
+  are the separate `services/opensearch` API), so `engineType=OpenSearch`
+  now correctly returns none instead of every domain.
+
+Pagination: no shared helper existed before this pass; `pkgs/page` is now
+used for the three Describe/List ops above. The rest of this service's
+List/Describe ops (DescribeElasticsearchDomains, ListVpcEndpoints, etc.) take
+an explicit ID list rather than paginating, matching their real Input shapes.
+
+Tests: `list_filter_params_test.go`, driven through the real SDK client
+(`newTestElasticsearchClient`) -- one test per finding above. All fail
+against pre-fix code (confirmed per-file by reverting the relevant handler
+before writing the fix).

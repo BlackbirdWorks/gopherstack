@@ -503,7 +503,16 @@ func (h *Handler) handleDeleteDomain(w http.ResponseWriter, r *http.Request, nam
 
 func (h *Handler) handleListDomainNames(w http.ResponseWriter, r *http.Request) {
 	ctx := h.reqContext(r)
-	names := h.Backend.ListDomainNames(ctx)
+
+	var names []string
+	// engineType is query-bound (serializers.go's SetQuery("engineType")). This
+	// service only ever manages Elasticsearch-engine domains -- OpenSearch
+	// domains are a distinct API (services/opensearch) -- so filtering for
+	// "OpenSearch" correctly returns none rather than every domain.
+	if r.URL.Query().Get("engineType") != "OpenSearch" {
+		names = h.Backend.ListDomainNames(ctx)
+	}
+
 	entries := make([]domainNameEntry, 0, len(names))
 
 	for _, name := range names {

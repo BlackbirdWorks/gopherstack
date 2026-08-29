@@ -548,3 +548,37 @@ Gates: `go build ./...`, `go vet ./services/opsworks/...`, `gofmt -l` clean;
 ./services/opsworks/...` 0 issues after fixing (govet shadow, tparallel,
 golines, unparam; SA1019 exempted per above). No
 `cyclop`/`gocyclo`/`gocognit`/`funlen` nolints added.
+
+## 2026-08-29 pass: campaign class audit (constraining parameter never honoured)
+
+Measured 23 Describe/List/Get operations against the pinned SDK
+(opsworks@v1.31.0). Unlike most services in this campaign, opsworks
+constrains by ID-list ("only describe these AppIds/InstanceIds/...") rather
+than a `Filters` array, and every ID-list parameter across all 23 ops was
+already correctly honoured (verified: DescribeApps, DescribeCommands,
+DescribeDeployments, DescribeInstances, DescribeLayers,
+DescribeElasticLoadBalancers, DescribePermissions, DescribeUserProfiles all
+filter/scope correctly; DescribeLoadBasedAutoScaling/
+DescribeTimeBasedAutoScaling's LayerIds/InstanceIds are the ID list to
+describe, not an optional filter, and are used as such). Two real findings:
+
+- **DescribeEcsClusters**: declares `MaxResults`/`NextToken`
+  (api_op_DescribeEcsClusters.go) but `handleDescribeEcsClusters` never read
+  either field from the request body -- always returned every cluster.
+  Fixed with `pkgs/page.New`, defaulting to 100 (the real doc comment
+  specifies no default for this deprecated op).
+- **DescribeVolumes**: `RaidArrayId` was parsed from the request body and
+  passed to the backend method, which discarded it via a blank identifier
+  (`_ string`) -- a documented, deliberate no-op, since this backend never
+  models RAID arrays (`DescribeRaidArrays` always returns empty; no
+  `CreateRaidArray` operation exists in the real API either). Fixed by
+  honouring the parameter rather than ignoring it: a non-empty `RaidArrayId`
+  now excludes every volume (correct, since no volume ever carries that
+  association) instead of silently returning every volume in the
+  stack/instance regardless of the constraint.
+
+Tests: `list_filter_params_test.go`, driven through the real SDK client
+(`newTestClient`) -- `TestDescribeEcsClusters_Pagination` (two-page
+round-trip, cursor carries the remainder),
+`TestDescribeVolumes_RaidArrayIDExcludesAll`. Both fail against pre-fix code
+(confirmed by reverting handler_ecs_clusters.go/volumes.go only).
