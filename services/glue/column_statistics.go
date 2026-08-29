@@ -137,7 +137,7 @@ func (b *InMemoryBackend) StartColumnStatisticsTaskRun(
 		DatabaseName:              dbName,
 		TableName:                 tableName,
 		ColumnStatisticsTaskRunID: runID,
-		Status:                    "STARTED",
+		Status:                    stateStarting,
 		Role:                      role,
 		StartedOn:                 float64(time.Now().Unix()),
 	}

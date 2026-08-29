@@ -224,7 +224,7 @@ func (b *InMemoryBackend) CancelDataQualityRulesetEvaluationRun(runID string) er
 	if run.Status != stateRunning {
 		return ErrValidation
 	}
-	run.Status = "CANCELLED"
+	run.Status = stateStopped
 
 	return nil
 }
@@ -284,7 +284,7 @@ func (b *InMemoryBackend) CancelDataQualityRuleRecommendationRun(runID string) e
 		return ErrDQRecommendationRunNotFound
 	}
 
-	run.Status = "CANCELLED"
+	run.Status = stateStopped
 
 	return nil
 }

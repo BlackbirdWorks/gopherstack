@@ -1042,3 +1042,67 @@ no terraform-provider-aws resource for a MediaLive reservation and no CI
 failure to corroborate it the way the Input fix had, so this is flagged
 here as a follow-up question rather than changed.
 
+
+## 2026-08-29 enum-VALUE sweep (wrapper-key-sweep campaign, wire-shape enforcement all services)
+
+Targeted pattern hunt for the comprehend class of bug: a status/state value assigned to a
+domain struct field that is not a member of the real AWS enum for the corresponding response
+member, reaching the wire through the field rather than a same-site literal `cmd/enumcheck` can
+resolve. Checked every domain struct field holding a status/state concept (`store.go`'s shared
+`stateIdle`/`stateRunning`/`stateStopping`/`stateStarting`/`stateDeleted`/`stateDeleting`/
+`stateDetached` vocabulary spans `Channel.State`/`Multiplex.State`/`Input.State`, plus dedicated
+per-family constants for `Cluster`/`Node`/`Network`/`SdiSource`/`ChannelPlacementGroup`) against
+the real SDK enum (`medialive@v1.101.4 types/enums.go`). `cmd/enumcheck` was run both before and
+after and flagged **none** of the findings below.
+
+**Found and fixed**: `signal_maps.go`'s `SignalMap.Status`/`MonitorDeploymentStatus` — a single
+sloppy pair of literals wrong in four places, the comprehend shape (one invented vocabulary
+reused across a family of ops, not matching the real per-op enum):
+
+- `CreateSignalMap` and `StartUpdateSignalMap` both set `Status = "SUCCEEDED"`. The real member
+  is `types.SignalMapStatus` (CREATE_IN_PROGRESS/CREATE_COMPLETE/CREATE_FAILED/
+  UPDATE_IN_PROGRESS/UPDATE_COMPLETE/UPDATE_REVERTED/UPDATE_FAILED/READY/NOT_READY,
+  `types/enums.go`), which has no `SUCCEEDED` member at all. Fixed to `"CREATE_COMPLETE"` /
+  `"UPDATE_COMPLETE"` respectively (this backend has no async signal-map pipeline, so the
+  immediate-terminal-state convention already used elsewhere in this file applies).
+- `StartMonitorDeployment` set `MonitorDeploymentStatus = "DEPLOYED"`; `StartDeleteMonitorDeployment`
+  set it to `"DELETING"`. The real member is `types.SignalMapMonitorDeploymentStatus`
+  (NOT_DEPLOYED/DRY_RUN_DEPLOYMENT_*/DEPLOYMENT_COMPLETE/DEPLOYMENT_FAILED/
+  DEPLOYMENT_IN_PROGRESS/DELETE_COMPLETE/DELETE_FAILED/DELETE_IN_PROGRESS) — neither `"DEPLOYED"`
+  nor bare `"DELETING"` is a member. Fixed to `"DEPLOYMENT_COMPLETE"` / `"DELETE_COMPLETE"`.
+
+Three pre-existing unit tests in `handler_signal_maps_test.go` asserted the old, wrong literals
+as correct (`TestSignalMap_CRUD`'s "create returns 201 with id and SUCCEEDED status" case,
+`TestSignalMap_GetListDelete`'s `"DEPLOYED"` assertion, `TestStartDeleteMonitorDeployment`'s
+`"DELETING"` assertion) — all three updated to assert the real enum values instead, per this
+campaign's "do not trust existing tests" rule.
+
+**Flagged, not fixed (separate bug class — wire-shape nesting, not a value)**:
+`CreateSignalMapOutput`/`StartUpdateSignalMapOutput`/`GetSignalMapOutput` flatten
+`monitorDeploymentStatus` as a top-level key (`toSignalMapOutput`, `handler_signal_maps.go`), but
+the real `CreateSignalMapOutput` (`api_op_CreateSignalMap.go`) has no flat
+`MonitorDeploymentStatus` field at all — the real shape nests it as `MonitorDeployment
+*types.MonitorDeployment` (`types.MonitorDeployment.Status`, `types/types.go:5679`). A real SDK
+client's deserializer would never populate `MonitorDeployment` from this backend's flat key,
+regardless of the value inside it. Unrelated to the enum-value bug fixed above (`Status` itself
+IS flat in the real Output, matching this backend, and was fully real-client-verified); the
+`MonitorDeploymentStatus` fix could only be verified against the raw HTTP response body for this
+reason (see `wire_field_fixes_test.go`), not a real-client-decoded field. Out of scope for this
+pass, noted here as a real, separate, unfixed gap.
+
+**Checked clean** (N-of-N legal-value coverage against the real enum, no fix needed):
+`ChannelState` (5/11: IDLE/STARTING/RUNNING/STOPPING/DELETED used), `MultiplexState`,
+`InputState`, `ClusterState`, `NetworkState`, `SdiSourceState`, `ChannelPlacementGroupState`,
+`NodeConnectionState`, `InputDeviceConnectionState`, `DeviceSettingsSyncState`,
+`DeviceUpdateStatus`, `ReservationState`, `ClusterAlertState`. `nodeStateDeleted = "DELETED"`
+(`store.go:54`) is DORMANT — declared but never assigned anywhere (`DeleteNode` removes the Node
+from its map entirely rather than transitioning state, `UpdateNodeState`'s `state` param is
+pure client-input passthrough for the real typed `types.NodeState` field) — not fixed, no
+reachable path exists to manufacture without fabricating one.
+
+Gates: `go build ./services/medialive/...` (clean), `go vet ./...` (repo-wide, clean — no
+signature changes this pass), `go test -race -count=1 ./services/medialive/...` (pass, including
+new `wire_field_fixes_test.go` and the three corrected pre-existing tests, each new/changed
+assertion hand-verified to fail against the pre-fix literals then restored),
+`golangci-lint run --fix ./services/medialive/...` (0 issues). Work left uncommitted per this
+pass's instructions.

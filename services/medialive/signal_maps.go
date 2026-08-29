@@ -42,7 +42,7 @@ func (b *InMemoryBackend) CreateSignalMap(
 		Name:                            name,
 		Description:                     description,
 		DiscoveryEntryPointArn:          discoveryEntryPointArn,
-		Status:                          "SUCCEEDED",
+		Status:                          "CREATE_COMPLETE",
 		MonitorDeploymentStatus:         "NOT_DEPLOYED",
 		CreatedAt:                       now,
 		ModifiedAt:                      now,
@@ -122,7 +122,7 @@ func (b *InMemoryBackend) StartUpdateSignalMap(
 	if ebGroupIDs != nil {
 		sm.EventBridgeRuleTemplateGroupIDs = append([]string{}, ebGroupIDs...)
 	}
-	sm.Status = "SUCCEEDED"
+	sm.Status = "UPDATE_COMPLETE"
 	sm.ModifiedAt = time.Now().UTC()
 
 	return sm.toSignalMap(), nil
@@ -136,7 +136,7 @@ func (b *InMemoryBackend) StartMonitorDeployment(identifier string) (*SignalMap,
 	if !ok {
 		return nil, fmt.Errorf("%w: signal map %s not found", ErrNotFound, identifier)
 	}
-	sm.MonitorDeploymentStatus = "DEPLOYED"
+	sm.MonitorDeploymentStatus = "DEPLOYMENT_COMPLETE"
 	sm.ModifiedAt = time.Now().UTC()
 
 	return sm.toSignalMap(), nil
@@ -154,7 +154,7 @@ func (b *InMemoryBackend) StartDeleteMonitorDeployment(identifier string) (*Sign
 		return nil, fmt.Errorf("%w: signalMap %s not found", ErrNotFound, identifier)
 	}
 
-	sm.MonitorDeploymentStatus = "DELETING"
+	sm.MonitorDeploymentStatus = "DELETE_COMPLETE"
 	sm.ModifiedAt = time.Now().UTC()
 
 	return sm.toSignalMap(), nil

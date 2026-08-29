@@ -1420,3 +1420,66 @@ Gates run: `go build ./...`, `go vet ./services/glue/...`, `gofmt -l`
 `UpdateSchema`/`StartBlueprintRun` all changed exported `StorageBackend`
 signatures), `golangci-lint run ./services/glue/...` (0 issues). Work left
 uncommitted per this pass's instructions.
+
+## 2026-08-29 enum-VALUE sweep (wrapper-key-sweep campaign, wire-shape enforcement all services)
+
+Targeted pattern hunt for the comprehend class of bug: a status/state value assigned to a
+domain struct field that is not a member of the real AWS enum for the corresponding response
+member, reaching the wire through the field rather than a same-site literal `cmd/enumcheck` can
+resolve. Checked every domain struct field holding a status/state/type/mode concept against its
+real SDK enum (`glue@v1.152.0 types/enums.go`), tracing every assignment including lifecycle
+transitions. `cmd/enumcheck` was run against this service both before and after and flagged
+**none** of the three findings below — confirming its blind spot on struct-field assignment.
+
+**Found and fixed** (all three share the shape: a plain string literal, not the file's own
+`store.go` shared-vocabulary constants, so this was NOT the multi-enum-sharing-one-vocabulary
+shape found in comprehend — it's three independent one-off wrong literals):
+
+- `column_statistics.go` `StartColumnStatisticsTaskRun`: `Status: "STARTED"` — the real member is
+  `types.ColumnStatisticsState` (STARTING/RUNNING/SUCCEEDED/FAILED/STOPPED,
+  `types/enums.go:225`); `"STARTED"` is not a member. Fixed to `stateStarting` ("STARTING"),
+  matching every other `Start*` op in this file. No reconciler ever advanced this value, so a
+  real client's waiter would have polled until timeout.
+- `data_quality_rulesets.go` `CancelDataQualityRulesetEvaluationRun` and
+  `CancelDataQualityRuleRecommendationRun`: both set `run.Status = "CANCELLED"`. Both fields wire
+  to `types.TaskStatusType` (STARTING/RUNNING/STOPPING/STOPPED/SUCCEEDED/FAILED/TIMEOUT,
+  `types/enums.go:3323`), which has no `CANCELLED` member. Fixed both to `stateStopped`
+  ("STOPPED"), matching this same file's `CancelMLTaskRun` (`ml.go`), which already uses
+  `stateStopped` for the identical cancel-on-`TaskStatusType` transition.
+
+**Flagged, not fixed (separate bug class — wire-shape nesting, not a value)**:
+`GetDataQualityRulesetEvaluationRunOutput`/`StartDataQualityRulesetEvaluationRunOutput`/
+`BatchGetDataQualityRulesetEvaluationRunOutput` wrap all `DataQualityEvaluationRun` fields
+(including `Status`) under a `"DataQualityEvaluationRun"` JSON key
+(`handler_data_quality_rulesets.go`), but the real `GetDataQualityRulesetEvaluationRunOutput`
+(`api_op_GetDataQualityRulesetEvaluationRun.go`) has `Status`/`CompletedOn`/`DataSource`/etc. flat
+at the response root — a real SDK client's deserializer would never find `Status` at all,
+regardless of its value. This is unrelated to the enum-value bug above (the sibling
+`GetDataQualityRuleRecommendationRun` path is correctly flat and was used for the fully
+real-client-verified test) and out of scope for this pass; noted here as a real, separate,
+unfixed gap.
+
+**Also flagged, not fixed (extraneous field, not an enum mismatch)**:
+`identity_center.go`'s `IdentityCenterConfig.Status` ("ENABLED"/"DISABLED") has no corresponding
+member on the real `CreateGlueIdentityCenterConfigurationOutput`/
+`GetGlueIdentityCenterConfigurationOutput` at all (confirmed absent from both structs) — not a
+wrong-enum-value bug (no real enum exists to violate), just an invented field a real client would
+silently ignore.
+
+**Checked clean** (N-of-N legal-value coverage against the real enum, no fix needed):
+`CrawlerState` (3/3: READY/RUNNING/STOPPING), `CrawlerHistoryState` (3/4: RUNNING/COMPLETED/
+STOPPED used, FAILED unused-but-legal), `JobRunState`, `MaterializedViewRefreshState`,
+`ScheduleState`, `RegistryStatus`, `SchemaStatus`, `SchemaVersionStatus`, `SessionStatus`,
+`WorkflowRunStatus`, `PartitionIndexStatus`, `IntegrationStatus`, `TaskStatusType` (elsewhere:
+`MLTaskRun.Status`, `getMLTaskRunOutput` fallback), `DataQualityModelStatus`,
+`DataQualityRuleResultStatus`, `BlueprintRunState`, `BlueprintStatus`, `TriggerState`,
+`StatementState`, `TransformStatusType`, `ExportStatus` (deliberately restricted to ENABLED/
+DISABLED, documented existing choice — not fabricating transient/FAILED states). `DevEndpoint.
+Status`/`LastUpdateStatus` are untyped `*string` on the real SDK (no enum to violate) — out of
+scope by definition, not checked further.
+
+Gates: `go build ./services/glue/...` (clean), `go vet ./...` (repo-wide, clean — no signature
+changes this pass), `go test -race -count=1 ./services/glue/...` (pass, including new
+`wire_field_fixes_test.go`, each new assertion hand-verified to fail against the pre-fix
+literals then restored), `golangci-lint run --fix ./services/glue/...` (0 issues). Work left
+uncommitted per this pass's instructions.

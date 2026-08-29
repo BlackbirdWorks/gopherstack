@@ -1420,3 +1420,48 @@ exit 0 -- covers this pass's exported-signature changes to
 `UpdateIoTPackage`, `UpdateIoTPackageVersion`, `UpdateProvisioningTemplate`,
 and the new `Backend.ListPrincipalThingsV2`). Work left uncommitted per
 this pass's instructions.
+
+## 2026-08-29 enum-VALUE sweep (wrapper-key-sweep campaign, wire-shape enforcement all services) -- no fix found
+
+Targeted pattern hunt for the comprehend class of bug: a status/state value assigned to a
+domain struct field that is not a member of the real AWS enum for the corresponding response
+member, reaching the wire through the field rather than a same-site literal `cmd/enumcheck` can
+resolve. Checked every domain struct field holding a status/state/type/mode concept against its
+real SDK enum (`iot@v1.77.4 types/enums.go`): `CertificateStatus`, `TopicRuleDestinationStatus`,
+`ConfigurationStatus`, `DomainConfigurationStatus`, `AuthorizerStatus`, `PackageVersionStatus`,
+`IndexStatus`, `OTAUpdateStatus`, `AuditTaskStatus`, `AuditMitigationActionsTaskStatus`,
+`DetectMitigationActionsTaskStatus`, `SbomValidationResult`, `SbomValidationStatus`,
+`VerificationState`. `cmd/enumcheck` was run and, consistent with the rest of this campaign,
+would not have caught anything even if a bug existed (it can't see struct-field assignment) —
+moot here since none was found.
+
+Specifically checked for the comprehend shape (one shared vocabulary reused across several
+enums that don't actually share values): `jobs.go`'s local `JobStatus`/`JobExecutionStatus`
+mirror types (`IN_PROGRESS`/`CANCELED`) are reused verbatim for `AuditTaskStatus`/
+`AuditMitigationActionsTaskStatus`/`DetectMitigationActionsTaskStatus` fields across
+`audit.go`/`device_defender.go` — genuinely risky-looking, but every string gopherstack actually
+assigns from that shared vocabulary (`"IN_PROGRESS"`, `"CANCELED"`) happens to be a legal member
+of all three real target enums, so no wrong value currently escapes; this is a near-miss worth
+flagging for future vigilance, not a live bug. Likewise `packages.go` assigns
+`SbomValidationResult`'s `"SUCCEEDED"`/`"FAILED"` values onto a field typed for the sibling
+`SbomValidationStatus` enum — both target values are members of both enums, so also not live.
+
+One DORMANT finding, not fixed (unreachable, so not fabricating a path to it per this campaign's
+rule): `jobs.go`'s local `JobStatus` mirror type declares `JobStatusFailed = "FAILED"`, which is
+NOT a member of the real `types.JobStatus` (IN_PROGRESS/CANCELED/COMPLETED/DELETION_IN_PROGRESS/
+SCHEDULED -- no FAILED at the aggregate-Job level in the real API, only per-execution). The
+constant is never assigned anywhere in the backend (`Job.Status` only ever reaches
+`JobStatusInProgress`/`JobStatusCanceled` via `jobs.go:352`/`578`) -- confirmed by grep across the
+whole service. Real Jobs in this backend also never reach `COMPLETED`/`DELETION_IN_PROGRESS`/
+`SCHEDULED` at all, a completeness gap (missing lifecycle transitions), not a wrong-value bug --
+named here, not fixed, out of this pass's scope.
+
+Everything else checked used values that were both legal for their real enum and client-input
+passthrough where the field is a request parameter rather than a backend-computed value
+(`CertificateStatus`/`DomainConfigurationStatus`/`PackageVersionStatus`/`VerificationState`
+transitions all originate from the caller's own typed SDK field, which cannot carry an illegal
+member in the first place).
+
+No code changes this pass. Gates: `go build ./services/iot/...` (clean), `go vet ./...`
+(repo-wide, clean), `go test -race -count=1 ./services/iot/...` (pass, no new tests --
+nothing to prove).

@@ -1293,3 +1293,64 @@ entries to re-check against the "does the state already exist in the backend" te
 changes this pass. Gates: `go build ./services/redshift/...` clean; `go test
 ./services/redshift/... -count=1` -- `ok github.com/blackbirdworks/gopherstack/services/redshift
 0.328s`.
+
+## 2026-08-29 enum-VALUE sweep (wrapper-key-sweep campaign, wire-shape enforcement all services)
+
+Targeted pattern hunt for the comprehend class of bug: a status/state value assigned to a
+domain struct field that is not a member of the real AWS enum for the corresponding response
+member, reaching the wire through the field rather than a same-site literal `cmd/enumcheck` can
+resolve. Redshift's older query/XML API leaves most status-like fields (`Cluster.ClusterStatus`,
+`ClusterAvailabilityStatus`, `AvailabilityZoneRelocationStatus`, `IPRange.Status`,
+`EC2SecurityGroup.Status`, `ReservedNode.State`, `DomainConfigurationStatus`-adjacent fields,
+`Cluster.LakehouseRegistrationStatus`) as untyped `*string` on the real SDK with no documented
+enum at all — those are out of scope by definition (no enum to violate) and were confirmed
+untyped, not assumed. Every field that IS a real typed enum (`redshift@v1.65.4 types/enums.go`:
+`AquaConfigurationStatus`, `AquaStatus`, `AuthorizationStatus`, `DataShareStatus`,
+`DataShareStatusForConsumer`/`ForProducer`, `NamespaceRegistrationStatus`,
+`PartnerIntegrationStatus`, `ScheduledActionState`, `ScheduleState`, `ZeroETLIntegrationStatus`,
+`TableRestoreStatusType`, `ReservedNodeExchangeStatusType`, `LakehouseRegistration`,
+`LakehouseIdcRegistration`) was traced through every assignment. `cmd/enumcheck` was run both
+before and after and flagged **none** of the finding below.
+
+**Found and fixed**: `reserved_nodes.go` `DescribeReservedNodeExchangeStatus` returned
+`partnerStatusActive` ("Active") — a constant borrowed from the unrelated
+`PartnerIntegrationStatus` enum — for `ReservedNodeExchangeStatus.Status`, whose real member is
+`types.ReservedNodeExchangeStatusType` (REQUESTED/PENDING/IN_PROGRESS/RETRYING/SUCCEEDED/FAILED,
+`types/enums.go:468`), which has no `"Active"` member at all. Fixed to a new
+`reservedNodeExchangeStatusSucceeded = "SUCCEEDED"` constant, scoped to this field rather than
+reusing another family's constant for its string value — this backend has no real exchange-
+request pipeline to simulate, so the immediate-terminal value is the honest choice, matching this
+service's own `slTableRestoreStatusSucceeded`/reconciler precedent for the same "no async
+pipeline" pattern. A pre-existing test
+(`TestRedshiftHandler_DescribeReservedNodeExchangeStatus`'s `"success"` case) asserted the raw
+XML body contained `"Active"` — updated to assert `"SUCCEEDED"` instead, per this campaign's "do
+not trust existing tests" rule.
+
+**Checked clean** (N-of-N legal-value coverage against the real enum, no fix needed):
+`AquaConfigurationStatus`/`AquaStatus` (both `"disabled"`, documented permanently-retired field),
+`AuthorizationStatus` (2/2: Authorized/Revoking), `DataShareStatus` (3/6: ACTIVE/AUTHORIZED/
+DEAUTHORIZED/REJECTED used across `DataShare`/`DataShareAssociation`), `NamespaceRegistrationStatus`
+(2/2), `PartnerIntegrationStatus` (1/4: Active), `ScheduledActionState` (2/2), `ScheduleState`
+(1/3: ACTIVE, reused via the misleadingly-named `dataShareStatusActive` constant for both
+`ScheduleAssociationState` and `SnapshotScheduleState` — same string value is coincidentally
+legal for both `DataShareStatus` and `ScheduleState`, so not a value bug, but noted as a naming
+smell worth a follow-up rename), `ZeroETLIntegrationStatus` (1/7: active), `TableRestoreStatusType`
+(2/5: IN_PROGRESS/SUCCEEDED for the classic-cluster path; `ServerlessTableRestoreStatus` jumps
+straight to SUCCEEDED, same no-async-pipeline convention). `DataShareStatusForConsumer`/
+`ForProducer` are real typed enums but only ever appear as client-supplied *input* filter
+parameters on `DescribeDataSharesForConsumer`/`ForProducer` (passthrough, not backend-assigned)
+— out of scope for this pass, not a fabrication risk since a real typed SDK client can only send
+a legal member.
+
+Also confirmed, not a bug: `lakehouseStatusRegistered`/`lakehouseStatusDeregistered`
+("Registered"/"Deregistered", `lakehouse.go`) back `Cluster.LakehouseRegistrationStatus`, which
+is untyped `*string` on the real SDK (no enum exists) — already documented in this file's own
+header comment as a deliberate, honest derivation from the client's real
+`types.LakehouseRegistration` request value, re-confirmed correct this pass, not re-touched.
+
+Gates: `go build ./services/redshift/...` (clean), `go vet ./...` (repo-wide, clean — no
+signature changes this pass), `go test -race -count=1 ./services/redshift/...` (pass, including
+new `wire_field_fixes_test.go` and the one corrected pre-existing test, each new/changed
+assertion hand-verified to fail against the pre-fix literal then restored),
+`golangci-lint run --fix ./services/redshift/...` (0 issues). Work left uncommitted per this
+pass's instructions.
