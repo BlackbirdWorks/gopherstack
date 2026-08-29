@@ -49,8 +49,14 @@ type Rule struct {
 	ScheduleExpression string `json:"ScheduleExpression,omitempty"`
 	RoleArn            string `json:"RoleArn,omitempty"`
 	ManagedBy          string `json:"ManagedBy,omitempty"`
-	compiledPattern    *compiledPattern
-	indexKeys          []ruleIndexKey
+	// CreatedBy is the account ID of the caller that created the rule
+	// (aws-sdk-go-v2/service/eventbridge@v1.48.4 DescribeRuleOutput.CreatedBy).
+	// Not present on types.Rule (the shape ListRulesOutput.Rules uses), so
+	// handler_rules.go's DescribeRule response strips this field back out of
+	// ListRules -- only DescribeRule echoes it.
+	CreatedBy       string `json:"CreatedBy,omitempty"`
+	compiledPattern *compiledPattern
+	indexKeys       []ruleIndexKey
 }
 
 // DeadLetterConfig holds the dead-letter queue configuration for a target.
@@ -609,13 +615,25 @@ type UpdateEventBusInput struct {
 	Name             string            `json:"Name"`
 }
 
+// Condition limits a PutPermission grant to accounts fulfilling a certain
+// condition, such as membership in an AWS organization (real SDK:
+// aws-sdk-go-v2/service/eventbridge@v1.48.4 types.Condition -- Type/Key/Value
+// all required, e.g. {"Type":"StringEquals","Key":"aws:PrincipalOrgID",
+// "Value":"o-1234567890"}).
+type Condition struct {
+	Type  string `json:"Type"`
+	Key   string `json:"Key"`
+	Value string `json:"Value"`
+}
+
 // PutPermissionInput is the input for PutPermission.
 type PutPermissionInput struct {
-	Policy       string `json:"Policy,omitempty"`
-	Action       string `json:"Action,omitempty"`
-	EventBusName string `json:"EventBusName,omitempty"`
-	Principal    string `json:"Principal,omitempty"`
-	StatementID  string `json:"StatementId,omitempty"`
+	Condition    *Condition `json:"Condition,omitempty"`
+	Policy       string     `json:"Policy,omitempty"`
+	Action       string     `json:"Action,omitempty"`
+	EventBusName string     `json:"EventBusName,omitempty"`
+	Principal    string     `json:"Principal,omitempty"`
+	StatementID  string     `json:"StatementId,omitempty"`
 }
 
 // RemovePermissionInput is the input for RemovePermission.
@@ -626,11 +644,16 @@ type RemovePermissionInput struct {
 }
 
 // EventBusPolicyStatement is a single statement in an event bus resource policy.
+// Condition uses the standard IAM policy JSON shape (a map from condition
+// operator, e.g. "StringEquals", to a map of condition key to value) --
+// PutPermission's own Condition parameter is flattened into this shape, same
+// as real AWS does when it renders the bus's resource policy document.
 type EventBusPolicyStatement struct {
-	Action    string `json:"Action"`
-	Effect    string `json:"Effect"`
-	Principal any    `json:"Principal"`
-	Sid       string `json:"Sid"`
+	Condition map[string]map[string]string `json:"Condition,omitempty"`
+	Principal any                          `json:"Principal"`
+	Action    string                       `json:"Action"`
+	Effect    string                       `json:"Effect"`
+	Sid       string                       `json:"Sid"`
 }
 
 // EventBusPolicy is the resource-based policy attached to an event bus.

@@ -406,7 +406,11 @@ func (b *InMemoryBackend) ListRetirableGrants(
 
 	stored := make([]*Grant, 0)
 	for _, g := range b.grantsStore(region).All() {
-		if g.RetiringPrincipal == input.RetiringPrincipal {
+		matchesPrincipal := input.RetiringPrincipal != "" && g.RetiringPrincipal == input.RetiringPrincipal
+		matchesServicePrincipal := input.RetiringServicePrincipal != "" &&
+			g.RetiringServicePrincipal == input.RetiringServicePrincipal
+
+		if matchesPrincipal || matchesServicePrincipal {
 			stored = append(stored, g)
 		}
 	}

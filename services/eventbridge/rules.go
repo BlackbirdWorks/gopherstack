@@ -123,6 +123,11 @@ func (b *InMemoryBackend) PutRule(ctx context.Context, input PutRuleInput) (*Rul
 		return nil, err
 	}
 
+	createdBy := b.accountID
+	if exists {
+		createdBy = existing.CreatedBy
+	}
+
 	rule := &Rule{
 		Name:               input.Name,
 		Arn:                b.ruleARN(region, busName, input.Name),
@@ -133,6 +138,7 @@ func (b *InMemoryBackend) PutRule(ctx context.Context, input PutRuleInput) (*Rul
 		ScheduleExpression: input.ScheduleExpression,
 		RoleArn:            input.RoleArn,
 		ManagedBy:          input.ManagedBy,
+		CreatedBy:          createdBy,
 		compiledPattern:    compiled,
 	}
 
