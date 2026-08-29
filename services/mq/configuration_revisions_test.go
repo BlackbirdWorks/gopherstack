@@ -203,7 +203,7 @@ func TestConfigRevision_Cap50_OldestPruned(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend(t)
-	cfg, err := b.CreateConfiguration("rev-cap-cfg", "init", mq.EngineTypeActiveMQ, "", nil)
+	cfg, err := b.CreateConfiguration("rev-cap-cfg", "init", mq.EngineTypeActiveMQ, "", "", nil)
 	require.NoError(t, err)
 
 	for i := range 55 {
@@ -225,7 +225,7 @@ func TestConfigRevision_OldestRevisionDataPruned(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend(t)
-	cfg, err := b.CreateConfiguration("rev-prune-cfg", "init", mq.EngineTypeActiveMQ, "", nil)
+	cfg, err := b.CreateConfiguration("rev-prune-cfg", "init", mq.EngineTypeActiveMQ, "", "", nil)
 	require.NoError(t, err)
 
 	for range 55 {

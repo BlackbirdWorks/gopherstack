@@ -19,10 +19,16 @@ func (h *Handler) handleListConfigurationRevisions(c *echo.Context, configID str
 	})
 }
 
-func (h *Handler) handleDescribeConfigurationRevision(c *echo.Context, configID, revisionStr string) error {
+func (h *Handler) handleDescribeConfigurationRevision(
+	c *echo.Context,
+	configID, revisionStr string,
+) error {
 	parsed, err := strconv.ParseInt(revisionStr, 10, 32)
 	if err != nil {
-		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", "invalid revision number"))
+		return c.JSON(
+			http.StatusBadRequest,
+			errorResponse("BadRequestException", "invalid revision number"),
+		)
 	}
 
 	revision := int32(parsed)
@@ -34,7 +40,7 @@ func (h *Handler) handleDescribeConfigurationRevision(c *echo.Context, configID,
 
 	return c.JSON(http.StatusOK, map[string]any{
 		"configurationId": configID,
-		"created":         rev.Created,
+		keyCreated:        rev.Created,
 		"description":     rev.Description,
 		"revision":        rev.Revision,
 		"data":            data,

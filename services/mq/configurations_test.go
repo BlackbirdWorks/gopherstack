@@ -150,7 +150,7 @@ func TestCreateConfiguration_InvalidEngineType(t *testing.T) {
 			t.Parallel()
 
 			b := newTestBackend(t)
-			_, err := b.CreateConfiguration("my-cfg", "", tt.engineType, "", nil)
+			_, err := b.CreateConfiguration("my-cfg", "", tt.engineType, "", "", nil)
 			require.ErrorIs(t, err, mq.ErrValidation)
 		})
 	}
@@ -192,7 +192,7 @@ func TestCreateConfiguration_NameValidation(t *testing.T) {
 			t.Parallel()
 
 			b := newTestBackend(t)
-			_, err := b.CreateConfiguration(tt.configName, "", mq.EngineTypeActiveMQ, "", nil)
+			_, err := b.CreateConfiguration(tt.configName, "", mq.EngineTypeActiveMQ, "", "", nil)
 
 			if tt.wantErr {
 				require.ErrorIs(t, err, mq.ErrValidation)
@@ -219,7 +219,7 @@ func TestCreateConfiguration_ValidEngineTypes(t *testing.T) {
 			t.Parallel()
 
 			b := newTestBackend(t)
-			cfg, err := b.CreateConfiguration("cfg-"+tt.name, "", tt.engineType, "", nil)
+			cfg, err := b.CreateConfiguration("cfg-"+tt.name, "", tt.engineType, "", "", nil)
 			require.NoError(t, err)
 			assert.Equal(t, tt.engineType, cfg.EngineType)
 		})
@@ -581,7 +581,7 @@ func TestUpdateConfiguration_DataSizeLimit(t *testing.T) {
 		t.Parallel()
 
 		b := newTestBackend(t)
-		cfg, err := b.CreateConfiguration("cfg-size", "desc", mq.EngineTypeActiveMQ, "", nil)
+		cfg, err := b.CreateConfiguration("cfg-size", "desc", mq.EngineTypeActiveMQ, "", "", nil)
 		require.NoError(t, err)
 
 		oversizedData := strings.Repeat("a", 256*1024+1)
@@ -594,7 +594,7 @@ func TestUpdateConfiguration_DataSizeLimit(t *testing.T) {
 		t.Parallel()
 
 		b := newTestBackend(t)
-		cfg, err := b.CreateConfiguration("limit-cfg", "", mq.EngineTypeActiveMQ, "", nil)
+		cfg, err := b.CreateConfiguration("limit-cfg", "", mq.EngineTypeActiveMQ, "", "", nil)
 		require.NoError(t, err)
 
 		atLimit := strings.Repeat("a", 256*1024)

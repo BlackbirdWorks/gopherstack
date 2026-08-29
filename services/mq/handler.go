@@ -16,6 +16,7 @@ import (
 const (
 	opUnknown   = "Unknown"
 	keyBrokerID = "brokerId"
+	keyCreated  = "created"
 )
 
 const (

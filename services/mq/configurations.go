@@ -55,7 +55,7 @@ func validateConfigurationName(name string) error {
 
 // CreateConfiguration creates a new Amazon MQ configuration.
 func (b *InMemoryBackend) CreateConfiguration(
-	name, description, engineType, engineVersion string,
+	name, description, engineType, engineVersion, authenticationStrategy string,
 	tags map[string]string,
 ) (*Configuration, error) {
 	if err := validateConfigurationName(name); err != nil {
@@ -64,6 +64,14 @@ func (b *InMemoryBackend) CreateConfiguration(
 
 	if err := validateTagsMap(tags); err != nil {
 		return nil, err
+	}
+
+	if err := validateAuthenticationStrategy(authenticationStrategy); err != nil {
+		return nil, err
+	}
+
+	if authenticationStrategy == "" {
+		authenticationStrategy = "SIMPLE"
 	}
 
 	b.mu.Lock("CreateConfiguration")
@@ -111,17 +119,18 @@ func (b *InMemoryBackend) CreateConfiguration(
 	maps.Copy(tagsCopy, tags)
 
 	cfg := &Configuration{
-		Arn:            configArn,
-		ID:             id,
-		Name:           name,
-		Description:    description,
-		EngineType:     engineType,
-		EngineVersion:  engineVersion,
-		LatestRevision: &rev,
-		Created:        now,
-		Tags:           tagsCopy,
-		Revisions:      []ConfigurationRevision{rev},
-		Data:           map[int32]string{1: defaultConfigurationData(engineType)},
+		Arn:                    configArn,
+		ID:                     id,
+		Name:                   name,
+		Description:            description,
+		EngineType:             engineType,
+		EngineVersion:          engineVersion,
+		AuthenticationStrategy: authenticationStrategy,
+		LatestRevision:         &rev,
+		Created:                now,
+		Tags:                   tagsCopy,
+		Revisions:              []ConfigurationRevision{rev},
+		Data:                   map[int32]string{1: defaultConfigurationData(engineType)},
 	}
 
 	b.configurations.Put(cfg)

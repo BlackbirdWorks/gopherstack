@@ -11,40 +11,58 @@ import (
 )
 
 type createConfigurationInput struct {
-	Tags          map[string]string `json:"tags"`
-	Name          string            `json:"name"`
-	Description   string            `json:"description"`
-	EngineType    string            `json:"engineType"`
-	EngineVersion string            `json:"engineVersion"`
+	Tags                   map[string]string `json:"tags"`
+	Name                   string            `json:"name"`
+	Description            string            `json:"description"`
+	EngineType             string            `json:"engineType"`
+	EngineVersion          string            `json:"engineVersion"`
+	AuthenticationStrategy string            `json:"authenticationStrategy"`
 }
 
 func (h *Handler) handleCreateConfiguration(c *echo.Context, body []byte) error {
 	var in createConfigurationInput
 	if err := json.Unmarshal(body, &in); err != nil {
-		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", "invalid request body"))
+		return c.JSON(
+			http.StatusBadRequest,
+			errorResponse("BadRequestException", "invalid request body"),
+		)
 	}
 
 	if in.Name == "" {
-		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", "name is required"))
+		return c.JSON(
+			http.StatusBadRequest,
+			errorResponse("BadRequestException", "name is required"),
+		)
 	}
 
 	if in.EngineType == "" {
-		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", "engineType is required"))
+		return c.JSON(
+			http.StatusBadRequest,
+			errorResponse("BadRequestException", "engineType is required"),
+		)
 	}
 
-	cfg, err := h.Backend.CreateConfiguration(in.Name, in.Description, in.EngineType, in.EngineVersion, in.Tags)
+	cfg, err := h.Backend.CreateConfiguration(
+		in.Name,
+		in.Description,
+		in.EngineType,
+		in.EngineVersion,
+		in.AuthenticationStrategy,
+		in.Tags,
+	)
 	if err != nil {
 		return h.writeError(c, err)
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"id":             cfg.ID,
-		"arn":            cfg.Arn,
-		"name":           cfg.Name,
-		"created":        cfg.Created,
-		"engineType":     cfg.EngineType,
-		"engineVersion":  cfg.EngineVersion,
-		"latestRevision": cfg.LatestRevision,
+		"id":                     cfg.ID,
+		"arn":                    cfg.Arn,
+		"name":                   cfg.Name,
+		keyCreated:               cfg.Created,
+		"engineType":             cfg.EngineType,
+		"engineVersion":          cfg.EngineVersion,
+		"authenticationStrategy": cfg.AuthenticationStrategy,
+		"latestRevision":         cfg.LatestRevision,
 	})
 }
 
@@ -97,7 +115,10 @@ type updateConfigurationInput struct {
 func (h *Handler) handleUpdateConfiguration(c *echo.Context, configID string, body []byte) error {
 	var in updateConfigurationInput
 	if err := json.Unmarshal(body, &in); err != nil {
-		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", "invalid request body"))
+		return c.JSON(
+			http.StatusBadRequest,
+			errorResponse("BadRequestException", "invalid request body"),
+		)
 	}
 
 	cfg, err := h.Backend.UpdateConfiguration(configID, in.Description, in.Data)
@@ -109,6 +130,7 @@ func (h *Handler) handleUpdateConfiguration(c *echo.Context, configID string, bo
 		"id":             cfg.ID,
 		"arn":            cfg.Arn,
 		"name":           cfg.Name,
+		keyCreated:       cfg.Created,
 		"latestRevision": cfg.LatestRevision,
 		"warnings":       []any{},
 	})
@@ -116,28 +138,30 @@ func (h *Handler) handleUpdateConfiguration(c *echo.Context, configID string, bo
 
 // configurationResponse is the full configuration detail response.
 type configurationResponse struct {
-	Tags           map[string]string      `json:"tags"`
-	Arn            string                 `json:"arn"`
-	ID             string                 `json:"id"`
-	Name           string                 `json:"name"`
-	Description    string                 `json:"description"`
-	EngineType     string                 `json:"engineType"`
-	EngineVersion  string                 `json:"engineVersion"`
-	LatestRevision *ConfigurationRevision `json:"latestRevision"`
-	Created        string                 `json:"created"`
+	Tags                   map[string]string      `json:"tags"`
+	Arn                    string                 `json:"arn"`
+	ID                     string                 `json:"id"`
+	Name                   string                 `json:"name"`
+	Description            string                 `json:"description"`
+	EngineType             string                 `json:"engineType"`
+	EngineVersion          string                 `json:"engineVersion"`
+	AuthenticationStrategy string                 `json:"authenticationStrategy,omitempty"`
+	LatestRevision         *ConfigurationRevision `json:"latestRevision"`
+	Created                string                 `json:"created"`
 }
 
 func toConfigurationResponse(cfg *Configuration) configurationResponse {
 	return configurationResponse{
-		Arn:            cfg.Arn,
-		ID:             cfg.ID,
-		Name:           cfg.Name,
-		Description:    cfg.Description,
-		EngineType:     cfg.EngineType,
-		EngineVersion:  cfg.EngineVersion,
-		LatestRevision: cfg.LatestRevision,
-		Created:        cfg.Created,
-		Tags:           tagsOrEmpty(cfg.Tags),
+		Arn:                    cfg.Arn,
+		ID:                     cfg.ID,
+		Name:                   cfg.Name,
+		Description:            cfg.Description,
+		EngineType:             cfg.EngineType,
+		EngineVersion:          cfg.EngineVersion,
+		AuthenticationStrategy: cfg.AuthenticationStrategy,
+		LatestRevision:         cfg.LatestRevision,
+		Created:                cfg.Created,
+		Tags:                   tagsOrEmpty(cfg.Tags),
 	}
 }
 
