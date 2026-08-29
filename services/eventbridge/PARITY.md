@@ -570,3 +570,80 @@ corrupted body's unmarshal failure falls straight to default.
 `ErrorFault() == smithy.FaultServer`; confirmed it fails pre-fix with the
 old `"InternalServerError"` code (hand-reverted, byte-identical restore
 after).
+
+## 2026-08-29: constraint-parameter sweep (a filter/sort/page limit silently not honoured)
+
+Coherent slice: `ListConnections`, `ListApiDestinations`, `ListEndpoints`
+(`api_op_ListConnections.go`, `api_op_ListApiDestinations.go`,
+`api_op_ListEndpoints.go`, eventbridge@v1.48.4, JSON-RPC 1.1). Chosen after
+`ListRules`/`ListEventBuses` (a "correct sibling" oracle, per this
+campaign's heuristic) turned out to already plumb their own `Limit`
+through the repo's existing `paginateN` helper (`accessors.go`) while these
+three used the no-limit `paginate` wrapper instead -- the same shared
+helper existing but the *wrong one* being called, one call site at a time.
+
+**Found and fixed (3 ops, each missing a distinct documented field the
+handler's decode struct never listed at all -- class: never plumbed
+through)**:
+- `ListConnections.ConnectionState` (`types.ConnectionState`: CREATING/
+  UPDATING/DELETING/AUTHORIZED/DEAUTHORIZED/AUTHORIZING/DEAUTHORIZING/
+  ACTIVE/FAILED_CONNECTIVITY) -- had no case in the handler's decode
+  struct, so every call returned every connection regardless. Added the
+  field plus an equality filter on `Connection.ConnectionState` (already
+  tracked, set by `CreateConnection`/`DeauthorizeConnection`).
+- `ListApiDestinations.ConnectionArn` -- same pattern, filters on
+  `APIDestination.ConnectionArn` (already tracked).
+- All three (`ListConnections.Limit`, `ListApiDestinations.Limit`,
+  `ListEndpoints.MaxResults`) -- backend methods called `paginate` (fixed
+  100-item default, `accessors.go`) instead of the already-existing
+  `paginateN(all, nextToken, limit)`, so a client-supplied page-size cap
+  was silently dropped in favor of the default every time.
+
+Proven by 4 real-SDK-client tests
+(`TestListConnections_ConnectionStateFilter`, `TestListConnections_Limit`,
+`TestListApiDestinations_ConnectionArnFilter`, `TestListEndpoints_MaxResults`,
+`list_filter_params_test.go`), each confirmed failing against unmodified
+code by temporarily reverting the fix files (`git stash push -- <files>`,
+re-run, `git stash pop`) rather than hand-editing source, since the
+backend method signatures themselves changed (adding a required
+`limit`/filter argument breaks compilation against the old handler, so a
+source revert of the whole file set was the only clean way to reproduce
+the pre-fix behavior): `ConnectionState` and `ConnectionArn` filters both
+returned every row regardless of the filter; both `Limit`/`MaxResults`
+tests got all 3 created rows in one page (`Limit: 1` had no effect).
+
+**Checked and left as-is**: `ListRules`/`ListEventBuses`'s own `Limit`
+plumbing (the oracle that exposed this) is correct -- already routes
+through `paginateN`, confirmed by reading `handler_rules.go`/
+`handler_event_buses.go` and `store.go`'s `ListRules`/`ListEventBuses`
+signatures. `NamePrefix` is correctly read and applied on every listing
+op checked this pass (`ListConnections`, `ListApiDestinations`,
+`ListEndpoints`, `ListRules`, `ListEventBuses`).
+
+**Disclosed, not fixed (structural)**: `ListEndpoints.HomeRegion`
+(`api_op_ListEndpoints.go`) has no case either, same silent no-op. Not
+fixed: `Endpoint` (`models.go`) has no home-region concept at all --
+real EventBridge derives it from the endpoint's primary/failover routing
+topology (`RoutingConfig.FailoverConfig`), which spans multiple Regions
+per endpoint in this backend's own model (see
+`TestCreateUpdateEndpoint_EchoesBackendState_RealClient`,
+`wire_field_fixes_test.go`, using a `Primary`/`Secondary` pair across
+`us-east-1`/`us-west-2`); deriving a single filterable "home Region"
+from that would be a modelling decision outside this slice's scope, not
+a mechanical plumbing fix like the three above.
+
+Not covered this pass: the rest of eventbridge's ~15 other List/Describe
+operations (`ListArchives`, `ListReplays`, `ListEventSources`,
+`ListPartnerEventSources`, `ListRegistries`, `ListSchemas`,
+`ListRuleNamesByTarget`, `ListTargetsByRule`, etc.) were not re-audited
+for this constraint-parameter class.
+
+Gates: `go build ./...`, `go vet ./...` (repo-wide, clean -- required
+updating 4 pre-existing test call sites to the new backend signatures:
+`connections_test.go`, `api_destinations_test.go`, `endpoints_test.go`,
+`store_test.go`), `go test -race -count=1 ./services/eventbridge/...`
+(pass), `golangci-lint run ./services/eventbridge/...` (0 issues after
+`//nolint:dupl` on `ListConnections`/`ListAPIDestinations` -- their
+filter/sort/paginate bodies are structurally identical over different
+element types, same precedented pattern as `services/appmesh`'s
+virtual-resource List/Create functions).

@@ -889,3 +889,69 @@ Until this lands, `SetParameterPolicyNotifier` is never called in the running bi
 `b.parameterPolicyNotifier` stays `nil` and the janitor sweep remains a no-op in production exactly
 as it was before this pass — this pass changes nothing observable for a real client until that one
 line is added, by design (no risk of a half-wired feature misbehaving in the interim).
+
+## 2026-08-29: constraint-parameter sweep (a filter/sort/page limit silently not honoured)
+
+Coherent slice audited: `DescribeParameters` and `GetParametersByPath`
+(`api_op_DescribeParameters.go`, `api_op_GetParametersByPath.go`,
+`types.ParameterStringFilter`, ssm@v1.73.4). Both share pagination
+(`Marker`/`NextToken`+`MaxResults`) and filtering (`ParameterFilters`)
+logic in `parameters.go`; pagination already filters-then-paginates
+correctly (no bug there, unlike IAM's PathPrefix bug this campaign found
+in the same pass) — this slice is scoped to the filter-*matching* code,
+`paramMatchesFilter`.
+
+**Found and fixed**: `ParameterStringFilter{Key:"Path"}` (documented valid
+for `DescribeParameters`, `Option` `Recursive`|`OneLevel`) had no case in
+`paramMatchesFilter`'s switch, so it fell into `default: return true` —
+every parameter matched regardless of the filter, an over-permissive
+silent no-op (class: read under no key at all / narrower-than-documented
+vocabulary implemented as none). Added a dedicated `paramMatchesPathFilter`
+handling both `Option` values against the parameter's full name (itself a
+path). Proven by `TestDescribeParameters_PathFilter`
+(`list_filter_params_test.go`, `OneLevel`/`Recursive` subtests), both
+failing against unmodified code (returned every parameter, including a
+non-descendant).
+
+**Checked and left as-is**: `Name`/`Type`/`KeyId`/`Tier`/`DataType` keys
+with `Equals`/`BeginsWith`/`Contains` options are all correctly read and
+applied (verified by walking `paramMatchesFilter` field-by-field against
+`ParameterMetadata`). `DescribeParameters`/`GetParametersByPath`'s own
+filter-then-paginate order (`parameters.go`) is correct — filters are
+applied to the full unpaginated set before `Marker`/`MaxResults`
+windowing, so truncation is never miscomputed the way IAM's PathPrefix was
+this same sweep.
+
+**Disclosed, not fixed** (documented judgment call, not silently skipped):
+- `ParameterStringFilter{Key:"Label"}` — documented valid for
+  `GetParametersByPath` only (the reverse of `Path`) — has no case either,
+  same `default: return true` no-op. Not fixed this pass: real semantics
+  are not a simple boolean filter, they also change *which stored version's
+  value* is returned (the labeled version, not necessarily latest), which
+  needs `b.parameterLabels`/`b.history` plumbed into `collectPathParams`'s
+  per-parameter value selection, not just its match predicate — a larger,
+  riskier change than this slice's scope. Left as a named gap rather than
+  a half-correct boolean-only match.
+- `ParameterStringFilter{Key:"tag:<TagKey>"}` — documented valid for
+  `DescribeParameters` — same no-op. Not fixed: needs the per-region
+  `b.tags` map threaded into `paramMatchesFilter`, which currently only
+  sees `ParameterMetadata` (no tag data). Structural, same reasoning as
+  Label.
+- The comment above `paramMatchesFilter` previously asserted "Returns an
+  error for unrecognised filter keys (AWS behavior)" while the code did
+  the opposite (silently matched everything) — corrected the comment to
+  describe the actual behavior rather than fix silently-match-everything
+  into an error, since AWS's real validation behavior for a genuinely
+  unrecognized key was not independently confirmed this pass.
+
+Not covered this pass: the rest of ssm's ~50 List/Describe operations
+(DescribeInstanceInformation, DescribeAutomationExecutions, ListCommands,
+ListCommandInvocations, DescribeSessions, DescribeMaintenanceWindows,
+DescribeOpsItems, etc.) were not re-audited for this constraint-parameter
+class — scoped to the parameters family after it surfaced a live bug.
+
+Gates: `go build ./...`, `go vet ./...` (repo-wide, clean),
+`go test -race -count=1 ./services/ssm/...` (pass), `golangci-lint run
+./services/ssm/...` (0 issues after splitting `paramMatchesFilter`'s
+Equals/BeginsWith/Contains loop into `fieldMatchesFilterOption` to stay
+under the `cyclop` budget — no `nolint`, per this repo's ban).

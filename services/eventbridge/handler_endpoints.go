@@ -128,11 +128,12 @@ func (h *Handler) extendedEndpointActions() map[string]actionFn {
 			var input struct {
 				NamePrefix string `json:"NamePrefix"`
 				NextToken  string `json:"NextToken"`
+				MaxResults int    `json:"MaxResults"`
 			}
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
-			eps, next, err := h.Backend.ListEndpoints(ctx, input.NamePrefix, input.NextToken)
+			eps, next, err := h.Backend.ListEndpoints(ctx, input.NamePrefix, input.NextToken, input.MaxResults)
 			if err != nil {
 				return nil, err
 			}

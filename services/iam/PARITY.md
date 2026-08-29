@@ -99,6 +99,7 @@ invented_ops_removed:
 gaps: []
 leaks: {status: clean, note: "persistence leaks clean (unchanged); 2 leak classes found+fixed sweep 5 — see DeleteUser/DeleteRole/DeleteGroup/DeleteInstanceProfile ghost-row entries and the Handler-level tag leak entry above. go test -race passes."}
 items_still_open:
+  - "2026-08-29 constraint-parameter sweep fixed PathPrefix+pagination truncation across ListUsers/ListRoles/ListGroups/ListInstanceProfiles/ListPolicies, and ListPolicies' OnlyAttached/PolicyUsageFilter (see the sweep's own section above for detail). Not re-audited this pass for the same bug class: ListAttached{User,Role,Group}Policies' PathPrefix, ListEntitiesForPolicy's EntityFilter/PathPrefix/PolicyUsageFilter, and the pagination-only params on ListMFADevices/ListAccessKeys/ListSigningCertificates/ListSSHPublicKeys/ListServiceSpecificCredentials."
   - "Sweep 9 (gopherstack-xh42) closed both delegation-family issues sweep 8 disclosed but left out of its named scope (see AcceptDelegationRequest/AssociateDelegationRequest ops entries above for the fixes and reasoning). The delegation-request family (7 ops total: Create/Accept/Associate/Reject/Send/Update/GetHumanReadableSummary) is now fully covered across sweeps 7-9, with every op wire/error-verified against the pinned SDK. GetDelegationRequest/ListDelegationRequests remain disclosed validation-only/always-empty (unchanged, still out of scope -- no bd issue filed against them yet). STALE as of sweep 11 -- flagged by cmd/staleclaims (gopherstack-anjf): both are now real, see their own ops: entries above (\"FIXED (sweep 11)\") and the sweep-11 bullet below."
   - "This sweep (6) closed both remaining gopherstack-gjp/2sz3 items: (1) comprehensiveBackend's private sync.Mutex is gone — its fields (sshPublicKeys, mfaUserLinks, accessAdvisorJobs, serviceLastAccessed, orgReportJobs) are now guarded by the same coarse b.mu as every other backend map, per the one-coarse-lock convention (.claude/memories/pkgs-catalog.md). Two call sites (GetCredentialReport, ListMFADevicesForUser) previously nested c.mu inside a held b.mu.RLock; DeleteUser's dependency check ran entirely BEFORE taking b.mu, a real TOCTOU window between the SSH-key/MFA-device check and the delete. All three are now single atomic critical sections under b.mu. Snapshot()/Restore() also now read/write comprehensiveBackend state inside the same b.mu section as the rest of backend state, instead of a separate before/after step — Snapshot() gets one consistent point-in-time view (previously the comprehensive-state read and the rest-of-backend read were NOT atomic with each other). Covered by TestComprehensiveBackend_NoDataRace (-race, concurrent workers hitting both comprehensiveBackend and regular backend ops) and TestDeleteUser_SSHKeyConflictIsAtomic. (2) GetAccountAuthorizationDetails now honors Marker/MaxItems/Filter — see the ops entry above."
   - "NOT re-verified this sweep (no evidence of a bug found, but not field-diffed line-by-line either): policy simulation (SimulateCustomPolicy/SimulatePrincipalPolicy/evaluator.go), access advisor / service-last-accessed, credential report generation, account summary, condition-key evaluation (conditions.go), resource-policy evaluation (resource_arn.go). These were already marked ok/PROVEN by sweeps 1-4 and no new evidence surfaced against them. (SSH key / signing certificate CRUD -- the other family named in this line as of sweep 9 -- was field-diffed member-by-member in sweep 10: SSH key ops (Upload/Get/List/Update/DeleteSSHPublicKey) all read every serialized member correctly, no bug; signing certificates had a real ownership-bypass bug, now fixed, plus a disclosed pagination gap -- see ops entries above.)"
@@ -312,3 +313,102 @@ Gates: `go build`, `go vet ./...` (repo-wide -- clean except an unrelated
 concurrently-edited `services/apigateway` package elsewhere in this shared
 working tree), `go test -race -count=1 ./services/iam/...` (pass),
 `golangci-lint run --fix ./services/iam/...` (0 issues).
+
+## 2026-08-29: constraint-parameter sweep (a filter/sort/page limit silently not honoured)
+
+Campaign-wide hunt for a third class, distinct from both sweeps above: a
+request parameter that constrains the result set but isn't correctly
+applied. Measured against the pinned SDK (`api_op_List*.go`) before fixing:
+`ListUsers`/`ListRoles`/`ListGroups`/`ListInstanceProfiles` each declare
+`Marker`/`MaxItems`/`PathPrefix`; `ListPolicies` additionally declares
+`Scope`/`OnlyAttached`/`PolicyUsageFilter`. Did not re-audit the other
+~170 ops this pass -- scoped to this coherent slice (the 5 PathPrefix-family
+listings) after `handler_list_filters.go` turned up a live bug there.
+
+**Found and fixed (chokepoint, 5 ops via one shared helper)**: `PathPrefix`
+filtering ran *after* the backend's own `Marker`/`MaxItems` pagination
+window had already been cut (`pageFromSortedNames` windows the raw,
+unfiltered sorted-name list; `filterByPath` then filtered that window's
+contents). Two bugs from this, both silent: (1) a page could come back
+short of the requested `MaxItems` even when more matching items existed
+past the current unfiltered window; (2) worse, every one of the 5 ops
+hardcoded `IsTruncated: p.Next != "" && prefix == "/"` -- i.e. whenever a
+non-default `PathPrefix` was actually filtering anything, `IsTruncated` was
+forced `false` regardless of whether the backend had more data, so a real
+client relying on `IsTruncated` (the documented contract) silently stopped
+paging and never saw the remaining matches, even though `Marker` was still
+populated on the response. Confirmed via `TestListUsers_PathPrefixTruncation`
+(`list_filter_params_test.go`): 3 users, 2 matching a `PathPrefix`,
+`MaxItems=1` so the match spans two backend windows -- failed against
+unmodified code (returned only the first match, `IsTruncated=false`).
+Fixed by adding `filteredPage` (`handler_list_filters.go`): when the
+prefix is non-default it fetches the full unfiltered list once
+(`fetchAllMaxItems = math.MaxInt32`), filters, then re-paginates the
+*filtered* slice with `pkgs/page.New` so `Marker`/`IsTruncated` describe
+the filtered result set. The default-prefix path is untouched (same
+backend call as before, zero behavior change there). Applies identically
+to `ListUsers`, `ListRoles`, `ListGroups`, `ListInstanceProfiles`, and
+(via its own copy in `listPoliciesFilteredPage`) `ListPolicies` -- the
+same wrong line, `p.Next != "" && prefix == "/"`, was duplicated 5 times
+because no shared pagination-plus-filter helper existed before this fix;
+now there is one (`filteredPage`) that the 4 simple listings share, plus
+`listPoliciesFilteredPage` for `ListPolicies`' extra filters. Regression
+coverage for the 3 siblings ListUsers doesn't directly test:
+`TestListRolesGroupsInstanceProfiles_PathPrefix`.
+
+**Found and fixed, `ListPolicies` only**: `OnlyAttached` and
+`PolicyUsageFilter` were declared on `ListPoliciesInput` but never read
+by the handler at all (class: never plumbed through) -- every call
+returned every policy regardless of either parameter.
+`OnlyAttached` now filters on `Policy.AttachmentCount > 0` (already
+live-maintained by `addPolicyAttachmentLocked`/`removePolicyAttachmentLocked`,
+no new state needed). `PolicyUsageFilter=PermissionsBoundary` now filters
+on a new `PermissionsBoundaryARNs()` backend method (scans
+`User.PermissionsBoundary`/`Role.PermissionsBoundary` across all users and
+roles); `PolicyUsageFilter=PermissionsPolicy` excludes only policies used
+*exclusively* as a boundary (a policy attached to a role/user AND also set
+as some other principal's boundary still counts as a permissions policy --
+the SDK doc comment doesn't state exclusivity explicitly, so this is a
+documented judgment call, not an invented default). Proven by
+`TestListPolicies_OnlyAttached` and `TestListPolicies_PolicyUsageFilter`
+(`list_filter_params_test.go`), both failing against unmodified code
+(returned every policy regardless of the filter).
+
+**Checked and left as-is, `Scope`**: `ListPolicies`' pre-existing `Scope`
+handling (`Local`/`AWS`/`All`) was already wired, just via a fragile
+`strings.Contains(pol.Arn, ":aws:policy")` heuristic that happened to
+always evaluate false (gopherstack never seeds or creates an AWS-managed
+policy -- every `Policy` originates from `CreatePolicy`), making
+`Scope=AWS` correctly-but-accidentally always empty. Replaced with an
+explicit early return for `Scope=AWS` (documented as structural: there is
+no AWS-managed-policy concept in this backend, so "no matches" is honest,
+not a fabricated default) rather than leaving the coincidental string
+match in place.
+
+**Structural, not fixed**: real IAM's `Scope=AWS` would return the ~1000+
+real AWS managed policies gopherstack does not model; disclosed above,
+not a bug to fix without a modelling decision outside this pass's scope.
+
+**PARITY.md accuracy note**: this file had no prior per-op entry claiming
+`ListPolicies`'/`ListUsers`' filters were verified, so nothing here
+corrects a previously-asserted-correct claim -- these were genuinely
+unaudited for this bug class before now (the sweep-12/error-path sweeps
+above covered sort-order and error-code selection respectively, not
+filter/pagination honouring).
+
+Gates: `go build ./...`, `go vet ./...` (repo-wide, clean),
+`go test -race -count=1 ./services/iam/...` (pass, including the 5 new
+tests above), `golangci-lint run ./services/iam/...` (0 issues after
+decomposing `listPoliciesFiltered` to stay under the `gocognit` budget and
+routing the new `OnlyAttached` boolean compare through the existing
+`formValueTrue` constant instead of a fresh `"true"` literal, per
+`goconst`).
+
+Not covered this pass (see items_still_open below): the remaining ~170
+IAM ops were not re-audited for this constraint-parameter class. Notably
+unexamined: `ListAttached{User,Role,Group}Policies`' `PathPrefix`,
+`ListEntitiesForPolicy`'s `EntityFilter`/`PathPrefix`/`PolicyUsageFilter`,
+`ListMFADevices`/`ListAccessKeys`/`ListSigningCertificates`/`ListSSHPublicKeys`/
+`ListServiceSpecificCredentials` pagination-only parameters, and
+`GetAccountAuthorizationDetails`' `Filter` (sweep 6 already added this one;
+not re-verified this pass).

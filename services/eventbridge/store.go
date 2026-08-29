@@ -130,14 +130,18 @@ type StorageBackend interface {
 	UpdateArchive(ctx context.Context, input UpdateArchiveInput) (*Archive, error)
 	DeleteConnection(ctx context.Context, name string) error
 	DescribeConnection(ctx context.Context, name string) (*Connection, error)
-	ListConnections(ctx context.Context, namePrefix, nextToken string) ([]Connection, string, error)
+	ListConnections(
+		ctx context.Context, namePrefix, connectionState, nextToken string, limit int,
+	) ([]Connection, string, error)
 	UpdateConnection(ctx context.Context, input UpdateConnectionInput) (*Connection, error)
 	DeleteEndpoint(ctx context.Context, name string) error
 	DescribeEndpoint(ctx context.Context, name string) (*Endpoint, error)
-	ListEndpoints(ctx context.Context, namePrefix, nextToken string) ([]Endpoint, string, error)
+	ListEndpoints(ctx context.Context, namePrefix, nextToken string, limit int) ([]Endpoint, string, error)
 	UpdateEndpoint(ctx context.Context, input UpdateEndpointInput) (*Endpoint, error)
 	DescribeAPIDestination(ctx context.Context, name string) (*APIDestination, error)
-	ListAPIDestinations(ctx context.Context, namePrefix, nextToken string) ([]APIDestination, string, error)
+	ListAPIDestinations(
+		ctx context.Context, namePrefix, connectionArn, nextToken string, limit int,
+	) ([]APIDestination, string, error)
 	UpdateAPIDestination(ctx context.Context, input UpdateAPIDestinationInput) (*APIDestination, error)
 	DescribeEventSource(ctx context.Context, name string) (*EventSource, error)
 	ListEventSources(ctx context.Context, namePrefix, nextToken string) ([]EventSource, string, error)

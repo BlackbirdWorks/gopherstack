@@ -213,3 +213,54 @@ manifest's `ops:` keys and found one real gap: `DeleteEnvironmentConfiguration` 
 and implemented but had no manifest entry at all -- added above (wire verified correct: a
 real, memberless `DeleteEnvironmentConfigurationOutput`). No wire-shape bugs found this
 pass.
+
+## 2026-08-29: constraint-parameter sweep (a filter/sort/page limit silently not honoured) -- audited, no new bug found
+
+Campaign-wide hunt for the class distinct from wire-shape/error-path
+sweeps: a request parameter that constrains the result set but isn't
+correctly applied. This service already received a dedicated, thorough
+pass for exactly this class (gopherstack-6flj, see the `ops:` entries
+above -- `DescribeApplicationVersions`, `DescribeEnvironments`,
+`DescribeEvents`, `ListPlatformVersions`, `ListPlatformBranches`,
+`DescribeEnvironmentManagedActionHistory`, `DescribeInstancesHealth`,
+`CreateConfigurationTemplate`/`UpdateConfigurationTemplate` were all fixed
+there for missing filters or unpaginated MaxRecords/NextToken). Per this
+campaign's rule to treat a PARITY.md claim as a lead and not proof,
+independently re-read the handler code (not just the note) for a sample
+before accepting it:
+
+- `DescribeApplications.ApplicationNames` (`api_op_DescribeApplications.go`)
+  -- confirmed plumbed end to end: `handler_applications.go`'s
+  `parseMembers(vals, "ApplicationNames.member")` into
+  `Backend.DescribeApplications`, which filters by exact name when
+  non-empty (`applications.go`).
+- `DescribeApplicationVersions.ApplicationName`/`VersionLabels` -- both
+  applied together as an AND (`application_versions.go`: `appName != ""`
+  short-circuits, then `slices.Contains(versionLabels, ...)`), not one
+  silently overriding the other.
+- `ListPlatformVersions.Filters` -- re-verified the claimed
+  equality-only/Operator-agnostic behavior by reading
+  `listPlatformVersionsFilterValue`/`handleListPlatformVersions`
+  (`handler_platforms.go`) directly: matches the note exactly, including
+  the "unknown filter Type matches everything" fallback, which is a
+  documented judgment call (no unmodeled-attribute filter should silently
+  exclude platforms this backend can't evaluate the filter against) not a
+  silent bug.
+- `DescribeEnvironmentManagedActions` -- confirmed the handler ignores
+  `vals` entirely and always returns an empty list; confirmed structurally
+  correct (not a disguised stub) by grepping for any pending/scheduled
+  managed-action state anywhere in the backend -- none exists, so there is
+  nothing a `Status` filter could ever exclude.
+- `DescribeConfigurationOptions.Options`/`SolutionStackName`/`PlatformArn`
+  -- confirmed `filterConfigurationOptions(filters)` is called with the
+  parsed `Options.member` filters, not discarded.
+
+No new constraint-parameter bug found this pass. Not exhaustively
+re-diffed against the pinned SDK op-by-op (that already happened in
+gopherstack-6flj); this pass was a spot-check of a sample of its claims
+plus the two ops (`DescribeApplications`, `DescribeEnvironmentManagedActions`)
+its notes don't explicitly call out, rather than a full re-audit.
+
+Gates: no code changed this service this pass, so no new gate run was
+needed beyond the spot-check reads above; the existing `go test -race
+-count=1 ./services/elasticbeanstalk/...` suite was left untouched.

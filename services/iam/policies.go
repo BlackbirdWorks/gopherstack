@@ -103,6 +103,30 @@ func (b *InMemoryBackend) DeletePolicy(policyArn string) error {
 	return nil
 }
 
+// PermissionsBoundaryARNs returns the set of policy ARNs currently used as a
+// permissions boundary by at least one user or role (ListPolicies'
+// PolicyUsageFilter=PermissionsBoundary).
+func (b *InMemoryBackend) PermissionsBoundaryARNs() map[string]bool {
+	b.mu.RLock("PermissionsBoundaryARNs")
+	defer b.mu.RUnlock()
+
+	arns := make(map[string]bool)
+
+	for _, u := range b.users.All() {
+		if u.PermissionsBoundary != "" {
+			arns[u.PermissionsBoundary] = true
+		}
+	}
+
+	for _, r := range b.roles.All() {
+		if r.PermissionsBoundary != "" {
+			arns[r.PermissionsBoundary] = true
+		}
+	}
+
+	return arns
+}
+
 // ListPolicies returns a paginated list of IAM policies sorted by name.
 func (b *InMemoryBackend) ListPolicies(marker string, maxItems int) (page.Page[Policy], error) {
 	b.mu.RLock("ListPolicies")

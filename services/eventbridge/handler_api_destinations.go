@@ -133,13 +133,17 @@ func (h *Handler) extendedAPIDestinationActions() map[string]actionFn {
 		},
 		"ListApiDestinations": func(ctx context.Context, b []byte) (any, error) {
 			var input struct {
-				NamePrefix string `json:"NamePrefix"`
-				NextToken  string `json:"NextToken"`
+				NamePrefix    string `json:"NamePrefix"`
+				ConnectionArn string `json:"ConnectionArn"`
+				NextToken     string `json:"NextToken"`
+				Limit         int    `json:"Limit"`
 			}
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
-			dsts, next, err := h.Backend.ListAPIDestinations(ctx, input.NamePrefix, input.NextToken)
+			dsts, next, err := h.Backend.ListAPIDestinations(
+				ctx, input.NamePrefix, input.ConnectionArn, input.NextToken, input.Limit,
+			)
 			if err != nil {
 				return nil, err
 			}

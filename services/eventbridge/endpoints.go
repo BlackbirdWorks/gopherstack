@@ -93,7 +93,9 @@ func (b *InMemoryBackend) DescribeEndpoint(ctx context.Context, name string) (*E
 }
 
 // ListEndpoints returns endpoints optionally filtered by name prefix, with pagination.
-func (b *InMemoryBackend) ListEndpoints(ctx context.Context, namePrefix, nextToken string) ([]Endpoint, string, error) {
+func (b *InMemoryBackend) ListEndpoints(
+	ctx context.Context, namePrefix, nextToken string, limit int,
+) ([]Endpoint, string, error) {
 	region := getRegionFromContext(ctx, b.region)
 
 	b.mu.RLock("ListEndpoints")
@@ -109,7 +111,7 @@ func (b *InMemoryBackend) ListEndpoints(ctx context.Context, namePrefix, nextTok
 
 	sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
 
-	page, outToken := paginate(all, nextToken)
+	page, outToken := paginateN(all, nextToken, limit)
 
 	return page, outToken, nil
 }

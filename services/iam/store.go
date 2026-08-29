@@ -46,6 +46,7 @@ type StorageBackend interface {
 	CreatePolicy(policyName, path, policyDocument string) (*Policy, error)
 	DeletePolicy(policyArn string) error
 	ListPolicies(marker string, maxItems int) (page.Page[Policy], error)
+	PermissionsBoundaryARNs() map[string]bool
 	AttachUserPolicy(userName, policyArn string) error
 	DetachUserPolicy(userName, policyArn string) error
 	AttachRolePolicy(roleName, policyArn string) error

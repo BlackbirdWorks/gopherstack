@@ -803,7 +803,7 @@ func TestListPagination(t *testing.T) {
 	t.Run("list connections empty returns empty slice not nil", func(t *testing.T) {
 		t.Parallel()
 		b := newBackend()
-		got, next, err := b.ListConnections(context.Background(), "", "")
+		got, next, err := b.ListConnections(context.Background(), "", "", "", 0)
 		require.NoError(t, err)
 		assert.Empty(t, got)
 		assert.Empty(t, next)
@@ -812,7 +812,7 @@ func TestListPagination(t *testing.T) {
 	t.Run("list endpoints empty returns empty slice not nil", func(t *testing.T) {
 		t.Parallel()
 		b := newBackend()
-		got, next, err := b.ListEndpoints(context.Background(), "", "")
+		got, next, err := b.ListEndpoints(context.Background(), "", "", 0)
 		require.NoError(t, err)
 		assert.Empty(t, got)
 		assert.Empty(t, next)
@@ -830,7 +830,7 @@ func TestListPagination(t *testing.T) {
 	t.Run("list API destinations empty returns empty slice not nil", func(t *testing.T) {
 		t.Parallel()
 		b := newBackend()
-		got, next, err := b.ListAPIDestinations(context.Background(), "", "")
+		got, next, err := b.ListAPIDestinations(context.Background(), "", "", "", 0)
 		require.NoError(t, err)
 		assert.Empty(t, got)
 		assert.Empty(t, next)
