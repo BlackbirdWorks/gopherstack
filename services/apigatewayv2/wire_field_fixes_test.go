@@ -9,6 +9,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	apigatewayv2sdk "github.com/aws/aws-sdk-go-v2/service/apigatewayv2"
 	apigatewayv2types "github.com/aws/aws-sdk-go-v2/service/apigatewayv2/types"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/services/apigatewayv2"
@@ -402,4 +403,118 @@ func TestUpdateAuthorizer_TTLAndSimpleResponsesCanBeCleared(t *testing.T) {
 	require.Equal(t, int32(0), aws.ToInt32(got.AuthorizerResultTtlInSeconds))
 	require.NotNil(t, got.EnableSimpleResponses)
 	require.False(t, aws.ToBool(got.EnableSimpleResponses))
+}
+
+// TestUpdateAuthorizer_URICredentialsAndPayloadVersionCanBeCleared drives
+// CreateAuthorizer/UpdateAuthorizer/GetAuthorizer through the real SDK
+// client. AuthorizerURI, AuthorizerCredentialsArn and
+// AuthorizerPayloadFormatVersion were plain strings guarded by != "" (not
+// *string like the real SDK's UpdateAuthorizerInput fields,
+// api_op_UpdateAuthorizer.go), so a client explicitly clearing any of them
+// (e.g. dropping AuthorizerCredentialsArn to switch a REQUEST authorizer to
+// resource-based Lambda permissions -- "To use resource-based permissions on
+// the Lambda function, don't specify this parameter") was silently ignored,
+// leaving the old value in place. None of the three is required at create
+// time (unlike Name, which is), so unlike Name an explicit empty value is a
+// legitimate clear, not an invalid state.
+func TestUpdateAuthorizer_URICredentialsAndPayloadVersionCanBeCleared(t *testing.T) {
+	t.Parallel()
+
+	backend := apigatewayv2.NewInMemoryBackend()
+	client := newTestAPIGatewayV2Client(t, apigatewayv2.NewHandler(backend))
+
+	api, err := client.CreateApi(t.Context(), &apigatewayv2sdk.CreateApiInput{
+		Name:         aws.String("authz-clear-fields-api"),
+		ProtocolType: apigatewayv2types.ProtocolTypeHttp,
+	})
+	require.NoError(t, err)
+
+	created, err := client.CreateAuthorizer(t.Context(), &apigatewayv2sdk.CreateAuthorizerInput{
+		ApiId:                          api.ApiId,
+		AuthorizerType:                 apigatewayv2types.AuthorizerTypeRequest,
+		Name:                           aws.String("authz-clear-fields"),
+		IdentitySource:                 []string{"$request.header.Authorization"},
+		AuthorizerCredentialsArn:       aws.String("arn:aws:iam::123456789012:role/authz-role"),
+		AuthorizerPayloadFormatVersion: aws.String("2.0"),
+		AuthorizerUri: aws.String(
+			"arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/" +
+				"arn:aws:lambda:us-east-1:123456789012:function:authz/invocations",
+		),
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, aws.ToString(created.AuthorizerUri))
+	require.NotEmpty(t, aws.ToString(created.AuthorizerCredentialsArn))
+	require.NotEmpty(t, aws.ToString(created.AuthorizerPayloadFormatVersion))
+
+	updated, err := client.UpdateAuthorizer(t.Context(), &apigatewayv2sdk.UpdateAuthorizerInput{
+		ApiId:                          api.ApiId,
+		AuthorizerId:                   created.AuthorizerId,
+		AuthorizerUri:                  aws.String(""),
+		AuthorizerCredentialsArn:       aws.String(""),
+		AuthorizerPayloadFormatVersion: aws.String(""),
+	})
+	require.NoError(t, err)
+	require.Empty(t, aws.ToString(updated.AuthorizerUri),
+		"explicit empty AuthorizerUri on Update must clear it, not be silently ignored")
+	require.Empty(t, aws.ToString(updated.AuthorizerCredentialsArn),
+		"explicit empty AuthorizerCredentialsArn on Update must clear it, not be silently ignored")
+	require.Empty(t, aws.ToString(updated.AuthorizerPayloadFormatVersion),
+		"explicit empty AuthorizerPayloadFormatVersion on Update must clear it, not be silently ignored")
+
+	got, err := client.GetAuthorizer(t.Context(), &apigatewayv2sdk.GetAuthorizerInput{
+		ApiId:        api.ApiId,
+		AuthorizerId: created.AuthorizerId,
+	})
+	require.NoError(t, err)
+	assert.Empty(t, aws.ToString(got.AuthorizerUri))
+	assert.Empty(t, aws.ToString(got.AuthorizerCredentialsArn))
+	assert.Empty(t, aws.ToString(got.AuthorizerPayloadFormatVersion))
+}
+
+// TestUpdateAuthorizer_EmptyNameRejected verifies that, unlike
+// AuthorizerUri/AuthorizerCredentialsArn/AuthorizerPayloadFormatVersion,
+// Name is required at create time (CreateAuthorizerInput.Name, "This member
+// is required", api_op_CreateAuthorizer.go) and so has no valid cleared
+// state: an explicit empty Name on Update is rejected as a validation error
+// rather than silently ignored or applied.
+func TestUpdateAuthorizer_EmptyNameRejected(t *testing.T) {
+	t.Parallel()
+
+	backend := apigatewayv2.NewInMemoryBackend()
+	client := newTestAPIGatewayV2Client(t, apigatewayv2.NewHandler(backend))
+
+	api, err := client.CreateApi(t.Context(), &apigatewayv2sdk.CreateApiInput{
+		Name:         aws.String("authz-empty-name-api"),
+		ProtocolType: apigatewayv2types.ProtocolTypeHttp,
+	})
+	require.NoError(t, err)
+
+	created, err := client.CreateAuthorizer(t.Context(), &apigatewayv2sdk.CreateAuthorizerInput{
+		ApiId:          api.ApiId,
+		AuthorizerType: apigatewayv2types.AuthorizerTypeJwt,
+		Name:           aws.String("authz-empty-name"),
+		IdentitySource: []string{"$request.header.Authorization"},
+		JwtConfiguration: &apigatewayv2types.JWTConfiguration{
+			Issuer:   aws.String("https://issuer.example.com"),
+			Audience: []string{"client-id"},
+		},
+	})
+	require.NoError(t, err)
+
+	_, err = client.UpdateAuthorizer(t.Context(), &apigatewayv2sdk.UpdateAuthorizerInput{
+		ApiId:        api.ApiId,
+		AuthorizerId: created.AuthorizerId,
+		Name:         aws.String(""),
+	})
+	require.Error(t, err)
+
+	var badReq *apigatewayv2types.BadRequestException
+	require.ErrorAs(t, err, &badReq, "an explicit empty Name must be rejected as a validation error")
+
+	got, err := client.GetAuthorizer(t.Context(), &apigatewayv2sdk.GetAuthorizerInput{
+		ApiId:        api.ApiId,
+		AuthorizerId: created.AuthorizerId,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "authz-empty-name", aws.ToString(got.Name), "a rejected Update must not clear Name")
 }

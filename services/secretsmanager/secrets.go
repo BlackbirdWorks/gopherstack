@@ -623,8 +623,8 @@ func (b *InMemoryBackend) UpdateSecret(ctx context.Context, input *UpdateSecretI
 	// untouched (matches the parity-principles "state mutated before
 	// validation" bug class).
 	oldKmsKeyID := secret.KmsKeyID
-	if input.KmsKeyID != "" {
-		secret.KmsKeyID = input.KmsKeyID
+	if input.KmsKeyID != nil {
+		secret.KmsKeyID = *input.KmsKeyID
 	}
 
 	var versionID string

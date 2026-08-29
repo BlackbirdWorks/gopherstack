@@ -202,7 +202,7 @@ func (h *Handler) handleUpdateAutoScalingGroup(vals url.Values) (any, error) {
 		LaunchConfigurationName:          vals.Get("LaunchConfigurationName"),
 		HealthCheckType:                  vals.Get("HealthCheckType"),
 		VPCZoneIdentifier:                vals.Get("VPCZoneIdentifier"),
-		PlacementGroup:                   vals.Get("PlacementGroup"),
+		PlacementGroup:                   formStringOrNil(vals, "PlacementGroup"),
 		Context:                          vals.Get("Context"),
 		DesiredCapacityType:              vals.Get("DesiredCapacityType"),
 		DeletionProtection:               vals.Get("DeletionProtection"),
@@ -232,6 +232,19 @@ func (h *Handler) handleUpdateAutoScalingGroup(vals url.Values) (any, error) {
 		Xmlns:            autoscalingXMLNS,
 		ResponseMetadata: xmlResponseMetadata{RequestID: "autoscaling-update-" + name},
 	}, nil
+}
+
+// formStringOrNil distinguishes an omitted form value (nil, "unchanged") from
+// one explicitly sent empty (pointer to "", a real clear) -- vals.Get alone
+// returns "" for both cases.
+func formStringOrNil(vals url.Values, param string) *string {
+	if !vals.Has(param) {
+		return nil
+	}
+
+	v := vals.Get(param)
+
+	return &v
 }
 
 // updateASGIntField binds a single optional int32 form value (by AWS param name)

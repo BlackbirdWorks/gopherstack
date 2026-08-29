@@ -122,8 +122,8 @@ func applyUpdateFields(p *Pipe, in UpdatePipeInput) {
 	if in.Enrichment != "" {
 		p.Enrichment = in.Enrichment
 	}
-	if in.KmsKeyIdentifier != "" {
-		p.KmsKeyIdentifier = in.KmsKeyIdentifier
+	if in.KmsKeyIdentifier != nil {
+		p.KmsKeyIdentifier = *in.KmsKeyIdentifier
 	}
 	if in.Description != nil {
 		p.Description = *in.Description

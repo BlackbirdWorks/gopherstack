@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -184,7 +185,7 @@ func TestBackend_ModifyInstancePlacement_RequiresStopped(t *testing.T) {
 	stoppedID := newStoppedInstance(t, b)
 
 	ok, err := b.ModifyInstancePlacement(ec2.ModifyInstancePlacementInput{
-		InstanceID: stoppedID, Tenancy: "dedicated", GroupName: "my-pg",
+		InstanceID: stoppedID, Tenancy: "dedicated", GroupName: aws.String("my-pg"),
 	})
 	require.NoError(t, err)
 	assert.True(t, ok)

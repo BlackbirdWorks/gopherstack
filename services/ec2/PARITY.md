@@ -3,7 +3,20 @@ service: ec2
 sdk_module: aws-sdk-go-v2/service/ec2@v1.319.1   # version audited against (go.mod pin; previously recorded as "see go.mod", never a parseable pin)
 last_audit_commit:                                # unknown: pass was instructed not to commit and had no git access at write time, never backfilled -- gopherstack-33in
 last_audit_date: 2026-08-07
-overall: A   # 2026-08-07 pass (gopherstack-8pce follow-up): re-verified the tag dual-storage
+overall: A   # write-only-state sweep (this pass, targeted): ModifyInstancePlacementInput.GroupName
+             # was a plain string guarded by != "" (not *string like the real SDK's
+             # ModifyInstancePlacementInput, api_op_ModifyInstancePlacement.go), whose doc says
+             # "To remove an instance from a placement group, specify an empty string (\"\")" --
+             # a client's documented, explicit clear was silently dropped, leaving the instance in
+             # its old placement group. Now *string with a nil check (instance_attrs.go). Response
+             # side (instancePlacementItem.GroupName, handler_instances_lifecycle.go) intentionally
+             # kept `xml:"groupName,omitempty"` -- most instances never touch a placement group at
+             # all, and stripping omitempty would put a spurious empty <groupName/> tag on every
+             # DescribeInstances response for the overwhelmingly common case, trading a rare-clear
+             # edge case for a much larger deviation from real AWS's shape. Round-trip test:
+             # wire_field_fixes_test.go (TestModifyInstancePlacement_GroupNameCanBeCleared).
+             # ---- prior pass's note follows ----
+             # 2026-08-07 pass (gopherstack-8pce follow-up): re-verified the tag dual-storage
              # consolidation and TGW/NAT/VPC-endpoint field-diffs claimed by the passes below
              # are real and still hold (read the code directly against the pinned SDK, not just
              # the notes) -- confirmed, all still correct. Found and fixed one more real,

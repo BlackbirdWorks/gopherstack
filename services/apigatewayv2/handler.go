@@ -562,6 +562,10 @@ func handleUpdate[I, O any](
 		log.Error("apigatewayv2: update "+resourceName+" failed",
 			logKeyAPIID, apiID, "resourceId", resourceID, "error", err)
 
+		if errors.Is(err, ErrBadRequest) {
+			return writeErr(c, http.StatusBadRequest, err.Error())
+		}
+
 		for _, nfe := range notFoundErrs {
 			if errors.Is(err, nfe) {
 				return writeErr(c, http.StatusNotFound, msgNotFound)

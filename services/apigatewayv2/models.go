@@ -376,11 +376,11 @@ type UpdateAuthorizerInput struct {
 	JwtConfiguration               *JwtConfiguration `json:"jwtConfiguration,omitempty"`
 	AuthorizerResultTTLInSeconds   *int32            `json:"authorizerResultTtlInSeconds,omitempty"`
 	EnableSimpleResponses          *bool             `json:"enableSimpleResponses,omitempty"`
-	Name                           string            `json:"name,omitempty"`
+	Name                           *string           `json:"name,omitempty"`
+	AuthorizerURI                  *string           `json:"authorizerUri,omitempty"`
+	AuthorizerCredentialsArn       *string           `json:"authorizerCredentialsArn,omitempty"`
+	AuthorizerPayloadFormatVersion *string           `json:"authorizerPayloadFormatVersion,omitempty"`
 	AuthorizerType                 string            `json:"authorizerType,omitempty"`
-	AuthorizerURI                  string            `json:"authorizerUri,omitempty"`
-	AuthorizerCredentialsArn       string            `json:"authorizerCredentialsArn,omitempty"`
-	AuthorizerPayloadFormatVersion string            `json:"authorizerPayloadFormatVersion,omitempty"`
 	IdentitySource                 []string          `json:"identitySource,omitempty"`
 }
 

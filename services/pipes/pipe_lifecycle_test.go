@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -1027,7 +1028,7 @@ func TestKmsKeyIdentifier_Update(t *testing.T) {
 
 			updated, err := b.UpdatePipe(context.Background(), tt.name+"-pipe", pipes.UpdatePipeInput{
 				RoleARN:          "arn:aws:iam::123456789012:role/r",
-				KmsKeyIdentifier: tt.updatedKey,
+				KmsKeyIdentifier: aws.String(tt.updatedKey),
 			})
 			require.NoError(t, err)
 			assert.Equal(t, tt.updatedKey, updated.KmsKeyIdentifier)

@@ -66,7 +66,7 @@ func TestInMemoryBackend_Authorizers(t *testing.T) {
 			assert.Len(t, authorizers, 1)
 
 			updated, err := b.UpdateAuthorizer(api.APIID, authorizer.AuthorizerID, apigatewayv2.UpdateAuthorizerInput{
-				Name: "updated-name",
+				Name: aws.String("updated-name"),
 			})
 			require.NoError(t, err)
 			assert.Equal(t, "updated-name", updated.Name)
@@ -99,11 +99,11 @@ func TestInMemoryBackend_UpdateAuthorizer_AllFields(t *testing.T) {
 	require.NoError(t, err)
 
 	updated, err := b.UpdateAuthorizer(api.APIID, auth.AuthorizerID, apigatewayv2.UpdateAuthorizerInput{
-		Name:                         "new-auth",
+		Name:                         aws.String("new-auth"),
 		AuthorizerType:               "REQUEST",
-		AuthorizerURI:                "https://auth.example.com",
+		AuthorizerURI:                aws.String("https://auth.example.com"),
 		IdentitySource:               []string{"$request.header.Authorization"},
-		AuthorizerCredentialsArn:     "arn:aws:iam::123:role/role",
+		AuthorizerCredentialsArn:     aws.String("arn:aws:iam::123:role/role"),
 		AuthorizerResultTTLInSeconds: aws.Int32(300),
 	})
 	require.NoError(t, err)

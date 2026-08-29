@@ -1052,3 +1052,55 @@ func TestDescribeTransitGatewayConnectPeers_RealShape_RealClient(t *testing.T) {
 	require.NotEmpty(t, cfg.InsideCidrBlocks, "InsideCidrBlocks empty - never emitted by Describe...ConnectPeers")
 	assert.Equal(t, "169.254.100.0/29", cfg.InsideCidrBlocks[0])
 }
+
+// TestModifyInstancePlacement_GroupNameCanBeCleared drives
+// ModifyInstancePlacement/DescribeInstances through the real SDK client.
+// ModifyInstancePlacementInput.GroupName was a plain string guarded by
+// != "" (not *string like the real SDK's ModifyInstancePlacementInput,
+// api_op_ModifyInstancePlacement.go), whose doc comment says "To remove an
+// instance from a placement group, specify an empty string ("")" -- so a
+// real client's documented way to clear it was silently dropped, leaving the
+// instance in its old placement group.
+func TestModifyInstancePlacement_GroupNameCanBeCleared(t *testing.T) {
+	t.Parallel()
+
+	backend := ec2.NewInMemoryBackend("123456789012", "us-east-1")
+
+	instances, err := backend.RunInstances("ami-123", "t3.micro", "", 1)
+	require.NoError(t, err)
+	instanceID := instances[0].ID
+	backend.TickLifecycleForTest() // pending -> running
+
+	_, err = backend.StopInstances([]string{instanceID})
+	require.NoError(t, err)
+	backend.TickLifecycleForTest() // stopping -> stopped
+
+	client := newTestEC2Client(t, ec2.NewHandler(backend))
+	ctx := t.Context()
+
+	_, err = client.ModifyInstancePlacement(ctx, &ec2sdk.ModifyInstancePlacementInput{
+		InstanceId: aws.String(instanceID),
+		GroupName:  aws.String("my-placement-group"),
+	})
+	require.NoError(t, err)
+
+	before, err := client.DescribeInstances(ctx, &ec2sdk.DescribeInstancesInput{InstanceIds: []string{instanceID}})
+	require.NoError(t, err)
+	require.Len(t, before.Reservations, 1)
+	require.Len(t, before.Reservations[0].Instances, 1)
+	require.Equal(t, "my-placement-group",
+		aws.ToString(before.Reservations[0].Instances[0].Placement.GroupName))
+
+	_, err = client.ModifyInstancePlacement(ctx, &ec2sdk.ModifyInstancePlacementInput{
+		InstanceId: aws.String(instanceID),
+		GroupName:  aws.String(""),
+	})
+	require.NoError(t, err)
+
+	after, err := client.DescribeInstances(ctx, &ec2sdk.DescribeInstancesInput{InstanceIds: []string{instanceID}})
+	require.NoError(t, err)
+	require.Len(t, after.Reservations, 1)
+	require.Len(t, after.Reservations[0].Instances, 1)
+	require.Empty(t, aws.ToString(after.Reservations[0].Instances[0].Placement.GroupName),
+		"explicit empty GroupName on ModifyInstancePlacement must clear it, not be silently ignored")
+}

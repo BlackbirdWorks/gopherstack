@@ -413,10 +413,10 @@ type updatePipeRequest struct {
 	EnrichmentParameters    *EnrichmentParameters    `json:"EnrichmentParameters"`
 	RuntimeMetricsStreaming *RuntimeMetricsStreaming `json:"RuntimeMetricsStreaming"`
 	Description             *string                  `json:"Description"`
+	KmsKeyIdentifier        *string                  `json:"KmsKeyIdentifier"`
 	RoleArn                 string                   `json:"RoleArn"`
 	Target                  string                   `json:"Target"`
 	Enrichment              string                   `json:"Enrichment"`
-	KmsKeyIdentifier        string                   `json:"KmsKeyIdentifier"`
 	DesiredState            string                   `json:"DesiredState"`
 }
 

@@ -197,10 +197,10 @@ type UpdatePipeInput struct {
 	EnrichmentParameters    *EnrichmentParameters
 	RuntimeMetricsStreaming *RuntimeMetricsStreaming
 	Description             *string
+	KmsKeyIdentifier        *string
 	RoleARN                 string
 	Target                  string
 	Enrichment              string
-	KmsKeyIdentifier        string
 	DesiredState            string
 }
 

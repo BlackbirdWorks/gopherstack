@@ -367,8 +367,8 @@ func applyUpdatePlacementFields(g *AutoScalingGroup, input UpdateAutoScalingGrou
 		g.VPCZoneIdentifier = input.VPCZoneIdentifier
 	}
 
-	if input.PlacementGroup != "" {
-		g.PlacementGroup = input.PlacementGroup
+	if input.PlacementGroup != nil {
+		g.PlacementGroup = *input.PlacementGroup
 	}
 
 	if input.Context != "" {
