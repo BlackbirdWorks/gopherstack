@@ -610,10 +610,11 @@ func TestDeletePermission_InUseRejected(t *testing.T) {
 	err = h.Backend.AssociateResourceSharePermission(rs.ARN, p.ARN, false, nil)
 	require.NoError(t, err)
 
-	// HTTP delete should return 400 PermissionInUseException.
+	// HTTP delete should return 400 OperationNotPermittedException --
+	// DeletePermission's own error model has no InUse-shaped exception.
 	rec := doRAMRequest(t, h, "/deletepermission?permissionArn="+p.ARN, nil)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
-	assert.Contains(t, rec.Body.String(), "PermissionInUseException")
+	assert.Contains(t, rec.Body.String(), "OperationNotPermittedException")
 }
 
 func TestPermissionNotFound_UsesUnknownResourceException(t *testing.T) {

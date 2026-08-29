@@ -41,7 +41,7 @@ func (b *InMemoryBackend) CreatePermission(
 	permARN := b.permissionARN(name)
 
 	if p, ok := b.permissions.Get(permARN); ok && !p.Deleted {
-		return nil, fmt.Errorf("%w: permission %s already exists", ErrAlreadyExists, name)
+		return nil, fmt.Errorf("%w: permission %s already exists", ErrPermissionAlreadyExists, name)
 	}
 
 	now := time.Now()

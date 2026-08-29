@@ -430,7 +430,7 @@ func TestHandleError_ErrValidation(t *testing.T) {
 	rec := doRAMRawRequest(t, h, http.MethodDelete,
 		fmt.Sprintf("/deletepermissionversion?permissionArn=%s&permissionVersion=1", p.ARN), nil)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
-	assert.Contains(t, rec.Body.String(), "MalformedQueryStringException")
+	assert.Contains(t, rec.Body.String(), "InvalidParameterException")
 }
 
 // TestRefinement1_HandleError_ErrPermissionNotFound verifies 400 with InvalidParameterException.

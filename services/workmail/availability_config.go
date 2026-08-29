@@ -23,7 +23,7 @@ func (b *InMemoryBackend) CreateAvailabilityConfiguration(
 	if b.availabilityConfigs.Has(orgKey(orgID, domainName)) {
 		return nil, fmt.Errorf(
 			"%w: availability configuration for %q already exists",
-			ErrConflict,
+			ErrNameUnavailable,
 			domainName,
 		)
 	}

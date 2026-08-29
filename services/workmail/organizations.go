@@ -26,7 +26,7 @@ func (b *InMemoryBackend) CreateOrganization(
 		return nil, fmt.Errorf("%w: Alias is required", ErrValidation)
 	}
 	if _, exists := b.orgsByAlias[alias]; exists {
-		return nil, fmt.Errorf("%w: organization with alias %q already exists", ErrConflict, alias)
+		return nil, fmt.Errorf("%w: organization with alias %q already exists", ErrNameUnavailable, alias)
 	}
 
 	orgID := "m-" + strings.ReplaceAll(newID(), "-", "")[:20]

@@ -180,7 +180,7 @@ func TestWorkMail_Users_Lifecycle(t *testing.T) {
 				))
 				assert.Equal(t, http.StatusBadRequest, rec.Code)
 				m := decodeJSON(t, rec)
-				assert.Contains(t, m["__type"].(string), "AlreadyExists")
+				assert.Equal(t, "NameAvailabilityException", m["__type"])
 			},
 		},
 		{

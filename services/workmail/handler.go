@@ -114,6 +114,10 @@ func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]b
 }
 
 func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err error) error {
+	// InternalServiceError names no type WorkMail models anywhere (checked
+	// across all 92 ops' deserializeOpError switches); real WorkMail has no
+	// generic internal-error exception, so no typed match is possible for
+	// this fallback regardless of the code chosen here.
 	code := "InternalServiceError"
 	status := http.StatusInternalServerError
 
@@ -121,7 +125,16 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 	case errors.Is(err, ErrNotFound):
 		code, status = "EntityNotFoundException", http.StatusBadRequest
 	case errors.Is(err, ErrConflict):
+		// CreateImpersonationRole: see ErrConflict's doc in errors.go -- its
+		// own model has no AlreadyExists-shaped exception, so no
+		// replacement code is invented.
 		code, status = "EntityAlreadyExistsException", http.StatusBadRequest
+	case errors.Is(err, ErrNameUnavailable):
+		code, status = "NameAvailabilityException", http.StatusBadRequest
+	case errors.Is(err, ErrEmailInUse):
+		code, status = "EmailAddressInUseException", http.StatusBadRequest
+	case errors.Is(err, ErrMailDomainInUse):
+		code, status = "MailDomainInUseException", http.StatusBadRequest
 	case errors.Is(err, ErrValidation):
 		code, status = "InvalidParameterException", http.StatusBadRequest
 	case errors.Is(err, ErrLimitExceeded):

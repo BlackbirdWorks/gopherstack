@@ -17,7 +17,7 @@ func (b *InMemoryBackend) CreateAlias(orgID, entityID, alias string) error {
 	}
 
 	if ta, exists := b.globalAliases.Get(alias); exists && ta.OrgID == orgID {
-		return fmt.Errorf("%w: alias %q already in use", ErrConflict, alias)
+		return fmt.Errorf("%w: alias %q already in use", ErrEmailInUse, alias)
 	}
 
 	// Verify entity exists.

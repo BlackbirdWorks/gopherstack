@@ -48,6 +48,17 @@ overall: A            # 2026-08-15 (gopherstack-6flj): wrapper-key/nested-shape 
                        # and fixed), 2 latent Source-not-set bugs, a request/response
                        # value-space mismatch, and implemented the previously-deferred
                        # Cluster.Status creating->available lifecycle (opt-in, default-off).
+                       # 2026-08-29: errcodeaudit ERROR-path sweep. 3 confident findings
+                       # (writeBackendError's generic awserr.ErrNotFound/ErrAlreadyExists/ErrConflict
+                       # fallback cases, emitting fabricated ResourceNotFoundException/
+                       # ResourceInUseException/InvalidRequestException -- none exist in MemoryDB's
+                       # SDK, which has no generic bucket exceptions at all, every fault is
+                       # resource-specific). Verified NOT live: every currently-defined sentinel of
+                       # each category is already caught by the specific errCodeLookup table above
+                       # this fallback (exhaustively grepped errors.go), so these 3 branches are
+                       # dead code today. Left unchanged: even if reached, there is no correct
+                       # generic replacement code to invent (MemoryDB genuinely has none). Flagged as
+                       # a landmine for a future sentinel added without a matching errCodeLookup row.
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:

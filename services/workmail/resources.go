@@ -49,7 +49,7 @@ func (b *InMemoryBackend) CreateResource(
 
 	for _, r := range b.resourcesByOrg.Get(orgID) {
 		if r.Name == name {
-			return nil, fmt.Errorf("%w: resource %q already exists", ErrConflict, name)
+			return nil, fmt.Errorf("%w: resource %q already exists", ErrNameUnavailable, name)
 		}
 	}
 

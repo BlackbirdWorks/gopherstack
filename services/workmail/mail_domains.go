@@ -57,7 +57,7 @@ func (b *InMemoryBackend) RegisterMailDomain(orgID, domainName string) error {
 		return fmt.Errorf("%w: organization %q not found", ErrNotFound, orgID)
 	}
 	if b.mailDomains.Has(orgKey(orgID, domainName)) {
-		return fmt.Errorf("%w: domain %q already registered", ErrConflict, domainName)
+		return fmt.Errorf("%w: domain %q already registered", ErrMailDomainInUse, domainName)
 	}
 
 	region := org.Region

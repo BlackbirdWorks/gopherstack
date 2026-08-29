@@ -37,7 +37,7 @@ func (b *InMemoryBackend) CreateGroup(orgID, name string, hidden bool) (*Group, 
 
 	for _, g := range b.groupsByOrg.Get(orgID) {
 		if g.Name == name {
-			return nil, fmt.Errorf("%w: group %q already exists", ErrConflict, name)
+			return nil, fmt.Errorf("%w: group %q already exists", ErrNameUnavailable, name)
 		}
 	}
 

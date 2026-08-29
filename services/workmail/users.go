@@ -32,7 +32,7 @@ func (b *InMemoryBackend) CreateUser(orgID, name string, params CreateUserParams
 
 	for _, u := range b.usersByOrg.Get(orgID) {
 		if u.Name == name {
-			return nil, fmt.Errorf("%w: user %q already exists", ErrConflict, name)
+			return nil, fmt.Errorf("%w: user %q already exists", ErrNameUnavailable, name)
 		}
 	}
 
@@ -288,7 +288,7 @@ func (b *InMemoryBackend) RegisterToWorkMail(orgID, entityID, email string) erro
 	}
 
 	if ta, exists := b.globalAliases.Get(email); exists && ta.OrgID == orgID {
-		return fmt.Errorf("%w: email %q already in use", ErrConflict, email)
+		return fmt.Errorf("%w: email %q already in use", ErrEmailInUse, email)
 	}
 
 	now := time.Now().UTC()

@@ -116,7 +116,7 @@ func TestAvailabilityConfigurationErrors(t *testing.T) {
 		{
 			name:      "create duplicate",
 			action:    "sequence",
-			wantError: "EntityAlreadyExistsException",
+			wantError: "NameAvailabilityException",
 		},
 		{
 			name:      "delete nonexistent",

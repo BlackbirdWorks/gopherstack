@@ -1,4 +1,14 @@
 ---
+# 2026-08-29: errcodeaudit ERROR-path sweep. 2 confident findings
+# (corenetworks.go:43,171 "InvalidPolicyDocument"), both verified clean false positives. The
+# string lives inside CoreNetworkPolicyError.ErrorCode, a *string field with no enum
+# (types/types.go) nested inside CoreNetworkPolicyException's Errors list -- opaque per-item
+# business data, not the wire error's type discriminator. The actual discriminator sent on the
+# wire (handler.go:247, confirmed correct) is the real "CoreNetworkPolicyException", which is
+# what CreateCoreNetwork/PutCoreNetworkPolicy's own deserializeOpError switches both model.
+# Matches the tool's documented "free-form ErrorCode field, no ground truth, not a bug" class,
+# just inside an error payload rather than a success response. No fix needed.
+#
 # PARITY MANIFEST -- IMPLEMENTED, A. This pass (2026-08-28, wrapper-key/write-only-state sweep)
 # found and fixed two real write-only-state bugs the prior wire_field_fixes_test.go pass
 # (gopherstack-6flj) had not caught: (1) EdgeLocation on VPC/Site-to-Site-VPN attachments and

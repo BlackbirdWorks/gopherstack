@@ -3,7 +3,20 @@ service: sts
 sdk_module: aws-sdk-go-v2/service/sts@v1.45.4   # version audited against (pinned in go.mod)
 last_audit_commit: bfc0729e6                    # HEAD before this pass's changes
 last_audit_date: 2026-08-20
-overall: A                # OutboundWebIdentityFederationDisabledException genuinely wired
+overall: A                # 2026-08-29: errcodeaudit ERROR-path sweep. 2 confident findings
+                           # (handler.go:335,337 "Sender"/"Receiver"), both verified clean false
+                           # positives. These are the Query-protocol XML error envelope's <Type>
+                           # field (SOAP-fault-actor classification: Sender=client fault,
+                           # Receiver=server fault), not exception codes -- confirmed against
+                           # awsxml.GetErrorResponseComponents (deserializers.go), which extracts
+                           # only Code/Message/RequestID from the XML body for typed dispatch; Type
+                           # is never read for errors.As matching by any op. STS DOES model typed
+                           # exceptions elsewhere (12 in types/errors.go: ExpiredTokenException,
+                           # MalformedPolicyDocumentException, etc.) -- confirmed correctly mapped
+                           # to their real ErrorCode() strings (which differ from the Go type names,
+                           # e.g. InvalidIdentityTokenException.ErrorCode()=="InvalidIdentityToken"),
+                           # not the type names themselves. No fix needed.
+                           # OutboundWebIdentityFederationDisabledException genuinely wired
                            # this pass (see GetWebIdentityToken below); the one remaining gap
                            # (JWTPayloadSizeExceededException) is a proven impossibility --
                            # AWS publishes no byte threshold anywhere searched (SDK doc
