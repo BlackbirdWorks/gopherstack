@@ -116,6 +116,60 @@ func (b *InMemoryBackend) ListRestoreJobs() []*RestoreJob {
 	return out
 }
 
+// ListRestoreJobsFilter contains optional filter parameters for listing
+// restore jobs, mirroring ListRestoreJobsInput (api_op_ListRestoreJobs.go,
+// backup@v1.59.4). ByParentJobId and ByRestoreTestingPlanArn are not
+// included: this backend's RestoreJob has no field to hold either value
+// (StartRestoreJob never receives or fabricates one).
+type ListRestoreJobsFilter struct {
+	CreatedAfter   *time.Time
+	CreatedBefore  *time.Time
+	CompleteAfter  *time.Time
+	CompleteBefore *time.Time
+	AccountID      string
+	ResourceType   string
+	Status         string
+}
+
+func restoreJobMatchesFilter(j *RestoreJob, f ListRestoreJobsFilter) bool {
+	if f.AccountID != "" && j.AccountID != f.AccountID {
+		return false
+	}
+	if f.ResourceType != "" && j.ResourceType != f.ResourceType {
+		return false
+	}
+	if f.Status != "" && j.Status != f.Status {
+		return false
+	}
+	if !inTimeRange(j.StartTime, f.CreatedAfter, f.CreatedBefore) {
+		return false
+	}
+	if j.CompletionDate == nil {
+		return f.CompleteAfter == nil && f.CompleteBefore == nil
+	}
+
+	return inTimeRange(*j.CompletionDate, f.CompleteAfter, f.CompleteBefore)
+}
+
+// ListRestoreJobsFiltered returns restore jobs matching the filter.
+func (b *InMemoryBackend) ListRestoreJobsFiltered(f ListRestoreJobsFilter) []*RestoreJob {
+	b.mu.RLock("ListRestoreJobsFiltered")
+	defer b.mu.RUnlock()
+
+	all := b.restoreJobs.All()
+	out := make([]*RestoreJob, 0, len(all))
+	for _, j := range all {
+		if !restoreJobMatchesFilter(j, f) {
+			continue
+		}
+		cp := *j
+		out = append(out, &cp)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].RestoreJobID < out[j].RestoreJobID })
+
+	return out
+}
+
 // ListRestoreJobsByProtectedResource returns restore jobs for a given resource ARN.
 func (b *InMemoryBackend) ListRestoreJobsByProtectedResource(resourceArn string) []*RestoreJob {
 	b.mu.RLock("ListRestoreJobsByProtectedResource")

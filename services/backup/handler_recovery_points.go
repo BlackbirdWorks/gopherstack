@@ -29,11 +29,11 @@ func (h *Handler) handleListRecoveryPointsByBackupVault(c *echo.Context, vaultNa
 
 	q := c.Request().URL.Query()
 	f := ListRPFilter{
-		ResourceArn:            q.Get("byResourceArn"),
-		ResourceType:           q.Get("byResourceType"),
-		ParentRecoveryPointArn: q.Get("byParentRecoveryPointArn"),
-		CreatedAfter:           ParseTimeFilter(q.Get("byCreatedAfter")),
-		CreatedBefore:          ParseTimeFilter(q.Get("byCreatedBefore")),
+		ResourceArn:            q.Get("resourceArn"),
+		ResourceType:           q.Get("resourceType"),
+		ParentRecoveryPointArn: q.Get("parentRecoveryPointArn"),
+		CreatedAfter:           ParseTimeFilter(q.Get("createdAfter")),
+		CreatedBefore:          ParseTimeFilter(q.Get("createdBefore")),
 		NextToken:              q.Get("nextToken"),
 		MaxResults:             parseInt(q.Get("maxResults")),
 	}

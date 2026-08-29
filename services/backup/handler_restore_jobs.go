@@ -3,9 +3,26 @@ package backup
 import (
 	"encoding/json"
 	"net/http"
+	"net/url"
 
 	"github.com/labstack/echo/v5"
 )
+
+// RestoreJobsFilterFromQuery builds a ListRestoreJobsFilter from ListRestoreJobs
+// query parameters (api_op_ListRestoreJobs.go, serializers.go, backup@v1.59.4):
+// accountId, resourceType, status, createdAfter, createdBefore, completeAfter,
+// completeBefore.
+func RestoreJobsFilterFromQuery(q url.Values) ListRestoreJobsFilter {
+	return ListRestoreJobsFilter{
+		AccountID:      q.Get("accountId"),
+		ResourceType:   q.Get("resourceType"),
+		Status:         q.Get("status"),
+		CreatedAfter:   ParseTimeFilter(q.Get("createdAfter")),
+		CreatedBefore:  ParseTimeFilter(q.Get("createdBefore")),
+		CompleteAfter:  ParseTimeFilter(q.Get("completeAfter")),
+		CompleteBefore: ParseTimeFilter(q.Get("completeBefore")),
+	}
+}
 
 // restoreJobToJSON renders the fields of a RestoreJob this backend tracks,
 // matching (a subset of) the real types.RestoreJobsListMember wire shape
@@ -122,7 +139,8 @@ func (h *Handler) dispatchRestoreJobOps(
 
 		return true, h.handleDescribeRestoreJob(c, route.resource)
 	case opListRestoreJobs:
-		jobs := h.Backend.ListRestoreJobs()
+		q := c.Request().URL.Query()
+		jobs := h.Backend.ListRestoreJobsFiltered(RestoreJobsFilterFromQuery(q))
 		items := make([]map[string]any, 0, len(jobs))
 		for _, j := range jobs {
 			items = append(items, restoreJobToJSON(j))

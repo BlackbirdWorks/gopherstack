@@ -3,10 +3,31 @@ package backup
 import (
 	"encoding/json"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/labstack/echo/v5"
 )
+
+// ScanJobsFilterFromQuery builds a ListScanJobsFilter from ListScanJobs
+// query parameters. ListScanJobs is the one op in this service that does
+// NOT strip the "By" prefix on the wire (serializers.go ListScanJobs query
+// bindings, backup@v1.59.4): ByAccountId, ByBackupVaultName, ByMalwareScanner,
+// ByRecoveryPointArn, ByResourceArn, ByResourceType, ByState, ByCompleteAfter,
+// ByCompleteBefore all keep the full PascalCase Go field name.
+func ScanJobsFilterFromQuery(q url.Values) ListScanJobsFilter {
+	return ListScanJobsFilter{
+		AccountID:        q.Get("ByAccountId"),
+		BackupVaultName:  q.Get("ByBackupVaultName"),
+		MalwareScanner:   q.Get("ByMalwareScanner"),
+		RecoveryPointArn: q.Get("ByRecoveryPointArn"),
+		ResourceArn:      q.Get("ByResourceArn"),
+		ResourceType:     q.Get("ByResourceType"),
+		State:            q.Get("ByState"),
+		CompleteAfter:    ParseTimeFilter(q.Get("ByCompleteAfter")),
+		CompleteBefore:   ParseTimeFilter(q.Get("ByCompleteBefore")),
+	}
+}
 
 type reportDeliveryChannelJSON struct {
 	S3BucketName string   `json:"S3BucketName"`
@@ -267,7 +288,7 @@ func (h *Handler) dispatchReportJobOps(
 
 		return true, c.JSON(http.StatusOK, scanJobToJSON(job))
 	case opListScanJobs:
-		jobs := h.Backend.ListScanJobs()
+		jobs := h.Backend.ListScanJobsFiltered(ScanJobsFilterFromQuery(c.Request().URL.Query()))
 		items := make([]map[string]any, 0, len(jobs))
 		for _, j := range jobs {
 			items = append(items, scanJobToJSON(j))

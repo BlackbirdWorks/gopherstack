@@ -102,13 +102,13 @@ func (h *Handler) handleListBackupJobs(c *echo.Context) error {
 	q := c.Request().URL.Query()
 	f := ListBackupJobsFilter{
 		VaultName:     q.Get("backupVaultName"),
-		State:         q.Get("byState"),
-		ResourceArn:   q.Get("byResourceArn"),
-		ResourceType:  q.Get("byResourceType"),
-		AccountID:     q.Get("byAccountId"),
-		ParentJobID:   q.Get("byParentJobId"),
-		CreatedAfter:  ParseTimeFilter(q.Get("byCreatedAfter")),
-		CreatedBefore: ParseTimeFilter(q.Get("byCreatedBefore")),
+		State:         q.Get("state"),
+		ResourceArn:   q.Get("resourceArn"),
+		ResourceType:  q.Get("resourceType"),
+		AccountID:     q.Get("accountId"),
+		ParentJobID:   q.Get("parentJobId"),
+		CreatedAfter:  ParseTimeFilter(q.Get("createdAfter")),
+		CreatedBefore: ParseTimeFilter(q.Get("createdBefore")),
 		NextToken:     q.Get("nextToken"),
 	}
 	if mr := parseInt(q.Get("maxResults")); mr > 0 {

@@ -10,14 +10,14 @@ import (
 func (h *Handler) handleListCopyJobs(c *echo.Context) error {
 	q := c.Request().URL.Query()
 	f := ListCopyJobsFilter{
-		State:                     q.Get("byState"),
-		ResourceArn:               q.Get("byResourceArn"),
-		ResourceType:              q.Get("byResourceType"),
-		SourceBackupVaultArn:      q.Get("bySourceBackupVaultArn"),
-		DestinationBackupVaultArn: q.Get("byDestinationVaultArn"),
-		AccountID:                 q.Get("byAccountId"),
-		CreatedAfter:              ParseTimeFilter(q.Get("byCreatedAfter")),
-		CreatedBefore:             ParseTimeFilter(q.Get("byCreatedBefore")),
+		State:                     q.Get("state"),
+		ResourceArn:               q.Get("resourceArn"),
+		ResourceType:              q.Get("resourceType"),
+		SourceRecoveryPointArn:    q.Get("sourceRecoveryPointArn"),
+		DestinationBackupVaultArn: q.Get("destinationVaultArn"),
+		AccountID:                 q.Get("accountId"),
+		CreatedAfter:              ParseTimeFilter(q.Get("createdAfter")),
+		CreatedBefore:             ParseTimeFilter(q.Get("createdBefore")),
 		NextToken:                 q.Get("nextToken"),
 		MaxResults:                parseInt(q.Get("maxResults")),
 	}
