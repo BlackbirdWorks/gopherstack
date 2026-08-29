@@ -153,7 +153,7 @@ func TestTags_ResourceTagLimits(t *testing.T) {
 			name:        "reserved_prefix",
 			tags:        []map[string]string{{"Key": "aws:tag", "Value": "v"}},
 			wantStatus:  http.StatusBadRequest,
-			wantErrType: "InvalidParameterValueException",
+			wantErrType: "InvalidTagsToAddException",
 		},
 		{
 			name: "key_too_long",
@@ -161,7 +161,7 @@ func TestTags_ResourceTagLimits(t *testing.T) {
 				{"Key": strings.Repeat("k", 129), "Value": "v"},
 			},
 			wantStatus:  http.StatusBadRequest,
-			wantErrType: "InvalidParameterValueException",
+			wantErrType: "InvalidTagsToAddException",
 		},
 		{
 			name: "value_too_long",
@@ -169,7 +169,7 @@ func TestTags_ResourceTagLimits(t *testing.T) {
 				{"Key": "k", "Value": strings.Repeat("v", 257)},
 			},
 			wantStatus:  http.StatusBadRequest,
-			wantErrType: "InvalidParameterValueException",
+			wantErrType: "InvalidTagsToAddException",
 		},
 	}
 
@@ -220,5 +220,9 @@ func TestTags_ResourceExceedsMaxTags(t *testing.T) {
 
 	var resp map[string]string
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	assert.Equal(t, "TagLimitExceededException", resp["__type"])
+	// TagResource's own deserializer models only InvalidTagsToAddException for
+	// tag content, not TagLimitExceededException (that code belongs to
+	// AddTagsToOnPremisesInstances/RemoveTagsFromOnPremisesInstances/
+	// UpdateDeploymentGroup instead).
+	assert.Equal(t, "InvalidTagsToAddException", resp["__type"])
 }

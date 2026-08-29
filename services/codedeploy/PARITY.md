@@ -247,3 +247,58 @@ leaks: {status: clean, note: "no goroutines/janitors in this service; Reset/Snap
   enums.go; the code was already correct, only the comment was wrong). All three were the
   full set of banned nolints flagged for this service — `grep -rnE
   'nolint:[a-z,]*(cyclop|gocyclo|gocognit|funlen)' services/codedeploy/` now returns empty.
+
+- **ERROR path verified against `cmd/errcodeaudit`'s near-miss sweep (this pass)**. Four
+  confident findings, two distinct wrong constants each reused at multiple call sites:
+  - `ErrValidation` ("InvalidParameterValueException", not a real CodeDeploy type at all) was
+    reused across four semantically unrelated failures. Each now uses the code its own
+    op's `deserializeOpError<Op>` actually models: `CreateDeploymentConfig`'s bad
+    `computePlatform` → the pre-existing `ErrInvalidComputePlatform`
+    (`InvalidComputePlatformException`, was wired to the wrong sentinel);
+    `BatchGetApplicationRevisions`' >25-revision case → new `ErrBatchLimitExceeded`
+    (`BatchLimitExceededException`); `RegisterOnPremisesInstance`'s malformed (not missing)
+    instance name → new `ErrInvalidInstanceName` (`InvalidInstanceNameException`);
+    `TagResource`'s reserved-prefix/oversized-key/oversized-value tag rejection → new
+    `ErrInvalidTagsToAdd` (`InvalidTagsToAddException`).
+  - `errInvalidRequest` ("InvalidRequestException", also not a real type) backed the
+    "field is required" check at ~35 call sites across nearly every operation in this
+    package — the single-wrong-constant-reused pattern this campaign looks for. Each op
+    models its own distinct `<Field>RequiredException`; replaced with nine per-field
+    sentinels (`ErrApplicationNameRequired`, `ErrDeploymentGroupNameRequired`,
+    `ErrDeploymentIDRequired`, `ErrInstanceIDRequired`, `ErrDeploymentTargetIDRequired`,
+    `ErrDeploymentConfigNameRequired`, `ErrInstanceNameRequired`, `ErrResourceArnRequired`,
+    `ErrGitHubTokenNameRequired`), each verified against the specific op(s) that raise it,
+    splitting combined two-field checks (e.g. `CreateDeploymentGroup`'s
+    applicationName+deploymentGroupName) into two ordered checks so each field gets its own
+    correct code. `errInvalidRequest` itself is now unused and removed.
+  - `errUnknownAction` (dispatch-miss for an unrecognized `Action`) still maps to
+    `InvalidRequestException` — deliberately left unfixed: no CodeDeploy operation models
+    this condition (there is no operation to consult; the routed action itself is
+    unrecognized), so inventing a replacement code would be exactly the fabrication this
+    campaign exists to remove. This is the one remaining confident `errcodeaudit` finding
+    for this service.
+  - **Adjacent bug found while in this code, not from the tool**: `DeleteDeploymentConfig`'s
+    built-in-config guard used `ErrDeploymentConfigInUse` (`DeploymentConfigInUseException`)
+    — a real CodeDeploy exception, but the wrong one for this op.
+    `DeleteDeploymentConfig`'s own deserializer models `InvalidOperationException` for
+    exactly this case; `DeploymentConfigInUseException` is only modeled by
+    `AddTagsToOnPremisesInstances`/`RemoveTagsFromOnPremisesInstances`/
+    `UpdateDeploymentGroup`'s tag-limit case, none of which this backend ever triggered it
+    from. Renamed to `ErrDeploymentConfigIsDefault` mapped to `InvalidOperationException`.
+    Same root cause as `ErrOnPremisesInstanceNotFound` above: a real code borrowed from the
+    wrong operation in the same family.
+  - Same trap caught `ErrTagLimitExceeded` (`TagLimitExceededException`, also real but only
+    modeled by the three ops above, never `TagResource`): `TagResource`'s own too-many-tags
+    check now uses `ErrInvalidTagsToAdd` like its other tag-content rejections.
+  - Five existing tests asserted the fabricated/misrouted codes as correct and are fixed:
+    `TestDeploymentConfigs_DefaultsCannotDelete` (renamed assertion from
+    `DeploymentConfigInUseException` to `InvalidOperationException`),
+    `TestDeploymentConfigs_ErrValidationMapping` (renamed to
+    `TestDeploymentConfigs_ErrInvalidComputePlatformMapping`, asserts
+    `InvalidComputePlatformException`), two cases in `TestOnPremisesInstance`-adjacent table
+    tests in `on_premises_instances_test.go` (now assert `InvalidInstanceNameException`), and
+    `TestTags_ResourceTagLimits`/`TestTags_ResourceExceedsMaxTags` in `tags_test.go` (now
+    assert `InvalidTagsToAddException`).
+  - New coverage driving the real typed SDK client end-to-end, asserting the specific typed
+    exception via `errors.As` (not string/presence checks):
+    `error_codes_fixes_test.go`.

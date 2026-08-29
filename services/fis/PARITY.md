@@ -311,3 +311,16 @@ executionId, and experimentReport) instead of `types.ExperimentSummary`
 `state`, `tags`). Dedicated `experimentTemplateSummaryDTO` and
 `experimentSummaryDTO` structs now enforce exact SDK wire parity.
 
+
+- **ERROR path re-verified against `cmd/errcodeaudit`'s near-miss sweep (this session)**:
+  the tool flags 10 `errors.go` sentinel literals (`ExperimentTemplateNotFound`,
+  `ExperimentNotFound`, `ActionNotFound`, `TargetResourceTypeNotFound`,
+  `ExperimentNotRunning`, `ResourceNotFound`, `SafetyLeverNotFound`, `SafetyLeverEngaged`,
+  `TooManyTagsException`, `TargetAccountConfigurationNotFound`) as absent from fis's real
+  type/deserializer set. All are **tool false positives**: every `writeBackendError` call
+  routes through `classifyError()` in handler.go, which already collapses every sentinel
+  onto one of the real FIS API's only four exception shapes
+  (`ValidationException`/`ResourceNotFoundException`/`ConflictException`/
+  `ServiceQuotaExceededException`, added in commit `efc42cbc4`, "Parity 4") — the
+  `errors.go` literal is only ever used for `errors.Is` identity and the message text, never
+  the wire `Type` field. No new fix needed.

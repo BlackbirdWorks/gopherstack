@@ -301,3 +301,16 @@ this file's prior "wire: ok" grade.
   recent, detailed field-diffed passes for these (grade A, last_audit_date
   2026-08-11) and this session's time budget went to DBCluster/GlobalCluster
   instead of re-verifying already-recent work across the full 161-op surface.
+
+- **ERROR path re-verified against `cmd/errcodeaudit`'s near-miss sweep (this session)**:
+  the tool flags 12 `errors.go` sentinel literals (`DBClusterNotFound`,
+  `DBClusterAlreadyExists`, `DBSubnetGroupNotFound`, `DBClusterParameterGroupAlreadyExists`,
+  `DBClusterSnapshotNotFound`, `DBClusterSnapshotAlreadyExists`, `DBClusterEndpointNotFound`,
+  `DBClusterEndpointAlreadyExists`, `SubscriptionAlreadyExists`, `GlobalClusterNotFound`,
+  `GlobalClusterAlreadyExists`, `InvalidDBInstanceStateFault`) as absent from neptune's real
+  type/deserializer set. All are **tool false positives**: every backend error routes
+  through the single `handleOpError`→`neptuneErrorCode()` mapping table in handler.go, which
+  already carries the SDK-verified code for each sentinel (documented inline with the exact
+  Fault-suffix trap this campaign targets — e.g. `DBInstanceNotFound` genuinely has no
+  `Fault` suffix while `DBClusterNotFoundFault` does) and is the sole path to the wire; the
+  `errors.go` literal is only ever used for `errors.Is` identity. No new fix needed.

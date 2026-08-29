@@ -606,8 +606,12 @@ func (h *Handler) handleCreateDeploymentGroup(
 	_ context.Context,
 	in *createDeploymentGroupInput,
 ) (*createDeploymentGroupOutput, error) {
-	if in.ApplicationName == "" || in.DeploymentGroupName == "" {
-		return nil, fmt.Errorf("%w: applicationName and deploymentGroupName are required", errInvalidRequest)
+	if in.ApplicationName == "" {
+		return nil, fmt.Errorf("%w: applicationName is required", ErrApplicationNameRequired)
+	}
+
+	if in.DeploymentGroupName == "" {
+		return nil, fmt.Errorf("%w: deploymentGroupName is required", ErrDeploymentGroupNameRequired)
 	}
 
 	input := dgInputFromWire(
@@ -645,8 +649,12 @@ func (h *Handler) handleGetDeploymentGroup(
 	_ context.Context,
 	in *getDeploymentGroupInput,
 ) (*getDeploymentGroupOutput, error) {
-	if in.ApplicationName == "" || in.DeploymentGroupName == "" {
-		return nil, fmt.Errorf("%w: applicationName and deploymentGroupName are required", errInvalidRequest)
+	if in.ApplicationName == "" {
+		return nil, fmt.Errorf("%w: applicationName is required", ErrApplicationNameRequired)
+	}
+
+	if in.DeploymentGroupName == "" {
+		return nil, fmt.Errorf("%w: deploymentGroupName is required", ErrDeploymentGroupNameRequired)
 	}
 
 	dg, err := h.Backend.GetDeploymentGroup(in.ApplicationName, in.DeploymentGroupName)
@@ -671,7 +679,7 @@ func (h *Handler) handleListDeploymentGroups(
 	in *listDeploymentGroupsInput,
 ) (*listDeploymentGroupsOutput, error) {
 	if in.ApplicationName == "" {
-		return nil, fmt.Errorf("%w: applicationName is required", errInvalidRequest)
+		return nil, fmt.Errorf("%w: applicationName is required", ErrApplicationNameRequired)
 	}
 
 	names, err := h.Backend.ListDeploymentGroups(in.ApplicationName)
@@ -733,8 +741,12 @@ func (h *Handler) handleUpdateDeploymentGroup(
 	_ context.Context,
 	in *updateDeploymentGroupInput,
 ) (*updateDeploymentGroupOutput, error) {
-	if in.ApplicationName == "" || in.CurrentDeploymentGroupName == "" {
-		return nil, fmt.Errorf("%w: applicationName and currentDeploymentGroupName are required", errInvalidRequest)
+	if in.ApplicationName == "" {
+		return nil, fmt.Errorf("%w: applicationName is required", ErrApplicationNameRequired)
+	}
+
+	if in.CurrentDeploymentGroupName == "" {
+		return nil, fmt.Errorf("%w: currentDeploymentGroupName is required", ErrDeploymentGroupNameRequired)
 	}
 
 	input := dgInputFromWire(
@@ -773,7 +785,7 @@ func (h *Handler) handleBatchGetDeploymentGroups(
 	in *batchGetDeploymentGroupsInput,
 ) (*batchGetDeploymentGroupsOutput, error) {
 	if in.ApplicationName == "" {
-		return nil, fmt.Errorf("%w: applicationName is required", errInvalidRequest)
+		return nil, fmt.Errorf("%w: applicationName is required", ErrApplicationNameRequired)
 	}
 
 	dgs, err := h.Backend.BatchGetDeploymentGroups(in.ApplicationName, in.DeploymentGroupNames)

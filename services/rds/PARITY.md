@@ -729,3 +729,22 @@ zero instances, not just failing to exclude the postgres one) before the fix, pa
 Gates: `go build ./services/rds/...`, `go build ./...` (repo-wide, no signature changes but checked
 per this session's constraints), `go vet ./services/rds/...`, `go test -race -count=1
 ./services/rds/...` (pass), `golangci-lint run --fix ./services/rds/...` (0 issues).
+
+- **ERROR path re-verified against `cmd/errcodeaudit`'s near-miss sweep (this session)**:
+  the tool flags 18 `errors.go` sentinel literals (`DBSubnetGroupNotFound`,
+  `OptionGroupNotFound`, `OptionGroupAlreadyExists`, `DBClusterNotFound`,
+  `DBClusterAlreadyExists`, `DBClusterSnapshotNotFound`, `DBClusterSnapshotAlreadyExists`,
+  `DBClusterEndpointNotFound`, `DBClusterEndpointAlreadyExists`, `GlobalClusterNotFound`,
+  `GlobalClusterAlreadyExists`, `BlueGreenDeploymentNotFound`,
+  `BlueGreenDeploymentAlreadyExists`, `IntegrationNotFound`, `IntegrationAlreadyExists`,
+  `DBClusterAutomatedBackupNotFound`, `DBProxyAlreadyExists`, `DBProxyEndpointAlreadyExists`)
+  as absent from rds's real type/deserializer set. All are **tool false positives** against
+  current code: every backend error routes through the single
+  `handleOpError`→`rdsErrorCode()` mapping table in handler_dispatch.go, which already
+  carries the correct code for each of these 18 sentinels — most were the specific
+  missing-`Fault`-suffix bug the mapping table's earlier fix pass found and fixed,
+  `DBProxyAlreadyExists`/`DBProxyEndpointAlreadyExists` were the separate missing-table-entry
+  bug that same pass fixed — see this file's earlier `error_codes` entry ("FIXED this pass:
+  field-diffed the whole mapping table...").
+  The `errors.go` literal (the tool's extraction target) is only ever used for `errors.Is`
+  identity, never reaches the wire. No new fix needed.

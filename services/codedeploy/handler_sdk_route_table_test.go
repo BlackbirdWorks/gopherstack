@@ -96,17 +96,15 @@ func sdkRouteCases() []struct{ op, target string } {
 // handler.go's dispatch() single production call site) that a
 // dispatch-table key mismatch would produce.
 //
-// errUnknownAction and errInvalidRequest BOTH map to "InvalidRequestException"
-// in errorMappings (handler.go) -- errInvalidRequest is the sentinel nearly
-// every handler in this package wraps for ordinary field-required validation
-// (grepped: ~35 call sites across handler_applications.go,
-// handler_deployments.go, handler_deployment_groups.go, etc), so asserting
-// on the wire type alone would risk a false negative exactly like the
-// workmail/transfer trap. This test instead asserts on the dispatch-miss
-// message text, which is unique: dispatch's fmt.Errorf("%w: %s",
-// errUnknownAction, action) always renders as `unknown action: <op>`, a
-// substring errInvalidRequest's messages (all "<field> is required" or
-// similar) never produce.
+// Field-required validation across this package's ~35 call sites now uses
+// per-operation sentinels (ErrApplicationNameRequired, ErrDeploymentIDRequired,
+// etc.), each mapped to the specific Required exception that operation's own
+// deserializer models -- there is no single generic code shared with
+// errUnknownAction's dispatch-miss fallback ("InvalidRequestException")
+// anymore. This test asserts on the dispatch-miss message text, which is
+// unique: dispatch's fmt.Errorf("%w: %s", errUnknownAction, action) always
+// renders as `unknown action: <op>`, a substring no field-required message
+// ("<field> is required") ever produces.
 func TestExtractOperation_SDKRouteTable(t *testing.T) {
 	t.Parallel()
 

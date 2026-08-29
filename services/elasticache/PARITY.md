@@ -532,3 +532,17 @@ drives a real SDK client through `service.NewRegistry`/`service.NewServiceRouter
 direct-`Handler()`-mount workaround), confirmed to fail against the pre-fix code with
 `UnknownError` instead of `InternalFailure`; `TestHandler_NormalSizedBodyStillRoutes` is the
 added regression guard for a normal-sized request still routing and succeeding.
+
+- **ERROR path re-verified against `cmd/errcodeaudit`'s near-miss sweep (this session)**:
+  the tool flags 7 `errors.go` sentinel literals (`ReplicationGroupNotFound`,
+  `InvalidParameterGroupFamily`, `CacheSubnetGroupNotFound`, `SnapshotNotFound`,
+  `UserGroupAlreadyExistsFault`, `GlobalReplicationGroupNotFound`, `ServerlessCacheNotFound`)
+  as absent from elasticache's real type/deserializer set. All are **tool false positives**:
+  every one of these sentinel strings is only ever used for `errors.Is` identity, never
+  emitted to the wire — each handler call site hardcodes the correct SDK-verified code and
+  message as its own string literal (e.g. `xmlError(c, http.StatusNotFound,
+  "ReplicationGroupNotFoundFault", "Replication group not found")`, not
+  `err.Error()`), independently of the sentinel's own text. Confirmed by grepping every
+  call site of each flagged sentinel across `handler_*.go`. This matches commit
+  `53b12b4c9`'s prior finding ("redshift and elasticache are clean on this class", all 75
+  elasticache op switches extracted) — no new fix needed.
