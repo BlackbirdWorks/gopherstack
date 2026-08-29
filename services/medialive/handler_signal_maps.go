@@ -9,9 +9,13 @@ import (
 // --- Signal Map handlers ---
 
 // toSignalMapOutput mirrors GetSignalMapOutput/CreateSignalMapOutput/
-// StartUpdateSignalMapOutput exactly, including "createdAt"/"modifiedAt"
-// (__timestampIso8601, parsed via smithytime.ParseDateTime in the real
-// deserializer -- an ISO8601 string, not epoch seconds).
+// StartUpdateSignalMapOutput/StartMonitorDeploymentOutput/
+// StartDeleteMonitorDeploymentOutput exactly, including "createdAt"/
+// "modifiedAt" (__timestampIso8601, parsed via smithytime.ParseDateTime in
+// the real deserializer -- an ISO8601 string, not epoch seconds) and
+// "monitorDeployment.status" (types.MonitorDeployment.Status nests under a
+// "monitorDeployment" object, not a flat "monitorDeploymentStatus" key --
+// medialive@v1.101.4 deserializers.go:4687-4690).
 func toSignalMapOutput(sm *SignalMap) map[string]any {
 	tags := sm.Tags
 	if tags == nil {
@@ -29,7 +33,8 @@ func toSignalMapOutput(sm *SignalMap) map[string]any {
 	return map[string]any{
 		keyArn: sm.Arn, keyID: sm.ID, keyName: sm.Name,
 		keyDescription: sm.Description, "discoveryEntryPointArn": sm.DiscoveryEntryPointArn,
-		"status": sm.Status, "monitorDeploymentStatus": sm.MonitorDeploymentStatus,
+		keyStatus:                         sm.Status,
+		"monitorDeployment":               map[string]any{keyStatus: sm.MonitorDeploymentStatus},
 		"cloudWatchAlarmTemplateGroupIds": cwIDs, "eventBridgeRuleTemplateGroupIds": ebIDs,
 		keyCreatedAt: formatISO8601(sm.CreatedAt), keyModifiedAt: formatISO8601(sm.ModifiedAt),
 		keyTags: tags,
@@ -52,7 +57,7 @@ func toSignalMapSummary(sm *SignalMap) map[string]any {
 	return map[string]any{
 		keyArn: sm.Arn, keyID: sm.ID, keyName: sm.Name,
 		keyDescription: sm.Description,
-		"status":       sm.Status, "monitorDeploymentStatus": sm.MonitorDeploymentStatus,
+		keyStatus:      sm.Status, "monitorDeploymentStatus": sm.MonitorDeploymentStatus,
 		keyCreatedAt: formatISO8601(sm.CreatedAt), keyModifiedAt: formatISO8601(sm.ModifiedAt),
 		keyTags: tags,
 	}

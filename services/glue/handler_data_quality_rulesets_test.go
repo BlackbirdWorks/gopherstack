@@ -597,7 +597,7 @@ func TestHandlerDataQuality_GetDataQualityRulesetEvaluationRun(t *testing.T) {
 			if !tt.wantErr {
 				var out map[string]any
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
-				assert.NotNil(t, out["DataQualityEvaluationRun"])
+				assert.NotNil(t, out["RunId"])
 			}
 		})
 	}

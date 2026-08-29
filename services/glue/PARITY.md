@@ -1447,17 +1447,27 @@ shape found in comprehend — it's three independent one-off wrong literals):
   ("STOPPED"), matching this same file's `CancelMLTaskRun` (`ml.go`), which already uses
   `stateStopped` for the identical cancel-on-`TaskStatusType` transition.
 
-**Flagged, not fixed (separate bug class — wire-shape nesting, not a value)**:
-`GetDataQualityRulesetEvaluationRunOutput`/`StartDataQualityRulesetEvaluationRunOutput`/
-`BatchGetDataQualityRulesetEvaluationRunOutput` wrap all `DataQualityEvaluationRun` fields
-(including `Status`) under a `"DataQualityEvaluationRun"` JSON key
-(`handler_data_quality_rulesets.go`), but the real `GetDataQualityRulesetEvaluationRunOutput`
-(`api_op_GetDataQualityRulesetEvaluationRun.go`) has `Status`/`CompletedOn`/`DataSource`/etc. flat
-at the response root — a real SDK client's deserializer would never find `Status` at all,
-regardless of its value. This is unrelated to the enum-value bug above (the sibling
-`GetDataQualityRuleRecommendationRun` path is correctly flat and was used for the fully
-real-client-verified test) and out of scope for this pass; noted here as a real, separate,
-unfixed gap.
+**Response-nesting sweep (separate pass, same bug class as above but wire-shape depth, not a
+value) — N of N ops checked for this class: all 3 `DataQuality*EvaluationRun` response envelopes
+(`Get`/`Start`/`BatchGet`)**: `GetDataQualityRulesetEvaluationRunOutput` previously wrapped every
+field (`Status`/`CompletedOn`/`DataSource`/`RunId`/etc.) under a `"DataQualityEvaluationRun"` JSON
+key (`handler_data_quality_rulesets.go`), but the real
+`GetDataQualityRulesetEvaluationRunOutput` (`api_op_GetDataQualityRulesetEvaluationRun.go`) has
+those members flat at the response root — a real SDK client decoded every member as `nil`, with
+no error (total nil-decode, not a partial loss). Fixed by returning `*DataQualityEvaluationRun`
+directly instead of a wrapper struct; `DataQualityEvaluationRun`'s own JSON tags already matched
+the real root-level member names. `StartDataQualityRulesetEvaluationRunOutput` (only `RunId`) and
+`BatchGetDataQualityRulesetEvaluationRunOutput` (`Runs`/`RunsNotFound`) were re-verified against
+the real SDK and are already correctly flat — the two ops actually named in the pre-existing bd
+issue as also wrapped turned out not to be; only `Get` had the bug. Verified via
+`TestGetDataQualityRulesetEvaluationRun_FieldsAtResponseRoot` (real typed client, asserts `RunId`/
+`Status`/`RulesetNames` are non-nil/populated post-fix, confirmed failing pre-fix) in
+`wire_field_fixes_test.go`. Three pre-existing tests
+(`TestCancelDataQualityRulesetEvaluationRun_StatusIsLegalEnumMember` in `wire_field_fixes_test.go`,
+`TestDataQuality_EvaluationRun_GetAndCancel` in `handler_data_quality_stats_test.go`,
+`TestHandlerDataQuality_GetDataQualityRulesetEvaluationRun` in
+`handler_data_quality_rulesets_test.go`) asserted the `"DataQualityEvaluationRun"` wrapper key as
+correct — all three updated to assert the real flat shape instead.
 
 **Also flagged, not fixed (extraneous field, not an enum mismatch)**:
 `identity_center.go`'s `IdentityCenterConfig.Status` ("ENABLED"/"DISABLED") has no corresponding

@@ -132,10 +132,54 @@ func TestCancelDataQualityRulesetEvaluationRun_StatusIsLegalEnumMember(t *testin
 	require.Equal(t, 200, getRec.Code)
 
 	var getOut struct {
-		DataQualityEvaluationRun struct {
-			Status string `json:"Status"`
-		} `json:"DataQualityEvaluationRun"`
+		Status string `json:"Status"`
 	}
 	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut))
-	assert.Equal(t, string(types.TaskStatusTypeStopped), getOut.DataQualityEvaluationRun.Status)
+	assert.Equal(t, string(types.TaskStatusTypeStopped), getOut.Status)
+}
+
+// TestGetDataQualityRulesetEvaluationRun_FieldsAtResponseRoot drives
+// StartDataQualityRulesetEvaluationRun/GetDataQualityRulesetEvaluationRun
+// through the real aws-sdk-go-v2 client.
+// GetDataQualityRulesetEvaluationRunOutput has RunId/Status/RulesetNames/...
+// flat at the response root (glue@v1.152.0
+// api_op_GetDataQualityRulesetEvaluationRun.go) -- there is no
+// "DataQualityEvaluationRun" wrapper member. The backend previously wrapped
+// every field under a "DataQualityEvaluationRun" key, so a real client
+// decoded every member of GetDataQualityRulesetEvaluationRunOutput as nil,
+// with no error.
+func TestGetDataQualityRulesetEvaluationRun_FieldsAtResponseRoot(t *testing.T) {
+	t.Parallel()
+
+	backend := glue.NewInMemoryBackend(testAccountID, testRegion)
+	client := newTestGlueClient(t, glue.NewHandler(backend))
+	ctx := t.Context()
+
+	_, err := client.CreateDataQualityRuleset(ctx, &gluesdk.CreateDataQualityRulesetInput{
+		Name:    aws.String("my-ruleset"),
+		Ruleset: aws.String("Rules = [ RowCount > 100 ]"),
+	})
+	require.NoError(t, err)
+
+	started, err := client.StartDataQualityRulesetEvaluationRun(
+		ctx,
+		&gluesdk.StartDataQualityRulesetEvaluationRunInput{
+			DataSource: &types.DataSource{
+				GlueTable: &types.GlueTable{DatabaseName: aws.String("db1"), TableName: aws.String("tbl1")},
+			},
+			Role:         aws.String("arn:aws:iam::" + testAccountID + ":role/glue-role"),
+			RulesetNames: []string{"my-ruleset"},
+		},
+	)
+	require.NoError(t, err)
+	require.NotNil(t, started.RunId)
+
+	out, err := client.GetDataQualityRulesetEvaluationRun(ctx, &gluesdk.GetDataQualityRulesetEvaluationRunInput{
+		RunId: started.RunId,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, out.RunId, "RunId must decode at the response root, not under a wrapper key")
+	assert.Equal(t, *started.RunId, *out.RunId)
+	assert.Equal(t, types.TaskStatusTypeRunning, out.Status)
+	assert.Equal(t, []string{"my-ruleset"}, out.RulesetNames)
 }

@@ -1,8 +1,6 @@
 package medialive_test
 
 import (
-	"encoding/json"
-	"net/http"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -45,51 +43,77 @@ func TestSignalMap_StatusIsLegalEnumMember(t *testing.T) {
 	assert.Equal(t, types.SignalMapStatusUpdateComplete, updated.Status)
 }
 
-// TestSignalMap_MonitorDeploymentStatusIsLegalEnumMember covers the same
-// SignalMapMonitorDeploymentStatus bug on StartMonitorDeployment/
-// StartDeleteMonitorDeployment. Unlike Status, the real
-// StartMonitorDeploymentOutput/StartDeleteMonitorDeploymentOutput nest their
-// status under a "monitorDeployment" object (types.MonitorDeployment.Status
-// -- medialive@v1.101.4 types/types.go:5679), but this backend's handler
-// emits a flat top-level "monitorDeploymentStatus" key instead -- a
-// pre-existing, unrelated wire-shape bug (not fixed here; flagged
-// separately) that stops the real SDK client from decoding
-// MonitorDeployment at all. This test therefore drives the raw HTTP route
-// (same as the rest of this package's non-SDK tests) rather than the SDK's
-// decoded field, and still compares against the typed enum constant's wire
-// value, not a bare literal.
+// TestSignalMap_MonitorDeploymentStatusIsLegalEnumMember drives
+// StartMonitorDeployment/StartDeleteMonitorDeployment through the real
+// aws-sdk-go-v2 client. StartMonitorDeploymentOutput/
+// StartDeleteMonitorDeploymentOutput nest their status under a
+// "monitorDeployment" object (types.MonitorDeployment.Status --
+// medialive@v1.101.4 types/types.go:5679); the backend previously emitted a
+// flat top-level "monitorDeploymentStatus" key instead, which a real client
+// silently discards, decoding MonitorDeployment as nil.
 func TestSignalMap_MonitorDeploymentStatusIsLegalEnumMember(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler(t)
+	backend := medialive.NewInMemoryBackend("000000000000", "us-east-1")
+	client := newTestMediaLiveClient(t, medialive.NewHandler(backend))
+	ctx := t.Context()
 
-	createRec := doRequest(t, h, http.MethodPost, "/prod/signal-maps", map[string]any{
-		"name":                   "my-signal-map-2",
-		"discoveryEntryPointArn": "arn:aws:medialive:us-east-1:000000000000:input:1234567",
+	created, err := client.CreateSignalMap(ctx, &medialivesdk.CreateSignalMapInput{
+		Name:                   aws.String("my-signal-map-2"),
+		DiscoveryEntryPointArn: aws.String("arn:aws:medialive:us-east-1:000000000000:input:1234567"),
 	})
-	require.Equal(t, http.StatusCreated, createRec.Code)
-	var createOut struct {
-		ID string `json:"id"`
-	}
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut))
+	require.NoError(t, err)
 
-	deployRec := doRequest(t, h, http.MethodPost, "/prod/signal-maps/"+createOut.ID+"/monitor-deployment", nil)
-	require.Equal(t, http.StatusAccepted, deployRec.Code)
-	var deployOut struct {
-		MonitorDeploymentStatus string `json:"monitorDeploymentStatus"`
-	}
-	require.NoError(t, json.Unmarshal(deployRec.Body.Bytes(), &deployOut))
-	assert.Equal(t,
-		string(types.SignalMapMonitorDeploymentStatusDeploymentComplete),
-		deployOut.MonitorDeploymentStatus)
+	deployed, err := client.StartMonitorDeployment(ctx, &medialivesdk.StartMonitorDeploymentInput{
+		Identifier: created.Id,
+	})
+	require.NoError(t, err)
+	require.NotNil(
+		t,
+		deployed.MonitorDeployment,
+		"MonitorDeployment must nest under monitorDeployment, not a flat monitorDeploymentStatus key",
+	)
+	assert.Equal(t, types.SignalMapMonitorDeploymentStatusDeploymentComplete, deployed.MonitorDeployment.Status)
 
-	deleteRec := doRequest(t, h, http.MethodDelete, "/prod/signal-maps/"+createOut.ID+"/monitor-deployment", nil)
-	require.Equal(t, http.StatusAccepted, deleteRec.Code)
-	var deleteOut struct {
-		MonitorDeploymentStatus string `json:"monitorDeploymentStatus"`
-	}
-	require.NoError(t, json.Unmarshal(deleteRec.Body.Bytes(), &deleteOut))
-	assert.Equal(t,
-		string(types.SignalMapMonitorDeploymentStatusDeleteComplete),
-		deleteOut.MonitorDeploymentStatus)
+	deleted, err := client.StartDeleteMonitorDeployment(ctx, &medialivesdk.StartDeleteMonitorDeploymentInput{
+		Identifier: created.Id,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, deleted.MonitorDeployment)
+	assert.Equal(t, types.SignalMapMonitorDeploymentStatusDeleteComplete, deleted.MonitorDeployment.Status)
+}
+
+// TestCreateSignalMap_MonitorDeploymentNested covers the same
+// monitorDeployment nesting bug on CreateSignalMap/GetSignalMap/
+// StartUpdateSignalMap. Real Create/Get/StartUpdateSignalMapOutput nest the
+// monitor deployment status under a "monitorDeployment" object
+// (types.MonitorDeployment.Status -- medialive@v1.101.4
+// deserializers.go:4687-4690), not a flat "monitorDeploymentStatus" key.
+func TestCreateSignalMap_MonitorDeploymentNested(t *testing.T) {
+	t.Parallel()
+
+	backend := medialive.NewInMemoryBackend("000000000000", "us-east-1")
+	client := newTestMediaLiveClient(t, medialive.NewHandler(backend))
+	ctx := t.Context()
+
+	created, err := client.CreateSignalMap(ctx, &medialivesdk.CreateSignalMapInput{
+		Name:                   aws.String("my-signal-map-3"),
+		DiscoveryEntryPointArn: aws.String("arn:aws:medialive:us-east-1:000000000000:input:1234567"),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, created.MonitorDeployment)
+	assert.Equal(t, types.SignalMapMonitorDeploymentStatusNotDeployed, created.MonitorDeployment.Status)
+
+	got, err := client.GetSignalMap(ctx, &medialivesdk.GetSignalMapInput{Identifier: created.Id})
+	require.NoError(t, err)
+	require.NotNil(t, got.MonitorDeployment)
+	assert.Equal(t, types.SignalMapMonitorDeploymentStatusNotDeployed, got.MonitorDeployment.Status)
+
+	updated, err := client.StartUpdateSignalMap(ctx, &medialivesdk.StartUpdateSignalMapInput{
+		Identifier:  created.Id,
+		Description: aws.String("updated"),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, updated.MonitorDeployment)
+	assert.Equal(t, types.SignalMapMonitorDeploymentStatusNotDeployed, updated.MonitorDeployment.Status)
 }

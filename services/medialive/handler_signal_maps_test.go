@@ -26,7 +26,8 @@ func TestSignalMap_CRUD(t *testing.T) {
 				require.NoError(t, json.Unmarshal(body, &resp))
 				assert.NotEmpty(t, resp["id"])
 				assert.Equal(t, "CREATE_COMPLETE", resp["status"])
-				assert.Equal(t, "NOT_DEPLOYED", resp["monitorDeploymentStatus"])
+				monitorDeployment, _ := resp["monitorDeployment"].(map[string]any)
+				assert.Equal(t, "NOT_DEPLOYED", monitorDeployment["status"])
 				assert.NotEmpty(t, resp["createdAt"])
 				assert.NotEmpty(t, resp["modifiedAt"])
 			},
@@ -89,7 +90,8 @@ func TestSignalMap_GetListDelete(t *testing.T) {
 	require.Equal(t, http.StatusAccepted, rec.Code)
 	var deployResp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &deployResp))
-	assert.Equal(t, "DEPLOYMENT_COMPLETE", deployResp["monitorDeploymentStatus"])
+	deployMonitorDeployment, _ := deployResp["monitorDeployment"].(map[string]any)
+	assert.Equal(t, "DEPLOYMENT_COMPLETE", deployMonitorDeployment["status"])
 
 	// Delete
 	rec = doRequest(t, h, http.MethodDelete, "/prod/signal-maps/"+id, nil)
@@ -160,7 +162,8 @@ func TestStartDeleteMonitorDeployment(t *testing.T) {
 
 	rec = doRequest(t, h, http.MethodDelete, "/prod/signal-maps/"+id+"/monitor-deployment", nil)
 	require.Equal(t, http.StatusAccepted, rec.Code)
-	assert.Equal(t, "DELETE_COMPLETE", decodeBody(t, rec.Body.Bytes())["monitorDeploymentStatus"])
+	deleteMonitorDeployment, _ := decodeBody(t, rec.Body.Bytes())["monitorDeployment"].(map[string]any)
+	assert.Equal(t, "DELETE_COMPLETE", deleteMonitorDeployment["status"])
 
 	rec = doRequest(t, h, http.MethodDelete, "/prod/signal-maps/missing/monitor-deployment", nil)
 	assert.Equal(t, http.StatusNotFound, rec.Code)

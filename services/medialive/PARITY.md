@@ -1077,18 +1077,28 @@ as correct (`TestSignalMap_CRUD`'s "create returns 201 with id and SUCCEEDED sta
 `"DELETING"` assertion) — all three updated to assert the real enum values instead, per this
 campaign's "do not trust existing tests" rule.
 
-**Flagged, not fixed (separate bug class — wire-shape nesting, not a value)**:
-`CreateSignalMapOutput`/`StartUpdateSignalMapOutput`/`GetSignalMapOutput` flatten
-`monitorDeploymentStatus` as a top-level key (`toSignalMapOutput`, `handler_signal_maps.go`), but
-the real `CreateSignalMapOutput` (`api_op_CreateSignalMap.go`) has no flat
-`MonitorDeploymentStatus` field at all — the real shape nests it as `MonitorDeployment
-*types.MonitorDeployment` (`types.MonitorDeployment.Status`, `types/types.go:5679`). A real SDK
-client's deserializer would never populate `MonitorDeployment` from this backend's flat key,
-regardless of the value inside it. Unrelated to the enum-value bug fixed above (`Status` itself
-IS flat in the real Output, matching this backend, and was fully real-client-verified); the
-`MonitorDeploymentStatus` fix could only be verified against the raw HTTP response body for this
-reason (see `wire_field_fixes_test.go`), not a real-client-decoded field. Out of scope for this
-pass, noted here as a real, separate, unfixed gap.
+**Response-nesting sweep (separate pass, same bug class as above but wire-shape depth, not a
+value) — N of N ops checked for this class: all 5 ops sharing `toSignalMapOutput`
+(`CreateSignalMap`/`GetSignalMap`/`StartUpdateSignalMap`/`StartMonitorDeployment`/
+`StartDeleteMonitorDeployment`)**: `toSignalMapOutput` (`handler_signal_maps.go`) emitted a flat
+top-level `"monitorDeploymentStatus"` key, but the real `CreateSignalMapOutput`/`GetSignalMapOutput`/
+`StartUpdateSignalMapOutput`/`StartMonitorDeploymentOutput`/`StartDeleteMonitorDeploymentOutput`
+all nest it as `MonitorDeployment *types.MonitorDeployment` → `.Status`
+(`types/types.go:5679`, wire key `"monitorDeployment"` per
+`deserializers.go:4687-4690`). A real SDK client silently discarded the flat key and decoded
+`MonitorDeployment` as `nil` — losing exactly that one field (`Status`/`Arn`/`Id`/etc. all decoded
+correctly; this is a one-field loss, not the total-nil-decode shape glue's sibling bug has). Fixed
+by nesting: `"monitorDeployment": map[string]any{"status": sm.MonitorDeploymentStatus}`. The
+sibling `toSignalMapSummary` (`ListSignalMaps`) was re-verified against `types.SignalMapSummary`
+and correctly keeps `MonitorDeploymentStatus` flat — that type genuinely has no nested member, so
+it was left unchanged. Verified via `TestSignalMap_MonitorDeploymentStatusIsLegalEnumMember` and
+`TestCreateSignalMap_MonitorDeploymentNested` (real typed client, asserts
+`.MonitorDeployment.Status` is non-nil/populated post-fix, confirmed failing pre-fix) in
+`wire_field_fixes_test.go`. Four pre-existing tests asserted the flat key as correct
+(`TestSignalMap_MonitorDeploymentStatusIsLegalEnumMember` — rewritten to drive the real client
+rather than raw HTTP — plus `TestSignalMap_CRUD`, `TestSignalMap_GetListDelete`, and
+`TestStartDeleteMonitorDeployment` in `handler_signal_maps_test.go`) — all updated to assert the
+real nested shape instead.
 
 **Checked clean** (N-of-N legal-value coverage against the real enum, no fix needed):
 `ChannelState` (5/11: IDLE/STARTING/RUNNING/STOPPING/DELETED used), `MultiplexState`,
