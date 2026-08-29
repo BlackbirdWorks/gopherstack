@@ -20,7 +20,7 @@ func TestHandler_TagResource(t *testing.T) {
 	}{
 		{
 			name:     "tags state machine successfully",
-			tags:     `{"env":"prod","team":"infra"}`,
+			tags:     `[{"key":"env","value":"prod"},{"key":"team","value":"infra"}]`,
 			wantCode: http.StatusOK,
 		},
 	}
@@ -61,7 +61,7 @@ func TestHandler_ListTagsForResource(t *testing.T) {
 			h, e := newSFNHandler(t)
 
 			arn := createSM(ctx, t, h, e, "list-tag-sm")
-			sfnPost(ctx, t, h, e, "TagResource", `{"resourceArn":"`+arn+`","tags":{"env":"prod"}}`)
+			sfnPost(ctx, t, h, e, "TagResource", `{"resourceArn":"`+arn+`","tags":[{"key":"env","value":"prod"}]}`)
 
 			rec := sfnPost(ctx, t, h, e, "ListTagsForResource", `{"resourceArn":"`+arn+`"}`)
 			assert.Equal(t, tt.wantCode, rec.Code)
@@ -104,7 +104,7 @@ func TestHandler_UntagResource(t *testing.T) {
 
 			arn := createSM(ctx, t, h, e, "untag-sm")
 			sfnPost(ctx, t, h, e, "TagResource",
-				`{"resourceArn":"`+arn+`","tags":{"env":"prod","team":"infra"}}`)
+				`{"resourceArn":"`+arn+`","tags":[{"key":"env","value":"prod"},{"key":"team","value":"infra"}]}`)
 
 			rec := sfnPost(ctx, t, h, e, "UntagResource",
 				`{"resourceArn":"`+arn+`","tagKeys":`+tt.tagKeys+`}`)
@@ -170,10 +170,9 @@ func TestTags_TagAndUntag(t *testing.T) {
 	h, e := newSFNHandler(t)
 	arnStr := createSM(ctx, t, h, e, "tag-sm")
 
-	// Tag — this mock expects tags as a JSON object {"key":"value"}, not an AWS-style array.
 	tagBody, err := json.Marshal(map[string]any{
 		"resourceArn": arnStr,
-		"tags":        map[string]string{"k1": "v1"},
+		"tags":        []map[string]string{{"key": "k1", "value": "v1"}},
 	})
 	require.NoError(t, err)
 
@@ -225,7 +224,7 @@ func TestTagResource_KeyTooLong_Error(t *testing.T) {
 	longKey := strings.Repeat("k", 129)
 	body, err := json.Marshal(map[string]any{
 		"resourceArn": smARN,
-		"tags":        map[string]string{longKey: "val"},
+		"tags":        []map[string]string{{"key": longKey, "value": "val"}},
 	})
 	require.NoError(t, err)
 
@@ -246,7 +245,7 @@ func TestTagResource_EmptyKey_Error(t *testing.T) {
 
 	body, err := json.Marshal(map[string]any{
 		"resourceArn": smARN,
-		"tags":        map[string]string{"": "val"},
+		"tags":        []map[string]string{{"key": "", "value": "val"}},
 	})
 	require.NoError(t, err)
 
@@ -268,7 +267,7 @@ func TestTagResource_ValueTooLong_Error(t *testing.T) {
 	longVal := strings.Repeat("v", 257)
 	body, err := json.Marshal(map[string]any{
 		"resourceArn": smARN,
-		"tags":        map[string]string{"mykey": longVal},
+		"tags":        []map[string]string{{"key": "mykey", "value": longVal}},
 	})
 	require.NoError(t, err)
 
@@ -289,9 +288,11 @@ func TestTagResource_MaxTagsExceeded_Error(t *testing.T) {
 
 	// Add 50 tags in batches of 10.
 	for i := range 5 {
-		batch := make(map[string]string, 10)
+		batch := make([]map[string]string, 0, 10)
 		for j := range 10 {
-			batch["key-"+string(rune('a'+i))+string(rune('0'+j))] = "val"
+			batch = append(batch, map[string]string{
+				"key": "key-" + string(rune('a'+i)) + string(rune('0'+j)), "value": "val",
+			})
 		}
 		body, err := json.Marshal(map[string]any{
 			"resourceArn": smARN,
@@ -305,7 +306,7 @@ func TestTagResource_MaxTagsExceeded_Error(t *testing.T) {
 	// Adding one more tag should fail.
 	body, err := json.Marshal(map[string]any{
 		"resourceArn": smARN,
-		"tags":        map[string]string{"overflow-key": "val"},
+		"tags":        []map[string]string{{"key": "overflow-key", "value": "val"}},
 	})
 	require.NoError(t, err)
 
@@ -343,7 +344,7 @@ func TestTagResource_ValidTagsAccepted(t *testing.T) {
 
 			body, err := json.Marshal(map[string]any{
 				"resourceArn": smARN,
-				"tags":        map[string]string{tt.key: tt.value},
+				"tags":        []map[string]string{{"key": tt.key, "value": tt.value}},
 			})
 			require.NoError(t, err)
 
@@ -385,7 +386,7 @@ func TestHandler_GetTags_EmptyAndNonEmpty(t *testing.T) {
 
 			if tt.setupTags {
 				rec := sfnPost(ctx, t, h, e, "TagResource",
-					`{"resourceArn":"`+smARN+`","tags":{"mykey":"myval"}}`)
+					`{"resourceArn":"`+smARN+`","tags":[{"key":"mykey","value":"myval"}]}`)
 				assert.Equal(t, http.StatusOK, rec.Code)
 			}
 

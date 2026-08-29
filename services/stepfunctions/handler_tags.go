@@ -3,8 +3,6 @@ package stepfunctions
 import (
 	"encoding/json"
 	"fmt"
-
-	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 type sfnListTagsForResourceInput struct {
@@ -12,8 +10,8 @@ type sfnListTagsForResourceInput struct {
 }
 
 type sfnTagResourceInput struct {
-	Tags        *tags.Tags `json:"tags"`
-	ResourceArn string     `json:"resourceArn"`
+	ResourceArn string        `json:"resourceArn"`
+	Tags        []sfnTagEntry `json:"tags"`
 }
 
 type sfnUntagResourceInput struct {
@@ -102,9 +100,9 @@ func (h *Handler) stateMachineTagActions() map[string]actionFn {
 				return nil, err
 			}
 
-			var kv map[string]string
-			if input.Tags != nil {
-				kv = input.Tags.Clone()
+			kv := make(map[string]string, len(input.Tags))
+			for _, t := range input.Tags {
+				kv[t.Key] = t.Value
 			}
 
 			existing := h.getTags(input.ResourceArn)

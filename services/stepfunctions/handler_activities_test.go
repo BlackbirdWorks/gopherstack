@@ -460,7 +460,7 @@ func TestHandler_Reset(t *testing.T) {
 			// Create a state machine and tag it.
 			smARN := createSM(ctx, t, h, e, "reset-sm-"+tt.name)
 			rec := sfnPost(ctx, t, h, e, "TagResource",
-				`{"resourceArn":"`+smARN+`","tags":{"env":"test"}}`)
+				`{"resourceArn":"`+smARN+`","tags":[{"key":"env","value":"test"}]}`)
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			// Verify the SM exists.
@@ -1566,7 +1566,7 @@ func TestDeleteActivity_ClearsTags(t *testing.T) {
 
 	tagBody, _ := json.Marshal(map[string]any{
 		"resourceArn": actARN,
-		"tags":        map[string]string{"k": "v"},
+		"tags":        []map[string]string{{"key": "k", "value": "v"}},
 	})
 	tagRec := sfnPost(ctx, t, h, e, "TagResource", string(tagBody))
 	require.Equal(t, http.StatusOK, tagRec.Code)

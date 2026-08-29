@@ -35,7 +35,7 @@ ops:
   CreateAccessPoint:                 {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeAccessPoints:              {wire: ok, errors: ok, state: ok, persist: ok, note: "pagination data-loss bug fixed this pass, see notes"}
   DeleteAccessPoint:                 {wire: ok, errors: ok, state: ok, persist: ok}
-  TagResource:                       {wire: fixed, errors: ok, state: ok, persist: ok, note: "was unreachable via real SDK -- see route-matcher fix below"}
+  TagResource:                       {wire: fixed, errors: ok, state: ok, persist: ok, note: "was unreachable via real SDK -- see route-matcher fix below. Re-checked (wrapper-key sweep) against the sfn TagResource map/array bug class: efs's Tags is []types.Tag, array of {Key,Value} (api_op_TagResource.go:42, serializers.go:2883-2898), matching this emulator's []tagEntry{Key,Value} exactly -- genuinely clean, confirmed via a real-client round-trip test (tag_resource_sdk_test.go)."}
   UntagResource:                     {wire: fixed, errors: ok, state: ok, persist: ok, note: "was unreachable via real SDK -- see route-matcher fix below"}
   ListTagsForResource:               {wire: fixed, errors: ok, state: ok, persist: ok, note: "was unreachable via real SDK -- see route-matcher fix below"}
   DescribeTags:                      {wire: ok, errors: ok, state: ok, persist: ok, note: "legacy GET-only op, distinct path from TagResource family; pagination (Marker/MaxItems) not applied server-side -- deferred, see gaps"}

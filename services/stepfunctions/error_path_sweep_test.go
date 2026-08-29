@@ -249,32 +249,24 @@ func Test_SDKRoundTrip_ListMapRuns_UnknownExecution_ExecutionDoesNotExist(t *tes
 	require.ErrorAs(t, err, &edne, "expected a real ExecutionDoesNotExist from the SDK deserializer")
 }
 
-// TagResource's own request shape is a separate, pre-existing wire-shape bug
-// (sfnTagResourceInput.Tags is typed as a map, but the real
-// TagResourceInput.Tags field is an array of {key,value} objects -- driving
-// it through the real SDK client always 500s and gets retried three times,
-// regardless of tag count). That bug is outside this sweep's error-code-path
-// scope and is reported separately rather than fixed here. It blocks driving
-// TooManyTags through the real client, so this exercises the JSON body
-// directly (as the current map-shaped unmarshal target expects) to isolate
-// the classifyError code fix: TagResource models InvalidArn, ResourceNotFound,
-// and TooManyTags -- the too-many-tags branch of validateTags must raise the
-// modelled TooManyTags type, not the fabricated "TagPolicyViolation" shared
-// today across all three of validateTags' branches.
+// TagResource models InvalidArn, ResourceNotFound, and TooManyTags -- the
+// too-many-tags branch of validateTags must raise the modelled TooManyTags
+// type, not the fabricated "TagPolicyViolation" shared today across all
+// three of validateTags' branches.
 func Test_TagResource_TooManyTags_WireType(t *testing.T) {
 	t.Parallel()
 
 	h, e := newSFNHandler(t)
 	smARN := createSFNStateMachineCov(t.Context(), t, h, e, "tag-limit-sm")
 
-	tagMap := make(map[string]string, 51)
+	tagList := make([]map[string]string, 0, 51)
 	for range 51 {
-		tagMap[uuid.NewString()] = "v"
+		tagList = append(tagList, map[string]string{"key": uuid.NewString(), "value": "v"})
 	}
 
 	body, err := json.Marshal(map[string]any{
 		"resourceArn": smARN,
-		"tags":        tagMap,
+		"tags":        tagList,
 	})
 	require.NoError(t, err)
 
