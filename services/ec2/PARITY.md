@@ -2058,3 +2058,83 @@ Gates: `go build ./services/ec2/...`, `go vet ./...` (repo-wide, two backend
 signatures changed), `go test -race -count=1 ./services/ec2/...` (full
 suite green), `golangci-lint run ./services/ec2/...` (0 issues, run last).
 No banned nolints.
+
+**2026-08-29 pass -- request-wrapper-key sweep, core VPC/subnet/instance
+networking (21 ops)**: covered the tranche named in the task -- DescribeSubnets,
+DescribeDhcpOptions, DescribeInternetGateways, DescribeEgressOnlyInternetGateways,
+DescribeNatGateways, DescribeNetworkAcls, DescribePrefixLists,
+DescribeManagedPrefixLists, DescribePublicIpv4Pools, DescribeInstanceStatus,
+DescribeInstanceTypes, DescribeInstanceTypeOfferings, DescribeBundleTasks,
+DescribeAddressTransfers, DescribeByoipCidrs -- plus 6 adjacent core-networking
+ops also unverified in this file: DescribeNetworkInterfaces, DescribeRouteTables,
+DescribeVpcs, DescribeVpcAttribute, DescribeCarrierGateways, DescribeFlowLogs.
+Each handler's request-parsing code read against its own
+`awsEc2query_serializeOpDocument<Op>Input` in the pinned
+`aws-sdk-go-v2/service/ec2@v1.319.1/serializers.go`, including tracing
+`object.FlatKey`/`Array` through `aws-sdk-go-v2@v1.43.4/aws/protocol/query/{object,array}.go`
+to confirm `FlatKey` list elements use the flattened `<Name>.N` key regardless
+of the child serializer's own `Array("Item")` call.
+
+All 21 ops' ID-list keys (`InstanceId.N`, `SubnetId.N`, `DhcpOptionsId.N`,
+`InternetGatewayId.N`, `EgressOnlyInternetGatewayId.N`, `NatGatewayId.N`,
+`NetworkAclId.N`, `PrefixListId.N`, `PoolId.N`, `InstanceType.N`, `BundleId.N`,
+`AllocationId.N`, `NetworkInterfaceId.N`, `RouteTableId.N`, `VpcId.N`/`VpcId`,
+`CarrierGatewayId.N`, `FlowLogId.N`) and the shared `Filter.N.Name`/
+`Filter.N.Value.M` filter-parsing convention (`parseEC2Filters`) checked
+correct against each op's own serializer. No wrong-key, wrong-cardinality, or
+hard-decode-error bug found in this tranche (signatures 1/2/4 all clean).
+
+One informational finding, not fixed: **`DescribeByoipCidrs`**
+(`handler_accept_ops.go:518`) reads `vals.Get("State")` and passes it to
+`Backend.DescribeByoipCidrs(state)` as an optional state filter, but
+`DescribeByoipCidrsInput` (`api_op_DescribeByoipCidrs.go`) has no `State`
+field and no `Filters` field at all -- only `MaxResults`, `DryRun`,
+`NextToken`. A real client has no way to filter this operation by state, so
+`State` is always empty for real traffic and the handler's
+empty-state-means-no-filter behavior already matches real AWS exactly. Left
+alone: unlike `DescribeVpcEndpointConnections`'s `ServiceId` (sweep33), there
+is no real key to redirect this read to -- removing the dead `State` read
+would be a code-cleanliness change, not a wire-shape fix, so out of scope
+here.
+
+Missing-feature gaps (Filters field declared on the wire, no filter-matching
+code exists to read a wrong key, so not this class) -- kept distinct, not
+fabricated as bugs: `DescribeDhcpOptions`, `DescribeEgressOnlyInternetGateways`,
+`DescribePrefixLists` (`prefix-list-id`/`prefix-list-name`),
+`DescribeManagedPrefixLists`, `DescribePublicIpv4Pools` (`tag`/`tag-key`),
+`DescribeBundleTasks`, `DescribeInstanceTypes`, `DescribeCarrierGateways`,
+`DescribeFlowLogs` all declare `Filters`/`Filter` and never apply it.
+`DescribeInstanceStatus` additionally never reads `IncludeAllInstances` or
+`IncludeManagedResources` (both real boolean fields;
+`Backend.DescribeInstanceStatus` always returns every instance regardless of
+state, so the AWS default of running-only is also unimplemented) -- same
+missing-feature category, no read attempt exists to misdirect.
+`DescribeNetworkAcls` only applies the `vpc-id` filter of its documented set.
+`DescribeSubnets`, `DescribeInternetGateways`, `DescribeNatGateways`,
+`DescribeInstanceTypeOfferings`, `DescribeNetworkInterfaces`, `DescribeVpcs`,
+`DescribeRouteTables` all apply `Filters` through `parseEC2Filters` with
+correct wire keys (filter *name* coverage/completeness is a separate,
+larger gap, not audited here).
+
+Existing tests: none of this tranche's 21 ops had a wrong, blind, or
+insufficiently-specific existing test for this specific request-key class.
+`TestDescribeInstanceTypeOfferings_Filters_RealClient`
+(`wire_field_fixes_ec2sweep11_test.go`) already covers that op's Filters
+correctly (asserts the decoded response is properly narrowed, not just
+`err == nil`).
+
+No new tests added -- no fixable bug found in this tranche.
+
+Not reached this pass: DescribeInstanceTypeOfferings/DescribeInstanceStatus/
+DescribeInstanceTypes' Go pagination and instance-type-catalog fidelity concerns
+are out of this class's scope. The other 74 ops from the ~123-candidate diff
+remain unverified (Fleets, Spot, Traffic Mirror, Verified Access, VPC
+block-public-access, Reserved Instances, Hosts, Placement Groups, and more --
+see the diff method in the 2026-08-29 IPAM/Local Gateway pass above to
+regenerate).
+
+Gates: `go build ./services/ec2/...`, `go vet ./services/ec2/...` (no backend
+signatures changed, so repo-wide vet not required), `go test -race -count=1
+./services/ec2/...` (full suite green), `golangci-lint run ./services/ec2/...`
+(0 new issues; one pre-existing `golines` finding in a concurrently-edited
+file from the other in-flight ec2 agent's tranche, not touched here).
