@@ -18,6 +18,7 @@ type StorageBackend interface {
 		brokerInfo BrokerNodeGroupInfo,
 		clientAuth *ClientAuthentication,
 		tags map[string]string,
+		opts ...ClusterCreateOptions,
 	) (*Cluster, error)
 	CreateServerlessCluster(
 		ctx context.Context, name string, serverless *ServerlessClusterInfo, tags map[string]string,
@@ -144,7 +145,7 @@ type StorageBackend interface {
 	ListScramSecrets(ctx context.Context, clusterArn string) ([]string, error)
 
 	// Node / version ops
-	ListNodes(ctx context.Context, clusterArn string) ([]*BrokerNode, error)
+	ListNodes(ctx context.Context, clusterArn string) ([]*NodeInfo, error)
 	ListKafkaVersions(ctx context.Context) []*MSKVersion
 	GetCompatibleKafkaVersions(ctx context.Context, clusterArn string) ([]*CompatibleKafkaVersion, error)
 

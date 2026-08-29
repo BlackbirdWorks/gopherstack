@@ -16,7 +16,7 @@ type compatibleKafkaVersionsOutput struct {
 }
 
 type listNodesOutput struct {
-	NodeInfoList []*BrokerNode `json:"nodeInfoList"`
+	NodeInfoList []*NodeInfo `json:"nodeInfoList"`
 }
 
 func (h *Handler) handleListKafkaVersions(ctx context.Context, c *echo.Context) error {

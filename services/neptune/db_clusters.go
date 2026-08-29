@@ -70,6 +70,53 @@ func (b *InMemoryBackend) clusterARN(region, id string) string {
 	return arn.Build("neptune", region, b.accountID, "cluster:"+id)
 }
 
+// clusterIdentifierFromARN extracts the DBClusterIdentifier from a Neptune
+// cluster ARN built by clusterARN (arn:partition:neptune:region:account:cluster:id).
+func clusterIdentifierFromARN(clusterARN string) string {
+	const marker = "cluster:"
+	if idx := strings.LastIndex(clusterARN, marker); idx != -1 {
+		return clusterARN[idx+len(marker):]
+	}
+
+	return clusterARN
+}
+
+// clusterByARNLocked resolves a Neptune cluster ARN to its DBCluster, if
+// tracked by this backend (global clusters reference members by ARN, which
+// may live in a different region than the caller's own). Caller must hold
+// b.mu.
+func (b *InMemoryBackend) clusterByARNLocked(clusterARN, defaultRegion string) (*DBCluster, bool) {
+	region := regionFromARN(clusterARN, defaultRegion)
+
+	return b.clusterGet(region, clusterIdentifierFromARN(clusterARN))
+}
+
+// attachClusterToGlobalClusterLocked joins cl to the existing global cluster
+// globalClusterID -- real Neptune clusters join a global cluster via
+// CreateDBCluster's GlobalClusterIdentifier member (api_op_CreateDBCluster.go:
+// 129), previously entirely unmodeled by this backend (CreateDBCluster never
+// even parsed it, and DBCluster had no field to hold it). cl becomes the
+// writer only if the global cluster has no members yet; a later join adds it
+// as a secondary reader, mirroring the real distinction between a global
+// cluster's original source member and members added afterward. Caller must
+// hold b.mu (write lock).
+func (b *InMemoryBackend) attachClusterToGlobalClusterLocked(
+	region string, cl *DBCluster, globalClusterID string,
+) error {
+	gc, exists := b.globalClusters.Get(globalClusterID)
+	if !exists {
+		return fmt.Errorf("%w: global cluster %s not found", ErrGlobalClusterNotFound, globalClusterID)
+	}
+
+	cl.GlobalClusterIdentifier = globalClusterID
+	gc.GlobalClusterMembers = append(gc.GlobalClusterMembers, GlobalClusterMember{
+		DBClusterARN: b.clusterARN(region, cl.DBClusterIdentifier),
+		IsWriter:     len(gc.GlobalClusterMembers) == 0,
+	})
+
+	return nil
+}
+
 // CreateDBCluster creates a new Neptune DB cluster.
 func (b *InMemoryBackend) CreateDBCluster(
 	ctx context.Context,
@@ -88,6 +135,15 @@ func (b *InMemoryBackend) CreateDBCluster(
 		return nil, fmt.Errorf("%w: cluster %s already exists", ErrClusterAlreadyExists, id)
 	}
 	cluster := b.buildNewCluster(region, id, paramGroupName, port, backupRetention, opts)
+	if opts.GlobalClusterIdentifier != "" {
+		if attachErr := b.attachClusterToGlobalClusterLocked(
+			region,
+			cluster,
+			opts.GlobalClusterIdentifier,
+		); attachErr != nil {
+			return nil, attachErr
+		}
+	}
 	b.clusterPut(cluster)
 	b.recordEvent(region, id, sourceTypeDBCluster, "DB cluster created", "creation")
 	cp := cloneCluster(cluster)

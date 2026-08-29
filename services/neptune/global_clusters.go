@@ -59,6 +59,7 @@ func (b *InMemoryBackend) CreateGlobalCluster(
 			}
 			gc.EngineVersion = cl.EngineVersion
 			gc.StorageEncrypted = cl.StorageEncrypted
+			cl.GlobalClusterIdentifier = globalClusterID
 		}
 	}
 	b.globalClusters.Put(gc)
@@ -91,9 +92,10 @@ func (b *InMemoryBackend) DescribeGlobalClusters(_ context.Context) []GlobalClus
 
 // DeleteGlobalCluster deletes a Neptune global cluster (partition-scoped).
 func (b *InMemoryBackend) DeleteGlobalCluster(
-	_ context.Context,
+	ctx context.Context,
 	globalClusterID string,
 ) (*GlobalCluster, error) {
+	region := getRegion(ctx, b.region)
 	b.mu.Lock("DeleteGlobalCluster")
 	defer b.mu.Unlock()
 	gc, exists := b.globalClusters.Get(globalClusterID)
@@ -110,6 +112,12 @@ func (b *InMemoryBackend) DeleteGlobalCluster(
 			"%w: cannot delete protected global cluster %s, disable deletion protection first",
 			ErrInvalidGlobalClusterState, globalClusterID,
 		)
+	}
+
+	for _, m := range gc.GlobalClusterMembers {
+		if cl, ok := b.clusterByARNLocked(m.DBClusterARN, region); ok && cl.GlobalClusterIdentifier == globalClusterID {
+			cl.GlobalClusterIdentifier = ""
+		}
 	}
 
 	cp := *gc
@@ -168,11 +176,13 @@ func (b *InMemoryBackend) promoteGlobalClusterWriter(region string, gc *GlobalCl
 		return
 	}
 	targetARN := targetDBClusterID
+	var targetCluster *DBCluster
 	targetExists := isNeptuneARN(targetDBClusterID)
 	if !targetExists {
 		if cl, ok := b.clusterGet(region, targetDBClusterID); ok {
 			targetARN = b.clusterARN(region, cl.DBClusterIdentifier)
 			targetExists = true
+			targetCluster = cl
 		}
 	}
 	found := false
@@ -190,6 +200,9 @@ func (b *InMemoryBackend) promoteGlobalClusterWriter(region string, gc *GlobalCl
 		DBClusterARN: targetARN,
 		IsWriter:     true,
 	})
+	if targetCluster != nil {
+		targetCluster.GlobalClusterIdentifier = gc.GlobalClusterIdentifier
+	}
 }
 
 // ModifyGlobalCluster applies deletion-protection/engine-version/rename
@@ -238,8 +251,9 @@ func (b *InMemoryBackend) ModifyGlobalCluster(
 
 // RemoveFromGlobalCluster removes a DB cluster from a Neptune global cluster (partition-scoped).
 func (b *InMemoryBackend) RemoveFromGlobalCluster(
-	_ context.Context, globalClusterID, dbClusterARN string,
+	ctx context.Context, globalClusterID, dbClusterARN string,
 ) (*GlobalCluster, error) {
+	region := getRegion(ctx, b.region)
 	b.mu.Lock("RemoveFromGlobalCluster")
 	defer b.mu.Unlock()
 	gc, exists := b.globalClusters.Get(globalClusterID)
@@ -257,6 +271,9 @@ func (b *InMemoryBackend) RemoveFromGlobalCluster(
 		}
 	}
 	gc.GlobalClusterMembers = kept
+	if cl, ok := b.clusterByARNLocked(dbClusterARN, region); ok && cl.GlobalClusterIdentifier == globalClusterID {
+		cl.GlobalClusterIdentifier = ""
+	}
 	cp := *gc
 	cp.GlobalClusterMembers = make([]GlobalClusterMember, len(gc.GlobalClusterMembers))
 	copy(cp.GlobalClusterMembers, gc.GlobalClusterMembers)

@@ -14,6 +14,8 @@ const (
 	VpcConnectionStateAvailable = "AVAILABLE"
 	// ClusterOperationStateUpdateComplete indicates a completed cluster operation.
 	ClusterOperationStateUpdateComplete = "UPDATE_COMPLETE"
+	// NodeTypeBroker is the only real value of types.NodeType (enums.go:320).
+	NodeTypeBroker = "BROKER"
 	// DefaultClusterVersion is the default MSK cluster version identifier.
 	DefaultClusterVersion = "K3AEGXETSR30VB"
 )
@@ -168,6 +170,23 @@ type BrokerNodeGroupInfo struct {
 type ConfigurationInfo struct {
 	Arn      string `json:"arn"`
 	Revision int64  `json:"revision"`
+}
+
+// ClusterCreateOptions carries the CreateClusterInput/types.ProvisionedRequest
+// members (api_op_CreateCluster.go, kafka@v1.57.2 types.go:1362) that are
+// optional at cluster creation but real -- previously unparsed by both
+// CreateCluster and CreateClusterV2's provisioned arm, so a caller supplying
+// any of them at creation time had it silently dropped until a follow-up
+// UpdateSecurity/UpdateMonitoring/UpdateStorage/UpdateClusterConfiguration
+// call, which already persist into the same Cluster fields these seed.
+type ClusterCreateOptions struct {
+	ConfigurationInfo  *ConfigurationInfo
+	EncryptionInfo     *EncryptionInfo
+	LoggingInfo        *LoggingInfo
+	OpenMonitoring     *OpenMonitoring
+	Rebalancing        *Rebalancing
+	EnhancedMonitoring string
+	StorageMode        string
 }
 
 // ClientAuthentication holds MSK cluster authentication configuration.
@@ -385,10 +404,56 @@ type UpdateStorageSettings struct {
 	VolumeSizeGB          int32
 }
 
-// BrokerNode represents a stub broker node.
-type BrokerNode struct {
-	InstanceType string `json:"instanceType,omitempty"`
-	BrokerID     int32  `json:"brokerId"`
+// NodeInfo represents an MSK cluster's broker node, matching real
+// types.NodeInfo (kafka@v1.57.2 types.go:1209, 7 of 7 members per
+// deserializers.go's awsRestjson1_deserializeDocumentNodeInfo case list).
+// ControllerNodeInfo/ZookeeperNodeInfo are always nil: this backend only
+// tracks broker-type nodes -- NodeType has exactly one real enum value,
+// "BROKER" (enums.go's NodeType.Values()) -- so a KRaft controller-only node
+// or a ZooKeeper-mode ZK node is never modeled as its own NodeInfo entry
+// (disclosed gap, gopherstack-mk3t item 3).
+//
+// Previously (gopherstack-mk3t): only InstanceType (real) and an invented
+// top-level BrokerID (json:"brokerId", not a real NodeInfo member under any
+// name) were emitted -- six of seven real members (addedToClusterTime,
+// brokerNodeInfo, controllerNodeInfo, nodeARN, nodeType, zookeeperNodeInfo)
+// were simply absent.
+type NodeInfo struct {
+	BrokerNodeInfo     *NodeBrokerInfo     `json:"brokerNodeInfo,omitempty"`
+	ControllerNodeInfo *ControllerNodeInfo `json:"controllerNodeInfo,omitempty"`
+	ZookeeperNodeInfo  *ZookeeperNodeInfo  `json:"zookeeperNodeInfo,omitempty"`
+	AddedToClusterTime string              `json:"addedToClusterTime,omitempty"`
+	InstanceType       string              `json:"instanceType,omitempty"`
+	NodeARN            string              `json:"nodeARN,omitempty"`
+	NodeType           string              `json:"nodeType,omitempty"`
+}
+
+// NodeBrokerInfo mirrors types.BrokerNodeInfo (types.go:124, 6 of 6 members
+// per its deserializer's case list). AttachedENIId/ClientVpcIPAddress/
+// Endpoints are unmodeled: this backend has no per-broker network resource
+// concept to draw them from (disclosed gap).
+type NodeBrokerInfo struct {
+	CurrentBrokerSoftwareInfo *brokerSoftwareInfo `json:"currentBrokerSoftwareInfo,omitempty"`
+	ClientSubnet              string              `json:"clientSubnet,omitempty"`
+	BrokerID                  float64             `json:"brokerId"`
+}
+
+// ControllerNodeInfo mirrors types.ControllerNodeInfo (types.go:742, 1 of 1
+// member). Endpoints is unmodeled (disclosed gap, same reasoning as
+// NodeBrokerInfo).
+type ControllerNodeInfo struct {
+	Endpoints []string `json:"endpoints,omitempty"`
+}
+
+// ZookeeperNodeInfo mirrors types.ZookeeperNodeInfo (types.go:2196, 5 of 5
+// members). Unused by this backend today (see NodeInfo's doc comment) but
+// modeled for when ZooKeeper-mode node tracking is added.
+type ZookeeperNodeInfo struct {
+	AttachedENIId      string   `json:"attachedENIId,omitempty"`
+	ClientVpcIPAddress string   `json:"clientVpcIpAddress,omitempty"`
+	ZookeeperVersion   string   `json:"zookeeperVersion,omitempty"`
+	Endpoints          []string `json:"endpoints,omitempty"`
+	ZookeeperID        float64  `json:"zookeeperId,omitempty"`
 }
 
 // MSKVersion represents an available Kafka version.
@@ -549,7 +614,16 @@ type VpcConnection struct {
 	SecurityGroupIDs []string          `json:"securityGroupIds,omitempty"`
 }
 
-// ClusterOperation represents an MSK cluster operation.
+// ClusterOperation represents an MSK cluster operation. CreationTime/EndTime/
+// ClientRequestID are real members of types.ClusterOperationInfo
+// (deserializers.go's awsRestjson1_deserializeDocumentClusterOperationInfo)
+// that were previously unmodeled entirely. Every operation here completes
+// synchronously (no in-process pending window), so EndTime is set equal to
+// CreationTime rather than fabricating a separate completion timestamp.
+// ErrorInfo/OperationSteps/VpcConnectionInfo remain unmodeled: operations
+// here never fail (no honest ErrorInfo to report), step-by-step progress
+// isn't tracked, and CreateVpcConnection/DeleteVpcConnection don't create a
+// ClusterOperation record at all in this backend (gopherstack-mk3t).
 type ClusterOperation struct {
 	SourceClusterInfo   *MutableClusterInfo `json:"sourceClusterInfo,omitempty"`
 	TargetClusterInfo   *MutableClusterInfo `json:"targetClusterInfo,omitempty"`
@@ -557,6 +631,9 @@ type ClusterOperation struct {
 	ClusterArn          string              `json:"clusterArn"`
 	OperationType       string              `json:"operationType"`
 	OperationState      string              `json:"operationState"`
+	ClientRequestID     string              `json:"clientRequestId,omitempty"`
+	CreationTime        string              `json:"creationTime,omitempty"`
+	EndTime             string              `json:"endTime,omitempty"`
 }
 
 // MutableClusterInfo captures the subset of cluster configuration that an update
