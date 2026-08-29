@@ -27,6 +27,18 @@ func (h *Handler) handleSearchJobs(c *echo.Context) error {
 		jobs = []*Job{}
 	}
 
+	if inputFile := q.Get("inputFile"); inputFile != "" {
+		filtered := jobs[:0:0]
+
+		for _, j := range jobs {
+			if jobMatchesInputFile(j, inputFile) {
+				filtered = append(filtered, j)
+			}
+		}
+
+		jobs = filtered
+	}
+
 	nextTokenIn := q.Get("nextToken")
 	pg := page.New(jobs, nextTokenIn, maxResults, defaultListPageSize)
 

@@ -2,8 +2,14 @@
 service: mediaconvert
 sdk_module: aws-sdk-go-v2/service/mediaconvert@v1.97.1
 last_audit_commit: b451ad0d
-last_audit_date: 2026-08-19
-overall: A            # 2026-08-19: LastShareDetails type-confusion bug (object vs *string) found and fixed this pass -- see Notes
+last_audit_date: 2026-08-29
+overall: A            # 2026-08-29 (wrapper-key-sweep, constraint-not-honoured class): ListQueues/
+                      # ListJobTemplates/ListPresets never read ListBy (NAME/CREATION_DATE) at
+                      # all -- always returned name-sorted regardless of the caller's choice;
+                      # SearchJobs never read InputFile at all -- status/queue/order worked but
+                      # a client scoping to one input file got every job. Both fixed; see the
+                      # four ops: entries and wire_list_by_test.go/search_test.go.
+                      # 2026-08-19: LastShareDetails type-confusion bug (object vs *string) found and fixed this pass -- see Notes
                       # 2026-07-24: genuine wire-breaking bugs found and fixed this pass
                       # 2026-07-31: pkgs/sdkcheck reverse check re-flagged UpdateJob, which the 2026-07-24 pass had already correctly identified as not-a-real-op (see Notes) but left ADVERTISED in GetSupportedOperations()/ChaosOperations() -- i.e. the finding was documented but not actually corrected. Now removed from the advertised list; route stays wired as internal test scaffolding, unreachable by real clients either way. See its Notes entry and handler.go's opUpdateJob comment.
 ops:
@@ -19,16 +25,16 @@ ops:
   CancelJob: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateJobTemplate: {wire: ok, errors: ok, state: ok, persist: ok, note: "this pass: added accelerationSettings/hopDestinations/statusUpdateInterval, which the real CreateJobTemplateInput wire shape accepts but JobTemplate previously had no fields for (silently dropped) -- see CreateJobTemplateFull"}
   GetJobTemplate: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListJobTemplates: {wire: fixed, errors: ok, state: ok, persist: ok, note: "gopherstack batch8 (2026-08-23): now paginates via pkgs/page.New (real NextToken), previously truncated via limitSlice with no continuation token ever returned -- see Notes"}
+  ListJobTemplates: {wire: fixed, errors: ok, state: ok, persist: ok, note: "gopherstack batch8 (2026-08-23): now paginates via pkgs/page.New (real NextToken), previously truncated via limitSlice with no continuation token ever returned. 2026-08-29 (wrapper-key-sweep): ListBy (NAME/CREATION_DATE, documented default NAME) was never read at all -- handler always returned name-sorted order regardless of the caller's choice. Now honored; SYSTEM is a valid enum value but this backend never creates SYSTEM-type templates (CreateJobTemplate always sets Type=CUSTOM), so there is nothing for it to filter to -- documented gap, not silently mishandled."}
   UpdateJobTemplate: {wire: ok, errors: ok, state: ok, persist: ok, note: "this pass: added accelerationSettings/hopDestinations/statusUpdateInterval support via UpdateJobTemplateFull -- previously silently dropped despite the real UpdateJobTemplateInput accepting them (was the last remaining gap for this family)"}
   DeleteJobTemplate: {wire: ok, errors: ok, state: ok, persist: ok}
   CreatePreset: {wire: ok, errors: ok, state: ok, persist: ok}
   GetPreset: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListPresets: {wire: fixed, errors: ok, state: ok, persist: ok, note: "gopherstack batch8 (2026-08-23): now paginates via pkgs/page.New (real NextToken), previously truncated via limitSlice with no continuation token ever returned -- see Notes"}
+  ListPresets: {wire: fixed, errors: ok, state: ok, persist: ok, note: "gopherstack batch8 (2026-08-23): now paginates via pkgs/page.New (real NextToken), previously truncated via limitSlice with no continuation token ever returned. 2026-08-29 (wrapper-key-sweep): same ListBy gap as ListJobTemplates -- never read, now honored (NAME/CREATION_DATE); SYSTEM undocumented gap for the same reason (no SYSTEM-type presets ever created)."}
   UpdatePreset: {wire: ok, errors: ok, state: ok, persist: ok}
   DeletePreset: {wire: ok, errors: ok, state: ok, persist: ok}
   GetQueue: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListQueues: {wire: fixed, errors: ok, state: ok, persist: ok, note: "gopherstack batch8 (2026-08-23): now paginates via pkgs/page.New (real NextToken), previously truncated via limitSlice with no continuation token ever returned -- see Notes"}
+  ListQueues: {wire: fixed, errors: ok, state: ok, persist: ok, note: "gopherstack batch8 (2026-08-23): now paginates via pkgs/page.New (real NextToken), previously truncated via limitSlice with no continuation token ever returned. 2026-08-29 (wrapper-key-sweep): ListBy (NAME/CREATION_DATE, documented default NAME) was never read -- now honored."}
   DeleteQueue: {wire: ok, errors: ok, state: ok, persist: ok}
   ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeEndpoints: {wire: ok, errors: ok, state: ok, persist: n/a, note: "this pass: real op is POST-only with maxResults/nextToken/mode in a JSON body -- gopherstack previously answered any HTTP method and ignored the body. Fixed: route now requires POST (GET/other methods 404 as unknown operation, matching real-client behavior against a real endpoint), and the body is parsed (mode/maxResults honored; nextToken accepted but there is never a next page since exactly one synthetic endpoint ever exists)"}
@@ -39,7 +45,7 @@ ops:
   DisassociateCertificate: {wire: ok, errors: ok, state: ok, persist: ok}
   ListVersions: {wire: ok, errors: ok, state: ok, persist: n/a}
   Probe: {wire: ok, errors: ok, state: ok, persist: n/a}
-  SearchJobs: {wire: ok, errors: ok, state: ok, persist: ok, note: "extra non-AWS totalCount not present -- SearchJobsOutput matches wire shape exactly"}
+  SearchJobs: {wire: fixed, errors: ok, state: ok, persist: ok, note: "extra non-AWS totalCount not present -- SearchJobsOutput matches wire shape exactly. 2026-08-29 (wrapper-key-sweep): InputFile query param (\"provide your input file URL or your partial input file name\") was never read at all -- status/queue/order were applied but inputFile was silently ignored, so a client scoping a search to one input file got every job instead. Now matched via substring against settings.inputs[].fileInput (jobMatchesInputFile, jobs.go) -- the one field path this op documents, read from the otherwise-opaque Settings map this service already round-trips verbatim."}
   CreateResourceShare: {wire: partial, errors: ok, state: ok, persist: ok, note: "real input also requires supportCaseId; not validated/stored (harmless, output is void). 2026-08-19: this op's side effect (Job.LastShareDetails) was a critical type-confusion bug -- see gaps->fixed below"}
 families:
   queue: {status: ok, note: "CreateQueue/GetQueue/ListQueues/UpdateQueue/DeleteQueue verified op-by-op against restjson1 serializers; reservationPlanSettings wire-name bug fixed on both create and update. FIXED 2026-08-23 (gopherstack batch8): ListQueues now paginates via pkgs/page.New (real NextToken) -- see Notes"}

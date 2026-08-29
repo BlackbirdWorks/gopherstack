@@ -108,23 +108,12 @@ func (h *Handler) handleListJobTemplates(c *echo.Context) error {
 	}
 
 	q := c.Request().URL.Query()
-	category := q.Get("category")
-
-	if category != "" {
-		filtered := templates[:0:0]
-
-		for _, t := range templates {
-			if t.Category == category {
-				filtered = append(filtered, t)
-			}
-		}
-
-		templates = filtered
-	}
-
-	if q.Get("order") == orderDescending {
-		reverseSlice(templates)
-	}
+	templates = applyListOrdering(
+		templates, q.Get("category"),
+		func(t *JobTemplate) string { return t.Category },
+		func(t *JobTemplate) float64 { return t.CreatedAt },
+		q.Get("listBy"), q.Get("order"),
+	)
 
 	pg := page.New(templates, q.Get("nextToken"), parseMaxResults(q.Get("maxResults")), defaultListPageSize)
 

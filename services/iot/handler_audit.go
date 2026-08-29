@@ -2,6 +2,9 @@ package iot
 
 import (
 	"net/http"
+	"reflect"
+	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/labstack/echo/v5"
@@ -245,9 +248,88 @@ func (h *Handler) handleDeleteAuditSuppression(c *echo.Context) error {
 }
 
 func (h *Handler) handleListAuditSuppressions(c *echo.Context) error {
+	var req struct {
+		ResourceIdentifier map[string]any `json:"resourceIdentifier"`
+		// AscendingOrder is *bool, not bool: the real field "isn't provided"
+		// (absent from the JSON body) vs. explicitly false are different
+		// wire states -- "If parameter isn't provided, ascendingOrder=true"
+		// (iot@v1.77.4 api_op_ListAuditSuppressions.go), so presence must be
+		// distinguishable to apply that default correctly.
+		AscendingOrder *bool  `json:"ascendingOrder"`
+		CheckName      string `json:"checkName"`
+		NextToken      string `json:"nextToken"`
+		MaxResults     int    `json:"maxResults"`
+	}
+	if err := readBody(c, &req); err != nil {
+		return err
+	}
+
 	items := h.Backend.ListAuditSuppressions()
 
-	return c.JSON(http.StatusOK, map[string]any{"suppressions": items})
+	filtered := items[:0:0]
+
+	for _, s := range items {
+		if req.CheckName != "" && s.CheckName != req.CheckName {
+			continue
+		}
+
+		if !matchAuditSuppressionResourceIdentifier(req.ResourceIdentifier, s.ResourceIdentifier) {
+			continue
+		}
+
+		filtered = append(filtered, s)
+	}
+
+	ascending := req.AscendingOrder == nil || *req.AscendingOrder
+	sort.Slice(filtered, func(i, j int) bool {
+		if ascending {
+			return filtered[i].ExpirationDate < filtered[j].ExpirationDate
+		}
+
+		return filtered[i].ExpirationDate > filtered[j].ExpirationDate
+	})
+
+	pageSize := req.MaxResults
+	if pageSize <= 0 {
+		pageSize = iotDefaultPageSize
+	}
+
+	start := 0
+
+	if req.NextToken != "" {
+		if n, err := strconv.Atoi(req.NextToken); err == nil && n > 0 {
+			start = n
+		}
+	}
+
+	page, nextToken := paginateMaps(filtered, pageSize, start)
+
+	resp := map[string]any{"suppressions": page}
+	if nextToken != "" {
+		resp["nextToken"] = nextToken
+	}
+
+	return c.JSON(http.StatusOK, resp)
+}
+
+// matchAuditSuppressionResourceIdentifier reports whether actual satisfies
+// filter: every key set in filter must be present and equal in actual (same
+// per-field discriminator semantics as this service's typed
+// matchResourceIdentifier, but keyed dynamically since AuditSuppression
+// stores ResourceIdentifier as an opaque map). A nil/empty filter always
+// matches.
+func matchAuditSuppressionResourceIdentifier(filter, actual map[string]any) bool {
+	if len(filter) == 0 {
+		return true
+	}
+
+	for k, v := range filter {
+		if !reflect.DeepEqual(actual[k], v) {
+			return false
+		}
+	}
+
+	return true
 }
 
 func (h *Handler) handleDescribeAuditFinding(c *echo.Context) error {

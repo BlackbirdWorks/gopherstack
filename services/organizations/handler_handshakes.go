@@ -113,6 +113,14 @@ type enableAllFeaturesResponse struct {
 
 type handshakeFilter struct {
 	ActionType string `json:"ActionType,omitempty"`
+	// ParentHandshakeId is "only used for handshake types that are a child
+	// of another type" (types.HandshakeFilter.ParentHandshakeId,
+	// organizations@v1.53.5 types/types.go:390). This backend never spawns
+	// a handshake with a parent -- EnableAllFeatures returns a single
+	// synthetic already-ACCEPTED handshake rather than the real multi-step
+	// ENABLE_ALL_FEATURES/APPROVE_ALL_FEATURES parent/child flow -- so any
+	// non-empty value here correctly matches nothing.
+	ParentHandshakeID string `json:"ParentHandshakeId,omitempty"`
 }
 
 type listHandshakesFilterRequest struct {
@@ -451,9 +459,12 @@ func (h *Handler) handleListHandshakesForAccount(c *echo.Context, body []byte) e
 	}
 
 	objs := make([]handshakeObject, 0, len(handshakes))
-	for _, hs := range handshakes {
-		if req.Filter.ActionType == "" || hs.Action == req.Filter.ActionType {
-			objs = append(objs, toHandshakeObject(hs))
+
+	if req.Filter.ParentHandshakeID == "" {
+		for _, hs := range handshakes {
+			if req.Filter.ActionType == "" || hs.Action == req.Filter.ActionType {
+				objs = append(objs, toHandshakeObject(hs))
+			}
 		}
 	}
 
@@ -477,9 +488,12 @@ func (h *Handler) handleListHandshakesForOrganization(c *echo.Context, body []by
 	}
 
 	objs := make([]handshakeObject, 0, len(handshakes))
-	for _, hs := range handshakes {
-		if req.Filter.ActionType == "" || hs.Action == req.Filter.ActionType {
-			objs = append(objs, toHandshakeObject(hs))
+
+	if req.Filter.ParentHandshakeID == "" {
+		for _, hs := range handshakes {
+			if req.Filter.ActionType == "" || hs.Action == req.Filter.ActionType {
+				objs = append(objs, toHandshakeObject(hs))
+			}
 		}
 	}
 

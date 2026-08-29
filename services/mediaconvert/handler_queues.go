@@ -98,10 +98,11 @@ func (h *Handler) handleListQueues(c *echo.Context) error {
 	}
 
 	q := c.Request().URL.Query()
-
-	if q.Get("order") == orderDescending {
-		reverseSlice(queues)
-	}
+	queues = applyListOrdering(
+		queues, "", func(*Queue) string { return "" },
+		func(qu *Queue) float64 { return qu.CreatedAt },
+		q.Get("listBy"), q.Get("order"),
+	)
 
 	pg := page.New(queues, q.Get("nextToken"), parseMaxResults(q.Get("maxResults")), defaultListPageSize)
 

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"sort"
 	"strings"
 
 	"github.com/labstack/echo/v5"
@@ -263,6 +264,18 @@ func (h *Handler) handleDeletePolicy(c *echo.Context) error {
 func (h *Handler) handleListPolicies(c *echo.Context) error {
 	policies := h.Backend.ListPolicies()
 
+	// "If true, the results are returned in ascending creation order"
+	// (iot@v1.77.4 api_op_ListPolicies.go) -- creation-date order, not the
+	// name order ListPolicies() returns by default.
+	ascending := c.QueryParam("isAscendingOrder") == keyBoolTrue
+	sort.Slice(policies, func(i, j int) bool {
+		if ascending {
+			return policies[i].CreatedAt.Before(policies[j].CreatedAt)
+		}
+
+		return policies[i].CreatedAt.After(policies[j].CreatedAt)
+	})
+
 	out := make([]map[string]string, 0, len(policies))
 	for _, p := range policies {
 		out = append(out, map[string]string{
@@ -271,12 +284,17 @@ func (h *Handler) handleListPolicies(c *echo.Context) error {
 		})
 	}
 
-	pageSize, start := parseIoTPagination(c)
-	page, nextToken := paginateMaps(out, pageSize, start)
+	// Real binding is pageSize/marker (serializers.go
+	// awsRestjson1_serializeOpHttpBindingsListPoliciesInput), not
+	// maxResults/nextToken -- a real client's pageSize/marker were
+	// previously silently ignored by parseIoTPagination reading the wrong
+	// query keys.
+	pageSize, start := parseIoTMarkerPagination(c)
+	page, nextMarker := paginateMaps(out, pageSize, start)
 
 	resp := map[string]any{"policies": page}
-	if nextToken != "" {
-		resp["nextMarker"] = nextToken
+	if nextMarker != "" {
+		resp["nextMarker"] = nextMarker
 	}
 
 	return c.JSON(http.StatusOK, resp)
@@ -469,8 +487,23 @@ func (h *Handler) handleSetDefaultPolicyVersion(c *echo.Context) error {
 }
 
 func (h *Handler) handleListPrincipalPolicies(c *echo.Context) error {
-	principal := c.Request().Header.Get(headerIoTPrincipal)
+	// Real wire header is X-Amzn-Iot-Principal (matches its
+	// AttachPrincipalPolicy/DetachPrincipalPolicy siblings), not the
+	// X-Amzn-Principal used by the Thing-principal family
+	// (iot@v1.77.4 serializers.go
+	// awsRestjson1_serializeOpHttpBindingsListPrincipalPoliciesInput).
+	principal := c.Request().Header.Get("X-Amzn-Iot-Principal")
 	policies := h.Backend.ListPrincipalPolicies(principal)
+
+	ascending := c.QueryParam("isAscendingOrder") == keyBoolTrue
+	sort.Slice(policies, func(i, j int) bool {
+		if ascending {
+			return policies[i].CreatedAt.Before(policies[j].CreatedAt)
+		}
+
+		return policies[i].CreatedAt.After(policies[j].CreatedAt)
+	})
+
 	out := make([]map[string]any, len(policies))
 	for i, p := range policies {
 		out[i] = map[string]any{

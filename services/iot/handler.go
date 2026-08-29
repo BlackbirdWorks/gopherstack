@@ -412,6 +412,13 @@ func parseIoTMarkerPagination(c *echo.Context) (int, int) {
 	return pageSize, start
 }
 
+// reverseSlice reverses items in-place.
+func reverseSlice[T any](items []T) {
+	for i, j := 0, len(items)-1; i < j; i, j = i+1, j-1 {
+		items[i], items[j] = items[j], items[i]
+	}
+}
+
 // paginateMaps applies offset-based pagination to a list of result maps,
 // returning the page and an opaque nextToken (the next start offset as a
 // string). An empty token indicates the last page.

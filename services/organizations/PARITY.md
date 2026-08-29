@@ -7,8 +7,16 @@
 service: organizations
 sdk_module: aws-sdk-go-v2/service/organizations@v1.53.5
 last_audit_commit: 012f98aa
-last_audit_date: 2026-07-23
-overall: A            # RESTORED this pass (gopherstack-0m6h): the 5 sibling responsibility-transfer
+last_audit_date: 2026-08-29
+overall: A            # 2026-08-29 (wrapper-key-sweep, constraint-not-honoured class): ListHandshakesForAccount/
+                      # ListHandshakesForOrganization never read Filter.ParentHandshakeId at all --
+                      # any client filtering by it got the full unfiltered handshake list back.
+                      # Fixed; see the two ops: entries. Every other List op's own filter/pagination
+                      # parameters (ListPolicies.Filter, ListPoliciesForTarget.Filter,
+                      # ListDelegatedAdministrators.ServicePrincipal, ListCreateAccountStatus.States,
+                      # ListChildren.ChildType, etc.) were checked against their SDK Input structs and
+                      # confirmed already correctly applied.
+                      # RESTORED prior pass (gopherstack-0m6h): the 5 sibling responsibility-transfer
                       # ops (DescribeResponsibilityTransfer/ListInboundResponsibilityTransfers/
                       # ListOutboundResponsibilityTransfers/TerminateResponsibilityTransfer/
                       # UpdateResponsibilityTransfer) that downgraded this to B now model the real,
@@ -67,8 +75,8 @@ ops:
   DescribeHandshake: {wire: ok, errors: ok, state: ok, persist: ok}
   InviteAccountToOrganization: {wire: ok, errors: ok, state: ok, persist: ok, note: "gopherstack-i8lo (2026-08-22): Target.Type (HandshakeParty, organizations@v1.53.5 types/types.go:420, required alongside Id:415) was decoded but never validated -- only Target.Id was checked. Now rejects a missing Target.Type with InvalidInputException."}
   LeaveOrganization: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListHandshakesForAccount: {wire: ok, errors: ok, state: ok, persist: ok, note: "already paginated; empty-body-tolerant parsing pattern (len(body)>0 guard) reused for the new ListAWSServiceAccessForOrganization fix"}
-  ListHandshakesForOrganization: {wire: ok, errors: ok, state: ok, persist: ok, note: "already paginated"}
+  ListHandshakesForAccount: {wire: fixed, errors: ok, state: ok, persist: ok, note: "already paginated; empty-body-tolerant parsing pattern (len(body)>0 guard) reused for the new ListAWSServiceAccessForOrganization fix. 2026-08-29 (wrapper-key-sweep): Filter.ParentHandshakeId (types.HandshakeFilter.ParentHandshakeId, organizations@v1.53.5 types/types.go:390 -- \"only used for handshake types that are a child of another type\") was missing from the wire struct entirely, so any client filtering by it silently got the full unfiltered list back. Added the field; since this backend never creates a handshake with a parent (EnableAllFeatures synthesizes a single already-ACCEPTED handshake rather than the real ENABLE_ALL_FEATURES/APPROVE_ALL_FEATURES parent/child flow), a non-empty ParentHandshakeId now correctly excludes everything -- see TestHandshakeFilter_Handler."}
+  ListHandshakesForOrganization: {wire: fixed, errors: ok, state: ok, persist: ok, note: "already paginated. 2026-08-29 (wrapper-key-sweep): same Filter.ParentHandshakeId gap as ListHandshakesForAccount -- fixed the same way."}
   DeleteResourcePolicy: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeResourcePolicy: {wire: ok, errors: ok, state: ok, persist: ok}
   PutResourcePolicy: {wire: ok, errors: ok, state: fixed, persist: ok, note: "Content now capped at 40,000 chars, the ResourcePolicyContent shape's hard max (botocore organizations/2016-11-28, not account-quota state like PolicyContent) -> ConstraintViolationException; was previously unbounded"}

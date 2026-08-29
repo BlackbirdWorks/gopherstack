@@ -56,6 +56,15 @@ func (h *Handler) handleDescribeStream(c *echo.Context) error {
 
 func (h *Handler) handleListStreams(c *echo.Context) error {
 	streams := h.Backend.ListStreams()
+
+	// ListStreams() already returns them StreamID-sorted ascending
+	// (store.Table.Snapshot) -- "Set to true to return the list of streams
+	// in ascending order" is the true (default) case, so only the false
+	// case needs a reversal.
+	if c.QueryParam("isAscendingOrder") != keyBoolTrue {
+		reverseSlice(streams)
+	}
+
 	summaries := make([]map[string]any, len(streams))
 	for i, s := range streams {
 		summaries[i] = map[string]any{
@@ -66,7 +75,18 @@ func (h *Handler) handleListStreams(c *echo.Context) error {
 		}
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"streams": summaries})
+	// Real binding is maxResults/nextToken (serializers.go
+	// awsRestjson1_serializeOpHttpBindingsListStreamsInput), unlike its
+	// pageSize/marker-based siblings.
+	pageSize, start := parseIoTPagination(c)
+	page, nextToken := paginateMaps(summaries, pageSize, start)
+
+	resp := map[string]any{"streams": page}
+	if nextToken != "" {
+		resp["nextToken"] = nextToken
+	}
+
+	return c.JSON(http.StatusOK, resp)
 }
 
 func (h *Handler) handleUpdateStream(c *echo.Context) error {
