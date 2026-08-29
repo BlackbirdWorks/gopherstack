@@ -7,8 +7,9 @@
 service: glacier
 sdk_module: aws-sdk-go-v2/service/glacier@v1.35.4
 last_audit_commit: a073b2b1e2dbd50fb0f95ec57e5af0659ebb0d72
-last_audit_date: 2026-08-20
+last_audit_date: 2026-08-29
 overall: A            # wrapper-key/header/nested-shape sweep (2026-08-20): 1 real wire bug found and fixed (SelectParameters InputSerialization/OutputSerialization.Csv wire key was "Csv", real AWS is lowercase "csv"); 2 suspected wrapper-key bugs (GetVaultAccessPolicy/GetVaultNotifications) investigated and found to be FALSE POSITIVES -- gopherstack's existing flat shape was already correct, the wrapping helper in the real SDK's deserializers.go is dead code never reached from HandleDeserialize. All HTTP-header-bound response members (13 across 8 ops) audited against live HandleDeserialize/HttpBindings functions and found correct. Tree-hash algorithm cross-checked against the pinned SDK's own client-side implementation (internal/customizations/treehash.go), not just self-consistency.
+                       # gopherstack-6flj/21my sweep (2026-08-29): 1 real bug found+fixed (ListJobs sorted by JobID instead of CreationDate/initiation-time -- see Notes). ListVaults/ListMultipartUploads/ListParts sort orders re-verified against real API docs (ASCII-by-name / no-guaranteed-order / by-range respectively) and found correct. DescribeCommands/DescribeDeployments-equivalent filters (statuscode/completed on ListJobs) re-verified honored. An existing test (TestSortedListJobs) was asserting the JobID-sort bug as correct behavior; fixed to assert CreationDate order instead.
 ops:
   CreateVault:            {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeVault:          {wire: ok, errors: ok, state: ok, persist: ok}
@@ -18,7 +19,7 @@ ops:
   DeleteArchive:          {wire: ok, errors: ok, state: ok, persist: ok, note: "gopherstack-ygfk (THIS PASS): now consults the vault's lock policy (checkVaultLockDelete) before deleting -- see families: vault_lock_enforcement"}
   InitiateJob:            {wire: ok, errors: ok, state: ok, persist: ok, note: "response is header-only (X-Amz-Job-Id/x-amz-job-output-path/Location) on real wire; verified. This pass added real support for JobParameters.Type=select (SelectParameters/OutputLocation, full field validation, MissingParameterValueException vs InvalidParameterValueException distinguished) and JobParameters.InventoryRetrievalParameters (range inventory retrieval: StartDate/EndDate/Limit/Marker, validated) -- see Notes. gopherstack-sweep-2026-08-20: request-body SelectParameters.InputSerialization/OutputSerialization.Csv key case fixed (see bug 12, Notes) -- request-side unmarshal was unaffected (Go's case-insensitive JSON decode fallback), only response-side DescribeJob/ListJobs echo was broken"}
   DescribeJob:            {wire: ok, errors: ok, state: ok, persist: ok, note: "GlacierJobDescription now also carries JobOutputPath/OutputLocation/SelectParameters (select jobs) and a proper nested InventoryRetrievalParameters object (range inventory retrieval jobs) -- see Notes for the invented top-level Format field this replaced. gopherstack-sweep-2026-08-20 (bug 12): SelectParameters.InputSerialization/OutputSerialization.Csv wire key fixed from \"Csv\" to lowercase \"csv\" (confirmed via aws-sdk-go-v2/service/glacier@v1.35.4 deserializers.go:awsRestjson1_deserializeDocumentInputSerialization/OutputSerialization, `case \"csv\":`) -- a real SDK client's typed out.SelectParameters.InputSerialization.Csv was always nil before the fix. Proven via TestDescribeJob_SelectCsvSerialization_SDKRoundTrip (wire_sdk_roundtrip_test.go), hand-reverted and confirmed the exact nil-Csv symptom."}
-  ListJobs:               {wire: ok, errors: ok, state: ok, persist: ok, note: "same describeJobResponse DTO as DescribeJob, same coverage applies, including bug 12's Csv key fix"}
+  ListJobs:               {wire: ok, errors: ok, state: ok, persist: ok, note: "same describeJobResponse DTO as DescribeJob, same coverage applies, including bug 12's Csv key fix. FIXED 2026-08-29 (gopherstack-6flj/21my, bug 17): was sorted by JobID (a crypto/rand string with no relationship to creation order) instead of CreationDate ascending -- real ListJobs docs/example responses show ascending-by-initiation-time order. Now sort.SliceStable by CreationDate (fixed-width ISO-8601, so lexical == chronological). statuscode/completed query filters re-verified honored (handler_jobs.go)."}
   GetJobOutput:           {wire: ok, errors: ok, state: ok, persist: ok, note: "archive-retrieval/inventory-retrieval unchanged; select jobs execute their SQL Expression for real against the stored archive and serve it directly (see select_jobs family note) -- a documented gopherstack convenience, not real AWS behavior (GetJobOutput's own docs cover only archive/inventory output, never Select)"}
   SetVaultNotifications:      {wire: ok, errors: ok, state: ok, persist: ok}
   GetVaultNotifications:      {wire: ok, errors: ok, state: ok, persist: ok, note: "gopherstack-sweep-2026-08-20: investigated as a suspected wrapper-key bug (a \"vaultNotificationConfig\"-wrapping OpDocument helper exists in deserializers.go) and found to be a FALSE POSITIVE -- that helper is dead code, the op's live HandleDeserialize decodes the body FLAT. gopherstack's existing flat response is correct; do not wrap it. Regression-guarded by TestGetVaultNotifications_SDKRoundTrip."}
@@ -317,6 +318,60 @@ correct throughout (`formatDate` in models.go).
     the way `UploadArchive` does (`multipart_uploads.go`'s
     `CompleteMultipartUpload`). See the `CompleteMultipartUpload` op entry
     above.
+
+### Bugs fixed / findings this pass (2026-08-29, gopherstack-6flj/21my sweep)
+
+17. **`ListJobs` sorted by `JobID` instead of job initiation time.** The real
+    `ListJobs` API (`api_op_ListJobs.go`'s doc comment: "The List Jobs operation
+    ... returns a list of these jobs sorted by job initiation time") and its own
+    reference-doc example responses (both examples' `JobList` entries appear in
+    ascending `CreationDate` order) confirm the real sort key is `CreationDate`,
+    ascending. gopherstack's `ListJobs` (`jobs.go`) instead sorted by `JobID` --
+    a string generated via `crypto/rand` (`generateID`) with **zero**
+    relationship to creation order, so the returned order was effectively
+    random relative to what a real client would see. This is the class of bug
+    this campaign specifically flags: a dropped/wrong SORT key, not a dropped
+    filter. Fixed: `sort.SliceStable` by `CreationDate` (a fixed-width
+    ISO-8601 string via `formatDate`, so lexical string comparison is
+    equivalent to chronological order; `SliceStable` keeps ties deterministic).
+    An existing test, `TestSortedListJobs` (`jobs_test.go`), was asserting the
+    buggy JobID-sort as the expected behavior -- exactly the
+    "existing-tests-can-be-wrong" trap this campaign warns about -- and was
+    fixed alongside to assert `CreationDate` order instead. Proven via
+    `TestListJobs_SortedByInitiationTime_SDKRoundTrip`
+    (`wire_sdk_roundtrip_test.go`), driven through a real
+    `aws-sdk-go-v2/service/glacier` client: three jobs are initiated (so
+    insertion order and JobID-lexical order both differ from the intended
+    result), their `CreationDate`s are backdated (via a new
+    `SetJobCreationDate` test-only export) to a third, deliberately different
+    order, and `ListJobs` is asserted to return exactly that
+    `CreationDate`-ascending order. Confirmed failing against the pre-fix code
+    (returned JobID-lexical order instead) before the fix, and passing after.
+
+    **Sort-order cross-check on siblings, done this pass (not previously
+    recorded in this file):** `ListVaults` re-confirmed correct against the
+    real API doc's explicit "The list returned in the response is ASCII-sorted
+    by vault name" (gopherstack sorts by `VaultName`, `vaults.go`).
+    `ListMultipartUploads` re-confirmed correct against the real API doc's
+    explicit "The list returned in the List Multipart Upload response has no
+    guaranteed order" (gopherstack's `MultipartUploadID`-lexical sort is a
+    valid, deterministic choice under that contract). `ListParts` re-confirmed
+    correct against the real API doc's explicit "Amazon Glacier returns the
+    part list sorted by range you specified in each part upload" (gopherstack
+    sorts by `RangeInBytes` start, `multipart_uploads.go`). The vault-inventory
+    `ArchiveList` (served via `GetJobOutput` for `InventoryRetrieval` jobs,
+    `archives.go`'s `ListArchives`, sorted by `ArchiveID`) has **no** citable
+    real-API statement of guaranteed order either way (its doc page states no
+    ordering guarantee), so its existing `ArchiveID`-lexical sort is left
+    as-is per this campaign's do-not-fabricate rule -- not flagged as a bug,
+    also not asserted as definitely correct.
+
+    **Filter re-verification, done this pass:** `ListJobs`' `statuscode`
+    (`InProgress`/`Succeeded`/`Failed`) and `completed`
+    (`true`/`false`) query-parameter filters (`handler_jobs.go`) re-confirmed
+    honored, not silently dropped -- these are the closest glacier analogue to
+    the "list ops carry markers, limits and status filters" risk this
+    campaign specifically calls out for this service.
 
 ### Traps for the next auditor
 

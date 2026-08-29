@@ -5,6 +5,17 @@ sdk_module: aws-sdk-go-v2/service/opsworks@v1.31.0   # exists in the module cach
                                                        # module source directly, not via import.
 last_audit_commit: 5f0e2722b
 last_audit_date: 2026-08-15
+# gopherstack-6flj/21my re-sweep (2026-08-29): spot-checked filter/sort-drop risk
+# on the ops most exposed to it (DescribeCommands' CommandIds/DeploymentId/
+# InstanceId, DescribeDeployments' DeploymentIds/AppId/StackId,
+# DescribeLoadBasedAutoScaling's LayerIds, DescribeTimeBasedAutoScaling's
+# InstanceIds -- all confirmed honoring the FULL filter list, not truncated to
+# the first element the way the already-fixed DescribeElasticLoadBalancers
+# LayerIds bug was) plus a fresh member-count re-verification of Command (10 of
+# 10 SDK deserializer cases) and StackSummary (6 of 6). No new bug found this
+# pass -- see Notes for what was and wasn't re-checked; this was a targeted
+# spot-check against the prior 4 passes' exhaustive per-item field-diff, not a
+# from-scratch re-audit of all 74 ops.
 overall: B            # re-audited live (gopherstack-vjj2) after the 2026-06-03..2026-08-08
                        # unreachability window closed; 2 more real bugs found+fixed via live
                        # HTTP requests, but there is still no SDK-driven test/integration/
