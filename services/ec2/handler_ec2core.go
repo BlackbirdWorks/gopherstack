@@ -465,7 +465,7 @@ func (h *Handler) handleDescribeTransitGatewayRouteTables(
 	vals url.Values,
 	reqID string,
 ) (any, error) {
-	ids := parseMemberList(vals, "TransitGatewayRouteTableId")
+	ids := parseMemberList(vals, "TransitGatewayRouteTableIds")
 	rts := h.Backend.DescribeTransitGatewayRouteTables(ids)
 
 	resp := &describeTransitGatewayRouteTablesResponse{RequestID: reqID}

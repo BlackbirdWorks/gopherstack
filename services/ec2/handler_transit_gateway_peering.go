@@ -220,7 +220,7 @@ func (h *Handler) handleDescribeTransitGatewayPeeringAttachments(
 	vals url.Values,
 	reqID string,
 ) (any, error) {
-	ids := parseMemberList(vals, "TransitGatewayAttachmentId")
+	ids := parseMemberList(vals, "TransitGatewayAttachmentIds")
 	atts := h.Backend.DescribeTransitGatewayPeeringAttachments(ids)
 
 	resp := &describeTransitGatewayPeeringAttachmentsResponse{RequestID: reqID}
@@ -293,7 +293,7 @@ type deleteTransitGatewayConnectResponse struct {
 }
 
 func (h *Handler) handleDescribeTransitGatewayConnects(vals url.Values, reqID string) (any, error) {
-	ids := parseMemberList(vals, "TransitGatewayAttachmentId")
+	ids := parseMemberList(vals, "TransitGatewayAttachmentIds")
 	conns := h.Backend.DescribeTransitGatewayConnects(ids)
 
 	resp := &describeTransitGatewayConnectsResponse{RequestID: reqID}
@@ -359,7 +359,7 @@ func (h *Handler) handleDescribeTransitGatewayConnectPeers(
 	vals url.Values,
 	reqID string,
 ) (any, error) {
-	ids := parseMemberList(vals, "TransitGatewayConnectPeerId")
+	ids := parseMemberList(vals, "TransitGatewayConnectPeerIds")
 	peers := h.Backend.DescribeTransitGatewayConnectPeers(ids)
 
 	resp := &describeTransitGatewayConnectPeersResponse{RequestID: reqID}
