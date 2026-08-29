@@ -376,14 +376,18 @@ func (b *InMemoryBackend) StartFlywheelIteration(flywheelArn string) (*FlywheelI
 		CreationTime:            time.Now().UTC(),
 		FlywheelArn:             flywheelArn,
 		FlywheelIterationID:     id,
-		FlywheelIterationStatus: statusSubmitted,
+		FlywheelIterationStatus: statusFlywheelIterationTraining,
 	}
 	b.iterations.Put(iteration)
 
 	return cloneIteration(iteration), nil
 }
 
-// GetFlywheelIteration returns and advances an iteration.
+// GetFlywheelIteration returns and advances an iteration. Real
+// FlywheelIterationStatus values are TRAINING -> EVALUATING -> COMPLETED
+// (types/enums.go:325-334) -- not the JobStatus-style SUBMITTED/IN_PROGRESS
+// vocabulary used elsewhere in this file, which FlywheelIterationStatus does
+// not share.
 func (b *InMemoryBackend) GetFlywheelIteration(id string) (*FlywheelIteration, error) {
 	b.mu.Lock("GetFlywheelIteration")
 	defer b.mu.Unlock()
@@ -393,9 +397,9 @@ func (b *InMemoryBackend) GetFlywheelIteration(id string) (*FlywheelIteration, e
 		return nil, fmt.Errorf("%w: iteration %q", ErrNotFound, id)
 	}
 	switch iteration.FlywheelIterationStatus {
-	case statusSubmitted:
-		iteration.FlywheelIterationStatus = statusInProgress
-	case statusInProgress:
+	case statusFlywheelIterationTraining:
+		iteration.FlywheelIterationStatus = statusFlywheelIterationEvaluating
+	case statusFlywheelIterationEvaluating:
 		iteration.FlywheelIterationStatus = statusCompleted
 		iteration.EndTime = time.Now().UTC()
 	}
@@ -584,9 +588,11 @@ func (b *InMemoryBackend) resourceARN(resourceType, name, version string) string
 func initialResourceStatus(resourceType string) string {
 	switch resourceType {
 	case resourceTypeEndpoint:
+		return statusEndpointInService
+	case resourceTypeFlywheel:
 		return statusActive
-	case resourceTypeFlywheel, resourceTypeDataset:
-		return statusReady
+	case resourceTypeDataset:
+		return statusCompleted
 	case resourceTypeDocClassifier, resourceTypeEntityRecognizer:
 		// Emulator skips async training; classifiers/recognizers are immediately TRAINED.
 		// The real AWS provider waits minutes before polling, causing CI timeouts if we

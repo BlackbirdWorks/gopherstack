@@ -1,9 +1,21 @@
 ---
 service: mediapackage
 sdk_module: aws-sdk-go-v2/service/mediapackage@v1.42.4
-last_audit_commit: 711100b0006aeb09a8422f1e6c09a400068f27ee
-last_audit_date: 2026-08-20
-overall: A            # wrapper-key/nested-shape sweep: zero bugs found, prior audit's claims re-verified against SDK source
+last_audit_commit: cb5dac6ff
+last_audit_date: 2026-08-29
+overall: A            # 2026-08-29: independent re-sweep, deliberately NOT using this campaign's
+                      # known bug-class list (see comprehend's PARITY.md same-date entry for the
+                      # sibling audit that found real bugs there via this method). Re-derived
+                      # HTTP bindings (path/method/query params for all 19 ops), List filter
+                      # params (ListOriginEndpoints.ChannelId, ListHarvestJobs.IncludeChannelId/
+                      # IncludeStatus), Tags-at-create vs Tags-only-via-TagResource split
+                      # (CreateChannelInput/CreateOriginEndpointInput have Tags,
+                      # CreateHarvestJobInput/UpdateChannelInput/UpdateOriginEndpointInput do
+                      # not), UntagResource's TagKeys-as-repeated-query-param (not body) wire
+                      # shape, and both enum types this service emits (Origination/Status) --
+                      # all independently re-confirmed correct, zero new bugs found. Genuinely
+                      # clean; see Notes below for exact coverage and method.
+                      # wrapper-key/nested-shape sweep: zero bugs found, prior audit's claims re-verified against SDK source
 ops:
   CreateChannel: {wire: ok, errors: ok, state: ok, persist: ok, note: "added missing createdAt"}
   DescribeChannel: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -405,3 +417,76 @@ four confirmed failing against the unfixed `handler.go` (asserted
 (md5sum-verified). Same bug class as gopherstack-wlo1's medialive,
 mediatailor, and vpclattice fixes, and the s3control/iot instances that
 opened the issue.
+
+## 2026-08-29: independent re-sweep, no bug-class checklist (clean)
+
+Given the same brief as comprehend's same-date sweep (see that service's
+PARITY.md for the method and what it found there): compare from first
+principles against the pinned SDK, without using this campaign's own list of
+previously-found bug classes, specifically to test whether the campaign's
+rising clean-result rate reflects real correctness or checklist blindness.
+mediapackage had already been swept three times (2026-08-10, 2026-08-20,
+2026-08-22) at real depth, so this pass deliberately targeted areas those
+sweeps' own stated scope (wrapper keys/nesting, error-envelope typing)
+would not have emphasized:
+
+- **HTTP-level request shape, all 19 ops**: extracted every
+  `awsRestjson1_serializeOpHttpBindings<Op>Input` function's path
+  (`httpbinding.SplitURI`) and HTTP method directly from `serializers.go`,
+  independent of `handler.go`'s own routing table, then cross-checked
+  `classifyPath`/`classifyChannelPath`/`classifyOriginEndpointPath`/
+  `classifyHarvestJobPath`/`classifyTagPath` against that extracted list.
+  19 of 19 paths+methods match exactly, including the two previously-fixed
+  ops (`RotateChannelCredentials` at `PUT /channels/{Id}/credentials`,
+  `RotateIngestEndpointCredentials` at
+  `PUT /channels/{Id}/ingest_endpoints/{IngestEndpointId}/credentials`).
+- **List query-parameter filters**: `ListOriginEndpointsInput.ChannelId`,
+  `ListHarvestJobsInput.IncludeChannelId`/`IncludeStatus` (both from
+  `serializers.go`'s own binding functions, not assumed) are read and
+  applied by `handleListOriginEndpoints`/`handleListHarvestJobs` and
+  correctly filter in the backend (`origin_endpoints.go`/`harvest_jobs.go`).
+  `ListChannelsInput` genuinely has no filter fields on the real SDK (only
+  `MaxResults`/`NextToken`) -- confirmed, not a gap.
+- **`UntagResourceInput.TagKeys` is a repeated query parameter
+  (`encoder.AddQuery("tagKeys")`), NOT a JSON body field** -- easy to get
+  backwards (`TagResourceInput.Tags` IS a body field on the same op family).
+  `handleUntagResource` correctly reads `c.QueryParams()["tagKeys"]`.
+- **Tags-at-create vs Tags-only-via-TagResource, field-diffed per op**:
+  `CreateChannelInput`/`CreateOriginEndpointInput` both have a `Tags` field
+  (handled: `handleCreateChannel`/`handleCreateOriginEndpoint` both call
+  `extractTags`); `CreateHarvestJobInput` has NO `Tags` field at all
+  (correctly not extracted in `handleCreateHarvestJob`);
+  `UpdateChannelInput` has only `Id`+`Description` (no `Tags`, matches
+  `handleUpdateChannel`); `UpdateOriginEndpointInput` likewise has no
+  `Tags` (matches `handleUpdateOriginEndpoint`).
+- **Both enum types this service actually emits**: `types.Origination`
+  (`ALLOW`/`DENY`) and `types.Status` (`IN_PROGRESS`/`SUCCEEDED`/`FAILED`,
+  used only for `HarvestJob.Status`) -- gopherstack's `originationAllow`/
+  `harvestJobStatusInProgress` constants match exactly; this is the same
+  enum-VALUE check that found real bugs in comprehend, run here too and
+  came back clean. No other status/enum-shaped field exists on this
+  service's wire surface (`Channel` has no `Status` field on the real API
+  at all).
+- **List ordering**: `store.Table.Snapshot()` returns items sorted by key
+  ascending (`pkgs/store/table.go:184-201`), deterministic but AWS itself
+  documents no particular order for these List ops -- not a client-
+  observable divergence, since no real client can assert on order here.
+- **Client-side required-field/required-together validators**
+  (`validators.go`): re-diffed `validateAuthorization`/`validateMssPackage`/
+  `validateMssEncryption`/`validateSpekeKeyProvider`/
+  `validateEncryptionContractConfiguration` against
+  `origin_endpoints.go`'s `validatePackagingConfig` -- matches exactly,
+  including the "required only if the parent block is present" nesting
+  (confirms the 2026-08-10 entry's claims independently, not just trusting
+  the prior stamp).
+
+**No bugs found.** Direction verified: both request (HTTP bindings, filter
+params, tag-field presence) and response (enum values, list ordering).
+Gates: `go build`, `go vet` (repo-wide), `go test -race -count=1`,
+`golangci-lint run --fix` all clean on `services/mediapackage/...`; no file
+in this service was modified this pass.
+
+**Not covered this pass**: a fresh full member-by-member diff of
+`Channel`/`OriginEndpoint`/`HarvestJob` (already done exhaustively
+2026-08-20, unchanged since); the opaque `HlsPackage`/`DashPackage`/
+`CmafPackage` passthrough (unchanged, already disclosed in `deferred`).

@@ -37,13 +37,18 @@ func (h *Handler) listIterations(input map[string]any) (map[string]any, error) {
 	return out, nil
 }
 
+// iterationMap renders a FlywheelIteration as its real wire-shape object.
+// The status field's wire key is "Status", not "FlywheelIterationStatus" --
+// confirmed against awsAwsjson11_deserializeDocumentFlywheelIterationProperties
+// (aws-sdk-go-v2/service/comprehend@v1.43.4 deserializers.go:16022), whose
+// switch has no "FlywheelIterationStatus" case at all.
 func iterationMap(iteration *FlywheelIteration) map[string]any {
 	return map[string]any{
-		fieldFlywheelARN:          iteration.FlywheelArn,
-		"FlywheelIterationId":     iteration.FlywheelIterationID,
-		"FlywheelIterationStatus": iteration.FlywheelIterationStatus,
-		"CreationTime":            awstime.Epoch(iteration.CreationTime),
-		"EndTime":                 awstime.Epoch(iteration.EndTime),
-		"Message":                 iteration.Message,
+		fieldFlywheelARN:      iteration.FlywheelArn,
+		"FlywheelIterationId": iteration.FlywheelIterationID,
+		"Status":              iteration.FlywheelIterationStatus,
+		"CreationTime":        awstime.Epoch(iteration.CreationTime),
+		"EndTime":             awstime.Epoch(iteration.EndTime),
+		"Message":             iteration.Message,
 	}
 }
