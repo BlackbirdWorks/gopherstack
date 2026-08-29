@@ -81,10 +81,17 @@ func (h *Handler) listGraphqlAPIs(ctx context.Context, c *echo.Context) error {
 	apiType := q.Get("apiType")
 	nextToken := q.Get("nextToken")
 	maxResults, _ := strconv.Atoi(q.Get("maxResults"))
+	owner := q.Get("owner")
 
 	apis, err := h.Backend.ListGraphqlAPIs(apiType)
 	if err != nil {
 		return h.handleError(ctx, c, "ListGraphqlApis", err)
+	}
+
+	// gopherstack simulates a single AWS account, so every API is
+	// CURRENT_ACCOUNT; OTHER_ACCOUNTS never matches anything.
+	if owner == "OTHER_ACCOUNTS" {
+		apis = nil
 	}
 
 	page, tok := appsyncPaginate(apis, nextToken, maxResults)

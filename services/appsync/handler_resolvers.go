@@ -134,5 +134,15 @@ func (h *Handler) listResolversByFunction(ctx context.Context, c *echo.Context, 
 		return h.handleError(ctx, c, "ListResolversByFunction", err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"resolvers": resolvers})
+	q := c.Request().URL.Query()
+	nextToken := q.Get("nextToken")
+	maxResults, _ := strconv.Atoi(q.Get("maxResults"))
+
+	page, tok := appsyncPaginate(resolvers, nextToken, maxResults)
+	out := map[string]any{"resolvers": page}
+	if tok != "" {
+		out["nextToken"] = tok
+	}
+
+	return c.JSON(http.StatusOK, out)
 }

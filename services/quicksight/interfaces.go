@@ -15,7 +15,12 @@ type StorageBackend interface {
 	UpdateGroup(accountID, namespace, groupName, description string) (*Group, error)
 	DeleteGroup(accountID, namespace, groupName string) error
 	ListGroups(accountID, namespace string, maxResults int32, nextToken string) ([]*Group, string, error)
-	SearchGroups(accountID, namespace, query string, maxResults int32, nextToken string) ([]*Group, string, error)
+	SearchGroups(
+		accountID, namespace string,
+		filters []SearchFilter,
+		maxResults int32,
+		nextToken string,
+	) ([]*Group, string, error)
 
 	// Group Memberships
 	CreateGroupMembership(accountID, namespace, groupName, memberName string) (*GroupMember, error)

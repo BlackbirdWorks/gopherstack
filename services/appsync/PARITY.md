@@ -12,7 +12,7 @@ ops:
   CreateGraphqlApi: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-08-15: added real \"owner\" member (account owner), previously unmodeled despite the account ID already being on hand"}
   GetGraphqlApi: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-08-15: fixed EnvironmentVariables leaking into the GraphqlApi wire object (json:\"-\" now; real type has no such member at all -- env vars belong only to the dedicated Get/PutGraphqlApiEnvironmentVariables ops); added \"owner\""}
   UpdateGraphqlApi: {wire: ok, errors: ok, state: ok, persist: ok, note: "was unreachable — handler only accepted PATCH/PUT (405 on real SDK's POST); fixed, PATCH/PUT kept as alias. 2026-08-15: same EnvironmentVariables-leak fix as GetGraphqlApi"}
-  ListGraphqlApis: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-08-15: same EnvironmentVariables-leak fix as GetGraphqlApi"}
+  ListGraphqlApis: {wire: ok, errors: ok, state: ok, persist: ok, filter: fixed, note: "2026-08-15: same EnvironmentVariables-leak fix as GetGraphqlApi. This pass (2026-08-29): owner query param (CURRENT_ACCOUNT/OTHER_ACCOUNTS) was never read at all; fixed -- OTHER_ACCOUNTS now returns empty, matching this backend's single-simulated-account model."}
   DeleteGraphqlApi: {wire: ok, errors: ok, state: ok, persist: ok}
   StartSchemaCreation: {wire: ok, errors: ok, state: ok, persist: ok}
   GetSchemaCreationStatus: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -27,7 +27,7 @@ ops:
   UpdateResolver: {wire: ok, errors: ok, state: ok, persist: ok, note: "was unreachable (PUT/PATCH-only); fixed, PUT/PATCH kept as alias. 2026-08-15: metricsConfig now round-trips (see CreateResolver note)"}
   ListResolvers: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteResolver: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListResolversByFunction: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListResolversByFunction: {wire: ok, errors: ok, state: ok, persist: ok, note: "This pass (2026-08-29): maxResults/nextToken query params were never read -- every resolver for the function always came back on one page. Fixed via appsyncPaginate, matching every sibling List handler."}
   # ExecuteGraphQL is intentionally NOT listed as an advertised SDK op here.
   # 2026-07-31 CORRECTION: the row that used to live at this position ("wire:
   # ok, ...") was inaccurate -- ExecuteGraphQL is not a real AWS AppSync SDK
@@ -51,7 +51,7 @@ ops:
   DisassociateMergedGraphqlApi: {wire: ok, errors: ok, state: ok, persist: ok}
   DisassociateSourceGraphqlApi: {wire: ok, errors: ok, state: ok, persist: ok}
   GetSourceApiAssociation: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-08-15: SourceApiAssociation.AssociationStatus was wired to the wrong key, \"associationStatus\" -- a sibling-trap copy from the genuinely-different ApiAssociation type (domain-name associations), which really does use that plain key. Real key is \"sourceApiAssociationStatus\" (deserializers.go:16488); a real client's typed field was always empty. Fixed; also added the real (never-populated, since merges here always succeed) sourceApiAssociationStatusDetail member"}
-  ListSourceApiAssociations: {wire: ok, errors: ok, state: ok, persist: ok, note: "two bugs fixed: (1) real SDK also lists via GET /v1/apis/{apiId}/sourceApiAssociations (apiId-keyed, distinct from the mergedApis-prefixed path) — added; (2) response was wrapped as \"sourceApiAssociations\" instead of the real \"sourceApiAssociationSummaries\" — a real client always got an empty list back. Summary narrowing fixed: now maps to narrow SourceAPIAssociationSummary matching real types.SourceApiAssociationSummary (omits sourceApiAssociationStatus/Detail and config)"}
+  ListSourceApiAssociations: {wire: ok, errors: ok, state: ok, persist: ok, note: "two bugs fixed: (1) real SDK also lists via GET /v1/apis/{apiId}/sourceApiAssociations (apiId-keyed, distinct from the mergedApis-prefixed path) — added; (2) response was wrapped as \"sourceApiAssociations\" instead of the real \"sourceApiAssociationSummaries\" — a real client always got an empty list back. Summary narrowing fixed: now maps to narrow SourceAPIAssociationSummary matching real types.SourceApiAssociationSummary (omits sourceApiAssociationStatus/Detail and config). This pass (2026-08-29): maxResults/nextToken were never read either -- every association always came back on one page. Fixed via appsyncPaginate."}
   UpdateSourceApiAssociation: {wire: ok, errors: ok, state: ok, persist: ok, note: "was unreachable (PUT/PATCH-only); fixed, PUT/PATCH kept as alias. 2026-08-15: same status-key fix as GetSourceApiAssociation"}
   CreateApi: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-08-15: added EventConfig.LogConfig (real member, previously discarded entirely on both create and update -- new EventLogConfig type, distinct 2-field shape from GraphqlApi's LogConfig)"}
   GetApi: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-08-15: EventConfig.LogConfig now round-trips, see CreateApi note"}
@@ -96,7 +96,7 @@ ops:
   EvaluateCode: {wire: ok, errors: ok, state: ok, persist: n/a, note: "real path is POST /v1/dataplane-evaluatecode (standalone), not /v1/dataplane-evaluations/code — was unreachable; fixed, old path kept as alias"}
   EvaluateMappingTemplate: {wire: ok, errors: ok, state: ok, persist: n/a, note: "real path is POST /v1/dataplane-evaluatetemplate (standalone), not /v1/dataplane-evaluations/template — was unreachable; fixed, old path kept as alias"}
   GetDataSourceIntrospection: {wire: ok, errors: ok, state: ok, persist: ok, note: "real path added (GET /v1/datasources/introspections/{introspectionId}, distinct from the /v1/dataSource-introspections legacy alias); response body rebuilt to the real flat shape (introspectionId/introspectionResult/introspectionStatus/introspectionStatusDetail at the top level, introspectionResult itself {models,nextToken}) instead of the old {introspectionResult: {introspectionId, status, models}} nesting; unknown IDs now correctly 404 (previously always synthesized a fake SUCCESS for ANY id, even ones never started)"}
-  ListTypesByAssociation: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListTypesByAssociation: {wire: ok, errors: ok, state: ok, persist: ok, note: "This pass (2026-08-29): maxResults/nextToken query params were never read -- every type on the merged API always came back on one page. Fixed via appsyncPaginate."}
   StartDataSourceIntrospection: {wire: ok, errors: ok, state: ok, persist: ok, note: "real path added (POST /v1/datasources/introspections); input contract corrected from the invented {apiId, dataSourceName} (not part of the real StartDataSourceIntrospectionInput, which is NOT scoped to any AppSync API/DataSource at all) to the real optional rdsDataApiConfig{databaseName,resourceArn,secretArn}; now persists a real DataSourceIntrospection record (new 'introspections' store.Table) keyed by introspectionId instead of returning an unpersisted random ID with nothing behind it. gopherstack has no real RDS Data API connectivity, so every well-formed request completes synchronously with SUCCESS and an empty models list -- wire shape, error codes and persisted/retrievable state are all real; the *contents* of a genuine introspection (actual RDS table/column data) are out of scope, same category as ExecuteGraphQL's VTL/JS engine scope limit below"}
   StartSchemaMerge: {wire: ok, errors: ok, state: ok, persist: ok, note: "moved from the invented POST /v1/apis/{apiId}/schemaMerge (apiId-only, response {sourceApiSchemaMetadata:[], status}) to the real POST /v1/mergedApis/{mergedApiIdentifier}/sourceApiAssociations/{associationId}/merge, keyed by BOTH mergedApiIdentifier and associationId with response {sourceApiAssociationStatus}; backend signature changed from StartSchemaMerge(apiID) to StartSchemaMerge(mergedAPIID, associationID), now validates and mutates the real SourceAPIAssociation.AssociationStatus (MERGE_SUCCESS) instead of returning a hardcoded SchemaStatus disconnected from any association. The old invented endpoint was deleted outright rather than aliased: an apiId-only request has no way to recover the associationId the real operation requires, so a path-only alias would still be wrong on the request/response shape"}
 families:
@@ -323,3 +323,38 @@ restored and `md5sum`-verified byte-identical.
 
 **Gates:** `go build`, `go vet` (default/e2e/integration), `gofmt -l` (clean), `go test -race`
 (pass), `golangci-lint run` (0 issues).
+
+## Filter/pagination-not-honoured sweep (2026-08-29)
+
+This service had not been swept for this class before. Measured all 11
+List ops (verified by output shape, not name -- `EvaluateCode`/
+`EvaluateMappingTemplate`/`GetIntrospectionSchema` were excluded despite
+having slice-shaped output fields, since none return a paginated
+collection resource). Constraining parameters beyond NextToken: MaxResults
+on all 11; `ApiType`/`Owner` on `ListGraphqlApis`; `Format` on
+`ListTypes`/`ListTypesByAssociation`; `TypeName` on `ListResolvers`
+(path-bound, not a filter). `ApiId`/`FunctionId`/`AssociationId`/
+`MergedApiIdentifier` on the rest are path-bound scoping identifiers, not
+filters.
+
+Found and fixed 4 bugs (all confirmed against a real
+`aws-sdk-go-v2/service/appsync` client, `list_filter_params_test.go`):
+- `ListGraphqlApis`: `owner` (`CURRENT_ACCOUNT`/`OTHER_ACCOUNTS`) was never
+  read at all -- `apiType` was, but `owner` wasn't even looked up.
+  gopherstack simulates one AWS account, so `OTHER_ACCOUNTS` now returns
+  empty.
+- `ListResolversByFunction`: `maxResults`/`nextToken` weren't read by the
+  handler at all -- it called the backend and returned every matching
+  resolver on one page, unlike every sibling List handler which routes
+  through the shared `appsyncPaginate` helper.
+- `ListSourceApiAssociations`: same bug -- `maxResults`/`nextToken`
+  ignored, every association on one page.
+- `ListTypesByAssociation`: same bug -- `maxResults`/`nextToken` ignored
+  (though `format`, this op's other real parameter, was already read and
+  applied correctly).
+
+`ApiType` (`ListGraphqlApis`) and `Format` (`ListTypes`,
+`ListTypesByAssociation`) were already read and applied correctly before
+this pass -- no change. No parameter was left unfixed for a structural-gap
+or SDK-ambiguity reason in this service: every declared constraining
+parameter is now honored.

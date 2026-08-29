@@ -172,5 +172,15 @@ func (h *Handler) listTypesByAssociation(
 		return h.handleError(ctx, c, "ListTypesByAssociation", err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{pathSegTypes: types})
+	q := c.Request().URL.Query()
+	nextToken := q.Get("nextToken")
+	maxResults, _ := strconv.Atoi(q.Get("maxResults"))
+
+	page, tok := appsyncPaginate(types, nextToken, maxResults)
+	out := map[string]any{pathSegTypes: page}
+	if tok != "" {
+		out["nextToken"] = tok
+	}
+
+	return c.JSON(http.StatusOK, out)
 }

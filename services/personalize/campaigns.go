@@ -2,6 +2,7 @@ package personalize
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
@@ -124,7 +125,10 @@ func (b *InMemoryBackend) ListCampaigns(solutionArn string, maxResults int, next
 	all := b.campaigns.Snapshot()
 	filtered := make([]*Campaign, 0, len(all))
 	for _, c := range all {
-		if solutionArn == "" || c.SolutionVersionArn == solutionArn {
+		// SolutionVersionArn is SolutionArn + "/" + versionID (solutions.go:208),
+		// so matching on the campaign's underlying solution requires a prefix
+		// check, not equality against the bare SolutionArn a client sends.
+		if solutionArn == "" || strings.HasPrefix(c.SolutionVersionArn, solutionArn+"/") {
 			filtered = append(filtered, c)
 		}
 	}

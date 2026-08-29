@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strconv"
 
 	"github.com/labstack/echo/v5"
 
@@ -203,10 +204,21 @@ func (h *Handler) listSourceAPIAssociations(ctx context.Context, c *echo.Context
 		summaries = append(summaries, toSourceAPIAssociationSummary(a))
 	}
 
+	q := c.Request().URL.Query()
+	nextToken := q.Get("nextToken")
+	maxResults, _ := strconv.Atoi(q.Get("maxResults"))
+
+	page, tok := appsyncPaginate(summaries, nextToken, maxResults)
+
 	// The real AWS SDK's ListSourceApiAssociationsOutput wraps the list under
 	// "sourceApiAssociationSummaries" — NOT "sourceApiAssociations" (that name is only
 	// the URL path segment). A client would otherwise always see an empty list back.
-	return c.JSON(http.StatusOK, map[string]any{"sourceApiAssociationSummaries": summaries})
+	out := map[string]any{"sourceApiAssociationSummaries": page}
+	if tok != "" {
+		out["nextToken"] = tok
+	}
+
+	return c.JSON(http.StatusOK, out)
 }
 
 // updateSourceAPIAssociation handles PUT /v1/mergedApis/{mergedApiId}/sourceApiAssociations/{assocId}.

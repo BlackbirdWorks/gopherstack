@@ -49,7 +49,7 @@ ops:
   DescribeCampaign: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateCampaign: {wire: fixed, errors: ok, state: fixed, persist: ok, note: 'added FK validation on solutionVersionArn (when supplied), campaignConfig support, and latestCampaignUpdate (types.CampaignUpdateSummary-shaped) population on every successful call -- previously the real UpdateCampaignInput.campaignConfig member was silently dropped and no update history was tracked'}
   DeleteCampaign: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListCampaigns: {wire: fixed, errors: ok, state: ok, persist: ok, note: 'gopherstack-sm02: now emits types.CampaignSummary via campaignSummaryToMap -- dropped solutionVersionArn/minProvisionedTPS/campaignConfig/latestCampaignUpdate (4 leaked members). failureReason is a real CampaignSummary member but the backend Campaign model has no source for it (campaigns never fail asynchronously here), so it stays absent rather than fabricated'}
+  ListCampaigns: {wire: fixed, errors: ok, state: ok, persist: ok, filter: fixed, note: 'gopherstack-sm02: now emits types.CampaignSummary via campaignSummaryToMap -- dropped solutionVersionArn/minProvisionedTPS/campaignConfig/latestCampaignUpdate (4 leaked members). failureReason is a real CampaignSummary member but the backend Campaign model has no source for it (campaigns never fail asynchronously here), so it stays absent rather than fabricated. Filter-not-honoured sweep (2026-08-29): the SolutionArn filter compared it for exact equality against Campaign.SolutionVersionArn, which is always SolutionArn + "/" + versionID (solutions.go:208) -- that equality is never true, so the filter silently excluded every campaign instead of narrowing to one solution''s. Fixed to a prefix match.'}
   CreateEventTracker: {wire: fixed, errors: ok, state: fixed, persist: ok, note: added FK validation on datasetGroupArn}
   DescribeEventTracker: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteEventTracker: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -334,3 +334,43 @@ name refers to offline/bulk inference mode, not a multi-item request.
 
 No test changes; no source changes. Recorded as genuinely clean for this bug
 class.
+
+## Filter/pagination-not-honoured sweep (2026-08-29)
+
+Measured all 17 List ops (List* only -- no Get/Describe op returns a
+collection in this service). Every op's constraining parameters beyond
+NextToken are: one scoping-ARN filter (SolutionVersionArn/SolutionArn/
+DatasetGroupArn/DatasetArn/MetricAttributionArn on 12 ops) and MaxResults;
+`ListRecipes` additionally declares `Domain`/`RecipeProvider`.
+
+Found and fixed one bug: `ListCampaigns`' `SolutionArn` filter (see the
+`ListCampaigns` `ops:` entry above) -- compared `Campaign.SolutionVersionArn`
+for exact equality against the bare `SolutionArn` a real client sends, which
+is never true since `SolutionVersionArn` always has `/<versionID>`
+appended. The filter silently excluded every campaign rather than
+narrowing to one solution's. New test `TestListCampaigns_SolutionArnFilter`
+(`list_filter_params_test.go`) drives the real SDK client through the full
+DatasetGroup -> two Solutions -> two SolutionVersions -> two Campaigns
+chain and fails against the pre-fix comparison.
+
+The 11 other scoping-ARN filters (`ListBatchInferenceJobs`/
+`ListBatchSegmentJobs`.`SolutionVersionArn`, `ListDataDeletionJobs`/
+`ListDatasetExportJobs`/`ListDatasetImportJobs`/`ListDatasets`/
+`ListEventTrackers`/`ListFilters`/`ListRecommenders`/`ListSolutions`.
+`DatasetGroupArn`/`DatasetArn`, `ListSolutionVersions`.`SolutionArn`,
+`ListMetricAttributionMetrics`.`MetricAttributionArn`) were checked: each
+compares the filter parameter against a field on the stored resource that
+is the *same* ARN type (e.g. `SolutionVersion.SolutionArn` really does
+store the parent solution's bare ARN, unlike `Campaign.SolutionVersionArn`)
+-- all correct as written, no change needed.
+
+`ListRecipes.Domain`/`.RecipeProvider` are parsed by neither the handler
+nor the backend (`recipes.go`'s built-in catalog has no `domain` field on
+any entry at all -- structural gap for `Domain`). Left unfixed:
+`RecipeProvider`'s only defined enum value in the pinned SDK
+(`aws-sdk-go-v2/service/personalize@v1.50.4/types/enums.go:125-139`) is
+`SERVICE` -- there is no second value the real API documents yet, so a
+`RecipeProvider` filter can never observably narrow this backend's
+all-`SERVICE` catalog. Implementing it would mean inventing behavior for
+an enum value the pinned SDK doesn't define, which the campaign's own
+restraint rule rules out.

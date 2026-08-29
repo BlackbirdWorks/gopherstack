@@ -100,17 +100,22 @@ func (h *Handler) handleUpdateContact(c *echo.Context, contactListName string) (
 
 type listContactsInput struct {
 	NextToken string `json:"NextToken"`
+	PageSize  int32  `json:"PageSize"`
 }
 
 // handleListContacts serves POST .../contacts/list. Real SES v2 carries
 // NextToken/Filter/PageSize in the JSON body (not the query string) since
-// ListContacts is a POST operation.
+// ListContacts is a POST operation. Filter (FilteredStatus/TopicFilter) is
+// not applied: TopicFilter.UseDefaultIfPreferenceUnavailable needs each
+// topic's default subscription status, which ContactList (contact_lists.go)
+// doesn't model, and the AWS doc for FilteredStatus alone (without a
+// TopicFilter) doesn't say what it filters against.
 func (h *Handler) handleListContacts(c *echo.Context, contactListName string) (any, error) {
 	var in listContactsInput
 
 	_ = json.NewDecoder(c.Request().Body).Decode(&in)
 
-	pg, err := h.Backend.ListContacts(contactListName, in.NextToken, 0)
+	pg, err := h.Backend.ListContacts(contactListName, in.NextToken, int(in.PageSize))
 	if err != nil {
 		return nil, err
 	}

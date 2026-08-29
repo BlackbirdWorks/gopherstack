@@ -156,7 +156,7 @@ ops:
   UpdateGroup: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "re-verified this pass: group.go's DeleteGroup already deletes every groupMembers row under that group's key prefix (was already fixed by the time of this audit, despite the stale gap note from the prior pass) -- locked with TestQuickSight_GroupMemberships/DeleteGroup_also_removes_its_memberships"}
   ListGroups: {wire: ok, errors: ok, state: ok, persist: ok}
-  SearchGroups: {wire: ok, errors: ok, state: ok, persist: ok}
+  SearchGroups: {wire: ok, errors: ok, state: ok, persist: ok, filter: fixed, note: "This pass (2026-08-29): handleSearchGroups read a \"Query\" body field that SearchGroupsInput doesn't have at all, instead of the real (required) Filters member (GROUP_NAME/StartsWith -- the only Name/Operator the real API defines, per GroupSearchFilter's own doc comment). MaxResults/NextToken were also read from the body, but this op query-binds both (max-results/next-token, confirmed against serializers.go's awsRestjson1_serializeOpHttpBindingsSearchGroupsInput) unlike its SearchTopics/SearchTopicsV2 siblings which really are body-bound -- a same-shaped param binding differently per op, verified per-op rather than assumed. Fixed both; now shares folderFiltersFromBody/maxResultsParam/nextTokenParam with every correctly-wired sibling Search op."}
   CreateGroupMembership: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeGroupMembership: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteGroupMembership: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -292,6 +292,60 @@ leaks: {status: clean, note: "no goroutines/timers/janitors found in this servic
 ---
 
 ## Notes
+
+### 2026-08-29 (filter/pagination-not-honoured sweep, partial)
+
+This service is large (277 `api_op_*.go` files; ~40 List/Search ops
+return a collection by output shape) and this pass did not audit it
+exhaustively -- see "what remains unworked" below. Time was spent
+verifying the established `Search*` pattern (`folderFiltersFromBody` +
+`maxResultsParam`/`nextTokenParam`, shared by `SearchDashboards`/
+`SearchAnalyses`/`SearchDataSets`/`SearchDataSources`/`SearchFolders`/
+`SearchFlows`/`SearchSpaces`/`SearchKnowledgeBases`/
+`SearchActionConnectors`/`SearchAgents`) and finding the one op that
+didn't follow it.
+
+**Found and fixed:** `SearchGroups` -- see its `ops:` entry above. Two
+bugs: the real (required) `Filters` member was never read (a
+nonexistent `"Query"` body field was read instead, so a real client's
+`GROUP_NAME`/`StartsWith` filter was silently dropped and every group in
+the namespace always came back), and `MaxResults`/`NextToken` were read
+from the JSON body when this op actually query-binds both
+(`max-results`/`next-token`) -- confirmed per-op against
+`serializers.go`, not assumed from the sibling `Search*` ops' pattern,
+since `SearchTopics`/`SearchTopicsV2` genuinely *are* body-bound for
+those same two parameters (also verified against `serializers.go`) --
+a live instance of the "same-named parameter binds differently per
+operation" trap this campaign has repeatedly flagged elsewhere.
+New tests `TestSearchGroups_Filters`/`TestSearchGroups_Pagination`
+(`list_filter_params_test.go`) drive the real SDK client and fail
+against the pre-fix code.
+
+**Checked and already correct, no change:** `SearchDashboards` (`Name`
+filter with `StringEquals`/`StringLike` operators and AND semantics
+across multiple filters, correctly implemented in `matchesNameFilter`/
+`matchesAllNameFilters`, folders.go; ownership-related filter names
+explicitly and correctly treated as pass-through since this backend
+doesn't track principals), `SearchTopics`/`SearchTopicsV2` (Filters/
+MaxResults/NextToken all body-bound and all read from the body
+correctly).
+
+**What remains unworked:** `SearchFlows`, `SearchSpaces`,
+`SearchKnowledgeBases`, `SearchActionConnectors`, `SearchAgents`,
+`SearchAnalyses`, `SearchDataSets`, `SearchDataSources`, `SearchFolders`
+were confirmed to call the shared `folderFiltersFromBody`/
+`maxResultsParam`/`nextTokenParam` pattern (so are unlikely to share
+`SearchGroups`' binding bug) but their filter *semantics* (which
+`Name`/`Operator` combinations each op's own backend method actually
+applies, matching the real per-op filter type such as
+`AnalysisSearchFilter`/`DataSetSearchFilter`) were not verified
+field-by-field this pass. Plain `List*` ops (`ListDataSets`,
+`ListDashboards`, `ListAnalyses`, `ListTemplates`, `ListThemes`,
+`ListNamespaces`, `ListVPCConnections`, and the rest -- these take only
+MaxResults/NextToken in the real API, no filter/sort member) were not
+individually re-verified for pagination correctness this pass beyond
+the general pattern already documented elsewhere in this file. This is
+reported as scope-remaining, not "audited and clean."
 
 ### 2026-08-29 (error-path sweep: what a typed client sees on failure)
 

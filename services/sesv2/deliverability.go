@@ -659,22 +659,58 @@ func (b *InMemoryBackend) GetReputationEntity(entityID string) (reputationEntity
 	return toReputationEntityOutput(&ReputationEntity{EntityRef: entityID}), nil
 }
 
-// ListReputationEntities returns all tracked reputation entities.
+// filterReputationEntities applies the ListReputationEntities filter map.
+// ENTITY_TYPE and REPUTATION_IMPACT are not applied: this backend never
+// populates ReputationEntity.EntityType (nothing assigns it), and there is
+// no reputation-impact field on the model at all.
+func filterReputationEntities(all []reputationEntityOutput, filter map[string]string) []reputationEntityOutput {
+	if len(filter) == 0 {
+		return all
+	}
+
+	out := make([]reputationEntityOutput, 0, len(all))
+
+	for _, e := range all {
+		if v, ok := filter["SENDING_STATUS"]; ok && v != e.SendingStatusAggregate {
+			continue
+		}
+
+		if v, ok := filter["ENTITY_REFERENCE_PREFIX"]; ok && !strings.HasPrefix(e.ReputationEntityReference, v) {
+			continue
+		}
+
+		out = append(out, e)
+	}
+
+	return out
+}
+
+// ListReputationEntities returns tracked reputation entities, optionally
+// filtered and paginated.
 func (b *InMemoryBackend) ListReputationEntities(
-	_ string,
-	_ int,
+	filter map[string]string,
+	nextToken string,
+	pageSize int,
 ) ([]reputationEntityOutput, string, error) {
 	b.mu.RLock("ListReputationEntities")
 	defer b.mu.RUnlock()
 
 	snap := b.reputationEntities.Snapshot()
 
-	out := make([]reputationEntityOutput, 0, len(snap))
+	all := make([]reputationEntityOutput, 0, len(snap))
 	for _, e := range snap {
-		out = append(out, toReputationEntityOutput(e))
+		all = append(all, toReputationEntityOutput(e))
 	}
 
-	return out, "", nil
+	sort.Slice(all, func(i, j int) bool {
+		return all[i].ReputationEntityReference < all[j].ReputationEntityReference
+	})
+
+	all = filterReputationEntities(all, filter)
+
+	pg := page.New(all, nextToken, pageSize, sesv2DefaultMaxItems)
+
+	return pg.Data, pg.Next, nil
 }
 
 // UpdateReputationEntityCustomerManagedStatus stores the customer-managed status.

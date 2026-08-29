@@ -96,8 +96,12 @@ func (b *InMemoryBackend) GetExportJob(jobID string) (*ExportJob, error) {
 	return &cp, nil
 }
 
-// ListExportJobs returns all export jobs.
-func (b *InMemoryBackend) ListExportJobs(nextToken string, pageSize int) page.Page[*ExportJob] {
+// ListExportJobs returns export jobs, optionally filtered by source type
+// and/or status.
+func (b *InMemoryBackend) ListExportJobs(
+	exportSourceType, jobStatus, nextToken string,
+	pageSize int,
+) page.Page[*ExportJob] {
 	b.mu.RLock("ListExportJobs")
 	defer b.mu.RUnlock()
 
@@ -105,6 +109,14 @@ func (b *InMemoryBackend) ListExportJobs(nextToken string, pageSize int) page.Pa
 
 	items := make([]*ExportJob, 0, len(snap))
 	for _, j := range snap {
+		if exportSourceType != "" && j.ExportSourceType != exportSourceType {
+			continue
+		}
+
+		if jobStatus != "" && j.JobStatus != jobStatus {
+			continue
+		}
+
 		cp := *j
 		items = append(items, &cp)
 	}
