@@ -125,7 +125,10 @@ func (h *Handler) handleDescribePrefixLists(vals url.Values, reqID string) (any,
 }
 
 func (h *Handler) handleDescribeIDFormat(vals url.Values, reqID string) (any, error) {
-	resources := parseMemberList(vals, "Resource")
+	var resources []string
+	if r := vals.Get("Resource"); r != "" {
+		resources = []string{r}
+	}
 	items := h.Backend.DescribeIDFormat(resources)
 
 	resp := &describeIDFormatResponse{RequestID: reqID}
@@ -155,7 +158,10 @@ func (h *Handler) handleModifyIDFormat(vals url.Values, reqID string) (any, erro
 
 func (h *Handler) handleDescribeIdentityIDFormat(vals url.Values, reqID string) (any, error) {
 	principalARN := vals.Get("PrincipalArn")
-	resources := parseMemberList(vals, "Resource")
+	var resources []string
+	if r := vals.Get("Resource"); r != "" {
+		resources = []string{r}
+	}
 	items := h.Backend.DescribeIdentityIDFormat(principalARN, resources)
 
 	resp := &describeIDFormatResponse{RequestID: reqID}

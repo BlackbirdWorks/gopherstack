@@ -2426,3 +2426,213 @@ signature changed so repo-wide vet not required), `go test -race -count=1
 ./services/ec2/...` (`ok`, full suite including the new test),
 `golangci-lint run ./services/ec2/...` (`0 issues`, run last, no `--fix`
 used). No banned `//nolint`s.
+
+**2026-08-29 pass -- exhaustive `parseMemberList` call-site enumeration
+(243-of-243, all handler files)**: unlike every prior tranche above (each a
+themed sample), this pass enumerated literally every `parseMemberList(` call
+site in `services/ec2/handler_*.go` -- 243 non-test call sites (`grep -rn
+"parseMemberList(" services/ec2/handler_*.go | grep -v _test.go` minus the
+2 lines that are the helper's own definition/doc-comment in `handler.go`;
+248 total substring matches). Automated the per-site check: for each call
+site's enclosing operation, resolved the pinned
+`aws-sdk-go-v2/service/ec2@v1.319.1/serializers.go`
+`awsEc2query_serializeOpDocument<Op>Input` function, matched the exact
+quoted wire-key literal the handler reads, and classified the matched
+serializer line as `FlatKey(`/`Array(` (list, correct) vs `.Key(` followed
+by a scalar builder (`.String`/`.Boolean`/`.Integer`/`.Long`/`.Double`,
+wrong) vs `.Key(` opening a nested struct (needs the struct's own field
+checked, not assumed). 2 `handleGet*`-prefixed call sites
+(`GetHostReservationPurchasePreview`, `GetSpotPlacementScores`) skipped per
+this file's own prior finding that 58-of-64 `Get*` ops are clean. Of the
+remaining 241, 225 matched a real wire key on the first pass and classified
+cleanly; 16 needed manual resolution (dynamic-prefix keys the literal-match
+missed, casing differences between the Go handler name and the real SDK op
+file name -- `DescribeIDFormat`/`DescribeIdFormat`,
+`DescribeInstanceSQLHa*`/`DescribeInstanceSqlHa*`,
+`AssignPrivateIPAddresses`/`AssignPrivateIpAddresses`, etc. -- and a few keys
+that don't exist on the real wire at all). Every one of the 16 was read by
+hand against its op's own `api_op_<Op>.go` and serializer. Also ran a bounded
+inverse sweep (list-typed field read as scalar via `vals.Get`): extracted
+all 476 `vals.Get("...")` literal keys across the same handler files,
+narrowed to the 232 with a plural-suggestive leaf name, cross-referenced the
+176 belonging to `handle*` operations against their serializers the same
+way -- zero hits where the matched line was `FlatKey`/`Array`; the 10
+non-matches were all casing-mismatch op-name misses, manually confirmed as
+genuinely scalar fields (`Egress`/`CidrBlock`/`UseLongIds`/`HostnameType`/
+`MacSystemIntegrityProtectionStatus`, all `*bool`/`*string`/enum on the real
+input struct).
+
+**5 real bugs found and fixed.** 2 are class 2 (wrong cardinality, this
+pass's namesake bug); 3 are a related but distinct class -- a wrong wire-key
+*name* (not shape) causing the same silent-parameter-loss failure mode,
+found only by reading each operation's own serializer as instructed, kept
+separate here rather than folded into the cardinality count:
+
+- `DescribeIdFormat`/`DescribeIdentityIdFormat` (`handler_account_attrs.go`,
+  `handleDescribeIDFormat`/`handleDescribeIdentityIDFormat`) -- class 2.
+  `Resource` is a scalar `*string` on both inputs, serialized as the bare
+  key `Resource` (`object.Key("Resource")` + `.String(...)`,
+  serializers.go:77885 and :77873 respectively;
+  `api_op_DescribeIdFormat.go:57`, `api_op_DescribeIdentityIdFormat.go:62`).
+  Both handlers read it via `parseMemberList(vals, "Resource")`, hunting for
+  `Resource.1` -- a key a real client's single-resource-type lookup never
+  sends. The sibling `handleModifyIDFormat`/`handleModifyIdentityIDFormat`
+  in the same file already read `vals.Get("Resource")` correctly, proving
+  the handler's own author knew the right shape for the twin write op.
+  Fixed: read `vals.Get("Resource")` as a scalar, wrapped into a 1-element
+  slice only when non-empty (matching the existing `[]string`-taking
+  `Backend.DescribeIDFormat`/`DescribeIdentityIDFormat` -- no
+  `Backend`/exported signature changed).
+- `ModifyClientVpnEndpoint` (`handler_client_vpn.go`,
+  `handleModifyClientVpnEndpoint`) -- wrong key, not cardinality.
+  `CreateClientVpnEndpointInput.DnsServers` is a flat `[]string`
+  (`FlatKey("DnsServers")`, serializers.go:69675) -- reading it via
+  `parseMemberList(vals, "DnsServers")` in `handleCreateClientVpnEndpoint`
+  is correct. But `ModifyClientVpnEndpointInput.DnsServers` is a DIFFERENT
+  shape: `*types.DnsServersOptionsModifyStructure`, a nested object whose
+  own `CustomDnsServers []string` field is the actual list
+  (`object.Key("DnsServers")` wrapping a nested serializer,
+  serializers.go:87142-87146; `DnsServersOptionsModifyStructure.CustomDnsServers`,
+  `types/types.go:5062`). The real wire key is
+  `DnsServers.CustomDnsServers.N`, not `DnsServers.N` -- same field name,
+  different shape between Create and Modify, exactly the sibling-shape trap
+  this file warns about elsewhere. `handleModifyClientVpnEndpoint` copied
+  Create's key verbatim, so Modify never picked up new DNS servers from a
+  real client. Fixed: read `parseMemberList(vals,
+  "DnsServers.CustomDnsServers")`.
+- `ModifyTransitGatewayMeteringPolicy` (`handler_tgw_peripherals.go`) --
+  wrong key, not cardinality. `AddMiddleboxAttachmentIds`/
+  `RemoveMiddleboxAttachmentIds` are the Go field names, but each serializes
+  under the SINGULAR wire key `AddMiddleboxAttachmentId`/
+  `RemoveMiddleboxAttachmentId` (`FlatKey("AddMiddleboxAttachmentId")`/
+  `FlatKey("RemoveMiddleboxAttachmentId")`, serializers.go:89068,89080).
+  The handler read the plural Go field name as the literal wire key, which a
+  real client never sends (the sibling `handleCreateTransitGatewayMeteringPolicy`
+  in `handler_tgw_multicast.go:684` already reads the correctly-singular
+  `MiddleboxAttachmentId` for the analogous create-time field). Adds/removes
+  were always silently dropped. An existing test,
+  `TestTGWPeripheralsHandler_ModifyMeteringPolicyAndGetEntries`
+  (`handler_tgw_peripherals_test.go`), asserted this wrong behaviour as
+  correct by constructing its raw form POST with the same wrong plural key
+  (`AddMiddleboxAttachmentIds.1=tgw-attach-1`) the handler happened to also
+  be looking for -- fixed alongside the handler to use the real singular
+  key. Fixed handler: `parseMemberList(vals, "AddMiddleboxAttachmentId")` /
+  `"RemoveMiddleboxAttachmentId"`.
+- `ModifyVpcEndpointConnectionNotification` (`handler_vpc_endpoints.go`) --
+  wrong key, not cardinality. `ConnectionEvents` serializes as the flat wire
+  key `ConnectionEvents` (`FlatKey("ConnectionEvents")`,
+  serializers.go:89688-89693), not `ConnectionEvents.member`. The sibling
+  `handleCreateVpcEndpointConnectionNotification` tries
+  `"ConnectionEvents.member"` first (also wrong -- dead code, left as-is,
+  harmless) but falls back to the correct bare `"ConnectionEvents"`; Modify
+  only ever tried the wrong key, with no fallback, so a real client's
+  updated event list was always dropped on Modify. Fixed: read
+  `parseMemberList(vals, "ConnectionEvents")`.
+
+Confirmed correct (sample of the 16 manually-resolved sites, beyond the 225
+auto-classified as `FlatKey`/`Array`): `AssociateInstanceEventWindow`/
+`DisassociateInstanceEventWindow` read `AssociationTarget.InstanceId`/
+`AssociationTarget.DedicatedHostId` -- both are genuinely `FlatKey`'d
+**singular** wire names nested one level under the `AssociationTarget`
+object despite **plural** Go field names (`InstanceIds`/`DedicatedHostIds`
+on `types.InstanceEventWindowAssociationRequest`,
+serializers.go:58786-58798) -- another instance of this file's documented
+singular-wire/plural-Go trap, verified independently rather than assumed.
+`ReplaceImageCriteriaInAllowedImagesSettings`'s `parseImageCriteria` helper
+reads `ImageCriterion.N.ImageName`/`.ImageProvider`/`.MarketplaceProductCode`
+as nested indexed lists inside each `ImageCriterion.N` -- correct, all three
+are `FlatKey`'d list fields on `types.ImageCriterionRequest`
+(serializers.go:58269-58291) nested under the outer `FlatKey("ImageCriterion")`
+list (serializers.go:91007). `CreateTransitGateway`'s
+`parseTransitGatewayRequestOptions` helper reads
+`Options.TransitGatewayCidrBlocks` as a nested indexed list -- correct,
+`TransitGatewayCidrBlocks` is `FlatKey`'d under the `Options` object
+(serializers.go:66268). `DescribeTags`'s dynamic `Filter.%d.Value` read is
+the standard repo-wide `Filter.N.Value.M` list pattern, confirmed correct.
+
+Missing-feature / structural gaps found along the way (real key or read
+path doesn't exist, distinct from the wrong-key-name bugs above -- kept
+separate, not fixed as part of this class, not fabricated):
+
+- `DescribeNetworkInterfacePermissions` (`handler_network_interfaces.go`)
+  reads `parseMemberList(vals, "NetworkInterfaceId")` -- but that key does
+  not exist anywhere on the real wire.
+  `DescribeNetworkInterfacePermissionsInput` only has `Filters`,
+  `NetworkInterfacePermissionIds` (`FlatKey("NetworkInterfacePermissionId")`,
+  serializers.go:79924-79929), `MaxResults`, `NextToken`. A real client can
+  never populate `NetworkInterfaceId`, so this read is always empty --
+  functionally harmless today only because empty means "no filter", which
+  happens to match returning everything, but the real
+  `NetworkInterfacePermissionId` list filter and the `Filters`-based
+  `network-interface-permission.network-interface-id` filter are both never
+  wired. Not fixed (missing feature, not a misdirected read of a real key).
+- `DescribeSecurityGroupVpcAssociations` (`handler_security_groups.go`)
+  reads `parseMemberList(vals, "GroupId")` -- same shape of gap.
+  `DescribeSecurityGroupVpcAssociationsInput` has no top-level `GroupId`
+  parameter at all, only `Filters` (with a `group-id` filter name),
+  `DryRun`, `MaxResults`, `NextToken` (serializers.go:80835-80855). A real
+  client's `--filters Name=group-id,Values=...` is silently ignored. Not
+  fixed (missing feature -- the real mechanism is `Filters`, not a bare
+  key).
+- `CreateSnapshots` (`handler_snapshots.go`, `handleCreateSnapshots`) --
+  structural, more severe than the two above. The real
+  `CreateSnapshotsInput` has no `VolumeId` parameter at all; it requires
+  `InstanceSpecification` (`InstanceSpecification.InstanceId` is the
+  required field that selects which instance's volumes to snapshot,
+  `object.Key("InstanceSpecification")`, serializers.go:72359-72364). The
+  handler reads `parseMemberList(vals, "VolumeId")` (a key that doesn't
+  exist on the wire) and, when that's empty, falls back to
+  `vals.Get("InstanceSpecification.ExcludeBootVolume")` -- a boolean flag --
+  treated as if it were a volume ID string. `InstanceSpecification.InstanceId`,
+  the actual required field, is never read at all. A real
+  `client.CreateSnapshots(InstanceSpecification: {InstanceId: "i-..."})`
+  call hits this handler's own `"at least one VolumeId is required"` error
+  today. The existing top-of-function comment ("InstanceSpecification.InstanceId
+  is the primary instance; volumes derived from it") describes the intended
+  behavior but not what the code does -- a comment as bug-cause, not
+  description, per this file's own standing warning. Not fixed: correctly
+  implementing this needs the backend to derive an instance's attached
+  volume IDs (a real feature addition, not a wire-key correction), out of
+  scope for this class-scoped pass; flagged here for a follow-up.
+
+Existing tests found wrong (asserted the bug as correct behaviour):
+`TestTGWPeripheralsHandler_ModifyMeteringPolicyAndGetEntries`
+(`handler_tgw_peripherals_test.go`) -- see the `ModifyTransitGatewayMeteringPolicy`
+bug above; fixed alongside the handler. No other existing test in
+`services/ec2/*_test.go` references any of the other 4 fixed keys (`Resource`
+for Id-format ops, `DnsServers*` for `ModifyClientVpnEndpoint`,
+`ConnectionEvents*` for `ModifyVpcEndpointConnectionNotification`) in a way
+that exercised the buggy path -- confirmed by the full `go test -race
+./services/ec2/...` suite passing both before this file's new tests were
+added and after the 5 handler fixes, with no other test needing a change.
+
+New tests (`services/ec2/wire_field_fixes_ec2sweep39_test.go`, 5
+`*_RealClient` tests against the real `ec2sdk.Client`, each confirmed
+failing pre-fix by running before the source change):
+`TestDescribeIdFormat_ResourceFilter_RealClient`,
+`TestDescribeIdentityIdFormat_ResourceFilter_RealClient`,
+`TestModifyClientVpnEndpoint_DnsServers_RealClient`,
+`TestModifyTransitGatewayMeteringPolicy_MiddleboxAttachmentIds_RealClient`,
+`TestModifyVpcEndpointConnectionNotification_ConnectionEvents_RealClient`.
+
+Class-exhaustion judgement: this pass is the first to enumerate literally
+every `parseMemberList` call site rather than a themed sample, and it found
+5 bugs in 243 sites (2.1%), continuing the downward trend from tranche 4's
+1-in-20 rate. Combined with 5 prior themed tranches (11 bugs found across
+~106 sampled operations before this pass) that also targeted this exact bug
+class, and this pass's explicit confirmation that every remaining
+`parseMemberList` call site in every `handler_*.go` file has now been read
+against its own SDK serializer at least once (either in a prior tranche or
+in this pass), the scalar-read-as-list/wrong-list-key class appears close to
+exhausted in ec2 -- what remains uncovered is the inverse direction (only a
+bounded 176-site sweep, not exhaustive) and the broader missing-feature/
+`Filters`-unwired backlog documented across every tranche above, which is a
+different, much larger body of work.
+
+Gates: `go build -o /dev/null ./services/ec2/...` (clean, no exported
+signature changed), `go vet ./services/ec2/...` (clean) and repo-wide `go
+vet ./...` (clean -- no backend interface signature changed, ran anyway
+since ec2's backend is composed by other services), `go test -race -count=1
+./services/ec2/...` (`ok`, full suite including the new test file and the
+one existing-test fix), `golangci-lint run ./services/ec2/...` (`0 issues`,
+run last, no `--fix` used). No banned `//nolint`s.

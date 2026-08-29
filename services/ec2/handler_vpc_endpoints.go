@@ -149,7 +149,7 @@ func (h *Handler) handleModifyVpcEndpointConnectionNotification(
 ) (any, error) {
 	id := vals.Get("ConnectionNotificationId")
 	notifARN := vals.Get("ConnectionNotificationArn")
-	events := parseMemberList(vals, "ConnectionEvents.member")
+	events := parseMemberList(vals, "ConnectionEvents")
 
 	if _, err := h.Backend.ModifyVpcEndpointConnectionNotification(id, notifARN, events); err != nil {
 		return nil, err

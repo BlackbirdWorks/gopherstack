@@ -824,8 +824,8 @@ func (h *Handler) handleModifyTransitGatewayVpcAttachment(vals url.Values, reqID
 
 func (h *Handler) handleModifyTransitGatewayMeteringPolicy(vals url.Values, reqID string) (any, error) {
 	policyID := vals.Get("TransitGatewayMeteringPolicyId")
-	addIDs := parseMemberList(vals, "AddMiddleboxAttachmentIds")
-	removeIDs := parseMemberList(vals, "RemoveMiddleboxAttachmentIds")
+	addIDs := parseMemberList(vals, "AddMiddleboxAttachmentId")
+	removeIDs := parseMemberList(vals, "RemoveMiddleboxAttachmentId")
 
 	policy, err := h.Backend.ModifyTransitGatewayMeteringPolicy(policyID, addIDs, removeIDs)
 	if err != nil {

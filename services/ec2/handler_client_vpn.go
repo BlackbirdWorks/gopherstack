@@ -513,7 +513,7 @@ func (h *Handler) handleDescribeClientVpnAuthorizationRules(
 func (h *Handler) handleModifyClientVpnEndpoint(vals url.Values, reqID string) (any, error) {
 	endpointID := vals.Get("ClientVpnEndpointId")
 	description := vals.Get("Description")
-	dnsServers := parseMemberList(vals, "DnsServers")
+	dnsServers := parseMemberList(vals, "DnsServers.CustomDnsServers")
 	if err := h.Backend.ModifyClientVpnEndpointWithOptions(
 		endpointID, description, dnsServers, parseClientVpnEndpointOptions(vals),
 	); err != nil {
