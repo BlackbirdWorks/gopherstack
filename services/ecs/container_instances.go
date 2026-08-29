@@ -1,7 +1,9 @@
 package ecs
 
 import (
+	"cmp"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -331,6 +333,14 @@ func (b *InMemoryBackend) ListAttributes(
 
 		out = append(out, *attr)
 	}
+
+	slices.SortFunc(out, func(a, b Attribute) int {
+		if n := cmp.Compare(a.Name, b.Name); n != 0 {
+			return n
+		}
+
+		return cmp.Compare(a.TargetID, b.TargetID)
+	})
 
 	return out, nil
 }

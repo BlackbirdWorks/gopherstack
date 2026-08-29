@@ -665,7 +665,9 @@ type ListDaemonTaskDefinitionsInput struct {
 	Status       string // "", "ACTIVE" (default), "DELETE_IN_PROGRESS", or "ALL"
 }
 
-// ListDaemonTaskDefinitions returns daemon task definition summaries, newest first per family.
+// ListDaemonTaskDefinitions returns daemon task definition summaries,
+// unsorted; the handler applies the documented family/revision order (see
+// handleListDaemonTaskDefinitions).
 func (b *InMemoryBackend) ListDaemonTaskDefinitions(
 	input ListDaemonTaskDefinitionsInput,
 ) ([]DaemonTaskDefinition, error) {

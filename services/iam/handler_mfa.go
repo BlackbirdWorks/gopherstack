@@ -3,8 +3,6 @@ package iam
 import (
 	"encoding/xml"
 	"net/url"
-
-	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 // iamMFALinkDispatch wires EnableMFADevice, DeactivateMFADevice, and ListMFADevices.
@@ -184,11 +182,7 @@ func (h *Handler) iamMFADeviceDispatch() map[string]iamActionFn {
 		},
 		"ListMFADeviceTags": func(vals url.Values, reqID string) (any, error) {
 			serial := vals.Get("SerialNumber")
-			tags := h.getTags("mfa:" + serial)
-			members := make([]svcTags.KV, 0, len(tags))
-			for k, v := range tags {
-				members = append(members, svcTags.KV{Key: k, Value: v})
-			}
+			members := tagsMapToKV(h.getTags("mfa:" + serial))
 
 			return &iamListTagsResponse{
 				XMLName:          xml.Name{Local: "ListMFADeviceTagsResponse"},

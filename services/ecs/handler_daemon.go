@@ -5,7 +5,9 @@ package ecs
 
 import (
 	"context"
+	"slices"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
@@ -743,6 +745,18 @@ func (h *Handler) handleListDaemonTaskDefinitions(
 		return nil, err
 	}
 
+	slices.SortFunc(tds, func(a, c DaemonTaskDefinition) int {
+		if n := strings.Compare(a.Family, c.Family); n != 0 {
+			return n
+		}
+
+		return a.Revision - c.Revision
+	})
+
+	if strings.EqualFold(in.Sort, "DESC") {
+		slices.Reverse(tds)
+	}
+
 	views := make([]daemonTaskDefinitionSummaryView, 0, len(tds))
 	for _, td := range tds {
 		v := daemonTaskDefinitionSummaryView{
@@ -757,14 +771,6 @@ func (h *Handler) handleListDaemonTaskDefinitions(
 		}
 
 		views = append(views, v)
-	}
-
-	sort.Slice(views, func(i, j int) bool { return views[i].Arn < views[j].Arn })
-
-	if in.Sort == "DESC" {
-		for i, j := 0, len(views)-1; i < j; i, j = i+1, j-1 {
-			views[i], views[j] = views[j], views[i]
-		}
 	}
 
 	p := page.New(views, in.NextToken, in.MaxResults, defaultECSMaxResults)

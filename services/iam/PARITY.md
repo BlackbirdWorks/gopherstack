@@ -7,8 +7,22 @@ sdk_module: aws-sdk-go-v2/service/iam@v1.58.1   # version audited against (go.mo
   # re-verified this sweep (see items_still_open), so no live claim broke, but
   # its "already marked ok/PROVEN by sweeps 1-4" history is now stale too.
 last_audit_commit: 202a5afdf
-last_audit_date: 2026-08-23
-overall: A   # sweep 11 (gopherstack-iam-signing-cert-ownership follow-up, this pass): worked
+last_audit_date: 2026-08-29
+overall: A   # sweep 12 (order-bug pattern hunt, this pass): all 8 List*Tags operations
+  # (ListRoleTags, ListPolicyTags, ListUserTags, ListInstanceProfileTags, ListMFADeviceTags,
+  # ListSAMLProviderTags, ListOpenIDConnectProviderTags, ListServerCertificateTags) built their
+  # response by ranging a map[string]string directly with no sort -- raw Go map order, which can
+  # differ between two calls with no mutation in between -- despite every one of these ops'
+  # own doc comment stating "The returned list of tags is sorted by tag key." tagsMapToKV's own
+  # doc comment already claimed "converts map[string]string to sorted svcTags.KV slice" while its
+  # body did not sort at all. Fixed by making tagsMapToKV actually sort (slices.SortFunc by Key)
+  # and routing every List*Tags handler through it (previously 3 of the 8 called it, the other 5
+  # duplicated the same unsorted-range logic inline in resourceTagDispatch/handler_mfa.go).
+  # Proven via TestListTags_SortedByKey (handler_create_tags_test.go): drives all 8 kinds through
+  # the real SDK client with 3 out-of-order tag keys, asserts alphabetical order; 7 of 8 subtests
+  # failed against the unfixed code (the 8th passed by map-iteration chance that run, underscoring
+  # why this bug class survives a single-run test).
+  # sweep 11 (gopherstack-iam-signing-cert-ownership follow-up, this pass): worked
   # items_still_open's named queue. Fixed ListSigningCertificates' disclosed Marker/MaxItems
   # pagination gap (sweep 10 left it deliberately unfixed) and, while implementing it, found
   # sibling ListSSHPublicKeys had a second real gap in the same area: its response never
@@ -48,6 +62,7 @@ families:
   access_keys:   {status: ok, note: create/rotate/status, secret only on create; DeleteUser no longer cascade-deletes keys (see ops)}
   providers:     {status: ok, note: SAML/OIDC CRUD, server certificates, login profile, password policy; tag-leak on delete/rename fixed this sweep}
 ops:
+  ListRoleTags/ListPolicyTags/ListUserTags/ListInstanceProfileTags/ListMFADeviceTags/ListSAMLProviderTags/ListOpenIDConnectProviderTags/ListServerCertificateTags: {wire: ok, errors: ok, state: ok, persist: n/a, note: "FIXED (sweep 12, order-bug pattern hunt), first PARITY.md entry for this class. All 8 of IAM's List*Tags operations document 'The returned list of tags is sorted by tag key' (e.g. api_op_ListRoleTags.go:14) verbatim, but built their response by ranging a map[string]string with no sort -- raw Go map order, wrong per the doc and nondeterministic run to run. tagsMapToKV (handler_tags.go) already claimed 'sorted' in its own doc comment while not sorting; fixed to actually sort by key and routed every one of these 8 ops through it (resourceTagDispatch's generic List<kind>Tags closure and handler_mfa.go's ListMFADeviceTags closure previously duplicated the same unsorted logic inline instead of calling it). Proven by TestListTags_SortedByKey (handler_create_tags_test.go), a real-SDK-client round trip covering all 8 resource kinds with 3 out-of-order tag keys."}
   UpdateAccountPasswordPolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-08-21 (gopherstack-c8ge, Scope A audit): singleton with no Create op, checked for the Update-vs-previous-Update merge bug. CONFIRMED CORRECT AS WHOLESALE REPLACE, not a bug: real UpdateAccountPasswordPolicyInput's own doc comment (api_op_UpdateAccountPasswordPolicy.go) states plainly 'This operation does not support partial updates. No parameters are required, but if you do not specify a parameter, that parameter's value reverts to its default value.' The existing b.passwordPolicy = &pp full-struct assignment already matches this documented contract exactly; no change made."}
   ListInstanceProfilesForRole: {wire: ok, errors: ok, state: ok, persist: ok, note: real backend-wired (fixed sweep 3)}
   GetAccountAuthorizationDetails: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (sweep 6): Marker/MaxItems/Filter now honored — Filter (User/Role/Group/LocalManagedPolicy/AWSManagedPolicy) restricts which of the 4 lists are populated (this mock has no AWS-managed-policy catalog, so AWSManagedPolicy always yields none); Marker/MaxItems paginate the combined Users+Groups+Roles+Policies sequence in XML field order, matching AWS's single Marker/MaxItems pair spanning all four lists. IsTruncated/Marker now populated in the response instead of always false/empty."}

@@ -3,7 +3,6 @@ package ecs
 import (
 	"fmt"
 	"slices"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -267,7 +266,13 @@ func (b *InMemoryBackend) ListTaskDefinitions(familyPrefix string) ([]string, er
 	return b.ListTaskDefinitionsFiltered(ListTaskDefinitionsInput{FamilyPrefix: familyPrefix})
 }
 
-// ListTaskDefinitionsFiltered returns task definition ARNs with status filtering.
+// ListTaskDefinitionsFiltered returns task definition ARNs with status
+// filtering. By default (input.Sort != "DESC"), results are ordered
+// lexicographically by family name and in ascending numerical order by
+// revision, matching the real API's documented default
+// (ecs@v1.90.0 api_op_ListTaskDefinitions.go ListTaskDefinitionsInput.Sort);
+// "DESC" reverses both. Revision must be compared numerically, not as part of
+// the ARN string -- "family:10" sorts before "family:2" as a string.
 func (b *InMemoryBackend) ListTaskDefinitionsFiltered(
 	input ListTaskDefinitionsInput,
 ) ([]string, error) {
@@ -279,7 +284,7 @@ func (b *InMemoryBackend) ListTaskDefinitionsFiltered(
 		wantStatus = statusActive
 	}
 
-	var arns []string
+	var tds []*TaskDefinition
 
 	for family, revs := range b.taskDefinitions {
 		if input.FamilyPrefix != "" && !strings.HasPrefix(family, input.FamilyPrefix) {
@@ -288,12 +293,27 @@ func (b *InMemoryBackend) ListTaskDefinitionsFiltered(
 
 		for _, td := range revs {
 			if strings.EqualFold(td.Status, wantStatus) {
-				arns = append(arns, td.TaskDefinitionArn)
+				tds = append(tds, td)
 			}
 		}
 	}
 
-	sort.Strings(arns)
+	slices.SortFunc(tds, func(a, c *TaskDefinition) int {
+		if n := strings.Compare(a.Family, c.Family); n != 0 {
+			return n
+		}
+
+		return a.Revision - c.Revision
+	})
+
+	if strings.EqualFold(input.Sort, "DESC") {
+		slices.Reverse(tds)
+	}
+
+	arns := make([]string, 0, len(tds))
+	for _, td := range tds {
+		arns = append(arns, td.TaskDefinitionArn)
+	}
 
 	return arns, nil
 }

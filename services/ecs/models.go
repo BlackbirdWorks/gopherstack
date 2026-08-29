@@ -876,6 +876,8 @@ type ListTaskDefinitionsInput struct {
 	// Status filters by task definition status: "ACTIVE", "INACTIVE", or
 	// "DELETE_IN_PROGRESS". Empty string matches only ACTIVE (AWS default).
 	Status string
+	// Sort is "ASC" (default) or "DESC"; see ListTaskDefinitionsFiltered.
+	Sort string
 }
 
 // ---- Container instance and task set models ----

@@ -2,11 +2,13 @@ package ecs_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	ecssdk "github.com/aws/aws-sdk-go-v2/service/ecs"
+	ecstypes "github.com/aws/aws-sdk-go-v2/service/ecs/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -218,6 +220,62 @@ func TestECS_ListDaemonTaskDefinitions(t *testing.T) {
 	tds, ok = resp["daemonTaskDefinitions"].([]any)
 	require.True(t, ok)
 	assert.Len(t, tds, 1)
+}
+
+// TestECS_ListDaemonTaskDefinitions_Order pins gopherstack's default order
+// against the SDK doc: "By default (ASC), daemon task definitions are listed
+// in ascending order by family name and revision number" (ecs@v1.90.0
+// api_op_ListDaemonTaskDefinitions.go). Sorting the ARN as a plain string gets
+// this wrong once a family passes revision 9, since
+// "daemon-task-definition/a-app:10" < "daemon-task-definition/a-app:2".
+func TestECS_ListDaemonTaskDefinitions_Order(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestECSClient(t, h)
+
+	arns := make(map[string]string)
+	arns["b-app:1"] = registerDaemonTaskDef(t, h, "b-app")
+
+	for range 10 {
+		arn := registerDaemonTaskDef(t, h, "a-app")
+		arns[fmt.Sprintf("a-app:%d", len(arns))] = arn
+	}
+
+	wantAsc := make([]string, 0, 11)
+	for r := 1; r <= 10; r++ {
+		wantAsc = append(wantAsc, arns[fmt.Sprintf("a-app:%d", r)])
+	}
+
+	wantAsc = append(wantAsc, arns["b-app:1"])
+
+	out, err := client.ListDaemonTaskDefinitions(t.Context(), &ecssdk.ListDaemonTaskDefinitionsInput{})
+	require.NoError(t, err)
+	require.Len(t, out.DaemonTaskDefinitions, len(wantAsc))
+
+	gotAsc := make([]string, len(out.DaemonTaskDefinitions))
+	for i, td := range out.DaemonTaskDefinitions {
+		gotAsc[i] = aws.ToString(td.Arn)
+	}
+
+	assert.Equal(t, wantAsc, gotAsc)
+
+	wantDesc := make([]string, len(wantAsc))
+	for i, a := range wantAsc {
+		wantDesc[len(wantAsc)-1-i] = a
+	}
+
+	outDesc, err := client.ListDaemonTaskDefinitions(t.Context(), &ecssdk.ListDaemonTaskDefinitionsInput{
+		Sort: ecstypes.SortOrderDesc,
+	})
+	require.NoError(t, err)
+
+	gotDesc := make([]string, len(outDesc.DaemonTaskDefinitions))
+	for i, td := range outDesc.DaemonTaskDefinitions {
+		gotDesc[i] = aws.ToString(td.Arn)
+	}
+
+	assert.Equal(t, wantDesc, gotDesc)
 }
 
 // ----- CreateDaemon / DescribeDaemon / UpdateDaemon / DeleteDaemon / ListDaemons -----

@@ -139,6 +139,7 @@ func (h *Handler) handleDeregisterTaskDefinition(
 type listTaskDefinitionsInput struct {
 	FamilyPrefix string `json:"familyPrefix,omitempty"`
 	Status       string `json:"status,omitempty"`
+	Sort         string `json:"sort,omitempty"`
 	NextToken    string `json:"nextToken,omitempty"`
 	MaxResults   int    `json:"maxResults,omitempty"`
 }
@@ -155,6 +156,7 @@ func (h *Handler) handleListTaskDefinitions(
 	arns, err := h.Backend.ListTaskDefinitionsFiltered(ListTaskDefinitionsInput{
 		FamilyPrefix: in.FamilyPrefix,
 		Status:       in.Status,
+		Sort:         in.Sort,
 	})
 	if err != nil {
 		return nil, err
@@ -163,8 +165,6 @@ func (h *Handler) handleListTaskDefinitions(
 	if arns == nil {
 		arns = []string{}
 	}
-
-	sort.Strings(arns)
 
 	arns, nextToken := applyNextTokenSlice(arns, in.NextToken, in.MaxResults)
 
