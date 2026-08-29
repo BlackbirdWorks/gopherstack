@@ -364,9 +364,38 @@ func tenantsToSummaryList(tenants []*DistributionTenant) tenantListResultXML {
 }
 
 func (h *Handler) handleListDistributionTenants(c *echo.Context) error {
-	tenants := h.Backend.ListDistributionTenants()
+	body, err := readBody(c)
+	if err != nil {
+		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
+	}
 
-	out, xmlErr := xml.Marshal(tenantsToSummaryList(tenants))
+	var req listDistributionTenantsRequestXML
+	if len(body) > 0 {
+		if xmlErr := xml.Unmarshal(body, &req); xmlErr != nil {
+			return xmlResp(
+				c,
+				http.StatusBadRequest,
+				cfErrorXML("MalformedXML", "invalid ListDistributionTenantsRequest XML"),
+			)
+		}
+	}
+
+	tenants := h.Backend.ListDistributionTenants()
+	tenants = filterTenantsByAssociation(
+		tenants,
+		req.AssociationFilter.ConnectionGroupID,
+		req.AssociationFilter.DistributionID,
+	)
+
+	page, pageSize, isTruncated := paginateTenants(tenants, req.Marker, req.MaxItems)
+
+	result := tenantsToSummaryList(page)
+	result.DistributionTenantList.MaxItems = pageSize
+	if isTruncated && len(page) > 0 {
+		result.NextMarker = page[len(page)-1].ID
+	}
+
+	out, xmlErr := xml.Marshal(result)
 	if xmlErr != nil {
 		return h.handleError(c, xmlErr)
 	}
@@ -408,33 +437,58 @@ func (h *Handler) filterTenantsByCertificateArn(
 }
 
 // paginateTenants applies the Marker/MaxItems page window to an already-sorted tenant list,
-// returning the page, the effective page size, and whether more results follow.
+// returning the page, the effective page size, and whether more results follow. Tenants are
+// already sorted by ID (see ListDistributionTenants/ByCustomization backend methods); the
+// marker is the ID of the last item returned on the previous page.
 func paginateTenants(
 	tenants []*DistributionTenant,
 	marker string,
 	maxItemsReq int,
 ) ([]*DistributionTenant, int, bool) {
-	pageSize := maxItems
-	if maxItemsReq > 0 && maxItemsReq < maxItems {
-		pageSize = maxItemsReq
+	return paginateByMarkerValue(tenants, func(t *DistributionTenant) string { return t.ID }, marker, maxItemsReq)
+}
+
+// distributionTenantAssociationFilterXML models the nested AssociationFilter element of a
+// ListDistributionTenantsRequest body (cloudfront@v1.67.4 types.DistributionTenantAssociationFilter:
+// ConnectionGroupId, DistributionId).
+type distributionTenantAssociationFilterXML struct {
+	ConnectionGroupID string `xml:"ConnectionGroupId"`
+	DistributionID    string `xml:"DistributionId"`
+}
+
+// listDistributionTenantsRequestXML models a ListDistributionTenants request body.
+// cloudfront@v1.67.4 serializers.go awsRestxml_serializeOpHttpBindingsListDistributionTenantsInput
+// returns nil (no HTTP-bound fields), so AssociationFilter, Marker, and MaxItems all serialize
+// into the XML body, not the query string.
+type listDistributionTenantsRequestXML struct {
+	XMLName           xml.Name                               `xml:"ListDistributionTenantsRequest"`
+	AssociationFilter distributionTenantAssociationFilterXML `xml:"AssociationFilter"`
+	Marker            string                                 `xml:"Marker"`
+	MaxItems          int                                    `xml:"MaxItems"`
+}
+
+// filterTenantsByAssociation narrows tenants to those matching the given connection group
+// and/or distribution ID. Blank filters are a no-op.
+func filterTenantsByAssociation(
+	tenants []*DistributionTenant,
+	connectionGroupID, distributionID string,
+) []*DistributionTenant {
+	if connectionGroupID == "" && distributionID == "" {
+		return tenants
 	}
 
-	// Tenants are already sorted by ID (see ListDistributionTenantsByCustomization); the marker
-	// is the ID of the last item returned on the previous page.
-	if marker != "" {
-		cut := 0
-		for cut < len(tenants) && tenants[cut].ID <= marker {
-			cut++
+	filtered := make([]*DistributionTenant, 0, len(tenants))
+	for _, t := range tenants {
+		if connectionGroupID != "" && t.ConnectionGroupID != connectionGroupID {
+			continue
 		}
-		tenants = tenants[cut:]
+		if distributionID != "" && t.DistributionID != distributionID {
+			continue
+		}
+		filtered = append(filtered, t)
 	}
 
-	isTruncated := len(tenants) > pageSize
-	if isTruncated {
-		tenants = tenants[:pageSize]
-	}
-
-	return tenants, pageSize, isTruncated
+	return filtered
 }
 
 // handleListDistributionTenantsByCustomization returns distribution tenants filtered by

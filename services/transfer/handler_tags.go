@@ -64,9 +64,11 @@ func (h *Handler) handleListTagsForResource(
 	}
 
 	tags := h.Backend.ListTagsForResource(in.Arn)
+	page, next := applyNextTokenItems(tagsToList(tags), in.NextToken, in.MaxResults)
 
 	return &listTagsForResourceOutput{
-		Arn:  in.Arn,
-		Tags: tagsToList(tags),
+		Arn:       in.Arn,
+		Tags:      page,
+		NextToken: next,
 	}, nil
 }

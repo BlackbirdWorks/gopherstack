@@ -96,6 +96,18 @@ func (h *Handler) handleGetKeyValueStore(c *echo.Context, id string) error {
 func (h *Handler) handleListKeyValueStores(c *echo.Context) error {
 	items := h.Backend.ListKeyValueStores()
 
+	// Status is a real query-bound filter (cloudfront@v1.67.4 serializers.go:
+	// awsRestxml_serializeOpHttpBindingsListKeyValueStoresInput), not just display metadata.
+	if status := c.QueryParam("Status"); status != "" {
+		items = filterSlice(items, func(kvs *KeyValueStore) bool { return kvs.Status == status })
+	}
+
+	page, pageSize, isTruncated, nextMarker := paginateByMarkerID(
+		c,
+		items,
+		func(kvs *KeyValueStore) string { return kvs.Name },
+	)
+
 	type kvsSummaryXML struct {
 		XMLName          xml.Name `xml:"KeyValueStore"`
 		ID               string   `xml:"Id"`
@@ -107,16 +119,16 @@ func (h *Handler) handleListKeyValueStores(c *echo.Context) error {
 	}
 
 	type kvsListXML struct {
-		XMLName     xml.Name        `xml:"KeyValueStoreList"`
-		XMLNS       string          `xml:"xmlns,attr"`
-		Items       []kvsSummaryXML `xml:"Items>KeyValueStore"`
-		MaxItems    int             `xml:"MaxItems"`
-		Quantity    int             `xml:"Quantity"`
-		IsTruncated bool            `xml:"IsTruncated"`
+		XMLName    xml.Name        `xml:"KeyValueStoreList"`
+		XMLNS      string          `xml:"xmlns,attr"`
+		NextMarker string          `xml:"NextMarker,omitempty"`
+		Items      []kvsSummaryXML `xml:"Items>KeyValueStore"`
+		MaxItems   int             `xml:"MaxItems"`
+		Quantity   int             `xml:"Quantity"`
 	}
 
-	summaries := make([]kvsSummaryXML, 0, len(items))
-	for _, kvs := range items {
+	summaries := make([]kvsSummaryXML, 0, len(page))
+	for _, kvs := range page {
 		summaries = append(summaries, kvsSummaryXML{
 			ID:               kvs.ID,
 			ARN:              kvs.ARN,
@@ -127,7 +139,10 @@ func (h *Handler) handleListKeyValueStores(c *echo.Context) error {
 		})
 	}
 
-	list := kvsListXML{XMLNS: cfNS, MaxItems: maxItems, Quantity: len(summaries), Items: summaries}
+	list := kvsListXML{XMLNS: cfNS, MaxItems: pageSize, Quantity: len(summaries), Items: summaries}
+	if isTruncated {
+		list.NextMarker = nextMarker
+	}
 
 	out, xmlErr := xml.Marshal(list)
 	if xmlErr != nil {

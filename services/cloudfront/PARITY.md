@@ -34,6 +34,41 @@ last_audit_date: 2026-08-14  # gopherstack-7185: response shapes of Create/Delet
 # (real-SDK errors.As assertions, each confirmed failing pre-fix). 10
 # pre-existing tests across 6 test files asserted the old wrong codes/status
 # as correct; corrected alongside the fix.
+# FILTER/PAGINATION PARAMETER audit 2026-08-29 (continuation of the eks/cleanrooms pass,
+# commit 9f7b9d67e): read every List op's Input shape against api_op_List*.go/types.go
+# (cloudfront@v1.67.4) and checked whether the handler reads AND applies each declared
+# filter/sort/status/pagination member. 5 real "declared, never read" bugs fixed:
+# ListFunctions.Stage (query-bound), ListConnectionFunctions.Stage (XML-body-bound --
+# the sibling op families disagree on binding location, confirmed per-op from
+# serializers.go rather than assumed from ListFunctions), ListConnectionGroups
+# .AssociationFilter.AnycastIpListId (body-bound nested filter), ListKeyValueStores
+# .Status (query-bound; KVS.Status is always "READY" here since provisioning is
+# synchronous, so the filter is still correctly implemented as an equality check --
+# not a structural gap, just never exercised by any seeded non-READY value),
+# ListDistributionTenants.AssociationFilter (body-bound nested filter on
+# ConnectionGroupId/DistributionId) -- this last handler didn't read its request body
+# AT ALL before the fix, so Marker/MaxItems were silently unhonoured alongside the
+# filter. All 5 verified against the real aws-sdk-go-v2 client, confirmed failing
+# pre-fix, fixed, and re-verified; see list_filter_params_test.go and the pagination
+# cases appended to list_pagination_ignored_test.go.
+#   Pagination does NOT go through one shared helper here, unlike eks/cleanrooms:
+# paginateByMarkerID (query-string Marker/MaxItems) and the new paginateByMarkerValue
+# (XML-body Marker/MaxItems, for ListConnectionGroups/ListConnectionFunctions/
+# ListDistributionTenants) are both used, but ~20 further List ops (ListCachePolicies,
+# ListOriginRequestPolicies, ListResponseHeadersPolicies, ListOriginAccessControls,
+# ListCloudFrontOriginAccessIdentities, ListFieldLevelEncryptionConfigs,
+# ListFieldLevelEncryptionProfiles, ListPublicKeys, ListKeyGroups,
+# ListRealtimeLogConfigs, ListVpcOrigins, ListContinuousDeploymentPolicies,
+# ListStreamingDistributions, ListTrustStores, ListConflictingAliases,
+# ListDomainConflicts, and the whole ListDistributionsBy* family of 11) hardcode
+# MaxItems in the response and never truncate or emit a marker/NextMarker at all --
+# confirmed by reading each handler, NOT fixed this pass (see gaps below). The
+# ListDistributionsBy* family additionally has heterogeneous real output shapes
+# (DistributionIdList vs DistributionList vs DistributionIdOwnerList depending on
+# the specific op) that the current shared marshalDistributionList collapses to one
+# shape -- a wire-shape question distinct from parameter-honouring, flagged but not
+# investigated further; needs its own dedicated pass reading each op's own Output
+# struct and deserializer, not a mechanical pagination patch.
 overall: A            # gopherstack-o31x: first FULL route diff of all 167 real cloudfront
                        # control-plane ops (method+path) against cloudfront@v1.67.4
                        # serializers.go, not just the ops other work happened to touch.
@@ -184,6 +219,7 @@ deferred:
   - "Distribution status InProgress->Deployed transition timer: FIXED this pass (gopherstack-k3fi) for Distribution specifically -- see UpdateDistribution's op row above. The other 5 resource kinds with their own InProgress/Deployed-shaped status semantics (DistributionTenant, StreamingDistribution, ConnectionGroup/ConnectionFunction, AnycastIPList, TrustStore) still persist InProgress indefinitely; still deferred, now for a narrower, more honest reason -- extending the same worker.Group timer to each is straightforward but out of this pass's scope, not blocked on anything."
   - "Full per-op audit of DistributionConfig nested shape correctness (Origins/OriginGroups/CacheBehaviors/ViewerCertificate/Restrictions field-by-field) beyond the Quantity/Items validation and the pre-existing minimal-parse (RawConfig) model. This pass verified the specific sub-fields needed for the InUse-guard fixes (S3OriginConfig.OriginAccessIdentity path format, Origin.OriginAccessControlId, TrustedKeyGroups.Items) are correct, but a full field-by-field audit of the rest of DistributionConfig's ~60 nested types was not attempted -- RawConfig storage design predates this pass and was not restructured."
   - "ResponseHeadersPolicySecurityHeadersConfig is a flattened simplification of the real 5-sub-struct shape: XSSProtection is stored/emitted as a single string (matches only the real ReportUri sub-field) instead of the real ResponseHeadersPolicyXSSProtection{Override, Protection, ModeBlock, ReportUri} struct, and only ContentTypeOptions has a per-header Override flag modeled (STS/FrameOptions/ReferrerPolicy/ContentSecurityPolicy hardcode Override=false in every response, which happens to match every seeded managed policy's real Override:No default but is not read from request input for those four). Restructuring RHPSecurityHeaders to the full real shape is a breaking model change (cascades to persistence JSON tags and every existing test that constructs one) out of proportion to fix alongside this pass's other work; the CORS list fields and ContentTypeOptions/ContentSecurityPolicy value (the parts client code actually round-trips today) were fixed."
+  - "2026-08-29 filter/pagination audit: ~20 List ops (see the header note above for the full list) hardcode MaxItems/Quantity and never apply Marker/MaxItems truncation or emit a NextMarker, unlike the ops fixed this pass and the handful already using paginateByMarkerID (ListDistributions, ListFunctions, ListInvalidations*, ListAnycastIPLists, ListDistributionTenantsByCustomization). Left unfixed: the fix is mechanical (route each through paginateByMarkerID/paginateByMarkerValue) but the volume (~20 handlers, each needing its own before/after real-SDK pagination test) was out of this pass's budget after the higher-value never-honoured-filter bugs. The ListDistributionsBy* family (11 ops) additionally has per-op output shape questions (DistributionIdList vs DistributionList vs DistributionIdOwnerList -- confirmed heterogeneous by reading 3 of the 11 Output structs) that a mechanical pagination patch alone would not resolve; that family needs a dedicated wire-shape read of each op's own Output/deserializer before touching its pagination, not a copy of the fix used elsewhere in this pass."
 leaks: {status: clean, note: "runInvalidationReconciler goroutine has a proper stopCh + Close() lifecycle; no unbounded maps found. This pass added b.work (*pkgs/worker.Group), the mgn/outposts-style scheduled-timer idiom used by scheduleDistributionDeployed -- Close() now also calls b.work.Stop(), which cancels every pending timer and joins its goroutines, so nothing outlives the backend. seedManagedPoliciesLocked (prior pass) does no allocation beyond the fixed ~20-entry seed tables and is called only at construction/Reset/Restore, never per-request."}
 ---
 

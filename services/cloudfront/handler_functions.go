@@ -109,6 +109,12 @@ func (h *Handler) handleDescribeFunction(c *echo.Context, name string) error {
 func (h *Handler) handleListFunctions(c *echo.Context) error {
 	fns := h.Backend.ListFunctions()
 
+	// Stage is a real query-bound filter (cloudfront@v1.67.4 serializers.go:
+	// awsRestxml_serializeOpHttpBindingsListFunctionsInput), DEVELOPMENT or LIVE.
+	if stage := c.QueryParam("Stage"); stage != "" {
+		fns = filterSlice(fns, func(fn *Function) bool { return fn.Status == stage })
+	}
+
 	page, pageSize, isTruncated, nextMarker := paginateByMarkerID(c, fns, func(fn *Function) string { return fn.Name })
 
 	var sb strings.Builder
