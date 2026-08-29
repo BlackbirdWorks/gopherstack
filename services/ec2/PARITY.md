@@ -2282,3 +2282,147 @@ showing eks files already dirty before this pass touched anything, not ec2),
 `go test -race -count=1 ./services/ec2/...` (`ok`, full suite including the
 new test), `golangci-lint run ./services/ec2/...` (`0 issues`, run last, no
 `--fix` used). No banned `//nolint`s.
+
+**2026-08-29 pass -- request-wrapper-key sweep, Reserved Instances/Hosts/
+Placement Groups/Route Server/newer-singleton families (21 ops)**: picked the
+21-op tranche this file's own "not reached" note above (2026-08-29 Fleet/
+Spot/Traffic Mirror pass) explicitly named as still outstanding: Reserved
+Instances, Hosts, Placement Groups. Extended with the other same-shaped
+sibling families the "not reached" list also named (Route Server, Mac Hosts,
+Conversion Tasks, Elastic Gpus, Scheduled Instances, Coip/Ipv6 Pools) plus two
+Transit Gateway peripheral ops never covered by any prior TGW pass. Read each
+handler's request-parsing code against its own
+`awsEc2query_serializeOpDocument<Op>Input` in the pinned
+`aws-sdk-go-v2/service/ec2@v1.319.1/serializers.go`, not a sibling's shape.
+
+Reserved Instances family (4, `handler_reserved_instances.go`):
+`DescribeReservedInstances` (clean -- `ReservedInstancesId.N`,
+serializers.go:80239), `DescribeReservedInstancesModifications` (clean
+-- `ReservedInstancesModificationId.N`, serializers.go:80289),
+`DescribeReservedInstancesOfferings` (clean on every field it reads --
+`InstanceType`/`AvailabilityZone`/`ProductDescription` all real scalars,
+serializers.go:80335 (InstanceType), 80303 (AvailabilityZone), 80375 (ProductDescription)), `DescribeReservedInstancesListings`
+(**1 real bug, see below**).
+
+Hosts family (3): `DescribeHosts` (`handler_accept_ops.go`, clean --
+`HostId.N`, serializers.go:77813), `DescribeHostReservations`
+(`handler_host_reservations.go`, clean -- `HostReservationIdSet.N`; the wire
+field's own shape name is literally "HostReservationIdSet", not the usual
+singular-member convention, and the handler already reads that exact key,
+serializers.go:77782), `DescribeHostReservationOfferings` (clean --
+`OfferingId` scalar, serializers.go:77763).
+
+Placement Groups (1): `DescribePlacementGroups` (`handler_placement_groups.go`,
+clean on what it reads -- `GroupName.N`, serializers.go:80040; see gaps
+for the unread `GroupId.N`).
+
+Route Server family (3, `handler_route_server.go`): `DescribeRouteServers`
+(clean -- `RouteServerId.N`, serializers.go:80488),
+`DescribeRouteServerEndpoints` (clean -- `RouteServerEndpointId.N`,
+serializers.go:80416), `DescribeRouteServerPeers` (clean --
+`RouteServerPeerId.N`, serializers.go:80452). All three match despite
+this file's own "Route Server does the reverse [singular-behind-plural] trap"
+warning for a different Route Server op elsewhere in this codebase -- these
+three Describe ops were verified independently, not assumed clean by
+association.
+
+Mac family (2, `handler_mac_hosts.go`): `DescribeMacHosts` (clean --
+`HostId.N`, serializers.go:79513), `DescribeMacModificationTasks`
+(clean -- `MacModificationTaskId.N`, serializers.go:79549).
+
+Singles (5): `DescribeConversionTasks` (`handler_vm_import_export.go`, clean
+-- `ConversionTaskId.N`, serializers.go:77224), `DescribeElasticGpus`
+(`handler_instances.go`, clean -- `ElasticGpuId.N`, serializers.go:77375),
+`DescribeCoipPools` (`handler_ip_pools.go`, clean -- `PoolId.N`,
+serializers.go:77210), `DescribeIpv6Pools` (clean -- `PoolId.N`,
+serializers.go:79088).
+
+Scheduled Instances family (2, `handler_scheduled_instances.go`):
+`DescribeScheduledInstanceAvailability` (clean --
+`MinSlotDurationInHours`/`MaxSlotDurationInHours` scalars,
+serializers.go:80562 (MaxSlotDurationInHours), 80567 (MinSlotDurationInHours)), `DescribeScheduledInstances` (clean --
+`ScheduledInstanceId.N`, serializers.go:80613).
+
+Transit Gateway peripherals, never covered by any prior TGW pass (2,
+`handler_tgw_peripherals.go`): `DescribeTransitGatewayPolicyTables` (clean --
+unlike the five sibling TGW ops fixed in `wire_field_fixes_ec2sweep36_test.go`
+(`TransitGatewayAttachmentIds.N`/`TransitGatewayRouteTableIds.N`), this op's
+own `TransitGatewayPolicyTableIds` field is genuinely `FlatKey`'d under its
+own **plural** name, serializers.go:81725 -- the handler's
+`parseMemberList(vals, "TransitGatewayPolicyTableIds")` already matches
+exactly), `DescribeTransitGatewayRouteTableAnnouncements` (clean, same
+shape -- `TransitGatewayRouteTableAnnouncementIds.N`, serializers.go:81761).
+
+**1 real bug found and fixed, class 2 (wrong cardinality)**:
+`DescribeReservedInstancesListings` (`handler_reserved_instances.go`) read
+`ReservedInstancesListingId` via `parseMemberList`, an indexed-list reader
+looking for `ReservedInstancesListingId.1`, `.2`, ... but the real
+`DescribeReservedInstancesListingsInput.ReservedInstancesListingId` is a
+scalar `*string` serialized as the bare key `ReservedInstancesListingId`
+(serializers.go:80265, `object.Key(...)`, not `FlatKey`) -- a key a
+real client's single-listing lookup never matches in indexed form. The filter
+was always silently ignored; every call returned every listing regardless of
+which one was requested. Fixed: read `vals.Get("ReservedInstancesListingId")`
+as a scalar, wrapped into a 1-element slice only when non-empty (matching the
+existing `[]string`-taking `Backend.DescribeReservedInstancesListings` --
+no `Backend`/exported signature changed).
+
+Missing-feature gaps (real key on the wire, no read code exists at all to be
+wrong -- kept distinct from the bug above, not fabricated as fixes):
+`DescribeReservedInstancesListings` also never reads the real scalar
+`ReservedInstancesId` field (narrowing listings to one originating Reserved
+Instance, distinct from `ReservedInstancesListingId`).
+`DescribeReservedInstancesOfferings` never reads `AvailabilityZoneId`,
+`OfferingClass`, `OfferingType`, `MinDuration`/`MaxDuration`,
+`MaxInstanceCount`, `IncludeMarketplace`, `InstanceTenancy`, or
+`ReservedInstancesOfferingIds`. `DescribePlacementGroups` never reads
+`GroupId.N` (`GroupIds`), only `GroupName.N`. `DescribeScheduledInstanceAvailability`
+never reads the real required `FirstSlotStartTimeRange` struct or
+`Recurrence`. All ops in this tranche that declare a `Filters []types.Filter`
+field apply none of it -- the same already-documented, repo-wide
+missing-feature category as every prior request-wrapper-key-sweep tranche,
+not this pass's bug class.
+
+Existing tests: none of this tranche's 21 ops had a prior
+`wire_field_fixes*_test.go` case (request-side or response-side) for this bug
+class. `TestReservedInstances` (`handler_reserved_instances_test.go`) drives
+`Backend.DescribeReservedInstancesListings` directly, bypassing the handler's
+request parsing entirely, so it could not have caught this bug -- blind, not
+wrong, to this specific class; left as-is (still a valid backend-level test).
+
+New test (`services/ec2/wire_field_fixes_ec2sweep38_test.go`, 1
+`*_RealClient` test against the real `ec2sdk.Client`, confirmed failing
+pre-fix by running before the source change):
+`TestDescribeReservedInstancesListings_ListingIdFilter_RealClient` -- pre-fix
+failure: `require.Len(t, out.ReservedInstancesListings, 1, ...)` got 2 (every
+listing) instead of the one requested by `ReservedInstancesListingId`.
+
+Sibling-ID-family hypothesis: did NOT hold for most of this tranche. Five of
+seven multi-op sibling families picked specifically because they share
+closely-named ID parameters (Hosts, Placement Groups, Route Server, Mac
+Hosts, TGW peripherals) came back entirely clean -- only the fourth Reserved
+Instances sibling had a bug, and even that one isn't a same-op-family
+name-collision (it's a scalar-vs-list cardinality mistake, the same shape as
+tranche 4's `DescribeSpotPriceHistory` bug, arguably explained by copying the
+*cardinality* of its own list-typed siblings `ReservedInstancesId`/
+`ReservedInstancesModificationId` rather than a wrong name). Combined with
+tranche 4's 1-bug-in-20 rate on non-sibling families, this tranche's
+1-bug-in-21 on sibling families suggests the sibling-density signal is weaker
+than the working hypothesis after two more tranches of evidence -- most
+families of any shape are now clean, and the remaining bugs look more
+evenly scattered than clustered.
+
+Not reached this pass: the remaining never-verified-in-PARITY ops, including
+the ~102-op set named in the 2026-08-29 IPAM/Local Gateway pass's own "not
+reached" note (DescribeSubnets/DescribeDhcpOptions/etc -- since fully covered
+by the later core-VPC pass, see above) plus anything not yet swept across all
+passes to date -- regenerate via the diff method above (grep implemented
+`Describe*`/`List*` op strings, strip `Response`-suffixed false positives,
+subtract every op name mentioned anywhere in this file) to find what's left.
+
+Gates: `go build -o /dev/null ./services/ec2/...` (clean, no exported
+signature changed), `go vet ./services/ec2/...` (clean; no backend interface
+signature changed so repo-wide vet not required), `go test -race -count=1
+./services/ec2/...` (`ok`, full suite including the new test),
+`golangci-lint run ./services/ec2/...` (`0 issues`, run last, no `--fix`
+used). No banned `//nolint`s.

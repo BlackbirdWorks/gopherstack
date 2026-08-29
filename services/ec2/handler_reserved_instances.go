@@ -278,7 +278,11 @@ func (h *Handler) handleDescribeReservedInstancesListings(
 	vals url.Values,
 	reqID string,
 ) (any, error) {
-	ids := parseMemberList(vals, "ReservedInstancesListingId")
+	var ids []string
+	if id := vals.Get("ReservedInstancesListingId"); id != "" {
+		ids = []string{id}
+	}
+
 	listings := h.Backend.DescribeReservedInstancesListings(ids)
 
 	resp := &describeReservedInstancesListingsResponse{RequestID: reqID}
