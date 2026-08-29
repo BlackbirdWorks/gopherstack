@@ -77,13 +77,14 @@ type getAnomalyMonitorsInput struct {
 }
 
 type anomalyMonitorSummary struct {
-	CreationDate         *string       `json:"CreationDate,omitempty"`
-	LastUpdatedDate      *string       `json:"LastUpdatedDate,omitempty"`
-	MonitorSpecification *ceExpression `json:"MonitorSpecification,omitempty"`
-	MonitorArn           string        `json:"MonitorArn"`
-	MonitorName          string        `json:"MonitorName"`
-	MonitorType          string        `json:"MonitorType"`
-	MonitorDimension     string        `json:"MonitorDimension,omitempty"`
+	CreationDate          *string       `json:"CreationDate,omitempty"`
+	LastUpdatedDate       *string       `json:"LastUpdatedDate,omitempty"`
+	MonitorSpecification  *ceExpression `json:"MonitorSpecification,omitempty"`
+	MonitorArn            string        `json:"MonitorArn"`
+	MonitorName           string        `json:"MonitorName"`
+	MonitorType           string        `json:"MonitorType"`
+	MonitorDimension      string        `json:"MonitorDimension,omitempty"`
+	DimensionalValueCount int32         `json:"DimensionalValueCount,omitempty"`
 }
 
 type getAnomalyMonitorsOutput struct {
@@ -104,11 +105,12 @@ func (h *Handler) handleGetAnomalyMonitors(
 
 	for _, mon := range monitors {
 		s := anomalyMonitorSummary{
-			MonitorArn:           mon.MonitorARN,
-			MonitorName:          mon.MonitorName,
-			MonitorType:          mon.MonitorType,
-			MonitorDimension:     mon.MonitorDimension,
-			MonitorSpecification: mon.MonitorSpecification,
+			MonitorArn:            mon.MonitorARN,
+			MonitorName:           mon.MonitorName,
+			MonitorType:           mon.MonitorType,
+			MonitorDimension:      mon.MonitorDimension,
+			MonitorSpecification:  mon.MonitorSpecification,
+			DimensionalValueCount: h.dimensionalValueCount(mon),
 		}
 
 		if !mon.CreationDate.IsZero() {
@@ -125,6 +127,26 @@ func (h *Handler) handleGetAnomalyMonitors(
 	}
 
 	return &getAnomalyMonitorsOutput{AnomalyMonitors: items, NextPageToken: nextToken}, nil
+}
+
+// dimensionalValueCount computes types.AnomalyMonitor.DimensionalValueCount for a
+// DIMENSIONAL monitor on the SERVICE/LINKED_ACCOUNT dimension, the only dimensions
+// this emulator's cost ledger has real per-entry state for -- TAG/COST_CATEGORY
+// dimensions are scoped via MonitorSpecification instead of a ledger field, so
+// they stay 0 rather than fabricating a count.
+func (h *Handler) dimensionalValueCount(mon *AnomalyMonitor) int32 {
+	if mon.MonitorType != "DIMENSIONAL" {
+		return 0
+	}
+
+	switch mon.MonitorDimension {
+	case "SERVICE", "LINKED_ACCOUNT":
+		n := len(h.Backend.GetDimensionValues(mon.MonitorDimension))
+
+		return int32(n) //nolint:gosec // G115: bounded by syntheticServiceCatalog size
+	default:
+		return 0
+	}
 }
 
 type updateAnomalyMonitorInput struct {

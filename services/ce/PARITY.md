@@ -6,20 +6,20 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: ce
 sdk_module: aws-sdk-go-v2/service/costexplorer@v1.67.4   # version actually pinned in go.mod; corrected stale v1.63.8 reference
-last_audit_commit: f848e87f1bce2856351a650dbbdba31bb6bbbd49
-last_audit_date: 2026-07-29
-overall: A            # closed the required-field-validation gap and the ValidationError wire-type unknown from the prior pass; field-diffed and fixed 6 further wire-shape bugs (2 invented field names, 1 wrong JSON type, 1 missing field, 1 over-validation bug, 1 wrong-shaped comparison op) across GetCostAndUsage/GetCostAndUsageWithResources/GetCostAndUsageComparisons/GetApproximateUsageRecords/ListCostCategoryResourceAssociations/GetSavingsPlanPurchaseRecommendationDetails/Start+ListSavingsPlansPurchaseRecommendationGeneration/UpdateAnomalyMonitor. This pass: GetCostAndUsage's TimePeriod/Metrics required-field validation gap (documented since the prior pass) is now closed.
+last_audit_commit: 16c7cbeba7 # HEAD as of this pass; this pass's own changes are uncommitted on top of it
+last_audit_date: 2026-08-29
+overall: A            # closed the required-field-validation gap and the ValidationError wire-type unknown from the prior pass; field-diffed and fixed 6 further wire-shape bugs (2 invented field names, 1 wrong JSON type, 1 missing field, 1 over-validation bug, 1 wrong-shaped comparison op) across GetCostAndUsage/GetCostAndUsageWithResources/GetCostAndUsageComparisons/GetApproximateUsageRecords/ListCostCategoryResourceAssociations/GetSavingsPlanPurchaseRecommendationDetails/Start+ListSavingsPlansPurchaseRecommendationGeneration/UpdateAnomalyMonitor. Earlier pass: GetCostAndUsage's TimePeriod/Metrics required-field validation gap (documented since the prior pass) is now closed. This pass (2026-08-29, resuming a session cut off by a rate limit mid-write): verified and finished the interrupted write-only-state fix (commit 16c7cbeba) that threaded AnomalyMonitor.MonitorSpecification and AnomalySubscription/UpdateAnomalySubscription's ThresholdExpression through the backend -- both confirmed against costexplorer@v1.67.4 types/types.go and covered by wire_field_fixes_test.go's real-SDK-client round-trip tests. Swept AnomalyMonitor's remaining sibling fields (DimensionalValueCount, LastEvaluatedDate) per the same struct: DimensionalValueCount was entirely absent from the wire and is now computed from real state (distinct SERVICE/LINKED_ACCOUNT dimension values in the cost ledger) for DIMENSIONAL monitors on those two dimensions; LastEvaluatedDate stays undocumented/never-set (structural_gaps: no anomaly-detection evaluation engine exists anywhere in this backend to derive a real timestamp from, unlike DimensionalValueCount which has real backing state). Also ran a full write-only-state and Get/List wire-shape sweep of services/outposts (43 ops, no wire_field_fixes_test.go existed there, PARITY.md carried a dated A-grade manifest -- the higher-risk "confident manifest, no regression test" pattern this campaign has twice found real bugs under) -- found no bugs; see services/outposts/PARITY.md for the sweep record.
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
-  CreateAnomalyMonitor: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this pass: MonitorType is now enforced required (was previously only format-validated when present), matching validateAnomalyMonitor"}
+  CreateAnomalyMonitor: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this pass: MonitorType is now enforced required (was previously only format-validated when present), matching validateAnomalyMonitor. FIXED 2026-08-29 (write-only-state, commit 16c7cbeba finished this pass) -- AnomalyMonitor.MonitorSpecification (*types.Expression, required for CUSTOM or TAG/COST_CATEGORY-dimensioned DIMENSIONAL monitors per types.go's AnomalyMonitor doc comment) was entirely absent: accepted by nothing, stored nowhere, omitted from every GetAnomalyMonitors response regardless of what was sent on Create. Now threaded through CreateAnomalyMonitor's backend signature and echoed on Get. See TestCreateAnomalyMonitor_MonitorSpecification_RealClient."}
   DeleteAnomalyMonitor: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: was ResourceNotFoundException, real AWS is UnknownMonitorException"}
   UpdateAnomalyMonitor: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this pass: handler wrongly required MonitorName (real AWS's UpdateAnomalyMonitorInput only requires MonitorArn -- 'Specify the fields you want to update, omitted fields are unchanged'); this rejected valid real-client requests. Backend now leaves MonitorName unchanged when omitted instead of blanking it."}
-  GetAnomalyMonitors: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: an unknown ARN in MonitorArnList silently returned an empty page instead of UnknownMonitorException"}
-  CreateAnomalySubscription: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this pass: MonitorArnList/Subscribers/Frequency now enforced required, matching validateAnomalySubscription (previously only SubscriptionName was required)"}
+  GetAnomalyMonitors: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: an unknown ARN in MonitorArnList silently returned an empty page instead of UnknownMonitorException. FIXED 2026-08-29 -- now echoes MonitorSpecification (see CreateAnomalyMonitor); sweeping AnomalyMonitor's remaining sibling fields found DimensionalValueCount (types.AnomalyMonitor, 'the value for evaluated dimensions') also entirely absent, with real non-fabricated backing state for the SERVICE/LINKED_ACCOUNT dimensions (distinct-value count in the synthetic cost ledger, the same data GetDimensionValues reads) -- now computed for those two dimensions; TAG/COST_CATEGORY dimensions and LastEvaluatedDate stay unset/undocumented, no real backing state exists for either (see gaps). See TestGetAnomalyMonitors_DimensionalValueCount_RealClient."}
+  CreateAnomalySubscription: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this pass: MonitorArnList/Subscribers/Frequency now enforced required, matching validateAnomalySubscription (previously only SubscriptionName was required). FIXED 2026-08-29 -- AnomalySubscription.ThresholdExpression (*types.Expression, the non-deprecated replacement for Threshold) was entirely absent, same shape of bug as MonitorSpecification above; now threaded through and echoed on Get. See TestAnomalySubscription_ThresholdExpression_RealClient."}
   DeleteAnomalySubscription: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: was ResourceNotFoundException, real AWS is UnknownSubscriptionException"}
-  UpdateAnomalySubscription: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: not-found was ResourceNotFoundException (now UnknownSubscriptionException); MonitorArnList entries were never checked against existing monitors (now UnknownMonitorException)"}
-  GetAnomalySubscriptions: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: an unknown ARN in SubscriptionArnList silently returned an empty page instead of UnknownSubscriptionException; MonitorArn filter deliberately left non-validating (see Notes)"}
+  UpdateAnomalySubscription: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: not-found was ResourceNotFoundException (now UnknownSubscriptionException); MonitorArnList entries were never checked against existing monitors (now UnknownMonitorException). FIXED 2026-08-29 -- also accepted no ThresholdExpression argument (see CreateAnomalySubscription); now threaded through and applied when non-nil (omitted-field-unchanged semantics, matching UpdateAnomalyMonitor's precedent). See TestAnomalySubscription_ThresholdExpression_RealClient."}
+  GetAnomalySubscriptions: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: an unknown ARN in SubscriptionArnList silently returned an empty page instead of UnknownSubscriptionException; MonitorArn filter deliberately left non-validating (see Notes). FIXED 2026-08-29 -- now echoes ThresholdExpression (see CreateAnomalySubscription)."}
   GetAnomalies: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this pass: DateInterval.StartDate now enforced required, matching validateAnomalyDateInterval"}
   ProvideAnomalyFeedback: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateCostCategoryDefinition: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: ServiceQuotaExceededException on duplicate name was HTTP 409, real AWS is HTTP 400; fixed this pass: RuleVersion/Rules now enforced required, matching validateOpCreateCostCategoryDefinitionInput"}
@@ -50,8 +50,8 @@ ops:
   StartSavingsPlansPurchaseRecommendationGeneration: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this pass: response field GenerationId was invented; real AWS field is RecommendationId. Was a pure stub (empty envelope, no state at all) -- now creates and persists a SavingsPlansGeneration record (new store.Table), mirroring the CommitmentAnalysis start/persist/list pattern."}
   ListSavingsPlansPurchaseRecommendationGeneration: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this pass: GenerationSummaryList entries used the invented GenerationId field; real AWS field is RecommendationId (GenerationSummary type). Was always an empty list regardless of state -- now reads back real generation jobs created by StartSavingsPlansPurchaseRecommendationGeneration, with real GenerationStatus filtering."}
 families:
-  AnomalyMonitor: {status: ok, note: "CRUD + Get(list) verified against backend.go; 3 error-shape bugs fixed last pass, 1 required-field gap + 1 over-validation bug fixed this pass (see ops above)"}
-  AnomalySubscription: {status: ok, note: "CRUD + Get(list) verified against backend.go; 3 error-shape/referential-integrity bugs fixed last pass, 1 required-field gap fixed this pass (see ops above)"}
+  AnomalyMonitor: {status: ok, note: "CRUD + Get(list) verified against backend.go; 3 error-shape bugs fixed last pass, 1 required-field gap + 1 over-validation bug fixed an earlier pass; MonitorSpecification write-only-state bug and DimensionalValueCount silent-drop fixed 2026-08-29 (see ops above)"}
+  AnomalySubscription: {status: ok, note: "CRUD + Get(list) verified against backend.go; 3 error-shape/referential-integrity bugs fixed last pass, 1 required-field gap fixed an earlier pass; ThresholdExpression write-only-state bug (Create+Update+Get) fixed 2026-08-29 (see ops above)"}
   GetAnomalies: {status: ok, note: "date-interval overlap filter, monitor/feedback filter, pagination all verified real (not a stub); AnomalyScore/Impact struct shapes match API_Anomaly.html; StartDate required-field gap fixed this pass"}
   CostCategory: {status: ok, note: "Create/Describe/Update/Delete/List all real state, ARN-keyed store.Table, deep-copies on read/write; 2 HTTP-status bugs fixed last pass, RuleVersion/Rules required-field gap fixed this pass (Create+Update)"}
   Tags: {status: ok, note: "TagResource/UntagResource/ListTagsForResource operate across costCategories/anomalyMonitors/anomalySubscriptions maps, real mutation, HTTP-status fix inherited from the shared ErrNotFound mapping; ResourceTags/ResourceTagKeys required-field gap fixed this pass"}
@@ -65,6 +65,7 @@ families:
   RouteMatcher: {status: ok, note: "X-Amz-Target prefix \"AWSInsightsIndexService.\" verified byte-for-byte against every httpBindingEncoder.SetHeader(\"X-Amz-Target\") call in aws-sdk-go-v2/service/costexplorer@v1.63.8/serializers.go"}
 gaps:
   - "GetCostForecast/GetUsageForecast/GetDimensionValues/GetTags/GetCostCategories still lack required-field validation that the real aws-sdk-go-v2 client-side validators enforce (TimePeriod is required on all five; Metrics on GetCostForecast/GetUsageForecast; Dimension on GetDimensionValues already enforced). GetCostAndUsage's TimePeriod/Metrics required-field gap was closed this pass (see its op note) -- the remaining five are a distinct, still-open surface from the 7-op required-field gap closed in an earlier pass (which covered the Anomaly*/CostCategory*/Tag* families + GetAnomalies), and touch a different, larger set of existing test call sites in handler_cost_usage_test.go that omit TimePeriod/Metrics and assert 200 OK. Candidate for a dedicated follow-up pass. (bd: needs issue)"
+  - "AnomalyMonitor.LastEvaluatedDate (types.AnomalyMonitor, 'the date the monitor last evaluated for anomalies') is never set. Unlike DimensionalValueCount (fixed 2026-08-29), there is no real backing state to derive this from: this backend has no anomaly-detection evaluation engine anywhere (StartJanitor's evictExpiredAnomalies only expires already-existing Anomaly records, it does not generate them from cost data or 'evaluate' a monitor), so any timestamp here would be fabricated rather than read from real state. AnomalyMonitor.DimensionalValueCount for the TAG/COST_CATEGORY dimensions has the same gap (only SERVICE/LINKED_ACCOUNT have a real per-entry field in the cost ledger to count distinct values of)."
 deferred:
   - "Reservation/SavingsPlans numeric-formula fidelity (the specific ratios in backend.go's syntheticServiceCatalog / spCommitmentRatio / riPurchasedCostRatio etc.) -- these produce plausible, internally-consistent numbers but were not cross-checked against any real AWS CE billing behavior; by definition there is no real data to match against, so this is a modeling-quality concern for a future pass, not a correctness bug."
   - "GetCostAndUsageWithResources.ResultsByTime and ListCostCategoryResourceAssociations.CostCategoryResourceAssociations are always empty by design (see per-op notes above) -- both would need a per-resource / resource-tag inventory this emulator doesn't model anywhere else in the service. Not a disguised no-op (input-driven required-field validation now happens, and the wire shape is correct), just genuinely no backing state to report. A future pass could seed a small synthetic per-resource inventory if resource-level fidelity becomes a priority."
@@ -84,7 +85,45 @@ mistype/second-guess when unfamiliar with the API; it's confirmed correct.
 confirmed against `API_AnomalyDateInterval.html` and the `Start`/`End` map wire shape
 used throughout `getCostAndUsageInput`/`getCostForecastInput`/etc.
 
-### Bugs fixed this pass
+### Anomaly write-only-state pass (2026-08-29)
+
+Resumed a session cut off mid-write by a rate limit (commit `16c7cbeba`), which had
+already threaded `AnomalyMonitor.MonitorSpecification` and
+`AnomalySubscription`/`UpdateAnomalySubscriptionInput.ThresholdExpression` through the
+backend and added `wire_field_fixes_test.go`, but left no fail-before evidence for
+anything finished after its last confirmation and never updated this file. Verified both
+fixes directly against `costexplorer@v1.67.4 types/types.go`
+(`AnomalyMonitor.MonitorSpecification *Expression`,
+`AnomalySubscription.ThresholdExpression *Expression`) and confirmed `go build`/`go
+vet`/`go test -race -count=1`/`golangci-lint run` all pass on the committed state.
+
+Per this campaign's "sweep every sibling field in the same struct" rule, swept
+`AnomalyMonitor`'s two other real members the fix hadn't touched:
+`DimensionalValueCount` and `LastEvaluatedDate`. `DimensionalValueCount` ("the value for
+evaluated dimensions") was completely absent from the wire and always the zero value —
+but for a `DIMENSIONAL` monitor on the `SERVICE` or `LINKED_ACCOUNT` dimension this
+backend has real, non-fabricated state to derive it from: the distinct-value count for
+that dimension in the synthetic cost ledger, the same data `GetDimensionValues` already
+reads. Fixed (`handler_anomalies.go`'s new `dimensionalValueCount` helper), proven via
+`TestGetAnomalyMonitors_DimensionalValueCount_RealClient` (asserts the real SDK client
+sees `12`, matching `syntheticServiceCatalog`'s 12 seeded services), confirmed to fail
+against the unmodified code first. `LastEvaluatedDate` and `DimensionalValueCount` for
+the `TAG`/`COST_CATEGORY` dimensions stay unset — no anomaly-detection evaluation engine
+exists anywhere in this backend to derive a real value from (see `gaps`); fabricating one
+would be exactly the fabrication class this campaign has repeatedly found and reverted.
+
+Also performed a full write-only-state and per-op wire-shape sweep of
+`services/outposts` (43 ops) at the same time, since its own audit trail (a dated,
+detailed, A-graded `PARITY.md` with no `wire_field_fixes*_test.go`) matches the
+higher-risk pattern this campaign has previously found a real bug hiding under
+(`servicediscovery`). Field-diffed every Get/List/Describe response and every
+Create/Update request against the pinned `outposts@v1.66.1` SDK, traced six
+domain-object write paths (Order, Quote, Site, CapacityTask, Connection,
+Outpost) end-to-end from their Create/Update handlers to their read paths, and
+cross-checked every enum constant. No bug found — a genuinely clean pass, not a
+skipped one; see `services/outposts/PARITY.md` for the full record.
+
+### Bugs fixed this pass (earlier: 2026-07-29)
 
 All 7 fixes are in the same family: **wrong or missing error-code/HTTP-status mapping**,
 none are disguised no-ops (every op in the AnomalyMonitor/AnomalySubscription/CostCategory

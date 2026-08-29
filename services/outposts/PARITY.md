@@ -6,8 +6,8 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: outposts
 sdk_module: aws-sdk-go-v2/service/outposts@v1.66.1   # go.mod's actual pin at this audit (unchanged)
-last_audit_commit: 67762068b
-last_audit_date: 2026-08-07
+last_audit_commit: 16c7cbeba7 # HEAD as of the 2026-08-29 sweep below (no outposts files changed)
+last_audit_date: 2026-08-29
 # Raised to A this pass (gopherstack-b9mg). Closed both remaining buildable gaps the prior pass
 # left open:
 # (1) Order/CapacityTask lifecycle now transitions through the real SDK-declared intermediate
@@ -115,6 +115,59 @@ structural_gaps:
   - "ENTERPRISE_SUPPORT_ERROR (OrderingRequirementType) is not produced: it requires an AWS Support-plan model (which plan the account subscribes to) this backend has no state for, matching services/grafana's identical treatment of AccessDeniedException and this document's own existing ServiceQuotaExceededException precedent."
 leaks: {status: clean, note: "InMemoryBackend.Reset() closes every Outpost's and Site's tags.Tags before clearing (store.go); Close() stops the worker.Group backing every scheduled Order/CapacityTask transition timer, now a 2-3-hop chain instead of one shot (mirrors services/grafana's scheduleWorkspaceActivation pattern the prior audit called out as the thing to watch for; services/mgn's exportimport.go chained-After pattern confirmed the same shape holds for a multi-hop chain, not just one hop)."}
 ---
+
+## Full write-only-state and wire-shape re-sweep (2026-08-29)
+
+This service had no `wire_field_fixes*_test.go`, yet carried a dated, detailed,
+A-graded manifest -- the higher-risk pattern this campaign has previously found a real
+bug hiding under (`servicediscovery`: no test file, confident "audited and confirmed
+correct" note, real bug inside). A companion `ce` pass that had genuinely found and
+fixed two write-only-state bugs (`AnomalyMonitor.MonitorSpecification`,
+`AnomalySubscription.ThresholdExpression`) had also been assigned this service but was
+cut off before starting it, so no prior pass in this campaign had actually re-verified
+this manifest's claims. Confirmed protocol first (`awsRestjson1`, matching this file's
+existing Notes section, cross-checked directly against `serializers.go`'s
+`awsRestjson1_serializeOpHttpBindings*` function names).
+
+**Primary method (write-only-state):** enumerated every field on every domain record in
+`models.go` (Outpost, Site, Order, Quote, CapacityTask, Asset, Connection, and their
+nested sub-structs) and traced each write path (`CreateOutpost`, `CreateSite`,
+`CreateOrder`, `CreateQuote`, `StartCapacityTask`, `StartConnection` -- read directly from
+`orders.go`/`quotes.go`/`capacity_tasks.go`/`connections.go`/`sites.go`) to confirm every
+accepted request field is both stored and threaded onto the record, and every stored
+field has a real read path (`GetOutpost`/`GetSite`/`GetOrder`/`GetQuote`/
+`GetCapacityTask`/`GetConnection` or their List/Summary counterparts). No write-only
+field found; the internal-only fields with no wire counterpart (`Outpost.PaymentOption`/
+`PaymentTerm`/`ContractEndDate`/`Subscriptions`, `Site.ShippingAddress`) are all
+documented, correct simplifications already noted in `models.go`'s doc comments (real
+`types.Outpost`/`types.Site` genuinely have no such members; the data surfaces through
+`GetOutpostBillingInformation`/`GetSiteAddress` instead, both verified below).
+
+**Get/List/Describe wire-shape sweep:** field-diffed all 23 struct-or-list-returning ops'
+real `*Output` types (`api_op_*.go`) and every nested `types.*` struct they reference
+(`Outpost`, `Site`, `Order`/`OrderSummary`, `Quote`/`QuoteSummary`/`QuoteOption`/
+`CapacitySummary`, `CapacityTaskSummary`, `AssetInfo`/`AssetLocation`/`ComputeAttributes`,
+`AssetInstance`, `CatalogItem`, `DetailedInstanceTypeItem`, `ConnectionDetails`,
+`InstanceTypeItem`, `PricingOption`/`PricingResult`, `Subscription`, `BlockingInstance`,
+`LineItem`, `EC2Capacity`) directly against `wire.go`'s corresponding wire structs,
+field-by-field, including nesting depth and Go type (confirmed timestamps are
+epoch-seconds `float64` via `deserializers.go`'s `smithytime.ParseEpochSeconds` calls,
+matching `wire.go`'s existing convention). Every field matched exactly -- no invented
+members, no missing members, no wrong types. Also field-diffed 12 `Create`/`Update`
+request `*Input` types against `wire.go`'s request structs (INVENTED MEMBER check on the
+request side): exact match on all. Cross-checked `OrderStatus`/`PaymentOption`/
+`TaskActionOnBlockingInstances`/`DecommissionRequestStatus`/`SupportedHardwareType`
+constants in `consts.go` against `types/enums.go`: all real, correctly spelled values
+(WRONG-ENUM-VALUES check clean).
+
+**Tools:** `enumcheck`/`acceptguard`/`zeroguard`/`xmlitemwrap` (run repo-wide, no
+per-service flag exists) produced zero findings anywhere under `services/outposts/`.
+
+**Verdict: clean pass, not a skipped one.** No bug found in this service on this pass --
+per this campaign's own rule against fabricating findings to justify a pass, this is
+recorded as a genuine, actively-re-verified result rather than a stub of "already
+audited, trust it." `last_audit_commit`/`last_audit_date` above updated to reflect this
+re-verification even though no `services/outposts/*.go` file changed.
 
 ## Route table SDK diff (2026-08-13, gopherstack-jqh2 pass 3)
 

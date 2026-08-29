@@ -383,3 +383,43 @@ func TestAnomalySubscription_ThresholdExpression_RealClient(t *testing.T) {
 	assert.Equal(t, cetypes.DimensionAnomalyTotalImpactPercentage, got2.ThresholdExpression.Dimensions.Key)
 	assert.Equal(t, []string{"50"}, got2.ThresholdExpression.Dimensions.Values)
 }
+
+// TestGetAnomalyMonitors_DimensionalValueCount_RealClient covers a
+// write-only-state-style sibling bug found by sweeping AnomalyMonitor's
+// other real members alongside the MonitorSpecification fix above: real
+// types.AnomalyMonitor.DimensionalValueCount ("the value for evaluated
+// dimensions" -- costexplorer@v1.67.4 types/types.go) was entirely absent
+// from this package's wire struct and never computed, so a real client's
+// typed DimensionalValueCount was always the zero value regardless of
+// backend state. For a DIMENSIONAL monitor on the SERVICE or LINKED_ACCOUNT
+// dimension this emulator has a real, non-fabricated source to derive it
+// from: the count of that dimension's distinct values in the synthetic cost
+// ledger (the same data GetDimensionValues already reads,
+// syntheticServiceCatalog seeding 12 distinct SERVICE values).
+func TestGetAnomalyMonitors_DimensionalValueCount_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := ce.NewHandler(ce.NewInMemoryBackend("000000000000", "us-east-1"))
+	client := newTestCEClient(t, h)
+
+	createOut, err := client.CreateAnomalyMonitor(t.Context(), &costexplorersdk.CreateAnomalyMonitorInput{
+		AnomalyMonitor: &cetypes.AnomalyMonitor{
+			MonitorName:      aws.String("ServiceMonitor"),
+			MonitorType:      cetypes.MonitorTypeDimensional,
+			MonitorDimension: cetypes.MonitorDimensionService,
+		},
+	})
+	require.NoError(t, err)
+
+	getOut, err := client.GetAnomalyMonitors(t.Context(), &costexplorersdk.GetAnomalyMonitorsInput{
+		MonitorArnList: []string{aws.ToString(createOut.MonitorArn)},
+	})
+	require.NoError(t, err)
+	require.Len(t, getOut.AnomalyMonitors, 1)
+	assert.EqualValues(
+		t,
+		12,
+		getOut.AnomalyMonitors[0].DimensionalValueCount,
+		"DimensionalValueCount must reflect the real distinct-SERVICE-value count, not be silently dropped",
+	)
+}
