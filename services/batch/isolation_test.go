@@ -26,12 +26,12 @@ func TestBatchComputeEnvironmentRegionIsolation(t *testing.T) {
 	ctxWest := ctxRegion("us-west-2")
 
 	// 1. Create a compute environment named "ce1" in us-east-1.
-	eastCE, err := backend.CreateComputeEnvironment(ctxEast, "ce1", "MANAGED", "ENABLED", nil, "", nil, nil, nil)
+	eastCE, err := backend.CreateComputeEnvironment(ctxEast, "ce1", "MANAGED", "ENABLED", nil, "", nil, nil, nil, nil)
 	require.NoError(t, err)
 	assert.Contains(t, eastCE.ComputeEnvironmentArn, "us-east-1")
 
 	// 2. Create a CE with the SAME NAME in us-west-2 — must not collide.
-	westCE, err := backend.CreateComputeEnvironment(ctxWest, "ce1", "MANAGED", "ENABLED", nil, "", nil, nil, nil)
+	westCE, err := backend.CreateComputeEnvironment(ctxWest, "ce1", "MANAGED", "ENABLED", nil, "", nil, nil, nil, nil)
 	require.NoError(t, err)
 	assert.Contains(t, westCE.ComputeEnvironmentArn, "us-west-2")
 	assert.NotEqual(t, eastCE.ComputeEnvironmentArn, westCE.ComputeEnvironmentArn)
@@ -46,7 +46,7 @@ func TestBatchComputeEnvironmentRegionIsolation(t *testing.T) {
 	assert.Contains(t, westList[0].ComputeEnvironmentArn, "us-west-2")
 
 	// 4. Deleting the CE in us-east-1 (after disabling) leaves us-west-2 intact.
-	_, err = backend.UpdateComputeEnvironment(ctxEast, "ce1", "DISABLED", "", nil, nil)
+	_, err = backend.UpdateComputeEnvironment(ctxEast, "ce1", "DISABLED", "", nil, nil, nil)
 	require.NoError(t, err)
 	require.NoError(t, backend.DeleteComputeEnvironment(ctxEast, "ce1"))
 
@@ -189,7 +189,7 @@ func TestBatchDefaultRegionFallback(t *testing.T) {
 
 	// No region in context → uses default region us-east-1.
 	ce, err := backend.CreateComputeEnvironment(
-		context.Background(), "ce1", "MANAGED", "ENABLED", nil, "", nil, nil, nil,
+		context.Background(), "ce1", "MANAGED", "ENABLED", nil, "", nil, nil, nil, nil,
 	)
 	require.NoError(t, err)
 	assert.Contains(t, ce.ComputeEnvironmentArn, "us-east-1")

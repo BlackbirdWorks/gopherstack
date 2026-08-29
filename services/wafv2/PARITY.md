@@ -6,8 +6,8 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: wafv2
 sdk_module: aws-sdk-go-v2/service/wafv2@v1.77.3   # version audited against (bumped from v1.76.0; go.mod pin was stale)
-last_audit_commit: 7061877e4                      # HEAD when the v1.71.2 manifest was written; this pass only adds the 4 new ops below
-last_audit_date: 2026-08-10
+last_audit_commit: d7f71c4cd                      # HEAD after the 2026-08-29 gopherstack-6flj/21my fresh sweep (WebACL/RuleGroup/DescribeManagedRuleGroup LabelNamespace + WebACL.Capacity)
+last_audit_date: 2026-08-29
 overall: A            # New this pass: the AI-bot pay-per-crawl monetization-reporting family
                       # (GetRevenueStatistics/GetRevenueStatisticsSummary/
                       # GetRevenueStatisticsTimeSeries/ListSettlementRecords), added to the SDK
@@ -49,7 +49,7 @@ overall: A            # New this pass: the AI-bot pay-per-crawl monetization-rep
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
   CreateWebACL: {wire: fixed, errors: ok, state: ok, persist: ok, note: "fixed: Summary was missing Description field; 2026-08-23 gopherstack request-side sweep: MonetizationConfig/DataProtectionConfig/ApplicationConfig/OnSourceDDoSProtectionConfig were accepted and silently dropped, see Notes"}
-  GetWebACL: {wire: ok, errors: fixed, state: ok, persist: ok, note: "ApplicationIntegrationURL top-level field not modeled (see gaps). gopherstack-4ly2 (2026-08-21): handler unconditionally required Id, but GetWebACLInput marks no member required (wafv2@v1.77.3 api_op_GetWebACL.go) -- ARN is a real alternative to Name+Scope+Id. Added GetWebACLByARN (region-scoped via the existing webACLsByARN index/webACLIDByARNInRegion) so an ARN-only request now resolves; Id-absent-and-ARN-absent still rejects."}
+  GetWebACL: {wire: fixed, errors: fixed, state: ok, persist: ok, note: "ApplicationIntegrationURL top-level field not modeled (see gaps). gopherstack-4ly2 (2026-08-21): handler unconditionally required Id, but GetWebACLInput marks no member required (wafv2@v1.77.3 api_op_GetWebACL.go) -- ARN is a real alternative to Name+Scope+Id. Added GetWebACLByARN (region-scoped via the existing webACLsByARN index/webACLIDByARNInRegion) so an ARN-only request now resolves; Id-absent-and-ARN-absent still rejects. FIXED (this session, gopherstack-6flj reverse-direction sweep): WebACL.Capacity (types.WebACL) was never computed -- this backend already has a real per-statement WCU cost model (capacity.go, used by CheckCapacity) but never applied it to its own GetWebACL response; now computed via the same engine. WebACL.LabelNamespace was also entirely unmodeled -- grammar `awswaf:<account ID>:webacl:<web ACL name>:` confirmed via https://docs.aws.amazon.com/waf/latest/APIReference/API_WebACL.html (the pinned SDK's own doc comment has its <placeholder> substitutions stripped by a codegen artifact). Both proven via real aws-sdk-go-v2/service/wafv2 client round trips (TestGetWebACL_CapacityAndLabelNamespace, wire_field_fixes_test.go), confirmed failing pre-fix, restored."}
   UpdateWebACL: {wire: fixed, errors: ok, state: ok, persist: ok, note: "2026-08-23: same MonetizationConfig/DataProtectionConfig/ApplicationConfig/OnSourceDDoSProtectionConfig drop as CreateWebACL, see Notes"}
   DeleteWebACL: {wire: ok, errors: ok, state: ok, persist: ok}
   ListWebACLs: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -64,7 +64,7 @@ ops:
   DeleteRegexPatternSet: {wire: ok, errors: ok, state: ok, persist: ok}
   ListRegexPatternSets: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateRuleGroup: {wire: fixed, errors: ok, state: ok, persist: ok, note: "fixed: Summary was missing Description field; 2026-08-23: MonetizationConfig was accepted and silently dropped, see Notes"}
-  GetRuleGroup: {wire: ok, errors: fixed, state: ok, persist: ok, note: "gopherstack-4ly2 (2026-08-21): handler unconditionally required Id, but GetRuleGroupInput marks no member required (wafv2@v1.77.3 api_op_GetRuleGroup.go) -- ARN is a real alternative to Name+Scope+Id. Added GetRuleGroupByARN (region-scoped via the existing ruleGroupsByARN index) so an ARN-only request now resolves; Id-absent-and-ARN-absent still rejects."}
+  GetRuleGroup: {wire: fixed, errors: fixed, state: ok, persist: ok, note: "gopherstack-4ly2 (2026-08-21): handler unconditionally required Id, but GetRuleGroupInput marks no member required (wafv2@v1.77.3 api_op_GetRuleGroup.go) -- ARN is a real alternative to Name+Scope+Id. Added GetRuleGroupByARN (region-scoped via the existing ruleGroupsByARN index) so an ARN-only request now resolves; Id-absent-and-ARN-absent still rejects. FIXED (this session, gopherstack-6flj reverse-direction sweep): RuleGroup.LabelNamespace (types.RuleGroup) was entirely unmodeled, unlike its sibling Capacity which this handler already emitted correctly -- grammar `awswaf:<account ID>:rulegroup:<rule group name>:` confirmed via https://docs.aws.amazon.com/waf/latest/APIReference/API_RuleGroup.html. Proven via TestGetRuleGroup_LabelNamespace (wire_field_fixes_test.go), confirmed failing pre-fix, restored."}
   UpdateRuleGroup: {wire: fixed, errors: ok, state: ok, persist: ok, note: "2026-08-23: same MonetizationConfig drop as CreateRuleGroup, see Notes"}
   DeleteRuleGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "correctly blocks delete while referenced by a WebACL rule"}
   ListRuleGroups: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -97,7 +97,7 @@ ops:
   GetTopPathStatisticsByTraffic: {wire: fixed, errors: ok, state: partial, note: "FIXED 2026-08-13 (bd gopherstack-kb66): emitted {UrlStatistics: []}, a key that does not exist in the real API, and never emitted the required PathStatistics/TotalRequestCount (awsAwsjson11_serializeOpDocumentGetTopPathStatisticsByTrafficInput/deserializer, wafv2@v1.77.3). The request side was also wrong: it read WebACLName/WebACLId, neither of which exists on this op's wire shape at all -- the real request identifies the web ACL by WebAclArn, matching GetSampledRequests' convention. Now emits real PathStatistics/TotalRequestCount keys, honestly empty/zero (this backend has no per-request path/bot traffic model to aggregate, same structural gap as GetSampledRequests above), proven with a real aws-sdk-go-v2 client round trip (TestGetTopPathStatisticsByTraffic_SDKRoundTrip)."}
   DescribeAllManagedProducts: {wire: ok, errors: ok, state: ok, persist: n/a, note: "static catalog, no persistence needed; 2026-08-23: reviewed Scope (required on DescribeAllManagedProductsInput, api_op_DescribeAllManagedProducts.go) -- decode ignores the whole body (`_ []byte`), same as its siblings DescribeManagedProductsByVendor/DescribeManagedRuleGroup, which DO parse Scope but never filter on it either; the catalog (managed_rule_catalog.go) carries no per-entry scope-availability data for any of the three ops, so this is the existing modelling gap, not new -- not fixed, see gaps"}
   DescribeManagedProductsByVendor: {wire: ok, errors: ok, state: ok, persist: n/a}
-  DescribeManagedRuleGroup: {wire: ok, errors: ok, state: ok, persist: n/a}
+  DescribeManagedRuleGroup: {wire: fixed, errors: ok, state: ok, persist: n/a, note: "FIXED (this session, gopherstack-6flj sweep): DescribeManagedRuleGroupOutput.LabelNamespace (grammar `awswaf:managed:<vendor>:<rule group name>:`, confirmed via https://docs.aws.amazon.com/waf/latest/APIReference/API_DescribeManagedRuleGroup.html) and .VersionName (echoes the request's VersionName, else the catalog's existing hardcoded default \"Version_1.0\" for a versioning-supported group, matching ListAvailableManagedRuleGroupVersions' own CurrentDefaultVersion) were entirely unmodeled. Also removed an INVENTED \"Description\" response key -- confirmed absent from DescribeManagedRuleGroupOutput's real member set (api_op_DescribeManagedRuleGroup.go) and already flagged as such by the 2026-08-22 keycheck sweep note below but left unfixed at the time; harmless to a typed client (extra key silently discarded) so not a functional bug, but removed since it was already disclosed as a known invention. Proven via TestDescribeManagedRuleGroup_LabelNamespaceAndVersionName (wire_field_fixes_test.go), confirmed failing pre-fix, restored."}
   ListAvailableManagedRuleGroups: {wire: ok, errors: ok, state: ok, persist: n/a}
   ListAvailableManagedRuleGroupVersions: {wire: ok, errors: ok, state: ok, persist: n/a}
   GenerateMobileSdkReleaseUrl: {wire: ok, errors: ok, state: ok, persist: n/a}
@@ -154,6 +154,11 @@ leaks: {status: clean, note: "no goroutines/janitors in this service; all state 
   client's typed struct has no slot to receive (harmless noise, not a
   dropped-required-value bug), not the same severity as `CheckCapacity`.
   Left as a disclosed follow-up rather than fixed in this pass.
+  UPDATE (gopherstack-6flj, this session): `DescribeManagedRuleGroup`'s
+  invented `"Description"` key has since been removed (see the
+  `DescribeManagedRuleGroup` ops row above) -- the other three
+  (`GetWebACLForResource` `"LockToken"`, `GetDecryptedAPIKey` `"Scope"`,
+  `ListAPIKeys` items' `"Scope"`) remain disclosed, not fixed, this pass.
 
 - Protocol is awsjson1.1: single POST endpoint, `X-Amz-Target: AWSWAF_20190729.<Op>`. Route
   matcher (`RouteMatcher`) does a header-prefix match; confirmed the dispatch table's 55 keys
@@ -442,3 +447,88 @@ fixed versions before re-applying the test call-site updates.
 `DescribeAllManagedProducts`' `Scope` (also flagged unread) was checked
 separately and is NOT the same class: see the `gaps` entry above — no
 backend state exists to lose, consistent with its two sibling catalog ops.
+
+## 2026-08-29 gopherstack-6flj/21my fresh sweep (Step 0: prior campaign tags do NOT mean done)
+
+This service already carried an extensive `gopherstack-6flj`/`zquj`/`4ly2`/`iens`/`o7gx`
+history (see dated sections above) and an existing `wire_field_fixes_test.go`
+-- the "confident manifest, test file present" shape this campaign's own
+notes warn is ambiguous rather than predictive. Swept anyway, per protocol.
+
+Protocol re-confirmed (not trusted from memory): `awsAwsjson11_` deserializer
+prefix, `X-Amz-Target: AWSWAF_20190729.<Op>` header (`serializers.go`).
+Confirmed this service imports `aws-sdk-go-v2/service/wafv2` (not the
+classic `waf` service). Dispatch table diffed 1:1 against the pinned SDK's
+59 `api_op_*.go` stems: exact match, no phantom/missing ops.
+
+Tools run fresh (`enumcheck`, `acceptguard`, `zeroguard`, `xmlitemwrap`):
+zero findings for `services/wafv2/` from any of the four. Consistent with
+this issue's own observation that a clean tool run does not substitute for
+a manual sweep -- three real bugs were found anyway:
+
+1. **`GetWebACL`/`GetWebACLForResource`: `WebACL.Capacity` never computed.**
+   Reverse-direction write-only-state check: this backend already has a
+   real per-statement WCU cost model (`capacity.go`, used by
+   `CheckCapacity`) but never applied it to its own `GetWebACL` response --
+   a Describe op with a real computation source sitting right next to it,
+   unused. Fixed by calling `b.CheckCapacity` from `marshalWebACL` over the
+   ACL's own `Rules`. `WebACLSummary` (used by `ListWebACLs`) has no
+   `Capacity` member at all, confirmed via its own struct definition, so
+   `ListWebACLs` is unaffected.
+2. **`WebACL.LabelNamespace` and `RuleGroup.LabelNamespace` entirely
+   unmodeled.** Both are real, always-derivable members
+   (`types.WebACL`/`types.RuleGroup`) with a documented deterministic
+   grammar -- `awswaf:<account ID>:webacl:<web ACL name>:` and
+   `awswaf:<account ID>:rulegroup:<rule group name>:` respectively,
+   confirmed via the AWS API reference (the pinned SDK's own doc comments
+   for both have their `<placeholder>` substitutions stripped by a codegen
+   artifact -- verified by reading the raw source file directly, not
+   assumed). Not fabrication: both are computed from data this backend
+   already has (`AccountID()`, resource `Name`).
+3. **`DescribeManagedRuleGroup`: `LabelNamespace`/`VersionName` unmodeled,
+   plus an invented `"Description"` key removed.** `LabelNamespace` grammar
+   `awswaf:managed:<vendor>:<rule group name>:` confirmed via the AWS API
+   reference. `VersionName` echoes the request's `VersionName` if given,
+   else the catalog's pre-existing hardcoded default `"Version_1.0"` for a
+   versioning-supported group (now factored into a shared
+   `defaultManagedRuleGroupVersion` const, matching
+   `ListAvailableManagedRuleGroupVersions`' own `CurrentDefaultVersion`) --
+   left absent for a non-versioned group, since this catalog has no version
+   data for those at all and inventing one would be fabrication. The
+   `"Description"` key was confirmed absent from the real
+   `DescribeManagedRuleGroupOutput` member set and was already flagged by
+   the 2026-08-22 keycheck sweep note as an invented/harmless key left
+   unfixed at the time; removed now.
+
+Checked and confirmed NOT bugs: `APIKeySummary.Version`/
+`GetDecryptedAPIKeyOutput` -- real member, doc'd only as "Internal value
+used by AWS WAF to manage the key", minimum value 0, no documented meaning
+distinguishing zero from any other value (confirmed via
+https://docs.aws.amazon.com/waf/latest/APIReference/API_APIKeySummary.html).
+Fabricating a specific versioning scheme here would be pure invention with
+no spec to match against, the same reasoning already applied to
+`ApplicationIntegrationURL` in `gaps` above -- left unmodeled, not fixed.
+`ComputeEnvironmentDetail`-style checks don't apply to this service; see
+`services/batch/PARITY.md` for the batch half of this sweep.
+
+IPSet/RegexPatternSet field-diffed against `types.IPSet`/`types.RegexPatternSet`
+in full: no gaps (`Addresses`/`IPAddressVersion`/`Id`/`Name`/`Description`/`ARN`
+and `RegularExpressionList`/`Id`/`Name`/`Description`/`ARN` respectively,
+matching exactly).
+
+Proven via `wire_field_fixes_test.go`'s `TestGetWebACL_CapacityAndLabelNamespace`,
+`TestGetRuleGroup_LabelNamespace`, and
+`TestDescribeManagedRuleGroup_LabelNamespaceAndVersionName` -- each drives the
+real `aws-sdk-go-v2/service/wafv2` client, confirmed failing against
+unmodified code before the fix (captured in this session's transcript, not
+hand-reverted after the fact since the tests were written and run against
+unmodified code first), then passing after. Full `services/wafv2/...` suite
+green after the fix; `golangci-lint run --fix` clean (0 issues after adding
+a `defaultManagedRuleGroupVersion` const for a `goconst` finding on the
+literal `"Version_1.0"`).
+
+NOT independently re-verified this pass (ops unchanged, relying on the
+extensive prior audit trail above): the revenue-statistics family, logging
+configuration, permission policies, API key CRUD beyond the `Version` check
+above, managed rule set family, and the tag/pagination/error-code
+infrastructure.

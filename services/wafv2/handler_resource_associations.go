@@ -123,7 +123,7 @@ func (h *Handler) handleGetWebACLForResource(ctx context.Context, body []byte) (
 		return nil, err
 	}
 
-	return h.marshalWebACL(w)
+	return h.marshalWebACL(ctx, w)
 }
 
 // listResourcesForWebACLRequest is the request body for ListResourcesForWebACL.

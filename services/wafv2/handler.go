@@ -34,6 +34,7 @@ const (
 	keyRules            = "Rules"
 	keyCapacity         = "Capacity"
 	keyVendorName       = "VendorName"
+	keyLabelNamespace   = "LabelNamespace"
 )
 const (
 	wafv2Service       = "wafv2"

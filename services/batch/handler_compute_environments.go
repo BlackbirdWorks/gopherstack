@@ -59,6 +59,7 @@ type createComputeEnvironmentInput struct {
 	ComputeResources       *computeResourcesInput `json:"computeResources,omitempty"`
 	EksConfiguration       *eksConfigurationInput `json:"eksConfiguration,omitempty"`
 	UpdatePolicy           *updatePolicyInput     `json:"updatePolicy,omitempty"`
+	UnmanagedvCpus         *int32                 `json:"unmanagedvCpus,omitempty"`
 	ComputeEnvironmentName string                 `json:"computeEnvironmentName"`
 	Type                   string                 `json:"type"`
 	State                  string                 `json:"state"`
@@ -151,6 +152,7 @@ func (h *Handler) handleCreateComputeEnvironment(
 		computeResourcesFromInput(in.ComputeResources),
 		eksConfigFromInput(in.EksConfiguration),
 		updatePolicyFromInput(in.UpdatePolicy),
+		in.UnmanagedvCpus,
 	)
 	if err != nil {
 		return nil, err
@@ -200,6 +202,7 @@ func (h *Handler) handleDescribeComputeEnvironments(
 type updateComputeEnvironmentInput struct {
 	ComputeResources   *computeResourcesInput `json:"computeResources,omitempty"`
 	UpdatePolicy       *updatePolicyInput     `json:"updatePolicy,omitempty"`
+	UnmanagedvCpus     *int32                 `json:"unmanagedvCpus,omitempty"`
 	ComputeEnvironment string                 `json:"computeEnvironment"`
 	State              string                 `json:"state"`
 	ServiceRole        string                 `json:"serviceRole,omitempty"`
@@ -219,6 +222,7 @@ func (h *Handler) handleUpdateComputeEnvironment(
 		in.ComputeEnvironment, in.State, in.ServiceRole,
 		computeResourcesFromInput(in.ComputeResources),
 		updatePolicyFromInput(in.UpdatePolicy),
+		in.UnmanagedvCpus,
 	)
 	if err != nil {
 		return nil, err

@@ -6,6 +6,11 @@ import (
 	"fmt"
 )
 
+// defaultManagedRuleGroupVersion is this catalog's single hardcoded version
+// for a versioning-supported managed rule group -- matching
+// ListAvailableManagedRuleGroupVersions' own CurrentDefaultVersion value.
+const defaultManagedRuleGroupVersion = "Version_1.0"
+
 // handleDescribeAllManagedProducts returns the catalog of managed products.
 func (h *Handler) handleDescribeAllManagedProducts(_ []byte) ([]byte, error) {
 	products := make([]map[string]any, 0, len(getManagedRuleGroups()))
@@ -71,14 +76,33 @@ func (h *Handler) handleDescribeManagedRuleGroup(body []byte) ([]byte, error) {
 	// Look up catalog entry.
 	for _, mrg := range getManagedRuleGroups() {
 		if mrg.VendorName == req.VendorName && mrg.Name == req.Name {
-			return json.Marshal(map[string]any{
+			resp := map[string]any{
 				keyCapacity:       mrg.Capacity,
 				keyRules:          buildRuleList(mrg.Rules),
 				"SnsTopicArn":     "",
 				"AvailableLabels": buildLabelList(mrg.Rules),
 				"ConsumedLabels":  []any{},
-				"Description":     mrg.Description,
-			})
+				// LabelNamespace grammar "awswaf:managed:<vendor>:<rule group
+				// name>:" confirmed via
+				// https://docs.aws.amazon.com/waf/latest/APIReference/API_DescribeManagedRuleGroup.html
+				// -- deterministic from catalog data, not fabricated.
+				"LabelNamespace": fmt.Sprintf("awswaf:managed:%s:%s:", mrg.VendorName, mrg.Name),
+			}
+
+			// VersionName: echoes the request's VersionName if given, else
+			// the vendor's default version -- this catalog only tracks one
+			// hardcoded version per versioning-supported group,
+			// "Version_1.0", matching ListAvailableManagedRuleGroupVersions'
+			// own CurrentDefaultVersion. Left absent for a non-versioned
+			// group: this catalog has no version data for those at all, and
+			// inventing one would be fabrication.
+			if req.VersionName != "" {
+				resp["VersionName"] = req.VersionName
+			} else if mrg.VersioningSupported {
+				resp["VersionName"] = defaultManagedRuleGroupVersion
+			}
+
+			return json.Marshal(resp)
 		}
 	}
 
@@ -241,9 +265,9 @@ func (h *Handler) handleListAvailableManagedRuleGroupVersions(body []byte) ([]by
 		if mrg.VendorName == req.VendorName && mrg.Name == req.Name && mrg.VersioningSupported {
 			return json.Marshal(map[string]any{
 				"Versions": []map[string]any{
-					{"Name": "Version_1.0", "LastUpdateTimestamp": nil},
+					{"Name": defaultManagedRuleGroupVersion, "LastUpdateTimestamp": nil},
 				},
-				"CurrentDefaultVersion": "Version_1.0",
+				"CurrentDefaultVersion": defaultManagedRuleGroupVersion,
 			})
 		}
 	}

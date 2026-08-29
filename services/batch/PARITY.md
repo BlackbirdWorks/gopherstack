@@ -9,16 +9,16 @@
 # this was a targeted required-output sweep, not a full re-audit.
 service: batch
 sdk_module: aws-sdk-go-v2/service/batch@v1.68.4
-last_audit_commit: aad420594dea89bf7e3b745492889fee00ca2eb6
-last_audit_date: 2026-07-25
+last_audit_commit: d7f71c4cd  # HEAD after the 2026-08-29 gopherstack-6flj/21my fresh sweep (ComputeEnvironment UnmanagedvCpus/ContainerOrchestrationType/Uuid); prior aad420594 was the 2026-07-25 full audit
+last_audit_date: 2026-08-29
 overall: A            # SDK bump (v1.61.1 -> v1.68.0) added 6 new ops (QuotaShare CRUD+List, UpdateServiceJob); all 6 implemented for real this pass, no regressions in previously-audited ops
 ops:
   RegisterJobDefinition: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed timeout + consumableResourceProperties nesting (prior pass); this pass wired retryStrategy and eksProperties through the handler (both were previously hardcoded nil/absent)"}
   DescribeJobDefinitions: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed name:revision exact-match bug; bare-name still returns all revisions (matches AWS); retryStrategy now surfaced"}
   DeregisterJobDefinition: {wire: ok, errors: ok, state: ok, persist: ok}
-  CreateComputeEnvironment: {wire: ok, errors: ok, state: ok, persist: ok}
-  DescribeComputeEnvironments: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-21 (gopherstack-r80d batch 16, required-output cut): ComputeResource.MaxvCpus is required (types/types.go) but ComputeResources.MaxvCpus (models.go) was tagged omitempty. The real CreateComputeEnvironmentInput's client-side validateComputeResource (validators.go) only rejects a nil MaxvCpus pointer, not zero, and this backend's own validateComputeResourcesForCreate (compute_environments.go) never checks MaxvCpus at all -- so a real client's aws.Int32(0) is a fully reachable, unvalidated state, not a bypass. Fixed by removing the omitempty tag. ComputeResource.Type is also required but was NOT counted: the real SDK's own validator rejects an empty Type string client-side (len(v.Type)==0), so no real client can ever send one -- left as omitempty, unreachable. Proven via a real aws-sdk-go-v2/service/batch client round trip (wire_output_required_r80d_test.go), hand-reverted/confirmed-failing/restored, md5sum-verified byte-identical."}
-  UpdateComputeEnvironment: {wire: ok, errors: ok, state: ok, persist: ok}
+  CreateComputeEnvironment: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (this session, gopherstack-6flj reverse-direction sweep): CreateComputeEnvironmentInput.UnmanagedvCpus (api_op_CreateComputeEnvironment.go -- \"only used for fair-share scheduling to reserve vCPU capacity for new share identifiers\") was a real request member this backend parsed nowhere at all (grep for UnmanagedvCpus across services/batch/*.go returned zero hits before this fix). Now parsed, stored, and echoed by DescribeComputeEnvironments. Also FIXED: types.ComputeEnvironmentDetail.ContainerOrchestrationType (\"ECS (default) or EKS\") and .Uuid (\"Unique identifier for the compute environment\") were both entirely unmodeled -- ContainerOrchestrationType is deterministic from whether EksConfiguration was set at creation, and Uuid is generated with github.com/google/uuid at creation like every other resource's Id in this service. Proven via Test_SDKRoundTrip_ComputeEnvironment_UnmanagedvCpus and Test_SDKRoundTrip_ComputeEnvironment_ContainerOrchestrationTypeAndUuid (wire_field_fixes_test.go, new file this session), confirmed failing pre-fix, restored."}
+  DescribeComputeEnvironments: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-21 (gopherstack-r80d batch 16, required-output cut): ComputeResource.MaxvCpus is required (types/types.go) but ComputeResources.MaxvCpus (models.go) was tagged omitempty. The real CreateComputeEnvironmentInput's client-side validateComputeResource (validators.go) only rejects a nil MaxvCpus pointer, not zero, and this backend's own validateComputeResourcesForCreate (compute_environments.go) never checks MaxvCpus at all -- so a real client's aws.Int32(0) is a fully reachable, unvalidated state, not a bypass. Fixed by removing the omitempty tag. ComputeResource.Type is also required but was NOT counted: the real SDK's own validator rejects an empty Type string client-side (len(v.Type)==0), so no real client can ever send one -- left as omitempty, unreachable. Proven via a real aws-sdk-go-v2/service/batch client round trip (wire_output_required_r80d_test.go), hand-reverted/confirmed-failing/restored, md5sum-verified byte-identical. FIXED (this session): see CreateComputeEnvironment -- UnmanagedvCpus/ContainerOrchestrationType/Uuid now surfaced here too. STILL NOT modeled: EcsClusterArn (real infrastructure ARN for an ECS cluster this emulator never provisions; no documented/verifiable naming convention found to reproduce, unlike an ARN with a published grammar -- left disclosed, not fabricated) and Context (documented only as \"Reserved.\", no meaning to model)."}
+  UpdateComputeEnvironment: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (this session): UpdateComputeEnvironmentInput.UnmanagedvCpus (api_op_UpdateComputeEnvironment.go, same member/reasoning as CreateComputeEnvironment) was likewise parsed nowhere -- see CreateComputeEnvironment."}
   DeleteComputeEnvironment: {wire: ok, errors: ok, state: ok, persist: ok, note: "requires DISABLED state + no referencing queues before delete, matches AWS docs"}
   CreateJobQueue: {wire: ok, errors: ok, state: ok, persist: ok, note: "added jobQueueType + serviceEnvironmentOrder (were entirely unmodeled); rejects mixing computeEnvironmentOrder and serviceEnvironmentOrder, matching documented AWS constraint"}
   DescribeJobQueues: {wire: ok, errors: ok, state: ok, persist: ok, note: "surfaces jobQueueType/serviceEnvironmentOrder. FIXED 2026-08-21 (gopherstack-r80d batch 16, required-output cut): JobQueueDetail.ComputeEnvironmentOrder is required unconditionally (types/types.go), but JobQueue.ComputeEnvironmentOrder (models.go) was tagged omitempty. CreateJobQueueInput itself declares ComputeEnvironmentOrder and ServiceEnvironmentOrder mutually exclusive (api_op_CreateJobQueue.go doc comment), so a queue built purely from serviceEnvironmentOrder is a routine reachable state with a nil/empty ComputeEnvironmentOrder, not an edge case -- the required key vanished entirely instead of decoding as []. Fixed by removing the omitempty tag (job_queues.go's CreateJobQueue already always builds a non-nil orderCopy via make(), so this alone is enough for the create path; cloneJobQueueWithTags in job_queues.go was also hardened to normalize a nil ComputeEnvironmentOrder to [] defensively, guarding a stale pre-fix persisted snapshot). Proven via a real aws-sdk-go-v2/service/batch client round trip (wire_output_required_r80d_test.go), hand-reverted/confirmed-failing/restored, md5sum-verified byte-identical."}
@@ -67,6 +67,7 @@ gaps:
   - "gopherstack-6flj (this session): DescribeServiceJobOutput.attempts/capacityUsage/latestAttempt/preemptionSummary are unmodeled -- same root cause as DescribeJobs's disclosed attempts/nodeDetails gap above (no per-attempt execution simulation), plus preemptionSummary specifically requires this backend to actually preempt service jobs under quota-share contention, which it never does (bd: file follow-up)"
   - "2026-08-21 (gopherstack-r80d batch 16, required-output cut): four volume/logging/multi-node sub-features are entirely unmodeled on both the input and output side, so their own required members (EFSVolumeConfiguration.FileSystemId, S3FilesVolumeConfiguration.FileSystemArn, EksPersistentVolumeClaim.ClaimName, FirelensConfiguration.Type, NodePropertyOverride.TargetNodes, all required per types/types.go) can never be populated -- gopherstack's Volume/EksVolume/ContainerProperties/ContainerDetail structs (models.go) have no fields for EFS/S3/PVC volumes or Firelens log routing at all, and SubmitJob never accepts a nodeOverrides parameter. Verified structurally absent, not sampled: grepped models.go's Volume/EksVolume/ContainerProperties/ContainerDetail field lists directly against the real types.go members. Not new bugs -- consistent with the already-disclosed multi-node/ECS/EKS-describe-side gap above; naming the specific sub-structs here so a future pass doesn't re-derive this (bd: file follow-up, low priority)"
   - "gopherstack-2wvq (2026-08-22): ListJobs requires jobQueue unconditionally when the real API accepts jobQueue OR arrayJobId OR multiNodeJobId as mutually-exclusive alternates (api_op_ListJobs.go). Not a safe deletion: this backend has no array-job or multi-node-job child-record model at all (SubmitJob stores ArrayProperties.Size without spawning children; NodeProperties has no per-node Job records), so serving arrayJobId/multiNodeJobId would mean returning an empty list for a genuine array/MNP submission -- a confidently-wrong 200. Declined as a genuine feature (child-job spawning, new indexes, ArrayPropertiesSummary/NodePropertiesSummary, a persisted-model version bump), not attempted (bd: file follow-up)"
+  - "gopherstack-6flj (this session): ComputeEnvironmentDetail.EcsClusterArn (the ARN of the underlying Amazon ECS cluster the compute environment uses) is unmodeled -- this emulator never provisions a real ECS cluster per compute environment, and no documented/verifiable AWS naming convention was found to reproduce (unlike an ARN with a published grammar this emulator can legitimately construct, e.g. WebACL.LabelNamespace in services/wafv2). Left disclosed rather than fabricated. ComputeEnvironmentDetail.Context is also unmodeled but is documented only as \"Reserved.\" with no meaning to model (bd: file follow-up, low priority)"
 deferred: []
 leaks: {status: clean, note: "janitor.go's advanceJobs/sweep* all take/release the coarse lockmetrics.RWMutex correctly; every new backend method added this pass (SubmitServiceJob, ListServiceJobs, buildJobContainerDetail, describeResourcesPaginated) follows the same lock-then-defer-unlock pattern; go test -race clean. No new reverse-index maps were introduced that require cascade-cleanup on delete."}
 ---
@@ -380,3 +381,98 @@ silent gap: `go build`/`go vet`/`go test -race`/`go fix -diff`/
 `golangci-lint run` for `services/batch/...` and `./pkgs/...` were NOT run
 by this pass and must be run (and any resulting fix applied) before this
 work is considered done.
+
+## 2026-08-29 gopherstack-6flj/21my fresh sweep (Step 0: prior campaign tags do NOT mean done)
+
+This service already carried an extensive `gopherstack-r80d`/`2wvq`/`6flj`
+history (see the 2026-08-15 wrapper-key sweep section above) but no
+`wire_field_fixes*_test.go` existed yet (the file this session creates is
+new). Swept anyway, per protocol; the last full sweep's own GATES section
+disclosed it had NOT independently confirmed `go build`/`go vet`/
+`go test -race`/`golangci-lint` due to a tooling outage -- ran all of those
+fresh this session as the first step (all passed clean on the pre-existing
+code, confirming that pass's uncommitted work was sound before adding to it).
+
+Protocol re-confirmed (not trusted from memory): `awsRestjson1_` deserializer
+prefix, path-based POST routing under `/v1/` (`serializers.go`). Dispatch
+table diffed 1:1 against the pinned SDK's 45 `api_op_*.go` stems: exact
+match (three ops -- `ListTagsForResource`/`TagResource`/`UntagResource` --
+are referenced via package constants rather than literal strings in
+`GetSupportedOperations`, confirmed by resolving those constants).
+
+Tools run fresh (`enumcheck`, `acceptguard`, `zeroguard`, `xmlitemwrap`):
+zero findings for `services/batch/` from any of the four.
+
+Write-only-state sweep, both directions, focused on `ComputeEnvironment`
+(the least recently re-audited resource family per the dated notes above --
+`RegisterJobDefinition`/`ServiceJob`/`SchedulingPolicy`/`GetJobQueueSnapshot`
+all had recent per-field passes; `ComputeEnvironment` last had only the
+`MaxvCpus` required-output fix):
+
+- Forward direction (fields the backend persists but never reads back):
+  none found -- every `ComputeEnvironment` field this backend stores
+  (`ComputeResources`, `EksConfiguration`, `UpdatePolicy`, `Tags`,
+  `ServiceRole`, etc.) is already echoed by `DescribeComputeEnvironments`.
+- Reverse direction (a Describe op not reading data a sibling Create/Update
+  input accepts, or not deriving data this backend already tracks): **three
+  real bugs**, all in `ComputeEnvironmentDetail`
+  (`aws-sdk-go-v2/service/batch@v1.68.4` `types/types.go`), diffed member-
+  by-member against `services/batch/models.go`'s `ComputeEnvironment`:
+  1. **`UnmanagedvCpus`** -- a real member of both
+     `CreateComputeEnvironmentInput` and `UpdateComputeEnvironmentInput`
+     (`api_op_CreateComputeEnvironment.go`/`api_op_UpdateComputeEnvironment.go`:
+     "the maximum number of vCPUs expected to be used for an unmanaged
+     compute environment... only used for fair-share scheduling to reserve
+     vCPU capacity for new share identifiers") that this backend parsed
+     nowhere at all -- confirmed via a repo-wide grep for `UnmanagedvCpus`
+     returning zero hits before this fix. A real client's value was
+     silently dropped on both Create and Update, and never echoed.
+  2. **`ContainerOrchestrationType`** -- "The orchestration type of the
+     compute environment. The valid values are ECS (default) or EKS."
+     Deterministic from whether `EksConfiguration` was set at creation (this
+     backend already tracks that); computed once and stored rather than
+     re-derived per Describe, since it cannot change after creation either.
+  3. **`Uuid`** -- "Unique identifier for the compute environment." An
+     opaque AWS-generated identifier this backend never modeled or
+     generated, unlike every other resource's `Id`/ARN in this service.
+     Generated once at creation with `github.com/google/uuid` (already an
+     existing dependency here, used the same way by `SubmitJob`/
+     `SubmitServiceJob`'s `jobID` generation).
+
+  Two more real `ComputeEnvironmentDetail` members were checked and
+  disclosed rather than fixed: `EcsClusterArn` (the underlying real ECS
+  cluster's ARN -- this emulator never provisions one, and no
+  documented/verifiable naming convention was found to legitimately
+  reproduce it, unlike `LabelNamespace`'s published grammar in the wafv2
+  half of this sweep) and `Context` (documented only as "Reserved.", no
+  meaning to model). See the new `gaps` entry above.
+
+Also field-diffed `ServiceEnvironmentDetail` and
+`DescribeConsumableResourceOutput` in full against their models: no gaps
+found (both match exactly).
+
+Fixed by adding `UnmanagedvCpus *int32`, `ContainerOrchestrationType
+string`, and `UUID string` (Go naming convention; wire tag stays
+`json:"uuid,omitempty"` to match the real key) to `ComputeEnvironment`
+(`models.go`); threading `UnmanagedvCpus` through
+`createComputeEnvironmentInput`/`updateComputeEnvironmentInput`
+(`handler_compute_environments.go`) and the `CreateComputeEnvironment`/
+`UpdateComputeEnvironment` `StorageBackend` signatures (`compute_environments.go`
+-- all call sites in `isolation_test.go`/`persistence_test.go` updated for the
+new parameter); computing `ContainerOrchestrationType` and generating `UUID`
+at creation time in `CreateComputeEnvironment`.
+
+Proven via `wire_field_fixes_test.go`'s (new file this session)
+`Test_SDKRoundTrip_ComputeEnvironment_UnmanagedvCpus` and
+`Test_SDKRoundTrip_ComputeEnvironment_ContainerOrchestrationTypeAndUuid`,
+each driving the real `aws-sdk-go-v2/service/batch` client; both confirmed
+failing against unmodified code (captured in this session's transcript
+before the fix was applied, not hand-reverted after the fact), then
+passing after. Full `services/batch/...` suite green (`-race -count=1`)
+after the fix; `golangci-lint run --fix` clean (0 issues after renaming
+`Uuid` to `UUID` for a `revive` var-naming finding).
+
+NOT independently re-verified this pass (ops unchanged, relying on the
+extensive prior audit trail above): JobQueue, JobDefinition, Job,
+ConsumableResource, SchedulingPolicy, QuotaShare, ServiceEnvironment, and
+ServiceJob families beyond the `ComputeEnvironment` checks above.

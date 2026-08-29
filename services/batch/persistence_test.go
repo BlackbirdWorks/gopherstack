@@ -30,7 +30,7 @@ func TestInMemoryBackend_RestoreVersionMismatch(t *testing.T) {
 	t.Parallel()
 
 	b := batch.NewInMemoryBackend("000000000000", "us-east-1")
-	_, err := b.CreateComputeEnvironment(t.Context(), "ce1", "MANAGED", "ENABLED", nil, "", nil, nil, nil)
+	_, err := b.CreateComputeEnvironment(t.Context(), "ce1", "MANAGED", "ENABLED", nil, "", nil, nil, nil, nil)
 	require.NoError(t, err)
 	_, err = b.RegisterJobDefinition(
 		t.Context(), "jd1", "container", nil, nil, 0, 0, nil, nil, nil, nil, nil, nil, false,
@@ -57,7 +57,7 @@ func TestInMemoryBackend_RestoreOldSnapshotDecodesAsZero(t *testing.T) {
 	t.Parallel()
 
 	b := batch.NewInMemoryBackend("000000000000", "us-east-1")
-	_, err := b.CreateComputeEnvironment(t.Context(), "ce1", "MANAGED", "ENABLED", nil, "", nil, nil, nil)
+	_, err := b.CreateComputeEnvironment(t.Context(), "ce1", "MANAGED", "ENABLED", nil, "", nil, nil, nil, nil)
 	require.NoError(t, err)
 
 	// Pre-Phase-3.3 shape: plain region-nested resource maps, no "version" or
@@ -84,7 +84,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	original := batch.NewInMemoryBackend("111122223333", "us-west-2")
 
 	ce, err := original.CreateComputeEnvironment(
-		t.Context(), "ce-1", "MANAGED", "ENABLED", map[string]string{"env": "prod"}, "role-arn", nil, nil, nil,
+		t.Context(), "ce-1", "MANAGED", "ENABLED", map[string]string{"env": "prod"}, "role-arn", nil, nil, nil, nil,
 	)
 	require.NoError(t, err)
 	assert.Contains(t, ce.ComputeEnvironmentArn, "111122223333")
@@ -236,7 +236,7 @@ func TestBatch_PersistenceSnapshotRestore(t *testing.T) {
 
 	// Create compute environment.
 	ce, err := b.CreateComputeEnvironment(
-		context.Background(), "test-ce", "MANAGED", "ENABLED", nil, "", nil, nil, nil)
+		context.Background(), "test-ce", "MANAGED", "ENABLED", nil, "", nil, nil, nil, nil)
 	require.NoError(t, err)
 	require.NotEmpty(t, ce.ComputeEnvironmentArn)
 
