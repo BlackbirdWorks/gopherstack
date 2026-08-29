@@ -249,6 +249,7 @@ type capacityReservationTopologyItem struct {
 	CapacityReservationID string `xml:"capacityReservationId,omitempty"`
 	InstanceType          string `xml:"instanceType,omitempty"`
 	AvailabilityZone      string `xml:"availabilityZone,omitempty"`
+	State                 string `xml:"state,omitempty"`
 }
 
 type describeCapacityReservationTopologyResponse struct {
@@ -279,6 +280,7 @@ func (h *Handler) handleDescribeCapacityReservationTopology(vals url.Values, req
 			CapacityReservationID: e.CapacityReservationID,
 			InstanceType:          e.InstanceType,
 			AvailabilityZone:      e.AvailabilityZone,
+			State:                 e.State,
 		})
 	}
 
