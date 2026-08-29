@@ -9,6 +9,41 @@ sdk_module: aws-sdk-go-v2/service/fsx@v1.68.4   # version audited against
 last_audit_commit: 8d4556e7938635cdf7c945d46cea23d9dbe03cb9
 last_audit_date: 2026-08-29
 overall: A            # genuine wire-format + error-code bugs found and fixed
+                      # 2026-08-29 (constraint-not-honoured sweep, wrapper-key-sweep-rds-cloudwatch-sqs-sns branch):
+                      # every Describe* op whose real Input struct declares a Filters member had NO field for it
+                      # at all in gopherstack's request struct -- bug class 1 ("never read"), not a wrong-key
+                      # miswire. 7 ops affected: DescribeBackups (file-system-id/backup-type/file-system-type;
+                      # volume-id left as a disclosed gap, see below), DescribeDataRepositoryAssociations
+                      # (file-system-id only -- the shared types.Filter/FilterName enum's other 6 values don't
+                      # apply to a DRA), DescribeDataRepositoryTasks (file-system-id/task-lifecycle;
+                      # data-repository-association-id/file-cache-id left as disclosed gaps),
+                      # DescribeSnapshots (file-system-id/volume-id; IncludeShared not modeled, see below),
+                      # DescribeVolumes (file-system-id/storage-virtual-machine-id, both supported),
+                      # DescribeStorageVirtualMachines (file-system-id, its only real filter name), and
+                      # DescribeS3AccessPointAttachments (file-system-id/volume-id/type, all supported).
+                      # DescribeFileCaches/DescribeFileSystems confirmed clean -- neither op's real Input
+                      # declares a Filters member at all (field-diffed against fsx@v1.68.4 api_op_*.go), so
+                      # there was nothing to miss. Every filter's semantics taken from its own SDK enum
+                      # (types.FilterName/SnapshotFilterName/VolumeFilterName/StorageVirtualMachineFilterName/
+                      # DataRepositoryTaskFilterName/S3AccessPointAttachmentsFilterName in types/enums.go), not
+                      # invented. Shared {Name,Values} decode + AND-across-filters/OR-within-filter matching
+                      # logic in filters.go (matchesFilters); an unrecognized filter Name for a given op is
+                      # treated as unsupported-and-ignored (matches everything), same as an unset filter --
+                      # never rejected, since AWS doesn't reject an unsupported filter name either. All 7
+                      # BackupIds/AssociationIds/TaskIds/SnapshotIds/VolumeIds/StorageVirtualMachineIds/Names
+                      # ID-list params continue to override Filters entirely when both are set, per each op's
+                      # own doc comment (pre-existing branch structure, unchanged). Every fix proven via
+                      # wire_field_fixes_test.go driving the real typed aws-sdk-go-v2/service/fsx client,
+                      # asserting a non-matching resource is excluded (not just that a matching one is
+                      # present) -- confirmed failing against unmodified code first. Disclosed, not fixed
+                      # (no honest tracked data to filter on -- see gaps): DescribeBackups' volume-id
+                      # (CreateBackup never accepts a VolumeId to back an ONTAP-volume backup, though real
+                      # CreateBackupInput has one -- an adjacent create-side gap, out of this filter-class
+                      # pass's scope, reported not fixed); DescribeDataRepositoryTasks'
+                      # data-repository-association-id/file-cache-id (CreateDataRepositoryTask has no field
+                      # for either); DescribeSnapshots' IncludeShared (this backend is single-account/
+                      # single-tenant, so every snapshot is definitionally "owned" -- no cross-account
+                      # snapshot exists to differ on, structurally unobservable, not merely unimplemented).
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 families:
@@ -26,6 +61,9 @@ families:
   Misc: {wire: ok, errors: ok, state: ok, persist: n/a, note: "ReleaseFileSystemNfsV3Locks and StartMisconfiguredStateRecovery both validate FileSystemId existence against real state (not disguised no-ops) and echo the file system back; neither op has persisted side effects in real AWS beyond a transient Lifecycle flicker, which this synchronous emulator does not model (consistent with the immediate-AVAILABLE pattern used for every other resource in this service). GLOBAL FIX this pass: errValidation's wire code was 'ValidationError', which is not a real FSx exception (field-diffed against types/errors.go -- FSx's generic client-error type is BadRequest; there is no ValidationError type at all). Every op across every family that returns ErrValidation (CreateFileSystem, CreateSnapshot, CreateStorageVirtualMachine, CreateVolume, CreateAndAttachS3AccessPoint, CreateFileCache) now correctly returns BadRequest. Added ErrMissingFileSystemConfiguration (wire code MissingFileSystemConfiguration) for CreateFileSystem's new required-config-block validation."}
   Tags: {wire: ok, errors: ok, state: ok, persist: ok, note: "TagResource/UntagResource/ListTagsForResource error code fixed in a prior pass: unrecognized ARNs return the generic ResourceNotFound exception. ListTagsForResource already returned [] not null for empty tag sets."}
 gaps:                     # known divergences NOT fixed — link bd issue ids
+  - "DescribeBackups' documented volume-id filter (real DescribeBackupsInput.Filters, backup-type ONTAP/OpenZFS volume backups) has no honest value to filter on: CreateBackup never accepts a VolumeId at all, even though real CreateBackupInput has one (api_op_CreateBackup.go) -- an adjacent create-side accept-and-drop gap, out of the 2026-08-29 constraint-not-honoured pass's filter-only scope. A request setting this filter matches every backup rather than excluding any, same as AWS treating an unset filter."
+  - "DescribeDataRepositoryTasks' documented data-repository-association-id/file-cache-id filters have no honest value to filter on: CreateDataRepositoryTaskInput accepts neither an association nor a file-cache reference to track (only FileSystemId), even though the real DataRepositoryTaskFilterName enum documents both. Both filters match everything rather than excluding, same as AWS treating an unset filter."
+  - "DescribeSnapshots' IncludeShared (real DescribeSnapshotsInput member) is not modeled: this backend is single-account/single-tenant, so every snapshot is definitionally \"owned\" by the caller regardless of that flag -- there is no cross-account snapshot for it to differ on, a structural gap rather than an unimplemented one."
   - "FIXED 2026-08-29 (write-only-state sweep): CreateFileSystemFromBackup had no SubnetIds field at all -- SubnetIds is a required real CreateFileSystemFromBackupInput member (api_op_CreateFileSystemFromBackup.go) that every real client's SDK-side validator forces it to send, and it round-trips onto FileSystem.SubnetIds on every other file-system create path (CreateFileSystem already accepts/echoes it). It was being silently discarded: the restored file system always came back with empty SubnetIds/NetworkInterfaceIds regardless of what was requested. Fixed: accepted, format-validated (same subnet-[0-9a-f]{8,} pattern as CreateFileSystem), stored, and echoed, plus SecurityGroupIds accepted-and-validated for consistency (matches real AWS: 'This value isn't returned in later DescribeFileSystem requests', so, like CreateFileSystem, intentionally not stored/echoed). Not made required-and-rejecting-when-absent, matching the existing precedent immediately below (CreateFileSystem's own SubnetIds gap) and to avoid breaking the existing test fixtures that predate SubnetIds support on this op. Proven by wire_field_fixes_test.go's TestCreateFileSystemFromBackup_SubnetIdsRoundTrip (real client, hand-reverted, confirmed failing pre-fix, restored md5sum-identical)."
   - "Delete*Output shapes (DeleteFileSystem, DeleteVolume) do not include the optional WindowsResponse/LustreResponse/OpenZFSConfiguration finalizer sub-objects (e.g. FinalBackupTags) that real AWS returns when a final backup is requested at delete time. Low traffic; not fixed this pass (gopherstack-wjjl was scoped to idempotency + network validation, not this)."
   - "CreateFileSystem still does not REQUIRE SubnetIds (real AWS: Required: Yes, and exactly two for Windows/ONTAP MULTI_AZ_1 deployments). Re-confirmed this pass (gopherstack-wjjl) against the live API reference (docs.aws.amazon.com/fsx/latest/APIReference/API_CreateFileSystem.html): SubnetIds is genuinely required. Still not enforced: grep confirms zero test fixtures across the entire fsx package (5 test files, 28+ CreateFileSystem call sites) ever populate SubnetIds, so flipping it to required would be a wholesale fixture migration, not a small fix, and this emulator still does not model Availability Zone topology needed for the exactly-one-vs-exactly-two-subnets MULTI_AZ_1 rule. What WAS fixed this pass: SubnetIds/SecurityGroupIds, when supplied, are now format-validated against the real ID patterns (subnet-[0-9a-f]{8,} / sg-[0-9a-f]{8,}) and rejected with InvalidNetworkSettings if malformed -- see families note below."

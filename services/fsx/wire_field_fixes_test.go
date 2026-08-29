@@ -169,3 +169,402 @@ func TestVolume_StorageVirtualMachineIdWireShape(t *testing.T) {
 		"DescribeVolumes must also nest StorageVirtualMachineId under OntapConfiguration")
 	assert.Equal(t, svmID, aws.ToString(descOut.Volumes[0].OntapConfiguration.StorageVirtualMachineId))
 }
+
+// TestDescribeBackups_Filters proves DescribeBackupsInput.Filters (fsx@v1.68.4
+// api_op_DescribeBackups.go, supported names file-system-id/backup-type/
+// file-system-type per its own doc comment) was declared on the real wire but
+// had no field for it anywhere in gopherstack's describeBackupsInput struct --
+// a real client's filter silently no-op'd and always got the unfiltered list.
+func TestDescribeBackups_Filters(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestFSxClient(t, h)
+
+	lustreFS := createTestLustreFS(t, client)
+	ontapFS := createTestOntapFS(t, client)
+
+	lustreBackup, setupErr := client.CreateBackup(t.Context(), &fsxsdk.CreateBackupInput{
+		FileSystemId: lustreFS.FileSystem.FileSystemId,
+	})
+	require.NoError(t, setupErr)
+
+	ontapBackup, setupErr := client.CreateBackup(t.Context(), &fsxsdk.CreateBackupInput{
+		FileSystemId: ontapFS.FileSystem.FileSystemId,
+	})
+	require.NoError(t, setupErr)
+
+	t.Run("file-system-id", func(t *testing.T) {
+		t.Parallel()
+
+		out, err := client.DescribeBackups(t.Context(), &fsxsdk.DescribeBackupsInput{
+			Filters: []types.Filter{{
+				Name:   types.FilterNameFileSystemId,
+				Values: []string{aws.ToString(lustreFS.FileSystem.FileSystemId)},
+			}},
+		})
+		require.NoError(t, err)
+		require.Len(t, out.Backups, 1)
+		assert.Equal(t, aws.ToString(lustreBackup.Backup.BackupId), aws.ToString(out.Backups[0].BackupId))
+	})
+
+	t.Run("file-system-type", func(t *testing.T) {
+		t.Parallel()
+
+		out, err := client.DescribeBackups(t.Context(), &fsxsdk.DescribeBackupsInput{
+			Filters: []types.Filter{{
+				Name:   types.FilterNameFileSystemType,
+				Values: []string{"ONTAP"},
+			}},
+		})
+		require.NoError(t, err)
+		require.Len(t, out.Backups, 1)
+		assert.Equal(t, aws.ToString(ontapBackup.Backup.BackupId), aws.ToString(out.Backups[0].BackupId))
+	})
+
+	t.Run("backup-type excludes non-matching", func(t *testing.T) {
+		t.Parallel()
+
+		out, err := client.DescribeBackups(t.Context(), &fsxsdk.DescribeBackupsInput{
+			Filters: []types.Filter{{
+				Name:   types.FilterNameBackupType,
+				Values: []string{"AWS_BACKUP"},
+			}},
+		})
+		require.NoError(t, err)
+		assert.Empty(t, out.Backups, "no backup in this backend is ever AWS_BACKUP-typed")
+
+		out, err = client.DescribeBackups(t.Context(), &fsxsdk.DescribeBackupsInput{
+			Filters: []types.Filter{{
+				Name:   types.FilterNameBackupType,
+				Values: []string{"USER_INITIATED"},
+			}},
+		})
+		require.NoError(t, err)
+		assert.Len(t, out.Backups, 2)
+	})
+}
+
+// TestDescribeDataRepositoryAssociations_FileSystemIDFilter proves
+// DescribeDataRepositoryAssociationsInput.Filters (fsx@v1.68.4
+// api_op_DescribeDataRepositoryAssociations.go) had no field at all in
+// gopherstack's request struct.
+func TestDescribeDataRepositoryAssociations_FileSystemIDFilter(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestFSxClient(t, h)
+
+	fs1 := createTestLustreFS(t, client)
+	fs2 := createTestLustreFS(t, client)
+
+	assoc1, err := client.CreateDataRepositoryAssociation(t.Context(), &fsxsdk.CreateDataRepositoryAssociationInput{
+		FileSystemId:       fs1.FileSystem.FileSystemId,
+		DataRepositoryPath: aws.String("s3://bucket-one"),
+		FileSystemPath:     aws.String("/data1"),
+	})
+	require.NoError(t, err)
+
+	_, err = client.CreateDataRepositoryAssociation(t.Context(), &fsxsdk.CreateDataRepositoryAssociationInput{
+		FileSystemId:       fs2.FileSystem.FileSystemId,
+		DataRepositoryPath: aws.String("s3://bucket-two"),
+		FileSystemPath:     aws.String("/data2"),
+	})
+	require.NoError(t, err)
+
+	out, err := client.DescribeDataRepositoryAssociations(t.Context(), &fsxsdk.DescribeDataRepositoryAssociationsInput{
+		Filters: []types.Filter{{
+			Name:   types.FilterNameFileSystemId,
+			Values: []string{aws.ToString(fs1.FileSystem.FileSystemId)},
+		}},
+	})
+	require.NoError(t, err)
+	require.Len(t, out.Associations, 1)
+	assert.Equal(t, aws.ToString(assoc1.Association.AssociationId), aws.ToString(out.Associations[0].AssociationId))
+}
+
+// TestDescribeDataRepositoryTasks_Filters proves
+// DescribeDataRepositoryTasksInput.Filters (fsx@v1.68.4
+// api_op_DescribeDataRepositoryTasks.go) had no field at all in gopherstack's
+// request struct.
+func TestDescribeDataRepositoryTasks_Filters(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestFSxClient(t, h)
+
+	fs1 := createTestLustreFS(t, client)
+	fs2 := createTestLustreFS(t, client)
+
+	task1, setupErr := client.CreateDataRepositoryTask(t.Context(), &fsxsdk.CreateDataRepositoryTaskInput{
+		FileSystemId: fs1.FileSystem.FileSystemId,
+		Type:         types.DataRepositoryTaskTypeExport,
+		Report:       &types.CompletionReport{Enabled: aws.Bool(false)},
+	})
+	require.NoError(t, setupErr)
+
+	task2, setupErr := client.CreateDataRepositoryTask(t.Context(), &fsxsdk.CreateDataRepositoryTaskInput{
+		FileSystemId: fs2.FileSystem.FileSystemId,
+		Type:         types.DataRepositoryTaskTypeExport,
+		Report:       &types.CompletionReport{Enabled: aws.Bool(false)},
+	})
+	require.NoError(t, setupErr)
+
+	_, setupErr = client.CancelDataRepositoryTask(t.Context(), &fsxsdk.CancelDataRepositoryTaskInput{
+		TaskId: task2.DataRepositoryTask.TaskId,
+	})
+	require.NoError(t, setupErr)
+
+	t.Run("file-system-id", func(t *testing.T) {
+		t.Parallel()
+
+		out, err := client.DescribeDataRepositoryTasks(t.Context(), &fsxsdk.DescribeDataRepositoryTasksInput{
+			Filters: []types.DataRepositoryTaskFilter{{
+				Name:   types.DataRepositoryTaskFilterNameFileSystemId,
+				Values: []string{aws.ToString(fs1.FileSystem.FileSystemId)},
+			}},
+		})
+		require.NoError(t, err)
+		require.Len(t, out.DataRepositoryTasks, 1)
+		assert.Equal(t, aws.ToString(task1.DataRepositoryTask.TaskId), aws.ToString(out.DataRepositoryTasks[0].TaskId))
+	})
+
+	t.Run("task-lifecycle", func(t *testing.T) {
+		t.Parallel()
+
+		out, err := client.DescribeDataRepositoryTasks(t.Context(), &fsxsdk.DescribeDataRepositoryTasksInput{
+			Filters: []types.DataRepositoryTaskFilter{{
+				Name:   types.DataRepositoryTaskFilterNameTaskLifecycle,
+				Values: []string{"CANCELING"},
+			}},
+		})
+		require.NoError(t, err)
+		require.Len(t, out.DataRepositoryTasks, 1)
+		assert.Equal(t, aws.ToString(task2.DataRepositoryTask.TaskId), aws.ToString(out.DataRepositoryTasks[0].TaskId))
+	})
+}
+
+// TestDescribeSnapshots_Filters proves DescribeSnapshotsInput.Filters
+// (fsx@v1.68.4 api_op_DescribeSnapshots.go, supported names file-system-id/
+// volume-id) had no field at all in gopherstack's request struct.
+func TestDescribeSnapshots_Filters(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestFSxClient(t, h)
+
+	vol1 := createTestOntapVolume(t, client, "snap-filter-vol-1")
+	vol2 := createTestOntapVolume(t, client, "snap-filter-vol-2")
+
+	snap1, setupErr := client.CreateSnapshot(t.Context(), &fsxsdk.CreateSnapshotInput{
+		Name:     aws.String("snap-1"),
+		VolumeId: vol1.Volume.VolumeId,
+	})
+	require.NoError(t, setupErr)
+
+	_, setupErr = client.CreateSnapshot(t.Context(), &fsxsdk.CreateSnapshotInput{
+		Name:     aws.String("snap-2"),
+		VolumeId: vol2.Volume.VolumeId,
+	})
+	require.NoError(t, setupErr)
+
+	t.Run("volume-id", func(t *testing.T) {
+		t.Parallel()
+
+		out, err := client.DescribeSnapshots(t.Context(), &fsxsdk.DescribeSnapshotsInput{
+			Filters: []types.SnapshotFilter{{
+				Name:   types.SnapshotFilterNameVolumeId,
+				Values: []string{aws.ToString(vol1.Volume.VolumeId)},
+			}},
+		})
+		require.NoError(t, err)
+		require.Len(t, out.Snapshots, 1)
+		assert.Equal(t, aws.ToString(snap1.Snapshot.SnapshotId), aws.ToString(out.Snapshots[0].SnapshotId))
+	})
+
+	t.Run("file-system-id", func(t *testing.T) {
+		t.Parallel()
+
+		out, err := client.DescribeSnapshots(t.Context(), &fsxsdk.DescribeSnapshotsInput{
+			Filters: []types.SnapshotFilter{{
+				Name:   types.SnapshotFilterNameFileSystemId,
+				Values: []string{aws.ToString(vol1.Volume.FileSystemId)},
+			}},
+		})
+		require.NoError(t, err)
+		require.Len(t, out.Snapshots, 1)
+		assert.Equal(t, aws.ToString(snap1.Snapshot.SnapshotId), aws.ToString(out.Snapshots[0].SnapshotId))
+	})
+}
+
+// TestDescribeVolumes_Filters proves DescribeVolumesInput.Filters (fsx@v1.68.4
+// api_op_DescribeVolumes.go, supported names file-system-id/
+// storage-virtual-machine-id) had no field at all in gopherstack's request
+// struct.
+func TestDescribeVolumes_Filters(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestFSxClient(t, h)
+
+	vol1 := createTestOntapVolume(t, client, "vol-filter-1")
+	vol2 := createTestOntapVolume(t, client, "vol-filter-2")
+
+	t.Run("file-system-id", func(t *testing.T) {
+		t.Parallel()
+
+		out, err := client.DescribeVolumes(t.Context(), &fsxsdk.DescribeVolumesInput{
+			Filters: []types.VolumeFilter{{
+				Name:   types.VolumeFilterNameFileSystemId,
+				Values: []string{aws.ToString(vol1.Volume.FileSystemId)},
+			}},
+		})
+		require.NoError(t, err)
+		require.Len(t, out.Volumes, 1)
+		assert.Equal(t, aws.ToString(vol1.Volume.VolumeId), aws.ToString(out.Volumes[0].VolumeId))
+	})
+
+	t.Run("storage-virtual-machine-id", func(t *testing.T) {
+		t.Parallel()
+
+		svmID := vol2.Volume.OntapConfiguration.StorageVirtualMachineId
+
+		out, err := client.DescribeVolumes(t.Context(), &fsxsdk.DescribeVolumesInput{
+			Filters: []types.VolumeFilter{{
+				Name:   types.VolumeFilterNameStorageVirtualMachineId,
+				Values: []string{aws.ToString(svmID)},
+			}},
+		})
+		require.NoError(t, err)
+		require.Len(t, out.Volumes, 1)
+		assert.Equal(t, aws.ToString(vol2.Volume.VolumeId), aws.ToString(out.Volumes[0].VolumeId))
+	})
+}
+
+// TestDescribeStorageVirtualMachines_FileSystemIDFilter proves
+// DescribeStorageVirtualMachinesInput.Filters (fsx@v1.68.4
+// api_op_DescribeStorageVirtualMachines.go) had no field at all in
+// gopherstack's request struct.
+func TestDescribeStorageVirtualMachines_FileSystemIDFilter(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestFSxClient(t, h)
+
+	fs1 := createTestOntapFS(t, client)
+	fs2 := createTestOntapFS(t, client)
+
+	svm1, err := client.CreateStorageVirtualMachine(t.Context(), &fsxsdk.CreateStorageVirtualMachineInput{
+		FileSystemId: fs1.FileSystem.FileSystemId,
+		Name:         aws.String("svm-filter-1"),
+	})
+	require.NoError(t, err)
+
+	_, err = client.CreateStorageVirtualMachine(t.Context(), &fsxsdk.CreateStorageVirtualMachineInput{
+		FileSystemId: fs2.FileSystem.FileSystemId,
+		Name:         aws.String("svm-filter-2"),
+	})
+	require.NoError(t, err)
+
+	out, err := client.DescribeStorageVirtualMachines(t.Context(), &fsxsdk.DescribeStorageVirtualMachinesInput{
+		Filters: []types.StorageVirtualMachineFilter{{
+			Name:   types.StorageVirtualMachineFilterNameFileSystemId,
+			Values: []string{aws.ToString(fs1.FileSystem.FileSystemId)},
+		}},
+	})
+	require.NoError(t, err)
+	require.Len(t, out.StorageVirtualMachines, 1)
+	assert.Equal(t, aws.ToString(svm1.StorageVirtualMachine.StorageVirtualMachineId),
+		aws.ToString(out.StorageVirtualMachines[0].StorageVirtualMachineId))
+}
+
+// TestDescribeS3AccessPointAttachments_Filters proves
+// DescribeS3AccessPointAttachmentsInput.Filters (fsx@v1.68.4
+// api_op_DescribeS3AccessPointAttachments.go, supported names
+// file-system-id/volume-id/type) had no field at all in gopherstack's request
+// struct.
+func TestDescribeS3AccessPointAttachments_Filters(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestFSxClient(t, h)
+
+	ontapVol := createTestOntapVolume(t, client, "s3ap-ontap-vol")
+	otherVol := createTestOntapVolume(t, client, "s3ap-other-vol")
+
+	ontapFileSystemIdentity := &types.OntapFileSystemIdentity{
+		Type: types.OntapFileSystemUserTypeUnix,
+		UnixUser: &types.OntapUnixFileSystemUser{
+			Name: aws.String("root"),
+		},
+	}
+
+	ontapAP, setupErr := client.CreateAndAttachS3AccessPoint(t.Context(), &fsxsdk.CreateAndAttachS3AccessPointInput{
+		Name: aws.String("s3ap-ontap"),
+		Type: types.S3AccessPointAttachmentTypeOntap,
+		OntapConfiguration: &types.CreateAndAttachS3AccessPointOntapConfiguration{
+			VolumeId:           ontapVol.Volume.VolumeId,
+			FileSystemIdentity: ontapFileSystemIdentity,
+		},
+	})
+	require.NoError(t, setupErr)
+
+	_, setupErr = client.CreateAndAttachS3AccessPoint(t.Context(), &fsxsdk.CreateAndAttachS3AccessPointInput{
+		Name: aws.String("s3ap-other"),
+		Type: types.S3AccessPointAttachmentTypeOntap,
+		OntapConfiguration: &types.CreateAndAttachS3AccessPointOntapConfiguration{
+			VolumeId:           otherVol.Volume.VolumeId,
+			FileSystemIdentity: ontapFileSystemIdentity,
+		},
+	})
+	require.NoError(t, setupErr)
+
+	t.Run("volume-id", func(t *testing.T) {
+		t.Parallel()
+
+		out, err := client.DescribeS3AccessPointAttachments(t.Context(), &fsxsdk.DescribeS3AccessPointAttachmentsInput{
+			Filters: []types.S3AccessPointAttachmentsFilter{{
+				Name:   types.S3AccessPointAttachmentsFilterNameVolumeId,
+				Values: []string{aws.ToString(ontapVol.Volume.VolumeId)},
+			}},
+		})
+		require.NoError(t, err)
+		require.Len(t, out.S3AccessPointAttachments, 1)
+		assert.Equal(
+			t,
+			aws.ToString(ontapAP.S3AccessPointAttachment.Name),
+			aws.ToString(out.S3AccessPointAttachments[0].Name),
+		)
+	})
+
+	t.Run("type excludes non-matching", func(t *testing.T) {
+		t.Parallel()
+
+		out, err := client.DescribeS3AccessPointAttachments(t.Context(), &fsxsdk.DescribeS3AccessPointAttachmentsInput{
+			Filters: []types.S3AccessPointAttachmentsFilter{{
+				Name:   types.S3AccessPointAttachmentsFilterNameType,
+				Values: []string{"OPENZFS"},
+			}},
+		})
+		require.NoError(t, err)
+		assert.Empty(t, out.S3AccessPointAttachments)
+	})
+
+	t.Run("file-system-id", func(t *testing.T) {
+		t.Parallel()
+
+		out, err := client.DescribeS3AccessPointAttachments(t.Context(), &fsxsdk.DescribeS3AccessPointAttachmentsInput{
+			Filters: []types.S3AccessPointAttachmentsFilter{{
+				Name:   types.S3AccessPointAttachmentsFilterNameFileSystemId,
+				Values: []string{aws.ToString(ontapVol.Volume.FileSystemId)},
+			}},
+		})
+		require.NoError(t, err)
+		require.Len(t, out.S3AccessPointAttachments, 1)
+		assert.Equal(
+			t,
+			aws.ToString(ontapAP.S3AccessPointAttachment.Name),
+			aws.ToString(out.S3AccessPointAttachments[0].Name),
+		)
+	})
+}

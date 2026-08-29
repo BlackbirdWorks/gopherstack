@@ -369,7 +369,7 @@ func (h *Handler) dispatch(
 		return result, code, err
 	}
 
-	if result, code, ok, err := h.dispatchFilterOps(op, path, body); ok {
+	if result, code, ok, err := h.dispatchFilterOps(op, path, query, body); ok {
 		return result, code, err
 	}
 
@@ -377,11 +377,11 @@ func (h *Handler) dispatch(
 		return result, code, err
 	}
 
-	if result, code, ok, err := h.dispatchIPSetOps(op, path, body); ok {
+	if result, code, ok, err := h.dispatchIPSetOps(op, path, query, body); ok {
 		return result, code, err
 	}
 
-	if result, code, ok, err := h.dispatchThreatIntelSetOps(op, path, body); ok {
+	if result, code, ok, err := h.dispatchThreatIntelSetOps(op, path, query, body); ok {
 		return result, code, err
 	}
 
@@ -389,15 +389,15 @@ func (h *Handler) dispatch(
 		return result, code, err
 	}
 
-	if result, code, ok, err := h.dispatchInvitationOps(op, path, body); ok {
+	if result, code, ok, err := h.dispatchInvitationOps(op, path, query, body); ok {
 		return result, code, err
 	}
 
-	if result, code, ok, err := h.dispatchOrgOps(op, path, body); ok {
+	if result, code, ok, err := h.dispatchOrgOps(op, path, query, body); ok {
 		return result, code, err
 	}
 
-	if result, code, ok, err := h.dispatchPublishingDestOps(op, path, body); ok {
+	if result, code, ok, err := h.dispatchPublishingDestOps(op, path, query, body); ok {
 		return result, code, err
 	}
 
@@ -405,7 +405,7 @@ func (h *Handler) dispatch(
 		return result, code, err
 	}
 
-	if result, code, ok, err := h.dispatchEntitySetOps(op, path, body); ok {
+	if result, code, ok, err := h.dispatchEntitySetOps(op, path, query, body); ok {
 		return result, code, err
 	}
 

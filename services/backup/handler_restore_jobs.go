@@ -11,7 +11,7 @@ import (
 // RestoreJobsFilterFromQuery builds a ListRestoreJobsFilter from ListRestoreJobs
 // query parameters (api_op_ListRestoreJobs.go, serializers.go, backup@v1.59.4):
 // accountId, resourceType, status, createdAfter, createdBefore, completeAfter,
-// completeBefore.
+// completeBefore, maxResults, nextToken.
 func RestoreJobsFilterFromQuery(q url.Values) ListRestoreJobsFilter {
 	return ListRestoreJobsFilter{
 		AccountID:      q.Get("accountId"),
@@ -21,6 +21,8 @@ func RestoreJobsFilterFromQuery(q url.Values) ListRestoreJobsFilter {
 		CreatedBefore:  ParseTimeFilter(q.Get("createdBefore")),
 		CompleteAfter:  ParseTimeFilter(q.Get("completeAfter")),
 		CompleteBefore: ParseTimeFilter(q.Get("completeBefore")),
+		MaxResults:     parseInt(q.Get("maxResults")),
+		NextToken:      q.Get("nextToken"),
 	}
 }
 
@@ -140,13 +142,18 @@ func (h *Handler) dispatchRestoreJobOps(
 		return true, h.handleDescribeRestoreJob(c, route.resource)
 	case opListRestoreJobs:
 		q := c.Request().URL.Query()
-		jobs := h.Backend.ListRestoreJobsFiltered(RestoreJobsFilterFromQuery(q))
+		jobs, nextToken := h.Backend.ListRestoreJobsFiltered(RestoreJobsFilterFromQuery(q))
 		items := make([]map[string]any, 0, len(jobs))
 		for _, j := range jobs {
 			items = append(items, restoreJobToJSON(j))
 		}
 
-		return true, c.JSON(http.StatusOK, map[string]any{"RestoreJobs": items})
+		resp := map[string]any{"RestoreJobs": items}
+		if nextToken != "" {
+			resp["NextToken"] = nextToken
+		}
+
+		return true, c.JSON(http.StatusOK, resp)
 	case opListRestoreJobsByProtectedResource:
 		jobs := h.Backend.ListRestoreJobsByProtectedResource(route.resource)
 		items := make([]map[string]any, 0, len(jobs))
@@ -156,13 +163,9 @@ func (h *Handler) dispatchRestoreJobOps(
 
 		return true, c.JSON(http.StatusOK, map[string]any{"RestoreJobs": items})
 	case opListRestoreJobSummaries:
-		jobs := h.Backend.ListRestoreJobs()
+		summaries := h.Backend.ListRestoreJobSummaries()
 
-		return true, c.JSON(http.StatusOK, map[string]any{
-			"RestoreJobSummaries": []map[string]any{
-				{"Count": len(jobs), "Region": h.Backend.Region()},
-			},
-		})
+		return true, c.JSON(http.StatusOK, map[string]any{"RestoreJobSummaries": summaries})
 	case opGetRestoreJobMetadata:
 
 		return true, h.handleGetRestoreJobMetadata(c, route.resource)

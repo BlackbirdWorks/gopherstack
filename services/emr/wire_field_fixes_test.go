@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	awssdk "github.com/aws/aws-sdk-go-v2/aws"
 	awscfg "github.com/aws/aws-sdk-go-v2/config"
@@ -446,4 +447,88 @@ func TestWireShape_DescribePersistentAppUI_RealShape(t *testing.T) {
 			"that belongs to CreatePersistentAppUIOutput, a different shape")
 	assert.Equal(t, createdUI.PersistentAppUIID, raw.PersistentAppUI["PersistentAppUIId"])
 	assert.NotZero(t, raw.PersistentAppUI["CreationTime"])
+}
+
+// TestListNotebookExecutions_ExecutionEngineIdFilter proves
+// ListNotebookExecutionsInput.ExecutionEngineId (real query, emr@v1.64.4
+// api_op_ListNotebookExecutions.go, serializers.go's "ExecutionEngineId"
+// body key) had no field for it at all in gopherstack's request struct --
+// EditorId/Status were read but ExecutionEngineId/From/To were silently
+// dropped, so a real client's filter on this field always no-op'd.
+func TestListNotebookExecutions_ExecutionEngineIdFilter(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestEMRClient(t, h)
+
+	keep, err := client.StartNotebookExecution(t.Context(), &emrsdk.StartNotebookExecutionInput{
+		EditorId:    awssdk.String("e-KEEP"),
+		ServiceRole: awssdk.String("arn:aws:iam::000000000000:role/notebook-service-role"),
+		ExecutionEngine: &emrtypes.ExecutionEngineConfig{
+			Id: awssdk.String("j-ENGINE-KEEP"),
+		},
+	})
+	require.NoError(t, err)
+
+	_, err = client.StartNotebookExecution(t.Context(), &emrsdk.StartNotebookExecutionInput{
+		EditorId:    awssdk.String("e-DROP"),
+		ServiceRole: awssdk.String("arn:aws:iam::000000000000:role/notebook-service-role"),
+		ExecutionEngine: &emrtypes.ExecutionEngineConfig{
+			Id: awssdk.String("j-ENGINE-DROP"),
+		},
+	})
+	require.NoError(t, err)
+
+	out, err := client.ListNotebookExecutions(t.Context(), &emrsdk.ListNotebookExecutionsInput{
+		ExecutionEngineId: awssdk.String("j-ENGINE-KEEP"),
+	})
+	require.NoError(t, err)
+	require.Len(t, out.NotebookExecutions, 1)
+	assert.Equal(
+		t,
+		awssdk.ToString(keep.NotebookExecutionId),
+		awssdk.ToString(out.NotebookExecutions[0].NotebookExecutionId),
+	)
+}
+
+// TestListNotebookExecutions_FromToFilter proves From/To (real query,
+// api_op_ListNotebookExecutions.go, epoch-seconds doubles per serializers.go)
+// were also silently dropped -- same missing-field defect as
+// ExecutionEngineId above.
+func TestListNotebookExecutions_FromToFilter(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestEMRClient(t, h)
+
+	started, err := client.StartNotebookExecution(t.Context(), &emrsdk.StartNotebookExecutionInput{
+		EditorId:    awssdk.String("e-FROMTO"),
+		ServiceRole: awssdk.String("arn:aws:iam::000000000000:role/notebook-service-role"),
+		ExecutionEngine: &emrtypes.ExecutionEngineConfig{
+			Id: awssdk.String("j-FROMTO"),
+		},
+	})
+	require.NoError(t, err)
+
+	future := time.Now().UTC().Add(time.Hour)
+
+	excluded, err := client.ListNotebookExecutions(t.Context(), &emrsdk.ListNotebookExecutionsInput{
+		From: awssdk.Time(future),
+	})
+	require.NoError(t, err)
+	assert.Empty(t, excluded.NotebookExecutions, "From set to the future must exclude an execution started now")
+
+	past := time.Now().UTC().Add(-time.Hour)
+
+	included, err := client.ListNotebookExecutions(t.Context(), &emrsdk.ListNotebookExecutionsInput{
+		From: awssdk.Time(past),
+		To:   awssdk.Time(future),
+	})
+	require.NoError(t, err)
+	require.Len(t, included.NotebookExecutions, 1)
+	assert.Equal(
+		t,
+		awssdk.ToString(started.NotebookExecutionId),
+		awssdk.ToString(included.NotebookExecutions[0].NotebookExecutionId),
+	)
 }

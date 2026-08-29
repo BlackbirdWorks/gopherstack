@@ -139,12 +139,12 @@ func (b *InMemoryBackend) DeleteIPSet(detectorID, ipSetID string) error {
 }
 
 // ListIPSets returns IP set IDs for a detector.
-func (b *InMemoryBackend) ListIPSets(detectorID string) ([]string, error) {
+func (b *InMemoryBackend) ListIPSets(detectorID string, maxResults int32, nextToken string) ([]string, string, error) {
 	b.mu.RLock("ListIPSets")
 	defer b.mu.RUnlock()
 
 	if !b.detectors.Has(detectorID) {
-		return nil, ErrDetectorNotFound
+		return nil, "", ErrDetectorNotFound
 	}
 
 	items := b.ipSetsByDetector.Get(detectorID)
@@ -156,7 +156,15 @@ func (b *InMemoryBackend) ListIPSets(detectorID string) ([]string, error) {
 
 	slices.Sort(ids)
 
-	return ids, nil
+	offset, err := decodeToken(nextToken)
+	if err != nil {
+		return nil, "", ErrValidation
+	}
+
+	size := resolvePageSize(int(maxResults))
+	page, next := paginate(ids, offset, size)
+
+	return page, next, nil
 }
 
 // CreateThreatIntelSet creates a new threat intelligence set.
@@ -289,12 +297,14 @@ func (b *InMemoryBackend) DeleteThreatIntelSet(detectorID, setID string) error {
 }
 
 // ListThreatIntelSets returns threat intel set IDs for a detector.
-func (b *InMemoryBackend) ListThreatIntelSets(detectorID string) ([]string, error) {
+func (b *InMemoryBackend) ListThreatIntelSets(
+	detectorID string, maxResults int32, nextToken string,
+) ([]string, string, error) {
 	b.mu.RLock("ListThreatIntelSets")
 	defer b.mu.RUnlock()
 
 	if !b.detectors.Has(detectorID) {
-		return nil, ErrDetectorNotFound
+		return nil, "", ErrDetectorNotFound
 	}
 
 	items := b.threatIntelSetsByDetector.Get(detectorID)
@@ -306,5 +316,13 @@ func (b *InMemoryBackend) ListThreatIntelSets(detectorID string) ([]string, erro
 
 	slices.Sort(ids)
 
-	return ids, nil
+	offset, err := decodeToken(nextToken)
+	if err != nil {
+		return nil, "", ErrValidation
+	}
+
+	size := resolvePageSize(int(maxResults))
+	page, next := paginate(ids, offset, size)
+
+	return page, next, nil
 }

@@ -127,7 +127,7 @@ func (b *InMemoryBackend) DeleteFileCache(fileCacheID string) error {
 }
 
 // DescribeFileCaches returns file caches, optionally filtered by ID.
-func (b *InMemoryBackend) DescribeFileCaches( //nolint:dupl // existing issue.
+func (b *InMemoryBackend) DescribeFileCaches(
 	ids []string,
 	maxResults int32,
 	nextToken string,

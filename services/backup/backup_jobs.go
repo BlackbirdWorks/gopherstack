@@ -124,7 +124,7 @@ func (b *InMemoryBackend) ListBackupJobSummaries() []map[string]any {
 	summaries := make([]map[string]any, 0, len(counts))
 	for status, count := range counts {
 		summaries = append(summaries, map[string]any{
-			"State":          status,
+			keyState:         status,
 			keySummaryCount:  count,
 			keySummaryRegion: b.region,
 			keyAccountID:     b.accountID,

@@ -181,7 +181,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	assert.Equal(t, d.Tags, gotDetector.Tags)
 
 	// filters ("dirty", detector-composite).
-	gotFilterNames, err := restored.ListFilters(detectorID)
+	gotFilterNames, _, err := restored.ListFilters(detectorID, 0, "")
 	require.NoError(t, err)
 	assert.Equal(t, []string{filter.Name}, gotFilterNames)
 	gotFilter, err := restored.GetFilter(detectorID, filter.Name)
@@ -194,17 +194,17 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	assert.Equal(t, findingIDs, gotFindingIDs)
 
 	// ipSets ("dirty", detector-composite).
-	gotIPSetIDs, err := restored.ListIPSets(detectorID)
+	gotIPSetIDs, _, err := restored.ListIPSets(detectorID, 0, "")
 	require.NoError(t, err)
 	assert.Equal(t, []string{ipSet.IPSetID}, gotIPSetIDs)
 
 	// threatIntelSets ("dirty", detector-composite).
-	gotTISetIDs, err := restored.ListThreatIntelSets(detectorID)
+	gotTISetIDs, _, err := restored.ListThreatIntelSets(detectorID, 0, "")
 	require.NoError(t, err)
 	assert.Equal(t, []string{tiSet.ThreatIntelSetID}, gotTISetIDs)
 
 	// threatEntitySets / trustedEntitySets ("dirty", detector-composite).
-	gotTESetIDs, err := restored.ListThreatEntitySets(detectorID)
+	gotTESetIDs, _, err := restored.ListThreatEntitySets(detectorID, 0, "")
 	require.NoError(t, err)
 	assert.Equal(t, []string{teSet.ThreatEntitySetID}, gotTESetIDs)
 
@@ -212,7 +212,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "999988887777", gotTESet.ExpectedBucketOwner)
 
-	gotTRSetIDs, err := restored.ListTrustedEntitySets(detectorID)
+	gotTRSetIDs, _, err := restored.ListTrustedEntitySets(detectorID, 0, "")
 	require.NoError(t, err)
 	assert.Equal(t, []string{trSet.TrustedEntitySetID}, gotTRSetIDs)
 
@@ -228,7 +228,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	assert.Equal(t, inv.InvestigationID, gotInvList[0].InvestigationID)
 
 	// members ("clean", detector-composite).
-	members, err := restored.ListMembers(detectorID, false)
+	members, _, err := restored.ListMembers(detectorID, false, 0, "")
 	require.NoError(t, err)
 	require.Len(t, members, 1)
 	assert.Equal(t, "555566667777", members[0].AccountID)
@@ -242,7 +242,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	assert.Equal(t, 2, restored.GetInvitationsCount())
 
 	// orgAdminAccounts ("clean", flat).
-	orgAdmins := restored.ListOrganizationAdminAccounts()
+	orgAdmins, _ := restored.ListOrganizationAdminAccounts(0, "")
 	require.Len(t, orgAdmins, 1)
 	assert.Equal(t, "888899990000", orgAdmins[0].AdminAccountID)
 
@@ -260,7 +260,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	assert.Equal(t, "invite-abc", admin.InvitationID)
 
 	// publishingDestinations ("dirty", detector-composite).
-	destinations, err := restored.ListPublishingDestinations(detectorID)
+	destinations, _, err := restored.ListPublishingDestinations(detectorID, 0, "")
 	require.NoError(t, err)
 	require.Len(t, destinations, 1)
 	assert.Equal(t, dest.DestinationID, destinations[0].DestinationID)

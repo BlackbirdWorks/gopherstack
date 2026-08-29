@@ -7,8 +7,23 @@
 service: emr
 sdk_module: aws-sdk-go-v2/service/emr@v1.64.4   # bumped from v1.64.0 pin; no new ops, field-diffed Cluster/MonitoringConfiguration/ListInstancesInput this pass
 last_audit_commit: 8c56f4eb9                    # NOT updated this pass -- git commands are off-limits (gopherstack-r80d batch 26). HEAD when the 2026-08-07 pass (gopherstack-dqd8) below was written
-last_audit_date: 2026-08-28
-overall: A                # 2026-08-28 (gopherstack-6flj/21my wrapper-key/silent-drop sweep): RunJobFlowInput.SessionEnabled /
+last_audit_date: 2026-08-29
+overall: A                # 2026-08-29 (constraint-not-honoured sweep, wrapper-key-sweep-rds-cloudwatch-sqs-sns branch):
+                           # ListNotebookExecutionsInput.ExecutionEngineId/From/To (real query members,
+                           # api_op_ListNotebookExecutions.go) were declared on the wire but had no field at all in
+                           # gopherstack's request struct -- only EditorId/Status/Marker were read. Fixed: all three
+                           # wired through to the existing ne.ExecutionEngineID/ne.StartTime fields (already tracked,
+                           # never compared); From's documented 30-day-ago default is now applied when omitted (was
+                           # not implemented at all). Independently spot-checked ListClusters (ClusterStates/
+                           # CreatedAfter/CreatedBefore/Marker) and ListSteps (StepIds/StepStates/Marker) against
+                           # this same bug class this pass -- both already correctly wired, no bug found, not a
+                           # re-fix. See ops.ListNotebookExecutions for the full fix + test citation. The 6flj/21my
+                           # "full per-op sweep of all 65 SDK ops" note below (2026-08-28) targeted wrapper-key/
+                           # silent-drop bugs specifically, a different failure mode from "parameter accepted on
+                           # some sibling fields but a filter member never given a struct field at all" -- this
+                           # pass's narrower, filter-focused re-check of the List/Describe surface found the one
+                           # gap that class of sweep didn't target.
+                           # 2026-08-28 (gopherstack-6flj/21my wrapper-key/silent-drop sweep): RunJobFlowInput.SessionEnabled /
                            # Cluster.SessionEnabled had no wire slot anywhere -- a real client's SessionEnabled was silently
                            # dropped end-to-end, AND StartSession's own documented precondition ("must be in RUNNING/WAITING
                            # and have sessions enabled") only ever checked cluster state, never the enabled bit, since the bit
@@ -96,7 +111,7 @@ ops:
   StartNotebookExecution: {wire: ok, errors: ok, state: ok, persist: ok, note: "StartTime/EndTime were raw time.Time (RFC3339 on wire); now epoch seconds. 2026-07-31 SEVERE FIX: the input's cluster reference was declared with JSON tag \"ExecutionEngineConfig\" (the real *type* name, types.ExecutionEngineConfig) instead of the real top-level *field* name \"ExecutionEngine\" -- a real client's ExecutionEngine was silently dropped by json.Unmarshal (unknown fields are ignored, not errored), so NotebookExecution.ExecutionEngineId was ALWAYS empty regardless of what cluster the caller named. Six existing tests sent the wrong \"ExecutionEngineConfig\" key and none asserted ExecutionEngineId was actually populated, so the bug passed silently; all six corrected to the real \"ExecutionEngine\" key and a new wire-shape test now asserts ExecutionEngineId round-trips."}
   StopNotebookExecution: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeNotebookExecution: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListNotebookExecutions: {wire: fixed, errors: ok, state: ok, persist: ok, note: "gopherstack-4gzs: CORRECTED -- this entry previously argued reusing the full NotebookExecution shape for List was fine because extra fields vs real NotebookExecutionSummary are harmless (clients ignore unknown fields). The premise is true but the conclusion was wrong: types.NotebookExecutionSummary (emr@v1.64.4 types.go:2161, deserializer at deserializers.go:12511) is a real, narrower type -- no NotebookParams, no Tags -- so the superset response was a genuine wire-shape lie regardless of SDK-client tolerance: a raw-body or non-SDK caller sees a notebook's params/tags leaked through a list call. Now emits NotebookExecutionSummary via a dedicated newNotebookExecutionSummary (models.go); NotebookExecution (with NotebookParams/Tags) stays reserved for DescribeNotebookExecution."}
+  ListNotebookExecutions: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "gopherstack-4gzs: CORRECTED -- this entry previously argued reusing the full NotebookExecution shape for List was fine because extra fields vs real NotebookExecutionSummary are harmless (clients ignore unknown fields). The premise is true but the conclusion was wrong: types.NotebookExecutionSummary (emr@v1.64.4 types.go:2161, deserializer at deserializers.go:12511) is a real, narrower type -- no NotebookParams, no Tags -- so the superset response was a genuine wire-shape lie regardless of SDK-client tolerance: a raw-body or non-SDK caller sees a notebook's params/tags leaked through a list call. Now emits NotebookExecutionSummary via a dedicated newNotebookExecutionSummary (models.go); NotebookExecution (with NotebookParams/Tags) stays reserved for DescribeNotebookExecution. FIXED 2026-08-29 (constraint-not-honoured sweep, same branch as the ListRestoreJob/ListScanJob fixes in services/backup): ExecutionEngineId/From/To (real ListNotebookExecutionsInput query members, api_op_ListNotebookExecutions.go) had no field at all in gopherstack's listNotebookExecutionsInput struct -- only EditorId/Status/Marker were read, so a real client's ExecutionEngineId/From/To filters silently no-op'd. Added all three (handler_notebook_executions.go, models.go's ListNotebookExecutionsParams, notebook_executions.go's filter loop), matching against ne.ExecutionEngineID and ne.StartTime (already tracked, just never compared). From's documented default (\"the timestamp of 30 days ago\") is also now applied when the caller omits it, previously not implemented at all -- see notebookExecutionsDefaultLookback. Proven via wire_field_fixes_test.go's TestListNotebookExecutions_ExecutionEngineIdFilter/_FromToFilter (real client, hand-reverted via a scoped git stash on the three touched files, confirmed both failing pre-fix, restored)."}
   CreatePersistentAppUI: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribePersistentAppUI: {wire: ok, errors: ok, state: ok, persist: ok}
   GetPersistentAppUIPresignedURL: {wire: ok, errors: ok, state: ok, persist: n/a, note: "2026-07-24: added PresignedURLReady (always true; gopherstack provisions synchronously)"}

@@ -320,3 +320,373 @@ func TestListMalwareProtectionPlans_NoInventedArn(t *testing.T) {
 		assert.Contains(t, entry, "malwareProtectionPlanId")
 	}
 }
+
+// TestListFilters_Pagination proves ListFiltersInput's MaxResults/NextToken
+// (real HTTP query params -- aws-sdk-go-v2/service/guardduty@v1.85.4
+// serializers.go's awsRestjson1_serializeOpHttpBindingsListFiltersInput
+// encoder.SetQuery calls) were never read at all: the handler took no query
+// parameter and always returned every filter in one page.
+func TestListFilters_Pagination(t *testing.T) {
+	t.Parallel()
+
+	backend := guardduty.NewInMemoryBackend("123456789012", "us-east-1")
+	det, err := backend.CreateDetector(true, "", nil, nil)
+	require.NoError(t, err)
+
+	_, err = backend.CreateFilter(det.DetectorID, "filter-a", "", "NOOP", 1, map[string]any{}, nil)
+	require.NoError(t, err)
+	_, err = backend.CreateFilter(det.DetectorID, "filter-b", "", "NOOP", 1, map[string]any{}, nil)
+	require.NoError(t, err)
+
+	client := newTestGuardDutyClient(t, guardduty.NewHandler(backend))
+
+	page1, err := client.ListFilters(t.Context(), &guarddutysdk.ListFiltersInput{
+		DetectorId: aws.String(det.DetectorID),
+		MaxResults: aws.Int32(1),
+	})
+	require.NoError(t, err)
+	require.Len(t, page1.FilterNames, 1)
+	require.NotEmpty(t, aws.ToString(page1.NextToken), "a second page must exist")
+
+	page2, err := client.ListFilters(t.Context(), &guarddutysdk.ListFiltersInput{
+		DetectorId: aws.String(det.DetectorID),
+		MaxResults: aws.Int32(1),
+		NextToken:  page1.NextToken,
+	})
+	require.NoError(t, err)
+	require.Len(t, page2.FilterNames, 1)
+	assert.Empty(t, aws.ToString(page2.NextToken), "no third page")
+	assert.NotEqual(t, page1.FilterNames[0], page2.FilterNames[0])
+}
+
+// TestListIPSets_Pagination mirrors TestListFilters_Pagination for ListIPSets.
+func TestListIPSets_Pagination(t *testing.T) {
+	t.Parallel()
+
+	backend := guardduty.NewInMemoryBackend("123456789012", "us-east-1")
+	det, err := backend.CreateDetector(true, "", nil, nil)
+	require.NoError(t, err)
+
+	_, err = backend.CreateIPSet(det.DetectorID, "ipset-a", "TXT", "s3://bucket/a", true, nil, "")
+	require.NoError(t, err)
+	_, err = backend.CreateIPSet(det.DetectorID, "ipset-b", "TXT", "s3://bucket/b", true, nil, "")
+	require.NoError(t, err)
+
+	client := newTestGuardDutyClient(t, guardduty.NewHandler(backend))
+
+	page1, err := client.ListIPSets(t.Context(), &guarddutysdk.ListIPSetsInput{
+		DetectorId: aws.String(det.DetectorID),
+		MaxResults: aws.Int32(1),
+	})
+	require.NoError(t, err)
+	require.Len(t, page1.IpSetIds, 1)
+	require.NotEmpty(t, aws.ToString(page1.NextToken))
+
+	page2, err := client.ListIPSets(t.Context(), &guarddutysdk.ListIPSetsInput{
+		DetectorId: aws.String(det.DetectorID),
+		MaxResults: aws.Int32(1),
+		NextToken:  page1.NextToken,
+	})
+	require.NoError(t, err)
+	require.Len(t, page2.IpSetIds, 1)
+	assert.Empty(t, aws.ToString(page2.NextToken))
+	assert.NotEqual(t, page1.IpSetIds[0], page2.IpSetIds[0])
+}
+
+// TestListThreatIntelSets_Pagination mirrors TestListFilters_Pagination for
+// ListThreatIntelSets.
+func TestListThreatIntelSets_Pagination(t *testing.T) {
+	t.Parallel()
+
+	backend := guardduty.NewInMemoryBackend("123456789012", "us-east-1")
+	det, err := backend.CreateDetector(true, "", nil, nil)
+	require.NoError(t, err)
+
+	_, err = backend.CreateThreatIntelSet(det.DetectorID, "ti-a", "TXT", "s3://bucket/a", true, nil, "")
+	require.NoError(t, err)
+	_, err = backend.CreateThreatIntelSet(det.DetectorID, "ti-b", "TXT", "s3://bucket/b", true, nil, "")
+	require.NoError(t, err)
+
+	client := newTestGuardDutyClient(t, guardduty.NewHandler(backend))
+
+	page1, err := client.ListThreatIntelSets(t.Context(), &guarddutysdk.ListThreatIntelSetsInput{
+		DetectorId: aws.String(det.DetectorID),
+		MaxResults: aws.Int32(1),
+	})
+	require.NoError(t, err)
+	require.Len(t, page1.ThreatIntelSetIds, 1)
+	require.NotEmpty(t, aws.ToString(page1.NextToken))
+
+	page2, err := client.ListThreatIntelSets(t.Context(), &guarddutysdk.ListThreatIntelSetsInput{
+		DetectorId: aws.String(det.DetectorID),
+		MaxResults: aws.Int32(1),
+		NextToken:  page1.NextToken,
+	})
+	require.NoError(t, err)
+	require.Len(t, page2.ThreatIntelSetIds, 1)
+	assert.Empty(t, aws.ToString(page2.NextToken))
+	assert.NotEqual(t, page1.ThreatIntelSetIds[0], page2.ThreatIntelSetIds[0])
+}
+
+// TestListThreatEntitySets_Pagination mirrors TestListFilters_Pagination for
+// ListThreatEntitySets.
+func TestListThreatEntitySets_Pagination(t *testing.T) {
+	t.Parallel()
+
+	backend := guardduty.NewInMemoryBackend("123456789012", "us-east-1")
+	det, err := backend.CreateDetector(true, "", nil, nil)
+	require.NoError(t, err)
+
+	_, err = backend.CreateThreatEntitySet(det.DetectorID, "te-a", "TXT", "s3://bucket/a", true, nil, "")
+	require.NoError(t, err)
+	_, err = backend.CreateThreatEntitySet(det.DetectorID, "te-b", "TXT", "s3://bucket/b", true, nil, "")
+	require.NoError(t, err)
+
+	client := newTestGuardDutyClient(t, guardduty.NewHandler(backend))
+
+	page1, err := client.ListThreatEntitySets(t.Context(), &guarddutysdk.ListThreatEntitySetsInput{
+		DetectorId: aws.String(det.DetectorID),
+		MaxResults: aws.Int32(1),
+	})
+	require.NoError(t, err)
+	require.Len(t, page1.ThreatEntitySetIds, 1)
+	require.NotEmpty(t, aws.ToString(page1.NextToken))
+
+	page2, err := client.ListThreatEntitySets(t.Context(), &guarddutysdk.ListThreatEntitySetsInput{
+		DetectorId: aws.String(det.DetectorID),
+		MaxResults: aws.Int32(1),
+		NextToken:  page1.NextToken,
+	})
+	require.NoError(t, err)
+	require.Len(t, page2.ThreatEntitySetIds, 1)
+	assert.Empty(t, aws.ToString(page2.NextToken))
+	assert.NotEqual(t, page1.ThreatEntitySetIds[0], page2.ThreatEntitySetIds[0])
+}
+
+// TestListTrustedEntitySets_Pagination mirrors TestListFilters_Pagination for
+// ListTrustedEntitySets.
+func TestListTrustedEntitySets_Pagination(t *testing.T) {
+	t.Parallel()
+
+	backend := guardduty.NewInMemoryBackend("123456789012", "us-east-1")
+	det, err := backend.CreateDetector(true, "", nil, nil)
+	require.NoError(t, err)
+
+	_, err = backend.CreateTrustedEntitySet(det.DetectorID, "tr-a", "TXT", "s3://bucket/a", true, nil, "")
+	require.NoError(t, err)
+	_, err = backend.CreateTrustedEntitySet(det.DetectorID, "tr-b", "TXT", "s3://bucket/b", true, nil, "")
+	require.NoError(t, err)
+
+	client := newTestGuardDutyClient(t, guardduty.NewHandler(backend))
+
+	page1, err := client.ListTrustedEntitySets(t.Context(), &guarddutysdk.ListTrustedEntitySetsInput{
+		DetectorId: aws.String(det.DetectorID),
+		MaxResults: aws.Int32(1),
+	})
+	require.NoError(t, err)
+	require.Len(t, page1.TrustedEntitySetIds, 1)
+	require.NotEmpty(t, aws.ToString(page1.NextToken))
+
+	page2, err := client.ListTrustedEntitySets(t.Context(), &guarddutysdk.ListTrustedEntitySetsInput{
+		DetectorId: aws.String(det.DetectorID),
+		MaxResults: aws.Int32(1),
+		NextToken:  page1.NextToken,
+	})
+	require.NoError(t, err)
+	require.Len(t, page2.TrustedEntitySetIds, 1)
+	assert.Empty(t, aws.ToString(page2.NextToken))
+	assert.NotEqual(t, page1.TrustedEntitySetIds[0], page2.TrustedEntitySetIds[0])
+}
+
+// TestListPublishingDestinations_Pagination mirrors TestListFilters_Pagination
+// for ListPublishingDestinations.
+func TestListPublishingDestinations_Pagination(t *testing.T) {
+	t.Parallel()
+
+	backend := guardduty.NewInMemoryBackend("123456789012", "us-east-1")
+	det, err := backend.CreateDetector(true, "", nil, nil)
+	require.NoError(t, err)
+
+	dest1, err := backend.CreatePublishingDestination(det.DetectorID, "S3", guardduty.DestinationProperties{
+		DestinationArn: "arn:aws:s3:::bucket-a",
+	}, nil)
+	require.NoError(t, err)
+	dest2, err := backend.CreatePublishingDestination(det.DetectorID, "S3", guardduty.DestinationProperties{
+		DestinationArn: "arn:aws:s3:::bucket-b",
+	}, nil)
+	require.NoError(t, err)
+
+	client := newTestGuardDutyClient(t, guardduty.NewHandler(backend))
+
+	page1, err := client.ListPublishingDestinations(t.Context(), &guarddutysdk.ListPublishingDestinationsInput{
+		DetectorId: aws.String(det.DetectorID),
+		MaxResults: aws.Int32(1),
+	})
+	require.NoError(t, err)
+	require.Len(t, page1.Destinations, 1)
+	require.NotEmpty(t, aws.ToString(page1.NextToken))
+
+	page2, err := client.ListPublishingDestinations(t.Context(), &guarddutysdk.ListPublishingDestinationsInput{
+		DetectorId: aws.String(det.DetectorID),
+		MaxResults: aws.Int32(1),
+		NextToken:  page1.NextToken,
+	})
+	require.NoError(t, err)
+	require.Len(t, page2.Destinations, 1)
+	assert.Empty(t, aws.ToString(page2.NextToken))
+
+	seen := map[string]bool{
+		aws.ToString(page1.Destinations[0].DestinationId): true,
+		aws.ToString(page2.Destinations[0].DestinationId): true,
+	}
+	assert.True(t, seen[dest1.DestinationID])
+	assert.True(t, seen[dest2.DestinationID])
+}
+
+// TestListOrganizationAdminAccounts_Pagination mirrors
+// TestListFilters_Pagination for ListOrganizationAdminAccounts.
+func TestListOrganizationAdminAccounts_Pagination(t *testing.T) {
+	t.Parallel()
+
+	backend := guardduty.NewInMemoryBackend("123456789012", "us-east-1")
+	require.NoError(t, backend.EnableOrganizationAdminAccount("111111111111"))
+	require.NoError(t, backend.EnableOrganizationAdminAccount("222222222222"))
+
+	client := newTestGuardDutyClient(t, guardduty.NewHandler(backend))
+
+	page1, err := client.ListOrganizationAdminAccounts(t.Context(), &guarddutysdk.ListOrganizationAdminAccountsInput{
+		MaxResults: aws.Int32(1),
+	})
+	require.NoError(t, err)
+	require.Len(t, page1.AdminAccounts, 1)
+	require.NotEmpty(t, aws.ToString(page1.NextToken))
+
+	page2, err := client.ListOrganizationAdminAccounts(t.Context(), &guarddutysdk.ListOrganizationAdminAccountsInput{
+		MaxResults: aws.Int32(1),
+		NextToken:  page1.NextToken,
+	})
+	require.NoError(t, err)
+	require.Len(t, page2.AdminAccounts, 1)
+	assert.Empty(t, aws.ToString(page2.NextToken))
+	assert.NotEqual(
+		t,
+		aws.ToString(page1.AdminAccounts[0].AdminAccountId),
+		aws.ToString(page2.AdminAccounts[0].AdminAccountId),
+	)
+}
+
+// malwareProtectionPlanPaginationTestCount is one more than
+// ListMalwareProtectionPlansInput's documented default page size (100 plans,
+// per its own NextToken doc comment) -- ListMalwareProtectionPlans has no
+// MaxResults on the real wire at all, so this is the only way to force a
+// real second page and prove NextToken is actually honored rather than the
+// full set always coming back in one response.
+const malwareProtectionPlanPaginationTestCount = 101
+
+// TestListMalwareProtectionPlans_Pagination mirrors
+// TestListFilters_Pagination for ListMalwareProtectionPlans, which has no
+// MaxResults on the real wire (NextToken only, fixed 100-per-page default).
+func TestListMalwareProtectionPlans_Pagination(t *testing.T) {
+	t.Parallel()
+
+	backend := guardduty.NewInMemoryBackend("123456789012", "us-east-1")
+
+	ids := make(map[string]bool, malwareProtectionPlanPaginationTestCount)
+
+	for range malwareProtectionPlanPaginationTestCount {
+		plan, err := backend.CreateMalwareProtectionPlan(
+			"arn:aws:iam::123456789012:role/scan-role", map[string]any{}, map[string]any{}, nil,
+		)
+		require.NoError(t, err)
+		ids[plan.MalwareProtectionPlanID] = true
+	}
+
+	client := newTestGuardDutyClient(t, guardduty.NewHandler(backend))
+
+	page1, err := client.ListMalwareProtectionPlans(t.Context(), &guarddutysdk.ListMalwareProtectionPlansInput{})
+	require.NoError(t, err)
+	require.Len(t, page1.MalwareProtectionPlans, 100)
+	require.NotEmpty(t, aws.ToString(page1.NextToken))
+
+	page2, err := client.ListMalwareProtectionPlans(t.Context(), &guarddutysdk.ListMalwareProtectionPlansInput{
+		NextToken: page1.NextToken,
+	})
+	require.NoError(t, err)
+	require.Len(t, page2.MalwareProtectionPlans, 1)
+	assert.Empty(t, aws.ToString(page2.NextToken))
+
+	for _, p := range page1.MalwareProtectionPlans {
+		assert.True(t, ids[aws.ToString(p.MalwareProtectionPlanId)])
+	}
+
+	assert.True(t, ids[aws.ToString(page2.MalwareProtectionPlans[0].MalwareProtectionPlanId)])
+}
+
+// TestListInvitations_Pagination mirrors TestListFilters_Pagination for
+// ListInvitations.
+func TestListInvitations_Pagination(t *testing.T) {
+	t.Parallel()
+
+	backend := guardduty.NewInMemoryBackend("123456789012", "us-east-1")
+	det, err := backend.CreateDetector(true, "", nil, nil)
+	require.NoError(t, err)
+
+	unprocessed, err := backend.InviteMembers(det.DetectorID, []string{"111111111111", "222222222222"})
+	require.NoError(t, err)
+	require.Empty(t, unprocessed)
+
+	client := newTestGuardDutyClient(t, guardduty.NewHandler(backend))
+
+	page1, err := client.ListInvitations(t.Context(), &guarddutysdk.ListInvitationsInput{
+		MaxResults: aws.Int32(1),
+	})
+	require.NoError(t, err)
+	require.Len(t, page1.Invitations, 1)
+	require.NotEmpty(t, aws.ToString(page1.NextToken))
+
+	page2, err := client.ListInvitations(t.Context(), &guarddutysdk.ListInvitationsInput{
+		MaxResults: aws.Int32(1),
+		NextToken:  page1.NextToken,
+	})
+	require.NoError(t, err)
+	require.Len(t, page2.Invitations, 1)
+	assert.Empty(t, aws.ToString(page2.NextToken))
+	assert.NotEqual(t, aws.ToString(page1.Invitations[0].AccountId), aws.ToString(page2.Invitations[0].AccountId))
+}
+
+// TestListMembers_Pagination mirrors TestListFilters_Pagination for
+// ListMembers.
+func TestListMembers_Pagination(t *testing.T) {
+	t.Parallel()
+
+	backend := guardduty.NewInMemoryBackend("123456789012", "us-east-1")
+	det, err := backend.CreateDetector(true, "", nil, nil)
+	require.NoError(t, err)
+
+	created, unprocessed := backend.CreateMembers(det.DetectorID, []map[string]any{
+		{"accountId": "111111111111", "email": "a@example.com"},
+		{"accountId": "222222222222", "email": "b@example.com"},
+	})
+	require.Empty(t, unprocessed)
+	require.Len(t, created, 2)
+
+	client := newTestGuardDutyClient(t, guardduty.NewHandler(backend))
+
+	page1, err := client.ListMembers(t.Context(), &guarddutysdk.ListMembersInput{
+		DetectorId: aws.String(det.DetectorID),
+		MaxResults: aws.Int32(1),
+	})
+	require.NoError(t, err)
+	require.Len(t, page1.Members, 1)
+	require.NotEmpty(t, aws.ToString(page1.NextToken))
+
+	page2, err := client.ListMembers(t.Context(), &guarddutysdk.ListMembersInput{
+		DetectorId: aws.String(det.DetectorID),
+		MaxResults: aws.Int32(1),
+		NextToken:  page1.NextToken,
+	})
+	require.NoError(t, err)
+	require.Len(t, page2.Members, 1)
+	assert.Empty(t, aws.ToString(page2.NextToken))
+	assert.NotEqual(t, aws.ToString(page1.Members[0].AccountId), aws.ToString(page2.Members[0].AccountId))
+}

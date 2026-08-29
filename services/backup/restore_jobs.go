@@ -116,6 +116,39 @@ func (b *InMemoryBackend) ListRestoreJobs() []*RestoreJob {
 	return out
 }
 
+// ListRestoreJobSummaries returns restore job counts grouped by State, real
+// RestoreJobSummary's own required grouping key (backup@v1.59.4
+// api_op_ListRestoreJobSummaries.go, RestoreJobSummary: AccountId, Count,
+// Region, ResourceType, State, StartTime, EndTime). AggregationPeriod
+// (per-day/per-week time-bucketed counts) and ResourceType-level grouping
+// are not modeled: this backend produces one point-in-time snapshot per
+// call, not a historical time series, and every other summary op in this
+// package (ListBackupJobSummaries/ListCopyJobSummaries) groups by State
+// only, not by the full (Region,AccountId,State,ResourceType) key real AWS
+// documents -- kept consistent with that existing precedent rather than
+// introducing a different fidelity level for this one sibling op.
+func (b *InMemoryBackend) ListRestoreJobSummaries() []map[string]any {
+	b.mu.RLock("ListRestoreJobSummaries")
+	defer b.mu.RUnlock()
+
+	counts := make(map[string]int)
+	for _, j := range b.restoreJobs.All() {
+		counts[j.Status]++
+	}
+
+	summaries := make([]map[string]any, 0, len(counts))
+	for state, count := range counts {
+		summaries = append(summaries, map[string]any{
+			keyState:         state,
+			keySummaryCount:  count,
+			keySummaryRegion: b.region,
+			keyAccountID:     b.accountID,
+		})
+	}
+
+	return summaries
+}
+
 // ListRestoreJobsFilter contains optional filter parameters for listing
 // restore jobs, mirroring ListRestoreJobsInput (api_op_ListRestoreJobs.go,
 // backup@v1.59.4). ByParentJobId and ByRestoreTestingPlanArn are not
@@ -129,6 +162,8 @@ type ListRestoreJobsFilter struct {
 	AccountID      string
 	ResourceType   string
 	Status         string
+	NextToken      string
+	MaxResults     int
 }
 
 func restoreJobMatchesFilter(j *RestoreJob, f ListRestoreJobsFilter) bool {
@@ -151,8 +186,9 @@ func restoreJobMatchesFilter(j *RestoreJob, f ListRestoreJobsFilter) bool {
 	return inTimeRange(*j.CompletionDate, f.CompleteAfter, f.CompleteBefore)
 }
 
-// ListRestoreJobsFiltered returns restore jobs matching the filter.
-func (b *InMemoryBackend) ListRestoreJobsFiltered(f ListRestoreJobsFilter) []*RestoreJob {
+// ListRestoreJobsFiltered returns restore jobs matching the filter, paginated
+// per f.MaxResults/f.NextToken. Returns (jobs, nextToken).
+func (b *InMemoryBackend) ListRestoreJobsFiltered(f ListRestoreJobsFilter) ([]*RestoreJob, string) {
 	b.mu.RLock("ListRestoreJobsFiltered")
 	defer b.mu.RUnlock()
 
@@ -167,7 +203,7 @@ func (b *InMemoryBackend) ListRestoreJobsFiltered(f ListRestoreJobsFilter) []*Re
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].RestoreJobID < out[j].RestoreJobID })
 
-	return out
+	return paginateByID(out, func(j *RestoreJob) string { return j.RestoreJobID }, f.MaxResults, f.NextToken)
 }
 
 // ListRestoreJobsByProtectedResource returns restore jobs for a given resource ARN.

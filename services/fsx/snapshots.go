@@ -91,9 +91,17 @@ func (b *InMemoryBackend) DeleteSnapshot(snapshotID string) error {
 	return nil
 }
 
-// DescribeSnapshots returns snapshots, optionally filtered by ID.
-func (b *InMemoryBackend) DescribeSnapshots( //nolint:dupl // existing issue.
+// DescribeSnapshots returns snapshots, optionally filtered by ID or Filters.
+// Real SnapshotFilterName (aws-sdk-go-v2/service/fsx@v1.68.4 types/enums.go)
+// has 2 values: file-system-id, volume-id. file-system-id requires resolving
+// the snapshot's owning volume -- storedSnapshot only tracks VolumeID
+// directly. IncludeShared (real DescribeSnapshotsInput member) is not
+// modeled: this backend is single-account/single-tenant, so every snapshot
+// is definitionally "owned" regardless of that flag -- there is no honest
+// cross-account snapshot to differ on.
+func (b *InMemoryBackend) DescribeSnapshots(
 	ids []string,
+	filters []wireFilter,
 	maxResults int32,
 	nextToken string,
 ) ([]*Snapshot, string, error) {
@@ -116,7 +124,24 @@ func (b *InMemoryBackend) DescribeSnapshots( //nolint:dupl // existing issue.
 			all = append(all, s)
 		}
 	} else {
-		all = b.snapshots.All()
+		for _, s := range b.snapshots.All() {
+			if matchesFilters(filters, func(name string) (string, bool) {
+				switch name {
+				case "volume-id":
+					return s.VolumeID, true
+				case filterNameFileSystemID:
+					if vol, ok := b.volumes.Get(s.VolumeID); ok {
+						return vol.FileSystemID, true
+					}
+
+					return "", true
+				default:
+					return "", false
+				}
+			}) {
+				all = append(all, s)
+			}
+		}
 
 		sort.Slice(all, func(i, j int) bool { return all[i].SnapshotID < all[j].SnapshotID })
 	}

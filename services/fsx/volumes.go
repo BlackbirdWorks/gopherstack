@@ -286,9 +286,13 @@ func (b *InMemoryBackend) createOpenZFSRootVolumeLocked(fs *storedFileSystem) st
 	return id
 }
 
-// DescribeVolumes returns volumes, optionally filtered by ID.
+// DescribeVolumes returns volumes, optionally filtered by ID or Filters.
+// Real VolumeFilterName (aws-sdk-go-v2/service/fsx@v1.68.4 types/enums.go)
+// has 2 values: file-system-id, storage-virtual-machine-id -- both tracked
+// directly on storedVolume.
 func (b *InMemoryBackend) DescribeVolumes( //nolint:dupl // existing issue.
 	ids []string,
+	filters []wireFilter,
 	maxResults int32,
 	nextToken string,
 ) ([]*Volume, string, error) {
@@ -311,7 +315,20 @@ func (b *InMemoryBackend) DescribeVolumes( //nolint:dupl // existing issue.
 			all = append(all, v)
 		}
 	} else {
-		all = b.volumes.All()
+		for _, v := range b.volumes.All() {
+			if matchesFilters(filters, func(name string) (string, bool) {
+				switch name {
+				case filterNameFileSystemID:
+					return v.FileSystemID, true
+				case "storage-virtual-machine-id":
+					return v.StorageVirtualMachineID, true
+				default:
+					return "", false
+				}
+			}) {
+				all = append(all, v)
+			}
+		}
 
 		sort.Slice(all, func(i, j int) bool { return all[i].VolumeID < all[j].VolumeID })
 	}

@@ -8,6 +8,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	backupsdk "github.com/aws/aws-sdk-go-v2/service/backup"
 	"github.com/aws/aws-sdk-go-v2/service/backup/types"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/services/backup"
@@ -562,4 +563,181 @@ func TestListScanJobs_WireFilters(t *testing.T) {
 			require.Equal(t, tc.wantDrop, slices.Contains(ids, drop.ScanJobID), "drop presence")
 		})
 	}
+}
+
+// TestListRestoreJobSummaries_State proves ListRestoreJobSummaries never
+// read State/AccountId at all (real RestoreJobSummary, backup@v1.59.4
+// api_op_ListRestoreJobSummaries.go, deserializers.go's per-field case
+// switch: AccountId/Count/EndTime/Region/ResourceType/StartTime/State) --
+// the handler returned a single fabricated {Count, Region} entry regardless
+// of how many jobs existed or what state they were in, so a real client's
+// State/AccountId fields were always empty/zero.
+func TestListRestoreJobSummaries_State(t *testing.T) {
+	t.Parallel()
+
+	backend := backup.NewInMemoryBackend("000000000000", "us-east-1")
+	h := backup.NewHandler(backend)
+	client := newTestBackupClient(t, h)
+
+	mustVault(t, backend, "rjs-vault")
+	rpArn := "arn:aws:backup:us-east-1:000000000000:recovery-point:rjs-rp"
+	mustRP(t, backend, "rjs-vault", rpArn, "arn:aws:ec2:us-east-1:000000000000:instance/i-rjs", "EC2")
+
+	iamRoleArn := "arn:aws:iam::000000000000:role/r"
+
+	_, err := backend.StartRestoreJob(rpArn, iamRoleArn, "EC2", map[string]string{"k": "v"})
+	require.NoError(t, err)
+	_, err = backend.StartRestoreJob(rpArn, iamRoleArn, "EC2", map[string]string{"k": "v"})
+	require.NoError(t, err)
+
+	out, err := client.ListRestoreJobSummaries(t.Context(), &backupsdk.ListRestoreJobSummariesInput{})
+	require.NoError(t, err)
+	require.Len(t, out.RestoreJobSummaries, 1)
+
+	summary := out.RestoreJobSummaries[0]
+	assert.Equal(t, types.RestoreJobState("COMPLETED"), summary.State, "State must be populated, not dropped")
+	assert.EqualValues(t, 2, summary.Count)
+	assert.Equal(t, "000000000000", aws.ToString(summary.AccountId), "AccountId must be populated, not dropped")
+	assert.Equal(t, "us-east-1", aws.ToString(summary.Region))
+}
+
+// TestListScanJobSummaries_State proves ListScanJobSummaries never read
+// State/AccountId either (real ScanJobSummary, backup@v1.59.4
+// api_op_ListScanJobSummaries.go): the handler returned a single fabricated
+// {Count} entry with nothing else, regardless of how many scan jobs existed
+// or what state they were in.
+func TestListScanJobSummaries_State(t *testing.T) {
+	t.Parallel()
+
+	backend := backup.NewInMemoryBackend("000000000000", "us-east-1")
+	h := backup.NewHandler(backend)
+	client := newTestBackupClient(t, h)
+
+	vault := mustVault(t, backend, "sjs-vault")
+
+	backend.StartScanJob(vault.BackupVaultArn, backup.StartScanJobInput{
+		BackupVaultName:  "sjs-vault",
+		IamRoleArn:       "arn:aws:iam::000000000000:role/r",
+		MalwareScanner:   "GUARDDUTY",
+		RecoveryPointArn: "arn:aws:backup:us-east-1:000000000000:recovery-point:sjs-rp-1",
+		ScanMode:         "SNAPSHOT",
+		ScannerRoleArn:   "arn:aws:iam::000000000000:role/scanner",
+	})
+	backend.StartScanJob(vault.BackupVaultArn, backup.StartScanJobInput{
+		BackupVaultName:  "sjs-vault",
+		IamRoleArn:       "arn:aws:iam::000000000000:role/r",
+		MalwareScanner:   "GUARDDUTY",
+		RecoveryPointArn: "arn:aws:backup:us-east-1:000000000000:recovery-point:sjs-rp-2",
+		ScanMode:         "SNAPSHOT",
+		ScannerRoleArn:   "arn:aws:iam::000000000000:role/scanner",
+	})
+
+	out, err := client.ListScanJobSummaries(t.Context(), &backupsdk.ListScanJobSummariesInput{})
+	require.NoError(t, err)
+	require.Len(t, out.ScanJobSummaries, 1)
+
+	summary := out.ScanJobSummaries[0]
+	assert.Equal(t, types.ScanJobStatus("COMPLETED"), summary.State, "State must be populated, not dropped")
+	assert.EqualValues(t, 2, summary.Count)
+	assert.Equal(t, "000000000000", aws.ToString(summary.AccountId), "AccountId must be populated, not dropped")
+	assert.Equal(t, "us-east-1", aws.ToString(summary.Region))
+}
+
+// TestListRestoreJobs_Pagination proves ListRestoreJobsInput's MaxResults/
+// NextToken (real query params -- backup@v1.59.4 serializers.go
+// awsRestjson1_serializeOpHttpBindingsListRestoreJobsInput's encoder.SetQuery
+// calls) were never read at all: RestoreJobsFilterFromQuery built a
+// ListRestoreJobsFilter with no MaxResults/NextToken fields, so every real
+// client's page size request was silently ignored and the full unpaginated
+// set came back in one response every time.
+func TestListRestoreJobs_Pagination(t *testing.T) {
+	t.Parallel()
+
+	backend := backup.NewInMemoryBackend("000000000000", "us-east-1")
+	h := backup.NewHandler(backend)
+	client := newTestBackupClient(t, h)
+
+	mustVault(t, backend, "rjp-vault")
+	rpArn := "arn:aws:backup:us-east-1:000000000000:recovery-point:rjp-rp"
+	mustRP(t, backend, "rjp-vault", rpArn, "arn:aws:ec2:us-east-1:000000000000:instance/i-rjp", "EC2")
+
+	iamRoleArn := "arn:aws:iam::000000000000:role/r"
+
+	job1, err := backend.StartRestoreJob(rpArn, iamRoleArn, "EC2", map[string]string{"k": "v"})
+	require.NoError(t, err)
+	job2, err := backend.StartRestoreJob(rpArn, iamRoleArn, "EC2", map[string]string{"k": "v"})
+	require.NoError(t, err)
+
+	page1, err := client.ListRestoreJobs(t.Context(), &backupsdk.ListRestoreJobsInput{MaxResults: aws.Int32(1)})
+	require.NoError(t, err)
+	require.Len(t, page1.RestoreJobs, 1)
+	require.NotNil(t, page1.NextToken, "a second page must exist")
+
+	page2, err := client.ListRestoreJobs(t.Context(), &backupsdk.ListRestoreJobsInput{
+		MaxResults: aws.Int32(1),
+		NextToken:  page1.NextToken,
+	})
+	require.NoError(t, err)
+	require.Len(t, page2.RestoreJobs, 1)
+	assert.Nil(t, page2.NextToken, "no third page")
+
+	seen := map[string]bool{
+		aws.ToString(page1.RestoreJobs[0].RestoreJobId): true,
+		aws.ToString(page2.RestoreJobs[0].RestoreJobId): true,
+	}
+	assert.True(t, seen[job1.RestoreJobID])
+	assert.True(t, seen[job2.RestoreJobID])
+}
+
+// TestListScanJobs_Pagination mirrors TestListRestoreJobs_Pagination for
+// ListScanJobs, whose MaxResults/NextToken are query-bound under their
+// PascalCase Go field names (backup@v1.59.4 serializers.go
+// awsRestjson1_serializeOpHttpBindingsListScanJobsInput -- the one op in
+// this service that keeps PascalCase on the wire, see ListScanJobs' own
+// PARITY.md note).
+func TestListScanJobs_Pagination(t *testing.T) {
+	t.Parallel()
+
+	backend := backup.NewInMemoryBackend("000000000000", "us-east-1")
+	h := backup.NewHandler(backend)
+	client := newTestBackupClient(t, h)
+
+	vault := mustVault(t, backend, "sjp-vault")
+
+	job1 := backend.StartScanJob(vault.BackupVaultArn, backup.StartScanJobInput{
+		BackupVaultName:  "sjp-vault",
+		IamRoleArn:       "arn:aws:iam::000000000000:role/r",
+		MalwareScanner:   "GUARDDUTY",
+		RecoveryPointArn: "arn:aws:backup:us-east-1:000000000000:recovery-point:sjp-rp-1",
+		ScanMode:         "SNAPSHOT",
+		ScannerRoleArn:   "arn:aws:iam::000000000000:role/scanner",
+	})
+	job2 := backend.StartScanJob(vault.BackupVaultArn, backup.StartScanJobInput{
+		BackupVaultName:  "sjp-vault",
+		IamRoleArn:       "arn:aws:iam::000000000000:role/r",
+		MalwareScanner:   "GUARDDUTY",
+		RecoveryPointArn: "arn:aws:backup:us-east-1:000000000000:recovery-point:sjp-rp-2",
+		ScanMode:         "SNAPSHOT",
+		ScannerRoleArn:   "arn:aws:iam::000000000000:role/scanner",
+	})
+
+	page1, err := client.ListScanJobs(t.Context(), &backupsdk.ListScanJobsInput{MaxResults: aws.Int32(1)})
+	require.NoError(t, err)
+	require.Len(t, page1.ScanJobs, 1)
+	require.NotNil(t, page1.NextToken, "a second page must exist")
+
+	page2, err := client.ListScanJobs(t.Context(), &backupsdk.ListScanJobsInput{
+		MaxResults: aws.Int32(1),
+		NextToken:  page1.NextToken,
+	})
+	require.NoError(t, err)
+	require.Len(t, page2.ScanJobs, 1)
+	assert.Nil(t, page2.NextToken, "no third page")
+
+	seen := map[string]bool{
+		aws.ToString(page1.ScanJobs[0].ScanJobId): true,
+		aws.ToString(page2.ScanJobs[0].ScanJobId): true,
+	}
+	assert.True(t, seen[job1.ScanJobID])
+	assert.True(t, seen[job2.ScanJobID])
 }

@@ -906,9 +906,12 @@ type JobFlowInstancesDetail struct {
 
 // ListNotebookExecutionsParams holds filters for ListNotebookExecutions.
 type ListNotebookExecutionsParams struct {
-	EditorID string
-	Status   string
-	Marker   string
+	From              *time.Time
+	To                *time.Time
+	EditorID          string
+	ExecutionEngineID string
+	Status            string
+	Marker            string
 }
 
 // SessionCloudWatchLoggingConfiguration is the CloudWatch Logs configuration

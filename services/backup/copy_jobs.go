@@ -65,7 +65,7 @@ func (b *InMemoryBackend) ListCopyJobSummaries() []map[string]any {
 	summaries := make([]map[string]any, 0, len(counts))
 	for state, count := range counts {
 		summaries = append(summaries, map[string]any{
-			"State":          state,
+			keyState:         state,
 			keySummaryCount:  count,
 			keySummaryRegion: b.region,
 		})

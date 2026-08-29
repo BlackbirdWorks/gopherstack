@@ -389,6 +389,38 @@ func (b *InMemoryBackend) ListScanJobs() []*ScanJob {
 	return out
 }
 
+// ListScanJobSummaries returns scan job counts grouped by State, real
+// ScanJobSummary's own required grouping key (backup@v1.59.4
+// api_op_ListScanJobSummaries.go, ScanJobSummary: AccountId, Count, Region,
+// ResourceType, ScanResultStatus, State, StartTime, EndTime).
+// AggregationPeriod (per-day/per-week time-bucketed counts),
+// ResourceType-level grouping, and MalwareScanner/ScanResultStatus (this
+// backend's ScanJob never tracks a scan result outcome, see the ScanJob
+// type doc) are not modeled -- kept consistent with the same State-only
+// grouping precedent ListBackupJobSummaries/ListCopyJobSummaries already
+// use for their own sibling ops.
+func (b *InMemoryBackend) ListScanJobSummaries() []map[string]any {
+	b.mu.RLock("ListScanJobSummaries")
+	defer b.mu.RUnlock()
+
+	counts := make(map[string]int)
+	for _, j := range b.scanJobs.All() {
+		counts[j.Status]++
+	}
+
+	summaries := make([]map[string]any, 0, len(counts))
+	for state, count := range counts {
+		summaries = append(summaries, map[string]any{
+			keyState:         state,
+			keySummaryCount:  count,
+			keySummaryRegion: b.region,
+			keyAccountID:     b.accountID,
+		})
+	}
+
+	return summaries
+}
+
 // ListScanJobsFilter contains optional filter parameters for listing scan
 // jobs, mirroring ListScanJobsInput (api_op_ListScanJobs.go, backup@v1.59.4).
 // ByScanResultStatus is not included: this backend's ScanJob has no field
@@ -404,6 +436,8 @@ type ListScanJobsFilter struct {
 	ResourceArn      string
 	ResourceType     string
 	State            string
+	NextToken        string
+	MaxResults       int
 }
 
 func scanJobMatchesFieldFilters(j *ScanJob, f ListScanJobsFilter) bool {
@@ -440,7 +474,7 @@ func scanJobMatchesFilter(j *ScanJob, f ListScanJobsFilter) bool {
 }
 
 // ListScanJobsFiltered returns scan jobs matching the filter.
-func (b *InMemoryBackend) ListScanJobsFiltered(f ListScanJobsFilter) []*ScanJob {
+func (b *InMemoryBackend) ListScanJobsFiltered(f ListScanJobsFilter) ([]*ScanJob, string) {
 	b.mu.RLock("ListScanJobsFiltered")
 	defer b.mu.RUnlock()
 
@@ -455,7 +489,7 @@ func (b *InMemoryBackend) ListScanJobsFiltered(f ListScanJobsFilter) []*ScanJob 
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ScanJobID < out[j].ScanJobID })
 
-	return out
+	return paginateByID(out, func(j *ScanJob) string { return j.ScanJobID }, f.MaxResults, f.NextToken)
 }
 
 // ---- Legal Holds ----

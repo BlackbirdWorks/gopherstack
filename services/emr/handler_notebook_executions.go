@@ -134,9 +134,12 @@ func (h *Handler) handleDescribeNotebookExecution(
 // --- ListNotebookExecutions ---
 
 type listNotebookExecutionsInput struct {
-	EditorID string `json:"EditorId,omitempty"`
-	Status   string `json:"Status,omitempty"`
-	Marker   string `json:"Marker,omitempty"`
+	From              *float64 `json:"From"`
+	To                *float64 `json:"To"`
+	EditorID          string   `json:"EditorId,omitempty"`
+	ExecutionEngineID string   `json:"ExecutionEngineId,omitempty"`
+	Status            string   `json:"Status,omitempty"`
+	Marker            string   `json:"Marker,omitempty"`
 }
 
 type listNotebookExecutionsOutput struct {
@@ -148,11 +151,24 @@ func (h *Handler) handleListNotebookExecutions(
 	ctx context.Context,
 	in *listNotebookExecutionsInput,
 ) (*listNotebookExecutionsOutput, error) {
-	list, marker := h.Backend.ListNotebookExecutions(ctx, ListNotebookExecutionsParams{
-		EditorID: in.EditorID,
-		Status:   in.Status,
-		Marker:   in.Marker,
-	})
+	params := ListNotebookExecutionsParams{
+		EditorID:          in.EditorID,
+		ExecutionEngineID: in.ExecutionEngineID,
+		Status:            in.Status,
+		Marker:            in.Marker,
+	}
+
+	if in.From != nil {
+		t := epochSecondsToTime(*in.From)
+		params.From = &t
+	}
+
+	if in.To != nil {
+		t := epochSecondsToTime(*in.To)
+		params.To = &t
+	}
+
+	list, marker := h.Backend.ListNotebookExecutions(ctx, params)
 
 	summaries := make([]NotebookExecutionSummary, 0, len(list))
 	for _, ne := range list {

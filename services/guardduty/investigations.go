@@ -19,15 +19,6 @@ const (
 	// investigationStatusRunning is the only status this backend ever
 	// assigns an investigation -- see the Investigation type doc for why.
 	investigationStatusRunning = "RUNNING"
-
-	// defaultInvestigationsPageSize and maxInvestigationsPageSize mirror the
-	// ListFindings convention (see findings.go): the real
-	// ListInvestigationsInput doc states "The default value is 50" for
-	// MaxResults without documenting an explicit maximum, so 50 is used as
-	// the cap here too, consistent with every other paginated op in this
-	// package.
-	defaultInvestigationsPageSize = 50
-	maxInvestigationsPageSize     = 50
 )
 
 // detectorHasEnabledFeature reports whether d has featureName present in its
@@ -152,7 +143,7 @@ func (b *InMemoryBackend) ListInvestigations(
 		return nil, "", ErrValidation
 	}
 
-	size := resolvePageSize(int(q.MaxResults), defaultInvestigationsPageSize, maxInvestigationsPageSize)
+	size := resolvePageSize(int(q.MaxResults))
 	page, nextToken := paginate(all, offset, size)
 
 	return page, nextToken, nil

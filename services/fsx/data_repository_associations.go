@@ -92,9 +92,16 @@ func (b *InMemoryBackend) DeleteDataRepositoryAssociation(associationID string) 
 	return nil
 }
 
-// DescribeDataRepositoryAssociations returns DRAs, optionally filtered by ID.
+// DescribeDataRepositoryAssociations returns DRAs, optionally filtered by ID
+// or Filters. Real DescribeDataRepositoryAssociationsInput.Filters
+// (aws-sdk-go-v2/service/fsx@v1.68.4 api_op_DescribeDataRepositoryAssociations.go)
+// reuses the same types.Filter/FilterName as DescribeBackups, but a DRA has
+// no backup-type/volume-id/file-cache-* concept of its own -- only
+// file-system-id is recognized here; the other enum values are honored as
+// documented-but-unsupported (matches everything, same as an unset filter).
 func (b *InMemoryBackend) DescribeDataRepositoryAssociations( //nolint:dupl // existing issue.
 	ids []string,
+	filters []wireFilter,
 	maxResults int32,
 	nextToken string,
 ) ([]*DataRepositoryAssociation, string, error) {
@@ -117,7 +124,17 @@ func (b *InMemoryBackend) DescribeDataRepositoryAssociations( //nolint:dupl // e
 			all = append(all, a)
 		}
 	} else {
-		all = b.dataRepositoryAssocs.All()
+		for _, a := range b.dataRepositoryAssocs.All() {
+			if matchesFilters(filters, func(name string) (string, bool) {
+				if name == filterNameFileSystemID {
+					return a.FileSystemID, true
+				}
+
+				return "", false
+			}) {
+				all = append(all, a)
+			}
+		}
 
 		sort.Slice(all, func(i, j int) bool { return all[i].AssociationID < all[j].AssociationID })
 	}

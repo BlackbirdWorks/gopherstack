@@ -7,8 +7,62 @@
 service: guardduty
 sdk_module: aws-sdk-go-v2/service/guardduty@v1.85.4
 last_audit_commit: ca2732322
-last_audit_date: 2026-08-11
-overall: A            # RE-AUDITED 2026-08-11 (doc-only catch-up pass, no code changes): ca2732322 fixed
+last_audit_date: 2026-08-29
+overall: A            # 2026-08-29 (constraint-not-honoured sweep, wrapper-key-sweep-rds-cloudwatch-sqs-sns
+                       # branch): MaxResults/NextToken (real HTTP query params on every op below, verified
+                       # per-op against aws-sdk-go-v2/service/guardduty@v1.85.4's
+                       # awsRestjson1_serializeOpHttpBindings<Op>Input encoder.SetQuery calls) were never
+                       # read at all -- bug class "never read", not a wrong-key miswire -- across 10
+                       # operations: ListFilters, ListIPSets, ListThreatIntelSets, ListThreatEntitySets,
+                       # ListTrustedEntitySets, ListPublishingDestinations, ListOrganizationAdminAccounts,
+                       # ListMalwareProtectionPlans (NextToken only -- no MaxResults on this op's real wire),
+                       # ListInvitations, and ListMembers (onlyAssociated was already read correctly by a
+                       # prior pass; MaxResults/NextToken were not). Every one of these dispatcher functions
+                       # (dispatchFilterOps/dispatchIPSetOps/dispatchThreatIntelSetOps/dispatchInvitationOps/
+                       # dispatchOrgOps/dispatchPublishingDestOps/dispatchEntitySetOps) simply had no `query`
+                       # parameter at all -- the exact "binding trap" shape this class's own brief warns
+                       # about (a shared query string available at the dispatch() call site but never
+                       # threaded down to the op that needed it) -- so every real client's MaxResults/
+                       # NextToken silently no-op'd and the full unpaginated set came back in one response
+                       # every time, for every one of these 10 ops. Fixed by threading `query` through each
+                       # dispatcher, adding a shared paginationParamsFromQuery(query) helper (pagination.go,
+                       # replacing the near-identical malwareScanPageParamsFromQuery this pass consolidated),
+                       # and wiring each backend List method through the pre-existing paginate/decodeToken
+                       # helpers already used correctly by ListFindings/DescribeMalwareScans/ListMalwareScans/
+                       # ListInvestigations. Page-size cap: every one of these ops' own doc comment states
+                       # (or, for ListPublishingDestinations/ListOrganizationAdminAccounts, the AWS API
+                       # reference confirms) a 50-item default/max, consolidated into one standardPageSize
+                       # const (pagination.go) after golangci-lint's unparam flagged the prior per-family
+                       # constants as parameterizing a value that never varied; ListMalwareProtectionPlans
+                       # is the one exception (100-per-page, no MaxResults on its wire at all) and bypasses
+                       # that helper entirely, using its own fixed-size paginate call.
+                       # ListDetectors (also declares MaxResults/NextToken, also never read) is the
+                       # deliberate exception NOT fixed: this backend enforces "one detector per
+                       # account/region" (CreateDetector returns ErrDetectorAlreadyExists past the first),
+                       # matching real AWS's own limit, so ListDetectors can never return more than one item
+                       # -- NextToken can never be non-empty regardless of implementation, making pagination
+                       # here structurally unobservable, not merely unimplemented (same class as the "two
+                       # pagination gaps... because at most two or three values can ever exist" precedent).
+                       # ListCoverage/GetCoverageStatistics (also declare FilterCriteria/SortCriteria/
+                       # MaxResults/NextToken, also never read at all -- handleListCoverage doesn't even take
+                       # a body/query parameter) are a second deliberate exception, for a different reason:
+                       # this backend has NO coverage-resource tracking model whatsoever (no store table, no
+                       # write path from any op) -- ListCoverage always returns an empty list and
+                       # GetCoverageStatistics always returns empty count maps, unconditionally. Filtering or
+                       # paginating an always-empty result is unobservable by construction; building a real
+                       # EKS/ECS/EC2 coverage-resource model to make this observable is a structural gap far
+                       # outside this pass's scope, reported here rather than fabricated. FindingCriteria/
+                       # SortCriteria on ListFindings, and FilterCriteria/SortCriteria on
+                       # DescribeMalwareScans/ListMalwareScans, were independently re-verified this pass and
+                       # found already correct (matchesFindingCriteria/matchesMalwareScanFilter apply real
+                       # per-op enum vocabularies -- e.g. malware scans' EC2_INSTANCE_ARN on DescribeMalwareScans
+                       # vs RESOURCE_ARN on ListMalwareScans, both wired to the same ResourceArn field via one
+                       # shared matcher -- not a re-fix, no bug found). Every fix proven via
+                       # wire_field_fixes_test.go, driving the real typed aws-sdk-go-v2/service/guardduty
+                       # client, asserting a second page returns the remainder and NextToken round-trips (not
+                       # merely that a matching item is present); confirmed failing against unmodified code
+                       # first.
+                       # RE-AUDITED 2026-08-11 (doc-only catch-up pass, no code changes): ca2732322 fixed
                        # real bugs -- DescribeMalwareScans/ListMalwareScans now honour FilterCriteria/
                        # SortCriteria/MaxResults/NextToken (verified: matchesMalwareScanFilter is applied
                        # in both DescribeMalwareScans and ListMalwareScans, malware_protection.go), ListMembers

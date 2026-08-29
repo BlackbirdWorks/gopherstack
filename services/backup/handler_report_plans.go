@@ -26,6 +26,8 @@ func ScanJobsFilterFromQuery(q url.Values) ListScanJobsFilter {
 		State:            q.Get("ByState"),
 		CompleteAfter:    ParseTimeFilter(q.Get("ByCompleteAfter")),
 		CompleteBefore:   ParseTimeFilter(q.Get("ByCompleteBefore")),
+		MaxResults:       parseInt(q.Get("MaxResults")),
+		NextToken:        q.Get("NextToken"),
 	}
 }
 
@@ -288,19 +290,22 @@ func (h *Handler) dispatchReportJobOps(
 
 		return true, c.JSON(http.StatusOK, scanJobToJSON(job))
 	case opListScanJobs:
-		jobs := h.Backend.ListScanJobsFiltered(ScanJobsFilterFromQuery(c.Request().URL.Query()))
+		jobs, nextToken := h.Backend.ListScanJobsFiltered(ScanJobsFilterFromQuery(c.Request().URL.Query()))
 		items := make([]map[string]any, 0, len(jobs))
 		for _, j := range jobs {
 			items = append(items, scanJobToJSON(j))
 		}
 
-		return true, c.JSON(http.StatusOK, map[string]any{"ScanJobs": items})
-	case opListScanJobSummaries:
-		jobs := h.Backend.ListScanJobs()
+		resp := map[string]any{"ScanJobs": items}
+		if nextToken != "" {
+			resp["NextToken"] = nextToken
+		}
 
-		return true, c.JSON(http.StatusOK, map[string]any{
-			"ScanJobSummaries": []map[string]any{{"Count": len(jobs)}},
-		})
+		return true, c.JSON(http.StatusOK, resp)
+	case opListScanJobSummaries:
+		summaries := h.Backend.ListScanJobSummaries()
+
+		return true, c.JSON(http.StatusOK, map[string]any{"ScanJobSummaries": summaries})
 	case opStartScanJob:
 		return true, h.handleStartScanJob(c, body)
 	case opGetPITRMalwareScanResults:

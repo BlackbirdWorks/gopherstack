@@ -26,7 +26,12 @@ type StorageBackend interface {
 	UpdateFileSystem(input *updateFileSystemInput) (*FileSystem, error)
 
 	CreateBackup(input *createBackupInput) (*Backup, error)
-	DescribeBackups(backupIDs []string, maxResults int32, nextToken string) ([]*Backup, string, error)
+	DescribeBackups(
+		backupIDs []string,
+		filters []wireFilter,
+		maxResults int32,
+		nextToken string,
+	) ([]*Backup, string, error)
 	DeleteBackup(backupID string) error
 	CopyBackup(input *copyBackupInput) (*Backup, error)
 
@@ -44,6 +49,7 @@ type StorageBackend interface {
 	DeleteDataRepositoryAssociation(associationID string) error
 	DescribeDataRepositoryAssociations(
 		ids []string,
+		filters []wireFilter,
 		maxResults int32,
 		nextToken string,
 	) ([]*DataRepositoryAssociation, string, error)
@@ -51,7 +57,12 @@ type StorageBackend interface {
 
 	CancelDataRepositoryTask(taskID string) error
 	CreateDataRepositoryTask(input *createDataRepositoryTaskInput) (*DataRepositoryTask, error)
-	DescribeDataRepositoryTasks(ids []string, maxResults int32, nextToken string) ([]*DataRepositoryTask, string, error)
+	DescribeDataRepositoryTasks(
+		ids []string,
+		filters []wireFilter,
+		maxResults int32,
+		nextToken string,
+	) ([]*DataRepositoryTask, string, error)
 
 	CreateFileCache(input *createFileCacheInput) (*FileCacheCreating, error)
 	DeleteFileCache(fileCacheID string) error
@@ -60,7 +71,12 @@ type StorageBackend interface {
 
 	CreateSnapshot(input *createSnapshotInput) (*Snapshot, error)
 	DeleteSnapshot(snapshotID string) error
-	DescribeSnapshots(ids []string, maxResults int32, nextToken string) ([]*Snapshot, string, error)
+	DescribeSnapshots(
+		ids []string,
+		filters []wireFilter,
+		maxResults int32,
+		nextToken string,
+	) ([]*Snapshot, string, error)
 	UpdateSnapshot(input *updateSnapshotInput) (*Snapshot, error)
 	CopySnapshotAndUpdateVolume(input *copySnapshotAndUpdateVolumeInput) (*Volume, error)
 
@@ -68,6 +84,7 @@ type StorageBackend interface {
 	DeleteStorageVirtualMachine(svmID string) error
 	DescribeStorageVirtualMachines(
 		ids []string,
+		filters []wireFilter,
 		maxResults int32,
 		nextToken string,
 	) ([]*StorageVirtualMachine, string, error)
@@ -76,7 +93,12 @@ type StorageBackend interface {
 	CreateVolume(input *createVolumeInput) (*Volume, error)
 	CreateVolumeFromBackup(input *createVolumeFromBackupInput) (*Volume, error)
 	DeleteVolume(volumeID string) error
-	DescribeVolumes(ids []string, maxResults int32, nextToken string) ([]*Volume, string, error)
+	DescribeVolumes(
+		ids []string,
+		filters []wireFilter,
+		maxResults int32,
+		nextToken string,
+	) ([]*Volume, string, error)
 	RestoreVolumeFromSnapshot(input *restoreVolumeFromSnapshotInput) (*Volume, error)
 	UpdateVolume(input *updateVolumeInput) (*Volume, error)
 
@@ -84,6 +106,7 @@ type StorageBackend interface {
 	DetachAndDeleteS3AccessPoint(name string) error
 	DescribeS3AccessPointAttachments(
 		names []string,
+		filters []wireFilter,
 		maxResults int32,
 		nextToken string,
 	) ([]*S3AccessPointAttachment, string, error)
