@@ -342,17 +342,35 @@ type StorageVirtualMachine struct {
 // Volume represents an FSx ONTAP or OpenZFS volume.
 // CreationTime is first so its non-pointer prefix reduces GC pointer bytes.
 // CreationTime uses epochTime: the real FSx deserializer requires a JSON
-// number of epoch seconds here, not an RFC3339 string.
+// number of epoch seconds here, not an RFC3339 string. Real types.Volume
+// (fsx@v1.68.4 types/types.go) has NO top-level StorageVirtualMachineId
+// member at all -- it lives nested under OntapConfiguration.
+// StorageVirtualMachineId (deserializers.go:12447 case
+// "StorageVirtualMachineId"), confirmed via the live per-op deserializer
+// (deserializers.go:15307's Volume case switch has no top-level case for it).
+// A prior pass emitted it as a fabricated top-level key, which any real
+// typed SDK client silently drops, leaving a volume's SVM association
+// permanently unreadable through every op that returns a Volume.
 type Volume struct {
-	CreationTime            epochTime `json:"CreationTime"`
-	VolumeID                string    `json:"VolumeId"`
-	VolumeType              string    `json:"VolumeType"`
-	FileSystemID            string    `json:"FileSystemId"`
-	StorageVirtualMachineID string    `json:"StorageVirtualMachineId,omitempty"`
-	Name                    string    `json:"Name"`
-	Lifecycle               string    `json:"Lifecycle"`
-	ResourceARN             string    `json:"ResourceARN"`
-	Tags                    []Tag     `json:"Tags,omitempty"`
+	CreationTime       epochTime                 `json:"CreationTime"`
+	OntapConfiguration *OntapVolumeConfiguration `json:"OntapConfiguration,omitempty"`
+	VolumeID           string                    `json:"VolumeId"`
+	VolumeType         string                    `json:"VolumeType"`
+	FileSystemID       string                    `json:"FileSystemId"`
+	Name               string                    `json:"Name"`
+	Lifecycle          string                    `json:"Lifecycle"`
+	ResourceARN        string                    `json:"ResourceARN"`
+	Tags               []Tag                     `json:"Tags,omitempty"`
+}
+
+// OntapVolumeConfiguration is the ONTAP-specific block on Volume
+// (types.OntapVolumeConfiguration, types/types.go). Only
+// StorageVirtualMachineId is modeled -- the remaining real members
+// (JunctionPath, SizeInBytes, SecurityStyle, OntapVolumeType,
+// SnaplockConfiguration, TieringPolicy, ...) stay a disclosed, unmodeled gap
+// (see PARITY.md).
+type OntapVolumeConfiguration struct {
+	StorageVirtualMachineID string `json:"StorageVirtualMachineId,omitempty"`
 }
 
 // AdministrativeAction represents an in-progress or completed FSx

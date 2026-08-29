@@ -19,6 +19,9 @@ type createReplicationTaskInput struct {
 	MigrationType             *string    `json:"MigrationType"`
 	TableMappings             *string    `json:"TableMappings"`
 	ReplicationTaskSettings   *string    `json:"ReplicationTaskSettings"`
+	CdcStartPosition          *string    `json:"CdcStartPosition"`
+	CdcStopPosition           *string    `json:"CdcStopPosition"`
+	TaskData                  *string    `json:"TaskData"`
 	Tags                      []tagEntry `json:"Tags"`
 }
 
@@ -74,6 +77,11 @@ func (h *Handler) handleCreateReplicationTask(
 		ptrconv.String(in.TableMappings),
 		ptrconv.String(in.ReplicationTaskSettings),
 		kv,
+		ReplicationTaskCDCSettings{
+			CdcStartPosition: ptrconv.String(in.CdcStartPosition),
+			CdcStopPosition:  ptrconv.String(in.CdcStopPosition),
+			TaskData:         ptrconv.String(in.TaskData),
+		},
 	)
 	if err != nil {
 		return nil, err
@@ -206,6 +214,9 @@ type replicationTaskJSON struct {
 	TableMappings             string `json:"TableMappings,omitempty"`
 	ReplicationTaskSettings   string `json:"ReplicationTaskSettings,omitempty"`
 	Status                    string `json:"Status"`
+	CdcStartPosition          string `json:"CdcStartPosition,omitempty"`
+	CdcStopPosition           string `json:"CdcStopPosition,omitempty"`
+	TaskData                  string `json:"TaskData,omitempty"`
 	// ReplicationTaskCreationDate is wire-encoded as epoch seconds
 	// (awsjson1.1 unixTimestamp format) -- see pkgs/awstime.Epoch.
 	ReplicationTaskCreationDate float64 `json:"ReplicationTaskCreationDate,omitempty"`
@@ -222,6 +233,9 @@ func rtToJSON(rt *ReplicationTask) replicationTaskJSON {
 		TableMappings:               rt.TableMappings,
 		ReplicationTaskSettings:     rt.ReplicationTaskSettings,
 		Status:                      rt.Status,
+		CdcStartPosition:            rt.CdcStartPosition,
+		CdcStopPosition:             rt.CdcStopPosition,
+		TaskData:                    rt.TaskData,
 		ReplicationTaskCreationDate: awstime.Epoch(rt.CreationTime),
 	}
 }
@@ -372,6 +386,9 @@ type modifyReplicationTaskInput struct {
 	MigrationType           *string `json:"MigrationType"`
 	TableMappings           *string `json:"TableMappings"`
 	ReplicationTaskSettings *string `json:"ReplicationTaskSettings"`
+	CdcStartPosition        *string `json:"CdcStartPosition"`
+	CdcStopPosition         *string `json:"CdcStopPosition"`
+	TaskData                *string `json:"TaskData"`
 }
 
 type modifyReplicationTaskOutput struct {
@@ -387,6 +404,11 @@ func (h *Handler) handleModifyReplicationTask(
 		ptrconv.String(in.MigrationType),
 		ptrconv.String(in.TableMappings),
 		ptrconv.String(in.ReplicationTaskSettings),
+		ReplicationTaskCDCSettings{
+			CdcStartPosition: ptrconv.String(in.CdcStartPosition),
+			CdcStopPosition:  ptrconv.String(in.CdcStopPosition),
+			TaskData:         ptrconv.String(in.TaskData),
+		},
 	)
 	if err != nil {
 		return nil, err

@@ -77,6 +77,7 @@ func seedFullBackend(t *testing.T, b *dms.InMemoryBackend) map[string]string {
 		"",
 		"",
 		nil,
+		dms.ReplicationTaskCDCSettings{},
 	)
 	require.NoError(t, err)
 	ids["replicationTaskArn"] = rt.ReplicationTaskArn

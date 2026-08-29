@@ -3,6 +3,7 @@ package fsx
 import (
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -159,14 +160,38 @@ type copySnapshotAndUpdateVolumeInput struct {
 	SourceSnapshotID string `json:"SourceSnapshotARN"`
 }
 
+// snapshotIDFromARN extracts the trailing "snapshot/<id>" resource ID from a
+// snapshot ARN, matching the format snapshotARN builds.
+func snapshotIDFromARN(snapshotARN string) string {
+	_, id, found := strings.Cut(snapshotARN, "snapshot/")
+	if !found {
+		return snapshotARN
+	}
+
+	return id
+}
+
 // CopySnapshotAndUpdateVolume restores a volume to the state of a snapshot.
+// SourceSnapshotARN is a required real CopySnapshotAndUpdateVolumeInput
+// member (api_op_CopySnapshotAndUpdateVolume.go) that was previously decoded
+// but never read anywhere: any ARN, including one naming a nonexistent
+// snapshot, silently succeeded. Now resolved and existence-checked like
+// RestoreVolumeFromSnapshot's sibling SnapshotId parameter.
 func (b *InMemoryBackend) CopySnapshotAndUpdateVolume(input *copySnapshotAndUpdateVolumeInput) (*Volume, error) {
+	if input.SourceSnapshotID == "" {
+		return nil, fmt.Errorf("%w: SourceSnapshotARN is required", ErrValidation)
+	}
+
 	b.mu.Lock("CopySnapshotAndUpdateVolume")
 	defer b.mu.Unlock()
 
 	v, ok := b.volumes.Get(input.VolumeID)
 	if !ok {
 		return nil, ErrVolumeNotFound
+	}
+
+	if !b.snapshots.Has(snapshotIDFromARN(input.SourceSnapshotID)) {
+		return nil, ErrSnapshotNotFound
 	}
 
 	return v.toPublic(), nil

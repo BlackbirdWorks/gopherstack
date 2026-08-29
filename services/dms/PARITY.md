@@ -16,7 +16,7 @@ service: dms
 # 2026-08-20). Do not repeat cmd/opcensus's mistake when re-auditing.
 sdk_module: aws-sdk-go-v2/service/databasemigrationservice@v1.66.4
 last_audit_commit: f16ac0367fc476ca2ffd1643ed5ef900b9ff0480
-last_audit_date: 2026-08-20
+last_audit_date: 2026-08-29
 overall: A            # 2026-08-20 pass: field-diffed the Endpoint and
                        # ReplicationInstance envelopes (this campaign's top
                        # two priorities for this service) directly against
@@ -72,10 +72,10 @@ overall: A            # 2026-08-20 pass: field-diffed the Endpoint and
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
-  CreateReplicationInstance: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass -- InstanceCreateTime was entirely missing from the wire response (epoch-seconds bug class); now emitted via pkgs/awstime.Epoch. FIXED 2026-08-20 -- KmsKeyId/DnsNameServers/NetworkType/PreferredMaintenanceWindow (real CreateReplicationInstanceInput members, api_op_CreateReplicationInstance.go) were entirely absent from the request AND the ReplicationInstance response; now accepted, stored, and echoed. See ReplicationInstanceSettings in replication_instances.go."}
-  DescribeReplicationInstances: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-20 -- same KmsKeyId/DnsNameServers/NetworkType/PreferredMaintenanceWindow fix as CreateReplicationInstance above (shared riToJSON)"}
+  CreateReplicationInstance: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass -- InstanceCreateTime was entirely missing from the wire response (epoch-seconds bug class); now emitted via pkgs/awstime.Epoch. FIXED 2026-08-20 -- KmsKeyId/DnsNameServers/NetworkType/PreferredMaintenanceWindow (real CreateReplicationInstanceInput members, api_op_CreateReplicationInstance.go) were entirely absent from the request AND the ReplicationInstance response; now accepted, stored, and echoed. See ReplicationInstanceSettings in replication_instances.go. FIXED 2026-08-29 (write-only-state sweep) -- ReplicationSubnetGroupIdentifier and VpcSecurityGroupIds (also real CreateReplicationInstanceInput members) were STILL entirely unaccepted after the 08-20 pass, which fixed the sibling scalar settings but missed these two: a real client's subnet-group/security-group placement was silently discarded, and the response's ReplicationSubnetGroup was a hardcoded empty-identifier placeholder (VpcSecurityGroups a hardcoded empty list) regardless of what was requested. Now: ReplicationSubnetGroupIdentifier is existence-checked against the ReplicationSubnetGroup store (ResourceNotFoundFault-equivalent if unknown) and its identifier stored/echoed; VpcSecurityGroupIds is stored and echoed as real []types.VpcSecurityGroupMembership{VpcSecurityGroupId, Status:\"active\"} entries. See ReplicationInstanceSettings in replication_instances.go (ReplicationSubnetGroupID/VpcSecurityGroupIDs fields) and riToJSON in handler_replication_instances.go. Proven by TestReplicationInstance_SubnetGroupAndVpcSecurityGroups_RealClient (wire_field_fixes_test.go), real client round trip, hand-reverted and confirmed failing pre-fix."}
+  DescribeReplicationInstances: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-20 -- same KmsKeyId/DnsNameServers/NetworkType/PreferredMaintenanceWindow fix as CreateReplicationInstance above (shared riToJSON). FIXED 2026-08-29, see CreateReplicationInstance above -- same riToJSON fix, ReplicationSubnetGroup/VpcSecurityGroups now real values."}
   DeleteReplicationInstance: {wire: ok, errors: ok, state: ok, persist: ok, note: "rejects delete while tasks attached"}
-  ModifyReplicationInstance: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-20 -- NetworkType/PreferredMaintenanceWindow (real ModifyReplicationInstanceInput members) were accepted nowhere; now accepted and applied. KmsKeyId is deliberately NOT accepted here -- the real ModifyReplicationInstanceInput has no KmsKeyId member (create-only in real AWS); proven unchanged by TestReplicationInstanceSettings_SDKRoundTrip."}
+  ModifyReplicationInstance: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-20 -- NetworkType/PreferredMaintenanceWindow (real ModifyReplicationInstanceInput members) were accepted nowhere; now accepted and applied. KmsKeyId is deliberately NOT accepted here -- the real ModifyReplicationInstanceInput has no KmsKeyId member (create-only in real AWS); proven unchanged by TestReplicationInstanceSettings_SDKRoundTrip. FIXED 2026-08-29 -- VpcSecurityGroupIds (also a real ModifyReplicationInstanceInput member) now accepted and applied; ReplicationSubnetGroupIdentifier is deliberately NOT accepted here (real ModifyReplicationInstanceInput has no such member, create-only) -- proven unchanged by TestReplicationInstance_SubnetGroupAndVpcSecurityGroups_RealClient."}
   RebootReplicationInstance: {wire: ok, errors: ok, state: ok, persist: ok, note: "synchronous no-op reboot is correct emulation -- real reboot causes only a momentary outage, no persistent field changes"}
   ApplyPendingMaintenanceAction: {wire: ok, errors: ok, state: ok, persist: n/a, note: "FIXED this pass -- ApplyAction/OptInType previously accepted arbitrary strings; now validated against the SDK's documented valid-values lists (os-upgrade|system-update|db-upgrade|os-patch and immediate|next-maintenance|undo-opt-in), 400 ValidationException otherwise. Still correctly returns an empty PendingMaintenanceActionDetails -- no pending-maintenance-action producer exists in this emulation, matching a freshly-created instance's real state."}
   CreateEndpoint: {wire: ok, errors: ok, state: ok, persist: ok, note: "EndpointType/EngineName validated against types.ReplicationEndpointTypeValue and the documented EngineName valid-values list. FIXED 2026-07-31 -- Password was accepted in the request but silently dropped (never stored, never usable); now stored on Endpoint.Password and never put on the wire (matching the real Endpoint type, which has no Password field -- AWS never echoes credentials back). FIXED 2026-08-10 (gopherstack-z79q) -- CreateEndpointInput/ModifyEndpointInput's 19 heterogeneous engine-specific settings structs (MySQLSettings/PostgreSQLSettings/S3Settings/OracleSettings/... totaling ~300 fields) were being silently dropped by encoding/json instead of modeled. Judgment: modeling all ~300 fields faithfully (validated types, stored, echoed on Describe, persisted) is not achievable in one pass, and a partial subset would be worse than the honest gap (a client seeing some settings preserved would reasonably assume the rest are too). Per the no-stub rule, the drop is now made visible instead: any request that sets one of the 19 settings fields is rejected with 400 ValidationException naming the field, matching the sagemaker PipelineDefinitionS3Location / cloudformation AccountFilterType precedent for explicitly-rejected-rather-than-silently-dropped fields. See engineSettingsFields in handler_endpoints.go. FIXED 2026-08-20 -- 6 top-level (non-engine-specific) connection-settings members were ALSO missing, separately from the engine-settings gap above: CertificateArn/ExtraConnectionAttributes/KmsKeyId/ServiceAccessRoleArn/SslMode/ExternalTableDefinition (all real CreateEndpointInput members, api_op_CreateEndpoint.go). These are simple scalars unrelated to the ~300-field engine-settings problem and are now accepted, validated (SslMode against types.DmsSslModeValue: none|require|verify-ca|verify-full, defaulting to none), stored, and echoed. See EndpointConnectionSettings in endpoints.go."}
@@ -85,12 +85,12 @@ ops:
   TestConnection: {wire: ok, errors: ok, state: ok, persist: ok, note: "records a Connection row, visible via DescribeConnections"}
   DescribeConnections: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-07-31 -- never called dmsPaginate or set Marker on the response, unlike every other Describe op in this service, so MaxRecords/Marker were silently ignored; now paginated like its siblings"}
   DeleteConnection: {wire: ok, errors: ok, state: ok, persist: ok}
-  CreateReplicationTask: {wire: ok, errors: ok, state: ok, persist: ok, note: "validates source/target endpoint and instance ARNs exist. FIXED this pass -- ReplicationTaskCreationDate was entirely missing from the wire response (epoch-seconds bug class); now emitted via pkgs/awstime.Epoch"}
-  DescribeReplicationTasks: {wire: ok, errors: ok, state: ok, persist: ok}
+  CreateReplicationTask: {wire: ok, errors: ok, state: ok, persist: ok, note: "validates source/target endpoint and instance ARNs exist. FIXED this pass -- ReplicationTaskCreationDate was entirely missing from the wire response (epoch-seconds bug class); now emitted via pkgs/awstime.Epoch. FIXED 2026-08-29 (write-only-state sweep) -- CdcStartPosition, CdcStopPosition, and TaskData (real CreateReplicationTaskInput members, api_op_CreateReplicationTask.go, all three also real top-level types.ReplicationTask response members) were entirely unaccepted: a real client's CDC checkpoint positions and task data were silently discarded by encoding/json with no error, and the domain model had no field to store them even if the wire had accepted them. Now accepted, stored, and echoed -- see ReplicationTaskCDCSettings in replication_tasks.go. CdcStartTime is request-only (no matching response field on types.ReplicationTask) and intentionally not modeled."}
+  DescribeReplicationTasks: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-29, see CreateReplicationTask above -- same CdcStartPosition/CdcStopPosition/TaskData fix (shared rtToJSON)"}
   StartReplicationTask: {wire: ok, errors: ok, state: ok, persist: ok}
   StopReplicationTask: {wire: ok, errors: ok, state: ok, persist: ok, note: "rejects stop unless currently running"}
   DeleteReplicationTask: {wire: ok, errors: ok, state: ok, persist: ok, note: "rejects delete while running"}
-  ModifyReplicationTask: {wire: ok, errors: ok, state: ok, persist: ok, note: "rejects modify while running"}
+  ModifyReplicationTask: {wire: ok, errors: ok, state: ok, persist: ok, note: "rejects modify while running. FIXED 2026-08-29, see CreateReplicationTask above -- ModifyReplicationTaskInput also carries CdcStartPosition/CdcStopPosition/TaskData; now accepted and applied (only-overwrite-non-empty semantics, matching every other ModifyReplicationTask field)."}
   MoveReplicationTask: {wire: ok, errors: ok, state: ok, persist: ok}
   ReloadTables: {wire: ok, errors: ok, state: ok, persist: n/a, note: "FIXED this pass -- was a disguised no-op that echoed ReplicationTaskArn without validating anything; now requires TablesToReload, validates ReloadOption enum, 404s on an unknown task, and 400 InvalidResourceStateFault unless the task is currently RUNNING (matches the SDK doc: 'You can only use this operation with a task in the RUNNING state')"}
   ReloadReplicationTables: {wire: ok, errors: ok, state: ok, persist: n/a, note: "FIXED this pass -- two bugs: (1) the request field was wrongly named ReplicationTaskArn instead of the real ReplicationConfigArn, silently discarding the client's ARN; (2) it never validated anything. Now requires TablesToReload, validates ReloadOption, 404s on an unknown replication config, and 400s unless the associated Replication is RUNNING"}
@@ -573,3 +573,58 @@ leaks: {status: clean, note: "no goroutines, janitors, or timers in this service
   (`git show HEAD:services/dms/handler_data_migrations.go`, restored,
   md5sum-verified byte-identical after re-fixing). No existing test
   asserted the wrong response shape, so nothing needed correcting.
+
+- **2026-08-29 write-only-state sweep**: this file already documented 7+
+  thorough prior passes, including a 2026-08-20 pass that field-diffed
+  `ReplicationInstance`'s top-level scalar members specifically. Per this
+  campaign's standing rule that a prior audit does not guarantee a service is
+  clean, this pass re-applied the primary write-only-state method (enumerate
+  what the backend persists, ask what op reads it back, flag anything
+  accepted-and-never-stored or stored-and-never-readable) directly against
+  `CreateReplicationInstance`/`ModifyReplicationInstance` and
+  `CreateReplicationTask`/`ModifyReplicationTask`'s real SDK input structs,
+  field by field, rather than trusting the existing `wire: ok` marks.
+
+  **Two real bugs found and fixed**, both genuine "op accepts nothing for a
+  real, required-adjacent, readable field" cases -- see the `ops:` notes above
+  for full citations:
+  1. `ReplicationInstance`: `ReplicationSubnetGroupIdentifier` and
+     `VpcSecurityGroupIds` were both entirely unaccepted by
+     `CreateReplicationInstance` (the former also missing from
+     `ModifyReplicationInstance`, correctly -- it's create-only in the real
+     API), even though both are real request members and both round-trip onto
+     real, always-present `ReplicationInstance` response fields
+     (`ReplicationSubnetGroup`, `VpcSecurityGroups`). The 08-20 pass's
+     `riToJSON` diff covered `KmsKeyId`/`DnsNameServers`/`NetworkType`/
+     `PreferredMaintenanceWindow` but missed these two nested/list members,
+     which had been hardcoded to an empty placeholder and an empty list
+     respectively since before that pass.
+  2. `ReplicationTask`: `CdcStartPosition`, `CdcStopPosition`, and `TaskData`
+     were entirely unaccepted by both `CreateReplicationTask` and
+     `ModifyReplicationTask`, despite all three being real request members on
+     both ops AND real top-level `types.ReplicationTask` response members --
+     this family had not been field-diffed since the 07-23/07-31 passes, both
+     of which predate the top-level-scalar-diff methodology the 08-20 pass
+     introduced for `Endpoint`/`ReplicationInstance`; `ReplicationTask` was
+     explicitly disclosed as NOT re-diffed in the 08-20 notes above.
+
+  Both proven by real `aws-sdk-go-v2/service/databasemigrationservice` client
+  round trips in `wire_field_fixes_test.go`
+  (`TestReplicationInstance_SubnetGroupAndVpcSecurityGroups_RealClient`,
+  `TestReplicationTask_CDCSettings_RealClient`), each hand-reverted (`git
+  checkout --` the touched files, confirmed the new tests fail with the exact
+  predicted symptom -- empty string/empty list where a real value was
+  expected -- then restored, `md5sum`-verified byte-identical).
+
+  **Other families swept without finding further bugs this pass** (each
+  op's own real Input struct read directly, not assumed): `Endpoint`
+  (`CreateEndpoint`/`ModifyEndpoint` cover every top-level member except
+  `ResourceIdentifier`, which has no distinct response field on real
+  `types.Endpoint` either -- baked into the ARN only, not a silent-drop
+  candidate), `Volume`/SVM-adjacent DMS concepts (n/a, FSx-only),
+  `ReplicationSubnetGroup`, `Certificate`, `Connection`, `DataProvider`,
+  `InstanceProfile`, `MigrationProject`. `cmd/enumcheck`, `cmd/acceptguard`,
+  `cmd/zeroguard`, and `cmd/xmlitemwrap` all reported zero findings for this
+  service both before and after this pass's fixes -- consistent with this
+  campaign's repeated observation that these tools miss the write-only-state
+  bug class entirely.
