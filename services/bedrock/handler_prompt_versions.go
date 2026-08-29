@@ -74,6 +74,6 @@ func (h *AgentsHandler) handleDeletePromptVersion(
 
 	return c.JSON(
 		http.StatusOK,
-		map[string]any{keyPromptID: promptID, keyVersion: version, keyStatus: statusDeleting},
+		map[string]any{keyID: promptID, keyVersion: version},
 	)
 }

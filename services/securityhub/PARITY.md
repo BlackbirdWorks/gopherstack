@@ -44,13 +44,13 @@ ops:
   DisableImportFindingsForProduct: {wire: ok, errors: ok, state: ok, persist: ok}
   GetSecurityControlDefinition: {wire: ok, errors: ok, state: ok, persist: n/a, note: "static known-controls catalog"}
   ListSecurityControlDefinitions: {wire: ok, errors: ok, state: ok, persist: n/a}
-  BatchGetSecurityControls: {wire: ok, errors: ok, state: ok, persist: ok}
+  BatchGetSecurityControls: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED this pass -- UnprocessedSecurityControl.ErrorCode is types.UnprocessedErrorCode (types.go:19946), an enum whose members are upper-snake-case (enums.go:2086); handler emitted the free-form string \"InvalidInput\" (shared with BatchUpdateFindings' unrelated *string ErrorCode) instead of the enum member \"INVALID_INPUT\". A typed client decoded the wrong value without error. See wire_field_fixes_test.go."}
   UpdateSecurityControl: {wire: ok, errors: ok, state: ok, persist: ok}
   ListAutomationRules: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateAutomationRule: {wire: ok, errors: ok, state: ok, persist: ok}
-  BatchGetAutomationRules: {wire: ok, errors: ok, state: ok, persist: ok}
-  BatchDeleteAutomationRules: {wire: ok, errors: ok, state: ok, persist: ok}
-  BatchUpdateAutomationRules: {wire: ok, errors: ok, state: ok, persist: ok}
+  BatchGetAutomationRules: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED this pass -- UnprocessedAutomationRule.ErrorCode is *int32 (types.go:19904, an HTTP status code like cloudfront's identically-shaped CustomErrorResponse.ErrorCode), not a string; handler emitted a string. Before the fix, a real client's deserializer hard-failed (\"expected Integer to be json.Number, got string instead\"), confirmed by driving the real client against the unfixed handler -- not a silent drop. See wire_field_fixes_test.go."}
+  BatchDeleteAutomationRules: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED this pass -- same UnprocessedAutomationRule.ErrorCode *int32 bug as BatchGetAutomationRules; see that row and wire_field_fixes_test.go."}
+  BatchUpdateAutomationRules: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED this pass -- same UnprocessedAutomationRule.ErrorCode *int32 bug as BatchGetAutomationRules; see that row and wire_field_fixes_test.go."}
   ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok}
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -62,8 +62,8 @@ ops:
   DisassociateMembers: {wire: ok, errors: ok, state: ok, persist: ok}
   AcceptAdministratorInvitation: {wire: ok, errors: ok, state: ok, persist: ok}
   AcceptInvitation: {wire: ok, errors: ok, state: ok, persist: ok}
-  DeclineInvitations: {wire: ok, errors: ok, state: ok, persist: ok}
-  DeleteInvitations: {wire: ok, errors: ok, state: ok, persist: ok}
+  DeclineInvitations: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED this pass -- the unprocessed-account entry (account not found) fabricated \"ErrorCode\"/\"ErrorMessage\" keys; DeclineInvitationsOutput.UnprocessedAccounts is []types.Result (types.go:18271), which declares only AccountId/ProcessingResult -- same shape members.go's CreateMembers/DeleteMembers already use correctly. A typed client silently discards unknown keys and never observes them, so only a raw-body test catches this. See wire_field_fixes_test.go."}
+  DeleteInvitations: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED this pass -- same types.Result ErrorCode/ErrorMessage fabrication as DeclineInvitations; see that row and wire_field_fixes_test.go."}
   GetInvitationsCount: {wire: ok, errors: ok, state: ok, persist: n/a}
   ListInvitations: {wire: ok, errors: ok, state: ok, persist: ok}
   GetAdministratorAccount: {wire: ok, errors: ok, state: ok, persist: ok}

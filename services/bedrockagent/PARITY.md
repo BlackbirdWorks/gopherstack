@@ -249,10 +249,14 @@ ops:
     note: "invented 'tags' wire field removed; real UpdateFlowInput has no
     tags param either, so the old cfg.Tags-on-update branch was dead code
     for real clients — removed"}
-  DeleteFlow: {wire: ok, errors: ok, state: fixed, persist: ok,
+  DeleteFlow: {wire: fixed, errors: ok, state: fixed, persist: ok,
     note: "cascade-delete gap: did not clean up flowAliases scoped under the
     flow, nor the flow's + every alias's tags map entry (flowVersions
-    cleanup was already correct). Fixed — see Notes: cascade-delete."}
+    cleanup was already correct). Fixed — see Notes: cascade-delete. ALSO
+    FIXED this pass: response fabricated a 'status': 'Deleting' field; real
+    DeleteFlowOutput (bedrockagent@v1.58.4 deserializers.go's
+    awsRestjson1_deserializeOpDocumentDeleteFlowOutput) declares only 'id'.
+    See wire_field_fixes_test.go."}
   ListFlows: {wire: fixed, errors: ok, state: ok, persist: ok,
     note: "FIXED 2026-08-21 (gopherstack-r80d batch 7): types.FlowSummary
     requires 'arn' and 'createdAt' (deserializers.go) -- FlowSummary had no
@@ -277,7 +281,11 @@ ops:
   GetFlowVersion: {wire: fixed, errors: ok, state: ok, persist: ok,
     note: "See CreateFlowVersion's 2026-08-21 note for the executionRoleArn
     fix, which applies here too (shared struct)."}
-  DeleteFlowVersion: {wire: ok, errors: ok, state: ok, persist: ok}
+  DeleteFlowVersion: {wire: fixed, errors: ok, state: ok, persist: ok,
+    note: "FIXED this pass: response fabricated a 'status': 'Deleting' field;
+    real DeleteFlowVersionOutput (bedrockagent@v1.58.4 deserializers.go's
+    awsRestjson1_deserializeOpDocumentDeleteFlowVersionOutput) declares only
+    'id' and 'version'. See wire_field_fixes_test.go."}
   ListFlowVersions: {wire: fixed, errors: ok, state: ok, persist: ok,
     note: "(gopherstack-dv4s, over-wide sweep) prior 'wire: ok' only checked
     required fields were present, never that extras were absent. The

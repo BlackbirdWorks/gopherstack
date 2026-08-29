@@ -3,11 +3,17 @@ package securityhub
 import (
 	"fmt"
 	"maps"
+	"net/http"
 	"slices"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
+
+// errCodeAutomationRuleNotFound is an HTTP status code: UnprocessedAutomationRule.ErrorCode
+// is *int32 (types/types.go:19904), like the identically-shaped
+// cloudfront CustomErrorResponse.ErrorCode ("The HTTP status code").
+const errCodeAutomationRuleNotFound = int32(http.StatusNotFound)
 
 func (b *InMemoryBackend) automationRuleARN(seq int) string {
 	return arn.Build("securityhub", b.region, b.accountID, fmt.Sprintf("automation-rule/%d", seq))
@@ -148,7 +154,7 @@ func (b *InMemoryBackend) BatchGetAutomationRules(automationRulesArns []string) 
 		if !ok {
 			unprocessed = append(unprocessed, map[string]any{
 				keyRuleArn:      arn,
-				keyErrorCode:    errCodeInvalidInput,
+				keyErrorCode:    errCodeAutomationRuleNotFound,
 				keyErrorMessage: msgRuleNotFound,
 			})
 
@@ -180,7 +186,7 @@ func (b *InMemoryBackend) BatchDeleteAutomationRules(automationRulesArns []strin
 		if !b.automationRules.Delete(arn) {
 			unprocessed = append(unprocessed, map[string]any{
 				keyRuleArn:      arn,
-				keyErrorCode:    errCodeInvalidInput,
+				keyErrorCode:    errCodeAutomationRuleNotFound,
 				keyErrorMessage: msgRuleNotFound,
 			})
 
@@ -258,7 +264,7 @@ func (b *InMemoryBackend) BatchUpdateAutomationRules(updates []map[string]any) (
 		if !exists {
 			unprocessed = append(unprocessed, map[string]any{
 				keyRuleArn:      arn,
-				keyErrorCode:    errCodeInvalidInput,
+				keyErrorCode:    errCodeAutomationRuleNotFound,
 				keyErrorMessage: msgRuleNotFound,
 			})
 

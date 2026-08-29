@@ -245,6 +245,14 @@ gaps:
   - "RegisterMarketplaceModelEndpoint: real RegisterMarketplaceModelEndpointInput requires both endpointIdentifier and modelSourceIdentifier in the body; gopherstack's handler takes only the path-param ID and never reads/validates a request body. Not touched this pass — spotted while field-diffing the surrounding marketplace-endpoint family but out of this pass's named scope. (bd: file follow-up)"
   - "bedrock-agent DeleteResourcePolicy (parity-4): the real response's revisionId field is documented only as \"the revision identifier after the resource policy was deleted\" — ambiguous whether AWS mints a fresh post-delete marker or echoes the just-deleted policy's own revision. gopherstack returns the latter (the deleted policy's own RevisionID), a defensible reading but unverified against a real API response. Low risk: DeleteResourcePolicy's real Input has no further use for this value (only Put/subsequent-Delete's expectedRevisionId does, and a deleted resource has no policy left to update). (bd: file follow-up if a real captured response ever surfaces to confirm/refute)"
   - "ListAdvancedPromptOptimizationJobs (parity-4): does not validate sortBy against the real single allowed value (CreationTime) — an unrecognized value is silently ignored rather than raising ValidationException. Same low-risk shape as this service's other List ops' unvalidated sort/filter params (see ListCustomModels/ListModelCustomizationJobs gap above). (bd: file follow-up)"
+  - "FIXED: the internal, non-canonical DeletePromptVersion route (handleDeletePromptVersion,
+    handler_prompt_versions.go — see the DeletePromptVersion/GetPromptVersion/ListPromptVersions
+    phantom-triage entry above for why it's unreachable by a real client) had two wire-shape
+    bugs on its response: it emitted the deleted prompt's identifier under the key \"promptId\"
+    and fabricated a \"status\": \"DELETING\" field. The real DeletePromptOutput
+    (bedrockagent@v1.58.4 deserializers.go's awsRestjson1_deserializeOpDocumentDeletePromptOutput
+    — DeletePrompt with a promptVersion set is the real op backing this internal route) declares
+    only \"id\" and \"version\", no status. Fixed to {id, version}. See wire_field_fixes_test.go."
 
 deferred: []
 # Every item previously listed here (AutomatedReasoningPolicy full wire re-verification,

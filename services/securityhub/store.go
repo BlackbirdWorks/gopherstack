@@ -30,6 +30,11 @@ const (
 
 	errCodeInvalidInput = "InvalidInput"
 
+	// errCodeUnprocessedInvalidInput is types.UnprocessedErrorCodeInvalidInput
+	// (enums.go:2086); UnprocessedSecurityControl.ErrorCode is that enum, not
+	// the free-form string errCodeInvalidInput above.
+	errCodeUnprocessedInvalidInput = "INVALID_INPUT"
+
 	keyStandardsArn      = "StandardsArn"
 	keySecurityControlID = "SecurityControlId"
 	keyRuleArn           = "RuleArn"

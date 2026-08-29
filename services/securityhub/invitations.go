@@ -54,9 +54,8 @@ func (b *InMemoryBackend) DeclineInvitations(accountIDs []string) ([]map[string]
 
 		if !found {
 			unprocessed = append(unprocessed, map[string]any{
-				keyAccountID:    id,
-				keyErrorCode:    errCodeResourceNotFound,
-				keyErrorMessage: "Invitation not found",
+				keyAccountID:        id,
+				keyProcessingResult: "Invitation not found",
 			})
 		}
 	}
@@ -94,9 +93,8 @@ func (b *InMemoryBackend) DeleteInvitations(accountIDs []string) ([]map[string]a
 
 		if !found {
 			unprocessed = append(unprocessed, map[string]any{
-				keyAccountID:    id,
-				keyErrorCode:    errCodeResourceNotFound,
-				keyErrorMessage: "Invitation not found",
+				keyAccountID:        id,
+				keyProcessingResult: "Invitation not found",
 			})
 		}
 	}
