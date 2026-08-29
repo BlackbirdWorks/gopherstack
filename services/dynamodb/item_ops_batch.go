@@ -183,7 +183,7 @@ func (db *InMemoryDB) batchGetResponses(
 		keysAndAttrs := input.RequestItems[tableName]
 		table := tableRefs[tableName]
 
-		truncated, tableResults := db.batchGetTable(
+		truncated, tableResults, tableErr := db.batchGetTable(
 			table,
 			keysAndAttrs,
 			tableName,
@@ -191,6 +191,9 @@ func (db *InMemoryDB) batchGetResponses(
 			responseSizeLimit,
 			unprocessedKeys,
 		)
+		if tableErr != nil {
+			return nil, tableErr
+		}
 		// Always include the table in Responses even when all keys miss — AWS returns
 		// an empty list for zero-hit tables rather than omitting the key entirely.
 		if tableResults == nil {
@@ -229,13 +232,16 @@ func (db *InMemoryDB) batchGetTable(
 	currentSize *int,
 	responseSizeLimit int,
 	unprocessedKeys map[string]types.KeysAndAttributes,
-) (bool, []map[string]types.AttributeValue) {
+) (bool, []map[string]types.AttributeValue, error) {
 	pkDef, skDef := getPKAndSK(table.KeySchema)
 	proj := resolveProjection(
 		aws.ToString(keysAndAttrs.ProjectionExpression),
 		keysAndAttrs.AttributesToGet,
 	)
-	projector, _ := ParseProjector(proj, keysAndAttrs.ExpressionAttributeNames)
+	projector, err := ParseProjector(proj, keysAndAttrs.ExpressionAttributeNames)
+	if err != nil {
+		return false, nil, NewValidationException("Invalid ProjectionExpression: " + err.Error())
+	}
 
 	type matchedEntry struct {
 		item     map[string]any
@@ -278,7 +284,7 @@ func (db *InMemoryDB) batchGetTable(
 				ProjectionExpression:     keysAndAttrs.ProjectionExpression,
 			}
 
-			return true, tableResults
+			return true, tableResults, nil
 		}
 
 		*currentSize += itemSize
@@ -287,7 +293,7 @@ func (db *InMemoryDB) batchGetTable(
 		tableResults = append(tableResults, sdkResult)
 	}
 
-	return false, tableResults
+	return false, tableResults, nil
 }
 
 // batchGetTableRefs collects table references under db.mu.RLock.

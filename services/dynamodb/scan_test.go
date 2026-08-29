@@ -24,6 +24,7 @@ func TestScan(t *testing.T) {
 		verifyFunc func(t *testing.T, items []map[string]any)
 		name       string
 		input      string
+		errMessage string
 		wantCount  int
 		wantErr    bool
 	}{
@@ -87,6 +88,24 @@ func TestScan(t *testing.T) {
 				"TableName": "NonExistentTable"
 			}`,
 			wantErr: true,
+		},
+		{
+			name: "Malformed FilterExpression",
+			input: `{
+				"TableName": "ScanTestTable",
+				"FilterExpression": "val >"
+			}`,
+			wantErr:    true,
+			errMessage: "ValidationException",
+		},
+		{
+			name: "Malformed ProjectionExpression",
+			input: `{
+				"TableName": "ScanTestTable",
+				"ProjectionExpression": "val["
+			}`,
+			wantErr:    true,
+			errMessage: "ValidationException",
 		},
 	}
 
@@ -152,6 +171,9 @@ func TestScan(t *testing.T) {
 			res, scanErr := db.Scan(t.Context(), sdkScanInput)
 			if tc.wantErr {
 				require.Error(t, scanErr)
+				if tc.errMessage != "" {
+					assert.Contains(t, scanErr.Error(), tc.errMessage)
+				}
 
 				return
 			}

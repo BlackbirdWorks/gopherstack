@@ -32,6 +32,32 @@ func TestProjection_BothSupplied_ReturnsError(t *testing.T) {
 	assertErrorCode(t, err, "ValidationException")
 }
 
+func TestProjection_MalformedExpression_ReturnsError(t *testing.T) {
+	t.Parallel()
+	db := newInMemoryTestDB(t)
+	ctx := context.Background()
+	createSimpleTestTable(t, db, "ProjMalformed")
+
+	putTestItem(t, db, "ProjMalformed", map[string]types.AttributeValue{
+		"pk":    &types.AttributeValueMemberS{Value: "pk1"},
+		"sk":    &types.AttributeValueMemberS{Value: "sk1"},
+		"extra": &types.AttributeValueMemberS{Value: "should_not_leak"},
+	})
+
+	out, err := db.GetItem(ctx, &dynamodb_sdk.GetItemInput{
+		TableName: aws.String("ProjMalformed"),
+		Key: map[string]types.AttributeValue{
+			"pk": &types.AttributeValueMemberS{Value: "pk1"},
+			"sk": &types.AttributeValueMemberS{Value: "sk1"},
+		},
+		ProjectionExpression: aws.String("extra["),
+	})
+	assertErrorCode(t, err, "ValidationException")
+	if out != nil && out.Item != nil {
+		t.Errorf("expected no item on a rejected malformed ProjectionExpression, got %v", out.Item)
+	}
+}
+
 func TestProjection_AttributesToGetFallback(t *testing.T) {
 	t.Parallel()
 	db := newInMemoryTestDB(t)

@@ -207,10 +207,13 @@ const (
 	statusUpdateFailed             = "UPDATE_FAILED"
 	statusUpdateRollbackInProgress = "UPDATE_ROLLBACK_IN_PROGRESS"
 	statusUpdateRollbackComplete   = "UPDATE_ROLLBACK_COMPLETE"
+	statusUpdateRollbackFailed     = "UPDATE_ROLLBACK_FAILED"
 	statusDeleteInProgress         = "DELETE_IN_PROGRESS"
 	statusDeleteComplete           = "DELETE_COMPLETE"
+	statusDeleteFailed             = "DELETE_FAILED"
 	statusRollbackInProgress       = "ROLLBACK_IN_PROGRESS"
 	statusRollbackComplete         = "ROLLBACK_COMPLETE"
+	statusRollbackFailed           = "ROLLBACK_FAILED"
 	reasonUserInitiated            = "User Initiated"
 )
 

@@ -138,6 +138,28 @@ func TestQuery(t *testing.T) {
 			wantErr:    true,
 			errMessage: "Requested resource not found",
 		},
+		{
+			name: "Malformed FilterExpression",
+			input: `{
+				"TableName": "QueryTestTable",
+				"KeyConditionExpression": "pk = :pk",
+				"FilterExpression": "data >",
+				"ExpressionAttributeValues": {":pk": {"S": "A"}}
+			}`,
+			wantErr:    true,
+			errMessage: "ValidationException",
+		},
+		{
+			name: "Malformed ProjectionExpression",
+			input: `{
+				"TableName": "QueryTestTable",
+				"KeyConditionExpression": "pk = :pk",
+				"ProjectionExpression": "data[",
+				"ExpressionAttributeValues": {":pk": {"S": "A"}}
+			}`,
+			wantErr:    true,
+			errMessage: "ValidationException",
+		},
 	}
 
 	for _, tc := range tests {

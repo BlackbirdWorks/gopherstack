@@ -545,7 +545,12 @@ func (db *InMemoryDB) transactGetResponseItem(
 	result := item
 	proj := aws.ToString(ti.Get.ProjectionExpression)
 	if proj != "" {
-		result = projectItem(item, proj, ti.Get.ExpressionAttributeNames)
+		var projErr error
+
+		result, projErr = projectItem(item, proj, ti.Get.ExpressionAttributeNames)
+		if projErr != nil {
+			return types.ItemResponse{}, projErr
+		}
 	}
 
 	sdkResult, _ := models.ToSDKItem(result)

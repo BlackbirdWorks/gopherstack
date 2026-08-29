@@ -456,3 +456,103 @@ clean except a pre-existing `services/appconfig` vet failure from a
 concurrently-edited service, not this one), `go test -race -count=1
 ./services/cloudformation/...` (pass), `golangci-lint run --fix
 ./services/cloudformation/...` (0 issues).
+
+## 2026-08-29: discarded-error sweep -- stack lifecycle unconditionally reported success on resource deletion failure
+
+Campaign-wide hunt for the class where a client-visible failure is discarded
+(`_`) instead of reaching its designated place in the response.
+`services/cloudformation`'s resource-deletion calls (`stacks.go`'s
+`b.creator.Delete(ctx, res.Type, res.PhysicalID, res.Properties)`, which
+dispatches to the real per-service backend, e.g. `deleteS3Bucket` ->
+`s3.DeleteBucket`, which genuinely fails with `BucketNotEmpty` on a
+non-empty bucket) were assigned to `_` at all four places `DeleteStack`/
+`CreateStack`/`UpdateStack` delete a resource, and every one of the stack's
+four terminal statuses that exist specifically to report this
+(`StackStatusDeleteFailed`, `StackStatusRollbackFailed`,
+`StackStatusUpdateRollbackFailed` -- confirmed present in the pinned SDK's
+`types/enums.go`, cloudformation@v1.76.1) or that already existed but were
+unreachable (`statusUpdateFailed` for a stale-resource cleanup failure) were
+never actually set. **A stack whose resource genuinely failed to delete was
+unconditionally reported `DELETE_COMPLETE`/`ROLLBACK_COMPLETE`/
+`UPDATE_COMPLETE`, and the resource itself was dropped from
+`DescribeStackResources` even though it still exists.** This is the
+`sesv2 SendBulkEmail` shape exactly: the failure had a designated place
+(`StackStatus`, which this same code already sets correctly for a dozen
+other failure modes) and was not put there.
+
+**Four call sites fixed**, all in `stacks.go`:
+- `deleteStackLocked` (`DeleteStack`) -- now sets `DELETE_FAILED` +
+  `StackStatusReason` when any resource delete fails, keeps the stack (and
+  its still-undeleted resources/events) fully describable for a retry
+  instead of purging `b.resources`/`b.events`/`b.stackPolicies`/
+  `b.changeSets` as the success path does.
+- `rollbackCreateResources` (`CreateStack`'s automatic rollback) -- now
+  returns whether every rollback delete succeeded; `provisionResources` sets
+  `ROLLBACK_FAILED` instead of `ROLLBACK_COMPLETE` when it didn't, leaving
+  the undeleted resource registered.
+- `deleteStaleResources` (`UpdateStack`, resources removed from the new
+  template) -- now returns success/failure; `updateResources` sets
+  `UPDATE_FAILED` instead of proceeding to `UPDATE_COMPLETE` when a stale
+  resource can't actually be removed.
+- `rollbackUpdateResources` (`UpdateStack`'s automatic rollback) -- same
+  shape as the CreateStack case, sets `UPDATE_ROLLBACK_FAILED` instead of
+  `UPDATE_ROLLBACK_COMPLETE`.
+
+**A second, dependent bug found while fixing the first**: `createStackLocked`
+gated "did CreateStack succeed" on `stack.StackStatus == statusCreateFailed
+|| stack.StackStatus == statusRollbackComplete` at two call sites (deciding
+whether to overwrite the status with `CREATE_COMPLETE`, and whether to skip
+export resolution). Introducing the reachable `ROLLBACK_FAILED` value broke
+both: an initial (uncaught) run of the new
+`TestBackend_CreateStack_RollbackDeleteFails` produced `CREATE_COMPLETE`
+even though `provisionResources` had already correctly set
+`ROLLBACK_FAILED` and recorded the right `StackStatusReason` -- the
+success-path code simply didn't recognize the new failure status as a
+failure and clobbered it. Fixed by replacing both enumerated checks with a
+single `isFailedCreateStatus` helper covering all three failure statuses.
+This is the shape the campaign brief calls out explicitly: adding a new
+terminal status is a ripple change, and every place that gates on "did this
+fail" by enumerating known failure statuses (rather than a single
+success/failure boolean, as `UpdateStack`'s parallel `applyTemplateToStack
+bool` gate already does -- that one needed no fix) is a place the ripple can
+be missed.
+
+**Deliberately left alone**: `createStackLocked`'s `OnFailure == "DELETE"`
+block (lines ~295-308) still checks only `statusCreateFailed ||
+statusRollbackComplete`, not `statusRollbackFailed` -- if automatic rollback
+already failed to delete a resource, this block's own unconditional-success
+inline deletion (a fifth, smaller instance of the same discarded-error
+pattern, not touched this pass) would make it worse, not better, to run.
+Left as `ROLLBACK_FAILED` for the caller to inspect/retry rather than
+extended to paper over a failed rollback with a fabricated `DELETE_COMPLETE`.
+
+**Confirmed same class, disclosed not fixed**: `stack_instances.go:177`'s
+`deleteMatchingStackInstances` discards `b.deleteStackLocked`'s (now rarer,
+but still real for e.g. `ErrTerminationProtectionEnabled`) error and
+unconditionally drops the instance from `b.stackInstances[stackSetName]`
+regardless of whether the child stack's deletion actually succeeded --
+same shape, at the stack-set-instance level. Not fixed this pass: doing so
+correctly requires first confirming what `StackInstance`'s own status field
+should read on a failed teardown (`INOPERABLE` vs leaving it in the list),
+which needs its own read of the SDK's `StackInstanceStatus` semantics before
+touching it.
+
+Proof: `TestBackend_DeleteStack_ResourceDeleteFails`,
+`TestBackend_CreateStack_RollbackDeleteFails`,
+`TestBackend_UpdateStack_StaleResourceDeleteFails` (`stacks_test.go`) drive
+`DeleteStack`/`CreateStack`/`UpdateStack` end-to-end against a real S3
+backend, using a non-empty bucket to force a genuine `BucketNotEmpty`
+deletion failure, and assert the resulting `StackStatus` plus that
+`DescribeStackResource` still finds the undeleted resource.
+`TestBackend_RollbackUpdateResources_DeleteFails` drives
+`rollbackUpdateResources` white-box (`RollbackUpdateResourcesForTest`,
+`export_test.go`) because `updateResources` creates newly-added resources by
+iterating a Go map, making which of two new resources is created first --
+and therefore whether it's even in `created` when a sibling fails --
+non-deterministic through the public API alone. All four confirmed failing
+(reporting the wrong `*_COMPLETE` status, resource silently dropped) against
+the pre-fix code before the fix landed.
+
+Gates: `go build ./services/cloudformation/...`, `go vet ./...` (repo-wide,
+clean), `go test -race -count=1 ./services/cloudformation/...` (pass),
+`golangci-lint run ./services/cloudformation/...` (0 issues).

@@ -365,3 +365,82 @@ Gates: `go build`, `go vet ./...` (repo-wide, per this session's
 signature-change caveat -- clean except an unrelated concurrently-edited
 `services/apigateway` package), `go test -race -count=1 ./services/dynamodb/...`
 (pass), `golangci-lint run --fix ./services/dynamodb/...` (0 issues).
+
+## 2026-08-29: discarded-error sweep -- malformed ProjectionExpression/FilterExpression silently ignored, not rejected
+
+Campaign-wide hunt for the class where a client-visible failure is
+discarded (`_`) instead of reaching its designated place in the response --
+distinct from the wrong-error-code sweep above.
+
+**Confirmed bug, 5 call sites, one root cause**: `ParseProjector`
+(`expressions.go`, wraps `expr.Parser.ParseProjection`) and `ParseConditionStr`
+(wraps `expr.Parser.ParseCondition`) both return a real parse error for a
+syntactically malformed `ProjectionExpression`/`FilterExpression` (e.g. an
+unclosed `[` or a dangling operator) -- proven with `TestParser_Projection`-style
+direct calls returning `err != nil`. Every caller discarded that error with
+`_`, so `ParseProjector` fell back to a `Projector{}` and `ParseConditionStr`'s
+nil `*ParsedCondition` (both explicitly treat nil as "no-op": `Project`
+returns the item unchanged, `Evaluate` returns `true`, i.e. "matches
+everything"). Net effect: a malformed `ProjectionExpression` silently returns
+the **full unprojected item** (over-exposing attributes the caller asked to
+exclude) and a malformed `FilterExpression` silently returns **every item
+unfiltered**, instead of the `ValidationException` real DynamoDB raises. This
+is reachable through the real typed SDK client -- confirmed against
+`validateOpGetItemInput`/`validateOpQueryInput`/`validateOpScanInput`/
+`validateOpBatchGetItemInput` in the pinned SDK's `validators.go`, none of
+which parse expression syntax client-side.
+
+`services/dynamodb/expressions.go:95`'s `projectItem` comment --
+`// Return full item if projection fails? Or error? Standard seems to be
+quiet.` -- was the source of the bug, not a description of correct
+behaviour: the operation already has a designated place for this failure
+(`ValidationException`, used by this same op's own `validateProjectionParams`
+for the sibling ProjectionExpression/AttributesToGet-both-set case).
+
+Fixed call sites, all now returning `NewValidationException("Invalid
+ProjectionExpression: "+err)` / `"Invalid FilterExpression: "+err)`:
+- `GetItem` via `projectItem` (`item_ops_crud.go`)
+- `Query` via `collectQueryPage` (`item_ops_query.go`) -- both Projection and
+  Filter
+- `Scan` via `doScan` (`item_ops_scan.go`) -- both Projection and Filter
+- `BatchGetItem` via `batchGetTable` (`item_ops_batch.go`) -- Projection only
+  (BatchGetItem has no FilterExpression)
+- `TransactGetItems` via `transactGetResponseItem` (`transact_ops.go`) --
+  Projection only
+
+`KeyConditionExpression` (Query) was already correct -- checked separately
+(`item_ops_query.go:221`) and already returns `ValidationException` on parse
+failure; only the *Filter*/*Projection* expressions on these five call sites
+discarded their errors.
+
+**Reviewed, not a bug**: `CalculateItemSize`'s error return is dead code
+(`validation.go:140-152` -- every path returns `nil`), so its ~15 discarded
+call sites across dynamodb are legitimate. `models.ToSDKItem`'s error
+(malformed internally-stored attribute value) is discarded at several
+Query/Scan/BatchGetItem/TransactGetItem read paths (`item_ops_query.go:562`,
+`item_ops_scan.go:167,187`, `item_ops_batch.go:292`, `transact_ops.go:551`)
+but is unreachable in practice: every write path (`FromSDKItem`,
+`ValidateItemSize`) guarantees the wire-format invariant `ToSDKItem` assumes,
+so this can only fail on an internal invariant violation elsewhere, not on
+attacker-controlled input -- inconsistent with `GetItem`'s own `ToSDKItem`
+call (which does check the error) but not a confirmed reachable bug. All
+other `_`-discards found in `services/dynamodb` (~50 in total, grep count)
+are comma-ok type assertions, non-error second/third return values
+(`getPKAndSK`, `applyAutoScalingSettingsLocked`,
+`contributorInsightsStateRLocked`), or best-effort logging/cleanup
+(`json.Marshal` for debug logs, `gz.Close()`).
+
+Proof: new table cases in `query_test.go` (`Malformed FilterExpression`,
+`Malformed ProjectionExpression`), `scan_test.go` (same two), `batch_test.go`
+(`MalformedProjectionExpression`), `transact_ops_test.go`
+(`MalformedProjectionExpression`), and `projection_test.go`
+(`TestProjection_MalformedExpression_ReturnsError`) -- each drives
+`db.<Op>` with a real `aws-sdk-go-v2` input struct containing a syntactically
+invalid expression and asserts the decoded error's message contains
+`ValidationException`. Confirmed failing (silent full/unfiltered result, no
+error) against the pre-fix code before the fix landed.
+
+Gates: `go build ./services/dynamodb/...`, `go vet ./...` (repo-wide, clean),
+`go test -race -count=1 ./services/dynamodb/...` (pass),
+`golangci-lint run --fix ./services/dynamodb/...` then plain
+`golangci-lint run ./services/dynamodb/...` (0 issues both times).

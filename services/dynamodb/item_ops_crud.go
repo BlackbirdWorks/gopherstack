@@ -490,7 +490,10 @@ func (db *InMemoryDB) GetItem(
 	result := item
 
 	if effectiveProj != "" {
-		result = projectItem(item, effectiveProj, input.ExpressionAttributeNames)
+		result, err = projectItem(item, effectiveProj, input.ExpressionAttributeNames)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	sdkItem, err := models.ToSDKItem(result)

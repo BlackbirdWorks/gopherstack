@@ -1,5 +1,33 @@
 package cloudformation
 
+import "context"
+
+// RollbackUpdateResourcesForTest exposes rollbackUpdateResources for
+// white-box testing: updateResources creates newly-added resources by
+// iterating a Go map, so which of two new resources is created first (and
+// thus whether it's in `created` when a sibling fails) isn't deterministic
+// through UpdateStack. This drives the rollback directly against
+// already-registered resources instead.
+func (b *InMemoryBackend) RollbackUpdateResourcesForTest(
+	ctx context.Context, stackName string, created []string,
+) {
+	b.mu.Lock("RollbackUpdateResourcesForTest")
+	defer b.mu.Unlock()
+
+	stack, ok := b.resolveStack(stackName)
+	if !ok {
+		return
+	}
+
+	prevResources := make(map[string]*StackResource, len(b.resources[stack.StackID]))
+	for k, v := range b.resources[stack.StackID] {
+		cp := *v
+		prevResources[k] = &cp
+	}
+
+	b.rollbackUpdateResources(ctx, stack, prevResources, created)
+}
+
 // RegisterForTest exposes MacroRegistry.register for test-only use.
 func (r *MacroRegistry) RegisterForTest(name, functionARN, description string) {
 	r.register(name, functionARN, description)
